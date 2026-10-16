@@ -85,14 +85,11 @@ load_env() {
  [[ "${1:-}" == "quiet" ]] && quiet=1
  say() { (( quiet )) || echo "$@"; }
 
- case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
- open|allowlist|review)
- say "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
- apply_broker_sentinel
+ if [[ -n "${SANDBOX_VM_ID:-}" ]]; then
+ say "🔒 Skipping .env load (inside sbx — keys stay with sbx's proxy)"
  unset -f say
  return 0
- ;;
- esac
+ fi
 
  local env_path; env_path="$(find_env_file || true)"
  if [[ -n "$env_path" ]]; then
@@ -120,26 +117,6 @@ load_env() {
  export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
  fi
 
- apply_broker_sentinel
-}
-
-apply_broker_sentinel() {
- case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
- open|allowlist|review) ;;
- *) return 0 ;;
- esac
- local keys="${PROVEO_CREDENTIAL_BROKER_KEYS:-}"
- [[ -n "$keys" ]] || return 0
- local sentinel="${PROVEO_BROKER_SENTINEL:-proveo-brokered}"
- local k IFS=','
- for k in $keys; do
- k="$(printf '%s' "$k" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
- [[ -n "$k" ]] || continue
- if [[ -n "${!k:-}" && "${!k}" != "$sentinel" ]]; then
- export "$k=$sentinel"
- fi
- done
- echo "🔒 Broker sentinel applied to: $keys"
 }
 
 bridge_git_identity() {
@@ -307,17 +284,6 @@ seed_github_known_hosts() {
 ensure_github_git_transport() {
   seed_github_known_hosts "${1:-}" || true
   return 0
-}
-
-attach_rtk() {
- if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
- if [[ ! -w . ]]; then
- echo "⚠️ Current directory $(pwd) is not writable; skipping RTK attachment."
- return 0
- fi
- echo "🔄 Attaching RTK repository..."
- git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
- fi
 }
 
 run_smoke_test() {

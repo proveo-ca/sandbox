@@ -55,40 +55,36 @@ func pathWithFakeSbx(t *testing.T, version string) []string {
 }
 
 func TestSandboxBackendRefusesAnOutdatedSbx(t *testing.T) {
-	requireDocker(t)
 	old := "0.1.0" // unambiguously below any MinVersion this build will carry
-	out := printOnlyRun(t, t.TempDir(), pathWithFakeSbx(t, old), "claudecode")
-
-	if !strings.Contains(out, "falling back to docker+egress") {
-		t.Errorf("an outdated sbx must fall back, got:\n%s", out)
+	out, err := printOnlyRunErr(t, t.TempDir(), pathWithFakeSbx(t, old), "claudecode")
+	if err == nil {
+		t.Fatalf("an outdated sbx must refuse the run, got success:\n%s", out)
 	}
-	if !strings.Contains(out, sbx.MinVersion) {
-		t.Errorf("the fallback must name the version proveo targets (%s), got:\n%s", sbx.MinVersion, out)
+	if !strings.Contains(out, "proveo runs agents only in sbx") || !strings.Contains(out, sbx.MinVersion) {
+		t.Errorf("the refusal must say sbx is the only backend and name the version proveo targets (%s), got:\n%s", sbx.MinVersion, out)
 	}
-	if !strings.Contains(out, "docker run") {
-		t.Errorf("the fallback must still render a runnable docker argv, got:\n%s", out)
+	if strings.Contains(out, "docker run") {
+		t.Errorf("a refused run rendered a docker argv:\n%s", out)
 	}
 }
 
 func TestSandboxBackendOffersInstallOrUpgradeToMatch(t *testing.T) {
-	requireDocker(t)
 	if sbx.InstallCmd(false) == "" {
 		t.Skip("no sbx install route on this platform")
 	}
 
-	absent := printOnlyRun(t, t.TempDir(), pathWithoutSbx(t), "claudecode")
+	absent, _ := printOnlyRunErr(t, t.TempDir(), pathWithoutSbx(t), "claudecode")
 	if want := sbx.InstallCmd(false); !strings.Contains(absent, want) {
 		t.Errorf("with no sbx on PATH, want the install line %q, got:\n%s", want, absent)
 	}
 
-	outdated := printOnlyRun(t, t.TempDir(), pathWithFakeSbx(t, "0.1.0"), "claudecode")
+	outdated, _ := printOnlyRunErr(t, t.TempDir(), pathWithFakeSbx(t, "0.1.0"), "claudecode")
 	if want := sbx.InstallCmd(true); !strings.Contains(outdated, want) {
 		t.Errorf("with an outdated sbx, want the upgrade line %q, got:\n%s", want, outdated)
 	}
 }
 
 func TestSandboxBackendPrintOnlyInstallsNothing(t *testing.T) {
-	requireDocker(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "INSTALL_ATTEMPTED")
 	// A stub whose *install* route would leave evidence: proveo shells the install
@@ -103,7 +99,7 @@ func TestSandboxBackendPrintOnlyInstallsNothing(t *testing.T) {
 	// Even fully authorized to provision, --print must not act.
 	env = append(env, "PROVEO_AUTO_PROVISION=1")
 
-	printOnlyRun(t, t.TempDir(), env, "claudecode")
+	_, _ = printOnlyRunErr(t, t.TempDir(), env, "claudecode")
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("--print attempted an install; a dry run must only report")
 	}
@@ -111,15 +107,22 @@ func TestSandboxBackendPrintOnlyInstallsNothing(t *testing.T) {
 
 func printOnlyRun(t *testing.T, workdir string, extraEnv []string, target string) string {
 	t.Helper()
+	out, err := printOnlyRunErr(t, workdir, extraEnv, target)
+	if err != nil {
+		t.Fatalf("proveo run %s --print-only: %v\n%s", target, err, out)
+	}
+	return out
+}
+
+// printOnlyRunErr is printOnlyRun for runs that may refuse: it returns the output and the error.
+func printOnlyRunErr(t *testing.T, workdir string, extraEnv []string, target string) (string, error) {
+	t.Helper()
 	proveoBin := buildProveo(t)
 	cmd := exec.Command(proveoBin, "run", target, "--print")
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(), extraEnv...)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("proveo run %s --print-only: %v\n%s", target, err, out)
-	}
-	return string(out)
+	return string(out), err
 }
 
 var sandboxHarnesses = dockerTargets(manifest.Manifest.IsSbx)
@@ -187,19 +190,26 @@ func TestSandboxBackendKitFlagPointsAtADirectory(t *testing.T) {
 	}
 }
 
-func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
-	skipOutsideSbx(t, "the docker+egress fallback")
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+func TestSandboxBackendRefusesWhenSbxAbsent(t *testing.T) {
 	for _, target := range sandboxHarnesses {
 		t.Run(target, func(t *testing.T) {
-			out := printOnlyRun(t, t.TempDir(), pathWithoutSbx(t), target)
-			if !strings.Contains(out, "falling back to docker+egress") {
-				t.Errorf("expected a fallback notice, got:\n%s", out)
+			out, err := printOnlyRunErr(t, t.TempDir(), pathWithoutSbx(t), target)
+			if err == nil || !strings.Contains(out, "proveo runs agents only in sbx") {
+				t.Errorf("with no sbx, want a refusal naming sbx as the only backend, got err=%v:\n%s", err, out)
 			}
-			if !strings.Contains(out, "docker run") {
-				t.Errorf("fallback must render the docker argv, got:\n%s", out)
+			if strings.Contains(out, "docker run") || strings.Contains(out, "falling back") {
+				t.Errorf("a refused run must not render or promise a docker fallback:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestRetiredSbxOffValuesRefuseTheRun(t *testing.T) {
+	for _, v := range []string{"0", "off", "false"} {
+		t.Run(v, func(t *testing.T) {
+			out, err := printOnlyRunErr(t, t.TempDir(), []string{"PROVEO_SBX=" + v}, "claudecode")
+			if err == nil || !strings.Contains(out, "PROVEO_SBX="+v+" is retired") {
+				t.Errorf("PROVEO_SBX=%s must refuse with the retirement message, got err=%v:\n%s", v, err, out)
 			}
 		})
 	}

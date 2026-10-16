@@ -19,7 +19,6 @@ else
   load_env
   bridge_git_identity
   report_git_context
-  attach_rtk
 fi
 
 CURSOR_HOME="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"

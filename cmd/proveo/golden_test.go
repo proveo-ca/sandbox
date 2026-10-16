@@ -13,10 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/egress"
-	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/run"
@@ -56,33 +53,6 @@ func assertGolden(t *testing.T, name, got string) {
 }
 
 func section(b *strings.Builder, title string) { fmt.Fprintf(b, "== %s ==\n", title) }
-
-func commands(b *strings.Builder, title string, cmds []egress.Command) {
-	section(b, title)
-	for _, c := range cmds {
-		fmt.Fprintf(b, "docker %s\n", strings.Join(c, " "))
-	}
-}
-
-func renderDockerPlan(plan egress.Plan, agent runner.Config) string {
-	var b strings.Builder
-	section(&b, "agent argv")
-	fmt.Fprintf(&b, "docker %s\n", strings.Join(runner.DockerRunArgs(agent), " "))
-	commands(&b, "networks", plan.Networks)
-	commands(&b, "sidecars", plan.Sidecars)
-	commands(&b, "connects", plan.Connects)
-	commands(&b, "cleanup", plan.Cleanup)
-	section(&b, "images")
-	for _, i := range plan.Images {
-		fmt.Fprintln(&b, i)
-	}
-	// agent's network — and went with it (_spec/_paradigms/retire-dind.puml). The
-	section(&b, "flags")
-	fmt.Fprintf(&b, "usesSquid=%v\nproxyContainer=%s\nsquidContainer=%s\nollamaContainer=%s\ncaWaitPath=%s\nneedsLifecycle=%v\n",
-		plan.UsesSquid, plan.ProxyContainer, plan.SquidContainer,
-		plan.OllamaContainer, plan.CAWaitPath, dockeregress.NeedsLifecycle(plan))
-	return b.String()
-}
 
 func renderSandboxPlan(t *testing.T, cfg sbx.RunConfig, kit sbx.Kit, secrets [][2]string) string {
 	t.Helper()
@@ -132,121 +102,6 @@ func assertNoSecretValues(t *testing.T, rendered string, values ...string) {
 	}
 }
 
-func TestDockerPlanGolden(t *testing.T) {
-	cases := []struct {
-		name string
-		in   dockeregress.Input
-	}{
-		{
-			name: "open-forward-opencode",
-			in: dockeregress.Input{
-				Target:      "opencode",
-				Image:       "proveo/opencode:latest",
-				Mode:        "open",
-				Credentials: "forward",
-				Sid:         "sid", EgDir: "/st", UID: "1000", GID: "1000",
-				PidsLimit: 4096,
-				Workdir:   "/app",
-				Mounts:    []runner.Mount{{Host: "/work", Container: "/app"}},
-			},
-		},
-		{
-			name: "open-broker-opencode",
-			in: dockeregress.Input{
-				Target:      "opencode",
-				Image:       "proveo/opencode:latest",
-				Mode:        "open",
-				Credentials: "broker",
-				Sid:         "sid", EgDir: "/st", UID: "1000", GID: "1000",
-				Providers: []string{"anthropic"}, BrokerFile: "/st/inject/broker.env",
-				ProviderHosts: []string{"api.anthropic.com"},
-				PidsLimit:     4096,
-				Workdir:       "/app",
-				Mounts:        []runner.Mount{{Host: "/work", Container: "/app"}},
-			},
-		},
-		{
-			name: "allowlist-broker-cursor",
-			in: dockeregress.Input{
-				Target:      "cursor",
-				Image:       "proveo/cursor:latest",
-				Mode:        "allowlist",
-				Credentials: "broker",
-				Sid:         "sid", EgDir: "/st", UID: "1000", GID: "1000",
-				Providers: []string{"cursor"}, BrokerFile: "/st/inject/broker.env",
-				WriteHosts:    []string{"api2.cursor.sh"},
-				ProviderHosts: []string{"api2.cursor.sh"},
-				Env: []string{
-					"CURSOR_API_KEY=" + entrypoint.DefaultSentinel,
-					"PROVEO_CREDENTIAL_BROKER_KEYS=CURSOR_API_KEY",
-				},
-				PidsLimit: 4096,
-				Workdir:   "/app",
-				Mounts:    []runner.Mount{{Host: "/work", Container: "/app"}},
-			},
-		},
-		{
-			name: "review-broker-claudecode",
-			in: dockeregress.Input{
-				Target:      "claudecode",
-				Image:       "proveo/claudecode:latest",
-				Mode:        "review",
-				Credentials: "broker",
-				Sid:         "sid", EgDir: "/st", UID: "1000", GID: "1000",
-				Providers: []string{"anthropic"}, BrokerFile: "/st/inject/broker.env",
-				ReviewSocket:  "/st/review/gate.sock",
-				ProviderHosts: []string{"api.anthropic.com"},
-				PidsLimit:     4096,
-				Workdir:       "/app",
-				Mounts:        []runner.Mount{{Host: "/work", Container: "/app"}},
-			},
-		},
-		{
-			name: "allowlist-localmodel-opencode",
-			in: dockeregress.Input{
-				Target:      "opencode",
-				Image:       "proveo/opencode:latest",
-				Mode:        "allowlist",
-				Credentials: "broker",
-				LocalModel:  "qwen3",
-				Sid:         "sid", EgDir: "/st", UID: "1000", GID: "1000",
-				ModelsDir: "/models",
-				PidsLimit: 4096,
-				Workdir:   "/app",
-				Mounts:    []runner.Mount{{Host: "/work", Container: "/app"}},
-			},
-		},
-		{
-			name: "allowlist-shell-datadir-scope",
-			in: dockeregress.Input{
-				Target:      "cecli",
-				Image:       "proveo/cecli:latest",
-				Mode:        "allowlist",
-				Credentials: "broker",
-				DataDir:     "/data",
-				Shell:       true,
-				Sid:         "sid", EgDir: "/st", UID: "501", GID: "20",
-				PidsLimit: 2048,
-				Workdir:   "/app/apps/web",
-				Mounts: []runner.Mount{
-					{Host: "/work", Container: "/app"},
-					{Host: "/work/reports", Container: "/app/output"},
-				},
-			},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			plan, agent, err := dockeregress.Assemble(tc.in)
-			if err != nil {
-				t.Fatalf("dockeregress.Assemble: %v", err)
-			}
-			assertGolden(t, "docker-"+tc.name, renderDockerPlan(plan, agent))
-		})
-	}
-}
-
 func TestSandboxPlanGolden(t *testing.T) {
 	const oauthValue = "oauth-secret-value"
 	const keyValue = "sk-secret-value"
@@ -276,7 +131,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 	cursor := manifest.Manifest{
 		Name:         "cursor",
 		Provider:     "cursor",
-		Capabilities: manifest.Capabilities{Egress: []string{"open"}, Credentials: []string{"forward"}, Providers: []string{"cursor"}, Hosts: []string{"api2.cursor.sh"}},
+		Capabilities: manifest.Capabilities{Credentials: []string{"forward"}, Providers: []string{"cursor"}, Hosts: []string{"api2.cursor.sh"}},
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 	}
 	detected := func(name string) []string {

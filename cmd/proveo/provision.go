@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/maintain"
@@ -109,22 +108,16 @@ func ensureDockerUsable() error {
 	return nil
 }
 
-func preflightImages(plan egress.Plan, man manifest.Manifest, agentImage string) (string, error) {
+// preflightImages makes the agent image present locally: sbx loads its template from the local store.
+func preflightImages(man manifest.Manifest, agentImage string) (string, error) {
 	if err := ensureDockerUsable(); err != nil {
 		return agentImage, err
 	}
 	defs := sourceDefsDir()
-	var deps []imageDep
-	for _, img := range plan.Images {
-		deps = append(deps, imageDep{Name: img, Target: buildTarget(defs, man, img)})
-	}
-	deps = append(deps, imageDep{Name: agentImage, Target: buildTarget(defs, man, agentImage)})
-
-	quiet := egress.ExecRunner{} // inspect: a non-zero exit IS the answer
+	deps := []imageDep{{Name: agentImage, Target: buildTarget(defs, man, agentImage)}}
 	pv := provisioner{
 		Present: func(img string) bool {
-			_, err := quiet.Run("image", "inspect", img)
-			return err == nil
+			return exec.Command("docker", "image", "inspect", img).Run() == nil
 		},
 		Pull: func(img string) error {
 			c := exec.Command("docker", "pull", img)
@@ -145,11 +138,6 @@ func preflightImages(plan egress.Plan, man manifest.Manifest, agentImage string)
 	built, err := pv.Ensure(deps)
 	if err != nil {
 		return agentImage, err
-	}
-	for _, img := range plan.Images {
-		if ref, ok := built[img]; ok {
-			return agentImage, fmt.Errorf("built %s in place of %s — re-run so the egress plan picks it up", ref, img)
-		}
 	}
 	if ref, ok := built[agentImage]; ok {
 		return ref, nil
@@ -179,7 +167,7 @@ func sourceDefsDir() string {
 		root = ws.Root
 	}
 	d := filepath.Join(root, "defs")
-	if fileExists(filepath.Join(d, "sidecars", "egress-proxy", "Dockerfile")) {
+	if fileExists(filepath.Join(d, "base", "Dockerfile")) {
 		return d
 	}
 	return ""

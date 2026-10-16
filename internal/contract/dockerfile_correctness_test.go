@@ -2,9 +2,7 @@
 package contract_test
 
 import (
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -94,22 +92,6 @@ func TestNoEnvVarsPresentedAsControlsThatNothingReads(t *testing.T) {
 		}
 		if strings.Contains(readRepoFile(t, "internal/imagetest/claudecode_test.go"), v) {
 			t.Errorf("the claudecode image suite asserts %s — that certifies a non-control as a working one", v)
-		}
-	}
-}
-
-func TestSquidShipsConfigNotAnImage(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	if _, err := os.Stat(filepath.Join(root, "defs/sidecars/squid-proxy/Dockerfile")); err == nil {
-		t.Error("defs/sidecars/squid-proxy/Dockerfile is back — nothing builds or references proveo/squid-proxy")
-	}
-	for _, conf := range []string{"squid.conf", "firehol-blocked-nets.conf", "firehol-ipset.conf", "provider-allow.conf"} {
-		if _, err := os.Stat(filepath.Join(root, "defs/sidecars/squid-proxy", conf)); err != nil {
-			t.Errorf("%s must stay: embed.go carries it and StageSquidConfig writes it per session", conf)
-		}
-		if !strings.Contains(readRepoFile(t, "embed.go"), conf) {
-			t.Errorf("embed.go must embed %s", conf)
 		}
 	}
 }

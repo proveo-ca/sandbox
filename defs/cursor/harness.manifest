@@ -26,6 +26,4 @@ env:
     secret: true
 
 capabilities:
-  egress: [open]
-  credentials: [forward]
   providers: [cursor]

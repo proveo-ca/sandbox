@@ -1,15 +1,15 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Testing strategy — four layers, speed traded for fidelity
+title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3 retired 2026-10-16)
 
-' purpose: the four test layers, and the failure modes the def-level image suites
+' purpose: the test layers, and the failure modes the def-level image suites
 '          have actually exhibited — every one of them a test that passed
 ' covers: internal/contract/**
 ' covers: e2e/**
 ' covers: internal/tmux/**
 ' covers: defs/tests/**
 ' covers: internal/imagetest/**
-' covers: e2e/preconditions_test.go (skipOutsideSbx)
+' covers: e2e/preconditions_test.go (requireTmux, requireDocker, harnessImage)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (imagetest.Resolve in
@@ -17,15 +17,27 @@ title Testing strategy — four layers, speed traded for fidelity
 ' ever mean "whatever the registry last published") is
 ' _spec/_devops/image-lineage-and-publish.puml.
 '
+' ── LAYER 3 IS RETIRED (DECIDED 2026-10-16) ────────────────────────────────
+' Layer 3 was the live egress topology — real containers, the MITM, Squid and
+' broker.env, no model — under `-tags=integration` and
+' PROVEO_EGRESS_INTEGRATION=1 (internal/egress/integration_test.go). The
+' Executor retired the docker+egress backend ("Retire Docker egress"), so its
+' subject is deleted: internal/egress, the `mise run test-go-integration` task
+' and the `proveo-dev coverage integration` lane are gone (MEASURED). Its
+' diagram, _spec/tests/30-infra-integration.puml, is retired with it. The layer
+' numbers are kept so 40-/41-/42- spec names stay stable.
+'
 ' ── COVERAGE RUNNER: cmd/proveo-dev/coverage.go (`proveo-dev coverage <mode>`) ─
 ' covers: cmd/proveo-dev/coverage.go
 ' Replaced scripts/go-test-coverage.sh (host-shell-to-go P4).
-' * unit runs default tags only; //go:build excludes Layers 3–4.
+' Modes, MEASURED: unit · merge (alias coverage) · e2e · all.
+' * unit runs default tags only; //go:build excludes the e2e and image lanes.
 ' * -race needs cgo. A throwaway `go test -race -c ./internal/runner` probes
 '   for it; a toolchain without cgo warns and runs coverage-only, never fails.
-' * merge takes cov/unit (which already carries the in-process egressproxy and
-'   broker) plus cov/integration when that dir is non-empty. Stage 0b (a
-'   containerized proveo-egress GOCOVERDIR) is documented, not required for v1.
+'   (internal/runner now holds only `type Mount`; the probe still compiles it.)
+' * merge takes cov/unit alone. HISTORY: it also took cov/integration, and
+'   cov/unit carried the in-process egressproxy and broker; both are deleted,
+'   and the Stage 0b proveo-egress cover image has nothing left to cover.
 ' * e2e has no env gate: -tags=e2e IS the opt-in, and each test skips on its own
 '   missing prerequisite (tmux, docker, harness image, credential).
 ' * The e2e binary timeout must clear the SUM of the suite's per-test budgets,
@@ -38,8 +50,8 @@ title Testing strategy — four layers, speed traded for fidelity
 '
 ' ── THE def SUITES ARE GO SINCE 2026-09-22 (host-shell-to-go P3) ────────────
 ' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
-' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke
-' and the mitmproxy sidecar is TestImageMitmproxy. `proveo test <target>` and
+' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke.
+' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `proveo test <target>` and
 ' `mise run test-defs <target>` run
 '   go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
 ' The five failure modes below were found in the BASH suites that preceded
@@ -222,13 +234,11 @@ title Testing strategy — four layers, speed traded for fidelity
 '     resolves through hostEnvValue rather than os.Getenv, because this suite
 '     accepts a key from the process environment OR the repo .env, and checking
 '     only the first skipped runs the developer had in fact provisioned.
-'   * requireReviewTier — mirrors reviewSupported in cmd/proveo, which is the
-'     source of truth: linux only, and a unix:// DOCKER_HOST. `proveo run` already
-'     warns on an unsupported host that "the consent gate cannot be reached from
-'     the inspector on this host, so every new connection will be DENIED without a
-'     prompt". Without the skip the test does not fail fast, it TIMES OUT waiting
-'     for an overlay that will never render — 90 seconds spent to report a host
-'     capability as a defect.
+'   * HISTORY: requireReviewTier mirrored reviewSupported (linux, unix://
+'     DOCKER_HOST) so the consent-gate case skipped instead of timing out on an
+'     overlay that would never render. The review tier and its test were
+'     deleted 2026-10-16; the lesson — skip on the host capability, never time
+'     out on it — stands.
 '
 ' ── :local BEFORE :latest, WHEREVER A SUITE RESOLVES AN IMAGE ───────────────
 ' `mise run build` tags a local build :local and only a publish moves :latest, so
@@ -242,13 +252,15 @@ title Testing strategy — four layers, speed traded for fidelity
 '
 ' ── A FIFTH VACUOUS SHAPE: ZERO OF N, REPORTED AS ALL OF N ──────────────────
 ' The four above are bash. This one is Go, and the same shape. The two backends
-' keep a secret out of the launch plan by different means: docker declares the
+' kept a secret out of the launch plan by different means: docker declared the
 ' `proveo-brokered` sentinel in argv, while sbx puts nothing there and hands
 ' values to `sbx secret set` on stdin. Read blind, an sbx plan satisfied the
 ' sentinel loop by containing no keys to check — zero of N, reported as "all
-' forwarded". assertPlanIsolation now branches on isSbxArgv: on the docker branch
-' `declared == 0` is itself an error, and on the sandbox branch ANY provider key in
-' argv is an error, because argv is visible to anyone listing processes.
+' forwarded". assertPlanIsolation then branched on isSbxArgv. MEASURED
+' 2026-10-16: with the docker branch deleted it asserts one thing per key — no
+' raw value and no `KEY=` pair in the sbx argv — because argv is visible to
+' anyone listing processes. The lesson stays: a loop over what is ABSENT must
+' prove it looked.
 '
 ' ── AN ASSERTION MUST EXPLAIN ITS OWN FAILURE ───────────────────────────────
 ' e2e/instrument_test.go is the shared instrumentation for the tmux-driven layer,
@@ -321,12 +333,12 @@ title Testing strategy — four layers, speed traded for fidelity
 '
 ' TWO SHARED HELPERS CARRY IT, and each earns its shape.
 '   launchShell — one `proveo run <target> --shell` under tmux, pinned to
-'     `--egress-mode open --credentials forward` with PROVEO_WIZARD=off and
+'     `--credentials forward` with PROVEO_WIZARD=off and
 '     PROVEO_MOUNT_GH_CONFIG=0, returning only once the agent's own prompt
 '     appears. The posture is FIXED so a case asserting on workspace or git
-'     behaviour is not also asserting on egress. The BACKEND is not pinned —
-'     see the ban below — so the prompt it waits for is whichever backend the
-'     host resolves.
+'     behaviour is not also asserting on credentials. `--egress-mode open` was
+'     dropped from the pin with the flag (2026-10-16); sbx's policy decides
+'     egress. The BACKEND is sbx — there is no other.
 '   shellExec — the script runs as a CHILD `bash -c` of the already-live
 '     interactive shell rather than as the shell itself, so an `exit 1` inside
 '     a probe reports a status instead of ending the session. It returns the
@@ -400,8 +412,8 @@ title Testing strategy — four layers, speed traded for fidelity
 ' would let a real adapter defect leave as a skip.
 '
 ' Two waits carry the same reasoning. waitForContainerShell treats the agent
-' prompt as the signal that the WHOLE topology came up — sidecars, networks, CA
-' trust — because proveo only hands the PTY over once the container is running, so
+' prompt as the signal that the WHOLE launch came up — sandbox, Kit, template
+' load — because proveo only hands the PTY over once the sandbox is running, so
 ' anything failing earlier fails HERE with the scrollback attached rather than as a
 ' confusing timeout further down. It matches the PROMPT'S SHAPE, `…@host:workdir`
 ' followed by `$` or `#` at end of line, never a literal workdir, and never "$ ":
@@ -432,8 +444,10 @@ title Testing strategy — four layers, speed traded for fidelity
 ' exists on the host"). cleanLeftovers therefore runs `proveo clean` WITHOUT
 ' --force, so anything that looks live — a sibling still coming up, or the
 ' operator's run — is kept, under a throwaway PROVEO_EGRESS_ROOT, so no real
-' run's state dir is ever a candidate. cleanLeftoversIfCrowded still waits for
-' cleanThreshold = 10 `proveo.egress.session` containers before sweeping.
+' run's state dir is ever a candidate. HISTORY: cleanLeftoversIfCrowded waited
+' for cleanThreshold = 10 `proveo.egress.session` containers before sweeping;
+' neither it nor cleanLeftovers is in e2e/ any more (MEASURED 2026-10-16), and
+' sandboxes are swept by sweepSandboxesAfter below.
 '
 ' ── AND SANDBOXES ARE SHARED STATE NEITHER KEY SWEEPS ──────────────────────
 ' Measured 2026-09-15. This is the INTERACTION of two decisions, neither wrong on
@@ -498,10 +512,12 @@ title Testing strategy — four layers, speed traded for fidelity
 ' than a finding about a defect — the docker rendering is not broken, it has
 ' stopped being something this suite makes claims about.
 '
-' What still EXISTS in the product and is no longer a test subject: the
+' What then still EXISTED in the product and was no longer a test subject: the
 ' mitmproxy egress sidecar and its broker.env, the `-egress` container, the
 ' review-tier consent gate, raw `docker run` replicas of a launch, and the
-' docker+egress fallback itself.
+' docker+egress fallback itself. DELETED 2026-10-16 ("Retire Docker egress";
+' "Refuse without sbx"): none of them ships now, so the scope rule and the
+' product agree.
 '
 ' THEIR DIAGRAMS ARE NOW RETIRED TOO, and that is a second decision rather than a
 ' consequence of this one. Dated 2026-09-16: "sbx deprecated these egress
@@ -516,21 +532,23 @@ title Testing strategy — four layers, speed traded for fidelity
 '   _spec/internal/egresspolicy/** (four files)
 '   _spec/internal/broker/off-route-stripping.puml
 '   _spec/internal/reviewgate/pty-review-proxy.puml · transport-portability.puml
-' The code they documented still ships. A diagram retired here is retired because
-' its MECHANISM is deprecated, not because it was a plan that shipped.
+' The code they documented shipped until 2026-10-16 and is now deleted.
 '
 ' WHAT DID NOT DIE WITH THEM, and where it went:
-'   the tier vocabulary open|allowlist|review, which the CLI still accepts
-'                       . _spec/internal/sbx/policy-baseline.puml
-'   the credential boundary — inject on route, strip off it, sentinel in the
-'   container . _spec/_paradigms/credential-boundary.puml
+'   the tier vocabulary open|allowlist|review — itself retired 2026-10-16
+'                       . _spec/internal/sbx/policy-baseline.puml (history)
+'   the credential boundary, now sbx's store and proxy
+'                       . _spec/_paradigms/credential-boundary.puml
 '   who brokers on sbx . _spec/internal/sbx/credential-path.puml
 '   the PTY mechanics, which internal/backend/sandbox still uses on every
 '   interactive sbx run . _spec/internal/ptyproxy/pty-ownership.puml
 ' Only the docker-mechanism story — the Squid hop, the DLP layers, the CONNECT
 ' consent gate, the sidecar teardown order — went with the files.
 '
-' WHAT THE RULE TOOK, named so nobody restores one by accident:
+' WHAT THE RULE TOOK, named so nobody restores one by accident. These were
+' SKIPPED from 2026-09-15 and DELETED 2026-10-16 (MEASURED: review_tier_test.go,
+' signal_test.go and chrome_bridge_test.go are gone; the rest were removed as
+' docker-only subtests):
 '   the -egress sidecar . CredentialForwardingIntegrity/egress_broker_receives
 '                         _all_keys · ProjectDotEnvAtEgressLayer
 '   a live container .... ProveoHomePersistence/live_shell_roundtrip and
@@ -538,36 +556,39 @@ title Testing strategy — four layers, speed traded for fidelity
 '   sidecar teardown .... SIGINTTearsDownEgressSidecars
 '   the consent gate .... ReviewTierConsentGate
 '   the docker bridge ... ChromeBridgeCarriesTheHostSocketIntoTheContainer
-'   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent
+'   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent, now the
+'                         refusal TestSandboxBackendRefusesWhenSbxAbsent, beside
+'                         TestRetiredSbxOffValuesRefuseTheRun
 '   raw docker replicas . GitRunsWhenWorktreeOwnerDiffersFromRunAsUID ·
 '                         ClaudecodeEntrypointOperatesOnTheInputDir ·
 '                         toolchain's runLib · ToolchainLibIsCurrentInEveryHarness
 '
-' AND ONE THAT STAYS, because the distinction is the rule's edge:
-' TestCursorEgressException asserts a CLI REFUSAL CONTRACT through `--print` —
-' that an unsupported axis is declined naming what IS allowed. That is a claim
-' about the command surface, which both renderings share, and it costs no
-' container. A test is a docker subject when the RENDERING is what it reads,
-' not when the word "egress" appears in it.
+' AND ONE THAT CHANGED SUBJECT: TestCursorEgressException asserted a CLI
+' refusal (`--egress-mode allowlist` declined, naming `open`). With cursor's
+' `egress: [open]` and `credentials: [forward]` pins dropped ("Drop the pins")
+' it became TestCursorBrokersThroughTheSbxStore: cursor's key goes to sbx's
+' secret store, never a bare `-e`. A test is a docker subject when the
+' RENDERING is what it reads, not when the word "egress" appears in it.
 '
-' SKIPPED, NOT DELETED, and the distinction carries the whole rule. A skipped
-' case keeps the record of what it measured and why, so the day sbx cannot
-' answer a question the docker lane once answered, the probe is still written.
-' A deleted one takes that with it. `skipOutsideSbx(t, subject)` is the first
-' line of each, and it names the subject in the skip text, so `go test -v`
-' prints a scope decision rather than an unexplained gap — the same standard
-' the prerequisite skips above are held to. The suite's own standards doc,
-' e2e/go-testing-standards.md, is where the rule is stated for the people
-' writing these tests; this block is why it holds.
+' HISTORY — "SKIPPED, NOT DELETED". From 2026-09-15 each retired probe began
+' with `skipOutsideSbx(t, subject)`, on the argument that a skipped case keeps
+' the question its probe measured. That rule held while the docker rendering
+' shipped. Once the Executor deleted the rendering, a skipped probe of it would
+' measure nothing that exists, so the cases were deleted with their subject and
+' skipOutsideSbx is gone from e2e/ (MEASURED). The record of what each measured
+' is the list above. e2e/go-testing-standards.md states the suite rules for the
+' people writing these tests.
 '
 ' The sweep narrows with it: `mise run test-e2e` (via test-images-sbx) drops
-' TestImageDetachedSmoke and TestImageMitmproxy (internal/imagetest), and the
-' Layer-3 egress integration task (`test-go-integration`) stays outside it —
-' Layer 3 is where the egress topology is still exercised, deliberately, by a
-' task nobody runs on the PR path.
+' TestImageDetachedSmoke. TestImageMitmproxy and the Layer-3 task
+' (`test-go-integration`) are deleted.
 '
-' ── AND SO PROVEO_SBX=off IS BANNED, WHICH IT ALREADY WAS ──────────────────
-' The ban predates the rule and is now a consequence of it. No e2e test may pin
+' ── AND SO PROVEO_SBX=off REFUSES THE RUN ───────────────────────────────────
+' Since 2026-10-16 PROVEO_SBX off values hard-fail every `proveo run`
+' (_spec/internal/sbx/sandbox-backend.puml), so the old ban below is now
+' enforced by the product itself. MEASURED residue: e2e/opencode_sessions_test.go
+' still sets PROVEO_SBX=0, so that test now hits the refusal.
+' HISTORY of the ban: no e2e test could pin
 ' the backend off. The pin was introduced so a probe could inspect the docker
 ' rendering — the "-egress" container, the broker.env bound into it, a mount
 ' table — without waiting out a timeout on a host where sbx takes the run. It
@@ -585,12 +606,9 @@ title Testing strategy — four layers, speed traded for fidelity
 '      never crosses. The second is a docker fact wearing a git claim —
 '      rewrite the probe to create its own file and the claim is about the
 '      harness again.
-'   2. BRANCH on what the run resolved, the way assertPlanIsolation branches on
-'      isSbxArgv. A plan scraper that finds no `docker run` has scraped a
-'      sandbox plan; read that plan instead of failing. Note what the rule did
-'      to that branch: `--print` renders whichever backend resolves, so the
-'      DOCKER arm now fires only on a host that cannot run sbx. It is
-'      kept because that host is real, not because the arm is exercised here.
+'   2. HISTORY: BRANCH on what the run resolved, the way assertPlanIsolation
+'      branched on isSbxArgv. With one backend there is nothing to branch on;
+'      a host that cannot run sbx now refuses `--print` outright.
 ' The third technique this list used to carry — skip on the other rendering
 ' where a mechanism exists in one only — is not a technique any more. It is
 ' the default, and the governing rule states it.
@@ -604,35 +622,19 @@ title Testing strategy — four layers, speed traded for fidelity
 ' is involved and a leak is unambiguous; a mismatch is reported as sha256 prefix +
 ' length, never by printing the key. Two complementary halves, and the sbx-only
 ' rule above cut between them rather than through either:
-'   * isolation (every agent, deterministic) — one `--print` subtest per agent. The
-'     dry-run builds the agent's docker command through the exact same env code path
-'     as a real run, so it is faithful and needs no containers. STILL RUNS: its
-'     subject is the env code path, not the rendering that consumes it.
-'   * egress integrity (live) — one firewall run whose broker.env, bind-mounted into
-'     the egress-proxy, must receive each key byte-for-byte. broker.env is
-'     agent-independent, so one agent proves the path. NOW SKIPPED: broker.env and
-'     the egress-proxy are the docker rendering, and nothing in an sbx run
-'     produces either. The probe is kept because what it measures is still worth
-'     measuring the day anyone asks the question again.
-' claudecode drives the live half, not cursor: cursor declares capabilities
-' egress:[open] credentials:[forward], so it has no MITM and therefore no broker at
-' all. claudecode declares providers:[anthropic], which narrows the detected set to
-' one — and that is precisely what ARMS the broker; with every key detected the
-' broker refuses to pin and there is no broker.env to inspect.
-' cursor's exception is asserted separately and STILL RUNS, because it reads a
-' refusal on the command surface through `--print` rather than a rendering. It is
-' declared capabilities rather than a target-name special case: the default
-' forwards the REAL key as a bare
-' `-e CURSOR_API_KEY`, with no sentinel and no --internal network, and an explicitly
-' requested unsupported axis is REFUSED naming what IS allowed ("does not support
-' --egress-mode allowlist (allowed: open)") — not silently rewritten, and no longer
-' a warn-and-continue that hands over a dead sentinel.
-' The project-.env variant proves the same boundary from the other end: a key that
-' exists ONLY in the workspace .env reaches the egress sidecar byte-for-byte while
-' the agent sees the sentinel and an EMPTY /app/.env. It ran against a lightweight
-' probe image (ubuntu:24.04) so the credential path did not depend on any agent
-' CLI's release or install state. NOW SKIPPED with the live half, and for the same
-' reason — the egress sidecar it reads is the docker rendering.
+'   * isolation (every agent, deterministic) — one `--print` subtest per agent
+'     (TestCredentialForwardingIntegrity). The dry-run builds the sbx argv
+'     through the exact same env code path as a real run, so it is faithful and
+'     needs no VM. It asserts no raw key value and no `KEY=` pair in argv.
+'   * cursor — TestCursorBrokersThroughTheSbxStore: cursor's key is named for
+'     sbx's secret store and never rides argv as a bare `-e CURSOR_API_KEY`.
+' HISTORY, deleted 2026-10-16 with the docker rendering: the live "egress
+' integrity" half (one firewall run whose broker.env, bind-mounted into the
+' egress-proxy, had to receive each key byte-for-byte; claudecode drove it
+' because providers:[anthropic] is what armed the broker), the project-.env
+' variant (a key only in the workspace .env reached the sidecar while the agent
+' saw the sentinel and an EMPTY /app/.env), and cursor's `--egress-mode
+' allowlist` refusal ("allowed: open").
 '
 ' ── WHY SOME LAYER-4 CASES HAVE NO CONTAINER AT ALL ─────────────────────────
 ' `proveo init --print` is the one mode that must be safe on any host: it resolves
@@ -649,16 +651,15 @@ title Testing strategy — four layers, speed traded for fidelity
 '
 ' ── THE INVOCATIONS, AS THE SUITES THEMSELVES RECORD THEM ───────────────────
 '   go test -tags=e2e ./e2e/ -run CredentialForwardingIntegrity -v
-'   go test -tags=e2e ./e2e/ -run ProjectDotEnvAtEgressLayer -v -timeout 10m
+'   go test -tags=e2e ./e2e/ -run 'SandboxBackendRefuses|RetiredSbxOff' -v
 '   [PROVEO_TEST_LOCAL_MODEL=gemma4] \
 '     go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 360s
 '   go test -tags=e2e ./e2e/ -run InitPrint -v
 '   go test -tags=e2e ./e2e/ -run InitProvenance -v
-'   go test -tags=integration ./internal/egress/ (+ PROVEO_EGRESS_INTEGRATION=1)
 
 component "**1. Unit**\ninternal/*/*_test.go — no build tags\nGo only · deterministic\n//always//" as L1 <<app>>
-component "**2. Contract**\nGo builders + goldens\nDockerRunArgs · BuildPlan · Detect · writeBrokerEnv\n//always, no Docker//" as L2 <<app>>
-component "**3. Infra integration**\ninternal/egress ""//go:build integration//""\nreal containers, no model\n//-tags=integration + PROVEO_EGRESS_INTEGRATION=1//" as L3 <<async>>
+component "**2. Contract**\nGo builders + goldens\nsandbox.Spec · Detect · sbx goldens\n//always, no Docker//" as L2 <<app>>
+component "**3. Infra integration — RETIRED 2026-10-16**\nthe docker egress topology it stood up is deleted" as L3 <<error>>
 component "**4. Agent E2E (promptful)**\ne2e ""//go:build e2e//"" via internal/tmux\nnon-deterministic — asserts side effects\n//-tags=e2e · skips per missing prerequisite//" as L4 <<async>>
 
 database "cov/unit\ngo tool covdata merge → percent" as COV <<db>>
@@ -671,7 +672,7 @@ L2 ARROW_QUEUE COV
 
 note right of L1
   Host orchestration under test is **Go**
-  (""cmd/proveo"", ""internal/{runner,workspace,egress,
+  (""cmd/proveo"", ""internal/{workspace,run,
   sbx,gitidentity,manifest}""). Fat bash runners and the
   ""defs/lib/egress.sh"" lifecycle are retired.
 end note
@@ -685,35 +686,32 @@ note right of L2
 end note
 
 note right of L4
-  **sbx is the runtime under test.** Two backends
-  render one launch and only one is a subject, so
-  a case reading the docker rendering skips and
-  names itself; a restated image tag still stops
-  matching the day the tag policy moves.
+  **sbx is the runtime under test, and the only
+  one.** The docker rendering and its probes were
+  deleted 2026-10-16; a restated image tag still
+  stops matching the day the tag policy moves.
 end note
 
 note as SBXONLY
-  **Scope, not a defect.** The mitmproxy sidecar
-  and the docker fallback still ship; no assertion
-  here stands behind them, because a rendering the
-  operator never receives cannot certify the
-  runtime the operator does receive.
+  **Scope and product now agree.** The mitmproxy
+  sidecar and the docker fallback no longer ship,
+  so no case needs a scope skip to stay honest
+  about a runtime the operator never receives.
 end note
 
 note as SKIPNOTDELETE
-  **Skipped preserves the question; deleted
-  discards it.** Each retired probe keeps the
-  shape it measured and announces its subject in
-  the skip, so a scope decision reads as a
-  decision rather than an unexplained gap.
+  **Skipped kept the question while its subject
+  shipped.** Once the subject was deleted, the
+  probe was deleted with it; the list of what
+  each measured is the record that remains.
 end note
 
 note right of L3
-  Topology is owned (""BuildPlan"" + ""ExecRunner""), so do
-  **not** add testcontainers-go for Squid/proxy. Apply
-  its //practices// instead: wait on the CA file / HTTP
-  ready (never sleep-only), ""t.Cleanup"" teardown, env
-  gate + ""docker"" LookPath skip.
+  **Retired with its subject.** It stood up the
+  docker egress topology (""BuildPlan"" +
+  ""ExecRunner""): MITM, Squid, broker.env. Its
+  practices — wait on a condition, ""t.Cleanup"",
+  a named skip — live on in Layer 4.
 end note
 
 note right of L4
@@ -725,15 +723,11 @@ note right of L4
 end note
 
 note bottom of COV
-  Default ""go test ./..."" never compiles Layer 3/4 — the
-  PR path stays fast and keyless. No hard coverage gate
-  until a baseline exists; CI publishes the percent as an
-  artifact.
-
-  **Deferred (Stage 0b):** ""proveo/egress-proxy:cover""
-  from ""go build -cover"" + a bind-mounted ""GOCOVERDIR"",
-  so Layer 3 reports statement coverage from inside the
-  container. Topology coverage does not require it.
+  Default ""go test ./..."" never compiles Layer 4 or the
+  image suites — the PR path stays fast and keyless. No
+  hard coverage gate until a baseline exists; CI
+  publishes the percent as an artifact. The Stage 0b
+  egress-proxy cover image went with Layer 3.
 end note
 
 ' --- IGNORE: layout hints (do not edit) ---
@@ -784,7 +778,7 @@ note as VACUOUS5
   **Zero of N reads as all of N.** An ""sbx"" plan
   carries no key in argv, so a blind sentinel
   loop checked nothing and reported success. The
-  docker branch now fails when it declared no key.
+  check now asserts no value and no KEY= in argv.
 end note
 
 note as REALLAUNCH
@@ -800,7 +794,7 @@ note as SHELLHELPERS
   shellExec executes each script as a child
   ""bash -c"", so an internal ""exit"" reports a
   status instead of terminating the interactive
-  session; launchShell fixes the egress posture.
+  session; launchShell fixes the credential posture.
 end note
 
 note as SEEDEDCHOICE

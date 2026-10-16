@@ -71,7 +71,7 @@ func runVolatile(t *testing.T, proveoBin string) string {
 
 	sess := tmux.New(fmt.Sprintf("proveo-palette-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
-	script := fmt.Sprintf("%s run claudecode --image %s --egress-mode open --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
+	script := fmt.Sprintf("%s run claudecode --image %s --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
 		proveoBin, volatileImage, work)
 	if err := sess.Start(110, 60, "env", "TERM=xterm-256color", "COLORTERM=truecolor", "PROVEO_WIZARD=off",
 		"PROVEO_HOME="+t.TempDir(), "sh", "-c", script); err != nil {

@@ -98,24 +98,12 @@
 --builder default | --cache-from=type=local,src=<cache>/proveo/base | --cache-to=type=local,dest=<cache>/proveo/base,mode=max | --load | --platform linux/arm64 | -f <root>/defs/base/Dockerfile | -t proveo/base:local | ctx <root>
 --build-arg BASE_IMAGE=proveo/base:local | --build-arg CURSOR_AGENT_VERSION=9.9.5 | --build-arg CURSOR_INSTALL_URL=https://cursor.com/install | --builder default | --cache-from=type=local,src=<cache>/proveo/cursor | --cache-to=type=local,dest=<cache>/proveo/cursor,mode=max | --load | --platform linux/arm64 | -f <root>/defs/cursor/Dockerfile | -t proveo/cursor:local | ctx <root>
 --build-arg BASE_IMAGE=proveo/cursor:local | --build-arg USER_NAME=cursor | --builder default | --cache-from=type=local,src=<cache>/proveo/cursor-browser | --cache-to=type=local,dest=<cache>/proveo/cursor-browser,mode=max | --load | --platform linux/arm64 | -f <root>/defs/base-node-browser/Dockerfile | -t proveo/cursor-browser:local | ctx <root>/defs/base-node-browser
-## egress-proxy local
---builder default | --cache-from=type=local,src=<cache>/proveo/egress-proxy | --cache-to=type=local,dest=<cache>/proveo/egress-proxy,mode=max | --load | --platform linux/arm64 | -f <root>/defs/sidecars/egress-proxy/Dockerfile | -t proveo/egress-proxy:local | ctx <root>
-## egress-proxy latest
---builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/egress-proxy | --cache-to=type=local,dest=<cache>/proveo/egress-proxy,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/sidecars/egress-proxy/Dockerfile | -t proveo/egress-proxy:latest | ctx <root>
-## egress-proxy cold
---builder default | --cache-from=type=local,src=<cache>/proveo/egress-proxy | --cache-to=type=local,dest=<cache>/proveo/egress-proxy,mode=max | --load | --platform linux/arm64 | -f <root>/defs/sidecars/egress-proxy/Dockerfile | -t proveo/egress-proxy:local | ctx <root>
 ## hermes local
 --build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
 ## hermes latest
 --build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:latest | ctx <root>
 ## hermes cold
 --build-arg HERMES_AGENT_VERSION=v2026.9.24 | --builder default | --cache-from=type=local,src=<cache>/proveo/hermes | --cache-to=type=local,dest=<cache>/proveo/hermes,mode=max | --load | --platform linux/arm64 | -f <root>/defs/hermes/Dockerfile | -t proveo/hermes:local | ctx <root>
-## mitmproxy local
---builder default | --cache-from=type=local,src=<cache>/proveo/mitmproxy | --cache-to=type=local,dest=<cache>/proveo/mitmproxy,mode=max | --load | --platform linux/arm64 | -t proveo/mitmproxy:local | ctx <root>/defs/sidecars/mitmproxy
-## mitmproxy latest
---builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/mitmproxy | --cache-to=type=local,dest=<cache>/proveo/mitmproxy,mode=max | --platform linux/amd64,linux/arm64 | --push | -t proveo/mitmproxy:latest | ctx <root>/defs/sidecars/mitmproxy
-## mitmproxy cold
---builder default | --cache-from=type=local,src=<cache>/proveo/mitmproxy | --cache-to=type=local,dest=<cache>/proveo/mitmproxy,mode=max | --load | --platform linux/arm64 | -t proveo/mitmproxy:local | ctx <root>/defs/sidecars/mitmproxy
 ## opencode local
 --build-arg BASE_IMAGE=proveo/base-node-lsp:local | --build-arg OPENCODE_VERSION=9.9.2 | --builder default | --cache-from=type=local,src=<cache>/proveo/opencode | --cache-to=type=local,dest=<cache>/proveo/opencode,mode=max | --load | --platform linux/arm64 | -f <root>/defs/opencode/Dockerfile | -t proveo/opencode:local | ctx <root>
 ## opencode latest

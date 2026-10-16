@@ -131,10 +131,8 @@ the vocabulary codex actually enforces. `spec-keeper` is the single writer.
 
 ## Security Posture
 
-- **Root-free execution**: baked non-root user `codex` (uid 1000); the runner
-  launches as the invoking host uid.
-- **Capability dropping / no-new-privileges / pids-limit**: from `internal/runner`,
-  not restated here.
+- **Root-free execution**: baked non-root user `codex` (uid 1000); sbx runs the agent
+  as that uid.
 - **Codex's own sandbox is off by default**, and that is a decision rather than an
   oversight. Unlike cursor's Landlock (which needs an unprivileged userns a
   cap-dropped container cannot give it), codex's Landlock+seccomp layer *can*
@@ -142,7 +140,7 @@ the vocabulary codex actually enforces. `spec-keeper` is the single writer.
   already a disposable copy buys little, while its approval prompts are fatal to an
   unattended run — a stall with nobody to answer. `PROVEO_CODEX_SANDBOX` turns it
   back on.
-- **Egress** is the proveo tier in front of the container, not a CLI setting.
+- **Egress** is sbx's host-wide network policy, not a CLI setting.
 
 ## Differences from claudecode
 

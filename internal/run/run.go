@@ -4,11 +4,9 @@ package run
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,12 +15,9 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend"
-	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
-	"github.com/proveo-ca/proveo/internal/egress"
-	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
@@ -31,9 +26,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/reviewgate"
 	"github.com/proveo-ca/proveo/internal/runlog"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -47,13 +40,11 @@ type Deps struct {
 	PromptEnv        func(target string, missing []manifest.EnvVar) map[string]string
 	GitHubTokenEnv   func() string
 	ProvisionConfirm func(question string) bool
-	PreflightImages  func(plan egress.Plan, man manifest.Manifest, agentImage string) (string, error)
-	SquidConfig      fs.FS // the root package's embedded squid config
+	PreflightImages  func(man manifest.Manifest, agentImage string) (string, error)
 }
 
 func Do(p Params, d Deps) (err error) {
 	var rs Spec
-	rs.UID, rs.GID = strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
 	rs.Sid = fmt.Sprintf("proveo-%d-%d", time.Now().Unix(), os.Getpid())
 	rs.EgDir = filepath.Join(StateDir(), "egress", rs.Sid)
 
@@ -74,8 +65,10 @@ func Do(p Params, d Deps) (err error) {
 	if err != nil {
 		return err
 	}
-	rs.SquidConfig = d.SquidConfig
-	rs.Log.Artifacts(rs.EgDir, p.willSandbox(rs.Man))
+	rs.Log.Artifacts(rs.EgDir)
+	if err := requireSandbox(rs.Man, p, d); err != nil {
+		return err
+	}
 
 	if !acceptsLocalModel(p.Target) && p.LocalModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
@@ -91,50 +84,22 @@ func Do(p Params, d Deps) (err error) {
 		return err
 	}
 	buildPosture(&rs, &p)
-	if err := assembleEnv(&rs, &p, d); err != nil {
-		return err
-	}
-	if done, err := selectBackend(&rs, &p, d); err != nil || done {
-		return err
-	}
-	defer stageDeps(&rs, &p)()
-	return execute(&rs, &p, d)
+	assembleEnv(&rs, &p, d)
+	return launchSandbox(&rs, &p, d)
 }
 
-func stageDeps(rs *Spec, p *Params) func() {
-	none := func() {}
-	if p.PrintOnly {
-		return none
+// requireSandbox refuses a run that sbx cannot host: there is no other backend.
+func requireSandbox(man manifest.Manifest, p Params, d Deps) error {
+	if v, off := sandbox.Disabled(os.Getenv); off {
+		return fmt.Errorf("PROVEO_SBX=%s is retired: it selected the docker+egress fallback, which is gone. Unset it; proveo runs on Docker Sandboxes (sbx) only", v)
 	}
-	copies := rs.Workspace.WS.DepCopies()
-	if len(copies) == 0 {
-		return none
+	if !man.IsSbx() {
+		return fmt.Errorf("%s does not declare `docker: sbx` in its harness.manifest, and sbx is the only backend", p.Target)
 	}
-	reuse, why := workspace.DepCopyPolicy(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
-	made, err := workspace.MaterializeDeps(copies, reuse)
-	if err != nil {
-		ui.Warnf("dependency trees: %v", err)
+	if ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); !ok {
+		return sandbox.Unavailable(why)
 	}
-	copied := map[string]bool{}
-	for _, c := range made {
-		copied[c.Container] = true
-	}
-	var parts []string
-	for _, c := range copies {
-		if copied[c.Container] {
-			parts = append(parts, c.Container+" (copied)")
-		} else {
-			parts = append(parts, c.Container+" (empty)")
-		}
-	}
-	ui.Appf("dependency trees isolated, host untouched: %s", why)
-	ui.Notef("%s", strings.Join(parts, ", "))
-	stage := rs.Workspace.WS.DepStage
-	return func() {
-		if stage != "" {
-			_ = os.RemoveAll(stage)
-		}
-	}
+	return nil
 }
 
 func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
@@ -165,7 +130,7 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	}
 
 	rs.Workspace.WS = workspace.MountSpec{
-		Workspace: rs.Man.Workspace, OutputDir: p.Output, EgressMode: p.Mode, Credentials: p.Credentials,
+		Workspace: rs.Man.Workspace, OutputDir: p.Output, Credentials: p.Credentials,
 		MountRootDeps: mountRootDeps(os.Getenv),
 		DepStage:      filepath.Join(rs.EgDir, "deps"),
 	}
@@ -245,7 +210,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	}
 	if rs.Choices.Promptable {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
-			Egress: p.Mode, Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
+			Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
 			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
 		})
 		if p.portsAsked {
@@ -258,19 +223,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			ui.Warnf("%v", err)
 		}
 	}
-	rs.Workspace.WS.EgressMode, rs.Workspace.WS.Credentials = p.Mode, p.Credentials
-
-	if p.Mode == "review" {
-		if ok, why := dockeregress.ReviewSupported(os.Getenv); !ok {
-			ui.Warnf("--egress-mode review is %s: the consent gate cannot be reached from the "+
-				"inspector on this host, so every new connection will be DENIED without a prompt", why)
-		}
-	}
-	if p.Target == "cursor" && p.intercepts() && !sandbox.Selected(rs.Man) {
-		ui.Warnf("cursor + --egress-mode %s --credentials %s: cursor-agent pins its TLS, so any intercepting tier "+
-			"breaks it (it reports \"invalid API key\") — use --egress-mode open --credentials forward",
-			p.Mode, p.credentialsOrDefault())
-	}
+	rs.Workspace.WS.Credentials = p.Credentials
 
 	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
 	if hasAddon(p.Addons, "browser") && rs.Backend.BrowserImage != "" {
@@ -392,7 +345,7 @@ func hostStoreResolver() *secretref.Resolver {
 
 func reportSandboxLogin(rs *Spec, p *Params) {
 	ui.Section(ui.SectionCredentials)
-	if !credentials.NeedsSandboxLogin(rs.Man, p.willSandbox(rs.Man),
+	if !credentials.NeedsSandboxLogin(rs.Man, true,
 		rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
 		return
 	}
@@ -431,7 +384,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	if !p.PrintOnly {
 		rs.Creds.Keychain = credentials.ReadKeychainLogin(
 			p.Target, credentials.OSLookupEnv, hostStoreResolver(), time.Now())
-		reportKeychain(rs.Creds.Keychain, p.willSandbox(rs.Man), rs.Creds.FileLogin)
+		reportKeychain(rs.Creds.Keychain, true, rs.Creds.FileLogin)
 		reportSandboxLogin(rs, p)
 	}
 	if rs.Creds.LoginNeedsRefresh && !p.PrintOnly {
@@ -502,19 +455,9 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
 	withheld := credentials.WithheldProviders(rs.Man, p.Target, p.AuthVar,
 		proveohome.Root(os.Getenv), rs.Creds.Lookup, rs.Creds.Detected)
-	usable := credentials.UsableProviders(rs.Man, rs.Creds.Detected, rs.Creds.Lookup)
-	rs.Creds.Brokered = credentials.BrokerProviders(p.forwards(), rs.Man,
-		credentials.Without(usable, withheld), rs.Creds.Lookup, brokerEnabled())
 	if len(withheld) > 0 {
-		ui.Hostf("auth %q: %s withheld from the egress broker too, not just the agent's environment",
+		ui.Hostf("auth %q: %s withheld from sbx's secret store too, not just the agent's environment",
 			p.AuthVar, strings.Join(withheld, ", "))
-	}
-	if reason := credentials.BrokerOffReason(p.forwards(), rs.Creds.Brokered, rs.Creds.Detected, brokerEnabled()); reason != "" {
-		ui.Warnf("%s", reason)
-	}
-	if len(rs.Creds.Brokered) > 1 {
-		ui.Hostf("broker: %d providers injected at the egress layer (%s)",
-			len(rs.Creds.Brokered), strings.Join(rs.Creds.Brokered, ", "))
 	}
 	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
 		ui.Warnf("%s", msg)
@@ -528,54 +471,36 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
-// credentialsPosture reports what the run will DO, not what was asked for. The
-// posture is written before the backend is resolved, and sbx stores every
-// credential its proxy can attach whatever the flag said — so printing the
-// request read as a contradiction: `credentials forward` two lines above
-// `stored as cursor — the agent never holds it`.
+// credentialsPosture reports what the run will DO: sbx's proxy holds every credential it can attach.
 func credentialsPosture(rs *Spec, p *Params) string {
-	if p.willSandbox(rs.Man) {
-		return "broker (sbx proxy)"
-	}
-	return p.credentialsOrDefault()
+	return "broker (sbx proxy)"
 }
 
 func buildPosture(rs *Spec, p *Params) {
 	rs.Posture = posture.Posture{
-		Target:         p.Target,
-		EgressTier:     p.Mode,
-		Credentials:    credentialsPosture(rs, p),
-		AddOns:         strings.Join(p.Addons, ","),
-		AgentEvidence:  p.evidenceOrDefault(),
-		DetectedKeys:   strings.Join(rs.Creds.Detected, ","),
-		Brokered:       strings.Join(rs.Creds.Brokered, ","),
-		ReachableHosts: strings.Join(credentials.ReachableHosts(rs.Creds.Detected), ","),
-		HarnessHosts:   strings.Join(rs.Man.Capabilities.Hosts, ","),
-		AuthVar:        p.AuthVar,
-		LocalModel:     p.LocalModel,
-		Observability:  posture.Observability(p.Mode, p.credentialsOrDefault(), p.willSandbox(rs.Man)),
-		EnforcedBy:     posture.EnforcedBy(p.willSandbox(rs.Man)),
-		Image:          posture.Image(p.Image),
-		ModelRoles:     posture.RolesLine(p.Roles),
-		RoleProviders:  strings.Join(p.Roles.Providers(), ","),
-		MCPGateway:     posture.MCPGateway(p.willSandbox(rs.Man), sandbox.MCPGatewayAllowed(), sandbox.MCPGatewayVar),
-		Workspace:      posture.Workspace(predictClone(p, p.willSandbox(rs.Man), rs.Workspace.WS)),
+		Target:        p.Target,
+		Credentials:   credentialsPosture(rs, p),
+		AddOns:        strings.Join(p.Addons, ","),
+		AgentEvidence: p.evidenceOrDefault(),
+		DetectedKeys:  strings.Join(rs.Creds.Detected, ","),
+		AuthVar:       p.AuthVar,
+		LocalModel:    p.LocalModel,
+		Observability: posture.Observability(),
+		EnforcedBy:    posture.EnforcedBy(),
+		Image:         posture.Image(p.Image),
+		ModelRoles:    posture.RolesLine(p.Roles),
+		RoleProviders: strings.Join(p.Roles.Providers(), ","),
+		MCPGateway:    posture.MCPGateway(sandbox.MCPGatewayAllowed(), sandbox.MCPGatewayVar),
+		Workspace:     posture.Workspace(predictClone(p, rs.Workspace.WS)),
 	}
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
 }
 
-func decideClone(p *Params, sbxBackend bool, ws workspace.MountSpec) (on bool, whyOff string, err error) {
+func decideClone(p *Params, ws workspace.MountSpec) (on bool, whyOff string, err error) {
 	if !p.Clone {
 		return false, "", nil // --clone=false or PROVEO_CLONE=off: the mounted checkout, by choice
 	}
 	switch {
-	case !sbxBackend:
-		if p.CloneSet {
-			return false, "", fmt.Errorf("--clone is an sbx-backend feature and this run is on docker+egress:\n" +
-				"  the agent would edit your checkout directly, which is what --clone asks it not to do.\n" +
-				"  Re-run without --clone, or on a target whose manifest declares `docker: sbx`")
-		}
-		return false, "", nil // docker has no clone; nothing to announce
 	case ws.RepoRoot == "":
 		if p.CloneSet {
 			return false, "", fmt.Errorf("--clone needs a git repository and %s is not inside one:\n"+
@@ -649,273 +574,167 @@ func cloneOffHint(whyOff string) string {
 	return "Clone mode cannot apply here: " + whyOff + "."
 }
 
-func predictClone(p *Params, sbxBackend bool, ws workspace.MountSpec) bool {
-	on, _, err := decideClone(p, sbxBackend, ws)
+func predictClone(p *Params, ws workspace.MountSpec) bool {
+	on, _, err := decideClone(p, ws)
 	return err == nil && on
 }
 
-func assembleEnv(rs *Spec, p *Params, d Deps) error {
-	if len(rs.Creds.Brokered) > 0 {
-		if p.PrintOnly {
-			rs.Creds.BrokerFile = filepath.Join(rs.EgDir, "inject", "broker.env") // path only in dry-run
-		} else if f, err := credentials.WriteBrokerEnv(filepath.Join(rs.EgDir, "inject"), rs.Creds.Lookup); err == nil {
-			rs.Creds.BrokerFile = f
-		} else {
-			ui.Warnf("broker secret file: %v", err)
-		}
-	}
-
-	if p.LocalModel != "" {
-		rs.Model.ModelsDir = ollamaModelsDir()
-		rs.Model.HostOllama = preferHostOllama()
-		rs.Model.OllamaGPU = sidecarOllamaGPU()
-	}
-
-	suppressedAuth := credentials.AuthSuppressor(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv), rs.Creds.Lookup)
-	for _, e := range rs.Man.Env {
-		if strings.TrimSpace(rs.Creds.Lookup(e.Name)) == "" {
-			continue
-		}
-		if e.Secret {
-			if suppressedAuth(e.Name) {
-				continue
-			}
-			if p.forwards() {
-				rs.Creds.Env = append(rs.Creds.Env, e.Name)
-				rs.Creds.Child.Add(e.Name, rs.Creds.Lookup)
-			} else {
-				rs.Creds.Env = append(rs.Creds.Env, e.Name+"="+entrypoint.DefaultSentinel)
-				rs.Creds.BrokerKeyNames = append(rs.Creds.BrokerKeyNames, e.Name)
-			}
-			continue
-		}
-		rs.Creds.Env = append(rs.Creds.Env, e.Name)
-	}
-	if !p.forwards() {
-		for _, k := range provider.KeyVars() {
-			if strings.TrimSpace(rs.Creds.Lookup(k)) == "" {
-				continue
-			}
-			if suppressedAuth(k) {
-				continue
-			}
-			already := false
-			for _, n := range rs.Creds.BrokerKeyNames {
-				if n == k {
-					already = true
-					break
-				}
-			}
-			if !already {
-				rs.Creds.Env = append(rs.Creds.Env, k+"="+entrypoint.DefaultSentinel)
-				rs.Creds.BrokerKeyNames = append(rs.Creds.BrokerKeyNames, k)
-			}
-		}
-		if len(rs.Creds.BrokerKeyNames) > 0 {
-			rs.Creds.Env = append(rs.Creds.Env, "PROVEO_CREDENTIAL_BROKER_KEYS="+strings.Join(rs.Creds.BrokerKeyNames, ","))
-		}
-	}
+// assembleEnv checks the model variables the agent reads and exports the host's GitHub token.
+func assembleEnv(rs *Spec, p *Params, d Deps) {
 	for _, k := range credentials.ConfigVarsFor(rs.Man) {
 		if v := strings.TrimSpace(rs.Creds.Lookup(k)); v != "" {
-			rs.Creds.Env = append(rs.Creds.Env, k+"="+v)
 			warnUnknownModel(k, v, p.LocalModel)
 		}
 	}
-	rs.Creds.Env = append(rs.Creds.Env, EvidenceVar+"="+p.evidenceOrDefault())
-	rs.Creds.Env = append(rs.Creds.Env, rs.Man.AgentEnvPairs(rs.Creds.Lookup)...)
-	rs.Creds.Env = append(rs.Creds.Env, gitidentity.Resolve(os.Getenv, nil).EnvPairs()...)
-	rs.Creds.Env = append(rs.Creds.Env, rs.Creds.HomePlan.Env...)
-	if rel := rs.Workspace.WS.ScopeRel(); rel != "" {
-		rs.Creds.Env = append(rs.Creds.Env, "PROVEO_SCOPE_REL="+rel)
-	}
-	if rs.Workspace.WS.WorktreeLinkDir == "" {
-		rs.Creds.Env = append(rs.Creds.Env, rs.Workspace.WS.WorktreeEnv()...)
-	}
-
 	if !p.PrintOnly && d.GitHubTokenEnv != nil {
-		if k := d.GitHubTokenEnv(); k != "" {
-			rs.Creds.Env = append(rs.Creds.Env, k)
-		}
+		d.GitHubTokenEnv()
 	}
-
-	return nil
 }
 
-func selectBackend(rs *Spec, p *Params, d Deps) (bool, error) {
-	rs.Backend.Sbx = false
-	sbxUnavailable := ""
-	if rs.Man.IsSbx() && p.Mode != "review" && sandbox.Enabled() {
-		if ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); ok {
-			rs.Backend.Sbx = true
-		} else {
-			sbxUnavailable = why
-		}
-	}
-	rs.Model.HostLLM = rs.Backend.Sbx && p.LocalModel != ""
+// launchSandbox resolves the clone and add-ons, then runs the agent in sbx (or prints the plan).
+func launchSandbox(rs *Spec, p *Params, d Deps) error {
+	rs.Model.HostLLM = p.LocalModel != ""
 
 	ui.Section(ui.SectionEgress)
-	if rs.Backend.Sbx {
-		sandbox.WarnBaseline()
-	}
-	credentials.WarnMountedSecrets(rs.Workspace.WS.InputDir, p.Mode, rs.Backend.Sbx, rs.Creds.Lookup)
+	sandbox.WarnBaseline()
+	credentials.WarnMountedSecrets(rs.Workspace.WS.InputDir, rs.Creds.Lookup)
 
 	ui.Section(ui.SectionExecution)
-	switch {
-	case sbxUnavailable != "":
-		sandbox.ReportUnavailable(sbxUnavailable)
-	case rs.Backend.Sbx:
-		ui.Appf("backend: docker sandboxes (sbx)")
-	}
+	ui.Appf("backend: docker sandboxes (sbx)")
 	var err error
-	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Backend.Sbx, rs.Workspace.WS)
+	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Workspace.WS)
 	if err != nil {
-		return false, err
+		return err
 	}
-	if rs.Backend.Sbx {
-		switch {
-		case rs.Backend.Clone:
-			ui.Storef("workspace: private clone — your checkout is NOT written. "+
-				"The agent's commits are fetched back at teardown under refs/proveo/%s/ (`--clone=false` edits the checkout directly)", rs.Sid)
-		case rs.Backend.CloneOff != "":
-			ui.Notef("workspace: mounted checkout — clone default does not apply here: %s", rs.Backend.CloneOff)
-		}
+	switch {
+	case rs.Backend.Clone:
+		ui.Storef("workspace: private clone — your checkout is NOT written. "+
+			"The agent's commits are fetched back at teardown under refs/proveo/%s/ (`--clone=false` edits the checkout directly)", rs.Sid)
+	case rs.Backend.CloneOff != "":
+		ui.Notef("workspace: mounted checkout — clone default does not apply here: %s", rs.Backend.CloneOff)
 	}
 	if rs.Backend.Clone && workspace.LinkedWorktree(rs.Workspace.WS.InputDir) {
 		rs.Backend.CloneSource, _ = workspace.CloneSource(rs.Workspace.WS.InputDir)
 		ui.Notef("workspace: linked worktree — sbx clones the main worktree %s and the seed checks out %s; "+
 			"uncommitted edits in %s stay on the host", rs.Backend.CloneSource.Main, rs.Backend.CloneSource.Ref, rs.Workspace.WS.InputDir)
 	}
-	if rs.Backend.Sbx && rs.Backend.Clone {
+	if rs.Backend.Clone {
 		rs.Backend.CloneEnv = stageCloneEnv(rs, p)
 	}
 	rs.Posture.Workspace = posture.Workspace(rs.Backend.Clone)
-	if rs.Backend.Sbx {
-		mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
-		if dropped > 0 && !rs.Backend.Clone {
-			ok, why := workspace.SharedTreesAllowed(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
-			if !ok {
-				return false, fmt.Errorf("sbx would mount your checkout with its %d dependency tree(s) (node_modules, target, .venv …): %s.\n"+
-					"  %s\n"+
-					"  Run from a git checkout where --clone applies, so the seed installs into a private clone, or set PROVEO_DEPS=shared to accept the rewrite",
-					dropped, why, cloneOffHint(rs.Backend.CloneOff))
-			}
-			ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them (%s);\n"+
-				"  `--clone` keeps untracked trees out and installs fresh", dropped, why)
+	mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
+	if dropped > 0 && !rs.Backend.Clone {
+		ok, why := workspace.SharedTreesAllowed(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
+		if !ok {
+			return fmt.Errorf("sbx would mount your checkout with its %d dependency tree(s) (node_modules, target, .venv …): %s.\n"+
+				"  %s\n"+
+				"  Run from a git checkout where --clone applies, so the seed installs into a private clone, or set PROVEO_DEPS=shared to accept the rewrite",
+				dropped, why, cloneOffHint(rs.Backend.CloneOff))
 		}
-		browserOn := hasAddon(p.Addons, addonBrowser) && rs.Backend.BrowserImage != ""
-		cdpPort := 0
-		if browserOn && !p.PrintOnly {
-			cdpPort = sandbox.FreeLoopbackPort()
-		}
-		sbxBridge, _ := startChromeBridge(rs, p, chromebridge.SbxWhy)
-		var sbxBridgeEnv []string
-		if sbxBridge != nil {
-			defer func() { _ = sbxBridge.Close() }()
-			sbxBridgeEnv = sbxBridge.ResolvedEnv()
-		}
-		agentMode := p.Mode
-		if !egress.ValidMode(agentMode) {
-			agentMode = "allowlist"
-		}
-		sidecarModel := p.LocalModel
-		if rs.Model.HostLLM {
-			sidecarModel = ""
-			if !p.PrintOnly {
-				if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default); err != nil {
-					return false, fmt.Errorf("local model %s: %w", p.LocalModel, err)
-				}
-				ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)
-			}
-		}
-		agentEnv, err := egress.AgentEnv(egress.Options{
-			Mode: agentMode, Credentials: p.Credentials, SessionID: rs.Sid,
-			AgentName: p.Target, LocalModel: sidecarModel,
-			HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
-			Providers: rs.Creds.Brokered, AuthVar: p.AuthVar,
-		})
-		if err != nil {
-			ui.Warnf("agent environment unavailable (%v) — the run continues without "+
-				"the variables the plan decided, so a local model or tier the agent "+
-				"reads from its own env will be missing", err)
-			agentEnv = nil
-		}
-		if hostEnv, err := startHostCDP(p); err != nil {
-			return false, err
-		} else {
-			agentEnv = append(agentEnv, hostEnv...)
-		}
-		adbEnv, err := startHostADB(p)
-		if err != nil {
-			return false, err
-		}
-		agentEnv = append(agentEnv, adbEnv...)
-		agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
-		if rs.Model.HostLLM {
-			agentEnv = append(agentEnv, egress.LocalModelEnv(p.LocalModel, sbx.HostOllamaGuestBase)...)
-			agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
-		}
-		homeAccess, err := sandbox.PrepareHomeAccess(
-			rs.Creds.HomePlan.Root, rs.EgDir, rs.Man.Home)
-		if err != nil {
-			return false, err
-		}
-		in := sandbox.Input{
-			AgentEnv: agentEnv,
-			Target:   p.Target, Image: p.Image, AuthVar: p.AuthVar,
-			Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
-			RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
-			Browser: browserOn, CDPHostPort: cdpPort,
-			Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
-			AndroidApps: androidApps(p), AndroidEnv: adbEnv,
-			Roles:    p.Roles,
-			Evidence: p.evidenceOrDefault(),
-			Forwards: p.forwards(),
-			Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
-			ImageEntrypoint: sbx.ImageEntrypoint,
-			Mounts:          mounts, Workdir: rs.Workspace.Workdir,
-			Lookup:           rs.Creds.Lookup,
-			Detected:         rs.Creds.Detected,
-			GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
-			HomeEnv:          rs.Creds.HomePlan.Env,
-			BridgeEnv:        sbxBridgeEnv,
-			ScopeRel:         rs.Workspace.WS.ScopeRel(),
-			WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
-			WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
-			CloneSource:      rs.Backend.CloneSource,
-			CloneEnv:         rs.Backend.CloneEnv,
-			CloneEnvBase:     rs.Backend.CloneEnvBase,
-			CloneEnvHost:     rs.Backend.CloneEnvHost,
-			CloneEnvStrip:    rs.Backend.CloneStrip,
-			Links:            rs.Workspace.Links,
-			DataDir:          p.DataDir,
-			Memory:           sbx.MemoryLimit(),
-			CPUs:             sbx.CPULimit(),
-			HomeRoot:         rs.Creds.HomePlan.Root,
-			RunLog:           rs.Log.Path(),
-			HomeAccess:       homeAccess,
-		}
-		if p.PrintOnly {
-			defer homeAccess.Cleanup()
-			cfg, kit, secrets := sandbox.Spec(in)
-			if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
-				return false, fmt.Errorf("write sandbox kit: %w", err)
-			}
-			ui.Storef("sandbox kit: %s (removed by `proveo clean`)", filepath.Join(cfg.KitDir, "spec.yaml"))
-			if len(secrets) > 0 {
-				names := make([]string, 0, len(secrets))
-				for _, kv := range secrets {
-					names = append(names, kv[0])
-				}
-				ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
-			}
-			fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
-			return true, nil
-		}
-		rs.AgentLaunched = true
-		return true, sandbox.Run(in)
+		ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them (%s);\n"+
+			"  `--clone` keeps untracked trees out and installs fresh", dropped, why)
 	}
-
-	return false, nil
+	browserOn := hasAddon(p.Addons, addonBrowser) && rs.Backend.BrowserImage != ""
+	cdpPort := 0
+	if browserOn && !p.PrintOnly {
+		cdpPort = sandbox.FreeLoopbackPort()
+	}
+	sbxBridge, _ := startChromeBridge(rs, p, chromebridge.SbxWhy)
+	var sbxBridgeEnv []string
+	if sbxBridge != nil {
+		defer func() { _ = sbxBridge.Close() }()
+		sbxBridgeEnv = sbxBridge.ResolvedEnv()
+	}
+	if rs.Model.HostLLM {
+		if !p.PrintOnly {
+			if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default); err != nil {
+				return fmt.Errorf("local model %s: %w", p.LocalModel, err)
+			}
+			ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)
+		}
+	}
+	var agentEnv []string
+	if hostEnv, err := startHostCDP(p); err != nil {
+		return err
+	} else {
+		agentEnv = append(agentEnv, hostEnv...)
+	}
+	adbEnv, err := startHostADB(p)
+	if err != nil {
+		return err
+	}
+	agentEnv = append(agentEnv, adbEnv...)
+	agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
+	if rs.Model.HostLLM {
+		agentEnv = append(agentEnv, sbx.LocalModelEnv(p.LocalModel)...)
+		agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
+	}
+	homeAccess, err := sandbox.PrepareHomeAccess(
+		rs.Creds.HomePlan.Root, rs.EgDir, rs.Man.Home)
+	if err != nil {
+		return err
+	}
+	in := sandbox.Input{
+		AgentEnv: agentEnv,
+		Target:   p.Target, Image: p.Image, AuthVar: p.AuthVar,
+		Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
+		RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
+		Browser: browserOn, CDPHostPort: cdpPort,
+		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
+		AndroidApps: androidApps(p), AndroidEnv: adbEnv,
+		Roles:    p.Roles,
+		Evidence: p.evidenceOrDefault(),
+		Forwards: p.forwards(),
+		Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
+		ImageEntrypoint: sbx.ImageEntrypoint,
+		Mounts:          mounts, Workdir: rs.Workspace.Workdir,
+		Lookup:           rs.Creds.Lookup,
+		Detected:         rs.Creds.Detected,
+		GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
+		HomeEnv:          rs.Creds.HomePlan.Env,
+		BridgeEnv:        sbxBridgeEnv,
+		ScopeRel:         rs.Workspace.WS.ScopeRel(),
+		WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
+		WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
+		CloneSource:      rs.Backend.CloneSource,
+		CloneEnv:         rs.Backend.CloneEnv,
+		CloneEnvBase:     rs.Backend.CloneEnvBase,
+		CloneEnvHost:     rs.Backend.CloneEnvHost,
+		CloneEnvStrip:    rs.Backend.CloneStrip,
+		Links:            rs.Workspace.Links,
+		DataDir:          p.DataDir,
+		Memory:           sbx.MemoryLimit(),
+		CPUs:             sbx.CPULimit(),
+		HomeRoot:         rs.Creds.HomePlan.Root,
+		RunLog:           rs.Log.Path(),
+		HomeAccess:       homeAccess,
+	}
+	if p.PrintOnly {
+		defer homeAccess.Cleanup()
+		cfg, kit, secrets := sandbox.Spec(in)
+		if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
+			return fmt.Errorf("write sandbox kit: %w", err)
+		}
+		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", filepath.Join(cfg.KitDir, "spec.yaml"))
+		if len(secrets) > 0 {
+			names := make([]string, 0, len(secrets))
+			for _, kv := range secrets {
+				names = append(names, kv[0])
+			}
+			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
+		}
+		fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
+		return nil
+	}
+	if d.PreflightImages != nil {
+		image, err := d.PreflightImages(rs.Man, in.Image)
+		if err != nil {
+			return err
+		}
+		in.Image = image
+	}
+	rs.AgentLaunched = true
+	return sandbox.Run(in)
 }
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
@@ -1008,93 +827,4 @@ func recordOutcome(launched bool, err error) {
 	default:
 		ui.Logf("outcome: %v", err)
 	}
-}
-
-func execute(rs *Spec, p *Params, d Deps) error {
-	if !p.PrintOnly {
-		image, err := d.PreflightImages(egress.Plan{}, rs.Man, p.Image)
-		if err != nil {
-			return err
-		}
-		p.Image = image
-	}
-	rs.Docker.Host = runner.DetectHost(p.Image)
-	rs.Docker.Browser = runner.IsBrowserImage(p.Image)
-	ov, ovSet := runner.ParsePidsOverride(os.Getenv("PROVEO_PIDS_LIMIT"))
-	if err := runner.EnsurePidsCapability(rs.Docker.Host, rs.Docker.Browser, ov, ovSet); err != nil {
-		return err
-	}
-	rs.Docker.PidsLimit = runner.ResolvePidsLimit(rs.Docker.Host, rs.Docker.Browser, ov, ovSet)
-
-	tierBlocked := ""
-	if !chromebridge.TierSupported(p.Mode, p.credentialsOrDefault()) {
-		tierBlocked = "needs --egress-mode open --credentials forward (an intercepting tier puts the agent on an internal network with no route to the host)"
-	}
-	bridge, bridgeEnv := startChromeBridge(rs, p, tierBlocked)
-	if bridge != nil {
-		defer func() { _ = bridge.Close() }()
-	}
-	rs.Creds.Env = append(rs.Creds.Env, bridgeEnv...)
-
-	consent, reviewProxy := reviewConsent(p.Mode)
-	reviewGate, stopReview := dockeregress.StartReviewGate(p.Mode, rs.EgDir, consent)
-	defer stopReview()
-	rs.Docker.ReviewSocket = ""
-	if reviewGate != nil {
-		rs.Docker.ReviewSocket = reviewgate.Path(filepath.Join(rs.EgDir, "review"))
-	}
-
-	operatorPairs := operator.Env(proveohome.Root(os.Getenv))
-	var operatorNames []string
-	for _, kv := range operatorPairs {
-		k, _, _ := strings.Cut(kv, "=")
-		operatorNames = append(operatorNames, k)
-	}
-	plan, agent, err := dockeregress.Assemble(dockeregress.Input{
-		Target: p.Target, Image: p.Image, AuthVar: p.AuthVar,
-		Mode: p.Mode, Credentials: p.Credentials,
-		LocalModel: p.LocalModel, DataDir: p.DataDir,
-		Shell: p.Shell, Extra: p.Extra,
-		Sid: rs.Sid, EgDir: rs.EgDir, UID: rs.UID, GID: rs.GID,
-		ReviewSocket:  rs.Docker.ReviewSocket,
-		WriteHosts:    credentials.ReachableHosts(rs.Creds.Detected),
-		ProviderHosts: policyProviderHosts(rs.Creds.Detected, rs.Man.Capabilities),
-		ModelsDir:     rs.Model.ModelsDir, Providers: rs.Creds.Brokered, BrokerFile: rs.Creds.BrokerFile,
-		HostOllama: rs.Model.HostOllama, OllamaGPU: rs.Model.OllamaGPU,
-		HostBridge: bridge != nil,
-		Mounts:     rs.Workspace.Mounts, Workdir: rs.Workspace.Workdir, Env: append(rs.Creds.Env, operatorNames...),
-		ChildEnv:        append(rs.Creds.Child.Pairs(), operatorPairs...),
-		ProviderDomains: credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), rs.Man.Capabilities.Hosts),
-		SquidImage:      os.Getenv("PROVEO_SQUID_PROXY_IMAGE"),
-		ProxyImage:      orElseFirst(p.ProxyImage, []string{os.Getenv("PROVEO_EGRESS_PROXY_IMAGE")}),
-		OllamaImage:     os.Getenv("PROVEO_OLLAMA_IMAGE"),
-		PidsLimit:       rs.Docker.PidsLimit,
-	})
-	if err != nil {
-		return err
-	}
-
-	if p.PrintOnly {
-		fmt.Print(plan.Render())
-		fmt.Printf("# agent\ndocker %s\n", strings.Join(runner.DockerRunArgs(agent), " "))
-		return nil
-	}
-	image, err := d.PreflightImages(plan, rs.Man, p.Image)
-	if err != nil {
-		return err
-	}
-	p.Image, agent.Image = image, image
-	runErr := func() error {
-		if !dockeregress.NeedsLifecycle(plan) {
-			rs.AgentLaunched = true
-			return dockeregress.ExecAgentWithProxy(agent, reviewProxy)
-		}
-		squidProviders := rs.Creds.Detected
-		if strings.TrimSpace(rs.Man.Provider) != "" && len(rs.Creds.Brokered) == 1 {
-			squidProviders = rs.Creds.Brokered
-		}
-		rs.AgentLaunched = true
-		return dockeregress.Exec(rs.SquidConfig, plan, agent, rs.EgDir, squidProviders, reviewProxy)
-	}()
-	return runErr
 }

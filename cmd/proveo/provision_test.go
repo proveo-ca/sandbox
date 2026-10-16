@@ -124,11 +124,10 @@ func TestBuildTargetResolution(t *testing.T) {
 		name, defs, image, want string
 		man                     manifest.Manifest
 	}{
-		{"sidecar image names its target", "/d", "proveo/egress-proxy:latest", "egress-proxy", manifest.Manifest{}},
 		{"a browser variant is its own target", "/d", "proveo/claudecode-browser:latest", "claudecode-browser", manifest.Manifest{Name: "claudecode"}},
 		{"an unknown proveo image falls back to the manifest", "/d", "proveo/cecli-node:latest", "cecli", manifest.Manifest{Name: "cecli"}},
 		{"public image never builds", "/d", "ubuntu/squid:latest", "", manifest.Manifest{}},
-		{"no source tree builds nothing", "", "proveo/egress-proxy:latest", "", manifest.Manifest{}},
+		{"no source tree builds nothing", "", "proveo/claudecode:latest", "", manifest.Manifest{Name: "claudecode"}},
 		{"overridden non-proveo agent image builds nothing", "/d", "ghcr.io/acme/custom:1", "", manifest.Manifest{Name: "cecli"}},
 	} {
 		if got := buildTarget(c.defs, c.man, c.image); got != c.want {

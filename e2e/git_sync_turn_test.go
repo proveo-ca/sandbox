@@ -84,7 +84,7 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	cmd := append([]string{"env"}, envArgs...)
 	// PROVEO_GIT_SYNC_MSG=off: SPEC: _spec/packages/lib/git-sync-turn.puml
 	cmd = append(cmd, "PROVEO_HOME="+t.TempDir(), "PROVEO_AUTO_INSTALL_TOOLS=false", "PROVEO_GIT_SYNC_MSG=off",
-		proveoBin, "run", h.target, "--egress-mode", "open", "--credentials", "forward", "--input", work)
+		proveoBin, "run", h.target, "--credentials", "forward", "--input", work)
 	if err := sess.Start(220, 50, append(cmd, runArgs...)...); err != nil {
 		t.Fatalf("start %s: %v", h.target, err)
 	}

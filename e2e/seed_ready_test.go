@@ -206,7 +206,7 @@ func launchReadyShell(t *testing.T, proveoBin, target, work string) readyProbe {
 	// Broker is the default under test; an empty key file keeps the project
 	// .env's provider key out of sbx's host-wide secret store.
 	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
-		proveoBin, "run", target, "--egress-mode", "open", "--input", work, "--shell"}
+		proveoBin, "run", target, "--input", work, "--shell"}
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start %s --shell: %v", target, err)
 	}
@@ -268,7 +268,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
 	})
 	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
 	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
-		"PROVEO_HOME=" + home, proveoBin, "run", target, "--egress-mode", "open", "--input", work}
+		"PROVEO_HOME=" + home, proveoBin, "run", target, "--input", work}
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start %s: %v", target, err)
 	}

@@ -18,7 +18,6 @@ else
   load_env
   bridge_git_identity /app
   report_git_context /app
-  attach_rtk
   ensure_project_tools
 fi
 
@@ -116,8 +115,6 @@ if (( ${#agent_files[@]} > 0 )); then
   echo "🧑‍💻 Subagents available: ${agent_files[*]}"
 fi
 
-[[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
-[[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
 
 # ── Auth check ─────────────────────────────────────────────

@@ -27,6 +27,44 @@ skinparam noteTextAlignment left
 '   the credential half ......... _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
+' ── DECIDED 2026-10-16 (Executor). THIS SUPERSEDES "NO OPTION BELOW IS CHOSEN" ──
+' The Executor chose, in order: "Retire Docker egress"; "Refuse without sbx";
+' "Retire review, map the rest"; then, on the tier mapping (F1): "Nothing, `sbx`
+' handles this. Drop that param"; cursor pins (F2): "Drop the pins"; and the
+' architect's recommendations for F3-F5 by default.
+' Q1 TIERS: `--egress-mode` and the tier vocabulary (open/allowlist/review) are
+'   DROPPED. proveo writes no tier-driven entries into the Kit: no harness hosts,
+'   no provider reach, no custom domains, no PROVEO_EGRESS_PROVIDER_DOMAINS.
+'   sbx's own policy (global baseline + `sbx policy`) decides egress. [Inference]
+'   Add-on port entries (host Ollama, Chrome CDP, adb) and the Kit's credential
+'   injection declarations stay: they wire features, not an egress tier. The
+'   printed-tier-vs-written-allowlist defect below disappears with the tier.
+'   `--credentials forward|broker` stays: on sbx, broker keeps the key in sbx's
+'   secret store and forward puts it in the Kit env (internal/backend/sandbox
+'   /sandbox.go ~1113). Its help names sbx, not an egress layer.
+' Q2 REVIEW: retired with the tier. internal/reviewgate is deleted; internal/
+'   ptyproxy stays (every interactive sbx run uses it).
+' Q3 OBSERVABILITY: no flow record. `sbx policy log` saved at teardown to
+'   <egDir>/sbx/policy-log.json is the record.
+' Q4 ACL: provider.Entry.ACL and ACLBody are deleted; Hosts is the one domain fact.
+' Q5 SECRET CUSTODY (d): broker.env, WriteBrokerEnv and the sentinel are deleted;
+'   no proxy needs a key, so (d)'s backend prerequisite is closed, not moved.
+' Q6 PROVEO_SBX=0 and its off synonyms hard-fail with a message, the PROVEO_DIND
+'   way. There is no Docker fallback and no host fallback: without a ready sbx
+'   (no CLI, Linux without /dev/kvm, unsupported platform, too old) a run fails
+'   with the install/readiness hint. host-execution-fallback.puml is DEFERRED.
+' THE IMAGE GUARD: images skipped sourcing the workspace .env whenever
+'   PROVEO_EGRESS_MODE was set, which sbx runs always set. With the tier env gone
+'   the guard keys on SANDBOX_VM_ID instead, so the workspace .env still never
+'   reaches the agent env inside sbx. The broker sentinel code is deleted.
+' Cursor's `egress: [open]` and `credentials: [forward]` pins are dropped: sbx's
+'   secret store knows the cursor service (internal/sbx/secret.go ~22).
+' Also gone: the egress-proxy, squid and mitmproxy images and their build/publish
+'   targets, defs/egress-dashboard, cmd/proveo-egress, cmd/proveo-dev firehol,
+'   the "egress proxy: … (local build …)" header, broker.env on sbx runs.
+'   internal/runner shrinks to `type Mount`.
+' Findings and the order of work beyond this file: _spec/_plans/repo-simplification.puml.
+'
 ' ── THE PROPOSAL, STATED ONCE AND NOT ARGUED FOR ───────────────────────────
 ' Delete the docker+egress backend. sbx becomes the only sandbox. mitmproxy
 ' survives ONLY as an observability tool — the flow recorder — and never again
@@ -257,7 +295,7 @@ skinparam noteTextAlignment left
 '     (_spec/_plans/host-execution-fallback.puml). Does the variable warn and
 '     no-op the way `PROVEO_DIND` does, hard-fail, or silently change meaning?
 '     Silently is the one answer retire-dind already rejected once.
-title PLANNED — retire docker+egress: what the second backend still holds, and what has nowhere to go
+title DECIDED 2026-10-16 — retire docker+egress: what the second backend held, and where it went
 
 component "**docker+egress backend**\nwhat the proposal would delete" as DOCKER <<error>>
 

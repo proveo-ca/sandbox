@@ -7,14 +7,6 @@ kind: mixin
 name: cursor-posture
 displayName: proveo posture (cursor)
 description: Reachability, host-resolved environment and the seed step for a proveo run.
-permissions:
-    network:
-        allow:
-            - '*.cursor.com'
-            - '*.cursor.sh'
-            - api2.cursor.sh
-            - cursor.com
-            - cursor.sh
 environment:
     variables:
         GIT_AUTHOR_NAME: Executor

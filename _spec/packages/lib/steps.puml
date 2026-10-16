@@ -64,10 +64,9 @@
 ' job's stdin is otherwise /dev/null; fd 3 keeps the command's stderr while
 ' the job-control notices go to /dev/null.
 '
-' ── §3/§4 · TWO STEPS THAT DEGRADE RATHER THAN FAIL ───────────────────────
-' attach_rtk is opt-in (ATTACH_RTK=1|true|yes|on) and skips with a warning when
-' the working directory is not writable, since a read-only workspace is a
-' supported mount rather than an error.
+' ── §4 · A STEP THAT DEGRADES RATHER THAN FAILS ───────────────────────────
+' attach_rtk (opt-in clone of rtk-ai/rtk into the workspace) was removed
+' 2026-10-16 (Executor: "Remove rtk from proveo run"); _spec/_plans/repo-simplification.puml.
 '
 ' run_smoke_test, under PROVEO_SMOKE_TEST=1, prints
 ' "PROVEO_SMOKE_READY <PROVEO_SMOKE_TARGET|target>" and then

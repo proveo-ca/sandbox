@@ -4,27 +4,25 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 func TestShouldSkipEnvLoad(t *testing.T) {
 	t.Parallel()
-	for _, tier := range CanonicalTiers {
-		if !ShouldSkipEnvLoad(tier) {
-			t.Errorf("%s must skip the .env load", tier)
+	vm := func(v string) func(string) string {
+		return func(k string) string {
+			if k == "SANDBOX_VM_ID" {
+				return v
+			}
+			return ""
 		}
 	}
-	if !ShouldSkipEnvLoad("  ALLOWLIST  ") {
-		t.Error("the tier is matched case- and space-insensitively")
+	if !ShouldSkipEnvLoad(vm("proveo-claudecode-0123abcd")) {
+		t.Error("inside sbx the workspace .env must stay out of the agent env")
 	}
-	for _, legacy := range []string{"broker", "firewall", "proxy"} {
-		if ShouldSkipEnvLoad(legacy) {
-			t.Errorf("%q must not be understood at the container boundary", legacy)
+	for _, v := range []string{"", "   "} {
+		if ShouldSkipEnvLoad(vm(v)) {
+			t.Errorf("SANDBOX_VM_ID=%q is not a sandbox", v)
 		}
-	}
-	if ShouldSkipEnvLoad("") {
-		t.Error("an unset mode must not skip")
 	}
 }
 
@@ -48,35 +46,6 @@ func TestLoadEnvFile(t *testing.T) {
 	}
 	if os.Getenv("FOO") != "keep" {
 		t.Fatal("existing env must win")
-	}
-}
-
-func TestApplyBrokerSentinel(t *testing.T) {
-	t.Setenv("CURSOR_API_KEY", "sk-real")
-	t.Setenv("OPENAI_API_KEY", "sk-oai")
-	got := ApplyBrokerSentinel("allowlist", "CURSOR_API_KEY,OPENAI_API_KEY", "")
-	if diff := cmp.Diff([]string{"CURSOR_API_KEY", "OPENAI_API_KEY"}, got); diff != "" {
-		t.Fatal(diff)
-	}
-	if os.Getenv("CURSOR_API_KEY") != DefaultSentinel {
-		t.Fatalf("cursor key = %q", os.Getenv("CURSOR_API_KEY"))
-	}
-	t.Setenv("CURSOR_API_KEY", "sk-real")
-	if got := ApplyBrokerSentinel("open", "CURSOR_API_KEY", ""); len(got) != 1 {
-		t.Fatalf("open must rewrite a brokered key, got %v", got)
-	}
-	t.Setenv("CURSOR_API_KEY", "sk-real")
-	if ApplyBrokerSentinel("allowlist", "", "") != nil {
-		t.Fatal("no brokered keys must not rewrite")
-	}
-	if os.Getenv("CURSOR_API_KEY") != "sk-real" {
-		t.Fatalf("forwarded key was rewritten: %q", os.Getenv("CURSOR_API_KEY"))
-	}
-	for _, mode := range []string{"firewall", "proxy", "broker", ""} {
-		t.Setenv("CURSOR_API_KEY", "sk-real")
-		if ApplyBrokerSentinel(mode, "CURSOR_API_KEY", "") != nil {
-			t.Fatalf("%q must not be understood at the container boundary", mode)
-		}
 	}
 }
 

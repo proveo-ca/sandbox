@@ -3,7 +3,6 @@ package contract_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,10 +11,8 @@ import (
 	"testing"
 
 	proveo "github.com/proveo-ca/proveo"
-	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -59,29 +56,6 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 				t.Errorf("%s home mount container %q must be under /proveo-home/", m.Name, hm.Container)
 			}
 		}
-	}
-}
-
-func TestRunnerHardeningBaseline(t *testing.T) {
-	t.Parallel()
-	got := strings.Join(runner.Hardening(runner.MinPidsBase), " ")
-	for _, want := range []string{"--cap-drop=ALL", "--security-opt=no-new-privileges:true", fmt.Sprintf("--pids-limit=%d", runner.MinPidsBase)} {
-		if !strings.Contains(got, want) {
-			t.Errorf("Hardening(MinPidsBase) = %q, missing %q", got, want)
-		}
-	}
-	argv := strings.Join(runner.DockerRunArgs(runner.Config{Image: "x", PidsLimit: runner.MinPidsBase}), " ")
-	if !strings.Contains(argv, "--cap-drop=ALL") {
-		t.Errorf("DockerRunArgs must always include cap-drop: %s", argv)
-	}
-	if !strings.Contains(argv, "--pids-limit=") {
-		t.Errorf("DockerRunArgs must always include --pids-limit: %s", argv)
-	}
-	if runner.MinPidsBase < 512 {
-		t.Errorf("MinPidsBase = %d, want >= 512", runner.MinPidsBase)
-	}
-	if runner.MinPidsBrowser < runner.MinPidsBase {
-		t.Errorf("MinPidsBrowser = %d, want >= MinPidsBase %d", runner.MinPidsBrowser, runner.MinPidsBase)
 	}
 }
 
@@ -204,13 +178,6 @@ func TestProviderCursorPin(t *testing.T) {
 	})
 	if !ok || r.Value == "" {
 		t.Fatalf("Resolve(cursor) = %+v ok=%v", r, ok)
-	}
-}
-
-func TestBrokerSentinelConstant(t *testing.T) {
-	t.Parallel()
-	if entrypoint.DefaultSentinel != "proveo-brokered" {
-		t.Errorf("DefaultSentinel = %q, want proveo-brokered", entrypoint.DefaultSentinel)
 	}
 }
 

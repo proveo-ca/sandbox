@@ -70,7 +70,7 @@ func TestHermesLocalModelE2E(t *testing.T) {
 			})
 
 			if err := sess.Start(200, 50, "env", "PROVEO_WIZARD=off", proveoBin, "run", target,
-				"--egress-mode", "open", "--local-model", model, "--input", work, "--scope", ".",
+				"--local-model", model, "--input", work, "--scope", ".",
 				"--", "chat", "-q", "Respond with only the word PONG."); err != nil {
 				t.Fatalf("start session: %v", err)
 			}

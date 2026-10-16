@@ -261,21 +261,6 @@ func endShell(t *testing.T, sess *tmux.Session) string {
 	return out
 }
 
-func detectedLanguages(t *testing.T, o runOpts) map[string]bool {
-	t.Helper()
-	out, err := runLib(t, o, `detect_workspace_lsps /work | cut -d'|' -f1`)
-	if err != nil {
-		t.Fatalf("detect_workspace_lsps: %v\n%s", err, out)
-	}
-	got := map[string]bool{}
-	for _, l := range strings.Split(out, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			got[l] = true
-		}
-	}
-	return got
-}
-
 func TestToolchainFixtureCoversEveryLanguage(t *testing.T) {
 	t.Parallel()
 	entries, err := os.ReadDir(fixtureDir(t))

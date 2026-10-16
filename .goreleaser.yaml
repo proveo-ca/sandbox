@@ -19,15 +19,6 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{ .Version }}
-  - id: proveo-egress
-    main: ./cmd/proveo-egress
-    binary: proveo-egress
-    env: [CGO_ENABLED=0]
-    goos: [linux, darwin, freebsd, windows]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags:
-      - -s -w
   - id: proveo-entrypoint
     main: ./cmd/proveo-entrypoint
     binary: proveo-entrypoint
@@ -41,7 +32,7 @@ builds:
 archives:
   # Full multi-binary tarball (GitHub Releases / maintainer use).
   - id: default
-    ids: [proveo, proveo-egress, proveo-entrypoint]
+    ids: [proveo, proveo-entrypoint]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     # proveo-entrypoint is linux-only (runs inside containers), so the darwin

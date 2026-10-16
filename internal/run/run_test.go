@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
-	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
@@ -76,7 +74,7 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Multi: true, On: []bool{false, true}},
 		{Label: rowInterface, Options: []string{addonTUI, addonBrowser}, Multi: true, On: []bool{false, true}},
 	}}
-	gateAddons(f, "open", "forward", "", "")
+	gateAddons(f, "")
 
 	exec, iface := f.Rows[0], f.Rows[1]
 	if !exec.Off[0] || exec.On[0] {
@@ -98,24 +96,6 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 	}
 	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox, addonBrowser}) {
 		t.Errorf("selectedAddons = %v, want the real toggles plus the compulsory sandbox", got)
-	}
-}
-
-func TestGateAddonsEgressStillGatesTheHostBridge(t *testing.T) {
-	t.Parallel()
-	f := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true},
-	}}}
-	gateAddons(f, "firewall", "inject", "no sandbox here", "")
-	if !f.Rows[0].Off[0] {
-		t.Fatal("firewall+inject must still disable the host bridge")
-	}
-	if f.Rows[0].Reason != addonChrome+": "+chromebridge.TierWhy {
-		t.Errorf("reason = %q", f.Rows[0].Reason)
-	}
-	gateAddons(f, "open", "forward", "no sandbox here", "")
-	if f.Rows[0].Off[0] {
-		t.Error("open+forward must leave the host bridge enabled")
 	}
 }
 
@@ -274,17 +254,8 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}
 	}
 
-	if len(kit.Permissions.Network.Allow) == 0 {
-		t.Error("allowlist must include at least the manifest hosts")
-	}
-	sawManifestHost := false
-	for _, d := range kit.Permissions.Network.Allow {
-		if d == "api.anthropic.com" || d == "statsig.anthropic.com" {
-			sawManifestHost = true
-		}
-	}
-	if !sawManifestHost {
-		t.Errorf("allowlist missing manifest hosts: %v", kit.Permissions.Network.Allow)
+	if allow := kit.Permissions.Network.Allow; len(allow) != 0 {
+		t.Errorf("network.allow = %v; sbx's own policy decides egress, so the Kit names no hosts", allow)
 	}
 	if kit.Kind != "mixin" {
 		t.Errorf("kit.Kind = %q, want mixin: a sandbox kit declares an agent sbx will not register", kit.Kind)
@@ -304,24 +275,6 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 	}
 }
 
-func TestReviewAvailabilityGreysReviewOnSandboxBackend(t *testing.T) {
-	row := choiceui.Row{Label: "egress", Options: []string{"open", "review"}, Selected: 1}
-	greyed := reviewAvailability(row, true)
-	if !greyed.Off[1] {
-		t.Error("sbx backend must grey out review")
-	}
-	if greyed.Selected == 1 {
-		t.Errorf("selection must move off review, got %d", greyed.Selected)
-	}
-	if !strings.Contains(greyed.Reason, "sandbox") {
-		t.Errorf("reason = %q, want it to name the sandbox backend", greyed.Reason)
-	}
-	keep := reviewAvailability(choiceui.Row{Label: "egress", Options: []string{"open", "review"}}, false)
-	if runtime.GOOS == "linux" && len(keep.Off) != 0 {
-		t.Errorf("linux host without sbx must leave review enabled, got Off=%v", keep.Off)
-	}
-}
-
 func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
 	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
@@ -338,7 +291,6 @@ func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
 				Env:  []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 				Capabilities: manifest.Capabilities{
 					Hosts:       []string{"api2.cursor.sh"},
-					Egress:      []string{"open"},
 					Credentials: []string{"forward", "broker"},
 				},
 			},
@@ -395,7 +347,6 @@ func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
 			Name: "cecli",
 			Env:  []manifest.EnvVar{{Name: "AWS_ACCESS_KEY_ID", Secret: true}},
 			Capabilities: manifest.Capabilities{
-				Egress:      []string{"open"},
 				Credentials: []string{"broker"},
 			},
 		},
@@ -506,63 +457,26 @@ func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T)
 
 func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
 	t.Parallel()
-	row := func(sandboxOn bool) *choiceui.Form {
+	row := func() *choiceui.Form {
 		return &choiceui.Form{Rows: []choiceui.Row{
-			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{sandboxOn}},
+			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{true}},
 			{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
 		}}
 	}
 	chrome := func(f *choiceui.Form) *choiceui.Row { return &f.Rows[1] }
-	sandbox := func(f *choiceui.Form) *choiceui.Row { return &f.Rows[0] }
-	f := row(false)
-	gateAddons(f, "open", "forward", "", "no Claude in Chrome native host on this machine")
+	f := row()
+	gateAddons(f, "no Claude in Chrome native host on this machine")
 	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, "native host") {
 		t.Errorf("host preflight failure must grey+untick with its reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
-
 	// a path there. Measured; see _spec/defs/claudecode/chrome-bridge.puml.
-	f = row(true)
-	gateAddons(f, "open", "forward", "", "")
+	f = row()
+	gateAddons(f, "")
 	if c := chrome(f); !c.Off[0] || c.On[0] || c.Reason != addonChrome+": "+chromebridge.SbxWhy {
-		t.Errorf("a ticked sandbox must grey+untick the bridge with the sentinel reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
+		t.Errorf("the sandbox must grey+untick the bridge with the sentinel reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
 	}
-	// The escape the reason names is the env var, not the checkbox: an available
-	// sandbox is greyed AND ticked, so there is no box left to untick.
-	if sb := sandbox(f); !sb.Off[0] || !sb.On[0] {
+	if sb := f.Rows[0]; !sb.Off[0] || !sb.On[0] {
 		t.Errorf("the sandbox box itself must be greyed and ticked: off=%v on=%v", sb.Off, sb.On)
-	}
-
-	// The tier gate is the DOCKER backend's, so it only applies with no sandbox:
-	// there an intercepting tier puts the agent behind a sidecar with no route out.
-	f = row(false)
-	gateAddons(f, "allowlist", "forward", "no sbx", "")
-	if c := chrome(f); !c.Off[0] || !strings.Contains(c.Reason, "egress open + credentials forward") {
-		t.Errorf("an intercepting tier must grey the host browser on docker: off=%v reason=%q", c.Off, c.Reason)
-	}
-	// ...and on sbx the sentinel, not the tier, is the reason.
-	f = row(true)
-	gateAddons(f, "allowlist", "forward", "", "")
-	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, chromebridge.SbxWhy) {
-		t.Errorf("sbx must grey the bridge for the sentinel whatever the tier: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
-	}
-
-	f = row(false)
-	gateAddons(f, "open", "forward", "no sbx", "")
-	if c := chrome(f); c.Off[0] || !c.On[0] || c.Reason != "" {
-		t.Errorf("open + forward, no sandbox to exclude it, host ready: the box must be live: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
-	}
-
-	// A sandbox the host cannot run is unticked by its own gate, so it must not
-	// count as "ticked" against the host browser.
-	f = row(true)
-	gateAddons(f, "open", "forward", "sbx CLI not found on PATH", "")
-	if c := chrome(f); c.Off[0] || !c.On[0] {
-		t.Errorf("an unavailable sandbox must not grey the host browser: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
-	}
-	// And its own reason stays on its own row: the groups explain themselves
-	// separately now.
-	if sb := sandbox(f); !strings.Contains(sb.Reason, "docker sandbox: sbx CLI not found") {
-		t.Errorf("the sandbox reason must be on the execution row: %q", sb.Reason)
 	}
 }
 
@@ -608,26 +522,6 @@ func TestChromeUnavailableReadsTheLoginInTheProveoHome(t *testing.T) {
 	}
 }
 
-func TestTheSandboxBackendIgnoresTheRememberedAddon(t *testing.T) {
-	t.Parallel()
-	man := manifest.Manifest{Name: "claudecode", Docker: manifest.DockerSbx}
-	want := sandbox.Selected(man)
-	for _, p := range []*Params{
-		{},
-		{Addons: []string{addonSandbox}, AddonsAnswered: true},
-		{Addons: []string{addonBrowser}, AddonsAnswered: true},
-		{AddonsAnswered: true},
-	} {
-		if got := p.willSandbox(man); got != want {
-			t.Errorf("Addons=%v answered=%v: willSandbox = %v, want the host test %v",
-				p.Addons, p.AddonsAnswered, got, want)
-		}
-	}
-	if (&Params{}).willSandbox(manifest.Manifest{}) {
-		t.Error("a harness that does not declare sbx never takes the sandbox backend")
-	}
-}
-
 func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 	t.Parallel()
 	form := func() *choiceui.Form {
@@ -638,10 +532,10 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 		}}
 	}
 	first := form()
-	gateAddons(first, "open", "forward", "", "")
+	gateAddons(first, "")
 	second := form()
-	gateAddons(second, "open", "forward", "", "")
-	gateAddons(second, "open", "forward", "", "")
+	gateAddons(second, "")
+	gateAddons(second, "")
 	for _, tc := range []struct {
 		name string
 		f    *choiceui.Form
@@ -656,70 +550,24 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 	}
 }
 
-// A harness with no sandbox box carries nothing that may be read as one — the
-// exclusion is the sandbox's, not the row's.
-func TestGateAddonsLeavesTheHostBrowserAloneWithoutASandboxBox(t *testing.T) {
-	t.Parallel()
-	f := &choiceui.Form{Rows: []choiceui.Row{
-		{Label: rowExecution, Options: []string{addonHost}, Multi: true, On: []bool{false}},
-		{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
-	}}
-	gateAddons(f, "open", "forward", "", "")
-	if c := f.Rows[1]; c.Off[0] || !c.On[0] {
-		t.Errorf("no sandbox in the execution row means no exclusion: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
-	}
-}
-
-func TestGateAddonsGreysTheSandboxWhenTheHostCannotRunIt(t *testing.T) {
+func TestGateAddonsKeepsTheSandboxCompulsory(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{{
 		Label: rowExecution, Options: []string{addonHost, addonSandbox}, Multi: true, On: []bool{false, true},
 	}}}
-	gateAddons(f, "open", "forward", "sbx CLI not found on PATH", "")
+	gateAddons(f, "")
 	r := f.Rows[0]
-	if !r.Off[1] {
-		t.Fatal("the sandbox add-on must be greyed out when sbx is unavailable")
-	}
-	if !strings.Contains(r.Reason, "sbx CLI not found on PATH") {
-		t.Errorf("reason = %q, want the availability reason", r.Reason)
-	}
-	if got := selectedAddons(f); len(got) != 0 {
-		t.Errorf("a greyed add-on must not count as selected, got %v", got)
-	}
-	f.Rows[0].Off, f.Rows[0].Reason = nil, ""
-	gateAddons(f, "open", "forward", "", "")
-	r = f.Rows[0]
 	if !r.Off[1] || !r.On[1] {
-		t.Errorf("an available sbx is compulsory: greyed and ticked, got off=%v on=%v", r.Off, r.On)
+		t.Errorf("the sandbox is compulsory: greyed and ticked, got off=%v on=%v", r.Off, r.On)
 	}
 	if r.Reason != "" {
 		t.Errorf("a box greyed on every run must stay out of the inline reason, got %q", r.Reason)
 	}
-	if !strings.Contains(r.OffWhy[addonSandbox], "PROVEO_SBX=0") {
-		t.Errorf("the compulsory sandbox must name its escape hatch, got %q", r.OffWhy[addonSandbox])
+	if !strings.Contains(r.OffWhy[addonSandbox], "nowhere else") {
+		t.Errorf("the compulsory sandbox must say why, got %q", r.OffWhy[addonSandbox])
 	}
 	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox}) {
 		t.Errorf("a compulsory sandbox must still be reported as selected, got %v", got)
-	}
-}
-
-func TestGateReviewFollowsTheSandboxAddon(t *testing.T) {
-	t.Parallel()
-	row := choiceui.Row{Label: "egress", Options: []string{"open", "review"}, Selected: 1}
-	f := &choiceui.Form{Rows: []choiceui.Row{row}}
-	gateReview(f, true)
-	if !f.Rows[0].Off[1] {
-		t.Fatal("review must be greyed out while the sandbox add-on is on")
-	}
-	if f.Rows[0].Selected == 1 {
-		t.Error("selection must move off a greyed option")
-	}
-	if !strings.Contains(f.Rows[0].Reason, "docker sandbox backend") {
-		t.Errorf("reason = %q", f.Rows[0].Reason)
-	}
-	gateReview(f, false)
-	if ok, _ := dockeregress.ReviewSupported(func(string) string { return "" }); ok && f.Rows[0].Off[1] {
-		t.Error("turning the add-on off must hand the review tier back")
 	}
 }
 
@@ -742,31 +590,6 @@ func TestNormalizeAddonsDropsTheRetiredSidecarNames(t *testing.T) {
 	got := normalizeAddons([]string{"browser", "dind", "docker (dind)", addonSandbox})
 	if diff := cmp.Diff([]string{"browser", addonSandbox}, got); diff != "" {
 		t.Errorf("normalizeAddons() mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestPolicyProviderHostsCoversDeclaredAndDetected(t *testing.T) {
-	t.Parallel()
-	subscription := manifest.Capabilities{Providers: []string{"anthropic"}}
-
-	if got := policyProviderHosts(nil, subscription); len(got) == 0 {
-		t.Error("a subscription harness with no host-side key got no provider hosts")
-	}
-	if got := policyProviderHosts([]string{"anthropic"}, manifest.Capabilities{}); len(got) == 0 {
-		t.Error("a detected provider with no declared capability got no provider hosts")
-	}
-	// Declared and detected overlap on the common path; the union must not
-	// double-list a host (the policy would still match, but the plan reads twice).
-	got := policyProviderHosts([]string{"anthropic"}, subscription)
-	seen := map[string]bool{}
-	for _, h := range got {
-		if seen[h] {
-			t.Errorf("duplicate host %q in %v", h, got)
-		}
-		seen[h] = true
-	}
-	if len(got) == 0 {
-		t.Fatal("union of declared and detected must not be empty")
 	}
 }
 
@@ -797,44 +620,32 @@ func TestCacheOnlyAppliesWhereThereIsAPromptToSeed(t *testing.T) {
 // command line — the cache fills gaps, it does not out-rank a flag.
 func TestSeedFromCacheYieldsToExplicitFlags(t *testing.T) {
 	t.Parallel()
-	cached := agentsettings.Choice{Egress: "open", Credentials: "forward", Addons: []string{"browser"}}
+	cached := agentsettings.Choice{Credentials: "forward", Addons: []string{"browser"}}
 	lookup := func(string) string { return "" }
 
-	stated := Params{Mode: "allowlist", Credentials: "broker", ModeSet: true, CredsSet: true}
+	stated := Params{Credentials: "broker", CredsSet: true}
 	stated.seedFromCache(cached, lookup, false)
-	if stated.Mode != "allowlist" || stated.Credentials != "broker" {
-		t.Errorf("explicit flags were overwritten: mode=%q credentials=%q", stated.Mode, stated.Credentials)
+	if stated.Credentials != "broker" {
+		t.Errorf("an explicit flag was overwritten: credentials=%q", stated.Credentials)
 	}
 
-	unstated := Params{Mode: "allowlist", Credentials: "broker"}
+	unstated := Params{Credentials: "broker"}
 	unstated.seedFromCache(cached, lookup, false)
-	if unstated.Mode != "open" || unstated.Credentials != "forward" {
-		t.Errorf("unstated axes were not seeded: mode=%q credentials=%q", unstated.Mode, unstated.Credentials)
+	if unstated.Credentials != "forward" {
+		t.Errorf("an unstated axis was not seeded: credentials=%q", unstated.Credentials)
 	}
 	if !hasAddon(unstated.Addons, "browser") {
 		t.Errorf("remembered add-ons were not seeded: %v", unstated.Addons)
 	}
 }
 
-func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
-	man := manifest.Manifest{}
-
-	t.Run("docker keeps proveo's tiers selectable", func(t *testing.T) {
-		got := egressRow(man, "open", false)
-		if got.Locked {
-			t.Error("the docker tier is a real choice and must not be locked")
-		}
-		if len(got.Options) == 0 || got.Options[0] != "open" {
-			t.Errorf("docker must offer proveo's canonical tiers, got %v", got.Options)
-		}
-	})
-
+func TestEgressRowShowsTheHostBaseline(t *testing.T) {
 	t.Run("sbx shows the host baseline, read-only", func(t *testing.T) {
 		orig := policyBaseline
 		t.Cleanup(func() { policyBaseline = orig })
 		policyBaseline = func() (string, bool) { return sbx.BaselineBalanced, true }
 
-		got := egressRow(man, "allowlist", true)
+		got := egressRow()
 		if !got.Locked {
 			t.Error("the sbx baseline is host-wide and proveo does not set it; the row must be locked")
 		}
@@ -854,7 +665,7 @@ func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
 		var seen []string
 		for _, b := range append(sbx.Baselines(), "") {
 			policyBaseline = func() (string, bool) { return b, b != "" }
-			r := egressRow(man, "allowlist", true)
+			r := egressRow()
 			if !strings.Contains(r.Reason, "sbx policy reset && sbx policy init") {
 				t.Errorf("baseline %q: hint must include the reset, got %q", b, r.Reason)
 			}
@@ -876,7 +687,7 @@ func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
 		t.Cleanup(func() { policyBaseline = orig })
 		policyBaseline = func() (string, bool) { return "", false }
 
-		got := egressRow(man, "allowlist", true)
+		got := egressRow()
 		for _, b := range sbx.Baselines() {
 			for _, o := range got.Options {
 				if o == b {
@@ -886,44 +697,6 @@ func TestEgressRowShowsWhatGovernsEachBackend(t *testing.T) {
 			}
 		}
 	})
-}
-
-func TestSandboxAddonIsGreyedAndUntickedWhenUnavailable(t *testing.T) {
-	t.Parallel()
-	row := choiceui.Row{
-		Label: rowExecution, Multi: true,
-		Options: []string{addonHost, addonSandbox},
-		On:      []bool{true, true}, // as addonDefaults leaves it: sandbox pre-ticked
-	}
-	f := &choiceui.Form{Rows: []choiceui.Row{row}}
-
-	gateAddons(f, "open", "forward", "PROVEO_SBX is off", "")
-
-	got := f.Rows[0]
-	var i int
-	for j, o := range got.Options {
-		if o == addonSandbox {
-			i = j
-		}
-	}
-	if !got.Off[i] {
-		t.Error("an unavailable sandbox add-on must be greyed")
-	}
-	if got.On[i] {
-		t.Error("a greyed add-on must also be unticked: a ticked box reads as the run's posture")
-	}
-	if !strings.Contains(got.Reason, "PROVEO_SBX is off") {
-		t.Errorf("the row must name why, got %q", got.Reason)
-	}
-	// An available backend leaves the operator's choice alone.
-	f2 := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: rowExecution, Multi: true,
-		Options: []string{addonSandbox}, On: []bool{true},
-	}}}
-	gateAddons(f2, "open", "forward", "", "")
-	if !f2.Rows[0].Off[0] || !f2.Rows[0].On[0] {
-		t.Error("an available sandbox add-on must be greyed and ticked — it is compulsory")
-	}
 }
 
 func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
@@ -943,33 +716,23 @@ func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
 		man     manifest.Manifest
 		p       Params
 		sbxOK   bool
-		sbxOff  bool
 		want    bool
 		because string
 	}{
 		{name: "the case that was broken", man: sbxMan, sbxOK: true, want: true,
 			because: "an sbx subscription run: the store IS where its credential lives"},
-		{name: "docker backend", man: dockerMan, sbxOK: true, want: false,
-			because: "the proveo home is the credential there; sbx's store is not consulted"},
+		{name: "a harness without sbx", man: dockerMan, sbxOK: true, want: false,
+			because: "only an sbx harness keeps its credential in sbx's store"},
 		{name: "not a subscription harness", man: apiMan, sbxOK: true, want: false,
 			because: "an API-key harness authenticates from the env, not from a login"},
-		{name: "review mode", man: sbxMan, p: Params{Mode: "review"}, sbxOK: true, want: false,
-			because: "review runs on docker+egress, so it never reaches sbx's store"},
 		{name: "sbx unavailable", man: sbxMan, sbxOK: false, want: false,
 			because: "a store proveo cannot reach cannot be the reason to launch"},
-		{name: "PROVEO_SBX=off", man: sbxMan, sbxOK: true, sbxOff: true, want: false,
-			because: "the knob pins docker+egress; the backend decides the store"},
 		{name: "a remembered answer without the add-on", man: sbxMan,
 			p:     Params{Addons: []string{}, AddonsAnswered: true},
 			sbxOK: true, want: true,
 			because: "the add-on no longer votes: an sbx harness runs on sbx, so the store is still the source"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if c.sbxOff {
-				t.Setenv("PROVEO_SBX", "off")
-			} else {
-				t.Setenv("PROVEO_SBX", "")
-			}
 			p := c.p
 			if got := sbxSuppliesCredential(c.man, &p, c.sbxOK); got != c.want {
 				t.Errorf("sbxSuppliesCredential = %v, want %v (%s)", got, c.want, c.because)
@@ -1183,11 +946,7 @@ func TestHostCDPAddonIsOfferedByCapabilityAndNeedsSbx(t *testing.T) {
 	f := &choiceui.Form{Rows: []choiceui.Row{
 		{Label: rowInterface, Options: []string{addonHostCDP}, Multi: true, On: []bool{true}},
 	}}
-	gateAddons(f, "allowlist", "inject", "no sbx", "")
-	if r := f.Rows[0]; !r.Off[0] || r.On[0] || !strings.Contains(r.Reason, "sbx") {
-		t.Errorf("without sbx the add-on must grey+untick: off=%v on=%v reason=%q", r.Off, r.On, r.Reason)
-	}
-	gateAddons(f, "allowlist", "inject", "", "")
+	gateAddons(f, "")
 	if r := f.Rows[0]; r.Off[0] {
 		t.Errorf("with sbx the add-on must be live: reason=%q", r.Reason)
 	}

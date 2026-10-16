@@ -70,4 +70,4 @@ debian:bookworm-slim
   appropriate shared layer.
 
 It is not a runnable harness: no `harness.manifest`, no entrypoint. It is a mise
-build/deploy target (`mise build base`) like the sidecar images.
+build/deploy target (`mise build base`) like the harness images.

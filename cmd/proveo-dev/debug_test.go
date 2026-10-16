@@ -80,7 +80,7 @@ func TestDevRegistryListsTheHarnessDefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"claudecode", "cursor", "base", "egress-proxy"} {
+	for _, name := range []string{"claudecode", "cursor", "base"} {
 		if _, ok := lookupTarget(reg, name); !ok {
 			t.Errorf("registry has no %s", name)
 		}

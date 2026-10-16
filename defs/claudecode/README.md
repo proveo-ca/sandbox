@@ -45,7 +45,7 @@ Claude Code container with MCP servers pre-configured. Shows how to add MCP serv
 
 1. **Claude Code License**: Ensure you have a valid Claude Code license
 2. **OAuth Token**: Set your Claude Code OAuth token
-3. **Docker**: Docker must be installed and running
+3. **Docker Sandboxes (sbx)**: `proveo run` needs a ready sbx (`proveo init` installs it); building the images needs Docker
 
 ### Build and Run
 
@@ -146,12 +146,10 @@ prompt scopes it to `_spec/`, `PLAN.md`, `CLAUDE.md`, and `AGENTS.md`.
 ## Security Features
 
 ### Container Security
-- **Root-free execution**: baked non-root user `claude` (uid 1000); `proveo run` launches as the invoking host uid via `--user $(id -u):$(id -g)`
-- **Capability dropping**: Minimal Linux capabilities
-- **Process limits**: Host-scaled `--pids-limit` (base floor 512; browser variants higher; override via `PROVEO_PIDS_LIMIT`). Runs fail fast if the host ceiling is below the tier minimum.
-- **Tmpfs mounts**: Isolated temporary storage for /tmp and /workspace/temp
-- **Network isolation**: Bridge network with no host access
-- **Security options**: No new privileges allowed
+- **Root-free execution**: baked non-root user `claude` (uid 1000); sbx runs the agent as that uid
+- **MicroVM isolation**: every run is a Docker Sandboxes (sbx) microVM
+- **Network policy**: sbx's host-wide policy governs egress (`sbx policy ls`, `sbx policy allow network <domain>`)
+- **Credential proxy**: with `--credentials broker` (the default) sbx's proxy holds the key; the agent never does
 
 ### Jailfree Mode
 - **Dangerous executions allowed**: Pre-configured for full automation
@@ -202,8 +200,8 @@ Two different browsers, two different add-ons in the `proveo run` picker:
 
 | add-on | what the agent drives | image | backend |
 | --- | --- | --- | --- |
-| `browser` | a headless Chromium **inside the sandbox** — Playwright's, shared by the `playwright` CLI and [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` · `snapshot` · `click` · `fill` · `screenshot` over CDP) | `proveo/claudecode-browser` (FROM `proveo/base-node-browser`) | sbx or docker |
-| `chrome (host browser)` | **your own Chrome**, through the Claude in Chrome extension — your logins, the extension's site permissions | any claudecode image | docker only |
+| `browser` | a headless Chromium **inside the sandbox** — Playwright's, shared by the `playwright` CLI and [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` · `snapshot` · `click` · `fill` · `screenshot` over CDP) | `proveo/claudecode-browser` (FROM `proveo/base-node-browser`) | sbx |
+| `chrome (host browser)` | **your own Chrome**, through the Claude in Chrome extension — your logins, the extension's site permissions | any claudecode image | greyed on sbx |
 
 ## Mobile: an Android emulator on the host, driven by mobile-mcp
 
@@ -259,11 +257,8 @@ Preconditions, each named in the picker when it fails:
   beside it and `user:inference` when that is unset — which is what `claude setup-token` mints,
   and the one shape that really is refused. `ANTHROPIC_API_KEY` is fatal only on its own; it
   does not displace a login. The check runs before `--chrome`, so no flag overrides it.
-- `--egress-mode open --credentials forward` and the docker backend: the bridge network is
-  the docker path; the sandbox reaches the host through host.docker.internal (measured,
-  proxies every outbound TCP). claudecode declares `docker: sbx`, so it runs in the sandbox
-  and the picker greys this add-on on every run — reach the docker backend with `PROVEO_SBX=0`
-  (or `--egress-mode review`, which has no sbx transport either) if you want the bridge.
+- A real Claude token inside the sandbox. sbx keeps the token proxy-managed, and the Chrome
+  bridge rejects sbx's sentinel (401), so the picker greys this add-on on every run.
 
 The agent then has your browser's sessions. The extension's site permissions still apply, and
 the relay closes any connection that does not present the run's token. Spec:

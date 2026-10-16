@@ -42,7 +42,7 @@ func TestOpenCodeTwoSessionsSurviveProveoRuns(t *testing.T) {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 		defer cancel()
-		args := []string{"run", "opencode", "--egress-mode", "open", "--credentials", "forward",
+		args := []string{"run", "opencode", "--credentials", "forward",
 			"--image", image, "--input", work, "--yes"}
 		args = append(args, flags...)
 		if len(native) > 0 {

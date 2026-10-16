@@ -1,39 +1,56 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress stays as the fallback path
-' ── THE PLAN'S AGENT ENVIRONMENT REACHES BOTH RENDERINGS ───────────────────
-' `egress.BuildPlan` decides what the AGENT's own environment must hold, and
-' until 2026-09-15 it published that decision only as docker `-e` flags on
-' `Plan.AgentArgs`, which exactly one caller read: internal/backend/dockeregress
-' (dockeregress.go, ExtraArgs: plan.AgentArgs). The sandbox backend builds
-' cfg.Env from its own sources and never consulted the plan, so everything the
-' plan wired was dropped under sbx:
+title Sandbox backend — the only backend: sbx runs the agent, or the run refuses
+' ── DECIDED 2026-10-16 (Executor): sbx OR REFUSE ───────────────────────────
+' The Executor chose, in order: "Retire Docker egress"; "Refuse without sbx";
+' "Retire review, map the rest"; on the tier mapping: "Nothing, `sbx` handles
+' this. Drop that param". The docker+egress backend (internal/backend/
+' dockeregress, internal/egress, internal/egressproxy, internal/egresspolicy,
+' internal/broker, internal/reviewgate, cmd/proveo-egress, defs/sidecars,
+' defs/egress-dashboard) is DELETED. There is no Docker fallback and no host
+' fallback. The host-execution decision space stays DEFERRED in
+' _spec/_plans/host-execution-fallback.puml.
 '
-'   the local-model set   PROVEO_LOCAL_MODEL, OLLAMA_*, OPENAI_*, ANTHROPIC_*,
-'                         ARCHITECT_MODEL, EDITOR_MODEL, SMALL_MODEL — 15 vars
-'                         from localModelArgs. `--local-model` was accepted on
-'                         the command line and then did NOTHING: the sandbox
-'                         backend has no LocalModel field.
-'   PROVEO_EGRESS_MODE    the tier the agent and entrypoint-lib.sh both read.
+' MEASURED, internal/run/run.go requireSandbox, before any workspace work:
+'   PROVEO_SBX in off|0|no|false|disable|disabled (sandbox.Disabled)
+'     → "PROVEO_SBX=<v> is retired: it selected the docker+egress fallback,
+'        which is gone. Unset it; proveo runs on Docker Sandboxes (sbx) only"
+'   the manifest lacks `docker: sbx` (man.IsSbx) → refuse, naming the target
+'   sbx not ready (sandbox.Ready → sbx.Available, or Ensure off --print)
+'     → sandbox.Unavailable(why): the reason, the engine, and the install or
+'       upgrade line from sbx.InstallCmd
+' `--print` refuses too: it calls sbx.Available and never installs.
+' PROVEO_SBX hard-fails rather than warning and no-opping, unlike PROVEO_DIND:
+' a run that silently ignored it would land the operator on the backend they
+' tried to leave. e2e/sbx_test.go pins both refusals
+' (TestSandboxBackendRefusesWhenSbxAbsent, TestRetiredSbxOffValuesRefuseTheRun).
 '
-' Three suite failures, one cause: TestHelloWorldE2E reported
-' `main model in container = "unset"` on all three targets and no PROVEO_MODELS
-' preamble; TestPromptfulE2E drove a real agent against a model that never
-' arrived and timed out with nothing done; TestAgentSettingsPersistAcrossRuns
-' read `TIER=` empty and concluded the choice cache was not re-entered, which
-' it was — the variable simply never crossed.
+' THE WORKSPACE .env GUARD KEYS ON SANDBOX_VM_ID. Images skipped sourcing the
+' workspace .env only while PROVEO_EGRESS_MODE named a tier, and only the
+' deleted egress plan set it. MEASURED now: packages/lib/entrypoint-lib.sh
+' load_env and internal/entrypoint ShouldSkipEnvLoad(getenv) both skip when
+' SANDBOX_VM_ID is non-empty, which sbx sets inside every VM. The workspace .env
+' never enters the agent env; the agent can still READ the file, and
+' credentials.WarnMountedSecrets(dir, lookup) says so when it holds a provider
+' key. The broker sentinel (apply_broker_sentinel, ApplyBrokerSentinel,
+' "proveo-brokered", PROVEO_CREDENTIAL_BROKER_KEYS) and CanonicalTiers are
+' deleted. [Unverified] SANDBOX_VM_ID may be deprecated in favour of
+' SANDBOX_NAME; repo-simplification.puml F7 holds the options.
 '
-' `egress.AgentEnv(Options)` now returns that decision as KEY=VALUE pairs and
-' `sandbox.Input.AgentEnv` carries it into cfg.Env, so both renderings read one
-' decision. ONLY `-e KEY=VALUE` pairs cross: the rest of AgentArgs is docker
-' topology (--network, --dns, --add-host) that means nothing to a sandbox, and
-' the sidecar environment was never in AgentArgs — it lives in the
-' sidecar commands. That is why the fix names a ROUTE rather than enumerating
-' the 42 variables the old grep found; they are not all agent-facing.
+' inject/broker.env IS NO LONGER WRITTEN. assembleEnv writes no file; no proxy
+' of proveo's needs a key. secret-custody (d) is closed, not moved.
 '
-' ── AND THAT ROUTE IS ONE CASE OF A LARGER RULE ────────────────────────────
-' The framing above — "the plan's decision must reach both renderings" — reads
-' as a one-off repair, and it is not. MEASURED 2026-09-15/16, sbx 0.42.1: sbx
+' ── THE AGENT ENVIRONMENT, AFTER THE PLAN WENT ─────────────────────────────
+' HISTORY: from 2026-09-15 `egress.AgentEnv` carried the docker plan's agent
+' environment (the local-model set, PROVEO_EGRESS_MODE) into cfg.Env, because
+' the sandbox path had dropped it and `--local-model` did nothing under sbx.
+' internal/egress is deleted. MEASURED now: run.launchSandbox builds
+' `sandbox.Input.AgentEnv` itself — host CDP and adb add-on env, operator.Env,
+' and sbx.LocalModelEnv(model) plus SBX_CRED_*_MODE=none for a host Ollama run
+' (_spec/internal/sbx/host-inference.puml). No tier variable crosses.
+'
+' ── THE AGENT HOLDS AT LAUNCH WHAT THE HOST RESOLVED ───────────────────────
+' MEASURED 2026-09-15/16, sbx 0.42.1: sbx
 ' does NOT gate the agent launch on the Kit's startup commands. The interactive
 ' shell is handed over at t≈0 while the dispatcher reports `dispatcher complete`
 ' at t+15–30s, and the schema offers no blocking form (`KitCommand` is
@@ -42,25 +59,20 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' safe.directory — is proveo's to render HOST-SIDE into the kit environment;
 ' anything that may happen AFTER launch — seed composition, house rules — may
 ' stay a startup command. `launchEnv` is where the first half is assembled, and
-' the plan's agent environment is simply its first entry.
+' `Input.AgentEnv` is simply its first entry.
 '   what the agent holds at launch .. _spec/internal/sbx/launch-env.puml
 '
 ' ── AND THE SANDBOX DROPS THE PAIRS THAT NAME A PROXY IT HAS NOT GOT ───────
-' `sandboxAgentEnv` filters HTTP_PROXY, HTTPS_PROXY (and the lower-case pair),
-' NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, SSL_CERT_FILE,
+' `sandboxAgentEnv` filters HTTP_PROXY, HTTPS_PROXY, NO_PROXY (and the lower-case
+' forms), NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, SSL_CERT_FILE,
 ' GIT_SSL_CAINFO, INSPECT_PROXY, ENFORCEMENT_PROXY and PROVEO_EGRESS_CA_CERT.
-' This rendering runs no proveo egress layer — sbx enforces the policy and
-' terminates TLS itself — so a CA bundle or proxy URL pointing at a mitmproxy
-' that was never started would send every request into a black hole. Everything
-' else the plan decided crosses unchanged.
+' sbx enforces the policy and terminates TLS itself, so a CA bundle or proxy URL
+' naming a proveo proxy would black-hole every request. MEASURED 2026-10-16: no
+' producer of the last three remains; proxyOnlyVar still lists them
+' (repo-simplification.puml F8).
 '
-' The mode handed to BuildPlan here is BEST-EFFORT. `p.Mode` does not always
-' hold an egress mode: on this backend the choice row reports sbx's policy
-' BASELINE (_spec/internal/sbx/policy-baseline.puml), so a run started from a
-' cached choice arrived here with "allow-all" and BuildPlan rightly refused it.
-' An unusable mode now falls back to the flag's own default and a failure warns
-' rather than aborting — the agent's environment is worth having, and never
-' worth killing a run for.
+' HISTORY: the mode handed to BuildPlan here was best-effort, because `p.Mode`
+' could hold an sbx baseline. BuildPlan and `p.Mode` are both gone.
 '
 ' ── ONE SANDBOX PER DEF PER WORKSPACE, NOT ONE PER RUN ─────────────────────
 ' Measured 2026-09-15: 81 sandboxes on one developer host after a few e2e suite
@@ -94,13 +106,18 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' covers: internal/sbx/run.go
 ' covers: internal/sbx/agents.go
 ' covers: internal/sbx/limits.go
-' covers: internal/run/run.go
-' covers: internal/egress/plan.go (AgentEnv, AgentEnvPairs)
+' covers: internal/run/run.go (requireSandbox, launchSandbox)
+' covers: internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
+' covers: packages/lib/entrypoint-lib.sh (load_env)
+' covers: e2e/sbx_test.go (the refusal tests)
 ' covers: e2e/idle_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
 '   what the agent holds at launch _spec/internal/sbx/launch-env.puml
+'   what decides egress ........... _spec/internal/sbx/policy-baseline.puml
+'   who holds the key ............. _spec/internal/sbx/credential-path.puml
+'   the deferred host fallback .... _spec/_plans/host-execution-fallback.puml
 '
 ' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
 ' Every other e2e drives the agent. `e2e/idle_test.go` reaches a prompt and then
@@ -175,50 +192,44 @@ title Sandbox backend — first-class for claudecode + cursor;\ndocker+egress st
 ' Kit schema, the validate handoff, session lifecycle and exit-code handling:
 '   sbx-kit-contract.puml (same directory)
 
-component "run.Do backend selection\n""man.IsSbx() && mode != review""\n&& ""internal/sbx.Available()""" as SEL <<app>>
+component "run.Do → requireSandbox\nPROVEO_SBX off · no ""docker: sbx""\n· ""sandbox.Ready"" false → refuse" as SEL <<app>>
 component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
 component "sbx CLI (pre-GA; proveo pins\n""sbx.MinVersion"")\nrun --kit … / secret set / rm" as CLI <<host>>
-component "Kit spec.yaml (per run)\nallowedDomains = manifest hosts ∪\nprovider endpoints ∪ PROVEO_EGRESS_PROVIDER_DOMAINS" as KIT <<app>>
+component "Kit spec.yaml (per run)\nnetwork.allow = add-on ports (Ollama ·\nCDP · adb) ∪ own-agent credential domains" as KIT <<app>>
 component "host-side credential injection\nvalues via stdin — never argv,\nnever env, never the VM fs" as SEC <<error>>
 
-component "docker+egress orchestration\nnets · Squid · MITM inspector" as FB <<host>>
+component "refusal\n""sandbox.Unavailable(why)""\ninstall / upgrade hint" as REFUSE <<error>>
 
-SEL ARROW_MAIN SBX : available
-SEL ARROW_QUEUE FB : unavailable → one actionable warn
+SEL ARROW_MAIN SBX : ready
+SEL ARROW_ERROR REFUSE : not ready, or PROVEO_SBX off
 SBX ARROW_MAIN CLI
 SBX ..> KIT : rendered under state egDir/sbx/kit
 SBX ..> SEC
 
 note right of SEL
-  **Auto w/ fallback, and the override is an env var.** Every harness declares
-  ""docker: sbx"" and takes the sandbox backend whenever the host supports it. The choice prompt carries it as a
-  COMPULSORY ""docker (sandbox)"" — greyed AND ticked, so no box is left
-  to untick and ""PROVEO_SBX=0"" is the one way to send such a run down
-  docker+egress instead. A remembered 'off' no longer survives the
-  prompt: the gate re-ticks the box and still reports it as selected,
-  because the weaker backend must not be reachable by clearing
-  something that looks like an add-on
-  (""_spec/internal/choiceui/choice-prompt-render\.puml""). Unsupported hosts
-  (no sbx on PATH, or no Apple Silicon / KVM) fall back to docker+egress
-  with a single warn naming the reason. ""--print"" renders whichever
-  backend was selected (""sbx run …"" vs ""docker run ..."").
+  **No fallback, no override.** Every harness declares ""docker: sbx"", and
+  sbx is the only backend (DECIDED 2026-10-16: "Refuse without sbx"). The
+  choice prompt carries it as a COMPULSORY ""docker (sandbox)"" — greyed AND
+  ticked, help "every harness runs in the sandbox and nowhere else". A
+  remembered 'off' does not survive the prompt: the gate re-ticks the box and
+  still reports it as selected
+  (""_spec/internal/choiceui/choice-prompt-render\.puml""). A host without sbx
+  (no CLI, no Apple Silicon or ""/dev/kvm"", too old) refuses the run with the
+  reason and the install line. ""--print"" refuses the same way.
 end note
 
 note right of SBX
   **Availability gate** (all must hold):
-  | sbx CLI on PATH
+  | sbx CLI on PATH, at or above ""sbx.MinVersion""
   | darwin/arm64, **or** linux with ""/dev/kvm""
   Win11/Hyper-V and Intel macs are not gated in yet.
-  The review tier is greyed out in the picker when this backend is
-  selected — the consent-gate socket has no sbx transport yet.
 end note
 
 note bottom of SEC
-  **Credential parity with the broker, different mechanism.** Declared secret
-  env vars plus every detected provider key var are injected via ""sbx secret
-  set"" before the run; the sentinel/broker-file machinery of the egress path
-  is deliberately not involved — deny-by-default egress replaces interception.
-  Accepted gap: no DLP content scan on payloads to *allowed* hosts.
+  **sbx is the broker.** Declared secret env vars plus every permitted
+  provider key var go to ""sbx secret set"" before the run. proveo's broker
+  sentinel, ""broker.env"" and the MITM that read it were DELETED 2026-10-16.
+  Accepted gap: no DLP content scan on payloads to hosts sbx's policy allows.
 end note
 
 note bottom of SEL
@@ -243,28 +254,23 @@ note bottom of SEL
   asked to approve reach that harness has no way to exercise.
 end note
 
-note left of FB
-  **Fallback contract:** EVERY harness declares ""docker: sbx"" now
-  (_spec/_paradigms/retire-dind.puml), so nothing runs here by declaration — a run
-  lands here only when the gate above fails, or when ""PROVEO_SBX=0"" or
-  ""--egress-mode review"" asks for it. Def-local shell suites keep covering the
-  fallback images; ""e2e/sbx_test.go"" skips unless the host can run sbx.
+note left of REFUSE
+  **HISTORY — the fallback contract, 2026-09 to 2026-10-16.** A run landed on
+  docker+egress when the gate failed, or on ""PROVEO_SBX=0"" or
+  ""--egress-mode review"". From 2026-09-15 that path still shipped but was no
+  longer tested: its e2e cases skipped through ""skipOutsideSbx"". The
+  2026-10-16 decision deleted the path and its tests, and
+  ""TestSandboxBackendFallsBackToDockerWhenSbxAbsent"" became
+  ""TestSandboxBackendRefusesWhenSbxAbsent"": a refused run must not render or
+  promise a docker fallback.
+end note
 
-  **It still SHIPS, and it is no longer TESTED.** sbx is the runtime the e2e
-  suite measures, so every case whose subject is this path — the ""-egress""
-  container, its ""broker.env"", the consent gate, and
-  ""TestSandboxBackendFallsBackToDockerWhenSbxAbsent"" itself — now skips through
-  ""skipOutsideSbx"" (_spec/tests/testing-strategy.puml). Read the two together
-  and nothing contradicts: EXISTING and BEING ASSERTED are different claims,
-  and the title above makes only the first. What it does mean is that a
-  regression on this path will not be caught here, which is a cost the scope
-  decision accepted rather than an oversight to repair.
-
+note bottom of CLI
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
   assert the ARGV from pure ""sandbox.Spec"" with no VM.
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
-  this backend and asserts what ""docker: sbx"" claims: the sbx line was printed
-  (not the fallback), the workspace mount carries writes back to the host, and the
+  this backend and asserts what ""docker: sbx"" claims: the sbx line was printed,
+  the workspace mount carries writes back to the host, and the
   sandbox is gone afterwards. It drives ""--shell"", so it costs no model call and
   no credential.
 
@@ -276,8 +282,11 @@ note left of FB
   sandbox shell"// six minutes later, naming none. Three assertions close that:
 
   | ""TestSandboxKitValidatesAgainstTheRealCLI"" | renders the Kit and hands it to ""sbx kit validate"" — catches schema drift in ~2s with no VM, and treats a DEPRECATION warning as failure because that is sbx announcing the schema moved |
-  | ""TestSandboxKitDeclaresOnlyPermittedProviders"" | the Kit may only request credentials the manifest permits |
   | the run probe | fails on sbx's own ""ERROR:"" line, and on an interactive prompt, instead of waiting out the clock |
+
+  //A third row, ""TestSandboxKitDeclaresOnlyPermittedProviders"", no longer
+  exists in e2e/ (MEASURED 2026-10-16).// The permitted-provider filter is
+  pinned a layer down: ""internal/backend/sandbox/provider_gate_test\.go"".
 
   A fast pass is where a vacuous assertion hides, so the validator was checked
   against a deliberately broken Kit: at ""schemaVersion: 1"" it fails in 1.7s naming
@@ -291,23 +300,22 @@ note bottom of SEL
   **proveo owns the install and the version, not the operator.** ""sbx"" is
   pre-GA and its surface moves, so "installed" is not the same as "drivable":
   ""sbx\.MinVersion"" is the surface this build targets, ""Available()"" refuses
-  anything older **at selection time**, and the run falls back to docker+egress
-  with the reason named. Every drift the pin exists for fails deep inside a
-  sandbox otherwise, where the operator cannot see it.
+  anything older **before the run starts**, and the run refuses with the reason
+  named (""sandbox.Unavailable""). Every drift the pin exists for fails deep
+  inside a sandbox otherwise, where the operator cannot see it.
 
-  ""ensureSbx"" then offers to close the gap — ""InstallCmd(installed)"" returns
+  ""sandbox.Ensure"" then offers to close the gap — ""InstallCmd(installed)"" returns
   the //install// line when the CLI is absent and the //upgrade// line when it is
   merely old, because handing "brew install" to someone who installed it
   yesterday is how a version gate becomes advice they follow twice and then
   ignore. The install is **confirmed, never silent**: it mutates the host outside
-  proveo's own state, so it takes the same gate as a missing sidecar image
-  (""PROVEO_AUTO_PROVISION"", else a TTY prompt, else declined — and declining is
-  a fallback, not an error).
+  proveo's own state (""PROVEO_AUTO_PROVISION"", else a TTY prompt, else
+  declined). Declining REFUSES the run since 2026-10-16; it used to fall back.
 
   **""--print"" provisions nothing.** A dry run is how an operator inspects a
   posture before committing to it; if it could install a package manager's worth
-  of software the flag would stop being safe to reach for. ""sbxReady"" splits on
-  exactly that.
+  of software the flag would stop being safe to reach for. ""sandbox.Ready""
+  splits on exactly that, and an unready host refuses ""--print"" too.
 end note
 
 note bottom of CLI
@@ -410,9 +418,10 @@ note bottom of SEC
   **The Kit's credential block IS proveo's broker, declared instead of
   implemented.** ""credentials[].apiKey"" carries ""proxyManaged: true"" so the value
   never enters the VM, and ""inject: [{domain, header, format}]"" names the
-  destination and header it may ride — the same on-route rule
-  ""internal/broker"" enforces for the docker path, and the convergence the
-  experiment note predicted.
+  destination and header it may ride — the on-route rule the deleted
+  ""internal/broker"" enforced for the docker path, and the convergence the
+  experiment note predicted. Only an OWN-AGENT Kit (""kind: sandbox"") declares
+  this block; a mixin declares none (_spec/internal/sbx/credential-path\.puml).
 
   **Derived from the SECRETS being injected, not from the detected providers.**
   Those are different sets: claudecode's ""CLAUDE_CODE_OAUTH_TOKEN"" is
@@ -462,16 +471,17 @@ note bottom of SEL
 end note
 
 note right of SEC
-  **Credential posture follows the harness, not the backend.**
+  **Two credential routes, one backend.**
 
-  | ""--credentials broker"" (claudecode's default) | ""sbx secret set"" host-side; the name is listed in the Kit's ""credentialsEnv"" and the value never enters argv, the env, or the VM filesystem |
-  | ""--credentials forward"" (cursor's only mode)  | a **bare** ""-e NAME"" — ""sbx"" copies the value from the host environment, so it still never rides argv |
+  | ""--credentials broker"" (the default) | ""sbx secret set"" host-side; the value never enters argv, the env, or the VM filesystem |
+  | ""--credentials forward"" (CLI flag; the form gates it) | a **bare** ""-e NAME"" — ""sbx"" copies the value from the host environment, so it still never rides argv |
 
-  cursor cannot use the brokered path: it pins TLS to "".cursor\.sh"" /
-  "".cursor\.com"", so header injection has nothing to inject into. Forwarding
-  on the sandbox backend therefore has to match what the docker path already
-  does for it, or cursor would reach the agent with no usable key — the
-  parity break that kept the harness second-class here.
+  //HISTORY: cursor used to be forward-only// (""egress: [open]"",
+  ""credentials: [forward]"" in its manifest), on the reading that its pinned
+  TLS left nothing to inject into. The pins were DROPPED 2026-10-16 ("Drop the
+  pins"): sbx's secret store knows the cursor service
+  (internal/sbx/secret.go), and ""TestCursorBrokersThroughTheSbxStore"" asserts
+  the key goes to the store, never a bare ""-e"".
 end note
 
 note bottom of SBX
@@ -582,35 +592,31 @@ note as Memory #F4F9FB
 end note
 
 note right of SEL
-  **""PROVEO_SBX=off"" is the only headless route
-  to docker.** Because a run with no TTY skips
-  the choice cache entirely, a script rendering
-  that plan has no other knob — and the e2e
-  suite is nonetheless forbidden to reach for it.
+  **""PROVEO_SBX"" off values REFUSE.** It was the
+  only headless route to docker; the route is
+  gone, so the variable hard-fails naming the
+  retirement rather than silently doing nothing.
 end note
 
 note as AGENTENV
-  **One decision, two renderings.** The plan used
-  to publish the agent's environment as docker
-  ""-e"" flags only, so ""--local-model"" was
-  accepted and then did nothing under sbx.
-  ""egress.AgentEnv"" returns it as KEY=VALUE.
+  **The run builds the agent env itself.** Add-on
+  ports, operator name and a host Ollama's
+  ""sbx.LocalModelEnv"" fill ""Input.AgentEnv"";
+  the docker plan that used to fill it is gone.
 end note
 
 note as AGENTENVDROP
   **Proxy and CA variables are dropped here.**
   sbx enforces policy and terminates TLS itself,
-  so a bundle naming a mitmproxy that was never
-  started would black-hole every request the
-  agent makes; the rest of the plan crosses.
+  so a bundle naming a proveo proxy would
+  black-hole every request the agent makes.
 end note
 
-note as AGENTENVMODE
-  **Best-effort, never fatal.** ""p.Mode"" may
-  hold sbx's policy baseline rather than an
-  egress mode, so an unusable value falls back
-  to the flag's own default and a BuildPlan
-  failure warns instead of killing the run.
+note as ENVGUARD
+  **The .env guard keys on ""SANDBOX_VM_ID"".**
+  Inside sbx the image never sources the
+  workspace .env; the tier variable that once
+  armed this guard no longer exists.
 end note
 
 note as LAUNCHHOLD
@@ -724,15 +730,11 @@ note top of SBX
 end note
 
 note as Idle #F4F9FB
-  **Which backend ran is read from FOUR witnesses, not from proveo's own line.**
-
-  ""detectBackend"" keyed on ""backend: docker sandboxes (sbx)"" alone, and a real
-  sweep mislabelled an sbx run as docker+egress — while that same output carried
-  ""Created sandbox "", "".../sbx/kit"" and "".../sbx/policy-log\.json"". The label
-  is not cosmetic: the "was the session stopped underneath the agent?" assertion
-  fires only when it says sbx, so a wrong label silently SKIPS the check the
-  whole test exists for. Pinned by a unit test over both directions, from output
-  a real run produced.
+  //HISTORY — which backend ran was read from FOUR witnesses.// ""detectBackend""
+  keyed on ""backend: docker sandboxes (sbx)"" alone, and a real sweep
+  mislabelled an sbx run as docker+egress. With one backend left the helper is
+  gone from e2e/ (MEASURED 2026-10-16); the lesson stands for any probe that
+  infers a fact from one line of output.
 
   **Liveness is corroborating, so an unreadable listing reads as alive.**
   ""sbx ls"" is consulted for the sandbox name proveo printed (""proveo-\d+-\d+"");

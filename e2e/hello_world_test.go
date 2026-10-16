@@ -106,7 +106,7 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsNoCredential(t)...)
 	cmd = append(cmd, proveoBin, "run", h.target,
-		"--egress-mode", "open", "--credentials", "forward",
+		"--credentials", "forward",
 		"--local-model", model, "--input", work, "--")
 	cmd = append(cmd, h.agentArgs(prompt)...)
 

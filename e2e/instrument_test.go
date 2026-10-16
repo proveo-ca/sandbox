@@ -209,7 +209,7 @@ func launchShellEnv(t *testing.T, proveoBin, target, dir string, env []string, e
 	cmd := []string{"env",
 		"PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0",
 		proveoBin, "run", target,
-		"--egress-mode", "open", "--credentials", "forward",
+		"--credentials", "forward",
 		"--input", dir, "--shell",
 	}
 	if len(env) > 0 {
@@ -290,23 +290,6 @@ func acceptChoicePrompt(t *testing.T, sess *tmux.Session, target string) {
 	if err := sess.Enter(); err != nil {
 		t.Fatalf("%s: accept choice prompt: %v", target, err)
 	}
-}
-
-// waitForNewContainer blocks until a container whose name ends in suffix appears
-// that was not present before.
-func waitForNewContainer(t *testing.T, before map[string]bool, suffix string, timeout time.Duration, sess *tmux.Session) string {
-	t.Helper()
-	var found string
-	newWatcher(t, sess).until("a new "+suffix+" container", timeout, func() bool {
-		for _, n := range dockerPSNames() {
-			if strings.HasSuffix(n, suffix) && !before[n] {
-				found = n
-				return true
-			}
-		}
-		return false
-	})
-	return found
 }
 
 // sweepSandboxesAfter removes every sandbox that appears while one test runs.

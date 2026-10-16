@@ -174,7 +174,7 @@ func TestEveryHarnessNamesItsLocalModelWithoutARoleName(t *testing.T) {
 	for _, c := range []struct{ rel, want string }{
 		{"defs/cecli/entrypoint.sh", `CECLI_MODEL="openai/${PROVEO_LOCAL_MODEL}"`},
 		{"defs/opencode/entrypoint.sh", `OPENCODE_MODEL="ollama/$model"`},
-		{"internal/egress/plan.go", `"-e", "ANTHROPIC_MODEL=" + model`},
+		{"internal/sbx/host_ollama.go", `"ANTHROPIC_MODEL=" + model`},
 	} {
 		if !strings.Contains(repoFile(t, c.rel), c.want) {
 			t.Errorf("%s no longer names its local model (%s). --local-model is the one caller "+

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -26,23 +26,20 @@ func TestClaudeCodeAuth(t *testing.T) {
 	requireHarness(t, "claudecode")
 
 	proveoBin := buildProveo(t)
-	// The intercepting tier is where a boundary exists at all: `open` + `forward`
-	// is a plain bridge with no MITM, so it could not fail the way this guards.
-	mode := env("PROVEO_TEST_EGRESS_MODE", "allowlist")
 
 	declared := declaredSecrets(t, "claudecode")
 
 	for _, c := range claudecodeAuth {
 		t.Run(c.name, func(t *testing.T) {
 			requireValidAnthropicCredential(t, c)
-			for _, creds := range egress.CredentialModes() {
+			for _, creds := range run.CredentialModes() {
 				t.Run(creds, func(t *testing.T) {
 					if creds == "forward" && !declared[c.envVar] {
 						t.Skipf("claudecode does not declare %s in its manifest env, so "+
 							"--credentials forward has nothing to forward — it is reachable "+
 							"only through the broker", c.envVar)
 					}
-					probeCredentialBoundary(t, c, proveoBin, mode, creds)
+					probeCredentialBoundary(t, c, proveoBin, creds)
 				})
 			}
 		})
@@ -89,7 +86,7 @@ var claudecodeAuth = []claudecodeAuthCase{
 	},
 }
 
-func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode, creds string) {
+func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, creds string) {
 	t.Helper()
 
 	work := t.TempDir()
@@ -108,7 +105,7 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 		"PROVEO_HOME="+t.TempDir(),
 	)
 	cmd = append(cmd, proveoBin, "run", "claudecode",
-		"--egress-mode", mode, "--credentials", creds, "--input", work, "--shell")
+		"--credentials", creds, "--input", work, "--shell")
 
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start tmux session: %v", err)
@@ -128,16 +125,16 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, mode
 
 	if strings.Contains(w.Screen(), "PROBE_REASON=credits") {
 		t.Skipf("%s is valid and the account has no credits — the provider answered 'credit balance is "+
-			"too low' under --egress-mode %s --credentials %s; fund it to exercise this path", c.envVar, mode, creds)
+			"too low' under --credentials %s; fund it to exercise this path", c.envVar, creds)
 	}
 	if got := probeStatus(w.Screen()); got != "200" {
-		w.Fatalf("%s reached the provider as HTTP %s under --egress-mode %s --credentials %s, want 200 — "+
+		w.Fatalf("%s reached the provider as HTTP %s under --credentials %s, want 200 — "+
 			"the host accepted this same credential on this same endpoint, so the egress layer is what changed the answer",
-			c.envVar, got, mode, creds)
+			c.envVar, got, creds)
 	}
 	assertCleanBoot(t, w.Screen())
-	t.Logf("%s authenticated through --egress-mode %s --credentials %s (GET /v1/models → 200)",
-		c.envVar, mode, creds)
+	t.Logf("%s authenticated through --credentials %s (GET /v1/models → 200)",
+		c.envVar, creds)
 }
 
 func credentialProbeLine(c claudecodeAuthCase, creds string) string {

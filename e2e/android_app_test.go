@@ -96,7 +96,7 @@ func androidAppRow(t *testing.T, proveoBin string, port int, h androidHarness) {
 	sess := tmux.New(fmt.Sprintf("proveo-android-%s-%d", h.target, time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + t.TempDir(), "PROVEO_MOUNT_GH_CONFIG=0",
-		proveoBin, "run", h.target, "--local-model", glimmer, "--egress-mode", "open", "--input", work}
+		proveoBin, "run", h.target, "--local-model", glimmer, "--input", work}
 	runLog := filepath.Join(t.TempDir(), "run.log")
 	if err := sess.Start(220, 60, "sh", "-c", shellQuote(cmd)+" 2>&1 | tee "+shellQuote([]string{runLog})); err != nil {
 		t.Fatalf("start session: %v", err)

@@ -5,9 +5,7 @@
 package e2e
 
 import (
-	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -78,20 +76,4 @@ func requireHarness(t *testing.T, target string) string {
 	t.Helper()
 	requireTmux(t)
 	return harnessImage(t, target)
-}
-
-func requireReviewTier(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skipf("--egress-mode review is linux only (GOOS=%s): the consent gate cannot be reached from the inspector", runtime.GOOS)
-	}
-	if h := strings.TrimSpace(os.Getenv("DOCKER_HOST")); h != "" && !strings.HasPrefix(h, "unix://") {
-		t.Skipf("--egress-mode review needs a local docker daemon (DOCKER_HOST=%s)", h)
-	}
-}
-
-// skipOutsideSbx skips a test whose subject is the docker rendering.
-func skipOutsideSbx(t *testing.T, subject string) {
-	t.Helper()
-	t.Skipf("sbx is the runtime under test; %s belongs to the docker rendering, which this suite no longer asserts", subject)
 }

@@ -104,88 +104,6 @@ echo "GIT_WRITE_OK"`
 	}
 }
 
-// TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID deliberately stays on a raw
-// `docker run --entrypoint bash`: it mounts ONLY `.git` at /app/.git — no
-// working tree, no real workspace — specifically to reproduce git's "dubious
-// ownership" abort under a uid mismatch. A real `proveo run` always mounts a
-// full workspace and never constructs that partial shape, so there is no
-// equivalent real launch to convert this into.
-func TestGitRunsWhenWorktreeOwnerDiffersFromRunAsUID(t *testing.T) {
-	skipOutsideSbx(t, "a raw docker run")
-	img := harnessImage(t, "opencode")
-	repo := newTempRepo(t)
-
-	run := func(bridge bool) (string, error) {
-		script := "git status --porcelain 2>&1 | head -1"
-		if bridge {
-			script = `source /entrypoint-lib.sh 2>/dev/null
-ensure_git_safe_directory /app >/dev/null 2>&1
-` + script
-		}
-		out, err := exec.Command("docker", "run", "--rm",
-			"-v", repo+"/.git:/app/.git",
-			"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-			"-w", "/app", "--user", hostUIDGID(t),
-			"--entrypoint", "bash", img, "-c", script).CombinedOutput()
-		return string(out), err
-	}
-
-	raw, _ := run(false)
-	if !strings.Contains(raw, "dubious ownership") {
-		t.Skipf("this runtime uid-maps the mount, so the abort cannot be reproduced here:\n%s", raw)
-	}
-	bridged, err := run(true)
-	if err != nil {
-		t.Fatalf("bridged run failed: %v\n%s", err, bridged)
-	}
-	if strings.Contains(bridged, "dubious ownership") {
-		t.Errorf("ensure_git_safe_directory must declare the worktree safe so git can run:\n%s", bridged)
-	}
-}
-
-func workspaceMountArgs(t *testing.T, target, repo string, input ...string) []string {
-	t.Helper()
-	in := repo
-	if len(input) > 0 && input[0] != "" {
-		in = input[0]
-	}
-	bin := buildProveo(t)
-	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", in, "--print")
-	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
-	}
-	fields := strings.Fields(string(out))
-	var args []string
-	for i := 0; i < len(fields)-1; i++ {
-		if fields[i] != "-v" {
-			continue
-		}
-		spec := fields[i+1]
-		parts := strings.Split(spec, ":")
-		if len(parts) < 2 {
-			continue
-		}
-		dst := parts[len(parts)-1]
-		if dst == "ro" || dst == "rw" {
-			dst = parts[len(parts)-2]
-		}
-		if dst == "/app" || strings.HasPrefix(dst, "/app/") ||
-			strings.HasPrefix(dst, "/workspace/") ||
-			dst == workspace.ContainerGitCommonDir || strings.HasPrefix(dst, workspace.ContainerGitCommonDir+"/") {
-			args = append(args, "-v", spec)
-		}
-	}
-	if !strings.Contains(string(out), "docker run") {
-		t.Skipf("this host resolved %s to the sandbox backend, and the mount table this "+
-			"probe reads exists only in the docker rendering — pinning the backend to "+
-			"force it is banned, so the case is skipped where its subject is absent\n"+
-			"--- plan ---\n%s", target, out)
-	}
-	return args
-}
-
 // TestGitIsUsableInEveryScopeMode launches a real `proveo run opencode
 // --shell` per scope mode, pointing --input at the scoped subdirectory itself
 // — the subdir-scope detection and worktree overlay are the run's own
@@ -231,15 +149,6 @@ echo "GIT_SCOPE_OK"`
 			}
 		})
 	}
-}
-
-func scopedMountArgs(t *testing.T, target, repo, scope string) []string {
-	t.Helper()
-	input := repo
-	if scope != "" {
-		input = filepath.Join(repo, scope)
-	}
-	return workspaceMountArgs(t, target, repo, input)
 }
 
 func gitIn(t *testing.T, dir string, args ...string) {

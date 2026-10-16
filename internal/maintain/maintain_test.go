@@ -25,10 +25,10 @@ func TestRegistry(t *testing.T) {
 
 	got := Registry(ms, "/d")
 
-	// Stable order: base, harness (sorted), then the sidecars last.
+	// Stable order: base, then harness (sorted).
 	wantOrder := []string{
 		"base", "base-node", "base-node-lsp", "base-node-browser", "cecli", "cecli-node", "claudecode",
-		"claudecode-solidity", "egress-proxy", "mitmproxy",
+		"claudecode-solidity",
 	}
 	if len(got) != len(wantOrder) {
 		t.Fatalf("got %d targets, want %d: %+v", len(got), len(wantOrder), got)
@@ -51,8 +51,6 @@ func TestRegistry(t *testing.T) {
 		{"cecli-node", KindHarness, "proveo/cecli-node", "/d/cecli"}, // shares cecli's def dir
 		{"claudecode", KindHarness, "proveo/claudecode", "/d/claudecode"},
 		{"claudecode-solidity", KindHarness, "proveo/claudecode-solidity", "/d/claudecode"},
-		{"egress-proxy", KindSidecar, "proveo/egress-proxy", "/d/sidecars/egress-proxy"},
-		{"mitmproxy", KindSidecar, "proveo/mitmproxy", "/d/sidecars/mitmproxy"},
 	} {
 		g := byName[tc.name]
 		if g.Kind != tc.kind || g.Image != tc.image || g.DefDir != tc.dir {
@@ -268,8 +266,6 @@ func TestScheduleBasesStaySerialRestConcurrent(t *testing.T) {
 		{Name: "claudecode-browser", Kind: KindHarness},
 		{Name: "claudecode-solidity", Kind: KindHarness},
 		{Name: "codex", Kind: KindHarness},
-		{Name: "egress-proxy", Kind: KindSidecar},
-		{Name: "mitmproxy", Kind: KindSidecar},
 	}
 	waves := Schedule(ts)
 	if len(waves) < 5 {

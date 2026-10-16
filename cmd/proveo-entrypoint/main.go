@@ -94,9 +94,8 @@ func runPrep() {
 		_ = os.Chdir("/app")
 	}
 
-	mode := os.Getenv("PROVEO_EGRESS_MODE")
-	if entrypoint.ShouldSkipEnvLoad(mode) {
-		fmt.Printf("🔒 Skipping .env load (egress mode %s — secrets stay on host / broker)\n", mode)
+	if entrypoint.ShouldSkipEnvLoad(os.Getenv) {
+		fmt.Println("🔒 Skipping .env load (inside sbx — keys stay with sbx's proxy)")
 	} else if path := entrypoint.FindEnvFile(""); path != "" {
 		fmt.Printf("✅ Found .env at %s\n", path)
 		if err := entrypoint.LoadEnvFile(path); err != nil {
@@ -108,12 +107,6 @@ func runPrep() {
 		fmt.Println("🔎 No .env found")
 	}
 	entrypoint.BridgeGoogleKeys()
-
-	if keys := os.Getenv("PROVEO_CREDENTIAL_BROKER_KEYS"); keys != "" {
-		if rewritten := entrypoint.ApplyBrokerSentinel(mode, keys, os.Getenv("PROVEO_BROKER_SENTINEL")); len(rewritten) > 0 {
-			fmt.Printf("🔒 Broker sentinel applied to: %v\n", rewritten)
-		}
-	}
 
 	entrypoint.BridgeGitIdentity("")
 	reportGitContext("")

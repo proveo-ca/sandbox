@@ -8,13 +8,6 @@ kind: mixin
 name: claudecode-posture
 displayName: proveo posture (claudecode)
 description: Reachability, host-resolved environment and the seed step for a proveo run.
-permissions:
-    network:
-        allow:
-            - '*.anthropic.com'
-            - anthropic.com
-            - api.anthropic.com
-            - statsig.anthropic.com
 environment:
     variables:
         ANTHROPIC_BASE_URL: https://api.anthropic.com

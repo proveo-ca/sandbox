@@ -66,11 +66,6 @@ run = "go run ./cmd/proveo-dev coverage unit"
 description = "Fast gate: Go unit + contract tests (same as test-go)"
 depends = ["test-go"]
 
-[tasks.test-go-integration]
-description = "Layer 3 egress Docker integration (-tags=integration; needs PROVEO_EGRESS_INTEGRATION=1)"
-dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev coverage integration"
-
 [tasks.test-go-e2e]
 description = "Layer 4 agent E2E (-tags=e2e; skips per missing prerequisite: tmux/docker/image/credential)"
 dir = "{{config_root}}"
@@ -97,7 +92,7 @@ description = "Fast Go gate then Docker/image megasuite"
 depends = ["test-go", "test-images"]
 
 [tasks.test-images-sbx]
-description = "Image + consumer CLI suites that test the sbx runtime (no mitmproxy sidecar, no docker-detached smoke)"
+description = "Image + consumer CLI suites for the harness images sbx runs"
 dir = "{{config_root}}"
 run = [
   "go run ./cmd/proveo-dev stage-cdn",

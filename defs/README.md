@@ -29,9 +29,9 @@ No definition is considered mature yet; this project is still standardizing the 
 
 - Candidate coding harnesses: `cecli`, `opencode`, `claudecode`, `codex`, `cursor`
 - Candidate general-purpose harness: `hermes` (native browser automation, not coding-focused)
-- Non-harness sidecar image definitions live under `defs/sidecars/` (e.g. `mitmproxy`, `squid-proxy`)
+- Non-harness base layers: `base`, `base-node`, `base-node-lsp`, `base-node-browser`
 
-Non-harness sidecar image definitions live under `defs/sidecars/` and are not required to satisfy the coding harness contract.
+Non-harness base layers are not required to satisfy the coding harness contract.
 
 ## Package Boundary
 

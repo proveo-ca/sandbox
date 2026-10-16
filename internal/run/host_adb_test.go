@@ -30,7 +30,7 @@ func TestIOSIsAlwaysGreyedComingSoon(t *testing.T) {
 	f := &choiceui.Form{Rows: []choiceui.Row{
 		{Label: rowInterface, Options: []string{addonTUI, addonAndroid, addonIOS}, Multi: true, On: []bool{true, false, true}},
 	}}
-	gateAddons(f, "allowlist", "inject", "", "")
+	gateAddons(f, "")
 	r := f.Rows[0]
 	if !r.Off[2] || r.On[2] {
 		t.Errorf("ios must be greyed and unticked: off=%v on=%v", r.Off, r.On)
@@ -40,17 +40,6 @@ func TestIOSIsAlwaysGreyedComingSoon(t *testing.T) {
 	}
 	if r.Off[1] {
 		t.Errorf("with sbx android must be live: reason=%q", r.Reason)
-	}
-}
-
-func TestAndroidNeedsSbx(t *testing.T) {
-	t.Parallel()
-	f := &choiceui.Form{Rows: []choiceui.Row{
-		{Label: rowInterface, Options: []string{addonAndroid}, Multi: true, On: []bool{true}},
-	}}
-	gateAddons(f, "allowlist", "inject", "no sbx", "")
-	if r := f.Rows[0]; !r.Off[0] || r.On[0] || !strings.Contains(r.Reason, "adb server") {
-		t.Errorf("without sbx android must grey+untick: off=%v on=%v reason=%q", r.Off, r.On, r.Reason)
 	}
 }
 

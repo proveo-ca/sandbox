@@ -19,7 +19,6 @@ import (
 	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
-	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -136,7 +135,7 @@ func doList() error {
 }
 
 func runCmd() *cobra.Command {
-	var egressMode, credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
+	var credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
 	var printOnly, shellMode, contSession, listSessions, cloneMode, yes bool
 	var addons []string
 	cmd := &cobra.Command{
@@ -163,25 +162,9 @@ func runCmd() *cobra.Command {
 				}
 				image = chosen
 			}
-			proxyImage, proxyLocal := egressProxyImage(os.Getenv, posture.ResolveImageChoice)
-			if proxyLocal {
-				ui.Section(ui.SectionRun)
-				ui.Appf("egress proxy: %s (local build — newer than the published tag)", proxyImage)
-			}
-			modeSet := cmd.Flags().Changed("egress-mode")
 			credsSet := cmd.Flags().Changed("credentials")
-			if !egress.ValidMode(egressMode) {
-				return fmt.Errorf("invalid --egress-mode %q (%s)", egressMode, strings.Join(egress.Modes(), "|"))
-			}
-			if canonical, aliased := egress.Canonical(egressMode); aliased {
-				ui.Warnf("--egress-mode %q now means %q: modes name the NETWORK tier only, and credential "+
-					"handling moved to --credentials (default broker — the key stays in the egress layer). "+
-					"If you relied on %q handing the real key to the container, add --credentials forward.",
-					egressMode, canonical, egressMode)
-				egressMode = canonical
-			}
-			if !egress.ValidCredentials(credentials) {
-				return fmt.Errorf("invalid --credentials %q (%s)", credentials, strings.Join(egress.CredentialModes(), "|"))
+			if !run.ValidCredentials(credentials) {
+				return fmt.Errorf("invalid --credentials %q (%s)", credentials, strings.Join(run.CredentialModes(), "|"))
 			}
 			resumeArgs, err := proveohome.ResumeArgs(target, resumeID, contSession, listSessions)
 			if err != nil {
@@ -192,20 +175,17 @@ func runCmd() *cobra.Command {
 				extra = append(append([]string{}, resumeArgs...), extra...)
 			}
 			return run.Do(run.Params{
-				Target: target, Image: image, Mode: egressMode, Credentials: credentials,
-				ModeSet: modeSet, CredsSet: credsSet, LocalModel: localModel,
+				Target: target, Image: image, Credentials: credentials,
+				CredsSet: credsSet, LocalModel: localModel,
 				Input: input, Output: output, Scope: scope, DataDir: dataDir,
 				Shell: shellMode, PrintOnly: printOnly, Extra: extra,
 				Clone: cloneMode, CloneSet: cmd.Flags().Changed("clone"),
-				ProxyImage: proxyImage,
-				Addons:     addons, AddonsSet: cmd.Flags().Changed("addon"), Yes: yes,
+				Addons: addons, AddonsSet: cmd.Flags().Changed("addon"), Yes: yes,
 			}, runDeps())
 		},
 	}
-	cmd.Flags().StringVar(&egressMode, "egress-mode", "allowlist", strings.Join(egress.Modes(), "|")+
-		" — network tier, cumulative (default allowlist: open adds no allowlist, review adds connection prompts)")
 	cmd.Flags().StringVar(&credentials, "credentials", "broker",
-		strings.Join(egress.CredentialModes(), "|")+" (default broker: the key stays in the egress layer and is injected at the proxy)")
+		strings.Join(run.CredentialModes(), "|")+" (default broker: sbx's proxy holds the key and attaches it; forward puts it in the sandbox env)")
 	cmd.Flags().StringVar(&localModel, "local-model", "", "Ollama model to serve locally")
 	cmd.Flags().StringVar(&input, "input", "", "input dir to mount read-only (default: cwd)")
 	cmd.Flags().StringVar(&output, "output", "", "output dir to mount read-write (default: <input>/reports)")
@@ -220,7 +200,7 @@ func runCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
 	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude/codex) and exit into the tool picker")
 	cmd.Flags().BoolVar(&shellMode, "shell", false, "open a shell in the container instead of the agent")
-	cmd.Flags().BoolVar(&printOnly, "print", false, "print the docker plan instead of executing")
+	cmd.Flags().BoolVar(&printOnly, "print", false, "write the sbx kit and print the sbx command instead of executing")
 	cmd.Flags().StringArrayVar(&addons, "addon", nil, "interface add-on to enable without the choice form (repeatable): host-chrome, browser, claude-in-chrome")
 	cmd.Flags().BoolVar(&yes, "yes", false, "accept the remembered and flagged choices without drawing the choice form (unattended runs)")
 	return cmd
@@ -379,13 +359,5 @@ func runDeps() run.Deps {
 		},
 		ProvisionConfirm: provisionConfirm,
 		PreflightImages:  preflightImages,
-		SquidConfig:      proveo.SquidConfig,
 	}
-}
-
-func egressProxyImage(getenv func(string) string, resolve func(string) (string, bool)) (image string, isLocal bool) {
-	if v := strings.TrimSpace(getenv("PROVEO_EGRESS_PROXY_IMAGE")); v != "" {
-		return v, false // an explicit override is a decision, not a default
-	}
-	return resolve("proveo/egress-proxy:latest")
 }

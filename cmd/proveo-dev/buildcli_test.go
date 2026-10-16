@@ -17,7 +17,7 @@ func TestDevVersion(t *testing.T) {
 
 func TestInstallTargetsStampOnlyProveo(t *testing.T) {
 	ts := installTargets("dev@x")
-	if len(ts) != 3 || ts[0] != [2]string{"./cmd/proveo", "-s -w -X main.version=dev@x"} {
+	if len(ts) != 2 || ts[0] != [2]string{"./cmd/proveo", "-s -w -X main.version=dev@x"} {
 		t.Fatalf("%q", ts)
 	}
 	for _, tt := range ts[1:] {

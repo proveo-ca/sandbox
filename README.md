@@ -7,9 +7,10 @@
 <sub>The capability picker on `e2e/samples`. Record a live terminal version with `vhs _spec/_assets/hero.tape`.</sub>
 
 `proveo run <agent>` drops a coding agent (opencode, Claude Code, Codex, Cursor, cecli) into an
-**ephemeral, hardened container** scoped to your repo — with enforced egress, a credential
-broker that keeps API keys **out of the agent**, opt-in Playwright/browser and Docker-in-Docker,
-and local-model support where the harness allows it. No per-tool setup.
+**ephemeral [Docker Sandboxes](https://github.com/docker/sbx-releases) (sbx) microVM** scoped to
+your repo — with sbx's network policy on egress, sbx's credential proxy keeping API keys **out of
+the agent**, opt-in Playwright/browser and Docker-in-Docker, and local-model support where the
+harness allows it. No per-tool setup.
 
 ## Install
 
@@ -49,6 +50,12 @@ fix for it either; measured 2026-09-07, an enforcing host still died instantly).
 that only blocks *running* does not block installing — `usermod -aG kvm` needs a re-login that
 `init` cannot perform for you.
 
+sbx is the only backend. Without a ready sbx — no CLI, Linux without `/dev/kvm`, an unsupported
+platform, or a release older than proveo targets — `proveo run` first offers to install or upgrade
+sbx where it can, then refuses with the install or upgrade command. `--print` refuses without
+offering. `PROVEO_SBX` set to `0`, `off`, `no`, `false`, `disable` or `disabled` is retired: it
+fails the run instead of selecting a fallback.
+
 ### Publish a CLI release
 
 ```bash
@@ -70,8 +77,8 @@ package) at [`e2e/samples/`](e2e/samples) — the same workspace the E2E suite d
 cd e2e/samples
 
 proveo run opencode                          # capability picker (Tab: browser / agent evidence), then boots
-proveo run cursor                            # broker egress (Cursor inference is vendor-pinned)
-proveo run opencode --local-model gemma4     # fully local via an Ollama sidecar — no cloud key
+proveo run cursor                            # Cursor inference is vendor-pinned; sbx's proxy holds the key
+proveo run opencode --local-model gemma4     # fully local on the host's Ollama — no cloud key
 ```
 
 `proveo run` opens a **capability picker** — *press tab to add an option (browser, Claude in
@@ -98,15 +105,15 @@ pills and the first-run choice prompt.
 | **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP; `--local-model` |
 | **Claude Code** | `claudecode` (+ `-solidity`, `-browser`) | MCP / Solidity toolchain; subscription auth (Anthropic) |
 | **Codex** | `codex` · `codex-browser` | same loop as Claude Code; ChatGPT-plan login or `OPENAI_API_KEY`; LSP over MCP |
-| **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference → broker egress; subscription auth |
+| **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference; subscription auth |
 | **cecli** | `cecli` | aider fork (Python); `--local-model` |
 
 `-browser` variants add **Playwright + Chromium** (opt-in via the picker, sharing one Chromium
 layer).
 
-**Local models** (`--local-model` / Ollama sidecar): **opencode** and **cecli** only. Cursor is
-vendor-pinned (rejected). Claude Code speaks the Anthropic API shape, not Ollama’s OpenAI-compatible
-endpoint — the sidecar is not a drop-in ([`_spec/tests/testing-strategy.puml`](_spec/tests/testing-strategy.puml)).
+**Local models** (`--local-model`): the model runs on the **host's Ollama**, which the sandbox
+reaches at `host.docker.internal:11434`; proveo pulls a missing tag before launch. Cursor is
+vendor-pinned (rejected). See [`_spec/internal/sbx/host-inference.puml`](_spec/internal/sbx/host-inference.puml).
 
 **Subscription agents** (claudecode, codex, cursor): proveo warns if auth env is missing and
 lets the agent handle login; after the sandbox exits it prints shell-specific setup hints
@@ -115,43 +122,39 @@ lets the agent handle login; after the sandbox exits it prints shell-specific se
 ## How it works
 
 Every run is a host-orchestrated, ephemeral sandbox: detect provider auth → mount the repo →
-provision egress → boot the agent → record + tear down.
+write the sbx Kit → boot the agent → record + tear down.
 
 ![proveo run lifecycle](_spec/_assets/run-lifecycle.png)
 
 ## Security — egress & credentials
 
-Two independent axes. `--egress-mode` picks the **network tier**, and the tiers are cumulative:
+Two independent axes, both handled by sbx.
 
-| tier | network |
+**Egress** follows sbx's host-wide network policy. proveo never sets it; the picker's `egress` row
+shows the baseline read-only.
+
+```sh
+sbx policy reset && sbx policy init allow-all|balanced|deny-all   # host-wide baseline
+sbx policy allow network <domain>                                 # allow one more domain
+sbx policy ls                                                     # active rules
+sbx policy log                                                    # allowed and blocked hosts
+```
+
+proveo writes no egress allowlist of provider or harness hosts into the sbx Kit. The Kit allows only
+the host services an add-on wires up (host Ollama, host Chrome CDP, host adb) and the domains where
+sbx attaches a stored credential, which sbx requires there. On a `balanced` or `deny-all` host,
+allow your provider's domains with `sbx policy allow network <domain>` if the agent cannot reach
+them. Each run saves `sbx policy log` to `sbx/policy-log.json` in its run directory.
+
+**Credentials** follow `--credentials`:
+
+| mode | where the key lives |
 | --- | --- |
-| `open` | no allowlist — the agent may reach any host |
-| `allowlist` (default) | Squid allowlist + method pin + DLP scan |
-| `review` | the allowlist, plus an interactive prompt per new connection |
+| `broker` (default) | sbx's secret store; sbx's proxy attaches it to matching requests, so the agent never holds it |
+| `forward` | the sandbox environment; the agent holds the real value |
 
-`--credentials` picks how the agent authenticates. The default `broker` keeps your API key
-**host-side** and injects it at the MITM, so it never enters the agent (the container only ever
-sees a sentinel). `forward` hands the real value to the container, which is required for the cases
-injection cannot serve: a vendor that pins its TLS (cursor), and the Claude in Chrome bridge, which
-needs a route to the host that no intercepting tier leaves open.
-
-Every tier brokers credentials except `--egress-mode open --credentials forward`, which is the
-deliberate bypass. Even `open` keeps the exfil-sink denylist and the DLP secret scan — an open
-network must not become an open channel for the key itself.
-
-The older `--egress-mode broker|proxy|firewall` names still work and map to
-`open|review|allowlist`, with a warning: they used to imply credential handling, which now lives
-on `--credentials`.
-
-![egress policy layers](_spec/_assets/egress-layers.png)
-
-| Mode | Credentials | Egress |
-| --- | --- | --- |
-| **firewall** | brokered — real key only on the proxy sidecar | allowlist + DLP scan |
-| **broker** | forwarded into the container (dev) | direct bridge |
-| **proxy** | in-process | Squid allowlist (no TLS inspection) |
-
-Keep `.env` on the **host** — do not bind-mount it into the agent.
+Inside sbx the image never loads the workspace `.env` into the agent's environment. Keep `.env` on
+the **host** — do not bind-mount it into the agent.
 
 ## Proveo home (session resume)
 
@@ -172,6 +175,6 @@ Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --hom
 
 ## Specs
 
-Architecture, the full egress policy, testing strategy, and the
+Architecture, the sbx network-policy baseline, testing strategy, and the
 [Docker-Sandbox experiment](_spec/_experiments/docker-sandbox.puml) live in [`_spec/`](_spec)
 as PlantUML diagrams + notes. Conventions: [`CONVENTIONS.md`](CONVENTIONS.md).

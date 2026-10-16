@@ -18,7 +18,6 @@ func TestExecuteFleetPrintGroupsConcurrentAfterBases(t *testing.T) {
 		{Name: "opencode", Kind: maintain.KindHarness},
 		{Name: "claudecode", Kind: maintain.KindHarness},
 		{Name: "claudecode-solidity", Kind: maintain.KindHarness},
-		{Name: "egress-proxy", Kind: maintain.KindSidecar},
 	}
 	var buf bytes.Buffer
 	err := executeFleet("build", ts, true, &buf,

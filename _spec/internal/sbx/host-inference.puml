@@ -2,11 +2,10 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how a local model reaches an sbx agent — the host's Ollama on the host GPU, one port across the VM boundary
-' covers: internal/sbx/host_ollama.go
+' covers: internal/sbx/host_ollama.go (LocalModelEnv, EnsureHostOllama, HostOllamaPolicyHost)
 ' covers: internal/sbx/host_ollama_test.go
-' covers: internal/run/model_row.go (bakedModels.host, hostModelFor)
-' covers: internal/run/run.go (promptChoices, selectBackend, applyModelImage)
-' covers: internal/egress/plan.go (LocalModelEnv)
+' covers: internal/run/model_row.go (localModels, tagFor)
+' covers: internal/run/run.go (promptChoices, launchSandbox)
 ' covers: internal/backend/sandbox/sandbox.go (Spec allow, proxyOnlyVar)
 ' covers: internal/backend/sandbox/host_inference_test.go
 '   the measurements and rejected options ... _spec/_experiments/sbx-host-inference.puml
@@ -20,7 +19,8 @@ skinparam noteTextAlignment left
 ' tunes Ollama (2026-09-27: pulling added — refusing with `ollama pull` only
 ' made the operator retype what proveo already knew).
 '
-' ── SEQUENCE (selectBackend, sbx branch, before the sandbox exists) ─────────
+' ── SEQUENCE (launchSandbox, before the sandbox exists) ─────────────────────
+' (selectBackend's sbx branch until 2026-10-16; sbx is now the only backend.)
 '   1. GET 127.0.0.1:11434/api/tags. No answer ⇒ refuse with the install URL.
 '   2. Tag lookup: exact, or bare name ⇒ ":latest" (Ollama's rule). Missing ⇒
 '      size from registry.ollama.ai/v2/<repo>/manifests/<tag> (config + layers;
@@ -34,13 +34,18 @@ skinparam noteTextAlignment left
 '      (macOS vm_stat free+inactive+speculative+purgeable; Linux MemAvailable).
 '      need > available ⇒ refuse unless PROVEO_LOCAL_MODEL_FORCE=1. No reading
 '      (windows, freebsd) ⇒ pass.
-'   5. agent env = egress.LocalModelEnv(tag, http://host.docker.internal:11434)
-'      + SBX_CRED_ANTHROPIC_MODE=none + SBX_CRED_OPENAI_MODE=none, the pair sbx's
+'   5. agent env = sbx.LocalModelEnv(tag) — base http://host.docker.internal:11434
+'      — + SBX_CRED_ANTHROPIC_MODE=none + SBX_CRED_OPENAI_MODE=none, the pair sbx's
 '      own --model mixin sets so proxy-held auth cannot outrank the local route.
+'      (LocalModelEnv moved from the deleted internal/egress, 2026-10-16.)
 '   6. Kit network.allow += localhost:11434 — the sbx proxy matches
 '      host.docker.internal:<port> as localhost:<port>. Measured: /api/tags and
 '      /v1/models both 200 from a guest against Ollama bound to 127.0.0.1.
-'   The sidecar plan gets LocalModel="" so no Ollama container is planned.
+'      This is an add-on entry; since 2026-10-16 the Kit carries no tier entries
+'      (_spec/internal/sbx/policy-baseline.puml).
+'   There is no Ollama sidecar any more: the docker plan that could start one is
+'   deleted. HISTORY of the sidecar's measurements (GPU loss on macOS, the 32k
+'   context floor, one endpoint in three dialects) is below.
 '
 ' ── WHY NOT llmman (removed 2026-09-26) ────────────────────────────────────
 ' sbx bundles llmman, and it served qwen3.8:27b on Metal. It also froze a 48 GB
@@ -67,6 +72,24 @@ skinparam noteTextAlignment left
 ' The plan's NO_PROXY (localhost,…,ollama,host.docker.internal) used to cross
 ' into the sandbox and replace sbx's own, which lists gateway.docker.internal.
 ' proxyOnlyVar now drops NO_PROXY / no_proxy with the other proxy variables.
+'
+' ── HISTORY: THE DOCKER-RENDERING LOCAL-MODEL FINDINGS (rehomed 2026-10-16) ─
+' MEASURED on the deleted docker+egress rendering; kept because they shaped
+' the host-Ollama rule above. Earlier specs said "`--local-model` has no sbx
+' equivalent"; that stopped being true when sbx.LocalModelEnv and the host
+' Ollama route landed.
+'   MACOS LOSES THE GPU IN A SIDECAR. A Linux container cannot reach the Metal
+'     GPU, so an in-network Ollama sidecar ran CPU-only and unusably slow; the
+'     host's Ollama is GPU-accelerated. That is the rule this file keeps.
+'   THE SIDECAR WAS GPU-ACCELERATED ONLY ON LINUX with the NVIDIA container
+'     runtime; `--gpus all` was added only when `docker info` listed it.
+'   A 32k CONTEXT WINDOW IS A FLOOR. Ollama's 2-4k default truncates tool
+'     schemas plus repo context, which breaks every local-capable harness.
+'   ONE ENDPOINT, THREE DIALECTS. The env is a superset each harness reads
+'     selectively: OpenAI-compatible (OPENAI_BASE_URL …/v1, opencode),
+'     litellm/Ollama (OLLAMA_API_BASE, cecli), Anthropic Messages
+'     (ANTHROPIC_BASE_URL, Claude Code). sbx.LocalModelEnv keeps that shape.
+'   cursor is vendor-pinned and takes no custom base URL (run.acceptsLocalModel).
 
 actor "Operator" as OP
 node "host" as HOST {

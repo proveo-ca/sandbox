@@ -17,7 +17,6 @@ else
   load_env
   bridge_git_identity /app
   report_git_context /app
-  attach_rtk
   run_smoke_test "claudecode"
   ensure_project_tools
 fi
@@ -76,8 +75,6 @@ if (( ${#agent_files[@]} > 0 )); then
 fi
 
 echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
-[[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
-[[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
 
 run_smoke_test "claudecode"

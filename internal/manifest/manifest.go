@@ -106,7 +106,6 @@ func (m Manifest) WantsDocker() bool {
 }
 
 type Capabilities struct {
-	Egress      []string `yaml:"egress"`
 	Credentials []string `yaml:"credentials"`
 	Providers   []string `yaml:"providers"`
 	Hosts       []string `yaml:"hosts"`
@@ -129,7 +128,6 @@ func (c Capabilities) HasHostDevice(kind string) bool { return slices.Contains(c
 // HasHostBrowser reports whether the harness can drive the operator's browser.
 func (c Capabilities) HasHostBrowser() bool { return c.HostBrowser != "" }
 
-func (c Capabilities) AllowsEgress(mode string) bool { return listAllows(c.Egress, mode) }
 
 func (c Capabilities) AllowsCredentials(mode string) bool { return listAllows(c.Credentials, mode) }
 

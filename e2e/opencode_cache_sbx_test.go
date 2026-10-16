@@ -170,7 +170,7 @@ func TestOpenCodeSbxHistorySurvivesOrdinaryReattach(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 		defer cancel()
 		args := append([]string{"run", "opencode", "--yes", "--image", image,
-			"--input", work, "--egress-mode", "open", "--"}, native...)
+			"--input", work, "--"}, native...)
 		cmd := exec.CommandContext(ctx, bin, args...)
 		cmd.Env, cmd.Dir = env, work
 		out, err := onTerminal(cmd)

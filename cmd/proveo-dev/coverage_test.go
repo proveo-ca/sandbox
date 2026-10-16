@@ -3,8 +3,6 @@ package main
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -14,7 +12,7 @@ func TestCovPathsDefaultAndOverride(t *testing.T) {
 	if l.unit != "/repo/cov/unit" || l.merged != "/repo/cov/merged" || l.profile != "/repo/cov/coverage.out" {
 		t.Fatalf("default layout: %+v", l)
 	}
-	if o := covPaths("/repo", "/tmp/c"); o.unit != "/tmp/c/unit" || o.integration != "/tmp/c/integration" {
+	if o := covPaths("/repo", "/tmp/c"); o.unit != "/tmp/c/unit" {
 		t.Fatalf("override layout: %+v", o)
 	}
 }
@@ -40,32 +38,6 @@ func TestE2EArgsTimeoutAndForwarding(t *testing.T) {
 	}
 }
 
-func TestIntegrationArgsForwarding(t *testing.T) {
-	got := integrationArgs([]string{"-v"})
-	if got[len(got)-1] != "-v" || !slices.Contains(got, "-tags=integration") || !slices.Contains(got, "./internal/egress/") {
-		t.Errorf("integration argv: %q", got)
-	}
-}
-
-func TestMergeInputsAddsNonEmptyIntegration(t *testing.T) {
-	l := covPaths("", t.TempDir())
-	if got := mergeInputs(l); got != l.unit {
-		t.Errorf("absent integration dir merged: %q", got)
-	}
-	if err := os.MkdirAll(l.integration, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if got := mergeInputs(l); got != l.unit {
-		t.Errorf("empty integration dir merged: %q", got)
-	}
-	if err := os.WriteFile(filepath.Join(l.integration, "covmeta.x"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := mergeInputs(l); got != l.unit+","+l.integration {
-		t.Errorf("non-empty integration dir not merged: %q", got)
-	}
-}
-
 func TestCoverageExitCodes(t *testing.T) {
 	l := covPaths("", t.TempDir())
 	cases := []struct {
@@ -76,11 +48,9 @@ func TestCoverageExitCodes(t *testing.T) {
 	}{
 		{"unknown mode", []string{"bogus"}, "", 2},
 		{"merge without unit data", []string{"merge"}, "", 1},
-		{"integration without gate", []string{"integration"}, "", 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("PROVEO_EGRESS_INTEGRATION", c.env)
 			err := coverage(t.TempDir(), l, c.args)
 			ee, ok := errors.AsType[*exitError](err)
 			if !ok || ee.code != c.code {

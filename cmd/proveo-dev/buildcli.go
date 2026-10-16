@@ -40,7 +40,6 @@ func init() {
 func installTargets(version string) [][2]string {
 	return [][2]string{
 		{"./cmd/proveo", "-s -w -X main.version=" + version},
-		{"./cmd/proveo-egress", "-s -w"},
 		{"./cmd/proveo-entrypoint", "-s -w"},
 	}
 }
@@ -80,7 +79,7 @@ func buildCLI(root string, release bool) error {
 			return err
 		}
 	}
-	ui.Storef("Installed %s/{proveo,proveo-egress,proveo-entrypoint} (%s)", gobin, version)
+	ui.Storef("Installed %s/{proveo,proveo-entrypoint} (%s)", gobin, version)
 	ui.Notef("Ensure %s is on PATH (or set PROVEO_BIN).", gobin)
 
 	if release {

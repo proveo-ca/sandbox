@@ -84,7 +84,7 @@ func seedRun(t *testing.T, proveoBin, home, work, tag string, extra ...string) *
 	sess := tmux.New(fmt.Sprintf("proveo-android-seed-%s-%d", tag, time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := append([]string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + home, "PROVEO_MOUNT_GH_CONFIG=0",
-		proveoBin, "run", "opencode", "--egress-mode", "open", "--input", work, "--shell"}, extra...)
+		proveoBin, "run", "opencode", "--input", work, "--shell"}, extra...)
 	if err := sess.Start(220, 60, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}

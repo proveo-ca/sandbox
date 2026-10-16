@@ -13,7 +13,6 @@ set_working_directory "/app"
 load_env
 bridge_git_identity
 report_git_context
-attach_rtk
 apply_env_bridges
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport

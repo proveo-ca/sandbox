@@ -15,7 +15,7 @@ SH ARROW_MAIN LIB : " ""source /entrypoint-lib.sh"" "
 
 group prep — process-external setup only
   SH ARROW_MAIN PREP : " ""prep <target> || true"" "
-  PREP ARROW_MAIN PREP : uid/passwd · git context · RTK
+  PREP ARROW_MAIN PREP : uid/passwd · git context
   PREP ARROW_ERROR SH : errorLabel(cwd + exports discarded)
 end
 

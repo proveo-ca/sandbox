@@ -12,10 +12,6 @@ import (
 	"strings"
 )
 
-// DefaultSentinel replaces real provider secrets in the agent process when the
-// credential broker is active (firewall inject/strip at the MITM).
-const DefaultSentinel = "proveo-brokered"
-
 var ConfigVars = []string{
 	"ARCHITECT_MODEL",
 	"EDITOR_MODEL",
@@ -118,19 +114,10 @@ func LoadEnvFile(path string) error {
 	return sc.Err()
 }
 
-var CanonicalTiers = []string{"open", "allowlist", "review"}
-
-func canonicalTier(mode string) bool {
-	m := strings.ToLower(strings.TrimSpace(mode))
-	for _, t := range CanonicalTiers {
-		if m == t {
-			return true
-		}
-	}
-	return false
+// ShouldSkipEnvLoad reports a run inside an sbx VM, where the workspace .env never enters the agent env.
+func ShouldSkipEnvLoad(getenv func(string) string) bool {
+	return strings.TrimSpace(getenv("SANDBOX_VM_ID")) != ""
 }
-
-func ShouldSkipEnvLoad(mode string) bool { return canonicalTier(mode) }
 
 func BridgeGoogleKeys() {
 	if os.Getenv("GOOGLE_GENERATIVE_AI_API_KEY") == "" {
@@ -148,30 +135,6 @@ func BridgeGoogleKeys() {
 			_ = os.Setenv("GOOGLE_API_KEY", v)
 		}
 	}
-}
-
-func ApplyBrokerSentinel(mode, keysCSV, sentinel string) []string {
-	if !canonicalTier(mode) {
-		return nil
-	}
-	if strings.TrimSpace(keysCSV) == "" {
-		return nil
-	}
-	if sentinel == "" {
-		sentinel = DefaultSentinel
-	}
-	var rewritten []string
-	for _, k := range strings.Split(keysCSV, ",") {
-		k = strings.TrimSpace(k)
-		if k == "" {
-			continue
-		}
-		if v := os.Getenv(k); v != "" && v != sentinel {
-			_ = os.Setenv(k, sentinel)
-			rewritten = append(rewritten, k)
-		}
-	}
-	return rewritten
 }
 
 func BridgeGitIdentity(dir string) {

@@ -3,9 +3,9 @@
 Custom Docker image for OpenCode v2 ([`@opencode/cli`](https://opencode.ai/v2/docs)) with:
 
 - `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm`)
-- Root-free runtime: baked non-root user `opencode` (uid 1000); the run wrapper launches as the invoking host uid via `--user $(id -u):$(id -g)`
+- Root-free runtime: baked non-root user `opencode` (uid 1000); sbx runs the agent as that uid
 - Monorepo-friendly entrypoint (`pnpm install` on first run if needed)
-- `.env` autoloading and auto-detection of common provider API keys
+- `.env` autoloading outside sbx and auto-detection of common provider API keys
 
 ## Browser variant
 
@@ -92,9 +92,10 @@ Any args passed after `--` are forwarded to `opencode`.
 
 ## Provider API Keys
 
-If a `.env` file exists in the working directory it is auto-sourced by the entrypoint,
-so you usually don't need `--env-file` or `-e` flags on `docker run`. The entrypoint
-warns when no provider key and no `opencode.json` are detected. Recognised env vars:
+proveo detects these keys on the host. With `--credentials broker` (the default) sbx's proxy
+holds the key; with `--credentials forward` it enters the sandbox env. Inside sbx the entrypoint
+never sources the workspace `.env`. The entrypoint warns when no provider key and no
+`opencode.json` are detected. Recognised env vars:
 
 | Provider     | Env var                |
 | ------------ | ---------------------- |
@@ -114,9 +115,8 @@ OpenCode's own gateway — Zen (pay-as-you-go, model ids `opencode/<model>`) and
 subscription, `opencode-go/<model>`) — takes the same key, `OPENCODE_API_KEY`. Copy it from
 <https://opencode.ai/auth> and export it on the host **before launch**, in your shell rc or a
 gitignored `.env`; the running server can use the environment key without an in-sandbox `/connect` step.
-proveo detects the key like any other provider: it brokers it in
-firewall mode (the agent holds a sentinel, the egress proxy injects the real key on
-`.opencode.ai` only).
+proveo detects the key like any other provider: with `--credentials broker` sbx's proxy holds
+it and attaches it on `opencode.ai` and `*.opencode.ai` only.
 
 OpenCode v2 stores saved credentials in its SQLite database.
 proveo runs the CLI with private data and publishes a credential-free snapshot of session history after it exits.
@@ -131,7 +131,7 @@ The OpenCode-only host-owned OAuth persistence proposal lives in
 [`_spec/_paradigms/opencode-oauth-persistence.puml`](../../_spec/_paradigms/opencode-oauth-persistence.puml).
 That policy remains planned; the current runtime still removes saved tokens.
 The same holds for providers with no
-dedicated env var (Together, Hugging Face, …): prefer an API key via env or the egress broker.
+dedicated env var (Together, Hugging Face, …): prefer an API key via env or sbx's credential proxy.
 Resume a prior session with:
 
 ```bash
@@ -180,8 +180,6 @@ Use `sbx rm --force <engine-name>` only after preserving any unpublished work.
 An OpenCode launch that no proveo host prepared (a raw `sbx run` of the kit, or `opencode` typed in `--shell`) runs the native client as a raw `sbx run` would.
 Its history stays in that sandbox; the proveo V2 store is not used.
 Creating a new engine for an existing V2 database prepares that database on the next launch.
-Docker-only runs use explicitly selected disposable sanitized state for compatibility.
-They remain functional but do not provide the retained sbx cache's startup guarantee.
 
 ## Baked-in workflow and presentation defaults
 

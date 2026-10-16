@@ -20,23 +20,12 @@ Requires Docker Buildx. A `proveo-multiarch` builder (`docker-container` driver)
 
 ## Runtime User Boundary (required)
 
-Every harness container runs as the invoking host user, never root
+Every harness runs as a non-root user, never root
 (introduced repo-wide by `c2ad88f` — "[FIX] Ensure running with local user (#7)"):
 
-- **The runner** (`proveo run`, `internal/runner`) launches with
- `docker run --user $(id -u):$(id -g)`, so files written to bind mounts come back owned by
- the developer — for any host uid, not just the image's baked default. Pair it with the
- hardening baseline: `--cap-drop=ALL --security-opt=no-new-privileges:true` plus a
- host-scaled `--pids-limit` (never omitted). The limit is
- `clamp(cpus×256, 512, ceiling)` for base agents and `clamp(cpus×512, 1024, ceiling)` for
- `*-browser` images, where `ceiling = min(cpus×1024, pid_max/64)` from host CPU (cgroup-aware)
- and kernel `pid_max` (from `/proc` on Linux; on macOS/Windows, probed from the Docker
- engine's Linux VM via a local image — preferring the agent image, never pulled —
- falling back to `32768` only if both fail). Override with `PROVEO_PIDS_LIMIT`
- (clamped to `[256, ceiling]`).
- If the host ceiling (or override) is below the tier minimum (`512` base / `1024` browser),
- `proveo run` failfasts with `insufficient host pids capability` instead of starting a
- sandbox that will exhaust processes.
+- **The runner** (`proveo run`, `internal/run`) launches every agent in sbx, which runs the
+ image's baked user (uid 1000). Every Kit startup step proveo writes (`internal/sbx/kit.go`)
+ declares `user: "1000"`, except the one root step that creates a linked worktree's directory.
 - **Images** bake a non-root default user (uid 1000) and set `USER`, so even a bare
  `docker run` without the wrapper is never root. Use the shared create-or-rename block
  (`ARG USER_ID=1000` / `ARG USER_NAME=<harness>`; see any existing `defs/*/Dockerfile`) so
@@ -61,49 +50,23 @@ are readable by an autonomous agent regardless of in-tool deny rules; entrypoint
 
 Contributors should treat `.env` handling as follows:
 
-- **Target posture:** keys live in the host environment (or `docker run -e`); in
- every tier except `open`+`--credentials forward`, the credential broker injects on the
- pinned provider host from a secret file mounted **outside** every agent bind mount.
-- **Pragmatic mounts today:** with `--credentials forward`, `internal/workspace` overlays a
- **symlink-resolved** file at `/app/.env`. With brokered credentials the same package
- **masks** `.env` with `/dev/null` so a whole-tree bind cannot expose secrets; the
- broker reads the host-side file instead. Document the caveat in harness READMEs
- when `.env` autoload is mentioned.
-- **Warnings:** the Go CLI's `warnMountedSecrets` applies to `broker` mounts;
- broker-mode egress DLP still mitigates **egress** exfiltration if a secret leaks
- into the agent another way.
+- **Target posture:** keys live in the host environment. With `--credentials broker` (the
+ default) proveo puts them in sbx's secret store; with `--credentials forward` they enter the
+ sandbox environment.
+- **Inside sbx:** `load_env` (`packages/lib/entrypoint-lib.sh`) returns early when
+ `SANDBOX_VM_ID` is set, so the workspace `.env` never reaches the agent's environment.
+ Document that in harness READMEs when `.env` autoload is mentioned.
 
-When adding or changing mount logic (`internal/workspace`, `internal/runner`), prefer host-env forwarding
-plus broker injection over new `.env` bind mounts unless the change is explicitly scoped
-to symlink resolution or smoke-test fixtures.
+When adding or changing mount logic (`internal/workspace`, `internal/backend/sandbox`), prefer
+sbx's secret store over new `.env` bind mounts unless the change is explicitly scoped to
+symlink resolution or smoke-test fixtures.
 
 ### Credential broker (`--credentials broker`, the default)
 
-The credential broker runs on the Go MITM sidecar (`proveo-egress`), the only hop where TLS is
-decrypted — which is why it is available in every tier that intercepts, i.e. all of them except
-`--egress-mode open --credentials forward`. Forwarding keeps the key-in-agent behavior with the
-existing honest warnings (see `_spec/_paradigms/harness-paradigms.puml`,
-Credential Boundary).
-
-**Firewall gaps contributors should not worsen**
-
-| Gap | Where | Status |
-| --- | --- | --- |
-| `.env` mounted into agent | `internal/workspace/mount.go` | **Closed** — masked with `/dev/null` unless `--credentials forward` |
-| `load_env` always runs | `packages/lib/entrypoint-lib.sh` | **Closed** — skips when `PROVEO_EGRESS_MODE` is set (every brokered tier) |
-| Go CLI forwards secrets in all modes | `cmd/proveo/main.go` | **Closed** — real secret env only with `--credentials forward` |
-| Distributable CLI forwards `CURSOR_API_KEY` | `apps/cli/public/cli/lib/runners.sh` | Firewall-only path (consumer CLI has no broker/proxy topology) |
-| Broker reads host env only | `writeBrokerEnv` | **Closed** — host `.env` / `PROVEO_EGRESS_ENV_FILE` ingested into `broker.env` |
-| Sentinel rewrite | `internal/entrypoint`, `packages/lib/entrypoint-lib.sh` | **Closed** — firewall injects sentinel + `PROVEO_CREDENTIAL_BROKER_KEYS` |
-
-### Wrapper surface inconsistencies
-
-These surfaces should stay aligned on credential forwarding:
-
-| Surface | `firewall` / `proxy` intent | Current behavior |
-| --- | --- | --- |
-| `cmd/proveo run` | No `CURSOR_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` in agent | Secret manifest env forwarded only in `broker` |
-| `apps/cli` `run_cursor` | broker egress only | Always `-e CURSOR_API_KEY` (no broker/proxy topology) |
+sbx's credential proxy is the broker. The key sits in sbx's secret store, and the proxy attaches
+it to requests for the provider's domains, so the agent never holds it. `--credentials forward`
+keeps the key-in-agent behavior with the existing honest warnings (see
+`_spec/_paradigms/credential-boundary.puml`).
 
 ## Enforcement
 
@@ -113,7 +76,7 @@ The boundary is asserted in Go (`go test ./internal/contract/ ./internal/verify/
 When you add a definition:
 
 1. Add its entrypoint to the `ensure_runtime_user` / no-gosu loop and add wrapper
- (`--user`, git identity) and Dockerfile (`USER ${USER_NAME}`, no gosu, git/gh) assertions.
+ (git identity) and Dockerfile (`USER ${USER_NAME}`, no gosu, git/gh) assertions.
 2. Prefer `proveo-entrypoint` for shared prelude; keep harness-specific launch in `entrypoint.sh`.
 3. Cover the runtime posture in the definition's image suite, `internal/imagetest/<name>_test.go`
  (build tag `image`, func `TestImage<Name>`): runs as the baked user, no setuid binaries, no `nc`.

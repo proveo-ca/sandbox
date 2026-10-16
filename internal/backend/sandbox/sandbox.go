@@ -47,28 +47,31 @@ const (
 	unallowlistedProbe = "proveo-egress-probe.invalid"
 )
 
-func Enabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_SBX"))) {
+// Disabled reports a PROVEO_SBX value that asks for the retired docker fallback.
+func Disabled(getenv func(string) string) (string, bool) {
+	v := strings.TrimSpace(getenv("PROVEO_SBX"))
+	switch strings.ToLower(v) {
 	case "off", "0", "no", "false", "disable", "disabled":
-		return false
+		return v, true
 	}
-	return true
+	return v, false
 }
 
-func ReportUnavailable(why string) {
-	ui.Section(ui.SectionExecution)
-	ui.Warnf("docker sandbox unavailable (%s) — falling back to docker+egress", why)
+// Unavailable is the refusal for a host sbx cannot run on, with the install or upgrade hint.
+func Unavailable(why string) error {
+	msg := fmt.Sprintf("docker sandboxes (sbx) unavailable: %s. proveo runs agents only in sbx", why)
 	if eng := engine.Detect(); eng.Kind != engine.Unknown {
-		ui.Notef("engine: %s (%s)", eng.Label(), eng.Isolation())
+		msg += fmt.Sprintf("\n  engine: %s (%s)", eng.Label(), eng.Isolation())
 	}
 	if cmd := sbx.InstallCmd(sbx.Installed()); cmd != "" {
 		if sbx.Installed() {
-			ui.Notef("proveo targets sbx %s or newer:", sbx.MinVersion)
+			msg += fmt.Sprintf("\n  proveo targets sbx %s or newer:", sbx.MinVersion)
 		} else {
-			ui.Notef("sbx is standalone and does not need Docker Desktop:")
+			msg += "\n  sbx is standalone and does not need Docker Desktop:"
 		}
-		ui.Notef("  %s", cmd)
+		msg += "\n    " + cmd
 	}
+	return errors.New(msg)
 }
 
 func Ensure(confirm func(string) bool) (bool, string) {
@@ -1045,24 +1048,12 @@ func Harness(in Input) string {
 }
 
 func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
-	// The registry speaks Squid's `dstdomain`; the Kit speaks sbx's patterns.
-	// This is the one place the two grammars meet, and it has to happen before
-	// anything is deduplicated — `.x.ai` and `x.ai` are one entry afterwards.
+	// The Kit allows only what add-ons wire up; sbx's own policy decides all other egress.
 	hosts := map[string]bool{}
 	addHost := func(h string) {
 		for _, p := range sbx.DomainPatterns(h) {
 			hosts[p] = true
 		}
-	}
-	for _, d := range strings.Fields(credentials.JoinDomains(os.Getenv("PROVEO_EGRESS_PROVIDER_DOMAINS"), in.Man.Capabilities.Hosts)) {
-		addHost(d)
-	}
-	// Gated here as well as at run.go:433. agentCredentials and the env-var loop
-	// both re-check AllowsProvider; the allowlist used to trust its caller, so a
-	// forbidden provider kept its reach while losing its credential — reach the
-	// harness never needed and proveo never meant to grant.
-	for _, h := range credentials.ReachableHosts(credentials.FilterProviders(in.Detected, in.Man.Capabilities)) {
-		addHost(h)
 	}
 	if sbx.HostModelRef(envValue(in.AgentEnv, "OLLAMA_API_BASE")) {
 		hosts[sbx.HostOllamaPolicyHost] = true
@@ -1681,8 +1672,7 @@ func WarnBaseline() {
 	if !allowed {
 		return
 	}
-	ui.Warnf("sbx's global network policy allows every host, so this run's Kit allowlist adds reach rather than limiting it")
-	ui.Notef("the tier below describes proveo's intent, not what sandboxd will enforce")
+	ui.Warnf("sbx's global network policy allows every host, so this run's agent can reach any destination")
 	ui.Notef("make it bind once, host-wide: `sbx policy init deny-all` (or `balanced`), then `sbx policy ls`")
 }
 
@@ -1761,14 +1751,6 @@ func CaptureMemoryEvidence(egDir, name string) {
 		return
 	}
 	ui.Storef("memory logs: %s", path)
-}
-
-func Selected(man manifest.Manifest) bool {
-	if !man.IsSbx() || !Enabled() {
-		return false
-	}
-	ok, _ := sbx.Available()
-	return ok
 }
 
 var storedSecretNames = sbx.StoredSecretNames

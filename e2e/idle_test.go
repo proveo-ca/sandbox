@@ -81,21 +81,6 @@ var deathMarkers = []string{
 	"agent exited with code",
 }
 
-func detectBackend(raw string) string {
-	out := plain(raw)
-	for _, m := range []string{
-		"docker sandboxes (sbx)", // proveo's own backend line
-		"Created sandbox ",       // sbx's
-		"/sbx/kit",               // the kit path in the posture block
-		"/sbx/policy-log.json",   // the egress record
-	} {
-		if strings.Contains(out, m) {
-			return "sbx"
-		}
-	}
-	return "docker+egress"
-}
-
 func idleTargets() []string {
 	raw := strings.TrimSpace(os.Getenv("PROVEO_IDLE_TARGETS"))
 	if raw == "" {
@@ -208,8 +193,7 @@ func idleAtPrompt(t *testing.T, target string) {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	backend := detectBackend(seen())
-	t.Logf("agent reached a prompt on the %s backend — injecting the reports a real terminal answers, then waiting %s with no further input", backend, idle)
+	t.Logf("agent reached a prompt — injecting the reports a real terminal answers, then waiting %s with no further input", idle)
 
 	// creack/pty does not answer Device Attributes. A host terminal does, and
 	// Cursor 2026.09.15 probes kitty-push then DA1 at startup. Without these
@@ -245,7 +229,7 @@ func idleAtPrompt(t *testing.T, target string) {
 			t.Errorf("output carries %q even though proveo is still running\n%s", m, lastLines(out, 30))
 		}
 	}
-	if name := runIDPattern.FindString(out); name != "" && backend == "sbx" {
+	if name := runIDPattern.FindString(out); name != "" {
 		if !sandboxRunning(name) {
 			t.Errorf("sandbox %s is no longer running after %s idle — the session was stopped underneath the agent", name, idle)
 		}
@@ -326,30 +310,5 @@ func injectTerminalReports(t *testing.T, w *os.File) {
 	}
 	if _, err := w.Write([]byte("\x9b?6c")); err != nil {
 		t.Fatalf("inject 8-bit DA1: %v", err)
-	}
-}
-
-func TestDetectBackendReadsMoreThanProveosOwnLine(t *testing.T) {
-	t.Parallel()
-	// Every one of these appeared in the output of a run that WAS sbx.
-	for _, witness := range []string{
-		"● backend: docker sandboxes (sbx)",
-		"✓ Created sandbox proveo-1788711006-59906",
-		"  kit        /Users/x/.local/state/proveo/egress/proveo-1/sbx/kit",
-		"● egress record: /Users/x/.local/state/proveo/egress/proveo-1/sbx/policy-log.json",
-	} {
-		if got := detectBackend(witness); got != "sbx" {
-			t.Errorf("detectBackend(%q) = %q, want sbx", witness, got)
-		}
-	}
-	// And a genuine docker run must not be misread the other way.
-	for _, witness := range []string{
-		"● backend: docker + egress sidecars",
-		"docker run -d --rm --name proveo-1-squid",
-		"",
-	} {
-		if got := detectBackend(witness); got != "docker+egress" {
-			t.Errorf("detectBackend(%q) = %q, want docker+egress", witness, got)
-		}
 	}
 }

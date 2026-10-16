@@ -44,7 +44,7 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		proveoBin, "run", "opencode",
 		"--yes", "--clone=false", "--shell",
-		"--egress-mode", "open", "--credentials", "forward",
+		"--credentials", "forward",
 		"--image", image, "--input", work,
 	); err != nil {
 		t.Fatalf("start tmux: %v", err)

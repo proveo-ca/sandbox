@@ -201,34 +201,19 @@ func Workspace(clone bool) string {
 	return "mounted checkout — the agent edits it directly"
 }
 
-func MCPGateway(sandbox, allowed bool, gatewayVar string) string {
-	switch {
-	case !sandbox:
-		return "n/a (docker backend)"
-	case allowed:
+func MCPGateway(allowed bool, gatewayVar string) string {
+	if allowed {
 		return "allowed (PROVEO_SBX_MCP=on) — sbx registers it into the proveo home, --scope user"
 	}
 	return "declined (" + gatewayVar + " empty; PROVEO_SBX_MCP=on to allow)"
 }
 
-func EnforcedBy(sandboxed bool) string {
-	if sandboxed {
-		return "sbx — Kit network allowlist + credential proxy (proveo runs no Squid or MITM)"
-	}
-	return "proveo — squid + mitmproxy sidecars on the session network"
+func EnforcedBy() string {
+	return "sbx — the host's network policy + credential proxy"
 }
 
-func Observability(mode, credentials string, sandboxed bool) string {
-	if sandboxed {
-		return "sbx/" + runlog.PolicyLogFile + " — the daemon's allowed/blocked hosts (no MITM, so no DLP or body scan)"
-	}
-	if mode == "open" && credentials == "forward" {
-		return "none — plain bridge, no MITM, no Squid: provider errors are NOT proveo denials"
-	}
-	if mode == "open" {
-		return "flows.ndjson (MITM only, no allowlist)"
-	}
-	return "flows.ndjson + squid access.log"
+func Observability() string {
+	return "sbx/" + runlog.PolicyLogFile + " — the daemon's allowed/blocked hosts (no MITM, so no DLP or body scan)"
 }
 
 // RolesLine renders the roles a run is carrying. It used to ask a bridge table
@@ -249,38 +234,30 @@ func RolesLine(r provider.Roles) string {
 
 // Posture is every row a run resolves, held as ONE value.
 type Posture struct {
-	Target         string
-	EgressTier     string
-	Credentials    string
-	AddOns         string
-	AgentEvidence  string
-	DetectedKeys   string
-	Brokered       string
-	ReachableHosts string
-	HarnessHosts   string
-	AuthVar        string
-	LocalModel     string
-	Observability  string
-	EnforcedBy     string
-	Image          string
-	ModelRoles     string
-	RoleProviders  string
-	MCPGateway     string
-	Workspace      string
+	Target        string
+	Credentials   string
+	AddOns        string
+	AgentEvidence string
+	DetectedKeys  string
+	AuthVar       string
+	LocalModel    string
+	Observability string
+	EnforcedBy    string
+	Image         string
+	ModelRoles    string
+	RoleProviders string
+	MCPGateway    string
+	Workspace     string
 }
 
 // Fields renders the run-log block.
 func (p Posture) Fields() map[string]string {
 	return map[string]string{
 		"target":          p.Target,
-		"egress tier":     p.EgressTier,
 		"credentials":     p.Credentials,
 		"add-ons":         p.AddOns,
 		"agent evidence":  p.AgentEvidence,
 		"detected keys":   p.DetectedKeys,
-		"brokered":        p.Brokered,
-		"reachable hosts": p.ReachableHosts,
-		"harness hosts":   p.HarnessHosts,
 		"auth var":        p.AuthVar,
 		"local model":     p.LocalModel,
 		"observability":   p.Observability,

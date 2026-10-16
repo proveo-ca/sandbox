@@ -1,7 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: why the sbx egress row shows sbx's baselines, read-only, instead of proveo's tiers
+' purpose: why sbx's own policy decides egress, why the egress row shows its baseline read-only, and what the Kit may add
 ' covers: internal/sbx/sbx.go
 ' covers: internal/run/choices.go
 ' covers: internal/sbx/baseline_test.go
@@ -10,11 +10,44 @@ skinparam noteTextAlignment left
 ' covers: internal/run/topology.go
 ' covers: internal/run/params.go (seedFromCache)
 ' covers: internal/run/params_test.go
+' covers: internal/run/run_test.go (TestEgressRowShowsTheHostBaseline, network.allow)
+' covers: internal/backend/sandbox/sandbox.go (Spec: the Kit's network.allow)
+' covers: internal/posture/posture.go (EnforcedBy, Observability)
 ' covers: e2e/sbx_egress_test.go
-' covers: internal/egress/egress.go (Modes, Canonical, ValidMode)
-' covers: internal/contract/egress_vocabulary_test.go
-'   what a refused mode costs downstream . _spec/internal/sbx/sandbox-backend.puml
+'   the backend that refuses without sbx . _spec/internal/sbx/sandbox-backend.puml
 '   who holds the key on this backend .... _spec/internal/sbx/credential-path.puml
+'   the domain form the Kit writes ....... _spec/internal/sbx/kit-domain-form.puml
+'
+' ── DECIDED 2026-10-16: THE TIER VOCABULARY IS RETIRED ─────────────────────
+' The Executor, on mapping open/allowlist/review onto sbx: "Nothing, `sbx`
+' handles this. Drop that param". And on review: "Retire review, map the rest".
+' MEASURED in the working tree:
+'   * `--egress-mode` is gone from the CLI, and with it egress.Modes,
+'     Canonical, ValidMode, entrypoint.CanonicalTiers and the
+'     egress_vocabulary contract test. The retired aliases broker / firewall /
+'     proxy went with them.
+'   * proveo writes NO tier-driven entry into the Kit's permissions.network.
+'     allow: no harness `capabilities.hosts`, no provider reach
+'     (credentials.ReachableHosts is deleted), no custom domains, no
+'     PROVEO_EGRESS_PROVIDER_DOMAINS. sandbox.Spec adds only what an add-on wires
+'     — host Ollama localhost:11434, the host CDP port, the host adb port and the
+'     adb install hosts — plus an own-agent Kit's credential-injection domains.
+'     A claudecode mixin Kit therefore carries an EMPTY allow list
+'     (internal/run/run_test.go: "the Kit names no hosts").
+'   * sbx's own policy decides egress: the global baseline plus whatever the
+'     operator adds with `sbx policy`. proveo reports it and never sets it.
+'   * posture: the "egress tier", "brokered", "reachable hosts" and "harness
+'     hosts" rows are gone. EnforcedBy() = "sbx — the host's network policy +
+'     credential proxy"; Observability() names sbx's policy log, saved at
+'     teardown to <egDir>/sbx/policy-log.json.
+'   * the review tier and its consent gate are retired with internal/reviewgate.
+'     internal/ptyproxy stays: every interactive sbx run uses it.
+'   * manifest Capabilities.Egress and agentsettings Choice.Egress are deleted.
+'     Fingerprint keeps an empty first slot (retiredEgressSlot) so cached keys
+'     stay stable.
+' [Inference] Under deny-all a mixin agent reaches its provider through sbx's
+' own built-in agent definition, not through anything proveo adds. Unverified
+' against sbx's agent kits in this pass.
 '
 ' ── REACH THE BASELINE DOES NOT GOVERN ────────────────────────────────────
 ' The baseline and the Kit allow govern traffic that leaves the sandbox. An
@@ -27,36 +60,31 @@ skinparam noteTextAlignment left
 '                       the host; accepted 2026-09-29, relay deferred
 '                       (host-android-adb.puml, ACCEPTED RISK)
 '
-' ── THE TIER VOCABULARY OUTLIVES THE MECHANISM IT ONCE NAMED ───────────────
-' Recorded here 2026-09-16, when the docker+egress diagrams were retired
-' (_spec/tests/testing-strategy.puml). sbx deprecated those egress mechanisms, so
-' the MITM-and-Squid hop that `open` / `allowlist` / `review` used to select is no
-' longer what proveo tests or leads with. THE WORDS DID NOT GO WITH IT, and this
-' file is where they now live, because this is the diagram that already explains
-' what the egress axis means on the backend operators actually get.
+' ── HISTORY: THE TIER VOCABULARY, 2026-09-16 TO 2026-10-16 ─────────────────
+' When the docker+egress diagrams were retired (2026-09-16) the words open /
+' allowlist / review moved here as a CLI surface and a declared intent, pinned by
+' internal/contract/egress_vocabulary_test.go (`egress.Modes()` ==
+' `entrypoint.CanonicalTiers`, the aliases broker / firewall / proxy rejected past
+' the CLI). The tier was inert against the Kit allowlist the whole time:
+' sandbox.go wrote the allowlist from harness hosts plus
+' credentials.ReachableHosts and never read the tier, while run.go reported
+' `EgressTier: p.Mode`. So an sbx run PRINTED `egress tier: open` while WRITING an
+' allowlist the tier could not touch. The 2026-10-16 retirement ends that split
+' by deleting the tier, not by mapping it.
 '
-' What still holds, and is pinned by internal/contract/egress_vocabulary_test.go:
-'   * `--egress-mode` accepts open | allowlist | review, in that order — riskier
-'     to safer, which is the order the prompt renders them in.
-'   * `egress.Modes()` must equal `entrypoint.CanonicalTiers`. Two lists would
-'     drift, and the container's own prelude parses the second.
-'   * the retired aliases `broker` / `firewall` / `proxy` still canonicalise for
-'     the CLI and must NEVER be understood past it: the in-container `.env` gate
-'     and the broker-sentinel gate both reject them unrenamed, which is what
-'     stops a stale spelling from silently selecting a posture.
-'   * the network tier and `--credentials broker|forward` are SEPARATE axes. The
-'     modes used to conflate them; a mode now names the network tier only.
-' The tier remains inert against the Kit allowlist on this backend, exactly as the
-' rest of this file says. It is a CLI surface and a declared intent, not an
-' enforcement statement — and nothing below should be read as promising a hop.
+' A case that was misread as that split, kept so it is not reached again: an
+' operator on an allow-all baseline saw `api.x.ai` "blocked". It was never a
+' reach denial — on allow-all a Kit cannot narrow. The Kit carried the Squid
+' `dstdomain` form `.x.ai`, which sbx does not enforce, so the credential was
+' never injected and the request left unauthenticated
+' (_spec/internal/sbx/kit-domain-form.puml).
 '
 ' ── THE ROW WAS DEAD ───────────────────────────────────────────────────────
 ' On the sbx backend the egress axis offered open | allowlist | review and none
-' of the three did anything. sandbox.Spec derives the Kit allowlist from the
-' harness capabilities and the detected providers and NEVER consults the tier, so
-' open and allowlist produce an identical sandbox; review is not supported there
-' and falls back to docker. A three-option risk axis on which nothing
-' moves is worse than no axis: it tells the operator they chose a posture.
+' of the three did anything: open and allowlist produced an identical sandbox,
+' and review fell back to docker. A three-option risk axis on which nothing
+' moves is worse than no axis: it tells the operator they chose a posture. The
+' row became sbx's baseline, read-only; the tiers are now deleted outright.
 '
 ' ── WHAT ACTUALLY GOVERNS ──────────────────────────────────────────────────
 ' sbx's GLOBAL network baseline — allow-all | balanced | deny-all. It is the only
@@ -65,8 +93,10 @@ skinparam noteTextAlignment left
 '   * a per-sandbox deny cannot express "only the allowlist", because deny beats
 '     allow — `sbx policy deny network --sandbox X "**"` blocks the allowlist too.
 ' So on an allow-all host the Kit allowlist ADDS REACH rather than limiting it,
-' and proveo's own warning has said exactly that on every run for some time. The
-' row now says it in the place the operator is actually looking.
+' and proveo's own warning (sandbox.WarnBaseline) says exactly that on every
+' run. The row says it in the place the operator is actually looking. Since
+' 2026-10-16 the Kit adds only add-on ports and own-agent credential domains,
+' so on a balanced or deny-all host those are the only reach proveo contributes.
 '
 ' ── DISPLAY ONLY, AND THAT IS THE POINT ────────────────────────────────────
 ' The row is LOCKED. proveo reports the baseline and never sets it:
@@ -97,36 +127,23 @@ skinparam noteTextAlignment left
 ' built from the same table shape; internal/sbx TestPolicyBaselineLive (tag
 ' livesbx) is what catches sbx changing that table.
 '
-' ── THE ROW'S REPORT IS NOT A MODE, AND IT LEAKED INTO ONE ─────────────────
-' Measured 2026-09-15. The choice form writes each row's selection back into
-' Params, and on this backend the egress row's value is the BASELINE it
-' reports — allow-all | balanced | deny-all — not open | allowlist | review.
-' Writing that into `p.Mode` put "allow-all" where every reader expects a mode,
-' and the first caller to hand it to `egress.BuildPlan` killed the run. proveo's
-' own run log named it exactly — `outcome: agent environment: egress: unknown
-' mode "allow-all"` — while the browser-viewport e2e saw only the generic
-' "session exited before the agent shell".
+' ── HISTORY: THE ROW'S REPORT LEAKED INTO A MODE (2026-09-15) ──────────────
+' The form wrote the egress row's value — a BASELINE — into `p.Mode`, and the
+' first caller to hand "allow-all" to `egress.BuildPlan` killed the run
+' (`egress: unknown mode "allow-all"`). Two guards closed it: promptChoices
+' stopped writing the egress selection, and seedFromCache seeded `p.Mode` only
+' from a valid mode. MEASURED 2026-10-16: `p.Mode`, BuildPlan and ValidMode are
+' all deleted, promptChoices reads no egress selection, and seedFromCache seeds
+' no egress value. The leak has no target left. The rule it taught stays: a
+' report is never written back as a choice.
 '
-' Two edges close it, because the value can arrive by two routes:
-'   * `promptChoices` no longer writes the egress selection when the sandbox
-'     backend is on. The row is a report, and proveo can re-read it from
-'     `sbx policy inspect` whenever it needs it, so nothing is lost by not
-'     storing it.
-'   * `seedFromCache` seeds `p.Mode` only from a value `egress.ValidMode`
-'     accepts, because a choice cached by an EARLIER sandbox run still holds a
-'     baseline. internal/run/params_test.go pins both directions: each of the
-'     three baselines (and an unreadable one) seeds nothing, and a real mode
-'     still seeds.
-'
-' Downstream, where the mode is only an input to the agent's own environment
-' rather than to enforcement, an unusable value degrades instead of aborting —
-' see _spec/internal/sbx/sandbox-backend.puml.
-'
-' STILL OPEN: posture.EnforcedBy says "sbx — Kit network allowlist + credential
-' proxy" whatever the baseline is, which overstates on an allow-all host. Left
-' unchanged deliberately: the same measurement governs whether an sbx sandbox's
-' own docker daemon can leave the Kit allowlist, which is unsettled.
-title The sbx egress row — showing what governs, not what proveo intends
+' RESOLVED 2026-10-16: posture.EnforcedBy used to say "sbx — Kit network
+' allowlist + credential proxy" whatever the baseline was, which overstated on
+' an allow-all host. It now says "sbx — the host's network policy + credential
+' proxy". Whether an sbx sandbox's own docker daemon can leave sbx's policy is
+' still asserted only by e2e/sbx_egress_test.go's DAEMON probe, which skips on
+' an allow-all host.
+title The sbx egress row — sbx's policy decides; proveo shows it and adds only add-on reach
 
 participant "operator" as OP <<app>>
 participant "proveo\negressRow" as ROW <<app>>
@@ -140,35 +157,24 @@ ROW ARROW_ERROR OP : locked row, current value shown,\none runnable command to c
 KIT ARROW_OPTIONAL SBX : adds allow rules ON TOP\n(cannot subtract)
 
 note over ROW
-  **The vocabulary outlives the mechanism.** The
-  CLI still takes ""--egress-mode"" open,
-  allowlist or review on both backends, and the
-  prelude still parses them. What they once
-  selected — the docker MITM hop — is not tested.
+  **The tiers are gone (2026-10-16).** "Nothing,
+  `sbx` handles this. Drop that param":
+  ""--egress-mode"", open/allowlist/review and
+  their canonical list are deleted, not mapped.
 end note
 
 note over ROW
-  **One vocabulary, two consumers, pinned.**
-  ""egress.Modes()"" must equal
-  ""entrypoint.CanonicalTiers"", and the retired
-  aliases broker|firewall|proxy still canonicalise
-  for the CLI while meaning nothing past it.
+  **A report is never written back as a choice.**
+  Storing this row in ""p.Mode"" once killed a
+  run. ""p.Mode"" is deleted now, so the row has
+  no field to leak into.
 end note
 
-note over ROW
-  **The report is not a mode.** Storing this row
-  in ""p.Mode"" put "allow-all" where every reader
-  expects open|allowlist|review, so the first
-  call to ""BuildPlan"" killed the run under a
-  generic "session exited before the shell".
-end note
-
-note over ROW
-  **Two routes carry it, so two guards.** The form
-  no longer records this selection in ""p.Mode"",
-  and ""seedFromCache"" re-enters only a value
-  ""egress.ValidMode"" recognises, because an
-  earlier sandbox run remembered a baseline.
+note over KIT
+  **The Kit adds add-on reach only.** Host
+  Ollama, CDP and adb ports, adb install hosts,
+  and an own-agent Kit's credential domains. No
+  harness hosts, no provider reach.
 end note
 
 note over SBX

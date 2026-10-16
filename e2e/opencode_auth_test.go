@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -25,20 +25,19 @@ func TestOpenCodeAuth(t *testing.T) {
 	requireHarness(t, "opencode")
 
 	proveoBin := buildProveo(t)
-	mode := env("PROVEO_TEST_EGRESS_MODE", "allowlist")
 	declared := declaredSecrets(t, "opencode")
 
 	for _, c := range opencodeAuth {
 		t.Run(c.name, func(t *testing.T) {
 			requireValidOpenCodeCredential(t, c)
-			for _, creds := range egress.CredentialModes() {
+			for _, creds := range run.CredentialModes() {
 				t.Run(creds, func(t *testing.T) {
 					if creds == "forward" && !declared[opencodeKeyVar] {
 						t.Skipf("opencode does not declare %s in its manifest env, so "+
 							"--credentials forward has nothing to forward — it is reachable "+
 							"only through the broker", opencodeKeyVar)
 					}
-					probeOpenCodeBoundary(t, c, proveoBin, mode, creds)
+					probeOpenCodeBoundary(t, c, proveoBin, creds)
 				})
 			}
 		})
@@ -68,7 +67,7 @@ func (c opencodeAuthCase) body() string {
 
 // probeOpenCodeBoundary runs the real harness through the real egress topology and
 // asks the gateway, from inside the container, whether the credential arrived.
-func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, mode, creds string) {
+func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, creds string) {
 	t.Helper()
 
 	work := t.TempDir()
@@ -81,7 +80,7 @@ func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, mode, cr
 	cmd = append(cmd, childEnvArgsFor(t, opencodeKeyVar)...)
 	cmd = append(cmd, "PROVEO_HOME="+t.TempDir())
 	cmd = append(cmd, proveoBin, "run", "opencode",
-		"--egress-mode", mode, "--credentials", creds, "--input", work, "--shell")
+		"--credentials", creds, "--input", work, "--shell")
 
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start tmux session: %v", err)
@@ -100,13 +99,13 @@ func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, mode, cr
 	})
 
 	if got := probeStatus(w.Screen()); got != "200" {
-		w.Fatalf("%s reached %s as HTTP %s under --egress-mode %s --credentials %s, want 200 — "+
+		w.Fatalf("%s reached %s as HTTP %s under --credentials %s, want 200 — "+
 			"the host accepted this same credential on this same endpoint, so the egress layer is what changed the answer",
-			opencodeKeyVar, c.base, got, mode, creds)
+			opencodeKeyVar, c.base, got, creds)
 	}
 	assertCleanBoot(t, w.Screen())
-	t.Logf("%s authenticated through --egress-mode %s --credentials %s (POST %s/chat/completions → 200)",
-		opencodeKeyVar, mode, creds, c.base)
+	t.Logf("%s authenticated through --credentials %s (POST %s/chat/completions → 200)",
+		opencodeKeyVar, creds, c.base)
 }
 
 // opencodeProbeLine is the request the container makes: no auth header under

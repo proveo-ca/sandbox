@@ -13,156 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-
-	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
-
-func TestBrokerProviders(t *testing.T) {
-	t.Parallel()
-	cursorMan := manifest.Manifest{Provider: "cursor"}
-	tests := []struct {
-		name     string
-		forwards bool
-		man      manifest.Manifest
-		detected []string
-		lookup   func(string) string
-		on       bool
-		want     []string
-	}{
-		{"brokered + 1 provider + on", false, manifest.Manifest{}, []string{"anthropic"}, nil, true, []string{"anthropic"}},
-		{"forwarded credentials never broker", true, manifest.Manifest{}, []string{"anthropic"}, nil, true, nil},
-		{"two providers → both routed", false, manifest.Manifest{}, []string{"anthropic", "openai"}, nil, true, []string{"anthropic", "openai"}},
-		{"roles spanning vendors → both routed", false, manifest.Manifest{}, []string{"moonshot", "xai"}, nil, true, []string{"moonshot", "xai"}},
-		{"zero providers", false, manifest.Manifest{}, nil, nil, true, nil},
-		{"broker disabled", false, manifest.Manifest{}, []string{"anthropic"}, nil, false, nil},
-		// A vendor-locked harness stays narrow: the other keys are not inference
-		// providers for it.
-		{"cursor pin + multi-detect + host key", false, cursorMan, []string{"anthropic", "openai", "cursor"}, func(k string) string {
-			if k == "CURSOR_API_KEY" {
-				return "sk-cursor"
-			}
-			return ""
-		}, true, []string{"cursor"}},
-		{"cursor pin without key", false, cursorMan, []string{"anthropic", "openai"}, func(string) string { return "" }, true, nil},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			lookup := tc.lookup
-			if lookup == nil {
-				lookup = func(string) string { return "" }
-			}
-			got := BrokerProviders(tc.forwards, tc.man, tc.detected, lookup, tc.on)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("BrokerProviders(...) mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestBrokerOffReason(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name       string
-		forwards   bool
-		routed     []string
-		detected   []string
-		on         bool
-		wantSubstr string // "" = expect no warning at all
-	}{
-		// Several providers is the supported shape now, so it must be SILENT — the
-		// old "broker pins exactly one" warning was the symptom, not the diagnosis.
-		{"two providers routed → silent", false, []string{"anthropic", "openai"}, []string{"anthropic", "openai"}, true, ""},
-		{"keys present but none routable → explain", false, nil, []string{"anthropic", "openai"}, true, "anthropic, openai"},
-		{"broker disabled → explain", false, nil, []string{"anthropic"}, false, "PROVEO_CREDENTIAL_BROKER"},
-		{"broker armed → silent", false, []string{"anthropic"}, []string{"anthropic"}, true, ""},
-		{"forwarded credentials → silent", true, nil, []string{"anthropic", "openai"}, true, ""},
-		{"no keys at all → silent", false, nil, nil, true, ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := BrokerOffReason(tc.forwards, tc.routed, tc.detected, tc.on)
-			if tc.wantSubstr == "" {
-				if got != "" {
-					t.Errorf("BrokerOffReason(...) = %q, want no warning", got)
-				}
-				return
-			}
-			if !strings.Contains(got, tc.wantSubstr) {
-				t.Errorf("BrokerOffReason(...) = %q, want it to mention %q", got, tc.wantSubstr)
-			}
-			if !strings.Contains(got, entrypoint.DefaultSentinel) {
-				t.Errorf("warning must name the sentinel the agent will get; got %q", got)
-			}
-		})
-	}
-}
-
-// T2: WriteBrokerEnv writes the injected key to a 0600 file in a 0700 dir, and
-// errors when no provider key is present (never writes an empty secret file).
-func TestWriteBrokerEnv(t *testing.T) {
-	// Isolate from the ambient environment: clear every provider key var.
-	for _, k := range provider.KeyVars() {
-		t.Setenv(k, "")
-	}
-
-	emptyLookup := func(string) string { return "" }
-	if _, err := WriteBrokerEnv(filepath.Join(t.TempDir(), "inject"), emptyLookup); err == nil {
-		t.Error("WriteBrokerEnv with no provider key must error, not write an empty file")
-	}
-
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-value")
-	dir := filepath.Join(t.TempDir(), "inject")
-	path, err := WriteBrokerEnv(dir, os.Getenv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := fi.Mode().Perm(); got != 0o600 {
-		t.Errorf("broker.env perm = %o, want 600", got)
-	}
-	di, err := os.Stat(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := di.Mode().Perm(); got != 0o700 {
-		t.Errorf("inject dir perm = %o, want 700", got)
-	}
-	b, _ := os.ReadFile(path)
-	if !strings.Contains(string(b), "ANTHROPIC_API_KEY=sk-ant-test-value") {
-		t.Errorf("broker.env content = %q, want the key=value line", b)
-	}
-}
-
-func TestWriteBrokerEnvFromHostFile(t *testing.T) {
-	for _, k := range provider.KeyVars() {
-		t.Setenv(k, "")
-	}
-	envPath := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=from-file\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	path, err := WriteBrokerEnv(filepath.Join(t.TempDir(), "inject"), ProviderLookup(envPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "CURSOR_API_KEY=from-file") {
-		t.Errorf("broker.env should include host-file key, got %q", b)
-	}
-}
 
 func TestProviderDetectFromHostDotEnvOnly(t *testing.T) {
 	for _, k := range provider.KeyVars() {
@@ -176,9 +31,6 @@ func TestProviderDetectFromHostDotEnvOnly(t *testing.T) {
 	detected := provider.Detect(lookup)
 	if len(detected) != 1 || detected[0] != "cursor" {
 		t.Fatalf("Detect(lookup) = %v, want [cursor]", detected)
-	}
-	if got := BrokerProviders(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); len(got) != 1 || got[0] != "cursor" {
-		t.Fatalf("BrokerProviders = %v, want [cursor]", got)
 	}
 }
 
@@ -194,39 +46,6 @@ func TestMoonshotDetectFromHostDotEnvOnly(t *testing.T) {
 	detected := provider.Detect(lookup)
 	if len(detected) != 1 || detected[0] != "moonshot" {
 		t.Fatalf("Detect(lookup) = %v, want [moonshot]", detected)
-	}
-	if got := BrokerProviders(false, manifest.Manifest{}, detected, lookup, true); len(got) != 1 || got[0] != "moonshot" {
-		t.Fatalf("BrokerProviders = %v, want [moonshot]", got)
-	}
-}
-
-func TestCursorBrokerWithMultiProviderDotEnv(t *testing.T) {
-	for _, k := range provider.KeyVars() {
-		t.Setenv(k, "")
-	}
-	t.Setenv("CURSOR_API_KEY", "sk-cursor-host-only")
-	envPath := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(envPath, []byte("ANTHROPIC_API_KEY=sk-ant\nOPENAI_API_KEY=sk-oai\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	lookup := ProviderLookup(envPath)
-	detected := provider.Detect(lookup)
-	if len(detected) < 2 {
-		t.Fatalf("Detect(lookup) = %v, want multiple providers", detected)
-	}
-	if got := BrokerProviders(false, manifest.Manifest{Provider: "cursor"}, detected, lookup, true); len(got) != 1 || got[0] != "cursor" {
-		t.Fatalf("BrokerProviders = %v, want [cursor]", got)
-	}
-	path, err := WriteBrokerEnv(filepath.Join(t.TempDir(), "inject"), lookup)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "CURSOR_API_KEY=sk-cursor-host-only") {
-		t.Errorf("broker.env = %q, want host CURSOR_API_KEY", b)
 	}
 }
 
@@ -336,7 +155,7 @@ func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 	}
 }
 
-func TestWarnMountedSecretsFiresOnTheOpenTierAndAlwaysOnSbx(t *testing.T) {
+func TestWarnMountedSecretsFiresWhenTheWorkspaceEnvHoldsAKey(t *testing.T) {
 	dirWithEnv := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dirWithEnv, ".env"), []byte("ANTHROPIC_API_KEY=x\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -348,41 +167,24 @@ func TestWarnMountedSecretsFiresOnTheOpenTierAndAlwaysOnSbx(t *testing.T) {
 		return ""
 	}
 	noKey := func(string) string { return "" }
-
-	cases := []struct {
-		name, dir, mode string
-		sandboxed       bool
-		lookup          func(string) string
-		wantWarning     bool
+	for _, tc := range []struct {
+		name, dir   string
+		lookup      func(string) string
+		wantWarning bool
 	}{
-		{"open tier warns — the plain bridge has no DLP", dirWithEnv, "open", false, withKey, true},
-		{"allowlist stays silent — proveo masks .env* there", dirWithEnv, "allowlist", false, withKey, false},
-		{"review stays silent — same topology as allowlist", dirWithEnv, "review", false, withKey, false},
-		{"mode is matched case-insensitively", dirWithEnv, "OPEN", false, withKey, true},
-		{"no .env in the mounted tree", t.TempDir(), "open", false, withKey, false},
-		{"no provider key on the host", dirWithEnv, "open", false, noKey, false},
-		{"no mounted dir at all", "", "open", false, withKey, false},
-
-		{"sbx warns on allowlist — nothing is masked there", dirWithEnv, "allowlist", true, withKey, true},
-		{"sbx warns on review too", dirWithEnv, "review", true, withKey, true},
-		{"sbx warns on open", dirWithEnv, "open", true, withKey, true},
-		{"sbx still needs a key to be at risk", dirWithEnv, "allowlist", true, noKey, false},
-		{"sbx still needs a .env", t.TempDir(), "allowlist", true, withKey, false},
-	}
-	for _, tc := range cases {
+		{"a .env with a provider key warns", dirWithEnv, withKey, true},
+		{"no provider key on the host", dirWithEnv, noKey, false},
+		{"no .env in the workspace", t.TempDir(), withKey, false},
+		{"no workspace dir at all", "", withKey, false},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			restore := ui.Default
 			ui.Default = ui.New(&buf)
 			t.Cleanup(func() { ui.Default = restore })
-
-			WarnMountedSecrets(tc.dir, tc.mode, tc.sandboxed, tc.lookup)
-
-			got := strings.Contains(buf.String(), ".env is mounted") ||
-				strings.Contains(buf.String(), ".env is inside the sandbox workspace")
-			if got != tc.wantWarning {
-				t.Errorf("WarnMountedSecrets(%q, %q, lookup) warned = %v, want %v (output %q)",
-					tc.dir, tc.mode, got, tc.wantWarning, buf.String())
+			WarnMountedSecrets(tc.dir, tc.lookup)
+			if got := strings.Contains(buf.String(), ".env is inside the sandbox workspace"); got != tc.wantWarning {
+				t.Errorf("warned = %v, want %v (output %q)", got, tc.wantWarning, buf.String())
 			}
 		})
 	}

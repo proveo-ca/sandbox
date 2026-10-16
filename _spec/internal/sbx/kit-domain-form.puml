@@ -8,9 +8,21 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/domain_form_test.go
 ' covers: defs/cecli/harness.manifest
 ' The Kit schema this serves: sbx-kit-contract.puml (same directory).
-' Why an allow-all baseline hid it: policy-baseline.puml (same directory).
-' The plan whose forcing example this corrects: _spec/_plans/retire-docker-egress.puml
+' Why an allow-all baseline hid it: policy-baseline.puml (same directory), which
+' also keeps the x.ai forcing example this file corrected (the plan that first
+' recorded it, retire-docker-egress.puml, was retired 2026-10-16).
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── 2026-10-16: SQUID IS GONE, AND THE KIT CARRIES NO PROVIDER HOSTS ───────
+' MEASURED: the docker+egress backend and its Squid are deleted, and sandbox.Spec
+' no longer copies provider Hosts into permissions.network.allow (only add-on
+' ports and an own-agent Kit's credential domains, via DomainPatterns). The
+' translation below still serves those credential domains (customSecretTarget,
+' agentCredentials).
+' DECIDED (Executor, 2026-10-16, Q4): provider.Entry.ACL and ACLBody are deleted;
+' Hosts is the one domain fact. NOT YET DONE in the working tree: provider.go
+' still carries ACL on every entry and ACLBody, read only by provider tests and
+' internal/contract/contract_test.go (MEASURED).
 '
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
 '   kit reference : https://docs.docker.com/ai/sandboxes/customize/kit-reference/
@@ -72,10 +84,11 @@ skinparam noteTextAlignment left
 ' an egress denial. That misreading is the whole defect.
 '
 ' ── THE RULE THIS FILE FIXES ────────────────────────────────────────────────
-' Translate at the Kit boundary, and ONLY there. `Entry.ACL` keeps Squid's
-' vocabulary because Squid still consumes it on the docker backend; `Entry.Hosts`
-' keeps its stored form because the broker's strip/inject matching is its own.
-' `sbx.AllowPatterns` is the one place the two grammars meet.
+' Translate at the Kit boundary, and ONLY there. `Entry.ACL` kept Squid's
+' vocabulary while Squid consumed it on the docker backend (deleted 2026-10-16);
+' `Entry.Hosts` kept its stored form for the broker's strip/inject matching
+' (deleted with it). `sbx.DomainPatterns` / `sbx.AllowPatterns` is the one place
+' the two grammars meet.
 '
 '   ".x.ai"          -> "x.ai", "*.x.ai"    both, because neither covers the other
 '   "api2.cursor.sh" -> "api2.cursor.sh"    a bare host means exactly that host
@@ -110,8 +123,8 @@ package "internal/provider" as PROV <<host>> {
 
 component "sbx.AllowPatterns\nthe one translation point" as XLATE <<app>>
 
-package "the two consumers" as CONS <<host>> {
-  component "Squid\ndocker backend only" as SQUID <<app>>
+package "the consumers" as CONS <<host>> {
+  component "Squid\nDELETED 2026-10-16" as SQUID <<error>>
   component "sbx Kit\npermissions.network.allow\ncredentials[].inject[].domain" as KIT <<app>>
 }
 
@@ -119,7 +132,7 @@ cloud "sbx proxy\n""gateway.docker.internal:3128""" as PROXY <<cloud>>
 
 component "**the defect**\n"".x.ai"" matches nothing" as BUG <<error>>
 
-ACL ARROW_MAIN SQUID : unchanged — Squid's own grammar
+ACL ARROW_ERROR SQUID : no reader left — decided for deletion
 HOSTS ARROW_MAIN XLATE
 XLATE ARROW_MAIN KIT : ""x.ai"" + ""*.x.ai""
 KIT ARROW_MAIN PROXY
@@ -173,9 +186,9 @@ legend bottom
   leading-dot ""dstdomain"" form is not a pattern sbx knows, and it reached the Kit
   because ""Entry.Hosts"" grew a second consumer without growing a second form.
   --
-  **The translation lives at the boundary**, not in the registry: ""Entry.ACL"" still
-  speaks Squid for the docker backend, and ""sbx.AllowPatterns"" is the only place the
-  two grammars meet.
+  **The translation lives at the boundary**, not in the registry: ""sbx.DomainPatterns""
+  is the only place the two grammars meet. ""Entry.ACL"" lost its Squid reader on
+  2026-10-16 and is decided for deletion, not yet deleted.
   ==
   **Still open**: whether ""*.x.ai"" is accepted in ""inject[].domain"" specifically.
   Named here rather than assumed, because the probe that proved suffix domains PARSE

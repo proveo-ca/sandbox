@@ -118,7 +118,6 @@ func seedBrowserAddon(t *testing.T, proveoHome, target string) {
 	}
 	st := &agentsettings.Store{}
 	st.Remember(target, caps, agentsettings.Choice{
-		Egress:      "allowlist",
 		Credentials: "broker",
 		Addons:      []string{"browser"},
 	})

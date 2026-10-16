@@ -37,15 +37,6 @@ const (
 	ContainerHost = "host.docker.internal"
 )
 
-func TierSupported(mode, credentials string) bool {
-	return strings.EqualFold(strings.TrimSpace(mode), "open") &&
-		strings.EqualFold(strings.TrimSpace(credentials), "forward")
-}
-
-// TierWhy is the one sentence the picker and the run both print when
-// TierSupported says no.
-const TierWhy = "needs egress open + credentials forward"
-
 // SbxWhy is the reason the picker and the run print on the sbx backend.
 const SbxWhy = "needs a real Claude token — sbx keeps it proxy-managed and the Chrome bridge rejects the sentinel (401)"
 

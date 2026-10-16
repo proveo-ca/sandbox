@@ -53,7 +53,7 @@ func TestPromptfulE2E(t *testing.T) {
 	t.Cleanup(sess.Kill)
 
 	if err := sess.Start(200, 50, "env", "PROVEO_WIZARD=off", proveoBin, "run", target,
-		"--egress-mode", "open", "--credentials", "forward",
+		"--credentials", "forward",
 		"--local-model", model, "--input", work, "--scope", ".",
 		"--", "run", "--auto", "--agent", "build", task); err != nil {
 		t.Fatalf("start session: %v", err)

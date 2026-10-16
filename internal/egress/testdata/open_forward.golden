@@ -1,6 +1,0 @@
-# networks
-# sidecars
-# connects
-# agent-args
---network=bridge --add-host=host.docker.internal:127.0.0.1
-# cleanup

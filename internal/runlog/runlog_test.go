@@ -6,9 +6,7 @@ import (
 	"testing"
 )
 
-// Four of the five docker-path artifacts never exist under sbx. Naming them there
-// sent an operator to missing files at exactly the moment they needed a real one.
-func TestArtifactsMatchTheBackend(t *testing.T) {
+func TestArtifactsNameTheSandboxEvidence(t *testing.T) {
 	t.Setenv("PROVEO_HOME", t.TempDir())
 	dir := t.TempDir()
 	l, err := Open("t-artifacts")
@@ -17,24 +15,18 @@ func TestArtifactsMatchTheBackend(t *testing.T) {
 	}
 	defer l.Close()
 
-	l.Artifacts(dir, true)
-	l.Artifacts(dir, false)
+	l.Artifacts(dir)
 	b, err := os.ReadFile(l.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := string(b)
-	sbxHalf, dockerHalf, _ := strings.Cut(got, "flow record")
-	if strings.Contains(sbxHalf, "squid") || strings.Contains(sbxHalf, "flows.ndjson") {
-		t.Errorf("sbx artifacts must not name proveo sidecar logs:\n%s", sbxHalf)
+	for _, want := range []string{"spec.yaml", PolicyLogFile, MemoryEvidenceFile} {
+		if !strings.Contains(got, want) {
+			t.Errorf("artifacts must name %s:\n%s", want, got)
+		}
 	}
-	if !strings.Contains(sbxHalf, "spec.yaml") {
-		t.Errorf("sbx artifacts must name the Kit:\n%s", sbxHalf)
-	}
-	if !strings.Contains(sbxHalf, PolicyLogFile) {
-		t.Errorf("sbx artifacts must name the captured policy log (%s):\n%s", PolicyLogFile, sbxHalf)
-	}
-	if !strings.Contains(dockerHalf, "squid") {
-		t.Errorf("docker artifacts must still name squid:\n%s", dockerHalf)
+	if strings.Contains(got, "squid") || strings.Contains(got, "flows.ndjson") {
+		t.Errorf("artifacts name a retired sidecar log:\n%s", got)
 	}
 }

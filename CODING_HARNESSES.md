@@ -69,7 +69,7 @@ Do not assume a host `$HOME` or host `/opt` is mounted. Runtime discovery happen
 
 ## Environment Bridging
 
-Harnesses should source a project `.env` file when present, using `set -a` so loaded values are exported to the child CLI. `.env` files must be runtime-only; never bake secrets into the image.
+Harnesses should source a project `.env` file when present, using `set -a` so loaded values are exported to the child CLI. `.env` files must be runtime-only; never bake secrets into the image. Inside sbx (`SANDBOX_VM_ID` set) the shared `load_env` skips the file, so the workspace `.env` never reaches the agent's environment.
 
 Entrypoints should bridge **credentials** and **UI preferences** into tool-specific env vars. Examples:
 
@@ -156,11 +156,9 @@ Expected behavior:
  - tool config: `.cecli.config.yml`, `.cecliignore`, `opencode.json`.
 
 For **`.env`**: do not treat it as a file to preserve into the agent mount set when
-credential isolation matters. In `firewall` mode the target posture is host-exported keys
-(or host-side resolution into `broker.env` on the egress sidecar only). Wrappers
-may overlay a symlink-resolved `.env` at `/app/.env` for entrypoint autoload convenience
-(`internal/workspace`); that is not a security control. In `broker` mode, prefer host
-`export` / `docker run -e` over bind-mounting `.env` when minimizing file exposure.
+credential isolation matters. The target posture is host-exported keys: `--credentials broker`
+(the default) stores them in sbx's secret store, and `--credentials forward` puts them in the
+sandbox environment. Neither path needs a bind-mounted `.env`.
 
 - Make the chosen scope visible in the container name or startup preamble so parallel harness sessions are distinguishable.
 
@@ -171,26 +169,19 @@ may overlay a symlink-resolved `.env` at `/app/.env` for entrypoint autoload con
 Dependency trees are never the host's. Every directory a language's tooling materialises
 inside the workspace (`node_modules`, `.venv`, `vendor/bundle`, `target`, `.terraform`, …)
 is table-driven in `internal/workspace.DepLangs` and mirrored by `_dep_lang_dirs` in
-`packages/lib/entrypoint-lib.sh`; a contract test keeps the two identical. On the docker
-backend each such directory is overlaid with a **private overlay** staged under the run's
-state dir — present or not — so the host's platform binaries never cross in and a container
-install never crosses out. Whether the overlay starts as a plain copy of the host tree is
-decided by comparing the host's OS/arch with the image platform the defs build
-(`linux/<arch>`, or `DOCKER_DEFAULT_PLATFORM`): a match copies, since the tree runs as-is; a
-mismatch (macOS, Windows, cross-arch) stages empty, since every native module would be
-foreign and the seed would clear the copy anyway. `PROVEO_DEPS_COPY=always|never` overrides.
-A foreign copy that does arrive (any non-ELF object) is cleared and rebuilt. sbx mirrors the
-checkout at its host path and cannot express the overlay: there, only clone mode keeps host
-trees out — which is why **clone is the default on sbx** (`--clone=false` or `PROVEO_CLONE=off`
-opts out). The default steps aside, and says why, where sbx cannot clone: no git repository,
-a linked worktree, a monorepo sub-scope, or the docker backend. At teardown proveo commits
+`packages/lib/entrypoint-lib.sh`; a contract test keeps the two identical. sbx mirrors the
+checkout at its host path and cannot overlay those directories: only clone mode keeps host
+trees out — which is why **clone is the default** (`--clone=false` or `PROVEO_CLONE=off`
+opts out). On a mounted checkout whose host platform differs from the image's (`linux/<arch>`,
+or `DOCKER_DEFAULT_PLATFORM`), the run refuses to carry the host trees in unless
+`PROVEO_DEPS=shared` accepts the rewrite. The default steps aside, and says why, where sbx
+cannot clone: no git repository, a linked worktree, or a monorepo sub-scope. At teardown proveo commits
 whatever the agent left uncommitted and fetches every branch of the clone into
 `refs/proveo/<sid>/`, because `sbx rm` drops the clone and its remote. See
 `_spec/internal/sbx/virtiofs-cwd-invalidation.puml` for the failure the default closes off.
 
-The seed installs **before the agent starts** (`ensure_dependency_trees`, reached by both
-backends), because a workspace with nothing installed is the most confusing state to hand an
-agent. Rules:
+The seed installs **before the agent starts** (`ensure_dependency_trees`), because a workspace
+with nothing installed is the most confusing state to hand an agent. Rules:
 
 - install when a project manifest exists and its primary tree is absent; a workspace root
   (pnpm/npm/yarn/bun `workspaces`) installs once, for all members;
@@ -210,7 +201,7 @@ Harness images should:
 - run as a non-root user by default;
 - avoid setuid/setgid binaries unless explicitly required;
 - avoid baking credentials, auth files, or `.env` contents into the image;
-- source secrets only at runtime from mounted files or `docker run -e` values;
+- source secrets only at runtime from the sandbox environment or sbx's credential proxy;
 - keep session/config persistence under proveo-owned `~/.proveo` (default-on via
   `harness.manifest` `home:`); never bind-mount host IDE homes (`~/.cursor`, `~/.claude`, `~/.codex`);
 - scrub deny-listed auth filenames from proveo home each run; keep inference auth on
@@ -219,17 +210,15 @@ Harness images should:
   sbx config sync never copies it; unlike `deny:`, the host copy is kept;
 - avoid logging secret values while still reporting whether required keys were detected.
 
-**Credential isolation by egress mode** (see [`README.md`](README.md) and
-[`_spec/_paradigms/harness-paradigms.puml`](_spec/_paradigms/harness-paradigms.puml)):
+**Credential isolation** (see [`README.md`](README.md#security--egress--credentials) and
+[`_spec/_paradigms/credential-boundary.puml`](_spec/_paradigms/credential-boundary.puml)):
 
-| Mode | Secret confinement |
+| `--credentials` | Secret confinement |
 | --- | --- |
-| `firewall` | Real secrets only in `broker.env` on the egress sidecar. Agent `.env` is masked; `load_env` skips; secret env is a sentinel (`proveo-brokered`). |
-| `proxy` | No TLS inspection — broker-style inject/strip is impossible. Squid limits destinations; agent holds credentials in-process (or withholds them, requiring another auth path). |
-| `broker` | No egress boundary — dev-only; `.env` may be mounted for convenience; accept in-process secrets. |
+| `broker` (default) | The real key sits in sbx's secret store; sbx's proxy attaches it to the provider's requests, so the agent never holds it. |
+| `forward` | The real key sits in the sandbox environment; accept in-process secrets. |
 
-The credential broker is **firewall-mode only**. Do not document or implement broker injection
-for `proxy`/`broker` without an explicit topology change (adding TLS MITM to those modes).
+In both modes `load_env` skips the workspace `.env` inside sbx. Egress is sbx's host-wide network policy (`sbx policy`), not a harness setting.
 
 ## Observability and Debuggability
 

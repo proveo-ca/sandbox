@@ -28,6 +28,25 @@ const (
 	EnvLocalModelPull    = "PROVEO_LOCAL_MODEL_PULL"
 )
 
+// LocalModelEnv points every harness dialect at model on the host's Ollama, as the sandbox reaches it.
+func LocalModelEnv(model string) []string {
+	base := HostOllamaGuestBase
+	return []string{
+		"PROVEO_LOCAL_MODEL=" + model,
+		"OLLAMA_HOST=" + base, "OLLAMA_API_BASE=" + base,
+		"OPENAI_BASE_URL=" + base + "/v1", "OPENAI_API_BASE=" + base + "/v1",
+		"OPENAI_API_KEY=ollama",
+		"ARCHITECT_MODEL=ollama/" + model, "EDITOR_MODEL=ollama/" + model,
+		"SMALL_MODEL=ollama/" + model,
+		"ANTHROPIC_BASE_URL=" + base, "ANTHROPIC_AUTH_TOKEN=ollama",
+		"ANTHROPIC_API_KEY=",
+		"ANTHROPIC_MODEL=" + model, "ANTHROPIC_SMALL_FAST_MODEL=" + model,
+		"CLAUDE_CODE_EFFORT_LEVEL=low", "CLAUDE_CODE_DISABLE_THINKING=1",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"API_TIMEOUT_MS=1200000", "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS=1200000",
+	}
+}
+
 var (
 	hostOllamaURL   = "http://127.0.0.1:11434"
 	ollamaRegistry  = "https://registry.ollama.ai"

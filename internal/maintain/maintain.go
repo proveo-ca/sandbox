@@ -18,20 +18,17 @@ import (
 const (
 	KindBase    = "base"
 	KindHarness = "harness"
-	KindSidecar = "sidecar"
 )
 
 // Target is one buildable/deployable image in the maintainer registry.
 type Target struct {
 	Name     string // e.g. "claudecode-solidity"
-	Kind     string // KindBase | KindHarness | KindSidecar
+	Kind     string // KindBase | KindHarness
 	Image    string // org/name without a tag, e.g. "proveo/claudecode-solidity"
 	DefDir   string // def directory holding the Dockerfile
 	RepoRoot string // build context root
 	Suite    string // image test suite: internal/imagetest/<Suite>_test.go (may not exist)
 }
-
-var sidecars = []string{"egress-proxy", "mitmproxy"}
 
 func Registry(ms []manifest.Manifest, defsDir string) []Target {
 	out := []Target{
@@ -54,15 +51,6 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 	}
 	sort.Slice(harness, func(i, j int) bool { return harness[i].Name < harness[j].Name })
 	out = append(out, harness...)
-
-	for _, name := range sidecars {
-		out = append(out, Target{
-			Name:   name,
-			Kind:   KindSidecar,
-			Image:  "proveo/" + name,
-			DefDir: filepath.Join(defsDir, "sidecars", name),
-		})
-	}
 
 	for i := range out {
 		out[i].RepoRoot = filepath.Dir(defsDir)
