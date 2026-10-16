@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 var (
 	retainedEngineRE = regexp.MustCompile(`retained engine (proveo-[a-z0-9-]+)`)
 	openCodeEngineRE = regexp.MustCompile(`proveo-opencode-[0-9a-f]{8}(?:-prepare)?\b`)
+	terminalSeq      = regexp.MustCompile("\x1b\\[[0-9;?<=>]*[ -/]*[@-~]|\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b[()*+#].|\x1b.")
 )
 
 func openCodeOwnerRecord(t *testing.T, engine string) string {
@@ -60,29 +62,81 @@ func removeOpenCodeEngines(t *testing.T, work string, outputs []string) {
 	}
 }
 
-// onTerminal runs cmd on a pseudo-terminal, approves sbx's credential prompt once, and returns what it printed.
-func onTerminal(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
+// terminalText is output without terminal control sequences, with each carriage return as a line break.
+func terminalText(out string) string {
+	return strings.ReplaceAll(terminalSeq.ReplaceAllString(out, ""), "\r", "\n")
+}
+
+// terminalWords is terminalText with each run of whitespace as one space.
+func terminalWords(out string) string {
+	return strings.Join(strings.Fields(terminalText(out)), " ")
+}
+
+// sessionID is the last native session id the output printed.
+func sessionID(out string) string {
+	id := ""
+	for _, line := range strings.Split(terminalText(out), "\n") {
+		var response struct {
+			Data struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if json.Unmarshal([]byte(strings.TrimSpace(line)), &response) == nil && response.Data.ID != "" {
+			id = response.Data.ID
+		}
+	}
+	return id
+}
+
+// onTerminal runs cmd on a pseudo-terminal, approves each sbx credential prompt, stops at an sbx prompt
+// the run cannot answer, and returns what it printed.
+func onTerminal(cmd *exec.Cmd) ([]byte, error) {
 	terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 200})
 	if err != nil {
 		return nil, err
 	}
-	defer terminal.Close()
-	defer context.AfterFunc(ctx, func() { _ = terminal.Close() })()
-	var out bytes.Buffer
-	buf := make([]byte, 32<<10)
-	approved := false
-	for {
-		n, readErr := terminal.Read(buf)
-		out.Write(buf[:n])
-		if !approved && strings.Contains(ansiSeq.ReplaceAllString(out.String(), ""), "[A]pprove all") {
-			approved = true
-			_, _ = terminal.Write([]byte("A\r"))
+	var (
+		mu      sync.Mutex
+		out     bytes.Buffer
+		refused string
+	)
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		buf := make([]byte, 32<<10)
+		approved := 0
+		for {
+			n, readErr := terminal.Read(buf)
+			mu.Lock()
+			out.Write(buf[:n])
+			words := terminalWords(out.String())
+			mu.Unlock()
+			for ; approved < strings.Count(strings.ReplaceAll(words, " ", ""), "[A]pproveall"); approved++ {
+				_, _ = terminal.Write([]byte("A\r"))
+			}
+			if prompt := brokenPrompt(words); prompt != "" {
+				mu.Lock()
+				refused = prompt
+				mu.Unlock()
+				_ = cmd.Process.Kill()
+			}
+			if readErr != nil {
+				return
+			}
 		}
-		if readErr != nil {
-			break
-		}
+	}()
+	waitErr := cmd.Wait()
+	select {
+	case <-drained:
+	case <-time.After(10 * time.Second):
 	}
-	return out.Bytes(), cmd.Wait()
+	_ = terminal.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	if refused != "" {
+		return bytes.Clone(out.Bytes()), fmt.Errorf("sbx asked %q, which this run cannot answer", refused)
+	}
+	return bytes.Clone(out.Bytes()), waitErr
 }
 
 func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
@@ -121,13 +175,13 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		var out []byte
 		var err error
 		if terminal {
-			out, err = onTerminal(ctx, cmd)
+			out, err = onTerminal(cmd)
 		} else {
 			out, err = cmd.CombinedOutput()
 		}
 		outputs = append(outputs, string(out))
 		if err != nil {
-			t.Fatalf("managed sbx launch %v (terminal %v): %v\n%s", native, terminal, err, out)
+			t.Fatalf("managed sbx launch %v (terminal %v): %v\n%s", native, terminal, err, terminalText(string(out)))
 		}
 		return string(out)
 	}
@@ -141,43 +195,81 @@ func TestOpenCodeSbxPreparedSourceSurvivesOrdinaryReattach(t *testing.T) {
 		t.Errorf("the headless prepare did not stop before the agent:\n%s", prepared)
 	}
 	created := regexp.MustCompile(`Created sandbox ` + regexp.QuoteMeta(engine) + `(?:\s|$)`)
-	if !created.MatchString(plain(prepared)) {
+	if !created.MatchString(terminalWords(prepared)) {
 		t.Fatalf("the prepare run never printed \"Created sandbox %s\", so a replacement would go unseen:\n%s", engine, prepared)
 	}
 	if _, err := os.Stat(openCodeOwnerRecord(t, engine)); err != nil {
 		t.Fatalf("prepared engine owner record: %v", err)
 	}
-	result := run(true, "api", "POST", "/api/session", "--data", `{"title":"prepared-reuse-fixture","location":{"directory":`+strconv.Quote(work)+`}}`)
-	var id string
-	for _, line := range strings.Split(result, "\n") {
-		var response struct {
-			Data struct {
-				ID string `json:"id"`
-			} `json:"data"`
+	reattached := func(leg, out string) {
+		t.Helper()
+		words := terminalWords(out)
+		if !strings.Contains(words, "re-attaching to "+engine+",") {
+			t.Fatalf("%s did not reattach to %s:\n%s", leg, engine, terminalText(out))
 		}
-		if json.Unmarshal([]byte(strings.TrimSpace(ansiSeq.ReplaceAllString(line, ""))), &response) == nil && response.Data.ID != "" {
-			id = response.Data.ID
+		if created.MatchString(words) || strings.Contains(words, "creates a new sandbox named "+engine) {
+			t.Fatalf("%s replaced the prepared engine %s:\n%s", leg, engine, terminalText(out))
 		}
 	}
+	result := run(true, "api", "POST", "/api/session", "--data", `{"title":"prepared-reuse-fixture","location":{"directory":`+strconv.Quote(work)+`}}`)
+	reattached("api POST", result)
+	id := sessionID(result)
 	if id == "" {
-		t.Fatalf("native session creation missing: %s", result)
+		t.Fatalf("native session creation missing:\n%s", terminalText(result))
 	}
 	reread := run(true, "api", "GET", "/api/session/"+id)
-	for _, out := range []string{plain(result), plain(reread)} {
-		if created.MatchString(out) || strings.Contains(out, "creates a new sandbox named "+engine) {
-			t.Fatalf("ordinary reattach replaced the prepared engine:\n%s", out)
-		}
+	reattached("api GET", reread)
+	if got := sessionID(reread); got != id {
+		t.Fatalf("ordinary reattach read session %q, want %q:\n%s", got, id, terminalText(reread))
 	}
 
-	// Stop the engine, as sbx's idle auto-stop does.
+	// Stop the engine.
 	if out, err := exec.Command("sbx", "stop", engine).CombinedOutput(); err != nil {
 		t.Fatalf("sbx stop %s: %v\n%s", engine, err, out)
 	}
 	recovered := run(true, "api", "GET", "/api/session/"+id)
-	if !strings.Contains(recovered, id) {
-		t.Fatalf("after sbx stopped the engine, the reattach lost session %s:\n%s", id, recovered)
+	reattached("api GET after sbx stop", recovered)
+	if got := sessionID(recovered); got != id {
+		t.Fatalf("after sbx stopped the engine, the reattach read session %q, want %q:\n%s", got, id, terminalText(recovered))
 	}
-	if !strings.Contains(plain(recovered), "re-verifying the history") {
-		t.Errorf("the reattach after a clean stop did not recover without asking:\n%s", recovered)
+	if !strings.Contains(terminalWords(recovered), "re-verifying the history") {
+		t.Errorf("the reattach after a clean stop did not recover without asking:\n%s", terminalText(recovered))
+	}
+}
+
+func TestTerminalLegsReadPtyOutput(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	script := `[ -t 0 ] && [ -t 1 ] && echo TTY_BOTH
+printf '\033[1m[A]\033(B\033[mppr'; sleep 0.2; printf 'ove\033[1Call · [R]eview each · [N]o '; IFS= read -r -n1 k; read -r _; echo "key1=$k"
+printf '[A]pprove all · [R]eview each · [N]o '; IFS= read -r -n1 k; read -r _; echo "key2=$k"
+printf 'Created sandbox proveo-opencode-0123abcd-prepare\n  re-attaching to proveo-opencode-0123abcd, which an earlier run left here\n'
+printf '\r\033[2Kproveo: Waiting for seed — starting (1s) |' >&2; printf '\r\033[2K' >&2
+printf '{"data":{"id":"ses_fixture"}}\n'`
+	out, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", script))
+	text := terminalText(string(out))
+	if err != nil || !strings.Contains(text, "TTY_BOTH") || !strings.Contains(text, "key1=A") || !strings.Contains(text, "key2=A") {
+		t.Fatalf("each approval prompt on a terminal gets A: %v\n%s", err, text)
+	}
+	if got := sessionID(string(out)); got != "ses_fixture" {
+		t.Fatalf("session id behind the seed wait = %q:\n%q", got, out)
+	}
+	words := terminalWords(string(out))
+	if !strings.Contains(words, "re-attaching to proveo-opencode-0123abcd,") {
+		t.Fatalf("reattach marker lost: %q", words)
+	}
+	if regexp.MustCompile(`Created sandbox proveo-opencode-0123abcd(?:\s|$)`).MatchString(words) {
+		t.Fatalf("the -prepare engine read as the retained engine: %q", words)
+	}
+	if _, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", `printf 'Overwrite? (y/N) '; sleep 60`)); err == nil || !strings.Contains(err.Error(), "Overwrite? (y/N)") {
+		t.Fatalf("an sbx prompt the run cannot answer must end the leg: %v", err)
+	}
+	if _, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", "exit 3")); err == nil || !strings.Contains(err.Error(), "exit status 3") {
+		t.Fatalf("exit status lost: %v", err)
+	}
+	short, stop := context.WithTimeout(ctx, time.Second)
+	defer stop()
+	if _, err := onTerminal(exec.CommandContext(short, "bash", "-c", "sleep 60")); err == nil {
+		t.Fatal("a leg past its deadline must fail")
 	}
 }
