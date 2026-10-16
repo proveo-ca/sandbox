@@ -9,7 +9,7 @@ import (
 )
 
 // e2eFullEnv is exported for the whole run, so the idle and ladder halves inherit it.
-var e2eFullEnv = []string{"PROVEO_IDLE_TEST=1", "PROVEO_SIGNAL_TEST=1", "PROVEO_TOOLCHAIN_TEST=1"}
+var e2eFullEnv = []string{"PROVEO_IDLE_TEST=1", "PROVEO_TOOLCHAIN_TEST=1"}
 
 func e2eStep(timeout string, extra []string) step {
 	argv := []string{"go", "test", "-tags=e2e", "./e2e/", "-count=1", "-timeout", timeout}

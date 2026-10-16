@@ -5,19 +5,30 @@ skinparam noteTextAlignment left
 ' would touch: internal/backend/** (a host backend does not exist yet — that absence IS the plan)
 ' would touch: internal/run/run.go (backend selection, buildPosture)
 ' would touch: internal/posture/posture.go (EnforcedBy, Observability)
-' would touch: internal/credentials/**, internal/broker/** (whether brokering survives with no boundary)
+' would touch: internal/credentials/** (whether brokering survives with no boundary)
 ' would touch: cmd/proveo/main.go (the flag or variable that would select it)
 ' session: b2e065e3-98e9-4974-ae9e-86990b8b1c81
-' PLANNED. _spec/_plans/ is exempt from the SPEC-reference rule. Nothing here is
-' cited from source because the mode described here DOES NOT EXIST. This file
-' states a DECISION SPACE: measured facts are marked MEASURED, and everything
-' else is a QUESTION. No design is chosen and no boundary is promised.
+' DEFERRED (Executor, 2026-10-16). _spec/_plans/ is exempt from the
+' SPEC-reference rule. Nothing here is cited from source because the mode
+' described here DOES NOT EXIST. This file states a DECISION SPACE: measured
+' facts are marked MEASURED, and everything else is a QUESTION. No design is
+' chosen and no boundary is promised.
 '
-'   the plan that creates this .. _spec/_plans/retire-docker-egress.puml
+' ── 2026-10-16: THE PREMISE LANDED, THE MODE DID NOT ───────────────────────
+' The Executor retired docker+egress and chose "Refuse without sbx". So the
+' question this file asks — what the escape hatch becomes once docker is gone —
+' got its interim answer: NOTHING. MEASURED: internal/run/run.go requireSandbox
+' hard-fails PROVEO_SBX off values ("PROVEO_SBX=<v> is retired: it selected the
+' docker+egress fallback, which is gone. Unset it; proveo runs on Docker
+' Sandboxes (sbx) only"), and a host without a ready sbx refuses with the
+' install hint. There is no host fallback. Q1–Q6 below stay OPEN and DEFERRED:
+' a host mode, if ever built, is a new decision, not a restored hatch.
+'
+'   the decision that removed the hatch _spec/internal/sbx/sandbox-backend.puml
 '   what kept a container here .. _spec/_paradigms/retire-dind.puml (APPLIED)
 '   what would be forfeited (1) . _spec/_paradigms/credential-boundary.puml
-'   what would be forfeited (2) . egress-boundary.puml retired 2026-09-16;
-'                                 _spec/_plans/retire-docker-egress.puml
+'   what would be forfeited (2) . sbx's network policy —
+'                                 _spec/internal/sbx/policy-baseline.puml
 '   what would be forfeited (3) . _spec/_paradigms/runtime-user-boundary.puml
 '   what would be forfeited (4) . _spec/internal/sbx/clone-workspace.puml
 '   why a host may not qualify .. _spec/internal/sbx/host-readiness.puml

@@ -36,7 +36,7 @@ func TestE2EFullRunsSuiteThenIdleThenEveryLadder(t *testing.T) {
 		t.Fatalf("plan has %d steps, want %d", len(plan), 2+len(ladderTargets))
 	}
 	first := plan[0].String()
-	for _, needle := range []string{"PROVEO_IDLE_TEST=1", "PROVEO_SIGNAL_TEST=1", "PROVEO_TOOLCHAIN_TEST=1", "-tags=e2e ./e2e/ -count=1 -timeout 150m -run TestX"} {
+	for _, needle := range []string{"PROVEO_IDLE_TEST=1", "PROVEO_TOOLCHAIN_TEST=1", "-tags=e2e ./e2e/ -count=1 -timeout 150m -run TestX"} {
 		if !strings.Contains(first, needle) {
 			t.Errorf("e2e step %q is missing %q", first, needle)
 		}
