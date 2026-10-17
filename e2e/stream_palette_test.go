@@ -62,7 +62,7 @@ func buildVolatileImage(t *testing.T, base string) {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command("docker", "build", "-q", "-t", volatileImage, dir).CombinedOutput(); err != nil {
-		t.Skipf("build %s: %v\n%s", volatileImage, err, out)
+		t.Fatalf("build %s: %v\n%s", volatileImage, err, out)
 	}
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", volatileImage).Run() })
 }

@@ -162,8 +162,6 @@ func TestGitWorktreeLinkageIsCoherentAndHostSafe(t *testing.T) {
 	for _, name := range []string{"claudecode", "opencode"} { // one layout, two workspace shapes
 		t.Run(name, func(t *testing.T) {
 			requireHarness(t, name)
-			// Keep the generated pointer files out of the developer's ~/.proveo.
-			t.Setenv("PROVEO_HOME", t.TempDir())
 
 			base := t.TempDir()
 			main := filepath.Join(base, "main")

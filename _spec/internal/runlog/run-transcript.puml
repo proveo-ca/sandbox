@@ -47,6 +47,13 @@ skinparam noteTextAlignment left
 '   nil            through ui.Logf. "the agent exited 0" is worth having in a
 '                  transcript being diffed against a broken run, and worth
 '                  nothing on a terminal that just watched it happen.
+'   backend.Stopped  (since 2026-10-17) the default branch, ui.Logf: "outcome:
+'                  stopped by SIGTERM" (or SIGHUP), LOG ONLY. `main` maps it to
+'                  128+signal via exitCode and prints nothing, like ExitError;
+'                  the terminal already showed Run's "stopped by SIGTERM —
+'                  ending as on a normal exit" (MEASURED, run.go recordOutcome,
+'                  outcome_test.go "a forwarded stop",
+'                  _spec/internal/backend/exit-code.puml).
 '
 ' The agent tail now goes through ui as well. Tail.push already strips ANSI and
 ' control characters, so what lands in the log is greppable — the same property

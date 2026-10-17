@@ -38,16 +38,22 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' The golden sbx-claudecode-shell-clone-datadir became
 ' sbx-claudecode-clone-datadir, and its agent is `claude`.
 '
-' ── A STOP IS A NORMAL EXIT (DECIDED 2026-10-17) ───────────────────────────
+' ── A STOP TEARS DOWN NORMALLY AND EXITS 128+sig (DECIDED 2026-10-17) ──────
 ' The user, on how SIGTERM/SIGHUP should end a run: "Stop runs normal
-' teardown". MEASURED: forwardStop returns (ctx, stop, cancel, signalled), and
-' stopOutcome(runErr, signalled, forced) returns nil for a signalled stop that
-' is not the Ctrl+C "remove" path. A closed terminal or `kill -TERM proveo`
-' prints "stopped by a signal — tearing down as on a normal exit", lifts clone
-' edits and commits, saves state and runs `sbx rm` (an OpenCode engine is
-' retained), with no template-reload retry. Before, it read as a failed run:
-' "kept for diagnosis" and no `sbx rm`. Lifecycle:
-' _spec/internal/sbx/kit-lifecycle.puml; the Ctrl+C path:
+' teardown"; then, on its exit status: "Exit 128+sig, 'stopped'
+' (Recommended)". MEASURED: stopOutcome(runErr, sig, forced) returns
+' (teardown nil, result backend.Stopped{sig}) for a forwarded signal that is
+' not the Ctrl+C "remove" path. A closed terminal or `kill -TERM proveo` prints
+' "stopped by SIGTERM — ending as on a normal exit", lifts clone edits and
+' commits, saves state and runs `sbx rm` (an OpenCode engine is retained), with
+' no template-reload retry. proveo then EXITS 143 (SIGTERM) or 129 (SIGHUP)
+' through cmd/proveo exitCode, and the transcript reads "outcome: stopped by
+' SIGTERM". A SIGTERM no longer looks like success to a caller.
+' HISTORY: before, a stop read as a failed run ("kept for diagnosis", no
+' `sbx rm`); an earlier revision on 2026-10-17 exited 0.
+' Teardown still keeps the sandbox when clone work could not be carried home.
+' Lifecycle: _spec/internal/sbx/kit-lifecycle.puml; exit status:
+' _spec/internal/backend/exit-code.puml; the Ctrl+C path:
 ' _spec/internal/ptyproxy/pty-ownership.puml.
 ' A failed run's kept-for-diagnosis hint names `sbx exec -it <name> bash`, as
 ' in sbx's own exec reference (https://docs.docker.com/reference/cli/sbx/exec/).

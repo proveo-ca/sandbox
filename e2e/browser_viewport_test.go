@@ -82,7 +82,8 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 		}
 		time.Sleep(3 * time.Second)
 	}
-	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q", listURL, last)
+	abLog, _, _ := k.try("cat /tmp/ab.log", 20*time.Second)
+	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q\nagent-browser:\n%s", listURL, last, abLog)
 }
 
 // viewportLineRE matches StartCDPViewport's own announcement

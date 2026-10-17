@@ -89,13 +89,25 @@ func main() {
 	root.AddCommand(versionCmd(), lsCmd(), runCmd(), scheduleCmd(), projectsCmd(), setupCmd(), initCmd(),
 		updateCmd(), uninstallCmd(), cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
 	if err := root.Execute(); err != nil {
-		var ae backend.ExitError
-		if errors.As(err, &ae) {
-			os.Exit(ae.Code)
+		if code, ok := exitCode(err); ok {
+			os.Exit(code)
 		}
 		ui.Failf("%v", err)
 		os.Exit(1)
 	}
+}
+
+// exitCode is the status err carries: the agent's own, or 128+signal for a stopped run.
+func exitCode(err error) (int, bool) {
+	var ae backend.ExitError
+	if errors.As(err, &ae) {
+		return ae.Code, true
+	}
+	var st backend.Stopped
+	if errors.As(err, &st) {
+		return st.Code(), true
+	}
+	return 0, false
 }
 
 func versionCmd() *cobra.Command {

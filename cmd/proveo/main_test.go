@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/backend"
@@ -586,6 +587,24 @@ func TestSessionAliveReadsThePidFromTheSessionID(t *testing.T) {
 	for _, sid := range []string{"proveo-1-0", "proveo-1-x", "other-1-1", "proveo"} {
 		if sessionAlive(sid) {
 			t.Errorf("%q must not read as alive", sid)
+		}
+	}
+}
+
+func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		err    error
+		want   int
+		wantOK bool
+	}{
+		{"the agent's own code", fmt.Errorf("run: %w", backend.ExitError{Code: 137}), 137, true},
+		{"a SIGTERM stop", fmt.Errorf("run: %w", backend.Stopped{Signal: syscall.SIGTERM}), 143, true},
+		{"a SIGHUP stop", backend.Stopped{Signal: syscall.SIGHUP}, 129, true},
+		{"proveo's own failure", errors.New("no sbx"), 0, false},
+	} {
+		if got, ok := exitCode(c.err); got != c.want || ok != c.wantOK {
+			t.Errorf("exitCode(%s) = %d, %v; want %d, %v", c.name, got, ok, c.want, c.wantOK)
 		}
 	}
 }

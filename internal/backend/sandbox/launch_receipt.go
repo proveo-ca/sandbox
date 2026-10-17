@@ -190,7 +190,9 @@ var confirmStaleSandbox = func(name string, changed []string, live, clone bool) 
 
 // retireSandbox fetches the clone and agent state home, then removes the sandbox.
 func retireSandbox(in Input, cfg sbx.RunConfig) error {
-	PreserveClone(in, cfg)
+	if err := PreserveClone(in, cfg); err != nil {
+		return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
+	}
 	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 		ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 	}

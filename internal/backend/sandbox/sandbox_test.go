@@ -143,12 +143,13 @@ func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 		wantRemote bool
 		wantBundle bool
 		want       bool
+		wantErr    bool
 	}{
-		{"a running sandbox negotiates over its remote", true, ok, ok, true, false, true},
-		{"a stopped sandbox goes straight to the bundle", false, ok, ok, false, true, true},
-		{"a remote that refuses falls back to the bundle", true, fail, ok, true, true, true},
-		{"nothing new is not a failure", false, ok, empty, false, true, false},
-		{"both routes failing reports rather than pretends", false, fail, fail, false, true, false},
+		{"a running sandbox negotiates over its remote", true, ok, ok, true, false, true, false},
+		{"a stopped sandbox goes straight to the bundle", false, ok, ok, false, true, true, false},
+		{"a remote that refuses falls back to the bundle", true, fail, ok, true, true, true, false},
+		{"nothing new is not a failure", false, ok, empty, false, true, false, false},
+		{"both routes failing reports rather than pretends", false, fail, fail, false, true, false, true},
 	}
 
 	for _, tc := range cases {
@@ -157,8 +158,9 @@ func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 			remote := func(i Input, c sbx.RunConfig) (int, string, error) { sawRemote = true; return tc.remote(i, c) }
 			bundle := func(i Input, c sbx.RunConfig) (int, string, error) { sawBundle = true; return tc.bundle(i, c) }
 
-			if got := carryClone(in, cfg, tc.running, remote, bundle); got != tc.want {
-				t.Errorf("carryClone = %v, want %v", got, tc.want)
+			got, err := carryClone(in, cfg, tc.running, remote, bundle)
+			if got != tc.want || (err != nil) != tc.wantErr {
+				t.Errorf("carryClone = %v, %v; want %v, error %v", got, err, tc.want, tc.wantErr)
 			}
 			if sawRemote != tc.wantRemote {
 				t.Errorf("remote used = %v, want %v", sawRemote, tc.wantRemote)

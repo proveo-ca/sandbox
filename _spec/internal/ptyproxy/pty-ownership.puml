@@ -53,14 +53,17 @@ skinparam noteTextAlignment left
 ' the pane (`PROVEO_SCHEDULE=1`), not "is this a terminal". Schedule's own
 ' stop still types C-c, then /exit, then SIGTERM.
 '
-' THE CTRL+C REMOVE PATH IS UNCHANGED BY THE 2026-10-17 STOP DECISION. A
-' forwarded SIGTERM/SIGHUP now ends the run like a normal exit (the user: "Stop
-' runs normal teardown"; stopOutcome returns nil, _spec/internal/sbx/
-' kit-lifecycle.puml): clone and state lifted, `sbx rm`, an OpenCode engine
-' retained. The Ctrl+C "remove" answer is the one case stopOutcome leaves alone
-' (forced): its error stands, so proveo still exits with the client's status,
-' but teardown also lifts clone and state, then runs `sbx rm --force` on every
-' harness, an OpenCode engine included (MEASURED, sandbox.go deferred teardown).
+' THE CTRL+C REMOVE PATH IS UNCHANGED BY THE 2026-10-17 STOP DECISIONS. A
+' forwarded SIGTERM/SIGHUP now tears down like a normal exit (the user: "Stop
+' runs normal teardown") and exits 128+signal (the user: "Exit 128+sig,
+' 'stopped' (Recommended)"); see _spec/internal/sbx/kit-lifecycle.puml. The
+' Ctrl+C "remove" answer cancels the run from inside proveo, so signalled() is
+' 0 and stopOutcome leaves it alone (forced); a SIGTERM after the operator chose
+' remove is also left alone. Its error stands, so proveo still exits with the
+' client's status. Teardown lifts clone and state, then runs `sbx rm --force` on
+' every harness, an OpenCode engine included — even when the clone could not
+' be carried home, because the modal already said "Uncommitted changes can be
+' permanently lost" (MEASURED, sandbox.go deferred teardown, stop_signal_test.go).
 '
 ' ── THE DRAIN BUG IS THE REASON `Run` HAS A WAITGROUP AT ALL ───────────────
 ' FIXED 2026-09-09. `pty.Start` returns with the child ALREADY RUNNING, and the

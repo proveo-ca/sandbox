@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/backend"
 )
 
 func TestHangupCancelsTheRunInsteadOfKillingProveo(t *testing.T) {
@@ -21,8 +23,8 @@ func TestHangupCancelsTheRunInsteadOfKillingProveo(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatalf("%v did not cancel the run context", sig)
 		}
-		if !signalled() {
-			t.Errorf("%v cancelled the run but did not report the signal", sig)
+		if got := signalled(); got != sig {
+			t.Errorf("%v cancelled the run but reported %v", sig, got)
 		}
 		stop()
 	}
@@ -32,24 +34,29 @@ func TestACancelWithoutASignalIsNotAStop(t *testing.T) {
 	_, stop, cancel, signalled := forwardStop()
 	defer stop()
 	cancel()
-	if signalled() {
-		t.Error("a cancel from proveo itself (the Ctrl+C remove path) must not read as a forwarded stop")
+	if got := signalled(); got != 0 {
+		t.Errorf("a cancel from proveo itself (the Ctrl+C remove path) read as a forwarded %v", got)
 	}
 }
 
-func TestAForwardedStopEndsLikeANormalExit(t *testing.T) {
+func TestAForwardedStopTearsDownLikeANormalExitAndReportsTheSignal(t *testing.T) {
 	failed := errors.New("context canceled")
+	stopped := backend.Stopped{Signal: syscall.SIGTERM}
 	for _, c := range []struct {
-		name              string
-		signalled, forced bool
-		want              error
+		name         string
+		sig          syscall.Signal
+		forced       bool
+		wantTeardown error
+		wantResult   error
 	}{
-		{"stopped by SIGTERM or SIGHUP", true, false, nil},
-		{"the Ctrl+C remove path", true, true, failed},
-		{"an agent that failed on its own", false, false, failed},
+		{"stopped by SIGTERM", syscall.SIGTERM, false, nil, stopped},
+		{"the Ctrl+C remove path", 0, true, failed, failed},
+		{"a signal after the operator chose remove", syscall.SIGTERM, true, failed, failed},
+		{"an agent that failed on its own", 0, false, failed, failed},
 	} {
-		if got := stopOutcome(failed, c.signalled, c.forced); got != c.want {
-			t.Errorf("%s: stopOutcome = %v, want %v", c.name, got, c.want)
+		teardown, result := stopOutcome(failed, c.sig, c.forced)
+		if teardown != c.wantTeardown || result != c.wantResult {
+			t.Errorf("%s: stopOutcome = (%v, %v), want (%v, %v)", c.name, teardown, result, c.wantTeardown, c.wantResult)
 		}
 	}
 }

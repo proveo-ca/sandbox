@@ -836,7 +836,9 @@
       "spec": "_spec/internal/backend/exit-code.puml",
       "covers": [
         "internal/backend/backend.go",
-        "internal/backend/backend_test.go"
+        "internal/backend/backend_test.go",
+        "cmd/proveo/main.go",
+        "cmd/proveo/main_test.go"
       ],
       "fingerprint": null
     },
@@ -1159,7 +1161,9 @@
         "internal/backend/sandbox/clone_shares_test.go",
         "packages/lib/entrypoint-lib.sh",
         "packages/lib/proveo-await-seed",
-        "internal/contract/seed_shares_test.go"
+        "internal/contract/seed_shares_test.go",
+        "internal/backend/sandbox/clone_carry_test.go",
+        "internal/backend/sandbox/launch_receipt.go"
       ],
       "fingerprint": null
     },
@@ -1224,7 +1228,8 @@
         "internal/sbx/run.go",
         "internal/backend/sandbox/launch_receipt.go",
         "internal/backend/sandbox/launch_receipt_test.go",
-        "internal/backend/sandbox/stop_signal_test.go"
+        "internal/backend/sandbox/stop_signal_test.go",
+        "internal/backend/sandbox/clone_carry_test.go"
       ],
       "fingerprint": null
     },

@@ -391,15 +391,15 @@ func brokenPrompt(screen string) string {
 	return ""
 }
 
-// answerSbxPrompt takes the default on sbx's own operator questions, which a run
-// on a PTY is expected to answer rather than trip over.
-func answerSbxPrompt(sess *tmux.Session, screen string) bool {
-	if !strings.Contains(screen, "[A]pprove all") {
-		return false
+// answerSbxPrompt takes the default once on each of sbx's own operator
+// questions in screen beyond the answered ones, which a run on a PTY is expected
+// to answer rather than trip over, and returns how many it has answered.
+func answerSbxPrompt(sess *tmux.Session, screen string, answered int) int {
+	for asked := strings.Count(screen, "[A]pprove all"); answered < asked; answered++ {
+		_ = sess.SendText("A")
+		_ = sess.Enter()
 	}
-	_ = sess.SendText("A")
-	_ = sess.Enter()
-	return true
+	return answered
 }
 
 func renderKit(t *testing.T, target string) string {

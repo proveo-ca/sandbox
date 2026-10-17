@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/backend"
@@ -24,6 +25,7 @@ func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 		{"an agent that exited non-zero", true, backend.ExitError{Code: 137}, "137"},
 		{"a plain failure", true, errors.New("cursor has no --local-model path"), "cursor has no --local-model path"},
 		{"success", true, nil, "exited 0"},
+		{"a forwarded stop", true, backend.Stopped{Signal: syscall.SIGTERM}, "outcome: stopped by SIGTERM"},
 		// `--print` and the not-ready paths return nil without ever starting an
 		// agent; recording "exited 0" there made the transcript unable to tell
 		// a successful run from one that never launched.

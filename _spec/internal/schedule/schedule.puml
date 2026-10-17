@@ -131,15 +131,28 @@ skinparam noteTextAlignment left
 ' client gets SIGTERM (WaitDelay 30 s) and the deferred teardown runs, so a
 ' closed terminal or a kill-session no longer leaks a running sandbox.
 ' Since 2026-10-17 (the user: "Stop runs normal teardown") that teardown is
-' the NORMAL-EXIT one: stopOutcome treats a forwarded stop as success, so the
-' clone and state are lifted home and `sbx rm` runs — what this ladder's SIGTERM
-' rung expected all along (internal/schedule/runner.go:440: "SIGTERM the pane's
-' command so `proveo run` tears its sandbox down"). Before, a stop read as a
-' failed run and the sandbox was "kept for diagnosis"
+' the NORMAL-EXIT one: the clone and state are lifted home and `sbx rm` runs —
+' what this ladder's SIGTERM rung expected all along (internal/schedule/
+' runner.go:440: "SIGTERM the pane's command so `proveo run` tears its sandbox
+' down"). The same day the user chose "Exit 128+sig, 'stopped' (Recommended)":
+' a stopped `proveo run` exits 143 (SIGTERM) or 129 (SIGHUP), not 0, and the
+' pane's `echo $? > <run>.exit` records it (runner.go:548). Before, a stop read
+' as a failed run and the sandbox was "kept for diagnosis"
 ' (_spec/internal/sbx/kit-lifecycle.puml).
+' WHAT THE SCHEDULER RECORDS (MEASURED):
+'   budget or report stop → "budget" / "done": the watcher decides those before
+'     stopAgent runs, so a 143 in .exit does not change them.
+'   EXTERNAL stop before the budget (someone SIGTERMs proveo) → endedEarly
+'     reads 143 from .exit → "failed", which Result.Failed() makes retryable:
+'     `proveo schedule` offers it and `proveo schedule retry` accepts it.
+'     Under the earlier exit-0 revision the same stop recorded "ended".
+' The ladder's SIGHUP (kill-session after termGrace = 1 min, runner.go:37)
+' does not cut a long teardown short: proveo swallows later SIGTERM/SIGHUP once
+' the first arrives, and only SIGKILL interrupts it.
 ' [Unverified] against a live sbx client; unit tests pin the signal path, the
-' stop outcome (TestAForwardedStopEndsLikeANormalExit) and the ladder, not sbx's
-' response to SIGTERM.
+' stop outcome (TestAForwardedStopTearsDownLikeANormalExitAndReportsTheSignal),
+' the exit code (TestExitCodeIsTheAgentsOrTheStoppingSignals) and the ladder,
+' not sbx's response to SIGTERM.
 ' There is no budget cap: any positive duration is accepted.
 '
 ' ── CLOCK + WRAP-UP (2026-10-06) ───────────────────────────────────────────

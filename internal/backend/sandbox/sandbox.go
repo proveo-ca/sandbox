@@ -118,10 +118,11 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 	return run(sbx.SaveStateArgs(name)...)
 }
 
-// TeardownClone carries this run's clone home: its .env edits, then its work.
-func TeardownClone(in Input, cfg sbx.RunConfig) {
+// TeardownClone carries this run's clone home: its .env edits, then its work. It
+// returns an error while work remains only in the sandbox.
+func TeardownClone(in Input, cfg sbx.RunConfig) error {
 	if !in.Clone || in.RepoRoot == "" {
-		return
+		return nil
 	}
 	wd := agentWorkdir(in, cfg.Mounts)
 	writeBackCloneEnv(in, func() ([]byte, error) {
@@ -130,22 +131,30 @@ func TeardownClone(in Input, cfg sbx.RunConfig) {
 		}
 		return exec.Command(sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...).Output()
 	})
-	PreserveClone(in, cfg)
+	return PreserveClone(in, cfg)
 }
 
-func PreserveClone(in Input, cfg sbx.RunConfig) {
+// PreserveClone snapshots, lifts and carries the clone's work home. It returns an
+// error while work remains only in the sandbox.
+func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
-		return
+		return nil
 	}
+	var stranded error
 	wd := agentWorkdir(in, cfg.Mounts)
 	if wd != "" {
 		if out, err := SbxRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
 			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
+			stranded = fmt.Errorf("uncommitted work is still only in %s", cfg.Name)
 		}
 	}
 	liftClonedOutput(in, cfg, liftViaSbx)
-	if !carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx) {
-		return
+	carried, err := carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx)
+	if err != nil {
+		return err
+	}
+	if !carried {
+		return stranded
 	}
 	reportCloneRefs(in, cfg)
 	liftClonedSpec(in, wd, cloneSpanViaSbx(cfg.Name, wd), func(sha string) {
@@ -153,6 +162,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) {
 			_, _ = SbxRun(args...)
 		}
 	})
+	return stranded
 }
 
 // writeBackCloneEnv merges the clone's .env edits into the host .env it was staged from.
@@ -326,10 +336,11 @@ func gitPaths(dir string, args ...string) ([]string, error) {
 // output worth quoting, and the error.
 type cloneCarry func(in Input, cfg sbx.RunConfig) (int, string, error)
 
-func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle cloneCarry) bool {
+// carryClone reports whether branches reached home, and an error while they remain only in the sandbox.
+func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle cloneCarry) (bool, error) {
 	if running {
 		if _, out, err := viaRemote(in, cfg); err == nil {
-			return true
+			return true, nil
 		} else {
 			ui.Notef("clone: the sandbox's git remote did not answer (%v: %s) — carrying the branches out over `sbx exec` instead",
 				err, strings.TrimSpace(out))
@@ -338,16 +349,16 @@ func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle 
 	code, out, err := viaBundle(in, cfg)
 	switch {
 	case err == nil:
-		return true
+		return true, nil
 	case code == sbx.CloneBundleEmpty:
 		ui.Notef("clone: the agent left no commit this repository does not already have")
-		return false
+		return false, nil
 	default:
 		ui.Warnf("clone: could not carry the agent's branches home (%v): %s", err, strings.TrimSpace(out))
 		for _, l := range CloneRescueLines(cfg.Name, in.Sid, agentWorkdir(in, cfg.Mounts), in.RepoRoot) {
 			ui.Notef("%s", l)
 		}
-		return false
+		return false, fmt.Errorf("the agent's branches are still only in %s", cfg.Name)
 	}
 }
 
@@ -1531,15 +1542,11 @@ func Run(in Input) error {
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
-	if signalled() && !forceRemove.Load() {
-		ui.Hostf("stopped by a signal — tearing down as on a normal exit")
-	}
-	runErr = stopOutcome(runErr, signalled(), forceRemove.Load())
-	if runErr != nil && !sbx.Exists(cfg.Name) {
+	if runErr != nil && signalled() == 0 && !sbx.Exists(cfg.Name) {
 		ui.Section(ui.SectionStarting)
 		if err := sbx.ReloadTemplate(cfg.Image, func(f string, a ...any) {
 			ui.Appf(f, a...)
-		}); err == nil {
+		}); err == nil && signalled() == 0 {
 			ui.Asyncf("the sandbox did not start — retrying once on a freshly loaded template")
 			retryCfg, prepErr := cfg, error(nil)
 			if opencodeCacheTarget(in.Target) {
@@ -1553,6 +1560,10 @@ func Run(in Input) error {
 			}
 			endedAt = time.Now()
 		}
+	}
+	runErr, result := stopOutcome(runErr, signalled(), forceRemove.Load())
+	if _, ok := result.(backend.Stopped); ok {
+		ui.Hostf("%v — ending as on a normal exit", result)
 	}
 	defer func() {
 		reportPushedBranches(in, cfg, startedAt)
@@ -1569,7 +1580,7 @@ func Run(in Input) error {
 				}
 			}
 			restarted := !sbx.Running(cfg.Name)
-			TeardownClone(in, cfg)
+			_ = TeardownClone(in, cfg)
 			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
 			if err := homeAccess.Commit(); err != nil {
 				ui.Warnf("home-root config not preserved: %v", err)
@@ -1602,7 +1613,7 @@ func Run(in Input) error {
 			}
 			return
 		}
-		TeardownClone(in, cfg)
+		stranded := TeardownClone(in, cfg)
 		if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 		}
@@ -1611,6 +1622,11 @@ func Run(in Input) error {
 		}
 		if forceRemove.Load() {
 			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
+		} else if stranded != nil {
+			keepHomeAccess = true
+			ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
+			PrintIDEAttach(in, cfg, false)
+			return
 		}
 		if opencodeCacheTarget(in.Target) && !forceRemove.Load() {
 			keepHomeAccess = true
@@ -1627,40 +1643,43 @@ func Run(in Input) error {
 		}
 	}()
 	var ee *exec.ExitError
-	if errors.As(runErr, &ee) {
+	if errors.As(result, &ee) {
 		return backend.ExitError{Code: ee.ExitCode()}
 	}
-	return runErr
+	return result
 }
 
 // stopWait bounds how long the sbx client may take to exit once proveo forwards a stop.
 const stopWait = 30 * time.Second
 
 // forwardStop turns SIGTERM or SIGHUP into a cancelled context, so the sbx client is asked to
-// stop and the deferred teardown runs instead of proveo dying mid-run. signalled reports
-// whether a signal, rather than proveo itself, cancelled it.
-func forwardStop() (ctx context.Context, stop func(), cancel context.CancelFunc, signalled func() bool) {
+// stop and the deferred teardown runs instead of proveo dying mid-run. signalled names the
+// signal that cancelled it, or 0 when proveo itself did.
+func forwardStop() (ctx context.Context, stop func(), cancel context.CancelFunc, signalled func() syscall.Signal) {
 	ctx, cancel = context.WithCancel(context.Background())
-	var got atomic.Bool
+	var got atomic.Int32
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		select {
-		case <-sigs:
-			got.Store(true)
+		case s := <-sigs:
+			if n, ok := s.(syscall.Signal); ok {
+				got.Store(int32(n))
+			}
 			cancel()
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, func() { signal.Stop(sigs); cancel() }, cancel, got.Load
+	return ctx, func() { signal.Stop(sigs); cancel() }, cancel, func() syscall.Signal { return syscall.Signal(got.Load()) }
 }
 
-// stopOutcome is runErr as teardown reads it: a forwarded stop ends the run like a normal exit.
-func stopOutcome(runErr error, signalled, forced bool) error {
-	if signalled && !forced {
-		return nil
+// stopOutcome splits how a run ended into what teardown reads and what Run returns: a
+// forwarded stop tears down like a normal exit and returns backend.Stopped.
+func stopOutcome(runErr error, sig syscall.Signal, forced bool) (teardown, result error) {
+	if sig != 0 && !forced {
+		return nil, backend.Stopped{Signal: sig}
 	}
-	return runErr
+	return runErr, runErr
 }
 
 // WarnBaseline reports sbx's network baseline and, unless it allows every host, the command that lets hosts through.

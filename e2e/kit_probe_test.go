@@ -25,11 +25,12 @@ import (
 // kitRun is one `proveo run <target>` through its kit under tmux, and the
 // sandbox it runs in.
 type kitRun struct {
-	t    *testing.T
-	sess *tmux.Session
-	name string
-	dir  string
-	last string
+	t        *testing.T
+	sess     *tmux.Session
+	name     string
+	dir      string
+	last     string
+	approved *int
 }
 
 // launchKit starts `proveo run <target>` through its kit under tmux, with the
@@ -39,10 +40,10 @@ type kitRun struct {
 func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra ...string) *kitRun {
 	t.Helper()
 	requireSbx(t)
-	sweepSandboxesAfter(t)
 	if !slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "PROVEO_HOME=") }) {
 		env = append(env, "PROVEO_HOME="+t.TempDir())
 	}
+	sweepSandboxesAfter(t)
 	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-kit-%s-%d", target, time.Now().UnixNano()), nil)
 	cmd := append([]string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0"}, env...)
@@ -54,13 +55,19 @@ func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra 
 }
 
 // awaitKit names the sandbox the `proveo run <target> --input dir` in sess
-// created since before, waits for its seed, and ends the run at cleanup.
+// created since before, waits for its seed, and at cleanup ends the run and
+// removes the sandbox before any directory it mounts.
 func awaitKit(t *testing.T, sess *tmux.Session, before map[string]bool, target, dir string) *kitRun {
 	t.Helper()
 	pid, _ := sess.PanePID()
-	t.Cleanup(func() { killAndAwait(t, sess, pid, durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute)) })
+	k := &kitRun{t: t, sess: sess, dir: dir, approved: new(int)}
+	t.Cleanup(func() {
+		killAndAwait(t, sess, pid, durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute))
+		if k.name != "" {
+			_ = exec.Command(sbx.Binary, "rm", "--force", k.name).Run()
+		}
+	})
 	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute)
-	k := &kitRun{t: t, sess: sess, dir: dir}
 	if !waitUntil(timeout, func() bool { k.tend(); k.name = kitSandbox(before, target, dir); return k.name != "" }) {
 		t.Fatalf("no %s sandbox appeared within %s\n%s", target, timeout, tail(k.last, 40))
 	}
@@ -94,7 +101,7 @@ func (k *kitRun) end() (string, bool) {
 }
 
 // stopRun sends SIGTERM to the proveo in sess and returns its last screen and
-// whether it exited within timeout.
+// whether it exited within timeout; past timeout it kills the session.
 func stopRun(sess *tmux.Session, timeout time.Duration) (string, bool) {
 	pid, _ := sess.PanePID()
 	if n, err := strconv.Atoi(strings.TrimSpace(pid)); err == nil && n > 0 {
@@ -102,7 +109,11 @@ func stopRun(sess *tmux.Session, timeout time.Duration) (string, bool) {
 			_ = proc.Signal(syscall.SIGTERM)
 		}
 	}
-	return waitSessionExit(sess, timeout)
+	screen, exited := waitSessionExit(sess, timeout)
+	if !exited {
+		sess.Kill()
+	}
+	return screen, exited
 }
 
 // tend answers sbx's own operator questions, fails on a refusal or on a
@@ -120,14 +131,15 @@ func (k *kitRun) tend() {
 	if line := brokenPrompt(screen); line != "" {
 		k.t.Fatalf("a confirmation is eating input meant for something else — %s\n%s", line, tail(screen, 40))
 	}
-	answerSbxPrompt(k.sess, screen)
+	*k.approved = answerSbxPrompt(k.sess, screen, *k.approved)
 }
 
 // ended skips when the agent quit for want of a login and fails otherwise.
 func (k *kitRun) ended() {
 	k.t.Helper()
+	final := tail(plain(k.last), 15)
 	for _, f := range authFailures {
-		if strings.Contains(plain(k.last), f) {
+		if strings.Contains(final, f) {
 			k.t.Skipf("proveo exited before the sandbox was ready: the agent is not authenticated (%q)", f)
 		}
 	}
@@ -185,39 +197,53 @@ func (k *kitRun) pane(n int) string {
 }
 
 // kitSandbox names the sandbox created since before with target's name prefix
-// and every workspace under the test temp root: the one holding dir, or the
-// only such sandbox.
+// and its primary workspace under the test temp root: the one holding dir, or
+// the only such sandbox.
 func kitSandbox(before map[string]bool, target, dir string) string {
 	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
 	if err != nil {
 		return ""
 	}
-	var listing struct {
+	return pickKitSandbox(out, before, target, kitDirs(dir))
+}
+
+// kitDirs is dir as sbx may list it: as given, with symlinks resolved, and as
+// the main worktree a linked worktree's clone mounts instead.
+func kitDirs(dir string) []string {
+	dirs := []string{filepath.Clean(dir)}
+	if real, err := filepath.EvalSymlinks(dir); err == nil && real != dirs[0] {
+		dirs = append(dirs, real)
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if common := strings.TrimSpace(string(out)); err == nil && filepath.Base(common) == ".git" {
+		dirs = append(dirs, filepath.Dir(common))
+	}
+	return dirs
+}
+
+// pickKitSandbox is kitSandbox over an `sbx ls --json` listing.
+func pickKitSandbox(listing []byte, before map[string]bool, target string, dirs []string) string {
+	var parsed struct {
 		Sandboxes []struct {
 			Name       string   `json:"name"`
 			Workspaces []string `json:"workspaces"`
 		} `json:"sandboxes"`
 	}
-	if json.Unmarshal(out, &listing) != nil {
+	if json.Unmarshal(listing, &parsed) != nil {
 		return ""
 	}
 	prefix := sbx.SandboxName(target, "") + "-"
-	dirs := []string{filepath.Clean(dir)}
-	if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
-		dirs = append(dirs, real)
-	}
 	var mine, holding []string
-	for _, sb := range listing.Sandboxes {
+	for _, sb := range parsed.Sandboxes {
 		if before[sb.Name] || !strings.HasPrefix(sb.Name, prefix) || !testOwned(sb.Workspaces) {
 			continue
 		}
 		mine = append(mine, sb.Name)
 		for _, ws := range sb.Workspaces {
-			ws, _, _ = strings.Cut(ws, ":")
-			for _, d := range dirs {
-				if pathWithin(d, ws) || pathWithin(ws, d) {
-					holding = append(holding, sb.Name)
-				}
+			ws = workspacePath(ws)
+			if slices.ContainsFunc(dirs, func(d string) bool { return pathWithin(d, ws) || pathWithin(ws, d) }) {
+				holding = append(holding, sb.Name)
+				break
 			}
 		}
 	}
@@ -230,18 +256,18 @@ func kitSandbox(before map[string]bool, target, dir string) string {
 	return ""
 }
 
-// testOwned reports whether every workspace lies strictly below a test temp root.
+// testOwned reports whether the primary workspace lies strictly below a test temp root.
 func testOwned(workspaces []string) bool {
 	if len(workspaces) == 0 {
 		return false
 	}
-	for _, ws := range workspaces {
-		ws, _, _ = strings.Cut(ws, ":")
-		if !underTestTemp(ws) || slices.Contains(testTempRoots(), filepath.Clean(ws)) {
-			return false
-		}
-	}
-	return true
+	primary := workspacePath(workspaces[0])
+	return underTestTemp(primary) && !slices.Contains(testTempRoots(), primary)
+}
+
+// workspacePath is a listed workspace without its read-only suffix.
+func workspacePath(ws string) string {
+	return filepath.Clean(strings.TrimSuffix(ws, ":ro"))
 }
 
 // pathWithin reports whether p is dir or lies under it.
