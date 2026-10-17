@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/tests/testing-strategy.puml — credential-forwarding integrity (egress layer).
+// SPEC: _spec/tests/testing-strategy.puml — credential-forwarding integrity.
 
 package e2e
 
@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,8 +37,8 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 	}
 }
 
-// assertPlanIsolation checks the agent's firewall launch command: every provider
-// secret it declares appears only as the sentinel, and no raw key value appears.
+// assertPlanIsolation checks the agent's sbx launch argv: no provider key name
+// carries a value, and no raw key value appears.
 func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 	t.Helper()
 	want := make(map[string]string, len(keys))
@@ -48,7 +49,12 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 		kv = append(kv, k+"="+v)
 	}
 
-	agentCmd := agentCommandLine(t, printEnforcedPlan(t, proveoBin, agent, kv))
+	plan := printEnforcedPlan(t, proveoBin, agent, kv)
+	if !secretLineNamesAny(plan, keys) {
+		t.Errorf("%s: the plan's secret-store line names none of the %d injected keys — proveo never saw "+
+			"them, so their absence from argv proves nothing:\n%s", agent, len(keys), plan)
+	}
+	agentCmd := agentCommandLine(t, plan)
 	for _, k := range keys {
 		if strings.Contains(agentCmd, want[k]) {
 			t.Errorf("%s: RAW %s value appears in the agent launch command — it belongs in sbx's secret store", agent, k)
@@ -60,15 +66,11 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 	}
 }
 
-// TestCursorEgressException asserts the cursor exception, expressed as declared
-// capabilities rather than a target-name special case: cursor's manifest pins
-// egress:[open] credentials:[forward] because an intercepting tier cannot carry
-// its pinned TLS — and on sbx the proxy brokers it natively instead.
+// TestCursorBrokersThroughTheSbxStore asserts cursor's key goes to sbx's secret
+// store and never rides argv.
 func TestCursorBrokersThroughTheSbxStore(t *testing.T) {
 	proveoBin := buildProveo(t)
 
-	// sbx's proxy attaches cursor's key natively, so it goes to sbx's secret store
-	// and never rides argv (decided 2026-09-29).
 	def := runPrint(t, proveoBin, "cursor")
 	defCmd := agentCommandLine(t, def)
 	if hasBareEnv(defCmd, "CURSOR_API_KEY") {
@@ -88,6 +90,7 @@ func TestCursorBrokersThroughTheSbxStore(t *testing.T) {
 // (and real provider keys stripped), returning combined output.
 func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
 	t.Helper()
+	requireSbx(t)
 	work := t.TempDir()
 	args := append([]string{"run", target}, extra...)
 	args = append(args, "--print", "--input", work)
@@ -99,6 +102,22 @@ func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
 		t.Fatalf("proveo %v: %v\n%s", args, err, out)
 	}
 	return string(out)
+}
+
+// secretLineNamesAny reports whether the plan's "secret store first:" line names any of keys.
+func secretLineNamesAny(plan string, keys []string) bool {
+	for _, line := range strings.Split(plan, "\n") {
+		_, names, ok := strings.Cut(line, "secret store first:")
+		if !ok {
+			continue
+		}
+		for _, n := range strings.FieldsFunc(names, func(r rune) bool { return r == ',' || r == ' ' || r == '(' }) {
+			if slices.Contains(keys, n) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // hasBareEnv reports whether cmd contains `-e KEY` (a bare forward, value from the
@@ -115,6 +134,7 @@ func hasBareEnv(cmd, key string) bool {
 
 func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) string {
 	t.Helper()
+	requireSbx(t)
 	work := t.TempDir()
 	cmd := exec.Command(proveoBin, "run", agent, "--print", "--input", work)
 	cmd.Dir = repoRoot(t)
@@ -126,7 +146,7 @@ func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) strin
 	return string(out)
 }
 
-// agentCommandLine extracts the agent's `docker …` command line from --print
+// agentCommandLine extracts the agent's `sbx run …` command line from --print
 // output (the line following the "# agent" marker).
 func agentCommandLine(t *testing.T, out string) string {
 	t.Helper()
@@ -140,7 +160,7 @@ func agentCommandLine(t *testing.T, out string) string {
 	return ""
 }
 
-// envValInCmd finds `-e KEY=VALUE` in a docker command line and returns VALUE.
+// envValInCmd finds `-e KEY=VALUE` in an sbx command line and returns VALUE.
 func envValInCmd(cmd, key string) (string, bool) {
 	for _, tok := range strings.Fields(cmd) {
 		if v, ok := strings.CutPrefix(tok, key+"="); ok {

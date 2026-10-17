@@ -20,7 +20,6 @@ import (
 
 type agentSettingsDoc struct {
 	Targets map[string]struct {
-		Egress      string   `yaml:"egress"`
 		Credentials string   `yaml:"credentials"`
 		Addons      []string `yaml:"addons"`
 		Fingerprint string   `yaml:"fingerprint"`
@@ -58,20 +57,20 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 		cmd = append(cmd,
 			"PROVEO_WIZARD=on",
 			"PROVEO_HOME="+home, "PROVEO_AUTO_INSTALL_TOOLS=false", "DOCKER_HOST="+dockerHost(t))
-		cmd = append(cmd, bin, "run", target, "--input", work, "--shell")
+		cmd = append(cmd, bin, "run", target, "--input", work)
 		cmd = append(cmd, extra...)
 		if err := sess.Start(200, 50, cmd...); err != nil {
 			t.Fatalf("[%s] tmux start: %v", label, err)
 		}
 		acceptChoicePrompt(t, sess, target)
-		waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 3*time.Minute))
-		// Read the tier out of the agent's OWN environment: that is the honest signal
-		// that the choice took effect, rather than anything proveo printed host-side.
-		probe, _ := shellExec(t, sess, "echo TIER=$PROVEO_EGRESS_MODE", 60*time.Second)
-		_ = sess.SendText("exit")
-		_ = sess.Enter()
-		out, _ := waitSessionExit(sess, 90*time.Second)
-		return probe + "\n" + out
+		w := newWatcher(t, sess)
+		w.until("the "+target+" prompt", durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute), func() bool {
+			return strings.Contains(w.Screen(), "Ask anything")
+		})
+		out, _ := sess.CaptureAll()
+		pid, _ := sess.PanePID()
+		killAndAwait(t, sess, pid, durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute))
+		return out
 	}
 
 	out1 := run("first")
@@ -79,9 +78,6 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	got, ok := doc.Targets[target]
 	if !ok {
 		t.Fatalf("first run did not persist %q into agent-settings.yml\n--- session ---\n%s", target, out1)
-	}
-	if got.Egress != "allowlist" {
-		t.Errorf("persisted egress = %q, want the default %q", got.Egress, "allowlist")
 	}
 	if got.Credentials != "broker" {
 		t.Errorf("persisted credentials = %q, want the default %q", got.Credentials, "broker")
@@ -91,24 +87,19 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	}
 
 	path := filepath.Join(home, "agent-settings.yml")
-	edited := strings.Replace(string(mustRead(t, path)), "egress: allowlist", "egress: open", 1)
-	if !strings.Contains(edited, "egress: open") {
-		t.Fatalf("could not rewrite the cached tier in %s:\n%s", path, edited)
+	edited := strings.Replace(string(mustRead(t, path)), "credentials: broker", "credentials: forward", 1)
+	if !strings.Contains(edited, "credentials: forward") {
+		t.Fatalf("could not rewrite the cached credentials in %s:\n%s", path, edited)
 	}
 	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	out2 := run("second")
-	if mode := sessionEgressMode(out2); mode != "open" {
-		t.Errorf("second run used egress mode %q, want the cached %q — the cache was not re-entered\n--- session ---\n%s",
-			mode, "open", out2)
-	}
-
 	after := readAgentSettings(t, home)
-	if after.Targets[target].Egress != "open" {
-		t.Errorf("second run overwrote the cached tier with %q, want it left at %q",
-			after.Targets[target].Egress, "open")
+	if after.Targets[target].Credentials != "forward" {
+		t.Errorf("second run overwrote the cached credentials with %q, want it left at %q — the cache was not re-entered\n--- session ---\n%s",
+			after.Targets[target].Credentials, "forward", out2)
 	}
 }
 
@@ -133,17 +124,4 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return b
-}
-
-func sessionEgressMode(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "TIER=") || strings.Contains(line, "$") {
-			continue
-		}
-		if v := strings.TrimPrefix(line, "TIER="); v != "" {
-			return v
-		}
-	}
-	return ""
 }

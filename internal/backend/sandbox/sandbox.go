@@ -47,16 +47,6 @@ const (
 	unallowlistedProbe = "proveo-egress-probe.invalid"
 )
 
-// Disabled reports a PROVEO_SBX value that asks for the retired docker fallback.
-func Disabled(getenv func(string) string) (string, bool) {
-	v := strings.TrimSpace(getenv("PROVEO_SBX"))
-	switch strings.ToLower(v) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return v, true
-	}
-	return v, false
-}
-
 // Unavailable is the refusal for a host sbx cannot run on, with the install or upgrade hint.
 func Unavailable(why string) error {
 	msg := fmt.Sprintf("docker sandboxes (sbx) unavailable: %s. proveo runs agents only in sbx", why)
@@ -986,7 +976,7 @@ func FirstHost(mounts []sbx.Mount) string {
 // Input is the resolved input to the sbx backend.
 type Input struct {
 	Target, Image, AuthVar string
-	Shell, Clone           bool
+	Clone                  bool
 	RepoRoot               string // host repository root: where a clone's commits are fetched back to
 	OutputDir              string
 	Browser                bool
@@ -1238,7 +1228,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 		}
 	}
 	entrypoint := imageEntrypoint(in)
-	ownAgent := !in.Shell && sbx.DeclaresOwnAgent(harness)
+	ownAgent := sbx.DeclaresOwnAgent(harness)
 	if ownAgent && len(entrypoint) == 0 {
 		ownAgent = false
 		ui.Warnf("sandbox: no readable ENTRYPOINT on %s — %s runs under sbx's shell agent rather than one of its own",
@@ -1246,9 +1236,6 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	if ownAgent {
 		agent, command = sbx.AgentName(harness), OwnAgentCommand(entrypoint, in.Extra)
-	}
-	if in.Shell {
-		command, agent = nil, sbx.ShellAgent
 	}
 	command = withChromeFlag(agent, in.BridgeEnv, command)
 	if agent != sbx.ShellAgent {
@@ -1453,7 +1440,7 @@ func Run(in Input) error {
 	}); err != nil {
 		return err
 	}
-	if opencodeCacheTarget(in.Target) && !in.Shell {
+	if opencodeCacheTarget(in.Target) {
 		launchCfg, err = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
 		if err != nil {
 			return err
@@ -1552,7 +1539,7 @@ func Run(in Input) error {
 		}); err == nil {
 			ui.Asyncf("the sandbox did not start — retrying once on a freshly loaded template")
 			retryCfg, prepErr := cfg, error(nil)
-			if opencodeCacheTarget(in.Target) && !in.Shell {
+			if opencodeCacheTarget(in.Target) {
 				retryCfg, prepErr = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
 			}
 			if prepErr != nil {
@@ -1622,7 +1609,7 @@ func Run(in Input) error {
 		if forceRemove.Load() {
 			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
 		}
-		if opencodeCacheTarget(in.Target) && !in.Shell && !forceRemove.Load() {
+		if opencodeCacheTarget(in.Target) && !forceRemove.Load() {
 			keepHomeAccess = true
 			ui.Storef("OpenCode engine retained for prepared history: %s", cfg.Name)
 			return
@@ -1662,18 +1649,47 @@ func forwardStop() (context.Context, func(), context.CancelFunc) {
 	return ctx, func() { signal.Stop(sigs); cancel() }, cancel
 }
 
-func WarnBaseline() {
+// WarnBaseline reports sbx's network baseline and, unless it allows every host, the command that lets hosts through.
+func WarnBaseline(hosts []string) {
 	ui.Section(ui.SectionEgress)
 	allowed, known := sbx.NetworkAllowed(unallowlistedProbe)
-	if !known {
+	switch {
+	case known && allowed:
+		ui.Notef("sbx's global network policy allows every host; sbx decides this run's egress")
+		return
+	case !known:
 		ui.Notef("sbx network baseline: unreadable (`sbx policy check network %s`)", unallowlistedProbe)
-		return
 	}
-	if !allowed {
-		return
+	if len(hosts) > 0 {
+		ui.Notef("sbx's policy decides egress; if the agent cannot reach its provider, run on the host: `sbx policy allow network %s`",
+			strings.Join(hosts, ","))
 	}
-	ui.Warnf("sbx's global network policy allows every host, so this run's agent can reach any destination")
-	ui.Notef("make it bind once, host-wide: `sbx policy init deny-all` (or `balanced`), then `sbx policy ls`")
+}
+
+// ReachHosts are the sbx patterns for the harness's declared hosts and the detected providers it may use.
+func ReachHosts(man manifest.Manifest, detected []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(h string) {
+		for _, p := range sbx.DomainPatterns(h) {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	for _, h := range man.Capabilities.Hosts {
+		add(h)
+	}
+	for _, name := range credentials.FilterProviders(detected, man.Capabilities) {
+		if e, ok := provider.Lookup(name); ok {
+			for _, h := range e.Hosts {
+				add(h)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func CapturePolicyLog(egDir, name string) {
@@ -1855,8 +1871,7 @@ func proxyOnlyVar(name string) bool {
 	switch name {
 	case "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy",
 		"NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
-		"SSL_CERT_FILE", "GIT_SSL_CAINFO", "INSPECT_PROXY", "ENFORCEMENT_PROXY",
-		"PROVEO_EGRESS_CA_CERT":
+		"SSL_CERT_FILE", "GIT_SSL_CAINFO":
 		return true
 	}
 	return false
@@ -1917,7 +1932,7 @@ func launchConfigEnv(agent string, agentEnv []string) []string {
 	var out []string
 	if model != "" {
 		if base == "" {
-			base = "http://ollama:11434"
+			base = sbx.HostOllamaGuestBase
 		}
 		base = strings.TrimRight(base, "/")
 		for strings.HasSuffix(base, "/v1") {

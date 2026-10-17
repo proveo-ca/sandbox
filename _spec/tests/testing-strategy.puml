@@ -222,6 +222,12 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' honest statement about the host, and one that `go test -v` prints the reason for.
 '
 ' The floor, and why each check is shaped the way it is:
+'   * requireSbx — sbx is the only backend `proveo run` has (2026-10-16), so a
+'     host where it is not ready can run nothing here and skips, naming why.
+'     requireHarness is tmux + sbx + the harness image, and the `--print`
+'     helpers (runPrint, printEnforcedPlan, runPrintWithHome) skip without sbx
+'     too, because `--print` itself refuses on such a host (MEASURED,
+'     e2e/preconditions_test.go, credentials_test.go, home_test.go).
 '   * requireTmux — tmux is the PTY driver every harness run needs.
 '   * requireDocker — checks the CLI on PATH, deliberately NOT the daemon: every
 '     suite here shells out to `docker`, and the endpoint (context or DOCKER_HOST)
@@ -257,8 +263,10 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' values to `sbx secret set` on stdin. Read blind, an sbx plan satisfied the
 ' sentinel loop by containing no keys to check — zero of N, reported as "all
 ' forwarded". assertPlanIsolation then branched on isSbxArgv. MEASURED
-' 2026-10-16: with the docker branch deleted it asserts one thing per key — no
-' raw value and no `KEY=` pair in the sbx argv — because argv is visible to
+' 2026-10-16: with the docker branch and isSbxArgv deleted (e2e/home_test.go
+' lost its docker branch too, and e2e/go-testing-standards.md item 7 no longer
+' names it) it asserts one thing per key — no raw value and no `KEY=` pair in
+' the sbx argv — because argv is visible to
 ' anyone listing processes. The lesson stays: a loop over what is ABSENT must
 ' prove it looked.
 '
@@ -547,13 +555,16 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' WHAT THE RULE TOOK, named so nobody restores one by accident. These were
 ' SKIPPED from 2026-09-15 and DELETED 2026-10-16 (MEASURED: review_tier_test.go,
-' signal_test.go and chrome_bridge_test.go are gone; the rest were removed as
-' docker-only subtests):
+' signal_test.go, chrome_bridge_test.go and opencode_sessions_test.go are gone;
+' the rest were removed as docker-only subtests):
 '   the -egress sidecar . CredentialForwardingIntegrity/egress_broker_receives
 '                         _all_keys · ProjectDotEnvAtEgressLayer
 '   a live container .... ProveoHomePersistence/live_shell_roundtrip and
 '                         /live_resume_roundtrip
-'   sidecar teardown .... SIGINTTearsDownEgressSidecars
+'   sidecar teardown .... SIGINTTearsDownEgressSidecars (signal_test.go; its
+'                         PROVEO_SIGNAL_TEST=1 gate left `proveo-dev e2e-full`)
+'   a docker home ....... TestOpenCodeTwoSessionsSurviveProveoRuns
+'                         (opencode_sessions_test.go, pinned PROVEO_SBX=0)
 '   the consent gate .... ReviewTierConsentGate
 '   the docker bridge ... ChromeBridgeCarriesTheHostSocketIntoTheContainer
 '   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent, now the
@@ -586,9 +597,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' ── AND SO PROVEO_SBX=off REFUSES THE RUN ───────────────────────────────────
 ' Since 2026-10-16 PROVEO_SBX off values hard-fail every `proveo run`
 ' (_spec/internal/sbx/sandbox-backend.puml), so the old ban below is now
-' enforced by the product itself. MEASURED residue: e2e/opencode_sessions_test.go
-' still sets PROVEO_SBX=0, so that test now hits the refusal.
-' HISTORY of the ban: no e2e test could pin
+' enforced by the product itself. The last test that still pinned it,
+' e2e/opencode_sessions_test.go (PROVEO_SBX=0, docker path only), was deleted
+' 2026-10-16. HISTORY of the ban: no e2e test could pin
 ' the backend off. The pin was introduced so a probe could inspect the docker
 ' rendering — the "-egress" container, the broker.env bound into it, a mount
 ' table — without waiting out a timeout on a host where sbx takes the run. It
@@ -625,7 +636,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * isolation (every agent, deterministic) — one `--print` subtest per agent
 '     (TestCredentialForwardingIntegrity). The dry-run builds the sbx argv
 '     through the exact same env code path as a real run, so it is faithful and
-'     needs no VM. It asserts no raw key value and no `KEY=` pair in argv.
+'     starts no VM — but it needs a ready sbx, since `--print` refuses without
+'     one. It asserts no raw key value and no `KEY=` pair in argv.
 '   * cursor — TestCursorBrokersThroughTheSbxStore: cursor's key is named for
 '     sbx's secret store and never rides argv as a bare `-e CURSOR_API_KEY`.
 ' HISTORY, deleted 2026-10-16 with the docker rendering: the live "egress

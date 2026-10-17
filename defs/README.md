@@ -21,7 +21,7 @@ Definition-local scripts are the preferred deterministic command surface:
 - The build recipe (parent, pins, variants) is the def's row in `internal/imagebuild/targets.go`; `mise run build <target>` runs it.
 - `proveo run <target>` runs the harness with the manifest's mounts and environment.
 - `mise run test-defs <target>` (or `proveo test <target>`) runs the image suite, `go test -tags=image -run '^TestImage<Name>$' ./internal/imagetest/`.
-- `proveo run <target> --shell` opens a troubleshooting shell with the same mounts and env.
+- `sbx exec -it <sandbox> bash` opens a shell in a running harness sandbox (`sbx ls` names it).
 
 ## Current Classification
 

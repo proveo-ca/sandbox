@@ -32,7 +32,7 @@ func TestScopeCarriesRootSpecDir(t *testing.T) {
 			if tc.scope != "" {
 				input = filepath.Join(repo, tc.scope)
 			}
-			sess := launchShell(t, proveoBin, target, input)
+			k := launchKit(t, proveoBin, target, input, nil)
 
 			script := `root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "NO_REPO_ROOT"; exit 1; }
 [ -d "$root/_spec" ] || { echo "MISSING_SPEC_DIR"; exit 1; }
@@ -42,7 +42,7 @@ rm -f "$root/_spec/written.puml"
 [ -d "$root/apps/web" ] || { echo "MISSING_SCOPE"; exit 1; }
 echo "SPEC_OK"`
 
-			out, status := shellExec(t, sess, script, 60*time.Second)
+			out, status := k.exec(script, 60*time.Second)
 			if status != 0 || !strings.Contains(out, "SPEC_OK") {
 				t.Fatalf("%s scope cannot reach a writable _spec (exit %d):\n%s", tc.mode, status, out)
 			}
@@ -54,13 +54,13 @@ func TestSubdirScopeOmitsUnmountedPaths(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
 	repo := newTempMonorepo(t)
-	sess := launchShell(t, buildProveo(t), target, filepath.Join(repo, "apps"))
+	k := launchKit(t, buildProveo(t), target, filepath.Join(repo, "apps"), nil)
 
 	script := `[ -e libs ] && { echo "LIBS_PRESENT"; exit 1; }
 [ -e unmounted ] && { echo "UNMOUNTED_PRESENT"; exit 1; }
 echo "NARROWED_OK"`
 
-	out, status := shellExec(t, sess, script, 60*time.Second)
+	out, status := k.exec(script, 60*time.Second)
 	if status != 0 || !strings.Contains(out, "NARROWED_OK") {
 		t.Fatalf("a subdir scope must not carry unrelated repo paths (exit %d):\n%s", status, out)
 	}
@@ -101,10 +101,9 @@ func newTempWorktree(t *testing.T) (worktree string) {
 	return wt
 }
 
-// TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode
-// --shell`, not a hand-built `docker run --entrypoint bash`: the git-safe-dir
-// bridging under test is the real entrypoint's own, already applied before
-// the shell prompt appears, not a manually re-invoked copy of it. It asserts
+// TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode`
+// through its kit and probes it with `sbx exec`: the git-safe-dir bridging
+// under test is the seed's own, not a manually re-invoked copy of it. It asserts
 // the MOUNTED worktree, which since clone-through-main is the explicit opt-out.
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
@@ -112,7 +111,7 @@ func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	proveoBin := buildProveo(t)
 	wt := newTempWorktree(t)
 
-	sess := launchShellEnv(t, proveoBin, target, wt, []string{"PROVEO_DEPS=shared"}, "--clone=false")
+	k := launchKit(t, proveoBin, target, wt, []string{"PROVEO_DEPS=shared"}, "--clone=false")
 	script := `grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "NOT_A_REPO"; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = hotfix ] || { echo "WRONG_BRANCH"; exit 1; }
@@ -123,12 +122,12 @@ touch AGENTS.md.probe 2>/dev/null || { echo "WORKSPACE_READONLY"; exit 1; }
 rm -f AGENTS.md.probe
 echo "WORKTREE_OK"`
 
-	out, status := shellExec(t, sess, script, 60*time.Second)
+	out, status := k.exec(script, 60*time.Second)
 	if status != 0 || !strings.Contains(out, "WORKTREE_OK") {
 		t.Fatalf("worktree workspace unusable (exit %d):\n%s", status, out)
 	}
 
-	seeded, _ := shellExec(t, sess, `git status --porcelain | head -5`, 30*time.Second)
+	seeded, _ := k.exec(`git status --porcelain | head -5`, 30*time.Second)
 	if !strings.Contains(seeded, "?? AGENTS.md") {
 		t.Errorf("claudecode left the worktree untouched, but its seed writes AGENTS.md "+
 			"into a workspace that carries none — the seed either stopped running or wrote elsewhere:\n%s", seeded)

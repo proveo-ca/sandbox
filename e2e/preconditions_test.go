@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/maintain"
-
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -20,6 +20,18 @@ func requireTmux(t *testing.T) {
 	t.Helper()
 	if !tmux.Available() {
 		t.Skip("tmux not installed (brew install tmux)")
+	}
+}
+
+// requireSbx skips unless sbx, the only backend `proveo run` has, is installed
+// and its daemon answers.
+func requireSbx(t *testing.T) {
+	t.Helper()
+	if ok, why := sbx.Available(); !ok {
+		t.Skipf("sbx not available: %s", why)
+	}
+	if ok, why := sbxReadyForTests(); !ok {
+		t.Skipf("sbx not ready: %s", why)
 	}
 }
 
@@ -70,10 +82,11 @@ func harnessImage(t *testing.T, target string) string {
 	return image
 }
 
-// requireHarness is the whole Layer 4 floor for one target: PTY driver,
-// container backend, and the image the run mounts into.
+// requireHarness is the whole Layer 4 floor for one target: PTY driver, sbx,
+// and the image the run hands sbx.
 func requireHarness(t *testing.T, target string) string {
 	t.Helper()
 	requireTmux(t)
+	requireSbx(t)
 	return harnessImage(t, target)
 }

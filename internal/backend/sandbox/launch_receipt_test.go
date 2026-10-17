@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
+
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 

@@ -30,6 +30,7 @@ import (
 // than an opt-in one.
 func TestHermesLocalModelE2E(t *testing.T) {
 	requireTmux(t)
+	requireSbx(t)
 	requireDocker(t)
 
 	target := "hermes"

@@ -63,20 +63,20 @@ node "proveo run" as RUN <<host>> {
   component "runlog.Open(sid)\nfirst statement in run.Do" as OPEN <<app>>
   component "ui.TeeTo\nstatus lines, ANSI stripped" as TEE <<app>>
   component "rl.Fields\nresolved posture" as FIELDS <<app>>
-  component "captureSidecarLogs\nteardown, before --rm" as CAP <<app>>
+  component "sandbox.CapturePolicyLog\nteardown, before sbx rm\n(was captureSidecarLogs, docker)" as CAP <<app>>
   component "recordOutcome\ninside Do, while the log is open" as OUT <<app>>
   component "tail of the agent's last output\nANSI-stripped by Tail.push" as ATAIL <<app>>
 }
 
 component "main's os.Exit(agent code)\nprints nothing, and the log is closed" as OSEXIT <<error>>
 
-database "egress state dir\nflows.ndjson · squid/logs\ninspector.log · squid.log" as EG <<db>>
+database "egress state dir\nsbx/policy-log.json · sbx/kit\n(flows.ndjson · squid logs: docker, deleted)" as EG <<db>>
 
 OPEN ARROW_MAIN LOG : create 0600
 OPEN ARROW_OPTIONAL LATEST : relink
 TEE ARROW_MAIN LOG
 FIELDS ARROW_MAIN LOG
-CAP ARROW_MAIN EG : docker logs → file
+CAP ARROW_MAIN EG : sbx policy log → file
 LOG ARROW_OPTIONAL EG : records where the evidence lives
 OUT ARROW_MAIN TEE : ""ExitError"" → terminal + log
 OUT ARROW_MAIN LOG : any other error → ""ui.Logf"", log only
@@ -92,31 +92,29 @@ note right of OPEN
 end note
 
 note bottom of CAP
-  **Why teardown is the only chance.** The inspector and Squid run
-  detached with ""--rm"", so ""docker logs"" is the sole copy and it
-  disappears with the container. Capturing at teardown is what lets
-  an operator tell a proveo denial from a provider's own 401 —
-  the two are indistinguishable from the harness's side.
+  **Why teardown is the only chance.** ""sbx policy log"" for a sandbox
+  is gone once the sandbox is removed, so it is saved to
+  ""<egDir>/sbx/policy-log.json"" first. That record — allowed and blocked
+  hosts — is what lets an operator tell an sbx denial from a provider's
+  own 401. HISTORY: on the deleted docker backend the inspector and Squid
+  ran detached with ""--rm"" and ""docker logs"" was the sole copy.
 end note
 
 note as Blind #F4F9FB
   **The blind spot the transcript names explicitly.**
 
-  ""open"" + ""forward"" returns a plain-bridge plan: no MITM, no Squid,
-  the real key straight to the provider. Nothing observes that
-  exchange, so there is no ""flows.ndjson"" to consult and a provider
-  error CANNOT be an egress denial.
-
-  ""observability"" is therefore recorded alongside the posture, and
-  says so in words. Reproducing the failure under ""allowlist"" is what
-  converts it into a flow record.
+  sbx's policy log records hosts and decisions, never requests: there is
+  no MITM of proveo's, so no flow record, no DLP and no body scan
+  (posture ""observability"" says so in words). HISTORY: on docker,
+  ""open"" + ""forward"" was the plain-bridge plan with nothing observing
+  it; the other tiers wrote ""flows.ndjson"". Both are deleted.
 end note
 
 note right of FIELDS
   **Names and hosts only, never values.** The transcript records which
-  provider was pinned, which keys were detected, which hosts were
-  reachable — never a secret. Keys are meant to stay in the egress
-  layer, and a troubleshooting file is not an exception.
+  keys were detected and which credential route ran (the "reachable
+  hosts" row went with the tiers, 2026-10-16) — never a secret. Keys are meant to stay in sbx's secret
+  store, and a troubleshooting file is not an exception.
 
   Fields are sorted so two runs of the same command diff to only what
   actually differed.

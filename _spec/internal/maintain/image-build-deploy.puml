@@ -8,6 +8,13 @@
 ' covers: internal/imagetest/**
 ' covers: cmd/proveo-dev/debug.go
 ' execute order .............. _spec/internal/maintain/build-schedule.puml
+'
+' 2026-10-16 (MEASURED): KindSidecar is gone from internal/maintain; the
+' squid-proxy, egress-proxy and mitmproxy targets left the registry and
+' internal/imagebuild/targets.go with the docker+egress backend ("Retire Docker
+' egress"). Two kinds remain: base and harness. The egress-proxy ":local beats
+' :latest" note below is HISTORY; egressProxyImage and the egress-proxy image
+' inspect header are deleted from cmd/proveo.
 title Maintainer image pipeline — proveo build / test / deploy
 
 actor "Maintainer" as MT
@@ -24,7 +31,7 @@ node "Maintainer host" as HOST <<host>> {
 folder "Target kinds" as KINDS <<host>> {
   component "base\nbase · base-node · base-node-lsp\nbase-node-browser" as KB <<app>>
   component "harness\nfrom images{} — incl. variants\n(claudecode-solidity, -browser)" as KH <<app>>
-  component "sidecar\nsquid-proxy · egress-proxy\nmitmproxy" as KS <<app>>
+  component "sidecar — DELETED 2026-10-16\nsquid-proxy · egress-proxy\nmitmproxy" as KS <<error>>
 }
 
 cloud "Registry (docker push)" as REGISTRY <<cloud>>
@@ -40,8 +47,8 @@ BUILD ARROW_CLOUD REGISTRY : deploy → buildx ""--push""\n""PROVEO_PLATFORMS"" 
 
 note right of REG
   **Derived, never hardcoded.** The buildable set comes
-  from the manifest ""images"" map plus a fixed sidecar
-  list (sidecars have no harness manifest). A variant is
+  from the manifest ""images"" map plus the bases (the
+  fixed sidecar list went 2026-10-16). A variant is
   its own ""Specs"" row in internal/imagebuild/targets.go —
   ""claudecode"" and ""claudecode-solidity"" share one def
   dir and differ by ""Dockerfile"" (mcp/ vs solidity/).
@@ -67,7 +74,7 @@ note bottom of BUILD
   (_spec/_devops/agent-version-pin.puml). codex is the
   exception: ""CODEX_VERSION"" defaults to ""latest"".
 
-  **A newer "":local"" beats "":latest"" for the egress-proxy
+  //HISTORY, deleted 2026-10-16:// **A newer "":local"" beat "":latest"" for the egress-proxy
   sidecar too** (""egressProxyImage"" in cmd/proveo, same
   ""ResolveImage"" rule as the harness image). The sidecar
   compiles ""internal/provider"" into its binary, so a provider
@@ -93,7 +100,7 @@ note bottom of TEST
 end note
 note bottom of REG
   **Registry order is dependency order, hand-made rather than sorted.**
-  Bases, then harnesses by name, then the sidecars. Execute order is
+  Bases, then harnesses by name (the sidecars that came last are gone). Execute order is
   Schedule: bases one at a time, then one concurrent wave, then
   claudecode-solidity after claudecode.
 

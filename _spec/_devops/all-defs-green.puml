@@ -31,6 +31,9 @@ skinparam noteTextAlignment left
 '
 ' This is not a statement about the docker backend's worth. It is a statement
 ' about which measurement counts for THIS bar.
+' 2026-10-16: R2 is now enforced by the product — the docker+egress backend is
+' deleted and PROVEO_SBX off values refuse the run, so no docker result can be
+' produced (_spec/internal/sbx/sandbox-backend.puml). Kept as HISTORY.
 '
 ' ── R3 · IDLE IS COMPLEMENTARY, AND IS NOT THE GATE ────────────────────────
 ' `e2e/idle_test.go` asks a different question — does the assembled run survive

@@ -21,9 +21,8 @@ var machO = []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c}
 
 // TestCloneLeavesTheHostTreeAlone is the regression guard for the ping-pong.
 // Like TestCloneModeLandsTheCloneAndLiftsTheOutputDir (clone_output_test.go),
-// this drives a real `proveo run claudecode --clone --shell` rather than a
-// hand-built `sbx create --clone`, so the assembly under test is proveo's
-// own, not a replica of it.
+// this drives a real `proveo run claudecode --clone` rather than a hand-built
+// `sbx create --clone`, so the assembly under test is proveo's own.
 func TestCloneLeavesTheHostTreeAlone(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -58,20 +57,18 @@ func TestCloneLeavesTheHostTreeAlone(t *testing.T) {
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--clone", "--shell", "--input", work,
+		proveoBin, "run", target, "--clone", "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
-	w := newWatcher(t, sess)
-	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+	k := awaitKit(t, sess, before, target, work)
 
 	script := `printf 'origin=%s\ndeps=%s\n' ` +
 		`"$(git remote get-url origin 2>/dev/null)" ` +
 		`"$(test -e node_modules && echo present || echo absent)"`
-	out, status := shellExec(t, sess, script, 60*time.Second)
+	out, status := k.exec(script, 60*time.Second)
 	if status != 0 {
 		t.Fatalf("probe exited %d:\n%s", status, out)
 	}
@@ -131,15 +128,13 @@ func TestCloneCarriesAGitignoredSymlinkedDotEnv(t *testing.T) {
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--clone", "--shell", "--input", work,
+		proveoBin, "run", target, "--clone", "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
-	w := newWatcher(t, sess)
-	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+	k := awaitKit(t, sess, before, target, work)
 
 	script := `printf 'origin=%s\nenv=%s\nwritable=%s\nstatus=[%s]\nrefused=[%s]\n' ` +
 		`"$(git remote get-url origin 2>/dev/null)" ` +
@@ -147,7 +142,7 @@ func TestCloneCarriesAGitignoredSymlinkedDotEnv(t *testing.T) {
 		`"$( (: >> .env) 2>/dev/null && echo yes || echo no)" ` +
 		`"$(git status --porcelain -- .env 2>/dev/null)" ` +
 		`"$(cat /dev/shm/proveo-seed-refused 2>/dev/null)"`
-	out, status := shellExec(t, sess, script, 60*time.Second)
+	out, status := k.exec(script, 60*time.Second)
 	if status != 0 {
 		t.Fatalf("probe exited %d:\n%s", status, out)
 	}
@@ -160,16 +155,13 @@ func TestCloneCarriesAGitignoredSymlinkedDotEnv(t *testing.T) {
 
 	// An append writes through the link; `sed -i` saves by rename and replaces it.
 	edited, added := randToken(), randToken()
-	if err := sess.SendText("printf 'PROVEO_E2E_DOTENV_EDIT=%s\\n' " + added + " >> .env && " +
-		"sed -i 's/^PROVEO_E2E_DOTENV=.*/PROVEO_E2E_DOTENV=" + edited + "/' .env && exit"); err != nil {
-		t.Fatalf("send edit: %v", err)
+	if out, status := k.exec("printf 'PROVEO_E2E_DOTENV_EDIT=%s\\n' "+added+" >> .env && "+
+		"sed -i 's/^PROVEO_E2E_DOTENV=.*/PROVEO_E2E_DOTENV="+edited+"/' .env", 60*time.Second); status != 0 {
+		t.Fatalf("edit exited %d:\n%s", status, out)
 	}
-	if err := sess.Enter(); err != nil {
-		t.Fatal(err)
-	}
-	screen, exited := waitSessionExit(sess, timeout)
+	screen, exited := k.end()
 	if !exited {
-		t.Fatalf("proveo did not exit after the shell left\n%s", screen)
+		t.Fatalf("proveo did not finish its teardown after SIGTERM\n%s", screen)
 	}
 	want := "PROVEO_E2E_DOTENV=" + edited + "\nPROVEO_E2E_DOTENV_EDIT=" + added + "\n"
 	if b, err := os.ReadFile(hostEnv); err != nil || string(b) != want {
@@ -217,17 +209,15 @@ func TestCloneLiftsTrackedSpecEdits(t *testing.T) {
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--clone", "--shell", "--input", work,
+		proveoBin, "run", target, "--clone", "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
-	w := newWatcher(t, sess)
-	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+	k := awaitKit(t, sess, before, target, work)
 
-	out, status := shellExec(t, sess, `printf 'refused=[%s]\n' "$(cat /dev/shm/proveo-seed-refused 2>/dev/null)"`, 60*time.Second)
+	out, status := k.exec(`printf 'refused=[%s]\n' "$(cat /dev/shm/proveo-seed-refused 2>/dev/null)"`, 60*time.Second)
 	if status != 0 || !strings.Contains(out, "refused=[]") {
 		t.Fatalf("the seed refused the shares (exit %d):\n%s", status, out)
 	}
@@ -235,15 +225,12 @@ func TestCloneLiftsTrackedSpecEdits(t *testing.T) {
 	hostEdit := "' host edit " + randToken() + "\n"
 	writeFile(t, filepath.Join(work, "_spec", "host.puml"), []byte(hostEdit))
 	mark := randToken()
-	if err := sess.SendText("printf \"' %s\\n\" " + mark + " >> _spec/lift.puml && printf x >> _spec/host.puml && exit"); err != nil {
-		t.Fatalf("send edit: %v", err)
+	if out, status := k.exec("printf \"' %s\\n\" "+mark+" >> _spec/lift.puml && printf x >> _spec/host.puml", 60*time.Second); status != 0 {
+		t.Fatalf("edit exited %d:\n%s", status, out)
 	}
-	if err := sess.Enter(); err != nil {
-		t.Fatal(err)
-	}
-	screen, exited := waitSessionExit(sess, timeout)
+	screen, exited := k.end()
 	if !exited {
-		t.Fatalf("proveo did not exit after the shell left\n%s", screen)
+		t.Fatalf("proveo did not finish its teardown after SIGTERM\n%s", screen)
 	}
 	if got := readIn(work, filepath.Join("_spec", "lift.puml")); !strings.Contains(got, mark) {
 		t.Errorf("_spec/lift.puml on the host = %q; the clone's edit must reach the worktree\n%s", got, screen)
@@ -301,39 +288,35 @@ func TestCloneOfALinkedWorktreeLeavesItsHostTreeAlone(t *testing.T) {
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--shell", "--input", wt,
+		proveoBin, "run", target, "--input", wt,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
-	w := newWatcher(t, sess)
-	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+	k := awaitKit(t, sess, before, target, wt)
 
-	script := `printf 'pwd=%s\nbranch=%s\nmanifest=%s\nhostmount=%s\ncommon=%s\nspec=%s\n' ` +
-		`"$PWD" ` +
+	script := `printf 'workdir=%s\nbranch=%s\nmanifest=%s\nhostmount=%s\ncommon=%s\nspec=%s\n' ` +
+		`"${PROVEO_WORKDIR:-}" ` +
 		`"$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" ` +
 		`"$(test -e package.json && echo present || echo absent)" ` +
 		`"$(awk -v p=` + quoteWord(wt) + ` '$2 == p' /proc/mounts | grep -c .)" ` +
 		`"$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ` +
 		`"$(ls _spec/ 2>/dev/null | tr '\n' ' ')" && ` +
 		`git -c user.email=e2e@proveo.test -c user.name=e2e commit -q --allow-empty -m wt-clone-probe && echo COMMITTED`
-	out, status := shellExec(t, sess, script, 60*time.Second)
+	out, status := k.exec(script, 60*time.Second)
 	if status != 0 {
 		t.Fatalf("probe exited %d:\n%s", status, out)
 	}
-	for _, want := range []string{"pwd=" + wt, "branch=feat", "manifest=present", "hostmount=0", "common=" + main + "/.git", "spec=overview.puml", "COMMITTED"} {
+	for _, want := range []string{"workdir=" + wt, "branch=feat", "manifest=present", "hostmount=0", "common=" + main + "/.git", "spec=overview.puml", "COMMITTED"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("probe lacks %q — the agent must start at the worktree's own path, on its branch, "+
 				"in a worktree of the clone rather than on the host's tree:\n%s", want, out)
 		}
 	}
 
-	_ = sess.SendText("exit")
-	_ = sess.Enter()
-	if _, exited := waitSessionExit(sess, 3*time.Minute); !exited {
-		t.Fatal("the sandbox session did not exit after `exit`")
+	if screen, exited := k.end(); !exited {
+		t.Fatalf("proveo did not finish its teardown after SIGTERM\n%s", screen)
 	}
 	if !hostCarriesCommit(t, wt, "wt-clone-probe") {
 		t.Errorf("the agent's commit in the worktree never reached refs/proveo/:\n%s", hostRefLog(t, wt))

@@ -26,6 +26,18 @@ skinparam packageStyle rectangle
 ' aside italic. Plain (pipe, NO_COLOR, TERM=dumb) keeps the layout, drops the
 ' paint, and draws rules in "-", as does PROVEO_GLYPHS=ascii|off.
 ' cobra's own "help" command is not listed; the hint names --help instead.
+'
+' ── 2026-10-16: `--egress-mode` IS GONE; sbx IS THE ONLY RUNTIME ───────────
+' The Executor: "Nothing, `sbx` handles this. Drop that param". MEASURED:
+' `--egress-mode` is a HIDDEN flag on `proveo run` that errors at the top of
+' RunE ("--egress-mode is retired: sbx's own network policy decides egress
+' (`sbx policy ls`, `sbx policy allow network <host>`); remove the flag"),
+' pinned by cmd/proveo/main_test.go; `--credentials forward|broker` stays and
+' its help names sbx. The orchestration packages internal/egress and the
+' runner's docker argv are deleted; sidecars (squid, proveo-egress, the Ollama
+' sidecar) are gone, and `proveo-dev` lost firehol and `coverage integration`.
+'   what decides egress now ... _spec/internal/sbx/policy-baseline.puml
+'   the refusal without sbx ... _spec/internal/sbx/sandbox-backend.puml
 
 left to right direction
 
@@ -37,7 +49,7 @@ actor "Maintainer" as Maintainer
 package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
  component "proveo" as Proveo <<app>>
  component "version · list · run · projects · setup · init" as Commands <<commands>>
- component "run flags\n--egress-mode · --credentials · --local-model\n--scope · --shell · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
+ component "run flags\n--credentials · --local-model\n--scope · --shell · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 
 package "Installer" as Install {
@@ -61,14 +73,14 @@ package "Registration" as Reg {
 
 package "Orchestration packages\ninternal/" as Orch {
  component "workspace mounts\napp (/app)" as Mounts <<logic>>
- component "egress BuildPlan\nopen|allowlist|review\n+ --credentials broker|forward" as Egress <<logic>>
- component "runner hardened argv" as Runner <<logic>>
+ component "run → backend/sandbox\nKit + sbx argv\n--credentials broker|forward" as Egress <<logic>>
+ component "provider detect\n(internal/provider)" as Runner <<logic>>
 }
 
 package "Runtime" as Runtime {
- component "Docker CLI" as Docker <<runtime>>
+ component "sbx CLI (+ Docker for images)" as Docker <<runtime>>
  component "proveo/* images" as Images <<image>>
- component "sidecars\nsquid · proveo-egress · ollama" as Sidecars <<runtime>>
+ component "host add-ons\nOllama · CDP · adb" as Sidecars <<runtime>>
  component "workspace + state dir" as Storage <<storage>>
 }
 
@@ -102,11 +114,13 @@ note right of Proveo
 No installed bash lib/*.sh runners.
 ""PROVEO_DEFS_DIR"" overrides embeds for dev.
 
-**One binary composed of three packages**, and the
-composition is the point: ""internal/runner"" builds the
-hardened docker-run argv, ""internal/egress"" orchestrates
-the topology, ""internal/provider"" detects which vendor a
-run is talking to. That logic was previously triplicated
+**One binary composed of packages**, and the
+composition is the point: ""internal/run"" resolves the
+run, ""internal/backend/sandbox"" renders the Kit and the
+sbx argv, ""internal/provider"" detects which vendor a
+run is talking to. (Until 2026-10-16 ""internal/runner""
+built a docker-run argv and ""internal/egress"" a docker
+topology; both are deleted.) That logic was previously triplicated
 across the consumer CLI, ""lib/runners\.sh"" and every
 per-def ""run\.sh"" — three copies that drifted. The last
 ""run\.sh"" shims went in host-shell-to-go P4.
@@ -149,16 +163,17 @@ end note
 note right of RunFlags
 ""proveo run <target>"" applies to every
 harness with a manifest (cecli, claudecode*,
-opencode, cursor). Egress follows the
-manifest's ""egress:"" flag; ""docker: sbx"" puts
-the run in a sandbox with its own daemon.
+opencode, cursor, codex, hermes). Every manifest
+declares ""docker: sbx"", which puts the run in a
+sandbox with its own daemon; a host without sbx
+refuses the run.
 end note
 
 note bottom of Egress
-Default ""--egress-mode allowlist"": MITM
-credential broker + Squid. ""--local-model""
-adds Ollama (not for cursor). Session report
-under the host state dir.
+sbx's own policy decides egress; proveo adds
+only add-on reach to the Kit. ""--local-model""
+uses the host's Ollama (not for cursor). Run
+artifacts under the host state dir.
 end note
 
 @enduml

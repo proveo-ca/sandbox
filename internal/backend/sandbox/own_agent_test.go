@@ -131,17 +131,6 @@ func TestBuiltinTargetsNeverDeclareTheirOwnAgent(t *testing.T) {
 	}
 }
 
-// --shell selects sbx's own shell deliberately; the gate must not steal it.
-func TestShellFlagStillWinsOverTheGate(t *testing.T) {
-	t.Setenv(sbx.EnvAgentKit, "1")
-	in := specInput("cecli")
-	in.Shell = true
-	cfg, _, _ := Spec(in)
-	if cfg.Agent != sbx.ShellAgent || len(cfg.Command) != 0 {
-		t.Errorf("--shell gave agent %q command %v, want a bare shell", cfg.Agent, cfg.Command)
-	}
-}
-
 // Extras reach the entrypoint script as "$@", bare words, the way the docker
 // backend passes them. sbx REPLACES the Kit entrypoint's part after `--` with
 // trailing args (measured 2026-09-29: `-- /bin/echo X` printed X and no

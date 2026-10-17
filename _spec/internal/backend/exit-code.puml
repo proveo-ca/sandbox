@@ -5,6 +5,15 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/backend.go
 ' covers: internal/backend/backend_test.go
 '
+' ── 2026-10-16: ONE BACKEND LEFT ───────────────────────────────────────────
+' internal/backend/dockeregress is DELETED with the docker+egress backend
+' ("Retire Docker egress"); internal/backend/sandbox is the only consumer of
+' ExitError besides cmd/proveo, and run.selectBackend became launchSandbox. The
+' dependency-direction argument below weakens with one backend: placing
+' ExitError inside internal/backend/sandbox no longer forces a sibling import.
+' That move is repo-simplification.puml N16 (PROPOSED), not decided here.
+' Everything below that names dockeregress or "both backends" is HISTORY.
+'
 ' ── ONE TYPE, AND THAT IS THE FINISHED STATE ───────────────────────────────
 ' The package was created during the cmd/proveo decomposition to hold what the
 ' two backends share, with a Plan(RunSpec)/Execute(Plan) interface promised once
@@ -35,19 +44,17 @@ skinparam noteTextAlignment left
 title internal/backend — a package for dependency direction, not abstraction
 
 participant "sandbox" as SBX <<cloud>>
-participant "dockeregress" as DOC <<cloud>>
 participant "backend.ExitError" as EE <<data>>
 participant "cmd/proveo main" as MAIN <<app>>
 
 SBX ARROW_ERROR EE : agent exited 137
-DOC ARROW_ERROR EE : agent exited 1
 EE ARROW_MAIN MAIN : errors.As through the wrap chain
 MAIN ARROW_MAIN MAIN : os.Exit(code) — the AGENT's code
 
 note over EE
-  **No Plan/Execute interface.** Two implementers
-  with different shapes and no caller that holds
-  one. Declared at the consumer, if a consumer
-  ever appears.
+  **No Plan/Execute interface.** One implementer
+  since 2026-10-16 (dockeregress deleted), and no
+  caller that holds one. Declared at the consumer,
+  if a consumer ever appears.
 end note
 @enduml

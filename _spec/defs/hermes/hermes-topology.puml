@@ -26,7 +26,7 @@ package "Harness Layer — proveo" as Harness {
   component "wire_hermes_local_endpoint\nconfig.yaml: provider custom + base_url" as LocalModel <<logic>>
 }
 
-package "User Layer — HERMES_HOME=/proveo-home/data" as Home {
+package "User Layer — HERMES_HOME=$PROVEO_STATE_HOME/hermes/data" as Home {
   component "config + auth state" as Config <<config>>
   database "sessions / transcripts" as Sessions <<db>>
 }
@@ -42,7 +42,7 @@ package "Container Sandbox" as Sandbox {
   component "network egress layer\nopen | allowlist | review" as Net <<security>>
 }
 
-cloud "OpenAI-compatible backend\n(hosted key OR Ollama sidecar)" as Backend
+cloud "OpenAI-compatible backend\n(hosted key OR the host's Ollama)" as Backend
 
 Operator --> Entrypoint : starts container
 Entrypoint --> Stage2 : run once, as root

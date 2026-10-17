@@ -16,7 +16,7 @@ reads like a bad key.
 | # | Place | File | What breaks if missing |
 |---|---|---|---|
 | 1 | Registry entry | `internal/provider/provider.go` | Never detected, never stored in sbx's secret store, never injected |
-| 2 | Hosts | same entry (`Hosts`; `ACL` until that field retires) | Detected and stored, but sbx's proxy matches no domain and never attaches the key |
+| 2 | Hosts | same entry (`Hosts`) | Detected and stored, but sbx's proxy matches no domain and never attaches the key |
 | 3 | Bare model-id prefix | `internal/provider/models.go` (`bareIDPrefixes`) | A bare model id resolves no provider, so the missing-key warning and the posture's `role providers` row skip it |
 | 4 | Harness capability | `defs/<name>/harness.manifest` (`capabilities.providers`) | A harness is offered providers it cannot use, so proveo stores or forwards keys the agent never spends |
 
@@ -60,15 +60,15 @@ provider no harness can reach.
 
 ```go
 {Name: "<name>", Detect: []string{"<PROVIDER>_API_KEY"},
-    ACL: "dstdomain .<host>", Hosts: []string{".<host>"}, Auth: bearer("<PROVIDER>_API_KEY")},
+    Hosts: []string{".<host>"}, Auth: bearer("<PROVIDER>_API_KEY")},
 ```
 
 `Detect` lists every env var the vendor's own docs bless, including legacy
 aliases. `Hosts` must be the **narrowest** suffix that works — never a whole
 cloud (`.amazonaws.com` is explicitly rejected by an existing test). Each host
 becomes a Kit `inject[].domain` (`.host` → `host` + `*.host`,
-`internal/sbx/domain.go`). `TestEveryRegisteredProviderIsReachable` still requires
-`ACL`, though nothing outside tests reads it. A provider whose auth is not a bearer
+`internal/sbx/domain.go`). `TestEveryRegisteredProviderIsReachable` requires
+`Hosts` (bedrock and vertex are exempt). A provider whose auth is not a bearer
 token takes an explicit `[]AuthOption`.
 
 ### 4. Add the bare model-id prefix
@@ -137,7 +137,7 @@ host-wide policy (`sbx policy`). proveo writes no provider allowlist; only the
 inject domains of a declared credential enter the Kit's
 `permissions.network.allow`, because SPEC-v2 requires them there.
 
-**Never widen `Hosts` (or `ACL`) to make a test pass.** A failing reachability
+**Never widen `Hosts` to make a test pass.** A failing reachability
 test means the host suffix is wrong or the provider genuinely cannot be injected
 (cloud-SDK auth like bedrock/vertex). Those are exempted by name in the test,
 with the reason.

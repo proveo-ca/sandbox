@@ -335,7 +335,7 @@ func buildCmd() *cobra.Command {
 	var noCache, printOnly bool
 	cmd := &cobra.Command{
 		Use:    "build [target|all]",
-		Short:  "Build harness/sidecar image(s) (maintainer)",
+		Short:  "Build harness image(s) (maintainer)",
 		Hidden: true,
 		Args:   cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -368,7 +368,7 @@ func deployCmd() *cobra.Command {
 	var printOnly bool
 	cmd := &cobra.Command{
 		Use:    "deploy [target|all]",
-		Short:  "Build+push multi-arch harness/sidecar image(s) to the registry (maintainer)",
+		Short:  "Build+push multi-arch harness image(s) to the registry (maintainer)",
 		Hidden: true,
 		Args:   cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -399,7 +399,7 @@ func testCmd() *cobra.Command {
 	var printOnly bool
 	cmd := &cobra.Command{
 		Use:    "test [target|all]",
-		Short:  "Run a harness/sidecar def's image test suite (maintainer)",
+		Short:  "Run a harness def's image test suite (maintainer)",
 		Hidden: true,
 		Args:   cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {

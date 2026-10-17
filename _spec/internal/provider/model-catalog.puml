@@ -73,7 +73,7 @@ end note
 
 note bottom of CUR
   **The exception that must stay loud.** Cursor's inference is vendor-pinned
-  and its TLS is not MITM-brokerable, so a catalogued model cannot be
+  (its TLS was not MITM-brokerable by proveo's deleted docker broker), so a catalogued model cannot be
   retargeted at it. The catalog records this as unsupported rather than
   emitting an id that would silently fail — the same reason the run wiring
   already rejects ""--local-model"" for cursor.

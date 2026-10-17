@@ -29,7 +29,7 @@ Candidate coding harness definition. This definition exposes:
 
 Its image suite is `internal/imagetest/opencode_test.go` (`TestImageOpencode`).
 
-`proveo run opencode --shell` opens a debug shell with the same mounts and env.
+For a shell in a running OpenCode sandbox: `sbx ls`, then `sbx exec -it <sandbox> bash`.
 
 This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md), including runtime config discovery, `.env` bridging, and monorepo mount expectations.
 
@@ -177,7 +177,7 @@ The next launch recovers it, or asks first: recover, reset with `sbx rm --force`
 Recovery does not overwrite a published store changed by another writer.
 Use `sbx rm --force <engine-name>` only after preserving any unpublished work.
 
-An OpenCode launch that no proveo host prepared (a raw `sbx run` of the kit, or `opencode` typed in `--shell`) runs the native client as a raw `sbx run` would.
+An OpenCode launch that no proveo host prepared (a raw `sbx run` of the kit, or `opencode` typed in an `sbx exec` shell) runs the native client as a raw `sbx run` would.
 Its history stays in that sandbox; the proveo V2 store is not used.
 Creating a new engine for an existing V2 database prepares that database on the next launch.
 

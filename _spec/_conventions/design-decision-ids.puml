@@ -2,14 +2,19 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: what each D / F / C id cited in the source actually means
 ' covers: cmd/proveo/main.go
-' covers: internal/egress/plan.go
-' covers: internal/egresspolicy/**
+' covers: cmd/proveo/main_test.go
 ' covers: internal/workspace/mount.go
-' covers: cmd/proveo-egress/**
-' SPEC source (every file that cites an id):
-'   cmd/proveo/main.go · cmd/proveo/main_test.go — C6, D2
-'   internal/egress/plan.go · internal/egress/egress_test.go — D1, D3, C1
-'   internal/workspace/mount.go · internal/workspace/mount_test.go — D4, D5, D6
+' covers: internal/workspace/mount_test.go
+' SPEC source (every file that cites an id), MEASURED 2026-10-16:
+'   cmd/proveo/main_test.go — D2
+'   internal/workspace/mount_test.go — D6
+' HISTORY: internal/egress/plan.go and egress_test.go (D1, D3, C1),
+' internal/egresspolicy (F1, F2) and cmd/proveo-egress (F1) cited ids too; all
+' three were DELETED 2026-10-16 with the docker+egress backend ("Retire Docker
+' egress"). D1, D3, F1, F2, C1, C2, C4 and C7 therefore have no live citing
+' code: their entries stay so an old citation, a commit message or a
+' reviewer's memory still resolves. D4's subject, internal/runner's argv
+' formatter, is deleted too; the package holds only `type Mount`.
 title Design decision ids — recovered from the source that cites them
 
 node "D-series — structural decisions\nwhere a thing lives and how it is extended" as DS <<host>> {

@@ -21,8 +21,8 @@ func TestParse(t *testing.T) {
 	}{
 		{
 			name: "valid multi-image",
-			yaml: "name: claudecode\ndescription: d\negress: true\nstability: candidate\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solidity: proveo/claudecode-solidity:latest\n",
-			want: Manifest{Name: "claudecode", Description: "d", Egress: true, Stability: "candidate",
+			yaml: "name: claudecode\ndescription: d\nstability: candidate\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solidity: proveo/claudecode-solidity:latest\n",
+			want: Manifest{Name: "claudecode", Description: "d", Stability: "candidate",
 				Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-solidity": "proveo/claudecode-solidity:latest"}, Dir: "dir"},
 		},
 		{name: "missing name", yaml: "images:\n  x: y\n", wantErr: true},
@@ -255,13 +255,10 @@ func TestDockerModeAcceptsOnlyTheSandbox(t *testing.T) {
 			t.Errorf("docker %q must validate: %v", mode, err)
 		}
 	}
-	err := base("dind").Validate()
-	if err == nil || !strings.Contains(err.Error(), "retired") {
-		t.Errorf("docker: dind must be refused as RETIRED, got %v", err)
-	}
-	err = base("podman").Validate()
-	if err == nil || !strings.Contains(err.Error(), "invalid docker") {
-		t.Errorf("an unknown docker mode must be rejected, got %v", err)
+	for _, mode := range []DockerMode{"dind", "podman"} {
+		if err := base(mode).Validate(); err == nil || !strings.Contains(err.Error(), "invalid docker") {
+			t.Errorf("docker %q must be rejected, got %v", mode, err)
+		}
 	}
 }
 
@@ -274,19 +271,6 @@ func TestDockerModePredicatesAreExhaustive(t *testing.T) {
 		t.Errorf("docker: sbx predicates wrong: sbx=%v wants=%v", sbx.IsSbx(), sbx.WantsDocker())
 	case none.IsSbx() || none.WantsDocker():
 		t.Error("a harness with no docker mode must promise no daemon")
-	}
-}
-
-func TestRetiredDockerFlagsFailLoudly(t *testing.T) {
-	t.Parallel()
-	for _, m := range []Manifest{
-		{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}, RetiredDind: true},
-		{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}, RetiredSandboxDocker: true},
-	} {
-		err := m.Validate()
-		if err == nil || !strings.Contains(err.Error(), "retired") {
-			t.Errorf("a stale manifest must be rejected, not silently ignored; got %v", err)
-		}
 	}
 }
 

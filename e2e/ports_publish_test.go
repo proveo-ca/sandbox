@@ -68,10 +68,8 @@ func TestPortsPublishE2E(t *testing.T) {
 	_ = first.SendKeys("Space")
 	_ = first.Enter()
 	assertServed(t, first)
-	_ = first.SendText("exit")
-	_ = first.Enter()
-	if _, ok := waitSessionExit(first, 2*time.Minute); !ok {
-		t.Fatal("first run never exited")
+	if screen, ok := stopRun(first, 3*time.Minute); !ok {
+		t.Fatalf("first run never exited after SIGTERM\n%s", screen)
 	}
 
 	second := startRun(t, proveoBin, home, image, work, "second", "--yes")
@@ -83,7 +81,7 @@ func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...s
 	sess := tmux.New(fmt.Sprintf("proveo-ports-%s-%d", tag, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 	args := append([]string{"env", "PROVEO_HOME=" + home, proveoBin, "run", "claudecode",
-		"--image", image, "--input", work, "--scope", ".", "--shell"}, extra...)
+		"--image", image, "--input", work, "--scope", "."}, extra...)
 	if err := sess.Start(160, 50, args...); err != nil {
 		t.Fatalf("start tmux session: %v", err)
 	}

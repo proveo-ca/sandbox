@@ -11,7 +11,8 @@ skinparam noteTextAlignment left
 ' covers: internal/run/params.go (seedFromCache)
 ' covers: internal/run/params_test.go
 ' covers: internal/run/run_test.go (TestEgressRowShowsTheHostBaseline, network.allow)
-' covers: internal/backend/sandbox/sandbox.go (Spec: the Kit's network.allow)
+' covers: internal/backend/sandbox/sandbox.go (Spec: the Kit's network.allow; WarnBaseline, ReachHosts)
+' covers: internal/backend/sandbox/domain_form_test.go (TestTheKitWritesNoProviderOrHarnessHosts)
 ' covers: internal/posture/posture.go (EnforcedBy, Observability)
 ' covers: e2e/sbx_egress_test.go
 '   the backend that refuses without sbx . _spec/internal/sbx/sandbox-backend.puml
@@ -22,10 +23,13 @@ skinparam noteTextAlignment left
 ' The Executor, on mapping open/allowlist/review onto sbx: "Nothing, `sbx`
 ' handles this. Drop that param". And on review: "Retire review, map the rest".
 ' MEASURED in the working tree:
-'   * `--egress-mode` is gone from the CLI, and with it egress.Modes,
-'     Canonical, ValidMode, entrypoint.CanonicalTiers and the
-'     egress_vocabulary contract test. The retired aliases broker / firewall /
-'     proxy went with them.
+'   * `--egress-mode` survives only as a HIDDEN flag that refuses the run:
+'     "--egress-mode is retired: sbx's own network policy decides egress
+'     (`sbx policy ls`, `sbx policy allow network <host>`); remove the flag"
+'     (cmd/proveo/main.go, pinned in main_test.go). egress.Modes, Canonical,
+'     ValidMode, entrypoint.CanonicalTiers and the egress_vocabulary contract
+'     test are deleted, and the retired aliases broker / firewall / proxy with
+'     them.
 '   * proveo writes NO tier-driven entry into the Kit's permissions.network.
 '     allow: no harness `capabilities.hosts`, no provider reach
 '     (credentials.ReachableHosts is deleted), no custom domains, no
@@ -33,7 +37,9 @@ skinparam noteTextAlignment left
 '     — host Ollama localhost:11434, the host CDP port, the host adb port and the
 '     adb install hosts — plus an own-agent Kit's credential-injection domains.
 '     A claudecode mixin Kit therefore carries an EMPTY allow list
-'     (internal/run/run_test.go: "the Kit names no hosts").
+'     (internal/run/run_test.go: "the Kit names no hosts";
+'     TestTheKitWritesNoProviderOrHarnessHosts in
+'     internal/backend/sandbox/domain_form_test.go).
 '   * sbx's own policy decides egress: the global baseline plus whatever the
 '     operator adds with `sbx policy`. proveo reports it and never sets it.
 '   * posture: the "egress tier", "brokered", "reachable hosts" and "harness
@@ -48,6 +54,14 @@ skinparam noteTextAlignment left
 ' [Inference] Under deny-all a mixin agent reaches its provider through sbx's
 ' own built-in agent definition, not through anything proveo adds. Unverified
 ' against sbx's agent kits in this pass.
+' What proveo does instead of allowlisting, MEASURED in the working tree at this
+' pass (the code was still moving): run.launchSandbox calls
+' sandbox.WarnBaseline(sandbox.ReachHosts(man, detected)). On an allow-all host
+' it notes "sbx's global network policy allows every host; sbx decides this
+' run's egress". Otherwise it prints the operator's own command —
+' `sbx policy allow network <hosts>` — built from the manifest's
+' capabilities.hosts plus the capability-filtered detected providers' hosts,
+' through sbx.DomainPatterns. proveo names the reach; the operator grants it.
 '
 ' ── REACH THE BASELINE DOES NOT GOVERN ────────────────────────────────────
 ' The baseline and the Kit allow govern traffic that leaves the sandbox. An
@@ -93,10 +107,11 @@ skinparam noteTextAlignment left
 '   * a per-sandbox deny cannot express "only the allowlist", because deny beats
 '     allow — `sbx policy deny network --sandbox X "**"` blocks the allowlist too.
 ' So on an allow-all host the Kit allowlist ADDS REACH rather than limiting it,
-' and proveo's own warning (sandbox.WarnBaseline) says exactly that on every
-' run. The row says it in the place the operator is actually looking. Since
+' and proveo's own line (sandbox.WarnBaseline) says sbx decides this run's
+' egress. The row says it in the place the operator is actually looking. Since
 ' 2026-10-16 the Kit adds only add-on ports and own-agent credential domains,
-' so on a balanced or deny-all host those are the only reach proveo contributes.
+' so on a balanced or deny-all host those are the only reach proveo contributes;
+' the rest is the `sbx policy allow network` hint described above.
 '
 ' ── DISPLAY ONLY, AND THAT IS THE POINT ────────────────────────────────────
 ' The row is LOCKED. proveo reports the baseline and never sets it:
@@ -158,9 +173,9 @@ KIT ARROW_OPTIONAL SBX : adds allow rules ON TOP\n(cannot subtract)
 
 note over ROW
   **The tiers are gone (2026-10-16).** "Nothing,
-  `sbx` handles this. Drop that param":
-  ""--egress-mode"", open/allowlist/review and
-  their canonical list are deleted, not mapped.
+  `sbx` handles this. Drop that param": the
+  tiers are deleted, not mapped, and a hidden
+  ""--egress-mode"" now refuses the run.
 end note
 
 note over ROW

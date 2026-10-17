@@ -96,6 +96,7 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, cred
 		t.Fatal(err)
 	}
 
+	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-auth-%s-%s-%d", c.name, creds, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
@@ -105,34 +106,25 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, cred
 		"PROVEO_HOME="+t.TempDir(),
 	)
 	cmd = append(cmd, proveoBin, "run", "claudecode",
-		"--credentials", creds, "--input", work, "--shell")
+		"--credentials", creds, "--input", work)
 
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start tmux session: %v", err)
 	}
-	w := newWatcher(t, sess)
-	waitForContainerShell(t, w, durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute))
+	k := awaitKit(t, sess, before, "claudecode", work)
+	out, _ := k.exec(credentialProbeLine(c, creds), 90*time.Second)
 
-	if err := sess.SendText(credentialProbeLine(c, creds)); err != nil {
-		t.Fatalf("send credential probe: %v", err)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("send credential probe newline: %v", err)
-	}
-	w.until("the credential probe to answer", 90*time.Second, func() bool {
-		return probeStatus(w.Screen()) != ""
-	})
-
-	if strings.Contains(w.Screen(), "PROBE_REASON=credits") {
+	if strings.Contains(out, "PROBE_REASON=credits") {
 		t.Skipf("%s is valid and the account has no credits — the provider answered 'credit balance is "+
 			"too low' under --credentials %s; fund it to exercise this path", c.envVar, creds)
 	}
-	if got := probeStatus(w.Screen()); got != "200" {
-		w.Fatalf("%s reached the provider as HTTP %s under --credentials %s, want 200 — "+
-			"the host accepted this same credential on this same endpoint, so the egress layer is what changed the answer",
-			c.envVar, got, creds)
+	if got := probeStatus(out); got != "200" {
+		t.Fatalf("%s reached the provider as HTTP %s under --credentials %s, want 200 — "+
+			"the host accepted this same credential on this same endpoint, so sbx's proxy is what changed the answer\n%s\n%s",
+			c.envVar, got, creds, out, k.pane(40))
 	}
-	assertCleanBoot(t, w.Screen())
+	screen, _ := sess.CaptureAll()
+	assertCleanBoot(t, screen)
 	t.Logf("%s authenticated through --credentials %s (GET /v1/models → 200)",
 		c.envVar, creds)
 }

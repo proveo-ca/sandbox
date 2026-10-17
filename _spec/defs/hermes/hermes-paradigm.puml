@@ -101,8 +101,8 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' entrypoint.sh, TestImageHermesBakedModel.
 '
 ' ── HERMES RUNS AS UID 1000, THE UID PROVEO LAUNCHES ────────────────────────
-' proveo starts the agent as uid 1000 (--user 1000:1000 on docker, the kit user
-' on sbx). stage2-hook.sh refuses any non-root uid other than the hermes user's
+' proveo starts the agent as uid 1000 (the kit user on sbx; --user 1000:1000 on
+' the docker backend until it was deleted 2026-10-16). stage2-hook.sh refuses any non-root uid other than the hermes user's
 ' own — upstream's answer is "start as root", which proveo never does. So the
 ' image remaps the hermes user to uid/gid 1000 at build time: proveo's launch IS
 ' the hermes user, the hook's guard passes, its root-only steps degrade to
@@ -114,8 +114,10 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' environment, which a launch without /init never reads — the browser tool
 ' would find no Chrome. entrypoint.sh finds the headless-shell binary and
 ' exports it, which also makes the hook skip its /run/s6 write (root-only).
-' HERMES_HOME follows the manifest's durable /proveo-home/data mount when one
-' is present, so config and sessions outlive --rm. The Dockerfile no longer
+' HERMES_HOME follows the manifest's durable mount — on sbx at its host path,
+' $PROVEO_STATE_HOME/hermes/data (the /proveo-home/data rendering went with the
+' docker backend, 2026-10-16) — so config and sessions outlive the sandbox
+' (_spec/defs/hermes/hermes-persistence.puml). The Dockerfile no longer
 ' wipes /tmp: upstream ships XDG_RUNTIME_DIR (/tmp/hermes-runtime) there.
 '
 ' ── PROVIDER KEYS ARE USAGE KEYS, AS FOR CECLI ──────────────────────────────
@@ -133,8 +135,8 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' Qwen 3.8 27B, Muse Glimmer 30B. Each option IS a --local-model value for this
 ' host (MLX tags on macOS arm64, GGUF :latest elsewhere; API keys = none), so the
 ' row and the flag are one knob. On sbx the host's Ollama serves it on the host GPU
-' (_spec/internal/sbx/host-inference.puml); on docker the existing --local-model
-' path applies. The image stays `hermes`. Layout:
+' (_spec/internal/sbx/host-inference.puml); the docker --local-model path (an
+' Ollama sidecar) is deleted with that backend. The image stays `hermes`. Layout:
 ' _spec/internal/choiceui/wireframe.puml (box 9).
 '
 ' The row merges with the auth row on harnesses that have a plan
@@ -147,12 +149,12 @@ node "hermes container" as CTR <<host>> {
   component "stage2-hook.sh\n(upstream setup, run once)" as HOOK <<app>>
   component "/opt/hermes/bin/hermes\n(exec shim: root -> hermes user)" as SHIM <<app>>
   component "hermes chat / native browser tool" as CLI <<app>>
-  database "/proveo-home/data (HERMES_HOME)" as HOME <<db>>
+  database "$PROVEO_STATE_HOME/hermes/data (HERMES_HOME)" as HOME <<db>>
   database "/app — repo (rw, .git rw)" as WS <<db>>
 }
 
 cloud "Provider API\n(OpenAI-compatible endpoint)" as BACKEND
-cloud "Ollama sidecar\n(PROVEO_LOCAL_MODEL)" as OLLAMA
+cloud "host Ollama\n(PROVEO_LOCAL_MODEL; the docker sidecar is gone)" as OLLAMA
 
 OP ARROW_MAIN EP : starts container
 EP ARROW_MAIN HOOK : run once, as root

@@ -1,6 +1,8 @@
 package agentsettings
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"testing"
 
@@ -185,5 +187,14 @@ func TestAppsAndPortsShareAWorkspaceEntry(t *testing.T) {
 	}
 	if ports, ok := got.PortsFor("/repo"); !ok || len(ports) != 1 {
 		t.Errorf("PortsFor(/repo) = %v, %v after RememberApps", ports, ok)
+	}
+}
+
+func TestFingerprintKeepsItsLayoutWithAnEmptyFirstSlot(t *testing.T) {
+	t.Parallel()
+	c := manifest.Capabilities{Credentials: []string{"forward"}, Providers: []string{"anthropic"}}
+	sum := sha256.Sum256([]byte("|forward|anthropic"))
+	if got, want := Fingerprint(c), hex.EncodeToString(sum[:8]); got != want {
+		t.Errorf("Fingerprint = %s, want %s — cached choices would stop matching", got, want)
 	}
 }

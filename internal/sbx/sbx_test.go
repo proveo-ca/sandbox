@@ -858,8 +858,7 @@ func TestAgentForSandboxesEveryTarget(t *testing.T) {
 			t.Errorf("AgentFor(%q) command = %v, want a wrapped shell launch = %v", c.target, command, c.launch)
 		}
 	}
-	// A built-in owns its own launch: handing it a command would put our word in
-	// its argv, which is the bug --shell exists to avoid.
+	// A built-in owns its own launch: a command from us would land in its argv.
 	for _, target := range SbxTargets() {
 		if _, command := AgentFor(target); command != nil {
 			t.Errorf("AgentFor(%q) must leave the launch to the built-in agent, got %v", target, command)

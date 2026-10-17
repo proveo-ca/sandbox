@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 

@@ -1,9 +1,7 @@
 # SPEC: _spec/components.puml
 name: cursor
 description: Policy-gated autonomous loop (Cursor CLI, --force + native deny rules)
-egress: true
 docker: sbx
-provider: cursor
 subscription: true
 stability: candidate
 images:

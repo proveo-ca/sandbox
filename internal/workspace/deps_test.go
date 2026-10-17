@@ -54,8 +54,8 @@ func TestDepCopiesCoverEveryLanguageAtEveryDepth(t *testing.T) {
 	spec := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: root,
-		EgressMode: "open", Credentials: "forward",
-		DepStage: t.TempDir(),
+		Credentials: "forward",
+		DepStage:    t.TempDir(),
 	}
 	want := []string{
 		"/app/apps/harness/target",
@@ -106,8 +106,8 @@ func TestPlanIsPureAndMaterializeWrites(t *testing.T) {
 	spec := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: root,
-		EgressMode: "open", Credentials: "forward",
-		DepStage: stage,
+		Credentials: "forward",
+		DepStage:    stage,
 	}
 
 	first, _, _ := spec.Plan()
@@ -167,7 +167,7 @@ func TestDepCopiesRootTreesOfASubdirScopeArePresentOnly(t *testing.T) {
 	copies := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
-		EgressMode: "open", Credentials: "forward",
+		Credentials:   "forward",
 		MountRootDeps: true, DepStage: t.TempDir(),
 	}.DepCopies()
 	want := []string{"/app/apps/web/node_modules", "/app/target"}
@@ -182,7 +182,7 @@ func TestDepOverlaysStayWritableOnAReadOnlyWorkspace(t *testing.T) {
 	touch(t, filepath.Join(root, "package.json"))
 	got, _, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app", Mode: "ro"},
-		InputDir:  root, EgressMode: "open", Credentials: "forward",
+		InputDir:  root, Credentials: "forward",
 		DepStage: t.TempDir(),
 	}.Plan()
 	for _, m := range got {
@@ -221,8 +221,8 @@ func TestMaterializeStagesEmptyOverlaysWhenTheTreeCannotRunHere(t *testing.T) {
 	spec := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: root,
-		EgressMode: "open", Credentials: "forward",
-		DepStage: t.TempDir(),
+		Credentials: "forward",
+		DepStage:    t.TempDir(),
 	}
 	copies := spec.DepCopies()
 	made, err := MaterializeDeps(copies, false)

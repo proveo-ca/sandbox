@@ -3,7 +3,6 @@
 # changing a harness should touch only this file + the def dir it lives in.
 name: claudecode
 description: ML-loop harness (Claude Code, --dangerously-skip-permissions)
-egress: true
 docker: sbx
 subscription: true
 stability: candidate

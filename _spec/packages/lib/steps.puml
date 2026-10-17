@@ -1,11 +1,13 @@
 @startuml SandboxSteps
 ' SPEC source (the real orchestration this diagram tracks):
-'   internal/run/run.go           — run.Do() host flow, in seven stages
-'   internal/egress/{plan,exec,stage}.go — networks/sidecars/readiness/teardown
-'   internal/broker/broker.go     — credential inject / strip
-'   internal/egressproxy/*        — MITM proxy + flows.ndjson recorder
-'   internal/workspace/mount.go   — mount plan + .env masking
+'   internal/run/run.go           — run.Do() host flow (requireSandbox … launchSandbox)
+'   internal/backend/sandbox/sandbox.go — Kit, sbx secret store, sbx run, teardown
+'   internal/workspace/mount.go   — mount plan
 '   packages/lib/entrypoint-lib.sh, defs/*/entrypoint.sh — in-container steps
+' HISTORY: until 2026-10-16 the host flow also ran internal/egress (networks,
+' sidecars, readiness, teardown), internal/broker (inject/strip) and
+' internal/egressproxy (MITM + flows.ndjson). All three are DELETED with the
+' docker+egress backend ("Retire Docker egress"; "Refuse without sbx").
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/cursor/entrypoint.sh
 ' covers: defs/opencode/entrypoint.sh
@@ -33,19 +35,22 @@
 ' names are filled back from it for tools that read only those. Every bridge
 ' fills an EMPTY slot and never overwrites, so a value the caller supplied wins.
 '
-' Under egress mode open|allowlist|review the file is not sourced — a
-' containment step, not an optimisation (see the note on step 4 below).
+' Inside sbx the file is not sourced: load_env returns early whenever
+' SANDBOX_NAME or SANDBOX_VM_ID is set ("Skipping .env load (inside sbx — the
+' workspace .env is not exported to the agent)"), and
+' internal/entrypoint.ShouldSkipEnvLoad mirrors it. A containment
+' step, not an optimisation (see the note on step 4 below). The guard keyed on
+' PROVEO_EGRESS_MODE naming a tier until 2026-10-16
+' (_spec/internal/sbx/sandbox-backend.puml).
 '
-' apply_broker_sentinel then runs in those same three modes: every name listed in
-' PROVEO_CREDENTIAL_BROKER_KEYS (comma-separated, whitespace trimmed) is
-' rewritten to PROVEO_BROKER_SENTINEL — default "proveo-brokered" — so the agent
-' process never holds the real key, and the MITM inspector injects it on-route
-' (_spec/_paradigms/credential-boundary.puml). Already-sentinel values are left
-' alone, and the substitution is announced by name.
+' HISTORY: apply_broker_sentinel rewrote every name in
+' PROVEO_CREDENTIAL_BROKER_KEYS to PROVEO_BROKER_SENTINEL ("proveo-brokered") so
+' proveo's MITM could inject on-route. It is DELETED with the MITM; on sbx the
+' agent holds sbx's own placeholder (_spec/_paradigms/credential-boundary.puml).
 '
 ' ── §2c · WHY THE gh PROBE IS TIME-BOUNDED ────────────────────────────────
 ' report_git_context is read-only, but `gh auth status` validates GH_TOKEN and
-' config sessions OVER THE NETWORK. Under a locked-down egress tier that call
+' config sessions OVER THE NETWORK. Under a locked-down network policy that call
 ' can hang, and this runs before the agent, so it is capped at `timeout 5s` —
 ' an unanswered probe reports "not authenticated" rather than stalling startup.
 ' Seed never runs `gh auth login` and never installs gh: that is `proveo init`.
@@ -79,28 +84,32 @@
 skinparam shadowing false
 skinparam ConditionEndStyle hline
 
-title proveo run <target> — sandbox lifecycle\n(host orchestrator provisions → agent container runs → host tears down)
+title proveo run <target> — sandbox lifecycle\n(host resolves → sbx sandbox runs the agent → host tears down)
 
 start
 
+partition "0 · Refuse unless sbx can run it  «host»" {
+  :requireSandbox — PROVEO_SBX off values, no ""docker: sbx"",\nor sbx not ready → refuse with the reason (no fallback);
+}
+
 partition "1 · LLM provider auth  «host»" {
-  :detect provider from host env + project **.env**\n(manifest ""provider:"" pin wins over key detection);
+  :detect provider from host env + project **.env**\n(filtered by the manifest's ""providers:"");
   if (declared key missing and a TTY?) then (prompt)
-    :missing-env wizard — read secret (echo off),\nfeed broker + provider detection;
+    :missing-env wizard — read secret (echo off),\nfeed provider detection;
   else (present)
   endif
-  if (firewall AND provider resolved AND broker enabled?) then (broker)
-    :write host-only ""broker.env"" 0600 into <egDir>/inject\n(mounted ONLY into the proxy, never the agent);
+  if (""--credentials forward""?) then (forward)
+    :bare ""-e NAME"" — sbx copies the value\nfrom proveo's child env into the agent;
+  else (broker — the default)
+    :""sbx secret set --force"" (value on stdin)\nsbx's proxy attaches it at egress;
     note right
       Raw key never enters the agent.
-      The MITM proxy injects the auth header
-      **only** for the pinned provider host;
-      client-supplied credential headers are
-      stripped off-provider.
+      HISTORY: until 2026-10-16 the docker
+      path wrote ""broker.env"" for proveo's
+      MITM; both are deleted.
     end note
-  else (broker / open mode)
-    :provider key forwarded to the agent env by design\n(""warnMountedSecrets"" warns it can leave);
   endif
+  :""WarnMountedSecrets"" — a workspace .env holding a\nprovider key is readable by the agent;
 }
 
 partition "2 · Filesystem mount  «host»" {
@@ -117,32 +126,23 @@ partition "2 · Filesystem mount  «host»" {
   else (app — analysis)
     :mount repo at /app (rw default; mode:ro optional)\n+ **RW** /app/output for artifacts (claudecode);
   endif
-  :mask ""/.env"" and ""/.env.*"" under the mounted tree\n(firewall: secrets stay host-side; templates stay readable);
-  :mount MITM CA cert **RO** (firewall);
+  :directory workspaces only — sbx drops file binds,\nso no /dev/null .env masks reach the sandbox;
 }
 
-partition "3 · Egress provision  «host»" {
-  if (open + ""--credentials forward""?) then (yes)
-    :no proxy chain — direct egress (the deliberate bypass:\npinned-TLS vendors / the Claude in Chrome bridge);
-  elseif (egress mode == open?) then (yes)
-    :agent ""--internal"" -> **proveo-egress** MITM -> internet\n(broker injects; no Squid, no write pin);
-  else (allowlist / review)
-    :create networks — agent net ""--internal"" (no direct route)\n+ external egress net;
-    :run **Squid** sidecar (config staged RO, log dir 0777)\n— run **proveo-egress** MITM (broker + DLP);
-    :connect nets · agent DNS blackholed ""--dns 0.0.0.0""\n(names resolve proxy-side only);
-    :wait Squid :3128 ready · wait MITM CA cert · wait Ollama;
-    note right
-      Layered egress: reads allow /
-      writes deny-by-default / DLP
-      (decode-scan + byte budget).
-    end note
-  endif
-  :pull image (pull-first) -> offer local build only if missing;
+partition "3 · Egress  «host + sbx»" {
+  :sbx's own policy decides egress (global baseline + ""sbx policy"");\nproveo reports it and never sets it;
+  :Kit ""network.allow"" = add-on ports (host Ollama · CDP · adb)\n∪ own-agent credential domains — no tier entries;
+  :ensure the agent image (""Deps.PreflightImages"", agent image only) —\nonly off ""--print"" and when sbx holds no template for it;
+  note right
+    HISTORY: until 2026-10-16 this step
+    built docker networks, a Squid and a
+    MITM sidecar per tier. All deleted.
+  end note
 }
 
-partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" {
-  :ensure run-as uid (root-free) · workdir **/app**;
-  :.env load — SKIPPED under firewall\n(""secrets stay on host / broker"");
+partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh»" {
+  :ensure run-as uid (root-free) · workdir;
+  :.env load — SKIPPED inside sbx (""SANDBOX_NAME"" / ""SANDBOX_VM_ID"")\n(keys stay with sbx's proxy);
   :git identity · ""gh"" auth check;
   :seed BAKED defaults into ~/.<tool>\n(agents, config, hooks — image-immutable, offline);
   :tool setup via **jq** — cursor HTTP/1.1 fallback;
@@ -191,16 +191,15 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
     agent's own output.
   end note
   :apply declarative env-var bridges (model routing);
-  :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched over egress = allowed reads);
-  :exec agent CLI\n(agent installs the repo's own deps on demand — reads pass firewall);
+  :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched as sbx's policy allows);
+  :exec agent CLI\n(agent installs the repo's own deps on demand);
   note left
   **Three contracts the shared lib holds for every entrypoint.**
 
-  //The "".env"" skip is a containment step, not an optimisation.// Under
-  proxy/firewall the wrapper has already masked ""/app/\.env"" and kept the
-  secret host-side, so the lib does not source the file — a leaked
-  or unmasked copy must not be able to re-export keys into the agent
-  process. Non-secret harness flags travel as ""-e"" instead.
+  //The "".env"" skip is a containment step, not an optimisation.// Inside
+  sbx (""SANDBOX_NAME"" or ""SANDBOX_VM_ID"" set) the lib does not source the workspace file —
+  a copy in the mounted tree must not be able to re-export keys into the
+  agent process. Non-secret harness flags travel in the Kit environment.
 
   //Agent evidence defaults to verbose.// The host ships
   ""PROVEO_AGENT_EVIDENCE"" and anything other than an explicit ""default""
@@ -221,9 +220,9 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
 }
 
 partition "5 · Reports / logging, post-session  «host»" {
-  :MITM records ""flows.ndjson"" audit throughout\n(query / headers / body omitted — never logs secrets);
+  :teardown saves ""sbx policy log"" to <egDir>/sbx/policy-log.json\n(allowed/blocked hosts — no MITM, so no flow record);
   :agent writes artifacts into reports/ (RW mount);
-  :on exit OR SIGINT/SIGTERM — **Teardown** (quiet runner):\n""rm -f"" sidecars · ""network rm"" · remove inject/broker.env;
+  :on exit OR SIGTERM/SIGHUP — **Teardown**: clone carry-back,\nstate save, ""sbx rm"" per the keep/remove decision;
 }
 
 stop

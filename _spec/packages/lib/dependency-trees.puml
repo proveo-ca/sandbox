@@ -89,8 +89,9 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' _dep_install never fails the seed: a workspace whose install cannot complete
 ' still gets an agent, just a warned one. Absent tooling is reported by name
 ' ("<cmd> is not on PATH"), and a non-zero install points at the two causes worth
-' checking — an unreachable registry under a tight egress tier (rerun with
-' --egress-mode open) and a lockfile that disagrees with its manifest, which is
+' checking — an unreachable registry under a tight sbx network policy (the
+' operator allows it with `sbx policy allow network <host>`; the old advice,
+' `--egress-mode open`, now refuses the run) and a lockfile that disagrees with its manifest, which is
 ' reported rather than rewritten.
 '
 ' _proveo_dep_is_isolated reports whether a directory is proveo's private copy

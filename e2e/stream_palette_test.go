@@ -17,13 +17,13 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-const volatileImage = "proveo/claudecode:volatile-e2e"
+const volatileImage = "proveo/cecli:volatile-e2e"
 
 // TestStreamPaletteE2E renders a real start + exit stream in tmux.
 func TestStreamPaletteE2E(t *testing.T) {
 	requireTmux(t)
-	requireDocker(t)
-	buildVolatileImage(t)
+	requireSbx(t)
+	buildVolatileImage(t, harnessImage(t, "cecli"))
 	proveoBin := buildProveo(t)
 	out := os.Getenv("PROVEO_E2E_CAPTURE_DIR")
 
@@ -50,10 +50,12 @@ func TestStreamPaletteE2E(t *testing.T) {
 	}
 }
 
-func buildVolatileImage(t *testing.T) {
+// buildVolatileImage layers an agent that prints two lines and exits 3 over
+// base, so the kit's seed still runs and only the agent command changes.
+func buildVolatileImage(t *testing.T, base string) {
 	t.Helper()
 	dir := t.TempDir()
-	df := "FROM busybox\nCMD [\"sh\",\"-c\",\"echo 'agent: booting'; echo 'agent: fatal'; exit 3\"]\n"
+	df := "FROM " + base + "\nENTRYPOINT [\"sh\",\"-c\",\"echo 'agent: booting'; echo 'agent: fatal'; exit 3\",\"--\"]\n"
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(df), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -71,13 +73,13 @@ func runVolatile(t *testing.T, proveoBin string) string {
 
 	sess := tmux.New(fmt.Sprintf("proveo-palette-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
-	script := fmt.Sprintf("%s run claudecode --image %s --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
+	script := fmt.Sprintf("%s run cecli --image %s --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
 		proveoBin, volatileImage, work)
 	if err := sess.Start(110, 60, "env", "TERM=xterm-256color", "COLORTERM=truecolor", "PROVEO_WIZARD=off",
 		"PROVEO_HOME="+t.TempDir(), "sh", "-c", script); err != nil {
 		t.Fatalf("start tmux session: %v", err)
 	}
-	if _, err := sess.WaitFor("PROVEO_EXIT=", 3*time.Minute); err != nil {
+	if _, err := sess.WaitFor("PROVEO_EXIT=", durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute)); err != nil {
 		screen, _ := sess.CaptureAll()
 		t.Fatalf("run never exited: %v\n%s", err, screen)
 	}

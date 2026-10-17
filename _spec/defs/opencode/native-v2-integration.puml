@@ -187,8 +187,10 @@
 ' They require a v2 pin and compare the native version exactly, without a fixed fixture release.
 ' The two-run regression creates separate native CLI sessions and resumes the first after both exits.
 ' It checks both root IDs and transcripts, including that the second transcript remains unchanged.
-' e2e/opencode_sessions_test.go launches separate actual proveo run opencode Docker containers.
-' Both ended session IDs must appear through --ls and remain retrievable after container teardown.
+' HISTORY: e2e/opencode_sessions_test.go launched separate proveo run opencode Docker containers
+' and required both ended session IDs through --ls after container teardown. It pinned
+' PROVEO_SBX=0 and exercised only the retired docker path, so it was deleted 2026-10-16;
+' no sbx test replaces that two-run --ls check yet (MEASURED: no e2e file names it).
 ' The registry probe loads /api/config before listing agents on the same private native server.
 ' A fresh agent-only diagnostic can return the uninitialized empty registry before configuration loads.
 ' Runtime database publication is distinct from git synchronization: never turn idle

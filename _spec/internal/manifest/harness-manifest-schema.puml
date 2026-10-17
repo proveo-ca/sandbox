@@ -23,9 +23,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
   name : string
   description : string
   --
-  egress : bool
   docker : sbx|(absent)   ('dind' is REFUSED)
-  provider : string
   subscription : bool
   stability : experimental|candidate|stable
   --
@@ -80,8 +78,13 @@ M *-- AE
 note right of M
   **Adding a harness = dropping a def dir + this file.**
   Everything else enumerates from it: runnable targets,
-  image refs, mount model, egress lifecycle, the daemon
-  offer, auth prompts, build/test/deploy registry.
+  image refs, mount model, the daemon offer, auth
+  prompts, build/test/deploy registry.
+  **Two keys left 2026-10-16 (MEASURED):** ""egress: true""
+  (Manifest.Egress, "sources the egress lifecycle") and
+  ""provider: cursor"" (Manifest.Provider, the docker
+  broker's vendor pin). Nothing read either. Vendor
+  pinning lives only in ""capabilities.providers"".
   **""docker:"" is an ENUM with one value left.** It names how a
   harness's containerisation need is met, and after
   _spec/_paradigms/retire-dind.puml there is one way to meet it:
@@ -170,9 +173,9 @@ end note
 
 note bottom of E
   Declared env the harness reads. ""secret:true"" is never
-  put on an argv: firewall forwards a sentinel and the
-  broker holds the real value; broker mode forwards it
-  by name; proxy withholds it.
+  put on an argv: under broker sbx's secret store holds
+  the real value; under forward it travels by name
+  (bare ""-e NAME""). The docker tiers' sentinel is gone.
 end note
 
 note bottom of C
@@ -184,8 +187,8 @@ note bottom of C
 
   Because the value lands on an argv in plain sight,
   ""Validate"" rejects a manifest that lists a name already
-  declared in ""env"" — a secret must stay on the broker
-  path, never here.
+  declared in ""env"" — a secret must stay on sbx's
+  secret-store path, never here.
 end note
 
 note bottom of AE
@@ -204,7 +207,6 @@ note bottom of AE
 end note
 
 class "Capabilities\ncapabilities:" as CAP <<app>> {
-  egress []string
   credentials []string
   providers []string
 }
@@ -213,23 +215,24 @@ M *-- CAP
 
 note bottom of CAP
   **The per-def choice matrix** — the only source of truth for which
-  cells of the egress/credentials/provider space a harness supports.
+  cells of the credentials/provider space a harness supports.
   An empty list means unconstrained.
 
-  * ""egress: [open]"" — cursor pins its TLS; every intercepting tier
-    breaks it
-  * ""credentials: [forward]"" — nothing proveo intercepts can inject into
-    that TLS. It is the docker-egress truth: on sbx the proxy brokers
-    cursor natively, so broker wins there (default or named) and the
-    picker keeps forward off, saying so on the broker option.
   * ""providers: [anthropic]"" — claudecode reads only its own key and
     OAuth token
 
+  //HISTORY, removed 2026-10-16 ("Drop the pins"):// ""Capabilities.Egress""
+  is deleted, and cursor's ""egress: [open]"" and ""credentials: [forward]""
+  pins are dropped — they encoded the docker-egress truth that its pinned TLS
+  defeated interception. On sbx the proxy brokers cursor natively. The
+  top-level ""egress: true"" and ""provider: cursor"" keys and their fields
+  (Manifest.Egress, Manifest.Provider) are deleted too; ""providers"" is the
+  one vendor pin left (MEASURED; repo-simplification.puml F10).
+
   ""providers"" is not cosmetic. Provider detection is filtered through
-  it, because two or more detected keys make the broker refuse to pin —
-  the agent then receives the ""proveo-brokered"" sentinel and the
-  provider answers 403. A key the harness could never use must not
-  enter the set.
+  it, so a key the harness could never use never enters sbx's store.
+  (On the deleted docker broker, two or more detected keys made it refuse
+  to pin and the agent got the ""proveo-brokered"" sentinel and a 403.)
 
   Declaring the matrix here replaced target-name special cases in
   ""cmd/proveo"". An axis the operator did not name is defaulted to the
@@ -255,7 +258,9 @@ note bottom of M
   the non-secret counterpart, forwarded **by value** on top of the shared
   baseline. ""hosts"" are endpoints the **harness itself** needs — a model
   catalog, a plugin registry — infrastructure rather than agent-initiated
-  egress, so they are allowlisted and never brokered.
+  egress, so they are never brokered. Since 2026-10-16 they are no longer
+  written into the sbx Kit allowlist; ""sandbox.ReachHosts"" names them in the
+  ""sbx policy allow network"" hint instead (_spec/internal/sbx/policy-baseline.puml).
 
   ""home"" declares durable proveo-owned mounts under ""PROVEO_HOME"", with
   Host relative to it and Container absolute; declaring at least one is

@@ -70,15 +70,16 @@ note top of SMOKE
 end note
 note bottom of PREP
   **The prelude is one Go binary shared by every entrypoint**: runtime user,
-  ""\.env"" load, env bridges, git identity, smoke mode, credential
-  sentinel. A harness entrypoint that reimplemented any of these would
+  ""\.env"" load (skipped inside sbx on ""SANDBOX_NAME""/""SANDBOX_VM_ID""), env bridges, git
+  identity, smoke mode. (The credential sentinel step, ApplyBrokerSentinel,
+  was deleted 2026-10-16.) A harness entrypoint that reimplemented any of these would
   drift from the others, and this is the layer whose failures are hardest
   to see from inside a container.
 
   **What it forwards by value is deliberately only the non-secret half** —
   the model and UI preferences from the shared baseline plus the harness's
   own ""config:"" list. They cannot carry a credential by construction:
-  secrets are declared in ""env:"" and travel through the broker instead.
+  secrets are declared in ""env:"" and travel through sbx's secret store instead.
 end note
 
 

@@ -21,12 +21,17 @@ skinparam noteTextAlignment left
 ' sbx never creates, so hermes kept writing to the volume and the durable
 ' folder stayed empty.
 '
-' ── RULE ───────────────────────────────────────────────────────────────────
-' HERMES_HOME is the first writable of:
-'   /proveo-home/data                        docker + egress rendering
-'   $PROVEO_STATE_HOME/hermes/data           sbx rendering (host path)
-' else the image's /opt/data (non-durable). upstream stage2-hook.sh reads
-' HERMES_HOME and bootstraps/chowns whatever path it is given.
+' ── RULE (updated 2026-10-16) ──────────────────────────────────────────────
+' HERMES_HOME is $PROVEO_STATE_HOME/hermes/data — the sbx rendering of the
+' manifest's durable mount, at its host path — when it is writable; else the
+' image's /opt/data (non-durable), or ~/.hermes for a non-root uid that cannot
+' write /opt/data. MEASURED: defs/hermes/entrypoint.sh probes only the
+' PROVEO_STATE_HOME path now. The /proveo-home/data candidate (the docker+egress
+' rendering) is gone with that backend, and the hermes image test asserts only
+' AGENT_BROWSER_EXECUTABLE_PATH there, no /proveo-home/data probe. The manifest
+' still names /proveo-home/data as the mount's `container:` path; sbx ignores
+' it because it mounts workspaces where they live. upstream stage2-hook.sh
+' reads HERMES_HOME and bootstraps/chowns whatever path it is given.
 ' One-time move: durable home EMPTY and /opt/data/state.db present ⇒ tar-copy
 ' /opt/data into it (tar, not cp -a: the home holds live .sock files).
 '

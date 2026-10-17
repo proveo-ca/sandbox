@@ -82,9 +82,10 @@ end note
 note over RUN
   **Clone is the default, with named fallbacks.** sbx
   clones only a repository's MAIN worktree offered as
-  the primary workspace: no repo, a linked worktree, a
-  monorepo sub-scope, or the docker backend fall back to
-  the mounted checkout and say why. Explicit ""--clone""
+  the primary workspace: no repo, a linked worktree or
+  a monorepo sub-scope (the docker backend too, until
+  2026-10-16) fall back to the mounted checkout and say
+  why. Explicit ""--clone""
   there is an error; ""--clone=false"" / ""PROVEO_CLONE=off"" opt out.
 end note
 

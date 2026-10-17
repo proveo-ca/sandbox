@@ -47,19 +47,12 @@ func mountRootDeps(getenv func(string) string) bool {
 	return true
 }
 
-func sbxStoredAuth(man manifest.Manifest, p *Params) []string {
-	if !sbxSuppliesCredential(man, p, true) {
-		return nil
-	}
-	ok, _ := sbx.Available()
-	if !sbxSuppliesCredential(man, p, ok) {
+// sbxStoredAuth names the subscription credentials sbx's secret store holds for man.
+func sbxStoredAuth(man manifest.Manifest) []string {
+	if !man.Subscription {
 		return nil
 	}
 	return credentials.StoreHolds(man, sbx.StoredSecretNames())
-}
-
-func sbxSuppliesCredential(man manifest.Manifest, p *Params, sbxOK bool) bool {
-	return man.Subscription && man.IsSbx() && sbxOK
 }
 
 func gitRootOrEmpty(ws workspace.Scope, repoRoot string) string {

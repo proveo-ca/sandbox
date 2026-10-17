@@ -6,7 +6,7 @@ skinparam packageStyle rectangle
 skinparam linetype ortho
 skinparam nodesep 100
 skinparam ranksep 80
-' purpose: the component map of the whole repo — binaries, packages, defs and sidecars
+' purpose: the component map of the whole repo — binaries, packages and defs
 ' covers: cmd/**
 ' covers: internal/**
 ' covers: defs/**
@@ -16,6 +16,15 @@ skinparam ranksep 80
 ' Top-down, deliberately. Left-to-right laid this out as a 4000px column once the
 ' cross-group edges became package-level: the groups stack instead of spreading,
 ' and every long edge runs the full height. Top-down is 44% smaller and wide.
+'
+' ── 2026-10-16: ONE BACKEND ────────────────────────────────────────────────
+' The docker+egress backend is DELETED ("Retire Docker egress"; "Refuse without
+' sbx"), MEASURED absent: cmd/proveo-egress, internal/backend/dockeregress,
+' internal/egress, internal/egressproxy, internal/egresspolicy, internal/broker,
+' internal/reviewgate, defs/sidecars (egress-proxy, squid-proxy, mitmproxy),
+' defs/egress-dashboard. embed.go embeds the manifests only; goreleaser builds
+' proveo only; internal/runner holds only `type Mount`. The docker emitter and
+' the Sidecars package left this map with them.
 
 title Proveo Project Component Map
 ' A one-screen view of the same system: overview.puml (same directory). This map is
@@ -29,7 +38,7 @@ package "Repository Root" as RepoRoot {
  component "README / CONVENTIONS" as RootDocs <<doc>>
  component "pnpm workspace" as WorkspaceConfig <<config>>
  component "mise toolchain" as ToolchainConfig <<config>>
- component "embed.go\n//go:embed manifests + squid" as Embed <<config>>
+ component "embed.go\n//go:embed manifests" as Embed <<config>>
 }
 
 package "Specifications\n_spec/" as Specs {
@@ -42,17 +51,15 @@ package "Specifications\n_spec/" as Specs {
 
 package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
  component "cmd/proveo\nlist · run · projects · setup" as ProveoCLI <<app>>
- component "cmd/proveo-egress\nMITM · broker · detect" as ProveoEgress <<app>>
  component "cmd/proveo-entrypoint\nprocess-external prelude only\n(cwd + exports cannot cross)" as ProveoEP <<app>>
  package "internal/" as Internals {
  component "manifest\nharness.manifest" as Manifest <<app>>
- component "runner\nhardened docker argv" as Runner <<app>>
+ component "run\nrequireSandbox · choices · posture" as Runner <<app>>
  component "workspace\nscope + mount plan" as Workspace <<app>>
- component "egress\nBuildPlan · lifecycle" as EgressPkg <<app>>
- component "egressproxy · egresspolicy\nMITM · read-allow/write-deny/DLP" as PolicyPkg <<app>>
- component "provider · broker\nregistry + inject/strip" as CredPkg <<app>>
+ component "backend/sandbox · sbx\nKit · sbx argv · secret store" as EgressPkg <<app>>
+ component "provider · credentials\nregistry · detection · store names" as CredPkg <<app>>
  component "gitidentity\nGIT_* forwarding" as GitId <<app>>
- component "entrypoint\n.env · bridges · sentinel" as EPPkg <<app>>
+ component "entrypoint\n.env guard (sbx env) · bridges" as EPPkg <<app>>
  component "proveohome\n~/.proveo mounts + deny scrub" as HomePkg <<app>>
  component "cdn\nlatest.json · checksum update" as CdnPkg <<app>>
  component "maintain\nbuild · test · deploy registry" as MaintainPkg <<app>>
@@ -73,11 +80,6 @@ package "Definitions\ndefs/" as Defs {
  }
  component "harness.manifest\nper def (registration)" as HarnessManifest <<config>>
  component "Dockerfiles · entrypoints\n(builds: internal/imagebuild\ntests: internal/imagetest)" as DefBuild <<script>>
- package "Sidecars" as Sidecars {
- component "squid-proxy config" as DefSquid <<definition>>
- component "egress-proxy image\n(proveo-egress)" as DefEgressImg <<definition>>
- component "mitmproxy (legacy)" as DefMitm <<definition>>
- }
  component "defaults · agents · samples" as DefAssets <<config>>
 }
 
@@ -87,28 +89,25 @@ package "Maintainer tools" as Maint {
 }
 
 package "Distribution" as Dist {
- component "goreleaser\nproveo + proveo-egress" as Goreleaser <<config>>
+ component "goreleaser\nproveo" as Goreleaser <<config>>
  component "dist/install.sh\nchecksum-verified" as Installer <<script>>
  component "apps/cli (optional CDN)\nrelease assets only" as CliCDN <<app>>
 }
 
 package "Artifacts" as Artifacts {
  component "proveo/* harness images" as HarnessImgs <<image>>
- component "proveo/egress-proxy" as EgressImg <<image>>
- component "ubuntu/squid · ollama\n(upstream)" as UpstreamImgs <<image>>
 }
 
 package "Launch" as Launch {
  component "LaunchSpec\nenv · seed steps · agent argv\nresolved ONCE, host-side" as LaunchSpec <<app>>
  component "Kit emitter (sbx)\nkind: mixin beside a built-in agent" as KitEmit <<app>>
- component "docker emitter\n-e pairs + wrapper launcher" as DockEmit <<app>>
- component "proveo_seed\nfile-shaped setup, both backends" as Seed <<app>>
+ component "proveo_seed\nfile-shaped setup" as Seed <<app>>
 }
 
 package "Runtime" as Runtime {
- component "Docker" as Docker <<runtime>>
+ component "sbx (+ Docker for images)" as Docker <<runtime>>
  component "host workspace" as HostWS <<workspace>>
- component "state dir\negress · broker secrets" as State <<storage>>
+ component "state dir\nper-run Kit · policy log · run log" as State <<storage>>
  component "provider APIs" as Providers <<external>>
 }
 
@@ -123,40 +122,35 @@ Agent ..> Specs : architecture context
 
 ' ── Between groups: ONE labelled relationship each ──────────────────────────
 GoSurface --> Launch : resolve the launch, host-side
-GoSurface --> Defs : read manifests · stage sidecar config
-GoSurface --> Artifacts : pull / run images
-GoSurface --> Runtime : docker · workspace · state dir
-GoSurface ..> RepoRoot : embedded manifests + squid
-Launch --> Runtime : renders the run for one backend
+GoSurface --> Defs : read manifests
+GoSurface --> Artifacts : pull / load images
+GoSurface --> Runtime : sbx · workspace · state dir
+GoSurface ..> RepoRoot : embedded manifests
+Launch --> Runtime : renders the run for sbx
 Defs --> Artifacts : build · deploy
 Defs ..> GoSurface : entrypoint baked in
 Maint ..> Defs : build / test targets
 Maint ..> GoSurface : run · list
 Dist ..> RepoRoot : release config
-Artifacts ..> Runtime : inference (brokered)
+Artifacts ..> Runtime : inference (brokered by sbx)
 Specs ..> RepoRoot : reasoning behind the rules
 Specs ..> GoSurface : one file per concern
 
 ' ── Inside a group: how its own parts fit together ──────────────────────────
 ProveoCLI --> Manifest : load targets
 ProveoCLI --> Workspace : scope + mounts
-ProveoCLI --> Runner : docker run argv
-ProveoCLI --> EgressPkg : plan + apply
+ProveoCLI --> Runner : run.Do
+Runner --> EgressPkg : Spec + Run
 ProveoCLI --> CredPkg : detect provider
 ProveoCLI --> GitId : forward identity
-ProveoCLI --> ProveoEgress : inspector binary
-ProveoEgress ..> CredPkg : inject / strip
 ProveoEP --> EPPkg : prep / exec
 
 LaunchSpec --> KitEmit
-LaunchSpec --> DockEmit
 KitEmit ..> Seed : setup.startup
-DockEmit ..> Seed : before exec
 
 CodingDefs *-- HarnessManifest
 CodingDefs *-- DefBuild
 CodingDefs *-- DefAssets
-DefBuild ..> Sidecars : sidecar images
 MaintainPkg ..> ImageBuildPkg : build · deploy steps
 ImageBuildPkg ..> DefBuild : buildx over each Dockerfile
 
@@ -171,26 +165,29 @@ TestingSpec ..> Internals
 
 note right of ProveoCLI
 **Single host orchestrator.**
-Hardened docker argv, egress topology,
-mounts, and env wizard live here.
-Consumer install is the static binary only
-— not a curl|bash of live shell libs.
+Refuses without sbx, resolves mounts,
+credentials and the env wizard, then hands
+one launch to sbx. Consumer install is the
+static binary only — not a curl|bash of
+live shell libs.
 end note
 
 
 note bottom of EgressPkg
-firewall (default): agent → proveo-egress
-(MITM + credential broker) → Squid → net.
-proxy: Squid only. broker: container boundary.
-Policy + flow log at the MITM hop.
+sbx's own policy decides egress; the Kit
+adds only add-on reach. Credentials go to
+sbx's secret store and its proxy injects
+them. Evidence: sbx's policy log at teardown.
+(Until 2026-10-16: proveo-egress MITM +
+broker + Squid, per tier. Deleted.)
 end note
 
 note bottom of LaunchSpec
-  **One resolved launch, two renderings.** Every
+  **One resolved launch, one rendering.** Every
   decision is made host-side and handed over as
-  values, so a backend renders the same struct
-  rather than repeating the reasoning — the sbx
-  Kit and the docker argv carry identical intent.
+  values, so the sbx Kit renders the struct
+  rather than repeating the reasoning. A docker
+  argv carried the same intent until 2026-10-16.
 end note
 
 note bottom of GoSurface

@@ -24,6 +24,7 @@ import (
 // SIDE EFFECTS on the host rather than the model's prose:
 func TestPromptfulE2E(t *testing.T) {
 	requireTmux(t)
+	requireSbx(t)
 	requireDocker(t)
 	target := env("PROVEO_TEST_TARGET", "opencode")
 	image := env("PROVEO_TEST_IMAGE", harnessImageName(target))

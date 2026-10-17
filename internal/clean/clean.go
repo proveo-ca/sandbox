@@ -26,6 +26,7 @@ type Inventory struct {
 	Networks         []Net       // networks labeled proveo.egress.session
 	LegacyDind       []Container
 	StateDirs        []string // session ids present under <stateDir>/egress/
+	LiveSessions     []string // session ids whose proveo process still runs
 	Images           []string // proveo/* image refs (populated only for --deep)
 	ToolDirs         []ToolDir
 	Sandboxes        []string
@@ -50,6 +51,9 @@ type Plan struct {
 
 func BuildPlan(inv Inventory, o Options) Plan {
 	live := map[string]bool{}
+	for _, sid := range inv.LiveSessions {
+		live[sid] = true
+	}
 	for _, c := range inv.Egress {
 		if c.Running && c.Session != "" {
 			live[c.Session] = true

@@ -25,7 +25,7 @@ type Params struct {
 	AuthVar                                                               string
 	HostEnvFile                                                           string
 	Evidence                                                              string
-	Shell, PrintOnly                                                      bool
+	PrintOnly                                                             bool
 	Extra                                                                 []string
 	Clone, CloneSet                                                       bool
 	Ports                                                                 []devports.Candidate

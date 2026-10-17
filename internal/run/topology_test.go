@@ -32,7 +32,7 @@ func TestFrameAgreesWithTheForm(t *testing.T) {
 		if !strings.HasPrefix(fr.Caption, c.tier+" · "+c.creds) {
 			t.Errorf("%s/%s: caption %q does not name the selection", c.tier, c.creds, fr.Caption)
 		}
-		if fr.Key != choiceui.KeyAtHop {
+		if c.creds != "forward" && fr.Key != choiceui.KeyAtHop {
 			t.Errorf("%s/%s: sbx holds the secret at its proxy, got %v", c.tier, c.creds, fr.Key)
 		}
 	}
@@ -74,7 +74,7 @@ func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	t.Parallel()
 	f := stripForm("allow-all", "") // no credentials row at all
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", "forward")(f, 0)
+	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", "broker")(f, 0)
 	if fr.Key != choiceui.KeyAtHop {
 		t.Errorf("with no row to read, the key still lives at the sbx proxy, got %v", fr.Key)
 	}
@@ -83,12 +83,12 @@ func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	}
 }
 
-func TestSbxPutsTheKeyAtTheProxyEvenWhenTheRowSaysForward(t *testing.T) {
+func TestForwardPutsTheKeyInTheSandbox(t *testing.T) {
 	t.Parallel()
 	f := stripForm("allow-all", "forward")
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", "forward")(f, 0)
-	if fr.Key != choiceui.KeyAtHop {
-		t.Errorf("sbx forward still rests the secret at the proxy, got %v", fr.Key)
+	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", "broker")(f, 0)
+	if fr.Key != choiceui.KeyInSquare {
+		t.Errorf("forward rides the sandbox env, got %v", fr.Key)
 	}
 	if fr.Hop != "sbx proxy" {
 		t.Errorf("hop = %q, want sbx proxy", fr.Hop)

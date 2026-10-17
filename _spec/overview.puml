@@ -9,8 +9,10 @@ skinparam noteTextAlignment left
 ' needs "what is this" — so it stays small on purpose. Resist adding boxes; add
 ' them there instead.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
+' 2026-10-16: the docker+egress backend is DELETED ("Retire Docker egress";
+' "Refuse without sbx"); sbx is the only backend and a host without it refuses.
 
-title Proveo — one orchestrator, one resolved launch, two backends
+title Proveo — one orchestrator, one resolved launch, one backend (sbx)
 
 actor "Consumer\nruns an agent on their repo" as Consumer
 actor "Maintainer\nbuilds and publishes images" as Maintainer
@@ -25,10 +27,10 @@ component "proveo/* images" as IMAGES <<app>>
 
 component "LaunchSpec\nenv · seed steps · agent argv" as LAUNCH <<app>>
 
-node "Backends" as BACKENDS <<host>> {
-  component "docker + egress\nSquid · MITM · broker" as DOCKER <<app>>
+node "Backend" as BACKENDS <<host>> {
   component "docker sandboxes (sbx)\nbuilt-in agent + proveo mixin" as SBX <<app>>
 }
+component "no sbx → refuse\n(docker+egress deleted 2026-10-16)" as DOCKER <<error>>
 
 component "the agent, on your workspace" as AGENT <<app>>
 cloud "provider APIs" as PROVIDERS <<cloud>>
@@ -41,7 +43,7 @@ MANIFEST ARROW_MAIN CLI : what this harness can do
 IMAGES ARROW_MAIN BACKENDS : the image a run boots
 
 CLI ARROW_MAIN LAUNCH : resolve once, host-side
-LAUNCH ARROW_MAIN DOCKER
+CLI ARROW_ERROR DOCKER : host cannot run sbx
 LAUNCH ARROW_MAIN SBX
 BACKENDS ARROW_MAIN AGENT
 AGENT ARROW_CLOUD PROVIDERS : brokered, never bare
@@ -49,26 +51,24 @@ SPECS ARROW_OPTIONAL CLI : the reasoning, not the code
 
 note right of CLI
   **One orchestrator, and it stays on the host.**
-  Mounts, egress topology, credential handling and
+  Mounts, the sbx Kit, credential handling and
   every prompt are decided here, so the container
   receives a posture rather than the authority to
   choose one.
 end note
 
 note bottom of LAUNCH
-  **Resolved once, rendered twice.** A backend is
-  a rendering of identical decisions, never a
-  second place to originate them, which keeps a
-  run comparable across both and lets a defect
-  show up on either.
+  **Resolved once, rendered once.** The backend is
+  a rendering of host-side decisions, never a
+  second place to originate them. A docker
+  rendering existed until 2026-10-16.
 end note
 
 note bottom of BACKENDS
-  **The enforcer differs, the posture does not.**
-  Docker runs proveo's own Squid and MITM, whereas
-  the sandbox delegates to sbx's network policy
-  and credential proxy, so the prompt must name
-  whichever holds the boundary for this run.
+  **sbx holds the boundary.** Its network policy
+  decides egress and its credential proxy holds
+  the key; proveo reports the policy and adds
+  only add-on reach. No Squid, no MITM.
 end note
 
 note bottom of IMAGES

@@ -48,7 +48,7 @@ if ! command -v proveo-entrypoint >/dev/null 2>&1; then
 fi
 
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
-  export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://ollama:11434}}"
+  export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://host.docker.internal:11434}}"
   case "$OPENAI_API_BASE" in
     */v1|*/v1/) : ;;
     *) OPENAI_API_BASE="${OPENAI_API_BASE%/}/v1"; export OPENAI_API_BASE ;;

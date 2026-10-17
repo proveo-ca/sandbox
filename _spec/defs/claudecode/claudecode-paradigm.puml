@@ -92,12 +92,13 @@ CLI ARROW_MAIN DEV : stops on the stated condition
 
 note right of CLI
   **The dangerous flag is deliberate** — and is only
-  acceptable because containment is external: hardened
-  container + enforced egress + credential broker
-  (_spec/_paradigms/credential-boundary.puml; the egress
-   half's diagram was retired 2026-09-16 — see
-   _spec/_plans/retire-docker-egress.puml).
-  Nothing here relies on the model's restraint.
+  acceptable because containment is external: the sbx
+  microVM + sbx's network policy + sbx's credential
+  proxy (_spec/_paradigms/credential-boundary.puml,
+  _spec/internal/sbx/policy-baseline.puml). The docker
+  container, MITM and broker that held this role were
+  deleted 2026-10-16. Nothing here relies on the
+  model's restraint.
 
   Small verifiable loops beat large open-ended tasks;
   errors are expected — the value is fast iteration

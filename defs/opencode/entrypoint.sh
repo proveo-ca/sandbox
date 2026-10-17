@@ -39,7 +39,7 @@ configure_opencode_local_model() {
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
   command -v jq >/dev/null 2>&1 || { echo "❌ Install jq to wire the requested Ollama model" >&2; return 1; }
   local config_file="${HOME}/.config/opencode/opencode.json"
-  local base="${OLLAMA_API_BASE:-http://ollama:11434}"
+  local base="${OLLAMA_API_BASE:-http://host.docker.internal:11434}"
   local model="${PROVEO_LOCAL_MODEL}"
   if [[ -e "${config_file}c" ]]; then
     echo "❌ Wire the requested Ollama model in ${config_file}c directly; automatic wiring cannot edit the higher-priority JSONC config" >&2

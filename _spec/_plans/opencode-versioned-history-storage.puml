@@ -16,24 +16,19 @@
 ' covers: internal/backend/sandbox/opencode_cache_test.go
 ' covers: internal/backend/sandbox/home_access.go
 ' covers: internal/backend/sandbox/launch_receipt.go
-' covers: internal/backend/dockeregress/dockeregress.go
 ' covers: internal/backend/sandbox/opencode_history_image_test.go
-' covers: internal/backend/dockeregress/opencode_lifecycle_test.go
 ' covers: internal/proveohome/proveohome.go
 ' covers: internal/contract/opencode_credentials_test.go
 ' covers: internal/contract/spec_notes_test.go
 ' covers: e2e/opencode_credentials_test.go
-' covers: e2e/opencode_sessions_test.go
 ' covers: e2e/opencode_prepared_history_test.go
 ' covers: e2e/opencode_cache_sbx_test.go
 ' covers: e2e/seed_ready_test.go
 ' covers: internal/choiceui/blocked_run.go
 ' covers: internal/choiceui/blocked_run_test.go
 ' covers: internal/imagetest/opencode_test.go
-' covers: cmd/proveo/testdata/plan/docker-open-forward-opencode.golden
-' covers: cmd/proveo/testdata/plan/docker-open-broker-opencode.golden
-' covers: cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden
-' covers: cmd/proveo/testdata/run/docker-opencode-broker.golden
+' (2026-10-16: covers on internal/backend/dockeregress/**, e2e/opencode_sessions_test.go and the
+' four docker-*opencode* goldens dropped — those files are deleted with the docker backend.)
 ' status: IMPLEMENTED in source; native fixtures pass; live sbx/image acceptance remains pending.
 ' Executor selected Prepared gate for seeding and Retained cache for launch.
 ' Scope: OpenCode family first; do not change other harnesses implicitly.

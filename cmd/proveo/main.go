@@ -1,4 +1,4 @@
-// SPEC: _spec/overview.puml, _spec/cmd/proveo/usage.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/runner/hardened-run-argv.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/policy-baseline.puml, _spec/internal/ptyproxy/pty-ownership.puml
+// SPEC: _spec/overview.puml, _spec/cmd/proveo/usage.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/_conventions/design-decision-ids.puml, _spec/_paradigms/credential-boundary.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/choiceui/choice-prompt-render.puml, _spec/internal/provider/model-resolution.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/workspace/mount-model.puml, _spec/internal/runlog/run-transcript.puml, _spec/internal/manifest/harness-manifest-schema.puml, _spec/_paradigms/git-identity.puml, _spec/internal/proveohome/proveo-home-components.puml, _spec/_plans/ci-pipeline.puml, _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/policy-baseline.puml, _spec/internal/ptyproxy/pty-ownership.puml
 package main
 
 import (
@@ -136,7 +136,7 @@ func doList() error {
 
 func runCmd() *cobra.Command {
 	var credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
-	var printOnly, shellMode, contSession, listSessions, cloneMode, yes bool
+	var printOnly, contSession, listSessions, cloneMode, yes bool
 	var addons []string
 	cmd := &cobra.Command{
 		Use:   "run <target> [-- args...]",
@@ -178,7 +178,7 @@ func runCmd() *cobra.Command {
 				Target: target, Image: image, Credentials: credentials,
 				CredsSet: credsSet, LocalModel: localModel,
 				Input: input, Output: output, Scope: scope, DataDir: dataDir,
-				Shell: shellMode, PrintOnly: printOnly, Extra: extra,
+				PrintOnly: printOnly, Extra: extra,
 				Clone: cloneMode, CloneSet: cmd.Flags().Changed("clone"),
 				Addons: addons, AddonsSet: cmd.Flags().Changed("addon"), Yes: yes,
 			}, runDeps())
@@ -199,7 +199,6 @@ func runCmd() *cobra.Command {
 	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
 	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
 	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude/codex) and exit into the tool picker")
-	cmd.Flags().BoolVar(&shellMode, "shell", false, "open a shell in the container instead of the agent")
 	cmd.Flags().BoolVar(&printOnly, "print", false, "write the sbx kit and print the sbx command instead of executing")
 	cmd.Flags().StringArrayVar(&addons, "addon", nil, "interface add-on to enable without the choice form (repeatable): host-chrome, browser, claude-in-chrome")
 	cmd.Flags().BoolVar(&yes, "yes", false, "accept the remembered and flagged choices without drawing the choice form (unattended runs)")

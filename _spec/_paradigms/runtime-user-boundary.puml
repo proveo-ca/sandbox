@@ -6,13 +6,22 @@ title Runtime user boundary — never root, any host uid
 '          root; and why /home/agent is the REAL home while the harness name is
 '          only an alias, plus the two build-time mistakes that reversal invites
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: internal/runner/**
 ' covers: internal/contract/home_symlink_test.go
 ' covers: defs/cecli/Dockerfile
 ' covers: defs/cursor/Dockerfile
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/imagetest/claudecode_test.go (ccWorkspace)
+'
+' ── 2026-10-16: THE HOST-UID LAUNCH IS GONE ────────────────────────────────
+' The `docker run --user $(id -u):$(id -g) --cap-drop=ALL
+' --security-opt=no-new-privileges --pids-limit` argv came from
+' internal/runner DockerRunArgs/Hardening and the docker+egress backend; both
+' are DELETED, and internal/runner now holds only `type Mount` (MEASURED).
+' On sbx, the only backend, the agent runs as the image's own user (uid 1000)
+' inside the VM (_spec/internal/sbx/sandbox-backend.puml). ensure_runtime_user
+' stays: it still guards any uid the image has no passwd entry for. The
+' "any host uid" half of the title is HISTORY.
 '
 ' ── WHAT ensure_runtime_user ACTUALLY DOES, IN TWO STEPS ────────────────────
 ' 1. SYNTHESIZE A PASSWD ENTRY, so getpwuid-based tooling does not choke on
@@ -76,7 +85,7 @@ title Runtime user boundary — never root, any host uid
 actor "Developer\nuid:gid" as DEV
 
 node "Host" as HOST <<host>> {
-  component "cmd/proveo run\ninternal/runner" as RUN <<app>>
+  component "cmd/proveo run\nsbx run (the only backend)" as RUN <<app>>
   database "bind-mounted repo" as REPO <<db>>
 }
 
@@ -89,7 +98,7 @@ node "Agent container" as CTR <<host>> {
 }
 
 DEV ARROW_MAIN RUN : proveo run <target>
-RUN ARROW_MAIN CTR : " ""docker run --user $(id -u):$(id -g)"" \n""--cap-drop=ALL --security-opt=no-new-privileges""\n""--pids-limit"" "
+RUN ARROW_MAIN CTR : "sbx run — the image's own non-root user\n(HISTORY: ""docker run --user $(id -u):$(id -g)"" + hardening)"
 IMGUSER ARROW_OPTIONAL AGENT : bare ""docker run"" (no wrapper)\nstill lands non-root
 RUN ARROW_MAIN ENSURE
 ENSURE ARROW_MAIN AGENT

@@ -475,9 +475,6 @@ func TestAgentTranscriptRejectsTheHarvestsOwnArtifacts(t *testing.T) {
 	}
 }
 
-// Without --shell the harness's own sbx agent runs; the two must not be confused,
-// because naming the wrong one is what skips the binding gate and drops the session.
-
 func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -489,7 +486,7 @@ func TestAuthRowOffersThePersistedLoginFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	man := manifest.Manifest{
-		Name: "claudecode", Provider: "anthropic",
+		Name:         "claudecode",
 		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
 		Capabilities: manifest.Capabilities{Providers: []string{"anthropic"}},
 	}

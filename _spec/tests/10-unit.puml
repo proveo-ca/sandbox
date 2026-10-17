@@ -1,6 +1,9 @@
 @startuml TestingLayer1Unit
-' SPEC source: internal/runner/runner_test.go
+' SPEC source: internal/*/*_test.go
 ' Layer 1 — pure-logic unit tests. Fast, deterministic, no Docker, no keys.
+' 2026-10-16: the broker, egress, egressproxy and runner-argv packages and their
+' tests are DELETED with the docker+egress backend; internal/runner holds only
+' `type Mount` and has no tests.
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
@@ -16,17 +19,16 @@ title Layer 1 · Unit — components under test (go test -race -cover)
 actor "go test -race\n-test.gocoverdir=cov/unit" as GoTest <<actor>>
 
 package "Go packages (internal/*) + *_test.go" as Pkgs {
- component "broker\ninject / strip logic" as Broker <<app>>
+ component "sbx\nKit · argv · domain patterns · policy" as Broker <<app>>
  component "provider\nregistry · detection · ACL" as Provider <<app>>
- component "egress\nBuildPlan · ProviderAllowConf\n(no //go:build integration)" as Egress <<app>>
- component "runner\nhardened docker argv" as Runner <<app>>
+ component "run\nrequireSandbox · rows · topology" as Egress <<app>>
+ component "backend/sandbox\nSpec · launch env · teardown" as Runner <<app>>
  component "manifest\nharness.manifest loader" as Manifest <<app>>
  component "workspace\nscope · mount plan · EnvFileSource" as Workspace <<app>>
  component "gitidentity\nGIT_* env forwarding" as GitId <<app>>
- component "entrypoint\nsentinel · bridges · .env" as Entrypoint <<app>>
+ component "entrypoint\nbridges · .env guard (SANDBOX_NAME / SANDBOX_VM_ID)" as Entrypoint <<app>>
  component "shell\nPATH install per shell" as Shell <<app>>
  component "tmux\nheadless driver (fake runner)" as Tmux <<app>>
- component "egressproxy\nin-process martian + broker" as ProxyUT <<app>>
 }
 
 cloud "github.com/google/go-cmp\n(diff assertions)" as Cmp <<external>>
@@ -39,8 +41,9 @@ GoTest --> CovDir : write counters
 note bottom of Pkgs
 Conventions (e2e/go-testing-standards.md): table-driven + t.Run subtests,
 t.Parallel, go-cmp with got/want+input messages, golden files, no assert libs.
-Injectable runners (tmux, workspace git, egress Runner) keep I/O out of unit tests.
-Docker Layer 3/4 files use build tags and are **excluded** from this lane.
+Injectable runners (tmux, workspace git, the sbx exec seam) keep I/O out of unit tests.
+Layer 4 and image files use build tags and are **excluded** from this lane
+(Layer 3 retired 2026-10-16).
 end note
 
 note right of GoTest

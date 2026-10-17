@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -55,44 +54,28 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
 		// Clone is the default on sbx; said explicitly so a changed default cannot
 		// turn this into a test of the mounted-checkout path.
-		proveoBin, "run", target, "--clone", "--shell", "--input", work,
+		proveoBin, "run", target, "--clone", "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 	w := newWatcher(t, sess)
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 6*time.Minute)
 
 	w.until("the sbx backend line", 2*time.Minute, func() bool {
 		s := w.Screen()
-		if strings.Contains(s, "falling back to docker+egress") {
-			w.Fatalf("fell back to docker+egress on a host where sbx.Available() said yes")
-		}
 		return strings.Contains(s, "backend: docker sandboxes (sbx)")
 	})
 	w.until("the clone output line", 2*time.Minute, func() bool {
 		return strings.Contains(w.Screen(), "lifts it back here at teardown")
 	})
-	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+	k := awaitKit(t, sess, before, target, work)
 
-	// Claim 1, asked of the shell where the agent would run: a work tree with the
-	// tracked file, an origin (the clone, not the mount), and no stray stub.
-	probe := `printf 'CLONE=%s TRACKED=%s ORIGIN=%s\n' ` +
-		`"$(git rev-parse --is-inside-work-tree 2>&1)" ` +
-		`"$(test -f TRACKED.md && echo yes || echo no)" ` +
-		`"$(git remote get-url origin 2>&1)"`
-	if err := sess.SendText(probe); err != nil {
-		t.Fatalf("send clone probe: %v", err)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatal(err)
-	}
-	// The answer is matched by shape, at column 0: the shell echoes the command
-	// first, wrapped across lines, and that echo carries the same "CLONE=" text.
-	w.until("the clone probe to answer", 90*time.Second, func() bool {
-		return cloneProbeAnswer(w.Screen()) != ""
-	})
-	line := cloneProbeAnswer(w.Screen())
+	// Claim 1, asked where the agent runs: a work tree with the tracked file, an
+	// origin (the clone, not the mount), and no stray stub.
+	line, _ := k.exec(`printf 'CLONE=%s TRACKED=%s ORIGIN=%s\n' `+
+		`"$(git rev-parse --is-inside-work-tree 2>&1)" `+
+		`"$(test -f TRACKED.md && echo yes || echo no)" `+
+		`"$(git remote get-url origin 2>&1)"`, 90*time.Second)
 	if !strings.Contains(line, "CLONE=true") || !strings.Contains(line, "TRACKED=yes") {
 		w.Fatalf("the clone did not land: %q — the agent's cwd is not the cloned work tree", line)
 	}
@@ -103,15 +86,12 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	// Claim 2: write a deliverable where the harness writes them, leave, and expect
 	// it on the host once teardown has lifted it.
 	const mark = "LIFT-OK"
-	if err := sess.SendText("mkdir -p reports && printf %s " + mark + " > reports/lift.txt && exit"); err != nil {
-		t.Fatalf("send deliverable: %v", err)
+	if out, status := k.exec("mkdir -p reports && printf %s "+mark+" > reports/lift.txt", 60*time.Second); status != 0 {
+		t.Fatalf("deliverable write exited %d:\n%s", status, out)
 	}
-	if err := sess.Enter(); err != nil {
-		t.Fatal(err)
-	}
-	screen, exited := waitSessionExit(sess, timeout)
+	screen, exited := k.end()
 	if !exited {
-		t.Fatalf("proveo did not exit after the shell left\n%s", screen)
+		t.Fatalf("proveo did not finish its teardown after SIGTERM\n%s", screen)
 	}
 	got := readIn(work, filepath.Join("reports", "lift.txt"))
 	if !strings.Contains(got, mark) {
@@ -120,12 +100,4 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	if !strings.Contains(screen, "deliverables lifted") {
 		t.Errorf("teardown did not report the lift — the file arrived, but the operator was not told\n%s", screen)
 	}
-}
-
-// cloneProbeAnswerRE is the probe's OUTPUT line: it starts the line, where the
-// echoed command never does (that one begins with the prompt).
-var cloneProbeAnswerRE = regexp.MustCompile(`(?m)^CLONE=\S+ TRACKED=\S+ ORIGIN=\S*`)
-
-func cloneProbeAnswer(screen string) string {
-	return strings.TrimSpace(cloneProbeAnswerRE.FindString(screen))
 }

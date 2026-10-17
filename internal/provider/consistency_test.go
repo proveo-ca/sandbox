@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -18,16 +17,14 @@ func TestBareIDPrefixesResolveToRegisteredProviders(t *testing.T) {
 // provider: a key with no ACL is advertised support the egress layer cannot honour.
 func TestEveryRegisteredProviderIsReachable(t *testing.T) {
 	t.Parallel()
-	// bedrock/vertex authenticate through cloud SDKs and deliberately carry no
-	// blanket ACL (allowlisting all of .amazonaws.com would defeat the point).
 	exempt := map[string]bool{"bedrock": true, "vertex": true}
 	for _, name := range Names() {
 		if exempt[name] {
 			continue
 		}
 		e, _ := Lookup(name)
-		if strings.TrimSpace(e.ACL) == "" {
-			t.Errorf("provider %q has no ACL: it can be detected and pinned but never reached", name)
+		if len(e.Hosts) == 0 {
+			t.Errorf("provider %q has no hosts: nothing can name where it is reached", name)
 		}
 		if len(e.Detect) == 0 {
 			t.Errorf("provider %q declares no detect key, so it can never be selected", name)

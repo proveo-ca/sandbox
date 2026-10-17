@@ -5,12 +5,10 @@
 package e2e
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -169,115 +167,6 @@ func (w *watcher) until(what string, timeout time.Duration, cond func() bool) {
 		}
 		time.Sleep(time.Second)
 	}
-}
-
-var containerPrompt = regexp.MustCompile(`(?m)^.*@[^\s:@]+:(\S*)[$#]$`)
-
-func promptWorkdir(screen string) (string, bool) {
-	m := containerPrompt.FindAllStringSubmatch(screen, -1)
-	if len(m) == 0 {
-		return "", false
-	}
-	return m[len(m)-1][1], true
-}
-
-func waitForContainerShell(t *testing.T, w *watcher, timeout time.Duration) {
-	t.Helper()
-	w.until("the agent shell", timeout, func() bool {
-		_, ok := promptWorkdir(w.Screen())
-		return ok
-	})
-}
-
-// launchShell starts a real `proveo run target --shell` session under tmux —
-// egress open, credentials forwarded, and the picker skipped — so callers
-// exercise the actual entrypoint chain (workspace scoping, git-identity
-// bridging, dependency-tree provisioning, all of it) rather than a hand-built
-// `docker run --entrypoint bash` substitute for pieces of it. It waits for the
-// container's own shell prompt before returning.
-func launchShell(t *testing.T, proveoBin, target, dir string, extra ...string) *tmux.Session {
-	t.Helper()
-	return launchShellEnv(t, proveoBin, target, dir, nil, extra...)
-}
-
-// launchShellEnv is launchShell with env of the caller's own, set on the proveo
-// process before it resolves anything.
-func launchShellEnv(t *testing.T, proveoBin, target, dir string, env []string, extra ...string) *tmux.Session {
-	t.Helper()
-	sess := tmux.New(fmt.Sprintf("proveo-shell-%s-%d", target, time.Now().UnixNano()), nil)
-	t.Cleanup(sess.Kill)
-	cmd := []string{"env",
-		"PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0",
-		proveoBin, "run", target,
-		"--credentials", "forward",
-		"--input", dir, "--shell",
-	}
-	if len(env) > 0 {
-		// env pairs belong before the binary, where `env` still reads them
-		head := append([]string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0"}, env...)
-		cmd = append(head, cmd[3:]...)
-	}
-	cmd = append(cmd, extra...)
-	if err := sess.Start(220, 50, cmd...); err != nil {
-		t.Fatalf("start %s --shell: %v", target, err)
-	}
-	waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 2*time.Minute))
-	return sess
-}
-
-// shellExec runs script as a child `bash -c` inside sess's already-live
-// interactive shell — a child process, not the shell itself, so an internal
-// `exit` inside script cannot end the session — and returns everything the
-// pane has shown once script's completion marker appears, plus its exit
-// status. script is exactly the kind of body that used to run under
-// `docker run --entrypoint bash <img> -c script`; callers can keep asserting
-// on it with strings.Contains the same way.
-func shellExec(t *testing.T, sess *tmux.Session, script string, timeout time.Duration) (string, int) {
-	t.Helper()
-	marker := fmt.Sprintf("PROVEO-SHELLEXEC-%d", time.Now().UnixNano())
-	line := shellExecLine(script, marker)
-	if err := sess.SendText(line); err != nil {
-		t.Fatalf("send script: %v", err)
-	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("enter: %v", err)
-	}
-	screen, err := sess.WaitFor(marker+"=", timeout)
-	if err != nil {
-		t.Fatalf("script never finished within %s: %v\n--- pane ---\n%s", timeout, err, screen)
-	}
-	status, ok := markerStatus(screen, marker)
-	if !ok {
-		t.Fatalf("script finished but printed no exit status after %s\n--- pane ---\n%s",
-			marker, screen)
-	}
-	return screen, status
-}
-
-func shellExecLine(script, marker string) string {
-	half := len(marker) / 2
-	return "bash -c " + shellQuote([]string{script}) +
-		fmt.Sprintf("; echo '%s''%s'=$?", marker[:half], marker[half:])
-}
-
-func markerStatus(screen, marker string) (int, bool) {
-	idx := strings.LastIndex(screen, marker+"=")
-	if idx < 0 {
-		return 0, false
-	}
-	rest := screen[idx+len(marker)+1:]
-	end := 0
-	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
-		end++
-	}
-	if end == 0 {
-		return 0, false
-	}
-	n, err := strconv.Atoi(rest[:end])
-	if err != nil {
-		return 0, false
-	}
-	return n, true
 }
 
 func acceptChoicePrompt(t *testing.T, sess *tmux.Session, target string) {

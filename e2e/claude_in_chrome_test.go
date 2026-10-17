@@ -152,12 +152,12 @@ func requireChromeCapableLoginHome(t *testing.T) string {
 	if credentials.LoginBlanked("claudecode", homeRoot) {
 		t.Skipf("the login in the proveo home (%s) is empty — macOS moved the token to the "+
 			"Keychain and blanked the file, which the sandbox cannot read either; run "+
-			"`proveo run claudecode --shell` and /login INSIDE that session to put a usable "+
+			"`proveo run claudecode` and /login INSIDE that session to put a usable "+
 			"one in the proveo home", homeRoot)
 	}
 	if ok, _ := credentials.PersistedLogin("claudecode", homeRoot); !ok {
 		t.Skipf("no persisted Claude Code login in the proveo home (%s) — run `proveo run "+
-			"claudecode --shell` and /login INSIDE that session once; a `claude setup-token` "+
+			"claudecode` and /login INSIDE that session once; a `claude setup-token` "+
 			"or a bare ANTHROPIC_API_KEY cannot drive Chrome no matter how fresh it is", homeRoot)
 	}
 	return homeRoot

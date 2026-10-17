@@ -80,9 +80,11 @@ skinparam noteTextAlignment left
 ' terminal while keeping the copy it reads: buffering until exit made a
 ' minutes-long climb look frozen for a quarter hour, and the rung logs are how
 ' an operator sees which layer is being exercised while it happens.
-' e2e-full sets PROVEO_{IDLE,SIGNAL,TOOLCHAIN}_TEST=1 and
+' e2e-full sets PROVEO_{IDLE,TOOLCHAIN}_TEST=1 (e2eFullEnv, MEASURED) and
 ' PROVEO_TEST_GO_TIMEOUT (default 150m) for the whole process, then runs the
 ' e2e suite, idle and the ladder in-process; every half runs, any red fails.
+' PROVEO_SIGNAL_TEST=1 left the env 2026-10-16 with e2e/signal_test.go, whose
+' subject — tearing down the docker egress sidecars on SIGINT — was deleted.
 '
 ' ── WHAT A GREEN GATE DOES NOT COVER ────────────────────────────────────────
 ' Stated because a checklist read as complete is worse than one read as partial:
@@ -98,11 +100,13 @@ skinparam noteTextAlignment left
 '     a credential it already holds. An UNATTENDED agent stops there. No test
 '     covers it because it is interactive by definition.
 '
-'   TestProjectDotEnvAtEgressLayer/opencode is RED and unexplained. It runs a
-'     stock ubuntu:24.04 image on the docker backend, so neither the base
-'     rebase nor the agent-kit default can reach it.
+'   HISTORY: TestProjectDotEnvAtEgressLayer/opencode was RED and unexplained
+'     on the docker backend. It was deleted 2026-10-16 with that backend, so
+'     the question it raised is closed by removal, not answered.
 '
-' ── LEAKED STATE POISONS THE RESULT, AND HID FOR HOURS ──────────────────────
+' ── HISTORY: LEAKED STATE POISONED THE RESULT, AND HID FOR HOURS ────────────
+' Docker-backend era; the -egress containers and *-mitm-net networks it names
+' no longer exist. The rule — match on the image, never the name — stands.
 ' Two proveo/opencode:local containers ran for SIX HOURS after the sessions
 ' that started them were killed, each holding a *-mitm-net network. They were
 ' invisible to `docker ps -a | grep proveo` because docker had named them
@@ -131,7 +135,7 @@ node "host only · needs sbx" as HOST <<host>> {
 }
 
 component "deploy all\namd64 + arm64 --push" as PUB <<cloud>>
-component "not covered\namd64 · consent prompt · dotenv" as GAP <<error>>
+component "not covered\namd64 · consent prompt" as GAP <<error>>
 
 GO ARROW_MAIN BUILD
 BUILD ARROW_MAIN TI
@@ -169,9 +173,8 @@ end note
 note bottom of GAP
   **A checklist read as complete is worse than
   one read as partial.** amd64 has never been
-  compiled here, the consent prompt is
-  interactive by definition, and one e2e test
-  is red for reasons still unknown.
+  compiled here, and the consent prompt is
+  interactive by definition.
 end note
 
 note bottom of TI

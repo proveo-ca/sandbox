@@ -15,8 +15,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 type languageOutcome int
@@ -70,9 +68,9 @@ var toolchainHarnesses = []string{"opencode", "claudecode", "codex", "cursor", "
 
 type runOpts struct {
 	env     map[string]string
-	target  string        // harness; empty = opencode
-	work    string        // workspace; empty = a fresh copy of the fixture
-	sess    *tmux.Session // an already-open sandbox shell to reuse
+	target  string  // harness; empty = opencode
+	work    string  // workspace; empty = a fresh copy of the fixture
+	run     *kitRun // an already-launched run to reuse
 	timeout time.Duration
 }
 
@@ -102,28 +100,26 @@ func fixtureWorkspace(t *testing.T) string {
 	return work
 }
 
-func toolchainSandbox(t *testing.T, target, work string) *tmux.Session {
+func toolchainSandbox(t *testing.T, target, work string) *kitRun {
 	t.Helper()
 	return toolchainSandboxHome(t, target, work, "")
 }
 
 // toolchainSandboxHome runs with a proveo home of the caller's choosing.
-func toolchainSandboxHome(t *testing.T, target, work, home string) *tmux.Session {
+func toolchainSandboxHome(t *testing.T, target, work, home string) *kitRun {
 	t.Helper()
 	requireHarness(t, target)
-	var extra []string
+	var env []string
 	if home != "" {
-		extra = append(extra, "PROVEO_HOME="+home)
+		env = append(env, "PROVEO_HOME="+home)
 	}
-	sess := launchShellEnv(t, buildProveo(t), target, work, extra)
-	waitForSeed(t, sess)
-	return sess
+	return launchKit(t, buildProveo(t), target, work, env)
 }
 
 // seedInstalls counts what the seed installed.
-func seedInstalls(t *testing.T, sess *tmux.Session) int {
+func seedInstalls(t *testing.T, k *kitRun) int {
 	t.Helper()
-	out, _ := shellExec(t, sess,
+	out, _ := k.exec(
 		`printf 'INSTALLS %s\n' "$(grep -c 'Installing' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`,
 		60*time.Second)
 	n := -1
@@ -140,28 +136,6 @@ func seedInstalls(t *testing.T, sess *tmux.Session) int {
 		t.Fatalf("could not read the seed's install count from the startup log:\n%s", out)
 	}
 	return n
-}
-
-// waitForSeed holds until the Kit's startup commands are done.
-func waitForSeed(t *testing.T, sess *tmux.Session) {
-	t.Helper()
-	deadline := time.Now().Add(durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 12*time.Minute))
-	const probe = `printf 'SEED %s %s\n' ` +
-		`"$(grep -c '^> ' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)" ` +
-		`"$(grep -cE '^(ok|fail|error)' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`
-	for {
-		out, _ := shellExec(t, sess, probe, 60*time.Second)
-		started, done := seedCounts(out)
-		if started > 0 && done >= started {
-			t.Logf("seed finished: %d startup command(s)", done)
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Logf("seed still running after the wait (%d started, %d done) — measuring anyway", started, done)
-			return
-		}
-		time.Sleep(10 * time.Second)
-	}
 }
 
 func seedCounts(pane string) (started, done int) {
@@ -198,8 +172,8 @@ func envPrefix(env map[string]string) string {
 // runLib drives the entrypoint lib inside a sandbox `proveo run` created.
 func runLib(t *testing.T, o runOpts, script string) (string, error) {
 	t.Helper()
-	sess := o.sess
-	if sess == nil {
+	k := o.run
+	if k == nil {
 		target := o.target
 		if target == "" {
 			target = "opencode"
@@ -208,7 +182,7 @@ func runLib(t *testing.T, o runOpts, script string) (string, error) {
 		if work == "" {
 			work = fixtureWorkspace(t)
 		}
-		sess = toolchainSandbox(t, target, work)
+		k = toolchainSandbox(t, target, work)
 	}
 	to := o.timeout
 	if to == 0 {
@@ -218,7 +192,7 @@ func runLib(t *testing.T, o runOpts, script string) (string, error) {
 		"_fence=LIBOUT; printf '%s-BEGIN\\n' \"$_fence\"\n" +
 		strings.ReplaceAll(script, "/work", `"$PWD"`) +
 		"\nprintf '%s-END\\n' \"$_fence\"\n"
-	out, status := shellExec(t, sess, full, to)
+	out, status := k.exec(full, to)
 	if status != 0 {
 		return fencedOutput(out), fmt.Errorf("script exited %d", status)
 	}
@@ -238,27 +212,14 @@ func fencedOutput(pane string) string {
 }
 
 // requireSandboxGitHubToken keeps the ubi recipes off the anonymous rate limit.
-func requireSandboxGitHubToken(t *testing.T, sess *tmux.Session) {
+func requireSandboxGitHubToken(t *testing.T, k *kitRun) {
 	t.Helper()
-	out, status := shellExec(t, sess, `gh auth token >/dev/null 2>&1 && echo GH-TOKEN-OK || echo GH-TOKEN-NO`,
+	out, status := k.exec(`gh auth token >/dev/null 2>&1 && echo GH-TOKEN-OK || echo GH-TOKEN-NO`,
 		60*time.Second)
 	if status != 0 || !strings.Contains(out, "GH-TOKEN-OK") {
 		t.Skipf("no GitHub token inside the sandbox (`sbx secret set github`) — the ubi recipes " +
 			"would hit the 60/hr anonymous limit and make this flaky rather than failing honestly")
 	}
-}
-
-// endShell closes a sandbox session the way an operator does, so the run's own
-// teardown is what removes the sandbox.
-func endShell(t *testing.T, sess *tmux.Session) string {
-	t.Helper()
-	_ = sess.SendText("exit")
-	_ = sess.Enter()
-	out, exited := waitSessionExit(sess, 3*time.Minute)
-	if !exited {
-		t.Logf("the sandbox session did not exit after `exit`")
-	}
-	return out
 }
 
 func TestToolchainFixtureCoversEveryLanguage(t *testing.T) {
@@ -298,9 +259,9 @@ func TestToolchainLanguageMatrix(t *testing.T) {
 	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to run the full language matrix (~600MB of downloads)")
 	}
-	sess := toolchainSandbox(t, "opencode", fixtureWorkspace(t))
-	requireSandboxGitHubToken(t, sess)
-	o := runOpts{sess: sess, timeout: 25 * time.Minute}
+	k := toolchainSandbox(t, "opencode", fixtureWorkspace(t))
+	requireSandboxGitHubToken(t, k)
+	o := runOpts{run: k, timeout: 25 * time.Minute}
 
 	out, err := runLib(t, o, `
 ensure_project_tools >/dev/null 2>&1
@@ -385,14 +346,14 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 	work := fixtureWorkspace(t)
 	home := t.TempDir() // a private toolchain store: this run's saves, nobody else's
 
-	first := toolchainSandboxHome(t, "opencode", work, home)
+	first := toolchainSandboxHome(t, "claudecode", work, home)
 	requireSandboxGitHubToken(t, first)
 	cold := seedInstalls(t, first)
 	if cold == 0 {
 		t.Fatalf("the first seed installed nothing against an empty store (%s) — "+
 			"the fixture or the store is wrong, so the warm half would prove nothing", home)
 	}
-	teardown := endShell(t, first)
+	teardown, _ := first.end()
 
 	// Name the store's state in the failure message.
 	store := toolStoreEntries(t, home)
@@ -404,20 +365,20 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 
 	// A second `proveo run` over the SAME workspace and the same store is where
 	// the operator meets this claim: what one run installed, the next restores.
-	second := toolchainSandboxHome(t, "opencode", work, home)
+	second := toolchainSandboxHome(t, "claudecode", work, home)
 	if warm := seedInstalls(t, second); warm > 0 {
 		t.Errorf("the second run's seed installed %d server(s) again (cold installed %d) — "+
 			"the restore half is not reading the store, so every run pays the download again",
 			warm, cold)
 	}
-	endShell(t, second)
+	second.end()
 }
 
 func TestToolchainRespectsItsOptOuts(t *testing.T) {
 	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to drive the opt-outs through a real sandbox")
 	}
-	sess := toolchainSandbox(t, "opencode", fixtureWorkspace(t))
+	k := toolchainSandbox(t, "opencode", fixtureWorkspace(t))
 	for _, tc := range []struct {
 		name string
 		env  map[string]string
@@ -427,7 +388,7 @@ func TestToolchainRespectsItsOptOuts(t *testing.T) {
 		{"min_files_above_fixture", map[string]string{"PROVEO_LSP_MIN_FILES": "5"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := runLib(t, runOpts{sess: sess, env: tc.env, timeout: 2 * time.Minute},
+			out, err := runLib(t, runOpts{run: k, env: tc.env, timeout: 2 * time.Minute},
 				`ensure_language_servers /work`)
 			if err != nil {
 				t.Fatalf("run: %v\n%s", err, out)

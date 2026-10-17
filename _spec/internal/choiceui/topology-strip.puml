@@ -21,12 +21,23 @@ skinparam noteTextAlignment left
 '   how the four were chosen .... _spec/internal/choiceui/figure-fidelities.puml
 '   the shipped layout it joins .... _spec/internal/choiceui/wireframe.puml
 '   the render contract it extends . _spec/internal/choiceui/choice-prompt-render.puml
-'   what the tier words still mean . _spec/internal/sbx/policy-baseline.puml
-'                                    (egress-tiers.puml retired 2026-09-16)
+'   why the tier words are gone .... _spec/internal/sbx/policy-baseline.puml
+'                                    (tiers retired 2026-10-16)
 '   why the sbx row is LOCKED ...... _spec/internal/sbx/policy-baseline.puml
 '   the key on the sbx backend ..... _spec/internal/sbx/credential-path.puml
-'   the key on the docker backend .. _spec/_paradigms/credential-boundary.puml
+'   the boundary the key rests in .. _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── 2026-10-16: ONE BACKEND, SO THE PICTURE HAS ONE VOCABULARY ─────────────
+' MEASURED in internal/run/topology.go: Hop is always "sbx proxy"; lanesOf maps
+' only sbx's baselines (allow-all → watched 3/0, balanced → screened 2/1,
+' anything else → screened 1/2); Key is KeyAtHop, KeyInSquare when the
+' credentials are forward (the value rides the sandbox env), and KeyNone when
+' the model row picks a local model (MEASURED at the last read; the code was
+' still moving). The docker tiers, the "mitm + squid" hop, the hop-less
+' open+forward frame and review's LaneAsked are no longer produced.
+' internal/choiceui still draws LaneAsked and its tests still exercise it:
+' geometry with no producer left (repo-simplification.puml N18 shape).
 '
 ' ── THE MOTES TRAVEL THE WIRE, THEY DO NOT BLINK BETWEEN LANES ────────────
 ' drawLanes used to inject the pulse glyph into the middle of ONE lane's 3-char
@@ -45,8 +56,9 @@ skinparam noteTextAlignment left
 ' A LIMITED HOP SENDS MOTES INTO THE DEAD-ENDS. The × is the hop refusing a
 ' destination, and a packet that went that way has to be seen arriving there;
 ' routing every mote onto the surviving clouds would say the hop only ever
-' forwards. Review still draws no traffic: LaneAsked has no lanes at all, which
-' is the correct picture of a tier that asks before anything moves.
+' forwards. LaneAsked (review) drew no traffic — no lanes at all, the picture of
+' a tier that asks before anything moves. Review retired 2026-10-16; nothing in
+' internal/run produces LaneAsked now.
 '
 ' ── THE CLOCK: THE FLOW DOES NOT STOP ──────────────────────────────────────
 ' Motion used to be bound to CHANGE. frame() returned 0 once animWindow (1200ms)
@@ -118,18 +130,20 @@ skinparam noteTextAlignment left
 ' renames a string there and redraws nothing.
 '
 ' BOTH the egress and credentials rows need a fallback, because applicableRows
-' drops any axis with one option — and cursor declares exactly one of each.
-' Reading the form alone drew a "mitm + squid" hop for a run whose plan is a
-' bare bridge network with no sidecar: the strip inventing a boundary that does
-' not exist is the worst thing this picture can do.
+' drops any axis with one option. HISTORY: cursor declared exactly one of each
+' (egress [open], credentials [forward]; pins dropped 2026-10-16), and reading
+' the form alone drew a "mitm + squid" hop for a run whose plan was a bare
+' bridge network: the strip inventing a boundary that does not exist is the
+' worst thing this picture can do. The credentials fallback still applies
+' (topologyOf's credsDefault); the egress one is "" and draws the tightest lanes.
 '
 ' THE LANE COUNTS ARE ILLUSTRATIVE, NOT MEASURED. A real "how many hosts
-' survive" would mean reading the Kit allowlist (harness capabilities plus
-' detected providers) or Squid's config at prompt time, which is a bigger change
-' than the picture is worth — so the captions say what the tier DOES and never
-' claim a number. One lane always survives: on the strictest posture the agent
-' still reaches its model (deny-all is the absence of an allow rule and the Kit
-' can only add), so a frame with no lane would say the agent cannot think.
+' survive" would mean reading sbx's policy at prompt time, which is a bigger
+' change than the picture is worth — so the captions say what the baseline
+' DOES and never claim a number. One lane always survives: on the strictest
+' posture the agent still reaches its model, so a frame with no lane would say
+' the agent cannot think. [Inference] Since 2026-10-16 the Kit adds no provider
+' hosts, so under deny-all that lane is sbx's own agent definition, not proveo's.
 '
 ' The UNREADABLE sbx baseline is drawn as deny-all, deliberately. proveo could
 ' not read the host policy, so it may be anything; drawing the most permissive
@@ -500,7 +514,7 @@ end note
 
 note bottom of COLS
   **A fidelity, not a fourth drawing.** It drops
-  the connector runs, review's prose and the
+  the connector runs, the hop's prose and the
   caption's gloss — the three things that cost
   columns and carry least. Every fact survives:
   the key's home, the labels, the lane counts.
@@ -519,7 +533,7 @@ note bottom of TRAFFIC
   They spawn 300-1000ms apart, ride the
   spine, then pick top, middle or bottom.
   A limited hop sends some into the ×
-  dead-ends. Review still draws none.
+  dead-ends. LaneAsked drew none (retired).
 end note
 
 note top of PAINT
@@ -602,11 +616,11 @@ note bottom of DECOR
 end note
 
 note bottom of LIE
-  **There is no single egress axis.** A sbx
-  harness shows the host baseline — allow-all,
-  balanced, deny-all — and a docker one shows
-  proveo's tiers. Different question, different
-  hop; a frame must name which it drew.
+  **One egress axis since 2026-10-16.** Every
+  run shows the host baseline — allow-all,
+  balanced, deny-all. The docker backend's tiers
+  were a different question with a different
+  hop; both are deleted.
 end note
 
 ' --- IGNORE: layout hints (do not edit) ---

@@ -4,7 +4,8 @@ skinparam noteTextAlignment left
 ' purpose: RE-SCOPED — sbx owns the host-reach policy and it is currently unsound; what proveo must do ONCE it is trustworthy
 ' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 ' would touch: internal/backend/sandbox/sandbox.go (cdpPublish, StartCDPViewport, permissions.network.allow)
-' would touch: internal/sbx/run.go (RunConfig.Publish), internal/egress/plan.go (the add-host switch)
+' would touch: internal/sbx/run.go (RunConfig.Publish); internal/egress/plan.go (the add-host
+'   switch) was deleted 2026-10-16 with the docker backend, so that half has no target now
 ' would touch: internal/manifest/manifest.go (a capability, if a tunnel becomes one)
 ' would touch: packages/lib/entrypoint-lib.sh (ensure_project_tools — the CLIENT half)
 '   the worked example, one direction .. _spec/defs/claudecode/chrome-bridge.puml

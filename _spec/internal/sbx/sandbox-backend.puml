@@ -25,20 +25,40 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' tried to leave. e2e/sbx_test.go pins both refusals
 ' (TestSandboxBackendRefusesWhenSbxAbsent, TestRetiredSbxOffValuesRefuseTheRun).
 '
-' THE WORKSPACE .env GUARD KEYS ON SANDBOX_VM_ID. Images skipped sourcing the
-' workspace .env only while PROVEO_EGRESS_MODE named a tier, and only the
-' deleted egress plan set it. MEASURED now: packages/lib/entrypoint-lib.sh
-' load_env and internal/entrypoint ShouldSkipEnvLoad(getenv) both skip when
-' SANDBOX_VM_ID is non-empty, which sbx sets inside every VM. The workspace .env
-' never enters the agent env; the agent can still READ the file, and
+' THE WORKSPACE .env GUARD KEYS ON sbx's OWN VARIABLES. Images skipped sourcing
+' the workspace .env only while PROVEO_EGRESS_MODE named a tier, and only the
+' deleted egress plan set it. The decision named SANDBOX_VM_ID. MEASURED at the
+' last read of the working tree: packages/lib/entrypoint-lib.sh load_env and
+' internal/entrypoint ShouldSkipEnvLoad(getenv) both skip when SANDBOX_NAME OR
+' SANDBOX_VM_ID is non-blank — SANDBOX_NAME first, SANDBOX_VM_ID as the fallback
+' (repo-simplification.puml F7 option 1). [Unverified] SANDBOX_VM_ID is
+' deprecated in favour of SANDBOX_NAME. The workspace .env never enters the
+' agent env; the agent can still READ the file, and
 ' credentials.WarnMountedSecrets(dir, lookup) says so when it holds a provider
 ' key. The broker sentinel (apply_broker_sentinel, ApplyBrokerSentinel,
 ' "proveo-brokered", PROVEO_CREDENTIAL_BROKER_KEYS) and CanonicalTiers are
-' deleted. [Unverified] SANDBOX_VM_ID may be deprecated in favour of
-' SANDBOX_NAME; repo-simplification.puml F7 holds the options.
+' deleted.
+'
+' THE BASH GUARD MUST SURVIVE `set -u`. Every harness entrypoint sources the
+' lib under nounset, and outside sbx neither variable exists. The first bash
+' guard expanded "${SANDBOX_NAME//[[:space:]]/}" bare, so an image test with
+' SANDBOX_NAME unset died "SANDBOX_NAME: unbound variable" and took cecli's
+' entrypoint down with it. MEASURED fix: load_env reads both through a default
+' first — `local sbx_id="${SANDBOX_NAME:-}${SANDBOX_VM_ID:-}"`, then
+' `[[ -n "${sbx_id//[[:space:]]/}" ]]`. Pinned by
+' TestTheBashPreludeLoadsTheEnvOnlyOutsideSbx (internal/contract/
+' env_prelude_test.go), which runs load_env under `set -euo pipefail` in four
+' cases: both unset, both blank, SANDBOX_NAME set, SANDBOX_VM_ID set. Any new
+' read of an sbx-provided variable in the lib needs the same `:-` default.
 '
 ' inject/broker.env IS NO LONGER WRITTEN. assembleEnv writes no file; no proxy
 ' of proveo's needs a key. secret-custody (d) is closed, not moved.
+'
+' IMAGE PREFLIGHT LIVES IN launchSandbox. MEASURED: it runs only when
+' !p.PrintOnly && d.PreflightImages != nil && !sbx.HasTemplate(p.Image), and
+' Deps.PreflightImages(man, agentImage) ensures the agent image alone — there
+' are no sidecar images, and the egress-proxy image inspect and its "egress
+' proxy: … (local build …)" header are deleted.
 '
 ' ── THE AGENT ENVIRONMENT, AFTER THE PLAN WENT ─────────────────────────────
 ' HISTORY: from 2026-09-15 `egress.AgentEnv` carried the docker plan's agent
@@ -63,13 +83,13 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 '   what the agent holds at launch .. _spec/internal/sbx/launch-env.puml
 '
 ' ── AND THE SANDBOX DROPS THE PAIRS THAT NAME A PROXY IT HAS NOT GOT ───────
-' `sandboxAgentEnv` filters HTTP_PROXY, HTTPS_PROXY, NO_PROXY (and the lower-case
-' forms), NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, SSL_CERT_FILE,
-' GIT_SSL_CAINFO, INSPECT_PROXY, ENFORCEMENT_PROXY and PROVEO_EGRESS_CA_CERT.
-' sbx enforces the policy and terminates TLS itself, so a CA bundle or proxy URL
-' naming a proveo proxy would black-hole every request. MEASURED 2026-10-16: no
-' producer of the last three remains; proxyOnlyVar still lists them
-' (repo-simplification.puml F8).
+' `sandboxAgentEnv` (via proxyOnlyVar) filters HTTP_PROXY, HTTPS_PROXY, NO_PROXY
+' (and the lower-case forms), NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE,
+' REQUESTS_CA_BUNDLE, SSL_CERT_FILE and GIT_SSL_CAINFO (MEASURED). sbx enforces
+' the policy and terminates TLS itself, so a CA bundle or proxy URL that does
+' not name sbx's own proxy would black-hole every request. INSPECT_PROXY,
+' ENFORCEMENT_PROXY and PROVEO_EGRESS_CA_CERT left the list 2026-10-16: their
+' only producer, the docker egress plan, is deleted (repo-simplification.puml F8).
 '
 ' HISTORY: the mode handed to BuildPlan here was best-effort, because `p.Mode`
 ' could hold an sbx baseline. BuildPlan and `p.Mode` are both gone.
@@ -109,6 +129,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' covers: internal/run/run.go (requireSandbox, launchSandbox)
 ' covers: internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
 ' covers: packages/lib/entrypoint-lib.sh (load_env)
+' covers: internal/contract/env_prelude_test.go
 ' covers: e2e/sbx_test.go (the refusal tests)
 ' covers: e2e/idle_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
@@ -613,10 +634,10 @@ note as AGENTENVDROP
 end note
 
 note as ENVGUARD
-  **The .env guard keys on ""SANDBOX_VM_ID"".**
-  Inside sbx the image never sources the
-  workspace .env; the tier variable that once
-  armed this guard no longer exists.
+  **The .env guard keys on sbx's own variables.**
+  ""SANDBOX_NAME"" or ""SANDBOX_VM_ID"": inside sbx
+  the image never sources the workspace .env;
+  the tier variable that once armed it is gone.
 end note
 
 note as LAUNCHHOLD

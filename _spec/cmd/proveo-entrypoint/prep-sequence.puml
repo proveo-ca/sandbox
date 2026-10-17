@@ -23,8 +23,8 @@ group redo in-shell — the part prep cannot carry
   SH ARROW_MAIN LIB : " ""set_working_directory /app"" "
   LIB ARROW_MAIN SH : cwd now the mounted scope
   SH ARROW_MAIN LIB : " ""load_env quiet"" "
-  LIB ARROW_OPTIONAL SH : brokered tier → skip source,\napply broker sentinel
-  LIB ARROW_MAIN SH : ""--credentials forward"" → ""set -a; source .env
+  LIB ARROW_OPTIONAL SH : inside sbx (""SANDBOX_NAME""/""SANDBOX_VM_ID"" set) → skip source\n(the tier guard and broker sentinel went 2026-10-16)
+  LIB ARROW_MAIN SH : outside sbx (e.g. an image test) → ""set -a; source .env""
   SH ARROW_MAIN LIB : harness bridge\n(""apply_env_bridges"" / ""CURSOR_MODEL"" / ""ANTHROPIC_MODEL"")
 end
 

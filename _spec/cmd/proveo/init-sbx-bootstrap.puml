@@ -34,10 +34,13 @@ skinparam noteTextAlignment left
 ' no behaviour; it only moved secrets onto disk.
 '
 ' And it moved them to the one place the product warns about. A `.env` inside
-' the sandbox workspace is sourced by the agent prelude with `set -a`, so the
-' key becomes AGENT ENVIRONMENT whatever egress tier the run picked — proveo
+' the sandbox workspace was then sourced by the agent prelude with `set -a`, so
+' the key became AGENT ENVIRONMENT whatever egress tier the run picked — proveo
 ' says so out loud on every run that finds one. An init that created that file
 ' was arguing with the rest of the product, in the product's own voice.
+' (Since 2026-10-16 the image no longer sources it inside sbx — the
+' SANDBOX_NAME/SANDBOX_VM_ID guard — but the agent can still read the file,
+' and the tiers are gone: _spec/internal/sbx/sandbox-backend.puml.)
 '
 ' ── WHAT ACTUALLY BLOCKS A FIRST RUN ───────────────────────────────────────
 ' The backend, every time. Measured on proveo-1788799575-162088 (linux/amd64,

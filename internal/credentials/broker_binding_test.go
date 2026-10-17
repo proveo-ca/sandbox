@@ -85,7 +85,7 @@ func TestAProviderWithASurvivingCredentialIsNotWithheld(t *testing.T) {
 func TestVendorPinnedRunWithholdsNothing(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
-		Name: "cursor", Subscription: true, Provider: "cursor",
+		Name: "cursor", Subscription: true,
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		Capabilities: manifest.Capabilities{Providers: []string{"cursor"}},
 	}
@@ -119,7 +119,7 @@ func TestAGatewayCredentialBacksBothSides(t *testing.T) {
 		t.Errorf("opencode caveat = %q, want both prefixes named", c)
 	}
 	cursor := manifest.Manifest{
-		Name: "cursor", Subscription: true, Provider: "cursor",
+		Name: "cursor", Subscription: true,
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		Capabilities: manifest.Capabilities{Providers: []string{"cursor"}},
 	}

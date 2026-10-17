@@ -1,22 +1,36 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title Claude in Chrome from a sandbox — the native host socket, carried across the boundary
+title Claude in Chrome from a sandbox — the native host socket, carried across the boundary (no working path since 2026-10-16)
 
-' covers: internal/chromebridge/** (ScopeGate)
+' covers: internal/chromebridge/** (ScopeGate, SbxWhy)
 ' covers: defs/claudecode/mcp/proveo-lib/chrome-bridge.js
 ' covers: packages/lib/entrypoint-lib.sh (proveo_chrome_bridge, _proveo_chrome_scope_ok)
 ' covers: internal/run/choices.go
 ' covers: internal/run/run.go (startChromeBridge, sbx BridgeEnv)
 ' covers: internal/backend/sandbox/sandbox_test.go (TestKitEnvVarsCarriesTheChromeBridgeToken)
-' covers: internal/egress/plan.go (HostBridge)
 ' covers: internal/chromebridge/chromebridge_test.go
 ' covers: internal/entrypoint/parity_test.go
 ' covers: internal/contract/browser_layer_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
-' covers: e2e/chrome_bridge_test.go
 ' covers: e2e/claude_in_chrome_test.go
 ' covers: internal/imagetest/claudecode_test.go (ccChromeBridge)
+'
+' ── 2026-10-16: THE ADD-ON HAS NO WORKING PATH ─────────────────────────────
+' MEASURED. The docker backend — the one place the agent held a real Claude
+' token the account bridge accepts — is DELETED ("Retire Docker egress";
+' "Refuse without sbx"). On sbx, the only backend, gateAddons greys
+' claude-in-chrome on every run with chromebridge.SbxWhy, and launchSandbox
+' passes the same SbxWhy to startChromeBridge, so no relay ever starts. The
+' `host` execution stays greyed. So Claude in Chrome is OFF on every run until
+' sbx can hand the VM a real token or proveo gains a host launch (DEFERRED,
+' _spec/_plans/host-execution-fallback.puml).
+' Deleted with the backend: chromebridge.TierSupported / TierWhy, the egress
+' plan's HostBridge, and e2e/chrome_bridge_test.go (the docker twin).
+' Still compiled and reachable only past SbxWhy: Relay.SetTokenEnv and the
+' bare-name Relay.Env served docker's `-e NAME` and have no live caller path
+' (repo-simplification.puml N18). The relay, ResolvedEnv, the seed's relay
+' start and withChromeFlag stay: they are the sbx chain, kept for re-enabling.
 '
 ' ── FOUR PRECONDITIONS, AND PROVEO OWNS ONE ────────────────────────────────
 ' (rehomed from the now-retired _spec/_plans/claude-in-chrome-reachability.puml,
@@ -201,9 +215,9 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' start in one exec, connect from another — plus the five hops end to end and
 ' the token refusing an unauthenticated connection.
 '
-' Both chains pass: the docker twin in e2e/chrome_bridge_test.go and the sbx one
-' beside it. Note the image bakes entrypoint-lib.sh, so a seed change is inert
-' until `proveo build claudecode`.
+' Both chains passed: the docker twin in e2e/chrome_bridge_test.go (deleted
+' 2026-10-16) and the sbx one beside it. Note the image bakes entrypoint-lib.sh,
+' so a seed change is inert until `proveo build claudecode`.
 '
 ' ── WHY THE PICKER BOX AND THE SANDBOX BOX WERE EXCLUSIVE (SUPERSEDED) ─────
 ' True only pre-2026-09-03, before host.docker.internal was measured reachable
@@ -315,13 +329,13 @@ node "Operator's machine" as HOSTM <<host>> {
   component "picker add-on\n""claude-in-chrome"" — off by default" as PICK <<app>>
 }
 
-node "Agent container (docker backend)" as CONT <<host>> {
+node "Agent container (docker backend, DELETED 2026-10-16; the sbx VM runs the same chain)" as CONT <<host>> {
   component "chrome-bridge.js\n""proveo_chrome_bridge"" starts it before ""exec claude""" as CRELAY <<app>>
   database "LISTENS, same rule for <user>\n""/tmp/claude-mcp-browser-bridge-<user>/<pid>.sock""\n0700 dir · 0600 socket" as CSOCK <<db>>
   component "Claude Code ""--chrome""\nclaude-in-chrome MCP server (CONNECTS)" as CC <<app>>
 }
 
-component "sandbox VM (sbx)\n[SUPERSEDED 2026-09-03] once believed to have no route to the host" as SBX <<app>>
+component "sandbox VM (sbx)\nroutes to the host fine; the token is the blocker" as SBX <<app>>
 component "session with no accepted scope\n'Disabled: OAuth token has no scope…'" as SCOPE <<error>>
 component "connection without the token\nclosed before a byte flows" as BAD <<error>>
 
@@ -331,8 +345,8 @@ CC     ARROW_MAIN CSOCK : newest ""*.sock"" in its dir
 CSOCK  ARROW_MAIN CRELAY
 CRELAY ARROW_MAIN RELAY : ""PROVEO_CHROME_BRIDGE=host.docker.internal:<port>""\nfirst line ""PROVEO-CHROME-BRIDGE <token>""
 RELAY  ARROW_MAIN HSOCK : dials the newest socket,\npipes both ways
-PICK   ARROW_MAIN RELAY : ticked → started for the run,\nenv + ""HostBridge"" on the egress plan
-PICK   ARROW_MAIN SBX : SUPERSEDED 2026-09-03 — used to grey here;\nsbx now gets the relay through the same ""startChromeBridge"" as docker
+PICK   ARROW_MAIN RELAY : ticked → started for the run\n(unreachable since 2026-10-16: greyed with SbxWhy)
+PICK   ARROW_ERROR SBX : greyed on every sbx run — ""chromebridge.SbxWhy""\nthe VM holds a placeholder token the bridge rejects (401)
 PICK   ARROW_ERROR SCOPE : greyed when the session's scopes\nname none of the three (""chromebridge.ScopeGate"")
 RELAY  ARROW_ERROR BAD
 

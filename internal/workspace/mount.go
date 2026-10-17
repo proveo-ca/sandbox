@@ -33,7 +33,6 @@ type MountSpec struct {
 	RepoRoot           string // git root; "" when not in a repo
 	InputDir           string // invocation dir (absolute) — the monorepo scope when a subdir
 	OutputDir          string
-	EgressMode         string
 	Credentials        string // "broker" (default) | "forward"
 	MountRootDeps      bool
 	DepStage           string
@@ -338,14 +337,7 @@ func (w MountSpec) gitOverride(hostTree, containerBase string, parentRO bool) []
 }
 
 func (w MountSpec) isolateEnv() bool {
-	if strings.EqualFold(strings.TrimSpace(w.Credentials), "forward") {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(w.EgressMode)) {
-	case "open", "allowlist", "review":
-		return true
-	}
-	return false
+	return !strings.EqualFold(strings.TrimSpace(w.Credentials), "forward")
 }
 
 func (w MountSpec) envMounts(relativeScope string) []runner.Mount {

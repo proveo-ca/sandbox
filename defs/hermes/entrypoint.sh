@@ -24,10 +24,10 @@ scope_git_worktree "$(pwd)"
 # process means that step never fires on its own — run it explicitly, once,
 # still as root, so the SAME logic upstream maintains does the remap instead
 # of a proveo-side reimplementation that drifts from it on the next release.
-# The manifest's durable home mount (/proveo-home on docker, its host path on sbx); otherwise a writable fallback.
+# The manifest's durable home mount at its host path; otherwise a writable fallback.
 # SPEC: _spec/defs/hermes/hermes-persistence.puml
 hermes_durable=""
-for d in /proveo-home/data "${PROVEO_STATE_HOME:+${PROVEO_STATE_HOME}/hermes/data}"; do
+for d in "${PROVEO_STATE_HOME:+${PROVEO_STATE_HOME}/hermes/data}"; do
   if [[ -n "$d" && -d "$d" && -w "$d" ]]; then
     hermes_durable="$d"
     break
@@ -99,7 +99,7 @@ wire_hermes_local_endpoint() {
 
 configure_hermes_local_model() {
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
-  local base="${OLLAMA_API_BASE:-http://ollama:11434}"
+  local base="${OLLAMA_API_BASE:-http://host.docker.internal:11434}"
   wire_hermes_local_endpoint "${base%/}/v1" "${PROVEO_LOCAL_MODEL}"
 }
 configure_hermes_local_model

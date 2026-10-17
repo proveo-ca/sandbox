@@ -24,6 +24,7 @@ import (
 // LOCAL open-source model and asserts three observable facts per target:
 func TestHelloWorldE2E(t *testing.T) {
 	requireTmux(t)
+	requireSbx(t)
 	requireDocker(t)
 	model := localModel(t)
 
@@ -337,7 +338,6 @@ func childEnvArgsNoCredential(t *testing.T) []string {
 	return append(args,
 		"PROVEO_WIZARD=off",       // no scope / capability pickers on this PTY
 		"PROVEO_AUTO_PROVISION=1", // build a missing sidecar image instead of asking
-		"PROVEO_DIND=0",
 	)
 }
 

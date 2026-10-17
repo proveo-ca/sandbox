@@ -158,8 +158,3 @@ description = "Buildx --push multi-arch (amd64+arm64) container image def"
 dir = "{{config_root}}"
 run = "go run ./cmd/proveo deploy"
 
-[tasks.debug]
-description = "Debug a container harness def (shell via proveo run --shell)"
-dir = "{{config_root}}"
-depends = ["build-cli"]
-run = "go run ./cmd/proveo-dev debug"

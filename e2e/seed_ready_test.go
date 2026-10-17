@@ -32,14 +32,14 @@ type readySpec struct {
 	baked    string   // regexp of a server the image bakes, so the first wiring pass names it
 	register string   // CLI that lists registered subagents offline; "" when none does
 	assist   bool     // a general assistant: the seed must provision nothing
-	kit      bool     // launched through its kit, not --shell: only that path completes its seed
+	ready    string   // text the agent's own prompt shows; "" waits for the release and a quiet pane
 }
 
 var readySpecs = map[string]readySpec{
-	"claudecode": {agents: ".claude/agents", lspFiles: []string{".claude/skills/proveo-lsp/.lsp.json", ".claude/settings.json"}, baked: "typescript|pyright", register: "claude"},
-	"codex":      {agents: ".codex/agents", ext: "toml", lspFiles: []string{".codex/config.toml"}, baked: "typescript|pyright"},
-	"opencode":   {agents: ".config/opencode/agents", lspFiles: []string{".config/opencode/opencode.json"}, baked: "typescript|pyright", register: "opencode", kit: true},
-	"cursor":     {agents: ".cursor/agents", lspFiles: []string{".cursor/mcp.json"}, baked: "gopls"},
+	"claudecode": {agents: ".claude/agents", lspFiles: []string{".claude/skills/proveo-lsp/.lsp.json", ".claude/settings.json"}, baked: "typescript|pyright", register: "claude", ready: "bypass permissions"},
+	"codex":      {agents: ".codex/agents", ext: "toml", lspFiles: []string{".codex/config.toml"}, baked: "typescript|pyright", ready: "Ask Codex to do anything"},
+	"opencode":   {agents: ".config/opencode/agents", lspFiles: []string{".config/opencode/opencode.json"}, baked: "typescript|pyright", register: "opencode", ready: "Ask anything"},
+	"cursor":     {agents: ".cursor/agents", lspFiles: []string{".cursor/mcp.json"}, baked: "gopls", ready: "Cursor Agent"},
 	"cecli":      {agents: ".cecli/agents"},
 	"hermes":     {assist: true},
 }
@@ -140,11 +140,7 @@ func readyWorkspace(t *testing.T) string {
 func seedReadyProbe(t *testing.T, proveoBin, target string, spec readySpec) {
 	t.Helper()
 	work := readyWorkspace(t)
-	probe := launchReadyShell
-	if spec.kit {
-		probe = launchReadyKit
-	}
-	run := probe(t, proveoBin, target, work)
+	run := launchReadyKit(t, proveoBin, target, work, spec.ready)
 
 	launch, status := run(readyLaunchScript(spec), 5*time.Minute)
 	if status != 0 {
@@ -197,41 +193,15 @@ echo "installed=$(grep -cE 'Installing |language server' /var/log/sbx-kit-startu
 // readyProbe runs a probe script where the agent runs and returns its output and exit status.
 type readyProbe func(script string, timeout time.Duration) (string, int)
 
-// launchReadyShell starts `proveo run <target> --shell`, times the shell's start
-// and its keystroke echo, and probes through that shell.
-func launchReadyShell(t *testing.T, proveoBin, target, work string) readyProbe {
-	t.Helper()
-	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
-	t.Cleanup(sess.Kill)
-	// Broker is the default under test; an empty key file keeps the project
-	// .env's provider key out of sbx's host-wide secret store.
-	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
-		proveoBin, "run", target, "--input", work, "--shell"}
-	if err := sess.Start(220, 50, cmd...); err != nil {
-		t.Fatalf("start %s --shell: %v", target, err)
-	}
-	waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute))
-	seeding := assertReadySoonAfterRelease(t, sess, target)
-	assertEchoes(t, sess, target, seeding)
-	return func(script string, timeout time.Duration) (string, int) { return shellExec(t, sess, script, timeout) }
-}
-
 var kitSandboxRE = regexp.MustCompile(`(?:retained engine |Created sandbox |in sandbox ')(proveo-[a-z0-9-]+)`)
 
 // launchReadyKit starts `proveo run <target>` through its kit under a fresh
-// PROVEO_HOME, names the sandbox it runs in, times keystroke echo in the
-// agent's own prompt, and probes through `sbx exec` as the agent's user.
-func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
+// PROVEO_HOME, names the sandbox it runs in, times the agent's prompt against
+// the release and keystroke echo in that prompt, and probes through `sbx exec`
+// as the agent's user. ready is the prompt's text; "" waits for the release
+// marker and a quiet pane instead.
+func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyProbe {
 	t.Helper()
-	ready := ""
-	for _, h := range gitSyncHarnesses {
-		if h.target == target {
-			ready = h.ready
-		}
-	}
-	if ready == "" {
-		t.Fatalf("%s has no prompt marker in gitSyncHarnesses, so its kit launch cannot tell when the agent is up", target)
-	}
 	home := t.TempDir()
 	before, _ := sbxSandboxNames()
 	var engine string
@@ -275,9 +245,17 @@ func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
 	pid, _ := sess.PanePID()
 	t.Cleanup(func() { killAndAwait(t, sess, pid, durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute)) })
 	w := newWatcher(t, sess)
+	var promptAt time.Time
 	w.until("the "+target+" prompt", durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute), func() bool {
 		if engine == "" {
 			engine = name(w.Screen())
+		}
+		if engine == "" {
+			return false
+		}
+		if ready == "" {
+			out, _ := sbxExecStatus(t, engine, "test -e "+releaseMarker+" && echo released", time.Minute)
+			return strings.Contains(out, "released")
 		}
 		pane, _ := sess.Capture()
 		for _, d := range gitSyncDialogs {
@@ -287,8 +265,15 @@ func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
 				return false
 			}
 		}
-		return engine != "" && strings.Contains(pane, ready)
+		if strings.Contains(pane, ready) {
+			promptAt = time.Now()
+			return true
+		}
+		return false
 	})
+	if ready == "" {
+		awaitQuietScreen(sess, 30*time.Second)
+	}
 
 	cd := "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'\n" + gitSyncCd(work) + "\n"
 	run := func(script string, timeout time.Duration) (string, int) {
@@ -298,9 +283,29 @@ func launchReadyKit(t *testing.T, proveoBin, target, work string) readyProbe {
 		t.Fatalf("sbx exec into %s runs as uid %q (exit %d), not the agent's 1000 — the probes would not see what the agent sees",
 			engine, strings.TrimSpace(out), status)
 	}
+	if !promptAt.IsZero() && sbx.BuiltinAgent(target) != "" {
+		assertPromptSoonAfterRelease(t, run, target, promptAt)
+	}
 	out, _ := run("test -e "+seedDone+" && echo installed || echo seeding", time.Minute)
 	assertEchoes(t, sess, target, strings.Contains(out, "seeding"))
 	return run
+}
+
+// assertPromptSoonAfterRelease fails when the agent's prompt appeared later
+// after the seed's release than the budget allows.
+func assertPromptSoonAfterRelease(t *testing.T, run readyProbe, target string, promptAt time.Time) {
+	t.Helper()
+	readyMax := durationEnv(t, "PROVEO_TEST_READY_AFTER_RELEASE", 20*time.Second)
+	out, _ := run("stat -c %Y "+releaseMarker, time.Minute)
+	released, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		t.Logf("%s: no release marker time (%q) — the release gap is unmeasured", target, strings.TrimSpace(out))
+		return
+	}
+	if gap := promptAt.Sub(time.Unix(released, 0)); gap > readyMax {
+		t.Errorf("%s: the prompt appeared %s after the release, want <= %s — it waited on the installs again",
+			target, gap.Round(time.Second), readyMax)
+	}
 }
 
 // killAndAwait ends the tmux session, then waits up to timeout for the
@@ -395,27 +400,6 @@ echo "gopls=$(bash -lic 'command -v gopls' >/dev/null 2>&1 && echo yes || echo n
 files=$(find /home /app -type f \( %[2]s \) 2>/dev/null)
 echo "gopls_wired=$([ -n "$files" ] && grep -qE 'gopls' $files && echo yes || echo no)"
 `, seedDone, strings.Join(pats, " -o "))
-}
-
-var readyGapRE = regexp.MustCompile(`READY gap=(-?\d+) seeding=(yes|no)`)
-
-// assertReadySoonAfterRelease times the session's shell start against the
-// release marker and reports whether the background seed is still installing.
-func assertReadySoonAfterRelease(t *testing.T, sess *tmux.Session, target string) (seeding bool) {
-	t.Helper()
-	readyMax := durationEnv(t, "PROVEO_TEST_READY_AFTER_RELEASE", 20*time.Second)
-
-	out, _ := shellExec(t, sess, `bt=$(awk '/^btime/{print $2}' /proc/stat); hz=$(getconf CLK_TCK)
-started=$(( bt + $(awk '{print $22}' /proc/$PPID/stat) / hz ))
-released=$(stat -c %Y `+releaseMarker+` 2>/dev/null) || exit 0
-echo "READY gap=$(( started - released )) seeding=$(test -e `+seedDone+` && echo no || echo yes)"`, time.Minute)
-	m := readyGapRE.FindStringSubmatch(out)
-	if m != nil && sbx.BuiltinAgent(target) != "" {
-		if gap, _ := strconv.Atoi(m[1]); time.Duration(gap)*time.Second > readyMax {
-			t.Errorf("%s: the session started %ds after the release, want <= %s — it waited on the installs again", target, gap, readyMax)
-		}
-	}
-	return m != nil && m[2] == "yes"
 }
 
 // assertEchoes types into the session while the background seed may still be

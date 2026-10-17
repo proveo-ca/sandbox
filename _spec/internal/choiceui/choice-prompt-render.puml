@@ -2,14 +2,19 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: what the choice prompt draws, what may be offered, and where the cursor may rest
-' covers: internal/choiceui/choiceui.go, internal/choiceui/consent.go
-' covers: internal/choiceui/choiceui_test.go, internal/choiceui/consent_test.go
+' covers: internal/choiceui/choiceui.go
+' covers: internal/choiceui/choiceui_test.go, internal/choiceui/render_test.go
 ' covers: internal/choiceui/hover_test.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/choiceui/pane_test.go
 ' covers: cmd/proveo/main.go
 ' covers: internal/run/choices.go, internal/run/params.go, internal/run/run_test.go
 ' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
-' row-gating helpers (applicableRows, comingSoon, gateAddons, gateReview) lands here (batches 3 and 6).
+' row-gating helpers (applicableRows, comingSoon, gateAddons; gateReview went with
+' the review tier) lands here (batches 3 and 6).
+' consent.go (Consent, the review tier's connection modal) and its test are
+' DELETED (MEASURED): review was retired 2026-10-16 and nothing called it.
+' drawBorder moved to internal/choiceui/blocked_run.go, where the blocked-run
+' prompts use it; the `rendered` test helper moved to render_test.go.
 ' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
 ' Resolved geometry — column alignment, the divider, how a gated element is drawn:
 ' _spec/internal/choiceui/wireframe.puml (salt). Layout prose belongs there, not here.
@@ -37,13 +42,14 @@ skinparam noteTextAlignment left
 ' Naming the ALTERNATIVE is half of what a help line is for, and the half that
 ' was missing. An unticked box is a posture too, and "docker (sandbox)" said
 ' nothing about what unticking it selects — not the host, which proveo never
-' runs an agent on, but the docker backend behind egress sidecars.
+' runs an agent on, but (until 2026-10-16) the docker backend behind egress
+' sidecars. Since that backend's deletion the box's help reads "every harness
+' runs in the sandbox and nowhere else" (MEASURED, gateAddons).
 '
-' The egress axis is chosen by AVAILABILITY alone, not by the add-on: a harness
-' that declares sbx runs there whenever the host can. Consulting the remembered
-' answer offered the docker tiers — open/allowlist/review — for a run that was
-' going to sbx and read the host baseline instead, hiding changeBaselineHint,
-' the one true statement about what governs egress there.
+' HISTORY: the egress axis was chosen by AVAILABILITY, not by the add-on.
+' Consulting the remembered answer once offered the docker tiers —
+' open/allowlist/review — for a run going to sbx, hiding changeBaselineHint.
+' The tiers are deleted now; egressRow always shows sbx's baseline, locked.
 '
 ' Help is what an option DOES, keyed by the option itself rather than indexed:
 ' callers assemble Options conditionally — a harness without a -browser variant
@@ -268,19 +274,18 @@ note bottom of GATE
 end note
 
 note bottom of GATE
-  **Greyed in both directions, and outside
-  ""addonFixed"".** That table declares constant
-  boxes, whereas an available sandbox is settled
-  per run by ""sbx.Available"" — which is why the
-  gate greys it, and not the declaration.
+  **Greyed and ticked, outside ""addonFixed"".**
+  The gate greys the sandbox on every run; an
+  unready sbx no longer unticks it — the run
+  refuses before the form (since 2026-10-16).
 end note
 
 note bottom of READ
   **""Selections"" drops every greyed box, so the
   compulsory one is re-added deliberately.**
-  Reporting the sandbox as unselected would
-  route the run to the docker backend, the exact
-  posture this lock removes.
+  Reporting the sandbox as unselected once
+  routed the run to the docker backend; that
+  backend is deleted, the re-add stays.
 end note
 
 note top of SOON
@@ -288,15 +293,14 @@ note top of SOON
   disables the option and moves the selection
   away, yet the row still displays it with the
   reason attached, because removing it
-  misrepresents an unfinished tier as absent.
+  misrepresents a withheld option as absent.
 end note
 
 note bottom of SOON
-  **""--egress-mode"" still accepts the value.**
-  Development can therefore drive an unfinished
-  tier that an operator cannot select by
-  accident, and ""review"" is greyed by its
-  platform with the failed constraint named.
+  **The flag accepts what the form greys.**
+  ""--credentials forward"" works from the CLI
+  while the form gates it. ""--egress-mode"" now
+  refuses the run, naming ""sbx policy"".
 end note
 
 note top of TTY
@@ -345,9 +349,10 @@ note bottom of ROW
 end note
 
 note bottom of ROW
-  **The consent modal takes the whole screen.**
-  ""review"" mode answers one connection at a time
-  over a suspended agent TUI.
+  **The consent modal is deleted.** ""review""
+  answered one connection at a time over a
+  suspended agent TUI; it was retired 2026-10-16
+  and ""Consent"" went with it.
 end note
 
 

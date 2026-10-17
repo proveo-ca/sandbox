@@ -80,9 +80,6 @@ func TestSandboxEgressIsConfinedToTheKitAllowlist(t *testing.T) {
 	}
 	requireTmux(t)
 	const target = "claudecode"
-	if !sbxShellHoldsInADetachedPane(t) {
-		t.Skipf("sbx's own shell agent does not survive a detached tmux pane on this host")
-	}
 	requireHarnessCredential(t, target)
 
 	proveoBin := buildProveo(t)
@@ -107,37 +104,21 @@ func TestSandboxEgressIsConfinedToTheKitAllowlist(t *testing.T) {
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_EGRESS_ROOT="+state,
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--shell", "--input", work,
+		proveoBin, "run", target, "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
-	w := newWatcher(t, sess)
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 6*time.Minute)
-	w.until("the sandbox shell prompt", timeout, func() bool {
-		if line := sbxError(w.Screen()); line != "" && !retryable(line) {
-			w.Fatalf("sbx refused the run — %s", line)
-		}
-		answerSbxPrompt(sess, w.Screen())
-		return promptReady(w.Screen())
-	})
+	k := awaitKit(t, sess, before, target, work)
 
-	const results = "SBX_EGRESS.txt"
-	probe := "{ printf DIRECT:; curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://" + deniedHost +
+	probe := "printf DIRECT:; curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://" + deniedHost +
 		"/ 2>/dev/null || printf REFUSED; echo; " +
-		"printf DAEMON:; docker pull --quiet alpine:3.20 >/dev/null 2>&1 && echo PULLED || echo REFUSED; } > " + results + " 2>&1"
-	if err := sess.SendText(probe); err != nil {
-		t.Fatalf("send egress probe: %v", err)
+		"printf DAEMON:; docker pull --quiet alpine:3.20 >/dev/null 2>&1 && echo PULLED || echo REFUSED"
+	got, _ := k.exec(probe, 4*time.Minute)
+	if !strings.Contains(got, "DIRECT:") || !strings.Contains(got, "DAEMON:") {
+		t.Fatalf("the egress probe did not finish:\n%s", got)
 	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("send probe newline: %v", err)
-	}
-	w.until("the egress probe to finish", 4*time.Minute, func() bool {
-		s := readIn(work, results)
-		return strings.Contains(s, "DIRECT:") && strings.Contains(s, "DAEMON:")
-	})
-	got := readIn(work, results)
 
 	if !strings.Contains(got, "DIRECT:REFUSED") {
 		t.Errorf("the agent reached %s, which no Kit allowlists — the sandbox allowlist is not confining direct egress:\n%s",
@@ -149,9 +130,7 @@ func TestSandboxEgressIsConfinedToTheKitAllowlist(t *testing.T) {
 			"reason the privileged sidecar could be retired in favour of this one:\n%s", got)
 	}
 
-	_ = sess.SendText("exit")
-	_ = sess.Enter()
-	waitSessionExit(sess, 3*time.Minute)
+	k.end()
 
 	matches, _ := filepath.Glob(filepath.Join(state, "egress", "*", "sbx", runlog.PolicyLogFile))
 	if len(matches) == 0 {

@@ -9,7 +9,9 @@ skinparam noteTextAlignment left
 ' covers: e2e/close_confirm_test.go
 ' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
 ' covers: internal/run/helpers.go
-' covers: internal/backend/dockeregress/dockeregress.go (ExecAgentWithProxy)
+'   (internal/backend/dockeregress ExecAgentWithProxy was the second caller;
+'   deleted 2026-10-16 with the docker backend. "internal/ptyproxy stays: every
+'   interactive sbx run uses it" — the Executor's retirement kept it.)
 '   what the input pump then FILTERS . _spec/internal/ptyproxy/terminal-report-filter.puml
 '   what the output pump records ..... _spec/internal/runlog/run-transcript.puml
 '   the modal this hands its screen to _spec/internal/choiceui/choice-prompt-render.puml

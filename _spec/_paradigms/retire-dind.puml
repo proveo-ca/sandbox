@@ -3,7 +3,6 @@
 ' purpose: retire the privileged dind sidecar and make sbx the only way an agent gets a daemon
 ' covers: internal/manifest/**
 ' covers: internal/run/**
-' covers: internal/egress/plan.go
 ' covers: internal/sbx/agents.go, internal/sbx/sbx_test.go
 ' covers: cmd/proveo/main.go, cmd/proveo/clean.go
 ' covers: internal/contract/contract_test.go
@@ -11,6 +10,19 @@
 ' session: d2ff9d04-cba3-46b5-87d6-698c921c9ede
 ' APPLIED 2026 — all four steps landed; kept as the decision record for why
 ' no privileged sidecar exists. Cited from the source it constrains.
+'
+' ── 2026-10-16: THE SECOND DECISION THIS FILE DECLINED WAS TAKEN ───────────
+' This plan kept docker+egress as the PROVEO_SBX=0 fallback and left mitmproxy
+' and Squid out of scope. The Executor then chose "Retire Docker egress",
+' "Refuse without sbx" and "Retire review, map the rest". The backend, its
+' sidecars, the review tier and the fallback are DELETED; PROVEO_SBX off values
+' refuse the run (_spec/internal/sbx/sandbox-backend.puml). Every "still stands"
+' and "left open" below is therefore HISTORY, answered as marked.
+' `--egress-mode` survives only as a HIDDEN flag that errors at the top of
+' RunE: "--egress-mode is retired: sbx's own network policy decides egress
+' (`sbx policy ls`, `sbx policy allow network <host>`); remove the flag" — the
+' PROVEO_DIND rule (say so, never silently ignore) applied to a flag, with a
+' cmd/proveo test pinning it (MEASURED: cmd/proveo/main.go, main_test.go).
 '
 ' ── WHAT ACTUALLY LANDED, AND THE TWO THINGS THE PLAN DID NOT KNOW ─────────
 ' 1. Manifests moved. `opencode` AND `cecli` declare `docker: sbx`; both images
@@ -79,9 +91,12 @@
 '    consent for a different thing.
 '
 ' 3. THE TIER GATE OUTLIVED THE SIDECAR IT WAS WRITTEN FOR. `gateAddons` lost
-'    its dind arm but not its job: the Claude in Chrome bridge is now the only
-'    add-on it governs, and it governs it on the DOCKER backend, where an
-'    intercepting tier leaves the agent no route to the host.
+'    its dind arm but not its job: it governed the Claude in Chrome bridge on
+'    the DOCKER backend, where an intercepting tier left the agent no route to
+'    the host. MEASURED 2026-10-16: the tier is gone, and gateAddons greys
+'    claude-in-chrome on every sbx run with chromebridge.SbxWhy ("needs a real
+'    Claude token — sbx keeps it proxy-managed and the Chrome bridge rejects
+'    the sentinel (401)"). chromebridge.TierSupported/TierWhy are deleted.
 '
 ' 4. `PROVEO_DIND` SAYS SO RATHER THAN STAYING SILENT. Its whole remaining job
 '    is the warning. An operator who exported it in a shell rc months ago reads
@@ -117,13 +132,13 @@
 ' TestDindHarnessesShipADockerClient asserted this for the privileged-sidecar
 ' branch, where the image alone decided the answer; that branch is retired.
 '
-' WHAT DID NOT HAPPEN, ON PURPOSE. mitmproxy and Squid still stand, the docker
-' backend still answers `PROVEO_SBX=0` and `--egress-mode review`, and the review
-' tier is therefore still implemented. `clean` still sweeps `proveo-dind-*`: a
-' `--privileged` container an older proveo left running is the last thing to
-' strand on a host with nothing left that knows its name.
-' And secret-custody's (d) is NOT closed: it needed the BACKEND deleted, not the
-' sidecar, so its prerequisite moved one step further out.
+' WHAT DID NOT HAPPEN, ON PURPOSE (HISTORY — all of it happened 2026-10-16).
+' mitmproxy and Squid stood, the docker backend answered `PROVEO_SBX=0` and
+' `--egress-mode review`, and the review tier was still implemented. `clean`
+' still sweeps `proveo-dind-*`: a `--privileged` container an older proveo left
+' running is the last thing to strand on a host with nothing left that knows
+' its name. secret-custody's (d) needed the BACKEND deleted, not the sidecar;
+' it closed when the backend went.
 '
 '   what dind WAS ............... deleted with the package; the record is here
 '                                 and in _spec/_experiments/docker-sandbox.puml
@@ -134,14 +149,16 @@
 '                                 gate — _spec/tests/testing-strategy.puml
 '   what this UNBLOCKS .......... _spec/_plans/secret-custody.puml
 '
-' SCOPE. Eliminate the dind sidecar. The fate of mitmproxy and Squid is
-' deliberately NOT decided here — they serve the docker backend, which survives
-' this change as the PROVEO_SBX=0 fallback, and deciding both at once would
-' couple a security win to an observability regression.
+' SCOPE. Eliminate the dind sidecar. The fate of mitmproxy and Squid was
+' deliberately NOT decided here — they served the docker backend, which
+' survived this change as the PROVEO_SBX=0 fallback, and deciding both at once
+' would have coupled a security win to an observability regression. Decided
+' separately on 2026-10-16: deleted, and the observability answer is "no flow
+' record; sbx's policy log is the record".
 '
-' ── WHAT ELSE IS WAITING ON THIS ───────────────────────────────────────────
+' ── WHAT ELSE WAS WAITING ON THIS (CLOSED 2026-10-16) ──────────────────────
 ' secret-custody's exposure (d) — a plaintext credential in a mounted file —
-' cannot be closed while the docker backend survives. There the agent's
+' could not be closed while the docker backend survived. There the agent's
 ' credential IS ~/.claude/.credentials.json in the mounted proveo home, so any
 ' path that carries a login to the agent writes a plaintext token into a
 ' bind-mounted directory every later run can read. On sbx that file is written
@@ -166,7 +183,7 @@ component "sbx sandbox\na daemon per sandbox, behind a policy" as SBX <<app>>
 folder "what this costs, and to whom" as COST <<host>> {
   component "review tier\nneeds proveo's MITM; sbx has none" as REV <<error>>
   component "flow-level analytics\nflows.ndjson -> sbx policy log" as OBS <<error>>
-  component "claude-in-chrome\nWORKS on sbx since 2026-09-03" as CHR <<app>>
+  component "claude-in-chrome\ngreyed on sbx (SbxWhy) since 2026-10-16" as CHR <<error>>
 }
 
 GATE ARROW_MAIN DIND
@@ -175,7 +192,7 @@ CE ARROW_MAIN SBX
 DIND ARROW_ERROR SBX : deleted, not replaced
 SBX ARROW_ERROR REV
 SBX ARROW_ERROR OBS
-SBX ARROW_MAIN CHR : no longer a cost
+SBX ARROW_ERROR CHR : no working path today
 
 note bottom of DIND
   **It is privileged, and it is reachable.** A
@@ -250,27 +267,27 @@ note bottom of OBS
 end note
 
 note bottom of CHR
-  **No longer a cost.** The bridge was thought to
-  need the docker bridge network. Measured false:
-  host.docker.internal reaches the host's loopback
-  from inside a sandbox, so the add-on works there
-  and retiring docker takes nothing from it.
+  **The network was never the cost; the token
+  is.** host.docker.internal reaches the host's
+  loopback from a sandbox, but the bridge needs a
+  real Claude token and sbx holds a placeholder.
+  So the add-on is greyed on every run now.
 end note
 
 note bottom of SBX
-  **One backend, or two?** Keeping docker as the
-  ""PROVEO_SBX=0"" fallback keeps review, the flow
-  record and Chrome alive for anyone who needs
-  them. Deleting it is a second decision, and why
-  mitmproxy and Squid are out of scope here.
+  **One backend, or two? ONE (2026-10-16).**
+  Docker as the ""PROVEO_SBX=0"" fallback kept
+  review and the flow record alive. Deleting it
+  was the second decision; it is taken, and
+  ""PROVEO_SBX"" off values now refuse the run.
 end note
 
 note top of SBX
-  **It unblocks secret custody (d).** On sbx the
+  **It closed secret custody (d).** On sbx the
   agent never reads a host credential file —
   sbx's proxy writes it inside the sandbox with
-  sentinels. While docker survives, a plaintext
-  token on disk is unavoidable there.
+  placeholders. The docker path that needed a
+  token on disk is deleted.
 end note
 
 legend bottom
@@ -288,16 +305,14 @@ legend bottom
   **4. Delete the sidecar plumbing.** The link args, ""DOCKER_HOST"", the readiness wait,
   and the ""--privileged"" run — the last privileged container proveo starts.
   ==
-  **Left open on purpose.** Whether mitmproxy and Squid follow; and whether review is a
-  thing proveo should keep a whole backend alive for, or hand to the sandbox vendor.
+  **Left open on purpose — ANSWERED 2026-10-16.** mitmproxy and Squid followed the
+  sidecar out; review was retired rather than kept alive on a backend of its own.
   --
-  **ANSWERED since, by measurement.** "Can the policy log be raised to per-request
-  fidelity?" — not the log itself, but the fidelity is reachable another way. sbx's
-  own proxy is the ONLY route out of a sandbox (""HTTP_PROXY"" ·
-  ""gateway.docker.internal:3128""), so proveo can put its inspector IN that path via the
-  Kit's ""environment.variables"" and chain upstream to sbx (""PROVEO_EGRESS_UPSTREAM""
-  already exists). Costs: proveo's CA must be trusted inside the sandbox too, sbx's
-  credential injection happens at ITS proxy so the chain order matters, and the
-  ""NO_PROXY""-as-regex hazard is live. Loopback stays invisible either way.
+  **SKETCHED, then declined.** Per-request fidelity was reachable by chaining proveo's
+  inspector into sbx's own proxy (the ONLY route out: ""HTTP_PROXY"" ·
+  ""gateway.docker.internal:3128"") via the Kit's ""environment.variables"". Costs: proveo's
+  CA trusted inside the sandbox, chain order around sbx's credential injection, and the
+  ""NO_PROXY""-as-regex hazard. The Executor chose no flow record: ""sbx policy log"",
+  saved at teardown, is the record. ""PROVEO_EGRESS_UPSTREAM"" no longer exists (MEASURED).
 end legend
 @enduml

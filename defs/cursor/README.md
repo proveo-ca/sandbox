@@ -36,7 +36,7 @@ Candidate coding harness definition. This definition exposes:
 
 Its image suite is `internal/imagetest/cursor_test.go` (`TestImageCursor`).
 
-`proveo run cursor --shell` opens a debug shell with the same mounts and env.
+For a shell in a running cursor sandbox: `sbx ls`, then `sbx exec -it <sandbox> bash`.
 
 This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md).
 
@@ -63,7 +63,6 @@ tarball from `downloads.cursor.com` and pass `--build-arg CURSOR_INSTALL_URL=<mi
 ```bash
 proveo run cursor # interactive TUI in the current repo
 proveo run cursor --credentials forward # put CURSOR_API_KEY in the sandbox env instead of sbx's proxy
-proveo run cursor --shell # debug shell with the same mounts/env
 ```
 
 ### Headless (CI shape)

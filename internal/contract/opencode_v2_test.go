@@ -345,7 +345,7 @@ configure_opencode_formatter`)
 
 func TestOpencodeV2LocalModelMerge(t *testing.T) {
 	t.Parallel()
-	for _, base := range []string{"", "http://ollama:11434", "http://ollama:11434///", "http://ollama:11434/v1", "http://ollama:11434/v1/", "http://ollama:11434/v1/v1//"} {
+	for _, base := range []string{"", "http://host.docker.internal:11434", "http://host.docker.internal:11434///", "http://host.docker.internal:11434/v1", "http://host.docker.internal:11434/v1/", "http://host.docker.internal:11434/v1/v1//"} {
 		t.Run(base, func(t *testing.T) {
 			t.Parallel()
 			home := t.TempDir()
@@ -369,7 +369,7 @@ configure_opencode_local_model`
 			}
 			want["providers"].(map[string]any)["ollama"] = map[string]any{
 				"package": "@opencode/ai/providers/openai-compatible", "name": "Ollama (local)",
-				"settings": map[string]any{"baseURL": "http://ollama:11434/v1", "apiKey": "ollama"},
+				"settings": map[string]any{"baseURL": "http://host.docker.internal:11434/v1", "apiKey": "ollama"},
 				"models":   map[string]any{"qwen3:8b": map[string]any{"name": "qwen3:8b (local)"}},
 			}
 			want["model"] = "ollama/qwen3:8b"
@@ -444,7 +444,7 @@ func TestOpencodeV2NativeValidation(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			args := []string{"run", "--rm", "--network", "none", "--env", "OPENCODE_SERVER_PASSWORD=offline-contract",
-				"--env", "PROVEO_LOCAL_MODEL=" + model, "--env", "OLLAMA_API_BASE=http://ollama:11434/v1/v1/"}
+				"--env", "PROVEO_LOCAL_MODEL=" + model, "--env", "OLLAMA_API_BASE=http://host.docker.internal:11434/v1/v1/"}
 			for _, mount := range []struct{ src, dst string }{
 				{"packages/lib/entrypoint-lib.sh", "/entrypoint-lib.sh"},
 				{"defs/opencode/defaults", "/opt/opencode/defaults"},
@@ -503,7 +503,7 @@ exit 1`
 				want["agents"].(map[string]any)["title"] = map[string]any{"model": selection}
 				want["providers"].(map[string]any)["ollama"] = map[string]any{
 					"package": "@opencode/ai/providers/openai-compatible", "name": "Ollama (local)",
-					"settings": map[string]any{"baseURL": "http://ollama:11434/v1", "apiKey": "ollama"},
+					"settings": map[string]any{"baseURL": "http://host.docker.internal:11434/v1", "apiKey": "ollama"},
 					"models":   map[string]any{model: map[string]any{"name": model + " (local)"}},
 				}
 			}

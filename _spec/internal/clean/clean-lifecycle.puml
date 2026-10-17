@@ -3,6 +3,25 @@
 ' purpose: what proveo clean reclaims, what it refuses to touch, and the liveness gate in front of it
 ' covers: internal/clean/**
 ' covers: cmd/proveo/clean.go
+'
+' 2026-10-16: the docker+egress backend is DELETED, so nothing creates an
+' egress session container, an egress network or broker.env any more. MEASURED:
+' cmd/proveo/clean.go still sweeps `label=proveo.egress.session` containers and
+' networks and `proveo-dind-*` — both are now LEGACY sweeps for what an older
+' proveo left behind, the same reason the dind sweep was kept. The per-run state
+' dir (<stateDir>/egress/<sid>, the name is egress-era) now holds the sbx Kit,
+' the policy log and the run's other artifacts; an older run's dir may still
+' hold a broker.env. Whether and when to drop the legacy sweeps is
+' repo-simplification.puml F11 (PROPOSED), not decided here; nothing sweeps the
+' retired backend's `proveo-squid-cache-*` volumes at all.
+'
+' A STATE DIR IS LIVE WHEN ITS PROCESS IS. With no egress container to stand for
+' a run, a running container can no longer mark an sbx session live. MEASURED:
+' cmd/proveo/clean.go sessionAlive(sid) parses the pid out of the session id
+' (proveo-<unix>-<pid>) and probes it with os.FindProcess + Signal(0); a live
+' one lands in Inventory.LiveSessions, and internal/clean keeps that state dir.
+' [Inference] A pid reused by an unrelated process reads as live — the safe
+' direction: a dir kept, never a live run's dir removed.
 title `proveo clean` — reclaim leaked run state without killing live runs
 
 actor "Maintainer" as MT
@@ -12,10 +31,10 @@ node "Host" as HOST <<host>> {
   component "internal/clean\nBuildPlan(inv, opts) — pure" as CORE <<app>>
 
   frame "Inventory" as INV <<host>> {
-    component "egress session containers\n(mitm · squid · ollama)" as C <<app>>
+    component "LEGACY egress session containers\n(mitm · squid · ollama — none created since 2026-10-16)" as C <<app>>
     component "legacy DinD sidecars\n(retired; never session-labeled)" as D <<app>>
-    component "egress networks\n+ HasEndpoints" as N <<app>>
-    database "<stateDir>/egress/<sid>\nholds injected broker.env" as ST <<error>>
+    component "LEGACY egress networks\n+ HasEndpoints" as N <<app>>
+    database "<stateDir>/egress/<sid>\nsbx Kit · policy log\n(older runs: broker.env)" as ST <<error>>
     database "proveo/* images" as IMG <<db>>
     database "PROVEO_HOME (~/.proveo)\nsessions + seeded config" as PH <<db>>
     database "provisioned toolchains\n""toolchains/<os>-<arch>/"" per platform\n""\.local/share/mise"" · ""\.go"" · ""go"" · shims" as TOOLS <<db>>
@@ -41,8 +60,8 @@ note bottom of TOOLS
   nothing. Nothing else prunes it, and it only grows.
 
   **One tree per platform, plus the legacy one.** ""_proveo_tool_home"" writes to
-  ""PROVEO_HOME/toolchains/<os>-<arch>"" so the docker backend and the sbx VM can
-  SHARE a tree without an amd64 install answering ""command -v"" for an arm64
+  ""PROVEO_HOME/toolchains/<os>-<arch>"" so the docker backend (deleted
+  2026-10-16) and the sbx VM could SHARE a tree without an amd64 install answering ""command -v"" for an arm64
   sandbox. ""toolRoots"" globs those and keeps PROVEO_HOME itself in the list:
   trees installed before the relocation are still on operators' disks, and a
   flag that silently stopped reclaiming them would be worse than the growth.
@@ -77,9 +96,10 @@ end note
 
 note bottom of ST
   Wiping egress state is a **security** action, not just
-  disk hygiene: a crashed run can leave the injected
-  ""broker.env"" (the real provider key) on disk. Routine
-  clean removes it.
+  disk hygiene: a crashed docker-era run could leave the
+  injected ""broker.env"" (the real provider key) on disk.
+  Routine clean removes it. No run writes one since
+  2026-10-16.
 end note
 
 note bottom of PH
@@ -92,11 +112,12 @@ note bottom of CORE
   **The decision core is pure: an inventory in, a removal set out.** That is
   what lets the two tiers be asserted without Docker present.
 
-  **"Live" is defined by a running container, and it protects the whole
-  session.** When any of a session's egress containers is still running,
-  its networks //and// its state directory are preserved — the state dir
-  holds the injected secret and the flow record a live run is still
-  writing. Anything skipped for that reason is reported rather than
+  **"Live" protects the whole session.** HISTORY: when any of a docker-era
+  session's egress containers was still running, its networks //and// its
+  state directory were preserved. Now a session is live when its proveo
+  process answers ""Signal(0)"" (""sessionAlive"" → ""Inventory.LiveSessions""),
+  and its state dir — the sbx Kit and the policy log a live run still
+  writes — is preserved. Anything skipped for that reason is reported rather than
   silently kept, so an operator who expected a reclaim learns why it did
   not happen.
 

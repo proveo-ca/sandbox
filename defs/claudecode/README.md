@@ -103,11 +103,11 @@ Run tests:
 mise run test-defs claudecode      # or: proveo test claudecode
 ```
 
-Open a variant debug shell through the parent run wrapper:
+Open a shell in a running variant's sandbox with sbx:
 
 ```bash
-proveo run claudecode --shell
-proveo run claudecode-solidity --shell
+sbx ls                          # name the running sandbox
+sbx exec -it <sandbox> bash
 ```
 
 ## Environment Variables
@@ -287,8 +287,8 @@ proveo run claudecode
 
 ### Debug Container Access
 ```bash
-proveo run claudecode --shell   # Access the MCP variant debug shell
-proveo run claudecode-solidity --shell  # Access the solo variant debug shell
+sbx ls                          # name the running sandbox
+sbx exec -it <sandbox> bash     # shell in that sandbox
 ```
 
 ## License

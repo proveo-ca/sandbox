@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -199,17 +200,6 @@ func TestSandboxBackendRefusesWhenSbxAbsent(t *testing.T) {
 			}
 			if strings.Contains(out, "docker run") || strings.Contains(out, "falling back") {
 				t.Errorf("a refused run must not render or promise a docker fallback:\n%s", out)
-			}
-		})
-	}
-}
-
-func TestRetiredSbxOffValuesRefuseTheRun(t *testing.T) {
-	for _, v := range []string{"0", "off", "false"} {
-		t.Run(v, func(t *testing.T) {
-			out, err := printOnlyRunErr(t, t.TempDir(), []string{"PROVEO_SBX=" + v}, "claudecode")
-			if err == nil || !strings.Contains(out, "PROVEO_SBX="+v+" is retired") {
-				t.Errorf("PROVEO_SBX=%s must refuse with the retirement message, got err=%v:\n%s", v, err, out)
 			}
 		})
 	}
@@ -522,39 +512,9 @@ func assertSandboxSuppliesDocker(t *testing.T, target, got string) {
 	t.Logf("%s: the sandbox supplies docker: %s", target, strings.Join(strings.Fields(got), " · "))
 }
 
-func sbxShellHoldsInADetachedPane(t *testing.T) bool {
-	t.Helper()
-	work := t.TempDir()
-	name := fmt.Sprintf("proveo-shellprobe-%d", os.Getpid())
-	sess := tmux.New(name, nil)
-	t.Cleanup(func() {
-		sess.Kill()
-		_ = exec.Command(sbx.Binary, "rm", "--force", name).Run()
-	})
-	if err := sess.Start(120, 40, sbx.Binary, "run", "--name", name, "-t", "proveo/cursor:local", "shell", work); err != nil {
-		return false
-	}
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		screen, err := sess.CaptureAll()
-		if err != nil {
-			return false // the pane is gone: the shell did not hold
-		}
-		if promptReady(screen) || strings.Contains(screen, "$ ") {
-			return true
-		}
-		time.Sleep(time.Second)
-	}
-	return false
-}
-
 func sandboxBoundaryProbe(t *testing.T, target string) {
 	t.Helper()
-	if !sbxShellHoldsInADetachedPane(t) {
-		t.Skipf("sbx's own shell agent does not survive a detached tmux pane on this host, "+
-			"so %s cannot be driven to a prompt here; the sandbox Kit and backend selection "+
-			"stay covered by TestSandboxKit* and TestSandboxBackend*", target)
-	}
+	requireSbx(t)
 	requireHarnessCredential(t, target)
 	proveoBin := buildProveo(t)
 
@@ -589,48 +549,30 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--shell", "--input", work,
+		proveoBin, "run", target, "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
 	w := newWatcher(t, sess)
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 6*time.Minute)
 
 	w.until("the sbx backend line", 2*time.Minute, func() bool {
 		s := w.Screen()
 		if strings.Contains(s, "docker sandbox: off") {
 			w.Fatalf("%s ran with the sandbox add-on unchecked — a remembered choice leaked into this run", target)
 		}
-		if strings.Contains(s, "falling back to docker+egress") {
-			w.Fatalf("%s fell back to docker+egress on a host where sbx.Available() said yes", target)
-		}
 		return strings.Contains(s, "backend: docker sandboxes (sbx)")
 	})
 
-	// _spec/_experiments/docker-sandbox.puml). Failing on sight would call that
-	w.until("the sandbox shell prompt", timeout, func() bool {
-		if line := sbxError(w.Screen()); line != "" && !retryable(line) {
-			w.Fatalf("%s: sbx refused the run — %s", target, line)
-		}
-		if line := brokenPrompt(w.Screen()); line != "" {
-			w.Fatalf("%s: a confirmation is eating input meant for something else — %s\n"+
-				"`sbx secret set` reads the secret from stdin, so this prompt consumes it and "+
-				"cancels the write; --force is what keeps that from happening", target, line)
-		}
-		// sbx asks the operator which credentials the Kit may use. That is a normal
-		// gate, not a fault — answer it the way an operator would.
-		answerSbxPrompt(sess, w.Screen())
-		return promptReady(w.Screen())
-	})
+	k := awaitKit(t, sess, before, target, work)
 
 	const mark = "SBX-MOUNT-OK"
 	probe := "{ ls /var/run/docker.sock >/dev/null 2>&1 && echo HAS-SOCKET || echo NO-SOCKET; " +
 		"printf SERVER:; timeout 20 docker version --format '{{.Server.Version}}' 2>/dev/null; echo; }; " +
 		"printf 'AGENT_HEAD=%s\\n' \"$(git rev-parse HEAD 2>/dev/null || echo none)\"; " +
 		"printf %s " + mark + " > " + probeMount
-	pane, status := shellExec(t, sess, probe, 3*time.Minute)
+	pane, status := k.exec(probe, 3*time.Minute)
 	if status != 0 {
 		t.Fatalf("%s: the boundary probe exited %d\n--- pane ---\n%s", target, status, pane)
 	}
@@ -643,7 +585,7 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 		t.Errorf("%s: the sandbox stands on commit %q, want the workspace's %q — "+
 			"the clone did not come from this checkout", target, agentHead, hostHead)
 	}
-	if !strings.Contains(w.Screen(), "private clone") {
+	if screen, _ := sess.CaptureAll(); !strings.Contains(screen, "private clone") {
 		w.until("the sandbox to write through the workspace mount", 2*time.Minute, func() bool {
 			return strings.Contains(readIn(work, probeMount), mark)
 		})
@@ -653,20 +595,20 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	// the only way a harness gets one.
 	assertSandboxSuppliesDocker(t, target, probeReport(pane))
 
-	// Claim 4 — teardown. Exit the shell rather than killing the pane, so the
-	// run's own `sbx rm` (VM + images + volumes) is what gets exercised.
-	_ = sess.SendText("exit")
-	_ = sess.Enter()
-	if _, exited := waitSessionExit(sess, 3*time.Minute); !exited {
-		t.Errorf("%s: the sandbox session did not exit after `exit`", target)
+	// Claim 4 — teardown. SIGTERM rather than killing the pane, so the run's own
+	// `sbx rm` (VM + images + volumes) is what gets exercised.
+	screen, exited := k.end()
+	if !exited {
+		t.Errorf("%s: proveo did not finish its teardown after SIGTERM\n%s", target, screen)
 	}
 	if !canList {
 		return
 	}
+	retained := strings.Contains(screen, "retained") && strings.Contains(screen, k.name)
 	var leaked []string
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		leaked = newSandboxes(before)
+		leaked = slices.DeleteFunc(newSandboxes(before), func(n string) bool { return retained && n == k.name })
 		if len(leaked) == 0 || time.Now().After(deadline) {
 			break
 		}
@@ -704,18 +646,6 @@ func paneValue(pane, key string) string {
 		return strings.TrimSpace(strings.TrimPrefix(line, key))
 	}
 	return ""
-}
-
-func promptReady(screen string) bool {
-	lines := strings.Split(screen, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		l := strings.TrimRight(lines[i], " \t")
-		if l == "" {
-			continue
-		}
-		return strings.HasSuffix(l, "$") || strings.HasSuffix(l, "#")
-	}
-	return false
 }
 
 // dockerVersionish reports whether s looks like a docker server version.

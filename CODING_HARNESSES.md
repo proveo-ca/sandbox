@@ -231,7 +231,7 @@ Entrypoints should print a concise preamble before launching the tool:
 - whether provider keys or project config are missing;
 - mounted working directory and monorepo scope when available.
 
-`proveo run <target> --shell` gives troubleshooting shell access with the same mounts and env as a run.
+For a shell in a running harness sandbox, use sbx: `sbx ls`, then `sbx exec -it <sandbox> bash`.
 
 ### Agent Evidence
 

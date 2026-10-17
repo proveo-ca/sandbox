@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -42,7 +44,7 @@ func cleanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&deep, "deep", false, "also remove proveo/* images (harness + base + sidecars)")
+	cmd.Flags().BoolVar(&deep, "deep", false, "also remove proveo/* images (harness + base)")
 	cmd.Flags().BoolVar(&force, "force", false, "also remove resources that look live (disrupts an in-progress run)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would be removed, without removing it")
 	cmd.Flags().BoolVar(&homes, "homes", false, "also remove PROVEO_HOME (~/.proveo) durable session/config cache")
@@ -171,6 +173,9 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		for _, e := range entries {
 			if e.IsDir() {
 				inv.StateDirs = append(inv.StateDirs, e.Name())
+				if sessionAlive(e.Name()) {
+					inv.LiveSessions = append(inv.LiveSessions, e.Name())
+				}
 			}
 		}
 	}
@@ -185,6 +190,20 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		}
 	}
 	return inv, nil
+}
+
+// sessionAlive reports whether the proveo process a session id names (proveo-<unix>-<pid>) still runs.
+func sessionAlive(sid string) bool {
+	i := strings.LastIndexByte(sid, '-')
+	if !strings.HasPrefix(sid, "proveo-") || i < 0 {
+		return false
+	}
+	pid, err := strconv.Atoi(sid[i+1:])
+	if err != nil || pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	return err == nil && proc.Signal(syscall.Signal(0)) == nil
 }
 
 func runClean(p clean.Plan, dryRun bool) error {
@@ -212,7 +231,7 @@ func runClean(p clean.Plan, dryRun bool) error {
 	}
 	for _, sid := range p.StateDirs {
 		dir := filepath.Join(run.StateDir(), "egress", sid)
-		ui.Dangerf("%s state %s (incl. any injected broker secret)", verb, dir)
+		ui.Dangerf("%s state %s (sbx kit, policy log, staged clone .env)", verb, dir)
 		if !dryRun {
 			_ = os.RemoveAll(dir)
 		}

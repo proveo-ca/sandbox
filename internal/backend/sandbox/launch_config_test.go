@@ -103,7 +103,7 @@ func TestOpencodeLocalEndpointNormalizationIsIdempotent(t *testing.T) {
 		base string
 		want string
 	}{
-		{"", "http://ollama:11434/v1"},
+		{"", "http://host.docker.internal:11434/v1"},
 		{"http://host.docker.internal:11434", "http://host.docker.internal:11434/v1"},
 		{"http://host.docker.internal:11434/", "http://host.docker.internal:11434/v1"},
 		{"http://host.docker.internal:11434///", "http://host.docker.internal:11434/v1"},

@@ -11,18 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-func isSbxArgv(agentCmd string) bool {
-	return strings.HasPrefix(strings.TrimSpace(agentCmd), "sbx run")
-}
-
 // TestProveoHomePersistence asserts durable session/config mounts under
 // PROVEO_HOME: plan wiring for every harness, auth scrubbing, resume argv
-// forwarding, clean --homes, and (when images exist) live --shell + resume
-// round-trips that never bind host IDE homes.
+// forwarding, and clean --homes.
 func TestProveoHomePersistence(t *testing.T) {
 	proveoBin := buildProveo(t)
 
@@ -50,41 +44,23 @@ func TestProveoHomePersistence(t *testing.T) {
 				if !strings.Contains(out, "proveo home: "+home) {
 					t.Errorf("missing proveo home preamble:\n%s", out)
 				}
-				if isSbxArgv(agentCmd) {
-					harnessHome := filepath.Join(home, a.subdir)
-					if !strings.Contains(agentCmd, " "+harnessHome) {
-						t.Errorf("sbx argv does not carry the harness home dir %s:\n%s", harnessHome, agentCmd)
-					}
-					if hasSbxWorkspace(agentCmd, home) {
-						t.Errorf("sbx argv still mounts the whole proveo home %s; an IDE would read unrelated run logs:\n%s",
-							home, agentCmd)
-					}
-					// The positive claim: resume state has a host path to travel to.
-					if !strings.Contains(agentCmd, "-e "+sbx.StateHomeVar+"="+home) {
-						t.Errorf("sbx argv missing -e %s=%s — without it the agent's transcripts "+
-							"land in volumes teardown removes, and `--resume` has nothing to offer:\n%s",
-							sbx.StateHomeVar, home, agentCmd)
-					}
-					// And the guard: the redirect must not come back by accident.
-					for _, banned := range []string{"-e HOME=", "-e PROVEO_HOME="} {
-						if strings.Contains(agentCmd, banned) {
-							t.Errorf("sbx argv carries %q — the HOME redirect is retired on this "+
-								"backend because it orphaned the proxy-written credential:\n%s", banned, agentCmd)
-						}
-					}
-				} else {
-					if !hasVolume(agentCmd, home, proveohome.ContainerHome) {
-						t.Errorf("agent cmd missing proveo home volume %s:%s:\n%s",
-							home, proveohome.ContainerHome, agentCmd)
-					}
-					containerHome := proveohome.ContainerHome
-					if !strings.Contains(agentCmd, "-e HOME="+containerHome) {
-						t.Errorf("agent cmd missing -e HOME=%s:\n%s", containerHome, agentCmd)
-					}
-					// PROVEO_HOME travels with it, so a seed that reads $HOME and an
-					// agent that reads this name resolve the same directory.
-					if !strings.Contains(agentCmd, "-e PROVEO_HOME="+containerHome) {
-						t.Errorf("agent cmd missing -e PROVEO_HOME=%s:\n%s", containerHome, agentCmd)
+				harnessHome := filepath.Join(home, a.subdir)
+				if !strings.Contains(agentCmd, " "+harnessHome) {
+					t.Errorf("sbx argv does not carry the harness home dir %s:\n%s", harnessHome, agentCmd)
+				}
+				if hasSbxWorkspace(agentCmd, home) {
+					t.Errorf("sbx argv still mounts the whole proveo home %s; an IDE would read unrelated run logs:\n%s",
+						home, agentCmd)
+				}
+				if !strings.Contains(agentCmd, "-e "+sbx.StateHomeVar+"="+home) {
+					t.Errorf("sbx argv missing -e %s=%s — without it the agent's transcripts "+
+						"land in volumes teardown removes, and `--resume` has nothing to offer:\n%s",
+						sbx.StateHomeVar, home, agentCmd)
+				}
+				for _, banned := range []string{"-e HOME=", "-e PROVEO_HOME="} {
+					if strings.Contains(agentCmd, banned) {
+						t.Errorf("sbx argv carries %q — the HOME redirect orphans the proxy-written credential:\n%s",
+							banned, agentCmd)
 					}
 				}
 				if host := os.Getenv("HOME"); host != "" {
@@ -92,7 +68,7 @@ func TestProveoHomePersistence(t *testing.T) {
 						filepath.Join(host, ".cursor"),
 						filepath.Join(host, ".claude"),
 					} {
-						if hasVolumeHost(agentCmd, ide) {
+						if mountsOver(agentCmd, ide) {
 							t.Errorf("must not mount host IDE path %s:\n%s", ide, agentCmd)
 						}
 					}
@@ -221,6 +197,7 @@ func TestProveoHomePersistence(t *testing.T) {
 
 func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...string) string {
 	t.Helper()
+	requireSbx(t)
 	args := append([]string{"run", target}, extra...)
 	args = append(args, "--print")
 	cmd := exec.Command(proveoBin, args...)
@@ -237,32 +214,21 @@ func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...str
 	return string(out)
 }
 
-func hasVolume(cmd, host, container string) bool {
-	toks := strings.Fields(cmd)
-	want := host + ":" + container
-	for i := 0; i+1 < len(toks); i++ {
-		if toks[i] == "-v" && (toks[i+1] == want || strings.HasPrefix(toks[i+1], want+":")) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasVolumeHost(cmd, host string) bool {
-	toks := strings.Fields(cmd)
-	prefix := host + ":"
-	for i := 0; i+1 < len(toks); i++ {
-		if toks[i] == "-v" && strings.HasPrefix(toks[i+1], prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func hasSbxWorkspace(argv, host string) bool {
 	for _, f := range strings.Fields(argv) {
 		path, _, _ := strings.Cut(f, ":")
 		if path == host {
+			return true
+		}
+	}
+	return false
+}
+
+// mountsOver reports whether any absolute workspace path in argv is path or a parent of it.
+func mountsOver(argv, path string) bool {
+	for _, f := range strings.Fields(argv) {
+		ws, _, _ := strings.Cut(f, ":")
+		if filepath.IsAbs(ws) && pathWithin(path, ws) {
 			return true
 		}
 	}

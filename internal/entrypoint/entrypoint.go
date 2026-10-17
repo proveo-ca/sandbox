@@ -116,7 +116,7 @@ func LoadEnvFile(path string) error {
 
 // ShouldSkipEnvLoad reports a run inside an sbx VM, where the workspace .env never enters the agent env.
 func ShouldSkipEnvLoad(getenv func(string) string) bool {
-	return strings.TrimSpace(getenv("SANDBOX_VM_ID")) != ""
+	return strings.TrimSpace(getenv("SANDBOX_NAME")) != "" || strings.TrimSpace(getenv("SANDBOX_VM_ID")) != ""
 }
 
 func BridgeGoogleKeys() {

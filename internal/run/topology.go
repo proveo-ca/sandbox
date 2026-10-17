@@ -21,6 +21,9 @@ func topologyOf(man manifest.Manifest, target string, credsDefault string) func(
 		lane, open, refused := lanesOf(tier)
 		model := modelShort(f.Selection(rowModel))
 		key := choiceui.KeyAtHop
+		if creds == "forward" {
+			key = choiceui.KeyInSquare
+		}
 		if model != "" {
 			key = choiceui.KeyNone
 		}

@@ -56,15 +56,13 @@ func TestIDEAttachSSHLandsOnTheCloneNotTheHostTree(t *testing.T) {
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--clone", "--shell", "--input", work,
+		proveoBin, "run", target, "--clone", "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute)
-	w := newWatcher(t, sess)
-	w.until("the agent shell prompt", timeout, func() bool { return promptReady(w.Screen()) })
+	k := awaitKit(t, sess, before, target, work)
 
 	created := newSandboxes(before)
 	if len(created) != 1 {
@@ -103,7 +101,7 @@ func TestIDEAttachSSHLandsOnTheCloneNotTheHostTree(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(work, marker)); err == nil {
 			t.Errorf("a write over ssh connection %d reached the host checkout %s", i, work)
 		}
-		agent, status := shellExec(t, sess, "cat "+marker, 30*time.Second)
+		agent, status := k.exec("cat "+marker, 30*time.Second)
 		if status != 0 || !strings.Contains(agent, marker) {
 			t.Errorf("the agent's tree lacks what ssh connection %d wrote (exit %d):\n%s", i, status, agent)
 		}

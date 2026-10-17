@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -163,12 +164,12 @@ func TestProviderCursorPin(t *testing.T) {
 	if len(got) != 1 || got[0] != "cursor" {
 		t.Fatalf("Detect(CURSOR_API_KEY) = %v, want [cursor]", got)
 	}
-	acl, ok := provider.ACLBody("cursor")
+	entry, ok := provider.Lookup("cursor")
 	if !ok {
-		t.Fatal("ACLBody(cursor) missing")
+		t.Fatal("provider cursor missing")
 	}
-	if !strings.Contains(acl, ".cursor.sh") || !strings.Contains(acl, ".cursor.com") {
-		t.Errorf("cursor ACL = %q, want .cursor.sh and .cursor.com", acl)
+	if !slices.Contains(entry.Hosts, ".cursor.sh") || !slices.Contains(entry.Hosts, ".cursor.com") {
+		t.Errorf("cursor hosts = %v, want .cursor.sh and .cursor.com", entry.Hosts)
 	}
 	r, ok := provider.Resolve("cursor", func(k string) string {
 		if k == "CURSOR_API_KEY" {
@@ -208,10 +209,7 @@ func TestCursorManifestDeclaresAPIKey(t *testing.T) {
 		t.Error("cursor manifest must declare CURSOR_API_KEY as secret")
 	}
 	if cursor.Docker != manifest.DockerSbx {
-		t.Errorf("cursor docker = %q, want %q — cursor is incompatible with the sidecar", cursor.Docker, manifest.DockerSbx)
-	}
-	if cursor.Provider != "cursor" {
-		t.Errorf("cursor manifest provider = %q, want cursor", cursor.Provider)
+		t.Errorf("cursor docker = %q, want %q", cursor.Docker, manifest.DockerSbx)
 	}
 }
 
@@ -284,9 +282,7 @@ func TestEveryDaemonPromiseIsTheSandbox(t *testing.T) {
 	}
 }
 
-// TestEveryHarnessRunsInTheSandbox pins the move itself: all four defs took
-// `docker: sbx`, so no harness is left on the docker+egress path by
-// declaration.
+// TestEveryHarnessRunsInTheSandbox pins that every subscription def declares `docker: sbx`, the only backend.
 func TestEveryHarnessRunsInTheSandbox(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
@@ -310,25 +306,6 @@ func TestEveryHarnessRunsInTheSandbox(t *testing.T) {
 	}
 }
 
-// TestRetiredDockerDindIsRefused pins the refusal rather than the silence.
-func TestRetiredDockerDindIsRefused(t *testing.T) {
-	t.Parallel()
-	err := manifest.Manifest{
-		Name:      "stale",
-		Docker:    manifest.DockerMode("dind"),
-		Images:    map[string]string{"stale": "proveo/stale:latest"},
-		Workspace: manifest.Workspace{Layout: "app"},
-	}.Validate()
-	if err == nil {
-		t.Fatal("docker: dind must be refused at load, not ignored")
-	}
-	for _, want := range []string{"retired", "docker: sbx"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal must name %q so the repair is in the message, got: %v", want, err)
-		}
-	}
-}
-
 func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
 	t.Parallel()
 	ms, err := manifest.LoadFS(proveo.Manifests)
@@ -338,7 +315,7 @@ func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
 	want := map[string]bool{"claudecode": true, "codex": true, "cursor": true}
 	for _, m := range ms {
 		if m.Subscription && !m.IsSbx() {
-			t.Errorf("%s must set docker: sbx (subscription harnesses run on sbx with docker+egress fallback)", m.Name)
+			t.Errorf("%s must set docker: sbx (sbx is the only backend)", m.Name)
 		}
 	}
 	for name := range want {
@@ -379,9 +356,7 @@ func TestManifestIgnoresUnknownTopLevelKeys(t *testing.T) {
 	}
 	manifestYAML := `name: x
 description: future-key test
-egress: true
 docker: sbx
-provider: cursor
 future_flag: true
 images:
   x: proveo/x:latest

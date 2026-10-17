@@ -95,14 +95,13 @@ func TestProviderDetectFromInvocationDotEnv(t *testing.T) {
 	}
 }
 
-func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
+func TestSandboxSpecAddsTheDataDirReadOnly(t *testing.T) {
 	// A real directory: an sbx workspace must BE one, so the spec drops binds
 	// that are not (the project .env arrives as a file bind and sbx refuses it).
 	dataDir := t.TempDir()
 	in := sandbox.Input{
 		Target:   "claudecode",
 		Image:    "proveo/claudecode:latest",
-		Shell:    true,
 		Forwards: false,
 		Man:      manifest.Manifest{Name: "claudecode"},
 		Lookup:   func(string) string { return "" },
@@ -110,12 +109,6 @@ func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
 		DataDir:  dataDir,
 	}
 	cfg, _, secrets := sandbox.Spec(in)
-	if cfg.Agent != sbx.ShellAgent {
-		t.Errorf("shell mode agent = %q, want %q", cfg.Agent, sbx.ShellAgent)
-	}
-	if len(cfg.Command) != 0 {
-		t.Errorf("shell mode command = %v, want none — the agent IS the shell", cfg.Command)
-	}
 	if len(secrets) != 0 {
 		t.Errorf("secrets = %v, want none without credentials", secrets)
 	}
@@ -353,18 +346,15 @@ func TestSbxHomeLeavesUnrelatedRunsAlone(t *testing.T) {
 
 // The DEF picks the agent. A variant target is another image of the same def,
 // so claudecode-browser is served by `claude` and not by an agent of its own.
-func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
+func TestSandboxSpecUsesTheHarnessAgent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name, def, target, want string
-		shell                   bool
 	}{
 		{name: "claudecode", def: "claudecode", target: "claudecode", want: "claude"},
 		{name: "claudecode variant", def: "claudecode", target: "claudecode-browser", want: "claude"},
 		{name: "cursor", def: "cursor", target: "cursor", want: "cursor"},
 		{name: "cursor variant", def: "cursor", target: "cursor-browser", want: "cursor"},
-		{name: "claudecode shell", def: "claudecode", target: "claudecode", want: sbx.ShellAgent, shell: true},
-		{name: "cursor shell", def: "cursor", target: "cursor", want: sbx.ShellAgent, shell: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -372,11 +362,11 @@ func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
 			in := sandbox.Input{
 				Man:    manifest.Manifest{Name: tc.def},
 				Lookup: func(string) string { return "" },
-				Target: tc.target, Image: "proveo/x:local", Shell: tc.shell,
+				Target: tc.target, Image: "proveo/x:local",
 			}
 			if cfg, _, _ := sandbox.Spec(in); cfg.Agent != tc.want {
-				t.Errorf("Spec(def %q, target %q, shell=%v).Agent = %q, want %q",
-					tc.def, tc.target, tc.shell, cfg.Agent, tc.want)
+				t.Errorf("Spec(def %q, target %q).Agent = %q, want %q",
+					tc.def, tc.target, cfg.Agent, tc.want)
 			}
 		})
 	}
@@ -586,6 +576,17 @@ func TestSandboxSpecHandsTheAgentItsManifestDefaults(t *testing.T) {
 			if kit.Environment == nil || kit.Environment.Variables[k] != v {
 				t.Errorf("%s: Kit environment lacks %s", tc.why, w)
 			}
+		}
+	}
+}
+
+func TestSessionAliveReadsThePidFromTheSessionID(t *testing.T) {
+	if !sessionAlive(fmt.Sprintf("proveo-1-%d", os.Getpid())) {
+		t.Error("this test's own pid must read as alive")
+	}
+	for _, sid := range []string{"proveo-1-0", "proveo-1-x", "other-1-1", "proveo"} {
+		if sessionAlive(sid) {
+			t.Errorf("%q must not read as alive", sid)
 		}
 	}
 }

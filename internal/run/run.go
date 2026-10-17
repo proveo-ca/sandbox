@@ -65,10 +65,10 @@ func Do(p Params, d Deps) (err error) {
 	if err != nil {
 		return err
 	}
-	rs.Log.Artifacts(rs.EgDir)
 	if err := requireSandbox(rs.Man, p, d); err != nil {
 		return err
 	}
+	rs.Log.Artifacts(rs.EgDir)
 
 	if !acceptsLocalModel(p.Target) && p.LocalModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
@@ -88,15 +88,14 @@ func Do(p Params, d Deps) (err error) {
 	return launchSandbox(&rs, &p, d)
 }
 
+var sandboxReady = sandbox.Ready
+
 // requireSandbox refuses a run that sbx cannot host: there is no other backend.
 func requireSandbox(man manifest.Manifest, p Params, d Deps) error {
-	if v, off := sandbox.Disabled(os.Getenv); off {
-		return fmt.Errorf("PROVEO_SBX=%s is retired: it selected the docker+egress fallback, which is gone. Unset it; proveo runs on Docker Sandboxes (sbx) only", v)
-	}
 	if !man.IsSbx() {
 		return fmt.Errorf("%s does not declare `docker: sbx` in its harness.manifest, and sbx is the only backend", p.Target)
 	}
-	if ok, why := sandbox.Ready(p.PrintOnly, d.ProvisionConfirm); !ok {
+	if ok, why := sandboxReady(p.PrintOnly, d.ProvisionConfirm); !ok {
 		return sandbox.Unavailable(why)
 	}
 	return nil
@@ -239,8 +238,6 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		ui.Section(ui.SectionRun)
 		ui.Appf("agent: %s %s — pinned at build (`proveo build %s` moves it)", p.Target, v, p.Target)
 	}
-	warnDindRetired()
-
 	return nil
 }
 
@@ -250,16 +247,6 @@ func rememberedLocalModel(man manifest.Manifest, localModel string) string {
 		return ""
 	}
 	return localModel
-}
-
-func warnDindRetired() {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_DIND"))) {
-	case "", "0", "false", "no", "off":
-		return
-	}
-	ui.Warnf("PROVEO_DIND is retired and does nothing: the privileged Docker-in-Docker " +
-		"sidecar is gone. A harness that declares `docker: sbx` gets its own daemon inside " +
-		"the sandbox instead; unset the variable")
 }
 
 // startHostCDP opens or reuses the host browser for the host-CDP add-on and returns the agent's env.
@@ -307,12 +294,12 @@ func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.R
 		return nil, nil
 	}
 	switch {
+	case tierBlocked != "":
+		ui.Warnf("%s: skipped — %s", addonChrome, tierBlocked)
+		return nil, nil
 	case p.PrintOnly:
 		ui.Hostf("%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
 			addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
-		return nil, nil
-	case tierBlocked != "":
-		ui.Warnf("%s: skipped — %s", addonChrome, tierBlocked)
 		return nil, nil
 	}
 	if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
@@ -379,7 +366,7 @@ func reportKeychain(k credentials.KeychainLogin, sbxBackend, fileLogin bool) {
 func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	var err error
 	rs.Creds.FileLogin, rs.Creds.LoginNeedsRefresh = credentials.PersistedLogin(p.Target, proveohome.Root(os.Getenv))
-	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man, p)
+	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man)
 	rs.Creds.LoggedIn = rs.Creds.FileLogin || len(rs.Creds.StoreHeld) > 0
 	if !p.PrintOnly {
 		rs.Creds.Keychain = credentials.ReadKeychainLogin(
@@ -471,8 +458,11 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
-// credentialsPosture reports what the run will DO: sbx's proxy holds every credential it can attach.
+// credentialsPosture reports where the run puts the provider key.
 func credentialsPosture(rs *Spec, p *Params) string {
+	if p.forwards() {
+		return "forward (the key rides the sandbox env)"
+	}
 	return "broker (sbx proxy)"
 }
 
@@ -593,10 +583,17 @@ func assembleEnv(rs *Spec, p *Params, d Deps) {
 
 // launchSandbox resolves the clone and add-ons, then runs the agent in sbx (or prints the plan).
 func launchSandbox(rs *Spec, p *Params, d Deps) error {
+	if !p.PrintOnly && d.PreflightImages != nil && !sbx.HasTemplate(p.Image) {
+		image, err := d.PreflightImages(rs.Man, p.Image)
+		if err != nil {
+			return err
+		}
+		p.Image = image
+	}
 	rs.Model.HostLLM = p.LocalModel != ""
 
 	ui.Section(ui.SectionEgress)
-	sandbox.WarnBaseline()
+	sandbox.WarnBaseline(sandbox.ReachHosts(rs.Man, rs.Creds.Detected))
 	credentials.WarnMountedSecrets(rs.Workspace.WS.InputDir, rs.Creds.Lookup)
 
 	ui.Section(ui.SectionExecution)
@@ -677,7 +674,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	in := sandbox.Input{
 		AgentEnv: agentEnv,
 		Target:   p.Target, Image: p.Image, AuthVar: p.AuthVar,
-		Shell: p.Shell, Clone: rs.Backend.Clone, Extra: p.Extra,
+		Clone: rs.Backend.Clone, Extra: p.Extra,
 		RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 		Browser: browserOn, CDPHostPort: cdpPort,
 		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
@@ -725,13 +722,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		}
 		fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
 		return nil
-	}
-	if d.PreflightImages != nil {
-		image, err := d.PreflightImages(rs.Man, in.Image)
-		if err != nil {
-			return err
-		}
-		in.Image = image
 	}
 	rs.AgentLaunched = true
 	return sandbox.Run(in)

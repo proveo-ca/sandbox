@@ -8,20 +8,22 @@ import (
 
 func TestShouldSkipEnvLoad(t *testing.T) {
 	t.Parallel()
-	vm := func(v string) func(string) string {
+	only := func(name, v string) func(string) string {
 		return func(k string) string {
-			if k == "SANDBOX_VM_ID" {
+			if k == name {
 				return v
 			}
 			return ""
 		}
 	}
-	if !ShouldSkipEnvLoad(vm("proveo-claudecode-0123abcd")) {
-		t.Error("inside sbx the workspace .env must stay out of the agent env")
-	}
-	for _, v := range []string{"", "   "} {
-		if ShouldSkipEnvLoad(vm(v)) {
-			t.Errorf("SANDBOX_VM_ID=%q is not a sandbox", v)
+	for _, name := range []string{"SANDBOX_NAME", "SANDBOX_VM_ID"} {
+		if !ShouldSkipEnvLoad(only(name, "proveo-claudecode-0123abcd")) {
+			t.Errorf("with %s set the workspace .env must stay out of the agent env", name)
+		}
+		for _, v := range []string{"", "   "} {
+			if ShouldSkipEnvLoad(only(name, v)) {
+				t.Errorf("%s=%q is not a sandbox", name, v)
+			}
 		}
 	}
 }

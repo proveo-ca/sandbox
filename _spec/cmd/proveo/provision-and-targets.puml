@@ -37,7 +37,7 @@ node "Missing declared env" as WIZ <<host>> {
 }
 
 cloud "Docker Hub — proveo/*" as HUB <<cloud>>
-component "Agent + sidecar images present" as READY <<app>>
+component "Agent image present\n(no sidecar images since 2026-10-16)" as READY <<app>>
 component "Non-interactive run\nnever prompts, warns and continues" as HEADLESS <<error>>
 component "Missing image discovered\nafter the network is up" as LATE <<error>>
 
@@ -81,7 +81,8 @@ note bottom of ENS
   it asks, defaulting to yes — declining just reproduces the failure the
   prompt exists to avoid. The source tree is ""PROVEO_DEFS_DIR"" for dev
   iteration, else the enclosing checkout when it actually carries the build
-  sources (""defs/sidecars/egress-proxy/Dockerfile"" is the probe); no tree
+  sources (""defs/base/Dockerfile"" is the probe; it was the deleted
+  ""defs/sidecars/egress-proxy/Dockerfile"" until 2026-10-16); no tree
   means pull-only.
 
   Mapping an image to its imagebuild target (""buildTarget"") tries the

@@ -107,7 +107,8 @@ func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 }
 
 func idleAtPrompt(t *testing.T, target string) {
-	harnessImage(t, target) // skips unless docker and the image are both here
+	requireSbx(t)
+	harnessImage(t, target)
 	proveoBin := buildProveo(t)
 
 	idle := durationEnv(t, "PROVEO_IDLE_FOR", 5*time.Minute)

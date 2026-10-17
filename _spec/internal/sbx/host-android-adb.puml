@@ -17,7 +17,7 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/entrypoint-lib.sh (proveo_host_adb_env, proveo_adb_mirror_start, proveo_mobile_mcp_exec, ensure_jvm_toolchain, proveo_install_claude_env_hook, _proveo_persist_tool_env, proveo_apply_ui_defaults)
 ' covers: internal/contract/claude_env_hook_test.go
 ' covers: internal/contract/host_devices_test.go
-' covers: internal/egress/plan.go (localModelArgs)
+' covers: internal/sbx/host_ollama.go (LocalModelEnv — was internal/egress localModelArgs)
 ' covers: defs/base/Dockerfile (adb, qemu floor)
 ' covers: defs/base/proveo-aapt2
 ' covers: defs/opencode/harness.manifest (capabilities.hostDevices)
@@ -168,12 +168,13 @@ skinparam noteTextAlignment left
 ' ── CLAUDE CODE ON A LOCAL MODEL ───────────────────────────────────────────
 ' Each turn sends ~15k prompt tokens; side requests on the same single-slot
 ' Ollama model evicted the cached prompt, the 3-6 min reprocess outlasted the
-' first-byte wait, and Claude Code retried forever. localModelArgs adds:
+' first-byte wait, and Claude Code retried forever. sbx.LocalModelEnv adds
+' (localModelArgs in the deleted internal/egress until 2026-10-16):
 '   CLAUDE_CODE_EFFORT_LEVEL=low, CLAUDE_CODE_DISABLE_THINKING=1
 '   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 '   API_TIMEOUT_MS, CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS = 20 min
 ' and claude gets `--tools Bash,Read,Edit,Write` (withLocalModelTools; the
-' entrypoint's CLAUDE_LOCAL_ARGS on docker). Trivial prompt on glimmer:
+' entrypoint's CLAUDE_LOCAL_ARGS served the deleted docker path). Trivial prompt on glimmer:
 ' default 495 s, trimmed 245 s, hooks and CLAUDE.md kept. CLAUDE_CODE_SIMPLE
 ' was 90 s but drops hooks and CLAUDE.md, so it is not used.
 '

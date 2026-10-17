@@ -9,8 +9,7 @@ skinparam noteTextAlignment left
 ' covers: defs/cecli/harness.manifest
 ' The Kit schema this serves: sbx-kit-contract.puml (same directory).
 ' Why an allow-all baseline hid it: policy-baseline.puml (same directory), which
-' also keeps the x.ai forcing example this file corrected (the plan that first
-' recorded it, retire-docker-egress.puml, was retired 2026-10-16).
+' also keeps the x.ai forcing example this file corrected.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── 2026-10-16: SQUID IS GONE, AND THE KIT CARRIES NO PROVIDER HOSTS ───────
@@ -18,11 +17,14 @@ skinparam noteTextAlignment left
 ' no longer copies provider Hosts into permissions.network.allow (only add-on
 ' ports and an own-agent Kit's credential domains, via DomainPatterns). The
 ' translation below still serves those credential domains (customSecretTarget,
-' agentCredentials).
-' DECIDED (Executor, 2026-10-16, Q4): provider.Entry.ACL and ACLBody are deleted;
-' Hosts is the one domain fact. NOT YET DONE in the working tree: provider.go
-' still carries ACL on every entry and ACLBody, read only by provider tests and
-' internal/contract/contract_test.go (MEASURED).
+' agentCredentials) and the `sbx policy allow network` hint that
+' sandbox.ReachHosts builds for the operator (policy-baseline.puml).
+' DECIDED (Executor, 2026-10-16, Q4) and DONE (MEASURED at the last read):
+' provider.Entry.ACL and ACLBody are deleted; Hosts is the one domain fact.
+' azure moved its four ACL domains into Hosts; bedrock and vertex carry Detect
+' only (cloud-SDK auth, no injectable header), and consistency_test exempts
+' exactly those two from the Hosts requirement
+' (_spec/internal/provider/provider-registry.puml).
 '
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
 '   kit reference : https://docs.docker.com/ai/sandboxes/customize/kit-reference/
@@ -47,8 +49,8 @@ skinparam noteTextAlignment left
 ' shape, so the pattern matches nothing — not the apex, not a subdomain.
 '
 ' ── WHAT proveo EMITTED, AND WHY NOBODY SAW IT ──────────────────────────────
-' `provider.Entry` carries TWO domain fields that look interchangeable and are
-' not. `ACL` is a Squid body (`dstdomain .x.ai`); `Hosts` is the list the broker
+' `provider.Entry` carried TWO domain fields (until 2026-10-16) that looked
+' interchangeable and were not. `ACL` was a Squid body (`dstdomain .x.ai`); `Hosts` is the list the broker
 ' strips and injects on. Both were authored in Squid's vocabulary, because Squid
 ' was the only consumer when they were written.
 '
@@ -117,7 +119,7 @@ skinparam noteTextAlignment left
 title sbx Kit domain form — where Squid's grammar stops and sbx's begins
 
 package "internal/provider" as PROV <<host>> {
-  component "Entry.ACL\n""dstdomain .x.ai""" as ACL <<app>>
+  component "Entry.ACL — DELETED 2026-10-16\n""dstdomain .x.ai""" as ACL <<error>>
   component "Entry.Hosts\n"".x.ai""" as HOSTS <<app>>
 }
 
@@ -132,7 +134,7 @@ cloud "sbx proxy\n""gateway.docker.internal:3128""" as PROXY <<cloud>>
 
 component "**the defect**\n"".x.ai"" matches nothing" as BUG <<error>>
 
-ACL ARROW_ERROR SQUID : no reader left — decided for deletion
+ACL ARROW_ERROR SQUID : both deleted together
 HOSTS ARROW_MAIN XLATE
 XLATE ARROW_MAIN KIT : ""x.ai"" + ""*.x.ai""
 KIT ARROW_MAIN PROXY
@@ -187,8 +189,8 @@ legend bottom
   because ""Entry.Hosts"" grew a second consumer without growing a second form.
   --
   **The translation lives at the boundary**, not in the registry: ""sbx.DomainPatterns""
-  is the only place the two grammars meet. ""Entry.ACL"" lost its Squid reader on
-  2026-10-16 and is decided for deletion, not yet deleted.
+  is the only place the two grammars meet. ""Entry.ACL"" and its Squid reader were
+  both deleted on 2026-10-16.
   ==
   **Still open**: whether ""*.x.ai"" is accepted in ""inject[].domain"" specifically.
   Named here rather than assumed, because the probe that proved suffix domains PARSE

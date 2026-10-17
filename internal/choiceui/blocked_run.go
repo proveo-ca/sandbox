@@ -222,3 +222,25 @@ func drawPrompt(s tcell.Screen, lines []string, title string) {
 	}
 	s.Show()
 }
+
+// drawBorder draws a single-line box.
+func drawBorder(s tcell.Screen, x0, y0, w, h int, style tcell.Style) {
+	set := func(x, y int, r rune) {
+		sw, sh := s.Size()
+		if x >= 0 && x < sw && y >= 0 && y < sh {
+			s.SetContent(x, y, r, nil, style)
+		}
+	}
+	for x := x0 + 1; x < x0+w-1; x++ {
+		set(x, y0, '─')
+		set(x, y0+h-1, '─')
+	}
+	for y := y0 + 1; y < y0+h-1; y++ {
+		set(x0, y, '│')
+		set(x0+w-1, y, '│')
+	}
+	set(x0, y0, '┌')
+	set(x0+w-1, y0, '┐')
+	set(x0, y0+h-1, '└')
+	set(x0+w-1, y0+h-1, '┘')
+}

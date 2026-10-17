@@ -1,6 +1,9 @@
 @startuml TestingLayer2Contract
-' SPEC source: cmd/proveo/main_test.go, internal/runner/runner_test.go
+' SPEC source: cmd/proveo/main_test.go, cmd/proveo/golden_test.go, internal/contract/**
 ' Layer 2 — Go contract tests on real builders (replacing bash grep). No Docker.
+' 2026-10-16: internal/runner's DockerRunArgs golden, internal/egress BuildPlan
+' goldens and writeBrokerEnv/sentinel cases are DELETED with the docker+egress
+' backend; the sbx builders (sandbox.Spec, TestSandboxPlanGolden) carry the lane.
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
@@ -10,8 +13,7 @@ skinparam packageStyle rectangle
 '          goldens, replacing grep-for-substring contracts
 ' covers: internal/contract/**
 ' covers: cmd/proveo/*_test.go
-' covers: internal/runner/*_test.go
-' covers: internal/egress/plan_test.go
+' covers: internal/backend/sandbox/*_test.go
 ' covers: internal/imagetest/**
 
 title Layer 2 · Contract — Go builders + goldens (no Docker)
@@ -19,11 +21,11 @@ title Layer 2 · Contract — Go builders + goldens (no Docker)
 actor "go test ./cmd/... ./internal/...\n(mise test-go)" as Runner <<actor>>
 
 package "Contract suites (Go)" as Suites {
-  component "cmd/proveo\nproviderLookup · writeBrokerEnv\nassemble env / sentinel\nCURSOR_API_KEY from host .env" as CLI <<app>>
-  component "internal/runner\nDockerRunArgs hardening golden" as RunnerPkg <<app>>
+  component "cmd/proveo\nproviderLookup · sbx plan goldens\nposture golden" as CLI <<app>>
+  component "internal/backend/sandbox\nsandbox.Spec — Kit, argv, secrets" as RunnerPkg <<app>>
   component "internal/provider\nregistry pins · Detect order" as Provider <<app>>
-  component "internal/egress\nBuildPlan goldens (no Docker)" as EgressPlan <<app>>
-  component "internal/workspace\n.env mask unless forwarded\nEnvFileSource" as Workspace <<app>>
+  component "internal/run\nrequireSandbox · egress row · Kit allow" as EgressPlan <<app>>
+  component "internal/workspace\nmount plan · EnvFileSource" as Workspace <<app>>
   component "shim / Dockerfile\nstructural asserts (Go)" as Struct <<app>>
 }
 
@@ -42,10 +44,10 @@ Struct ..> Defs : parse / contain checks
 Bash ..> Runner : not on default go test path
 
 note bottom of Suites
-**Go-first:** contracts execute builders (DockerRunArgs, BuildPlan, Detect,
-writeBrokerEnv) instead of grep-for-substring on source. That catches
-regressions bash needles missed (e.g. host .env keys not reaching the broker).
-Deterministic; no Docker.
+**Go-first:** contracts execute builders (sandbox.Spec, Detect, the posture
+and plan goldens) instead of grep-for-substring on source. That catches
+regressions bash needles missed (e.g. host .env keys not reaching the broker,
+when the broker was proveo's). Deterministic; no Docker.
 end note
 
 note right of Bash

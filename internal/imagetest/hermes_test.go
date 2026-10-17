@@ -76,19 +76,10 @@ func hmBuild(s *imagetest.Suite) {
 			t.Errorf("entrypoint did not reach hermes as uid 1000 (rc=%d, output tail: %s)", r.Code, hmTail(r.Out, 400))
 		}
 	})
-	s.Check("the entrypoint hands the browser path and the durable home to the agent", func(t *testing.T) {
-		home := t.TempDir()
-		if err := os.MkdirAll(home+"/data", 0o777); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chmod(home+"/data", 0o777); err != nil {
-			t.Fatal(err)
-		}
-		r := hmRun(t, 3*time.Minute, nil, "--user", "1000:1000", "-v", home+":/proveo-home", img, "env")
-		for _, want := range []string{"HERMES_HOME=/proveo-home/data", "AGENT_BROWSER_EXECUTABLE_PATH=/opt/hermes/.playwright/"} {
-			if !strings.Contains(r.Out, want) {
-				t.Errorf("agent env missing %s (output tail: %s)", want, hmTail(r.Out, 400))
-			}
+	s.Check("the entrypoint hands the browser path to the agent", func(t *testing.T) {
+		r := hmRun(t, 3*time.Minute, nil, "--user", "1000:1000", img, "env")
+		if want := "AGENT_BROWSER_EXECUTABLE_PATH=/opt/hermes/.playwright/"; !strings.Contains(r.Out, want) {
+			t.Errorf("agent env missing %s (output tail: %s)", want, hmTail(r.Out, 400))
 		}
 	})
 	s.Check("the real entrypoint boots and launches hermes", func(t *testing.T) {
@@ -208,6 +199,12 @@ func hmPersistence(s *imagetest.Suite) {
 		if err := os.MkdirAll(filepath.Join(state, "hermes", "data"), 0o777); err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() {
+			if r := imagetest.Docker(30*time.Second, nil, "run", "--rm", "--user", "0:0", "-v", state+":/state",
+				"--entrypoint", "rm", img, "-rf", "/state/hermes"); !r.OK() {
+				t.Logf("root-owned cleanup of %s failed (rc=%d): %s", state, r.Code, hmTail(r.Out, 200))
+			}
+		})
 		r := hmRun(t, 3*time.Minute, nil, "-v", state+":/state", "-e", "PROVEO_STATE_HOME=/state", "--entrypoint", "bash", img, "-c",
 			`touch /opt/data/state.db && mkdir -p /opt/data/skills/proveo-marker && exec dumb-init -- /entrypoint.sh config show`)
 		if _, err := os.Stat(filepath.Join(state, "hermes", "data", "skills", "proveo-marker")); err != nil {

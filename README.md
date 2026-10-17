@@ -53,8 +53,7 @@ that only blocks *running* does not block installing — `usermod -aG kvm` needs
 sbx is the only backend. Without a ready sbx — no CLI, Linux without `/dev/kvm`, an unsupported
 platform, or a release older than proveo targets — `proveo run` first offers to install or upgrade
 sbx where it can, then refuses with the install or upgrade command. `--print` refuses without
-offering. `PROVEO_SBX` set to `0`, `off`, `no`, `false`, `disable` or `disabled` is retired: it
-fails the run instead of selecting a fallback.
+offering.
 
 ### Publish a CLI release
 

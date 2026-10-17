@@ -95,7 +95,7 @@ func runPrep() {
 	}
 
 	if entrypoint.ShouldSkipEnvLoad(os.Getenv) {
-		fmt.Println("🔒 Skipping .env load (inside sbx — keys stay with sbx's proxy)")
+		fmt.Println("🔒 Skipping .env load (inside sbx — the workspace .env is not exported to the agent)")
 	} else if path := entrypoint.FindEnvFile(""); path != "" {
 		fmt.Printf("✅ Found .env at %s\n", path)
 		if err := entrypoint.LoadEnvFile(path); err != nil {

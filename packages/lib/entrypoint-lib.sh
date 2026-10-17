@@ -85,8 +85,9 @@ load_env() {
  [[ "${1:-}" == "quiet" ]] && quiet=1
  say() { (( quiet )) || echo "$@"; }
 
- if [[ -n "${SANDBOX_VM_ID:-}" ]]; then
- say "🔒 Skipping .env load (inside sbx — keys stay with sbx's proxy)"
+ local sbx_id="${SANDBOX_NAME:-}${SANDBOX_VM_ID:-}"
+ if [[ -n "${sbx_id//[[:space:]]/}" ]]; then
+ say "🔒 Skipping .env load (inside sbx — the workspace .env is not exported to the agent)"
  unset -f say
  return 0
  fi
@@ -1029,8 +1030,8 @@ _dep_install() {
   if [[ $rc -eq 0 ]]; then
     echo "    ✅ ${lang} dependencies ready in ${root#"$(_proveo_scan_root)"/}"
   else
-    echo "    ⚠️  ${cmd} failed (rc=${rc}). If the registry is not reachable under this egress tier,"
-    echo "        rerun with --egress-mode open; a lockfile that disagrees with its manifest is"
+    echo "    ⚠️  ${cmd} failed (rc=${rc}). If sbx's network policy blocks the registry, allow it on the"
+    echo "        host (\`sbx policy allow network <host>\`); a lockfile that disagrees with its manifest is"
     echo "        reported rather than rewritten — reconcile it and rerun."
   fi
   return 0

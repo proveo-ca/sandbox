@@ -2,9 +2,7 @@
 package run
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,7 +19,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestExecutionRowOffersTheSandboxOrNothing(t *testing.T) {
@@ -175,7 +172,6 @@ func TestEvidenceOrDefaultOnlyOptsOutOnDefault(t *testing.T) {
 }
 
 func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
-	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
 		return map[string]string{
 			"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value",
@@ -276,7 +272,6 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 }
 
 func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
-	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
 		return map[string]string{"CURSOR_API_KEY": "key-value"}[k]
 	}
@@ -335,7 +330,6 @@ func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
 }
 
 func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
-	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
 		return map[string]string{"AWS_ACCESS_KEY_ID": "AKIA-value"}[k]
 	}
@@ -376,7 +370,6 @@ func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
 }
 
 func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
-	t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 	lookup := func(k string) string {
 		return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "oauth-value"}[k]
 	}
@@ -699,48 +692,6 @@ func TestEgressRowShowsTheHostBaseline(t *testing.T) {
 	})
 }
 
-func TestSbxSuppliesCredentialOnlyOnTheBackendThatUsesIt(t *testing.T) {
-	sbxMan := manifest.Manifest{
-		Name:         "claudecode",
-		Subscription: true,
-		Docker:       manifest.DockerSbx,
-		Env:          []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}},
-	}
-	dockerMan := sbxMan
-	dockerMan.Docker = manifest.DockerNone
-	apiMan := sbxMan
-	apiMan.Subscription = false
-
-	for _, c := range []struct {
-		name    string
-		man     manifest.Manifest
-		p       Params
-		sbxOK   bool
-		want    bool
-		because string
-	}{
-		{name: "the case that was broken", man: sbxMan, sbxOK: true, want: true,
-			because: "an sbx subscription run: the store IS where its credential lives"},
-		{name: "a harness without sbx", man: dockerMan, sbxOK: true, want: false,
-			because: "only an sbx harness keeps its credential in sbx's store"},
-		{name: "not a subscription harness", man: apiMan, sbxOK: true, want: false,
-			because: "an API-key harness authenticates from the env, not from a login"},
-		{name: "sbx unavailable", man: sbxMan, sbxOK: false, want: false,
-			because: "a store proveo cannot reach cannot be the reason to launch"},
-		{name: "a remembered answer without the add-on", man: sbxMan,
-			p:     Params{Addons: []string{}, AddonsAnswered: true},
-			sbxOK: true, want: true,
-			because: "the add-on no longer votes: an sbx harness runs on sbx, so the store is still the source"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			p := c.p
-			if got := sbxSuppliesCredential(c.man, &p, c.sbxOK); got != c.want {
-				t.Errorf("sbxSuppliesCredential = %v, want %v (%s)", got, c.want, c.because)
-			}
-		})
-	}
-}
-
 func claudecodeMan() manifest.Manifest {
 	return manifest.Manifest{
 		Name: "claudecode", Subscription: true, Docker: manifest.DockerSbx,
@@ -868,36 +819,6 @@ func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
 	}
 }
 
-func TestRetiredDindEnvWarnsAndDoesNothingElse(t *testing.T) {
-	for _, c := range []struct {
-		value string
-		warns bool
-	}{
-		{"", false},
-		{"0", false},
-		{"off", false},
-		{"false", false},
-		{"1", true},
-		{"true", true},
-		{"yes", true},
-	} {
-		t.Setenv("PROVEO_DIND", c.value)
-		var buf bytes.Buffer
-		prev := ui.Default
-		ui.Default = ui.New(struct{ io.Writer }{&buf})
-		warnDindRetired()
-		ui.Default = prev
-
-		said := strings.Contains(buf.String(), "PROVEO_DIND is retired")
-		if said != c.warns {
-			t.Errorf("PROVEO_DIND=%q warned = %v, want %v (output %q)", c.value, said, c.warns, buf.String())
-		}
-		if c.warns && !strings.Contains(buf.String(), "docker: sbx") {
-			t.Errorf("PROVEO_DIND=%q must name the replacement, got %q", c.value, buf.String())
-		}
-	}
-}
-
 // SPEC: _spec/_plans/init-credential-provisioning.puml
 // A run that starts without a credential says ONE line. The screenful of routes
 // it used to print — obtain, export, sbx setup, secret set, set-custom, /login —
@@ -921,13 +842,14 @@ func TestTheNoCredentialNoticeIsOneLine(t *testing.T) {
 
 func TestThePostureNamesTheCredentialRouteThatWillHappen(t *testing.T) {
 	t.Parallel()
-	man := manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}
-	p := &Params{Target: "cursor", Credentials: "forward"}
-	rs := &Spec{Man: man}
-	// A run bound for sbx stores the credential whatever the flag asked for, so
-	// reporting the request contradicted the secrets section two lines below it.
-	if got := credentialsPosture(rs, p); got == "forward" {
-		t.Errorf("posture says %q while the run will store the value and let the proxy attach it", got)
+	rs := &Spec{Man: manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}}
+	if got := credentialsPosture(rs, &Params{Credentials: "forward"}); !strings.HasPrefix(got, "forward") {
+		t.Errorf("forward puts the key in the sandbox env, but the posture says %q", got)
+	}
+	for _, creds := range []string{"", "broker"} {
+		if got := credentialsPosture(rs, &Params{Credentials: creds}); got != "broker (sbx proxy)" {
+			t.Errorf("credentials %q: posture %q, want broker (sbx proxy)", creds, got)
+		}
 	}
 }
 

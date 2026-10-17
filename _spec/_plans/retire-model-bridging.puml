@@ -13,6 +13,10 @@ skinparam noteTextAlignment left
 ' before any deletion; their answers are recorded under each one. The plan is
 ' kept in _plans/ rather than moved, because Q2 is still open and this is where
 ' the reader looking for it will come.
+' 2026-10-16: every internal/egress/plan.go reference below (localModelArgs, the
+' docker `-e` role names) is HISTORY — that package is deleted with the
+' docker+egress backend; the local-model env now comes from sbx.LocalModelEnv
+' (_spec/internal/sbx/host-inference.puml).
 '
 ' ── SECOND PASS, SAME DAY: THE DELETION LANDED, THE LOOP DID NOT CLOSE ─────
 ' Asked to assert this plan complete, and it was not. The src half was done and
@@ -159,7 +163,9 @@ skinparam noteTextAlignment left
 '   the bridge tables ............. _spec/internal/entrypoint/model-alias-bridges.puml
 '   where roles are also DISPLAYED  _spec/internal/choiceui/wireframe.puml
 '   and where they gate billing ... _spec/internal/credentials/credential-decisions.puml
-'   the prior art for a deletion .. _spec/_plans/retire-docker-egress.puml
+'   the prior art for a deletion .. _spec/internal/sbx/sandbox-backend.puml (the
+'                                   docker+egress retirement, DECIDED 2026-10-16;
+'                                   its plan file is retired)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── THE DECISION, STATED ONCE AND NOT ARGUED FOR ───────────────────────────
@@ -196,8 +202,10 @@ skinparam noteTextAlignment left
 '
 ' 4. THERE IS NO USER-FACING `--model` FLAG TO ORPHAN. The only model-ish flag
 '    on cmd/proveo is `--local-model` (LocalModel). So this retirement does not
-'    leave a dead CLI switch behind — which is the failure retire-docker-egress
-'    catalogued for the egress tier, and it does not repeat here.
+'    leave a dead CLI switch behind — which is the failure the docker+egress
+'    retirement catalogued for the egress tier (now resolved by deleting
+'    `--egress-mode`, _spec/internal/sbx/policy-baseline.puml), and it does
+'    not repeat here.
 '
 ' 5. THE SUBSTRATE FOR "SAVED CONFIG" ALREADY EXISTS AND IS ALREADY SPECIFIED.
 '    `home.enabled` mounts each agent's own config into the durable home —

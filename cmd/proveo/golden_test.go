@@ -130,8 +130,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 	}
 	cursor := manifest.Manifest{
 		Name:         "cursor",
-		Provider:     "cursor",
-		Capabilities: manifest.Capabilities{Credentials: []string{"forward"}, Providers: []string{"cursor"}, Hosts: []string{"api2.cursor.sh"}},
+		Capabilities: manifest.Capabilities{Providers: []string{"cursor"}, Hosts: []string{"api2.cursor.sh"}},
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 	}
 	detected := func(name string) []string {
@@ -171,7 +170,6 @@ func TestSandboxPlanGolden(t *testing.T) {
 					Target:   "cursor",
 					Image:    "proveo/cursor:latest",
 					Evidence: run.EvidenceDefault,
-					Forwards: true,
 					Man:      cursor, Sid: "proveo-sid", Lookup: lookup, Detected: detected("cursor"),
 					GitEnv:  []string{"GIT_AUTHOR_NAME=Executor"},
 					HomeEnv: []string{"HOME=/proveo-home", "PROVEO_HOME=/proveo-home"},
@@ -181,12 +179,11 @@ func TestSandboxPlanGolden(t *testing.T) {
 			},
 		},
 		{
-			name: "claudecode-shell-clone-datadir",
+			name: "claudecode-clone-datadir",
 			in: func(work, data, home string) sandbox.Input {
 				return sandbox.Input{
 					Target:   "claudecode",
 					Image:    "proveo/claudecode:latest",
-					Shell:    true,
 					Clone:    true,
 					Evidence: run.EvidenceVerbose,
 					Forwards: false,
@@ -207,7 +204,6 @@ func TestSandboxPlanGolden(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("PROVEO_EGRESS_PROVIDER_DOMAINS", "")
 			t.Setenv("PROVEO_SBX_MCP", "")
 			work, data, home, runDir := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 			in := tc.in(work, data, home)

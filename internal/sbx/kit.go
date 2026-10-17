@@ -175,7 +175,7 @@ type KitPermissions struct {
 	Network KitNet `yaml:"network,omitempty"`
 }
 
-// KitNet is the egress allowlist, declared rather than enforced by a sidecar.
+// KitNet is the sandbox network allow and deny lists.
 type KitNet struct {
 	Allow []string `yaml:"allow,omitempty"`
 	Deny  []string `yaml:"deny,omitempty"`

@@ -5,10 +5,9 @@
       "spec": "_spec/_conventions/design-decision-ids.puml",
       "covers": [
         "cmd/proveo/main.go",
-        "internal/egress/plan.go",
-        "internal/egresspolicy/**",
+        "cmd/proveo/main_test.go",
         "internal/workspace/mount.go",
-        "cmd/proveo-egress/**"
+        "internal/workspace/mount_test.go"
       ],
       "fingerprint": null
     },
@@ -82,7 +81,6 @@
         "internal/imagebuild/**",
         "internal/imagetest/imagetest.go",
         "internal/imagetest/detached_smoke_test.go",
-        "defs/sidecars/*/Dockerfile",
         "internal/maintain/**",
         "cmd/proveo/maintain_cmd.go",
         "cmd/proveo/provision.go",
@@ -195,16 +193,15 @@
     {
       "spec": "_spec/_paradigms/credential-boundary.puml",
       "covers": [
-        "internal/broker/**",
         "internal/credentials/**",
         "internal/provider/**",
-        "internal/egress/plan.go",
-        "cmd/proveo-egress/**",
+        "internal/backend/sandbox/sandbox.go",
         "cmd/proveo/main.go",
         "cmd/proveo/wizard.go",
         "internal/run/run.go",
         "e2e/claudecode_auth_test.go",
         "e2e/opencode_auth_test.go",
+        "e2e/credentials_test.go",
         "defs/cecli/harness.manifest",
         "internal/contract/cecli_providers_test.go",
         "internal/backend/sandbox/provider_gate_test.go",
@@ -238,6 +235,7 @@
         "defs/opencode/Dockerfile",
         "defs/opencode/harness.manifest",
         "packages/lib/proveo-seed",
+        "packages/lib/proveo-await-seed",
         "packages/lib/proveo-opencode-runtime",
         "packages/lib/opencode_cache.py",
         "packages/lib/test_opencode_cache.py",
@@ -250,22 +248,13 @@
         "internal/backend/sandbox/opencode_cache_test.go",
         "internal/backend/sandbox/home_access.go",
         "internal/backend/sandbox/launch_receipt.go",
-        "internal/backend/dockeregress/dockeregress.go",
         "internal/backend/sandbox/opencode_history_image_test.go",
-        "internal/backend/dockeregress/opencode_lifecycle_test.go",
         "internal/proveohome/proveohome.go",
         "internal/contract/opencode_credentials_test.go",
         "internal/contract/spec_notes_test.go",
         "e2e/opencode_credentials_test.go",
-        "e2e/opencode_sessions_test.go",
         "e2e/opencode_prepared_history_test.go",
         "e2e/opencode_cache_sbx_test.go",
-        "internal/run/run.go",
-        "internal/run/outcome_test.go",
-        "cmd/proveo/testdata/plan/docker-open-forward-opencode.golden",
-        "cmd/proveo/testdata/plan/docker-open-broker-opencode.golden",
-        "cmd/proveo/testdata/plan/docker-allowlist-localmodel-opencode.golden",
-        "cmd/proveo/testdata/run/docker-opencode-broker.golden",
         "e2e/seed_ready_test.go",
         "internal/choiceui/blocked_run.go",
         "internal/choiceui/blocked_run_test.go",
@@ -326,7 +315,6 @@
       "covers": [
         "internal/manifest/**",
         "internal/run/**",
-        "internal/egress/plan.go",
         "internal/sbx/agents.go",
         "internal/sbx/sbx_test.go",
         "cmd/proveo/main.go",
@@ -341,7 +329,6 @@
       "spec": "_spec/_paradigms/runtime-user-boundary.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",
-        "internal/runner/**",
         "internal/contract/home_symlink_test.go",
         "defs/cecli/Dockerfile",
         "defs/cursor/Dockerfile",
@@ -424,11 +411,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/retire-docker-egress.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/retire-model-bridging.puml",
       "covers": [
         "internal/provider/roles.go",
@@ -470,7 +452,6 @@
       "covers": [
         "internal/backend/sandbox/sandbox.go",
         "internal/sbx/run.go",
-        "internal/egress/plan.go",
         "packages/lib/entrypoint-lib.sh"
       ],
       "fingerprint": null
@@ -573,7 +554,9 @@
       "spec": "_spec/cmd/proveo/usage.puml",
       "covers": [
         "cmd/proveo/main.go",
-        "cmd/proveo-dev/main.go"
+        "cmd/proveo-dev/main.go",
+        "cmd/proveo/help.go",
+        "cmd/proveo/help_test.go"
       ],
       "fingerprint": null
     },
@@ -655,29 +638,12 @@
         "internal/run/choices.go",
         "internal/run/run.go",
         "internal/backend/sandbox/sandbox_test.go",
-        "internal/egress/plan.go",
         "internal/chromebridge/chromebridge_test.go",
         "internal/entrypoint/parity_test.go",
         "internal/contract/browser_layer_test.go",
         "e2e/chrome_bridge_sbx_test.go",
-        "e2e/chrome_bridge_test.go",
         "e2e/claude_in_chrome_test.go",
         "internal/imagetest/claudecode_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/defs/claudecode/claudecode-egress-topology.puml",
-      "covers": [
-        "defs/sidecars/egress-proxy/Dockerfile",
-        "defs/sidecars/mitmproxy/Dockerfile",
-        "defs/sidecars/squid-proxy/*.conf",
-        "internal/imagetest/mitmproxy_test.go",
-        "internal/imagetest/claudecode_test.go",
-        "internal/egress/**",
-        "internal/egressproxy/**",
-        "cmd/proveo-egress/**",
-        "cmd/proveo-dev/firehol.go"
       ],
       "fingerprint": null
     },
@@ -894,9 +860,8 @@
       "spec": "_spec/internal/choiceui/choice-prompt-render.puml",
       "covers": [
         "internal/choiceui/choiceui.go",
-        "internal/choiceui/consent.go",
         "internal/choiceui/choiceui_test.go",
-        "internal/choiceui/consent_test.go",
+        "internal/choiceui/render_test.go",
         "internal/choiceui/hover_test.go",
         "internal/choiceui/gated_reason_test.go",
         "internal/choiceui/pane_test.go",
@@ -995,15 +960,6 @@
         "internal/posture/posture_test.go",
         "internal/credentials/credentials.go",
         "internal/credentials/hints.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/egressproxy/mitm-and-flow-record.puml",
-      "covers": [
-        "internal/egressproxy/**",
-        "cmd/proveo-egress/**",
-        "defs/sidecars/egress-proxy/Dockerfile"
       ],
       "fingerprint": null
     },
@@ -1126,9 +1082,9 @@
         "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/drain_test.go",
         "internal/ptyproxy/ptyproxy_test.go",
+        "e2e/close_confirm_test.go",
         "internal/backend/sandbox/sandbox.go",
-        "internal/run/helpers.go",
-        "internal/backend/dockeregress/dockeregress.go"
+        "internal/run/helpers.go"
       ],
       "fingerprint": null
     },
@@ -1160,7 +1116,6 @@
         "internal/run/spec.go",
         "internal/run/run.go",
         "internal/run/**",
-        "cmd/proveo/run_golden_test.go",
         "cmd/proveo/golden_test.go"
       ],
       "fingerprint": null
@@ -1175,14 +1130,6 @@
         "internal/runlog/runlog_test.go",
         "internal/run/outcome_test.go",
         "internal/ui/ui_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/runner/hardened-run-argv.puml",
-      "covers": [
-        "internal/runner/**",
-        "cmd/proveo/main.go"
       ],
       "fingerprint": null
     },
@@ -1226,7 +1173,9 @@
         "internal/sbx/run.go",
         "internal/run/choices.go",
         "internal/run/params.go",
-        "internal/run/choices_test.go"
+        "internal/run/choices_test.go",
+        "internal/sbx/kit.go",
+        "internal/credentials/credentials.go"
       ],
       "fingerprint": null
     },
@@ -1333,9 +1282,11 @@
         "internal/run/topology.go",
         "internal/run/params.go",
         "internal/run/params_test.go",
-        "e2e/sbx_egress_test.go",
-        "internal/egress/egress.go",
-        "internal/contract/egress_vocabulary_test.go"
+        "internal/run/run_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/domain_form_test.go",
+        "internal/posture/posture.go",
+        "e2e/sbx_egress_test.go"
       ],
       "fingerprint": null
     },
@@ -1349,7 +1300,10 @@
         "internal/sbx/agents.go",
         "internal/sbx/limits.go",
         "internal/run/run.go",
-        "internal/egress/plan.go",
+        "internal/entrypoint/entrypoint.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/env_prelude_test.go",
+        "e2e/sbx_test.go",
         "e2e/idle_test.go",
         "e2e/chrome_bridge_sbx_test.go",
         "cmd/proveo/golden_test.go"
@@ -1443,7 +1397,6 @@
         "internal/credentials/keychain.go",
         "internal/credentials/credentials.go",
         "internal/runner/runner.go",
-        "internal/backend/dockeregress/dockeregress.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/credentials/keychain_test.go",
         "e2e/keychain_test.go",
@@ -1529,7 +1482,6 @@
         "internal/workspace/deps.go",
         "internal/workspace/mount_test.go",
         "internal/workspace/mount_canonical_test.go",
-        "cmd/proveo/run_golden_test.go",
         "e2e/scope_mounts_test.go",
         "e2e/git_access_test.go"
       ],
@@ -1758,17 +1710,8 @@
       "covers": [
         "internal/contract/**",
         "cmd/proveo/*_test.go",
-        "internal/runner/*_test.go",
-        "internal/egress/plan_test.go",
+        "internal/backend/sandbox/*_test.go",
         "internal/imagetest/**"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/tests/30-infra-integration.puml",
-      "covers": [
-        "internal/egress/integration_test.go",
-        "internal/egress/**"
       ],
       "fingerprint": null
     },
@@ -1863,7 +1806,7 @@
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/claude_env_hook_test.go",
         "internal/contract/host_devices_test.go",
-        "internal/egress/plan.go",
+        "internal/sbx/host_ollama.go",
         "defs/base/Dockerfile",
         "defs/base/proveo-aapt2",
         "defs/opencode/harness.manifest",
@@ -1897,6 +1840,49 @@
         "internal/contract/operator_name_test.go",
         "e2e/operator_name_test.go",
         "defs/claudecode/mcp/Dockerfile"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/host-inference.puml",
+      "covers": [
+        "internal/sbx/host_ollama.go",
+        "internal/sbx/host_ollama_test.go",
+        "internal/run/model_row.go",
+        "internal/run/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/host_inference_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/devports/dev-ports.puml",
+      "covers": [
+        "internal/devports/**",
+        "internal/run/choices.go",
+        "internal/run/run.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/agentsettings/agentsettings.go",
+        "internal/devports/android.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/run/ports_row_test.go",
+        "internal/backend/sandbox/sandbox_test.go",
+        "e2e/ports_publish_test.go",
+        "internal/contract/android_install_lib_test.go",
+        "e2e/android_seed_install_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/repo-simplification.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/hermes/hermes-persistence.puml",
+      "covers": [
+        "defs/hermes/entrypoint.sh",
+        "internal/imagetest/hermes_test.go"
       ],
       "fingerprint": null
     }

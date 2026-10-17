@@ -54,9 +54,7 @@ type Home struct {
 type Manifest struct {
 	Name         string            `yaml:"name"`
 	Description  string            `yaml:"description"`
-	Egress       bool              `yaml:"egress"`       // sources the egress lifecycle
-	Docker       DockerMode        `yaml:"docker"`       // how the agent gets a Docker daemon: sbx | (absent)
-	Provider     string            `yaml:"provider"`     // vendor-pinned broker target (firewall mode); e.g. cursor
+	Docker       DockerMode        `yaml:"docker"`       // sbx: the only mode proveo run accepts
 	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
 	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
 	Kind         string            `yaml:"kind"`         // coding (default) | assistant: no toolchain, dependency or LSP provisioning
@@ -72,21 +70,15 @@ type Manifest struct {
 	// Daemon: false keeps a harness on the sbx backend without promising its
 	// agent a Docker daemon (hermes: not a coding agent).
 	Daemon *bool `yaml:"daemon"`
-
-	RetiredDind          bool `yaml:"dind"`
-	RetiredSandboxDocker bool `yaml:"sandbox_docker"`
 }
 
-// DockerMode is how a harness hands its agent a Docker daemon, and after
-// retiring the privileged sidecar there is exactly one way: `sbx` runs the
+// DockerMode is how a harness hands its agent a Docker daemon: `sbx` runs the
 // agent in a sandbox VM that has its own daemon, behind a boundary.
 type DockerMode string
 
 const (
-	DockerNone DockerMode = ""    // no daemon reaches the agent
+	DockerNone DockerMode = ""    // loads, and proveo run refuses it
 	DockerSbx  DockerMode = "sbx" // docker sandboxes (internal/sbx)
-
-	retiredDockerDind DockerMode = "dind"
 )
 
 // KindAssistant marks a general assistant: the seed provisions no toolchain,
@@ -127,7 +119,6 @@ func (c Capabilities) HasHostDevice(kind string) bool { return slices.Contains(c
 
 // HasHostBrowser reports whether the harness can drive the operator's browser.
 func (c Capabilities) HasHostBrowser() bool { return c.HostBrowser != "" }
-
 
 func (c Capabilities) AllowsCredentials(mode string) bool { return listAllows(c.Credentials, mode) }
 
@@ -207,19 +198,11 @@ func (m Manifest) Validate() error {
 	}
 	switch m.Docker {
 	case DockerNone, DockerSbx:
-	case retiredDockerDind:
-		return fmt.Errorf("manifest %q: docker: %s is retired — the privileged sibling daemon is gone.\n"+
-			"  Declare `docker: %s` (the sandbox has its own daemon) or drop the key (no daemon reaches the agent)",
-			m.Name, retiredDockerDind, DockerSbx)
 	default:
-		return fmt.Errorf("manifest %q: invalid docker %q (want %q, or omit the key)", m.Name, m.Docker, DockerSbx)
+		return fmt.Errorf("manifest %q: invalid docker %q (want %q)", m.Name, m.Docker, DockerSbx)
 	}
 	if m.Daemon != nil && m.Docker == DockerNone {
 		return fmt.Errorf("manifest %q: daemon: only qualifies docker: %s — without it no daemon is promised anyway", m.Name, DockerSbx)
-	}
-	if m.RetiredDind || m.RetiredSandboxDocker {
-		return fmt.Errorf("manifest %q: dind:/sandbox_docker: are retired — declare the docker mode instead (docker: %s)",
-			m.Name, DockerSbx)
 	}
 	switch m.Kind {
 	case "", "coding", KindAssistant:

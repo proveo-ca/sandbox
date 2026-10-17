@@ -64,14 +64,14 @@ func TestAMultiRowKeepsItsExistingReasonBehaviour(t *testing.T) {
 		On:       []bool{false, true},
 		Off:      []bool{true, true},
 		OffWhy:   map[string]string{"docker (sandbox)": "this harness runs in the sandbox"},
-		Reason:   "docker sandbox: PROVEO_SBX=0 is set",
+		Reason:   "docker sandbox: unavailable on this host",
 		Help:     map[string]string{"docker (sandbox)": "a microVM with its own Docker daemon"},
 	}
 	got := helpText(r, 80)
 	if !strings.Contains(got, "this harness runs in the sandbox") {
 		t.Errorf("a hovered gated option lost its OffWhy:\n%s", got)
 	}
-	if strings.Contains(got, "PROVEO_SBX=0") {
+	if strings.Contains(got, "unavailable on this host") {
 		t.Errorf("the Multi row now doubles its reason up with the OffWhy:\n%s", got)
 	}
 }

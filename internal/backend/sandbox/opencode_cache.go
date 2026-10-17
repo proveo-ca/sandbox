@@ -432,7 +432,7 @@ func prepareOpenCodeLaunch(in Input, cfg sbx.RunConfig, exists func(string) bool
 
 // prepareOpenCodeEngine prepares the engine's history; recreated reports that a reset already replaced the engine.
 func prepareOpenCodeEngine(in Input, cfg sbx.RunConfig, exists func(string) bool, run func(context.Context, string, ...string) (string, error), recreated bool) (sbx.RunConfig, error) {
-	if !opencodeCacheTarget(in.Target) || in.Shell {
+	if !opencodeCacheTarget(in.Target) {
 		return cfg, nil
 	}
 	if err := validateCacheAuthority(in, cfg); err != nil {

@@ -57,7 +57,7 @@ participant "go test -tags=e2e\ne2e/hello_world_test.go" as TEST <<app>>
 participant "internal/tmux\ndetached PTY session" as TMUX <<app>>
 database "workspace copy\nof e2e/samples" as WS <<db>>
 database "refs/proveo/<sid>/*\nwhere a CLONED workspace delivers" as REFS <<db>>
-participant "cmd/proveo run <target>\n--egress-mode open --credentials forward\n--local-model <model>" as RUN <<app>>
+participant "cmd/proveo run <target>\n--credentials forward\n--local-model <model>" as RUN <<app>>
 participant "host Ollama\nhost.docker.internal:11434" as OLLAMA <<host>>
 participant "agent container" as CTR <<host>>
 
@@ -151,11 +151,12 @@ note over RUN
   provider credential is supplied**, so the run is
   provably credit-free rather than merely cheap.
 
-  ""open"" + ""forward"" is the only posture that reaches the
-  HOST's Ollama. Every other tier puts the agent on an
-  internal network with DNS blackholed, where the sole
-  reachable model server is the sidecar — which on macOS has
-  no GPU and generates at CPU speed, roughly 10x slower.
+  On sbx the HOST's Ollama is reached through the Kit's
+  ""localhost:11434"" add-on entry
+  (_spec/internal/sbx/host-inference\.puml). HISTORY: on the
+  docker backend (deleted 2026-10-16, with ""--egress-mode"")
+  ""open"" + ""forward"" was the only posture that reached it;
+  every other tier left only a CPU-bound Ollama sidecar.
 
   **The skip guard answers for the id the run requests.** It
   used to search the whole ""/api/tags"" body for the base name,
@@ -168,12 +169,11 @@ note over RUN
   "":latest"", then a single variant under that base name — and
   skips, naming what the host does hold, when it cannot.
 
-  The workspace ."".env"" is **deleted**, not rewritten. The
-  entrypoint sources it //after// docker applies ""-e"", so a
-  project ""CECLI_MODEL"" or ""OPENCODE_MODEL"" would outrank
-  what ""--local-model"" wired and send the main agent to the
-  cloud. A project ROLE name is inert now and could stay, but
-  a harness'"'"'s own var still fights this lane.
+  The workspace ."".env"" is **deleted**, not rewritten. On the
+  docker backend the entrypoint sourced it //after// ""-e"", so a
+  project ""CECLI_MODEL"" or ""OPENCODE_MODEL"" outranked what
+  ""--local-model"" wired. Inside sbx the image no longer sources
+  it (2026-10-16); the deletion stays as the cheaper guarantee.
 
   Whether a REAL credential still reaches a real provider is a
   different question, asked by
@@ -243,12 +243,9 @@ end note
 note over CTR
   **Let the run end itself.** The test waits for the tmux
   session to exit before ""t.Cleanup"" kills it: killing the
-  pane early SIGHUPs proveo mid-run and strands the egress
-  sidecars plus their three networks. Enough leaked subnets
-  and Docker refuses new ones outright ("all predefined
-  address pools have been fully subnetted"), which then
-  looks like a proveo bug in the next unrelated run.
-  ""proveo run"" also handles SIGHUP so an abrupt kill still
-  tears the topology down.
+  pane early SIGHUPs proveo mid-run. HISTORY: on docker that
+  stranded the egress sidecars and their networks until
+  Docker ran out of subnets. On sbx ""proveo run"" turns
+  SIGHUP into a cancelled run, so teardown still runs.
 end note
 @enduml
