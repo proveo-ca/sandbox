@@ -27,15 +27,19 @@ skinparam packageStyle rectangle
 ' paint, and draws rules in "-", as does PROVEO_GLYPHS=ascii|off.
 ' cobra's own "help" command is not listed; the hint names --help instead.
 '
-' ── 2026-10-16: `--egress-mode` IS GONE; sbx IS THE ONLY RUNTIME ───────────
-' The Executor: "Nothing, `sbx` handles this. Drop that param". MEASURED:
-' `--egress-mode` is a HIDDEN flag on `proveo run` that errors at the top of
-' RunE ("--egress-mode is retired: sbx's own network policy decides egress
-' (`sbx policy ls`, `sbx policy allow network <host>`); remove the flag"),
-' pinned by cmd/proveo/main_test.go; `--credentials forward|broker` stays and
-' its help names sbx. The orchestration packages internal/egress and the
-' runner's docker argv are deleted; sidecars (squid, proveo-egress, the Ollama
-' sidecar) are gone, and `proveo-dev` lost firehol and `coverage integration`.
+' ── 2026-10-16/17: `--egress-mode`, `--shell` AND `debug` ARE GONE ─────────
+' The Executor: "Nothing, `sbx` handles this. Drop that param"; on stubs:
+' "Drop all four" (--egress-mode, --shell, PROVEO_SBX off values, PROVEO_DIND);
+' on --shell: "is that `proveo` or `sbx`? if `proveo` retire it"; on the
+' maintainer shortcut: "Retire debug too." MEASURED: `proveo run` has neither
+' `--egress-mode` nor `--shell`, and cobra answers "unknown flag" for both (no
+' stub; the one-day hidden `--egress-mode` refusal is deleted with its test).
+' A shell in a run's sandbox is sbx's: `sbx ls`, then `sbx exec -it <sandbox>
+' bash`. cmd/proveo-dev/debug.go, its test and `mise run debug` are deleted.
+' `--credentials forward|broker` stays and its help names sbx. The
+' orchestration packages internal/egress and the runner's docker argv are
+' deleted; sidecars (squid, proveo-egress, the Ollama sidecar) are gone, and
+' `proveo-dev` lost firehol and `coverage integration`.
 '   what decides egress now ... _spec/internal/sbx/policy-baseline.puml
 '   the refusal without sbx ... _spec/internal/sbx/sandbox-backend.puml
 
@@ -49,7 +53,7 @@ actor "Maintainer" as Maintainer
 package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
  component "proveo" as Proveo <<app>>
  component "version · list · run · projects · setup · init" as Commands <<commands>>
- component "run flags\n--credentials · --local-model\n--scope · --shell · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
+ component "run flags\n--credentials · --local-model\n--scope · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 
 package "Installer" as Install {
@@ -58,7 +62,7 @@ package "Installer" as Install {
 }
 
 package "Maintainer binary (not shipped)\ncmd/proveo-dev" as Shims {
- component "proveo-dev debug · coverage · stage-cdn\nbuild-cli · lint · hooks · ladder · idle" as RunShim <<internal>>
+ component "proveo-dev coverage · stage-cdn · build-cli\nlint · hooks · ladder · idle · e2e-full" as RunShim <<internal>>
 }
 
 package "Maintainer\nmise" as Maint {
@@ -102,7 +106,7 @@ Orch --> Images
 Orch --> Sidecars
 Orch --> Storage
 
-RunShim ..> Proveo : debug → proveo run <target> --shell
+RunShim ..> Proveo : e2e-full · ladder · idle → proveo run <target>
 Mise ..> BuildTest
 Mise ..> MaintLib
 Mise ..> Proveo : run/list when needed

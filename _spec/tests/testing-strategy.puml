@@ -9,7 +9,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: internal/tmux/**
 ' covers: defs/tests/**
 ' covers: internal/imagetest/**
-' covers: e2e/preconditions_test.go (requireTmux, requireDocker, harnessImage)
+' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
+' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (imagetest.Resolve in
@@ -339,19 +340,52 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' the prompt appeared, so the manual call proved only that the function could
 ' be invoked, never that the run invokes it.
 '
-' TWO SHARED HELPERS CARRY IT, and each earns its shape.
-'   launchShell — one `proveo run <target> --shell` under tmux, pinned to
-'     `--credentials forward` with PROVEO_WIZARD=off and
-'     PROVEO_MOUNT_GH_CONFIG=0, returning only once the agent's own prompt
-'     appears. The posture is FIXED so a case asserting on workspace or git
-'     behaviour is not also asserting on credentials. `--egress-mode open` was
-'     dropped from the pin with the flag (2026-10-16); sbx's policy decides
-'     egress. The BACKEND is sbx — there is no other.
-'   shellExec — the script runs as a CHILD `bash -c` of the already-live
-'     interactive shell rather than as the shell itself, so an `exit 1` inside
-'     a probe reports a status instead of ending the session. It returns the
-'     pane plus that status, so bodies written for `docker run … -c script`
-'     keep their `strings.Contains` assertions unchanged.
+' ONE KIT LAUNCH AND `sbx exec` CARRY IT (e2e/kit_probe_test.go, 2026-10-17).
+' The user retired `--shell` ("is that `proveo` or `sbx`? if `proveo` retire
+' it") and, on the e2e, "Convert all now". MEASURED:
+'   launchKit — one `proveo run <target>` through its own kit under tmux, pinned
+'     to `--credentials forward` with PROVEO_WIZARD=off and
+'     PROVEO_MOUNT_GH_CONFIG=0. awaitKit names the sandbox the run created
+'     (kitSandbox: the only new one with the target's prefix, else the one whose
+'     workspace holds the dir, via pathWithin), waits for the seed's
+'     /dev/shm/proveo-seed-done, answers sbx's "[A]pprove all" prompt (tend),
+'     and fails fast on an sbx refusal or on a confirmation eating input. The
+'     posture is FIXED so a case asserting on workspace or git is not also
+'     asserting on credentials.
+'   kitRun.exec — `bash -c` through `sbx exec`, after
+'     `cd ${PROVEO_WORKDIR:-<dir>}` and sourcing ~/.proveo-tool-env.sh, so the
+'     probe sees the agent's working directory and toolchain; raw skips that
+'     prelude. It returns combined output and the REAL exit status — no pane
+'     scraping, no completion marker.
+'   kitRun.end — SIGTERM to proveo (stopRun), whose deferred teardown runs; it
+'     returns the last screen. pane/tend read and tend the tmux pane.
+' HISTORY: launchShell (`proveo run <target> --shell`) and shellExec (a child
+' `bash -c` typed into the live interactive shell) carried this until
+' 2026-10-17. Deleted with them: launchShellEnv, waitForContainerShell,
+' shellExecLine, markerStatus, promptWorkdir, containerPrompt,
+' sbxShellHoldsInADetachedPane, promptReady, cloneProbeAnswer, launchReadyShell,
+' assertReadySoonAfterRelease, and e2e/prompt_test.go and
+' e2e/instrument_marker_test.go.
+'
+' OTHER CONVERSIONS IN THE SAME PASS (MEASURED unless marked):
+'   * seed_ready runs every harness through its kit; readySpec.ready is the
+'     prompt text — claudecode "bypass permissions", codex "Ask Codex to do
+'     anything", opencode "Ask anything", cursor "Cursor Agent". cecli and hermes
+'     have none, so they wait for the release marker and a quiet pane. The
+'     release gap is the host time of the prompt minus the guest mtime of the
+'     release marker (assertPromptSoonAfterRelease). [Unverified] That
+'     subtraction assumes the host and guest clocks agree.
+'   * toolchain idempotency runs on claudecode: opencode's engine is retained,
+'     so its second run would reattach and prove nothing (reported by the
+'     coordinator).
+'   * close_confirm runs claudecode against the fake sbx and skips through
+'     sbx.Available() with the fake on PATH (reported).
+'   * the stream-palette test builds proveo/cecli:volatile-e2e FROM the local
+'     cecli image with an ENTRYPOINT that exits 3 (reported).
+'   * the sandbox boundary probe exempts an engine the run reports "retained";
+'     the egress confinement probe reads k.exec output, not a workspace file
+'     (reported).
+'   * requireSbx also requires `sbx ls` to answer (sbxReadyForTests).
 '
 ' A SEEDED CHOICE, NEVER A DRIVEN CHECKBOX. Where a case needs an add-on on
 ' ("browser", "claude-in-chrome"), it writes an agentsettings.Store into an
@@ -380,6 +414,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' day either question comes back, it comes back on sbx.
 '
 ' ── A PANE IS AN ECHO CHAMBER: NEVER WAIT ON TEXT YOU TYPED ────────────────
+' HISTORY for the helpers named here (deleted 2026-10-17 — kitRun.exec reads a
+' real exit status through `sbx exec`, so no marker exists to misread). The
+' three rules still bind any probe that reads a pane.
 ' Measured 2026-09-15. shellExec typed `bash -c '<script>'; echo <marker>=$?` and
 ' then waited for `<marker>=` as a plain substring. The pane shows INPUT as well
 ' as output, so the wait was satisfied by the terminal's echo of the command —
@@ -408,9 +445,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '      neither was on the sandbox one, so the pane was captured holding the
 '      typed line and no answer. An empty tier read as a cache that had failed
 '      to re-enter — the test accused the mechanism it exists to protect. It
-'      now waits through waitForContainerShell and shellExec, which return when
-'      the agent has actually answered rather than when a clock says it should
-'      have.
+'      then waited through waitForContainerShell and shellExec, and now through
+'      awaitKit's seed marker, which return when the work is done rather than
+'      when a clock says it should be.
 '
 ' A credential the AGENT cannot spend is a condition of the host, not a defect, so
 ' the watcher's Fatalf turns a pane matching credentialUnavailable into a SKIP with
@@ -419,7 +456,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' `invalid x-api-key`, `invalid api key` — because broadening it to any early exit
 ' would let a real adapter defect leave as a skip.
 '
-' Two waits carry the same reasoning. waitForContainerShell treats the agent
+' HISTORY (deleted 2026-10-17; awaitKit now waits on the sandbox name and the
+' seed's /dev/shm/proveo-seed-done instead of a shell prompt).
+' Two waits carry the same reasoning. waitForContainerShell treated the agent
 ' prompt as the signal that the WHOLE launch came up — sandbox, Kit, template
 ' load — because proveo only hands the PTY over once the sandbox is running, so
 ' anything failing earlier fails HERE with the scrollback attached rather than as a
@@ -568,8 +607,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   the consent gate .... ReviewTierConsentGate
 '   the docker bridge ... ChromeBridgeCarriesTheHostSocketIntoTheContainer
 '   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent, now the
-'                         refusal TestSandboxBackendRefusesWhenSbxAbsent, beside
-'                         TestRetiredSbxOffValuesRefuseTheRun
+'                         refusal TestSandboxBackendRefusesWhenSbxAbsent
+'                         (TestRetiredSbxOffValuesRefuseTheRun lived one day; its
+'                         stub went with "Drop all four", 2026-10-17)
 '   raw docker replicas . GitRunsWhenWorktreeOwnerDiffersFromRunAsUID ·
 '                         ClaudecodeEntrypointOperatesOnTheInputDir ·
 '                         toolchain's runLib · ToolchainLibIsCurrentInEveryHarness
@@ -594,12 +634,12 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' TestImageDetachedSmoke. TestImageMitmproxy and the Layer-3 task
 ' (`test-go-integration`) are deleted.
 '
-' ── AND SO PROVEO_SBX=off REFUSES THE RUN ───────────────────────────────────
-' Since 2026-10-16 PROVEO_SBX off values hard-fail every `proveo run`
-' (_spec/internal/sbx/sandbox-backend.puml), so the old ban below is now
-' enforced by the product itself. The last test that still pinned it,
-' e2e/opencode_sessions_test.go (PROVEO_SBX=0, docker path only), was deleted
-' 2026-10-16. HISTORY of the ban: no e2e test could pin
+' ── AND SO PROVEO_SBX=off MEANS NOTHING ─────────────────────────────────────
+' There is no backend to pin it to. PROVEO_SBX off values hard-failed every
+' `proveo run` for one day (2026-10-16); since 2026-10-17 ("Drop all four") the
+' variable is simply unread (_spec/internal/sbx/sandbox-backend.puml). The last
+' test that pinned it, e2e/opencode_sessions_test.go (PROVEO_SBX=0, docker path
+' only), was deleted 2026-10-16. HISTORY of the ban: no e2e test could pin
 ' the backend off. The pin was introduced so a probe could inspect the docker
 ' rendering — the "-egress" container, the broker.env bound into it, a mount
 ' table — without waiting out a timeout on a host where sbx takes the run. It
@@ -663,7 +703,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' ── THE INVOCATIONS, AS THE SUITES THEMSELVES RECORD THEM ───────────────────
 '   go test -tags=e2e ./e2e/ -run CredentialForwardingIntegrity -v
-'   go test -tags=e2e ./e2e/ -run 'SandboxBackendRefuses|RetiredSbxOff' -v
+'   go test -tags=e2e ./e2e/ -run SandboxBackendRefuses -v
 '   [PROVEO_TEST_LOCAL_MODEL=gemma4] \
 '     go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 360s
 '   go test -tags=e2e ./e2e/ -run InitPrint -v
@@ -802,11 +842,11 @@ note as REALLAUNCH
 end note
 
 note as SHELLHELPERS
-  **The probe is a child; the posture is pinned.**
-  shellExec executes each script as a child
-  ""bash -c"", so an internal ""exit"" reports a
-  status instead of terminating the interactive
-  session; launchShell fixes the credential posture.
+  **The probe rides ""sbx exec""; the posture is pinned.**
+  kitRun.exec runs each script as its own
+  ""bash -c"" in the sandbox and returns the real
+  exit status; launchKit fixes the credential
+  posture (was launchShell + shellExec).
 end note
 
 note as SEEDEDCHOICE

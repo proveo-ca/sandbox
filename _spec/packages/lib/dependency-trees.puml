@@ -91,7 +91,7 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' ("<cmd> is not on PATH"), and a non-zero install points at the two causes worth
 ' checking — an unreachable registry under a tight sbx network policy (the
 ' operator allows it with `sbx policy allow network <host>`; the old advice,
-' `--egress-mode open`, now refuses the run) and a lockfile that disagrees with its manifest, which is
+' `--egress-mode open`, is an unknown flag now) and a lockfile that disagrees with its manifest, which is
 ' reported rather than rewritten.
 '
 ' _proveo_dep_is_isolated reports whether a directory is proveo's private copy

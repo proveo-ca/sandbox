@@ -59,7 +59,7 @@ skinparam noteTextAlignment left
 '   kit     allow += localhost:<port>, registry.npmjs.org (the install).
 '   env     PROVEO_HOST_ADB_PORT=<port>
 '           ADB_SERVER_SOCKET=tcp:host.docker.internal:<port> — every process
-'           in the sandbox (the agent's Bash, `--shell`) reaches the server;
+'           in the sandbox (the agent's Bash, an `sbx exec` shell) reaches the server;
 '           adb resolves the name itself and ignores Host, unlike Chrome.
 '   host os PROVEO_HOST_OS=<runtime.GOOS> into every sandbox (EnvHostOS),
 '           for fixes measured on one host OS only.
@@ -118,7 +118,8 @@ skinparam noteTextAlignment left
 '   host server      same pid before and after every guest session
 '   telemetry        posthog + scarf only in runs without the opt-out
 '   choice form      android ticked by keystroke (Down, Right, Space, Enter)
-'                    in `proveo run claudecode --shell`: the run boots the
+'                    in `proveo run claudecode --shell` (measured before that
+'                    flag was retired 2026-10-17): the run boots the
 '                    AVD, the sandbox reads PROVEO_HOST_ADB_PORT=5037 and
 '                    its adb lists emulator-5554; left unticked, no device
 '                    appears, no "android:" line, the env stays unset

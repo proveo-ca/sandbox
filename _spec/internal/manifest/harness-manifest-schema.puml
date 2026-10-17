@@ -23,7 +23,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
   name : string
   description : string
   --
-  docker : sbx|(absent)   ('dind' is REFUSED)
+  docker : sbx|(absent → proveo run refuses)
   subscription : bool
   stability : experimental|candidate|stable
   --
@@ -89,13 +89,18 @@ note right of M
   harness's containerisation need is met, and after
   _spec/_paradigms/retire-dind.puml there is one way to meet it:
   ""sbx"", where the microVM IS the isolation and the daemon runs
-  inside it. Absent means no daemon reaches the agent.
-  ""dind"" — a privileged sibling the agent could call — is not
-  merely unknown but REFUSED by ""Validate"", naming ""docker: sbx""
-  as the repair: a manifest still declaring it is asking for an
-  isolation story proveo no longer implements, and silence would
-  read as a typo. The retired ""dind:"" / ""sandbox_docker:"" boolean
-  keys are still PARSED for the same reason.
+  inside it. A missing ""docker:"" LOADS (DockerNone, "loads, and
+  proveo run refuses it"), and ""proveo run"" then refuses with
+  "does not declare `docker: sbx`". MEASURED 2026-10-17 (the user:
+  "Drop all four" — dind, sandbox_docker, egress, provider): the
+  ""docker: dind"" special case, RetiredDind, RetiredSandboxDocker
+  and TestRetiredDockerDindIsRefused are deleted. ""dind"" now falls
+  into the generic ""invalid docker \"dind\" (want \"sbx\")"", and a
+  stale ""dind:"" / ""sandbox_docker:"" / ""egress:"" / ""provider:""
+  key loads silently like any unknown key (no KnownFields).
+  HISTORY: until then ""dind"" had its own refusal naming the
+  repair, and the retired keys were parsed so silence could not
+  read as a typo.
 
   **""daemon: false"" splits the backend from the promise.**
   ""docker: sbx"" used to mean both "runs in an sbx sandbox" and

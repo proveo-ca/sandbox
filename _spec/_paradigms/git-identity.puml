@@ -17,8 +17,9 @@
 ' this object's — that is init_github.go / github-credentials.puml.
 '
 ' ── THE E2E CASE MEASURES THE RUN'S BRIDGING, NOT THE FUNCTION'S ───────────
-' TestGitIsWritableInEveryHarness launches a real `proveo run <target> --shell`
-' per harness and commits inside it, in place of the `docker run --entrypoint
+' TestGitIsWritableInEveryHarness launches a real `proveo run <target>` through
+' its kit per harness and commits inside it through `sbx exec` (launchKit;
+' `--shell` until that flag was retired 2026-10-17), in place of the `docker run --entrypoint
 ' bash` it used to assemble with the mounts and the uid copied out of the run
 ' path. The probe script no longer opens with `source /entrypoint-lib.sh;
 ' bridge_git_identity "$PWD"`, and dropping that line is the point: the real

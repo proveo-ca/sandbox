@@ -80,7 +80,7 @@ node "proveo — internal/ptyproxy" as PX <<host>> {
 }
 
 node "agent process" as CH <<host>> {
-  component "PTY slave is its tty\n(sbx agent · docker agent · --shell)" as CHILD <<app>>
+  component "PTY slave is its tty\n(the sbx client running the agent;\ndocker agent and --shell retired)" as CHILD <<app>>
 }
 
 component "a SECOND reader\n""tcell.NewScreen"" · a bare prompt" as SECOND <<error>>

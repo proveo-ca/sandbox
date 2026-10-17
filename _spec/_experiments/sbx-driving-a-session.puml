@@ -9,6 +9,15 @@ skinparam noteTextAlignment left
 ' Sibling experiments: sbx-kit-capabilities.puml (E1 adopted, E2 folded in)
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
+' ── OUTCOME 2026-10-17: E3 ADOPTED IN ITS `sbx exec` FORM; RECORD BELOW ─────
+' The user retired proveo's `--shell` ("is that `proveo` or `sbx`? if `proveo`
+' retire it") and the e2e was converted ("Convert all now"). MEASURED: every
+' probe now launches the harness through its kit and runs `bash -c` through
+' `sbx exec` beside it (e2e/kit_probe_test.go: launchKit, awaitKit,
+' kitRun.exec). sbxShellHoldsInADetachedPane and both skips it gated are
+' deleted. Everything below is the record of how that was weighed; every
+' `proveo run --shell` in it names a flag that no longer exists.
+'
 ' ── UPDATE 2026-09-10: THE SKIP HAS SPREAD, SO E3 GOT MORE EXPENSIVE ───────
 ' Re-measured, because an experiment nobody references is an experiment nobody
 ' re-costs. `sbxShellHoldsInADetachedPane` is now consulted from TWO files, not

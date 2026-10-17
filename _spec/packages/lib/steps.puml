@@ -89,7 +89,7 @@ title proveo run <target> — sandbox lifecycle\n(host resolves → sbx sandbox 
 start
 
 partition "0 · Refuse unless sbx can run it  «host»" {
-  :requireSandbox — PROVEO_SBX off values, no ""docker: sbx"",\nor sbx not ready → refuse with the reason (no fallback);
+  :requireSandbox — no ""docker: sbx"" or sbx not ready\n→ refuse with the reason (no fallback);
 }
 
 partition "1 · LLM provider auth  «host»" {

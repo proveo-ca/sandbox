@@ -145,7 +145,7 @@ note bottom of VENDOR
   ""egress"" and ""credentials"" pins are gone, and so is the
   top-level ""provider: cursor"" key (MEASURED: only
   ""capabilities.providers: [cursor]"" pins the vendor now), and
-  ""--egress-mode"" only refuses the run.
+  ""--egress-mode"" is an unknown flag (2026-10-17).
 
   **On sbx the broker is native, not an interception.**
   sbx's proxy attaches ""CURSOR_API_KEY"" itself, so broker

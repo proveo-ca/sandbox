@@ -23,13 +23,13 @@ skinparam noteTextAlignment left
 ' The Executor, on mapping open/allowlist/review onto sbx: "Nothing, `sbx`
 ' handles this. Drop that param". And on review: "Retire review, map the rest".
 ' MEASURED in the working tree:
-'   * `--egress-mode` survives only as a HIDDEN flag that refuses the run:
-'     "--egress-mode is retired: sbx's own network policy decides egress
-'     (`sbx policy ls`, `sbx policy allow network <host>`); remove the flag"
-'     (cmd/proveo/main.go, pinned in main_test.go). egress.Modes, Canonical,
-'     ValidMode, entrypoint.CanonicalTiers and the egress_vocabulary contract
-'     test are deleted, and the retired aliases broker / firewall / proxy with
-'     them.
+'   * `--egress-mode` is gone with no stub: cobra answers "unknown flag" (the
+'     user, 2026-10-17, on the CLI and env stubs: "Drop all four"). For one day
+'     it survived as a hidden flag that refused the run, naming `sbx policy ls`
+'     and `sbx policy allow network <host>`; that flag and its test are deleted
+'     (MEASURED). egress.Modes, Canonical, ValidMode, entrypoint.CanonicalTiers
+'     and the egress_vocabulary contract test are deleted, and the retired
+'     aliases broker / firewall / proxy with them.
 '   * proveo writes NO tier-driven entry into the Kit's permissions.network.
 '     allow: no harness `capabilities.hosts`, no provider reach
 '     (credentials.ReachableHosts is deleted), no custom domains, no
@@ -174,8 +174,8 @@ KIT ARROW_OPTIONAL SBX : adds allow rules ON TOP\n(cannot subtract)
 note over ROW
   **The tiers are gone (2026-10-16).** "Nothing,
   `sbx` handles this. Drop that param": the
-  tiers are deleted, not mapped, and a hidden
-  ""--egress-mode"" now refuses the run.
+  tiers are deleted, not mapped, and
+  ""--egress-mode"" is an unknown flag now.
 end note
 
 note over ROW

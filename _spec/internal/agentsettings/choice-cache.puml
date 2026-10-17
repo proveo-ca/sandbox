@@ -41,7 +41,10 @@
 ' the second run re-enters it rather than overwriting it
 ' (e2e/agent_settings_test.go).
 '
-' It was read through `shellExec`, which returns on a completion marker. The fixed
+' (MEASURED 2026-10-17: the lane now runs `proveo run opencode` without
+' `--shell`, which is retired, and waits for opencode's own "Ask anything"
+' prompt before tearing the run down.)
+' It was read through `shellExec`, which returned on a completion marker. The fixed
 ' sleeps it replaced (4s for the shell, 2s for the answer) were long enough on the
 ' docker rendering and not on the sandbox one, so the pane came back holding the
 ' typed line and no answer — an empty tier, which this test then reported as a

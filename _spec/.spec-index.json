@@ -85,8 +85,7 @@
         "cmd/proveo/maintain_cmd.go",
         "cmd/proveo/provision.go",
         "internal/contract/image_resolution_test.go",
-        "internal/contract/import_boundary_test.go",
-        "cmd/proveo-dev/debug.go"
+        "internal/contract/import_boundary_test.go"
       ],
       "fingerprint": null
     },
@@ -546,7 +545,7 @@
         "cmd/proveo/provision.go",
         "cmd/proveo/targets.go",
         "cmd/proveo/wizard.go",
-        "cmd/proveo-dev/debug.go"
+        "internal/imagebuild/targets.go"
       ],
       "fingerprint": null
     },
@@ -1005,8 +1004,7 @@
         "cmd/proveo/maintain_cmd.go",
         "cmd/proveo/targets.go",
         "internal/imagebuild/**",
-        "internal/imagetest/**",
-        "cmd/proveo-dev/debug.go"
+        "internal/imagetest/**"
       ],
       "fingerprint": null
     },
@@ -1247,7 +1245,7 @@
         "internal/backend/sandbox/own_agent_test.go",
         "internal/sbx/kit.go",
         "cmd/proveo/testdata/plan/sbx-claudecode-broker.golden",
-        "cmd/proveo/testdata/plan/sbx-claudecode-shell-clone-datadir.golden",
+        "cmd/proveo/testdata/plan/sbx-claudecode-clone-datadir.golden",
         "cmd/proveo/testdata/plan/sbx-cursor-key.golden"
       ],
       "fingerprint": null
@@ -1762,6 +1760,7 @@
         "defs/tests/**",
         "internal/imagetest/**",
         "e2e/preconditions_test.go",
+        "e2e/kit_probe_test.go",
         "cmd/proveo-dev/coverage.go"
       ],
       "fingerprint": null

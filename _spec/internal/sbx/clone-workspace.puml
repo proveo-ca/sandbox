@@ -197,8 +197,10 @@ skinparam noteTextAlignment left
 ' (LinkEnvPolicy) rather than riding this list.
 '
 ' ── THE REGRESSION GUARD DRIVES THE REAL RUN ───────────────────────────────
-' TestCloneLeavesTheHostTreeAlone launches `proveo run claudecode --clone
-' --shell` rather than the `sbx create --clone` it used to build by hand. What
+' TestCloneLeavesTheHostTreeAlone launches `proveo run claudecode --clone`
+' through its kit (launchKit, probing with `sbx exec`; it used `--shell` until
+' that flag was retired 2026-10-17) rather than the `sbx create --clone` it used
+' to build by hand. What
 ' it guards — the decideClone verdict, the dropped nested bind, the lift at
 ' teardown — is then proveo's own assembly rather than a replica, and a replica
 ' agrees with itself indefinitely while the run it stands in for moves.
@@ -392,8 +394,8 @@ note as CLONEGUARD
   **The guard launches the product it guards.**
   A hand-built ""sbx create --clone"" agrees with
   itself indefinitely, so the regression case
-  now exercises ""proveo run --clone --shell""
-  and reads the decideClone verdict it recorded.
+  exercises ""proveo run --clone"" through its
+  kit and reads the decideClone verdict.
 end note
 
 note bottom of NESTED

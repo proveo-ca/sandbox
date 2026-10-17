@@ -299,8 +299,8 @@ end note
 note bottom of SOON
   **The flag accepts what the form greys.**
   ""--credentials forward"" works from the CLI
-  while the form gates it. ""--egress-mode"" now
-  refuses the run, naming ""sbx policy"".
+  while the form gates it. ""--egress-mode"" is
+  an unknown flag since 2026-10-17.
 end note
 
 note top of TTY

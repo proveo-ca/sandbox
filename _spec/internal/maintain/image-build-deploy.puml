@@ -6,7 +6,6 @@
 ' covers: cmd/proveo/targets.go
 ' covers: internal/imagebuild/**
 ' covers: internal/imagetest/**
-' covers: cmd/proveo-dev/debug.go
 ' execute order .............. _spec/internal/maintain/build-schedule.puml
 '
 ' 2026-10-16 (MEASURED): KindSidecar is gone from internal/maintain; the

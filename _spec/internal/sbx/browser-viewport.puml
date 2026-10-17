@@ -52,7 +52,8 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 '
 ' ── THE E2E CASE NAMES THE TARGET, NOT THE BROWSER IMAGE ───────────────────
 ' TestBrowserViewportReachesTheAgentsChromium drives a real `proveo run
-' claudecode --shell` with the "browser" add-on pre-selected, in place of the
+' claudecode` through its kit (awaitKit; `--shell` until that flag was retired
+' 2026-10-17) with the "browser" add-on pre-selected, in place of the
 ' three pieces it used to hand-assemble: a `sbx create -p <hostPort>:9222`, a
 ' manually started relay, and a manual `sbx exec … agent-browser open`.
 '

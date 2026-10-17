@@ -15,14 +15,22 @@
 ' This plan kept docker+egress as the PROVEO_SBX=0 fallback and left mitmproxy
 ' and Squid out of scope. The Executor then chose "Retire Docker egress",
 ' "Refuse without sbx" and "Retire review, map the rest". The backend, its
-' sidecars, the review tier and the fallback are DELETED; PROVEO_SBX off values
-' refuse the run (_spec/internal/sbx/sandbox-backend.puml). Every "still stands"
-' and "left open" below is therefore HISTORY, answered as marked.
-' `--egress-mode` survives only as a HIDDEN flag that errors at the top of
-' RunE: "--egress-mode is retired: sbx's own network policy decides egress
-' (`sbx policy ls`, `sbx policy allow network <host>`); remove the flag" — the
-' PROVEO_DIND rule (say so, never silently ignore) applied to a flag, with a
-' cmd/proveo test pinning it (MEASURED: cmd/proveo/main.go, main_test.go).
+' sidecars, the review tier and the fallback are DELETED
+' (_spec/internal/sbx/sandbox-backend.puml). Every "still stands" and "left
+' open" below is therefore HISTORY, answered as marked.
+'
+' ── 2026-10-17: THE STUBS THIS FILE ARGUED FOR ARE GONE TOO ────────────────
+' The user, on the CLI and env stubs: "Drop all four" (--egress-mode, --shell,
+' PROVEO_SBX off values, PROVEO_DIND); on the manifest's retired fields: "Drop
+' all four" (dind, sandbox_docker, egress, provider). MEASURED: warnDindRetired,
+' its PROVEO_DIND warning and test, the PROVEO_SBX off-value refusal, the
+' one-day hidden `--egress-mode` refusal, RetiredDind, RetiredSandboxDocker,
+' the `docker: dind` special case and TestRetiredDockerDindIsRefused are all
+' deleted. This file's own rule — "say so, never silently ignore" — is
+' therefore superseded: a stale variable, flag or manifest key now meets the
+' generic behaviour (unread, cobra "unknown flag", `invalid docker "dind"
+' (want "sbx")`, or an unknown YAML key that loads). Remnants 1 and 4 below
+' are HISTORY; remnants 2 and 3 still hold.
 '
 ' ── WHAT ACTUALLY LANDED, AND THE TWO THINGS THE PLAN DID NOT KNOW ─────────
 ' 1. Manifests moved. `opencode` AND `cecli` declare `docker: sbx`; both images
@@ -32,7 +40,8 @@
 '    real /home/agent, and `com.docker.sandboxes.start-docker`.
 ' 2. The offer is gone. `docker (dind)` left the execution row, which now carries
 '    the one greyed-and-ticked fact every sbx harness already had. `PROVEO_DIND`
-'    warns and no-ops rather than being silently unread.
+'    warned and no-opped rather than being silently unread — until 2026-10-17,
+'    when the warning was dropped and the variable became simply unread.
 ' 3. The lattice is deleted: `internal/dind` whole, its five gates, the
 '    interactive prompt, `ScopeHasDockerfiles`, and the dind arm of `gateAddons`.
 ' 4. The plumbing is deleted: the `--link` args, `DOCKER_HOST`, `WaitReady`,
@@ -75,14 +84,16 @@
 ' property the old invariant was really protecting.
 '
 ' ── WHAT THE RETIREMENT LEFT BEHIND, AND HOW EACH REMNANT BEHAVES ─────────
-' Four places still know the word `dind`, and each is deliberate.
+' Four places knew the word `dind`, each deliberately. Since 2026-10-17 two do:
+' normalizeAddons (2) and `proveo clean`'s `proveo-dind-*` sweep (MEASURED).
 '
-' 1. THE MANIFEST REFUSES IT BY NAME. `docker: dind` is not merely unknown to
-'    Validate — it has its own case, so the error says the privileged sidecar is
-'    retired rather than reading like a typo. Two retired KEYS are parsed for
-'    the same reason (`dind:` and `sandbox_docker:` under the retired block): a
-'    def still carrying one is asking for something gone, and silence would let
-'    it look honoured. The only two answers left are one daemon and none.
+' 1. HISTORY — THE MANIFEST REFUSED IT BY NAME. `docker: dind` had its own case
+'    in Validate, so the error said the privileged sidecar was retired, and two
+'    retired KEYS (`dind:`, `sandbox_docker:`) were parsed so a def carrying one
+'    could not look honoured. Deleted 2026-10-17 ("Drop all four"): `dind` now
+'    gets the generic `invalid docker "dind" (want "sbx")`, and the keys load
+'    silently like any unknown key. The only two answers left are one daemon
+'    and none.
 '
 ' 2. A CACHED CHOICE IS DROPPED, NOT TRANSLATED. normalizeAddons discards both
 '    spellings an older run may have remembered — `dind` and `docker (dind)` —
@@ -98,11 +109,10 @@
 '    Claude token — sbx keeps it proxy-managed and the Chrome bridge rejects
 '    the sentinel (401)"). chromebridge.TierSupported/TierWhy are deleted.
 '
-' 4. `PROVEO_DIND` SAYS SO RATHER THAN STAYING SILENT. Its whole remaining job
-'    is the warning. An operator who exported it in a shell rc months ago reads
-'    a missing sidecar as a broken run; a silent no-op tells them nothing. The
-'    e2e suites pin it to 0 for the opposite reason — so an operator's exported
-'    value cannot put the retirement warning into a screen they match on.
+' 4. HISTORY — `PROVEO_DIND` SAID SO RATHER THAN STAYING SILENT. Its whole job
+'    was the warning, for an operator who exported it months ago. The warning
+'    (warnDindRetired) and its test were deleted 2026-10-17 ("Drop all four");
+'    the variable is unread now, and nothing outside _spec/ names it (MEASURED).
 '
 ' ── AND ONE RESERVATION INVERTED ──────────────────────────────────────────
 ' The contract suite used to assert BOTH directions: a subscription harness must
@@ -279,7 +289,7 @@ note bottom of SBX
   Docker as the ""PROVEO_SBX=0"" fallback kept
   review and the flow record alive. Deleting it
   was the second decision; it is taken, and
-  ""PROVEO_SBX"" off values now refuse the run.
+  ""PROVEO_SBX"" is an unread variable now.
 end note
 
 note top of SBX
@@ -297,7 +307,8 @@ legend bottom
   for those two harnesses only, and PROVEO_SBX=0 still reaches the old path.
   --
   **2. Stop offering it.** ""docker (dind)"" leaves the execution row; the row becomes the
-  single compulsory fact it already is on the sbx harnesses. ""PROVEO_DIND"" warns and no-ops.
+  single compulsory fact it already is on the sbx harnesses. ""PROVEO_DIND"" warned and no-opped
+  (warning dropped 2026-10-17).
   --
   **3. Delete the lattice.** ""internal/dind"" and its five gates, the interactive prompt,
   the scope scan, ""ScopeHasDockerfiles"", and the dind arm of ""gateAddons"".

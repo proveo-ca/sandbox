@@ -150,8 +150,9 @@
 '   https://docs.docker.com/ai/sandboxes/agents/opencode/ documents no data or history path and no import.
 ' No kit surface can carry a SQLite history store in. The V2 share reaches the engine through the proveo home,
 ' which proveo mounts as a workspace; the host prepares it through `sbx exec`, then re-runs proveo-seed with
-' PROVEO_OPENCODE_CACHE_OWNER and reattaches the agent through the kit. `--shell` skips that sequence, so an
-' opencode --shell sandbox stays refused and unseeded; e2e/seed_ready_test.go runs opencode through its kit.
+' PROVEO_OPENCODE_CACHE_OWNER and reattaches the agent through the kit. `--shell` skipped that sequence, so an
+' opencode --shell sandbox stayed refused and unseeded; `--shell` was retired 2026-10-17, and every e2e row
+' (e2e/seed_ready_test.go included) runs through its kit.
 '
 ' SBX AUTO-STOP LOSES THE KEEPER, 2026-10-14 — research and the Executor's decision:
 '   "By default, a local sandbox stops automatically shortly after its last session disconnects"
@@ -292,7 +293,8 @@
 ' which runs `sbx run --kit` with proveo's kit and no host (e2e/ladder_test.go); not re-run here.
 ' RAW UNMANAGED LAUNCH, 2026-10-16 — DECISION (Executor: "imitate the behavior verbatim a raw sbx run
 ' would, and accept it"). An adversarial and a security review rejected self-prepare: an owner-less
-' launch also happens in proveo-managed engines (`--shell` then `opencode`, a direct `sbx run <engine>`),
+' launch also happens in proveo-managed engines (`--shell` then `opencode` — until `--shell` was retired
+' 2026-10-17; today `sbx exec -it <engine> bash` then `opencode` — or a direct `sbx run <engine>`),
 ' where it ran a keeper the host never recorded, could publish an empty V2 store over legacy history the
 ' guest cannot see, and served one launch only.
 ' Now: when the seed refused with "OpenCode history is not prepared in this engine" and the runtime

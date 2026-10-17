@@ -12,18 +12,31 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' _spec/_plans/host-execution-fallback.puml.
 '
 ' MEASURED, internal/run/run.go requireSandbox, before any workspace work:
-'   PROVEO_SBX in off|0|no|false|disable|disabled (sandbox.Disabled)
-'     → "PROVEO_SBX=<v> is retired: it selected the docker+egress fallback,
-'        which is gone. Unset it; proveo runs on Docker Sandboxes (sbx) only"
 '   the manifest lacks `docker: sbx` (man.IsSbx) → refuse, naming the target
 '   sbx not ready (sandbox.Ready → sbx.Available, or Ensure off --print)
 '     → sandbox.Unavailable(why): the reason, the engine, and the install or
 '       upgrade line from sbx.InstallCmd
 ' `--print` refuses too: it calls sbx.Available and never installs.
-' PROVEO_SBX hard-fails rather than warning and no-opping, unlike PROVEO_DIND:
-' a run that silently ignored it would land the operator on the backend they
-' tried to leave. e2e/sbx_test.go pins both refusals
-' (TestSandboxBackendRefusesWhenSbxAbsent, TestRetiredSbxOffValuesRefuseTheRun).
+' e2e/sbx_test.go pins the refusal (TestSandboxBackendRefusesWhenSbxAbsent).
+'
+' ── NO RETIREMENT STUBS (DECIDED 2026-10-17) ───────────────────────────────
+' The user, on the CLI and env stubs: "Drop all four" (--egress-mode, --shell,
+' PROVEO_SBX off values, PROVEO_DIND). MEASURED: sandbox.Disabled, the
+' PROVEO_SBX off-value refusal and TestRetiredSbxOffValuesRefuseTheRun are
+' deleted; warnDindRetired and its PROVEO_DIND warning are deleted; the hidden
+' `--egress-mode` flag is deleted. PROVEO_SBX and PROVEO_DIND are now ordinary
+' unread variables, and `--egress-mode` / `--shell` get cobra's "unknown flag".
+' HISTORY: from 2026-10-16 to this decision, PROVEO_SBX off values hard-failed
+' ("PROVEO_SBX=<v> is retired: …") and PROVEO_DIND warned and no-opped.
+'
+' ── `--shell` IS RETIRED: SHELL ACCESS IS sbx's (DECIDED 2026-10-17) ───────
+' The user: "Why do we support this? Does any other harness support that
+' --shell flag? is that `proveo` or `sbx`? if `proveo` retire it." It was
+' proveo's, so it is gone with no stub: Params.Shell, sandbox.Input.Shell and
+' its branches in sandbox.go and opencode_cache.go are deleted (MEASURED). A
+' shell inside a run's sandbox is `sbx ls`, then `sbx exec -it <sandbox> bash`.
+' The golden sbx-claudecode-shell-clone-datadir became
+' sbx-claudecode-clone-datadir, and its agent is `claude`.
 '
 ' THE WORKSPACE .env GUARD KEYS ON sbx's OWN VARIABLES. Images skipped sourcing
 ' the workspace .env only while PROVEO_EGRESS_MODE named a tier, and only the
@@ -213,7 +226,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' Kit schema, the validate handoff, session lifecycle and exit-code handling:
 '   sbx-kit-contract.puml (same directory)
 
-component "run.Do → requireSandbox\nPROVEO_SBX off · no ""docker: sbx""\n· ""sandbox.Ready"" false → refuse" as SEL <<app>>
+component "run.Do → requireSandbox\nno ""docker: sbx""\n· ""sandbox.Ready"" false → refuse" as SEL <<app>>
 component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
 component "sbx CLI (pre-GA; proveo pins\n""sbx.MinVersion"")\nrun --kit … / secret set / rm" as CLI <<host>>
 component "Kit spec.yaml (per run)\nnetwork.allow = add-on ports (Ollama ·\nCDP · adb) ∪ own-agent credential domains" as KIT <<app>>
@@ -222,7 +235,7 @@ component "host-side credential injection\nvalues via stdin — never argv,\nnev
 component "refusal\n""sandbox.Unavailable(why)""\ninstall / upgrade hint" as REFUSE <<error>>
 
 SEL ARROW_MAIN SBX : ready
-SEL ARROW_ERROR REFUSE : not ready, or PROVEO_SBX off
+SEL ARROW_ERROR REFUSE : not ready, or no ""docker: sbx""
 SBX ARROW_MAIN CLI
 SBX ..> KIT : rendered under state egDir/sbx/kit
 SBX ..> SEC
@@ -292,8 +305,9 @@ note bottom of CLI
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
   this backend and asserts what ""docker: sbx"" claims: the sbx line was printed,
   the workspace mount carries writes back to the host, and the
-  sandbox is gone afterwards. It drives ""--shell"", so it costs no model call and
-  no credential.
+  sandbox is gone afterwards. It drives the harness's own kit launch and probes
+  through ""sbx exec"" (""launchKit"", e2e/kit_probe_test.go), so it asks the agent
+  nothing; it used ""--shell"" until that flag was retired 2026-10-17.
 
   **That test alone was not enough, and the gap is instructive.** Every adapter
   defect — a rejected ""-w"", a ""-v"" that is ""--cloud"" only, an image in the agent
@@ -613,10 +627,10 @@ note as Memory #F4F9FB
 end note
 
 note right of SEL
-  **""PROVEO_SBX"" off values REFUSE.** It was the
-  only headless route to docker; the route is
-  gone, so the variable hard-fails naming the
-  retirement rather than silently doing nothing.
+  **No retirement stubs (2026-10-17).** ""PROVEO_SBX""
+  off values refused for a day, then "Drop all
+  four" removed the refusal: the variable is now
+  unread, like ""PROVEO_DIND"".
 end note
 
 note as AGENTENV

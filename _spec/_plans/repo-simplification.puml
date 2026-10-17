@@ -40,6 +40,19 @@
 '   Evidence: MEASURED. opencode-versioned-history-storage.puml:269-276 "NO MAINTENANCE COMMANDS".
 '   Evidence: MEASURED. internal/backend/sandbox/opencode_cache_test.go:610 pins pass-through.
 '
+' S3 · `--shell`, `proveo-dev debug` and every retirement stub removed — DONE (wt, 2026-10-17).
+'   Decisions (the user): on --shell "Why do we support this? Does any other harness support
+'   that --shell flag? is that `proveo` or `sbx`? if `proveo` retire it."; "Retire debug too.";
+'   on e2e "Convert all now."; manifest Retired* fields "Drop all four" (dind, sandbox_docker,
+'   egress, provider); CLI and env stubs "Drop all four" (--egress-mode, --shell, PROVEO_SBX off
+'   values, PROVEO_DIND).
+'   Evidence: MEASURED. Params.Shell and sandbox.Input.Shell are gone; cobra answers "unknown
+'     flag" for --shell and --egress-mode; sandbox.Disabled, warnDindRetired, RetiredDind,
+'     RetiredSandboxDocker and the `docker: dind` case are gone (a missing `docker:` loads and
+'     `proveo run` refuses it); cmd/proveo-dev/debug.go and its test are gone; e2e/
+'     kit_probe_test.go replaces launchShell/shellExec. Shell access is `sbx exec -it <sandbox>
+'     bash` (_spec/internal/sbx/sandbox-backend.puml).
+'
 ' F2 · defs/egress-dashboard — DONE (wt), part of D1.
 '   What: a Node server that normalized mitm ndjson and Squid access.log into one timeline.
 '   Evidence: MEASURED. No Go code launched it; only a docstring in the mitmproxy addon named it.
@@ -60,9 +73,10 @@
 '   "Retire Docker egress"; "Refuse without sbx"; "Retire review, map the rest"; on the
 '   tier mapping "Nothing, `sbx` handles this. Drop that param"; cursor pins "Drop the pins".
 '   Rehomed into the living specs listed in the header.
-'   Evidence: MEASURED. requireSandbox refuses PROVEO_SBX off values, a manifest without
-'     `docker: sbx`, and an unready sbx (internal/run/run.go); `--egress-mode` is a hidden
-'     flag that refuses (cmd/proveo/main.go); the egress, broker, reviewgate, dockeregress
+'   Evidence: MEASURED. requireSandbox refuses a manifest without `docker: sbx` and an
+'     unready sbx (internal/run/run.go). The one-day stubs — the PROVEO_SBX off-value
+'     refusal, the hidden `--egress-mode` refusal, the PROVEO_DIND warning — are deleted
+'     too (2026-10-17, "Drop all four"; see S3). The egress, broker, reviewgate, dockeregress
 '     and sidecar paths are absent; a grep for proveo-egress, egressProxyImage, SquidConfig,
 '     DockerSpec and BrokerFile outside _spec/ finds only the stagecdn_test fixture name and
 '     the "proveo-egress-probe.invalid" probe host.
@@ -244,6 +258,30 @@
 '     2. Rename the parameter to `blocked` and keep the guard.
 '     3. Keep as is.
 '
+' F18 · The in-image prelude disagrees on how it detects sbx — PROPOSED.
+'   Evidence: MEASURED. load_env (entrypoint-lib.sh) and Go's entrypoint.ShouldSkipEnvLoad
+'     accept SANDBOX_NAME or SANDBOX_VM_ID.
+'   Evidence: MEASURED. entrypoint-lib.sh proveo_sbx_passthrough (~2745) checks SANDBOX_VM_ID only.
+'   Evidence: MEASURED. SANDBOX_VM_ID only in packages/lib/proveo-await-seed (:54, :80, :86),
+'     proveo-opencode-runtime (:292, :402, :433, :671) and proveo-opencode-preflight (:12, :14);
+'     CONTRIBUTING.md:57 and CODING_HARNESSES.md:72 document only SANDBOX_VM_ID.
+'   Why: if sbx ever sets SANDBOX_NAME without SANDBOX_VM_ID, the .env guard holds while the
+'     passthrough, the seed wait and the OpenCode runtime treat the run as outside sbx.
+'   Options:
+'     1. [rec] One shell helper (`_proveo_in_sbx`, SANDBOX_NAME then SANDBOX_VM_ID, `:-` safe
+'        under set -u) used by every script, and the two docs updated to name both.
+'     2. Key every site on SANDBOX_VM_ID only and revert load_env/ShouldSkipEnvLoad to match.
+'     3. Keep as is until sbx documents which variable is stable (F7).
+'
+' F19 · hermes's manifest still declares `/proveo-home/data`, which sbx ignores — PROPOSED.
+'   Evidence: MEASURED. defs/hermes/harness.manifest:20 `container: /proveo-home/data`.
+'   Evidence: MEASURED. sbx mounts workspaces at their host path, and defs/hermes/entrypoint.sh
+'     probes only $PROVEO_STATE_HOME/hermes/data (_spec/defs/hermes/hermes-persistence.puml).
+'   Options:
+'     1. [rec] Make `container:` optional for home mounts and drop it where sbx ignores it.
+'     2. Keep the field; document it as the docker-era rendering.
+'     3. Keep as is.
+'
 ' F17 · Live env names still carry the retired "EGRESS" word — PROPOSED (rename; no action now).
 '   Evidence: MEASURED. PROVEO_EGRESS_ENV_FILE (internal/run/run.go:151) names the host-side
 '     KEY=VALUE file the credential lookup reads.
@@ -315,6 +353,12 @@
 '   Evidence: MEASURED. TestRunResolveGolden's three cases were docker cases. UPDATE (wt):
 '     run_golden_test.go is DELETED with D1, so no test pins a whole `--print` run.Do now
 '     (_spec/internal/run/run-spec.puml) — option 1's re-record is the open half.
+'   UPDATE 2026-10-17, reported by the coordinator ([Unverified] here — this pass ran nothing):
+'     six internal/contract failures persist, unchanged by the D1 and S3 work — ClaudeEnvHook ×2,
+'     the JVM qemu floor, EverySeedSurvivesAnUnsetHarnessHome/opencode,
+'     OpenCodePreparedCacheFixtures, OpenCodeCredentialRuntimeLifecycle — plus e2e
+'     TestScheduleAgentThatDiesBeforeReadyFailsFast, which also fails on HEAD in a clean worktree.
+'     TestThePostureNamesTheCredentialRouteThatWillHappen is not on that list.
 '   Options:
 '     1. [rec] Make each hermetic: inject host OS and tool lookups, stub jq/node on PATH, resolve
 '        images through a fake; re-record TestRunResolveGolden as sbx goldens after D1.
@@ -561,8 +605,8 @@
 '  1. SEC2 — a host-disclosure path with a small diff.
 '  2. SEC3 — a test helper that writes operator credentials.
 '  3. C1 — a one-line fix to a contradiction every subscription run prints.
-'  4. N1 + N2 + N4 + N7 + F7 — collapse the in-image prelude to one implementation.
-'  5. F9 + F10 + F11 + F14 + F15 + F16 + F17 + N13 + N18 — delete the Go residue D1 leaves behind.
+'  4. N1 + N2 + N4 + N7 + F7 + F18 — collapse the in-image prelude to one implementation.
+'  5. F9 + F10 + F11 + F14 + F15 + F16 + F17 + F19 + N13 + N18 — delete the Go residue D1 leaves behind.
 '  6. N12 + T1 — one image task, hermes inside the release gate, hermetic contract tests.
 '  7. N11 then N10 — fix spec drift, then graduate landed plans (main agent repoints SPEC: lines).
 '  8. N5 + N6 + N8 — shared helpers, then the env registry.
@@ -570,14 +614,14 @@
 ' 10. N9 + N16 + N17 + N3 — small deletions.
 ' 11. N14 — strip comments and add the lint last, so the sweep sees the final shape.
 ' 12. SEC1 — record the decision.
-title PLANNED — repo simplification: 45 findings, their status, and the order of work
+title PLANNED — repo simplification: 48 findings, their status, and the order of work
 
 component "D1 · retire docker+egress\nDONE (wt) 2026-10-16" as D1 <<app>>
 component "D2 · OpenCode engine-local DB\nDECIDED · keeper goes" as D2 <<app>>
 component "F6 · .env guard rekey\nDONE (wt) inside D1" as F6 <<app>>
 component "security · SEC1 SEC2 SEC3\npre-existing" as SEC <<error>>
-component "image prelude\nN1 N2 N3 N4 N7 F7" as PRE <<app>>
-component "post-D1 Go residue\nF9 F10 F11 F14 F15 F16 F17\nN13 N18 C1" as GO <<app>>
+component "image prelude\nN1 N2 N3 N4 N7 F7 F18" as PRE <<app>>
+component "post-D1 Go residue\nF9 F10 F11 F14 F15 F16 F17 F19\nN13 N18 C1" as GO <<app>>
 queue "test gates · T1 N12\nhermetic + hermes in gate" as TST <<async>>
 database "spec hygiene · N10 N11 N14\ngraduate + fix drift" as SPEC <<db>>
 component "helpers + splits\nN5 N6 N8 N9 N15 N16 N17" as HLP <<app>>
@@ -601,7 +645,7 @@ legend bottom
   **IDs** — S seed done · D decided retirement · F seed finding · C credential report
   SEC security · T tests · N own sweep
   ==
-  **Counts** — DONE 12 · DECIDED 2 · PROPOSED 31 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
-  F8, F12b moved to DONE; F14, F15, F16, F17 added)
+  **Counts** — DONE 13 · DECIDED 2 · PROPOSED 33 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19 added)
 end legend
 @enduml

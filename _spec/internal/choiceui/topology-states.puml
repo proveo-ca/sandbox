@@ -73,7 +73,8 @@ title The topology strip in every selectable state (sbx; the docker frames are h
   .
   The sandbox add-on is compulsory, so every harness is on the first row. The
   docker row was reached only by PROVEO_SBX=0, --egress-mode review, or a host
-  that could not run sbx; since 2026-10-16 all three refuse the run instead
+  that could not run sbx. Since 2026-10-16 a host without sbx refuses the run,
+  and since 2026-10-17 PROVEO_SBX is unread and --egress-mode is an unknown flag
   (_spec/internal/sbx/sandbox-backend.puml).
   .
   On sbx the baseline is host-wide and shared by sandboxes proveo never started,

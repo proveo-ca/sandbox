@@ -32,8 +32,9 @@ skinparam noteTextAlignment left
 ' This is not a statement about the docker backend's worth. It is a statement
 ' about which measurement counts for THIS bar.
 ' 2026-10-16: R2 is now enforced by the product — the docker+egress backend is
-' deleted and PROVEO_SBX off values refuse the run, so no docker result can be
-' produced (_spec/internal/sbx/sandbox-backend.puml). Kept as HISTORY.
+' deleted, so no docker result can be produced; PROVEO_SBX is an unread
+' variable since 2026-10-17 (_spec/internal/sbx/sandbox-backend.puml). Kept
+' as HISTORY.
 '
 ' ── R3 · IDLE IS COMPLEMENTARY, AND IS NOT THE GATE ────────────────────────
 ' `e2e/idle_test.go` asks a different question — does the assembled run survive
@@ -115,10 +116,11 @@ skinparam noteTextAlignment left
 ' lands: cecli-browser's absence belongs in cecli's manifest or in this sheet,
 ' not in the silence of a green run.
 '
-' THE OTHER LIVE SKIP, and it is a host capability rather than a decision:
-' `sbxShellHoldsInADetachedPane` gates two e2e tests, one of them the only check
-' that a Kit allowlist CONFINES. _spec/_experiments/sbx-driving-a-session.puml
-' owns retiring it, and R1 cannot be fully measured on a host where it fires.
+' THE OTHER SKIP, RETIRED 2026-10-17: `sbxShellHoldsInADetachedPane` gated two
+' e2e tests, one of them the only check that a Kit allowlist CONFINES. With
+' `--shell` retired and every probe running through `sbx exec` beside the
+' agent (e2e/kit_probe_test.go), the helper and its skip are deleted
+' (_spec/_experiments/sbx-driving-a-session.puml holds the record).
 '
 ' ── WHAT THIS SHEET NO LONGER TRACKS, AND WHERE IT WENT ────────────────────
 ' Both of the blockers this file was opened for have closed, and keeping their

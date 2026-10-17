@@ -213,7 +213,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   nowhere else". Unticking used to reach the docker backend behind egress
   sidecars — a weaker boundary one keystroke away — and that escape then became
   ""PROVEO_SBX=0"". Since 2026-10-16 there is no escape: the docker backend is
-  deleted and ""PROVEO_SBX"" off values refuse the run. Like the
+  deleted, and since 2026-10-17 ""PROVEO_SBX"" is simply unread. Like the
   two facts above it stays out of the row's inline ""Reason"": a note greyed on
   every run only teaches the operator to skip the line that sometimes matters.
 

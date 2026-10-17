@@ -14,7 +14,9 @@ skinparam noteTextAlignment left
 '   requireSandbox · resolveWorkspace · promptChoices · resolveCredentials ·
 '   buildPosture · assembleEnv · launchSandbox
 ' requireSandbox runs FIRST, before any workspace work, so a host that cannot
-' run sbx (or a retired PROVEO_SBX off value) refuses before a prompt is drawn.
+' run sbx (or a manifest without `docker: sbx`) refuses before a prompt is
+' drawn. Since 2026-10-17 it checks nothing else: the PROVEO_SBX off-value stub
+' is gone, and Params.Shell went with `--shell`.
 ' Spec's docker-only fields — SquidConfig, DockerSpec, BrokerFile, the
 ' inject/ and review/ dirs, the sidecar ModelSpec fields — are gone from
 ' spec.go; dockeregress.Input is gone with its package. selectBackend and
@@ -79,8 +81,9 @@ skinparam noteTextAlignment left
 ' golden had never seen — a diff that says nothing about the resolve path and
 ' everything about whose shell ran the test. So EVERY credential the path can
 ' see is pinned empty (otherwise the operator's own keys decide which providers
-' are "detected"), and so is everything else it reads. PROVEO_DIND is pinned off
-' for the same reason: it is retired and warns when set.
+' are "detected"), and so is everything else it reads. PROVEO_DIND was pinned
+' off for the same reason while it warned when set; since 2026-10-17 it is
+' unread, so a replacement golden need not pin it.
 '
 ' Two things are pinned ON rather than off, and the distinction is the point:
 '   the gh mount   a real line of the plan, so pinning it OFF would DROP
