@@ -46,7 +46,7 @@ type Deps struct {
 func Do(p Params, d Deps) (err error) {
 	var rs Spec
 	rs.Sid = fmt.Sprintf("proveo-%d-%d", time.Now().Unix(), os.Getpid())
-	rs.EgDir = filepath.Join(StateDir(), "egress", rs.Sid)
+	rs.RunDir = RunDirOf(rs.Sid)
 
 	log, logErr := runlog.Open(rs.Sid)
 	rs.Log = log
@@ -68,7 +68,7 @@ func Do(p Params, d Deps) (err error) {
 	if err := requireSandbox(p, d); err != nil {
 		return err
 	}
-	rs.Log.Artifacts(rs.EgDir)
+	rs.Log.Artifacts(rs.RunDir)
 
 	if !acceptsLocalModel(p.Target) && p.LocalModel != "" {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
@@ -282,14 +282,14 @@ func startHostADB(p *Params) ([]string, error) {
 	return hostadb.GuestEnv(port), nil
 }
 
-func startChromeBridge(rs *Spec, p *Params, tierBlocked string) *chromebridge.Relay {
+func startChromeBridge(rs *Spec, p *Params, blocked string) *chromebridge.Relay {
 	ui.Section(ui.SectionInterface)
 	if !hasAddon(p.Addons, addonChrome) {
 		return nil
 	}
 	switch {
-	case tierBlocked != "":
-		ui.Warnf("%s: skipped — %s", addonChrome, tierBlocked)
+	case blocked != "":
+		ui.Warnf("%s: skipped — %s", addonChrome, blocked)
 		return nil
 	case p.PrintOnly:
 		ui.Hostf("%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
@@ -537,7 +537,7 @@ func stageCloneEnv(rs *Spec, p *Params) string {
 	if src == "" {
 		return ""
 	}
-	dir := filepath.Join(rs.EgDir, "sbx", "project-env")
+	dir := filepath.Join(rs.RunDir, "sbx", "project-env")
 	var strip []string
 	if !p.forwards() {
 		strip = provider.KeyVars()
@@ -547,13 +547,13 @@ func stageCloneEnv(rs *Spec, p *Params) string {
 	}
 	path, dropped, err := credentials.StageProjectEnv(src, dir, strip)
 	if err == nil {
-		err = copyFile0600(path, filepath.Join(rs.EgDir, "sbx", "project-env.base"))
+		err = copyFile0600(path, filepath.Join(rs.RunDir, "sbx", "project-env.base"))
 	}
 	if err != nil {
 		ui.Warnf("clone: %s not staged (%v) — the agent runs without the project .env", src, err)
 		return ""
 	}
-	rs.Backend.CloneEnvBase = filepath.Join(rs.EgDir, "sbx", "project-env.base")
+	rs.Backend.CloneEnvBase = filepath.Join(rs.RunDir, "sbx", "project-env.base")
 	rs.Backend.CloneEnvHost, rs.Backend.CloneStrip = src, strip
 	ui.Storef("clone: %s mounted read-write as the clone's .env (a copy, refreshed each run; edits merge back at teardown)", src)
 	if len(dropped) > 0 {
@@ -679,7 +679,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
 	}
 	homeAccess, err := sandbox.PrepareHomeAccess(
-		rs.Creds.HomePlan.Root, rs.EgDir, rs.Man.Home)
+		rs.Creds.HomePlan.Root, rs.RunDir, rs.Man.Home)
 	if err != nil {
 		return err
 	}
@@ -694,7 +694,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Roles:    p.Roles,
 		Evidence: p.evidenceOrDefault(),
 		Forwards: p.forwards(),
-		Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
+		Man:      rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
 		ImageEntrypoint:  sbx.ImageEntrypoint,
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,

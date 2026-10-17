@@ -14,7 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/verify"
 )
 
-const usage = "usage: proveo-entrypoint prep [target] | proveo-entrypoint verify [dir] | proveo-entrypoint adb-mirror"
+const usage = "usage: proveo-entrypoint prep | proveo-entrypoint verify [dir] | proveo-entrypoint adb-mirror"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -45,23 +45,13 @@ func main() {
 		return
 	}
 
-	if os.Args[1] != "prep" {
+	if os.Args[1] != "prep" || len(os.Args) > 2 {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
-	}
-	smokeTarget := "harness"
-	if len(os.Args) > 2 {
-		smokeTarget = os.Args[2]
 	}
 
 	entrypoint.EnsureRuntimeUser()
 	reportGitContext()
-
-	if entrypoint.SmokeReady(smokeTarget) {
-		for {
-			time.Sleep(time.Hour)
-		}
-	}
 }
 
 func reportGitContext() {

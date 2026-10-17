@@ -47,6 +47,9 @@ type HomeMount struct {
 	Transient []string `yaml:"transient"`
 }
 
+// LinkedDirsFile, at the proveo home root, lists the absolute targets a home dir's links may reach.
+const LinkedDirsFile = "linked-dirs"
+
 type Home struct {
 	Enabled bool        `yaml:"enabled"`
 	Mounts  []HomeMount `yaml:"mounts"`
@@ -270,6 +273,9 @@ func (h Home) validate(name string) error {
 		if filepath.IsAbs(m.Host) || strings.Contains(m.Host, "..") {
 			return fmt.Errorf("manifest %q: home.mounts[%d]: host %q must be relative to PROVEO_HOME (no ..)", name, i, m.Host)
 		}
+		if first, _, _ := strings.Cut(filepath.ToSlash(filepath.Clean(m.Host)), "/"); first == "." || first == LinkedDirsFile {
+			return fmt.Errorf("manifest %q: home.mounts[%d]: host %q would expose PROVEO_HOME/%s to the guest", name, i, m.Host, LinkedDirsFile)
+		}
 		if m.Container != "" && !strings.HasPrefix(m.Container, "/") {
 			return fmt.Errorf("manifest %q: home.mounts[%d]: container %q must be absolute", name, i, m.Container)
 		}
@@ -286,6 +292,9 @@ func (h Home) validate(name string) error {
 		}
 		seenHost[m.Host] = true
 		seenCtr[m.Container] = m.Container != ""
+	}
+	if slices.Contains(h.Files, LinkedDirsFile) {
+		return fmt.Errorf("manifest %q: home.files must not sync %s back from the guest", name, LinkedDirsFile)
 	}
 	return nil
 }

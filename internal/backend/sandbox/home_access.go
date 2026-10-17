@@ -22,16 +22,13 @@ type HomeAccess struct {
 	Root         string
 	FilesRoot    string
 	Mounts       []runner.Mount
-	SkippedLinks []string // "<link> → <target>" for links whose target LinkedDirsFile does not list
+	SkippedLinks []string // "<link> → <target>" for links whose target manifest.LinkedDirsFile does not list
 	files        []string
 }
 
-// LinkedDirsFile, at the proveo home root, lists the absolute targets a home dir's links may reach.
-const LinkedDirsFile = "linked-dirs"
-
 func noteSkippedLinks(a HomeAccess) {
 	for _, l := range a.SkippedLinks {
-		ui.Notef("home link %s not followed — list its target in %s to mount it read-only", l, filepath.Join(a.Root, LinkedDirsFile))
+		ui.Notef("home link %s not followed — list its target in %s to mount it read-only", l, filepath.Join(a.Root, manifest.LinkedDirsFile))
 	}
 }
 
@@ -97,9 +94,9 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 	return a, nil
 }
 
-// listedLinkTargets is the resolved set of absolute targets root's LinkedDirsFile names.
+// listedLinkTargets is the resolved set of absolute targets root's manifest.LinkedDirsFile names.
 func listedLinkTargets(root string) map[string]bool {
-	b, err := os.ReadFile(filepath.Join(root, LinkedDirsFile))
+	b, err := os.ReadFile(filepath.Join(root, manifest.LinkedDirsFile))
 	if err != nil {
 		return nil
 	}

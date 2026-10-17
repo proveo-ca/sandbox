@@ -72,14 +72,20 @@ func TestNoEntrypointBridgesAModelByRole(t *testing.T) {
 	}
 }
 
-// The credential bridges are a DIFFERENT mechanism that happens to share a
-// naming convention, and deleting the model half once took them with it.
-func TestCredentialBridgesSurvivedTheRetirement(t *testing.T) {
-	src := repoFile(t, "packages/lib/entrypoint-lib.sh")
-	for _, want := range []string{"_apply_env_bridge()", "apply_env_bridges()", "GOOGLE_GENERATIVE_AI_API_KEY"} {
-		if !strings.Contains(src, want) {
-			t.Errorf("entrypoint-lib.sh lost %q. GEMINI_API_KEY -> GOOGLE_GENERATIVE_AI_API_KEY "+
-				"bridges a CREDENTIAL, not a model; removing it silently unauthenticates Gemini.", want)
+// TestOneGoogleKeyBridgeRemains pins bridge_google_keys as the only credential alias in the prelude.
+func TestOneGoogleKeyBridgeRemains(t *testing.T) {
+	src := shellCode(t, "packages/lib/entrypoint-lib.sh")
+	if n := strings.Count(src, "\nbridge_google_keys() {"); n != 1 {
+		t.Errorf("entrypoint-lib.sh defines bridge_google_keys %d times, want 1", n)
+	}
+	for _, gone := range []string{"_apply_env_bridge", "apply_env_bridges", "_normalize_model", "_model_provider"} {
+		if strings.Contains(src, gone) {
+			t.Errorf("entrypoint-lib.sh still carries %s beside bridge_google_keys", gone)
+		}
+	}
+	for _, rel := range []string{"defs/opencode/entrypoint.sh", "defs/hermes/entrypoint.sh"} {
+		if strings.Contains(shellCode(t, rel), "apply_env_bridges") {
+			t.Errorf("%s still calls apply_env_bridges", rel)
 		}
 	}
 }

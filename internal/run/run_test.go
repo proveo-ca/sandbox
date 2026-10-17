@@ -863,3 +863,23 @@ func TestTheCacheDoesNotOverrideFlaggedAddons(t *testing.T) {
 		t.Errorf("addons = %v, want the flagged host chrome", p.Addons)
 	}
 }
+
+func TestThePickerPromisesADaemonOnlyWhereTheManifestDoes(t *testing.T) {
+	t.Parallel()
+	off := false
+	if got := addonHelpFor(manifest.Manifest{Name: "h"})[addonSandbox]; !strings.Contains(got, "Docker daemon") {
+		t.Errorf("a default manifest's sandbox help = %q, want the daemon named", got)
+	}
+	got := addonHelpFor(manifest.Manifest{Name: "h", Daemon: &off})
+	if strings.Contains(got[addonSandbox], "Docker daemon") && !strings.Contains(got[addonSandbox], "no Docker daemon") {
+		t.Errorf("a `daemon: false` manifest's sandbox help = %q, want no daemon promised", got[addonSandbox])
+	}
+	if addonHelp[addonSandbox] == got[addonSandbox] {
+		t.Error("addonHelpFor must not edit the shared addonHelp map")
+	}
+	for k, v := range addonHelp {
+		if k != addonSandbox && got[k] != v {
+			t.Errorf("help for %q changed to %q", k, got[k])
+		}
+	}
+}

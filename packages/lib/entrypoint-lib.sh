@@ -47,18 +47,9 @@ accept_workspace_trust() {
 }
 
 bridge_google_keys() {
- if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
- if [[ -n "${GEMINI_API_KEY:-}" ]]; then
- export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
- elif [[ -n "${GOOGLE_API_KEY:-}" ]]; then
- export GOOGLE_GENERATIVE_AI_API_KEY="$GOOGLE_API_KEY"
- fi
- fi
-
- if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
- export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
- export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
- fi
+ local k="${GOOGLE_GENERATIVE_AI_API_KEY:-${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}}"
+ [[ -n "$k" ]] || return 0
+ export GOOGLE_GENERATIVE_AI_API_KEY="${GOOGLE_GENERATIVE_AI_API_KEY:-$k}" GEMINI_API_KEY="${GEMINI_API_KEY:-$k}" GOOGLE_API_KEY="${GOOGLE_API_KEY:-$k}"
 }
 
 bridge_git_identity() {
@@ -249,52 +240,6 @@ command_version_opencode() {
  return 0
  fi
  timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
-}
-
-_normalize_model() {
- local m="$1" lower
- [[ -n "$m" ]] || return 0
- case "$m" in */*) printf '%s' "$m"; return 0 ;; esac
- lower="$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')"
- case "$lower" in
- gpt-* | chatgpt-* | o[0-9]*) printf 'openai/%s' "$m" ;;
- claude-*) printf 'anthropic/%s' "$m" ;;
- grok-*) printf 'xai/%s' "$m" ;;
- gemini-*) printf 'google/%s' "$m" ;;
- deepseek-*) printf 'deepseek/%s' "$m" ;;
- *) printf '%s' "$m" ;;
- esac
-}
-
-_apply_env_bridge() {
- local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
- printenv "$to" >/dev/null 2>&1 && return 0
- val="$(printenv "$from" 2>/dev/null || true)"
- [[ -z "$val" && -n "$fallback" ]] && val="$(printenv "$fallback" 2>/dev/null || true)"
- if [[ -z "$val" && -n "$default" ]]; then
-  case "$default" in
-  '$'*) val="$(printenv "${default#\$}" 2>/dev/null || true)" ;;
-  *) val="$default" ;;
-  esac
- fi
- [[ -n "$val" ]] || return 0
- [[ "$transform" == normalize ]] && val="$(_normalize_model "$val")"
- export "$to=$val"
-}
-
-apply_env_bridges() {
- _apply_env_bridge GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
- _apply_env_bridge GOOGLE_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
-}
-
-_model_provider() {
- local n
- n="$(_normalize_model "$1")"
- case "$n" in
- ollama/* | ollama_chat/* | openai-compatible/*) printf '' ;;
- */*) printf '%s' "${n%%/*}" ;;
- *) printf '' ;;
- esac
 }
 
 _proveo_auto_install_enabled() {

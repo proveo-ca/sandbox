@@ -15,6 +15,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/termtext"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -56,7 +57,7 @@ func TestSandboxNetworkBaselineIsStatedHonestly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("proveo run claudecode --print: %v\n%s", err, out)
 	}
-	got := plain(string(out))
+	got := termtext.Words(string(out))
 	warned := strings.Contains(got, "allows every host")
 
 	if allowAll := sandboxBaselineAllowsEverything(t); allowAll != warned {
@@ -132,7 +133,7 @@ func TestSandboxEgressIsConfinedToTheKitAllowlist(t *testing.T) {
 
 	k.end()
 
-	matches, _ := filepath.Glob(filepath.Join(state, "egress", "*", "sbx", runlog.PolicyLogFile))
+	matches, _ := filepath.Glob(filepath.Join(state, "runs", "*", "sbx", runlog.PolicyLogFile))
 	if len(matches) == 0 {
 		t.Fatalf("the run left no %s under %s", runlog.PolicyLogFile, state)
 	}

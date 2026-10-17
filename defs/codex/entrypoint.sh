@@ -12,8 +12,7 @@ proveo_sbx_passthrough "$@"
 set_working_directory "/app"
 bridge_google_keys
 bridge_git_identity
-export PROVEO_SMOKE_TARGET=codex
-env PROVEO_SMOKE_TEST= proveo-entrypoint prep codex || true
+proveo-entrypoint prep || true
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"

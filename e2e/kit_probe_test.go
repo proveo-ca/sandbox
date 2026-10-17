@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/termtext"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -144,7 +145,7 @@ func (k *kitRun) tend() {
 // ended skips when the agent quit for want of a login and fails otherwise.
 func (k *kitRun) ended() {
 	k.t.Helper()
-	final := plain(tail(k.last, 15))
+	final := termtext.Words(tail(k.last, 15))
 	for _, f := range authFailures {
 		if strings.Contains(final, f) {
 			k.t.Skipf("proveo exited before the sandbox was ready: the agent is not authenticated (%q)", f)

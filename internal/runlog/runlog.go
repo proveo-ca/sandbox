@@ -102,15 +102,15 @@ const PolicyLogFile = "policy-log.json"
 const MemoryEvidenceFile = "memory-logs.txt"
 
 // Artifacts records where the evidence for this run lives.
-func (l *Log) Artifacts(egDir string) {
-	if l == nil || l.f == nil || egDir == "" {
+func (l *Log) Artifacts(runDir string) {
+	if l == nil || l.f == nil || runDir == "" {
 		return
 	}
 	l.Fields("artifacts", map[string]string{
-		"session state": egDir,
-		"sandbox kit":   filepath.Join(egDir, "sbx", "kit", "spec.yaml"),
-		"policy log":    filepath.Join(egDir, "sbx", PolicyLogFile),
-		"memory":        filepath.Join(egDir, "sbx", MemoryEvidenceFile),
+		"session state": runDir,
+		"sandbox kit":   filepath.Join(runDir, "sbx", "kit", "spec.yaml"),
+		"policy log":    filepath.Join(runDir, "sbx", PolicyLogFile),
+		"memory":        filepath.Join(runDir, "sbx", MemoryEvidenceFile),
 		"enforcement":   "sbx — see `sbx policy log <sandbox>`, `sbx diagnose`",
 	})
 }

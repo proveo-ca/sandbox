@@ -159,7 +159,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 						{Host: work, Container: "/app"},
 						{Host: home, Container: "/proveo-home"},
 					},
-					EgDir: "/st", Memory: "8192m", HomeRoot: home,
+					RunDir: "/st", Memory: "8192m", HomeRoot: home,
 				}
 			},
 		},
@@ -174,7 +174,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 					GitEnv:  []string{"GIT_AUTHOR_NAME=Executor"},
 					HomeEnv: []string{"HOME=/proveo-home", "PROVEO_HOME=/proveo-home"},
 					Mounts:  []runner.Mount{{Host: work, Container: "/app"}},
-					EgDir:   "/st", Memory: "8192m", HomeRoot: home,
+					RunDir:  "/st", Memory: "8192m", HomeRoot: home,
 				}
 			},
 		},
@@ -196,7 +196,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 					},
 					DataDir:  data,
 					ScopeRel: "apps/web",
-					EgDir:    "/st", Memory: "4096m", HomeRoot: home,
+					RunDir:   "/st", Memory: "4096m", HomeRoot: home,
 				}
 			},
 		},

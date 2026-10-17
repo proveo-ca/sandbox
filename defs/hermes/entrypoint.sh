@@ -13,7 +13,6 @@ set_working_directory "/app"
 bridge_google_keys
 bridge_git_identity
 report_git_context
-apply_env_bridges
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"

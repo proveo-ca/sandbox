@@ -26,7 +26,7 @@ type Inventory struct {
 	Networks         []Net       // networks labeled proveo.egress.session
 	LegacyDind       []Container
 	Volumes          []string // proveo-squid-cache-* volumes the retired docker backend left
-	StateDirs        []string // session ids present under <stateDir>/egress/
+	StateDirs        []string // session ids present under any run.RunRoots() root
 	LiveSessions     []string // session ids whose proveo process still runs
 	Images           []string // proveo/* image refs (populated only for --deep)
 	ToolDirs         []ToolDir

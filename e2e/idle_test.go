@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 // runIDPattern finds the sandbox/run name proveo prints, so teardown can name it.
@@ -38,14 +40,6 @@ var authFailures = []string{
 	"Press any key to log in",
 }
 
-var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[]P][^\x1b\x07]*(?:\x1b\\|\x07)|\x1b.`)
-
-// plain renders terminal output as the words a reader would see, so a marker can
-// be matched without depending on where the cursor happened to be.
-func plain(s string) string {
-	return strings.Join(strings.Fields(ansiSeq.ReplaceAllString(s, " ")), " ")
-}
-
 var blockedMarkers = []string{
 	"Choose the text style",
 	"Let's get started",
@@ -65,7 +59,7 @@ func promptMarkers(target string) []string {
 }
 
 func reachedPromptFor(raw, target string) bool {
-	out := plain(raw)
+	out := termtext.Words(raw)
 	for _, m := range promptMarkers(target) {
 		if strings.Contains(out, m) {
 			return true
@@ -177,7 +171,7 @@ func idleAtPrompt(t *testing.T, target string) {
 	for {
 		out := seen()
 		for _, f := range authFailures {
-			if strings.Contains(plain(out), f) {
+			if strings.Contains(termtext.Words(out), f) {
 				t.Skipf("agent never reached a prompt (%q) — idle survival is untestable without a session", f)
 			}
 		}
@@ -209,13 +203,13 @@ func idleAtPrompt(t *testing.T, target string) {
 		// An agent that was never logged in did not "die idle" — it could not
 		// start. Reported as a skip so the reader is not sent after the wrong bug.
 		for _, f := range authFailures {
-			if strings.Contains(plain(out), f) {
+			if strings.Contains(termtext.Words(out), f) {
 				t.Skipf("agent reached a prompt but was not authenticated (%q) — it exits on its own, "+
 					"so idle survival is untestable until the login works", f)
 			}
 		}
 		for _, m := range deathMarkers {
-			if strings.Contains(plain(out), m) {
+			if strings.Contains(termtext.Words(out), m) {
 				t.Fatalf("the agent died while IDLE after reaching a prompt: %q (%v)\n%s", m, err, lastLines(out, 30))
 			}
 		}
@@ -226,7 +220,7 @@ func idleAtPrompt(t *testing.T, target string) {
 	// ── it is still there ────────────────────────────────────────────────────
 	out := seen()
 	for _, m := range deathMarkers {
-		if strings.Contains(plain(out), m) {
+		if strings.Contains(termtext.Words(out), m) {
 			t.Errorf("output carries %q even though proveo is still running\n%s", m, lastLines(out, 30))
 		}
 	}

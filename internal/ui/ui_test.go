@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/mattn/go-runewidth"
+
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 func TestPrinterVocabulary(t *testing.T) {
@@ -85,7 +87,7 @@ func TestPrinterVocabulary(t *testing.T) {
 			} {
 				var buf bytes.Buffer
 				tc.print(&Printer{W: &buf, Tier: tier.tier})
-				got := string(stripANSI(buf.Bytes()))
+				got := termtext.StripANSI(buf.String())
 				if diff := cmp.Diff(tier.want+"\n", got); diff != "" {
 					t.Errorf("%s mismatch (-want +got):\n%s", tier.name, diff)
 				}
@@ -470,5 +472,14 @@ func TestAskfMarksTheQuestionAndKeepsTheLine(t *testing.T) {
 	(&Printer{W: &b, Plain: true}).Askf("continue? [y/N]")
 	if b.String() != "continue? [y/N] " {
 		t.Errorf("plain Askf = %q", b.String())
+	}
+}
+
+func TestTheRunLogKeepsTextAfterANonSGRSequence(t *testing.T) {
+	t.Parallel()
+	var term, log bytes.Buffer
+	_, _ = multi{term: &term, log: &log}.Write([]byte("\x1b[2Khello mom\n"))
+	if log.String() != "hello mom\n" {
+		t.Errorf("run log = %q, want the line without its erase sequence", log.String())
 	}
 }

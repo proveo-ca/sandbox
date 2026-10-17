@@ -15,7 +15,7 @@ import (
 func init() {
 	register(&cobra.Command{
 		Use:   "lint",
-		Short: "Hard gates: gofmt -l, go vet (default + image tag), golangci-lint run",
+		Short: "Hard gates: gofmt -l, comment blocks, go vet (default + image tag), golangci-lint run",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			root, err := repoRoot()
@@ -36,6 +36,13 @@ func lint(root string) error {
 			ui.Notef("%s", f)
 		}
 		ui.Notef("Run: mise run fmt")
+		return &exitError{code: 1}
+	}
+	if long := commentBlockFindings(root, trackedFiles(root)); len(long) > 0 {
+		ui.Failf("comment blocks over %d lines — move the reasoning to _spec/, keep SPEC: pointers and one-line labels:", maxCommentLines)
+		for _, f := range long {
+			ui.Notef("%s", f)
+		}
 		return &exitError{code: 1}
 	}
 	for _, step := range [][]string{

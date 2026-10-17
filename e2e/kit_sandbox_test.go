@@ -18,7 +18,7 @@ func TestKitSandboxNamesOnlyTheRunsOwnSandbox(t *testing.T) {
 	tmp := t.TempDir()
 	work := filepath.Join(tmp, "work")
 	main := filepath.Join(tmp, "main")
-	state := "/operator/.local/state/proveo/egress/proveo-1-2/sbx/home-files"
+	state := "/operator/.local/state/proveo/runs/proveo-1-2/sbx/home-files"
 	operator := "/operator/Projects/repo"
 
 	type sandbox struct {

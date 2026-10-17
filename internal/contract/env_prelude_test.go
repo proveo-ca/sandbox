@@ -2,11 +2,13 @@
 package contract_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const preludeProbe = `echo "PROBE=${PROVEO_PROBE:-unset} GEMINI=${GEMINI_API_KEY:-unset} ` +
@@ -96,8 +98,7 @@ func TestNeitherPreludeReadsTheWorkspaceEnv(t *testing.T) {
 	bin := buildEntrypoint(t)
 	const steps = `set_working_directory "$2"
 bridge_google_keys
-bridge_git_identity
-apply_env_bridges`
+bridge_git_identity`
 	for _, c := range []struct {
 		name string
 		env  []string
@@ -116,7 +117,7 @@ apply_env_bridges`
 			if strings.Contains(out, ".env") {
 				t.Errorf("bash prelude still reports on a workspace .env:\n%s", out)
 			}
-			if out, err := runEntrypoint(t, bin, work, append([]string{"PROVEO_WORKDIR=" + work}, c.env...), "prep", "probe"); err != nil || strings.Contains(out, ".env") {
+			if out, err := runEntrypoint(t, bin, work, append([]string{"PROVEO_WORKDIR=" + work}, c.env...), "prep"); err != nil || strings.Contains(out, ".env") {
 				t.Errorf("proveo-entrypoint prep reports on a workspace .env (%v):\n%s", err, out)
 			}
 		})
@@ -166,10 +167,28 @@ func TestPrepKeepsOnlyWhatCrossesTheBoundary(t *testing.T) {
 		{"bridges no identity itself", "No git identity", "Author Name",
 			[]string{"GIT_AUTHOR_NAME=Author Name", "GIT_AUTHOR_EMAIL=author@example.com"}},
 	} {
-		out, err := runEntrypoint(t, bin, repo, c.env, "prep", "probe")
+		out, err := runEntrypoint(t, bin, repo, c.env, "prep")
 		if err != nil || !strings.Contains(out, c.want) || strings.Contains(out, c.reject) {
 			t.Errorf("prep %s: want %q and no %q (%v):\n%s", c.name, c.want, c.reject, err, out)
 		}
+	}
+}
+
+func TestPrepTakesNoTargetAndNoSmokeMode(t *testing.T) {
+	t.Parallel()
+	bin := buildEntrypoint(t)
+	dir := t.TempDir()
+	if out, err := runEntrypoint(t, bin, dir, nil, "prep", "probe"); err == nil {
+		t.Errorf("prep accepted a target argument:\n%s", out)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "prep")
+	cmd.Dir = dir
+	cmd.Env = []string{"PATH=" + gitOnlyPath(t), "HOME=" + t.TempDir(), "PROVEO_SMOKE_TEST=1", "PROVEO_SMOKE_TARGET=probe"}
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil || err != nil || strings.Contains(string(out), "PROVEO_SMOKE_READY") {
+		t.Errorf("prep under PROVEO_SMOKE_TEST=1 must return without a sentinel (ctx %v, err %v):\n%s", ctx.Err(), err, out)
 	}
 }
 

@@ -72,7 +72,7 @@ func TestRunArgsFull(t *testing.T) {
 	got := RunArgs(RunConfig{
 		Name:   "proveo-1-2",
 		Agent:  "claude",
-		KitDir: "/state/egress/x/kit",
+		KitDir: "/state/runs/x/kit",
 		Image:  "proveo/claudecode:latest",
 		Mounts: []Mount{
 			{Host: "/repo", Container: "/app"},
@@ -82,7 +82,7 @@ func TestRunArgsFull(t *testing.T) {
 		Command: []string{"-p", "hello"},
 	})
 	want := []string{
-		"run", "--name", "proveo-1-2", "--kit", "/state/egress/x/kit",
+		"run", "--name", "proveo-1-2", "--kit", "/state/runs/x/kit",
 		"-t", "proveo/claudecode:latest",
 		"-e", "PROVEO_EVIDENCE=concise",
 		"claude",  // AGENT: the first positional, and mandatory

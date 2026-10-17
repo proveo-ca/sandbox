@@ -11,8 +11,7 @@ proveo_sbx_passthrough "$@"
 set_working_directory "/app"
 bridge_google_keys
 bridge_git_identity
-export PROVEO_SMOKE_TARGET=cursor
-env PROVEO_SMOKE_TEST= proveo-entrypoint prep cursor || true
+proveo-entrypoint prep || true
 
 CURSOR_HOME="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"
 

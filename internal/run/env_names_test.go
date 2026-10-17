@@ -2,6 +2,7 @@
 package run
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,5 +43,16 @@ func TestStateRootTakesItsNewName(t *testing.T) {
 	t.Setenv("PROVEO_STATE_ROOT", "/state")
 	if got := StateDir(); got != "/state" {
 		t.Errorf("StateDir() = %q, want PROVEO_STATE_ROOT", got)
+	}
+}
+
+func TestRunStateLivesUnderRuns(t *testing.T) {
+	t.Setenv("PROVEO_EGRESS_ROOT", "")
+	t.Setenv("PROVEO_STATE_ROOT", "/state")
+	if got := RunDirOf("proveo-1-2"); got != "/state/runs/proveo-1-2" {
+		t.Errorf("RunDirOf = %q, want it under runs/", got)
+	}
+	if got, want := RunRoots(), []string{"/state/runs", "/state/egress"}; !slices.Equal(got, want) {
+		t.Errorf("RunRoots() = %v, want %v", got, want)
 	}
 }

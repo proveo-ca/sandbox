@@ -107,6 +107,15 @@ func StateDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".local", "state", "proveo")
 }
 
+// RunRoots are the per-run state roots, current first, then the retired egress/ root.
+func RunRoots() []string {
+	state := StateDir()
+	return []string{filepath.Join(state, "runs"), filepath.Join(state, "egress")}
+}
+
+// RunDirOf is the state directory of the run sid.
+func RunDirOf(sid string) string { return filepath.Join(RunRoots()[0], sid) }
+
 func WizardEnabled() bool {
 	switch strings.ToLower(os.Getenv("PROVEO_WIZARD")) {
 	case "off", "0", "no", "false", "disable", "disabled":

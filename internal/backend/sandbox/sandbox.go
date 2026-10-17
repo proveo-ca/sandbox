@@ -1033,7 +1033,7 @@ type Input struct {
 	ImageEntrypoint func(image string) []string
 	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
 	AgentEnv         []string
-	Sid, EgDir       string
+	Sid, RunDir      string
 	Mounts           []runner.Mount
 	Lookup           func(string) string
 	Detected         []string
@@ -1283,7 +1283,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	cfg := sbx.RunConfig{
 		Name:    sbx.SandboxName(in.Target, sandboxKey(in, mounts)),
-		KitDir:  filepath.Join(in.EgDir, "sbx", "kit"),
+		KitDir:  filepath.Join(in.RunDir, "sbx", "kit"),
 		Image:   in.Image,
 		Memory:  in.Memory,
 		CPUs:    in.CPUs,
@@ -1443,7 +1443,7 @@ func Run(in Input) error {
 	homeAccess := in.HomeAccess
 	if homeAccess.Root == "" && in.HomeRoot != "" {
 		var err error
-		homeAccess, err = PrepareHomeAccess(in.HomeRoot, in.EgDir, in.Man.Home)
+		homeAccess, err = PrepareHomeAccess(in.HomeRoot, in.RunDir, in.Man.Home)
 		if err != nil {
 			return err
 		}
@@ -1458,7 +1458,7 @@ func Run(in Input) error {
 	}()
 	cfg, kit, secrets := Spec(in)
 	envValues := 0
-	if path, n, err := seedProjectEnv(in.ProjectEnv, in.EgDir, in.Forwards, cfg.Env); err != nil {
+	if path, n, err := seedProjectEnv(in.ProjectEnv, in.RunDir, in.Forwards, cfg.Env); err != nil {
 		ui.Warnf("project .env not seeded into the sandbox: %v", err)
 	} else {
 		cfg.EnvFile, envValues = path, n
@@ -1612,8 +1612,8 @@ func Run(in Input) error {
 			in.Clone, in.CloneKnown = clones, true
 		}
 		reportPushedBranches(in, cfg, startedAt)
-		CapturePolicyLog(in.EgDir, cfg.Name)
-		CaptureMemoryEvidence(in.EgDir, cfg.Name)
+		CapturePolicyLog(in.RunDir, cfg.Name)
+		CaptureMemoryEvidence(in.RunDir, cfg.Name)
 		if runErr != nil && !forceRemove.Load() {
 			said := false
 			if lines := tail.Lines(); len(lines) > 0 {
@@ -1797,15 +1797,15 @@ func ReachHosts(man manifest.Manifest, detected []string) []string {
 	return out
 }
 
-func CapturePolicyLog(egDir, name string) {
-	if egDir == "" || name == "" {
+func CapturePolicyLog(runDir, name string) {
+	if runDir == "" || name == "" {
 		return
 	}
 	out, err := sbx.PolicyLog(name)
 	if err != nil || len(bytes.TrimSpace(out)) == 0 {
 		return
 	}
-	dir := filepath.Join(egDir, "sbx")
+	dir := filepath.Join(runDir, "sbx")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
@@ -1834,9 +1834,9 @@ func CapturePolicyLog(egDir, name string) {
 // a thing a test can arrange for real.
 var memoryEvidence = sbx.MemoryEvidence
 
-func CaptureMemoryEvidence(egDir, name string) {
+func CaptureMemoryEvidence(runDir, name string) {
 	restarted := !sbx.Running(name)
-	if egDir == "" || name == "" {
+	if runDir == "" || name == "" {
 		return
 	}
 	out, err := memoryEvidence(name)
@@ -1846,7 +1846,7 @@ func CaptureMemoryEvidence(egDir, name string) {
 	if len(bytes.TrimSpace(out)) == 0 {
 		return
 	}
-	dir := filepath.Join(egDir, "sbx")
+	dir := filepath.Join(runDir, "sbx")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}

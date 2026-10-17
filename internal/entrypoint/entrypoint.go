@@ -27,18 +27,6 @@ func EnsureRuntimeUser() {
 	}
 }
 
-func SmokeReady(target string) bool {
-	if os.Getenv("PROVEO_SMOKE_TEST") != "1" {
-		return false
-	}
-	name := os.Getenv("PROVEO_SMOKE_TARGET")
-	if name == "" {
-		name = target
-	}
-	fmt.Printf("✅ PROVEO_SMOKE_READY %s\n", name)
-	return true
-}
-
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if s := strings.TrimSpace(v); s != "" {

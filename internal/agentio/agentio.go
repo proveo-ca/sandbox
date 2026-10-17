@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/term"
 
+	"github.com/proveo-ca/proveo/internal/termtext"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -20,8 +20,6 @@ const (
 	tailLines       = 24
 	tailFragmentCap = 8192
 )
-
-var ansiSeq = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\\\-_]")
 
 func Stdio(out, err io.Writer, tty bool) (io.Writer, io.Writer, *Tail) {
 	tail := NewTail(tailLines)
@@ -60,7 +58,7 @@ func (t *Tail) Write(p []byte) (int, error) {
 }
 
 func (t *Tail) push(line string) {
-	line = strings.TrimSpace(ansiSeq.ReplaceAllString(line, ""))
+	line = strings.TrimSpace(termtext.StripANSI(line))
 	line = strings.Map(func(r rune) rune {
 		if r < 0x20 && r != '\t' {
 			return -1

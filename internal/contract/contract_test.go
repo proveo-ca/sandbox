@@ -63,12 +63,12 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 func TestEntrypointsRunTheShellPreludeThenPrep(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	for rel, target := range map[string]string{
-		"defs/codex/entrypoint.sh":          "codex",
-		"defs/opencode/entrypoint.sh":       "opencode",
-		"defs/cursor/entrypoint.sh":         "cursor",
-		"defs/cecli/entrypoint.sh":          "cecli",
-		"defs/claudecode/mcp/entrypoint.sh": "claudecode",
+	for _, rel := range []string{
+		"defs/codex/entrypoint.sh",
+		"defs/opencode/entrypoint.sh",
+		"defs/cursor/entrypoint.sh",
+		"defs/cecli/entrypoint.sh",
+		"defs/claudecode/mcp/entrypoint.sh",
 	} {
 		b, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
@@ -76,7 +76,7 @@ func TestEntrypointsRunTheShellPreludeThenPrep(t *testing.T) {
 			continue
 		}
 		src := string(b)
-		prep := "\nenv PROVEO_SMOKE_TEST= proveo-entrypoint prep " + target + " || true\n"
+		prep := "\nproveo-entrypoint prep || true\n"
 		at := strings.Index(src, prep)
 		if at < 0 {
 			t.Errorf("%s must run %q unconditionally", rel, strings.TrimSpace(prep))
@@ -88,7 +88,8 @@ func TestEntrypointsRunTheShellPreludeThenPrep(t *testing.T) {
 				t.Errorf("%s must call %s once, unindented, before prep; found %d such calls", rel, step, len(calls))
 			}
 		}
-		for _, fallback := range []string{"ensure_runtime_user", "report_git_context", "! command -v proveo-entrypoint"} {
+		for _, fallback := range []string{"ensure_runtime_user", "report_git_context", "! command -v proveo-entrypoint",
+			"PROVEO_SMOKE_TEST= ", "export PROVEO_SMOKE_TARGET="} {
 			if strings.Contains(src, fallback) {
 				t.Errorf("%s carries %q, a bash copy of prep", rel, fallback)
 			}

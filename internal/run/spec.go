@@ -17,9 +17,9 @@ import (
 // Spec is what the plan calls RunSpec: the values a run resolves once and every
 // later stage reads.
 type Spec struct {
-	Sid   string // proveo-<unix>-<pid>; names the sandbox, the egress dir and the run log
-	EgDir string // per-run state: the sbx kit, policy log and staged clone env
-	Log   *runlog.Log
+	Sid    string // proveo-<unix>-<pid>; names the sandbox, the egress dir and the run log
+	RunDir string // per-run state: the sbx kit, policy log and staged clone env
+	Log    *runlog.Log
 
 	Man          manifest.Manifest
 	Start        string // the resolved input dir, before scoping

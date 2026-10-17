@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -144,14 +145,10 @@ func cleanProveoHomes(dryRun bool) error {
 func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 	inv := gatherLegacyDocker()
 
-	if entries, err := os.ReadDir(filepath.Join(run.StateDir(), "egress")); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				inv.StateDirs = append(inv.StateDirs, e.Name())
-				if sessionAlive(e.Name()) {
-					inv.LiveSessions = append(inv.LiveSessions, e.Name())
-				}
-			}
+	for _, sid := range stateSessions() {
+		inv.StateDirs = append(inv.StateDirs, sid)
+		if sessionAlive(sid) {
+			inv.LiveSessions = append(inv.LiveSessions, sid)
 		}
 	}
 
@@ -215,6 +212,21 @@ func sessionAlive(sid string) bool {
 	return err == nil && proc.Signal(syscall.Signal(0)) == nil
 }
 
+// stateSessions lists the session ids under every run root, sorted and deduplicated.
+func stateSessions() []string {
+	var out []string
+	for _, root := range run.RunRoots() {
+		entries, _ := os.ReadDir(root)
+		for _, e := range entries {
+			if e.IsDir() {
+				out = append(out, e.Name())
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 func runClean(p clean.Plan, dryRun bool) error {
 	if len(p.Containers)+len(p.Networks)+len(p.Volumes)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
 		if len(p.SkippedLive) == 0 {
@@ -245,10 +257,15 @@ func runClean(p clean.Plan, dryRun bool) error {
 		}
 	}
 	for _, sid := range p.StateDirs {
-		dir := filepath.Join(run.StateDir(), "egress", sid)
-		ui.Dangerf("%s state %s (sbx kit, policy log, staged clone .env)", verb, dir)
-		if !dryRun {
-			_ = os.RemoveAll(dir)
+		for _, root := range run.RunRoots() {
+			dir := filepath.Join(root, sid)
+			if _, err := os.Stat(dir); err != nil {
+				continue
+			}
+			ui.Dangerf("%s state %s (sbx kit, policy log, staged clone .env)", verb, dir)
+			if !dryRun {
+				_ = os.RemoveAll(dir)
+			}
 		}
 	}
 	for _, img := range p.Images {

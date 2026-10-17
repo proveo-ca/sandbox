@@ -25,7 +25,7 @@ func TestSpecClonesALinkedWorktreeThroughItsMainWorktree(t *testing.T) {
 	}
 	in := Input{
 		Target: "claudecode", Man: manifest.Manifest{Name: "claudecode"},
-		Sid: "proveo-1-2", EgDir: t.TempDir(), Lookup: func(string) string { return "" },
+		Sid: "proveo-1-2", RunDir: t.TempDir(), Lookup: func(string) string { return "" },
 		Clone: true, RepoRoot: wt, OutputDir: filepath.Join(wt, "reports"),
 		CloneSource:      workspace.WorktreeSource{Main: main, Ref: "feat"},
 		WorktreeFallback: true, WorktreeEnv: []string{"GIT_DIR=/proveo-git/worktrees/wt", "GIT_WORK_TREE=/app"},
@@ -73,7 +73,7 @@ func TestSpecMountsTheStagedEnvReadWriteOnlyForAClone(t *testing.T) {
 	staged := filepath.Join(stage, ".env")
 	base := Input{
 		Target: "claudecode", Man: manifest.Manifest{Name: "claudecode"},
-		Sid: "proveo-1-2", EgDir: t.TempDir(), Lookup: func(string) string { return "" },
+		Sid: "proveo-1-2", RunDir: t.TempDir(), Lookup: func(string) string { return "" },
 		RepoRoot: repo, CloneEnv: staged,
 		Mounts: []runner.Mount{{Host: repo, Container: "/app"}},
 	}
@@ -148,7 +148,7 @@ func TestOwnAgentCommandKeepsTheEntrypointScriptAheadOfTrailingArgs(t *testing.T
 
 func TestSpecTellsTheSeedAnAssistantNeedsNoToolchain(t *testing.T) {
 	t.Parallel()
-	base := Input{Target: "hermes", Sid: "proveo-1-2", EgDir: t.TempDir(), Lookup: func(string) string { return "" }}
+	base := Input{Target: "hermes", Sid: "proveo-1-2", RunDir: t.TempDir(), Lookup: func(string) string { return "" }}
 	base.Man = manifest.Manifest{Name: "hermes", Kind: manifest.KindAssistant}
 	cfg, _, _ := Spec(base)
 	if !strings.Contains(strings.Join(cfg.Env, "\n"), "PROVEO_AGENT_KIND=assistant") {

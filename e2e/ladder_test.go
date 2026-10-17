@@ -21,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 // rung is one step of the ladder: everything the rung below it had, plus exactly
@@ -196,7 +197,7 @@ func renderPostureKitEnv(t *testing.T, work, target string, extra []string) stri
 	if err != nil {
 		t.Skipf("could not render the posture kit: %v\n%s", err, out)
 	}
-	for _, line := range strings.Split(plain(string(out)), " ") {
+	for _, line := range strings.Split(termtext.Words(string(out)), " ") {
 		if strings.HasSuffix(line, "/sbx/kit/spec.yaml") {
 			assertKitShape(t, line, target)
 			return strings.TrimSuffix(line, "/spec.yaml")
@@ -525,7 +526,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 	res := sessionResult{}
 	deadline := time.Now().Add(startup)
 	for !res.reachedPrompt {
-		out := plain(seen())
+		out := termtext.Words(seen())
 		for _, b := range blockedMarkers {
 			if strings.Contains(out, b) {
 				res.blocked, res.out = b, seen()
@@ -545,7 +546,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 		select {
 		case <-exited:
 			res.out, res.aliveFor = seen(), time.Since(started)
-			res.death = firstMarker(plain(res.out))
+			res.death = firstMarker(termtext.Words(res.out))
 			return res
 		default:
 		}
@@ -558,11 +559,11 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 
 	onExit := func() {
 		res.out, res.aliveFor = seen(), time.Since(started)
-		res.death = firstMarker(plain(res.out))
+		res.death = firstMarker(termtext.Words(res.out))
 		if res.death == "" {
 			res.death = "the session ended on its own"
 		}
-		if f := firstAuthFailure(plain(res.out)); f != "" {
+		if f := firstAuthFailure(termtext.Words(res.out)); f != "" {
 			res.authFailure, res.death = f, ""
 		}
 	}
@@ -595,7 +596,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 		if res.prompted != "" {
 			out := seen()
 			if len(out) > mark {
-				since := plain(out[mark:])
+				since := termtext.Words(out[mark:])
 				// AUTH FIRST, AND THE ORDER IS THE POINT. An account with no
 				// credits answers 403, which this rung would otherwise blame on
 				// the Kit — measured doing exactly that for a whole session.
@@ -953,7 +954,7 @@ func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) 
 
 	// A credential sbx has no stored secret for makes it ASK, and an unattended
 	// run stops there — a distinct fault from a refused block or a dead sandbox.
-	if strings.Contains(plain(res.out), "wants to use these credentials") {
+	if strings.Contains(termtext.Words(res.out), "wants to use these credentials") {
 		t.Fatalf("[%s] sbx asked for consent instead of starting: a declared credential has "+
 			"no stored secret under its SERVICE name, so the run blocks on a human.\n"+
 			"-- Kit --\n%s\n-- session --\n%s", label, out, lastLines(res.out, 20))
@@ -1040,7 +1041,7 @@ func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := firstProviderRefusal(plain(tc.out)); got != tc.want {
+			if got := firstProviderRefusal(termtext.Words(tc.out)); got != tc.want {
 				t.Errorf("firstProviderRefusal = %q, want %q — %s", got, tc.want, tc.why)
 			}
 		})
@@ -1059,11 +1060,11 @@ func TestCreditExhaustionIsAnAuthFailureNotAnEgressDenial(t *testing.T) {
 		"API Error: 400 Credit balance is too low",
 		`{"error":{"code":"insufficient_quota","message":"You exceeded your quota"}}`,
 	} {
-		if firstAuthFailure(plain(out)) == "" {
+		if firstAuthFailure(termtext.Words(out)) == "" {
 			t.Errorf("no authFailure matched %q — it would be read as an egress denial, "+
 				"which is the misreading this whole spec records", out)
 		}
-		if got := firstProviderRefusal(plain(out)); got != "" {
+		if got := firstProviderRefusal(termtext.Words(out)); got != "" {
 			t.Errorf("firstProviderRefusal also claimed %q as %q; a dry account is nobody's "+
 				"bug and must not fail a rung", out, got)
 		}
@@ -1073,7 +1074,7 @@ func TestCreditExhaustionIsAnAuthFailureNotAnEgressDenial(t *testing.T) {
 // credValueFrom returns the probed value and whether the marker was seen at all.
 // The bool is the point: absence must fail the test, not fall through it.
 func credValueFrom(out string) (string, bool) {
-	flat := plain(out)
+	flat := termtext.Words(out)
 	i := strings.Index(flat, credOpen)
 	if i < 0 {
 		return "", false

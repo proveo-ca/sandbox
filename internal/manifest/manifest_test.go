@@ -380,6 +380,25 @@ func TestAHomeMountMayOmitItsContainerPath(t *testing.T) {
 	}
 }
 
+func TestAHomeMountNeverReachesTheLinkedDirsList(t *testing.T) {
+	t.Parallel()
+	const head = "name: x\nimages:\n  x: proveo/x:latest\nhome:\n  enabled: true\n"
+	for _, c := range []struct{ name, home string }{
+		{"the whole home", "  mounts:\n    - host: .\n"},
+		{"the whole home, trailing slash", "  mounts:\n    - host: ./\n"},
+		{"the list as a mount", "  mounts:\n    - host: linked-dirs\n"},
+		{"the list as a synced file", "  mounts:\n    - host: a\n  files:\n    - linked-dirs\n"},
+	} {
+		_, err := Parse([]byte(head+c.home), "")
+		if err == nil || !strings.Contains(err.Error(), LinkedDirsFile) {
+			t.Errorf("Parse(%s) error = %v, want a refusal naming %s", c.name, err, LinkedDirsFile)
+		}
+	}
+	if _, err := Parse([]byte(head+"  mounts:\n    - host: a\n  files:\n    - config.yaml\n"), ""); err != nil {
+		t.Errorf("Parse(an ordinary mount and file) = %v", err)
+	}
+}
+
 func TestDaemonIsTheOneDaemonKnob(t *testing.T) {
 	t.Parallel()
 	off, on := false, true

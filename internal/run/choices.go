@@ -3,6 +3,7 @@ package run
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,7 +57,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
 			Label: label, Heading: addonHeading[label], Options: opts, Multi: true, Divider: true,
 			Radio: label == rowExecution,
-			On:    p.addonDefaults(opts), Help: addonHelp,
+			On:    p.addonDefaults(opts), Help: addonHelpFor(man),
 		})...)
 		if label == rowExecution {
 			if r, ok := portsRow(found, p.Ports); ok {
@@ -506,6 +507,14 @@ var addonHelp = map[string]string{
 	addonAndroid: "the agent drives an Android emulator on this host through its adb server (mobile-mcp) — log in there once; the emulator stays open after the run",
 	addonIOS:     "the agent drives an iOS Simulator on this host — coming soon",
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
+}
+
+func addonHelpFor(man manifest.Manifest) map[string]string {
+	help := maps.Clone(addonHelp)
+	if !man.WantsDocker() {
+		help[addonSandbox] = "a microVM (sbx) with no Docker daemon for the agent — the boundary every run on this harness gets"
+	}
+	return help
 }
 
 func executionOptions() []string {

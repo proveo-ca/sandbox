@@ -24,13 +24,13 @@ func launchCfg(sid string, env ...string) sbx.RunConfig {
 	return sbx.RunConfig{
 		Name: "proveo-hermes-abc", Image: "proveo/hermes:local", Clone: true,
 		Mounts: []sbx.Mount{{Host: "/w"}},
-		Env:    append([]string{"PROVEO_EGRESS_SESSION_ID=" + sid, "FILES=/state/egress/" + sid + "/home"}, env...),
+		Env:    append([]string{"PROVEO_EGRESS_SESSION_ID=" + sid, "FILES=/state/runs/" + sid + "/home"}, env...),
 	}
 }
 
 func TestReceiptIgnoresThePerRunSessionID(t *testing.T) {
 	t.Parallel()
-	kit := func(sid string) []byte { return []byte("kitDir: /state/egress/" + sid + "/sbx/kit\n") }
+	kit := func(sid string) []byte { return []byte("kitDir: /state/runs/" + sid + "/sbx/kit\n") }
 	a := receiptOf(launchCfg("proveo-1-1"), kit("proveo-1-1"), "proveo-1-1", "img1")
 	b := receiptOf(launchCfg("proveo-2-2"), kit("proveo-2-2"), "proveo-2-2", "img1")
 	if got := b.changes(&a); got != nil {

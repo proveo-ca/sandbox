@@ -440,9 +440,7 @@ func renderKit(t *testing.T, target string) string {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
 	}
 
-	// <state>/egress/<session>/sbx/kit — the "egress" segment is stateDir()'s own
-	// layout, not the session dir.
-	matches, _ := filepath.Glob(filepath.Join(state, "egress", "*", "sbx", "kit", "spec.yaml"))
+	matches, _ := filepath.Glob(filepath.Join(state, "runs", "*", "sbx", "kit", "spec.yaml"))
 	if len(matches) == 0 {
 		t.Fatalf("%s: --print rendered no Kit under %s", target, state)
 	}

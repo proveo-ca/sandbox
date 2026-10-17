@@ -21,12 +21,12 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 var (
 	openCodeEngineRE = regexp.MustCompile(`proveo-opencode-[0-9a-f]{8}\b`)
 	newEngineRE      = regexp.MustCompile(`new engine (proveo-opencode-[0-9a-f]{8})\b`)
-	terminalSeq      = regexp.MustCompile("\x1b\\[[0-9;?<=>]*[ -/]*[@-~]|\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b[()*+#].|\x1b.")
 )
 
 // removeOpenCodeEngines deletes the workspace's engines and every engine the runs named, with their receipts.
@@ -55,7 +55,7 @@ func removeOpenCodeEngines(t *testing.T, work string, outputs []string) {
 
 // terminalText is output without terminal control sequences, with each carriage return as a line break.
 func terminalText(out string) string {
-	return strings.ReplaceAll(terminalSeq.ReplaceAllString(out, ""), "\r", "\n")
+	return strings.ReplaceAll(termtext.StripANSI(out), "\r", "\n")
 }
 
 // terminalWords is terminalText with each run of whitespace as one space.

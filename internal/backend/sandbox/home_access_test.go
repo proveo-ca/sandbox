@@ -139,7 +139,7 @@ func TestOpenCodeHomeAccessMountsConfigButNeverHistory(t *testing.T) {
 		}
 	}
 	cfg, _, _ := Spec(Input{Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h}, Sid: "proveo-fixture",
-		EgDir: runDir, HomeRoot: root, HomeAccess: a, Lookup: func(string) string { return "" },
+		RunDir: runDir, HomeRoot: root, HomeAccess: a, Lookup: func(string) string { return "" },
 		Mounts: []runner.Mount{{Host: root, Container: "/proveo-home"}},
 	})
 	for _, m := range cfg.Mounts {
@@ -168,7 +168,7 @@ func TestSpecReplacesTheWholeProveoHomeWithNarrowBinds(t *testing.T) {
 		Target: "cursor",
 		Man:    manifest.Manifest{Name: "cursor", Home: h},
 		Sid:    "proveo-1-2",
-		EgDir:  runDir,
+		RunDir: runDir,
 		Mounts: []runner.Mount{
 			{Host: repo, Container: "/app"},
 			{Host: root, Container: "/proveo-home"},
@@ -222,7 +222,7 @@ func TestSpecCarriesTheScopedIndexThroughANarrowedHome(t *testing.T) {
 	defer a.Cleanup()
 	cfg, _, _ := Spec(Input{
 		Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h},
-		Sid: "proveo-1-2", EgDir: runDir, Lookup: func(string) string { return "" },
+		Sid: "proveo-1-2", RunDir: runDir, Lookup: func(string) string { return "" },
 		RepoRoot: repo, ScopeRel: "apps/web",
 		Mounts: []runner.Mount{
 			{Host: filepath.Join(repo, "apps", "web"), Container: "/app/apps/web"},
@@ -310,7 +310,7 @@ func TestHomeAccessRefusesLinksThatWidenTheView(t *testing.T) {
 func listLinkedDirs(t *testing.T, root string, targets ...string) {
 	t.Helper()
 	body := "# targets a home dir's links may reach\n\n" + strings.Join(targets, "\n") + "\n"
-	if err := os.WriteFile(filepath.Join(root, LinkedDirsFile), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, manifest.LinkedDirsFile), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -328,7 +328,7 @@ func TestHomeAccessFollowsOnlyLinksTheHostListed(t *testing.T) {
 		}
 	}
 	listLinkedDirs(t, root, listed)
-	if err := os.WriteFile(filepath.Join(data, LinkedDirsFile), []byte(secret+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(data, manifest.LinkedDirsFile), []byte(secret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
@@ -342,7 +342,7 @@ func TestHomeAccessFollowsOnlyLinksTheHostListed(t *testing.T) {
 	}
 	for _, m := range a.Mounts {
 		if m.Host == wantSecret {
-			t.Errorf("a link the guest could have planted reached %s; only %s/%s may name targets, and the guest's own copy inside a mounted dir must not count", m.Host, root, LinkedDirsFile)
+			t.Errorf("a link the guest could have planted reached %s; only %s/%s may name targets, and the guest's own copy inside a mounted dir must not count", m.Host, root, manifest.LinkedDirsFile)
 		}
 	}
 	if len(a.SkippedLinks) != 1 || !strings.Contains(a.SkippedLinks[0], wantSecret) {
@@ -357,7 +357,7 @@ func TestASkippedLinkNoticeNamesTheLinkAndTheListFile(t *testing.T) {
 	t.Cleanup(func() { ui.Default = prev })
 
 	noteSkippedLinks(HomeAccess{Root: "/h", SkippedLinks: []string{"/h/hermes/data/skills → /x/skills"}})
-	for _, want := range []string{"/h/hermes/data/skills → /x/skills", filepath.Join("/h", LinkedDirsFile)} {
+	for _, want := range []string{"/h/hermes/data/skills → /x/skills", filepath.Join("/h", manifest.LinkedDirsFile)} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("notice %q must name %q", buf.String(), want)
 		}

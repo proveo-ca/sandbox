@@ -11,9 +11,7 @@ proveo_sbx_passthrough "$@"
 set_working_directory "/app"
 bridge_google_keys
 bridge_git_identity
-apply_env_bridges
-export PROVEO_SMOKE_TARGET=opencode
-env PROVEO_SMOKE_TEST= proveo-entrypoint prep opencode || true
+proveo-entrypoint prep || true
 
 # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
 seed_defaults() {

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/termtext"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -148,7 +149,7 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	if mark > len(after) {
 		mark = 0
 	}
-	if m := gitSyncHookRejected.FindString(plain(after[mark:])); m != "" {
+	if m := gitSyncHookRejected.FindString(termtext.Words(after[mark:])); m != "" {
 		t.Errorf("%s reported the hook as failed (%q) although the script ran\n%s", h.target, m, lastLines(after[mark:], 30))
 	}
 	assertGitSyncTurn(t, h, state, probe)
