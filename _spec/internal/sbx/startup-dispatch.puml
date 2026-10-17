@@ -125,8 +125,8 @@ skinparam noteTextAlignment left
 '   proveo-seed-done      the installs are over. A release or all phase clears
 '                         it first; provision (or all) writes it last.
 '   proveo-seed-refused   a share is missing. Step 3 provisions nothing.
-'                         (Until D2 lands, also "OpenCode history is
-'                         unprepared"; D2 deletes that gate —
+'                         (Until D2, also "OpenCode history is
+'                         unprepared"; D2 deleted that gate, 2026-10-17 —
 '                         _spec/defs/opencode/engine-local-history.puml.)
 '   proveo-seed-halted    the release phase returned non-zero (an OpenCode
 '                         default missing, an unknown phase). Step 3 provisions
@@ -184,7 +184,7 @@ skinparam noteTextAlignment left
 ' [Unverified] opencode's ready-gap row: under the keeper design the host
 ' re-ran its seed through `sbx exec` after preparing history, not as a Kit
 ' startup step, so the gap may not have applied the same way; this pass did
-' not read the exemption. Under D2 (DECIDED, landing;
+' not read the exemption. Under D2 (DONE (wt) 2026-10-17;
 ' _spec/defs/opencode/engine-local-history.puml) the host does the one-time
 ' import between `sbx create` and the reattach and re-runs no seed.
 ' [Inference] The opencode row then follows the Kit startup steps like every

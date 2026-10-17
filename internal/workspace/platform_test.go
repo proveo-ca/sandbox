@@ -33,37 +33,6 @@ func TestImagePlatformIsWhatTheDefsBuildAsDockerWillPickIt(t *testing.T) {
 	}
 }
 
-func TestDepCopyPolicyCopiesOnlyWhenHostAndImageAgree(t *testing.T) {
-	t.Parallel()
-	linuxArm := Platform{OS: "linux", Arch: "arm64"}
-	for _, tc := range []struct {
-		name  string
-		env   map[string]string
-		host  Platform
-		reuse bool
-		want  string // fragment of the reason
-	}{
-		{"macOS host never reuses", nil, Platform{OS: "darwin", Arch: "arm64"}, false, "darwin/arm64 ≠ image linux/arm64"},
-		{"windows host never reuses", nil, Platform{OS: "windows", Arch: "amd64"}, false, "≠ image"},
-		{"linux host of the same arch reuses", nil, linuxArm, true, "matches the image"},
-		{"linux host of another arch does not", nil, Platform{OS: "linux", Arch: "amd64"}, false, "linux/amd64 ≠ image linux/arm64"},
-		{"always overrides a mismatch", map[string]string{"PROVEO_DEPS_COPY": "always"}, Platform{OS: "darwin", Arch: "arm64"}, true, "PROVEO_DEPS_COPY=always"},
-		{"never overrides a match", map[string]string{"PROVEO_DEPS_COPY": "never"}, linuxArm, false, "PROVEO_DEPS_COPY=never"},
-		{"unknown host never reuses", nil, Platform{}, false, "≠ image"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			reuse, why := DepCopyPolicy(env(tc.env), tc.host, linuxArm)
-			if reuse != tc.reuse {
-				t.Errorf("reuse = %v, want %v (%s)", reuse, tc.reuse, why)
-			}
-			if !strings.Contains(why, tc.want) {
-				t.Errorf("reason %q does not say %q — the operator has to see why the tree was or was not copied", why, tc.want)
-			}
-		})
-	}
-}
-
 func TestSharedTreesAllowedOnlyWhenTheyRunAsIsOrTheOperatorSaysSo(t *testing.T) {
 	t.Parallel()
 	linuxArm := Platform{OS: "linux", Arch: "arm64"}

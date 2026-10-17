@@ -129,9 +129,8 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	}
 
 	rs.Workspace.WS = workspace.MountSpec{
-		Workspace: rs.Man.Workspace, OutputDir: p.Output, Credentials: p.Credentials,
+		Workspace: rs.Man.Workspace, OutputDir: p.Output,
 		MountRootDeps: mountRootDeps(os.Getenv),
-		DepStage:      filepath.Join(rs.EgDir, "deps"),
 	}
 	{ // one layout: the scope dir drives the /app mount path
 		if rs.Workspace.SubScope != "" {
@@ -147,7 +146,7 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	rs.InvocationWD, _ = os.Getwd()
 	rs.Creds.HostEnvFile = strings.TrimSpace(os.Getenv("PROVEO_EGRESS_ENV_FILE"))
 	if rs.Creds.HostEnvFile == "" {
-		rs.Creds.HostEnvFile = workspace.EnvFileSource(rs.InvocationWD, rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
+		rs.Creds.HostEnvFile = workspace.ProjectEnvFile(rs.InvocationWD, rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
 	}
 	rs.Creds.Lookup = credentials.ProviderLookup(rs.Creds.HostEnvFile)
 	p.HostEnvFile = rs.Creds.HostEnvFile
@@ -222,8 +221,6 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			ui.Warnf("%v", err)
 		}
 	}
-	rs.Workspace.WS.Credentials = p.Credentials
-
 	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
 	if hasAddon(p.Addons, "browser") && rs.Backend.BrowserImage != "" {
 		chosen, isLocal := posture.ResolveImageChoice(rs.Backend.BrowserImage)
@@ -402,7 +399,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	}
 	if rs.Creds.HomePlan.Root != "" {
 		rs.Workspace.Mounts = append(rs.Workspace.Mounts, rs.Creds.HomePlan.Mounts...)
-		ui.Storef("proveo home: %s (mounted at %s)", rs.Creds.HomePlan.Root, proveohome.ContainerHome)
+		ui.Storef("%s", homeLine(rs.Creds.HomePlan.Root, rs.Man.Home))
 	}
 
 	if m, ok := credentials.GhConfigMount(os.Getenv); ok {
@@ -432,6 +429,22 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 
 // reportCredentialGaps names what satisfies a subscription harness's missing variables, or prompts
 // or warns for each required variable no credential covers.
+// homeLine names the proveo home and the directories under it the sandbox sees, at their host paths.
+func homeLine(root string, h manifest.Home) string {
+	var seen []string
+	for _, m := range h.Mounts {
+		if rel := strings.Trim(strings.TrimSpace(m.Host), "/"); rel != "" {
+			seen = append(seen, rel)
+		}
+	}
+	seen = append(seen, "toolchains")
+	where := "at their host paths"
+	if len(seen) == 1 {
+		where = "at its host path"
+	}
+	return fmt.Sprintf("proveo home: %s (the sandbox sees %s %s)", root, strings.Join(seen, ", "), where)
+}
+
 func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
 	missing := rs.Man.MissingEnv(rs.Creds.Lookup)
 	if len(missing) == 0 || p.PrintOnly {
@@ -625,8 +638,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		rs.Backend.CloneEnv = stageCloneEnv(rs, p)
 	}
 	rs.Posture.Workspace = posture.Workspace(rs.Backend.Clone)
-	mounts, dropped := workspace.StripDepCopies(rs.Workspace.Mounts, rs.Workspace.WS.DepStage)
-	if dropped > 0 && !rs.Backend.Clone {
+	if dropped := len(rs.Workspace.WS.DepCopies()); dropped > 0 && !rs.Backend.Clone {
 		ok, why := workspace.SharedTreesAllowed(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
 		if !ok {
 			return fmt.Errorf("sbx would mount your checkout with its %d dependency tree(s) (node_modules, target, .venv …): %s.\n"+
@@ -690,7 +702,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Forwards: p.forwards(),
 		Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
 		ImageEntrypoint:  sbx.ImageEntrypoint,
-		Mounts:           mounts,
+		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,
 		Detected:         rs.Creds.Detected,
 		GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
@@ -703,6 +715,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		CloneEnv:         rs.Backend.CloneEnv,
 		CloneEnvBase:     rs.Backend.CloneEnvBase,
 		CloneEnvHost:     rs.Backend.CloneEnvHost,
+		ProjectEnv:       workspace.ProjectEnvFile(rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot),
 		CloneEnvStrip:    rs.Backend.CloneStrip,
 		Links:            rs.Workspace.Links,
 		DataDir:          p.DataDir,

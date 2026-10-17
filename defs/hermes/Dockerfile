@@ -31,9 +31,8 @@ RUN groupadd -o -g 1000 agent \
     && useradd -o -u 1000 -g 1000 -M -d /home/agent -s /bin/bash agent \
     && install -d -o 1000 -g 1000 /home/agent
 
-RUN mkdir -p /opt/proveo/subagents /opt/proveo/lib /opt/proveo/hooks /opt/proveo/shims
+RUN mkdir -p /opt/proveo/subagents /opt/proveo/hooks /opt/proveo/shims
 COPY defs/subagents/ /opt/proveo/subagents/
-COPY defs/lib/ /opt/proveo/lib/
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed

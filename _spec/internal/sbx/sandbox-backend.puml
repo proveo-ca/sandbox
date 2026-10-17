@@ -61,8 +61,10 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' sandbox.Input.Workdir and run.Spec's Workspace.Workdir are deleted: nothing
 ' read them (MEASURED). The agent's working directory reaches the sandbox as
 ' PROVEO_WORKDIR, computed from the binds by agentWorkdir (see the CLI note
-' below). WS.Plan()'s workdir return is now discarded in internal/run/run.go
-' (repo-simplification.puml F20, PROPOSED).
+' below). MountSpec.Plan() no longer returns a workdir at all: since 2026-10-17
+' (F20, the user: "Drop the workdir return (Recommended)") it returns
+' (mounts []runner.Mount, links []Link) (MEASURED, internal/workspace/mount.go:56;
+' internal/run/run.go:395). The dropped value was the constant "/app" (reported).
 '
 ' THE WORKSPACE .env GUARD KEYS ON sbx's OWN VARIABLES. Images skipped sourcing
 ' the workspace .env only while PROVEO_EGRESS_MODE named a tier, and only the

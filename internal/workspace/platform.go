@@ -46,19 +46,6 @@ func ImagePlatform(getenv func(string) string) Platform {
 	return Platform{OS: "linux", Arch: HostPlatform().Arch}
 }
 
-func DepCopyPolicy(getenv func(string) string, host, image Platform) (reuse bool, reason string) {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_DEPS_COPY"))) {
-	case "always", "1", "on", "true", "yes":
-		return true, "PROVEO_DEPS_COPY=always — copying host trees regardless of platform"
-	case "never", "0", "off", "false", "no":
-		return false, "PROVEO_DEPS_COPY=never — staging empty; the seed installs"
-	}
-	if host == image && host.OS != "" {
-		return true, fmt.Sprintf("host %s matches the image — copying host trees", host)
-	}
-	return false, fmt.Sprintf("host %s ≠ image %s — staging empty; the seed installs for %s", host, image, image)
-}
-
 // SharedTreesAllowed decides whether a mounted sbx checkout may carry its
 // dependency trees into a sandbox of another platform.
 func SharedTreesAllowed(getenv func(string) string, host, image Platform) (bool, string) {

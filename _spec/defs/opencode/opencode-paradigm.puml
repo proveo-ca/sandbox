@@ -65,7 +65,7 @@ title OpenCode crew — automatic asks, explicit denies and visible execution
 ' after subscription limits. ModelBilling reads the raw prefix before
 ' providerAliases folds both routes onto opencode for host/key routing.
 ' The former auth.json-only explanation described v1, not the v2 token store.
-' D2 (DECIDED 2026-10-16, landing — _spec/defs/opencode/engine-local-history.puml):
+' D2 (DONE (wt) 2026-10-17 — _spec/defs/opencode/engine-local-history.puml):
 ' sessions AND in-sandbox logins now persist with the retained engine, in OpenCode's own
 ' ~/.local/share/opencode/opencode.db, until `sbx rm` (D8, "Accept and document"). proveo no
 ' longer removes stored credentials, and no private per-run DB or lease exists.

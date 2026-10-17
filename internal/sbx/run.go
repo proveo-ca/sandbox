@@ -125,6 +125,7 @@ type RunConfig struct {
 	Mounts  []Mount // workspace binds, passed POSITIONALLY
 	Publish []string
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
+	EnvFile string   // KEY=value file sbx loads with --env-file
 	Command []string // trailing agent command (after "--")
 }
 
@@ -171,6 +172,9 @@ func RunArgs(cfg RunConfig) []string {
 	}
 	for _, e := range cfg.Env {
 		args = append(args, "-e", e)
+	}
+	if cfg.EnvFile != "" {
+		args = append(args, "--env-file", cfg.EnvFile)
 	}
 	if cfg.Agent != "" {
 		args = append(args, cfg.Agent)

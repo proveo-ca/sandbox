@@ -14,7 +14,19 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' covers: internal/contract/bun_toolchain_test.go
 ' covers: internal/contract/toolchain_test.go
 ' covers: e2e/toolchain_test.go
+' covers: internal/contract/java_major_test.go
 ' How the three shared layers are assembled: _spec/defs/base-image-layers.puml.
+'
+' ONE _java_major (N3, DONE (wt) 2026-10-17; the user: "Keep awk, delete sed
+' (Recommended)"). entrypoint-lib.sh defined it twice, and bash kept the LATER,
+' sed copy, which read a legacy `1.8.0_x` as major 1. The sed copy is deleted;
+' the awk one (entrypoint-lib.sh:669-672) maps "1.x" to x and is the only
+' definition (MEASURED). Both callers read it: the Gradle Java floor (< 17
+' installs temurin-21) and _install_jdtls (< 21 provisions Java 21). So the
+' jdtls message "the floor's JRE is <n>" now says 8, not 1, for a JDK 8.
+' Pinned by TestJavaMajorReadsLegacyAndModernVersionStrings
+' (internal/contract/java_major_test.go): "1.8.0_402" → 8, "1.8.0_202" → 8,
+' "17" → 17, "21.0.4" → 21; reported red against the old sed copy (1.8 → 1).
 
 node "proveo/base — the universal floor" as FLOOR <<host>> {
   component "git · gh · bash · jq · tmux\ndumb-init · proveo-entrypoint" as CORE <<app>>

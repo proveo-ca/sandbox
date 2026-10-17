@@ -23,15 +23,14 @@
 ' covers: e2e/opencode_presentation*
 ' covers: e2e/testdata/opencode_presentation.*
 '
-' ── HISTORY IS ENGINE-LOCAL (D2, DECIDED 2026-10-16, landing) ─────────────
+' ── HISTORY IS ENGINE-LOCAL (D2, DONE (wt) 2026-10-17) ────────────────────
 ' The database, its import, the carry across a replacement and the thin
 ' runtime are specified in _spec/defs/opencode/engine-local-history.puml.
 ' This file keeps the native CONFIG and PRESENTATION contracts; every claim
 ' below about a private per-run database, a durable-store lease, credential
-' scrubbing or publication describes the keeper design D2 deletes and is
-' marked HISTORY. [Unverified] until the code lands: MEASURED today, the
-' keeper stack (opencode_cache.py, opencode-credentials.py, the gate) is
-' still in the tree.
+' scrubbing or publication describes the keeper design D2 deleted and is
+' marked HISTORY (MEASURED: opencode_cache.py, opencode-credentials.py and
+' the seed gate are absent from the tree).
 ' HISTORY — image tests in disposable history mode (2026-10-13): a bare
 ' `docker run … opencode serve|run` reached the prepared-history gate and exited
 ' 78, so internal/imagetest/opencode_test.go passed
@@ -39,11 +38,14 @@
 ' backend did. HISTORY — the presentation fixture prepared its engine
 ' (2026-10-16): opencode_presentation.py ran `--prepare --empty` per test and
 ' passed --proveo-cache-owner on every runtime launch (7 tests, OK, 19.2s).
-' Under D2 neither workaround is needed: with no gate, a bare launch of the
-' thin runtime runs the native client on its own default database.
-' 2026-10-17: packages/lib/test_opencode_runtime.py keeps only NativeCommandAutoTests
-' (the --auto injection below); its RuntimeTests class and test_opencode_cache.py
-' are deleted.
+' With no gate neither workaround remains (MEASURED: no ocDisposable, --prepare
+' or cache-owner in the image test or the presentation testdata); a bare launch
+' of the thin runtime runs the native client on its own default database.
+' packages/lib/test_opencode_runtime.py holds NativeCommandAutoTests (the --auto
+' injection below, plus diagnostic flags counting only before `--`) and
+' FakeNativeLaunchTests (inflight and diagnostic runs keep argv unchanged in a
+' throwaway database; exit status and signal forwarding; a normal launch execs
+' against the engine database) — MEASURED.
 ' status: implemented contracts; PLANNED acceptance remains for the open live gates below.
 ' Primary reports focused source/unit and persisted offline native fixture passes.
 ' Security/adversarial repairs are implemented; their re-evaluations remain in progress.

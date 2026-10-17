@@ -63,6 +63,10 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 '
 ' A repo-root context is what makes the root .dockerignore load-bearing: without
 ' it, 201 MB of node_modules and .git reach the daemon on every harness build.
+' EXCEPTION, cecli (2026-10-17, N17): defs/cecli/Dockerfile.dockerignore is a
+' Dockerfile-specific ignore file, and BuildKit then IGNORES the root one for
+' that build (measured on buildx v0.36.1 by the coordinator), so it repeats the
+' root denylist (_spec/_plans/image-size-reduction.puml, item 3 UPDATE).
 '
 ' A THIRD SHAPE, AND IT CONSTRAINS THE GO TREE. A Go build from a PARTIAL
 ' context — go.mod, cmd/ and internal/, no root-level .go files and no defs/

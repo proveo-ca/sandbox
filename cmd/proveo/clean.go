@@ -142,6 +142,34 @@ func cleanProveoHomes(dryRun bool) error {
 }
 
 func gatherCleanInventory(deep bool) (clean.Inventory, error) {
+	inv := gatherLegacyDocker()
+
+	if entries, err := os.ReadDir(filepath.Join(run.StateDir(), "egress")); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				inv.StateDirs = append(inv.StateDirs, e.Name())
+				if sessionAlive(e.Name()) {
+					inv.LiveSessions = append(inv.LiveSessions, e.Name())
+				}
+			}
+		}
+	}
+
+	if deep {
+		seen := map[string]bool{}
+		for _, ref := range dockerLines("image", "ls", "--format", "{{.Repository}}:{{.Tag}}") {
+			if strings.HasPrefix(ref, "proveo/") && !strings.HasSuffix(ref, ":<none>") && !seen[ref] {
+				seen[ref] = true
+				inv.Images = append(inv.Images, ref)
+			}
+		}
+	}
+	return inv, nil
+}
+
+// gatherLegacyDocker lists what the retired docker backend left on this host: egress
+// containers and networks, proveo-dind-* containers and proveo-squid-cache-* volumes.
+func gatherLegacyDocker() clean.Inventory {
 	var inv clean.Inventory
 
 	for _, line := range dockerLines("ps", "-a", "--filter", "label=proveo.egress.session",
@@ -169,27 +197,8 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		inv.Networks = append(inv.Networks, n)
 	}
 
-	if entries, err := os.ReadDir(filepath.Join(run.StateDir(), "egress")); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				inv.StateDirs = append(inv.StateDirs, e.Name())
-				if sessionAlive(e.Name()) {
-					inv.LiveSessions = append(inv.LiveSessions, e.Name())
-				}
-			}
-		}
-	}
-
-	if deep {
-		seen := map[string]bool{}
-		for _, ref := range dockerLines("image", "ls", "--format", "{{.Repository}}:{{.Tag}}") {
-			if strings.HasPrefix(ref, "proveo/") && !strings.HasSuffix(ref, ":<none>") && !seen[ref] {
-				seen[ref] = true
-				inv.Images = append(inv.Images, ref)
-			}
-		}
-	}
-	return inv, nil
+	inv.Volumes = dockerLines("volume", "ls", "--filter", "name=proveo-squid-cache-", "--format", "{{.Name}}")
+	return inv
 }
 
 // sessionAlive reports whether the proveo process a session id names (proveo-<unix>-<pid>) still runs.
@@ -207,7 +216,7 @@ func sessionAlive(sid string) bool {
 }
 
 func runClean(p clean.Plan, dryRun bool) error {
-	if len(p.Containers)+len(p.Networks)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
+	if len(p.Containers)+len(p.Networks)+len(p.Volumes)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
 		if len(p.SkippedLive) == 0 {
 			ui.Okf("nothing to clean")
 			return nil
@@ -227,6 +236,12 @@ func runClean(p clean.Plan, dryRun bool) error {
 		ui.Dangerf("%s network %s", verb, n)
 		if !dryRun {
 			_ = exec.Command("docker", "network", "rm", n).Run()
+		}
+	}
+	for _, v := range p.Volumes {
+		ui.Dangerf("%s volume %s", verb, v)
+		if !dryRun {
+			_ = exec.Command("docker", "volume", "rm", v).Run()
 		}
 	}
 	for _, sid := range p.StateDirs {

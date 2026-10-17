@@ -14,7 +14,7 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
 else
   ensure_runtime_user
   set_working_directory "/app"
-  load_env
+  bridge_google_keys
   bridge_git_identity /app
   report_git_context /app
   run_smoke_test "claudecode"
@@ -22,7 +22,7 @@ else
 fi
 
 set_working_directory "/app"
-load_env quiet
+bridge_google_keys
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"
@@ -36,15 +36,6 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
     [[ -z "$line" ]] && continue
     printf '  %s\n' "$line"
   done
-  echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
 

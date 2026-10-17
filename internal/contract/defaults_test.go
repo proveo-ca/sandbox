@@ -140,17 +140,12 @@ func TestDeadHostLibsRemoved(t *testing.T) {
 	for _, rel := range []string{
 		"defs/lib/env-mount.sh",
 		"defs/lib/git-identity.sh",
+		"defs/lib/detect-verify.sh",
+		"defs/cecli/proveo-lib/detect-verify.sh",
+		"defs/claudecode/mcp/proveo-lib/detect-verify.sh",
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
 			t.Errorf("%s should be deleted (logic lives in Go)", rel)
 		}
-	}
-	// detect-verify.sh remains as a thin wrapper to proveo-entrypoint verify.
-	b, err := os.ReadFile(filepath.Join(root, "defs/lib/detect-verify.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "proveo-entrypoint verify") {
-		t.Error("detect-verify.sh must delegate to proveo-entrypoint verify")
 	}
 }

@@ -7,6 +7,11 @@ title Mount model — two layouts, one scope resolver, secrets decided by egress
 
 ' covers: internal/workspace/mount.go
 ' covers: internal/workspace/**
+' Plan() returns (mounts []runner.Mount, links []Link) since 2026-10-17 (MEASURED,
+' mount.go:56). Its workdir return — the constant "/app" (reported) — was dropped
+' with the three `wd != "/app"` test assertions (the user: "Drop the workdir return
+' (Recommended)", repo-simplification.puml F20); sbx computes the agent's workdir
+' from the binds (_spec/internal/sbx/sandbox-backend.puml).
 
 node "Scope resolution" as SCOPE <<host>> {
   component "workspace.Resolve(dir)\nScope{Root, Prefix, IsRepo}" as RES <<app>>

@@ -135,9 +135,10 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' (`--shell` is retired; readySpec.kit became readySpec.ready, the prompt
 ' text). opencode was first, because under the keeper design its history was
 ' prepared and its seed re-run with the cache owner only on that path.
-' D2 (DECIDED, landing; _spec/defs/opencode/engine-local-history.puml) drops
-' that: a new engine imports the host database once between `sbx create` and
-' the reattach, and the seed has no OpenCode gate.
+' D2 (DONE (wt) 2026-10-17; _spec/defs/opencode/engine-local-history.puml)
+' dropped that: a new engine imports the host database once between `sbx
+' create` and the reattach, and the seed has no OpenCode gate (MEASURED:
+' proveo-seed and defs/opencode/entrypoint.sh hold no prepared-history check).
 ' opencode's row uses a temporary PROVEO_HOME, so it never touches the
 ' operator's history; `proveo run opencode` itself keeps the real home. It
 ' probes through `sbx exec` as uid 1000, after cd into the clone.
@@ -156,13 +157,14 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. (The
 ' deleted docker backend seeded in the entrypoint before exec, so it never waited.)
 ' A share refusal still stops the launch (PROVEO_SEED_REFUSED).
-' D2 (DECIDED, landing; _spec/defs/opencode/engine-local-history.puml) deletes
-' the OpenCode-specific await-seed paths: the "OpenCode credential preflight
-' refused release" note, the "OpenCode history is not prepared in this engine"
-' refusal and its raw-launch fallback, and the keeper's deadline, owner and
-' startup variables. Every OpenCode launch is then what the raw fallback was:
-' the native client on its own ~/.local/share/opencode. [Unverified] until the
-' image side lands; MEASURED today, both paths are still in proveo-await-seed.
+' D2 (DONE (wt) 2026-10-17; _spec/defs/opencode/engine-local-history.puml)
+' deleted the OpenCode-specific await-seed paths: the "OpenCode credential
+' preflight refused release" note, the "OpenCode history is not prepared in
+' this engine" refusal and its raw-launch fallback, and the keeper's deadline,
+' owner and startup variables (MEASURED: proveo-await-seed names no OpenCode
+' string). Every OpenCode launch is now what the raw fallback was: the native
+' client on its own ~/.local/share/opencode. Pinned by
+' TestAwaitSeedStopsOnlyOnASeedRefusal (internal/contract/instructions_seed_test.go).
 '
 ' ── THE RELEASE IS ALSO A STARTUP-STEP BOUNDARY (2026-10-13) ──────────────
 ' "Installs stay after the release" held in the ORDER and failed in the TIME.

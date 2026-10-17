@@ -94,20 +94,7 @@ func runPrep() {
 		_ = os.Chdir("/app")
 	}
 
-	if entrypoint.ShouldSkipEnvLoad(os.Getenv) {
-		fmt.Println("🔒 Skipping .env load (inside sbx — the workspace .env is not exported to the agent)")
-	} else if path := entrypoint.FindEnvFile(""); path != "" {
-		fmt.Printf("✅ Found .env at %s\n", path)
-		if err := entrypoint.LoadEnvFile(path); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  load .env: %v\n", err)
-		} else {
-			fmt.Println("✅ Loaded environment variables from .env")
-		}
-	} else {
-		fmt.Println("🔎 No .env found")
-	}
 	entrypoint.BridgeGoogleKeys()
-
 	entrypoint.BridgeGitIdentity("")
 	reportGitContext("")
 	entrypoint.ApplyEnvBridges()

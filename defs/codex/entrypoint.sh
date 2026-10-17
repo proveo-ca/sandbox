@@ -15,14 +15,14 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
 else
   ensure_runtime_user
   set_working_directory "/app"
-  load_env
+  bridge_google_keys
   bridge_git_identity /app
   report_git_context /app
   ensure_project_tools
 fi
 
 set_working_directory "/app"
-load_env quiet
+bridge_google_keys
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"
@@ -64,22 +64,12 @@ seed_codex_defaults
 proveo_seed codex
 
 # ── Verification command discovery ────────────────────────
-# Prefer Go proveo-entrypoint verify; fall back to the thin detect-verify.sh wrapper.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   echo "── Verification Commands ────────────────────────────"
   proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     printf '  %s\n' "$line"
   done
-  echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
 

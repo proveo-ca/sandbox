@@ -229,37 +229,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/opencode-versioned-history-storage.puml",
-      "covers": [
-        "defs/opencode/Dockerfile",
-        "defs/opencode/harness.manifest",
-        "packages/lib/proveo-seed",
-        "packages/lib/proveo-await-seed",
-        "packages/lib/proveo-opencode-runtime",
-        "packages/lib/opencode_cache.py",
-        "packages/lib/opencode-credentials.py",
-        "packages/lib/test_opencode_credentials.py",
-        "packages/lib/test_opencode_runtime_native.py",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/opencode_cache.go",
-        "internal/backend/sandbox/opencode_cache_test.go",
-        "internal/backend/sandbox/home_access.go",
-        "internal/backend/sandbox/launch_receipt.go",
-        "internal/backend/sandbox/opencode_history_image_test.go",
-        "internal/proveohome/proveohome.go",
-        "internal/contract/opencode_credentials_test.go",
-        "internal/contract/spec_notes_test.go",
-        "e2e/opencode_credentials_test.go",
-        "e2e/opencode_prepared_history_test.go",
-        "e2e/opencode_cache_sbx_test.go",
-        "e2e/seed_ready_test.go",
-        "internal/choiceui/blocked_run.go",
-        "internal/choiceui/blocked_run_test.go",
-        "internal/imagetest/opencode_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_paradigms/opencode-oauth-persistence.puml",
       "covers": [
         "defs/opencode/harness.manifest",
@@ -370,6 +339,7 @@
       "covers": [
         "defs/**/Dockerfile",
         ".dockerignore",
+        "defs/cecli/Dockerfile.dockerignore",
         "internal/contract/image_size_test.go",
         "internal/contract/dockerfile_correctness_test.go",
         "e2e/sbx_test.go"
@@ -461,12 +431,13 @@
         "defs/base/Dockerfile",
         "defs/base-node/Dockerfile",
         "defs/base-node-lsp/Dockerfile",
-        "defs/base-node/ensure.sh",
+        "internal/imagebuild/targets.go",
         "mise.toml",
         "internal/contract/go_provisioning_test.go",
         "internal/contract/bun_toolchain_test.go",
         "internal/contract/toolchain_test.go",
-        "e2e/toolchain_test.go"
+        "e2e/toolchain_test.go",
+        "internal/contract/java_major_test.go"
       ],
       "fingerprint": null
     },
@@ -752,11 +723,21 @@
         "internal/backend/sandbox/opencode_engine.go",
         "internal/backend/sandbox/opencode_engine_test.go",
         "internal/backend/sandbox/launch_receipt.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/home_access_test.go",
+        "internal/choiceui/blocked_run.go",
+        "internal/choiceui/blocked_run_test.go",
         "packages/lib/proveo-opencode-runtime",
         "packages/lib/test_opencode_runtime.py",
+        "packages/lib/entrypoint-lib.sh",
         "defs/opencode/harness.manifest",
         "defs/opencode/Dockerfile",
-        "internal/imagetest/opencode_test.go"
+        "internal/imagetest/opencode_test.go",
+        "internal/contract/opencode_credentials_test.go",
+        "e2e/opencode_engine_sbx_test.go",
+        "e2e/opencode_credentials_test.go",
+        "e2e/testdata/opencode_presentation.py",
+        "e2e/seed_ready_test.go"
       ],
       "fingerprint": null
     },
@@ -963,9 +944,13 @@
         "internal/provider/models.go",
         "internal/run/params.go",
         "internal/run/auth_row_test.go",
+        "internal/run/choices.go",
+        "internal/run/choices_test.go",
         "internal/posture/posture_test.go",
         "internal/credentials/credentials.go",
-        "internal/credentials/hints.go"
+        "internal/credentials/hints.go",
+        "internal/run/run.go",
+        "internal/run/credential_report_test.go"
       ],
       "fingerprint": null
     },

@@ -152,8 +152,10 @@ them. Each run saves `sbx policy log` to `sbx/policy-log.json` in its run direct
 | `broker` (default) | sbx's secret store; sbx's proxy attaches it to matching requests, so the agent never holds it |
 | `forward` | the sandbox environment; the agent holds the real value |
 
-Inside sbx the image never loads the workspace `.env` into the agent's environment. Keep `.env` on
-the **host** — do not bind-mount it into the agent.
+proveo reads the project `.env` on the host and seeds its values into a new sandbox with
+`sbx create --env-file`: provider keys stay out under `broker` and ride along under `forward`.
+The image itself never loads a `.env`. The values are set when the sandbox is created;
+`sbx rm --force <sandbox>` reseeds them on the next run.
 
 ## Proveo home (session resume)
 

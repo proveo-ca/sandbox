@@ -10,7 +10,7 @@ proveo_sbx_passthrough "$@"
 
 ensure_runtime_user
 set_working_directory "/app"
-load_env
+bridge_google_keys
 bridge_git_identity
 report_git_context
 apply_env_bridges

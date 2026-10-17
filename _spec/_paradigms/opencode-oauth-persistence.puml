@@ -8,11 +8,11 @@
 ' covers: e2e/opencode_auth_test.go
 ' (2026-10-17: the covers on packages/lib/test_opencode_runtime.py is dropped. RuntimeTests is
 ' deleted; the file now tests only --auto injection, which this policy does not describe.)
-' (2026-10-17, D2: the covers on packages/lib/opencode-credentials.py,
-' packages/lib/test_opencode_credentials.py, packages/lib/test_opencode_runtime_native.py and
-' e2e/opencode_credentials_test.go are dropped — D2 deletes the sanitizer and its suites
-' (_spec/defs/opencode/engine-local-history.puml). [Unverified] until the image side lands;
-' MEASURED today they exist.)
+' (2026-10-17, D2 DONE (wt): the covers on packages/lib/opencode-credentials.py,
+' packages/lib/test_opencode_credentials.py and packages/lib/test_opencode_runtime_native.py are
+' dropped — D2 deleted the sanitizer and its suites (MEASURED absent). The covers on
+' e2e/opencode_credentials_test.go is dropped too: it remains, but now holds only
+' TestOpenCodeRuntimeInImage, which _spec/defs/opencode/engine-local-history.puml covers.)
 ' status: PLANNED; Executor selected host-owned OAuth on 2026-10-09.
 ' Implementation remains unapproved and unshipped; this change documents the policy only.
 ' Scope: the OpenCode harness family, including its browser image; other harnesses remain unchanged.
@@ -24,7 +24,7 @@
 ' Host credential model: https://docs.docker.com/ai/sandboxes/security/credentials/
 ' OpenCode sandbox setup: https://docs.docker.com/ai/sandboxes/agents/opencode/
 '
-' CURRENT (D2, DECIDED 2026-10-16, landing — engine-local-history.puml): V2 persists provider
+' CURRENT (D2, DONE (wt) 2026-10-17 — engine-local-history.puml): V2 persists provider
 ' credentials in SQLite beside the sessions, not in new auth.json writes. The database lives in
 ' the retained sbx engine and proveo no longer snapshots, sanitizes or publishes it. So a login made
 ' inside the engine PERSISTS until `sbx rm` — the user's D8, "Accept and document". It is readable
@@ -68,7 +68,10 @@
 ' Concurrent runs cannot corrupt token rotation or cross-select another account.
 ' Existing API-key mode and credential-free session resume retain their behavior.
 ' These live OAuth gates remain pending. The sanitizer the tests used to verify is deleted by D2,
-' so no test now checks token removal ([Unverified] until D2 lands).
+' so no test now checks token removal (MEASURED: the sanitizer and its suites are absent).
+' internal/contract/opencode_credentials_test.go TestOpenCodeDocumentsEngineLocalLogins pins that
+' defs/opencode/entrypoint.sh says "Logins made inside the sandbox stay in this engine until sbx
+' rm" (D8) and no longer advertises auth.json storage (MEASURED).
 ' FK (manual syllables): POLICY 11.2 (29w/52s); STORE 11.5 (25w/47s); ACCOUNT 11.4 (31w/55s).
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml

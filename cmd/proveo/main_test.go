@@ -88,7 +88,7 @@ func TestProviderDetectFromInvocationDotEnv(t *testing.T) {
 	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=from-pwd\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	hostEnv := workspace.EnvFileSource(root, scope, "")
+	hostEnv := workspace.ProjectEnvFile(root, scope, "")
 	lookup := credentials.ProviderLookup(hostEnv)
 	detected := provider.Detect(lookup)
 	if len(detected) != 1 || detected[0] != "cursor" {

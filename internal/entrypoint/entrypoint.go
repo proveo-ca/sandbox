@@ -2,12 +2,10 @@
 package entrypoint
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -48,75 +46,6 @@ func writable(path string) bool {
 	_ = f.Close()
 	_ = os.Remove(name)
 	return true
-}
-
-func FindEnvFile(cwd string) string {
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	if exists(filepath.Join(cwd, ".env")) {
-		return filepath.Join(cwd, ".env")
-	}
-	if out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output(); err == nil {
-		root := strings.TrimSpace(string(out))
-		if exists(filepath.Join(root, ".env")) {
-			return filepath.Join(root, ".env")
-		}
-	}
-	dir := cwd
-	for {
-		if exists(filepath.Join(dir, ".git")) && exists(filepath.Join(dir, ".env")) {
-			return filepath.Join(dir, ".env")
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return ""
-}
-
-func LoadEnvFile(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		if len(v) >= 2 {
-			if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
-				v = v[1 : len(v)-1]
-			}
-		}
-		if k == "" {
-			continue
-		}
-		if _, set := os.LookupEnv(k); set {
-			continue
-		}
-		_ = os.Setenv(k, v)
-	}
-	return sc.Err()
-}
-
-// ShouldSkipEnvLoad reports a run inside an sbx VM, where the workspace .env never enters the agent env.
-func ShouldSkipEnvLoad(getenv func(string) string) bool {
-	return strings.TrimSpace(getenv("SANDBOX_NAME")) != "" || strings.TrimSpace(getenv("SANDBOX_VM_ID")) != ""
 }
 
 func BridgeGoogleKeys() {
@@ -228,11 +157,6 @@ func SmokeReady(target string) bool {
 	}
 	fmt.Printf("✅ PROVEO_SMOKE_READY %s\n", name)
 	return true
-}
-
-func exists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
 }
 
 func firstNonEmpty(vals ...string) string {

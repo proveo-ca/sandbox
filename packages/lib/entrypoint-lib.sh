@@ -46,65 +46,7 @@ accept_workspace_trust() {
  ' 2>/dev/null || true
 }
 
-find_env_file() {
- if [[ -f .env ]]; then
- printf '%s/.env' "$(pwd)"
- return 0
- fi
-
- if command -v git >/dev/null 2>&1; then
- local git_root
- git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
- if [[ -n "$git_root" && -f "$git_root/.env" ]]; then
- printf '%s' "$git_root/.env"
- return 0
- fi
- fi
-
- local dir; dir="$(pwd)"
- while [[ "$dir" != "/" ]]; do
- if [[ -d "$dir/.git" && -f "$dir/.env" ]]; then
- printf '%s/.env' "$dir"
- return 0
- fi
- dir="$(dirname "$dir")"
- done
-
- local sub_env
- sub_env=$(find . -maxdepth 5 -name .env -not -path '*/node_modules/*' -not -path '*/.*/*' -print -quit 2>/dev/null)
- if [[ -n "$sub_env" && -f "$sub_env" ]]; then
- printf '%s/%s' "$(pwd)" "${sub_env#./}"
- return 0
- fi
-
- return 1
-}
-
-load_env() {
- local quiet=0
- [[ "${1:-}" == "quiet" ]] && quiet=1
- say() { (( quiet )) || echo "$@"; }
-
- local sbx_id="${SANDBOX_NAME:-}${SANDBOX_VM_ID:-}"
- if [[ -n "${sbx_id//[[:space:]]/}" ]]; then
- say "🔒 Skipping .env load (inside sbx — the workspace .env is not exported to the agent)"
- unset -f say
- return 0
- fi
-
- local env_path; env_path="$(find_env_file || true)"
- if [[ -n "$env_path" ]]; then
- say "✅ Found .env at $env_path"
- set -a
- # shellcheck source=/dev/null
- source "$env_path"
- set +a
- say "✅ Loaded environment variables from .env"
- else
- say "🔎 No .env found"
- fi
- unset -f say
-
+bridge_google_keys() {
  if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
  if [[ -n "${GEMINI_API_KEY:-}" ]]; then
  export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
@@ -117,7 +59,6 @@ load_env() {
  export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
  export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
  fi
-
 }
 
 bridge_git_identity() {

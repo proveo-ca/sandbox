@@ -6,8 +6,8 @@
 ' Logic: _spec/packages/lib/opencode-seed-progress.puml
 ' 2026-10-17, D2 (_spec/defs/opencode/engine-local-history.puml): the seed no longer stages
 ' session history, so the "credentials: staging legacy session history" step is gone from the
-' frames; opencode_startup.py, the Python consumer, is deleted and its covers dropped.
-' [Unverified] until the image side lands.
+' frames; opencode_startup.py, the Python consumer, is deleted (MEASURED absent) and its covers
+' dropped.
 title OpenCode seed wait — current operation, not a blank screen
 {
   {^"TTY: seed pending"

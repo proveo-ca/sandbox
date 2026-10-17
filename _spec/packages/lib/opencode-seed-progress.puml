@@ -11,10 +11,10 @@
 ' (2026-10-17: the covers on packages/lib/test_opencode_runtime.py is dropped. Its RuntimeTests
 ' class is deleted — the user: "Delete RuntimeTests only (Recommended)" — and what remains,
 ' NativeCommandAutoTests, tests --auto injection, which this spec does not describe.)
-' (2026-10-17, D2: the covers on proveo-opencode-preflight, proveo-opencode-runtime and
-' opencode_startup.py are dropped. D2 deletes the preflight and opencode_startup.py and makes
-' the runtime a thin argv wrapper that draws no progress; proveo-await-seed is the one waiting
-' consumer. [Unverified] until the image side lands — MEASURED today, all three files exist.)
+' (2026-10-17, D2 DONE (wt): the covers on proveo-opencode-preflight, proveo-opencode-runtime and
+' opencode_startup.py are dropped. D2 deleted the preflight and opencode_startup.py (MEASURED
+' absent) and made the runtime a thin argv wrapper that draws no progress; proveo-await-seed is
+' the one waiting consumer. test_opencode_startup.py remains, trimmed to the await-seed tests.)
 ' Surface: _spec/packages/lib/opencode-seed-progress-wireframe.puml
 ' Existing release semantics: _spec/packages/lib/seed-and-launch.puml
 ' Credential policy proposal: _spec/_paradigms/opencode-oauth-persistence.puml

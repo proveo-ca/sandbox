@@ -69,7 +69,7 @@ Do not assume a host `$HOME` or host `/opt` is mounted. Runtime discovery happen
 
 ## Environment Bridging
 
-Harnesses should source a project `.env` file when present, using `set -a` so loaded values are exported to the child CLI. `.env` files must be runtime-only; never bake secrets into the image. Inside sbx (`SANDBOX_VM_ID` set) the shared `load_env` skips the file, so the workspace `.env` never reaches the agent's environment.
+Harness images do not load a project `.env`. proveo reads it on the host and seeds its values into a new sandbox with `sbx create --env-file` (provider keys only under `--credentials forward`). `.env` files stay runtime-only; never bake secrets into the image.
 
 Entrypoints should bridge **credentials** and **UI preferences** into tool-specific env vars. Examples:
 
@@ -218,7 +218,7 @@ Harness images should:
 | `broker` (default) | The real key sits in sbx's secret store; sbx's proxy attaches it to the provider's requests, so the agent never holds it. |
 | `forward` | The real key sits in the sandbox environment; accept in-process secrets. |
 
-In both modes `load_env` skips the workspace `.env` inside sbx. Egress is sbx's host-wide network policy (`sbx policy`), not a harness setting.
+In both modes the project `.env`'s other values reach a new sandbox through `--env-file`. Egress is sbx's host-wide network policy (`sbx policy`), not a harness setting.
 
 ## Observability and Debuggability
 
@@ -259,6 +259,6 @@ Harness tests should verify the contract, not just that the image builds:
 - baked defaults exist;
 - entrypoint seeds or preserves config correctly;
 - forced reseeding works if supported;
-- `.env` loading and env alias bridging work without printing secrets;
+- env alias bridging works without printing secrets;
 - monorepo mount behavior is covered by smoke tests when wrappers implement it;
 - live provider/API tests are skipped unless the required key is present.

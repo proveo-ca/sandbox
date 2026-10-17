@@ -1046,6 +1046,7 @@ type Input struct {
 	CloneEnv         string                   // staged project .env, mounted read-write for the seed to link
 	CloneEnvBase     string                   // the staged bytes at launch, outside the mount
 	CloneEnvHost     string                   // the host .env teardown merges the clone's edits into
+	ProjectEnv       string                   // the project .env whose values a new sandbox gets through --env-file
 	CloneEnvStrip    []string                 // brokered keys the staged copy dropped
 	Links            []workspace.Link         // escaping symlinks the plan resolved; a clone recreates the mounted ones
 	WorktreeEnv      []string
@@ -1455,6 +1456,12 @@ func Run(in Input) error {
 		}
 	}()
 	cfg, kit, secrets := Spec(in)
+	envValues := 0
+	if path, n, err := seedProjectEnv(in.ProjectEnv, in.EgDir, in.Forwards, cfg.Env); err != nil {
+		ui.Warnf("project .env not seeded into the sandbox: %v", err)
+	} else {
+		cfg.EnvFile, envValues = path, n
+	}
 	kitDir, err := sbx.WriteKit(cfg.KitDir, kit)
 	if err != nil {
 		return err
@@ -1516,6 +1523,13 @@ func Run(in Input) error {
 	defer StartAndroidInstall(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
 	in.CloneKnown = created
+	if envValues > 0 {
+		if created {
+			ui.Storef("project .env: %d value(s) seeded into %s with --env-file", envValues, cfg.Name)
+		} else {
+			ui.Notef("project .env: %s keeps the values it was created with; `sbx rm --force %s` reseeds them", cfg.Name, cfg.Name)
+		}
+	}
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))

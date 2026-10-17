@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/runner"
 )
 
 func polyglot(t *testing.T) string {
@@ -54,8 +52,6 @@ func TestDepCopiesCoverEveryLanguageAtEveryDepth(t *testing.T) {
 	spec := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: root,
-		Credentials: "forward",
-		DepStage:    t.TempDir(),
 	}
 	want := []string{
 		"/app/apps/harness/target",
@@ -99,62 +95,6 @@ func TestDepCopiesCoverEveryLanguageAtEveryDepth(t *testing.T) {
 	}
 }
 
-func TestPlanIsPureAndMaterializeWrites(t *testing.T) {
-	t.Parallel()
-	root := polyglot(t)
-	stage := filepath.Join(t.TempDir(), "deps")
-	spec := MountSpec{
-		Workspace: manifest.Workspace{Layout: "app"},
-		RepoRoot:  root, InputDir: root,
-		Credentials: "forward",
-		DepStage:    stage,
-	}
-
-	first, _ := spec.Plan()
-	if _, err := os.Stat(stage); !os.IsNotExist(err) {
-		t.Fatalf("Plan wrote the staging dir (%v); it must stay pure so --print never copies a tree", err)
-	}
-	second, _ := spec.Plan()
-	if diff := cmp.Diff(first, second); diff != "" {
-		t.Errorf("two plans of one spec disagree — staging paths must be deterministic:\n%s", diff)
-	}
-
-	copies := spec.DepCopies()
-	made, err := MaterializeDeps(copies, true)
-	if err != nil {
-		t.Fatalf("materialize: %v", err)
-	}
-	byContainer := map[string]DepCopy{}
-	for _, c := range copies {
-		byContainer[c.Container] = c
-	}
-	// A host tree arrives in the copy, symlink-free and complete.
-	if _, err := os.Stat(filepath.Join(byContainer["/app/apps/tui/node_modules"].Stage, "ink", "index.js")); err != nil {
-		t.Errorf("copied tree is missing its content: %v", err)
-	}
-	// A tree the host never installed is an EMPTY overlay: it exists, so docker
-	// binds it, and the seed's install lands there rather than on the host.
-	empty := byContainer["/app/packages/lib/node_modules"].Stage
-	if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
-		t.Errorf("absent host tree must stage as an empty directory: entries=%v err=%v", entries, err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "packages", "lib", "node_modules")); !os.IsNotExist(err) {
-		t.Errorf("materializing must never create directories in the operator's checkout")
-	}
-	// The report distinguishes the two: only real copies are "made".
-	if got := containers(made); !cmp.Equal(got, []string{
-		"/app/apps/harness/target", "/app/apps/tui/node_modules", "/app/infra/.terraform", "/app/node_modules", "/app/svc/py/.venv",
-	}) {
-		t.Errorf("made = %v; want exactly the trees that exist on the host", got)
-	}
-	// Every staged dir is under the stage, so removing the stage removes them all.
-	for _, c := range copies {
-		if !underDir(c.Stage, stage) {
-			t.Errorf("%s staged outside %s", c.Stage, stage)
-		}
-	}
-}
-
 func TestDepCopiesRootTreesOfASubdirScopeArePresentOnly(t *testing.T) {
 	t.Parallel()
 	root := tempDir(t)
@@ -167,75 +107,10 @@ func TestDepCopiesRootTreesOfASubdirScopeArePresentOnly(t *testing.T) {
 	copies := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
-		Credentials:   "forward",
-		MountRootDeps: true, DepStage: t.TempDir(),
+		MountRootDeps: true,
 	}.DepCopies()
 	want := []string{"/app/apps/web/node_modules", "/app/target"}
 	if diff := cmp.Diff(want, containers(copies)); diff != "" {
 		t.Errorf("subdir scope copies (-want +got):\n%s", diff)
-	}
-}
-
-func TestDepOverlaysStayWritableOnAReadOnlyWorkspace(t *testing.T) {
-	t.Parallel()
-	root := tempDir(t)
-	touch(t, filepath.Join(root, "package.json"))
-	got, _ := MountSpec{
-		Workspace: manifest.Workspace{Layout: "app", Mode: "ro"},
-		InputDir:  root, Credentials: "forward",
-		DepStage: t.TempDir(),
-	}.Plan()
-	for _, m := range got {
-		if m.Container == "/app/node_modules" && m.ReadOnly {
-			t.Errorf("dependency overlay is read-only: %+v — an install has to land somewhere, and the copy is the only place that is not the operator's", m)
-		}
-	}
-}
-
-func TestStripDepCopiesDropsOnlyTheStagedOverlays(t *testing.T) {
-	t.Parallel()
-	stage := filepath.Join(t.TempDir(), "egress", "sid", "deps")
-	mounts := []runner.Mount{
-		{Host: "/home/op/repo", Container: "/app"},
-		{Host: filepath.Join(stage, "abc-node_modules"), Container: "/app/node_modules"},
-		{Host: filepath.Join(stage, "def-target"), Container: "/app/rs/target"},
-		{Host: "/home/op/shared-docs", Container: "/app/docs"}, // an escaping symlink target: sbx CAN mirror this
-		{Host: "/home/op/.proveo", Container: "/proveo-home"},
-	}
-	got, dropped := StripDepCopies(mounts, stage)
-	if dropped != 2 {
-		t.Errorf("dropped = %d, want 2", dropped)
-	}
-	want := []runner.Mount{mounts[0], mounts[3], mounts[4]}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("(-want +got):\n%s", diff)
-	}
-	if got, n := StripDepCopies(mounts, ""); n != 0 || len(got) != len(mounts) {
-		t.Errorf("an empty stage must strip nothing: n=%d len=%d", n, len(got))
-	}
-}
-
-func TestMaterializeStagesEmptyOverlaysWhenTheTreeCannotRunHere(t *testing.T) {
-	t.Parallel()
-	root := polyglot(t)
-	spec := MountSpec{
-		Workspace: manifest.Workspace{Layout: "app"},
-		RepoRoot:  root, InputDir: root,
-		Credentials: "forward",
-		DepStage:    t.TempDir(),
-	}
-	copies := spec.DepCopies()
-	made, err := MaterializeDeps(copies, false)
-	if err != nil {
-		t.Fatalf("materialize: %v", err)
-	}
-	if len(made) != 0 {
-		t.Errorf("copied %v although the host platform differs — the seed would only clear them again", containers(made))
-	}
-	for _, c := range copies {
-		entries, err := os.ReadDir(c.Stage)
-		if err != nil || len(entries) != 0 {
-			t.Errorf("%s: overlay must exist and be empty (entries=%d err=%v) so the bind still isolates and the install lands in it", c.Container, len(entries), err)
-		}
 	}
 }

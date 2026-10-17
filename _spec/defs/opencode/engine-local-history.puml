@@ -4,33 +4,45 @@ skinparam noteTextAlignment left
 ' purpose: OpenCode keeps its own SQLite history inside the retained sbx engine; proveo imports it once into a new engine and carries it across a replacement
 ' covers: internal/sbx/opencode_history.go
 ' covers: internal/sbx/opencode_history_test.go
-' covers: internal/backend/sandbox/opencode_engine.go (landing)
-' covers: internal/backend/sandbox/opencode_engine_test.go (landing)
-' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox: the D1 carry)
+' covers: internal/backend/sandbox/opencode_engine.go
+' covers: internal/backend/sandbox/opencode_engine_test.go
+' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox: the D1 carry, the legacy owner record)
+' covers: internal/backend/sandbox/sandbox.go (Run: created → CloneKnown, the retention line)
+' covers: internal/backend/sandbox/home_access_test.go (TestOpenCodeHomeAccessMountsConfigButNeverHistory)
+' covers: internal/choiceui/blocked_run.go
+' covers: internal/choiceui/blocked_run_test.go
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: packages/lib/test_opencode_runtime.py
+' covers: packages/lib/entrypoint-lib.sh (the two .local/share/opencode sync skips)
 ' covers: defs/opencode/harness.manifest
 ' covers: defs/opencode/Dockerfile
 ' covers: internal/imagetest/opencode_test.go
+' covers: internal/contract/opencode_credentials_test.go
+' covers: e2e/opencode_engine_sbx_test.go
+' covers: e2e/opencode_credentials_test.go
+' covers: e2e/testdata/opencode_presentation.py
+' covers: e2e/seed_ready_test.go
 '   the receipt and retire rules ...... _spec/internal/sbx/kit-lifecycle.puml
 '   native config, --auto, presentation _spec/defs/opencode/native-v2-integration.puml
 '   the seed and the await ............ _spec/packages/lib/seed-and-launch.puml
 '   the OAuth policy (still PLANNED) .. _spec/_paradigms/opencode-oauth-persistence.puml
-'   the plan this replaces ............ _spec/_plans/opencode-versioned-history-storage.puml
-'     (to be deleted once its source SPEC: pointers move here — D9)
+'   (this replaces _spec/_plans/opencode-versioned-history-storage.puml, the
+'   keeper-design plan, retired 2026-10-17 under D9 once no source SPEC:
+'   pointer named it — MEASURED by the coordinator: `rg` outside _spec/ found
+'   none; its index entry is removed)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
-' ── STATUS (2026-10-17) ────────────────────────────────────────────────────
-' DECIDED by the user on 2026-10-16 (TUI; D1–D9 below). This spec is written
-' FIRST, as the goal; the code lands in parallel — the host side from the
-' coordinator, the image side from another agent (repo-simplification.puml D2,
-' "(wt) in progress").
-' MEASURED here: internal/sbx/opencode_history.go and its four tests
-' (opencode_history_test.go: import installs a WAL database once and refuses a
-' second; a corrupt copy is refused; the export streams a consistent copy;
-' the argv targets the engine). EVERYTHING ELSE below that is not marked
-' MEASURED is the coordinator's description of code still landing, and is
-' [Unverified] here until it does.
+' ── STATUS (2026-10-17): DONE (wt) ─────────────────────────────────────────
+' DECIDED by the user on 2026-10-16 (TUI; D1–D9 below); this spec was written
+' first as the goal, and the code has landed in the working tree
+' (repo-simplification.puml D2 → DONE (wt)). Everything below is MEASURED by
+' reading the tree unless marked. The coordinator reports, measured on this
+' VM: unit tests green except the known TestJVMRowNeedsTheQemuFloorOnMacOSHosts;
+' vet clean for every tag plus darwin and windows; golangci unused 0;
+' TestImageOpencode green on a freshly built proveo/opencode:local;
+' test_opencode_runtime.py OK; the e2e package green except the known
+' TestScheduleAgentThatDiesBeforeReadyFailsFast. [Unverified] here: the sbx
+' legs — no sbx on that VM.
 '
 ' ── THE DECISIONS (the user, 2026-10-16; verbatim TUI labels where given) ───
 ' The architect's brief recommended an option for each; where the user chose
@@ -38,8 +50,7 @@ skinparam noteTextAlignment left
 '   D1 "Carry the DB over" — when an engine's settings change (the image after
 '      `proveo build`, the kit, the mounts) and it is replaced, its database is
 '      copied to the host and imported into the new engine. (The architect had
-'      recommended never retiring without a headed yes; the user chose the
-'      carry.)
+'      recommended never retiring without a headed yes.)
 '   D2 `--shell`: "if `proveo` retire it" — retired 2026-10-17. A shell in the
 '      engine is sbx's: `sbx exec -it <engine> bash`.
 '   D3 keep injecting `--standalone` (and `--auto` for headless `run`).
@@ -51,89 +62,148 @@ skinparam noteTextAlignment left
 '      history sits in the V2 share and the import restores it; the legacy
 '      owner record is deleted.
 '   D8 "Accept and document" — in-engine logins persist until `sbx rm`.
-'   D9 this spec, then delete _spec/_plans/opencode-versioned-history-storage.puml
-'      after rehoming the facts that still matter (REHOMED below).
+'   D9 this spec, then delete the plan after rehoming the facts that still
+'      matter (REHOMED below).
 '
 ' ── WHERE THE DATABASE LIVES ───────────────────────────────────────────────
 ' OpenCode's native default: $HOME/.local/share/opencode/opencode.db, with HOME
 ' = /home/agent in sbx. proveo sets neither OPENCODE_DB nor XDG_DATA_HOME for an
 ' agent launch. The engine scripts resolve the path the way OpenCode does
-' (MEASURED, opencode_history.go openCodeDatabasePath): OPENCODE_DB, else
+' (opencode_history.go openCodeDatabasePath): OPENCODE_DB, else
 ' $XDG_DATA_HOME/opencode/opencode.db, else ~/.local/share/opencode/opencode.db.
-' The file is on the engine's own disk. It survives reattach and `sbx stop`
-' and goes with `sbx rm` (REHOMED, sbx persistence). proveo never writes it
-' back to the host: the two entrypoint-lib.sh sync skips that keep
-' .local/share/opencode off the host stay.
+' The file is on the engine's own disk; it survives reattach and `sbx stop` and
+' goes with `sbx rm` (REHOMED, sbx persistence). proveo never writes it back to
+' the host: entrypoint-lib.sh skips .local/share/opencode in both sync loops
+' (:2568, :2661). defs/opencode/harness.manifest maps only opencode/v2/config
+' (the V2 share mount is gone), and TestOpenCodeHomeAccessMountsConfigButNeverHistory
+' (home_access_test.go) pins that against the real manifest: none of
+' opencode/v2/share, opencode/share, .local/share/opencode or opencode/carry is
+' mounted.
 '
-' ── A NEW ENGINE IMPORTS ONCE (ensureOpenCodeEngine; D6) ───────────────────
-'   1. `sbx create`, not `sbx run`: the import must finish before the agent's
-'      first open, and `sbx run` starts the agent at once.
-'   2. The source is the FIRST REGULAR FILE (symlinks rejected) of, under the
-'      proveo home:
+' ── A NEW ENGINE IMPORTS ONCE (opencode_engine.go ensureOpenCodeEngine; D6) ─
+' Run calls it for opencode and opencode-browser (opencodeTarget), and again in
+' the template-reload retry; its `created` result is what sets in.CloneKnown.
+'   0. An existing engine → sbx.Reattach, no create, no import.
+'   1. `sbx create` (createOpenCodeEngine), not `sbx run`: the import must
+'      finish before the agent's first open, and `sbx run` starts the agent.
+'   2. openCodeImportSource: the FIRST REGULAR FILE (os.Lstat; a symlink is
+'      skipped) of, under the proveo home:
 '        opencode/carry/<engine>.db         (the D1 carry)
 '        opencode/v2/share/opencode.db      (the V2 share)
 '        opencode/share/opencode.db         (the pre-V2 share)
 '        .local/share/opencode/opencode.db
-'      [Unverified] With none of them the engine starts empty.
-'   3. The host `sbx cp`s the db plus any -wal and -journal to
-'      /tmp/proveo-import-opencode.db* (MEASURED: OpenCodeImportCopyArgs,
-'      OpenCodeImportStage). It stats the source before and after and aborts
-'      if it changed; it never copies -shm and never writes the source.
-'   4. `sbx exec -w / <engine> -- python3 -I -c OpenCodeImportScript <stage>`
-'      (MEASURED, OpenCodeImportArgs / OpenCodeImportScript): exit 3 at once if
-'      the engine already has a database; else copy the stage into a private
-'      temp dir, `PRAGMA quick_check` (exit 4 on failure), fold the WAL through
+'      None → "OpenCode: new engine <name> starts with empty history".
+'   3. importOpenCodeHistory stats the db and any -wal / -journal, `sbx cp`s
+'      each to /tmp/proveo-import-opencode.db* (OpenCodeImportCopyArgs), and
+'      re-stats them: a size or mtime change, or a side appearing or vanishing,
+'      fails with "<src> changed while it was copied; close the OpenCode that
+'      writes it". It never copies -shm and never writes the source.
+'   4. `sbx exec -w / <engine> -- python3 -I -c OpenCodeImportScript <stage>`:
+'      exit 3 at once if the engine already has a database (accepted as done);
+'      else copy the stage into a private temp dir, `PRAGMA quick_check`
+'      (exit 4 → "<src> fails SQLite's quick_check"), fold the WAL through
 '      SQLite's backup API into a temp file BESIDE the target, chmod 0600,
 '      `link()` it into place — never over an existing file — and remove the
 '      stage (-shm included) on every path. Exit 0 = imported.
-'   5. `sbx run --name <engine>` reattaches and the agent starts.
-'   6. A consumed carry file is deleted after a successful import. The host V2
-'      share is NEVER edited.
-' D5: on ANY import failure the fresh engine is `sbx rm`'d and its receipt
-' removed, and the run stops; the carry file stays, so the next run retries.
+'   5. A consumed carry file is deleted ("OpenCode: carried history (<size>)
+'      into new engine <name>"); a share source prints "OpenCode: imported <src>
+'      (<size>) into new engine <name> once; the host copy stays unchanged".
+'      The host V2 share is NEVER edited.
+'   6. Run reattaches with `sbx run --name <engine>`.
+' D5: any other failure (copy, change, exec, corrupt) `sbx rm`s the fresh
+' engine, deletes its receipt and stops the run: "OpenCode history import into
+' <engine> failed: … — the new engine was removed and <src> stays; the next
+' run retries".
 '
 ' ── A REPLACED ENGINE CARRIES ITS DATABASE (D1, D7) ────────────────────────
-' retireSandbox, for an OpenCode engine, first runs `sbx exec -w / <engine> --
-' python3 -I -c OpenCodeExportScript` (MEASURED: OpenCodeExportArgs /
-' OpenCodeExportScript). It opens the engine database with a 30 s busy timeout,
-' takes a backup-API single-file copy, switches the copy to DELETE journal mode
-' and streams it on stdout; exit 3 (OpenCodeExportNone) when the engine has no
-' database. The host writes <home>/opencode/carry/<engine>.db.partial, checks
-' the SQLite header (OpenCodeDatabaseHeader, MEASURED), and renames it to .db
-' with mode 0600.
-'   exit 3 → a legacy keeper engine (D7: its history lived in a /tmp cache,
-'     not at the native path) → nothing carried; the next import falls back to
-'     the V2 share. retireSandbox deletes the legacy owner record.
-'   any other export failure → retire refuses and the old engine is kept.
-' The opencode-only "engine is running" refusal in retireIfStale is gone:
-' OpenCode follows the generic stale-sandbox rule (kit-lifecycle.puml), and the
-' headed upgrade prompt gains a line saying the history is carried over.
+' retireSandbox (launch_receipt.go), for an OpenCode engine, runs
+' carryOpenCodeHistory AFTER PreserveClone and BEFORE SaveState and `sbx rm`:
+' `sbx exec -w / <engine> -- python3 -I -c OpenCodeExportScript` opens the
+' engine database with a 30 s busy timeout, takes a backup-API single-file copy,
+' switches the copy to DELETE journal mode and streams it on stdout. The host
+' writes <home>/opencode/carry/<engine>.db.partial (0600), checks the SQLite
+' header (OpenCodeDatabaseHeader), renames it to .db and prints "OpenCode:
+' carried <engine>'s history (<size>) to <path> for the engine that replaces
+' it"; the .partial is removed on every path.
+'   exit 3 (OpenCodeExportNone) → no database at the native path, i.e. a legacy
+'     keeper engine (D7: its history lived in a /tmp cache) → nothing carried;
+'     the new engine imports from the V2 share.
+'   any other failure → retire refuses and the engine is kept: "OpenCode
+'     history could not be carried out of <engine> (…) — it is kept;
+'     `sbx rm --force <engine>` deletes it with its history".
+' After the rm, retireSandbox deletes the receipt and the legacy owner record
+' (<receipt dir>/<engine>.opencode-cache.json, legacyOwnerRecord). The
+' opencode-only "engine is running" refusal in retireIfStale is gone: OpenCode
+' follows the generic stale-sandbox rule (kit-lifecycle.puml). The headed
+' prompt (choiceui.SandboxUpgradeCopy, now the only prompt in blocked_run.go)
+' adds "Its OpenCode history moves to the new sandbox."
 '
 ' ── RETENTION AND REMOVAL ──────────────────────────────────────────────────
 ' A normal end keeps the engine (normalEndOf → endRetainEngine) and prints
-' "OpenCode: history lives in retained engine <name>" — e2e/seed_ready_test.go
-' matches the substring "retained engine ". `sbx rm` deletes the engine and
-' its history, and so does the Ctrl+C "remove" answer; no carry runs on either.
+' "OpenCode: history lives in retained engine <name>; `sbx rm --force <name>`
+' deletes it" (sandbox.go Run) — e2e/seed_ready_test.go matches "retained
+' engine ". `sbx rm` deletes the engine and its history, and so does the
+' Ctrl+C "remove" answer; no carry runs on either.
 '
 ' ── THE IMAGE SIDE ─────────────────────────────────────────────────────────
-' defs/opencode/harness.manifest loses the opencode/v2/share mount
-' (MEASURED today: still present at lines 24-25, mapped to
-' /proveo-home/.local/share/opencode); opencode/v2/config stays.
-' packages/lib/proveo-opencode-runtime becomes a THIN WRAPPER, keeping its name
-' so the image shim stays: it injects `--auto` (headless `run`) and
-' `--standalone` (D3); diagnostics and the git-sync commit-subject helper run
-' unchanged in a throwaway data, state and DB dir with OpenCode's service
-' disabled; everything else is a plain execv of the native client. No
-' supervise, leases, credential helper, version check, preflight, journal or
-' cache.
-' DELETED with this change: packages/lib/opencode_cache.py,
+' packages/lib/proveo-opencode-runtime is a 103-line THIN WRAPPER, keeping its
+' name so the image shim (Dockerfile:93) stays:
+'   * native_command injects `--auto` before `--` for headless `run`, and
+'     `--standalone` for state commands unless `--server` is given (D3);
+'   * the git-sync commit-subject helper (PROVEO_GIT_SYNC_MSG_INFLIGHT=1) and
+'     diagnostics (--version/-v/--help/-h/--completions before `--`) run with
+'     their args UNCHANGED in a throwaway dir: its own XDG_DATA_HOME,
+'     XDG_STATE_HOME, OPENCODE_DB and TMPDIR, a copy of the config with
+'     service.json {"disabled": true}, signals forwarded, the dir removed;
+'   * everything else is os.execv of the native client.
+'   `debug …` is no longer treated as a diagnostic: it runs against the engine
+'   database (reported; MEASURED that diagnostic() lists only the flags above).
+' The image no longer gates the seed: proveo-seed and defs/opencode/entrypoint.sh
+' carry no prepared-history check, proveo-await-seed stops only on a seed
+' refusal (TestAwaitSeedStopsOnlyOnASeedRefusal), and proveo_opencode_sync_data
+' is gone from entrypoint-lib.sh. The Dockerfile ENTRYPOINT is
+' ["dumb-init","--","/entrypoint.sh"] and its python check is
+' `python3 -c 'import sqlite3'`.
+' DELETED (MEASURED absent): packages/lib/opencode_cache.py,
 ' opencode-credentials.py, proveo-opencode-preflight, opencode_startup.py,
-' opencode-runtime-fixture.py; internal/backend/sandbox/opencode_cache.go and
-' its tests; internal/backend/sandbox/opencode_history_image_test.go; the
-' prepared-history seed gate (proveo-seed, defs/opencode/entrypoint.sh); the
-' keeper parts of proveo-await-seed; and the reset/prepare/recovery prompts in
-' internal/choiceui. The load_credentials()/Keeper env split recorded in the old
-' plan's TEST DELETIONS goes with load_credentials itself.
+' test_opencode_credentials.py, test_opencode_runtime_native.py,
+' opencode-runtime-fixture.py, opencode-truncation-driver.mjs, and every
+' tracked OpenCode .pyc under packages/lib/__pycache__; internal/backend/
+' sandbox/opencode_cache.go, opencode_cache_test.go and
+' opencode_history_image_test.go; e2e/opencode_prepared_history_test.go and
+' e2e/opencode_cache_sbx_test.go (rewritten as opencode_engine_sbx_test.go). The
+' reset/prepare/recovery prompts left internal/choiceui. headedConfirm,
+' agentTerminal and openScreen moved unchanged to internal/backend/sandbox/
+' confirm.go. load_credentials and the Keeper went with opencode_cache.py, so
+' the os.environ / Keeper-env split recorded before (repo-simplification.puml
+' D2) is gone with them. test_opencode_startup.py is trimmed, not deleted.
+'
+' ── TESTS (MEASURED to exist; pass/fail as reported above) ─────────────────
+'   internal/sbx/opencode_history_test.go — 4: import once and refuse a
+'     second; refuse a corrupt copy; export a consistent copy; argv shapes.
+'   internal/backend/sandbox/opencode_engine_test.go (!windows) — a fake sbx
+'     on PATH that runs the REAL scripts against a guest dir: an existing
+'     engine is left alone (1); the import source order, the empty start and
+'     the symlink skip (5); a failed import removes the fresh engine and keeps
+'     the source — corrupt, changed mid-copy, exec failure (3); retire carries
+'     the history, carries nothing from an engine with none, keeps the engine
+'     when the export fails (3). 12 cases by count (the brief said 11).
+'   internal/backend/sandbox/home_access_test.go
+'     TestOpenCodeHomeAccessMountsConfigButNeverHistory.
+'   internal/imagetest/opencode_test.go ocHistory — 3 checks in the image: two
+'     shim launches share the native default database and create no V2 share
+'     and leave no throwaway dir; the inflight call leaves the engine database
+'     byte-identical; the import installs a WAL database once (the second
+'     exits 3) and the export streams it with the SQLite header.
+'   internal/contract/opencode_credentials_test.go TestOpenCodeRuntimeFixtures,
+'     TestOpenCodeImageShipsOnlyTheThinRuntime, TestOpenCodeDocumentsEngineLocalLogins;
+'     e2e/opencode_credentials_test.go TestOpenCodeRuntimeInImage.
+'   e2e/opencode_engine_sbx_test.go TestOpenCodeEngineKeepsHistoryAndImportsOnce:
+'     the first run prints "imported <share>/opencode.db"; api POST; reattach
+'     GET; `sbx stop` then GET; the host share stays byte-identical; then a
+'     `docker tag` retag of the image forces a replacement whose run prints
+'     "carried <engine>'s history" and "carried history" and reads the same
+'     session. [Unverified]: not run — no sbx on the verifying VM.
 '
 ' ── REHOMED FROM THE DELETED PLAN (D9) ─────────────────────────────────────
 ' SBX PERSISTENCE AND REMOVAL (docs read 2026-10-14, quoted then):
@@ -179,19 +249,27 @@ skinparam noteTextAlignment left
 ' drive proveo on a pty. Each "[A]pprove all" saves a per-service binding in
 ' the operator's ~/.config/sbx/credentials.yaml, which outlives the test.
 '
-' ── RISKS, RECORDED ────────────────────────────────────────────────────────
+' ── RISKS AND RESIDUALS, RECORDED ──────────────────────────────────────────
 '   * D8: credentials live with the engine. V2 keeps tokens in SQLite beside
-'     the sessions; an in-engine login now persists until `sbx rm`, readable
-'     by the agent's uid and by `sbx exec`, and proveo never moves it to the
-'     host. [Unverified] A legacy V1 database may carry credential rows into
-'     the import.
+'     the sessions; an in-engine login persists until `sbx rm`, readable by
+'     the agent's uid and by `sbx exec`, and proveo never moves it to the host
+'     — except inside a D1 carry, which copies the whole database, logins
+'     included, through <home>/opencode/carry. [Unverified] A legacy V1
+'     database may carry credential rows into the import.
 '   * `sbx rm` loses the history unless a carry ran first: the Ctrl+C remove,
 '     an operator's `sbx rm`, and name reuse all lose it.
 '   * Every engine in every workspace imports the same snapshot of the share,
 '     and the copies diverge; nothing merges them back.
+'   * The Dockerfile still copies defs/opencode/harness.manifest to
+'     /usr/local/lib/proveo/opencode.harness.manifest (Dockerfile:80), and
+'     nothing in the image reads it now (reported; a simplification candidate,
+'     repo-simplification.puml).
+'   * [Inference] The old preflight ENTRYPOINT waited up to 300 s for the
+'     seed-done marker; that wait is gone with it.
 '   * [Unverified] `sbx cp` file ownership in the engine — the import copies
 '     the stage into its own temp dir before opening it, so a root-owned stage
 '     is read, not written.
+'   * [Unverified] sbx create's "Created sandbox" output on a live engine.
 '   * [Unverified] OpenCode's behaviour with two clients on one SQLite
 '     database (D4: no proveo lock; the old runtime refused a second client
 '     with exit 75).
@@ -221,9 +299,9 @@ group new engine (ensureOpenCodeEngine)
   PV ARROW_MAIN SBX : sbx cp db (+ -wal, -journal) → stage\nsource stat before/after; never -shm
   PV ARROW_MAIN ENG : sbx exec python3 -I -c OpenCodeImportScript
   ENG ARROW_MAIN ENG : private copy · quick_check · backup API\nlink() only if absent · 0600
-  alt exit 0
+  alt exit 0, or 3 (already has one)
     PV ARROW_OPTIONAL HOMEDB : delete the consumed carry file
-  else any failure (D5)
+  else copy / change / exec / corrupt (D5)
     PV ARROW_ERROR SBX : sbx rm <engine>; receipt removed; run stops
   end
 end
@@ -241,7 +319,7 @@ group settings changed (retireSandbox, D1 / D7)
   else export failed
     PV ARROW_ERROR PV : retire refuses; the old engine is kept
   end
-  PV ARROW_MAIN SBX : sbx rm --force <engine>, then a new engine (above)
+  PV ARROW_MAIN SBX : sbx rm --force <engine>; legacy owner record deleted
 end
 
 note over ENG

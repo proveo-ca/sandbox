@@ -87,8 +87,7 @@ func TestImageCursor(t *testing.T) {
 	s.Success("docker Engine comes from the -docker template variant", image, "command -v dockerd")
 	s.Failure("harden pass leaves no setuid binary, sudo included", image,
 		"find / -xdev -perm -4000 -type f 2>/dev/null | grep -q .")
-	s.Success("shared verification lib is baked", image,
-		`command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh`)
+	s.Success("proveo-entrypoint (verification commands) is baked", image, `command -v proveo-entrypoint >/dev/null`)
 
 	browser := imagetest.Resolve("CURSOR_BROWSER_IMAGE", "proveo/cursor-browser:latest")
 	if imagetest.Present(browser) {
@@ -154,21 +153,28 @@ func TestImageCursor(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture, "fake-bin", "agent"), []byte(cursorFakeAgent), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	launch := func(env string) string {
-		if err := os.WriteFile(filepath.Join(fixture, ".env"), []byte(env), 0o644); err != nil {
-			return err.Error()
-		}
-		return cursorRun(30*time.Second, "-v", fixture+":/app", "--entrypoint", "bash", image, "-c",
-			`PATH="/app/fake-bin:$PATH" /entrypoint.sh -p "test"`)
+	launch := func(env ...string) string {
+		args := append([]string{"-v", fixture + ":/app"}, env...)
+		return cursorRun(30*time.Second, append(args, "--entrypoint", "bash", image, "-c",
+			`PATH="/app/fake-bin:$PATH" /entrypoint.sh -p "test"`)...)
 	}
-	s.Check("no role name in .env reaches cursor's --model", func(t *testing.T) {
-		out := launch("ARCHITECT_MODEL=claude-sonnet-4\nEDITOR_MODEL=gpt-4.1\nSMALL_MODEL=gpt-4.1-mini\n")
+	s.Check("the workspace .env never reaches cursor", func(t *testing.T) {
+		envFile := filepath.Join(fixture, ".env")
+		if err := os.WriteFile(envFile, []byte("CURSOR_MODEL=from-workspace-env\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(envFile)
+		out := launch()
+		cursorExpect(t, cursorLine(out, "PASSED_MODEL=$") && !strings.Contains(out, "from-workspace-env"), out)
+	})
+	s.Check("no role name in the environment reaches cursor's --model", func(t *testing.T) {
+		out := launch("-e", "ARCHITECT_MODEL=claude-sonnet-4", "-e", "EDITOR_MODEL=gpt-4.1", "-e", "SMALL_MODEL=gpt-4.1-mini")
 		cursorExpect(t, cursorLine(out, "PASSED_MODEL=$") &&
 			!strings.Contains(out, "PASSED_MODEL=claude-sonnet-4") &&
 			!strings.Contains(out, "PASSED_MODEL=gpt-4.1"), out)
 	})
 	s.Check("cursor's own CURSOR_MODEL still reaches --model", func(t *testing.T) {
-		out := launch("ARCHITECT_MODEL=claude-sonnet-4\nCURSOR_MODEL=explicit-model\n")
+		out := launch("-e", "ARCHITECT_MODEL=claude-sonnet-4", "-e", "CURSOR_MODEL=explicit-model")
 		cursorExpect(t, strings.Contains(out, "PASSED_MODEL=explicit-model"), out)
 	})
 

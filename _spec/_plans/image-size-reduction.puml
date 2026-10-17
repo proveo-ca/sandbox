@@ -4,6 +4,7 @@
 '          the `-browser` variants should invert to layers on the harness images
 ' covers: defs/**/Dockerfile
 ' covers: .dockerignore
+' covers: defs/cecli/Dockerfile.dockerignore
 ' covers: internal/contract/image_size_test.go
 ' covers: internal/contract/dockerfile_correctness_test.go
 ' covers: e2e/sbx_test.go
@@ -488,6 +489,23 @@
 '     `defs/sidecars/egress-proxy/Dockerfile:12-13` already does this correctly
 '     (`COPY cmd` + `COPY internal`) — the fix is to copy that file's shape.
 '     repo root + defs/base/Dockerfile:9 · 0 image bytes, minutes per build
+'     UPDATE 2026-10-17 — THE CECLI IGNORE FILE NOW APPLIES (repo-simplification.puml
+'     N17; the user chose "Rename so it applies", NOT the recommended delete).
+'     defs/cecli/.dockerignore is renamed defs/cecli/Dockerfile.dockerignore
+'     (MEASURED: only the new name exists). MEASURED by the coordinator on this
+'     VM's BuildKit (buildx v0.36.1, a throwaway probe): a
+'     `defs/x/Dockerfile.dockerignore` applies to a `-f defs/x/Dockerfile` build
+'     from the repo root, and the root `.dockerignore` is then IGNORED for that
+'     build. So the cecli file repeats the root denylist plus cecli's own
+'     patterns, the any-depth ones written `**/`; the root .dockerignore:7 says
+'     "defs/cecli/Dockerfile.dockerignore replaces this file for cecli builds
+'     and repeats it." (MEASURED). A root entry added later must be added there
+'     too — internal/contract/image_size_test.go
+'     TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist fails otherwise (the
+'     old file is absent; every root entry is present; cecli's own patterns are
+'     kept), and TestDockerignoreNeverHidesSomethingADockerfileCopies now reads a
+'     Dockerfile's own ignore file when one exists (dockerignoreEntries(t, file)
+'     is parameterized). Reported: `proveo build cecli` and TestImageCecli pass.
 '
 '  4. [APPLIED] THE DOCKER TARBALL, AND A CONTRADICTION INSIDE IT. Four images run
 '     `install -m 0755 /tmp/docker/*` — the whole static tarball. Measured 217 MB:

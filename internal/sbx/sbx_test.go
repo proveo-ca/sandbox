@@ -1377,3 +1377,20 @@ func TestSeedProvisionSkipsABootAlreadySeedDone(t *testing.T) {
 		})
 	}
 }
+
+func TestTheProjectEnvFileRidesCreateAndRunButNotAReattach(t *testing.T) {
+	t.Parallel()
+	cfg := RunConfig{Name: "proveo-1-2", Agent: "claude", EnvFile: "/state/x/sbx/env",
+		Env: []string{"PROVEO_EVIDENCE=concise"}, Mounts: []Mount{{Host: "/repo"}}}
+	want := []string{"-e", "PROVEO_EVIDENCE=concise", "--env-file", "/state/x/sbx/env", "claude", "/repo"}
+	for name, args := range map[string][]string{"RunArgs": RunArgs(cfg), "CreateArgs": CreateArgs(cfg)} {
+		if got := args[len(args)-len(want):]; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s tail = %q, want %q: the env file follows proveo's own -e pairs, before the agent", name, got, want)
+		}
+	}
+	for _, a := range RunArgs(Reattach(cfg)) {
+		if a == "--env-file" {
+			t.Error("a reattach passed --env-file; sbx accepts only the name for an existing sandbox")
+		}
+	}
+}

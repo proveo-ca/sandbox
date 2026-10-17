@@ -12,7 +12,7 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
   export PROVEO_SMOKE_TARGET=cecli
   env PROVEO_SMOKE_TEST= proveo-entrypoint prep cecli || true
   set_working_directory "/app"
-  load_env quiet
+  bridge_google_keys
 else
   ensure_runtime_user
   set_working_directory "/app"
@@ -42,7 +42,7 @@ has_cecli_agent_config() {
 }
 
 if ! command -v proveo-entrypoint >/dev/null 2>&1; then
-  load_env
+  bridge_google_keys
   bridge_git_identity
   report_git_context
 fi
@@ -165,15 +165,6 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
     [[ -z "$line" ]] && continue
     printf '  %s\n' "$line"
   done
-  echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
 

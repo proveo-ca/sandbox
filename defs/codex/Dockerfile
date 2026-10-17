@@ -120,7 +120,6 @@ RUN mkdir -p /app \
 # entrypoint.sh, or re-seeded when CODEX_RESEED=1.
 COPY defs/codex/defaults/ /opt/codex/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
-COPY defs/lib/ /opt/proveo/lib/
 
 # proveo's own conventions, installed as the harness's USER-level instructions by
 # proveo_compose_house_rules ($CODEX_HOME/AGENTS.md — the documented global file).
