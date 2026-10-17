@@ -99,7 +99,7 @@ codex login therefore reaches the CLI's own re-auth rather than proveo's guard.
 ## The Loop
 
 The entrypoint is thin and does the same four things every proveo harness does:
-resolve the workspace, load `.env`, seed the user-level config, and report what
+resolve the workspace, bridge key aliases and git identity, seed the user-level config, and report what
 it found before handing over.
 
 Two reports are worth reading in a transcript:

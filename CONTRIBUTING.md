@@ -45,17 +45,18 @@ file-free with `proveo-entrypoint` / `BridgeGitIdentity` in the entrypoint.
 
 **Do not bind-mount a project `.env` that contains provider API keys into the agent
 container** when documenting or implementing a security-sensitive path. Mounted secrets
-are readable by an autonomous agent regardless of in-tool deny rules; entrypoints that
-`source` `.env` also export those values into the agent process.
+are readable by an autonomous agent regardless of in-tool deny rules.
 
 Contributors should treat `.env` handling as follows:
 
 - **Target posture:** keys live in the host environment. With `--credentials broker` (the
  default) proveo puts them in sbx's secret store; with `--credentials forward` they enter the
  sandbox environment.
-- **Inside sbx:** `load_env` (`packages/lib/entrypoint-lib.sh`) returns early when
- `SANDBOX_VM_ID` is set, so the workspace `.env` never reaches the agent's environment.
- Document that in harness READMEs when `.env` autoload is mentioned.
+- **Host seeding:** proveo reads the project `.env` on the host and seeds its values into a new
+ sandbox with `sbx create --env-file`; provider keys stay out under `broker`.
+- **Images:** no entrypoint finds or sources a workspace `.env`, inside or outside sbx
+ (`packages/lib/entrypoint-lib.sh`, `proveo-entrypoint prep`). Harness READMEs must not
+ describe a `.env` autoload.
 
 When adding or changing mount logic (`internal/workspace`, `internal/backend/sandbox`), prefer
 sbx's secret store over new `.env` bind mounts unless the change is explicitly scoped to

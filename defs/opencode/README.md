@@ -5,7 +5,7 @@ Custom Docker image for OpenCode v2 ([`@opencode/cli`](https://opencode.ai/v2/do
 - `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm`)
 - Root-free runtime: baked non-root user `opencode` (uid 1000); sbx runs the agent as that uid
 - Monorepo-friendly entrypoint (`pnpm install` on first run if needed)
-- `.env` autoloading outside sbx and auto-detection of common provider API keys
+- Auto-detection of common provider API keys
 
 ## Browser variant
 
@@ -31,7 +31,7 @@ Its image suite is `internal/imagetest/opencode_test.go` (`TestImageOpencode`).
 
 For a shell in a running OpenCode sandbox: `sbx ls`, then `sbx exec -it <sandbox> bash`.
 
-This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md), including runtime config discovery, `.env` bridging, and monorepo mount expectations.
+This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md), including runtime config discovery and monorepo mount expectations.
 
 ## Image Names and Mounts
 
@@ -93,7 +93,7 @@ Any args passed after `--` are forwarded to `opencode`.
 ## Provider API Keys
 
 proveo detects these keys on the host. With `--credentials broker` (the default) sbx's proxy
-holds the key; with `--credentials forward` it enters the sandbox env. Inside sbx the entrypoint
+holds the key; with `--credentials forward` it enters the sandbox env. The entrypoint
 never sources the workspace `.env`. The entrypoint warns when no provider key and no
 `opencode.json` are detected. Recognised env vars:
 

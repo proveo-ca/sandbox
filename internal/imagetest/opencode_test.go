@@ -277,13 +277,12 @@ func ocConfig(s *imagetest.Suite) {
 }
 `, 0o644)
 	ocWrite(s.T, filepath.Join(fixture, "AGENTS.md"), "# Test fixture agents file.\n", 0o644)
-	envFile := filepath.Join(fixture, ".env")
-	ocWrite(s.T, envFile, "OPENCODE_TEST_MARKER=loaded_from_env\n", 0o644)
+	ocWrite(s.T, filepath.Join(fixture, ".env"), "OPENCODE_SMALL_MODEL=from-workspace-env\n", 0o644)
 	mount := fixture + ":/app"
 
-	s.Check("entrypoint detects opencode.json + AGENTS.md + .env", func(t *testing.T) {
+	s.Check("entrypoint detects opencode.json + AGENTS.md", func(t *testing.T) {
 		r := ocRun(t, 30*time.Second, nil, append(ocNoInstalls, "-v", mount, "--entrypoint", "/entrypoint.sh", img, "--version")...)
-		for _, want := range []string{"Found opencode.json", "Found AGENTS.md", "Loaded environment variables from .env"} {
+		for _, want := range []string{"Found opencode.json", "Found AGENTS.md"} {
 			if !strings.Contains(r.Out, want) {
 				t.Errorf("entrypoint detects config (missing %q; output: %s)", want, ocClip(r.Out, 300))
 			}
@@ -299,15 +298,22 @@ if [[ "${1:-}" == "--version" ]]; then
   echo "9.9.9"
 fi
 `, 0o755)
-	fakeRun := func(t *testing.T) string {
-		return ocRun(t, 30*time.Second, nil, append(ocNoInstalls, "-v", mount, "--entrypoint", "bash", img, "-c",
-			`PATH="/app/fake-bin:$PATH" /entrypoint.sh --version`)...).Out
+	fakeRun := func(t *testing.T, env ...string) string {
+		args := append(append(append([]string{}, ocNoInstalls...), env...), "-v", mount, "--entrypoint", "bash", img, "-c",
+			`PATH="/app/fake-bin:$PATH" /entrypoint.sh --version`)
+		return ocRun(t, 30*time.Second, nil, args...).Out
 	}
 
-	// SPEC: _spec/_plans/retire-model-bridging.puml
-	ocWrite(s.T, envFile, "ARCHITECT_MODEL=gpt-5.5\nEDITOR_MODEL=xai/grok-4.3\nSMALL_MODEL=xai/grok-small\n", 0o644)
-	s.Check("a role name in .env does NOT become an opencode model var", func(t *testing.T) {
+	s.Check("the workspace .env never reaches opencode", func(t *testing.T) {
 		out := fakeRun(t)
+		if !strings.Contains(out, "SAW OPENCODE_SMALL_MODEL=[]") || strings.Contains(out, "from-workspace-env") {
+			t.Errorf("the entrypoint exported the workspace .env (output: %s)", ocClip(out, 300))
+		}
+	})
+
+	// SPEC: _spec/_plans/retire-model-bridging.puml
+	s.Check("a role name in the environment does NOT become an opencode model var", func(t *testing.T) {
+		out := fakeRun(t, "-e", "ARCHITECT_MODEL=gpt-5.5", "-e", "EDITOR_MODEL=xai/grok-4.3", "-e", "SMALL_MODEL=xai/grok-small")
 		for _, want := range []string{"SAW OPENCODE_MODEL=[]", "SAW OPENCODE_SMALL_MODEL=[]", "SAW OPENCODE_BUILD_MODEL=[]"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("model bridging has grown back (missing %q; output: %s)", want, ocClip(out, 300))
@@ -315,9 +321,8 @@ fi
 		}
 	})
 
-	ocWrite(s.T, envFile, "OPENCODE_SMALL_MODEL=xai/grok-4.3\n", 0o644)
 	s.Check("opencode's own OPENCODE_SMALL_MODEL survives and is not published as SMALL_MODEL", func(t *testing.T) {
-		out := fakeRun(t)
+		out := fakeRun(t, "-e", "OPENCODE_SMALL_MODEL=xai/grok-4.3")
 		for _, want := range []string{"SAW OPENCODE_SMALL_MODEL=[xai/grok-4.3]", "SAW SMALL_MODEL=[]"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("reverse bridge or own-var loss (missing %q; output: %s)", want, ocClip(out, 300))

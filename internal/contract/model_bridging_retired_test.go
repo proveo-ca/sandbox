@@ -210,12 +210,12 @@ func TestTheHarnessDocDoesNotAskForRoleBridging(t *testing.T) {
 func TestTheDefSuitesAssertTheRetirementRatherThanTheBridge(t *testing.T) {
 	for _, c := range []struct{ rel, want, why string }{
 		{"internal/imagetest/opencode_test.go", `SAW OPENCODE_MODEL=[]`,
-			"that a role name in .env reaches opencode as nothing"},
+			"that a role name in the environment reaches opencode as nothing"},
 		{"internal/imagetest/opencode_test.go", `SAW OPENCODE_SMALL_MODEL=[xai/grok-4.3]`,
-			"that opencode's OWN variable still survives load_env"},
+			"that opencode's OWN variable still survives the prelude"},
 		{"internal/imagetest/cursor_test.go", `PASSED_MODEL=explicit-model`,
 			"that cursor's OWN CURSOR_MODEL still reaches --model"},
-		{"internal/imagetest/cursor_test.go", `no role name in .env reaches cursor's --model`,
+		{"internal/imagetest/cursor_test.go", `no role name in the environment reaches cursor's --model`,
 			"that a role name never becomes cursor's --model"},
 	} {
 		if !strings.Contains(repoFile(t, c.rel), c.want) {

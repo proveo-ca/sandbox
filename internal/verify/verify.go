@@ -16,7 +16,7 @@ type Command struct {
 	Cmd      string // shell command to run
 }
 
-// Line formats as category|command (bash detect_verify_commands shape).
+// Line formats as category|command.
 func (c Command) Line() string {
 	return c.Category + "|" + c.Cmd
 }
