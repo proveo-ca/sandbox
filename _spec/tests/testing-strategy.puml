@@ -12,7 +12,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
 ' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, pickKitSandbox, kitDirs, testOwned)
 ' covers: e2e/kit_sandbox_test.go
-' covers: internal/sbx/clone_test.go (TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch: cmd.Dir, GIT_CEILING_DIRECTORIES, GIT_* stripped)
+' covers: internal/sbx/clone_test.go (TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch, isolatedGitEnv)
+' covers: internal/backend/sandbox/clone_carry_test.go (gitEnv)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (imagetest.Resolve in
@@ -434,27 +435,41 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     teardown removes the sandbox, so the warm run does not reattach — the
 '     failure message now says "creates"). A cold count of 0 names
 '     a missing /var/log/sbx-kit-startup.log among the causes (MEASURED,
-'     toolchain_test.go:354-361).
+'     toolchain_test.go:354-361). After the first run exits, the test also
+'     FAILS if sbxSandboxNames() still lists first.name — a run that KEPT its
+'     sandbox because work was stranded or its clone mode was unknown —
+'     instead of an 8-minute misleading timeout (MEASURED, :362-364).
 ' Residual, pre-existing and repo-wide (reported): a developer tmux
 ' `remain-on-exit` breaks exit detection in every helper that treats a failed
 ' capture as an exit.
 '
-' A TEST THAT EXECUTES A GENERATED GIT SCRIPT ISOLATES GIT FROM THE CHECKOUT.
-' Rule (revised review #5): such a test
+' A TEST THAT RUNS GIT ISOLATES IT FROM THE CHECKOUT AND THE OPERATOR'S CONFIG.
+' Rule (revised reviews #5-#6). A test that executes a GENERATED git script:
 '   * sets cmd.Dir to a fresh temp dir;
 '   * sets GIT_CEILING_DIRECTORIES to the PARENT of cmd.Dir — git ignores a
 '     ceiling equal to the cwd itself (reported), so a ceiling AT cmd.Dir
-'     still lets discovery climb;
-'   * strips every GIT_* variable from the inherited env — GIT_DIR and
-'     GIT_INDEX_FILE inherited from a git hook (a pre-commit running `go
-'     test`) bypass ceilings entirely (reported).
-' So a script that fails to cd can find no repository at all.
+'     still lets discovery climb.
+' Every git invocation a test makes — the script and its FIXTURE helpers
+' alike — runs in an isolated env:
+'   * every GIT_* variable stripped — GIT_DIR and GIT_INDEX_FILE inherited
+'     from a git hook (a pre-commit running `go test`) bypass ceilings
+'     entirely (reported);
+'   * HOME pointed at a temp dir and GIT_CONFIG_NOSYSTEM=1, so a global or
+'     system commit.gpgsign, core.hooksPath or init.templateDir cannot fail
+'     the fixture (review #6).
+' MEASURED helpers: internal/sbx/clone_test.go isolatedGitEnv and
+' internal/backend/sandbox/clone_carry_test.go gitEnv (both also drop
+' XDG_CONFIG_HOME); e2e/kit_sandbox_test.go TestKitDirsAddsOnlyALinkedWorktreesMain
+' inlines the same, without dropping XDG_CONFIG_HOME — a global config under
+' $XDG_CONFIG_HOME/git/config can still reach that one fixture.
+' So a script that fails to cd can find no repository at all, and no operator
+' config can change what a fixture commits.
 ' Measured incident, 2026-10-17 (reported by the coordinator): the red run of
 ' TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch against the OLD
 ' CloneSnapshotArgs script — which had no cd — ran `git add -A && git commit`
 ' inside the proveo checkout and made local commit 42bf4b87 (not pushed; undone
-' with `git reset --soft HEAD~1` and `git restore --staged`). The test now does
-' all three (internal/sbx/clone_test.go:96-103, MEASURED). Script details:
+' with `git reset --soft HEAD~1` and `git restore --staged`). The test now
+' follows the rule (internal/sbx/clone_test.go:99-100, MEASURED). Script details:
 ' _spec/internal/sbx/clone-workspace.puml.
 ' [Unverified] whether `sbx exec` sessions see variables passed as `sbx run -e
 ' NAME`. The forward-mode auth probes and the android PROVEO_HOST_ADB_PORT probe

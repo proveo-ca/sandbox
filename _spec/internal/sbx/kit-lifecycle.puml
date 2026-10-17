@@ -121,13 +121,18 @@ skinparam noteTextAlignment left
 ' forced Ctrl+C remove still deletes: its dialog says "Uncommitted changes can
 ' be permanently lost" (internal/choiceui/sandbox_close.go). Detail:
 ' _spec/internal/sbx/clone-workspace.puml.
-' THE SANDBOX, NOT THIS RUN, SAYS WHETHER IT CLONES (MEASURED, review #5):
-' PreserveClone asks sandboxClones(name) on BOTH teardown and retire — the
-' receipt written at creation, else a strict guest probe, else unknown (kept).
-' A reattached or retired sandbox is carried the way it was CREATED, not the
-' way this run's --clone reads. Retire carries into refs/proveo/<sid>-retired/*
-' so this run's own teardown fetch cannot overwrite it. Detail, the three
-' failures it closes and the residuals: clone-workspace.puml.
+' THE SANDBOX, NOT THIS RUN, SAYS WHETHER IT CLONES (MEASURED, reviews #5-#6):
+' sandboxClone(in, name) answers from in.Clone only when in.CloneKnown — this
+' run created the sandbox (launchCfg.KitDir != "", set before sbx.RunArgs and
+' again for the retry) — else from a strict, stdout-only guest probe of
+' /run/sandbox/source, else unknown (kept). The launch RECEIPT is not a source
+' (review #6 HIGH: it can be stale or missing); it only drives the change
+' detection above. Run's teardown defer resolves the mode FIRST, so
+' reportPushedBranches, PrintIDEAttach and TeardownClone see the real one;
+' retireSandbox clears CloneKnown so the old sandbox is always asked, and
+' carries into refs/proveo/<sid>-retired/* so this run's own teardown fetch
+' cannot overwrite it. Detail, the failures it closes and the residuals:
+' clone-workspace.puml.
 title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures and stranded work, remove success and stops
 
 state "resolve full RunConfig\n+ render Kit spec.yaml" as RESOLVE
@@ -157,7 +162,7 @@ EXISTS --> DRIFT : yes
 DRIFT --> REUSE : receipt matches,\nor running and headed no,\nor running and not headed
 DRIFT --> RETIRE : changed and headed yes,\nor stopped and not headed
 DRIFT --> ASKAGAIN : stopped and headed no
-RETIRE --> CREATE : clone carried home (refs/proveo/<sid>-retired),\nor the old sandbox was direct (sandboxClones)
+RETIRE --> CREATE : clone carried home (refs/proveo/<sid>-retired),\nor the old sandbox was direct (guest probe)
 RETIRE --> STRANDED : clone not carried, or clone mode unknown\n(retireSandbox errors; this run stops)
 CREATE --> RUN
 REUSE --> RUN
