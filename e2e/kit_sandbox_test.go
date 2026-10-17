@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -78,9 +79,17 @@ func TestKitSandboxNamesOnlyTheRunsOwnSandbox(t *testing.T) {
 
 func TestKitDirsAddsOnlyALinkedWorktreesMain(t *testing.T) {
 	t.Parallel()
+	gitHome := t.TempDir()
 	git := func(dir string, args ...string) {
 		t.Helper()
-		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		for _, kv := range os.Environ() {
+			if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "HOME=") {
+				cmd.Env = append(cmd.Env, kv)
+			}
+		}
+		cmd.Env = append(cmd.Env, "HOME="+gitHome, "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}

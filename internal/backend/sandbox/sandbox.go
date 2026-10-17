@@ -124,13 +124,15 @@ func TeardownClone(in Input, cfg sbx.RunConfig) error {
 	if in.RepoRoot == "" {
 		return nil
 	}
-	wd := agentWorkdir(in, cfg.Mounts)
-	writeBackCloneEnv(in, func() ([]byte, error) {
-		if wd == "" || !sbx.Exists(cfg.Name) {
-			return nil, errors.New("no sandbox to read from")
-		}
-		return exec.Command(sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...).Output()
-	})
+	if in.Clone && in.CloneKnown {
+		wd := agentWorkdir(in, cfg.Mounts)
+		writeBackCloneEnv(in, func() ([]byte, error) {
+			if wd == "" || !sbx.Exists(cfg.Name) {
+				return nil, errors.New("no sandbox to read from")
+			}
+			return exec.Command(sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...).Output()
+		})
+	}
 	return PreserveClone(in, cfg)
 }
 
@@ -140,14 +142,14 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	if in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
 		return nil
 	}
-	clones, known := sandboxClones(cfg.Name)
+	clones, known := sandboxClone(in, cfg.Name)
 	if !known {
 		return fmt.Errorf("cannot tell whether %s holds a clone, so its work may be only there", cfg.Name)
 	}
 	if !clones {
 		return nil
 	}
-	in.Clone = true
+	in.Clone, in.CloneKnown = true, true
 	var stranded error
 	wd := agentWorkdir(in, cfg.Mounts)
 	if wd != "" {
@@ -438,6 +440,19 @@ func exitCodeOf(err error) int {
 	return -1
 }
 
+// adoptLead is the carried ref to suggest adopting: the first agent branch holding commits
+// HEAD lacks, else the first proveo/ snapshot ref that does, else the first ref.
+func adoptLead(names []string, prefix string, ahead func(string) bool) string {
+	for _, snapshot := range []bool{false, true} {
+		for _, n := range names {
+			if strings.HasPrefix(strings.TrimPrefix(n, prefix), "proveo/") == snapshot && ahead(n) {
+				return n
+			}
+		}
+	}
+	return names[0]
+}
+
 func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref",
 		"--format=%(refname:short)", sbx.CloneRefs(in.Sid)+"/").Output()
@@ -448,13 +463,10 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	}
 	ui.Section(ui.SectionResults)
 	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
-	lead := names[0]
-	for _, n := range names {
-		if !strings.HasPrefix(strings.TrimPrefix(n, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/"), "proveo/") {
-			lead = n
-			break
-		}
-	}
+	lead := adoptLead(names, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/", func(n string) bool {
+		out, err := exec.Command("git", "-C", in.RepoRoot, "rev-list", "--count", "HEAD.."+n).Output()
+		return err == nil && strings.TrimSpace(string(out)) != "0"
+	})
 	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", lead, lead)
 }
 
@@ -1003,6 +1015,7 @@ func FirstHost(mounts []sbx.Mount) string {
 type Input struct {
 	Target, Image, AuthVar string
 	Clone                  bool
+	CloneKnown             bool   // Clone is the sandbox's own mode: this run created it, or teardown asked it
 	RepoRoot               string // host repository root: where a clone's commits are fetched back to
 	OutputDir              string
 	Browser                bool
@@ -1505,6 +1518,7 @@ func Run(in Input) error {
 	defer StartDevServers(in, cfg)()
 	defer StartAndroidInstall(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
+	in.CloneKnown = launchCfg.KitDir != ""
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
@@ -1570,6 +1584,7 @@ func Run(in Input) error {
 			if prepErr != nil {
 				runErr = prepErr
 			} else {
+				in.CloneKnown = retryCfg.KitDir != ""
 				args = sbx.RunArgs(retryCfg)
 				runErr = run()
 			}
@@ -1581,6 +1596,9 @@ func Run(in Input) error {
 		ui.Hostf("%v — ending as on a normal exit", result)
 	}
 	defer func() {
+		if clones, known := sandboxClone(in, cfg.Name); known {
+			in.Clone, in.CloneKnown = clones, true
+		}
 		reportPushedBranches(in, cfg, startedAt)
 		CapturePolicyLog(in.EgDir, cfg.Name)
 		CaptureMemoryEvidence(in.EgDir, cfg.Name)

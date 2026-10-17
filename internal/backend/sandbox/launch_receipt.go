@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -188,17 +189,17 @@ var confirmStaleSandbox = func(name string, changed []string, live, clone bool) 
 	return choiceui.ConfirmSandboxUpgrade(screen, name, changed, live, clone), true
 }
 
-// sandboxClones reports whether sandbox name holds a clone, from its launch receipt or else
-// its own /run/sandbox/source; known is false when neither answers.
-func sandboxClones(name string) (clones, known bool) {
-	if r := readReceipt(name); r != nil {
-		return r.Clone, true
+// sandboxClone reports whether sandbox name holds a clone: this run's mode when this run
+// created it, else the sandbox's own answer; known is false when it gives none.
+func sandboxClone(in Input, name string) (clones, known bool) {
+	if in.CloneKnown {
+		return in.Clone, true
 	}
-	out, err := SbxRun(sbx.CloneModeArgs(name)...)
+	out, err := exec.Command(sbx.Binary, sbx.CloneModeArgs(name)...).Output()
 	if err != nil {
 		return false, false
 	}
-	switch strings.TrimSpace(out) {
+	switch strings.TrimSpace(string(out)) {
 	case "clone":
 		return true, true
 	case "direct":
@@ -210,6 +211,7 @@ func sandboxClones(name string) (clones, known bool) {
 // retireSandbox fetches the clone and agent state home, then removes the sandbox.
 func retireSandbox(in Input, cfg sbx.RunConfig) error {
 	in.Sid += "-retired"
+	in.CloneKnown = false
 	if err := PreserveClone(in, cfg); err != nil {
 		return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
 	}

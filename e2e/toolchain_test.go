@@ -359,6 +359,9 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 	if !exited {
 		t.Fatalf("the first run never exited, so its late teardown could remove the same-named sandbox the warm run creates\n%s", tail(teardown, 40))
 	}
+	if names, ok := sbxSandboxNames(); ok && names[first.name] {
+		t.Fatalf("the first run kept %s (work stranded in it, or its clone mode unknown), so the warm run would reattach instead of seeding fresh\n%s", first.name, tail(teardown, 40))
+	}
 
 	// Name the store's state in the failure message.
 	store := toolStoreEntries(t, home)

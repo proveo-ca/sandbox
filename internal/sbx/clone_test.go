@@ -77,7 +77,9 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 	t.Parallel()
 	git := func(t *testing.T, dir string, args ...string) string {
 		t.Helper()
-		out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Env = isolatedGitEnv(t)
+		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -95,12 +97,7 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 		args := CloneSnapshotArgs("sb", dir)
 		cmd := exec.Command("bash", "-c", args[len(args)-1])
 		cmd.Dir = t.TempDir()
-		for _, kv := range os.Environ() {
-			if !strings.HasPrefix(kv, "GIT_") {
-				cmd.Env = append(cmd.Env, kv)
-			}
-		}
-		cmd.Env = append(cmd.Env, "GIT_CEILING_DIRECTORIES="+filepath.Dir(cmd.Dir))
+		cmd.Env = append(isolatedGitEnv(t), "GIT_CEILING_DIRECTORIES="+filepath.Dir(cmd.Dir))
 		out, err := cmd.CombinedOutput()
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -173,6 +170,19 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 		}
 		if refs := git(t, dir, "for-each-ref", "refs/heads/proveo/"); refs != "" {
 			t.Errorf("a clean detached checkout of main left %q; the seed's own --detach would report as the agent's work", refs)
+		}
+	})
+	t.Run("a detached HEAD only a stale stash branch holds gets its own", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		git(t, dir, "checkout", "-q", "--detach")
+		git(t, dir, "commit", "-q", "--allow-empty", "-m", "agent work")
+		git(t, dir, "update-ref", "refs/heads/proveo/stash-0", "HEAD")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if refs := git(t, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/proveo/"); refs != "proveo/detached-head" {
+			t.Errorf("refs = %q, want only proveo/detached-head — the stale stash branch was pruned, so it cannot be what carries HEAD", refs)
 		}
 	})
 	t.Run("every stash gets a branch", func(t *testing.T) {
@@ -484,4 +494,16 @@ func TestCloneRefsAreKeyedPerRunNotPerSandbox(t *testing.T) {
 		t.Error("two runs of one sandbox fetched into the same namespace — the second " +
 			"would force-overwrite the first run's preserved work")
 	}
+}
+
+// isolatedGitEnv is the environment minus every GIT_* variable, with no global or system config.
+func isolatedGitEnv(t *testing.T) []string {
+	t.Helper()
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "XDG_CONFIG_HOME=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "HOME="+t.TempDir(), "GIT_CONFIG_NOSYSTEM=1")
 }
