@@ -9,6 +9,7 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/launch_receipt_test.go
 ' covers: internal/backend/sandbox/stop_signal_test.go
 ' covers: internal/backend/sandbox/clone_carry_test.go
+' covers: internal/backend/sandbox/teardown_end_test.go
 '
 ' ── A KEPT SANDBOX MUST NOT SILENTLY OVERRIDE THIS RUN (2026-09-27) ─────────
 ' Re-attach passes the name only, so a kept sandbox runs with the Kit, image
@@ -55,17 +56,50 @@ skinparam noteTextAlignment left
 '     ends — by design: the scheduler SIGTERMs, then kill-session (SIGHUP)
 '     after termGrace = 1 min (internal/schedule/runner.go:37), and a longer
 '     teardown must not be cut short. Only SIGKILL interrupts a hung teardown.
-' [Inference] A stop that lands while an already-failed run's sbx client is
-' still exiting reads as a stop: normal teardown, exit 143, and the sandbox
-' holding the failure evidence is removed. The sbx client's own exit after the
-' agent ends bounds that window.
+' [Inference] A signal that lands after the agent failed — while its sbx
+' client is still exiting, or after run() returns but before stopOutcome reads
+' signalled() — turns that real failure into Stopped: normal teardown, exit
+' 143, and the sandbox holding the failure evidence is removed. The sbx
+' client's own exit after the agent ends, plus the retry block, bound that
+' window.
 ' HISTORY: before 2026-10-17 a stop read as a failed run ("kept for
 ' diagnosis", no `sbx rm`). An earlier revision that day made a stop exit 0;
 ' the exit-status decision replaced it. Pinned by
-' TestAForwardedStopTearsDownLikeANormalExitAndReportsTheSignal (including the
-' Ctrl+C remove path, sig 0 + forced, and "a signal after the operator chose
-' remove"), TestACancelWithoutASignalIsNotAStop and
-' TestHangupCancelsTheRunInsteadOfKillingProveo (stop_signal_test.go).
+' TestAForwardedStopTearsDownLikeANormalExitAndReportsTheSignal (the
+' stopOutcome table, including the Ctrl+C remove path, sig 0 + forced, and "a
+' signal after the operator chose remove") in teardown_end_test.go, which has
+' no build tag so Windows CI runs it; and by TestACancelWithoutASignalIsNotAStop
+' and TestHangupCancelsTheRunInsteadOfKillingProveo in stop_signal_test.go
+' (!windows: they send real signals). The run context is `runCtx` (MEASURED).
+'
+' ── WHAT A NORMAL END DOES WITH THE SANDBOX: normalEndOf (2026-10-17) ──────
+' MEASURED, sandbox.go: after TeardownClone, SaveState and the home-access
+' commit, Run's success branch switches on normalEndOf(forced, stranded,
+' retainsEngine), a pure function:
+'   forced (the operator chose Ctrl+C remove) → endRemove, always
+'   stranded != nil (work still only in the sandbox) → endKeepStranded, even
+'     for an OpenCode engine
+'   retainsEngine (opencodeCacheTarget) → endRetainEngine
+'   otherwise → endRemove
+' Pinned by TestANormalEndRemovesTheSandboxUnlessWorkOrTheEngineStaysInIt
+' (teardown_end_test.go, untagged).
+'
+' ── RESIDUALS, RECORDED NOT FIXED (2026-10-17 review #4) ────────────────────
+'   * A HUNG TEARDOWN. Snapshot, SaveState and `sbx rm` carry no timeout, and
+'     proveo swallows signals after the first. A hung proveo can outlive the
+'     scheduler's kill-session, and its late `rm` can remove a same-named
+'     sandbox a later run has reattached to. A per-name lock or a teardown
+'     deadline would close it. Pre-existing; a stop widens the exposure
+'     (reported; the missing timeouts MEASURED by reading the calls).
+'   * A stop during the retry's prepareOpenCodeLaunch is honoured only after it
+'     returns, as during ReloadTemplate; its prepare and recover steps each
+'     allow up to 15 min (opencode_cache.go:393,493, MEASURED).
+'   * The forced Ctrl+C remove returns the raw runErr. Reported: it can print
+'     "context canceled" and exit 1, or "agent exited with code -1" and exit
+'     255 when WaitDelay SIGKILLs the sbx client. Pre-existing.
+'   * removeOpenCodeEngine (opencode_cache.go:412-419) is a third `sbx rm` path
+'     and skips PreserveClone (MEASURED). Pre-existing; the pending OpenCode
+'     redesign removes it.
 ' The kept-for-diagnosis hint names `sbx exec -it <name> bash` (MEASURED),
 ' matching https://docs.docker.com/reference/cli/sbx/exec/.
 '
@@ -80,6 +114,11 @@ skinparam noteTextAlignment left
 ' forced Ctrl+C remove still deletes: its dialog says "Uncommitted changes can
 ' be permanently lost" (internal/choiceui/sandbox_close.go). Detail:
 ' _spec/internal/sbx/clone-workspace.puml.
+' RETIRE ASKS THE OLD SANDBOX, NOT THIS RUN, WHETHER IT CLONES (MEASURED):
+' retireSandbox sets in.Clone = guestClones(name) before PreserveClone, so the
+' carry follows how the OLD sandbox was created even when the receipt is
+' missing ("no record of the settings it was created with"). Detail and the
+' two failures it closes: clone-workspace.puml.
 title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures and stranded work, remove success and stops
 
 state "resolve full RunConfig\n+ render Kit spec.yaml" as RESOLVE
@@ -109,7 +148,7 @@ EXISTS --> DRIFT : yes
 DRIFT --> REUSE : receipt matches,\nor running and headed no,\nor running and not headed
 DRIFT --> RETIRE : changed and headed yes,\nor stopped and not headed
 DRIFT --> ASKAGAIN : stopped and headed no
-RETIRE --> CREATE : clone carried home
+RETIRE --> CREATE : clone carried home,\nor the old sandbox was direct (guestClones)
 RETIRE --> STRANDED : clone not carried\n(retireSandbox errors; this run stops)
 CREATE --> RUN
 REUSE --> RUN
@@ -125,7 +164,7 @@ RESULT --> PRESERVE : exit != 0
 RESULT --> PRESERVE : exit == 0
 RESULT --> PRESERVE : SIGTERM/SIGHUP forwarded\n(teardown nil, result Stopped)
 PRESERVE --> KEPT : run failed
-PRESERVE --> STRANDED : snapshot or carry failed\n(not the Ctrl+C remove path)
+PRESERVE --> STRANDED : snapshot or carry failed\n(normalEndOf → endKeepStranded)
 PRESERVE --> REMOVE : run succeeded, or stopped by a signal;\nproveo exits 0, or 128+sig for a stop
 STRANDED --> REMOVE : operator, once the work is home
 STRANDED --> [*]
