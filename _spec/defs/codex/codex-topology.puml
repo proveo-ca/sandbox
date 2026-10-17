@@ -3,7 +3,23 @@
 ' purpose: the codex def's resolved topology — the harness layer, the seeded $CODEX_HOME, the loop, and the container boundary
 ' covers: defs/codex/**
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/image_size_test.go
 '   how the harness is steered and gated _spec/defs/codex/codex-paradigm.puml
+'
+' ── NO DOCKER BINARIES OF ITS OWN (N14, DONE (wt) 2026-10-17) ──────────────
+' codex was the one harness image Cut 4 missed: its Dockerfile still installed
+' docker-29.7.2's static tarball and symlinked dockerd, shadowing the Engine
+' proveo/base inherits from the sbx template. codex was absent from
+' image_size_test.go harnessDockerfiles, so TestNoHarnessImageShipsDockerBinaries
+' never read it. The user: "Delete the layer (Recommended)". MEASURED: the RUN
+' is gone from defs/codex/Dockerfile, codex heads harnessDockerfiles
+' (image_size_test.go:173-174), and the test was red before, green after
+' (reported). The group, the start-docker LABEL (Dockerfile:54-57) and iptables
+' stay — _spec/_devops/image-size-reduction.puml, Cut 4.
+' OPEN (repo-simplification.puml N26): the apt layer (Dockerfile:43-48) runs
+' `apt-get install -y --no-install-recommends` with NO packages — a no-op; and
+' defs/codex/README.md:64 still lists codex-browser's base as
+' proveo/base-node-browser, which the inversion below made untrue.
 '
 ' ── AUTH: THE LOGIN FILE IS A CREDENTIAL (moved from source, N14) ──────────
 ' Two ways in: a ChatGPT-plan login at $CODEX_HOME/auth.json, which the durable

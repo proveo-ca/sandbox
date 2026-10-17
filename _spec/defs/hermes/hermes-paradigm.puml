@@ -30,6 +30,13 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' No such file or directory"). sandbox.OwnAgentCommand puts the entrypoint
 ' script back in front of them.
 '
+' ONE THING HERMES NO LONGER BREAKS FROM (N24, DONE (wt) 2026-10-17): the
+' upstream base also lacked proveo-entrypoint, so hermes alone ran the shell
+' twins of the runtime-user and git-context steps. The user chose "Ship prep
+' into hermes (Recommended)": the Dockerfile builds the binary in its own Go
+' stage, and the entrypoint runs the same prelude-then-`proveo-entrypoint prep`
+' as every def (_spec/defs/hermes/hermes-topology.puml has the stage).
+'
 ' ── WHY HERMES AND NOT xAI's "grok-bot" ─────────────────────────────────────
 ' This def was cut on a branch originally scoped for an xAI "grok-bot"
 ' integration. Research found neither xAI product fit: Grok Bot (the cloud

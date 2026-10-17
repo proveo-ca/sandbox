@@ -9,8 +9,11 @@ title git post-commit — format, then lint
 ' covers: internal/contract/git_hooks_test.go
 ' covers: cmd/proveo-dev/lint.go
 ' covers: cmd/proveo-dev/lint_test.go
-' `proveo-dev lint` (lint.go) is the body of `mise run lint`; gofmt -l is its
-' first gate. The rest of its gate list is recorded with N14 in a later pass.
+' `proveo-dev lint` (lint.go) is the body of `mise run lint`. Its gates, in
+' order (lint.go:18, :41-42): gofmt -l, the comment-block lint (N14 —
+' _spec/_conventions/spec-conventions.puml), go vet (default + image tag),
+' golangci-lint run. So a post-commit hook now also reports comment blocks
+' over three lines, after the fact like every other lint finding.
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 
 participant "git commit" as COMMIT <<app>>

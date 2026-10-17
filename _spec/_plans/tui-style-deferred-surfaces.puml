@@ -30,6 +30,12 @@
 ' agent's own prelude: .env loading, git context, gh session, the smoke
 ' sentinel. prep-process-boundary calls that the "stdout preamble", and it is
 ' the one part of prep whose effect is meant to cross the process boundary.
+' UPDATE 2026-10-17 (MEASURED): the .env loading (N7) and the smoke sentinel
+' (N22, SmokeReady deleted) are gone; prep prints only the git-context report
+' (cmd/proveo-entrypoint/main.go:57-88), and internal/entrypoint prints no
+' PROVEO_SMOKE_READY any more — the marker comes from the shell's
+' run_smoke_test. The test's exemption for internal/entrypoint/entrypoint.go
+' (tui_vocabulary_test.go:18) is therefore stale (repo-simplification.puml N22).
 '
 ' Three things make it a bad first customer. It runs INSIDE the image, so a
 ' source edit is inert until `proveo build <harness>` — the loop is a rebuild
@@ -103,7 +109,7 @@ package "joined the language (shipped)" as DONE <<app>> {
 
 package "deferred — surface A" as A <<cloud>> {
   component "cmd/proveo-entrypoint/main.go\n14 raw fmt.Printf\nfour emoji, one variation-selected" as EP <<error>>
-  component "internal/entrypoint\nPROVEO_SMOKE_READY" as EPL <<error>>
+  component "internal/entrypoint\nPROVEO_SMOKE_READY (gone: N22)" as EPL <<error>>
 }
 
 package "deferred — surface B" as B <<cloud>> {

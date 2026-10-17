@@ -243,6 +243,16 @@
 ' and TestNoHarnessImageShipsDockerBinaries still ratchets against a re-add. What
 ' changed is where docker comes from, not whether we hand-install it.
 '
+' CUT 4 NOW HOLDS FOR CODEX TOO (N14, 2026-10-17). The cut named four images,
+' and codex — a def that arrived later — still carried a RUN installing
+' docker-29.7.2's static tarball and symlinking dockerd: a second copy shadowing
+' the Engine its base inherits. The ratchet never saw it, because codex was not
+' in harnessDockerfiles. The user: "Delete the layer (Recommended)". MEASURED:
+' the RUN is gone from defs/codex/Dockerfile and codex is in harnessDockerfiles
+' (image_size_test.go:173-174); TestNoHarnessImageShipsDockerBinaries was red
+' before and green after (reported). [Inference] codex sheds roughly the 210 MB
+' per image measured above for the other four; its size was not re-measured.
+'
 ' The privilege question the claudecode record left at "next step is sbx-side"
 ' also moves. The template's `agent` reaches root through a setuid /usr/bin/sudo
 ' — and proveo-harden's blanket `chmod u-s` disarms exactly that. The record

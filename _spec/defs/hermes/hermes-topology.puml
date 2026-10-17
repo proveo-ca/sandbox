@@ -3,7 +3,28 @@
 ' purpose: the hermes def's resolved topology — upstream image, harness layer, execution loop, container boundary
 ' covers: defs/hermes/**
 ' covers: internal/imagebuild/targets.go
+' covers: cmd/proveo-entrypoint/**
 '   why the harness is shaped this way _spec/defs/hermes/hermes-paradigm.puml
+'
+' ── hermes SHIPS proveo-entrypoint (N24, DONE (wt) 2026-10-17) ─────────────
+' The upstream base is not a proveo image, so nothing gave hermes the binary
+' every other def inherits from proveo/base — which is why hermes alone kept
+' calling the shell twins ensure_runtime_user / report_git_context. The user
+' chose "Ship prep into hermes (Recommended)". MEASURED, defs/hermes/Dockerfile:
+'   :4-13  stage `proveo-entrypoint-builder` FROM golang:1.26-trixie copies
+'          go.mod/go.sum, cmd/ and internal/ and builds ./cmd/proveo-entrypoint
+'          (CGO_ENABLED=0, -trimpath); BuildKit caches proveo-hermes-gomod and
+'          proveo-hermes-gocache — NOT base's ids, which
+'          TestFetchRunsMountABuildKitCache forbids sharing
+'   :49    COPY --chmod=0755 --from=proveo-entrypoint-builder
+'          /out/proveo-entrypoint /usr/local/bin/
+' defs/hermes/entrypoint.sh:11-14 then runs the common prelude —
+' set_working_directory, bridge_google_keys, bridge_git_identity — and
+' `proveo-entrypoint prep || true` (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+' TestPrepIsTheOnlyRuntimeUserAndGitContextStep checks hermes ships the binary.
+' [Inference] Because the stage copies all of cmd/ and internal/, any Go change
+' re-runs that stage's build (the go-build cache keeps it incremental).
+' [Unverified] The rebuilt hermes image had not reported back when recorded.
 skinparam linetype ortho
 skinparam ranksep 120
 skinparam nodesep 80
@@ -22,6 +43,7 @@ package "Upstream Image — nousresearch/hermes-agent" as Upstream {
 
 package "Harness Layer — proveo" as Harness {
   component "entrypoint.sh\n(dumb-init PID 1, not s6-overlay)" as Entrypoint <<script>>
+  component "proveo-entrypoint prep\n(built in the image's own Go stage)" as Prep <<logic>>
   component ".env loader / provider-key check" as EnvLoader <<logic>>
   component "wire_hermes_local_endpoint\nconfig.yaml: provider custom + base_url" as LocalModel <<logic>>
 }
@@ -48,6 +70,7 @@ Operator --> Entrypoint : starts container
 Entrypoint --> Stage2 : run once, as root
 Stage2 --> Home : remap + seed (missing-only)
 Entrypoint --> EnvLoader
+Entrypoint --> Prep : after the shell prelude (N24)
 Entrypoint --> LocalModel : if PROVEO_LOCAL_MODEL set
 Entrypoint --> Shim : exec
 Shim --> Toolchain : drop to "hermes" user

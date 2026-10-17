@@ -15,7 +15,9 @@
       "spec": "_spec/_conventions/spec-conventions.puml",
       "covers": [
         "internal/contract/spec_notes_test.go",
-        "internal/ui/ui.go"
+        "internal/ui/ui.go",
+        "cmd/proveo-dev/commentlint.go",
+        "cmd/proveo-dev/commentlint_test.go"
       ],
       "fingerprint": null
     },
@@ -650,7 +652,8 @@
       "spec": "_spec/defs/codex/codex-topology.puml",
       "covers": [
         "defs/codex/**",
-        "packages/lib/entrypoint-lib.sh"
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/image_size_test.go"
       ],
       "fingerprint": null
     },
@@ -712,7 +715,8 @@
       "spec": "_spec/defs/hermes/hermes-topology.puml",
       "covers": [
         "defs/hermes/**",
-        "internal/imagebuild/targets.go"
+        "internal/imagebuild/targets.go",
+        "cmd/proveo-entrypoint/**"
       ],
       "fingerprint": null
     },
@@ -841,7 +845,8 @@
         "cmd/proveo-dev/stagecdn.go",
         "cmd/proveo-dev/buildcli.go",
         "cmd/proveo-dev/deploycli.go",
-        "cmd/proveo-dev/devcli.go"
+        "cmd/proveo-dev/devcli.go",
+        ".goreleaser.yaml"
       ],
       "fingerprint": null
     },
@@ -1192,7 +1197,8 @@
         "internal/run/params.go",
         "internal/run/choices_test.go",
         "internal/sbx/kit.go",
-        "internal/credentials/credentials.go"
+        "internal/credentials/credentials.go",
+        "internal/sbx/secret.go"
       ],
       "fingerprint": null
     },
@@ -1329,7 +1335,8 @@
         "e2e/sbx_test.go",
         "e2e/idle_test.go",
         "e2e/chrome_bridge_sbx_test.go",
-        "cmd/proveo/golden_test.go"
+        "cmd/proveo/golden_test.go",
+        "internal/credentials/credentials.go"
       ],
       "fingerprint": null
     },

@@ -46,6 +46,9 @@
 ' claudecode: it would make every workspace `npm`/`pnpm install` skip the
 ' devDependencies (tsc, eslint, test runners) the agent needs. CODEX_HOME is
 ' not baked either — codex-topology.puml, the note on $CODEX_HOME.
+' The daemon is the sbx template's, inherited through proveo/base: the image
+' ships no docker binaries of its own since N14 deleted its static-tarball
+' layer (2026-10-17; codex-topology.puml, image-size-reduction.puml Cut 4).
 title codex paradigm — ML blackbox algorithm (spec → plan → verify loop)
 
 actor "Developer" as DEV

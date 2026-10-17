@@ -341,8 +341,8 @@
 '
 ' ── DONE 2026-10-17, THIRD BATCH (all (wt) unless marked) ──────────────────
 ' The user, verbatim: "apply fixes for SEC1, SEC4, N2, N22, N23, N24, F16, N20, N13, N5, N14 and
-'   N10". Each took its [rec] option unless noted. N2, N22, N23 and N24 run in a separate worker
-'   and are NOT recorded here yet; N14 comes in a later pass. Both stay PROPOSED below.
+'   N10". Each took its [rec] option unless noted. N2, N22, N23, N24 and N14 landed after the
+'   first spec pass; they are recorded in the next block.
 ' SEC1 · The agent uid in the `docker` group — DONE (decision recorded; no code change), option 1.
 '   Accepted: the sbx template ships the same group (defs/base/Dockerfile:31, MEASURED) and the
 '     microVM stays the boundary. Spec: _spec/defs/harness-image-layers.puml (SEC1).
@@ -401,9 +401,69 @@
 '     _spec/internal/entrypoint/model-alias-bridges.puml. New measurement for Q4: the catalog still
 '     has readers (warnUnknownModel → CheckModel; posture.RolesLine → ModelProvider).
 '   Every _spec cross-reference to the two moved paths is repointed, and the index entries follow.
-'   OPEN for the main agent: the 55 source citers (the SOURCE REPOINT MAP in the spec-keeper's
-'     reply), including internal/contract/spec_notes_test.go:63,71, whose ratchet list still names
-'     the two old _plans paths.
+'   Source half APPLIED (MEASURED by the coordinator): the 55 citers follow the spec-keeper's
+'     SOURCE REPOINT MAP; no non-_spec file cites the old _plans paths; spec_notes_test.go ratchets
+'     the new paths and TestSpecNotesFitTheBox passes; .claude/skills/sync-models/SKILL.md now says
+'     the catalog validates and Q4 is open.
+'
+' ── DONE 2026-10-17, THIRD BATCH, FINAL PASS (all (wt)) ────────────────────
+' N2 + N23 · The bash bridge machinery and the duplicate Google bridge — DONE (wt), option 1 each.
+'   Evidence: MEASURED. bridge_google_keys is five lines (entrypoint-lib.sh:36-40); _normalize_model,
+'     _apply_env_bridge, apply_env_bridges and _model_provider are deleted, and so are the opencode
+'     and hermes calls to apply_env_bridges. TestOneGoogleKeyBridgeRemains
+'     (model_bridging_retired_test.go:65) replaces TestCredentialBridgesSurvivedTheRetirement: one
+'     definition, the four names banned. Specs: model-alias-bridges, steps, prep-sequence,
+'     kit-sandbox-credential-gap.
+' N22 · prep's smoke mode could not fire — DONE (wt), option 1.
+'   Evidence: MEASURED. cmd/proveo-entrypoint prep takes no argument — an extra one prints usage
+'     and exits 2 (main.go:48-51); prep runs EnsureRuntimeUser and reportGitContext only (:53-54).
+'     SmokeReady and its hourly loop are deleted (internal/entrypoint holds EnsureRuntimeUser and
+'     firstNonEmpty). Every def runs `proveo-entrypoint prep || true`; the `env PROVEO_SMOKE_TEST=`
+'     prefix and `export PROVEO_SMOKE_TARGET=` are gone; run_smoke_test (entrypoint-lib.sh:174)
+'     stays the smoke path. Tests: TestPrepTakesNoTargetAndNoSmokeMode (env_prelude_test.go:177);
+'     TestEntrypointsRunTheShellPreludeThenPrep bans the prefix (contract_test.go:63).
+'   Residue (MEASURED, source): internal/contract/tui_vocabulary_test.go:18 and :24 still describe
+'     internal/entrypoint as printing PROVEO_SMOKE_READY; the marker now comes only from
+'     run_smoke_test and the opencode/hermes copies.
+' N24 · Shell and Go twins of the runtime-user and git-context steps — DONE (wt), NOT the [rec]
+'   as written: it was blocked, because hermes (FROM nousresearch/hermes-agent) had no
+'   proveo-entrypoint. The user, TUI: "Ship prep into hermes (Recommended)".
+'   Evidence: MEASURED. defs/hermes/Dockerfile:4-13 builds proveo-entrypoint in a
+'     `proveo-entrypoint-builder` stage (golang:1.26-trixie; caches proveo-hermes-gomod and
+'     proveo-hermes-gocache, because TestFetchRunsMountABuildKitCache forbids sharing base's ids)
+'     and :49 copies it to /usr/local/bin. defs/hermes/entrypoint.sh:11-14 runs
+'     set_working_directory, bridge_google_keys, bridge_git_identity, then `proveo-entrypoint prep
+'     || true`. entrypoint-lib.sh defines neither ensure_runtime_user nor report_git_context; its
+'     top-level HOME fallback (:4-6) stays. Reported: the image tests (cecli ×2, claudecode,
+'     opencode) call `proveo-entrypoint prep` instead; CONTRIBUTING.md and the defs/codex/Dockerfile
+'     comment name prep. Tests: TestPrepIsTheOnlyRuntimeUserAndGitContextStep (contract_test.go:104);
+'     TestEntrypointsRunTheShellPreludeThenPrep now includes hermes. [Unverified] the image builds
+'     were still running when this was recorded. Specs: prep-process-boundary, prep-sequence,
+'     runtime-user-boundary, git-identity, hermes-topology, hermes-paradigm, steps.
+' N14 · Why-comments regrew in source — DONE (wt), option 1, with THREE BLOCKS HELD OPEN.
+'   Evidence: MEASURED. cmd/proveo-dev/commentlint.go runs inside `proveo-dev lint` after gofmt
+'     (lint.go:41-42) and flags comment blocks over 3 counted lines; blank, SPEC:/covers:, pragma
+'     and divider lines and up to 3 lines of a Go doc's first sentence do not count. It reads tracked
+'     .go, .sh, Dockerfile*, .dockerignore, .toml, .yaml/.yml, .manifest and extensionless
+'     packages/lib scripts, and skips _spec/, apps/, node_modules/, dot-directories and testdata.
+'     Tests: commentlint_test.go TestCommentMarkerCoversEverySourceKind,
+'     TestLongCommentBlocksAreFlagged, TestCommentLintNamesEachOffendingBlock.
+'     Spec: _spec/_conventions/spec-conventions.puml.
+'   Migration (reported): three spec-keepers migrated 89 blocks; 85 stanzas were stripped;
+'     agent_launch_guard_test.go's broken 2-line fragment became a WHAT label.
+'   The user's rulings on refused blocks: Node and cecli — the code was measured (the nodejs.org
+'     tarball; the proveo_exec_agent PATH probe) and base-image-layers.puml and cecli-paradigm.puml
+'     were corrected; Chrome env-token scope — "Record as open, strip (Recommended)"
+'     (chrome-bridge.puml OPEN QUESTION); codex static docker — "Delete the layer (Recommended)":
+'     the RUN is gone and codex joined harnessDockerfiles, so TestNoHarnessImageShipsDockerBinaries
+'     guards it (red before, green after; image-size-reduction.puml Cut 4, codex-topology.puml).
+'   HELD OPEN — the opencode plain-secret 401, the user: "Re-measure first".
+'     internal/backend/sandbox/sandbox.go:1922, internal/sbx/secret.go:13 and
+'     internal/sbx/secret_test.go:8 stay whole, so `proveo-dev lint` is RED on exactly these three
+'     until a live sbx re-measure.
+'   Index entries the migrators added headers for: .goreleaser.yaml (distribution-update),
+'     internal/sbx/secret.go (credential-path), internal/credentials/credentials.go
+'     (sandbox-backend).
 '
 ' ══ DECIDED ════════════════════════════════════════════════════════════════
 '
@@ -786,7 +846,8 @@
 '     2. Make Go own it: `eval "$(proveo-entrypoint prep --print-env)"`; delete the bash helpers.
 '     3. Delete prep; bash owns the prelude, as hermes already does.
 '
-' N2 · Model-bridging residue: generic bridge machinery for two key aliases — PROPOSED.
+' N2 · Model-bridging residue: generic bridge machinery for two key aliases — DONE (wt) 2026-10-17,
+'     option 1 (see DONE, third batch, final pass).
 '   Evidence: MEASURED. The Google-key alias is implemented four times: entrypoint-lib.sh:110-121
 '     (inside load_env), :350-369 (_apply_env_bridge), entrypoint.go:135-151 (BridgeGoogleKeys),
 '     entrypoint.go:225-256 (ApplyEnvBridges).
@@ -954,7 +1015,8 @@
 '     2. Rename identifiers only; keep the on-disk path and the variable.
 '     3. Keep as is.
 '
-' N14 · Why-comments regrew in source after the 2026-09-05 strip — PROPOSED.
+' N14 · Why-comments regrew in source after the 2026-09-05 strip — DONE (wt) 2026-10-17, option 1;
+'     three blocks held open for a re-measure (see DONE, third batch, final pass).
 '   Evidence: MEASURED. image-size-reduction.puml:320 recorded entrypoint-lib.sh at 26 comment lines;
 '     it now holds 134 lines starting with `#`.
 '   Evidence: MEASURED. Examples: mise.toml:1-11; .dockerignore:1-13; imagebuild/targets.go:134-136;
@@ -1066,7 +1128,8 @@
 '     2. Keep the path for a future real-token route; collapse it behind one guard.
 '     3. Keep as is.
 '
-' N22 · Smoke mode cannot fire from any def entrypoint — PROPOSED.
+' N22 · Smoke mode cannot fire from any def entrypoint — DONE (wt) 2026-10-17, option 1 (see DONE,
+'     third batch, final pass).
 '   Evidence: MEASURED. All five def entrypoints run `env PROVEO_SMOKE_TEST= proveo-entrypoint prep`,
 '     clearing the flag, so cmd/proveo-entrypoint's SmokeReady branch, its hourly sleep loop and the
 '     `[target]` argument (main.go:52-64) never take effect.
@@ -1076,7 +1139,8 @@
 '     2. Let prep honour the flag and drop the defs' `env PROVEO_SMOKE_TEST=` prefix.
 '     3. Keep as is and document prep's smoke mode as unreachable.
 '
-' N23 · apply_env_bridges duplicates bridge_google_keys — PROPOSED.
+' N23 · apply_env_bridges duplicates bridge_google_keys — DONE (wt) 2026-10-17, option 1 (see DONE,
+'     third batch, final pass).
 '   Evidence: MEASURED. entrypoint-lib.sh apply_env_bridges (:285-288) maps GEMINI_API_KEY and
 '     GOOGLE_API_KEY onto GOOGLE_GENERATIVE_AI_API_KEY — what bridge_google_keys (:49-62) already
 '     does; the opencode and hermes entrypoints call bridge_google_keys first, so the second call
@@ -1087,7 +1151,9 @@
 '     2. Keep apply_env_bridges as the generic table; delete bridge_google_keys.
 '     3. Keep both.
 '
-' N24 · report_git_context and ensure_runtime_user exist in shell AND Go — PROPOSED.
+' N24 · report_git_context and ensure_runtime_user exist in shell AND Go — DONE (wt) 2026-10-17,
+'     option 1 after "Ship prep into hermes (Recommended)" unblocked it (see DONE, third batch,
+'     final pass).
 '   Evidence: MEASURED. entrypoint-lib.sh ensure_runtime_user (:4) and report_git_context (:88) beside
 '     internal/entrypoint EnsureRuntimeUser and cmd/proveo-entrypoint reportGitContext
 '     (main.go:67-98). Two implementations of one preamble drift.
@@ -1106,6 +1172,21 @@
 '        warnings into it.
 '     2. Warn again from a point after TeeTo.
 '     3. Accept it: the warning is temporary and goes with the alias next release.
+'
+' N26 · codex image leftovers the N14 migrators found — PROPOSED (added 2026-10-17; file only, the
+'     coordinator: "File it as a finding, don't fix").
+'   Evidence: MEASURED. defs/codex/Dockerfile:43-48 runs `apt-get update` then
+'     `apt-get install -y --no-install-recommends` with NO package names, then proveo-harden — the
+'     install is a no-op, and the layer pays an apt update and two cache mounts for nothing.
+'   Evidence: MEASURED. defs/codex/README.md:64 lists `proveo/codex-browser` as based on
+'     `proveo/base-node-browser`; internal/imagebuild/targets.go:142 builds it as
+'     browserOf("codex", "codex") — the browser layer applied onto proveo/codex. The manifest's
+'     comment of the same claim is already gone (codex-topology.puml, codex-browser).
+'   Options:
+'     1. [rec] Delete the empty apt RUN, or give it the packages it was meant to install if any
+'        check needs one; correct the README variants table to the layer-on-harness shape.
+'     2. Keep the RUN as a slot for future packages; correct the README only.
+'     3. Keep as is.
 '
 ' SEC4 · A custom def's home mount `host: .` would mount the whole proveo home read-write —
 '   DONE (wt) 2026-10-17, option 1 (PLAUSIBLE; found in review; see DONE, third batch).
@@ -1126,30 +1207,31 @@
 '  1. SEC2 — DONE (wt) 2026-10-17.
 '  2. SEC3 — DONE (wt) 2026-10-17 ("Never approve; fail fast").
 '  3. C1 — DONE (wt) 2026-10-17. SEC4 — DONE (wt) 2026-10-17 (third batch).
-'  4. N2 + N22 + N23 + N24 — the prelude remnants after the collapse (N1, N4, N7, F7 and F18 DONE
-'     (wt) 2026-10-17): bridge machinery, the unreachable smoke mode, the duplicate Google bridge,
-'     the shell/Go twins. IN FLIGHT in a separate worker; not recorded yet.
+'  4. The prelude remnants — ALL DONE (wt) 2026-10-17: N1, N4, N7, F7, F18, then N2 + N22 + N23 +
+'     N24 (bridge machinery, the unreachable smoke mode, the duplicate Google bridge, the shell/Go
+'     twins; hermes now ships prep). Image builds for N24 [Unverified] at recording time.
 '  5. N21 (decides F14) + N25 — the Go residue D1 leaves behind (F9, F10, F11, F15, F17, F19,
 '     F20 and N18 DONE; F16, N20 and N13 DONE (wt) 2026-10-17, third batch).
 '  6. T1 — hermetic contract tests (N12 DONE (wt) 2026-10-17: one image task, hermes in the gate).
-'  7. N11 — fix spec drift. N10 DONE (wt) 2026-10-17 on the spec side; the main agent repoints
-'     the source SPEC: lines from the spec-keeper's SOURCE REPOINT MAP.
+'  7. N11 — fix spec drift. N10 DONE (wt) 2026-10-17, spec side and source repoint both.
 '  8. N6 + N8 — shared helpers, then the env registry (N5 DONE (wt) 2026-10-17: internal/termtext).
 '  9. N15 — split sandbox.go, then entrypoint-lib.sh, once 4 and D2 have shrunk them.
-' 10. N9 + N16 + N19 — small deletions (N17 and N3 DONE (wt) 2026-10-17).
-' 11. N14 — strip comments and add the lint last, so the sweep sees the final shape (a later pass).
+' 10. N9 + N16 + N19 + N26 — small deletions (N17 and N3 DONE (wt) 2026-10-17).
+' 11. N14 — DONE (wt) 2026-10-17: the lint is in `proveo-dev lint`; it stays RED on three held
+'     blocks (sandbox.go:1922, secret.go:13, secret_test.go:8) until a live sbx re-measure of the
+'     opencode plain-secret 401.
 ' 12. SEC1 — DONE 2026-10-17: the decision is recorded (harness-image-layers.puml).
-title PLANNED — repo simplification: 57 findings, their status, and the order of work
+title PLANNED — repo simplification: 58 findings, their status, and the order of work
 
 component "D1 · retire docker+egress\nDONE (wt) 2026-10-16" as D1 <<app>>
 component "D2 · OpenCode engine-local DB\nDONE (wt) 2026-10-17 · keeper gone" as D2 <<app>>
 component "F6 · .env guard rekey\nDONE (wt) inside D1;\nthe guard itself deleted by N7" as F6 <<app>>
 component "security\n(SEC1 SEC2 SEC3 SEC4 DONE)" as SEC <<error>>
-component "image prelude\nN2 N22 N23 N24\n(N1 N3 N4 N7 F7 F18 DONE)" as PRE <<app>>
+component "image prelude\n(N1 N2 N3 N4 N7 N22 N23 N24\nF7 F18 DONE)" as PRE <<app>>
 component "post-D1 Go residue\nF14 N21 N25\n(C1 F9 F10 F11 F15 F16 F17 F19 F20\nN13 N18 N20 DONE)" as GO <<app>>
 queue "test gates · T1\nhermetic contract tests\n(N12 DONE)" as TST <<async>>
-database "spec hygiene · N11 N14\nfix drift + strip\n(N10 DONE; source repoint pending)" as SPEC <<db>>
-component "helpers + splits\nN6 N8 N9 N15 N16 N19\n(N5 N17 DONE)" as HLP <<app>>
+database "spec hygiene · N11\nfix drift\n(N10 N14 DONE; 3 N14 blocks held)" as SPEC <<db>>
+component "helpers + splits\nN6 N8 N9 N15 N16 N19 N26\n(N5 N17 DONE)" as HLP <<app>>
 
 D1 ARROW_MAIN F6 : landed together
 D1 ARROW_MAIN GO
@@ -1170,10 +1252,11 @@ legend bottom
   **IDs** — S seed done · D decided retirement · F seed finding · C credential report
   SEC security · T tests · N own sweep
   ==
-  **Counts** — DONE 41 · DECIDED 0 · PROPOSED 16 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  **Counts** — DONE 46 · DECIDED 0 · PROPOSED 12 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
   F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19, F20 added;
   D2, F13, C1, F20, N3, N17 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7;
   SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added;
-  third batch: SEC1, SEC4, F16, N20, N13, N5, N10 DONE)
+  third batch: SEC1, SEC4, F16, N20, N13, N5, N10 DONE, then N2, N22, N23, N24, N14 DONE;
+  N26 added)
 end legend
 @enduml
