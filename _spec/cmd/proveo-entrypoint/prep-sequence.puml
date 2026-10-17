@@ -22,9 +22,8 @@ end
 group redo in-shell — the part prep cannot carry
   SH ARROW_MAIN LIB : " ""set_working_directory /app"" "
   LIB ARROW_MAIN SH : cwd now the mounted scope
-  SH ARROW_MAIN LIB : " ""load_env quiet"" "
-  LIB ARROW_OPTIONAL SH : inside sbx (""SANDBOX_NAME""/""SANDBOX_VM_ID"" set) → skip source\n(the tier guard and broker sentinel went 2026-10-16)
-  LIB ARROW_MAIN SH : outside sbx (e.g. an image test) → ""set -a; source .env""
+  SH ARROW_MAIN LIB : " ""bridge_google_keys"" "
+  LIB ARROW_MAIN SH : Google key aliases filled; no workspace .env is read\n(N7 2026-10-17: load_env, its sbx guard and ""source .env"" are deleted)
   SH ARROW_MAIN LIB : harness bridge\n(""apply_env_bridges"" / ""CURSOR_MODEL"" / ""ANTHROPIC_MODEL"")
 end
 
@@ -33,9 +32,9 @@ SH ARROW_MAIN AGENT : " ""exec <agent> \"$@\""" "
 AGENT ARROW_MAIN AGENT : inherits cwd + bridged model env
 
 note over SH, LIB
-  **Why ""quiet"".** ""prep"" already printed the "".env""
-  detection lines; the in-shell repeat would double them.
-  ""load_env quiet"" suppresses the echo, not the work.
+  **No .env step.** The project "".env"" reaches a new
+  sandbox from the host through ""--env-file""; neither
+  ""prep"" nor the shell reads it (N7).
 end note
 
 note over AGENT

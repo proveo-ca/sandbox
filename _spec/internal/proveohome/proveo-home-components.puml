@@ -3,6 +3,21 @@
 ' purpose: the durable proveo home — what it holds, who writes it, and what is never mounted
 ' covers: internal/proveohome/**
 ' covers: cmd/proveo/main.go
+' covers: internal/run/run.go (homeLine)
+' covers: internal/run/home_line_test.go
+'
+' WHAT THE RUN SAYS ABOUT THE HOME (F15, DONE (wt) 2026-10-17; the user: "Print
+' what sbx sees (Recommended)"). The old line, "proveo home: <root> (mounted at
+' /proveo-home)", described the deleted docker backend. MEASURED:
+' internal/run/run.go homeLine(root, man.Home) (:432-446) prints "proveo home:
+' <root> (the sandbox sees <rel>, <rel>, …, toolchains at their host paths)" —
+' each declared home.mounts[].host relative dir, then "toolchains" ("at its
+' host path" when it is the only one). It does NOT list linkedDirs, which are
+' computed later in the run. Pinned by TestTheHomeLineNamesWhatTheSandboxSees
+' (internal/run/home_line_test.go). The container-side diagram below (HOME=
+' /proveo-home, `-v $PROVEO_HOME:/proveo-home`) is the docker backend's, kept as
+' HISTORY; on sbx each declared dir is bound at its own host path. OpenCode's
+' share is no longer mounted (D2, _spec/defs/opencode/engine-local-history.puml).
 title Proveo home — durable session state without binding host IDE homes
 
 actor "Developer" as DEV

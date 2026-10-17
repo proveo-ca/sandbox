@@ -110,7 +110,7 @@ note bottom of EP
   Shared entrypoint contract (see
   _spec/packages/lib/steps.puml and
   _spec/cmd/proveo-entrypoint/prep-process-boundary.puml):
-  non-root any-uid, in-shell ""load_env"", credential and
+  non-root any-uid, in-shell ""bridge_google_keys"", credential and
   git identity bridge + context report, verification
   command discovery, smoke-test mode.
 

@@ -95,7 +95,8 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' production would make every `npm`/`pnpm install` the agent runs in the
 ' workspace skip devDependencies — tsc, eslint, test runners — which are exactly
 ' the tools the agent needs. It is left undefined so the project's own .env can
-' set it if it wants one (load_env exports .env with `set -a`).
+' set it if it wants one — since N7 (2026-10-17) through the host's `--env-file`
+' seeding of a new sandbox, not an in-image load_env (deleted).
 '
 ' WORKSPACE ROOTS. /app is the workspace root, the same as every other def.
 ' /workspace survives only for the parts that were never claudecode's own:

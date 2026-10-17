@@ -924,7 +924,8 @@
       "spec": "_spec/internal/clean/clean-lifecycle.puml",
       "covers": [
         "internal/clean/**",
-        "cmd/proveo/clean.go"
+        "cmd/proveo/clean.go",
+        "cmd/proveo/clean_legacy_test.go"
       ],
       "fingerprint": null
     },
@@ -950,7 +951,13 @@
         "internal/credentials/credentials.go",
         "internal/credentials/hints.go",
         "internal/run/run.go",
-        "internal/run/credential_report_test.go"
+        "internal/run/credential_report_test.go",
+        "internal/backend/sandbox/project_env.go",
+        "internal/backend/sandbox/project_env_test.go",
+        "internal/workspace/mount.go",
+        "internal/sbx/run.go",
+        "internal/sbx/sbx_test.go",
+        "e2e/project_env_test.go"
       ],
       "fingerprint": null
     },
@@ -1022,7 +1029,9 @@
       "spec": "_spec/internal/proveohome/proveo-home-components.puml",
       "covers": [
         "internal/proveohome/**",
-        "cmd/proveo/main.go"
+        "cmd/proveo/main.go",
+        "internal/run/run.go",
+        "internal/run/home_line_test.go"
       ],
       "fingerprint": null
     },
@@ -1457,11 +1466,11 @@
     {
       "spec": "_spec/internal/verify/verification-discovery.puml",
       "covers": [
-        "defs/lib/detect-verify.sh",
-        "defs/cecli/proveo-lib/detect-verify.sh",
-        "defs/claudecode/mcp/proveo-lib/detect-verify.sh",
         "internal/verify/**",
-        "cmd/proveo-entrypoint/**"
+        "cmd/proveo-entrypoint/**",
+        "defs/*/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh",
+        "internal/contract/defaults_test.go"
       ],
       "fingerprint": null
     },

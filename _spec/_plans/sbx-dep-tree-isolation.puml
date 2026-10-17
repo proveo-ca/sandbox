@@ -4,8 +4,12 @@ skinparam noteTextAlignment left
 ' purpose: the foreign-arch dependency tree is ALREADY detected and already isolated on docker — the gap is one Kit field proveo does not model on sbx
 ' status: proposed 2026-09-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 ' would touch: internal/sbx/kit.go (no Volumes field today)
-' would touch: internal/run/run.go (StripDepCopies, the warning at ~660)
+' would touch: internal/run/run.go (the SharedTreesAllowed refusal and warning at ~641)
 ' would touch: internal/workspace/deps.go (DepCopy), internal/workspace/mount.go
+' UPDATE 2026-10-17 (F9, MEASURED): StripDepCopies, MaterializeDeps, DepCopyPolicy and the
+'   docker copy/stage machinery are DELETED; the host keeps detection only (DepCopies names the
+'   trees, run.go counts them). "Isolated on docker" below is HISTORY. A Kit volumes field would
+'   now start from the detected tree list, with nothing staged to strip.
 '   the schema field this needs .... _spec/_experiments/sbx-kit-capabilities.puml (volumes[])
 '   why sbx cannot mask a subpath .. _spec/_paradigms/workspace-boundary.puml
 '   why a clone sidesteps it ....... _spec/internal/sbx/clone-workspace.puml

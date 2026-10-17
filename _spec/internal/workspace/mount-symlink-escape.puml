@@ -15,7 +15,7 @@ node "Host — mount planning, before the container exists" as HOST <<host>> {
   component "linkMounts(hostDir,\ncontainerBase, ro)" as WALK <<app>>
   component "refuseLinkTarget(target, root)\nthe two guardrails" as GUARD <<app>>
   component "wsscan.AlwaysPrune\nshared deny set" as PRUNE <<app>>
-  component "envMounts · maskEnvMounts\nescapingEnvFile — the credential policy" as ENV <<app>>
+  component "secretEnvFile → LinkEnvPolicy\n(envMounts · maskEnvMounts · escapingEnvFile gone)" as ENV <<app>>
   component "reportLinks\n[]Link → screen + transcript" as REPORT <<app>>
 }
 
@@ -121,16 +121,15 @@ end note
 
 note right of ENV
   **Dotenv is owned by the credential policy, not by link resolution.**
-  Isolating egress masks every secrets file with ""/dev/null""; a forwarding
-  run overlays the resolved host file. Both decide what belongs at that
-  container path, and a second mount on the same destination is a docker
-  error rather than a fallback — so the walk records the link and places
-  nothing.
+  A symlinked dotenv (""secretEnvFile"": "".env"" / "".env.*"", templates
+  excepted) is recorded as ""LinkEnvPolicy"" — "placed by the credential
+  policy, not by link resolution" — and the walk mounts nothing for it
+  (MEASURED, mount.go:356-359).
 
-  ""escapingEnvFile"" closes the ""app"" gap: it overlays the
-  resolved target only when the path IS a symlink leaving the tree. A real
-  file there already works, and mounting it over itself would add a
-  redundant ""-v"".
+  Since F9 and N7 (2026-10-17) that policy places NO dotenv file at all: the
+  docker-era ""/dev/null"" masks, forwarding overlays and ""escapingEnvFile""
+  are gone, and the project "".env"" reaches a new sandbox as values through
+  ""--env-file"" (credential-decisions.puml, PROJECT .env).
 end note
 
 note bottom of REPORT

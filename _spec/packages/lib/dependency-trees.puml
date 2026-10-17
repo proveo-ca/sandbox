@@ -13,6 +13,20 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' covers: internal/workspace/platform.go
 ' covers: internal/workspace/platform_test.go (SharedTreesAllowed)
 '
+' ── F9 (DONE (wt) 2026-10-17): THE HOST KEEPS DETECTION ONLY ───────────────
+' The user: "Keep detection only (Recommended)" (repo-simplification.puml F9).
+' MEASURED: the docker-era copy machinery is deleted — MaterializeDeps,
+' copyTree, StripDepCopies, depStage, stagePath, depMounts, DepCopyPolicy and
+' PROVEO_DEPS_COPY, MountSpec.DepStage (and, reported, DepCopy.Stage). What
+' stays is detection: MountSpec.DepCopies() names the trees, and run.go counts
+' them (`len(WS.DepCopies())`, run.go:641) for the SharedTreesAllowed refusal
+' and warning; rs.Workspace.Mounts passes straight to sbx with no overlay to
+' strip. On sbx nothing changed: sandbox.WorkspaceBinds already skipped
+' non-directory hosts and run.go stripped the stage dirs (reported). The
+' in-container half (ensure_dependency_trees) is unchanged.
+' Everything below about PRIVATE COPIES, staging, clonefile, DepCopyPolicy,
+' PROVEO_DEPS_COPY and StripDepCopies is HISTORY of the deleted docker backend.
+'
 ' ── WHAT THE IN-CONTAINER STEP DOES, IN ORDER, PER PROJECT ─────────────────
 '   1. a HOST-BUILT tree is made usable. On the docker backend proveo never
 '      binds a dependency directory from the host: each one the table names is
@@ -240,8 +254,8 @@ node "Host checkout" as HOST <<host>> {
 node "proveo run — host side" as RUN <<host>> {
   component "**table** — ""workspace.DepLangs""\nmarkers → dirs, one row per language" as TABLE <<app>>
   component "**plan** — ""MountSpec.DepCopies""\nwalk to depth 4 · one copy per tree, present or not" as PLAN <<app>>
-  component "**decide** — ""DepCopyPolicy""\nhost ""GOOS/GOARCH"" vs image ""linux/<arch>""" as POLICY <<app>>
-  component "**stage** — ""MaterializeDeps""\ncopy on match · empty on mismatch\n""<state>/egress/<sid>/deps/""" as STAGE <<app>>
+  component "**decide** — ""SharedTreesAllowed""\nhost ""GOOS/GOARCH"" vs image ""linux/<arch>""\n(HISTORY: ""DepCopyPolicy"", deleted by F9)" as POLICY <<app>>
+  component "HISTORY — **stage** — ""MaterializeDeps""\ncopy on match · empty on mismatch\n(docker only; deleted by F9)" as STAGE <<app>>
 }
 
 node "Container — ""proveo_seed"" → ""ensure_dependency_trees""" as C <<host>> {
@@ -328,7 +342,7 @@ end note
 
 note bottom of REG
   **sbx cannot overlay.** It mirrors the checkout at its
-  host path; ""StripDepCopies"" drops the staged dirs.
+  host path; nothing is staged (F9 deleted the copies).
   Clone mode — the sbx default, worktrees included —
   carries tracked files only, so the seed installs into
   the clone. A mount on another platform refuses to start.

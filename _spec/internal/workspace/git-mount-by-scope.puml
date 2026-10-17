@@ -81,9 +81,9 @@ note bottom of A
   parent's — the more specific path wins. When they agree it emits nothing,
   because the parent already gives the right answer and an extra mount is noise.
 
-  This is the technique ""maskEnvMounts"" already uses to pin "".env"" files to
-  ""/dev/null"" inside an otherwise writable tree, so the mechanism is not new
-  here — only its application to "".git"".
+  This was the technique ""maskEnvMounts"" used to pin "".env"" files to
+  ""/dev/null"" inside an otherwise writable tree (deleted by F9, 2026-10-17),
+  so the mechanism was not new here — only its application to "".git"".
 end note
 
 note bottom of C

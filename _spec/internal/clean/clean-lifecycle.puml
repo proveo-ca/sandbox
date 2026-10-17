@@ -3,17 +3,26 @@
 ' purpose: what proveo clean reclaims, what it refuses to touch, and the liveness gate in front of it
 ' covers: internal/clean/**
 ' covers: cmd/proveo/clean.go
+' covers: cmd/proveo/clean_legacy_test.go
 '
 ' 2026-10-16: the docker+egress backend is DELETED, so nothing creates an
-' egress session container, an egress network or broker.env any more. MEASURED:
-' cmd/proveo/clean.go still sweeps `label=proveo.egress.session` containers and
-' networks and `proveo-dind-*` — both are now LEGACY sweeps for what an older
-' proveo left behind, the same reason the dind sweep was kept. The per-run state
-' dir (<stateDir>/egress/<sid>, the name is egress-era) now holds the sbx Kit,
-' the policy log and the run's other artifacts; an older run's dir may still
-' hold a broker.env. Whether and when to drop the legacy sweeps is
-' repo-simplification.puml F11 (PROPOSED), not decided here; nothing sweeps the
-' retired backend's `proveo-squid-cache-*` volumes at all.
+' egress session container, an egress network or broker.env any more. The
+' per-run state dir (<stateDir>/egress/<sid>, the name is egress-era) now holds
+' the sbx Kit, the policy log and the run's other artifacts; an older run's dir
+' may still hold a broker.env.
+'
+' ONE LEGACY SWEEP (F11, DONE (wt) 2026-10-17; the user: "One legacy sweep
+' (Recommended)"). MEASURED: cmd/proveo/clean.go gatherLegacyDocker (:170-200)
+' gathers everything the retired docker backend could leave — egress containers
+' and networks (`label=proveo.egress.session`), `proveo-dind-*` containers, and
+' `docker volume ls --filter name=proveo-squid-cache-` volumes — and runClean
+' removes the volumes with `docker volume rm`. internal/clean carries them as
+' Inventory.Volumes / Plan.Volumes; BuildPlan holds every volume back (reported
+' as "volume <name>" in SkippedLive) while ANY egress container still runs,
+' unless --force (clean.go:88-98). Tests: TestBuildPlanSweepsTheRetiredBackendsSquidVolumes
+' (internal/clean/clean_test.go) and TestTheLegacySweepFindsEveryRetiredDockerLeftover
+' (cmd/proveo/clean_legacy_test.go, a fake docker). "Delete the sweep in a later
+' release" is recorded, not scheduled.
 '
 ' A STATE DIR IS LIVE WHEN ITS PROCESS IS. With no egress container to stand for
 ' a run, a running container can no longer mark an sbx session live. MEASURED:
@@ -34,6 +43,7 @@ node "Host" as HOST <<host>> {
     component "LEGACY egress session containers\n(mitm · squid · ollama — none created since 2026-10-16)" as C <<app>>
     component "legacy DinD sidecars\n(retired; never session-labeled)" as D <<app>>
     component "LEGACY egress networks\n+ HasEndpoints" as N <<app>>
+    database "LEGACY proveo-squid-cache-* volumes\n(held back while an egress container runs)" as VOL <<db>>
     database "<stateDir>/egress/<sid>\nsbx Kit · policy log\n(older runs: broker.env)" as ST <<error>>
     database "proveo/* images" as IMG <<db>>
     database "PROVEO_HOME (~/.proveo)\nsessions + seeded config" as PH <<db>>
@@ -48,6 +58,7 @@ CORE ARROW_MAIN CMD : Plan{remove…, SkippedLive}
 CORE ARROW_MAIN C : routine — dead sessions only
 CORE ARROW_MAIN D : routine
 CORE ARROW_MAIN N : routine — only when no endpoints
+CORE ARROW_MAIN VOL : routine — none while an egress container runs\n(unless ""--force"")
 CORE ARROW_ERROR ST : routine — successLabel(wipes broker.env)
 CORE ARROW_OPTIONAL IMG : ""--deep"" only
 CORE ARROW_OPTIONAL PH : ""--homes"" only

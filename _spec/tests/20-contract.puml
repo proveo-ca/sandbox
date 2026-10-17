@@ -25,7 +25,7 @@ package "Contract suites (Go)" as Suites {
   component "internal/backend/sandbox\nsandbox.Spec — Kit, argv, secrets" as RunnerPkg <<app>>
   component "internal/provider\nregistry pins · Detect order" as Provider <<app>>
   component "internal/run\nrequireSandbox · egress row · Kit allow" as EgressPlan <<app>>
-  component "internal/workspace\nmount plan · EnvFileSource" as Workspace <<app>>
+  component "internal/workspace\nmount plan · ProjectEnvFile" as Workspace <<app>>
   component "shim / Dockerfile\nstructural asserts (Go)" as Struct <<app>>
 }
 

@@ -29,8 +29,9 @@ skinparam noteTextAlignment left
 ' host environment. Two things were wrong with that, and they compound.
 '
 ' It authored nothing that was needed. Provider keys are read from the
-' environment and from a project `.env` at RUN time, by workspace.EnvFileSource
-' and provider.Detect, whether or not init ever ran. Writing the file changed
+' environment and from a project `.env` at RUN time, by workspace.ProjectEnvFile
+' (EnvFileSource until N7, 2026-10-17) and provider.Detect, whether or not init
+' ever ran. Writing the file changed
 ' no behaviour; it only moved secrets onto disk.
 '
 ' And it moved them to the one place the product warns about. A `.env` inside
@@ -378,8 +379,8 @@ note bottom of ENV
   **It authored nothing that was needed.** Keys are
   read from the environment and a project ""\.env""
   at run time regardless. Writing the file only
-  moved secrets onto disk — into the workspace the
-  agent prelude sources with ""set -a"".
+  moved secrets onto disk — into a workspace the
+  agent could read (no image sources it since N7).
 end note
 
 note bottom of PROV

@@ -14,34 +14,26 @@
 ' covers: defs/cecli/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 '
-' ── §2 · FINDING A .env, IN FOUR ORDERED ATTEMPTS ──────────────────────────
-' find_env_file stops at the first hit, and the order is the point: the most
-' specific answer wins over the most convenient one.
-'   1. ./.env in the current working directory.
-'   2. the git root, via `git rev-parse --show-toplevel`.
-'   3. the git root again, by PURE-BASH upward traversal looking for a directory
-'      holding both .git and .env — the fallback for an image with no git, or a
-'      checkout git refuses to read.
-'   4. any .env at `find -maxdepth 5`, excluding */node_modules/* and */.*/*,
-'      with `-print -quit` so the walk stops at the first match.
-'
-' load_env sources it inside `set -a` / `set +a`, so every assignment in the
-' file is EXPORTED rather than merely set — the agent is a child process and an
-' unexported variable would never reach it.
+' ── §2 · THE IMAGE READS NO .env; IT ONLY BRIDGES KEY ALIASES (N7, 2026-10-17) ─
+' The user: "Keep 1+1, seed --env-file (Recommended)" (repo-simplification.puml
+' N7). MEASURED: find_env_file is deleted, and load_env lost its sbx guard and
+' its `set -a` sourcing of the workspace .env and is renamed bridge_google_keys
+' (entrypoint-lib.sh:49-62); every def entrypoint calls bridge_google_keys.
+' internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
+' pins that neither the bash nor the Go prelude reads it. The project .env's
+' values now reach a NEW sandbox from the host, through sbx's own `--env-file`
+' (_spec/internal/credentials/credential-decisions.puml, PROJECT .env).
+' HISTORY: find_env_file tried ./.env, the git root (rev-parse, then a pure-bash
+' walk), then any .env at `find -maxdepth 5`; load_env sourced it under `set -a`
+' unless SANDBOX_NAME or SANDBOX_VM_ID was set (until 2026-10-16 the guard keyed
+' on PROVEO_EGRESS_MODE).
 '
 ' Provider key aliasing runs in both directions, because the ecosystem has not
 ' settled on one spelling: GOOGLE_GENERATIVE_AI_API_KEY is filled from
 ' GEMINI_API_KEY or GOOGLE_API_KEY when absent, and once it is set the two older
 ' names are filled back from it for tools that read only those. Every bridge
-' fills an EMPTY slot and never overwrites, so a value the caller supplied wins.
-'
-' Inside sbx the file is not sourced: load_env returns early whenever
-' SANDBOX_NAME or SANDBOX_VM_ID is set ("Skipping .env load (inside sbx — the
-' workspace .env is not exported to the agent)"), and
-' internal/entrypoint.ShouldSkipEnvLoad mirrors it. A containment
-' step, not an optimisation (see the note on step 4 below). The guard keyed on
-' PROVEO_EGRESS_MODE naming a tier until 2026-10-16
-' (_spec/internal/sbx/sandbox-backend.puml).
+' fills an EMPTY slot and never overwrites, so a value the caller supplied wins
+' (TestBothPreludesBridgeTheGoogleKeyAliases).
 '
 ' HISTORY: apply_broker_sentinel rewrote every name in
 ' PROVEO_CREDENTIAL_BROKER_KEYS to PROVEO_BROKER_SENTINEL ("proveo-brokered") so
@@ -126,7 +118,8 @@ partition "2 · Filesystem mount  «host»" {
   else (app — analysis)
     :mount repo at /app (rw default; mode:ro optional)\n+ **RW** /app/output for artifacts (claudecode);
   endif
-  :directory workspaces only — sbx drops file binds,\nso no /dev/null .env masks reach the sandbox;
+  :directory workspaces only — the plan binds no .env file\n(the /dev/null masks and /app/.env binds are deleted, F9);
+  :project .env values → ""<run>/sbx/env"" → ""--env-file""\nat ""sbx create"" / ""sbx run"" of a NEW sandbox only (N7);
 }
 
 partition "3 · Egress  «host + sbx»" {
@@ -142,7 +135,7 @@ partition "3 · Egress  «host + sbx»" {
 
 partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh»" {
   :ensure run-as uid (root-free) · workdir;
-  :.env load — SKIPPED inside sbx (""SANDBOX_NAME"" / ""SANDBOX_VM_ID"")\n(keys stay with sbx's proxy);
+  :no .env load — the image reads no workspace .env (N7);\n""bridge_google_keys"" fills the Google key aliases;
   :git identity · ""gh"" auth check;
   :seed BAKED defaults into ~/.<tool>\n(agents, config, hooks — image-immutable, offline);
   :tool setup via **jq** — cursor HTTP/1.1 fallback;
@@ -196,10 +189,11 @@ partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh
   note left
   **Three contracts the shared lib holds for every entrypoint.**
 
-  //The "".env"" skip is a containment step, not an optimisation.// Inside
-  sbx (""SANDBOX_NAME"" or ""SANDBOX_VM_ID"" set) the lib does not source the workspace file —
-  a copy in the mounted tree must not be able to re-export keys into the
-  agent process. Non-secret harness flags travel in the Kit environment.
+  //No image sources the workspace "".env"" (N7, 2026-10-17).// A copy in the
+  mounted tree must not be able to re-export keys into the agent process, so
+  the lib no longer reads it at all; its values reach a new sandbox from the
+  host through ""--env-file"", provider keys dropped unless forwarding.
+  Non-secret harness flags travel in the Kit environment.
 
   //Agent evidence defaults to verbose.// The host ships
   ""PROVEO_AGENT_EVIDENCE"" and anything other than an explicit ""default""

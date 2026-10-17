@@ -19,7 +19,7 @@ node "Agent container" as CTR <<host>> {
 
   frame "Dies with the child\n(process-local state)" as LOST <<error>> {
     component "set_working_directory\nchdir(2)" as CWD <<error>>
-    component "load_env\nsource .env → exports" as ENV <<error>>
+    component "BridgeGoogleKeys\nGoogle key alias exports\n(no .env load since N7)" as ENV <<error>>
     component "ApplyEnvBridges\nOPENCODE_MODEL, …" as BRIDGE <<error>>
     component "bridge_git_identity\nGIT_CONFIG_KEY_n exports" as GITID <<error>>
   }
@@ -43,21 +43,21 @@ note right of LOST
   * opencode ignored ""ARCHITECT_MODEL"" → baked default
   * claudecode had no ""ANTHROPIC_MODEL""
   * ""find_env_file"" searched the wrong directory
-    (masked in real runs only because ""proveo run""
-     passes ""docker run -w /app"")
+    (HISTORY: the finder is deleted with N7)
 end note
 
 note bottom of SH
   **Contract for def entrypoints.** After calling ""prep"",
   redo the process-local steps IN THIS SHELL:
-  ""set_working_directory <dir>"" then ""load_env quiet""
+  ""set_working_directory <dir>"" then ""bridge_google_keys""
   then the harness's own model bridge. All are idempotent
   and only fill slots still unset, so a value already
-  supplied by ""docker run -e"" wins.
+  supplied by ""sbx run -e"" or ""--env-file"" wins.
 
-  ""load_env"" must never delegate back to ""prep"" — a
-  function whose job is exporting cannot do it from a
-  subprocess. See _spec/packages/lib/steps.puml.
+  An exporting helper must never delegate back to ""prep"" —
+  a function whose job is exporting cannot do it from a
+  subprocess. No step loads a workspace "".env"" any more
+  (N7). See _spec/packages/lib/steps.puml.
 end note
 
 note top of SMOKE
@@ -70,9 +70,10 @@ note top of SMOKE
 end note
 note bottom of PREP
   **The prelude is one Go binary shared by every entrypoint**: runtime user,
-  ""\.env"" load (skipped inside sbx on ""SANDBOX_NAME""/""SANDBOX_VM_ID""), env bridges, git
-  identity, smoke mode. (The credential sentinel step, ApplyBrokerSentinel,
-  was deleted 2026-10-16.) A harness entrypoint that reimplemented any of these would
+  the Google key aliases, env bridges, git identity, smoke mode. (The credential
+  sentinel step, ApplyBrokerSentinel, was deleted 2026-10-16; the ""\.env"" load —
+  FindEnvFile, LoadEnvFile, ShouldSkipEnvLoad — 2026-10-17 with N7, MEASURED:
+  runPrep has no .env branch.) A harness entrypoint that reimplemented any of these would
   drift from the others, and this is the layer whose failures are hardest
   to see from inside a container.
 

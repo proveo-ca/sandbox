@@ -97,6 +97,8 @@
 '   Evidence: MEASURED. load_env and entrypoint.ShouldSkipEnvLoad skip the workspace .env
 '     when SANDBOX_NAME or SANDBOX_VM_ID is non-blank (the decision said SANDBOX_VM_ID;
 '     SANDBOX_NAME joined it — F7 option 1 as implemented). The broker sentinel is deleted.
+'   SUPERSEDED 2026-10-17 by N7 (MEASURED): load_env and ShouldSkipEnvLoad are deleted; no image
+'     sources the workspace .env, so the rekeyed guard is gone with what it guarded.
 ' F8 · Image-side docker leftovers — DONE (wt).
 '   Evidence: MEASURED. No proxy banner in defs/codex or defs/claudecode/mcp entrypoints; no
 '     http://ollama:11434 default and no /proveo-home/data probe in opencode/hermes entrypoints.
@@ -148,6 +150,75 @@
 '     image_size_test.go TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist. Reported, measured
 '     on buildx v0.36.1: a Dockerfile-specific ignore file makes BuildKit ignore the root one, so
 '     the merged denylist is required. Spec: _spec/_plans/image-size-reduction.puml item 3.
+' N4 · Three detect-verify.sh copies behind unreachable fallbacks — DONE (wt). The user: "Delete
+'   all three (Recommended)".
+'   Evidence: MEASURED. No detect-verify.sh exists; defs/lib/ and defs/cecli/proveo-lib/ are gone
+'     (TestDeadHostLibsRemoved, internal/contract/defaults_test.go:137); defs/claudecode/mcp/
+'     proveo-lib/chrome-bridge.js stays (claudecode/mcp/Dockerfile:106 still copies that dir). No
+'     entrypoint or Dockerfile names detect-verify; codex_test.go:101 and cursor_test.go:90 now
+'     assert "proveo-entrypoint (verification commands) is baked" with `command -v
+'     proveo-entrypoint`. Spec: _spec/internal/verify/verification-discovery.puml.
+' N7 · Three .env finders and three .env parsers — DONE (wt). The user first typed "delete the 3
+'   finders and 3 parsers, then research a way to seed .env values properly to sbx", then, after
+'   the research, chose "Keep 1+1, seed --env-file (Recommended)".
+'   Research (reported by the coordinator; URLs as given):
+'     sbx v0.39.0 release notes — "`sbx run` and `sbx create` now accept `-e`/`--env` and
+'       `--env-file`"; "Sandboxes now expose their own identity as `SANDBOX_NAME` and
+'       `SANDBOX_ID`" (https://newreleases.io/project/github/docker/sbx-releases/release/v0.39.0).
+'       proveo's floor is sbx.MinVersion "0.42.0" (MEASURED, internal/sbx/sbx.go:17).
+'     docker --env-file syntax (https://docs.docker.com/reference/cli/docker/container/run/):
+'       `<variable>=value`, or a bare `<variable>` taken from the host; only a line STARTING with
+'       `#` is a comment, a `#` elsewhere is part of the value — so a raw dotenv (quotes,
+'       `export`) is not safe to pass through.
+'     sbxenv.yaml (`env:`, `secrets:`) exists, but `sbx env` is experimental
+'       (https://docs.docker.com/ai/sandboxes/configuration/environment-files.md).
+'   Evidence (image half): MEASURED. No find_env_file or load_env remains; the Google-alias block
+'     survives as bridge_google_keys (entrypoint-lib.sh:49), called from every def entrypoint
+'     (codex, cursor, opencode, cecli, hermes, claudecode/mcp). Go entrypoint FindEnvFile,
+'     LoadEnvFile and ShouldSkipEnvLoad are gone, and cmd/proveo-entrypoint runPrep reads no .env
+'     (main.go:88-101). internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
+'     (reported red against the old prelude) and TestBothPreludesBridgeTheGoogleKeyAliases.
+'   Evidence (host half): MEASURED. One finder, workspace.ProjectEnvFile(dirs ...) (mount.go:411);
+'     one parser, credentials.ParseEnvFile (credentials.go:632); EnvFileSource, envMountSource and
+'     findEnvFileResolved are gone. backend/sandbox/project_env.go seedProjectEnv writes
+'     <run>/sbx/env (0600, sorted KEY=value), dropping provider keys unless forwarding, names proveo
+'     sets, invalid names and values with CR/LF; sbx.RunConfig.EnvFile adds `--env-file` after the
+'     `-e` pairs in RunArgs/CreateArgs, and Reattach drops it (internal/sbx/run.go:128,176-177).
+'     Spec: _spec/internal/credentials/credential-decisions.puml (PROJECT .env).
+'   Residuals (reported): ParseEnvFile keeps an unquoted ` # comment` as part of the value;
+'     `op://` references pass unresolved; values apply only when the sandbox is created.
+' F7 · The guard key SANDBOX_VM_ID — DONE (wt), RESOLVED BY N7 (spec-keeper's call, recorded as
+'   such): N7 removed every workspace-.env load from the images, which is F7's option 3 in effect,
+'   so no .env guard is left to key. The user never picked an F7 option itself. What remains of
+'   the SANDBOX_VM_ID question lives in F18.
+' F9 · Workspace docker-isms: .env masks and dependency copies — DONE (wt). The user: "Keep
+'   detection only (Recommended)".
+'   Evidence: MEASURED. MaterializeDeps, copyTree, StripDepCopies, depStage, stagePath, depMounts,
+'     DepCopyPolicy (PROVEO_DEPS_COPY), MountSpec.DepStage, isolateEnv, envMounts, maskEnvMounts,
+'     envMaskPrune and envOverlay are absent from every .go file; secretEnvFile stays
+'     (mount.go:398) for the link scanner. run.go:641 counts trees as
+'     len(WS.DepCopies()) for the SharedTreesAllowed refusal. Reported: MountSpec.Credentials and
+'     DepCopy.Stage are deleted, 11 obsolete tests deleted, TestMountPlanBindsNoDotenvFile
+'     (mount_test.go:442) replaces the mask and symlink-env tests, and root node_modules is no
+'     longer an overlay mount. Behaviour on sbx is unchanged: sandbox.WorkspaceBinds already
+'     skipped non-directory hosts, and run.go stripped the stage dirs (reported MEASURED).
+'     Spec: _spec/internal/workspace/mount-model.puml.
+' F11 · `proveo clean` never swept proveo-squid-cache-* volumes — DONE (wt). The user: "One legacy
+'   sweep (Recommended)".
+'   Evidence: MEASURED. clean.Inventory.Volumes and clean.Plan.Volumes (internal/clean/clean.go:28,
+'     47); BuildPlan holds volumes back while any egress container runs unless --force (:88-98);
+'     cmd/proveo/clean.go gatherLegacyDocker (:170-200) lists egress containers and networks,
+'     proveo-dind-* and `docker volume ls --filter name=proveo-squid-cache-`; runClean removes
+'     them. Tests: TestBuildPlanSweepsTheRetiredBackendsSquidVolumes (internal/clean/clean_test.go)
+'     and TestTheLegacySweepFindsEveryRetiredDockerLeftover (cmd/proveo/clean_legacy_test.go,
+'     fake docker). "Delete the sweep in a later release" is recorded, not scheduled.
+'     Spec: _spec/internal/clean/clean-lifecycle.puml.
+' F15 · "proveo home: … (mounted at /proveo-home)" was stale on sbx — DONE (wt). The user: "Print
+'   what sbx sees (Recommended)".
+'   Evidence: MEASURED. run.go homeLine(root, man.Home) (:432-446) prints "proveo home: <root>
+'     (the sandbox sees <declared rel dirs>, toolchains at their host paths)";
+'     internal/run/home_line_test.go TestTheHomeLineNamesWhatTheSandboxSees. It does not list
+'     linkedDirs, which are computed later. Spec: _spec/internal/proveohome/proveo-home-components.puml.
 '
 ' ══ DECIDED ════════════════════════════════════════════════════════════════
 '
@@ -220,7 +291,8 @@
 '
 ' ══ PROPOSED — SEED FINDINGS ═══════════════════════════════════════════════
 '
-' F7 · The decided guard key SANDBOX_VM_ID may be deprecated — PROPOSED.
+' F7 · The decided guard key SANDBOX_VM_ID may be deprecated — DONE (wt) 2026-10-17, resolved by
+'     N7 (see DONE; first-read evidence below).
 '   Evidence: MEASURED. entrypoint-lib.sh:2767 already keys proveo_sbx_passthrough on it.
 '   [Unverified] The sandbox environment's own CLAUDE.md calls $SANDBOX_VM_ID deprecated in favour
 '     of $SANDBOX_NAME; this pass read no sbx documentation to confirm it.
@@ -234,7 +306,8 @@
 '     ShouldSkipEnvLoad key on SANDBOX_NAME or SANDBOX_VM_ID. No Executor quote picked it;
 '     the finding stays PROPOSED until one does (option 3 remains the recommendation).
 '
-' F9 · Workspace docker-isms: .env masks and dependency copies — PROPOSED.
+' F9 · Workspace docker-isms: .env masks and dependency copies — DONE (wt) 2026-10-17, option 1
+'     (see DONE).
 '   Evidence: MEASURED at first read. mount.go isolateEnv keyed on MountSpec.EgressMode.
 '   UPDATE (MEASURED, wt): isolateEnv now keys on MountSpec.Credentials != "forward"
 '     (mount.go:339-341), so maskEnvMounts is reachable again and plans /dev/null .env masks
@@ -272,7 +345,8 @@
 '     [Inference] Without KnownFields an out-of-tree def still carrying `egress: true` or
 '     `provider:` loads silently, which option 3's refusal would surface.
 '
-' F11 · `proveo clean` never sweeps proveo-squid-cache-* volumes — PROPOSED.
+' F11 · `proveo clean` never sweeps proveo-squid-cache-* volumes — DONE (wt) 2026-10-17, option 1
+'     (see DONE).
 '   Evidence: MEASURED at first read. Docker goldens showed
 '     `-v proveo-squid-cache-<target>:/var/spool/squid`; those goldens are deleted with D1,
 '     so these volumes now exist only on hosts that ran the retired backend.
@@ -301,7 +375,8 @@
 '        the tierBlocked parameter).
 '     3. Keep as is until host-execution-fallback.puml is decided.
 '
-' F15 · "proveo home: … (mounted at /proveo-home)" is stale on sbx — PROPOSED.
+' F15 · "proveo home: … (mounted at /proveo-home)" is stale on sbx — DONE (wt) 2026-10-17, option 1
+'     (see DONE).
 '   Evidence: MEASURED. internal/run/run.go:448 prints the HomePlan root "mounted at"
 '     proveohome.ContainerHome on every run.
 '   Evidence: reported by the coordinator, [Unverified] in this pass: sbx mounts the harness
@@ -329,11 +404,19 @@
 '     CONTRIBUTING.md:57 and CODING_HARNESSES.md:72 document only SANDBOX_VM_ID.
 '   Why: if sbx ever sets SANDBOX_NAME without SANDBOX_VM_ID, the .env guard holds while the
 '     passthrough, the seed wait and the OpenCode runtime treat the run as outside sbx.
-'   Options:
-'     1. [rec] One shell helper (`_proveo_in_sbx`, SANDBOX_NAME then SANDBOX_VM_ID, `:-` safe
-'        under set -u) used by every script, and the two docs updated to name both.
-'     2. Key every site on SANDBOX_VM_ID only and revert load_env/ShouldSkipEnvLoad to match.
-'     3. Keep as is until sbx documents which variable is stable (F7).
+'   UPDATE 2026-10-17 (MEASURED): the SANDBOX_NAME-aware half is GONE — N7 deleted load_env and
+'     ShouldSkipEnvLoad — and D2 deleted the OpenCode runtime's and preflight's checks. What is
+'     left keys on SANDBOX_VM_ID ONLY: entrypoint-lib.sh:2669 proveo_sbx_passthrough and
+'     packages/lib/proveo-await-seed:32,51 (test_opencode_startup.py:26 sets it in its fixture).
+'     New evidence (reported, N7's research): sbx v0.39.0 documents SANDBOX_NAME and SANDBOX_ID as
+'     the sandbox's identity, and SANDBOX_VM_ID is not in that list. [Unverified] whether
+'     SANDBOX_VM_ID is deprecated or merely undocumented. So the prelude no longer DISAGREES, but
+'     every remaining check keys on the one variable sbx does not document.
+'   Options (revised):
+'     1. [rec] One shell helper (`_proveo_in_sbx`: SANDBOX_NAME, then SANDBOX_ID, then
+'        SANDBOX_VM_ID, `:-` safe under set -u) for the two remaining sites; docs name SANDBOX_NAME.
+'     2. Key both sites on SANDBOX_NAME only (documented since v0.39.0, below the 0.42.0 floor).
+'     3. Keep SANDBOX_VM_ID until sbx documents its fate.
 '
 ' F19 · hermes's manifest still declares `/proveo-home/data`, which sbx ignores — PROPOSED.
 '   Evidence: MEASURED. defs/hermes/harness.manifest:20 `container: /proveo-home/data`.
@@ -467,6 +550,10 @@
 '     TestToolRestoreSkipsAStoreTheHomeAlreadyHolds failed in one full parallel run, then passed 10
 '     isolated runs and 3 full-package runs (reported). [Inference] timing or load in the shell
 '     tool-sync.
+'   ENVIRONMENT NOTE, 2026-10-17 (reported by the coordinator): the 20G dev VM disk filled during
+'     image rebuilds; proveo's local BuildKit cache ~/.cache/proveo/buildkit held 13G. Only
+'     scratch files and `go clean -cache` were cleared. A full image + test pass on a 20G VM
+'     needs that cache pruned first — a host condition, not a test defect.
 '   Options:
 '     1. [rec] Make each hermetic: inject host OS and tool lookups, stub jq/node on PATH, resolve
 '        images through a fake; re-record TestRunResolveGolden as sbx goldens after D1.
@@ -488,10 +575,17 @@
 '   Evidence: MEASURED. The exec mode `proveo-entrypoint <target> -- cmd` (main.go:55-61,74-85) has no
 '     caller in any Dockerfile, entrypoint, test or doc outside _spec/.
 '   Why: three copies drift, and the Go half does work nobody receives.
+'   UPDATE 2026-10-17 (MEASURED): prep no longer handles .env — N7 deleted Go LoadEnvFile,
+'     FindEnvFile and ShouldSkipEnvLoad, and runPrep (cmd/proveo-entrypoint/main.go:88-101) now
+'     runs EnsureRuntimeUser, the chdir, BridgeGoogleKeys, BridgeGitIdentity, the git-context
+'     report and ApplyEnvBridges. ApplyBrokerSentinel is gone with D1. The duplication that
+'     remains: BridgeGoogleKeys / ApplyEnvBridges in Go beside bash bridge_google_keys, and
+'     BridgeGitIdentity beside bash bridge_git_identity; the env exports still die with the child.
 '   Options:
 '     1. [rec] Shrink prep to what crosses the boundary (passwd entry, git-context report, smoke
-'        sentinel); delete the `else` branches, the exec mode, and Go LoadEnvFile, BridgeGoogleKeys,
-'        ApplyBrokerSentinel, BridgeGitIdentity, ApplyEnvBridges. Update contract_test.go:104-105.
+'        sentinel); delete the `else` branches, the exec mode, and Go BridgeGoogleKeys,
+'        BridgeGitIdentity, ApplyEnvBridges (LoadEnvFile and ApplyBrokerSentinel are already gone).
+'        Update contract_test.go:104-105.
 '     2. Make Go own it: `eval "$(proveo-entrypoint prep --print-env)"`; delete the bash helpers.
 '     3. Delete prep; bash owns the prelude, as hermes already does.
 '
@@ -504,6 +598,10 @@
 '   Evidence: MEASURED. So _normalize_model (entrypoint-lib.sh:335) and NormalizeModel
 '     (entrypoint.go:205) never run outside entrypoint_test.go:83.
 '   Evidence: MEASURED. _model_provider (entrypoint-lib.sh:371) has no caller.
+'   UPDATE 2026-10-17 (MEASURED): N7 renamed what was left of load_env to bash bridge_google_keys
+'     (entrypoint-lib.sh:49-62) — option 1's bash half exists. Go BridgeGoogleKeys
+'     (entrypoint.go:51), NormalizeModel (:97) and ApplyEnvBridges (:117) remain; line numbers
+'     above are first-read.
 '   Options:
 '     1. [rec] Keep one five-line bash bridge_google_keys; delete the rest and their tests;
 '        update model_bridging_retired_test.go:79.
@@ -520,7 +618,8 @@
 '     2. Keep the sed version; delete :691-694.
 '     3. Keep one copy and add a contract case for "1.8.0_402" and "21.0.4".
 '
-' N4 · Three identical detect-verify.sh copies behind unreachable fallbacks — PROPOSED.
+' N4 · Three identical detect-verify.sh copies behind unreachable fallbacks — DONE (wt) 2026-10-17,
+'     option 1 (see DONE).
 '   Evidence: MEASURED. defs/lib/, defs/cecli/proveo-lib/ and defs/claudecode/mcp/proveo-lib/ each
 '     hold the same 27-line detect-verify.sh.
 '   Evidence: MEASURED. Six Dockerfiles copy one of them (codex:123, opencode:76, cursor:91, hermes:36,
@@ -555,7 +654,8 @@
 '     2. Keep the sites; pin one vocabulary with a contract test.
 '     3. Keep as is.
 '
-' N7 · Three .env finders and three .env parsers disagree — PROPOSED.
+' N7 · Three .env finders and three .env parsers disagree — DONE (wt) 2026-10-17, option 1 plus
+'     seeding through `--env-file` (see DONE).
 '   Evidence: MEASURED. Finders: entrypoint.FindEnvFile (entrypoint.go:57-82, also used host-side at
 '     workspace/mount.go:556) and bash find_env_file (entrypoint-lib.sh:49-81).
 '   Evidence: MEASURED. Only the bash finder adds a `find -maxdepth 5` fallback (:73-78).
@@ -702,6 +802,9 @@
 '     auth_choice_test.go:276-283.
 '   Evidence: MEASURED. entrypoint.NormalizeModel (N2), runner.DockerRunArgs/Hardening (F12b),
 '     workspace.MaterializeDeps/DepCopyPolicy (F9) share the pattern.
+'   UPDATE 2026-10-17 (MEASURED): MaterializeDeps and DepCopyPolicy are gone with F9, and
+'     DockerRunArgs/Hardening with F12b. Still open: credentials.HasUsableAuth,
+'     entrypoint.NormalizeModel, chromebridge SetTokenEnv and the bare-name Env().
 '   Evidence: MEASURED. chromebridge SetTokenEnv and the bare-name Env() serve only the docker
 '     `-e NAME` form; the sbx path uses ResolvedEnv (internal/run/run.go:648).
 '   DONE 2026-10-16 (MEASURED, wt): choiceui.Consent (internal/choiceui/consent.go) — the
@@ -730,9 +833,10 @@
 '  1. SEC2 — a host-disclosure path with a small diff.
 '  2. SEC3 — a test helper that writes operator credentials.
 '  3. C1 — DONE (wt) 2026-10-17.
-'  4. N1 + N2 + N4 + N7 + F7 + F18 — collapse the in-image prelude to one implementation.
-'  5. F9 + F10 + F11 + F14 + F15 + F16 + F17 + F19 + N13 + N18 — delete the Go residue D1 leaves
-'     behind (F20 DONE (wt) 2026-10-17).
+'  4. N1 + N2 + F18 — collapse the in-image prelude to one implementation (N4, N7 and F7 DONE
+'     (wt) 2026-10-17).
+'  5. F10 + F14 + F16 + F17 + F19 + N13 + N18 — delete the Go residue D1 leaves behind (F9, F11,
+'     F15 and F20 DONE (wt) 2026-10-17).
 '  6. N12 + T1 — one image task, hermes inside the release gate, hermetic contract tests.
 '  7. N11 then N10 — fix spec drift, then graduate landed plans (main agent repoints SPEC: lines).
 '  8. N5 + N6 + N8 — shared helpers, then the env registry.
@@ -744,10 +848,10 @@ title PLANNED — repo simplification: 50 findings, their status, and the order 
 
 component "D1 · retire docker+egress\nDONE (wt) 2026-10-16" as D1 <<app>>
 component "D2 · OpenCode engine-local DB\nDONE (wt) 2026-10-17 · keeper gone" as D2 <<app>>
-component "F6 · .env guard rekey\nDONE (wt) inside D1" as F6 <<app>>
+component "F6 · .env guard rekey\nDONE (wt) inside D1;\nthe guard itself deleted by N7" as F6 <<app>>
 component "security · SEC1 SEC2 SEC3\npre-existing" as SEC <<error>>
-component "image prelude\nN1 N2 N4 N7 F7 F18\n(N3 DONE)" as PRE <<app>>
-component "post-D1 Go residue\nF9 F10 F11 F14 F15 F16 F17 F19\nN13 N18 (C1, F20 DONE)" as GO <<app>>
+component "image prelude\nN1 N2 F18\n(N3 N4 N7 F7 DONE)" as PRE <<app>>
+component "post-D1 Go residue\nF10 F14 F16 F17 F19 N13 N18\n(C1 F9 F11 F15 F20 DONE)" as GO <<app>>
 queue "test gates · T1 N12\nhermetic + hermes in gate" as TST <<async>>
 database "spec hygiene · N10 N11 N14\ngraduate + fix drift" as SPEC <<db>>
 component "helpers + splits\nN5 N6 N8 N9 N15 N16 N19\n(N17 DONE)" as HLP <<app>>
@@ -771,8 +875,8 @@ legend bottom
   **IDs** — S seed done · D decided retirement · F seed finding · C credential report
   SEC security · T tests · N own sweep
   ==
-  **Counts** — DONE 19 · DECIDED 0 · PROPOSED 31 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  **Counts** — DONE 25 · DECIDED 0 · PROPOSED 25 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
   F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19, F20 added;
-  D2, F13, C1, F20, N3, N17 DONE; N19 added)
+  D2, F13, C1, F20, N3, N17 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7)
 end legend
 @enduml

@@ -24,7 +24,7 @@ package "Go packages (internal/*) + *_test.go" as Pkgs {
  component "run\nrequireSandbox · rows · topology" as Egress <<app>>
  component "backend/sandbox\nSpec · launch env · teardown" as Runner <<app>>
  component "manifest\nharness.manifest loader" as Manifest <<app>>
- component "workspace\nscope · mount plan · EnvFileSource" as Workspace <<app>>
+ component "workspace\nscope · mount plan · ProjectEnvFile" as Workspace <<app>>
  component "gitidentity\nGIT_* env forwarding" as GitId <<app>>
  component "entrypoint\nbridges · .env guard (SANDBOX_NAME / SANDBOX_VM_ID)" as Entrypoint <<app>>
  component "shell\nPATH install per shell" as Shell <<app>>
