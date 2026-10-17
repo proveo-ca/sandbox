@@ -65,11 +65,14 @@ title OpenCode crew — automatic asks, explicit denies and visible execution
 ' after subscription limits. ModelBilling reads the raw prefix before
 ' providerAliases folds both routes onto opencode for host/key routing.
 ' The former auth.json-only explanation described v1, not the v2 token store.
-' The approved v2 lifecycle preserves sessions and removes stored credentials;
-' the approved private per-run DB and full-lifetime lease live in the native sibling.
-' Account/MCP token stores, nonauth state, rebased artifact paths, protected recovery,
-' PTY job control and canonical backend mapping now have implemented source fixtures.
-' Actual sbx cross-VM file locks and model-driven live idle git sync remain unexecuted.
+' D2 (DECIDED 2026-10-16, landing — _spec/defs/opencode/engine-local-history.puml):
+' sessions AND in-sandbox logins now persist with the retained engine, in OpenCode's own
+' ~/.local/share/opencode/opencode.db, until `sbx rm` (D8, "Accept and document"). proveo no
+' longer removes stored credentials, and no private per-run DB or lease exists.
+' HISTORY (keeper design): the v2 lifecycle preserved sessions and removed stored credentials,
+' with a private per-run DB and a full-lifetime lease; account/MCP token stores, rebased artifact
+' paths and protected recovery had source fixtures. Model-driven live idle git sync remains
+' unexecuted.
 ' Docker remains the sandbox daemon (docker: sbx), not a privileged sibling.
 '
 ' Native CLI config documentation: https://opencode.ai/v2/docs/cli/config

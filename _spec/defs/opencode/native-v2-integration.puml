@@ -23,29 +23,27 @@
 ' covers: e2e/opencode_presentation*
 ' covers: e2e/testdata/opencode_presentation.*
 '
-' ── IMAGE TESTS RUN IN DISPOSABLE HISTORY MODE (2026-10-13) ───────────────
-' A bare `docker run … opencode serve|run` reaches the prepared-history gate
-' and exits 78 ("OpenCode history is unprepared in this engine"): no keeper
-' holds a prepared engine there. The docker backend launched opencode with
-' PROVEO_OPENCODE_HISTORY_MODE=disposable (internal/backend/dockeregress, deleted
-' 2026-10-16), so internal/imagetest/opencode_test.go passes the same env
-' (ocDisposable) for its bare image runs.
+' ── HISTORY IS ENGINE-LOCAL (D2, DECIDED 2026-10-16, landing) ─────────────
+' The database, its import, the carry across a replacement and the thin
+' runtime are specified in _spec/defs/opencode/engine-local-history.puml.
+' This file keeps the native CONFIG and PRESENTATION contracts; every claim
+' below about a private per-run database, a durable-store lease, credential
+' scrubbing or publication describes the keeper design D2 deletes and is
+' marked HISTORY. [Unverified] until the code lands: MEASURED today, the
+' keeper stack (opencode_cache.py, opencode-credentials.py, the gate) is
+' still in the tree.
+' HISTORY — image tests in disposable history mode (2026-10-13): a bare
+' `docker run … opencode serve|run` reached the prepared-history gate and exited
+' 78, so internal/imagetest/opencode_test.go passed
+' PROVEO_OPENCODE_HISTORY_MODE=disposable (ocDisposable), as the deleted docker
+' backend did. HISTORY — the presentation fixture prepared its engine
+' (2026-10-16): opencode_presentation.py ran `--prepare --empty` per test and
+' passed --proveo-cache-owner on every runtime launch (7 tests, OK, 19.2s).
+' Under D2 neither workaround is needed: with no gate, a bare launch of the
+' thin runtime runs the native client on its own default database.
 ' 2026-10-17: packages/lib/test_opencode_runtime.py keeps only NativeCommandAutoTests
 ' (the --auto injection below); its RuntimeTests class and test_opencode_cache.py
-' are deleted (_spec/_plans/opencode-versioned-history-storage.puml, TEST DELETIONS).
-'
-' ── THE PRESENTATION FIXTURE PREPARES ITS ENGINE (2026-10-16) ─────────────
-' Measured on a Docker-only Linux run: TestOpenCodePresentationAndAutoacceptInImage
-' failed 10 subtests with "OpenCode history is unprepared in this engine; run
-' --proveo-prepare explicitly". The fixture launched proveo-opencode-runtime with
-' no keeper. The direct `--standalone` subtest bypasses the runtime and passed.
-' opencode_presentation.py now runs `--prepare --empty` per test with its own
-' PROVEO_OPENCODE_CACHE_HOME. It passes the issued owner as --proveo-cache-owner
-' on every runtime launch, because the runtime refuses an owner-less launch
-' ("launch requires the cache owner identity issued by the host runtime").
-' Cleanup runs --shutdown-cache with that owner before the temp root is removed.
-' This is the shape packages/lib/test_opencode_runtime_native.py already used.
-' After the change: 7 tests, OK, 19.2s.
+' are deleted.
 ' status: implemented contracts; PLANNED acceptance remains for the open live gates below.
 ' Primary reports focused source/unit and persisted offline native fixture passes.
 ' Security/adversarial repairs are implemented; their re-evaluations remain in progress.
@@ -125,53 +123,23 @@
 ' Child transcript navigation and the unsupported main-transcript wait-graph default
 ' are documented by the owning crew diagram and primary's native UI/source audit.
 '
-' The Executor chose a private per-run database and a full-lifetime durable-store lease.
-' Startup redesign supersedes per-run bulk restoration for prepared OpenCode engines.
-' See _spec/_plans/opencode-versioned-history-storage.puml for implemented gate/cache ownership and live acceptance.
-' Post-exit still performs the three existing sanitized publication operations.
-' Stateful runs sharing that store must serialize through the full writer lifetime,
-' including descendants and publication; failure must preserve recoverable session data.
-
-' proveo-seed scrubs durable/legacy stores with runtime --sanitize, then releases the
-' lease before the long seed body. --sanitize and --recover take that lease at once:
-' the instruction marker is written only after they return, so they must not wait for it.
-' sbx still starts the agent concurrently, and await-seed launches anyway after 30s.
-' The agent waits (PROVEO_OPENCODE_LEASE_WAIT, default 300s) while this boot's marker
-' is absent, and it does not hold the lease during that wait. It takes the lease and
-' execs the native CLI once the marker exists, or at the deadline. A busy lease after
-' the marker exists is another run and still exits 75 at once. A seed that keeps the
-' lease for the whole wait says so and exits 75.
-' The give-up path retries the lease once, so a holder that drops it as the marker
-' appears does not exit 75 against a free lease. A terminating signal ends the wait
-' and exits 128+signal without publishing. A share refusal during that
-' same-boot wait exits 1 without starting the CLI. The sentence
-' "OpenCode credential preflight refused release" is the runtime's own failure
-' note: a kept sandbox still holds the file, and the next launch deletes it.
-' A non-finite wait value uses the default.
-
-' Focused lifecycle fixtures exercise these boundaries; final review is still pending.
-' v2 stores auth tokens in SQLite alongside durable session state.
-' Removing auth.json alone is insufficient; deleting the session database is forbidden.
-' Cover every native account token store, provider credentials, and mcp-auth stores;
-' an empty credential table alone is not proof of credential-free persistence.
-' Implemented token handling covers credential, account, control_account, account_state,
-' auth.json, and mcp-auth.json. Schema-specific sanitization applies only to native
-' databases at the data root; ordinary Git/reference SQLite files copy unchanged.
-' Preserve session/history/resume data and safely exclude or scrub credentials on
-' every persistence path, including database journals, snapshots, and restored state.
-' Preserve nonauth state and artifacts rather than dropping the entire data directory.
-' Session and artifact paths must resolve after restore across backend mappings;
-' durable history must not depend on a deleted private runtime directory.
-' Non-auth native state persists; artifact output and stored session paths rebase to
-' the canonical durable store instead of retaining the per-run temporary prefix.
-' The wrapper uses manifest/config mappings for the same Docker and sbx store.
-' Divergent legacy and canonical histories are not merged: neither store is
-' overwritten, and the run continues from the canonical store. A migration
-' record that no longer matches is treated the same way.
-' Protected orphan recovery retains source/lease records on publication failure;
-' controlling-PTY suspend/resume and descendant lifetime ownership have source fixtures.
-' Do not infer cross-VM filesystem lock behavior from local fixture serialization.
-' Do not silently broaden PROVEO_KEEP_AGENT_LOGINS to allow persisted v2 tokens.
+' v2 stores auth tokens in SQLite alongside the session state. Under D2 that
+' database stays in the engine with its logins until `sbx rm` (D8, "Accept and
+' document"); proveo neither scrubs nor publishes it
+' (_spec/defs/opencode/engine-local-history.puml, RISKS).
+' HISTORY (keeper design, deleted by D2): the Executor had chosen a private
+' per-run database and a full-lifetime durable-store lease. proveo-seed scrubbed
+' the stores with runtime --sanitize and released the lease before the seed
+' body; the agent waited (PROVEO_OPENCODE_LEASE_WAIT, 300 s) for this boot's
+' marker, then took the lease and exec'd the native CLI; a busy lease exited 75.
+' Post-exit ran three sanitized publication operations covering credential,
+' account, control_account, account_state, auth.json and mcp-auth.json, rebased
+' artifact and session paths to the durable store, never merged divergent
+' legacy and canonical histories, and kept source/lease records for protected
+' orphan recovery. "OpenCode credential preflight refused release" was the
+' runtime's own failure note. None of that survives D2.
+' Still true: do not infer cross-VM filesystem lock behaviour from local
+' fixture serialization (engine-local-history.puml, SQLITE WAL ACROSS MACHINES).
 '
 ' Verification scope reported by primary, not commands executed by spec-keeper:
 ' - all five diagrams passed per-file PlantUML checks and the enforced note-box test
@@ -182,8 +150,8 @@
 ' Targeted Docker e2e gates cover snapshots, native lifecycle, presentation, seeded registry,
 ' and two actual proveo runs; the native simulator also checks first-session transcript resume.
 ' Remaining acceptance: adversarial/security re-evaluations and the full image/e2e suites.
-' Actual sbx cross-VM file locking and model-driven
-' live idle git synchronization remain unexecuted because sbx/tooling is unavailable.
+' Model-driven live idle git synchronization remains unexecuted. (Cross-VM file
+' locking no longer applies: under D2 the database never leaves the engine's disk.)
 ' The offline simulator scripts the model stream; it does not establish live provider,
 ' child-operation rendering, or network-backed idle commit/push behavior.
 ' Image-backed native fixtures derive their expected version from proveo.agent.version.
@@ -196,27 +164,25 @@
 ' no sbx test replaces that two-run --ls check yet (MEASURED: no e2e file names it).
 ' The registry probe loads /api/config before listing agents on the same private native server.
 ' A fresh agent-only diagnostic can return the uninitialized empty registry before configuration loads.
-' Runtime database publication is distinct from git synchronization: never turn idle
-' commit/push into an awaited CLI-return gate or promise completion after CLI exit.
+' Git synchronization is not a return gate: never turn idle commit/push into an
+' awaited CLI-return gate or promise completion after CLI exit. (Under the keeper
+' design this also separated it from runtime database publication, which D2 deletes.)
 '
 ' Register: manual normalized word/syllable counts; two sentences per note.
 ' FK: note bottom of DEFAULTS; words=30 syllables=55; FK 11.9
 ' FK: note bottom of FM; words=28 syllables=53; FK 12.2
 ' FK: note bottom of GO; words=27 syllables=52; FK 12.4
-' FK: note bottom of HOME; words=30 syllables=51; FK 10.3
 ' FK: note bottom of PLUGIN; words=33 syllables=61; FK 12.7
 ' FK: note bottom of TESTS; words=33 syllables=60; FK 12.3
 ' FK: note bottom of POLICY; words=32 syllables=57; FK 11.7
-' FK: note bottom of RUNTIME; words=34 syllables=59; FK 11.5
-' FK: note bottom of CREDENTIALS; words=32 syllables=59; FK 12.4
-' FK: note bottom of STATE; words=31 syllables=57; FK 12.2
 ' FK: note bottom of PREFS; words=34 syllables=63; FK 12.9
 ' FK: note bottom of CLI; words=32 syllables=56; FK 11.3
-' FK: note bottom of CREDENTIALS (native scope); words=34 syllables=61; FK 12.2
+' (2026-10-17, D2: the HOME, RUNTIME and STATE notes were rewritten and the two
+' CREDENTIALS notes deleted; their FK counts were not re-taken.)
 
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title Native OpenCode v2 integration — implemented; PLANNED live acceptance
+title Native OpenCode v2 integration — implemented; PLANNED live acceptance; history engine-local (D2)
 left to right direction
 
 package "defs/opencode" {
@@ -235,10 +201,9 @@ component "internal/hostadb/hostadb.go\nmcp.servers.mobile\ndisabled: false" as 
 component "opencode\nroot logger: --log-level debug\nheadless run: --auto independent of evidence\nverbose run: --thinking --print-logs\nroot TUI: no stderr log streaming" as CLI <<app>>
 component "packages/lib/hooks/proveo-git-sync-turn.js\ndefault {id, setup(ctx)}\nctx.event.subscribe · event.data" as PLUGIN <<async>>
 component "packages/lib/hooks/git-sync-turn.sh\nbest-effort idle dialect\nsubject helper: opencode run --standalone" as HOOK <<app>>
-component "internal/proveohome\nsession-preserving credential boundary" as HOME <<app>>
-component "packages/lib/proveo-opencode-runtime\nprivate per-run DB\nfull-lifetime durable-store lease" as RUNTIME <<app>>
-component "packages/lib/opencode-credentials.py\nnative provider/account/MCP token removal\nordinary reference SQLite unchanged" as CREDENTIALS <<app>>
-database "OpenCode durable state\nsessions + nonauth state + artifacts\nrestorable backend paths" as STATE <<db>>
+component "internal/proveohome\nopencode/v2/config mapped\nhistory never synced back (D2)" as HOME <<app>>
+component "packages/lib/proveo-opencode-runtime\nthin wrapper (D2)\n--auto · --standalone · execv" as RUNTIME <<app>>
+database "engine-local OpenCode database\n~/.local/share/opencode/opencode.db\nsessions + logins until sbx rm" as STATE <<db>>
 component "internal/contract\ninternal/imagetest/opencode_test.go\ne2e" as TESTS <<app>>
 
 DEFAULTS ARROW_MAIN EP : missing-only; explicit reseed
@@ -257,16 +222,13 @@ POLICY ARROW_MAIN CLI : automatic asks, not per-shell HITL
 LIB ARROW_MAIN PLUGIN : install before plugin loading
 CLI ARROW_QUEUE PLUGIN : idle notification, not a return gate
 PLUGIN ARROW_QUEUE HOOK : start best-effort helper; stdin closed
-RUNTIME ARROW_MAIN CLI : private active database
 RUNTIME ARROW_MAIN CLI : headless run --auto exactly once
-RUNTIME ARROW_MAIN STATE : exclusive lifecycle ownership
-RUNTIME ARROW_MAIN CREDENTIALS : credential-free persistence boundary
-CREDENTIALS ARROW_MAIN STATE : preserve resumable state and artifacts
-HOME ARROW_MAIN RUNTIME : backend durable-store mapping
-LIB ARROW_MAIN HOME : restore/save must preserve the invariant
+CLI ARROW_MAIN STATE : native default path; no proveo lease
+HOME ARROW_OPTIONAL STATE : copied in once at engine create
+LIB ARROW_MAIN HOME : restore/save skips .local/share/opencode
 TESTS ARROW_OPTIONAL CONFIG : native decoding and effective permissions
 TESTS ARROW_OPTIONAL CLI : image + live acceptance
-TESTS ARROW_OPTIONAL HOME : sessions retained; credentials absent
+TESTS ARROW_OPTIONAL HOME : history never written to the host
 TESTS ARROW_OPTIONAL HOOK : eventual completion; no return gate
 TESTS ARROW_OPTIONAL POLICY : automatic asks; native deny semantics
 TESTS ARROW_OPTIONAL PREFS : native TUI eight values; mini schema controls
@@ -296,11 +258,10 @@ note bottom of GO
 end note
 
 note bottom of HOME
-  Keep session history when scrubbing stored
-  credentials from storage. The safe lifecycle
-  must leave durable state free of tokens and
-  keys across every persistence path, not erase
-  the session database.
+  The host maps OpenCode config, not history.
+  A new engine copies the host database in
+  once, and nothing is ever written back to
+  the proveo home (D2).
 end note
 
 note bottom of PLUGIN
@@ -315,8 +276,8 @@ note bottom of TESTS
   Static tests must inspect decoded native
   permissions, not just matching text. Image and
   live tests must verify preserved user files,
-  resumable sessions, credential-free state, and
-  eventual idle git sync against the pinned CLI.
+  sessions kept in the engine across reattach,
+  and eventual idle git sync on the pinned CLI.
 end note
 
 note bottom of POLICY
@@ -328,27 +289,17 @@ note bottom of POLICY
 end note
 
 note bottom of RUNTIME
-  Each stateful run uses a private database while
-  holding a full-lifetime lease on its durable
-  store. The lease must prevent concurrent
-  publication and preserve recoverable session
-  state when a run fails or is interrupted.
-end note
-
-note bottom of CREDENTIALS
-  Scrub every native account token store as well
-  as provider credentials and MCP auth. A clean
-  credential table alone cannot make durable
-  state safe when another account store still
-  retains authentication tokens.
+  The runtime only shapes argv: it adds --auto
+  and --standalone, then execs the native
+  client. It holds no lease, cache or journal,
+  and it publishes nothing (D2).
 end note
 
 note bottom of STATE
-  Preserve nonauth state and artifacts when moving
-  sessions between backend storage layouts.
-  Session paths must resolve after restore, rather
-  than retaining a private runtime directory that
-  disappears when the process exits.
+  OpenCode owns its database on the engine's
+  disk. Logins persist with it until sbx rm
+  (D8); proveo never scrubs or copies it out,
+  except to carry it to a replacement (D1).
 end note
 
 note bottom of PREFS
@@ -367,11 +318,4 @@ note bottom of CLI
   still reject the operation.
 end note
 
-note bottom of CREDENTIALS
-  Only native databases at the data root undergo
-  token scrubbing, so ordinary Git databases stay
-  intact. Apply the native auth schema only to
-  those stores, not every file that uses the
-  same database format.
-end note
 @enduml

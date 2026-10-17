@@ -24,7 +24,10 @@ else
 fi
 
 # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
-proveo_seed opencode
+seed_defaults() {
+  proveo_seed opencode
+}
+seed_defaults
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"

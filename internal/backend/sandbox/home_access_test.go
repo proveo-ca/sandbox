@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -105,28 +106,35 @@ func TestHomeAccessCommitUsesNewestFile(t *testing.T) {
 	}
 }
 
-func TestOpenCodeHomeAccessSharesOnlyDeclaredV2History(t *testing.T) {
+func TestOpenCodeHomeAccessMountsConfigButNeverHistory(t *testing.T) {
 	t.Parallel()
-	root, runDir := t.TempDir(), t.TempDir()
-	unselected := filepath.Join(root, "other-history")
-	if err := os.MkdirAll(unselected, 0o700); err != nil {
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
 		t.Fatal(err)
 	}
-	h := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{
-		{Host: "opencode/v2/config", Container: "/proveo-home/.config/opencode"},
-		{Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode"},
-	}}
+	var h manifest.Home
+	for _, m := range ms {
+		if m.Name == "opencode" {
+			h = m.Home
+		}
+	}
+	root, runDir := t.TempDir(), t.TempDir()
+	for _, store := range []string{"opencode/v2/share", "opencode/share", ".local/share/opencode", "opencode/carry"} {
+		if err := os.MkdirAll(filepath.Join(root, store), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	a, err := PrepareHomeAccess(root, runDir, h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{filepath.Join(root, "opencode/v2/config"), filepath.Join(root, "opencode/v2/share"), filepath.Join(root, "toolchains")}
+	want := []string{filepath.Join(root, "opencode/v2/config"), filepath.Join(root, "toolchains")}
 	if len(a.Mounts) != len(want) {
-		t.Fatalf("unexpected sharing plan: %+v", a.Mounts)
+		t.Fatalf("OpenCode's home plan = %+v, want only its config and the toolchain store", a.Mounts)
 	}
 	for _, host := range want {
 		if !slices.Contains(a.Mounts, runner.Mount{Host: host}) {
-			t.Errorf("sharing plan omits %s: %+v", host, a.Mounts)
+			t.Errorf("OpenCode's home plan omits %s: %+v", host, a.Mounts)
 		}
 	}
 	cfg, _, _ := Spec(Input{Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h}, Sid: "proveo-fixture",
@@ -134,23 +142,10 @@ func TestOpenCodeHomeAccessSharesOnlyDeclaredV2History(t *testing.T) {
 		Mounts: []runner.Mount{{Host: root, Container: "/proveo-home"}},
 	})
 	for _, m := range cfg.Mounts {
-		if m.Host == root || m.Host == unselected || m.Host == filepath.Join(root, ".local") || m.Host == filepath.Join(root, ".local/share") || m.Host == filepath.Join(root, "logs") {
-			t.Fatalf("history sharing widened the home view: %+v", cfg.Mounts)
+		if rel, err := filepath.Rel(root, m.Host); err == nil && !strings.HasPrefix(rel, "..") &&
+			m.Host != filepath.Join(root, "opencode/v2/config") && m.Host != filepath.Join(root, "toolchains") {
+			t.Errorf("the engine sees %s; OpenCode history lives in the engine and never on a host mount", m.Host)
 		}
-	}
-}
-
-func TestOpenCodeHomeAccessDoesNotCreateNativeHistoryInHostHome(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	_, err := PrepareHomeAccess(root, t.TempDir(), manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
-		Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode",
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".local/share/opencode")); !os.IsNotExist(err) {
-		t.Fatalf("preparation created an obsolete data tree: %v", err)
 	}
 }
 

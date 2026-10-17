@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/startup-dispatch.puml
+// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/startup-dispatch.puml, _spec/defs/opencode/engine-local-history.puml
 
 package e2e
 

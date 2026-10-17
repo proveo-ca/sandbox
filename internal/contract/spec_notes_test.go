@@ -11,7 +11,7 @@ import (
 )
 
 var specNotesEnforced = []string{
-	"_spec/_plans/opencode-versioned-history-storage.puml",
+	"_spec/defs/opencode/engine-local-history.puml",
 	"_spec/_paradigms/opencode-oauth-persistence.puml",
 	"_spec/packages/lib/opencode-seed-progress.puml",
 	"_spec/_devops/release-gate.puml",

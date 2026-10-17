@@ -265,12 +265,8 @@
         "defs/opencode/harness.manifest",
         "defs/opencode/README.md",
         "packages/lib/proveo-opencode-runtime",
-        "packages/lib/opencode-credentials.py",
-        "packages/lib/test_opencode_credentials.py",
-        "packages/lib/test_opencode_runtime_native.py",
         "internal/backend/sandbox/sandbox.go",
         "internal/sbx/secret.go",
-        "e2e/opencode_credentials_test.go",
         "e2e/opencode_auth_test.go"
       ],
       "fingerprint": null

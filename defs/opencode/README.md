@@ -118,20 +118,13 @@ gitignored `.env`; the running server can use the environment key without an in-
 proveo detects the key like any other provider: with `--credentials broker` sbx's proxy holds
 it and attaches it on `opencode.ai` and `*.opencode.ai` only.
 
-OpenCode v2 stores saved credentials in its SQLite database.
-proveo runs the CLI with private data and publishes a credential-free snapshot of session history after it exits.
-The runtime holds a lease on the durable data store and rejects a concurrent stateful run with exit code `75`.
-Startup checks a runtime-owned prepared generation instead of copying and sanitizing full history.
-The cache stays on the owning sbx engine's local filesystem.
-Successful OpenCode runs retain that engine for subsequent launches.
-Post-exit still performs the existing three sanitized checkpoint/publication operations.
+OpenCode v2 stores saved credentials in its SQLite database, beside session history.
 Environment API keys remain available to the running CLI.
-Saved logins from `opencode auth login` or `/connect` do not carry into the next run.
+A login from `opencode auth login` or `/connect` stays in the engine until `sbx rm`; see [Engine-local history](#engine-local-history).
 The OpenCode-only host-owned OAuth persistence proposal lives in
 [`_spec/_paradigms/opencode-oauth-persistence.puml`](../../_spec/_paradigms/opencode-oauth-persistence.puml).
-That policy remains planned; the current runtime still removes saved tokens.
-The same holds for providers with no
-dedicated env var (Together, Hugging Face, …): prefer an API key via env or sbx's credential proxy.
+That policy remains planned.
+For providers with no dedicated env var (Together, Hugging Face, …), prefer an API key via env or sbx's credential proxy.
 Resume a prior session with:
 
 ```bash
@@ -144,42 +137,36 @@ OpenCode images enable `PROVEO_SEED_PROGRESS=1`.
 While startup waits for the seed, stderr displays `Waiting for seed`, the current
 run category and operation, elapsed seconds, and an animated indicator on terminals.
 Categories include `credentials`, `workspace`, `setup`, `interface`, and `starting`.
-Credential steps identify prepared-state checks without exposing tokens.
-The seed writes the same operation labels and credential-phase timings to
-`/var/log/sbx-kit-startup.log` on sbx.
+The seed writes the same operation labels to `/var/log/sbx-kit-startup.log` on sbx.
 Piped output reports step changes and five-second heartbeats without terminal control codes.
-The display does not delay instruction release or change credential persistence.
+The display does not delay instruction release.
 `PROVEO_SEED_PROGRESS=0` disables the progress display.
 
-## Versioned history and preparation
+## Engine-local history
 
-OpenCode V2 uses `opencode/v2/config` and `opencode/v2/share` under the proveo home.
-Ordinary launches do not mount or import V1/unversioned history.
-Historical V1 session versions inside an already-adopted V2 database remain valid.
-The image requires a stable `2.x` native version.
-An ordinary launch prepares an existing V2 database when the engine cache is unprepared, and reports the three prepare steps.
-If that database is absent and an older `opencode.db` is on disk, the launch copies it into `opencode/v2/share` and prepares the copy. The older file stays in place. OpenCode's own V1 migration then runs inside the copy.
-A removed engine prepares that database again when its private cache is gone and the journal's producer is the same stable major. A patch bump does not block it. A journal from another major stops the launch with the runtime's text; run the image of that major, or move the store aside.
-sbx stops an idle engine about 30s after its last session, which ends the keeper. The next launch re-verifies the cache that engine kept: at once when its last run ended prepared or published, after asking when it was interrupted (a headless run recovers). It never deletes without a headed yes.
+OpenCode keeps its session history in the sbx engine, at its native default `~/.local/share/opencode/opencode.db`.
+proveo sets neither `OPENCODE_DB` nor `XDG_DATA_HOME` for an agent launch.
+The database survives reattach and `sbx stop`.
+`sbx rm` removes it with the engine.
 
-Prepared startup has a five-second preparation budget.
-The seed gate does not run database backup, VACUUM, SQL dump hashing, or legacy migration.
-The native client reuses the prepared engine-local cache.
-The host keeps the keeper's kernel PID/start-time identity outside guest-writable mounts.
-Readiness files inside the sandbox cannot replace that authority.
+A new engine imports one database once, before the agent starts.
+The import takes the first existing file of these, under the proveo home (`~/.proveo` by default):
 
+1. `opencode/carry/<engine>.db`
+2. `opencode/v2/share/opencode.db`
+3. `opencode/share/opencode.db`
+4. `.local/share/opencode/opencode.db`
+
+proveo writes nothing back to the host.
+When a setting changes (image, kit, mounts), proveo replaces the engine and carries its database to the replacement.
+OpenCode itself handles concurrent launches against the same database; proveo adds no lock.
+
+Logins made inside the sandbox (`opencode auth login`, `/connect`) are saved in that database.
+They stay in this engine, readable by the agent and through `sbx exec`, until `sbx rm`.
+A carried database takes them to the replacement engine.
+
+Version and help flags, and the git-sync commit-subject helper, run against a throwaway database and leave the engine's history untouched.
 proveo adds no maintenance commands; arguments after `--` go to OpenCode.
-To bring an existing **V2-schema** store, copy its `opencode.db` (with any `opencode.db-wal` and `opencode.db-shm` beside it) into `<proveo home>/opencode/v2/share/` before the first launch.
-That launch prepares the mounted V2 database and publishes sanitized history into the V2 namespace.
-
-An interrupted run leaves pending private state.
-The next launch recovers it, or asks first: recover, reset with `sbx rm --force`, or stop and ask again next time.
-Recovery does not overwrite a published store changed by another writer.
-Use `sbx rm --force <engine-name>` only after preserving any unpublished work.
-
-An OpenCode launch that no proveo host prepared (a raw `sbx run` of the kit, or `opencode` typed in an `sbx exec` shell) runs the native client as a raw `sbx run` would.
-Its history stays in that sandbox; the proveo V2 store is not used.
-Creating a new engine for an existing V2 database prepares that database on the next launch.
 
 ## Baked-in workflow and presentation defaults
 
