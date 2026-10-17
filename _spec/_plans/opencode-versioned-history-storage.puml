@@ -6,10 +6,8 @@
 ' covers: packages/lib/proveo-await-seed
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: packages/lib/opencode_cache.py
-' covers: packages/lib/test_opencode_cache.py
 ' covers: packages/lib/opencode-credentials.py
 ' covers: packages/lib/test_opencode_credentials.py
-' covers: packages/lib/test_opencode_runtime.py
 ' covers: packages/lib/test_opencode_runtime_native.py
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/opencode_cache.go
@@ -29,7 +27,37 @@
 ' covers: internal/imagetest/opencode_test.go
 ' (2026-10-16: covers on internal/backend/dockeregress/**, e2e/opencode_sessions_test.go and the
 ' four docker-*opencode* goldens dropped — those files are deleted with the docker backend.)
-' status: IMPLEMENTED in source; native fixtures pass; live sbx/image acceptance remains pending.
+' (2026-10-17: covers on packages/lib/test_opencode_cache.py dropped — the file is deleted — and on
+' packages/lib/test_opencode_runtime.py dropped — it now holds only NativeCommandAutoTests, the
+' --auto injection _spec/defs/opencode/native-v2-integration.puml documents and still covers.)
+'
+' ── TEST DELETIONS, AND THE SOURCE INCONSISTENCY THEY EXPOSED (2026-10-17) ──
+' The user: "Fix seed, delete Python now", then "Delete RuntimeTests only (Recommended)".
+' MEASURED in source: packages/lib/test_opencode_cache.py and its tracked
+' __pycache__/test_opencode_cache.cpython-314.pyc are deleted; test_opencode_runtime.py lost the
+' RuntimeTests class (36 cases, reported) and keeps NativeCommandAutoTests (2 tests, 96 lines);
+' the Go wrappers TestOpenCodePreparedCacheFixtures and TestOpenCodeCredentialRuntimeLifecycle are
+' deleted from internal/contract/opencode_credentials_test.go. Still running:
+' TestOpenCodePresentationNativeRunArguments (NativeCommandAutoTests), e2e
+' TestOpenCodeCredentialRuntimeInImage (test_opencode_runtime.py, now native --auto only, and
+' test_opencode_runtime_native.py, in the image), and opencode-runtime-fixture.py through
+' internal/backend/sandbox/opencode_history_image_test.go.
+' WHY THEY FAILED (reported, measured by the coordinator in temp worktrees): the same 7 cache + 1
+' runtime errors at e66eb45c and at 0455c43f, so the suites failed from the commit that added
+' them — a test-harness defect, not flakiness. Its cause is a SOURCE inconsistency (MEASURED):
+'   opencode_cache.py:979 builds Keeper(runtime, env), and Keeper.__init__ (line 356) calls
+'   runtime.load_credentials(); proveo-opencode-runtime:31-32 load_credentials() reads
+'   PROVEO_OPENCODE_CREDENTIAL_HELPER from os.environ, NOT from that env, and otherwise falls back
+'   to /usr/local/lib/proveo/opencode-credentials.py. Outside the image that path is absent.
+' [Inference] Production is unaffected: the image has that path.
+' REDESIGN OBLIGATION (repo-simplification.puml D2): the engine-local redesign deletes the keeper
+' and the cache. It must ALSO delete load_credentials, or make it read the env it is handed — an
+' explicit item, not a side effect, because opencode-credentials.py survives as the import-time
+' sanitizer ([Inference], D2) and a surviving loader would keep the split.
+' COVERAGE LEFT: the keeper and cache have no Python unit suite outside the image now; Go
+' opencode_cache_test.go, internal/imagetest/opencode_test.go and the e2e legs remain.
+' status: IMPLEMENTED in source; native fixtures pass (the cache and RuntimeTests Python suites
+' never passed outside the image and are deleted, 2026-10-17); live sbx/image acceptance remains pending.
 ' Executor selected Prepared gate for seeding and Retained cache for launch.
 ' Scope: OpenCode family first; do not change other harnesses implicitly.
 ' Post-exit sanitization, recovery-checkpoint and durable-publication work remains unchanged for now.

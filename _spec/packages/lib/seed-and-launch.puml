@@ -105,7 +105,12 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '
 ' It defaults to the agent home now, and TestEverySeedSurvivesAnUnsetHarnessHome
 ' runs every harness's seed with no harness home exported and a stub LSP bridge
-' on PATH, because each wiring function returns early without one.
+' on PATH, because each wiring function returns early without one. It also
+' exports PROVEO_OPENCODE_DEFAULTS_DIR="$1/defs/opencode/defaults" (2026-10-17,
+' MEASURED, instructions_seed_test.go:314): since #68, proveo_bootstrap_opencode_config
+' refuses without baked defaults (entrypoint-lib.sh:2944-2947), and outside the
+' image /opt/opencode/defaults does not exist, so the opencode subtest had failed
+' on its fixture, not on the seed (the user: "Fix seed").
 ' opencode and hermes used to wait on the HOOKS marker, set before subagents
 ' and LSP config, because the release was once the first step; they now wait
 ' on the release like claudecode.

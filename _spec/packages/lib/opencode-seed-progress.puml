@@ -9,9 +9,11 @@
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: packages/lib/opencode_startup.py
 ' covers: packages/lib/test_opencode_startup.py
-' covers: packages/lib/test_opencode_runtime.py
 ' covers: internal/contract/opencode_seed_progress_test.go
 ' covers: e2e/opencode_seed_progress_test.go
+' (2026-10-17: the covers on packages/lib/test_opencode_runtime.py is dropped. Its RuntimeTests
+' class is deleted — the user: "Delete RuntimeTests only (Recommended)" — and what remains,
+' NativeCommandAutoTests, tests --auto injection, which this spec does not describe.)
 ' Surface: _spec/packages/lib/opencode-seed-progress-wireframe.puml
 ' Existing release semantics: _spec/packages/lib/seed-and-launch.puml
 ' Credential policy proposal: _spec/_paradigms/opencode-oauth-persistence.puml
@@ -33,6 +35,9 @@
 ' Do not hide the cursor or start an orphanable spinner subprocess.
 ' Shell and Python waits retain their existing release markers, deadlines and refusal checks.
 ' OpenCode runtime --sanitize/--recover must never wait for the marker they help release.
+' No packages/lib/test_*.py or OpenCode contract/e2e progress test names --sanitize or --recover
+' now (MEASURED by search, 2026-10-17); whether the deleted RuntimeTests pinned this rule is
+' [Unverified] — its content is gone from the tree.
 ' The ordinary OpenCode lifecycle wait keeps displaying producer updates after the shell's 30s timeout.
 ' The preflight completion wait reads the same status while post-release toolchain setup continues.
 ' Instruction release remains before toolchain installation; progress does not delay native launch.

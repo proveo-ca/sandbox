@@ -121,7 +121,7 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 // TeardownClone carries this run's clone home: its .env edits, then its work. It
 // returns an error while work remains only in the sandbox.
 func TeardownClone(in Input, cfg sbx.RunConfig) error {
-	if !in.Clone || in.RepoRoot == "" {
+	if in.RepoRoot == "" {
 		return nil
 	}
 	wd := agentWorkdir(in, cfg.Mounts)
@@ -137,9 +137,17 @@ func TeardownClone(in Input, cfg sbx.RunConfig) error {
 // PreserveClone snapshots, lifts and carries the clone's work home. It returns an
 // error while work remains only in the sandbox.
 func PreserveClone(in Input, cfg sbx.RunConfig) error {
-	if !in.Clone || in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
+	if in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
 		return nil
 	}
+	clones, known := sandboxClones(cfg.Name)
+	if !known {
+		return fmt.Errorf("cannot tell whether %s holds a clone, so its work may be only there", cfg.Name)
+	}
+	if !clones {
+		return nil
+	}
+	in.Clone = true
 	var stranded error
 	wd := agentWorkdir(in, cfg.Mounts)
 	if wd != "" {
@@ -440,7 +448,14 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	}
 	ui.Section(ui.SectionResults)
 	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
-	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", names[0], names[0])
+	lead := names[0]
+	for _, n := range names {
+		if !strings.HasPrefix(strings.TrimPrefix(n, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/"), "proveo/") {
+			lead = n
+			break
+		}
+	}
+	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", lead, lead)
 }
 
 func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into string) (int, string, error)) {
@@ -1542,7 +1557,7 @@ func Run(in Input) error {
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
-	if runErr != nil && signalled() == 0 && !sbx.Exists(cfg.Name) {
+	if runErr != nil && signalled() == 0 && !forceRemove.Load() && !sbx.Exists(cfg.Name) {
 		ui.Section(ui.SectionStarting)
 		if err := sbx.ReloadTemplate(cfg.Image, func(f string, a ...any) {
 			ui.Appf(f, a...)
@@ -1623,7 +1638,11 @@ func Run(in Input) error {
 		switch normalEndOf(forceRemove.Load(), stranded, opencodeCacheTarget(in.Target)) {
 		case endKeepStranded:
 			keepHomeAccess = true
-			ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
+			if opencodeCacheTarget(in.Target) {
+				ui.Warnf("%v — %s kept with its prepared history", stranded, cfg.Name)
+			} else {
+				ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
+			}
 			PrintIDEAttach(in, cfg, false)
 			return
 		case endRetainEngine:

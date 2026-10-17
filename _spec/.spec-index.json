@@ -237,10 +237,8 @@
         "packages/lib/proveo-await-seed",
         "packages/lib/proveo-opencode-runtime",
         "packages/lib/opencode_cache.py",
-        "packages/lib/test_opencode_cache.py",
         "packages/lib/opencode-credentials.py",
         "packages/lib/test_opencode_credentials.py",
-        "packages/lib/test_opencode_runtime.py",
         "packages/lib/test_opencode_runtime_native.py",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/opencode_cache.go",
@@ -269,7 +267,6 @@
         "packages/lib/proveo-opencode-runtime",
         "packages/lib/opencode-credentials.py",
         "packages/lib/test_opencode_credentials.py",
-        "packages/lib/test_opencode_runtime.py",
         "packages/lib/test_opencode_runtime_native.py",
         "internal/backend/sandbox/sandbox.go",
         "internal/sbx/secret.go",
@@ -292,7 +289,6 @@
         "internal/contract/opencode_credentials_test.go",
         "packages/lib/proveo-opencode-runtime",
         "packages/lib/opencode-credentials.py",
-        "packages/lib/test_opencode_cache.py",
         "packages/lib/test_opencode_runtime_native.py"
       ],
       "fingerprint": null
@@ -1665,7 +1661,6 @@
         "packages/lib/proveo-opencode-runtime",
         "packages/lib/opencode_startup.py",
         "packages/lib/test_opencode_startup.py",
-        "packages/lib/test_opencode_runtime.py",
         "internal/contract/opencode_seed_progress_test.go",
         "e2e/opencode_seed_progress_test.go"
       ],

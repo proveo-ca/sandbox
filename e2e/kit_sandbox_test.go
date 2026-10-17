@@ -112,22 +112,25 @@ func TestKitDirsAddsOnlyALinkedWorktreesMain(t *testing.T) {
 	}
 }
 
-func TestAnApprovalIsAnsweredOnlyWhileItWaits(t *testing.T) {
+func TestAnApprovalIsAnsweredOncePerAppearance(t *testing.T) {
 	t.Parallel()
 	prompt := "sbx wants to allow 3 hosts\n[A]pprove all · [R]eview each · [N]o\n"
 	for _, c := range []struct {
-		name   string
-		screen string
-		last   string
-		want   bool
+		name        string
+		screen      string
+		wasShowing  bool
+		wantDue     bool
+		wantShowing bool
 	}{
-		{"waiting at the bottom", prompt + "\n\n\n", "", true},
-		{"the screen already answered", prompt, prompt, false},
-		{"answered and scrolled past", prompt + "approved\nstarting agent\nseeding\nready\n", "", false},
-		{"no question", "agent: ready\n", "", false},
+		{"it appears", prompt + "\n\n\n", false, true, true},
+		{"it is still up after the answer while a spinner turns", prompt + "⠋ approving\n", true, false, true},
+		{"lines printed below it", prompt + "a\nb\nc\n", false, true, true},
+		{"answered and scrolled past", prompt + "approved\nstarting agent\nseeding\nready\nmcp up\nlsp up\n", true, false, false},
+		{"it appears again after it left", prompt, false, true, true},
+		{"no question", "agent: ready\n", false, false, false},
 	} {
-		if got := awaitingApproval(c.screen, c.last); got != c.want {
-			t.Errorf("awaitingApproval(%s) = %v, want %v", c.name, got, c.want)
+		if due, showing := approvalDue(c.screen, c.wasShowing); due != c.wantDue || showing != c.wantShowing {
+			t.Errorf("approvalDue(%s) = due %v showing %v, want due %v showing %v", c.name, due, showing, c.wantDue, c.wantShowing)
 		}
 	}
 }

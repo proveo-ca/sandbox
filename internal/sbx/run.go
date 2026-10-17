@@ -202,12 +202,19 @@ func CloneModeArgs(name string) []string {
 // and every stash on a branch the carry fetches.
 func CloneSnapshotArgs(name, workdir string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
-		"cd " + bashQuote(workdir) + " 2>/dev/null && git rev-parse --git-dir >/dev/null 2>&1 || exit 0\n" +
+		"cd " + bashQuote(workdir) + " 2>/dev/null || exit 0\n" +
+			"if ! git rev-parse --git-dir >/dev/null 2>&1; then [ -z \"$(ls -A)\" ] && exit 0; exit 1; fi\n" +
 			"git add -A && { git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
+			"-c core.hooksPath=/dev/null -c commit.gpgsign=false " +
 			"commit -q --no-verify -m 'proveo: uncommitted work at teardown (left in the clone by the agent)'; } || exit 1\n" +
-			"git symbolic-ref -q HEAD >/dev/null || git branch -f proveo/detached-head HEAD || exit 1\n" +
+			"head=$(git symbolic-ref -q HEAD)\n" +
+			"[ -n \"$head\" ] || [ -n \"$(git for-each-ref --contains HEAD refs/heads)\" ] || " +
+			"git update-ref refs/heads/proveo/detached-head HEAD || exit 1\n" +
+			"for r in $(git for-each-ref --format='%(refname)' 'refs/heads/proveo/stash-*'); do " +
+			"[ \"$r\" = \"$head\" ] || git update-ref -d \"$r\" || exit 1; done\n" +
 			"i=0\n" +
-			"for s in $(git stash list --format=%H); do git branch -f \"proveo/stash-$i\" \"$s\" || exit 1; i=$((i+1)); done\n"}
+			"for s in $(git stash list --format=%H); do " +
+			"[ \"refs/heads/proveo/stash-$i\" = \"$head\" ] || git update-ref \"refs/heads/proveo/stash-$i\" \"$s\" || exit 1; i=$((i+1)); done\n"}
 }
 
 // CloneFetchArgs lifts the sandbox's branches onto the host.

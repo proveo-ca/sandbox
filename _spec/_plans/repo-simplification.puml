@@ -139,7 +139,13 @@
 '     · proveo-opencode-preflight 35 · internal/backend/sandbox/opencode_cache.go 533.
 '   Evidence: MEASURED test weight: test_opencode_runtime.py 1164 · test_opencode_cache.py 634
 '     · test_opencode_runtime_native.py 535 · test_opencode_startup.py 293 · opencode_cache_test.go 799.
-'   [Inference] D2 removes most of ~2.8k production and ~3.4k test lines.
+'   UPDATE 2026-10-17 (the user: "Fix seed, delete Python now", then "Delete RuntimeTests only
+'     (Recommended)"): test_opencode_cache.py is DELETED and test_opencode_runtime.py is 96 lines,
+'     NativeCommandAutoTests only (MEASURED). Both suites had failed deterministically outside the
+'     image since the commit that added them: load_credentials() reads os.environ, not the env the
+'     Keeper is handed (opencode-versioned-history-storage.puml, TEST DELETIONS).
+'   [Inference] D2 removes most of ~2.8k production and ~3.4k test lines (the test figure predates
+'     the 2026-10-17 deletions above).
 '   [Inference] opencode-credentials.py (622) survives as the import-time sanitizer.
 '   Spec gap: opencode-versioned-history-storage.puml:37 and :375 still read IMPLEMENTED.
 '     That file needs a DECIDED section; this pass did not edit it (concurrent edits).
@@ -153,8 +159,9 @@
 '
 ' F13 · The runtime's `--prepare --source` control has no production caller — DECIDED (D2 deletes it).
 '   Evidence: MEASURED. packages/lib/opencode_cache.py:1351-1360 parses it.
-'   Evidence: MEASURED. Only tests call it: test_opencode_cache.py:85,96,115;
-'     test_opencode_runtime.py:520; internal/imagetest/opencode_test.go:44.
+'   Evidence: MEASURED. Only tests call it: internal/imagetest/opencode_test.go:44 and
+'     internal/backend/sandbox/opencode_history_image_test.go:68. (The test_opencode_cache.py and
+'     test_opencode_runtime.py callers were deleted with those suites, 2026-10-17.)
 '
 ' ══ PROPOSED — SEED FINDINGS ═══════════════════════════════════════════════
 '
@@ -351,14 +358,17 @@
 '     2. [rec] Pre-seed the credential binding before the leg and fail on any prompt.
 '     3. [Unverified] Point sbx at a throwaway config dir so approvals cannot persist.
 '
-' T1 · Tests that fail on a Docker-only Linux dev VM at HEAD — PROPOSED.
+' T1 · Tests that fail on a Docker-only Linux dev VM at HEAD — PROPOSED (5 of 7 resolved by decision
+'   2026-10-17; 2 remain).
 '   Evidence: MEASURED that each test exists at the cited line.
 '   [Unverified] The failures themselves come from an earlier run this session; this pass ran nothing.
+'     (HISTORY — the first-read list; see RESOLVED and STILL FAILING below for today's state)
 '     internal/contract/claude_env_hook_test.go:49/63/82 (two of three TestClaudeEnvHook*)
 '     internal/contract/jvm_toolchain_test.go:153 TestJVMRowNeedsTheQemuFloorOnMacOSHosts
 '     internal/contract/instructions_seed_test.go:294 TestEverySeedSurvivesAnUnsetHarnessHome
 '     internal/contract/opencode_credentials_test.go:49 TestOpenCodePreparedCacheFixtures
-'     internal/contract/opencode_credentials_test.go:37 TestOpenCodeCredentialRuntimeLifecycle (flaky)
+'     internal/contract/opencode_credentials_test.go:37 TestOpenCodeCredentialRuntimeLifecycle
+'       (written "flaky" here; it was deterministic — CORRECTION below)
 '     internal/run/run_test.go:1159 TestThePostureNamesTheCredentialRouteThatWillHappen
 '     cmd/proveo/run_golden_test.go:20 TestRunResolveGolden (egress-proxy:local present)
 '   Evidence: MEASURED. TestRunResolveGolden's three cases were docker cases. UPDATE (wt):
@@ -370,6 +380,37 @@
 '     OpenCodePreparedCacheFixtures, OpenCodeCredentialRuntimeLifecycle — plus e2e
 '     TestScheduleAgentThatDiesBeforeReadyFailsFast, which also fails on HEAD in a clean worktree.
 '     TestThePostureNamesTheCredentialRouteThatWillHappen is not on that list.
+'   CORRECTION: the list above called TestOpenCodeCredentialRuntimeLifecycle "flaky". It failed
+'     deterministically outside the image (the same 7 cache + 1 runtime errors at e66eb45c and
+'     0455c43f, measured by the coordinator in temp worktrees).
+'   RESOLVED 2026-10-17 BY DECISION (the user, TUI). Five of the seven are gone (MEASURED in source):
+'     * ClaudeEnvHook ×2 — "The 2 hook tests (Recommended)", on "Delete all tests that predate the
+'       mise shim": TestClaudeEnvHookIsInstalledOnceAndKeepsOtherSettings,
+'       TestClaudeEnvHookSourcesToolsWrittenAfterLaunch and sessionStartCommands are deleted. They
+'       came in #63 (2026-10-01), after the mise shims reached the images in #23 (2026-08-17;
+'       entrypoint-lib.sh:2725 puts .local/share/mise/shims on PATH). They needed a runnable
+'       `node`: none exists under a clean `go test` env, and an interactive shell finds an untrusted
+'       mise shim, so proveo_install_claude_env_hook no-ops (`command -v node … || return 0`,
+'       entrypoint-lib.sh:1452). Read literally, "predate" meant 39 of 261 test files (reported);
+'       the user did not choose that. COST: the hook's settings-merge path has no unit test.
+'     * EverySeedSurvivesAnUnsetHarnessHome/opencode — "Fix seed": a stale TEST fixture. #68
+'       (e66eb45c, 2026-10-13) made proveo_bootstrap_opencode_config refuse without baked defaults
+'       (entrypoint-lib.sh:2944-2947), which is correct. The test now exports
+'       PROVEO_OPENCODE_DEFAULTS_DIR="$1/defs/opencode/defaults" (instructions_seed_test.go:314), as
+'       opencode_v2_test.go:157 does; 6 of 6 subtests pass (reported).
+'     * OpenCodePreparedCacheFixtures and OpenCodeCredentialRuntimeLifecycle — "delete Python now",
+'       "Delete RuntimeTests only (Recommended)": test_opencode_cache.py (and its tracked .pyc) and
+'       the RuntimeTests class are deleted with both Go wrappers. Detail and the source
+'       inconsistency they exposed: opencode-versioned-history-storage.puml, TEST DELETIONS.
+'   STILL FAILING (2, reported):
+'     * internal/contract/jvm_toolchain_test.go:153 TestJVMRowNeedsTheQemuFloorOnMacOSHosts — this VM
+'       has a real /usr/bin/qemu-x86_64; the test's NO_QEMU=1 only skips a stub.
+'     * e2e/schedule_test.go:165 TestScheduleAgentThatDiesBeforeReadyFailsFast — the result detail
+'       lacks the agent's last line; fails on HEAD too; root cause not investigated.
+'   FLAKE, observed once: internal/contract/tool_sync_test.go:142
+'     TestToolRestoreSkipsAStoreTheHomeAlreadyHolds failed in one full parallel run, then passed 10
+'     isolated runs and 3 full-package runs (reported). [Inference] timing or load in the shell
+'     tool-sync.
 '   Options:
 '     1. [rec] Make each hermetic: inject host OS and tool lookups, stub jq/node on PATH, resolve
 '        images through a fake; re-record TestRunResolveGolden as sbx goldens after D1.

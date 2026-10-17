@@ -165,6 +165,16 @@ skinparam noteTextAlignment left
 ' written after launch on the next command.
 ' respondToBashCommands defaults to false (seeded only when unset), so a `!`
 ' line costs no model call.
+' The hook writer runs `node` and no-ops without one (`command -v node … ||
+' return 0`, entrypoint-lib.sh:1452). UNIT COVERAGE since 2026-10-17 (the user:
+' "The 2 hook tests (Recommended)"): internal/contract/claude_env_hook_test.go
+' keeps TestClaudeEnvHookIsClaudeCodeOnly and TestPersistedToolEnvIsAlsoAFile.
+' TestClaudeEnvHookIsInstalledOnceAndKeepsOtherSettings and
+' TestClaudeEnvHookSourcesToolsWrittenAfterLaunch are deleted: no runnable node
+' existed on the test host (none under a clean `go test` env; an untrusted mise
+' shim in an interactive shell), so the hook no-opped and both failed (reported).
+' The settings-merge path — one SessionStart hook, other settings kept — has no
+' unit test now; the "Measured" lines above are from live runs.
 '
 ' ── CLAUDE CODE ON A LOCAL MODEL ───────────────────────────────────────────
 ' Each turn sends ~15k prompt tokens; side requests on the same single-slot

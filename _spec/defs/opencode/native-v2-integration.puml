@@ -26,10 +26,13 @@
 ' ── IMAGE TESTS RUN IN DISPOSABLE HISTORY MODE (2026-10-13) ───────────────
 ' A bare `docker run … opencode serve|run` reaches the prepared-history gate
 ' and exits 78 ("OpenCode history is unprepared in this engine"): no keeper
-' holds a prepared engine there. The docker backend always launches opencode
-' with PROVEO_OPENCODE_HISTORY_MODE=disposable (internal/backend/dockeregress),
-' so internal/imagetest/opencode_test.go passes the same env (ocDisposable)
-' instead of testing a launch shape no backend uses.
+' holds a prepared engine there. The docker backend launched opencode with
+' PROVEO_OPENCODE_HISTORY_MODE=disposable (internal/backend/dockeregress, deleted
+' 2026-10-16), so internal/imagetest/opencode_test.go passes the same env
+' (ocDisposable) for its bare image runs.
+' 2026-10-17: packages/lib/test_opencode_runtime.py keeps only NativeCommandAutoTests
+' (the --auto injection below); its RuntimeTests class and test_opencode_cache.py
+' are deleted (_spec/_plans/opencode-versioned-history-storage.puml, TEST DELETIONS).
 '
 ' ── THE PRESENTATION FIXTURE PREPARES ITS ENGINE (2026-10-16) ─────────────
 ' Measured on a Docker-only Linux run: TestOpenCodePresentationAndAutoacceptInImage

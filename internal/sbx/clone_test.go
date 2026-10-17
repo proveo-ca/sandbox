@@ -95,7 +95,12 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 		args := CloneSnapshotArgs("sb", dir)
 		cmd := exec.Command("bash", "-c", args[len(args)-1])
 		cmd.Dir = t.TempDir()
-		cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+cmd.Dir)
+		for _, kv := range os.Environ() {
+			if !strings.HasPrefix(kv, "GIT_") {
+				cmd.Env = append(cmd.Env, kv)
+			}
+		}
+		cmd.Env = append(cmd.Env, "GIT_CEILING_DIRECTORIES="+filepath.Dir(cmd.Dir))
 		out, err := cmd.CombinedOutput()
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -113,7 +118,7 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 		}
 	}
 
-	t.Run("no workdir or no repository leaves nothing to save", func(t *testing.T) {
+	t.Run("no workdir or an empty one leaves nothing to save", func(t *testing.T) {
 		t.Parallel()
 		for _, dir := range []string{filepath.Join(t.TempDir(), "gone"), t.TempDir()} {
 			if code, out := snapshot(t, dir); code != 0 {
@@ -121,10 +126,21 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 			}
 		}
 	})
+	t.Run("files outside any repository are stranded", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "notes.md"), "the agent's work")
+		if code, _ := snapshot(t, dir); code == 0 {
+			t.Errorf("snapshot of a workdir git cannot read = exit 0; its files would be deleted with the sandbox")
+		}
+	})
 	t.Run("a rejecting pre-commit hook does not block the commit", func(t *testing.T) {
 		t.Parallel()
 		dir := repo(t)
-		write(t, filepath.Join(dir, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n")
+		for _, hook := range []string{"pre-commit", "prepare-commit-msg", "commit-msg"} {
+			write(t, filepath.Join(dir, ".git", "hooks", hook), "#!/bin/sh\nexit 1\n")
+		}
+		git(t, dir, "config", "commit.gpgsign", "true")
 		write(t, filepath.Join(dir, "work.txt"), "edit")
 		if code, out := snapshot(t, dir); code != 0 {
 			t.Fatalf("snapshot = exit %d\n%s", code, out)
@@ -141,8 +157,22 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 		if code, out := snapshot(t, dir); code != 0 {
 			t.Fatalf("snapshot = exit %d\n%s", code, out)
 		}
+		if got := git(t, dir, "log", "-1", "--format=%s"); !strings.Contains(got, "uncommitted work at teardown") {
+			t.Fatalf("HEAD is %q; the edit on the detached HEAD was never committed", got)
+		}
 		if head, br := git(t, dir, "rev-parse", "HEAD"), git(t, dir, "rev-parse", "refs/heads/proveo/detached-head"); head != br {
 			t.Errorf("proveo/detached-head = %s, want HEAD %s — `--branches` would leave the commit behind", br, head)
+		}
+	})
+	t.Run("a detached HEAD a branch already holds gets none", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		git(t, dir, "checkout", "-q", "--detach")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if refs := git(t, dir, "for-each-ref", "refs/heads/proveo/"); refs != "" {
+			t.Errorf("a clean detached checkout of main left %q; the seed's own --detach would report as the agent's work", refs)
 		}
 	})
 	t.Run("every stash gets a branch", func(t *testing.T) {
@@ -161,6 +191,13 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 			if stash != br {
 				t.Errorf("proveo/stash-%d = %s, want stash@{%d} %s", i, br, i, stash)
 			}
+		}
+		git(t, dir, "stash", "drop", "-q")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("second snapshot = exit %d\n%s", code, out)
+		}
+		if refs := git(t, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/proveo/"); refs != "proveo/stash-0" {
+			t.Errorf("after a stash was dropped the clone holds %q, want only proveo/stash-0 — a dropped stash would ride home again", refs)
 		}
 	})
 }

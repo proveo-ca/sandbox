@@ -391,22 +391,23 @@ func brokenPrompt(screen string) string {
 	return ""
 }
 
-// answerSbxPrompt takes the default on sbx's own operator question while it
-// waits on the visible screen, which a run on a PTY is expected to answer rather
-// than trip over, and returns the screen it last answered.
-func answerSbxPrompt(sess *tmux.Session, screen, last string) string {
-	if !awaitingApproval(screen, last) {
-		return last
+// answerSbxPrompt takes the default once each time sbx's own operator question
+// appears on the visible screen, which a run on a PTY is expected to answer rather
+// than trip over, and returns whether the question is showing now.
+func answerSbxPrompt(sess *tmux.Session, screen string, wasShowing bool) bool {
+	due, showing := approvalDue(screen, wasShowing)
+	if due {
+		_ = sess.SendText("A")
+		_ = sess.Enter()
 	}
-	_ = sess.SendText("A")
-	_ = sess.Enter()
-	return screen
+	return showing
 }
 
-// awaitingApproval reports whether sbx's approval question sits at the bottom of
-// screen and screen is not the one last answered.
-func awaitingApproval(screen, last string) bool {
-	return screen != last && strings.Contains(tail(screen, 3), "[A]pprove all")
+// approvalDue reports whether sbx's approval question sits in the last lines of
+// screen, and whether it just appeared there.
+func approvalDue(screen string, wasShowing bool) (due, showing bool) {
+	showing = strings.Contains(tail(screen, 6), "[A]pprove all")
+	return showing && !wasShowing, showing
 }
 
 func renderKit(t *testing.T, target string) string {

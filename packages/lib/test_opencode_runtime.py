@@ -1,4 +1,4 @@
-# SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_paradigms/credential-boundary.puml
+# SPEC: _spec/defs/opencode/native-v2-integration.puml
 
 import importlib.machinery
 import importlib.util

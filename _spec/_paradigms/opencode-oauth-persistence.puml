@@ -5,12 +5,14 @@
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: packages/lib/opencode-credentials.py
 ' covers: packages/lib/test_opencode_credentials.py
-' covers: packages/lib/test_opencode_runtime.py
 ' covers: packages/lib/test_opencode_runtime_native.py
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/sbx/secret.go
 ' covers: e2e/opencode_credentials_test.go
 ' covers: e2e/opencode_auth_test.go
+' (2026-10-17: the covers on packages/lib/test_opencode_runtime.py is dropped. RuntimeTests is
+' deleted; the file now tests only --auto injection, which this policy does not describe. The
+' sanitizer claim below rests on test_opencode_credentials.py and test_opencode_runtime_native.py.)
 ' status: PLANNED; Executor selected host-owned OAuth on 2026-10-09.
 ' Implementation remains unapproved and unshipped; this change documents the policy only.
 ' Scope: the OpenCode harness family, including its browser image; other harnesses remain unchanged.
