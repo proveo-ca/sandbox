@@ -227,11 +227,13 @@
 '   noted. Reported verification (coordinator): go vet clean for no tags, e2e, image, livesbx,
 '   darwin, windows; golangci unused 0 for no tags, e2e, image; unit 38 packages ok except the
 '   known JVM row; e2e only the known schedule failure. The image builds and image suites did
-'   NOT run (1.9 GB free) — so N1/F18/N12's image-side behaviour is [Unverified] in an image.
+'   NOT run (1.9 GB free) at first; after the review fixes they did — all 7 TestImage* PASS
+'   (reported; see FIXES AFTER THE ADVERSARIAL REVIEW below).
 ' SEC2 · linkedDirs followed symlinks the guest could plant — DONE (wt), option 2.
 '   Evidence: MEASURED. home_access.go follows a home link only when its resolved target is listed
 '     in <homeRoot>/linked-dirs (LinkedDirsFile, :28-29; listedLinkTargets :96-98); an unlisted one
-'     lands in HomeAccess.SkippedLinks ("<link> → <target>", :24) and sandbox.go:1450-1451 prints
+'     lands in HomeAccess.SkippedLinks ("<link> → <target>", :24) and the run prints (after the
+'     review fix, noteSkippedLinks, home_access.go:32-36, called at sandbox.go:1451)
 '     "home link <l> not followed — list its target in <homeRoot>/linked-dirs to mount it
 '     read-only". The widening filters still run first (reported). A copy of linked-dirs inside a
 '     mounted dir does not count (home_access_test.go:330-348). Tests:
@@ -315,6 +317,25 @@
 '     (:655). Reported: Close no longer unsets the token, and the chromebridge test asserts the relay
 '     never exports its token into the host process. Specs: _spec/defs/claudecode/chrome-bridge.puml,
 '     _spec/internal/credentials/credential-decisions.puml.
+' FIXES AFTER THE ADVERSARIAL REVIEW of this batch (all (wt), MEASURED unless marked):
+'   SEC2 — the skipped-link notice never printed on a real run: run.go prepares HomeAccess, and
+'     the Notef sat inside sandbox.Run's own-prepare branch. Now noteSkippedLinks(a HomeAccess)
+'     (home_access.go:32-36) runs after either path (sandbox.go:1451);
+'     TestASkippedLinkNoticeNamesTheLinkAndTheListFile (home_access_test.go:353).
+'   SEC3 — e2e/instrument_test.go watcher.until fails fast on a consent prompt through
+'     consentPrompt/consentFailure (:165-166). Before, seed_ready and git_sync_turn waited out
+'     8 minutes (reported).
+'   F10 — Parse wraps yaml's unknown-field error for `docker:` with "`docker:` is retired —
+'     delete it, or set `daemon: false` to withdraw the daemon" (manifest.go:304), and
+'     TestAStaleManifestKeyFailsLoading asserts the hint. Reported: e2e
+'     assertDockerServerReachable and the defs/base/Dockerfile comment no longer name `docker: sbx`.
+'   Doc comments (reported): reportCredentialGaps' and recordOutcome's moved onto their funcs in
+'     run.go; chromebridge's package comment and linkedDirs' comment repaired.
+'   Verification (reported): image suites rebuilt from the tree (`proveo build all`) — all 7
+'     TestImage* PASS (19 live-API skips), so the N1/F18/N12 image behaviour is now measured in an
+'     image; unit and e2e show only T1's 2 known failures; vet clean for every tag plus darwin and
+'     windows; unused 0. The rebuild refilled ~/.cache/proveo/buildkit to 15 GB and filled the
+'     disk; cleared again with the user's approval, "Clear buildkit cache (Recommended)" (T1 note).
 '
 ' ══ DECIDED ════════════════════════════════════════════════════════════════
 '
@@ -655,7 +676,9 @@
 '   ENVIRONMENT NOTE, 2026-10-17 (reported by the coordinator): the 20G dev VM disk filled during
 '     image rebuilds; proveo's local BuildKit cache ~/.cache/proveo/buildkit held 13G. Only
 '     scratch files and `go clean -cache` were cleared. A full image + test pass on a 20G VM
-'     needs that cache pruned first — a host condition, not a test defect.
+'     needs that cache pruned first — a host condition, not a test defect. It recurred after the
+'     review rebuild (`proveo build all`: the cache refilled to 15 GB and filled the disk); it was
+'     cleared with the user's approval, "Clear buildkit cache (Recommended)" (reported).
 '   Options:
 '     1. [rec] Make each hermetic: inject host OS and tool lookups, stub jq/node on PATH, resolve
 '        images through a fake; re-record TestRunResolveGolden as sbx goldens after D1.
@@ -706,7 +729,8 @@
 '     (BridgeGoogleKeys, NormalizeModel, ApplyEnvBridges). Still open: the bash bridge machinery —
 '     _normalize_model (:254), _apply_env_bridge (:269), apply_env_bridges (:285, called by the
 '     opencode and hermes entrypoints) and the uncalled _model_provider (:290); line numbers above
-'     are first-read.
+'     are first-read. N23 (filed by the adversarial review) isolates the duplicate-Google-bridge
+'     half.
 '   Options:
 '     1. [rec] Keep one five-line bash bridge_google_keys; delete the rest and their tests;
 '        update model_bridging_retired_test.go:79.
@@ -863,6 +887,10 @@
 '     defs/hermes/entrypoint.sh:21-26; defs/codex/entrypoint.sh:159-163,186-189;
 '     internal/run/run.go:195-198; backend/sandbox/home_access.go:17-19,42-44.
 '   Evidence: MEASURED. AGENTS.md rule 3: source carries instructions, _spec/ carries reasoning.
+'   ADDED 2026-10-17 (adversarial review; MEASURED): why/history comments at
+'     defs/hermes/harness.manifest:4-5 and defs/cecli/entrypoint.sh:179-187; and stale backend
+'     wording — defs/codex/entrypoint.sh:52-54 ("so both backends get the identical files") and
+'     defs/cecli/entrypoint.sh:179 ("on docker it is cecli's own flags") — sbx is the only backend.
 '   Options:
 '     1. [rec] Re-run migrate-then-strip and add a proveo-dev lint rule that flags comment blocks over
 '        three lines outside godoc first sentences, SPEC:/covers lines and pragmas.
@@ -937,16 +965,98 @@
 '     2. Keep it as image metadata for operators who inspect the image.
 '     3. Keep as is.
 '
+' ══ PROPOSED — FROM THE ADVERSARIAL REVIEW OF THE SECOND BATCH (2026-10-17) ═
+'
+' N20 · Nothing in the product reads `daemon:` — PROPOSED.
+'   Evidence: MEASURED. manifest.WantsDocker (manifest.go:82-84) has one caller, e2e/sbx_test.go:132
+'     (daemonHarnesses); no non-test package reads Manifest.Daemon.
+'   Evidence: MEASURED. The picker still tells a `daemon: false` harness (hermes) that its sandbox
+'     is "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets"
+'     (internal/run/choices.go:508, addonSandbox help).
+'   Options:
+'     1. [rec] Make the picker text follow WantsDocker (no daemon promised for `daemon: false`).
+'     2. Also stop starting the daemon in images that declare `daemon: false` (a Kit/label change).
+'     3. Delete `daemon:` and WantsDocker; the e2e matrix reads the image label instead.
+'
+' N21 · The Claude-in-Chrome bridge path is unreachable under sbx — PROPOSED.
+'   Evidence: MEASURED. internal/run/run.go:651 passes the constant chromebridge.SbxWhy as
+'     startChromeBridge's tierBlocked, and gateAddons greys the add-on with the same SbxWhy
+'     (choices.go:254), so chromeUnavailable (choices.go:268), chromebridge.Start, ResolvedEnv
+'     (run.go:655) and sandbox.Input.BridgeEnv (sandbox.go:1042,1189,1279) never carry a value.
+'   Overlaps F14 (remove the add-on) and F16 (the tierBlocked parameter); this is the decision
+'     both wait on.
+'   Options:
+'     1. [rec] Decide whether Claude-in-Chrome under sbx is retired; if so, delete the dead path
+'        (F14 option 1 with F16 folded in).
+'     2. Keep the path for a future real-token route; collapse it behind one guard.
+'     3. Keep as is.
+'
+' N22 · Smoke mode cannot fire from any def entrypoint — PROPOSED.
+'   Evidence: MEASURED. All five def entrypoints run `env PROVEO_SMOKE_TEST= proveo-entrypoint prep`,
+'     clearing the flag, so cmd/proveo-entrypoint's SmokeReady branch, its hourly sleep loop and the
+'     `[target]` argument (main.go:52-64) never take effect.
+'   Options:
+'     1. [rec] Delete SmokeReady, the loop and the target argument from prep; the defs' own
+'        run_smoke_test stays the smoke path.
+'     2. Let prep honour the flag and drop the defs' `env PROVEO_SMOKE_TEST=` prefix.
+'     3. Keep as is and document prep's smoke mode as unreachable.
+'
+' N23 · apply_env_bridges duplicates bridge_google_keys — PROPOSED.
+'   Evidence: MEASURED. entrypoint-lib.sh apply_env_bridges (:285-288) maps GEMINI_API_KEY and
+'     GOOGLE_API_KEY onto GOOGLE_GENERATIVE_AI_API_KEY — what bridge_google_keys (:49-62) already
+'     does; the opencode and hermes entrypoints call bridge_google_keys first, so the second call
+'     only finds filled slots.
+'   Options:
+'     1. [rec] Delete apply_env_bridges and _apply_env_bridge (and, with N2, _normalize_model and
+'        _model_provider); drop the two calls.
+'     2. Keep apply_env_bridges as the generic table; delete bridge_google_keys.
+'     3. Keep both.
+'
+' N24 · report_git_context and ensure_runtime_user exist in shell AND Go — PROPOSED.
+'   Evidence: MEASURED. entrypoint-lib.sh ensure_runtime_user (:4) and report_git_context (:88) beside
+'     internal/entrypoint EnsureRuntimeUser and cmd/proveo-entrypoint reportGitContext
+'     (main.go:67-98). Two implementations of one preamble drift.
+'   Options:
+'     1. [rec] Keep the Go pair (prep owns what crosses the boundary, per N1); delete the shell
+'        twins and their callers.
+'     2. Keep the shell pair; shrink prep to the smoke sentinel (or nothing, with N22).
+'     3. Keep both; add a parity test.
+'
+' N25 · The PROVEO_EGRESS_ROOT deprecation warning misses the run log — PROPOSED.
+'   Evidence: MEASURED. internal/run/run.go:49 calls StateDir() — which emits renamedEnv's warning —
+'     before ui.TeeTo(rs.Log.Writer()) at :56, so the warning reaches the terminal but not the
+'     transcript.
+'   Options:
+'     1. [rec] Resolve the state root (and its warning) after the log opens, or replay pending
+'        warnings into it.
+'     2. Warn again from a point after TeeTo.
+'     3. Accept it: the warning is temporary and goes with the alias next release.
+'
+' SEC4 · A custom def's home mount `host: .` would mount the whole proveo home read-write —
+'   PROPOSED (PLAUSIBLE; found in review).
+'   Evidence: MEASURED. manifest Home.validate (manifest.go:257-291) refuses an empty, absolute or
+'     `..` host but accepts `.`; home_access.go joins it onto the root, so the bind is the proveo
+'     home itself.
+'   [Inference] The guest could then write <home>/linked-dirs and bypass SEC2's listing, and a
+'     `files: [linked-dirs]` entry would round-trip through HomeAccess.Commit the same way. No
+'     shipped def declares either; a custom def could.
+'   Options:
+'     1. [rec] Refuse `.` as a home mount host and LinkedDirsFile as a `files:` name in validate.
+'     2. Read linked-dirs from a host path outside PROVEO_HOME (e.g. the user config dir).
+'     3. Accept the risk for custom defs and document it.
+'
 ' ══ ORDER OF WORK (after D1 and D2) ════════════════════════════════════════
 '  0. Gate the D1 commit: F6 (or F7 option 3) plus the build and release residue in D1.
 '     DONE in the working tree 2026-10-16 (F6 rekeyed; D1 residue cleared, see D1).
 '  1. SEC2 — DONE (wt) 2026-10-17.
 '  2. SEC3 — DONE (wt) 2026-10-17 ("Never approve; fail fast").
-'  3. C1 — DONE (wt) 2026-10-17.
-'  4. N2 — the bash bridge machinery left after the prelude collapse (N1, N4, N7, F7 and F18 DONE
-'     (wt) 2026-10-17).
-'  5. F14 + F16 + N13 — the Go residue D1 leaves behind (F9, F10, F11, F15, F17, F19, F20 and N18
-'     DONE (wt) 2026-10-17).
+'  3. C1 — DONE (wt) 2026-10-17. SEC4 — refuse `.` and linked-dirs in manifest validation (a
+'     small diff that keeps SEC2 whole).
+'  4. N2 + N22 + N23 + N24 — the prelude remnants after the collapse (N1, N4, N7, F7 and F18 DONE
+'     (wt) 2026-10-17): bridge machinery, the unreachable smoke mode, the duplicate Google bridge,
+'     the shell/Go twins.
+'  5. N21 (decides F14 + F16) + N20 + N25 + N13 — the Go residue D1 leaves behind (F9, F10, F11,
+'     F15, F17, F19, F20 and N18 DONE (wt) 2026-10-17).
 '  6. T1 — hermetic contract tests (N12 DONE (wt) 2026-10-17: one image task, hermes in the gate).
 '  7. N11 then N10 — fix spec drift, then graduate landed plans (main agent repoints SPEC: lines).
 '  8. N5 + N6 + N8 — shared helpers, then the env registry.
@@ -954,14 +1064,14 @@
 ' 10. N9 + N16 + N19 — small deletions (N17 and N3 DONE (wt) 2026-10-17).
 ' 11. N14 — strip comments and add the lint last, so the sweep sees the final shape.
 ' 12. SEC1 — record the decision.
-title PLANNED — repo simplification: 50 findings, their status, and the order of work
+title PLANNED — repo simplification: 57 findings, their status, and the order of work
 
 component "D1 · retire docker+egress\nDONE (wt) 2026-10-16" as D1 <<app>>
 component "D2 · OpenCode engine-local DB\nDONE (wt) 2026-10-17 · keeper gone" as D2 <<app>>
 component "F6 · .env guard rekey\nDONE (wt) inside D1;\nthe guard itself deleted by N7" as F6 <<app>>
-component "security · SEC1\n(SEC2 SEC3 DONE)" as SEC <<error>>
-component "image prelude\nN2\n(N1 N3 N4 N7 F7 F18 DONE)" as PRE <<app>>
-component "post-D1 Go residue\nF14 F16 N13\n(C1 F9 F10 F11 F15 F17 F19 F20 N18 DONE)" as GO <<app>>
+component "security · SEC1 SEC4\n(SEC2 SEC3 DONE)" as SEC <<error>>
+component "image prelude\nN2 N22 N23 N24\n(N1 N3 N4 N7 F7 F18 DONE)" as PRE <<app>>
+component "post-D1 Go residue\nF14 F16 N13 N20 N21 N25\n(C1 F9 F10 F11 F15 F17 F19 F20 N18 DONE)" as GO <<app>>
 queue "test gates · T1\nhermetic contract tests\n(N12 DONE)" as TST <<async>>
 database "spec hygiene · N10 N11 N14\ngraduate + fix drift" as SPEC <<db>>
 component "helpers + splits\nN5 N6 N8 N9 N15 N16 N19\n(N17 DONE)" as HLP <<app>>
@@ -985,9 +1095,9 @@ legend bottom
   **IDs** — S seed done · D decided retirement · F seed finding · C credential report
   SEC security · T tests · N own sweep
   ==
-  **Counts** — DONE 34 · DECIDED 0 · PROPOSED 16 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  **Counts** — DONE 34 · DECIDED 0 · PROPOSED 23 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
   F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19, F20 added;
   D2, F13, C1, F20, N3, N17 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7;
-  SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE)
+  SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added)
 end legend
 @enduml

@@ -13,10 +13,18 @@
 ' WantsDocker() = Daemon == nil || *Daemon (:82-84) — hermes's `daemon: false`
 ' is the one def that withdraws the daemon; e2e/sbx_test.go builds its
 ' docker-access matrix from WantsDocker (:131-132). Parse decodes with yaml
-' KnownFields(true) (:301), so a STALE key fails loading and names itself —
-' TestAStaleManifestKeyFailsLoading (manifest_test.go:401) pins `docker: sbx`,
-' `egress: true` and `provider: cursor`; TestDaemonIsTheOneDaemonKnob (:383)
-' pins the three daemon cases. Deleted as tautologies with the key (reported):
+' KnownFields(true) (:301), so a STALE key fails loading and names itself; a
+' stale `docker:` also gets the repair: "`docker:` is retired — delete it, or
+' set `daemon: false` to withdraw the daemon" (:304, added after the adversarial
+' review). TestAStaleManifestKeyFailsLoading (manifest_test.go) pins `docker:
+' sbx` with that hint, `egress: true` and `provider: cursor`;
+' TestDaemonIsTheOneDaemonKnob pins the three daemon cases.
+' OPEN (repo-simplification.puml N20): nothing in the PRODUCT reads `daemon:` —
+' WantsDocker's only caller is the e2e matrix — and the picker still promises a
+' `daemon: false` harness "a microVM with its own Docker daemon" (internal/run/
+' choices.go:508). OPEN (SEC4): Home.validate accepts a home mount `host: .`
+' (manifest.go:257-291), which would bind the whole proveo home.
+' Deleted as tautologies with the key (reported):
 ' TestDockerModeAcceptsOnlyTheSandbox, TestDockerModePredicatesAreExhaustive,
 ' TestDaemonFalseKeepsTheSandboxAndWithdrawsTheDaemon,
 ' TestEveryDaemonPromiseIsTheSandbox, TestEveryHarnessRunsInTheSandbox,

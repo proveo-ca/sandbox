@@ -405,7 +405,10 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     interactive `proveo run <target>`, then rerun — the e2e never approves a
 '     credential binding". The same check guards opencode_engine_sbx_test's
 '     onTerminal (reported), and TestTerminalLegsReadPtyOutput is rewritten
-'     around it. HISTORY: answerSbxPrompt typed "A⏎" — once per poll at first,
+'     around it. The adversarial review found one more waiter: watcher.until
+'     (e2e/instrument_test.go:165-166) now fails fast through consentPrompt /
+'     consentFailure too — before, seed_ready and git_sync_turn sat out their
+'     8-minute timeout on a consent prompt (reported). HISTORY: answerSbxPrompt typed "A⏎" — once per poll at first,
 '     then counted, then edge-triggered (approvalDue, review #5); all gone.
 '     tend fails fast on an sbx refusal or a confirmation eating input, and
 '     detects a run that ENDED (ended): it skips when an authFailures marker

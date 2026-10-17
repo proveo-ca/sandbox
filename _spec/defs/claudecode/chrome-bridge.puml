@@ -33,7 +33,11 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' uses ResolvedEnv (:655). Reported: Close no longer unsets the token, and the
 ' chromebridge test asserts the relay never exports its token into the host
 ' process. The relay, ResolvedEnv, the seed's relay start and withChromeFlag
-' stay: they are the sbx chain, kept for re-enabling (F14 still PROPOSED).
+' stay: they are the sbx chain, kept for re-enabling (F14 still PROPOSED). The
+' adversarial review filed N21 (PROPOSED): run.go:651 passes the CONSTANT SbxWhy,
+' so chromeUnavailable, chromebridge.Start, ResolvedEnv and Input.BridgeEnv are
+' unreachable — the decision F14 and F16 wait on is whether Claude-in-Chrome
+' under sbx is retired. chromebridge's package comment was repaired (reported).
 '
 ' ── FOUR PRECONDITIONS, AND PROVEO OWNS ONE ────────────────────────────────
 ' (rehomed from the now-retired _spec/_plans/claude-in-chrome-reachability.puml,

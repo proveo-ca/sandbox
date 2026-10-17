@@ -52,18 +52,25 @@ skinparam noteTextAlignment left
 ' SEC2, option 2). A declared dir is mounted read-WRITE, so the guest could
 ' plant `~/.proveo/<dir>/x -> ~/.ssh` and read it on the next run. MEASURED
 ' now: a link is followed only when its resolved (realPath) target is listed in
-' <proveo home>/linked-dirs (LinkedDirsFile, home_access.go:28-29) — absolute
-' paths, one per line, `#` comments, read by listedLinkTargets (:96-111). The
-' proveo home ROOT is never mounted, so the guest cannot add an entry; a
-' linked-dirs copy inside a mounted dir does not count (home_access_test.go:
-' 330-348). The widening filters above still run first. An unlisted link lands
-' in HomeAccess.SkippedLinks as "<link> → <target>" and the run prints "home
-' link <l> not followed — list its target in <home>/linked-dirs to mount it
-' read-only" (sandbox.go:1450-1451). Tests:
-' TestHomeAccessFollowsOnlyLinksTheHostListed (:317), with
+' <proveo home>/linked-dirs (LinkedDirsFile, home_access.go:29-30) — absolute
+' paths, one per line, `#` comments, read by listedLinkTargets. The proveo home
+' ROOT is never mounted by a shipped def, so the guest cannot add an entry; a
+' linked-dirs copy inside a mounted dir does not count (home_access_test.go).
+' The widening filters above still run first. An unlisted link lands in
+' HomeAccess.SkippedLinks as "<link> → <target>", and noteSkippedLinks
+' (home_access.go:32-36) prints "home link <l> not followed — list its target in
+' <home>/linked-dirs to mount it read-only". The adversarial review found the
+' notice first sat inside sandbox.Run's own-prepare branch, so it never printed
+' on a real run (run.go prepares HomeAccess); sandbox.Run now calls it after
+' either path (sandbox.go:1451). Tests: TestHomeAccessFollowsOnlyLinksTheHostListed,
+' TestASkippedLinkNoticeNamesTheLinkAndTheListFile, with
 ' TestHomeAccessMountsALinkedDirReadOnly and
 ' TestHomeAccessRefusesLinksThatWidenTheView updated (reported). The README's
 ' "Proveo home" section documents linked-dirs (reported; docs are not mine).
+' OPEN: SEC4 (repo-simplification.puml, PLAUSIBLE) — a custom def's home mount
+' `host: .` passes validation and would mount the home ROOT read-write, letting
+' the guest write linked-dirs itself; `files: [linked-dirs]` would round-trip
+' through Commit.
 '
 ' JETBRAINS IS THE SAME HOST. proveo adds one line for Remote Development:
 ' host <sid>.sbx through the OpenSSH config, project = the agent workdir. A

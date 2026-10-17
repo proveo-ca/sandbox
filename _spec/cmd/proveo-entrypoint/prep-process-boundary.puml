@@ -26,8 +26,12 @@
 '   * agents now RECEIVE the git-identity env — bridge_git_identity exports in
 '     the shell the agent inherits, where its Go twin exported into a dying child.
 ' Pinned by TestEntrypointsRunTheShellPreludeThenPrep and
-' TestPrepKeepsOnlyWhatCrossesTheBoundary. [Unverified] in a built image: the image
-' suites did not run this pass (1.9 GB of disk free, reported).
+' TestPrepKeepsOnlyWhatCrossesTheBoundary. After the review fixes the images were
+' rebuilt from the tree and all 7 TestImage* pass (reported).
+' OPEN (repo-simplification.puml, review findings): N22 — every def clears
+' PROVEO_SMOKE_TEST before prep, so prep's SmokeReady, its sleep loop and the
+' target argument never fire; N24 — ensure_runtime_user and report_git_context
+' exist in the shell lib AND in Go.
 title proveo-entrypoint prep — only what crosses the process boundary
 
 node "Agent container" as CTR <<host>> {
