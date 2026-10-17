@@ -355,7 +355,10 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 		t.Fatalf("the first seed installed nothing against an empty store (%s) — "+
 			"the fixture or the store is wrong, so the warm half would prove nothing", home)
 	}
-	teardown, _ := first.end()
+	teardown, exited := first.end()
+	if !exited {
+		t.Fatalf("the first run never exited, so its teardown could still remove the sandbox the warm run reattaches to\n%s", tail(teardown, 40))
+	}
 
 	// Name the store's state in the failure message.
 	store := toolStoreEntries(t, home)

@@ -125,9 +125,7 @@ func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 	in := Input{Clone: true, RepoRoot: "/repo"}
 	cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: "/repo"}}}
 
-	ok := func(int, string, error) cloneCarry {
-		return func(Input, sbx.RunConfig) (int, string, error) { return 0, "", nil }
-	}(0, "", nil)
+	ok := func(Input, sbx.RunConfig) (int, string, error) { return 0, "", nil }
 	fail := func(Input, sbx.RunConfig) (int, string, error) {
 		return 1, "connection refused", errors.New("exit status 128")
 	}

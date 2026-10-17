@@ -1496,10 +1496,10 @@ func Run(in Input) error {
 	defer stopTrace()
 	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
 	var forceRemove atomic.Bool
-	stopped, stopSignals, cancelRun, signalled := forwardStop()
+	runCtx, stopSignals, cancelRun, signalled := forwardStop()
 	defer stopSignals()
 	run := func() error {
-		c := exec.CommandContext(stopped, sbx.Binary, args...)
+		c := exec.CommandContext(runCtx, sbx.Binary, args...)
 		c.Cancel = func() error { return c.Process.Signal(syscall.SIGTERM) }
 		c.WaitDelay = stopWait
 		c.Env = child.Apply(os.Environ())
@@ -1620,18 +1620,19 @@ func Run(in Input) error {
 		if err := homeAccess.Commit(); err != nil {
 			ui.Warnf("home-root config not preserved: %v", err)
 		}
-		if forceRemove.Load() {
-			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
-		} else if stranded != nil {
+		switch normalEndOf(forceRemove.Load(), stranded, opencodeCacheTarget(in.Target)) {
+		case endKeepStranded:
 			keepHomeAccess = true
 			ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
 			PrintIDEAttach(in, cfg, false)
 			return
-		}
-		if opencodeCacheTarget(in.Target) && !forceRemove.Load() {
+		case endRetainEngine:
 			keepHomeAccess = true
 			ui.Storef("OpenCode engine retained for prepared history: %s", cfg.Name)
 			return
+		}
+		if forceRemove.Load() {
+			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
 		}
 		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
 		if rmErr != nil && !sbx.NotFound(string(rmOut)) {
@@ -1652,9 +1653,8 @@ func Run(in Input) error {
 // stopWait bounds how long the sbx client may take to exit once proveo forwards a stop.
 const stopWait = 30 * time.Second
 
-// forwardStop turns SIGTERM or SIGHUP into a cancelled context, so the sbx client is asked to
-// stop and the deferred teardown runs instead of proveo dying mid-run. signalled names the
-// signal that cancelled it, or 0 when proveo itself did.
+// forwardStop cancels the run's context on SIGTERM or SIGHUP; signalled names the signal
+// that cancelled it, or 0 when proveo itself did.
 func forwardStop() (ctx context.Context, stop func(), cancel context.CancelFunc, signalled func() syscall.Signal) {
 	ctx, cancel = context.WithCancel(context.Background())
 	var got atomic.Int32
@@ -1680,6 +1680,29 @@ func stopOutcome(runErr error, sig syscall.Signal, forced bool) (teardown, resul
 		return nil, backend.Stopped{Signal: sig}
 	}
 	return runErr, runErr
+}
+
+// normalEnd is what a normal-exit teardown does with the sandbox once the clone was carried.
+type normalEnd int
+
+const (
+	endRemove normalEnd = iota
+	endKeepStranded
+	endRetainEngine
+)
+
+// normalEndOf removes the sandbox when the operator chose remove, keeps it while work is
+// stranded in it, retains the OpenCode engine, and otherwise removes it.
+func normalEndOf(forced bool, stranded error, retainsEngine bool) normalEnd {
+	switch {
+	case forced:
+		return endRemove
+	case stranded != nil:
+		return endKeepStranded
+	case retainsEngine:
+		return endRetainEngine
+	}
+	return endRemove
 }
 
 // WarnBaseline reports sbx's network baseline and, unless it allows every host, the command that lets hosts through.

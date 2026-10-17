@@ -391,15 +391,22 @@ func brokenPrompt(screen string) string {
 	return ""
 }
 
-// answerSbxPrompt takes the default once on each of sbx's own operator
-// questions in screen beyond the answered ones, which a run on a PTY is expected
-// to answer rather than trip over, and returns how many it has answered.
-func answerSbxPrompt(sess *tmux.Session, screen string, answered int) int {
-	for asked := strings.Count(screen, "[A]pprove all"); answered < asked; answered++ {
-		_ = sess.SendText("A")
-		_ = sess.Enter()
+// answerSbxPrompt takes the default on sbx's own operator question while it
+// waits on the visible screen, which a run on a PTY is expected to answer rather
+// than trip over, and returns the screen it last answered.
+func answerSbxPrompt(sess *tmux.Session, screen, last string) string {
+	if !awaitingApproval(screen, last) {
+		return last
 	}
-	return answered
+	_ = sess.SendText("A")
+	_ = sess.Enter()
+	return screen
+}
+
+// awaitingApproval reports whether sbx's approval question sits at the bottom of
+// screen and screen is not the one last answered.
+func awaitingApproval(screen, last string) bool {
+	return screen != last && strings.Contains(tail(screen, 3), "[A]pprove all")
 }
 
 func renderKit(t *testing.T, target string) string {

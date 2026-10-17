@@ -3,6 +3,7 @@ package sbx
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,8 +62,8 @@ func TestCloneSnapshotCommitsOnlyWhenSomethingIsStaged(t *testing.T) {
 	t.Parallel()
 	args := CloneSnapshotArgs("sb", "/Users/op/repo")
 	joined := strings.Join(args, " ")
-	if args[0] != "exec" || !strings.Contains(joined, "-w /Users/op/repo") {
-		t.Errorf("snapshot must exec inside the clone's workdir: %q", joined)
+	if args[0] != "exec" || !strings.Contains(joined, "-w / sb") || !strings.Contains(joined, "cd '/Users/op/repo'") {
+		t.Errorf("snapshot must exec from / and cd into the clone's workdir: %q", joined)
 	}
 	if !strings.Contains(joined, "git add -A") || !strings.Contains(joined, "git diff --cached --quiet ||") {
 		t.Errorf("snapshot must stage everything and commit only when the index is not empty: %q", joined)
@@ -70,6 +71,98 @@ func TestCloneSnapshotCommitsOnlyWhenSomethingIsStaged(t *testing.T) {
 	if !strings.Contains(joined, "user.name=proveo") {
 		t.Errorf("a teardown commit must say who made it: %q", joined)
 	}
+}
+
+func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
+	t.Parallel()
+	git := func(t *testing.T, dir string, args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	repo := func(t *testing.T) string {
+		t.Helper()
+		dir := t.TempDir()
+		git(t, dir, "init", "-q", "-b", "main", ".")
+		git(t, dir, "commit", "-q", "--allow-empty", "-m", "seed")
+		return dir
+	}
+	snapshot := func(t *testing.T, dir string) (int, string) {
+		t.Helper()
+		args := CloneSnapshotArgs("sb", dir)
+		cmd := exec.Command("bash", "-c", args[len(args)-1])
+		cmd.Dir = t.TempDir()
+		cmd.Env = append(os.Environ(), "GIT_CEILING_DIRECTORIES="+cmd.Dir)
+		out, err := cmd.CombinedOutput()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode(), string(out)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return 0, string(out)
+	}
+	write := func(t *testing.T, path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("no workdir or no repository leaves nothing to save", func(t *testing.T) {
+		t.Parallel()
+		for _, dir := range []string{filepath.Join(t.TempDir(), "gone"), t.TempDir()} {
+			if code, out := snapshot(t, dir); code != 0 {
+				t.Errorf("snapshot(%s) = exit %d, want 0 — nothing can be stranded there\n%s", dir, code, out)
+			}
+		}
+	})
+	t.Run("a rejecting pre-commit hook does not block the commit", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		write(t, filepath.Join(dir, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n")
+		write(t, filepath.Join(dir, "work.txt"), "edit")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if got := git(t, dir, "log", "-1", "--format=%s"); !strings.Contains(got, "uncommitted work at teardown") {
+			t.Errorf("HEAD is %q; the hook kept the agent's edit out of every commit", got)
+		}
+	})
+	t.Run("a detached HEAD gets a branch", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		git(t, dir, "checkout", "-q", "--detach")
+		write(t, filepath.Join(dir, "work.txt"), "edit")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if head, br := git(t, dir, "rev-parse", "HEAD"), git(t, dir, "rev-parse", "refs/heads/proveo/detached-head"); head != br {
+			t.Errorf("proveo/detached-head = %s, want HEAD %s — `--branches` would leave the commit behind", br, head)
+		}
+	})
+	t.Run("every stash gets a branch", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		for _, body := range []string{"first", "second"} {
+			write(t, filepath.Join(dir, "work.txt"), body)
+			git(t, dir, "add", "work.txt")
+			git(t, dir, "stash", "-q")
+		}
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		for i := range 2 {
+			stash, br := git(t, dir, "rev-parse", fmt.Sprintf("stash@{%d}", i)), git(t, dir, "rev-parse", fmt.Sprintf("refs/heads/proveo/stash-%d", i))
+			if stash != br {
+				t.Errorf("proveo/stash-%d = %s, want stash@{%d} %s", i, br, i, stash)
+			}
+		}
+	})
 }
 
 func TestBrowserViewportPinsChromiumsPortAndRelaysFromAnother(t *testing.T) {

@@ -1,5 +1,5 @@
 // SPEC: _spec/internal/backend/exit-code.puml
-// Package backend holds what the
+// Package backend holds the run errors cmd/proveo turns into exit statuses.
 package backend
 
 import (

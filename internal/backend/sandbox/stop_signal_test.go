@@ -4,12 +4,9 @@
 package sandbox
 
 import (
-	"errors"
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/proveo-ca/proveo/internal/backend"
 )
 
 func TestHangupCancelsTheRunInsteadOfKillingProveo(t *testing.T) {
@@ -36,27 +33,5 @@ func TestACancelWithoutASignalIsNotAStop(t *testing.T) {
 	cancel()
 	if got := signalled(); got != 0 {
 		t.Errorf("a cancel from proveo itself (the Ctrl+C remove path) read as a forwarded %v", got)
-	}
-}
-
-func TestAForwardedStopTearsDownLikeANormalExitAndReportsTheSignal(t *testing.T) {
-	failed := errors.New("context canceled")
-	stopped := backend.Stopped{Signal: syscall.SIGTERM}
-	for _, c := range []struct {
-		name         string
-		sig          syscall.Signal
-		forced       bool
-		wantTeardown error
-		wantResult   error
-	}{
-		{"stopped by SIGTERM", syscall.SIGTERM, false, nil, stopped},
-		{"the Ctrl+C remove path", 0, true, failed, failed},
-		{"a signal after the operator chose remove", syscall.SIGTERM, true, failed, failed},
-		{"an agent that failed on its own", 0, false, failed, failed},
-	} {
-		teardown, result := stopOutcome(failed, c.sig, c.forced)
-		if teardown != c.wantTeardown || result != c.wantResult {
-			t.Errorf("%s: stopOutcome = (%v, %v), want (%v, %v)", c.name, teardown, result, c.wantTeardown, c.wantResult)
-		}
 	}
 }

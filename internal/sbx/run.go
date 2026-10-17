@@ -193,10 +193,21 @@ func CloneRemote(name string) string { return "sandbox-" + name }
 
 func CloneRefs(name string) string { return "refs/proveo/" + name }
 
+// CloneModeArgs prints "clone" inside a sandbox sbx created with --clone, else "direct".
+func CloneModeArgs(name string) []string {
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c", "[ -d /run/sandbox/source ] && echo clone || echo direct"}
+}
+
+// CloneSnapshotArgs commits the clone's uncommitted work and puts a detached HEAD
+// and every stash on a branch the carry fetches.
 func CloneSnapshotArgs(name, workdir string) []string {
-	return []string{"exec", "-w", workdir, name, "--", "bash", "-c",
-		"git add -A && (git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
-			"commit -q -m 'proveo: uncommitted work at teardown (left in the clone by the agent)')"}
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
+		"cd " + bashQuote(workdir) + " 2>/dev/null && git rev-parse --git-dir >/dev/null 2>&1 || exit 0\n" +
+			"git add -A && { git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
+			"commit -q --no-verify -m 'proveo: uncommitted work at teardown (left in the clone by the agent)'; } || exit 1\n" +
+			"git symbolic-ref -q HEAD >/dev/null || git branch -f proveo/detached-head HEAD || exit 1\n" +
+			"i=0\n" +
+			"for s in $(git stash list --format=%H); do git branch -f \"proveo/stash-$i\" \"$s\" || exit 1; i=$((i+1)); done\n"}
 }
 
 // CloneFetchArgs lifts the sandbox's branches onto the host.

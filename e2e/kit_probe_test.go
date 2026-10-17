@@ -30,7 +30,7 @@ type kitRun struct {
 	name     string
 	dir      string
 	last     string
-	approved *int
+	answered *string
 }
 
 // launchKit starts `proveo run <target>` through its kit under tmux, with the
@@ -60,7 +60,7 @@ func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra 
 func awaitKit(t *testing.T, sess *tmux.Session, before map[string]bool, target, dir string) *kitRun {
 	t.Helper()
 	pid, _ := sess.PanePID()
-	k := &kitRun{t: t, sess: sess, dir: dir, approved: new(int)}
+	k := &kitRun{t: t, sess: sess, dir: dir, answered: new(string)}
 	t.Cleanup(func() {
 		killAndAwait(t, sess, pid, durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute))
 		if k.name != "" {
@@ -101,16 +101,21 @@ func (k *kitRun) end() (string, bool) {
 }
 
 // stopRun sends SIGTERM to the proveo in sess and returns its last screen and
-// whether it exited within timeout; past timeout it kills the session.
+// whether it exited within timeout; past timeout it SIGKILLs proveo and kills the session.
 func stopRun(sess *tmux.Session, timeout time.Duration) (string, bool) {
 	pid, _ := sess.PanePID()
+	var proc *os.Process
 	if n, err := strconv.Atoi(strings.TrimSpace(pid)); err == nil && n > 0 {
-		if proc, err := os.FindProcess(n); err == nil {
-			_ = proc.Signal(syscall.SIGTERM)
-		}
+		proc, _ = os.FindProcess(n)
+	}
+	if proc != nil {
+		_ = proc.Signal(syscall.SIGTERM)
 	}
 	screen, exited := waitSessionExit(sess, timeout)
 	if !exited {
+		if proc != nil {
+			_ = proc.Kill()
+		}
 		sess.Kill()
 	}
 	return screen, exited
@@ -125,19 +130,21 @@ func (k *kitRun) tend() {
 		k.ended()
 	}
 	k.last = screen
+	if visible, err := k.sess.Capture(); err == nil {
+		*k.answered = answerSbxPrompt(k.sess, visible, *k.answered)
+	}
 	if line := sbxError(screen); line != "" && !retryable(line) {
 		k.t.Fatalf("sbx refused the run — %s\n%s", line, tail(screen, 40))
 	}
 	if line := brokenPrompt(screen); line != "" {
 		k.t.Fatalf("a confirmation is eating input meant for something else — %s\n%s", line, tail(screen, 40))
 	}
-	*k.approved = answerSbxPrompt(k.sess, screen, *k.approved)
 }
 
 // ended skips when the agent quit for want of a login and fails otherwise.
 func (k *kitRun) ended() {
 	k.t.Helper()
-	final := tail(plain(k.last), 15)
+	final := plain(tail(k.last, 15))
 	for _, f := range authFailures {
 		if strings.Contains(final, f) {
 			k.t.Skipf("proveo exited before the sandbox was ready: the agent is not authenticated (%q)", f)
@@ -196,9 +203,8 @@ func (k *kitRun) pane(n int) string {
 	return tail(k.last, n)
 }
 
-// kitSandbox names the sandbox created since before with target's name prefix
-// and its primary workspace under the test temp root: the one holding dir, or
-// the only such sandbox.
+// kitSandbox names the sandbox created since before with target's name prefix,
+// its primary workspace under the test temp root, and a workspace holding dir.
 func kitSandbox(before map[string]bool, target, dir string) string {
 	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
 	if err != nil {
@@ -214,9 +220,16 @@ func kitDirs(dir string) []string {
 	if real, err := filepath.EvalSymlinks(dir); err == nil && real != dirs[0] {
 		dirs = append(dirs, real)
 	}
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
-	if common := strings.TrimSpace(string(out)); err == nil && filepath.Base(common) == ".git" {
-		dirs = append(dirs, filepath.Dir(common))
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--git-common-dir").Output()
+	common := strings.TrimSpace(string(out))
+	if err != nil || filepath.Base(common) != ".git" {
+		return dirs
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(dir, common)
+	}
+	if main := filepath.Dir(filepath.Clean(common)); !pathWithin(dir, main) {
+		dirs = append(dirs, main)
 	}
 	return dirs
 }
@@ -233,25 +246,16 @@ func pickKitSandbox(listing []byte, before map[string]bool, target string, dirs 
 		return ""
 	}
 	prefix := sbx.SandboxName(target, "") + "-"
-	var mine, holding []string
 	for _, sb := range parsed.Sandboxes {
 		if before[sb.Name] || !strings.HasPrefix(sb.Name, prefix) || !testOwned(sb.Workspaces) {
 			continue
 		}
-		mine = append(mine, sb.Name)
 		for _, ws := range sb.Workspaces {
 			ws = workspacePath(ws)
 			if slices.ContainsFunc(dirs, func(d string) bool { return pathWithin(d, ws) || pathWithin(ws, d) }) {
-				holding = append(holding, sb.Name)
-				break
+				return sb.Name
 			}
 		}
-	}
-	switch {
-	case len(holding) > 0:
-		return holding[0]
-	case len(mine) == 1:
-		return mine[0]
 	}
 	return ""
 }

@@ -188,8 +188,16 @@ var confirmStaleSandbox = func(name string, changed []string, live, clone bool) 
 	return choiceui.ConfirmSandboxUpgrade(screen, name, changed, live, clone), true
 }
 
+// guestClones reports whether sandbox name holds a clone; an unreadable answer counts as one.
+func guestClones(name string) bool {
+	out, _ := SbxRun(sbx.CloneModeArgs(name)...)
+	f := strings.Fields(out)
+	return len(f) == 0 || f[len(f)-1] != "direct"
+}
+
 // retireSandbox fetches the clone and agent state home, then removes the sandbox.
 func retireSandbox(in Input, cfg sbx.RunConfig) error {
+	in.Clone = guestClones(cfg.Name)
 	if err := PreserveClone(in, cfg); err != nil {
 		return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
 	}
