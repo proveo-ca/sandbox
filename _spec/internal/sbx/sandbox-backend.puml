@@ -38,6 +38,26 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' The golden sbx-claudecode-shell-clone-datadir became
 ' sbx-claudecode-clone-datadir, and its agent is `claude`.
 '
+' ── A STOP IS A NORMAL EXIT (DECIDED 2026-10-17) ───────────────────────────
+' The user, on how SIGTERM/SIGHUP should end a run: "Stop runs normal
+' teardown". MEASURED: forwardStop returns (ctx, stop, cancel, signalled), and
+' stopOutcome(runErr, signalled, forced) returns nil for a signalled stop that
+' is not the Ctrl+C "remove" path. A closed terminal or `kill -TERM proveo`
+' prints "stopped by a signal — tearing down as on a normal exit", lifts clone
+' edits and commits, saves state and runs `sbx rm` (an OpenCode engine is
+' retained), with no template-reload retry. Before, it read as a failed run:
+' "kept for diagnosis" and no `sbx rm`. Lifecycle:
+' _spec/internal/sbx/kit-lifecycle.puml; the Ctrl+C path:
+' _spec/internal/ptyproxy/pty-ownership.puml.
+' A failed run's kept-for-diagnosis hint names `sbx exec -it <name> bash`, as
+' in sbx's own exec reference (https://docs.docker.com/reference/cli/sbx/exec/).
+'
+' sandbox.Input.Workdir and run.Spec's Workspace.Workdir are deleted: nothing
+' read them (MEASURED). The agent's working directory reaches the sandbox as
+' PROVEO_WORKDIR, computed from the binds by agentWorkdir (see the CLI note
+' below). WS.Plan()'s workdir return is now discarded in internal/run/run.go
+' (repo-simplification.puml F20, PROPOSED).
+'
 ' THE WORKSPACE .env GUARD KEYS ON sbx's OWN VARIABLES. Images skipped sourcing
 ' the workspace .env only while PROVEO_EGRESS_MODE named a tier, and only the
 ' deleted egress plan set it. The decision named SANDBOX_VM_ID. MEASURED at the

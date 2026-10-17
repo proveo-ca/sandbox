@@ -7,6 +7,7 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/run.go
 ' covers: internal/backend/sandbox/launch_receipt.go
 ' covers: internal/backend/sandbox/launch_receipt_test.go
+' covers: internal/backend/sandbox/stop_signal_test.go
 '
 ' ── A KEPT SANDBOX MUST NOT SILENTLY OVERRIDE THIS RUN (2026-09-27) ─────────
 ' Re-attach passes the name only, so a kept sandbox runs with the Kit, image
@@ -30,7 +31,23 @@ skinparam noteTextAlignment left
 ' A headed yes removes a running sandbox except an OpenCode engine with active,
 ' unpublished, or unattested state. That engine must be recovered before replacement.
 ' A screen that fails to open counts as no, so a stopped sandbox is not removed.
-title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures, remove success
+'
+' ── A FORWARDED STOP ENDS LIKE A NORMAL EXIT (DECIDED 2026-10-17) ──────────
+' Asked how SIGTERM/SIGHUP should end a run, the user chose "Stop runs normal
+' teardown". MEASURED (internal/backend/sandbox/sandbox.go): forwardStop returns
+' (ctx, stop, cancel, signalled); stopOutcome(runErr, signalled, forced) returns
+' nil for a signalled stop that is not the Ctrl+C "remove" path. So a closed
+' terminal or `kill -TERM proveo` prints "stopped by a signal — tearing down as
+' on a normal exit" and takes the SUCCESS branch: clone edits and commits
+' lifted, state saved, `sbx rm`. An OpenCode engine is still retained. No
+' template-reload retry runs after a stop, because runErr is nil there.
+' HISTORY: before this, a stop read as a failed run — "kept for diagnosis", no
+' `sbx rm` (TeardownClone already ran in that branch). Pinned by
+' TestAForwardedStopEndsLikeANormalExit and TestACancelWithoutASignalIsNotAStop
+' (stop_signal_test.go); the hangup test checks signalled().
+' The kept-for-diagnosis hint names `sbx exec -it <name> bash` (MEASURED),
+' matching https://docs.docker.com/reference/cli/sbx/exec/.
+title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures, remove success and stops
 
 state "resolve full RunConfig\n+ render Kit spec.yaml" as RESOLVE
 state "sandbox name exists?" as EXISTS <<choice>>
@@ -70,8 +87,9 @@ CREATED --> PRESERVE : yes
 LIVE --> RESULT : sbx child exits
 RESULT --> PRESERVE : exit != 0
 RESULT --> PRESERVE : exit == 0
+RESULT --> PRESERVE : SIGTERM/SIGHUP forwarded\n(stopOutcome → nil)
 PRESERVE --> KEPT : run failed
-PRESERVE --> REMOVE : run succeeded
+PRESERVE --> REMOVE : run succeeded, or stopped by a signal\n(not the Ctrl+C remove path)
 REMOVE --> REMOVED : success or already absent
 REMOVE --> STALE : other error; warn
 KEPT --> REUSE : next proveo run,\nsame target + workspace
@@ -109,9 +127,10 @@ end note
 
 note bottom of KEPT
   **Failure retains evidence deliberately.**
-  The next run reuses the VM by deterministic name.
-  ""sbx rm --force <name>"" discards it when a fresh
-  Kit, image, workspace or limits are required.
+  The next run reuses the VM by its fixed name;
+  the hint names ""sbx exec -it <name> bash"" and
+  ""sbx rm --force <name>"". A forwarded stop is
+  not a failure since 2026-10-17.
 end note
 
 note bottom of REMOVE

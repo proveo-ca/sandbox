@@ -9,7 +9,6 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/baseline_live_test.go
 ' covers: internal/run/topology.go
 ' covers: internal/run/params.go (seedFromCache)
-' covers: internal/run/params_test.go
 ' covers: internal/run/run_test.go (TestEgressRowShowsTheHostBaseline, network.allow)
 ' covers: internal/backend/sandbox/sandbox.go (Spec: the Kit's network.allow; WarnBaseline, ReachHosts)
 ' covers: internal/backend/sandbox/domain_form_test.go (TestTheKitWritesNoProviderOrHarnessHosts)

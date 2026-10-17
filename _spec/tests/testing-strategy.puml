@@ -10,7 +10,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: defs/tests/**
 ' covers: internal/imagetest/**
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
-' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox)
+' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, testOwned)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (imagetest.Resolve in
@@ -344,21 +344,37 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' The user retired `--shell` ("is that `proveo` or `sbx`? if `proveo` retire
 ' it") and, on the e2e, "Convert all now". MEASURED:
 '   launchKit — one `proveo run <target>` through its own kit under tmux, pinned
-'     to `--credentials forward` with PROVEO_WIZARD=off and
-'     PROVEO_MOUNT_GH_CONFIG=0. awaitKit names the sandbox the run created
-'     (kitSandbox: the only new one with the target's prefix, else the one whose
-'     workspace holds the dir, via pathWithin), waits for the seed's
-'     /dev/shm/proveo-seed-done, answers sbx's "[A]pprove all" prompt (tend),
-'     and fails fast on an sbx refusal or on a confirmation eating input. The
-'     posture is FIXED so a case asserting on workspace or git is not also
+'     to `--credentials forward` with PROVEO_WIZARD=off,
+'     PROVEO_MOUNT_GH_CONFIG=0 and a private PROVEO_HOME unless env names one.
+'     The posture is FIXED so a case asserting on workspace or git is not also
 '     asserting on credentials.
+'   awaitKit — names the sandbox the run created, then waits for the seed's
+'     /dev/shm/proveo-seed-done, a quiet pane, and seed-done AGAIN (MEASURED).
+'     The reason is reported, not measured: OpenCode removes and rewrites the
+'     marker when proveo re-seeds the engine after `sbx create`, so one
+'     sighting can be the stale one. The seed poll uses the non-fatal k.try.
+'   kitSandbox — accepts ONLY sandboxes new since `before`, carrying the
+'     target's prefix, with EVERY workspace strictly under the test temp root
+'     (testOwned); it prefers the one holding dir, else the only candidate. It
+'     cannot pick an operator's sandbox.
+'   tend — answers sbx's "[A]pprove all" prompt, fails fast on an sbx refusal
+'     or a confirmation eating input, and detects a run that ENDED: it skips on
+'     the authFailures login markers and otherwise fails with the last screen.
 '   kitRun.exec — `bash -c` through `sbx exec`, after
-'     `cd ${PROVEO_WORKDIR:-<dir>}` and sourcing ~/.proveo-tool-env.sh, so the
-'     probe sees the agent's working directory and toolchain; raw skips that
-'     prelude. It returns combined output and the REAL exit status — no pane
-'     scraping, no completion marker.
-'   kitRun.end — SIGTERM to proveo (stopRun), whose deferred teardown runs; it
-'     returns the last screen. pane/tend read and tend the tmux pane.
+'     `cd ${PROVEO_WORKDIR:-<dir>}` (falling back to <dir>; exit 97 when
+'     neither is enterable) and
+'     sourcing ~/.proveo-tool-env.sh, so the probe sees the agent's working
+'     directory and toolchain; raw skips that prelude. It returns combined
+'     output and the REAL exit status — no pane scraping, no completion marker.
+'   kitRun.with(t) — binds a shared run to a subtest (the toolchain runLib).
+'   kitRun.end / stopRun — SIGTERM to proveo. Since 2026-10-17 that is a
+'     NORMAL exit ("Stop runs normal teardown"; _spec/internal/sbx/
+'     kit-lifecycle.puml): clone and state lifted, `sbx rm`. stopRun is also the
+'     cleanup in close_confirm and ports_publish, and the step that ends the
+'     first run in ports_publish and android_seed_install (MEASURED).
+' [Unverified] whether `sbx exec` sessions see variables passed as `sbx run -e
+' NAME`. The forward-mode auth probes and the android PROVEO_HOST_ADB_PORT probe
+' depend on it.
 ' HISTORY: launchShell (`proveo run <target> --shell`) and shellExec (a child
 ' `bash -c` typed into the live interactive shell) carried this until
 ' 2026-10-17. Deleted with them: launchShellEnv, waitForContainerShell,
@@ -378,10 +394,15 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * toolchain idempotency runs on claudecode: opencode's engine is retained,
 '     so its second run would reattach and prove nothing (reported by the
 '     coordinator).
-'   * close_confirm runs claudecode against the fake sbx and skips through
-'     sbx.Available() with the fake on PATH (reported).
+'   * close_confirm runs claudecode against the fake sbx, which reports
+'     sbx.MinVersion (MEASURED), and skips through sbx.Available() with the
+'     fake on PATH (reported).
 '   * the stream-palette test builds proveo/cecli:volatile-e2e FROM the local
-'     cecli image with an ENTRYPOINT that exits 3 (reported).
+'     cecli image, replacing /opt/cecli/bin/cecli with a script that exits 3
+'     and KEEPING the base ENTRYPOINT, seed and kit (MEASURED). Reported, not
+'     measured here: an ENTRYPOINT override broke sbx's keepalive passthrough,
+'     and a docker run of the new image prints both lines and exits 3.
+'   * browser_viewport fails when agent-browser does not start (MEASURED).
 '   * the sandbox boundary probe exempts an engine the run reports "retained";
 '     the egress confinement probe reads k.exec output, not a workspace file
 '     (reported).
@@ -445,9 +466,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '      neither was on the sandbox one, so the pane was captured holding the
 '      typed line and no answer. An empty tier read as a cache that had failed
 '      to re-enter — the test accused the mechanism it exists to protect. It
-'      then waited through waitForContainerShell and shellExec, and now through
-'      awaitKit's seed marker, which return when the work is done rather than
-'      when a clock says it should be.
+'      then waited through waitForContainerShell and shellExec; it now waits
+'      for opencode's "Ask anything" prompt and ends the run (killAndAwait).
+'      Each returns when the work is done rather than when a clock says so.
 '
 ' A credential the AGENT cannot spend is a condition of the host, not a defect, so
 ' the watcher's Fatalf turns a pane matching credentialUnavailable into a SKIP with
