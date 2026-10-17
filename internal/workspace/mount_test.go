@@ -35,7 +35,7 @@ func TestMountPlanAppWholeRepo(t *testing.T) {
 	t.Parallel()
 	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
-	got, wd, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, Credentials: "forward"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, Credentials: "forward"}.Plan()
 	want := []runner.Mount{
 		{Host: root, Container: "/app"},
 		{Host: filepath.Join(root, ".env"), Container: "/app/.env", ReadOnly: true},
@@ -43,16 +43,13 @@ func TestMountPlanAppWholeRepo(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("app whole-repo mounts mismatch (-want +got):\n%s", diff)
 	}
-	if wd != "/app" {
-		t.Errorf("workdir = %q, want /app", wd)
-	}
 }
 
 func TestMountPlanAppWholeRepoFirewallMasksEnv(t *testing.T) {
 	t.Parallel()
 	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
-	got, _, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root}.Plan()
 	byContainer := map[string]runner.Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
@@ -80,7 +77,7 @@ func TestMountPlanAppFirewallMasksNestedEnv(t *testing.T) {
 	touch(t, filepath.Join(root, ".env"))
 	touch(t, filepath.Join(root, "packages", "worker", ".env")) // nested per-package
 	touch(t, filepath.Join(root, "node_modules", "x", ".env"))  // pruned
-	got, _, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root}.Plan()
 
 	masked := maskedEnvSet(got)
 	if !masked["/app/.env"] || !masked["/app/packages/worker/.env"] {
@@ -97,7 +94,7 @@ func TestMountPlanAppSubdirFirewallMasksEnv(t *testing.T) {
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, ".env"))
 	touch(t, filepath.Join(scope, "sub", ".env"))
-	got, _, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: scope}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: scope}.Plan()
 
 	// The scope is mounted at /app/apps/web; its .env files are masked under that base.
 	masked := maskedEnvSet(got)
@@ -115,7 +112,7 @@ func TestMountPlanAppWholeRepoSymlinkEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, _, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, Credentials: "forward"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root, Credentials: "forward"}.Plan()
 	byContainer := map[string]runner.Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
@@ -139,15 +136,12 @@ func TestMountPlanAppSubdir(t *testing.T) {
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, "package.json")) // scope has its own package.json
 
-	got, wd, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app", ConfigDir: ".cursor", GitMode: "rw"},
 		RepoRoot:  root, InputDir: scope,
 		Credentials: "forward",
 	}.Plan()
 
-	if wd != "/app" {
-		t.Fatalf("workdir = %q, want /app", wd)
-	}
 	// Index the produced mounts by container path for order-independent assertions.
 	byContainer := map[string]runner.Mount{}
 	for _, m := range got {
@@ -183,7 +177,7 @@ func TestMountPlanAppGitROAndOutput(t *testing.T) {
 	root := tempDir(t)
 	scope := filepath.Join(root, "svc")
 	touch(t, filepath.Join(scope, "go.mod"))
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app", GitMode: "ro", Output: true},
 		RepoRoot:  root, InputDir: scope, OutputDir: "/out",
 	}.Plan()
@@ -202,13 +196,10 @@ func TestMountPlanAppGitROAndOutput(t *testing.T) {
 func TestMountPlanAppNonRepoReadOnly(t *testing.T) {
 	t.Parallel()
 	// Mode:"ro" (now wired via manifest.Workspace, D6) makes the /app mount read-only.
-	got, wd, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app", Mode: "ro"}, InputDir: "/somedir"}.Plan()
+	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app", Mode: "ro"}, InputDir: "/somedir"}.Plan()
 	want := []runner.Mount{{Host: "/somedir", Container: "/app", ReadOnly: true}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("app non-repo ro mounts mismatch (-want +got):\n%s", diff)
-	}
-	if wd != "/app" {
-		t.Errorf("workdir = %q, want /app", wd)
 	}
 }
 
@@ -260,7 +251,7 @@ func TestPlanSubdirPreservesRootDirs(t *testing.T) {
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, "index.ts"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
 		Credentials:   "forward",
@@ -292,7 +283,7 @@ func TestPlanSubdirRootDepsAreOptional(t *testing.T) {
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, "index.ts"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
 		Credentials:   "forward",
@@ -320,7 +311,7 @@ func TestPlanSubdirRootDirsYieldToScope(t *testing.T) {
 	touch(t, filepath.Join(scope, "package.json"))
 	touch(t, filepath.Join(scope, "node_modules", ".modules.yaml"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
 		Credentials:   "forward",
@@ -341,7 +332,7 @@ func TestPlanSubdirIgnoresRootDirNamedFile(t *testing.T) {
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, "index.ts"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
 		Credentials: "forward",
@@ -363,7 +354,7 @@ func TestPlanSubdirRootDirsAreEnvMasked(t *testing.T) {
 	scope := filepath.Join(root, "apps", "web")
 	touch(t, filepath.Join(scope, "index.ts"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: scope,
 		// isolates env
@@ -391,7 +382,7 @@ func TestPlanRootScopeHonorsGitModeRO(t *testing.T) {
 	touch(t, filepath.Join(root, ".git", "HEAD"))
 	touch(t, filepath.Join(root, "main.go"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app", GitMode: "ro"},
 		RepoRoot:  root, InputDir: root,
 		Credentials: "forward",
@@ -419,7 +410,7 @@ func TestPlanRootScopeAddsNoGitMountWhenModesAgree(t *testing.T) {
 	touch(t, filepath.Join(root, ".git", "HEAD"))
 
 	for _, gm := range []string{"", "rw"} {
-		got, _, _ := MountSpec{
+		got, _ := MountSpec{
 			Workspace: manifest.Workspace{Layout: "app", GitMode: gm},
 			RepoRoot:  root, InputDir: root,
 			Credentials: "forward",
@@ -437,7 +428,7 @@ func TestPlanGitModeIgnoredWithoutAGitDir(t *testing.T) {
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "main.go"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app", GitMode: "ro"},
 		RepoRoot:  root, InputDir: root,
 		Credentials: "forward",
@@ -468,7 +459,7 @@ func TestMountPlanMountsEscapingSymlink(t *testing.T) {
 	touch(t, filepath.Join(root, "README.md"))
 	symlink(t, outside, filepath.Join(root, "_spec"))
 
-	got, _, links := MountSpec{
+	got, links := MountSpec{
 		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		Credentials: "forward",
@@ -497,7 +488,7 @@ func TestMountPlanEscapingSymlinkFollowsWorkspaceMode(t *testing.T) {
 	touch(t, filepath.Join(root, "go.mod"))
 	symlink(t, outside, filepath.Join(root, "_spec"))
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Mode: "ro"},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		Credentials: "forward",
@@ -517,7 +508,7 @@ func TestMountPlanIgnoresSymlinkResolvingInsideTree(t *testing.T) {
 	symlink(t, "real", filepath.Join(root, "alias"))
 	symlink(t, filepath.Join(root, "real"), filepath.Join(root, "abs_alias"))
 
-	got, _, links := MountSpec{
+	got, links := MountSpec{
 		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		Credentials: "forward",
@@ -539,7 +530,7 @@ func TestMountPlanRefusesUnsafeOrBrokenLinks(t *testing.T) {
 	symlink(t, filepath.Join(base, "gone"), filepath.Join(root, "broken"))
 	symlink(t, base, filepath.Join(root, "up"))
 
-	_, _, links := MountSpec{
+	_, links := MountSpec{
 		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		Credentials: "forward",
@@ -589,7 +580,7 @@ func TestMountPlanLeavesSymlinkedDotenvToCredentialPolicy(t *testing.T) {
 	}
 
 	spec.Credentials = "forward"
-	got, _, links := spec.Plan()
+	got, links := spec.Plan()
 	wantForward := []runner.Mount{
 		{Host: root, Container: "/app"},
 		{Host: hostEnv, Container: "/app/.env", ReadOnly: true},
@@ -605,7 +596,7 @@ func TestMountPlanLeavesSymlinkedDotenvToCredentialPolicy(t *testing.T) {
 	}
 
 	spec.Credentials = "broker"
-	got, _, _ = spec.Plan()
+	got, _ = spec.Plan()
 	wantIsolated := []runner.Mount{
 		{Host: root, Container: "/app"},
 		{Host: "/dev/null", Container: "/app/.env", ReadOnly: true},
@@ -626,7 +617,7 @@ func TestMountPlanSkipsLinksInPrunedAndDeepDirs(t *testing.T) {
 	symlink(t, outside, filepath.Join(root, "a", "b", "c", "deep_link"))
 	symlink(t, outside, filepath.Join(root, "a", "b", "shallow_link"))
 
-	_, _, links := MountSpec{
+	_, links := MountSpec{
 		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 		Credentials: "forward",
@@ -771,7 +762,7 @@ func TestMountPlanWorktreeOverlaysBothPointerFiles(t *testing.T) {
 	tree, common := linkedWorktree(t, base, "wt")
 	links := filepath.Join(base, "links")
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Output: true},
 		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
 		Credentials:     "forward",
@@ -795,7 +786,7 @@ func TestMountPlanWorktreeWithoutLinkDirBindsCommonDirOnly(t *testing.T) {
 	base := tempDir(t)
 	tree, common := linkedWorktree(t, base, "wt")
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Output: true},
 		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
 		Credentials: "forward",
@@ -822,7 +813,7 @@ func TestMountPlanWorktreeHonorsGitModeRO(t *testing.T) {
 	base := tempDir(t)
 	tree, common := linkedWorktree(t, base, "wt")
 
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{GitMode: "ro"},
 		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
 		Credentials:     "forward",
@@ -850,7 +841,7 @@ func TestPlanIsolatesNodeModulesViaPlainCopy(t *testing.T) {
 	// and indexes the result by container path.
 	planAndCopy := func(t *testing.T, spec MountSpec) (map[string]runner.Mount, []runner.Mount) {
 		t.Helper()
-		got, _, _ := spec.Plan()
+		got, _ := spec.Plan()
 		if _, err := MaterializeDeps(spec.DepCopies(), true); err != nil {
 			t.Fatalf("materialize: %v", err)
 		}
@@ -949,7 +940,7 @@ func TestPlanWholeRepoNodeModulesIsolatedWithoutRootDepsToggle(t *testing.T) {
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "package.json"))
 	touch(t, filepath.Join(root, "node_modules", "x", "y.js"))
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app"},
 		RepoRoot:  root, InputDir: root,
 		Credentials:   "forward",

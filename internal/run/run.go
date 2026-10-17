@@ -384,31 +384,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 			ui.Hostf("%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
 		}
 	}
-	if missing := rs.Man.MissingEnv(rs.Creds.Lookup); len(missing) > 0 && !p.PrintOnly {
-		switch {
-		case rs.Man.Subscription && rs.Creds.FileLogin:
-			ui.Hostf("%s: using the login persisted in the proveo home", rs.Man.Name)
-		case rs.Man.Subscription && len(rs.Creds.StoreHeld) > 0:
-			ui.Hostf("%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
-				rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
-		case rs.Man.Subscription:
-			rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
-			ui.Warnf("%s is starting without a credential — run `proveo init` to persist credentials between runs",
-				rs.Man.Name)
-		case agentio.IsStdinTTY() && WizardEnabled():
-			for name, v := range d.PromptEnv(p.Target, missing) {
-				_ = os.Setenv(name, v)
-			}
-			missing = rs.Man.MissingEnv(rs.Creds.Lookup)
-		}
-		for _, e := range missing {
-			msg := e.Name + " not set"
-			if e.Description != "" {
-				msg += " — " + e.Description
-			}
-			ui.Warnf("%s", msg)
-		}
-	}
+	reportCredentialGaps(rs, p, d)
 
 	rs.Workspace.WorktreeLinks, err = rs.Workspace.WS.PrepareWorktreeLinks(proveohome.Root(os.Getenv))
 	if err != nil {
@@ -416,7 +392,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	}
 	rs.Workspace.WS.WorktreeLinkDir = rs.Workspace.WorktreeLinks
 
-	rs.Workspace.Mounts, _, rs.Workspace.Links = rs.Workspace.WS.Plan()
+	rs.Workspace.Mounts, rs.Workspace.Links = rs.Workspace.WS.Plan()
 	ui.Section(ui.SectionWorkspace)
 	reportLinks(rs.Workspace.Links)
 
@@ -452,6 +428,40 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 		ui.Warnf("%s", msg)
 	}
 	return nil
+}
+
+// reportCredentialGaps names what satisfies a subscription harness's missing variables, or prompts
+// or warns for each required variable no credential covers.
+func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
+	missing := rs.Man.MissingEnv(rs.Creds.Lookup)
+	if len(missing) == 0 || p.PrintOnly {
+		return
+	}
+	switch {
+	case rs.Man.Subscription && rs.Creds.FileLogin:
+		ui.Hostf("%s: using the login persisted in the proveo home", rs.Man.Name)
+		missing = nil
+	case rs.Man.Subscription && len(rs.Creds.StoreHeld) > 0:
+		ui.Hostf("%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
+			rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
+		missing = nil
+	case rs.Man.Subscription:
+		rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
+		ui.Warnf("%s is starting without a credential — run `proveo init` to persist credentials between runs",
+			rs.Man.Name)
+	case agentio.IsStdinTTY() && WizardEnabled():
+		for name, v := range d.PromptEnv(p.Target, missing) {
+			_ = os.Setenv(name, v)
+		}
+		missing = rs.Man.MissingEnv(rs.Creds.Lookup)
+	}
+	for _, e := range missing {
+		msg := e.Name + " not set"
+		if e.Description != "" {
+			msg += " — " + e.Description
+		}
+		ui.Warnf("%s", msg)
+	}
 }
 
 // credentialsPosture reports where the run puts the provider key.

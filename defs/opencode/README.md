@@ -150,15 +150,15 @@ The database survives reattach and `sbx stop`.
 `sbx rm` removes it with the engine.
 
 A new engine imports one database once, before the agent starts.
-The import takes the first existing file of these, under the proveo home (`~/.proveo` by default):
+The import takes the first regular file (not a symlink) of these, under the proveo home (`~/.proveo` by default):
 
 1. `opencode/carry/<engine>.db`
 2. `opencode/v2/share/opencode.db`
 3. `opencode/share/opencode.db`
 4. `.local/share/opencode/opencode.db`
 
-proveo writes nothing back to the host.
-When a setting changes (image, kit, mounts), proveo replaces the engine and carries its database to the replacement.
+A launch writes nothing back to the host.
+When a setting changes (image, kit, mounts), proveo replaces the engine and carries its database to the replacement through `opencode/carry/<engine>.db`.
 OpenCode itself handles concurrent launches against the same database; proveo adds no lock.
 
 Logins made inside the sandbox (`opencode auth login`, `/connect`) are saved in that database.

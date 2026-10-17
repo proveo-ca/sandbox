@@ -51,10 +51,9 @@ func (w MountSpec) ScopeRel() string {
 	return relSlash(w.RepoRoot, w.InputDir)
 }
 
-// Plan returns the bind mounts, the container workdir, and the escaping
-// symlinks it resolved (see Link) for the spec, reproducing the per-harness
-// wrapper mount models.
-func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
+// Plan returns the bind mounts and the escaping symlinks it resolved (see Link)
+// for the spec, reproducing the per-harness wrapper mount models.
+func (w MountSpec) Plan() (mounts []runner.Mount, links []Link) {
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
 	w.InputDir, w.RepoRoot = resolved(w.InputDir), resolved(w.RepoRoot)
@@ -104,7 +103,7 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 		mounts = append(mounts, runner.Mount{Host: w.OutputDir, Container: "/app/output"})
 	}
 	linkMounts, links := w.linkMounts(scopeHost, scopeContainer, ro)
-	return append(mounts, linkMounts...), "/app", links
+	return append(mounts, linkMounts...), links
 }
 
 func resolved(p string) string {

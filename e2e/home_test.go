@@ -104,7 +104,7 @@ func TestProveoHomePersistence(t *testing.T) {
 
 	t.Run("auth_json_scrubbed_not_session_marker", func(t *testing.T) {
 		home := t.TempDir()
-		share := filepath.Join(home, "opencode", "v2", "share")
+		share := filepath.Join(home, ".cursor")
 		if err := os.MkdirAll(share, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +116,7 @@ func TestProveoHomePersistence(t *testing.T) {
 		if err := os.WriteFile(marker, []byte("keep-me"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_ = runPrintWithHome(t, proveoBin, home, "opencode", "--input", t.TempDir())
+		_ = runPrintWithHome(t, proveoBin, home, "cursor", "--input", t.TempDir())
 		if _, err := os.Stat(auth); !os.IsNotExist(err) {
 			t.Errorf("auth.json should be scrubbed from proveo home, err=%v", err)
 		}

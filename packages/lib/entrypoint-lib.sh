@@ -1838,13 +1838,6 @@ _lsp_precondition() {
   return 0
 }
 
-_java_major() {
-  command -v java >/dev/null 2>&1 || { echo 0; return 0; }
-  local v
-  v="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n1)"
-  echo "${v:-0}"
-}
-
 _lsp_custom_install() { case "$1" in
   java) _install_jdtls "${2:-}" ;;
   *)    return 1 ;;

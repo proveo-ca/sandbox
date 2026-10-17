@@ -70,7 +70,7 @@ func TestDepCopiesCoverEveryLanguageAtEveryDepth(t *testing.T) {
 		t.Errorf("isolated trees (-want +got):\n%s", diff)
 	}
 
-	got, _, _ := spec.Plan()
+	got, _ := spec.Plan()
 	direct := map[string]bool{}
 	for _, m := range got {
 		direct[m.Host] = true
@@ -110,11 +110,11 @@ func TestPlanIsPureAndMaterializeWrites(t *testing.T) {
 		DepStage:    stage,
 	}
 
-	first, _, _ := spec.Plan()
+	first, _ := spec.Plan()
 	if _, err := os.Stat(stage); !os.IsNotExist(err) {
 		t.Fatalf("Plan wrote the staging dir (%v); it must stay pure so --print never copies a tree", err)
 	}
-	second, _, _ := spec.Plan()
+	second, _ := spec.Plan()
 	if diff := cmp.Diff(first, second); diff != "" {
 		t.Errorf("two plans of one spec disagree — staging paths must be deterministic:\n%s", diff)
 	}
@@ -180,7 +180,7 @@ func TestDepOverlaysStayWritableOnAReadOnlyWorkspace(t *testing.T) {
 	t.Parallel()
 	root := tempDir(t)
 	touch(t, filepath.Join(root, "package.json"))
-	got, _, _ := MountSpec{
+	got, _ := MountSpec{
 		Workspace: manifest.Workspace{Layout: "app", Mode: "ro"},
 		InputDir:  root, Credentials: "forward",
 		DepStage: t.TempDir(),

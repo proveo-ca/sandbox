@@ -6,7 +6,7 @@ import net from "node:net"
 import path from "node:path"
 import { setTimeout as pause } from "node:timers/promises"
 
-const [mode, value, python, runtime, native, root, owner] = process.argv.slice(2)
+const [mode, value, python, runtime, native, root] = process.argv.slice(2)
 async function freePort() {
   const server = net.createServer()
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve))
@@ -36,7 +36,7 @@ const args = mode === "permission"
   : []
 const direct = value === "prompt"
 const child = spawn(direct ? native : python,
-  direct ? [...args, "--standalone"] : ["-B", runtime, native, ...args, `--proveo-cache-owner=${owner}`], {
+  direct ? [...args, "--standalone"] : ["-B", runtime, native, ...args], {
     cwd: root,
     env: { ...process.env, OPENCODE_SIMULATE: "1", OPENCODE_DRIVE: "fixture",
       OPENCODE_DRIVE_RENDERER: "headless", DRIVE_REGISTRY_DIR: registry,

@@ -1,4 +1,4 @@
-# SPEC: _spec/defs/opencode/native-v2-integration.puml
+# SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/defs/opencode/engine-local-history.puml
 
 import contextlib
 import json
@@ -58,13 +58,6 @@ class NativePresentationTests(unittest.TestCase):
         self.env = {
             "PATH": os.environ["PATH"],
             "HOME": str(self.home),
-            "PROVEO_HOME": str(self.home),
-            "PROVEO_OPENCODE_CREDENTIAL_HELPER": str(
-                RUNTIME.with_name("opencode-credentials.py")
-            ),
-            "PROVEO_OPENCODE_HOME_MANIFEST": str(
-                ROOT / "defs/opencode/harness.manifest"
-            ),
             "OPENCODE_DISABLE_MODELS_FETCH": "1",
             "OPENCODE_DISABLE_AUTOUPDATE": "1",
             "OPENCODE_CONFIG_PROJECT_DISABLE": "1",
@@ -72,31 +65,7 @@ class NativePresentationTests(unittest.TestCase):
             "XDG_CACHE_HOME": "/home/agent/.cache",
             "TERM": "xterm-256color",
             "OPENCODE_CLI_CONFIG_CONTENT": PREFERENCES,
-            "PROVEO_OPENCODE_CACHE_HOME": str(self.root),
-            "PROVEO_SEED_REFUSED": str(self.root / "seed-refused"),
         }
-        prepared = subprocess.run(
-            [sys.executable, "-B", str(RUNTIME), "--prepare", "--empty"],
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        self.assertEqual(prepared.returncode, 0, prepared.stderr)
-        self.owner = json.loads(prepared.stdout)["cache_owner"]
-        self.addCleanup(
-            subprocess.run,
-            [
-                sys.executable,
-                "-B",
-                str(RUNTIME),
-                "--shutdown-cache",
-                "--proveo-cache-owner=" + self.owner,
-            ],
-            env=self.env,
-            capture_output=True,
-            timeout=5,
-        )
 
     def drive(self, mode, value):
         result = subprocess.run(
@@ -109,7 +78,6 @@ class NativePresentationTests(unittest.TestCase):
                 str(RUNTIME),
                 NATIVE,
                 str(self.root),
-                self.owner,
             ],
             env=self.env,
             capture_output=True,
@@ -145,7 +113,7 @@ class NativePresentationTests(unittest.TestCase):
         self.assertEqual(
             (self.root / "shell-executed").read_text(), report["shellOutput"]
         )
-        database = self.home / "opencode/v2/share/opencode.db"
+        database = self.home / ".local/share/opencode/opencode.db"
         with contextlib.closing(sqlite3.connect(database)) as db:
             messages = [
                 json.loads(row[0])
@@ -189,7 +157,6 @@ class NativePresentationTests(unittest.TestCase):
                         str(RUNTIME),
                         NATIVE,
                         *args,
-                        "--proveo-cache-owner=" + self.owner,
                     ],
                     env=self.env,
                     cwd=self.root,

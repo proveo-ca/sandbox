@@ -4,8 +4,7 @@
 # 201 MB is node_modules and 83 MB is apps/ — on every single image build, and
 # defs/base/Dockerfile's builder stage baked it into a layer with `COPY . .`.
 #
-# defs/cecli/.dockerignore is NOT this file and never applied: BuildKit reads
-# <context>/.dockerignore or <dockerfile>.dockerignore, and that path is neither.
+# defs/cecli/Dockerfile.dockerignore replaces this file for cecli builds and repeats it.
 #
 # This is a denylist on purpose. An allowlist (`*` + `!`) would be tighter, but
 # five Dockerfiles COPY from this context — AGENTS.md, cmd/, internal/, go.mod,
