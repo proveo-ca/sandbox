@@ -6,6 +6,14 @@
 '   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
 '   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
 '   the glyph tier's other consumer  _spec/internal/posture/one-value-two-renderings.puml
+'   the strip grammar .............. _spec/internal/agentio/agent-terminal-io.puml (termtext)
+'
+' N5 (DONE (wt) 2026-10-17): the tee's stripper is termtext.StripANSI
+' (internal/ui/ui.go:262), shared with agentio's tail and the e2e readers;
+' ui's own stripANSI is deleted. It skipped from ESC to the next 'm', so a
+' non-SGR sequence cost the log the text up to the next 'm' —
+' "\x1b[2Khello mom" logged as "om" (measured by the coordinator before the
+' fix). TestTheRunLogKeepsTextAfterANonSGRSequence pins the repair.
 '
 ' ── WHAT CHANGED, AND WHY THE OLD NOTES HERE WERE WRONG ────────────────────
 ' This file used to describe five verbs and defend the emoji as deliberate:
@@ -76,7 +84,7 @@ component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
 component "termWidth(w)\nioctl, else 100" as WIDTH <<host>>
 component "GlyphTier\nPROVEO_GLYPHS\nNerd · ASCII · Off" as TIER <<host>>
-component "stripANSI" as STRIP <<app>>
+component "termtext.StripANSI" as STRIP <<app>>
 component "Default → os.Stderr" as DEF <<app>>
 component "TeeTo(w)\nrun log" as TEE <<app>>
 

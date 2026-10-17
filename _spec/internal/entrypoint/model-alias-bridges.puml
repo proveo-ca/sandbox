@@ -1,9 +1,92 @@
 @startuml
-' ── RETIRED 2026-09-09. THIS DESCRIBES A MECHANISM THAT NO LONGER EXISTS ───
-' The TSV tables, apply_model_bridges and the role vars this file documents were
-' deleted with _spec/_plans/retire-model-bridging.puml. proveo no longer chooses
-' an agent's model; the model comes from the agent's own saved config, and on a
-' first run from its own default.
+' ── CURRENT STATE: PROVEO CHOOSES NO AGENT MODEL BY ENVIRONMENT ───────────
+' Rehomed 2026-10-17 from _spec/_plans/retire-model-bridging.puml, which now
+' holds only its two open questions, Q2 (local model) and Q4 (the catalog)
+' (repo-simplification.puml N10). This block is the live design; the diagram
+' below it is the RETIRED mechanism, kept for the one fact noted after it.
+'
+' THE DECISION (operator, 2026-09-09; not re-argued). An agent's model comes
+' from ITS OWN SAVED CONFIG, carried between sessions by the durable home
+' (_spec/packages/lib/config-seeding-and-persistence.puml). A first run gets
+' the agent's own built-in default. proveo seeds no model id: seeding one
+' would be proveo choosing again. Answers recorded with it: Q1 the agent's own
+' default · Q3 roles survive as the CREDENTIAL vocabulary · Q5 no first-run
+' announcement · Q6 the apply_model_bridges call sites were removed, not
+' emptied, because a no-op left in place reads as a live mechanism.
+'
+' WHAT LANDED. Deleted: defs/bridges/ (four TSV tables + README),
+' internal/provider/slots.go (BridgeTable, ResolvedEnv and kin),
+' embed.ModelBridges, run.Spec.ModelBridges, Params.Bridges,
+' sandbox.Input.Bridges / ResolvedModelEnv, posture.MergeRoles, the four
+' `COPY defs/bridges/` layers, apply_model_bridges and its four call sites.
+' Pruned from roles.go: RolesFrom (the env read), Canonical, ResolveRoles,
+' PlanFallback. MEASURED 2026-10-17:
+'   provider.RoleNames (roles.go:15; was RoleVars) names ARCHITECT_MODEL,
+'     EDITOR_MODEL, SMALL_MODEL as the KEYS of a remembered assignment
+'     (provider.Roles). The name drops "Vars" so nobody reads them from env.
+'   posture.RolesLine (posture.go:223) renders roles directly; no slot table.
+'   The credential and billing surface still reads roles: Roles.MissingKeys,
+'     WithheldKeys, BillingClashes (roles.go:36-87), and the choice UI rows
+'     (_spec/internal/choiceui/wireframe.puml). None of them sets a model.
+'
+' A HARNESS'S OWN MODEL VAR IS THE OPERATOR CONFIGURING THAT HARNESS.
+' OPENCODE_MODEL, CECLI_MODEL, CURSOR_MODEL, CODEX_MODEL, ANTHROPIC_MODEL pass
+' through untouched (CODING_HARNESSES.md "Models are not bridged"). A retirement that
+' dropped them would have taken a working control with it. The host still
+' warns on an unknown id in one of them: run.assembleEnv → warnUnknownModel
+' (internal/run/helpers.go:66-74) → provider.CheckModel.
+'
+' A SEED NAMES NO MODEL. opencode substitutes an UNSET {env:VAR} with "", so
+' the old seed's "model": "{env:OPENCODE_MODEL}" pinned the model to NOTHING
+' in the durable home. MEASURED: defs/opencode/sample_opencode.json and
+' defaults/opencode.json carry no model key and no {env:OPENCODE…};
+' plan/build omit theirs and inherit the global.
+'
+' --local-model IS THE ONE CALLER THAT STILL SELECTS A MODEL, per harness,
+' from PROVEO_LOCAL_MODEL and never from a role name. opencode needs its own
+' block because the bridge alone used to name its local model:
+' configure_opencode_local_model (defs/opencode/entrypoint.sh:25-70) registers
+' the ollama provider AND sets .model and .agents.title.model. cecli sets
+' CECLI_*_MODEL itself (defs/cecli/entrypoint.sh:46-48); claudecode reads
+' ANTHROPIC_MODEL from sbx.LocalModelEnv. Whether this carve-out is permanent
+' is retire-model-bridging Q2.
+'
+' CREDENTIAL BRIDGES ARE A DIFFERENT MECHANISM WITH THE SAME NAME. The
+' GEMINI_API_KEY → GOOGLE_GENERATIVE_AI_API_KEY alias maps a credential, not a
+' model; deleting the model half took it along on the first attempt, and a
+' parity test caught the loss. It survives (TestOneGoogleKeyBridgeRemains).
+'
+' WHAT GUARDS IT. internal/contract/model_bridging_retired_test.go, 10 tests:
+' no bridge table · no entrypoint bridges a model by role · one Google-key
+' alias · no entrypoint reads a role name, and that guard demonstrably fires ·
+' no opencode seed names a model by environment · --local-model still selects
+' one for opencode · every harness names its local model without a role name ·
+' CODING_HARNESSES.md asks for no role bridging · the def image suites assert
+' the retirement. The guards read CODE, not comments: this repo names deleted
+' machinery where it used to live, and a guard that forbids the explanation
+' gets deleted. The image half needs a built image, so `go test ./...` never
+' sees it: internal/imagetest/{opencode,cursor,codex}_test.go assert a role
+' name reaches the harness as nothing and the harness's OWN var survives; the
+' detached smoke's .env carries only each harness's own model vars.
+' The role-name guard matches on a WORD BOUNDARY. An agent's own variables are
+' named after the same roles (CECLI_EDITOR_MODEL, OPENCODE_SMALL_MODEL), and
+' those must remain; a substring test would flag every one and be deleted.
+' The seed guard exists because the retirement itself SHIPPED that defect: the
+' run after the deletion wrote model="" into the durable home, where it
+' outlives the session — the opposite of "the agent's own default applies".
+' It is a Go test beside its image twin (internal/imagetest/opencode_test.go),
+' because the image suite needs a built image and this must fail in
+' `go test ./...`.
+' Two image suites once asserted the BRIDGE — ARCHITECT_MODEL became
+' OPENCODE_MODEL, then CURSOR_MODEL — and, needing a built image, neither
+' failed in `go test ./...`; they would have failed after the deletion merged.
+' So the Go guard names the REPLACEMENT assertions instead of banning role
+' names. A suite proving a name goes nowhere has to say the name, and no regex
+' over those files can tell that apart from a suite asserting the bridge.
+'
+' ── RETIRED 2026-09-09. THE DIAGRAM BELOW DESCRIBES A MECHANISM THAT IS GONE ─
+' The TSV tables, apply_model_bridges and the role vars it documents were
+' deleted by the decision above.
 '
 ' The file is KEPT rather than deleted because one fact in it outlives the
 ' mechanism and is written down nowhere else: claudecode's ANTHROPIC_MODEL and
@@ -12,14 +95,17 @@
 ' Nothing enforces that today. If a future change ever writes those variables
 ' again, this is the trap it must not walk into.
 '
-' UPDATE 2026-10-17 (N1, MEASURED; repo-simplification.puml N1, N2): the Go side
-' of what is left is DELETED too — internal/entrypoint holds only
-' EnsureRuntimeUser, SmokeReady and firstNonEmpty; ApplyEnvBridges,
-' BridgeGoogleKeys and NormalizeModel are gone with their tests. The bash
-' remnant is apply_env_bridges / _apply_env_bridge (credential aliases only),
-' _normalize_model and the uncalled _model_provider (entrypoint-lib.sh:254-292),
-' still PROPOSED for deletion under N2. The "Go/bash parity" and "two consumers"
-' text below therefore describes a Go side that no longer exists.
+' UPDATE 2026-10-17 (N1, then N2 + N23 + N22; MEASURED, wt): NOTHING of the
+' mechanism below remains on either side. internal/entrypoint holds only
+' EnsureRuntimeUser and firstNonEmpty (ApplyEnvBridges, BridgeGoogleKeys,
+' NormalizeModel deleted by N1; SmokeReady by N22). The bash remnant —
+' _normalize_model, _apply_env_bridge, apply_env_bridges and the uncalled
+' _model_provider — is deleted too (N2 + N23), with the opencode and hermes
+' calls to apply_env_bridges; the five-line bridge_google_keys
+' (entrypoint-lib.sh:36-40) is the one alias left, and
+' TestOneGoogleKeyBridgeRemains (model_bridging_retired_test.go:65) pins it and
+' bans the four names. The prefix table, "Go/bash parity" and "two consumers"
+' text below therefore describe code that no longer exists on EITHER side.
 '
 ' ── VENDOR-LOCKED SLOTS: WHY A FILTER, AND WHY DECLARED ────────────────────
 ' A slot may name the only provider it accepts (column 6 of the TSV). Today that
@@ -82,11 +168,14 @@
 ' container.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Model aliases — one declared table, four harness dialects
-' purpose: how ARCHITECT/EDITOR/SMALL_MODEL become each harness's own env vars
+title Model choice — no model by environment; the retired alias tables, four harness dialects
+' purpose: why proveo chooses no agent model by environment, what guards that, and the alias tables it retired
 ' covers: internal/entrypoint/**
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/model_bridging_retired_test.go
+' covers: CODING_HARNESSES.md
+' covers: defs/opencode/sample_opencode.json
+' covers: defs/opencode/defaults/opencode.json
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 
 folder "Host" as HOST <<host>> {

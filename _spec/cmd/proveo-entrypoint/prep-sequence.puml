@@ -9,9 +9,14 @@
 ' MEASURED (e.g. defs/codex/entrypoint.sh:6-16): source the lib, then
 ' proveo_sbx_passthrough, then the in-shell prelude — set_working_directory,
 ' bridge_google_keys, bridge_git_identity — and only then `proveo-entrypoint prep`,
-' which keeps the passwd entry, the git-context report and the smoke sentinel.
+' which keeps the passwd entry and the git-context report.
 ' TestEntrypointsRunTheShellPreludeThenPrep pins the order. HISTORY: prep ran
 ' first and the shell then redid the chdir and exports prep could not carry.
+' 2026-10-17, N2 + N22 + N23 + N24 (DONE (wt)): `prep` takes no target and has
+' no smoke mode (SmokeReady deleted; smoke is the def's run_smoke_test); the
+' call is `proveo-entrypoint prep || true` in EVERY def, hermes included (it now
+' ships the binary); the shell lib's apply_env_bridges is deleted, so
+' bridge_google_keys is the only credential alias step.
 title Entrypoint startup — the in-shell prelude first, then prep
 
 participant "sbx startup\n(Kit env, cwd)" as SBX <<host>>
@@ -28,14 +33,15 @@ group in-shell prelude — the steps the agent must inherit
   LIB ARROW_MAIN SH : cwd now the mounted scope
   SH ARROW_MAIN LIB : " ""bridge_google_keys"" · ""bridge_git_identity"" "
   LIB ARROW_MAIN SH : Google key aliases + git identity exported;\nno workspace .env is read (N7)
-  SH ARROW_MAIN LIB : harness bridge\n(""apply_env_bridges"" / ""CURSOR_MODEL"" / ""ANTHROPIC_MODEL"")
+  SH ARROW_MAIN LIB : the harness's own model vars, untouched\n(""CURSOR_MODEL"" / ""ANTHROPIC_MODEL"")
 end
 
 group prep — process-external setup only
-  SH ARROW_MAIN PREP : " ""prep <target> || true"" "
+  SH ARROW_MAIN PREP : " ""proveo-entrypoint prep || true"" "
   PREP ARROW_MAIN PREP : passwd entry · git-context report (sees the shell's cwd)
-  PREP ARROW_OPTIONAL SH : smoke mode: sentinel, then sleep
 end
+
+SH ARROW_OPTIONAL SH : smoke mode: ""run_smoke_test"" sentinel, then sleep
 
 SH ARROW_MAIN SH : preamble — versions, detected config,\n" ""PROVEO_MODELS main=… small=…"" "
 SH ARROW_MAIN AGENT : " ""exec <agent> \"$@\""" "

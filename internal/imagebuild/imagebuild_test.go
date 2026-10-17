@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml, _spec/_devops/buildx-driver-selection.puml, _spec/_devops/agent-version-pin.puml
+// SPEC: _spec/_devops/buildx-driver-selection.puml, _spec/_devops/agent-version-pin.puml
 package imagebuild
 
 import (

@@ -101,7 +101,7 @@ note bottom of IB
   ""preflightImages"" hands the run the ref it actually built, which
   ""ResolveImage"" also prefers. A SIDECAR built this way fails the run with
   "re-run so the egress plan picks it up", because the plan already named
-  the image it could not pull (_spec/_plans/host-shell-to-go.puml, P2).
+  the image it could not pull (_spec/_refactors/host-shell-to-go.puml, P2).
 end note
 
 note bottom of WEN

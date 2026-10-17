@@ -91,7 +91,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '    when something ABOVE it changes, and a warm cache keeps last year's linter
 '    with nothing in the build saying so.
 '
-' Still unpinned, and known to be (see _spec/_plans/image-size-reduction.puml
+' Still unpinned, and known to be (see _spec/_devops/image-size-reduction.puml
 ' item (c) for the full list): the six LSP servers in base-node-lsp, and the
 ' codex agent (CODEX_VERSION=latest, above).
 ' The lsp-builder go installs and plantuml-lsp are pinned

@@ -385,7 +385,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     sbxSandboxNames keys on Workspaces[0] too, without the ":ro" trim or the
 '     root exclusion (MEASURED).
 '     HISTORY: an "every workspace under temp" rule never matched claudecode or
-'     cecli — home.files adds <StateDir>/egress/<sid>/sbx/home-files and a
+'     cecli — home.files adds <StateDir>/runs/<sid>/sbx/home-files and a
 '     clone with .env adds sbx/project-env, both outside temp.
 '     Pinned offline (e2e build tag, no sbx needed) by e2e/kit_sandbox_test.go:
 '     TestKitSandboxNamesOnlyTheRunsOwnSandbox, 10 pickKitSandbox cases

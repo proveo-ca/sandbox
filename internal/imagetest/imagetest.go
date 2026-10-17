@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml, _spec/tests/testing-strategy.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest
 
 import (

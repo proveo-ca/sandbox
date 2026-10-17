@@ -105,13 +105,7 @@ func hmTools(s *imagetest.Suite) {
 		s.Success(tl.name+" is installed", img, tl.cmd)
 	}
 
-	// The browser tool is native to hermes, not a bolt-on -browser variant —
-	// unlike every other def, this image always carries a working browser.
-	// v2026.9.24's non-desktop build stages Playwright's headless-shell
-	// Chromium (not the "full Chromium" the desktop/-desktop tag ships), at a
-	// version-and-arch-suffixed path, so this globs for it rather than a
-	// fixed path or the /etc/hermes marker file the desktop build alone
-	// writes.
+	// hermes always carries a browser; glob for the headless-shell Chromium.
 	s.Success("headless-shell chromium resolved by upstream's own pin is present and runs", img,
 		`bin="$(find /opt/hermes/.playwright -maxdepth 3 -type f -iname 'chrome-headless-shell' 2>/dev/null | head -1)"; test -n "$bin" && "$bin" --version`)
 }
@@ -151,13 +145,7 @@ func hmSecurity(s *imagetest.Suite) {
 	s.Failure("nc not available", img, "which nc")
 	s.Failure("netcat not available", img, "which netcat")
 
-	// hermes's own exec shim drops root -> the "hermes" user via
-	// /command/s6-setuidgid before exec'ing the real binary, so a bare
-	// `id -un` after the call reports the CALLER's uid, not the dropped
-	// child's — the shim's process image is long gone by then. The real
-	// signal is its own contract: it fails loud with a specific message and
-	// exit 126 if /command/s6-setuidgid is missing, so success + no such
-	// message is what the drop actually happening looks like from outside.
+	// The shim's own fail-loud contract, not `id -un`, shows the drop happened.
 	s.Success("hermes exec shim runs (drops root -> hermes internally, or fails loud)", img,
 		"/opt/hermes/bin/hermes --version")
 	s.Failure("hermes exec shim did not refuse and silently stay root", img,

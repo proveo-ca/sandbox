@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/_devops/git-hooks.puml
 package main
 
 import (

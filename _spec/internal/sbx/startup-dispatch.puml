@@ -148,6 +148,14 @@ skinparam noteTextAlignment left
 ' `background` field would refuse the Kit outright if its loader is strict;
 ' the host sbx at 2026-10-13 renders its own claude kit with a background step.
 '
+' ── EVERY SEED STEP EXITS 0 (seedNeverAbort, internal/sbx/kit.go) ──────────
+' sbx's durable-startup dispatcher runs each startup command under `set -e`
+' and `exit $rc`, so one non-zero step tears down a live agent session. A seed
+' miss is a warning, never that: the -c wrapper runs proveo-seed, prints a
+' non-zero status to stderr, and exits 0. The wrap lives on the host Kit so it
+' takes effect without rebuilding the image that ships proveo-seed
+' (_spec/internal/sbx/seed-node-version-abort.puml).
+'
 ' ── WHAT THE SPLIT ACCEPTS ──────────────────────────────────────────────────
 ' Installs now run beside a live agent on every model sbx might follow. The
 ' agent can call a tool before step 3 restores or installs it; the tool env

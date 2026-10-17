@@ -1,4 +1,4 @@
-// SPEC: _spec/tests/testing-strategy.puml, _spec/tests/00-testing-overview.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml, _spec/tests/00-testing-overview.puml
 package main
 
 import (

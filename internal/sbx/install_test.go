@@ -214,11 +214,7 @@ VERSION_ID="9.4"
 	}
 }
 
-// proveo's own prereqs cover ONLY what must hold before sbx exists. Whether the
-// host can run a sandbox — virtualisation, the daemon, storage, permissions —
-// is `sbx diagnose`'s verdict, and duplicating it here produced false failures:
-// a group-membership proxy reports failure for root, for udev ACL grants and
-// for a 0666 /dev/kvm.
+// proveo's own prereqs cover ONLY what must hold before sbx exists.
 func TestPrereqsCoverInstallBlockersOnly(t *testing.T) {
 	t.Parallel()
 	got := Prereqs(Host{OS: "linux", Arch: "amd64"}, Probe{

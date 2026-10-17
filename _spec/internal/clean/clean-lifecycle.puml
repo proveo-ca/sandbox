@@ -4,12 +4,23 @@
 ' covers: internal/clean/**
 ' covers: cmd/proveo/clean.go
 ' covers: cmd/proveo/clean_legacy_test.go
+' covers: cmd/proveo/clean_run_state_test.go
 '
 ' 2026-10-16: the docker+egress backend is DELETED, so nothing creates an
 ' egress session container, an egress network or broker.env any more. The
-' per-run state dir (<stateDir>/egress/<sid>, the name is egress-era) now holds
-' the sbx Kit, the policy log and the run's other artifacts; an older run's dir
-' may still hold a broker.env.
+' per-run state dir holds the sbx Kit, the policy log and the run's other
+' artifacts; an older run's dir may still hold a broker.env.
+'
+' TWO RUN ROOTS FOR ONE RELEASE (N13, DONE (wt) 2026-10-17, option 1).
+' MEASURED: a run writes <stateDir>/runs/<sid> (run.RunDirOf, helpers.go:117).
+' run.RunRoots() (:110-114) returns [<stateDir>/runs, <stateDir>/egress] —
+' current first, then the retired egress-era root, swept for one release.
+' stateSessions() (cmd/proveo/clean.go:215-228) lists the session ids under
+' EVERY root, sorted and deduplicated, so a sid present in both is planned
+' once; runClean (:259-270) removes <root>/<sid> under each root that has it.
+' Test: TestCleanSweepsRunStateUnderTheRetiredRootToo
+' (cmd/proveo/clean_run_state_test.go). "Drop the egress root" is recorded
+' for the next release, not scheduled.
 '
 ' ONE LEGACY SWEEP (F11, DONE (wt) 2026-10-17; the user: "One legacy sweep
 ' (Recommended)"). MEASURED: cmd/proveo/clean.go gatherLegacyDocker (:170-200)
@@ -44,7 +55,7 @@ node "Host" as HOST <<host>> {
     component "legacy DinD sidecars\n(retired; never session-labeled)" as D <<app>>
     component "LEGACY egress networks\n+ HasEndpoints" as N <<app>>
     database "LEGACY proveo-squid-cache-* volumes\n(held back while an egress container runs)" as VOL <<db>>
-    database "<stateDir>/egress/<sid>\nsbx Kit · policy log\n(older runs: broker.env)" as ST <<error>>
+    database "<stateDir>/runs/<sid>\n(+ retired <stateDir>/egress/<sid>)\nsbx Kit · policy log\n(older runs: broker.env)" as ST <<error>>
     database "proveo/* images" as IMG <<db>>
     database "PROVEO_HOME (~/.proveo)\nsessions + seeded config" as PH <<db>>
     database "provisioned toolchains\n""toolchains/<os>-<arch>/"" per platform\n""\.local/share/mise"" · ""\.go"" · ""go"" · shims" as TOOLS <<db>>

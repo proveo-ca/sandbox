@@ -25,7 +25,7 @@ skinparam packageStyle rectangle
 '
 ' The contract lane runs as `go test ./internal/contract/` (inside `mise run
 ' test-go` / `mise run ci`); its shell wrapper, defs/tests/run_contract_tests.sh,
-' was deleted 2026-09-22 (_spec/_plans/host-shell-to-go.puml, P3). Image suites
+' was deleted 2026-09-22 (_spec/_refactors/host-shell-to-go.puml, P3). Image suites
 ' are Go under `-tags=image` (internal/imagetest), opted into like Layer 4.
 '
 ' LAYER 3 IS RETIRED (2026-10-16). It stood up the docker egress topology

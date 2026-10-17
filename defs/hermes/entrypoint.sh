@@ -8,21 +8,14 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-ensure_runtime_user
 set_working_directory "/app"
 bridge_google_keys
 bridge_git_identity
-report_git_context
+proveo-entrypoint prep || true
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"
 
-# Upstream normally runs this as an s6-overlay cont-init.d step (UID/GID
-# remap, /opt/data volume chown, config seeding, skills sync) before /init
-# supervises the main process. Overriding ENTRYPOINT for a single foreground
-# process means that step never fires on its own — run it explicitly, once,
-# still as root, so the SAME logic upstream maintains does the remap instead
-# of a proveo-side reimplementation that drifts from it on the next release.
 # The manifest's durable home mount at its host path; otherwise a writable fallback.
 # SPEC: _spec/defs/hermes/hermes-persistence.puml
 hermes_durable=""

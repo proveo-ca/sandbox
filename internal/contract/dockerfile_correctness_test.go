@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/image-size-reduction.puml, _spec/_devops/agent-version-pin.puml
+// SPEC: _spec/_devops/image-size-reduction.puml, _spec/_devops/agent-version-pin.puml
 package contract_test
 
 import (

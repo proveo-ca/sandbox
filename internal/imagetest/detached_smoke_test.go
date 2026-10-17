@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml, _spec/_devops/image-lineage-and-publish.puml
+// SPEC: _spec/tests/testing-strategy.puml, _spec/_devops/image-lineage-and-publish.puml
 package imagetest_test
 
 import (
@@ -26,7 +26,7 @@ var smokeTargets = []struct{ target, repo string }{
 	{"cursor", "proveo/cursor"},
 }
 
-// SPEC: _spec/_plans/retire-model-bridging.puml
+// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
 const smokeEnv = `# Non-secret values for detached image smoke tests only.
 CECLI_MODEL=openai/gpt-4o-mini
 CECLI_EDITOR_MODEL=openai/gpt-4o-mini

@@ -13,7 +13,7 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 '
 ' Lineage rules (which parent, which tag, the ensure step's two modes) are
 ' _spec/_devops/image-lineage-and-publish.puml. The size ARGUMENT and the
-' fleet-wide measurements are _spec/_plans/image-size-reduction.puml. This file
+' fleet-wide measurements are _spec/_devops/image-size-reduction.puml. This file
 ' is the current-state record of how the three shared layers are built.
 '
 ' ── STAGE 1: ONE proveo-entrypoint BUILDER FOR THE WHOLE FLEET ──────────────
@@ -100,15 +100,31 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 ' `go build` already writes 0755.
 '
 ' ── proveo/base-node: ONE NODE, ONE pnpm, ONE BUN ───────────────────────────
-' NODE_MAJOR=22 via nodesource, pnpm@10.33.0, `unzip`.
+' NODE_VERSION=22.23.2 from the official nodejs.org tarball, pinned by version
+' and a per-arch sha256 (NODE_SHA256_X64 / _ARM64) and extracted into
+' /usr/local; pnpm@10.33.0; `unzip`. NodeSource is gone: it published PER
+' UBUNTU RELEASE, and why that broke on the template's floor is
+' _spec/_devops/sandbox-template-rebase.puml (NODESOURCE, xz AND GLOBS).
+'
+' THE DISTRO NODE IS PURGED, NOT SHADOWED (moved from defs/base-node/Dockerfile,
+' N14). The template already carries Ubuntu's nodejs (24.x, npm 9.2.0). Putting
+' /usr/local/bin first on PATH is not enough: the distro copy stays on disk and
+' `type -a node` reports two, which e2e TestToolchainShipsNoDuplicateBinaries
+' reads as one tool installed in two layers — and it is right to. NodeSource
+' replaced the package in place, so the duplicate is new with the tarball.
+' `apt-get purge --auto-remove nodejs npm` after the extract removes 361
+' packages (Ubuntu's node-* module set) and 293 MB from /usr, measured. The RUN
+' then asserts `command -v node` is /usr/local/bin/node and the version is the
+' pin, so a silent fallback to a distro copy fails the build.
 '
 ' unzip is Bun's one documented prerequisite on Linux, and it lands here so every
 ' Node consumer inherits it (opencode used to install its own copy).
 '
-' `rm -rf /usr/include/node` is in the SAME RUN as the nodesource install:
-' nodesource's deb ships 65 MB of C++ headers for building native addons, and
-' node-gyp fetches its own into ~/.cache/node-gyp anyway — only an explicit
-' `--nodedir` reads these. A later RUN would delete the path and keep the bytes.
+' `rm -rf /usr/include/node /usr/local/include/node` is in the SAME RUN as the
+' Node install. The headers exist for building native addons (65 MB, measured on
+' the old nodesource deb), and node-gyp fetches its own into ~/.cache/node-gyp
+' anyway — only an explicit `--nodedir` reads these. A later RUN would delete
+' the path and keep the bytes.
 '
 ' BUN IS PINNED TWICE — by version AND by the digest published in that release's
 ' SHASUMS256.txt:
@@ -187,7 +203,7 @@ APT ARROW_ERROR FONT : prevented — harfbuzz, fontconfig\nand dejavu are explic
 PUML ARROW_MAIN PUML : renders ""/tmp/floor.puml"" at BUILD
 BASE ARROW_MAIN BN
 BN ARROW_MAIN BNL
-NODE ARROW_ERROR LATER : ""rm -rf /usr/include/node""\nshares the nodesource RUN
+NODE ARROW_ERROR LATER : ""rm -rf /usr/include/node""\nshares the Node install RUN
 LSP ARROW_ERROR LATER : the ""*.map"" and docs prune\nshares the install RUN
 BUN ARROW_ERROR NPMBUN : never — release zip,\nversion + SHASUMS256 digest
 

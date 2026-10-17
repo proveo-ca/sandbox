@@ -29,6 +29,17 @@ skinparam noteTextAlignment left
 ' described below is therefore OPEN again (repo-simplification.puml T1
 ' proposed re-recording it as sbx goldens).
 '
+' ── 2026-10-17: RUN STATE IS A RUN DIR, NOT AN EGRESS DIR (N13, DONE (wt)) ──
+' MEASURED: Spec.EgDir is Spec.RunDir (spec.go:21, "per-run state: the sbx
+' kit, policy log and staged clone env"), filled by RunDirOf(sid) =
+' <StateDir>/runs/<sid> (run.go:49, helpers.go:117); sandbox.Input.EgDir is
+' Input.RunDir (sandbox.go:1036); the egDir parameters of runlog.Artifacts,
+' CapturePolicyLog and CaptureMemoryEvidence are runDir. RunRoots() also
+' returns the retired <StateDir>/egress root, for `proveo clean` only
+' (_spec/internal/clean/clean-lifecycle.puml). Test: TestRunStateLivesUnderRuns
+' (env_names_test.go:49). The picker's "egress" row (sbx's policy baseline) is
+' a different concept and keeps its name.
+'
 ' ── THE PROBLEM WAS THE STACK FRAME ────────────────────────────────────────
 ' doRun held SIXTY top-level locals. That is not a size complaint: it means the
 ' function's contract was invisible. Nothing could be moved out of it without
@@ -131,8 +142,8 @@ end note
 note over SPEC
   **Sixty locals, named once.** The values the
   plan called doRun's hidden contract: sid,
-  egDir, uid/gid, mounts, workdir, lookup,
-  detected, homePlan.
+  egDir (now RunDir), uid/gid, mounts, workdir,
+  lookup, detected, homePlan.
 end note
 
 note over DO

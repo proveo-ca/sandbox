@@ -22,14 +22,7 @@ import (
 
 // TestBrowserViewportReachesTheAgentsChromium proves the whole chain the
 // browser add-on publishes by driving a real `proveo run claudecode` through
-// its kit with the "browser" add-on pre-selected, instead of hand-assembling the
-// three pieces (a `sbx create -p hostPort:9222`, a manually started CDP
-// relay, and a manual `sbx exec ... agent-browser open`) that `proveo run`
-// itself wires up when the add-on is on: the target stays "claudecode" — the
-// add-on, not a separate "claudecode-browser" target, is what swaps in the
-// browser image and starts the relay (internal/run/run.go's
-// `rs.Backend.BrowserImage` lookup keys on `target+"-browser"`, so passing
-// the browser image name directly as the target would bypass that wiring).
+// its kit with the "browser" add-on pre-selected.
 func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")

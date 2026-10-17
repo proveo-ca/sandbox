@@ -17,16 +17,6 @@ func CheckNetworkArgs(host string) []string {
 func PolicyLog(sandbox string) ([]byte, error) { return sh.PolicyLog(sandbox) }
 
 // MemoryEvidenceScript is what a teardown asks the guest about its own memory.
-//
-// A sandbox has NO SWAP (measured: SwapTotal 0; the guest kernel is static with
-// CONFIG_ZRAM and CONFIG_ZSWAP off, docker/sbx-releases#447), so pressure does
-// not degrade — it kills. The guest OOM killer names its victim in `dmesg` and
-// nowhere else: there is no OOMKilled flag to read, and cgroup-v2 at the root
-// reports nothing (memory.max, memory.current and memory.events all read
-// empty). Repeated `drop_caches` from vminitd is the reclaim that precedes it.
-//
-// `docker ps` runs last and its failure is swallowed: a wedged daemon is itself
-// a symptom, and must not cost us the meminfo and dmesg lines above it.
 const MemoryEvidenceScript = `echo "== meminfo =="
 grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|Committed_AS|Dirty)' /proc/meminfo 2>/dev/null
 echo

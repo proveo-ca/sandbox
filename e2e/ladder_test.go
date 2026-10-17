@@ -284,10 +284,7 @@ func TestSandboxLadder(t *testing.T) {
 				t.Fatalf("RUNG FAILED — this rung adds %s, and the agent never reached a prompt in %s\n%s",
 					r.adds, startup, lastLines(res.out, 25))
 			case res.promptFailure != "":
-				// The verdict this rung was added for. Everything above it
-				// measures whether a session STARTS; this measures whether it
-				// can be USED, which is where a Kit that grants reach without a
-				// credential first becomes visible.
+				// First use: the session held a prompt, then refused what was typed.
 				v.detail = fmt.Sprintf("held a prompt, then refused %q on %q",
 					res.promptFailure, res.prompted)
 				t.Fatalf("RUNG BROKE ON FIRST USE — this rung adds %s. The session reached a prompt "+
@@ -409,10 +406,6 @@ type sessionResult struct {
 	authFailure   string
 	death         string
 	// promptFailure is a refusal the render carried AFTER we typed something.
-	// It is separate from authFailure because the two have different owners: an
-	// auth failure before the prompt makes every rung above it untestable
-	// (Skip), while a refusal on first use is a rung that held a session it
-	// cannot actually use (Fail).
 	promptFailure string
 	// prompted is what was typed, echoed back into the verdict so a report
 	// says which use broke rather than just "something broke".
@@ -422,19 +415,8 @@ type sessionResult struct {
 }
 
 // ladderPrompt is what the ladder types into the agent once it reaches a
-// prompt. EMPTY IS THE DEFAULT AND MEANS TODAY'S LADDER: reach a prompt, hold,
-// assert nothing about what the agent can do.
-//
-// It is free text rather than a fixed probe on purpose. `/model xai` is the
-// string that reproduces session proveo-1788935973-18915 — a cecli session that
-// reached a prompt, held for the full window, and then froze on a 403 from
-// api.x.ai the first time its completer touched a provider. The next incident
-// will need a different string, and a rung that only knows one probe would have
-// to be edited to catch it.
-//
-// The value is typed VERBATIM, so it does not submit. Completion fires on the
-// buffer change, which is where this class of failure lives; append a newline
-// (PROVEO_LADDER_PROMPT=$'…\r') when a rung needs the input actually sent.
+// prompt.
+// Empty keeps today's ladder; the value is typed verbatim, so end it in \r to send it.
 func ladderPrompt() string { return env("PROVEO_LADDER_PROMPT", "") }
 
 // providerRefusals are renders that mean the agent is alive at its prompt and
@@ -448,37 +430,17 @@ var providerRefusals = []string{
 	"Blocked by local rule for",
 	// The detail line a default-deny block carries.
 	"no matching allow rule",
-	// What raise_for_status renders in any Python agent. It is UNATTRIBUTABLE on
-	// its own, and that is the point of keeping it: measured at api.x.ai, 401
-	// means no or bad credentials and 400 means a wrong key, while 403 is
-	// returned BOTH by the sandbox proxy for a block AND by xAI for an account
-	// out of credits. Only the body separates them, so this marker says "look",
-	// not "blocked" — and the authFailures scan runs first so a dry account
-	// skips rather than blaming the rung.
+	// What raise_for_status renders in any Python agent; it means "look", not "blocked".
 	"403 Client Error",
 	// cecli's provider model-list probe, which is the render this rung was
 	// written from.
 	"Failed to fetch",
-	// The load-bearing one: it is the only render that separates "the proxy
-	// blocked me" from "the proxy let me through WITHOUT injecting", and those
-	// have different owners.
-	//
-	// It is safe as a rung failure BECAUSE of what a climb is: childEnvArgs-
-	// NoCredential unsets every provider.DetectVars() entry, so the agent is
-	// meant to hold no key at all. A provider judging a key therefore means one
-	// arrived by a path the climb never chose — a workspace .env sourced with
-	// `set -a`, or a stale entry in the host-wide secret store — which is
-	// exactly the invisible second credential path this rung exists to expose.
+	// The load-bearing one: a key the keyless climb never chose reached the provider.
 	"Incorrect API key provided",
 }
 
 // firstProviderRefusal returns the refusal that appears EARLIEST IN THE RENDER,
-// not the earliest in the list above. One failure usually prints several of
-// these at once — cecli's probe renders "Failed to fetch … 403 Client Error …"
-// in one line — and scanning in list order would make the slice's arrangement a
-// hidden priority, so reordering it for readability would silently change what
-// every report blames. Position in the transcript is the agent's own ordering,
-// which is the one an operator reads.
+// not the earliest in the list above.
 func firstProviderRefusal(out string) string {
 	best, at := "", -1
 	for _, r := range providerRefusals {
@@ -568,10 +530,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 		}
 	}
 
-	// FIRST USE. `mark` is where the transcript stood before we typed, and the
-	// scan below starts there — a host blocked during the SEED is a different
-	// fault with a different owner, and attributing it to the prompt would
-	// point the report at the wrong rung.
+	// FIRST USE: scan only what rendered after `mark`, where we typed.
 	mark := len(seen())
 	if prompt != "" {
 		if _, err := ptmx.WriteString(prompt); err != nil {
@@ -597,12 +556,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 			out := seen()
 			if len(out) > mark {
 				since := termtext.Words(out[mark:])
-				// AUTH FIRST, AND THE ORDER IS THE POINT. An account with no
-				// credits answers 403, which this rung would otherwise blame on
-				// the Kit — measured doing exactly that for a whole session.
-				// An empty account is nobody's bug and makes every rung above
-				// it untestable, which is a Skip, so it must win the race
-				// against the 403 marker below.
+				// AUTH FIRST: a dry account must Skip before the 403 marker fails the rung.
 				if f := firstAuthFailure(since); f != "" {
 					res.authFailure, res.out = f, out
 					res.aliveFor = time.Since(started)

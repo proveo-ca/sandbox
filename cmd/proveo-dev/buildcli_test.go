@@ -1,4 +1,4 @@
-// SPEC: _spec/cmd/proveo/usage.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/cmd/proveo/usage.puml
 package main
 
 import (

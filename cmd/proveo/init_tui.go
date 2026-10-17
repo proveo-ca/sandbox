@@ -73,10 +73,6 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 		Git:      !o.skipGit,
 		Baseline: "",
 	}
-	// A one-time install: proveo puts sbx on a host that has none and then
-	// stops. An sbx that is already here is the operator's, whatever its
-	// version — replacing it would be managing their toolchain, so an old one
-	// is reported with instructions instead. `--force` is the explicit ask.
 	if installed != "" && !o.force {
 		d.Install = installSkip
 	}

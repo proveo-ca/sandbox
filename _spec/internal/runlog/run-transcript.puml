@@ -59,6 +59,20 @@ skinparam noteTextAlignment left
 ' control characters, so what lands in the log is greppable — the same property
 ' the status tee exists to preserve, applied to the one block that had been
 ' routed around it.
+'
+' ── ONE ESCAPE GRAMMAR FOR THE LOG COPY (N5, DONE (wt) 2026-10-17) ─────────
+' MEASURED: ui's run-log tee writes termtext.StripANSI(p) (internal/ui/ui.go:262),
+' and Tail.push strips through the same function (internal/agentio/agentio.go:61)
+' — one grammar, _spec/internal/agentio/agent-terminal-io.puml. The deleted
+' ui.stripANSI skipped from ESC to the next 'm', so a NON-SGR sequence ate the
+' text after it up to the next 'm': "\x1b[2Khello mom" was logged as "om"
+' (measured by the coordinator before the fix). Test: TestTheRunLogKeepsTextAfterANonSGRSequence (ui_test.go:478).
+'
+' ── WHERE THE RUN'S ARTIFACTS LIVE (N13, DONE (wt) 2026-10-17) ─────────────
+' The per-run state dir is <StateDir>/runs/<sid> (run.RunDirOf); the egDir
+' parameters are runDir — runlog.Artifacts(runDir) (runlog.go:105) and
+' sandbox.CapturePolicyLog(runDir, name) (sandbox.go:1800). Runs before N13
+' wrote <StateDir>/egress/<sid>; `proveo clean` sweeps both for one release.
 title Run transcript — making a denial diagnosable after the fact
 
 node "PROVEO_HOME/logs" as HOME <<host>> {
@@ -68,7 +82,7 @@ node "PROVEO_HOME/logs" as HOME <<host>> {
 
 node "proveo run" as RUN <<host>> {
   component "runlog.Open(sid)\nfirst statement in run.Do" as OPEN <<app>>
-  component "ui.TeeTo\nstatus lines, ANSI stripped" as TEE <<app>>
+  component "ui.TeeTo\nstatus lines, termtext.StripANSI" as TEE <<app>>
   component "rl.Fields\nresolved posture" as FIELDS <<app>>
   component "sandbox.CapturePolicyLog\nteardown, before sbx rm\n(was captureSidecarLogs, docker)" as CAP <<app>>
   component "recordOutcome\ninside Do, while the log is open" as OUT <<app>>
@@ -77,7 +91,7 @@ node "proveo run" as RUN <<host>> {
 
 component "main's os.Exit(agent code)\nprints nothing, and the log is closed" as OSEXIT <<error>>
 
-database "egress state dir\nsbx/policy-log.json · sbx/kit\n(flows.ndjson · squid logs: docker, deleted)" as EG <<db>>
+database "run state dir <state>/runs/<sid>\nsbx/policy-log.json · sbx/kit\n(flows.ndjson · squid logs: docker, deleted)" as EG <<db>>
 
 OPEN ARROW_MAIN LOG : create 0600
 OPEN ARROW_OPTIONAL LATEST : relink
@@ -101,7 +115,7 @@ end note
 note bottom of CAP
   **Why teardown is the only chance.** ""sbx policy log"" for a sandbox
   is gone once the sandbox is removed, so it is saved to
-  ""<egDir>/sbx/policy-log.json"" first. That record — allowed and blocked
+  ""<runDir>/sbx/policy-log.json"" first. That record — allowed and blocked
   hosts — is what lets an operator tell an sbx denial from a provider's
   own 401. HISTORY: on the deleted docker backend the inspector and Squid
   ran detached with ""--rm"" and ""docker logs"" was the sole copy.

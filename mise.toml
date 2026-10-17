@@ -1,14 +1,5 @@
-# Go is pinned HERE and in go.mod (`toolchain go1.26.5`). Two pins, kept byte-equal
-# by internal/contract TestMiseGoPinMatchesGoModToolchain, so `mise run <task>` and
-# GOTOOLCHAIN=auto resolve the same compiler instead of racing over one build cache.
-#
-# It was deliberately absent until the retirement of `g` (github.com/stefanmaric/g):
-# with `g` owning a GOROOT, a mise pin meant a SECOND one, and two toolchains over
-# one build cache fail with `compile: version "goX" does not match go tool version
-# "goY"`. `g` is gone — it hands back a GOROOT and stops, leaving every consumer to
-# find it through a shell rc. A sandbox has no persistent rc to write one into, so
-# `mise run` reported `go: command not found` with a working toolchain on disk.
-# mise's shims are already on PATH on every backend.
+# Go is pinned here and in go.mod (`toolchain go1.26.5`); keep the two byte-equal.
+# internal/contract TestMiseGoPinMatchesGoModToolchain fails when they drift.
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
 [tools]
 go = "1.26.5"

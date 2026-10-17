@@ -1,5 +1,5 @@
 # SPEC: _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/agent-version-pin.puml
-# SPEC: _spec/_plans/image-size-reduction.puml
+# SPEC: _spec/_devops/image-size-reduction.puml
 ARG BASE_IMAGE=proveo/claudecode:latest
 FROM ${BASE_IMAGE}
 

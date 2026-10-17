@@ -12,22 +12,6 @@ import (
 )
 
 // RUN MUST NOT RETURN BEFORE THE CHILD'S LAST OUTPUT HAS BEEN DRAINED.
-//
-// The read happens AFTER Run returns, deliberately: that turns a timing window
-// into a contract. Nothing here waits or polls, so the only way the bytes are
-// in the pipe is that Run refused to return until the out pump had copied them.
-//
-// Repeated, because the defect was a RACE and one pass only flips a coin.
-// `pty.Start` returns with the child already running, and the out pump was
-// started two statements later; a child this short exits first, and Run's
-// deferred `m.Close()` then tore the master down with the output still in it.
-//
-// MEASURED against the unfixed code: a few percent of attempts lost the output,
-// so a single attempt passed far more often than it caught anything — the
-// package's other two PTY tests do one attempt each and failed about three runs
-// in five, which read as flake rather than as this bug. 500 caught it 6 times
-// out of 6, always inside the first 40, so the loop is a fail-fast ceiling and
-// not a half-second of work.
 func TestRunDrainsTheChildsOutputBeforeReturning(t *testing.T) {
 	const want = "LAST_WORDS"
 	for i := 0; i < 500; i++ {

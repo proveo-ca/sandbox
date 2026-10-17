@@ -4,6 +4,26 @@
 ' covers: defs/codex/**
 ' covers: packages/lib/entrypoint-lib.sh
 '   how the harness is steered and gated _spec/defs/codex/codex-paradigm.puml
+'
+' ── AUTH: THE LOGIN FILE IS A CREDENTIAL (moved from source, N14) ──────────
+' Two ways in: a ChatGPT-plan login at $CODEX_HOME/auth.json, which the durable
+' proveo home carries between runs, or OPENAI_API_KEY. With both present the
+' login wins — codex's own default — and proveo withholds the competing key
+' host-side for the same reason (_spec/internal/credentials/
+' credential-decisions.puml: a login on disk out-ranks an env token).
+' So the .codex home mount declares NO deny list — claudecode's posture, not
+' cursor's. `codex login` writes ~/.codex/auth.json and a ChatGPT-plan run IS
+' that file. Scrubbing it would make every subscription session log in again,
+' and would hide the login from PersistedLogin, which is what stops proveo
+' injecting a competing API key.
+'
+' ── codex-browser ───────────────────────────────────────────────────────────
+' defs/base-node-browser/Dockerfile applied onto proveo/codex (browserOf in
+' internal/imagebuild/targets.go; _spec/defs/browser-layer.puml), so it is a
+' strict superset: the language servers the entrypoint wires in as MCP servers
+' are still there. Selected per run as the `browser` addon, never as a target
+' of its own. (The manifest comment said FROM proveo/base-node-browser; that
+' predates the layer-on-harness inversion and was not carried over.)
 skinparam linetype ortho
 skinparam ranksep 120
 skinparam nodesep 80

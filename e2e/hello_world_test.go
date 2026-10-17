@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/tests/42-hello-world-e2e.puml, _spec/tests/testing-strategy.puml, _spec/_plans/retire-model-bridging.puml, _spec/_paradigms/retire-dind.puml
+// SPEC: _spec/tests/42-hello-world-e2e.puml, _spec/tests/testing-strategy.puml, _spec/_paradigms/retire-dind.puml
 
 package e2e
 

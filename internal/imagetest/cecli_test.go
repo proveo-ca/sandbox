@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest_test
 
 import (
@@ -22,7 +22,7 @@ func TestImageCecli(t *testing.T) {
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c",
 			`[ "$(id -u)" != "0" ] && [ "$(whoami)" = "cecli" ] && ! command -v gosu >/dev/null`},
 		[]string{"run", "--rm", "--user", "4242:4242", "--entrypoint", "bash", image, "-c",
-			`source /entrypoint-lib.sh && ensure_runtime_user && [ "$(id -u)" = "4242" ] && [ -w "$HOME" ]`},
+			`source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && [ "$(id -u)" = "4242" ] && [ -w "$HOME" ]`},
 	)
 
 	cecliAll(s, "ships the Kit's startup command (/usr/local/bin/proveo-seed)",
@@ -43,7 +43,7 @@ func TestImageCecli(t *testing.T) {
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `git --version && gh --version && ffmpeg -hide_banner -version`},
 		[]string{"run", "--rm", "--user", "4242:4242", "--entrypoint", "bash",
 			"-e", "GIT_AUTHOR_NAME=Proveo Dev", "-e", "GIT_AUTHOR_EMAIL=dev@proveo.test", image, "-c", `
-    source /entrypoint-lib.sh && ensure_runtime_user && bridge_git_identity \
+    source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && bridge_git_identity \
       && [ "$(git config --get user.name)" = "Proveo Dev" ] \
       && [ "$(git config --get user.email)" = "dev@proveo.test" ]`},
 	)

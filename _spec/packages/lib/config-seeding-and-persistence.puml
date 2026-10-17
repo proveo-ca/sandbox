@@ -60,7 +60,7 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '   how it failed silently ......... _spec/tests/42-hello-world-e2e.puml
 '   the chain, drawn ............... _spec/packages/lib/language-server-provisioning.puml
 '   what a class must not assume ... _spec/_runtimes/toolchain-provisioning.puml
-'   what leans on this chain ..... _spec/_plans/retire-model-bridging.puml
+'   what leans on this chain ..... _spec/internal/entrypoint/model-alias-bridges.puml
 '                                   Q1 is the agent's own default, not a seed.
 '                                   This file carries the saved config that
 '                                   plan named; it no longer blocks that one.

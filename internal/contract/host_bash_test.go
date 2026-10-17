@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/20-contract.puml
 package contract_test
 
 import (

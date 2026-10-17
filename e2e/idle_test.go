@@ -24,10 +24,7 @@ var runIDPattern = regexp.MustCompile(`proveo-\d+-\d+`)
 var authFailures = []string{
 	"Failed to authenticate",
 	"Credit balance is too low",
-	// The same state in other vendors' words. It arrives as a 403, which reads
-	// as an egress denial and was misread as one for a whole session before
-	// anyone opened the response body — so the wording, not the status, is what
-	// gets recognised here.
+	// The same out-of-credits state in other vendors' words.
 	"used all available credits",
 	"reached its monthly spending limit",
 	"insufficient_quota",
@@ -190,10 +187,7 @@ func idleAtPrompt(t *testing.T, target string) {
 	}
 	t.Logf("agent reached a prompt — injecting the reports a real terminal answers, then waiting %s with no further input", idle)
 
-	// creack/pty does not answer Device Attributes. A host terminal does, and
-	// Cursor 2026.09.15 probes kitty-push then DA1 at startup. Without these
-	// writes, idle-all certified a path that never saw the bytes that kill
-	// `proveo run cursor` on a real tty.
+	// creack/pty answers no terminal reports; send the ones a host tty would.
 	injectTerminalReports(t, ptmx)
 
 	// ── do nothing, on purpose ───────────────────────────────────────────────

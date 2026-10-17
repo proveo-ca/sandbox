@@ -52,7 +52,7 @@ skinparam noteTextAlignment left
 ' SEC2, option 2). A declared dir is mounted read-WRITE, so the guest could
 ' plant `~/.proveo/<dir>/x -> ~/.ssh` and read it on the next run. MEASURED
 ' now: a link is followed only when its resolved (realPath) target is listed in
-' <proveo home>/linked-dirs (LinkedDirsFile, home_access.go:29-30) — absolute
+' <proveo home>/linked-dirs (manifest.LinkedDirsFile, manifest.go:50-51) — absolute
 ' paths, one per line, `#` comments, read by listedLinkTargets. The proveo home
 ' ROOT is never mounted by a shipped def, so the guest cannot add an entry; a
 ' linked-dirs copy inside a mounted dir does not count (home_access_test.go).
@@ -67,10 +67,15 @@ skinparam noteTextAlignment left
 ' TestHomeAccessMountsALinkedDirReadOnly and
 ' TestHomeAccessRefusesLinksThatWidenTheView updated (reported). The README's
 ' "Proveo home" section documents linked-dirs (reported; docs are not mine).
-' OPEN: SEC4 (repo-simplification.puml, PLAUSIBLE) — a custom def's home mount
-' `host: .` passes validation and would mount the home ROOT read-write, letting
-' the guest write linked-dirs itself; `files: [linked-dirs]` would round-trip
-' through Commit.
+' SEC4 (DONE (wt) 2026-10-17, repo-simplification.puml): no manifest can hand
+' the guest the list. A custom def's home mount `host: .` would have mounted
+' the home ROOT read-write and let the guest write linked-dirs itself, and
+' `files: [linked-dirs]` would have round-tripped through Commit. MEASURED:
+' LinkedDirsFile moved from this package to internal/manifest so validation
+' can name it; Home.validate refuses a mount host whose cleaned first element
+' is `.` or `linked-dirs` (manifest.go:276-277) and refuses `linked-dirs` in
+' `files:` (:296-297). Test: TestAHomeMountNeverReachesTheLinkedDirsList
+' (manifest_test.go:383 — `.`, `./`, the list as a mount, the list as a file).
 '
 ' JETBRAINS IS THE SAME HOST. proveo adds one line for Remote Development:
 ' host <sid>.sbx through the OpenSSH config, project = the agent workdir. A

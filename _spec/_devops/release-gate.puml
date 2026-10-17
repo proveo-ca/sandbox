@@ -78,7 +78,7 @@ skinparam noteTextAlignment left
 '                           --- SKIP: TestSandboxLadder (0.00s)
 '
 ' ── THE GATE IS GO NOW (cmd/proveo-dev ladder | idle | e2e-full) ────────────
-' The mise bash moved to cmd/proveo-dev (P4, _spec/_plans/host-shell-to-go.puml);
+' The mise bash moved to cmd/proveo-dev (P4, _spec/_refactors/host-shell-to-go.puml);
 ' the column-0 anchor lives in ladder.go as a Go regexp, idle.go reads each
 ' `    --- PASS|FAIL|SKIP: TestAgentSurvivesIdleAtPrompt/<def>` subtest line and
 ' calls a def with none of the three MISS. A green subtest set under a red suite

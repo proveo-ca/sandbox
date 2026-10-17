@@ -17,6 +17,12 @@ skinparam noteTextAlignment left
 ' kitRun.exec). sbxShellHoldsInADetachedPane and both skips it gated are
 ' deleted. Everything below is the record of how that was weighed; every
 ' `proveo run --shell` in it names a flag that no longer exists.
+' Claim 2 changed shape with the clone default. On the clone plan nothing the
+' agent writes reaches the host until teardown, so the probe asserts that the
+' tree the agent stands in IS this workspace: the same commit, served by the
+' run's own git daemon. Only a live bind can be asserted by a file arriving
+' host-side, so the probe waits for one only when the run reports no
+' "private clone".
 '
 ' ── UPDATE 2026-09-10: THE SKIP HAS SPREAD, SO E3 GOT MORE EXPENSIVE ───────
 ' Re-measured, because an experiment nobody references is an experiment nobody

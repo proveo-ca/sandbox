@@ -84,6 +84,17 @@ skinparam noteTextAlignment left
 ' is nil'd by the same defer that closes it and a pump scheduled late used to
 ' fetch the nil and copy nothing.
 '
+' THE TEST READS AFTER `Run` RETURNS, ON PURPOSE. That turns a timing window
+' into a contract: nothing in drain_test.go waits or polls, so the bytes can be
+' in the pipe only if `Run` refused to return before the out pump copied them.
+' It REPEATS, because the defect was a race and one pass only flips a coin.
+' MEASURED against the unfixed code: a few percent of attempts lost the output,
+' so one attempt passed far more often than it caught anything. The package's
+' other two PTY tests ran one attempt each and failed about three runs in five,
+' which read as flake rather than as this bug. 500 attempts caught it 6 times
+' out of 6, always inside the first 40, so the loop is a fail-fast ceiling and
+' not half a second of work.
+'
 title The PTY proxy — one reader of the real terminal, and how its pumps end
 
 actor "Operator" as OP

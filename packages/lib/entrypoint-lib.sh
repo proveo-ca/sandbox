@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/github-ssh-hosts.puml
 
-ensure_runtime_user() {
- local uid gid
- uid="$(id -u)"; gid="$(id -g)"
-
- if ! getent passwd "$uid" >/dev/null 2>&1 && [[ -w /etc/passwd ]]; then
- printf 'agent:x:%s:%s:agent:%s:/bin/bash\n' "$uid" "$gid" "${HOME:-/tmp}" >> /etc/passwd
- fi
-
- if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
- export HOME=/tmp
- fi
-}
-
 if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
 fi
@@ -73,41 +60,6 @@ bridge_git_identity() {
 
  if (( idx > ${GIT_CONFIG_COUNT:-0} )); then
  export GIT_CONFIG_COUNT="$idx"
- fi
-}
-
-report_git_context() {
- command -v git >/dev/null 2>&1 || return 0
-
- local dir="${1:-$(pwd)}"
-
- if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
- echo "✅ Git repository at $(git -C "$dir" rev-parse --show-toplevel)"
- local origin
- if origin="$(git -C "$dir" remote get-url origin 2>/dev/null)" && [[ -n "$origin" ]]; then
- echo "✅ Remote origin: $origin"
- else
- echo "🔎 Not tracking a remote repo"
- fi
- else
- echo "🔎 Not a git repository: $dir"
- fi
-
- local id_name id_email
- id_name="$(git -C "$dir" config --get user.name 2>/dev/null || true)"
- id_email="$(git -C "$dir" config --get user.email 2>/dev/null || true)"
- if [[ -n "$id_name" || -n "$id_email" ]]; then
- echo "✅ Git identity: ${id_name:-unset} <${id_email:-unset}>"
- else
- echo "🔎 No git identity (provide GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL)"
- fi
-
- if command -v gh >/dev/null 2>&1; then
- if timeout 5s gh auth status >/dev/null 2>&1; then
- echo "✅ gh session authenticated"
- else
- echo "🔎 gh session not authenticated (set GH_TOKEN or GITHUB_TOKEN)"
- fi
  fi
 }
 
@@ -1039,11 +991,7 @@ proveo_exec_agent() {
   local launch=()
   while [[ $# -gt 0 && "$1" != "--" ]]; do launch+=("$1"); shift; done
   [[ "${1:-}" == "--" ]] && shift
-  # `type -P` and not `command -v`: the question is whether the first word is an
-  # executable FILE, because the only thing this branch can do with it is exec it.
-  # `command -v` also answers yes for shell keywords and builtins, and codex's own
-  # `exec` subcommand is one — so `codex exec "prompt"` was read as a launcher
-  # command, and `exec exec …` then died with no such file, never reaching codex.
+  # `type -P`, not `command -v`: only an executable FILE can be exec'd here.
   if [[ $# -gt 0 && "$1" != -* ]] && type -P -- "$1" >/dev/null 2>&1; then
     echo "🔁 launcher supplied its own command; running it instead of ${agent}: $1 …"
     exec "$@"
@@ -1058,36 +1006,7 @@ readonly PROVEO_RULES_START="<!-- >>> proveo house rules (generated — edits ar
 readonly PROVEO_RULES_END="<!-- <<< proveo house rules <<< -->"
 
 # _house_rules_target maps a harness to its USER-level instruction file, relative
-# to the agent's home. Empty means the harness has no such file and proveo writes
-# nothing — a decision, not an oversight, so every supported target gets a row.
-#
-# USER level, never the workspace. The workspace is the operator's repository:
-# seeding a file there mutates their checkout, competes with an AGENTS.md they
-# already wrote, and cannot apply at all when one exists. The user layer has none
-# of those problems — both harnesses below merge it with the project's rather than
-# choosing between them, and both rank the project's HIGHER, so a repo can still
-# overrule the house.
-#
-#   claudecode  NONE here — /etc/claude-code/CLAUDE.md, baked by the Dockerfile.
-#               That is the MANAGED POLICY tier: it loads before the user and
-#               project files and cannot be excluded by claudeMdExcludes at any
-#               settings layer, which is what "always processed" requires. The
-#               home file this function would write is the LOWEST tier and a
-#               project CLAUDE.md outranks it.
-#   codex       $CODEX_HOME/AGENTS.md (~/.codex/AGENTS.md) — the documented
-#               global file. Codex reads AGENTS.md natively and ranks the
-#               project's above it, so this ADDS to a repo's own rules rather
-#               than competing with them. It is the lowest tier, which is the
-#               right one: codex has no managed-policy path, so there is nothing
-#               above the project layer to write to.
-#   opencode    ~/.config/opencode/AGENTS.md — the documented global file;
-#               instructions render global first, then project on top.
-#   cursor      NONE. cursor-agent reads .cursor/rules and a project-root
-#               AGENTS.md/CLAUDE.md; its global "User Rules" live in the IDE
-#               settings UI, not a file the CLI reads. Nothing to write.
-#   cecli       NONE established. It seeds a PROJECT CONVENTIONS.md from its own
-#               defaults; no user-level equivalent is documented, and guessing a
-#               path writes a file nothing reads.
+# to the agent's home. Empty means proveo writes nothing for that harness.
 _house_rules_target() { case "$1" in
   claudecode) echo "" ;;
   codex)      echo ".codex/AGENTS.md" ;;
@@ -2085,10 +2004,7 @@ configure_cursor_lsp() {
 
 _codex_toml_str() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }
 
-# LSP arrives over MCP because codex has no external-LSP config — the same
-# bridge cursor uses. The block is written into config.toml between
-# "# >>> proveo lsp" markers, so an operator's own [mcp_servers.*] entries
-# survive a re-run and only what proveo generated is replaced.
+# Writes codex's [mcp_servers.lsp_*] block into config.toml between "# >>> proveo lsp" markers.
 # SPEC: _spec/defs/codex/codex-topology.puml
 configure_codex_lsp() {
   command -v mcp-language-server >/dev/null 2>&1 || return 0
@@ -2267,16 +2183,7 @@ render_subagents() {
    out+="$(cat "$fm")"$'\n'"---"$'\n'$'\n'"$text"
    ;;
   toml)
-   # codex declares its agents as TOML documents rather than as a markdown file
-   # with frontmatter, so the body is not appended after a delimiter — it IS a
-   # value, and the delimiter choice is load-bearing.
-   #
-   # A multi-line LITERAL string, never a basic one: literal strings process no
-   # escapes, so the shared markdown travels through byte for byte. The bodies
-   # carry backslash sequences on purpose (spec-keeper documents what a backslash
-   # escape means inside a PlantUML label), and a basic string would eat them
-   # silently — a corruption with no error, in a file nobody re-reads after it is
-   # composed.
+   # The body is a TOML multi-line LITERAL string ('''), which processes no escapes.
    dest="$dst/$name.toml"
    [[ "$reseed" == "1" || ! -f "$dest" ]] || continue
    if [[ "$text" == *"'''"* ]]; then

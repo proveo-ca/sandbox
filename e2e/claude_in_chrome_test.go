@@ -24,29 +24,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestClaudeInChromeNavigatesTheRealBrowser is precondition (1) from
-// chrome-bridge.puml's "FOUR PRECONDITIONS" note turned into a measurement:
-// with a REAL Chrome running on this host and the REAL Claude in Chrome
-// extension connected, a sandboxed claude session must be able to drive it.
-//
-// Unlike an earlier version of this test, nothing here hand-builds the
-// container script or starts the relay itself: a real `proveo run claudecode`
-// is driven end to end under tmux, exactly the way an operator would launch
-// it. The "claude-in-chrome" add-on is pre-selected by seeding an isolated
-// agent-settings cache (agentsettings.Store) rather than by navigating the
-// picker's checkboxes — the form still renders once and is accepted with a
-// single Enter (acceptChoicePrompt), the same pattern every other e2e test
-// that seeds a choice already uses. From there, `proveo run` itself decides
-// the backend (sbx, preferred when available for this manifest), starts the
-// real chromebridge.Relay, and the container's own entrypoint chain
-// (proveo_chrome_bridge -> PROVEO_CHROME_READY=1 -> --chrome) runs unmodified.
-//
-// Missing any of the four preconditions the puml note names — a connected
-// extension, the transport, a browser-scoped credential, or the launch flag —
-// is a skip, never a fake substitute. The credential specifically must be a
-// persisted /login: an env token (a `claude setup-token` output, or a bare
-// ANTHROPIC_API_KEY) is refused for Chrome regardless of any scope claimed
-// for it, no matter how fresh.
+// TestClaudeInChromeNavigatesTheRealBrowser measures precondition (1) from
+// chrome-bridge.puml's "FOUR PRECONDITIONS": with a real Chrome and extension,
+// a sandboxed claude session must be able to drive it.
+// A missing precondition is a skip, never a fake substitute.
 func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 	requireHarness(t, "claudecode") // tmux + the local image sbx hands over
 	if _, err := exec.LookPath(sbx.Binary); err != nil {
@@ -136,16 +117,9 @@ func TestClaudeInChromeNavigatesTheRealBrowser(t *testing.T) {
 }
 
 // requireChromeCapableLoginHome skips unless this host holds a persisted,
-// non-blanked Claude Code login in the proveo home — the ONLY credential
-// shape Chrome integration actually accepts. An env token minted via `claude
-// setup-token` (or a bare ANTHROPIC_API_KEY) is refused for Chrome no matter
-// what CLAUDE_CODE_OAUTH_SCOPES claims for it: Claude Code checks scope
-// against the token's real server-side grant, and a setup-token's grant is
-// always inference-only underneath — the client-declared scope changes
-// nothing. Only an interactive /login's persisted credential carries a real,
-// server-verified browser scope (chromebridge.go's ScopeGate: "a persisted
-// /login ... its real scopes include user:profile"), so that home is what
-// this test clones the credential file out of.
+// non-blanked Claude Code login in the proveo home — the credential
+// shape this test relies on.
+// Whether a scoped env token also qualifies is OPEN; see chrome-bridge.puml.
 func requireChromeCapableLoginHome(t *testing.T) string {
 	t.Helper()
 	homeRoot := proveohome.Root(os.Getenv)

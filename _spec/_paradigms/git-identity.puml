@@ -56,7 +56,7 @@ node "Host" as HOST <<host>> {
 node "Agent container" as CTR <<host>> {
   component "docker run -e GIT_AUTHOR_NAME …\n-e GIT_COMMITTER_EMAIL …" as ENVIN <<app>>
   component "bridge_git_identity\n→ GIT_CONFIG_KEY_n / VALUE_n / COUNT" as BRIDGE <<app>>
-  component "report_git_context\nrepo? · origin? · identity? · gh auth?" as REPORT <<app>>
+  component "prep's reportGitContext (Go; shell twin gone, N24)\nrepo? · origin? · identity? · gh auth?" as REPORT <<app>>
   component "git / gh (baked in every image)" as GIT <<app>>
   database "repo-local .git/config" as LOCAL <<db>>
 }

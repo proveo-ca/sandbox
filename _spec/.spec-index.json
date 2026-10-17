@@ -71,7 +71,9 @@
         "scripts/githooks/post-commit",
         "cmd/proveo-dev/hooks.go",
         "mise.toml",
-        "internal/contract/git_hooks_test.go"
+        "internal/contract/git_hooks_test.go",
+        "cmd/proveo-dev/lint.go",
+        "cmd/proveo-dev/lint_test.go"
       ],
       "fingerprint": null
     },
@@ -86,6 +88,18 @@
         "cmd/proveo/provision.go",
         "internal/contract/image_resolution_test.go",
         "internal/contract/import_boundary_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/image-size-reduction.puml",
+      "covers": [
+        "defs/**/Dockerfile",
+        ".dockerignore",
+        "defs/cecli/Dockerfile.dockerignore",
+        "internal/contract/image_size_test.go",
+        "internal/contract/dockerfile_correctness_test.go",
+        "e2e/sbx_test.go"
       ],
       "fingerprint": null
     },
@@ -337,18 +351,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/image-size-reduction.puml",
-      "covers": [
-        "defs/**/Dockerfile",
-        ".dockerignore",
-        "defs/cecli/Dockerfile.dockerignore",
-        "internal/contract/image_size_test.go",
-        "internal/contract/dockerfile_correctness_test.go",
-        "e2e/sbx_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/init-credential-provisioning.puml",
       "covers": [],
       "fingerprint": null
@@ -373,17 +375,9 @@
     {
       "spec": "_spec/_plans/retire-model-bridging.puml",
       "covers": [
-        "internal/provider/roles.go",
-        "internal/entrypoint/**",
-        "packages/lib/entrypoint-lib.sh",
-        "internal/contract/model_bridging_retired_test.go",
-        "defs/opencode/sample_opencode.json",
-        "defs/opencode/defaults/opencode.json",
-        "defs/opencode/entrypoint.sh",
-        "defs/opencode/tests/test_config.sh",
-        "defs/opencode/tests/test_defaults.sh",
-        "defs/cursor/tests/test_config.sh",
-        "CODING_HARNESSES.md"
+        "internal/sbx/host_ollama.go",
+        "internal/provider/models.go",
+        ".claude/skills/sync-models/SKILL.md"
       ],
       "fingerprint": null
     },
@@ -811,6 +805,7 @@
       "spec": "_spec/internal/agentio/agent-terminal-io.puml",
       "covers": [
         "internal/agentio/**",
+        "internal/termtext/**",
         "cmd/proveo/main.go"
       ],
       "fingerprint": null
@@ -932,7 +927,8 @@
       "covers": [
         "internal/clean/**",
         "cmd/proveo/clean.go",
-        "cmd/proveo/clean_legacy_test.go"
+        "cmd/proveo/clean_legacy_test.go",
+        "cmd/proveo/clean_run_state_test.go"
       ],
       "fingerprint": null
     },
@@ -980,7 +976,10 @@
       "covers": [
         "internal/entrypoint/**",
         "packages/lib/entrypoint-lib.sh",
-        "internal/contract/model_bridging_retired_test.go"
+        "internal/contract/model_bridging_retired_test.go",
+        "CODING_HARNESSES.md",
+        "defs/opencode/sample_opencode.json",
+        "defs/opencode/defaults/opencode.json"
       ],
       "fingerprint": null
     },
@@ -1814,15 +1813,8 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/host-shell-to-go.puml",
-      "covers": [
-        "cmd/proveo-dev/**",
-        "internal/installtest/**",
-        "internal/contract/host_bash_test.go",
-        "internal/contract/installer_bash_test.go",
-        "scripts/githooks/post-commit",
-        "mise.toml"
-      ],
+      "spec": "_spec/_refactors/host-shell-to-go.puml",
+      "covers": [],
       "fingerprint": null
     },
     {

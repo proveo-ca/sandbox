@@ -69,6 +69,7 @@ func TestEntrypointsRunTheShellPreludeThenPrep(t *testing.T) {
 		"defs/cursor/entrypoint.sh",
 		"defs/cecli/entrypoint.sh",
 		"defs/claudecode/mcp/entrypoint.sh",
+		"defs/hermes/entrypoint.sh",
 	} {
 		b, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
@@ -97,6 +98,21 @@ func TestEntrypointsRunTheShellPreludeThenPrep(t *testing.T) {
 		if strings.Contains(src, "gosu") {
 			t.Errorf("%s must never escalate via gosu", rel)
 		}
+	}
+}
+
+func TestPrepIsTheOnlyRuntimeUserAndGitContextStep(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	lib := readFileOrFail(t, filepath.Join(root, "packages/lib/entrypoint-lib.sh"))
+	for _, fn := range []string{"ensure_runtime_user", "report_git_context"} {
+		if regexp.MustCompile(`(?m)^` + fn + `\(\)`).MatchString(lib) {
+			t.Errorf("entrypoint-lib.sh still defines %s; proveo-entrypoint prep owns it", fn)
+		}
+	}
+	hermes := readFileOrFail(t, filepath.Join(root, "defs/hermes/Dockerfile"))
+	if !regexp.MustCompile(`(?m)^COPY .*--from=proveo-entrypoint-builder /out/proveo-entrypoint .*/usr/local/bin/`).MatchString(hermes) {
+		t.Error("defs/hermes/Dockerfile must ship proveo-entrypoint, or hermes has no prep to run")
 	}
 }
 

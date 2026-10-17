@@ -89,7 +89,7 @@ end note
 note bottom of C
   Not a repository → no "".git"" mount, which is correct rather than a
   degradation: there is no history to expose. Agents still run, and
-  ""report_git_context"" prints "Not a git repository" instead of a repo summary.
+  prep's git-context report prints "Not a git repository" instead of a repo summary.
 end note
 
 note right of OVER

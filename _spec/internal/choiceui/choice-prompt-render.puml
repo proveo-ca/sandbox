@@ -46,6 +46,15 @@ skinparam noteTextAlignment left
 ' sidecars. Since that backend's deletion the box's help reads "every harness
 ' runs in the sandbox and nowhere else" (MEASURED, gateAddons).
 '
+' THE HELP PROMISES A DAEMON ONLY WHERE THE MANIFEST DOES (N20, DONE (wt)
+' 2026-10-17). The form passes addonHelpFor(man) (internal/run/choices.go:60,
+' :512-518): a clone of addonHelp — the shared map is never edited — whose
+' sandbox line, for a `daemon: false` harness (hermes), reads "a microVM (sbx)
+' with no Docker daemon for the agent — the boundary every run on this harness
+' gets" instead of "a microVM with its own Docker daemon (sbx) — …". The label
+' stays "docker (sandbox)". TestThePickerPromisesADaemonOnlyWhereTheManifestDoes
+' (run_test.go:867) pins both texts and the untouched shared map.
+'
 ' HISTORY: the egress axis was chosen by AVAILABILITY, not by the add-on.
 ' Consulting the remembered answer once offered the docker tiers —
 ' open/allowlist/review — for a run going to sbx, hiding changeBaselineHint.

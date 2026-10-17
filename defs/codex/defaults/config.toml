@@ -1,21 +1,10 @@
-# proveo baked defaults for the Codex CLI.
-#
-# Seeded into $CODEX_HOME/config.toml on first run (missing-only, so a durable
-# proveo home keeps your edits; CODEX_RESEED=1 refreshes them). Every key here is
-# a CLI default the argv can still override.
+# proveo baked defaults for the Codex CLI; the argv can still override every key.
+# Seeded into $CODEX_HOME/config.toml once (missing-only), so your edits persist;
+# CODEX_RESEED=1 replaces them with these defaults.
 
-# The container is the boundary, so the in-process one is not asked to be.
-#
-# proveo runs this harness in a sandbox VM (sbx) under sbx's network policy.
-# Codex's own sandbox would confine the
-# agent to a subset of a filesystem that is ALREADY a disposable copy, at the cost
-# of a blocking prompt in an unattended loop — which is fatal, not safe: the run
-# stalls forever with nobody to answer.
-#
-# These two keys are the config half of the same decision the entrypoint makes on
-# the argv (--dangerously-bypass-approvals-and-sandbox), and they are written down
-# here as well so `codex exec`, `codex resume` and a bare `codex` all inherit it
-# without depending on flag placement. Override per-run with PROVEO_CODEX_SANDBOX.
+# The sandbox VM is the boundary, so codex's own sandbox and approval prompts stay off.
+# Mirrors the entrypoint's --dangerously-bypass-approvals-and-sandbox for exec, resume and bare codex.
+# Override per run with PROVEO_CODEX_SANDBOX.
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 

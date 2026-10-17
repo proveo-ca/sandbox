@@ -13,7 +13,7 @@ bridge_google_keys
 bridge_git_identity
 proveo-entrypoint prep || true
 
-# SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
+# SPEC: _spec/defs/opencode/native-v2-integration.puml
 seed_defaults() {
   proveo_seed opencode
 }
@@ -47,7 +47,7 @@ configure_opencode_local_model() {
     while [[ "$base" == */ ]]; do base="${base%/}"; done
   done
   tmp="$(mktemp "${config_file}.tmp.XXXXXX")" || return 1
-  # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
+  # SPEC: _spec/defs/opencode/native-v2-integration.puml
   if printf '%s' "$existing" | jq \
        --arg base "$base/v1" --arg model "$model" '
           .providers.ollama = {

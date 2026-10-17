@@ -88,7 +88,7 @@ note over TEST
     answered (_spec/internal/sbx/clone-workspace.puml)
   # //models selected// — the ""PROVEO_MODELS"" line names the
     local model in **both** tiers. There are no aliases left
-    to outrank (_spec/_plans/retire-model-bridging.puml); each
+    to outrank (internal/entrypoint/model-alias-bridges.puml); each
     harness now names its own local model, so a tier holding a
     cloud default means one harness stopped doing it — and
     that half would quietly bill a provider.

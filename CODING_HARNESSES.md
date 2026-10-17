@@ -107,7 +107,7 @@ Two consequences worth knowing before you write a seed:
 - **`--local-model` is the one caller that still selects a model**, and it does so
   per harness from `PROVEO_LOCAL_MODEL`, not from any role name.
 
-See `_spec/_plans/retire-model-bridging.puml`.
+See `_spec/internal/entrypoint/model-alias-bridges.puml`.
 
 ## Config Files to Bridge
 

@@ -17,17 +17,6 @@ import (
 
 // TestHermesLocalModelE2E drives a real `proveo run hermes --local-model ...`
 // session against each model this def was chosen to support, end to end.
-// Unlike TestPromptfulE2E's deterministic side-effect task, this asserts the
-// model's own prose (a fixed reply), matching internal/imagetest/hermes_test.go's
-// hosted-provider check — Hermes's non-interactive `chat -q` tool-invocation
-// flags aren't confirmed here, so a plain text round-trip is the reliable
-// signal both models are actually reachable and answering.
-//
-// Neither model is pulled by this test. Like TestPromptfulE2E it assumes an
-// operator-populated host Ollama and skips otherwise: Muse Glimmer and Qwen
-// 3.8 both ship at 17-18GB minimum with no small distilled variant, so
-// auto-pulling here would be a multi-gigabyte download on every run rather
-// than an opt-in one.
 func TestHermesLocalModelE2E(t *testing.T) {
 	requireTmux(t)
 	requireSbx(t)

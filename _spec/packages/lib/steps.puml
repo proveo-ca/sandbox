@@ -18,10 +18,14 @@
 ' The user: "Keep 1+1, seed --env-file (Recommended)" (repo-simplification.puml
 ' N7). MEASURED: find_env_file is deleted, and load_env lost its sbx guard and
 ' its `set -a` sourcing of the workspace .env and is renamed bridge_google_keys
-' (entrypoint-lib.sh:49-62); every def entrypoint calls bridge_google_keys, in
-' the shell, BEFORE `proveo-entrypoint prep` (N1, 2026-10-17: prep keeps only the
-' passwd entry, the git-context report and the smoke sentinel —
-' _spec/cmd/proveo-entrypoint/prep-sequence.puml).
+' (entrypoint-lib.sh:36-40 since N2, five lines); every def entrypoint, hermes
+' included, calls bridge_google_keys in the shell BEFORE `proveo-entrypoint prep`
+' (N1/N22/N24, 2026-10-17: prep keeps only the passwd entry and the git-context
+' report, has no smoke mode, and has no shell twin —
+' _spec/cmd/proveo-entrypoint/prep-sequence.puml). N2 + N23 deleted the generic
+' bridge machinery beside it (_normalize_model, _apply_env_bridge,
+' apply_env_bridges, _model_provider) and the opencode and hermes calls to
+' apply_env_bridges; TestOneGoogleKeyBridgeRemains pins one definition.
 ' internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
 ' pins that neither the bash prelude nor prep reads it. The project .env's
 ' values now reach a NEW sandbox from the host, through sbx's own `--env-file`
@@ -45,7 +49,8 @@
 ' agent holds sbx's own placeholder (_spec/_paradigms/credential-boundary.puml).
 '
 ' ── §2c · WHY THE gh PROBE IS TIME-BOUNDED ────────────────────────────────
-' report_git_context is read-only, but `gh auth status` validates GH_TOKEN and
+' The git-context report (Go reportGitContext in cmd/proveo-entrypoint since
+' N24 deleted the shell report_git_context) is read-only, but `gh auth status` validates GH_TOKEN and
 ' config sessions OVER THE NETWORK. Under a locked-down network policy that call
 ' can hang, and this runs before the agent, so it is capped at `timeout 5s` —
 ' an unanswered probe reports "not authenticated" rather than stalling startup.
@@ -74,7 +79,8 @@
 ' `exec sleep infinity` — the container stays up for inspection and the agent
 ' never starts. Anything a def prints AFTER its own run_smoke_test call is
 ' therefore unreachable in smoke mode
-' (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+' (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml). It is the ONLY smoke
+' path since N22 deleted prep's SmokeReady (2026-10-17).
 '
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam shadowing false
@@ -139,7 +145,7 @@ partition "3 · Egress  «host + sbx»" {
 
 partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh»" {
   :in-shell prelude FIRST (N1): workdir · ""bridge_google_keys""\n· ""bridge_git_identity"" — no .env load (N7);
-  :""proveo-entrypoint prep"": run-as uid passwd entry (root-free)\n· git-context report · ""gh"" auth check · smoke sentinel;
+  :""proveo-entrypoint prep"": run-as uid passwd entry (root-free)\n· git-context report · ""gh"" auth check (no smoke mode, N22);
   :seed BAKED defaults into ~/.<tool>\n(agents, config, hooks — image-immutable, offline);
   :tool setup via **jq** — cursor HTTP/1.1 fallback;
   :**code intelligence** — shared LSP detector\n(entrypoint-lib.sh §8: bash+awk) ranks workspace\nlanguages vs INSTALLED servers, ""command -v""-gated;
@@ -217,7 +223,7 @@ partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh
 }
 
 partition "5 · Reports / logging, post-session  «host»" {
-  :teardown saves ""sbx policy log"" to <egDir>/sbx/policy-log.json\n(allowed/blocked hosts — no MITM, so no flow record);
+  :teardown saves ""sbx policy log"" to <runDir>/sbx/policy-log.json\n(allowed/blocked hosts — no MITM, so no flow record);
   :agent writes artifacts into reports/ (RW mount);
   :on exit OR SIGTERM/SIGHUP — **Teardown**: clone carry-back,\nstate save, ""sbx rm"" per the keep/remove decision;
 }

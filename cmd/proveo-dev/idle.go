@@ -1,4 +1,4 @@
-// SPEC: _spec/_devops/release-gate.puml, _spec/internal/sbx/sandbox-backend.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/_devops/release-gate.puml, _spec/internal/sbx/sandbox-backend.puml
 package main
 
 import (

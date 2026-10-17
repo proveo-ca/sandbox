@@ -44,7 +44,7 @@ skinparam noteTextAlignment left
 '   * posture: the "egress tier", "brokered", "reachable hosts" and "harness
 '     hosts" rows are gone. EnforcedBy() = "sbx — the host's network policy +
 '     credential proxy"; Observability() names sbx's policy log, saved at
-'     teardown to <egDir>/sbx/policy-log.json.
+'     teardown to <runDir>/sbx/policy-log.json (<state>/runs/<sid>, N13).
 '   * the review tier and its consent gate are retired with internal/reviewgate.
 '     internal/ptyproxy stays: every interactive sbx run uses it.
 '   * manifest Capabilities.Egress and agentsettings Choice.Egress are deleted.

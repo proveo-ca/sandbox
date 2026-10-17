@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest_test
 
 import (
@@ -208,7 +208,7 @@ func ccSecurity(s *imagetest.Suite, img ccImages) {
 		s.Inspect("["+tag+"] Docker USER is non-root", image, "{{.Config.User}}", "claude")
 		s.Check("["+tag+"] arbitrary --user uid gets usable identity and writable HOME", func(t *testing.T) {
 			r := imagetest.Docker(imagetest.DefaultTimeout, nil, "run", "--rm", "--user", "4242:4242", "--entrypoint", "bash", image, "-c",
-				`source /entrypoint-lib.sh && ensure_runtime_user && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
+				`source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
 			if !strings.Contains(r.Out, "uid=4242 home_writable=yes") {
 				t.Errorf("output: %.200s", r.Out)
 			}

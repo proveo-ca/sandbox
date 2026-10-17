@@ -133,10 +133,6 @@ func classifyTerminalReport(b []byte) reportKind {
 				return reportReply
 			}
 		case 'u': // kitty keyboard protocol
-			// CSI ? flags u — flag report (the terminal's answer to CSI ? u).
-			// CSI > flags u / CSI < n u / CSI = flags ; mode u — push / pop / set.
-			// Cursor 2026.09.15 emits CSI > 1 u at startup; on stdin that is a
-			// report, never a key. CSI 1;5 u (no private prefix) IS a keypress.
 			if kittyKeyboardControl(body) {
 				return reportReply
 			}
@@ -211,13 +207,7 @@ func (t *mouseTracker) enabled() bool { return t.on.Load() }
 
 // observe scans one chunk of child output for CSI ? Ps [;Ps…] h / l.
 // csiScanner walks a child-output stream and hands each COMPLETE CSI to a
-// callback as (params-and-intermediates, final byte). It carries a sequence
-// split across two reads, bounded by maxModeCarry so a long run that never
-// reaches a final byte is dropped rather than hoarded.
-//
-// Extracted unchanged from mouseTracker.observe when cursor-position queries
-// needed the same walk. Each watcher keeps its OWN scanner, so neither can
-// consume the other's carry.
+// callback as (params-and-intermediates, final byte).
 type csiScanner struct{ carry []byte }
 
 func (s *csiScanner) scan(b []byte, fn func(params []byte, final byte)) {

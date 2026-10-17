@@ -134,12 +134,7 @@ func CreateArgs(cfg RunConfig) []string {
 	return append([]string{"create"}, RunArgs(cfg)[1:]...)
 }
 
-// Reattach is the launch config for a sandbox that already exists. Its stored
-// spec owns the Kit, image, environment, agent, workspaces, ports and limits;
-// sbx accepts only the existing name plus optional trailing agent arguments.
-//
-// Callers must retain the full config separately: mounts and env are still
-// needed to preserve clone and agent state after the reattached run exits.
+// Reattach is the launch config for a sandbox that already exists.
 func Reattach(cfg RunConfig) RunConfig {
 	return RunConfig{
 		Name:    cfg.Name,

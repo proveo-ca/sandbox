@@ -163,21 +163,6 @@ func TestMountedWorktreeRefusesAForeignPlatformInstall(t *testing.T) {
 
 // rootLibProbe runs a script against entrypoint-lib.sh inside the image, as
 // ROOT, with dir bind-mounted at /w.
-//
-// ROOT IS DELIBERATE — these probes exercise provisioning paths that install
-// packages — and it is also why this helper exists rather than four copies of
-// the invocation. A root container writing into a `t.TempDir()` leaves files the
-// TEST USER cannot unlink, and Go's TempDir cleanup then fails the test AFTER
-// its assertions have already passed. MEASURED: the absent-node_modules probe
-// below has no node_modules, so ensure_dependency_trees auto-installs, and
-// `pnpm install` left /w/.pnpm-store and /w/node_modules owned by root:root —
-// `TempDir RemoveAll cleanup: unlinkat .../.pnpm-store/v10/files/7b: permission
-// denied`, on a subtest whose own check had passed.
-//
-// So ownership is handed back before the container exits. The trap fires on
-// every exit path, including the `exit 1`s the scripts use to report failure, so
-// a FAILING probe cleans up too — otherwise the first real failure here would be
-// followed by a cleanup failure masking it.
 func rootLibProbe(t *testing.T, img, dir, script string) (string, error) {
 	t.Helper()
 	out, err := exec.Command("docker", "run", "--rm", "--user", "root",

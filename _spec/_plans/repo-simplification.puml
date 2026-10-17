@@ -83,6 +83,8 @@
 '     the "proveo-egress-probe.invalid" probe host.
 '   Residue (MEASURED): internal/run/run.go startChromeBridge still takes `tierBlocked` and
 '     is always passed chromebridge.SbxWhy (F16); live env names still carry "EGRESS" (F17).
+'     Cleared since (wt, 2026-10-17): the parameter is `blocked` (F16) and the variables and run
+'     dir are renamed (F17, N13).
 '     Cleared since the first D1 read (MEASURED, wt): internal/choiceui/consent.go and its
 '     test are deleted (N18); Manifest.Egress and Manifest.Provider are deleted (F10).
 ' F1 · proveo/mitmproxy built and published but never started — DONE (wt).
@@ -149,7 +151,7 @@
 '     root .dockerignore:7 says the cecli file replaces it for cecli builds and repeats it;
 '     image_size_test.go TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist. Reported, measured
 '     on buildx v0.36.1: a Dockerfile-specific ignore file makes BuildKit ignore the root one, so
-'     the merged denylist is required. Spec: _spec/_plans/image-size-reduction.puml item 3.
+'     the merged denylist is required. Spec: _spec/_devops/image-size-reduction.puml item 3.
 ' N4 · Three detect-verify.sh copies behind unreachable fallbacks — DONE (wt). The user: "Delete
 '   all three (Recommended)".
 '   Evidence: MEASURED. No detect-verify.sh exists; defs/lib/ and defs/cecli/proveo-lib/ are gone
@@ -293,7 +295,7 @@
 '     away next release — set <new>". The e2e callers set the new names. Tests:
 '     internal/run/env_names_test.go TestARenamedVariableReadsTheNewNameThenWarnsOnTheRetiredOne and
 '     TestStateRootTakesItsNewName. The on-disk and identifier half (EgDir → RunDir, egress/ →
-'     runs/) is N13, still PROPOSED. Living spec for the variables:
+'     runs/) is N13, DONE in the third batch. Living spec for the variables:
 '     _spec/_paradigms/credential-boundary.puml (PROVEO_ENV_FILE).
 ' F19 · hermes's home data — DONE (wt), from research. Findings (reported): sbx mounts workspaces
 '   path-preserving; an image VOLUME is per-sandbox and dies at `sbx rm`; [Unverified] -v/--volume
@@ -336,6 +338,72 @@
 '     image; unit and e2e show only T1's 2 known failures; vet clean for every tag plus darwin and
 '     windows; unused 0. The rebuild refilled ~/.cache/proveo/buildkit to 15 GB and filled the
 '     disk; cleared again with the user's approval, "Clear buildkit cache (Recommended)" (T1 note).
+'
+' ── DONE 2026-10-17, THIRD BATCH (all (wt) unless marked) ──────────────────
+' The user, verbatim: "apply fixes for SEC1, SEC4, N2, N22, N23, N24, F16, N20, N13, N5, N14 and
+'   N10". Each took its [rec] option unless noted. N2, N22, N23 and N24 run in a separate worker
+'   and are NOT recorded here yet; N14 comes in a later pass. Both stay PROPOSED below.
+' SEC1 · The agent uid in the `docker` group — DONE (decision recorded; no code change), option 1.
+'   Accepted: the sbx template ships the same group (defs/base/Dockerfile:31, MEASURED) and the
+'     microVM stays the boundary. Spec: _spec/defs/harness-image-layers.puml (SEC1).
+' SEC4 · A home mount could reach the linked-dirs list — DONE (wt), option 1.
+'   Evidence: MEASURED. LinkedDirsFile moved to internal/manifest (manifest.go:50-51); the sandbox
+'     package reads manifest.LinkedDirsFile. Home.validate refuses a mount host whose cleaned first
+'     element is `.` or `linked-dirs` (:276-277) and `linked-dirs` in `files:` (:296-297).
+'     TestAHomeMountNeverReachesTheLinkedDirsList (manifest_test.go:383: `.`, `./`, the list as a
+'     mount, the list as a file). Specs: _spec/internal/sbx/ide-attach.puml,
+'     _spec/internal/manifest/harness-manifest-schema.puml.
+' F16 · startChromeBridge's `tierBlocked` — DONE (wt), option 2 (the user: "Rename to blocked").
+'   Evidence: MEASURED. startChromeBridge(rs, p, blocked string) (run.go:285); the guard stays
+'     (:291) and launchSandbox still passes chromebridge.SbxWhy (:651). F14 and N21 stay PROPOSED.
+'     Spec: _spec/defs/claudecode/chrome-bridge.puml.
+' N20 · The picker promised a daemon to `daemon: false` — DONE (wt), option 1.
+'   Evidence: MEASURED. choices.go addonHelpFor(man) (:512-518) clones addonHelp; for
+'     !man.WantsDocker() the sandbox help reads "a microVM (sbx) with no Docker daemon for the
+'     agent — the boundary every run on this harness gets"; the form passes addonHelpFor(man) (:60).
+'     The label "docker (sandbox)" is unchanged. TestThePickerPromisesADaemonOnlyWhereTheManifestDoes
+'     (run_test.go:867). Specs: _spec/internal/choiceui/choice-prompt-render.puml,
+'     harness-manifest-schema.puml.
+' N13 · Per-run state under an "egress" name — DONE (wt), option 1 (the variable half was F17).
+'   Evidence: MEASURED. helpers.go RunRoots() (:110-114) = [<state>/runs, <state>/egress (retired,
+'     swept for one release)]; RunDirOf(sid) = <state>/runs/<sid> (:117). Spec.EgDir → RunDir
+'     (spec.go:21), sandbox.Input.EgDir → RunDir (sandbox.go:1036), egDir params → runDir
+'     (runlog.Artifacts, CapturePolicyLog, CaptureMemoryEvidence). cmd/proveo/clean.go
+'     stateSessions() (:215-228) lists ids under every root, sorted and deduped; runClean (:259-270)
+'     removes <root>/<sid> under each root that has it. e2e globs and fixtures use runs/
+'     (sbx_test.go:443, sbx_egress_test.go:136, kit_sandbox_test.go:21). Tests:
+'     TestCleanSweepsRunStateUnderTheRetiredRootToo (cmd/proveo/clean_run_state_test.go),
+'     TestRunStateLivesUnderRuns (env_names_test.go:49). The picker's "egress" row (sbx policy
+'     baseline) is a different concept and is untouched. Specs: clean-lifecycle, run-spec,
+'     run-transcript, sandbox-backend (plus the <egDir> mentions in steps, policy-baseline,
+'     testing-strategy).
+' N5 · Four ANSI strippers — DONE (wt), option 2: the [rec] was INFEASIBLE (MEASURED:
+'   internal/agentio imports internal/ui, so ui cannot import agentio).
+'   Evidence: MEASURED. New leaf package internal/termtext: StripANSI (CSI, OSC/DCS/SOS/PM/APC
+'     strings, every other ESC sequence) and Words (each sequence and whitespace run as one space).
+'     Readers: ui's run-log tee (ui.go:262), agentio Tail.push (agentio.go:61), e2e termtext.Words at
+'     19 sites (the brief said 20; MEASURED 19 across idle, git_sync_turn, sbx_egress, ladder,
+'     kit_probe) and e2e terminalText (opencode_engine_sbx_test.go:57-58). ui.stripANSI, agentio's
+'     regexp and e2e plain() are deleted. The old ui grammar lost text up to the next 'm' after a
+'     non-SGR sequence: "\x1b[2Khello mom" was logged as "om" (measured by the coordinator; pinned by
+'     TestTheRunLogKeepsTextAfterANonSGRSequence, ui_test.go:478). Tests: termtext_test.go (both
+'     funcs). Specs: _spec/internal/agentio/agent-terminal-io.puml (covers internal/termtext/**),
+'     output-vocabulary, run-transcript.
+' N10 · Landed plans under _plans/ — DONE (wt), option 1. The coordinator ran the two git mv's;
+'   the spec half is this pass.
+'   _spec/_devops/image-size-reduction.puml — retitled a measurement record; covers unchanged.
+'   _spec/_refactors/host-shell-to-go.puml — a FROZEN SNAPSHOT: header says so, title is not
+'     PLANNED, no `covers:` (index covers []), and it lists the current-state owners. Rehomed: the
+'     host-shell allowlist into _spec/tests/20-contract.puml; lint.go/lint_test.go coverage into
+'     _spec/_devops/git-hooks.puml.
+'   _spec/_plans/retire-model-bridging.puml — trimmed to Q2 (local model) and Q4 (catalog). The
+'     decision, Q1/Q3/Q5/Q6, what landed and the guard tests are rehomed into
+'     _spec/internal/entrypoint/model-alias-bridges.puml. New measurement for Q4: the catalog still
+'     has readers (warnUnknownModel → CheckModel; posture.RolesLine → ModelProvider).
+'   Every _spec cross-reference to the two moved paths is repointed, and the index entries follow.
+'   OPEN for the main agent: the 55 source citers (the SOURCE REPOINT MAP in the spec-keeper's
+'     reply), including internal/contract/spec_notes_test.go:63,71, whose ratchet list still names
+'     the two old _plans paths.
 '
 ' ══ DECIDED ════════════════════════════════════════════════════════════════
 '
@@ -478,7 +546,8 @@
 '     2. Keep every docker sweep permanently.
 '     3. Delete all docker sweeps now; name `docker volume rm` in the release notes.
 '
-' F14 · The claude-in-chrome add-on is unreachable — PROPOSED (removal).
+' F14 · The claude-in-chrome add-on is unreachable — PROPOSED (removal). (F16 renamed the
+'     `tierBlocked` parameter to `blocked` 2026-10-17; the name below is first-read.)
 '   Evidence: MEASURED. gateAddons (internal/run/choices.go) always greys claude-in-chrome:
 '     chromeWhy when set, else chromebridge.SbxWhy.
 '   Evidence: MEASURED. launchSandbox passes chromebridge.SbxWhy as startChromeBridge's
@@ -505,7 +574,8 @@
 '     2. Drop the "(mounted at …)" clause.
 '     3. Keep it; document the difference in proveo-home-components.puml.
 '
-' F16 · startChromeBridge keeps a `tierBlocked` parameter for a tier that no longer exists — PROPOSED.
+' F16 · startChromeBridge keeps a `tierBlocked` parameter for a tier that no longer exists — DONE (wt)
+'     2026-10-17, option 2, "Rename to blocked" (see DONE, third batch).
 '   Evidence: MEASURED. internal/run/run.go startChromeBridge(rs, p, tierBlocked); its one
 '     caller passes chromebridge.SbxWhy.
 '   Options:
@@ -582,7 +652,8 @@
 '     2. Filter `missing` by the names the store or the login actually covers.
 '     3. Rewrite the block as one verdict line per credential.
 '
-' SEC1 · The agent uid sits in the `docker` group in OpenCode engines — PROPOSED.
+' SEC1 · The agent uid sits in the `docker` group in OpenCode engines — DONE 2026-10-17, option 1
+'     (decision recorded, no code change; see DONE, third batch).
 '   Evidence: MEASURED. defs/opencode/Dockerfile:50-53 adds USER_NAME and agent to `docker` and
 '     sets com.docker.sandboxes.start-docker=true.
 '   Evidence: MEASURED. defs/base/Dockerfile:133-141 records a root dockerd with a root:docker socket.
@@ -762,7 +833,8 @@
 '     2. Keep defs/lib/ only; delete the two per-def copies.
 '     3. Keep as is.
 '
-' N5 · Four ANSI strippers with four grammars — PROPOSED.
+' N5 · Four ANSI strippers with four grammars — DONE (wt) 2026-10-17, option 2 (the [rec] was
+'     infeasible; see DONE, third batch).
 '   Evidence: MEASURED. internal/ui/ui.go:264-276; internal/agentio/agentio.go:24;
 '     e2e/idle_test.go:41-47 (plain); e2e/opencode_cache_sbx_test.go:28,63-70 (terminalText).
 '   Evidence: MEASURED. ui.stripANSI skips from ESC to the next 'm'.
@@ -821,7 +893,8 @@
 '     2. Move build, deploy, test and targets into proveo-dev; point both messages at `mise run build`.
 '     3. Keep as is.
 '
-' N10 · Landed plans still sit under _plans/ — PROPOSED.
+' N10 · Landed plans still sit under _plans/ — DONE (wt) 2026-10-17, option 1 (see DONE, third
+'     batch; the source SPEC: repoint is the main agent's). Paths below are the pre-move ones.
 '   Evidence: MEASURED. host-shell-to-go.puml:20 "P1–P4 LANDED — plan complete".
 '   Evidence: MEASURED. image-size-reduction.puml:11 "BACKLOG LANDED"; title :601 "landed".
 '   Evidence: MEASURED. retire-model-bridging.puml:12 "APPLIED 2026-09-09, except Q2".
@@ -866,7 +939,8 @@
 '     2. Keep two tasks; add Hermes to the regex.
 '     3. Keep as is.
 '
-' N13 · Per-run state still lives under an "egress" name — PROPOSED.
+' N13 · Per-run state still lives under an "egress" name — DONE (wt) 2026-10-17, option 1 (see
+'     DONE, third batch).
 '   Evidence: MEASURED. internal/run/run.go:51 puts run state at StateDir()/egress/<sid>.
 '   Evidence: MEASURED. run/helpers.go:92 overrides it with PROVEO_EGRESS_ROOT.
 '   UPDATE 2026-10-17 (MEASURED): F17 landed the VARIABLE half of option 1 — PROVEO_STATE_ROOT,
@@ -967,7 +1041,8 @@
 '
 ' ══ PROPOSED — FROM THE ADVERSARIAL REVIEW OF THE SECOND BATCH (2026-10-17) ═
 '
-' N20 · Nothing in the product reads `daemon:` — PROPOSED.
+' N20 · Nothing in the product reads `daemon:` — DONE (wt) 2026-10-17, option 1 (see DONE, third
+'     batch).
 '   Evidence: MEASURED. manifest.WantsDocker (manifest.go:82-84) has one caller, e2e/sbx_test.go:132
 '     (daemonHarnesses); no non-test package reads Manifest.Daemon.
 '   Evidence: MEASURED. The picker still tells a `daemon: false` harness (hermes) that its sandbox
@@ -984,7 +1059,7 @@
 '     (choices.go:254), so chromeUnavailable (choices.go:268), chromebridge.Start, ResolvedEnv
 '     (run.go:655) and sandbox.Input.BridgeEnv (sandbox.go:1042,1189,1279) never carry a value.
 '   Overlaps F14 (remove the add-on) and F16 (the tierBlocked parameter); this is the decision
-'     both wait on.
+'     both waited on. F16 is DONE (renamed `blocked`, guard kept), so only F14 waits now.
 '   Options:
 '     1. [rec] Decide whether Claude-in-Chrome under sbx is retired; if so, delete the dead path
 '        (F14 option 1 with F16 folded in).
@@ -1033,7 +1108,7 @@
 '     3. Accept it: the warning is temporary and goes with the alias next release.
 '
 ' SEC4 · A custom def's home mount `host: .` would mount the whole proveo home read-write —
-'   PROPOSED (PLAUSIBLE; found in review).
+'   DONE (wt) 2026-10-17, option 1 (PLAUSIBLE; found in review; see DONE, third batch).
 '   Evidence: MEASURED. manifest Home.validate (manifest.go:257-291) refuses an empty, absolute or
 '     `..` host but accepts `.`; home_access.go joins it onto the root, so the bind is the proveo
 '     home itself.
@@ -1050,31 +1125,31 @@
 '     DONE in the working tree 2026-10-16 (F6 rekeyed; D1 residue cleared, see D1).
 '  1. SEC2 — DONE (wt) 2026-10-17.
 '  2. SEC3 — DONE (wt) 2026-10-17 ("Never approve; fail fast").
-'  3. C1 — DONE (wt) 2026-10-17. SEC4 — refuse `.` and linked-dirs in manifest validation (a
-'     small diff that keeps SEC2 whole).
+'  3. C1 — DONE (wt) 2026-10-17. SEC4 — DONE (wt) 2026-10-17 (third batch).
 '  4. N2 + N22 + N23 + N24 — the prelude remnants after the collapse (N1, N4, N7, F7 and F18 DONE
 '     (wt) 2026-10-17): bridge machinery, the unreachable smoke mode, the duplicate Google bridge,
-'     the shell/Go twins.
-'  5. N21 (decides F14 + F16) + N20 + N25 + N13 — the Go residue D1 leaves behind (F9, F10, F11,
-'     F15, F17, F19, F20 and N18 DONE (wt) 2026-10-17).
+'     the shell/Go twins. IN FLIGHT in a separate worker; not recorded yet.
+'  5. N21 (decides F14) + N25 — the Go residue D1 leaves behind (F9, F10, F11, F15, F17, F19,
+'     F20 and N18 DONE; F16, N20 and N13 DONE (wt) 2026-10-17, third batch).
 '  6. T1 — hermetic contract tests (N12 DONE (wt) 2026-10-17: one image task, hermes in the gate).
-'  7. N11 then N10 — fix spec drift, then graduate landed plans (main agent repoints SPEC: lines).
-'  8. N5 + N6 + N8 — shared helpers, then the env registry.
+'  7. N11 — fix spec drift. N10 DONE (wt) 2026-10-17 on the spec side; the main agent repoints
+'     the source SPEC: lines from the spec-keeper's SOURCE REPOINT MAP.
+'  8. N6 + N8 — shared helpers, then the env registry (N5 DONE (wt) 2026-10-17: internal/termtext).
 '  9. N15 — split sandbox.go, then entrypoint-lib.sh, once 4 and D2 have shrunk them.
 ' 10. N9 + N16 + N19 — small deletions (N17 and N3 DONE (wt) 2026-10-17).
-' 11. N14 — strip comments and add the lint last, so the sweep sees the final shape.
-' 12. SEC1 — record the decision.
+' 11. N14 — strip comments and add the lint last, so the sweep sees the final shape (a later pass).
+' 12. SEC1 — DONE 2026-10-17: the decision is recorded (harness-image-layers.puml).
 title PLANNED — repo simplification: 57 findings, their status, and the order of work
 
 component "D1 · retire docker+egress\nDONE (wt) 2026-10-16" as D1 <<app>>
 component "D2 · OpenCode engine-local DB\nDONE (wt) 2026-10-17 · keeper gone" as D2 <<app>>
 component "F6 · .env guard rekey\nDONE (wt) inside D1;\nthe guard itself deleted by N7" as F6 <<app>>
-component "security · SEC1 SEC4\n(SEC2 SEC3 DONE)" as SEC <<error>>
+component "security\n(SEC1 SEC2 SEC3 SEC4 DONE)" as SEC <<error>>
 component "image prelude\nN2 N22 N23 N24\n(N1 N3 N4 N7 F7 F18 DONE)" as PRE <<app>>
-component "post-D1 Go residue\nF14 F16 N13 N20 N21 N25\n(C1 F9 F10 F11 F15 F17 F19 F20 N18 DONE)" as GO <<app>>
+component "post-D1 Go residue\nF14 N21 N25\n(C1 F9 F10 F11 F15 F16 F17 F19 F20\nN13 N18 N20 DONE)" as GO <<app>>
 queue "test gates · T1\nhermetic contract tests\n(N12 DONE)" as TST <<async>>
-database "spec hygiene · N10 N11 N14\ngraduate + fix drift" as SPEC <<db>>
-component "helpers + splits\nN5 N6 N8 N9 N15 N16 N19\n(N17 DONE)" as HLP <<app>>
+database "spec hygiene · N11 N14\nfix drift + strip\n(N10 DONE; source repoint pending)" as SPEC <<db>>
+component "helpers + splits\nN6 N8 N9 N15 N16 N19\n(N5 N17 DONE)" as HLP <<app>>
 
 D1 ARROW_MAIN F6 : landed together
 D1 ARROW_MAIN GO
@@ -1095,9 +1170,10 @@ legend bottom
   **IDs** — S seed done · D decided retirement · F seed finding · C credential report
   SEC security · T tests · N own sweep
   ==
-  **Counts** — DONE 34 · DECIDED 0 · PROPOSED 23 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  **Counts** — DONE 41 · DECIDED 0 · PROPOSED 16 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
   F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19, F20 added;
   D2, F13, C1, F20, N3, N17 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7;
-  SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added)
+  SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added;
+  third batch: SEC1, SEC4, F16, N20, N13, N5, N10 DONE)
 end legend
 @enduml

@@ -17,7 +17,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' One row per registry target in internal/imagebuild/targets.go `Specs`; one
 ' entry point, Builder.BuildTarget(name, tag, Options{Push, NoCache}). The
 ' per-def build.sh/ensure.sh pairs and defs/lib/docker-build.sh held this shape
-' until 2026-09-22 (_spec/_plans/host-shell-to-go.puml, P2).
+' until 2026-09-22 (_spec/_refactors/host-shell-to-go.puml, P2).
 '   ref = TargetRef(name, tag)   Spec.Repo, or RefRepo($PROVEO_<X>_IMAGE)
 '                                the override names the REPO; --tag sets the tag
 '   tag ""                       -> latest (and Build refuses latest for --load)
@@ -66,7 +66,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' EXCEPTION, cecli (2026-10-17, N17): defs/cecli/Dockerfile.dockerignore is a
 ' Dockerfile-specific ignore file, and BuildKit then IGNORES the root one for
 ' that build (measured on buildx v0.36.1 by the coordinator), so it repeats the
-' root denylist (_spec/_plans/image-size-reduction.puml, item 3 UPDATE).
+' root denylist (_spec/_devops/image-size-reduction.puml, item 3 UPDATE).
 '
 ' A THIRD SHAPE, AND IT CONSTRAINS THE GO TREE. A Go build from a PARTIAL
 ' context — go.mod, cmd/ and internal/, no root-level .go files and no defs/

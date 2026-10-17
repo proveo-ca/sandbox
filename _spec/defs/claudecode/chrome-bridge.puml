@@ -36,8 +36,13 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' stay: they are the sbx chain, kept for re-enabling (F14 still PROPOSED). The
 ' adversarial review filed N21 (PROPOSED): run.go:651 passes the CONSTANT SbxWhy,
 ' so chromeUnavailable, chromebridge.Start, ResolvedEnv and Input.BridgeEnv are
-' unreachable — the decision F14 and F16 wait on is whether Claude-in-Chrome
+' unreachable — the decision F14 waits on is whether Claude-in-Chrome
 ' under sbx is retired. chromebridge's package comment was repaired (reported).
+' F16 (DONE (wt) 2026-10-17, the user's "Rename to blocked", option 2):
+' startChromeBridge(rs, p, blocked string) (run.go:285) — the parameter no
+' longer names the deleted egress tier. The guard stays (`case blocked != ""`,
+' :291), and launchSandbox still passes chromebridge.SbxWhy (:651), so N21's
+' unreachability is unchanged; F14 and N21 stay PROPOSED.
 '
 ' ── FOUR PRECONDITIONS, AND PROVEO OWNS ONE ────────────────────────────────
 ' (rehomed from the now-retired _spec/_plans/claude-in-chrome-reachability.puml,
@@ -250,6 +255,17 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 '   ...FILE_DESCRIPTOR      -> a default carrying user:ccr_inference
 '   a persisted /login      -> its real scopes, which include user:profile
 ' ANTHROPIC_API_KEY does not shadow a login, and is only fatal on its own.
+'
+' OPEN QUESTION, [Unverified] (ruled 2026-10-17: "Record as open, strip").
+' e2e/claude_in_chrome_test.go claims more than this gate does: that Claude
+' Code refuses ANY env token for Chrome, whatever CLAUDE_CODE_OAUTH_SCOPES says,
+' because it checks the token's SERVER-SIDE grant, and a setup-token's grant is
+' inference-only underneath. On that reading only a persisted /login carries a
+' real browser scope, which is why the e2e clones a /login and nothing else.
+' ScopeGate's rule above stands as stated: a scoped env token passes, pinned by
+' TestScopeGateMirrorsClaudeCodesOwnRule. Nothing has measured the server side,
+' and no run can today: on sbx the add-on is greyed with SbxWhy and the bridge
+' path is unreachable (N21). No code change follows from it.
 '
 ' A BLANKED credential file is invisible to the gate, and that is its own case:
 ' it reasons about the session's SHAPE, and a husk classifies as nothing at

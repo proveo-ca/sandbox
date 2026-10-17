@@ -7,14 +7,41 @@
 ' covers: internal/contract/contract_test.go (TestEntrypointsRunTheShellPreludeThenPrep)
 ' covers: internal/contract/env_prelude_test.go (TestPrepKeepsOnlyWhatCrossesTheBoundary)
 '
+' ── N22 + N24 (DONE (wt) 2026-10-17): prep IS THE ONE RUNTIME-USER AND GIT-CONTEXT
+' STEP, IN EVERY IMAGE, AND HAS NO SMOKE MODE ─────────────────────────────────
+' MEASURED, cmd/proveo-entrypoint/main.go:
+'   usage  "prep | verify [dir] | adb-mirror" (:17); `prep` takes NO argument —
+'          an extra one prints usage and exits 2 (:48-51)
+'   prep   entrypoint.EnsureRuntimeUser() then reportGitContext() (:53-54);
+'          nothing else
+' internal/entrypoint holds EnsureRuntimeUser and firstNonEmpty only: SmokeReady,
+' its hourly sleep loop and the target argument are DELETED (N22 [rec]) — every
+' def had cleared PROVEO_SMOKE_TEST before calling prep, so none of it ever ran.
+' Every def entrypoint runs `proveo-entrypoint prep || true`; the
+' `env PROVEO_SMOKE_TEST=` prefix and `export PROVEO_SMOKE_TARGET=` are gone.
+' Smoke mode is the def's own run_smoke_test (entrypoint-lib.sh:174, plus the
+' sentinel lines opencode and hermes print themselves), unchanged.
+' N24: entrypoint-lib.sh no longer defines ensure_runtime_user or
+' report_git_context — the Go pair is the ONLY implementation. The [rec] was
+' blocked because hermes (FROM nousresearch/hermes-agent) shipped no
+' proveo-entrypoint; the user chose "Ship prep into hermes (Recommended)", so
+' defs/hermes/Dockerfile builds it in a stage of its own
+' (_spec/defs/hermes/hermes-topology.puml) and defs/hermes/entrypoint.sh:11-14
+' runs the same prelude-then-prep as every def. The lib's top-level HOME
+' fallback (entrypoint-lib.sh:4-6) stays: it is not a twin of anything.
+' Tests: TestPrepTakesNoTargetAndNoSmokeMode (env_prelude_test.go:177);
+' TestEntrypointsRunTheShellPreludeThenPrep (contract_test.go:63, hermes
+' included, the smoke prefix banned); TestPrepIsTheOnlyRuntimeUserAndGitContextStep
+' (contract_test.go:104 — no shell twins, hermes ships proveo-entrypoint).
+' [Unverified] image builds for this change were still running when recorded.
+'
 ' ── N1 (DONE (wt) 2026-10-17): prep KEEPS ONLY WHAT CROSSES THE BOUNDARY ───
 ' Part of the user's "apply fixes for SEC2, SEC3, N1, F18, …" (repo-simplification.puml
-' N1, option 1). MEASURED: `proveo-entrypoint prep [target]` runs EnsureRuntimeUser
-' (the passwd entry), the git-context report and the smoke sentinel, nothing else
-' (cmd/proveo-entrypoint/main.go:52-64); internal/entrypoint holds only
-' EnsureRuntimeUser, SmokeReady and firstNonEmpty. The exec mode
-' (`proveo-entrypoint <target> -- cmd`) is deleted; usage is
-' `prep [target] | verify [dir] | adb-mirror`. BridgeGoogleKeys, BridgeGitIdentity,
+' N1, option 1). MEASURED then: `proveo-entrypoint prep [target]` ran EnsureRuntimeUser
+' (the passwd entry), the git-context report and the smoke sentinel, nothing else;
+' internal/entrypoint held only EnsureRuntimeUser, SmokeReady and firstNonEmpty
+' (N22 has since removed the smoke half). The exec mode
+' (`proveo-entrypoint <target> -- cmd`) is deleted. BridgeGoogleKeys, BridgeGitIdentity,
 ' NormalizeModel and ApplyEnvBridges are deleted with their tests, and so is the
 ' chdir. Every process-local step is the SHELL's now: each def entrypoint runs
 ' set_working_directory, bridge_google_keys and bridge_git_identity, then
@@ -28,10 +55,6 @@
 ' Pinned by TestEntrypointsRunTheShellPreludeThenPrep and
 ' TestPrepKeepsOnlyWhatCrossesTheBoundary. After the review fixes the images were
 ' rebuilt from the tree and all 7 TestImage* pass (reported).
-' OPEN (repo-simplification.puml, review findings): N22 — every def clears
-' PROVEO_SMOKE_TEST before prep, so prep's SmokeReady, its sleep loop and the
-' target argument never fire; N24 — ensure_runtime_user and report_git_context
-' exist in the shell lib AND in Go.
 title proveo-entrypoint prep — only what crosses the process boundary
 
 node "Agent container" as CTR <<host>> {
@@ -44,20 +67,22 @@ node "Agent container" as CTR <<host>> {
     component "bridge_git_identity\nGIT_CONFIG_KEY_n exports" as GITID <<app>>
   }
 
-  component "proveo-entrypoint prep <target>\n(child process, AFTER the prelude)" as PREP <<app>>
+  component "proveo-entrypoint prep\n(child process, AFTER the prelude;\nno argument, every def incl. hermes)" as PREP <<app>>
 
   frame "Crosses the boundary\n(external to the process)" as OK {
     component "EnsureRuntimeUser\npasswd entry + writable HOME" as UID <<app>>
     component "git-context report\nstdout preamble" as GITCTX <<app>>
-    component "SmokeReady\nprints sentinel, sleeps" as SMOKE <<async>>
   }
+
+  component "run_smoke_test\n(the def's own, under PROVEO_SMOKE_TEST=1)" as SMOKE <<async>>
 
   component "agent CLI\n(inherits the SHELL's env + cwd)" as AGENT <<app>>
 }
 
 SH ARROW_MAIN SHELLPRE : sourced lib, same process
-SH ARROW_MAIN PREP : " ""proveo-entrypoint prep <target> || true"" "
+SH ARROW_MAIN PREP : " ""proveo-entrypoint prep || true"" "
 PREP ARROW_MAIN OK : effects outlive the child
+SH ARROW_OPTIONAL SMOKE : smoke mode, after its own preamble
 SHELLPRE ARROW_MAIN AGENT : cwd + exports inherited
 SH ARROW_MAIN AGENT : " ""exec <agent> \"$@\""" "
 
@@ -80,21 +105,21 @@ note bottom of SH
 end note
 
 note top of SMOKE
-  **Still owned by prep:** under ""PROVEO_SMOKE_TEST=1""
-  ""prep"" prints ""PROVEO_SMOKE_READY"" and sleeps, so
-  anything a def prints *after* ""prep"" is unreachable in
-  smoke mode. Defs whose tests assert their own preamble
-  must run ""prep"" with the flag cleared and call
-  ""run_smoke_test"" at the end of their own preamble.
+  **Smoke mode is the def's, not prep's.** prep's
+  own smoke mode never ran: every def cleared
+  ""PROVEO_SMOKE_TEST"" before calling it, so the
+  sentinel always came from ""run_smoke_test"" at the
+  end of the def's preamble. N22 deleted prep's copy.
 end note
 
 note bottom of PREP
   **prep is the shared Go half, and only the half that can be.**
-  Runtime user, git-context report, smoke mode — effects that live outside
-  the process. HISTORY: it also bridged the Google keys, applied env
-  bridges, bridged git identity and chdir'd (deleted with N1, 2026-10-17),
-  loaded the workspace "".env"" (deleted with N7) and wrote the credential
-  sentinel (deleted with D1, 2026-10-16).
+  Runtime user and git-context report — effects that live outside the
+  process, with no shell twin (N24). HISTORY: it also bridged the Google
+  keys, applied env bridges, bridged git identity and chdir'd (deleted with
+  N1, 2026-10-17), had a smoke mode and a target argument (deleted with
+  N22), loaded the workspace "".env"" (deleted with N7) and wrote the
+  credential sentinel (deleted with D1, 2026-10-16).
 
   **Non-secret preferences travel by value** — the model and UI preferences
   from the shared baseline plus the harness's own ""config:"" list, as Kit

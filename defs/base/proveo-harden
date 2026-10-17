@@ -7,7 +7,7 @@
 # The rebase onto docker/sandbox-templates brought a setuid /usr/bin/sudo.ws
 # into the lineage for the first time — the template's `agent` user reaches root
 # through it. That looked like the missing privilege behind the dockerd failure
-# recorded in _spec/_plans/image-size-reduction.puml ("Permission denied (you
+# recorded in _spec/_devops/image-size-reduction.puml ("Permission denied (you
 # must be root)"), so sudo was exempted here on that hypothesis.
 #
 # The hypothesis was then MEASURED inside a live sandbox and is false:

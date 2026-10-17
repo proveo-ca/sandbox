@@ -19,11 +19,21 @@ title Runtime user boundary — never root, any host uid
 ' internal/runner DockerRunArgs/Hardening and the docker+egress backend; both
 ' are DELETED, and internal/runner now holds only `type Mount` (MEASURED).
 ' On sbx, the only backend, the agent runs as the image's own user (uid 1000)
-' inside the VM (_spec/internal/sbx/sandbox-backend.puml). ensure_runtime_user
+' inside the VM (_spec/internal/sbx/sandbox-backend.puml). The runtime-user step
 ' stays: it still guards any uid the image has no passwd entry for. The
 ' "any host uid" half of the title is HISTORY.
 '
-' ── WHAT ensure_runtime_user ACTUALLY DOES, IN TWO STEPS ────────────────────
+' ── 2026-10-17, N24 (DONE (wt)): ONE IMPLEMENTATION, IN Go, IN EVERY IMAGE ──
+' The shell ensure_runtime_user is DELETED from entrypoint-lib.sh; the step is
+' entrypoint.EnsureRuntimeUser, run by `proveo-entrypoint prep` in every def.
+' hermes, FROM nousresearch/hermes-agent, had no proveo-entrypoint and called
+' the shell twin — the user chose "Ship prep into hermes (Recommended)", so its
+' Dockerfile builds the binary in a stage of its own. The lib's TOP-LEVEL HOME
+' guard (entrypoint-lib.sh:4-6) stays — see the note on source-time HOME below.
+' TestPrepIsTheOnlyRuntimeUserAndGitContextStep (contract_test.go:104).
+' Read "ensure_runtime_user" below as EnsureRuntimeUser.
+'
+' ── WHAT THE RUNTIME-USER STEP ACTUALLY DOES, IN TWO STEPS ──────────────────
 ' 1. SYNTHESIZE A PASSWD ENTRY, so getpwuid-based tooling does not choke on
 '    "I have no name!". The line appended is
 '    `agent:x:<uid>:<gid>:agent:<HOME>:/bin/bash`, and only when
@@ -93,7 +103,7 @@ node "Host" as HOST <<host>> {
 
 node "Agent container" as CTR <<host>> {
   component "image USER (uid 1000)\nbaked non-root default" as IMGUSER <<app>>
-  component "ensure_runtime_user\npasswd entry + writable HOME" as ENSURE <<app>>
+  component "EnsureRuntimeUser (proveo-entrypoint prep)\npasswd entry + writable HOME" as ENSURE <<app>>
   component "agent process" as AGENT <<app>>
   component "/home/agent — the REAL home\n/home/<harness> — an alias symlink" as HOMES <<app>>
   component "root / gosu / privilege drop" as ROOT <<error>>
@@ -140,9 +150,10 @@ note right of ENSURE
   **The arbitrary-uid problem.** ""--user 501:20"" is a uid
   the image has never heard of: no passwd entry, no home,
   so tools that call ""getpwuid"" or write to ""$HOME"" fail.
-  ""ensure_runtime_user"" (packages/lib/entrypoint-lib.sh)
-  synthesizes an identity and a writable HOME **without
-  root** — one generic helper, identical across harnesses.
+  ""EnsureRuntimeUser"" (internal/entrypoint, run by prep;
+  the shell twin is gone since N24) synthesizes an identity
+  and a writable HOME **without root** — one generic
+  helper, identical across harnesses.
 
   There is no gosu and no in-container privilege drop:
   the process starts unprivileged and stays there.

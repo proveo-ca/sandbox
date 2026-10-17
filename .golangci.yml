@@ -1,5 +1,4 @@
-# golangci-lint v2 — community standard for Go format + lint.
-# Docs: https://golangci-lint.run/docs/configuration/file/
+# golangci-lint v2 (Go format + lint) — https://golangci-lint.run/docs/configuration/file/
 # Format: `mise run fmt` → golangci-lint fmt
 # Lint:  `mise run lint` → gofmt check + go vet + golangci-lint run
 version: "2"

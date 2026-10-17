@@ -24,6 +24,14 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' `--print` refuses too: it calls sbx.Available and never installs.
 ' e2e/sbx_test.go pins the refusal (TestSandboxBackendRefusesWhenSbxAbsent).
 '
+' ── THE RUN DIR (N13, DONE (wt) 2026-10-17) ───────────────────────────────
+' MEASURED: sandbox.Input.RunDir (sandbox.go:1036; was EgDir) is
+' <StateDir>/runs/<sid> (run.RunDirOf). Spec renders the Kit at
+' <RunDir>/sbx/kit (:1286); PrepareHomeAccess, seedProjectEnv,
+' CapturePolicyLog(runDir, name) and CaptureMemoryEvidence(runDir, name)
+' (:1446, :1461, :1615-1616) all write under it. The e2e globs read
+' <state>/runs/*/sbx/... (e2e/sbx_test.go:443, sbx_egress_test.go:136).
+'
 ' ── NO RETIREMENT STUBS (DECIDED 2026-10-17) ───────────────────────────────
 ' The user, on the CLI and env stubs: "Drop all four" (--egress-mode, --shell,
 ' PROVEO_SBX off values, PROVEO_DIND). MEASURED: sandbox.Disabled, the
@@ -76,8 +84,8 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' the bash find_env_file and load_env and Go entrypoint FindEnvFile,
 ' LoadEnvFile and ShouldSkipEnvLoad are deleted; what was left of load_env is
 ' bridge_google_keys (the Google key aliases only), and proveo-entrypoint prep
-' has no .env branch (since N1 it keeps only the passwd entry, the git-context
-' report and the smoke sentinel, and the shell prelude runs before it —
+' has no .env branch (since N1/N22 it keeps only the passwd entry and the
+' git-context report, and the shell prelude runs before it —
 ' _spec/cmd/proveo-entrypoint/prep-sequence.puml). So no image sources the workspace .env, inside
 ' sbx or out, and there is no guard left to key on SANDBOX_NAME / SANDBOX_VM_ID
 ' (repo-simplification.puml F7, resolved by N7). Pinned by
@@ -190,11 +198,20 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' covers: e2e/idle_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
+' covers: internal/credentials/credentials.go (AgentTranscript, agentTranscriptDirs)
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
 '   what the agent holds at launch _spec/internal/sbx/launch-env.puml
 '   what decides egress ........... _spec/internal/sbx/policy-baseline.puml
 '   who holds the key ............. _spec/internal/sbx/credential-path.puml
 '   the deferred host fallback .... _spec/_plans/host-execution-fallback.puml
+'
+' ── WHERE THE FAILURE PATH LOOKS FOR THE AGENT'S TRANSCRIPT ────────────────
+' credentials.AgentTranscript walks one root per target under the proveo home
+' (agentTranscriptDirs): claudecode `.claude/projects`, codex `.codex/sessions`.
+' codex files one rollout .jsonl per session under a date tree,
+' $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl. The walk
+' recurses and matches the `.jsonl` suffix, so the table names only the root
+' and never enumerates the dates. A target with no root names no transcript.
 '
 ' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
 ' Every other e2e drives the agent. `e2e/idle_test.go` reaches a prompt and then
@@ -280,7 +297,7 @@ component "refusal\n""sandbox.Unavailable(why)""\ninstall / upgrade hint" as REF
 SEL ARROW_MAIN SBX : ready
 SEL ARROW_ERROR REFUSE : sbx not ready
 SBX ARROW_MAIN CLI
-SBX ..> KIT : rendered under state egDir/sbx/kit
+SBX ..> KIT : rendered under <state>/runs/<sid>/sbx/kit
 SBX ..> SEC
 
 note right of SEL
@@ -372,7 +389,7 @@ note bottom of CLI
   against a deliberately broken Kit: at ""schemaVersion: 1"" it fails in 1.7s naming
   //"field permissions not found in type spec\.SpecFile"//. Its own first version
   had a wrong glob — watching ""<state>/<sid>/"" while the Kit lands at
-  ""<state>/egress/<sid>/"" — and spent three minutes timing out on a file already
+  ""<state>/egress/<sid>/"" (""runs/<sid>/"" since N13) — and spent three minutes timing out on a file already
   written one directory over. It failed loudly rather than passing, which is the
   only reason that was cheap.
 end note

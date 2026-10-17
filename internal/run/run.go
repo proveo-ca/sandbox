@@ -1,4 +1,4 @@
-// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_plans/retire-model-bridging.puml, _spec/_paradigms/retire-dind.puml, _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
 package run
 
 import (
@@ -185,10 +185,6 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if saved, ok := rs.Choices.Settings.AppsFor(rs.Choices.PortsRoot); ok {
 		p.Apps = rememberedApps(saved, p.discoveredApps)
 	}
-	// Roles are no longer read from the environment: proveo does not choose an
-	// agent's model. What remains is whatever a previous session remembered,
-	// seeded above, and it is kept only as the vocabulary the credential and
-	// billing warnings are written in.
 	if p.Roles == nil {
 		p.Roles = provider.Roles{}
 	}

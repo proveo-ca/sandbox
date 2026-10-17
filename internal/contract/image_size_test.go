@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/image-size-reduction.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/sandbox-template-rebase.puml
+// SPEC: _spec/_devops/image-size-reduction.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/sandbox-template-rebase.puml
 package contract_test
 
 import (
@@ -168,16 +168,17 @@ func dockerignoreEntries(t *testing.T, file string) map[string]bool {
 	return out
 }
 
-// harnessDockerfiles are the four images that used to install the docker static
+// harnessDockerfiles are the images that used to install the docker static
 // tarball. claudecode-solidity is absent because it inherits claudecode's layers.
 var harnessDockerfiles = []string{
+	"defs/codex/Dockerfile",
 	"defs/claudecode/mcp/Dockerfile",
 	"defs/cursor/Dockerfile",
 	"defs/opencode/Dockerfile",
 	"defs/cecli/Dockerfile",
 }
 
-// _spec/_plans/image-size-reduction.puml
+// _spec/_devops/image-size-reduction.puml
 func TestNoHarnessImageShipsDockerBinaries(t *testing.T) {
 	t.Parallel()
 	for _, rel := range harnessDockerfiles {

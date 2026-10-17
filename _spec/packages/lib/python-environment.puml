@@ -31,7 +31,7 @@ title Python environments — detected and provisioned, never inherited
 ' A partial venv is not self-explanatory, and after the image-size cuts one
 ' cause dominates: there is no C compiler in ANY proveo image — base,
 ' base-node-lsp, claudecode, cursor, opencode and cecli all answer nothing for
-' gcc/cc/g++/make (_spec/_plans/image-size-reduction.puml, cut 8). So a
+' gcc/cc/g++/make (_spec/_devops/image-size-reduction.puml, cut 8). So a
 ' dependency with no linux-<arch> wheel has to build from source and cannot.
 '
 ' _py_build_env therefore probes `cc` and `gcc` on failure and says so:

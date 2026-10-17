@@ -27,6 +27,10 @@
 ' A bare "git add failed" (seen 2026-09-29 in proveo-claudecode-1b3fcb7f, whose
 ' clone and trace were gone with the sandbox) left the agent guessing at a
 ' cause the hook had in hand. TestGitSyncNamesWhyGitAddFailed pins it.
+' The subject call runs under `timeout`: with none on PATH the hook refuses an
+' unbounded model call and summarises paths (`command -v timeout || return 1`).
+' macOS ships no coreutils timeout, so the contract suite's stubModelCLI adds
+' a pass-through one beside its stub CLI.
 '   seed step order ............... _spec/packages/lib/seed-and-launch.puml
 '   live e2e per def .............. _spec/tests/44-git-sync-turn-e2e.puml
 '   git identity .................. _spec/internal/gitidentity/authorship.puml

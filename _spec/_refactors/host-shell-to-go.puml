@@ -1,22 +1,32 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title Host shell → Go: retire every bash script the operator's Mac executes
-' purpose: remove macOS /bin/bash 3.2 from every host code path
-' would touch: defs/lib/docker-build.sh, defs/*/build.sh, defs/*/ensure.sh (deleted)
-' would touch: defs/*/test.sh, defs/*/tests/*.sh, defs/lib/{test-image,egress}.sh (deleted P3; in-image command strings kept in internal/imagetest)
-' would touch: internal/imagetest/** (P3's Go suites)
-' would touch: lib/*.sh, scripts/*.sh, mise.toml (lib/*.sh and scripts/*.sh deleted P4)
-' would touch: internal/maintain/** (BuildPlan, DeployPlan, TestPlan), cmd/proveo/provision.go
-' would touch: internal/imagebuild/targets.go (the build table; P2 put it here, not in harness.manifest)
-' would touch: internal/contract/{agent_pin,image_resolution,host_bash,installer_bash,git_hooks}_test.go
-' covers: cmd/proveo-dev/**
-' covers: internal/installtest/**
-' covers: internal/contract/host_bash_test.go
-' covers: internal/contract/installer_bash_test.go
-' covers: scripts/githooks/post-commit
-' covers: mise.toml
+title Host shell → Go — FROZEN SNAPSHOT of the 2026-09-22 refactor (P1–P4 landed)
+' purpose: the record of how macOS /bin/bash 3.2 left every host code path, frozen at completion
+' touched: defs/lib/docker-build.sh, defs/*/build.sh, defs/*/ensure.sh (deleted)
+' touched: defs/*/test.sh, defs/*/tests/*.sh, defs/lib/{test-image,egress}.sh (deleted P3; in-image command strings kept in internal/imagetest)
+' touched: internal/imagetest/** (P3's Go suites)
+' touched: lib/*.sh, scripts/*.sh, mise.toml (lib/*.sh and scripts/*.sh deleted P4)
+' touched: internal/maintain/** (BuildPlan, DeployPlan, TestPlan), cmd/proveo/provision.go
+' touched: internal/imagebuild/targets.go (the build table; P2 put it here, not in harness.manifest)
+' touched: internal/contract/{agent_pin,image_resolution,host_bash,installer_bash,git_hooks}_test.go
 ' session: 92196ee8-2438-4fda-ac25-7311bf16c563
+'
+' ── FROZEN SNAPSHOT (moved from _spec/_plans/ 2026-10-17, repo-simplification N10)
+' This file records the refactor as it stood when it completed. It is NOT
+' kept in step with the code, carries no `covers:` and is no source file's
+' live SPEC pointer (_refactors/ is exempt from the referencing rule). The
+' current state lives in:
+'   host-shell allowlist ......... _spec/tests/20-contract.puml (host_bash_test.go)
+'   proveo-dev dispatcher ........ _spec/cmd/proveo/usage.puml
+'   lint + post-commit hook ...... _spec/_devops/git-hooks.puml
+'   release gate / ladder / idle . _spec/_devops/release-gate.puml
+'   build table + buildx parity .. _spec/_devops/image-lineage-and-publish.puml
+'   installer + CDN staging ...... _spec/internal/cdn/distribution-update.puml
+'   image suites (Go) ............ _spec/tests/testing-strategy.puml
+' Later annotations inside (D1, F17) were written before the freeze; none
+' will be added after it.
+'
 ' PLANNED 2026-09-22. P1–P4 LANDED 2026-09-22 — plan complete.
 ' Decided by the operator over fish (no errexit, non-POSIX at every
 ' Kit/sbx/Dockerfile/installer boundary) and over a mise-pinned bash 5

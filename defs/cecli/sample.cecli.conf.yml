@@ -56,17 +56,6 @@ mcp-servers:
       url: https://mcp.context7.com/mcp
 
 # ─────────────────────────────────────────────────────────────
-# Environment Variable Bridge (recommended over config file)
-# These standardized variables are translated by the container:
-#
-#   ARCHITECT_MODEL   → Main model (CECLI_MODEL)
-#   EDITOR_MODEL      → Editor model
-#   SMALL_MODEL       → Weak / fast model
-#   DARK_MODE=true    → Enables dark mode UI
-#
-# Example usage in .env:
-#   ARCHITECT_MODEL=claude-opus-4-5
-#   EDITOR_MODEL=sonnet
-#   SMALL_MODEL=gpt-5.1
-#   DARK_MODE=true
+# Environment passthroughs (.env): DARK_MODE=true → dark mode UI · CODE_THEME → code theme.
+# Choose the model with `model:` above, or CECLI_MODEL / CECLI_EDITOR_MODEL / CECLI_WEAK_MODEL.
 # ─────────────────────────────────────────────────────────────

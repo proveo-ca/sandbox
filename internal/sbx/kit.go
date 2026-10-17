@@ -79,11 +79,7 @@ const (
 // names it; a non-zero exit from that binary must not reach sbx's dispatcher.
 const SeedBinary = "/usr/local/bin/proveo-seed"
 
-// seedNeverAbort is the -c script SeedCommand runs. sbx's durable-startup
-// dispatcher uses `set -e` and `exit $rc` on any startup command, which tears
-// down a live agent session. A seed miss is a warning, never that. The wrap
-// lives here — on the host Kit — so it takes effect without rebuilding the
-// image that ships proveo-seed.
+// seedNeverAbort is the -c script SeedCommand runs.
 const seedNeverAbort = `set +e
 if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
   exit 0

@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_paradigms/retire-dind.puml, _spec/_plans/image-size-reduction.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_paradigms/retire-dind.puml, _spec/_devops/image-size-reduction.puml
 package e2e
 
 import (
@@ -483,7 +483,7 @@ func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	case strings.Contains(low, "command not found"), strings.Contains(low, "executable file not found"):
 		t.Fatalf("%s is promised a daemon via %s but no docker client is present: %q\n"+
 			"sbx supplied no client — fix it sbx-side or set `daemon: false`\n"+
-			"see _spec/_plans/image-size-reduction.puml", target, how, got)
+			"see _spec/_devops/image-size-reduction.puml", target, how, got)
 	case strings.Contains(low, "cannot connect to the docker daemon"),
 		strings.Contains(low, "is the docker daemon running"),
 		strings.Contains(low, "permission denied"):
@@ -572,10 +572,7 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 		t.Fatalf("%s: the boundary probe exited %d\n--- pane ---\n%s", target, status, pane)
 	}
 
-	// Claim 2 — the workspace. On the default (clone) plan nothing the agent writes
-	// reaches the host until teardown, so the reachable claim is that the tree it
-	// stands in is THIS workspace: same commit, from the run's own git daemon. Only
-	// a live bind can be asserted by a file arriving host-side.
+	// Claim 2 — the workspace: the sandbox stands on this checkout's commit.
 	if agentHead := paneValue(pane, "AGENT_HEAD="); agentHead != hostHead {
 		t.Errorf("%s: the sandbox stands on commit %q, want the workspace's %q — "+
 			"the clone did not come from this checkout", target, agentHead, hostHead)

@@ -22,10 +22,8 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-# An inherited WORKDIR under /home/agent can be recreated by the builder between
-# RUN steps, and usermod refuses to move a home onto a path that exists. rmdir
-# clears ONLY an empty stub — real content still fails loudly rather than being
-# silently discarded. SPEC: _spec/_devops/sandbox-template-rebase.puml
+# rmdir clears only an empty inherited-WORKDIR stub; a real /home/agent still fails the move.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
 RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then \
       rmdir /home/agent/workspace 2>/dev/null || true; \
       rmdir /home/agent 2>/dev/null || true; \
@@ -45,7 +43,7 @@ RUN --mount=type=cache,id=proveo-opencode-apt-cache,target=/var/cache/apt,sharin
     && rm -rf /tmp/* /var/tmp/* \
     && /usr/local/sbin/proveo-harden
 
-# SPEC: _spec/_plans/image-size-reduction.puml
+# SPEC: _spec/_devops/image-size-reduction.puml
 
 RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \

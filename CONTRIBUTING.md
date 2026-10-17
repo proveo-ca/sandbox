@@ -35,7 +35,7 @@ Every harness runs as a non-root user, never root
  setuid/setgid bits and remove raw network helpers (`nc`, `netcat`, `netstat`, `ss`).
 - **Entrypoints** get the runtime user from the shared prelude: sourcing
  `packages/lib/entrypoint-lib.sh` gives an unwritable `HOME` a writable fallback, and
- `proveo-entrypoint prep` (or `ensure_runtime_user` where a def runs no prep) gives an
+ `proveo-entrypoint prep` gives an
  arbitrary run-as uid a passwd identity, without root. There is no gosu and no
  in-container privilege drop; this is one generic helper, identical across harnesses. Never
  reintroduce gosu, sudo, or per-image uid branching.
@@ -82,7 +82,8 @@ When you add a definition:
 1. Add its entrypoint to the prelude / no-gosu loop (`TestEntrypointsRunTheShellPreludeThenPrep`)
  and add wrapper (git identity) and Dockerfile (`USER ${USER_NAME}`, no gosu, git/gh) assertions.
 2. Run the shared bash prelude (`set_working_directory`, `bridge_google_keys`, `bridge_git_identity`),
- then `proveo-entrypoint prep <name>`; keep harness-specific launch in `entrypoint.sh`.
+ then `proveo-entrypoint prep || true`; keep harness-specific launch in `entrypoint.sh`.
+ A def whose image is not built FROM proveo/base copies `proveo-entrypoint` from a builder stage, as hermes does.
 3. Cover the runtime posture in the definition's image suite, `internal/imagetest/<name>_test.go`
  (build tag `image`, func `TestImage<Name>`): runs as the baked user, no setuid binaries, no `nc`.
 4. Run `mise run ci` (or `go test ./internal/contract/`) — it must pass.

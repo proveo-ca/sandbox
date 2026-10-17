@@ -33,6 +33,19 @@
 '   * The LSP bridge binary, mcp-language-server, must be on PATH: the language servers arrive from
 '     proveo/base-node-lsp and reach codex only as MCP servers, so without it
 '     the entrypoint wires nothing.
+'
+' ── IMAGE FACTS defs/codex/Dockerfile STATES WITHOUT ARGUING (N14) ──────────
+' /home/agent is the REAL home and /home/codex the alias, for the reason
+' _spec/_paradigms/runtime-user-boundary.puml gives: sbx's kits chown
+' agent:agent and mount block volumes UNDER /home/agent, and a mount target
+' cannot resolve through a symlink. With a symlinked home the volumes land
+' where $HOME never points — including the session state `codex resume` reads.
+' The alias stays because healthchecks and def tests read paths through it,
+' and nothing ever mounts there.
+' NODE_ENV is NOT baked, for the reason harness-image-layers.puml gives for
+' claudecode: it would make every workspace `npm`/`pnpm install` skip the
+' devDependencies (tsc, eslint, test runners) the agent needs. CODEX_HOME is
+' not baked either — codex-topology.puml, the note on $CODEX_HOME.
 title codex paradigm — ML blackbox algorithm (spec → plan → verify loop)
 
 actor "Developer" as DEV

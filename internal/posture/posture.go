@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/posture/one-value-two-renderings.puml, _spec/_devops/agent-version-pin.puml, _spec/_plans/retire-model-bridging.puml
+// SPEC: _spec/internal/posture/one-value-two-renderings.puml, _spec/_devops/agent-version-pin.puml
 package posture
 
 import (

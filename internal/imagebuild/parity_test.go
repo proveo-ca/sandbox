@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/_devops/image-lineage-and-publish.puml
 package imagebuild_test
 
 import (

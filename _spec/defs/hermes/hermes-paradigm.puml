@@ -142,6 +142,27 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' The row merges with the auth row on harnesses that have a plan
 ' (_spec/internal/choiceui/wireframe.puml, box 9).
 '
+' ── WHAT THE CHECKS CAN AND CANNOT SEE ──────────────────────────────────────
+' THE LOCAL-MODEL e2e ASSERTS PROSE, NOT A SIDE EFFECT. TestHermesLocalModelE2E
+' expects a fixed reply, as internal/imagetest/hermes_test.go's hosted-provider
+' check does, unlike TestPromptfulE2E's file-writing task. Hermes's
+' non-interactive `chat -q` tool-invocation flags are unconfirmed, so a plain
+' text round-trip is the reliable sign that each model is reachable and
+' answering.
+' THE BROWSER IS FOUND BY GLOB. The browser tool is native to hermes, so unlike
+' every other def this image always carries a browser and has no -browser
+' variant. Upstream's non-desktop build (v2026.9.24) stages Playwright's
+' headless-shell Chromium, not the full Chromium the -desktop tag ships, at a
+' version- and arch-suffixed path. The image suite globs for it, because a
+' fixed path breaks on the next pin and the /etc/hermes marker file is written
+' by the desktop build alone.
+' THE PRIVILEGE DROP IS JUDGED BY THE SHIM'S OWN CONTRACT. The exec shim drops
+' root to "hermes" via /command/s6-setuidgid before it execs the binary, so
+' `id -un` after the call reports the CALLER's uid; the shim's process image
+' is gone by then. The shim fails loud, with a specific message and exit 126,
+' when /command/s6-setuidgid is missing. So success with no such message is
+' what a real drop looks like from outside.
+'
 actor "Operator" as OP
 
 node "hermes container" as CTR <<host>> {

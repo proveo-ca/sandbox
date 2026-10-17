@@ -8,6 +8,7 @@
 ' covers: cmd/proveo-dev/buildcli.go
 ' covers: cmd/proveo-dev/deploycli.go
 ' covers: cmd/proveo-dev/devcli.go
+' covers: .goreleaser.yaml
 '
 ' ── MAINTAINER RELEASE PATH: cmd/proveo-dev (not shipped) ──────────────────
 ' `proveo-dev stage-cdn` replaced scripts/stage-cli-cdn.sh, and
@@ -29,6 +30,9 @@
 '   in `proveo --version`.
 ' * goreleaser is pinned (v2.17.0) when build-cli installs it, so release
 '   builds are reproducible; bump it deliberately.
+' * .goreleaser.yaml emits the multi-arch static binaries AND a sha256
+'   checksums.txt, so the installer can verify what it downloads. It replaced an
+'   unverified `curl | bash` pipeline (moved from its header, N14).
 ' covers: internal/installtest/**
 ' covers: internal/contract/installer_bash_test.go
 '

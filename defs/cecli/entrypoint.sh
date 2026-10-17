@@ -175,15 +175,8 @@ else
   report_agent_evidence
 fi
 
-# "$@" is ambiguous: on docker it is cecli's own flags, on sbx it is the whole
-# COMMAND the agent kit supplied in the CMD position. This used to decide with a
-# hand-written allowlist of command names — cecli, bash, sh, python, python3,
-# node, npm, pnpm, git, curl — which can never be complete, and a name missing
-# from it is appended to cecli as a positional, which cecli reads as a prompt.
-#
-# proveo_exec_agent asks the question the list was approximating: is the first
-# word an executable on PATH? That is behaviour-preserving for every name the
-# list held and correct for the ones it forgot.
+# proveo_exec_agent execs "$@" as-is when its first word is an executable on PATH;
+# otherwise it launches cecli with these flags first.
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 echo "🚀 Launching cecli ${CECLI_RULE_ARGS[*]} ${CECLI_EVIDENCE_ARGS[*]}"
 proveo_exec_agent cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" -- "$@"

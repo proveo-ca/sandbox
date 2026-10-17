@@ -7,6 +7,10 @@
 ' warning that a saved config names a model that no longer exists? Until that is
 ' answered this describes machinery with no reader, which is exactly the state
 ' this repo calls a dead row elsewhere.
+' 2026-10-17 (N10, MEASURED): not quite no reader — warnUnknownModel →
+' CheckModel and posture.RolesLine → ModelProvider still read models.go. The
+' plan now holds only Q2 and Q4; the decision lives in
+' _spec/internal/entrypoint/model-alias-bridges.puml.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: how a loose operator intent becomes an id a harness accepts, in two phases

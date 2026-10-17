@@ -7,6 +7,10 @@ title git post-commit — format, then lint
 ' covers: cmd/proveo-dev/hooks.go
 ' covers: mise.toml
 ' covers: internal/contract/git_hooks_test.go
+' covers: cmd/proveo-dev/lint.go
+' covers: cmd/proveo-dev/lint_test.go
+' `proveo-dev lint` (lint.go) is the body of `mise run lint`; gofmt -l is its
+' first gate. The rest of its gate list is recorded with N14 in a later pass.
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 
 participant "git commit" as COMMIT <<app>>
@@ -50,6 +54,6 @@ note right of BODY
   **A POSIX shim, a Go body.** git runs
   a hook FILE, so post-commit stays a
   6-line #!/bin/sh that execs Go; no
-  host bash (host-shell-to-go P4).
+  host bash (20-contract allowlist).
 end note
 @enduml

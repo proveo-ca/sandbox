@@ -19,11 +19,20 @@
 ' review). TestAStaleManifestKeyFailsLoading (manifest_test.go) pins `docker:
 ' sbx` with that hint, `egress: true` and `provider: cursor`;
 ' TestDaemonIsTheOneDaemonKnob pins the three daemon cases.
-' OPEN (repo-simplification.puml N20): nothing in the PRODUCT reads `daemon:` —
-' WantsDocker's only caller is the e2e matrix — and the picker still promises a
-' `daemon: false` harness "a microVM with its own Docker daemon" (internal/run/
-' choices.go:508). OPEN (SEC4): Home.validate accepts a home mount `host: .`
-' (manifest.go:257-291), which would bind the whole proveo home.
+' N20 (DONE (wt) 2026-10-17, repo-simplification.puml, option 1): the picker
+' now reads `daemon:`. internal/run/choices.go addonHelpFor(man) (:512-518)
+' clones addonHelp and, when !man.WantsDocker(), says the sandbox is "a microVM
+' (sbx) with no Docker daemon for the agent — the boundary every run on this
+' harness gets"; the form passes addonHelpFor(man) (:60). The row label
+' "docker (sandbox)" is unchanged. Test:
+' TestThePickerPromisesADaemonOnlyWhereTheManifestDoes (run_test.go:867).
+' WantsDocker's readers: that picker text and the e2e matrix.
+' SEC4 (DONE (wt) 2026-10-17, option 1): LinkedDirsFile lives here now
+' (manifest.go:50-51), and Home.validate refuses a mount host whose cleaned
+' first element is `.` or `linked-dirs` (:276-277) and `linked-dirs` in
+' `files:` (:296-297), so no def can bind the home root or sync the
+' linked-dirs list back. TestAHomeMountNeverReachesTheLinkedDirsList
+' (manifest_test.go:383); _spec/internal/sbx/ide-attach.puml has the why.
 ' Deleted as tautologies with the key (reported):
 ' TestDockerModeAcceptsOnlyTheSandbox, TestDockerModePredicatesAreExhaustive,
 ' TestDaemonFalseKeepsTheSandboxAndWithdrawsTheDaemon,

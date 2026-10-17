@@ -93,7 +93,7 @@ skinparam noteTextAlignment left
 '
 ' The prize is bigger than cecli if it works: FOUR `-browser` variants collapse
 ' into one engine plus a driver, which is exactly the shape
-' _spec/_plans/image-size-reduction.puml is looking for. That makes this worth
+' _spec/_devops/image-size-reduction.puml was looking for. That makes this worth
 ' a probe rather than a preference, and the probe is now written up:
 ' _spec/_experiments/cdp-shared-browser.puml. It settles one thing in advance —
 ' the engine goes in a SIDECAR and never on the host, because a host-side

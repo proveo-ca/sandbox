@@ -18,7 +18,7 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 '   /home/agent and the alias ..... _spec/_paradigms/runtime-user-boundary.puml
 '   the harden pass ............... _spec/defs/harden-pass.puml
 '   no docker binaries, and the
-'   evidence against that call .... _spec/_plans/image-size-reduction.puml
+'   evidence against that call .... _spec/_devops/image-size-reduction.puml
 '   the plugin seed ............... _spec/defs/claudecode/lsp-plugins-seed.puml
 '   house rules as managed policy . _spec/packages/lib/house-rules.puml
 '
@@ -76,6 +76,15 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' decide whether to start a daemon; without it sbx records `dind: false`
 ' at container creation and `docker version` answers "Cannot connect to the
 ' Docker daemon" beside Compose files the agent can plainly read.
+'
+' SEC1 (DECIDED 2026-10-17 — the [rec], no code change; repo-simplification.puml):
+' the agent uid in the `docker` group is ACCEPTED. The daemon runs as root from
+' init and its socket is root:docker (defs/base/Dockerfile:133-141), so the
+' group is [Inference] root-equivalent INSIDE the VM. The sbx template ships
+' the same group (defs/base/Dockerfile:31), and the microVM, not the uid, is
+' the boundary every run gets. A harness that should not hold it declares
+' `daemon: false`; a rootless dockerd was considered and not taken. Raised on
+' OpenCode engines (defs/opencode/Dockerfile:50-53).
 '
 ' ── opencode: xclip IS ABSENT ON PURPOSE ────────────────────────────────────
 ' xclip needs an X display. This container has none and sets no DISPLAY, and the

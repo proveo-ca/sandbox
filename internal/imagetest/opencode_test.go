@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest_test
 
 import (
@@ -259,7 +259,7 @@ func ocSecurity(s *imagetest.Suite) {
 
 	s.Check("arbitrary --user uid gets usable identity and writable HOME", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--user", "4242:4242", "--entrypoint", "bash", img, "-c",
-			`source /entrypoint-lib.sh && ensure_runtime_user && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
+			`source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
 		if !strings.Contains(r.Out, "uid=4242 home_writable=yes") {
 			t.Errorf("output: %s", ocClip(r.Out, 200))
 		}
@@ -311,7 +311,7 @@ fi
 		}
 	})
 
-	// SPEC: _spec/_plans/retire-model-bridging.puml
+	// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
 	s.Check("a role name in the environment does NOT become an opencode model var", func(t *testing.T) {
 		out := fakeRun(t, "-e", "ARCHITECT_MODEL=gpt-5.5", "-e", "EDITOR_MODEL=xai/grok-4.3", "-e", "SMALL_MODEL=xai/grok-small")
 		for _, want := range []string{"SAW OPENCODE_MODEL=[]", "SAW OPENCODE_SMALL_MODEL=[]", "SAW OPENCODE_BUILD_MODEL=[]"} {
@@ -360,7 +360,7 @@ func ocDefaults(s *imagetest.Suite) {
 	s.Success("default opencode.json: automatic compaction enabled", img,
 		`jq -e '.compaction.auto == true' /opt/opencode/defaults/opencode.json`)
 
-	// SPEC: _spec/_plans/retire-model-bridging.puml
+	// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
 	for _, seed := range []string{"/opt/opencode/defaults/opencode.json", "/opt/opencode/sample_opencode.json"} {
 		s.Success(filepath.Base(seed)+": names no model by environment", img, "! grep -q 'env:OPENCODE' "+seed)
 	}

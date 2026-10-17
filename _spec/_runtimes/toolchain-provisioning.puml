@@ -17,6 +17,11 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' covers: internal/contract/java_major_test.go
 ' How the three shared layers are assembled: _spec/defs/base-image-layers.puml.
 '
+' mise.toml's Go pin and go.mod's `toolchain` line stay byte-equal, enforced by
+' internal/contract TestMiseGoPinMatchesGoModToolchain (go_provisioning_test.go).
+' Why both exist, and why Go was once absent from mise.toml: the T4 notes
+' "One manager, not two" and "The two pins are checked for AGREEMENT" (N14).
+'
 ' ONE _java_major (N3, DONE (wt) 2026-10-17; the user: "Keep awk, delete sed
 ' (Recommended)"). entrypoint-lib.sh defined it twice, and bash kept the LATER,
 ' sed copy, which read a legacy `1.8.0_x` as major 1. The sed copy is deleted;

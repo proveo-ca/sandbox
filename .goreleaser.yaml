@@ -1,11 +1,6 @@
-# Release config for the Go binaries. Produces multi-arch
-# static binaries + a sha256 checksums.txt so the installer can verify what it
-# downloads — replacing the unverified `curl | bash` pipeline.
-# goreleaser check # validate this file
-# Tagged release artifacts for CDN (no GitHub publish):
-#   goreleaser release --clean --skip=publish
-# Untagged dry-run:
-#   goreleaser release --snapshot --clean
+# Release config: multi-arch static Go binaries + a sha256 checksums.txt for install.sh.
+# Validate: `goreleaser check` · CDN artifacts (no GitHub publish): `goreleaser release --clean --skip=publish`
+# Untagged dry-run: `goreleaser release --snapshot --clean`
 version: 2
 project_name: proveo
 

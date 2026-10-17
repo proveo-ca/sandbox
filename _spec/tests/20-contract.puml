@@ -15,6 +15,20 @@ skinparam packageStyle rectangle
 ' covers: cmd/proveo/*_test.go
 ' covers: internal/backend/sandbox/*_test.go
 ' covers: internal/imagetest/**
+'
+' ── HOST SHELL ALLOWLIST (internal/contract/host_bash_test.go) ─────────────
+' Rehomed 2026-10-17 from the frozen _spec/_refactors/host-shell-to-go.puml
+' (repo-simplification N10). MEASURED, host_bash_test.go:15-23:
+' TestNoHostShellOutsideTheAllowlist walks `git ls-files` and refuses any
+' shell-shebang file the operator's Mac could execute, except
+'   apps/cli/public/cli/install.sh, uninstall.sh  bootstrap/remove proveo
+'                                                 before it exists; guarded by
+'                                                 installer_bash_test.go
+'   scripts/githooks/post-commit                  git needs a hook FILE; POSIX
+'                                                 sh that execs proveo-dev
+' Trees whose shell runs in an image (bash 5) or is an agent's fixture are
+' out of scope: defs/, packages/lib/, e2e/testdata/, e2e/samples/.
+' Host code is Go; macOS /bin/bash 3.2 is on no host path.
 
 title Layer 2 · Contract — Go builders + goldens (no Docker)
 

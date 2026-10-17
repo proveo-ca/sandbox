@@ -48,9 +48,7 @@ seed_codex_defaults
 
 # ── Compose user-level subagents ($CODEX_HOME/agents) ──────
 # Bodies are shared across harnesses; only the frontmatter is Codex's TOML schema.
-# This also installs the house rules and provisions the workspace toolchain, and
-# it is the SAME function the sbx Kit calls from setup.startup — so both backends
-# get the identical files.
+# Also installs the house rules and provisions the workspace toolchain.
 proveo_seed codex
 
 # ── Verification command discovery ────────────────────────
@@ -98,10 +96,7 @@ fi
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
 
 # ── Auth check ─────────────────────────────────────────────
-# Two ways to be authenticated: a ChatGPT-plan login persisted at
-# $CODEX_HOME/auth.json (which the durable proveo home carries between runs), or
-# OPENAI_API_KEY. The login wins when both are present — codex's own default —
-# and proveo suppresses the competing key host-side for the same reason.
+# A ChatGPT-plan login ($CODEX_HOME/auth.json) or OPENAI_API_KEY; the login wins.
 if [[ -z "${OPENAI_API_KEY:-}" && ! -f "$CODEX_HOME/auth.json" ]]; then
   echo "⚠️  No credential found. Either export OPENAI_API_KEY (platform.openai.com/api-keys),"
   echo "   or run 'codex login' once — the login persists under proveo home"
@@ -135,10 +130,7 @@ LAUNCH_ARGS=()
 if codex_has_posture_flag "$@"; then
   echo "🔓 caller supplied its own approval/sandbox flags — leaving the posture to them"
 elif [[ -n "${PROVEO_CODEX_SANDBOX:-}" ]]; then
-  # Opt back INTO codex's own sandbox. Its Landlock+seccomp layer does not need an
-  # unprivileged userns, so unlike cursor's it can actually engage in a cap-dropped
-  # container — it is off by default because a workspace-write confinement of an
-  # already-disposable tree buys little and its approval prompts stall unattended runs.
+  # Opt back INTO codex's own sandbox (Landlock+seccomp); off by default.
   LAUNCH_ARGS+=(--sandbox "$PROVEO_CODEX_SANDBOX" --ask-for-approval never)
 else
   LAUNCH_ARGS+=(--dangerously-bypass-approvals-and-sandbox)

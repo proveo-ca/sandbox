@@ -9,7 +9,7 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/image_build_cache_test.go
 ' covers: cmd/proveo/maintain_cmd_test.go
 ' browser variants layer on the harness ... _spec/defs/browser-layer.puml
-' size of that layer ................ _spec/_plans/image-size-reduction.puml
+' size of that layer ................ _spec/_devops/image-size-reduction.puml
 ' standing pipeline .......... _spec/internal/maintain/image-build-deploy.puml
 ' which driver, FROM where ... _spec/_devops/buildx-driver-selection.puml
 title Build schedule — bases serial, then a concurrent wave

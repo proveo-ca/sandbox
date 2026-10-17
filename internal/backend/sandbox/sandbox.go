@@ -1819,19 +1819,6 @@ func CapturePolicyLog(runDir, name string) {
 
 // CaptureMemoryEvidence writes the guest's own account of its memory beside the
 // policy log, and says so out loud when it names a kill.
-//
-// A sandbox is a VM with no swap: pressure does not degrade, it kills, and the
-// kill carries no OOMKilled flag and no exit message. _spec/minimum_requirements
-// .puml calls that "invisible in exactly the place an operator would look".
-// This is that place.
-//
-// Best effort throughout. The sandbox may already be gone, and a run that died
-// of memory pressure is the run least able to answer — so every failure here is
-// silent, because a teardown warning about teardown teaches nothing.
-// memoryEvidence is a var so a teardown test can state what the guest said
-// without a live sandbox — the same seam storedSecretNames uses, and for the
-// same reason: the branch that matters here fires only on an OOM, which is not
-// a thing a test can arrange for real.
 var memoryEvidence = sbx.MemoryEvidence
 
 func CaptureMemoryEvidence(runDir, name string) {
@@ -2205,11 +2192,6 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 // name is derived from def and workspace so runs reuse one VM, and a failed run
 // is KEPT for diagnosis — so the next run met a sandbox sbx will not give new
 // workspaces to and stopped before the agent started.
-//
-// It needs none. That name can only exist for THIS workspace, so the existing
-// sandbox reads its Kit, environment, agent and workspace from its stored spec.
-// Re-attaching passes only the name plus trailing agent arguments; the full cfg
-// remains available to preserve clone and agent state after the child exits.
 // SPEC: _spec/internal/sbx/kit-lifecycle.puml
 func reuseOrCreate(cfg sbx.RunConfig, exists func(string) bool) sbx.RunConfig {
 	if !exists(cfg.Name) {

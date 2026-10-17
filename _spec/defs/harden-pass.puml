@@ -66,7 +66,7 @@ title The harden pass — one script, re-run by every layer that installs
 '     recorded so it reads as a decision rather than an accident.
 '
 ' proveo-harden is explicitly NOT implicated in the dockerd privilege failures
-' recorded in _spec/_plans/image-size-reduction.puml: it only strips setuid and
+' recorded in _spec/_devops/image-size-reduction.puml: it only strips setuid and
 ' setgid bits and removes nc/netcat/netstat/ss.
 
 component "defs/base/proveo-harden\n""/usr/local/sbin/proveo-harden [paths…]""" as H <<app>>

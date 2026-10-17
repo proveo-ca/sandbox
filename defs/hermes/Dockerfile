@@ -1,5 +1,17 @@
 # SPEC: _spec/defs/hermes/hermes-topology.puml, _spec/defs/hermes/hermes-paradigm.puml
 ARG HERMES_AGENT_VERSION=v2026.9.24
+
+FROM golang:1.26-trixie AS proveo-entrypoint-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,id=proveo-hermes-gomod,target=/go/pkg/mod,sharing=locked \
+    go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN --mount=type=cache,id=proveo-hermes-gomod,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=proveo-hermes-gocache,target=/root/.cache/go-build,sharing=locked \
+    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
+
 FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}
 
 USER root
@@ -34,6 +46,7 @@ RUN groupadd -o -g 1000 agent \
 RUN mkdir -p /opt/proveo/subagents /opt/proveo/hooks /opt/proveo/shims
 COPY defs/subagents/ /opt/proveo/subagents/
 COPY AGENTS.md /opt/proveo/AGENTS.md
+COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
 COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
@@ -41,10 +54,7 @@ COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-syn
 COPY --chmod=0755 packages/lib/proveo-await-seed /usr/local/bin/proveo-await-seed
 COPY --chmod=0755 defs/hermes/entrypoint.sh /entrypoint.sh
 
-# hermes's own exec shim (docker/hermes-exec-shim.sh, baked upstream at
-# /opt/hermes/bin/hermes) already drops root -> the "hermes" user via
-# s6-setuidgid when invoked as root, so the proveo shim wraps THAT path rather
-# than re-deriving a privilege drop of our own.
+# Wraps upstream's exec shim, which already drops root to the hermes user (s6-setuidgid).
 RUN printf '#!/bin/sh\nexec /usr/local/bin/proveo-await-seed /opt/hermes/bin/hermes "$@"\n' > /opt/proveo/shims/hermes \
     && chmod 0755 /opt/proveo/shims/hermes
 
@@ -58,12 +68,6 @@ LABEL security.non-root=true \
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD /opt/hermes/bin/hermes --version >/dev/null 2>&1 || exit 1
 
-# dumb-init replaces upstream's s6-overlay ENTRYPOINT deliberately: this def
-# runs hermes as ONE foreground process per sandbox, matching every other
-# harness here, not upstream's persistent multi-service stack (web dashboard +
-# per-profile gateways) built for a standing server. Root stays the build
-# user (unlike every other def) because entrypoint.sh must run upstream's own
-# stage2-hook.sh — UID/GID remap, /opt/data volume ownership, config seeding —
-# before dropping privilege through hermes's own exec shim.
+# dumb-init replaces upstream's s6-overlay /init: one foreground hermes process per sandbox.
 # SPEC: _spec/defs/hermes/hermes-paradigm.puml
 ENTRYPOINT ["dumb-init", "--", "/entrypoint.sh"]
