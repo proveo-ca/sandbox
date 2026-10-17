@@ -421,8 +421,6 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	return nil
 }
 
-// reportCredentialGaps names what satisfies a subscription harness's missing variables, or prompts
-// or warns for each required variable no credential covers.
 // homeLine names the proveo home and the directories under it the sandbox sees, at their host paths.
 func homeLine(root string, h manifest.Home) string {
 	var seen []string
@@ -439,6 +437,8 @@ func homeLine(root string, h manifest.Home) string {
 	return fmt.Sprintf("proveo home: %s (the sandbox sees %s %s)", root, strings.Join(seen, ", "), where)
 }
 
+// reportCredentialGaps names what satisfies a subscription harness's missing variables, or prompts
+// or warns for each required variable no credential covers.
 func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
 	missing := rs.Man.MissingEnv(rs.Creds.Lookup)
 	if len(missing) == 0 || p.PrintOnly {
@@ -740,8 +740,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	return sandbox.Run(in)
 }
 
-// recordOutcome writes the run's verdict into the transcript before Do returns
-// and the log closes.
 func realPathOf(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		p = r
@@ -817,6 +815,8 @@ func planPorts(chosen []devports.Candidate, root string, printOnly bool) []sandb
 	return sandbox.PlanPorts(out, free)
 }
 
+// recordOutcome writes the run's verdict into the transcript before Do returns
+// and the log closes.
 func recordOutcome(launched bool, err error) {
 	var ae backend.ExitError
 	switch {

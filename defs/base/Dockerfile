@@ -32,8 +32,8 @@ RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
 #
 # The `-docker` suffix is not cosmetic. Plain tags ship the docker CLIENT only;
 # the Engine (dockerd, containerd, runc, docker-proxy) rides the -docker
-# variants. A client with no daemon behind it is exactly what `docker: sbx`
-# promised and no proveo image delivered.
+# variants. A client with no daemon behind it is what every manifest without
+# `daemon: false` would promise and no proveo image deliver.
 #
 FROM ${SANDBOX_TEMPLATE}
 

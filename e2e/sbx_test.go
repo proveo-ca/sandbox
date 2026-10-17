@@ -483,14 +483,13 @@ func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	low := strings.ToLower(got)
 	switch {
 	case strings.Contains(low, "command not found"), strings.Contains(low, "executable file not found"):
-		t.Fatalf("%s declares docker: %s but no docker client is present: %q\n"+
-			"the image ships none by design (the static tarball overlapped sbx), so this means "+
-			"sbx supplied no client either — fix it sbx-side or stop declaring docker: %s\n"+
-			"see _spec/_plans/image-size-reduction.puml", target, how, got, how)
+		t.Fatalf("%s is promised a daemon via %s but no docker client is present: %q\n"+
+			"sbx supplied no client — fix it sbx-side or set `daemon: false`\n"+
+			"see _spec/_plans/image-size-reduction.puml", target, how, got)
 	case strings.Contains(low, "cannot connect to the docker daemon"),
 		strings.Contains(low, "is the docker daemon running"),
 		strings.Contains(low, "permission denied"):
-		t.Fatalf("%s: the docker client is present but docker: %s exposed no usable daemon: %q", target, how, got)
+		t.Fatalf("%s: the docker client is present but %s exposed no usable daemon: %q", target, how, got)
 	case !dockerVersionish(got):
 		t.Fatalf("%s: `docker version` returned %q, want a server version", target, got)
 	}

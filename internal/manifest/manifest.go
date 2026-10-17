@@ -300,6 +300,9 @@ func Parse(data []byte, dir string) (Manifest, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) {
+		if strings.Contains(err.Error(), "field docker not found") {
+			return Manifest{}, fmt.Errorf("manifest %s: `docker:` is retired — delete it, or set `daemon: false` to withdraw the daemon: %w", dir, err)
+		}
 		return Manifest{}, fmt.Errorf("manifest %s: %w", dir, err)
 	}
 	m.Dir = dir

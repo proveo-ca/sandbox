@@ -162,6 +162,9 @@ func (w *watcher) until(what string, timeout time.Duration, cond func() bool) {
 		if !w.tick() {
 			w.Fatalf("session exited before %s", what)
 		}
+		if services, ok := consentPrompt(w.lastScreen); ok {
+			w.t.Fatal(consentFailure(services, "<target>"))
+		}
 		if time.Now().After(deadline) {
 			w.Fatalf("timed out after %s waiting for %s", timeout, what)
 		}

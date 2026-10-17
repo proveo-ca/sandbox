@@ -410,4 +410,7 @@ func TestAStaleManifestKeyFailsLoading(t *testing.T) {
 			t.Errorf("Parse(%q) error = %v, want it to name the stale key %q", key, err, name)
 		}
 	}
+	if _, err := Parse([]byte(base+"docker: sbx\n"), ""); err == nil || !strings.Contains(err.Error(), "daemon: false") {
+		t.Errorf("Parse(docker: sbx) error = %v, want the migration to `daemon: false`", err)
+	}
 }

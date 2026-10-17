@@ -12,6 +12,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // HomeAccess is the narrow host-state view an sbx run receives. The whole
@@ -27,6 +28,12 @@ type HomeAccess struct {
 
 // LinkedDirsFile, at the proveo home root, lists the absolute targets a home dir's links may reach.
 const LinkedDirsFile = "linked-dirs"
+
+func noteSkippedLinks(a HomeAccess) {
+	for _, l := range a.SkippedLinks {
+		ui.Notef("home link %s not followed — list its target in %s to mount it read-only", l, filepath.Join(a.Root, LinkedDirsFile))
+	}
+}
 
 func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error) {
 	a := HomeAccess{Root: root}
@@ -107,9 +114,8 @@ func listedLinkTargets(root string) map[string]bool {
 	return set
 }
 
-// linkedDirs is dir's first-level symlinks to directories outside the proveo
-// home whose targets listed names, as read-only mounts of those targets, and
-// the links it skipped because listed does not name their target.
+// linkedDirs mounts read-only the targets of dir's first-level symlinks that
+// leave the proveo home and appear in listed, and returns the links it skipped.
 // SPEC: _spec/internal/sbx/ide-attach.puml (LINKED DIRS FOLLOW, READ-ONLY)
 func linkedDirs(root, dir string, listed map[string]bool) (out []runner.Mount, skipped []string) {
 	entries, err := os.ReadDir(dir)

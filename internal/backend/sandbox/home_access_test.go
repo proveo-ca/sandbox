@@ -14,6 +14,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestHomeAccessExposesOnlyThisHarnessState(t *testing.T) {
@@ -346,5 +347,19 @@ func TestHomeAccessFollowsOnlyLinksTheHostListed(t *testing.T) {
 	}
 	if len(a.SkippedLinks) != 1 || !strings.Contains(a.SkippedLinks[0], wantSecret) {
 		t.Errorf("SkippedLinks = %v, want the unlisted ssh link named so the operator can list it", a.SkippedLinks)
+	}
+}
+
+func TestASkippedLinkNoticeNamesTheLinkAndTheListFile(t *testing.T) {
+	var buf strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&buf)
+	t.Cleanup(func() { ui.Default = prev })
+
+	noteSkippedLinks(HomeAccess{Root: "/h", SkippedLinks: []string{"/h/hermes/data/skills → /x/skills"}})
+	for _, want := range []string{"/h/hermes/data/skills → /x/skills", filepath.Join("/h", LinkedDirsFile)} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("notice %q must name %q", buf.String(), want)
+		}
 	}
 }
