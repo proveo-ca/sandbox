@@ -4,16 +4,19 @@
 package imagetest_test
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/imagetest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 var ocSeq atomic.Int64
@@ -31,56 +34,82 @@ func ocRun(t *testing.T, timeout time.Duration, env []string, args ...string) im
 // the seed download marksman, and that alone outran the 30s budget.
 var ocNoInstalls = []string{"-e", "PROVEO_LSP_INSTALL=off", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false"}
 
-// ocLostKeeper prepares from a read-only WAL source, kills the keeper, then recovers its cache.
-// SPEC: _spec/_plans/opencode-versioned-history-storage.puml
-const ocLostKeeper = `set -u
-rt() { python3 -B -I -S /usr/local/bin/proveo-opencode-runtime "$@"; }
-owner_of() { sed -n 's/.*"cache_owner": "\([^"]*\)".*/\1/p'; }
-mkdir -p /tmp/src
-HOME=/tmp/native-schema XDG_DATA_HOME=/tmp/native-data XDG_STATE_HOME=/tmp/native-state OPENCODE_DB=/tmp/src/opencode.db OPENCODE_DISABLE_MODELS_FETCH=1 \
-  "$(cat /usr/local/lib/proveo/opencode.native)" session list --format json --standalone >/dev/null || exit 10
-chmod 0555 /tmp/src
-owner=$(rt --bootstrap-cache | owner_of)
-rt --prepare --source /tmp/src --proveo-cache-owner="$owner" >/dev/null || exit 11
-rt --check-prepared --proveo-cache-owner="$owner" || exit 12
-kill -9 "${owner%%:*}"
-while kill -0 "${owner%%:*}" 2>/dev/null; do sleep 0.1; done
-fresh=$(rt --bootstrap-cache --proveo-cache-owner="$owner" | owner_of)
-[ -n "$fresh" ] && [ "$fresh" != "$owner" ] || exit 13
-rt --check-prepared --proveo-cache-owner="$fresh" 2>/dev/null && exit 14
-out=$(rt --prepare --proveo-cache-owner="$fresh" 2>&1) && exit 15
-case "$out" in *"unattested retained state requires explicit recovery"*) ;; *) echo "$out"; exit 16 ;; esac
-rt --recover --proveo-cache-owner="$fresh" >/dev/null || exit 17
-rt --check-prepared --proveo-cache-owner="$fresh" || exit 18
-echo LOST-KEEPER-RECOVERED`
+// ocFixtureProvider is an unreachable OpenAI-compatible provider: a run creates its session, then retries until killed.
+const ocFixtureProvider = `{"plugins":[],"providers":{"fixture":{"package":"@opencode/ai/providers/openai-compatible",` +
+	`"settings":{"baseURL":"http://127.0.0.1:9/v1","apiKey":"synthetic"},` +
+	`"models":{"model":{"name":"Offline fixture","limit":{"context":100000,"output":4096}}}}}}`
 
-// ocUnmanaged starts opencode the way a raw kit launch does: the startup seed refuses, then the shim runs the native client.
-// SPEC: _spec/_plans/opencode-versioned-history-storage.puml
-const ocUnmanaged = `set -u
-mkdir -p "$PROVEO_WORKDIR" && cd "$PROVEO_WORKDIR" || exit 20
-/usr/local/bin/proveo-seed opencode >/tmp/startup-seed.log 2>&1
-[ "$(cat /dev/shm/proveo-seed-refused 2>/dev/null)" = "OpenCode history is not prepared in this engine" ] || { cat /tmp/startup-seed.log; exit 21; }
-for launch in first second; do
-  out=$(/opt/proveo/shims/opencode session list --format json --standalone 2>/tmp/launch.err) || { cat /tmp/launch.err; exit 22; }
-  [ "$out" = "[]" ] || { echo "$out"; cat /tmp/launch.err; exit 23; }
-  grep -q "OpenCode runs as a raw sbx run would" /tmp/launch.err || { cat /tmp/launch.err; exit 24; }
-done
-[ -f "$HOME/.local/share/opencode/opencode.db" ] || exit 25
-[ -e /tmp/home/opencode/v2/share/opencode.db ] && exit 26
-ls /tmp/proveo-opencode-control-*/*.sock >/dev/null 2>&1 && exit 27
-echo UNMANAGED-LAUNCH-RAN`
+// ocEngineHistory launches twice through the shim and finds the first launch's session in the native default database.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocEngineHistory = `set -u
+shim=/opt/proveo/shims/opencode
+db="$HOME/.local/share/opencode/opencode.db"
+mkdir -p /tmp/work && cd /tmp/work || exit 40
+[ ! -e "$db" ] || exit 41
+timeout 15 "$shim" run --model fixture/model "offline history fixture" >/tmp/run.log 2>&1
+[ -f "$db" ] || { cat /tmp/run.log; exit 42; }
+out=$("$shim" session list --format json 2>/tmp/list.err) || { cat /tmp/list.err; exit 43; }
+printf '%s\n' "$out" | grep -q '"directory": *"/tmp/work"' || { echo "$out"; cat /tmp/run.log; exit 44; }
+[ "$(find /tmp "$HOME" -name opencode.db 2>/dev/null)" = "$db" ] || { find /tmp "$HOME" -name opencode.db; exit 45; }
+[ ! -e "$PROVEO_HOME/opencode/v2/share" ] || exit 46
+ls -d /tmp/proveo-opencode-throwaway-* 2>/dev/null && exit 47
+echo ENGINE-HISTORY-KEPT`
 
-// ocManagedShape gives the shim a host owner flag, which must stop the launch instead of running it raw.
-const ocManagedShape = `set -u
-mkdir -p "$PROVEO_WORKDIR" && cd "$PROVEO_WORKDIR" || exit 30
-/usr/local/bin/proveo-seed opencode >/dev/null 2>&1
-out=$(/opt/proveo/shims/opencode --proveo-cache-owner=1:2 session list 2>&1) && { echo "$out"; exit 31; }
-case "$out" in *"raw sbx run"*) echo "$out"; exit 32 ;; *"did not release the agent"*) ;; *) echo "$out"; exit 33 ;; esac
-ls /tmp/proveo-opencode-control-*/*.sock >/dev/null 2>&1 && exit 34
-echo MANAGED-SHAPE-STOPPED`
+// ocInflight runs the git-sync commit-subject call through the shim and checks the engine database did not change.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocInflight = `set -u
+shim=/opt/proveo/shims/opencode
+db="$HOME/.local/share/opencode/opencode.db"
+mkdir -p /tmp/work && cd /tmp/work || exit 50
+"$shim" session list --format json >/dev/null 2>/tmp/list.err || { cat /tmp/list.err; exit 51; }
+[ -f "$db" ] || exit 52
+sums() { find "$HOME/.local/share/opencode" -type f -exec sha256sum {} + | sort; }
+before=$(sums)
+PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout 8 "$shim" run --standalone -m fixture/model "write a commit subject" >/tmp/inflight.log 2>&1
+code=$?
+[ "$code" = 0 ] || [ "$code" = 124 ] || { cat /tmp/inflight.log; exit 53; }
+[ "$(sums)" = "$before" ] || { echo "$before"; sums; exit 54; }
+ls -d /tmp/proveo-opencode-throwaway-* 2>/dev/null && exit 55
+echo INFLIGHT-UNTOUCHED`
 
-// ocDisposable is the history mode internal/backend/dockeregress gives every opencode run.
-var ocDisposable = []string{"-e", "PROVEO_OPENCODE_HISTORY_MODE=disposable"}
+// ocImport stages a WAL database, imports it twice, then exports it, with the engine scripts the host runs over sbx exec.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocImport = `set -u
+db="$HOME/.local/share/opencode/opencode.db"
+stage() {
+  python3 - "$STAGE" "$1" <<'PY' || exit 60
+import os, shutil, sqlite3, sys
+stage, build = sys.argv[1], sys.argv[2]
+os.makedirs(build)
+src = os.path.join(build, "fixture.db")
+con = sqlite3.connect(src)
+con.execute("PRAGMA journal_mode=WAL")
+con.execute("PRAGMA wal_autocheckpoint=0")
+con.execute("CREATE TABLE fixture (note TEXT)")
+con.executemany("INSERT INTO fixture VALUES (?)", [("engine-local",), ("imported-once",)])
+con.commit()
+shutil.copyfile(src, stage)
+shutil.copyfile(src + "-wal", stage + "-wal")
+assert os.path.getsize(stage + "-wal") > 0
+os._exit(0)
+PY
+}
+notes() { python3 -c 'import sqlite3, sys; print(",".join(r[0] for r in sqlite3.connect(sys.argv[1]).execute("SELECT note FROM fixture ORDER BY rowid")))' "$1"; }
+[ ! -e "$db" ] || exit 61
+stage /tmp/build-1
+python3 -I -c "$IMPORT_SCRIPT" "$STAGE"; code=$?
+[ "$code" = 0 ] || exit 62
+[ ! -e "$STAGE" ] && [ ! -e "$STAGE-wal" ] || exit 63
+before=$(sha256sum "$db")
+stage /tmp/build-2
+python3 -I -c "$IMPORT_SCRIPT" "$STAGE"; code=$?
+[ "$code" = "$IMPORT_EXISTING" ] || { echo "second import exit=$code"; exit 64; }
+[ "$(sha256sum "$db")" = "$before" ] || exit 65
+[ ! -e "$STAGE" ] && [ ! -e "$STAGE-wal" ] || exit 66
+echo "IMPORTED=$(notes "$db")"
+python3 -I -c "$EXPORT_SCRIPT" >/tmp/export.db || exit 67
+echo "HEADER=$(od -An -tx1 -N16 /tmp/export.db | tr -d ' \n')"
+echo "EXPORTED=$(notes /tmp/export.db)"`
 
 func ocWrite(t *testing.T, path, body string, mode os.FileMode) {
 	t.Helper()
@@ -120,6 +149,7 @@ func TestImageOpencode(t *testing.T) {
 	ocSecurity(s)
 	ocConfig(s)
 	ocDefaults(s)
+	ocHistory(s)
 	ocMCP(s)
 	ocLLM(s)
 }
@@ -356,30 +386,6 @@ func ocDefaults(s *imagetest.Suite) {
 		}
 	})
 
-	s.Check("a read-only WAL source prepares, and a lost keeper's cache recovers", func(t *testing.T) {
-		r := ocRun(t, 120*time.Second, nil, "--network", "none", "-e", "SANDBOX_VM_ID=imagetest-engine",
-			"-e", "PROVEO_HOME=/tmp/home", "-e", "PROVEO_STATE_HOME=/tmp/home", "--entrypoint", "bash", img, "-c", ocLostKeeper)
-		if !r.OK() || !strings.Contains(r.Out, "LOST-KEEPER-RECOVERED") {
-			t.Fatalf("lost-keeper sequence (exit codes 10-18 name the failing step): %v\n%s", r.Err, r.Out)
-		}
-	})
-
-	unmanaged := []string{"--network", "none", "-e", "SANDBOX_VM_ID=imagetest-unmanaged", "-e", "PROVEO_WORKDIR=/tmp/work",
-		"-e", "PROVEO_HOME=/tmp/home", "-e", "PROVEO_STATE_HOME=/tmp/home"}
-	s.Check("a launch with no proveo host runs opencode as a raw sbx run, outside the proveo share", func(t *testing.T) {
-		r := ocRun(t, 120*time.Second, nil, append(append(unmanaged, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocUnmanaged)...)
-		if !r.OK() || !strings.Contains(r.Out, "UNMANAGED-LAUNCH-RAN") {
-			t.Fatalf("unmanaged launch (exit codes 20-27 name the failing step): %v\n%s", r.Err, r.Out)
-		}
-	})
-
-	s.Check("a launch carrying a host owner still waits for its host", func(t *testing.T) {
-		r := ocRun(t, 120*time.Second, nil, append(append(unmanaged, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocManagedShape)...)
-		if !r.OK() || !strings.Contains(r.Out, "MANAGED-SHAPE-STOPPED") {
-			t.Fatalf("managed-shape launch (exit codes 30-34 name the failing step): %v\n%s", r.Err, r.Out)
-		}
-	})
-
 	s.Check("entrypoint preserves existing opencode.json (no reseed)", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--entrypoint", "bash", img, "-c", `
     mkdir -p "$HOME/.config/opencode"
@@ -389,6 +395,48 @@ func ocDefaults(s *imagetest.Suite) {
   `)
 		if !ocHasLine(r.Out, "PRESERVED") {
 			t.Errorf("preserve behaviour (output: %s)", ocClip(r.Out, 300))
+		}
+	})
+}
+
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+func ocHistory(s *imagetest.Suite) {
+	img := s.Image
+	engine := []string{"--network", "none", "-e", "SANDBOX_VM_ID=imagetest-engine", "-e", "PROVEO_HOME=/tmp/home",
+		"-e", "PROVEO_STATE_HOME=/tmp/home", "-e", "OPENCODE_DISABLE_MODELS_FETCH=1", "-e", "OPENCODE_CONFIG_CONTENT=" + ocFixtureProvider}
+
+	s.Check("two shim launches share the native default database and create no V2 share", func(t *testing.T) {
+		r := ocRun(t, 120*time.Second, nil, append(append(engine, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocEngineHistory)...)
+		if !r.OK() || !ocHasLine(r.Out, "ENGINE-HISTORY-KEPT") {
+			t.Fatalf("engine history (exit codes 40-47 name the failing step): %v\n%s", r.Err, r.Out)
+		}
+	})
+
+	s.Check("the git-sync inflight call leaves the engine database untouched", func(t *testing.T) {
+		r := ocRun(t, 120*time.Second, nil, append(append(engine, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocInflight)...)
+		if !r.OK() || !ocHasLine(r.Out, "INFLIGHT-UNTOUCHED") {
+			t.Fatalf("inflight launch (exit codes 50-55 name the failing step): %v\n%s", r.Err, r.Out)
+		}
+	})
+
+	s.Check("the engine import installs a WAL database once and the export streams it", func(t *testing.T) {
+		r := ocRun(t, 60*time.Second, nil, "--network", "none",
+			"-e", "STAGE="+sbx.OpenCodeImportStage,
+			"-e", "IMPORT_EXISTING="+strconv.Itoa(sbx.OpenCodeImportExisting),
+			"-e", "IMPORT_SCRIPT="+sbx.OpenCodeImportScript,
+			"-e", "EXPORT_SCRIPT="+sbx.OpenCodeExportScript,
+			"--entrypoint", "bash", img, "-c", ocImport)
+		if !r.OK() {
+			t.Fatalf("import sequence (exit codes 60-67 name the failing step): %v\n%s", r.Err, r.Out)
+		}
+		for _, want := range []string{
+			"IMPORTED=engine-local,imported-once",
+			"HEADER=" + hex.EncodeToString([]byte(sbx.OpenCodeDatabaseHeader)),
+			"EXPORTED=engine-local,imported-once",
+		} {
+			if !ocHasLine(r.Out, want) {
+				t.Errorf("missing %q:\n%s", want, r.Out)
+			}
 		}
 	})
 }
@@ -432,7 +480,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 	mount := fixture + ":/app"
 
 	s.Check("opencode discovers MCP server from opencode.json", func(t *testing.T) {
-		r := ocRun(t, 90*time.Second, nil, append(append([]string{}, ocDisposable...), "--network", "none", "-v", mount, "-w", "/app",
+		r := ocRun(t, 90*time.Second, nil, "--network", "none", "-v", mount, "-w", "/app",
 			"-e", "OPENCODE_SERVER_PASSWORD=offline-mcp", "--entrypoint", "bash", img, "-c", `set -euo pipefail
 timeout 60 opencode serve --hostname 127.0.0.1 --port 4096 >/tmp/mcp-serve.log 2>&1 & server=$!
 cleanup() {
@@ -469,7 +517,7 @@ for ((i=0;i<100;i++)); do
   sleep 0.2
 done
 printf 'MCP did not connect: %s\n' "$mcp" >&2
-exit 1`)...)
+exit 1`)
 		if !r.OK() || !ocHasLine(r.Out, "MCP_CONNECTED=fs-test") {
 			t.Errorf("MCP discovery: exit=%d, error=%v\n%s", r.Code, r.Err, r.Out)
 		}
@@ -481,9 +529,9 @@ exit 1`)...)
 		return
 	}
 	s.Check("opencode invokes MCP tool end-to-end", func(t *testing.T) {
-		r := ocRun(t, 200*time.Second, nil, append(append([]string{}, ocDisposable...), "-v", mount, "-w", "/app", "-e", "ANTHROPIC_API_KEY="+key,
+		r := ocRun(t, 200*time.Second, nil, "-v", mount, "-w", "/app", "-e", "ANTHROPIC_API_KEY="+key,
 			"--entrypoint", "bash", img, "-c",
-			`cd /app && timeout 180 opencode run -m anthropic/claude-sonnet-4-5 "Use the fs-test MCP server to read /app/marker.txt and reply with its exact contents only." 2>&1`)...)
+			`cd /app && timeout 180 opencode run -m anthropic/claude-sonnet-4-5 "Use the fs-test MCP server to read /app/marker.txt and reply with its exact contents only." 2>&1`)
 		if !r.OK() || !strings.Contains(r.Out, "MCP_FIXTURE_OK") {
 			t.Errorf("MCP tool invocation: exit=%d, error=%v (output: %s)", r.Code, r.Err, ocClip(r.Out, 500))
 		}
@@ -509,8 +557,8 @@ func ocLLM(s *imagetest.Suite) {
 			continue
 		}
 		s.Check(desc, func(t *testing.T) {
-			r := ocRun(t, 150*time.Second, nil, append(append([]string{}, ocDisposable...), "-e", p.envvar+"="+key, "--entrypoint", "bash", img, "-c",
-				"timeout 120 opencode run -m '"+p.model+"' 'Respond with only the word PONG.' 2>&1")...)
+			r := ocRun(t, 150*time.Second, nil, "-e", p.envvar+"="+key, "--entrypoint", "bash", img, "-c",
+				"timeout 120 opencode run -m '"+p.model+"' 'Respond with only the word PONG.' 2>&1")
 			if !strings.Contains(strings.ToUpper(r.Out), "PONG") {
 				t.Errorf("[%s] opencode run (output: %s)", p.provider, ocClip(r.Out, 300))
 			}
