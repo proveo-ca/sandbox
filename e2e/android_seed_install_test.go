@@ -69,7 +69,9 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	if top := hostADB("shell", "dumpsys", "activity", "activities"); !strings.Contains(top, helloPackage) {
 		t.Errorf("%s installed but not launched:\n%s", helloPackage, tail(top, 20))
 	}
-	first.Kill()
+	if screen, ok := stopRun(first, 3*time.Minute); !ok {
+		t.Fatalf("the first run never finished its teardown after SIGTERM\n%s", tail(screen, 40))
+	}
 	hostADB("uninstall", helloPackage)
 
 	second := seedRun(t, proveoBin, home, work, "second", "--yes", "--addon", "android")

@@ -853,7 +853,7 @@ func nestedRel(root, path string) (string, bool) {
 
 func KeptLines(name, runLog string) []string {
 	lines := []string{fmt.Sprintf(
-		"sandbox %s kept for diagnosis (the run failed) — `sbx exec %s -- sh`, then `sbx rm --force %s`",
+		"sandbox %s kept for diagnosis (the run failed) — `sbx exec -it %s bash`, then `sbx rm --force %s`",
 		name, name, name)}
 	if strings.TrimSpace(runLog) != "" {
 		lines = append(lines,
@@ -996,7 +996,6 @@ type Input struct {
 	AgentEnv         []string
 	Sid, EgDir       string
 	Mounts           []runner.Mount
-	Workdir          string
 	Lookup           func(string) string
 	Detected         []string
 	GitEnv           []string
@@ -1486,7 +1485,7 @@ func Run(in Input) error {
 	defer stopTrace()
 	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
 	var forceRemove atomic.Bool
-	stopped, stopSignals, cancelRun := forwardStop()
+	stopped, stopSignals, cancelRun, signalled := forwardStop()
 	defer stopSignals()
 	run := func() error {
 		c := exec.CommandContext(stopped, sbx.Binary, args...)
@@ -1532,6 +1531,10 @@ func Run(in Input) error {
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
+	if signalled() && !forceRemove.Load() {
+		ui.Hostf("stopped by a signal — tearing down as on a normal exit")
+	}
+	runErr = stopOutcome(runErr, signalled(), forceRemove.Load())
 	if runErr != nil && !sbx.Exists(cfg.Name) {
 		ui.Section(ui.SectionStarting)
 		if err := sbx.ReloadTemplate(cfg.Image, func(f string, a ...any) {
@@ -1634,19 +1637,30 @@ func Run(in Input) error {
 const stopWait = 30 * time.Second
 
 // forwardStop turns SIGTERM or SIGHUP into a cancelled context, so the sbx client is asked to
-// stop and the deferred teardown runs instead of proveo dying mid-run.
-func forwardStop() (context.Context, func(), context.CancelFunc) {
-	ctx, cancel := context.WithCancel(context.Background())
+// stop and the deferred teardown runs instead of proveo dying mid-run. signalled reports
+// whether a signal, rather than proveo itself, cancelled it.
+func forwardStop() (ctx context.Context, stop func(), cancel context.CancelFunc, signalled func() bool) {
+	ctx, cancel = context.WithCancel(context.Background())
+	var got atomic.Bool
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		select {
 		case <-sigs:
+			got.Store(true)
 			cancel()
 		case <-ctx.Done():
 		}
 	}()
-	return ctx, func() { signal.Stop(sigs); cancel() }, cancel
+	return ctx, func() { signal.Stop(sigs); cancel() }, cancel, got.Load
+}
+
+// stopOutcome is runErr as teardown reads it: a forwarded stop ends the run like a normal exit.
+func stopOutcome(runErr error, signalled, forced bool) error {
+	if signalled && !forced {
+		return nil
+	}
+	return runErr
 }
 
 // WarnBaseline reports sbx's network baseline and, unless it allows every host, the command that lets hosts through.

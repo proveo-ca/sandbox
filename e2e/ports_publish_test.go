@@ -79,7 +79,7 @@ func TestPortsPublishE2E(t *testing.T) {
 func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...string) *tmux.Session {
 	t.Helper()
 	sess := tmux.New(fmt.Sprintf("proveo-ports-%s-%d", tag, os.Getpid()), nil)
-	t.Cleanup(sess.Kill)
+	t.Cleanup(func() { stopRun(sess, 3*time.Minute) })
 	args := append([]string{"env", "PROVEO_HOME=" + home, proveoBin, "run", "claudecode",
 		"--image", image, "--input", work, "--scope", "."}, extra...)
 	if err := sess.Start(160, 50, args...); err != nil {

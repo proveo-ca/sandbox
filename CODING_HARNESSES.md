@@ -10,7 +10,7 @@ A harness container should make an agent usable from any Linux or macOS host wit
 - bridge host/project configuration into the container;
 - preserve enough repository structure for monorepos and git-aware tools;
 - keep secrets out of images while making runtime credentials available;
-- provide a consistent build/run/test/debug surface for each definition.
+- provide a consistent build/run/test surface for each definition.
 
 ## Definition Contract
 

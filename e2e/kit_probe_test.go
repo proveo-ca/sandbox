@@ -4,11 +4,14 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,15 +29,20 @@ type kitRun struct {
 	sess *tmux.Session
 	name string
 	dir  string
+	last string
 }
 
 // launchKit starts `proveo run <target>` through its kit under tmux, with the
-// picker skipped and credentials forwarded, and returns once the sandbox's seed
-// has finished. env is set on the proveo process; extra follows the run flags.
+// picker skipped, credentials forwarded and a private PROVEO_HOME unless env
+// names one, and returns once the sandbox's seed has finished. env is set on
+// the proveo process; extra follows the run flags.
 func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra ...string) *kitRun {
 	t.Helper()
 	requireSbx(t)
 	sweepSandboxesAfter(t)
+	if !slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "PROVEO_HOME=") }) {
+		env = append(env, "PROVEO_HOME="+t.TempDir())
+	}
 	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-kit-%s-%d", target, time.Now().UnixNano()), nil)
 	cmd := append([]string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0"}, env...)
@@ -54,18 +62,27 @@ func awaitKit(t *testing.T, sess *tmux.Session, before map[string]bool, target, 
 	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute)
 	k := &kitRun{t: t, sess: sess, dir: dir}
 	if !waitUntil(timeout, func() bool { k.tend(); k.name = kitSandbox(before, target, dir); return k.name != "" }) {
-		t.Fatalf("no %s sandbox appeared within %s\n%s", target, timeout, k.pane(40))
+		t.Fatalf("no %s sandbox appeared within %s\n%s", target, timeout, tail(k.last, 40))
 	}
-	seed := durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 12*time.Minute)
+	k.awaitSeed()
+	// wait again once the pane settles
+	awaitQuietScreen(sess, 30*time.Second)
+	k.awaitSeed()
+	return k
+}
+
+// awaitSeed holds until the sandbox's seed-done marker exists.
+func (k *kitRun) awaitSeed() {
+	k.t.Helper()
+	seed := durationEnv(k.t, "PROVEO_TEST_SEED_TIMEOUT", 12*time.Minute)
 	if !waitUntil(seed, func() bool {
 		k.tend()
-		_, rc := k.raw("test -e "+seedDone, time.Minute)
-		return rc == 0
+		_, rc, ok := k.try("test -e "+seedDone, time.Minute)
+		return ok && rc == 0
 	}) {
-		log, _ := k.raw("tail -40 /var/log/sbx-kit-startup.log", time.Minute)
-		t.Fatalf("the seed in %s did not finish within %s:\n%s\n%s", k.name, seed, log, k.pane(40))
+		log, _, _ := k.try("tail -40 /var/log/sbx-kit-startup.log", time.Minute)
+		k.t.Fatalf("the seed in %s did not finish within %s:\n%s\n%s", k.name, seed, log, tail(k.last, 40))
 	}
-	return k
 }
 
 // end stops the run the way `docker stop` or a closed terminal does: SIGTERM
@@ -88,11 +105,15 @@ func stopRun(sess *tmux.Session, timeout time.Duration) (string, bool) {
 	return waitSessionExit(sess, timeout)
 }
 
-// tend answers sbx's own operator questions and fails on a refusal or on a
-// confirmation that would swallow input.
+// tend answers sbx's own operator questions, fails on a refusal or on a
+// confirmation that would swallow input, and handles a run that already ended.
 func (k *kitRun) tend() {
 	k.t.Helper()
-	screen, _ := k.sess.CaptureAll()
+	screen, err := k.sess.CaptureAll()
+	if err != nil {
+		k.ended()
+	}
+	k.last = screen
 	if line := sbxError(screen); line != "" && !retryable(line) {
 		k.t.Fatalf("sbx refused the run — %s\n%s", line, tail(screen, 40))
 	}
@@ -102,13 +123,32 @@ func (k *kitRun) tend() {
 	answerSbxPrompt(k.sess, screen)
 }
 
+// ended skips when the agent quit for want of a login and fails otherwise.
+func (k *kitRun) ended() {
+	k.t.Helper()
+	for _, f := range authFailures {
+		if strings.Contains(plain(k.last), f) {
+			k.t.Skipf("proveo exited before the sandbox was ready: the agent is not authenticated (%q)", f)
+		}
+	}
+	k.t.Fatalf("proveo exited before the sandbox was ready\n%s", tail(k.last, 40))
+}
+
+// with is k bound to t, for subtests that share one run.
+func (k *kitRun) with(t *testing.T) *kitRun {
+	c := *k
+	c.t = t
+	return &c
+}
+
 // exec runs script under bash in the sandbox as the agent's user, in the
 // agent's working directory with the provisioned toolchain on PATH, and
 // returns its combined output and exit status.
 func (k *kitRun) exec(script string, timeout time.Duration) (string, int) {
 	k.t.Helper()
 	prelude := "launch_dir=" + shellQuote([]string{k.dir}) + "\n" +
-		`cd "${PROVEO_WORKDIR:-$launch_dir}" 2>/dev/null || cd "$launch_dir"` + "\n" +
+		`cd "${PROVEO_WORKDIR:-$launch_dir}" 2>/dev/null || cd "$launch_dir" || ` +
+		`{ echo "kit probe: cannot enter $launch_dir" >&2; exit 97; }` + "\n" +
 		`[ -f "$HOME/.proveo-tool-env.sh" ] && . "$HOME/.proveo-tool-env.sh"` + "\n"
 	return k.raw(prelude+script, timeout)
 }
@@ -119,14 +159,34 @@ func (k *kitRun) raw(script string, timeout time.Duration) (string, int) {
 	return sbxExecStatus(k.t, k.name, script, timeout)
 }
 
-// pane is the last n lines proveo and the agent printed.
-func (k *kitRun) pane(n int) string {
-	screen, _ := k.sess.CaptureAll()
-	return tail(screen, n)
+// try is raw without failing the test; ok is false when sbx exec itself failed or timed out.
+func (k *kitRun) try(script string, timeout time.Duration) (string, int, bool) {
+	ctx, cancel := context.WithTimeout(k.t.Context(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, sbx.Binary, "exec", "-w", "/", k.name, "--", "bash", "-c", script)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return string(out), 0, true
+	case errors.As(err, &exit) && ctx.Err() == nil:
+		return string(out), exit.ExitCode(), true
+	}
+	return string(out), -1, false
 }
 
-// kitSandbox names the sandbox target's run created since before: the only new
-// one with its name prefix, or the one whose workspaces hold dir.
+// pane is the last n lines proveo and the agent printed.
+func (k *kitRun) pane(n int) string {
+	if screen, err := k.sess.CaptureAll(); err == nil {
+		k.last = screen
+	}
+	return tail(k.last, n)
+}
+
+// kitSandbox names the sandbox created since before with target's name prefix
+// and every workspace under the test temp root: the one holding dir, or the
+// only such sandbox.
 func kitSandbox(before map[string]bool, target, dir string) string {
 	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
 	if err != nil {
@@ -146,12 +206,12 @@ func kitSandbox(before map[string]bool, target, dir string) string {
 	if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
 		dirs = append(dirs, real)
 	}
-	var fresh, holding []string
+	var mine, holding []string
 	for _, sb := range listing.Sandboxes {
-		if before[sb.Name] || !strings.HasPrefix(sb.Name, prefix) || strings.HasSuffix(sb.Name, "-prepare") {
+		if before[sb.Name] || !strings.HasPrefix(sb.Name, prefix) || !testOwned(sb.Workspaces) {
 			continue
 		}
-		fresh = append(fresh, sb.Name)
+		mine = append(mine, sb.Name)
 		for _, ws := range sb.Workspaces {
 			ws, _, _ = strings.Cut(ws, ":")
 			for _, d := range dirs {
@@ -162,12 +222,26 @@ func kitSandbox(before map[string]bool, target, dir string) string {
 		}
 	}
 	switch {
-	case len(fresh) == 1:
-		return fresh[0]
 	case len(holding) > 0:
 		return holding[0]
+	case len(mine) == 1:
+		return mine[0]
 	}
 	return ""
+}
+
+// testOwned reports whether every workspace lies strictly below a test temp root.
+func testOwned(workspaces []string) bool {
+	if len(workspaces) == 0 {
+		return false
+	}
+	for _, ws := range workspaces {
+		ws, _, _ = strings.Cut(ws, ":")
+		if !underTestTemp(ws) || slices.Contains(testTempRoots(), filepath.Clean(ws)) {
+			return false
+		}
+	}
+	return true
 }
 
 // pathWithin reports whether p is dir or lies under it.

@@ -205,8 +205,6 @@ func TestSandboxBackendRefusesWhenSbxAbsent(t *testing.T) {
 	}
 }
 
-// `sbx create` re-bakes the template (see _spec/_experiments/docker-sandbox.puml)
-
 func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx not available on this host: %s", why)
@@ -500,7 +498,8 @@ func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	t.Logf("%s: docker server reached via %s = %s", target, how, got)
 }
 
-// (_spec/_paradigms/retire-dind.puml) makes that daemon the only one there is, so a
+// assertSandboxSuppliesDocker fails unless the probe reached a docker server in the sandbox.
+// SPEC: _spec/_paradigms/retire-dind.puml
 func assertSandboxSuppliesDocker(t *testing.T, target, got string) {
 	t.Helper()
 	_, server, ok := strings.Cut(got, "SERVER:")

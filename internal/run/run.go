@@ -416,11 +416,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	}
 	rs.Workspace.WS.WorktreeLinkDir = rs.Workspace.WorktreeLinks
 
-	var planWorkdir string
-	rs.Workspace.Mounts, planWorkdir, rs.Workspace.Links = rs.Workspace.WS.Plan()
-	if planWorkdir != "" {
-		rs.Workspace.Workdir = planWorkdir
-	}
+	rs.Workspace.Mounts, _, rs.Workspace.Links = rs.Workspace.WS.Plan()
 	ui.Section(ui.SectionWorkspace)
 	reportLinks(rs.Workspace.Links)
 
@@ -683,8 +679,8 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Evidence: p.evidenceOrDefault(),
 		Forwards: p.forwards(),
 		Man:      rs.Man, Sid: rs.Sid, EgDir: rs.EgDir,
-		ImageEntrypoint: sbx.ImageEntrypoint,
-		Mounts:          mounts, Workdir: rs.Workspace.Workdir,
+		ImageEntrypoint:  sbx.ImageEntrypoint,
+		Mounts:           mounts,
 		Lookup:           rs.Creds.Lookup,
 		Detected:         rs.Creds.Detected,
 		GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),

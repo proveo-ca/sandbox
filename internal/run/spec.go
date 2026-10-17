@@ -46,7 +46,6 @@ type WorkspaceSpec struct {
 	SubScope      string // the picked project, relative to RepoRoot
 	WS            workspace.MountSpec
 	Mounts        []runner.Mount
-	Workdir       string
 	Links         []workspace.Link
 	WorktreeLinks string // container-correct pointer dir, or "" to fall back to GIT_DIR
 }

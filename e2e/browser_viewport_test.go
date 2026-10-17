@@ -66,7 +66,9 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 
 	// The AGENT's browser, opened by the agent's own tool rather than by a
 	// hand-rolled Chromium — so what the host attaches to is what the agent uses.
-	k.exec("nohup agent-browser open about:blank >/tmp/ab.log 2>&1 & sleep 1", 20*time.Second)
+	if out, status := k.exec("command -v agent-browser >/dev/null && { nohup agent-browser open about:blank >/tmp/ab.log 2>&1 & sleep 1; }", 20*time.Second); status != 0 {
+		t.Fatalf("agent-browser did not start in the sandbox (exit %d):\n%s", status, out)
+	}
 
 	listURL := url + "/json/list"
 	deadline := time.Now().Add(timeout)

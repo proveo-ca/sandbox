@@ -20,7 +20,7 @@ import (
 func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	requireTmux(t)
 	binDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(binDir, "sbx"), []byte(fakeSbx), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "sbx"), []byte(fakeSbx(sbx.MinVersion)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -33,7 +33,7 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	const image = "proveo/close-confirm:e2e"
 
 	sess := tmux.New(fmt.Sprintf("proveo-closecfm-%d", os.Getpid()), nil)
-	t.Cleanup(sess.Kill)
+	t.Cleanup(func() { stopRun(sess, time.Minute) })
 	if err := sess.Start(120, 40, "env",
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
@@ -84,13 +84,18 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	t.Fatalf("n did not return to the session:\n%s", after)
 }
 
-const fakeSbx = `#!/bin/sh
+// fakeSbx is an sbx that reports version, lists the test template, and holds a headed run.
+func fakeSbx(version string) string {
+	return strings.ReplaceAll(fakeSbxScript, "VERSION", version)
+}
+
+const fakeSbxScript = `#!/bin/sh
 case "$1" in
   version)
     if [ "$2" = "--json" ]; then
-      printf '%s\n' '{"client":{"version":"0.42.0"}}'
+      printf '%s\n' '{"client":{"version":"VERSION"}}'
     else
-      printf '%s\n' 'sbx version: v0.42.0 deadbeef'
+      printf '%s\n' 'sbx version: vVERSION deadbeef'
     fi
     ;;
   template)

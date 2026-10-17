@@ -173,7 +173,9 @@ func envPrefix(env map[string]string) string {
 func runLib(t *testing.T, o runOpts, script string) (string, error) {
 	t.Helper()
 	k := o.run
-	if k == nil {
+	if k != nil {
+		k = k.with(t)
+	} else {
 		target := o.target
 		if target == "" {
 			target = "opencode"

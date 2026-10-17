@@ -50,12 +50,14 @@ func TestStreamPaletteE2E(t *testing.T) {
 	}
 }
 
-// buildVolatileImage layers an agent that prints two lines and exits 3 over
-// base, so the kit's seed still runs and only the agent command changes.
+// buildVolatileImage replaces base's cecli binary with one that prints two lines
+// and exits 3; the image entrypoint, seed and kit stay base's own.
 func buildVolatileImage(t *testing.T, base string) {
 	t.Helper()
 	dir := t.TempDir()
-	df := "FROM " + base + "\nENTRYPOINT [\"sh\",\"-c\",\"echo 'agent: booting'; echo 'agent: fatal'; exit 3\",\"--\"]\n"
+	df := "FROM " + base + "\nUSER root\n" +
+		"RUN printf '#!/bin/sh\\necho \"agent: booting\"\\necho \"agent: fatal\"\\nexit 3\\n' > /opt/cecli/bin/cecli && chmod 0755 /opt/cecli/bin/cecli\n" +
+		"USER cecli\n"
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(df), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +76,7 @@ func runVolatile(t *testing.T, proveoBin string) string {
 	sess := tmux.New(fmt.Sprintf("proveo-palette-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 	script := fmt.Sprintf("%s run cecli --image %s --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
-		proveoBin, volatileImage, work)
+		shellQuote([]string{proveoBin}), volatileImage, shellQuote([]string{work}))
 	if err := sess.Start(110, 60, "env", "TERM=xterm-256color", "COLORTERM=truecolor", "PROVEO_WIZARD=off",
 		"PROVEO_HOME="+t.TempDir(), "sh", "-c", script); err != nil {
 		t.Fatalf("start tmux session: %v", err)

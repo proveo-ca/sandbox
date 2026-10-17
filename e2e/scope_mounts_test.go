@@ -102,8 +102,8 @@ func newTempWorktree(t *testing.T) (worktree string) {
 }
 
 // TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode`
-// through its kit and probes it with `sbx exec`: the git-safe-dir bridging
-// under test is the seed's own, not a manually re-invoked copy of it. It asserts
+// through its kit and probes it with `sbx exec`, so the git configuration under
+// test is the run's own, not a manually re-invoked copy of it. It asserts
 // the MOUNTED worktree, which since clone-through-main is the explicit opt-out.
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
