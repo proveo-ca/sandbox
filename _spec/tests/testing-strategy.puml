@@ -10,7 +10,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: defs/tests/**
 ' covers: internal/imagetest/**
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
-' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, testOwned)
+' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, pickKitSandbox, kitDirs, testOwned)
+' covers: e2e/kit_sandbox_test.go
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (imagetest.Resolve in
@@ -346,20 +347,44 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   launchKit — one `proveo run <target>` through its own kit under tmux, pinned
 '     to `--credentials forward` with PROVEO_WIZARD=off,
 '     PROVEO_MOUNT_GH_CONFIG=0 and a private PROVEO_HOME unless env names one.
-'     The posture is FIXED so a case asserting on workspace or git is not also
-'     asserting on credentials.
+'     The home's TempDir is registered BEFORE the sandbox sweep, so its
+'     cleanup runs last. The posture is FIXED so a case asserting on workspace
+'     or git is not also asserting on credentials.
+'     COST, accepted: the private PROVEO_HOME means every kit run starts with a
+'     cold toolchain store ([Unverified] that the store follows PROVEO_HOME —
+'     reported to live under PROVEO_STATE_HOME). The reason is the earlier
+'     security review: no e2e run may self-prepare or publish into the
+'     operator's real OpenCode history.
 '   awaitKit — names the sandbox the run created, then waits for the seed's
 '     /dev/shm/proveo-seed-done, a quiet pane, and seed-done AGAIN (MEASURED).
 '     The reason is reported, not measured: OpenCode removes and rewrites the
 '     marker when proveo re-seeds the engine after `sbx create`, so one
 '     sighting can be the stale one. The seed poll uses the non-fatal k.try.
-'   kitSandbox — accepts ONLY sandboxes new since `before`, carrying the
-'     target's prefix, with EVERY workspace strictly under the test temp root
-'     (testOwned); it prefers the one holding dir, else the only candidate. It
-'     cannot pick an operator's sandbox.
-'   tend — answers sbx's "[A]pprove all" prompt, fails fast on an sbx refusal
-'     or a confirmation eating input, and detects a run that ENDED: it skips on
-'     the authFailures login markers and otherwise fails with the last screen.
+'     Its cleanup runs killAndAwait, then `sbx rm --force <name>`, BEFORE any
+'     directory the sandbox mounts (the private PROVEO_HOME) is removed — an
+'     OpenCode engine is retained by proveo itself, so the test removes it.
+'   kitSandbox — `sbx ls --json` fed to the pure pickKitSandbox(listing,
+'     before, target, dirs). A candidate is new since `before`, carries the
+'     target's prefix, and is testOwned: its PRIMARY workspace (Workspaces[0],
+'     ":ro" trimmed) lies strictly under a test temp root, never the root
+'     itself. It prefers the one holding a dir, else the only candidate; an
+'     operator's sandbox is never named. kitDirs(dir) supplies dir, its
+'     symlink-resolved form, and the main worktree from `git rev-parse
+'     --git-common-dir`, because a linked worktree's clone mounts the main one.
+'     sbxSandboxNames keys on Workspaces[0] too, without the ":ro" trim or the
+'     root exclusion (MEASURED).
+'     HISTORY: an "every workspace under temp" rule never matched claudecode or
+'     cecli — home.files adds <StateDir>/egress/<sid>/sbx/home-files and a
+'     clone with .env adds sbx/project-env, both outside temp. Pinned offline
+'     by e2e/kit_sandbox_test.go TestKitSandboxNamesOnlyTheRunsOwnSandbox (9
+'     cases; e2e build tag, no sbx needed); reported to fail under the old rule.
+'   tend — answers each sbx "[A]pprove all" prompt ONCE: answerSbxPrompt(sess,
+'     screen, answered) returns the count answered, and the counter is shared
+'     across with(t) copies. Before, every 3 s poll re-typed A+Enter into the
+'     agent. tend fails fast on an sbx refusal or a confirmation eating input,
+'     and detects a run that ENDED (ended): it skips when an authFailures
+'     marker is in the final screen's last 15 lines, and otherwise fails with
+'     the last screen.
 '   kitRun.exec — `bash -c` through `sbx exec`, after
 '     `cd ${PROVEO_WORKDIR:-<dir>}` (falling back to <dir>; exit 97 when
 '     neither is enterable) and
@@ -367,11 +392,15 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     directory and toolchain; raw skips that prelude. It returns combined
 '     output and the REAL exit status — no pane scraping, no completion marker.
 '   kitRun.with(t) — binds a shared run to a subtest (the toolchain runLib).
-'   kitRun.end / stopRun — SIGTERM to proveo. Since 2026-10-17 that is a
-'     NORMAL exit ("Stop runs normal teardown"; _spec/internal/sbx/
-'     kit-lifecycle.puml): clone and state lifted, `sbx rm`. stopRun is also the
-'     cleanup in close_confirm and ports_publish, and the step that ends the
-'     first run in ports_publish and android_seed_install (MEASURED).
+'   kitRun.end / stopRun — SIGTERM to proveo; past its timeout stopRun kills
+'     the tmux session. Since 2026-10-17 a stop tears down like a normal exit
+'     (clone and state lifted, `sbx rm`) and proveo exits 143
+'     (_spec/internal/sbx/kit-lifecycle.puml). stopRun is also the cleanup in
+'     close_confirm and ports_publish, and the step that ends the first run in
+'     ports_publish and android_seed_install (MEASURED).
+' Residual, pre-existing and repo-wide (reported): a developer tmux
+' `remain-on-exit` breaks exit detection in every helper that treats a failed
+' capture as an exit.
 ' [Unverified] whether `sbx exec` sessions see variables passed as `sbx run -e
 ' NAME`. The forward-mode auth probes and the android PROVEO_HOST_ADB_PORT probe
 ' depend on it.
@@ -399,10 +428,15 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     fake on PATH (reported).
 '   * the stream-palette test builds proveo/cecli:volatile-e2e FROM the local
 '     cecli image, replacing /opt/cecli/bin/cecli with a script that exits 3
-'     and KEEPING the base ENTRYPOINT, seed and kit (MEASURED). Reported, not
+'     and KEEPING the base ENTRYPOINT, seed and kit (MEASURED). A failed build
+'     FAILS the test, not skips it (MEASURED); the base image comes from
+'     harnessImage (MEASURED), which reportedly owns the sweep. Reported, not
 '     measured here: an ENTRYPOINT override broke sbx's keepalive passthrough,
 '     and a docker run of the new image prints both lines and exits 3.
-'   * browser_viewport fails when agent-browser does not start (MEASURED).
+'   * browser_viewport fails when agent-browser does not start, and prints
+'     /tmp/ab.log when no CDP target answers (MEASURED).
+'   * TestGitWorktreeLinkageIsCoherentAndHostSafe lost a dead
+'     t.Setenv("PROVEO_HOME"); no e2e file sets it now (MEASURED).
 '   * the sandbox boundary probe exempts an engine the run reports "retained";
 '     the egress confinement probe reads k.exec output, not a workspace file
 '     (reported).

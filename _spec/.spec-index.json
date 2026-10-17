@@ -1150,17 +1150,27 @@
         "internal/run/run.go",
         "internal/sbx/run.go",
         "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/pushed.go",
+        "internal/choiceui/fetch_pushed.go",
         "internal/run/clone_test.go",
         "internal/sbx/clone_test.go",
         "e2e/clone_test.go",
         "internal/backend/sandbox/sandbox_test.go",
         "e2e/clone_output_test.go",
         "e2e/git_access_test.go",
+        "internal/workspace/mount.go",
+        "internal/sbx/kit.go",
+        "packages/lib/proveo-await-seed",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/workspace/clone_source_test.go",
+        "internal/backend/sandbox/worktree_clone_test.go",
+        "internal/contract/clone_checkout_test.go",
+        "internal/credentials/credentials.go",
+        "internal/credentials/stage_env_test.go",
+        "e2e/seed_ready_test.go",
         "internal/credentials/project_env_merge.go",
         "internal/credentials/project_env_merge_test.go",
         "internal/backend/sandbox/clone_shares_test.go",
-        "packages/lib/entrypoint-lib.sh",
-        "packages/lib/proveo-await-seed",
         "internal/contract/seed_shares_test.go",
         "internal/backend/sandbox/clone_carry_test.go",
         "internal/backend/sandbox/launch_receipt.go"
@@ -1392,6 +1402,25 @@
         "internal/clean/sandbox_liveness_test.go",
         "e2e/resume_test.go",
         "e2e/clone_output_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/schedule/schedule.puml",
+      "covers": [
+        "internal/schedule/schedule.go",
+        "internal/schedule/runner.go",
+        "internal/schedule/install.go",
+        "internal/schedule/schedule_test.go",
+        "cmd/proveo/schedule.go",
+        "cmd/proveo/schedule_test.go",
+        "e2e/schedule_test.go",
+        "internal/run/choices.go",
+        "internal/run/params.go",
+        "internal/schedule/table.go",
+        "internal/schedule/table_test.go",
+        "internal/tmux/tmux.go",
+        "internal/backend/sandbox/stop_signal_test.go"
       ],
       "fingerprint": null
     },
@@ -1768,6 +1797,7 @@
         "internal/imagetest/**",
         "e2e/preconditions_test.go",
         "e2e/kit_probe_test.go",
+        "e2e/kit_sandbox_test.go",
         "cmd/proveo-dev/coverage.go"
       ],
       "fingerprint": null

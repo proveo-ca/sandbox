@@ -10,6 +10,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/schedule_test.go
 ' covers: e2e/schedule_test.go
 ' covers: internal/run/choices.go (resolveAddonFlags), internal/run/params.go (AddonsSet, Yes)
+' covers: internal/backend/sandbox/stop_signal_test.go
 '   the Glimmer early stop this works around ... _spec/_experiments/sbx-host-inference.puml
 '
 ' ── WHY NOT A PLAIN CRON (2026-09-27) ──────────────────────────────────────

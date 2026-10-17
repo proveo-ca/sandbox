@@ -26,8 +26,9 @@ skinparam noteTextAlignment left
 ' Pinned by TestAStopExitsWith128PlusTheSignal (backend_test.go, through a %w
 ' wrap) and TestExitCodeIsTheAgentsOrTheStoppingSignals (main_test.go).
 ' COVERAGE CHOICE: cmd/proveo/main.go and main_test.go are covered here because
-' exitCode is the only place an error becomes a process status; a change there
-' must flag this spec even though both files mostly hold unrelated commands.
+' main and exitCode turn the command's error into proveo's process status; a
+' change there must flag this spec even though both files mostly hold unrelated
+' commands. Expect drift reports from those unrelated edits too.
 ' The package-placement argument below applies to Stopped as it does to
 ' ExitError: internal/backend/sandbox builds it and cmd/proveo reads it.
 ' internal/run's recordOutcome only prints it (%v), through its default branch.

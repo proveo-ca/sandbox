@@ -118,6 +118,7 @@ RUN --> CREATED : command error before session
 CREATED --> RETRY : no, and no stop signalled
 RETRY --> RUN : template reload succeeded\nand still no stop
 RETRY --> FAILED : reload or retry failed
+RETRY --> PRESERVE : a stop signalled during the reload\n(no retry run; exits 128+sig)
 CREATED --> PRESERVE : yes, or a stop signalled
 LIVE --> RESULT : sbx child exits
 RESULT --> PRESERVE : exit != 0

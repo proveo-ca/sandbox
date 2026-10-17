@@ -37,6 +37,8 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/proveo-await-seed
 ' covers: internal/contract/seed_shares_test.go
 ' covers: e2e/clone_test.go (TestCloneCarriesAGitignoredSymlinkedDotEnv, TestCloneLiftsTrackedSpecEdits)
+' covers: internal/backend/sandbox/clone_carry_test.go
+' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox)
 '   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
 '   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
@@ -321,6 +323,31 @@ skinparam noteTextAlignment left
 ' The rescue recipe printed on total failure uses exec+bundle too. Printing the
 ' daemon recipe there was printing the leg that had just been measured refusing
 ' connections.
+'
+' ── WORK STILL ONLY IN THE SANDBOX KEEPS THE SANDBOX (2026-10-17) ──────────
+' The rescue recipe says "while <name> exists", and teardown used to run
+' `sbx rm` right after printing it. A normal exit already had that gap; the
+' stop decision ("Stop runs normal teardown", _spec/internal/sbx/
+' kit-lifecycle.puml) widened it to every forwarded SIGTERM/SIGHUP. MEASURED:
+'   carryClone returns (carried bool, err error). err means the bundle (or
+'     the remote, then the bundle) failed; that path prints the rescue recipe.
+'     CloneBundleEmpty is (false, nil): nothing to carry, not a failure.
+'   PreserveClone and TeardownClone return an error while work remains only
+'     in the sandbox: the snapshot failed ("uncommitted work is still only in
+'     <name>") or the carry failed ("the agent's branches are still only in
+'     <name>"). A failed snapshot still lets the carry run.
+'   Normal-exit and stop teardown then skip `sbx rm`, print "<err> — <name>
+'     kept; `sbx rm --force <name>` deletes it once the work is home", keep
+'     home access, and print the IDE attach.
+'   retireSandbox (the stale-sandbox upgrade, launch_receipt.go) returns the
+'     same wrapped error before SaveState and `rm`, so the upgrade stops.
+'   The forced Ctrl+C remove still deletes: its modal says "Uncommitted
+'     changes can be permanently lost" (internal/choiceui/sandbox_close.go).
+' Pinned by TestRetiringASandboxKeepsItWhenTheCloneCouldNotBeCarriedHome
+' (clone_carry_test.go: a fake sbx on PATH; a failed bundle → error and no
+' `rm`; an empty bundle → removed) and TestCarryClonePicksTheTransportThatCanWork
+' (sandbox_test.go, now checking the error). The teardown branch in Run itself
+' has no unit test; [Unverified] against a live sbx whose bundle fails.
 '
 ' The output dir is copied out separately, as a tar stream on stdout. Untracked
 ' and usually gitignored, deliverables are exactly what the ref fetch leaves
