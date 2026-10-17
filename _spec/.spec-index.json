@@ -286,10 +286,7 @@
         "defs/hermes/harness.manifest",
         "defs/cecli/harness.manifest",
         "internal/credentials/credentials.go",
-        "internal/contract/opencode_credentials_test.go",
-        "packages/lib/proveo-opencode-runtime",
-        "packages/lib/opencode-credentials.py",
-        "packages/lib/test_opencode_runtime_native.py"
+        "packages/lib/proveo-opencode-runtime"
       ],
       "fingerprint": null
     },
@@ -748,6 +745,22 @@
       "covers": [
         "defs/hermes/**",
         "internal/imagebuild/targets.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/defs/opencode/engine-local-history.puml",
+      "covers": [
+        "internal/sbx/opencode_history.go",
+        "internal/sbx/opencode_history_test.go",
+        "internal/backend/sandbox/opencode_engine.go",
+        "internal/backend/sandbox/opencode_engine_test.go",
+        "internal/backend/sandbox/launch_receipt.go",
+        "packages/lib/proveo-opencode-runtime",
+        "packages/lib/test_opencode_runtime.py",
+        "defs/opencode/harness.manifest",
+        "defs/opencode/Dockerfile",
+        "internal/imagetest/opencode_test.go"
       ],
       "fingerprint": null
     },
@@ -1657,9 +1670,6 @@
         "packages/lib/proveo-await-seed",
         "packages/lib/proveo-seed",
         "packages/lib/entrypoint-lib.sh",
-        "packages/lib/proveo-opencode-preflight",
-        "packages/lib/proveo-opencode-runtime",
-        "packages/lib/opencode_startup.py",
         "packages/lib/test_opencode_startup.py",
         "internal/contract/opencode_seed_progress_test.go",
         "e2e/opencode_seed_progress_test.go"
@@ -1670,7 +1680,6 @@
       "spec": "_spec/packages/lib/opencode-seed-progress-wireframe.puml",
       "covers": [
         "packages/lib/proveo-await-seed",
-        "packages/lib/opencode_startup.py",
         "packages/lib/test_opencode_startup.py",
         "e2e/opencode_seed_progress_test.go"
       ],

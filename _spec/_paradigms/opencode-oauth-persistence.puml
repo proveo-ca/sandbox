@@ -3,31 +3,39 @@
 ' covers: defs/opencode/harness.manifest
 ' covers: defs/opencode/README.md
 ' covers: packages/lib/proveo-opencode-runtime
-' covers: packages/lib/opencode-credentials.py
-' covers: packages/lib/test_opencode_credentials.py
-' covers: packages/lib/test_opencode_runtime_native.py
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/sbx/secret.go
-' covers: e2e/opencode_credentials_test.go
 ' covers: e2e/opencode_auth_test.go
 ' (2026-10-17: the covers on packages/lib/test_opencode_runtime.py is dropped. RuntimeTests is
-' deleted; the file now tests only --auto injection, which this policy does not describe. The
-' sanitizer claim below rests on test_opencode_credentials.py and test_opencode_runtime_native.py.)
+' deleted; the file now tests only --auto injection, which this policy does not describe.)
+' (2026-10-17, D2: the covers on packages/lib/opencode-credentials.py,
+' packages/lib/test_opencode_credentials.py, packages/lib/test_opencode_runtime_native.py and
+' e2e/opencode_credentials_test.go are dropped — D2 deletes the sanitizer and its suites
+' (_spec/defs/opencode/engine-local-history.puml). [Unverified] until the image side lands;
+' MEASURED today they exist.)
 ' status: PLANNED; Executor selected host-owned OAuth on 2026-10-09.
 ' Implementation remains unapproved and unshipped; this change documents the policy only.
 ' Scope: the OpenCode harness family, including its browser image; other harnesses remain unchanged.
 ' Existing boundary: _spec/_paradigms/credential-boundary.puml
 ' Existing implementation: _spec/defs/opencode/native-v2-integration.puml
 ' Startup evidence: _spec/packages/lib/opencode-seed-progress.puml
-' Storage redesign: _spec/_plans/opencode-versioned-history-storage.puml
+' History decision: _spec/defs/opencode/engine-local-history.puml (replaces the storage redesign plan)
 ' Official storage/precedence: https://opencode.ai/v2/docs/cli/providers
 ' Host credential model: https://docs.docker.com/ai/sandboxes/security/credentials/
 ' OpenCode sandbox setup: https://docs.docker.com/ai/sandboxes/agents/opencode/
 '
-' CURRENT: V2 persists provider credentials in SQLite, not new auth.json writes.
-' Snapshot publication deletes credential/account/control_account tokens and clears account_state.
-' Session history, permissions and artifacts survive; saved in-sandbox logins do not.
-' PROVEO_KEEP_AGENT_LOGINS controls filename denial, not SQLite token publication.
+' CURRENT (D2, DECIDED 2026-10-16, landing — engine-local-history.puml): V2 persists provider
+' credentials in SQLite beside the sessions, not in new auth.json writes. The database lives in
+' the retained sbx engine and proveo no longer snapshots, sanitizes or publishes it. So a login made
+' inside the engine PERSISTS until `sbx rm` — the user's D8, "Accept and document". It is readable
+' by the agent's uid and through `sbx exec`; proveo never moves it to the host. A replaced engine's
+' database, logins included, is carried to the next engine (D1, "Carry the DB over").
+' HISTORY (keeper design): snapshot publication deleted credential/account/control_account tokens
+' and cleared account_state, so session history survived and saved in-sandbox logins did not.
+' PROVEO_KEEP_AGENT_LOGINS controls filename denial; it never governed SQLite tokens.
+' D8 CONTRADICTS the PLANNED gates below ("Keep refresh tokens host-only"; "durable snapshots
+' contain no access/refresh tokens") for in-engine logins. Those gates stay the target of
+' host-owned OAuth, which remains PLANNED; D8 is the accepted state until it ships.
 ' Observed current sandbox: SBX_CRED_OPENAI_MODE=apikey; OPENAI_API_KEY holds a sentinel.
 ' Logs show credential creation in one native run and an API-key failure in the following run.
 ' This observation does not establish the host proxy's secret contents or substitution behavior.
@@ -59,7 +67,8 @@
 ' Teardown, recovery, logs and durable snapshots contain no access/refresh tokens.
 ' Concurrent runs cannot corrupt token rotation or cross-select another account.
 ' Existing API-key mode and credential-free session resume retain their behavior.
-' These live OAuth gates remain pending; current tests verify the existing sanitizer only.
+' These live OAuth gates remain pending. The sanitizer the tests used to verify is deleted by D2,
+' so no test now checks token removal ([Unverified] until D2 lands).
 ' FK (manual syllables): POLICY 11.2 (29w/52s); STORE 11.5 (25w/47s); ACCOUNT 11.4 (31w/55s).
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
@@ -72,9 +81,8 @@ component "OpenCode policy selection\nPLANNED: persisted nonsecret mode\nprovide
 database "Host-owned OAuth store\nPLANNED: outside every guest mount" as STORE <<db>>
 component "Host OAuth broker\nPLANNED: refresh + account routing" as BROKER <<host>>
 component "Pinned OpenCode V2 connector\nPLANNED: explicit per-run OAuth account" as ACCOUNT <<app>>
-component "packages/lib/proveo-opencode-runtime\nCURRENT: private per-run database" as RUNTIME <<app>>
-component "packages/lib/opencode-credentials.py\nCURRENT: credential-free publication" as SCRUB <<app>>
-database "OpenCode durable history\nsessions + artifacts; no saved tokens" as HISTORY <<db>>
+component "packages/lib/proveo-opencode-runtime\nCURRENT (D2): thin argv wrapper; execs native" as RUNTIME <<app>>
+database "Engine-local OpenCode database\nCURRENT (D2, D8): sessions + in-engine logins\nuntil sbx rm" as HISTORY <<db>>
 component "ChatGPT subscription endpoint\nPLANNED: OAuth route, not API-key fallback" as VENDOR <<cloud>>
 component "Reconnect required\nPLANNED: missing, expired or unsupported auth" as RECONNECT <<error>>
 
@@ -85,8 +93,7 @@ BROKER --> ACCOUNT : account binding; protocol gate pending
 ACCOUNT --> RUNTIME : per-run connection
 RUNTIME --> BROKER : authenticated subscription request
 BROKER --> VENDOR : inject + refresh on approved route
-RUNTIME --> SCRUB : preserve existing boundary
-SCRUB --> HISTORY : publish session state without tokens
+RUNTIME --> HISTORY : native default path; no proveo scrub (D8)
 POLICY --> RECONNECT : no usable OAuth connection
 
 note bottom of POLICY

@@ -1462,11 +1462,7 @@ func Run(in Input) error {
 	ui.Section(ui.SectionStarting)
 	kitYAML, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
 	receipt := receiptOf(cfg, kitYAML, in.Sid, sbx.LocalImageID(cfg.Image))
-	running := sbx.Running
-	if opencodeCacheTarget(in.Target) {
-		running = openCodeEngineActive
-	}
-	if err := retireIfStale(in, cfg, receipt, sbx.Exists, running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
+	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
 		return err
 	}
 	launchCfg := reuseOrCreate(cfg, sbx.Exists)
@@ -1478,8 +1474,9 @@ func Run(in Input) error {
 	}); err != nil {
 		return err
 	}
-	if opencodeCacheTarget(in.Target) {
-		launchCfg, err = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
+	created := launchCfg.KitDir != ""
+	if opencodeTarget(in.Target) {
+		launchCfg, created, err = ensureOpenCodeEngine(in, cfg)
 		if err != nil {
 			return err
 		}
@@ -1518,7 +1515,7 @@ func Run(in Input) error {
 	defer StartDevServers(in, cfg)()
 	defer StartAndroidInstall(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
-	in.CloneKnown = launchCfg.KitDir != ""
+	in.CloneKnown = created
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
@@ -1577,14 +1574,14 @@ func Run(in Input) error {
 			ui.Appf(f, a...)
 		}); err == nil && signalled() == 0 {
 			ui.Asyncf("the sandbox did not start — retrying once on a freshly loaded template")
-			retryCfg, prepErr := cfg, error(nil)
-			if opencodeCacheTarget(in.Target) {
-				retryCfg, prepErr = prepareOpenCodeLaunch(in, cfg, sbx.Exists, cacheCommandContext)
+			retryCfg, retryCreated, prepErr := cfg, true, error(nil)
+			if opencodeTarget(in.Target) {
+				retryCfg, retryCreated, prepErr = ensureOpenCodeEngine(in, cfg)
 			}
 			if prepErr != nil {
 				runErr = prepErr
 			} else {
-				in.CloneKnown = retryCfg.KitDir != ""
+				in.CloneKnown = retryCreated
 				args = sbx.RunArgs(retryCfg)
 				runErr = run()
 			}
@@ -1653,11 +1650,11 @@ func Run(in Input) error {
 		if err := homeAccess.Commit(); err != nil {
 			ui.Warnf("home-root config not preserved: %v", err)
 		}
-		switch normalEndOf(forceRemove.Load(), stranded, opencodeCacheTarget(in.Target)) {
+		switch normalEndOf(forceRemove.Load(), stranded, opencodeTarget(in.Target)) {
 		case endKeepStranded:
 			keepHomeAccess = true
-			if opencodeCacheTarget(in.Target) {
-				ui.Warnf("%v — %s kept with its prepared history", stranded, cfg.Name)
+			if opencodeTarget(in.Target) {
+				ui.Warnf("%v — %s kept with its OpenCode history", stranded, cfg.Name)
 			} else {
 				ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
 			}
@@ -1665,7 +1662,7 @@ func Run(in Input) error {
 			return
 		case endRetainEngine:
 			keepHomeAccess = true
-			ui.Storef("OpenCode engine retained for prepared history: %s", cfg.Name)
+			ui.Storef("OpenCode: history lives in retained engine %s; `sbx rm --force %s` deletes it", cfg.Name, cfg.Name)
 			return
 		}
 		if forceRemove.Load() {

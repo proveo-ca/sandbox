@@ -149,11 +149,7 @@ func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, runni
 		return nil
 	}
 	live := running(cfg.Name)
-	if opencodeCacheTarget(in.Target) && live {
-		return fmt.Errorf("OpenCode engine %s is running and may hold active, unpublished or unattested state; end its session, then run again to apply %s. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist",
-			cfg.Name, strings.Join(changed, ", "), cfg.Name)
-	}
-	replace, asked := confirmStaleSandbox(cfg.Name, changed, live, cfg.Clone)
+	replace, asked := confirmStaleSandbox(cfg.Name, changed, live, cfg.Clone, opencodeTarget(in.Target))
 	if asked && !replace {
 		if live {
 			warn("%s stays running. Settings this run changed (%s) will not apply. The next proveo run reattaches to it",
@@ -177,7 +173,7 @@ func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, runni
 
 var openTermScreen = openScreen
 
-var confirmStaleSandbox = func(name string, changed []string, live, clone bool) (bool, bool) {
+var confirmStaleSandbox = func(name string, changed []string, live, clone, history bool) (bool, bool) {
 	if !headedConfirm() {
 		return false, false
 	}
@@ -186,7 +182,7 @@ var confirmStaleSandbox = func(name string, changed []string, live, clone bool) 
 		return false, true
 	}
 	defer screen.Fini()
-	return choiceui.ConfirmSandboxUpgrade(screen, name, changed, live, clone), true
+	return choiceui.ConfirmSandboxUpgrade(screen, name, changed, live, clone, history), true
 }
 
 // sandboxClone reports whether sandbox name holds a clone: this run's mode when this run
@@ -215,6 +211,11 @@ func retireSandbox(in Input, cfg sbx.RunConfig) error {
 	if err := PreserveClone(in, cfg); err != nil {
 		return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
 	}
+	if opencodeTarget(in.Target) {
+		if err := carryOpenCodeHistory(in.HomeRoot, cfg.Name); err != nil {
+			return fmt.Errorf("OpenCode history could not be carried out of %s (%v) — it is kept; `sbx rm --force %s` deletes it with its history", cfg.Name, err, cfg.Name)
+		}
+	}
 	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 		ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 	}
@@ -222,5 +223,6 @@ func retireSandbox(in Input, cfg sbx.RunConfig) error {
 		return fmt.Errorf("remove stale %s: %w: %s", cfg.Name, err, strings.TrimSpace(out))
 	}
 	_ = os.Remove(receiptPath(cfg.Name))
+	_ = os.Remove(legacyOwnerRecord(cfg.Name))
 	return nil
 }

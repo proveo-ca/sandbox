@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/startup-dispatch.puml, _spec/_plans/opencode-versioned-history-storage.puml
+// SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/startup-dispatch.puml
 
 package e2e
 
@@ -193,7 +193,7 @@ echo "installed=$(grep -cE 'Installing |language server' /var/log/sbx-kit-startu
 // readyProbe runs a probe script where the agent runs and returns its output and exit status.
 type readyProbe func(script string, timeout time.Duration) (string, int)
 
-var kitSandboxRE = regexp.MustCompile(`(?:retained engine |Created sandbox |in sandbox ')(proveo-[a-z0-9-]+)`)
+var kitSandboxRE = regexp.MustCompile(`(?:retained engine |new engine |Created sandbox |in sandbox ')(proveo-[a-z0-9-]+)`)
 
 // launchReadyKit starts `proveo run <target>` through its kit under a fresh
 // PROVEO_HOME, names the sandbox it runs in, times the agent's prompt against
@@ -231,9 +231,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, engine, err, out)
 		}
 		if cache, err := os.UserCacheDir(); err == nil {
-			for _, f := range []string{engine + ".json", engine + ".opencode-cache.json"} {
-				_ = os.Remove(filepath.Join(cache, "proveo", "sbx-sandboxes", f))
-			}
+			_ = os.Remove(filepath.Join(cache, "proveo", "sbx-sandboxes", engine+".json"))
 		}
 	})
 	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)

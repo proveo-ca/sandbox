@@ -30,8 +30,16 @@ skinparam noteTextAlignment left
 '     A stopped one stays. This run stops, and the next proveo run asks again.
 '   changed, not headed, stopped → the same three steps, no question
 '   changed, not headed, running → warn. The session stays. The new settings do not apply.
-' A headed yes removes a running sandbox except an OpenCode engine with active,
-' unpublished, or unattested state. That engine must be recovered before replacement.
+' OPENCODE ENGINES (D2, DECIDED 2026-10-16, landing — [Unverified] until it does;
+' _spec/defs/opencode/engine-local-history.puml): the opencode-only refusal is
+' gone, so an OpenCode engine follows the same rule. Before the rm, retire
+' carries its database home (the user's D1, "Carry the DB over"), and the
+' headed prompt says the history is carried over. An export failure keeps the
+' engine; a legacy keeper engine (D7) carries nothing and the new engine
+' imports from the V2 share.
+' HISTORY (keeper design): a headed yes removed a running sandbox except an
+' OpenCode engine with active, unpublished, or unattested state, which had to
+' be recovered before replacement.
 ' A screen that fails to open counts as no, so a stopped sandbox is not removed.
 '
 ' ── A FORWARDED STOP TEARS DOWN LIKE A NORMAL EXIT AND EXITS 128+sig ────────
@@ -82,7 +90,9 @@ skinparam noteTextAlignment left
 '   stranded != nil (work still only in the sandbox) → endKeepStranded, even
 '     for an OpenCode engine, which prints "<err> — <name> kept with its
 '     prepared history" instead of the `sbx rm --force` hint
-'   retainsEngine (opencodeCacheTarget) → endRetainEngine
+'   retainsEngine (opencodeCacheTarget) → endRetainEngine; under D2 it prints
+'     "OpenCode: history lives in retained engine <name>" (landing,
+'     engine-local-history.puml)
 '   otherwise → endRemove
 ' Pinned by TestANormalEndRemovesTheSandboxUnlessWorkOrTheEngineStaysInIt
 ' (teardown_end_test.go, untagged).
@@ -96,13 +106,16 @@ skinparam noteTextAlignment left
 '     (reported; the missing timeouts MEASURED by reading the calls).
 '   * A stop during the retry's prepareOpenCodeLaunch is honoured only after it
 '     returns, as during ReloadTemplate; its prepare and recover steps each
-'     allow up to 15 min (opencode_cache.go:393,493, MEASURED).
+'     allow up to 15 min (opencode_cache.go:393,493, MEASURED). D2 replaces it
+'     with ensureOpenCodeEngine's create + one-time import (landing); whether a
+'     stop during that import is honoured early is [Unverified].
 '   * The forced Ctrl+C remove returns the raw runErr. Reported: it can print
 '     "context canceled" and exit 1, or "agent exited with code -1" and exit
 '     255 when WaitDelay SIGKILLs the sbx client. Pre-existing.
 '   * removeOpenCodeEngine (opencode_cache.go:412-419) is a third `sbx rm` path
-'     and skips PreserveClone (MEASURED). Pre-existing; the pending OpenCode
-'     redesign removes it.
+'     and skips PreserveClone (MEASURED). Pre-existing; the OpenCode redesign
+'     (D2, engine-local-history.puml) deletes opencode_cache.go. Its D5 path
+'     `sbx rm`s a FRESH engine after a failed import — nothing is in it yet.
 '   * The forced Ctrl+C remove after a failed carry prints the rescue recipe,
 '     then deletes; the modal warns about uncommitted changes, not about
 '     commits that were never carried (review #5, reported).

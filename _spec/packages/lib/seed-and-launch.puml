@@ -133,12 +133,14 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' offline registration listing, so their row asserts the files only.
 ' Since 2026-10-17 every row runs `proveo run <target>` through its kit
 ' (`--shell` is retired; readySpec.kit became readySpec.ready, the prompt
-' text). opencode was first, because its history is prepared and its seed
-' re-run with the cache owner only on that path
-' (_spec/_plans/opencode-versioned-history-storage.puml).
-' opencode's row uses a temporary PROVEO_HOME, so it prepares an empty V2 store and
-' never touches the operator's history; `proveo run opencode` itself keeps the
-' real home. It probes through `sbx exec` as uid 1000, after cd into the clone.
+' text). opencode was first, because under the keeper design its history was
+' prepared and its seed re-run with the cache owner only on that path.
+' D2 (DECIDED, landing; _spec/defs/opencode/engine-local-history.puml) drops
+' that: a new engine imports the host database once between `sbx create` and
+' the reattach, and the seed has no OpenCode gate.
+' opencode's row uses a temporary PROVEO_HOME, so it never touches the
+' operator's history; `proveo run opencode` itself keeps the real home. It
+' probes through `sbx exec` as uid 1000, after cd into the clone.
 ' Its toolchain store starts empty, so its install probe gets one extra minute.
 ' Its registry probe prints the agent list on every poll; that JSON goes to
 ' stderr, so the `registered=` line holds only yes or no (first kit run,
@@ -151,12 +153,16 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' shell agent, run proveo-await-seed. It waits only when SANDBOX_VM_ID AND
 ' PROVEO_WORKDIR are set: a bare `sbx run -t` of the image (ladder rungs 1-2)
 ' has no proveo kit, so no seed will ever mark the boot. It gives up after
-' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. The docker backend seeds in the entrypoint before exec,
-' so it never waits. A refused file whose only line is "OpenCode credential preflight refused release"
-' is the runtime's own note from a kept sandbox; await-seed deletes it and launches. A share refusal still stops the launch.
-' "OpenCode history is not prepared in this engine" with no --proveo-cache-owner on the runtime command is a
-' launch no proveo host prepared: await-seed execs the native client, as a raw sbx run would, and its
-' history stays in the sandbox (_spec/_plans/opencode-versioned-history-storage.puml, RAW UNMANAGED LAUNCH).
+' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. (The
+' deleted docker backend seeded in the entrypoint before exec, so it never waited.)
+' A share refusal still stops the launch (PROVEO_SEED_REFUSED).
+' D2 (DECIDED, landing; _spec/defs/opencode/engine-local-history.puml) deletes
+' the OpenCode-specific await-seed paths: the "OpenCode credential preflight
+' refused release" note, the "OpenCode history is not prepared in this engine"
+' refusal and its raw-launch fallback, and the keeper's deadline, owner and
+' startup variables. Every OpenCode launch is then what the raw fallback was:
+' the native client on its own ~/.local/share/opencode. [Unverified] until the
+' image side lands; MEASURED today, both paths are still in proveo-await-seed.
 '
 ' ── THE RELEASE IS ALSO A STARTUP-STEP BOUNDARY (2026-10-13) ──────────────
 ' "Installs stay after the release" held in the ORDER and failed in the TIME.

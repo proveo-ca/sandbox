@@ -124,8 +124,10 @@ skinparam noteTextAlignment left
 ' ── MARKERS, ALL ON /dev/shm (a per-container tmpfs: a restart starts clean) ─
 '   proveo-seed-done      the installs are over. A release or all phase clears
 '                         it first; provision (or all) writes it last.
-'   proveo-seed-refused   a share is missing or OpenCode history is
-'                         unprepared. Step 3 provisions nothing.
+'   proveo-seed-refused   a share is missing. Step 3 provisions nothing.
+'                         (Until D2 lands, also "OpenCode history is
+'                         unprepared"; D2 deletes that gate —
+'                         _spec/defs/opencode/engine-local-history.puml.)
 '   proveo-seed-halted    the release phase returned non-zero (an OpenCode
 '                         default missing, an unknown phase). Step 3 provisions
 '                         nothing, as the single seed stopped there before.
@@ -179,9 +181,14 @@ skinparam noteTextAlignment left
 ' the prompt while the background step may still install: echo p90 <= 250ms,
 ' max <= 1s (PROVEO_TEST_ECHO_P90 / _ECHO_MAX / _READY_AFTER_RELEASE override).
 ' Early-input jitter, reported 2026-10-13, is the regression it guards.
-' [Unverified] opencode's ready-gap row: the host runs its seed through
-' `sbx exec` after preparing history, not as a Kit startup step, so the gap
-' may not apply to it the same way; this pass did not read the exemption.
+' [Unverified] opencode's ready-gap row: under the keeper design the host
+' re-ran its seed through `sbx exec` after preparing history, not as a Kit
+' startup step, so the gap may not have applied the same way; this pass did
+' not read the exemption. Under D2 (DECIDED, landing;
+' _spec/defs/opencode/engine-local-history.puml) the host does the one-time
+' import between `sbx create` and the reattach and re-runs no seed.
+' [Inference] The opencode row then follows the Kit startup steps like every
+' other harness.
 
 ' ── PROBE RESULT, 2026-10-13, sbx v0.46.0 (991967dc) on the operator's Mac ──
 '   foreground row  FAIL  step 1791938970→1791939030 (60s); agent 1791939030.

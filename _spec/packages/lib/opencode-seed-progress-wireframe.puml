@@ -1,18 +1,20 @@
 @startsalt
 ' purpose: resolved OpenCode-only loading surface with shared run categories and current seed step
 ' covers: packages/lib/proveo-await-seed
-' covers: packages/lib/opencode_startup.py
 ' covers: packages/lib/test_opencode_startup.py
 ' covers: e2e/opencode_seed_progress_test.go
 ' Logic: _spec/packages/lib/opencode-seed-progress.puml
+' 2026-10-17, D2 (_spec/defs/opencode/engine-local-history.puml): the seed no longer stages
+' session history, so the "credentials: staging legacy session history" step is gone from the
+' frames; opencode_startup.py, the Python consumer, is deleted and its covers dropped.
+' [Unverified] until the image side lands.
 title OpenCode seed wait — current operation, not a blank screen
 {
   {^"TTY: seed pending"
-    Waiting for seed | credentials: staging legacy session history | 12s | [/]
+    Waiting for seed | workspace: preparing checkout and shared folders | 2s | [/]
   }
   {^"PIPE: seed pending"
-    Waiting for seed | credentials: staging legacy session history | 0s
-    Waiting for seed | workspace: preparing checkout and shared folders | 3s
+    Waiting for seed | workspace: preparing checkout and shared folders | 0s
     Waiting for seed | setup: rendering agents | 4s
   }
 }

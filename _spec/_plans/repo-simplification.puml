@@ -37,7 +37,8 @@
 '   Evidence: MEASURED. _spec/packages/lib/steps.puml:68-69 records the removal.
 '
 ' S2 · OpenCode --proveo-prepare / --proveo-recover removed — DONE (Executor, 2026-10-16).
-'   Evidence: MEASURED. opencode-versioned-history-storage.puml:269-276 "NO MAINTENANCE COMMANDS".
+'   Evidence: MEASURED then. opencode-versioned-history-storage.puml:269-276 "NO MAINTENANCE
+'     COMMANDS" (that plan is being deleted under D2/D9; the flags stay gone).
 '   Evidence: MEASURED. internal/backend/sandbox/opencode_cache_test.go:610 pins pass-through.
 '
 ' S3 · `--shell`, `proveo-dev debug` and every retirement stub removed — DONE (wt, 2026-10-17).
@@ -131,9 +132,17 @@
 '       defs/README.md:32; defs/cursor/README.md:149,156; defs/hermes/README.md:22;
 '       .claude/skills/sync-providers/SKILL.md:95,136.
 '
-' D2 · OpenCode history: an engine-local database owned by OpenCode — DECIDED (Executor), in progress.
-'   Decision: OPENCODE_DB as the OpenCode docs intend; one-time import on engine create; delete the
-'     keeper, prepared cache, gate, owner records, journal recovery and post-exit publish.
+' D2 · OpenCode history: an engine-local database owned by OpenCode — DECIDED (Executor), (wt) in
+'     progress. DONE when the code lands.
+'   Decision record (2026-10-16 TUI, D1–D9): _spec/defs/opencode/engine-local-history.puml, written
+'     2026-10-17 as the goal before the code. Corrections to the first-read line below: proveo sets
+'     NO OPENCODE_DB — the engine uses OpenCode's native default path; the user chose "Carry the DB
+'     over" when an engine is replaced (D1), "Let OpenCode handle it" for concurrency (D4) and
+'     "Accept and document" for in-engine logins (D8). MEASURED so far: internal/sbx/
+'     opencode_history.go and its 4 tests; the rest is landing (host side: coordinator; image side:
+'     another agent).
+'   First-read decision: OPENCODE_DB as the OpenCode docs intend; one-time import on engine create;
+'     delete the keeper, prepared cache, gate, owner records, journal recovery and post-exit publish.
 '   Evidence: MEASURED line counts of the keeper stack:
 '     packages/lib/opencode_cache.py 1471 · proveo-opencode-runtime 694 · opencode_startup.py 101
 '     · proveo-opencode-preflight 35 · internal/backend/sandbox/opencode_cache.go 533.
@@ -143,12 +152,18 @@
 '     (Recommended)"): test_opencode_cache.py is DELETED and test_opencode_runtime.py is 96 lines,
 '     NativeCommandAutoTests only (MEASURED). Both suites had failed deterministically outside the
 '     image since the commit that added them: load_credentials() reads os.environ, not the env the
-'     Keeper is handed (opencode-versioned-history-storage.puml, TEST DELETIONS).
+'     Keeper is handed (MEASURED then: opencode_cache.py:979 Keeper(runtime, env), :356
+'     runtime.load_credentials(), proveo-opencode-runtime:31-32 os.environ). D2 deletes
+'     load_credentials, the Keeper and the cache, so the split goes with them
+'     (engine-local-history.puml, THE IMAGE SIDE).
 '   [Inference] D2 removes most of ~2.8k production and ~3.4k test lines (the test figure predates
 '     the 2026-10-17 deletions above).
-'   [Inference] opencode-credentials.py (622) survives as the import-time sanitizer.
-'   Spec gap: opencode-versioned-history-storage.puml:37 and :375 still read IMPLEMENTED.
-'     That file needs a DECIDED section; this pass did not edit it (concurrent edits).
+'   SUPERSEDED: "[Inference] opencode-credentials.py (622) survives as the import-time sanitizer."
+'     D2 as decided deletes it: the import copies the database as-is and D8 accepts engine-lifetime
+'     logins (engine-local-history.puml).
+'   Spec gap CLOSED: opencode-versioned-history-storage.puml read IMPLEMENTED for the keeper design;
+'     engine-local-history.puml replaces it, and the plan is deleted once its source SPEC: pointers
+'     move (D9).
 '
 ' (F1, F3, F5, F6, F8, F12b — moved to DONE above. Their first-read evidence, kept so a
 '  reader can see what each was: F1 maintain.go:34 / targets.go:146-149 / mitmproxy_test.go;
@@ -352,7 +367,8 @@
 '   Evidence: MEASURED. e2e/opencode_cache_sbx_test.go:111-113 counts the string in the whole
 '     pty stream, guest output included, and answers "A\r" for each.
 '   Evidence: MEASURED. Approval persists a binding in the operator's
-'     ~/.config/sbx/credentials.yaml (opencode-versioned-history-storage.puml:263-265).
+'     ~/.config/sbx/credentials.yaml (rehomed to _spec/defs/opencode/engine-local-history.puml,
+'     E2E FACTS).
 '   Options:
 '     1. Match only sbx's own prompt frame, and only before the agent starts.
 '     2. [rec] Pre-seed the credential binding before the leg and fail on any prompt.
@@ -400,8 +416,8 @@
 '       opencode_v2_test.go:157 does; 6 of 6 subtests pass (reported).
 '     * OpenCodePreparedCacheFixtures and OpenCodeCredentialRuntimeLifecycle — "delete Python now",
 '       "Delete RuntimeTests only (Recommended)": test_opencode_cache.py (and its tracked .pyc) and
-'       the RuntimeTests class are deleted with both Go wrappers. Detail and the source
-'       inconsistency they exposed: opencode-versioned-history-storage.puml, TEST DELETIONS.
+'       the RuntimeTests class are deleted with both Go wrappers. The source inconsistency they
+'       exposed is recorded under D2 above (load_credentials reads os.environ); D2 deletes it.
 '   STILL FAILING (2, reported):
 '     * internal/contract/jvm_toolchain_test.go:153 TestJVMRowNeedsTheQemuFloorOnMacOSHosts — this VM
 '       has a real /usr/bin/qemu-x86_64; the test's NO_QEMU=1 only skips a stub.
