@@ -63,7 +63,11 @@ skinparam noteTextAlignment left
 ' client's status. Teardown lifts clone and state, then runs `sbx rm --force` on
 ' every harness, an OpenCode engine included — even when the clone could not
 ' be carried home, because the modal already said "Uncommitted changes can be
-' permanently lost" (MEASURED, sandbox.go deferred teardown, stop_signal_test.go).
+' permanently lost" (MEASURED: sandbox.go normalEndOf returns endRemove when
+' forced; teardown_end_test.go pins both stopOutcome and normalEndOf).
+' Residual, pre-existing (reported): this path returns the raw runErr, so it
+' can print "context canceled" and exit 1, or "agent exited with code -1" and
+' exit 255 when WaitDelay SIGKILLs the sbx client.
 '
 ' ── THE DRAIN BUG IS THE REASON `Run` HAS A WAITGROUP AT ALL ───────────────
 ' FIXED 2026-09-09. `pty.Start` returns with the child ALREADY RUNNING, and the

@@ -12,6 +12,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
 ' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, pickKitSandbox, kitDirs, testOwned)
 ' covers: e2e/kit_sandbox_test.go
+' covers: internal/sbx/clone_test.go (TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch: cmd.Dir, GIT_CEILING_DIRECTORIES)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (imagetest.Resolve in
@@ -367,24 +368,41 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     before, target, dirs). A candidate is new since `before`, carries the
 '     target's prefix, and is testOwned: its PRIMARY workspace (Workspaces[0],
 '     ":ro" trimmed) lies strictly under a test temp root, never the root
-'     itself. It prefers the one holding a dir, else the only candidate; an
-'     operator's sandbox is never named. kitDirs(dir) supplies dir, its
-'     symlink-resolved form, and the main worktree from `git rev-parse
-'     --git-common-dir`, because a linked worktree's clone mounts the main one.
+'     itself. It is NAMED only when one of its workspaces holds a dir of this
+'     run (a scoped --input under the workspace counts) or lies under one.
+'     There is NO "only candidate"
+'     fallback since review #4: it could name — and cleanup then `sbx rm
+'     --force` — another process's same-target sandbox. An operator's sandbox
+'     is never named.
+'     kitDirs(dir) supplies dir, its symlink-resolved form, and the main
+'     worktree from `git rev-parse --git-common-dir` (no `--path-format`,
+'     reported to need git >= 2.31; a relative answer is resolved against dir),
+'     because a linked worktree's clone mounts the main one. The main worktree
+'     is added ONLY when dir is not inside it, so a TMPDIR inside a checkout
+'     cannot make every test sandbox "hold" dir.
 '     sbxSandboxNames keys on Workspaces[0] too, without the ":ro" trim or the
 '     root exclusion (MEASURED).
 '     HISTORY: an "every workspace under temp" rule never matched claudecode or
 '     cecli — home.files adds <StateDir>/egress/<sid>/sbx/home-files and a
-'     clone with .env adds sbx/project-env, both outside temp. Pinned offline
-'     by e2e/kit_sandbox_test.go TestKitSandboxNamesOnlyTheRunsOwnSandbox (9
-'     cases; e2e build tag, no sbx needed); reported to fail under the old rule.
-'   tend — answers each sbx "[A]pprove all" prompt ONCE: answerSbxPrompt(sess,
-'     screen, answered) returns the count answered, and the counter is shared
-'     across with(t) copies. Before, every 3 s poll re-typed A+Enter into the
-'     agent. tend fails fast on an sbx refusal or a confirmation eating input,
-'     and detects a run that ENDED (ended): it skips when an authFailures
-'     marker is in the final screen's last 15 lines, and otherwise fails with
-'     the last screen.
+'     clone with .env adds sbx/project-env, both outside temp.
+'     Pinned offline (e2e build tag, no sbx needed) by e2e/kit_sandbox_test.go:
+'     TestKitSandboxNamesOnlyTheRunsOwnSandbox, 10 pickKitSandbox cases
+'     (MEASURED; the brief said 9) with fixed /operator/... paths — $HOME can
+'     sit under TMPDIR in CI — including a scoped --input and the dropped
+'     fallback; TestKitDirsAddsOnlyALinkedWorktreesMain on a real git
+'     worktree; TestAnApprovalIsAnsweredOnlyWhileItWaits.
+'   tend — answers sbx's "[A]pprove all" only while it WAITS:
+'     awaitingApproval(screen, last) needs the prompt in the last 3 lines of
+'     the VISIBLE pane (tmux Capture, not the scrollback) and a screen unlike
+'     the one last answered. answerSbxPrompt(sess, screen, last) returns the
+'     screen it answered, shared across with(t) copies. HISTORY: every 3 s poll
+'     re-typed A+Enter into the agent; a pass-5 count of prompts could drop
+'     with tmux history-limit or the alternate screen, or double on a redraw
+'     (reported). tend fails fast on an sbx refusal or a confirmation eating
+'     input, and detects a run that ENDED (ended): it skips when an
+'     authFailures marker is in plain(tail(k.last, 15)) and otherwise fails
+'     with the last screen. (The pass-5 tail(plain(...)) was a no-op: plain
+'     joins every line with spaces, so tail saw one line.)
 '   kitRun.exec — `bash -c` through `sbx exec`, after
 '     `cd ${PROVEO_WORKDIR:-<dir>}` (falling back to <dir>; exit 97 when
 '     neither is enterable) and
@@ -392,15 +410,30 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     directory and toolchain; raw skips that prelude. It returns combined
 '     output and the REAL exit status — no pane scraping, no completion marker.
 '   kitRun.with(t) — binds a shared run to a subtest (the toolchain runLib).
-'   kitRun.end / stopRun — SIGTERM to proveo; past its timeout stopRun kills
-'     the tmux session. Since 2026-10-17 a stop tears down like a normal exit
-'     (clone and state lifted, `sbx rm`) and proveo exits 143
-'     (_spec/internal/sbx/kit-lifecycle.puml). stopRun is also the cleanup in
-'     close_confirm and ports_publish, and the step that ends the first run in
-'     ports_publish and android_seed_install (MEASURED).
+'   kitRun.end / stopRun — SIGTERM to proveo; past its timeout stopRun
+'     SIGKILLs proveo, then kills the tmux session — a kill-session alone is a
+'     SIGHUP, which proveo swallows after the first SIGTERM. Since 2026-10-17 a
+'     stop tears down like a normal exit (clone and state lifted, `sbx rm`) and
+'     proveo exits 143 (_spec/internal/sbx/kit-lifecycle.puml). stopRun is also
+'     the cleanup in close_confirm and ports_publish, and the step that ends
+'     the first run in ports_publish and android_seed_install (MEASURED).
+'   The toolchain idempotence test FAILS when its first run never exited
+'     (first.end() not ok), so that run's late `rm` cannot delete the sandbox
+'     the warm run reattaches to (MEASURED, toolchain_test.go).
 ' Residual, pre-existing and repo-wide (reported): a developer tmux
 ' `remain-on-exit` breaks exit detection in every helper that treats a failed
 ' capture as an exit.
+'
+' A TEST THAT EXECUTES A GENERATED GIT SCRIPT PINS ITS cwd AND ITS CEILING.
+' Rule: such a test sets cmd.Dir to a temp dir and GIT_CEILING_DIRECTORIES to
+' that dir, so a script that fails to cd can find no repository at all.
+' Measured incident, 2026-10-17 (reported by the coordinator): the red run of
+' TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch against the OLD
+' CloneSnapshotArgs script — which had no cd — ran `git add -A && git commit`
+' inside the proveo checkout and made local commit 42bf4b87 (not pushed; undone
+' with `git reset --soft HEAD~1` and `git restore --staged`). The test now pins
+' both (internal/sbx/clone_test.go, MEASURED). Script details:
+' _spec/internal/sbx/clone-workspace.puml.
 ' [Unverified] whether `sbx exec` sessions see variables passed as `sbx run -e
 ' NAME`. The forward-mode auth probes and the android PROVEO_HOST_ADB_PORT probe
 ' depend on it.

@@ -1239,7 +1239,8 @@
         "internal/backend/sandbox/launch_receipt.go",
         "internal/backend/sandbox/launch_receipt_test.go",
         "internal/backend/sandbox/stop_signal_test.go",
-        "internal/backend/sandbox/clone_carry_test.go"
+        "internal/backend/sandbox/clone_carry_test.go",
+        "internal/backend/sandbox/teardown_end_test.go"
       ],
       "fingerprint": null
     },
@@ -1798,6 +1799,7 @@
         "e2e/preconditions_test.go",
         "e2e/kit_probe_test.go",
         "e2e/kit_sandbox_test.go",
+        "internal/sbx/clone_test.go",
         "cmd/proveo-dev/coverage.go"
       ],
       "fingerprint": null
