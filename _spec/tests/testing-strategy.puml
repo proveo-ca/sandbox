@@ -457,11 +457,10 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * HOME pointed at a temp dir and GIT_CONFIG_NOSYSTEM=1, so a global or
 '     system commit.gpgsign, core.hooksPath or init.templateDir cannot fail
 '     the fixture (review #6).
-' MEASURED helpers: internal/sbx/clone_test.go isolatedGitEnv and
-' internal/backend/sandbox/clone_carry_test.go gitEnv (both also drop
-' XDG_CONFIG_HOME); e2e/kit_sandbox_test.go TestKitDirsAddsOnlyALinkedWorktreesMain
-' inlines the same, without dropping XDG_CONFIG_HOME — a global config under
-' $XDG_CONFIG_HOME/git/config can still reach that one fixture.
+' MEASURED helpers: internal/sbx/clone_test.go isolatedGitEnv,
+' internal/backend/sandbox/clone_carry_test.go gitEnv and the inline env in
+' e2e/kit_sandbox_test.go TestKitDirsAddsOnlyALinkedWorktreesMain; all three
+' also drop XDG_CONFIG_HOME.
 ' So a script that fails to cd can find no repository at all, and no operator
 ' config can change what a fixture commits.
 ' Measured incident, 2026-10-17 (reported by the coordinator): the red run of

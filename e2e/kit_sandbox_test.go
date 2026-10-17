@@ -84,7 +84,7 @@ func TestKitDirsAddsOnlyALinkedWorktreesMain(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
 		for _, kv := range os.Environ() {
-			if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "HOME=") {
+			if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "XDG_CONFIG_HOME=") {
 				cmd.Env = append(cmd.Env, kv)
 			}
 		}

@@ -1795,6 +1795,7 @@
         "e2e/kit_probe_test.go",
         "e2e/kit_sandbox_test.go",
         "internal/sbx/clone_test.go",
+        "internal/backend/sandbox/clone_carry_test.go",
         "cmd/proveo-dev/coverage.go"
       ],
       "fingerprint": null

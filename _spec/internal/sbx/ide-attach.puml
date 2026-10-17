@@ -80,6 +80,11 @@ skinparam noteTextAlignment left
 ' WHICH TREE IS LOUD. Direct mode says that IDE saves write the host checkout.
 ' Clone mode says DISPOSABLE CLONE, requires commits, and prints the exact git
 ' fetch into refs/proveo/<sid> before the operator removes the sandbox.
+' Which mode the AFTER-EXIT attach names is the sandbox's own, not this run's
+' --clone: since 2026-10-17 (review #6) Run's teardown resolves it first
+' (sandboxClone), so a reattached sandbox gets the right help
+' (_spec/internal/sbx/clone-workspace.puml). The launch-time attach still
+' prints this run's mode (MEASURED, sandbox.go:1515 runs before the resolve).
 title IDE attach — upstream SSH, live and after exit,\nlocal only, with a narrow home view
 
 node "operator host" as HOST <<host>> {

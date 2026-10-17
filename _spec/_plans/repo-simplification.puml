@@ -620,13 +620,17 @@
 '     2. [rec] Wait for D1, D2 and N1 to shrink these files, then split in the order above.
 '     3. Keep as is.
 '
-' N16 · internal/backend is a package for one type, with a broken godoc — PROPOSED.
-'   Evidence: MEASURED. internal/backend/backend.go is 10 lines: ExitError and nothing else.
-'   Evidence: MEASURED. Its package comment stops mid-sentence: "Package backend holds what the" (:2).
+' N16 · internal/backend is a package for run errors only — PROPOSED.
+'   Evidence at first read: backend.go was 10 lines (ExitError only) with a godoc that stopped
+'     mid-sentence ("Package backend holds what the").
+'   UPDATE 2026-10-17 (MEASURED, wt): the godoc now reads "Package backend holds the run errors
+'     cmd/proveo turns into exit statuses", and the package gained Stopped (128+signal, the user's
+'     "Exit 128+sig, 'stopped'"). Two types, both read by cmd/proveo main's exitCode and by
+'     internal/backend/sandbox. Option 2's godoc half is applied.
 '   Options:
-'     1. [rec] Move ExitError into internal/backend/sandbox; delete internal/backend/backend.go.
-'     2. Keep the package; finish the godoc sentence.
-'     3. Move ExitError into internal/run.
+'     1. Move ExitError and Stopped into internal/backend/sandbox; delete internal/backend.
+'     2. [rec] Keep the package as the home of run errors; nothing else to do.
+'     3. Move both into internal/run.
 '
 ' N17 · defs/cecli/.dockerignore never applies — PROPOSED.
 '   Evidence: MEASURED. cecli builds with Context "." (internal/imagebuild/targets.go:110).
