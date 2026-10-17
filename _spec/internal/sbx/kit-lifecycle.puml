@@ -51,7 +51,9 @@ skinparam noteTextAlignment left
 '     The transcript reads "outcome: stopped by SIGTERM".
 '   No template-reload retry after a stop: Run checks signalled() == 0 before
 '     sbx.ReloadTemplate and again before the retry run. ReloadTemplate takes
-'     no context, so a stop during the reload waits for it to finish.
+'     no context, so a stop during the reload waits for it to finish. Since
+'     review #5 the retry also requires !forceRemove.Load(), so a Ctrl+C remove
+'     never relaunches (MEASURED, sandbox.go:1560).
 '   After the first signal, later SIGTERM/SIGHUP are swallowed until teardown
 '     ends — by design: the scheduler SIGTERMs, then kill-session (SIGHUP)
 '     after termGrace = 1 min (internal/schedule/runner.go:37), and a longer
@@ -78,7 +80,8 @@ skinparam noteTextAlignment left
 ' retainsEngine), a pure function:
 '   forced (the operator chose Ctrl+C remove) → endRemove, always
 '   stranded != nil (work still only in the sandbox) → endKeepStranded, even
-'     for an OpenCode engine
+'     for an OpenCode engine, which prints "<err> — <name> kept with its
+'     prepared history" instead of the `sbx rm --force` hint
 '   retainsEngine (opencodeCacheTarget) → endRetainEngine
 '   otherwise → endRemove
 ' Pinned by TestANormalEndRemovesTheSandboxUnlessWorkOrTheEngineStaysInIt
@@ -100,13 +103,17 @@ skinparam noteTextAlignment left
 '   * removeOpenCodeEngine (opencode_cache.go:412-419) is a third `sbx rm` path
 '     and skips PreserveClone (MEASURED). Pre-existing; the pending OpenCode
 '     redesign removes it.
+'   * The forced Ctrl+C remove after a failed carry prints the rescue recipe,
+'     then deletes; the modal warns about uncommitted changes, not about
+'     commits that were never carried (review #5, reported).
 ' The kept-for-diagnosis hint names `sbx exec -it <name> bash` (MEASURED),
 ' matching https://docs.docker.com/reference/cli/sbx/exec/.
 '
 ' ── WORK STRANDED IN THE SANDBOX KEEPS THE SANDBOX (2026-10-17) ─────────────
 ' MEASURED: PreserveClone and TeardownClone return an error while work remains
 ' only in the sandbox — snapshot failed ("uncommitted work is still only in
-' <name>") or carry failed ("the agent's branches are still only in <name>").
+' <name>"), carry failed ("the agent's branches are still only in <name>"), or
+' the clone mode is unknown ("cannot tell whether <name> holds a clone…").
 ' Normal-exit and stop teardown then skip `sbx rm`, print "<err> — <name> kept;
 ' `sbx rm --force <name>` deletes it once the work is home", keep home access
 ' and print the IDE attach. retireSandbox (the stale-sandbox upgrade,
@@ -114,11 +121,13 @@ skinparam noteTextAlignment left
 ' forced Ctrl+C remove still deletes: its dialog says "Uncommitted changes can
 ' be permanently lost" (internal/choiceui/sandbox_close.go). Detail:
 ' _spec/internal/sbx/clone-workspace.puml.
-' RETIRE ASKS THE OLD SANDBOX, NOT THIS RUN, WHETHER IT CLONES (MEASURED):
-' retireSandbox sets in.Clone = guestClones(name) before PreserveClone, so the
-' carry follows how the OLD sandbox was created even when the receipt is
-' missing ("no record of the settings it was created with"). Detail and the
-' two failures it closes: clone-workspace.puml.
+' THE SANDBOX, NOT THIS RUN, SAYS WHETHER IT CLONES (MEASURED, review #5):
+' PreserveClone asks sandboxClones(name) on BOTH teardown and retire — the
+' receipt written at creation, else a strict guest probe, else unknown (kept).
+' A reattached or retired sandbox is carried the way it was CREATED, not the
+' way this run's --clone reads. Retire carries into refs/proveo/<sid>-retired/*
+' so this run's own teardown fetch cannot overwrite it. Detail, the three
+' failures it closes and the residuals: clone-workspace.puml.
 title sbx Kit lifecycle — create with a Kit, reuse by name, keep failures and stranded work, remove success and stops
 
 state "resolve full RunConfig\n+ render Kit spec.yaml" as RESOLVE
@@ -148,8 +157,8 @@ EXISTS --> DRIFT : yes
 DRIFT --> REUSE : receipt matches,\nor running and headed no,\nor running and not headed
 DRIFT --> RETIRE : changed and headed yes,\nor stopped and not headed
 DRIFT --> ASKAGAIN : stopped and headed no
-RETIRE --> CREATE : clone carried home,\nor the old sandbox was direct (guestClones)
-RETIRE --> STRANDED : clone not carried\n(retireSandbox errors; this run stops)
+RETIRE --> CREATE : clone carried home (refs/proveo/<sid>-retired),\nor the old sandbox was direct (sandboxClones)
+RETIRE --> STRANDED : clone not carried, or clone mode unknown\n(retireSandbox errors; this run stops)
 CREATE --> RUN
 REUSE --> RUN
 RUN --> LIVE : agent session opens
@@ -164,7 +173,7 @@ RESULT --> PRESERVE : exit != 0
 RESULT --> PRESERVE : exit == 0
 RESULT --> PRESERVE : SIGTERM/SIGHUP forwarded\n(teardown nil, result Stopped)
 PRESERVE --> KEPT : run failed
-PRESERVE --> STRANDED : snapshot or carry failed\n(normalEndOf → endKeepStranded)
+PRESERVE --> STRANDED : snapshot or carry failed, or clone mode unknown\n(normalEndOf → endKeepStranded)
 PRESERVE --> REMOVE : run succeeded, or stopped by a signal;\nproveo exits 0, or 128+sig for a stop
 STRANDED --> REMOVE : operator, once the work is home
 STRANDED --> [*]

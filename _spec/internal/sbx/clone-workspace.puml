@@ -38,7 +38,7 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/seed_shares_test.go
 ' covers: e2e/clone_test.go (TestCloneCarriesAGitignoredSymlinkedDotEnv, TestCloneLiftsTrackedSpecEdits)
 ' covers: internal/backend/sandbox/clone_carry_test.go
-' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox, guestClones)
+' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox, sandboxClones)
 '   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
 '   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
@@ -236,25 +236,38 @@ skinparam noteTextAlignment left
 ' `sbx rm` drops the clone with the VM and sbx's own guidance is to fetch or
 ' push before removing; an agent that stopped mid-edit has nothing to push.
 '
-' THE SNAPSHOT PUTS EVERY PIECE OF WORK ON A BRANCH (2026-10-17, review #4).
+' THE SNAPSHOT PUTS EVERY PIECE OF WORK ON A BRANCH (2026-10-17, reviews #4-#5).
 ' The carry takes only refs/heads/* (`--branches`, `+refs/heads/*`), so a
 ' detached HEAD (mid-rebase) and every stash used to go down with the sandbox;
 ' a stop now ends in `sbx rm`, which widened that loss. MEASURED,
 ' internal/sbx/run.go CloneSnapshotArgs, one `sbx exec -w / <name> -- bash -c`:
-'   cd <workdir> && git rev-parse --git-dir || exit 0   — no workdir or no
-'     repository: nothing can be stranded there
+'   cd <workdir> || exit 0   — no workdir: nothing can be stranded there
+'   a workdir git cannot read (not a repository, or dubious ownership) exits 0
+'     only when EMPTY, else exit 1 = stranded. Example: a linked-worktree
+'     clone whose `worktree add` failed leaves the agent in a plain dir.
 '   git add -A, then commit only when the index is not empty, with
-'     `--no-verify` so a clone hook (husky, a pre-commit) cannot reject the
-'     teardown commit; any failure exits 1 (→ "uncommitted work is still only
-'     in <name>")
-'   a detached HEAD → `git branch -f proveo/detached-head HEAD`
-'   stash i → `git branch -f proveo/stash-<i> <stash sha>`
+'     `-c core.hooksPath=/dev/null -c commit.gpgsign=false --no-verify`, so no
+'     clone hook (pre-commit, prepare-commit-msg, commit-msg; husky) and no
+'     signing requirement can block the teardown commit; any failure exits 1
+'     (→ "uncommitted work is still only in <name>")
+'   a detached HEAD → `git update-ref refs/heads/proveo/detached-head HEAD`,
+'     but ONLY when no branch contains HEAD — the seed's own `--detach` on a
+'     branch tip reports nothing
+'   stale refs/heads/proveo/stash-* are deleted, then stash i →
+'     `git update-ref refs/heads/proveo/stash-<i> <sha>` from `git stash list`;
+'     both loops skip whichever ref HEAD is on
+' ACCEPTED RESIDUAL: an existing branch named `proveo` blocks refs/heads/proveo/*
+' (a ref cannot be both a file and a directory), so the snapshot exits 1 and
+' the sandbox is kept as stranded.
 ' Pinned by TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch (internal/sbx/
 ' clone_test.go), which runs the exact script under bash against temp repos:
-' missing workdir or repo, a rejecting pre-commit hook, a detached HEAD, two
-' stashes. TestCloneSnapshotCommitsOnlyWhenSomethingIsStaged expects `-w / sb`
-' and the cd. Why the behavioural test pins cmd.Dir and
-' GIT_CEILING_DIRECTORIES to temp dirs: _spec/tests/testing-strategy.puml.
+' no workdir or an empty one; files outside any repository (stranded); hooks
+' pre-commit, prepare-commit-msg and commit-msg all rejecting, with
+' commit.gpgsign=true; a detached HEAD (asserting the snapshot commit); a
+' detached HEAD a branch already holds (no ref); stashes, then a dropped stash
+' and a re-snapshot. Not covered: a mid-rebase repository (reported gap).
+' TestCloneSnapshotCommitsOnlyWhenSomethingIsStaged expects `-w / sb` and the
+' cd. How the behavioural test isolates git: _spec/tests/testing-strategy.puml.
 '
 ' Then every branch is fetched into refs/proveo/<sid>/. REFS, not a
 ' remote-tracking namespace: sbx removes its sandbox-<name> remote with the
@@ -354,42 +367,77 @@ skinparam noteTextAlignment left
 '     CloneBundleEmpty is (false, nil): nothing to carry, not a failure.
 '   PreserveClone and TeardownClone return an error while work remains only
 '     in the sandbox: the snapshot failed ("uncommitted work is still only in
-'     <name>") or the carry failed ("the agent's branches are still only in
-'     <name>"). A failed snapshot still lets the carry run.
+'     <name>"), the carry failed ("the agent's branches are still only in
+'     <name>"), or the clone mode is unknown (below). A failed snapshot still
+'     lets the carry run.
 '   Normal-exit and stop teardown then skip `sbx rm`, print "<err> — <name>
-'     kept; `sbx rm --force <name>` deletes it once the work is home", keep
-'     home access, and print the IDE attach.
+'     kept; `sbx rm --force <name>` deletes it once the work is home" (an
+'     OpenCode engine: "<err> — <name> kept with its prepared history", no
+'     rm hint), keep home access, and print the IDE attach.
 '   retireSandbox (the stale-sandbox upgrade, launch_receipt.go) returns the
 '     same wrapped error before SaveState and `rm`, so the upgrade stops.
 '   The forced Ctrl+C remove still deletes: its modal says "Uncommitted
 '     changes can be permanently lost" (internal/choiceui/sandbox_close.go).
 '   Which way a normal end goes is the pure normalEndOf (kit-lifecycle.puml).
 '
-' RETIRE ASKS THE OLD SANDBOX WHETHER IT CLONES (2026-10-17, review #4).
-' retireSandbox used THIS run's in.Clone for a sandbox an EARLIER run created:
-'   a `--clone=false` run retiring a stranded clone skipped the carry, and
-'     `rm` deleted the work;
-'   a clone run retiring a DIRECT sandbox ran `git add -A && git commit` over
-'     the read-write bind of the operator's host checkout. [Inference] That
-'     committed onto the operator's branch.
-' The receipt cannot answer either: it can be missing ("no record of the
-' settings it was created with"). MEASURED now: sbx.CloneModeArgs(name) runs
-' `[ -d /run/sandbox/source ] && echo clone || echo direct` — sbx's documented
-' clone mode bind-mounts the host repo read-only at /run/sandbox/source
-' (measured 2026-09-02, above; that a DIRECT sandbox never has that path is
-' [Unverified] here). guestClones(name)
-' reads anything but a final "direct" — an unreadable answer included — as
-' clone, the side that carries. retireSandbox sets in.Clone = guestClones(name)
-' before PreserveClone.
-' Pinned by TestRetiringASandboxKeepsItWhenTheCloneCouldNotBeCarriedHome
-' (clone_carry_test.go, 5 cases, a fake sbx on PATH and receiptDir pointed at
-' a temp dir): the bundle failed → error, no `rm`; the snapshot failed → error,
-' no `rm`; nothing new → removed; a clone sandbox retired by a `--clone=false`
-' run → snapshotted and carried (kept here, because the fake bundle fails); a
-' direct sandbox retired by a clone run → no snapshot, removed. Also
-' TestCarryClonePicksTheTransportThatCanWork (sandbox_test.go, checking the
-' error). The teardown branch in Run itself has no unit test; [Unverified]
-' against a live sbx whose bundle fails.
+' ── CLONE MODE HAS ONE SOURCE OF TRUTH: THE SANDBOX (2026-10-17, reviews #4-#5)
+' A sandbox is reused by name, so THIS run's --clone says nothing about the
+' sandbox it reattaches to or retires. Using in.Clone there failed three ways:
+'   (a) a clone run that reattached to a DIRECT sandbox snapshotted the
+'     operator's host checkout through the read-write bind (`git add -A &&
+'     git commit`). Predates the batch; the stash branches made it worse.
+'     [Inference] That committed onto the operator's branch.
+'   (b) a `--clone=false` run that reattached to (or retired) a clone skipped
+'     the carry, and `sbx rm` deleted the clone's work.
+'   (c) review #4's guestClones parsed fail-open: anything but "direct",
+'     unreadable output included, read as a clone.
+' MEASURED now, launch_receipt.go sandboxClones(name) (clones, known bool):
+'   1. the sandbox's launch receipt (receipt.Clone). It is written only when
+'      the launch config carries a Kit (sandbox.go:1460), i.e. at creation;
+'      sbx.Reattach clears KitDir, so a reattach never rewrites it.
+'   2. else the guest probe sbx.CloneModeArgs(name):
+'      `[ -d /run/sandbox/source ] && echo clone || echo direct`, parsed
+'      STRICTLY — exactly "clone" or "direct". sbx's clone mode bind-mounts the
+'      host repo read-only at /run/sandbox/source (measured 2026-09-02, above;
+'      that a DIRECT sandbox never has that path is [Unverified] here).
+'   3. else known = false.
+' PreserveClone takes the flag from sandboxClones on BOTH teardown and retire:
+'   unknown → error "cannot tell whether <name> holds a clone, so its work may
+'     be only there" → the sandbox is KEPT (stranded);
+'   direct → nil, no snapshot;
+'   clone → in.Clone = true, snapshot and carry.
+' TeardownClone gates only on RepoRoot, no longer on in.Clone.
+' RETIRED WORK GETS ITS OWN NAMESPACE: retireSandbox sets in.Sid +=
+' "-retired", so the old clone lands in refs/proveo/<sid>-retired/*. Before,
+' this run's own teardown force-fetched `+refs/heads/*` into the same
+' refs/proveo/<sid>/* and overwrote it; the fixed proveo/* names made that
+' collision certain.
+' The adopt hint (reportCloneRefs) prefers the first ref whose name after
+' refs/proveo/<sid>/ does not start with `proveo/`, so it names the agent's
+' branch, not a snapshot ref.
+' Pinned (clone_carry_test.go, a fake sbx on PATH taking a bundle shell
+' snippet, receiptDir at a temp dir):
+'   TestRetiringASandboxKeepsItWhenTheCloneCouldNotBeCarriedHome, 7 cases:
+'     bundle failed → error, no `rm`; snapshot failed (with an EMPTY bundle,
+'     so the error must come from the snapshot) → error, no `rm`; nothing new
+'     → removed; a clone retired by a `--clone=false` run → snapshotted,
+'     carried, kept because the fake bundle fails; a direct sandbox retired by
+'     a clone run → no snapshot, removed; the receipt outranks the guest; an
+'     unreadable clone mode keeps the sandbox.
+'   TestTeardownCarriesTheSandboxsOwnCloneModeNotThisRuns, 2 reattach cases.
+'   TestRetiredWorkLandsBesideThisRunsOwnRefs, with a real git bundle.
+' Also TestCarryClonePicksTheTransportThatCanWork (sandbox_test.go). The
+' teardown branch in Run itself has no unit test; [Unverified] against a live
+' sbx whose bundle fails.
+' RESIDUALS, recorded not fixed (reported):
+'   * A linked-worktree retire when THIS run lacks CloneSource: the workdir is
+'     the unresolved FirstHost, so if the path spelling differs (symlinks) the
+'     snapshot's cd fails and exits 0 as "no workdir". Stopped sandbox: retire
+'     still refuses on the bundle. Running with a remote: uncommitted work is
+'     lost.
+'   * The forced Ctrl+C remove after a failed carry prints the rescue recipe
+'     and then deletes; the modal warns about uncommitted changes, not about
+'     commits that were never carried.
 '
 ' The output dir is copied out separately, as a tar stream on stdout. Untracked
 ' and usually gitignored, deliverables are exactly what the ref fetch leaves

@@ -12,7 +12,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
 ' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, pickKitSandbox, kitDirs, testOwned)
 ' covers: e2e/kit_sandbox_test.go
-' covers: internal/sbx/clone_test.go (TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch: cmd.Dir, GIT_CEILING_DIRECTORIES)
+' covers: internal/sbx/clone_test.go (TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch: cmd.Dir, GIT_CEILING_DIRECTORIES, GIT_* stripped)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
 ' Image resolution for these suites (imagetest.Resolve in
@@ -390,19 +390,26 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     (MEASURED; the brief said 9) with fixed /operator/... paths — $HOME can
 '     sit under TMPDIR in CI — including a scoped --input and the dropped
 '     fallback; TestKitDirsAddsOnlyALinkedWorktreesMain on a real git
-'     worktree; TestAnApprovalIsAnsweredOnlyWhileItWaits.
-'   tend — answers sbx's "[A]pprove all" only while it WAITS:
-'     awaitingApproval(screen, last) needs the prompt in the last 3 lines of
-'     the VISIBLE pane (tmux Capture, not the scrollback) and a screen unlike
-'     the one last answered. answerSbxPrompt(sess, screen, last) returns the
-'     screen it answered, shared across with(t) copies. HISTORY: every 3 s poll
-'     re-typed A+Enter into the agent; a pass-5 count of prompts could drop
-'     with tmux history-limit or the alternate screen, or double on a redraw
-'     (reported). tend fails fast on an sbx refusal or a confirmation eating
-'     input, and detects a run that ENDED (ended): it skips when an
-'     authFailures marker is in plain(tail(k.last, 15)) and otherwise fails
-'     with the last screen. (The pass-5 tail(plain(...)) was a no-op: plain
-'     joins every line with spaces, so tail saw one line.)
+'     worktree; TestAnApprovalIsAnsweredOncePerAppearance (6 cases).
+'   tend — answers sbx's "[A]pprove all" ONCE PER APPEARANCE (edge-triggered,
+'     review #5): approvalDue(screen, wasShowing) (due, showing) looks for the
+'     prompt in the last 6 lines of the VISIBLE pane (tmux Capture, not the
+'     scrollback) and is due only when it is showing now and was not on the
+'     last poll; kitRun.prompting *bool carries wasShowing across with(t)
+'     copies. TRADEOFF, chosen: a second question that replaces the first IN
+'     PLACE, without the prompt ever leaving the pane, is not answered — the
+'     run times out loudly rather than typing a stray "A⏎" into the agent.
+'     HISTORY: every 3 s poll re-typed A+Enter; a pass-5 prompt count could
+'     drop with tmux history-limit or the alternate screen, or double on a
+'     redraw (reported). [Inference] review #4's "screen differs from the one
+'     last answered" would re-fire on any redraw (a spinner) while the prompt
+'     stayed up — the case the new test pins as "still up … while a spinner
+'     turns" → not due.
+'     tend fails fast on an sbx refusal or a confirmation eating input, and
+'     detects a run that ENDED (ended): it skips when an authFailures marker
+'     is in plain(tail(k.last, 15)) and otherwise fails with the last screen.
+'     (The pass-5 tail(plain(...)) was a no-op: plain joins every line with
+'     spaces, so tail saw one line.)
 '   kitRun.exec — `bash -c` through `sbx exec`, after
 '     `cd ${PROVEO_WORKDIR:-<dir>}` (falling back to <dir>; exit 97 when
 '     neither is enterable) and
@@ -417,22 +424,37 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     proveo exits 143 (_spec/internal/sbx/kit-lifecycle.puml). stopRun is also
 '     the cleanup in close_confirm and ports_publish, and the step that ends
 '     the first run in ports_publish and android_seed_install (MEASURED).
+'     RESIDUAL (reported): stopRun's SIGKILL after its timeout aborts proveo's
+'     own `sbx rm`; the sweepSandboxesAfter that harnessImage registers removes
+'     the sandbox at test end. ports_publish sweeps through harnessImage
+'     (ports_publish_test.go:34, MEASURED) — a reviewer's "no sweep" was wrong.
 '   The toolchain idempotence test FAILS when its first run never exited
-'     (first.end() not ok), so that run's late `rm` cannot delete the sandbox
-'     the warm run reattaches to (MEASURED, toolchain_test.go).
+'     (first.end() not ok): that run's late teardown could remove the
+'     same-named sandbox the warm run CREATES (reported: the first run's
+'     teardown removes the sandbox, so the warm run does not reattach — the
+'     failure message now says "creates"). A cold count of 0 names
+'     a missing /var/log/sbx-kit-startup.log among the causes (MEASURED,
+'     toolchain_test.go:354-361).
 ' Residual, pre-existing and repo-wide (reported): a developer tmux
 ' `remain-on-exit` breaks exit detection in every helper that treats a failed
 ' capture as an exit.
 '
-' A TEST THAT EXECUTES A GENERATED GIT SCRIPT PINS ITS cwd AND ITS CEILING.
-' Rule: such a test sets cmd.Dir to a temp dir and GIT_CEILING_DIRECTORIES to
-' that dir, so a script that fails to cd can find no repository at all.
+' A TEST THAT EXECUTES A GENERATED GIT SCRIPT ISOLATES GIT FROM THE CHECKOUT.
+' Rule (revised review #5): such a test
+'   * sets cmd.Dir to a fresh temp dir;
+'   * sets GIT_CEILING_DIRECTORIES to the PARENT of cmd.Dir — git ignores a
+'     ceiling equal to the cwd itself (reported), so a ceiling AT cmd.Dir
+'     still lets discovery climb;
+'   * strips every GIT_* variable from the inherited env — GIT_DIR and
+'     GIT_INDEX_FILE inherited from a git hook (a pre-commit running `go
+'     test`) bypass ceilings entirely (reported).
+' So a script that fails to cd can find no repository at all.
 ' Measured incident, 2026-10-17 (reported by the coordinator): the red run of
 ' TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch against the OLD
 ' CloneSnapshotArgs script — which had no cd — ran `git add -A && git commit`
 ' inside the proveo checkout and made local commit 42bf4b87 (not pushed; undone
-' with `git reset --soft HEAD~1` and `git restore --staged`). The test now pins
-' both (internal/sbx/clone_test.go, MEASURED). Script details:
+' with `git reset --soft HEAD~1` and `git restore --staged`). The test now does
+' all three (internal/sbx/clone_test.go:96-103, MEASURED). Script details:
 ' _spec/internal/sbx/clone-workspace.puml.
 ' [Unverified] whether `sbx exec` sessions see variables passed as `sbx run -e
 ' NAME`. The forward-mode auth probes and the android PROVEO_HOST_ADB_PORT probe
