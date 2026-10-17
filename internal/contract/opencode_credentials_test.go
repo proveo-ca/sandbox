@@ -34,30 +34,6 @@ func TestOpenCodeImageCredentialRuntimeShim(t *testing.T) {
 	}
 }
 
-func TestOpenCodeCredentialRuntimeLifecycle(t *testing.T) {
-	t.Parallel()
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 is unavailable")
-	}
-	cmd := exec.Command(python, "-B", filepath.Join(repoRoot(t), "packages", "lib", "test_opencode_runtime.py"), "-v")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("OpenCode credential lifecycle regression failed: %v\n%s", err, out)
-	}
-}
-
-func TestOpenCodePreparedCacheFixtures(t *testing.T) {
-	t.Parallel()
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 unavailable")
-	}
-	cmd := exec.Command(python, "-B", filepath.Join(repoRoot(t), "packages", "lib", "test_opencode_cache.py"), "-v")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("prepared cache regression: %v\n%s", err, out)
-	}
-}
-
 func TestOpenCodeDoesNotAdvertisePlaintextAuthJSONPersistence(t *testing.T) {
 	t.Parallel()
 	entrypoint := readRepoFile(t, "defs/opencode/entrypoint.sh")

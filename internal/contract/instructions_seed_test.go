@@ -311,6 +311,7 @@ func TestEverySeedSurvivesAnUnsetHarnessHome(t *testing.T) {
 			script := `set -euo pipefail
 source "$1/packages/lib/entrypoint-lib.sh"
 export HOME="$2" PROVEO_WORKDIR="$3" PROVEO_INSTRUCTIONS_MARKER="$2/released" PROVEO_RELEASE_SNAPSHOT="$2/snap" PROVEO_HOOKS_MARKER="$2/hooks" PATH="$5:$PATH"
+export PROVEO_OPENCODE_DEFAULTS_DIR="$1/defs/opencode/defaults"
 unset CODEX_HOME CECLI_HOME CURSOR_CONFIG_DIR PROVEO_HOME
 proveo_provision_toolchain() { :; }
 proveo_sync_tools() { :; }
