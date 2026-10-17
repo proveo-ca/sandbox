@@ -79,7 +79,7 @@ func sessionID(out string) string {
 	return id
 }
 
-// onTerminal runs cmd on a pseudo-terminal, approves each sbx credential prompt, stops at an sbx prompt
+// onTerminal runs cmd on a pseudo-terminal, stops at a credential consent prompt or an sbx prompt
 // the run cannot answer, and returns what it printed.
 func onTerminal(cmd *exec.Cmd) ([]byte, error) {
 	terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 200})
@@ -95,17 +95,19 @@ func onTerminal(cmd *exec.Cmd) ([]byte, error) {
 	go func() {
 		defer close(drained)
 		buf := make([]byte, 32<<10)
-		approved := 0
 		for {
 			n, readErr := terminal.Read(buf)
 			mu.Lock()
 			out.Write(buf[:n])
-			words := terminalWords(out.String())
+			text := terminalText(out.String())
 			mu.Unlock()
-			for ; approved < strings.Count(strings.ReplaceAll(words, " ", ""), "[A]pproveall"); approved++ {
-				_, _ = terminal.Write([]byte("A\r"))
-			}
-			if prompt := brokenPrompt(words); prompt != "" {
+			words := strings.Join(strings.Fields(text), " ")
+			if services, ok := consentPrompt(text); ok {
+				mu.Lock()
+				refused = consentFailure(services, "opencode")
+				mu.Unlock()
+				_ = cmd.Process.Kill()
+			} else if prompt := brokenPrompt(words); prompt != "" {
 				mu.Lock()
 				refused = prompt
 				mu.Unlock()
@@ -268,15 +270,13 @@ func TestTerminalLegsReadPtyOutput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	script := `[ -t 0 ] && [ -t 1 ] && echo TTY_BOTH
-printf '\033[1m[A]\033(B\033[mppr'; sleep 0.2; printf 'ove\033[1Call · [R]eview each · [N]o '; IFS= read -r -n1 k; read -r _; echo "key1=$k"
-printf '[A]pprove all · [R]eview each · [N]o '; IFS= read -r -n1 k; read -r _; echo "key2=$k"
 printf 'Created sandbox proveo-opencode-0123abcd-sibling\n  re-attaching to proveo-opencode-0123abcd, which an earlier run left here\n'
 printf '\r\033[2Kproveo: Waiting for seed — starting (1s) |' >&2; printf '\r\033[2K' >&2
 printf '{"data":{"id":"ses_fixture"}}\n'`
 	out, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", script))
 	text := terminalText(string(out))
-	if err != nil || !strings.Contains(text, "TTY_BOTH") || !strings.Contains(text, "key1=A") || !strings.Contains(text, "key2=A") {
-		t.Fatalf("each approval prompt on a terminal gets A: %v\n%s", err, text)
+	if err != nil || !strings.Contains(text, "TTY_BOTH") {
+		t.Fatalf("a leg runs on a terminal: %v\n%s", err, text)
 	}
 	if got := sessionID(string(out)); got != "ses_fixture" {
 		t.Fatalf("session id behind the seed wait = %q:\n%q", got, out)
@@ -287,6 +287,11 @@ printf '{"data":{"id":"ses_fixture"}}\n'`
 	}
 	if regexp.MustCompile(`Created sandbox proveo-opencode-0123abcd(?:\s|$)`).MatchString(words) {
 		t.Fatalf("a longer sandbox name read as the retained engine: %q", words)
+	}
+	consent := "printf 'This kit wants to use these credentials:\\n  opencode  API key\\n\\033[1m[A]\\033(B\\033[mpprove all · [R]eview each · [N]o: '; IFS= read -r -n1 k; echo \"typed=$k\"; sleep 60"
+	out, err = onTerminal(exec.CommandContext(ctx, "bash", "-c", consent))
+	if err == nil || !strings.Contains(err.Error(), "approve opencode") || strings.Contains(string(out), "typed=") {
+		t.Fatalf("a consent prompt must end the leg naming the service and typing nothing: %v\n%s", err, terminalText(string(out)))
 	}
 	if _, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", `printf 'Overwrite? (y/N) '; sleep 60`)); err == nil || !strings.Contains(err.Error(), "Overwrite? (y/N)") {
 		t.Fatalf("an sbx prompt the run cannot answer must end the leg: %v", err)

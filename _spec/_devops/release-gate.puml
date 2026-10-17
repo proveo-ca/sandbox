@@ -24,7 +24,13 @@ skinparam noteTextAlignment left
 '   1  go build ./... && go vet ./... && go vet -tags e2e ./e2e/
 '   2  go test ./...                     unit + contract
 '   3  mise run build all                every image from source
-'   4  mise run test-images              11 suites across all four defs
+'   4  mise run test-images              every TestImage* suite, hermes included —
+'                                        the ONE image task; test-e2e and
+'                                        test-e2e-full depend on it (N12, 2026-10-17,
+'                                        MEASURED mise.toml:79,97,103;
+'                                        TestOneImageTaskGatesBothReleaseGates).
+'                                        HISTORY: "11 suites across all four defs",
+'                                        and test-images-sbx skipped hermes.
 '   5  go test -tags e2e ./e2e/          the non-sbx e2e suite
 '
 ' ON THE HOST ONLY, because each needs sbx:
@@ -124,7 +130,7 @@ title Release gate — two halves, because sbx is host-only
 node "in-sandbox · docker only" as BOX <<host>> {
   component "build + vet + go test" as GO <<app>>
   component "build all\n14 images from source" as BUILD <<app>>
-  component "test-images\n11 suites · 4 defs" as TI <<app>>
+  component "test-images\nevery TestImage* · hermes included\n(the one image task, N12)" as TI <<app>>
   component "e2e minus sbx" as E2E <<app>>
 }
 
@@ -135,7 +141,7 @@ node "host only · needs sbx" as HOST <<host>> {
 }
 
 component "deploy all\namd64 + arm64 --push" as PUB <<cloud>>
-component "not covered\namd64 · consent prompt" as GAP <<error>>
+component "not covered\namd64 · consent prompt\n(the e2e never approves: SEC3)" as GAP <<error>>
 
 GO ARROW_MAIN BUILD
 BUILD ARROW_MAIN TI

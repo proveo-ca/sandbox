@@ -8,18 +8,11 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=cursor
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep cursor || true
-  set_working_directory "/app"
-  bridge_google_keys
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  bridge_google_keys
-  bridge_git_identity
-  report_git_context
-fi
+set_working_directory "/app"
+bridge_google_keys
+bridge_git_identity
+export PROVEO_SMOKE_TARGET=cursor
+env PROVEO_SMOKE_TEST= proveo-entrypoint prep cursor || true
 
 CURSOR_HOME="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"
 

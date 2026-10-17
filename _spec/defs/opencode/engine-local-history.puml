@@ -247,7 +247,10 @@ skinparam noteTextAlignment left
 ' to Docker" (2026-10-15); only PROVEO_HOME is temporary. [Inference] `sbx run`
 ' with no TTY and stdin at EOF does not return the agent's output, so e2e legs
 ' drive proveo on a pty. Each "[A]pprove all" saves a per-service binding in
-' the operator's ~/.config/sbx/credentials.yaml, which outlives the test.
+' the operator's ~/.config/sbx/credentials.yaml, which outlives the test — so
+' since SEC3 (2026-10-17) the e2e never approves: it fails naming the services
+' and asks for one interactive `proveo run <target>` (_spec/tests/
+' testing-strategy.puml).
 '
 ' ── RISKS AND RESIDUALS, RECORDED ──────────────────────────────────────────
 '   * D8: credentials live with the engine. V2 keeps tokens in SQLite beside

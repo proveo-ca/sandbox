@@ -7,7 +7,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
-	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 )
 
@@ -28,7 +27,7 @@ func TestFrameAgreesWithTheForm(t *testing.T) {
 		{"allow-all", "broker"}, {"balanced", "forward"}, {"deny-all", "broker"},
 	} {
 		f := stripForm(c.tier, c.creds)
-		fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "claudecode", "broker")(f, 0)
+		fr := topologyOf("claudecode", "broker")(f, 0)
 		if !strings.HasPrefix(fr.Caption, c.tier+" · "+c.creds) {
 			t.Errorf("%s/%s: caption %q does not name the selection", c.tier, c.creds, fr.Caption)
 		}
@@ -53,7 +52,7 @@ func TestEveryPostureLeavesTheProviderReachable(t *testing.T) {
 
 func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 	t.Parallel()
-	proj := topologyOf(manifest.Manifest{}, "opencode", "broker")
+	proj := topologyOf("opencode", "broker")
 	for _, c := range []struct {
 		level string
 		want  bool
@@ -74,7 +73,7 @@ func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	t.Parallel()
 	f := stripForm("allow-all", "") // no credentials row at all
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", "broker")(f, 0)
+	fr := topologyOf("cursor", "broker")(f, 0)
 	if fr.Key != choiceui.KeyAtHop {
 		t.Errorf("with no row to read, the key still lives at the sbx proxy, got %v", fr.Key)
 	}
@@ -86,7 +85,7 @@ func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 func TestForwardPutsTheKeyInTheSandbox(t *testing.T) {
 	t.Parallel()
 	f := stripForm("allow-all", "forward")
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", "broker")(f, 0)
+	fr := topologyOf("cursor", "broker")(f, 0)
 	if fr.Key != choiceui.KeyInSquare {
 		t.Errorf("forward rides the sandbox env, got %v", fr.Key)
 	}
@@ -222,7 +221,6 @@ func modelForm(model string) *choiceui.Form {
 
 func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 	t.Parallel()
-	man := manifest.Manifest{Docker: manifest.DockerSbx}
 	for _, c := range []struct {
 		option, square string
 		key            choiceui.KeyHome
@@ -232,7 +230,7 @@ func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 		{localModels[0].label(), "sbx · hermes + qwen3.8", choiceui.KeyNone},
 		{localModels[1].label(), "sbx · hermes + glimmer", choiceui.KeyNone},
 	} {
-		fr := topologyOf(man, "hermes", "broker")(modelForm(c.option), 0)
+		fr := topologyOf("hermes", "broker")(modelForm(c.option), 0)
 		if fr.Key != c.key || fr.Square != c.square {
 			t.Errorf("%q: key=%v square=%q, want key=%v square=%q", c.option, fr.Key, fr.Square, c.key, c.square)
 		}

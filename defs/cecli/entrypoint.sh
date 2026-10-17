@@ -8,15 +8,11 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=cecli
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep cecli || true
-  set_working_directory "/app"
-  bridge_google_keys
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-fi
+set_working_directory "/app"
+bridge_google_keys
+bridge_git_identity
+export PROVEO_SMOKE_TARGET=cecli
+env PROVEO_SMOKE_TEST= proveo-entrypoint prep cecli || true
 
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
@@ -40,12 +36,6 @@ has_cecli_agent_config() {
   done
   return 1
 }
-
-if ! command -v proveo-entrypoint >/dev/null 2>&1; then
-  bridge_google_keys
-  bridge_git_identity
-  report_git_context
-fi
 
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
   export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://host.docker.internal:11434}}"

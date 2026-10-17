@@ -14,9 +14,11 @@ skinparam noteTextAlignment left
 '   requireSandbox · resolveWorkspace · promptChoices · resolveCredentials ·
 '   buildPosture · assembleEnv · launchSandbox
 ' requireSandbox runs FIRST, before any workspace work, so a host that cannot
-' run sbx (or a manifest without `docker: sbx`) refuses before a prompt is
-' drawn. Since 2026-10-17 it checks nothing else: the PROVEO_SBX off-value stub
-' is gone, and Params.Shell went with `--shell`.
+' run sbx refuses before a prompt is drawn. Since 2026-10-17 it checks nothing
+' else: the PROVEO_SBX off-value stub is gone, Params.Shell went with `--shell`,
+' and the "manifest without `docker: sbx`" refusal went with the key (F10:
+' requireSandbox(p, d) takes no manifest, run.go:94; a stale key now fails
+' manifest loading instead).
 ' Spec's docker-only fields — SquidConfig, DockerSpec, BrokerFile, the
 ' inject/ and review/ dirs, the sidecar ModelSpec fields — are gone from
 ' spec.go; dockeregress.Input is gone with its package. selectBackend and

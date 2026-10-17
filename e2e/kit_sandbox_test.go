@@ -121,25 +121,24 @@ func TestKitDirsAddsOnlyALinkedWorktreesMain(t *testing.T) {
 	}
 }
 
-func TestAnApprovalIsAnsweredOncePerAppearance(t *testing.T) {
+func TestASbxConsentPromptNamesItsServices(t *testing.T) {
 	t.Parallel()
-	prompt := "sbx wants to allow 3 hosts\n[A]pprove all · [R]eview each · [N]o\n"
 	for _, c := range []struct {
-		name        string
-		screen      string
-		wasShowing  bool
-		wantDue     bool
-		wantShowing bool
+		name   string
+		screen string
+		want   string
+		wantOK bool
 	}{
-		{"it appears", prompt + "\n\n\n", false, true, true},
-		{"it is still up after the answer while a spinner turns", prompt + "⠋ approving\n", true, false, true},
-		{"lines printed below it", prompt + "a\nb\nc\n", false, true, true},
-		{"answered and scrolled past", prompt + "approved\nstarting agent\nseeding\nready\nmcp up\nlsp up\n", true, false, false},
-		{"it appears again after it left", prompt, false, true, true},
-		{"no question", "agent: ready\n", false, false, false},
+		{"sbx's frame with two services", "Starting sandbox\nThis kit wants to use these credentials:\n  opencode     API key → sent to .opencode.ai   (not set)\n  anthropic    API key → sent to .anthropic.com\n[A]pprove all · [R]eview each · [N]o:\n", "opencode, anthropic", true},
+		{"a bare prompt", "[A]pprove all · [R]eview each · [N]o:", "its credentials", true},
+		{"no prompt", "agent: ready\n", "", false},
 	} {
-		if due, showing := approvalDue(c.screen, c.wasShowing); due != c.wantDue || showing != c.wantShowing {
-			t.Errorf("approvalDue(%s) = due %v showing %v, want due %v showing %v", c.name, due, showing, c.wantDue, c.wantShowing)
+		got, ok := consentPrompt(c.screen)
+		if got != c.want || ok != c.wantOK {
+			t.Errorf("consentPrompt(%s) = %q, %v; want %q, %v", c.name, got, ok, c.want, c.wantOK)
 		}
+	}
+	if msg := consentFailure("opencode", "opencode"); !strings.Contains(msg, "approve opencode") || !strings.Contains(msg, "interactive `proveo run opencode`") {
+		t.Errorf("consentFailure = %q, want it to name the service and the one-time interactive run", msg)
 	}
 }

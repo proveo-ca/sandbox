@@ -18,9 +18,12 @@
 ' The user: "Keep 1+1, seed --env-file (Recommended)" (repo-simplification.puml
 ' N7). MEASURED: find_env_file is deleted, and load_env lost its sbx guard and
 ' its `set -a` sourcing of the workspace .env and is renamed bridge_google_keys
-' (entrypoint-lib.sh:49-62); every def entrypoint calls bridge_google_keys.
+' (entrypoint-lib.sh:49-62); every def entrypoint calls bridge_google_keys, in
+' the shell, BEFORE `proveo-entrypoint prep` (N1, 2026-10-17: prep keeps only the
+' passwd entry, the git-context report and the smoke sentinel —
+' _spec/cmd/proveo-entrypoint/prep-sequence.puml).
 ' internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
-' pins that neither the bash nor the Go prelude reads it. The project .env's
+' pins that neither the bash prelude nor prep reads it. The project .env's
 ' values now reach a NEW sandbox from the host, through sbx's own `--env-file`
 ' (_spec/internal/credentials/credential-decisions.puml, PROJECT .env).
 ' HISTORY: find_env_file tried ./.env, the git root (rev-parse, then a pure-bash
@@ -32,8 +35,9 @@
 ' settled on one spelling: GOOGLE_GENERATIVE_AI_API_KEY is filled from
 ' GEMINI_API_KEY or GOOGLE_API_KEY when absent, and once it is set the two older
 ' names are filled back from it for tools that read only those. Every bridge
-' fills an EMPTY slot and never overwrites, so a value the caller supplied wins
-' (TestBothPreludesBridgeTheGoogleKeyAliases).
+' fills an EMPTY slot and never overwrites, so a value the caller supplied wins.
+' Bash is the only implementation since N1 deleted Go BridgeGoogleKeys
+' (TestBashPreludeBridgesTheGoogleKeyAliases).
 '
 ' HISTORY: apply_broker_sentinel rewrote every name in
 ' PROVEO_CREDENTIAL_BROKER_KEYS to PROVEO_BROKER_SENTINEL ("proveo-brokered") so
@@ -81,7 +85,7 @@ title proveo run <target> — sandbox lifecycle\n(host resolves → sbx sandbox 
 start
 
 partition "0 · Refuse unless sbx can run it  «host»" {
-  :requireSandbox — no ""docker: sbx"" or sbx not ready\n→ refuse with the reason (no fallback);
+  :requireSandbox — sbx not ready\n→ refuse with the reason (no fallback; no manifest ""docker:"" key since F10);
 }
 
 partition "1 · LLM provider auth  «host»" {
@@ -134,9 +138,8 @@ partition "3 · Egress  «host + sbx»" {
 }
 
 partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh»" {
-  :ensure run-as uid (root-free) · workdir;
-  :no .env load — the image reads no workspace .env (N7);\n""bridge_google_keys"" fills the Google key aliases;
-  :git identity · ""gh"" auth check;
+  :in-shell prelude FIRST (N1): workdir · ""bridge_google_keys""\n· ""bridge_git_identity"" — no .env load (N7);
+  :""proveo-entrypoint prep"": run-as uid passwd entry (root-free)\n· git-context report · ""gh"" auth check · smoke sentinel;
   :seed BAKED defaults into ~/.<tool>\n(agents, config, hooks — image-immutable, offline);
   :tool setup via **jq** — cursor HTTP/1.1 fallback;
   :**code intelligence** — shared LSP detector\n(entrypoint-lib.sh §8: bash+awk) ranks workspace\nlanguages vs INSTALLED servers, ""command -v""-gated;

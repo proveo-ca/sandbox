@@ -245,35 +245,6 @@ func TestConfigPassthroughValidation(t *testing.T) {
 	}
 }
 
-func TestDockerModeAcceptsOnlyTheSandbox(t *testing.T) {
-	t.Parallel()
-	base := func(mode DockerMode) Manifest {
-		return Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
-	}
-	for _, mode := range []DockerMode{DockerNone, DockerSbx} {
-		if err := base(mode).Validate(); err != nil {
-			t.Errorf("docker %q must validate: %v", mode, err)
-		}
-	}
-	for _, mode := range []DockerMode{"dind", "podman"} {
-		if err := base(mode).Validate(); err == nil || !strings.Contains(err.Error(), "invalid docker") {
-			t.Errorf("docker %q must be rejected, got %v", mode, err)
-		}
-	}
-}
-
-func TestDockerModePredicatesAreExhaustive(t *testing.T) {
-	t.Parallel()
-	sbx := Manifest{Docker: DockerSbx}
-	none := Manifest{}
-	switch {
-	case !sbx.IsSbx() || !sbx.WantsDocker():
-		t.Errorf("docker: sbx predicates wrong: sbx=%v wants=%v", sbx.IsSbx(), sbx.WantsDocker())
-	case none.IsSbx() || none.WantsDocker():
-		t.Error("a harness with no docker mode must promise no daemon")
-	}
-}
-
 // agentEnv is delivered as an argv on both backends, in NAME order because the
 // plan goldens read it.
 func TestAgentEnv(t *testing.T) {
@@ -329,18 +300,6 @@ func TestAgentEnv(t *testing.T) {
 	ok.AgentEnv = map[string]string{"A": "1"}
 	if err := ok.Validate(); err != nil {
 		t.Errorf("disjoint names must validate: %v", err)
-	}
-}
-
-func TestDaemonFalseKeepsTheSandboxAndWithdrawsTheDaemon(t *testing.T) {
-	t.Parallel()
-	off := false
-	m := Manifest{Name: "hermes", Docker: DockerSbx, Daemon: &off}
-	if !m.IsSbx() || m.WantsDocker() {
-		t.Errorf("daemon: false → sbx=%v wants=%v; want the sandbox kept and the daemon withdrawn", m.IsSbx(), m.WantsDocker())
-	}
-	if on := (Manifest{Docker: DockerSbx}); !on.WantsDocker() {
-		t.Error("docker: sbx with no daemon key still promises one")
 	}
 }
 
@@ -401,5 +360,54 @@ func TestTransientPathsStayInsideTheMount(t *testing.T) {
 	m.Home.Mounts[0].Transient = []string{"jobs/*/tmp"}
 	if err := m.Validate(); err != nil {
 		t.Errorf("Validate() rejected transient %q: %v", "jobs/*/tmp", err)
+	}
+}
+
+func TestAHomeMountMayOmitItsContainerPath(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, mounts string
+		wantErr      bool
+	}{
+		{"a direct bind with no container path", "    - host: hermes/data\n", false},
+		{"two direct binds", "    - host: a\n    - host: b\n", false},
+		{"a relative container path", "    - host: a\n      container: data\n", true},
+	} {
+		_, err := Parse([]byte("name: x\nimages:\n  x: proveo/x:latest\nhome:\n  enabled: true\n  mounts:\n"+c.mounts), "")
+		if (err != nil) != c.wantErr {
+			t.Errorf("Parse(%s) error = %v, want error %v", c.name, err, c.wantErr)
+		}
+	}
+}
+
+func TestDaemonIsTheOneDaemonKnob(t *testing.T) {
+	t.Parallel()
+	off, on := false, true
+	for _, c := range []struct {
+		name   string
+		daemon *bool
+		want   bool
+	}{
+		{"no daemon key", nil, true},
+		{"daemon: true", &on, true},
+		{"daemon: false", &off, false},
+	} {
+		if got := (Manifest{Daemon: c.daemon}).WantsDocker(); got != c.want {
+			t.Errorf("WantsDocker(%s) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAStaleManifestKeyFailsLoading(t *testing.T) {
+	t.Parallel()
+	const base = "name: x\nimages:\n  x: proveo/x:latest\n"
+	if _, err := Parse([]byte(base+"daemon: false\n"), ""); err != nil {
+		t.Fatalf("Parse(a current manifest) = %v", err)
+	}
+	for _, key := range []string{"docker: sbx", "egress: true", "provider: cursor"} {
+		_, err := Parse([]byte(base+key+"\n"), "")
+		if name, _, _ := strings.Cut(key, ":"); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("Parse(%q) error = %v, want it to name the stale key %q", key, err, name)
+		}
 	}
 }

@@ -12,6 +12,15 @@
 ' Nothing enforces that today. If a future change ever writes those variables
 ' again, this is the trap it must not walk into.
 '
+' UPDATE 2026-10-17 (N1, MEASURED; repo-simplification.puml N1, N2): the Go side
+' of what is left is DELETED too — internal/entrypoint holds only
+' EnsureRuntimeUser, SmokeReady and firstNonEmpty; ApplyEnvBridges,
+' BridgeGoogleKeys and NormalizeModel are gone with their tests. The bash
+' remnant is apply_env_bridges / _apply_env_bridge (credential aliases only),
+' _normalize_model and the uncalled _model_provider (entrypoint-lib.sh:254-292),
+' still PROPOSED for deletion under N2. The "Go/bash parity" and "two consumers"
+' text below therefore describes a Go side that no longer exists.
+'
 ' ── VENDOR-LOCKED SLOTS: WHY A FILTER, AND WHY DECLARED ────────────────────
 ' A slot may name the only provider it accepts (column 6 of the TSV). Today that
 ' is claudecode's two: ANTHROPIC_MODEL and ANTHROPIC_SMALL_FAST_MODEL.

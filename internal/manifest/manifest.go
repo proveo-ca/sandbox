@@ -2,7 +2,10 @@
 package manifest
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -54,7 +57,6 @@ type Home struct {
 type Manifest struct {
 	Name         string            `yaml:"name"`
 	Description  string            `yaml:"description"`
-	Docker       DockerMode        `yaml:"docker"`       // sbx: the only mode proveo run accepts
 	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
 	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
 	Kind         string            `yaml:"kind"`         // coding (default) | assistant: no toolchain, dependency or LSP provisioning
@@ -67,19 +69,8 @@ type Manifest struct {
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Dir          string            `yaml:"-"` // def directory (set by Load)
 
-	// Daemon: false keeps a harness on the sbx backend without promising its
-	// agent a Docker daemon (hermes: not a coding agent).
-	Daemon *bool `yaml:"daemon"`
+	Daemon *bool `yaml:"daemon"` // false: the sandbox promises its agent no Docker daemon
 }
-
-// DockerMode is how a harness hands its agent a Docker daemon: `sbx` runs the
-// agent in a sandbox VM that has its own daemon, behind a boundary.
-type DockerMode string
-
-const (
-	DockerNone DockerMode = ""    // loads, and proveo run refuses it
-	DockerSbx  DockerMode = "sbx" // docker sandboxes (internal/sbx)
-)
 
 // KindAssistant marks a general assistant: the seed provisions no toolchain,
 // dependency trees or language servers for it.
@@ -88,13 +79,9 @@ const KindAssistant = "assistant"
 // IsAssistant reports whether the harness is a general assistant, not a coding agent.
 func (m Manifest) IsAssistant() bool { return m.Kind == KindAssistant }
 
-// IsSbx reports whether this harness runs on the sandbox backend.
-func (m Manifest) IsSbx() bool { return m.Docker == DockerSbx }
-
-// WantsDocker reports whether the agent is promised a daemon at all — the half
-// of the contract the image must honour by shipping a docker client.
+// WantsDocker reports whether the agent is promised a Docker daemon in its sandbox.
 func (m Manifest) WantsDocker() bool {
-	return m.Docker != DockerNone && (m.Daemon == nil || *m.Daemon)
+	return m.Daemon == nil || *m.Daemon
 }
 
 type Capabilities struct {
@@ -196,14 +183,6 @@ func (m Manifest) Validate() error {
 			}
 		}
 	}
-	switch m.Docker {
-	case DockerNone, DockerSbx:
-	default:
-		return fmt.Errorf("manifest %q: invalid docker %q (want %q)", m.Name, m.Docker, DockerSbx)
-	}
-	if m.Daemon != nil && m.Docker == DockerNone {
-		return fmt.Errorf("manifest %q: daemon: only qualifies docker: %s — without it no daemon is promised anyway", m.Name, DockerSbx)
-	}
 	switch m.Kind {
 	case "", "coding", KindAssistant:
 	default:
@@ -291,7 +270,7 @@ func (h Home) validate(name string) error {
 		if filepath.IsAbs(m.Host) || strings.Contains(m.Host, "..") {
 			return fmt.Errorf("manifest %q: home.mounts[%d]: host %q must be relative to PROVEO_HOME (no ..)", name, i, m.Host)
 		}
-		if !strings.HasPrefix(m.Container, "/") {
+		if m.Container != "" && !strings.HasPrefix(m.Container, "/") {
 			return fmt.Errorf("manifest %q: home.mounts[%d]: container %q must be absolute", name, i, m.Container)
 		}
 		switch m.Mode {
@@ -302,11 +281,11 @@ func (h Home) validate(name string) error {
 		if seenHost[m.Host] {
 			return fmt.Errorf("manifest %q: duplicate home.mount host %q", name, m.Host)
 		}
-		if seenCtr[m.Container] {
+		if m.Container != "" && seenCtr[m.Container] {
 			return fmt.Errorf("manifest %q: duplicate home.mount container %q", name, m.Container)
 		}
 		seenHost[m.Host] = true
-		seenCtr[m.Container] = true
+		seenCtr[m.Container] = m.Container != ""
 	}
 	return nil
 }
@@ -318,7 +297,9 @@ func (h Home) Active() bool {
 
 func Parse(data []byte, dir string) (Manifest, error) {
 	var m Manifest
-	if err := yaml.Unmarshal(data, &m); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) {
 		return Manifest{}, fmt.Errorf("manifest %s: %w", dir, err)
 	}
 	m.Dir = dir

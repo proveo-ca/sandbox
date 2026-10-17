@@ -125,7 +125,7 @@ func TestAwaitSeedGatesOnlyProveoLaunchedSbxSessions(t *testing.T) {
 	await := filepath.Join(repoRoot(t), "packages", "lib", "proveo-await-seed")
 	run := func(vmID, workdir, marker, wait string) (string, time.Duration) {
 		cmd := exec.Command(sh, await, "echo", "LAUNCHED")
-		cmd.Env = append(cmd.Environ(), "SANDBOX_VM_ID="+vmID, "PROVEO_WORKDIR="+workdir,
+		cmd.Env = append(outsideSbx(cmd.Environ()), "SANDBOX_VM_ID="+vmID, "PROVEO_WORKDIR="+workdir,
 			"PROVEO_INSTRUCTIONS_MARKER="+marker, "PROVEO_INSTRUCTIONS_WAIT="+wait)
 		start := time.Now()
 		out, _ := cmd.CombinedOutput()

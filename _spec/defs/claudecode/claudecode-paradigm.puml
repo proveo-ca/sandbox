@@ -147,8 +147,8 @@ note right of CLI
   never took the privileged sibling — its permission
   posture depends on the boundary that sidecar's one
   allowed mode removes — and now nothing does
-  (_spec/_paradigms/retire-dind.puml). ""docker: sbx"" is the
-  whole story: the image carries
+  (_spec/_paradigms/retire-dind.puml). The sandbox is the
+  whole story (no manifest ""docker:"" key since F10): the image carries
   ""com.docker.sandboxes.start-docker"" and the daemon runs
   in the microVM, behind the boundary.
 end note

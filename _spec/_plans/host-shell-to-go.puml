@@ -133,8 +133,10 @@ title Host shell → Go: retire every bash script the operator's Mac executes
 '       * GAP: claudecode's provider checks sourced defs/lib/egress.sh, which
 '         ran the proveo-egress binary. ccEgress (claudecode_test.go) calls
 '         provider.Detect and egress.ProviderAllowConf directly instead. The
-'         binary also reads PROVEO_EGRESS_ENV_FILE; the port ignores it, so
-'         that input has no image-suite coverage.
+'         binary also read PROVEO_EGRESS_ENV_FILE; the port ignores it, so
+'         that input has no image-suite coverage. (The proveo-egress binary is
+'         deleted with D1, and the host variable is PROVEO_ENV_FILE since F17,
+'         2026-10-17, the old name a deprecated alias.)
 '       * Only the <cmd> strings survive, verbatim, inside the Go files; they
 '         still run in the image under Debian bash 5.
 ' P4  lib/ + scripts/ — ui/registry/helpers callers and go-test-coverage.sh /

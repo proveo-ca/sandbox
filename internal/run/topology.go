@@ -8,10 +8,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
-func topologyOf(man manifest.Manifest, target string, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
+func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
 		tier := egressTier(f, cursor, "")
 		creds := f.Selection("credentials")
@@ -30,7 +29,7 @@ func topologyOf(man manifest.Manifest, target string, credsDefault string) func(
 		fr := choiceui.Frame{
 			Host:      hostAccount(),
 			HostOS:    "(" + hostPlatform() + ")",
-			Square:    squareWith(squareOf(man, target), model),
+			Square:    squareWith(squareOf(target), model),
 			Hop:       "sbx proxy",
 			Interface: interfaceOf(f),
 			Key:       key,
@@ -107,11 +106,8 @@ func squareWith(square, model string) string {
 	return square + " + " + model
 }
 
-func squareOf(man manifest.Manifest, target string) string {
-	if man.Docker == manifest.DockerSbx {
-		return "sbx · " + target
-	}
-	return target
+func squareOf(target string) string {
+	return "sbx · " + target
 }
 
 func interfaceOf(f *choiceui.Form) string {

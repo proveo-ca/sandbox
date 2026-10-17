@@ -26,20 +26,23 @@ Every harness runs as a non-root user, never root
 - **The runner** (`proveo run`, `internal/run`) launches every agent in sbx, which runs the
  image's baked user (uid 1000). Every Kit startup step proveo writes (`internal/sbx/kit.go`)
  declares `user: "1000"`, except the one root step that creates a linked worktree's directory.
+ In-image code detects sbx through `_proveo_in_sbx`: `SANDBOX_NAME`, then `SANDBOX_ID`, then
+ `SANDBOX_VM_ID` (`packages/lib/entrypoint-lib.sh`; `packages/lib/proveo-await-seed` repeats it in sh).
 - **Images** bake a non-root default user (uid 1000) and set `USER`, so even a bare
  `docker run` without the wrapper is never root. Use the shared create-or-rename block
  (`ARG USER_ID=1000` / `ARG USER_NAME=<harness>`; see any existing `defs/*/Dockerfile`) so
  base images that already ship uid 1000 are renamed instead of duplicated. Strip
  setuid/setgid bits and remove raw network helpers (`nc`, `netcat`, `netstat`, `ss`).
-- **Entrypoints** call the shared `ensure_runtime_user` helper
- (`packages/lib/entrypoint-lib.sh` / `proveo-entrypoint`) first: it gives an arbitrary run-as
- uid a passwd identity and a writable `HOME` without root. There is no gosu and no
+- **Entrypoints** get the runtime user from the shared prelude: sourcing
+ `packages/lib/entrypoint-lib.sh` gives an unwritable `HOME` a writable fallback, and
+ `proveo-entrypoint prep` (or `ensure_runtime_user` where a def runs no prep) gives an
+ arbitrary run-as uid a passwd identity, without root. There is no gosu and no
  in-container privilege drop; this is one generic helper, identical across harnesses. Never
  reintroduce gosu, sudo, or per-image uid branching.
 
 Also from that commit, and equally required: bake `git` and `gh` into every harness image,
 forward the developer's identity via `internal/gitidentity` in `proveo run`, and bridge it
-file-free with `proveo-entrypoint` / `BridgeGitIdentity` in the entrypoint.
+file-free with `bridge_git_identity` (`packages/lib/entrypoint-lib.sh`) in the entrypoint.
 
 ## Secrets and `.env` mounts (required)
 
@@ -76,9 +79,10 @@ The boundary is asserted in Go (`go test ./internal/contract/ ./internal/verify/
 (`mise run test-defs <name>` or `proveo test <name>`).
 When you add a definition:
 
-1. Add its entrypoint to the `ensure_runtime_user` / no-gosu loop and add wrapper
- (git identity) and Dockerfile (`USER ${USER_NAME}`, no gosu, git/gh) assertions.
-2. Prefer `proveo-entrypoint` for shared prelude; keep harness-specific launch in `entrypoint.sh`.
+1. Add its entrypoint to the prelude / no-gosu loop (`TestEntrypointsRunTheShellPreludeThenPrep`)
+ and add wrapper (git identity) and Dockerfile (`USER ${USER_NAME}`, no gosu, git/gh) assertions.
+2. Run the shared bash prelude (`set_working_directory`, `bridge_google_keys`, `bridge_git_identity`),
+ then `proveo-entrypoint prep <name>`; keep harness-specific launch in `entrypoint.sh`.
 3. Cover the runtime posture in the definition's image suite, `internal/imagetest/<name>_test.go`
  (build tag `image`, func `TestImage<Name>`): runs as the baked user, no setuid binaries, no `nc`.
 4. Run `mise run ci` (or `go test ./internal/contract/`) — it must pass.

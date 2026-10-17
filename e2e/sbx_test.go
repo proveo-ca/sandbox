@@ -126,7 +126,7 @@ func printOnlyRunErr(t *testing.T, workdir string, extraEnv []string, target str
 	return string(out), err
 }
 
-var sandboxHarnesses = dockerTargets(manifest.Manifest.IsSbx)
+var sandboxHarnesses = dockerTargets(func(manifest.Manifest) bool { return true })
 
 // daemonHarnesses are the sbx harnesses whose agent is promised a daemon.
 var daemonHarnesses = dockerTargets(manifest.Manifest.WantsDocker)
@@ -391,23 +391,35 @@ func brokenPrompt(screen string) string {
 	return ""
 }
 
-// answerSbxPrompt takes the default once each time sbx's own operator question
-// appears on the visible screen, which a run on a PTY is expected to answer rather
-// than trip over, and returns whether the question is showing now.
-func answerSbxPrompt(sess *tmux.Session, screen string, wasShowing bool) bool {
-	due, showing := approvalDue(screen, wasShowing)
-	if due {
-		_ = sess.SendText("A")
-		_ = sess.Enter()
+// consentPrompt is the services sbx asks the operator to approve when screen shows its
+// credential prompt; a prompt without sbx's frame names "its credentials".
+func consentPrompt(screen string) (string, bool) {
+	lines := strings.Split(screen, "\n")
+	at := -1
+	for i, l := range lines {
+		if strings.Contains(l, "[A]pprove all") {
+			at = i
+		}
 	}
-	return showing
+	if at < 0 {
+		return "", false
+	}
+	var services []string
+	for i := at - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(l, "This kit wants to use these credentials") {
+			return strings.Join(services, ", "), true
+		}
+		if f := strings.Fields(l); len(f) > 0 {
+			services = append([]string{f[0]}, services...)
+		}
+	}
+	return "its credentials", true
 }
 
-// approvalDue reports whether sbx's approval question sits in the last lines of
-// screen, and whether it just appeared there.
-func approvalDue(screen string, wasShowing bool) (due, showing bool) {
-	showing = strings.Contains(tail(screen, 6), "[A]pprove all")
-	return showing && !wasShowing, showing
+// consentFailure is how a leg fails when sbx asks consent for services: the e2e never approves.
+func consentFailure(services, target string) string {
+	return fmt.Sprintf("sbx asks to approve %s; approve once with an interactive `proveo run %s`, then rerun — the e2e never approves a credential binding", services, target)
 }
 
 func renderKit(t *testing.T, target string) string {
@@ -421,7 +433,7 @@ func renderKit(t *testing.T, target string) string {
 	cmd.Dir = repoRoot(t)
 	cmd.Env = append(os.Environ(),
 		"PROVEO_HOME="+t.TempDir(),
-		"PROVEO_EGRESS_ROOT="+state,
+		"PROVEO_STATE_ROOT="+state,
 		"PROVEO_WIZARD=off",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -435,27 +447,6 @@ func renderKit(t *testing.T, target string) string {
 		t.Fatalf("%s: --print rendered no Kit under %s", target, state)
 	}
 	return filepath.Dir(matches[0])
-}
-
-func TestEveryDaemonPromiseIsCoveredBySbx(t *testing.T) {
-	t.Parallel()
-	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
-	if err != nil {
-		t.Fatalf("load manifests: %v", err)
-	}
-	if len(sandboxHarnesses) == 0 {
-		t.Fatal("no def declares docker: sbx — the only daemon branch is empty, so this suite tests nothing")
-	}
-	for _, m := range ms {
-		if !m.WantsDocker() {
-			continue
-		}
-		if !contains(sandboxHarnesses, m.Name) {
-			t.Errorf("%s declares docker: %s but is not in the sbx branch, and there is no other branch left "+
-				"(sbx=%v)", m.Name, m.Docker, sandboxHarnesses)
-		}
-	}
-	t.Logf("docker access coverage: sbx=%v", sandboxHarnesses)
 }
 
 func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
@@ -598,8 +589,7 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 		})
 	}
 
-	// Claim 3 — the daemon. This is the whole point of `docker: sbx` now that it is
-	// the only way a harness gets one.
+	// Claim 3 — the daemon.
 	assertSandboxSuppliesDocker(t, target, probeReport(pane))
 
 	// Claim 4 — teardown. SIGTERM rather than killing the pane, so the run's own

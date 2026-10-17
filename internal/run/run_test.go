@@ -21,31 +21,18 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-func TestExecutionRowOffersTheSandboxOrNothing(t *testing.T) {
+func TestExecutionRowOffersTheHostAndTheSandbox(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []manifest.DockerMode{manifest.DockerNone, manifest.DockerSbx} {
-		man := manifest.Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
-		opts := addonOptions(man, rowExecution)
-		switch mode {
-		case manifest.DockerSbx:
-			if !slices.Equal(opts, []string{addonHost, addonSandbox}) {
-				t.Errorf("docker: sbx must offer exactly the host and %q, got %v", addonSandbox, opts)
-			}
-		default:
-			// "host" alone: the plane still states what it excludes, and there is no
-			// daemon to offer beside it.
-			if !slices.Equal(opts, []string{addonHost}) {
-				t.Errorf("a harness with no docker mode must be offered no daemon, got %v", opts)
-			}
-		}
+	opts := addonOptions(manifest.Manifest{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}}, rowExecution)
+	if !slices.Equal(opts, []string{addonHost, addonSandbox}) {
+		t.Errorf("execution row = %v, want the host and %q", opts, addonSandbox)
 	}
 }
 
 func TestEachPlaneOffersOnlyItsOwnKindOfChoice(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
-		Name: "claudecode", Docker: manifest.DockerSbx,
-		Images:       map[string]string{"claudecode": "i", "claudecode-browser": "i"},
+		Name: "claudecode", Images: map[string]string{"claudecode": "i", "claudecode-browser": "i"},
 		Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"},
 	}
 	exec := addonOptions(man, rowExecution)
@@ -405,28 +392,10 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 	}
 }
 
-func TestAddonOptionsOffersTheDockerSandbox(t *testing.T) {
-	t.Parallel()
-	man := manifest.Manifest{
-		Name:   "claudecode",
-		Docker: manifest.DockerSbx,
-		Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
-	}
-	got := addonOptions(man, rowExecution)
-	want := []string{addonHost, addonSandbox}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("execution options mismatch (-want +got):\n%s", diff)
-	}
-	if opts := addonOptions(manifest.Manifest{Name: "nodaemon"}, rowExecution); slices.Contains(opts, addonSandbox) {
-		t.Errorf("a harness with no docker mode must not be offered the sandbox: %v", opts)
-	}
-}
-
 func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
 		Name:         "claudecode",
-		Docker:       manifest.DockerSbx,
 		Images:       map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
 		Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"},
 	}
@@ -434,7 +403,7 @@ func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T)
 	if diff := cmp.Diff(want, addonOptions(man, rowInterface)); diff != "" {
 		t.Errorf("interface options mismatch (-want +got):\n%s", diff)
 	}
-	if opts := addonOptions(manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}, rowInterface); slices.Contains(opts, addonChrome) {
+	if opts := addonOptions(manifest.Manifest{Name: "cursor"}, rowInterface); slices.Contains(opts, addonChrome) {
 		t.Errorf("no hostBrowser capability, yet offered %q: %v", addonChrome, opts)
 	}
 	// Off by default: the picker never pre-ticks a box that hands the agent the
@@ -694,8 +663,7 @@ func TestEgressRowShowsTheHostBaseline(t *testing.T) {
 
 func claudecodeMan() manifest.Manifest {
 	return manifest.Manifest{
-		Name: "claudecode", Subscription: true, Docker: manifest.DockerSbx,
-		Env: []manifest.EnvVar{
+		Name: "claudecode", Subscription: true, Env: []manifest.EnvVar{
 			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
 			{Name: "ANTHROPIC_API_KEY", Secret: true},
 		},
@@ -842,7 +810,7 @@ func TestTheNoCredentialNoticeIsOneLine(t *testing.T) {
 
 func TestThePostureNamesTheCredentialRouteThatWillHappen(t *testing.T) {
 	t.Parallel()
-	rs := &Spec{Man: manifest.Manifest{Name: "cursor", Docker: manifest.DockerSbx}}
+	rs := &Spec{Man: manifest.Manifest{Name: "cursor"}}
 	if got := credentialsPosture(rs, &Params{Credentials: "forward"}); !strings.HasPrefix(got, "forward") {
 		t.Errorf("forward puts the key in the sandbox env, but the posture says %q", got)
 	}

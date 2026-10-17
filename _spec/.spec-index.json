@@ -198,6 +198,8 @@
         "cmd/proveo/main.go",
         "cmd/proveo/wizard.go",
         "internal/run/run.go",
+        "internal/run/helpers.go",
+        "internal/run/env_names_test.go",
         "e2e/claudecode_auth_test.go",
         "e2e/opencode_auth_test.go",
         "e2e/credentials_test.go",
@@ -445,14 +447,19 @@
       "spec": "_spec/cmd/proveo-entrypoint/prep-process-boundary.puml",
       "covers": [
         "cmd/proveo-entrypoint/**",
-        "packages/lib/entrypoint-lib.sh"
+        "packages/lib/entrypoint-lib.sh",
+        "internal/entrypoint/**",
+        "internal/contract/contract_test.go",
+        "internal/contract/env_prelude_test.go"
       ],
       "fingerprint": null
     },
     {
       "spec": "_spec/cmd/proveo-entrypoint/prep-sequence.puml",
       "covers": [
-        "cmd/proveo-entrypoint/**"
+        "cmd/proveo-entrypoint/**",
+        "defs/*/entrypoint.sh",
+        "defs/claudecode/mcp/entrypoint.sh"
       ],
       "fingerprint": null
     },
@@ -1317,7 +1324,9 @@
         "internal/run/run.go",
         "internal/entrypoint/entrypoint.go",
         "packages/lib/entrypoint-lib.sh",
+        "packages/lib/proveo-await-seed",
         "internal/contract/env_prelude_test.go",
+        "internal/contract/sbx_passthrough_test.go",
         "e2e/sbx_test.go",
         "e2e/idle_test.go",
         "e2e/chrome_bridge_sbx_test.go",
@@ -1699,6 +1708,11 @@
         "internal/contract/seed_command_shipped_test.go",
         "internal/contract/agent_launch_guard_test.go",
         "internal/contract/spec_notes_test.go",
+        "internal/contract/sbx_passthrough_test.go",
+        "packages/lib/proveo-await-seed",
+        "defs/claudecode/mcp/Dockerfile",
+        "internal/contract/instructions_seed_test.go",
+        "e2e/seed_ready_test.go",
         "internal/imagetest/*_test.go",
         "internal/contract/seed_shares_test.go",
         "internal/contract/seed_phase_test.go"
@@ -1915,7 +1929,10 @@
       "spec": "_spec/defs/hermes/hermes-persistence.puml",
       "covers": [
         "defs/hermes/entrypoint.sh",
-        "internal/imagetest/hermes_test.go"
+        "internal/imagetest/hermes_test.go",
+        "defs/hermes/harness.manifest",
+        "internal/manifest/manifest.go",
+        "internal/contract/config_set_test.go"
       ],
       "fingerprint": null
     }

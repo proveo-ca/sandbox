@@ -3,6 +3,31 @@
 ' covers: internal/manifest/**
 ' covers: defs/*/harness.manifest
 ' covers: embed.go
+'
+' ── F10 (DONE (wt) 2026-10-17): NO `docker:` KEY; `daemon:` IS THE ONE KNOB ─
+' Part of the user's "apply fixes for SEC2, SEC3, N1, F18, F10, …"
+' (repo-simplification.puml F10, option 1). MEASURED: Manifest.Docker,
+' DockerMode, its constants and IsSbx are deleted, and no defs/*/harness.manifest
+' declares `docker:`. Every harness runs in sbx, so the key said nothing.
+' `daemon:` (Daemon *bool, manifest.go:72) is the only daemon knob:
+' WantsDocker() = Daemon == nil || *Daemon (:82-84) — hermes's `daemon: false`
+' is the one def that withdraws the daemon; e2e/sbx_test.go builds its
+' docker-access matrix from WantsDocker (:131-132). Parse decodes with yaml
+' KnownFields(true) (:301), so a STALE key fails loading and names itself —
+' TestAStaleManifestKeyFailsLoading (manifest_test.go:401) pins `docker: sbx`,
+' `egress: true` and `provider: cursor`; TestDaemonIsTheOneDaemonKnob (:383)
+' pins the three daemon cases. Deleted as tautologies with the key (reported):
+' TestDockerModeAcceptsOnlyTheSandbox, TestDockerModePredicatesAreExhaustive,
+' TestDaemonFalseKeepsTheSandboxAndWithdrawsTheDaemon,
+' TestEveryDaemonPromiseIsTheSandbox, TestEveryHarnessRunsInTheSandbox,
+' TestSubscriptionHarnessesRunOnTheSandboxBackend,
+' TestCursorTakesDockerFromTheSandboxBackend, TestManifestIgnoresUnknownTopLevelKeys
+' (KnownFields contradicts it), TestEveryDaemonPromiseIsCoveredBySbx (e2e) and
+' TestAddonOptionsOffersTheDockerSandbox. The note on M below keeps the history.
+' F19 (2026-10-17): a home mount may omit `container:` — a direct bind at its
+' host path; container duplicates are checked only when one is set
+' (manifest.go:273-288; TestAHomeMountMayOmitItsContainerPath, manifest_test.go:366;
+' _spec/defs/hermes/hermes-persistence.puml).
 ' ── agentEnv IS A THIRD KIND OF VARIABLE, AND THE DISTINCTION MATTERS ──────
 ' NAME: value pairs handed to the agent on EVERY backend unless the operator
 ' sets NAME themselves. It is neither `env` — variables the OPERATOR supplies,
@@ -23,7 +48,7 @@ class "Manifest\ndefs/<name>/harness.manifest" as M <<app>> {
   name : string
   description : string
   --
-  docker : sbx|(absent → proveo run refuses)
+  daemon : bool  (absent → true; false withdraws the daemon)
   subscription : bool
   stability : experimental|candidate|stable
   --
@@ -46,7 +71,7 @@ class "Home\nhome:" as H <<app>> {
 
 class "HomeMount\nhome.mounts[]" as HM <<db>> {
   host : string  (relative to PROVEO_HOME)
-  container : string  (absolute)
+  container : string  (absolute; optional — absent = a direct bind)
   mode : rw | ro
   deny : []string  (basenames scrubbed each run)
 }
@@ -85,35 +110,25 @@ note right of M
   ""provider: cursor"" (Manifest.Provider, the docker
   broker's vendor pin). Nothing read either. Vendor
   pinning lives only in ""capabilities.providers"".
-  **""docker:"" is an ENUM with one value left.** It names how a
-  harness's containerisation need is met, and after
-  _spec/_paradigms/retire-dind.puml there is one way to meet it:
-  ""sbx"", where the microVM IS the isolation and the daemon runs
-  inside it. A missing ""docker:"" LOADS (DockerNone, "loads, and
-  proveo run refuses it"), and ""proveo run"" then refuses with
-  "does not declare `docker: sbx`". MEASURED 2026-10-17 (the user:
-  "Drop all four" — dind, sandbox_docker, egress, provider): the
-  ""docker: dind"" special case, RetiredDind, RetiredSandboxDocker
-  and TestRetiredDockerDindIsRefused are deleted. ""dind"" now falls
-  into the generic ""invalid docker \"dind\" (want \"sbx\")"", and a
-  stale ""dind:"" / ""sandbox_docker:"" / ""egress:"" / ""provider:""
-  key loads silently like any unknown key (no KnownFields).
-  HISTORY: until then ""dind"" had its own refusal naming the
-  repair, and the retired keys were parsed so silence could not
-  read as a typo.
+  **No ""docker:"" key since F10 (2026-10-17).** Every harness runs
+  in sbx, so the key carried no information; a stale one now fails
+  loading by name (KnownFields). HISTORY: ""docker:"" was an ENUM
+  with one value left, ""sbx"" — a missing one loaded and ""proveo
+  run"" refused with "does not declare `docker: sbx`"; before
+  2026-10-17 ""docker: dind"" had its own refusal, and stale
+  ""dind:"" / ""sandbox_docker:"" / ""egress:"" / ""provider:"" keys
+  loaded silently.
 
-  **""daemon: false"" splits the backend from the promise.**
-  ""docker: sbx"" used to mean both "runs in an sbx sandbox" and
-  "the agent gets a daemon". hermes is a general assistant, not a
-  coding agent, on an upstream base with no Docker Engine, so it
-  keeps the sandbox and withdraws the daemon (decided 2026-09-29).
-  ""WantsDocker"" is ""IsSbx"" minus that; the docker-access matrix
-  iterates ""WantsDocker"", the backend suites keep ""IsSbx"".
+  **""daemon: false"" is the one daemon knob.** hermes is a general
+  assistant, not a coding agent, on an upstream base with no Docker
+  Engine, so it keeps the sandbox and withdraws the daemon (decided
+  2026-09-29). ""WantsDocker"" = ""daemon"" absent or true, and the
+  docker-access matrix iterates it.
 
   **The promise is asserted for EVERY def that makes it, and
   there is now one way to assert it.** The e2e matrix
   (""TestEveryHarnessGetsTheDockerAccessItPromises"") is derived
-  from the manifests and runs one probe: an ""IsSbx"" def must
+  from the manifests and runs one probe: a ""WantsDocker"" def must
   REACH a daemon inside its sandbox. That verdict is INVERTED
   from the one it replaces, which required the sandbox to reach
   none — true while no proveo image carried
@@ -138,12 +153,13 @@ note right of M
   hid the gap this replaced: the sbx half silently SKIPPED on
   every host without the CLI, so ""docker: sbx"" was an unasserted
   claim for as long as it took someone to install ""sbx"".
-  ""TestEveryDaemonPromiseIsCoveredBySbx"" keeps that guard with
-  one branch instead of two — every promising def covered, and
-  the branch not empty — so an empty matrix cannot report
-  success by testing nothing.
+  ""TestEveryDaemonPromiseIsCoveredBySbx"" kept that guard until
+  F10 deleted it as a tautology (every harness is sbx now); the
+  matrix itself still fails when empty ("no def promises a docker
+  daemon — the matrix cannot be empty", e2e/sbx_test.go:456-457).
 
-  Validated by ""Manifest.Validate"" at load; ""Targets""
+  Validated by ""Manifest.Validate"" at load, after a strict
+  decode (KnownFields: an unknown key fails); ""Targets""
   flattens ""images"" across defs and rejects a duplicate
   target name.
 

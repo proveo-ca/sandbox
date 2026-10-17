@@ -167,10 +167,10 @@ end note
 note right of RunFlags
 ""proveo run <target>"" applies to every
 harness with a manifest (cecli, claudecode*,
-opencode, cursor, codex, hermes). Every manifest
-declares ""docker: sbx"", which puts the run in a
-sandbox with its own daemon; a host without sbx
-refuses the run.
+opencode, cursor, codex, hermes). Every run goes
+to an sbx sandbox with its own daemon (hermes:
+""daemon: false""); a host without sbx refuses
+the run. No manifest declares ""docker:"" (F10).
 end note
 
 note bottom of Egress

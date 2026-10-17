@@ -9,6 +9,9 @@ terminal=0
 ticks=0
 last_label=""
 last_tick=-25
+_proveo_in_sbx() {
+  [ -n "${SANDBOX_NAME:-}" ] || [ -n "${SANDBOX_ID:-}" ] || [ -n "${SANDBOX_VM_ID:-}" ]
+}
 seed_progress_clear() {
   if [ "$progress" = 1 ] && [ "$terminal" = 1 ]; then
     printf '\r\033[2K' >&2
@@ -29,7 +32,7 @@ seed_progress_update() {
   fi
   last_label="$label"
 }
-if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
+if _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
   if [ "${PROVEO_SEED_PROGRESS:-}" = 1 ]; then
     progress=1
     if [ -t 2 ] && [ "${TERM:-}" != dumb ]; then terminal=1; fi
@@ -48,7 +51,7 @@ if [ -n "${SANDBOX_VM_ID:-}" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marke
   if [ "$progress" = 1 ]; then trap - INT TERM HUP; fi
   [ -e "$marker" ] || [ -e "$refused" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
 fi
-if [ -n "${SANDBOX_VM_ID:-}" ] && [ -s "$refused" ]; then
+if _proveo_in_sbx && [ -s "$refused" ]; then
   echo "proveo: the seed did not release the agent — $(cat "$refused")" >&2
   [ "${1:-}" = "--cwd" ] || exit 1
 fi

@@ -210,10 +210,10 @@ note as N_AUTH_RUN
 end note
 
 note as N_AUTH_PRED
-  ""credentials.HasUsableAuth"" is the shared
-  predicate: a login on disk, the harness's own
-  plan credential, or a provider key it can spend.
-  SPEC: internal/credentials/credential-decisions
+  ""NeedsSandboxLogin"" asks it inline: a login on
+  disk, a store-held or plan credential, or a
+  provider key it can spend (HasUsableAuth, the
+  shared predicate, is deleted with N18).
 end note
 
 note as N_AUTH_VOICE

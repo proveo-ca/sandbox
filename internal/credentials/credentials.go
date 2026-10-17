@@ -69,13 +69,6 @@ func AvailableAuthVarsIn(man manifest.Manifest, lookup func(string) string, targ
 	return out
 }
 
-// HasUsableAuth reports whether ANYTHING can authenticate this run: a login
-// on disk, the harness's own plan credential, or — where the harness reads
-// them — the operator's per-provider keys.
-func HasUsableAuth(man manifest.Manifest, target, homeRoot string, lookup func(string) string) bool {
-	return len(AvailableAuthVarsIn(man, lookup, target, homeRoot)) > 0
-}
-
 // SubscriptionVars lists the harness's OWN declared credentials that are set —
 // the vendor's plan key or login token, in manifest order.
 func SubscriptionVars(man manifest.Manifest, lookup func(string) string) []string {

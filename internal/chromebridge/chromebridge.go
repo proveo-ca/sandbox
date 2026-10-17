@@ -197,27 +197,16 @@ func (r *Relay) Token() string { return r.token }
 // ContainerAddr is what the container relay must dial.
 func (r *Relay) ContainerAddr() string { return ContainerHost + ":" + strconv.Itoa(r.Port()) }
 
-// Env are the two variables the agent container needs, in runner.Config.Env
-// form: the address as KEY=VALUE, the token as a bare name (the caller sets
-// it in its own environment, see SetTokenEnv).
-func (r *Relay) Env() []string { return []string{EnvAddr + "=" + r.ContainerAddr(), EnvToken} }
-
-// ResolvedEnv is Env with the token's value filled in, for an sbx Kit.
+// ResolvedEnv are the address and token pairs an sbx Kit sets on the agent.
 func (r *Relay) ResolvedEnv() []string {
 	return []string{EnvAddr + "=" + r.ContainerAddr(), EnvToken + "=" + r.token}
 }
-
-// SetTokenEnv exports the token into this process so a bare `-e
-// PROVEO_CHROME_BRIDGE_TOKEN` forwards it without the value appearing on the
-// docker command line.
-func (r *Relay) SetTokenEnv() error { return os.Setenv(EnvToken, r.token) }
 
 // Close stops accepting and waits for in-flight connections to unwind.
 func (r *Relay) Close() error {
 	var err error
 	r.once.Do(func() {
 		err = r.ln.Close()
-		_ = os.Unsetenv(EnvToken)
 	})
 	r.wg.Wait()
 	return err

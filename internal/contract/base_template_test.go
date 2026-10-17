@@ -74,7 +74,7 @@ func TestBaseTemplateCarriesTheEngine(t *testing.T) {
 	tag := ref[strings.LastIndex(ref, ":")+1:]
 	if !strings.Contains(tag, "-docker") {
 		t.Fatalf("template tag %q is not a -docker variant, so the image has no Engine — "+
-			"`docker: sbx` in the manifests would again promise a daemon nothing supplies", tag)
+			"every manifest without `daemon: false` would promise a daemon nothing supplies", tag)
 	}
 	// A floating tag lets a republished template silently change the libc, the
 	// toolchains and the identity of every harness.
@@ -228,6 +228,33 @@ func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 	for _, def := range []string{"cecli", "claudecode", "cursor", "opencode"} {
 		if !strings.Contains(src, `"`+def+`"`) {
 			t.Errorf("proveo-dev idle/e2e-full does not name %s — a per-def death would not run", def)
+		}
+	}
+}
+
+var miseTask = regexp.MustCompile(`(?m)^\[tasks\.([^\]]+)\]\n((?:[^\[\n].*\n|\n)*)`)
+
+func TestOneImageTaskGatesBothReleaseGates(t *testing.T) {
+	t.Parallel()
+	tasks := map[string]string{}
+	for _, m := range miseTask.FindAllStringSubmatch(readRepoFile(t, "mise.toml"), -1) {
+		tasks[m[1]] = m[2]
+	}
+	var image []string
+	for name, body := range tasks {
+		if strings.Contains(body, "./internal/imagetest/") {
+			image = append(image, name)
+		}
+	}
+	if len(image) != 1 || image[0] != "test-images" {
+		t.Fatalf("mise.toml runs the image suites from tasks %v, want test-images alone", image)
+	}
+	if regexp.MustCompile(`-run\b[^"]*\./internal/imagetest/`).MatchString(tasks["test-images"]) {
+		t.Error("test-images narrows the image suites with -run; every TestImage* must run, hermes included")
+	}
+	for _, gate := range []string{"test-e2e", "test-e2e-full"} {
+		if !regexp.MustCompile(`(?m)^depends = \[[^\]]*"test-images"`).MatchString(tasks[gate]) {
+			t.Errorf("%s must depend on test-images", gate)
 		}
 	}
 }

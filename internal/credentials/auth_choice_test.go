@@ -268,23 +268,6 @@ func TestEveryClassCanSayWhyItIsUnavailable(t *testing.T) {
 	}
 }
 
-// HasUsableAuth is the guard on every "no credential" path, and the whole point
-// is that it answers for the RUN rather than for the vendor's variable.
-func TestHasUsableAuthCountsProviderKeys(t *testing.T) {
-	t.Parallel()
-	man := opencodeMan()
-	if !HasUsableAuth(man, "opencode", "", lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})) {
-		t.Error("an opencode run backed by ANTHROPIC_API_KEY was reported as having no credential")
-	}
-	if HasUsableAuth(man, "opencode", "", lookupOf(nil)) {
-		t.Error("an empty host was reported as having a credential")
-	}
-	// cursor cannot use it, so for cursor it is not a credential.
-	if HasUsableAuth(cursorMan(), "cursor", "", lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})) {
-		t.Error("a cursor run counted a key its CLI has no way to send")
-	}
-}
-
 // The same question, asked by the sbx login hint: a provider key the harness
 // can use means the sandbox is not credential-less.
 func TestSandboxLoginHintYieldsToAProviderKey(t *testing.T) {

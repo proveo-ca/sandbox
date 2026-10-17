@@ -1447,6 +1447,9 @@ func Run(in Input) error {
 		if err != nil {
 			return err
 		}
+		for _, l := range homeAccess.SkippedLinks {
+			ui.Notef("home link %s not followed — list its target in %s to mount it read-only", l, filepath.Join(in.HomeRoot, LinkedDirsFile))
+		}
 	}
 	in.HomeAccess = homeAccess
 	keepHomeAccess := false

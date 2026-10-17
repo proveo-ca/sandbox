@@ -3,7 +3,6 @@
 # harness should touch only this file + the def dir it lives in.
 name: codex
 description: ML-loop harness (Codex CLI, --dangerously-bypass-approvals-and-sandbox)
-docker: sbx
 subscription: true
 stability: candidate
 images:

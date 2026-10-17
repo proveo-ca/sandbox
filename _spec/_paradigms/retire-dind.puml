@@ -31,6 +31,13 @@
 ' generic behaviour (unread, cobra "unknown flag", `invalid docker "dind"
 ' (want "sbx")`, or an unknown YAML key that loads). Remnants 1 and 4 below
 ' are HISTORY; remnants 2 and 3 still hold.
+' UPDATE 2026-10-17, F10 (MEASURED): the `docker:` key itself is deleted —
+' Manifest.Docker, DockerMode and IsSbx are gone, no def declares `docker:`,
+' and the decoder runs KnownFields(true), so a stale `docker:`, `dind:`,
+' `egress:` or `provider:` key now FAILS loading and names itself
+' (TestAStaleManifestKeyFailsLoading). The "loads silently" and `invalid docker`
+' outcomes above are HISTORY too; `daemon: false` is the one daemon knob
+' (_spec/internal/manifest/harness-manifest-schema.puml).
 '
 ' ── WHAT ACTUALLY LANDED, AND THE TWO THINGS THE PLAN DID NOT KNOW ─────────
 ' 1. Manifests moved. `opencode` AND `cecli` declare `docker: sbx`; both images

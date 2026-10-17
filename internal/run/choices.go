@@ -33,7 +33,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
-		Topology: topologyOf(man, p.Target, p.credentialsOrDefault()),
+		Topology: topologyOf(p.Target, p.credentialsOrDefault()),
 		Rows: append(
 			applicableRows(egressRow()),
 			credentialsRow(man, p.credentialsOrDefault()),
@@ -508,12 +508,8 @@ var addonHelp = map[string]string{
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }
 
-func executionOptions(man manifest.Manifest) []string {
-	opts := []string{addonHost}
-	if man.Docker == manifest.DockerSbx {
-		opts = append(opts, addonSandbox)
-	}
-	return opts
+func executionOptions() []string {
+	return []string{addonHost, addonSandbox}
 }
 
 func interfaceOptions(man manifest.Manifest) []string {
@@ -541,7 +537,7 @@ func interfaceOptions(man manifest.Manifest) []string {
 
 func addonOptions(man manifest.Manifest, label string) []string {
 	if label == rowExecution {
-		return executionOptions(man)
+		return executionOptions()
 	}
 	return interfaceOptions(man)
 }

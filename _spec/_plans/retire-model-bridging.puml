@@ -147,7 +147,11 @@ skinparam noteTextAlignment left
 '    `_apply_env_bridge` / `apply_env_bridges` map GEMINI_API_KEY onto
 '    GOOGLE_GENERATIVE_AI_API_KEY — a CREDENTIAL, not a model — and
 '    `internal/entrypoint`'s Go/bash parity test caught the loss immediately.
-'    `entrypoint.ApplyEnvBridges` likewise stays: it never bridged a model.
+'    `entrypoint.ApplyEnvBridges` likewise stayed: it never bridged a model.
+'    UPDATE 2026-10-17 (N1, MEASURED): the Go half is gone — ApplyEnvBridges,
+'    BridgeGoogleKeys and NormalizeModel are deleted with their tests, and the
+'    bash apply_env_bridges (entrypoint-lib.sh:285; the opencode and hermes
+'    entrypoints) is the only implementation (repo-simplification.puml N1, N2).
 '
 ' 2. `localModelArgs` (internal/egress/plan.go:387) STILL WRITES the three role
 '    names on the docker local-model path, and nothing reads them any more. They

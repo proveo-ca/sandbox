@@ -323,7 +323,7 @@ func assertModels(t *testing.T, model, models, screen string) {
 
 func childEnvArgs(t *testing.T) []string {
 	t.Helper()
-	return append(childEnvArgsNoCredential(t), "PROVEO_EGRESS_ENV_FILE="+writeAgentEnvFile(t))
+	return append(childEnvArgsNoCredential(t), "PROVEO_ENV_FILE="+writeAgentEnvFile(t))
 }
 
 func childEnvArgsNoCredential(t *testing.T) []string {

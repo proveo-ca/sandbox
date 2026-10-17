@@ -79,8 +79,7 @@ func TestCredentialBridgesSurvivedTheRetirement(t *testing.T) {
 	for _, want := range []string{"_apply_env_bridge()", "apply_env_bridges()", "GOOGLE_GENERATIVE_AI_API_KEY"} {
 		if !strings.Contains(src, want) {
 			t.Errorf("entrypoint-lib.sh lost %q. GEMINI_API_KEY -> GOOGLE_GENERATIVE_AI_API_KEY "+
-				"bridges a CREDENTIAL, not a model, and it is what the Go/bash parity test "+
-				"compares; removing it silently unauthenticates Gemini.", want)
+				"bridges a CREDENTIAL, not a model; removing it silently unauthenticates Gemini.", want)
 		}
 	}
 }

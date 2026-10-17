@@ -8,20 +8,12 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=opencode
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep opencode || true
-  set_working_directory "/app"
-  bridge_google_keys
-  apply_env_bridges
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  bridge_google_keys
-  bridge_git_identity
-  report_git_context
-  apply_env_bridges
-fi
+set_working_directory "/app"
+bridge_google_keys
+bridge_git_identity
+apply_env_bridges
+export PROVEO_SMOKE_TARGET=opencode
+env PROVEO_SMOKE_TEST= proveo-entrypoint prep opencode || true
 
 # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
 seed_defaults() {

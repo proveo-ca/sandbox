@@ -25,12 +25,12 @@ import (
 // kitRun is one `proveo run <target>` through its kit under tmux, and the
 // sandbox it runs in.
 type kitRun struct {
-	t         *testing.T
-	sess      *tmux.Session
-	name      string
-	dir       string
-	last      string
-	prompting *bool
+	t      *testing.T
+	sess   *tmux.Session
+	name   string
+	dir    string
+	last   string
+	target string
 }
 
 // launchKit starts `proveo run <target>` through its kit under tmux, with the
@@ -60,7 +60,7 @@ func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra 
 func awaitKit(t *testing.T, sess *tmux.Session, before map[string]bool, target, dir string) *kitRun {
 	t.Helper()
 	pid, _ := sess.PanePID()
-	k := &kitRun{t: t, sess: sess, dir: dir, prompting: new(bool)}
+	k := &kitRun{t: t, sess: sess, dir: dir, target: target}
 	t.Cleanup(func() {
 		killAndAwait(t, sess, pid, durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute))
 		if k.name != "" {
@@ -130,8 +130,8 @@ func (k *kitRun) tend() {
 		k.ended()
 	}
 	k.last = screen
-	if visible, err := k.sess.Capture(); err == nil {
-		*k.prompting = answerSbxPrompt(k.sess, visible, *k.prompting)
+	if services, ok := consentPrompt(screen); ok {
+		k.t.Fatalf("%s\n%s", consentFailure(services, k.target), tail(screen, 20))
 	}
 	if line := sbxError(screen); line != "" && !retryable(line) {
 		k.t.Fatalf("sbx refused the run — %s\n%s", line, tail(screen, 40))

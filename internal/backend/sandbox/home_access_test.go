@@ -256,6 +256,7 @@ func TestHomeAccessMountsALinkedDirReadOnly(t *testing.T) {
 	if err := os.Symlink(repo, filepath.Join(data, "skills-muse")); err != nil {
 		t.Fatal(err)
 	}
+	listLinkedDirs(t, root, repo)
 	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -292,6 +293,7 @@ func TestHomeAccessRefusesLinksThatWidenTheView(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	listLinkedDirs(t, root, root, string(filepath.Separator), "/usr", filepath.Join(root, "logs"), file, filepath.Join(root, "toolchains", "go"), other)
 	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -300,5 +302,49 @@ func TestHomeAccessRefusesLinksThatWidenTheView(t *testing.T) {
 		if m.ReadOnly {
 			t.Errorf("mounted %s: only a first-level link to a directory outside the home view may add a mount", m.Host)
 		}
+	}
+}
+
+// listLinkedDirs writes the host-side list of link targets a run may follow.
+func listLinkedDirs(t *testing.T, root string, targets ...string) {
+	t.Helper()
+	body := "# targets a home dir's links may reach\n\n" + strings.Join(targets, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(root, LinkedDirsFile), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHomeAccessFollowsOnlyLinksTheHostListed(t *testing.T) {
+	t.Parallel()
+	root, runDir, listed, secret := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	data := filepath.Join(root, "hermes", "data")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"skills": listed, "ssh": secret} {
+		if err := os.Symlink(target, filepath.Join(data, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listLinkedDirs(t, root, listed)
+	if err := os.WriteFile(filepath.Join(data, LinkedDirsFile), []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantListed, _ := filepath.EvalSymlinks(listed)
+	wantSecret, _ := filepath.EvalSymlinks(secret)
+	if !slices.Contains(a.Mounts, runner.Mount{Host: wantListed, ReadOnly: true}) {
+		t.Errorf("mounts %+v: a link to a target the host lists must mount read-only", a.Mounts)
+	}
+	for _, m := range a.Mounts {
+		if m.Host == wantSecret {
+			t.Errorf("a link the guest could have planted reached %s; only %s/%s may name targets, and the guest's own copy inside a mounted dir must not count", m.Host, root, LinkedDirsFile)
+		}
+	}
+	if len(a.SkippedLinks) != 1 || !strings.Contains(a.SkippedLinks[0], wantSecret) {
+		t.Errorf("SkippedLinks = %v, want the unlisted ssh link named so the operator can list it", a.SkippedLinks)
 	}
 }

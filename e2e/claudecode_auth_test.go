@@ -206,8 +206,8 @@ func childEnvArgsFor(t *testing.T, keep string) []string {
 	t.Helper()
 	args := childEnvArgs(t)
 	for i, a := range args {
-		if strings.HasPrefix(a, "PROVEO_EGRESS_ENV_FILE=") {
-			args[i] = "PROVEO_EGRESS_ENV_FILE=" + writeSingleCredentialEnv(t, keep)
+		if strings.HasPrefix(a, "PROVEO_ENV_FILE=") {
+			args[i] = "PROVEO_ENV_FILE=" + writeSingleCredentialEnv(t, keep)
 		}
 	}
 	return args

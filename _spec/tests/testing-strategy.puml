@@ -180,9 +180,10 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' The rebase onto docker/sandbox-templates RE-INVERTED them. The absence checks
 ' assumed the image would get docker from sbx at runtime, and a live sandbox
 ' measured that false: no client, no daemon, no socket. The -docker template
-' carries both, so presence is the contract again, and `docker: sbx` in the
-' manifest is a promise the image can keep (_spec/_devops/sandbox-template-
-' rebase.puml). TestImageCursor's tool phase (cursor_test.go) asserts presence.
+' carries both, so presence is the contract again, and the manifest's daemon
+' promise (`daemon:` absent or true; the `docker: sbx` key is gone with F10) is
+' one the image can keep (_spec/_devops/sandbox-template-rebase.puml).
+' TestImageCursor's tool phase (cursor_test.go) asserts presence.
 '
 ' ── WHEN A def SUITE MAY SKIP RATHER THAN ASSERT ────────────────────────────
 ' Only when the property is IMPOSSIBLE on the host running the suite, never when
@@ -391,21 +392,21 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     (MEASURED; the brief said 9) with fixed /operator/... paths — $HOME can
 '     sit under TMPDIR in CI — including a scoped --input and the dropped
 '     fallback; TestKitDirsAddsOnlyALinkedWorktreesMain on a real git
-'     worktree; TestAnApprovalIsAnsweredOncePerAppearance (6 cases).
-'   tend — answers sbx's "[A]pprove all" ONCE PER APPEARANCE (edge-triggered,
-'     review #5): approvalDue(screen, wasShowing) (due, showing) looks for the
-'     prompt in the last 6 lines of the VISIBLE pane (tmux Capture, not the
-'     scrollback) and is due only when it is showing now and was not on the
-'     last poll; kitRun.prompting *bool carries wasShowing across with(t)
-'     copies. TRADEOFF, chosen: a second question that replaces the first IN
-'     PLACE, without the prompt ever leaving the pane, is not answered — the
-'     run times out loudly rather than typing a stray "A⏎" into the agent.
-'     HISTORY: every 3 s poll re-typed A+Enter; a pass-5 prompt count could
-'     drop with tmux history-limit or the alternate screen, or double on a
-'     redraw (reported). [Inference] review #4's "screen differs from the one
-'     last answered" would re-fire on any redraw (a spinner) while the prompt
-'     stayed up — the case the new test pins as "still up … while a spinner
-'     turns" → not due.
+'     worktree; TestASbxConsentPromptNamesItsServices (kit_sandbox_test.go:124).
+'   tend — NEVER APPROVES a credential binding (SEC3, DONE (wt) 2026-10-17; the
+'     user: "Never approve; fail fast (Recommended)"). Approval persists in the
+'     operator's ~/.config/sbx/credentials.yaml and outlives the test, and the
+'     [rec] "pre-seed the binding" proved infeasible: sbx documents no
+'     non-interactive consent flag, and sbx v0.48's prompt exits 1 without a TTY
+'     (reported). MEASURED: consentPrompt(screen) (e2e/sbx_test.go:396) reads
+'     the service names listed under "This kit wants to use these credentials"
+'     up to "[A]pprove all"; consentFailure(services, target) (:421-422) fails
+'     the test with "sbx asks to approve <services>; approve once with an
+'     interactive `proveo run <target>`, then rerun — the e2e never approves a
+'     credential binding". The same check guards opencode_engine_sbx_test's
+'     onTerminal (reported), and TestTerminalLegsReadPtyOutput is rewritten
+'     around it. HISTORY: answerSbxPrompt typed "A⏎" — once per poll at first,
+'     then counted, then edge-triggered (approvalDue, review #5); all gone.
 '     tend fails fast on an sbx refusal or a confirmation eating input, and
 '     detects a run that ENDED (ended): it skips when an authFailures marker
 '     is in plain(tail(k.last, 15)) and otherwise fails with the last screen.
@@ -614,7 +615,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' -36915573), which sbx then refused to start ("workspace directory … no longer
 ' exists on the host"). cleanLeftovers therefore runs `proveo clean` WITHOUT
 ' --force, so anything that looks live — a sibling still coming up, or the
-' operator's run — is kept, under a throwaway PROVEO_EGRESS_ROOT, so no real
+' operator's run — is kept, under a throwaway PROVEO_STATE_ROOT (PROVEO_EGRESS_ROOT
+' until F17, 2026-10-17; the old name is still read with a deprecation warning), so no real
 ' run's state dir is ever a candidate. HISTORY: cleanLeftoversIfCrowded waited
 ' for cleanThreshold = 10 `proveo.egress.session` containers before sweeping;
 ' neither it nor cleanLeftovers is in e2e/ any more (MEASURED 2026-10-16), and
@@ -754,9 +756,12 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' is the list above. e2e/go-testing-standards.md states the suite rules for the
 ' people writing these tests.
 '
-' The sweep narrows with it: `mise run test-e2e` (via test-images-sbx) drops
-' TestImageDetachedSmoke. TestImageMitmproxy and the Layer-3 task
-' (`test-go-integration`) are deleted.
+' The sweep narrows with it: TestImageMitmproxy and the Layer-3 task
+' (`test-go-integration`) are deleted. Since N12 (2026-10-17, MEASURED) ONE
+' `test-images` task runs every TestImage* suite — hermes included — and both
+' `test-e2e` and `test-e2e-full` depend on it (mise.toml:79,97,103;
+' TestOneImageTaskGatesBothReleaseGates). HISTORY: test-images-sbx ran a regex
+' of five suites, which skipped TestImageHermes and TestImageDetachedSmoke.
 '
 ' ── AND SO PROVEO_SBX=off MEANS NOTHING ─────────────────────────────────────
 ' There is no backend to pin it to. PROVEO_SBX off values hard-failed every

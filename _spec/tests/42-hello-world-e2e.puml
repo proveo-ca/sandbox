@@ -62,7 +62,7 @@ participant "host Ollama\nhost.docker.internal:11434" as OLLAMA <<host>>
 participant "agent container" as CTR <<host>>
 
 TEST ARROW_MAIN WS : copy samples, ""git init""\nDELETE the dangling .env symlink
-TEST ARROW_MAIN TMUX : " ""env -u <every provider var> …"" \n(no ""PROVEO_EGRESS_ENV_FILE"" — no credential)"
+TEST ARROW_MAIN TMUX : " ""env -u <every provider var> …"" \n(no ""PROVEO_ENV_FILE"" — no credential; the\nold ""PROVEO_EGRESS_ENV_FILE"" is a deprecated alias, F17)"
 TMUX ARROW_MAIN RUN : PTY — the harness needs ""docker run -it""
 RUN ARROW_MAIN CTR : plain bridge + ""ANTHROPIC_BASE_URL"" → Ollama
 CTR ARROW_MAIN CTR : entrypoint prints\n" ""PROVEO_MODELS main=… small=…"" "

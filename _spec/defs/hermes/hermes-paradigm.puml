@@ -64,7 +64,7 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' foreground agent process per ephemeral sandbox, launched by dumb-init +
 ' entrypoint.sh, torn down with the container. Keeping s6-overlay would mean
 ' this repo supervising services (the dashboard, gateways) nothing here ever
-' needs, and reconciling "docker: sbx"'s ONE startup command against a
+' needs, and reconciling the sbx Kit's ONE startup command against a
 ' multi-service supervision tree it was never designed for.
 '
 ' So defs/hermes/Dockerfile overrides ENTRYPOINT to the usual

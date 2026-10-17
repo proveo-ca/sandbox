@@ -49,7 +49,7 @@ func TestSandboxNetworkBaselineIsStatedHonestly(t *testing.T) {
 	cmd.Dir = repoRoot(t)
 	cmd.Env = append(os.Environ(),
 		"PROVEO_HOME="+t.TempDir(),
-		"PROVEO_EGRESS_ROOT="+t.TempDir(),
+		"PROVEO_STATE_ROOT="+t.TempDir(),
 		"PROVEO_WIZARD=off",
 	)
 	out, err := cmd.CombinedOutput()
@@ -102,7 +102,7 @@ func TestSandboxEgressIsConfinedToTheKitAllowlist(t *testing.T) {
 	}
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
-		"PROVEO_EGRESS_ROOT="+state,
+		"PROVEO_STATE_ROOT="+state,
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
 		proveoBin, "run", target, "--input", work,
 	)

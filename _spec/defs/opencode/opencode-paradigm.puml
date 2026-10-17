@@ -73,7 +73,8 @@ title OpenCode crew — automatic asks, explicit denies and visible execution
 ' with a private per-run DB and a full-lifetime lease; account/MCP token stores, rebased artifact
 ' paths and protected recovery had source fixtures. Model-driven live idle git sync remains
 ' unexecuted.
-' Docker remains the sandbox daemon (docker: sbx), not a privileged sibling.
+' Docker remains the sandbox daemon (the sbx microVM's own; no manifest `docker:` key since
+' F10, 2026-10-17), not a privileged sibling.
 '
 ' Native CLI config documentation: https://opencode.ai/v2/docs/cli/config
 ' General editor schema pointer: https://opencode.ai/config.json (v1; advisory).

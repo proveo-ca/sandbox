@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/adbmirror"
@@ -15,9 +14,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/verify"
 )
 
+const usage = "usage: proveo-entrypoint prep [target] | proveo-entrypoint verify [dir] | proveo-entrypoint adb-mirror"
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: proveo-entrypoint prep [target] | proveo-entrypoint verify [dir] | proveo-entrypoint adb-mirror | proveo-entrypoint <target> -- <command> [args...]")
+		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
 
@@ -44,69 +45,30 @@ func main() {
 		return
 	}
 
-	prepOnly := os.Args[1] == "prep"
-	var smokeTarget string
-	var args []string
-	if prepOnly {
-		smokeTarget = "harness"
-		if len(os.Args) > 2 {
-			smokeTarget = os.Args[2]
-		}
-	} else {
-		smokeTarget = os.Args[1]
-		args = os.Args[2:]
-		if len(args) > 0 && args[0] == "--" {
-			args = args[1:]
-		}
+	if os.Args[1] != "prep" {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	smokeTarget := "harness"
+	if len(os.Args) > 2 {
+		smokeTarget = os.Args[2]
 	}
 
-	runPrep()
+	entrypoint.EnsureRuntimeUser()
+	reportGitContext()
 
 	if entrypoint.SmokeReady(smokeTarget) {
 		for {
 			time.Sleep(time.Hour)
 		}
 	}
-
-	if prepOnly {
-		return
-	}
-	if len(args) == 0 {
-		return
-	}
-	bin, err := exec.LookPath(args[0])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "proveo-entrypoint: %v\n", err)
-		os.Exit(127)
-	}
-	if err := syscall.Exec(bin, args, os.Environ()); err != nil {
-		fmt.Fprintf(os.Stderr, "proveo-entrypoint exec: %v\n", err)
-		os.Exit(1)
-	}
 }
 
-func runPrep() {
-	entrypoint.EnsureRuntimeUser()
-
-	if wd := os.Getenv("PROVEO_WORKDIR"); wd != "" {
-		_ = os.Chdir(wd)
-	} else if st, err := os.Stat("/app"); err == nil && st.IsDir() {
-		_ = os.Chdir("/app")
-	}
-
-	entrypoint.BridgeGoogleKeys()
-	entrypoint.BridgeGitIdentity("")
-	reportGitContext("")
-	entrypoint.ApplyEnvBridges()
-}
-
-func reportGitContext(dir string) {
+func reportGitContext() {
 	if _, err := exec.LookPath("git"); err != nil {
 		return
 	}
-	if dir == "" {
-		dir, _ = os.Getwd()
-	}
+	dir, _ := os.Getwd()
 	if err := exec.Command("git", "-C", dir, "rev-parse", "--is-inside-work-tree").Run(); err == nil {
 		top, _ := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 		fmt.Printf("✅ Git repository at %s", string(top))

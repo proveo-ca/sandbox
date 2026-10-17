@@ -179,26 +179,16 @@ func TestSocketDirAndEnvMatchWhatTheContainerRelayExpects(t *testing.T) {
 	}
 	dir := shortTempDir(t)
 	r := startRelay(t, dir)
-	env := r.Env()
-	if len(env) != 2 || env[0] != EnvAddr+"="+r.ContainerAddr() || env[1] != EnvToken {
-		t.Fatalf("Env = %v: the address is KEY=VALUE, the token a bare name", env)
-	}
 	kit := r.ResolvedEnv()
-	if len(kit) != 2 || kit[0] != env[0] || kit[1] != EnvToken+"="+r.Token() {
+	if len(kit) != 2 || kit[0] != EnvAddr+"="+r.ContainerAddr() || kit[1] != EnvToken+"="+r.Token() {
 		t.Fatalf("ResolvedEnv = %v: both pairs carry their value, the form an sbx Kit needs", kit)
 	}
 	if !strings.HasPrefix(r.ContainerAddr(), ContainerHost+":") {
 		t.Fatalf("ContainerAddr = %q", r.ContainerAddr())
 	}
-	if err := r.SetTokenEnv(); err != nil {
-		t.Fatal(err)
-	}
-	if os.Getenv(EnvToken) != r.Token() {
-		t.Fatal("SetTokenEnv must export the token for the bare -e forward")
-	}
 	_ = r.Close()
 	if os.Getenv(EnvToken) != "" {
-		t.Fatal("Close must scrub the token from the environment")
+		t.Fatal("the relay must never export its token into the host process")
 	}
 }
 

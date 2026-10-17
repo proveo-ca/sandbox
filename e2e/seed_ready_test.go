@@ -235,7 +235,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 		}
 	})
 	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
-	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_EGRESS_ENV_FILE=/dev/null",
+	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_ENV_FILE=/dev/null",
 		"PROVEO_HOME=" + home, proveoBin, "run", target, "--input", work}
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start %s: %v", target, err)

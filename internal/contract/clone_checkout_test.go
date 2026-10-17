@@ -127,7 +127,7 @@ func awaitSeedCwd(t *testing.T, pwd string, env ...string) string {
 	t.Helper()
 	cmd := exec.Command("sh", filepath.Join(repoRoot(t), "packages", "lib", "proveo-await-seed"), "--cwd")
 	cmd.Dir = pwd
-	cmd.Env = append(append(os.Environ(), "PWD="+pwd, "SANDBOX_VM_ID="), env...)
+	cmd.Env = append(append(outsideSbx(os.Environ()), "PWD="+pwd), env...)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("proveo-await-seed --cwd: %v", err)

@@ -57,7 +57,9 @@ title Runtime user boundary — never root, any host uid
 ' is the alias. /home/${USER_NAME} stays as a symlink because image healthchecks
 ' and def tests read paths through it, and nothing ever mounts there. All four
 ' harnesses do this; cecli and opencode joined cursor and claudecode because
-' `docker: sbx` is now the only backend that hands them a daemon.
+' sbx is now the only backend that hands them a daemon. (The `docker: sbx`
+' manifest key that once said so is deleted with F10, 2026-10-17; `daemon:
+' false` is the one knob — _spec/internal/manifest/harness-manifest-schema.puml.)
 '
 ' ── THE SECOND MISTAKE THE REVERSAL INVITES: chown THROUGH THE ALIAS ────────
 ' `chown -R` given a SYMLINK as its argument chowns the link and stops — it does
@@ -128,8 +130,9 @@ note bottom of ENSURE
   passwd entry therefore keeps ""HOME=/"", and every later
   ""mkdir \"$HOME/.<tool>\""" fails with the tell-tale ""//.cursor"" double
   slash. Sourcing the guard before the prelude is what makes ~/… seeding
-  work for an arbitrary uid, in every entrypoint rather than just the
-  bash-fallback branch.
+  work for an arbitrary uid, in every entrypoint. (Since N1, 2026-10-17, the
+  bash-fallback branch is gone and the shell prelude runs BEFORE prep —
+  _spec/cmd/proveo-entrypoint/prep-sequence.puml.)
 end note
 
 

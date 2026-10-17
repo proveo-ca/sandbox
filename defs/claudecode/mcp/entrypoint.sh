@@ -8,21 +8,11 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=claudecode
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep claudecode || true
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  bridge_google_keys
-  bridge_git_identity /app
-  report_git_context /app
-  run_smoke_test "claudecode"
-  ensure_project_tools
-fi
-
 set_working_directory "/app"
 bridge_google_keys
+bridge_git_identity
+export PROVEO_SMOKE_TARGET=claudecode
+env PROVEO_SMOKE_TEST= proveo-entrypoint prep claudecode || true
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"

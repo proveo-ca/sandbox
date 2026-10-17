@@ -11,11 +11,16 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' fallback. The host-execution decision space stays DEFERRED in
 ' _spec/_plans/host-execution-fallback.puml.
 '
-' MEASURED, internal/run/run.go requireSandbox, before any workspace work:
-'   the manifest lacks `docker: sbx` (man.IsSbx) → refuse, naming the target
+' MEASURED, internal/run/run.go requireSandbox(p, d) (:94-99), before any
+' workspace work:
 '   sbx not ready (sandbox.Ready → sbx.Available, or Ensure off --print)
 '     → sandbox.Unavailable(why): the reason, the engine, and the install or
 '       upgrade line from sbx.InstallCmd
+' (F10, 2026-10-17: the manifest no longer has a `docker:` key — Manifest.Docker,
+' DockerMode and IsSbx are deleted, and the decoder's KnownFields(true) makes a
+' stale `docker: sbx` fail loading with its name — so the "manifest lacks
+' `docker: sbx`" refusal is gone with the key; every harness runs in sbx by
+' construction. _spec/internal/manifest/harness-manifest-schema.puml.)
 ' `--print` refuses too: it calls sbx.Available and never installs.
 ' e2e/sbx_test.go pins the refusal (TestSandboxBackendRefusesWhenSbxAbsent).
 '
@@ -70,12 +75,14 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' 2026-10-17; the user: "Keep 1+1, seed --env-file (Recommended)"). MEASURED:
 ' the bash find_env_file and load_env and Go entrypoint FindEnvFile,
 ' LoadEnvFile and ShouldSkipEnvLoad are deleted; what was left of load_env is
-' bridge_google_keys (the Google key aliases only), and proveo-entrypoint
-' runPrep has no .env branch. So no image sources the workspace .env, inside
+' bridge_google_keys (the Google key aliases only), and proveo-entrypoint prep
+' has no .env branch (since N1 it keeps only the passwd entry, the git-context
+' report and the smoke sentinel, and the shell prelude runs before it —
+' _spec/cmd/proveo-entrypoint/prep-sequence.puml). So no image sources the workspace .env, inside
 ' sbx or out, and there is no guard left to key on SANDBOX_NAME / SANDBOX_VM_ID
 ' (repo-simplification.puml F7, resolved by N7). Pinned by
 ' internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
-' and TestBothPreludesBridgeTheGoogleKeyAliases. The project .env's values reach
+' and TestBashPreludeBridgesTheGoogleKeyAliases. The project .env's values reach
 ' a NEW sandbox through sbx's `--env-file` (sbx accepts it since v0.39.0,
 ' reported; the floor is 0.42.0): _spec/internal/credentials/
 ' credential-decisions.puml, PROJECT .env. The agent can still READ a .env in
@@ -87,9 +94,16 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' SANDBOX_VM_ID was non-blank (before that, only while PROVEO_EGRESS_MODE named
 ' a tier), and its bash form had to read both through `:-` defaults to survive
 ' `set -u` — an image test with SANDBOX_NAME unset once died "SANDBOX_NAME:
-' unbound variable". The remaining sbx detection (proveo_sbx_passthrough,
-' proveo-await-seed) still keys on SANDBOX_VM_ID only and must keep the `:-`
-' default (repo-simplification.puml F18).
+' unbound variable".
+' ONE sbx DETECTOR (F18, DONE (wt) 2026-10-17). MEASURED: _proveo_in_sbx checks
+' SANDBOX_NAME, then SANDBOX_ID, then SANDBOX_VM_ID, each through a `:-`
+' default so it survives `set -u` — in packages/lib/entrypoint-lib.sh
+' (:2668-2669, used by proveo_sbx_passthrough) and as a POSIX copy in
+' packages/lib/proveo-await-seed (:12-13, used by the seed wait and the refusal
+' check). sbx v0.39.0 documents SANDBOX_NAME and SANDBOX_ID as a sandbox's
+' identity (reported); whether SANDBOX_VM_ID is deprecated is [Unverified], so it
+' stays the last fallback. Pinned by TestBothSbxSitesDetectSbxByAnyIdentityVariable
+' (internal/contract/sbx_passthrough_test.go).
 '
 ' inject/broker.env IS NO LONGER WRITTEN. assembleEnv writes no file; no proxy
 ' of proveo's needs a key. secret-custody (d) is closed, not moved.
@@ -168,8 +182,10 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' covers: internal/sbx/limits.go
 ' covers: internal/run/run.go (requireSandbox, launchSandbox)
 ' covers: internal/entrypoint/entrypoint.go (the prelude, which reads no .env)
-' covers: packages/lib/entrypoint-lib.sh (bridge_google_keys, proveo_sbx_passthrough)
+' covers: packages/lib/entrypoint-lib.sh (bridge_google_keys, _proveo_in_sbx, proveo_sbx_passthrough)
+' covers: packages/lib/proveo-await-seed (_proveo_in_sbx)
 ' covers: internal/contract/env_prelude_test.go
+' covers: internal/contract/sbx_passthrough_test.go (TestBothSbxSitesDetectSbxByAnyIdentityVariable)
 ' covers: e2e/sbx_test.go (the refusal tests)
 ' covers: e2e/idle_test.go
 ' covers: e2e/chrome_bridge_sbx_test.go
@@ -253,7 +269,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' Kit schema, the validate handoff, session lifecycle and exit-code handling:
 '   sbx-kit-contract.puml (same directory)
 
-component "run.Do → requireSandbox\nno ""docker: sbx""\n· ""sandbox.Ready"" false → refuse" as SEL <<app>>
+component "run.Do → requireSandbox(p, d)\n""sandbox.Ready"" false → refuse" as SEL <<app>>
 component "internal/sbx\nAvailable · WriteKit · SecretSet\nRunArgs · RemoveArgs" as SBX <<app>>
 component "sbx CLI (pre-GA; proveo pins\n""sbx.MinVersion"")\nrun --kit … / secret set / rm" as CLI <<host>>
 component "Kit spec.yaml (per run)\nnetwork.allow = add-on ports (Ollama ·\nCDP · adb) ∪ own-agent credential domains" as KIT <<app>>
@@ -262,14 +278,15 @@ component "host-side credential injection\nvalues via stdin — never argv,\nnev
 component "refusal\n""sandbox.Unavailable(why)""\ninstall / upgrade hint" as REFUSE <<error>>
 
 SEL ARROW_MAIN SBX : ready
-SEL ARROW_ERROR REFUSE : not ready, or no ""docker: sbx""
+SEL ARROW_ERROR REFUSE : sbx not ready
 SBX ARROW_MAIN CLI
 SBX ..> KIT : rendered under state egDir/sbx/kit
 SBX ..> SEC
 
 note right of SEL
-  **No fallback, no override.** Every harness declares ""docker: sbx"", and
-  sbx is the only backend (DECIDED 2026-10-16: "Refuse without sbx"). The
+  **No fallback, no override.** Every harness runs in sbx — the manifest no
+  longer carries a ""docker:"" key (F10, 2026-10-17) — and sbx is the only
+  backend (DECIDED 2026-10-16: "Refuse without sbx"). The
   choice prompt carries it as a COMPULSORY ""docker (sandbox)"" — greyed AND
   ticked, help "every harness runs in the sandbox and nowhere else". A
   remembered 'off' does not survive the prompt: the gate re-ticks the box and
@@ -330,7 +347,8 @@ note bottom of CLI
   **Plan vs proof, and the proof had to be made cheap.** The print-only tests
   assert the ARGV from pure ""sandbox.Spec"" with no VM.
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
-  this backend and asserts what ""docker: sbx"" claims: the sbx line was printed,
+  this backend and asserts what the sandbox promises (the ""docker: sbx"" key is
+  gone with F10; ""WantsDocker"" reads ""daemon:""): the sbx line was printed,
   the workspace mount carries writes back to the host, and the
   sandbox is gone afterwards. It drives the harness's own kit launch and probes
   through ""sbx exec"" (""launchKit"", e2e/kit_probe_test.go), so it asks the agent

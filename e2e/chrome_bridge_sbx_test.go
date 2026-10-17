@@ -71,9 +71,6 @@ func TestChromeBridgeOnSbxReachesTheHostFromTheSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = relay.Close() })
-	if err := relay.SetTokenEnv(); err != nil {
-		t.Fatal(err)
-	}
 
 	// sbx keeps its OWN image store, so the harness image has to be handed over
 	// before a Kit can name it — the same hop `proveo run` makes.

@@ -1,35 +1,45 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' purpose: the order proveo-entrypoint prep runs its steps in, and what each one depends on
+' purpose: the order a def entrypoint runs the shell prelude and proveo-entrypoint prep in, and what each one depends on
 ' covers: cmd/proveo-entrypoint/**
-title Entrypoint startup — the correct order for a def using the Go prelude
+' covers: defs/*/entrypoint.sh
+' covers: defs/claudecode/mcp/entrypoint.sh
+'
+' 2026-10-17, N1 (DONE (wt); repo-simplification.puml): the order is REVERSED.
+' MEASURED (e.g. defs/codex/entrypoint.sh:6-16): source the lib, then
+' proveo_sbx_passthrough, then the in-shell prelude — set_working_directory,
+' bridge_google_keys, bridge_git_identity — and only then `proveo-entrypoint prep`,
+' which keeps the passwd entry, the git-context report and the smoke sentinel.
+' TestEntrypointsRunTheShellPreludeThenPrep pins the order. HISTORY: prep ran
+' first and the shell then redid the chdir and exports prep could not carry.
+title Entrypoint startup — the in-shell prelude first, then prep
 
-participant "docker run\n-w /app -e …" as DOCKER <<host>>
+participant "sbx startup\n(Kit env, cwd)" as SBX <<host>>
 participant "defs/<name>/entrypoint.sh" as SH <<app>>
-participant "proveo-entrypoint prep\n(child)" as PREP <<app>>
 participant "packages/lib/entrypoint-lib.sh\n(sourced INTO the shell)" as LIB <<app>>
+participant "proveo-entrypoint prep\n(child)" as PREP <<app>>
 participant "agent CLI" as AGENT <<app>>
 
-DOCKER ARROW_MAIN SH : PID 1, env from ""-e"", cwd from ""-w""
+SBX ARROW_MAIN SH : PID 1, env from the Kit / ""-e"" / ""--env-file""
 SH ARROW_MAIN LIB : " ""source /entrypoint-lib.sh"" "
+
+group in-shell prelude — the steps the agent must inherit
+  SH ARROW_MAIN LIB : " ""set_working_directory /app"" "
+  LIB ARROW_MAIN SH : cwd now the mounted scope
+  SH ARROW_MAIN LIB : " ""bridge_google_keys"" · ""bridge_git_identity"" "
+  LIB ARROW_MAIN SH : Google key aliases + git identity exported;\nno workspace .env is read (N7)
+  SH ARROW_MAIN LIB : harness bridge\n(""apply_env_bridges"" / ""CURSOR_MODEL"" / ""ANTHROPIC_MODEL"")
+end
 
 group prep — process-external setup only
   SH ARROW_MAIN PREP : " ""prep <target> || true"" "
-  PREP ARROW_MAIN PREP : uid/passwd · git context
-  PREP ARROW_ERROR SH : errorLabel(cwd + exports discarded)
-end
-
-group redo in-shell — the part prep cannot carry
-  SH ARROW_MAIN LIB : " ""set_working_directory /app"" "
-  LIB ARROW_MAIN SH : cwd now the mounted scope
-  SH ARROW_MAIN LIB : " ""bridge_google_keys"" "
-  LIB ARROW_MAIN SH : Google key aliases filled; no workspace .env is read\n(N7 2026-10-17: load_env, its sbx guard and ""source .env"" are deleted)
-  SH ARROW_MAIN LIB : harness bridge\n(""apply_env_bridges"" / ""CURSOR_MODEL"" / ""ANTHROPIC_MODEL"")
+  PREP ARROW_MAIN PREP : passwd entry · git-context report (sees the shell's cwd)
+  PREP ARROW_OPTIONAL SH : smoke mode: sentinel, then sleep
 end
 
 SH ARROW_MAIN SH : preamble — versions, detected config,\n" ""PROVEO_MODELS main=… small=…"" "
 SH ARROW_MAIN AGENT : " ""exec <agent> \"$@\""" "
-AGENT ARROW_MAIN AGENT : inherits cwd + bridged model env
+AGENT ARROW_MAIN AGENT : inherits cwd + bridged env
 
 note over SH, LIB
   **No .env step.** The project "".env"" reaches a new

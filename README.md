@@ -160,17 +160,22 @@ The image itself never loads a `.env`. The values are set when the sandbox is cr
 ## Proveo home (session resume)
 
 Agent sessions and seeded home config persist under `~/.proveo/` (override with
-`PROVEO_HOME`), bind-mounted at `/proveo-home` with `HOME` pointed there. Host IDE homes
-are never mounted; login token files listed in each harness `home.mounts.deny` are
-scrubbed before every run.
+`PROVEO_HOME`). A sandbox sees only its harness's declared subdirectories and `toolchains`,
+each at its host path; the home itself is never mounted. Host IDE homes are never mounted;
+login token files listed in each harness `home.mounts.deny` are scrubbed before every run.
+
+A symlink inside a declared subdirectory is followed, read-only, only when its absolute
+target is listed in `~/.proveo/linked-dirs` (one path per line, `#` for comments); every
+other link is reported at launch and left unfollowed.
 
 | Harness | Host path | Resume |
 | --- | --- | --- |
 | cursor | `~/.proveo/.cursor` | `proveo run cursor --resume <id>` / `--continue` / `--ls` |
 | claudecode | `~/.proveo/.claude` | `proveo run claudecode --resume <id>` / `--continue` |
 | codex | `~/.proveo/.codex` | `proveo run codex --resume <id>` / `--continue` / `--ls` |
-| opencode | `~/.proveo/opencode/{config,share}` | `proveo run opencode --resume <session-id>` |
+| opencode | `~/.proveo/opencode/v2/config` (history lives in the engine) | `proveo run opencode --resume <session-id>` |
 | cecli | `~/.proveo/.cecli` | home conf only (project state stays in `/app/.cecli`) |
+| hermes | `~/.proveo/hermes/data`, bound as `HERMES_HOME` (sessions, memories, skills) | survives `sbx rm` |
 
 Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --homes`.
 

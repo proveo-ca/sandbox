@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/defs/codex/codex-topology.puml, _spec/defs/codex/codex-paradigm.puml
-# Thin entrypoint: shared prelude via proveo-entrypoint (or bash fallback), then seed + exec.
+# Thin entrypoint: shared prelude, then seed + exec.
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -9,20 +9,11 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=codex
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep codex || true
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  bridge_google_keys
-  bridge_git_identity /app
-  report_git_context /app
-  ensure_project_tools
-fi
-
 set_working_directory "/app"
 bridge_google_keys
+bridge_git_identity
+export PROVEO_SMOKE_TARGET=codex
+env PROVEO_SMOKE_TEST= proveo-entrypoint prep codex || true
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"

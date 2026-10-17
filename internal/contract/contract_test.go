@@ -53,34 +53,48 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 			continue
 		}
 		for _, hm := range m.Home.Mounts {
-			if !strings.HasPrefix(hm.Container, "/proveo-home/") {
-				t.Errorf("%s home mount container %q must be under /proveo-home/", m.Name, hm.Container)
+			if hm.Container != "" && !strings.HasPrefix(hm.Container, "/proveo-home/") {
+				t.Errorf("%s home mount container %q must be under /proveo-home/, or absent for a direct bind", m.Name, hm.Container)
 			}
 		}
 	}
 }
 
-func TestEntrypointsPreferProveoEntrypoint(t *testing.T) {
+func TestEntrypointsRunTheShellPreludeThenPrep(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	paths := []string{
-		"defs/opencode/entrypoint.sh",
-		"defs/cursor/entrypoint.sh",
-		"defs/claudecode/mcp/entrypoint.sh",
-		"defs/codex/entrypoint.sh",
-	}
-	for _, rel := range paths {
-		path := filepath.Join(root, rel)
-		b, err := os.ReadFile(path)
+	for rel, target := range map[string]string{
+		"defs/codex/entrypoint.sh":          "codex",
+		"defs/opencode/entrypoint.sh":       "opencode",
+		"defs/cursor/entrypoint.sh":         "cursor",
+		"defs/cecli/entrypoint.sh":          "cecli",
+		"defs/claudecode/mcp/entrypoint.sh": "claudecode",
+	} {
+		b, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
-			t.Errorf("read %s: %v", path, err)
+			t.Errorf("read %s: %v", rel, err)
 			continue
 		}
-		if !strings.Contains(string(b), "proveo-entrypoint prep") {
-			t.Errorf("%s must prefer proveo-entrypoint prep", path)
+		src := string(b)
+		prep := "\nenv PROVEO_SMOKE_TEST= proveo-entrypoint prep " + target + " || true\n"
+		at := strings.Index(src, prep)
+		if at < 0 {
+			t.Errorf("%s must run %q unconditionally", rel, strings.TrimSpace(prep))
+			continue
 		}
-		if strings.Contains(string(b), "gosu") {
-			t.Errorf("%s must never escalate via gosu", path)
+		for _, step := range []string{"set_working_directory", "bridge_google_keys", "bridge_git_identity"} {
+			calls := regexp.MustCompile(`(?m)^`+step+`\b`).FindAllStringIndex(src, -1)
+			if len(calls) != 1 || calls[0][0] > at {
+				t.Errorf("%s must call %s once, unindented, before prep; found %d such calls", rel, step, len(calls))
+			}
+		}
+		for _, fallback := range []string{"ensure_runtime_user", "report_git_context", "! command -v proveo-entrypoint"} {
+			if strings.Contains(src, fallback) {
+				t.Errorf("%s carries %q, a bash copy of prep", rel, fallback)
+			}
+		}
+		if strings.Contains(src, "gosu") {
+			t.Errorf("%s must never escalate via gosu", rel)
 		}
 	}
 }
@@ -208,9 +222,6 @@ func TestCursorManifestDeclaresAPIKey(t *testing.T) {
 	if !found {
 		t.Error("cursor manifest must declare CURSOR_API_KEY as secret")
 	}
-	if cursor.Docker != manifest.DockerSbx {
-		t.Errorf("cursor docker = %q, want %q", cursor.Docker, manifest.DockerSbx)
-	}
 }
 
 func TestSubscriptionHarnesses(t *testing.T) {
@@ -254,130 +265,5 @@ func TestSubscriptionHarnesses(t *testing.T) {
 		if !found[name] {
 			t.Errorf("missing subscription harness %q", name)
 		}
-	}
-}
-
-// TestEveryDaemonPromiseIsTheSandbox is what retiring the privileged sidecar
-// leaves behind: one way to get a daemon, so a harness that promises one
-// promises the sandbox.
-func TestEveryDaemonPromiseIsTheSandbox(t *testing.T) {
-	t.Parallel()
-	ms, err := manifest.LoadFS(proveo.Manifests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	promising := 0
-	for _, m := range ms {
-		if !m.WantsDocker() {
-			continue
-		}
-		promising++
-		if !m.IsSbx() {
-			t.Errorf("%s declares docker: %q — the only daemon left is %q, and the privileged "+
-				"sidecar it used to name is retired", m.Name, m.Docker, manifest.DockerSbx)
-		}
-	}
-	if promising == 0 {
-		t.Fatal("no def promises a daemon — this invariant has nothing to guard")
-	}
-}
-
-// TestEveryHarnessRunsInTheSandbox pins that every subscription def declares `docker: sbx`, the only backend.
-func TestEveryHarnessRunsInTheSandbox(t *testing.T) {
-	t.Parallel()
-	ms, err := manifest.LoadFS(proveo.Manifests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]bool{"cecli": false, "opencode": false, "cursor": false, "claudecode": false, "codex": false}
-	for _, m := range ms {
-		if _, tracked := want[m.Name]; !tracked {
-			continue
-		}
-		want[m.Name] = true
-		if !m.IsSbx() {
-			t.Errorf("%s docker = %q, want %q", m.Name, m.Docker, manifest.DockerSbx)
-		}
-	}
-	for name, found := range want {
-		if !found {
-			t.Errorf("missing harness %q in embedded manifests", name)
-		}
-	}
-}
-
-func TestSubscriptionHarnessesRunOnTheSandboxBackend(t *testing.T) {
-	t.Parallel()
-	ms, err := manifest.LoadFS(proveo.Manifests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]bool{"claudecode": true, "codex": true, "cursor": true}
-	for _, m := range ms {
-		if m.Subscription && !m.IsSbx() {
-			t.Errorf("%s must set docker: sbx (sbx is the only backend)", m.Name)
-		}
-	}
-	for name := range want {
-		found := false
-		for _, m := range ms {
-			if m.Name == name {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("expected subscription harness %q in embedded manifests", name)
-		}
-	}
-}
-
-func TestCursorTakesDockerFromTheSandboxBackend(t *testing.T) {
-	t.Parallel()
-	ms, err := manifest.LoadFS(proveo.Manifests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range ms {
-		if m.Name != "cursor" {
-			continue
-		}
-		if !m.IsSbx() {
-			t.Errorf("cursor must run docker through sbx alone, got docker = %q", m.Docker)
-		}
-	}
-}
-
-func TestManifestIgnoresUnknownTopLevelKeys(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	def := filepath.Join(dir, "x")
-	if err := os.MkdirAll(def, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	manifestYAML := `name: x
-description: future-key test
-docker: sbx
-future_flag: true
-images:
-  x: proveo/x:latest
-  y: proveo/y:latest
-workspace:
-  layout: app
-`
-	if err := os.WriteFile(filepath.Join(def, "harness.manifest"), []byte(manifestYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ms, err := manifest.Load(dir)
-	if err != nil {
-		t.Fatalf("Load must not error on unknown top-level keys: %v", err)
-	}
-	if len(ms) != 1 || ms[0].Name != "x" {
-		t.Fatalf("expected one manifest 'x', got %+v", ms)
-	}
-	if ms[0].Images["x"] != "proveo/x:latest" || ms[0].Images["y"] != "proveo/y:latest" {
-		t.Errorf("images not parsed correctly: %+v", ms[0].Images)
-	}
-	if len(ms[0].Images) != 2 {
-		t.Errorf("unknown top-level keys leaked as images: %+v", ms[0].Images)
 	}
 }

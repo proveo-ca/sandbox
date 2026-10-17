@@ -37,9 +37,10 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' TestToolchainProvisioningIsIdempotent read zero installs, and why each sandbox
 ' ran three chrome-bridge relays.
 ' So every harness entrypoint calls proveo_sbx_passthrough "$@" right after
-' sourcing the lib: when SANDBOX_VM_ID is set AND the argv is
-' `sh -c …sleep infinity…`, it execs the keepalive and does nothing else, as
-' tini would. The marker is sbx's env, present when PID 1 starts; the first
+' sourcing the lib: when _proveo_in_sbx holds (SANDBOX_NAME, then SANDBOX_ID,
+' then SANDBOX_VM_ID — F18, 2026-10-17; it read SANDBOX_VM_ID alone before) AND
+' the argv is `sh -c …sleep infinity…`, it execs the keepalive and does nothing
+' else, as tini would. The marker is sbx's env, present when PID 1 starts; the first
 ' guard used /etc/durable-startup.d, which sbx writes ~2s AFTER PID 1 starts
 ' (measured: dir born 03:55:37.2, PID 1 03:55:35), so it never fired at boot.
 ' The docker backend never matches (proveo sets no SANDBOX_*; its argv is the
@@ -151,8 +152,9 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' is released only after that.
 ' The wait lives in the image because sbx offers no launch gate: a
 ' /opt/proveo/shims/claude shim ahead on PATH, and /etc/bash.bashrc for the
-' shell agent, run proveo-await-seed. It waits only when SANDBOX_VM_ID AND
-' PROVEO_WORKDIR are set: a bare `sbx run -t` of the image (ladder rungs 1-2)
+' shell agent, run proveo-await-seed. It waits only when its POSIX
+' _proveo_in_sbx holds (SANDBOX_NAME, SANDBOX_ID or SANDBOX_VM_ID — F18,
+' 2026-10-17) AND PROVEO_WORKDIR is set: a bare `sbx run -t` of the image (ladder rungs 1-2)
 ' has no proveo kit, so no seed will ever mark the boot. It gives up after
 ' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. (The
 ' deleted docker backend seeded in the entrypoint before exec, so it never waited.)

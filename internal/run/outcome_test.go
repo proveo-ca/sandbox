@@ -125,21 +125,17 @@ func TestDoRecordsAnEarlyFailureInTheTranscript(t *testing.T) {
 }
 
 func TestRequireSandboxRefusesEveryRunSbxCannotHost(t *testing.T) {
-	sbxMan := manifest.Manifest{Name: "claudecode", Docker: manifest.DockerSbx}
 	previous := sandboxReady
 	t.Cleanup(func() { sandboxReady = previous })
 	ready, why := true, ""
 	sandboxReady = func(bool, func(string) bool) (bool, string) { return ready, why }
 
-	if err := requireSandbox(manifest.Manifest{Name: "x"}, Params{Target: "x"}, Deps{}); err == nil || !strings.Contains(err.Error(), "docker: sbx") {
-		t.Errorf("a manifest without sbx: err = %v", err)
-	}
 	ready, why = false, "sbx CLI not found on PATH"
-	if err := requireSandbox(sbxMan, Params{Target: "claudecode"}, Deps{}); err == nil || !strings.Contains(err.Error(), why) || !strings.Contains(err.Error(), "only in sbx") {
+	if err := requireSandbox(Params{Target: "claudecode"}, Deps{}); err == nil || !strings.Contains(err.Error(), why) || !strings.Contains(err.Error(), "only in sbx") {
 		t.Errorf("sbx not ready: err = %v", err)
 	}
 	ready = true
-	if err := requireSandbox(sbxMan, Params{Target: "claudecode"}, Deps{}); err != nil {
+	if err := requireSandbox(Params{Target: "claudecode"}, Deps{}); err != nil {
 		t.Errorf("a ready sbx refused: %v", err)
 	}
 }

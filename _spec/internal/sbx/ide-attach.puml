@@ -46,8 +46,24 @@ skinparam noteTextAlignment left
 ' (a link to logs/ would undo the narrow view). Deeper
 ' links, file links and targets already inside a mount add nothing.
 ' Use: hermes/data/skills-muse → ~/Projects/proveo/skills/yahoo-ff (git), edited
-' and committed on the host only. Docker binds the whole home at /proveo-home;
-' an absolute link there still dangles (not handled).
+' and committed on the host only. (HISTORY: the deleted docker backend bound the
+' whole home at /proveo-home, where an absolute link dangled.)
+' ONLY LISTED TARGETS (SEC2, DONE (wt) 2026-10-17; repo-simplification.puml
+' SEC2, option 2). A declared dir is mounted read-WRITE, so the guest could
+' plant `~/.proveo/<dir>/x -> ~/.ssh` and read it on the next run. MEASURED
+' now: a link is followed only when its resolved (realPath) target is listed in
+' <proveo home>/linked-dirs (LinkedDirsFile, home_access.go:28-29) — absolute
+' paths, one per line, `#` comments, read by listedLinkTargets (:96-111). The
+' proveo home ROOT is never mounted, so the guest cannot add an entry; a
+' linked-dirs copy inside a mounted dir does not count (home_access_test.go:
+' 330-348). The widening filters above still run first. An unlisted link lands
+' in HomeAccess.SkippedLinks as "<link> → <target>" and the run prints "home
+' link <l> not followed — list its target in <home>/linked-dirs to mount it
+' read-only" (sandbox.go:1450-1451). Tests:
+' TestHomeAccessFollowsOnlyLinksTheHostListed (:317), with
+' TestHomeAccessMountsALinkedDirReadOnly and
+' TestHomeAccessRefusesLinksThatWidenTheView updated (reported). The README's
+' "Proveo home" section documents linked-dirs (reported; docs are not mine).
 '
 ' JETBRAINS IS THE SAME HOST. proveo adds one line for Remote Development:
 ' host <sid>.sbx through the OpenSSH config, project = the agent workdir. A

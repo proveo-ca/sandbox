@@ -27,10 +27,13 @@ title Claude in Chrome from a sandbox — the native host socket, carried across
 ' _spec/_plans/host-execution-fallback.puml).
 ' Deleted with the backend: chromebridge.TierSupported / TierWhy, the egress
 ' plan's HostBridge, and e2e/chrome_bridge_test.go (the docker twin).
-' Still compiled and reachable only past SbxWhy: Relay.SetTokenEnv and the
-' bare-name Relay.Env served docker's `-e NAME` and have no live caller path
-' (repo-simplification.puml N18). The relay, ResolvedEnv, the seed's relay
-' start and withChromeFlag stay: they are the sbx chain, kept for re-enabling.
+' N18 (DONE (wt) 2026-10-17, MEASURED): Relay.SetTokenEnv and the bare-name
+' Relay.Env, which served docker's `-e NAME`, are deleted; startChromeBridge
+' returns *chromebridge.Relay only (internal/run/run.go:285) and the sbx path
+' uses ResolvedEnv (:655). Reported: Close no longer unsets the token, and the
+' chromebridge test asserts the relay never exports its token into the host
+' process. The relay, ResolvedEnv, the seed's relay start and withChromeFlag
+' stay: they are the sbx chain, kept for re-enabling (F14 still PROPOSED).
 '
 ' ── FOUR PRECONDITIONS, AND PROVEO OWNS ONE ────────────────────────────────
 ' (rehomed from the now-retired _spec/_plans/claude-in-chrome-reachability.puml,

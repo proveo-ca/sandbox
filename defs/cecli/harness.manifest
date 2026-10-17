@@ -1,7 +1,6 @@
 # SPEC: _spec/components.puml
 name: cecli
 description: Pair-programming specialist (cecli/aider, low-token, human-guided)
-docker: sbx
 stability: candidate
 images:
   cecli: proveo/cecli:latest

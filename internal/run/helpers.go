@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -80,8 +81,24 @@ func OrWD(p string) string {
 	return wd
 }
 
+var warnedRetired sync.Map
+
+// renamedEnv reads name, else the retired old name with a one-time deprecation warning.
+func renamedEnv(name, old string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	v := os.Getenv(old)
+	if v != "" {
+		if _, seen := warnedRetired.LoadOrStore(old, true); !seen {
+			ui.Warnf("%s is deprecated and goes away next release — set %s", old, name)
+		}
+	}
+	return v
+}
+
 func StateDir() string {
-	if x := os.Getenv("PROVEO_EGRESS_ROOT"); x != "" {
+	if x := renamedEnv("PROVEO_STATE_ROOT", "PROVEO_EGRESS_ROOT"); x != "" {
 		return x
 	}
 	if x := os.Getenv("XDG_STATE_HOME"); x != "" {

@@ -3,61 +3,76 @@
 ' purpose: why the in-container prep is a Go subprocess and what it therefore cannot hand the agent
 ' covers: cmd/proveo-entrypoint/**
 ' covers: packages/lib/entrypoint-lib.sh
-title proveo-entrypoint prep — what does and does NOT cross the process boundary
+' covers: internal/entrypoint/**
+' covers: internal/contract/contract_test.go (TestEntrypointsRunTheShellPreludeThenPrep)
+' covers: internal/contract/env_prelude_test.go (TestPrepKeepsOnlyWhatCrossesTheBoundary)
+'
+' ── N1 (DONE (wt) 2026-10-17): prep KEEPS ONLY WHAT CROSSES THE BOUNDARY ───
+' Part of the user's "apply fixes for SEC2, SEC3, N1, F18, …" (repo-simplification.puml
+' N1, option 1). MEASURED: `proveo-entrypoint prep [target]` runs EnsureRuntimeUser
+' (the passwd entry), the git-context report and the smoke sentinel, nothing else
+' (cmd/proveo-entrypoint/main.go:52-64); internal/entrypoint holds only
+' EnsureRuntimeUser, SmokeReady and firstNonEmpty. The exec mode
+' (`proveo-entrypoint <target> -- cmd`) is deleted; usage is
+' `prep [target] | verify [dir] | adb-mirror`. BridgeGoogleKeys, BridgeGitIdentity,
+' NormalizeModel and ApplyEnvBridges are deleted with their tests, and so is the
+' chdir. Every process-local step is the SHELL's now: each def entrypoint runs
+' set_working_directory, bridge_google_keys and bridge_git_identity, then
+' `proveo-entrypoint prep` (e.g. defs/codex/entrypoint.sh:12-16); the `else`
+' branches for an image without the binary are gone.
+' FLAGGED (image agent; consequences to confirm, recorded not decided here):
+'   * the ORDER is reversed — the shell prelude runs BEFORE prep, so prep's git
+'     report sees the working directory and identity the shell set;
+'   * agents now RECEIVE the git-identity env — bridge_git_identity exports in
+'     the shell the agent inherits, where its Go twin exported into a dying child.
+' Pinned by TestEntrypointsRunTheShellPreludeThenPrep and
+' TestPrepKeepsOnlyWhatCrossesTheBoundary. [Unverified] in a built image: the image
+' suites did not run this pass (1.9 GB of disk free, reported).
+title proveo-entrypoint prep — only what crosses the process boundary
 
 node "Agent container" as CTR <<host>> {
 
   component "defs/<name>/entrypoint.sh\n(PID 1 shell — execs the agent)" as SH <<app>>
 
-  component "proveo-entrypoint prep <target>\n(child process)" as PREP <<app>>
-
-  frame "Crosses the boundary\n(external to the process)" as OK {
-    component "ensure_runtime_user\npasswd entry + writable HOME" as UID <<app>>
-    component "report_git_context\nstdout preamble" as GITCTX <<app>>
-    component "SmokeReady\nprints sentinel, sleeps" as SMOKE <<async>>
+  frame "In-shell prelude (FIRST)\nentrypoint-lib.sh" as SHELLPRE {
+    component "set_working_directory\nchdir(2)" as CWD <<app>>
+    component "bridge_google_keys\nGoogle key alias exports" as ENV <<app>>
+    component "bridge_git_identity\nGIT_CONFIG_KEY_n exports" as GITID <<app>>
   }
 
-  frame "Dies with the child\n(process-local state)" as LOST <<error>> {
-    component "set_working_directory\nchdir(2)" as CWD <<error>>
-    component "BridgeGoogleKeys\nGoogle key alias exports\n(no .env load since N7)" as ENV <<error>>
-    component "ApplyEnvBridges\nOPENCODE_MODEL, …" as BRIDGE <<error>>
-    component "bridge_git_identity\nGIT_CONFIG_KEY_n exports" as GITID <<error>>
+  component "proveo-entrypoint prep <target>\n(child process, AFTER the prelude)" as PREP <<app>>
+
+  frame "Crosses the boundary\n(external to the process)" as OK {
+    component "EnsureRuntimeUser\npasswd entry + writable HOME" as UID <<app>>
+    component "git-context report\nstdout preamble" as GITCTX <<app>>
+    component "SmokeReady\nprints sentinel, sleeps" as SMOKE <<async>>
   }
 
   component "agent CLI\n(inherits the SHELL's env + cwd)" as AGENT <<app>>
 }
 
+SH ARROW_MAIN SHELLPRE : sourced lib, same process
 SH ARROW_MAIN PREP : " ""proveo-entrypoint prep <target> || true"" "
 PREP ARROW_MAIN OK : effects outlive the child
-PREP ARROW_ERROR LOST : errorLabel(discarded on exit)
+SHELLPRE ARROW_MAIN AGENT : cwd + exports inherited
 SH ARROW_MAIN AGENT : " ""exec <agent> \"$@\""" "
 
-note right of LOST
+note right of SHELLPRE
   **A child cannot mutate its parent.**
-  ""chdir"" and ""setenv"" are per-process. ""prep"" exits 0
-  whether or not any of this took effect, so the failure
-  is **silent** — the agent simply starts with the image
-  ""WORKDIR"" and no project env.
-
-  Observed before this was specified:
-  * opencode ignored ""ARCHITECT_MODEL"" → baked default
-  * claudecode had no ""ANTHROPIC_MODEL""
-  * ""find_env_file"" searched the wrong directory
-    (HISTORY: the finder is deleted with N7)
+  ""chdir"" and ""setenv"" are per-process, so every
+  step that sets them runs IN the shell the agent
+  inherits. HISTORY: prep ran them too, exited 0, and
+  the effects died with it — silently.
 end note
 
 note bottom of SH
-  **Contract for def entrypoints.** After calling ""prep"",
-  redo the process-local steps IN THIS SHELL:
-  ""set_working_directory <dir>"" then ""bridge_google_keys""
-  then the harness's own model bridge. All are idempotent
-  and only fill slots still unset, so a value already
-  supplied by ""sbx run -e"" or ""--env-file"" wins.
-
-  An exporting helper must never delegate back to ""prep"" —
-  a function whose job is exporting cannot do it from a
-  subprocess. No step loads a workspace "".env"" any more
-  (N7). See _spec/packages/lib/steps.puml.
+  **Contract for def entrypoints.** Source the lib,
+  run the prelude (""set_working_directory <dir>"",
+  ""bridge_google_keys"", ""bridge_git_identity"") and the
+  harness's own model bridge, THEN call ""prep"". Each
+  fills only unset slots, so ""sbx run -e"" or
+  ""--env-file"" values win. No step loads a workspace
+  "".env"" (N7). See _spec/packages/lib/steps.puml.
 end note
 
 note top of SMOKE
@@ -68,20 +83,19 @@ note top of SMOKE
   must run ""prep"" with the flag cleared and call
   ""run_smoke_test"" at the end of their own preamble.
 end note
+
 note bottom of PREP
-  **The prelude is one Go binary shared by every entrypoint**: runtime user,
-  the Google key aliases, env bridges, git identity, smoke mode. (The credential
-  sentinel step, ApplyBrokerSentinel, was deleted 2026-10-16; the ""\.env"" load —
-  FindEnvFile, LoadEnvFile, ShouldSkipEnvLoad — 2026-10-17 with N7, MEASURED:
-  runPrep has no .env branch.) A harness entrypoint that reimplemented any of these would
-  drift from the others, and this is the layer whose failures are hardest
-  to see from inside a container.
+  **prep is the shared Go half, and only the half that can be.**
+  Runtime user, git-context report, smoke mode — effects that live outside
+  the process. HISTORY: it also bridged the Google keys, applied env
+  bridges, bridged git identity and chdir'd (deleted with N1, 2026-10-17),
+  loaded the workspace "".env"" (deleted with N7) and wrote the credential
+  sentinel (deleted with D1, 2026-10-16).
 
-  **What it forwards by value is deliberately only the non-secret half** —
-  the model and UI preferences from the shared baseline plus the harness's
-  own ""config:"" list. They cannot carry a credential by construction:
-  secrets are declared in ""env:"" and travel through sbx's secret store instead.
+  **Non-secret preferences travel by value** — the model and UI preferences
+  from the shared baseline plus the harness's own ""config:"" list, as Kit
+  environment. Secrets are declared in ""env:"" and travel through sbx's
+  secret store instead.
 end note
-
 
 @enduml

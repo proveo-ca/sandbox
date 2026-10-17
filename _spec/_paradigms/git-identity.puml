@@ -30,6 +30,16 @@
 ' TestGitWorktreeLinkageIsCoherentAndHostSafe took the same correction, where
 ' `ensure_git_safe_directory` was the hand-invoked half.
 '
+' ── ONE BRIDGE, IN THE SHELL THE AGENT INHERITS (N1, 2026-10-17) ───────────
+' MEASURED: Go entrypoint.BridgeGitIdentity is deleted; bash bridge_git_identity
+' is the one bridge, and every def entrypoint runs it in the shell prelude BEFORE
+' `proveo-entrypoint prep` (e.g. defs/codex/entrypoint.sh:12-16;
+' TestEntrypointsRunTheShellPreludeThenPrep). FLAGGED by the image agent (a
+' consequence to confirm, not decided here): the agent now RECEIVES the
+' GIT_CONFIG_KEY_n / VALUE_n / COUNT env — before, the Go twin exported it into
+' prep's dying child. Whether that holds on a live image is [Unverified]: the image
+' suites did not run this pass. _spec/cmd/proveo-entrypoint/prep-process-boundary.puml.
+'
 ' One case keeps a raw `docker run` deliberately, and the reason is recorded in
 ' testing-strategy.puml: a bare `.git` mount with no working tree is a shape no
 ' real launch constructs, and reproducing it is the whole point of that case.

@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml
 package contract_test
 
 import (
@@ -55,17 +55,40 @@ func buildEntrypoint(t *testing.T) string {
 	return bin
 }
 
-// goPrelude runs `proveo-entrypoint probe -- /bin/sh -c <probe>` from work with an empty PATH.
-func goPrelude(t *testing.T, bin, work string, env ...string) string {
+// gitOnlyPath returns a PATH directory holding only git; empty without git.
+func gitOnlyPath(t *testing.T) string {
 	t.Helper()
-	cmd := exec.Command(bin, "probe", "--", "/bin/sh", "-c", preludeProbe)
-	cmd.Dir = work
-	cmd.Env = append([]string{"PATH=", "HOME=" + t.TempDir(), "PROVEO_WORKDIR=" + work}, env...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("proveo-entrypoint prelude failed (%v):\n%s", err, out)
+	dir := t.TempDir()
+	if git, err := exec.LookPath("git"); err == nil {
+		if err := os.Symlink(git, filepath.Join(dir, "git")); err != nil {
+			t.Fatal(err)
+		}
 	}
-	return string(out)
+	return dir
+}
+
+// runEntrypoint runs `proveo-entrypoint <args>` from dir with a git-only PATH, an empty HOME and env.
+func runEntrypoint(t *testing.T, bin, dir string, env []string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
+	cmd.Env = append([]string{"PATH=" + gitOnlyPath(t), "HOME=" + t.TempDir(),
+		"XDG_CONFIG_HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1"}, env...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// gitRepo returns the resolved path of a fresh git repository.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	return dir
 }
 
 func TestNeitherPreludeReadsTheWorkspaceEnv(t *testing.T) {
@@ -86,24 +109,22 @@ apply_env_bridges`
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			work := leakyWorkspace(t)
-			for prelude, out := range map[string]string{
-				"bash prelude":           bashPrelude(t, work, steps, c.env...),
-				"proveo-entrypoint prep": goPrelude(t, bin, work, c.env...),
-			} {
-				if !strings.Contains(out, "PROBE=unset") || strings.Contains(out, "leaked") {
-					t.Errorf("%s exported the workspace .env:\n%s", prelude, out)
-				}
-				if strings.Contains(out, ".env") {
-					t.Errorf("%s still reports on a workspace .env:\n%s", prelude, out)
-				}
+			out := bashPrelude(t, work, steps, c.env...)
+			if !strings.Contains(out, "PROBE=unset") || strings.Contains(out, "leaked") {
+				t.Errorf("bash prelude exported the workspace .env:\n%s", out)
+			}
+			if strings.Contains(out, ".env") {
+				t.Errorf("bash prelude still reports on a workspace .env:\n%s", out)
+			}
+			if out, err := runEntrypoint(t, bin, work, append([]string{"PROVEO_WORKDIR=" + work}, c.env...), "prep", "probe"); err != nil || strings.Contains(out, ".env") {
+				t.Errorf("proveo-entrypoint prep reports on a workspace .env (%v):\n%s", err, out)
 			}
 		})
 	}
 }
 
-func TestBothPreludesBridgeTheGoogleKeyAliases(t *testing.T) {
+func TestBashPreludeBridgesTheGoogleKeyAliases(t *testing.T) {
 	t.Parallel()
-	bin := buildEntrypoint(t)
 	work := t.TempDir()
 	for _, c := range []struct {
 		name, env, want string
@@ -114,15 +135,41 @@ func TestBothPreludesBridgeTheGoogleKeyAliases(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			for prelude, out := range map[string]string{
-				"bash bridge_google_keys": bashPrelude(t, work, "bridge_google_keys", c.env),
-				"proveo-entrypoint prep":  goPrelude(t, bin, work, c.env),
-			} {
-				if !strings.Contains(out, c.want) {
-					t.Errorf("%s: want %q:\n%s", prelude, c.want, out)
-				}
+			if out := bashPrelude(t, work, "bridge_google_keys", c.env); !strings.Contains(out, c.want) {
+				t.Errorf("bridge_google_keys: want %q:\n%s", c.want, out)
 			}
 		})
+	}
+}
+
+func TestPrepKeepsOnlyWhatCrossesTheBoundary(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	bin := buildEntrypoint(t)
+	repo := gitRepo(t)
+
+	if out, err := runEntrypoint(t, bin, repo, nil, "probe", "--", "/bin/sh", "-c", "echo EXEC_MODE_RAN"); err == nil || strings.Contains(out, "EXEC_MODE_RAN") {
+		t.Errorf("proveo-entrypoint <target> -- <command> still runs the command (%v):\n%s", err, out)
+	}
+
+	for _, c := range []struct {
+		name, want, reject string
+		env                []string
+	}{
+		{"reports the cwd it inherits", "Git repository at " + repo, "Not a git repository",
+			[]string{"PROVEO_WORKDIR=" + t.TempDir()}},
+		{"reports the identity the shell bridged", "Git identity: Shell Name <shell@example.com>", "No git identity",
+			[]string{"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=Shell Name",
+				"GIT_CONFIG_KEY_1=user.email", "GIT_CONFIG_VALUE_1=shell@example.com"}},
+		{"bridges no identity itself", "No git identity", "Author Name",
+			[]string{"GIT_AUTHOR_NAME=Author Name", "GIT_AUTHOR_EMAIL=author@example.com"}},
+	} {
+		out, err := runEntrypoint(t, bin, repo, c.env, "prep", "probe")
+		if err != nil || !strings.Contains(out, c.want) || strings.Contains(out, c.reject) {
+			t.Errorf("prep %s: want %q and no %q (%v):\n%s", c.name, c.want, c.reject, err, out)
+		}
 	}
 }
 

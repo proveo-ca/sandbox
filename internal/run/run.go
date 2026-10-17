@@ -65,7 +65,7 @@ func Do(p Params, d Deps) (err error) {
 	if err != nil {
 		return err
 	}
-	if err := requireSandbox(rs.Man, p, d); err != nil {
+	if err := requireSandbox(p, d); err != nil {
 		return err
 	}
 	rs.Log.Artifacts(rs.EgDir)
@@ -91,10 +91,7 @@ func Do(p Params, d Deps) (err error) {
 var sandboxReady = sandbox.Ready
 
 // requireSandbox refuses a run that sbx cannot host: there is no other backend.
-func requireSandbox(man manifest.Manifest, p Params, d Deps) error {
-	if !man.IsSbx() {
-		return fmt.Errorf("%s does not declare `docker: sbx` in its harness.manifest, and sbx is the only backend", p.Target)
-	}
+func requireSandbox(p Params, d Deps) error {
 	if ok, why := sandboxReady(p.PrintOnly, d.ProvisionConfirm); !ok {
 		return sandbox.Unavailable(why)
 	}
@@ -144,7 +141,7 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	}
 
 	rs.InvocationWD, _ = os.Getwd()
-	rs.Creds.HostEnvFile = strings.TrimSpace(os.Getenv("PROVEO_EGRESS_ENV_FILE"))
+	rs.Creds.HostEnvFile = strings.TrimSpace(renamedEnv("PROVEO_ENV_FILE", "PROVEO_EGRESS_ENV_FILE"))
 	if rs.Creds.HostEnvFile == "" {
 		rs.Creds.HostEnvFile = workspace.ProjectEnvFile(rs.InvocationWD, rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
 	}
@@ -285,36 +282,33 @@ func startHostADB(p *Params) ([]string, error) {
 	return hostadb.GuestEnv(port), nil
 }
 
-func startChromeBridge(rs *Spec, p *Params, tierBlocked string) (*chromebridge.Relay, []string) {
+func startChromeBridge(rs *Spec, p *Params, tierBlocked string) *chromebridge.Relay {
 	ui.Section(ui.SectionInterface)
 	if !hasAddon(p.Addons, addonChrome) {
-		return nil, nil
+		return nil
 	}
 	switch {
 	case tierBlocked != "":
 		ui.Warnf("%s: skipped — %s", addonChrome, tierBlocked)
-		return nil, nil
+		return nil
 	case p.PrintOnly:
 		ui.Hostf("%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
 			addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
-		return nil, nil
+		return nil
 	}
 	if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
 		ui.Warnf("%s: skipped — %s", addonChrome, why)
-		return nil, nil
+		return nil
 	}
 	r, err := chromebridge.Start(chromebridge.BindAddr(), chromebridge.HostSocketDir(), ui.Warnf)
 	if err != nil {
 		ui.Warnf("%s: skipped — %v", addonChrome, err)
-		return nil, nil
-	}
-	if err := r.SetTokenEnv(); err != nil {
-		ui.Warnf("%s: cannot export %s: %v", addonChrome, chromebridge.EnvToken, err)
+		return nil
 	}
 	ui.Hostf("chrome: Claude in Chrome through YOUR browser — host relay %s → %s. "+
 		"The agent gets your logged-in sessions; site permissions stay the extension's",
 		r.Addr(), chromebridge.HostSocketDir())
-	return r, r.Env()
+	return r
 }
 
 func hostStoreResolver() *secretref.Resolver {
@@ -654,7 +648,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	if browserOn && !p.PrintOnly {
 		cdpPort = sandbox.FreeLoopbackPort()
 	}
-	sbxBridge, _ := startChromeBridge(rs, p, chromebridge.SbxWhy)
+	sbxBridge := startChromeBridge(rs, p, chromebridge.SbxWhy)
 	var sbxBridgeEnv []string
 	if sbxBridge != nil {
 		defer func() { _ = sbxBridge.Close() }()
