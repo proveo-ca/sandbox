@@ -12,6 +12,36 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: internal/workspace/platform.go
 ' covers: internal/workspace/platform_test.go (SharedTreesAllowed)
+' covers: internal/contract/deps_mode_test.go
+' covers: CODING_HARNESSES.md
+'
+' ── N29 (DONE (wt) 2026-10-18): ONE PROVEO_DEPS VOCABULARY, READ ALIKE ─────
+' Before N29 the host read shared|reinstall as consent and the image read
+' auto|off|reinstall as an install mode, so `reinstall` meant something different
+' to each reader and `shared` meant nothing to the image.
+' MEASURED, internal/workspace/platform.go: DepsModes() = auto|off|shared|reinstall
+' (:77). DepsMode(v) (:80) gives auto for an empty value, off for any envflag OFF
+' word, the value itself when it is known, else unknown. SharedTreesAllowed
+' (reported wording):
+'   shared      "host trees go in as they are; the sandbox installs nothing over
+'               a foreign tree"
+'   reinstall   the sandbox may rewrite the host trees
+'   off         on a platform mismatch: installs are off, but the trees still do
+'               not run on the image
+'   unknown     named in the refusal
+' MEASURED, internal/run/run.go:632: the gate reads rs.Creds.Lookup — the process
+' env, then the project .env — so a PROVEO_DEPS in the project .env reaches the
+' host check AND the sandbox (`sbx create --env-file`). A shell export reaches
+' only the host check (N38).
+' MEASURED, packages/lib/entrypoint-lib.sh _proveo_deps_mode (:970): the image
+' side uses proveo_env_off, lowercases, trims only the ends, and warns on stderr
+' for an unknown value; ensure_dependency_trees uses it
+' (_spec/internal/envflag/env-switches.puml, the shell twin).
+' Test: internal/contract/deps_mode_test.go TestHostAndImageReadPROVEODepsAlike —
+' Go and shell parity over one table, "re install" and "sharde" included.
+' CODING_HARNESSES.md documents the values, the .env advice and which reader
+' names an unknown value (reported).
+' Open (N37): no test covers image-side PROVEO_DEPS=shared end to end.
 '
 ' ── F9 (DONE (wt) 2026-10-17): THE HOST KEEPS DETECTION ONLY ───────────────
 ' The user: "Keep detection only (Recommended)" (repo-simplification.puml F9).
@@ -240,8 +270,9 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 ' gate, and it asks the same platform question DepCopyPolicy does:
 '   host == image        the host trees run as-is — mount, warn, proceed.
 '   host ≠ image         refuse, naming --clone and why clone did not apply.
-'   PROVEO_DEPS=shared   the operator accepts the rewrite (reinstall already
-'                        said so, and passes too).
+'   PROVEO_DEPS=shared   the operator lets the host trees in as they are; since
+'                        N29 the sandbox installs nothing over a foreign tree
+'                        (reinstall passes too, and may rewrite them).
 ' PROVEO_DEPS_COPY is NOT consent: it steers the docker copy, which sbx never
 ' makes. The gate counts every planned tree, present or absent, because an
 ' absent one is exactly where the seed's install would land.

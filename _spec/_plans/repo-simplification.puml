@@ -567,7 +567,8 @@
 '     registered; the env audit filed it as N27, DONE in the fifth batch (Doc "Test seam:").
 '     (PROVEO_BIN, the other open name, is deleted by the review follow-up above.)
 '   FIXED 2026-10-18 (MEASURED): README.md now scopes `proveo help env` to what a user or
-'     maintainer can set, and says the 21 Internal rows are left out.
+'     maintainer can set outside the test suites, and says the variables proveo sets for itself —
+'     the Internal rows, 32 since N32 — are left out.
 '   Spec: _spec/internal/envreg/env-registry.puml (new); usage.
 ' N9 · Maintainer commands in the operator binary — DONE (wt), option 1.
 '   Evidence: MEASURED. cmd/proveo/targets.go is deleted, so `proveo targets` no longer exists.
@@ -664,8 +665,13 @@
 '     TestToolSyncRoundTripsThroughTheDurableRoot failure that passed on rerun (the known flake);
 '     e2e fails only on TestScheduleAgentThatDiesBeforeReadyFailsFast; `proveo-dev lint` is red
 '     only on the three held N14 blocks. Images: all 15 rebuilt with the cache off after the shell
-'     work, and all 7 TestImage* suites pass (19 live-API skips). [Unverified] a second rebuild and
-'     suite run for the review's lib, hook and await-seed edits was still running at recording time.
+'     work, and all 7 TestImage* suites passed (19 live-API skips). A second cacheless rebuild of
+'     all 15 after the review's fixes (_proveo_deps_mode trimming, the git-sync-turn.sh trim,
+'     proveo-await-seed on words) passed, and all 7 suites pass again with 19 live-API skips:
+'     Cecli 11.9s, Claudecode 40.8s, Codex 41.0s, Cursor 67.5s, DetachedSmoke 21.7s, Hermes 16.1s,
+'     Opencode 44.4s. Late change: e2e/capacity_test.go reads PROVEO_CAPACITY_TEST through
+'     envflag.On (it was `!= "1"`); no Go `PROVEO_* == "1"` check remains; `go vet -tags e2e` is
+'     clean.
 ' N27 · DONE (wt), option 1. proveo_seed reads `local target="${1:-}"`
 '   (packages/lib/entrypoint-lib.sh:2781, MEASURED here); the ${PROVEO_TARGET} fallback is gone and
 '   every caller passes a target. internal/envreg labels PROVEO_SEED_DONE_MARKER "Test seam:"
@@ -1711,7 +1717,9 @@
 '     .env seeds the sandbox (`sbx create --env-file`; N7, credential-decisions.puml PROJECT .env).
 '   Evidence: MEASURED here (the registry worker reported it first). Reattach keeps only Name and
 '     Command (internal/sbx/run.go:138-143), so it drops --env-file and a reused sandbox keeps the
-'     values it was created with.
+'     values it was created with. An earlier measurement already showed the shape:
+'     _spec/internal/sbx/kit-lifecycle.puml:16-20 records a reattached hermes sandbox still
+'     carrying its creation-time env.
 '   Options:
 '     1. [rec] Warn at launch when a host-env PROVEO_* image knob is set but absent from the
 '        project .env, and when a reattached sandbox's project .env has changed since creation.

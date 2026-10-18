@@ -23,7 +23,8 @@ func runToolSync(t *testing.T, bash string, env map[string]string, mode string) 
 source "$1/packages/lib/entrypoint-lib.sh"
 proveo_sync_tools ` + mode
 	cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t))
-	cmd.Env = append(os.Environ(), "PROVEO_HOME=", "PROVEO_STATE_HOME=", "_PROVEO_TOOL_HOME=", "PROVEO_TOOL_SYNC=")
+	cmd.Env = append(os.Environ(), "PROVEO_HOME=", "PROVEO_STATE_HOME=", "_PROVEO_TOOL_HOME=", "PROVEO_TOOL_SYNC=",
+		"PROVEO_PROVISIONING="+filepath.Join(t.TempDir(), "provisioning"))
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

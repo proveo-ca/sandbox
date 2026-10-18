@@ -16,10 +16,12 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: internal/backend/sandbox/clone_carry_test.go (gitEnv)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
 '
-' Image resolution for these suites (imagetest.Resolve in
+' Image resolution for these suites (imagetest.Resolve(target, ref) in
 ' internal/imagetest/imagetest.go, and why :latest could only
 ' ever mean "whatever the registry last published") is
-' _spec/_devops/image-lineage-and-publish.puml.
+' _spec/_devops/image-lineage-and-publish.puml. The one knob that pins the image
+' under test is PROVEO_TEST_<TARGET>_IMAGE (N31, internal/imagetest/pin.go);
+' _spec/tests/00-testing-overview.puml lists what it folded.
 '
 ' ── LAYER 3 IS RETIRED (DECIDED 2026-10-16) ────────────────────────────────
 ' Layer 3 was the live egress topology — real containers, the MITM, Squid and
@@ -254,7 +256,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' ── :local BEFORE :latest, WHEREVER A SUITE RESOLVES AN IMAGE ───────────────
 ' `mise run build` tags a local build :local and only a publish moves :latest, so
 ' harnessImageName prefers :local and falls back to :latest (overridable per target
-' with PROVEO_TEST_IMAGE_<TARGET>). Defaulting to :latest skipped these suites on a
+' with PROVEO_TEST_<TARGET>_IMAGE since N31, 2026-10-18; it was
+' PROVEO_TEST_IMAGE_<TARGET>, and a pin is now used as given — nothing swaps it
+' for a newer :local). Defaulting to :latest skipped these suites on a
 ' machine that had just built the thing under test — and on one that had also
 ' pulled, ran the PUBLISHED image while the report read as though it covered the
 ' local build. anyImagePresent applies the same rule to guards and teardown: a

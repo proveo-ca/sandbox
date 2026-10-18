@@ -78,7 +78,9 @@ skinparam noteTextAlignment left
 ' ── e2e OPT-IN GATES ───────────────────────────────────────────────────────
 ' MEASURED: PROVEO_TOOLCHAIN_TEST (7 sites, e2e/toolchain_test.go),
 ' PROVEO_IDLE_TEST (1, idle_test.go) and PROVEO_LADDER_TEST (2, ladder_test.go)
-' read through envflag.On instead of `!= "1"`.
+' read through envflag.On instead of `!= "1"`. In the fifth batch
+' e2e/capacity_test.go joined them for PROVEO_CAPACITY_TEST (reported), and no
+' Go `PROVEO_* == "1"` check remains (reported).
 ' The scan does not walk e2e/, so nothing keeps a new e2e gate on envflag.
 '
 ' ── OUT OF SCOPE BY DESIGN ─────────────────────────────────────────────────

@@ -115,7 +115,9 @@
         "cmd/proveo-dev/ladder.go",
         "cmd/proveo-dev/idle.go",
         "cmd/proveo-dev/e2efull.go",
-        "cmd/proveo-dev/gate.go"
+        "cmd/proveo-dev/gate.go",
+        "internal/contract/retirement_test.go",
+        "cmd/proveo-dev/buildcli.go"
       ],
       "fingerprint": null
     },
@@ -997,7 +999,9 @@
       "covers": [
         "internal/envflag/**",
         "internal/contract/env_switch_vocabulary_test.go",
-        "cmd/proveo/provision_test.go"
+        "cmd/proveo/provision_test.go",
+        "packages/lib/entrypoint-lib.sh",
+        "internal/contract/shell_env_switch_test.go"
       ],
       "fingerprint": null
     },
@@ -1008,7 +1012,10 @@
         "cmd/proveo/env_help.go",
         "cmd/proveo/env_help_test.go",
         "internal/contract/env_registry_test.go",
-        "internal/imagebuild/targets.go"
+        "internal/imagebuild/targets.go",
+        "apps/cli/public/cli/install.sh",
+        "apps/cli/public/cli/install.ps1",
+        "apps/cli/public/cli/uninstall.sh"
       ],
       "fingerprint": null
     },
@@ -1632,7 +1639,10 @@
         "defs/cursor/entrypoint.sh",
         "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh",
-        "internal/workspace/platform.go"
+        "internal/workspace/platform.go",
+        "internal/workspace/platform_test.go",
+        "internal/contract/deps_mode_test.go",
+        "CODING_HARNESSES.md"
       ],
       "fingerprint": null
     },
@@ -1768,7 +1778,8 @@
         "internal/*/*_test.go",
         "cmd/proveo/*_test.go",
         "internal/imagetest/**",
-        "cmd/proveo-dev/coverage.go"
+        "cmd/proveo-dev/coverage.go",
+        "internal/contract/test_image_knobs_test.go"
       ],
       "fingerprint": null
     },

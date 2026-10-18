@@ -106,6 +106,12 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' Only :latest is ever resolved by maintain.ResolveImage (and so by
 ' imagetest.Resolve). An explicit :v2 or a digest is a deliberate choice by the
 ' caller and is returned untouched.
+' N31 (DONE (wt) 2026-10-18, MEASURED internal/imagetest/imagetest.go:22-24):
+' imagetest.Resolve(target, ref) takes the build target too. A
+' PROVEO_TEST_<TARGET>_IMAGE pin (internal/imagetest/pin.go PinnedRef) is
+' returned AS GIVEN — before N31 a pinned :latest could still be swapped for a
+' newer :local, so a pin did not pin. With no pin it resolves ref by recency as
+' below.
 '
 ' ── ONE RULE, IN ONE PLACE — AND THE SECOND OPINION IS BANNED ───────────────
 ' The detached smoke first named each image with a HARDCODED tag. `proveo build`
@@ -119,8 +125,9 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' none, so TestNoAdHocLocalOverLatestResolvers refuses that loop in any .sh
 ' under defs/, e2e/ and scripts/.
 ' Since host-shell-to-go P3 the image suites hold ONE implementation: each names
-' a repository and imagetest.Resolve calls maintain.ResolveImage per run
-' (TestImageDetachedSmoke's smokeTargets carry no tag). The shell resolver and
+' a target and a repository, and imagetest.Resolve honours that target's pin or
+' calls maintain.ResolveImage per run (TestImageDetachedSmoke's smokeTargets
+' carry no tag, and the detached smoke honours pins too). The shell resolver and
 ' TestShellImageResolverMatchesResolveImage, the parity test that ran it and
 ' ResolveImage over one table, are deleted with it: one implementation cannot
 ' disagree with itself. TestImageSuitesResolveRatherThanPinThePublishTag now
@@ -148,7 +155,7 @@ node "Tag policy" as TAGS <<host>> {
   component "proveo build\n--load → :local (never :latest)" as BUILD <<app>>
   component "proveo deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
   component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
-  component "imagetest.Resolve\ninternal/imagetest/imagetest.go" as SHRESOLVE <<app>>
+  component "imagetest.Resolve(target, ref)\na PROVEO_TEST_<TARGET>_IMAGE pin as given\nelse ResolveImage" as SHRESOLVE <<app>>
 }
 
 node "internal/imagetest\n-tags=image suites" as DEFTESTS <<host>>
