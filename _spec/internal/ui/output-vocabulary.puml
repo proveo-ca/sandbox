@@ -40,9 +40,10 @@
 ' on the SAME line — "› " brand + bold text (ascii "> "), plain the bare text.
 ' A pull's live progress line only redraws on a TTY; plain gets start + end.
 ' DELIBERATELY PLAIN, because something copies or parses them: `version`
-' (compared against HEAD), the hidden `targets` (tab-separated), `run --print`
-' and `build --print` plans (copy-pasteable commands), the schedule tick's
-' launchd log, transcripts/traces, and in-container markers (PROVEO_SMOKE_READY).
+' (compared against HEAD), `run --print` and `build --print` plans
+' (copy-pasteable commands), the schedule tick's launchd log, transcripts/traces,
+' and in-container markers (PROVEO_SMOKE_READY). The hidden `targets` TSV was on
+' this list until N9 deleted the command (2026-10-18).
 '
 ' ── THE VERB SET IS NOW TWO AXES, NOT ONE LIST ─────────────────────────────
 ' Severity — is this fine, worth attention, or broken — and role — which layer

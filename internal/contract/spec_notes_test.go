@@ -71,6 +71,8 @@ var specNotesEnforced = []string{
 	"_spec/_devops/image-size-reduction.puml",
 	"_spec/internal/maintain/build-schedule.puml",
 	"_spec/internal/sbx/mcp-gateway.puml",
+	"_spec/internal/envflag/env-switches.puml",
+	"_spec/internal/envreg/env-registry.puml",
 	"_spec/packages/lib/seed-and-launch.puml",
 	"_spec/defs/harden-pass.puml",
 	"_spec/defs/base-image-layers.puml",

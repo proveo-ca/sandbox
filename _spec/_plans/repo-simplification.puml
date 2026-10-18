@@ -458,12 +458,140 @@
 '     the RUN is gone and codex joined harnessDockerfiles, so TestNoHarnessImageShipsDockerBinaries
 '     guards it (red before, green after; image-size-reduction.puml Cut 4, codex-topology.puml).
 '   HELD OPEN — the opencode plain-secret 401, the user: "Re-measure first".
-'     internal/backend/sandbox/sandbox.go:1922, internal/sbx/secret.go:13 and
-'     internal/sbx/secret_test.go:8 stay whole, so `proveo-dev lint` is RED on exactly these three
-'     until a live sbx re-measure.
+'     internal/backend/sandbox/sandbox.go:1922 (:1917 since N6's edits, fourth batch),
+'     internal/sbx/secret.go:13 and internal/sbx/secret_test.go:8 stay whole, so `proveo-dev lint`
+'     is RED on exactly these three until a live sbx re-measure.
 '   Index entries the migrators added headers for: .goreleaser.yaml (distribution-update),
 '     internal/sbx/secret.go (credential-path), internal/credentials/credentials.go
 '     (sandbox-backend).
+'
+' ── DONE 2026-10-18, FOURTH BATCH (all (wt) unless marked) ─────────────────
+' The user, verbatim: "Apply N6, N8, N9, N16, N25, N26". Each took its [rec] option.
+'   Verification (MEASURED by the coordinator): go vet clean with no tag, e2e, image and livesbx,
+'     and under GOOS=darwin and GOOS=windows; golangci `unused` 0 with no tag, e2e and image; gofmt
+'     clean; unit (cmd/..., internal/...) fails only on TestJVMRowNeedsTheQemuFloorOnMacOSHosts (T1);
+'     `proveo-dev lint` is red only on the three held N14 blocks. [Unverified] e2e was still running
+'     at recording time.
+' N6 · Hand-rolled boolean env parsers — DONE (wt), option 1.
+'   Evidence: MEASURED. New leaf package internal/envflag: On(v), Off(v), Bool(v, def). Matching
+'     ignores case and surrounding spaces. ON words: 1 true yes on enable enabled. OFF words: 0
+'     false no off disable disabled. Bool returns def for any other value.
+'   Reported: the word set is the union of every spelling the sites accepted, so no site lost one;
+'     an unknown value keeps the site's old behaviour, and no default changed.
+'   Evidence: MEASURED. Converted sites (default in brackets): PROVEO_CLONE [on] and
+'     PROVEO_MOUNT_ROOT_DEPS [on] (run/helpers.go:37,40); PROVEO_STDIN_FILTER [on] and PROVEO_WIZARD
+'     [on] (agentio.go:94,97); PROVEO_SBX_AGENT_KIT [on] (sbx/agents.go:70); PROVEO_SBX_RELOAD [off]
+'     (sbx/template.go:161); PROVEO_LOCAL_MODEL_PULL [on] and PROVEO_LOCAL_MODEL_FORCE [off]
+'     (sbx/host_ollama.go:123,277; its local off() helper is gone); PROVEO_MOUNT_GH_CONFIG [on]
+'     (credentials.go:260); PROVEO_BUILDKIT_CACHE [on] and PROVEO_DOCKER_PUSH [off]
+'     (imagebuild.go:310,358); PROVEO_KEEP_AGENT_LOGINS [off] (proveohome.go:87);
+'     PROVEO_UNINSTALL_ASSUME_YES [off] (cmd/proveo/uninstall.go:43); PROVEO_SBX_MCP [off]
+'     (backend/sandbox/sandbox.go:1377); SKIP_GIT_HOOKS [off] (cmd/proveo-dev/hooks.go:70; `TRUE`
+'     now skips); PROVEO_CDN_REQUIRE_DIST [off] (cmd/proveo-dev/stagecdn.go:53; it was `== "1"`).
+'   Evidence: MEASURED. PROVEO_WIZARD has ONE reader, agentio.WizardEnabled(). run.WizardEnabled
+'     wraps it (helpers.go:111), and backend/sandbox/confirm.go:13 calls it. The first-read second
+'     parse (opencode_cache.go:231-234) went with D2; the later one sat in confirm.go. Reported:
+'     agentio is the home because a run → sandbox import would cycle.
+'   Evidence: MEASURED. Enums keep their own words and parse only on/off through envflag:
+'     PROVEO_GLYPHS (ascii → ASCII; none or any OFF word → no glyphs; else nerd; ui.go:29-37);
+'     PROVEO_DOCKER_PULL (""/auto, never, always exact; on/off words through envflag; anything
+'     else still errors; imagebuild.go:274-285); PROVEO_AUTO_PROVISION (ON builds, OFF declines,
+'     else ask on a TTY; cmd/proveo/provision.go:149-160).
+'   Out of scope by design (reported): interactive prompt answers (wizard.go y/yes, the uninstall
+'     prompt), `!= ""` presence checks, and e2e/.
+'   Tests: internal/envflag/envflag_test.go TestOnOffBoolVocabulary (every spelling, case, spaces,
+'     an unknown value falling back); internal/contract/env_switch_vocabulary_test.go
+'     TestEnvSwitchesParseThroughEnvflag — it walks non-test Go under cmd/ and internal/ outside
+'     internal/envflag and fails when an env-derived value is compared with an on/off word, or when
+'     any `case` lists two or more such words. Reported: before the conversion it flagged exactly
+'     the 24 known sites (the finding's title says 22) and no prompt answer.
+'     TestEnvSwitchScanFlagsHandRolledParsers self-tests the scan on 6 flagged and 6 clean snippets.
+'     cmd/proveo-dev/hooks_test.go TestSkipHooksAcceptsTheEnvflagOnWords (renamed).
+'   Specs: _spec/internal/envflag/env-switches.puml (new); buildx-driver-selection (PUSH and PULL
+'     vocabularies).
+' N8 · About 85 PROVEO_* knobs, eight documented — DONE (wt), option 1.
+'   Evidence: MEASURED. New package internal/envreg: Scope (Operator · Maintainer · Internal),
+'     Var{Name, Scope, Default, Doc}, and Vars — 77 entries sorted by scope, then name: Operator 29,
+'     Maintainer 27, Internal 21. Helpers: Lookup (exact name, then family), ByScope, Var.Family,
+'     Var.Matches.
+'   Evidence: MEASURED. One family, PROVEO_<TARGET>_IMAGE, covers the *_IMAGE literals and the names
+'     imagebuild's envName builds at runtime (e.g. PROVEO_CODEX_BROWSER_IMAGE). Reported: the 77
+'     entries cover all 85 distinct names in string literals.
+'   Evidence: MEASURED. `proveo help env` (cmd/proveo/env_help.go envHelpCmd, renderEnvHelp) is a
+'     cobra help topic. It draws an "operator" and a "maintainer" heading, one row per variable
+'     (name, Doc, "(default …)"), and omits Internal. Root help gained a "help topics" section
+'     (help.go:244-256). Reported: the topic is not runnable, so `proveo env` renders it too.
+'   Tests: internal/envreg/envreg_test.go (unique names; literal or one family; one-line Doc and
+'     Default; known scopes; sort order; Lookup); internal/contract/env_registry_test.go
+'     TestEveryProveoVariableIsRegistered (every PROVEO_* name in a non-test Go string literal under
+'     cmd/ and internal/ must Lookup; MEASURED by the coordinator red with a temporary unregistered
+'     literal, then green) and TestEveryRegisteredVariableIsStillUsed; cmd/proveo/env_help_test.go
+'     TestHelpEnvListsEveryOperatorAndMaintainerVariable and TestProveoHelpEnvRendersTheRegistry.
+'   Reported: README.md gained an "Environment variables" section that points at `proveo help env`
+'     and lists the on/off spellings.
+'   Boundary: the registry covers Go under cmd/ and internal/ only. PROVEO_SKIP_INIT (installer
+'     scripts) and the PROVEO_* the image entrypoints read are outside it.
+'   [Unverified] PROVEO_SBX_MEMORY and PROVEO_SBX_CPUS: unset, proveo omits -m/--cpus; sbx's own
+'     default is not measured.
+'   [Inference] PROVEO_DEPS reaches the image through the project .env seed; no Go code forwards it.
+'   OPEN, not filed (MEASURED): PROVEO_BIN appears only in build-cli's PATH hint
+'     (cmd/proveo-dev/buildcli.go:83). PROVEO_SEED_DONE_MARKER is read with a default
+'     (internal/sbx/kit.go:84, packages/lib/proveo-seed:7), and only tests set it. Both stay
+'     registered; a future finding may file them.
+'   Spec: _spec/internal/envreg/env-registry.puml (new); usage.
+' N9 · Maintainer commands in the operator binary — DONE (wt), option 1.
+'   Evidence: MEASURED. cmd/proveo/targets.go is deleted, so `proveo targets` no longer exists.
+'     maintainerDefsDir (PROVEO_DEFS_DIR, else <repo>/defs) moved unchanged into
+'     cmd/proveo/maintain_cmd.go (:42); reported: its error lost the "targets:" prefix.
+'   Evidence: MEASURED. `build` is no longer Hidden; its Short reads "Build harness image(s) from a
+'     proveo checkout" (maintain_cmd.go:356). deploy and test stay Hidden (:389, :420).
+'   Evidence: MEASURED. run.go:229 and provision.go:70 tell the operator to run `proveo build …`,
+'     and root help now lists that command.
+'   Evidence: MEASURED. cmd/proveo/main.go rootCmd() builds the command tree and main() executes it,
+'     so a test renders the real root help.
+'   Test (reported passing): cmd/proveo/maintainer_surface_test.go
+'     TestRootHelpShowsBuildAndKeepsReleaseToolingHidden — root help lists build, not deploy, test
+'     or targets, and no `targets` command is registered.
+'   Specs: provision-and-targets, usage, image-build-deploy, output-vocabulary.
+' N16 · internal/backend holds run errors only — DONE 2026-10-18, option 2 (decision recorded; no
+'   code change). The user: "Apply N16", on the [rec] "Keep the package as the home of run errors;
+'   nothing else to do". Spec: _spec/internal/backend/exit-code.puml.
+' N25 · The retired state-root warning missed the run log — DONE (wt), option 1.
+'   Evidence: MEASURED. internal/run/run.go Do sets rs.RunDir = RunDirOf(rs.Sid) at :60, after
+'     runlog.Open (:50) and ui.TeeTo (:55). RunDirOf reaches StateDir(), whose renamedEnv prints the
+'     one-time PROVEO_EGRESS_ROOT warning, so the warning now reaches the transcript as well as the
+'     terminal.
+'   Test (MEASURED by the coordinator): internal/run/state_warning_test.go
+'     TestTheRetiredStateRootWarningReachesTheRunLog — red with a StateDir() call restored before
+'     the log opens, green with the fix. Specs: run-transcript, run-spec.
+' N26 · Empty apt layers and the browser-variant base — DONE (wt), option 1, widened by the new test.
+'   Evidence: MEASURED. defs/codex/Dockerfile holds no apt RUN. The deleted layer carried the cache
+'     ids proveo-codex-apt-cache/-lists, an `apt-get install` naming no package, `rm -rf /tmp/*
+'     /var/tmp/*` and `proveo-harden /usr /opt`. base-node-lsp already runs proveo-harden over
+'     /usr /opt (defs/base-node-lsp/Dockerfile:22), and only user and group edits sit between FROM
+'     and where the layer was (defs/codex/Dockerfile:13-41).
+'   Evidence: MEASURED. defs/opencode/Dockerfile lost the identical empty RUN (proveo-opencode-apt-
+'     cache/-lists, a no-argument proveo-harden); the new contract test found it. Neither image's
+'     Dockerfile calls proveo-harden now; both still assert `security.hardened=true`.
+'   Evidence: MEASURED. A browser variant is the defs/base-node-browser layer applied onto
+'     proveo/<harness> (imagebuild browserOf; the parent is its Needs). The READMEs now say so:
+'     codex (variants table), claudecode (add-on table), cursor and opencode (browser-variant
+'     prose; the test found these three).
+'   Tests (reported passing): internal/contract/dockerfile_correctness_test.go
+'     TestEveryAptInstallNamesAPackage (every tracked *Dockerfile; an `apt-get install` whose first
+'     non-flag word is &&, ||, ;, | or the line end fails); internal/contract/browser_layer_test.go
+'     TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness (for every imagebuild.Specs row built
+'     from defs/base-node-browser with a Needs parent, no defs/*/README.md line names
+'     `proveo/<variant>` together with `proveo/base-node-browser`).
+'   Images (MEASURED by the coordinator): codex, opencode, codex-browser and opencode-browser rebuilt
+'     with PROVEO_BUILDKIT_CACHE=off; `docker history` shows the empty apt layer gone from both
+'     harness images; TestImageCodex (41.6s) and TestImageOpencode (45.1s) pass, 9 live-API skips.
+'   Residue (MEASURED, docs the test does not catch — it matches `proveo/<variant>` in backticks):
+'     defs/base/README.md:49-52 draws the -browser variants as children of proveo/base-node-browser
+'     ("cursor-browser (cursor-agent atop the browser floor)"), and defs/base-node-browser/
+'     README.md:16-17 lists them as that image's "Consumers".
+'   Specs: codex-topology, harden-pass, harness-image-layers, browser-layer, seed-and-launch,
+'     claudecode-paradigm.
 '
 ' ══ DECIDED ════════════════════════════════════════════════════════════════
 '
@@ -905,7 +1033,8 @@
 '     2. Add internal/termtext (StripANSI, Words); everyone imports it.
 '     3. Keep the copies; fix ui.stripANSI to stop at the CSI final byte.
 '
-' N6 · Twenty-two hand-rolled boolean env parsers, six vocabularies — PROPOSED.
+' N6 · Twenty-two hand-rolled boolean env parsers, six vocabularies — DONE (wt) 2026-10-18, option 1
+'     (see DONE, fourth batch).
 '   Evidence: MEASURED. e.g. internal/run/helpers.go:36-40,44-48,101-107; agentio.go:95-101;
 '     sbx/agents.go:70; sbx/template.go:161; sbx/host_ollama.go:137; credentials.go:266-267;
 '     ui.go:30; imagebuild.go:277-279,310,359; proveohome.go:88; cmd/proveo/provision.go:162-164.
@@ -930,7 +1059,8 @@
 '     2. Keep image loading; bash calls the Go finder.
 '     3. Keep all; add a finder parity test.
 '
-' N8 · About 85 PROVEO_* knobs, eight documented — PROPOSED.
+' N8 · About 85 PROVEO_* knobs, eight documented — DONE (wt) 2026-10-18, option 1 (see DONE, fourth
+'     batch).
 '   Evidence: MEASURED. A grep of non-test Go found about 85 distinct "PROVEO_*" literals.
 '   Evidence: MEASURED. Operator docs name eight: README.md:27,159; CODING_HARNESSES.md:108,181,184,
 '     203,251.
@@ -944,7 +1074,8 @@
 '     2. Delete every operator knob that no doc or test names.
 '     3. Document by hand in README.
 '
-' N9 · Hidden maintainer commands ship in the operator binary — PROPOSED.
+' N9 · Hidden maintainer commands ship in the operator binary — DONE (wt) 2026-10-18, option 1 (see
+'     DONE, fourth batch).
 '   Evidence: MEASURED. `proveo targets` (cmd/proveo/targets.go:17-39, registered main.go:90) has no
 '     caller in mise.toml, cmd/proveo-dev, scripts or tests.
 '   Evidence: MEASURED. build, deploy and test are Hidden (maintain_cmd.go:337-403).
@@ -1050,7 +1181,8 @@
 '     2. [rec] Wait for D1, D2 and N1 to shrink these files, then split in the order above.
 '     3. Keep as is.
 '
-' N16 · internal/backend is a package for run errors only — PROPOSED.
+' N16 · internal/backend is a package for run errors only — DONE 2026-10-18, option 2 (decision
+'     recorded, no code change; see DONE, fourth batch).
 '   Evidence at first read: backend.go was 10 lines (ExitError only) with a godoc that stopped
 '     mid-sentence ("Package backend holds what the").
 '   UPDATE 2026-10-17 (MEASURED, wt): the godoc now reads "Package backend holds the run errors
@@ -1163,7 +1295,8 @@
 '     2. Keep the shell pair; shrink prep to the smoke sentinel (or nothing, with N22).
 '     3. Keep both; add a parity test.
 '
-' N25 · The PROVEO_EGRESS_ROOT deprecation warning misses the run log — PROPOSED.
+' N25 · The PROVEO_EGRESS_ROOT deprecation warning misses the run log — DONE (wt) 2026-10-18,
+'     option 1 (see DONE, fourth batch).
 '   Evidence: MEASURED. internal/run/run.go:49 calls StateDir() — which emits renamedEnv's warning —
 '     before ui.TeeTo(rs.Log.Writer()) at :56, so the warning reaches the terminal but not the
 '     transcript.
@@ -1173,7 +1306,8 @@
 '     2. Warn again from a point after TeeTo.
 '     3. Accept it: the warning is temporary and goes with the alias next release.
 '
-' N26 · codex image leftovers the N14 migrators found — PROPOSED (added 2026-10-17; file only, the
+' N26 · codex image leftovers the N14 migrators found — DONE (wt) 2026-10-18, option 1, widened to
+'     opencode by the new test (see DONE, fourth batch). Added 2026-10-17 as a finding only (the
 '     coordinator: "File it as a finding, don't fix").
 '   Evidence: MEASURED. defs/codex/Dockerfile:43-48 runs `apt-get update` then
 '     `apt-get install -y --no-install-recommends` with NO package names, then proveo-harden — the
@@ -1210,16 +1344,19 @@
 '  4. The prelude remnants — ALL DONE (wt) 2026-10-17: N1, N4, N7, F7, F18, then N2 + N22 + N23 +
 '     N24 (bridge machinery, the unreachable smoke mode, the duplicate Google bridge, the shell/Go
 '     twins; hermes now ships prep). Image builds for N24 [Unverified] at recording time.
-'  5. N21 (decides F14) + N25 — the Go residue D1 leaves behind (F9, F10, F11, F15, F17, F19,
-'     F20 and N18 DONE; F16, N20 and N13 DONE (wt) 2026-10-17, third batch).
+'  5. N21 (decides F14) — the Go residue D1 leaves behind (F9, F10, F11, F15, F17, F19,
+'     F20 and N18 DONE; F16, N20 and N13 DONE (wt) 2026-10-17, third batch; N25 DONE (wt)
+'     2026-10-18, fourth batch).
 '  6. T1 — hermetic contract tests (N12 DONE (wt) 2026-10-17: one image task, hermes in the gate).
 '  7. N11 — fix spec drift. N10 DONE (wt) 2026-10-17, spec side and source repoint both.
-'  8. N6 + N8 — shared helpers, then the env registry (N5 DONE (wt) 2026-10-17: internal/termtext).
+'  8. N6 + N8 — DONE (wt) 2026-10-18, fourth batch: internal/envflag, then the env registry
+'     internal/envreg and `proveo help env` (N5 DONE (wt) 2026-10-17: internal/termtext).
 '  9. N15 — split sandbox.go, then entrypoint-lib.sh, once 4 and D2 have shrunk them.
-' 10. N9 + N16 + N19 + N26 — small deletions (N17 and N3 DONE (wt) 2026-10-17).
+' 10. N19 — small deletions (N9 and N26 DONE (wt), N16 DONE as a decision, 2026-10-18, fourth
+'     batch; N17 and N3 DONE (wt) 2026-10-17).
 ' 11. N14 — DONE (wt) 2026-10-17: the lint is in `proveo-dev lint`; it stays RED on three held
-'     blocks (sandbox.go:1922, secret.go:13, secret_test.go:8) until a live sbx re-measure of the
-'     opencode plain-secret 401.
+'     blocks (sandbox.go:1917 since N6, was :1922; secret.go:13, secret_test.go:8) until a live sbx
+'     re-measure of the opencode plain-secret 401.
 ' 12. SEC1 — DONE 2026-10-17: the decision is recorded (harness-image-layers.puml).
 title PLANNED — repo simplification: 58 findings, their status, and the order of work
 
@@ -1228,10 +1365,10 @@ component "D2 · OpenCode engine-local DB\nDONE (wt) 2026-10-17 · keeper gone" 
 component "F6 · .env guard rekey\nDONE (wt) inside D1;\nthe guard itself deleted by N7" as F6 <<app>>
 component "security\n(SEC1 SEC2 SEC3 SEC4 DONE)" as SEC <<error>>
 component "image prelude\n(N1 N2 N3 N4 N7 N22 N23 N24\nF7 F18 DONE)" as PRE <<app>>
-component "post-D1 Go residue\nF14 N21 N25\n(C1 F9 F10 F11 F15 F16 F17 F19 F20\nN13 N18 N20 DONE)" as GO <<app>>
+component "post-D1 Go residue\nF14 N21\n(C1 F9 F10 F11 F15 F16 F17 F19 F20\nN13 N18 N20 N25 DONE)" as GO <<app>>
 queue "test gates · T1\nhermetic contract tests\n(N12 DONE)" as TST <<async>>
 database "spec hygiene · N11\nfix drift\n(N10 N14 DONE; 3 N14 blocks held)" as SPEC <<db>>
-component "helpers + splits\nN6 N8 N9 N15 N16 N19 N26\n(N5 N17 DONE)" as HLP <<app>>
+component "helpers + splits\nN15 N19\n(N5 N6 N8 N9 N16 N17 N26 DONE)" as HLP <<app>>
 
 D1 ARROW_MAIN F6 : landed together
 D1 ARROW_MAIN GO
@@ -1252,11 +1389,12 @@ legend bottom
   **IDs** — S seed done · D decided retirement · F seed finding · C credential report
   SEC security · T tests · N own sweep
   ==
-  **Counts** — DONE 46 · DECIDED 0 · PROPOSED 12 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  **Counts** — DONE 52 · DECIDED 0 · PROPOSED 6 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
   F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19, F20 added;
   D2, F13, C1, F20, N3, N17 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7;
   SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added;
   third batch: SEC1, SEC4, F16, N20, N13, N5, N10 DONE, then N2, N22, N23, N24, N14 DONE;
-  N26 added)
+  N26 added; 2026-10-18 fourth batch: N6, N8, N9, N16, N25, N26 DONE. Still PROPOSED:
+  F14, T1, N11, N15, N19, N21)
 end legend
 @enduml

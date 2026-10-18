@@ -30,7 +30,7 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' The `! ls -d "$PLAYWRIGHT_BROWSERS_PATH"/chromium_headless_shell-*` line in the
 ' same RUN is the point of the flag: a future Playwright that ignores
 ' `--no-shell` must fail this build LOUDLY rather than quietly re-adding 334 MB
-' to three variants. Pinned by internal/contract
+' to every variant (four since codex-browser). Pinned by internal/contract
 ' TestBrowserLayerInstallsOneChromiumNotTwo.
 '
 ' ── WHAT THE BUILD CAN AND CANNOT VERIFY ────────────────────────────────────
@@ -86,6 +86,12 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' The `-browser` variants apply this Dockerfile onto `proveo/<harness>`,
 ' then restore that harness user. The shared `proveo/base-node-browser`
 ' image is the same file with its default parent, `base-node-lsp`.
+' The READMEs used to say a variant builds FROM `proveo/base-node-browser`
+' (codex, claudecode, cursor, opencode; fixed by N26, 2026-10-18). Since then
+' TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness (internal/contract/
+' browser_layer_test.go) fails when a defs/*/README.md line names
+' `proveo/<variant>` beside `proveo/base-node-browser`, for every
+' imagebuild.Specs row built from this Dockerfile with a Needs parent.
 ' Both carry Playwright's Chromium and agent-browser pointed at it. The binary
 ' alone is not discoverable by an agent, so the seed drops agent-browser's
 ' discovery STUB into the harness's USER-level skills directory — the one place
@@ -168,7 +174,7 @@ note bottom of PW
   **The ""! ls"" line is the point of the flag.**
   A future Playwright that ignores ""--no-shell""
   must fail this build loudly rather than
-  quietly re-adding 334 MB to three variants.
+  quietly re-adding 334 MB to all four variants.
 end note
 
 note bottom of AB

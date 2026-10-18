@@ -15,6 +15,7 @@ title The harden pass — one script, re-run by every layer that installs
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: defs/claudecode/solidity/Dockerfile
+' covers: defs/codex/Dockerfile
 '
 ' ── WHAT THE PASS ACTUALLY DOES ─────────────────────────────────────────────
 ' `defs/base/proveo-harden` is a POSIX /bin/sh script, installed into
@@ -39,9 +40,17 @@ title The harden pass — one script, re-run by every layer that installs
 ' regardless of the prefixes given, which is intentional: those four paths are
 ' the ones a new package can reintroduce.
 '
-' Two layers call it with NO arguments and thus take the full `/` sweep a second
-' time — defs/cursor/Dockerfile and defs/opencode/Dockerfile, at their apt layer.
-' Recorded because it is a cost, not a correctness problem.
+' One layer calls it with NO arguments and thus takes the full `/` sweep a second
+' time — defs/cursor/Dockerfile, at its apt layer. Recorded because it is a
+' cost, not a correctness problem.
+'
+' codex and opencode call it NOWHERE since N26 (DONE (wt) 2026-10-18, MEASURED).
+' Their only call sat in an apt RUN that installed no package — codex passed
+' `/usr /opt`, opencode no arguments — and both RUNs are deleted. Each inherits
+' base-node-lsp's `/usr /opt` pass instead. In codex only user and group edits
+' preceded the deleted RUN (Dockerfile:13-41), so the agent's npm install, which
+' comes later, was never swept by it. [Inference] opencode's RUN sat at the same
+' point. Both images still assert `security.hardened=true`, so they belong to (a).
 '
 ' ── WHY A SCRIPT AND NOT AN INLINE RUN ──────────────────────────────────────
 ' The pass is baked into proveo/base precisely so that every descendant layer
@@ -53,7 +62,7 @@ title The harden pass — one script, re-run by every layer that installs
 '
 ' ── WHERE THE GUARANTEE IS OVERSTATED (both real, neither fixed here) ───────
 ' (a) `LABEL security.hardened=true` is asserted by proveo/base, proveo/base-node,
-'     proveo/base-node-lsp, proveo/base-node-browser, cursor, opencode and
+'     proveo/base-node-lsp, proveo/base-node-browser, cursor, opencode, codex and
 '     claudecode — but several harnesses add root-owned binaries AFTER their last
 '     proveo-harden call, and defs/claudecode/solidity/Dockerfile never calls the
 '     script while inheriting the label from proveo/claudecode. The label
@@ -75,7 +84,7 @@ node "Callers, in lineage order" as CALL <<host>> {
   component "proveo/base — full ""/"" sweep\nonce, after the apt and curl layers" as C1 <<app>>
   component "base-node · base-node-lsp\nbase-node-browser — ""/usr /opt""" as C2 <<app>>
   component "cecli · claudecode · solidity\n""/usr /opt"" after each install" as C3 <<app>>
-  component "cursor · opencode\nno args — a second full sweep" as C4 <<app>>
+  component "cursor\nno args — a second full sweep\n(codex · opencode: no call since N26)" as C4 <<app>>
 }
 
 component "setuid / setgid bits\n""-perm -4000"" · ""-perm -2000""" as BITS <<error>>

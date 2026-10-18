@@ -5,6 +5,7 @@
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/image_size_test.go
 '   how the harness is steered and gated _spec/defs/codex/codex-paradigm.puml
+'   the empty-apt guard ................ _spec/defs/harness-image-layers.puml
 '
 ' ── NO DOCKER BINARIES OF ITS OWN (N14, DONE (wt) 2026-10-17) ──────────────
 ' codex was the one harness image Cut 4 missed: its Dockerfile still installed
@@ -14,12 +15,23 @@
 ' never read it. The user: "Delete the layer (Recommended)". MEASURED: the RUN
 ' is gone from defs/codex/Dockerfile, codex heads harnessDockerfiles
 ' (image_size_test.go:173-174), and the test was red before, green after
-' (reported). The group, the start-docker LABEL (Dockerfile:54-57) and iptables
-' stay — _spec/_devops/image-size-reduction.puml, Cut 4.
-' OPEN (repo-simplification.puml N26): the apt layer (Dockerfile:43-48) runs
-' `apt-get install -y --no-install-recommends` with NO packages — a no-op; and
-' defs/codex/README.md:64 still lists codex-browser's base as
-' proveo/base-node-browser, which the inversion below made untrue.
+' (reported). The group, the start-docker LABEL (Dockerfile:47-50 since N26)
+' and iptables stay — _spec/_devops/image-size-reduction.puml, Cut 4.
+'
+' ── NO APT LAYER OF ITS OWN (N26, DONE (wt) 2026-10-18) ────────────────────
+' The image installs nothing through apt. Its apt RUN named no package: it
+' paid an `apt-get update` and two cache mounts (proveo-codex-apt-cache,
+' proveo-codex-apt-lists) for nothing, then ran `proveo-harden /usr /opt`.
+' MEASURED: the RUN is deleted, and the file calls proveo-harden nowhere.
+' base-node-lsp already runs that pass over /usr /opt, and only user and group
+' edits sit between FROM and where the layer was (Dockerfile:13-41).
+' internal/contract TestEveryAptInstallNamesAPackage now fails any tracked
+' Dockerfile whose `apt-get install` names no package; it found opencode's twin.
+' Image (MEASURED by the coordinator): rebuilt with the cache off, `docker
+' history` shows no apt layer, and TestImageCodex passes.
+' defs/codex/README.md's variants table now lists proveo/codex as the base of
+' proveo/codex-browser; TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness
+' (internal/contract/browser_layer_test.go) refuses the old claim in any README.
 '
 ' ── AUTH: THE LOGIN FILE IS A CREDENTIAL (moved from source, N14) ──────────
 ' Two ways in: a ChatGPT-plan login at $CODEX_HOME/auth.json, which the durable

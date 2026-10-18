@@ -132,7 +132,8 @@ note bottom of EP
   image (""proveo/claudecode""); ""solidity"" layers the EVM
   contract toolchain (Foundry · solc · solhint · semgrep)
   **on top of mcp** — the heaviest variant; ""-browser"" is
-  mcp FROM base-node-browser (Playwright + Chromium +
+  the base-node-browser layer applied onto mcp's image
+  ""proveo/claudecode"" (Playwright + Chromium +
   agent-browser, _spec/defs/browser-layer.puml). Every
   variant also carries the Claude in Chrome bridge for the
   ""claude-in-chrome"" add-on (chrome-bridge.puml).

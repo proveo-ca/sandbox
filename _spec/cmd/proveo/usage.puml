@@ -7,6 +7,23 @@ skinparam packageStyle rectangle
 ' covers: cmd/proveo/main.go
 ' covers: cmd/proveo-dev/main.go
 ' covers: cmd/proveo/help.go, cmd/proveo/help_test.go
+' covers: cmd/proveo/maintainer_surface_test.go
+' covers: cmd/proveo/env_help.go
+'   the variable registry `help env` renders ... _spec/internal/envreg/env-registry.puml
+'
+' ── 2026-10-18: `build` VISIBLE, `targets` GONE, `help env` ADDED ──────────
+' MEASURED, cmd/proveo/main.go rootCmd(): the root registers version, ls, run,
+' schedule, projects, setup, init, update, uninstall, clean, build, deploy,
+' test, and the help topic env. main() only executes rootCmd(), so a test can
+' render the real root help.
+' N9 (option 1): `targets` is deleted with cmd/proveo/targets.go — it had no
+' caller. `build` is no longer Hidden, because operator messages tell people to
+' run `proveo build <target>`; deploy and test stay Hidden.
+' TestRootHelpShowsBuildAndKeepsReleaseToolingHidden pins all three facts.
+' N8 (option 1): root help gained a "help topics" section (help.go renderHelp)
+' listing `help env`, a cobra help topic rather than a command. `proveo help
+' env` draws the operator and maintainer rows of internal/envreg; reported:
+' `proveo env` renders the same page because the topic is not runnable.
 '
 ' ── HELP SPEAKS THE CHOICE PROMPT'S VOCABULARY (2026-09-28) ────────────────
 ' renderHelp replaces cobra's template on every command with the layout of
@@ -52,7 +69,7 @@ actor "Maintainer" as Maintainer
 
 package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
  component "proveo" as Proveo <<app>>
- component "version · list · run · projects · setup · init" as Commands <<commands>>
+ component "version · ls · run · schedule · projects · setup · init\nupdate · uninstall · clean · build\nhidden: deploy · test · help topic: env" as Commands <<commands>>
  component "run flags\n--credentials · --local-model\n--scope · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 

@@ -32,13 +32,18 @@ skinparam noteTextAlignment left
 ' ── 2026-10-17: RUN STATE IS A RUN DIR, NOT AN EGRESS DIR (N13, DONE (wt)) ──
 ' MEASURED: Spec.EgDir is Spec.RunDir (spec.go:21, "per-run state: the sbx
 ' kit, policy log and staged clone env"), filled by RunDirOf(sid) =
-' <StateDir>/runs/<sid> (run.go:49, helpers.go:117); sandbox.Input.EgDir is
+' <StateDir>/runs/<sid> (run.go:60, helpers.go RunDirOf); sandbox.Input.EgDir is
 ' Input.RunDir (sandbox.go:1036); the egDir parameters of runlog.Artifacts,
 ' CapturePolicyLog and CaptureMemoryEvidence are runDir. RunRoots() also
 ' returns the retired <StateDir>/egress root, for `proveo clean` only
 ' (_spec/internal/clean/clean-lifecycle.puml). Test: TestRunStateLivesUnderRuns
 ' (env_names_test.go:49). The picker's "egress" row (sbx's policy baseline) is
 ' a different concept and keeps its name.
+' 2026-10-18 (N25, MEASURED): Do's first statements are the sid, runlog.Open,
+' ui.TeeTo, THEN RunDirOf. The state root resolves after the tee because
+' StateDir() can warn about the retired PROVEO_EGRESS_ROOT, and a warning
+' printed before the tee never reaches the transcript
+' (_spec/internal/runlog/run-transcript.puml).
 '
 ' ── THE PROBLEM WAS THE STACK FRAME ────────────────────────────────────────
 ' doRun held SIXTY top-level locals. That is not a size complaint: it means the

@@ -1,0 +1,149 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how proveo reads an on/off environment switch — one vocabulary, one parser, and the scan that keeps it that way
+' covers: internal/envflag/**
+' covers: internal/contract/env_switch_vocabulary_test.go
+'   the variables themselves .......... _spec/internal/envreg/env-registry.puml
+'   PROVEO_DOCKER_PUSH / _PULL ......... _spec/_devops/buildx-driver-selection.puml
+'   the decision record ............... _spec/_plans/repo-simplification.puml (N6)
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT IT REPLACED (N6, DONE (wt) 2026-10-18) ────────────────────────────
+' Before N6 each switch parsed its own value. The first read counted about
+' twenty-two hand-rolled parsers in six vocabularies; the scan below flagged 24
+' sites when it first ran (reported). PROVEO_WIZARD was parsed twice. A word
+' could mean "on" at one site and nothing at the next: PROVEO_CDN_REQUIRE_DIST
+' accepted only "1", and SKIP_GIT_HOOKS ignored "TRUE".
+'
+' ── THE VOCABULARY (MEASURED, internal/envflag/envflag.go) ─────────────────
+'   On(v)         1 · true · yes · on · enable · enabled
+'   Off(v)        0 · false · no · off · disable · disabled
+'   Bool(v, def)  On → true · Off → false · anything else → def
+' Matching ignores case and surrounding spaces.
+' Reported: the set is the union of every spelling a converted site accepted,
+' so no site lost one. An unknown value keeps the site's old behaviour — its
+' default almost everywhere — and no default changed.
+'
+' ── WHICH QUESTION A SITE ASKS ─────────────────────────────────────────────
+' A default-on switch asks Off(v), or Bool(v, true), which is the same test. A
+' default-off switch asks On(v). Either way an unrecognised value leaves the
+' switch at its default. MEASURED call sites (default in brackets):
+'   PROVEO_CLONE [on], PROVEO_MOUNT_ROOT_DEPS [on] ...... internal/run/helpers.go
+'   PROVEO_STDIN_FILTER [on], PROVEO_WIZARD [on] ........ internal/agentio/agentio.go
+'   PROVEO_SBX_AGENT_KIT [on] ........................... internal/sbx/agents.go
+'   PROVEO_SBX_RELOAD [off] ............................. internal/sbx/template.go
+'   PROVEO_LOCAL_MODEL_PULL [on], _FORCE [off] .......... internal/sbx/host_ollama.go
+'   PROVEO_MOUNT_GH_CONFIG [on] ......................... internal/credentials/credentials.go
+'   PROVEO_BUILDKIT_CACHE [on], PROVEO_DOCKER_PUSH [off]  internal/imagebuild/imagebuild.go
+'   PROVEO_KEEP_AGENT_LOGINS [off] ...................... internal/proveohome/proveohome.go
+'   PROVEO_SBX_MCP [off] ................................ internal/backend/sandbox/sandbox.go
+'   PROVEO_UNINSTALL_ASSUME_YES [off] ................... cmd/proveo/uninstall.go
+'   SKIP_GIT_HOOKS [off] ................................ cmd/proveo-dev/hooks.go
+'   PROVEO_CDN_REQUIRE_DIST [off] ....................... cmd/proveo-dev/stagecdn.go
+'
+' PROVEO_WIZARD has ONE reader, agentio.WizardEnabled(). run.WizardEnabled wraps
+' it, and internal/backend/sandbox/confirm.go calls it directly. MEASURED:
+' internal/run imports internal/backend/sandbox (run.go sandbox.PlanPorts), so
+' the sandbox package cannot call run's copy without an import cycle; agentio is
+' a leaf both can import.
+'
+' ── ENUMS: THEIR OWN WORDS FIRST, THEN envflag ─────────────────────────────
+' MEASURED:
+'   PROVEO_GLYPHS          ascii → ASCII; none or any OFF word → no glyphs;
+'                          anything else → Nerd (internal/ui/ui.go GlyphTierFrom)
+'   PROVEO_DOCKER_PULL     "" or auto → no --pull; never or OFF → --pull=false;
+'                          always or ON → --pull=true; anything else fails
+'                          (internal/imagebuild/imagebuild.go PullFlags)
+'   PROVEO_AUTO_PROVISION  ON builds; OFF declines; anything else asks on a TTY
+'                          (cmd/proveo/provision.go provisionConfirm)
+'
+' ── OUT OF SCOPE BY DESIGN ─────────────────────────────────────────────────
+' A typed prompt answer is not an env switch: wizard.go's y/yes and the
+' uninstall prompt keep their own words. A presence check (`!= ""`) asks whether
+' a value exists, not what it says. e2e/ keeps its own test knobs (reported).
+' The scan walks Go only; image entrypoints parse their switches in shell.
+'
+' ── THE GUARD (internal/contract/env_switch_vocabulary_test.go) ────────────
+' TestEnvSwitchesParseThroughEnvflag parses every non-test Go file under cmd/
+' and internal/, skipping internal/envflag and testdata. Inside each function
+' it taints what a call whose name ends in "env" returns (os.Getenv,
+' os.LookupEnv, b.env) and what a func(string) string parameter returns, then
+' follows assignments. It fails a tainted value compared with, or switched on,
+' an on/off word. It also fails any `case` that lists two or more on/off words,
+' tainted or not — the shape a hand-rolled helper takes. Reported: before the
+' conversion it flagged exactly the 24 known sites and no prompt answer.
+' TestEnvSwitchScanFlagsHandRolledParsers pins the scan itself: 6 snippets it
+' must flag, 6 it must pass. internal/envflag/envflag_test.go
+' TestOnOffBoolVocabulary covers every spelling, case, spaces and an unknown
+' value falling back to the default.
+title envflag — one on/off vocabulary for every environment switch
+
+component "os.Getenv · getenv(name)\nthe raw value" as RAW <<app>>
+
+node "internal/envflag" as EF <<host>> {
+  component "On(v)\n1 true yes on enable enabled" as ON <<app>>
+  component "Off(v)\n0 false no off disable disabled" as OFF <<app>>
+  component "Bool(v, def)\nOn → true · Off → false · else def" as BOOL <<app>>
+}
+
+node "Sites" as SITES <<host>> {
+  component "default-on\nOff(v) or Bool(v, true)" as DON <<app>>
+  component "default-off\nOn(v)" as DOFF <<app>>
+  component "enums: GLYPHS · DOCKER_PULL\nAUTO_PROVISION" as ENUM <<app>>
+}
+
+component "TestEnvSwitchesParseThroughEnvflag\nAST scan of cmd/ and internal/" as SCAN <<app>>
+component "a hand-rolled parser\nv == ""1"" · case ""off"", ""0""" as HAND <<error>>
+component "prompt answers · presence checks\nnot switches" as NOT <<app>>
+
+RAW ARROW_MAIN SITES
+DON ARROW_MAIN OFF
+DON ARROW_MAIN BOOL
+DOFF ARROW_MAIN ON
+ENUM ARROW_OPTIONAL EF : on/off words only
+BOOL ARROW_MAIN ON
+BOOL ARROW_MAIN OFF
+SCAN ARROW_ERROR HAND : fails the test
+SCAN ARROW_OPTIONAL NOT : passes by design
+
+note bottom of EF
+  **One word list, the union of the old ones.**
+  Every spelling a converted site already
+  accepted is still accepted, so merging the
+  parsers changed no existing operator
+  configuration.
+end note
+
+note right of SITES
+  **The default decides which question to ask.**
+  A default-on switch tests Off and a default-off
+  switch tests On, so an unrecognised value,
+  typically a typo, preserves the documented
+  default instead of inverting it.
+end note
+
+note bottom of ENUM
+  **Enumerations check their own words first.**
+  Specific values such as ascii, never and
+  always are matched before envflag, so only the
+  generic on/off spellings reach the shared
+  vocabulary.
+end note
+
+note bottom of SCAN
+  **The scan follows the value, not the name.**
+  It taints what a call ending in env returns,
+  follows assignments, and fails a tainted
+  comparison with an on/off word, so renaming a
+  local variable cannot hide a parser.
+end note
+
+note bottom of NOT
+  **Prompt answers are not environment switches.**
+  Interactive confirmations and presence checks
+  deliberately keep their own logic, and the
+  scanner's self-test requires three such
+  snippets to remain unflagged.
+end note
+@enduml

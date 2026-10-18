@@ -506,8 +506,8 @@
       "spec": "_spec/cmd/proveo/provision-and-targets.puml",
       "covers": [
         "cmd/proveo/provision.go",
-        "cmd/proveo/targets.go",
         "cmd/proveo/wizard.go",
+        "cmd/proveo/maintain_cmd.go",
         "internal/imagebuild/targets.go"
       ],
       "fingerprint": null
@@ -518,7 +518,9 @@
         "cmd/proveo/main.go",
         "cmd/proveo-dev/main.go",
         "cmd/proveo/help.go",
-        "cmd/proveo/help_test.go"
+        "cmd/proveo/help_test.go",
+        "cmd/proveo/maintainer_surface_test.go",
+        "cmd/proveo/env_help.go"
       ],
       "fingerprint": null
     },
@@ -684,7 +686,8 @@
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
-        "defs/claudecode/solidity/Dockerfile"
+        "defs/claudecode/solidity/Dockerfile",
+        "defs/codex/Dockerfile"
       ],
       "fingerprint": null
     },
@@ -695,7 +698,8 @@
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
-        "defs/claudecode/solidity/Dockerfile"
+        "defs/claudecode/solidity/Dockerfile",
+        "internal/contract/dockerfile_correctness_test.go"
       ],
       "fingerprint": null
     },
@@ -989,6 +993,24 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/envflag/env-switches.puml",
+      "covers": [
+        "internal/envflag/**",
+        "internal/contract/env_switch_vocabulary_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/envreg/env-registry.puml",
+      "covers": [
+        "internal/envreg/**",
+        "cmd/proveo/env_help.go",
+        "cmd/proveo/env_help_test.go",
+        "internal/contract/env_registry_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/gitidentity/authorship.puml",
       "covers": [
         "internal/gitidentity/gitidentity.go",
@@ -1012,7 +1034,7 @@
       "covers": [
         "internal/maintain/**",
         "cmd/proveo/maintain_cmd.go",
-        "cmd/proveo/targets.go",
+        "cmd/proveo/maintainer_surface_test.go",
         "internal/imagebuild/**",
         "internal/imagetest/**"
       ],
@@ -1139,7 +1161,8 @@
         "internal/backend/sandbox/sandbox.go",
         "internal/runlog/runlog_test.go",
         "internal/run/outcome_test.go",
-        "internal/ui/ui_test.go"
+        "internal/ui/ui_test.go",
+        "internal/run/state_warning_test.go"
       ],
       "fingerprint": null
     },

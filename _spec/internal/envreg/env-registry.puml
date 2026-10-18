@@ -1,0 +1,136 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the one list of PROVEO_* variables proveo's Go reads or sets — who sets each, what it defaults to, how `proveo help env` shows it, and the two tests that keep the list and the code equal
+' covers: internal/envreg/**
+' covers: cmd/proveo/env_help.go
+' covers: cmd/proveo/env_help_test.go
+' covers: internal/contract/env_registry_test.go
+'   the on/off vocabulary ............ _spec/internal/envflag/env-switches.puml
+'   where `help env` is listed ........ _spec/cmd/proveo/usage.puml
+'   the decision record ............... _spec/_plans/repo-simplification.puml (N8)
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT IT REPLACED (N8, DONE (wt) 2026-10-18) ────────────────────────────
+' The first read found about 85 distinct "PROVEO_*" literals in non-test Go,
+' and the operator docs named eight of them. Nothing listed the rest, and
+' nothing noticed when a reader went away.
+'
+' ── THE SHAPE (MEASURED, internal/envreg/envreg.go) ────────────────────────
+'   Scope    Operator — a user sets it on the host
+'            Maintainer — build, release, CI or test tooling sets it
+'            Internal — proveo sets it for its own processes or the sandbox
+'   Var      {Name, Scope, Default, Doc}: Default says what happens when it is
+'            unset, Doc what setting it does
+'   Vars     77 entries, by scope then name: Operator 29, Maintainer 27,
+'            Internal 21
+'   helpers  Lookup (exact name, then family) · ByScope · Var.Family ·
+'            Var.Matches
+'
+' ONE FAMILY: PROVEO_<TARGET>_IMAGE. A family name carries one <PLACEHOLDER>,
+' and Matches accepts a non-empty run of A-Z, 0-9 and _ in its place. It covers
+' the *_IMAGE literals (BASE, BASE_NODE, BASE_NODE_LSP, BASE_NODE_BROWSER, CECLI,
+' CODEX, CURSOR, OPENCODE, HERMES) and the names internal/imagebuild's envName
+' builds at runtime, such as PROVEO_CODEX_BROWSER_IMAGE, which no literal
+' spells. Reported: the 77 entries cover all 85 distinct literal names.
+'
+' ── `proveo help env` (cmd/proveo/env_help.go) ─────────────────────────────
+' MEASURED: envHelpCmd has no Run, so cobra treats it as a help topic, and root
+' help lists it under "help topics" (cmd/proveo/help.go renderHelp), not under
+' "commands". renderEnvHelp draws an "operator" and a "maintainer" heading, one
+' row per variable: the name, then Doc and "(default …)". Internal rows are
+' omitted. Reported: `proveo env` renders the same page, and README.md's
+' "Environment variables" section points here and lists the on/off spellings.
+'
+' ── THE GUARDS ─────────────────────────────────────────────────────────────
+' internal/contract/env_registry_test.go:
+'   TestEveryProveoVariableIsRegistered    every PROVEO_* name inside a string
+'                                          literal of non-test Go under cmd/
+'                                          and internal/ must Lookup. MEASURED
+'                                          by the coordinator: red with a
+'                                          temporary unregistered literal, then
+'                                          green.
+'   TestEveryRegisteredVariableIsStillUsed every non-family entry must still
+'                                          appear in such a literal.
+' internal/envreg/envreg_test.go pins the table: unique names; a literal or one
+' family; Doc and Default one line and non-empty (≤90 runes, reported); known
+' scopes; scope-then-name order; Lookup.
+' cmd/proveo/env_help_test.go: TestHelpEnvListsEveryOperatorAndMaintainerVariable
+' (no Internal rows) and TestProveoHelpEnvRendersTheRegistry (`help env` runs;
+' root help names it).
+'
+' ── BOUNDARY: Go UNDER cmd/ AND internal/ ONLY ─────────────────────────────
+' The scan reads Go string literals. PROVEO_SKIP_INIT is read only by the
+' installer scripts, and the image entrypoints read their own PROVEO_* in shell
+' (reported). Neither is registered, and neither test can see them.
+'
+' ── OPEN, NOT FILED ────────────────────────────────────────────────────────
+' MEASURED: PROVEO_BIN appears only in build-cli's PATH hint
+' (cmd/proveo-dev/buildcli.go:83); its own Doc says no code reads it.
+' MEASURED: PROVEO_SEED_DONE_MARKER is read with a default (internal/sbx/kit.go
+' startup script, packages/lib/proveo-seed), and only tests set it.
+' Both stay registered while a literal names them; a later finding may file
+' them (repo-simplification.puml N8).
+' [Unverified] PROVEO_SBX_MEMORY and PROVEO_SBX_CPUS: unset, proveo omits -m and
+' --cpus; sbx's own default is not measured.
+' [Inference] PROVEO_DEPS reaches the image through the project .env seed; no Go
+' code forwards it.
+title envreg — every PROVEO_* variable proveo's Go reads or sets, and who sets it
+
+node "internal/envreg" as REG <<host>> {
+  database "Vars — 77 entries\nscope, then name" as VARS <<db>>
+  component "Lookup(name)\nexact, then PROVEO_<TARGET>_IMAGE" as LOOK <<app>>
+}
+
+node "Scope" as SC <<host>> {
+  component "operator · 29\na user, on the host" as OPS <<app>>
+  component "maintainer · 27\nbuild · release · CI · tests" as MNT <<app>>
+  component "internal · 21\nproveo, for itself and the sandbox" as INT <<app>>
+}
+
+component "proveo help env\ncmd/proveo/env_help.go" as HELP <<app>>
+component "PROVEO_* in string literals\nnon-test Go under cmd/ and internal/" as LIT <<app>>
+component "TestEveryProveoVariableIsRegistered\nTestEveryRegisteredVariableIsStillUsed" as TESTS <<app>>
+component "shell: installer scripts\nimage entrypoints" as SH <<error>>
+
+VARS ARROW_MAIN SC
+OPS ARROW_MAIN HELP : one row each
+MNT ARROW_MAIN HELP : one row each
+INT ARROW_OPTIONAL HELP : omitted
+TESTS ARROW_MAIN LIT : every name must Lookup
+TESTS ARROW_MAIN VARS : every literal row still named
+LIT ARROW_MAIN LOOK
+SH ARROW_OPTIONAL LIT : not scanned
+
+note right of SC
+  **Scope records who sets a variable.**
+  The help page lists operator and maintainer
+  rows only, because internal variables carry
+  values proveo computes for its own processes
+  and the sandbox.
+end note
+
+note bottom of LOOK
+  **A family covers names no literal spells.**
+  imagebuild derives each browser variant's
+  override name at runtime, so a registry of
+  literals alone would miss it; one family
+  pattern matches every target.
+end note
+
+note bottom of TESTS
+  **Two tests, one per direction.** An
+  unregistered literal fails the first and an
+  unused registry entry fails the second, so
+  documentation and implementation cannot
+  diverge unnoticed.
+end note
+
+note bottom of SH
+  **The scan reads Go literals only.**
+  Installer scripts and image entrypoints parse
+  their own PROVEO_* variables in shell, so
+  neither registry test can observe or
+  validate them.
+end note
+@enduml

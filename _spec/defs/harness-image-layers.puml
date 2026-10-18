@@ -11,12 +11,14 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: defs/claudecode/solidity/Dockerfile
+' covers: internal/contract/dockerfile_correctness_test.go
 '
 ' Elsewhere on purpose:
 '   which parent, which tag ....... _spec/_devops/image-lineage-and-publish.puml
 '   why every agent is pinned ..... _spec/_devops/agent-version-pin.puml
 '   /home/agent and the alias ..... _spec/_paradigms/runtime-user-boundary.puml
 '   the harden pass ............... _spec/defs/harden-pass.puml
+'   codex's deleted apt layer ..... _spec/defs/codex/codex-topology.puml
 '   no docker binaries, and the
 '   evidence against that call .... _spec/_devops/image-size-reduction.puml
 '   the plugin seed ............... _spec/defs/claudecode/lsp-plugins-seed.puml
@@ -84,7 +86,7 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' the same group (defs/base/Dockerfile:31), and the microVM, not the uid, is
 ' the boundary every run gets. A harness that should not hold it declares
 ' `daemon: false`; a rootless dockerd was considered and not taken. Raised on
-' OpenCode engines (defs/opencode/Dockerfile:50-53).
+' OpenCode engines (defs/opencode/Dockerfile:41-44 since N26; :50-53 at the time).
 '
 ' ── opencode: xclip IS ABSENT ON PURPOSE ────────────────────────────────────
 ' xclip needs an X display. This container has none and sets no DISPLAY, and the
@@ -93,6 +95,18 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' from proveo/base-node-lsp rather than being installed here, as do the shared
 ' workspace language servers — only the opencode agent itself is installed in
 ' this file.
+'
+' ── NO EMPTY apt LAYER (N26, DONE (wt) 2026-10-18) ──────────────────────────
+' opencode and codex each carried an apt RUN whose `apt-get install` named no
+' package. It paid an `apt-get update` and two cache mounts and installed
+' nothing. [Inference] It is what removing the last package (xclip, for
+' opencode) leaves behind when the install line itself stays. MEASURED: both
+' RUNs are deleted, so neither file runs apt at all.
+' internal/contract TestEveryAptInstallNamesAPackage (dockerfile_correctness_
+' test.go) reads every tracked *Dockerfile. An `apt-get install` whose first
+' non-flag word is `&&`, `||`, `;`, `|` or the line end fails it, so the next
+' removal deletes the RUN or keeps a package. It found opencode's copy after
+' N26 was filed against codex alone.
 '
 ' ── claudecode: THE DEV TOOLS EVERY REPO PINS ITSELF ARE ABSENT ─────────────
 ' No global typescript / ts-node / prettier / eslint. 65 MB measured, unpinned

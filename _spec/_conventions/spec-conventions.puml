@@ -55,7 +55,7 @@
 ' The migration before the gate: 89 blocks moved into _spec/ by three
 ' spec-keepers and 85 stanzas stripped (reported). Three blocks are HELD, so
 ' `proveo-dev lint` is RED on exactly them until a live sbx re-measure (the user:
-' "Re-measure first"): internal/backend/sandbox/sandbox.go:1922,
+' "Re-measure first"): internal/backend/sandbox/sandbox.go:1917 (:1922 before N6),
 ' internal/sbx/secret.go:13, internal/sbx/secret_test.go:8 — the opencode
 ' plain-secret 401 (repo-simplification.puml N14).
 title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle

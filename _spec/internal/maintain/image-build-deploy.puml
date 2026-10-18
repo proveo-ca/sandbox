@@ -3,7 +3,7 @@
 ' purpose: the build/verify/deploy chain for every proveo image, and why :local and :latest stay distinct
 ' covers: internal/maintain/**
 ' covers: cmd/proveo/maintain_cmd.go
-' covers: cmd/proveo/targets.go
+' covers: cmd/proveo/maintainer_surface_test.go
 ' covers: internal/imagebuild/**
 ' covers: internal/imagetest/**
 ' execute order .............. _spec/internal/maintain/build-schedule.puml
@@ -14,6 +14,15 @@
 ' egress"). Two kinds remain: base and harness. The egress-proxy ":local beats
 ' :latest" note below is HISTORY; egressProxyImage and the egress-proxy image
 ' inspect header are deleted from cmd/proveo.
+'
+' 2026-10-18 (N9, MEASURED): `proveo build` is no longer hidden. Root help lists
+' it as "Build harness image(s) from a proveo checkout", because operator
+' messages send people there: a declined preflight build and the agent-pin line
+' both name `proveo build <target>`. deploy and test stay hidden — release
+' tooling an operator has no reason to run. `proveo targets` is deleted; the
+' registry is read only through loadMaintainRegistry (maintain_cmd.go).
+' Pinned by TestRootHelpShowsBuildAndKeepsReleaseToolingHidden
+' (cmd/proveo/maintainer_surface_test.go).
 title Maintainer image pipeline — proveo build / test / deploy
 
 actor "Maintainer" as MT

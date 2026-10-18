@@ -21,6 +21,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: e2e/seed_ready_test.go
 ' covers: internal/contract/seed_phase_test.go
 ' covers: internal/contract/seed_shares_test.go
+' covers: internal/imagetest/*_test.go
 '
 ' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
 ' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
@@ -602,10 +603,10 @@ note as N_SEED_GUARD
 end note
 
 note as N_SEED_VARIANT
-  It covers the ""-browser"" variants too. They
-  rebuild the SAME Dockerfile against
-  base-node-browser — and the crashed run was
-  ""proveo/opencode-browser:local"".
+  It covers the ""-browser"" variants too. Each
+  is the browser layer on ""proveo/<harness>"",
+  so it inherits the seed — and the crashed run
+  was ""proveo/opencode-browser:local"".
 end note
 
 @enduml
