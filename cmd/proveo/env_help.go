@@ -22,13 +22,10 @@ func renderEnvHelp(w io.Writer) {
 	h.line(h.title("proveo help env — " + envHelpCmd().Short))
 	h.line("")
 	for _, scope := range []envreg.Scope{envreg.Operator, envreg.Maintainer} {
-		var vars []envreg.Var
+		vars := envreg.ByScope(scope)
 		col := helpDescCol
-		for _, v := range envreg.Vars {
-			if v.Scope == scope {
-				vars = append(vars, v)
-				col = max(col, helpIndent+runewidth.StringWidth(v.Name)+3)
-			}
+		for _, v := range vars {
+			col = max(col, helpIndent+runewidth.StringWidth(v.Name)+3)
 		}
 		h.heading(scope.String())
 		for _, v := range vars {

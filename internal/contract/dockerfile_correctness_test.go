@@ -14,7 +14,6 @@ var aptDockerfiles = []string{
 	"defs/base-node-browser/Dockerfile",
 	"defs/cecli/Dockerfile",
 	"defs/cursor/Dockerfile",
-	"defs/opencode/Dockerfile",
 	"defs/claudecode/mcp/Dockerfile",
 	"defs/claudecode/solidity/Dockerfile",
 }

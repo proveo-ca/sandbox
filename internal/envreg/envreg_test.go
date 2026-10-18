@@ -32,9 +32,6 @@ func TestNamesAreLiteralOrOneFamily(t *testing.T) {
 		if !literal && !family {
 			t.Errorf("%q is neither a PROVEO_* literal nor a family with one <PLACEHOLDER>", v.Name)
 		}
-		if family != v.Family() {
-			t.Errorf("%s: Family() = %v, want %v", v.Name, v.Family(), family)
-		}
 	}
 }
 
@@ -68,11 +65,11 @@ func TestScopesAreKnown(t *testing.T) {
 		}
 	}
 	total := 0
-	for _, s := range Scopes {
+	for _, s := range []Scope{Operator, Maintainer, Internal} {
 		total += len(ByScope(s))
 	}
 	if total != len(Vars) {
-		t.Errorf("ByScope over Scopes covers %d vars, want %d", total, len(Vars))
+		t.Errorf("ByScope over every scope covers %d vars, want %d", total, len(Vars))
 	}
 }
 
@@ -88,31 +85,6 @@ func TestVarsSortByScopeThenName(t *testing.T) {
 			if less(i, i-1) {
 				t.Errorf("%s sorts before %s", Vars[i].Name, Vars[i-1].Name)
 			}
-		}
-	}
-}
-
-func TestLookup(t *testing.T) {
-	cases := []struct {
-		name, want string
-		ok         bool
-	}{
-		{"PROVEO_CLONE", "PROVEO_CLONE", true},
-		{"PROVEO_CLONE_REF", "PROVEO_CLONE_REF", true},
-		{"PROVEO_CECLI_IMAGE", "PROVEO_<TARGET>_IMAGE", true},
-		{"PROVEO_BASE_NODE_LSP_IMAGE", "PROVEO_<TARGET>_IMAGE", true},
-		{"PROVEO_CODEX_BROWSER_IMAGE", "PROVEO_<TARGET>_IMAGE", true},
-		{"PROVEO_<TARGET>_IMAGE", "PROVEO_<TARGET>_IMAGE", true},
-		{"PROVEO__IMAGE", "", false},
-		{"PROVEO_cecli_IMAGE", "", false},
-		{"PROVEO_IMAGE", "", false},
-		{"PROVEO_NOT_REGISTERED", "", false},
-		{"CLONE", "", false},
-	}
-	for _, c := range cases {
-		v, ok := Lookup(c.name)
-		if ok != c.ok || v.Name != c.want {
-			t.Errorf("Lookup(%q) = %q, %v; want %q, %v", c.name, v.Name, ok, c.want, c.ok)
 		}
 	}
 }

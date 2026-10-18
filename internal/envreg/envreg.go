@@ -2,8 +2,6 @@
 // Package envreg lists every PROVEO_* environment variable proveo's Go code reads or sets.
 package envreg
 
-import "strings"
-
 // Scope says who sets a variable.
 type Scope int
 
@@ -12,9 +10,6 @@ const (
 	Maintainer              // build, release, CI and test tooling sets it
 	Internal                // proveo sets it for its own processes or the sandbox
 )
-
-// Scopes is every scope, in Vars order.
-var Scopes = []Scope{Operator, Maintainer, Internal}
 
 func (s Scope) String() string {
 	switch s {
@@ -42,12 +37,12 @@ var Vars = []Var{
 		Doc: "Pick agent output detail: default drops the extra narration, verbose keeps it"},
 	{Name: "PROVEO_ASSET_BASE_URL", Scope: Operator, Default: "https://proveo.ca/cli",
 		Doc: "Point `proveo update` at another release channel URL"},
-	{Name: "PROVEO_AUTO_PROVISION", Scope: Operator, Default: "ask on a TTY, else decline",
+	{Name: "PROVEO_AUTO_PROVISION", Scope: Operator, Default: "ask on a TTY with the wizard on, else decline",
 		Doc: "Build a missing agent image without asking; 0 declines without asking"},
 	{Name: "PROVEO_CLONE", Scope: Operator, Default: "on",
 		Doc: "Run the agent on a clone of the workspace instead of the live tree; 0 turns it off"},
 	{Name: "PROVEO_DEPS", Scope: Operator, Default: "refuse host trees across platforms",
-		Doc: "shared or reinstall lets a mounted checkout's dependency trees cross platforms"},
+		Doc: "shared or reinstall lets host dependency trees cross platforms; the image also reads off"},
 	{Name: "PROVEO_EGRESS_ENV_FILE", Scope: Operator, Default: "unset",
 		Doc: "Deprecated alias of PROVEO_ENV_FILE"},
 	{Name: "PROVEO_EGRESS_ROOT", Scope: Operator, Default: "unset",
@@ -81,7 +76,7 @@ var Vars = []Var{
 	{Name: "PROVEO_SBX_CPUS", Scope: Operator, Default: "no --cpus: sbx decides",
 		Doc: "Set the sandbox CPU count, clamped to the host's"},
 	{Name: "PROVEO_SBX_INSTANCES", Scope: Operator, Default: "no split: sbx sizes each sandbox",
-		Doc: "Size sandboxes for N at once: host memory / N, half the CPUs when N ≥ 2"},
+		Doc: "Size sandboxes for N at once: Docker's memory total / N, half the CPUs when N ≥ 2"},
 	{Name: "PROVEO_SBX_MCP", Scope: Operator, Default: "off",
 		Doc: "Let sbx's MCP gateway register in the agent"},
 	{Name: "PROVEO_SBX_MEMORY", Scope: Operator, Default: "no -m: sbx decides",
@@ -98,9 +93,7 @@ var Vars = []Var{
 		Doc: "Show interactive pickers and prompts on a TTY; 0 skips them"},
 
 	{Name: "PROVEO_<TARGET>_IMAGE", Scope: Maintainer, Default: "proveo/<target>:<tag>",
-		Doc: "Override a build target's image repo and the ref its child images build from"},
-	{Name: "PROVEO_BIN", Scope: Maintainer, Default: "nothing reads it",
-		Doc: "Appears in build-cli's PATH hint only; no code reads it"},
+		Doc: "Override a target's image repo and the ref its children build from; claudecode* take none"},
 	{Name: "PROVEO_BUILDKIT_CACHE", Scope: Maintainer, Default: "on",
 		Doc: "Share a local BuildKit cache across image builds; 0 turns it off"},
 	{Name: "PROVEO_BUILDKIT_CACHE_DIR", Scope: Maintainer, Default: "${XDG_CACHE_HOME:-~/.cache}/proveo/buildkit",
@@ -134,7 +127,7 @@ var Vars = []Var{
 	{Name: "PROVEO_LADDER_TEST", Scope: Maintainer, Default: "off",
 		Doc: "Run the e2e sandbox ladder"},
 	{Name: "PROVEO_PLATFORMS", Scope: Maintainer, Default: "linux/amd64,linux/arm64",
-		Doc: "Set buildx platforms; a local --load keeps only the host's"},
+		Doc: "Set buildx platforms; a local --load of a list keeps only the host's"},
 	{Name: "PROVEO_SBX_AGENT_KIT", Scope: Maintainer, Default: "on",
 		Doc: "Run a def with no built-in sbx agent as its own kit agent; 0 uses sbx's shell"},
 	{Name: "PROVEO_SCHEDULE_NOW", Scope: Maintainer, Default: "the wall clock",
@@ -196,40 +189,6 @@ var Vars = []Var{
 		Doc: "Name the agent's working directory inside the sandbox"},
 }
 
-// Lookup returns the Var named name, matching families too.
-func Lookup(name string) (Var, bool) {
-	for _, v := range Vars {
-		if v.Name == name {
-			return v, true
-		}
-	}
-	for _, v := range Vars {
-		if v.Matches(name) {
-			return v, true
-		}
-	}
-	return Var{}, false
-}
-
-// Family reports whether v names a family through one <PLACEHOLDER>.
-func (v Var) Family() bool {
-	_, _, ok := v.split()
-	return ok
-}
-
-// Matches reports whether name is v's name or a member of v's family.
-func (v Var) Matches(name string) bool {
-	if name == v.Name {
-		return true
-	}
-	prefix, suffix, ok := v.split()
-	if !ok || len(name) <= len(prefix)+len(suffix) ||
-		!strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
-		return false
-	}
-	return nameChars(name[len(prefix) : len(name)-len(suffix)])
-}
-
 // ByScope returns the Vars of scope s, in Vars order.
 func ByScope(s Scope) []Var {
 	var out []Var
@@ -239,25 +198,4 @@ func ByScope(s Scope) []Var {
 		}
 	}
 	return out
-}
-
-func (v Var) split() (prefix, suffix string, ok bool) {
-	open := strings.IndexByte(v.Name, '<')
-	if open < 0 {
-		return "", "", false
-	}
-	end := strings.IndexByte(v.Name[open:], '>')
-	if end < 0 {
-		return "", "", false
-	}
-	return v.Name[:open], v.Name[open+end+1:], true
-}
-
-func nameChars(s string) bool {
-	for _, c := range s {
-		if (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
-			return false
-		}
-	}
-	return s != ""
 }

@@ -62,9 +62,7 @@ func shellQuote(s string) string {
 
 func BuiltinAgent(target string) string { return builtinAgent[target] }
 
-// EnvAgentKit is now an OPT-OUT. A def with no built-in sbx agent declares
-// itself a COMPLETE AGENT (`kind: sandbox`) rather than borrowing sbx's
-// `shell`, and PROVEO_SBX_AGENT_KIT=0 restores the borrowed path.
+// EnvAgentKit set off makes a def without a built-in sbx agent borrow sbx's `shell` instead of `kind: sandbox`.
 const EnvAgentKit = "PROVEO_SBX_AGENT_KIT"
 
 func AgentKitEnabled() bool { return envflag.Bool(os.Getenv(EnvAgentKit), true) }

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/envflag"
 )
 
 type languageOutcome int
@@ -258,7 +260,7 @@ func TestToolchainFixtureCoversEveryLanguage(t *testing.T) {
 }
 
 func TestToolchainLanguageMatrix(t *testing.T) {
-	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to run the full language matrix (~600MB of downloads)")
 	}
 	k := toolchainSandbox(t, "opencode", fixtureWorkspace(t))
@@ -342,7 +344,7 @@ func lastLine(s string) string {
 }
 
 func TestToolchainProvisioningIsIdempotent(t *testing.T) {
-	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to run the warm-home idempotence check")
 	}
 	work := fixtureWorkspace(t)
@@ -383,7 +385,7 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 }
 
 func TestToolchainRespectsItsOptOuts(t *testing.T) {
-	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to drive the opt-outs through a real sandbox")
 	}
 	k := toolchainSandbox(t, "opencode", fixtureWorkspace(t))
@@ -409,7 +411,7 @@ func TestToolchainRespectsItsOptOuts(t *testing.T) {
 }
 
 func TestToolchainOptOutStillSeesInstalledServers(t *testing.T) {
-	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to drive the opt-out through a real sandbox")
 	}
 	out, err := runLib(t, runOpts{
@@ -434,7 +436,7 @@ func TestToolchainFailsSoftWithoutEgress(t *testing.T) {
 }
 
 func TestToolchainFloorInvariantsHoldForEveryHarness(t *testing.T) {
-	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to probe the floor inside a sandbox per harness")
 	}
 	for _, name := range toolchainHarnesses {
@@ -461,7 +463,7 @@ echo "PLANTUML_COPIES=$(type -a plantuml 2>/dev/null | awk '{print $NF}' \
 }
 
 func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
-	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to read the baked lib inside a sandbox per harness")
 	}
 	required := []string{
@@ -506,7 +508,7 @@ done`
 }
 
 func TestToolchainShipsNoDuplicateBinaries(t *testing.T) {
-	if os.Getenv("PROVEO_TOOLCHAIN_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to scan the image from inside a sandbox")
 	}
 	out, err := runLib(t, runOpts{timeout: 2 * time.Minute}, `

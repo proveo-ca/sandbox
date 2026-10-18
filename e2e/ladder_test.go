@@ -18,6 +18,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -230,7 +231,7 @@ func assertKitShape(t *testing.T, specPath, target string) {
 }
 
 func TestSandboxLadder(t *testing.T) {
-	if os.Getenv("PROVEO_LADDER_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_LADDER_TEST")) {
 		t.Skip("set PROVEO_LADDER_TEST=1 to climb the sandbox ladder (starts a real sandbox per rung)")
 	}
 	requireDocker(t)
@@ -794,7 +795,7 @@ const (
 // TestSandboxKitProxyManagesTheCredential asserts the property E1 would
 // otherwise silently drop.
 func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
-	if os.Getenv("PROVEO_LADDER_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_LADDER_TEST")) {
 		t.Skip("set PROVEO_LADDER_TEST=1 — this starts a real sandbox")
 	}
 	requireDocker(t)

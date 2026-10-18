@@ -2,7 +2,7 @@
 
 Custom Docker image for OpenCode v2 ([`@opencode/cli`](https://opencode.ai/v2/docs)) with:
 
-- `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm`)
+- `proveo/base-node-lsp` (Node 22, `pnpm`, Bun and the workspace language servers)
 - Root-free runtime: baked non-root user `opencode` (uid 1000); sbx runs the agent as that uid
 - Monorepo-friendly entrypoint (`pnpm install` on first run if needed)
 - Auto-detection of common provider API keys

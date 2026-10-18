@@ -1,8 +1,7 @@
+# SPEC: _spec/_devops/image-size-reduction.puml
 ARG BASE_IMAGE=proveo/base-node-lsp:latest
 
 FROM ${BASE_IMAGE}
-
-ARG DEBIAN_FRONTEND=noninteractive
 
 ARG USER_ID=1000
 ARG USER_NAME=opencode
@@ -35,8 +34,6 @@ RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then 
     fi \
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
-
-# SPEC: _spec/_devops/image-size-reduction.puml
 
 RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \

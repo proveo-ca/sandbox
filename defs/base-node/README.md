@@ -6,8 +6,8 @@ the Node harnesses share the runtime layer once instead of each baking their own
 while `cursor` (self-contained binary) and `cecli` (Python) stay off it and carry no Node.
 
 - FROM `proveo/base` (inherits git/gh/dumb-init/proveo-entrypoint/harden).
-- Consumers: `opencode`, `claudecode` (mcp/solo/sol), and through `base-node-lsp` and
-  `base-node-browser` every `-browser` variant.
+- Consumers: `base-node-lsp`, and through it `opencode`, `codex`, `claudecode` (mcp,
+  solidity) and their `-browser` variants.
 - Not a runnable harness — a mise build/deploy target like `base`.
 
 ## What the project pins, the sandbox honours

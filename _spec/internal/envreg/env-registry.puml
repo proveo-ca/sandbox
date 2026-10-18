@@ -6,6 +6,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/env_help.go
 ' covers: cmd/proveo/env_help_test.go
 ' covers: internal/contract/env_registry_test.go
+' covers: internal/imagebuild/targets.go (Specs: Override, ParentOverride, NeedsOverride)
 '   the on/off vocabulary ............ _spec/internal/envflag/env-switches.puml
 '   where `help env` is listed ........ _spec/cmd/proveo/usage.puml
 '   the decision record ............... _spec/_plans/repo-simplification.puml (N8)
@@ -20,44 +21,64 @@ skinparam noteTextAlignment left
 '   Scope    Operator — a user sets it on the host
 '            Maintainer — build, release, CI or test tooling sets it
 '            Internal — proveo sets it for its own processes or the sandbox
+'            String() names each for the help headings
 '   Var      {Name, Scope, Default, Doc}: Default says what happens when it is
 '            unset, Doc what setting it does
-'   Vars     77 entries, by scope then name: Operator 29, Maintainer 27,
-'            Internal 21
-'   helpers  Lookup (exact name, then family) · ByScope · Var.Family ·
-'            Var.Matches
+'   Vars     76 entries, by scope then name: Operator 29, Maintainer 26,
+'            Internal 21 (reported)
+'   ByScope  the Vars of one scope, in Vars order
+' That is the whole exported API. The review deleted Lookup, Family, Matches
+' and Scopes because no non-test code called them (MEASURED: none remain).
 '
-' ONE FAMILY: PROVEO_<TARGET>_IMAGE. A family name carries one <PLACEHOLDER>,
-' and Matches accepts a non-empty run of A-Z, 0-9 and _ in its place. It covers
-' the *_IMAGE literals (BASE, BASE_NODE, BASE_NODE_LSP, BASE_NODE_BROWSER, CECLI,
-' CODEX, CURSOR, OPENCODE, HERMES) and the names internal/imagebuild's envName
-' builds at runtime, such as PROVEO_CODEX_BROWSER_IMAGE, which no literal
-' spells. Reported: the 77 entries cover all 85 distinct literal names.
+' ONE FAMILY: PROVEO_<TARGET>_IMAGE. It stands for the image override names
+' internal/imagebuild declares: every Override, ParentOverride and
+' NeedsOverride in imagebuild.Specs, including the ones browserOf builds at
+' runtime through envName, such as PROVEO_CODEX_BROWSER_IMAGE. Its Doc says
+' the claudecode* targets take no override, because their Specs rows carry
+' none (MEASURED, targets.go).
+'
+' Doc and Default corrections from the review (MEASURED):
+'   PROVEO_AUTO_PROVISION  default "ask on a TTY with the wizard on, else decline"
+'   PROVEO_DEPS            the image also reads `off`
+'   PROVEO_SBX_INSTANCES   divides Docker's memory total by N
+'   PROVEO_PLATFORMS       only a comma-separated list is cut to the host
+'                          platform on --load
+' PROVEO_BIN is deleted from the registry, and build-cli no longer tells a
+' maintainer to set it: nothing ever read it.
 '
 ' ── `proveo help env` (cmd/proveo/env_help.go) ─────────────────────────────
 ' MEASURED: envHelpCmd has no Run, so cobra treats it as a help topic, and root
 ' help lists it under "help topics" (cmd/proveo/help.go renderHelp), not under
-' "commands". renderEnvHelp draws an "operator" and a "maintainer" heading, one
-' row per variable: the name, then Doc and "(default …)". Internal rows are
-' omitted. Reported: `proveo env` renders the same page, and README.md's
-' "Environment variables" section points here and lists the on/off spellings.
+' "commands". renderEnvHelp draws an "operator" and a "maintainer" heading
+' through ByScope, one row per variable: the name, then Doc and "(default …)".
+' Internal rows are omitted. Reported: `proveo env` renders the same page.
+' README.md "Environment variables" (reported): `proveo help env` lists every
+' PROVEO_* variable the proveo binaries read. Variables only the image
+' entrypoints read, such as PROVEO_BROWSER_SKILL, live in each def's README.
+' The on/off spellings apply to the switches the binaries read.
 '
 ' ── THE GUARDS ─────────────────────────────────────────────────────────────
 ' internal/contract/env_registry_test.go:
-'   TestEveryProveoVariableIsRegistered    every PROVEO_* name inside a string
-'                                          literal of non-test Go under cmd/
-'                                          and internal/ must Lookup. MEASURED
-'                                          by the coordinator: red with a
-'                                          temporary unregistered literal, then
-'                                          green.
-'   TestEveryRegisteredVariableIsStillUsed every non-family entry must still
-'                                          appear in such a literal.
+'   TestEveryProveoVariableIsRegistered
+'     every override name in imagebuild.Specs must be registered by name or
+'     through the family; every PROVEO_* name inside a string literal of
+'     non-test Go under cmd/ and internal/ must be registered by name, or be
+'     one of those override names with the family registered. So an unrelated
+'     PROVEO_FOO_IMAGE literal fails instead of passing through the family.
+'     MEASURED by the coordinator: red with a temporary unregistered literal,
+'     then green.
+'   TestEveryRegisteredVariableIsStillUsed
+'     every non-family entry must still appear in such a literal.
 ' internal/envreg/envreg_test.go pins the table: unique names; a literal or one
 ' family; Doc and Default one line and non-empty (≤90 runes, reported); known
-' scopes; scope-then-name order; Lookup.
+' scopes; scope-then-name order.
 ' cmd/proveo/env_help_test.go: TestHelpEnvListsEveryOperatorAndMaintainerVariable
 ' (no Internal rows) and TestProveoHelpEnvRendersTheRegistry (`help env` runs;
 ' root help names it).
+'
+' KNOWN LIMIT (review, recorded, not fixed): the literal scan sees whole string
+' literals only. A name assembled with fmt.Sprintf or concatenation escapes
+' it; the image overrides are covered only because the test reads Specs.
 '
 ' ── BOUNDARY: Go UNDER cmd/ AND internal/ ONLY ─────────────────────────────
 ' The scan reads Go string literals. PROVEO_SKIP_INIT is read only by the
@@ -65,12 +86,10 @@ skinparam noteTextAlignment left
 ' (reported). Neither is registered, and neither test can see them.
 '
 ' ── OPEN, NOT FILED ────────────────────────────────────────────────────────
-' MEASURED: PROVEO_BIN appears only in build-cli's PATH hint
-' (cmd/proveo-dev/buildcli.go:83); its own Doc says no code reads it.
 ' MEASURED: PROVEO_SEED_DONE_MARKER is read with a default (internal/sbx/kit.go
-' startup script, packages/lib/proveo-seed), and only tests set it.
-' Both stay registered while a literal names them; a later finding may file
-' them (repo-simplification.puml N8).
+' startup script, packages/lib/proveo-seed), and only tests set it. It stays
+' registered while a literal names it; a later finding may file it
+' (repo-simplification.puml N8).
 ' [Unverified] PROVEO_SBX_MEMORY and PROVEO_SBX_CPUS: unset, proveo omits -m and
 ' --cpus; sbx's own default is not measured.
 ' [Inference] PROVEO_DEPS reaches the image through the project .env seed; no Go
@@ -78,18 +97,19 @@ skinparam noteTextAlignment left
 title envreg — every PROVEO_* variable proveo's Go reads or sets, and who sets it
 
 node "internal/envreg" as REG <<host>> {
-  database "Vars — 77 entries\nscope, then name" as VARS <<db>>
-  component "Lookup(name)\nexact, then PROVEO_<TARGET>_IMAGE" as LOOK <<app>>
+  database "Vars — 76 entries\nscope, then name" as VARS <<db>>
+  component "PROVEO_<TARGET>_IMAGE\nthe one family entry" as FAM <<app>>
 }
 
 node "Scope" as SC <<host>> {
   component "operator · 29\na user, on the host" as OPS <<app>>
-  component "maintainer · 27\nbuild · release · CI · tests" as MNT <<app>>
+  component "maintainer · 26\nbuild · release · CI · tests" as MNT <<app>>
   component "internal · 21\nproveo, for itself and the sandbox" as INT <<app>>
 }
 
-component "proveo help env\ncmd/proveo/env_help.go" as HELP <<app>>
+component "proveo help env\nrenderEnvHelp via ByScope" as HELP <<app>>
 component "PROVEO_* in string literals\nnon-test Go under cmd/ and internal/" as LIT <<app>>
+component "imagebuild.Specs\nOverride · ParentOverride · NeedsOverride" as OVR <<app>>
 component "TestEveryProveoVariableIsRegistered\nTestEveryRegisteredVariableIsStillUsed" as TESTS <<app>>
 component "shell: installer scripts\nimage entrypoints" as SH <<error>>
 
@@ -97,9 +117,10 @@ VARS ARROW_MAIN SC
 OPS ARROW_MAIN HELP : one row each
 MNT ARROW_MAIN HELP : one row each
 INT ARROW_OPTIONAL HELP : omitted
-TESTS ARROW_MAIN LIT : every name must Lookup
+TESTS ARROW_MAIN LIT : every name registered
+TESTS ARROW_MAIN OVR : every override covered
 TESTS ARROW_MAIN VARS : every literal row still named
-LIT ARROW_MAIN LOOK
+OVR ARROW_MAIN FAM : the only names it admits
 SH ARROW_OPTIONAL LIT : not scanned
 
 note right of SC
@@ -110,12 +131,12 @@ note right of SC
   and the sandbox.
 end note
 
-note bottom of LOOK
-  **A family covers names no literal spells.**
-  imagebuild derives each browser variant's
-  override name at runtime, so a registry of
-  literals alone would miss it; one family
-  pattern matches every target.
+note bottom of FAM
+  **The family is checked against real names.**
+  The registry test collects every override
+  name imagebuild.Specs declares, so the family
+  admits exactly those and an unrelated *_IMAGE
+  literal still fails.
 end note
 
 note bottom of TESTS

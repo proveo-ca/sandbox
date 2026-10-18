@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/envreg"
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 )
 
 var proveoVar = regexp.MustCompile(`PROVEO_[A-Z0-9_]*[A-Z0-9]`)
@@ -64,10 +65,35 @@ func proveoLiterals(t *testing.T) map[string]string {
 	return found
 }
 
+const imageFamily = "PROVEO_<TARGET>_IMAGE"
+
+// imageOverrides are the PROVEO_<TARGET>_IMAGE names imagebuild.Specs reads.
+func imageOverrides() map[string]bool {
+	out := map[string]bool{}
+	for _, s := range imagebuild.Specs {
+		for _, name := range []string{s.Override, s.ParentOverride, s.NeedsOverride} {
+			if name != "" {
+				out[name] = true
+			}
+		}
+	}
+	return out
+}
+
 func TestEveryProveoVariableIsRegistered(t *testing.T) {
 	t.Parallel()
+	registered := map[string]bool{}
+	for _, v := range envreg.Vars {
+		registered[v.Name] = true
+	}
+	overrides := imageOverrides()
+	for name := range overrides {
+		if !registered[imageFamily] && !registered[name] {
+			t.Errorf("imagebuild reads %s, which internal/envreg registers neither by name nor as %s", name, imageFamily)
+		}
+	}
 	for name, file := range proveoLiterals(t) {
-		if _, ok := envreg.Lookup(name); !ok {
+		if !registered[name] && !(overrides[name] && registered[imageFamily]) {
 			t.Errorf("%s reads or sets %s, which internal/envreg does not register", file, name)
 		}
 	}

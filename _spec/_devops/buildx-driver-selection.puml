@@ -26,6 +26,9 @@ title Buildx driver selection — which driver, and where a FROM resolves
 '                                always, or an envflag ON word — --pull=true
 '                                anything else fails the build (want
 '                                auto|0|1, or never/always)
+'                                every match runs on the lowercased,
+'                                trimmed value (" Never ", "ALWAYS",
+'                                "Auto"); the error quotes the raw one
 '                                (internal/envflag since N6, 2026-10-18;
 '                                _spec/internal/envflag/env-switches.puml)
 '                                argv --pull / --pull=* wins over the env

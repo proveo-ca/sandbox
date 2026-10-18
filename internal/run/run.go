@@ -115,7 +115,7 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	}
 
 	rs.Workspace.SubScope = strings.Trim(p.Scope, "/")
-	if rs.Workspace.SubScope == "" && !p.PrintOnly && agentio.IsStdinTTY() && WizardEnabled() && rs.Workspace.Scope.IsRepo {
+	if rs.Workspace.SubScope == "" && !p.PrintOnly && agentio.IsStdinTTY() && agentio.WizardEnabled() && rs.Workspace.Scope.IsRepo {
 		if projs := workspace.DiscoverProjects(rs.Workspace.RepoRoot); len(projs) > 0 {
 			rs.Workspace.SubScope = d.PickProject(projs)
 		}
@@ -452,7 +452,7 @@ func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
 		rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
 		ui.Warnf("%s is starting without a credential — run `proveo init` to persist credentials between runs",
 			rs.Man.Name)
-	case agentio.IsStdinTTY() && WizardEnabled():
+	case agentio.IsStdinTTY() && agentio.WizardEnabled():
 		for name, v := range d.PromptEnv(p.Target, missing) {
 			_ = os.Setenv(name, v)
 		}

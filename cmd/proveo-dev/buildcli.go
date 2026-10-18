@@ -80,7 +80,7 @@ func buildCLI(root string, release bool) error {
 		}
 	}
 	ui.Storef("Installed %s/{proveo,proveo-entrypoint} (%s)", gobin, version)
-	ui.Notef("Ensure %s is on PATH (or set PROVEO_BIN).", gobin)
+	ui.Notef("Ensure %s is on PATH.", gobin)
 
 	if release {
 		if err := goreleaserRelease(root, gobin); err != nil {

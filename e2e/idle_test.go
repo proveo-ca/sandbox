@@ -15,6 +15,7 @@ import (
 
 	"github.com/creack/pty"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
@@ -89,7 +90,7 @@ func idleTargets() []string {
 }
 
 func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
-	if os.Getenv("PROVEO_IDLE_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_IDLE_TEST")) {
 		t.Skip("set PROVEO_IDLE_TEST=1 to run the idle-survival check (it waits on purpose, ~6 minutes)")
 	}
 	for _, target := range idleTargets() {

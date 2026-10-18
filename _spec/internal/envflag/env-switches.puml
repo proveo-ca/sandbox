@@ -4,6 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: how proveo reads an on/off environment switch — one vocabulary, one parser, and the scan that keeps it that way
 ' covers: internal/envflag/**
 ' covers: internal/contract/env_switch_vocabulary_test.go
+' covers: cmd/proveo/provision_test.go
 '   the variables themselves .......... _spec/internal/envreg/env-registry.puml
 '   PROVEO_DOCKER_PUSH / _PULL ......... _spec/_devops/buildx-driver-selection.puml
 '   the decision record ............... _spec/_plans/repo-simplification.puml (N6)
@@ -42,27 +43,44 @@ skinparam noteTextAlignment left
 '   SKIP_GIT_HOOKS [off] ................................ cmd/proveo-dev/hooks.go
 '   PROVEO_CDN_REQUIRE_DIST [off] ....................... cmd/proveo-dev/stagecdn.go
 '
-' PROVEO_WIZARD has ONE reader, agentio.WizardEnabled(). run.WizardEnabled wraps
-' it, and internal/backend/sandbox/confirm.go calls it directly. MEASURED:
-' internal/run imports internal/backend/sandbox (run.go sandbox.PlanPorts), so
-' the sandbox package cannot call run's copy without an import cycle; agentio is
-' a leaf both can import.
+' PROVEO_WIZARD has ONE reader with ONE name, agentio.WizardEnabled(). MEASURED:
+' run.WizardEnabled is deleted; internal/run (run.go twice, choices.go
+' cacheApplies), internal/backend/sandbox/confirm.go and cmd/proveo/provision.go
+' call agentio.WizardEnabled directly, as does cmd/proveo/wizard_test.go.
+' MEASURED: internal/run imports internal/backend/sandbox (run.go
+' sandbox.PlanPorts), so a reader in internal/run would close an import cycle
+' for the sandbox package; agentio is a leaf both can import.
 '
 ' ── ENUMS: THEIR OWN WORDS FIRST, THEN envflag ─────────────────────────────
 ' MEASURED:
 '   PROVEO_GLYPHS          ascii → ASCII; none or any OFF word → no glyphs;
 '                          anything else → Nerd (internal/ui/ui.go GlyphTierFrom)
 '   PROVEO_DOCKER_PULL     "" or auto → no --pull; never or OFF → --pull=false;
-'                          always or ON → --pull=true; anything else fails
-'                          (internal/imagebuild/imagebuild.go PullFlags)
-'   PROVEO_AUTO_PROVISION  ON builds; OFF declines; anything else asks on a TTY
-'                          (cmd/proveo/provision.go provisionConfirm)
+'                          always or ON → --pull=true; anything else fails.
+'                          The value is lowercased and trimmed before ANY
+'                          match, so " Never " and "ALWAYS" work as the envflag
+'                          words do; the error quotes the raw value
+'                          (internal/imagebuild/imagebuild.go PullFlags;
+'                          TestPullFlagsFromEnv adds " Never ", "ALWAYS", "Auto")
+'   PROVEO_AUTO_PROVISION  ON builds; OFF declines; anything else asks, and only
+'                          on a TTY with the wizard on (cmd/proveo/provision.go
+'                          provisionConfirm). TestProvisionConfirmFollowsAuto-
+'                          ProvisionBeforeTheWizard (cmd/proveo/provision_test.go),
+'                          with PROVEO_WIZARD=0: yes, 1 or Enabled build;
+'                          disabled, 0, "" or maybe decline. So AUTO_PROVISION
+'                          is read before the wizard and wins over it.
+'
+' ── e2e OPT-IN GATES ───────────────────────────────────────────────────────
+' MEASURED: PROVEO_TOOLCHAIN_TEST (7 sites, e2e/toolchain_test.go),
+' PROVEO_IDLE_TEST (1, idle_test.go) and PROVEO_LADDER_TEST (2, ladder_test.go)
+' read through envflag.On instead of `!= "1"`.
+' The scan does not walk e2e/, so nothing keeps a new e2e gate on envflag.
 '
 ' ── OUT OF SCOPE BY DESIGN ─────────────────────────────────────────────────
 ' A typed prompt answer is not an env switch: wizard.go's y/yes and the
 ' uninstall prompt keep their own words. A presence check (`!= ""`) asks whether
-' a value exists, not what it says. e2e/ keeps its own test knobs (reported).
-' The scan walks Go only; image entrypoints parse their switches in shell.
+' a value exists, not what it says. The scan walks Go only; image entrypoints
+' parse their switches in shell.
 '
 ' ── THE GUARD (internal/contract/env_switch_vocabulary_test.go) ────────────
 ' TestEnvSwitchesParseThroughEnvflag parses every non-test Go file under cmd/
@@ -77,6 +95,9 @@ skinparam noteTextAlignment left
 ' must flag, 6 it must pass. internal/envflag/envflag_test.go
 ' TestOnOffBoolVocabulary covers every spelling, case, spaces and an unknown
 ' value falling back to the default.
+' KNOWN LIMIT (review, recorded, not fixed): taint flows only through plain
+' identifiers. A value stored in a struct field, a map or a slice, then compared
+' with an on/off word, escapes the scan.
 title envflag — one on/off vocabulary for every environment switch
 
 component "os.Getenv · getenv(name)\nthe raw value" as RAW <<app>>

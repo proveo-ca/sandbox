@@ -252,3 +252,21 @@ func TestPromptYesNo(t *testing.T) {
 		})
 	}
 }
+
+func TestProvisionConfirmFollowsAutoProvisionBeforeTheWizard(t *testing.T) {
+	t.Setenv("PROVEO_WIZARD", "0")
+	for _, c := range []struct {
+		val  string
+		want bool
+	}{
+		{"yes", true}, {"1", true}, {"Enabled", true},
+		{"disabled", false}, {"0", false}, {"", false}, {"maybe", false},
+	} {
+		t.Run("PROVEO_AUTO_PROVISION="+c.val, func(t *testing.T) {
+			t.Setenv("PROVEO_AUTO_PROVISION", c.val)
+			if got := provisionConfirm("build it?"); got != c.want {
+				t.Errorf("provisionConfirm = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

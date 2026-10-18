@@ -105,6 +105,9 @@ func TestPullFlagsFromEnv(t *testing.T) {
 		{"never", "--pull=false", true},
 		{"1", "--pull=true", true},
 		{"always", "--pull=true", true},
+		{" Never ", "--pull=false", true},
+		{"ALWAYS", "--pull=true", true},
+		{"Auto", "", true},
 		{"maybe", "", false},
 	} {
 		b, errb := newTest(t, &fakeDocker{}, map[string]string{"PROVEO_DOCKER_PULL": c.env})

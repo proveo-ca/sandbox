@@ -272,7 +272,8 @@ func (b *Builder) EnsureBuildx(push bool, platforms string) (string, error) {
 
 // PullFlags maps PROVEO_DOCKER_PULL onto buildx's --pull.
 func (b *Builder) PullFlags() ([]string, error) {
-	switch v := b.env("PROVEO_DOCKER_PULL"); {
+	raw := b.env("PROVEO_DOCKER_PULL")
+	switch v := strings.ToLower(strings.TrimSpace(raw)); {
 	case v == "" || v == "auto":
 		return nil, nil
 	case v == "never" || envflag.Off(v):
@@ -280,8 +281,8 @@ func (b *Builder) PullFlags() ([]string, error) {
 	case v == "always" || envflag.On(v):
 		return []string{"--pull=true"}, nil
 	default:
-		b.UI.Failf("PROVEO_DOCKER_PULL=%s: want auto|0|1 (or never/always)", v)
-		return nil, fmt.Errorf("PROVEO_DOCKER_PULL=%s", v)
+		b.UI.Failf("PROVEO_DOCKER_PULL=%s: want auto|0|1 (or never/always)", raw)
+		return nil, fmt.Errorf("PROVEO_DOCKER_PULL=%s", raw)
 	}
 }
 

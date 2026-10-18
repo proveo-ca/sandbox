@@ -64,9 +64,14 @@ title The harden pass — one script, re-run by every layer that installs
 ' (a) `LABEL security.hardened=true` is asserted by proveo/base, proveo/base-node,
 '     proveo/base-node-lsp, proveo/base-node-browser, cursor, opencode, codex and
 '     claudecode — but several harnesses add root-owned binaries AFTER their last
-'     proveo-harden call, and defs/claudecode/solidity/Dockerfile never calls the
-'     script while inheriting the label from proveo/claudecode. The label
-'     is a claim about the layer that wrote it, not about the image.
+'     proveo-harden pass: codex and opencode npm-install their agents after the
+'     base-node-lsp pass they inherit. The label is a claim about the layer that
+'     wrote it, not about the image.
+'     CORRECTED 2026-10-18 (MEASURED): this record used to say
+'     defs/claudecode/solidity/Dockerfile never calls the script. It calls
+'     `proveo-harden /usr /opt` twice — after the apt+pip venv layer (:30) and
+'     after the solhint npm layer (:37). Its later solc-select and foundry
+'     installs run as the build user (`USER ${USER_NAME}`, :39).
 ' (b) The `/opt` sweep strips the setuid bit from Chromium's `chrome-sandbox`
 '     helper as a SIDE EFFECT (defs/base-node-browser/Dockerfile installs into
 '     /opt/ms-playwright, and the harden call that follows passes /opt). That is
@@ -129,11 +134,11 @@ note bottom of NET
 end note
 
 note bottom of LABEL
-  **The label outlived the pass.**
-  It describes the layer that wrote it, not the
-  image: harnesses install root-owned binaries
-  after their last call, and solidity never calls
-  the script while inheriting the claim.
+  **The label outlived the pass.** It describes
+  the layer that wrote it rather than the
+  finished image: codex and opencode install
+  root-owned agents after their last inherited
+  sweep, yet both images still assert the claim.
 end note
 
 note bottom of CHROME

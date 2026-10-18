@@ -86,7 +86,7 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' the same group (defs/base/Dockerfile:31), and the microVM, not the uid, is
 ' the boundary every run gets. A harness that should not hold it declares
 ' `daemon: false`; a rootless dockerd was considered and not taken. Raised on
-' OpenCode engines (defs/opencode/Dockerfile:41-44 since N26; :50-53 at the time).
+' OpenCode engines (defs/opencode/Dockerfile:38-41 since N26; :50-53 at the time).
 '
 ' ── opencode: xclip IS ABSENT ON PURPOSE ────────────────────────────────────
 ' xclip needs an X display. This container has none and sets no DISPLAY, and the

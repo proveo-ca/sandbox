@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -107,5 +106,3 @@ func RunRoots() []string {
 
 // RunDirOf is the state directory of the run sid.
 func RunDirOf(sid string) string { return filepath.Join(RunRoots()[0], sid) }
-
-func WizardEnabled() bool { return agentio.WizardEnabled() }

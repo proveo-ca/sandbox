@@ -153,7 +153,7 @@ func provisionConfirm(question string) bool {
 	case envflag.Off(v):
 		return false
 	}
-	if !agentio.IsStdinTTY() || !run.WizardEnabled() {
+	if !agentio.IsStdinTTY() || !agentio.WizardEnabled() {
 		return false
 	}
 	return promptYesNo(question, true, os.Stdin, os.Stderr)

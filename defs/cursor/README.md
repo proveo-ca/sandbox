@@ -3,8 +3,8 @@
 Custom Docker image for the [Cursor CLI](https://cursor.com/docs/cli) (`agent`, legacy alias
 `cursor-agent`) with:
 
-- `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm` — the CLI
- itself is a self-contained binary)
+- `proveo/base` (git, gh, jq, dumb-init, tmux, proveo-entrypoint; the CLI itself is a
+  self-contained binary)
 - Root-free runtime: baked non-root user `cursor` (uid 1000); sbx runs the agent as that uid
 - CLI installed under a root-owned prefix (`/opt/cursor-dist`) — the agent cannot tamper with
  or self-update the binary; updating the CLI means rebuilding the image
