@@ -352,7 +352,7 @@ func buildCmd() *cobra.Command {
 	var tag string
 	var noCache, printOnly bool
 	cmd := &cobra.Command{
-		Use:    "build [target|all]",
+		Use:   "build [target|all]",
 		Short: "Build harness image(s) from a proveo checkout",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
