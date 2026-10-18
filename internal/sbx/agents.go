@@ -5,6 +5,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/proveo-ca/proveo/internal/envflag"
 )
 
 var builtinAgent = map[string]string{
@@ -65,13 +67,7 @@ func BuiltinAgent(target string) string { return builtinAgent[target] }
 // `shell`, and PROVEO_SBX_AGENT_KIT=0 restores the borrowed path.
 const EnvAgentKit = "PROVEO_SBX_AGENT_KIT"
 
-func AgentKitEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvAgentKit))) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
+func AgentKitEnabled() bool { return envflag.Bool(os.Getenv(EnvAgentKit), true) }
 
 // DeclaresOwnAgent reports whether THIS run should render a sandbox Kit
 // naming its own agent.

@@ -115,3 +115,35 @@ func TestDockerfileStringsQuoteNoBackticks(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryAptInstallNamesAPackage(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	out, err := exec.Command("git", "-C", root, "ls-files", "*Dockerfile").Output()
+	if err != nil {
+		t.Skipf("git ls-files: %v", err)
+	}
+	for _, rel := range strings.Fields(string(out)) {
+		joined := strings.ReplaceAll(instructionsOnly(readRepoFile(t, rel)), "\\\n", " ")
+		for _, tail := range strings.Split(joined, "apt-get install")[1:] {
+			line, _, _ := strings.Cut(tail, "\n")
+			if firstPackage(line) == "" {
+				t.Errorf("%s runs `apt-get install%s` with no package", rel, line)
+			}
+		}
+	}
+}
+
+// firstPackage is the first non-flag word of an apt-get install tail, or "".
+func firstPackage(tail string) string {
+	for _, f := range strings.Fields(tail) {
+		switch {
+		case strings.HasPrefix(f, "-"):
+			continue
+		case f == "&&" || f == "||" || f == ";" || f == "|":
+			return ""
+		}
+		return f
+	}
+	return ""
+}

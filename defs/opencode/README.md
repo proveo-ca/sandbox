@@ -9,8 +9,8 @@ Custom Docker image for OpenCode v2 ([`@opencode/cli`](https://opencode.ai/v2/do
 
 ## Browser variant
 
-`mise run build opencode-browser` builds `proveo/opencode-browser` FROM `proveo/base-node-browser`: a
-headless Chromium shared by the `playwright` CLI and
+`mise run build opencode-browser` builds `proveo/opencode-browser`, the `defs/base-node-browser` layer on
+`proveo/opencode`: a headless Chromium shared by the `playwright` CLI and
 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` ·
 `snapshot` · `click` · `fill` · `screenshot`, accessibility-tree refs over CDP). The seed drops
 agent-browser's discovery stub into `~/.config/opencode/skills/agent-browser/SKILL.md`, which

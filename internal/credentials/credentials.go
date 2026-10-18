@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/entrypoint"
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -256,8 +257,7 @@ func AuthWhyUnavailable(man manifest.Manifest, target, homeRoot string) map[stri
 }
 
 func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_MOUNT_GH_CONFIG"))) {
-	case "0", "off", "no", "false":
+	if envflag.Off(getenv("PROVEO_MOUNT_GH_CONFIG")) {
 		return runner.Mount{}, false
 	}
 	dir := strings.TrimSpace(getenv("GH_CONFIG_DIR"))

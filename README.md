@@ -179,6 +179,12 @@ other link is reported at launch and left unfollowed.
 
 Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --homes`.
 
+## Environment variables
+
+`proveo help env` lists every `PROVEO_*` variable a user or maintainer sets, with its default
+and effect. On/off switches take `1|true|yes|on|enable|enabled` or
+`0|false|no|off|disable|disabled`.
+
 ## Specs
 
 Architecture, the sbx network-policy baseline, testing strategy, and the

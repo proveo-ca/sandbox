@@ -13,6 +13,7 @@ import (
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
@@ -26,10 +27,10 @@ const (
 )
 
 func GlyphTierFrom(lookup func(string) string) GlyphTier {
-	switch strings.ToLower(strings.TrimSpace(lookup("PROVEO_GLYPHS"))) {
-	case "ascii":
+	switch v := strings.ToLower(strings.TrimSpace(lookup("PROVEO_GLYPHS"))); {
+	case v == "ascii":
 		return GlyphsASCII
-	case "off", "0", "false", "no", "none":
+	case v == "none" || envflag.Off(v):
 		return GlyphsOff
 	}
 	return GlyphsNerd

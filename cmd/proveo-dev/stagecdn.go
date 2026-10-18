@@ -19,6 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -43,9 +44,13 @@ PROVEO_VERSION (release stamp), PROVEO_CDN_REQUIRE_DIST=1 (fail instead of cross
 			if err != nil {
 				return err
 			}
-			return stageCDN(root, os.Getenv("PROVEO_CDN_REQUIRE_DIST") == "1")
+			return stageCDN(root, distRequired(os.Getenv))
 		},
 	})
+}
+
+func distRequired(getenv func(string) string) bool {
+	return envflag.On(getenv("PROVEO_CDN_REQUIRE_DIST"))
 }
 
 type cdnLayout struct{ root, dist, bin string }

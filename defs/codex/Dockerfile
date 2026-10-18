@@ -40,13 +40,6 @@ RUN usermod -d /home/agent -m "${USER_NAME}" \
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
-RUN --mount=type=cache,id=proveo-codex-apt-cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,id=proveo-codex-apt-lists,target=/var/lib/apt,sharing=locked \
-    apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends \
-    && rm -rf /tmp/* /var/tmp/* \
-    && /usr/local/sbin/proveo-harden /usr /opt
-
 # ── Docker-in-sandbox ───────────────────────────────────────────────────────
 # sbx decides whether to start a daemon from an IMAGE LABEL —
 # `com.docker.sandboxes.start-docker`, which its own templates carry. Without the

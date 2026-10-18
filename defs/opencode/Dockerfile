@@ -36,13 +36,6 @@ RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then 
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
-RUN --mount=type=cache,id=proveo-opencode-apt-cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,id=proveo-opencode-apt-lists,target=/var/lib/apt,sharing=locked \
-    apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends \
-    && rm -rf /tmp/* /var/tmp/* \
-    && /usr/local/sbin/proveo-harden
-
 # SPEC: _spec/_devops/image-size-reduction.puml
 
 RUN groupadd -f docker \

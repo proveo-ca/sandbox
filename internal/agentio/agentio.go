@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/termtext"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -90,13 +91,10 @@ func (t *Tail) Lines() []string {
 	return t.lines
 }
 
-func FilterEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_STDIN_FILTER"))) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
+func FilterEnabled() bool { return envflag.Bool(os.Getenv("PROVEO_STDIN_FILTER"), true) }
+
+// WizardEnabled reports whether PROVEO_WIZARD lets proveo ask the operator on the terminal.
+func WizardEnabled() bool { return envflag.Bool(os.Getenv("PROVEO_WIZARD"), true) }
 
 func Tracer(path string) (func([]byte, bool), func()) {
 	if strings.TrimSpace(path) == "" {

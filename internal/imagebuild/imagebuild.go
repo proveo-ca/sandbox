@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -271,12 +272,12 @@ func (b *Builder) EnsureBuildx(push bool, platforms string) (string, error) {
 
 // PullFlags maps PROVEO_DOCKER_PULL onto buildx's --pull.
 func (b *Builder) PullFlags() ([]string, error) {
-	switch v := b.env("PROVEO_DOCKER_PULL"); v {
-	case "", "auto":
+	switch v := b.env("PROVEO_DOCKER_PULL"); {
+	case v == "" || v == "auto":
 		return nil, nil
-	case "0", "false", "no", "never", "off":
+	case v == "never" || envflag.Off(v):
 		return []string{"--pull=false"}, nil
-	case "1", "true", "yes", "on", "always":
+	case v == "always" || envflag.On(v):
 		return []string{"--pull=true"}, nil
 	default:
 		b.UI.Failf("PROVEO_DOCKER_PULL=%s: want auto|0|1 (or never/always)", v)
@@ -306,8 +307,7 @@ func ArgRef(argv []string) (string, bool) {
 
 // CacheFlags names the local BuildKit cache shared by --load and --push.
 func (b *Builder) CacheFlags(argv []string) []string {
-	switch b.env("PROVEO_BUILDKIT_CACHE") {
-	case "0", "false", "no", "off":
+	if envflag.Off(b.env("PROVEO_BUILDKIT_CACHE")) {
 		return nil
 	}
 	ref, ok := ArgRef(argv)
@@ -355,8 +355,7 @@ const RegistryDNSHelp = `Docker Hub name lookup failed (registry-1.docker.io).
 // Build runs one buildx build: --load a single host-platform image, or
 // --push every platform.
 func (b *Builder) Build(push bool, args []string) error {
-	switch b.env("PROVEO_DOCKER_PUSH") {
-	case "1", "true", "yes", "on":
+	if envflag.On(b.env("PROVEO_DOCKER_PUSH")) {
 		push = true
 	}
 	platforms := b.env("PROVEO_PLATFORMS")

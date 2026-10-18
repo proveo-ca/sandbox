@@ -59,6 +59,16 @@ func manifestForTarget(target string) (manifest.Manifest, error) {
 }
 
 func main() {
+	if err := rootCmd().Execute(); err != nil {
+		if code, ok := exitCode(err); ok {
+			os.Exit(code)
+		}
+		ui.Failf("%v", err)
+		os.Exit(1)
+	}
+}
+
+func rootCmd() *cobra.Command {
 	var flagLS, flagInit bool
 	root := &cobra.Command{
 		Use:           "proveo",
@@ -87,14 +97,8 @@ func main() {
 	root.Flags().BoolVar(&flagInit, "init", false, "Install and sign in to the sbx backend proveo runs on")
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { renderHelp(cmd.OutOrStdout(), cmd) })
 	root.AddCommand(versionCmd(), lsCmd(), runCmd(), scheduleCmd(), projectsCmd(), setupCmd(), initCmd(),
-		updateCmd(), uninstallCmd(), cleanCmd(), targetsCmd(), buildCmd(), deployCmd(), testCmd())
-	if err := root.Execute(); err != nil {
-		if code, ok := exitCode(err); ok {
-			os.Exit(code)
-		}
-		ui.Failf("%v", err)
-		os.Exit(1)
-	}
+		updateCmd(), uninstallCmd(), cleanCmd(), buildCmd(), deployCmd(), testCmd())
+	return root
 }
 
 // exitCode is the status err carries: the agent's own, or 128+signal for a stopped run.

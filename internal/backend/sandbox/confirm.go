@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"os"
-	"strings"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -11,11 +10,7 @@ import (
 
 // headedConfirm reports whether this run may ask the operator a question on its terminal.
 var headedConfirm = func() bool {
-	if os.Getenv("PROVEO_SCHEDULE") != "" {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_WIZARD"))) {
-	case "off", "0", "no", "false", "disable", "disabled":
+	if os.Getenv("PROVEO_SCHEDULE") != "" || !agentio.WizardEnabled() {
 		return false
 	}
 	return agentTerminal()

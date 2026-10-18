@@ -29,6 +29,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -1373,13 +1374,7 @@ func DeclineMCPGateway(env []string) []string {
 	return append(env, MCPGatewayVar+"=")
 }
 
-func MCPGatewayAllowed() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PROVEO_SBX_MCP"))) {
-	case "on", "1", "yes", "true", "enable", "enabled":
-		return true
-	}
-	return false
-}
+func MCPGatewayAllowed() bool { return envflag.On(os.Getenv("PROVEO_SBX_MCP")) }
 
 // SPEC: _spec/defs/claudecode/chrome-bridge.puml
 func withChromeFlag(agent string, bridge, command []string) []string {

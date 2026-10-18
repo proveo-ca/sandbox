@@ -200,7 +200,7 @@ Two different browsers, two different add-ons in the `proveo run` picker:
 
 | add-on | what the agent drives | image | backend |
 | --- | --- | --- | --- |
-| `browser` | a headless Chromium **inside the sandbox** — Playwright's, shared by the `playwright` CLI and [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` · `snapshot` · `click` · `fill` · `screenshot` over CDP) | `proveo/claudecode-browser` (FROM `proveo/base-node-browser`) | sbx |
+| `browser` | a headless Chromium **inside the sandbox** — Playwright's, shared by the `playwright` CLI and [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` · `snapshot` · `click` · `fill` · `screenshot` over CDP) | `proveo/claudecode-browser` (the `defs/base-node-browser` layer on `proveo/claudecode`) | sbx |
 | `chrome (host browser)` | **your own Chrome**, through the Claude in Chrome extension — your logins, the extension's site permissions | any claudecode image | greyed on sbx |
 
 ## Mobile: an Android emulator on the host, driven by mobile-mcp

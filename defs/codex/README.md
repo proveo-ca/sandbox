@@ -61,11 +61,10 @@ Run the image suite with `mise run test-defs codex` or `proveo test codex`
 | Image | Base | Adds |
 | --- | --- | --- |
 | `proveo/codex` | `proveo/base-node-lsp` | node + the workspace language servers |
-| `proveo/codex-browser` | `proveo/base-node-browser` | Playwright + Chromium |
+| `proveo/codex-browser` | `proveo/codex` | Playwright + Chromium (the `defs/base-node-browser` layer) |
 
-`base-node-browser` is itself FROM `base-node-lsp`, so the browser variant is a
-strict superset — it keeps the language servers rather than trading them for a
-browser. It is not a target of its own: pick `browser` in the run prompt's addon
+The browser layer builds on top of `proveo/codex`, so the browser variant is a
+strict superset — it keeps codex and the language servers. It is not a target of its own: pick `browser` in the run prompt's addon
 row (or `--addon browser`) and the run swaps the image, leaving the target `codex`.
 
 ## Environment Variables

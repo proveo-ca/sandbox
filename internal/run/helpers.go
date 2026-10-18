@@ -7,7 +7,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/credentials"
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -32,20 +34,10 @@ func reportLinks(links []workspace.Link) {
 	}
 }
 
-func CloneDefault(getenv func(string) string) bool {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_CLONE"))) {
-	case "0", "off", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
+func CloneDefault(getenv func(string) string) bool { return envflag.Bool(getenv("PROVEO_CLONE"), true) }
 
 func mountRootDeps(getenv func(string) string) bool {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_MOUNT_ROOT_DEPS"))) {
-	case "0", "off", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
+	return envflag.Bool(getenv("PROVEO_MOUNT_ROOT_DEPS"), true)
 }
 
 // sbxStoredAuth names the subscription credentials sbx's secret store holds for man.
@@ -116,10 +108,4 @@ func RunRoots() []string {
 // RunDirOf is the state directory of the run sid.
 func RunDirOf(sid string) string { return filepath.Join(RunRoots()[0], sid) }
 
-func WizardEnabled() bool {
-	switch strings.ToLower(os.Getenv("PROVEO_WIZARD")) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
+func WizardEnabled() bool { return agentio.WizardEnabled() }

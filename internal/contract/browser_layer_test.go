@@ -186,3 +186,28 @@ func seedBody(t *testing.T, lib string) string {
 	}
 	return m[1]
 }
+
+func TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness(t *testing.T) {
+	t.Parallel()
+	readmes, err := filepath.Glob(filepath.Join(repoRoot(t), "defs", "*", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, s := range imagebuild.Specs {
+		if s.Dockerfile != "defs/base-node-browser/Dockerfile" || s.Needs == "" {
+			continue
+		}
+		for _, path := range readmes {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range strings.Split(string(b), "\n") {
+				if strings.Contains(line, "`proveo/"+name+"`") && strings.Contains(line, "`proveo/base-node-browser`") {
+					t.Errorf("%s says %s builds from proveo/base-node-browser; it is the browser layer on proveo/%s:\n%s",
+						filepath.Base(filepath.Dir(path))+"/README.md", name, s.Needs, line)
+				}
+			}
+		}
+	}
+}

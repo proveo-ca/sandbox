@@ -12,6 +12,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/engine"
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -146,10 +147,10 @@ func preflightImages(man manifest.Manifest, agentImage string) (string, error) {
 }
 
 func provisionConfirm(question string) bool {
-	switch strings.ToLower(os.Getenv("PROVEO_AUTO_PROVISION")) {
-	case "1", "true", "yes", "on":
+	switch v := os.Getenv("PROVEO_AUTO_PROVISION"); {
+	case envflag.On(v):
 		return true
-	case "0", "false", "no", "off":
+	case envflag.Off(v):
 		return false
 	}
 	if !agentio.IsStdinTTY() || !run.WizardEnabled() {

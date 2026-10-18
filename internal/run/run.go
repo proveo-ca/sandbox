@@ -46,7 +46,6 @@ type Deps struct {
 func Do(p Params, d Deps) (err error) {
 	var rs Spec
 	rs.Sid = fmt.Sprintf("proveo-%d-%d", time.Now().Unix(), os.Getpid())
-	rs.RunDir = RunDirOf(rs.Sid)
 
 	log, logErr := runlog.Open(rs.Sid)
 	rs.Log = log
@@ -58,6 +57,7 @@ func Do(p Params, d Deps) (err error) {
 		ui.Section(ui.SectionRun)
 		ui.Storef("run log: %s", rs.Log.Path())
 	}
+	rs.RunDir = RunDirOf(rs.Sid)
 	// Registered after the log's own Close, so LIFO runs it first.
 	defer func() { recordOutcome(rs.AgentLaunched, err) }()
 

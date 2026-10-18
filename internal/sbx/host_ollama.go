@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -119,7 +120,7 @@ func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) e
 		if near := sameRepo(tags, model); len(near) > 0 {
 			hint = "; installed: " + strings.Join(near, ", ")
 		}
-		if off(getenv(EnvLocalModelPull)) {
+		if envflag.Off(getenv(EnvLocalModelPull)) {
 			return fmt.Errorf("the host's Ollama has no %q — `ollama pull %s`%s", model, model, hint)
 		}
 		if p == nil {
@@ -149,14 +150,6 @@ func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) e
 		}
 	}
 	return checkFit(m, getenv)
-}
-
-func off(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "0", "false", "no", "off":
-		return true
-	}
-	return false
 }
 
 // libraryRef splits an Ollama library tag into repo and tag; ok is false for other registries.
@@ -281,7 +274,7 @@ func checkFit(m ollamaModel, getenv func(string) string) error {
 	if !known || need <= avail {
 		return nil
 	}
-	if v := strings.ToLower(strings.TrimSpace(getenv(EnvLocalModelForce))); v == "1" || v == "true" {
+	if envflag.On(getenv(EnvLocalModelForce)) {
 		return nil
 	}
 	return fmt.Errorf("%s needs ~%.1f GiB (%.1f GiB weights + cache headroom) and the host has %.1f GiB available — "+

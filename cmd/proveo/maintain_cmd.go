@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +22,9 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/ui"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func loadMaintainRegistry() ([]maintain.Target, error) {
@@ -34,6 +37,21 @@ func loadMaintainRegistry() ([]maintain.Target, error) {
 		return nil, fmt.Errorf("loading manifests from %s: %w", defsDir, err)
 	}
 	return maintain.Registry(ms, defsDir), nil
+}
+
+func maintainerDefsDir() (string, error) {
+	if d := os.Getenv("PROVEO_DEFS_DIR"); d != "" {
+		return d, nil
+	}
+	root := run.OrWD("")
+	if ws := workspace.Resolve(root); ws.IsRepo {
+		root = ws.Root
+	}
+	d := filepath.Join(root, "defs")
+	if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+		return d, nil
+	}
+	return "", fmt.Errorf("no defs/ tree found (run inside the repo or set PROVEO_DEFS_DIR)")
 }
 
 func targetNames(reg []maintain.Target) string {
@@ -335,9 +353,8 @@ func buildCmd() *cobra.Command {
 	var noCache, printOnly bool
 	cmd := &cobra.Command{
 		Use:    "build [target|all]",
-		Short:  "Build harness image(s) (maintainer)",
-		Hidden: true,
-		Args:   cobra.MaximumNArgs(1),
+		Short: "Build harness image(s) from a proveo checkout",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			reg, err := loadMaintainRegistry()
 			if err != nil {

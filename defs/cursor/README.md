@@ -15,8 +15,8 @@ Paradigm: **policy-gated autonomous loop** — see
 
 ## Browser variant
 
-`mise run build cursor-browser` builds `proveo/cursor-browser` FROM `proveo/base-node-browser`: the
-same `cursor-agent` binary atop a headless Chromium shared by the `playwright` CLI and
+`mise run build cursor-browser` builds `proveo/cursor-browser`, the `defs/base-node-browser` layer on
+`proveo/cursor`: the same `cursor-agent` binary atop a headless Chromium shared by the `playwright` CLI and
 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` ·
 `snapshot` · `click` · `fill` · `screenshot`, accessibility-tree refs over CDP). The seed drops
 agent-browser's discovery stub into `~/.cursor/skills/agent-browser/SKILL.md`, which points

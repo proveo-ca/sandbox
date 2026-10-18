@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -43,7 +44,7 @@ func init() {
 		Short: "Run mise run fmt then mise run lint; SKIP_GIT_HOOKS=1 skips",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(*cobra.Command, []string) error {
-			if skipHooks(os.Getenv("SKIP_GIT_HOOKS")) {
+			if skipHooks(os.Getenv) {
 				return nil
 			}
 			top, err := output("", "git", "rev-parse", "--show-toplevel")
@@ -66,13 +67,7 @@ func init() {
 	register(hooks)
 }
 
-func skipHooks(v string) bool {
-	switch v {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}
+func skipHooks(getenv func(string) string) bool { return envflag.On(getenv("SKIP_GIT_HOOKS")) }
 
 func hookPath(home, path string) string {
 	return strings.Join([]string{"/usr/local/bin", filepath.Join(home, ".local", "bin"), path}, string(os.PathListSeparator))
