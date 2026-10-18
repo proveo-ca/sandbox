@@ -14,6 +14,16 @@
 ' is visible in root help now; deploy and test stay hidden (usage.puml). The
 ' "missing image" error and the agent-pin line both name `proveo build`, so the
 ' command they send an operator to is one root help lists.
+' KNOWN LIMITS (review, recorded, not fixed; MEASURED):
+'   * run.go:229's `proveo build <target>` hint works only inside a source
+'     checkout; a binary-only install has no defs/ tree to build from.
+'   * provision.go sourceDefsDir and maintain_cmd.go maintainerDefsDir are
+'     near-copies with different existence probes: the first requires
+'     <root>/defs/base/Dockerfile and returns "" without it; the second accepts
+'     any <root>/defs directory and errors without one.
+' PROVEO_AUTO_PROVISION goes through envflag (_spec/internal/envflag/
+' env-switches.puml): ON builds, OFF declines, anything else asks on a TTY
+' with the wizard on.
 ' HISTORY: `proveo-dev debug` (host-shell-to-go P4) read the registry in-process
 ' via manifest.Load + maintain.Registry and launched `proveo run <target> --shell`.
 ' RETIRED 2026-10-17 (the user: "Retire debug too"): cmd/proveo-dev/debug.go,
@@ -42,7 +52,7 @@ node "Maintainer path — source tree required" as MAINT <<host>> {
 }
 
 node "Missing declared env" as WIZ <<host>> {
-  component "run.WizardEnabled · isStdinTTY" as WEN <<app>>
+  component "agentio.WizardEnabled · IsStdinTTY" as WEN <<app>>
   component "promptEnv(target, missing)\nEnter skips" as PENV <<app>>
   component "termSecret\nread with echo off" as SEC <<app>>
 }

@@ -996,7 +996,8 @@
       "spec": "_spec/internal/envflag/env-switches.puml",
       "covers": [
         "internal/envflag/**",
-        "internal/contract/env_switch_vocabulary_test.go"
+        "internal/contract/env_switch_vocabulary_test.go",
+        "cmd/proveo/provision_test.go"
       ],
       "fingerprint": null
     },
@@ -1006,7 +1007,8 @@
         "internal/envreg/**",
         "cmd/proveo/env_help.go",
         "cmd/proveo/env_help_test.go",
-        "internal/contract/env_registry_test.go"
+        "internal/contract/env_registry_test.go",
+        "internal/imagebuild/targets.go"
       ],
       "fingerprint": null
     },

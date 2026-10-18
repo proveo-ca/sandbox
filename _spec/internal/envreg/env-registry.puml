@@ -56,6 +56,9 @@ skinparam noteTextAlignment left
 ' PROVEO_* variable the proveo binaries read. Variables only the image
 ' entrypoints read, such as PROVEO_BROWSER_SKILL, live in each def's README.
 ' The on/off spellings apply to the switches the binaries read.
+' FIXED 2026-10-18 (MEASURED): README.md now says `proveo help env` lists every
+' PROVEO_* variable a user or maintainer can set for the binaries, and that the
+' variables proveo sets for itself (the 21 Internal rows) are left out.
 '
 ' ── THE GUARDS ─────────────────────────────────────────────────────────────
 ' internal/contract/env_registry_test.go:

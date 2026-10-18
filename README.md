@@ -181,8 +181,8 @@ Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --hom
 
 ## Environment variables
 
-`proveo help env` lists every `PROVEO_*` variable the proveo binaries read, with its default
-and effect. Variables the image entrypoints read (e.g. `PROVEO_BROWSER_SKILL`) are in each
+`proveo help env` lists every `PROVEO_*` variable a user or maintainer can set for the proveo
+binaries, with its default and effect; variables proveo sets for itself are left out. Variables the image entrypoints read (e.g. `PROVEO_BROWSER_SKILL`) are in each
 def's README. On/off switches the binaries read take `1|true|yes|on|enable|enabled` or
 `0|false|no|off|disable|disabled`.
 

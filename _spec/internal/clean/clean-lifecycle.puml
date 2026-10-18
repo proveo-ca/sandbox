@@ -12,7 +12,7 @@
 ' artifacts; an older run's dir may still hold a broker.env.
 '
 ' TWO RUN ROOTS FOR ONE RELEASE (N13, DONE (wt) 2026-10-17, option 1).
-' MEASURED: a run writes <stateDir>/runs/<sid> (run.RunDirOf, helpers.go:117).
+' MEASURED: a run writes <stateDir>/runs/<sid> (run.RunDirOf, internal/run/helpers.go).
 ' run.RunRoots() (:110-114) returns [<stateDir>/runs, <stateDir>/egress] —
 ' current first, then the retired egress-era root, swept for one release.
 ' stateSessions() (cmd/proveo/clean.go:215-228) lists the session ids under

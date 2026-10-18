@@ -107,6 +107,13 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' non-flag word is `&&`, `||`, `;`, `|` or the line end fails it, so the next
 ' removal deletes the RUN or keeps a package. It found opencode's copy after
 ' N26 was filed against codex alone.
+' With no apt left, defs/opencode/Dockerfile no longer declares `ARG
+' DEBIAN_FRONTEND=noninteractive`, and dockerfile_correctness_test.go's
+' aptDockerfiles list — the files that must declare it — no longer names
+' opencode (MEASURED, review follow-up). Its orphaned
+' `# SPEC: _spec/_devops/image-size-reduction.puml` moved to line 1.
+' Image (MEASURED by the coordinator): opencode and opencode-browser rebuilt;
+' TestImageOpencode passes (44.3s).
 '
 ' ── claudecode: THE DEV TOOLS EVERY REPO PINS ITSELF ARE ABSENT ─────────────
 ' No global typescript / ts-node / prettier / eslint. 65 MB measured, unpinned

@@ -92,6 +92,14 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' browser_layer_test.go) fails when a defs/*/README.md line names
 ' `proveo/<variant>` beside `proveo/base-node-browser`, for every
 ' imagebuild.Specs row built from this Dockerfile with a Needs parent.
+' The review fixed the prose and tree drawings too (reported):
+' defs/base/README.md's bullet and FROM tree, which now hangs each -browser
+' under its harness and cursor-browser under cursor, and the Consumers lines of
+' defs/base-node/README.md and defs/base-node-browser/README.md, which now list
+' codex-browser as well.
+' KNOWN LIMIT (recorded, not fixed): the test catches only a line that names
+' both `proveo/<variant>` and `proveo/base-node-browser`. Prose and tree
+' drawings stay unguarded.
 ' Both carry Playwright's Chromium and agent-browser pointed at it. The binary
 ' alone is not discoverable by an agent, so the seed drops agent-browser's
 ' discovery STUB into the harness's USER-level skills directory — the one place

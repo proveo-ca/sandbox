@@ -488,17 +488,28 @@
 '     PROVEO_UNINSTALL_ASSUME_YES [off] (cmd/proveo/uninstall.go:43); PROVEO_SBX_MCP [off]
 '     (backend/sandbox/sandbox.go:1377); SKIP_GIT_HOOKS [off] (cmd/proveo-dev/hooks.go:70; `TRUE`
 '     now skips); PROVEO_CDN_REQUIRE_DIST [off] (cmd/proveo-dev/stagecdn.go:53; it was `== "1"`).
-'   Evidence: MEASURED. PROVEO_WIZARD has ONE reader, agentio.WizardEnabled(). run.WizardEnabled
-'     wraps it (helpers.go:111), and backend/sandbox/confirm.go:13 calls it. The first-read second
-'     parse (opencode_cache.go:231-234) went with D2; the later one sat in confirm.go. Reported:
-'     agentio is the home because a run → sandbox import would cycle.
+'   Evidence: MEASURED. PROVEO_WIZARD has ONE reader, agentio.WizardEnabled(). The first-read
+'     second parse (opencode_cache.go:231-234) went with D2; the later one sat in confirm.go.
+'     Reported: agentio is the home because a run → sandbox import would cycle.
+'     REVIEW FOLLOW-UP (MEASURED): run.WizardEnabled is deleted, so the reader has one name too;
+'     internal/run (run.go:118,455; choices.go cacheApplies), backend/sandbox/confirm.go:13,
+'     cmd/proveo/provision.go:156 and cmd/proveo/wizard_test.go call agentio.WizardEnabled.
 '   Evidence: MEASURED. Enums keep their own words and parse only on/off through envflag:
 '     PROVEO_GLYPHS (ascii → ASCII; none or any OFF word → no glyphs; else nerd; ui.go:29-37);
-'     PROVEO_DOCKER_PULL (""/auto, never, always exact; on/off words through envflag; anything
-'     else still errors; imagebuild.go:274-285); PROVEO_AUTO_PROVISION (ON builds, OFF declines,
-'     else ask on a TTY; cmd/proveo/provision.go:149-160).
+'     PROVEO_DOCKER_PULL (""/auto, never, always; on/off words through envflag; anything else
+'     still errors; imagebuild.go:274-287); PROVEO_AUTO_PROVISION (ON builds, OFF declines, else
+'     ask on a TTY with the wizard on; cmd/proveo/provision.go:149-160).
+'     REVIEW FOLLOW-UP (MEASURED): PullFlags lowercases and trims the value before matching
+'     auto/never/always too, and its error quotes the raw value; TestPullFlagsFromEnv adds
+'     " Never ", "ALWAYS" and "Auto". New cmd/proveo/provision_test.go
+'     TestProvisionConfirmFollowsAutoProvisionBeforeTheWizard: with PROVEO_WIZARD=0, yes, 1 or
+'     Enabled build and disabled, 0, "" or maybe decline, so PROVEO_AUTO_PROVISION wins.
 '   Out of scope by design (reported): interactive prompt answers (wizard.go y/yes, the uninstall
-'     prompt), `!= ""` presence checks, and e2e/.
+'     prompt) and `!= ""` presence checks.
+'     REVIEW FOLLOW-UP (MEASURED): the e2e opt-in gates read through envflag.On instead of
+'     `!= "1"` — PROVEO_TOOLCHAIN_TEST (7 sites), PROVEO_IDLE_TEST (1), PROVEO_LADDER_TEST (2).
+'     The scan does not walk e2e/. internal/sbx/agents.go EnvAgentKit's 3-line history comment
+'     is a one-line WHAT label now (reported).
 '   Tests: internal/envflag/envflag_test.go TestOnOffBoolVocabulary (every spelling, case, spaces,
 '     an unknown value falling back); internal/contract/env_switch_vocabulary_test.go
 '     TestEnvSwitchesParseThroughEnvflag — it walks non-test Go under cmd/ and internal/ outside
@@ -511,33 +522,52 @@
 '     vocabularies).
 ' N8 · About 85 PROVEO_* knobs, eight documented — DONE (wt), option 1.
 '   Evidence: MEASURED. New package internal/envreg: Scope (Operator · Maintainer · Internal),
-'     Var{Name, Scope, Default, Doc}, and Vars — 77 entries sorted by scope, then name: Operator 29,
-'     Maintainer 27, Internal 21. Helpers: Lookup (exact name, then family), ByScope, Var.Family,
-'     Var.Matches.
+'     Var{Name, Scope, Default, Doc}, and Vars — 77 entries at landing, sorted by scope, then name:
+'     Operator 29, Maintainer 27, Internal 21. It first exported Lookup, ByScope, Var.Family,
+'     Var.Matches and Scopes.
+'     REVIEW FOLLOW-UP (MEASURED): the API is Scope (with String), Var, Vars and ByScope only.
+'     Lookup, Family, Matches and Scopes are deleted (no non-test caller); renderEnvHelp uses
+'     ByScope. PROVEO_BIN is deleted from the registry, and build-cli no longer tells maintainers
+'     to set it (nothing ever read it). Vars is 76 entries: Maintainer 26 (reported).
 '   Evidence: MEASURED. One family, PROVEO_<TARGET>_IMAGE, covers the *_IMAGE literals and the names
 '     imagebuild's envName builds at runtime (e.g. PROVEO_CODEX_BROWSER_IMAGE). Reported: the 77
-'     entries cover all 85 distinct names in string literals.
+'     entries covered all 85 distinct names in string literals.
+'     REVIEW FOLLOW-UP (MEASURED): the family is checked against real names.
+'     env_registry_test.go collects every Override, ParentOverride and NeedsOverride from
+'     imagebuild.Specs; each must be covered, and a PROVEO_* literal passes only when registered by
+'     name, or when it is one of those names and the family is registered. An unrelated
+'     PROVEO_FOO_IMAGE no longer passes through the family. The family's Doc says claudecode*
+'     targets take no override; their Specs rows carry none.
+'     Doc/Default fixes (MEASURED): PROVEO_AUTO_PROVISION default "ask on a TTY with the wizard on,
+'     else decline"; PROVEO_DEPS "the image also reads off"; PROVEO_SBX_INSTANCES divides Docker's
+'     memory total; PROVEO_PLATFORMS cuts only a comma-separated list to the host on --load.
 '   Evidence: MEASURED. `proveo help env` (cmd/proveo/env_help.go envHelpCmd, renderEnvHelp) is a
 '     cobra help topic. It draws an "operator" and a "maintainer" heading, one row per variable
 '     (name, Doc, "(default …)"), and omits Internal. Root help gained a "help topics" section
 '     (help.go:244-256). Reported: the topic is not runnable, so `proveo env` renders it too.
 '   Tests: internal/envreg/envreg_test.go (unique names; literal or one family; one-line Doc and
-'     Default; known scopes; sort order; Lookup); internal/contract/env_registry_test.go
+'     Default; known scopes; sort order); internal/contract/env_registry_test.go
 '     TestEveryProveoVariableIsRegistered (every PROVEO_* name in a non-test Go string literal under
-'     cmd/ and internal/ must Lookup; MEASURED by the coordinator red with a temporary unregistered
-'     literal, then green) and TestEveryRegisteredVariableIsStillUsed; cmd/proveo/env_help_test.go
+'     cmd/ and internal/ must be registered — by name, or as an imagebuild override under the
+'     family; MEASURED by the coordinator red with a temporary unregistered literal, then green)
+'     and TestEveryRegisteredVariableIsStillUsed; cmd/proveo/env_help_test.go
 '     TestHelpEnvListsEveryOperatorAndMaintainerVariable and TestProveoHelpEnvRendersTheRegistry.
 '   Reported: README.md gained an "Environment variables" section that points at `proveo help env`
-'     and lists the on/off spellings.
+'     and lists the on/off spellings. After the review it says `help env` lists every PROVEO_*
+'     variable the proveo binaries read; variables only the image entrypoints read (e.g.
+'     PROVEO_BROWSER_SKILL) live in each def's README; the on/off spellings apply to switches the
+'     binaries read.
 '   Boundary: the registry covers Go under cmd/ and internal/ only. PROVEO_SKIP_INIT (installer
 '     scripts) and the PROVEO_* the image entrypoints read are outside it.
 '   [Unverified] PROVEO_SBX_MEMORY and PROVEO_SBX_CPUS: unset, proveo omits -m/--cpus; sbx's own
 '     default is not measured.
 '   [Inference] PROVEO_DEPS reaches the image through the project .env seed; no Go code forwards it.
-'   OPEN, not filed (MEASURED): PROVEO_BIN appears only in build-cli's PATH hint
-'     (cmd/proveo-dev/buildcli.go:83). PROVEO_SEED_DONE_MARKER is read with a default
-'     (internal/sbx/kit.go:84, packages/lib/proveo-seed:7), and only tests set it. Both stay
-'     registered; a future finding may file them.
+'   OPEN, not filed (MEASURED): PROVEO_SEED_DONE_MARKER is read with a default
+'     (internal/sbx/kit.go:84, packages/lib/proveo-seed:7), and only tests set it. It stays
+'     registered; a future finding may file it. (PROVEO_BIN, the other open name, is deleted by the
+'     review follow-up above.)
+'   FIXED 2026-10-18 (MEASURED): README.md now scopes `proveo help env` to what a user or
+'     maintainer can set, and says the 21 Internal rows are left out.
 '   Spec: _spec/internal/envreg/env-registry.puml (new); usage.
 ' N9 · Maintainer commands in the operator binary — DONE (wt), option 1.
 '   Evidence: MEASURED. cmd/proveo/targets.go is deleted, so `proveo targets` no longer exists.
@@ -586,12 +616,43 @@
 '   Images (MEASURED by the coordinator): codex, opencode, codex-browser and opencode-browser rebuilt
 '     with PROVEO_BUILDKIT_CACHE=off; `docker history` shows the empty apt layer gone from both
 '     harness images; TestImageCodex (41.6s) and TestImageOpencode (45.1s) pass, 9 live-API skips.
-'   Residue (MEASURED, docs the test does not catch — it matches `proveo/<variant>` in backticks):
-'     defs/base/README.md:49-52 draws the -browser variants as children of proveo/base-node-browser
-'     ("cursor-browser (cursor-agent atop the browser floor)"), and defs/base-node-browser/
-'     README.md:16-17 lists them as that image's "Consumers".
+'   Residue found in the spec pass (docs the test does not catch): defs/base/README.md drew the
+'     -browser variants as children of proveo/base-node-browser, and defs/base-node-browser/
+'     README.md listed them as that image's "Consumers".
+'     REVIEW FOLLOW-UP (MEASURED for defs/base/README.md; reported for the rest): the bullet and
+'     the FROM tree of defs/base/README.md now hang each -browser under its harness and
+'     cursor-browser under cursor; the Consumers lines of defs/base-node/README.md and
+'     defs/base-node-browser/README.md now say the variants are that Dockerfile built on
+'     proveo/<harness> and list codex-browser too. The opencode README's base line is
+'     proveo/base-node-lsp (it said proveo/base on a "MCR playwright noble floor"); the cursor
+'     README's base line is proveo/base with git, gh, jq, dumb-init, tmux and proveo-entrypoint,
+'     no playwright floor.
+'     REVIEW FOLLOW-UP (MEASURED): defs/opencode/Dockerfile no longer declares `ARG
+'     DEBIAN_FRONTEND=noninteractive` (no apt runs there); its orphaned `# SPEC:
+'     _spec/_devops/image-size-reduction.puml` moved to line 1; dockerfile_correctness_test.go's
+'     aptDockerfiles no longer names it. opencode and opencode-browser rebuilt; TestImageOpencode
+'     passes (44.3s, reported).
 '   Specs: codex-topology, harden-pass, harness-image-layers, browser-layer, seed-and-launch,
 '     claudecode-paradigm.
+' KNOWN LIMITS from the adversarial review of this batch — recorded, NOT fixed:
+'   * The vocabulary scan (TestEnvSwitchesParseThroughEnvflag) tracks taint only through plain
+'     identifiers; a value stored in a field, map or slice escapes it (env-switches.puml).
+'   * The registry test sees only whole string literals, not Sprintf-built names
+'     (env-registry.puml).
+'   * TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness catches only a line naming
+'     `proveo/<variant>` together with `proveo/base-node-browser`; prose and tree drawings are not
+'     guarded (browser-layer.puml).
+'   * state_warning_test and TestDoRecordsAnEarlyFailureInTheTranscript leave ui's package-level
+'     logOnly pointing at a closed log (run-transcript.puml).
+'   * run.go:229's `proveo build <target>` hint works only in a source checkout
+'     (provision-and-targets.puml).
+'   * cmd/proveo/provision.go sourceDefsDir and maintain_cmd.go maintainerDefsDir are near-copies
+'     with different existence probes (provision-and-targets.puml).
+' REVIEW FIXES, landed (wt). The specs record them per finding above, and spec_notes_test.go
+'   specNotesEnforced now names env-switches.puml and env-registry.puml (the test passes).
+'   Verification after the fixes (MEASURED by the coordinator): vet clean with no tag and with
+'   e2e; gofmt clean; cmd/... and the touched internal packages pass; internal/contract fails only
+'   on the known JVM row (T1).
 '
 ' ══ DECIDED ════════════════════════════════════════════════════════════════
 '
@@ -1117,6 +1178,11 @@
 '     3. Wait for the drift guard to report them.
 '   UPDATE 2026-10-16: the D1 spec pass fixed every item above in place (credential-path,
 '     sandbox-backend, host-inference) — option 1 applied ahead of the commit.
+'   ADDED 2026-10-18 (MEASURED in the fourth-batch spec pass; left for this finding by the
+'     coordinator): _spec/components.puml still lists `debug` among cmd/proveo-dev's commands
+'     (retired 2026-10-17, S3) and draws cmd/proveo as "list · run · projects · setup" (there is no
+'     `list`; the root also registers ls, schedule, init, update, uninstall, clean and build —
+'     usage.puml has the measured list).
 '
 ' N12 · Two image-test tasks; the release gate skips hermes — DONE (wt) 2026-10-17, option 1 (see
 '     DONE, second batch).
