@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/envreg"
 )
 
 // retirement is a deprecated surface that ships in at most one release; marker is a string only it has.
@@ -29,6 +31,18 @@ func TestEveryRetirementMarkerIsStillInTheTree(t *testing.T) {
 	for _, r := range retirements {
 		if !strings.Contains(readRepoFile(t, r.file), r.marker) {
 			t.Errorf("%s no longer holds %q: delete the %s entry, or update its marker", r.file, r.marker, r.what)
+		}
+	}
+}
+
+func TestEveryDeprecatedAliasHasARetirement(t *testing.T) {
+	t.Parallel()
+	for _, v := range envreg.Vars {
+		if v.AliasOf == "" {
+			continue
+		}
+		if !slices.ContainsFunc(retirements, func(r retirement) bool { return strings.HasPrefix(r.what, v.Name+",") }) {
+			t.Errorf("internal/envreg registers %s as a deprecated alias of %s, but no retirement entry bounds it", v.Name, v.AliasOf)
 		}
 	}
 }
