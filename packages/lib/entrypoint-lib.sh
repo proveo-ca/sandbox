@@ -2756,7 +2756,7 @@ proveo_seed_cursor_workspace_agents() {
 
 # SPEC: _spec/internal/sbx/startup-dispatch.puml
 proveo_seed() {
- local target="${1:-${PROVEO_TARGET:-}}" phase="${2:-${PROVEO_SEED_PHASE:-all}}"
+ local target="${1:-}" phase="${2:-${PROVEO_SEED_PHASE:-all}}"
  case "$phase" in
  all | release) ;;
  provision) _proveo_seed_provision "$target"; return ;;

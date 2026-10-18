@@ -174,7 +174,7 @@ checkout at its host path and cannot overlay those directories: only clone mode 
 trees out — which is why **clone is the default** (`--clone=false` or `PROVEO_CLONE=off`
 opts out). On a mounted checkout whose host platform differs from the image's (`linux/<arch>`,
 or `DOCKER_DEFAULT_PLATFORM`), the run refuses to carry the host trees in unless
-`PROVEO_DEPS=shared` accepts the rewrite. The default steps aside, and says why, where sbx
+`PROVEO_DEPS=shared` carries them in as they are or `PROVEO_DEPS=reinstall` lets the sandbox rewrite them. The default steps aside, and says why, where sbx
 cannot clone: no git repository, a linked worktree, or a monorepo sub-scope. At teardown proveo commits
 whatever the agent left uncommitted and fetches every branch of the clone into
 `refs/proveo/<sid>/`, because `sbx rm` drops the clone and its remote. See
@@ -193,6 +193,9 @@ with nothing installed is the most confusing state to hand an agent. Rules:
 - make every install visible in the startup log, and name the remedy when one fails;
 - `PROVEO_DEPS=off` disables installs; `PROVEO_DEPS=reinstall` additionally allows rewriting
   a foreign **host** tree in place (sbx with `--clone=false`), which is otherwise refused.
+- The host and the image accept the same `PROVEO_DEPS` values: `auto` (the default), `off` (or
+  any off word), `shared` and `reinstall`; the image treats `shared` like `auto`, and both name an
+  unknown value.
 
 ## Security and Secrets
 

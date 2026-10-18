@@ -133,7 +133,7 @@ var Vars = []Var{
 	{Name: "PROVEO_SCHEDULE_NOW", Scope: Maintainer, Default: "the wall clock",
 		Doc: "Pin the scheduler's clock to an RFC 3339 time"},
 	{Name: "PROVEO_SEED_DONE_MARKER", Scope: Maintainer, Default: "/dev/shm/proveo-seed-done",
-		Doc: "Set the file whose presence makes a provision seed exit early"},
+		Doc: "Test seam: set the file whose presence makes a provision seed exit early"},
 	{Name: "PROVEO_SUBAGENTS_DIR", Scope: Maintainer, Default: "/opt/proveo/subagents",
 		Doc: "Set the subagent defs directory the image's subagent renderer reads"},
 	{Name: "PROVEO_TEST_GO_TIMEOUT", Scope: Maintainer, Default: "45m for coverage e2e; 150m for e2e-full",

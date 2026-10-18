@@ -47,7 +47,9 @@ func TestSharedTreesAllowedOnlyWhenTheyRunAsIsOrTheOperatorSaysSo(t *testing.T) 
 		{"macOS host is refused", nil, mac, false, "darwin/arm64 ≠ image linux/arm64"},
 		{"cross-arch linux is refused", nil, Platform{OS: "linux", Arch: "amd64"}, false, "rewrites the host trees"},
 		{"matching linux host passes", nil, linuxArm, true, "matches the image"},
-		{"PROVEO_DEPS=shared accepts the rewrite", map[string]string{"PROVEO_DEPS": "shared"}, mac, true, "PROVEO_DEPS=shared"},
+		{"PROVEO_DEPS=shared carries the host trees in as they are", map[string]string{"PROVEO_DEPS": "shared"}, mac, true, "PROVEO_DEPS=shared"},
+		{"PROVEO_DEPS=off is not consent", map[string]string{"PROVEO_DEPS": "off"}, mac, false, "≠ image"},
+		{"an unknown PROVEO_DEPS is named and refused", map[string]string{"PROVEO_DEPS": "sharde"}, mac, false, "PROVEO_DEPS=sharde is not one of auto|off|shared|reinstall"},
 		{"PROVEO_DEPS=reinstall already accepts it", map[string]string{"PROVEO_DEPS": "Reinstall"}, mac, true, "PROVEO_DEPS=reinstall"},
 		{"PROVEO_DEPS_COPY is not consent", map[string]string{"PROVEO_DEPS_COPY": "never"}, mac, false, "≠ image"},
 	} {
