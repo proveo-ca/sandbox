@@ -672,6 +672,10 @@
 '     Opencode 44.4s. Late change: e2e/capacity_test.go reads PROVEO_CAPACITY_TEST through
 '     envflag.On (it was `!= "1"`); no Go `PROVEO_* == "1"` check remains; `go vet -tags e2e` is
 '     clean.
+'   T1 flake resolved (MEASURED): the TestToolSync* failures came from the machine-global
+'     PROVEO_PROVISIONING marker that a parallel provision-seed test wrote; runToolSync now points
+'     it at a per-test temp path (internal/contract/tool_sync_test.go:27), and 6 of 6 full
+'     internal/contract runs were clean apart from the JVM row (see T1).
 ' N27 · DONE (wt), option 1. proveo_seed reads `local target="${1:-}"`
 '   (packages/lib/entrypoint-lib.sh:2781, MEASURED here); the ${PROVEO_TARGET} fallback is gone and
 '   every caller passes a target. internal/envreg labels PROVEO_SEED_DONE_MARKER "Test seam:"
@@ -1103,10 +1107,23 @@
 '       has a real /usr/bin/qemu-x86_64; the test's NO_QEMU=1 only skips a stub.
 '     * e2e/schedule_test.go:165 TestScheduleAgentThatDiesBeforeReadyFailsFast — the result detail
 '       lacks the agent's last line; fails on HEAD too; root cause not investigated.
-'   FLAKE, observed once: internal/contract/tool_sync_test.go:142
+'   FLAKE — RESOLVED 2026-10-18 (fifth batch). First seen as: internal/contract/tool_sync_test.go:142
 '     TestToolRestoreSkipsAStoreTheHomeAlreadyHolds failed in one full parallel run, then passed 10
-'     isolated runs and 3 full-package runs (reported). [Inference] timing or load in the shell
-'     tool-sync.
+'     isolated runs and 3 full-package runs (reported). The first guess, "timing or load in the
+'     shell tool-sync", was wrong.
+'     ROOT CAUSE (MEASURED): packages/lib/entrypoint-lib.sh:274 defaults PROVEO_PROVISIONING to the
+'     machine-global /dev/shm/proveo-provisioning. A parallel contract test that runs the
+'     provision seed writes its live pid there (:2852). A tool-sync save in another test then
+'     reads _proveo_provisioning (:276-280) as true and skips without stamping, which fails "save
+'     must stamp both trees" in TestToolRestoreSkipsAStoreTheHomeAlreadyHolds and
+'     TestToolSyncRoundTripsThroughTheDurableRoot. Before the fix: 1 of 4 full runs failed, plus
+'     twice earlier this session (MEASURED by the coordinator).
+'     FIX (MEASURED): tool_sync_test.go runToolSync sets PROVEO_PROVISIONING to a per-test temp
+'     path (:27); a test's own env map still overrides it (:193). After the fix 6 of 6 full
+'     `go test ./internal/contract/` runs were clean apart from the JVM row (MEASURED by the
+'     coordinator).
+'   T1 NOW (2026-10-18): one unit failure left — TestJVMRowNeedsTheQemuFloorOnMacOSHosts — plus
+'     the e2e TestScheduleAgentThatDiesBeforeReadyFailsFast.
 '   ENVIRONMENT NOTE, 2026-10-17 (reported by the coordinator): the 20G dev VM disk filled during
 '     image rebuilds; proveo's local BuildKit cache ~/.cache/proveo/buildkit held 13G. Only
 '     scratch files and `go clean -cache` were cleared. A full image + test pass on a 20G VM
