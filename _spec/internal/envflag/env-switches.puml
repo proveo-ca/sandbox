@@ -5,10 +5,14 @@ skinparam noteTextAlignment left
 ' covers: internal/envflag/**
 ' covers: internal/contract/env_switch_vocabulary_test.go
 ' covers: cmd/proveo/provision_test.go
+' covers: packages/lib/entrypoint-lib.sh (_proveo_env_word, proveo_env_on/off/enabled)
+' covers: internal/contract/shell_env_switch_test.go
 '   the variables themselves .......... _spec/internal/envreg/env-registry.puml
 '   PROVEO_DOCKER_PUSH / _PULL ......... _spec/_devops/buildx-driver-selection.puml
+'   PROVEO_DEPS, host and image ....... _spec/packages/lib/dependency-trees.puml
 '   the decision record ............... _spec/_plans/repo-simplification.puml (N6)
-'   shell switches outside envflag .... _spec/_plans/repo-simplification.puml (N32)
+'   the shell twin .................... _spec/_plans/repo-simplification.puml (N32)
+'   installer switches, still apart ... _spec/_plans/repo-simplification.puml (N36)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHAT IT REPLACED (N6, DONE (wt) 2026-10-18) ────────────────────────────
@@ -80,9 +84,28 @@ skinparam noteTextAlignment left
 ' ── OUT OF SCOPE BY DESIGN ─────────────────────────────────────────────────
 ' A typed prompt answer is not an env switch: wizard.go's y/yes and the
 ' uninstall prompt keep their own words. A presence check (`!= ""`) asks whether
-' a value exists, not what it says. The scan walks Go only; image entrypoints
-' parse their switches in shell, with their own spellings — e.g. PROVEO_SMOKE_TEST
-' turns on only for "1" (packages/lib/entrypoint-lib.sh:176). Filed as N32.
+' a value exists, not what it says. The Go scan walks Go only; the shell side has
+' its own helper and scan (next section).
+'
+' ── THE SHELL TWIN (N32, DONE (wt) 2026-10-18) ─────────────────────────────
+' MEASURED here: packages/lib/entrypoint-lib.sh:8-40 defines _proveo_env_word and
+' proveo_env_on / proveo_env_off / proveo_env_enabled with the envflag words.
+' Reported: they ignore case, trim, run under bash 3.2 and 5, and keep REPLY,
+' and 18 switch sites are converted. PROVEO_LSP_INSTALL now reads on, true and 1
+' as auto. PROVEO_SMOKE_TEST takes every on word — before N32 only "1" — and the
+' hermes and opencode entrypoints call run_smoke_test. PROVEO_DEPS's image mode
+' goes through proveo_env_off (_proveo_deps_mode, dependency-trees.puml).
+' Two standalone scripts cannot source the lib and are listed exemptions:
+' packages/lib/hooks/git-sync-turn.sh lowercases and now trims its PROVEO_GIT_SYNC
+' off check; packages/lib/proveo-await-seed (POSIX) accepts every on word for
+' PROVEO_SEED_PROGRESS.
+' internal/contract/shell_env_switch_test.go:
+'   TestShellEnvSwitchHelperMatchesEnvflag        88 values; shell and Go agree
+'   TestShellEnvSwitchesParseThroughTheLibHelper  the scan of shell switch sites
+'   TestShellEnvSwitchScanFlagsHandRolledParsers  the scan's own self-test
+' KNOWN LIMIT (recorded, not fixed): the shell scan skips the install scripts and
+' `=~` / `(( ))` tests. The installers still spell their switches themselves
+' (N36, PROPOSED).
 '
 ' ── THE GUARD (internal/contract/env_switch_vocabulary_test.go) ────────────
 ' TestEnvSwitchesParseThroughEnvflag parses every non-test Go file under cmd/
@@ -119,8 +142,10 @@ node "Sites" as SITES <<host>> {
 component "TestEnvSwitchesParseThroughEnvflag\nAST scan of cmd/ and internal/" as SCAN <<app>>
 component "a hand-rolled parser\nv == ""1"" · case ""off"", ""0""" as HAND <<error>>
 component "prompt answers · presence checks\nnot switches" as NOT <<app>>
+component "packages/lib/entrypoint-lib.sh\nproveo_env_on · _off · _enabled" as SHELL <<app>>
 
 RAW ARROW_MAIN SITES
+SHELL ARROW_OPTIONAL EF : the same words, pinned by a parity test
 DON ARROW_MAIN OFF
 DON ARROW_MAIN BOOL
 DOFF ARROW_MAIN ON
@@ -129,6 +154,14 @@ BOOL ARROW_MAIN ON
 BOOL ARROW_MAIN OFF
 SCAN ARROW_ERROR HAND : fails the test
 SCAN ARROW_OPTIONAL NOT : passes by design
+
+note bottom of SHELL
+  **The shell copy must agree with Go.**
+  A parity test evaluates eighty-eight values
+  through both implementations, so neither
+  vocabulary can quietly diverge when one side
+  acquires another spelling.
+end note
 
 note bottom of EF
   **One word list, the union of the old ones.**

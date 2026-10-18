@@ -19,8 +19,10 @@
 ' def had cleared PROVEO_SMOKE_TEST before calling prep, so none of it ever ran.
 ' Every def entrypoint runs `proveo-entrypoint prep || true`; the
 ' `env PROVEO_SMOKE_TEST=` prefix and `export PROVEO_SMOKE_TARGET=` are gone.
-' Smoke mode is the def's own run_smoke_test (entrypoint-lib.sh:174, plus the
-' sentinel lines opencode and hermes print themselves), unchanged.
+' Smoke mode is the def's own run_smoke_test (entrypoint-lib.sh). Since N32
+' (2026-10-18) the opencode and hermes entrypoints call it too instead of
+' printing the sentinel themselves, and PROVEO_SMOKE_TEST takes every envflag
+' on word (_spec/internal/envflag/env-switches.puml).
 ' N24: entrypoint-lib.sh no longer defines ensure_runtime_user or
 ' report_git_context — the Go pair is the ONLY implementation. The [rec] was
 ' blocked because hermes (FROM nousresearch/hermes-agent) shipped no
