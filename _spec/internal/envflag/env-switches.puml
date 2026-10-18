@@ -8,6 +8,7 @@ skinparam noteTextAlignment left
 '   the variables themselves .......... _spec/internal/envreg/env-registry.puml
 '   PROVEO_DOCKER_PUSH / _PULL ......... _spec/_devops/buildx-driver-selection.puml
 '   the decision record ............... _spec/_plans/repo-simplification.puml (N6)
+'   shell switches outside envflag .... _spec/_plans/repo-simplification.puml (N32)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHAT IT REPLACED (N6, DONE (wt) 2026-10-18) ────────────────────────────
@@ -80,7 +81,8 @@ skinparam noteTextAlignment left
 ' A typed prompt answer is not an env switch: wizard.go's y/yes and the
 ' uninstall prompt keep their own words. A presence check (`!= ""`) asks whether
 ' a value exists, not what it says. The scan walks Go only; image entrypoints
-' parse their switches in shell.
+' parse their switches in shell, with their own spellings — e.g. PROVEO_SMOKE_TEST
+' turns on only for "1" (packages/lib/entrypoint-lib.sh:176). Filed as N32.
 '
 ' ── THE GUARD (internal/contract/env_switch_vocabulary_test.go) ────────────
 ' TestEnvSwitchesParseThroughEnvflag parses every non-test Go file under cmd/

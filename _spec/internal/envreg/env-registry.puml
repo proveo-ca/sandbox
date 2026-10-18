@@ -10,6 +10,7 @@ skinparam noteTextAlignment left
 '   the on/off vocabulary ............ _spec/internal/envflag/env-switches.puml
 '   where `help env` is listed ........ _spec/cmd/proveo/usage.puml
 '   the decision record ............... _spec/_plans/repo-simplification.puml (N8)
+'   open PROVEO_* findings ............ _spec/_plans/repo-simplification.puml (N27-N33)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHAT IT REPLACED (N8, DONE (wt) 2026-10-18) ────────────────────────────
@@ -86,13 +87,16 @@ skinparam noteTextAlignment left
 ' ── BOUNDARY: Go UNDER cmd/ AND internal/ ONLY ─────────────────────────────
 ' The scan reads Go string literals. PROVEO_SKIP_INIT is read only by the
 ' installer scripts, and the image entrypoints read their own PROVEO_* in shell
-' (reported). Neither is registered, and neither test can see them.
+' (reported). Neither is registered, and neither test can see them. The env
+' audit filed this gap as N32 (PROPOSED: an Image scope plus a shell scan).
 '
-' ── OPEN, NOT FILED ────────────────────────────────────────────────────────
+' ── OPEN ───────────────────────────────────────────────────────────────────
 ' MEASURED: PROVEO_SEED_DONE_MARKER is read with a default (internal/sbx/kit.go
 ' startup script, packages/lib/proveo-seed), and only tests set it. It stays
-' registered while a literal names it; a later finding may file it
-' (repo-simplification.puml N8).
+' registered while a literal names it; filed as N27 (PROPOSED).
+' PROVEO_DEPS has two vocabularies, one per reader: filed as N29 (PROPOSED).
+' The deprecated aliases PROVEO_EGRESS_ROOT and PROVEO_EGRESS_ENV_FILE are due
+' to expire: filed as N33 (PROPOSED).
 ' [Unverified] PROVEO_SBX_MEMORY and PROVEO_SBX_CPUS: unset, proveo omits -m and
 ' --cpus; sbx's own default is not measured.
 ' [Inference] PROVEO_DEPS reaches the image through the project .env seed; no Go
