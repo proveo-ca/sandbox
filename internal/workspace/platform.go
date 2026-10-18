@@ -64,14 +64,17 @@ func SharedTreesAllowed(getenv func(string) string, host, image Platform) (bool,
 		return true, fmt.Sprintf("host %s matches the image — the host trees run as-is", host)
 	}
 	why := fmt.Sprintf("host %s ≠ image %s — an install in the sandbox rewrites the host trees for %s", host, image, image)
+	if envflag.Off(raw) {
+		why = fmt.Sprintf("host %s ≠ image %s — PROVEO_DEPS=off installs nothing, and the host trees do not run on %s", host, image, image)
+	}
 	if !known {
-		why = fmt.Sprintf("PROVEO_DEPS=%s is not one of %s; %s", strings.TrimSpace(raw), strings.Join(DepsModes, "|"), why)
+		why = fmt.Sprintf("PROVEO_DEPS=%s is not one of %s; %s", strings.TrimSpace(raw), strings.Join(DepsModes(), "|"), why)
 	}
 	return false, why
 }
 
 // DepsModes are the PROVEO_DEPS values the host and the image both accept.
-var DepsModes = []string{"auto", "off", "shared", "reinstall"}
+func DepsModes() []string { return []string{"auto", "off", "shared", "reinstall"} }
 
 // DepsMode is v's PROVEO_DEPS mode: auto when empty, off for any envflag off word; known is false for anything else.
 func DepsMode(v string) (mode string, known bool) {
@@ -81,7 +84,7 @@ func DepsMode(v string) (mode string, known bool) {
 		return "auto", true
 	case envflag.Off(v):
 		return "off", true
-	case slices.Contains(DepsModes, v):
+	case slices.Contains(DepsModes(), v):
 		return v, true
 	}
 	return "auto", false

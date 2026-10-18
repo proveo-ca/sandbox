@@ -289,8 +289,10 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 mkdir -p "$BIN_DIR"
 
-if [[ -n "${PROVEO_CLI_BASE_URL:-}" ]]; then
-  print_info "PROVEO_CLI_BASE_URL is deprecated and goes away next release — set PROVEO_ASSET_BASE_URL"
+if [[ -n "${PROVEO_CLI_BASE_URL:-}" && -n "${PROVEO_ASSET_BASE_URL:-}" ]]; then
+  print_error "PROVEO_CLI_BASE_URL is deprecated and ignored: PROVEO_ASSET_BASE_URL is set"
+elif [[ -n "${PROVEO_CLI_BASE_URL:-}" ]]; then
+  print_error "PROVEO_CLI_BASE_URL is deprecated and goes away next release; it now points the whole channel — set PROVEO_ASSET_BASE_URL"
 fi
 print_info "Resolving release channel…"
 if download_file "$ASSET_BASE_URL/latest.json" "$TMP_DIR/latest.json" 2>/dev/null; then

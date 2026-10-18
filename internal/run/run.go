@@ -629,7 +629,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	}
 	rs.Posture.Workspace = posture.Workspace(rs.Backend.Clone)
 	if dropped := len(rs.Workspace.WS.DepCopies()); dropped > 0 && !rs.Backend.Clone {
-		ok, why := workspace.SharedTreesAllowed(os.Getenv, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
+		ok, why := workspace.SharedTreesAllowed(rs.Creds.Lookup, workspace.HostPlatform(), workspace.ImagePlatform(os.Getenv))
 		if !ok {
 			return fmt.Errorf("sbx would mount your checkout with its %d dependency tree(s) (node_modules, target, .venv …): %s.\n"+
 				"  %s\n"+

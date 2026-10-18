@@ -194,8 +194,8 @@ with nothing installed is the most confusing state to hand an agent. Rules:
 - `PROVEO_DEPS=off` disables installs; `PROVEO_DEPS=reinstall` additionally allows rewriting
   a foreign **host** tree in place (sbx with `--clone=false`), which is otherwise refused.
 - The host and the image accept the same `PROVEO_DEPS` values: `auto` (the default), `off` (or
-  any off word), `shared` and `reinstall`; the image treats `shared` like `auto`, and both name an
-  unknown value.
+  any off word), `shared` and `reinstall`; the image treats `shared` like `auto`. Set it in the project `.env`, where both read it;
+  the image names an unknown value, and the host names it when it refuses a run.
 
 ## Security and Secrets
 

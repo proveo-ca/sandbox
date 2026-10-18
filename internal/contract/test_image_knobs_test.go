@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/e2e/testimage"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
+	"github.com/proveo-ca/proveo/internal/imagetest"
 )
 
 // imageKnobName matches a rendered environment name whose last word, or last word before a dynamic X, is IMAGE.
@@ -236,7 +236,7 @@ func TestImageUnderTestKnobsReadThroughTheHelper(t *testing.T) {
 					}
 				}
 				if !excepted {
-					t.Errorf("%s:%d reads %s directly; pin the image under test with testimage.Ref(<target>, <default>)",
+					t.Errorf("%s:%d reads %s directly; pin the image under test with imagetest.PinnedRef(<target>, <default>)",
 						kf.rel, fset.Position(arg.Pos()).Line, name)
 				}
 			}
@@ -258,13 +258,13 @@ func TestImageUnderTestKnobsNameABuildTarget(t *testing.T) {
 	}
 	shape := regexp.MustCompile(`^PROVEO_TEST_[A-Z0-9_]+_IMAGE$`)
 	for _, target := range imagebuild.SpecNames() {
-		name := testimage.Var(target)
+		name := imagetest.PinVar(target)
 		if !shape.MatchString(name) || overrides[name] {
-			t.Errorf("testimage.Var(%q) = %q: want PROVEO_TEST_<TARGET>_IMAGE, distinct from every build override", target, name)
+			t.Errorf("imagetest.PinVar(%q) = %q: want PROVEO_TEST_<TARGET>_IMAGE, distinct from every build override", target, name)
 		}
 	}
 	fset, files := knobFiles(t)
-	takesTarget := map[string]bool{"testimage.Ref": true, "testimage.Var": true, "imagetest.Resolve": true}
+	takesTarget := map[string]bool{"imagetest.PinnedRef": true, "imagetest.PinVar": true, "imagetest.Resolve": true}
 	for _, kf := range files {
 		ast.Inspect(kf.file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)

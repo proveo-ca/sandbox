@@ -24,13 +24,13 @@ var shellSwitchHelpers = map[string]bool{
 // shellSwitchExempt maps a file to the PROVEO_* switches it may still parse by hand.
 var shellSwitchExempt = map[string]map[string]string{
 	"packages/lib/hooks/git-sync-turn.sh": {
-		"PROVEO_GIT_SYNC":              "standalone hook; the base image ships it without the lib",
+		"PROVEO_GIT_SYNC":              "standalone hook; the base image ships it without the lib, so it spells the off words itself",
 		"PROVEO_GIT_SYNC_MSG":          "standalone hook; the base image ships it without the lib",
 		"PROVEO_GIT_SYNC_MSG_INFLIGHT": "standalone hook; the base image ships it without the lib",
 		"PROVEO_GIT_SYNC_TRACE":        "standalone hook; a path or the enum word off",
 	},
 	"packages/lib/proveo-await-seed": {
-		"PROVEO_SEED_PROGRESS": "POSIX sh; cannot source the bash lib",
+		"PROVEO_SEED_PROGRESS": "POSIX sh; cannot source the bash lib, so it spells the on words itself",
 	},
 }
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/e2e/testimage"
+	"github.com/proveo-ca/proveo/internal/imagetest"
 )
 
 func opencodeImageVersion(t *testing.T, image string) string {
@@ -25,7 +25,7 @@ func opencodeImageVersion(t *testing.T, image string) string {
 }
 
 func TestOpenCodeRuntimeInImage(t *testing.T) {
-	image := testimage.Ref("opencode", "proveo/opencode:local")
+	image := imagetest.PinnedRef("opencode", "proveo/opencode:local")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is unavailable")
 	}

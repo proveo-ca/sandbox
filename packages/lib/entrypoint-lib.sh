@@ -970,7 +970,9 @@ _dep_collapse_workspaces() {
 _proveo_deps_mode() {
   local v
   if proveo_env_off PROVEO_DEPS; then printf 'off'; return 0; fi
-  v="$(printf '%s' "${PROVEO_DEPS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  v="$(printf '%s' "${PROVEO_DEPS:-}" | tr '[:upper:]' '[:lower:]')"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
   case "$v" in
     "") printf 'auto' ;;
     auto | shared | reinstall) printf '%s' "$v" ;;

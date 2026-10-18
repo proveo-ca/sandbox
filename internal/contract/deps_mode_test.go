@@ -14,7 +14,7 @@ func TestHostAndImageReadPROVEODepsAlike(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	values := append([]string{"", " Shared ", "REINSTALL", "Auto", "0", "No", "DISABLED", "false",
-		"on", "1", "sharde"}, workspace.DepsModes...)
+		"on", "1", "sharde", "re install"}, workspace.DepsModes()...)
 	for _, v := range values {
 		want, wantKnown := workspace.DepsMode(v)
 		cmd := exec.Command(bash, "-c", `source "$1/packages/lib/entrypoint-lib.sh"; PROVEO_DEPS="$2" _proveo_deps_mode`,

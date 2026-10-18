@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/e2e/testimage"
+	"github.com/proveo-ca/proveo/internal/imagetest"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
@@ -44,12 +44,10 @@ func requireDocker(t *testing.T) {
 }
 
 func harnessImageName(target string) string {
-	if pinned := testimage.Ref(target, ""); pinned != "" {
+	if pinned := imagetest.PinnedRef(target, ""); pinned != "" {
 		return pinned
 	}
-	// Resolve it the way a run does, not the way a test finds it convenient:
-	// proveo takes :local only when it is NEWER than :latest, so a stale local
-	// build is what the suite would certify and what no operator would run.
+	// Resolve the way a run does: maintain.ResolveImage.
 	ref, _ := maintain.ResolveImage("proveo/"+target+":"+maintain.PublishTag, imageCreated)
 	return ref
 }

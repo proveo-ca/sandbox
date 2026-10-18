@@ -1,5 +1,5 @@
 // SPEC: _spec/internal/envreg/env-registry.puml
-// Package envreg lists every PROVEO_* environment variable proveo's code reads or sets: Go, image and installers.
+// Package envreg lists every PROVEO_* variable proveo's non-test code reads or sets: Go, image and installers.
 package envreg
 
 import "strings"
@@ -129,13 +129,13 @@ var Vars = []Var{
 	{Name: "PROVEO_GRADLE_VERSION", Scope: Operator, Where: Image, Default: "latest",
 		Doc: "Pin the Gradle the seed installs for a Gradle build without a wrapper"},
 	{Name: "PROVEO_HOME", Scope: Operator, Where: Binary | Image, Default: "~/.proveo",
-		Doc: "Set the host directory that holds agent homes, logins and toolchains"},
+		Doc: "Set the host dir of agent homes, logins and toolchains; in the sandbox, the agent home"},
 	{Name: "PROVEO_HOST_ADB_PORT", Scope: Operator, Where: Binary | Image, Default: "5037",
-		Doc: "Set the host adb server port the android add-on uses"},
+		Doc: "Set the host adb server port the android add-on uses; the image needs it set"},
 	{Name: "PROVEO_HOST_AVD", Scope: Operator, Where: Binary, Default: "the first AVD listed",
 		Doc: "Name the Android Virtual Device the android add-on boots"},
 	{Name: "PROVEO_HOST_CDP_PORT", Scope: Operator, Where: Binary | Image, Default: "9222",
-		Doc: "Set the host Chrome DevTools port the host-chrome add-on uses"},
+		Doc: "Set the host Chrome DevTools port the host-chrome add-on uses; the image needs it set"},
 	{Name: "PROVEO_HOUSE_RULES", Scope: Operator, Where: Image, Default: "on",
 		Doc: "Write proveo's house rules into codex's and opencode's user AGENTS.md"},
 	{Name: "PROVEO_INSTALL_LOCK_WAIT", Scope: Operator, Where: Image, Default: "300s",
@@ -157,7 +157,7 @@ var Vars = []Var{
 	{Name: "PROVEO_LOCAL_MODEL_PULL", Scope: Operator, Where: Binary, Default: "on",
 		Doc: "Pull a local model missing from the host's Ollama; 0 fails instead"},
 	{Name: "PROVEO_LSP_INSTALL", Scope: Operator, Where: Image, Default: "auto: every detected language",
-		Doc: "Pick language servers to install: auto, off or a comma-separated language list"},
+		Doc: "Pick language servers to install: auto (or any on word), off or a comma-separated list"},
 	{Name: "PROVEO_LSP_INSTALL_TIMEOUT", Scope: Operator, Where: Image, Default: "180s",
 		Doc: "Bound each mise install the seed runs, language servers included, in seconds"},
 	{Name: "PROVEO_LSP_MIN_FILES", Scope: Operator, Where: Image, Default: "1",
@@ -308,7 +308,7 @@ var Vars = []Var{
 	{Name: "PROVEO_TRACE_STDIN", Scope: Maintainer, Where: Binary, Default: "no trace",
 		Doc: "Append every byte sent to the agent's stdin to this file"},
 	{Name: "PROVEO_VERSION", Scope: Maintainer, Where: Binary | Installer, Default: "dist metadata, else git describe, else dev; installers: latest",
-		Doc: "Set the version stage-cdn stamps; the installers fetch that release, not the latest"},
+		Doc: "Set the version stage-cdn stamps; the installers only label the install with it"},
 
 	{Name: "PROVEO_ADDRESS", Scope: Internal, Where: Image, Default: "the lib always sets it",
 		Doc: "Hand awk the operator name the `Address me as` rewrite inserts"},

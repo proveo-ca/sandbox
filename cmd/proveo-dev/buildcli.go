@@ -2,9 +2,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -101,6 +103,9 @@ func goreleaserRelease(root, gobin string) error {
 			return err
 		}
 	}
+	if err := requireRetirementLedger(root); err != nil {
+		return err
+	}
 	tag, _ := quietOutput(root, "git", "describe", "--tags", "--exact-match")
 	if tag != "" {
 		ui.Appf("Tagged HEAD %s — goreleaser release --skip=publish (CDN-only)", tag)
@@ -112,4 +117,13 @@ func goreleaserRelease(root, gobin string) error {
 	}
 	ui.Storef("Artifacts under dist/ (gitignored).")
 	return stageCDN(root, true)
+}
+
+// requireRetirementLedger runs the N33 ledger and fails a release it skipped or failed.
+func requireRetirementLedger(root string) error {
+	out, err := quietOutput(root, "go", "test", "-count=1", "-v", "-run", "^TestNoRetirementOutlivesOneRelease$", "./internal/contract/")
+	if err != nil || !strings.Contains(out, "--- PASS: TestNoRetirementOutlivesOneRelease") {
+		return fmt.Errorf("release blocked: the retirement ledger did not pass (fetch tags if it skipped):\n%s", out)
+	}
+	return nil
 }

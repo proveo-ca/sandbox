@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/imagetest"
 )
 
@@ -37,8 +38,6 @@ OPENAI_API_KEY=proveo-smoke-test-key
 ANTHROPIC_API_KEY=proveo-smoke-test-key
 CLAUDE_CODE_OAUTH_TOKEN=proveo-smoke-test-token
 `
-
-var smokeKeepRE = regexp.MustCompile(`^(1|true|yes|on)$`)
 
 func TestImageDetachedSmoke(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -68,7 +67,7 @@ func TestImageDetachedSmoke(t *testing.T) {
 
 	var containers []string
 	t.Cleanup(func() {
-		if t.Failed() && smokeKeepRE.MatchString(os.Getenv("PROVEO_DETACHED_SMOKE_KEEP_FAILED")) {
+		if t.Failed() && envflag.On(os.Getenv("PROVEO_DETACHED_SMOKE_KEEP_FAILED")) {
 			t.Logf("Keeping failed smoke containers for inspection: %s", strings.Join(containers, " "))
 			return
 		}
@@ -82,7 +81,7 @@ func TestImageDetachedSmoke(t *testing.T) {
 		image := imagetest.Resolve(tg.target, tg.repo+":latest")
 		if !imagetest.Present(image) {
 			t.Run(desc, func(t *testing.T) {
-				t.Skipf("skip %s: neither %s:local nor %s:latest is built", tg.target, tg.repo, tg.repo)
+				t.Skipf("skip %s: %s is not built", tg.target, image)
 			})
 			continue
 		}

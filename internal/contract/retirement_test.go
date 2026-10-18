@@ -2,6 +2,7 @@
 package contract_test
 
 import (
+	"errors"
 	"os/exec"
 	"slices"
 	"strings"
@@ -52,9 +53,12 @@ func TestNoRetirementOutlivesOneRelease(t *testing.T) {
 	root := repoRoot(t)
 	prev := previousRelease(t, root)
 	for _, r := range retirements {
-		shipped, err := exec.Command("git", "-C", root, "show", prev+":"+r.file).Output()
-		if err != nil || !strings.Contains(string(shipped), r.marker) {
+		err := exec.Command("git", "-C", root, "grep", "-q", "-F", "-e", r.marker, prev, "--").Run()
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok && ee.ExitCode() == 1 {
 			continue
+		}
+		if err != nil {
+			t.Fatalf("git grep %s in %s: %v", r.marker, prev, err)
 		}
 		t.Errorf("%s shipped deprecated in %s; delete it (and its entry here) before the next release", r.what, prev)
 	}
@@ -63,6 +67,9 @@ func TestNoRetirementOutlivesOneRelease(t *testing.T) {
 // previousRelease is the newest v* tag merged into HEAD that does not point at HEAD.
 func previousRelease(t *testing.T, root string) string {
 	t.Helper()
+	if out, _ := exec.Command("git", "-C", root, "rev-parse", "--is-shallow-repository").Output(); strings.TrimSpace(string(out)) == "true" {
+		t.Skip("shallow clone: run `git fetch --unshallow --tags` so the retirement ledger can read the last release")
+	}
 	merged, err := exec.Command("git", "-C", root, "tag", "--merged", "HEAD", "--sort=-v:refname", "--list", "v*").Output()
 	if err != nil {
 		t.Skipf("git tags unavailable: %v", err)

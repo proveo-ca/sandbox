@@ -167,7 +167,7 @@ if [[ -z "$dialect" ]]; then
   fi
 fi
 
-off="$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]')"
+off="$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
 case "$off" in off|false|0|no|disable|disabled)
   _git_sync_emit allow ""
   exit 0

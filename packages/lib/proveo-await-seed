@@ -33,7 +33,11 @@ seed_progress_update() {
   last_label="$label"
 }
 if _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
-  if [ "${PROVEO_SEED_PROGRESS:-}" = 1 ]; then
+  case "$(printf '%s' "${PROVEO_SEED_PROGRESS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    1 | true | yes | on | enable | enabled) progress_on=1 ;;
+    *) progress_on=0 ;;
+  esac
+  if [ "$progress_on" = 1 ]; then
     progress=1
     if [ -t 2 ] && [ "${TERM:-}" != dumb ]; then terminal=1; fi
     trap 'seed_progress_clear; exit 130' INT

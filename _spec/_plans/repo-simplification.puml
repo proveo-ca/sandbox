@@ -1420,7 +1420,8 @@
 ' The Chrome names (PROVEO_CHROME_BRIDGE, _TOKEN, _JS, _IMAGE and PROVEO_CHROME_READY) belong to
 '   F14 and N21, which carry a cross-reference; they get no finding here.
 '
-' N27 · Env fallbacks nothing sets — PROPOSED (added 2026-10-18, env audit).
+' N27 · Env fallbacks nothing sets — DONE (wt) 2026-10-18, option 1 (added the same day, env
+'     audit; see DONE, fifth batch).
 '   Evidence: MEASURED. packages/lib/entrypoint-lib.sh:2759 falls back to ${PROVEO_TARGET:-}
 '     (`local target="${1:-${PROVEO_TARGET:-}}"`), and no file outside _spec/ sets PROVEO_TARGET.
 '   Evidence: MEASURED. PROVEO_SEED_DONE_MARKER is read with a default by the Kit's seed check
@@ -1434,7 +1435,8 @@
 '     2. Delete both; tests point the marker at a temp root another way.
 '     3. Keep both.
 '
-' N28 · The release channel has two knobs — PROPOSED (added 2026-10-18, env audit).
+' N28 · The release channel has two knobs — DONE (wt) 2026-10-18, option 1 (see DONE, fifth
+'     batch).
 '   Evidence: MEASURED. apps/cli/public/cli/install.sh:9-10 reads PROVEO_ASSET_BASE_URL and
 '     PROVEO_CLI_BASE_URL, both defaulting to https://proveo.ca/cli.
 '   Evidence: MEASURED by the coordinator. ASSET fetches latest.json, the checksums and the binary

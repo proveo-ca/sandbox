@@ -13,17 +13,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/e2e/testimage"
 	"github.com/proveo-ca/proveo/internal/maintain"
 )
 
 // DefaultTimeout bounds every docker call a suite makes.
 const DefaultTimeout = 2 * time.Minute
 
-// Resolve picks the image a suite tests for target: its testimage.Ref pin, else ref,
-// then its newer :local build when that names :latest (maintain.ResolveImage).
+// Resolve picks the image a suite tests for target: its PinVar pin as given, else ref or its newer :local build.
 func Resolve(target, ref string) string {
-	chosen, _ := maintain.ResolveImage(testimage.Ref(target, ref), created)
+	if pinned := PinnedRef(target, ""); pinned != "" {
+		return pinned
+	}
+	chosen, _ := maintain.ResolveImage(ref, created)
 	return chosen
 }
 
@@ -177,14 +178,4 @@ func (s *Suite) Inspect(desc, image, format, want string) {
 			t.Errorf("expected: %s\n  got: %s", want, clip(r.Out))
 		}
 	})
-}
-
-// Env reports the first non-empty value among keys.
-func Env(keys ...string) string {
-	for _, k := range keys {
-		if v := os.Getenv(k); v != "" {
-			return v
-		}
-	}
-	return ""
 }

@@ -72,13 +72,32 @@ func testCode(rel string, dir bool) bool {
 // under cmd/ and internal/, and every non-Markdown file under imageAndInstallerRoots.
 func scannedNames(t *testing.T) map[string]string {
 	t.Helper()
+	found, _ := scan(t)
+	return found
+}
+
+// installerScript reports whether rel is one of the install scripts.
+func installerScript(rel string) bool { return strings.HasPrefix(rel, "apps/cli/public/cli/") }
+
+// scan returns scannedNames plus, per name, the readers whose files name it.
+func scan(t *testing.T) (map[string]string, map[string]envreg.Where) {
+	t.Helper()
 	root := repoRoot(t)
 	found := map[string]string{}
+	where := map[string]envreg.Where{}
 	add := func(rel string, names []string) {
+		w := envreg.Image
+		switch {
+		case strings.HasSuffix(rel, ".go"):
+			w = envreg.Binary
+		case installerScript(rel):
+			w = envreg.Installer
+		}
 		for _, name := range names {
 			if _, seen := found[name]; !seen {
 				found[name] = rel
 			}
+			where[name] |= w
 		}
 	}
 	walk := func(start string, visit func(path, rel string) error) {
@@ -136,7 +155,7 @@ func scannedNames(t *testing.T) map[string]string {
 			return nil
 		})
 	}
-	return found
+	return found, where
 }
 
 const imageFamily = "PROVEO_<TARGET>_IMAGE"
@@ -208,6 +227,25 @@ func TestEveryAliasNamesARegisteredVariable(t *testing.T) {
 	for _, v := range envreg.Vars {
 		if v.AliasOf != "" && !registered[v.AliasOf] {
 			t.Errorf("internal/envreg registers %s as an alias of %s, which it does not register", v.Name, v.AliasOf)
+		}
+	}
+}
+
+func TestEveryRegisteredReaderMatchesTheCodeThatNamesIt(t *testing.T) {
+	t.Parallel()
+	_, seen := scan(t)
+	for _, v := range envreg.Vars {
+		if strings.Contains(v.Name, "<") {
+			continue
+		}
+		got := seen[v.Name]
+		for _, r := range []envreg.Where{envreg.Binary, envreg.Image, envreg.Installer} {
+			switch {
+			case v.Where&r != 0 && got&r == 0:
+				t.Errorf("internal/envreg says %s is read by %s, but no %s code names it", v.Name, r, r)
+			case r != envreg.Binary && got&r != 0 && v.Where&r == 0:
+				t.Errorf("%s code names %s, but internal/envreg's Where (%s) leaves %s out", r, v.Name, v.Where, r)
+			}
 		}
 	}
 }

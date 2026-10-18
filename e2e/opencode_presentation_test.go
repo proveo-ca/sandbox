@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/e2e/testimage"
+	"github.com/proveo-ca/proveo/internal/imagetest"
 )
 
 func TestOpenCodePresentationAndAutoacceptInImage(t *testing.T) {
-	image := testimage.Ref("opencode", "proveo/opencode:local")
+	image := imagetest.PinnedRef("opencode", "proveo/opencode:local")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is unavailable")
 	}

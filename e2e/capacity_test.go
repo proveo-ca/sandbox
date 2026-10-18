@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -66,7 +67,7 @@ func hostMemory(t *testing.T) (free, swapUsed int64, ok bool) {
 }
 
 func TestHostCapacityUpperBound(t *testing.T) {
-	if os.Getenv("PROVEO_CAPACITY_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_CAPACITY_TEST")) {
 		t.Skip("set PROVEO_CAPACITY_TEST=1 to run the capacity probe (it deliberately exhausts the host)")
 	}
 	if ok, why := sbx.Available(); !ok {
