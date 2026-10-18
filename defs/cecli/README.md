@@ -102,5 +102,5 @@ mise run test-defs cecli      # or: proveo test cecli
 Override the image under test:
 
 ```bash
-PROVEO_CECLI_IMAGE=proveo/cecli:latest mise run test-defs cecli
+PROVEO_TEST_CECLI_IMAGE=proveo/cecli:latest mise run test-defs cecli
 ```

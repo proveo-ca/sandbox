@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/e2e/testimage"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -28,7 +29,7 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 	if hostadb.EmulatorBinary(os.Getenv) == "" || hostadb.AdbBinary(os.Getenv) == "" {
 		t.Skip("no Android SDK emulator/adb on this host")
 	}
-	image := env("PROVEO_HOST_ADB_IMAGE", "proveo/claudecode:local")
+	image := testimage.Ref("claudecode", "proveo/claudecode:local")
 	if !dockerImagePresent(t, image) {
 		t.Skipf("image %s not built (proveo build claudecode)", image)
 	}

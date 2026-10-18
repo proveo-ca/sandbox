@@ -27,7 +27,7 @@ func TestPromptfulE2E(t *testing.T) {
 	requireSbx(t)
 	requireDocker(t)
 	target := env("PROVEO_TEST_TARGET", "opencode")
-	image := env("PROVEO_TEST_IMAGE", harnessImageName(target))
+	image := harnessImageName(target)
 	if !dockerImagePresent(t, image) {
 		t.Skipf("harness image %s not built (mise run build %s)", image, target)
 	}

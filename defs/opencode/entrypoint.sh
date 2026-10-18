@@ -134,10 +134,7 @@ echo "────────────────────────�
 printf 'PROVEO_MODELS main=%s small=%s\n' \
   "${OPENCODE_MODEL:-unset}" "${OPENCODE_SMALL_MODEL:-unset}"
 
-if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-opencode}"
-  exec sleep infinity
-fi
+run_smoke_test "opencode"
 
 has_api_key() {
   [[ -n "$OPENCODE_API_KEY" ]] || \

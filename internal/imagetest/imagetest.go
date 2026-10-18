@@ -13,19 +13,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/e2e/testimage"
 	"github.com/proveo-ca/proveo/internal/maintain"
 )
 
 // DefaultTimeout bounds every docker call a suite makes.
 const DefaultTimeout = 2 * time.Minute
 
-// Resolve picks the image a suite tests: envVar's value when set, else ref,
+// Resolve picks the image a suite tests for target: its testimage.Ref pin, else ref,
 // then its newer :local build when that names :latest (maintain.ResolveImage).
-func Resolve(envVar, ref string) string {
-	if v := strings.TrimSpace(os.Getenv(envVar)); envVar != "" && v != "" {
-		ref = v
-	}
-	chosen, _ := maintain.ResolveImage(ref, created)
+func Resolve(target, ref string) string {
+	chosen, _ := maintain.ResolveImage(testimage.Ref(target, ref), created)
 	return chosen
 }
 

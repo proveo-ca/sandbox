@@ -69,7 +69,7 @@ func codexExpect(t *testing.T, ok bool, what, out string) {
 }
 
 func TestImageCodex(t *testing.T) {
-	image := imagetest.Resolve("IMAGE", "proveo/codex:latest")
+	image := imagetest.Resolve("codex", "proveo/codex:latest")
 	s := imagetest.New(t, image)
 
 	// Phase 1: Build

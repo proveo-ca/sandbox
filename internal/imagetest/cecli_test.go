@@ -14,7 +14,7 @@ import (
 
 // SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/_devops/agent-version-pin.puml, _spec/defs/agent-definition-sharing.puml
 func TestImageCecli(t *testing.T) {
-	image := imagetest.Resolve("PROVEO_CECLI_IMAGE", "proveo/cecli:latest")
+	image := imagetest.Resolve("cecli", "proveo/cecli:latest")
 	s := imagetest.New(t, image)
 
 	t.Log("── Runtime user checks ──────────────────────────────")

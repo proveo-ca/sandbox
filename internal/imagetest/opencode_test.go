@@ -141,7 +141,7 @@ func ocClip(s string, n int) string {
 }
 
 func TestImageOpencode(t *testing.T) {
-	image := imagetest.Resolve("IMAGE", "proveo/opencode:latest")
+	image := imagetest.Resolve("opencode", "proveo/opencode:latest")
 	s := imagetest.New(t, image)
 
 	ocBuild(s)
@@ -209,7 +209,7 @@ func ocTools(s *imagetest.Suite) {
 		"printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts", "42")
 	s.Contains("opencode CLI exposes 'run' subcommand", img, "opencode --help 2>&1", "run")
 
-	browser := imagetest.Resolve("OPENCODE_BROWSER_IMAGE", "proveo/opencode-browser:latest")
+	browser := imagetest.Resolve("opencode-browser", "proveo/opencode-browser:latest")
 	if !imagetest.Present(browser) {
 		s.Skip("[browser] opencode-browser variant", "image "+browser+" not built (mise run build opencode-browser)")
 		return

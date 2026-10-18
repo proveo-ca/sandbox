@@ -41,7 +41,7 @@ func hmClip(s string, n int) string {
 }
 
 func TestImageHermes(t *testing.T) {
-	image := imagetest.Resolve("IMAGE", "proveo/hermes:latest")
+	image := imagetest.Resolve("hermes", "proveo/hermes:latest")
 	s := imagetest.New(t, image)
 
 	hmBuild(s)

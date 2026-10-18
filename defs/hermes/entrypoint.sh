@@ -120,10 +120,7 @@ echo "Paradigm: single foreground Hermes session — native browser tool, no ste
 echo "Browser real-profile-reuse is OFF unless explicitly configured — this sandbox never"
 echo "copies the operator's real cookies/saved logins by default."
 
-if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-hermes}"
-  exec sleep infinity
-fi
+run_smoke_test "hermes"
 
 echo "🚀 Launching hermes"
 proveo_exec_agent hermes -- "$@"

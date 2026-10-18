@@ -23,7 +23,7 @@ func TestHermesLocalModelE2E(t *testing.T) {
 	requireDocker(t)
 
 	target := "hermes"
-	image := env("PROVEO_TEST_HERMES_IMAGE", harnessImageName(target))
+	image := harnessImageName(target)
 	if !dockerImagePresent(t, image) {
 		t.Skipf("harness image %s not built (mise run build %s)", image, target)
 	}

@@ -73,6 +73,51 @@ func TestScopesAreKnown(t *testing.T) {
 	}
 }
 
+func TestWhereIsSetOnEveryVar(t *testing.T) {
+	const known = Binary | Image | Installer
+	for _, v := range Vars {
+		if v.Where == 0 || v.Where&^known != 0 {
+			t.Errorf("%s has Where %d, want a non-empty set of Binary, Image and Installer", v.Name, v.Where)
+		}
+	}
+}
+
+func TestWhereNamesItsReaders(t *testing.T) {
+	for w, want := range map[Where]string{
+		Binary:                     "binary",
+		Image:                      "image",
+		Installer:                  "installer",
+		Binary | Image:             "binary+image",
+		Binary | Installer:         "binary+installer",
+		Binary | Image | Installer: "binary+image+installer",
+	} {
+		if got := w.String(); got != want {
+			t.Errorf("Where(%d).String() = %q, want %q", w, got, want)
+		}
+	}
+}
+
+func TestAliasesResolve(t *testing.T) {
+	byName := map[string]Var{}
+	for _, v := range Vars {
+		byName[v.Name] = v
+	}
+	for _, v := range Vars {
+		if v.AliasOf == "" {
+			continue
+		}
+		target, ok := byName[v.AliasOf]
+		switch {
+		case !ok:
+			t.Errorf("%s is an alias of %s, which is not registered", v.Name, v.AliasOf)
+		case target.AliasOf != "":
+			t.Errorf("%s is an alias of %s, itself an alias of %s", v.Name, v.AliasOf, target.AliasOf)
+		case !strings.Contains(v.Doc, v.AliasOf):
+			t.Errorf("%s: Doc %q does not name its replacement %s", v.Name, v.Doc, v.AliasOf)
+		}
+	}
+}
+
 func TestVarsSortByScopeThenName(t *testing.T) {
 	less := func(i, j int) bool {
 		if Vars[i].Scope != Vars[j].Scope {

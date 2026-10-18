@@ -4,10 +4,11 @@
 package e2e
 
 import (
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/e2e/testimage"
 )
 
 func opencodeImageVersion(t *testing.T, image string) string {
@@ -24,10 +25,7 @@ func opencodeImageVersion(t *testing.T, image string) string {
 }
 
 func TestOpenCodeRuntimeInImage(t *testing.T) {
-	image := os.Getenv("PROVEO_E2E_OPENCODE_IMAGE")
-	if image == "" {
-		image = "proveo/opencode:local"
-	}
+	image := testimage.Ref("opencode", "proveo/opencode:local")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is unavailable")
 	}

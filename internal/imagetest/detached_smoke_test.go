@@ -49,10 +49,10 @@ func TestImageDetachedSmoke(t *testing.T) {
 	}
 
 	timeout := 30 * time.Second
-	if v := os.Getenv("PROVEO_DOCKER_SMOKE_TIMEOUT"); v != "" {
+	if v := os.Getenv("PROVEO_DETACHED_SMOKE_TIMEOUT"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			t.Fatalf("PROVEO_DOCKER_SMOKE_TIMEOUT=%q: want whole seconds", v)
+			t.Fatalf("PROVEO_DETACHED_SMOKE_TIMEOUT=%q: want whole seconds", v)
 		}
 		timeout = time.Duration(n) * time.Second
 	}
@@ -68,7 +68,7 @@ func TestImageDetachedSmoke(t *testing.T) {
 
 	var containers []string
 	t.Cleanup(func() {
-		if t.Failed() && smokeKeepRE.MatchString(os.Getenv("PROVEO_DOCKER_SMOKE_KEEP_FAILED")) {
+		if t.Failed() && smokeKeepRE.MatchString(os.Getenv("PROVEO_DETACHED_SMOKE_KEEP_FAILED")) {
 			t.Logf("Keeping failed smoke containers for inspection: %s", strings.Join(containers, " "))
 			return
 		}
@@ -79,7 +79,7 @@ func TestImageDetachedSmoke(t *testing.T) {
 
 	for _, tg := range smokeTargets {
 		desc := tg.target + " emitted smoke-ready log"
-		image := imagetest.Resolve("", tg.repo+":latest")
+		image := imagetest.Resolve(tg.target, tg.repo+":latest")
 		if !imagetest.Present(image) {
 			t.Run(desc, func(t *testing.T) {
 				t.Skipf("skip %s: neither %s:local nor %s:latest is built", tg.target, tg.repo, tg.repo)

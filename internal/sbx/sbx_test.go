@@ -78,13 +78,13 @@ func TestRunArgsFull(t *testing.T) {
 			{Host: "/repo", Container: "/app"},
 			{Host: "/out", Container: "/app/output", ReadOnly: true},
 		},
-		Env:     []string{"PROVEO_EVIDENCE=concise"},
+		Env:     []string{"PROVEO_AGENT_EVIDENCE=default"},
 		Command: []string{"-p", "hello"},
 	})
 	want := []string{
 		"run", "--name", "proveo-1-2", "--kit", "/state/runs/x/kit",
 		"-t", "proveo/claudecode:latest",
-		"-e", "PROVEO_EVIDENCE=concise",
+		"-e", "PROVEO_AGENT_EVIDENCE=default",
 		"claude",  // AGENT: the first positional, and mandatory
 		"/repo",   // workspaces follow, at their HOST paths
 		"/out:ro", // :ro is the only modifier a workspace takes
@@ -1381,8 +1381,8 @@ func TestSeedProvisionSkipsABootAlreadySeedDone(t *testing.T) {
 func TestTheProjectEnvFileRidesCreateAndRunButNotAReattach(t *testing.T) {
 	t.Parallel()
 	cfg := RunConfig{Name: "proveo-1-2", Agent: "claude", EnvFile: "/state/x/sbx/env",
-		Env: []string{"PROVEO_EVIDENCE=concise"}, Mounts: []Mount{{Host: "/repo"}}}
-	want := []string{"-e", "PROVEO_EVIDENCE=concise", "--env-file", "/state/x/sbx/env", "claude", "/repo"}
+		Env: []string{"PROVEO_AGENT_EVIDENCE=default"}, Mounts: []Mount{{Host: "/repo"}}}
+	want := []string{"-e", "PROVEO_AGENT_EVIDENCE=default", "--env-file", "/state/x/sbx/env", "claude", "/repo"}
 	for name, args := range map[string][]string{"RunArgs": RunArgs(cfg), "CreateArgs": CreateArgs(cfg)} {
 		if got := args[len(args)-len(want):]; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s tail = %q, want %q: the env file follows proveo's own -e pairs, before the agent", name, got, want)

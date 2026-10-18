@@ -36,10 +36,8 @@ func (c ccImages) tag(image string) string {
 }
 
 func TestImageClaudecode(t *testing.T) {
-	img := ccImages{
-		standalone: imagetest.Resolve("STANDALONE_IMAGE", "proveo/claudecode:latest"),
-		mcp:        imagetest.Resolve("MCP_IMAGE", "proveo/claudecode:latest"),
-	}
+	cc := imagetest.Resolve("claudecode", "proveo/claudecode:latest")
+	img := ccImages{standalone: cc, mcp: cc}
 
 	available := t.Run("claudecode image is available", func(t *testing.T) {
 		if imagetest.Present(img.standalone) {
@@ -148,7 +146,7 @@ func ccTools(s *imagetest.Suite, img ccImages) {
 			"printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts", "42")
 	}
 
-	sol := imagetest.Resolve("SOL_IMAGE", "proveo/claudecode-solidity:latest")
+	sol := imagetest.Resolve("claudecode-solidity", "proveo/claudecode-solidity:latest")
 	if imagetest.Present(sol) {
 		for _, tl := range append(append([]ccTool{}, ccBaseTools...), ccSolTools...) {
 			if tl.name == "solc" && runtime.GOARCH == "arm64" {
@@ -166,7 +164,7 @@ func ccTools(s *imagetest.Suite, img ccImages) {
 		s.Success("[mcp] MCP server directory exists", img.mcp, "test -d /workspace/mcp-servers")
 	}
 
-	browser := imagetest.Resolve("BROWSER_IMAGE", "proveo/claudecode-browser:latest")
+	browser := imagetest.Resolve("claudecode-browser", "proveo/claudecode-browser:latest")
 	if !imagetest.Present(browser) {
 		s.Skip("[browser] claudecode-browser variant", "image "+browser+" not built (mise run build claudecode-browser)")
 		return

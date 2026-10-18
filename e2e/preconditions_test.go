@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/e2e/testimage"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
@@ -43,7 +44,7 @@ func requireDocker(t *testing.T) {
 }
 
 func harnessImageName(target string) string {
-	if pinned := env("PROVEO_TEST_IMAGE_"+strings.ToUpper(target), ""); pinned != "" {
+	if pinned := testimage.Ref(target, ""); pinned != "" {
 		return pinned
 	}
 	// Resolve it the way a run does, not the way a test finds it convenient:

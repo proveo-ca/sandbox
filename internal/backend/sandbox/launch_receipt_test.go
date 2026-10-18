@@ -24,7 +24,7 @@ func launchCfg(sid string, env ...string) sbx.RunConfig {
 	return sbx.RunConfig{
 		Name: "proveo-hermes-abc", Image: "proveo/hermes:local", Clone: true,
 		Mounts: []sbx.Mount{{Host: "/w"}},
-		Env:    append([]string{"PROVEO_EGRESS_SESSION_ID=" + sid, "FILES=/state/runs/" + sid + "/home"}, env...),
+		Env:    append([]string{"SESSION_ID=" + sid, "FILES=/state/runs/" + sid + "/home"}, env...),
 	}
 }
 

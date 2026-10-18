@@ -3,6 +3,7 @@ package main
 
 import (
 	"io"
+	"strings"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
@@ -29,7 +30,7 @@ func renderEnvHelp(w io.Writer) {
 		}
 		h.heading(scope.String())
 		for _, v := range vars {
-			text := v.Doc
+			text := v.Doc + readerNote(v.Where)
 			if v.Default != "" {
 				text += " (default " + v.Default + ")"
 			}
@@ -37,4 +38,23 @@ func renderEnvHelp(w io.Writer) {
 		}
 		h.line("")
 	}
+}
+
+// readerNote names the readers of a variable other than the proveo binaries, e.g. " · read in the sandbox".
+func readerNote(w envreg.Where) string {
+	var at []string
+	if w&envreg.Image != 0 {
+		at = append(at, "in the sandbox")
+	}
+	if w&envreg.Installer != 0 {
+		at = append(at, "by the install scripts")
+	}
+	if len(at) == 0 {
+		return ""
+	}
+	verb := " · read "
+	if w&envreg.Binary != 0 {
+		verb = " · also read "
+	}
+	return verb + strings.Join(at, " and ")
 }

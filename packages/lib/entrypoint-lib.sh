@@ -5,6 +5,40 @@ if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
 fi
 
+# SPEC: _spec/internal/envflag/env-switches.puml
+# Sets REPLY to the value of the variable named $1, trimmed and lowercased.
+_proveo_env_word() {
+ REPLY=""
+ case "${1:-}" in '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 0 ;; esac
+ REPLY="${!1:-}"
+ REPLY="${REPLY#"${REPLY%%[![:space:]]*}"}"
+ REPLY="${REPLY%"${REPLY##*[![:space:]]}"}"
+ case "$REPLY" in *[[:upper:]]*) REPLY="$(printf '%s' "$REPLY" | tr '[:upper:]' '[:lower:]')" ;; esac
+}
+
+# Exits 0 when the variable named $1 spells on: 1 true yes on enable enabled.
+proveo_env_on() {
+ local REPLY
+ _proveo_env_word "${1:-}"
+ case "$REPLY" in 1 | true | yes | on | enable | enabled) return 0 ;; esac
+ return 1
+}
+
+# Exits 0 when the variable named $1 spells off: 0 false no off disable disabled.
+proveo_env_off() {
+ local REPLY
+ _proveo_env_word "${1:-}"
+ case "$REPLY" in 0 | false | no | off | disable | disabled) return 0 ;; esac
+ return 1
+}
+
+# Exits 0 when $1 is on; $2 (on|off) decides an empty or unknown value.
+proveo_env_enabled() {
+ proveo_env_on "${1:-}" && return 0
+ proveo_env_off "${1:-}" && return 1
+ [[ "${2:-}" == on ]]
+}
+
 set_working_directory() {
  local default_dir="${1:-/app}"
  local wd="${PROVEO_WORKDIR:-}"
@@ -173,7 +207,7 @@ ensure_github_git_transport() {
 
 run_smoke_test() {
  local target_name="$1"
- if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+ if proveo_env_on PROVEO_SMOKE_TEST; then
  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-$target_name}"
  exec sleep infinity
  fi
@@ -194,12 +228,7 @@ command_version_opencode() {
  timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
 }
 
-_proveo_auto_install_enabled() {
-  case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
-    false|0|no|off|disable|disabled) return 1 ;;
-  esac
-  return 0
-}
+_proveo_auto_install_enabled() { proveo_env_enabled PROVEO_AUTO_INSTALL_TOOLS on; }
 
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 
@@ -234,9 +263,7 @@ _proveo_tool_home() {
 }
 
 _proveo_tool_store() {
-  case "$(printf '%s' "${PROVEO_TOOL_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
-  off | false | 0 | no | disable | disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_TOOL_SYNC on || return 0
   local host="${PROVEO_STATE_HOME:-}"
   [ -n "$host" ] && [ -d "$host" ] || return 0
   printf '%s/%s' "$host" "$(_proveo_tool_rel)"
@@ -646,9 +673,7 @@ ensure_python_env() {
   _proveo_tool_path
   local scan="${1:-$(pwd)}" roots root kind primary="" deferred="" others="" max n=0
   _proveo_auto_install_enabled || return 0
-  case "$(printf '%s' "${PROVEO_PYTHON_ENV:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_PYTHON_ENV on || return 0
   roots="$(_py_project_roots "$scan")"
   [[ -n "$roots" ]] || return 0
   command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — skipping Python environment"; return 0; }
@@ -941,11 +966,25 @@ _dep_collapse_workspaces() {
   return 0
 }
 
+# _proveo_deps_mode prints PROVEO_DEPS as auto, off, shared or reinstall; it names any other value on stderr.
+_proveo_deps_mode() {
+  local v
+  if proveo_env_off PROVEO_DEPS; then printf 'off'; return 0; fi
+  v="$(printf '%s' "${PROVEO_DEPS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  case "$v" in
+    "") printf 'auto' ;;
+    auto | shared | reinstall) printf '%s' "$v" ;;
+    *)
+      printf '⚠️  PROVEO_DEPS=%s is not one of auto|off|shared|reinstall — using auto\n' "${PROVEO_DEPS:-}" >&2
+      printf 'auto' ;;
+  esac
+}
+
 ensure_dependency_trees() {
   local scan="${1:-$(pwd)}" mode lang class roots root dir dirs markers primary
   _proveo_auto_install_enabled || return 0
-  mode="$(printf '%s' "${PROVEO_DEPS:-auto}" | tr '[:upper:]' '[:lower:]')"
-  case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
+  mode="$(_proveo_deps_mode)"
+  [[ "$mode" == off ]] && return 0
 
   for lang in $(_dep_langs); do
     _dep_lang_class "$lang"; class="$REPLY"
@@ -1047,9 +1086,7 @@ proveo_address_operator_claude() {
 
 proveo_compose_house_rules() {
   local target="${1:-}" home rel dest
-  case "$(printf '%s' "${PROVEO_HOUSE_RULES:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_HOUSE_RULES on || return 0
   [[ -n "$target" && -s "$PROVEO_HOUSE_RULES_FILE" ]] || return 0
   rel="$(_house_rules_target "$target")"
   [[ -n "$rel" ]] || return 0
@@ -1091,9 +1128,7 @@ _node_json_field() {
 
 ensure_node_toolchain() {
   local scan="${1:-$PWD}" pkg pm want_node have
-  case "$(printf '%s' "${PROVEO_NODE_TOOLCHAIN:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_NODE_TOOLCHAIN on || return 0
   _proveo_auto_install_enabled || return 0
   pkg="$(_node_nearest_pkg "$scan")"
   [[ -n "$pkg" ]] || return 0
@@ -1188,9 +1223,7 @@ _node_satisfies() {
 # SPEC: _spec/packages/lib/house-rules.puml
 proveo_apply_ui_defaults() {
   local target="${1:-}" home themes src
-  case "$(printf '%s' "${PROVEO_UI_DEFAULTS:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_UI_DEFAULTS on || return 0
   [[ "$target" == claudecode ]] || return 0
   home="$(_proveo_agent_home)"
   [[ -n "$home" ]] || return 0
@@ -1220,9 +1253,7 @@ proveo_apply_ui_defaults() {
 # SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 proveo_install_claude_hooks() {
   local target="${1:-}" home hook
-  case "$(printf '%s' "${PROVEO_CWD_GUARD:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_CWD_GUARD on || return 0
   [[ "$target" == claudecode ]] || return 0
   home="$(_proveo_agent_home)"
   [[ -n "$home" ]] || return 0
@@ -1337,9 +1368,7 @@ with open(path, "w", encoding="utf-8") as handle:
 
 proveo_install_git_sync_hooks() {
   local target="${1:-}" home hook plugin cmd
-  case "$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_GIT_SYNC on || return 0
   hook="${PROVEO_GIT_SYNC_HOOK:-/opt/proveo/hooks/git-sync-turn.sh}"
   plugin="${PROVEO_GIT_SYNC_PLUGIN:-/opt/proveo/hooks/proveo-git-sync-turn.js}"
   cmd="bash $hook"
@@ -1395,9 +1424,7 @@ esac; }
 proveo_enable_claude_lsp_plugins() {
   local target="${1:-}" home seed p bin candidates="" enabled="" langs=""
   export PROVEO_CLAUDE_LSP_OFFICIAL=""
-  case "$(printf '%s' "${PROVEO_CLAUDE_LSP_PLUGINS:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_CLAUDE_LSP_PLUGINS on || return 0
   [[ "$target" == claudecode ]] || return 0
   seed="${CLAUDE_CODE_PLUGIN_SEED_DIR:-}"
   [[ -n "$seed" && -d "$seed/cache/claude-plugins-official" ]] || return 0
@@ -1475,9 +1502,7 @@ readonly PROVEO_BROWSER_SKILL_SRC=/opt/proveo/skills/agent-browser/SKILL.md
 
 proveo_seed_browser_skills() {
   local target="${1:-}" home dir dst ver
-  case "$(printf '%s' "${PROVEO_BROWSER_SKILL:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_BROWSER_SKILL on || return 0
   command -v agent-browser >/dev/null 2>&1 || return 0
   [[ -s "$PROVEO_BROWSER_SKILL_SRC" ]] || return 0
   dir="$(_browser_skill_dir "$target")"
@@ -1526,7 +1551,7 @@ proveo_chrome_bridge() {
     return 0
   fi
   command -v node >/dev/null 2>&1 || return 0
-  if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then
+  if proveo_env_on PROVEO_CHROME_READY; then
     return 0
   fi
   if [[ ! -s "$PROVEO_CHROME_BRIDGE_JS" ]]; then
@@ -1751,8 +1776,9 @@ ensure_language_servers() {
   _proveo_auto_install_enabled || return 0
 
   local scan_root="${1:-$(pwd)}" mode min_files installed="" lang cnt server cmd spec reason out rc gh_token
+  proveo_env_enabled PROVEO_LSP_INSTALL on || return 0
   mode="$(printf '%s' "${PROVEO_LSP_INSTALL:-auto}" | tr '[:upper:]' '[:lower:]')"
-  case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
+  proveo_env_on PROVEO_LSP_INSTALL && mode=auto
   min_files="${PROVEO_LSP_MIN_FILES:-1}"
 
   if ! command -v mise >/dev/null 2>&1; then
@@ -1942,9 +1968,7 @@ configure_opencode_lsp() {
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 configure_opencode_formatter() {
   command -v jq >/dev/null 2>&1 || return 0
-  case "$(printf '%s' "${PROVEO_OPENCODE_FORMATTER:-auto}" | tr '[:upper:]' '[:lower:]')" in
-  off | false | 0 | no | disable | disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_OPENCODE_FORMATTER on || return 0
   local config_file existing='{}' tmp
   config_file="${HOME}/.config/opencode/opencode.json"
   if [[ -e "${config_file}c" ]]; then
@@ -2086,9 +2110,7 @@ configure_claude_plugins() { proveo_enable_claude_lsp_plugins "${2:-}"; }
 # SPEC: _spec/defs/cecli/cecli-paradigm.puml
 configure_cecli_mcp() {
   local scan="${1:-$(pwd)}" conf probe
-  case "$(printf '%s' "${PROVEO_CECLI_MCP:-auto}" | tr '[:upper:]' '[:lower:]')" in
-  off | false | 0 | no | disable | disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_CECLI_MCP on || return 0
   command -v serena >/dev/null 2>&1 || return 0
 
   conf="$(_proveo_agent_home)/.cecli.conf.yml"
@@ -2337,9 +2359,7 @@ proveo_sync_config() {
  restore | save) ;;
  *) return 2 ;;
  esac
- case "$(printf '%s' "${PROVEO_CONFIG_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
- off | false | 0 | no | disable | disabled) return 0 ;;
- esac
+ proveo_env_enabled PROVEO_CONFIG_SYNC on || return 0
  [[ -n "$host" && -d "$host" ]] || return 0
  [[ -n "$files_host" && -d "$files_host" ]] || files_host="$host"
  home="$(_proveo_agent_home)"
@@ -2534,7 +2554,7 @@ PROVEO_HOOKS_MARKER="${PROVEO_HOOKS_MARKER:-/dev/shm/proveo-hooks-seeded}"
 # SPEC: _spec/packages/lib/opencode-seed-progress.puml
 proveo_seed_step() {
  local category="$1" detail="$2" target="${3:-opencode}" path tmp
- [[ "$target" == opencode && "${PROVEO_SEED_PROGRESS:-}" == 1 ]] || return 0
+ [[ "$target" == opencode ]] && proveo_env_on PROVEO_SEED_PROGRESS || return 0
  printf 'proveo-seed: %s: %s\n' "$category" "$detail" >&2
  path="${PROVEO_SEED_STATUS_FILE:-/dev/shm/proveo-seed-status}"
  tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 0

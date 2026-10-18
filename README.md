@@ -181,9 +181,12 @@ Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --hom
 
 ## Environment variables
 
-`proveo help env` lists every `PROVEO_*` variable a user or maintainer can set for the proveo
-binaries, with its default and effect; variables proveo sets for itself are left out. Variables the image entrypoints read (e.g. `PROVEO_BROWSER_SKILL`) are in each
-def's README. On/off switches the binaries read take `1|true|yes|on|enable|enabled` or
+`proveo help env` lists every `PROVEO_*` variable a user or maintainer can set, with its default
+and effect: the ones the proveo binaries read, the ones the sandbox image reads (e.g.
+`PROVEO_BROWSER_SKILL`) and the ones the install scripts read. A row read outside the binaries
+says where. Variables proveo sets for itself are left out. Set a variable the sandbox reads in the
+project `.env`: proveo hands that file to a new sandbox with `sbx create --env-file`. On/off
+switches, in the binaries and the sandbox alike, take `1|true|yes|on|enable|enabled` or
 `0|false|no|off|disable|disabled`.
 
 ## Specs

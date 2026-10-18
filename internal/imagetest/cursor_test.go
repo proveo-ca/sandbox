@@ -50,7 +50,7 @@ func cursorExpect(t *testing.T, ok bool, out string) {
 }
 
 func TestImageCursor(t *testing.T) {
-	image := imagetest.Resolve("IMAGE", "proveo/cursor:latest")
+	image := imagetest.Resolve("cursor", "proveo/cursor:latest")
 	s := imagetest.New(t, image)
 
 	// Phase 1: Build
@@ -89,7 +89,7 @@ func TestImageCursor(t *testing.T) {
 		"find / -xdev -perm -4000 -type f 2>/dev/null | grep -q .")
 	s.Success("proveo-entrypoint (verification commands) is baked", image, `command -v proveo-entrypoint >/dev/null`)
 
-	browser := imagetest.Resolve("CURSOR_BROWSER_IMAGE", "proveo/cursor-browser:latest")
+	browser := imagetest.Resolve("cursor-browser", "proveo/cursor-browser:latest")
 	if imagetest.Present(browser) {
 		s.Success("[browser] playwright CLI is installed", browser, "playwright --version")
 		s.Success("[browser] agent-browser is installed", browser, "agent-browser --version")

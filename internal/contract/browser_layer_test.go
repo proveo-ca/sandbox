@@ -150,7 +150,7 @@ func TestChromeBridgeHalvesAgreeOnTheWireContract(t *testing.T) {
 	if !strings.Contains(lib, `proveo_chrome_bridge "$target"`) {
 		t.Error("proveo_seed must start the bridge, or the sbx backend never gets one")
 	}
-	if !strings.Contains(lib, `if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then`) {
+	if !strings.Contains(lib, `if proveo_env_on PROVEO_CHROME_READY; then`) {
 		t.Error("proveo_chrome_bridge must be idempotent: two relays leave Claude Code choosing by mtime")
 	}
 	ep := readRepoFile(t, "defs/claudecode/mcp/entrypoint.sh")
