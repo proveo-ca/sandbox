@@ -60,6 +60,15 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `proveo test <target>` and
 ' `mise run test-defs <target>` run
 '   go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
+' NO UNBOUNDED DOCKER CALL. imagetest.Resolve/Present once ran
+' `docker image inspect` via bare exec.Command. On 2026-10-18 a wedged host
+' daemon held TestImageOpencode's Resolve for 53m (cursor's subtests hit their
+' 60s caps with empty output first), and the 60m binary timeout panicked away
+' every result. Every probe now goes through Docker(ProbeTimeout=30s), and
+' New fails the suite fast when DaemonReady (`docker version`) does not
+' answer. Guard: TestProbesReturnWithinProbeTimeoutOnHungDaemon (probe_test.go,
+' untagged, fake sleeping docker on PATH).
+'
 ' The five failure modes below were found in the BASH suites that preceded
 ' them (defs/*/test.sh, defs/*/tests/*.sh, deleted in P3). They are kept
 ' because each is a shape a Go suite can reproduce, not a bash quirk alone.

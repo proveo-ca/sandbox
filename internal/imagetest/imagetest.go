@@ -19,6 +19,9 @@ import (
 // DefaultTimeout bounds every docker call a suite makes.
 const DefaultTimeout = 2 * time.Minute
 
+// ProbeTimeout bounds image inspects and the daemon preflight.
+var ProbeTimeout = 30 * time.Second
+
 // Resolve picks the image a suite tests for target: its PinVar pin as given, else ref or its newer :local build.
 func Resolve(target, ref string) string {
 	if pinned := PinnedRef(target, ""); pinned != "" {
@@ -29,17 +32,26 @@ func Resolve(target, ref string) string {
 }
 
 func created(ref string) (time.Time, bool) {
-	out, err := exec.Command("docker", "image", "inspect", ref, "--format", "{{.Created}}").Output()
-	if err != nil {
+	r := Docker(ProbeTimeout, nil, "image", "inspect", ref, "--format", "{{.Created}}")
+	if !r.OK() {
 		return time.Time{}, false
 	}
-	ts, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(out)))
+	ts, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(r.Out))
 	return ts, err == nil
 }
 
 // Present reports whether ref exists in the local engine.
 func Present(ref string) bool {
-	return exec.Command("docker", "image", "inspect", ref).Run() == nil
+	return Docker(ProbeTimeout, nil, "image", "inspect", ref).OK()
+}
+
+// DaemonReady reports whether the docker daemon answers within ProbeTimeout.
+func DaemonReady() error {
+	r := Docker(ProbeTimeout, nil, "version", "--format", "{{.Server.Version}}")
+	if !r.OK() {
+		return fmt.Errorf("docker daemon unresponsive: %v: %s", r.Err, clip(r.Out))
+	}
+	return nil
 }
 
 // Result is one docker call's combined output and exit status.
@@ -93,11 +105,15 @@ type Suite struct {
 	Image string
 }
 
-// New skips the whole suite when image is absent.
+// New skips the whole suite when docker or image is absent and fails it when
+// the daemon does not answer.
 func New(t *testing.T, image string) *Suite {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not on PATH")
+	}
+	if err := DaemonReady(); err != nil {
+		t.Fatal(err)
 	}
 	if !Present(image) {
 		t.Skipf("image %s not built (mise run build)", image)
