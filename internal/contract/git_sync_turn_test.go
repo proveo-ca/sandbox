@@ -654,7 +654,7 @@ _model_subject_once 20 'staged diff'`
 	if err != nil {
 		t.Fatalf("subject probe: %v\n%s", err, out)
 	}
-	for _, want := range []string{"INFLIGHT=1\n", "run\n--standalone\n-m\nanthropic/claude-haiku-4-5\n", "staged diff"} {
+	for _, want := range []string{"INFLIGHT=1\n", "run\n--standalone\n-m\nanthropic/claude-haiku-5-5\n", "staged diff"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("subject invocation lacks %q:\n%s", want, out)
 		}

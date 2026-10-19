@@ -98,14 +98,14 @@ $diff"
     model="${PROVEO_GIT_SYNC_MODEL_CLAUDE:-sonnet}"
     printf '%s' "$diff" | (cd / && PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" claude -p --model "$model" --system-prompt "$sys" --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence --disable-slash-commands --max-turns 1 2>/dev/null)
   elif command -v codex >/dev/null 2>&1; then
-    model="${PROVEO_GIT_SYNC_MODEL_CODEX:-gpt-5-nano}"
+    model="${PROVEO_GIT_SYNC_MODEL_CODEX:-gpt-6-luna}"
     PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" codex exec --model "$model" --sandbox read-only --ask-for-approval never "$prompt" 2>/dev/null
   elif command -v cursor-agent >/dev/null 2>&1; then
     model="${PROVEO_GIT_SYNC_MODEL_CURSOR:-}"
     [[ -n "$model" ]] || return 1
     PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" cursor-agent -p --force --sandbox disabled --trust --model "$model" "$prompt" 2>/dev/null
   elif command -v opencode >/dev/null 2>&1; then
-    model="${PROVEO_GIT_SYNC_MODEL_OPENCODE:-anthropic/claude-haiku-4-5}"
+    model="${PROVEO_GIT_SYNC_MODEL_OPENCODE:-anthropic/claude-haiku-5-5}"
     PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout "$timeout_s" opencode run --standalone -m "$model" "$prompt" 2>/dev/null
   else
     return 1
