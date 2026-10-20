@@ -29,13 +29,13 @@ func selected(t *testing.T, localModel string) string {
 	return r.Options[r.Selected]
 }
 
-func TestModelRowOrderIsAPIKeysQwenGlimmer(t *testing.T) {
+func TestModelRowOrderRunsRiskierToSafer(t *testing.T) {
 	t.Parallel()
 	r, ok := modelRow(hermesImagesMan(), "")
 	if !ok {
 		t.Fatal("no model row for hermes")
 	}
-	if want := []string{modelAPIKeys, qwen.label(), glimmer.label()}; !slices.Equal(r.Options, want) {
+	if want := []string{qwen.label(), modelAPIKeys, glimmer.label()}; !slices.Equal(r.Options, want) {
 		t.Errorf("options = %v, want %v", r.Options, want)
 	}
 	if r.Multi || r.Options[r.Selected] != modelAPIKeys {
@@ -159,7 +159,7 @@ func TestSourceRowMergesThePlanAndTheLocalModels(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode got no source row")
 	}
-	want := []string{modelAPIKeys, credentials.AuthSubscription, qwen.label(), glimmer.label()}
+	want := []string{qwen.label(), modelAPIKeys, credentials.AuthSubscription, glimmer.label()}
 	if r.Label != rowModel || !slices.Equal(r.Options, want) {
 		t.Errorf("row %q = %v, want %q = %v", r.Label, r.Options, rowModel, want)
 	}
@@ -192,7 +192,7 @@ func TestSourceRowKeepsCursorOffLocalModels(t *testing.T) {
 func TestSourceRowWithoutAPlanIsTheModelRow(t *testing.T) {
 	t.Parallel()
 	r, ok := sourceFor(t, hermesImagesMan(), nil, "")
-	if want := []string{modelAPIKeys, qwen.label(), glimmer.label()}; !ok || !slices.Equal(r.Options, want) {
+	if want := []string{qwen.label(), modelAPIKeys, glimmer.label()}; !ok || !slices.Equal(r.Options, want) {
 		t.Errorf("hermes row = %v (%v), want %v", r.Options, ok, want)
 	}
 }

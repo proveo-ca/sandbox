@@ -148,10 +148,12 @@ type Form struct {
 	Topology func(f *Form, cursor int) *Frame
 	// NoAxis hides "◀ riskier … safer ▶". The legend is a claim about policy
 	// radios (egress, credentials). Init's radios are not a safety axis.
-	NoAxis bool
-	Flock  bool
-	scroll int
-	flock  *flockSim
+	NoAxis      bool
+	Flock       bool
+	StartRow    string // row label the cursor opens on; empty means first selectable
+	StartOption string // option the cursor opens on within StartRow
+	scroll      int
+	flock       *flockSim
 }
 
 func Banner() []string {
@@ -198,7 +200,7 @@ func (f *Form) Run() (confirmed bool, err error) {
 	tick := newTicker(screen.PostEvent)
 	defer tick.stop()
 
-	cursor := f.firstSelectable()
+	cursor := f.startCursor()
 	for {
 		f.draw(screen, cursor, tick.frame())
 		switch ev := screen.PollEvent().(type) {
@@ -316,6 +318,25 @@ func (f *Form) axisLabel() bool {
 	return false
 }
 
+// startCursor opens on StartRow/StartOption when the form names them.
+func (f *Form) startCursor() int {
+	if f.StartRow != "" {
+		for i := range f.Rows {
+			if f.Rows[i].Label != f.StartRow {
+				continue
+			}
+			for j, opt := range f.Rows[i].Options {
+				if opt == f.StartOption {
+					f.Rows[i].Selected = j
+					break
+				}
+			}
+			return i
+		}
+	}
+	return f.firstSelectable()
+}
+
 func (f *Form) firstSelectable() int {
 	for i, r := range f.Rows {
 		if !r.Locked {
@@ -419,7 +440,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	c := newCanvas(s)
 
 	if lay.flock {
-		c.put(0, p.brand, clip("  pr●veo  SOLUTIONS — "+ui.BrandTagline, w))
+		c.put(0, p.brand, clip(ui.BrandTagline, w))
 		c.y++
 		if f.flock == nil {
 			f.flock = newFlockSim(w - 4)

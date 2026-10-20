@@ -61,6 +61,29 @@ func TestLockedRowIsHoverableButNeverChangeable(t *testing.T) {
 	}
 }
 
+func TestStartCursorOpensOnTheNamedRowAndOption(t *testing.T) {
+	t.Parallel()
+	f := &Form{
+		StartRow:    "interface",
+		StartOption: "browser",
+		Rows: []Row{
+			{Label: "egress", Options: []string{"allow-all"}, Locked: true},
+			{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1, Hover: 1, Locked: true},
+			{Label: "interface", Options: []string{"tui (this session)", "browser", "android"}, Multi: true},
+		},
+	}
+	if got := f.startCursor(); got != 2 {
+		t.Fatalf("startCursor = %d, want the interface row", got)
+	}
+	if got := f.Rows[2].Selected; got != 1 {
+		t.Errorf("interface focus = option %d, want browser at 1", got)
+	}
+	plain := &Form{Rows: f.Rows}
+	if got := plain.startCursor(); got != 2 {
+		t.Errorf("unnamed form startCursor = %d, want first selectable", got)
+	}
+}
+
 func TestLockedRowReasonLivesOnlyInTheHelpBlock(t *testing.T) {
 	t.Parallel()
 	f := lockedForm()

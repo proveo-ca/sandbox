@@ -150,7 +150,11 @@ func TestFlockRendersInsideTheForm(t *testing.T) {
 	if !flockPainted(rows) {
 		t.Error("a tall terminal with Form.Flock paints no braille flock")
 	}
-	if !strings.Contains(strings.Join(rows, "\n"), "pr●veo") {
-		t.Error("the flock replaced the banner and took the proveo wordmark with it")
+	joined := strings.Join(rows, "\n")
+	if !strings.Contains(joined, "proveo/sandbox: portable, safe AI coding agents") {
+		t.Error("the flock header lost the product tagline")
+	}
+	if strings.Contains(joined, "pr●veo") {
+		t.Error("the flock header still carries the wordmark")
 	}
 }

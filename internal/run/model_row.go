@@ -2,6 +2,7 @@
 package run
 
 import (
+	"cmp"
 	"runtime"
 	"slices"
 	"strings"
@@ -88,6 +89,27 @@ var noLocalModel = map[string]bool{"cursor": true}
 // acceptsLocalModel reports whether target can run on --local-model.
 func acceptsLocalModel(target string) bool { return !noLocalModel[target] }
 
+// modelRiskRank orders the model row riskier to safer, matching the axis legend.
+func modelRiskRank(opt string) int {
+	switch {
+	case len(localModels) > 0 && opt == localModels[0].label():
+		return 0
+	case opt == modelAPIKeys:
+		return 1
+	case opt == credentials.AuthSubscription:
+		return 2
+	case len(localModels) > 1 && opt == localModels[1].label():
+		return 3
+	}
+	return 4
+}
+
+func sortModelOptions(opts []string) {
+	slices.SortStableFunc(opts, func(a, b string) int {
+		return cmp.Compare(modelRiskRank(a), modelRiskRank(b))
+	})
+}
+
 // modelRow is the single-select model row, drawn for every harness that accepts --local-model.
 func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
 	if !acceptsLocalModel(man.Name) {
@@ -105,6 +127,7 @@ func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
 		opts = append(opts, localModel)
 		preselect = localModel
 	}
+	sortModelOptions(opts)
 	r := axisRow(rowModel, opts, nil, preselect)
 	r.Help = modelHelp(localModel)
 	return r, true
@@ -192,7 +215,36 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 			r.Selected = i
 		}
 	}
+	sortModelRow(&r)
 	return r, true
+}
+
+// sortModelRow orders options riskier to safer, carrying each option's gate with it.
+func sortModelRow(r *choiceui.Row) {
+	chosen := ""
+	if r.Selected >= 0 && r.Selected < len(r.Options) {
+		chosen = r.Options[r.Selected]
+	}
+	type item struct {
+		opt string
+		off bool
+	}
+	items := make([]item, len(r.Options))
+	for i, opt := range r.Options {
+		items[i] = item{opt, i < len(r.Off) && r.Off[i]}
+	}
+	slices.SortStableFunc(items, func(a, b item) int {
+		return cmp.Compare(modelRiskRank(a.opt), modelRiskRank(b.opt))
+	})
+	for i, it := range items {
+		r.Options[i] = it.opt
+		if i < len(r.Off) {
+			r.Off[i] = it.off
+		}
+	}
+	if i := slices.Index(r.Options, chosen); i >= 0 {
+		r.Selected = i
+	}
 }
 
 func renameOption(r *choiceui.Row, from, to string) {

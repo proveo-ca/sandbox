@@ -26,12 +26,12 @@
 ' through Form.Flock, and the run form is its first and only customer.
 
 ' ── THE LADDER DECIDES, THE FLOCK NEVER PUSHES ────────────────────────────
-' A wordmark line, flockRows and a separating blank cost six rows,
+' A tagline, flockRows and a separating blank cost six rows,
 ' charged in the banner's place in the drop ladder in layout.go: an
 ' afforded flock replaces the banner box instead of stacking under it,
 ' because charging both put the flock past the height of a typical
-' terminal and it was silently never seen. The wordmark line keeps
-' 'pr●veo' on screen — the box goes, the name does not. It still ranks below every
+' terminal and it was silently never seen. The header is the product
+' tagline alone — the box and the wordmark both go. It still ranks below every
 ' informative region — axis, header and strip all outrank it — and it
 ' holds no reserved slot: help keeps its maximum, the body keeps its
 ' floor, and the hint stays pinned above both.
@@ -64,7 +64,7 @@ title An ambient flock for the choice prompt, ported from cbirds
 component "cbirds\nC99 · MIT · own VT layer\nno library API" as CBIRDS <<cloud>>
 component "internal/choiceui flockSim\nboids in dot space\ndeterministic seed" as SIM <<app>>
 component "braille packing\n2x4 dots per cell\nU+2800 + dot bits" as PACK <<app>>
-component "layout drop ladder\nflock takes the banner's place\nsix rows, wordmark kept" as LADDER <<app>>
+component "layout drop ladder\nflock takes the banner's place\nsix rows, tagline kept" as LADDER <<app>>
 component "Form.Flock opt-in\nrun form only" as FORM <<app>>
 component "existing ticker\n120ms frames, one clock" as TICK <<async>>
 database "tcell screen\nthe screen proveo owns\nuntil the prompt closes" as TERM <<db>>
@@ -102,8 +102,8 @@ note bottom of LADDER
   **The banner's place, not its own.**
   Six rows buy the flock only after body,
   hint, help and strip are afforded, and
-  the banner box then stays home — but its
-  wordmark line rides above the birds.
+  the banner box then stays home — but the
+  tagline rides above the birds.
 end note
 
 note bottom of FORM

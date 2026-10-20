@@ -105,7 +105,11 @@ skinparam noteTextAlignment left
 ' nothing reports as changed, and Selection() returns the baseline untouched.
 '
 ' `move` admits a locked row; `firstSelectable` still does not. The first thing
-' the operator meets should be something they can answer.
+' the operator meets should be something they can answer. The run form says
+' where that is instead of deriving it: StartRow/StartOption open the cursor
+' on the interface row, on browser — the first option the operator can
+' actually change — because credentials has joined egress among the locked
+' facts above it, hoverable to read and never to rewrite.
 '
 ' The UNDERLINE is the cursor mark and must survive the unavailable style, so it
 ' is applied after it — which also fixes an off option the cursor legitimately
@@ -256,6 +260,8 @@ note left of FORM
   **The legend is a claim.** Init's radios are
   not a safety axis, so ""NoAxis"" keeps
   ""◀ riskier … safer ▶"" off that screen.
+  The run form claims it only when no
+  model row is drawn; Qwen sits riskiest.
 end note
 
 note top of GATE

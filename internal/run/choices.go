@@ -45,6 +45,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
 	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
 		form.Rows = append(form.Rows, r)
+	} else {
+		form.NoAxis = true
 	}
 	found := p.discovered
 	var apps []devports.AndroidApp
@@ -73,6 +75,15 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		}
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
+	form.StartRow = rowInterface
+	for i := range form.Rows {
+		r := &form.Rows[i]
+		if r.Label != rowInterface {
+			continue
+		}
+		form.StartOption = firstChoice(r)
+		break
+	}
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f, chromeWhy)
 		gateApps(f)
@@ -291,6 +302,21 @@ func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen
 	return ""
 }
 
+// firstChoice is the first option on a row the operator can actually change.
+func firstChoice(r *choiceui.Row) string {
+	for _, opt := range r.Options {
+		if opt == addonBrowser {
+			return opt
+		}
+	}
+	for _, opt := range r.Options {
+		if _, fixed := addonFixed[opt]; !fixed {
+			return opt
+		}
+	}
+	return ""
+}
+
 func firstSelectableIn(r *choiceui.Row) int {
 	for i := range r.Options {
 		if i >= len(r.Off) || !r.Off[i] {
@@ -346,7 +372,8 @@ var policyBaseline = sbx.PolicyBaseline
 func credentialsRow(man manifest.Manifest, mode string) choiceui.Row {
 	r := axisRow("credentials", CredentialModes(), nil, mode)
 	r = comingSoon(r, "forward", "sbx's proxy uses Secrets Manager. Away from the VM and the agent, attached in each request")
-	r.OffWhy = map[string]string{"forward": r.Reason}
+	r.Locked = true
+	r.Hover = r.Selected
 	if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
 		r.Help = map[string]string{"broker": man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"}
 	}

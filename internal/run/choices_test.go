@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 )
@@ -32,6 +33,28 @@ func TestForwardIsGatedOnSbxAndTheRowStillHasBothModes(t *testing.T) {
 	}
 	if row.Reason == "" {
 		t.Error("no reason given, so a greyed forward looks like a defect")
+	}
+	if !row.Locked {
+		t.Error("credentials is not locked, so the operator cannot hover both modes to read them")
+	}
+	if row.Options[row.Hover] != "broker" {
+		t.Errorf("hover opens on %q, want broker — the mode in force", row.Options[row.Hover])
+	}
+}
+
+func TestFirstChoiceIsTheFirstChangeableOption(t *testing.T) {
+	t.Parallel()
+	withBrowser := &choiceui.Row{Options: []string{addonTUI, addonBrowser, addonAndroid}}
+	if got := firstChoice(withBrowser); got != addonBrowser {
+		t.Errorf("firstChoice = %q, want browser", got)
+	}
+	noBrowser := &choiceui.Row{Options: []string{addonTUI, addonAndroid}}
+	if got := firstChoice(noBrowser); got != addonAndroid {
+		t.Errorf("firstChoice without browser = %q, want the first unfixed option", got)
+	}
+	onlyFixed := &choiceui.Row{Options: []string{addonTUI}}
+	if got := firstChoice(onlyFixed); got != "" {
+		t.Errorf("firstChoice with only compulsory options = %q, want none", got)
 	}
 }
 
