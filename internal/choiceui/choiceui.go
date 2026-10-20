@@ -149,7 +149,9 @@ type Form struct {
 	// NoAxis hides "◀ riskier … safer ▶". The legend is a claim about policy
 	// radios (egress, credentials). Init's radios are not a safety axis.
 	NoAxis bool
+	Flock  bool
 	scroll int
+	flock  *flockSim
 }
 
 func Banner() []string {
@@ -416,7 +418,13 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 
 	c := newCanvas(s)
 
-	if lay.banner {
+	if lay.flock {
+		if f.flock == nil {
+			f.flock = newFlockSim(w - 4)
+		}
+		drawFlock(s, c.y, w-4, tick, f.Glyphs, p.accent, f.flock)
+		c.y += flockCost
+	} else if lay.banner {
 		for _, b := range f.Banner {
 			c.put(0, p.brand, b)
 			c.y++

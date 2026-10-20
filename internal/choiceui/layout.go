@@ -21,6 +21,7 @@ type layout struct {
 	header   bool
 	axis     bool
 	strip    stripFit
+	flock    bool
 	helpSlot int // rows held for help, at its maximum over every row and option
 	pane     int
 	tooSmall bool
@@ -101,7 +102,8 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 			room = false // the figure did not fit, so nothing below it may
 		}
 	}
-	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+1)
+	lay.flock = step(f.Flock && f.Glyphs != GlyphsOff && w >= 24, flockCost)
+	lay.banner = step(len(f.Banner) > 0 && !lay.flock, len(f.Banner)+1)
 
 	lay.body = lines
 	if deficit := need - h; deficit > 0 {
