@@ -27,8 +27,17 @@ func (t *OverlayTty) Read(p []byte) (int, error)  { return t.in.Read(p) }
 func (t *OverlayTty) Write(p []byte) (int, error) { return t.out.Write(p) }
 func (t *OverlayTty) Close() error                { return nil } // the proxy owns these files
 
-// Start puts the terminal in raw mode for tcell.
+// haltable is a reader Drain can wake and Start can re-arm.
+type haltable interface {
+	halt()
+	resume()
+}
+
+// Start puts the terminal in raw mode for tcell and re-arms the reader.
 func (t *OverlayTty) Start() error {
+	if h, ok := t.in.(haltable); ok {
+		h.resume()
+	}
 	if st, err := term.MakeRaw(t.fd); err == nil {
 		t.saved = st
 	}
@@ -44,9 +53,13 @@ func (t *OverlayTty) Stop() error {
 	return nil
 }
 
-// Drain is a no-op: the reader wakes when the channel closes, so tcell never
-// blocks forever the way it can on a real /dev/tty.
-func (t *OverlayTty) Drain() error { return nil }
+// Drain wakes a pending Read with io.EOF so tcell's input loop can exit.
+func (t *OverlayTty) Drain() error {
+	if h, ok := t.in.(haltable); ok {
+		h.halt()
+	}
+	return nil
+}
 
 // NotifyResize is unused for the lifetime of a modal — the proxy already
 // forwards SIGWINCH to the child, and a resize mid-prompt redraws on the next

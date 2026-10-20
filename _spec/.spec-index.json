@@ -1123,6 +1123,7 @@
         "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/drain_test.go",
         "internal/ptyproxy/ptyproxy_test.go",
+        "internal/ptyproxy/overlaytty_test.go",
         "e2e/close_confirm_test.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/run/helpers.go"

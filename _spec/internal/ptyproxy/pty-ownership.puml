@@ -6,6 +6,7 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/overlaytty.go
 ' covers: internal/ptyproxy/drain_test.go
 ' covers: internal/ptyproxy/ptyproxy_test.go
+' covers: internal/ptyproxy/overlaytty_test.go
 ' covers: e2e/close_confirm_test.go
 ' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
 ' covers: internal/run/helpers.go
@@ -68,6 +69,31 @@ skinparam noteTextAlignment left
 ' Residual, pre-existing (reported): this path returns the raw runErr, so it
 ' can print "context canceled" and exit 1, or "agent exited with code -1" and
 ' exit 255 when WaitDelay SIGKILLs the sbx client.
+'
+' ── n HANDS THE TERMINAL BACK AT ONCE ──────────────────────────────────────
+' FIXED 2026-10-20. e2e TestHeadedCtrlCAsksBeforeRemoving failed with "n did
+' not return to the session": the modal stayed drawn after n. tcell's Fini
+' runs disengage, which closes stopQ, calls tty.Drain, then waits for its
+' input loop. That loop sat in OverlayTty.Read, blocked on the hand-off
+' channel, and OverlayTty.Drain was a no-op. Fini hung until the NEXT key
+' arrived, and tcell swallowed that key. tcell's own devTty.Drain sets a read
+' deadline for the same reason.
+'
+' Drain now halts the chanReader. A pending Read wakes with io.EOF, and every
+' Read fails until OverlayTty.Start re-arms it, so Suspend/Resume and the next
+' overlay read again. io.EOF beats (0, nil): disengage clears `running` before
+' Drain, so the loop exits without posting an EventError, and an io.Reader
+' handed to a plain draw func never spins.
+'
+' Overlay then hands back every byte no Read consumed: the halted reader's
+' buffer, then the channel, written to the master in arrival order. Proxy.inMu
+' makes that hand-back atomic with the pump's next delivery. A key typed
+' during Fini is neither dropped with the channel nor overtaken by a newer one.
+' Residual [Inference, not measured]: a key landing after the modal decides
+' but before Fini calls Drain is still read by tcell and dropped. The window is
+' the gap between PollEvent returning and Fini starting.
+' Pinned by internal/ptyproxy/overlaytty_test.go: Fini with no input, n then a
+' key reaching the child, three reopen rounds, and the unread hand-back.
 '
 ' ── THE DRAIN BUG IS THE REASON `Run` HAS A WAITGROUP AT ALL ───────────────
 ' FIXED 2026-09-09. `pty.Start` returns with the child ALREADY RUNNING, and the
@@ -137,6 +163,13 @@ note bottom of OVER
   and writes the operator's terminal, which makes
   a full-screen prompt the exclusive consumer
   without a second reader ever existing.
+end note
+
+note right of OVER
+  **Drain halts the hand-off reader.** Fini waits
+  for tcell's input loop, parked in Read, so a
+  no-op Drain hung it until the next key. Bytes no
+  Read took go back to the child, in order.
 end note
 
 note bottom of SECOND
