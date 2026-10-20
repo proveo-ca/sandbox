@@ -44,10 +44,10 @@ func TestAndroidAppsReadsTheE2EFixture(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("AndroidApps(android-hello) mismatch (-want +got):\n%s", diff)
 	}
-	if task := got[0].Task(); task != ":app:installDebug" {
-		t.Errorf("Task() = %q, want :app:installDebug", task)
+	if task := got[0].Task(); task != ":app:assembleDebug" {
+		t.Errorf("Task() = %q, want :app:assembleDebug", task)
 	}
-	if task := (AndroidApp{AppID: "x"}).Task(); task != "installDebug" {
-		t.Errorf("root Task() = %q, want installDebug", task)
+	if task := (AndroidApp{AppID: "x"}).Task(); task != "assembleDebug" {
+		t.Errorf("root Task() = %q, want assembleDebug", task)
 	}
 }

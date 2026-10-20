@@ -62,6 +62,9 @@ func TestAndroidAppInWorkspaceInstallsOnTheHostEmulator(t *testing.T) {
 	if tags, err := ollamaTags(); err != nil || !containsString(tags, glimmer) {
 		t.Skipf("host Ollama lacks %s (%v)", glimmer, err)
 	}
+	if err := sbx.LocalModelFits(glimmer, os.Getenv); err != nil {
+		t.Skipf("local model %s does not fit this host right now: %v", glimmer, err)
+	}
 	port, err := hostadb.Port(os.Getenv)
 	if err != nil {
 		t.Fatal(err)

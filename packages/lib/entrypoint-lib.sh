@@ -2904,6 +2904,13 @@ proveo_adb_mirror_start() {
 PROVEO_TOOLCHAIN_READY="${PROVEO_TOOLCHAIN_READY:-/tmp/proveo-toolchain-ready}"
 PROVEO_ANDROID_LOG="${PROVEO_ANDROID_LOG:-/tmp/proveo-android-install.log}"
 
+# First debug APK, by path, under the module's build/outputs/apk; ":a:b" lives in a/b, "" in the root.
+_proveo_debug_apk() {
+  local dir="${1#:}"
+  dir="${dir//://}"
+  find "${dir:-.}/build/outputs/apk" -type f -path '*/debug/*.apk' ! -path '*/androidTest/*' 2>/dev/null | LC_ALL=C sort | head -n1
+}
+
 proveo_android_install() {
   (($#)) || return 0
   local waited=0 limit="${PROVEO_ANDROID_WAIT:-3600}" log="$PROVEO_ANDROID_LOG"
@@ -2921,18 +2928,34 @@ proveo_android_install() {
     echo "⚠️  android: no host adb server — nothing installed" | tee -a "$log" >&2
     return 1
   }
-  local gradle=gradle spec module app task rc=0
+  command -v adb >/dev/null 2>&1 || {
+    echo "⚠️  android: no adb client in this image — nothing installed" | tee -a "$log" >&2
+    return 1
+  }
+  local gradle=gradle spec module app task apk rc=0 sock="tcp:${ADB_HOST}:${ADB_PORT}"
   [[ -x ./gradlew ]] && gradle=./gradlew
   for spec in "$@"; do
     module="${spec%%|*}" app="${spec#*|}"
-    task="${module:+$module:}installDebug"
-    echo "📱 android: building and installing $app ($task)" | tee -a "$log"
+    task="${module:+$module:}assembleDebug"
+    echo "📱 android: building $app ($task)" | tee -a "$log"
     if ! "$gradle" --no-daemon -q "$task" >>"$log" 2>&1; then
       echo "⚠️  android: $task failed — see $log" | tee -a "$log" >&2
       rc=1
       continue
     fi
-    if adb shell monkey -p "$app" -c android.intent.category.LAUNCHER 1 >>"$log" 2>&1; then
+    apk="$(_proveo_debug_apk "$module")"
+    if [[ -z "$apk" ]]; then
+      echo "⚠️  android: $task wrote no debug APK for $app — see $log" | tee -a "$log" >&2
+      rc=1
+      continue
+    fi
+    echo "📱 android: installing $apk through the host adb server $sock" | tee -a "$log"
+    if ! ADB_SERVER_SOCKET="$sock" adb install -r "$apk" >>"$log" 2>&1; then
+      echo "⚠️  android: adb install $apk failed — see $log" | tee -a "$log" >&2
+      rc=1
+      continue
+    fi
+    if ADB_SERVER_SOCKET="$sock" adb shell monkey -p "$app" -c android.intent.category.LAUNCHER 1 >>"$log" 2>&1; then
       echo "📱 android: $app installed and launched" | tee -a "$log"
     else
       echo "⚠️  android: $app installed; launch failed — see $log" | tee -a "$log" >&2

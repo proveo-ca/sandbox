@@ -438,7 +438,7 @@ func appsRow(found []devports.AndroidApp, chosen []devports.AndroidApp) (choiceu
 		opt := a.Label()
 		r.Options = append(r.Options, opt)
 		r.On = append(r.On, slices.ContainsFunc(chosen, func(x devports.AndroidApp) bool { return x.Module == a.Module }))
-		r.Help[opt] = fmt.Sprintf("once the sandbox toolchain is ready: gradle %s, then launch %s on the host emulator — %s", a.Task(), a.AppID, a.Source)
+		r.Help[opt] = fmt.Sprintf("once the sandbox toolchain is ready: gradle %s, adb install, then launch %s on the host emulator — %s", a.Task(), a.AppID, a.Source)
 	}
 	return r, true
 }

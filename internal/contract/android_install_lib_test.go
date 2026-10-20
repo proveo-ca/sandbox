@@ -10,15 +10,22 @@ import (
 )
 
 // androidInstall runs proveo_android_install in a workspace with gradle and adb stubbed.
-func androidInstall(t *testing.T, ready bool, gradleRC string, args ...string) (out, calls string) {
+// mode: ok, buildfails (gradle exits 1), noapk (gradle writes no APK), installfails (adb install exits 1).
+func androidInstall(t *testing.T, ready bool, mode string, args ...string) (out, calls string) {
 	t.Helper()
 	bash := bashOrSkip(t)
 	bin, work, tmp := t.TempDir(), t.TempDir(), t.TempDir()
 	log := filepath.Join(tmp, "calls.log")
 	for name, body := range map[string]string{
-		"gradle": `printf 'gradle %s\n' "$*" >>"` + log + `"; exit ` + gradleRC,
-		"adb":    `printf 'adb %s socket=%s\n' "$*" "$ADB_SERVER_SOCKET" >>"` + log + `"`,
-		"sleep":  `exit 0`,
+		"gradle": `printf 'gradle %s\n' "$*" >>"` + log + `"
+case "` + mode + `" in buildfails) exit 1 ;; noapk) exit 0 ;; esac
+d="${3%assembleDebug}"; d="${d#:}"; d="${d%:}"; d="$(printf '%s' "${d:-.}" | tr : /)"
+mkdir -p "$d/build/outputs/apk/debug" "$d/build/outputs/apk/androidTest/debug"
+: >"$d/build/outputs/apk/debug/out-debug.apk"; : >"$d/build/outputs/apk/androidTest/debug/a-debug.apk"`,
+		"adb": `printf 'adb %s socket=%s\n' "$*" "$ADB_SERVER_SOCKET" >>"` + log + `"
+[ "$1" = install ] && [ "` + mode + `" = installfails ] && exit 1
+exit 0`,
+		"sleep": `exit 0`,
 	} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 			t.Fatal(err)
@@ -46,11 +53,14 @@ cd "` + work + `" && proveo_android_install ` + strings.Join(quoted, " ") + `; e
 }
 
 func TestAndroidInstallBuildsInstallsAndLaunchesEachModule(t *testing.T) {
-	out, calls := androidInstall(t, true, "0", ":app|ca.proveo.hello", "|ca.proveo.root")
-	want := "gradle --no-daemon -q :app:installDebug\n" +
-		"adb shell monkey -p ca.proveo.hello -c android.intent.category.LAUNCHER 1 socket=tcp:host.docker.internal:5037\n" +
-		"gradle --no-daemon -q installDebug\n" +
-		"adb shell monkey -p ca.proveo.root -c android.intent.category.LAUNCHER 1 socket=tcp:host.docker.internal:5037\n"
+	out, calls := androidInstall(t, true, "ok", ":app|ca.proveo.hello", "|ca.proveo.root")
+	sock := " socket=tcp:host.docker.internal:5037\n"
+	want := "gradle --no-daemon -q :app:assembleDebug\n" +
+		"adb install -r app/build/outputs/apk/debug/out-debug.apk" + sock +
+		"adb shell monkey -p ca.proveo.hello -c android.intent.category.LAUNCHER 1" + sock +
+		"gradle --no-daemon -q assembleDebug\n" +
+		"adb install -r ./build/outputs/apk/debug/out-debug.apk" + sock +
+		"adb shell monkey -p ca.proveo.root -c android.intent.category.LAUNCHER 1" + sock
 	if calls != want {
 		t.Errorf("proveo_android_install calls =\n%s\nwant\n%s", calls, want)
 	}
@@ -59,18 +69,38 @@ func TestAndroidInstallBuildsInstallsAndLaunchesEachModule(t *testing.T) {
 	}
 }
 
-func TestAndroidInstallSkipsTheLaunchWhenTheBuildFails(t *testing.T) {
-	out, calls := androidInstall(t, true, "1", ":app|ca.proveo.hello")
+func TestAndroidInstallSkipsTheInstallWhenTheBuildFails(t *testing.T) {
+	out, calls := androidInstall(t, true, "buildfails", ":app|ca.proveo.hello")
 	if strings.Contains(calls, "adb ") {
-		t.Errorf("proveo_android_install launched after a failed build:\n%s", calls)
+		t.Errorf("proveo_android_install ran adb after a failed build:\n%s", calls)
 	}
-	if !strings.Contains(out, "rc=1") || !strings.Contains(out, ":app:installDebug failed") {
+	if !strings.Contains(out, "rc=1") || !strings.Contains(out, ":app:assembleDebug failed") {
+		t.Errorf("proveo_android_install output = %q", out)
+	}
+}
+
+func TestAndroidInstallNeedsTheDebugAPK(t *testing.T) {
+	out, calls := androidInstall(t, true, "noapk", ":app|ca.proveo.hello")
+	if strings.Contains(calls, "adb ") {
+		t.Errorf("proveo_android_install ran adb with no APK:\n%s", calls)
+	}
+	if !strings.Contains(out, "rc=1") || !strings.Contains(out, "wrote no debug APK") {
+		t.Errorf("proveo_android_install output = %q", out)
+	}
+}
+
+func TestAndroidInstallSkipsTheLaunchWhenTheInstallFails(t *testing.T) {
+	out, calls := androidInstall(t, true, "installfails", ":app|ca.proveo.hello")
+	if strings.Contains(calls, "monkey") {
+		t.Errorf("proveo_android_install launched after a failed install:\n%s", calls)
+	}
+	if !strings.Contains(out, "rc=1") || !strings.Contains(out, "adb install app/build/outputs/apk/debug/out-debug.apk failed") {
 		t.Errorf("proveo_android_install output = %q", out)
 	}
 }
 
 func TestAndroidInstallWaitsForTheSeedsToolchain(t *testing.T) {
-	out, calls := androidInstall(t, false, "0", ":app|ca.proveo.hello")
+	out, calls := androidInstall(t, false, "ok", ":app|ca.proveo.hello")
 	if calls != "" {
 		t.Errorf("proveo_android_install ran before the toolchain marker:\n%s", calls)
 	}

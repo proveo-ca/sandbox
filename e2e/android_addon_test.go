@@ -139,18 +139,25 @@ func TestAndroidLeftUntickedOpensNoEmulator(t *testing.T) {
 	}
 }
 
-// stopEmulators kills every emulator on the server and waits until none is listed.
+// stopEmulators kills every emulator on the server, offline ones included, and waits until none is listed.
 func stopEmulators(t *testing.T, port int) {
 	t.Helper()
 	adb := hostadb.AdbBinary(os.Getenv)
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		serials, err := hostadb.Devices(port)
-		if err != nil || len(serials) == 0 {
+		all, err := hostadb.AllDevices(port)
+		if err != nil {
 			return
 		}
-		for _, s := range serials {
-			_ = exec.Command(adb, "-P", strconv.Itoa(port), "-s", s, "emu", "kill").Run()
+		left := 0
+		for _, d := range all {
+			if d.Emulator() {
+				left++
+				_ = exec.Command(adb, "-P", strconv.Itoa(port), "-s", d.Serial, "emu", "kill").Run()
+			}
+		}
+		if left == 0 {
+			return
 		}
 		time.Sleep(2 * time.Second)
 	}
