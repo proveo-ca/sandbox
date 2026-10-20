@@ -305,7 +305,7 @@ note right of SEL
   longer carries a ""docker:"" key (F10, 2026-10-17) — and sbx is the only
   backend (DECIDED 2026-10-16: "Refuse without sbx"). The
   choice prompt carries it as a COMPULSORY ""docker (sandbox)"" — greyed AND
-  ticked, help "every harness runs in the sandbox and nowhere else". A
+  ticked, help "Mount the current git project in a sandbox for the agent". A
   remembered 'off' does not survive the prompt: the gate re-ticks the box and
   still reports it as selected
   (""_spec/internal/choiceui/choice-prompt-render\.puml""). A host without sbx

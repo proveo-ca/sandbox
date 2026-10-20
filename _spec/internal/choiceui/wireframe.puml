@@ -103,7 +103,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   {
     . | ◀ riskier | . | safer ▶ | .
     ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all | — locked: host-wide, not per-run
-    credentials | ( ) <color:#9a9a9a>forward</color> | (X) broker | . | <color:#9a9a9a>— forward: sbx's proxy holds the value…</color>
+    credentials | ( ) <color:#9a9a9a>forward</color> | (X) broker | . | <color:#9a9a9a>— forward: sbx's proxy uses Secrets Manager…</color>
     . | . | ———— execution ———— | . | .
     . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | . | .
     . | . | ———— interface ———— | . | .
@@ -113,11 +113,11 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
   ..
-  always on: every harness runs in the sandbox and nowhere else
+  always on: Mount the current git project in a sandbox for the agent
 }
 {
 {^"1 · greyed — comingSoon"
-  credentials | ( ) <color:#9a9a9a>forward</color> | <color:#9a9a9a>— sbx's proxy holds the value; forward is what that guarantee gives up</color>
+  credentials | ( ) <color:#9a9a9a>forward</color> | <color:#9a9a9a>— sbx's proxy uses Secrets Manager. Away from the VM and the agent, attached in each request</color>
   .
   Rendered, never selectable. The cursor
   vacates it and the violated constraint
@@ -209,8 +209,8 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 
   **The sandbox is greyed for the opposite reason: it is COMPULSORY.** A harness
   that declares sbx runs there and nowhere else, so the box is ticked and locked
-  and its help line reads "always on: every harness runs in the sandbox and
-  nowhere else". Unticking used to reach the docker backend behind egress
+  and its help line reads "always on: Mount the current git project in a
+  sandbox for the agent". Unticking used to reach the docker backend behind egress
   sidecars — a weaker boundary one keystroke away — and that escape then became
   ""PROVEO_SBX=0"". Since 2026-10-16 there is no escape: the docker backend is
   deleted, and since 2026-10-17 ""PROVEO_SBX"" is simply unread. Like the

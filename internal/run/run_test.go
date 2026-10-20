@@ -525,7 +525,7 @@ func TestGateAddonsKeepsTheSandboxCompulsory(t *testing.T) {
 	if r.Reason != "" {
 		t.Errorf("a box greyed on every run must stay out of the inline reason, got %q", r.Reason)
 	}
-	if !strings.Contains(r.OffWhy[addonSandbox], "nowhere else") {
+	if !strings.Contains(r.OffWhy[addonSandbox], "Mount the current git project") {
 		t.Errorf("the compulsory sandbox must say why, got %q", r.OffWhy[addonSandbox])
 	}
 	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox}) {

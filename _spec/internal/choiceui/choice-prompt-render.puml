@@ -43,8 +43,8 @@ skinparam noteTextAlignment left
 ' was missing. An unticked box is a posture too, and "docker (sandbox)" said
 ' nothing about what unticking it selects — not the host, which proveo never
 ' runs an agent on, but (until 2026-10-16) the docker backend behind egress
-' sidecars. Since that backend's deletion the box's help reads "every harness
-' runs in the sandbox and nowhere else" (MEASURED, gateAddons).
+' sidecars. Since that backend's deletion the box's help reads "Mount the
+' current git project in a sandbox for the agent" (MEASURED, gateAddons).
 '
 ' THE HELP PROMISES A DAEMON ONLY WHERE THE MANIFEST DOES (N20, DONE (wt)
 ' 2026-10-17). The form passes addonHelpFor(man) (internal/run/choices.go:60,

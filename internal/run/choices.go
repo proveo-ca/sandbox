@@ -245,7 +245,7 @@ func gateAddons(f *choiceui.Form, chromeWhy string) {
 			case addonSandbox:
 				r.Off[j] = true
 				r.On[j] = true
-				r.OffWhy[opt] = "every harness runs in the sandbox and nowhere else"
+				r.OffWhy[opt] = "Mount the current git project in a sandbox for the agent"
 			case addonIOS:
 				r.Off[j] = true
 				r.On[j] = false
@@ -345,7 +345,7 @@ var policyBaseline = sbx.PolicyBaseline
 
 func credentialsRow(man manifest.Manifest, mode string) choiceui.Row {
 	r := axisRow("credentials", CredentialModes(), nil, mode)
-	r = comingSoon(r, "forward", "sbx's proxy holds the value; forward is what that guarantee gives up")
+	r = comingSoon(r, "forward", "sbx's proxy uses Secrets Manager. Away from the VM and the agent, attached in each request")
 	r.OffWhy = map[string]string{"forward": r.Reason}
 	if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
 		r.Help = map[string]string{"broker": man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"}
@@ -501,7 +501,7 @@ var addonFixed = map[string]struct {
 }
 
 var addonHelp = map[string]string{
-	addonHost:    "your own machine, with your files and your credentials — not a place proveo will run an agent",
+	addonHost:    "your own machine, with your files and your credentials — not a place proveo recommends for an agent",
 	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
