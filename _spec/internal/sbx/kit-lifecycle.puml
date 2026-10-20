@@ -10,6 +10,8 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/stop_signal_test.go
 ' covers: internal/backend/sandbox/clone_carry_test.go
 ' covers: internal/backend/sandbox/teardown_end_test.go
+' covers: internal/choiceui/blocked_run.go
+' covers: internal/choiceui/modal.go
 '
 ' ── A KEPT SANDBOX MUST NOT SILENTLY OVERRIDE THIS RUN (2026-09-27) ─────────
 ' Re-attach passes the name only, so a kept sandbox runs with the Kit, image
@@ -26,7 +28,10 @@ skinparam noteTextAlignment left
 '   changed, headed         → ask. Yes runs the three steps for every harness:
 '     carry clone and agent state home, sbx rm --force, create the same name.
 '     The session does not persist. Host proveo files stay.
-'     No keeps it. A running one is re-attached and the new settings do not apply.
+'     No keeps it. [y/N] and [esc] are each a left-aligned row. The last row
+'     records the typing and the line under it says enter submits. Enter on
+'     y or yes is the yes above. Enter on anything else, or esc, is the no.
+'     A running one is re-attached and the new settings do not apply.
 '     A stopped one stays. This run stops, and the next proveo run asks again.
 '   changed, not headed, stopped → the same three steps, no question
 '   changed, not headed, running → warn. The session stays. The new settings do not apply.

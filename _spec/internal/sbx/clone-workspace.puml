@@ -8,6 +8,7 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/sandbox.go (PreserveClone, carryClone, fetchViaRemote, bundleViaSbx, hostTips, CloneRescueLines, liftClonedOutput)
 ' covers: internal/backend/sandbox/pushed.go
 ' covers: internal/choiceui/fetch_pushed.go
+' covers: internal/choiceui/modal.go
 ' covers: internal/run/clone_test.go
 ' covers: internal/sbx/clone_test.go
 ' covers: e2e/clone_test.go
@@ -171,6 +172,10 @@ skinparam noteTextAlignment left
 ' lines whose reflog time is at or after the run started, and prints each
 ' branch once (`pushed origin/name`). A clone is queried inside the sandbox
 ' before it is removed. A direct checkout is queried on the host.
+' On a TTY the question is the shared fullscreen confirm. [y/N] and [esc] are
+' each a left-aligned row. The last row records the typing and the line under
+' it says enter submits. Enter on y or yes fetches. Enter on anything else,
+' esc, or 15s of silence leaves the branches on the remote.
 '
 ' ── THE SEED ASSERTS THE SHARES BEFORE IT RELEASES THE AGENT ───────────────
 ' PROVEO_SHARES lists rel=rw|ro for each of _spec and .env the HOST holds at

@@ -8,6 +8,8 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/ptyproxy_test.go
 ' covers: internal/ptyproxy/overlaytty_test.go
 ' covers: e2e/close_confirm_test.go
+' covers: internal/choiceui/sandbox_close.go
+' covers: internal/choiceui/modal.go
 ' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
 ' covers: internal/run/helpers.go
 '   (internal/backend/dockeregress ExecAgentWithProxy was the second caller;
@@ -46,9 +48,12 @@ skinparam noteTextAlignment left
 ' in the input pump, not a signal to proveo. Unless PROVEO_SCHEDULE is set,
 ' that byte opens a confirm overlay instead of reaching the child. The modal
 ' says `sbx rm --force` will run, that this deletes the session, and that
-' uncommitted changes can be permanently lost. y stores the remove and cancels
-' the sbx client, so teardown runs `sbx rm --force` even though the client
-' exits non-zero. n and esc drop the byte. A second Ctrl+C, or ctrl+c on the
+' uncommitted changes can be permanently lost. Each answer is its own
+' left-aligned row: [y/N] removes, [esc] goes back, [ctrl+c] interrupts.
+' The last row records the typing; the line under it says enter submits.
+' Enter on y or yes stores the remove and cancels the sbx client, so teardown
+' runs `sbx rm --force` even though the client exits non-zero. Enter on
+' anything else, and esc, drop the byte. A second Ctrl+C, or ctrl+c on the
 ' modal, delivers 0x03 to the child and leaves the sandbox on the failure path.
 ' proveo schedule's tmux pane is a TTY, so the skip is the env Launch puts on
 ' the pane (`PROVEO_SCHEDULE=1`), not "is this a terminal". Schedule's own

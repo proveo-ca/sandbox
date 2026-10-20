@@ -10,7 +10,7 @@ import (
 func TestFetchPushedCopyNamesTheBranchesAndTheWait(t *testing.T) {
 	t.Parallel()
 	got := strings.Join(FetchPushedCopy([]string{"origin/feat"}, 15*time.Second), "\n")
-	for _, want := range []string{"origin/feat", "y  git fetch them into this repository", "15s with no answer leaves them"} {
+	for _, want := range []string{"origin/feat", "15s with no answer leaves them"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
 		}
