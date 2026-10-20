@@ -223,23 +223,22 @@ func renderHelp(w io.Writer, cmd *cobra.Command) {
 		h.line("")
 	}
 
-	var subs []*cobra.Command
+	var commands, harnesses []*cobra.Command
 	for _, c := range cmd.Commands() {
-		if c.IsAvailableCommand() {
-			subs = append(subs, c)
+		if !c.IsAvailableCommand() {
+			continue
 		}
+		if isHarnessCmd(c) {
+			harnesses = append(harnesses, c)
+			continue
+		}
+		commands = append(commands, c)
 	}
-	if len(subs) > 0 {
-		h.heading("commands")
-		col := helpDescCol
-		for _, c := range subs {
-			col = max(col, helpIndent+runewidth.StringWidth(c.Name())+3)
-		}
-		for _, c := range subs {
-			h.row(c.Name(), c.Short, col)
-		}
-		h.line("")
-	}
+	commandSection(h, "commands", commands)
+	commandSection(h, "harnesses", harnesses)
+	subs := make([]*cobra.Command, 0, len(commands)+len(harnesses))
+	subs = append(subs, commands...)
+	subs = append(subs, harnesses...)
 
 	var topics []*cobra.Command
 	for _, c := range cmd.Commands() {
@@ -261,6 +260,27 @@ func renderHelp(w io.Writer, cmd *cobra.Command) {
 	if len(subs) > 0 {
 		h.line(h.body(fmt.Sprintf("%s <command> --help · more on one command", cmd.CommandPath())))
 	}
+}
+
+const annHarness = "harness"
+
+func isHarnessCmd(c *cobra.Command) bool {
+	return c.Annotations["proveo"] == annHarness
+}
+
+func commandSection(h helpPen, heading string, subs []*cobra.Command) {
+	if len(subs) == 0 {
+		return
+	}
+	h.heading(heading)
+	col := helpDescCol
+	for _, c := range subs {
+		col = max(col, helpIndent+runewidth.StringWidth(c.Name())+3)
+	}
+	for _, c := range subs {
+		h.row(c.Name(), c.Short, col)
+	}
+	h.line("")
 }
 
 func flagSection(h helpPen, heading string, fs *pflag.FlagSet) {

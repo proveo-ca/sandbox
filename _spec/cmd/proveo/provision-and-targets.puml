@@ -11,9 +11,10 @@
 ' scripts or tests called the command it registered. maintainerDefsDir
 ' (PROVEO_DEFS_DIR, else <repo>/defs) moved unchanged into maintain_cmd.go, and
 ' build, deploy and test read the registry through loadMaintainRegistry. `build`
-' is visible in root help now; deploy and test stay hidden (usage.puml). The
-' "missing image" error and the agent-pin line both name `proveo build`, so the
-' command they send an operator to is one root help lists.
+' was visible in root help; deploy and test stay hidden (usage.puml).
+' 2026-10-20: `build` is Hidden again — mise owns the verb — and the command
+' remains, so the "missing image" error and the agent-pin line can still name
+' `proveo build`. Root help does not list it.
 ' KNOWN LIMITS (review, recorded, not fixed; MEASURED):
 '   * run.go:229's `proveo build <target>` hint works only inside a source
 '     checkout; a binary-only install has no defs/ tree to build from.

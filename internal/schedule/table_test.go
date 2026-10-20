@@ -189,8 +189,8 @@ func TestRenderGivesARunningJobItsOwnLine(t *testing.T) {
 	Render(p, Rows(c, now, running, nil), now, Tick{Installed: true, Detail: "launchd"}, nil)
 	out := b.String()
 	for _, want := range []string{
-		"● running since 19:37 EDT · 23m of 36m · `proveo schedule attach muse-lineup-refine`",
-		"● running now · `proveo schedule attach muse-trades`",
+		"● running since 19:37 EDT · 23m of 36m · `proveo attach muse-lineup-refine`",
+		"● running now · `proveo attach muse-trades`",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render missing %q:\n%s", want, out)
@@ -203,5 +203,13 @@ func TestRenderGivesARunningJobItsOwnLine(t *testing.T) {
 	late := time.Date(2026, 10, 4, 20, 20, 0, 0, loc)
 	if got := liveLine(Row{Since: time.Date(2026, 10, 4, 19, 37, 0, 0, loc), Span: 36 * time.Minute}, "j", late); !strings.Contains(got, "43m of 36m, past the budget") {
 		t.Errorf("over budget: %q", got)
+	}
+
+	got := RunningTasks(c, now, running)
+	if len(got) != 2 || got[0].Job != "muse-lineup-refine" || got[1].Job != "muse-trades" {
+		t.Fatalf("RunningTasks = %+v, want refine then trades, once each", got)
+	}
+	if got[0].Summary != "● running since 19:37 EDT · 23m of 36m" || got[1].Line != "● running now · `proveo attach muse-trades`" {
+		t.Errorf("summary/line = %q / %q", got[0].Summary, got[1].Line)
 	}
 }

@@ -64,8 +64,9 @@ Jobs live in ~/.proveo/schedule.yml:
 With no subcommand it lists every job, soonest run first. A run whose last
 outcome is failed or not-ready shows ✗ with its reason; on a terminal it
 asks to retry, and ` + "`proveo schedule retry <job>`" + ` starts it again.
-` + "`proveo schedule attach sample-task`" + ` opens a running task's terminal by its task name;
-add -r to watch without typing into it.
+` + "`proveo attach`" + ` lists the tasks whose tmux session is up.
+` + "`proveo attach sample-task`" + ` (or ` + "`proveo schedule attach sample-task`" + `) opens one
+by its task name; add -r to watch without typing into it.
 
 Transcripts and results: ~/.proveo/logs/schedule/<job>/.`,
 		RunE: func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
@@ -151,7 +152,7 @@ func retryJob(home string, c schedule.Config, name string) error {
 	if err := schedule.Launch(home, proveoExe(), name, last.Entry, j, nil); err != nil {
 		return err
 	}
-	ui.Appf("retrying %s (%s) — `proveo schedule attach %s` to watch", name, last.Entry, name)
+	ui.Appf("retrying %s (%s) — `proveo attach %s` to watch", name, last.Entry, name)
 	return nil
 }
 
@@ -218,7 +219,7 @@ func scheduleRunCmd() *cobra.Command {
 			if err := schedule.Launch(home, proveoExe(), args[0], "manual", j, nil); err != nil {
 				return err
 			}
-			ui.Appf("started %s — `proveo schedule attach %s` to watch; transcripts in %s", args[0], args[0], schedule.LogDir(home, args[0]))
+			ui.Appf("started %s — `proveo attach %s` to watch; transcripts in %s", args[0], args[0], schedule.LogDir(home, args[0]))
 			return nil
 		},
 	}
@@ -270,38 +271,81 @@ func scheduleWatchCmd() *cobra.Command {
 	return cmd
 }
 
+func attachCmd() *cobra.Command {
+	return newAttachCmd("attach [task]", "List running tasks, or open one by name (alias for `proveo schedule attach`)")
+}
+
 func scheduleAttachCmd() *cobra.Command {
+	return newAttachCmd("attach [task]", "Open a running task's terminal by its task name (the key under jobs: in schedule.yml)")
+}
+
+func newAttachCmd(use, short string) *cobra.Command {
 	var readOnly bool
 	cmd := &cobra.Command{
-		Use:   "attach <task>",
-		Short: "Open a running task's terminal by its task name (the key under jobs: in schedule.yml)",
+		Use:   use,
+		Short: short,
 		Long: `Open a running task's terminal. The task name is its key under jobs: in
 ~/.proveo/schedule.yml; attach opens the tmux session proveo-sched-<task>.
+
+With no task, a terminal asks which running task to open. Without a
+terminal it prints the running tasks and stops.
 
 Without -r your keys reach the agent. Detach with the tmux prefix, then d
 (Ctrl-b d); the run keeps going. Inside tmux, attach switches your client
 to the task's session; with -r it nests a client (Ctrl-b Ctrl-b d). In
 zellij, press Ctrl-b twice, then d.`,
-		Example: `proveo schedule attach sample-task
+		Example: `proveo attach
+proveo attach sample-task
 proveo schedule attach sample-task -r`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			sess := schedule.SessionName(args[0])
-			if exec.Command("tmux", "has-session", "-t", sess).Run() != nil {
-				return fmt.Errorf("%s is not running (no tmux session %s) — `proveo schedule` shows its last run", args[0], sess)
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return listOrAttach(cmd, readOnly)
 			}
-			args, nested := attachArgs(sess, readOnly, os.Getenv("TMUX") != "")
-			c := exec.Command("tmux", args...)
-			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-			if nested {
-				c.Env = append(os.Environ(), "TMUX=")
-				ui.Notef("read-only inside tmux nests a client: press the prefix twice, then d, to detach")
-			}
-			return c.Run()
+			return attachSession(args[0], readOnly)
 		},
 	}
 	cmd.Flags().BoolVarP(&readOnly, "read-only", "r", false, "watch without sending keys to the agent")
 	return cmd
+}
+
+func listOrAttach(cmd *cobra.Command, readOnly bool) error {
+	tasks, err := currentRunning()
+	if err != nil {
+		return err
+	}
+	if !stdioInteractive(cmd) {
+		writeRunning(cmd.OutOrStdout(), tasks)
+		return nil
+	}
+	if len(tasks) == 0 {
+		writeRunning(cmd.OutOrStdout(), tasks)
+		return nil
+	}
+	choices := make([]menuChoice, len(tasks))
+	for i, t := range tasks {
+		choices[i] = menuChoice{Verb: "attach", Name: t.Job, Detail: t.Summary, Attach: true}
+	}
+	got, err := offer(choices, "attach> ", "no task selected")
+	if err != nil {
+		return err
+	}
+	return attachSession(got.Name, readOnly)
+}
+
+func attachSession(job string, readOnly bool) error {
+	sess := schedule.SessionName(job)
+	if !tmuxHasSession(sess) {
+		return fmt.Errorf("%s is not running (no tmux session %s) — `proveo schedule` shows its last run", job, sess)
+	}
+	args, nested := attachArgs(sess, readOnly, os.Getenv("TMUX") != "")
+	c := exec.Command("tmux", args...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if nested {
+		c.Env = append(os.Environ(), "TMUX=")
+		ui.Notef("read-only inside tmux nests a client: press the prefix twice, then d, to detach")
+	}
+	return c.Run()
 }
 
 // attachArgs is the tmux argv for attach; nested means run it with TMUX unset.
