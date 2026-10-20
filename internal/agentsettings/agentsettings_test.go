@@ -1,6 +1,8 @@
 package agentsettings
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"testing"
 
@@ -23,10 +25,10 @@ func TestMissingFileIsFirstRunNotAnError(t *testing.T) {
 func TestRoundTrip(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	caps := manifest.Capabilities{Egress: []string{"open"}, Credentials: []string{"forward"}}
+	caps := manifest.Capabilities{Credentials: []string{"forward"}}
 
 	s, _ := Load(root)
-	s.Remember("cursor", caps, Choice{Egress: "open", Credentials: "forward", Addons: []string{"browser"}})
+	s.Remember("cursor", caps, Choice{Credentials: "forward", Addons: []string{"browser"}})
 	if err := s.Save(root); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +41,7 @@ func TestRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("a stored choice must load back")
 	}
-	if ch.Egress != "open" || ch.Credentials != "forward" || len(ch.Addons) != 1 || ch.Addons[0] != "browser" {
+	if ch.Credentials != "forward" || len(ch.Addons) != 1 || ch.Addons[0] != "browser" {
 		t.Errorf("round-trip mismatch: %+v", ch)
 	}
 }
@@ -47,11 +49,11 @@ func TestRoundTrip(t *testing.T) {
 func TestCachedChoiceDoesNotSurviveACapabilityChange(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	before := manifest.Capabilities{Egress: []string{"open", "allowlist"}}
-	after := manifest.Capabilities{Egress: []string{"open"}}
+	before := manifest.Capabilities{Credentials: []string{"forward", "broker"}}
+	after := manifest.Capabilities{Credentials: []string{"forward"}}
 
 	s, _ := Load(root)
-	s.Remember("opencode", before, Choice{Egress: "allowlist", Credentials: "broker"})
+	s.Remember("opencode", before, Choice{Credentials: "broker"})
 	if err := s.Save(root); err != nil {
 		t.Fatal(err)
 	}
@@ -67,12 +69,12 @@ func TestCachedChoiceDoesNotSurviveACapabilityChange(t *testing.T) {
 
 func TestFingerprintIsOrderAndCaseStable(t *testing.T) {
 	t.Parallel()
-	a := manifest.Capabilities{Egress: []string{"open", "allowlist"}, Providers: []string{"anthropic"}}
-	b := manifest.Capabilities{Egress: []string{"ALLOWLIST", " open "}, Providers: []string{"Anthropic"}}
+	a := manifest.Capabilities{Credentials: []string{"forward", "broker"}, Providers: []string{"anthropic"}}
+	b := manifest.Capabilities{Credentials: []string{"BROKER", " forward "}, Providers: []string{"Anthropic"}}
 	if Fingerprint(a) != Fingerprint(b) {
 		t.Error("fingerprint must ignore ordering, case and padding")
 	}
-	c := manifest.Capabilities{Egress: []string{"open"}, Providers: []string{"anthropic"}}
+	c := manifest.Capabilities{Credentials: []string{"forward"}, Providers: []string{"anthropic"}}
 	if Fingerprint(a) == Fingerprint(c) {
 		t.Error("dropping a cell must change the fingerprint")
 	}
@@ -82,7 +84,7 @@ func TestSaveIsOwnerOnly(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	s, _ := Load(root)
-	s.Remember("cecli", manifest.Capabilities{}, Choice{Egress: "allowlist", Credentials: "broker"})
+	s.Remember("cecli", manifest.Capabilities{}, Choice{Credentials: "broker"})
 	if err := s.Save(root); err != nil {
 		t.Fatal(err)
 	}
@@ -100,15 +102,15 @@ func TestSaveIsOwnerOnly(t *testing.T) {
 // does not retype ARCHITECT_MODEL/EDITOR_MODEL/SMALL_MODEL on every run.
 func TestModelsSurviveSaveAndLoad(t *testing.T) {
 	root := t.TempDir()
-	caps := manifest.Capabilities{Egress: []string{"allowlist"}, Credentials: []string{"broker"}}
+	caps := manifest.Capabilities{Credentials: []string{"broker"}}
 
 	s, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.Remember("opencode", caps, Choice{
-		Egress: "allowlist", Credentials: "broker",
-		Models: map[string]string{"main": "kimi-k3", "editor": "grok-4-5", "small": "grok-4-5-fast"},
+		Credentials: "broker",
+		Models:      map[string]string{"main": "kimi-k3", "editor": "grok-4-5", "small": "grok-4-5-fast"},
 	})
 	if err := s.Save(root); err != nil {
 		t.Fatal(err)
@@ -130,13 +132,13 @@ func TestModelsSurviveSaveAndLoad(t *testing.T) {
 }
 
 func TestModelsAreNotPartOfTheFingerprint(t *testing.T) {
-	caps := manifest.Capabilities{Egress: []string{"allowlist"}}
+	caps := manifest.Capabilities{Credentials: []string{"broker"}}
 	a := Fingerprint(caps)
 	b := Fingerprint(caps) // same capabilities, regardless of any model
 	if a != b {
 		t.Fatalf("fingerprint is not stable for identical capabilities: %q vs %q", a, b)
 	}
-	wider := Fingerprint(manifest.Capabilities{Egress: []string{"allowlist", "review"}})
+	wider := Fingerprint(manifest.Capabilities{Credentials: []string{"allowlist", "review"}})
 	if a == wider {
 		t.Error("a capability change must change the fingerprint")
 	}
@@ -185,5 +187,14 @@ func TestAppsAndPortsShareAWorkspaceEntry(t *testing.T) {
 	}
 	if ports, ok := got.PortsFor("/repo"); !ok || len(ports) != 1 {
 		t.Errorf("PortsFor(/repo) = %v, %v after RememberApps", ports, ok)
+	}
+}
+
+func TestFingerprintKeepsItsLayoutWithAnEmptyFirstSlot(t *testing.T) {
+	t.Parallel()
+	c := manifest.Capabilities{Credentials: []string{"forward"}, Providers: []string{"anthropic"}}
+	sum := sha256.Sum256([]byte("|forward|anthropic"))
+	if got, want := Fingerprint(c), hex.EncodeToString(sum[:8]); got != want {
+		t.Errorf("Fingerprint = %s, want %s — cached choices would stop matching", got, want)
 	}
 }

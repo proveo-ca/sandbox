@@ -8,21 +8,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/backend"
-	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/credentials"
-	"github.com/proveo-ca/proveo/internal/egress"
-	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -59,174 +55,6 @@ func TestPickProject(t *testing.T) {
 // D2 seams — the gating/dispatch/assembly logic that was untestable inside the
 // old god-function.
 
-func TestAssembleAndDispatch(t *testing.T) {
-	t.Parallel()
-
-	t.Run("open+forward: no lifecycle, bare agent", func(t *testing.T) {
-		t.Parallel()
-		plan, agent, err := dockeregress.Assemble(dockeregress.Input{
-			Target:      "opencode",
-			Image:       "img",
-			Mode:        "open",
-			Credentials: "forward",
-			Sid:         "s", EgDir: "/st", UID: "1000", GID: "1000",
-			PidsLimit: 4096,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if dockeregress.NeedsLifecycle(plan) {
-			t.Error("firewall (no model) must not need the lifecycle")
-		}
-		if agent.Image != "img" || agent.User != "1000:1000" || !agent.Interactive {
-			t.Errorf("agent config wrong: %+v", agent)
-		}
-		if agent.PidsLimit != 4096 {
-			t.Errorf("agent.PidsLimit = %d, want 4096", agent.PidsLimit)
-		}
-		if strings.Join(agent.ExtraArgs, " ") != strings.Join(plan.AgentArgs, " ") {
-			t.Errorf("agent.ExtraArgs must be the plan's AgentArgs")
-		}
-	})
-
-	t.Run("firewall + provider: full topology through the lifecycle", func(t *testing.T) {
-		t.Parallel()
-		plan, _, err := dockeregress.Assemble(dockeregress.Input{
-			Target: "claudecode",
-			Image:  "img",
-			Mode:   "firewall",
-			Sid:    "s", EgDir: "/st", UID: "1000", GID: "1000",
-			Providers: []string{"anthropic"}, BrokerFile: "/st/inject/broker.env",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !dockeregress.NeedsLifecycle(plan) {
-			t.Error("firewall must go through the lifecycle")
-		}
-		if !plan.UsesSquid || plan.CAWaitPath == "" {
-			t.Errorf("firewall plan should use squid + set CAWaitPath: %+v", plan)
-		}
-	})
-
-	t.Run("firewall + local model: lifecycle via the ollama sidecar", func(t *testing.T) {
-		t.Parallel()
-		plan, _, err := dockeregress.Assemble(dockeregress.Input{
-			Target:     "opencode",
-			Image:      "img",
-			Mode:       "broker",
-			LocalModel: "gemma4",
-			Sid:        "s", EgDir: "/st", UID: "1000", GID: "1000",
-			ModelsDir: "/models",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !dockeregress.NeedsLifecycle(plan) {
-			t.Error("firewall + --local-model must need the lifecycle (ollama sidecar)")
-		}
-		if plan.OllamaContainer == "" {
-			t.Error("local-model plan must set OllamaContainer")
-		}
-	})
-
-	t.Run("shell + data-dir affect the agent config", func(t *testing.T) {
-		t.Parallel()
-		_, agent, err := dockeregress.Assemble(dockeregress.Input{
-			Target:  "opencode",
-			Image:   "img",
-			Mode:    "broker",
-			DataDir: "/data",
-			Shell:   true,
-			Sid:     "s", EgDir: "/st", UID: "1", GID: "1",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if agent.Entrypoint != "bash" {
-			t.Errorf("--shell must set Entrypoint=bash, got %q", agent.Entrypoint)
-		}
-		var found bool
-		for _, m := range agent.Mounts {
-			if m.Host == "/data" && m.Container == "/workspace/data" && m.ReadOnly {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("--data-dir must add a read-only /workspace/data mount: %+v", agent.Mounts)
-		}
-	})
-
-	t.Run("declared env is forwarded by bare name, never as KEY=VALUE", func(t *testing.T) {
-		t.Parallel()
-		_, agent, err := dockeregress.Assemble(dockeregress.Input{
-			Target: "cursor",
-			Image:  "img",
-			Mode:   "broker",
-			Sid:    "s", EgDir: "/st", UID: "1", GID: "1",
-			Env: []string{"CURSOR_API_KEY"},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		argv := strings.Join(runner.DockerRunArgs(agent), " ")
-		if !strings.Contains(argv, "-e CURSOR_API_KEY") {
-			t.Errorf("argv must forward the declared env by name: %s", argv)
-		}
-		if strings.Contains(argv, "CURSOR_API_KEY=") {
-			t.Errorf("argv must never contain the env value: %s", argv)
-		}
-	})
-
-	t.Run("firewall sentinel + broker mount from host .env key", func(t *testing.T) {
-		t.Parallel()
-		plan, agent, err := dockeregress.Assemble(dockeregress.Input{
-			Target: "cursor",
-			Image:  "img",
-			Mode:   "firewall",
-			Sid:    "s", EgDir: "/st", UID: "1", GID: "1",
-			Providers: []string{"cursor"}, BrokerFile: "/st/inject/broker.env",
-			Env: []string{
-				"CURSOR_API_KEY=" + entrypoint.DefaultSentinel,
-				"PROVEO_CREDENTIAL_BROKER_KEYS=CURSOR_API_KEY",
-			},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		argv := strings.Join(runner.DockerRunArgs(agent), " ")
-		if !strings.Contains(argv, "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
-			t.Errorf("firewall agent must get sentinel CURSOR_API_KEY: %s", argv)
-		}
-		if !strings.Contains(argv, "PROVEO_CREDENTIAL_BROKER_KEYS=CURSOR_API_KEY") {
-			t.Errorf("firewall agent must get broker key list: %s", argv)
-		}
-		sidecar := strings.Join(flattenSidecars(plan), " ")
-		if !strings.Contains(sidecar, "PROVEO_EGRESS_PROVIDERS=cursor") {
-			t.Errorf("proxy must pin cursor: %s", sidecar)
-		}
-		if !strings.Contains(sidecar, "/broker:ro") {
-			t.Errorf("proxy must mount broker dir: %s", sidecar)
-		}
-	})
-
-	t.Run("unknown mode errors", func(t *testing.T) {
-		t.Parallel()
-		if _, _, err := dockeregress.Assemble(dockeregress.Input{
-			Mode: "nope", Sid: "s", EgDir: "/st"}); err == nil {
-			t.Error("dockeregress.Assemble with an unknown mode must error")
-		}
-	})
-}
-
-func flattenSidecars(p egress.Plan) []string {
-	var out []string
-	for _, c := range p.Sidecars {
-		out = append(out, c...)
-	}
-	return out
-}
-
 func TestAgentExitDiscrimination(t *testing.T) {
 	t.Parallel()
 	var ae backend.ExitError
@@ -260,7 +88,7 @@ func TestProviderDetectFromInvocationDotEnv(t *testing.T) {
 	if err := os.WriteFile(envPath, []byte("CURSOR_API_KEY=from-pwd\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	hostEnv := workspace.EnvFileSource(root, scope, "")
+	hostEnv := workspace.ProjectEnvFile(root, scope, "")
 	lookup := credentials.ProviderLookup(hostEnv)
 	detected := provider.Detect(lookup)
 	if len(detected) != 1 || detected[0] != "cursor" {
@@ -268,92 +96,19 @@ func TestProviderDetectFromInvocationDotEnv(t *testing.T) {
 	}
 }
 
-// The egress sidecar gets the same recency rule as the harness image.
-func TestEgressProxyImagePrefersANewerLocalBuildUnlessOverridden(t *testing.T) {
-	t.Parallel()
-	resolve := func(ref string) (string, bool) {
-		if ref != "proveo/egress-proxy:latest" {
-			t.Errorf("resolved %q, want the published sidecar reference", ref)
-		}
-		return "proveo/egress-proxy:local", true
-	}
-	env := func(map[string]string) func(string) string {
-		return func(string) string { return "" }
-	}
-	if got, local := egressProxyImage(env(nil), resolve); got != "proveo/egress-proxy:local" || !local {
-		t.Errorf("no override: got (%q, %v), want the newer local build", got, local)
-	}
-	override := func(k string) string {
-		if k == "PROVEO_EGRESS_PROXY_IMAGE" {
-			return " ghcr.io/acme/egress:pinned "
-		}
-		return ""
-	}
-	notCalled := func(string) (string, bool) {
-		t.Error("an explicit override must not consult the local image store")
-		return "", false
-	}
-	if got, local := egressProxyImage(override, notCalled); got != "ghcr.io/acme/egress:pinned" || local {
-		t.Errorf("override: got (%q, %v), want the trimmed override and not-local", got, local)
-	}
-}
-
-func TestReviewSupportedRequiresLinuxAndALocalDaemon(t *testing.T) {
-	t.Parallel()
-	none := func(string) string { return "" }
-	ok, why := dockeregress.ReviewSupported(none)
-	if runtime.GOOS == "linux" {
-		if !ok {
-			t.Errorf("linux host reported unsupported: %q", why)
-		}
-	} else if ok || why != "linux only" {
-		t.Errorf("non-linux host = (%v, %q), want (false, \"linux only\")", ok, why)
-	}
-
-	remote := func(k string) string {
-		if k == "DOCKER_HOST" {
-			return "tcp://10.0.0.5:2375"
-		}
-		return ""
-	}
-	if ok, why := dockeregress.ReviewSupported(remote); ok {
-		t.Error("a remote daemon must be unsupported: the bind mount lands on another machine")
-	} else if runtime.GOOS == "linux" && why != "needs a local docker daemon" {
-		t.Errorf("remote daemon reason = %q, want it to name the daemon", why)
-	}
-
-	local := func(k string) string {
-		if k == "DOCKER_HOST" {
-			return "unix:///var/run/docker.sock"
-		}
-		return ""
-	}
-	if ok, _ := dockeregress.ReviewSupported(local); ok != (runtime.GOOS == "linux") {
-		t.Errorf("a local unix daemon should track GOOS, got %v on %s", ok, runtime.GOOS)
-	}
-}
-
-func TestSandboxSpecShellOverridesCommandAndAddsDataDir(t *testing.T) {
+func TestSandboxSpecAddsTheDataDirReadOnly(t *testing.T) {
 	// A real directory: an sbx workspace must BE one, so the spec drops binds
 	// that are not (the project .env arrives as a file bind and sbx refuses it).
 	dataDir := t.TempDir()
 	in := sandbox.Input{
 		Target:   "claudecode",
 		Image:    "proveo/claudecode:latest",
-		Shell:    true,
 		Forwards: false,
 		Man:      manifest.Manifest{Name: "claudecode"},
 		Lookup:   func(string) string { return "" },
-		Workdir:  "/app",
 		DataDir:  dataDir,
 	}
 	cfg, _, secrets := sandbox.Spec(in)
-	if cfg.Agent != sbx.ShellAgent {
-		t.Errorf("shell mode agent = %q, want %q", cfg.Agent, sbx.ShellAgent)
-	}
-	if len(cfg.Command) != 0 {
-		t.Errorf("shell mode command = %v, want none — the agent IS the shell", cfg.Command)
-	}
 	if len(secrets) != 0 {
 		t.Errorf("secrets = %v, want none without credentials", secrets)
 	}
@@ -391,7 +146,7 @@ func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
 		t.Fatalf("want the kept line plus the transcript, got %d: %q", len(got), got)
 	}
 	// The first line stays the actionable one: it is what an operator reads first.
-	for _, want := range []string{"kept for diagnosis", "sbx exec " + name, "sbx rm --force " + name} {
+	for _, want := range []string{"kept for diagnosis", "sbx exec -it " + name + " bash", "sbx rm --force " + name} {
 		if !strings.Contains(got[0], want) {
 			t.Errorf("first line dropped %q: %q", want, got[0])
 		}
@@ -591,18 +346,15 @@ func TestSbxHomeLeavesUnrelatedRunsAlone(t *testing.T) {
 
 // The DEF picks the agent. A variant target is another image of the same def,
 // so claudecode-browser is served by `claude` and not by an agent of its own.
-func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
+func TestSandboxSpecUsesTheHarnessAgent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name, def, target, want string
-		shell                   bool
 	}{
 		{name: "claudecode", def: "claudecode", target: "claudecode", want: "claude"},
 		{name: "claudecode variant", def: "claudecode", target: "claudecode-browser", want: "claude"},
 		{name: "cursor", def: "cursor", target: "cursor", want: "cursor"},
 		{name: "cursor variant", def: "cursor", target: "cursor-browser", want: "cursor"},
-		{name: "claudecode shell", def: "claudecode", target: "claudecode", want: sbx.ShellAgent, shell: true},
-		{name: "cursor shell", def: "cursor", target: "cursor", want: sbx.ShellAgent, shell: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -610,11 +362,11 @@ func TestSandboxSpecUsesTheHarnessAgentUnlessShellIsAsked(t *testing.T) {
 			in := sandbox.Input{
 				Man:    manifest.Manifest{Name: tc.def},
 				Lookup: func(string) string { return "" },
-				Target: tc.target, Image: "proveo/x:local", Shell: tc.shell,
+				Target: tc.target, Image: "proveo/x:local",
 			}
 			if cfg, _, _ := sandbox.Spec(in); cfg.Agent != tc.want {
-				t.Errorf("Spec(def %q, target %q, shell=%v).Agent = %q, want %q",
-					tc.def, tc.target, tc.shell, cfg.Agent, tc.want)
+				t.Errorf("Spec(def %q, target %q).Agent = %q, want %q",
+					tc.def, tc.target, cfg.Agent, tc.want)
 			}
 		})
 	}
@@ -824,6 +576,35 @@ func TestSandboxSpecHandsTheAgentItsManifestDefaults(t *testing.T) {
 			if kit.Environment == nil || kit.Environment.Variables[k] != v {
 				t.Errorf("%s: Kit environment lacks %s", tc.why, w)
 			}
+		}
+	}
+}
+
+func TestSessionAliveReadsThePidFromTheSessionID(t *testing.T) {
+	if !sessionAlive(fmt.Sprintf("proveo-1-%d", os.Getpid())) {
+		t.Error("this test's own pid must read as alive")
+	}
+	for _, sid := range []string{"proveo-1-0", "proveo-1-x", "other-1-1", "proveo"} {
+		if sessionAlive(sid) {
+			t.Errorf("%q must not read as alive", sid)
+		}
+	}
+}
+
+func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		err    error
+		want   int
+		wantOK bool
+	}{
+		{"the agent's own code", fmt.Errorf("run: %w", backend.ExitError{Code: 137}), 137, true},
+		{"a SIGTERM stop", fmt.Errorf("run: %w", backend.Stopped{Signal: syscall.SIGTERM}), 143, true},
+		{"a SIGHUP stop", backend.Stopped{Signal: syscall.SIGHUP}, 129, true},
+		{"proveo's own failure", errors.New("no sbx"), 0, false},
+	} {
+		if got, ok := exitCode(c.err); got != c.want || ok != c.wantOK {
+			t.Errorf("exitCode(%s) = %d, %v; want %d, %v", c.name, got, ok, c.want, c.wantOK)
 		}
 	}
 }

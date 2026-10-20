@@ -150,7 +150,7 @@ func TestChromeBridgeHalvesAgreeOnTheWireContract(t *testing.T) {
 	if !strings.Contains(lib, `proveo_chrome_bridge "$target"`) {
 		t.Error("proveo_seed must start the bridge, or the sbx backend never gets one")
 	}
-	if !strings.Contains(lib, `if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then`) {
+	if !strings.Contains(lib, `if proveo_env_on PROVEO_CHROME_READY; then`) {
 		t.Error("proveo_chrome_bridge must be idempotent: two relays leave Claude Code choosing by mtime")
 	}
 	ep := readRepoFile(t, "defs/claudecode/mcp/entrypoint.sh")
@@ -185,4 +185,29 @@ func seedBody(t *testing.T, lib string) string {
 		t.Fatal("proveo_seed() not found in entrypoint-lib.sh")
 	}
 	return m[1]
+}
+
+func TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness(t *testing.T) {
+	t.Parallel()
+	readmes, err := filepath.Glob(filepath.Join(repoRoot(t), "defs", "*", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, s := range imagebuild.Specs {
+		if s.Dockerfile != "defs/base-node-browser/Dockerfile" || s.Needs == "" {
+			continue
+		}
+		for _, path := range readmes {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range strings.Split(string(b), "\n") {
+				if strings.Contains(line, "`proveo/"+name+"`") && strings.Contains(line, "`proveo/base-node-browser`") {
+					t.Errorf("%s says %s builds from proveo/base-node-browser; it is the browser layer on proveo/%s:\n%s",
+						filepath.Base(filepath.Dir(path))+"/README.md", name, s.Needs, line)
+				}
+			}
+		}
+	}
 }

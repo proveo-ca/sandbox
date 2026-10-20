@@ -7,19 +7,17 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' covers: internal/imagebuild/**
 ' covers: internal/imagetest/imagetest.go
 ' covers: internal/imagetest/detached_smoke_test.go
-' covers: defs/sidecars/*/Dockerfile
 ' covers: internal/maintain/**
 ' covers: cmd/proveo/maintain_cmd.go
 ' covers: cmd/proveo/provision.go
 ' covers: internal/contract/image_resolution_test.go
 ' covers: internal/contract/import_boundary_test.go
-' covers: cmd/proveo-dev/debug.go
 '
 ' ── EVERY TARGET HAS THE SAME SHAPE ─────────────────────────────────────────
 ' One row per registry target in internal/imagebuild/targets.go `Specs`; one
 ' entry point, Builder.BuildTarget(name, tag, Options{Push, NoCache}). The
 ' per-def build.sh/ensure.sh pairs and defs/lib/docker-build.sh held this shape
-' until 2026-09-22 (_spec/_plans/host-shell-to-go.puml, P2).
+' until 2026-09-22 (_spec/_refactors/host-shell-to-go.puml, P2).
 '   ref = TargetRef(name, tag)   Spec.Repo, or RefRepo($PROVEO_<X>_IMAGE)
 '                                the override names the REPO; --tag sets the tag
 '   tag ""                       -> latest (and Build refuses latest for --load)
@@ -65,17 +63,24 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 '
 ' A repo-root context is what makes the root .dockerignore load-bearing: without
 ' it, 201 MB of node_modules and .git reach the daemon on every harness build.
+' EXCEPTION, cecli (2026-10-17, N17): defs/cecli/Dockerfile.dockerignore is a
+' Dockerfile-specific ignore file, and BuildKit then IGNORES the root one for
+' that build (measured on buildx v0.36.1 by the coordinator), so it repeats the
+' root denylist (_spec/_devops/image-size-reduction.puml, item 3 UPDATE).
 '
-' A THIRD SHAPE, AND IT CONSTRAINS THE GO TREE. The sidecars build Go from a
-' PARTIAL context: defs/sidecars/egress-proxy/Dockerfile copies go.mod, cmd/ and
-' internal/ — no root-level .go files and no defs/ tree. So any package under
-' internal/ that imports the ROOT package (where the embeds live) makes that
-' image fail with "no required module provides package". The root package is for
-' main packages to hand down: internal/manifest takes an fs.FS for exactly this
-' reason, and internal/provider now does too. Two contract tests hold it — no
-' internal package may import the root, and `go list -deps ./cmd/proveo-egress`
-' must not reach it either, because enumerating deps is cheap and a full docker
-' build is not. Neither existed when the bridge tables were first embedded.
+' A THIRD SHAPE, AND IT CONSTRAINS THE GO TREE. A Go build from a PARTIAL
+' context — go.mod, cmd/ and internal/, no root-level .go files and no defs/
+' tree — fails with "no required module provides package" the moment a package
+' under internal/ imports the ROOT package (where the embeds live). The root
+' package is for main packages to hand down: internal/manifest takes an fs.FS
+' for exactly this reason, and internal/provider now does too. Two contract
+' tests hold it (internal/contract/import_boundary_test.go): no internal package
+' may import the root, and cmd/proveo-entrypoint's deps must not reach it,
+' because enumerating deps is cheap and a full docker build is not.
+' HISTORY: the shape was first forced by defs/sidecars/egress-proxy and the
+' `go list -deps ./cmd/proveo-egress` check; the egress-proxy, squid and
+' mitmproxy images, their build/publish targets (internal/imagebuild/targets.go,
+' internal/maintain KindSidecar) and cmd/proveo-egress were DELETED 2026-10-16.
 '
 ' ── HELPERS WITH NON-OBVIOUS BODIES ─────────────────────────────────────────
 ' imagetest's `created` (internal/imagetest/imagetest.go) reads an image's build
@@ -101,6 +106,12 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' Only :latest is ever resolved by maintain.ResolveImage (and so by
 ' imagetest.Resolve). An explicit :v2 or a digest is a deliberate choice by the
 ' caller and is returned untouched.
+' N31 (DONE (wt) 2026-10-18, MEASURED internal/imagetest/imagetest.go:22-24):
+' imagetest.Resolve(target, ref) takes the build target too. A
+' PROVEO_TEST_<TARGET>_IMAGE pin (internal/imagetest/pin.go PinnedRef) is
+' returned AS GIVEN — before N31 a pinned :latest could still be swapped for a
+' newer :local, so a pin did not pin. With no pin it resolves ref by recency as
+' below.
 '
 ' ── ONE RULE, IN ONE PLACE — AND THE SECOND OPINION IS BANNED ───────────────
 ' The detached smoke first named each image with a HARDCODED tag. `proveo build`
@@ -114,8 +125,9 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' none, so TestNoAdHocLocalOverLatestResolvers refuses that loop in any .sh
 ' under defs/, e2e/ and scripts/.
 ' Since host-shell-to-go P3 the image suites hold ONE implementation: each names
-' a repository and imagetest.Resolve calls maintain.ResolveImage per run
-' (TestImageDetachedSmoke's smokeTargets carry no tag). The shell resolver and
+' a target and a repository, and imagetest.Resolve honours that target's pin or
+' calls maintain.ResolveImage per run (TestImageDetachedSmoke's smokeTargets
+' carry no tag, and the detached smoke honours pins too). The shell resolver and
 ' TestShellImageResolverMatchesResolveImage, the parity test that ran it and
 ' ResolveImage over one table, are deleted with it: one implementation cannot
 ' disagree with itself. TestImageSuitesResolveRatherThanPinThePublishTag now
@@ -143,7 +155,7 @@ node "Tag policy" as TAGS <<host>> {
   component "proveo build\n--load → :local (never :latest)" as BUILD <<app>>
   component "proveo deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
   component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
-  component "imagetest.Resolve\ninternal/imagetest/imagetest.go" as SHRESOLVE <<app>>
+  component "imagetest.Resolve(target, ref)\na PROVEO_TEST_<TARGET>_IMAGE pin as given\nelse ResolveImage" as SHRESOLVE <<app>>
 }
 
 node "internal/imagetest\n-tags=image suites" as DEFTESTS <<host>>
@@ -321,7 +333,7 @@ note bottom of SHRESOLVE
   was old, and nothing on the path could have produced a newer one.
 
   Ten sites carried it (four harnesses, their browser and solidity
-  variants, the mitmproxy sidecar). They shared a shell resolver until
+  variants, the since-deleted mitmproxy sidecar). They shared a shell resolver until
   2026-09-22; the Go suites now call ""imagetest\.Resolve"", and
   ""imagetest\.New"" logs the image it chose — because an image silently
   resolving to a published artifact is invisible until something

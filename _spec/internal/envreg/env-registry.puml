@@ -1,0 +1,168 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the one table of PROVEO_* variables proveo's code reads or sets — binaries, images and install scripts — who sets each, how `proveo help env` shows it, and the checks that keep the table and the code equal
+' covers: internal/envreg/**
+' covers: cmd/proveo/env_help.go
+' covers: cmd/proveo/env_help_test.go
+' covers: internal/contract/env_registry_test.go
+' covers: internal/imagebuild/targets.go (Specs: Override, ParentOverride, NeedsOverride)
+' covers: apps/cli/public/cli/install.sh
+' covers: apps/cli/public/cli/install.ps1
+' covers: apps/cli/public/cli/uninstall.sh
+'   the on/off vocabulary, Go and shell  _spec/internal/envflag/env-switches.puml
+'   where `help env` is listed ........ _spec/cmd/proveo/usage.puml
+'   the alias retirement gate ......... _spec/_devops/release-gate.puml
+'   the decision records .............. _spec/_plans/repo-simplification.puml (N8, N32)
+'   open PROVEO_* findings ............ _spec/_plans/repo-simplification.puml (N34-N38)
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT IT REPLACED (N8, then N32 — DONE (wt) 2026-10-18) ─────────────────
+' The first read found about 85 distinct "PROVEO_*" literals in non-test Go,
+' and the operator docs named eight of them. N8 registered the Go side. The env
+' audit then counted 232 distinct tokens outside _spec/, about 96 of them
+' image-side with no registry (reported); N32 brought those into the table.
+'
+' ── THE SHAPE (MEASURED, internal/envreg/envreg.go) ────────────────────────
+'   Scope    Operator — a user sets it on the host
+'            Maintainer — build, release, CI or test tooling sets it
+'            Internal — proveo sets it for its own processes or the sandbox
+'            String() names each for the help headings
+'   Where    bits for who reads it: Binary (proveo's Go: the binaries and the
+'            e2e tests proveo-dev drives) · Image (shell, node or python inside
+'            an agent image) · Installer (install.sh, install.ps1, uninstall.sh)
+'   Var      {Name, Scope, Where, Default, Doc, AliasOf}: Default says what
+'            happens when it is unset, Doc what setting it does, AliasOf the
+'            replacement a deprecated alias stands for
+'   Vars     156 entries, by scope then name: Operator 76, Maintainer 48,
+'            Internal 32
+'   ByScope  the Vars of one scope, in Vars order
+' Lookup, Family, Matches and Scopes were deleted in the fourth-batch review: no
+' non-test code called them.
+' Aliases (reported): PROVEO_EGRESS_ROOT → PROVEO_STATE_ROOT,
+' PROVEO_EGRESS_ENV_FILE → PROVEO_ENV_FILE, PROVEO_CLI_BASE_URL →
+' PROVEO_ASSET_BASE_URL. Each has a retirement in the release gate's ledger.
+' About twenty Doc lines start "Test seam:" — production reads them with a
+' default and only tests set them, e.g. PROVEO_SEED_DONE_MARKER (N27).
+'
+' ONE FAMILY: PROVEO_<TARGET>_IMAGE. It stands for the image override names
+' internal/imagebuild declares: every Override, ParentOverride and
+' NeedsOverride in imagebuild.Specs, including the ones browserOf builds at
+' runtime through envName, such as PROVEO_CODEX_BROWSER_IMAGE. Its Doc says
+' the claudecode* targets take no override, because their Specs rows carry
+' none (MEASURED, targets.go). The test-side PROVEO_TEST_<TARGET>_IMAGE family
+' (N31, internal/imagetest/pin.go) is a test knob and is deliberately NOT here.
+'
+' Doc fixes (reported): PROVEO_HOME, PROVEO_HOST_ADB_PORT and PROVEO_HOST_CDP_PORT
+' name their in-image meanings; PROVEO_LSP_INSTALL takes the on words; PROVEO_VERSION
+' says the installers only label with it and do not pin. Two names still carry
+' two meanings each — PROVEO_HOME and PROVEO_VERSION (N34, PROPOSED).
+'
+' ── `proveo help env` (cmd/proveo/env_help.go) ─────────────────────────────
+' MEASURED: envHelpCmd has no Run, so cobra treats it as a help topic, and root
+' help lists it under "help topics" (cmd/proveo/help.go renderHelp). renderEnvHelp
+' draws an "operator" and a "maintainer" heading through ByScope, one row per
+' variable: the name, then Doc, a reader note, and "(default …)". readerNote
+' appends " · read in the sandbox", " · read by the install scripts", or
+' " · also read …" when the binaries read it too. Internal rows are omitted.
+' README.md "Environment variables" (MEASURED): the page lists what a user or
+' maintainer can set outside the test suites — binary, sandbox and installer
+' reads — and leaves out what proveo sets for itself; test-only knobs are in
+' CONTRIBUTING.md; a variable the sandbox reads goes in the project .env, which
+' a NEW sandbox receives through `sbx create --env-file` (N38: only then).
+'
+' ── THE SCAN (internal/contract/env_registry_test.go, MEASURED) ────────────
+' Two sources. Go string literals in non-test files under cmd/ and internal/
+' (internal/envreg excluded). Every non-Markdown file under packages/lib, defs
+' and the three install scripts. A token counts only when no identifier
+' character precedes it, so a private `_PROVEO_*` shell variable is not a name.
+' Test code is skipped: e2e/, internal/imagetest/, internal/installtest/,
+' testdata, goldens, node_modules, *_test.go, test_* and *.golden.
+' notVariables lists 13 tokens that name no variable: marker lines
+' (PROVEO_RC_*, PROVEO_RULES_*, PROVEO_ANDROID_*), three readonly shell
+' constants, the unexported shell flag PROVEO_CHROME_READY, the heredoc
+' delimiter PROVEO_JDTLS, the log line PROVEO_MODELS and the sentinel
+' PROVEO_SMOKE_READY.
+'
+' ── THE CHECKS ─────────────────────────────────────────────────────────────
+'   TestEveryProveoVariableIsRegistered
+'     every imagebuild override name is covered by name or by the family, and
+'     every scanned token is registered by name, is an override under the
+'     family, or is listed in notVariables. An unrelated PROVEO_FOO_IMAGE fails.
+'   TestEveryRegisteredVariableIsStillUsed
+'     every non-family entry is still named by scanned code; no entry is also in
+'     notVariables; every notVariables token is still named somewhere.
+'   TestEveryAliasNamesARegisteredVariable
+'     every AliasOf names a registered variable.
+'   TestEveryRegisteredReaderMatchesTheCodeThatNamesIt (after the N32 review)
+'     a declared Where bit with no code of that kind naming the variable fails;
+'     image or installer code naming it without the bit fails. Reported: red
+'     via a go overlay, then green.
+' internal/envreg/envreg_test.go pins the table itself; cmd/proveo/env_help_test.go
+' pins the help page (no Internal rows; `help env` runs; root help names it).
+' KNOWN LIMIT (recorded, not fixed): Go names are seen only as whole string
+' literals. A name built with fmt.Sprintf or concatenation escapes the scan; the
+' image overrides are covered only because the test reads imagebuild.Specs.
+title envreg — every PROVEO_* variable proveo's code reads or sets, who sets it, and who reads it
+
+node "internal/envreg" as REG <<host>> {
+  database "Vars — 156 entries\nscope, then name\nWhere · AliasOf" as VARS <<db>>
+  component "PROVEO_<TARGET>_IMAGE\nthe one family entry" as FAM <<app>>
+}
+
+node "Scope" as SC <<host>> {
+  component "operator · 76\na user, on the host" as OPS <<app>>
+  component "maintainer · 48\nbuild · release · CI · tests" as MNT <<app>>
+  component "internal · 32\nproveo, for itself and the sandbox" as INT <<app>>
+}
+
+component "proveo help env\nByScope · readerNote" as HELP <<app>>
+component "scanned code\nGo literals · packages/lib · defs\ninstall scripts" as LIT <<app>>
+component "imagebuild.Specs\nOverride · ParentOverride · NeedsOverride" as OVR <<app>>
+component "env_registry_test.go\nfour checks" as TESTS <<app>>
+component "notVariables\nmarkers · constants · sentinels" as NOTV <<app>>
+component "test code · Markdown\nnot scanned" as SKIP <<error>>
+
+VARS ARROW_MAIN SC
+OPS ARROW_MAIN HELP : one row each
+MNT ARROW_MAIN HELP : one row each
+INT ARROW_OPTIONAL HELP : omitted
+TESTS ARROW_MAIN LIT : every token registered
+TESTS ARROW_MAIN OVR : every override covered
+TESTS ARROW_MAIN VARS : every entry still named,\nevery Where bit true
+NOTV ARROW_OPTIONAL LIT : tokens that are no variable
+OVR ARROW_MAIN FAM : the only names it admits
+SKIP ARROW_OPTIONAL LIT : excluded
+
+note right of SC
+  **Scope records who sets a variable.**
+  The help page lists operator and maintainer
+  rows only, because internal variables carry
+  values proveo computes for its own processes
+  and the sandbox.
+end note
+
+note bottom of FAM
+  **The family is checked against real names.**
+  The registry test collects every override
+  name imagebuild.Specs declares, so the family
+  admits exactly those and an unrelated *_IMAGE
+  literal still fails.
+end note
+
+note bottom of TESTS
+  **Four checks keep the table and code equal.**
+  Unregistered names and unused entries fail,
+  aliases must name a registered variable, and
+  each Where bit must match the scanned
+  directories that mention the variable.
+end note
+
+note bottom of SKIP
+  **Test knobs stay out on purpose.** The
+  registry documents what an operator or
+  maintainer sets outside the suites, so e2e,
+  imagetest, installtest and every individual
+  test file are skipped.
+end note
+@enduml

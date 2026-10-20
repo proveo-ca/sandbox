@@ -3,7 +3,55 @@
 ' purpose: the codex def's resolved topology — the harness layer, the seeded $CODEX_HOME, the loop, and the container boundary
 ' covers: defs/codex/**
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: internal/contract/image_size_test.go
 '   how the harness is steered and gated _spec/defs/codex/codex-paradigm.puml
+'   the empty-apt guard ................ _spec/defs/harness-image-layers.puml
+'
+' ── NO DOCKER BINARIES OF ITS OWN (N14, DONE (wt) 2026-10-17) ──────────────
+' codex was the one harness image Cut 4 missed: its Dockerfile still installed
+' docker-29.7.2's static tarball and symlinked dockerd, shadowing the Engine
+' proveo/base inherits from the sbx template. codex was absent from
+' image_size_test.go harnessDockerfiles, so TestNoHarnessImageShipsDockerBinaries
+' never read it. The user: "Delete the layer (Recommended)". MEASURED: the RUN
+' is gone from defs/codex/Dockerfile, codex heads harnessDockerfiles
+' (image_size_test.go:173-174), and the test was red before, green after
+' (reported). The group, the start-docker LABEL (Dockerfile:47-50 since N26)
+' and iptables stay — _spec/_devops/image-size-reduction.puml, Cut 4.
+'
+' ── NO APT LAYER OF ITS OWN (N26, DONE (wt) 2026-10-18) ────────────────────
+' The image installs nothing through apt. Its apt RUN named no package: it
+' paid an `apt-get update` and two cache mounts (proveo-codex-apt-cache,
+' proveo-codex-apt-lists) for nothing, then ran `proveo-harden /usr /opt`.
+' MEASURED: the RUN is deleted, and the file calls proveo-harden nowhere.
+' base-node-lsp already runs that pass over /usr /opt, and only user and group
+' edits sit between FROM and where the layer was (Dockerfile:13-41).
+' internal/contract TestEveryAptInstallNamesAPackage now fails any tracked
+' Dockerfile whose `apt-get install` names no package; it found opencode's twin.
+' Image (MEASURED by the coordinator): rebuilt with the cache off, `docker
+' history` shows no apt layer, and TestImageCodex passes.
+' defs/codex/README.md's variants table now lists proveo/codex as the base of
+' proveo/codex-browser; TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness
+' (internal/contract/browser_layer_test.go) refuses the old claim in any README.
+'
+' ── AUTH: THE LOGIN FILE IS A CREDENTIAL (moved from source, N14) ──────────
+' Two ways in: a ChatGPT-plan login at $CODEX_HOME/auth.json, which the durable
+' proveo home carries between runs, or OPENAI_API_KEY. With both present the
+' login wins — codex's own default — and proveo withholds the competing key
+' host-side for the same reason (_spec/internal/credentials/
+' credential-decisions.puml: a login on disk out-ranks an env token).
+' So the .codex home mount declares NO deny list — claudecode's posture, not
+' cursor's. `codex login` writes ~/.codex/auth.json and a ChatGPT-plan run IS
+' that file. Scrubbing it would make every subscription session log in again,
+' and would hide the login from PersistedLogin, which is what stops proveo
+' injecting a competing API key.
+'
+' ── codex-browser ───────────────────────────────────────────────────────────
+' defs/base-node-browser/Dockerfile applied onto proveo/codex (browserOf in
+' internal/imagebuild/targets.go; _spec/defs/browser-layer.puml), so it is a
+' strict superset: the language servers the entrypoint wires in as MCP servers
+' are still there. Selected per run as the `browser` addon, never as a target
+' of its own. (The manifest comment said FROM proveo/base-node-browser; that
+' predates the layer-on-harness inversion and was not carried over.)
 skinparam linetype ortho
 skinparam ranksep 120
 skinparam nodesep 80

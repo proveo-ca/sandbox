@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -13,7 +12,7 @@ import (
 func TestHostModelAddsTheOllamaPortToTheKit(t *testing.T) {
 	t.Setenv(sbx.EnvAgentKit, "1")
 	in := specInput("hermes")
-	in.AgentEnv = egress.LocalModelEnv("qwen3.8:latest", sbx.HostOllamaGuestBase)
+	in.AgentEnv = sbx.LocalModelEnv("qwen3.8:latest")
 	_, kit, _ := Spec(in)
 	if !has(kit.Permissions.Network.Allow, sbx.HostOllamaPolicyHost) {
 		t.Errorf("network.allow = %v, missing %q — sbx matches host.docker.internal as localhost:<port>",

@@ -145,7 +145,7 @@ skinparam noteTextAlignment left
 ' (`CSI ?1002;1006h`) and one buried inside a repaint are both found. A sequence
 ' truncated at a read boundary is carried into the next read, bounded by
 ' `maxModeCarry` (128B, mirroring `maxHeld`) so a long run that never reaches a
-' final byte is released rather than hoarded.
+' final byte is dropped from the carry rather than hoarded.
 '
 ' Tracking-on is a `uint16` BITMASK of the modes that make a terminal SEND
 ' reports: 9 (X10 press-only), 1000, 1001, 1002, 1003. A partial disable —

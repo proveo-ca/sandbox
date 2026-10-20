@@ -18,36 +18,44 @@ skinparam noteTextAlignment left
 ' never consults a manifest. That is the whole discipline: the moment a row can
 ' work out its own answer, the row becomes a second place the decision is made,
 ' and the header stops being a report of the run and starts being a claim about
-' it. Observability, EnforcedBy, MCPGateway and ResolveImageChoice all take what
-' they need as arguments for exactly this reason.
+' it. MCPGateway and ResolveImageChoice take what they need as arguments for
+' exactly this reason. Observability and EnforcedBy take nothing since
+' 2026-10-16: with one backend their answer is a constant, not a decision.
+'
+' ── 2026-10-16: ONE BACKEND, FOURTEEN ROWS (MEASURED) ──────────────────────
+' The docker+egress backend is deleted ("Retire Docker egress"). The rows that
+' described its tier — "egress tier", "brokered", "reachable hosts", "harness
+' hosts" — are gone, and Render writes 14 rows
+' (TestPostureRendersEveryRowItDeclares). Their values now read:
+'   credentials    "broker (sbx proxy)", or "forward (the key rides the sandbox
+'                  env)" under `--credentials forward` (run.credentialsPosture,
+'                  MEASURED at the last read; it read "broker" unconditionally
+'                  earlier the same day)
+'   enforced by    "sbx — the host's network policy + credential proxy"
+'   observability  "sbx/policy-log.json — the daemon's allowed/blocked hosts
+'                  (no MITM, so no DLP or body scan)"
 '
 ' ── WHAT THE GOLDENS PIN ───────────────────────────────────────────────────
-' cmd/proveo/posture_golden_test.go renders both backends and pins the bytes. The
-' wording differs per backend on purpose ("proveo runs no Squid or MITM" against
-' "squid + mitmproxy sidecars"), and that difference is the thing most likely to
-' rot silently, because nothing else fails when a row describes the wrong backend.
+' cmd/proveo/posture_golden_test.go renders the posture and pins the bytes:
+' one golden, posture-sbx. HISTORY: there was one golden per backend, because
+' the wording differed on purpose ("proveo runs no Squid or MITM" against
+' "squid + mitmproxy sidecars"); posture-docker.golden went with the backend.
 '
 ' The block is what an operator reads AFTER a failure, and until the goldens
 ' landed NOTHING asserted it. Order was never the exposure — runlog.Log.Fields
 ' sorts the keys, so it was already stable. The SET and the WORDING were: a row
 ' could appear, vanish or change its sentence and no test would notice.
 '
-' ONE GOLDEN PER BACKEND, because the two differ in exactly the three places
-' that have been wrong before — who enforces egress, what evidence exists, and
-' whether an sbx MCP gateway is even a question.
-'
 ' The goldens pin bytes; one property is pinned separately and is the reason the
 ' split was made. Every row the block reports is NON-EMPTY for a fully-resolved
 ' run, so a field added to Posture and left unset fails in the suite rather than
 ' printing "(unset)" to an operator mid-incident.
 '
-' ── KNOWN OVERSTATEMENT, DELIBERATELY LEFT ─────────────────────────────────
-' EnforcedBy says "sbx — Kit network allowlist + credential proxy" whatever sbx's
-' global baseline is. On an allow-all host that allowlist ADDS reach rather than
-' limiting it, so the row overstates. It is left standing and recorded here rather
-' than quietly fixed: the same finding governs decision D2, and the egress row
-' already tells the operator the truth at the point of choosing
-' (_spec/internal/sbx/policy-baseline.puml).
+' ── RESOLVED 2026-10-16: THE ENFORCED-BY OVERSTATEMENT ─────────────────────
+' EnforcedBy said "sbx — Kit network allowlist + credential proxy" whatever sbx's
+' global baseline was; on an allow-all host the Kit allowlist ADDS reach, so the
+' row overstated. It now names "the host's network policy", which is what
+' decides (_spec/internal/sbx/policy-baseline.puml).
 title internal/posture — one value, two readers, no decisions
 
 participant "run.buildPosture" as RUN <<app>>

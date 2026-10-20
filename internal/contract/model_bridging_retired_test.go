@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/retire-model-bridging.puml
+// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
 package contract
 
 import (
@@ -9,11 +9,7 @@ import (
 	"testing"
 )
 
-// The retirement, asserted rather than assumed. proveo no longer chooses an
-// agent's model: there are no bridge tables, no role-var reads, and no def
-// entrypoint that maps one onto the variable its harness reads. An agent's
-// model comes from its own saved config, and on a first run from its own
-// default.
+// The retirement, asserted rather than assumed.
 func repoFile(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", rel))
@@ -24,13 +20,6 @@ func repoFile(t *testing.T, rel string) string {
 }
 
 // shellCode is repoFile minus its comment lines.
-//
-// The guards below have to be comment-BLIND or comment-AWARE, and blind is what
-// they were. This repo's house style is to name the deleted machinery in prose
-// exactly where it used to live — the plan does it, model-alias-bridges.puml
-// does it, and the entrypoint that lost apply_model_bridges says so. A guard
-// that greps the whole file makes that habit unspellable and fires on the
-// explanation instead of the code, which is how a guard gets deleted.
 func shellCode(t *testing.T, rel string) string {
 	t.Helper()
 	var keep []string
@@ -72,25 +61,25 @@ func TestNoEntrypointBridgesAModelByRole(t *testing.T) {
 	}
 }
 
-// The credential bridges are a DIFFERENT mechanism that happens to share a
-// naming convention, and deleting the model half once took them with it.
-func TestCredentialBridgesSurvivedTheRetirement(t *testing.T) {
-	src := repoFile(t, "packages/lib/entrypoint-lib.sh")
-	for _, want := range []string{"_apply_env_bridge()", "apply_env_bridges()", "GOOGLE_GENERATIVE_AI_API_KEY"} {
-		if !strings.Contains(src, want) {
-			t.Errorf("entrypoint-lib.sh lost %q. GEMINI_API_KEY -> GOOGLE_GENERATIVE_AI_API_KEY "+
-				"bridges a CREDENTIAL, not a model, and it is what the Go/bash parity test "+
-				"compares; removing it silently unauthenticates Gemini.", want)
+// TestOneGoogleKeyBridgeRemains pins bridge_google_keys as the only credential alias in the prelude.
+func TestOneGoogleKeyBridgeRemains(t *testing.T) {
+	src := shellCode(t, "packages/lib/entrypoint-lib.sh")
+	if n := strings.Count(src, "\nbridge_google_keys() {"); n != 1 {
+		t.Errorf("entrypoint-lib.sh defines bridge_google_keys %d times, want 1", n)
+	}
+	for _, gone := range []string{"_apply_env_bridge", "apply_env_bridges", "_normalize_model", "_model_provider"} {
+		if strings.Contains(src, gone) {
+			t.Errorf("entrypoint-lib.sh still carries %s beside bridge_google_keys", gone)
+		}
+	}
+	for _, rel := range []string{"defs/opencode/entrypoint.sh", "defs/hermes/entrypoint.sh"} {
+		if strings.Contains(shellCode(t, rel), "apply_env_bridges") {
+			t.Errorf("%s still calls apply_env_bridges", rel)
 		}
 	}
 }
 
 // A def may not hand-roll what the tables used to do.
-//
-// Matched on a WORD BOUNDARY, and that is the whole difficulty: an agent's own
-// variables are named after the same roles — CECLI_EDITOR_MODEL,
-// OPENCODE_SMALL_MODEL — and those are exactly what SHOULD remain. A substring
-// test flags every one of them and would be deleted within a week.
 func TestNoEntrypointReadsARoleName(t *testing.T) {
 	roles := map[string]*regexp.Regexp{
 		"ARCHITECT_MODEL": regexp.MustCompile(`(^|[^0-9A-Za-z_])ARCHITECT_MODEL\b`),
@@ -126,15 +115,7 @@ func TestTheRoleNameGuardActuallyFires(t *testing.T) {
 	}
 }
 
-// THE SEED MAY NOT NAME A MODEL BY ENVIRONMENT. This is the defect the
-// retirement actually shipped: opencode's seeds pinned every model slot to
-// "{env:OPENCODE_MODEL}", the bridge tables were what filled it, and opencode
-// substitutes an UNSET {env:...} with the EMPTY STRING. So the run after the
-// deletion wrote model="" into the DURABLE HOME, where it outlives the session —
-// which is the opposite of "the agent's own default applies".
-//
-// Checked in Go as well as in defs/opencode/tests, because the shell suite needs
-// a built image and this needs to fail in `go test ./...`.
+// THE SEED MAY NOT NAME A MODEL BY ENVIRONMENT.
 func TestNoOpencodeSeedNamesAModelByEnvironment(t *testing.T) {
 	for _, rel := range []string{
 		"defs/opencode/sample_opencode.json",
@@ -150,11 +131,7 @@ func TestNoOpencodeSeedNamesAModelByEnvironment(t *testing.T) {
 }
 
 // --local-model IS THE ONE CALLER THAT STILL CHOOSES, and opencode is the one
-// harness that needed the bridge to do it. cecli sets CECLI_MODEL from
-// PROVEO_LOCAL_MODEL itself and claudecode gets ANTHROPIC_MODEL from `docker -e`
-// (internal/egress/plan.go); opencode's entrypoint registered the ollama PROVIDER
-// but never selected the model, because apply_model_bridges did. Q2 is deferred,
-// so this path must keep working.
+// harness that needed the bridge to do it.
 func TestLocalModelStillSelectsAModelForOpencode(t *testing.T) {
 	src := repoFile(t, "defs/opencode/entrypoint.sh")
 	if !strings.Contains(src, `.model = ("ollama/" + $model)`) {
@@ -174,7 +151,7 @@ func TestEveryHarnessNamesItsLocalModelWithoutARoleName(t *testing.T) {
 	for _, c := range []struct{ rel, want string }{
 		{"defs/cecli/entrypoint.sh", `CECLI_MODEL="openai/${PROVEO_LOCAL_MODEL}"`},
 		{"defs/opencode/entrypoint.sh", `OPENCODE_MODEL="ollama/$model"`},
-		{"internal/egress/plan.go", `"-e", "ANTHROPIC_MODEL=" + model`},
+		{"internal/sbx/host_ollama.go", `"ANTHROPIC_MODEL=" + model`},
 	} {
 		if !strings.Contains(repoFile(t, c.rel), c.want) {
 			t.Errorf("%s no longer names its local model (%s). --local-model is the one caller "+
@@ -197,25 +174,16 @@ func TestTheHarnessDocDoesNotAskForRoleBridging(t *testing.T) {
 	}
 }
 
-// THE DEF SUITES ASSERT THE RETIREMENT, NOT THE BRIDGE. Two of them asserted the
-// bridge — that ARCHITECT_MODEL became OPENCODE_MODEL, that it became CURSOR_MODEL
-// — and because an image suite needs a built image, neither failed in
-// `go test ./...`. They would have failed on the next image run instead, with the
-// deletion long since merged.
-//
-// Pinned by naming the REPLACEMENT assertions rather than by banning the role
-// names, because a suite proving a name goes nowhere has to say the name. That
-// distinction is not one a regex over these files can draw, and a guard that
-// cannot draw it flags the correct test and gets deleted.
+// THE DEF SUITES ASSERT THE RETIREMENT, NOT THE BRIDGE.
 func TestTheDefSuitesAssertTheRetirementRatherThanTheBridge(t *testing.T) {
 	for _, c := range []struct{ rel, want, why string }{
 		{"internal/imagetest/opencode_test.go", `SAW OPENCODE_MODEL=[]`,
-			"that a role name in .env reaches opencode as nothing"},
+			"that a role name in the environment reaches opencode as nothing"},
 		{"internal/imagetest/opencode_test.go", `SAW OPENCODE_SMALL_MODEL=[xai/grok-4.3]`,
-			"that opencode's OWN variable still survives load_env"},
+			"that opencode's OWN variable still survives the prelude"},
 		{"internal/imagetest/cursor_test.go", `PASSED_MODEL=explicit-model`,
 			"that cursor's OWN CURSOR_MODEL still reaches --model"},
-		{"internal/imagetest/cursor_test.go", `no role name in .env reaches cursor's --model`,
+		{"internal/imagetest/cursor_test.go", `no role name in the environment reaches cursor's --model`,
 			"that a role name never becomes cursor's --model"},
 	} {
 		if !strings.Contains(repoFile(t, c.rel), c.want) {

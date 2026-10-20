@@ -33,6 +33,22 @@
 '   * The LSP bridge binary, mcp-language-server, must be on PATH: the language servers arrive from
 '     proveo/base-node-lsp and reach codex only as MCP servers, so without it
 '     the entrypoint wires nothing.
+'
+' ── IMAGE FACTS defs/codex/Dockerfile STATES WITHOUT ARGUING (N14) ──────────
+' /home/agent is the REAL home and /home/codex the alias, for the reason
+' _spec/_paradigms/runtime-user-boundary.puml gives: sbx's kits chown
+' agent:agent and mount block volumes UNDER /home/agent, and a mount target
+' cannot resolve through a symlink. With a symlinked home the volumes land
+' where $HOME never points — including the session state `codex resume` reads.
+' The alias stays because healthchecks and def tests read paths through it,
+' and nothing ever mounts there.
+' NODE_ENV is NOT baked, for the reason harness-image-layers.puml gives for
+' claudecode: it would make every workspace `npm`/`pnpm install` skip the
+' devDependencies (tsc, eslint, test runners) the agent needs. CODEX_HOME is
+' not baked either — codex-topology.puml, the note on $CODEX_HOME.
+' The daemon is the sbx template's, inherited through proveo/base: the image
+' ships no docker binaries of its own since N14 deleted its static-tarball
+' layer (2026-10-17; codex-topology.puml, image-size-reduction.puml Cut 4).
 title codex paradigm — ML blackbox algorithm (spec → plan → verify loop)
 
 actor "Developer" as DEV
@@ -54,9 +70,9 @@ node "codex container" as CTR <<host>> {
   database "/app — repo" as WS <<db>>
 }
 
-node "Layer 2 — container + egress" as L2 <<host>> {
-  component "hardened container\ncap-drop · no-new-privileges · pids-limit" as SBX <<app>>
-  component "egress tier\nopen · allowlist · review" as EG <<app>>
+node "Layer 2 — sbx sandbox + its network policy" as L2 <<host>> {
+  component "sbx microVM\n(the hardened docker container until 2026-10-16)" as SBX <<app>>
+  component "sbx network policy + credential proxy\n(proveo's open · allowlist · review tiers retired)" as EG <<app>>
 }
 
 cloud "api.openai.com" as VENDOR <<cloud>>
@@ -118,10 +134,11 @@ note bottom of CLI
 end note
 
 note bottom of L2
-  **The container is the sandbox, and the egress tier is the network
-  boundary.** Unlike cursor there is no vendor TLS pin in the way:
-  ""api.openai.com"" is broker-injectable, so every egress tier applies
-  and the manifest constrains only the provider (""providers: [openai]"").
+  **The sbx sandbox is the boundary, and sbx's network policy decides
+  egress** (_spec/internal/sbx/policy-baseline\.puml; proveo's egress tiers
+  were retired 2026-10-16). ""api.openai.com"" is a service sbx's proxy
+  brokers, and the manifest constrains only the provider
+  (""providers: [openai]"").
 
   Unlike cursor's Landlock, codex's own sandbox COULD run here. It is
   off because it confines the agent to part of a tree that is already

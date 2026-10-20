@@ -8,27 +8,29 @@ import (
 	"unicode/utf8"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
-func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefault, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
+func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
-		tier := egressTier(f, cursor, tierDefault)
+		tier := egressTier(f, cursor, "")
 		creds := f.Selection("credentials")
 		if creds == "" {
 			creds = credsDefault
 		}
-		lane, open, refused := lanesOf(tier, sbxBackend)
+		lane, open, refused := lanesOf(tier)
 		model := modelShort(f.Selection(rowModel))
-		key := keyHomeOf(creds, sbxBackend)
+		key := choiceui.KeyAtHop
+		if creds == "forward" {
+			key = choiceui.KeyInSquare
+		}
 		if model != "" {
 			key = choiceui.KeyNone
 		}
 		fr := choiceui.Frame{
 			Host:      hostAccount(),
 			HostOS:    "(" + hostPlatform() + ")",
-			Square:    squareWith(squareOf(man, target), model),
-			Hop:       hopOf(tier, creds, sbxBackend),
+			Square:    squareWith(squareOf(target), model),
+			Hop:       "sbx proxy",
 			Interface: interfaceOf(f),
 			Key:       key,
 			Lane:      lane,
@@ -37,7 +39,7 @@ func topologyOf(man manifest.Manifest, target string, sbxBackend bool, tierDefau
 			Speaking:  f.Selection(evidenceLabel) == EvidenceVerbose,
 			Focus:     focusOf(f, cursor),
 		}
-		fr.Caption = captionOf(fr, tier, creds, sbxBackend)
+		fr.Caption = captionOf(fr, tier, creds)
 		return &fr
 	}
 }
@@ -59,51 +61,16 @@ func egressTier(f *choiceui.Form, cursor int, fallback string) string {
 	return fallback
 }
 
-func lanesOf(tier string, sbx bool) (choiceui.LaneKind, int, int) {
-	if sbx {
-		switch tier {
-		case "allow-all":
-			return choiceui.LaneWatched, 3, 0
-		case "balanced":
-			return choiceui.LaneScreened, 2, 1
-		default:
-			return choiceui.LaneScreened, 1, 2
-		}
-	}
-	switch tier {
-	case "allowlist":
-		return choiceui.LaneScreened, 2, 1
-	case "review":
-		return choiceui.LaneAsked, 0, 0
-	default: // open
+// lanesOf draws sbx's baseline: allow-all watches, balanced screens some, anything else screens most.
+func lanesOf(baseline string) (choiceui.LaneKind, int, int) {
+	switch baseline {
+	case "allow-all":
 		return choiceui.LaneWatched, 3, 0
+	case "balanced":
+		return choiceui.LaneScreened, 2, 1
+	default:
+		return choiceui.LaneScreened, 1, 2
 	}
-}
-
-func hopOf(tier, creds string, sbx bool) string {
-	if sbx {
-		return "sbx proxy"
-	}
-	if tier == "open" {
-		if creds == "forward" {
-			return ""
-		}
-		return "mitm"
-	}
-	return "mitm + squid"
-}
-
-func keyHomeOf(creds string, sbx bool) choiceui.KeyHome {
-	if sbx {
-		return choiceui.KeyAtHop
-	}
-	switch creds {
-	case "forward":
-		return choiceui.KeyInSquare
-	case "broker":
-		return choiceui.KeyAtHop
-	}
-	return choiceui.KeyAtHost
 }
 
 func hostAccount() string {
@@ -139,11 +106,8 @@ func squareWith(square, model string) string {
 	return square + " + " + model
 }
 
-func squareOf(man manifest.Manifest, target string) string {
-	if man.Docker == manifest.DockerSbx {
-		return "sbx · " + target
-	}
-	return target
+func squareOf(target string) string {
+	return "sbx · " + target
 }
 
 func interfaceOf(f *choiceui.Form) string {
@@ -179,25 +143,17 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 	return choiceui.FocusNone
 }
 
-func captionOf(fr choiceui.Frame, tier, creds string, sbx bool) string {
+func captionOf(fr choiceui.Frame, tier, creds string) string {
 	var what string
-	switch {
-	case sbx && tier != "allow-all" && tier != "balanced" && tier != "deny-all":
-		what = "proveo could not read the host baseline, so this is drawn at its tightest"
-	case sbx && tier == "deny-all":
-		what = "only proveo's allowlist gets out — your provider, and nothing else"
-	case sbx && tier == "balanced":
-		what = "the host's own allows, plus proveo's"
-	case sbx:
-		what = "the host allows every destination, so proveo's list adds reach"
-	case tier == "review":
-		what = "nothing crosses until you answer, over your suspended agent TUI"
-	case tier == "allowlist":
-		what = "everything is screened at the hop, and the unlisted is refused"
-	case fr.Hop == "":
-		what = "BYPASS: nothing is in the path at all"
+	switch tier {
+	case "allow-all":
+		what = "the host allows every destination"
+	case "balanced":
+		what = "the host's own allows decide what gets out"
+	case "deny-all":
+		what = "only the host's explicit allows get out"
 	default:
-		what = "the hop watches but does not filter"
+		what = "proveo could not read the host baseline, so this is drawn at its tightest"
 	}
 	where := "the key never leaves your machine"
 	switch fr.Key {

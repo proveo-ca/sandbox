@@ -8,18 +8,6 @@ import (
 
 // DomainPatterns translates ONE stored provider host into the patterns sbx
 // actually enforces.
-//
-// The registry stores hosts in Squid's `dstdomain` vocabulary, where a leading
-// dot means "this domain and every subdomain". sbx has no such shape: its kit
-// reference enforces an exact host, an exact host and port, and the
-// single-label wildcard `*.example.com` — and states outright that
-// `example.com` and `*.example.com` do not cover each other. A leading-dot
-// pattern therefore matches NOTHING there, which is not a narrower allowlist
-// but an inert one.
-//
-// A bare host is never widened. Squid's dot SAYS subdomains are included; its
-// absence says they are not, and inventing `*.foo` for every `foo` would grant
-// reach the registry never asked for.
 func DomainPatterns(host string) []string {
 	h := strings.TrimSpace(host)
 	if h == "" {

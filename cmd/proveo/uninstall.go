@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -39,12 +40,7 @@ install root including homes that live there.`,
 }
 
 func doUninstall(yes bool) error {
-	if !yes {
-		switch strings.ToLower(os.Getenv("PROVEO_UNINSTALL_ASSUME_YES")) {
-		case "1", "true", "yes":
-			yes = true
-		}
-	}
+	yes = yes || envflag.On(os.Getenv("PROVEO_UNINSTALL_ASSUME_YES"))
 	root := installRoot()
 	if !yes && agentio.IsStdinTTY() {
 		ui.Section(ui.SectionUninstall)

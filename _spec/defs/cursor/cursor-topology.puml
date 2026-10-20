@@ -59,7 +59,7 @@ Cursor --> Deny : every tool call checked
 Cursor --> Hooks : shell audited; stop\ncommits and pushes
 Cursor --> Subagents : in-loop review gates
 Cursor -[#00BAC6,dashed,bold]-> Backend : inference (vendor-pinned)
-Net ..> Backend : provider pin = "".cursor.sh""
+Net ..> Backend : provider entry hosts = "".cursor.sh"" (pinned by capabilities.providers)
 Force --> Sandbox : within\ncontainer boundary
 LoopRule ..> Steering : when\nopted in
 
@@ -89,11 +89,12 @@ Net .> Force : network containment\noffsets full consent
 note as CursorSandbox #FFF3F0
   **No proveo egress; Landlock is off on purpose.**
 
-  cursor-agent pins its TLS to Cursor's backend, so no proveo tier can
-  intercept it: the def declares ""capabilities: egress [open],
-  credentials [forward]"". That means **no MITM and no Squid allowlist** —
-  proveo contributes the container, the mounts and the credential
-  handling, but **not** egress enforcement.
+  Since 2026-10-16 no harness has a proveo egress layer: sbx's own policy
+  decides egress and its proxy brokers ""CURSOR_API_KEY"" natively.
+  HISTORY: on the deleted docker backend cursor-agent's pinned TLS meant no
+  proveo tier could intercept it, so the def declared ""capabilities:
+  egress [open], credentials [forward]"" — no MITM and no Squid allowlist.
+  Those pins were dropped ("Drop the pins").
 
   The entrypoint launches with ""--sandbox disabled"" (override
   ""PROVEO_CURSOR_SANDBOX""). Landlock/seccomp needs unprivileged
@@ -105,10 +106,8 @@ note as CursorSandbox #FFF3F0
   experiment candidate for host-side domain allowlisting — see
   _spec/_experiments/docker-sandbox.puml. Read "cursor runs under
   proveo" as isolation of the workspace, never as audited egress. The
-  e2e suite reflects this: cursor is absent from the egress-isolation
-  and dotenv-at-egress tables, because it has no egress layer to be
-  isolated from and forwards the real key rather than a sentinel. Its
-  contract lives in ""TestCursorEgressException"".
+  e2e suite's cursor contract is now ""TestCursorBrokersThroughTheSbxStore""
+  (was ""TestCursorEgressException"", whose forward-only exception is gone).
 end note
 
 note right of Net

@@ -2,22 +2,43 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: how a target is resolved to an image and provisioned before a run can start
 ' covers: cmd/proveo/provision.go
-' covers: cmd/proveo/targets.go
 ' covers: cmd/proveo/wizard.go
+' covers: cmd/proveo/maintain_cmd.go (loadMaintainRegistry, maintainerDefsDir)
 ' covers: internal/imagebuild/targets.go (BuildTarget, TargetRef, Specs)
-' covers: cmd/proveo-dev/debug.go
-' `proveo-dev debug` (P4) reads the registry in-process via manifest.Load +
-' maintain.Registry (PROVEO_DEFS_DIR, else <repo>/defs) instead of sourcing
-' the retired lib/registry.sh. It runs the first executable proveo on $(go env GOPATH)/bin
-' ahead of PATH — where the build-cli dependency just installed it — else
-' `go run ./cmd/proveo` from the checkout; the child gets that PATH and PROVEO_BIN.
-' No target on a non-TTY stdin is "Missing target." plus the list, never a pick.
-' Destination diagram — prose from cmd/proveo/{provision,targets,wizard}.go and
-' cmd/proveo-dev/debug.go lands here. Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
+'
+' ── `proveo targets` IS GONE (N9, DONE (wt) 2026-10-18) ─────────────────────
+' MEASURED: cmd/proveo/targets.go is deleted. Nothing in mise.toml, cmd/proveo-dev,
+' scripts or tests called the command it registered. maintainerDefsDir
+' (PROVEO_DEFS_DIR, else <repo>/defs) moved unchanged into maintain_cmd.go, and
+' build, deploy and test read the registry through loadMaintainRegistry. `build`
+' is visible in root help now; deploy and test stay hidden (usage.puml). The
+' "missing image" error and the agent-pin line both name `proveo build`, so the
+' command they send an operator to is one root help lists.
+' KNOWN LIMITS (review, recorded, not fixed; MEASURED):
+'   * run.go:229's `proveo build <target>` hint works only inside a source
+'     checkout; a binary-only install has no defs/ tree to build from.
+'   * provision.go sourceDefsDir and maintain_cmd.go maintainerDefsDir are
+'     near-copies with different existence probes: the first requires
+'     <root>/defs/base/Dockerfile and returns "" without it; the second accepts
+'     any <root>/defs directory and errors without one.
+' PROVEO_AUTO_PROVISION goes through envflag (_spec/internal/envflag/
+' env-switches.puml): ON builds, OFF declines, anything else asks on a TTY
+' with the wizard on.
+' HISTORY: `proveo-dev debug` (host-shell-to-go P4) read the registry in-process
+' via manifest.Load + maintain.Registry and launched `proveo run <target> --shell`.
+' RETIRED 2026-10-17 (the user: "Retire debug too"): cmd/proveo-dev/debug.go,
+' its test and `mise run debug` are deleted (MEASURED), and `--shell` with them.
+' A shell in a run's sandbox is sbx's: `sbx ls`, then `sbx exec -it <sandbox> bash`.
+' Destination diagram — prose from cmd/proveo/{provision,wizard}.go (and the
+' deleted targets.go) lands here. Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
+'
+' PREFLIGHT, MEASURED: Deps.PreflightImages(man, agentImage) ensures the agent
+' image only; run.launchSandbox calls it only off `--print` and only when sbx
+' holds no template for the image (!sbx.HasTemplate). No sidecar images remain.
 title Preflight provisioning, the maintainer registry, and the missing-env wizard
 
 node "Consumer path — before any container exists" as PRE <<host>> {
-  component "preflightImages(plan, manifest, agentImage)\nevery image the run needs\n→ the agent image it settled on" as PF <<app>>
+  component "preflightImages(manifest, agentImage)\nthe agent image only\n→ the agent image it settled on" as PF <<app>>
   component "provisioner.Ensure([]imageDep)\npull, then a confirmed local build\n→ built: image → ref" as ENS <<app>>
   component "provisionConfirm\nPROVEO_AUTO_PROVISION · else ask on a TTY" as CONF <<app>>
   component "sourceDefsDir\nPROVEO_DEFS_DIR · else the checkout" as SRC <<app>>
@@ -26,18 +47,18 @@ node "Consumer path — before any container exists" as PRE <<host>> {
 }
 
 node "Maintainer path — source tree required" as MAINT <<host>> {
-  component "proveo targets\nname<TAB>image<TAB>defDir (TSV)" as TGT <<app>>
-  component "proveo-dev debug\nmanifest.Load + maintain.Registry" as REG <<app>>
+  component "loadMaintainRegistry\nproveo build · deploy · test\n(maintain_cmd.go)" as LMR <<app>>
+  component "maintain.Registry\nmanifest.Load (proveo-dev debug read it\nuntil 2026-10-17)" as REG <<app>>
 }
 
 node "Missing declared env" as WIZ <<host>> {
-  component "run.WizardEnabled · isStdinTTY" as WEN <<app>>
+  component "agentio.WizardEnabled · IsStdinTTY" as WEN <<app>>
   component "promptEnv(target, missing)\nEnter skips" as PENV <<app>>
   component "termSecret\nread with echo off" as SEC <<app>>
 }
 
 cloud "Docker Hub — proveo/*" as HUB <<cloud>>
-component "Agent + sidecar images present" as READY <<app>>
+component "Agent image present\n(no sidecar images since 2026-10-16)" as READY <<app>>
 component "Non-interactive run\nnever prompts, warns and continues" as HEADLESS <<error>>
 component "Missing image discovered\nafter the network is up" as LATE <<error>>
 
@@ -48,7 +69,7 @@ CONF ARROW_MAIN SRC
 SRC ARROW_MAIN BSH
 BSH ARROW_MAIN IB : in-process, no host bash
 IB ARROW_MAIN PF : agent image → the :local ref
-TGT ARROW_OPTIONAL REG : same registry, in-process
+LMR ARROW_MAIN REG : same registry, in-process
 ENS ARROW_MAIN READY
 PF ARROW_ERROR LATE : what running the preflight first prevents
 WEN ARROW_MAIN PENV
@@ -56,16 +77,16 @@ PENV ARROW_MAIN SEC
 WEN ARROW_ERROR HEADLESS
 note bottom of REG
   **Maintainer tooling owns no copy of what targets exist.**
-  ""proveo-dev debug"" calls ""manifest.Load"" + ""maintain.Registry"" on
-  ""PROVEO_DEFS_DIR"" (else ""<repo>/defs""), the same code ""proveo targets""
-  prints. It replaced ""lib/registry.sh"", which parsed that TSV into
-  parallel bash arrays (host-shell-to-go P4).
+  ""manifest.Load"" + ""maintain.Registry"" on ""PROVEO_DEFS_DIR"" (else
+  ""<repo>/defs"") is the one registry; build, deploy and test read it through
+  ""loadMaintainRegistry"". It replaced ""lib/registry.sh"", which parsed a TSV
+  into parallel bash arrays (host-shell-to-go P4). ""proveo targets"", which
+  printed that TSV, had no caller and went 2026-10-18 (N9).
 
-  **Which binary answers matters more than it looks.** debug runs the
-  first executable ""proveo"" in ""$(go env GOPATH)/bin"" — where the
-  build-cli dependency just installed it — ahead of PATH, else ""go run""
-  from the checkout. A stale binary off PATH would report a registry that
-  no longer matches the source it is building.
+  //HISTORY: ""proveo-dev debug"" read the same registry and ran the first//
+  //""proveo"" in ""$(go env GOPATH)/bin"" ahead of PATH, so a stale binary could//
+  //not report a registry that no longer matched the source. It was retired//
+  //2026-10-17 ("Retire debug too") with ""--shell"".//
 end note
 
 
@@ -81,7 +102,8 @@ note bottom of ENS
   it asks, defaulting to yes — declining just reproduces the failure the
   prompt exists to avoid. The source tree is ""PROVEO_DEFS_DIR"" for dev
   iteration, else the enclosing checkout when it actually carries the build
-  sources (""defs/sidecars/egress-proxy/Dockerfile"" is the probe); no tree
+  sources (""defs/base/Dockerfile"" is the probe; it was the deleted
+  ""defs/sidecars/egress-proxy/Dockerfile"" until 2026-10-16); no tree
   means pull-only.
 
   Mapping an image to its imagebuild target (""buildTarget"") tries the
@@ -99,7 +121,7 @@ note bottom of IB
   ""preflightImages"" hands the run the ref it actually built, which
   ""ResolveImage"" also prefers. A SIDECAR built this way fails the run with
   "re-run so the egress plan picks it up", because the plan already named
-  the image it could not pull (_spec/_plans/host-shell-to-go.puml, P2).
+  the image it could not pull (_spec/_refactors/host-shell-to-go.puml, P2).
 end note
 
 note bottom of WEN

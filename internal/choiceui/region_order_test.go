@@ -21,7 +21,7 @@ func TestFigureStaysBelowTheHintAndTheHelpBlock(t *testing.T) {
 			{Label: "add-ons", Options: []string{"tui", "browser", "claude-in-chrome"}, Multi: true,
 				Selected: 2, On: []bool{true, true, false}, Off: []bool{true, false, true},
 				Help:   map[string]string{"claude-in-chrome": "Claude Code drives YOUR Chrome"},
-				OffWhy: map[string]string{"claude-in-chrome": "docker backend only — set PROVEO_SBX=0"}},
+				OffWhy: map[string]string{"claude-in-chrome": "the sandbox cannot reach the host Chrome"}},
 		},
 		Topology: func(_ *Form, _ int) *Frame { return &fr },
 	}
@@ -32,7 +32,7 @@ func TestFigureStaysBelowTheHintAndTheHelpBlock(t *testing.T) {
 			switch {
 			case strings.Contains(l, "enter accept"):
 				hint = i
-			case strings.Contains(l, "sbx policy init") || strings.Contains(l, "docker backend only"):
+			case strings.Contains(l, "sbx policy init") || strings.Contains(l, "cannot reach the host Chrome"):
 				if help < 0 {
 					help = i
 				}

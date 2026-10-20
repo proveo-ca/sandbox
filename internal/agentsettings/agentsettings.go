@@ -19,7 +19,6 @@ import (
 const FileName = "agent-settings.yml"
 
 type Choice struct {
-	Egress       string            `yaml:"egress"`
 	Credentials  string            `yaml:"credentials"`
 	Addons       []string          `yaml:"addons,omitempty"`
 	AuthVar      string            `yaml:"authVar,omitempty"`
@@ -100,6 +99,9 @@ func (s *Store) RememberApps(path string, apps []App) {
 
 func Path(root string) string { return filepath.Join(root, FileName) }
 
+// retiredEgressSlot is the fingerprint's first field, always empty.
+const retiredEgressSlot = ""
+
 func Fingerprint(c manifest.Capabilities) string {
 	norm := func(in []string) string {
 		out := make([]string, 0, len(in))
@@ -112,7 +114,7 @@ func Fingerprint(c manifest.Capabilities) string {
 		return strings.Join(out, ",")
 	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{
-		norm(c.Egress), norm(c.Credentials), norm(c.Providers),
+		retiredEgressSlot, norm(c.Credentials), norm(c.Providers),
 	}, "|")))
 	return hex.EncodeToString(sum[:8])
 }

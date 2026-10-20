@@ -3,22 +3,20 @@
 Custom Docker image for the [Cursor CLI](https://cursor.com/docs/cli) (`agent`, legacy alias
 `cursor-agent`) with:
 
-- `proveo/base` (MCR `playwright` noble floor: Node, Chromium + OS deps, `pnpm` — the CLI
- itself is a self-contained binary)
-- Root-free runtime: baked non-root user `cursor` (uid 1000); the run wrapper launches as the
- invoking host uid via `--user $(id -u):$(id -g)`
+- `proveo/base` (git, gh, jq, dumb-init, tmux, proveo-entrypoint; the CLI itself is a
+  self-contained binary)
+- Root-free runtime: baked non-root user `cursor` (uid 1000); sbx runs the agent as that uid
 - CLI installed under a root-owned prefix (`/opt/cursor-dist`) — the agent cannot tamper with
  or self-update the binary; updating the CLI means rebuilding the image
-- `.env` autoloading, git identity bridging, monorepo-friendly mounts
-- Reusable network egress modes (`broker|proxy|firewall`)
+- Git identity bridging, monorepo-friendly mounts
 
 Paradigm: **policy-gated autonomous loop** — see
 [`_spec/defs/cursor/cursor-paradigm.puml`](../../_spec/defs/cursor/cursor-paradigm.puml).
 
 ## Browser variant
 
-`mise run build cursor-browser` builds `proveo/cursor-browser` FROM `proveo/base-node-browser`: the
-same `cursor-agent` binary atop a headless Chromium shared by the `playwright` CLI and
+`mise run build cursor-browser` builds `proveo/cursor-browser`, the `defs/base-node-browser` layer on
+`proveo/cursor`: the same `cursor-agent` binary atop a headless Chromium shared by the `playwright` CLI and
 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` ·
 `snapshot` · `click` · `fill` · `screenshot`, accessibility-tree refs over CDP). The seed drops
 agent-browser's discovery stub into `~/.cursor/skills/agent-browser/SKILL.md`, which points
@@ -38,7 +36,7 @@ Candidate coding harness definition. This definition exposes:
 
 Its image suite is `internal/imagetest/cursor_test.go` (`TestImageCursor`).
 
-`proveo run cursor --shell` opens a debug shell with the same mounts and env.
+For a shell in a running cursor sandbox: `sbx ls`, then `sbx exec -it <sandbox> bash`.
 
 This definition follows the shared [coding harness container contract](../../CODING_HARNESSES.md).
 
@@ -64,8 +62,7 @@ tarball from `downloads.cursor.com` and pass `--build-arg CURSOR_INSTALL_URL=<mi
 
 ```bash
 proveo run cursor # interactive TUI in the current repo
-proveo run cursor --egress-mode allowlist # fully audited egress (cursor needs --credentials forward)
-proveo run cursor --shell # debug shell with the same mounts/env
+proveo run cursor --credentials forward # put CURSOR_API_KEY in the sandbox env instead of sbx's proxy
 ```
 
 ### Headless (CI shape)
@@ -88,7 +85,7 @@ alternative (`--local-model` is rejected by the wrapper).
 
 | Method | How |
 | ------ | --- |
-| API key (recommended) | Create at cursor.com/dashboard → API Keys; export `CURSOR_API_KEY` (the wrapper forwards it) |
+| API key (recommended) | Create at cursor.com/dashboard → API Keys; export `CURSOR_API_KEY` (sbx's proxy holds it; `--credentials forward` puts it in the sandbox env) |
 | Interactive login | `proveo run cursor -- login` — `NO_OPEN_BROWSER=1` is baked, so the URL is printed |
 
 Login tokens from `agent login` write under `$HOME/.cursor` inside the container. Proveo
@@ -115,11 +112,11 @@ run. Re-run with `-e CURSOR_RESEED=1` to force a refresh. The launch posture is 
 
 | Layer | File | What it does |
 | ----- | ---- | ------------ |
-| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. **Caveat:** if `.env` is bind-mounted or sourced by the entrypoint (`load_env`), the agent already holds those values in process memory and can read the file directly — deny rules are policy guidance, not isolation. See [Credential isolation](../../README.md#credential-isolation-by-egress-mode) and . |
+| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. **Caveat:** a bind-mounted `.env` stays readable to the agent, and any key in the agent's environment sits in its process memory — deny rules are policy guidance, not isolation. The entrypoint never sources `.env`. See [Security — egress & credentials](../../README.md#security--egress--credentials). |
 | Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in deny rules + egress. A `stop` hook at the same layer commits and pushes before the turn returns (`PROVEO_GIT_SYNC=off` no-ops the script; `PROVEO_GIT_SYNC_MSG=off` keeps the commit but skips asking a model for the subject line). The seed also writes that command into `~/.cursor/hooks.json`, the file the CLI loads for a local agent. |
 | Readonly subagents | `~/.cursor/agents/*.md` | `adversarial-reviewer` and `security-reviewer` review gates with the native `readonly: true` bit. |
 
-Cursor's own OS sandbox is disabled (`--sandbox disabled`): Docker is the sandbox, and
+Cursor's own OS sandbox is disabled (`--sandbox disabled`): sbx is the sandbox, and
 Landlock/seccomp inside a cap-dropped container is nondeterministic.
 
 ### Steering (rules)
@@ -143,17 +140,15 @@ and stay out of `git add`. Project deny rules extend (and can only tighten along
 the seeded baseline; drop a `.cursor/agents/<name>.md` in your repo to override or add
 a subagent.
 
-## Egress modes
+## Egress
 
-`--egress-mode allowlist|review` reuses the shared sidecar lifecycle
-(`internal/egress`, `cmd/proveo-egress`). Cursor specifics:
+sbx's host-wide network policy governs egress. Cursor specifics:
 
-- Provider pinning auto-detects `CURSOR_API_KEY` and pins inference writes to
- `.cursor.sh`/`.cursor.com` (agent traffic: `api5.cursor.sh`; API/auth: `api2.cursor.sh`).
- Web reads (docs/search) stay open, as for every harness.
+- Inference transits `.cursor.sh`/`.cursor.com` (agent traffic: `api5.cursor.sh`; API/auth:
+ `api2.cursor.sh`). On a `balanced` or `deny-all` host, allow them with
+ `sbx policy allow network <domain>` if the agent cannot reach them.
 - The entrypoint detects proxy env and sets `useHttp1ForAgent: true` in the seeded config —
- Cursor's HTTP/2 streaming does not survive every proxy chain. The CLI honors
- `NODE_EXTRA_CA_CERTS`, which the firewall mode points at the mitmproxy CA.
+ Cursor's HTTP/2 streaming does not survive every proxy chain.
 - If the network cannot reach the Cursor backend, there is no inference, full stop — this
  harness has no offline/local-model fallback.
 
@@ -178,7 +173,7 @@ Gate them with `Mcp(server:tool)` permission rules. See <https://cursor.com/docs
 
 ```bash
 mise run test-defs cursor      # or: proveo test cursor
-IMAGE=proveo/cursor:local mise run test-defs cursor   # pin the image under test
+PROVEO_TEST_CURSOR_IMAGE=proveo/cursor:local mise run test-defs cursor   # pin the image under test
 ```
 
 The suite (`internal/imagetest/cursor_test.go`) covers image availability/labels, tool presence, security hardening (no setuid, no

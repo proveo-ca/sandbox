@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/opencode-versioned-history-storage.puml
+// SPEC: _spec/internal/sbx/kit-lifecycle.puml, _spec/defs/opencode/engine-local-history.puml
 package choiceui
 
 import (
@@ -7,51 +7,9 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// SandboxResetCopy explains sbx rm --force before an unrecoverable engine is deleted.
-func SandboxResetCopy(name string) []string {
-	return []string{
-		"this sandbox cannot start",
-		"",
-		"sbx rm --force " + name + " will run.",
-		"That deletes this sandbox session.",
-		"The next proveo run creates a new sandbox with this same name.",
-		"This session does not persist.",
-		"Host files under the proveo home stay.",
-		"Uncommitted clone edits are lost unless fetched.",
-		"",
-		"y  remove and start a new sandbox",
-		"n / esc  keep it — the next run reattaches",
-	}
-}
-
-// EmptyPrepareCopy explains an empty V2 prepare when older history is left on disk.
-func EmptyPrepareCopy(stores []string) []string {
-	lines := []string{
-		"OpenCode V2 history is not prepared",
-		"",
-		"1. initialize an empty V2 database",
-		"2. publish a credential-free checkpoint",
-		"3. start the agent on that cache",
-		"",
-		"The older store is not imported.",
-		"It stays on disk.",
-	}
-	for _, store := range stores {
-		lines = append(lines, store)
-	}
-	lines = append(lines,
-		"This sandbox stays up either way.",
-		"The prepared cache does not survive sbx rm.",
-		"",
-		"y  prepare empty V2",
-		"n / esc  stop — the next run asks again",
-	)
-	return lines
-}
-
 // SandboxUpgradeCopy explains replacing a kept sandbox so this run's settings apply.
 // Every harness reuses one sandbox name, so the question is the same for each.
-func SandboxUpgradeCopy(name string, changed []string, live, clone bool) []string {
+func SandboxUpgradeCopy(name string, changed []string, live, clone, history bool) []string {
 	lines := []string{
 		"this sandbox was created with different settings",
 		strings.Join(changed, ", "),
@@ -68,6 +26,9 @@ func SandboxUpgradeCopy(name string, changed []string, live, clone bool) []strin
 	} else {
 		lines = append(lines, "Edits in the host checkout stay on disk.")
 	}
+	if history {
+		lines = append(lines, "Its OpenCode history moves to the new sandbox.")
+	}
 	if live {
 		lines = append(lines, "It is running. Yes replaces that live session.")
 	}
@@ -80,18 +41,8 @@ func SandboxUpgradeCopy(name string, changed []string, live, clone bool) []strin
 }
 
 // ConfirmSandboxUpgrade waits for permission to replace a kept sandbox.
-func ConfirmSandboxUpgrade(s tcell.Screen, name string, changed []string, live, clone bool) bool {
-	return confirmPrompt(s, SandboxUpgradeCopy(name, changed, live, clone), "this sandbox was created with different settings")
-}
-
-// ConfirmSandboxReset waits for permission to delete an unrecoverable sandbox.
-func ConfirmSandboxReset(s tcell.Screen, name string) bool {
-	return confirmPrompt(s, SandboxResetCopy(name), "this sandbox cannot start")
-}
-
-// ConfirmEmptyPrepare waits for permission to start V2 without importing older history.
-func ConfirmEmptyPrepare(s tcell.Screen, stores []string) bool {
-	return confirmPrompt(s, EmptyPrepareCopy(stores), "OpenCode V2 history is not prepared")
+func ConfirmSandboxUpgrade(s tcell.Screen, name string, changed []string, live, clone, history bool) bool {
+	return confirmPrompt(s, SandboxUpgradeCopy(name, changed, live, clone, history), "this sandbox was created with different settings")
 }
 
 func confirmPrompt(s tcell.Screen, lines []string, title string) bool {
@@ -129,7 +80,7 @@ func drawPrompt(s tcell.Screen, lines []string, title string) {
 		switch {
 		case text == title:
 			style = p.title
-		case strings.HasPrefix(text, "sbx rm --force ") || strings.Contains(text, "does not persist") || strings.Contains(text, "lost unless fetched") || strings.Contains(text, "not imported") || strings.Contains(text, "does not survive"):
+		case strings.HasPrefix(strings.TrimSpace(text), "sbx rm --force ") || strings.Contains(text, "are lost") || strings.Contains(text, "does not persist") || strings.Contains(text, "lost unless fetched") || strings.Contains(text, "not imported") || strings.Contains(text, "does not survive"):
 			style = p.warn
 		}
 		styled[i].text = text
@@ -169,4 +120,26 @@ func drawPrompt(s tcell.Screen, lines []string, title string) {
 		}
 	}
 	s.Show()
+}
+
+// drawBorder draws a single-line box.
+func drawBorder(s tcell.Screen, x0, y0, w, h int, style tcell.Style) {
+	set := func(x, y int, r rune) {
+		sw, sh := s.Size()
+		if x >= 0 && x < sw && y >= 0 && y < sh {
+			s.SetContent(x, y, r, nil, style)
+		}
+	}
+	for x := x0 + 1; x < x0+w-1; x++ {
+		set(x, y0, '─')
+		set(x, y0+h-1, '─')
+	}
+	for y := y0 + 1; y < y0+h-1; y++ {
+		set(x0, y, '│')
+		set(x0+w-1, y, '│')
+	}
+	set(x0, y0, '┌')
+	set(x0+w-1, y0, '┐')
+	set(x0, y0+h-1, '└')
+	set(x0+w-1, y0+h-1, '┘')
 }

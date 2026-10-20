@@ -15,8 +15,12 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/hostadb"
+	"github.com/proveo-ca/proveo/internal/imagetest"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
+
+// guestDeviceWait bounds the guest's retries for a row in state "device".
+const guestDeviceWait = 60 * time.Second
 
 func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 	if _, err := exec.LookPath(sbx.Binary); err != nil {
@@ -28,7 +32,7 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 	if hostadb.EmulatorBinary(os.Getenv) == "" || hostadb.AdbBinary(os.Getenv) == "" {
 		t.Skip("no Android SDK emulator/adb on this host")
 	}
-	image := env("PROVEO_HOST_ADB_IMAGE", "proveo/claudecode:local")
+	image := imagetest.PinnedRef("claudecode", "proveo/claudecode:local")
 	if !dockerImagePresent(t, image) {
 		t.Skipf("image %s not built (proveo build claudecode)", image)
 	}
@@ -42,9 +46,7 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 		t.Skipf("host emulator: %v", err)
 	}
 	if booted {
-		t.Cleanup(func() {
-			_ = exec.Command(hostadb.AdbBinary(os.Getenv), "-P", strconv.Itoa(port), "emu", "kill").Run()
-		})
+		t.Cleanup(func() { stopEmulators(t, port) })
 	}
 
 	if err := sbx.EnsureTemplate(image, func(string, ...any) {}); err != nil {
@@ -77,15 +79,36 @@ source /tmp/entrypoint-lib.sh
 proveo_host_adb_env
 echo "adb_host=$ADB_HOST adb_port=$ADB_PORT"
 python3 - <<'PY'
-import os, socket
-s = socket.create_connection((os.environ["ADB_HOST"], int(os.environ["ADB_PORT"])), timeout=5)
-q = b"host:devices"
-s.sendall(b"%%04x%%s" %% (len(q), q))
-print("status=" + s.recv(4).decode())
-n = int(s.recv(4), 16)
-print("devices=" + s.recv(n).decode().replace("\n", ";"))
+import os, socket, time
+def devices():
+    s = socket.create_connection((os.environ["ADB_HOST"], int(os.environ["ADB_PORT"])), timeout=5)
+    try:
+        q = b"host:devices"
+        s.sendall(b"%%04x%%s" %% (len(q), q))
+        status, n, body = s.recv(4).decode(), int(s.recv(4), 16), b""
+        while len(body) < n:
+            chunk = s.recv(n - len(body))
+            if not chunk:
+                break
+            body += chunk
+        return status, body.decode()
+    finally:
+        s.close()
+deadline, tries, status, body = time.time() + %d, 0, "", ""
+while True:
+    tries += 1
+    try:
+        status, body = devices()
+    except OSError as e:
+        status, body = "error", str(e)
+    if (status == "OKAY" and "\tdevice" in body) or time.time() >= deadline:
+        break
+    time.sleep(2)
+print("tries=%%d" %% tries)
+print("status=" + status)
+print("devices=" + body.replace("\n", ";"))
 PY
-`, hostadb.EnvPort, port)
+`, hostadb.EnvPort, port, int(guestDeviceWait/time.Second))
 	ob, err := exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", probe).CombinedOutput()
 	out := string(ob)
 	if err != nil {

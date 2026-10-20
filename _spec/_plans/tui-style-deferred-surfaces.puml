@@ -30,6 +30,12 @@
 ' agent's own prelude: .env loading, git context, gh session, the smoke
 ' sentinel. prep-process-boundary calls that the "stdout preamble", and it is
 ' the one part of prep whose effect is meant to cross the process boundary.
+' UPDATE 2026-10-17 (MEASURED): the .env loading (N7) and the smoke sentinel
+' (N22, SmokeReady deleted) are gone; prep prints only the git-context report
+' (cmd/proveo-entrypoint/main.go:57-88), and internal/entrypoint prints no
+' PROVEO_SMOKE_READY any more — the marker comes from the shell's
+' run_smoke_test. The test's exemption for internal/entrypoint/entrypoint.go
+' (tui_vocabulary_test.go:18) is therefore stale (repo-simplification.puml N22).
 '
 ' Three things make it a bad first customer. It runs INSIDE the image, so a
 ' source edit is inert until `proveo build <harness>` — the loop is a rebuild
@@ -51,9 +57,10 @@
 ' In-container (~69 lines): the four harness entrypoints — opencode 19, cursor
 ' 17, claudecode/mcp 11, cecli 10 — plus the mitmproxy and squid sidecar
 ' scripts. This is surface A again in another language, and it is deferred for
-' the same reason: sbx's kit is expected to absorb the seeding, and the two
-' sidecars belong to the docker backend that retire-dind has now shrunk to a
-' PROVEO_SBX=0 fallback.
+' the same reason: sbx's kit is expected to absorb the seeding. The two sidecars
+' belonged to the docker backend, which retire-dind shrank to a PROVEO_SBX=0
+' fallback and the 2026-10-16 retirement deleted with them, so they have left
+' this surface entirely.
 '
 ' Host-side, build time: nothing left. defs/lib/docker-build.sh and every
 ' defs/*/build.sh and ensure.sh left this list on 2026-09-22 (host-shell-to-go
@@ -79,13 +86,13 @@
 ' Three prompts still read a line from stdin instead of drawing a form:
 ' promptYesNo and promptEnv in cmd/proveo/wizard.go, and provision.go's build
 ' question, which prefixes itself with a hammer emoji. Note what is NOT in this
-' list: the review tier's connection consent already draws through
-' choiceui.Consent on a tcell overlay over the suspended PTY, so the hardest
-' one of these is conformant today and is the proof the pattern works.
+' list: the review tier's connection consent drew through choiceui.Consent on a
+' tcell overlay over the suspended PTY — the proof the pattern works. The review
+' tier was retired 2026-10-16, and Consent and its test are deleted; the
+' blocked-run prompts (internal/choiceui/blocked_run.go) are the live example.
 '
-' THE DECISION IT WAITED ON. Two, in fact. The review prompts are the docker
-' backend's, and retire-dind — now applied — leaves that backend alive only as
-' the PROVEO_SBX=0 fallback, so their volume has already fallen to near zero. Separately, a form
+' THE DECISION IT WAITED ON. Two, in fact. The review prompts were the docker
+' backend's, which is deleted since 2026-10-16, so their volume is zero. Separately, a form
 ' cannot be the only rendering: promptEnv reads SECRETS, and it has to keep
 ' working with no TTY, in CI, and under a pipe. That means every converted
 ' prompt needs a headless path anyway, which is a contract worth designing once
@@ -95,14 +102,14 @@ title PLANNED — three TUI surfaces deferred, and what each waits on
 
 package "joined the language (shipped)" as DONE <<app>> {
   component "internal/ui\nsix roles · three severities\nmeasured, wrapped" as UI <<app>>
-  component "~90 host call sites\nrun · sandbox · cmd/proveo\negress · egressproxy · credentials" as SITES <<app>>
+  component "~90 host call sites\nrun · sandbox · cmd/proveo · credentials\n(egress · egressproxy deleted 2026-10-16)" as SITES <<app>>
   component "internal/choiceui\nthe original speaker" as CUI <<app>>
-  component "choiceui.Consent\nreview connection prompt\nalready conformant" as CONSENT <<app>>
+  component "choiceui blocked-run prompts\n(choiceui.Consent was the first;\ndeleted 2026-10-16 with review)" as CONSENT <<app>>
 }
 
 package "deferred — surface A" as A <<cloud>> {
   component "cmd/proveo-entrypoint/main.go\n14 raw fmt.Printf\nfour emoji, one variation-selected" as EP <<error>>
-  component "internal/entrypoint\nPROVEO_SMOKE_READY" as EPL <<error>>
+  component "internal/entrypoint\nPROVEO_SMOKE_READY (gone: N22)" as EPL <<error>>
 }
 
 package "deferred — surface B" as B <<cloud>> {
@@ -111,14 +118,14 @@ package "deferred — surface B" as B <<cloud>> {
 }
 
 package "deferred — surface C" as C <<cloud>> {
-  component "4 harness entrypoint.sh\n+ 2 sidecar scripts\n~69 lines, in-container" as SHIN <<error>>
+  component "4 harness entrypoint.sh\n(the 2 sidecar scripts went 2026-10-16)\nin-container" as SHIN <<error>>
   component "egress.sh · run_contract_tests.sh\nhost build time\n(deleted: host-shell-to-go P2, P3)" as SHOUT <<error>>
   component "defs/lib/ui.sh\nsix roles · three tiers\nDOES NOT EXIST" as SHUI <<async>>
 }
 
 component "sbx kit contract\nseeds the sandbox" as KIT <<host>>
 component "sbx policy baseline\nowns egress decisions" as POL <<host>>
-component "retire-dind (APPLIED)\ndocker → PROVEO_SBX=0 fallback" as DIND <<host>>
+component "retire-dind (APPLIED)\ndocker fallback deleted 2026-10-16" as DIND <<host>>
 component "contract test\nexemption list names\nboth surfaces explicitly" as TEST <<async>>
 
 SITES ARROW_MAIN UI

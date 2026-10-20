@@ -14,28 +14,15 @@ func TestPostureGolden(t *testing.T) {
 		p    posture.Posture
 	}{
 		{"posture-sbx", posture.Posture{
-			Target: "claudecode", EgressTier: "allowlist", Credentials: "forward",
+			Target: "claudecode", Credentials: "broker (sbx proxy)",
 			AddOns: "browser,docker (sandbox)", AgentEvidence: "verbose",
-			DetectedKeys: "anthropic", Brokered: "", ReachableHosts: ".anthropic.com",
-			HarnessHosts: "", AuthVar: "CLAUDE_CODE_OAUTH_TOKEN", LocalModel: "",
-			Observability: posture.Observability("allowlist", "forward", true),
-			EnforcedBy:    posture.EnforcedBy(true),
+			DetectedKeys: "anthropic", AuthVar: "CLAUDE_CODE_OAUTH_TOKEN", LocalModel: "",
+			Observability: posture.Observability(),
+			EnforcedBy:    posture.EnforcedBy(),
 			Image:         posture.Image("proveo/claudecode:local"),
 			ModelRoles:    "main=claude-opus-5 (anthropic)", RoleProviders: "anthropic",
-			MCPGateway: posture.MCPGateway(true, false, "MCP_GATEWAY_URL"),
+			MCPGateway: posture.MCPGateway(false, "MCP_GATEWAY_URL"),
 			Workspace:  posture.Workspace(false),
-		}},
-		{"posture-docker", posture.Posture{
-			Target: "claudecode", EgressTier: "open", Credentials: "broker",
-			AddOns: "", AgentEvidence: "default",
-			DetectedKeys: "anthropic,openai", Brokered: "anthropic", ReachableHosts: "",
-			HarnessHosts: "example.test", AuthVar: "", LocalModel: "qwen2.5-coder",
-			Observability: posture.Observability("open", "broker", false),
-			EnforcedBy:    posture.EnforcedBy(false),
-			Image:         posture.Image("proveo/claudecode:latest"),
-			ModelRoles:    "main=claude-opus-5 (anthropic)", RoleProviders: "anthropic",
-			MCPGateway: posture.MCPGateway(false, false, "MCP_GATEWAY_URL"),
-			Workspace:  posture.Workspace(true),
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -50,15 +37,14 @@ func TestPostureGolden(t *testing.T) {
 func TestPostureRendersEveryRowItDeclares(t *testing.T) {
 	t.Parallel()
 	full := posture.Posture{
-		Target: "t", EgressTier: "e", Credentials: "c", AddOns: "a", AgentEvidence: "v",
-		DetectedKeys: "d", Brokered: "b", ReachableHosts: "r", HarnessHosts: "h",
-		AuthVar: "av", LocalModel: "lm", Observability: "o", EnforcedBy: "eb",
+		Target: "t", Credentials: "c", AddOns: "a", AgentEvidence: "v",
+		DetectedKeys: "d", AuthVar: "av", LocalModel: "lm", Observability: "o", EnforcedBy: "eb",
 		Image: "i", ModelRoles: "mr", RoleProviders: "rp", MCPGateway: "mg", Workspace: "w",
 	}
 	if got := full.Render(); strings.Contains(got, "(unset)") {
 		t.Errorf("a fully-populated posture still rendered an unset row:\n%s", got)
 	}
-	if n := strings.Count(full.Render(), "\n"); n != 18 {
-		t.Errorf("Render wrote %d rows, want 18 — a field was added to Posture without a row, or vice versa", n)
+	if n := strings.Count(full.Render(), "\n"); n != 14 {
+		t.Errorf("Render wrote %d rows, want 14 — a field was added to Posture without a row, or vice versa", n)
 	}
 }

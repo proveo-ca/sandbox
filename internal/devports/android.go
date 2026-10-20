@@ -25,12 +25,12 @@ func (a AndroidApp) Label() string {
 	return name + " " + a.AppID
 }
 
-// Task is the Gradle task that builds and installs the debug variant.
+// Task is the Gradle task that builds the debug APK the seed then installs with adb.
 func (a AndroidApp) Task() string {
 	if a.Module == "" {
-		return "installDebug"
+		return "assembleDebug"
 	}
-	return a.Module + ":installDebug"
+	return a.Module + ":assembleDebug"
 }
 
 var (

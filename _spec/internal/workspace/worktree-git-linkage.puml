@@ -42,7 +42,7 @@ note right of PREP
 
   **The overlay replaces exactly those two files** with container-correct
   copies, as nested read-only binds — the same shadowing trick
-  ""maskEnvMounts"" uses for ""\.env"". The host copies are never rewritten,
+  ""maskEnvMounts"" used for ""\.env"" (deleted by F9). The host copies are never rewritten,
   so the operator's own use of the worktree keeps working; only the
   container sees the rewritten chain. ""commondir"" needs no overlay: it is
   already relative (""\.\./\.\."").

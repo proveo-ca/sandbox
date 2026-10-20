@@ -18,7 +18,7 @@ title OpenCode crew — automatic asks, explicit denies and visible execution
 
 ' Approved native schema and lifecycle: _spec/defs/opencode/native-v2-integration.puml
 ' Seed order: _spec/packages/lib/seed-and-launch.puml
-' Model bridge retirement: _spec/_plans/retire-model-bridging.puml
+' Model bridge retirement: _spec/internal/entrypoint/model-alias-bridges.puml
 ' Billing and credential decisions: _spec/internal/credentials/credential-decisions.puml
 '
 ' The sibling records implemented source/fixture contracts and PLANNED live acceptance.
@@ -65,12 +65,16 @@ title OpenCode crew — automatic asks, explicit denies and visible execution
 ' after subscription limits. ModelBilling reads the raw prefix before
 ' providerAliases folds both routes onto opencode for host/key routing.
 ' The former auth.json-only explanation described v1, not the v2 token store.
-' The approved v2 lifecycle preserves sessions and removes stored credentials;
-' the approved private per-run DB and full-lifetime lease live in the native sibling.
-' Account/MCP token stores, nonauth state, rebased artifact paths, protected recovery,
-' PTY job control and canonical backend mapping now have implemented source fixtures.
-' Actual sbx cross-VM file locks and model-driven live idle git sync remain unexecuted.
-' Docker remains the sandbox daemon (docker: sbx), not a privileged sibling.
+' D2 (DONE (wt) 2026-10-17 — _spec/defs/opencode/engine-local-history.puml):
+' sessions AND in-sandbox logins now persist with the retained engine, in OpenCode's own
+' ~/.local/share/opencode/opencode.db, until `sbx rm` (D8, "Accept and document"). proveo no
+' longer removes stored credentials, and no private per-run DB or lease exists.
+' HISTORY (keeper design): the v2 lifecycle preserved sessions and removed stored credentials,
+' with a private per-run DB and a full-lifetime lease; account/MCP token stores, rebased artifact
+' paths and protected recovery had source fixtures. Model-driven live idle git sync remains
+' unexecuted.
+' Docker remains the sandbox daemon (the sbx microVM's own; no manifest `docker:` key since
+' F10, 2026-10-17), not a privileged sibling.
 '
 ' Native CLI config documentation: https://opencode.ai/v2/docs/cli/config
 ' General editor schema pointer: https://opencode.ai/config.json (v1; advisory).

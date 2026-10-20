@@ -58,42 +58,37 @@ func TestDecideCloneDefaultsToACloneOnlyWhereSbxCanMakeOne(t *testing.T) {
 	cases := []struct {
 		name    string
 		p       Params
-		sbx     bool
 		ws      workspace.MountSpec
 		on      bool
 		whyHas  string
 		errHas  string
 		explain string
 	}{
-		{name: "repo root on sbx clones", p: Params{Clone: true}, sbx: true,
+		{name: "repo root on sbx clones", p: Params{Clone: true},
 			ws: workspace.MountSpec{RepoRoot: repo, InputDir: repo}, on: true},
-		{name: "opted out stays mounted", p: Params{Clone: false, CloneSet: true}, sbx: true,
+		{name: "opted out stays mounted", p: Params{Clone: false, CloneSet: true},
 			ws: workspace.MountSpec{RepoRoot: repo, InputDir: repo}, on: false},
-		{name: "docker backend: default is silently off", p: Params{Clone: true}, sbx: false,
-			ws: workspace.MountSpec{RepoRoot: repo, InputDir: repo}, on: false},
-		{name: "docker backend: explicit --clone is an error", p: Params{Clone: true, CloneSet: true}, sbx: false,
-			ws: workspace.MountSpec{RepoRoot: repo, InputDir: repo}, errHas: "sbx-backend feature"},
-		{name: "no repository: default falls back and says so", p: Params{Clone: true}, sbx: true,
+		{name: "no repository: default falls back and says so", p: Params{Clone: true},
 			ws: workspace.MountSpec{InputDir: t.TempDir()}, on: false, whyHas: "not a git repository"},
-		{name: "no repository: explicit --clone is an error", p: Params{Clone: true, CloneSet: true}, sbx: true,
+		{name: "no repository: explicit --clone is an error", p: Params{Clone: true, CloneSet: true},
 			ws: workspace.MountSpec{InputDir: t.TempDir()}, errHas: "needs a git repository"},
-		{name: "linked worktree on a branch clones through the main worktree", p: Params{Clone: true}, sbx: true,
+		{name: "linked worktree on a branch clones through the main worktree", p: Params{Clone: true},
 			ws: workspace.MountSpec{RepoRoot: wt, InputDir: wt}, on: true,
 			explain: "a mounted worktree hands its host-built trees to a Linux install — " + mainRepo},
-		{name: "linked worktree: explicit --clone is honoured", p: Params{Clone: true, CloneSet: true}, sbx: true,
+		{name: "linked worktree: explicit --clone is honoured", p: Params{Clone: true, CloneSet: true},
 			ws: workspace.MountSpec{RepoRoot: wt, InputDir: wt}, on: true},
-		{name: "unclonable worktree: default falls back and says why", p: Params{Clone: true}, sbx: true,
+		{name: "unclonable worktree: default falls back and says why", p: Params{Clone: true},
 			ws: workspace.MountSpec{RepoRoot: badWt, InputDir: badWt}, on: false, whyHas: "linked git worktree"},
-		{name: "unclonable worktree: explicit --clone is an error", p: Params{Clone: true, CloneSet: true}, sbx: true,
+		{name: "unclonable worktree: explicit --clone is an error", p: Params{Clone: true, CloneSet: true},
 			ws: workspace.MountSpec{RepoRoot: badWt, InputDir: badWt}, errHas: "cannot clone the linked git worktree"},
-		{name: "monorepo sub-scope: default falls back", p: Params{Clone: true}, sbx: true,
+		{name: "monorepo sub-scope: default falls back", p: Params{Clone: true},
 			ws: workspace.MountSpec{RepoRoot: repo, InputDir: filepath.Join(repo, "apps", "web")}, on: false, whyHas: "sub-scope"},
-		{name: "monorepo sub-scope: explicit --clone is honoured", p: Params{Clone: true, CloneSet: true}, sbx: true,
+		{name: "monorepo sub-scope: explicit --clone is honoured", p: Params{Clone: true, CloneSet: true},
 			ws: workspace.MountSpec{RepoRoot: repo, InputDir: filepath.Join(repo, "apps", "web")}, on: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			on, why, err := decideClone(&tc.p, tc.sbx, tc.ws)
+			on, why, err := decideClone(&tc.p, tc.ws)
 			if tc.errHas != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.errHas) {
 					t.Fatalf("err = %v, want one mentioning %q", err, tc.errHas)

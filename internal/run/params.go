@@ -3,40 +3,44 @@ package run
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/devports"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
-	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 )
 
 type Params struct {
-	Target, Image, Mode, Credentials, LocalModel, Input, Output, Scope, DataDir string
-	ModeSet, CredsSet                                                           bool
-	Addons                                                                      []string
-	AddonsAnswered                                                              bool // a cached or prompted answer exists; default-on add-ons stop defaulting
-	AddonsSet                                                                   bool // --addon was passed; the cache does not override it
-	Yes                                                                         bool // --yes: accept the cached and flagged choices without drawing the form
-	Roles                                                                       provider.Roles
-	RolesRemembered                                                             provider.Roles
-	AuthVar                                                                     string
-	HostEnvFile                                                                 string
-	Evidence                                                                    string
-	Shell, PrintOnly                                                            bool
-	Extra                                                                       []string
-	ProxyImage                                                                  string
-	Clone, CloneSet                                                             bool
-	Ports                                                                       []devports.Candidate
-	discovered                                                                  []devports.Candidate
-	portsAsked                                                                  bool // the form drew the ports row
-	Apps                                                                        []devports.AndroidApp
-	discoveredApps                                                              []devports.AndroidApp
-	appsAsked                                                                   bool // the form drew the apps row
+	Target, Image, Credentials, LocalModel, Input, Output, Scope, DataDir string
+	CredsSet                                                              bool
+	Addons                                                                []string
+	AddonsAnswered                                                        bool // a cached or prompted answer exists; default-on add-ons stop defaulting
+	AddonsSet                                                             bool // --addon was passed; the cache does not override it
+	Yes                                                                   bool // --yes: accept the cached and flagged choices without drawing the form
+	Roles                                                                 provider.Roles
+	RolesRemembered                                                       provider.Roles
+	AuthVar                                                               string
+	HostEnvFile                                                           string
+	Evidence                                                              string
+	PrintOnly                                                             bool
+	Extra                                                                 []string
+	Clone, CloneSet                                                       bool
+	Ports                                                                 []devports.Candidate
+	discovered                                                            []devports.Candidate
+	portsAsked                                                            bool // the form drew the ports row
+	Apps                                                                  []devports.AndroidApp
+	discoveredApps                                                        []devports.AndroidApp
+	appsAsked                                                             bool // the form drew the apps row
 }
+
+// CredentialModes are the --credentials values: forward puts the key in the sandbox env, broker leaves it with sbx's proxy.
+func CredentialModes() []string { return []string{"forward", "broker"} }
+
+// ValidCredentials reports whether mode is a --credentials value.
+func ValidCredentials(mode string) bool { return slices.Contains(CredentialModes(), mode) }
 
 func (p Params) forwards() bool { return p.Credentials == "forward" }
 
@@ -47,10 +51,9 @@ func (p Params) credentialsOrDefault() string {
 	return p.Credentials
 }
 
-func (p Params) intercepts() bool { return p.Mode != "open" || !p.forwards() }
-
 const (
-	evidenceLabel   = "agent evidence"
+	evidenceLabel   = "outputs"
+	evidenceFilter  = "filtered"
 	EvidenceVar     = "PROVEO_AGENT_EVIDENCE"
 	EvidenceDefault = "default"
 	EvidenceVerbose = "verbose"
@@ -64,22 +67,11 @@ func (p Params) evidenceOrDefault() string {
 }
 
 func (p *Params) applyCapabilities(man manifest.Manifest) error {
-	return p.applyCapabilitiesAt(man, sandbox.Selected(man))
-}
-
-func (p *Params) applyCapabilitiesAt(man manifest.Manifest, sandboxOn bool) error {
 	c := man.Capabilities
-	if !c.AllowsEgress(p.Mode) {
-		if p.ModeSet {
-			return fmt.Errorf("%s does not support --egress-mode %s (allowed: %s)",
-				p.Target, p.Mode, strings.Join(c.Egress, "|"))
-		}
-		p.Mode = c.Egress[0]
-	}
 	mode := p.credentialsOrDefault()
 	if !c.AllowsCredentials(mode) {
-		if sandboxOn && mode == "broker" {
-			return nil // sbx's proxy brokers natively; the capability list is the docker-egress truth
+		if mode == "broker" {
+			return nil // sbx's proxy brokers natively
 		}
 		if p.CredsSet {
 			return fmt.Errorf("%s does not support --credentials %s (allowed: %s)",
@@ -91,9 +83,6 @@ func (p *Params) applyCapabilitiesAt(man manifest.Manifest, sandboxOn bool) erro
 }
 
 func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) string, evidenceSet bool) {
-	if !p.ModeSet && egress.ValidMode(cached.Egress) {
-		p.Mode = cached.Egress
-	}
 	if !p.CredsSet && cached.Credentials != "" {
 		p.Credentials = cached.Credentials
 	}
@@ -123,8 +112,4 @@ func (p *Params) addonDefaults(opts []string) []bool {
 		on[i] = hasAddon(p.Addons, a) || (a == addonSandbox && !p.AddonsAnswered)
 	}
 	return on
-}
-
-func (p *Params) willSandbox(man manifest.Manifest) bool {
-	return sandbox.Selected(man)
 }

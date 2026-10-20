@@ -1,19 +1,24 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest_test
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/imagetest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 var ocSeq atomic.Int64
@@ -22,14 +27,134 @@ var ocSeq atomic.Int64
 // force-removes the container afterwards, so a timed-out client leaves nothing behind.
 func ocRun(t *testing.T, timeout time.Duration, env []string, args ...string) imagetest.Result {
 	t.Helper()
+	return ocRunStdin(t, timeout, env, "", args...)
+}
+
+// ocRunStdin is ocRun with stdin attached (`docker run -i`) when stdin is not empty.
+func ocRunStdin(t *testing.T, timeout time.Duration, env []string, stdin string, args ...string) imagetest.Result {
+	t.Helper()
 	name := fmt.Sprintf("proveo-imagetest-opencode-%d-%d", os.Getpid(), ocSeq.Add(1))
 	t.Cleanup(func() { imagetest.Docker(30*time.Second, nil, "rm", "-f", name) })
-	return imagetest.Docker(timeout, env, append([]string{"run", "--rm", "--name", name}, args...)...)
+	run := []string{"run", "--rm", "--name", name}
+	if stdin != "" {
+		run = append(run, "-i")
+	}
+	return imagetest.DockerStdin(timeout, env, stdin, append(run, args...)...)
 }
 
 // ocNoInstalls keeps the config checks off the network: a markdown fixture made
 // the seed download marksman, and that alone outran the 30s budget.
 var ocNoInstalls = []string{"-e", "PROVEO_LSP_INSTALL=off", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false"}
+
+// ocFixtureProvider is an unreachable OpenAI-compatible provider: a run creates its session, then retries until killed.
+const ocFixtureProvider = `{"plugins":[],"providers":{"fixture":{"package":"@opencode/ai/providers/openai-compatible",` +
+	`"settings":{"baseURL":"http://127.0.0.1:9/v1","apiKey":"synthetic"},` +
+	`"models":{"model":{"name":"Offline fixture","limit":{"context":100000,"output":4096}}}}}}`
+
+// ocEngineHistory launches twice through the shim and finds the first launch's session in the native default database.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocEngineHistory = `set -u
+shim=/opt/proveo/shims/opencode
+db="$HOME/.local/share/opencode/opencode.db"
+mkdir -p /tmp/work && cd /tmp/work || exit 40
+[ ! -e "$db" ] || exit 41
+timeout 15 "$shim" run --model fixture/model "offline history fixture" >/tmp/run.log 2>&1
+[ -f "$db" ] || { cat /tmp/run.log; exit 42; }
+out=$("$shim" session list --format json 2>/tmp/list.err) || { cat /tmp/list.err; exit 43; }
+printf '%s\n' "$out" | grep -q '"directory": *"/tmp/work"' || { echo "$out"; cat /tmp/run.log; exit 44; }
+[ "$(find /tmp "$HOME" -name opencode.db 2>/dev/null)" = "$db" ] || { find /tmp "$HOME" -name opencode.db; exit 45; }
+[ ! -e "$PROVEO_HOME/opencode/v2/share" ] || exit 46
+ls -d /tmp/proveo-opencode-throwaway-* 2>/dev/null && exit 47
+echo ENGINE-HISTORY-KEPT`
+
+// ocInflight runs the git-sync commit-subject call through the shim and checks the engine database did not change.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocInflight = `set -u
+shim=/opt/proveo/shims/opencode
+db="$HOME/.local/share/opencode/opencode.db"
+mkdir -p /tmp/work && cd /tmp/work || exit 50
+"$shim" session list --format json >/dev/null 2>/tmp/list.err || { cat /tmp/list.err; exit 51; }
+[ -f "$db" ] || exit 52
+sums() { find "$HOME/.local/share/opencode" -type f -exec sha256sum {} + | sort; }
+before=$(sums)
+PROVEO_GIT_SYNC_MSG_INFLIGHT=1 timeout 8 "$shim" run --standalone -m fixture/model "write a commit subject" >/tmp/inflight.log 2>&1
+code=$?
+[ "$code" = 0 ] || [ "$code" = 124 ] || { cat /tmp/inflight.log; exit 53; }
+[ "$(sums)" = "$before" ] || { echo "$before"; sums; exit 54; }
+ls -d /tmp/proveo-opencode-throwaway-* 2>/dev/null && exit 55
+echo INFLIGHT-UNTOUCHED`
+
+// ocImportFixture builds a WAL database as root and prints each file base64-encoded on a FILE<suffix>= line.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocImportFixture = `import base64, os, sqlite3, sys, tempfile
+src = os.path.join(tempfile.mkdtemp(), "opencode.db")
+con = sqlite3.connect(src)
+con.execute("PRAGMA journal_mode=WAL")
+con.execute("PRAGMA wal_autocheckpoint=0")
+con.execute("CREATE TABLE fixture (note TEXT)")
+con.executemany("INSERT INTO fixture VALUES (?)", [("engine-local",), ("imported-once",)])
+con.commit()
+assert os.path.getsize(src + "-wal") > 0
+for suffix in ("", "-wal"):
+    with open(src + suffix, "rb") as f:
+        print("FILE" + suffix + "=" + base64.b64encode(f.read()).decode())
+sys.stdout.flush()
+os._exit(0)`
+
+// ocImport stages the host's import stream as root with mode 0600, then imports it twice and
+// exports it as uid 1000, the engine user `sbx exec` runs.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocImport = `set -u
+db=/home/agent/.local/share/opencode/opencode.db
+stage=/tmp/stage.tar
+as_agent() { HOME=/home/agent python3 -I -c 'import os, sys
+os.setgroups([]); os.setgid(1000); os.setuid(1000)
+os.execvp(sys.argv[1], sys.argv[1:])' "$@"; }
+notes() { python3 -c 'import sqlite3, sys; print(",".join(r[0] for r in sqlite3.connect(sys.argv[1]).execute("SELECT note FROM fixture ORDER BY rowid")))' "$1"; }
+[ "$(id -u)" = 0 ] || exit 60
+[ ! -e "$db" ] || exit 61
+(umask 077 && cat > "$stage") || exit 62
+[ "$(stat -c '%u %a' "$stage")" = "0 600" ] || exit 63
+as_agent test -r "$stage" && exit 63
+as_agent python3 -I -c "$IMPORT_SCRIPT" < "$stage"; code=$?
+[ "$code" = 0 ] || { echo "import exit=$code"; exit 64; }
+[ "$(stat -c '%u %a' "$db")" = "1000 600" ] || { stat -c '%u %a' "$db"; exit 65; }
+before=$(sha256sum "$db")
+as_agent python3 -I -c "$IMPORT_SCRIPT" < "$stage"; code=$?
+[ "$code" = "$IMPORT_EXISTING" ] || { echo "second import exit=$code"; exit 66; }
+[ "$(sha256sum "$db")" = "$before" ] || exit 67
+ls -d /tmp/proveo-import-* 2>/dev/null && exit 68
+echo "IMPORTED=$(notes "$db")"
+as_agent python3 -I -c "$EXPORT_SCRIPT" >/tmp/export.db || exit 69
+echo "HEADER=$(od -An -tx1 -N16 /tmp/export.db | tr -d ' \n')"
+echo "EXPORTED=$(notes /tmp/export.db)"`
+
+// ocImportStream is the host's import stream for the WAL database ocImportFixture printed in out.
+func ocImportStream(t *testing.T, out string) string {
+	t.Helper()
+	src := filepath.Join(t.TempDir(), "opencode.db")
+	for _, suffix := range []string{"", "-wal"} {
+		var body []byte
+		for l := range strings.SplitSeq(out, "\n") {
+			if enc, ok := strings.CutPrefix(l, "FILE"+suffix+"="); ok {
+				b, err := base64.StdEncoding.DecodeString(enc)
+				if err != nil {
+					t.Fatalf("fixture FILE%s: %v", suffix, err)
+				}
+				body = b
+			}
+		}
+		if len(body) == 0 {
+			t.Fatalf("the fixture printed no FILE%s line:\n%s", suffix, out)
+		}
+		ocWrite(t, src+suffix, string(body), 0o600)
+	}
+	var stream bytes.Buffer
+	if err := sbx.WriteOpenCodeImport(&stream, src, sbx.OpenCodeImportFiles(src)); err != nil {
+		t.Fatal(err)
+	}
+	return stream.String()
+}
 
 func ocWrite(t *testing.T, path, body string, mode os.FileMode) {
 	t.Helper()
@@ -61,7 +186,7 @@ func ocClip(s string, n int) string {
 }
 
 func TestImageOpencode(t *testing.T) {
-	image := imagetest.Resolve("IMAGE", "proveo/opencode:latest")
+	image := imagetest.Resolve("opencode", "proveo/opencode:latest")
 	s := imagetest.New(t, image)
 
 	ocBuild(s)
@@ -69,6 +194,7 @@ func TestImageOpencode(t *testing.T) {
 	ocSecurity(s)
 	ocConfig(s)
 	ocDefaults(s)
+	ocHistory(s)
 	ocMCP(s)
 	ocLLM(s)
 }
@@ -128,7 +254,7 @@ func ocTools(s *imagetest.Suite) {
 		"printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts", "42")
 	s.Contains("opencode CLI exposes 'run' subcommand", img, "opencode --help 2>&1", "run")
 
-	browser := imagetest.Resolve("OPENCODE_BROWSER_IMAGE", "proveo/opencode-browser:latest")
+	browser := imagetest.Resolve("opencode-browser", "proveo/opencode-browser:latest")
 	if !imagetest.Present(browser) {
 		s.Skip("[browser] opencode-browser variant", "image "+browser+" not built (mise run build opencode-browser)")
 		return
@@ -178,7 +304,7 @@ func ocSecurity(s *imagetest.Suite) {
 
 	s.Check("arbitrary --user uid gets usable identity and writable HOME", func(t *testing.T) {
 		r := ocRun(t, imagetest.DefaultTimeout, nil, "--user", "4242:4242", "--entrypoint", "bash", img, "-c",
-			`source /entrypoint-lib.sh && ensure_runtime_user && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
+			`source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
 		if !strings.Contains(r.Out, "uid=4242 home_writable=yes") {
 			t.Errorf("output: %s", ocClip(r.Out, 200))
 		}
@@ -196,13 +322,12 @@ func ocConfig(s *imagetest.Suite) {
 }
 `, 0o644)
 	ocWrite(s.T, filepath.Join(fixture, "AGENTS.md"), "# Test fixture agents file.\n", 0o644)
-	envFile := filepath.Join(fixture, ".env")
-	ocWrite(s.T, envFile, "OPENCODE_TEST_MARKER=loaded_from_env\n", 0o644)
+	ocWrite(s.T, filepath.Join(fixture, ".env"), "OPENCODE_SMALL_MODEL=from-workspace-env\n", 0o644)
 	mount := fixture + ":/app"
 
-	s.Check("entrypoint detects opencode.json + AGENTS.md + .env", func(t *testing.T) {
+	s.Check("entrypoint detects opencode.json + AGENTS.md", func(t *testing.T) {
 		r := ocRun(t, 30*time.Second, nil, append(ocNoInstalls, "-v", mount, "--entrypoint", "/entrypoint.sh", img, "--version")...)
-		for _, want := range []string{"Found opencode.json", "Found AGENTS.md", "Loaded environment variables from .env"} {
+		for _, want := range []string{"Found opencode.json", "Found AGENTS.md"} {
 			if !strings.Contains(r.Out, want) {
 				t.Errorf("entrypoint detects config (missing %q; output: %s)", want, ocClip(r.Out, 300))
 			}
@@ -218,15 +343,22 @@ if [[ "${1:-}" == "--version" ]]; then
   echo "9.9.9"
 fi
 `, 0o755)
-	fakeRun := func(t *testing.T) string {
-		return ocRun(t, 30*time.Second, nil, append(ocNoInstalls, "-v", mount, "--entrypoint", "bash", img, "-c",
-			`PATH="/app/fake-bin:$PATH" /entrypoint.sh --version`)...).Out
+	fakeRun := func(t *testing.T, env ...string) string {
+		args := append(append(append([]string{}, ocNoInstalls...), env...), "-v", mount, "--entrypoint", "bash", img, "-c",
+			`PATH="/app/fake-bin:$PATH" /entrypoint.sh --version`)
+		return ocRun(t, 30*time.Second, nil, args...).Out
 	}
 
-	// SPEC: _spec/_plans/retire-model-bridging.puml
-	ocWrite(s.T, envFile, "ARCHITECT_MODEL=gpt-5.5\nEDITOR_MODEL=xai/grok-4.3\nSMALL_MODEL=xai/grok-small\n", 0o644)
-	s.Check("a role name in .env does NOT become an opencode model var", func(t *testing.T) {
+	s.Check("the workspace .env never reaches opencode", func(t *testing.T) {
 		out := fakeRun(t)
+		if !strings.Contains(out, "SAW OPENCODE_SMALL_MODEL=[]") || strings.Contains(out, "from-workspace-env") {
+			t.Errorf("the entrypoint exported the workspace .env (output: %s)", ocClip(out, 300))
+		}
+	})
+
+	// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
+	s.Check("a role name in the environment does NOT become an opencode model var", func(t *testing.T) {
+		out := fakeRun(t, "-e", "ARCHITECT_MODEL=gpt-5.5", "-e", "EDITOR_MODEL=xai/grok-4.3", "-e", "SMALL_MODEL=xai/grok-small")
 		for _, want := range []string{"SAW OPENCODE_MODEL=[]", "SAW OPENCODE_SMALL_MODEL=[]", "SAW OPENCODE_BUILD_MODEL=[]"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("model bridging has grown back (missing %q; output: %s)", want, ocClip(out, 300))
@@ -234,9 +366,8 @@ fi
 		}
 	})
 
-	ocWrite(s.T, envFile, "OPENCODE_SMALL_MODEL=xai/grok-4.3\n", 0o644)
 	s.Check("opencode's own OPENCODE_SMALL_MODEL survives and is not published as SMALL_MODEL", func(t *testing.T) {
-		out := fakeRun(t)
+		out := fakeRun(t, "-e", "OPENCODE_SMALL_MODEL=xai/grok-4.3")
 		for _, want := range []string{"SAW OPENCODE_SMALL_MODEL=[xai/grok-4.3]", "SAW SMALL_MODEL=[]"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("reverse bridge or own-var loss (missing %q; output: %s)", want, ocClip(out, 300))
@@ -274,7 +405,7 @@ func ocDefaults(s *imagetest.Suite) {
 	s.Success("default opencode.json: automatic compaction enabled", img,
 		`jq -e '.compaction.auto == true' /opt/opencode/defaults/opencode.json`)
 
-	// SPEC: _spec/_plans/retire-model-bridging.puml
+	// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
 	for _, seed := range []string{"/opt/opencode/defaults/opencode.json", "/opt/opencode/sample_opencode.json"} {
 		s.Success(filepath.Base(seed)+": names no model by environment", img, "! grep -q 'env:OPENCODE' "+seed)
 	}
@@ -314,6 +445,51 @@ func ocDefaults(s *imagetest.Suite) {
   `)
 		if !ocHasLine(r.Out, "PRESERVED") {
 			t.Errorf("preserve behaviour (output: %s)", ocClip(r.Out, 300))
+		}
+	})
+}
+
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+func ocHistory(s *imagetest.Suite) {
+	img := s.Image
+	engine := []string{"--network", "none", "-e", "SANDBOX_VM_ID=imagetest-engine", "-e", "PROVEO_HOME=/tmp/home",
+		"-e", "PROVEO_STATE_HOME=/tmp/home", "-e", "OPENCODE_DISABLE_MODELS_FETCH=1", "-e", "OPENCODE_CONFIG_CONTENT=" + ocFixtureProvider}
+
+	s.Check("two shim launches share the native default database and create no V2 share", func(t *testing.T) {
+		r := ocRun(t, 120*time.Second, nil, append(append(engine, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocEngineHistory)...)
+		if !r.OK() || !ocHasLine(r.Out, "ENGINE-HISTORY-KEPT") {
+			t.Fatalf("engine history (exit codes 40-47 name the failing step): %v\n%s", r.Err, r.Out)
+		}
+	})
+
+	s.Check("the git-sync inflight call leaves the engine database untouched", func(t *testing.T) {
+		r := ocRun(t, 120*time.Second, nil, append(append(engine, ocNoInstalls...), "--entrypoint", "bash", img, "-c", ocInflight)...)
+		if !r.OK() || !ocHasLine(r.Out, "INFLIGHT-UNTOUCHED") {
+			t.Fatalf("inflight launch (exit codes 50-55 name the failing step): %v\n%s", r.Err, r.Out)
+		}
+	})
+
+	s.Check("uid 1000 imports a root-staged 0600 WAL stream once and the export streams it", func(t *testing.T) {
+		fixture := ocRun(t, 60*time.Second, nil, "--network", "none", "--user", "0:0", "--entrypoint", "python3", img, "-I", "-c", ocImportFixture)
+		if !fixture.OK() {
+			t.Fatalf("fixture: %v\n%s", fixture.Err, fixture.Out)
+		}
+		r := ocRunStdin(t, 60*time.Second, nil, ocImportStream(t, fixture.Out), "--network", "none", "--user", "0:0",
+			"-e", "IMPORT_EXISTING="+strconv.Itoa(sbx.OpenCodeImportExisting),
+			"-e", "IMPORT_SCRIPT="+sbx.OpenCodeImportScript,
+			"-e", "EXPORT_SCRIPT="+sbx.OpenCodeExportScript,
+			"--entrypoint", "bash", img, "-c", ocImport)
+		if !r.OK() {
+			t.Fatalf("import sequence (exit codes 60-69 name the failing step): %v\n%s", r.Err, r.Out)
+		}
+		for _, want := range []string{
+			"IMPORTED=engine-local,imported-once",
+			"HEADER=" + hex.EncodeToString([]byte(sbx.OpenCodeDatabaseHeader)),
+			"EXPORTED=engine-local,imported-once",
+		} {
+			if !ocHasLine(r.Out, want) {
+				t.Errorf("missing %q:\n%s", want, r.Out)
+			}
 		}
 	})
 }

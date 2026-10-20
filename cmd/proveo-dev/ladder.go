@@ -1,4 +1,4 @@
-// SPEC: _spec/_devops/release-gate.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/_devops/release-gate.puml
 package main
 
 import (

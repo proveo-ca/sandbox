@@ -452,11 +452,6 @@ func PolicyInitArgs(baseline string) []string {
 func DiagnoseArgs() []string { return []string{"diagnose", "-o", "json"} }
 
 // Check is one row of `sbx diagnose`.
-//
-// proveo does not second-guess these. sbx owns the question of whether this
-// host can run a sandbox — it knows about virtualisation, its own daemon, its
-// own storage and its own version skew — and it answers with a remediation
-// proveo would only paraphrase worse.
 type Check struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // pass | warn | fail | skip

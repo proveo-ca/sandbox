@@ -32,12 +32,19 @@
 '     RE-ENTER that value and must NOT overwrite it. A machine default overwriting a
 '     human's remembered answer is the cache acting as an authority in the opposite
 '     direction.
-' The tier is read from the AGENT's own environment — the session echoes
-' `PROVEO_EGRESS_MODE` inside the container and only a line that is exactly the
-' expansion counts, since the shell echoes the command line too. That is the honest
-' signal that the choice took effect, rather than anything proveo printed host-side.
+' HISTORY: the tier was read from the AGENT's own environment — the session
+' echoed `PROVEO_EGRESS_MODE` inside the container. The tier and that variable
+' were deleted 2026-10-16 ("Nothing, `sbx` handles this. Drop that param"), and
+' Choice.Egress went with them; Fingerprint keeps an empty first slot
+' (retiredEgressSlot) so cached keys stay stable (MEASURED). The lane now
+' persists `credentials`, hand-edits the cached value to `forward`, and asserts
+' the second run re-enters it rather than overwriting it
+' (e2e/agent_settings_test.go).
 '
-' It is read through `shellExec`, which returns on a completion marker. The fixed
+' (MEASURED 2026-10-17: the lane now runs `proveo run opencode` without
+' `--shell`, which is retired, and waits for opencode's own "Ask anything"
+' prompt before tearing the run down.)
+' It was read through `shellExec`, which returned on a completion marker. The fixed
 ' sleeps it replaced (4s for the shell, 2s for the answer) were long enough on the
 ' docker rendering and not on the sandbox one, so the pane came back holding the
 ' typed line and no answer — an empty tier, which this test then reported as a
@@ -82,11 +89,11 @@ note left of TUI
 end note
 
 note left of FILE
-  **Read the tier from the AGENT's own env.**
-  The e2e lane echoes ""PROVEO_EGRESS_MODE""
-  inside the container: what proveo printed
-  host-side is an intention, and the container's
-  env is the fact.
+  **Assert the persisted answer, then re-entry.**
+  The tier the lane once echoed from the agent's
+  env (""PROVEO_EGRESS_MODE"") is gone; the lane
+  now edits the cached credentials and checks the
+  next run keeps them.
 end note
 
 note left of FILE
@@ -141,12 +148,12 @@ note bottom of FILE
 end note
 
 note bottom of CAP
-  **""providers"" also closes a live failure.** In a brokered tier
-  ""provider\.KeyVars()"" sentinel-injects every detected key, so the broker sees
-  two or more, refuses to pin, and the agent receives the ""proveo-brokered""
-  sentinel — which the provider answers with 403. Filtering detection through
-  the def's declared providers keeps a stray key for a harness that cannot use
-  it out of the set entirely.
+  **""providers"" also closes a live failure.** HISTORY (docker broker,
+  deleted 2026-10-16): in a brokered tier ""provider\.KeyVars()""
+  sentinel-injected every detected key, the broker saw two or more, refused
+  to pin, and the agent received the ""proveo-brokered"" sentinel — answered
+  with 403. On sbx the same filter keeps a stray key for a harness that cannot
+  use it out of sbx's store entirely.
 end note
 
 note bottom of HEADLESS

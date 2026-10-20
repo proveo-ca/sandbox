@@ -117,9 +117,9 @@ func TestScheduleLaunchSkipsTheCloseConfirm(t *testing.T) {
 
 func TestRunArgvIsUnattended(t *testing.T) {
 	t.Parallel()
-	j := Job{Target: "hermes", Model: "qwen3.8:27b-mlx", Addons: []string{"host-chrome"}, Args: []string{"--egress-mode", "open"}}
+	j := Job{Target: "hermes", Model: "qwen3.8:27b-mlx", Addons: []string{"host-chrome"}, Args: []string{"--credentials", "forward"}}
 	got := j.RunArgv("/bin/proveo")
-	want := []string{"/bin/proveo", "run", "hermes", "--yes", "--local-model", "qwen3.8:27b-mlx", "--addon", "host-chrome", "--egress-mode", "open"}
+	want := []string{"/bin/proveo", "run", "hermes", "--yes", "--local-model", "qwen3.8:27b-mlx", "--addon", "host-chrome", "--credentials", "forward"}
 	if !slices.Equal(got, want) {
 		t.Errorf("argv = %v\nwant   %v", got, want)
 	}

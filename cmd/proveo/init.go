@@ -510,8 +510,7 @@ func verify(bin string) error {
 	failed := reportHostReadiness(bin)
 
 	if allowed, known := sbx.NetworkAllowed("proveo-egress-probe.invalid"); known && allowed {
-		ui.Notef("sbx's global network policy currently allows every host, so a run's allowlist adds reach rather than limiting it")
-		ui.Notef("bind it once, host-wide: `sbx policy init deny-all` (or `balanced`), then `sbx policy ls`")
+		ui.Notef("sbx's global network policy currently allows every host; sbx decides every run's egress (`sbx policy ls`)")
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("host not ready to run: %s", strings.Join(sbx.CheckNames(failed), ", "))

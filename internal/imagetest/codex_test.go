@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest_test
 
 import (
@@ -69,7 +69,7 @@ func codexExpect(t *testing.T, ok bool, what, out string) {
 }
 
 func TestImageCodex(t *testing.T) {
-	image := imagetest.Resolve("IMAGE", "proveo/codex:latest")
+	image := imagetest.Resolve("codex", "proveo/codex:latest")
 	s := imagetest.New(t, image)
 
 	// Phase 1: Build
@@ -98,8 +98,7 @@ func TestImageCodex(t *testing.T) {
 	s.Success("node is installed", image, "node --version")
 	s.Success("docker client is installed (docker via the sbx sandbox backend)", image, "docker --version")
 	s.Success("mcp-language-server bridge is baked (LSP reaches codex over MCP)", image, "command -v mcp-language-server")
-	s.Success("shared verification lib is baked", image,
-		`command -v proveo-entrypoint >/dev/null || test -f /opt/proveo/lib/detect-verify.sh`)
+	s.Success("proveo-entrypoint (verification commands) is baked", image, `command -v proveo-entrypoint >/dev/null`)
 	s.Success("shared subagent frontmatter is baked", image, "test -d /opt/proveo/subagents/_frontmatter/codex")
 
 	// Phase 3: Security Hardening
@@ -138,12 +137,6 @@ func TestImageCodex(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture, "fake-bin", "codex"), []byte(codexFakeBin), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dotenv := func(t *testing.T, body string) {
-		t.Helper()
-		if err := os.WriteFile(filepath.Join(fixture, ".env"), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 	runFake := func(entryArgs string, args ...string) string {
 		cmd := `PATH="/app/fake-bin:$PATH" /entrypoint.sh ` + entryArgs
 		return codexRun(codexShort, image, cmd, nil, append([]string{"-v", fixture + ":/app"}, args...)...).Out
@@ -156,16 +149,25 @@ func TestImageCodex(t *testing.T) {
 		})
 	}
 
-	dotenv(t, "")
 	fakeContains("default launch bypasses codex's own approvals and sandbox",
 		"PASSED_ARGV=--dangerously-bypass-approvals-and-sandbox")
 	fakeContains("PROVEO_CODEX_SANDBOX opts back into codex's own sandbox",
 		"PASSED_ARGV=--sandbox workspace-write --ask-for-approval never",
 		"-e", "PROVEO_CODEX_SANDBOX=workspace-write")
 
-	s.Check("no role name in .env reaches codex's --model", func(t *testing.T) {
-		dotenv(t, "ARCHITECT_MODEL=anthropic/claude-opus-5\nEDITOR_MODEL=gpt-5.6\n")
+	s.Check("the workspace .env never reaches codex", func(t *testing.T) {
+		envFile := filepath.Join(fixture, ".env")
+		if err := os.WriteFile(envFile, []byte("CODEX_MODEL=from-workspace-env\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(envFile)
 		out := runFake(doThing)
+		ok := codexGrep(out, `PASSED_MODEL=$`) && !strings.Contains(out, "from-workspace-env")
+		codexExpect(t, ok, "the entrypoint exported the workspace .env", out)
+	})
+
+	s.Check("no role name in the environment reaches codex's --model", func(t *testing.T) {
+		out := runFake(doThing, "-e", "ARCHITECT_MODEL=anthropic/claude-opus-5", "-e", "EDITOR_MODEL=gpt-5.6")
 		ok := codexGrep(out, `PASSED_MODEL=$`) &&
 			!codexGrep(out, `PASSED_MODEL=claude-opus-5`) &&
 			!codexGrep(out, `PASSED_MODEL=gpt-5.6`)
@@ -173,13 +175,11 @@ func TestImageCodex(t *testing.T) {
 	})
 
 	s.Check("codex's own CODEX_MODEL still reaches --model", func(t *testing.T) {
-		dotenv(t, "ARCHITECT_MODEL=anthropic/claude-opus-5\nCODEX_MODEL=explicit-model\n")
-		out := runFake(doThing)
+		out := runFake(doThing, "-e", "ARCHITECT_MODEL=anthropic/claude-opus-5", "-e", "CODEX_MODEL=explicit-model")
 		codexExpect(t, strings.Contains(out, "PASSED_MODEL=explicit-model"), "expected to contain: PASSED_MODEL=explicit-model", out)
 	})
 
 	s.Check("a caller's own posture flag is left alone", func(t *testing.T) {
-		dotenv(t, "")
 		out := runFake("--full-auto " + doThing)
 		ok := strings.Contains(out, "PASSED_ARGV=--full-auto") && !strings.Contains(out, "dangerously-bypass")
 		codexExpect(t, ok, "posture flag passthrough", out)
@@ -191,7 +191,6 @@ func TestImageCodex(t *testing.T) {
 	})
 
 	s.Check("verbose evidence puts --json after the exec subcommand", func(t *testing.T) {
-		dotenv(t, "")
 		out := runFake("exec " + doThing)
 		want := "PASSED_ARGV=--dangerously-bypass-approvals-and-sandbox exec --json do the thing"
 		codexExpect(t, strings.Contains(out, want), "--json placement", out)

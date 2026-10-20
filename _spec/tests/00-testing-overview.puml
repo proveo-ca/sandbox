@@ -14,6 +14,31 @@ skinparam packageStyle rectangle
 ' covers: cmd/proveo/*_test.go
 ' covers: cmd/proveo-dev/coverage.go
 ' covers: internal/imagetest/**
+' covers: internal/contract/test_image_knobs_test.go
+'
+' ── ONE KNOB PICKS THE IMAGE UNDER TEST (N31, DONE (wt) 2026-10-18) ────────
+' MEASURED: internal/imagetest/pin.go PinVar(target) names
+' PROVEO_TEST_<TARGET>_IMAGE (the imagebuild target, upper-snake-cased), and
+' PinnedRef(target, def) returns that pin, else def. imagetest.Resolve(target,
+' ref) returns a pin as given and otherwise resolves ref by recency
+' (_spec/_devops/image-lineage-and-publish.puml). imagetest.Env is deleted, and
+' pin.go lives in internal/ so internal/ imports nothing from e2e/.
+' Folded into the family (reported): PROVEO_TEST_IMAGE, PROVEO_TEST_IMAGE_<T>,
+' PROVEO_E2E_OPENCODE_IMAGE, PROVEO_CHROME_BRIDGE_IMAGE, PROVEO_HOST_ADB_IMAGE,
+' IMAGE, STANDALONE_IMAGE, MCP_IMAGE, SOL_IMAGE, BROWSER_IMAGE,
+' CURSOR_BROWSER_IMAGE, OPENCODE_BROWSER_IMAGE and the test-side read of
+' PROVEO_CECLI_IMAGE. PROVEO_TEST_HERMES_IMAGE keeps its name, which the family
+' already produces for target hermes.
+' EXCEPTION: PROVEO_OPENCODE_V2_IMAGE stays its own knob — it pins the v2.0.25
+' image for one offline check (internal/contract/opencode_v2_test.go).
+' Tests: internal/imagetest/pin_test.go; internal/contract/test_image_knobs_test.go
+' TestImageUnderTestKnobsReadThroughTheHelper (no test reads an image knob
+' outside the helper) and TestImageUnderTestKnobsNameABuildTarget.
+' KNOWN LIMIT (recorded, not fixed): the knob scan's envReaders ignores methods
+' and two-level wrappers. The knobs are test code, so internal/envreg does not
+' register them; CONTRIBUTING.md and the def READMEs document the family.
+' Open (N37): the claudecode suite now runs the mcp and standalone checks twice,
+' because one pin now serves both.
 '
 ' The Layer-4 floor lives in e2e/preconditions_test.go and is one rule: the
 ' `//go:build e2e` tag IS the opt-in, so the only reason to skip is a missing
@@ -25,10 +50,17 @@ skinparam packageStyle rectangle
 '
 ' The contract lane runs as `go test ./internal/contract/` (inside `mise run
 ' test-go` / `mise run ci`); its shell wrapper, defs/tests/run_contract_tests.sh,
-' was deleted 2026-09-22 (_spec/_plans/host-shell-to-go.puml, P3). Image suites
-' are Go under `-tags=image` (internal/imagetest), opted into like Layers 3–4.
+' was deleted 2026-09-22 (_spec/_refactors/host-shell-to-go.puml, P3). Image suites
+' are Go under `-tags=image` (internal/imagetest), opted into like Layer 4.
+'
+' LAYER 3 IS RETIRED (2026-10-16). It stood up the docker egress topology
+' (internal/egress BuildPlan, `-tags=integration`, PROVEO_EGRESS_INTEGRATION=1).
+' The Executor's "Retire Docker egress" deleted its subject; the
+' test-go-integration task and `proveo-dev coverage integration` are gone. The
+' number is kept so the 40-series names stay stable
+' (_spec/tests/testing-strategy.puml).
 
-title Testing Approach — Four Layers (speed vs fidelity) + coverage
+title Testing Approach — Layers 1, 2, 4 (speed vs fidelity) + coverage; Layer 3 retired
 
 actor "Developer / CI" as Dev <<actor>>
 
@@ -36,35 +68,33 @@ package "Layer 1 · Unit — always (go test -race)" as L1 {
   component "internal/*/*_test.go\ntable-driven · go-cmp\nno Docker · no keys\n-test.gocoverdir=cov/unit" as Unit <<app>>
 }
 package "Layer 2 · Contract — always (no Docker)" as L2 {
-  component "Go builders + goldens\n(cmd/proveo · runner · provider)\nimage suites: Go, -tags=image" as Contract <<app>>
+  component "Go builders + goldens\n(cmd/proveo · backend/sandbox · provider)\nimage suites: Go, -tags=image" as Contract <<app>>
 }
-package "Layer 3 · Infra — -tags=integration + PROVEO_EGRESS_INTEGRATION=1" as L3 {
-  component "internal/egress BuildPlan\nreal containers · NO model\nwait strategies · t.Cleanup" as Infra <<container>>
+package "Layer 3 · Infra — RETIRED 2026-10-16" as L3 {
+  component "docker egress topology\n(deleted with internal/egress)" as Infra <<error>>
 }
 package "Layer 4 · Agent E2E — -tags=e2e (self-skipping preconditions)" as L4 {
   component "internal/tmux + echo-agent\nreal agent · local model\nasserts side-effects" as E2E <<container>>
 }
 package "Coverage merge" as Cov {
-  component "go tool covdata merge\nunit + in-process integration\n(optional: cover-instrumented binary)" as Merge <<app>>
+  component "go tool covdata merge\ncov/unit only" as Merge <<app>>
 }
 
 Dev --> Unit    : run
 Dev --> Contract : run
-Dev ..> Infra   : opt-in (Docker + build tag)
-Dev ..> E2E     : opt-in (Docker + tmux + Ollama + build tag)
+Dev ..> E2E     : opt-in (sbx + tmux + Ollama + build tag)
 Unit --> Merge
 Contract --> Merge
-Infra ..> Merge : Stage 0b GOCOVERDIR in proxy image
 
 note right of Unit    : deterministic\nmilliseconds
 note right of Contract : deterministic\nseconds
-note right of Infra   : deterministic\nDocker + internet, keyless
+note right of Infra   : retired with the\ndocker+egress backend
 note right of E2E     : NON-deterministic\nskip if tools/model absent
 
 note bottom of Cov
-Default **go test ./...** never compiles Layer 3/4 (build tags).
-Coverage v1 merges unit + in-process egressproxy/broker; containerized
-proveo-egress cover is Stage 0b (proveo/egress-proxy:cover).
+Default **go test ./...** never compiles Layer 4 or the image suites (build tags).
+Coverage merges cov/unit alone; the in-process egressproxy/broker profiles and
+the Stage 0b proveo/egress-proxy:cover image went with Layer 3 (2026-10-16).
 No hard % gate until a baseline exists.
 end note
 

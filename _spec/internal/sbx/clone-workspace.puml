@@ -3,7 +3,7 @@
 skinparam noteTextAlignment left
 ' purpose: why the sandbox edits a private clone by default, and how the work gets back
 ' covers: internal/run/run.go (decideClone, predictClone)
-' covers: internal/sbx/run.go (CloneSnapshotArgs, CloneFetchArgs, CloneLiftArgs)
+' covers: internal/sbx/run.go (CloneSnapshotArgs, CloneModeArgs, CloneFetchArgs, CloneLiftArgs)
 ' covers: internal/sbx/run.go (CloneBundleArgs, CloneBundleEmpty, CloneBundleFetchArgs, CloneHostTipsArgs, CloneHostTipsCap)
 ' covers: internal/backend/sandbox/sandbox.go (PreserveClone, carryClone, fetchViaRemote, bundleViaSbx, hostTips, CloneRescueLines, liftClonedOutput)
 ' covers: internal/backend/sandbox/pushed.go
@@ -37,6 +37,8 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/proveo-await-seed
 ' covers: internal/contract/seed_shares_test.go
 ' covers: e2e/clone_test.go (TestCloneCarriesAGitignoredSymlinkedDotEnv, TestCloneLiftsTrackedSpecEdits)
+' covers: internal/backend/sandbox/clone_carry_test.go
+' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox, sandboxClone)
 '   the failure it exists to avoid . _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 '   the mount plan it overrides .... _spec/internal/workspace/mount-model.puml
 '   the trees it keeps out ........ _spec/packages/lib/dependency-trees.puml
@@ -179,10 +181,12 @@ skinparam noteTextAlignment left
 ' marker is never written. sbx's startup wrapper still exits 0 (a seed miss
 ' must not tear the sandbox down), so the GATE is proveo-await-seed: it stops
 ' waiting when the refusal appears, and refuses an agent launch with the
-' reason; `--cwd` still answers so a shell can inspect. A file whose only line
-' is "OpenCode credential preflight refused release" is the runtime's own note
-' from a kept sandbox; await-seed deletes it and launches. Docker never sets
-' PROVEO_SHARES, and a host without _spec or .env asserts nothing.
+' reason; `--cwd` still answers so a shell can inspect. (Until D2, a file whose
+' only line was "OpenCode credential preflight refused release" was the old
+' runtime's own note from a kept sandbox, which await-seed deleted before it
+' launched; D2 deleted that note and its handling, 2026-10-17 —
+' _spec/defs/opencode/engine-local-history.puml.) The deleted docker backend
+' never set PROVEO_SHARES, and a host without _spec or .env asserts nothing.
 '
 ' ── IGNORED HOST SYMLINKS ARE RELINKED, NOT CLONED ─────────────────────────
 ' The same gap took _spec: ~/Projects/pluvo/<worktree>/_spec is a symlink to
@@ -197,8 +201,10 @@ skinparam noteTextAlignment left
 ' (LinkEnvPolicy) rather than riding this list.
 '
 ' ── THE REGRESSION GUARD DRIVES THE REAL RUN ───────────────────────────────
-' TestCloneLeavesTheHostTreeAlone launches `proveo run claudecode --clone
-' --shell` rather than the `sbx create --clone` it used to build by hand. What
+' TestCloneLeavesTheHostTreeAlone launches `proveo run claudecode --clone`
+' through its kit (launchKit, probing with `sbx exec`; it used `--shell` until
+' that flag was retired 2026-10-17) rather than the `sbx create --clone` it used
+' to build by hand. What
 ' it guards — the decideClone verdict, the dropped nested bind, the lift at
 ' teardown — is then proveo's own assembly rather than a replica, and a replica
 ' agrees with itself indefinitely while the run it stands in for moves.
@@ -225,12 +231,56 @@ skinparam noteTextAlignment left
 ' back at teardown; anything else nested is simply not mounted, and both are
 ' said out loud.
 '
+' The same empty target is visible to anything `sbx exec` starts once the
+' sandbox runs. A published port's dev server therefore waits for the clone's
+' HEAD and a non-empty workdir before its `cd` (DevServerScript, 2026-10-20):
+' _spec/internal/devports/dev-ports.puml, "A CLONE'S SERVER WAITS".
+'
 ' ── HOW THE WORK GETS BACK ─────────────────────────────────────────────────
 ' A snapshot commit first, of whatever the agent left UNCOMMITTED, so the fetch
 ' that follows carries it — only when there is something to commit, since a
 ' clean tree earns no empty commit, and under an author that says who made it.
 ' `sbx rm` drops the clone with the VM and sbx's own guidance is to fetch or
 ' push before removing; an agent that stopped mid-edit has nothing to push.
+'
+' THE SNAPSHOT PUTS EVERY PIECE OF WORK ON A BRANCH (2026-10-17, reviews #4-#6).
+' The carry takes only refs/heads/* (`--branches`, `+refs/heads/*`), so a
+' detached HEAD (mid-rebase) and every stash used to go down with the sandbox;
+' a stop now ends in `sbx rm`, which widened that loss. MEASURED,
+' internal/sbx/run.go CloneSnapshotArgs, one `sbx exec -w / <name> -- bash -c`:
+'   cd <workdir> || exit 0   — no workdir: nothing can be stranded there
+'   a workdir git cannot read (not a repository, or dubious ownership) exits 0
+'     only when EMPTY, else exit 1 = stranded. Example: a linked-worktree
+'     clone whose `worktree add` failed leaves the agent in a plain dir.
+'   git add -A, then commit only when the index is not empty, with
+'     `-c core.hooksPath=/dev/null -c commit.gpgsign=false --no-verify`, so no
+'     clone hook (pre-commit, prepare-commit-msg, commit-msg; husky) and no
+'     signing requirement can block the teardown commit; any failure exits 1
+'     (→ "uncommitted work is still only in <name>")
+'   stale refs/heads/proveo/stash-* are deleted FIRST (skipping the ref HEAD
+'     is on) — review #6: pruned after the detached check, a HEAD that only a
+'     stale stash branch held got no detached-head ref, then lost that branch
+'   a detached HEAD → `update-ref refs/heads/proveo/detached-head HEAD`, but
+'     ONLY when no branch contains HEAD — the seed's own `--detach` on a
+'     branch tip reports nothing
+'   stash i → `update-ref refs/heads/proveo/stash-<i> <sha>` from
+'     `git stash list`
+'   every update-ref runs as `git -c core.hooksPath=/dev/null update-ref`, so a
+'     reference-transaction hook cannot veto it (review #6)
+' ACCEPTED RESIDUALS: an existing branch named `proveo` blocks
+' refs/heads/proveo/* (a ref cannot be both a file and a directory), so the
+' snapshot exits 1 and the sandbox is kept as stranded. When HEAD is on
+' refs/heads/proveo/stash-<i>, stash i is skipped (MEASURED, run.go:217).
+' Pinned by TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch (internal/sbx/
+' clone_test.go), which runs the exact script under bash against temp repos:
+' no workdir or an empty one; files outside any repository (stranded); hooks
+' pre-commit, prepare-commit-msg and commit-msg all rejecting, with
+' commit.gpgsign=true; a detached HEAD (asserting the snapshot commit); a
+' detached HEAD a branch already holds (no ref); a detached HEAD only a stale
+' stash branch holds (gets its own); stashes, then a dropped stash and a
+' re-snapshot. Not covered: a mid-rebase repository (reported gap).
+' TestCloneSnapshotCommitsOnlyWhenSomethingIsStaged expects `-w / sb` and the
+' cd. How the behavioural test isolates git: _spec/tests/testing-strategy.puml.
 '
 ' Then every branch is fetched into refs/proveo/<sid>/. REFS, not a
 ' remote-tracking namespace: sbx removes its sandbox-<name> remote with the
@@ -320,6 +370,123 @@ skinparam noteTextAlignment left
 ' daemon recipe there was printing the leg that had just been measured refusing
 ' connections.
 '
+' ── WORK STILL ONLY IN THE SANDBOX KEEPS THE SANDBOX (2026-10-17) ──────────
+' The rescue recipe says "while <name> exists", and teardown used to run
+' `sbx rm` right after printing it. A normal exit already had that gap; the
+' stop decision ("Stop runs normal teardown", _spec/internal/sbx/
+' kit-lifecycle.puml) widened it to every forwarded SIGTERM/SIGHUP. MEASURED:
+'   carryClone returns (carried bool, err error). err means the bundle (or
+'     the remote, then the bundle) failed; that path prints the rescue recipe.
+'     CloneBundleEmpty is (false, nil): nothing to carry, not a failure.
+'   PreserveClone and TeardownClone return an error while work remains only
+'     in the sandbox: the snapshot failed ("uncommitted work is still only in
+'     <name>"), the carry failed ("the agent's branches are still only in
+'     <name>"), or the clone mode is unknown (below). A failed snapshot still
+'     lets the carry run.
+'   Normal-exit and stop teardown then skip `sbx rm`, print "<err> — <name>
+'     kept; `sbx rm --force <name>` deletes it once the work is home" (an
+'     OpenCode engine: "<err> — <name> kept with its OpenCode history", no
+'     rm hint), keep home access, and print the IDE attach.
+'   retireSandbox (the stale-sandbox upgrade, launch_receipt.go) returns the
+'     same wrapped error before SaveState and `rm`, so the upgrade stops.
+'   The forced Ctrl+C remove still deletes: its modal says "Uncommitted
+'     changes can be permanently lost" (internal/choiceui/sandbox_close.go).
+'   Which way a normal end goes is the pure normalEndOf (kit-lifecycle.puml).
+'
+' ── CLONE MODE HAS ONE SOURCE OF TRUTH: THE SANDBOX (2026-10-17, reviews #4-#6)
+' A sandbox is reused by name, so THIS run's --clone says nothing about the
+' sandbox it reattaches to or retires. Using in.Clone there failed three ways:
+'   (a) a clone run that reattached to a DIRECT sandbox snapshotted the
+'     operator's host checkout through the read-write bind (`git add -A &&
+'     git commit`). Predates the batch; the stash branches made it worse.
+'     [Inference] That committed onto the operator's branch.
+'   (b) a `--clone=false` run that reattached to (or retired) a clone skipped
+'     the carry, and `sbx rm` deleted the clone's work.
+'   (c) review #4's guestClones parsed fail-open: anything but "direct",
+'     unreadable output included, read as a clone.
+' THE HOST RECEIPT IS NOT A SOURCE (review #6 HIGH, superseding review #5's
+' "receipt first"). It can be stale: it is written only on a first-attempt
+' create (sandbox.go:1473); the template-reload retry creates from the full
+' cfg without writing one; a normal-end `sbx rm` leaves it behind (only
+' retireSandbox deletes it); `--print` sandboxes have none. [Inference] A stale
+' Clone=true receipt on a later DIRECT sandbox drove the snapshot into the
+' operator's checkout. The receipt still feeds change detection
+' (retireIfStale), never clone mode.
+' MEASURED now:
+'   Input.CloneKnown — "Clone is the sandbox's own mode: this run created it,
+'     or teardown asked it". Since D2 (DONE (wt), MEASURED) Run computes
+'     `created := launchCfg.KitDir != ""` — KitDir is empty exactly when
+'     reuseOrCreate returned sbx.Reattach — and, for an OpenCode target, takes
+'     `created` from ensureOpenCodeEngine instead (it `sbx create`s the engine
+'     itself and always returns a name-only reattach). in.CloneKnown = created
+'     just before sbx.RunArgs (sandbox.go:1477-1518); the retry does the same
+'     with retryCreated (sandbox.go:1584).
+'   launch_receipt.go sandboxClone(in, name) (clones, known):
+'     1. in.CloneKnown → in.Clone;
+'     2. else the guest probe sbx.CloneModeArgs(name):
+'        `[ -d /run/sandbox/source ] && echo clone || echo direct`, read from
+'        STDOUT ONLY (exec.Command(...).Output(), so an sbx notice on stderr
+'        cannot make the mode unknown) and parsed STRICTLY — exactly "clone"
+'        or "direct". sbx's clone mode bind-mounts the host repo read-only at
+'        /run/sandbox/source (measured 2026-09-02, above; that a DIRECT
+'        sandbox never has that path is [Unverified] here);
+'     3. else known = false.
+'   Run's teardown defer STARTS by resolving truth: `if clones, known :=
+'     sandboxClone(in, cfg.Name); known { in.Clone, in.CloneKnown = clones,
+'     true }` (sandbox.go:1599-1601). So reportPushedBranches, PrintIDEAttach
+'     (its "DISPOSABLE CLONE" vs "mounted checkout" help) and TeardownClone all
+'     see the sandbox's real mode — review #6 MEDIUM: before, only
+'     PreserveClone's local copy was corrected.
+'   TeardownClone gates on RepoRoot; it writes the clone's .env back only when
+'     in.Clone && in.CloneKnown.
+'   PreserveClone asks sandboxClone itself when the mode is still unknown:
+'     unknown → error "cannot tell whether <name> holds a clone, so its work
+'       may be only there" → the sandbox is KEPT (stranded);
+'     direct → nil, no snapshot;
+'     clone → in.Clone, in.CloneKnown = true, true; snapshot and carry.
+'   retireSandbox sets in.CloneKnown = false, so the OLD sandbox is always
+'     asked.
+' RESIDUAL (recorded): a `--clone=false` run reattached to a clone never merges
+' the clone's .env edits home — CloneEnv staging exists only for clone runs, so
+' writeBackCloneEnv has no base to merge against.
+' RETIRED WORK GETS ITS OWN NAMESPACE: retireSandbox sets in.Sid +=
+' "-retired", so the old clone lands in refs/proveo/<sid>-retired/*. Before,
+' this run's own teardown force-fetched `+refs/heads/*` into the same
+' refs/proveo/<sid>/* and overwrote it; the fixed proveo/* names made that
+' collision certain.
+' THE ADOPT HINT (review #6): reportCloneRefs suggests adoptLead(names, prefix,
+' ahead), a pure function: the first ref NOT under <prefix>proveo/ that holds
+' commits HEAD lacks (`git rev-list --count HEAD..<ref>` != 0), else the first
+' proveo/ snapshot ref that does, else names[0]. Review #5's "first non-proveo/
+' ref" let an untouched copied `main` win on the remote-fetch path.
+' Pinned (clone_carry_test.go, a fake sbx on PATH whose clone-mode answer and
+' bundle are shell snippets, receiptDir at a temp dir):
+'   TestRetiringASandboxKeepsItWhenTheCloneCouldNotBeCarriedHome, 8 cases:
+'     bundle failed → error, no `rm`; snapshot failed (with an EMPTY bundle,
+'     so the error must come from the snapshot) → error, no `rm`; nothing new
+'     → removed; a clone retired by a `--clone=false` run → snapshotted,
+'     carried, kept because the fake bundle fails; a direct sandbox retired by
+'     a clone run → no snapshot, removed; a stale clone receipt does not
+'     outrank a direct sandbox; an sbx notice on stderr does not hide the
+'     mode; an unreadable clone mode keeps the sandbox.
+'   TestTeardownCarriesTheSandboxsOwnCloneModeNotThisRuns, 3 cases: two
+'     reattaches, and a sandbox this run created as direct needs no probe (no
+'     /run/sandbox/source exec).
+'   TestRetiredWorkLandsBesideThisRunsOwnRefs, with a real git bundle.
+'   TestTheAdoptHintLeadsWithABranchThatHoldsNewWork, 4 cases.
+' Also TestCarryClonePicksTheTransportThatCanWork (sandbox_test.go). The
+' teardown branch in Run itself has no unit test; [Unverified] against a live
+' sbx whose bundle fails.
+' RESIDUALS, recorded not fixed (reported):
+'   * A linked-worktree retire when THIS run lacks CloneSource: the workdir is
+'     the unresolved FirstHost, so if the path spelling differs (symlinks) the
+'     snapshot's cd fails and exits 0 as "no workdir". Stopped sandbox: retire
+'     still refuses on the bundle. Running with a remote: uncommitted work is
+'     lost.
+'   * The forced Ctrl+C remove after a failed carry prints the rescue recipe
+'     and then deletes; the modal warns about uncommitted changes, not about
+'     commits that were never carried.
+'
 ' The output dir is copied out separately, as a tar stream on stdout. Untracked
 ' and usually gitignored, deliverables are exactly what the ref fetch leaves
 ' behind. The archive's members are relative to the clone root, so unpacking
@@ -392,8 +559,8 @@ note as CLONEGUARD
   **The guard launches the product it guards.**
   A hand-built ""sbx create --clone"" agrees with
   itself indefinitely, so the regression case
-  now exercises ""proveo run --clone --shell""
-  and reads the decideClone verdict it recorded.
+  exercises ""proveo run --clone"" through its
+  kit and reads the decideClone verdict.
 end note
 
 note bottom of NESTED

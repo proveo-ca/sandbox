@@ -5,15 +5,14 @@
 package e2e
 
 import (
-	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/imagetest"
 	"github.com/proveo-ca/proveo/internal/maintain"
-
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -25,6 +24,18 @@ func requireTmux(t *testing.T) {
 	}
 }
 
+// requireSbx skips unless sbx, the only backend `proveo run` has, is installed
+// and its daemon answers.
+func requireSbx(t *testing.T) {
+	t.Helper()
+	if ok, why := sbx.Available(); !ok {
+		t.Skipf("sbx not available: %s", why)
+	}
+	if ok, why := sbxReadyForTests(); !ok {
+		t.Skipf("sbx not ready: %s", why)
+	}
+}
+
 func requireDocker(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -33,12 +44,10 @@ func requireDocker(t *testing.T) {
 }
 
 func harnessImageName(target string) string {
-	if pinned := env("PROVEO_TEST_IMAGE_"+strings.ToUpper(target), ""); pinned != "" {
+	if pinned := imagetest.PinnedRef(target, ""); pinned != "" {
 		return pinned
 	}
-	// Resolve it the way a run does, not the way a test finds it convenient:
-	// proveo takes :local only when it is NEWER than :latest, so a stale local
-	// build is what the suite would certify and what no operator would run.
+	// Resolve the way a run does: maintain.ResolveImage.
 	ref, _ := maintain.ResolveImage("proveo/"+target+":"+maintain.PublishTag, imageCreated)
 	return ref
 }
@@ -72,26 +81,11 @@ func harnessImage(t *testing.T, target string) string {
 	return image
 }
 
-// requireHarness is the whole Layer 4 floor for one target: PTY driver,
-// container backend, and the image the run mounts into.
+// requireHarness is the whole Layer 4 floor for one target: PTY driver, sbx,
+// and the image the run hands sbx.
 func requireHarness(t *testing.T, target string) string {
 	t.Helper()
 	requireTmux(t)
+	requireSbx(t)
 	return harnessImage(t, target)
-}
-
-func requireReviewTier(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skipf("--egress-mode review is linux only (GOOS=%s): the consent gate cannot be reached from the inspector", runtime.GOOS)
-	}
-	if h := strings.TrimSpace(os.Getenv("DOCKER_HOST")); h != "" && !strings.HasPrefix(h, "unix://") {
-		t.Skipf("--egress-mode review needs a local docker daemon (DOCKER_HOST=%s)", h)
-	}
-}
-
-// skipOutsideSbx skips a test whose subject is the docker rendering.
-func skipOutsideSbx(t *testing.T, subject string) {
-	t.Helper()
-	t.Skipf("sbx is the runtime under test; %s belongs to the docker rendering, which this suite no longer asserts", subject)
 }

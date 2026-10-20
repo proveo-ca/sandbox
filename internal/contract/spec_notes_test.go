@@ -11,7 +11,7 @@ import (
 )
 
 var specNotesEnforced = []string{
-	"_spec/_plans/opencode-versioned-history-storage.puml",
+	"_spec/defs/opencode/engine-local-history.puml",
 	"_spec/_paradigms/opencode-oauth-persistence.puml",
 	"_spec/packages/lib/opencode-seed-progress.puml",
 	"_spec/_devops/release-gate.puml",
@@ -50,6 +50,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/choiceui/choice-prompt-render.puml",
 	"_spec/internal/entrypoint/model-alias-bridges.puml",
 	"_spec/internal/sbx/sbx-kit-contract.puml",
+	"_spec/internal/sbx/startup-dispatch.puml",
 	"_spec/internal/choiceui/topology-strip.puml",
 	"_spec/internal/choiceui/viewport.puml",
 	"_spec/_plans/secret-custody.puml",
@@ -59,7 +60,7 @@ var specNotesEnforced = []string{
 	"_spec/_paradigms/workspace-boundary.puml",
 	"_spec/_plans/host-held-provider-keys.puml",
 	"_spec/_plans/post-close-surface.puml",
-	"_spec/_plans/host-shell-to-go.puml",
+	"_spec/_refactors/host-shell-to-go.puml",
 	"_spec/_plans/tools-and-localhost-tunnels.puml",
 	"_spec/internal/sbx/ide-attach.puml",
 	"_spec/_plans/sbx-dep-tree-isolation.puml",
@@ -67,9 +68,11 @@ var specNotesEnforced = []string{
 	"_spec/packages/lib/config-seeding-and-persistence.puml",
 	"_spec/packages/lib/github-ssh-hosts.puml",
 	"_spec/packages/lib/git-sync-turn.puml",
-	"_spec/_plans/image-size-reduction.puml",
+	"_spec/_devops/image-size-reduction.puml",
 	"_spec/internal/maintain/build-schedule.puml",
 	"_spec/internal/sbx/mcp-gateway.puml",
+	"_spec/internal/envflag/env-switches.puml",
+	"_spec/internal/envreg/env-registry.puml",
 	"_spec/packages/lib/seed-and-launch.puml",
 	"_spec/defs/harden-pass.puml",
 	"_spec/defs/base-image-layers.puml",

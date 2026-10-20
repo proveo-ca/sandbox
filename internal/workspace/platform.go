@@ -4,7 +4,10 @@ package workspace
 import (
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
+
+	"github.com/proveo-ca/proveo/internal/envflag"
 )
 
 // Platform is an OS/arch pair in docker's vocabulary (linux/arm64), without the
@@ -46,28 +49,43 @@ func ImagePlatform(getenv func(string) string) Platform {
 	return Platform{OS: "linux", Arch: HostPlatform().Arch}
 }
 
-func DepCopyPolicy(getenv func(string) string, host, image Platform) (reuse bool, reason string) {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_DEPS_COPY"))) {
-	case "always", "1", "on", "true", "yes":
-		return true, "PROVEO_DEPS_COPY=always — copying host trees regardless of platform"
-	case "never", "0", "off", "false", "no":
-		return false, "PROVEO_DEPS_COPY=never — staging empty; the seed installs"
-	}
-	if host == image && host.OS != "" {
-		return true, fmt.Sprintf("host %s matches the image — copying host trees", host)
-	}
-	return false, fmt.Sprintf("host %s ≠ image %s — staging empty; the seed installs for %s", host, image, image)
-}
-
 // SharedTreesAllowed decides whether a mounted sbx checkout may carry its
 // dependency trees into a sandbox of another platform.
 func SharedTreesAllowed(getenv func(string) string, host, image Platform) (bool, string) {
-	switch mode := strings.ToLower(strings.TrimSpace(getenv("PROVEO_DEPS"))); mode {
-	case "shared", "reinstall":
-		return true, "PROVEO_DEPS=" + mode + " — the sandbox may rewrite the host trees for " + image.String()
+	raw := getenv("PROVEO_DEPS")
+	mode, known := DepsMode(raw)
+	switch mode {
+	case "shared":
+		return true, "PROVEO_DEPS=shared — the host trees go in as they are; the sandbox installs nothing over a foreign tree"
+	case "reinstall":
+		return true, "PROVEO_DEPS=reinstall — the sandbox may rewrite the host trees for " + image.String()
 	}
 	if host == image && host.OS != "" {
 		return true, fmt.Sprintf("host %s matches the image — the host trees run as-is", host)
 	}
-	return false, fmt.Sprintf("host %s ≠ image %s — an install in the sandbox rewrites the host trees for %s", host, image, image)
+	why := fmt.Sprintf("host %s ≠ image %s — an install in the sandbox rewrites the host trees for %s", host, image, image)
+	if envflag.Off(raw) {
+		why = fmt.Sprintf("host %s ≠ image %s — PROVEO_DEPS=off installs nothing, and the host trees do not run on %s", host, image, image)
+	}
+	if !known {
+		why = fmt.Sprintf("PROVEO_DEPS=%s is not one of %s; %s", strings.TrimSpace(raw), strings.Join(DepsModes(), "|"), why)
+	}
+	return false, why
+}
+
+// DepsModes are the PROVEO_DEPS values the host and the image both accept.
+func DepsModes() []string { return []string{"auto", "off", "shared", "reinstall"} }
+
+// DepsMode is v's PROVEO_DEPS mode: auto when empty, off for any envflag off word; known is false for anything else.
+func DepsMode(v string) (mode string, known bool) {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch {
+	case v == "":
+		return "auto", true
+	case envflag.Off(v):
+		return "off", true
+	case slices.Contains(DepsModes(), v):
+		return v, true
+	}
+	return "auto", false
 }

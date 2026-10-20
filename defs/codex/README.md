@@ -54,18 +54,17 @@ proveo run codex --ls                # → codex resume (the picker)
 ```
 
 Run the image suite with `mise run test-defs codex` or `proveo test codex`
-(`IMAGE=proveo/codex:local mise run test-defs codex` pins the image under test).
+(`PROVEO_TEST_CODEX_IMAGE=proveo/codex:local mise run test-defs codex` pins the image under test).
 
 ### Variants
 
 | Image | Base | Adds |
 | --- | --- | --- |
 | `proveo/codex` | `proveo/base-node-lsp` | node + the workspace language servers |
-| `proveo/codex-browser` | `proveo/base-node-browser` | Playwright + Chromium |
+| `proveo/codex-browser` | `proveo/codex` | Playwright + Chromium (the `defs/base-node-browser` layer) |
 
-`base-node-browser` is itself FROM `base-node-lsp`, so the browser variant is a
-strict superset — it keeps the language servers rather than trading them for a
-browser. It is not a target of its own: pick `browser` in the run prompt's addon
+The browser layer builds on top of `proveo/codex`, so the browser variant is a
+strict superset — it keeps codex and the language servers. It is not a target of its own: pick `browser` in the run prompt's addon
 row (or `--addon browser`) and the run swaps the image, leaving the target `codex`.
 
 ## Environment Variables
@@ -99,7 +98,7 @@ codex login therefore reaches the CLI's own re-auth rather than proveo's guard.
 ## The Loop
 
 The entrypoint is thin and does the same four things every proveo harness does:
-resolve the workspace, load `.env`, seed the user-level config, and report what
+resolve the workspace, bridge key aliases and git identity, seed the user-level config, and report what
 it found before handing over.
 
 Two reports are worth reading in a transcript:
@@ -131,10 +130,8 @@ the vocabulary codex actually enforces. `spec-keeper` is the single writer.
 
 ## Security Posture
 
-- **Root-free execution**: baked non-root user `codex` (uid 1000); the runner
-  launches as the invoking host uid.
-- **Capability dropping / no-new-privileges / pids-limit**: from `internal/runner`,
-  not restated here.
+- **Root-free execution**: baked non-root user `codex` (uid 1000); sbx runs the agent
+  as that uid.
 - **Codex's own sandbox is off by default**, and that is a decision rather than an
   oversight. Unlike cursor's Landlock (which needs an unprivileged userns a
   cap-dropped container cannot give it), codex's Landlock+seccomp layer *can*
@@ -142,7 +139,7 @@ the vocabulary codex actually enforces. `spec-keeper` is the single writer.
   already a disposable copy buys little, while its approval prompts are fatal to an
   unattended run — a stall with nobody to answer. `PROVEO_CODEX_SANDBOX` turns it
   back on.
-- **Egress** is the proveo tier in front of the container, not a CLI setting.
+- **Egress** is sbx's host-wide network policy, not a CLI setting.
 
 ## Differences from claudecode
 

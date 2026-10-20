@@ -17,7 +17,7 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/entrypoint-lib.sh (proveo_host_adb_env, proveo_adb_mirror_start, proveo_mobile_mcp_exec, ensure_jvm_toolchain, proveo_install_claude_env_hook, _proveo_persist_tool_env, proveo_apply_ui_defaults)
 ' covers: internal/contract/claude_env_hook_test.go
 ' covers: internal/contract/host_devices_test.go
-' covers: internal/egress/plan.go (localModelArgs)
+' covers: internal/sbx/host_ollama.go (LocalModelEnv — was internal/egress localModelArgs)
 ' covers: defs/base/Dockerfile (adb, qemu floor)
 ' covers: defs/base/proveo-aapt2
 ' covers: defs/opencode/harness.manifest (capabilities.hostDevices)
@@ -49,20 +49,57 @@ skinparam noteTextAlignment left
 '
 ' ── HOST SIDE (internal/hostadb) ───────────────────────────────────────────
 '   port    PROVEO_HOST_ADB_PORT, default 5037.
-'   reuse   any serial the server lists in state "device" is reused as is.
+'   reuse   a serial in state "device", or an emulator-* row in "offline",
+'           is waited on (A BOOT THAT HOLDS), never launched a second time.
+'           With no adb binary to read the boot, a "device" row is reused as is.
 '   launch  else `adb -P <port> start-server`, then `emulator -avd <avd>`
 '           windowed, own process group, ANDROID_ADB_SERVER_PORT=<port>,
-'           left open after the run. Wait: host:devices + sys.boot_completed=1.
+'           stdout+stderr → $TMPDIR/proveo-emulator.log (EmulatorLog), left
+'           open after the run, then the same wait.
 '   avd     PROVEO_HOST_AVD when it names an AVD, else the first listed.
 '   sdk     ANDROID_HOME > ANDROID_SDK_ROOT > ~/Library/Android/sdk (darwin)
 '           > ~/Android/Sdk; each tool falls back to PATH.
 '   kit     allow += localhost:<port>, registry.npmjs.org (the install).
 '   env     PROVEO_HOST_ADB_PORT=<port>
 '           ADB_SERVER_SOCKET=tcp:host.docker.internal:<port> — every process
-'           in the sandbox (the agent's Bash, `--shell`) reaches the server;
+'           in the sandbox (the agent's Bash, an `sbx exec` shell) reaches the server;
 '           adb resolves the name itself and ignores Host, unlike Chrome.
 '   host os PROVEO_HOST_OS=<runtime.GOOS> into every sandbox (EnvHostOS),
 '           for fixes measured on one host OS only.
+'
+' ── A BOOT THAT HOLDS (hostadb.awaitBoot, 2026-10-20) ──────────────────────
+' TestHostADBReachesTheHostEmulatorFromTheSandbox logged "android:
+' emulator-5554 booted", then the sandbox's host:devices read
+' `emulator-5554 offline`. Ensure had declared the boot after ONE poll of
+' "device" + sys.boot_completed=1.
+' [Inference] `-avd` alone quick-boots from the AVD's snapshot, and adbd's
+' transport drops to offline while adb reconnects after the restore.
+' Three more gaps sat beside it:
+'   Devices kept "device" rows only, so an offline emulator was invisible;
+'   Ensure then booted the same AVD a second time; the launch was
+'   Process.Release()d, so its exit was never read.
+' Now:
+'   wait     one serial reads "device" + sys.boot_completed=1 on StablePolls
+'            (3) polls in a row, pollEvery (1 s) apart, within readyWait
+'            (3 min). Reuse waits too: ~2 s on a settled device.
+'   offline  an emulator-* row in "offline" gets `adb -P <port> reconnect
+'            offline`, then at most once every 6 polls while one stays
+'            offline. A non-emulator offline row (a phone) is ignored.
+'   exit     the launch keeps its process handle; a non-zero exit before the
+'            boot holds is the error, naming EmulatorLog. [Unverified] whether
+'            some SDK builds' `emulator` hands off to a child and exits 0, so
+'            exit 0 keeps waiting.
+'   list     AllDevices returns every row with its state (Device.Emulator for
+'            emulator-* serials); Devices and Ready keep the "device" rows.
+' The e2e side:
+'   stopEmulators         `adb -s <serial> emu kill` on every emulator-* row,
+'                         offline included, until none is listed
+'   host_adb_sbx probe    re-reads host:devices from the guest every 2 s for
+'                         up to 60 s (guestDeviceWait) until a row reads
+'                         "device"; prints tries=, status=, devices=
+' Unit coverage (internal/hostadb/hostadb_test.go): a fake adb server answers
+' a scripted host:devices sequence; listAVDs, startAdb, reconnect, bootProp
+' and startEmulator are package vars the tests swap and count.
 '
 ' ── ONE ROW PER HARNESS (hostadb.Launches) ─────────────────────────────────
 ' A harness gets android only with a per-launch way to take the mobile server;
@@ -118,7 +155,8 @@ skinparam noteTextAlignment left
 '   host server      same pid before and after every guest session
 '   telemetry        posthog + scarf only in runs without the opt-out
 '   choice form      android ticked by keystroke (Down, Right, Space, Enter)
-'                    in `proveo run claudecode --shell`: the run boots the
+'                    in `proveo run claudecode --shell` (measured before that
+'                    flag was retired 2026-10-17): the run boots the
 '                    AVD, the sandbox reads PROVEO_HOST_ADB_PORT=5037 and
 '                    its adb lists emulator-5554; left unticked, no device
 '                    appears, no "android:" line, the env stays unset
@@ -164,22 +202,36 @@ skinparam noteTextAlignment left
 ' written after launch on the next command.
 ' respondToBashCommands defaults to false (seeded only when unset), so a `!`
 ' line costs no model call.
+' The hook writer runs `node` and no-ops without one (`command -v node … ||
+' return 0`, entrypoint-lib.sh:1452). UNIT COVERAGE since 2026-10-17 (the user:
+' "The 2 hook tests (Recommended)"): internal/contract/claude_env_hook_test.go
+' keeps TestClaudeEnvHookIsClaudeCodeOnly and TestPersistedToolEnvIsAlsoAFile.
+' TestClaudeEnvHookIsInstalledOnceAndKeepsOtherSettings and
+' TestClaudeEnvHookSourcesToolsWrittenAfterLaunch are deleted: no runnable node
+' existed on the test host (none under a clean `go test` env; an untrusted mise
+' shim in an interactive shell), so the hook no-opped and both failed (reported).
+' The settings-merge path — one SessionStart hook, other settings kept — has no
+' unit test now; the "Measured" lines above are from live runs.
 '
 ' ── CLAUDE CODE ON A LOCAL MODEL ───────────────────────────────────────────
 ' Each turn sends ~15k prompt tokens; side requests on the same single-slot
 ' Ollama model evicted the cached prompt, the 3-6 min reprocess outlasted the
-' first-byte wait, and Claude Code retried forever. localModelArgs adds:
+' first-byte wait, and Claude Code retried forever. sbx.LocalModelEnv adds
+' (localModelArgs in the deleted internal/egress until 2026-10-16):
 '   CLAUDE_CODE_EFFORT_LEVEL=low, CLAUDE_CODE_DISABLE_THINKING=1
 '   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 '   API_TIMEOUT_MS, CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS = 20 min
 ' and claude gets `--tools Bash,Read,Edit,Write` (withLocalModelTools; the
-' entrypoint's CLAUDE_LOCAL_ARGS on docker). Trivial prompt on glimmer:
+' entrypoint's CLAUDE_LOCAL_ARGS served the deleted docker path). Trivial prompt on glimmer:
 ' default 495 s, trimmed 245 s, hooks and CLAUDE.md kept. CLAUDE_CODE_SIMPLE
 ' was 90 s but drops hooks and CLAUDE.md, so it is not used.
 '
 ' ── THE USER-STYLE E2E (e2e/android_app_test.go) ───────────────────────────
 ' One subtest per harness row (opencode, claudecode), local model
-' muse-glimmer:30b-mlx, no hosted inference:
+' muse-glimmer:30b-mlx, no hosted inference. It skips when the host's Ollama
+' lacks the tag, or when sbx.LocalModelFits refuses it for the host's free
+' memory (a run failed with "needs ~21.0 GiB … host has 14.4 GiB available";
+' the same host precondition e2e/hermes_local_model_test.go skips on):
 '   form       `proveo run <h>` → [x] android by keystroke → Enter
 '   sandbox    reaches the host emulator; the seed log shows the Android build
 '   TUI        first-run dialogs answered as a user would; `!./install.sh`

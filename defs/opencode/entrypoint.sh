@@ -8,27 +8,13 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=opencode
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep opencode || true
-  set_working_directory "/app"
-  load_env quiet
-  apply_env_bridges
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  load_env
-  bridge_git_identity
-  report_git_context
-  attach_rtk
-  apply_env_bridges
-fi
+set_working_directory "/app"
+bridge_google_keys
+bridge_git_identity
+proveo-entrypoint prep || true
 
-# SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
+# SPEC: _spec/defs/opencode/native-v2-integration.puml
 seed_defaults() {
-  if [[ "${PROVEO_SEED_ONLY:-}" == 1 && "${PROVEO_OPENCODE_PREFLIGHT_READY:-}" != 1 ]]; then
-    /usr/local/bin/proveo-opencode-runtime --check-prepared >/dev/null 2>&1 || exit 0
-  fi
   proveo_seed opencode
 }
 seed_defaults
@@ -40,7 +26,7 @@ configure_opencode_local_model() {
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
   command -v jq >/dev/null 2>&1 || { echo "❌ Install jq to wire the requested Ollama model" >&2; return 1; }
   local config_file="${HOME}/.config/opencode/opencode.json"
-  local base="${OLLAMA_API_BASE:-http://ollama:11434}"
+  local base="${OLLAMA_API_BASE:-http://host.docker.internal:11434}"
   local model="${PROVEO_LOCAL_MODEL}"
   if [[ -e "${config_file}c" ]]; then
     echo "❌ Wire the requested Ollama model in ${config_file}c directly; automatic wiring cannot edit the higher-priority JSONC config" >&2
@@ -61,7 +47,7 @@ configure_opencode_local_model() {
     while [[ "$base" == */ ]]; do base="${base%/}"; done
   done
   tmp="$(mktemp "${config_file}.tmp.XXXXXX")" || return 1
-  # SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/_plans/retire-model-bridging.puml
+  # SPEC: _spec/defs/opencode/native-v2-integration.puml
   if printf '%s' "$existing" | jq \
        --arg base "$base/v1" --arg model "$model" '
           .providers.ollama = {
@@ -121,15 +107,6 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
     printf '  %s\n' "$line"
   done
   echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
-  echo "─────────────────────────────────────────────────────"
 fi
 
 echo "── Configuration Check ──────────────────────────────"
@@ -157,10 +134,7 @@ echo "────────────────────────�
 printf 'PROVEO_MODELS main=%s small=%s\n' \
   "${OPENCODE_MODEL:-unset}" "${OPENCODE_SMALL_MODEL:-unset}"
 
-if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-opencode}"
-  exec sleep infinity
-fi
+run_smoke_test "opencode"
 
 has_api_key() {
   [[ -n "$OPENCODE_API_KEY" ]] || \
@@ -184,7 +158,7 @@ if ! has_api_key && ! has_project_config; then
   echo "⚠️  No provider API key env vars and no opencode.json detected."
   echo "   Set one of: OPENCODE_API_KEY (OpenCode Zen / Go), ANTHROPIC_API_KEY, OPENAI_API_KEY,"
   echo "   OPENROUTER_API_KEY, XAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, ..."
-   echo "   Credentials created inside the sandbox do not persist in saved history."
+  echo "   Logins made inside the sandbox stay in this engine until sbx rm."
 fi
 
 OPENCODE_EVIDENCE_ARGS=()

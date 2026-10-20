@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -42,7 +45,7 @@ func cleanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&deep, "deep", false, "also remove proveo/* images (harness + base + sidecars)")
+	cmd.Flags().BoolVar(&deep, "deep", false, "also remove proveo/* images (harness + base)")
 	cmd.Flags().BoolVar(&force, "force", false, "also remove resources that look live (disrupts an in-progress run)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would be removed, without removing it")
 	cmd.Flags().BoolVar(&homes, "homes", false, "also remove PROVEO_HOME (~/.proveo) durable session/config cache")
@@ -140,6 +143,30 @@ func cleanProveoHomes(dryRun bool) error {
 }
 
 func gatherCleanInventory(deep bool) (clean.Inventory, error) {
+	inv := gatherLegacyDocker()
+
+	for _, sid := range stateSessions() {
+		inv.StateDirs = append(inv.StateDirs, sid)
+		if sessionAlive(sid) {
+			inv.LiveSessions = append(inv.LiveSessions, sid)
+		}
+	}
+
+	if deep {
+		seen := map[string]bool{}
+		for _, ref := range dockerLines("image", "ls", "--format", "{{.Repository}}:{{.Tag}}") {
+			if strings.HasPrefix(ref, "proveo/") && !strings.HasSuffix(ref, ":<none>") && !seen[ref] {
+				seen[ref] = true
+				inv.Images = append(inv.Images, ref)
+			}
+		}
+	}
+	return inv, nil
+}
+
+// gatherLegacyDocker lists what the retired docker backend left on this host: egress
+// containers and networks, proveo-dind-* containers and proveo-squid-cache-* volumes.
+func gatherLegacyDocker() clean.Inventory {
 	var inv clean.Inventory
 
 	for _, line := range dockerLines("ps", "-a", "--filter", "label=proveo.egress.session",
@@ -167,28 +194,41 @@ func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 		inv.Networks = append(inv.Networks, n)
 	}
 
-	if entries, err := os.ReadDir(filepath.Join(run.StateDir(), "egress")); err == nil {
+	inv.Volumes = dockerLines("volume", "ls", "--filter", "name=proveo-squid-cache-", "--format", "{{.Name}}")
+	return inv
+}
+
+// sessionAlive reports whether the proveo process a session id names (proveo-<unix>-<pid>) still runs.
+func sessionAlive(sid string) bool {
+	i := strings.LastIndexByte(sid, '-')
+	if !strings.HasPrefix(sid, "proveo-") || i < 0 {
+		return false
+	}
+	pid, err := strconv.Atoi(sid[i+1:])
+	if err != nil || pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	return err == nil && proc.Signal(syscall.Signal(0)) == nil
+}
+
+// stateSessions lists the session ids under every run root, sorted and deduplicated.
+func stateSessions() []string {
+	var out []string
+	for _, root := range run.RunRoots() {
+		entries, _ := os.ReadDir(root)
 		for _, e := range entries {
 			if e.IsDir() {
-				inv.StateDirs = append(inv.StateDirs, e.Name())
+				out = append(out, e.Name())
 			}
 		}
 	}
-
-	if deep {
-		seen := map[string]bool{}
-		for _, ref := range dockerLines("image", "ls", "--format", "{{.Repository}}:{{.Tag}}") {
-			if strings.HasPrefix(ref, "proveo/") && !strings.HasSuffix(ref, ":<none>") && !seen[ref] {
-				seen[ref] = true
-				inv.Images = append(inv.Images, ref)
-			}
-		}
-	}
-	return inv, nil
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func runClean(p clean.Plan, dryRun bool) error {
-	if len(p.Containers)+len(p.Networks)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
+	if len(p.Containers)+len(p.Networks)+len(p.Volumes)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
 		if len(p.SkippedLive) == 0 {
 			ui.Okf("nothing to clean")
 			return nil
@@ -210,11 +250,22 @@ func runClean(p clean.Plan, dryRun bool) error {
 			_ = exec.Command("docker", "network", "rm", n).Run()
 		}
 	}
-	for _, sid := range p.StateDirs {
-		dir := filepath.Join(run.StateDir(), "egress", sid)
-		ui.Dangerf("%s state %s (incl. any injected broker secret)", verb, dir)
+	for _, v := range p.Volumes {
+		ui.Dangerf("%s volume %s", verb, v)
 		if !dryRun {
-			_ = os.RemoveAll(dir)
+			_ = exec.Command("docker", "volume", "rm", v).Run()
+		}
+	}
+	for _, sid := range p.StateDirs {
+		for _, root := range run.RunRoots() {
+			dir := filepath.Join(root, sid)
+			if _, err := os.Stat(dir); err != nil {
+				continue
+			}
+			ui.Dangerf("%s state %s (sbx kit, policy log, staged clone .env)", verb, dir)
+			if !dryRun {
+				_ = os.RemoveAll(dir)
+			}
 		}
 	}
 	for _, img := range p.Images {

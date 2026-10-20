@@ -8,13 +8,6 @@ kind: mixin
 name: claudecode-posture
 displayName: proveo posture (claudecode)
 description: Reachability, host-resolved environment and the seed step for a proveo run.
-permissions:
-    network:
-        allow:
-            - '*.anthropic.com'
-            - anthropic.com
-            - api.anthropic.com
-            - statsig.anthropic.com
 environment:
     variables:
         ANTHROPIC_BASE_URL: https://api.anthropic.com
@@ -36,7 +29,10 @@ setup:
             - -c
             - |-
               set +e
-              /usr/local/bin/proveo-seed "$1"
+              if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
+                exit 0
+              fi
+              /usr/local/bin/proveo-seed "$@"
               rc=$?
               if [ "$rc" -ne 0 ]; then
                 printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
@@ -44,11 +40,36 @@ setup:
               exit 0
             - proveo-seed
             - claudecode
+            - release
           user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'
         - command:
             - /usr/bin/env
             - PROVEO_SEED_ONLY=1
-            - /entrypoint.sh
+            - PROVEO_SEED_PHASE=none
+            - /bin/sh
+            - -c
+            - if command -v -- 'claudecode-entrypoint' >/dev/null 2>&1; then exec 'claudecode-entrypoint' "$@"; fi; if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi
+            - proveo-claudecode
           user: "1000"
           description: 'proveo: the def''s own wiring, launch skipped'
+        - command:
+            - /bin/sh
+            - -c
+            - |-
+              set +e
+              if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
+                exit 0
+              fi
+              /usr/local/bin/proveo-seed "$@"
+              rc=$?
+              if [ "$rc" -ne 0 ]; then
+                printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
+              fi
+              exit 0
+            - proveo-seed
+            - claudecode
+            - provision
+          user: "1000"
+          background: true
+          description: 'proveo: toolchains, dependencies and language servers, beside the agent'

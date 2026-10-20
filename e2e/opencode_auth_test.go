@@ -12,33 +12,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/egress"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 const opencodeKeyVar = "OPENCODE_API_KEY"
 
 // TestOpenCodeAuth asserts the CREDENTIAL BOUNDARY for OpenCode's own
-// gateway: that OPENCODE_API_KEY still authenticates after crossing the
-// egress layer.
+// gateway: that OPENCODE_API_KEY still authenticates through sbx's proxy.
 func TestOpenCodeAuth(t *testing.T) {
 	requireHarness(t, "opencode")
 
 	proveoBin := buildProveo(t)
-	mode := env("PROVEO_TEST_EGRESS_MODE", "allowlist")
 	declared := declaredSecrets(t, "opencode")
 
 	for _, c := range opencodeAuth {
 		t.Run(c.name, func(t *testing.T) {
 			requireValidOpenCodeCredential(t, c)
-			for _, creds := range egress.CredentialModes() {
+			for _, creds := range run.CredentialModes() {
 				t.Run(creds, func(t *testing.T) {
 					if creds == "forward" && !declared[opencodeKeyVar] {
 						t.Skipf("opencode does not declare %s in its manifest env, so "+
 							"--credentials forward has nothing to forward — it is reachable "+
 							"only through the broker", opencodeKeyVar)
 					}
-					probeOpenCodeBoundary(t, c, proveoBin, mode, creds)
+					probeOpenCodeBoundary(t, c, proveoBin, creds)
 				})
 			}
 		})
@@ -66,51 +64,41 @@ func (c opencodeAuthCase) body() string {
 	return fmt.Sprintf(`{"model":"%s","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`, c.model)
 }
 
-// probeOpenCodeBoundary runs the real harness through the real egress topology and
-// asks the gateway, from inside the container, whether the credential arrived.
-func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, mode, creds string) {
+// probeOpenCodeBoundary runs the real harness in its sandbox and asks the
+// gateway, from inside the sandbox, whether the credential arrived.
+func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, creds string) {
 	t.Helper()
 
 	work := t.TempDir()
+	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-ocauth-%s-%s-%d", c.name, creds, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
-	// --shell puts a shell on the PTY instead of the agent: identical topology,
-	// and the credential question is answerable with curl.
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsFor(t, opencodeKeyVar)...)
 	cmd = append(cmd, "PROVEO_HOME="+t.TempDir())
 	cmd = append(cmd, proveoBin, "run", "opencode",
-		"--egress-mode", mode, "--credentials", creds, "--input", work, "--shell")
+		"--credentials", creds, "--input", work)
 
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start tmux session: %v", err)
 	}
-	w := newWatcher(t, sess)
-	waitForContainerShell(t, w, durationEnv(t, "PROVEO_TEST_TIMEOUT", 4*time.Minute))
+	k := awaitKit(t, sess, before, "opencode", work)
+	out, _ := k.exec(opencodeProbeLine(c, creds), 90*time.Second)
 
-	if err := sess.SendText(opencodeProbeLine(c, creds)); err != nil {
-		t.Fatalf("send credential probe: %v", err)
+	if got := probeStatus(out); got != "200" {
+		t.Fatalf("%s reached %s as HTTP %s under --credentials %s, want 200 — "+
+			"the host accepted this same credential on this same endpoint, so sbx's proxy is what changed the answer\n%s\n%s",
+			opencodeKeyVar, c.base, got, creds, out, k.pane(40))
 	}
-	if err := sess.Enter(); err != nil {
-		t.Fatalf("send credential probe newline: %v", err)
-	}
-	w.until("the credential probe to answer", 90*time.Second, func() bool {
-		return probeStatus(w.Screen()) != ""
-	})
-
-	if got := probeStatus(w.Screen()); got != "200" {
-		w.Fatalf("%s reached %s as HTTP %s under --egress-mode %s --credentials %s, want 200 — "+
-			"the host accepted this same credential on this same endpoint, so the egress layer is what changed the answer",
-			opencodeKeyVar, c.base, got, mode, creds)
-	}
-	assertCleanBoot(t, w.Screen())
-	t.Logf("%s authenticated through --egress-mode %s --credentials %s (POST %s/chat/completions → 200)",
-		opencodeKeyVar, mode, creds, c.base)
+	screen, _ := sess.CaptureAll()
+	assertCleanBoot(t, screen)
+	t.Logf("%s authenticated through --credentials %s (POST %s/chat/completions → 200)",
+		opencodeKeyVar, creds, c.base)
 }
 
-// opencodeProbeLine is the request the container makes: no auth header under
-// `broker`, the real key under `forward`.
+// opencodeProbeLine is the request the sandbox makes: an auth header carrying
+// sbx's placeholder under `broker`, the real key under `forward`.
 func opencodeProbeLine(c opencodeAuthCase, creds string) string {
 	var b strings.Builder
 	// -o /dev/null so neither the credential nor a completion is echoed onto the
@@ -118,14 +106,9 @@ func opencodeProbeLine(c opencodeAuthCase, creds string) string {
 	b.WriteString(`curl -sS --max-time 60 -o /dev/null -w 'PROBE=%{http_code}\n' -X POST`)
 	b.WriteString(` -H 'content-type: application/json'`)
 	fmt.Fprintf(&b, ` -H '%s: %s'`, opencodeSessionHeader, c.session())
-	// The header is sent in BOTH credential modes, because the two backends
-	// broker by opposite mechanisms: proveo's mitmproxy REPLACES whatever header
-	// the request carries (proven by the xai-junk control in
-	// kit-sandbox-credential-gap.puml), while sbx SUBSTITUTES a placeholder the
-	// agent itself sent. Omitting it under sbx left nothing to substitute, and
-	// the 401 that produced read as a credential failure for a working key.
-	// Double-quoted so the shell expands it — the secret never travels on this
-	// test's argv.
+	// Sent in both credential modes: sbx substitutes the placeholder the agent
+	// sends, so a missing header leaves nothing to substitute. Double-quoted so
+	// the shell expands it and the secret never rides this test's argv.
 	fmt.Fprintf(&b, ` -H "authorization: Bearer $%s"`, opencodeKeyVar)
 	fmt.Fprintf(&b, ` -d '%s' %s/chat/completions`, c.body(), c.base)
 	return b.String()

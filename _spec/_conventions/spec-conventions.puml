@@ -3,6 +3,8 @@
 ' purpose: the roles, arrow intent, note box and SPEC reference rules every diagram in this tree obeys
 ' covers: internal/contract/spec_notes_test.go
 ' covers: internal/ui/ui.go
+' covers: cmd/proveo-dev/commentlint.go
+' covers: cmd/proveo-dev/commentlint_test.go
 ' Deliberately NOT `_spec/**` — a glob over the tree this file describes would
 ' report drift on every diagram edit, which is noise rather than signal.
 ' The palette these roles print in: _spec/_conventions/tui-design-language.puml.
@@ -28,6 +30,34 @@
 ' rule quietly, so the boundary itself is pinned by a table of cases — a link
 ' inside a sentence is NOT exempt, because the sentence can be rewritten
 ' around it.
+'
+' ── THE OTHER HALF: SOURCE CARRIES NO REASONING (N14, DONE (wt) 2026-10-17) ─
+' AGENTS.md rule 3 — source carries instructions, _spec/ carries reasoning —
+' regrew after the 2026-09-05 strip (entrypoint-lib.sh went from 26 comment
+' lines to 134), so it is now a lint, not a sweep. MEASURED,
+' cmd/proveo-dev/commentlint.go: `proveo-dev lint` runs it right after gofmt
+' (lint.go:41-42) and fails on every comment block over maxCommentLines = 3
+' COUNTED lines, naming each as path:line with "move the reasoning to _spec/,
+' keep SPEC: pointers and one-line labels".
+'   not counted  blank lines; SPEC: and covers: lines; pragmas (go:, nolint,
+'                shellcheck, syntax=, escape=, a `#!` line, +build); dividers
+'                (a run of ─ ━ ═ = -); and up to 3 lines of a Go doc comment's
+'                first sentence (a block directly above func/type/var/const/
+'                package)
+'   read         tracked (`git ls-files`) .go, .sh, Dockerfile*, .dockerignore,
+'                .toml, .yaml/.yml, .manifest, and extensionless packages/lib
+'                scripts
+'   skipped      _spec/, apps/, node_modules/, dot-directories, any testdata/
+' [Inference] An untracked file is not read until `git add`, because the file
+' list is `git ls-files`.
+' Tests (cmd/proveo-dev/commentlint_test.go): TestCommentMarkerCoversEverySourceKind,
+' TestLongCommentBlocksAreFlagged, TestCommentLintNamesEachOffendingBlock.
+' The migration before the gate: 89 blocks moved into _spec/ by three
+' spec-keepers and 85 stanzas stripped (reported). Three blocks are HELD, so
+' `proveo-dev lint` is RED on exactly them until a live sbx re-measure (the user:
+' "Re-measure first"): internal/backend/sandbox/sandbox.go:1917 (:1922 before N6),
+' internal/sbx/secret.go:13, internal/sbx/secret_test.go:8 — the opencode
+' plain-secret 401 (repo-simplification.puml N14).
 title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle
 
 component "<<app>>  first-party app / runtime service" as R1 <<app>>

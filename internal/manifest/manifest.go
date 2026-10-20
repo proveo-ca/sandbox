@@ -2,7 +2,10 @@
 package manifest
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -38,7 +41,14 @@ type HomeMount struct {
 	Container string   `yaml:"container"`
 	Mode      string   `yaml:"mode"` // rw (default) | ro
 	Deny      []string `yaml:"deny"`
+	// Transient names relative paths (find -path globs) the sbx config sync
+	// never copies, in either direction; unlike Deny, the host keeps them.
+	// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
+	Transient []string `yaml:"transient"`
 }
+
+// LinkedDirsFile, at the proveo home root, lists the absolute targets a home dir's links may reach.
+const LinkedDirsFile = "linked-dirs"
 
 type Home struct {
 	Enabled bool        `yaml:"enabled"`
@@ -50,9 +60,6 @@ type Home struct {
 type Manifest struct {
 	Name         string            `yaml:"name"`
 	Description  string            `yaml:"description"`
-	Egress       bool              `yaml:"egress"`       // sources the egress lifecycle
-	Docker       DockerMode        `yaml:"docker"`       // how the agent gets a Docker daemon: sbx | (absent)
-	Provider     string            `yaml:"provider"`     // vendor-pinned broker target (firewall mode); e.g. cursor
 	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
 	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
 	Kind         string            `yaml:"kind"`         // coding (default) | assistant: no toolchain, dependency or LSP provisioning
@@ -65,25 +72,8 @@ type Manifest struct {
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Dir          string            `yaml:"-"` // def directory (set by Load)
 
-	// Daemon: false keeps a harness on the sbx backend without promising its
-	// agent a Docker daemon (hermes: not a coding agent).
-	Daemon *bool `yaml:"daemon"`
-
-	RetiredDind          bool `yaml:"dind"`
-	RetiredSandboxDocker bool `yaml:"sandbox_docker"`
+	Daemon *bool `yaml:"daemon"` // false: the sandbox promises its agent no Docker daemon
 }
-
-// DockerMode is how a harness hands its agent a Docker daemon, and after
-// retiring the privileged sidecar there is exactly one way: `sbx` runs the
-// agent in a sandbox VM that has its own daemon, behind a boundary.
-type DockerMode string
-
-const (
-	DockerNone DockerMode = ""    // no daemon reaches the agent
-	DockerSbx  DockerMode = "sbx" // docker sandboxes (internal/sbx)
-
-	retiredDockerDind DockerMode = "dind"
-)
 
 // KindAssistant marks a general assistant: the seed provisions no toolchain,
 // dependency trees or language servers for it.
@@ -92,17 +82,12 @@ const KindAssistant = "assistant"
 // IsAssistant reports whether the harness is a general assistant, not a coding agent.
 func (m Manifest) IsAssistant() bool { return m.Kind == KindAssistant }
 
-// IsSbx reports whether this harness runs on the sandbox backend.
-func (m Manifest) IsSbx() bool { return m.Docker == DockerSbx }
-
-// WantsDocker reports whether the agent is promised a daemon at all — the half
-// of the contract the image must honour by shipping a docker client.
+// WantsDocker reports whether the agent is promised a Docker daemon in its sandbox.
 func (m Manifest) WantsDocker() bool {
-	return m.Docker != DockerNone && (m.Daemon == nil || *m.Daemon)
+	return m.Daemon == nil || *m.Daemon
 }
 
 type Capabilities struct {
-	Egress      []string `yaml:"egress"`
 	Credentials []string `yaml:"credentials"`
 	Providers   []string `yaml:"providers"`
 	Hosts       []string `yaml:"hosts"`
@@ -124,8 +109,6 @@ func (c Capabilities) HasHostDevice(kind string) bool { return slices.Contains(c
 
 // HasHostBrowser reports whether the harness can drive the operator's browser.
 func (c Capabilities) HasHostBrowser() bool { return c.HostBrowser != "" }
-
-func (c Capabilities) AllowsEgress(mode string) bool { return listAllows(c.Egress, mode) }
 
 func (c Capabilities) AllowsCredentials(mode string) bool { return listAllows(c.Credentials, mode) }
 
@@ -196,21 +179,12 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("manifest %q: home file %q must be a bare name at the home root", m.Name, f)
 		}
 	}
-	switch m.Docker {
-	case DockerNone, DockerSbx:
-	case retiredDockerDind:
-		return fmt.Errorf("manifest %q: docker: %s is retired — the privileged sibling daemon is gone.\n"+
-			"  Declare `docker: %s` (the sandbox has its own daemon) or drop the key (no daemon reaches the agent)",
-			m.Name, retiredDockerDind, DockerSbx)
-	default:
-		return fmt.Errorf("manifest %q: invalid docker %q (want %q, or omit the key)", m.Name, m.Docker, DockerSbx)
-	}
-	if m.Daemon != nil && m.Docker == DockerNone {
-		return fmt.Errorf("manifest %q: daemon: only qualifies docker: %s — without it no daemon is promised anyway", m.Name, DockerSbx)
-	}
-	if m.RetiredDind || m.RetiredSandboxDocker {
-		return fmt.Errorf("manifest %q: dind:/sandbox_docker: are retired — declare the docker mode instead (docker: %s)",
-			m.Name, DockerSbx)
+	for _, mt := range m.Home.Mounts {
+		for _, p := range mt.Transient {
+			if !ValidTransient(p) {
+				return fmt.Errorf("manifest %q: home mount %q transient %q must be a relative path inside the mount", m.Name, mt.Host, p)
+			}
+		}
 	}
 	switch m.Kind {
 	case "", "coding", KindAssistant:
@@ -299,7 +273,10 @@ func (h Home) validate(name string) error {
 		if filepath.IsAbs(m.Host) || strings.Contains(m.Host, "..") {
 			return fmt.Errorf("manifest %q: home.mounts[%d]: host %q must be relative to PROVEO_HOME (no ..)", name, i, m.Host)
 		}
-		if !strings.HasPrefix(m.Container, "/") {
+		if first, _, _ := strings.Cut(filepath.ToSlash(filepath.Clean(m.Host)), "/"); first == "." || first == LinkedDirsFile {
+			return fmt.Errorf("manifest %q: home.mounts[%d]: host %q would expose PROVEO_HOME/%s to the guest", name, i, m.Host, LinkedDirsFile)
+		}
+		if m.Container != "" && !strings.HasPrefix(m.Container, "/") {
 			return fmt.Errorf("manifest %q: home.mounts[%d]: container %q must be absolute", name, i, m.Container)
 		}
 		switch m.Mode {
@@ -310,11 +287,14 @@ func (h Home) validate(name string) error {
 		if seenHost[m.Host] {
 			return fmt.Errorf("manifest %q: duplicate home.mount host %q", name, m.Host)
 		}
-		if seenCtr[m.Container] {
+		if m.Container != "" && seenCtr[m.Container] {
 			return fmt.Errorf("manifest %q: duplicate home.mount container %q", name, m.Container)
 		}
 		seenHost[m.Host] = true
-		seenCtr[m.Container] = true
+		seenCtr[m.Container] = m.Container != ""
+	}
+	if slices.Contains(h.Files, LinkedDirsFile) {
+		return fmt.Errorf("manifest %q: home.files must not sync %s back from the guest", name, LinkedDirsFile)
 	}
 	return nil
 }
@@ -326,7 +306,12 @@ func (h Home) Active() bool {
 
 func Parse(data []byte, dir string) (Manifest, error) {
 	var m Manifest
-	if err := yaml.Unmarshal(data, &m); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) {
+		if strings.Contains(err.Error(), "field docker not found") {
+			return Manifest{}, fmt.Errorf("manifest %s: `docker:` is retired — delete it, or set `daemon: false` to withdraw the daemon: %w", dir, err)
+		}
 		return Manifest{}, fmt.Errorf("manifest %s: %w", dir, err)
 	}
 	m.Dir = dir
@@ -389,4 +374,18 @@ func Targets(ms []Manifest) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// ValidTransient reports whether p is a relative, in-mount path the shell sync
+// can prune: no leading slash, no "..", none of the config set's separators.
+func ValidTransient(p string) bool {
+	if p == "" || p != strings.TrimSpace(p) || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "|;,\\ \t\n") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }

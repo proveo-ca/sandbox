@@ -60,9 +60,8 @@ skinparam noteTextAlignment left
 '
 ' So the failure is a CLIFF, not backpressure: the host swaps until everything
 ' degrades together, or a VM dies on SIGKILL carrying no OOMKilled flag and no
-' message — invisible in exactly the place an operator would look. See
-' MemoryLimit's own note on why sbx's host-derived default cannot bind inside a
-' VM-backed daemon.
+' message — invisible in exactly the place an operator would look. The
+' REVISED 2026-09-08 section above records why proveo stopped deriving a share.
 '
 ' ── THIS IS SECOND-BEST, AND SHOULD BE LABELLED AS SUCH ────────────────────
 ' The first-best answer IS on-demand, and it exists: free-page reporting and
@@ -95,8 +94,18 @@ skinparam noteTextAlignment left
 '   `vminitd (NNN): drop_caches: 3` recurring is the RECLAIM that precedes a
 '     kill; it is captured but never warned on, because warning on pressure
 '     that every healthy run produces teaches an operator to ignore the warning
+'   `docker ps` (the nested containers) runs LAST, under a 5s timeout, and its
+'     failure is swallowed: a wedged daemon is itself a symptom, and must not
+'     cost the meminfo and dmesg lines read before it
 ' Only an actual kill raises its voice, and it names PROVEO_SBX_MEMORY when it
 ' does — a diagnosis with no lever is half a message.
+'
+' The capture is best effort and SILENT on every failure. At teardown the
+' sandbox may already be gone, and a run that died of memory pressure is the
+' run least able to answer; a teardown warning about teardown teaches nothing.
+' memoryEvidence is a package var for the reason storedSecretNames is: the
+' branch that matters fires only on an OOM, which no test can arrange for real,
+' so memory_evidence_test.go states what the guest said without a live sandbox.
 '
 ' ── CPU IS NOT MEMORY, AND IS DELIBERATELY NOT PARTITIONED ─────────────────
 ' The two knobs look symmetrical. The arguments behind them are not, and reading

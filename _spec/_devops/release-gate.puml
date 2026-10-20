@@ -10,7 +10,32 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo-dev/idle.go
 ' covers: cmd/proveo-dev/e2efull.go
 ' covers: cmd/proveo-dev/gate.go
+' covers: internal/contract/retirement_test.go
+' covers: cmd/proveo-dev/buildcli.go (requireRetirementLedger)
 ' Lineage and tags: image-lineage-and-publish.puml (same directory).
+'
+' ── THE RETIREMENT LEDGER BLOCKS A CLI RELEASE (N33, DONE (wt) 2026-10-18) ──
+' A deprecated alias that promises to go "next release" needs something that
+' notices the release happened. internal/contract/retirement_test.go holds a
+' ledger (reported): the PROVEO_EGRESS_ROOT alias, the PROVEO_EGRESS_ENV_FILE
+' alias, the retired egress/ run-root sweep and the PROVEO_CLI_BASE_URL alias,
+' each with a marker string. Tests (MEASURED that they exist):
+'   TestEveryRetirementMarkerIsStillInTheTree  a ledger row whose marker is gone
+'                                              must be deleted with it
+'   TestEveryDeprecatedAliasHasARetirement     every envreg AliasOf has a row
+'   TestNoRetirementOutlivesOneRelease         `git grep -F <marker> <prev>` at
+'                                              the newest v* tag merged into
+'                                              HEAD and not at HEAD; it fails
+'                                              when that release already shipped
+'                                              the marker
+' A shallow clone has no tags to read, so the last test skips with a remedy.
+' MEASURED, cmd/proveo-dev/buildcli.go:106,123: requireRetirementLedger runs the
+' test before goreleaser on `build-cli --release` and blocks the release unless
+' it PASSES — a skip blocks too. Reported: red with a marker v0.1.2 contains,
+' then green.
+' INTENDED CONSEQUENCE (recorded): main goes red from the first commit after the
+' next release until the aliases and the sweep are deleted. The deletions are
+' N33's second half and wait for that release.
 ' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -24,7 +49,13 @@ skinparam noteTextAlignment left
 '   1  go build ./... && go vet ./... && go vet -tags e2e ./e2e/
 '   2  go test ./...                     unit + contract
 '   3  mise run build all                every image from source
-'   4  mise run test-images              11 suites across all four defs
+'   4  mise run test-images              every TestImage* suite, hermes included —
+'                                        the ONE image task; test-e2e and
+'                                        test-e2e-full depend on it (N12, 2026-10-17,
+'                                        MEASURED mise.toml:79,97,103;
+'                                        TestOneImageTaskGatesBothReleaseGates).
+'                                        HISTORY: "11 suites across all four defs",
+'                                        and test-images-sbx skipped hermes.
 '   5  go test -tags e2e ./e2e/          the non-sbx e2e suite
 '
 ' ON THE HOST ONLY, because each needs sbx:
@@ -72,7 +103,7 @@ skinparam noteTextAlignment left
 '                           --- SKIP: TestSandboxLadder (0.00s)
 '
 ' ── THE GATE IS GO NOW (cmd/proveo-dev ladder | idle | e2e-full) ────────────
-' The mise bash moved to cmd/proveo-dev (P4, _spec/_plans/host-shell-to-go.puml);
+' The mise bash moved to cmd/proveo-dev (P4, _spec/_refactors/host-shell-to-go.puml);
 ' the column-0 anchor lives in ladder.go as a Go regexp, idle.go reads each
 ' `    --- PASS|FAIL|SKIP: TestAgentSurvivesIdleAtPrompt/<def>` subtest line and
 ' calls a def with none of the three MISS. A green subtest set under a red suite
@@ -80,9 +111,11 @@ skinparam noteTextAlignment left
 ' terminal while keeping the copy it reads: buffering until exit made a
 ' minutes-long climb look frozen for a quarter hour, and the rung logs are how
 ' an operator sees which layer is being exercised while it happens.
-' e2e-full sets PROVEO_{IDLE,SIGNAL,TOOLCHAIN}_TEST=1 and
+' e2e-full sets PROVEO_{IDLE,TOOLCHAIN}_TEST=1 (e2eFullEnv, MEASURED) and
 ' PROVEO_TEST_GO_TIMEOUT (default 150m) for the whole process, then runs the
 ' e2e suite, idle and the ladder in-process; every half runs, any red fails.
+' PROVEO_SIGNAL_TEST=1 left the env 2026-10-16 with e2e/signal_test.go, whose
+' subject — tearing down the docker egress sidecars on SIGINT — was deleted.
 '
 ' ── WHAT A GREEN GATE DOES NOT COVER ────────────────────────────────────────
 ' Stated because a checklist read as complete is worse than one read as partial:
@@ -98,11 +131,13 @@ skinparam noteTextAlignment left
 '     a credential it already holds. An UNATTENDED agent stops there. No test
 '     covers it because it is interactive by definition.
 '
-'   TestProjectDotEnvAtEgressLayer/opencode is RED and unexplained. It runs a
-'     stock ubuntu:24.04 image on the docker backend, so neither the base
-'     rebase nor the agent-kit default can reach it.
+'   HISTORY: TestProjectDotEnvAtEgressLayer/opencode was RED and unexplained
+'     on the docker backend. It was deleted 2026-10-16 with that backend, so
+'     the question it raised is closed by removal, not answered.
 '
-' ── LEAKED STATE POISONS THE RESULT, AND HID FOR HOURS ──────────────────────
+' ── HISTORY: LEAKED STATE POISONED THE RESULT, AND HID FOR HOURS ────────────
+' Docker-backend era; the -egress containers and *-mitm-net networks it names
+' no longer exist. The rule — match on the image, never the name — stands.
 ' Two proveo/opencode:local containers ran for SIX HOURS after the sessions
 ' that started them were killed, each holding a *-mitm-net network. They were
 ' invisible to `docker ps -a | grep proveo` because docker had named them
@@ -120,7 +155,7 @@ title Release gate — two halves, because sbx is host-only
 node "in-sandbox · docker only" as BOX <<host>> {
   component "build + vet + go test" as GO <<app>>
   component "build all\n14 images from source" as BUILD <<app>>
-  component "test-images\n11 suites · 4 defs" as TI <<app>>
+  component "test-images\nevery TestImage* · hermes included\n(the one image task, N12)" as TI <<app>>
   component "e2e minus sbx" as E2E <<app>>
 }
 
@@ -131,7 +166,7 @@ node "host only · needs sbx" as HOST <<host>> {
 }
 
 component "deploy all\namd64 + arm64 --push" as PUB <<cloud>>
-component "not covered\namd64 · consent prompt · dotenv" as GAP <<error>>
+component "not covered\namd64 · consent prompt\n(the e2e never approves: SEC3)" as GAP <<error>>
 
 GO ARROW_MAIN BUILD
 BUILD ARROW_MAIN TI
@@ -169,9 +204,8 @@ end note
 note bottom of GAP
   **A checklist read as complete is worse than
   one read as partial.** amd64 has never been
-  compiled here, the consent prompt is
-  interactive by definition, and one e2e test
-  is red for reasons still unknown.
+  compiled here, and the consent prompt is
+  interactive by definition.
 end note
 
 note bottom of TI

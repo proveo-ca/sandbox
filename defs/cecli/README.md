@@ -11,7 +11,7 @@ This definition exposes the required candidate harness commands:
 - `sample.cecli.conf.yml`
 - `defaults/agents/` baked-in subagent prompts
 
-`proveo run cecli --shell` opens a debug shell. Its image suite is `internal/imagetest/cecli_test.go` (`TestImageCecli`).
+For a shell in a running cecli sandbox: `sbx ls`, then `sbx exec -it <sandbox> bash`. Its image suite is `internal/imagetest/cecli_test.go` (`TestImageCecli`).
 
 ## Image Name and Tag
 
@@ -102,5 +102,5 @@ mise run test-defs cecli      # or: proveo test cecli
 Override the image under test:
 
 ```bash
-PROVEO_CECLI_IMAGE=proveo/cecli:latest mise run test-defs cecli
+PROVEO_TEST_CECLI_IMAGE=proveo/cecli:latest mise run test-defs cecli
 ```

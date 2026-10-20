@@ -7,6 +7,31 @@ title Mount model — two layouts, one scope resolver, secrets decided by egress
 
 ' covers: internal/workspace/mount.go
 ' covers: internal/workspace/**
+' Plan() returns (mounts []runner.Mount, links []Link) since 2026-10-17 (MEASURED,
+' mount.go:56). Its workdir return — the constant "/app" (reported) — was dropped
+' with the three `wd != "/app"` test assertions (the user: "Drop the workdir return
+' (Recommended)", repo-simplification.puml F20); sbx computes the agent's workdir
+' from the binds (_spec/internal/sbx/sandbox-backend.puml).
+'
+' ── F9 + N7 (DONE (wt) 2026-10-17): THE PLAN BINDS NO .env, STAGES NO TREE ──
+' F9 (the user: "Keep detection only (Recommended)"). MEASURED: isolateEnv,
+' envMounts, maskEnvMounts, envMaskPrune and envOverlay — every /app/.env bind
+' and /dev/null mask — are deleted, and so are MaterializeDeps, copyTree,
+' StripDepCopies, depStage, stagePath, depMounts, DepCopyPolicy
+' (PROVEO_DEPS_COPY) and MountSpec.DepStage (reported: also MountSpec.Credentials
+' and DepCopy.Stage). secretEnvFile stays (mount.go:398) for the link scanner.
+' DepCopies still names the dependency trees, and run.go counts them for the
+' SharedTreesAllowed refusal (_spec/packages/lib/dependency-trees.puml). On sbx
+' nothing changed: file binds never reached a sandbox and run.go stripped the
+' stage dirs (reported). Tests: TestMountPlanBindsNoDotenvFile (mount_test.go:442)
+' replaces the mask and symlink-env tests; reported, 11 obsolete tests deleted and
+' root node_modules is no longer an overlay mount in TestMountPlanAppWholeRepo,
+' TestMountPlanAppSubdir and TestPlanSubdirPreservesRootDirs.
+' N7: workspace.ProjectEnvFile(dirs ...) (mount.go:410-411) is the one .env
+' finder — the first regular .env among dirs — replacing EnvFileSource,
+' envMountSource and findEnvFileResolved (_spec/internal/credentials/
+' credential-decisions.puml, PROJECT .env).
+' The ENV component and the masking notes below are HISTORY of the docker tiers.
 
 node "Scope resolution" as SCOPE <<host>> {
   component "workspace.Resolve(dir)\nScope{Root, Prefix, IsRepo}" as RES <<app>>
@@ -18,7 +43,7 @@ node "MountSpec.Plan() — manifest workspace model" as PLAN <<host>> {
   component "layout: app\n/app + /app/output" as IO <<app>>
   component "layout: app\nagent edits in place at /app" as APP <<app>>
   component "monorepo subdir scope\n/app/<rel> + /app/.git + rootFiles" as SUB <<app>>
-  component "envMounts · maskEnvMounts\nescapingEnvFile" as ENV <<app>>
+  component "HISTORY: envMounts · maskEnvMounts\n(deleted by F9) · escapingEnvFile" as ENV <<app>>
 }
 
 database "Host checkout\nmode ro|rw · gitMode ro|rw" as HOST <<db>>
@@ -90,9 +115,10 @@ note bottom of ENV
   each entrypoint bridges them into its own tool-specific variable
   (""OPENCODE_MODEL"", ""CECLI_MODEL"", ""ANTHROPIC_MODEL"", …).
 
-  They //must// arrive as env because the file they would otherwise be read
-  from is not there to read: ""\.env"" is masked on the proxy and firewall
-  tiers, and the app layout does not mount it.
+  They //must// arrive as env because no image reads the workspace ""\.env""
+  (N7, 2026-10-17); the project's own values reach a new sandbox through
+  sbx's ""--env-file"" instead. (HISTORY: on the docker proxy and firewall
+  tiers the file was masked.)
 
   **""--local-model"" overrides them by construction, not by a conditional.**
   Its ""-e"" pairs land in ""plan\.AgentArgs"", which docker applies //after//
@@ -102,6 +128,7 @@ note bottom of ENV
   the broker (""_spec/_paradigms/credential-boundary\.puml"").
 end note
 note right of ENV
+  **HISTORY (deleted by F9, 2026-10-17).** On the docker tiers:
   **Masking is recursive and uses ""/dev/null"", not omission.** Every dotenv
   secrets file under the mounted tree is shadowed, so a hostile or injected
   agent cannot read a real credential off disk — the structural complement
@@ -119,10 +146,10 @@ note right of ENV
   tool-config directory — neither is a conventional secrets location, and
   walking them would add cost for no coverage.
 
-  For broker ingestion the host-side ""\.env"" is resolved through symlinks
-  on the host, following the invocation dir → scope → repo-root order the
-  Bash lifecycle used, so a project that symlinks its env file still feeds
-  the broker.
+  Still true: the host-side ""\.env"" is resolved through symlinks on the
+  host (""ProjectEnvFile"", invocation dir → input dir → repo root for the
+  credential lookup), so a project that symlinks its env file still feeds
+  provider detection and the ""--env-file"" seed.
 end note
 
 note right of SUB
@@ -133,12 +160,10 @@ note right of SUB
 end note
 
 note bottom of SUB
-  **Dependency trees are never the host's.** Every dir
-  ""DepLangs"" names under the scope is overlaid with a
-  private copy staged under the run's state dir — present
-  or not — and the seed installs into the copy. A subdir
-  scope also copies the repo root's present trees to
-  ""/app/<dir>"" (""PROVEO_MOUNT_ROOT_DEPS=0"" omits those).
+  **Dependency trees are detected, not copied (F9).**
+  ""DepCopies"" names every dir ""DepLangs"" lists; run.go
+  counts them for the ""SharedTreesAllowed"" refusal.
+  HISTORY: docker overlaid each with a private staged copy.
   Mechanism: ""_spec/packages/lib/dependency-trees.puml"".
 end note
 

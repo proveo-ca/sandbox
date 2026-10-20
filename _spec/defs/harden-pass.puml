@@ -15,6 +15,7 @@ title The harden pass — one script, re-run by every layer that installs
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: defs/claudecode/solidity/Dockerfile
+' covers: defs/codex/Dockerfile
 '
 ' ── WHAT THE PASS ACTUALLY DOES ─────────────────────────────────────────────
 ' `defs/base/proveo-harden` is a POSIX /bin/sh script, installed into
@@ -39,9 +40,17 @@ title The harden pass — one script, re-run by every layer that installs
 ' regardless of the prefixes given, which is intentional: those four paths are
 ' the ones a new package can reintroduce.
 '
-' Two layers call it with NO arguments and thus take the full `/` sweep a second
-' time — defs/cursor/Dockerfile and defs/opencode/Dockerfile, at their apt layer.
-' Recorded because it is a cost, not a correctness problem.
+' One layer calls it with NO arguments and thus takes the full `/` sweep a second
+' time — defs/cursor/Dockerfile, at its apt layer. Recorded because it is a
+' cost, not a correctness problem.
+'
+' codex and opencode call it NOWHERE since N26 (DONE (wt) 2026-10-18, MEASURED).
+' Their only call sat in an apt RUN that installed no package — codex passed
+' `/usr /opt`, opencode no arguments — and both RUNs are deleted. Each inherits
+' base-node-lsp's `/usr /opt` pass instead. In codex only user and group edits
+' preceded the deleted RUN (Dockerfile:13-41), so the agent's npm install, which
+' comes later, was never swept by it. [Inference] opencode's RUN sat at the same
+' point. Both images still assert `security.hardened=true`, so they belong to (a).
 '
 ' ── WHY A SCRIPT AND NOT AN INLINE RUN ──────────────────────────────────────
 ' The pass is baked into proveo/base precisely so that every descendant layer
@@ -53,11 +62,16 @@ title The harden pass — one script, re-run by every layer that installs
 '
 ' ── WHERE THE GUARANTEE IS OVERSTATED (both real, neither fixed here) ───────
 ' (a) `LABEL security.hardened=true` is asserted by proveo/base, proveo/base-node,
-'     proveo/base-node-lsp, proveo/base-node-browser, cursor, opencode and
+'     proveo/base-node-lsp, proveo/base-node-browser, cursor, opencode, codex and
 '     claudecode — but several harnesses add root-owned binaries AFTER their last
-'     proveo-harden call, and defs/claudecode/solidity/Dockerfile never calls the
-'     script while inheriting the label from proveo/claudecode. The label
-'     is a claim about the layer that wrote it, not about the image.
+'     proveo-harden pass: codex and opencode npm-install their agents after the
+'     base-node-lsp pass they inherit. The label is a claim about the layer that
+'     wrote it, not about the image.
+'     CORRECTED 2026-10-18 (MEASURED): this record used to say
+'     defs/claudecode/solidity/Dockerfile never calls the script. It calls
+'     `proveo-harden /usr /opt` twice — after the apt+pip venv layer (:30) and
+'     after the solhint npm layer (:37). Its later solc-select and foundry
+'     installs run as the build user (`USER ${USER_NAME}`, :39).
 ' (b) The `/opt` sweep strips the setuid bit from Chromium's `chrome-sandbox`
 '     helper as a SIDE EFFECT (defs/base-node-browser/Dockerfile installs into
 '     /opt/ms-playwright, and the harden call that follows passes /opt). That is
@@ -66,7 +80,7 @@ title The harden pass — one script, re-run by every layer that installs
 '     recorded so it reads as a decision rather than an accident.
 '
 ' proveo-harden is explicitly NOT implicated in the dockerd privilege failures
-' recorded in _spec/_plans/image-size-reduction.puml: it only strips setuid and
+' recorded in _spec/_devops/image-size-reduction.puml: it only strips setuid and
 ' setgid bits and removes nc/netcat/netstat/ss.
 
 component "defs/base/proveo-harden\n""/usr/local/sbin/proveo-harden [paths…]""" as H <<app>>
@@ -75,7 +89,7 @@ node "Callers, in lineage order" as CALL <<host>> {
   component "proveo/base — full ""/"" sweep\nonce, after the apt and curl layers" as C1 <<app>>
   component "base-node · base-node-lsp\nbase-node-browser — ""/usr /opt""" as C2 <<app>>
   component "cecli · claudecode · solidity\n""/usr /opt"" after each install" as C3 <<app>>
-  component "cursor · opencode\nno args — a second full sweep" as C4 <<app>>
+  component "cursor\nno args — a second full sweep\n(codex · opencode: no call since N26)" as C4 <<app>>
 }
 
 component "setuid / setgid bits\n""-perm -4000"" · ""-perm -2000""" as BITS <<error>>
@@ -120,11 +134,11 @@ note bottom of NET
 end note
 
 note bottom of LABEL
-  **The label outlived the pass.**
-  It describes the layer that wrote it, not the
-  image: harnesses install root-owned binaries
-  after their last call, and solidity never calls
-  the script while inheriting the claim.
+  **The label outlived the pass.** It describes
+  the layer that wrote it rather than the
+  finished image: codex and opencode install
+  root-owned agents after their last inherited
+  sweep, yet both images still assert the claim.
 end note
 
 note bottom of CHROME

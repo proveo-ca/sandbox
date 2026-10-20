@@ -21,15 +21,8 @@ import (
 )
 
 // TestBrowserViewportReachesTheAgentsChromium proves the whole chain the
-// browser add-on publishes by driving a real `proveo run claudecode --shell`
-// with the "browser" add-on pre-selected, instead of hand-assembling the
-// three pieces (a `sbx create -p hostPort:9222`, a manually started CDP
-// relay, and a manual `sbx exec ... agent-browser open`) that `proveo run`
-// itself wires up when the add-on is on: the target stays "claudecode" — the
-// add-on, not a separate "claudecode-browser" target, is what swaps in the
-// browser image and starts the relay (internal/run/run.go's
-// `rs.Backend.BrowserImage` lookup keys on `target+"-browser"`, so passing
-// the browser image name directly as the target would bypass that wiring).
+// browser add-on publishes by driving a real `proveo run claudecode` through
+// its kit with the "browser" add-on pre-selected.
 func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
@@ -43,29 +36,32 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	seedBrowserAddon(t, home, target)
 
 	work := t.TempDir()
+	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-viewport-%d", time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 
 	cmd := []string{"env", "PROVEO_HOME=" + home,
-		proveoBin, "run", target, "--input", work, "--shell"}
+		proveoBin, "run", target, "--input", work}
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
 	acceptChoicePrompt(t, sess, target)
 
 	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 3*time.Minute)
-	w := newWatcher(t, sess)
-	waitForContainerShell(t, w, timeout)
+	k := awaitKit(t, sess, before, target, work)
 
-	url := viewportURL(w.Screen())
+	screen, _ := sess.CaptureAll()
+	url := viewportURL(screen)
 	if url == "" {
 		t.Fatalf("no browser viewport line printed by the run — the add-on did not "+
-			"start the relay:\n%s", w.Screen())
+			"start the relay:\n%s", screen)
 	}
 
 	// The AGENT's browser, opened by the agent's own tool rather than by a
 	// hand-rolled Chromium — so what the host attaches to is what the agent uses.
-	shellExec(t, sess, "agent-browser open about:blank >/tmp/ab.log 2>&1 & sleep 1", 20*time.Second)
+	if out, status := k.exec("command -v agent-browser >/dev/null && { nohup agent-browser open about:blank >/tmp/ab.log 2>&1 & sleep 1; }", 20*time.Second); status != 0 {
+		t.Fatalf("agent-browser did not start in the sandbox (exit %d):\n%s", status, out)
+	}
 
 	listURL := url + "/json/list"
 	deadline := time.Now().Add(timeout)
@@ -79,7 +75,8 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 		}
 		time.Sleep(3 * time.Second)
 	}
-	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q", listURL, last)
+	abLog, _, _ := k.try("cat /tmp/ab.log", 20*time.Second)
+	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q\nagent-browser:\n%s", listURL, last, abLog)
 }
 
 // viewportLineRE matches StartCDPViewport's own announcement
@@ -118,7 +115,6 @@ func seedBrowserAddon(t *testing.T, proveoHome, target string) {
 	}
 	st := &agentsettings.Store{}
 	st.Remember(target, caps, agentsettings.Choice{
-		Egress:      "allowlist",
 		Credentials: "broker",
 		Addons:      []string{"browser"},
 	})

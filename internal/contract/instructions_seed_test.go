@@ -92,31 +92,27 @@ func TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls(t *testing.T) {
 			t.Errorf("%s runs after proveo_release_agent — the agent would start without it", before)
 		}
 	}
-	for _, after := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain", "proveo_wire_config"} {
-		if at(after, release) < release {
-			t.Errorf("%s must run after the release: installs are what the agent must not wait on", after)
+	at(`_proveo_seed_provision "$target"`, release)
+	for _, install := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain"} {
+		if strings.Contains(body[:release], install) {
+			t.Errorf("%s runs before the release: installs are what the agent must not wait on", install)
 		}
+	}
+	prov := provisionBody(t, src)
+	last := -1
+	for _, step := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain", "proveo_wire_config"} {
+		i := strings.Index(prov, step)
+		if i <= last {
+			t.Errorf("_proveo_seed_provision lost the restore → provision → wire order at %s", step)
+		}
+		last = i
 	}
 	wrapper := readRepoFile(t, "packages/lib/proveo-seed")
 	if !strings.Contains(wrapper, "proveo_seed \"$@\" || rc=$?\n[[ -e \"$PROVEO_INSTRUCTIONS_MARKER\" ]] || proveo_release_agent") {
 		t.Error("proveo-seed must release the agent even when proveo_seed fails, or the agent waits out the full limit")
 	}
-	if !strings.Contains(wrapper, "--check-prepared") {
-		t.Error("opencode seed must check prepared state without bulk sanitization or a full preflight lease")
-	}
-	if strings.Contains(wrapper, "exec /usr/local/bin/proveo-opencode-preflight /usr/local/bin/proveo-seed") {
-		t.Error("opencode seed must not exec the full preflight wrapper — that lease races the concurrent agent (exit 75)")
-	}
-	runtime := readRepoFile(t, "packages/lib/proveo-opencode-runtime")
-	for _, needle := range []string{
-		"PROVEO_INSTRUCTIONS_MARKER",
-		"PROVEO_OPENCODE_LEASE_WAIT",
-		"waiting for this boot's OpenCode seed",
-		"this boot's OpenCode seed still holds the durable database",
-	} {
-		if !strings.Contains(runtime, needle) {
-			t.Errorf("a launch during an unreleased seed must wait out the lifecycle lease, missing %q", needle)
-		}
+	if strings.Contains(wrapper, "proveo-opencode-runtime") {
+		t.Error("the seed must not gate the release on OpenCode history; the engine owns its database")
 	}
 }
 
@@ -129,7 +125,7 @@ func TestAwaitSeedGatesOnlyProveoLaunchedSbxSessions(t *testing.T) {
 	await := filepath.Join(repoRoot(t), "packages", "lib", "proveo-await-seed")
 	run := func(vmID, workdir, marker, wait string) (string, time.Duration) {
 		cmd := exec.Command(sh, await, "echo", "LAUNCHED")
-		cmd.Env = append(cmd.Environ(), "SANDBOX_VM_ID="+vmID, "PROVEO_WORKDIR="+workdir,
+		cmd.Env = append(outsideSbx(cmd.Environ()), "SANDBOX_VM_ID="+vmID, "PROVEO_WORKDIR="+workdir,
 			"PROVEO_INSTRUCTIONS_MARKER="+marker, "PROVEO_INSTRUCTIONS_WAIT="+wait)
 		start := time.Now()
 		out, _ := cmd.CombinedOutput()
@@ -160,7 +156,7 @@ func TestAwaitSeedGatesOnlyProveoLaunchedSbxSessions(t *testing.T) {
 	}
 }
 
-func TestAwaitSeedIgnoresAStalePreflightNote(t *testing.T) {
+func TestAwaitSeedStopsOnlyOnASeedRefusal(t *testing.T) {
 	t.Parallel()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -183,9 +179,8 @@ func TestAwaitSeedIgnoresAStalePreflightNote(t *testing.T) {
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
-	if out, err := launch("OpenCode credential preflight refused release\n"); err != nil || !strings.Contains(out, "LAUNCHED") ||
-		strings.Contains(out, "did not release") {
-		t.Fatalf("a preflight note left by the previous agent must not block the next launch: %v\n%s", err, out)
+	if out, err := launch(""); err != nil || !strings.Contains(out, "LAUNCHED") || strings.Contains(out, "did not release") {
+		t.Fatalf("an empty refusal file must not block the launch: %v\n%s", err, out)
 	}
 	if out, err := launch("shares: the workspace mount is missing\n"); err == nil || !strings.Contains(out, "did not release") {
 		t.Fatalf("a seed refusal must still stop the launch: %v\n%s", err, out)
@@ -301,6 +296,7 @@ func TestEverySeedSurvivesAnUnsetHarnessHome(t *testing.T) {
 			script := `set -euo pipefail
 source "$1/packages/lib/entrypoint-lib.sh"
 export HOME="$2" PROVEO_WORKDIR="$3" PROVEO_INSTRUCTIONS_MARKER="$2/released" PROVEO_RELEASE_SNAPSHOT="$2/snap" PROVEO_HOOKS_MARKER="$2/hooks" PATH="$5:$PATH"
+export PROVEO_OPENCODE_DEFAULTS_DIR="$1/defs/opencode/defaults"
 unset CODEX_HOME CECLI_HOME CURSOR_CONFIG_DIR PROVEO_HOME
 proveo_provision_toolchain() { :; }
 proveo_sync_tools() { :; }

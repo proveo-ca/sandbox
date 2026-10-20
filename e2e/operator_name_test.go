@@ -32,8 +32,8 @@ func TestOperatorNameReachesTheHouseRules(t *testing.T) {
 			if _, err := operator.Save(home, "Roberto von Schoettler"); err != nil {
 				t.Fatal(err)
 			}
-			sess := launchShellEnv(t, proveoBin, target, t.TempDir(), []string{"PROVEO_HOME=" + home})
-			out, status := shellExec(t, sess, `grep -h 'Address me as' `+rules[target], 60*time.Second)
+			k := launchKit(t, proveoBin, target, t.TempDir(), []string{"PROVEO_HOME=" + home})
+			out, status := k.exec(`grep -h 'Address me as' `+rules[target], 60*time.Second)
 			if status != 0 || !strings.Contains(out, `Address me as "Roberto von Scho"`) {
 				t.Fatalf("%s house rules do not address the stored name (status %d):\n%s", target, status, out)
 			}

@@ -47,11 +47,6 @@ func IsBuiltinService(name string) bool {
 
 // SecretSetCustomArgs stores a credential for a service sbx does not know,
 // naming the hosts to match and the variable the sandbox sees.
-//
-// The VALUE is never an argument. `--value` and `--token` both exist and both
-// say "less secure: visible in shell history"; argv is also visible to anyone
-// running ps, and the suite asserts no provider key appears there. The value
-// goes on stdin, the way SecretSetArgs already passes one.
 func SecretSetCustomArgs(hosts []string, envVar string) []string {
 	args := []string{"secret", "set-custom"}
 	for _, h := range hosts {
@@ -62,11 +57,6 @@ func SecretSetCustomArgs(hosts []string, envVar string) []string {
 
 // CustomSecretPlaceholder finds the placeholder of the custom secret already
 // bound to envVar, if there is one.
-//
-// `sbx secret set-custom` has no --force and REFUSES a variable it already
-// holds ("custom secret env … already exists in scope"), so a second run of the
-// same def died before its shell until the old entry was removed first. The
-// placeholder is the only handle `sbx secret rm` takes for a custom secret.
 func CustomSecretPlaceholder(envVar string) string {
 	out, err := sh.SecretList()
 	if err != nil {

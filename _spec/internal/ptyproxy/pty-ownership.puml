@@ -6,10 +6,13 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/overlaytty.go
 ' covers: internal/ptyproxy/drain_test.go
 ' covers: internal/ptyproxy/ptyproxy_test.go
+' covers: internal/ptyproxy/overlaytty_test.go
 ' covers: e2e/close_confirm_test.go
 ' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
 ' covers: internal/run/helpers.go
-' covers: internal/backend/dockeregress/dockeregress.go (ExecAgentWithProxy)
+'   (internal/backend/dockeregress ExecAgentWithProxy was the second caller;
+'   deleted 2026-10-16 with the docker backend. "internal/ptyproxy stays: every
+'   interactive sbx run uses it" — the Executor's retirement kept it.)
 '   what the input pump then FILTERS . _spec/internal/ptyproxy/terminal-report-filter.puml
 '   what the output pump records ..... _spec/internal/runlog/run-transcript.puml
 '   the modal this hands its screen to _spec/internal/choiceui/choice-prompt-render.puml
@@ -51,6 +54,47 @@ skinparam noteTextAlignment left
 ' the pane (`PROVEO_SCHEDULE=1`), not "is this a terminal". Schedule's own
 ' stop still types C-c, then /exit, then SIGTERM.
 '
+' THE CTRL+C REMOVE PATH IS UNCHANGED BY THE 2026-10-17 STOP DECISIONS. A
+' forwarded SIGTERM/SIGHUP now tears down like a normal exit (the user: "Stop
+' runs normal teardown") and exits 128+signal (the user: "Exit 128+sig,
+' 'stopped' (Recommended)"); see _spec/internal/sbx/kit-lifecycle.puml. The
+' Ctrl+C "remove" answer cancels the run from inside proveo, so signalled() is
+' 0 and stopOutcome leaves it alone (forced); a SIGTERM after the operator chose
+' remove is also left alone. Its error stands, so proveo still exits with the
+' client's status. Teardown lifts clone and state, then runs `sbx rm --force` on
+' every harness, an OpenCode engine included — even when the clone could not
+' be carried home, because the modal already said "Uncommitted changes can be
+' permanently lost" (MEASURED: sandbox.go normalEndOf returns endRemove when
+' forced; teardown_end_test.go pins both stopOutcome and normalEndOf).
+' Residual, pre-existing (reported): this path returns the raw runErr, so it
+' can print "context canceled" and exit 1, or "agent exited with code -1" and
+' exit 255 when WaitDelay SIGKILLs the sbx client.
+'
+' ── n HANDS THE TERMINAL BACK AT ONCE ──────────────────────────────────────
+' FIXED 2026-10-20. e2e TestHeadedCtrlCAsksBeforeRemoving failed with "n did
+' not return to the session": the modal stayed drawn after n. tcell's Fini
+' runs disengage, which closes stopQ, calls tty.Drain, then waits for its
+' input loop. That loop sat in OverlayTty.Read, blocked on the hand-off
+' channel, and OverlayTty.Drain was a no-op. Fini hung until the NEXT key
+' arrived, and tcell swallowed that key. tcell's own devTty.Drain sets a read
+' deadline for the same reason.
+'
+' Drain now halts the chanReader. A pending Read wakes with io.EOF, and every
+' Read fails until OverlayTty.Start re-arms it, so Suspend/Resume and the next
+' overlay read again. io.EOF beats (0, nil): disengage clears `running` before
+' Drain, so the loop exits without posting an EventError, and an io.Reader
+' handed to a plain draw func never spins.
+'
+' Overlay then hands back every byte no Read consumed: the halted reader's
+' buffer, then the channel, written to the master in arrival order. Proxy.inMu
+' makes that hand-back atomic with the pump's next delivery. A key typed
+' during Fini is neither dropped with the channel nor overtaken by a newer one.
+' Residual [Inference, not measured]: a key landing after the modal decides
+' but before Fini calls Drain is still read by tcell and dropped. The window is
+' the gap between PollEvent returning and Fini starting.
+' Pinned by internal/ptyproxy/overlaytty_test.go: Fini with no input, n then a
+' key reaching the child, three reopen rounds, and the unread hand-back.
+'
 ' ── THE DRAIN BUG IS THE REASON `Run` HAS A WAITGROUP AT ALL ───────────────
 ' FIXED 2026-09-09. `pty.Start` returns with the child ALREADY RUNNING, and the
 ' output pump was started two statements later. A child that writes one line and
@@ -66,6 +110,17 @@ skinparam noteTextAlignment left
 ' is nil'd by the same defer that closes it and a pump scheduled late used to
 ' fetch the nil and copy nothing.
 '
+' THE TEST READS AFTER `Run` RETURNS, ON PURPOSE. That turns a timing window
+' into a contract: nothing in drain_test.go waits or polls, so the bytes can be
+' in the pipe only if `Run` refused to return before the out pump copied them.
+' It REPEATS, because the defect was a race and one pass only flips a coin.
+' MEASURED against the unfixed code: a few percent of attempts lost the output,
+' so one attempt passed far more often than it caught anything. The package's
+' other two PTY tests ran one attempt each and failed about three runs in five,
+' which read as flake rather than as this bug. 500 attempts caught it 6 times
+' out of 6, always inside the first 40, so the loop is a fail-fast ceiling and
+' not half a second of work.
+'
 title The PTY proxy — one reader of the real terminal, and how its pumps end
 
 actor "Operator" as OP
@@ -78,7 +133,7 @@ node "proveo — internal/ptyproxy" as PX <<host>> {
 }
 
 node "agent process" as CH <<host>> {
-  component "PTY slave is its tty\n(sbx agent · docker agent · --shell)" as CHILD <<app>>
+  component "PTY slave is its tty\n(the sbx client running the agent;\ndocker agent and --shell retired)" as CHILD <<app>>
 }
 
 component "a SECOND reader\n""tcell.NewScreen"" · a bare prompt" as SECOND <<error>>
@@ -108,6 +163,13 @@ note bottom of OVER
   and writes the operator's terminal, which makes
   a full-screen prompt the exclusive consumer
   without a second reader ever existing.
+end note
+
+note right of OVER
+  **Drain halts the hand-off reader.** Fini waits
+  for tcell's input loop, parked in Read, so a
+  no-op Drain hung it until the next key. Bytes no
+  Read took go back to the child, in order.
 end note
 
 note bottom of SECOND

@@ -2,10 +2,19 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: the fixed status vocabulary proveo prints — six roles, three severities, one measured writer
 ' covers: internal/ui/**
+' covers: e2e/stream_palette_test.go (whiteRun, proveoLines, TestWhiteRunSkipsSbxsOwnLines)
 '   the language this obeys ....... _spec/_conventions/tui-design-language.puml
 '   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
 '   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
 '   the glyph tier's other consumer  _spec/internal/posture/one-value-two-renderings.puml
+'   the strip grammar .............. _spec/internal/agentio/agent-terminal-io.puml (termtext)
+'
+' N5 (DONE (wt) 2026-10-17): the tee's stripper is termtext.StripANSI
+' (internal/ui/ui.go:262), shared with agentio's tail and the e2e readers;
+' ui's own stripANSI is deleted. It skipped from ESC to the next 'm', so a
+' non-SGR sequence cost the log the text up to the next 'm' —
+' "\x1b[2Khello mom" logged as "om" (measured by the coordinator before the
+' fix). TestTheRunLogKeepsTextAfterANonSGRSequence pins the repair.
 '
 ' ── WHAT CHANGED, AND WHY THE OLD NOTES HERE WERE WRONG ────────────────────
 ' This file used to describe five verbs and defend the emoji as deliberate:
@@ -32,9 +41,10 @@
 ' on the SAME line — "› " brand + bold text (ascii "> "), plain the bare text.
 ' A pull's live progress line only redraws on a TTY; plain gets start + end.
 ' DELIBERATELY PLAIN, because something copies or parses them: `version`
-' (compared against HEAD), the hidden `targets` (tab-separated), `run --print`
-' and `build --print` plans (copy-pasteable commands), the schedule tick's
-' launchd log, transcripts/traces, and in-container markers (PROVEO_SMOKE_READY).
+' (compared against HEAD), `run --print` and `build --print` plans
+' (copy-pasteable commands), the schedule tick's launchd log, transcripts/traces,
+' and in-container markers (PROVEO_SMOKE_READY). The hidden `targets` TSV was on
+' this list until N9 deleted the command (2026-10-18).
 '
 ' ── THE VERB SET IS NOW TWO AXES, NOT ONE LIST ─────────────────────────────
 ' Severity — is this fine, worth attention, or broken — and role — which layer
@@ -62,6 +72,26 @@
 ' the terminal wrap them at column zero.
 ' Verified by e2e/stream_palette_test.go: one real run in tmux asserting the
 ' grey, rule and bold-failure SGRs and ≤ 2 consecutive default-colour lines.
+'
+' ── WHICH SCREEN LINES ARE PROVEO'S (2026-10-20) ───────────────────────────
+' MEASURED: the newer sbx prints its own uncoloured lines into the same pane —
+' a `── RESOLVE SETUP` block, `⚠ WARNING: template … built for the "shell"
+' agent`, `warning: passing a sandbox kit through --kit is deprecated` — and
+' the entrypoint banner follows. whiteRun skipped only `agent:` lines, so it
+' counted all of those as proveo's and the ≤ 2 guard failed on sbx's text.
+' proveoLines now keeps only stretches the Printer wrote. A stretch OPENS at
+' the top of the screen and at every section heading
+' (`^\s*[─-]{6} <lowercase label> [─-]+$`; sbx's `── RESOLVE SETUP` has two
+' rules and an upper-case label). It CLOSES at the first non-blank line that
+' does not open with a Printer mark or the text-column indent
+' ("  ", "● ", "✓ ", "⚠ ", "× ", "› " on the nerd tier the test runs at).
+' So the prelude counts up to sbx's first line, the results heading reopens
+' the stream after the agent, and PROVEO_EXIT closes it. Raw sbx output
+' inside the prelude (`sbx template load`, written straight to stderr) also
+' closes it until proveo's next heading.
+' Pinned without sbx by TestWhiteRunSkipsSbxsOwnLines (same file): sbx lines
+' count 0, three default-colour proveo lines still count 3 in the prelude, in
+' results, and after a heading that follows template-load output.
 
 title Output vocabulary — six roles, three severities, fifteen sections, one measured writer
 
@@ -76,7 +106,7 @@ component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
 component "termWidth(w)\nioctl, else 100" as WIDTH <<host>>
 component "GlyphTier\nPROVEO_GLYPHS\nNerd · ASCII · Off" as TIER <<host>>
-component "stripANSI" as STRIP <<app>>
+component "termtext.StripANSI" as STRIP <<app>>
 component "Default → os.Stderr" as DEF <<app>>
 component "TeeTo(w)\nrun log" as TEE <<app>>
 

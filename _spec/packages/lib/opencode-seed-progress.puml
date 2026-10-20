@@ -5,17 +5,21 @@
 ' covers: packages/lib/proveo-await-seed
 ' covers: packages/lib/proveo-seed
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: packages/lib/proveo-opencode-preflight
-' covers: packages/lib/proveo-opencode-runtime
-' covers: packages/lib/opencode_startup.py
 ' covers: packages/lib/test_opencode_startup.py
-' covers: packages/lib/test_opencode_runtime.py
 ' covers: internal/contract/opencode_seed_progress_test.go
 ' covers: e2e/opencode_seed_progress_test.go
+' (2026-10-17: the covers on packages/lib/test_opencode_runtime.py is dropped. Its RuntimeTests
+' class is deleted — the user: "Delete RuntimeTests only (Recommended)" — and what remains,
+' NativeCommandAutoTests, tests --auto injection, which this spec does not describe.)
+' (2026-10-17, D2 DONE (wt): the covers on proveo-opencode-preflight, proveo-opencode-runtime and
+' opencode_startup.py are dropped. D2 deleted the preflight and opencode_startup.py (MEASURED
+' absent) and made the runtime a thin argv wrapper that draws no progress; proveo-await-seed is
+' the one waiting consumer. test_opencode_startup.py remains, trimmed to the await-seed tests.)
 ' Surface: _spec/packages/lib/opencode-seed-progress-wireframe.puml
 ' Existing release semantics: _spec/packages/lib/seed-and-launch.puml
 ' Credential policy proposal: _spec/_paradigms/opencode-oauth-persistence.puml
-' Five-second storage redesign: _spec/_plans/opencode-versioned-history-storage.puml
+' History decision that replaces the five-second storage redesign:
+'   _spec/defs/opencode/engine-local-history.puml
 '
 ' SHIPPED: only the OpenCode image enables PROVEO_SEED_PROGRESS=1 by default.
 ' Other harnesses retain their current silent wait unless separately configured.
@@ -31,12 +35,15 @@
 ' All progress goes to stderr so --cwd and native JSON/stdout remain machine-readable.
 ' Clear the transient row before native exec, timeout, refusal, or shell termination.
 ' Do not hide the cursor or start an orphanable spinner subprocess.
-' Shell and Python waits retain their existing release markers, deadlines and refusal checks.
-' OpenCode runtime --sanitize/--recover must never wait for the marker they help release.
-' The ordinary OpenCode lifecycle wait keeps displaying producer updates after the shell's 30s timeout.
-' The preflight completion wait reads the same status while post-release toolchain setup continues.
+' The shell wait retains its release marker, deadline and share-refusal check.
+' HISTORY (keeper design, deleted by D2): the runtime's --sanitize/--recover were not to wait for
+' the marker they helped release; the Python lifecycle wait kept drawing producer updates after the
+' shell's 30s timeout; and the preflight completion wait read the same status while post-release
+' toolchain setup continued. Under D2 the seed does no history work, so none of those waits exist.
 ' Instruction release remains before toolchain installation; progress does not delay native launch.
 '
+' HISTORY — the baseline that motivated the redesign (the keeper design it measured is deleted by
+' D2; the store sizes stay useful for the one-time import's cost):
 ' OBSERVED original boot 2026-10-09: dispatcher start 17:27:32Z; instruction marker birth 17:29:00Z.
 ' That is approximately 88s to the first release; seed-done marker birth was 17:29:25Z.
 ' The original wait emitted no output for its initial 30s; the old runtime emitted one generic wait line.
@@ -64,19 +71,15 @@
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title OpenCode seed progress — categorized status, unchanged launch gates
+title OpenCode seed progress — categorized status; no history gate (D2)
 
 participant "proveo-seed" as SEED <<app>>
-participant "proveo-opencode-runtime\n--check-prepared" as GATE <<app>>
 participant "entrypoint-lib.sh\nproveo_seed" as LIB <<app>>
 database "proveo-seed-status\natomic category/detail" as STATUS <<db>>
-participant "await-seed / runtime / preflight\nwaiting consumer" as WAIT <<app>>
+participant "proveo-await-seed\nwaiting consumer" as WAIT <<app>>
 actor "Executor\nterminal or captured stderr" as OP
 
 SEED -> STATUS : starting: preparing OpenCode seed
-SEED -> STATUS : credentials: checking prepared V2 history
-SEED -> GATE : bounded metadata/owner validation; no bulk sanitization
-GATE -> SEED : prepared or explicit maintenance required
 WAIT -> STATUS : read current category/detail
 WAIT -> OP : Waiting for seed + step + elapsed + spinner
 SEED -> LIB : seed configuration

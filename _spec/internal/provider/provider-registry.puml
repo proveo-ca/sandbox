@@ -7,7 +7,7 @@
 title Provider registry — one entry, four obligations, three invariants
 
 node "internal/provider" as PKG <<host>> {
-  component "registry entry\nName · Detect · ACL · Hosts · Auth" as ENTRY <<app>>
+  component "registry entry\nName · Detect · Hosts · Auth\n(ACL deleted 2026-10-16)" as ENTRY <<app>>
   component "bareIDPrefixes\nmodel id → provider" as BARE <<app>>
   component "ambiguousBareIDs\nopen-weights: refuse to pin" as AMBIG <<app>>
   component "providerAliases\nupstream id → registry entry\n(opencode-go → opencode)" as ALIAS <<app>>
@@ -15,8 +15,8 @@ node "internal/provider" as PKG <<host>> {
 
 folder "The four places a provider must exist" as FOUR <<host>> {
   component "1. detection\nprovider.Detect(lookup)" as P1 <<app>>
-  component "2. reach\nSquid provider-allow.conf" as P2 <<app>>
-  component "3. pin\nModelProvider → broker" as P3 <<app>>
+  component "2. reach\nsbx DomainPatterns(Hosts)\n(was Squid provider-allow.conf)" as P2 <<app>>
+  component "3. pin\nModelProvider → sbx store name\n(was → proveo broker)" as P3 <<app>>
   component "4. harness\ncapabilities.providers" as P4 <<app>>
 }
 
@@ -69,11 +69,12 @@ end note
 
 note right of ENTRY
   **A gap in any one of the four is silent.** The operator sets a key,
-  nothing errors, and the agent receives the ""proveo-brokered"" sentinel —
-  the provider then answers 401/403, which reads as a bad key rather
-  than a proveo decision. That was the live failure that started this:
-  a harness holding five keys could not pin, so every run got a
-  sentinel.
+  nothing errors, and the agent receives a placeholder — the provider
+  then answers 401/403, which reads as a bad key rather than a proveo
+  decision. That was the live failure that started this: a harness
+  holding five keys could not pin, so every run got proveo's
+  ""proveo-brokered"" sentinel. (That docker broker and its sentinel were
+  deleted 2026-10-16; on sbx the same gap leaves sbx's placeholder unreplaced.)
 
   Two invariants are enforced by test, not by care:
   * every ""bareIDPrefixes"" entry resolves to a REGISTERED provider
@@ -108,12 +109,13 @@ note bottom of BARE
 end note
 
 note bottom of P2
-  **Reach is not the pin.** The broker pins ONE provider because it
-  injects one credential; the allowlist covers EVERY detected provider,
-  because a session may switch model mid-run and narrowing reach to the
-  injected provider would block it. This is a deliberate widening of
-  egress surface for non-vendor-locked harnesses, accepted for that
-  reason. Only a manifest ""provider:"" lock keeps the narrow allowlist.
+  **Reach is not the pin.** HISTORY (docker broker + Squid, deleted
+  2026-10-16): the broker pinned ONE provider because it injected one
+  credential, while the Squid allowlist covered EVERY detected provider,
+  because a session may switch model mid-run. On sbx proveo writes no
+  provider reach into the Kit; the detected providers' Hosts feed only the
+  ""sbx policy allow network"" hint (sandbox.ReachHosts) and own-agent
+  credential domains (_spec/internal/sbx/policy-baseline\.puml).
 end note
 
 note bottom of DOCS
@@ -150,9 +152,17 @@ end note
 
 note bottom of ENTRY
   **Detectability and broker-injectability are different properties.**
-  Signed-request providers — Bedrock, Azure, Vertex — are detected and get
-  a Squid write-pin ACL, but they have no static auth header to inject, so
-  the broker cannot serve them. Resolution reports "not ok" for those
+  Signed-request providers — Bedrock, Azure, Vertex — are detected, but they
+  have no static auth header to inject, so no proxy can broker them; they
+  forward. Since 2026-10-16 ""Entry.ACL"" and ""ACLBody"" are DELETED and
+  ""Hosts"" is the one domain fact (MEASURED): azure carries
+  "".inference.ai.azure.com"", "".services.ai.azure.com"", "".openai.azure.com""
+  and "".cognitiveservices.azure.com"" as Hosts; bedrock and vertex carry
+  Detect only, and ""consistency_test"" requires Hosts for every provider but
+  those two. HISTORY, the only domain facts they ever held (their Squid ACLs):
+  bedrock ""(^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$"", vertex
+  ""(^|\.)([a-z0-9-]+-)?aiplatform\.googleapis\.com$"" — regional hosts no
+  exact-or-wildcard sbx pattern expresses. Resolution reports "not ok" for those
   rather than pretending, and a provider that accepts more than one
   credential (anthropic: an API key **or** a subscription OAuth token) is
   resolved against an explicit choice instead of a first-match guess.

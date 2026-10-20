@@ -9,6 +9,21 @@ skinparam noteTextAlignment left
 ' Sibling experiments: sbx-kit-capabilities.puml (E1 adopted, E2 folded in)
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
+' ── OUTCOME 2026-10-17: E3 ADOPTED IN ITS `sbx exec` FORM; RECORD BELOW ─────
+' The user retired proveo's `--shell` ("is that `proveo` or `sbx`? if `proveo`
+' retire it") and the e2e was converted ("Convert all now"). MEASURED: every
+' probe now launches the harness through its kit and runs `bash -c` through
+' `sbx exec` beside it (e2e/kit_probe_test.go: launchKit, awaitKit,
+' kitRun.exec). sbxShellHoldsInADetachedPane and both skips it gated are
+' deleted. Everything below is the record of how that was weighed; every
+' `proveo run --shell` in it names a flag that no longer exists.
+' Claim 2 changed shape with the clone default. On the clone plan nothing the
+' agent writes reaches the host until teardown, so the probe asserts that the
+' tree the agent stands in IS this workspace: the same commit, served by the
+' run's own git daemon. Only a live bind can be asserted by a file arriving
+' host-side, so the probe waits for one only when the run reports no
+' "private clone".
+'
 ' ── UPDATE 2026-09-10: THE SKIP HAS SPREAD, SO E3 GOT MORE EXPENSIVE ───────
 ' Re-measured, because an experiment nobody references is an experiment nobody
 ' re-costs. `sbxShellHoldsInADetachedPane` is now consulted from TWO files, not

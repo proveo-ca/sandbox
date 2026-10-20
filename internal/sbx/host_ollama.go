@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -27,6 +28,25 @@ const (
 	EnvLocalModelForce   = "PROVEO_LOCAL_MODEL_FORCE"
 	EnvLocalModelPull    = "PROVEO_LOCAL_MODEL_PULL"
 )
+
+// LocalModelEnv points every harness dialect at model on the host's Ollama, as the sandbox reaches it.
+func LocalModelEnv(model string) []string {
+	base := HostOllamaGuestBase
+	return []string{
+		"PROVEO_LOCAL_MODEL=" + model,
+		"OLLAMA_HOST=" + base, "OLLAMA_API_BASE=" + base,
+		"OPENAI_BASE_URL=" + base + "/v1", "OPENAI_API_BASE=" + base + "/v1",
+		"OPENAI_API_KEY=ollama",
+		"ARCHITECT_MODEL=ollama/" + model, "EDITOR_MODEL=ollama/" + model,
+		"SMALL_MODEL=ollama/" + model,
+		"ANTHROPIC_BASE_URL=" + base, "ANTHROPIC_AUTH_TOKEN=ollama",
+		"ANTHROPIC_API_KEY=",
+		"ANTHROPIC_MODEL=" + model, "ANTHROPIC_SMALL_FAST_MODEL=" + model,
+		"CLAUDE_CODE_EFFORT_LEVEL=low", "CLAUDE_CODE_DISABLE_THINKING=1",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		"API_TIMEOUT_MS=1200000", "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS=1200000",
+	}
+}
 
 var (
 	hostOllamaURL   = "http://127.0.0.1:11434"
@@ -100,7 +120,7 @@ func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) e
 		if near := sameRepo(tags, model); len(near) > 0 {
 			hint = "; installed: " + strings.Join(near, ", ")
 		}
-		if off(getenv(EnvLocalModelPull)) {
+		if envflag.Off(getenv(EnvLocalModelPull)) {
 			return fmt.Errorf("the host's Ollama has no %q — `ollama pull %s`%s", model, model, hint)
 		}
 		if p == nil {
@@ -130,14 +150,6 @@ func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) e
 		}
 	}
 	return checkFit(m, getenv)
-}
-
-func off(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "0", "false", "no", "off":
-		return true
-	}
-	return false
 }
 
 // libraryRef splits an Ollama library tag into repo and tag; ok is false for other registries.
@@ -262,7 +274,7 @@ func checkFit(m ollamaModel, getenv func(string) string) error {
 	if !known || need <= avail {
 		return nil
 	}
-	if v := strings.ToLower(strings.TrimSpace(getenv(EnvLocalModelForce))); v == "1" || v == "true" {
+	if envflag.On(getenv(EnvLocalModelForce)) {
 		return nil
 	}
 	return fmt.Errorf("%s needs ~%.1f GiB (%.1f GiB weights + cache headroom) and the host has %.1f GiB available — "+

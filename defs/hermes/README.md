@@ -18,8 +18,8 @@ single-process launch every other def here uses.
 
 ## Local models
 
-`PROVEO_LOCAL_MODEL` wires Hermes at an Ollama sidecar the same way `opencode`'s `--local-model`
-does (`internal/egress/plan.go`). `entrypoint.sh` writes hermes's own `config.yaml`
+`PROVEO_LOCAL_MODEL` wires Hermes at the host's Ollama the same way `opencode`'s `--local-model`
+does (`internal/sbx/host_ollama.go`). `entrypoint.sh` writes hermes's own `config.yaml`
 (`model.provider custom`, `model.base_url <OLLAMA_API_BASE>/v1`, `model.default <tag>`) — hermes
 ignores `OPENAI_BASE_URL`/`HERMES_MODEL` for this. Muse Glimmer and Qwen
 3.8 are both published on the Ollama library. Docker Model Runner is intentionally not wired in —

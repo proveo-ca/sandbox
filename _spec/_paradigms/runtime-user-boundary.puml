@@ -6,7 +6,6 @@ title Runtime user boundary — never root, any host uid
 '          root; and why /home/agent is the REAL home while the harness name is
 '          only an alias, plus the two build-time mistakes that reversal invites
 ' covers: packages/lib/entrypoint-lib.sh
-' covers: internal/runner/**
 ' covers: internal/contract/home_symlink_test.go
 ' covers: defs/cecli/Dockerfile
 ' covers: defs/cursor/Dockerfile
@@ -14,7 +13,27 @@ title Runtime user boundary — never root, any host uid
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/imagetest/claudecode_test.go (ccWorkspace)
 '
-' ── WHAT ensure_runtime_user ACTUALLY DOES, IN TWO STEPS ────────────────────
+' ── 2026-10-16: THE HOST-UID LAUNCH IS GONE ────────────────────────────────
+' The `docker run --user $(id -u):$(id -g) --cap-drop=ALL
+' --security-opt=no-new-privileges --pids-limit` argv came from
+' internal/runner DockerRunArgs/Hardening and the docker+egress backend; both
+' are DELETED, and internal/runner now holds only `type Mount` (MEASURED).
+' On sbx, the only backend, the agent runs as the image's own user (uid 1000)
+' inside the VM (_spec/internal/sbx/sandbox-backend.puml). The runtime-user step
+' stays: it still guards any uid the image has no passwd entry for. The
+' "any host uid" half of the title is HISTORY.
+'
+' ── 2026-10-17, N24 (DONE (wt)): ONE IMPLEMENTATION, IN Go, IN EVERY IMAGE ──
+' The shell ensure_runtime_user is DELETED from entrypoint-lib.sh; the step is
+' entrypoint.EnsureRuntimeUser, run by `proveo-entrypoint prep` in every def.
+' hermes, FROM nousresearch/hermes-agent, had no proveo-entrypoint and called
+' the shell twin — the user chose "Ship prep into hermes (Recommended)", so its
+' Dockerfile builds the binary in a stage of its own. The lib's TOP-LEVEL HOME
+' guard (entrypoint-lib.sh:4-6) stays — see the note on source-time HOME below.
+' TestPrepIsTheOnlyRuntimeUserAndGitContextStep (contract_test.go:104).
+' Read "ensure_runtime_user" below as EnsureRuntimeUser.
+'
+' ── WHAT THE RUNTIME-USER STEP ACTUALLY DOES, IN TWO STEPS ──────────────────
 ' 1. SYNTHESIZE A PASSWD ENTRY, so getpwuid-based tooling does not choke on
 '    "I have no name!". The line appended is
 '    `agent:x:<uid>:<gid>:agent:<HOME>:/bin/bash`, and only when
@@ -48,7 +67,9 @@ title Runtime user boundary — never root, any host uid
 ' is the alias. /home/${USER_NAME} stays as a symlink because image healthchecks
 ' and def tests read paths through it, and nothing ever mounts there. All four
 ' harnesses do this; cecli and opencode joined cursor and claudecode because
-' `docker: sbx` is now the only backend that hands them a daemon.
+' sbx is now the only backend that hands them a daemon. (The `docker: sbx`
+' manifest key that once said so is deleted with F10, 2026-10-17; `daemon:
+' false` is the one knob — _spec/internal/manifest/harness-manifest-schema.puml.)
 '
 ' ── THE SECOND MISTAKE THE REVERSAL INVITES: chown THROUGH THE ALIAS ────────
 ' `chown -R` given a SYMLINK as its argument chowns the link and stops — it does
@@ -76,20 +97,20 @@ title Runtime user boundary — never root, any host uid
 actor "Developer\nuid:gid" as DEV
 
 node "Host" as HOST <<host>> {
-  component "cmd/proveo run\ninternal/runner" as RUN <<app>>
+  component "cmd/proveo run\nsbx run (the only backend)" as RUN <<app>>
   database "bind-mounted repo" as REPO <<db>>
 }
 
 node "Agent container" as CTR <<host>> {
   component "image USER (uid 1000)\nbaked non-root default" as IMGUSER <<app>>
-  component "ensure_runtime_user\npasswd entry + writable HOME" as ENSURE <<app>>
+  component "EnsureRuntimeUser (proveo-entrypoint prep)\npasswd entry + writable HOME" as ENSURE <<app>>
   component "agent process" as AGENT <<app>>
   component "/home/agent — the REAL home\n/home/<harness> — an alias symlink" as HOMES <<app>>
   component "root / gosu / privilege drop" as ROOT <<error>>
 }
 
 DEV ARROW_MAIN RUN : proveo run <target>
-RUN ARROW_MAIN CTR : " ""docker run --user $(id -u):$(id -g)"" \n""--cap-drop=ALL --security-opt=no-new-privileges""\n""--pids-limit"" "
+RUN ARROW_MAIN CTR : "sbx run — the image's own non-root user\n(HISTORY: ""docker run --user $(id -u):$(id -g)"" + hardening)"
 IMGUSER ARROW_OPTIONAL AGENT : bare ""docker run"" (no wrapper)\nstill lands non-root
 RUN ARROW_MAIN ENSURE
 ENSURE ARROW_MAIN AGENT
@@ -119,8 +140,9 @@ note bottom of ENSURE
   passwd entry therefore keeps ""HOME=/"", and every later
   ""mkdir \"$HOME/.<tool>\""" fails with the tell-tale ""//.cursor"" double
   slash. Sourcing the guard before the prelude is what makes ~/… seeding
-  work for an arbitrary uid, in every entrypoint rather than just the
-  bash-fallback branch.
+  work for an arbitrary uid, in every entrypoint. (Since N1, 2026-10-17, the
+  bash-fallback branch is gone and the shell prelude runs BEFORE prep —
+  _spec/cmd/proveo-entrypoint/prep-sequence.puml.)
 end note
 
 
@@ -128,9 +150,10 @@ note right of ENSURE
   **The arbitrary-uid problem.** ""--user 501:20"" is a uid
   the image has never heard of: no passwd entry, no home,
   so tools that call ""getpwuid"" or write to ""$HOME"" fail.
-  ""ensure_runtime_user"" (packages/lib/entrypoint-lib.sh)
-  synthesizes an identity and a writable HOME **without
-  root** — one generic helper, identical across harnesses.
+  ""EnsureRuntimeUser"" (internal/entrypoint, run by prep;
+  the shell twin is gone since N24) synthesizes an identity
+  and a writable HOME **without root** — one generic
+  helper, identical across harnesses.
 
   There is no gosu and no in-container privilege drop:
   the process starts unprivileged and stays there.

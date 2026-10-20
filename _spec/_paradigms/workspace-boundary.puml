@@ -14,7 +14,8 @@ skinparam noteTextAlignment left
 ' The mode that dissolves it: _spec/internal/sbx/clone-workspace.puml
 ' The sibling boundaries: credential-boundary.puml, runtime-user-boundary.puml
 '   (same directory). egress-boundary.puml was retired 2026-09-16 with the
-'   docker egress mechanism — _spec/_plans/retire-docker-egress.puml.
+'   docker egress mechanism, which was itself deleted 2026-10-16; egress is
+'   sbx's policy now — _spec/internal/sbx/policy-baseline.puml.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── THE CLASS, STATED ONCE ─────────────────────────────────────────────────

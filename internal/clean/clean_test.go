@@ -138,3 +138,33 @@ func TestBuildPlanToolchainsRemovedWhenNothingRuns(t *testing.T) {
 		t.Errorf("stopped containers must not block a toolchain prune, got %v", p.ToolDirs)
 	}
 }
+
+func TestBuildPlanKeepsTheStateOfALiveSession(t *testing.T) {
+	inv := Inventory{StateDirs: []string{"proveo-1-10", "proveo-2-20"}, LiveSessions: []string{"proveo-1-10"}}
+	p := BuildPlan(inv, Options{})
+	if len(p.StateDirs) != 1 || p.StateDirs[0] != "proveo-2-20" {
+		t.Errorf("state dirs = %v, want only the finished session", p.StateDirs)
+	}
+	if len(p.SkippedLive) != 1 || p.SkippedLive[0] != "state proveo-1-10" {
+		t.Errorf("skipped = %v, want the live session's state", p.SkippedLive)
+	}
+	if forced := BuildPlan(inv, Options{Force: true}); len(forced.StateDirs) != 2 {
+		t.Errorf("--force state dirs = %v, want both", forced.StateDirs)
+	}
+}
+
+func TestBuildPlanSweepsTheRetiredBackendsSquidVolumes(t *testing.T) {
+	t.Parallel()
+	volumes := []string{"proveo-squid-cache-claudecode", "proveo-squid-cache-codex"}
+	idle := BuildPlan(Inventory{Volumes: volumes}, Options{})
+	if got := joined(idle.Volumes); got != "proveo-squid-cache-claudecode,proveo-squid-cache-codex" {
+		t.Errorf("volumes with no retired container running = %q, want both", got)
+	}
+	busy := Inventory{Volumes: volumes, Egress: []Container{{Name: "live-squid", Session: "s", Running: true}}}
+	if p := BuildPlan(busy, Options{}); len(p.Volumes) != 0 || !strings.Contains(joined(p.SkippedLive), "volume proveo-squid-cache-claudecode") {
+		t.Errorf("a running retired container must hold its volumes back: volumes=%v skipped=%v", p.Volumes, p.SkippedLive)
+	}
+	if p := BuildPlan(busy, Options{Force: true}); len(p.Volumes) != 2 {
+		t.Errorf("--force volumes = %v, want both", p.Volumes)
+	}
+}

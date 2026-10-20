@@ -186,11 +186,8 @@ func TestGlyphModeFromLookup(t *testing.T) {
 
 func TestEnforcedByNamesTheBoundaryHolder(t *testing.T) {
 	t.Parallel()
-	if got := EnforcedBy(true); !strings.Contains(got, "sbx") || !strings.Contains(got, "no Squid") {
-		t.Errorf("sbx runs must name sbx and disclaim proveo's sidecars, got %q", got)
-	}
-	if got := EnforcedBy(false); !strings.Contains(got, "squid") {
-		t.Errorf("docker runs must name proveo's sidecars, got %q", got)
+	if got := EnforcedBy(); !strings.Contains(got, "sbx") || strings.Contains(got, "squid") {
+		t.Errorf("the boundary must name sbx and no retired sidecar, got %q", got)
 	}
 }
 
@@ -198,18 +195,15 @@ func TestMCPGatewayPostureNamesTheDecision(t *testing.T) {
 	// No t.Parallel: the last assertion sets an env var precisely to prove it is
 	// ignored, and t.Setenv is incompatible with parallel tests.
 	const gwVar = "MCP_GATEWAY_URL"
-	if got := MCPGateway(false, false, gwVar); !strings.Contains(got, "n/a") {
-		t.Errorf("the docker backend has no sbx gateway, got %q", got)
-	}
-	if got := MCPGateway(true, false, gwVar); !strings.Contains(got, "declined") {
+	if got := MCPGateway(false, gwVar); !strings.Contains(got, "declined") {
 		t.Errorf("want the decline reported, got %q", got)
 	}
-	got := MCPGateway(true, true, gwVar)
+	got := MCPGateway(true, gwVar)
 	if !strings.Contains(got, "allowed") || !strings.Contains(got, "scope user") {
 		t.Errorf("allowing it must say so AND name where it lands, got %q", got)
 	}
 	t.Setenv("PROVEO_SBX_MCP", "on")
-	if MCPGateway(true, false, gwVar) != "declined ("+gwVar+" empty; PROVEO_SBX_MCP=on to allow)" {
+	if MCPGateway(false, gwVar) != "declined ("+gwVar+" empty; PROVEO_SBX_MCP=on to allow)" {
 		t.Error("the row read the environment instead of its argument")
 	}
 }
@@ -227,30 +221,11 @@ func TestWorkspacePostureNamesWhereWorkLands(t *testing.T) {
 	}
 }
 
-func TestObservabilityNamesTheBackendsOwnEvidence(t *testing.T) {
+func TestObservabilityNamesTheSandboxRecord(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		name, mode, creds string
-		sandboxed         bool
-		want, wantNot     string
-	}{
-		{"sbx names its own record", "allowlist", "broker", true, runlog.PolicyLogFile, "squid"},
-		{"sbx says so on every tier", "open", "forward", true, runlog.PolicyLogFile, "flows.ndjson"},
-		{"docker allowlist keeps both logs", "allowlist", "broker", false, "squid access.log", ""},
-		{"docker open keeps the MITM record", "open", "broker", false, "flows.ndjson", "squid"},
-		{"docker open+forward promises nothing", "open", "forward", false, "none", "flows.ndjson"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := Observability(tc.mode, tc.creds, tc.sandboxed)
-			if !strings.Contains(got, tc.want) {
-				t.Errorf("Observability(%q, %q, %v) = %q, want it to name %q",
-					tc.mode, tc.creds, tc.sandboxed, got, tc.want)
-			}
-			if tc.wantNot != "" && strings.Contains(got, tc.wantNot) {
-				t.Errorf("Observability(%q, %q, %v) = %q, must not name %q",
-					tc.mode, tc.creds, tc.sandboxed, got, tc.wantNot)
-			}
-		})
+	got := Observability()
+	if !strings.Contains(got, runlog.PolicyLogFile) || strings.Contains(got, "squid") || strings.Contains(got, "flows.ndjson") {
+		t.Errorf("observability must name sbx's policy log and no retired record, got %q", got)
 	}
 }
 

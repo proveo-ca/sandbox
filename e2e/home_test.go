@@ -5,32 +5,20 @@
 package e2e
 
 import (
-	"crypto/md5"
-	"encoding/hex"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
-
-func isSbxArgv(agentCmd string) bool {
-	return strings.HasPrefix(strings.TrimSpace(agentCmd), "sbx run")
-}
 
 // TestProveoHomePersistence asserts durable session/config mounts under
 // PROVEO_HOME: plan wiring for every harness, auth scrubbing, resume argv
-// forwarding, clean --homes, and (when images exist) live --shell + resume
-// round-trips that never bind host IDE homes.
+// forwarding, and clean --homes.
 func TestProveoHomePersistence(t *testing.T) {
 	proveoBin := buildProveo(t)
-	cursorImage := harnessImageRef(t, proveoBin, "cursor")
 
 	t.Run("print_plan_mounts_all_agents", func(t *testing.T) {
 		t.Parallel()
@@ -56,41 +44,23 @@ func TestProveoHomePersistence(t *testing.T) {
 				if !strings.Contains(out, "proveo home: "+home) {
 					t.Errorf("missing proveo home preamble:\n%s", out)
 				}
-				if isSbxArgv(agentCmd) {
-					harnessHome := filepath.Join(home, a.subdir)
-					if !strings.Contains(agentCmd, " "+harnessHome) {
-						t.Errorf("sbx argv does not carry the harness home dir %s:\n%s", harnessHome, agentCmd)
-					}
-					if hasSbxWorkspace(agentCmd, home) {
-						t.Errorf("sbx argv still mounts the whole proveo home %s; an IDE would read unrelated run logs:\n%s",
-							home, agentCmd)
-					}
-					// The positive claim: resume state has a host path to travel to.
-					if !strings.Contains(agentCmd, "-e "+sbx.StateHomeVar+"="+home) {
-						t.Errorf("sbx argv missing -e %s=%s — without it the agent's transcripts "+
-							"land in volumes teardown removes, and `--resume` has nothing to offer:\n%s",
-							sbx.StateHomeVar, home, agentCmd)
-					}
-					// And the guard: the redirect must not come back by accident.
-					for _, banned := range []string{"-e HOME=", "-e PROVEO_HOME="} {
-						if strings.Contains(agentCmd, banned) {
-							t.Errorf("sbx argv carries %q — the HOME redirect is retired on this "+
-								"backend because it orphaned the proxy-written credential:\n%s", banned, agentCmd)
-						}
-					}
-				} else {
-					if !hasVolume(agentCmd, home, proveohome.ContainerHome) {
-						t.Errorf("agent cmd missing proveo home volume %s:%s:\n%s",
-							home, proveohome.ContainerHome, agentCmd)
-					}
-					containerHome := proveohome.ContainerHome
-					if !strings.Contains(agentCmd, "-e HOME="+containerHome) {
-						t.Errorf("agent cmd missing -e HOME=%s:\n%s", containerHome, agentCmd)
-					}
-					// PROVEO_HOME travels with it, so a seed that reads $HOME and an
-					// agent that reads this name resolve the same directory.
-					if !strings.Contains(agentCmd, "-e PROVEO_HOME="+containerHome) {
-						t.Errorf("agent cmd missing -e PROVEO_HOME=%s:\n%s", containerHome, agentCmd)
+				harnessHome := filepath.Join(home, a.subdir)
+				if !strings.Contains(agentCmd, " "+harnessHome) {
+					t.Errorf("sbx argv does not carry the harness home dir %s:\n%s", harnessHome, agentCmd)
+				}
+				if hasSbxWorkspace(agentCmd, home) {
+					t.Errorf("sbx argv still mounts the whole proveo home %s; an IDE would read unrelated run logs:\n%s",
+						home, agentCmd)
+				}
+				if !strings.Contains(agentCmd, "-e "+sbx.StateHomeVar+"="+home) {
+					t.Errorf("sbx argv missing -e %s=%s — without it the agent's transcripts "+
+						"land in volumes teardown removes, and `--resume` has nothing to offer:\n%s",
+						sbx.StateHomeVar, home, agentCmd)
+				}
+				for _, banned := range []string{"-e HOME=", "-e PROVEO_HOME="} {
+					if strings.Contains(agentCmd, banned) {
+						t.Errorf("sbx argv carries %q — the HOME redirect orphans the proxy-written credential:\n%s",
+							banned, agentCmd)
 					}
 				}
 				if host := os.Getenv("HOME"); host != "" {
@@ -98,7 +68,7 @@ func TestProveoHomePersistence(t *testing.T) {
 						filepath.Join(host, ".cursor"),
 						filepath.Join(host, ".claude"),
 					} {
-						if hasVolumeHost(agentCmd, ide) {
+						if mountsOver(agentCmd, ide) {
 							t.Errorf("must not mount host IDE path %s:\n%s", ide, agentCmd)
 						}
 					}
@@ -134,7 +104,7 @@ func TestProveoHomePersistence(t *testing.T) {
 
 	t.Run("auth_json_scrubbed_not_session_marker", func(t *testing.T) {
 		home := t.TempDir()
-		share := filepath.Join(home, "opencode", "v2", "share")
+		share := filepath.Join(home, ".cursor")
 		if err := os.MkdirAll(share, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +116,7 @@ func TestProveoHomePersistence(t *testing.T) {
 		if err := os.WriteFile(marker, []byte("keep-me"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_ = runPrintWithHome(t, proveoBin, home, "opencode", "--input", t.TempDir())
+		_ = runPrintWithHome(t, proveoBin, home, "cursor", "--input", t.TempDir())
 		if _, err := os.Stat(auth); !os.IsNotExist(err) {
 			t.Errorf("auth.json should be scrubbed from proveo home, err=%v", err)
 		}
@@ -223,220 +193,11 @@ func TestProveoHomePersistence(t *testing.T) {
 		}
 	})
 
-	t.Run("live_shell_roundtrip", func(t *testing.T) {
-		skipOutsideSbx(t, "a docker container started from the cursor image")
-		requireLiveCursorHome(t, cursorImage)
-		home, work := dockerVisibleHomeWork(t)
-		mustRun(t, work, "git", "init", "-q", ".")
-		const mark = "PROVEO-HOME-E2E-OK"
-		markerHost := filepath.Join(home, ".cursor", "E2E_HOME_MARK")
-
-		cleanLeftovers(proveoBin)
-		t.Cleanup(func() {
-			cleanLeftovers(proveoBin)
-			rmByAncestor(cursorImage)
-		})
-
-		before := dockerIDsByAncestor(cursorImage)
-		sess := tmux.New(fmt.Sprintf("proveo-home-%d", os.Getpid()), nil)
-		t.Cleanup(sess.Kill)
-
-		// env PREFIX injects PROVEO_HOME into the proveo process (same pattern as
-		// credentials_test's broker integrity half).
-		startCursorLive(t, sess, proveoBin, home, work, "--shell")
-		dismissCapabilityPicker(t, sess)
-
-		agentID := waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
-		src, ok := mountSource(agentID, proveohome.ContainerHome)
-		if !ok {
-			t.Fatalf("agent %s has no %s mount", agentID, proveohome.ContainerHome)
-		}
-		if filepath.Clean(src) != filepath.Clean(home) {
-			t.Fatalf("proveo home mount source = %q, want %q", src, home)
-		}
-
-		// Write from inside the container into the durable home.
-		write := exec.Command("docker", "exec", agentID, "bash", "-lc",
-			"mkdir -p \"$HOME/.cursor\" && printf '%s' '"+mark+"' > \"$HOME/.cursor/E2E_HOME_MARK\"")
-		if out, err := write.CombinedOutput(); err != nil {
-			t.Fatalf("docker exec write marker: %v\n%s", err, out)
-		}
-		waitForFileExists(t, markerHost, 15*time.Second)
-		got, err := os.ReadFile(markerHost)
-		if err != nil || string(got) != mark {
-			t.Fatalf("host marker after write: %v %q", err, got)
-		}
-
-		// Kill the container (--rm) and confirm the marker remains on the host.
-		_ = exec.Command("docker", "rm", "-f", agentID).Run()
-		sess.Kill()
-		got, err = os.ReadFile(markerHost)
-		if err != nil || string(got) != mark {
-			t.Fatalf("marker must survive container --rm: %v %q", err, got)
-		}
-
-		// Second run: marker must be visible inside the remounted proveo home.
-		before2 := dockerIDsByAncestor(cursorImage)
-		sess2 := tmux.New(fmt.Sprintf("proveo-home2-%d", os.Getpid()), nil)
-		t.Cleanup(sess2.Kill)
-		startCursorLive(t, sess2, proveoBin, home, work, "--shell")
-		dismissCapabilityPicker(t, sess2)
-		agent2 := waitForNewAncestor(t, cursorImage, before2, 120*time.Second, sess2)
-		read := exec.Command("docker", "exec", agent2, "bash", "-lc",
-			"cat \"$HOME/.cursor/E2E_HOME_MARK\"")
-		out, err := read.CombinedOutput()
-		if err != nil || strings.TrimSpace(string(out)) != mark {
-			t.Fatalf("second run should see durable marker: err=%v out=%q", err, out)
-		}
-	})
-
-	t.Run("live_resume_roundtrip", func(t *testing.T) {
-		skipOutsideSbx(t, "a docker container started from the cursor image")
-		requireLiveCursorHome(t, cursorImage)
-		home, work := dockerVisibleHomeWork(t)
-		mustRun(t, work, "git", "init", "-q", ".")
-
-		const (
-			chatID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-			title  = "PROVEO-RESUME-E2E"
-		)
-		seedCursorChat(t, home, chatID, title)
-
-		cleanLeftovers(proveoBin)
-		t.Cleanup(func() {
-			cleanLeftovers(proveoBin)
-			rmByAncestor(cursorImage)
-		})
-
-		// --ls: agent session picker must list the seeded chat from proveo home.
-		func() {
-			before := dockerIDsByAncestor(cursorImage)
-			sess := tmux.New(fmt.Sprintf("proveo-home-ls-%d", os.Getpid()), nil)
-			t.Cleanup(sess.Kill)
-			startCursorLive(t, sess, proveoBin, home, work, "--ls")
-			dismissCapabilityPicker(t, sess)
-			_ = waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
-			if _, err := sess.WaitFor(title, 60*time.Second); err != nil {
-				screen, _ := sess.CaptureAll()
-				t.Fatalf("--ls should show seeded chat %q: %v\n--- screen ---\n%s", title, err, screen+diagnostics(screen))
-			}
-			sess.Kill()
-			rmByAncestor(cursorImage)
-		}()
-
-		// --resume <id>: live launch must hand cursor-agent the resume flags.
-		func() {
-			before := dockerIDsByAncestor(cursorImage)
-			sess := tmux.New(fmt.Sprintf("proveo-home-resume-%d", os.Getpid()), nil)
-			t.Cleanup(sess.Kill)
-			startCursorLive(t, sess, proveoBin, home, work, "--resume", chatID)
-			dismissCapabilityPicker(t, sess)
-			agentID := waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
-			waitForAgentArgv(t, agentID, 60*time.Second, "--resume", chatID)
-			sess.Kill()
-			rmByAncestor(cursorImage)
-		}()
-
-		// --continue: same path for the most-recent session flag.
-		func() {
-			before := dockerIDsByAncestor(cursorImage)
-			sess := tmux.New(fmt.Sprintf("proveo-home-cont-%d", os.Getpid()), nil)
-			t.Cleanup(sess.Kill)
-			startCursorLive(t, sess, proveoBin, home, work, "--continue")
-			dismissCapabilityPicker(t, sess)
-			agentID := waitForNewAncestor(t, cursorImage, before, 120*time.Second, sess)
-			waitForAgentArgv(t, agentID, 60*time.Second, "--continue")
-		}()
-	})
-}
-
-func requireLiveCursorHome(t *testing.T, cursorImage string) {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not installed")
-	}
-	if !dockerImagePresent(t, cursorImage) {
-		t.Skipf("%s not built", cursorImage)
-	}
-}
-
-func dockerVisibleHomeWork(t *testing.T) (home, work string) {
-	t.Helper()
-	cache := filepath.Join(repoRoot(t), ".cache", "e2e")
-	if err := os.MkdirAll(cache, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("TMPDIR", cache)
-	return t.TempDir(), t.TempDir()
-}
-
-func startCursorLive(t *testing.T, sess *tmux.Session, proveoBin, home, work string, extra ...string) {
-	t.Helper()
-	cmd := append([]string{
-		"env",
-		"PROVEO_HOME=" + home,
-		"CURSOR_API_KEY=crsr_test_probe",
-		proveoBin, "run", "cursor",
-		"--egress-mode", "broker",
-	}, extra...)
-	cmd = append(cmd, "--input", work)
-	if err := sess.Start(200, 40, cmd...); err != nil {
-		t.Fatalf("start session: %v", err)
-	}
-}
-
-func dismissCapabilityPicker(t *testing.T, sess *tmux.Session) {
-	t.Helper()
-	acceptChoicePrompt(t, sess, "cursor")
-}
-
-// seedCursorChat writes a minimal cursor-agent chat under proveo home, keyed by
-// md5("/app") — the workspace path inside every proveo agent container.
-func seedCursorChat(t *testing.T, proveoHome, chatID, title string) {
-	t.Helper()
-	sum := md5.Sum([]byte("/app"))
-	dir := filepath.Join(proveoHome, ".cursor", "chats", hex.EncodeToString(sum[:]), chatID)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	meta := fmt.Sprintf(`{"schemaVersion":1,"createdAtMs":1,"updatedAtMs":1,"hasConversation":true,"title":%q,"cwd":"/app"}`, title)
-	if err := os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	src := filepath.Join(repoRoot(t), "e2e", "testdata", "cursor-empty-store.db")
-	in, err := os.ReadFile(src)
-	if err != nil {
-		t.Fatalf("read chat store fixture: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "store.db"), in, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func waitForAgentArgv(t *testing.T, containerID string, timeout time.Duration, seq ...string) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	want := strings.Join(seq, " ")
-	var last string
-	for {
-		out, err := exec.Command("docker", "exec", containerID, "bash", "-lc",
-			"tr '\\0' ' ' </proc/1/cmdline; echo; ps -ww -eo args 2>/dev/null | head -40").CombinedOutput()
-		last = string(out)
-		if err == nil && containsArgSeq(last, seq...) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("agent argv missing %q within %s\n--- ps ---\n%s", want, timeout, last)
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
 }
 
 func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...string) string {
 	t.Helper()
+	requireSbx(t)
 	args := append([]string{"run", target}, extra...)
 	args = append(args, "--print")
 	cmd := exec.Command(proveoBin, args...)
@@ -453,48 +214,21 @@ func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...str
 	return string(out)
 }
 
-func harnessImageRef(t *testing.T, proveoBin, target string) string {
-	t.Helper()
-	argv := agentCommandLine(t, runPrintWithHome(t, proveoBin, t.TempDir(), target, "--input", t.TempDir()))
-	fields := strings.Fields(argv)
-	for i, f := range fields {
-		if f == "-t" && i+1 < len(fields) && strings.HasPrefix(fields[i+1], "proveo/") {
-			return fields[i+1]
-		}
-		if strings.HasPrefix(f, "proveo/") && strings.Contains(f, ":") {
-			return f
-		}
-	}
-	t.Fatalf("no proveo image in the rendered plan for %s:\n%s", target, argv)
-	return ""
-}
-
-func hasVolume(cmd, host, container string) bool {
-	toks := strings.Fields(cmd)
-	want := host + ":" + container
-	for i := 0; i+1 < len(toks); i++ {
-		if toks[i] == "-v" && (toks[i+1] == want || strings.HasPrefix(toks[i+1], want+":")) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasVolumeHost(cmd, host string) bool {
-	toks := strings.Fields(cmd)
-	prefix := host + ":"
-	for i := 0; i+1 < len(toks); i++ {
-		if toks[i] == "-v" && strings.HasPrefix(toks[i+1], prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func hasSbxWorkspace(argv, host string) bool {
 	for _, f := range strings.Fields(argv) {
 		path, _, _ := strings.Cut(f, ":")
 		if path == host {
+			return true
+		}
+	}
+	return false
+}
+
+// mountsOver reports whether any absolute workspace path in argv is path or a parent of it.
+func mountsOver(argv, path string) bool {
+	for _, f := range strings.Fields(argv) {
+		ws, _, _ := strings.Cut(f, ":")
+		if filepath.IsAbs(ws) && pathWithin(path, ws) {
 			return true
 		}
 	}
@@ -516,33 +250,4 @@ func containsArgSeq(cmd string, seq ...string) bool {
 		}
 	}
 	return false
-}
-
-func dockerIDsByAncestor(image string) map[string]bool {
-	out, err := exec.Command("docker", "ps", "-q", "--filter", "ancestor="+image).Output()
-	set := map[string]bool{}
-	if err != nil {
-		return set
-	}
-	for _, id := range strings.Fields(string(out)) {
-		set[id] = true
-	}
-	return set
-}
-
-func waitForNewAncestor(t *testing.T, image string, before map[string]bool, timeout time.Duration, sess *tmux.Session) string {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		for id := range dockerIDsByAncestor(image) {
-			if !before[id] {
-				return id
-			}
-		}
-		if time.Now().After(deadline) {
-			screen, _ := sess.CaptureAll()
-			t.Fatalf("no new container for ancestor %s within %s\n--- screen ---\n%s", image, timeout, screen+diagnostics(screen))
-		}
-		time.Sleep(time.Second)
-	}
 }

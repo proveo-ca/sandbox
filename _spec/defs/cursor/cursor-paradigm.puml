@@ -86,15 +86,14 @@ end note
 
 note bottom of VENDOR
   **Vendor-pinned inference.** No custom base URL, so
-  ""--local-model"" is rejected. Its TLS is not
-  MITM-brokerable either: firewall/proxy hand the agent a
-  sentinel it cannot use, so cursor defaults to **broker**
-  mode, which forwards the real ""CURSOR_API_KEY"".
-  The provider pin maps that key to "".cursor.sh"" /
-  "".cursor.com"".
+  ""--local-model"" is rejected. Since 2026-10-16 sbx is the
+  only backend and its proxy brokers ""CURSOR_API_KEY""
+  natively; the key goes to sbx's secret store
+  (TestCursorBrokersThroughTheSbxStore). The provider entry
+  maps that key to "".cursor.sh"" / "".cursor.com"".
 
-  **What an intercepting tier looks like from inside the
-  container.** ""cursor-agent""'s TLS to ""api2\.cursor\.sh""
+  **HISTORY — what an intercepting tier looked like from inside the
+  docker container (deleted 2026-10-16).** ""cursor-agent""'s TLS to ""api2\.cursor\.sh""
   is pinned, so the MITM hop cannot be made to carry the
   real header: the allowlist tier (//firewall//) hands the
   agent the ""proveo-brokered"" sentinel and the review tier
@@ -139,22 +138,21 @@ note bottom of VENDOR
   ""SubscriptionAuthHints"" for the harness it actually refused, and offers the
   'export a provider key instead' line only where one would work.
 
-  **So the posture is declared, not defaulted per-flag.**
-  cursor's manifest declares ""capabilities: egress:[open] ·
-  credentials:[forward] · providers:[cursor]"", which is the
-  only combination that authenticates it; an intercepting
-  selection is warned about by name, pointing at
-  ""--egress-mode open --credentials forward"". Earlier the
-  same guarantee was a run-time default — broker unless the
-  operator had //explicitly// changed the mode flag — and
-  that is the shape the removed ""main\.go"" prose described.
+  **HISTORY — the posture was declared, not defaulted per-flag.**
+  cursor's manifest declared ""capabilities: egress:[open] ·
+  credentials:[forward] · providers:[cursor]"" for the docker
+  backend. DECIDED 2026-10-16 ("Drop the pins"): the
+  ""egress"" and ""credentials"" pins are gone, and so is the
+  top-level ""provider: cursor"" key (MEASURED: only
+  ""capabilities.providers: [cursor]"" pins the vendor now), and
+  ""--egress-mode"" is an unknown flag (2026-10-17).
 
   **On sbx the broker is native, not an interception.**
-  sbx's proxy attaches ""CURSOR_API_KEY"" itself, so on that
-  backend broker stands whether defaulted or named, the TLS
-  warning is reserved for docker-egress tiers, and the picker
-  keeps forward off with "cursor always brokers credentials
-  natively" on the broker option (operator decision 2026-09-29).
+  sbx's proxy attaches ""CURSOR_API_KEY"" itself, so broker
+  stands whether defaulted or named, and the picker keeps
+  forward off (operator decision 2026-09-29). With the pins
+  gone, the "always brokers natively" help on the broker option
+  no longer fires for cursor (it keys on a credentials cap).
 end note
 
 note bottom of EP

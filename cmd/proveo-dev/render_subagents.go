@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/agent-definition-sharing.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/defs/agent-definition-sharing.puml
 package main
 
 import (

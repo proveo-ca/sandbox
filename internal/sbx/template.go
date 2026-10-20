@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/proveo-ca/proveo/internal/envflag"
 )
 
 func TemplateLoadArgs() []string { return []string{"template", "load"} }
@@ -156,13 +158,7 @@ func trimRegistry(repo string) string {
 
 func TemplateRemoveArgs(image string) []string { return []string{"template", "rm", image} }
 
-func ForceReload(getenv func(string) string) bool {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_SBX_RELOAD"))) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
-}
+func ForceReload(getenv func(string) string) bool { return envflag.On(getenv("PROVEO_SBX_RELOAD")) }
 
 func EnsureTemplate(image string, report func(string, ...any)) error {
 	if image == "" {

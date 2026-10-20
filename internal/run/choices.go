@@ -3,19 +3,18 @@ package run
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/proveo-ca/proveo/internal/backend/dockeregress"
-	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/devports"
-	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -24,18 +23,9 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-func cacheApplies(printOnly, tty bool) bool { return !printOnly && WizardEnabled() && tty }
+func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
 
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
-	sbxBackend, sbxWhy := false, ""
-	if man.IsSbx() {
-		if !sandbox.Enabled() {
-			sbxWhy = "PROVEO_SBX=0 is set"
-		} else {
-			sbxBackend, sbxWhy = sbx.Available()
-		}
-	}
-	sandboxOn := sbxBackend
 	chromeWhy := ""
 	if man.Capabilities.HostBrowser == addonChrome {
 		chromeWhy = chromeUnavailable(man, lookup, p.AuthVar, p.Target, homeRoot)
@@ -45,23 +35,20 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
-		Topology: topologyOf(man, p.Target, sbxBackend, p.Mode, p.credentialsOrDefault()),
+		Topology: topologyOf(p.Target, p.credentialsOrDefault()),
 		Rows: append(
-			applicableRows(egressRow(man, p.Mode, sandboxOn)),
-			credentialsRow(man, p.credentialsOrDefault(), sandboxOn),
+			applicableRows(egressRow()),
+			credentialsRow(man, p.credentialsOrDefault()),
 		),
 	}
 	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
 	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
 		form.Rows = append(form.Rows, r)
 	}
-	var found []devports.Candidate
+	found := p.discovered
 	var apps []devports.AndroidApp
-	if sandboxOn {
-		found = p.discovered
-		if slices.Contains(interfaceOptions(man), addonAndroid) {
-			apps = p.discoveredApps
-		}
+	if slices.Contains(interfaceOptions(man), addonAndroid) {
+		apps = p.discoveredApps
 	}
 	for _, label := range addonRows {
 		opts := addonOptions(man, label)
@@ -71,7 +58,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
 			Label: label, Heading: addonHeading[label], Options: opts, Multi: true, Divider: true,
 			Radio: label == rowExecution,
-			On:    p.addonDefaults(opts), Help: addonHelp,
+			On:    p.addonDefaults(opts), Help: addonHelpFor(man),
 		})...)
 		if label == rowExecution {
 			if r, ok := portsRow(found, p.Ports); ok {
@@ -86,8 +73,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
 	form.OnChange = func(f *choiceui.Form) {
-		gateAddons(f, p.Mode, p.credentialsOrDefault(), sbxWhy, chromeWhy)
-		gateReview(f, hasAddon(selectedAddons(f), addonSandbox))
+		gateAddons(f, chromeWhy)
 		gateApps(f)
 	}
 	form.OnChange(form)
@@ -98,9 +84,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	if !ok {
 		return fmt.Errorf("cancelled at the choice prompt")
-	}
-	if v := form.Selection("egress"); v != "" && !p.ModeSet && !sandboxOn {
-		p.Mode = v
 	}
 	if v := form.Selection("credentials"); v != "" && !p.CredsSet {
 		p.Credentials = v
@@ -116,7 +99,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		p.applySource(v, hasAuth)
 	}
 	if v := form.Selection(evidenceLabel); v != "" {
-		p.Evidence = v
+		p.Evidence = evidenceOf(v)
 	}
 	return nil
 }
@@ -210,8 +193,17 @@ func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoo
 	return help
 }
 
+// evidenceOf is the PROVEO_AGENT_EVIDENCE value an outputs answer stands for.
+// SPEC: _spec/internal/choiceui/choice-prompt-render.puml
+func evidenceOf(answer string) string {
+	if answer == evidenceFilter {
+		return EvidenceDefault
+	}
+	return answer
+}
+
 func evidenceRow(current string) choiceui.Row {
-	opts := []string{EvidenceDefault, EvidenceVerbose}
+	opts := []string{evidenceFilter, EvidenceVerbose}
 	sel := 0
 	if current == EvidenceVerbose {
 		sel = 1
@@ -229,16 +221,7 @@ func orElseFirst(v string, opts []string) string {
 	return ""
 }
 
-func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy string) {
-	tier := f.Selection("egress")
-	if tier == "" {
-		tier = tierFallback
-	}
-	creds := f.Selection("credentials")
-	if creds == "" {
-		creds = credsFallback
-	}
-	sandboxTicked := sbxWhy == "" && rowOffers(f, rowExecution, addonSandbox)
+func gateAddons(f *choiceui.Form, chromeWhy string) {
 	for i := range f.Rows {
 		r := &f.Rows[i]
 		if !isAddonRow(r.Label) {
@@ -260,28 +243,8 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 			switch opt {
 			case addonSandbox:
 				r.Off[j] = true
-				if sbxWhy != "" {
-					r.On[j] = false
-					reasons = append(reasons, "docker sandbox: "+sbxWhy)
-					r.OffWhy[opt] = sbxWhy
-					break
-				}
 				r.On[j] = true
-				r.OffWhy[opt] = "this harness runs in the sandbox and nowhere else; PROVEO_SBX=0 or --egress-mode review fall back to docker + egress sidecars"
-			case addonHostCDP:
-				if sbxWhy != "" {
-					r.Off[j] = true
-					r.On[j] = false
-					reasons = append(reasons, addonHostCDP+": "+hostCDPSbxWhy)
-					r.OffWhy[opt] = hostCDPSbxWhy
-				}
-			case addonAndroid:
-				if sbxWhy != "" {
-					r.Off[j] = true
-					r.On[j] = false
-					reasons = append(reasons, addonAndroid+": "+hostADBSbxWhy)
-					r.OffWhy[opt] = hostADBSbxWhy
-				}
+				r.OffWhy[opt] = "every harness runs in the sandbox and nowhere else"
 			case addonIOS:
 				r.Off[j] = true
 				r.On[j] = false
@@ -289,12 +252,8 @@ func gateAddons(f *choiceui.Form, tierFallback, credsFallback, sbxWhy, chromeWhy
 				r.OffWhy[opt] = hostadb.IOSWhy
 			case addonChrome:
 				why := chromeWhy
-				switch {
-				case why != "":
-				case sandboxTicked:
+				if why == "" {
 					why = chromebridge.SbxWhy
-				case !chromebridge.TierSupported(tier, creds):
-					why = chromebridge.TierWhy
 				}
 				if why != "" {
 					r.Off[j] = true
@@ -331,42 +290,6 @@ func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen
 	return ""
 }
 
-func gateReview(f *choiceui.Form, sandboxOn bool) {
-	for i := range f.Rows {
-		r := &f.Rows[i]
-		if r.Label != "egress" {
-			continue
-		}
-		if len(r.Off) != len(r.Options) {
-			r.Off = make([]bool, len(r.Options))
-		}
-		for j, opt := range r.Options {
-			if opt != "review" {
-				continue
-			}
-			reason := ""
-			switch {
-			case sandboxOn:
-				reason = "review: not supported on the docker sandbox backend"
-			default:
-				if ok, why := dockeregress.ReviewSupported(os.Getenv); !ok {
-					reason = "review: " + why
-				}
-			}
-			r.Off[j] = reason != ""
-			switch {
-			case reason != "":
-				r.Reason = reason
-			case strings.HasPrefix(r.Reason, "review:"):
-				r.Reason = ""
-			}
-			if r.Off[j] && r.Selected == j {
-				r.Selected = firstSelectableIn(r)
-			}
-		}
-	}
-}
-
 func firstSelectableIn(r *choiceui.Row) int {
 	for i := range r.Options {
 		if i >= len(r.Off) || !r.Off[i] {
@@ -386,16 +309,6 @@ func axisRow(label string, all, allowed []string, preselect string) choiceui.Row
 		if strings.EqualFold(o, preselect) {
 			r.Selected = i
 		}
-	}
-	return r
-}
-
-func reviewAvailability(r choiceui.Row, sandboxBackend bool) choiceui.Row {
-	if sandboxBackend {
-		return comingSoon(r, "review", "review: not supported on the docker sandbox backend")
-	}
-	if ok, why := dockeregress.ReviewSupported(os.Getenv); !ok {
-		return comingSoon(r, "review", "review: "+why)
 	}
 	return r
 }
@@ -429,48 +342,18 @@ const changeBaselineHint = "host-wide, not per-run — to change, run on the hos
 
 var policyBaseline = sbx.PolicyBaseline
 
-func credentialsRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
-	r := axisRow("credentials", egress.CredentialModes(), nil, mode)
-	if sandboxOn {
-		r = comingSoon(r, "forward", "sbx's proxy holds the value; forward is what that guarantee gives up")
-		r.OffWhy = map[string]string{"forward": r.Reason}
-		if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
-			if r.Help == nil {
-				r.Help = map[string]string{}
-			}
-			r.Help["broker"] = man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"
-		}
-		return r
-	}
-	allowed := man.Capabilities.Credentials
-	if len(allowed) == 0 {
-		return r
-	}
-	r.Off = make([]bool, len(r.Options))
-	r.OffWhy = map[string]string{}
-	var reasons []string
-	for i, o := range r.Options {
-		if slices.Contains(allowed, o) {
-			continue
-		}
-		r.Off[i] = true
-		why := o + " is not in this harness's credentials capability"
-		r.OffWhy[o] = why
-		reasons = append(reasons, why)
-	}
-	if len(reasons) > 0 {
-		r.Reason = strings.Join(reasons, " · ")
-		if r.Selected < len(r.Off) && r.Off[r.Selected] {
-			r.Selected = firstEnabled(r)
-		}
+func credentialsRow(man manifest.Manifest, mode string) choiceui.Row {
+	r := axisRow("credentials", CredentialModes(), nil, mode)
+	r = comingSoon(r, "forward", "sbx's proxy holds the value; forward is what that guarantee gives up")
+	r.OffWhy = map[string]string{"forward": r.Reason}
+	if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
+		r.Help = map[string]string{"broker": man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"}
 	}
 	return r
 }
 
-func egressRow(man manifest.Manifest, mode string, sandboxOn bool) choiceui.Row {
-	if !sandboxOn {
-		return reviewAvailability(axisRow("egress", egress.Modes(), man.Capabilities.Egress, mode), false)
-	}
+// egressRow shows sbx's host-wide baseline, which decides egress; proveo only reports it.
+func egressRow() choiceui.Row {
 	name, known := policyBaseline()
 	if !known {
 		return choiceui.Row{
@@ -555,7 +438,7 @@ func appsRow(found []devports.AndroidApp, chosen []devports.AndroidApp) (choiceu
 		opt := a.Label()
 		r.Options = append(r.Options, opt)
 		r.On = append(r.On, slices.ContainsFunc(chosen, func(x devports.AndroidApp) bool { return x.Module == a.Module }))
-		r.Help[opt] = fmt.Sprintf("once the sandbox toolchain is ready: gradle %s, then launch %s on the host emulator — %s", a.Task(), a.AppID, a.Source)
+		r.Help[opt] = fmt.Sprintf("once the sandbox toolchain is ready: gradle %s, adb install, then launch %s on the host emulator — %s", a.Task(), a.AppID, a.Source)
 	}
 	return r, true
 }
@@ -606,10 +489,6 @@ func selectedPorts(f *choiceui.Form, found []devports.Candidate) []devports.Cand
 	return out
 }
 
-const hostCDPSbxWhy = "needs the sbx backend: the sandbox reaches the host browser through sbx's host gateway"
-
-const hostADBSbxWhy = "needs the sbx backend: the sandbox reaches the host adb server through sbx's host gateway"
-
 func isAddonRow(label string) bool { return label == rowExecution || label == rowInterface }
 
 var addonFixed = map[string]struct {
@@ -631,12 +510,16 @@ var addonHelp = map[string]string{
 	addonSandbox: "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets",
 }
 
-func executionOptions(man manifest.Manifest) []string {
-	opts := []string{addonHost}
-	if man.Docker == manifest.DockerSbx {
-		opts = append(opts, addonSandbox)
+func addonHelpFor(man manifest.Manifest) map[string]string {
+	help := maps.Clone(addonHelp)
+	if !man.WantsDocker() {
+		help[addonSandbox] = "a microVM (sbx) with no Docker daemon for the agent — the boundary every run on this harness gets"
 	}
-	return opts
+	return help
+}
+
+func executionOptions() []string {
+	return []string{addonHost, addonSandbox}
 }
 
 func interfaceOptions(man manifest.Manifest) []string {
@@ -664,7 +547,7 @@ func interfaceOptions(man manifest.Manifest) []string {
 
 func addonOptions(man manifest.Manifest, label string) []string {
 	if label == rowExecution {
-		return executionOptions(man)
+		return executionOptions()
 	}
 	return interfaceOptions(man)
 }
@@ -696,16 +579,6 @@ func compulsory(f *choiceui.Form, label string) []string {
 		break
 	}
 	return out
-}
-
-func rowOffers(f *choiceui.Form, label, option string) bool {
-	for i := range f.Rows {
-		if f.Rows[i].Label != label {
-			continue
-		}
-		return slices.Contains(f.Rows[i].Options, option)
-	}
-	return false
 }
 
 func rowTicked(f *choiceui.Form, label, option string) bool {

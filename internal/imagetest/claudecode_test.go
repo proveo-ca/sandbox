@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest_test
 
 import (
@@ -13,9 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/egress"
 	"github.com/proveo-ca/proveo/internal/imagetest"
-	"github.com/proveo-ca/proveo/internal/provider"
 )
 
 type ccImages struct {
@@ -24,7 +22,7 @@ type ccImages struct {
 }
 
 func (c ccImages) list() []string {
-	if c.mcpAvailable {
+	if c.mcpAvailable && c.mcp != c.standalone {
 		return []string{c.standalone, c.mcp}
 	}
 	return []string{c.standalone}
@@ -38,15 +36,8 @@ func (c ccImages) tag(image string) string {
 }
 
 func TestImageClaudecode(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defs := filepath.Join(root, "defs")
-	img := ccImages{
-		standalone: imagetest.Resolve("STANDALONE_IMAGE", "proveo/claudecode:latest"),
-		mcp:        imagetest.Resolve("MCP_IMAGE", "proveo/claudecode:latest"),
-	}
+	cc := imagetest.Resolve("claudecode", "proveo/claudecode:latest")
+	img := ccImages{standalone: cc, mcp: cc}
 
 	available := t.Run("claudecode image is available", func(t *testing.T) {
 		if imagetest.Present(img.standalone) {
@@ -69,7 +60,6 @@ func TestImageClaudecode(t *testing.T) {
 	ccWorkspace(s, img)
 	ccVolumes(s, img)
 	ccFunctional(s, img)
-	ccEgress(s, defs)
 	ccChromeBridge(s, img)
 }
 
@@ -156,7 +146,7 @@ func ccTools(s *imagetest.Suite, img ccImages) {
 			"printf 'const n: number = 21; console.log(n * 2)' > /tmp/x.ts && bun /tmp/x.ts", "42")
 	}
 
-	sol := imagetest.Resolve("SOL_IMAGE", "proveo/claudecode-solidity:latest")
+	sol := imagetest.Resolve("claudecode-solidity", "proveo/claudecode-solidity:latest")
 	if imagetest.Present(sol) {
 		for _, tl := range append(append([]ccTool{}, ccBaseTools...), ccSolTools...) {
 			if tl.name == "solc" && runtime.GOARCH == "arm64" {
@@ -174,7 +164,7 @@ func ccTools(s *imagetest.Suite, img ccImages) {
 		s.Success("[mcp] MCP server directory exists", img.mcp, "test -d /workspace/mcp-servers")
 	}
 
-	browser := imagetest.Resolve("BROWSER_IMAGE", "proveo/claudecode-browser:latest")
+	browser := imagetest.Resolve("claudecode-browser", "proveo/claudecode-browser:latest")
 	if !imagetest.Present(browser) {
 		s.Skip("[browser] claudecode-browser variant", "image "+browser+" not built (mise run build claudecode-browser)")
 		return
@@ -216,7 +206,7 @@ func ccSecurity(s *imagetest.Suite, img ccImages) {
 		s.Inspect("["+tag+"] Docker USER is non-root", image, "{{.Config.User}}", "claude")
 		s.Check("["+tag+"] arbitrary --user uid gets usable identity and writable HOME", func(t *testing.T) {
 			r := imagetest.Docker(imagetest.DefaultTimeout, nil, "run", "--rm", "--user", "4242:4242", "--entrypoint", "bash", image, "-c",
-				`source /entrypoint-lib.sh && ensure_runtime_user && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
+				`source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && echo "uid=$(id -u) home_writable=$(test -w "$HOME" && echo yes || echo no)"`)
 			if !strings.Contains(r.Out, "uid=4242 home_writable=yes") {
 				t.Errorf("output: %.200s", r.Out)
 			}
@@ -433,125 +423,6 @@ func ccFunctional(s *imagetest.Suite, img ccImages) {
 			t.Errorf("[mcp] claude responds to MCP tools prompt (output: %.200s)", out)
 		}
 	})
-}
-
-// ccLookup is the host env with set applied and unset removed.
-func ccLookup(set map[string]string, unset ...string) func(string) (string, bool) {
-	return func(k string) (string, bool) {
-		if v, ok := set[k]; ok {
-			return v, true
-		}
-		for _, u := range unset {
-			if u == k {
-				return "", false
-			}
-		}
-		return os.LookupEnv(k)
-	}
-}
-
-func ccDetect(lookup func(string) (string, bool)) []string {
-	return provider.Detect(func(k string) string { v, _ := lookup(k); return v })
-}
-
-// ccProviderAllow mirrors `proveo-egress provider-allow > file`: a failed run leaves the file empty.
-func ccProviderAllow(lookup func(string) (string, bool)) string {
-	var providers []string
-	if p, _ := lookup("PROVEO_EGRESS_PROVIDER"); strings.TrimSpace(p) != "" && strings.TrimSpace(p) != "none" {
-		providers = []string{strings.TrimSpace(p)}
-	} else {
-		providers = ccDetect(lookup)
-	}
-	domains, _ := lookup("PROVEO_EGRESS_PROVIDER_DOMAINS")
-	conf, matched, _ := egress.ProviderAllowConf(providers, domains)
-	if len(providers) > 0 && len(matched) == 0 {
-		return ""
-	}
-	return conf
-}
-
-func ccEgress(s *imagetest.Suite, defs string) {
-	fileHas := func(desc, path, want string) {
-		s.Check(desc, func(t *testing.T) {
-			if !ccFileHas(path, want) {
-				t.Errorf("Expected '%s' in %s", want, path)
-			}
-		})
-	}
-	fileLacks := func(desc, path, unwanted string) {
-		s.Check(desc, func(t *testing.T) {
-			if ccFileHas(path, unwanted) {
-				t.Errorf("Did not expect '%s' in %s", unwanted, path)
-			}
-		})
-	}
-	textHas := func(desc, text, want string) {
-		s.Check(desc, func(t *testing.T) {
-			if !strings.Contains(text, want) {
-				t.Errorf("Expected '%s' in provider-allow.conf:\n%s", want, text)
-			}
-		})
-	}
-	textLacks := func(desc, text, unwanted string) {
-		s.Check(desc, func(t *testing.T) {
-			if strings.Contains(text, unwanted) {
-				t.Errorf("Did not expect '%s' in provider-allow.conf:\n%s", unwanted, text)
-			}
-		})
-	}
-
-	squidDir := filepath.Join(defs, "sidecars", "squid-proxy")
-	squid := filepath.Join(squidDir, "squid.conf")
-	firehol := filepath.Join(squidDir, "firehol-blocked-nets.conf")
-	updater := filepath.Join(squidDir, "..", "..", "..", "cmd", "proveo-dev", "firehol.go")
-	fileHas("[policy] Squid documents HTTP/HTTPS-only protocol allowlist", squid, "Protocol allowlist: HTTP and HTTPS only")
-	fileHas("[policy] Squid allows HTTP port 80", squid, "acl Safe_ports port 80")
-	fileHas("[policy] Squid allows HTTPS port 443", squid, "acl Safe_ports port 443")
-	fileHas("[policy] Squid blocks non-web/raw protocols by denying non-safe ports", squid, "http_access deny !Safe_ports")
-	fileHas("[policy] Squid allows only read-oriented visible HTTP methods by default", squid, "acl read_methods method GET HEAD OPTIONS")
-	fileLacks("[policy] FTP is not in the allowed protocol set", squid, "acl Safe_ports port 21")
-	fileHas("[policy] Squid includes FireHOL-informed reserved destination defaults", squid, "include /etc/squid/firehol-blocked-nets.conf")
-	fileHas("[policy] Squid supports optional generated FireHOL ipset ACLs", squid, "include /etc/squid/firehol-ipset.conf")
-	fileHas("[policy] reserved defaults block cloud metadata SSRF range", firehol, "169.254.0.0/16")
-	fileHas("[policy] reserved defaults block private RFC1918 ranges", firehol, "10.0.0.0/8")
-	fileHas("[policy] optional FireHOL updater defaults to firehol_level1", updater, "firehol_level1")
-	fileHas("[policy] optional FireHOL updater generates Squid ACLs", updater, "acl firehol_ipset dst")
-	fileHas("[policy] any HTTPS documentation/search destination is allowed by protocol", squid, "http_access allow CONNECT SSL_ports")
-	fileHas("[policy] any visible HTTP documentation/search read is allowed by method", squid, "http_access allow read_methods")
-	fileHas("[policy] docs/search access is intentionally generic, not host-specific", squid, "any documentation site, search engine")
-	fileLacks("[policy] Pinecone docs are not hardcoded as a special case", squid, "docs.pinecone.io")
-	fileLacks("[policy] Google search is not hardcoded as a special case", squid, ".google.com")
-
-	detectHas := func(desc, want string, lookup func(string) (string, bool)) {
-		s.Check(desc, func(t *testing.T) {
-			if d := strings.Join(ccDetect(lookup), " "); !strings.Contains(d, want) {
-				t.Errorf("got: %s", d)
-			}
-		})
-	}
-	detectHas("[provider] ANTHROPIC_API_KEY auto-detects anthropic", "anthropic",
-		ccLookup(map[string]string{"ANTHROPIC_API_KEY": "sk-x"}, "PROVEO_EGRESS_PROVIDER"))
-	detectHas("[provider] AWS key auto-detects bedrock", "bedrock",
-		ccLookup(map[string]string{"AWS_ACCESS_KEY_ID": "AKIA"}, "PROVEO_EGRESS_PROVIDER", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"))
-	detectHas("[provider] GMI_API_KEY auto-detects gmi", "gmi",
-		ccLookup(map[string]string{"GMI_API_KEY": "gmi"}, "PROVEO_EGRESS_PROVIDER", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"))
-
-	conf := ccProviderAllow(ccLookup(map[string]string{"PROVEO_EGRESS_PROVIDER": "together"}, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"))
-	textHas("[provider] together pins inference writes to its endpoint", conf, "acl provider_allow dstdomain .together.xyz")
-	textHas("[provider] write-pin allows unsafe methods to provider only", conf, "http_access allow unsafe_methods provider_allow")
-	textLacks("[provider] reads stay open — no deny-all (scraping preserved)", conf, "http_access deny all")
-
-	conf = ccProviderAllow(ccLookup(map[string]string{"PROVEO_EGRESS_PROVIDER": "gmi"}))
-	textHas("[provider] gmi pins to api.gmi-serving.com", conf, ".gmi-serving.com")
-
-	conf = ccProviderAllow(ccLookup(map[string]string{"PROVEO_EGRESS_PROVIDER": "bedrock"}))
-	textHas("[provider] bedrock scoped to bedrock-runtime, not all of AWS", conf, "bedrock-runtime")
-	textLacks("[provider] bedrock does not allow all of .amazonaws.com", conf, "dstdomain .amazonaws.com")
-
-	conf = ccProviderAllow(ccLookup(map[string]string{"OPENAI_API_KEY": "sk"}, "PROVEO_EGRESS_PROVIDER", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"))
-	textHas("[provider] auto-detected openai key pins openai endpoint", conf, ".openai.com")
-
-	s.Check("[go] orchestration contracts live in internal/egress (not bash prepare)", func(*testing.T) {})
 }
 
 const ccChainScript = `set -e

@@ -12,14 +12,12 @@ type AuthOption struct {
 	Harness string
 }
 
-// Entry is a provider's full policy: detection, Squid ACL, and (optional)
-// broker injection.
+// Entry is a provider's detection, hosts, and (optional) credential injection.
 type Entry struct {
 	Name   string
 	Detect []string     // env vars that imply this provider (any present => detected)
-	ACL    string       // Squid `provider_allow` ACL body (after "acl provider_allow ")
-	Hosts  []string     // broker inject/strip hosts (nil => not broker-injectable)
-	Auth   []AuthOption // broker auth options (nil => not broker-injectable)
+	Hosts  []string     // the provider's API hosts
+	Auth   []AuthOption // injection auth options (nil => not injectable)
 }
 
 // Resolved is the concrete broker inputs for a run.
@@ -38,81 +36,79 @@ func bearer(envVar string) []AuthOption {
 
 var entries = []Entry{
 	{Name: "anthropic", Detect: []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
-		ACL: "dstdomain .anthropic.com", Hosts: []string{".anthropic.com"}, Auth: []AuthOption{
+		Hosts: []string{".anthropic.com"}, Auth: []AuthOption{
 			{EnvVar: "ANTHROPIC_API_KEY", Header: "x-api-key"},
 			{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Header: "authorization", Bearer: true, Harness: "claudecode"},
 		}},
 	// No bring-your-own-key path (staff-confirmed, forum.cursor.com "Can I use
 	// provider API keys with Cursor cli agent?"): this key is cursor's plan.
 	{Name: "cursor", Detect: []string{"CURSOR_API_KEY"},
-		ACL: "dstdomain .cursor.sh .cursor.com", Hosts: []string{".cursor.sh", ".cursor.com"},
-		Auth: []AuthOption{{EnvVar: "CURSOR_API_KEY", Header: "authorization", Bearer: true, Harness: "cursor"}}},
+		Hosts: []string{".cursor.sh", ".cursor.com"},
+		Auth:  []AuthOption{{EnvVar: "CURSOR_API_KEY", Header: "authorization", Bearer: true, Harness: "cursor"}}},
 	{Name: "openai", Detect: []string{"OPENAI_API_KEY"},
-		ACL: "dstdomain .openai.com .api.openai.com", Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
+		Hosts: []string{".openai.com"}, Auth: bearer("OPENAI_API_KEY")},
 	{Name: "moonshot", Detect: []string{"MOONSHOT_API_KEY"},
-		ACL: "dstdomain .moonshot.ai .kimi.com", Hosts: []string{".moonshot.ai", ".kimi.com"}, Auth: bearer("MOONSHOT_API_KEY")},
+		Hosts: []string{".moonshot.ai", ".kimi.com"}, Auth: bearer("MOONSHOT_API_KEY")},
 	{Name: "cerebras", Detect: []string{"CEREBRAS_API_KEY"},
-		ACL: "dstdomain .cerebras.ai", Hosts: []string{".cerebras.ai"}, Auth: bearer("CEREBRAS_API_KEY")},
+		Hosts: []string{".cerebras.ai"}, Auth: bearer("CEREBRAS_API_KEY")},
 	{Name: "deepinfra", Detect: []string{"DEEPINFRA_API_KEY"},
-		ACL: "dstdomain .deepinfra.com", Hosts: []string{".deepinfra.com"}, Auth: bearer("DEEPINFRA_API_KEY")},
+		Hosts: []string{".deepinfra.com"}, Auth: bearer("DEEPINFRA_API_KEY")},
 	{Name: "baseten", Detect: []string{"BASETEN_API_KEY"},
-		ACL: "dstdomain .baseten.co", Hosts: []string{".baseten.co"}, Auth: bearer("BASETEN_API_KEY")},
+		Hosts: []string{".baseten.co"}, Auth: bearer("BASETEN_API_KEY")},
 	{Name: "perplexity", Detect: []string{"PERPLEXITYAI_API_KEY", "PERPLEXITY_API_KEY"},
-		ACL: "dstdomain .perplexity.ai", Hosts: []string{".perplexity.ai"}, Auth: bearer("PERPLEXITYAI_API_KEY")},
+		Hosts: []string{".perplexity.ai"}, Auth: bearer("PERPLEXITYAI_API_KEY")},
 	{Name: "sambanova", Detect: []string{"SAMBANOVA_API_KEY"},
-		ACL: "dstdomain .sambanova.ai", Hosts: []string{".sambanova.ai"}, Auth: bearer("SAMBANOVA_API_KEY")},
+		Hosts: []string{".sambanova.ai"}, Auth: bearer("SAMBANOVA_API_KEY")},
 	{Name: "nebius", Detect: []string{"NEBIUS_API_KEY"},
-		ACL: "dstdomain .nebius.com .nebius.ai", Hosts: []string{".nebius.com", ".nebius.ai"}, Auth: bearer("NEBIUS_API_KEY")},
+		Hosts: []string{".nebius.com", ".nebius.ai"}, Auth: bearer("NEBIUS_API_KEY")},
 	{Name: "novita", Detect: []string{"NOVITA_API_KEY"},
-		ACL: "dstdomain .novita.ai", Hosts: []string{".novita.ai"}, Auth: bearer("NOVITA_API_KEY")},
+		Hosts: []string{".novita.ai"}, Auth: bearer("NOVITA_API_KEY")},
 	{Name: "venice", Detect: []string{"VENICEAI_API_KEY", "VENICE_API_KEY"},
-		ACL: "dstdomain .venice.ai", Hosts: []string{".venice.ai"}, Auth: bearer("VENICEAI_API_KEY")},
+		Hosts: []string{".venice.ai"}, Auth: bearer("VENICEAI_API_KEY")},
 	{Name: "minimax", Detect: []string{"MINIMAX_API_KEY"},
-		ACL: "dstdomain .minimax.io .minimaxi.com", Hosts: []string{".minimax.io", ".minimaxi.com"}, Auth: bearer("MINIMAX_API_KEY")},
+		Hosts: []string{".minimax.io", ".minimaxi.com"}, Auth: bearer("MINIMAX_API_KEY")},
 	{Name: "copilot", Detect: []string{"GITHUB_COPILOT_API_KEY", "GH_COPILOT_TOKEN"},
-		ACL: "dstdomain .githubcopilot.com .github.com", Hosts: []string{".githubcopilot.com", ".github.com"}, Auth: bearer("GITHUB_COPILOT_API_KEY")},
+		Hosts: []string{".githubcopilot.com", ".github.com"}, Auth: bearer("GITHUB_COPILOT_API_KEY")},
 	{Name: "deepseek", Detect: []string{"DEEPSEEK_API_KEY"},
-		ACL: "dstdomain .deepseek.com", Hosts: []string{".deepseek.com"}, Auth: bearer("DEEPSEEK_API_KEY")},
+		Hosts: []string{".deepseek.com"}, Auth: bearer("DEEPSEEK_API_KEY")},
 	{Name: "huggingface", Detect: []string{"HUGGINGFACE_API_KEY", "HF_TOKEN"},
-		ACL: "dstdomain .huggingface.co .hf.co", Hosts: []string{".huggingface.co", ".hf.co"},
+		Hosts: []string{".huggingface.co", ".hf.co"},
 		Auth: []AuthOption{
 			{EnvVar: "HUGGINGFACE_API_KEY", Header: "authorization", Bearer: true},
 			{EnvVar: "HF_TOKEN", Header: "authorization", Bearer: true},
 		}},
 	{Name: "zai", Detect: []string{"ZAI_API_KEY", "ZHIPUAI_API_KEY"},
-		ACL: "dstdomain .z.ai .bigmodel.cn", Hosts: []string{".z.ai", ".bigmodel.cn"}, Auth: bearer("ZAI_API_KEY")},
+		Hosts: []string{".z.ai", ".bigmodel.cn"}, Auth: bearer("ZAI_API_KEY")},
 	{Name: "xai", Detect: []string{"XAI_API_KEY"},
-		ACL: "dstdomain .x.ai", Hosts: []string{".x.ai"}, Auth: bearer("XAI_API_KEY")},
+		Hosts: []string{".x.ai"}, Auth: bearer("XAI_API_KEY")},
 	{Name: "google", Detect: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
-		ACL: "dstdomain generativelanguage.googleapis.com", Hosts: []string{"generativelanguage.googleapis.com"}, Auth: []AuthOption{
+		Hosts: []string{"generativelanguage.googleapis.com"}, Auth: []AuthOption{
 			{EnvVar: "GEMINI_API_KEY", Header: "x-goog-api-key"},
 			{EnvVar: "GOOGLE_API_KEY", Header: "x-goog-api-key"},
 		}},
 	{Name: "groq", Detect: []string{"GROQ_API_KEY"},
-		ACL: "dstdomain .groq.com", Hosts: []string{".groq.com"}, Auth: bearer("GROQ_API_KEY")},
+		Hosts: []string{".groq.com"}, Auth: bearer("GROQ_API_KEY")},
 	{Name: "mistral", Detect: []string{"MISTRAL_API_KEY"},
-		ACL: "dstdomain .mistral.ai", Hosts: []string{".mistral.ai"}, Auth: bearer("MISTRAL_API_KEY")},
+		Hosts: []string{".mistral.ai"}, Auth: bearer("MISTRAL_API_KEY")},
 	{Name: "cohere", Detect: []string{"COHERE_API_KEY"},
-		ACL: "dstdomain .cohere.com .cohere.ai", Hosts: []string{".cohere.com", ".cohere.ai"}, Auth: bearer("COHERE_API_KEY")},
+		Hosts: []string{".cohere.com", ".cohere.ai"}, Auth: bearer("COHERE_API_KEY")},
 	{Name: "together", Detect: []string{"TOGETHER_API_KEY"},
-		ACL: "dstdomain .together.xyz .together.ai", Hosts: []string{".together.xyz", ".together.ai"}, Auth: bearer("TOGETHER_API_KEY")},
+		Hosts: []string{".together.xyz", ".together.ai"}, Auth: bearer("TOGETHER_API_KEY")},
 	{Name: "fireworks", Detect: []string{"FIREWORKS_API_KEY"},
-		ACL: "dstdomain .fireworks.ai", Hosts: []string{".fireworks.ai"}, Auth: bearer("FIREWORKS_API_KEY")},
+		Hosts: []string{".fireworks.ai"}, Auth: bearer("FIREWORKS_API_KEY")},
 	{Name: "gmi", Detect: []string{"GMI_API_KEY"},
-		ACL: "dstdomain .gmi-serving.com", Hosts: []string{".gmi-serving.com"}, Auth: bearer("GMI_API_KEY")},
+		Hosts: []string{".gmi-serving.com"}, Auth: bearer("GMI_API_KEY")},
 	{Name: "openrouter", Detect: []string{"OPENROUTER_API_KEY"},
-		ACL: "dstdomain openrouter.ai .openrouter.ai", Hosts: []string{"openrouter.ai", ".openrouter.ai"}, Auth: bearer("OPENROUTER_API_KEY")},
+		Hosts: []string{"openrouter.ai", ".openrouter.ai"}, Auth: bearer("OPENROUTER_API_KEY")},
 	// One key, both plans of one gateway: Zen (opencode/<model>) and Go
 	// (opencode-go/<model>) — models.dev lists env ["OPENCODE_API_KEY"] for each.
 	{Name: "opencode", Detect: []string{"OPENCODE_API_KEY"},
-		ACL: "dstdomain .opencode.ai", Hosts: []string{".opencode.ai"},
-		Auth: []AuthOption{{EnvVar: "OPENCODE_API_KEY", Header: "authorization", Bearer: true, Harness: "opencode"}}},
-	{Name: "bedrock", Detect: []string{"AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"},
-		ACL: `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`},
+		Hosts: []string{".opencode.ai"},
+		Auth:  []AuthOption{{EnvVar: "OPENCODE_API_KEY", Header: "authorization", Bearer: true, Harness: "opencode"}}},
+	{Name: "bedrock", Detect: []string{"AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"}},
 	{Name: "azure", Detect: []string{"AZURE_API_KEY", "AZURE_OPENAI_API_KEY"},
-		ACL: "dstdomain .inference.ai.azure.com .services.ai.azure.com .openai.azure.com .cognitiveservices.azure.com"},
-	{Name: "vertex", Detect: []string{"GOOGLE_APPLICATION_CREDENTIALS"},
-		ACL: `dstdom_regex (^|\.)([a-z0-9-]+-)?aiplatform\.googleapis\.com$`},
+		Hosts: []string{".inference.ai.azure.com", ".services.ai.azure.com", ".openai.azure.com", ".cognitiveservices.azure.com"}},
+	{Name: "vertex", Detect: []string{"GOOGLE_APPLICATION_CREDENTIALS"}},
 }
 
 var byName = func() map[string]*Entry {
@@ -150,14 +146,6 @@ func Detect(getenv func(string) string) []string {
 		}
 	}
 	return out
-}
-
-func ACLBody(name string) (string, bool) {
-	e, ok := byName[strings.ToLower(strings.TrimSpace(name))]
-	if !ok {
-		return "", false
-	}
-	return e.ACL, true
 }
 
 func DetectVars() []string {

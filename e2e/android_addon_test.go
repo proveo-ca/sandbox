@@ -45,10 +45,11 @@ func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 
 	proveoBin := buildProveo(t)
 	home, work := t.TempDir(), t.TempDir()
+	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-android-%d", time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + home, "PROVEO_MOUNT_GH_CONFIG=0",
-		proveoBin, "run", target, "--input", work, "--shell"}
+		proveoBin, "run", target, "--input", work}
 	if err := sess.Start(220, 60, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
@@ -58,9 +59,7 @@ func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 		t.Fatalf("accept the form: %v", err)
 	}
 
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 5*time.Minute)
-	w := newWatcher(t, sess)
-	waitForContainerShell(t, w, timeout)
+	k := awaitKit(t, sess, before, target, work)
 
 	log, _ := sess.CaptureAll()
 	if !strings.Contains(log, "android: booting AVD") || !strings.Contains(log, "booted") {
@@ -76,7 +75,7 @@ func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 	probe := `ip="$(getent ahostsv4 host.docker.internal | awk 'NR==1{print $1}')"
 echo "PORT=${PROVEO_HOST_ADB_PORT:-unset}"
 ADB_SERVER_SOCKET="tcp:${ip}:${PROVEO_HOST_ADB_PORT}" adb devices`
-	out, status := shellExec(t, sess, probe, 60*time.Second)
+	out, status := k.exec(probe, 60*time.Second)
 	if status != 0 {
 		t.Fatalf("sandbox probe exited %d:\n%s", status, out)
 	}
@@ -112,10 +111,11 @@ func TestAndroidLeftUntickedOpensNoEmulator(t *testing.T) {
 
 	proveoBin := buildProveo(t)
 	home, work := t.TempDir(), t.TempDir()
+	before, _ := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-android-off-%d", time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + home, "PROVEO_MOUNT_GH_CONFIG=0",
-		proveoBin, "run", target, "--input", work, "--shell"}
+		proveoBin, "run", target, "--input", work}
 	if err := sess.Start(220, 60, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestAndroidLeftUntickedOpensNoEmulator(t *testing.T) {
 		t.Fatalf("the form does not offer an unticked android box:\n%s", screen)
 	}
 	acceptChoicePrompt(t, sess, target)
-	waitForContainerShell(t, newWatcher(t, sess), durationEnv(t, "PROVEO_TEST_TIMEOUT", 5*time.Minute))
+	k := awaitKit(t, sess, before, target, work)
 
 	log, _ := sess.CaptureAll()
 	if strings.Contains(log, "android:") {
@@ -133,24 +133,31 @@ func TestAndroidLeftUntickedOpensNoEmulator(t *testing.T) {
 	if hostadb.Ready(port) {
 		t.Errorf("a device appeared on 127.0.0.1:%d although android was never ticked", port)
 	}
-	out, _ := shellExec(t, sess, `echo "PORT=${PROVEO_HOST_ADB_PORT:-unset}"`, 30*time.Second)
+	out, _ := k.exec(`echo "PORT=${PROVEO_HOST_ADB_PORT:-unset}"`, 30*time.Second)
 	if !strings.Contains(out, "PORT=unset") {
 		t.Errorf("the sandbox received %s without the add-on:\n%s", hostadb.EnvPort, out)
 	}
 }
 
-// stopEmulators kills every emulator on the server and waits until none is listed.
+// stopEmulators kills every emulator on the server, offline ones included, and waits until none is listed.
 func stopEmulators(t *testing.T, port int) {
 	t.Helper()
 	adb := hostadb.AdbBinary(os.Getenv)
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		serials, err := hostadb.Devices(port)
-		if err != nil || len(serials) == 0 {
+		all, err := hostadb.AllDevices(port)
+		if err != nil {
 			return
 		}
-		for _, s := range serials {
-			_ = exec.Command(adb, "-P", strconv.Itoa(port), "-s", s, "emu", "kill").Run()
+		left := 0
+		for _, d := range all {
+			if d.Emulator() {
+				left++
+				_ = exec.Command(adb, "-P", strconv.Itoa(port), "-s", d.Serial, "emu", "kill").Run()
+			}
+		}
+		if left == 0 {
+			return
 		}
 		time.Sleep(2 * time.Second)
 	}

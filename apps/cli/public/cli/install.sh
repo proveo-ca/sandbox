@@ -6,8 +6,7 @@ set -euo pipefail
 
 INSTALL_ROOT="${PROVEO_INSTALL_ROOT:-$HOME/.proveo}"
 BIN_DIR="$INSTALL_ROOT/bin"
-ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-https://proveo.ca/cli}"
-CLI_BASE_URL="${PROVEO_CLI_BASE_URL:-https://proveo.ca/cli}"
+ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-${PROVEO_CLI_BASE_URL:-https://proveo.ca/cli}}"
 
 PATH_MARKER_START="# Added by proveo install.sh"
 PATH_MARKER_END="# End added by proveo install.sh"
@@ -290,6 +289,11 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 mkdir -p "$BIN_DIR"
 
+if [[ -n "${PROVEO_CLI_BASE_URL:-}" && -n "${PROVEO_ASSET_BASE_URL:-}" ]]; then
+  print_error "PROVEO_CLI_BASE_URL is deprecated and ignored: PROVEO_ASSET_BASE_URL is set"
+elif [[ -n "${PROVEO_CLI_BASE_URL:-}" ]]; then
+  print_error "PROVEO_CLI_BASE_URL is deprecated and goes away next release; it now points the whole channel — set PROVEO_ASSET_BASE_URL"
+fi
 print_info "Resolving release channel…"
 if download_file "$ASSET_BASE_URL/latest.json" "$TMP_DIR/latest.json" 2>/dev/null; then
   :
@@ -301,7 +305,7 @@ PROVEO_VERSION="$(resolve_channel_version "$TMP_DIR/latest.json")"
 print_info "Downloading $ASSET_NAME (v$PROVEO_VERSION)..."
 download_file "$ASSET_BASE_URL/checksums.txt" "$TMP_DIR/checksums.txt"
 download_file "$ASSET_BASE_URL/bin/$ASSET_NAME" "$TMP_DIR/$ASSET_NAME"
-download_file "$CLI_BASE_URL/uninstall.sh" "$INSTALL_ROOT/uninstall.sh"
+download_file "$ASSET_BASE_URL/uninstall.sh" "$INSTALL_ROOT/uninstall.sh"
 
 verify_checksum "$TMP_DIR/$ASSET_NAME" "$TMP_DIR/checksums.txt"
 

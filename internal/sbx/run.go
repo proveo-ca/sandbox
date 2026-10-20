@@ -125,6 +125,7 @@ type RunConfig struct {
 	Mounts  []Mount // workspace binds, passed POSITIONALLY
 	Publish []string
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
+	EnvFile string   // KEY=value file sbx loads with --env-file
 	Command []string // trailing agent command (after "--")
 }
 
@@ -133,12 +134,7 @@ func CreateArgs(cfg RunConfig) []string {
 	return append([]string{"create"}, RunArgs(cfg)[1:]...)
 }
 
-// Reattach is the launch config for a sandbox that already exists. Its stored
-// spec owns the Kit, image, environment, agent, workspaces, ports and limits;
-// sbx accepts only the existing name plus optional trailing agent arguments.
-//
-// Callers must retain the full config separately: mounts and env are still
-// needed to preserve clone and agent state after the reattached run exits.
+// Reattach is the launch config for a sandbox that already exists.
 func Reattach(cfg RunConfig) RunConfig {
 	return RunConfig{
 		Name:    cfg.Name,
@@ -172,6 +168,9 @@ func RunArgs(cfg RunConfig) []string {
 	for _, e := range cfg.Env {
 		args = append(args, "-e", e)
 	}
+	if cfg.EnvFile != "" {
+		args = append(args, "--env-file", cfg.EnvFile)
+	}
 	if cfg.Agent != "" {
 		args = append(args, cfg.Agent)
 	}
@@ -193,10 +192,29 @@ func CloneRemote(name string) string { return "sandbox-" + name }
 
 func CloneRefs(name string) string { return "refs/proveo/" + name }
 
+// CloneModeArgs prints "clone" inside a sandbox sbx created with --clone, else "direct".
+func CloneModeArgs(name string) []string {
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c", "[ -d /run/sandbox/source ] && echo clone || echo direct"}
+}
+
+// CloneSnapshotArgs commits the clone's uncommitted work and puts a detached HEAD
+// and every stash on a branch the carry fetches.
 func CloneSnapshotArgs(name, workdir string) []string {
-	return []string{"exec", "-w", workdir, name, "--", "bash", "-c",
-		"git add -A && (git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
-			"commit -q -m 'proveo: uncommitted work at teardown (left in the clone by the agent)')"}
+	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
+		"cd " + bashQuote(workdir) + " 2>/dev/null || exit 0\n" +
+			"if ! git rev-parse --git-dir >/dev/null 2>&1; then [ -z \"$(ls -A)\" ] && exit 0; exit 1; fi\n" +
+			"git add -A && { git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
+			"-c core.hooksPath=/dev/null -c commit.gpgsign=false " +
+			"commit -q --no-verify -m 'proveo: uncommitted work at teardown (left in the clone by the agent)'; } || exit 1\n" +
+			"head=$(git symbolic-ref -q HEAD)\n" +
+			"for r in $(git for-each-ref --format='%(refname)' 'refs/heads/proveo/stash-*'); do " +
+			"[ \"$r\" = \"$head\" ] || git -c core.hooksPath=/dev/null update-ref -d \"$r\" || exit 1; done\n" +
+			"[ -n \"$head\" ] || [ -n \"$(git for-each-ref --contains HEAD refs/heads)\" ] || " +
+			"git -c core.hooksPath=/dev/null update-ref refs/heads/proveo/detached-head HEAD || exit 1\n" +
+			"i=0\n" +
+			"for s in $(git stash list --format=%H); do " +
+			"[ \"refs/heads/proveo/stash-$i\" = \"$head\" ] || " +
+			"git -c core.hooksPath=/dev/null update-ref \"refs/heads/proveo/stash-$i\" \"$s\" || exit 1; i=$((i+1)); done\n"}
 }
 
 // CloneFetchArgs lifts the sandbox's branches onto the host.
@@ -387,6 +405,27 @@ func ShellLine(args []string) string {
 
 func NotFound(out string) bool {
 	return strings.Contains(strings.ToLower(out), "not found")
+}
+
+var agentExitLine = regexp.MustCompile(`agent exited with code (\d+)\b`)
+
+// RunExitCode is the agent's own code when `sbx run` exits 1 after naming a non-zero one in lines, else status.
+// SPEC: _spec/internal/backend/exit-code.puml
+func RunExitCode(status int, lines []string) int {
+	if status != 1 {
+		return status
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		m := agentExitLine.FindAllStringSubmatch(lines[i], -1)
+		if len(m) == 0 {
+			continue
+		}
+		if code, err := strconv.Atoi(m[len(m)-1][1]); err == nil && code != 0 {
+			return code
+		}
+		return status
+	}
+	return status
 }
 
 var authLoginArgs = map[string][]string{

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,37 +68,36 @@ func TestPortsPublishE2E(t *testing.T) {
 	}
 	_ = first.SendKeys("Space")
 	_ = first.Enter()
-	assertServed(t, first)
-	_ = first.SendText("exit")
-	_ = first.Enter()
-	if _, ok := waitSessionExit(first, 2*time.Minute); !ok {
-		t.Fatal("first run never exited")
+	assertServed(t, first, work)
+	if screen, ok := stopRun(first, 3*time.Minute); !ok {
+		t.Fatalf("first run never exited after SIGTERM\n%s", screen)
 	}
 
 	second := startRun(t, proveoBin, home, image, work, "second", "--yes")
-	assertServed(t, second)
+	assertServed(t, second, work)
 }
 
 func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...string) *tmux.Session {
 	t.Helper()
 	sess := tmux.New(fmt.Sprintf("proveo-ports-%s-%d", tag, os.Getpid()), nil)
-	t.Cleanup(sess.Kill)
+	t.Cleanup(func() { stopRun(sess, 3*time.Minute) })
 	args := append([]string{"env", "PROVEO_HOME=" + home, proveoBin, "run", "claudecode",
-		"--image", image, "--input", work, "--scope", ".", "--shell"}, extra...)
+		"--image", image, "--input", work, "--scope", "."}, extra...)
 	if err := sess.Start(160, 50, args...); err != nil {
 		t.Fatalf("start tmux session: %v", err)
 	}
 	return sess
 }
 
-// assertServed waits for the publish report, then GETs the sandbox's own server from the host.
-func assertServed(t *testing.T, sess *tmux.Session) {
+// assertServed waits for the publish report and the running sandbox, then GETs the sandbox's own server from the host.
+func assertServed(t *testing.T, sess *tmux.Session, work string) {
 	t.Helper()
 	if _, err := sess.WaitFor(fmt.Sprintf("→ sandbox :%d", guestPort), 3*time.Minute); err != nil {
 		screen, _ := sess.CaptureAll()
 		t.Fatalf("publish never reported: %v\n%s", err, screen)
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/PORTS_OK", hostPortFor(t, sess))
+	awaitRunning(work, 3*time.Minute)
 	deadline := time.Now().Add(2 * time.Minute)
 	for {
 		if body, ok := get(url); ok && strings.Contains(body, "ports-e2e") {
@@ -107,6 +107,17 @@ func assertServed(t *testing.T, sess *tmux.Session) {
 			screen, _ := sess.CaptureAll()
 			t.Fatalf("GET %s never reached the server proveo started:\n%s", url, screen)
 		}
+		time.Sleep(time.Second)
+	}
+}
+
+// awaitRunning returns once work's claudecode sandbox runs, or after within.
+func awaitRunning(work string, within time.Duration) {
+	names := []string{sbx.SandboxName("claudecode", work)}
+	if real, err := filepath.EvalSymlinks(work); err == nil && real != work {
+		names = append(names, sbx.SandboxName("claudecode", real))
+	}
+	for end := time.Now().Add(within); time.Now().Before(end) && !slices.ContainsFunc(names, sbx.Running); {
 		time.Sleep(time.Second)
 	}
 }

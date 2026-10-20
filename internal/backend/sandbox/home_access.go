@@ -12,16 +12,24 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // HomeAccess is the narrow host-state view an sbx run receives. The whole
 // proveo home is deliberately absent: an attached editor must not inherit
 // every prior run log merely because the agent needs its own config and tools.
 type HomeAccess struct {
-	Root      string
-	FilesRoot string
-	Mounts    []runner.Mount
-	files     []string
+	Root         string
+	FilesRoot    string
+	Mounts       []runner.Mount
+	SkippedLinks []string // "<link> → <target>" for links whose target manifest.LinkedDirsFile does not list
+	files        []string
+}
+
+func noteSkippedLinks(a HomeAccess) {
+	for _, l := range a.SkippedLinks {
+		ui.Notef("home link %s not followed — list its target in %s to mount it read-only", l, filepath.Join(a.Root, manifest.LinkedDirsFile))
+	}
 }
 
 func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error) {
@@ -39,9 +47,6 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 			return err
 		}
 		seen[path] = true
-		// sbx mounts workspace directories at their host path; Container is
-		// intentionally empty so WorkspaceBinds does not treat this as the
-		// docker-only /proveo-home nesting.
 		a.Mounts = append(a.Mounts, runner.Mount{Host: path})
 		return nil
 	}
@@ -58,8 +63,11 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 	if err := addDir(filepath.Join(root, "toolchains")); err != nil {
 		return HomeAccess{}, fmt.Errorf("sandbox home access: %w", err)
 	}
+	listed := listedLinkTargets(root)
 	for _, m := range a.Mounts[:declared] {
-		for _, l := range linkedDirs(root, m.Host) {
+		links, skipped := linkedDirs(root, m.Host, listed)
+		a.SkippedLinks = append(a.SkippedLinks, skipped...)
+		for _, l := range links {
 			if !seen[l.Host] {
 				seen[l.Host] = true
 				a.Mounts = append(a.Mounts, l)
@@ -86,16 +94,32 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 	return a, nil
 }
 
-// linkedDirs is dir's first-level symlinks to directories outside the proveo
-// home, as read-only mounts of their resolved targets.
-// SPEC: _spec/internal/sbx/ide-attach.puml (LINKED DIRS FOLLOW, READ-ONLY)
-func linkedDirs(root, dir string) []runner.Mount {
-	entries, err := os.ReadDir(dir)
+// listedLinkTargets is the resolved set of absolute targets root's manifest.LinkedDirsFile names.
+func listedLinkTargets(root string) map[string]bool {
+	b, err := os.ReadFile(filepath.Join(root, manifest.LinkedDirsFile))
 	if err != nil {
 		return nil
 	}
+	set := map[string]bool{}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || !filepath.IsAbs(line) {
+			continue
+		}
+		set[realPath(filepath.Clean(line))] = true
+	}
+	return set
+}
+
+// linkedDirs mounts read-only the targets of dir's first-level symlinks that
+// leave the proveo home and appear in listed, and returns the links it skipped.
+// SPEC: _spec/internal/sbx/ide-attach.puml (LINKED DIRS FOLLOW, READ-ONLY)
+func linkedDirs(root, dir string, listed map[string]bool) (out []runner.Mount, skipped []string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil
+	}
 	home := realPath(root)
-	var out []runner.Mount
 	for _, e := range entries {
 		if e.Type()&fs.ModeSymlink == 0 {
 			continue
@@ -110,9 +134,13 @@ func linkedDirs(root, dir string) []runner.Mount {
 		if within(target, home) || within(home, target) || len(strings.Split(strings.Trim(filepath.ToSlash(target), "/"), "/")) < 2 {
 			continue
 		}
+		if !listed[target] {
+			skipped = append(skipped, filepath.Join(dir, e.Name())+" → "+target)
+			continue
+		}
 		out = append(out, runner.Mount{Host: target, ReadOnly: true})
 	}
-	return out
+	return out, skipped
 }
 
 func within(path, dir string) bool {

@@ -1,8 +1,7 @@
+# SPEC: _spec/_devops/image-size-reduction.puml
 ARG BASE_IMAGE=proveo/base-node-lsp:latest
 
 FROM ${BASE_IMAGE}
-
-ARG DEBIAN_FRONTEND=noninteractive
 
 ARG USER_ID=1000
 ARG USER_NAME=opencode
@@ -22,10 +21,8 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-# An inherited WORKDIR under /home/agent can be recreated by the builder between
-# RUN steps, and usermod refuses to move a home onto a path that exists. rmdir
-# clears ONLY an empty stub — real content still fails loudly rather than being
-# silently discarded. SPEC: _spec/_devops/sandbox-template-rebase.puml
+# rmdir clears only an empty inherited-WORKDIR stub; a real /home/agent still fails the move.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
 RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then \
       rmdir /home/agent/workspace 2>/dev/null || true; \
       rmdir /home/agent 2>/dev/null || true; \
@@ -37,15 +34,6 @@ RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then 
     fi \
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
-
-RUN --mount=type=cache,id=proveo-opencode-apt-cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,id=proveo-opencode-apt-lists,target=/var/lib/apt,sharing=locked \
-    apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends \
-    && rm -rf /tmp/* /var/tmp/* \
-    && /usr/local/sbin/proveo-harden
-
-# SPEC: _spec/_plans/image-size-reduction.puml
 
 RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \
@@ -73,17 +61,12 @@ RUN mkdir -p /workspace \
 COPY defs/opencode/defaults/ /opt/opencode/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
 COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
-COPY defs/lib/ /opt/proveo/lib/
 
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh
-COPY packages/lib/opencode-credentials.py /usr/local/lib/proveo/opencode-credentials.py
 COPY defs/opencode/harness.manifest /usr/local/lib/proveo/opencode.harness.manifest
 COPY --chmod=0755 packages/lib/proveo-opencode-runtime /usr/local/bin/proveo-opencode-runtime
-COPY --chmod=0755 packages/lib/proveo-opencode-preflight /usr/local/bin/proveo-opencode-preflight
-COPY packages/lib/opencode_startup.py /usr/local/bin/opencode_startup.py
-COPY packages/lib/opencode_cache.py /usr/local/bin/opencode_cache.py
-RUN python3 -c 'import ctypes, fcntl, sqlite3, sys; assert sqlite3.sqlite_version_info >= (3, 33, 0); assert sys.version_info >= (3, 11)'
+RUN python3 -c 'import sqlite3'
 # The sbx Kit names this as its ONE startup command for every target
 # (internal/sbx SeedCommand), so an image that runs on sbx and does not ship
 # it fails startup with exit 127 and seeds nothing.
@@ -115,4 +98,4 @@ LABEL security.non-root=true \
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD opencode --version >/dev/null 2>&1 || exit 1
 
-ENTRYPOINT ["dumb-init", "--", "/usr/local/bin/proveo-opencode-preflight", "/entrypoint.sh"]
+ENTRYPOINT ["dumb-init","--","/entrypoint.sh"]

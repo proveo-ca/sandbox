@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/cdn/distribution-update.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/internal/cdn/distribution-update.puml
 package main
 
 import (

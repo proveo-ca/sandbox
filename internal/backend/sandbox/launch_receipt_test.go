@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
+
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -23,13 +24,13 @@ func launchCfg(sid string, env ...string) sbx.RunConfig {
 	return sbx.RunConfig{
 		Name: "proveo-hermes-abc", Image: "proveo/hermes:local", Clone: true,
 		Mounts: []sbx.Mount{{Host: "/w"}},
-		Env:    append([]string{"PROVEO_EGRESS_SESSION_ID=" + sid, "FILES=/state/egress/" + sid + "/home"}, env...),
+		Env:    append([]string{"SESSION_ID=" + sid, "FILES=/state/runs/" + sid + "/home"}, env...),
 	}
 }
 
 func TestReceiptIgnoresThePerRunSessionID(t *testing.T) {
 	t.Parallel()
-	kit := func(sid string) []byte { return []byte("kitDir: /state/egress/" + sid + "/sbx/kit\n") }
+	kit := func(sid string) []byte { return []byte("kitDir: /state/runs/" + sid + "/sbx/kit\n") }
 	a := receiptOf(launchCfg("proveo-1-1"), kit("proveo-1-1"), "proveo-1-1", "img1")
 	b := receiptOf(launchCfg("proveo-2-2"), kit("proveo-2-2"), "proveo-2-2", "img1")
 	if got := b.changes(&a); got != nil {
@@ -102,7 +103,7 @@ func TestAHeadedYesReplacesARunningSandboxForAnyHarness(t *testing.T) {
 	now := receiptOf(cfg, []byte("k2"), "s1", "img2")
 	now.Image = cfg.Image
 	var asked []string
-	confirmStaleSandbox = func(name string, changed []string, live, clone bool) (bool, bool) {
+	confirmStaleSandbox = func(name string, changed []string, live, clone, history bool) (bool, bool) {
 		asked = append([]string{}, name)
 		asked = append(asked, changed...)
 		if !live {
@@ -130,7 +131,7 @@ func TestAHeadedNoKeepsAStoppedSandbox(t *testing.T) {
 	stubReceiptDir(t)
 	previous := confirmStaleSandbox
 	t.Cleanup(func() { confirmStaleSandbox = previous })
-	confirmStaleSandbox = func(string, []string, bool, bool) (bool, bool) { return false, true }
+	confirmStaleSandbox = func(string, []string, bool, bool, bool) (bool, bool) { return false, true }
 	cfg := launchCfg("s1")
 	writeReceipt(cfg.Name, receiptOf(cfg, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, []byte("k2"), "s1", "img")
@@ -142,13 +143,13 @@ func TestAHeadedNoKeepsAStoppedSandbox(t *testing.T) {
 	}
 }
 
-func TestAHeadedYesDoesNotRetireAnUnpublishedOpenCodeEngine(t *testing.T) {
+func TestAnOpenCodeEngineFollowsTheStaleSandboxRuleAndCarriesItsHistory(t *testing.T) {
 	stubReceiptDir(t)
 	previous := confirmStaleSandbox
 	t.Cleanup(func() { confirmStaleSandbox = previous })
-	asked := false
-	confirmStaleSandbox = func(string, []string, bool, bool) (bool, bool) {
-		asked = true
+	var history bool
+	confirmStaleSandbox = func(_ string, _ []string, _, _, h bool) (bool, bool) {
+		history = h
 		return true, true
 	}
 	cfg := launchCfg("s1")
@@ -158,8 +159,11 @@ func TestAHeadedYesDoesNotRetireAnUnpublishedOpenCodeEngine(t *testing.T) {
 	retired := 0
 	err := retireIfStale(Input{Target: "opencode"}, cfg, now, func(string) bool { return true }, func(string) bool { return true },
 		func(Input, sbx.RunConfig) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
-	if err == nil || retired != 0 || asked || !strings.Contains(err.Error(), "unpublished or unattested") {
-		t.Fatalf("unpublished OpenCode state must block replacement: err=%v retired=%d asked=%v", err, retired, asked)
+	if err != nil || retired != 1 {
+		t.Fatalf("a headed yes must replace a live OpenCode engine like any sandbox: err=%v retired=%d", err, retired)
+	}
+	if !history {
+		t.Error("the upgrade prompt for an OpenCode engine does not say its history moves")
 	}
 }
 

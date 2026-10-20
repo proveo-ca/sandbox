@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -19,14 +19,13 @@ import (
 // asserts Ctrl+C opens the close confirm instead of deleting the session.
 func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	requireTmux(t)
-	if runtime.GOOS == "linux" {
-		if _, err := os.Stat("/dev/kvm"); err != nil {
-			t.Skip("sbx backend needs /dev/kvm; without it proveo never opens the headed confirm")
-		}
-	}
 	binDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(binDir, "sbx"), []byte(fakeSbx), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "sbx"), []byte(fakeSbx(sbx.MinVersion)), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if ok, why := sbx.Available(); !ok {
+		t.Skipf("this platform cannot host sbx (%s), so proveo never opens the headed confirm", why)
 	}
 	proveoBin := buildProveo(t)
 	home := t.TempDir()
@@ -34,17 +33,17 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	const image = "proveo/close-confirm:e2e"
 
 	sess := tmux.New(fmt.Sprintf("proveo-closecfm-%d", os.Getpid()), nil)
-	t.Cleanup(sess.Kill)
+	t.Cleanup(func() { stopRun(sess, time.Minute) })
 	if err := sess.Start(120, 40, "env",
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 		"PROVEO_WIZARD=off",
 		"PROVEO_HOME="+home,
 		"PROVEO_MOUNT_GH_CONFIG=0",
-		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		proveoBin, "run", "opencode",
-		"--yes", "--clone=false", "--shell",
-		"--egress-mode", "open", "--credentials", "forward",
+		"PATH="+os.Getenv("PATH"),
+		proveoBin, "run", "claudecode",
+		"--yes", "--clone=false",
+		"--credentials", "forward",
 		"--image", image, "--input", work,
 	); err != nil {
 		t.Fatalf("start tmux: %v", err)
@@ -53,9 +52,6 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	screen, err := sess.WaitFor("SBX_HEADED_READY", 45*time.Second)
 	if err != nil {
 		t.Fatalf("the headed sbx client never attached:\n%s", screen)
-	}
-	if strings.Contains(screen, "falling back to docker+egress") {
-		t.Fatalf("the run left the sbx backend, so Ctrl+C would not open the confirm:\n%s", screen)
 	}
 	if err := sess.SendKeys("C-c"); err != nil {
 		t.Fatal(err)
@@ -88,13 +84,18 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	t.Fatalf("n did not return to the session:\n%s", after)
 }
 
-const fakeSbx = `#!/bin/sh
+// fakeSbx is an sbx that reports version, lists the test template, and holds a headed run.
+func fakeSbx(version string) string {
+	return strings.ReplaceAll(fakeSbxScript, "VERSION", version)
+}
+
+const fakeSbxScript = `#!/bin/sh
 case "$1" in
   version)
     if [ "$2" = "--json" ]; then
-      printf '%s\n' '{"client":{"version":"0.42.0"}}'
+      printf '%s\n' '{"client":{"version":"VERSION"}}'
     else
-      printf '%s\n' 'sbx version: v0.42.0 deadbeef'
+      printf '%s\n' 'sbx version: vVERSION deadbeef'
     fi
     ;;
   template)

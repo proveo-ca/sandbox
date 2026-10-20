@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml
 package imagetest_test
 
 import (
@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/imagetest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 // SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/_devops/agent-version-pin.puml, _spec/defs/agent-definition-sharing.puml
 func TestImageCecli(t *testing.T) {
-	image := imagetest.Resolve("PROVEO_CECLI_IMAGE", "proveo/cecli:latest")
+	image := imagetest.Resolve("cecli", "proveo/cecli:latest")
 	s := imagetest.New(t, image)
 
 	t.Log("── Runtime user checks ──────────────────────────────")
@@ -21,18 +22,28 @@ func TestImageCecli(t *testing.T) {
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c",
 			`[ "$(id -u)" != "0" ] && [ "$(whoami)" = "cecli" ] && ! command -v gosu >/dev/null`},
 		[]string{"run", "--rm", "--user", "4242:4242", "--entrypoint", "bash", image, "-c",
-			`source /entrypoint-lib.sh && ensure_runtime_user && [ "$(id -u)" = "4242" ] && [ -w "$HOME" ]`},
+			`source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && [ "$(id -u)" = "4242" ] && [ -w "$HOME" ]`},
 	)
 
 	cecliAll(s, "ships the Kit's startup command (/usr/local/bin/proveo-seed)",
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `test -x /usr/local/bin/proveo-seed`},
 	)
 
+	seedOnly := sbx.SeedEntrypointCommand("cecli").Command
+	s.Check("the Kit's seed-only entrypoint step runs cecli-entrypoint under su's PATH", func(t *testing.T) {
+		args := append([]string{"run", "--rm", "--network", "none", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false",
+			"--entrypoint", seedOnly[0], image, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}, seedOnly[1:]...)
+		r := imagetest.Docker(imagetest.DefaultTimeout, nil, args...)
+		if !r.OK() || !strings.Contains(r.Out, "seed-only: cecli") {
+			t.Fatalf("docker %s: %v — sbx fails the sandbox start on this step\n%s", strings.Join(args, " "), r.Err, r.Out)
+		}
+	})
+
 	cecliAll(s, "git + gh + ffmpeg baked in, env git identity resolves via git config",
 		[]string{"run", "--rm", "--entrypoint", "bash", image, "-c", `git --version && gh --version && ffmpeg -hide_banner -version`},
 		[]string{"run", "--rm", "--user", "4242:4242", "--entrypoint", "bash",
 			"-e", "GIT_AUTHOR_NAME=Proveo Dev", "-e", "GIT_AUTHOR_EMAIL=dev@proveo.test", image, "-c", `
-    source /entrypoint-lib.sh && ensure_runtime_user && bridge_git_identity \
+    source /entrypoint-lib.sh && proveo-entrypoint prep >/dev/null && bridge_git_identity \
       && [ "$(git config --get user.name)" = "Proveo Dev" ] \
       && [ "$(git config --get user.email)" = "dev@proveo.test" ]`},
 	)

@@ -54,7 +54,7 @@ title cecli paradigm — pair-programming specialist (precise, low-token, human-
 '
 ' NOTE: this supersedes the older "the ollama_chat/ prefix matters" reading.
 ' Nothing normalises the id ahead of this block any more — the bridge table that
-' did is retired (_spec/_plans/retire-model-bridging.puml) — so this block is now
+' did is retired (_spec/internal/entrypoint/model-alias-bridges.puml) — so this block is now
 ' the ONLY thing that writes the three CECLI_* slots, and it does so from
 ' PROVEO_LOCAL_MODEL alone. Without --local-model cecli takes its model from its
 ' own .cecli.conf.yml, and proveo names none.
@@ -71,10 +71,17 @@ title cecli paradigm — pair-programming specialist (precise, low-token, human-
 ' _spec/packages/lib/seed-and-launch.puml.
 '
 ' Evidence and --rules flags are ours to add, and both belong ONLY on a cecli
-' invocation. So the argv rule has three cases: no arguments, or a leading
-' flag, or a first word that is not one of the passthrough commands
-' (cecli, bash, sh, python, python3, node, npm, pnpm, git, curl) — those get
-' the flags prepended; a passthrough is exec'd untouched.
+' invocation. The entrypoint passes them to proveo_exec_agent as cecli's launch
+' flags, before `--`, and that function probes the first word of "$@": an
+' executable FILE on PATH (`type -P`) is exec'd untouched, with no flags; no
+' arguments, a leading flag, or any other first word (a prompt) launches cecli
+' with the flags prepended (_spec/packages/lib/seed-and-launch.puml).
+' The hand-written allowlist this replaced — cecli, bash, sh, python, python3,
+' node, npm, pnpm, git, curl — could never be complete: a missing name was
+' appended to cecli as a positional, which cecli reads as a prompt. The probe
+' keeps every name the list held and is correct for the ones it forgot. On
+' sbx, the only backend, "$@" can be the whole COMMAND the agent kit supplied
+' in the CMD position (moved from defs/cecli/entrypoint.sh, N14).
 '
 actor "Developer\nsupplies exact references" as DEV
 
@@ -110,7 +117,7 @@ note bottom of EP
   Shared entrypoint contract (see
   _spec/packages/lib/steps.puml and
   _spec/cmd/proveo-entrypoint/prep-process-boundary.puml):
-  non-root any-uid, in-shell ""load_env"", credential and
+  non-root any-uid, in-shell ""bridge_google_keys"", credential and
   git identity bridge + context report, verification
   command discovery, smoke-test mode.
 

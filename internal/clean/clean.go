@@ -25,7 +25,9 @@ type Inventory struct {
 	Egress           []Container // containers labeled proveo.egress.session
 	Networks         []Net       // networks labeled proveo.egress.session
 	LegacyDind       []Container
-	StateDirs        []string // session ids present under <stateDir>/egress/
+	Volumes          []string // proveo-squid-cache-* volumes the retired docker backend left
+	StateDirs        []string // session ids present under any run.RunRoots() root
+	LiveSessions     []string // session ids whose proveo process still runs
 	Images           []string // proveo/* image refs (populated only for --deep)
 	ToolDirs         []ToolDir
 	Sandboxes        []string
@@ -42,6 +44,7 @@ type Options struct {
 type Plan struct {
 	Containers  []string
 	Networks    []string
+	Volumes     []string
 	StateDirs   []string
 	Images      []string
 	ToolDirs    []string
@@ -50,6 +53,9 @@ type Plan struct {
 
 func BuildPlan(inv Inventory, o Options) Plan {
 	live := map[string]bool{}
+	for _, sid := range inv.LiveSessions {
+		live[sid] = true
+	}
 	for _, c := range inv.Egress {
 		if c.Running && c.Session != "" {
 			live[c.Session] = true
@@ -77,6 +83,18 @@ func BuildPlan(inv Inventory, o Options) Plan {
 			continue
 		}
 		p.Networks = append(p.Networks, n.Name)
+	}
+
+	egressRunning := false
+	for _, c := range inv.Egress {
+		egressRunning = egressRunning || c.Running
+	}
+	for _, v := range inv.Volumes {
+		if egressRunning && !o.Force {
+			p.SkippedLive = append(p.SkippedLive, "volume "+v)
+			continue
+		}
+		p.Volumes = append(p.Volumes, v)
 	}
 
 	for _, sid := range inv.StateDirs {

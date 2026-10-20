@@ -1,11 +1,76 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: why a package exists for one type, and why the interface it was created for is never written
+' purpose: why a package exists for its exit-status types, how main turns them into proveo's exit code, and why the interface it was created for is never written
 ' covers: internal/backend/backend.go
 ' covers: internal/backend/backend_test.go
+' covers: cmd/proveo/main.go (main, exitCode)
+' covers: cmd/proveo/main_test.go (TestExitCodeIsTheAgentsOrTheStoppingSignals)
+' covers: internal/sbx/run.go (RunExitCode)
+' covers: internal/sbx/sbx_test.go (TestRunExitCodeTakesTheAgentsCodeSbxNamed)
+'   where a stop becomes Stopped .... _spec/internal/sbx/kit-lifecycle.puml
+'   the transcript's outcome line .. _spec/internal/runlog/run-transcript.puml
+'   the tail the code is read from . _spec/internal/agentio/agent-terminal-io.puml
 '
-' ── ONE TYPE, AND THAT IS THE FINISHED STATE ───────────────────────────────
+' ── 2026-10-20: sbx EXITS 1 AND NAMES THE AGENT'S CODE ─────────────────────
+' MEASURED by e2e/stream_palette_test.go (fake cecli exits 3): the screen read
+' `error: agent exited with code 3` from sbx, then proveo's own
+' `× the agent exited with code 1` and PROVEO_EXIT=1. Run passed `sbx run`'s
+' process status through (ExitError{ee.ExitCode()}), and that status was 1.
+' [Inference] The newer sbx prints the agent's code, then exits 1 itself.
+' FIX: sbx.RunExitCode(status, tail.Lines()) — pure, internal/sbx/run.go:
+'   status ≠ 1                          → status (137, 0, a signal's -1)
+'   status = 1, a line matches
+'   `agent exited with code (\d+)`      → the LAST match, when it is non-zero
+'   last match names 0, or none matches → 1 (sbx's own failure stays 1)
+' "-1" never matches (\d+), so sbx's "code -1" for a killed agent stays 1.
+' Run applies it where it builds ExitError, on BOTH paths that feed the tail:
+' the pty proxy's OutTap (headed, filtered) and the MultiWriter tee
+' (streamed, non-TTY). A TTY run with the filter off and no stdin trace hands
+' sbx the terminal directly, so its tail is empty and the status stays sbx's.
+' Pinned by TestRunExitCodeTakesTheAgentsCodeSbxNamed (sbx_test.go): named,
+' no line, code 0, last line wins, last match in a line wins, negative, and
+' status pass-through.
+'
+' ── 2026-10-17: A SECOND TYPE, Stopped ─────────────────────────────────────
+' The user, on a stopped run's exit status: "Exit 128+sig, 'stopped'
+' (Recommended)". MEASURED, internal/backend/backend.go:
+'   type Stopped struct{ Signal syscall.Signal }
+'   Error() "stopped by SIGTERM" | "stopped by SIGHUP" | "stopped by signal N"
+'   Code()  128 + signal → 143 for SIGTERM, 129 for SIGHUP
+' internal/backend/sandbox Run returns Stopped when a forwarded SIGTERM/SIGHUP
+' ended the run and the operator had not chosen Ctrl+C remove; teardown runs as
+' on a normal exit. cmd/proveo main's exitCode(err) recovers ExitError → Code
+' and Stopped → Code() through errors.As, and main calls os.Exit with it,
+' printing nothing; any other error prints and exits 1. So a shell, CI step or
+' the scheduler's `echo $? > <run>.exit` reads 143 for a stop, the status a
+' shell reports for a process SIGTERM ended. A stop is neither success (0) nor
+' proveo's own failure (1).
+' Pinned by TestAStopExitsWith128PlusTheSignal (backend_test.go, through a %w
+' wrap) and TestExitCodeIsTheAgentsOrTheStoppingSignals (main_test.go).
+' COVERAGE CHOICE: cmd/proveo/main.go and main_test.go are covered here because
+' main and exitCode turn the command's error into proveo's process status; a
+' change there must flag this spec even though both files mostly hold unrelated
+' commands. Expect drift reports from those unrelated edits too.
+' The package-placement argument below applies to Stopped as it does to
+' ExitError: internal/backend/sandbox builds it and cmd/proveo reads it.
+' internal/run's recordOutcome only prints it (%v), through its default branch.
+'
+' ── 2026-10-16: ONE BACKEND LEFT ───────────────────────────────────────────
+' internal/backend/dockeregress is DELETED with the docker+egress backend
+' ("Retire Docker egress"); internal/backend/sandbox is the only consumer of
+' ExitError besides cmd/proveo, and run.selectBackend became launchSandbox. The
+' dependency-direction argument below weakens with one backend: placing
+' ExitError inside internal/backend/sandbox no longer forces a sibling import.
+' DECIDED 2026-10-18 (repo-simplification.puml N16, option 2): the user's
+' "Apply N16" took the [rec], "Keep the package as the home of run errors;
+' nothing else to do". No source changed. MEASURED: three packages import it —
+' internal/backend/sandbox builds both types, internal/run matches ExitError in
+' recordOutcome, and cmd/proveo maps both to a status in exitCode.
+' Everything below that names dockeregress or "both backends" is HISTORY.
+'
+' ── NO INTERFACE, AND THAT IS THE FINISHED STATE ───────────────────────────
+' (Until 2026-10-17 the package held ONE type, ExitError; Stopped is the second.)
 ' The package was created during the cmd/proveo decomposition to hold what the
 ' two backends share, with a Plan(RunSpec)/Execute(Plan) interface promised once
 ' RunSpec existed. RunSpec now exists. THE INTERFACE IS STILL NOT WRITTEN, and
@@ -35,19 +100,29 @@ skinparam noteTextAlignment left
 title internal/backend — a package for dependency direction, not abstraction
 
 participant "sandbox" as SBX <<cloud>>
-participant "dockeregress" as DOC <<cloud>>
 participant "backend.ExitError" as EE <<data>>
-participant "cmd/proveo main" as MAIN <<app>>
+participant "backend.Stopped" as ST <<data>>
+participant "cmd/proveo main\nexitCode" as MAIN <<app>>
 
 SBX ARROW_ERROR EE : agent exited 137
-DOC ARROW_ERROR EE : agent exited 1
+SBX ARROW_ERROR EE : sbx exits 1 after "agent exited with code N"\n→ N via sbx.RunExitCode(1, tail)
 EE ARROW_MAIN MAIN : errors.As through the wrap chain
 MAIN ARROW_MAIN MAIN : os.Exit(code) — the AGENT's code
+SBX ARROW_ERROR ST : forwarded SIGTERM/SIGHUP,\nnot the Ctrl+C remove path
+ST ARROW_MAIN MAIN : errors.As through the wrap chain
+MAIN ARROW_MAIN MAIN : os.Exit(128+signal) — 143 / 129
 
 note over EE
-  **No Plan/Execute interface.** Two implementers
-  with different shapes and no caller that holds
-  one. Declared at the consumer, if a consumer
-  ever appears.
+  **No Plan/Execute interface.** One implementer
+  since 2026-10-16 (dockeregress deleted), and no
+  caller that holds one. Declared at the consumer,
+  if a consumer ever appears.
+end note
+
+note over ST
+  **A stop exits 128+signal, not 0 or 1.**
+  143 for SIGTERM, 129 for SIGHUP: what a shell
+  reports for a process the signal ended. main
+  prints nothing for it, as for ExitError.
 end note
 @enduml

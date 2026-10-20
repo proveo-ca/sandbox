@@ -22,10 +22,8 @@ RUN if getent passwd "${USER_ID}" >/dev/null; then \
       useradd -m -u "${USER_ID}" -g "${USER_ID}" -s /bin/bash "${USER_NAME}"; \
     fi
 
-# An inherited WORKDIR under /home/agent can be recreated by the builder between
-# RUN steps, and usermod refuses to move a home onto a path that exists. rmdir
-# clears ONLY an empty stub — real content still fails loudly rather than being
-# silently discarded. SPEC: _spec/_devops/sandbox-template-rebase.puml
+# rmdir clears only an empty inherited-WORKDIR stub; a real /home/agent still fails the move.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml
 RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then \
       rmdir /home/agent/workspace 2>/dev/null || true; \
       rmdir /home/agent 2>/dev/null || true; \
@@ -38,13 +36,13 @@ RUN if [ "$(getent passwd "${USER_ID}" | cut -d: -f6)" != "/home/agent" ]; then 
  && { [ -e "/home/${USER_NAME}" ] || ln -s /home/agent "/home/${USER_NAME}"; } \
  && chown -R "${USER_ID}:${USER_ID}" /home/agent
 
-# SPEC: _spec/_plans/image-size-reduction.puml
+# SPEC: _spec/_devops/image-size-reduction.puml
 ENV PYTHONPYCACHEPREFIX=/tmp/proveo-pycache \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     CECLI_HOME=/app/.cecli
 
-# SPEC: _spec/_plans/image-size-reduction.puml
+# SPEC: _spec/_devops/image-size-reduction.puml
 RUN --mount=type=cache,id=proveo-cecli-apt-cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,id=proveo-cecli-apt-lists,target=/var/lib/apt,sharing=locked \
     apt-get update -o APT::Update::Error-Mode=any \
@@ -84,7 +82,7 @@ RUN --mount=type=cache,id=proveo-serena-pip,target=/root/.cache/pip,sharing=lock
   && rm -rf /tmp/* /var/tmp/* \
   && /usr/local/sbin/proveo-harden /usr /opt
 
-# SPEC: _spec/_plans/image-size-reduction.puml
+# SPEC: _spec/_devops/image-size-reduction.puml
 
 RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \
@@ -102,7 +100,6 @@ COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chmod=0755 defs/cecli/entrypoint.sh /usr/local/bin/cecli-entrypoint
 COPY defs/cecli/defaults/ /opt/cecli/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
-COPY defs/cecli/proveo-lib/ /opt/proveo/lib/
 RUN chown "${USER_NAME}:${USER_NAME}" /app
 
 USER ${USER_NAME}

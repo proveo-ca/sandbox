@@ -18,9 +18,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 // rung is one step of the ladder: everything the rung below it had, plus exactly
@@ -196,7 +198,7 @@ func renderPostureKitEnv(t *testing.T, work, target string, extra []string) stri
 	if err != nil {
 		t.Skipf("could not render the posture kit: %v\n%s", err, out)
 	}
-	for _, line := range strings.Split(plain(string(out)), " ") {
+	for _, line := range strings.Split(termtext.Words(string(out)), " ") {
 		if strings.HasSuffix(line, "/sbx/kit/spec.yaml") {
 			assertKitShape(t, line, target)
 			return strings.TrimSuffix(line, "/spec.yaml")
@@ -229,7 +231,7 @@ func assertKitShape(t *testing.T, specPath, target string) {
 }
 
 func TestSandboxLadder(t *testing.T) {
-	if os.Getenv("PROVEO_LADDER_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_LADDER_TEST")) {
 		t.Skip("set PROVEO_LADDER_TEST=1 to climb the sandbox ladder (starts a real sandbox per rung)")
 	}
 	requireDocker(t)
@@ -283,10 +285,7 @@ func TestSandboxLadder(t *testing.T) {
 				t.Fatalf("RUNG FAILED — this rung adds %s, and the agent never reached a prompt in %s\n%s",
 					r.adds, startup, lastLines(res.out, 25))
 			case res.promptFailure != "":
-				// The verdict this rung was added for. Everything above it
-				// measures whether a session STARTS; this measures whether it
-				// can be USED, which is where a Kit that grants reach without a
-				// credential first becomes visible.
+				// First use: the session held a prompt, then refused what was typed.
 				v.detail = fmt.Sprintf("held a prompt, then refused %q on %q",
 					res.promptFailure, res.prompted)
 				t.Fatalf("RUNG BROKE ON FIRST USE — this rung adds %s. The session reached a prompt "+
@@ -408,10 +407,6 @@ type sessionResult struct {
 	authFailure   string
 	death         string
 	// promptFailure is a refusal the render carried AFTER we typed something.
-	// It is separate from authFailure because the two have different owners: an
-	// auth failure before the prompt makes every rung above it untestable
-	// (Skip), while a refusal on first use is a rung that held a session it
-	// cannot actually use (Fail).
 	promptFailure string
 	// prompted is what was typed, echoed back into the verdict so a report
 	// says which use broke rather than just "something broke".
@@ -421,19 +416,8 @@ type sessionResult struct {
 }
 
 // ladderPrompt is what the ladder types into the agent once it reaches a
-// prompt. EMPTY IS THE DEFAULT AND MEANS TODAY'S LADDER: reach a prompt, hold,
-// assert nothing about what the agent can do.
-//
-// It is free text rather than a fixed probe on purpose. `/model xai` is the
-// string that reproduces session proveo-1788935973-18915 — a cecli session that
-// reached a prompt, held for the full window, and then froze on a 403 from
-// api.x.ai the first time its completer touched a provider. The next incident
-// will need a different string, and a rung that only knows one probe would have
-// to be edited to catch it.
-//
-// The value is typed VERBATIM, so it does not submit. Completion fires on the
-// buffer change, which is where this class of failure lives; append a newline
-// (PROVEO_LADDER_PROMPT=$'…\r') when a rung needs the input actually sent.
+// prompt.
+// Empty keeps today's ladder; the value is typed verbatim, so end it in \r to send it.
 func ladderPrompt() string { return env("PROVEO_LADDER_PROMPT", "") }
 
 // providerRefusals are renders that mean the agent is alive at its prompt and
@@ -447,37 +431,17 @@ var providerRefusals = []string{
 	"Blocked by local rule for",
 	// The detail line a default-deny block carries.
 	"no matching allow rule",
-	// What raise_for_status renders in any Python agent. It is UNATTRIBUTABLE on
-	// its own, and that is the point of keeping it: measured at api.x.ai, 401
-	// means no or bad credentials and 400 means a wrong key, while 403 is
-	// returned BOTH by the sandbox proxy for a block AND by xAI for an account
-	// out of credits. Only the body separates them, so this marker says "look",
-	// not "blocked" — and the authFailures scan runs first so a dry account
-	// skips rather than blaming the rung.
+	// What raise_for_status renders in any Python agent; it means "look", not "blocked".
 	"403 Client Error",
 	// cecli's provider model-list probe, which is the render this rung was
 	// written from.
 	"Failed to fetch",
-	// The load-bearing one: it is the only render that separates "the proxy
-	// blocked me" from "the proxy let me through WITHOUT injecting", and those
-	// have different owners.
-	//
-	// It is safe as a rung failure BECAUSE of what a climb is: childEnvArgs-
-	// NoCredential unsets every provider.DetectVars() entry, so the agent is
-	// meant to hold no key at all. A provider judging a key therefore means one
-	// arrived by a path the climb never chose — a workspace .env sourced with
-	// `set -a`, or a stale entry in the host-wide secret store — which is
-	// exactly the invisible second credential path this rung exists to expose.
+	// The load-bearing one: a key the keyless climb never chose reached the provider.
 	"Incorrect API key provided",
 }
 
 // firstProviderRefusal returns the refusal that appears EARLIEST IN THE RENDER,
-// not the earliest in the list above. One failure usually prints several of
-// these at once — cecli's probe renders "Failed to fetch … 403 Client Error …"
-// in one line — and scanning in list order would make the slice's arrangement a
-// hidden priority, so reordering it for readability would silently change what
-// every report blames. Position in the transcript is the agent's own ordering,
-// which is the one an operator reads.
+// not the earliest in the list above.
 func firstProviderRefusal(out string) string {
 	best, at := "", -1
 	for _, r := range providerRefusals {
@@ -525,7 +489,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 	res := sessionResult{}
 	deadline := time.Now().Add(startup)
 	for !res.reachedPrompt {
-		out := plain(seen())
+		out := termtext.Words(seen())
 		for _, b := range blockedMarkers {
 			if strings.Contains(out, b) {
 				res.blocked, res.out = b, seen()
@@ -545,7 +509,7 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 		select {
 		case <-exited:
 			res.out, res.aliveFor = seen(), time.Since(started)
-			res.death = firstMarker(plain(res.out))
+			res.death = firstMarker(termtext.Words(res.out))
 			return res
 		default:
 		}
@@ -558,19 +522,16 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 
 	onExit := func() {
 		res.out, res.aliveFor = seen(), time.Since(started)
-		res.death = firstMarker(plain(res.out))
+		res.death = firstMarker(termtext.Words(res.out))
 		if res.death == "" {
 			res.death = "the session ended on its own"
 		}
-		if f := firstAuthFailure(plain(res.out)); f != "" {
+		if f := firstAuthFailure(termtext.Words(res.out)); f != "" {
 			res.authFailure, res.death = f, ""
 		}
 	}
 
-	// FIRST USE. `mark` is where the transcript stood before we typed, and the
-	// scan below starts there — a host blocked during the SEED is a different
-	// fault with a different owner, and attributing it to the prompt would
-	// point the report at the wrong rung.
+	// FIRST USE: scan only what rendered after `mark`, where we typed.
 	mark := len(seen())
 	if prompt != "" {
 		if _, err := ptmx.WriteString(prompt); err != nil {
@@ -595,13 +556,8 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 		if res.prompted != "" {
 			out := seen()
 			if len(out) > mark {
-				since := plain(out[mark:])
-				// AUTH FIRST, AND THE ORDER IS THE POINT. An account with no
-				// credits answers 403, which this rung would otherwise blame on
-				// the Kit — measured doing exactly that for a whole session.
-				// An empty account is nobody's bug and makes every rung above
-				// it untestable, which is a Skip, so it must win the race
-				// against the 403 marker below.
+				since := termtext.Words(out[mark:])
+				// AUTH FIRST: a dry account must Skip before the 403 marker fails the rung.
 				if f := firstAuthFailure(since); f != "" {
 					res.authFailure, res.out = f, out
 					res.aliveFor = time.Since(started)
@@ -839,7 +795,7 @@ const (
 // TestSandboxKitProxyManagesTheCredential asserts the property E1 would
 // otherwise silently drop.
 func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
-	if os.Getenv("PROVEO_LADDER_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_LADDER_TEST")) {
 		t.Skip("set PROVEO_LADDER_TEST=1 — this starts a real sandbox")
 	}
 	requireDocker(t)
@@ -953,7 +909,7 @@ func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) 
 
 	// A credential sbx has no stored secret for makes it ASK, and an unattended
 	// run stops there — a distinct fault from a refused block or a dead sandbox.
-	if strings.Contains(plain(res.out), "wants to use these credentials") {
+	if strings.Contains(termtext.Words(res.out), "wants to use these credentials") {
 		t.Fatalf("[%s] sbx asked for consent instead of starting: a declared credential has "+
 			"no stored secret under its SERVICE name, so the run blocks on a human.\n"+
 			"-- Kit --\n%s\n-- session --\n%s", label, out, lastLines(res.out, 20))
@@ -1040,7 +996,7 @@ func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := firstProviderRefusal(plain(tc.out)); got != tc.want {
+			if got := firstProviderRefusal(termtext.Words(tc.out)); got != tc.want {
 				t.Errorf("firstProviderRefusal = %q, want %q — %s", got, tc.want, tc.why)
 			}
 		})
@@ -1059,11 +1015,11 @@ func TestCreditExhaustionIsAnAuthFailureNotAnEgressDenial(t *testing.T) {
 		"API Error: 400 Credit balance is too low",
 		`{"error":{"code":"insufficient_quota","message":"You exceeded your quota"}}`,
 	} {
-		if firstAuthFailure(plain(out)) == "" {
+		if firstAuthFailure(termtext.Words(out)) == "" {
 			t.Errorf("no authFailure matched %q — it would be read as an egress denial, "+
 				"which is the misreading this whole spec records", out)
 		}
-		if got := firstProviderRefusal(plain(out)); got != "" {
+		if got := firstProviderRefusal(termtext.Words(out)); got != "" {
 			t.Errorf("firstProviderRefusal also claimed %q as %q; a dry account is nobody's "+
 				"bug and must not fail a rung", out, got)
 		}
@@ -1073,7 +1029,7 @@ func TestCreditExhaustionIsAnAuthFailureNotAnEgressDenial(t *testing.T) {
 // credValueFrom returns the probed value and whether the marker was seen at all.
 // The bool is the point: absence must fail the test, not fall through it.
 func credValueFrom(out string) (string, bool) {
-	flat := plain(out)
+	flat := termtext.Words(out)
 	i := strings.Index(flat, credOpen)
 	if i < 0 {
 		return "", false

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/chromebridge"
+	"github.com/proveo-ca/proveo/internal/imagetest"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -25,7 +26,7 @@ func TestChromeBridgeOnSbxReachesTheHostFromTheSandbox(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx unavailable: %s", why)
 	}
-	image := env("PROVEO_CHROME_BRIDGE_IMAGE", "proveo/claudecode:local")
+	image := imagetest.PinnedRef("claudecode", "proveo/claudecode:local")
 	if !dockerImagePresent(t, image) {
 		t.Skipf("image %s not built (proveo build claudecode)", image)
 	}
@@ -71,9 +72,6 @@ func TestChromeBridgeOnSbxReachesTheHostFromTheSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = relay.Close() })
-	if err := relay.SetTokenEnv(); err != nil {
-		t.Fatal(err)
-	}
 
 	// sbx keeps its OWN image store, so the harness image has to be handed over
 	// before a Kit can name it — the same hop `proveo run` makes.

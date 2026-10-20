@@ -8,27 +8,18 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-ensure_runtime_user
 set_working_directory "/app"
-load_env
+bridge_google_keys
 bridge_git_identity
-report_git_context
-attach_rtk
-apply_env_bridges
+proveo-entrypoint prep || true
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"
 
-# Upstream normally runs this as an s6-overlay cont-init.d step (UID/GID
-# remap, /opt/data volume chown, config seeding, skills sync) before /init
-# supervises the main process. Overriding ENTRYPOINT for a single foreground
-# process means that step never fires on its own — run it explicitly, once,
-# still as root, so the SAME logic upstream maintains does the remap instead
-# of a proveo-side reimplementation that drifts from it on the next release.
-# The manifest's durable home mount (/proveo-home on docker, its host path on sbx); otherwise a writable fallback.
+# The manifest's durable home mount at its host path; otherwise a writable fallback.
 # SPEC: _spec/defs/hermes/hermes-persistence.puml
 hermes_durable=""
-for d in /proveo-home/data "${PROVEO_STATE_HOME:+${PROVEO_STATE_HOME}/hermes/data}"; do
+for d in "${PROVEO_STATE_HOME:+${PROVEO_STATE_HOME}/hermes/data}"; do
   if [[ -n "$d" && -d "$d" && -w "$d" ]]; then
     hermes_durable="$d"
     break
@@ -100,7 +91,7 @@ wire_hermes_local_endpoint() {
 
 configure_hermes_local_model() {
   [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] || return 0
-  local base="${OLLAMA_API_BASE:-http://ollama:11434}"
+  local base="${OLLAMA_API_BASE:-http://host.docker.internal:11434}"
   wire_hermes_local_endpoint "${base%/}/v1" "${PROVEO_LOCAL_MODEL}"
 }
 configure_hermes_local_model
@@ -129,10 +120,7 @@ echo "Paradigm: single foreground Hermes session — native browser tool, no ste
 echo "Browser real-profile-reuse is OFF unless explicitly configured — this sandbox never"
 echo "copies the operator's real cookies/saved logins by default."
 
-if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
-  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-hermes}"
-  exec sleep infinity
-fi
+run_smoke_test "hermes"
 
 echo "🚀 Launching hermes"
 proveo_exec_agent hermes -- "$@"

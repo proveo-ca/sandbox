@@ -25,7 +25,7 @@ func TestMountsShareOneCanonicalRootForASubprojectScope(t *testing.T) {
 
 	// Typed through the symlink, repo root as git would report it.
 	w := MountSpec{InputDir: filepath.Join(link, "apps"), RepoRoot: canonical}
-	mounts, _, _ := w.Plan()
+	mounts, _ := w.Plan()
 	if len(mounts) < 2 {
 		t.Fatalf("expected the scope and its .git at least, got %v", mounts)
 	}

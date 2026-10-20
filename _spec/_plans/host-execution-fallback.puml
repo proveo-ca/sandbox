@@ -5,19 +5,30 @@ skinparam noteTextAlignment left
 ' would touch: internal/backend/** (a host backend does not exist yet — that absence IS the plan)
 ' would touch: internal/run/run.go (backend selection, buildPosture)
 ' would touch: internal/posture/posture.go (EnforcedBy, Observability)
-' would touch: internal/credentials/**, internal/broker/** (whether brokering survives with no boundary)
+' would touch: internal/credentials/** (whether brokering survives with no boundary)
 ' would touch: cmd/proveo/main.go (the flag or variable that would select it)
 ' session: b2e065e3-98e9-4974-ae9e-86990b8b1c81
-' PLANNED. _spec/_plans/ is exempt from the SPEC-reference rule. Nothing here is
-' cited from source because the mode described here DOES NOT EXIST. This file
-' states a DECISION SPACE: measured facts are marked MEASURED, and everything
-' else is a QUESTION. No design is chosen and no boundary is promised.
+' DEFERRED (Executor, 2026-10-16). _spec/_plans/ is exempt from the
+' SPEC-reference rule. Nothing here is cited from source because the mode
+' described here DOES NOT EXIST. This file states a DECISION SPACE: measured
+' facts are marked MEASURED, and everything else is a QUESTION. No design is
+' chosen and no boundary is promised.
 '
-'   the plan that creates this .. _spec/_plans/retire-docker-egress.puml
+' ── 2026-10-16: THE PREMISE LANDED, THE MODE DID NOT ───────────────────────
+' The Executor retired docker+egress and chose "Refuse without sbx". So the
+' question this file asks — what the escape hatch becomes once docker is gone —
+' got its interim answer: NOTHING. MEASURED: internal/run/run.go requireSandbox
+' refuses a host without a ready sbx with the install hint. There is no host
+' fallback. For one day PROVEO_SBX off values hard-failed with a retirement
+' message; since 2026-10-17 ("Drop all four") PROVEO_SBX is simply unread.
+' Q1–Q6 below stay OPEN and DEFERRED: a host mode, if ever built, is a new
+' decision, not a restored hatch.
+'
+'   the decision that removed the hatch _spec/internal/sbx/sandbox-backend.puml
 '   what kept a container here .. _spec/_paradigms/retire-dind.puml (APPLIED)
 '   what would be forfeited (1) . _spec/_paradigms/credential-boundary.puml
-'   what would be forfeited (2) . egress-boundary.puml retired 2026-09-16;
-'                                 _spec/_plans/retire-docker-egress.puml
+'   what would be forfeited (2) . sbx's network policy —
+'                                 _spec/internal/sbx/policy-baseline.puml
 '   what would be forfeited (3) . _spec/_paradigms/runtime-user-boundary.puml
 '   what would be forfeited (4) . _spec/internal/sbx/clone-workspace.puml
 '   why a host may not qualify .. _spec/internal/sbx/host-readiness.puml
@@ -27,28 +38,27 @@ skinparam noteTextAlignment left
 ' ── WHY THIS IS A SEPARATE PLAN AND NOT A PARAGRAPH IN THE OTHER ───────────
 ' THE OPERATOR'S STATEMENT: `PROVEO_SBX=0` RUNS ON THE HOST.
 '
-' Today that is not what it does. MEASURED: `sandbox.Enabled()`
-' (internal/backend/sandbox/sandbox.go:39) reads `PROVEO_SBX` and, on
-' off/0/no/false/disable/disabled, hands the run to the docker+egress backend —
-' `internal/backend/dockeregress`. That is a DIFFERENT CONTAINER, and every
-' boundary proveo asserts still holds inside it.
+' HISTORY (written before 2026-10-16): `sandbox.Enabled()` read `PROVEO_SBX`
+' and, on off/0/no/false/disable/disabled, handed the run to the docker+egress
+' backend — `internal/backend/dockeregress`. That was a DIFFERENT CONTAINER, and
+' every boundary proveo asserts still held inside it. MEASURED now: dockeregress
+' is deleted, and so is sandbox.Disabled, the one-day refusal of those values.
 '
-' If docker+egress is retired (_spec/_plans/retire-docker-egress.puml), the
-' escape hatch stops meaning "a different container" and starts meaning "no
-' sandbox". That is not a smaller promise; it is a CATEGORICALLY
-' DIFFERENT one, and it deserves its own file rather than a line in a
-' retirement plan whose subject is something else.
+' Had the hatch been kept after docker+egress went, it would have stopped
+' meaning "a different container" and started meaning "no sandbox". That is
+' not a smaller promise; it is a CATEGORICALLY DIFFERENT one, which is why the
+' Executor chose refusal and why this file stays a separate, deferred question.
 '
-' ── WHAT IS TRUE TODAY — MEASURED ──────────────────────────────────────────
-' 1. THERE IS NO HOST BACKEND. `internal/backend` holds exactly two:
-'    `dockeregress` and `sandbox`. Nothing in this tree runs an agent outside a
-'    container or a VM. Everything below is therefore about a mode that would
-'    have to be BUILT, not one that would be exposed.
+' ── WHAT IS TRUE TODAY — MEASURED 2026-10-16 ───────────────────────────────
+' 1. THERE IS NO HOST BACKEND. `internal/backend` holds `sandbox` and the
+'    10-line ExitError type, nothing else. Nothing in this tree runs an agent
+'    outside a VM. Everything below is therefore about a mode that would have
+'    to be BUILT, not one that would be exposed.
 '
-' 2. THE VARIABLE ALREADY CARRIES OPERATOR EXPECTATIONS. `internal/run/
-'    choices.go:239` tells the operator that "PROVEO_SBX=0 or --egress-mode
-'    review fall back to docker + egress sidecars", and run.go:662 names it as
-'    the way to reach Claude in Chrome. Those sentences describe a container.
+' 2. THE VARIABLE'S OLD MEANING IS GONE, QUIETLY. PROVEO_SBX is unread since
+'    2026-10-17 (no stub); the choice form's sandbox box reads "every harness
+'    runs in the sandbox and nowhere else". Any future host mode needs its own
+'    switch, not this one.
 '
 ' 3. A HOST CAN FAIL TO QUALIFY FOR A SANDBOX FOR REASONS NOBODY CHOSE.
 '    host-readiness.puml (written today) hands the question "can this host run a
@@ -84,8 +94,8 @@ skinparam noteTextAlignment left
 '     convention, not a boundary: the process they constrain is the process that
 '     can rewrite them. IS THAT WORTH OFFERING AT ALL, or is an honest "no
 '     enforcement" better than a boundary that LOOKS like one? The three docker
-'     modes all assumed a hop the agent cannot route around (egress-boundary.puml,
-'     retired 2026-09-16 — see _spec/_plans/retire-docker-egress.puml).
+'     modes all assumed a hop the agent cannot route around; so does sbx's proxy
+'     (_spec/internal/sbx/policy-baseline.puml).
 '
 ' Q4. WHAT DOES proveo STILL PROVIDE WITH NO SANDBOX? This is the case FOR
 '     keeping the mode, so it has to be enumerated rather than assumed. The
@@ -109,16 +119,19 @@ skinparam noteTextAlignment left
 '
 ' Q6. HOW DOES THE OPERATOR KNOW WHICH MODE THEY ARE IN? This is the failure the
 '     plan most needs to prevent: a run that SILENTLY DEGRADES from "sandboxed"
-'     to "on your machine". retire-dind already rejected silence once —
-'     `PROVEO_DIND` warns and no-ops rather than being read and ignored. The
-'     open part is what the equivalent is here: a warning, a required flag, a
-'     confirmation, or a refusal. Note that the defect recorded in
-'     retire-docker-egress is the SAME shape — a posture line that describes an
-'     intent nobody enforces — so this question is not hypothetical.
-title PLANNED — PROVEO_SBX=0 with no container: what "fallback" would then mean
+'     to "on your machine". retire-dind rejected silence once — `PROVEO_DIND`
+'     warned and no-opped — but that warning was itself dropped 2026-10-17
+'     ("Drop all four"). The open part is what the equivalent is here: a
+'     warning, a required flag, a confirmation, or a refusal. The interim
+'     answer is REFUSAL of an unready host (2026-10-16).
+'     The printed-tier-vs-written-allowlist defect, now ended by deleting the
+'     tier (_spec/internal/sbx/policy-baseline.puml), was the SAME shape — a
+'     posture line describing an intent nobody enforces — so this question is
+'     not hypothetical.
+title DEFERRED — a host mode with no container: what it would forfeit (PROVEO_SBX=0 means nothing now)
 
-component "PROVEO_SBX=0 — today\nselects internal/backend/dockeregress" as TODAY <<app>>
-component "PROVEO_SBX=0 — after retirement\nselects: nothing. The host." as AFTER <<error>>
+component "PROVEO_SBX=0 — since 2026-10-17\nunread; a host without sbx refuses" as TODAY <<app>>
+component "a host mode — if ever built\nselects: nothing. The host." as AFTER <<error>>
 
 node "the host, as the agent would see it" as HOST <<host>> {
   component "the agent process\nthe operator's uid, or root" as AGENT <<error>>
@@ -146,7 +159,7 @@ cloud "the provider / the open web" as NET <<cloud>>
 component "a host with no KVM\nCI runners · nested-virt-less VMs" as NOKVM <<app>>
 component "**silent degradation**\nsandboxed -> on your machine" as SILENT <<error>>
 
-TODAY ARROW_ERROR AFTER : retire-docker-egress changes what this word means
+TODAY ARROW_OPTIONAL AFTER : DEFERRED — a new decision, not a restored hatch
 AFTER ARROW_MAIN HOST
 HOST ARROW_ERROR LOST
 AGENT ARROW_MAIN ENV
@@ -159,19 +172,18 @@ NOKVM ARROW_OPTIONAL AFTER : Q5 — the legitimate case
 AFTER ARROW_ERROR SILENT : Q6 — the failure to prevent
 
 note bottom of TODAY
-  **MEASURED — today it is a CONTAINER.**
-  ""sandbox.Enabled()"" reads ""PROVEO_SBX"" and
-  falls back to ""internal/backend/dockeregress"".
-  Every boundary proveo asserts still holds
-  inside it. That is the promise being changed.
+  **MEASURED — today it is unread.** It chose
+  another container until 2026-10-16, refused
+  the run for one day, and lost even that stub
+  on 2026-10-17 ("Drop all four").
 end note
 
 note bottom of AFTER
   **MEASURED — no host backend exists.**
-  ""internal/backend"" holds ""dockeregress"" and
-  ""sandbox"", and nothing else. This mode would
-  have to be BUILT, not exposed. That is why
-  every line below is a question.
+  ""internal/backend"" holds ""sandbox"" and the
+  ExitError type. This mode would have to be
+  BUILT, not exposed. That is why every line
+  below is a question.
 end note
 
 note bottom of LOST
@@ -210,8 +222,8 @@ note top of POST
   **A posture line has a job here or none.**
   If it reports "no boundary" plainly it is the
   most useful thing left. If it prints a tier or
-  an "enforced by", it repeats the exact defect
-  recorded in retire-docker-egress.
+  an "enforced by", it repeats the tier-vs-Kit
+  defect policy-baseline.puml records.
 end note
 
 note bottom of NOKVM
@@ -241,18 +253,19 @@ end note
 legend bottom
   **What this plan is, and is not**
   ==
-  **IS** — the statement that ""PROVEO_SBX=0"" would stop meaning "another container",
-  three measured facts about today, and six questions with no answers in them.
+  **IS** — a DEFERRED decision space: what a host mode would forfeit, measured facts
+  about today, and six questions with no answers in them.
   --
   **IS NOT** — a design for a host backend, a claim that one should exist, or a promise
   that any boundary can be recovered outside a sandbox.
   ==
-  **Its dependency**: this question only arises if _spec/_plans/retire-docker-egress.puml
-  is acted on. That plan's Q6 asks for the migration signal; this file is what the signal
-  would have to describe.
+  **Its dependency, now met**: the docker+egress retirement was acted on 2026-10-16, and
+  the migration signal was decided: ""PROVEO_SBX"" off values hard-failed, naming the
+  retirement — and on 2026-10-17 that stub was dropped too ("Drop all four"), so the
+  variable is unread (_spec/internal/sbx/sandbox-backend.puml).
   --
   **Its inheritance**: retire-dind kept the docker backend as this escape hatch and said
-  so. Deleting the backend without deciding what the hatch becomes is the one outcome
-  both plans rule out.
+  so. The hatch was then decided rather than left undefined — a host that cannot run
+  sbx refuses — which is the outcome both plans required.
 end legend
 @enduml

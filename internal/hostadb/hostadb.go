@@ -69,21 +69,50 @@ func GuestEnv(port int) []string {
 // InstallHosts is what the guest needs to install the pinned mobile-mcp.
 var InstallHosts = []string{"registry.npmjs.org"}
 
+// StablePolls is how many polls in a row must read state "device" and sys.boot_completed=1.
+const StablePolls = 3
+
 var (
-	hostAddr  = func(port int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) }
-	readyWait = 3 * time.Minute
-	homeDir   = os.UserHomeDir
-	lookPath  = exec.LookPath
-	statFile  = os.Stat
-	listAVDs  = func(emulator string) ([]byte, error) { return exec.Command(emulator, "-list-avds").Output() }
-	startAdb  = func(adb string, port int) error {
+	hostAddr     = func(port int) string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) }
+	readyWait    = 3 * time.Minute
+	pollEvery    = time.Second
+	reconnectGap = 5 // polls between two `adb reconnect offline`
+	homeDir      = os.UserHomeDir
+	lookPath     = exec.LookPath
+	statFile     = os.Stat
+	listAVDs     = func(emulator string) ([]byte, error) { return exec.Command(emulator, "-list-avds").Output() }
+	startAdb     = func(adb string, port int) error {
 		return exec.Command(adb, "-P", strconv.Itoa(port), "start-server").Run()
+	}
+	reconnect = func(adb string, port int) error {
+		return exec.Command(adb, "-P", strconv.Itoa(port), "reconnect", "offline").Run()
 	}
 	bootProp = func(adb string, port int, serial string) string {
 		out, _ := exec.Command(adb, "-P", strconv.Itoa(port), "-s", serial, "shell", "getprop", "sys.boot_completed").Output()
 		return strings.TrimSpace(string(out))
 	}
+	startEmulator = launchEmulator
 )
+
+// EmulatorLog is where a booted emulator's stdout and stderr go.
+func EmulatorLog() string { return filepath.Join(os.TempDir(), "proveo-emulator.log") }
+
+// launchEmulator starts a detached emulator on avd; the channel yields its exit.
+func launchEmulator(emu, avd string, port int) (<-chan error, error) {
+	cmd := exec.Command(emu, LaunchArgs(avd)...)
+	cmd.Env = append(os.Environ(), "ANDROID_ADB_SERVER_PORT="+strconv.Itoa(port))
+	if f, err := os.Create(EmulatorLog()); err == nil {
+		cmd.Stdout, cmd.Stderr = f, f
+		defer func() { _ = f.Close() }()
+	}
+	detach(cmd)
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return exited, nil
+}
 
 // Port is the host adb server port: PROVEO_HOST_ADB_PORT, else 5037.
 func Port(getenv func(string) string) (int, error) {
@@ -134,21 +163,52 @@ func query(port int, service string) (string, error) {
 	return string(body), nil
 }
 
-// Devices lists the serials the host adb server reports in state "device".
-func Devices(port int) ([]string, error) {
+// Device is one row of the host adb server's device list.
+type Device struct {
+	Serial string
+	State  string // device, offline, unauthorized, …
+}
+
+// Emulator reports whether the row is an emulator.
+func (d Device) Emulator() bool { return strings.HasPrefix(d.Serial, "emulator-") }
+
+// AllDevices lists every serial the host adb server reports, in any state.
+func AllDevices(port int) ([]Device, error) {
 	body, err := query(port, "host:devices")
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	var out []Device
 	sc := bufio.NewScanner(strings.NewReader(body))
 	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) >= 2 && f[1] == "device" {
-			out = append(out, f[0])
+		if f := strings.Fields(sc.Text()); len(f) >= 2 {
+			out = append(out, Device{Serial: f[0], State: f[1]})
 		}
 	}
 	return out, nil
+}
+
+// Devices lists the serials the host adb server reports in state "device".
+func Devices(port int) ([]string, error) {
+	all, err := AllDevices(port)
+	if err != nil {
+		return nil, err
+	}
+	usable, _ := split(all)
+	return usable, nil
+}
+
+// split is the serials in state "device", and the emulators in state "offline".
+func split(all []Device) (usable, offline []string) {
+	for _, d := range all {
+		switch {
+		case d.State == "device":
+			usable = append(usable, d.Serial)
+		case d.State == "offline" && d.Emulator():
+			offline = append(offline, d.Serial)
+		}
+	}
+	return usable, offline
 }
 
 // Ready reports whether the host adb server lists at least one usable device.
@@ -223,27 +283,25 @@ func parseAVDs(out []byte) []string {
 	return avds
 }
 
-// Ensure reuses a device the host adb server already lists, or boots an emulator and waits for it.
+// Ensure waits on a device the host adb server already lists, or boots an emulator, until its boot holds.
 func Ensure(getenv func(string) string, port int, report func(string, ...any)) error {
 	say := func(f string, a ...any) {
 		if report != nil {
 			report(f, a...)
 		}
 	}
-	if d, err := Devices(port); err == nil && len(d) > 0 {
-		say("android: reusing %s on the host adb server 127.0.0.1:%d", strings.Join(d, ", "), port)
-		return nil
-	}
 	adb := AdbBinary(getenv)
+	if ok, err := attach(adb, port, say); ok || err != nil {
+		return err
+	}
 	if adb == "" {
 		return fmt.Errorf("no adb found — install Android SDK platform-tools or set ANDROID_HOME")
 	}
 	if err := startAdb(adb, port); err != nil {
 		return fmt.Errorf("adb start-server on port %d: %w", port, err)
 	}
-	if d, err := Devices(port); err == nil && len(d) > 0 {
-		say("android: reusing %s on the host adb server 127.0.0.1:%d", strings.Join(d, ", "), port)
-		return nil
+	if ok, err := attach(adb, port, say); ok || err != nil {
+		return err
 	}
 	emu := EmulatorBinary(getenv)
 	if emu == "" {
@@ -257,21 +315,84 @@ func Ensure(getenv func(string) string, port int, report func(string, ...any)) e
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(emu, LaunchArgs(avd)...)
-	cmd.Env = append(os.Environ(), "ANDROID_ADB_SERVER_PORT="+strconv.Itoa(port))
-	detach(cmd)
-	if err := cmd.Start(); err != nil {
+	exited, err := startEmulator(emu, avd, port)
+	if err != nil {
 		return fmt.Errorf("start emulator: %w", err)
 	}
-	_ = cmd.Process.Release()
 	say("android: booting AVD %s (adb server 127.0.0.1:%d)", avd, port)
-	deadline := time.Now().Add(readyWait)
-	for time.Now().Before(deadline) {
-		if d, err := Devices(port); err == nil && len(d) > 0 && bootProp(adb, port, d[0]) == "1" {
-			say("android: %s booted", d[0])
-			return nil
-		}
-		time.Sleep(time.Second)
+	serial, err := awaitBoot(adb, port, exited)
+	if err != nil {
+		return fmt.Errorf("AVD %s: %w", avd, err)
 	}
-	return fmt.Errorf("AVD %s did not finish booting within %s", avd, readyWait)
+	say("android: %s booted", serial)
+	return nil
+}
+
+// attach waits on a device the server already lists, usable or an emulator gone offline; false when it lists neither.
+func attach(adb string, port int, say func(string, ...any)) (bool, error) {
+	all, err := AllDevices(port)
+	if err != nil {
+		return false, nil
+	}
+	usable, offline := split(all)
+	switch {
+	case len(usable) == 0 && len(offline) == 0:
+		return false, nil
+	case adb == "" && len(usable) > 0:
+		say("android: reusing %s on the host adb server 127.0.0.1:%d", strings.Join(usable, ", "), port)
+		return true, nil
+	case adb == "":
+		return false, nil
+	case len(usable) == 0:
+		say("android: %s offline on the host adb server 127.0.0.1:%d — reconnecting", strings.Join(offline, ", "), port)
+	}
+	serial, err := awaitBoot(adb, port, nil)
+	if err != nil {
+		return true, fmt.Errorf("host adb server 127.0.0.1:%d: %w", port, err)
+	}
+	say("android: reusing %s on the host adb server 127.0.0.1:%d", serial, port)
+	return true, nil
+}
+
+// awaitBoot polls until one serial reads state "device" and sys.boot_completed=1 on StablePolls polls in a row.
+func awaitBoot(adb string, port int, exited <-chan error) (string, error) {
+	deadline := time.Now().Add(readyWait)
+	serial, streak, sinceReconnect := "", 0, reconnectGap
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			if err != nil {
+				return "", fmt.Errorf("the emulator exited before it booted (%v) — see %s", err, EmulatorLog())
+			}
+			exited = nil
+		default:
+		}
+		all, _ := AllDevices(port)
+		usable, offline := split(all)
+		booted := ""
+		for _, s := range usable {
+			if bootProp(adb, port, s) == "1" {
+				booted = s
+				break
+			}
+		}
+		switch booted {
+		case "":
+			streak = 0
+		case serial:
+			streak++
+		default:
+			serial, streak = booted, 1
+		}
+		if streak >= StablePolls {
+			return serial, nil
+		}
+		sinceReconnect++
+		if len(offline) > 0 && sinceReconnect > reconnectGap {
+			_ = reconnect(adb, port)
+			sinceReconnect = 0
+		}
+		time.Sleep(pollEvery)
+	}
+	return "", fmt.Errorf("no device held a finished boot for %d polls in a row within %s", StablePolls, readyWait)
 }

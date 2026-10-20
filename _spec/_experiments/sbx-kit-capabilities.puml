@@ -262,9 +262,10 @@ skinparam noteTextAlignment left
 '         without a live daemon. It is the only thing deciding whether a
 '         credential is declared, so a test that could not control it would
 '         either need sbx running or would assert nothing.
-'       `--shell` still selects sbx's own shell. The gate must not steal an
+'       `--shell` still selected sbx's own shell. The gate must not steal an
 '         explicit request for the stock agent, and a built-in-backed def must
 '         never reach it — sbx refuses a Kit shadowing a built-in name.
+'         (`--shell` was retired 2026-10-17, so this seam no longer exists.)
 '
 '     ── WHAT STILL BLOCKS DEFAULTING THE GATE ON ───────────────────────────
 '     One measurement, and it is cheap. Everything above is verified in Go —

@@ -1,9 +1,9 @@
 @startuml DevPorts
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: discover a workspace's run commands, match each to the port it serves, and offer to publish them from an sbx sandbox
-' covers: internal/devports/**, internal/run/choices.go (portsRow, selectedPorts, addonHeading), internal/run/run.go (rememberedPorts, portsToRemember, planPorts)
+' covers: internal/devports/**, internal/run/choices.go (portsRow, appsRow, selectedPorts, addonHeading), internal/run/run.go (rememberedPorts, portsToRemember, planPorts)
 ' covers: internal/backend/sandbox/sandbox.go (PlanPorts, portPublish, ReportPorts, DevServerScript, StartDevServers), internal/agentsettings/agentsettings.go (Workspaces, PortsFor, RememberPorts)
-' covers: internal/devports/android.go, packages/lib/entrypoint-lib.sh (proveo_android_install, PROVEO_TOOLCHAIN_READY)
+' covers: internal/devports/android.go, packages/lib/entrypoint-lib.sh (proveo_android_install, _proveo_debug_apk, PROVEO_TOOLCHAIN_READY)
 ' covers: internal/run/ports_row_test.go, internal/backend/sandbox/sandbox_test.go, e2e/ports_publish_test.go
 ' covers: internal/contract/android_install_lib_test.go, e2e/android_seed_install_test.go
 '   the form this row joins ......... _spec/internal/choiceui/wireframe.puml
@@ -32,7 +32,8 @@
 ' ── THE ROW: OFFERED, NEVER PRE-TICKED ─────────────────────────────────────
 ' The execution divider's row is now labelled "OS" (heading stays
 ' "execution"). "ports" sits under it only when docker (sandbox) is the
-' runtime: the docker+egress backend publishes nothing. Every box starts
+' runtime: the docker+egress backend published nothing (and is deleted since
+' 2026-10-16, so sbx is always the runtime). Every box starts
 ' unticked — publishing opens an inbound path, and the closed default the
 ' tunnels plan argues for is kept. Several ports tick independently.
 '
@@ -56,6 +57,31 @@
 ' 3 s → 30 s backoff while the sandbox runs — deps installing in a fresh
 ' clone make the first attempts fail.
 '
+' ── A CLONE'S SERVER WAITS FOR THE CLONE (2026-10-20) ──────────────────────
+' MEASURED: TestPortsPublishE2E failed "GET http://127.0.0.1:4310/PORTS_OK
+' never reached the server proveo started" on a clone-mode run.
+' StartDevServers' goroutines start before `sbx run` and fire once
+' sbx.Running; sbx clones only into an EMPTY workspace that already exists
+' (_spec/internal/sbx/clone-workspace.puml, "NOTHING MAY BE MOUNTED").
+' [Inference] The exec could `cd` into that empty dir, or into one the clone
+' later replaced, and start python there; the exec then blocks for as long as
+' python runs, so the loop never restarts it in the real checkout.
+' FIX: DevServerScript(workdir, clone, p). When in.Clone, the script polls
+'   until git -C <workdir> rev-parse -q --verify HEAD && [ -n "$(ls -A <workdir>)" ]
+' once a second for devRetryMax (30 s), then exits 1 into the existing
+' backoff; the 30 s attempt resets the delay to devRetryMin. The emptiness
+' half exists because rev-parse alone passes in an empty dir nested inside a
+' parent repository. A worktree clone passes
+' once the seed's `git worktree add` lands. A mounted checkout (in.Clone
+' false) skips the gate, so a non-git mount still starts at once.
+' Pinned by TestDevServerScriptWaitsForTheCloneBeforeItStartsTheServer (the
+' rendered script) and TestDevServerScriptCloneGateRunsOnlyOnceTheCloneLands
+' (the gate run by bash: an empty dir fails, a committed repo passes).
+' e2e: assertServed's 2-minute GET deadline now starts once sbx.Running names
+' the workspace's claudecode sandbox (SandboxName of the path and of its
+' realpath), at most 3 minutes after the port report: the report prints
+' before `sbx run`, so boot and clone used to eat the server's window.
+'
 ' ── REMEMBERED PER PATH, APPLIED ON EVERY RUN ──────────────────────────────
 ' agent-settings.yml gains `workspaces: {<real path>: {ports: [...]}}`,
 ' harness-independent: the ports belong to the project, not the agent. The
@@ -63,7 +89,7 @@
 ' form. An answered "none" is kept as an empty list, so it is not re-asked
 ' as a first run. A remembered port no longer discovered is dropped with a
 ' warning. The answer is written only when the form DREW the ports row —
-' a docker+egress run never shows it, so it never records "none".
+' a docker+egress run never showed it, so it never recorded "none".
 
 ' ── ANDROID APPS: THE SEED INSTALLS, THE HOST TRIGGERS (2026-10-05) ───────
 ' The same pattern for Android: a build file applying com.android.application
@@ -76,14 +102,34 @@
 '          and calls proveo_android_install ":app|ca.proveo.hello" …
 '   seed   proveo_android_install waits for PROVEO_TOOLCHAIN_READY — written
 '          by proveo_seed after proveo_provision_toolchain, cleared at its
-'          start — then per module: ./gradlew (else gradle) <module>:installDebug,
-'          and on success `adb shell monkey -p <id> -c …LAUNCHER 1`.
-'          A failed build skips the launch. Log: /tmp/proveo-android-install.log
+'          start — then per module:
+'            build    ./gradlew (else gradle) <module>:assembleDebug
+'            apk      _proveo_debug_apk: the first */debug/*.apk by path under
+'                     <module dir>/build/outputs/apk, androidTest excluded;
+'                     ":a:b" → a/b, "" → the build root
+'            install  `adb install -r <apk>`
+'            launch   `adb shell monkey -p <id> -c …LAUNCHER 1`
+'          adb is the image's apt client (defs/base/Dockerfile); both calls set
+'          ADB_SERVER_SOCKET=tcp:$ADB_HOST:$ADB_PORT from proveo_host_adb_env.
+'          No adb client stops the run; a failed build, no APK or a failed
+'          install skips the rest of that module and returns 1.
+'          Log: /tmp/proveo-android-install.log (sandbox.AndroidLog).
+'          AndroidApp.Task() names <module>:assembleDebug for the row's help
+'          and ReportAndroidApps.
+' WHY NOT installDebug (2026-10-20): TestAndroidAppInstallsFromTheSeed saw no
+' ca.proveo.hello on the host emulator after `<module>:installDebug`.
+' [Unverified] AGP's install task drives adb through its own client (ddmlib)
+' and the SDK's platform-tools, which ensure_jvm_toolchain never installs
+' (cmdline-tools only), and ddmlib likely ignores ADB_SERVER_SOCKET.
+' The apt `adb` client honours ADB_SERVER_SOCKET, and the fixture's
+' install.sh (assembleDebug + `adb install -r`) already took that path.
+' On a failed install check the e2e prints this log from each sandbox it
+' made (`sbx exec … cat`) and the host's `adb devices -l`.
 ' WHY THE HOST TRIGGERS: a re-attached sandbox keeps the env of its first
 ' launch (reuseOrCreate), so an env var could not carry this run's answer;
 ' `sbx exec` always carries it. Install + launch run ONCE; the agent re-runs
-' installDebug after its own edits. The function ships in the image, so it
-' reaches a sandbox after the harness image is rebuilt.
+' assembleDebug + `adb install -r` after its own edits. The function ships
+' in the image, so it reaches a sandbox after the harness image is rebuilt.
 
 title Dev ports — a static catalog, an opt-in row, one -p per tick
 
@@ -95,10 +141,10 @@ component "portsRow\nunder execution · OS\nsbx only · unticked" as ROW <<app>>
 component "PlanPorts\nsame host port if free" as PLAN <<host>>
 component "sbx run -p H:G" as SBX <<cloud>>
 component "ReportPorts\nhttp://127.0.0.1:H → sandbox :G" as REP <<app>>
-component "StartDevServers\nsbx exec bash -lc\nskip if served · backoff" as DEV <<async>>
+component "StartDevServers\nsbx exec bash -lc\nskip if served · clone: wait for HEAD · backoff" as DEV <<async>>
 database "agent-settings.yml\nworkspaces.<path>.ports · .apps" as MEM <<db>>
 component "appsRow\ngreyed until android\n:app ca.proveo.hello" as APPS <<app>>
-component "proveo_android_install\nwait toolchain → installDebug\n→ monkey launch" as AINST <<async>>
+component "proveo_android_install\nwait toolchain → assembleDebug\n→ adb install -r → monkey launch" as AINST <<async>>
 
 DISC ARROW_MAIN MATCH : each run line
 MATCH ARROW_MAIN CAT

@@ -7,7 +7,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
-	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 )
 
@@ -24,22 +23,15 @@ func stripForm(tier, creds string) *choiceui.Form {
 // claim a tier the form is not showing.
 func TestFrameAgreesWithTheForm(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		tier, creds string
-		sbx         bool
-	}{
-		{"allow-all", "broker", true}, {"balanced", "forward", true}, {"deny-all", "broker", true},
-		{"open", "broker", false}, {"allowlist", "forward", false}, {"review", "broker", false},
+	for _, c := range []struct{ tier, creds string }{
+		{"allow-all", "broker"}, {"balanced", "forward"}, {"deny-all", "broker"},
 	} {
 		f := stripForm(c.tier, c.creds)
-		fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "claudecode", c.sbx, c.tier, "broker")(f, 0)
+		fr := topologyOf("claudecode", "broker")(f, 0)
 		if !strings.HasPrefix(fr.Caption, c.tier+" · "+c.creds) {
 			t.Errorf("%s/%s: caption %q does not name the selection", c.tier, c.creds, fr.Caption)
 		}
-		if fr.Key != keyHomeOf(c.creds, c.sbx) {
-			t.Errorf("%s/%s: the key is not where the credentials actually rest, got %v", c.tier, c.creds, fr.Key)
-		}
-		if c.sbx && fr.Key != choiceui.KeyAtHop {
+		if c.creds != "forward" && fr.Key != choiceui.KeyAtHop {
 			t.Errorf("%s/%s: sbx holds the secret at its proxy, got %v", c.tier, c.creds, fr.Key)
 		}
 	}
@@ -47,61 +39,28 @@ func TestFrameAgreesWithTheForm(t *testing.T) {
 
 func TestEveryPostureLeavesTheProviderReachable(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct {
-		tier string
-		sbx  bool
-	}{
-		{"allow-all", true}, {"balanced", true}, {"deny-all", true},
-		{"open", false}, {"allowlist", false},
-	} {
-		lane, open, _ := lanesOf(c.tier, c.sbx)
+	for _, tier := range []string{"allow-all", "balanced", "deny-all"} {
+		lane, open, _ := lanesOf(tier)
 		if open < 1 {
-			t.Errorf("%s: %d lanes survive; the agent could not reach its provider", c.tier, open)
+			t.Errorf("%s: %d lanes survive; the agent could not reach its provider", tier, open)
 		}
 		if lane == choiceui.LaneAsked {
-			t.Errorf("%s: only review asks, got LaneAsked", c.tier)
-		}
-	}
-	// review is the exception, and the reason is different: nothing has been
-	// consented YET, which is a question rather than a refusal.
-	if lane, open, _ := lanesOf("review", false); lane != choiceui.LaneAsked || open != 0 {
-		t.Errorf("review must draw no lane and ask instead, got lane=%v open=%d", lane, open)
-	}
-}
-
-// The two backends put a different party in the path, and only one docker shape
-// has nobody there at all.
-func TestHopNamesTheRightParty(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		tier, creds string
-		sbx         bool
-		want        string
-	}{
-		{"deny-all", "broker", true, "sbx proxy"},
-		{"allow-all", "forward", true, "sbx proxy"},
-		{"open", "broker", false, "mitm"},
-		{"open", "forward", false, ""},
-		{"allowlist", "forward", false, "mitm + squid"},
-		{"review", "broker", false, "mitm + squid"},
-	} {
-		if got := hopOf(c.tier, c.creds, c.sbx); got != c.want {
-			t.Errorf("%s/%s sbx=%v: hop = %q, want %q", c.tier, c.creds, c.sbx, got, c.want)
+			t.Errorf("%s: nothing asks on sbx, got LaneAsked", tier)
 		}
 	}
 }
 
 func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 	t.Parallel()
-	proj := topologyOf(manifest.Manifest{}, "opencode", false, "open", "broker")
+	proj := topologyOf("opencode", "broker")
 	for _, c := range []struct {
 		level string
 		want  bool
 	}{{EvidenceDefault, false}, {EvidenceVerbose, true}} {
-		f := stripForm("open", "broker")
+		f := stripForm("allow-all", "broker")
 		ev := &f.Rows[len(f.Rows)-1]
 		for i, o := range ev.Options {
-			if o == c.level {
+			if evidenceOf(o) == c.level {
 				ev.Selected = i
 			}
 		}
@@ -114,7 +73,7 @@ func TestSpeakingIsTheAnswerNotTheCursor(t *testing.T) {
 func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	t.Parallel()
 	f := stripForm("allow-all", "") // no credentials row at all
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", true, "allow-all", "forward")(f, 0)
+	fr := topologyOf("cursor", "broker")(f, 0)
 	if fr.Key != choiceui.KeyAtHop {
 		t.Errorf("with no row to read, the key still lives at the sbx proxy, got %v", fr.Key)
 	}
@@ -123,12 +82,12 @@ func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	}
 }
 
-func TestSbxPutsTheKeyAtTheProxyEvenWhenTheRowSaysForward(t *testing.T) {
+func TestForwardPutsTheKeyInTheSandbox(t *testing.T) {
 	t.Parallel()
 	f := stripForm("allow-all", "forward")
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", true, "allow-all", "forward")(f, 0)
-	if fr.Key != choiceui.KeyAtHop {
-		t.Errorf("sbx forward still rests the secret at the proxy, got %v", fr.Key)
+	fr := topologyOf("cursor", "broker")(f, 0)
+	if fr.Key != choiceui.KeyInSquare {
+		t.Errorf("forward rides the sandbox env, got %v", fr.Key)
 	}
 	if fr.Hop != "sbx proxy" {
 		t.Errorf("hop = %q, want sbx proxy", fr.Hop)
@@ -170,32 +129,17 @@ func TestTheGlyphTierNeedsNoTranslation(t *testing.T) {
 	}
 }
 
-func TestBothAxesFallBackWhenTheirRowWasDropped(t *testing.T) {
-	t.Parallel()
-	f := &choiceui.Form{Rows: []choiceui.Row{evidenceRow(EvidenceDefault)}}
-	fr := topologyOf(manifest.Manifest{Docker: manifest.DockerSbx}, "cursor", false, "open", "forward")(f, 0)
-	if fr.Hop != "" {
-		t.Errorf("open + forward has no hop at all; the strip drew %q", fr.Hop)
-	}
-	if fr.Key != choiceui.KeyInSquare {
-		t.Errorf("forward puts the real key inside the container, got %v", fr.Key)
-	}
-	if !strings.HasPrefix(fr.Caption, "open · forward") {
-		t.Errorf("the caption must name the resolved values, got %q", fr.Caption)
-	}
-}
-
 func TestAnUnreadableBaselineIsDrawnAtItsTightest(t *testing.T) {
 	t.Parallel()
-	lane, open, refused := lanesOf("unreadable", true)
+	lane, open, refused := lanesOf("unreadable")
 	if lane != choiceui.LaneScreened || open != 1 || refused != 2 {
 		t.Errorf("an unknown baseline must draw the tightest picture, got %v %d/%d", lane, open, refused)
 	}
-	if allow, _, _ := lanesOf("allow-all", true); allow == lane {
+	if allow, _, _ := lanesOf("allow-all"); allow == lane {
 		t.Error("unreadable must not render identically to allow-all")
 	}
 	fr := choiceui.Frame{}
-	if got := captionOf(fr, "unreadable", "broker", true); !strings.Contains(got, "could not read") {
+	if got := captionOf(fr, "unreadable", "broker"); !strings.Contains(got, "could not read") {
 		t.Errorf("the caption must say the baseline is unknown, got %q", got)
 	}
 }
@@ -260,27 +204,12 @@ func TestTheFigureFollowsTheHoveredBaseline(t *testing.T) {
 			if got := egressTier(form, tc.cursor, "open"); got != tc.wantTier {
 				t.Fatalf("egressTier = %q, want %q", got, tc.wantTier)
 			}
-			_, open, refused := lanesOf(tc.wantTier, true)
+			_, open, refused := lanesOf(tc.wantTier)
 			if open != tc.open || refused != tc.refused {
 				t.Errorf("lanesOf(%q) = %d open, %d refused; want %d and %d",
 					tc.wantTier, open, refused, tc.open, tc.refused)
 			}
 		})
-	}
-}
-
-// An unlocked row (the docker tiers) is chosen, not hovered, so the figure must
-// keep following the selection there.
-func TestAnUnlockedEgressRowStillFollowsTheSelection(t *testing.T) {
-	t.Parallel()
-	form := &choiceui.Form{Rows: []choiceui.Row{{
-		Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1, Hover: 2,
-	}}}
-	if got := egressTier(form, 0, "open"); got != "allowlist" {
-		t.Fatalf("egressTier = %q, want the selection", got)
-	}
-	if got := egressTier(&choiceui.Form{}, 0, "open"); got != "open" {
-		t.Fatalf("with no egress row at all, egressTier = %q, want the fallback", got)
 	}
 }
 
@@ -292,7 +221,6 @@ func modelForm(model string) *choiceui.Form {
 
 func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 	t.Parallel()
-	man := manifest.Manifest{Docker: manifest.DockerSbx}
 	for _, c := range []struct {
 		option, square string
 		key            choiceui.KeyHome
@@ -302,7 +230,7 @@ func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 		{localModels[0].label(), "sbx · hermes + qwen3.8", choiceui.KeyNone},
 		{localModels[1].label(), "sbx · hermes + glimmer", choiceui.KeyNone},
 	} {
-		fr := topologyOf(man, "hermes", true, "allow-all", "broker")(modelForm(c.option), 0)
+		fr := topologyOf("hermes", "broker")(modelForm(c.option), 0)
 		if fr.Key != c.key || fr.Square != c.square {
 			t.Errorf("%q: key=%v square=%q, want key=%v square=%q", c.option, fr.Key, fr.Square, c.key, c.square)
 		}

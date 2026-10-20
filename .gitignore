@@ -12,8 +12,7 @@ yarn-error.log*
 .mise/
 mise.local.toml
 
-# --- Token Saver (RTK) & Cargo/Rust ---
-/rtk/
+# --- Cargo/Rust ---
 target/
 
 # --- Environment Secrets & Local Configurations ---
@@ -90,7 +89,6 @@ logs/
 reports/
 # Accidental Go binaries at repo root (use: mise run build-cli → GOPATH/bin)
 /proveo
-/proveo-egress
 /proveo-entrypoint
 
 # Staged CDN Go binaries (mise run stage-cli; regenerated for deploy)
@@ -108,3 +106,5 @@ cov/
 _spec/**/*.svg
 _spec/**/*.png
 !_spec/_assets/**
+
+.claude/worktrees/

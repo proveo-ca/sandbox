@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/provider/model-resolution.puml, _spec/_plans/retire-model-bridging.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/provider/model-catalog.puml
+// SPEC: _spec/internal/provider/model-resolution.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/provider/model-catalog.puml
 package provider
 
 import (
@@ -8,10 +8,6 @@ import (
 )
 
 // RoleNames is the role VOCABULARY, not a set of environment variables.
-// proveo no longer reads a model from the environment — it does not choose an
-// agent's model at all — but these names remain the keys of an assignment a
-// previous session remembered, which is what the credential and billing
-// warnings are still written against.
 var RoleNames = []string{"ARCHITECT_MODEL", "EDITOR_MODEL", "SMALL_MODEL"}
 
 // Roles is a session's model assignment, keyed by RoleNames name.

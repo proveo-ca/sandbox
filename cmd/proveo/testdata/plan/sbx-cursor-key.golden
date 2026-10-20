@@ -1,20 +1,13 @@
 == sbx argv ==
-sbx run --name proveo-cursor-<WORKHASH> --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e CURSOR_API_KEY -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e MCP_GATEWAY_URL= cursor <WORK>
+sbx run --name proveo-cursor-<WORKHASH> --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e MCP_GATEWAY_URL= cursor <WORK>
 == secret names ==
+CURSOR_API_KEY
 == kit spec.yaml ==
 schemaVersion: "2"
 kind: mixin
 name: cursor-posture
 displayName: proveo posture (cursor)
 description: Reachability, host-resolved environment and the seed step for a proveo run.
-permissions:
-    network:
-        allow:
-            - '*.cursor.com'
-            - '*.cursor.sh'
-            - api2.cursor.sh
-            - cursor.com
-            - cursor.sh
 environment:
     variables:
         GIT_AUTHOR_NAME: Executor
@@ -32,7 +25,10 @@ setup:
             - -c
             - |-
               set +e
-              /usr/local/bin/proveo-seed "$1"
+              if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
+                exit 0
+              fi
+              /usr/local/bin/proveo-seed "$@"
               rc=$?
               if [ "$rc" -ne 0 ]; then
                 printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
@@ -40,11 +36,36 @@ setup:
               exit 0
             - proveo-seed
             - cursor
+            - release
           user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'
         - command:
             - /usr/bin/env
             - PROVEO_SEED_ONLY=1
-            - /entrypoint.sh
+            - PROVEO_SEED_PHASE=none
+            - /bin/sh
+            - -c
+            - if command -v -- 'cursor-entrypoint' >/dev/null 2>&1; then exec 'cursor-entrypoint' "$@"; fi; if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi
+            - proveo-cursor
           user: "1000"
           description: 'proveo: the def''s own wiring, launch skipped'
+        - command:
+            - /bin/sh
+            - -c
+            - |-
+              set +e
+              if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
+                exit 0
+              fi
+              /usr/local/bin/proveo-seed "$@"
+              rc=$?
+              if [ "$rc" -ne 0 ]; then
+                printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
+              fi
+              exit 0
+            - proveo-seed
+            - cursor
+            - provision
+          user: "1000"
+          background: true
+          description: 'proveo: toolchains, dependencies and language servers, beside the agent'

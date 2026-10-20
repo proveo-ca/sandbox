@@ -44,7 +44,7 @@ func ConfigSet(h manifest.Home) string {
 		if strings.ContainsAny(hostRel+agentRel, "|;") {
 			continue
 		}
-		entries = append(entries, hostRel+"|"+agentRel+"|"+denyList(m.Deny))
+		entries = append(entries, hostRel+"|"+agentRel+"|"+skipList(m))
 	}
 	return strings.Join(entries, ";")
 }
@@ -69,6 +69,21 @@ func denyList(deny []string) string {
 			continue
 		}
 		keep = append(keep, name)
+	}
+	return strings.Join(keep, ",")
+}
+
+// skipList is the shell's prune list for one mount: its denied names, then its
+// transient paths.
+func skipList(m manifest.HomeMount) string {
+	var keep []string
+	if d := denyList(m.Deny); d != "" {
+		keep = append(keep, d)
+	}
+	for _, p := range m.Transient {
+		if manifest.ValidTransient(p) {
+			keep = append(keep, p)
+		}
 	}
 	return strings.Join(keep, ",")
 }

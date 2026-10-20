@@ -19,7 +19,9 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/instructions_seed_test.go
 ' covers: e2e/seed_ready_test.go
+' covers: internal/contract/seed_phase_test.go
 ' covers: internal/contract/seed_shares_test.go
+' covers: internal/imagetest/*_test.go
 '
 ' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
 ' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
@@ -36,9 +38,10 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' TestToolchainProvisioningIsIdempotent read zero installs, and why each sandbox
 ' ran three chrome-bridge relays.
 ' So every harness entrypoint calls proveo_sbx_passthrough "$@" right after
-' sourcing the lib: when SANDBOX_VM_ID is set AND the argv is
-' `sh -c …sleep infinity…`, it execs the keepalive and does nothing else, as
-' tini would. The marker is sbx's env, present when PID 1 starts; the first
+' sourcing the lib: when _proveo_in_sbx holds (SANDBOX_NAME, then SANDBOX_ID,
+' then SANDBOX_VM_ID — F18, 2026-10-17; it read SANDBOX_VM_ID alone before) AND
+' the argv is `sh -c …sleep infinity…`, it execs the keepalive and does nothing
+' else, as tini would. The marker is sbx's env, present when PID 1 starts; the first
 ' guard used /etc/durable-startup.d, which sbx writes ~2s AFTER PID 1 starts
 ' (measured: dir born 03:55:37.2, PID 1 03:55:35), so it never fired at boot.
 ' The docker backend never matches (proveo sets no SANDBOX_*; its argv is the
@@ -76,8 +79,10 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '   (a miss stops here, unreleased; _spec/internal/sbx/clone-workspace.puml) →
 '   instructions → known hosts → state/config
 '   restore → git-sync hooks → subagents → trust → wire_config → house rules →
-'   UI defaults → claude hooks → browser skills → RELEASE → tools restore →
-'   toolchain, deps, LSP binaries → wire_config again.
+'   UI defaults → claude hooks → browser skills → chrome bridge → RELEASE →
+'   tools restore → tool env block → toolchain, deps, LSP binaries →
+'   wire_config again. On sbx, for a built-in agent, everything after RELEASE
+'   is the background provision step (_spec/internal/sbx/startup-dispatch.puml).
 ' Installs stay after the release because a monorepo's are measured in tens
 ' of seconds to minutes, and the agent should not wait on them.
 ' wire_config runs TWICE because LSP plugins enable only once their server
@@ -102,7 +107,12 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '
 ' It defaults to the agent home now, and TestEverySeedSurvivesAnUnsetHarnessHome
 ' runs every harness's seed with no harness home exported and a stub LSP bridge
-' on PATH, because each wiring function returns early without one.
+' on PATH, because each wiring function returns early without one. It also
+' exports PROVEO_OPENCODE_DEFAULTS_DIR="$1/defs/opencode/defaults" (2026-10-17,
+' MEASURED, instructions_seed_test.go:314): since #68, proveo_bootstrap_opencode_config
+' refuses without baked defaults (entrypoint-lib.sh:2944-2947), and outside the
+' image /opt/opencode/defaults does not exist, so the opencode subtest had failed
+' on its fixture, not on the seed (the user: "Fix seed").
 ' opencode and hermes used to wait on the HOOKS marker, set before subagents
 ' and LSP config, because the release was once the first step; they now wait
 ' on the release like claudecode.
@@ -119,18 +129,55 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' per a readySpecs row (a missing row fails): the snapshot holds its subagents
 ' and names a baked LSP server; the harness itself lists adversarial-reviewer
 ' where an offline listing exists (claude's stream-json init event, `opencode
-' agent list`); the clone's .env is linked, read-only and stripped of provider
-' keys; _spec is relinked; and after seed-done, gopls — installed by the seed's
+' serve` plus GET /api/agent); the clone's .env is linked, writable and stripped
+' of provider keys; _spec is relinked; and after seed-done, gopls — installed by the seed's
 ' own toolchain step — is on PATH and wired. codex, cursor and cecli have no
 ' offline registration listing, so their row asserts the files only.
+' Since 2026-10-17 every row runs `proveo run <target>` through its kit
+' (`--shell` is retired; readySpec.kit became readySpec.ready, the prompt
+' text). opencode was first, because under the keeper design its history was
+' prepared and its seed re-run with the cache owner only on that path.
+' D2 (DONE (wt) 2026-10-17; _spec/defs/opencode/engine-local-history.puml)
+' dropped that: a new engine imports the host database once between `sbx
+' create` and the reattach, and the seed has no OpenCode gate (MEASURED:
+' proveo-seed and defs/opencode/entrypoint.sh hold no prepared-history check).
+' opencode's row uses a temporary PROVEO_HOME, so it never touches the
+' operator's history; `proveo run opencode` itself keeps the real home. It
+' probes through `sbx exec` as uid 1000, after cd into the clone.
+' Its toolchain store starts empty, so its install probe gets one extra minute.
+' Its registry probe prints the agent list on every poll; that JSON goes to
+' stderr, so the `registered=` line holds only yes or no (first kit run,
+' 2026-10-14: the JSON filled the line and hid a passing "yes").
+' Cleanup ends the session, waits for proveo's teardown (PROVEO_TEST_TEARDOWN,
+' 3m), then removes the retained engine and its two receipts; the one-VM gate
+' is released only after that.
 ' The wait lives in the image because sbx offers no launch gate: a
 ' /opt/proveo/shims/claude shim ahead on PATH, and /etc/bash.bashrc for the
-' shell agent, run proveo-await-seed. It waits only when SANDBOX_VM_ID AND
-' PROVEO_WORKDIR are set: a bare `sbx run -t` of the image (ladder rungs 1-2)
+' shell agent, run proveo-await-seed. It waits only when its POSIX
+' _proveo_in_sbx holds (SANDBOX_NAME, SANDBOX_ID or SANDBOX_VM_ID — F18,
+' 2026-10-17) AND PROVEO_WORKDIR is set: a bare `sbx run -t` of the image (ladder rungs 1-2)
 ' has no proveo kit, so no seed will ever mark the boot. It gives up after
-' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. The docker backend seeds in the entrypoint before exec,
-' so it never waits. A refused file whose only line is "OpenCode credential preflight refused release"
-' is the runtime's own note from a kept sandbox; await-seed deletes it and launches. A share refusal still stops the launch.
+' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. (The
+' deleted docker backend seeded in the entrypoint before exec, so it never waited.)
+' A share refusal still stops the launch (PROVEO_SEED_REFUSED).
+' D2 (DONE (wt) 2026-10-17; _spec/defs/opencode/engine-local-history.puml)
+' deleted the OpenCode-specific await-seed paths: the "OpenCode credential
+' preflight refused release" note, the "OpenCode history is not prepared in
+' this engine" refusal and its raw-launch fallback, and the keeper's deadline,
+' owner and startup variables (MEASURED: proveo-await-seed names no OpenCode
+' string). Every OpenCode launch is now what the raw fallback was: the native
+' client on its own ~/.local/share/opencode. Pinned by
+' TestAwaitSeedStopsOnlyOnASeedRefusal (internal/contract/instructions_seed_test.go).
+'
+' ── THE RELEASE IS ALSO A STARTUP-STEP BOUNDARY (2026-10-13) ──────────────
+' "Installs stay after the release" held in the ORDER and failed in the TIME.
+' Every Kit step was foreground, and on 2026-10-13 the agent forked only when
+' the dispatcher returned: 86s after boot, ~50s after the release. proveo_seed
+' now takes a phase. sbx runs `proveo-seed <target> release` in the
+' foreground, the def entrypoint with PROVEO_SEED_PHASE=none, then
+' `proveo-seed <target> provision` with background: true. Docker runs "all".
+' The steps, the Docker docs they follow and the probe that pins them:
+' _spec/internal/sbx/startup-dispatch.puml.
 ' covers: internal/imagetest/*_test.go ("ships the Kit's startup command")
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -337,7 +384,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 
 node "Both backends, one step" as BE <<host>> {
   component "docker — image ENTRYPOINT\n""defs/<h>/entrypoint\.sh"" → seed → exec" as DOCK <<app>>
-  component "sbx — ""setup\.startup""\n""proveo-seed <target>"" + seed-only\nentrypoint (mixin), no exec here" as SBX <<app>>
+  component "sbx — ""setup\.startup""\n""proveo-seed <target> release"" · seed-only\nentrypoint (mixin) · ""provision"" (background)" as SBX <<app>>
 }
 
 component """packages/lib/proveo-seed""\nthe seed as a NAMEABLE command" as CMDWRAP <<app>>
@@ -556,10 +603,10 @@ note as N_SEED_GUARD
 end note
 
 note as N_SEED_VARIANT
-  It covers the ""-browser"" variants too. They
-  rebuild the SAME Dockerfile against
-  base-node-browser — and the crashed run was
-  ""proveo/opencode-browser:local"".
+  It covers the ""-browser"" variants too. Each
+  is the browser layer on ""proveo/<harness>"",
+  so it inherits the seed — and the crashed run
+  was ""proveo/opencode-browser:local"".
 end note
 
 @enduml

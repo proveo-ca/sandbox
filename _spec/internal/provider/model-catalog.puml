@@ -7,6 +7,10 @@
 ' warning that a saved config names a model that no longer exists? Until that is
 ' answered this describes machinery with no reader, which is exactly the state
 ' this repo calls a dead row elsewhere.
+' 2026-10-17 (N10, MEASURED): not quite no reader — warnUnknownModel →
+' CheckModel and posture.RolesLine → ModelProvider still read models.go. The
+' plan now holds only Q2 and Q4; the decision lives in
+' _spec/internal/entrypoint/model-alias-bridges.puml.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: the planned model table — one canonical id, four harness dialects, three roles
@@ -73,7 +77,7 @@ end note
 
 note bottom of CUR
   **The exception that must stay loud.** Cursor's inference is vendor-pinned
-  and its TLS is not MITM-brokerable, so a catalogued model cannot be
+  (its TLS was not MITM-brokerable by proveo's deleted docker broker), so a catalogued model cannot be
   retargeted at it. The catalog records this as unsupported rather than
   emitting an id that would silently fail — the same reason the run wiring
   already rejects ""--local-model"" for cursor.

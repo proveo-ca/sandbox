@@ -1,22 +1,29 @@
 @startuml
-' covers: defs/lib/detect-verify.sh
-' covers: defs/cecli/proveo-lib/detect-verify.sh
-' covers: defs/claudecode/mcp/proveo-lib/detect-verify.sh
+' purpose: how a def entrypoint tells the agent which verification commands the project supports
 ' covers: internal/verify/**
 ' covers: cmd/proveo-entrypoint/**
+' covers: defs/*/entrypoint.sh (the verification block)
+' covers: defs/claudecode/mcp/entrypoint.sh (the verification block)
+' covers: internal/contract/defaults_test.go (TestDeadHostLibsRemoved)
 '
-' ── WHY A SHELL WRAPPER STILL EXISTS AROUND THE GO IMPLEMENTATION ──────────
-' detect_verify_commands is a thin wrapper over `proveo-entrypoint verify`. It
-' keeps the name detect-verify.sh so BAKED IMAGE PATHS (/opt/proveo/lib/) keep
-' working: every def entrypoint falls back to sourcing that path when the Go
-' binary is not on PATH, and older images have it.
-'
-' It carries one dev fallback for hosts where the binary is not baked yet — walk
-' up to the nearest go.mod and `go run ./cmd/proveo-entrypoint verify` — which is
-' what lets host-side contract tests exercise the same discovery the container
-' uses. With neither available it fails loudly rather than printing an empty
-' command list, because "no verification commands" and "no discovery" must not
-' look alike.
+' ── ONE IMPLEMENTATION: proveo-entrypoint verify (N4, DONE (wt) 2026-10-17) ─
+' The user: "Delete all three (Recommended)" (repo-simplification.puml N4).
+' MEASURED: the three identical detect-verify.sh shell wrappers
+' (defs/lib/, defs/cecli/proveo-lib/, defs/claudecode/mcp/proveo-lib/) are
+' deleted, and so are the now-empty defs/lib/ and defs/cecli/proveo-lib/
+' (internal/contract/defaults_test.go TestDeadHostLibsRemoved).
+' defs/claudecode/mcp/proveo-lib/ stays for chrome-bridge.js. Every def
+' entrypoint that prints the block (codex, opencode, cursor, cecli,
+' claudecode/mcp) runs it only `if command -v proveo-entrypoint`; the
+' `elif … detect-verify` fallbacks and the lib COPY lines (codex, opencode,
+' cursor, hermes, cecli) are gone. Every proveo image bakes the binary
+' (defs/base/Dockerfile; the floor probe), and imagetest asserts it as
+' "proveo-entrypoint (verification commands) is baked" with `command -v
+' proveo-entrypoint` (codex_test.go:101, cursor_test.go:90).
+' HISTORY: the wrapper kept the name detect-verify.sh so baked /opt/proveo/lib/
+' paths worked for images without the Go binary, and it carried a dev fallback
+' (`go run ./cmd/proveo-entrypoint verify` from the nearest go.mod). No current
+' image lacks the binary, so the fallbacks were unreachable.
 
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Verification-command discovery — telling the agent how to check its own work
@@ -64,8 +71,8 @@ note bottom of AGENT
   inventing a build command that does not exist in
   this repo.
 
-  The Bash fallback (""defs/lib/detect-verify.sh"") is used
-  only when ""proveo-entrypoint"" is not baked into the
-  image; the Go detector is authoritative.
+  The Go detector is the only one: the shell
+  fallbacks were deleted (N4), and an image without
+  ""proveo-entrypoint"" simply prints no block.
 end note
 @enduml

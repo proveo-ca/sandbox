@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/wsscan"
@@ -33,10 +32,7 @@ type MountSpec struct {
 	RepoRoot           string // git root; "" when not in a repo
 	InputDir           string // invocation dir (absolute) — the monorepo scope when a subdir
 	OutputDir          string
-	EgressMode         string
-	Credentials        string // "broker" (default) | "forward"
 	MountRootDeps      bool
-	DepStage           string
 	WorktreeLinkDir    string
 }
 
@@ -52,10 +48,9 @@ func (w MountSpec) ScopeRel() string {
 	return relSlash(w.RepoRoot, w.InputDir)
 }
 
-// Plan returns the bind mounts, the container workdir, and the escaping
-// symlinks it resolved (see Link) for the spec, reproducing the per-harness
-// wrapper mount models.
-func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) {
+// Plan returns the bind mounts and the escaping symlinks it resolved (see Link)
+// for the spec, reproducing the per-harness wrapper mount models.
+func (w MountSpec) Plan() (mounts []runner.Mount, links []Link) {
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
 	w.InputDir, w.RepoRoot = resolved(w.InputDir), resolved(w.RepoRoot)
@@ -64,7 +59,6 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 	case w.RepoRoot != "" && sameDir(w.InputDir, w.RepoRoot):
 		mounts = append(mounts, runner.Mount{Host: w.RepoRoot, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.gitOverride(w.RepoRoot, "/app", ro)...)
-		mounts = append(mounts, w.envMounts("")...)
 		scopeHost = w.RepoRoot
 	case w.RepoRoot != "" && underDir(w.InputDir, w.RepoRoot):
 		rel := relSlash(w.RepoRoot, w.InputDir)
@@ -84,28 +78,20 @@ func (w MountSpec) Plan() (mounts []runner.Mount, workdir string, links []Link) 
 				continue
 			}
 			mounts = append(mounts, runner.Mount{Host: host, Container: "/app/" + d})
-			if w.isolateEnv() && !envMaskPrune[d] {
-				mounts = append(mounts, maskEnvMounts(host, "/app/"+d)...)
-			}
 		}
 		if w.ConfigDir != "" && exists(filepath.Join(w.RepoRoot, w.ConfigDir)) && !exists(filepath.Join(w.InputDir, w.ConfigDir)) {
 			mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
 		}
-		mounts = append(mounts, w.envMounts(rel)...)
 		scopeContainer = "/app/" + rel
 	default: // not a repo
 		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
-		mounts = append(mounts, w.envMounts("")...)
 	}
-	mounts = append(mounts, w.depMounts()...)
-
 	mounts = append(mounts, w.worktreeMounts()...)
-	mounts = append(mounts, w.envOverlay()...)
 	if w.Output && w.OutputDir != "" {
 		mounts = append(mounts, runner.Mount{Host: w.OutputDir, Container: "/app/output"})
 	}
 	linkMounts, links := w.linkMounts(scopeHost, scopeContainer, ro)
-	return append(mounts, linkMounts...), "/app", links
+	return append(mounts, linkMounts...), links
 }
 
 func resolved(p string) string {
@@ -309,22 +295,6 @@ func (w MountSpec) PrepareWorktreeLinks(root string) (string, error) {
 	return dir, nil
 }
 
-func (w MountSpec) envOverlay() []runner.Mount {
-	if w.isolateEnv() {
-		return nil
-	}
-	src := filepath.Join(w.InputDir, ".env")
-	fi, err := os.Lstat(src)
-	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
-		return nil // absent, or a real file already inside the mount
-	}
-	target, err := filepath.EvalSymlinks(src)
-	if err != nil || underDir(target, w.InputDir) {
-		return nil // dangling on the host too, or resolves within the mount
-	}
-	return []runner.Mount{{Host: target, Container: w.containerRoot() + "/.env", ReadOnly: true}}
-}
-
 func (w MountSpec) gitOverride(hostTree, containerBase string, parentRO bool) []runner.Mount {
 	gitRO := w.GitMode == "ro"
 	if gitRO == parentRO {
@@ -335,78 +305,6 @@ func (w MountSpec) gitOverride(hostTree, containerBase string, parentRO bool) []
 		return nil
 	}
 	return []runner.Mount{{Host: host, Container: containerBase + "/.git", ReadOnly: gitRO}}
-}
-
-func (w MountSpec) isolateEnv() bool {
-	if strings.EqualFold(strings.TrimSpace(w.Credentials), "forward") {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(w.EgressMode)) {
-	case "open", "allowlist", "review":
-		return true
-	}
-	return false
-}
-
-func (w MountSpec) envMounts(relativeScope string) []runner.Mount {
-	if w.isolateEnv() {
-		base := "/app"
-		if relativeScope != "" {
-			base += "/" + relativeScope
-		}
-		return maskEnvMounts(w.InputDir, base)
-	}
-	if env := envMountSource(w.InputDir, w.RepoRoot); env != "" {
-		return []runner.Mount{{Host: env, Container: "/app/.env", ReadOnly: true}}
-	}
-	return nil
-}
-
-var envMaskPrune = map[string]bool{".git": true, "node_modules": true}
-
-func secretEnvFile(name string) bool {
-	if name != ".env" && !strings.HasPrefix(name, ".env.") {
-		return false
-	}
-	switch {
-	case strings.HasSuffix(name, ".example"), strings.HasSuffix(name, ".sample"),
-		strings.HasSuffix(name, ".template"), strings.HasSuffix(name, ".dist"):
-		return false
-	}
-	return true
-}
-
-func maskEnvMounts(hostDir, containerBase string) []runner.Mount {
-	if hostDir == "" {
-		return nil
-	}
-	root := filepath.Clean(hostDir)
-	var masks []runner.Mount
-	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // unreadable entry: skip it, never abort the plan
-		}
-		if d.IsDir() {
-			if p != root && envMaskPrune[d.Name()] {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !secretEnvFile(d.Name()) {
-			return nil
-		}
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			return nil
-		}
-		masks = append(masks, runner.Mount{
-			Host:      "/dev/null",
-			Container: containerBase + "/" + filepath.ToSlash(rel),
-			ReadOnly:  true,
-		})
-		return nil
-	})
-	return masks
 }
 
 type LinkAction string
@@ -497,17 +395,26 @@ func refuseLinkTarget(target, root string) string {
 	return ""
 }
 
-// ProjectEnvFile is the project's own .env, resolved to a regular file, or "".
-func ProjectEnvFile(inputDir, repoRoot string) string { return envMountSource(inputDir, repoRoot) }
-
-func envMountSource(inputDir, repoRoot string) string {
-	candidates := []string{filepath.Join(inputDir, ".env")}
-	if repoRoot != "" {
-		candidates = append(candidates, filepath.Join(repoRoot, ".env"))
+func secretEnvFile(name string) bool {
+	if name != ".env" && !strings.HasPrefix(name, ".env.") {
+		return false
 	}
-	for _, candidate := range candidates {
-		if resolved := resolveRegularFile(candidate); resolved != "" {
-			return resolved
+	switch {
+	case strings.HasSuffix(name, ".example"), strings.HasSuffix(name, ".sample"),
+		strings.HasSuffix(name, ".template"), strings.HasSuffix(name, ".dist"):
+		return false
+	}
+	return true
+}
+
+// ProjectEnvFile is the first .env among dirs, resolved to a regular file, or "".
+func ProjectEnvFile(dirs ...string) string {
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		if p := resolveRegularFile(filepath.Join(d, ".env")); p != "" {
+			return p
 		}
 	}
 	return ""
@@ -528,41 +435,6 @@ func resolveRegularFile(path string) string {
 	abs, err := filepath.Abs(resolved)
 	if err != nil {
 		return resolved
-	}
-	return abs
-}
-
-func EnvFileSource(invocationWD, inputDir, repoRoot string) string {
-	if invocationWD != "" {
-		if p := resolveRegularFile(filepath.Join(invocationWD, ".env")); p != "" {
-			return p
-		}
-	}
-	if p := envMountSource(inputDir, repoRoot); p != "" {
-		return p
-	}
-	for _, dir := range []string{inputDir, invocationWD} {
-		if dir == "" {
-			continue
-		}
-		if p := findEnvFileResolved(dir); p != "" {
-			return p
-		}
-	}
-	return ""
-}
-
-func findEnvFileResolved(dir string) string {
-	p := entrypoint.FindEnvFile(dir)
-	if p == "" {
-		return ""
-	}
-	if resolved := resolveRegularFile(p); resolved != "" {
-		return resolved
-	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return p
 	}
 	return abs
 }

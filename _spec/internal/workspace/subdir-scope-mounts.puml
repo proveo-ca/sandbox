@@ -6,7 +6,6 @@ title Monorepo subdir scope — what reaches /app, and what used to be missing
 ' covers: internal/workspace/deps.go
 ' covers: internal/workspace/mount_test.go
 ' covers: internal/workspace/mount_canonical_test.go
-' covers: cmd/proveo/run_golden_test.go (scrubRun)
 ' covers: e2e/scope_mounts_test.go
 ' covers: e2e/git_access_test.go (TestGitIsUsableInEveryScopeMode)
 '   the shared launch shape ....... _spec/tests/testing-strategy.puml
@@ -41,15 +40,18 @@ title Monorepo subdir scope — what reaches /app, and what used to be missing
 '     rather than in a startup command, which the agent would launch without.
 '   The last two are not this diagram's: _spec/internal/sbx/launch-env.puml.
 '
-' The golden pays for the first one. Mount hosts are rendered canonical now, so
-' a `t.TempDir()` under /var appears as /private/var, and `scrubRun` replaces
+' The golden paid for the first one. Mount hosts are rendered canonical, so a
+' `t.TempDir()` under /var appears as /private/var, and `scrubRun` replaced
 ' BOTH spellings — scrubbing only what the test typed would pin the recorded
-' plan to the machine that produced it.
+' plan to the machine that produced it. cmd/proveo/run_golden_test.go (and
+' scrubRun) was DELETED 2026-10-16 with the docker plans it rendered; a
+' replacement sbx run golden must keep the same two-spelling scrub.
 '
 ' ── THE SCOPE CASES POINT --input AT THE SUBDIRECTORY ──────────────────────
 ' TestGitIsUsableInEveryScopeMode and TestWorktreeWorkspaceIsFullyUsable each
-' launch a real `proveo run <target> --shell` with `--input` aimed at the scoped
-' subdirectory itself, in place of a `docker run` carrying a hand-built mount
+' launch a real `proveo run <target>` through its kit (launchKit, probing with
+' `sbx exec`; `--shell` until it was retired 2026-10-17) with `--input` aimed
+' at the scoped subdirectory itself, in place of a `docker run` carrying a hand-built mount
 ' list and a PROVEO_SCOPE_REL the case set for itself. Scope DETECTION, the
 ' root-file and root-dir union, the worktree overlay and the git-safe-dir
 ' bridging are then the run's own decisions — the ones this diagram describes —

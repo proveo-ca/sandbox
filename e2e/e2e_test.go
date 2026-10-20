@@ -24,9 +24,10 @@ import (
 // SIDE EFFECTS on the host rather than the model's prose:
 func TestPromptfulE2E(t *testing.T) {
 	requireTmux(t)
+	requireSbx(t)
 	requireDocker(t)
 	target := env("PROVEO_TEST_TARGET", "opencode")
-	image := env("PROVEO_TEST_IMAGE", harnessImageName(target))
+	image := harnessImageName(target)
 	if !dockerImagePresent(t, image) {
 		t.Skipf("harness image %s not built (mise run build %s)", image, target)
 	}
@@ -53,7 +54,7 @@ func TestPromptfulE2E(t *testing.T) {
 	t.Cleanup(sess.Kill)
 
 	if err := sess.Start(200, 50, "env", "PROVEO_WIZARD=off", proveoBin, "run", target,
-		"--egress-mode", "open", "--credentials", "forward",
+		"--credentials", "forward",
 		"--local-model", model, "--input", work, "--scope", ".",
 		"--", "run", "--auto", "--agent", "build", task); err != nil {
 		t.Fatalf("start session: %v", err)

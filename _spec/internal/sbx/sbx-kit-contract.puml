@@ -46,6 +46,8 @@ skinparam noteTextAlignment left
 '   agentInstructions    {filename, content} — seeds a CLAUDE.md-style file.
 '   setup.install[]      {command: STRING, user: "0"} — runs once at build.
 '   setup.startup[]      {command: LIST,   user: "1000"} — runs every start.
+'                        background: true lets LATER steps start without
+'                        waiting (_spec/internal/sbx/startup-dispatch.puml).
 '   setup.files[]        {path, content, mode}
 '   volumes[]            {path, size, type, mode}
 '   ports[]              {container, protocol, name}
@@ -146,15 +148,16 @@ skinparam noteTextAlignment left
 '                    launcher rewrites — or it composes into the image's home
 '                    while the agent runs somewhere else and reads none of it.
 '   launch-shaped  the agent command itself
-'                  → the built-in agent's, not ours. So `--shell` cannot be a
-'                    trailing command here: sbx starts the harness's agent and
-'                    hands the word to it as an argument. It selects sbx's OWN
-'                    `shell` agent instead (internal/sbx.ShellAgent), which is on
-'                    the closed list precisely for this. That agent does NOT survive
-'                    a detached tmux pane — `sbx run -t <image> shell <ws>` exits
-'                    within seconds there with proveo uninvolved — so an e2e probe
-'                    cannot drive an sbx session to a prompt the way the docker
-'                    ones are driven (e2e/sbx_test.go checks for it and skips).
+'                  → the built-in agent's, not ours. HISTORY: proveo's `--shell`
+'                    could not be a trailing command here, so it selected sbx's
+'                    OWN `shell` agent (internal/sbx.ShellAgent), which did NOT
+'                    survive a detached tmux pane (`sbx run -t <image> shell
+'                    <ws>` exited within seconds, proveo uninvolved). RETIRED
+'                    2026-10-17 (the user: "is that `proveo` or `sbx`? if
+'                    `proveo` retire it"). A shell is sbx's own `sbx exec -it
+'                    <sandbox> bash`, and the e2e probes run beside the agent
+'                    through `sbx exec` (e2e/kit_probe_test.go), so
+'                    sbxShellHoldsInADetachedPane and its skip are deleted.
 '
 ' ── AMENDMENT 2026-09-16: "SURVIVES" IS NOT "IN TIME" ──────────────────────
 ' The split above is about PERSISTENCE, and there is a second axis it does not

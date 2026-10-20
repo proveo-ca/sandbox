@@ -1,11 +1,7 @@
 # SPEC: _spec/components.puml, _spec/_runtimes/toolchain-provisioning.puml
 # SPEC: _spec/_devops/sandbox-template-rebase.puml, _spec/packages/lib/github-ssh-hosts.puml
 
-# DECLARED BEFORE THE FIRST FROM, and it must stay there. An ARG written after a
-# FROM belongs to THAT BUILD STAGE, so a copy sitting between the builder stage
-# and the runtime stage is invisible to `FROM ${SANDBOX_TEMPLATE}` — buildx warns
-# "UndefinedArgInFrom" and then fails with "base name should not be blank".
-# Only the global scope, above every FROM, reaches a FROM line.
+# Must stay above the first FROM: only a global ARG reaches a FROM line.
 ARG SANDBOX_TEMPLATE=docker/sandbox-templates:shell-docker-0.5.0
 
 FROM golang:1.26-trixie AS proveo-entrypoint-builder
@@ -24,17 +20,7 @@ RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
 
 # ── THE SUPPORTED BASE ──────────────────────────────────────────────────────
-# "Custom templates are reusable sandbox images that EXTEND ONE OF THE BUILT-IN
-# agent environments" — docs.docker.com/ai/sandboxes/customize/templates/. This
-# used to descend from debian:trixie-slim, which inherited none of what sbx
-# assumes a sandbox carries and left every def re-deriving it: uid 1000 named
-# agent, /home/agent, a docker group on gid 1001, sudo. All four arrive here.
-#
-# The `-docker` suffix is not cosmetic. Plain tags ship the docker CLIENT only;
-# the Engine (dockerd, containerd, runc, docker-proxy) rides the -docker
-# variants. A client with no daemon behind it is exactly what `docker: sbx`
-# promised and no proveo image delivered.
-#
+# An sbx template; only its `-docker` variants carry the Engine (dockerd, containerd, runc).
 FROM ${SANDBOX_TEMPLATE}
 
 # Re-declared: an ARG consumed by FROM does not survive into the build stage,
@@ -47,23 +33,15 @@ ARG DEBIAN_FRONTEND=noninteractive
 # npm -g, so this image ends as root and each LEAF def declares its own USER.
 USER root
 
-# The template sets WORKDIR /home/agent/workspace, and BuildKit RECREATES a
-# missing working directory before every RUN. Downstream defs rename uid 1000
-# and move /home/agent aside, so an inherited workdir underneath it reappears
-# between two RUN steps and the move back fails with "directory /home/agent
-# exists". The Debian base this replaced had no WORKDIR, so `/` is what the
-# lineage always had; leaf defs set their own (/app, /workspace).
+# `/`, not the template's /home/agent/workspace: BuildKit recreates that between RUNs.
 # SPEC: _spec/_devops/sandbox-template-rebase.puml
 WORKDIR /
 
 COPY --chmod=0755 defs/base/proveo-harden /usr/local/sbin/proveo-harden
 COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
 
-# Only what the template does NOT already carry. It ships git, gh, jq, rg,
-# curl, ca-certificates, tini, sudo, uv, and the go/node/python/java
-# toolchains, so the GitHub CLI keyring dance this file used to perform is
-# gone with the package it installed.
-# SPEC: _spec/_plans/image-size-reduction.puml
+# Only what the template does NOT already carry.
+# SPEC: _spec/_devops/image-size-reduction.puml
 RUN --mount=type=cache,id=proveo-base-apt-cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,id=proveo-base-apt-lists,target=/var/lib/apt,sharing=locked \
     apt-get update -o APT::Update::Error-Mode=any \
@@ -129,11 +107,7 @@ RUN curl -fsSL -o /opt/plantuml.jar \
     && rm -rf /tmp/* /var/tmp/* /root/.cache \
     && /usr/local/sbin/proveo-harden /usr /opt
 
-# The daemon the template ships must be present, and the runtime uid reaches it
-# through the docker GROUP — measured: dockerd runs as root from init, the
-# socket is root:docker, and no sudo is involved. So the harden pass must leave
-# nothing setuid, and a base that regresses either fails at BUILD time rather
-# than in a sandbox.
+# Build-time proof: template docker client, Engine and group present, and no setuid file left.
 # SPEC: _spec/_devops/sandbox-template-rebase.puml
 RUN set -e; \
     command -v docker  >/dev/null || { echo "template lost the docker client" >&2; exit 1; }; \

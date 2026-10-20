@@ -43,6 +43,8 @@ type Proxy struct {
 	// before it is DROPPED. Zero means DefaultTruncatedReportIdle.
 	truncatedReportIdle time.Duration
 
+	inMu sync.Mutex // serializes input delivery with the overlay hand-back
+
 	mu        sync.Mutex
 	suspended bool
 	buffered  []byte
@@ -99,21 +101,6 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	_ = pty.InheritSize(p.In, m)
 
 	// THE OUT PUMP IS WAITED ON; THE IN PUMP CANNOT BE.
-	//
-	// `pty.Start` returns with the child ALREADY RUNNING, so a child that writes
-	// one line and exits can be gone before this goroutine is first scheduled.
-	// The deferred `m.Close()` above then tore down the master with the child's
-	// last output still sitting in it — measured at a few percent of runs, and it
-	// is the run where the agent died on its last line that most needs a record.
-	// So Run does not return until the pump has drained the master.
-	//
-	// The master is passed EXPLICITLY rather than read back through p.master: the
-	// field is nil'd by that same defer, and a pump scheduled late used to fetch
-	// the nil and return having copied nothing.
-	//
-	// pumpIn gets no such treatment because it cannot: it blocks reading the
-	// operator's stdin, which never reaches EOF. It is left to discover the closed
-	// master on the next keystroke.
 	var drained sync.WaitGroup
 	drained.Add(1)
 	go func() {
@@ -139,17 +126,6 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 
 // drainGrace caps how long Run waits for the child's last output to reach the
 // operator once the child itself has exited.
-//
-// It is NOT a delay on the normal path. When the child held the last PTY slave,
-// the master read fails the moment it exits, so the pump returns in microseconds
-// and the wait is over before it began. The cap is for the case where a
-// GRANDCHILD inherited the slave and holds the master open: there the pump has
-// nothing left to drain and no claim on Run's return.
-//
-// A read deadline on the master is the obvious alternative and does not work:
-// `os.File.SetReadDeadline` returns nil on /dev/ptmx and is then silently
-// ignored — MEASURED, a read blocked the full 30s until the child exited. It
-// would have looked like a fix and been a no-op.
 const drainGrace = 2 * time.Second
 
 // waitDrained waits for wg, but not past grace.
@@ -440,6 +416,12 @@ func (p *Proxy) answerCtrlC() {
 // deliver hands input to the overlay if one is up, else to the child's PTY.
 // A lone Ctrl+C on an armed proxy opens the confirm instead of reaching the child.
 func (p *Proxy) deliver(out []byte) bool {
+	p.inMu.Lock()
+	defer p.inMu.Unlock()
+	return p.deliverLocked(out)
+}
+
+func (p *Proxy) deliverLocked(out []byte) bool {
 	p.mu.Lock()
 	ch := p.overlayIn
 	armed := p.ctrlC != nil
@@ -449,7 +431,7 @@ func (p *Proxy) deliver(out []byte) bool {
 		copy(b, out)
 		select {
 		case ch <- b:
-		default: // overlay already answered; drop rather than block the pump
+		default: // hand-off full; drop rather than block the pump
 		}
 		return true
 	}
@@ -466,7 +448,7 @@ func (p *Proxy) deliver(out []byte) bool {
 				p.mu.Unlock()
 			}
 			if rest := out[i+1:]; len(rest) > 0 {
-				return p.deliver(rest)
+				return p.deliverLocked(rest)
 			}
 			return true
 		}
@@ -539,13 +521,17 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	p.overlayIn = in
 	p.mu.Unlock()
 
-	drawErr := draw(&chanReader{ch: in}, p.Out)
+	r := &chanReader{ch: in}
+	drawErr := draw(r, p.Out)
 
+	p.inMu.Lock()
 	p.mu.Lock()
 	p.suspended = false
 	p.buffered = p.buffered[:0]
 	p.overlayIn = nil
 	p.mu.Unlock()
+	_ = p.writeMaster(r.unread())
+	p.inMu.Unlock()
 
 	p.forceRepaint()
 	return drawErr
@@ -574,20 +560,82 @@ func (p *Proxy) masterFile() *os.File {
 	return p.master
 }
 
+// chanReader reads the overlay hand-off channel; halt makes Read return io.EOF.
 type chanReader struct {
-	ch  chan []byte
-	buf []byte
+	ch <-chan []byte
+
+	mu     sync.Mutex
+	buf    []byte
+	halted bool
+	wake   chan struct{}
 }
 
 func (r *chanReader) Read(p []byte) (int, error) {
-	for len(r.buf) == 0 {
-		b, ok := <-r.ch
-		if !ok {
+	for {
+		r.mu.Lock()
+		if r.halted {
+			r.mu.Unlock()
 			return 0, io.EOF
 		}
-		r.buf = b
+		if len(r.buf) > 0 {
+			n := copy(p, r.buf)
+			r.buf = r.buf[n:]
+			r.mu.Unlock()
+			return n, nil
+		}
+		if r.wake == nil {
+			r.wake = make(chan struct{})
+		}
+		wake := r.wake
+		r.mu.Unlock()
+
+		select {
+		case <-wake:
+		case b, ok := <-r.ch:
+			if !ok {
+				return 0, io.EOF
+			}
+			r.mu.Lock()
+			r.buf = append(r.buf, b...)
+			r.mu.Unlock()
+		}
 	}
-	n := copy(p, r.buf)
-	r.buf = r.buf[n:]
-	return n, nil
+}
+
+// halt wakes a pending Read and fails every Read until resume.
+func (r *chanReader) halt() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.halted = true
+	if r.wake != nil {
+		close(r.wake)
+		r.wake = nil
+	}
+}
+
+// resume lets Read consume the channel again.
+func (r *chanReader) resume() {
+	r.mu.Lock()
+	r.halted = false
+	r.mu.Unlock()
+}
+
+// unread halts r and returns the bytes no Read consumed, in arrival order.
+func (r *chanReader) unread() []byte {
+	r.halt()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.buf
+	r.buf = nil
+	for {
+		select {
+		case b, ok := <-r.ch:
+			if !ok {
+				return out
+			}
+			out = append(out, b...)
+		default:
+			return out
+		}
+	}
 }

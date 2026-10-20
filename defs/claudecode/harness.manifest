@@ -3,8 +3,6 @@
 # changing a harness should touch only this file + the def dir it lives in.
 name: claudecode
 description: ML-loop harness (Claude Code, --dangerously-skip-permissions)
-egress: true
-docker: sbx
 subscription: true
 stability: candidate
 images:
@@ -25,6 +23,7 @@ home:
     - host: .claude
       container: /proveo-home/.claude
       mode: rw
+      transient: [jobs/*/tmp]
   # Claude Code keeps this at the home ROOT, not under .claude: accepted workspace
   # trust, Chrome onboarding, and whatever MCP servers the operator registered.
   # docker persists it with the whole-home bind; sbx has to be told.
@@ -34,21 +33,13 @@ env:
   - name: CLAUDE_CODE_OAUTH_TOKEN
     description: Claude Code OAuth token — generate one with `claude setup-token`
     secret: true
-# proveo's own defaults for the agent, on every backend; an operator who sets the
-# variable keeps their value. The classic renderer is part of agent evidence —
-# fullscreen draws on the alternate screen and leaves nothing in scrollback for
-# the transcript tee — and only an env var out-ranks a `tui` setting a mounted
-# home may carry. DISABLE_ALTERNATE_SCREEN is the documented opt-out (Claude
-# Code 2.1.132+); NO_FLICKER=0 is the older switch and covers images pinned
-# before it. See _spec/defs/claudecode/claudecode-paradigm.puml.
+# proveo's agent defaults on every backend; an operator who sets a variable keeps theirs.
+# Classic renderer: DISABLE_ALTERNATE_SCREEN (Claude Code 2.1.132+), NO_FLICKER=0 for older pins.
+# SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
 agentEnv:
   CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1"
   CLAUDE_CODE_NO_FLICKER: "0"
-  # The runtime user has no write access to the npm prefix, deliberately —
-  # a successful update would silently replace the version the image was
-  # pinned at. Stop the attempt rather than leave every run printing
-  # "Auto-update failed: no write permission" and telling an unattended run
-  # to open an interactive `claude doctor`.
+  # Turns off the CLI auto-updater: the runtime user cannot write the npm prefix.
   # SPEC: _spec/defs/claudecode/claudecode-paradigm.puml
   DISABLE_AUTOUPDATER: "1"
 

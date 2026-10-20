@@ -26,7 +26,7 @@ func opencodeMan() manifest.Manifest {
 
 func cursorMan() manifest.Manifest {
 	return manifest.Manifest{
-		Name: "cursor", Subscription: true, Provider: "cursor",
+		Name: "cursor", Subscription: true,
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		Capabilities: manifest.Capabilities{Providers: []string{"cursor"}},
 	}
@@ -265,23 +265,6 @@ func TestEveryClassCanSayWhyItIsUnavailable(t *testing.T) {
 	}
 	if !strings.Contains(usage, "proveo init") {
 		t.Errorf("usage reason = %q, want `proveo init` as the store, not a dotenv", usage)
-	}
-}
-
-// HasUsableAuth is the guard on every "no credential" path, and the whole point
-// is that it answers for the RUN rather than for the vendor's variable.
-func TestHasUsableAuthCountsProviderKeys(t *testing.T) {
-	t.Parallel()
-	man := opencodeMan()
-	if !HasUsableAuth(man, "opencode", "", lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})) {
-		t.Error("an opencode run backed by ANTHROPIC_API_KEY was reported as having no credential")
-	}
-	if HasUsableAuth(man, "opencode", "", lookupOf(nil)) {
-		t.Error("an empty host was reported as having a credential")
-	}
-	// cursor cannot use it, so for cursor it is not a credential.
-	if HasUsableAuth(cursorMan(), "cursor", "", lookupOf(map[string]string{"ANTHROPIC_API_KEY": "sk"})) {
-		t.Error("a cursor run counted a key its CLI has no way to send")
 	}
 }
 

@@ -8,6 +8,7 @@
 ' covers: cmd/proveo-dev/buildcli.go
 ' covers: cmd/proveo-dev/deploycli.go
 ' covers: cmd/proveo-dev/devcli.go
+' covers: .goreleaser.yaml
 '
 ' ── MAINTAINER RELEASE PATH: cmd/proveo-dev (not shipped) ──────────────────
 ' `proveo-dev stage-cdn` replaced scripts/stage-cli-cdn.sh, and
@@ -29,8 +30,27 @@
 '   in `proveo --version`.
 ' * goreleaser is pinned (v2.17.0) when build-cli installs it, so release
 '   builds are reproducible; bump it deliberately.
+' * .goreleaser.yaml emits the multi-arch static binaries AND a sha256
+'   checksums.txt, so the installer can verify what it downloads. It replaced an
+'   unverified `curl | bash` pipeline (moved from its header, N14).
 ' covers: internal/installtest/**
 ' covers: internal/contract/installer_bash_test.go
+'
+' ── ONE CHANNEL URL (N28, DONE (wt) 2026-10-18) ────────────────────────────
+' MEASURED, apps/cli/public/cli/install.sh:9: ASSET_BASE_URL is
+' ${PROVEO_ASSET_BASE_URL:-${PROVEO_CLI_BASE_URL:-https://proveo.ca/cli}}, and
+' uninstall.sh is fetched from it (:308), as `proveo update` already did with
+' the one URL. PROVEO_CLI_BASE_URL used to fetch only uninstall.sh; as an alias
+' it now points the whole channel, and the script says so on stderr (:292-295):
+'   CLI only   "deprecated and goes away next release; it now points the whole
+'              channel — set PROVEO_ASSET_BASE_URL"
+'   both set   "deprecated and ignored: PROVEO_ASSET_BASE_URL is set"
+' install.ps1 never read PROVEO_CLI_BASE_URL. internal/installtest sets only
+' PROVEO_ASSET_BASE_URL and adds an alias-only install that must print the
+' notice and write uninstall.sh (reported passing). The alias has a row in the
+' retirement ledger (_spec/_devops/release-gate.puml).
+' Open: PROVEO_VERSION only relabels an install (N34), and the installers spell
+' PROVEO_SKIP_INIT and PROVEO_UNINSTALL_ASSUME_YES their own way (N36).
 '
 ' ── THE INSTALL SUITE RUNS THE INTERPRETER USERS GET ───────────────────────
 ' internal/installtest executes the real install.sh / uninstall.sh. On darwin
@@ -114,9 +134,10 @@ end note
 note bottom of MANIFEST
   **One published channel, so a pinned version is not a time machine.** The
   installers read the version from ""latest\.json"" unless ""PROVEO_VERSION"" is
-  set, and an explicit value must match what the CDN currently publishes — the
-  bucket carries the current release only, so pinning an older tag resolves to
-  nothing rather than to that older build.
+  set, and the bucket carries the current release only. MEASURED 2026-10-18: an
+  explicit value only RELABELS — install.sh still downloads ""bin/$ASSET_NAME""
+  (:307), so ""PROVEO_VERSION=0.1.1"" installs the latest binary and prints
+  v0.1.1. This note used to say an older tag "resolves to nothing" (N34).
 end note
 
 @enduml

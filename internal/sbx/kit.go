@@ -62,31 +62,57 @@ type KitSetup struct {
 type KitCommand struct {
 	Command     []string `yaml:"command"`
 	User        string   `yaml:"user,omitempty"`
+	Background  bool     `yaml:"background,omitempty"`
 	Description string   `yaml:"description,omitempty"`
 }
+
+// The seed phases proveo-seed and proveo_seed accept.
+// SPEC: _spec/internal/sbx/startup-dispatch.puml
+const (
+	SeedPhaseAll       = "all"
+	SeedPhaseRelease   = "release"
+	SeedPhaseProvision = "provision"
+	SeedPhaseNone      = "none"
+)
 
 // SeedBinary is the path every sbx image must COPY the seed to. SeedCommand
 // names it; a non-zero exit from that binary must not reach sbx's dispatcher.
 const SeedBinary = "/usr/local/bin/proveo-seed"
 
-// seedNeverAbort is the -c script SeedCommand runs. sbx's durable-startup
-// dispatcher uses `set -e` and `exit $rc` on any startup command, which tears
-// down a live agent session. A seed miss is a warning, never that. The wrap
-// lives here — on the host Kit — so it takes effect without rebuilding the
-// image that ships proveo-seed.
+// seedNeverAbort is the -c script SeedCommand runs.
 const seedNeverAbort = `set +e
-/usr/local/bin/proveo-seed "$1"
+if [ "$2" = provision ] && [ -e "${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}" ]; then
+  exit 0
+fi
+/usr/local/bin/proveo-seed "$@"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   printf 'proveo-seed: exit %s — continuing; a seed miss must not tear the sandbox down\n' "$rc" >&2
 fi
 exit 0`
 
+// SeedCommand runs the seed up to the agent's release, in the foreground.
 func SeedCommand(target string) KitCommand {
+	return seedPhaseCommand(target, SeedPhaseRelease, "proveo: compose subagents, settings and workspace trust")
+}
+
+// SeedFullCommand runs the whole seed in the foreground.
+func SeedFullCommand(target string) KitCommand {
+	return seedPhaseCommand(target, SeedPhaseAll, "proveo: compose subagents, settings and workspace trust, then provision")
+}
+
+// SeedProvisionCommand runs the seed's installs beside the agent.
+func SeedProvisionCommand(target string) KitCommand {
+	c := seedPhaseCommand(target, SeedPhaseProvision, "proveo: toolchains, dependencies and language servers, beside the agent")
+	c.Background = true
+	return c
+}
+
+func seedPhaseCommand(target, phase, description string) KitCommand {
 	return KitCommand{
-		Command:     []string{"/bin/sh", "-c", seedNeverAbort, "proveo-seed", target},
+		Command:     []string{"/bin/sh", "-c", seedNeverAbort, "proveo-seed", target, phase},
 		User:        "1000",
-		Description: "proveo: compose subagents, settings and workspace trust",
+		Description: description,
 	}
 }
 
@@ -105,9 +131,12 @@ func WorktreeDirCommand(dir string) KitCommand {
 // SeedEntrypointCommand runs the def's entrypoint up to, not including, the
 // agent launch: PROVEO_SEED_ONLY makes proveo_exec_agent return instead of
 // exec, so a mixin kit gets the def's own wiring while sbx launches the agent.
-func SeedEntrypointCommand() KitCommand {
+// PROVEO_SEED_PHASE=none skips the shared seed the other startup steps run.
+// An image with neither entrypoint exits 0.
+func SeedEntrypointCommand(target string) KitCommand {
 	return KitCommand{
-		Command:     []string{"/usr/bin/env", "PROVEO_SEED_ONLY=1", "/entrypoint.sh"},
+		Command: []string{"/usr/bin/env", "PROVEO_SEED_ONLY=1", "PROVEO_SEED_PHASE=" + SeedPhaseNone,
+			"/bin/sh", "-c", strings.Join(defEntrypoint(target), "; "), "proveo-" + target},
 		User:        "1000",
 		Description: "proveo: the def's own wiring, launch skipped",
 	}
@@ -142,7 +171,7 @@ type KitPermissions struct {
 	Network KitNet `yaml:"network,omitempty"`
 }
 
-// KitNet is the egress allowlist, declared rather than enforced by a sidecar.
+// KitNet is the sandbox network allow and deny lists.
 type KitNet struct {
 	Allow []string `yaml:"allow,omitempty"`
 	Deny  []string `yaml:"deny,omitempty"`

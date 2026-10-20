@@ -46,8 +46,36 @@ skinparam noteTextAlignment left
 ' (a link to logs/ would undo the narrow view). Deeper
 ' links, file links and targets already inside a mount add nothing.
 ' Use: hermes/data/skills-muse → ~/Projects/proveo/skills/yahoo-ff (git), edited
-' and committed on the host only. Docker binds the whole home at /proveo-home;
-' an absolute link there still dangles (not handled).
+' and committed on the host only. (HISTORY: the deleted docker backend bound the
+' whole home at /proveo-home, where an absolute link dangled.)
+' ONLY LISTED TARGETS (SEC2, DONE (wt) 2026-10-17; repo-simplification.puml
+' SEC2, option 2). A declared dir is mounted read-WRITE, so the guest could
+' plant `~/.proveo/<dir>/x -> ~/.ssh` and read it on the next run. MEASURED
+' now: a link is followed only when its resolved (realPath) target is listed in
+' <proveo home>/linked-dirs (manifest.LinkedDirsFile, manifest.go:50-51) — absolute
+' paths, one per line, `#` comments, read by listedLinkTargets. The proveo home
+' ROOT is never mounted by a shipped def, so the guest cannot add an entry; a
+' linked-dirs copy inside a mounted dir does not count (home_access_test.go).
+' The widening filters above still run first. An unlisted link lands in
+' HomeAccess.SkippedLinks as "<link> → <target>", and noteSkippedLinks
+' (home_access.go:32-36) prints "home link <l> not followed — list its target in
+' <home>/linked-dirs to mount it read-only". The adversarial review found the
+' notice first sat inside sandbox.Run's own-prepare branch, so it never printed
+' on a real run (run.go prepares HomeAccess); sandbox.Run now calls it after
+' either path (sandbox.go:1451). Tests: TestHomeAccessFollowsOnlyLinksTheHostListed,
+' TestASkippedLinkNoticeNamesTheLinkAndTheListFile, with
+' TestHomeAccessMountsALinkedDirReadOnly and
+' TestHomeAccessRefusesLinksThatWidenTheView updated (reported). The README's
+' "Proveo home" section documents linked-dirs (reported; docs are not mine).
+' SEC4 (DONE (wt) 2026-10-17, repo-simplification.puml): no manifest can hand
+' the guest the list. A custom def's home mount `host: .` would have mounted
+' the home ROOT read-write and let the guest write linked-dirs itself, and
+' `files: [linked-dirs]` would have round-tripped through Commit. MEASURED:
+' LinkedDirsFile moved from this package to internal/manifest so validation
+' can name it; Home.validate refuses a mount host whose cleaned first element
+' is `.` or `linked-dirs` (manifest.go:276-277) and refuses `linked-dirs` in
+' `files:` (:296-297). Test: TestAHomeMountNeverReachesTheLinkedDirsList
+' (manifest_test.go:383 — `.`, `./`, the list as a mount, the list as a file).
 '
 ' JETBRAINS IS THE SAME HOST. proveo adds one line for Remote Development:
 ' host <sid>.sbx through the OpenSSH config, project = the agent workdir. A
@@ -80,6 +108,11 @@ skinparam noteTextAlignment left
 ' WHICH TREE IS LOUD. Direct mode says that IDE saves write the host checkout.
 ' Clone mode says DISPOSABLE CLONE, requires commits, and prints the exact git
 ' fetch into refs/proveo/<sid> before the operator removes the sandbox.
+' Which mode the AFTER-EXIT attach names is the sandbox's own, not this run's
+' --clone: since 2026-10-17 (review #6) Run's teardown resolves it first
+' (sandboxClone), so a reattached sandbox gets the right help
+' (_spec/internal/sbx/clone-workspace.puml). The launch-time attach still
+' prints this run's mode (MEASURED, sandbox.go:1515 runs before the resolve).
 title IDE attach — upstream SSH, live and after exit,\nlocal only, with a narrow home view
 
 node "operator host" as HOST <<host>> {

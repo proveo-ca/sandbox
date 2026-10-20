@@ -21,8 +21,8 @@ func TestParse(t *testing.T) {
 	}{
 		{
 			name: "valid multi-image",
-			yaml: "name: claudecode\ndescription: d\negress: true\nstability: candidate\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solidity: proveo/claudecode-solidity:latest\n",
-			want: Manifest{Name: "claudecode", Description: "d", Egress: true, Stability: "candidate",
+			yaml: "name: claudecode\ndescription: d\nstability: candidate\nimages:\n  claudecode: proveo/claudecode:latest\n  claudecode-solidity: proveo/claudecode-solidity:latest\n",
+			want: Manifest{Name: "claudecode", Description: "d", Stability: "candidate",
 				Images: map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-solidity": "proveo/claudecode-solidity:latest"}, Dir: "dir"},
 		},
 		{name: "missing name", yaml: "images:\n  x: y\n", wantErr: true},
@@ -245,51 +245,6 @@ func TestConfigPassthroughValidation(t *testing.T) {
 	}
 }
 
-func TestDockerModeAcceptsOnlyTheSandbox(t *testing.T) {
-	t.Parallel()
-	base := func(mode DockerMode) Manifest {
-		return Manifest{Name: "h", Docker: mode, Images: map[string]string{"h": "proveo/h:latest"}}
-	}
-	for _, mode := range []DockerMode{DockerNone, DockerSbx} {
-		if err := base(mode).Validate(); err != nil {
-			t.Errorf("docker %q must validate: %v", mode, err)
-		}
-	}
-	err := base("dind").Validate()
-	if err == nil || !strings.Contains(err.Error(), "retired") {
-		t.Errorf("docker: dind must be refused as RETIRED, got %v", err)
-	}
-	err = base("podman").Validate()
-	if err == nil || !strings.Contains(err.Error(), "invalid docker") {
-		t.Errorf("an unknown docker mode must be rejected, got %v", err)
-	}
-}
-
-func TestDockerModePredicatesAreExhaustive(t *testing.T) {
-	t.Parallel()
-	sbx := Manifest{Docker: DockerSbx}
-	none := Manifest{}
-	switch {
-	case !sbx.IsSbx() || !sbx.WantsDocker():
-		t.Errorf("docker: sbx predicates wrong: sbx=%v wants=%v", sbx.IsSbx(), sbx.WantsDocker())
-	case none.IsSbx() || none.WantsDocker():
-		t.Error("a harness with no docker mode must promise no daemon")
-	}
-}
-
-func TestRetiredDockerFlagsFailLoudly(t *testing.T) {
-	t.Parallel()
-	for _, m := range []Manifest{
-		{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}, RetiredDind: true},
-		{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}, RetiredSandboxDocker: true},
-	} {
-		err := m.Validate()
-		if err == nil || !strings.Contains(err.Error(), "retired") {
-			t.Errorf("a stale manifest must be rejected, not silently ignored; got %v", err)
-		}
-	}
-}
-
 // agentEnv is delivered as an argv on both backends, in NAME order because the
 // plan goldens read it.
 func TestAgentEnv(t *testing.T) {
@@ -348,18 +303,6 @@ func TestAgentEnv(t *testing.T) {
 	}
 }
 
-func TestDaemonFalseKeepsTheSandboxAndWithdrawsTheDaemon(t *testing.T) {
-	t.Parallel()
-	off := false
-	m := Manifest{Name: "hermes", Docker: DockerSbx, Daemon: &off}
-	if !m.IsSbx() || m.WantsDocker() {
-		t.Errorf("daemon: false → sbx=%v wants=%v; want the sandbox kept and the daemon withdrawn", m.IsSbx(), m.WantsDocker())
-	}
-	if on := (Manifest{Docker: DockerSbx}); !on.WantsDocker() {
-		t.Error("docker: sbx with no daemon key still promises one")
-	}
-}
-
 func TestKindAssistantIsTheOnlyAlternativeToCoding(t *testing.T) {
 	t.Parallel()
 	if !(Manifest{Kind: KindAssistant}).IsAssistant() || (Manifest{}).IsAssistant() {
@@ -382,5 +325,111 @@ func TestHostDevicesAcceptOnlyKnownKinds(t *testing.T) {
 	}
 	if !(Capabilities{HostDevices: []string{HostDeviceAndroid}}).HasHostDevice(HostDeviceAndroid) {
 		t.Error("HasHostDevice(android) = false")
+	}
+}
+
+func TestTransientPathsStayInsideTheMount(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"jobs/*/tmp", true},
+		{"cache", true},
+		{"", false},
+		{"/jobs", false},
+		{"../jobs", false},
+		{"jobs/../..", false},
+		{"jobs//tmp", false},
+		{"./jobs", false},
+		{" jobs", false},
+		{"a,b", false},
+		{"a|b", false},
+		{"a;b", false},
+		{"a b", false},
+	} {
+		if got := ValidTransient(tc.path); got != tc.want {
+			t.Errorf("ValidTransient(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+	m := Manifest{Name: "x", Images: map[string]string{"x": "proveo/x:latest"},
+		Home: Home{Enabled: true, Mounts: []HomeMount{{Host: ".x", Container: "/proveo-home/.x", Transient: []string{"../escape"}}}}}
+	if err := m.Validate(); err == nil {
+		t.Error("Validate() accepted a transient path outside its mount")
+	}
+	m.Home.Mounts[0].Transient = []string{"jobs/*/tmp"}
+	if err := m.Validate(); err != nil {
+		t.Errorf("Validate() rejected transient %q: %v", "jobs/*/tmp", err)
+	}
+}
+
+func TestAHomeMountMayOmitItsContainerPath(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, mounts string
+		wantErr      bool
+	}{
+		{"a direct bind with no container path", "    - host: hermes/data\n", false},
+		{"two direct binds", "    - host: a\n    - host: b\n", false},
+		{"a relative container path", "    - host: a\n      container: data\n", true},
+	} {
+		_, err := Parse([]byte("name: x\nimages:\n  x: proveo/x:latest\nhome:\n  enabled: true\n  mounts:\n"+c.mounts), "")
+		if (err != nil) != c.wantErr {
+			t.Errorf("Parse(%s) error = %v, want error %v", c.name, err, c.wantErr)
+		}
+	}
+}
+
+func TestAHomeMountNeverReachesTheLinkedDirsList(t *testing.T) {
+	t.Parallel()
+	const head = "name: x\nimages:\n  x: proveo/x:latest\nhome:\n  enabled: true\n"
+	for _, c := range []struct{ name, home string }{
+		{"the whole home", "  mounts:\n    - host: .\n"},
+		{"the whole home, trailing slash", "  mounts:\n    - host: ./\n"},
+		{"the list as a mount", "  mounts:\n    - host: linked-dirs\n"},
+		{"the list as a synced file", "  mounts:\n    - host: a\n  files:\n    - linked-dirs\n"},
+	} {
+		_, err := Parse([]byte(head+c.home), "")
+		if err == nil || !strings.Contains(err.Error(), LinkedDirsFile) {
+			t.Errorf("Parse(%s) error = %v, want a refusal naming %s", c.name, err, LinkedDirsFile)
+		}
+	}
+	if _, err := Parse([]byte(head+"  mounts:\n    - host: a\n  files:\n    - config.yaml\n"), ""); err != nil {
+		t.Errorf("Parse(an ordinary mount and file) = %v", err)
+	}
+}
+
+func TestDaemonIsTheOneDaemonKnob(t *testing.T) {
+	t.Parallel()
+	off, on := false, true
+	for _, c := range []struct {
+		name   string
+		daemon *bool
+		want   bool
+	}{
+		{"no daemon key", nil, true},
+		{"daemon: true", &on, true},
+		{"daemon: false", &off, false},
+	} {
+		if got := (Manifest{Daemon: c.daemon}).WantsDocker(); got != c.want {
+			t.Errorf("WantsDocker(%s) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAStaleManifestKeyFailsLoading(t *testing.T) {
+	t.Parallel()
+	const base = "name: x\nimages:\n  x: proveo/x:latest\n"
+	if _, err := Parse([]byte(base+"daemon: false\n"), ""); err != nil {
+		t.Fatalf("Parse(a current manifest) = %v", err)
+	}
+	for _, key := range []string{"docker: sbx", "egress: true", "provider: cursor"} {
+		_, err := Parse([]byte(base+key+"\n"), "")
+		if name, _, _ := strings.Cut(key, ":"); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("Parse(%q) error = %v, want it to name the stale key %q", key, err, name)
+		}
+	}
+	if _, err := Parse([]byte(base+"docker: sbx\n"), ""); err == nil || !strings.Contains(err.Error(), "daemon: false") {
+		t.Errorf("Parse(docker: sbx) error = %v, want the migration to `daemon: false`", err)
 	}
 }

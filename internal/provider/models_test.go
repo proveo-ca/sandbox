@@ -12,6 +12,7 @@ func TestCheckModel(t *testing.T) {
 		{"claude-opus-5", true, true},
 		{"anthropic/claude-sonnet-4-6", true, true},
 		{"claude-haiku-4-5", true, true},
+		{"claude-haiku-5-5", true, true},
 		// the real typo this guard exists for: the Haiku id is 4-5, not 4-6
 		{"claude-haiku-4-6", false, true},
 		{"claude-sonnet-9", false, true},

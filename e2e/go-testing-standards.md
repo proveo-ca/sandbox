@@ -3,8 +3,7 @@
 The conventions all Go tests in this repo follow. Sourced from the official
 [Go Wiki: Go Test Comments](https://go.dev/wiki/TestComments) and
 [Go Wiki: TableDrivenTests](https://go.dev/wiki/TableDrivenTests), adjusted for
-Go 1.26 (this module's toolchain). Integration coverage follows
-[Coverage profiling support for integration tests](https://go.dev/doc/build-cover).
+Go 1.26 (this module's toolchain).
 
 ## Rules
 
@@ -31,37 +30,29 @@ Go 1.26 (this module's toolchain). Integration coverage follows
 10. **Test error identity, not error strings.** Use `errors.Is`/`errors.As`, not substring matching.
 11. **Run with `-race`** in CI; keep tests deterministic (no `Date.now()`-style nondeterminism).
 
-## Integration & E2E
+## E2E
 
-Docker-backed suites follow Testcontainers *practices* without adopting the library for
-Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
+E2E suites follow Testcontainers *practices* without adopting the library.
 
-1. **Build tags.** Layer 3 files: `//go:build integration`. Layer 4 files: `//go:build e2e`.
-   Default `go test ./...` must not compile them.
-2. **Skip on missing prerequisites.** Layer 3 still requires `PROVEO_EGRESS_INTEGRATION=1`.
-   Layer 4 has NO env gate — the `e2e` build tag is the opt-in — so every test `t.Skip`s
-   itself when `docker`, `tmux`, the harness image, Ollama or the credential it spends is
+1. **Build tags.** Layer 4 files: `//go:build e2e`. Default `go test ./...` must not compile
+   them.
+2. **Skip on missing prerequisites.** Layer 4 has NO env gate — the `e2e` build tag is the
+   opt-in — so every test `t.Skip`s itself when `docker`, `tmux`, the harness image, Ollama
+   or the credential it spends is
    missing (`e2e/preconditions_test.go`) — never fail CI for absent infra. "Missing"
    includes a credential that is *present but unspendable* — refused, or out of balance:
    the agent exits at once and the boundary under test never runs, so the watcher
    (`instrument_test.go`) classifies that pane as a skip. Keep that pattern narrow enough
    to name the credential; widened to any early exit, it would let real defects pass.
-3. **Wait strategies.** Poll for a condition (CA file size > 0, HTTP 200, log substring) with a
-   deadline. Do not use sleep-only synchronization; bounded retry-with-check is fine.
-4. **`t.Cleanup` teardown.** Register `plan.Teardown`, inject-dir wipe, and tmux kill on every
-   path — including failure and signal.
+3. **Wait strategies.** Poll for a condition (HTTP 200, log substring) with a deadline. Do not
+   use sleep-only synchronization; bounded retry-with-check is fine.
+4. **`t.Cleanup` teardown.** Register sandbox removal (`removeLeakedSandboxes`) and tmux kill
+   on every path — including failure and signal.
 5. **No testify.** Same assertion rules as unit tests; prefer `go-cmp` for structured diffs.
-6. **Isolation.** Unique session IDs and `t.TempDir()` state dirs per test; no shared Docker
-   network names across parallel packages.
-7. **Never pin the backend off.** `PROVEO_SBX=off` is banned in this suite. One launch is
-   resolved host-side and rendered twice, and the pin made every such test certify the
-   rendering the host does *not* take — on a machine with `sbx` installed, the backend the
-   operator actually gets was the one nothing asserted. Assert the behaviour instead of the
-   rendering; where a probe truly needs the resolved shape, branch on it the way
-   `assertPlanIsolation` branches on `isSbxArgv`, or skip with the backend named. A wait
-   that hangs unpinned is a wait matching the wrong shape — `waitForContainerShell` matches
-   the prompt's shape, not a literal `/app`, because sbx runs the shell at the workspace's
-   own host path.
+6. **Isolation.** Unique session IDs and `t.TempDir()` state dirs per test.
+7. **sbx is the only backend.** No test can pin another rendering; assert the behaviour sbx
+   produces. Live tests start `proveo run <target>` through its kit (`launchKit` /
+   `awaitKit` in `e2e/kit_probe_test.go`) and probe with `sbx exec`, never a shell in the pane.
 8. **Derive image references; never restate a tag.** `mise run build` tags a local build
    `:local` and only a publish moves `:latest`, so a hardcoded `proveo/x:latest` skips the
    suite on a machine that just built `x` — and on one that has also pulled, silently tests
@@ -73,9 +64,6 @@ Squid/proxy (orchestration stays `internal/egress.BuildPlan`).
    therefore reaches the agent as nothing at all — and the run writes into their home.
 
 ```bash
-# Layer 3
-PROVEO_EGRESS_INTEGRATION=1 go test -tags=integration -race ./internal/egress/ -v -timeout 120s
-
 # Layer 4
 go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 300s
 ```
@@ -86,14 +74,9 @@ go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 300s
 |------|-----|
 | Unit + contract | `go test -race -cover -covermode=atomic ./... -args -test.gocoverdir=cov/unit` |
 | Merge / report | `go tool covdata merge -i=cov/unit -o=cov/merged` then `percent` / `textfmt` |
-| Binary (Stage 0b) | `go build -cover -o proveo-egress ./cmd/proveo-egress` + `GOCOVERDIR=…` in the proxy container |
 
 Use `mise run test-go` and `mise run coverage` (see `cmd/proveo-dev/coverage.go`). Publish
 percent/HTML as CI artifacts; **no hard % gate** until a baseline exists.
-
-In-process `internal/egressproxy` / `internal/broker` tests count toward coverage in the unit
-lane. Containerized `proveo-egress` statement coverage is optional Stage 0b
-(`proveo/egress-proxy:cover`).
 
 ## Canonical shape
 
@@ -120,6 +103,6 @@ func TestDetect(t *testing.T) {
 }
 ```
 
-**Two sweeps.** `mise run test-e2e` is everything up to tier 3 on the sbx runtime — the image and consumer-CLI suites, then the Go agent suite with its opt-in gates off (~45 minutes). `mise run test-e2e-full` adds tier 4: the idle-survival, signal and toolchain gates on, and the sbx ladder for every def. `test-go-e2e` alone is only the Go suite. A release claim cites `test-e2e-full`; a branch check cites `test-e2e`.
+**Two sweeps.** `mise run test-e2e` is everything up to tier 3 on the sbx runtime — the image and consumer-CLI suites, then the Go agent suite with its opt-in gates off (~45 minutes). `mise run test-e2e-full` adds tier 4: the idle-survival and toolchain gates on, and the sbx ladder for every def. `test-go-e2e` alone is only the Go suite. A release claim cites `test-e2e-full`; a branch check cites `test-e2e`.
 
-**sbx is the runtime under test — nothing else is a subject.** The mitmproxy egress sidecar, the `-egress` container and its `broker.env`, the review-tier consent gate, raw `docker run` replicas, and the docker+egress fallback all still exist in the product, and none of them is asserted here any more. A test whose subject is that rendering calls `skipOutsideSbx(t, subject)` first and says so; it is not deleted, so the record of what it measured survives, and it is not run, so a docker-only pass can never stand in for the runtime the operator actually gets. both sweeps leave the mitmproxy image suite and the docker-detached smoke out for the same reason, and Layer 3 (`test-go-integration`) stays outside the sweep.
+**sbx is the runtime under test.** proveo has no other backend, so both sweeps assert only what an operator gets from sbx.

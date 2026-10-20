@@ -53,9 +53,6 @@ func TestEverySbxImageShipsTheKitsStartupCommand(t *testing.T) {
 	}
 	checked := 0
 	for _, m := range ms {
-		if !m.IsSbx() {
-			continue
-		}
 		for target := range m.Images { // target name -> image ref
 			df, ok := seedImageSources[target]
 			if !ok {

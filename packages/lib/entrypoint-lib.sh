@@ -1,22 +1,43 @@
 #!/usr/bin/env bash
 # SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/github-ssh-hosts.puml
 
-ensure_runtime_user() {
- local uid gid
- uid="$(id -u)"; gid="$(id -g)"
-
- if ! getent passwd "$uid" >/dev/null 2>&1 && [[ -w /etc/passwd ]]; then
- printf 'agent:x:%s:%s:agent:%s:/bin/bash\n' "$uid" "$gid" "${HOME:-/tmp}" >> /etc/passwd
- fi
-
- if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
- export HOME=/tmp
- fi
-}
-
 if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
 fi
+
+# SPEC: _spec/internal/envflag/env-switches.puml
+# Sets REPLY to the value of the variable named $1, trimmed and lowercased.
+_proveo_env_word() {
+ REPLY=""
+ case "${1:-}" in '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 0 ;; esac
+ REPLY="${!1:-}"
+ REPLY="${REPLY#"${REPLY%%[![:space:]]*}"}"
+ REPLY="${REPLY%"${REPLY##*[![:space:]]}"}"
+ case "$REPLY" in *[[:upper:]]*) REPLY="$(printf '%s' "$REPLY" | tr '[:upper:]' '[:lower:]')" ;; esac
+}
+
+# Exits 0 when the variable named $1 spells on: 1 true yes on enable enabled.
+proveo_env_on() {
+ local REPLY
+ _proveo_env_word "${1:-}"
+ case "$REPLY" in 1 | true | yes | on | enable | enabled) return 0 ;; esac
+ return 1
+}
+
+# Exits 0 when the variable named $1 spells off: 0 false no off disable disabled.
+proveo_env_off() {
+ local REPLY
+ _proveo_env_word "${1:-}"
+ case "$REPLY" in 0 | false | no | off | disable | disabled) return 0 ;; esac
+ return 1
+}
+
+# Exits 0 when $1 is on; $2 (on|off) decides an empty or unknown value.
+proveo_env_enabled() {
+ proveo_env_on "${1:-}" && return 0
+ proveo_env_off "${1:-}" && return 1
+ [[ "${2:-}" == on ]]
+}
 
 set_working_directory() {
  local default_dir="${1:-/app}"
@@ -46,100 +67,10 @@ accept_workspace_trust() {
  ' 2>/dev/null || true
 }
 
-find_env_file() {
- if [[ -f .env ]]; then
- printf '%s/.env' "$(pwd)"
- return 0
- fi
-
- if command -v git >/dev/null 2>&1; then
- local git_root
- git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
- if [[ -n "$git_root" && -f "$git_root/.env" ]]; then
- printf '%s' "$git_root/.env"
- return 0
- fi
- fi
-
- local dir; dir="$(pwd)"
- while [[ "$dir" != "/" ]]; do
- if [[ -d "$dir/.git" && -f "$dir/.env" ]]; then
- printf '%s/.env' "$dir"
- return 0
- fi
- dir="$(dirname "$dir")"
- done
-
- local sub_env
- sub_env=$(find . -maxdepth 5 -name .env -not -path '*/node_modules/*' -not -path '*/.*/*' -print -quit 2>/dev/null)
- if [[ -n "$sub_env" && -f "$sub_env" ]]; then
- printf '%s/%s' "$(pwd)" "${sub_env#./}"
- return 0
- fi
-
- return 1
-}
-
-load_env() {
- local quiet=0
- [[ "${1:-}" == "quiet" ]] && quiet=1
- say() { (( quiet )) || echo "$@"; }
-
- case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
- open|allowlist|review)
- say "🔒 Skipping .env load (egress mode ${PROVEO_EGRESS_MODE} — secrets stay on host / broker)"
- apply_broker_sentinel
- unset -f say
- return 0
- ;;
- esac
-
- local env_path; env_path="$(find_env_file || true)"
- if [[ -n "$env_path" ]]; then
- say "✅ Found .env at $env_path"
- set -a
- # shellcheck source=/dev/null
- source "$env_path"
- set +a
- say "✅ Loaded environment variables from .env"
- else
- say "🔎 No .env found"
- fi
- unset -f say
-
- if [[ -z "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
- if [[ -n "${GEMINI_API_KEY:-}" ]]; then
- export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
- elif [[ -n "${GOOGLE_API_KEY:-}" ]]; then
- export GOOGLE_GENERATIVE_AI_API_KEY="$GOOGLE_API_KEY"
- fi
- fi
-
- if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
- export GEMINI_API_KEY="${GEMINI_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
- export GOOGLE_API_KEY="${GOOGLE_API_KEY:-$GOOGLE_GENERATIVE_AI_API_KEY}"
- fi
-
- apply_broker_sentinel
-}
-
-apply_broker_sentinel() {
- case "$(printf '%s' "${PROVEO_EGRESS_MODE:-}" | tr '[:upper:]' '[:lower:]')" in
- open|allowlist|review) ;;
- *) return 0 ;;
- esac
- local keys="${PROVEO_CREDENTIAL_BROKER_KEYS:-}"
- [[ -n "$keys" ]] || return 0
- local sentinel="${PROVEO_BROKER_SENTINEL:-proveo-brokered}"
- local k IFS=','
- for k in $keys; do
- k="$(printf '%s' "$k" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
- [[ -n "$k" ]] || continue
- if [[ -n "${!k:-}" && "${!k}" != "$sentinel" ]]; then
- export "$k=$sentinel"
- fi
- done
- echo "🔒 Broker sentinel applied to: $keys"
+bridge_google_keys() {
+ local k="${GOOGLE_GENERATIVE_AI_API_KEY:-${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}}"
+ [[ -n "$k" ]] || return 0
+ export GOOGLE_GENERATIVE_AI_API_KEY="${GOOGLE_GENERATIVE_AI_API_KEY:-$k}" GEMINI_API_KEY="${GEMINI_API_KEY:-$k}" GOOGLE_API_KEY="${GOOGLE_API_KEY:-$k}"
 }
 
 bridge_git_identity() {
@@ -163,41 +94,6 @@ bridge_git_identity() {
 
  if (( idx > ${GIT_CONFIG_COUNT:-0} )); then
  export GIT_CONFIG_COUNT="$idx"
- fi
-}
-
-report_git_context() {
- command -v git >/dev/null 2>&1 || return 0
-
- local dir="${1:-$(pwd)}"
-
- if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
- echo "✅ Git repository at $(git -C "$dir" rev-parse --show-toplevel)"
- local origin
- if origin="$(git -C "$dir" remote get-url origin 2>/dev/null)" && [[ -n "$origin" ]]; then
- echo "✅ Remote origin: $origin"
- else
- echo "🔎 Not tracking a remote repo"
- fi
- else
- echo "🔎 Not a git repository: $dir"
- fi
-
- local id_name id_email
- id_name="$(git -C "$dir" config --get user.name 2>/dev/null || true)"
- id_email="$(git -C "$dir" config --get user.email 2>/dev/null || true)"
- if [[ -n "$id_name" || -n "$id_email" ]]; then
- echo "✅ Git identity: ${id_name:-unset} <${id_email:-unset}>"
- else
- echo "🔎 No git identity (provide GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL)"
- fi
-
- if command -v gh >/dev/null 2>&1; then
- if timeout 5s gh auth status >/dev/null 2>&1; then
- echo "✅ gh session authenticated"
- else
- echo "🔎 gh session not authenticated (set GH_TOKEN or GITHUB_TOKEN)"
- fi
  fi
 }
 
@@ -309,20 +205,9 @@ ensure_github_git_transport() {
   return 0
 }
 
-attach_rtk() {
- if [[ "${ATTACH_RTK:-0}" =~ ^(1|true|yes|on)$ && ! -d rtk ]]; then
- if [[ ! -w . ]]; then
- echo "⚠️ Current directory $(pwd) is not writable; skipping RTK attachment."
- return 0
- fi
- echo "🔄 Attaching RTK repository..."
- git clone --depth 1 https://github.com/rtk-ai/rtk.git rtk || true
- fi
-}
-
 run_smoke_test() {
  local target_name="$1"
- if [[ "${PROVEO_SMOKE_TEST:-0}" == "1" ]]; then
+ if proveo_env_on PROVEO_SMOKE_TEST; then
  echo "✅ PROVEO_SMOKE_READY ${PROVEO_SMOKE_TARGET:-$target_name}"
  exec sleep infinity
  fi
@@ -343,58 +228,7 @@ command_version_opencode() {
  timeout 5s "$name" "$@" 2>/dev/null || echo "$fallback"
 }
 
-_normalize_model() {
- local m="$1" lower
- [[ -n "$m" ]] || return 0
- case "$m" in */*) printf '%s' "$m"; return 0 ;; esac
- lower="$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')"
- case "$lower" in
- gpt-* | chatgpt-* | o[0-9]*) printf 'openai/%s' "$m" ;;
- claude-*) printf 'anthropic/%s' "$m" ;;
- grok-*) printf 'xai/%s' "$m" ;;
- gemini-*) printf 'google/%s' "$m" ;;
- deepseek-*) printf 'deepseek/%s' "$m" ;;
- *) printf '%s' "$m" ;;
- esac
-}
-
-_apply_env_bridge() {
- local from="$1" to="$2" fallback="$3" default="$4" transform="$5" val
- printenv "$to" >/dev/null 2>&1 && return 0
- val="$(printenv "$from" 2>/dev/null || true)"
- [[ -z "$val" && -n "$fallback" ]] && val="$(printenv "$fallback" 2>/dev/null || true)"
- if [[ -z "$val" && -n "$default" ]]; then
-  case "$default" in
-  '$'*) val="$(printenv "${default#\$}" 2>/dev/null || true)" ;;
-  *) val="$default" ;;
-  esac
- fi
- [[ -n "$val" ]] || return 0
- [[ "$transform" == normalize ]] && val="$(_normalize_model "$val")"
- export "$to=$val"
-}
-
-apply_env_bridges() {
- _apply_env_bridge GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
- _apply_env_bridge GOOGLE_API_KEY GOOGLE_GENERATIVE_AI_API_KEY "" "" ""
-}
-
-_model_provider() {
- local n
- n="$(_normalize_model "$1")"
- case "$n" in
- ollama/* | ollama_chat/* | openai-compatible/*) printf '' ;;
- */*) printf '%s' "${n%%/*}" ;;
- *) printf '' ;;
- esac
-}
-
-_proveo_auto_install_enabled() {
-  case "$(printf '%s' "${PROVEO_AUTO_INSTALL_TOOLS:-true}" | tr '[:upper:]' '[:lower:]')" in
-    false|0|no|off|disable|disabled) return 1 ;;
-  esac
-  return 0
-}
+_proveo_auto_install_enabled() { proveo_env_enabled PROVEO_AUTO_INSTALL_TOOLS on; }
 
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 
@@ -429,16 +263,35 @@ _proveo_tool_home() {
 }
 
 _proveo_tool_store() {
-  case "$(printf '%s' "${PROVEO_TOOL_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
-  off | false | 0 | no | disable | disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_TOOL_SYNC on || return 0
   local host="${PROVEO_STATE_HOME:-}"
   [ -n "$host" ] && [ -d "$host" ] || return 0
   printf '%s/%s' "$host" "$(_proveo_tool_rel)"
 }
 
+# The stamp beside a toolchain tree: one token per completed save.
+# SPEC: _spec/internal/sbx/state-sync.puml
+PROVEO_PROVISIONING="${PROVEO_PROVISIONING:-/dev/shm/proveo-provisioning}"
+
+_proveo_provisioning() {
+  local pid
+  pid="$(cat "$PROVEO_PROVISIONING" 2>/dev/null)" || return 1
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+_proveo_tool_stamp() { printf '%s/.%s.proveo-sync' "$(dirname "$1")" "$(basename "$1")"; }
+
+_proveo_write_stamp() {
+  local path="$1" tok="$2"
+  if printf '%s\n' "$tok" > "$path.$$" 2>/dev/null && mv -f "$path.$$" "$path" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$path.$$" 2>/dev/null
+  return 1
+}
+
 proveo_sync_tools() {
-  local mode="${1:-}" store home lock src dst rc=0
+  local mode="${1:-}" store home lock src dst rc=0 tok="" store_stamp home_stamp
   case "$mode" in
   restore | save) ;;
   *) return 2 ;;
@@ -454,13 +307,39 @@ proveo_sync_tools() {
   esac
   [ -d "$src" ] || return 0
   [ -n "$(ls -A "$src" 2>/dev/null)" ] || return 0
+  if [[ "$mode" == save ]] && _proveo_provisioning; then
+    printf 'proveo: toolchain save skipped — this boot is still provisioning; the store keeps its last complete tree\n' >&2
+    return 0
+  fi
+
+  store_stamp="$(_proveo_tool_stamp "$store")"
+  home_stamp="$(_proveo_tool_stamp "$home")"
+  if [[ "$mode" == restore ]]; then
+    tok="$(cat "$store_stamp" 2>/dev/null)" || tok=""
+    if [[ -n "$tok" && "$tok" == "$(cat "$home_stamp" 2>/dev/null)" ]]; then
+      return 0
+    fi
+  fi
 
   lock="$(_proveo_agent_home)/.proveo-tools.lock"
   if ! _proveo_sync_lock "$lock"; then
     printf 'proveo: toolchain %s skipped — another sync still holds the lock\n' "$mode" >&2
     return 1
   fi
+  if [[ "$mode" == save ]]; then
+    rm -f "$store_stamp" 2>/dev/null
+    tok="$(date +%s%N 2>/dev/null)-$$-${RANDOM}"
+  fi
   _proveo_sync_tree "$src" "$dst" || rc=1
+  if ((rc == 0)) && [[ -n "$tok" ]]; then
+    if [[ "$mode" == save ]]; then
+      _proveo_write_stamp "$store_stamp" "$tok" && _proveo_write_stamp "$home_stamp" "$tok" || true
+    else
+      _proveo_write_stamp "$home_stamp" "$tok" || true
+    fi
+  else
+    rm -f "$home_stamp" 2>/dev/null
+  fi
   rm -rf "$lock" 2>/dev/null
   ((rc == 0)) || printf 'proveo: toolchain %s completed with copy errors\n' "$mode" >&2
   return "$rc"
@@ -794,9 +673,7 @@ ensure_python_env() {
   _proveo_tool_path
   local scan="${1:-$(pwd)}" roots root kind primary="" deferred="" others="" max n=0
   _proveo_auto_install_enabled || return 0
-  case "$(printf '%s' "${PROVEO_PYTHON_ENV:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_PYTHON_ENV on || return 0
   roots="$(_py_project_roots "$scan")"
   [[ -n "$roots" ]] || return 0
   command -v mise >/dev/null 2>&1 || { echo "ℹ️  mise not on PATH — skipping Python environment"; return 0; }
@@ -1016,8 +893,8 @@ _dep_install() {
   if [[ $rc -eq 0 ]]; then
     echo "    ✅ ${lang} dependencies ready in ${root#"$(_proveo_scan_root)"/}"
   else
-    echo "    ⚠️  ${cmd} failed (rc=${rc}). If the registry is not reachable under this egress tier,"
-    echo "        rerun with --egress-mode open; a lockfile that disagrees with its manifest is"
+    echo "    ⚠️  ${cmd} failed (rc=${rc}). If sbx's network policy blocks the registry, allow it on the"
+    echo "        host (\`sbx policy allow network <host>\`); a lockfile that disagrees with its manifest is"
     echo "        reported rather than rewritten — reconcile it and rerun."
   fi
   return 0
@@ -1089,11 +966,27 @@ _dep_collapse_workspaces() {
   return 0
 }
 
+# _proveo_deps_mode prints PROVEO_DEPS as auto, off, shared or reinstall; it names any other value on stderr.
+_proveo_deps_mode() {
+  local v
+  if proveo_env_off PROVEO_DEPS; then printf 'off'; return 0; fi
+  v="$(printf '%s' "${PROVEO_DEPS:-}" | tr '[:upper:]' '[:lower:]')"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  case "$v" in
+    "") printf 'auto' ;;
+    auto | shared | reinstall) printf '%s' "$v" ;;
+    *)
+      printf '⚠️  PROVEO_DEPS=%s is not one of auto|off|shared|reinstall — using auto\n' "${PROVEO_DEPS:-}" >&2
+      printf 'auto' ;;
+  esac
+}
+
 ensure_dependency_trees() {
   local scan="${1:-$(pwd)}" mode lang class roots root dir dirs markers primary
   _proveo_auto_install_enabled || return 0
-  mode="$(printf '%s' "${PROVEO_DEPS:-auto}" | tr '[:upper:]' '[:lower:]')"
-  case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
+  mode="$(_proveo_deps_mode)"
+  [[ "$mode" == off ]] && return 0
 
   for lang in $(_dep_langs); do
     _dep_lang_class "$lang"; class="$REPLY"
@@ -1109,7 +1002,7 @@ ensure_dependency_trees() {
         addons)
           if [[ ! -d "$root/$primary" ]]; then
             echo "⚠️  ${lang} project at ${root#"$scan"/} has no ${primary} — nothing is installed here"
-            _dep_install "$lang" "$root" "installing ${primary} before the agent starts"
+            _dep_install "$lang" "$root" "installing ${primary}"
           else
             for dir in $dirs; do
               [[ -d "$root/$dir" ]] && _dep_addons_tree "$lang" "$root" "$root/$dir" "$mode"
@@ -1119,9 +1012,9 @@ ensure_dependency_trees() {
           for dir in $dirs; do
             [[ -d "$root/$dir" ]] && _dep_artifacts_tree "$lang" "$root" "$root/$dir"
           done
-          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies" ;;
         portable)
-          _dep_install "$lang" "$root" "fetching ${lang} dependencies before the agent starts" ;;
+          _dep_install "$lang" "$root" "fetching ${lang} dependencies" ;;
         provisioned|none|"") ;;
       esac
     done <<< "$roots"
@@ -1139,11 +1032,7 @@ proveo_exec_agent() {
   local launch=()
   while [[ $# -gt 0 && "$1" != "--" ]]; do launch+=("$1"); shift; done
   [[ "${1:-}" == "--" ]] && shift
-  # `type -P` and not `command -v`: the question is whether the first word is an
-  # executable FILE, because the only thing this branch can do with it is exec it.
-  # `command -v` also answers yes for shell keywords and builtins, and codex's own
-  # `exec` subcommand is one — so `codex exec "prompt"` was read as a launcher
-  # command, and `exec exec …` then died with no such file, never reaching codex.
+  # `type -P`, not `command -v`: only an executable FILE can be exec'd here.
   if [[ $# -gt 0 && "$1" != -* ]] && type -P -- "$1" >/dev/null 2>&1; then
     echo "🔁 launcher supplied its own command; running it instead of ${agent}: $1 …"
     exec "$@"
@@ -1158,36 +1047,7 @@ readonly PROVEO_RULES_START="<!-- >>> proveo house rules (generated — edits ar
 readonly PROVEO_RULES_END="<!-- <<< proveo house rules <<< -->"
 
 # _house_rules_target maps a harness to its USER-level instruction file, relative
-# to the agent's home. Empty means the harness has no such file and proveo writes
-# nothing — a decision, not an oversight, so every supported target gets a row.
-#
-# USER level, never the workspace. The workspace is the operator's repository:
-# seeding a file there mutates their checkout, competes with an AGENTS.md they
-# already wrote, and cannot apply at all when one exists. The user layer has none
-# of those problems — both harnesses below merge it with the project's rather than
-# choosing between them, and both rank the project's HIGHER, so a repo can still
-# overrule the house.
-#
-#   claudecode  NONE here — /etc/claude-code/CLAUDE.md, baked by the Dockerfile.
-#               That is the MANAGED POLICY tier: it loads before the user and
-#               project files and cannot be excluded by claudeMdExcludes at any
-#               settings layer, which is what "always processed" requires. The
-#               home file this function would write is the LOWEST tier and a
-#               project CLAUDE.md outranks it.
-#   codex       $CODEX_HOME/AGENTS.md (~/.codex/AGENTS.md) — the documented
-#               global file. Codex reads AGENTS.md natively and ranks the
-#               project's above it, so this ADDS to a repo's own rules rather
-#               than competing with them. It is the lowest tier, which is the
-#               right one: codex has no managed-policy path, so there is nothing
-#               above the project layer to write to.
-#   opencode    ~/.config/opencode/AGENTS.md — the documented global file;
-#               instructions render global first, then project on top.
-#   cursor      NONE. cursor-agent reads .cursor/rules and a project-root
-#               AGENTS.md/CLAUDE.md; its global "User Rules" live in the IDE
-#               settings UI, not a file the CLI reads. Nothing to write.
-#   cecli       NONE established. It seeds a PROJECT CONVENTIONS.md from its own
-#               defaults; no user-level equivalent is documented, and guessing a
-#               path writes a file nothing reads.
+# to the agent's home. Empty means proveo writes nothing for that harness.
 _house_rules_target() { case "$1" in
   claudecode) echo "" ;;
   codex)      echo ".codex/AGENTS.md" ;;
@@ -1228,9 +1088,7 @@ proveo_address_operator_claude() {
 
 proveo_compose_house_rules() {
   local target="${1:-}" home rel dest
-  case "$(printf '%s' "${PROVEO_HOUSE_RULES:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_HOUSE_RULES on || return 0
   [[ -n "$target" && -s "$PROVEO_HOUSE_RULES_FILE" ]] || return 0
   rel="$(_house_rules_target "$target")"
   [[ -n "$rel" ]] || return 0
@@ -1272,9 +1130,7 @@ _node_json_field() {
 
 ensure_node_toolchain() {
   local scan="${1:-$PWD}" pkg pm want_node have
-  case "$(printf '%s' "${PROVEO_NODE_TOOLCHAIN:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_NODE_TOOLCHAIN on || return 0
   _proveo_auto_install_enabled || return 0
   pkg="$(_node_nearest_pkg "$scan")"
   [[ -n "$pkg" ]] || return 0
@@ -1369,9 +1225,7 @@ _node_satisfies() {
 # SPEC: _spec/packages/lib/house-rules.puml
 proveo_apply_ui_defaults() {
   local target="${1:-}" home themes src
-  case "$(printf '%s' "${PROVEO_UI_DEFAULTS:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_UI_DEFAULTS on || return 0
   [[ "$target" == claudecode ]] || return 0
   home="$(_proveo_agent_home)"
   [[ -n "$home" ]] || return 0
@@ -1401,9 +1255,7 @@ proveo_apply_ui_defaults() {
 # SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml
 proveo_install_claude_hooks() {
   local target="${1:-}" home hook
-  case "$(printf '%s' "${PROVEO_CWD_GUARD:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_CWD_GUARD on || return 0
   [[ "$target" == claudecode ]] || return 0
   home="$(_proveo_agent_home)"
   [[ -n "$home" ]] || return 0
@@ -1518,9 +1370,7 @@ with open(path, "w", encoding="utf-8") as handle:
 
 proveo_install_git_sync_hooks() {
   local target="${1:-}" home hook plugin cmd
-  case "$(printf '%s' "${PROVEO_GIT_SYNC:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_GIT_SYNC on || return 0
   hook="${PROVEO_GIT_SYNC_HOOK:-/opt/proveo/hooks/git-sync-turn.sh}"
   plugin="${PROVEO_GIT_SYNC_PLUGIN:-/opt/proveo/hooks/proveo-git-sync-turn.js}"
   cmd="bash $hook"
@@ -1576,9 +1426,7 @@ esac; }
 proveo_enable_claude_lsp_plugins() {
   local target="${1:-}" home seed p bin candidates="" enabled="" langs=""
   export PROVEO_CLAUDE_LSP_OFFICIAL=""
-  case "$(printf '%s' "${PROVEO_CLAUDE_LSP_PLUGINS:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_CLAUDE_LSP_PLUGINS on || return 0
   [[ "$target" == claudecode ]] || return 0
   seed="${CLAUDE_CODE_PLUGIN_SEED_DIR:-}"
   [[ -n "$seed" && -d "$seed/cache/claude-plugins-official" ]] || return 0
@@ -1656,9 +1504,7 @@ readonly PROVEO_BROWSER_SKILL_SRC=/opt/proveo/skills/agent-browser/SKILL.md
 
 proveo_seed_browser_skills() {
   local target="${1:-}" home dir dst ver
-  case "$(printf '%s' "${PROVEO_BROWSER_SKILL:-auto}" | tr '[:upper:]' '[:lower:]')" in
-    off|false|0|no|disable|disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_BROWSER_SKILL on || return 0
   command -v agent-browser >/dev/null 2>&1 || return 0
   [[ -s "$PROVEO_BROWSER_SKILL_SRC" ]] || return 0
   dir="$(_browser_skill_dir "$target")"
@@ -1707,7 +1553,7 @@ proveo_chrome_bridge() {
     return 0
   fi
   command -v node >/dev/null 2>&1 || return 0
-  if [[ "${PROVEO_CHROME_READY:-}" == 1 ]]; then
+  if proveo_env_on PROVEO_CHROME_READY; then
     return 0
   fi
   if [[ ! -s "$PROVEO_CHROME_BRIDGE_JS" ]]; then
@@ -1824,13 +1670,6 @@ _lsp_precondition() {
   return 0
 }
 
-_java_major() {
-  command -v java >/dev/null 2>&1 || { echo 0; return 0; }
-  local v
-  v="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n1)"
-  echo "${v:-0}"
-}
-
 _lsp_custom_install() { case "$1" in
   java) _install_jdtls "${2:-}" ;;
   *)    return 1 ;;
@@ -1939,8 +1778,9 @@ ensure_language_servers() {
   _proveo_auto_install_enabled || return 0
 
   local scan_root="${1:-$(pwd)}" mode min_files installed="" lang cnt server cmd spec reason out rc gh_token
+  proveo_env_enabled PROVEO_LSP_INSTALL on || return 0
   mode="$(printf '%s' "${PROVEO_LSP_INSTALL:-auto}" | tr '[:upper:]' '[:lower:]')"
-  case "$mode" in off|false|0|no|disable|disabled) return 0 ;; esac
+  proveo_env_on PROVEO_LSP_INSTALL && mode=auto
   min_files="${PROVEO_LSP_MIN_FILES:-1}"
 
   if ! command -v mise >/dev/null 2>&1; then
@@ -2130,9 +1970,7 @@ configure_opencode_lsp() {
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 configure_opencode_formatter() {
   command -v jq >/dev/null 2>&1 || return 0
-  case "$(printf '%s' "${PROVEO_OPENCODE_FORMATTER:-auto}" | tr '[:upper:]' '[:lower:]')" in
-  off | false | 0 | no | disable | disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_OPENCODE_FORMATTER on || return 0
   local config_file existing='{}' tmp
   config_file="${HOME}/.config/opencode/opencode.json"
   if [[ -e "${config_file}c" ]]; then
@@ -2192,10 +2030,7 @@ configure_cursor_lsp() {
 
 _codex_toml_str() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }
 
-# LSP arrives over MCP because codex has no external-LSP config — the same
-# bridge cursor uses. The block is written into config.toml between
-# "# >>> proveo lsp" markers, so an operator's own [mcp_servers.*] entries
-# survive a re-run and only what proveo generated is replaced.
+# Writes codex's [mcp_servers.lsp_*] block into config.toml between "# >>> proveo lsp" markers.
 # SPEC: _spec/defs/codex/codex-topology.puml
 configure_codex_lsp() {
   command -v mcp-language-server >/dev/null 2>&1 || return 0
@@ -2277,9 +2112,7 @@ configure_claude_plugins() { proveo_enable_claude_lsp_plugins "${2:-}"; }
 # SPEC: _spec/defs/cecli/cecli-paradigm.puml
 configure_cecli_mcp() {
   local scan="${1:-$(pwd)}" conf probe
-  case "$(printf '%s' "${PROVEO_CECLI_MCP:-auto}" | tr '[:upper:]' '[:lower:]')" in
-  off | false | 0 | no | disable | disabled) return 0 ;;
-  esac
+  proveo_env_enabled PROVEO_CECLI_MCP on || return 0
   command -v serena >/dev/null 2>&1 || return 0
 
   conf="$(_proveo_agent_home)/.cecli.conf.yml"
@@ -2374,16 +2207,7 @@ render_subagents() {
    out+="$(cat "$fm")"$'\n'"---"$'\n'$'\n'"$text"
    ;;
   toml)
-   # codex declares its agents as TOML documents rather than as a markdown file
-   # with frontmatter, so the body is not appended after a delimiter — it IS a
-   # value, and the delimiter choice is load-bearing.
-   #
-   # A multi-line LITERAL string, never a basic one: literal strings process no
-   # escapes, so the shared markdown travels through byte for byte. The bodies
-   # carry backslash sequences on purpose (spec-keeper documents what a backslash
-   # escape means inside a PlantUML label), and a basic string would eat them
-   # silently — a corruption with no error, in a file nobody re-reads after it is
-   # composed.
+   # The body is a TOML multi-line LITERAL string ('''), which processes no escapes.
    dest="$dst/$name.toml"
    [[ "$reseed" == "1" || ! -f "$dest" ]] || continue
    if [[ "$text" == *"'''"* ]]; then
@@ -2448,17 +2272,51 @@ _proveo_config_skips() {
   "$home/$arel/"*) printf '%s\n' "${vol#"$home/$arel/"}" ;;
   esac
  done < <(_proveo_volume_mounts)
- local oldifs="$IFS"
- IFS=','
- for d in $deny; do
+ local -a items=()
+ IFS=',' read -r -a items <<< "$deny"
+ for d in ${items[@]+"${items[@]}"}; do
   d="$(printf '%s' "$d" | tr -d '[:space:]')"
   [[ -n "$d" ]] && printf '%s\n' "$d"
  done
- IFS="$oldifs"
+}
+
+# One line per entry to move: "D<TAB>rel" a directory dst lacks, "N<TAB>rel" a
+# file dst lacks, "U<TAB>rel" a file src holds with a newer mtime.
+_proveo_config_plan() {
+ local src="$1" dst="$2"
+ shift 2
+ {
+  (cd "$src" 2>/dev/null && find . "$@" \( -type f -printf 'S\tf\t%T@\t%P\n' \
+   -o -type d -printf 'S\td\t%T@\t%P\n' \) 2>/dev/null)
+  (cd "$dst" 2>/dev/null && find . "$@" \( -type f -o -type d -o -type l \) -printf 'D\t%y\t%T@\t%P\n' 2>/dev/null)
+ } | awk -F'\t' '
+  function newer(a, b,   p, ai, af, bi, bf) {
+   p = index(a, "."); ai = p ? substr(a, 1, p - 1) : a; af = p ? substr(a, p + 1) : ""
+   p = index(b, "."); bi = p ? substr(b, 1, p - 1) : b; bf = p ? substr(b, p + 1) : ""
+   if (ai + 0 != bi + 0) return ai + 0 > bi + 0
+   while (length(af) < length(bf)) af = af "0"
+   while (length(bf) < length(af)) bf = bf "0"
+   return af > bf
+  }
+  {
+   name = $4
+   for (i = 5; i <= NF; i++) name = name "\t" $i
+   if (name == "") next
+   if ($1 == "S") { order[++n] = name; kind[name] = $2; at[name] = $3 }
+   else { have[name] = $3 }
+  }
+  END {
+   for (i = 1; i <= n; i++) {
+    k = order[i]
+    if (kind[k] == "d") { if (!(k in have)) print "D\t" k; continue }
+    if (!(k in have)) print "N\t" k
+    else if (newer(at[k], have[k])) print "U\t" k
+   }
+  }'
 }
 
 _proveo_config_tree() {
- local src="$1" dst="$2" arel="$3" deny="$4" rel tmp failed=0 sub
+ local src="$1" dst="$2" arel="$3" deny="$4" rel tmp failed=0 sub plan
  [[ -d "$src" ]] || return 0
  mkdir -p "$dst" 2>/dev/null || return 1
 
@@ -2468,27 +2326,19 @@ _proveo_config_tree() {
   prune+=(-path "./$sub" -prune -o)
  done < <(_proveo_config_skips "$arel" "$deny")
 
+ plan="$(mktemp)" || return 1
+ _proveo_config_plan "$src" "$dst" ${prune[@]+"${prune[@]}"} > "$plan"
+ (cd "$dst" && sed -n 's/^D\t//p' "$plan" | xargs -r -d '\n' mkdir -p --) 2>/dev/null || failed=1
+ (cd "$src" && sed -n 's/^N\t//p' "$plan" | xargs -r -d '\n' cp -a --parents -t "$dst" --) 2>/dev/null || failed=1
  while IFS= read -r rel; do
-  rel="${rel#./}"
-  [[ -n "$rel" && "$rel" != "." ]] || continue
-  if [[ -d "$src/$rel" ]]; then
-   mkdir -p "$dst/$rel" 2>/dev/null || failed=1
-   continue
-  fi
-  if [[ ! -e "$dst/$rel" ]]; then
-   mkdir -p "$(dirname "$dst/$rel")" 2>/dev/null
-   cp -a "$src/$rel" "$dst/$rel" 2>/dev/null || failed=1
-   continue
-  fi
-  [[ "$src/$rel" -nt "$dst/$rel" ]] || continue
   tmp="$dst/$rel.proveo-sync.$$"
-  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst/$rel" 2>/dev/null; then
+  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -fT "$tmp" "$dst/$rel" 2>/dev/null; then
    continue
   fi
   rm -f "$tmp" 2>/dev/null
   failed=1
- done < <(cd "$src" 2>/dev/null && find . ${prune[@]+"${prune[@]}"} \
-  \( -type f -o -type d \) -print 2>/dev/null)
+ done < <(sed -n 's/^U\t//p' "$plan")
+ rm -f "$plan" 2>/dev/null
  return "$failed"
 }
 
@@ -2511,9 +2361,7 @@ proveo_sync_config() {
  restore | save) ;;
  *) return 2 ;;
  esac
- case "$(printf '%s' "${PROVEO_CONFIG_SYNC:-on}" | tr '[:upper:]' '[:lower:]')" in
- off | false | 0 | no | disable | disabled) return 0 ;;
- esac
+ proveo_env_enabled PROVEO_CONFIG_SYNC on || return 0
  [[ -n "$host" && -d "$host" ]] || return 0
  [[ -n "$files_host" && -d "$files_host" ]] || files_host="$host"
  home="$(_proveo_agent_home)"
@@ -2607,17 +2455,7 @@ _proveo_sync_tree() {
  return "$failed"
 }
 
-# SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/sbx/state-sync.puml
-proveo_opencode_sync_data() {
- local src="$1" dst="$2" helper
- helper="${PROVEO_OPENCODE_CREDENTIAL_HELPER:-/usr/local/lib/proveo/opencode-credentials.py}"
- if [[ ! -f "$helper" ]] || ! command -v python3 >/dev/null 2>&1; then
-  printf 'proveo: OpenCode credential snapshot helper is unavailable\n' >&2
-  return 1
- fi
- python3 "$helper" --offline-destination "$src" "$dst"
-}
-
+# SPEC: _spec/internal/sbx/state-sync.puml, _spec/defs/opencode/engine-local-history.puml
 proveo_sync_state() {
  local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst lock rc=0
  [[ -n "$host" && -d "$host" ]] || return 0
@@ -2700,9 +2538,14 @@ _proveo_persist_tool_env() {
 }
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml
+# True inside an sbx sandbox.
+_proveo_in_sbx() {
+ [[ -n "${SANDBOX_NAME:-}" || -n "${SANDBOX_ID:-}" || -n "${SANDBOX_VM_ID:-}" ]]
+}
+
 # sbx keeps the image ENTRYPOINT and hands it its keepalive; act as tini there.
 proveo_sbx_passthrough() {
- [[ -n "${SANDBOX_VM_ID:-}" && "${1:-}" == sh && "${2:-}" == -c ]] || return 0
+ _proveo_in_sbx && [[ "${1:-}" == sh && "${2:-}" == -c ]] || return 0
  case "${3:-}" in *"sleep infinity"*) exec "$@" ;; esac
 }
 
@@ -2713,7 +2556,7 @@ PROVEO_HOOKS_MARKER="${PROVEO_HOOKS_MARKER:-/dev/shm/proveo-hooks-seeded}"
 # SPEC: _spec/packages/lib/opencode-seed-progress.puml
 proveo_seed_step() {
  local category="$1" detail="$2" target="${3:-opencode}" path tmp
- [[ "$target" == opencode && "${PROVEO_SEED_PROGRESS:-}" == 1 ]] || return 0
+ [[ "$target" == opencode ]] && proveo_env_on PROVEO_SEED_PROGRESS || return 0
  printf 'proveo-seed: %s: %s\n' "$category" "$detail" >&2
  path="${PROVEO_SEED_STATUS_FILE:-/dev/shm/proveo-seed-status}"
  tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 0
@@ -2866,6 +2709,7 @@ proveo_clone_base() {
 }
 
 PROVEO_SEED_REFUSED="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
+PROVEO_SEED_HALTED="${PROVEO_SEED_HALTED:-/dev/shm/proveo-seed-halted}"
 
 # SPEC: _spec/internal/sbx/clone-workspace.puml
 proveo_assert_shares() {
@@ -2932,8 +2776,15 @@ proveo_seed_cursor_workspace_agents() {
  done < <(jq -r '.cursor[]?' "$src/_roster.json" 2>/dev/null)
 }
 
+# SPEC: _spec/internal/sbx/startup-dispatch.puml
 proveo_seed() {
- local target="${1:-${PROVEO_TARGET:-}}"
+ local target="${1:-}" phase="${2:-${PROVEO_SEED_PHASE:-all}}"
+ case "$phase" in
+ all | release) ;;
+ provision) _proveo_seed_provision "$target"; return ;;
+ none) return 0 ;;
+ *) printf 'proveo: unknown seed phase %s\n' "$phase" >&2; return 2 ;;
+ esac
  proveo_seed_step workspace "preparing checkout and shared folders" "$target"
  rm -f "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
  proveo_clone_checkout
@@ -2984,25 +2835,35 @@ proveo_seed() {
  proveo_install_claude_env_hook "$target"
  proveo_seed_step interface "seeding browser skills" "$target"
  proveo_seed_browser_skills "$target"
+ # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
+ proveo_seed_step interface "configuring host browser bridge" "$target"
+ proveo_chrome_bridge "$target"
  proveo_seed_step starting "releasing agent; background setup continues" "$target"
  proveo_release_agent "$target"
+ [[ "$phase" == all ]] || return 0
+ _proveo_seed_provision "$target"
+}
 
+# The seed's toolchain, dependency and language-server work, after the release.
+_proveo_seed_provision() {
+ local target="${1:-}" home
+ home="$(_proveo_agent_home)"
+ [[ -n "$target" && -n "$home" ]] || return 0
+ printf '%s\n' "$$" > "$PROVEO_PROVISIONING" 2>/dev/null || true
  if [[ "${PROVEO_AGENT_KIND:-}" == assistant ]]; then
   echo "🧭 assistant: no toolchain, dependency or language-server provisioning"
  else
   proveo_seed_step setup "restoring toolchain folders" "$target"
   proveo_sync_tools restore || true
+  _proveo_tool_path
+  _proveo_persist_tool_env
   proveo_seed_step setup "installing toolchains, dependencies and language servers" "$target"
   proveo_provision_toolchain
   proveo_wire_config "$target"
  fi
  : > "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
-
- # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
- proveo_seed_step interface "configuring host browser bridge" "$target"
- proveo_chrome_bridge "$target"
+ rm -f "$PROVEO_PROVISIONING" 2>/dev/null || true
  proveo_seed_step starting "seed complete" "$target"
-
 }
 
 # Host Android emulator over the host adb server; mobile-mcp is the MCP driver.
@@ -3043,6 +2904,13 @@ proveo_adb_mirror_start() {
 PROVEO_TOOLCHAIN_READY="${PROVEO_TOOLCHAIN_READY:-/tmp/proveo-toolchain-ready}"
 PROVEO_ANDROID_LOG="${PROVEO_ANDROID_LOG:-/tmp/proveo-android-install.log}"
 
+# First debug APK, by path, under the module's build/outputs/apk; ":a:b" lives in a/b, "" in the root.
+_proveo_debug_apk() {
+  local dir="${1#:}"
+  dir="${dir//://}"
+  find "${dir:-.}/build/outputs/apk" -type f -path '*/debug/*.apk' ! -path '*/androidTest/*' 2>/dev/null | LC_ALL=C sort | head -n1
+}
+
 proveo_android_install() {
   (($#)) || return 0
   local waited=0 limit="${PROVEO_ANDROID_WAIT:-3600}" log="$PROVEO_ANDROID_LOG"
@@ -3060,18 +2928,34 @@ proveo_android_install() {
     echo "⚠️  android: no host adb server — nothing installed" | tee -a "$log" >&2
     return 1
   }
-  local gradle=gradle spec module app task rc=0
+  command -v adb >/dev/null 2>&1 || {
+    echo "⚠️  android: no adb client in this image — nothing installed" | tee -a "$log" >&2
+    return 1
+  }
+  local gradle=gradle spec module app task apk rc=0 sock="tcp:${ADB_HOST}:${ADB_PORT}"
   [[ -x ./gradlew ]] && gradle=./gradlew
   for spec in "$@"; do
     module="${spec%%|*}" app="${spec#*|}"
-    task="${module:+$module:}installDebug"
-    echo "📱 android: building and installing $app ($task)" | tee -a "$log"
+    task="${module:+$module:}assembleDebug"
+    echo "📱 android: building $app ($task)" | tee -a "$log"
     if ! "$gradle" --no-daemon -q "$task" >>"$log" 2>&1; then
       echo "⚠️  android: $task failed — see $log" | tee -a "$log" >&2
       rc=1
       continue
     fi
-    if adb shell monkey -p "$app" -c android.intent.category.LAUNCHER 1 >>"$log" 2>&1; then
+    apk="$(_proveo_debug_apk "$module")"
+    if [[ -z "$apk" ]]; then
+      echo "⚠️  android: $task wrote no debug APK for $app — see $log" | tee -a "$log" >&2
+      rc=1
+      continue
+    fi
+    echo "📱 android: installing $apk through the host adb server $sock" | tee -a "$log"
+    if ! ADB_SERVER_SOCKET="$sock" adb install -r "$apk" >>"$log" 2>&1; then
+      echo "⚠️  android: adb install $apk failed — see $log" | tee -a "$log" >&2
+      rc=1
+      continue
+    fi
+    if ADB_SERVER_SOCKET="$sock" adb shell monkey -p "$app" -c android.intent.category.LAUNCHER 1 >>"$log" 2>&1; then
       echo "📱 android: $app installed and launched" | tee -a "$log"
     else
       echo "⚠️  android: $app installed; launch failed — see $log" | tee -a "$log" >&2

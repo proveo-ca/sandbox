@@ -12,6 +12,9 @@ import (
 
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
+
+	"github.com/proveo-ca/proveo/internal/envflag"
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 // GlyphTier is how much decoration the terminal is trusted with.
@@ -24,10 +27,10 @@ const (
 )
 
 func GlyphTierFrom(lookup func(string) string) GlyphTier {
-	switch strings.ToLower(strings.TrimSpace(lookup("PROVEO_GLYPHS"))) {
-	case "ascii":
+	switch v := strings.ToLower(strings.TrimSpace(lookup("PROVEO_GLYPHS"))); {
+	case v == "ascii":
 		return GlyphsASCII
-	case "off", "0", "false", "no", "none":
+	case v == "none" || envflag.Off(v):
 		return GlyphsOff
 	}
 	return GlyphsNerd
@@ -257,22 +260,8 @@ func (m multi) cols() int {
 
 func (m multi) Write(p []byte) (int, error) {
 	n, err := m.term.Write(p)
-	_, _ = m.log.Write(stripANSI(p))
+	_, _ = m.log.Write([]byte(termtext.StripANSI(string(p))))
 	return n, err
-}
-
-func stripANSI(p []byte) []byte {
-	out := make([]byte, 0, len(p))
-	for i := 0; i < len(p); i++ {
-		if p[i] == 0x1b {
-			for i < len(p) && p[i] != 'm' {
-				i++
-			}
-			continue
-		}
-		out = append(out, p[i])
-	}
-	return out
 }
 
 func isFancy(w io.Writer) bool {

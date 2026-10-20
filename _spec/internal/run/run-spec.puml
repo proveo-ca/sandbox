@@ -5,8 +5,45 @@ skinparam noteTextAlignment left
 ' covers: internal/run/spec.go
 ' covers: internal/run/run.go
 ' covers: internal/run/**
-' covers: cmd/proveo/run_golden_test.go
 ' covers: cmd/proveo/golden_test.go
+'   why there is one backend ... _spec/internal/sbx/sandbox-backend.puml
+'
+' ── 2026-10-16: ONE BACKEND, ONE INPUT ─────────────────────────────────────
+' The docker+egress backend is deleted ("Retire Docker egress"; "Refuse without
+' sbx"). MEASURED, run.Do's stages now read:
+'   requireSandbox · resolveWorkspace · promptChoices · resolveCredentials ·
+'   buildPosture · assembleEnv · launchSandbox
+' requireSandbox runs FIRST, before any workspace work, so a host that cannot
+' run sbx refuses before a prompt is drawn. Since 2026-10-17 it checks nothing
+' else: the PROVEO_SBX off-value stub is gone, Params.Shell went with `--shell`,
+' and the "manifest without `docker: sbx`" refusal went with the key (F10:
+' requireSandbox(p, d) takes no manifest, run.go:94; a stale key now fails
+' manifest loading instead).
+' Spec's docker-only fields — SquidConfig, DockerSpec, BrokerFile, the
+' inject/ and review/ dirs, the sidecar ModelSpec fields — are gone from
+' spec.go; dockeregress.Input is gone with its package. selectBackend and
+' execute collapsed into launchSandbox.
+' cmd/proveo/run_golden_test.go is DELETED: its three cases were docker
+' plans. MEASURED: no test now pins a whole `--print` run.Do byte for byte;
+' TestSandboxPlanGolden calls sandbox.Spec directly. The resolve-path hole
+' described below is therefore OPEN again (repo-simplification.puml T1
+' proposed re-recording it as sbx goldens).
+'
+' ── 2026-10-17: RUN STATE IS A RUN DIR, NOT AN EGRESS DIR (N13, DONE (wt)) ──
+' MEASURED: Spec.EgDir is Spec.RunDir (spec.go:21, "per-run state: the sbx
+' kit, policy log and staged clone env"), filled by RunDirOf(sid) =
+' <StateDir>/runs/<sid> (run.go:60, helpers.go RunDirOf); sandbox.Input.EgDir is
+' Input.RunDir (sandbox.go:1036); the egDir parameters of runlog.Artifacts,
+' CapturePolicyLog and CaptureMemoryEvidence are runDir. RunRoots() also
+' returns the retired <StateDir>/egress root, for `proveo clean` only
+' (_spec/internal/clean/clean-lifecycle.puml). Test: TestRunStateLivesUnderRuns
+' (env_names_test.go:49). The picker's "egress" row (sbx's policy baseline) is
+' a different concept and keeps its name.
+' 2026-10-18 (N25, MEASURED): Do's first statements are the sid, runlog.Open,
+' ui.TeeTo, THEN RunDirOf. The state root resolves after the tee because
+' StateDir() can warn about the retired PROVEO_EGRESS_ROOT, and a warning
+' printed before the tee never reaches the transcript
+' (_spec/internal/runlog/run-transcript.puml).
 '
 ' ── THE PROBLEM WAS THE STACK FRAME ────────────────────────────────────────
 ' doRun held SIXTY top-level locals. That is not a size complaint: it means the
@@ -14,11 +51,10 @@ skinparam noteTextAlignment left
 ' first proving, by reading all 595 lines, which later line still needed the
 ' value — and every one of moves 2 to 5 paid that cost again.
 '
-' Spec is those locals, named. It is deliberately NOT a merge of the two backend
-' inputs: it sits ABOVE them, and sandbox.Input / dockeregress.Input are each
-' built FROM it at the seam. Merging would have made every sbx-only field (Clone,
-' CPUs) legible to the docker path and every docker-only field (PidsLimit,
-' ReviewSocket) legible to sbx, which is the coupling the backend split removed.
+' Spec is those locals, named. It sits ABOVE the backend input: sandbox.Input
+' is built FROM it at the seam. HISTORY: while two backends existed it was
+' deliberately not a merge of sandbox.Input and dockeregress.Input, so no
+' docker-only field (PidsLimit, ReviewSocket) was legible to sbx.
 '
 ' ── THE ORDER OF THE TWO STEPS IS THE WHOLE TRICK ──────────────────────────
 ' Enumerating Spec came FIRST, as a change that altered nothing else: the struct
@@ -49,10 +85,11 @@ skinparam noteTextAlignment left
 ' resolve path that feeds them — which is the only thing this move touches. The
 ' resolve path's sole coverage was the e2e ladder, which is slow and skips
 ' without credentials.
-' cmd/proveo/run_golden_test.go closes that hole: it drives a whole `--print` run
-' under a pinned environment and pins the bytes, ui narrative included. It was
-' written and captured BEFORE the split, so its passing afterwards is evidence
-' rather than decoration.
+' cmd/proveo/run_golden_test.go closed that hole: it drove a whole `--print` run
+' under a pinned environment and pinned the bytes, ui narrative included. It was
+' written and captured BEFORE the split, so its passing afterwards was evidence
+' rather than decoration. It was deleted 2026-10-16 with the docker plans it
+' rendered; the rules below are how a replacement must be written.
 '
 ' ── A GOLDEN OVER THE RESOLVE PATH IS A GOLDEN OVER THE OPERATOR'S SHELL ────
 ' The resolve path READS the environment, so anything it can see and the test
@@ -62,8 +99,9 @@ skinparam noteTextAlignment left
 ' golden had never seen — a diff that says nothing about the resolve path and
 ' everything about whose shell ran the test. So EVERY credential the path can
 ' see is pinned empty (otherwise the operator's own keys decide which providers
-' are "detected"), and so is everything else it reads. PROVEO_DIND is pinned off
-' for the same reason: it is retired and warns when set.
+' are "detected"), and so is everything else it reads. PROVEO_DIND was pinned
+' off for the same reason while it warned when set; since 2026-10-17 it is
+' unread, so a replacement golden need not pin it.
 '
 ' Two things are pinned ON rather than off, and the distinction is the point:
 '   the gh mount   a real line of the plan, so pinning it OFF would DROP
@@ -87,13 +125,12 @@ participant "cmd/proveo\nwiring" as CMD <<app>>
 participant "run.Do" as DO <<app>>
 participant "Spec\nthe resolved contract" as SPEC <<data>>
 participant "sandbox.Input" as SBX <<cloud>>
-participant "dockeregress.Input" as DOC <<cloud>>
 
 CMD ARROW_MAIN DO : Params (flags) + Deps (terminal, gh, docker)
+DO ARROW_ERROR DO : requireSandbox — refuse unless sbx is ready
 DO ARROW_MAIN SPEC : resolveWorkspace · promptChoices · resolveCredentials
 DO ARROW_MAIN SPEC : buildPosture · assembleEnv
-SPEC ARROW_QUEUE SBX : selectBackend, when sbx is ready
-SPEC ARROW_QUEUE DOC : execute, otherwise
+SPEC ARROW_QUEUE SBX : launchSandbox
 
 note over CMD
   **Deps keeps this package honest.** Prompts,
@@ -102,17 +139,16 @@ note over CMD
 end note
 
 note over DO
-  **SquidConfig rides along for another reason.**
-  The ROOT package embeds it, and internal/
-  reaching up for it breaks the sidecar images,
-  which copy only cmd/ and internal/.
+  **Refusal comes first.** ""requireSandbox""
+  runs before any workspace work, so a host
+  that cannot run sbx stops before a prompt.
 end note
 
 note over SPEC
   **Sixty locals, named once.** The values the
   plan called doRun's hidden contract: sid,
-  egDir, uid/gid, mounts, workdir, lookup,
-  detected, homePlan.
+  egDir (now RunDir), uid/gid, mounts, workdir,
+  lookup, detected, homePlan.
 end note
 
 note over DO

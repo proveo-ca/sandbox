@@ -8,19 +8,10 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=cursor
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep cursor || true
-  set_working_directory "/app"
-  load_env quiet
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  load_env
-  bridge_git_identity
-  report_git_context
-  attach_rtk
-fi
+set_working_directory "/app"
+bridge_google_keys
+bridge_git_identity
+proveo-entrypoint prep || true
 
 CURSOR_HOME="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"
 
@@ -132,15 +123,6 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
     [[ -z "$line" ]] && continue
     printf '  %s\n' "$line"
   done
-  echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
 

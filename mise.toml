@@ -1,14 +1,5 @@
-# Go is pinned HERE and in go.mod (`toolchain go1.26.5`). Two pins, kept byte-equal
-# by internal/contract TestMiseGoPinMatchesGoModToolchain, so `mise run <task>` and
-# GOTOOLCHAIN=auto resolve the same compiler instead of racing over one build cache.
-#
-# It was deliberately absent until the retirement of `g` (github.com/stefanmaric/g):
-# with `g` owning a GOROOT, a mise pin meant a SECOND one, and two toolchains over
-# one build cache fail with `compile: version "goX" does not match go tool version
-# "goY"`. `g` is gone — it hands back a GOROOT and stops, leaving every consumer to
-# find it through a shell rc. A sandbox has no persistent rc to write one into, so
-# `mise run` reported `go: command not found` with a working toolchain on disk.
-# mise's shims are already on PATH on every backend.
+# Go is pinned here and in go.mod (`toolchain go1.26.5`); keep the two byte-equal.
+# internal/contract TestMiseGoPinMatchesGoModToolchain fails when they drift.
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
 [tools]
 go = "1.26.5"
@@ -66,11 +57,6 @@ run = "go run ./cmd/proveo-dev coverage unit"
 description = "Fast gate: Go unit + contract tests (same as test-go)"
 depends = ["test-go"]
 
-[tasks.test-go-integration]
-description = "Layer 3 egress Docker integration (-tags=integration; needs PROVEO_EGRESS_INTEGRATION=1)"
-dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev coverage integration"
-
 [tasks.test-go-e2e]
 description = "Layer 4 agent E2E (-tags=e2e; skips per missing prerequisite: tmux/docker/image/credential)"
 dir = "{{config_root}}"
@@ -82,7 +68,7 @@ dir = "{{config_root}}"
 run = "go run ./cmd/proveo-dev coverage merge"
 
 [tasks.test-images]
-description = "Docker/image + consumer CLI suites (needs Docker; slow)"
+description = "Every image suite (TestImage*) + the consumer CLI suite (needs Docker; slow)"
 dir = "{{config_root}}"
 # The installer suite runs install.sh under /bin/bash against the staged CDN;
 # the image suites are Go (internal/imagetest, build tag `image`).
@@ -96,25 +82,16 @@ run = [
 description = "Fast Go gate then Docker/image megasuite"
 depends = ["test-go", "test-images"]
 
-[tasks.test-images-sbx]
-description = "Image + consumer CLI suites that test the sbx runtime (no mitmproxy sidecar, no docker-detached smoke)"
-dir = "{{config_root}}"
-run = [
-  "go run ./cmd/proveo-dev stage-cdn",
-  "PROVEO_INSTALLTEST_CDN=apps/cli/public/cli go test -count=1 ./internal/installtest/",
-  "go test -tags=image -count=1 -timeout 60m -run '^TestImage(Cecli|Claudecode|Codex|Opencode|Cursor)$' ./internal/imagetest/",
-]
-
 [tasks.test-e2e]
 description = "Everything e2e up to tier 3, on the sbx runtime: image + consumer suites, then the Go agent suite (opt-in gates off; ~45m)"
 dir = "{{config_root}}"
-depends = ["test-images-sbx"]
+depends = ["test-images"]
 run = "go run ./cmd/proveo-dev coverage e2e"
 
 [tasks.test-e2e-full]
 description = "test-e2e plus tier 4: idle/signal/toolchain gates, per-def silent-death idle-all, then the sbx ladder. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
 dir = "{{config_root}}"
-depends = ["test-images-sbx"]
+depends = ["test-images"]
 # Both host halves keep going after a failure: stopping at idle hides whether
 # the ladder shares the fault. A SKIP on either is not a pass.
 # SPEC: _spec/_devops/release-gate.puml
@@ -163,8 +140,3 @@ description = "Buildx --push multi-arch (amd64+arm64) container image def"
 dir = "{{config_root}}"
 run = "go run ./cmd/proveo deploy"
 
-[tasks.debug]
-description = "Debug a container harness def (shell via proveo run --shell)"
-dir = "{{config_root}}"
-depends = ["build-cli"]
-run = "go run ./cmd/proveo-dev debug"

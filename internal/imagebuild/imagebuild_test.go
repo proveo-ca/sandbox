@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml, _spec/_devops/buildx-driver-selection.puml, _spec/_devops/agent-version-pin.puml
+// SPEC: _spec/_devops/buildx-driver-selection.puml, _spec/_devops/agent-version-pin.puml
 package imagebuild
 
 import (
@@ -105,6 +105,9 @@ func TestPullFlagsFromEnv(t *testing.T) {
 		{"never", "--pull=false", true},
 		{"1", "--pull=true", true},
 		{"always", "--pull=true", true},
+		{" Never ", "--pull=false", true},
+		{"ALWAYS", "--pull=true", true},
+		{"Auto", "", true},
 		{"maybe", "", false},
 	} {
 		b, errb := newTest(t, &fakeDocker{}, map[string]string{"PROVEO_DOCKER_PULL": c.env})

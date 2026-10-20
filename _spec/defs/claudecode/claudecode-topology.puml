@@ -58,11 +58,13 @@ Loop pattern:
 end note
 
 note bottom of Sandbox
-Safety boundary is the container + its network,
-not tool permissions. The network egress layer
-(open|allowlist|review) is what makes
-the dangerous in-container posture acceptable —
-see ""claudecode-egress-topology.puml"".
+Safety boundary is the sbx sandbox + its network
+policy, not tool permissions. sbx's policy is what
+makes the dangerous in-container posture acceptable
+— see ""_spec/internal/sbx/policy-baseline.puml"".
+(proveo's open|allowlist|review layer and its
+diagram, claudecode-egress-topology.puml, were
+retired 2026-10-16.)
 end note
 
 Net ..> Perms : network containment offsets full tool consent

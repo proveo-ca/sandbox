@@ -343,7 +343,7 @@ func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 				{Label: "auth", Options: []string{"A", "B"}},
 				{Label: "one", Options: []string{"a", "b"}},
 				{Label: "two", Options: []string{"a", "b"}},
-				{Label: "agent evidence", Options: []string{"default", "verbose"}}},
+				{Label: "outputs", Options: []string{"filtered", "verbose"}}},
 			Topology: func(*Form, int) *Frame {
 				return &Frame{Host: "pluvo", HostOS: "(macOS)", Square: "sbx · x", Hop: "mitm", Interface: "interface",
 					Caption: "cap", Lane: LaneWatched, Open: 1}

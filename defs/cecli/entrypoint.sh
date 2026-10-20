@@ -8,15 +8,10 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=cecli
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep cecli || true
-  set_working_directory "/app"
-  load_env quiet
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-fi
+set_working_directory "/app"
+bridge_google_keys
+bridge_git_identity
+proveo-entrypoint prep || true
 
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
@@ -41,14 +36,8 @@ has_cecli_agent_config() {
   return 1
 }
 
-if ! command -v proveo-entrypoint >/dev/null 2>&1; then
-  load_env
-  bridge_git_identity
-  report_git_context
-fi
-
 if [[ -n "${PROVEO_LOCAL_MODEL:-}" ]]; then
-  export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://ollama:11434}}"
+  export OPENAI_API_BASE="${OPENAI_API_BASE:-${OLLAMA_API_BASE:-http://host.docker.internal:11434}}"
   case "$OPENAI_API_BASE" in
     */v1|*/v1/) : ;;
     *) OPENAI_API_BASE="${OPENAI_API_BASE%/}/v1"; export OPENAI_API_BASE ;;
@@ -166,15 +155,6 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
     printf '  %s\n' "$line"
   done
   echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
-  echo "─────────────────────────────────────────────────────"
 fi
 
 ensure_project_tools
@@ -195,15 +175,8 @@ else
   report_agent_evidence
 fi
 
-# "$@" is ambiguous: on docker it is cecli's own flags, on sbx it is the whole
-# COMMAND the agent kit supplied in the CMD position. This used to decide with a
-# hand-written allowlist of command names — cecli, bash, sh, python, python3,
-# node, npm, pnpm, git, curl — which can never be complete, and a name missing
-# from it is appended to cecli as a positional, which cecli reads as a prompt.
-#
-# proveo_exec_agent asks the question the list was approximating: is the first
-# word an executable on PATH? That is behaviour-preserving for every name the
-# list held and correct for the ones it forgot.
+# proveo_exec_agent execs "$@" as-is when its first word is an executable on PATH;
+# otherwise it launches cecli with these flags first.
 # SPEC: _spec/packages/lib/seed-and-launch.puml
 echo "🚀 Launching cecli ${CECLI_RULE_ARGS[*]} ${CECLI_EVIDENCE_ARGS[*]}"
 proveo_exec_agent cecli "${CECLI_RULE_ARGS[@]}" "${CECLI_EVIDENCE_ARGS[@]}" -- "$@"

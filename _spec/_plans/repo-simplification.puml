@@ -1,0 +1,1816 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: every simplification candidate found on 2026-10-16, its evidence, its status, and the order of work
+' would touch: packages/lib/entrypoint-lib.sh, cmd/proveo-entrypoint/**, internal/entrypoint/**
+' would touch: defs/*/entrypoint.sh, defs/claudecode/mcp/entrypoint.sh, defs/**/detect-verify.sh
+' would touch: internal/workspace/{mount,deps,platform}.go, internal/manifest/manifest.go
+' would touch: cmd/proveo/{main,clean,targets,maintain_cmd}.go, internal/run/{run,helpers,spec}.go
+' would touch: internal/backend/sandbox/{sandbox,home_access}.go, internal/backend/backend.go
+' would touch: internal/agentio/agentio.go, internal/ui/ui.go, e2e/{idle,opencode_cache_sbx}_test.go
+' would touch: mise.toml, .goreleaser.yaml, cmd/proveo-dev/{buildcli,coverage}.go
+' status: PLANNED — a findings record. _spec/_plans/ is exempt from the SPEC-reference rule.
+' Referenced from: _spec/packages/lib/steps.puml (attach_rtk removal) and the D1 rehoming
+'   targets below. D1's decisions live in the living specs:
+'     backend selection, refusal, .env guard ... _spec/internal/sbx/sandbox-backend.puml
+'     tiers retired, Kit add-on reach only .... _spec/internal/sbx/policy-baseline.puml
+'     forward vs broker on sbx ................ _spec/internal/sbx/credential-path.puml
+'     the boundary without proveo's broker .... _spec/_paradigms/credential-boundary.puml
+'     Layer 3 retired ......................... _spec/tests/testing-strategy.puml
+'     local-model findings .................... _spec/internal/sbx/host-inference.puml
+'     the host fallback, DEFERRED ............. _spec/_plans/host-execution-fallback.puml
+'
+' ── HOW TO READ THIS FILE ──────────────────────────────────────────────────
+' Every finding carries one status: DONE, DECIDED (the decision is quoted) or PROPOSED.
+' A PROPOSED finding lists at least three numbered options and marks one [rec].
+' MEASURED means this pass read it in the tree. [Inference] and [Unverified] mean it did not.
+' (wt) means the change sits in the working tree and is not committed yet.
+' SNAPSHOT CAVEAT: the D1 deletion ran concurrently with this pass.
+'   Packages vanished between two reads, and run.go shrank from ~1100 to 838 lines.
+'   Every file:line below holds as of 2026-10-16 at the read time.
+'   Re-grep by the quoted symbol before acting on a line number.
+'
+' ══ DONE ═══════════════════════════════════════════════════════════════════
+'
+' S1 · rtk removed from `proveo run` — DONE (Executor, 2026-10-16: "Remove rtk from proveo run").
+'   What: attach_rtk cloned rtk-ai/rtk into the workspace on opt-in.
+'   Evidence: MEASURED. A tree-wide grep for rtk/attach_rtk outside _spec/ returns nothing.
+'   Evidence: MEASURED. _spec/packages/lib/steps.puml:68-69 records the removal.
+'
+' S2 · OpenCode --proveo-prepare / --proveo-recover removed — DONE (Executor, 2026-10-16).
+'   Evidence: MEASURED then. opencode-versioned-history-storage.puml:269-276 "NO MAINTENANCE
+'     COMMANDS" (that plan is being deleted under D2/D9; the flags stay gone).
+'   Evidence: MEASURED. internal/backend/sandbox/opencode_cache_test.go:610 pins pass-through.
+'
+' S3 · `--shell`, `proveo-dev debug` and every retirement stub removed — DONE (wt, 2026-10-17).
+'   Decisions (the user): on --shell "Why do we support this? Does any other harness support
+'   that --shell flag? is that `proveo` or `sbx`? if `proveo` retire it."; "Retire debug too.";
+'   on e2e "Convert all now."; manifest Retired* fields "Drop all four" (dind, sandbox_docker,
+'   egress, provider); CLI and env stubs "Drop all four" (--egress-mode, --shell, PROVEO_SBX off
+'   values, PROVEO_DIND).
+'   Evidence: MEASURED. Params.Shell and sandbox.Input.Shell are gone; cobra answers "unknown
+'     flag" for --shell and --egress-mode; sandbox.Disabled, warnDindRetired, RetiredDind,
+'     RetiredSandboxDocker and the `docker: dind` case are gone (a missing `docker:` loads and
+'     `proveo run` refuses it); cmd/proveo-dev/debug.go and its test are gone; e2e/
+'     kit_probe_test.go replaces launchShell/shellExec. Shell access is `sbx exec -it <sandbox>
+'     bash` (_spec/internal/sbx/sandbox-backend.puml).
+'
+' F2 · defs/egress-dashboard — DONE (wt), part of D1.
+'   What: a Node server that normalized mitm ndjson and Squid access.log into one timeline.
+'   Evidence: MEASURED. No Go code launched it; only a docstring in the mitmproxy addon named it.
+'   Evidence: MEASURED. The directory is absent from the working tree at this pass.
+'
+' F4 · inject/broker.env written on sbx runs — DONE (wt), part of D1.
+'   What: assembleEnv wrote real provider keys to <egDir>/inject/broker.env before backend choice.
+'   Evidence: MEASURED at first read: run.go:657-666 wrote it; only dockeregress.go:137 removed it.
+'   Evidence: MEASURED now: run.go:585-596 assembleEnv writes no file.
+'   Residue: internal/run/spec.go:66 BrokerFile; cmd/proveo/golden_test.go:161-196 and
+'     cmd/proveo/main_test.go:99-201 still pass BrokerFile and the sentinel.
+'
+' F12a · cmd/proveo-dev firehol*.go — DONE (wt), part of D1.
+'   Evidence: MEASURED. cmd/proveo-dev holds no firehol*.go at this pass.
+'
+' ── DONE BY D1, RECHECKED 2026-10-16 IN THE SPEC PASS (all (wt)) ────────────
+' D1 · Retire the docker+egress backend — DONE (wt). Decision quotes (Executor, 2026-10-16):
+'   "Retire Docker egress"; "Refuse without sbx"; "Retire review, map the rest"; on the
+'   tier mapping "Nothing, `sbx` handles this. Drop that param"; cursor pins "Drop the pins".
+'   Rehomed into the living specs listed in the header.
+'   Evidence: MEASURED. requireSandbox refuses a manifest without `docker: sbx` and an
+'     unready sbx (internal/run/run.go). The one-day stubs — the PROVEO_SBX off-value
+'     refusal, the hidden `--egress-mode` refusal, the PROVEO_DIND warning — are deleted
+'     too (2026-10-17, "Drop all four"; see S3). The egress, broker, reviewgate, dockeregress
+'     and sidecar paths are absent; a grep for proveo-egress, egressProxyImage, SquidConfig,
+'     DockerSpec and BrokerFile outside _spec/ finds only the stagecdn_test fixture name and
+'     the "proveo-egress-probe.invalid" probe host.
+'   Residue (MEASURED): internal/run/run.go startChromeBridge still takes `tierBlocked` and
+'     is always passed chromebridge.SbxWhy (F16); live env names still carry "EGRESS" (F17).
+'     Cleared since (wt, 2026-10-17): the parameter is `blocked` (F16) and the variables and run
+'     dir are renamed (F17, N13).
+'     Cleared since the first D1 read (MEASURED, wt): internal/choiceui/consent.go and its
+'     test are deleted (N18); Manifest.Egress and Manifest.Provider are deleted (F10).
+' F1 · proveo/mitmproxy built and published but never started — DONE (wt).
+'   Evidence: MEASURED. maintain.go holds KindBase and KindHarness only; mitmproxy_test.go is gone.
+' F3 · claudecode-egress-topology.puml documents a report nobody writes — DONE (spec pass):
+'   the spec is deleted with its subject, and defs/claudecode/mcp/entrypoint.sh:2 now cites
+'   _spec/internal/sbx/policy-baseline.puml instead (MEASURED).
+' F5 · An egress-proxy header prints on every run — DONE (wt).
+'   Evidence: MEASURED. No egressProxyImage in cmd/proveo; preflight ensures the agent image
+'     only, inside launchSandbox, when sbx has no template for it.
+' F6 · The .env guard rekey — DONE (wt).
+'   Evidence: MEASURED. load_env and entrypoint.ShouldSkipEnvLoad skip the workspace .env
+'     when SANDBOX_NAME or SANDBOX_VM_ID is non-blank (the decision said SANDBOX_VM_ID;
+'     SANDBOX_NAME joined it — F7 option 1 as implemented). The broker sentinel is deleted.
+'   SUPERSEDED 2026-10-17 by N7 (MEASURED): load_env and ShouldSkipEnvLoad are deleted; no image
+'     sources the workspace .env, so the rekeyed guard is gone with what it guarded.
+' F8 · Image-side docker leftovers — DONE (wt).
+'   Evidence: MEASURED. No proxy banner in defs/codex or defs/claudecode/mcp entrypoints; no
+'     http://ollama:11434 default and no /proveo-home/data probe in opencode/hermes entrypoints.
+'   Evidence: MEASURED. sandbox.go proxyOnlyVar lists only HTTP(S)_PROXY, http(s)_proxy,
+'     NO_PROXY, no_proxy, NODE_EXTRA_CA_CERTS, CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE,
+'     SSL_CERT_FILE and GIT_SSL_CAINFO; INSPECT_PROXY, ENFORCEMENT_PROXY and
+'     PROVEO_EGRESS_CA_CERT are gone. The cmd/proveo maintainer help no longer says
+'     "harness/sidecar" (reported by the coordinator).
+' F12b · internal/runner shrinks to `type Mount` — DONE (wt).
+'   Evidence: MEASURED. internal/runner/runner.go is 9 lines: `type Mount`; pids.go is gone.
+'
+' ── DONE 2026-10-17 (all (wt); each entry below keeps its first-read evidence) ──
+' D2 · OpenCode engine-local history — DONE (wt). Record: _spec/defs/opencode/engine-local-history.puml.
+'   Evidence: MEASURED. internal/backend/sandbox/opencode_engine.go, confirm.go and
+'     opencode_engine_test.go exist; opencode_cache.go, opencode_cache_test.go,
+'     opencode_history_image_test.go, packages/lib/opencode_cache.py, opencode-credentials.py,
+'     proveo-opencode-preflight, opencode_startup.py, test_opencode_credentials.py,
+'     test_opencode_runtime_native.py, opencode-runtime-fixture.py and
+'     e2e/opencode_prepared_history_test.go are absent; proveo-opencode-runtime is 103 lines.
+'   Reported (coordinator, measured on its VM): unit green except T1's JVM row; vet clean for
+'     every tag plus darwin and windows; golangci unused 0; TestImageOpencode green on a fresh
+'     image; e2e green except TestScheduleAgentThatDiesBeforeReadyFailsFast. [Unverified]: the
+'     sbx e2e leg (no sbx there).
+'   _spec/_plans/opencode-versioned-history-storage.puml is retired (D9): no source SPEC:
+'     pointer names it (MEASURED by the coordinator); its index entry is removed.
+' F13 · `--prepare --source` — DONE (wt) with D2.
+'   Evidence: MEASURED. opencode_cache.py is gone, and neither internal/imagetest/opencode_test.go
+'     nor anything else in the tree passes --prepare.
+' C1 · The credential report contradicts itself — DONE (wt). The user: "Clear missing on success
+'   (Recommended)".
+'   Evidence: MEASURED. internal/run/run.go reportCredentialGaps (called from resolveCredentials)
+'     sets `missing = nil` in both satisfied subscription branches (:443, :447);
+'     credential_report_test.go TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing.
+'     Spec: _spec/internal/credentials/credential-decisions.puml.
+' F20 · MountSpec.Plan() returned a workdir nobody read — DONE (wt). The user: "Drop the workdir
+'   return (Recommended)".
+'   Evidence: MEASURED. Plan() returns (mounts []runner.Mount, links []Link)
+'     (internal/workspace/mount.go:56); run.go:395 and every internal/workspace test call take two
+'     values. Reported: three `wd != "/app"` assertions were deleted.
+' N3 · _java_major defined twice — DONE (wt). The user: "Keep awk, delete sed (Recommended)".
+'   Evidence: MEASURED. One definition, the awk one (entrypoint-lib.sh:669-672);
+'     internal/contract/java_major_test.go pins 1.8.0_402/1.8.0_202 → 8, 17 → 17, 21.0.4 → 21
+'     (reported red before the fix). The jdtls message now reports 8, not 1, for a JDK 8.
+'     Spec: _spec/_runtimes/toolchain-provisioning.puml.
+' N17 · defs/cecli/.dockerignore never applied — DONE (wt). The user: "Rename so it applies" (NOT
+'   the recommended delete).
+'   Evidence: MEASURED. defs/cecli/Dockerfile.dockerignore exists and the old name does not; the
+'     root .dockerignore:7 says the cecli file replaces it for cecli builds and repeats it;
+'     image_size_test.go TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist. Reported, measured
+'     on buildx v0.36.1: a Dockerfile-specific ignore file makes BuildKit ignore the root one, so
+'     the merged denylist is required. Spec: _spec/_devops/image-size-reduction.puml item 3.
+' N4 · Three detect-verify.sh copies behind unreachable fallbacks — DONE (wt). The user: "Delete
+'   all three (Recommended)".
+'   Evidence: MEASURED. No detect-verify.sh exists; defs/lib/ and defs/cecli/proveo-lib/ are gone
+'     (TestDeadHostLibsRemoved, internal/contract/defaults_test.go:137); defs/claudecode/mcp/
+'     proveo-lib/chrome-bridge.js stays (claudecode/mcp/Dockerfile:106 still copies that dir). No
+'     entrypoint or Dockerfile names detect-verify; codex_test.go:101 and cursor_test.go:90 now
+'     assert "proveo-entrypoint (verification commands) is baked" with `command -v
+'     proveo-entrypoint`. Spec: _spec/internal/verify/verification-discovery.puml.
+' N7 · Three .env finders and three .env parsers — DONE (wt). The user first typed "delete the 3
+'   finders and 3 parsers, then research a way to seed .env values properly to sbx", then, after
+'   the research, chose "Keep 1+1, seed --env-file (Recommended)".
+'   Research (reported by the coordinator; URLs as given):
+'     sbx v0.39.0 release notes — "`sbx run` and `sbx create` now accept `-e`/`--env` and
+'       `--env-file`"; "Sandboxes now expose their own identity as `SANDBOX_NAME` and
+'       `SANDBOX_ID`" (https://newreleases.io/project/github/docker/sbx-releases/release/v0.39.0).
+'       proveo's floor is sbx.MinVersion "0.42.0" (MEASURED, internal/sbx/sbx.go:17).
+'     docker --env-file syntax (https://docs.docker.com/reference/cli/docker/container/run/):
+'       `<variable>=value`, or a bare `<variable>` taken from the host; only a line STARTING with
+'       `#` is a comment, a `#` elsewhere is part of the value — so a raw dotenv (quotes,
+'       `export`) is not safe to pass through.
+'     sbxenv.yaml (`env:`, `secrets:`) exists, but `sbx env` is experimental
+'       (https://docs.docker.com/ai/sandboxes/configuration/environment-files.md).
+'   Evidence (image half): MEASURED. No find_env_file or load_env remains; the Google-alias block
+'     survives as bridge_google_keys (entrypoint-lib.sh:49), called from every def entrypoint
+'     (codex, cursor, opencode, cecli, hermes, claudecode/mcp). Go entrypoint FindEnvFile,
+'     LoadEnvFile and ShouldSkipEnvLoad are gone, and cmd/proveo-entrypoint runPrep reads no .env
+'     (main.go:88-101). internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
+'     (reported red against the old prelude) and TestBothPreludesBridgeTheGoogleKeyAliases (renamed
+'     TestBashPreludeBridgesTheGoogleKeyAliases once N1 deleted the Go bridge).
+'   Evidence (host half): MEASURED. One finder, workspace.ProjectEnvFile(dirs ...) (mount.go:411);
+'     one parser, credentials.ParseEnvFile (credentials.go:632); EnvFileSource, envMountSource and
+'     findEnvFileResolved are gone. backend/sandbox/project_env.go seedProjectEnv writes
+'     <run>/sbx/env (0600, sorted KEY=value), dropping provider keys unless forwarding, names proveo
+'     sets, invalid names and values with CR/LF; sbx.RunConfig.EnvFile adds `--env-file` after the
+'     `-e` pairs in RunArgs/CreateArgs, and Reattach drops it (internal/sbx/run.go:128,176-177).
+'     Spec: _spec/internal/credentials/credential-decisions.puml (PROJECT .env).
+'   Residuals (reported): ParseEnvFile keeps an unquoted ` # comment` as part of the value;
+'     `op://` references pass unresolved; values apply only when the sandbox is created.
+' F7 · The guard key SANDBOX_VM_ID — DONE (wt), RESOLVED BY N7 (spec-keeper's call, recorded as
+'   such): N7 removed every workspace-.env load from the images, which is F7's option 3 in effect,
+'   so no .env guard is left to key. The user never picked an F7 option itself. What remains of
+'   the SANDBOX_VM_ID question lives in F18.
+' F9 · Workspace docker-isms: .env masks and dependency copies — DONE (wt). The user: "Keep
+'   detection only (Recommended)".
+'   Evidence: MEASURED. MaterializeDeps, copyTree, StripDepCopies, depStage, stagePath, depMounts,
+'     DepCopyPolicy (PROVEO_DEPS_COPY), MountSpec.DepStage, isolateEnv, envMounts, maskEnvMounts,
+'     envMaskPrune and envOverlay are absent from every .go file; secretEnvFile stays
+'     (mount.go:398) for the link scanner. run.go:641 counts trees as
+'     len(WS.DepCopies()) for the SharedTreesAllowed refusal. Reported: MountSpec.Credentials and
+'     DepCopy.Stage are deleted, 11 obsolete tests deleted, TestMountPlanBindsNoDotenvFile
+'     (mount_test.go:442) replaces the mask and symlink-env tests, and root node_modules is no
+'     longer an overlay mount. Behaviour on sbx is unchanged: sandbox.WorkspaceBinds already
+'     skipped non-directory hosts, and run.go stripped the stage dirs (reported MEASURED).
+'     Spec: _spec/internal/workspace/mount-model.puml.
+' F11 · `proveo clean` never swept proveo-squid-cache-* volumes — DONE (wt). The user: "One legacy
+'   sweep (Recommended)".
+'   Evidence: MEASURED. clean.Inventory.Volumes and clean.Plan.Volumes (internal/clean/clean.go:28,
+'     47); BuildPlan holds volumes back while any egress container runs unless --force (:88-98);
+'     cmd/proveo/clean.go gatherLegacyDocker (:170-200) lists egress containers and networks,
+'     proveo-dind-* and `docker volume ls --filter name=proveo-squid-cache-`; runClean removes
+'     them. Tests: TestBuildPlanSweepsTheRetiredBackendsSquidVolumes (internal/clean/clean_test.go)
+'     and TestTheLegacySweepFindsEveryRetiredDockerLeftover (cmd/proveo/clean_legacy_test.go,
+'     fake docker). "Delete the sweep in a later release" is recorded, not scheduled.
+'     Spec: _spec/internal/clean/clean-lifecycle.puml.
+' F15 · "proveo home: … (mounted at /proveo-home)" was stale on sbx — DONE (wt). The user: "Print
+'   what sbx sees (Recommended)".
+'   Evidence: MEASURED. run.go homeLine(root, man.Home) (:432-446) prints "proveo home: <root>
+'     (the sandbox sees <declared rel dirs>, toolchains at their host paths)";
+'     internal/run/home_line_test.go TestTheHomeLineNamesWhatTheSandboxSees. It does not list
+'     linkedDirs, which are computed later. Spec: _spec/internal/proveohome/proveo-home-components.puml.
+'
+' ── DONE 2026-10-17, SECOND BATCH (all (wt)) ────────────────────────────────
+' The user, verbatim: "apply fixes for SEC2, SEC3, N1, F18, F10, F17, research how to properly
+'   mount home data in hermes + sbx for F19, N12 and N18". Each took its [rec] option unless
+'   noted. Reported verification (coordinator): go vet clean for no tags, e2e, image, livesbx,
+'   darwin, windows; golangci unused 0 for no tags, e2e, image; unit 38 packages ok except the
+'   known JVM row; e2e only the known schedule failure. The image builds and image suites did
+'   NOT run (1.9 GB free) at first; after the review fixes they did — all 7 TestImage* PASS
+'   (reported; see FIXES AFTER THE ADVERSARIAL REVIEW below).
+' SEC2 · linkedDirs followed symlinks the guest could plant — DONE (wt), option 2.
+'   Evidence: MEASURED. home_access.go follows a home link only when its resolved target is listed
+'     in <homeRoot>/linked-dirs (LinkedDirsFile, :28-29; listedLinkTargets :96-98); an unlisted one
+'     lands in HomeAccess.SkippedLinks ("<link> → <target>", :24) and the run prints (after the
+'     review fix, noteSkippedLinks, home_access.go:32-36, called at sandbox.go:1451)
+'     "home link <l> not followed — list its target in <homeRoot>/linked-dirs to mount it
+'     read-only". The widening filters still run first (reported). A copy of linked-dirs inside a
+'     mounted dir does not count (home_access_test.go:330-348). Tests:
+'     TestHomeAccessFollowsOnlyLinksTheHostListed (:317) plus the updated
+'     TestHomeAccessMountsALinkedDirReadOnly and TestHomeAccessRefusesLinksThatWidenTheView.
+'     README's "Proveo home" section is rewritten (reported; docs are not this pass's).
+'     Spec: _spec/internal/sbx/ide-attach.puml (covers home_access.go).
+' SEC3 · The e2e pty helper approved any "[A]pprove all" text — DONE (wt), NOT the [rec]: the rec
+'   was infeasible (sbx documents no non-interactive consent flag, and sbx v0.48's prompt exits 1
+'   without a TTY — reported). The user, TUI: "Never approve; fail fast (Recommended)".
+'   Evidence: MEASURED. e2e/sbx_test.go consentPrompt(screen) (:396) reads the service names under
+'     "This kit wants to use these credentials" up to "[A]pprove all"; consentFailure(services,
+'     target) (:421-422) fails "… approve once with an interactive `proveo run <target>`, then
+'     rerun — the e2e never approves a credential binding". answerSbxPrompt and approvalDue are
+'     gone. Sites (reported): kit_probe_test tend() and opencode_engine_sbx_test onTerminal. Tests:
+'     TestASbxConsentPromptNamesItsServices (kit_sandbox_test.go:124, replaces the approval-edge
+'     test) and the rewritten TestTerminalLegsReadPtyOutput. Spec: _spec/tests/testing-strategy.puml.
+' N1 · The in-image prelude existed three times — DONE (wt), option 1.
+'   Evidence: MEASURED. cmd/proveo-entrypoint prep runs only EnsureRuntimeUser, the git-context
+'     report and the smoke sentinel (main.go:52-64); the exec mode is gone (usage: prep | verify |
+'     adb-mirror); internal/entrypoint holds EnsureRuntimeUser, SmokeReady and firstNonEmpty only —
+'     BridgeGoogleKeys, BridgeGitIdentity, NormalizeModel and ApplyEnvBridges are deleted with their
+'     tests. The def entrypoints lost their `else` branches and run the shell prelude
+'     (set_working_directory, bridge_google_keys, bridge_git_identity) BEFORE `proveo-entrypoint
+'     prep` (e.g. defs/codex/entrypoint.sh:12-16). Tests: TestEntrypointsRunTheShellPreludeThenPrep
+'     (contract_test.go:63), TestPrepKeepsOnlyWhatCrossesTheBoundary (env_prelude_test.go:145).
+'   FLAGGED by the image agent, recorded as decisions to confirm: the prelude ORDER is reversed
+'     (shell first, then prep), and agents now RECEIVE the git-identity env (bridge_git_identity
+'     runs in the shell the agent inherits — before, its Go twin exported into a dying child).
+'     Specs: _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, prep-sequence.puml.
+' F18 · The in-image prelude disagreed on how it detects sbx — DONE (wt), option 1.
+'   Evidence: MEASURED. _proveo_in_sbx checks SANDBOX_NAME, then SANDBOX_ID, then SANDBOX_VM_ID,
+'     each `:-` safe — entrypoint-lib.sh:2668-2669 (used by proveo_sbx_passthrough :2674) and a
+'     POSIX copy in proveo-await-seed:12-13 (used at :35, :54).
+'     TestBothSbxSitesDetectSbxByAnyIdentityVariable (sbx_passthrough_test.go:57). Docs naming
+'     SANDBOX_NAME: reported. Spec: _spec/internal/sbx/sandbox-backend.puml.
+' F10 · Manifest fields that lost their readers — DONE (wt), option 1 (the fold and KnownFields).
+'   Evidence: MEASURED. Manifest.Docker, DockerMode, its consts and IsSbx are deleted; `daemon:
+'     false` is the one knob (Daemon *bool, manifest.go:72; WantsDocker() = nil || true, :82-84);
+'     Parse decodes with yaml KnownFields(true) (:301), so a stale key fails loading with its name
+'     (TestAStaleManifestKeyFailsLoading, manifest_test.go:401: docker: sbx, egress: true,
+'     provider: cursor). No defs/*/harness.manifest declares `docker:`. requireSandbox(p, d)
+'     (run.go:94), executionOptions() (choices.go:511), squareOf(target) → "sbx · <target>" and
+'     topologyOf(target, creds) lost their manifest parameter. Added TestDaemonIsTheOneDaemonKnob
+'     (:383) and TestExecutionRowOffersTheHostAndTheSandbox (run_test.go:24). Deleted as
+'     tautologies (reported): TestDockerModeAcceptsOnlyTheSandbox,
+'     TestDockerModePredicatesAreExhaustive, TestDaemonFalseKeepsTheSandboxAndWithdrawsTheDaemon,
+'     TestEveryDaemonPromiseIsTheSandbox, TestEveryHarnessRunsInTheSandbox,
+'     TestSubscriptionHarnessesRunOnTheSandboxBackend, TestCursorTakesDockerFromTheSandboxBackend,
+'     TestManifestIgnoresUnknownTopLevelKeys (contradicted KnownFields),
+'     TestEveryDaemonPromiseIsCoveredBySbx (e2e), TestAddonOptionsOffersTheDockerSandbox.
+'     Spec: _spec/internal/manifest/harness-manifest-schema.puml.
+' F17 · Live env names carried the retired "EGRESS" word — DONE (wt), option 1's ENV half only.
+'   Evidence: MEASURED. PROVEO_EGRESS_ENV_FILE → PROVEO_ENV_FILE (run.go:144); PROVEO_EGRESS_ROOT →
+'     PROVEO_STATE_ROOT (helpers.go:101). renamedEnv(name, old) (helpers.go:87-94) reads the new
+'     name first, else the old one, with one ui.Warnf per old name: "<old> is deprecated and goes
+'     away next release — set <new>". The e2e callers set the new names. Tests:
+'     internal/run/env_names_test.go TestARenamedVariableReadsTheNewNameThenWarnsOnTheRetiredOne and
+'     TestStateRootTakesItsNewName. The on-disk and identifier half (EgDir → RunDir, egress/ →
+'     runs/) is N13, DONE in the third batch. Living spec for the variables:
+'     _spec/_paradigms/credential-boundary.puml (PROVEO_ENV_FILE).
+' F19 · hermes's home data — DONE (wt), from research. Findings (reported): sbx mounts workspaces
+'   path-preserving; an image VOLUME is per-sandbox and dies at `sbx rm`; [Unverified] -v/--volume
+'   is experimental and cloud-only. So the durable home is the host bind with HERMES_HOME pointed at
+'   it (defs/hermes/entrypoint.sh:45, MEASURED).
+'   Evidence: MEASURED. defs/hermes/harness.manifest's home mount is `host: hermes/data, mode: rw`
+'     with no `container:`, so config-sync no longer copies hermes data into ~/data. manifest
+'     validate accepts an empty container (a direct bind) and checks container duplicates only when
+'     one is set (manifest.go:273-288). Tests: TestHermesDataIsBoundNotCopiedIntoTheAgentHome
+'     (config_set_test.go:84, reported red before the fix), TestAHomeMountMayOmitItsContainerPath
+'     (manifest_test.go:366), and TestEveryHarnessHomeMountReachesTheConfigSet (config_set_test.go:15,
+'     now counting only mounts with a container). Spec: _spec/defs/hermes/hermes-persistence.puml.
+' N12 · Two image-test tasks; the release gate skipped hermes — DONE (wt), option 1.
+'   Evidence: MEASURED. mise.toml has one [tasks.test-images] (:79); test-e2e (:97) and
+'     test-e2e-full (:103) depend on it; TestOneImageTaskGatesBothReleaseGates
+'     (base_template_test.go:237). Spec: _spec/_devops/release-gate.puml.
+' N18 · Exported API kept alive only by its own tests — DONE (wt), option 1.
+'   Evidence: MEASURED. credentials.HasUsableAuth (with TestHasUsableAuthCountsProviderKeys),
+'     chromebridge Relay.Env() and SetTokenEnv() and entrypoint.NormalizeModel (with N1) are absent;
+'     startChromeBridge returns *chromebridge.Relay (run.go:285) and the sbx path uses ResolvedEnv
+'     (:655). Reported: Close no longer unsets the token, and the chromebridge test asserts the relay
+'     never exports its token into the host process. Specs: _spec/defs/claudecode/chrome-bridge.puml,
+'     _spec/internal/credentials/credential-decisions.puml.
+' FIXES AFTER THE ADVERSARIAL REVIEW of this batch (all (wt), MEASURED unless marked):
+'   SEC2 — the skipped-link notice never printed on a real run: run.go prepares HomeAccess, and
+'     the Notef sat inside sandbox.Run's own-prepare branch. Now noteSkippedLinks(a HomeAccess)
+'     (home_access.go:32-36) runs after either path (sandbox.go:1451);
+'     TestASkippedLinkNoticeNamesTheLinkAndTheListFile (home_access_test.go:353).
+'   SEC3 — e2e/instrument_test.go watcher.until fails fast on a consent prompt through
+'     consentPrompt/consentFailure (:165-166). Before, seed_ready and git_sync_turn waited out
+'     8 minutes (reported).
+'   F10 — Parse wraps yaml's unknown-field error for `docker:` with "`docker:` is retired —
+'     delete it, or set `daemon: false` to withdraw the daemon" (manifest.go:304), and
+'     TestAStaleManifestKeyFailsLoading asserts the hint. Reported: e2e
+'     assertDockerServerReachable and the defs/base/Dockerfile comment no longer name `docker: sbx`.
+'   Doc comments (reported): reportCredentialGaps' and recordOutcome's moved onto their funcs in
+'     run.go; chromebridge's package comment and linkedDirs' comment repaired.
+'   Verification (reported): image suites rebuilt from the tree (`proveo build all`) — all 7
+'     TestImage* PASS (19 live-API skips), so the N1/F18/N12 image behaviour is now measured in an
+'     image; unit and e2e show only T1's 2 known failures; vet clean for every tag plus darwin and
+'     windows; unused 0. The rebuild refilled ~/.cache/proveo/buildkit to 15 GB and filled the
+'     disk; cleared again with the user's approval, "Clear buildkit cache (Recommended)" (T1 note).
+'
+' ── DONE 2026-10-17, THIRD BATCH (all (wt) unless marked) ──────────────────
+' The user, verbatim: "apply fixes for SEC1, SEC4, N2, N22, N23, N24, F16, N20, N13, N5, N14 and
+'   N10". Each took its [rec] option unless noted. N2, N22, N23, N24 and N14 landed after the
+'   first spec pass; they are recorded in the next block.
+' SEC1 · The agent uid in the `docker` group — DONE (decision recorded; no code change), option 1.
+'   Accepted: the sbx template ships the same group (defs/base/Dockerfile:31, MEASURED) and the
+'     microVM stays the boundary. Spec: _spec/defs/harness-image-layers.puml (SEC1).
+' SEC4 · A home mount could reach the linked-dirs list — DONE (wt), option 1.
+'   Evidence: MEASURED. LinkedDirsFile moved to internal/manifest (manifest.go:50-51); the sandbox
+'     package reads manifest.LinkedDirsFile. Home.validate refuses a mount host whose cleaned first
+'     element is `.` or `linked-dirs` (:276-277) and `linked-dirs` in `files:` (:296-297).
+'     TestAHomeMountNeverReachesTheLinkedDirsList (manifest_test.go:383: `.`, `./`, the list as a
+'     mount, the list as a file). Specs: _spec/internal/sbx/ide-attach.puml,
+'     _spec/internal/manifest/harness-manifest-schema.puml.
+' F16 · startChromeBridge's `tierBlocked` — DONE (wt), option 2 (the user: "Rename to blocked").
+'   Evidence: MEASURED. startChromeBridge(rs, p, blocked string) (run.go:285); the guard stays
+'     (:291) and launchSandbox still passes chromebridge.SbxWhy (:651). F14 and N21 stay PROPOSED.
+'     Spec: _spec/defs/claudecode/chrome-bridge.puml.
+' N20 · The picker promised a daemon to `daemon: false` — DONE (wt), option 1.
+'   Evidence: MEASURED. choices.go addonHelpFor(man) (:512-518) clones addonHelp; for
+'     !man.WantsDocker() the sandbox help reads "a microVM (sbx) with no Docker daemon for the
+'     agent — the boundary every run on this harness gets"; the form passes addonHelpFor(man) (:60).
+'     The label "docker (sandbox)" is unchanged. TestThePickerPromisesADaemonOnlyWhereTheManifestDoes
+'     (run_test.go:867). Specs: _spec/internal/choiceui/choice-prompt-render.puml,
+'     harness-manifest-schema.puml.
+' N13 · Per-run state under an "egress" name — DONE (wt), option 1 (the variable half was F17).
+'   Evidence: MEASURED. helpers.go RunRoots() (:110-114) = [<state>/runs, <state>/egress (retired,
+'     swept for one release)]; RunDirOf(sid) = <state>/runs/<sid> (:117). Spec.EgDir → RunDir
+'     (spec.go:21), sandbox.Input.EgDir → RunDir (sandbox.go:1036), egDir params → runDir
+'     (runlog.Artifacts, CapturePolicyLog, CaptureMemoryEvidence). cmd/proveo/clean.go
+'     stateSessions() (:215-228) lists ids under every root, sorted and deduped; runClean (:259-270)
+'     removes <root>/<sid> under each root that has it. e2e globs and fixtures use runs/
+'     (sbx_test.go:443, sbx_egress_test.go:136, kit_sandbox_test.go:21). Tests:
+'     TestCleanSweepsRunStateUnderTheRetiredRootToo (cmd/proveo/clean_run_state_test.go),
+'     TestRunStateLivesUnderRuns (env_names_test.go:49). The picker's "egress" row (sbx policy
+'     baseline) is a different concept and is untouched. Specs: clean-lifecycle, run-spec,
+'     run-transcript, sandbox-backend (plus the <egDir> mentions in steps, policy-baseline,
+'     testing-strategy).
+' N5 · Four ANSI strippers — DONE (wt), option 2: the [rec] was INFEASIBLE (MEASURED:
+'   internal/agentio imports internal/ui, so ui cannot import agentio).
+'   Evidence: MEASURED. New leaf package internal/termtext: StripANSI (CSI, OSC/DCS/SOS/PM/APC
+'     strings, every other ESC sequence) and Words (each sequence and whitespace run as one space).
+'     Readers: ui's run-log tee (ui.go:262), agentio Tail.push (agentio.go:61), e2e termtext.Words at
+'     19 sites (the brief said 20; MEASURED 19 across idle, git_sync_turn, sbx_egress, ladder,
+'     kit_probe) and e2e terminalText (opencode_engine_sbx_test.go:57-58). ui.stripANSI, agentio's
+'     regexp and e2e plain() are deleted. The old ui grammar lost text up to the next 'm' after a
+'     non-SGR sequence: "\x1b[2Khello mom" was logged as "om" (measured by the coordinator; pinned by
+'     TestTheRunLogKeepsTextAfterANonSGRSequence, ui_test.go:478). Tests: termtext_test.go (both
+'     funcs). Specs: _spec/internal/agentio/agent-terminal-io.puml (covers internal/termtext/**),
+'     output-vocabulary, run-transcript.
+' N10 · Landed plans under _plans/ — DONE (wt), option 1. The coordinator ran the two git mv's;
+'   the spec half is this pass.
+'   _spec/_devops/image-size-reduction.puml — retitled a measurement record; covers unchanged.
+'   _spec/_refactors/host-shell-to-go.puml — a FROZEN SNAPSHOT: header says so, title is not
+'     PLANNED, no `covers:` (index covers []), and it lists the current-state owners. Rehomed: the
+'     host-shell allowlist into _spec/tests/20-contract.puml; lint.go/lint_test.go coverage into
+'     _spec/_devops/git-hooks.puml.
+'   _spec/_plans/retire-model-bridging.puml — trimmed to Q2 (local model) and Q4 (catalog). The
+'     decision, Q1/Q3/Q5/Q6, what landed and the guard tests are rehomed into
+'     _spec/internal/entrypoint/model-alias-bridges.puml. New measurement for Q4: the catalog still
+'     has readers (warnUnknownModel → CheckModel; posture.RolesLine → ModelProvider).
+'   Every _spec cross-reference to the two moved paths is repointed, and the index entries follow.
+'   Source half APPLIED (MEASURED by the coordinator): the 55 citers follow the spec-keeper's
+'     SOURCE REPOINT MAP; no non-_spec file cites the old _plans paths; spec_notes_test.go ratchets
+'     the new paths and TestSpecNotesFitTheBox passes; .claude/skills/sync-models/SKILL.md now says
+'     the catalog validates and Q4 is open.
+'
+' ── DONE 2026-10-17, THIRD BATCH, FINAL PASS (all (wt)) ────────────────────
+' N2 + N23 · The bash bridge machinery and the duplicate Google bridge — DONE (wt), option 1 each.
+'   Evidence: MEASURED. bridge_google_keys is five lines (entrypoint-lib.sh:36-40); _normalize_model,
+'     _apply_env_bridge, apply_env_bridges and _model_provider are deleted, and so are the opencode
+'     and hermes calls to apply_env_bridges. TestOneGoogleKeyBridgeRemains
+'     (model_bridging_retired_test.go:65) replaces TestCredentialBridgesSurvivedTheRetirement: one
+'     definition, the four names banned. Specs: model-alias-bridges, steps, prep-sequence,
+'     kit-sandbox-credential-gap.
+' N22 · prep's smoke mode could not fire — DONE (wt), option 1.
+'   Evidence: MEASURED. cmd/proveo-entrypoint prep takes no argument — an extra one prints usage
+'     and exits 2 (main.go:48-51); prep runs EnsureRuntimeUser and reportGitContext only (:53-54).
+'     SmokeReady and its hourly loop are deleted (internal/entrypoint holds EnsureRuntimeUser and
+'     firstNonEmpty). Every def runs `proveo-entrypoint prep || true`; the `env PROVEO_SMOKE_TEST=`
+'     prefix and `export PROVEO_SMOKE_TARGET=` are gone; run_smoke_test (entrypoint-lib.sh:174)
+'     stays the smoke path. Tests: TestPrepTakesNoTargetAndNoSmokeMode (env_prelude_test.go:177);
+'     TestEntrypointsRunTheShellPreludeThenPrep bans the prefix (contract_test.go:63).
+'   Residue (MEASURED, source): internal/contract/tui_vocabulary_test.go:18 and :24 still describe
+'     internal/entrypoint as printing PROVEO_SMOKE_READY; the marker now comes only from
+'     run_smoke_test and the opencode/hermes copies.
+' N24 · Shell and Go twins of the runtime-user and git-context steps — DONE (wt), NOT the [rec]
+'   as written: it was blocked, because hermes (FROM nousresearch/hermes-agent) had no
+'   proveo-entrypoint. The user, TUI: "Ship prep into hermes (Recommended)".
+'   Evidence: MEASURED. defs/hermes/Dockerfile:4-13 builds proveo-entrypoint in a
+'     `proveo-entrypoint-builder` stage (golang:1.26-trixie; caches proveo-hermes-gomod and
+'     proveo-hermes-gocache, because TestFetchRunsMountABuildKitCache forbids sharing base's ids)
+'     and :49 copies it to /usr/local/bin. defs/hermes/entrypoint.sh:11-14 runs
+'     set_working_directory, bridge_google_keys, bridge_git_identity, then `proveo-entrypoint prep
+'     || true`. entrypoint-lib.sh defines neither ensure_runtime_user nor report_git_context; its
+'     top-level HOME fallback (:4-6) stays. Reported: the image tests (cecli ×2, claudecode,
+'     opencode) call `proveo-entrypoint prep` instead; CONTRIBUTING.md and the defs/codex/Dockerfile
+'     comment name prep. Tests: TestPrepIsTheOnlyRuntimeUserAndGitContextStep (contract_test.go:104);
+'     TestEntrypointsRunTheShellPreludeThenPrep now includes hermes. [Unverified] the image builds
+'     were still running when this was recorded. Specs: prep-process-boundary, prep-sequence,
+'     runtime-user-boundary, git-identity, hermes-topology, hermes-paradigm, steps.
+' N14 · Why-comments regrew in source — DONE (wt), option 1, with THREE BLOCKS HELD OPEN.
+'   Evidence: MEASURED. cmd/proveo-dev/commentlint.go runs inside `proveo-dev lint` after gofmt
+'     (lint.go:41-42) and flags comment blocks over 3 counted lines; blank, SPEC:/covers:, pragma
+'     and divider lines and up to 3 lines of a Go doc's first sentence do not count. It reads tracked
+'     .go, .sh, Dockerfile*, .dockerignore, .toml, .yaml/.yml, .manifest and extensionless
+'     packages/lib scripts, and skips _spec/, apps/, node_modules/, dot-directories and testdata.
+'     Tests: commentlint_test.go TestCommentMarkerCoversEverySourceKind,
+'     TestLongCommentBlocksAreFlagged, TestCommentLintNamesEachOffendingBlock.
+'     Spec: _spec/_conventions/spec-conventions.puml.
+'   Migration (reported): three spec-keepers migrated 89 blocks; 85 stanzas were stripped;
+'     agent_launch_guard_test.go's broken 2-line fragment became a WHAT label.
+'   The user's rulings on refused blocks: Node and cecli — the code was measured (the nodejs.org
+'     tarball; the proveo_exec_agent PATH probe) and base-image-layers.puml and cecli-paradigm.puml
+'     were corrected; Chrome env-token scope — "Record as open, strip (Recommended)"
+'     (chrome-bridge.puml OPEN QUESTION); codex static docker — "Delete the layer (Recommended)":
+'     the RUN is gone and codex joined harnessDockerfiles, so TestNoHarnessImageShipsDockerBinaries
+'     guards it (red before, green after; image-size-reduction.puml Cut 4, codex-topology.puml).
+'   HELD OPEN — the opencode plain-secret 401, the user: "Re-measure first".
+'     internal/backend/sandbox/sandbox.go:1922 (:1917 since N6's edits, fourth batch),
+'     internal/sbx/secret.go:13 and internal/sbx/secret_test.go:8 stay whole, so `proveo-dev lint`
+'     is RED on exactly these three until a live sbx re-measure.
+'   Index entries the migrators added headers for: .goreleaser.yaml (distribution-update),
+'     internal/sbx/secret.go (credential-path), internal/credentials/credentials.go
+'     (sandbox-backend).
+'
+' ── DONE 2026-10-18, FOURTH BATCH (all (wt) unless marked) ─────────────────
+' The user, verbatim: "Apply N6, N8, N9, N16, N25, N26". Each took its [rec] option.
+'   Verification (MEASURED by the coordinator): go vet clean with no tag, e2e, image and livesbx,
+'     and under GOOS=darwin and GOOS=windows; golangci `unused` 0 with no tag, e2e and image; gofmt
+'     clean; unit (cmd/..., internal/...) fails only on TestJVMRowNeedsTheQemuFloorOnMacOSHosts (T1);
+'     `proveo-dev lint` is red only on the three held N14 blocks. [Unverified] e2e was still running
+'     at recording time.
+' N6 · Hand-rolled boolean env parsers — DONE (wt), option 1.
+'   Evidence: MEASURED. New leaf package internal/envflag: On(v), Off(v), Bool(v, def). Matching
+'     ignores case and surrounding spaces. ON words: 1 true yes on enable enabled. OFF words: 0
+'     false no off disable disabled. Bool returns def for any other value.
+'   Reported: the word set is the union of every spelling the sites accepted, so no site lost one;
+'     an unknown value keeps the site's old behaviour, and no default changed.
+'   Evidence: MEASURED. Converted sites (default in brackets): PROVEO_CLONE [on] and
+'     PROVEO_MOUNT_ROOT_DEPS [on] (run/helpers.go:37,40); PROVEO_STDIN_FILTER [on] and PROVEO_WIZARD
+'     [on] (agentio.go:94,97); PROVEO_SBX_AGENT_KIT [on] (sbx/agents.go:70); PROVEO_SBX_RELOAD [off]
+'     (sbx/template.go:161); PROVEO_LOCAL_MODEL_PULL [on] and PROVEO_LOCAL_MODEL_FORCE [off]
+'     (sbx/host_ollama.go:123,277; its local off() helper is gone); PROVEO_MOUNT_GH_CONFIG [on]
+'     (credentials.go:260); PROVEO_BUILDKIT_CACHE [on] and PROVEO_DOCKER_PUSH [off]
+'     (imagebuild.go:310,358); PROVEO_KEEP_AGENT_LOGINS [off] (proveohome.go:87);
+'     PROVEO_UNINSTALL_ASSUME_YES [off] (cmd/proveo/uninstall.go:43); PROVEO_SBX_MCP [off]
+'     (backend/sandbox/sandbox.go:1377); SKIP_GIT_HOOKS [off] (cmd/proveo-dev/hooks.go:70; `TRUE`
+'     now skips); PROVEO_CDN_REQUIRE_DIST [off] (cmd/proveo-dev/stagecdn.go:53; it was `== "1"`).
+'   Evidence: MEASURED. PROVEO_WIZARD has ONE reader, agentio.WizardEnabled(). The first-read
+'     second parse (opencode_cache.go:231-234) went with D2; the later one sat in confirm.go.
+'     Reported: agentio is the home because a run → sandbox import would cycle.
+'     REVIEW FOLLOW-UP (MEASURED): run.WizardEnabled is deleted, so the reader has one name too;
+'     internal/run (run.go:118,455; choices.go cacheApplies), backend/sandbox/confirm.go:13,
+'     cmd/proveo/provision.go:156 and cmd/proveo/wizard_test.go call agentio.WizardEnabled.
+'   Evidence: MEASURED. Enums keep their own words and parse only on/off through envflag:
+'     PROVEO_GLYPHS (ascii → ASCII; none or any OFF word → no glyphs; else nerd; ui.go:29-37);
+'     PROVEO_DOCKER_PULL (""/auto, never, always; on/off words through envflag; anything else
+'     still errors; imagebuild.go:274-287); PROVEO_AUTO_PROVISION (ON builds, OFF declines, else
+'     ask on a TTY with the wizard on; cmd/proveo/provision.go:149-160).
+'     REVIEW FOLLOW-UP (MEASURED): PullFlags lowercases and trims the value before matching
+'     auto/never/always too, and its error quotes the raw value; TestPullFlagsFromEnv adds
+'     " Never ", "ALWAYS" and "Auto". New cmd/proveo/provision_test.go
+'     TestProvisionConfirmFollowsAutoProvisionBeforeTheWizard: with PROVEO_WIZARD=0, yes, 1 or
+'     Enabled build and disabled, 0, "" or maybe decline, so PROVEO_AUTO_PROVISION wins.
+'   Out of scope by design (reported): interactive prompt answers (wizard.go y/yes, the uninstall
+'     prompt) and `!= ""` presence checks.
+'     REVIEW FOLLOW-UP (MEASURED): the e2e opt-in gates read through envflag.On instead of
+'     `!= "1"` — PROVEO_TOOLCHAIN_TEST (7 sites), PROVEO_IDLE_TEST (1), PROVEO_LADDER_TEST (2).
+'     The scan does not walk e2e/. internal/sbx/agents.go EnvAgentKit's 3-line history comment
+'     is a one-line WHAT label now (reported).
+'   Tests: internal/envflag/envflag_test.go TestOnOffBoolVocabulary (every spelling, case, spaces,
+'     an unknown value falling back); internal/contract/env_switch_vocabulary_test.go
+'     TestEnvSwitchesParseThroughEnvflag — it walks non-test Go under cmd/ and internal/ outside
+'     internal/envflag and fails when an env-derived value is compared with an on/off word, or when
+'     any `case` lists two or more such words. Reported: before the conversion it flagged exactly
+'     the 24 known sites (the finding's title says 22) and no prompt answer.
+'     TestEnvSwitchScanFlagsHandRolledParsers self-tests the scan on 6 flagged and 6 clean snippets.
+'     cmd/proveo-dev/hooks_test.go TestSkipHooksAcceptsTheEnvflagOnWords (renamed).
+'   Specs: _spec/internal/envflag/env-switches.puml (new); buildx-driver-selection (PUSH and PULL
+'     vocabularies).
+' N8 · About 85 PROVEO_* knobs, eight documented — DONE (wt), option 1.
+'   Evidence: MEASURED. New package internal/envreg: Scope (Operator · Maintainer · Internal),
+'     Var{Name, Scope, Default, Doc}, and Vars — 77 entries at landing, sorted by scope, then name:
+'     Operator 29, Maintainer 27, Internal 21. It first exported Lookup, ByScope, Var.Family,
+'     Var.Matches and Scopes.
+'     REVIEW FOLLOW-UP (MEASURED): the API is Scope (with String), Var, Vars and ByScope only.
+'     Lookup, Family, Matches and Scopes are deleted (no non-test caller); renderEnvHelp uses
+'     ByScope. PROVEO_BIN is deleted from the registry, and build-cli no longer tells maintainers
+'     to set it (nothing ever read it). Vars is 76 entries: Maintainer 26 (reported).
+'   Evidence: MEASURED. One family, PROVEO_<TARGET>_IMAGE, covers the *_IMAGE literals and the names
+'     imagebuild's envName builds at runtime (e.g. PROVEO_CODEX_BROWSER_IMAGE). Reported: the 77
+'     entries covered all 85 distinct names in string literals.
+'     REVIEW FOLLOW-UP (MEASURED): the family is checked against real names.
+'     env_registry_test.go collects every Override, ParentOverride and NeedsOverride from
+'     imagebuild.Specs; each must be covered, and a PROVEO_* literal passes only when registered by
+'     name, or when it is one of those names and the family is registered. An unrelated
+'     PROVEO_FOO_IMAGE no longer passes through the family. The family's Doc says claudecode*
+'     targets take no override; their Specs rows carry none.
+'     Doc/Default fixes (MEASURED): PROVEO_AUTO_PROVISION default "ask on a TTY with the wizard on,
+'     else decline"; PROVEO_DEPS "the image also reads off"; PROVEO_SBX_INSTANCES divides Docker's
+'     memory total; PROVEO_PLATFORMS cuts only a comma-separated list to the host on --load.
+'   Evidence: MEASURED. `proveo help env` (cmd/proveo/env_help.go envHelpCmd, renderEnvHelp) is a
+'     cobra help topic. It draws an "operator" and a "maintainer" heading, one row per variable
+'     (name, Doc, "(default …)"), and omits Internal. Root help gained a "help topics" section
+'     (help.go:244-256). Reported: the topic is not runnable, so `proveo env` renders it too.
+'   Tests: internal/envreg/envreg_test.go (unique names; literal or one family; one-line Doc and
+'     Default; known scopes; sort order); internal/contract/env_registry_test.go
+'     TestEveryProveoVariableIsRegistered (every PROVEO_* name in a non-test Go string literal under
+'     cmd/ and internal/ must be registered — by name, or as an imagebuild override under the
+'     family; MEASURED by the coordinator red with a temporary unregistered literal, then green)
+'     and TestEveryRegisteredVariableIsStillUsed; cmd/proveo/env_help_test.go
+'     TestHelpEnvListsEveryOperatorAndMaintainerVariable and TestProveoHelpEnvRendersTheRegistry.
+'   Reported: README.md gained an "Environment variables" section that points at `proveo help env`
+'     and lists the on/off spellings. After the review it says `help env` lists every PROVEO_*
+'     variable the proveo binaries read; variables only the image entrypoints read (e.g.
+'     PROVEO_BROWSER_SKILL) live in each def's README; the on/off spellings apply to switches the
+'     binaries read.
+'   Boundary: the registry covers Go under cmd/ and internal/ only. PROVEO_SKIP_INIT (installer
+'     scripts) and the PROVEO_* the image entrypoints read are outside it.
+'   [Unverified] PROVEO_SBX_MEMORY and PROVEO_SBX_CPUS: unset, proveo omits -m/--cpus; sbx's own
+'     default is not measured.
+'   [Inference] PROVEO_DEPS reaches the image through the project .env seed; no Go code forwards it.
+'   OPEN, not filed (MEASURED): PROVEO_SEED_DONE_MARKER is read with a default
+'     (internal/sbx/kit.go:84, packages/lib/proveo-seed:7), and only tests set it. It stays
+'     registered; the env audit filed it as N27, DONE in the fifth batch (Doc "Test seam:").
+'     (PROVEO_BIN, the other open name, is deleted by the review follow-up above.)
+'   FIXED 2026-10-18 (MEASURED): README.md now scopes `proveo help env` to what a user or
+'     maintainer can set outside the test suites, and says the variables proveo sets for itself —
+'     the Internal rows, 32 since N32 — are left out.
+'   Spec: _spec/internal/envreg/env-registry.puml (new); usage.
+' N9 · Maintainer commands in the operator binary — DONE (wt), option 1.
+'   Evidence: MEASURED. cmd/proveo/targets.go is deleted, so `proveo targets` no longer exists.
+'     maintainerDefsDir (PROVEO_DEFS_DIR, else <repo>/defs) moved unchanged into
+'     cmd/proveo/maintain_cmd.go (:42); reported: its error lost the "targets:" prefix.
+'   Evidence: MEASURED. `build` is no longer Hidden; its Short reads "Build harness image(s) from a
+'     proveo checkout" (maintain_cmd.go:356). deploy and test stay Hidden (:389, :420).
+'   Evidence: MEASURED. run.go:229 and provision.go:70 tell the operator to run `proveo build …`,
+'     and root help now lists that command.
+'   Evidence: MEASURED. cmd/proveo/main.go rootCmd() builds the command tree and main() executes it,
+'     so a test renders the real root help.
+'   Test (reported passing): cmd/proveo/maintainer_surface_test.go
+'     TestRootHelpShowsBuildAndKeepsReleaseToolingHidden — root help lists build, not deploy, test
+'     or targets, and no `targets` command is registered.
+'   Specs: provision-and-targets, usage, image-build-deploy, output-vocabulary.
+' N16 · internal/backend holds run errors only — DONE 2026-10-18, option 2 (decision recorded; no
+'   code change). The user: "Apply N16", on the [rec] "Keep the package as the home of run errors;
+'   nothing else to do". Spec: _spec/internal/backend/exit-code.puml.
+' N25 · The retired state-root warning missed the run log — DONE (wt), option 1.
+'   Evidence: MEASURED. internal/run/run.go Do sets rs.RunDir = RunDirOf(rs.Sid) at :60, after
+'     runlog.Open (:50) and ui.TeeTo (:55). RunDirOf reaches StateDir(), whose renamedEnv prints the
+'     one-time PROVEO_EGRESS_ROOT warning, so the warning now reaches the transcript as well as the
+'     terminal.
+'   Test (MEASURED by the coordinator): internal/run/state_warning_test.go
+'     TestTheRetiredStateRootWarningReachesTheRunLog — red with a StateDir() call restored before
+'     the log opens, green with the fix. Specs: run-transcript, run-spec.
+' N26 · Empty apt layers and the browser-variant base — DONE (wt), option 1, widened by the new test.
+'   Evidence: MEASURED. defs/codex/Dockerfile holds no apt RUN. The deleted layer carried the cache
+'     ids proveo-codex-apt-cache/-lists, an `apt-get install` naming no package, `rm -rf /tmp/*
+'     /var/tmp/*` and `proveo-harden /usr /opt`. base-node-lsp already runs proveo-harden over
+'     /usr /opt (defs/base-node-lsp/Dockerfile:22), and only user and group edits sit between FROM
+'     and where the layer was (defs/codex/Dockerfile:13-41).
+'   Evidence: MEASURED. defs/opencode/Dockerfile lost the identical empty RUN (proveo-opencode-apt-
+'     cache/-lists, a no-argument proveo-harden); the new contract test found it. Neither image's
+'     Dockerfile calls proveo-harden now; both still assert `security.hardened=true`.
+'   Evidence: MEASURED. A browser variant is the defs/base-node-browser layer applied onto
+'     proveo/<harness> (imagebuild browserOf; the parent is its Needs). The READMEs now say so:
+'     codex (variants table), claudecode (add-on table), cursor and opencode (browser-variant
+'     prose; the test found these three).
+'   Tests (reported passing): internal/contract/dockerfile_correctness_test.go
+'     TestEveryAptInstallNamesAPackage (every tracked *Dockerfile; an `apt-get install` whose first
+'     non-flag word is &&, ||, ;, | or the line end fails); internal/contract/browser_layer_test.go
+'     TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness (for every imagebuild.Specs row built
+'     from defs/base-node-browser with a Needs parent, no defs/*/README.md line names
+'     `proveo/<variant>` together with `proveo/base-node-browser`).
+'   Images (MEASURED by the coordinator): codex, opencode, codex-browser and opencode-browser rebuilt
+'     with PROVEO_BUILDKIT_CACHE=off; `docker history` shows the empty apt layer gone from both
+'     harness images; TestImageCodex (41.6s) and TestImageOpencode (45.1s) pass, 9 live-API skips.
+'   Residue found in the spec pass (docs the test does not catch): defs/base/README.md drew the
+'     -browser variants as children of proveo/base-node-browser, and defs/base-node-browser/
+'     README.md listed them as that image's "Consumers".
+'     REVIEW FOLLOW-UP (MEASURED for defs/base/README.md; reported for the rest): the bullet and
+'     the FROM tree of defs/base/README.md now hang each -browser under its harness and
+'     cursor-browser under cursor; the Consumers lines of defs/base-node/README.md and
+'     defs/base-node-browser/README.md now say the variants are that Dockerfile built on
+'     proveo/<harness> and list codex-browser too. The opencode README's base line is
+'     proveo/base-node-lsp (it said proveo/base on a "MCR playwright noble floor"); the cursor
+'     README's base line is proveo/base with git, gh, jq, dumb-init, tmux and proveo-entrypoint,
+'     no playwright floor.
+'     REVIEW FOLLOW-UP (MEASURED): defs/opencode/Dockerfile no longer declares `ARG
+'     DEBIAN_FRONTEND=noninteractive` (no apt runs there); its orphaned `# SPEC:
+'     _spec/_devops/image-size-reduction.puml` moved to line 1; dockerfile_correctness_test.go's
+'     aptDockerfiles no longer names it. opencode and opencode-browser rebuilt; TestImageOpencode
+'     passes (44.3s, reported).
+'   Specs: codex-topology, harden-pass, harness-image-layers, browser-layer, seed-and-launch,
+'     claudecode-paradigm.
+' KNOWN LIMITS from the adversarial review of this batch — recorded, NOT fixed:
+'   * The vocabulary scan (TestEnvSwitchesParseThroughEnvflag) tracks taint only through plain
+'     identifiers; a value stored in a field, map or slice escapes it (env-switches.puml).
+'   * The registry test sees only whole string literals, not Sprintf-built names
+'     (env-registry.puml).
+'   * TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness catches only a line naming
+'     `proveo/<variant>` together with `proveo/base-node-browser`; prose and tree drawings are not
+'     guarded (browser-layer.puml).
+'   * state_warning_test and TestDoRecordsAnEarlyFailureInTheTranscript leave ui's package-level
+'     logOnly pointing at a closed log (run-transcript.puml).
+'   * run.go:229's `proveo build <target>` hint works only in a source checkout
+'     (provision-and-targets.puml).
+'   * cmd/proveo/provision.go sourceDefsDir and maintain_cmd.go maintainerDefsDir are near-copies
+'     with different existence probes (provision-and-targets.puml).
+' REVIEW FIXES, landed (wt). The specs record them per finding above, and spec_notes_test.go
+'   specNotesEnforced now names env-switches.puml and env-registry.puml (the test passes).
+'   Verification after the fixes (MEASURED by the coordinator): vet clean with no tag and with
+'   e2e; gofmt clean; cmd/... and the touched internal packages pass; internal/contract fails only
+'   on the known JVM row (T1).
+'
+' ── DONE 2026-10-18, FIFTH BATCH (all (wt) unless marked) ──────────────────
+' The user, verbatim: "Apply all, then table all existing PROVEO_ variables". The coordinator read
+'   "all" as N27-N33, each with its [rec] option. Facts below are MEASURED by the coordinator unless
+'   marked; "MEASURED here" means this spec pass read it in the tree too.
+'   Verification (MEASURED by the coordinator): go vet clean with no tag, e2e, image and livesbx,
+'     and under GOOS=darwin and GOOS=windows; golangci `unused` 0 with no tag, e2e and image; gofmt
+'     clean; unit fails only on TestJVMRowNeedsTheQemuFloorOnMacOSHosts (T1), plus one
+'     TestToolSyncRoundTripsThroughTheDurableRoot failure that passed on rerun (the known flake);
+'     e2e fails only on TestScheduleAgentThatDiesBeforeReadyFailsFast; `proveo-dev lint` is red
+'     only on the three held N14 blocks. Images: all 15 rebuilt with the cache off after the shell
+'     work, and all 7 TestImage* suites passed (19 live-API skips). A second cacheless rebuild of
+'     all 15 after the review's fixes (_proveo_deps_mode trimming, the git-sync-turn.sh trim,
+'     proveo-await-seed on words) passed, and all 7 suites pass again with 19 live-API skips:
+'     Cecli 11.9s, Claudecode 40.8s, Codex 41.0s, Cursor 67.5s, DetachedSmoke 21.7s, Hermes 16.1s,
+'     Opencode 44.4s. Late change: e2e/capacity_test.go reads PROVEO_CAPACITY_TEST through
+'     envflag.On (it was `!= "1"`); no Go `PROVEO_* == "1"` check remains; `go vet -tags e2e` is
+'     clean.
+'   T1 flake resolved (MEASURED): the TestToolSync* failures came from the machine-global
+'     PROVEO_PROVISIONING marker that a parallel provision-seed test wrote; runToolSync now points
+'     it at a per-test temp path (internal/contract/tool_sync_test.go:27), and 6 of 6 full
+'     internal/contract runs were clean apart from the JVM row (see T1).
+' N27 · DONE (wt), option 1. proveo_seed reads `local target="${1:-}"`
+'   (packages/lib/entrypoint-lib.sh:2781, MEASURED here); the ${PROVEO_TARGET} fallback is gone and
+'   every caller passes a target. internal/envreg labels PROVEO_SEED_DONE_MARKER "Test seam:"
+'   (MEASURED here, with 19 other test seams).
+' N28 · DONE (wt), option 1. apps/cli/public/cli/install.sh:9 reads
+'   `ASSET_BASE_URL="${PROVEO_ASSET_BASE_URL:-${PROVEO_CLI_BASE_URL:-https://proveo.ca/cli}}"` and
+'   fetches uninstall.sh from it (:308); `proveo update` already used the one URL
+'   (cmd/proveo/update.go:142). A stderr notice covers two cases (:292-295, MEASURED here):
+'   CLI_BASE_URL alone — "deprecated and goes away next release; it now points the whole channel";
+'   both set — "deprecated and ignored". install.ps1 never read PROVEO_CLI_BASE_URL.
+'   internal/installtest/install_test.go sets only PROVEO_ASSET_BASE_URL and adds an alias-only
+'   install that must print the notice and write uninstall.sh; it passes.
+'   Spec: _spec/internal/cdn/distribution-update.puml.
+' N29 · DONE (wt), option 1, widened by the review.
+'   internal/workspace/platform.go: DepsModes() = auto|off|shared|reinstall (:77, MEASURED here);
+'     DepsMode(v) gives auto for empty, off for any envflag OFF word, the value when known, else
+'     unknown. SharedTreesAllowed: shared → "host trees go in as they are; the sandbox installs
+'     nothing over a foreign tree"; reinstall → "may rewrite"; off on a platform mismatch says
+'     installs are off but the trees still do not run on the image; an unknown value is named in
+'     the refusal.
+'   internal/run/run.go:632 passes rs.Creds.Lookup (process env, then the project .env) to the gate
+'     (MEASURED here), so a PROVEO_DEPS in the project .env reaches both the host check and the
+'     sandbox (`sbx create --env-file`). A shell export still reaches only the host check.
+'   packages/lib/entrypoint-lib.sh _proveo_deps_mode (:970) uses proveo_env_off, lowercases, trims
+'     only the ends and warns on stderr for an unknown value; ensure_dependency_trees uses it.
+'   Test: internal/contract/deps_mode_test.go TestHostAndImageReadPROVEODepsAlike (Go/shell parity,
+'     "re install" and "sharde" included). CODING_HARNESSES.md documents the values, the .env advice
+'     and who names an unknown value. Spec: _spec/packages/lib/dependency-trees.puml.
+' N30 · DONE (wt), option 1. Fixtures renamed: PROVEO_EVIDENCE=concise → PROVEO_AGENT_EVIDENCE=default
+'   (internal/sbx/sbx_test.go); PROVEO_EGRESS_SESSION_ID → SESSION_ID
+'   (internal/backend/sandbox/launch_receipt_test.go); PROVEO_DOCKER_SMOKE_TIMEOUT/_KEEP_FAILED →
+'   PROVEO_DETACHED_SMOKE_TIMEOUT/_KEEP_FAILED (internal/imagetest/detached_smoke_test.go:51,70,
+'   MEASURED here; KEEP_FAILED reads through envflag.On). The tombstones stay.
+' N31 · DONE (wt), option 1. One family, PROVEO_TEST_<TARGET>_IMAGE, read through
+'   internal/imagetest/pin.go PinVar/PinnedRef (MEASURED here; moved from e2e/testimage after the
+'   review, so internal/ imports nothing from e2e/). It folds PROVEO_TEST_IMAGE,
+'   PROVEO_TEST_IMAGE_<T>, PROVEO_TEST_HERMES_IMAGE (name kept), PROVEO_E2E_OPENCODE_IMAGE,
+'   PROVEO_CHROME_BRIDGE_IMAGE, PROVEO_HOST_ADB_IMAGE, IMAGE, STANDALONE_IMAGE, MCP_IMAGE, SOL_IMAGE,
+'   BROWSER_IMAGE, CURSOR_BROWSER_IMAGE, OPENCODE_BROWSER_IMAGE and the test-side read of
+'   PROVEO_CECLI_IMAGE. PROVEO_OPENCODE_V2_IMAGE stays: it pins v2.0.25 for an offline check.
+'   imagetest.Resolve(target, ref) returns a pin as given — it no longer swaps a pinned :latest
+'   for a newer :local — and with no pin resolves ref by recency (imagetest.go:22-24, MEASURED
+'   here). imagetest.Env is deleted. Tests: internal/imagetest/pin_test.go;
+'   internal/contract/test_image_knobs_test.go TestImageUnderTestKnobsReadThroughTheHelper and
+'   TestImageUnderTestKnobsNameABuildTarget. CONTRIBUTING.md and the def READMEs document the
+'   family. The test knobs stay out of envreg by design: the registry covers non-test code.
+'   Specs: 00-testing-overview, testing-strategy, image-lineage-and-publish.
+' N32 · DONE (wt), option 1, in two halves.
+'   Shell half: packages/lib/entrypoint-lib.sh:8-40 adds _proveo_env_word and
+'     proveo_env_on/off/enabled with the envflag words (MEASURED here: :10, :20, :28, :36); they
+'     ignore case, trim, run under bash 3.2 and 5, and keep REPLY. 18 switch sites are converted.
+'     PROVEO_LSP_INSTALL: on, true and 1 now mean auto. PROVEO_SMOKE_TEST takes every on word, and
+'     the hermes and opencode entrypoints call run_smoke_test instead of printing the sentinel
+'     themselves. packages/lib/hooks/git-sync-turn.sh (standalone) lowercases and now trims its
+'     PROVEO_GIT_SYNC off check; packages/lib/proveo-await-seed (POSIX) accepts every on word for
+'     PROVEO_SEED_PROGRESS. Both are listed exemptions in internal/contract/shell_env_switch_test.go:
+'     TestShellEnvSwitchHelperMatchesEnvflag (88-value parity), TestShellEnvSwitchesParseThrough-
+'     TheLibHelper (the scan) and TestShellEnvSwitchScanFlagsHandRolledParsers.
+'   Registry half: envreg Var gains Where (Binary | Image | Installer bits) and AliasOf; 156
+'     entries — Operator 76, Maintainer 48, Internal 32 (MEASURED here). Aliases:
+'     EGRESS_ROOT → STATE_ROOT, EGRESS_ENV_FILE → ENV_FILE, CLI_BASE_URL → ASSET_BASE_URL.
+'     cmd/proveo/env_help.go readerNote appends "· read in the sandbox", "· read by the install
+'     scripts" or "· also read …". internal/contract/env_registry_test.go scans Go string literals
+'     plus packages/lib, defs and the three install scripts, keeps a notVariables list and checks
+'     aliases; after the review, TestEveryRegisteredReaderMatchesTheCodeThatNamesIt checks the
+'     Where bits against where each name appears (red via a go overlay, then green).
+'     README.md "Environment variables" is rewritten: test-only knobs live in CONTRIBUTING.md, image
+'     variables are set in the project .env, and the install scripts are stricter (SKIP_INIT skips
+'     on any value; UNINSTALL_ASSUME_YES takes only 1). Doc fixes: PROVEO_HOME, PROVEO_HOST_ADB_PORT
+'     and PROVEO_HOST_CDP_PORT (their in-image meanings), PROVEO_LSP_INSTALL (on words),
+'     PROVEO_VERSION (the installers only label with it; they do not pin).
+'   Specs: env-switches, env-registry, prep-process-boundary.
+' N33 · DONE (wt), option 1 — the gate, not yet the deletions. internal/contract/retirement_test.go
+'   holds a ledger: the PROVEO_EGRESS_ROOT alias, the PROVEO_EGRESS_ENV_FILE alias, the egress/
+'   run-root sweep and the PROVEO_CLI_BASE_URL alias, each with a marker string. Tests:
+'   TestEveryRetirementMarkerIsStillInTheTree; TestEveryDeprecatedAliasHasARetirement (every envreg
+'   AliasOf); TestNoRetirementOutlivesOneRelease — `git grep -F <marker> <prev>` at the newest v*
+'   tag merged into HEAD and not at HEAD; it fails when that release already shipped the marker. A
+'   shallow clone skips with a remedy. cmd/proveo-dev/buildcli.go requireRetirementLedger
+'   (:106,123, MEASURED here) runs the test before goreleaser on `build-cli --release` and blocks
+'   the release unless it PASSES, so a skip blocks too. Red with a marker v0.1.2 contains, then
+'   green. The deletions happen after the next release: the test goes red on the first commit
+'   after it until they land. Spec: _spec/_devops/release-gate.puml.
+' KNOWN LIMITS from this batch — recorded, NOT fixed:
+'   * The retirement ledger turns main red from the first commit after a release until the aliases
+'     are deleted (intended: it is the reminder).
+'   * The PROVEO_CLI_BASE_URL alias now redirects the whole channel, where it used to fetch only
+'     uninstall.sh; the notice says so.
+'   * test_image_knobs envReaders ignores methods and two-level wrappers.
+'   * The shell scan skips the installers and `=~` / `(( ))` tests.
+'   * hermes is absent from the detached smoke targets, so its run_smoke_test call has no test
+'     (N37).
+'
+' ══ DECIDED ════════════════════════════════════════════════════════════════
+'
+' D1 · (moved to DONE above; its residue snapshot is kept below as the record)
+'   Decision: recorded in the DONE entry.
+'   Evidence: MEASURED. These paths are absent from the working tree at this pass:
+'     internal/backend/dockeregress, internal/egress, internal/egressproxy, internal/egresspolicy,
+'     internal/broker, internal/reviewgate, cmd/proveo-egress, defs/sidecars, defs/egress-dashboard.
+'   RESIDUE SNAPSHOT (MEASURED; the D1 executor owns completion). These still name deleted code:
+'     build: cmd/proveo/main.go:22,166-208 (egress import, --egress-mode); cmd/proveo/provision.go:14;
+'       internal/run/params.go:12; internal/run/choices.go:12,18.
+'     release: .goreleaser.yaml:22-24,44 (proveo-egress); cmd/proveo-dev/buildcli.go:43,83;
+'       .gitignore:92.
+'     tooling: mise.toml:69-72 test-go-integration; cmd/proveo-dev/coverage.go:23,78-101.
+'     tests: cmd/proveo/golden_test.go:16-18; main_test.go:17-20; internal/run/run_test.go:19;
+'       internal/contract/egress_vocabulary_test.go; internal/imagetest/claudecode_test.go:16,554;
+'       internal/backend/sandbox/host_inference_test.go:8; e2e/claudecode_auth_test.go:17;
+'       e2e/opencode_auth_test.go:15; e2e/review_tier_test.go; e2e/agent_settings_test.go:70,83-88.
+'     run state: internal/run/spec.go:23 (inject/, review/), :29 SquidConfig,
+'       :102-108 ModelSpec sidecar fields, :110-116 DockerSpec.
+'     chrome: internal/run/run.go:306,316 tierBlocked; :329 SetTokenEnv; :335 bare-name Env().
+'     docs: CONTRIBUTING.md:93-97; CODING_HARNESSES.md:227; e2e/go-testing-standards.md:37,41,77,94;
+'       defs/README.md:32; defs/cursor/README.md:149,156; defs/hermes/README.md:22;
+'       .claude/skills/sync-providers/SKILL.md:95,136.
+'
+' D2 · OpenCode history: an engine-local database owned by OpenCode — DONE (wt) 2026-10-17 (see
+'     DONE above; the entry is kept here as the record).
+'   Decision record (2026-10-16 TUI, D1–D9): _spec/defs/opencode/engine-local-history.puml, written
+'     2026-10-17 as the goal before the code. Corrections to the first-read line below: proveo sets
+'     NO OPENCODE_DB — the engine uses OpenCode's native default path; the user chose "Carry the DB
+'     over" when an engine is replaced (D1), "Let OpenCode handle it" for concurrency (D4) and
+'     "Accept and document" for in-engine logins (D8). All of it has landed (DONE above).
+'   First-read decision: OPENCODE_DB as the OpenCode docs intend; one-time import on engine create;
+'     delete the keeper, prepared cache, gate, owner records, journal recovery and post-exit publish.
+'   Evidence: MEASURED line counts of the keeper stack:
+'     packages/lib/opencode_cache.py 1471 · proveo-opencode-runtime 694 · opencode_startup.py 101
+'     · proveo-opencode-preflight 35 · internal/backend/sandbox/opencode_cache.go 533.
+'   Evidence: MEASURED test weight: test_opencode_runtime.py 1164 · test_opencode_cache.py 634
+'     · test_opencode_runtime_native.py 535 · test_opencode_startup.py 293 · opencode_cache_test.go 799.
+'   UPDATE 2026-10-17 (the user: "Fix seed, delete Python now", then "Delete RuntimeTests only
+'     (Recommended)"): test_opencode_cache.py is DELETED and test_opencode_runtime.py is 96 lines,
+'     NativeCommandAutoTests only (MEASURED). Both suites had failed deterministically outside the
+'     image since the commit that added them: load_credentials() reads os.environ, not the env the
+'     Keeper is handed (MEASURED then: opencode_cache.py:979 Keeper(runtime, env), :356
+'     runtime.load_credentials(), proveo-opencode-runtime:31-32 os.environ). D2 deletes
+'     load_credentials, the Keeper and the cache, so the split goes with them
+'     (engine-local-history.puml, THE IMAGE SIDE).
+'   [Inference] D2 removes most of ~2.8k production and ~3.4k test lines (the test figure predates
+'     the 2026-10-17 deletions above).
+'   SUPERSEDED: "[Inference] opencode-credentials.py (622) survives as the import-time sanitizer."
+'     D2 as decided deletes it: the import copies the database as-is and D8 accepts engine-lifetime
+'     logins (engine-local-history.puml).
+'   Spec gap CLOSED: opencode-versioned-history-storage.puml read IMPLEMENTED for the keeper design;
+'     engine-local-history.puml replaced it, and the plan is retired (D9) now that no source SPEC:
+'     pointer names it.
+'
+' (F1, F3, F5, F6, F8, F12b — moved to DONE above. Their first-read evidence, kept so a
+'  reader can see what each was: F1 maintain.go:34 / targets.go:146-149 / mitmproxy_test.go;
+'  F3 claudecode-egress-topology.puml:232 report.txt/report.json; F5 main.go:166-170 image
+'  inspect; F6 the guard keyed on PROVEO_EGRESS_MODE with no producer left — an ordering
+'  hazard the rekey closed; F8 proxy banners, the ollama:11434 alias, the /proveo-home/data
+'  probe; F12b DockerRunArgs, Hardening and pids.go with only test callers.)
+'
+' F13 · The runtime's `--prepare --source` control has no production caller — DONE (wt) with D2
+'     (see DONE above; first-read evidence below).
+'   Evidence: MEASURED. packages/lib/opencode_cache.py:1351-1360 parses it.
+'   Evidence: MEASURED. Only tests call it: internal/imagetest/opencode_test.go:44 and
+'     internal/backend/sandbox/opencode_history_image_test.go:68. (The test_opencode_cache.py and
+'     test_opencode_runtime.py callers were deleted with those suites, 2026-10-17.)
+'
+' ══ PROPOSED — SEED FINDINGS ═══════════════════════════════════════════════
+'
+' F7 · The decided guard key SANDBOX_VM_ID may be deprecated — DONE (wt) 2026-10-17, resolved by
+'     N7 (see DONE; first-read evidence below).
+'   Evidence: MEASURED. entrypoint-lib.sh:2767 already keys proveo_sbx_passthrough on it.
+'   [Unverified] The sandbox environment's own CLAUDE.md calls $SANDBOX_VM_ID deprecated in favour
+'     of $SANDBOX_NAME; this pass read no sbx documentation to confirm it.
+'   Why it matters: a guard keyed on a retiring variable fails open.
+'   Options:
+'     1. Key on SANDBOX_NAME, with SANDBOX_VM_ID as a fallback.
+'     2. Key on a variable proveo itself writes into the Kit (e.g. PROVEO_SANDBOX=1).
+'     3. [rec] Stop sourcing the workspace .env in images at all. sbx brokers provider keys;
+'        project tools load their own .env. The guard then has nothing left to guard.
+'   UPDATE 2026-10-16 (MEASURED, wt): option 1 is what the tree implements — load_env and
+'     ShouldSkipEnvLoad key on SANDBOX_NAME or SANDBOX_VM_ID. No Executor quote picked it;
+'     the finding stays PROPOSED until one does (option 3 remains the recommendation).
+'
+' F9 · Workspace docker-isms: .env masks and dependency copies — DONE (wt) 2026-10-17, option 1
+'     (see DONE).
+'   Evidence: MEASURED at first read. mount.go isolateEnv keyed on MountSpec.EgressMode.
+'   UPDATE (MEASURED, wt): isolateEnv now keys on MountSpec.Credentials != "forward"
+'     (mount.go:339-341), so maskEnvMounts is reachable again and plans /dev/null .env masks
+'     that sbx drops (file binds do not reach a sandbox).
+'   [Inference] envMounts then plans docker-path /app/.env mounts that sbx ignores either way.
+'   Evidence: MEASURED. deps.go:183-186 plans dep-copy overlays; run.go:633 strips them again.
+'   Evidence: MEASURED. MaterializeDeps (deps.go:191) and DepCopyPolicy (platform.go:49) have no
+'     non-test caller; PROVEO_DEPS_COPY (platform.go:50) is documented at CODING_HARNESSES.md:181.
+'   Why: the planner builds mounts only so the sbx path can count and discard them.
+'   Options:
+'     1. [rec] Keep detection and refusal: DepCopies returns a tree count for SharedTreesAllowed
+'        (platform.go:64). Delete MaterializeDeps, DepCopyPolicy, StripDepCopies, DepStage,
+'        PROVEO_DEPS_COPY, the masks and the EgressMode field.
+'     2. Delete the masks; keep the copy planner for sbx-dep-tree-isolation.puml's Kit field.
+'     3. Leave both until sbx-dep-tree-isolation lands.
+'
+' F10 · Manifest fields that lost their readers — DONE (wt) 2026-10-17, option 1 in full (see
+'     DONE, second batch; first-read evidence below).
+'   Evidence at first read: manifest.go:57 Egress and :59 Provider had no non-test reader.
+'   DONE (MEASURED, wt): Capabilities.Egress and AllowsEgress are deleted; cursor's
+'     `egress: [open]` and `credentials: [forward]` pins are gone ("Drop the pins");
+'     Manifest.Egress (`egress: true`) and Manifest.Provider (`provider: cursor`) are deleted
+'     from manifest.go and from every defs/*/harness.manifest. Vendor pinning lives only in
+'     `capabilities.providers`.
+'   Still PROPOSED: every manifest declares `docker: sbx`, and the decoder ignores unknown
+'     keys (yaml.Unmarshal, no KnownFields in manifest.go), so a stale key loads silently.
+'   Why: `docker: sbx` is universal once sbx is the only backend; `daemon: false` (hermes:8)
+'     carries the only remaining distinction.
+'   Options:
+'     1. [rec] Delete the dead fields and their keys; fold `docker`+`daemon` into one `daemon`
+'        bool; decode with KnownFields so a stale key fails loading.
+'     2. Delete the dead fields only; keep `docker: sbx` as a backend marker.
+'     3. Keep the keys and refuse them as retired, the `dind` way (manifest.go:76-77, 222).
+'   What landed is option 2 (dead fields and keys deleted, `docker: sbx` kept). The open
+'     choice is the rest of option 1: the `docker`+`daemon` fold and KnownFields.
+'     [Inference] Without KnownFields an out-of-tree def still carrying `egress: true` or
+'     `provider:` loads silently, which option 3's refusal would surface.
+'
+' F11 · `proveo clean` never sweeps proveo-squid-cache-* volumes — DONE (wt) 2026-10-17, option 1
+'     (see DONE).
+'   Evidence: MEASURED at first read. Docker goldens showed
+'     `-v proveo-squid-cache-<target>:/var/spool/squid`; those goldens are deleted with D1,
+'     so these volumes now exist only on hosts that ran the retired backend.
+'   Evidence: MEASURED. cmd/proveo/clean.go lists containers, networks, state dirs and
+'     images; it never runs `docker volume ls`, so nothing removes them.
+'   Evidence: MEASURED. clean.go's `label=proveo.egress.session` and `proveo-dind-*` sweeps
+'     are legacy sweeps since D1; liveness of a state dir is now sessionAlive's pid probe.
+'   Options:
+'     1. [rec] One legacy sweep: egress containers and networks, proveo-dind-*, and
+'        proveo-squid-cache-* volumes; delete the sweep two releases later.
+'     2. Keep every docker sweep permanently.
+'     3. Delete all docker sweeps now; name `docker volume rm` in the release notes.
+'
+' F14 · The claude-in-chrome add-on is unreachable — PROPOSED (removal). (F16 renamed the
+'     `tierBlocked` parameter to `blocked` 2026-10-17; the name below is first-read.)
+'   Evidence: MEASURED. gateAddons (internal/run/choices.go) always greys claude-in-chrome:
+'     chromeWhy when set, else chromebridge.SbxWhy.
+'   Evidence: MEASURED. launchSandbox passes chromebridge.SbxWhy as startChromeBridge's
+'     tierBlocked, so the relay never starts; the docker path that held a real token is deleted.
+'   Evidence: MEASURED. Still compiled: internal/chromebridge (relay, ScopeGate, SetTokenEnv,
+'     bare-name Env), chrome-bridge.js, the seed's relay start, e2e/claude_in_chrome_test.go,
+'     e2e/chrome_bridge_sbx_test.go. _spec/defs/claudecode/chrome-bridge.puml records why.
+'   Env names (2026-10-18 env audit): option 1 also retires PROVEO_CHROME_BRIDGE, _TOKEN, _JS
+'     and PROVEO_CHROME_READY; the audit files no separate finding for them (N27-N33). The test
+'     knob PROVEO_CHROME_BRIDGE_IMAGE is folded into PROVEO_TEST_<TARGET>_IMAGE by N31.
+'   Options:
+'     1. [rec] Remove the add-on, internal/chromebridge and the in-image relay; keep the spec
+'        as the record of what sbx would need (a real token in the VM, or a host launch).
+'     2. Keep the code; drop only the dead docker-era parts (SetTokenEnv, bare-name Env,
+'        the tierBlocked parameter).
+'     3. Keep as is until host-execution-fallback.puml is decided.
+'
+' F15 · "proveo home: … (mounted at /proveo-home)" is stale on sbx — DONE (wt) 2026-10-17, option 1
+'     (see DONE).
+'   Evidence: MEASURED. internal/run/run.go:448 prints the HomePlan root "mounted at"
+'     proveohome.ContainerHome on every run.
+'   Evidence: reported by the coordinator, [Unverified] in this pass: sbx mounts the harness
+'     home directory instead, path-preserving, so /proveo-home is not where it lands.
+'   Options:
+'     1. [rec] Print the path sbx actually uses (the host path, per sandbox-backend.puml's
+'        path-preserving mounts).
+'     2. Drop the "(mounted at …)" clause.
+'     3. Keep it; document the difference in proveo-home-components.puml.
+'
+' F16 · startChromeBridge keeps a `tierBlocked` parameter for a tier that no longer exists — DONE (wt)
+'     2026-10-17, option 2, "Rename to blocked" (see DONE, third batch).
+'   Evidence: MEASURED. internal/run/run.go startChromeBridge(rs, p, tierBlocked); its one
+'     caller passes chromebridge.SbxWhy.
+'   Options:
+'     1. [rec] Fold into F14 option 1.
+'     2. Rename the parameter to `blocked` and keep the guard.
+'     3. Keep as is.
+'
+' F18 · The in-image prelude disagrees on how it detects sbx — DONE (wt) 2026-10-17, option 1 (see
+'     DONE, second batch).
+'   Evidence: MEASURED. load_env (entrypoint-lib.sh) and Go's entrypoint.ShouldSkipEnvLoad
+'     accept SANDBOX_NAME or SANDBOX_VM_ID.
+'   Evidence: MEASURED. entrypoint-lib.sh proveo_sbx_passthrough (~2745) checks SANDBOX_VM_ID only.
+'   Evidence: MEASURED. SANDBOX_VM_ID only in packages/lib/proveo-await-seed (:54, :80, :86),
+'     proveo-opencode-runtime (:292, :402, :433, :671) and proveo-opencode-preflight (:12, :14);
+'     CONTRIBUTING.md:57 and CODING_HARNESSES.md:72 document only SANDBOX_VM_ID.
+'   Why: if sbx ever sets SANDBOX_NAME without SANDBOX_VM_ID, the .env guard holds while the
+'     passthrough, the seed wait and the OpenCode runtime treat the run as outside sbx.
+'   UPDATE 2026-10-17 (MEASURED): the SANDBOX_NAME-aware half is GONE — N7 deleted load_env and
+'     ShouldSkipEnvLoad — and D2 deleted the OpenCode runtime's and preflight's checks. What is
+'     left keys on SANDBOX_VM_ID ONLY: entrypoint-lib.sh:2669 proveo_sbx_passthrough and
+'     packages/lib/proveo-await-seed:32,51 (test_opencode_startup.py:26 sets it in its fixture).
+'     New evidence (reported, N7's research): sbx v0.39.0 documents SANDBOX_NAME and SANDBOX_ID as
+'     the sandbox's identity, and SANDBOX_VM_ID is not in that list. [Unverified] whether
+'     SANDBOX_VM_ID is deprecated or merely undocumented. So the prelude no longer DISAGREES, but
+'     every remaining check keys on the one variable sbx does not document.
+'   Options (revised):
+'     1. [rec] One shell helper (`_proveo_in_sbx`: SANDBOX_NAME, then SANDBOX_ID, then
+'        SANDBOX_VM_ID, `:-` safe under set -u) for the two remaining sites; docs name SANDBOX_NAME.
+'     2. Key both sites on SANDBOX_NAME only (documented since v0.39.0, below the 0.42.0 floor).
+'     3. Keep SANDBOX_VM_ID until sbx documents its fate.
+'
+' F19 · hermes's manifest still declares `/proveo-home/data`, which sbx ignores — DONE (wt)
+'     2026-10-17, option 1 after research (see DONE, second batch).
+'   Evidence: MEASURED. defs/hermes/harness.manifest:20 `container: /proveo-home/data`.
+'   Evidence: MEASURED. sbx mounts workspaces at their host path, and defs/hermes/entrypoint.sh
+'     probes only $PROVEO_STATE_HOME/hermes/data (_spec/defs/hermes/hermes-persistence.puml).
+'   Options:
+'     1. [rec] Make `container:` optional for home mounts and drop it where sbx ignores it.
+'     2. Keep the field; document it as the docker-era rendering.
+'     3. Keep as is.
+'
+' F20 · MountSpec.Plan() returns a workdir nobody reads — DONE (wt) 2026-10-17, option 1 (see DONE).
+'   Evidence: MEASURED. sandbox.Input.Workdir and run.Spec's Workspace.Workdir are deleted
+'     (nothing read them); internal/run/run.go:419 now discards Plan()'s middle return
+'     (`rs.Workspace.Mounts, _, rs.Workspace.Links = rs.Workspace.WS.Plan()`).
+'   Evidence: MEASURED. The agent's working directory reaches sbx as PROVEO_WORKDIR, computed
+'     by sandbox.agentWorkdir from the binds, not from Plan().
+'   Options:
+'     1. [rec] Drop the workdir return from Plan() and its computation, with its tests.
+'     2. Keep the return for a future non-sbx caller.
+'     3. Keep as is.
+'
+' F17 · Live env names still carry the retired "EGRESS" word — DONE (wt) 2026-10-17, the variable
+'     half of option 1 (see DONE, second batch; the path/identifier half stays N13).
+'   Evidence: MEASURED. PROVEO_EGRESS_ENV_FILE (internal/run/run.go:151) names the host-side
+'     KEY=VALUE file the credential lookup reads.
+'   Evidence: MEASURED. PROVEO_EGRESS_ROOT (internal/run/helpers.go:84) overrides the per-run
+'     state root, itself still StateDir()/egress/<sid> (N13).
+'   Why: both are live and documented-by-use (e2e sets PROVEO_EGRESS_ROOT), so a rename is a
+'     compatibility change, while the word now names a layer that no longer exists.
+'   Options:
+'     1. [rec] Fold into N13: new names (PROVEO_ENV_FILE, PROVEO_STATE_ROOT), the old ones read
+'        for one release with a deprecation note, then removed.
+'     2. Rename now with no fallback.
+'     3. Keep both names; document why they say "egress".
+'
+' C1 · The credential report contradicts itself — DONE (wt) 2026-10-17, option 1 (see DONE).
+'   Evidence: MEASURED. internal/run/run.go:406-408 prints "using X from sbx's stored credentials".
+'   Evidence: MEASURED. run.go:419-425 then warns "X not set" for the same names.
+'   Evidence: MEASURED. The FileLogin branch (:404-405) falls through the same way.
+'   Why: the operator reads one success line and one warning about one credential.
+'   Options:
+'     1. [rec] Clear `missing` in both satisfied subscription branches.
+'     2. Filter `missing` by the names the store or the login actually covers.
+'     3. Rewrite the block as one verdict line per credential.
+'
+' SEC1 · The agent uid sits in the `docker` group in OpenCode engines — DONE 2026-10-17, option 1
+'     (decision recorded, no code change; see DONE, third batch).
+'   Evidence: MEASURED. defs/opencode/Dockerfile:50-53 adds USER_NAME and agent to `docker` and
+'     sets com.docker.sandboxes.start-docker=true.
+'   Evidence: MEASURED. defs/base/Dockerfile:133-141 records a root dockerd with a root:docker socket.
+'   [Inference] The docker group on a root daemon equals root inside the VM.
+'   Value: it keeps the `docker: sbx` promise; the sandbox VM stays the boundary.
+'   Options:
+'     1. [rec] Accept it and record the decision; the sbx template ships the same group
+'        (defs/base/Dockerfile:31).
+'     2. Set `daemon: false` for opencode and drop the group.
+'     3. Run dockerd rootless inside the engine.
+'
+' SEC2 · linkedDirs follows symlinks the guest can plant — DONE (wt) 2026-10-17, option 2 (see
+'     DONE, second batch).
+'   Evidence: MEASURED. home_access.go:45 mounts each declared home dir read-write.
+'   Evidence: MEASURED. home_access.go:61-67 and :92-116 mount the resolved target of every
+'     first-level symlink in those dirs on the next run.
+'   Evidence: MEASURED. The only target filters are "not inside or above the proveo home" and
+'     "at least two path components" (:110).
+'   [Inference] A guest that writes `~/.proveo/.claude/x -> ~/.ssh` reads ~/.ssh on the next run.
+'   Options:
+'     1. Deny sensitive targets (.ssh, .gnupg, .aws, ~/.config/sbx, Keychains).
+'     2. [rec] Follow a link only when a host-side settings file lists its target; the proveo
+'        home root stays unmounted (home_access.go:17-19), so the guest cannot add entries.
+'     3. Delete linkedDirs; operators declare explicit home mounts.
+'
+' SEC3 · The e2e pty helper approves any "[A]pprove all" text — DONE (wt) 2026-10-17, by the user's
+'     TUI answer "Never approve; fail fast (Recommended)" — option 2 proved infeasible (see DONE).
+'   Evidence: MEASURED. e2e/opencode_cache_sbx_test.go:111-113 counts the string in the whole
+'     pty stream, guest output included, and answers "A\r" for each.
+'   Evidence: MEASURED. Approval persists a binding in the operator's
+'     ~/.config/sbx/credentials.yaml (rehomed to _spec/defs/opencode/engine-local-history.puml,
+'     E2E FACTS).
+'   Options:
+'     1. Match only sbx's own prompt frame, and only before the agent starts.
+'     2. [rec] Pre-seed the credential binding before the leg and fail on any prompt.
+'     3. [Unverified] Point sbx at a throwaway config dir so approvals cannot persist.
+'
+' T1 · Tests that fail on a Docker-only Linux dev VM at HEAD — PROPOSED (5 of 7 resolved by decision
+'   2026-10-17; 2 remain).
+'   Evidence: MEASURED that each test exists at the cited line.
+'   [Unverified] The failures themselves come from an earlier run this session; this pass ran nothing.
+'     (HISTORY — the first-read list; see RESOLVED and STILL FAILING below for today's state)
+'     internal/contract/claude_env_hook_test.go:49/63/82 (two of three TestClaudeEnvHook*)
+'     internal/contract/jvm_toolchain_test.go:153 TestJVMRowNeedsTheQemuFloorOnMacOSHosts
+'     internal/contract/instructions_seed_test.go:294 TestEverySeedSurvivesAnUnsetHarnessHome
+'     internal/contract/opencode_credentials_test.go:49 TestOpenCodePreparedCacheFixtures
+'     internal/contract/opencode_credentials_test.go:37 TestOpenCodeCredentialRuntimeLifecycle
+'       (written "flaky" here; it was deterministic — CORRECTION below)
+'     internal/run/run_test.go:1159 TestThePostureNamesTheCredentialRouteThatWillHappen
+'     cmd/proveo/run_golden_test.go:20 TestRunResolveGolden (egress-proxy:local present)
+'   Evidence: MEASURED. TestRunResolveGolden's three cases were docker cases. UPDATE (wt):
+'     run_golden_test.go is DELETED with D1, so no test pins a whole `--print` run.Do now
+'     (_spec/internal/run/run-spec.puml) — option 1's re-record is the open half.
+'   UPDATE 2026-10-17, reported by the coordinator ([Unverified] here — this pass ran nothing):
+'     six internal/contract failures persist, unchanged by the D1 and S3 work — ClaudeEnvHook ×2,
+'     the JVM qemu floor, EverySeedSurvivesAnUnsetHarnessHome/opencode,
+'     OpenCodePreparedCacheFixtures, OpenCodeCredentialRuntimeLifecycle — plus e2e
+'     TestScheduleAgentThatDiesBeforeReadyFailsFast, which also fails on HEAD in a clean worktree.
+'     TestThePostureNamesTheCredentialRouteThatWillHappen is not on that list.
+'   CORRECTION: the list above called TestOpenCodeCredentialRuntimeLifecycle "flaky". It failed
+'     deterministically outside the image (the same 7 cache + 1 runtime errors at e66eb45c and
+'     0455c43f, measured by the coordinator in temp worktrees).
+'   RESOLVED 2026-10-17 BY DECISION (the user, TUI). Five of the seven are gone (MEASURED in source):
+'     * ClaudeEnvHook ×2 — "The 2 hook tests (Recommended)", on "Delete all tests that predate the
+'       mise shim": TestClaudeEnvHookIsInstalledOnceAndKeepsOtherSettings,
+'       TestClaudeEnvHookSourcesToolsWrittenAfterLaunch and sessionStartCommands are deleted. They
+'       came in #63 (2026-10-01), after the mise shims reached the images in #23 (2026-08-17;
+'       entrypoint-lib.sh:2725 puts .local/share/mise/shims on PATH). They needed a runnable
+'       `node`: none exists under a clean `go test` env, and an interactive shell finds an untrusted
+'       mise shim, so proveo_install_claude_env_hook no-ops (`command -v node … || return 0`,
+'       entrypoint-lib.sh:1452). Read literally, "predate" meant 39 of 261 test files (reported);
+'       the user did not choose that. COST: the hook's settings-merge path has no unit test.
+'     * EverySeedSurvivesAnUnsetHarnessHome/opencode — "Fix seed": a stale TEST fixture. #68
+'       (e66eb45c, 2026-10-13) made proveo_bootstrap_opencode_config refuse without baked defaults
+'       (entrypoint-lib.sh:2944-2947), which is correct. The test now exports
+'       PROVEO_OPENCODE_DEFAULTS_DIR="$1/defs/opencode/defaults" (instructions_seed_test.go:314), as
+'       opencode_v2_test.go:157 does; 6 of 6 subtests pass (reported).
+'     * OpenCodePreparedCacheFixtures and OpenCodeCredentialRuntimeLifecycle — "delete Python now",
+'       "Delete RuntimeTests only (Recommended)": test_opencode_cache.py (and its tracked .pyc) and
+'       the RuntimeTests class are deleted with both Go wrappers. The source inconsistency they
+'       exposed is recorded under D2 above (load_credentials reads os.environ); D2 deletes it.
+'   STILL FAILING (2, reported):
+'     * internal/contract/jvm_toolchain_test.go:153 TestJVMRowNeedsTheQemuFloorOnMacOSHosts — this VM
+'       has a real /usr/bin/qemu-x86_64; the test's NO_QEMU=1 only skips a stub.
+'     * e2e/schedule_test.go:165 TestScheduleAgentThatDiesBeforeReadyFailsFast — the result detail
+'       lacks the agent's last line; fails on HEAD too; root cause not investigated.
+'   FLAKE — RESOLVED 2026-10-18 (fifth batch). First seen as: internal/contract/tool_sync_test.go:142
+'     TestToolRestoreSkipsAStoreTheHomeAlreadyHolds failed in one full parallel run, then passed 10
+'     isolated runs and 3 full-package runs (reported). The first guess, "timing or load in the
+'     shell tool-sync", was wrong.
+'     ROOT CAUSE (MEASURED): packages/lib/entrypoint-lib.sh:274 defaults PROVEO_PROVISIONING to the
+'     machine-global /dev/shm/proveo-provisioning. A parallel contract test that runs the
+'     provision seed writes its live pid there (:2852). A tool-sync save in another test then
+'     reads _proveo_provisioning (:276-280) as true and skips without stamping, which fails "save
+'     must stamp both trees" in TestToolRestoreSkipsAStoreTheHomeAlreadyHolds and
+'     TestToolSyncRoundTripsThroughTheDurableRoot. Before the fix: 1 of 4 full runs failed, plus
+'     twice earlier this session (MEASURED by the coordinator).
+'     FIX (MEASURED): tool_sync_test.go runToolSync sets PROVEO_PROVISIONING to a per-test temp
+'     path (:27); a test's own env map still overrides it (:193). After the fix 6 of 6 full
+'     `go test ./internal/contract/` runs were clean apart from the JVM row (MEASURED by the
+'     coordinator).
+'   T1 NOW (2026-10-18): one unit failure left — TestJVMRowNeedsTheQemuFloorOnMacOSHosts — plus
+'     the e2e TestScheduleAgentThatDiesBeforeReadyFailsFast.
+'   ENVIRONMENT NOTE, 2026-10-17 (reported by the coordinator): the 20G dev VM disk filled during
+'     image rebuilds; proveo's local BuildKit cache ~/.cache/proveo/buildkit held 13G. Only
+'     scratch files and `go clean -cache` were cleared. A full image + test pass on a 20G VM
+'     needs that cache pruned first — a host condition, not a test defect. It recurred after the
+'     review rebuild (`proveo build all`: the cache refilled to 15 GB and filled the disk); it was
+'     cleared with the user's approval, "Clear buildkit cache (Recommended)" (reported).
+'   Options:
+'     1. [rec] Make each hermetic: inject host OS and tool lookups, stub jq/node on PATH, resolve
+'        images through a fake; re-record TestRunResolveGolden as sbx goldens after D1.
+'     2. Gate each with a named require<Tool> helper that SKIPs with the missing prerequisite.
+'     3. Move them behind a `hostdeps` build tag.
+'
+' ══ PROPOSED — OWN SWEEP ═══════════════════════════════════════════════════
+'
+' N1 · The in-image prelude exists three times — DONE (wt) 2026-10-17, option 1 (see DONE, second
+'     batch; two flagged consequences recorded there).
+'   What: `proveo-entrypoint prep` (Go), a bash `else` fallback, and a bash redo after prep.
+'   Evidence: MEASURED. _spec/cmd/proveo-entrypoint/prep-process-boundary.puml:20-25 and :50-60 state
+'     that prep's chdir and env exports die with the child process.
+'   Evidence: MEASURED. So every def redoes them in bash: codex/entrypoint.sh:24-25;
+'     opencode:14-16; cursor:14-15; cecli:14-15; claudecode/mcp/entrypoint.sh:24-25.
+'   Evidence: MEASURED. Each def also carries an `else` branch for an image without the binary:
+'     codex:15-22; opencode:17-24; cursor:16-22; cecli:16-19,44-48; claudecode/mcp:14-22.
+'   Evidence: MEASURED. Every proveo image ships the binary: defs/base/Dockerfile:60, asserted by
+'     baseFloor (internal/imagebuild/targets.go:41-44). hermes calls no prep (hermes/entrypoint.sh:11-16).
+'   Evidence: MEASURED. The exec mode `proveo-entrypoint <target> -- cmd` (main.go:55-61,74-85) has no
+'     caller in any Dockerfile, entrypoint, test or doc outside _spec/.
+'   Why: three copies drift, and the Go half does work nobody receives.
+'   UPDATE 2026-10-17 (MEASURED): prep no longer handles .env — N7 deleted Go LoadEnvFile,
+'     FindEnvFile and ShouldSkipEnvLoad, and runPrep (cmd/proveo-entrypoint/main.go:88-101) now
+'     runs EnsureRuntimeUser, the chdir, BridgeGoogleKeys, BridgeGitIdentity, the git-context
+'     report and ApplyEnvBridges. ApplyBrokerSentinel is gone with D1. The duplication that
+'     remains: BridgeGoogleKeys / ApplyEnvBridges in Go beside bash bridge_google_keys, and
+'     BridgeGitIdentity beside bash bridge_git_identity; the env exports still die with the child.
+'   Options:
+'     1. [rec] Shrink prep to what crosses the boundary (passwd entry, git-context report, smoke
+'        sentinel); delete the `else` branches, the exec mode, and Go BridgeGoogleKeys,
+'        BridgeGitIdentity, ApplyEnvBridges (LoadEnvFile and ApplyBrokerSentinel are already gone).
+'        Update contract_test.go:104-105.
+'     2. Make Go own it: `eval "$(proveo-entrypoint prep --print-env)"`; delete the bash helpers.
+'     3. Delete prep; bash owns the prelude, as hermes already does.
+'
+' N2 · Model-bridging residue: generic bridge machinery for two key aliases — DONE (wt) 2026-10-17,
+'     option 1 (see DONE, third batch, final pass).
+'   Evidence: MEASURED. The Google-key alias is implemented four times: entrypoint-lib.sh:110-121
+'     (inside load_env), :350-369 (_apply_env_bridge), entrypoint.go:135-151 (BridgeGoogleKeys),
+'     entrypoint.go:225-256 (ApplyEnvBridges).
+'   Evidence: MEASURED. No bridge entry sets fallback, default or transform (entrypoint-lib.sh:367-368;
+'     entrypoint.go:229-232).
+'   Evidence: MEASURED. So _normalize_model (entrypoint-lib.sh:335) and NormalizeModel
+'     (entrypoint.go:205) never run outside entrypoint_test.go:83.
+'   Evidence: MEASURED. _model_provider (entrypoint-lib.sh:371) has no caller.
+'   UPDATE 2026-10-17 (MEASURED): N7 renamed what was left of load_env to bash bridge_google_keys
+'     (entrypoint-lib.sh:49-62) — option 1's bash half exists. N1 then deleted the Go half
+'     (BridgeGoogleKeys, NormalizeModel, ApplyEnvBridges). Still open: the bash bridge machinery —
+'     _normalize_model (:254), _apply_env_bridge (:269), apply_env_bridges (:285, called by the
+'     opencode and hermes entrypoints) and the uncalled _model_provider (:290); line numbers above
+'     are first-read. N23 (filed by the adversarial review) isolates the duplicate-Google-bridge
+'     half.
+'   Options:
+'     1. [rec] Keep one five-line bash bridge_google_keys; delete the rest and their tests;
+'        update model_bridging_retired_test.go:79.
+'     2. [Inference] Drop the alias; each harness reads its own variable.
+'     3. Keep as is.
+'
+' N3 · entrypoint-lib.sh defines _java_major twice — DONE (wt) 2026-10-17, option 1 plus option
+'     3's contract test (see DONE).
+'   Evidence: MEASURED. :691-694 (awk, maps 1.8 to 8) and :1863-1868 (sed).
+'   Evidence: MEASURED. Bash keeps the later definition.
+'   [Inference] The live sed version reads `1.8.0_x` as major 1.
+'   Options:
+'     1. [rec] Keep the awk version; delete :1863-1868.
+'     2. Keep the sed version; delete :691-694.
+'     3. Keep one copy and add a contract case for "1.8.0_402" and "21.0.4".
+'
+' N4 · Three identical detect-verify.sh copies behind unreachable fallbacks — DONE (wt) 2026-10-17,
+'     option 1 (see DONE).
+'   Evidence: MEASURED. defs/lib/, defs/cecli/proveo-lib/ and defs/claudecode/mcp/proveo-lib/ each
+'     hold the same 27-line detect-verify.sh.
+'   Evidence: MEASURED. Six Dockerfiles copy one of them (codex:123, opencode:76, cursor:91, hermes:36,
+'     cecli:105, claudecode/mcp:106).
+'   Evidence: MEASURED. Five entrypoints reach it only when proveo-entrypoint is missing:
+'     codex:75-84, opencode:123-132, cursor:135-137, cecli:169-171, claudecode/mcp:40-49.
+'   Evidence: MEASURED. imagetest asserts the fallback: cursor_test.go:91, codex_test.go:102.
+'   Options:
+'     1. [rec] Delete all three copies, the elif branches, the COPY lines and the fallback asserts;
+'        keep claudecode's proveo-lib/chrome-bridge.js.
+'     2. Keep defs/lib/ only; delete the two per-def copies.
+'     3. Keep as is.
+'
+' N5 · Four ANSI strippers with four grammars — DONE (wt) 2026-10-17, option 2 (the [rec] was
+'     infeasible; see DONE, third batch).
+'   Evidence: MEASURED. internal/ui/ui.go:264-276; internal/agentio/agentio.go:24;
+'     e2e/idle_test.go:41-47 (plain); e2e/opencode_cache_sbx_test.go:28,63-70 (terminalText).
+'   Evidence: MEASURED. ui.stripANSI skips from ESC to the next 'm'.
+'   [Inference] A non-SGR sequence in the same write eats text up to the next 'm' in the run log.
+'   Options:
+'     1. [rec] Export agentio.StripANSI and use it in ui and both e2e files.
+'     2. Add internal/termtext (StripANSI, Words); everyone imports it.
+'     3. Keep the copies; fix ui.stripANSI to stop at the CSI final byte.
+'
+' N6 · Twenty-two hand-rolled boolean env parsers, six vocabularies — DONE (wt) 2026-10-18, option 1
+'     (see DONE, fourth batch).
+'   Evidence: MEASURED. e.g. internal/run/helpers.go:36-40,44-48,101-107; agentio.go:95-101;
+'     sbx/agents.go:70; sbx/template.go:161; sbx/host_ollama.go:137; credentials.go:266-267;
+'     ui.go:30; imagebuild.go:277-279,310,359; proveohome.go:88; cmd/proveo/provision.go:162-164.
+'   Evidence: MEASURED. PROVEO_WIZARD is parsed twice: run/helpers.go:101-107 and
+'     backend/sandbox/opencode_cache.go:231-234.
+'   Options:
+'     1. [rec] One helper (envflag.On/Off with a default) and one vocabulary.
+'     2. Keep the sites; pin one vocabulary with a contract test.
+'     3. Keep as is.
+'
+' N7 · Three .env finders and three .env parsers disagree — DONE (wt) 2026-10-17, option 1 plus
+'     seeding through `--env-file` (see DONE).
+'   Evidence: MEASURED. Finders: entrypoint.FindEnvFile (entrypoint.go:57-82, also used host-side at
+'     workspace/mount.go:556) and bash find_env_file (entrypoint-lib.sh:49-81).
+'   Evidence: MEASURED. Only the bash finder adds a `find -maxdepth 5` fallback (:73-78).
+'   Evidence: MEASURED. Parsers: entrypoint.LoadEnvFile (:84-119), credentials.ParseEnvFile
+'     (credentials.go:632) and bash `source` (entrypoint-lib.sh:100-103).
+'   [Inference] `source` executes `$(...)` in a .env line; both Go parsers keep it literal.
+'   Options:
+'     1. [rec] With N1 and F7 option 3 the image reads no .env; move FindEnvFile into
+'        internal/workspace and keep ParseEnvFile as the one host parser.
+'     2. Keep image loading; bash calls the Go finder.
+'     3. Keep all; add a finder parity test.
+'
+' N8 · About 85 PROVEO_* knobs, eight documented — DONE (wt) 2026-10-18, option 1 (see DONE, fourth
+'     batch).
+'   Evidence: MEASURED. A grep of non-test Go found about 85 distinct "PROVEO_*" literals.
+'   Evidence: MEASURED. Operator docs name eight: README.md:27,159; CODING_HARNESSES.md:108,181,184,
+'     203,251.
+'   Evidence: MEASURED. Undocumented examples: PROVEO_EGRESS_ROOT (run/helpers.go:92),
+'     PROVEO_STDIN_FILTER (agentio.go:96), PROVEO_TRACE_STDIN (sandbox.go Run), PROVEO_KEYCHAIN_SERVICE
+'     (keychain.go:41), PROVEO_SBX_RELOAD (template.go:160), PROVEO_KEEP_AGENT_LOGINS (proveohome.go:84),
+'     PROVEO_GLYPHS (ui.go:27), PROVEO_MOUNT_ROOT_DEPS (helpers.go:44).
+'   Options:
+'     1. [rec] One registry (name, default, scope, one-line doc); `proveo help env` renders it; a
+'        contract test fails on any "PROVEO_*" literal missing from it.
+'     2. Delete every operator knob that no doc or test names.
+'     3. Document by hand in README.
+'
+' N9 · Hidden maintainer commands ship in the operator binary — DONE (wt) 2026-10-18, option 1 (see
+'     DONE, fourth batch).
+'   Evidence: MEASURED. `proveo targets` (cmd/proveo/targets.go:17-39, registered main.go:90) has no
+'     caller in mise.toml, cmd/proveo-dev, scripts or tests.
+'   Evidence: MEASURED. build, deploy and test are Hidden (maintain_cmd.go:337-403).
+'   Evidence: MEASURED. Operator messages still say `proveo build`: provision.go:69, run.go:242.
+'   Options:
+'     1. [rec] Delete `targets`; unhide `build`; keep deploy and test hidden.
+'     2. Move build, deploy, test and targets into proveo-dev; point both messages at `mise run build`.
+'     3. Keep as is.
+'
+' N10 · Landed plans still sit under _plans/ — DONE (wt) 2026-10-17, option 1 (see DONE, third
+'     batch; the source SPEC: repoint is the main agent's). Paths below are the pre-move ones.
+'   Evidence: MEASURED. host-shell-to-go.puml:20 "P1–P4 LANDED — plan complete".
+'   Evidence: MEASURED. image-size-reduction.puml:11 "BACKLOG LANDED"; title :601 "landed".
+'   Evidence: MEASURED. retire-model-bridging.puml:12 "APPLIED 2026-09-09, except Q2".
+'   Evidence: MEASURED. harness-credential-storage-audit.puml:16 "source audit complete".
+'   Evidence: MEASURED. spec-conventions.puml:100-104 says a _plans diagram moves out once it ships.
+'   Evidence: MEASURED. 54 source files cite those first three plans in SPEC: lines.
+'   Options:
+'     1. [rec] Graduate: image-size-reduction to _spec/_devops/ as a measurement record;
+'        host-shell-to-go to _spec/_refactors/ as a frozen snapshot; trim retire-model-bridging to
+'        Q2/Q4. The main agent repoints the source SPEC: lines.
+'     2. Retitle each LANDED in place; leave the SPEC: lines.
+'     3. Delete them; repoint SPEC: lines at current-state diagrams.
+'
+' N11 · Spec drift — PROPOSED (timing only; the fixes are spec-keeper work).
+'   Evidence: MEASURED. _spec/internal/sbx/credential-path.puml:62-71 says sbx.Kit has no Credentials
+'     field and the KitCredential types are deleted; internal/sbx/kit.go:25 declares
+'     `Credentials []KitCredential`, and sandbox.go agentCredentials (~1758) fills it.
+'   Evidence: MEASURED. credential-path.puml:106-112 says the Kit sets no PROVEO_EGRESS_MODE;
+'     sandbox-backend.puml:17,26-27 says AgentEnv carried it from 2026-09-15.
+'   Evidence: MEASURED. sandbox-backend.puml:3 still titles docker+egress the fallback path, and
+'     :14-16 says the backend has no LocalModel field.
+'   Evidence: MEASURED. The D1 decision record repeated "`--local-model` has no sbx
+'     equivalent"; host-inference.puml:16 and internal/sbx/host_ollama.go:32 show it has one.
+'   Evidence: MEASURED. host-inference.puml:9 covers internal/egress/plan.go, which no longer exists.
+'   Options:
+'     1. [rec] Fix all of them in one spec-keeper pass right after D1 commits.
+'     2. Mark each OUTDATED now; fix later.
+'     3. Wait for the drift guard to report them.
+'   UPDATE 2026-10-16: the D1 spec pass fixed every item above in place (credential-path,
+'     sandbox-backend, host-inference) — option 1 applied ahead of the commit.
+'   ADDED 2026-10-18 (MEASURED in the fourth-batch spec pass; left for this finding by the
+'     coordinator): _spec/components.puml still lists `debug` among cmd/proveo-dev's commands
+'     (retired 2026-10-17, S3) and draws cmd/proveo as "list · run · projects · setup" (there is no
+'     `list`; the root also registers ls, schedule, init, update, uninstall, clean and build —
+'     usage.puml has the measured list).
+'
+' N12 · Two image-test tasks; the release gate skips hermes — DONE (wt) 2026-10-17, option 1 (see
+'     DONE, second batch).
+'   Evidence: MEASURED. mise.toml:84-93 test-images runs every image suite.
+'   Evidence: MEASURED. mise.toml:99-106 test-images-sbx runs `^TestImage(Cecli|Claudecode|Codex|
+'     Opencode|Cursor)$`, so TestImageHermes (hermes_test.go:43) never runs there.
+'   Evidence: MEASURED. test-e2e and test-e2e-full depend on test-images-sbx (mise.toml:111,117).
+'   Evidence: MEASURED. internal/contract/base_template_test.go:194-200 pins task names.
+'   Options:
+'     1. [rec] One test-images task: every TestImage*; both release gates depend on it.
+'        (TestImageMitmproxy, test-go-integration and `coverage integration` already went with D1.)
+'     2. Keep two tasks; add Hermes to the regex.
+'     3. Keep as is.
+'
+' N13 · Per-run state still lives under an "egress" name — DONE (wt) 2026-10-17, option 1 (see
+'     DONE, third batch).
+'   Evidence: MEASURED. internal/run/run.go:51 puts run state at StateDir()/egress/<sid>.
+'   Evidence: MEASURED. run/helpers.go:92 overrides it with PROVEO_EGRESS_ROOT.
+'   UPDATE 2026-10-17 (MEASURED): F17 landed the VARIABLE half of option 1 — PROVEO_STATE_ROOT,
+'     with PROVEO_EGRESS_ROOT read as a deprecated fallback (helpers.go:87-101). Still open here:
+'     EgDir → RunDir and the on-disk egress/ → runs/ path.
+'   Evidence: MEASURED. EgDir/egDir appears 26 times in 4 non-test files (runlog, sandbox, run, spec).
+'   Evidence: MEASURED. clean.go:170,214 read the same path and call it "injected broker secret" state.
+'   Options:
+'     1. [rec] Rename EgDir to RunDir, the path to runs/, the variable to PROVEO_STATE_ROOT;
+'        clean reads both paths for one release.
+'     2. Rename identifiers only; keep the on-disk path and the variable.
+'     3. Keep as is.
+'
+' N14 · Why-comments regrew in source after the 2026-09-05 strip — DONE (wt) 2026-10-17, option 1;
+'     three blocks held open for a re-measure (see DONE, third batch, final pass).
+'   Evidence: MEASURED. image-size-reduction.puml:320 recorded entrypoint-lib.sh at 26 comment lines;
+'     it now holds 134 lines starting with `#`.
+'   Evidence: MEASURED. Examples: mise.toml:1-11; .dockerignore:1-13; imagebuild/targets.go:134-136;
+'     defs/hermes/entrypoint.sh:21-26; defs/codex/entrypoint.sh:159-163,186-189;
+'     internal/run/run.go:195-198; backend/sandbox/home_access.go:17-19,42-44.
+'   Evidence: MEASURED. AGENTS.md rule 3: source carries instructions, _spec/ carries reasoning.
+'   ADDED 2026-10-17 (adversarial review; MEASURED): why/history comments at
+'     defs/hermes/harness.manifest:4-5 and defs/cecli/entrypoint.sh:179-187; and stale backend
+'     wording — defs/codex/entrypoint.sh:52-54 ("so both backends get the identical files") and
+'     defs/cecli/entrypoint.sh:179 ("on docker it is cecli's own flags") — sbx is the only backend.
+'   Options:
+'     1. [rec] Re-run migrate-then-strip and add a proveo-dev lint rule that flags comment blocks over
+'        three lines outside godoc first sentences, SPEC:/covers lines and pragmas.
+'     2. Migrate once; add no lint.
+'     3. Exempt config files (mise.toml, .dockerignore) from the rule.
+'
+' N15 · The five largest source files mix concerns — PROPOSED.
+'   Evidence: MEASURED line counts at this pass:
+'     packages/lib/entrypoint-lib.sh 3191 — split into sourced fragments: prelude (1-370),
+'       toolchains (381-1168), launch and house rules (1169-1290), node/bun/LSP (1286-2276),
+'       config classes and sync (2277-2760), seed/clone/android (2766-3191).
+'     internal/backend/sandbox/sandbox.go 2101 — split clone carry-back (132-463), ports, dev
+'       servers, CDP, android (494-731), binds (746-1034), Kit Spec (1050-1311), Run (1416-1651),
+'       credentials (1758-1870), launch env (1870-2101).
+'     packages/lib/opencode_cache.py 1471 — D2 deletes most of it.
+'     internal/run/run.go 838 — move launchSandbox (597-749) and the port and app memory helpers
+'       (750-823) into their own files.
+'     internal/choiceui/choiceui.go 791 — split the event loop (185-378) from drawing (406-765).
+'   Options:
+'     1. Split sandbox.go now, then entrypoint-lib.sh.
+'     2. [rec] Wait for D1, D2 and N1 to shrink these files, then split in the order above.
+'     3. Keep as is.
+'
+' N16 · internal/backend is a package for run errors only — DONE 2026-10-18, option 2 (decision
+'     recorded, no code change; see DONE, fourth batch).
+'   Evidence at first read: backend.go was 10 lines (ExitError only) with a godoc that stopped
+'     mid-sentence ("Package backend holds what the").
+'   UPDATE 2026-10-17 (MEASURED, wt): the godoc now reads "Package backend holds the run errors
+'     cmd/proveo turns into exit statuses", and the package gained Stopped (128+signal, the user's
+'     "Exit 128+sig, 'stopped'"). Two types, both read by cmd/proveo main's exitCode and by
+'     internal/backend/sandbox. Option 2's godoc half is applied.
+'   Options:
+'     1. Move ExitError and Stopped into internal/backend/sandbox; delete internal/backend.
+'     2. [rec] Keep the package as the home of run errors; nothing else to do.
+'     3. Move both into internal/run.
+'
+' N17 · defs/cecli/.dockerignore never applies — DONE (wt) 2026-10-17, option 2 (see DONE).
+'   Evidence: MEASURED. cecli builds with Context "." (internal/imagebuild/targets.go:110).
+'   Evidence: MEASURED. The root .dockerignore:7-8 states that BuildKit never reads the cecli file.
+'   Options:
+'     1. [rec] Delete defs/cecli/.dockerignore.
+'     2. Rename it to the Dockerfile-specific form so BuildKit applies it.
+'     3. Keep as is.
+'
+' N18 · Exported API kept alive only by its own tests — DONE (wt) 2026-10-17, option 1 (see DONE,
+'     second batch).
+'   Evidence: MEASURED. credentials.HasUsableAuth (credentials.go:75): callers only in
+'     auth_choice_test.go:276-283.
+'   Evidence: MEASURED. entrypoint.NormalizeModel (N2), runner.DockerRunArgs/Hardening (F12b),
+'     workspace.MaterializeDeps/DepCopyPolicy (F9) share the pattern.
+'   UPDATE 2026-10-17 (MEASURED): MaterializeDeps and DepCopyPolicy are gone with F9, and
+'     DockerRunArgs/Hardening with F12b. Still open: credentials.HasUsableAuth,
+'     entrypoint.NormalizeModel, chromebridge SetTokenEnv and the bare-name Env().
+'   Evidence: MEASURED. chromebridge SetTokenEnv and the bare-name Env() serve only the docker
+'     `-e NAME` form; the sbx path uses ResolvedEnv (internal/run/run.go:648).
+'   DONE 2026-10-16 (MEASURED, wt): choiceui.Consent (internal/choiceui/consent.go) — the
+'     review tier's connection modal, left with no non-test caller — is deleted with its test;
+'     drawBorder moved to blocked_run.go and the `rendered` helper to render_test.go.
+'   Options:
+'     1. [rec] Delete each with its tests.
+'     2. Unexport them; keep the tests.
+'     3. Enable golangci `unused` for exported symbols and let it drive the deletions.
+'
+' N19 · The OpenCode image ships its harness manifest and nothing reads it — PROPOSED (added
+'     2026-10-17, from D2).
+'   Evidence: MEASURED. defs/opencode/Dockerfile:80 copies defs/opencode/harness.manifest to
+'     /usr/local/lib/proveo/opencode.harness.manifest.
+'   Evidence: MEASURED. No other file in the tree names opencode.harness.manifest (a tree-wide
+'     search outside _spec/ finds only that COPY line); the coordinator reports nothing in the
+'     image reads it since D2 deleted the runtime's manifest parsing.
+'   Options:
+'     1. [rec] Delete the COPY line, and any contract assertion that pins it.
+'     2. Keep it as image metadata for operators who inspect the image.
+'     3. Keep as is.
+'
+' ══ PROPOSED — FROM THE ADVERSARIAL REVIEW OF THE SECOND BATCH (2026-10-17) ═
+'
+' N20 · Nothing in the product reads `daemon:` — DONE (wt) 2026-10-17, option 1 (see DONE, third
+'     batch).
+'   Evidence: MEASURED. manifest.WantsDocker (manifest.go:82-84) has one caller, e2e/sbx_test.go:132
+'     (daemonHarnesses); no non-test package reads Manifest.Daemon.
+'   Evidence: MEASURED. The picker still tells a `daemon: false` harness (hermes) that its sandbox
+'     is "a microVM with its own Docker daemon (sbx) — the boundary every run on this harness gets"
+'     (internal/run/choices.go:508, addonSandbox help).
+'   Options:
+'     1. [rec] Make the picker text follow WantsDocker (no daemon promised for `daemon: false`).
+'     2. Also stop starting the daemon in images that declare `daemon: false` (a Kit/label change).
+'     3. Delete `daemon:` and WantsDocker; the e2e matrix reads the image label instead.
+'
+' N21 · The Claude-in-Chrome bridge path is unreachable under sbx — PROPOSED.
+'   Evidence: MEASURED. internal/run/run.go:651 passes the constant chromebridge.SbxWhy as
+'     startChromeBridge's tierBlocked, and gateAddons greys the add-on with the same SbxWhy
+'     (choices.go:254), so chromeUnavailable (choices.go:268), chromebridge.Start, ResolvedEnv
+'     (run.go:655) and sandbox.Input.BridgeEnv (sandbox.go:1042,1189,1279) never carry a value.
+'   Overlaps F14 (remove the add-on) and F16 (the tierBlocked parameter); this is the decision
+'     both waited on. F16 is DONE (renamed `blocked`, guard kept), so only F14 waits now.
+'   Env names: the Chrome PROVEO_* names go with this decision (see F14; 2026-10-18 env audit).
+'   Options:
+'     1. [rec] Decide whether Claude-in-Chrome under sbx is retired; if so, delete the dead path
+'        (F14 option 1 with F16 folded in).
+'     2. Keep the path for a future real-token route; collapse it behind one guard.
+'     3. Keep as is.
+'
+' N22 · Smoke mode cannot fire from any def entrypoint — DONE (wt) 2026-10-17, option 1 (see DONE,
+'     third batch, final pass).
+'   Evidence: MEASURED. All five def entrypoints run `env PROVEO_SMOKE_TEST= proveo-entrypoint prep`,
+'     clearing the flag, so cmd/proveo-entrypoint's SmokeReady branch, its hourly sleep loop and the
+'     `[target]` argument (main.go:52-64) never take effect.
+'   Options:
+'     1. [rec] Delete SmokeReady, the loop and the target argument from prep; the defs' own
+'        run_smoke_test stays the smoke path.
+'     2. Let prep honour the flag and drop the defs' `env PROVEO_SMOKE_TEST=` prefix.
+'     3. Keep as is and document prep's smoke mode as unreachable.
+'
+' N23 · apply_env_bridges duplicates bridge_google_keys — DONE (wt) 2026-10-17, option 1 (see DONE,
+'     third batch, final pass).
+'   Evidence: MEASURED. entrypoint-lib.sh apply_env_bridges (:285-288) maps GEMINI_API_KEY and
+'     GOOGLE_API_KEY onto GOOGLE_GENERATIVE_AI_API_KEY — what bridge_google_keys (:49-62) already
+'     does; the opencode and hermes entrypoints call bridge_google_keys first, so the second call
+'     only finds filled slots.
+'   Options:
+'     1. [rec] Delete apply_env_bridges and _apply_env_bridge (and, with N2, _normalize_model and
+'        _model_provider); drop the two calls.
+'     2. Keep apply_env_bridges as the generic table; delete bridge_google_keys.
+'     3. Keep both.
+'
+' N24 · report_git_context and ensure_runtime_user exist in shell AND Go — DONE (wt) 2026-10-17,
+'     option 1 after "Ship prep into hermes (Recommended)" unblocked it (see DONE, third batch,
+'     final pass).
+'   Evidence: MEASURED. entrypoint-lib.sh ensure_runtime_user (:4) and report_git_context (:88) beside
+'     internal/entrypoint EnsureRuntimeUser and cmd/proveo-entrypoint reportGitContext
+'     (main.go:67-98). Two implementations of one preamble drift.
+'   Options:
+'     1. [rec] Keep the Go pair (prep owns what crosses the boundary, per N1); delete the shell
+'        twins and their callers.
+'     2. Keep the shell pair; shrink prep to the smoke sentinel (or nothing, with N22).
+'     3. Keep both; add a parity test.
+'
+' N25 · The PROVEO_EGRESS_ROOT deprecation warning misses the run log — DONE (wt) 2026-10-18,
+'     option 1 (see DONE, fourth batch).
+'   Evidence: MEASURED. internal/run/run.go:49 calls StateDir() — which emits renamedEnv's warning —
+'     before ui.TeeTo(rs.Log.Writer()) at :56, so the warning reaches the terminal but not the
+'     transcript.
+'   Options:
+'     1. [rec] Resolve the state root (and its warning) after the log opens, or replay pending
+'        warnings into it.
+'     2. Warn again from a point after TeeTo.
+'     3. Accept it: the warning is temporary and goes with the alias next release.
+'
+' N26 · codex image leftovers the N14 migrators found — DONE (wt) 2026-10-18, option 1, widened to
+'     opencode by the new test (see DONE, fourth batch). Added 2026-10-17 as a finding only (the
+'     coordinator: "File it as a finding, don't fix").
+'   Evidence: MEASURED. defs/codex/Dockerfile:43-48 runs `apt-get update` then
+'     `apt-get install -y --no-install-recommends` with NO package names, then proveo-harden — the
+'     install is a no-op, and the layer pays an apt update and two cache mounts for nothing.
+'   Evidence: MEASURED. defs/codex/README.md:64 lists `proveo/codex-browser` as based on
+'     `proveo/base-node-browser`; internal/imagebuild/targets.go:142 builds it as
+'     browserOf("codex", "codex") — the browser layer applied onto proveo/codex. The manifest's
+'     comment of the same claim is already gone (codex-topology.puml, codex-browser).
+'   Options:
+'     1. [rec] Delete the empty apt RUN, or give it the packages it was meant to install if any
+'        check needs one; correct the README variants table to the layer-on-harness shape.
+'     2. Keep the RUN as a slot for future packages; correct the README only.
+'     3. Keep as is.
+'
+' SEC4 · A custom def's home mount `host: .` would mount the whole proveo home read-write —
+'   DONE (wt) 2026-10-17, option 1 (PLAUSIBLE; found in review; see DONE, third batch).
+'   Evidence: MEASURED. manifest Home.validate (manifest.go:257-291) refuses an empty, absolute or
+'     `..` host but accepts `.`; home_access.go joins it onto the root, so the bind is the proveo
+'     home itself.
+'   [Inference] The guest could then write <home>/linked-dirs and bypass SEC2's listing, and a
+'     `files: [linked-dirs]` entry would round-trip through HomeAccess.Commit the same way. No
+'     shipped def declares either; a custom def could.
+'   Options:
+'     1. [rec] Refuse `.` as a home mount host and LinkedDirsFile as a `files:` name in validate.
+'     2. Read linked-dirs from a host path outside PROVEO_HOME (e.g. the user config dir).
+'     3. Accept the risk for custom defs and document it.
+'
+' ══ PROPOSED — FROM THE PROVEO_* ENV AUDIT (2026-10-18) ═══════════════════
+' The user asked: "What are all the PROVEO_ values handled in the project? Any legacy/dead/
+'   duplicated ones?", then picked "File as plan findings (Recommended)". No source changes.
+' Living specs: _spec/internal/envreg/env-registry.puml (the Go registry, N8) and
+'   _spec/internal/envflag/env-switches.puml (the on/off vocabulary, N6).
+' Audit totals (MEASURED by the coordinator): 232 distinct PROVEO_* tokens outside _spec/. 84 sit
+'   in Go (non-test or the registry) and map to the 76 envreg entries. About 96 are image-side
+'   (packages/lib, defs entrypoints, Dockerfiles, apps/cli installers) with no registry. About 52
+'   appear only in tests or e2e.
+' Not env vars (MEASURED by the coordinator): the log lines and sentinels PROVEO_OK, PROVEO_MODELS
+'   and PROVEO_SMOKE_READY; the marker strings PROVEO_RC_START/END, PROVEO_RULES_START/END and
+'   PROVEO_ANDROID_START/END; the heredoc delimiter PROVEO_JDTLS; the private shell variable
+'   _PROVEO_TOOL_HOME.
+' The Chrome names (PROVEO_CHROME_BRIDGE, _TOKEN, _JS, _IMAGE and PROVEO_CHROME_READY) belong to
+'   F14 and N21, which carry a cross-reference; they get no finding here.
+'
+' N27 · Env fallbacks nothing sets — DONE (wt) 2026-10-18, option 1 (added the same day, env
+'     audit; see DONE, fifth batch).
+'   Evidence: MEASURED. packages/lib/entrypoint-lib.sh:2759 falls back to ${PROVEO_TARGET:-}
+'     (`local target="${1:-${PROVEO_TARGET:-}}"`), and no file outside _spec/ sets PROVEO_TARGET.
+'   Evidence: MEASURED. PROVEO_SEED_DONE_MARKER is read with a default by the Kit's seed check
+'     (internal/sbx/kit.go:84 renders `${PROVEO_SEED_DONE_MARKER:-/dev/shm/proveo-seed-done}`) and
+'     by packages/lib/proveo-seed:7. Only tests set it (internal/sbx/sbx_test.go:1370,
+'     internal/contract/seed_phase_test.go:159, packages/lib/test_opencode_startup.py:28), so in
+'     production it is a test seam. N8 left it registered and open (env-registry.puml).
+'   Options:
+'     1. [rec] Delete the PROVEO_TARGET fallback. Keep PROVEO_SEED_DONE_MARKER as a registered
+'        Maintainer test seam whose Doc says so.
+'     2. Delete both; tests point the marker at a temp root another way.
+'     3. Keep both.
+'
+' N28 · The release channel has two knobs — DONE (wt) 2026-10-18, option 1 (see DONE, fifth
+'     batch).
+'   Evidence: MEASURED. apps/cli/public/cli/install.sh:9-10 reads PROVEO_ASSET_BASE_URL and
+'     PROVEO_CLI_BASE_URL, both defaulting to https://proveo.ca/cli.
+'   Evidence: MEASURED by the coordinator. ASSET fetches latest.json, the checksums and the binary
+'     (install.sh:294-303); CLI fetches only uninstall.sh (:304).
+'   Evidence: MEASURED. install.ps1:9 and internal/cdn/cdn.go:44 (`proveo update`) read only
+'     PROVEO_ASSET_BASE_URL; internal/installtest/install_test.go:69-70 sets both.
+'   Options:
+'     1. [rec] install.sh fetches uninstall.sh from PROVEO_ASSET_BASE_URL; PROVEO_CLI_BASE_URL is
+'        read as a deprecated alias for one release.
+'     2. Keep both; document CLI_BASE_URL as the scripts' host.
+'     3. Keep as is.
+'
+' N29 · PROVEO_DEPS has one name and two vocabularies — DONE (wt) 2026-10-18, option 1, widened
+'     by the review (see DONE, fifth batch).
+'   Evidence: MEASURED. Go reads shared|reinstall, lowercased and trimmed, as host consent for
+'     cross-platform dependency trees (internal/workspace/platform.go:52-54
+'     SharedTreesAllowed); run.go:636 tells the operator to set PROVEO_DEPS=shared.
+'   Evidence: MEASURED. The image reads auto (the default) | reinstall | an off word
+'     (off|false|0|no|disable|disabled), lowercased but not trimmed
+'     (packages/lib/entrypoint-lib.sh:947-948).
+'   Evidence: MEASURED. CODING_HARNESSES.md documents both on one page: `shared` as the host
+'     consent (:177), `off` and `reinstall` as image modes (:194). `reinstall` is the one word
+'     both readers accept, and it means something different to each.
+'   [Inference] The value reaches the image through the project .env seed; no Go code forwards it
+'     (env-registry.puml).
+'   Options:
+'     1. [rec] One documented vocabulary (auto|off|shared|reinstall) for both readers, pinned by a
+'        contract test that both accept the same set.
+'     2. Split into two names: a host consent variable and an image install mode.
+'     3. Keep as is; document both meanings.
+'
+' N30 · Test env names from retired designs — DONE (wt) 2026-10-18, option 1 (see DONE, fifth
+'     batch).
+'   Evidence: MEASURED. internal/sbx/sbx_test.go:81,87,1384-1385 uses PROVEO_EVIDENCE=concise; the
+'     live variable is PROVEO_AGENT_EVIDENCE, with values verbose|default.
+'   Evidence: MEASURED. internal/backend/sandbox/launch_receipt_test.go:27 sets
+'     PROVEO_EGRESS_SESSION_ID.
+'   Evidence: MEASURED. internal/imagetest/detached_smoke_test.go reads PROVEO_DOCKER_SMOKE_TIMEOUT
+'     (:52) and PROVEO_DOCKER_SMOKE_KEEP_FAILED (:71), both named after the retired docker backend.
+'   Not part of this finding: PROVEO_EGRESS_MODE, PROVEO_CREDENTIAL_BROKER_KEYS
+'     (internal/contract/env_prelude_test.go:203) and PROVEO_DEPS_COPY
+'     (internal/workspace/platform_test.go:52) are deliberate tombstones asserting the names stay
+'     gone (MEASURED by the coordinator).
+'   Options:
+'     1. [rec] Rename the two fixtures to live or neutral names, and DOCKER_SMOKE_* to a
+'        backend-neutral prefix.
+'     2. Rename the fixtures only.
+'     3. Keep as is.
+'
+' N31 · Seven ways to pick the image under test — DONE (wt) 2026-10-18, option 1 (see DONE, fifth
+'     batch).
+'   Evidence: MEASURED that each exists: PROVEO_TEST_IMAGE, PROVEO_TEST_HERMES_IMAGE and
+'     PROVEO_E2E_OPENCODE_IMAGE (e2e/); PROVEO_OPENCODE_V2_IMAGE
+'     (internal/contract/opencode_v2_test.go:435); PROVEO_CHROME_BRIDGE_IMAGE and
+'     PROVEO_HOST_ADB_IMAGE (e2e/); `IMAGE=` for `mise run test-defs` (defs/codex/README.md); plus
+'     the build-side PROVEO_<TARGET>_IMAGE family (env-registry.puml).
+'   [Inference] They do the same job; this pass did not check each one's exact meaning.
+'   Overlap: PROVEO_CHROME_BRIDGE_IMAGE goes with F14 if the add-on is removed.
+'   Options:
+'     1. [rec] Measure each, then fold them into one family (e.g. PROVEO_TEST_<TARGET>_IMAGE) read
+'        through one helper.
+'     2. Document them in one table in a tests/ spec.
+'     3. Keep as is.
+'
+' N32 · Image-side PROVEO_* names have no registry and their own on/off spellings — DONE (wt)
+'     2026-10-18, option 1, in two halves (see DONE, fifth batch).
+'   Evidence: MEASURED by the coordinator. About 96 names are read only by packages/lib, defs
+'     entrypoints, Dockerfiles or the installers — e.g. PROVEO_BROWSER_SKILL (=off, documented in
+'     four def READMEs), PROVEO_TOOL_SYNC, PROVEO_CONFIG_SYNC, PROVEO_GIT_SYNC_*, PROVEO_PYTHON_*,
+'     PROVEO_CODEX_SANDBOX, PROVEO_CURSOR_SANDBOX, PROVEO_SKIP_INIT (installer).
+'   Evidence: MEASURED. envreg and `proveo help env` cover Go under cmd/ and internal/ only
+'     (env-registry.puml, BOUNDARY), and README.md "Environment variables" sends image-read names
+'     to each def's README.
+'   Evidence: MEASURED. The shell side does not use the envflag words: packages/lib/
+'     entrypoint-lib.sh:176, defs/opencode/entrypoint.sh:137 and defs/hermes/entrypoint.sh:123
+'     test `${PROVEO_SMOKE_TEST:-0} == "1"`, so `true` or `on` does not enable smoke mode there.
+'   Options:
+'     1. [rec] Add an Image scope to envreg; scan shell, Dockerfiles and installers in the contract
+'        test; give packages/lib one on/off helper with the envflag words.
+'     2. Keep per-def README tables, plus a contract test that every image-read name appears in
+'        some README.
+'     3. Keep as is.
+'
+' N33 · Two deprecated aliases are due to expire — DONE (wt) 2026-10-18, option 1: the release
+'     gate is in place, and the deletions wait for the next release cut (see DONE, fifth batch).
+'   Evidence: MEASURED. PROVEO_EGRESS_ROOT → PROVEO_STATE_ROOT (internal/run/helpers.go StateDir,
+'     renamedEnv) and PROVEO_EGRESS_ENV_FILE → PROVEO_ENV_FILE (internal/run/run.go:144); both warn
+'     "is deprecated and goes away next release".
+'   Evidence: MEASURED. `proveo clean` still sweeps the retired <state>/egress run root for one
+'     release (RunRoots, N13; _spec/internal/clean/clean-lifecycle.puml).
+'   Options:
+'     1. [rec] Delete both aliases and the egress/ sweep at the next release cut, with a
+'        release-gate check that fails while they remain past it.
+'     2. Keep them one more release.
+'     3. Keep them indefinitely.
+'
+' ══ PROPOSED — FROM APPLYING THE ENV AUDIT (2026-10-18) ═══════════════════
+' Filed by the coordinator while the fifth batch landed (N27-N33 DONE). Evidence is MEASURED by the
+'   coordinator unless marked; "MEASURED here" means this spec pass read it in the tree too.
+' Living specs: _spec/internal/envreg/env-registry.puml, _spec/internal/envflag/env-switches.puml.
+'
+' N34 · PROVEO_HOME and PROVEO_VERSION each carry two meanings — PROPOSED (added 2026-10-18).
+'   Evidence: MEASURED here. PROVEO_HOME is the host directory (internal/proveohome/proveohome.go:23).
+'     proveo also sets PROVEO_HOME=<container home> inside the sandbox (proveohome.go:79), where
+'     packages/lib/entrypoint-lib.sh:2234 (_proveo_agent_home) and
+'     packages/lib/proveo-opencode-runtime:54 read it as the agent home.
+'   Evidence: MEASURED here. PROVEO_VERSION is the stage-cdn release stamp
+'     (cmd/proveo-dev/stagecdn.go:87). The installers read it but only relabel: install.sh:101-103
+'     returns it as the version, :304-305 prints it, and :307 still downloads the channel's
+'     bin/$ASSET_NAME; install.ps1:29 does the same (:56-57, MEASURED by the coordinator). So
+'     PROVEO_VERSION=0.1.1 installs the latest binary and prints v0.1.1.
+'   Contradicts: _spec/internal/cdn/distribution-update.puml's note on latest.json said a pinned
+'     older tag "resolves to nothing"; it resolves to the latest binary under the old label (the
+'     note now says so and points here).
+'   Options:
+'     1. [rec] Give the in-sandbox home its own Internal name, and either make the installers fetch
+'        the pinned version or drop the installer read.
+'     2. Keep both names; document the second meaning of each in the registry Doc.
+'     3. Keep as is.
+'
+' N35 · Misnamed or redundant image knobs — PROPOSED (added 2026-10-18).
+'   Evidence: MEASURED here. PROVEO_LSP_INSTALL_TIMEOUT bounds every mise install, not only the LSP
+'     ones (packages/lib/entrypoint-lib.sh:403,406; also :1696).
+'   Evidence: MEASURED here. PROVEO_PROC (defs/claudecode/mcp/defaults/hooks/cwd-guard.sh:5) and
+'     PROVEO_PROC_ROOT (entrypoint-lib.sh:2616) are one seam — a /proc root — under two names.
+'   Evidence: MEASURED here. PROVEO_PYTHON_SCAN_DEPTH only overrides PROVEO_DEP_SCAN_DEPTH
+'     (entrypoint-lib.sh:641), and nothing sets it (MEASURED by the coordinator).
+'   Evidence: MEASURED here. PROVEO_CLAUDE_LSP_OFFICIAL is exported (entrypoint-lib.sh:1428,1490)
+'     only to pass a value to :1892-1893 in the same shell, so it leaks into the agent env.
+'   Evidence: MEASURED by the coordinator. PROVEO_LSP_INSTALL list entries are not trimmed:
+'     "python, go" drops go.
+'   Options:
+'     1. [rec] Rename, merge or unexport each: one timeout name for mise installs, one /proc seam,
+'        delete the Python depth override, a local instead of the export, trim the list entries.
+'     2. Fix only the list trim and the leaked export; document the rest in the registry.
+'     3. Keep as is.
+'
+' N36 · The install scripts spell their switches themselves — PROPOSED (added 2026-10-18).
+'   Evidence: MEASURED here. PROVEO_SKIP_INIT skips on any non-empty value, 0 included
+'     (install.sh:215, install.ps1:91).
+'   Evidence: MEASURED here. PROVEO_UNINSTALL_ASSUME_YES takes only "1" (uninstall.sh:13,78), while
+'     the Go side (cmd/proveo/uninstall.go) takes every envflag ON word.
+'   Evidence: MEASURED by the coordinator. The shell switch scan skips the installers (fifth batch,
+'     KNOWN LIMITS).
+'   Options:
+'     1. [rec] A small on/off function in each install script with the envflag words, plus a parity
+'        test like TestShellEnvSwitchHelperMatchesEnvflag.
+'     2. Document each installer switch's exact spelling in README.md and the registry Doc.
+'     3. Keep as is.
+'
+' N37 · Test gaps the env audit left — PROPOSED (added 2026-10-18).
+'   Evidence: MEASURED by the coordinator. No test covers PROVEO_LSP_INSTALL on words → auto,
+'     PROVEO_SMOKE_TEST on words, or image-side PROVEO_DEPS=shared.
+'   Evidence: MEASURED by the coordinator. hermes is not in smokeTargets
+'     (internal/imagetest/detached_smoke_test.go:23), so its run_smoke_test call is unexercised.
+'   Evidence: MEASURED by the coordinator. The claudecode suite now runs the mcp and standalone
+'     checks twice, because N31 made them one pin.
+'   Options:
+'     1. [rec] Add the three tests, add hermes to smokeTargets, and drop the ccImages mcp split.
+'     2. Add the tests only.
+'     3. Keep as is.
+'
+' N38 · Image knobs reach the sandbox only through the project .env, at creation — PROPOSED (added
+'     2026-10-18).
+'   Evidence: MEASURED by the coordinator. A shell-exported image knob is ignored: only the project
+'     .env seeds the sandbox (`sbx create --env-file`; N7, credential-decisions.puml PROJECT .env).
+'   Evidence: MEASURED here (the registry worker reported it first). Reattach keeps only Name and
+'     Command (internal/sbx/run.go:138-143), so it drops --env-file and a reused sandbox keeps the
+'     values it was created with. An earlier measurement already showed the shape:
+'     _spec/internal/sbx/kit-lifecycle.puml:16-20 records a reattached hermes sandbox still
+'     carrying its creation-time env.
+'   Options:
+'     1. [rec] Warn at launch when a host-env PROVEO_* image knob is set but absent from the
+'        project .env, and when a reattached sandbox's project .env has changed since creation.
+'     2. Forward host-env image knobs into the seeded env file as well.
+'     3. Keep as is; document the creation-time rule in README.md.
+'
+' ══ ORDER OF WORK (after D1 and D2) ════════════════════════════════════════
+'  0. Gate the D1 commit: F6 (or F7 option 3) plus the build and release residue in D1.
+'     DONE in the working tree 2026-10-16 (F6 rekeyed; D1 residue cleared, see D1).
+'  1. SEC2 — DONE (wt) 2026-10-17.
+'  2. SEC3 — DONE (wt) 2026-10-17 ("Never approve; fail fast").
+'  3. C1 — DONE (wt) 2026-10-17. SEC4 — DONE (wt) 2026-10-17 (third batch).
+'  4. The prelude remnants — ALL DONE (wt) 2026-10-17: N1, N4, N7, F7, F18, then N2 + N22 + N23 +
+'     N24 (bridge machinery, the unreachable smoke mode, the duplicate Google bridge, the shell/Go
+'     twins; hermes now ships prep). Image builds for N24 [Unverified] at recording time.
+'  5. N21 (decides F14) — the Go residue D1 leaves behind (F9, F10, F11, F15, F17, F19,
+'     F20 and N18 DONE; F16, N20 and N13 DONE (wt) 2026-10-17, third batch; N25 DONE (wt)
+'     2026-10-18, fourth batch).
+'  6. T1 — hermetic contract tests (N12 DONE (wt) 2026-10-17: one image task, hermes in the gate).
+'  7. N11 — fix spec drift. N10 DONE (wt) 2026-10-17, spec side and source repoint both.
+'  8. N6 + N8 — DONE (wt) 2026-10-18, fourth batch: internal/envflag, then the env registry
+'     internal/envreg and `proveo help env` (N5 DONE (wt) 2026-10-17: internal/termtext).
+'  9. N15 — split sandbox.go, then entrypoint-lib.sh, once 4 and D2 have shrunk them.
+' 10. N19 — small deletions (N9 and N26 DONE (wt), N16 DONE as a decision, 2026-10-18, fourth
+'     batch; N17 and N3 DONE (wt) 2026-10-17).
+' 11. N14 — DONE (wt) 2026-10-17: the lint is in `proveo-dev lint`; it stays RED on three held
+'     blocks (sandbox.go:1917 since N6, was :1922; secret.go:13, secret_test.go:8) until a live sbx
+'     re-measure of the opencode plain-secret 401.
+' 12. SEC1 — DONE 2026-10-17: the decision is recorded (harness-image-layers.puml).
+' 13. N27-N33 — PROVEO_* env hygiene — ALL DONE (wt) 2026-10-18, fifth batch. N33's alias and
+'     sweep deletions still wait for the next release cut; the retirement ledger enforces it.
+' 14. N34-N38 — what applying the audit surfaced: N35 + N36 first (local renames and installer
+'     spellings), then N37 (the missing tests, hermes in the smoke), then N38 (a launch warning),
+'     then N34 (two meanings per name, an installer behaviour change).
+title PLANNED — repo simplification: 70 findings, their status, and the order of work
+
+component "D1 · retire docker+egress\nDONE (wt) 2026-10-16" as D1 <<app>>
+component "D2 · OpenCode engine-local DB\nDONE (wt) 2026-10-17 · keeper gone" as D2 <<app>>
+component "F6 · .env guard rekey\nDONE (wt) inside D1;\nthe guard itself deleted by N7" as F6 <<app>>
+component "security\n(SEC1 SEC2 SEC3 SEC4 DONE)" as SEC <<error>>
+component "image prelude\n(N1 N2 N3 N4 N7 N22 N23 N24\nF7 F18 DONE)" as PRE <<app>>
+component "post-D1 Go residue\nF14 N21\n(C1 F9 F10 F11 F15 F16 F17 F19 F20\nN13 N18 N20 N25 DONE)" as GO <<app>>
+queue "test gates · T1\nhermetic contract tests\n(N12 DONE)" as TST <<async>>
+database "spec hygiene · N11\nfix drift\n(N10 N14 DONE; 3 N14 blocks held)" as SPEC <<db>>
+component "helpers + splits\nN15 N19\n(N5 N6 N8 N9 N16 N17 N26 DONE)" as HLP <<app>>
+component "env hygiene · PROVEO_* audit\nN34 N35 N36 N37 N38\n(N27-N33 DONE)" as ENV <<app>>
+
+D1 ARROW_MAIN F6 : landed together
+D1 ARROW_MAIN GO
+F6 ARROW_MAIN PRE
+D2 ARROW_MAIN TST
+PRE ARROW_MAIN HLP
+HLP ARROW_MAIN ENV : builds on N6 + N8
+GO ARROW_MAIN TST
+TST ARROW_QUEUE SPEC
+SEC ARROW_OPTIONAL TST : SEC3 (done) was a test helper
+
+legend bottom
+  **Status** — DONE · DECIDED (the decision is quoted) · PROPOSED (options; the Executor picks)
+  --
+  **Evidence** — MEASURED (read in the tree this pass) · [Inference] · [Unverified]
+  --
+  **(wt)** — in the working tree, not committed
+  --
+  **IDs** — S seed done · D decided retirement · F seed finding · C credential report
+  SEC security · T tests · N own sweep
+  ==
+  **Counts** — DONE 59 · DECIDED 0 · PROPOSED 11 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19, F20 added;
+  D2, F13, C1, F20, N3, N17 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7;
+  SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added;
+  third batch: SEC1, SEC4, F16, N20, N13, N5, N10 DONE, then N2, N22, N23, N24, N14 DONE;
+  N26 added; 2026-10-18 fourth batch: N6, N8, N9, N16, N25, N26 DONE; PROVEO_* env
+  audit: N27-N33 added; fifth batch: N27-N33 DONE, N34-N38 added. Still PROPOSED:
+  F14, T1, N11, N15, N19, N21, N34-N38)
+end legend
+@enduml

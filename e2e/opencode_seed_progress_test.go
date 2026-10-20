@@ -36,7 +36,7 @@ func TestOpenCodeSeedProgressTerminalHandoff(t *testing.T) {
 		"PROVEO_SEED_REFUSED=" + filepath.Join(home, "refused"), "PROVEO_INSTRUCTIONS_WAIT=5",
 	}
 	producer := exec.CommandContext(ctx, bash, "-c", `source "$1/packages/lib/entrypoint-lib.sh"
-proveo_seed_step credentials "staging session history" opencode
+proveo_seed_step credentials "preparing GitHub trust" opencode
 sleep 0.8
 proveo_seed_step workspace "preparing shared folders" opencode
 sleep 0.8
@@ -76,7 +76,7 @@ sleep 0.8
 	case <-ctx.Done():
 		t.Fatal("terminal output did not close")
 	}
-	for _, label := range []string{"credentials: staging session history", "workspace: preparing shared folders", "setup: rendering agents"} {
+	for _, label := range []string{"credentials: preparing GitHub trust", "workspace: preparing shared folders", "setup: rendering agents"} {
 		if !strings.Contains(output, label) || !strings.Contains(log.String(), label) {
 			t.Errorf("spinner and seed log must both carry %q:\n%s\n%s", label, output, log.String())
 		}

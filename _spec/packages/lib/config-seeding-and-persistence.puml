@@ -60,7 +60,7 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '   how it failed silently ......... _spec/tests/42-hello-world-e2e.puml
 '   the chain, drawn ............... _spec/packages/lib/language-server-provisioning.puml
 '   what a class must not assume ... _spec/_runtimes/toolchain-provisioning.puml
-'   what leans on this chain ..... _spec/_plans/retire-model-bridging.puml
+'   what leans on this chain ..... _spec/internal/entrypoint/model-alias-bridges.puml
 '                                   Q1 is the agent's own default, not a seed.
 '                                   This file carries the saved config that
 '                                   plan named; it no longer blocks that one.
@@ -286,6 +286,35 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 ' _proveo_config_file is separate from the tree walk because a home-root file
 ' has no subtree to prune and no deny list to apply: the manifest names the file
 ' itself, so declaring it IS the decision that it may travel.
+'
+' ── THE CONFIG COPY IS ONE PLAN, NOT A FORK PER FILE (2026-10-13) ─────────
+' "A config file is small, so its mtime is the whole signal" stayed true per
+' FILE and failed per TREE: ~/.claude held 12,873 files / 966 MB, and the
+' per-file `cp -a` loop took 32s against the agent's 30s release gate
+' (_spec/internal/sbx/startup-dispatch.puml). _proveo_config_plan walks both
+' sides once (find -printf, awk) and prints D/N/U lines: missing dirs get one
+' `mkdir -p` batch, missing files one `cp -a --parents` batch, and only files
+' the source holds NEWER still take the temp-name-and-rename. The -nt meaning
+' is unchanged: mtimes compare as integer seconds, then fraction digits as a
+' string, never as a float that would round nanoseconds away. Pinned by
+' TestConfigSyncCopiesInBulk, which counts cp forks, and
+' TestConfigSyncComparesSubSecondMtimes. A destination SYMLINK counts as
+' present (find -type l), so the batch never writes through it; the rename
+' uses `mv -T`, so a source file never lands INSIDE a destination directory
+' of the same name. A file the destination lacks is copied in place, not
+' renamed, as the per-file loop did before; only replacements are atomic.
+'
+' ── TRANSIENT IS A SYNC SKIP; DENY IS A CREDENTIAL BOUNDARY ───────────────
+' home.mounts[].transient names find -path globs the config sync prunes in
+' BOTH directions; claudecode declares jobs/*/tmp, where one job's scratch was
+' 7,093 of the 12,873 files measured. ConfigSet appends transient paths to the
+' same prune field deny uses, but proveohome.scrubDeny never reads them: deny
+' DELETES from the host, transient only declines to copy. Spelling scratch as
+' deny would have wiped ~/.proveo/.claude/jobs on every run. The host keeps its
+' copy; nothing syncs it in or out. _proveo_config_skips splits the list with
+' `read -a`, never an unquoted expansion: bash would glob jobs/*/tmp against
+' the cwd, and a workspace holding jobs/build/tmp turned the prune into that
+' literal path (TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd).
 '
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.

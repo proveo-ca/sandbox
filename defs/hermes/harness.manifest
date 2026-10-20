@@ -1,8 +1,6 @@
 # SPEC: _spec/components.puml, _spec/defs/hermes/hermes-paradigm.puml
 name: hermes
 description: Hermes Agent (NousResearch) — general-purpose assistant with native browser automation
-egress: true
-docker: sbx
 # hermes is a general assistant, not a coding agent: it runs in an sbx sandbox
 # but its agent is promised no Docker daemon, and its upstream base ships none.
 daemon: false
@@ -18,7 +16,6 @@ home:
   enabled: true
   mounts:
     - host: hermes/data
-      container: /proveo-home/data
       mode: rw
 
 # Provider keys are usage keys (brokered, no auth row), as for cecli; the list

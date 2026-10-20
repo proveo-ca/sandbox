@@ -1,32 +1,24 @@
 //go:build e2e
 
-// SPEC: _spec/tests/testing-strategy.puml — credential-forwarding integrity (egress layer).
+// SPEC: _spec/tests/testing-strategy.puml — credential-forwarding integrity.
 
 package e2e
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/proveo-ca/proveo/internal/agentsettings"
-	"github.com/proveo-ca/proveo/internal/entrypoint"
-	"github.com/proveo-ca/proveo/internal/maintain"
-	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
-// TestCredentialForwardingIntegrity asserts that provider API keys land in
-// the EGRESS layer ONLY. Two complementary halves, both over random per-run
-// values so no real secret is involved:
+// TestCredentialForwardingIntegrity asserts that provider API keys never ride the
+// sbx launch argv, over random per-run values so no real secret is involved.
 func TestCredentialForwardingIntegrity(t *testing.T) {
 	proveoBin := buildProveo(t)
 	keys := provider.KeyVars()
@@ -43,134 +35,10 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 			assertPlanIsolation(t, proveoBin, agent, keys)
 		})
 	}
-
-	// Egress integrity — one live firewall run through the vendor-pinned agent.
-	t.Run("egress_broker_receives_all_keys", func(t *testing.T) {
-		skipOutsideSbx(t, "the -egress sidecar and its broker.env")
-		requireLiveStack(t)
-		assertBrokerReceivesAllKeys(t, proveoBin, keys)
-	})
 }
 
-// TestProjectDotEnvAtEgressLayer launches both unpinned (OpenCode) and
-// vendor-pinned (Cursor) harness plans through real Docker firewall
-// topologies.
-func TestProjectDotEnvAtEgressLayer(t *testing.T) {
-	skipOutsideSbx(t, "a new -egress container")
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not installed")
-	}
-
-	proveoBin := buildProveo(t)
-	tests := []struct {
-		target string
-		key    string
-	}{
-		{target: "opencode", key: "MOONSHOT_API_KEY"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.target, func(t *testing.T) {
-			assertProjectDotEnvAtEgress(t, proveoBin, tc.target, tc.key)
-		})
-	}
-}
-
-func assertProjectDotEnvAtEgress(t *testing.T, proveoBin, target, key string) {
-	t.Helper()
-	root := filepath.Join(repoRoot(t), ".cache", "e2e")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	work, err := os.MkdirTemp(root, target+"-dotenv-work-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	home, err := os.MkdirTemp(root, target+"-dotenv-home-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.RemoveAll(work)
-		_ = os.RemoveAll(home)
-	})
-
-	value := randToken()
-	if err := os.WriteFile(filepath.Join(work, ".env"), []byte(key+"="+value+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	seedAgentSettings(t, filepath.Join(home, "proveo"), target, "allowlist", "broker")
-
-	cleanLeftovers(proveoBin)
-	beforeEgress := containersWithSuffix("-egress")
-	beforeAgent := dockerIDsByAncestor("ubuntu:24.04")
-	sess := tmux.New(fmt.Sprintf("proveo-dotenv-%s-%d", target, os.Getpid()), nil)
-	t.Cleanup(func() {
-		sess.Kill()
-		cleanLeftoversIfCrowded(proveoBin)
-	})
-
-	cmd := []string{"env"}
-	seenDetect := map[string]bool{}
-	for _, name := range provider.Names() {
-		e, _ := provider.Lookup(name)
-		for _, detect := range e.Detect {
-			if !seenDetect[detect] {
-				cmd = append(cmd, "-u", detect)
-				seenDetect[detect] = true
-			}
-		}
-	}
-	cmd = append(cmd,
-		"-u", "PROVEO_EGRESS_ENV_FILE",
-		"-u", "PROVEO_EGRESS_PROVIDER",
-		"TERM=xterm-256color",
-		"HOME="+home,
-		"PROVEO_HOME="+filepath.Join(home, "proveo"),
-		"PROVEO_DEFS_DIR="+filepath.Join(repoRoot(t), "defs"),
-		"PROVEO_AUTO_PROVISION=1",
-		"DOCKER_HOST="+dockerHost(t),
-		proveoBin, "run", target,
-		"--image", "ubuntu:24.04",
-		"--egress-mode", "firewall",
-		"--shell",
-		"--input", work,
-	)
-	if err := sess.Start(200, 50, cmd...); err != nil {
-		t.Fatalf("start %s session: %v", target, err)
-	}
-	acceptChoicePrompt(t, sess, target)
-	egress := waitForNewContainer(t, beforeEgress, "-egress", 5*time.Minute, sess)
-	brokerDir, ok := mountSource(egress, "/broker")
-	if !ok {
-		t.Fatalf("%s egress container %s has no /broker mount", target, egress)
-	}
-	brokerEnv := filepath.Join(brokerDir, "broker.env")
-	waitForFileExists(t, brokerEnv, 30*time.Second)
-	got := parseKVFile(t, brokerEnv)
-	if got[key] != value {
-		t.Fatalf("%s: egress broker.env did not receive project .env %s byte-for-byte\n  project sha256=%s (len %d)\n  egress  sha256=%s (len %d)",
-			target, key, sha(value), len(value), sha(got[key]), len(got[key]))
-	}
-
-	agent := waitForNewAncestor(t, "ubuntu:24.04", beforeAgent, 2*time.Minute, sess)
-	out, err := exec.Command("docker", "exec", agent, "bash", "-lc",
-		`printf '%s' "${`+key+`-}"; test ! -s /app/.env`).CombinedOutput()
-	if err != nil {
-		t.Fatalf("%s: agent must see a masked /app/.env: %v\n%s", target, err, out)
-	}
-	if string(out) != entrypoint.DefaultSentinel {
-		t.Fatalf("%s: agent %s=%q, want sentinel %q", target, key, out, entrypoint.DefaultSentinel)
-	}
-	t.Logf("%s: project .env %s reached egress byte-for-byte; agent received only sentinel + masked .env",
-		target, key)
-}
-
-// assertPlanIsolation checks the agent's firewall launch command: every provider
-// secret it declares appears only as the sentinel, and no raw key value appears.
+// assertPlanIsolation checks the agent's sbx launch argv: no provider key name
+// carries a value, and no raw key value appears.
 func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 	t.Helper()
 	want := make(map[string]string, len(keys))
@@ -181,197 +49,76 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 		kv = append(kv, k+"="+v)
 	}
 
-	agentCmd := agentCommandLine(t, printEnforcedPlan(t, proveoBin, agent, kv))
-	sandbox := isSbxArgv(agentCmd)
-	declared := 0
+	plan := printEnforcedPlan(t, proveoBin, agent, kv)
+	if !secretLineNamesAny(plan, keys) {
+		t.Errorf("%s: the plan's secret-store line names none of the %d injected keys — proveo never saw "+
+			"them, so their absence from argv proves nothing:\n%s", agent, len(keys), plan)
+	}
+	agentCmd := agentCommandLine(t, plan)
 	for _, k := range keys {
 		if strings.Contains(agentCmd, want[k]) {
-			t.Errorf("%s: RAW %s value appears in the agent launch command — must be brokered to a sentinel", agent, k)
+			t.Errorf("%s: RAW %s value appears in the agent launch command — it belongs in sbx's secret store", agent, k)
 		}
-		v, ok := envValInCmd(agentCmd, k)
-		if !ok {
-			continue
-		}
-		declared++
-		if sandbox {
+		if v, ok := envValInCmd(agentCmd, k); ok {
 			t.Errorf("%s: sandbox plan carries %s=%q in argv; a sandbox secret travels "+
 				"over the store, and argv is visible to anyone listing processes", agent, k, v)
-			continue
-		}
-		if v != entrypoint.DefaultSentinel {
-			t.Errorf("%s: agent env %s=%q, expected the sentinel %q", agent, k, v, entrypoint.DefaultSentinel)
 		}
 	}
-	if !sandbox && declared == 0 {
-		t.Errorf("%s: the docker plan declared no provider key at all, so the sentinel "+
-			"assertion verified nothing while reporting success:\n%s", agent, agentCmd)
-	}
-	backend := "docker: every declared key is the sentinel"
-	if sandbox {
-		backend = "sandbox: argv carries no provider key, values go to the store"
-	}
-	t.Logf("%s: %d/%d provider keys in argv — %s", agent, declared, len(keys), backend)
 }
 
-// assertBrokerReceivesAllKeys runs the vendor-pinned cursor in firewall mode and
-// verifies the egress broker.env receives every provider key byte-for-byte.
-func assertBrokerReceivesAllKeys(t *testing.T, proveoBin string, keys []string) {
-	t.Helper()
-	want := make(map[string]string, len(keys))
-	home := t.TempDir()
-	kv := []string{"env", "HOME=" + home, "DOCKER_HOST=" + dockerHost(t)}
-	for _, k := range keys {
-		v := randToken()
-		want[k] = v
-		kv = append(kv, k+"="+v)
-	}
-
-	work := t.TempDir()
-	cleanLeftovers(proveoBin)
-	before := containersWithSuffix("-egress")
-
-	sess := tmux.New(fmt.Sprintf("proveo-cred-egress-%d", os.Getpid()), nil)
-	t.Cleanup(func() {
-		sess.Kill()
-		cleanLeftoversIfCrowded(proveoBin)
-		if ref, ok := anyImagePresent(t, "proveo/claudecode"); ok {
-			rmByAncestor(ref)
-		}
-	})
-
-	cmd := append(append([]string(nil), kv...),
-		proveoBin, "run", "claudecode", "--egress-mode", "allowlist", "--shell", "--input", work)
-	if err := sess.Start(200, 50, cmd...); err != nil {
-		t.Fatalf("start session: %v", err)
-	}
-	acceptChoicePrompt(t, sess, "claudecode")
-
-	egress := waitForNewContainer(t, before, "-egress", 120*time.Second, sess)
-	brokerDir, ok := mountSource(egress, "/broker")
-	if !ok {
-		t.Fatalf("claudecode egress container %s has no /broker mount (broker not resolved)", egress)
-	}
-	brokerEnv := filepath.Join(brokerDir, "broker.env")
-	waitForFileExists(t, brokerEnv, 30*time.Second)
-	got := parseKVFile(t, brokerEnv)
-	for _, k := range keys {
-		switch {
-		case got[k] == "":
-			t.Errorf("%s: absent from egress broker.env (expected the forwarded value)", k)
-		case got[k] != want[k]:
-			t.Errorf("%s: egress value differs from host env\n  host  sha256=%s (len %d)\n  egress sha256=%s (len %d)",
-				k, sha(want[k]), len(want[k]), sha(got[k]), len(got[k]))
-		}
-	}
-	t.Logf("egress broker.env verified for %d provider keys, byte-for-byte", len(keys))
-}
-
-// TestCursorEgressException asserts the cursor exception, expressed as declared
-// capabilities rather than a target-name special case: cursor's manifest pins
-// egress:[open] credentials:[forward] because an intercepting tier cannot carry
-// its pinned TLS — and on sbx the proxy brokers it natively instead.
-func TestCursorEgressException(t *testing.T) {
+// TestCursorBrokersThroughTheSbxStore asserts cursor's key goes to sbx's secret
+// store and never rides argv.
+func TestCursorBrokersThroughTheSbxStore(t *testing.T) {
 	proveoBin := buildProveo(t)
 
-	// Default on sbx → broker: sbx's proxy attaches the key natively, so it goes
-	// to sbx's secret store and never rides argv (decided 2026-09-29).
-	// Default on docker → open + forward: an intercepting broker breaks cursor's
-	// pinned TLS, so the real key is forwarded, no sentinel, no internal net.
 	def := runPrint(t, proveoBin, "cursor")
 	defCmd := agentCommandLine(t, def)
-	if strings.Contains(defCmd, "CURSOR_API_KEY="+entrypoint.DefaultSentinel) {
-		t.Error("cursor default must never hand the agent the sentinel")
+	if hasBareEnv(defCmd, "CURSOR_API_KEY") {
+		t.Errorf("cursor brokers natively — the key belongs in sbx's secret store, not a bare -e:\n%s", defCmd)
 	}
-	onSbx := strings.Contains(def, "backend: docker sandboxes (sbx)")
-	switch {
-	case onSbx && hasBareEnv(defCmd, "CURSOR_API_KEY"):
-		t.Errorf("cursor on sbx brokers natively — the key belongs in sbx's secret store, not a bare -e:\n%s", defCmd)
-	case onSbx && !strings.Contains(def, "secret store first: CURSOR_API_KEY"):
-		t.Errorf("cursor on sbx must name CURSOR_API_KEY for sbx's secret store:\n%s", def)
-	case !onSbx && !hasBareEnv(defCmd, "CURSOR_API_KEY"):
-		t.Errorf("cursor default on docker should forward a bare -e CURSOR_API_KEY (real value):\n%s", defCmd)
-	}
-	if strings.Contains(defCmd, "--internal") {
-		t.Error("cursor default must not run behind an --internal network: nothing can intercept its TLS")
+	if !strings.Contains(def, "secret store first: CURSOR_API_KEY") {
+		t.Errorf("cursor must name CURSOR_API_KEY for sbx's secret store:\n%s", def)
 	}
 	if strings.Contains(def, "invalid API key") {
 		t.Errorf("cursor on its own capabilities must not warn about interception:\n%s", def)
-	}
-
-	// An explicitly named unsupported axis is refused, naming what IS allowed.
-	for _, tc := range []struct{ flag, value, want string }{
-		{"--egress-mode", "allowlist", "does not support --egress-mode allowlist (allowed: open)"},
-		{"--egress-mode", "review", "does not support --egress-mode review (allowed: open)"},
-	} {
-		out, err := runPrintErr(t, proveoBin, "cursor", tc.flag, tc.value)
-		if err == nil {
-			t.Errorf("cursor %s %s should be refused, but succeeded:\n%s", tc.flag, tc.value, out)
-			continue
-		}
-		if !strings.Contains(out, tc.want) {
-			t.Errorf("cursor %s %s: want a refusal mentioning %q, got:\n%s", tc.flag, tc.value, tc.want, out)
-		}
-		if strings.Contains(out, entrypoint.DefaultSentinel) {
-			t.Errorf("a refused run must not still plan a sentinel handover:\n%s", out)
-		}
-	}
-}
-
-// runPrintErr is runPrint for the paths that are SUPPOSED to fail: it returns the
-// output and the error instead of failing the test on a non-zero exit.
-func runPrintErr(t *testing.T, proveoBin, target string, extra ...string) (string, error) {
-	t.Helper()
-	work := t.TempDir()
-	args := append([]string{"run", target}, extra...)
-	args = append(args, "--print", "--input", work)
-	cmd := exec.Command(proveoBin, args...)
-	cmd.Dir = repoRoot(t)
-	cmd.Env = append(envWithoutProviderKeys(), "CURSOR_API_KEY=crsr_test_probe")
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
-func seedAgentSettings(t *testing.T, proveoHome, target, egressMode, credentials string) {
-	t.Helper()
-	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
-	if err != nil {
-		t.Fatalf("load manifests: %v", err)
-	}
-	var caps manifest.Capabilities
-	found := false
-	for _, m := range ms {
-		if _, ok := m.Images[target]; ok {
-			caps, found = m.Capabilities, true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("no manifest declares target %q", target)
-	}
-	st := &agentsettings.Store{}
-	st.Remember(target, caps, agentsettings.Choice{Egress: egressMode, Credentials: credentials})
-	if err := st.Save(proveoHome); err != nil {
-		t.Fatalf("seed agent settings: %v", err)
 	}
 }
 
 // ── helpers ─────────────────────────────────────────────────
 
-// runPrint runs `proveo run <target> [extra] --print` with a probe CURSOR_API_KEY
-// (and real provider keys stripped), returning combined output.
+// runPrint runs `proveo run <target> [extra] --print` under a fresh PROVEO_HOME
+// with a probe CURSOR_API_KEY (and real provider keys stripped), returning
+// combined output.
 func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
 	t.Helper()
+	requireSbx(t)
 	work := t.TempDir()
 	args := append([]string{"run", target}, extra...)
 	args = append(args, "--print", "--input", work)
 	cmd := exec.Command(proveoBin, args...)
 	cmd.Dir = repoRoot(t)
-	cmd.Env = append(envWithoutProviderKeys(), "CURSOR_API_KEY=crsr_test_probe")
+	cmd.Env = append(envWithoutProviderKeys(), "PROVEO_HOME="+t.TempDir(), "CURSOR_API_KEY=crsr_test_probe")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo %v: %v\n%s", args, err, out)
 	}
 	return string(out)
+}
+
+// secretLineNamesAny reports whether the plan's "secret store first:" line names any of keys.
+func secretLineNamesAny(plan string, keys []string) bool {
+	for _, line := range strings.Split(plan, "\n") {
+		_, names, ok := strings.Cut(line, "secret store first:")
+		if !ok {
+			continue
+		}
+		for _, n := range strings.FieldsFunc(names, func(r rune) bool { return r == ',' || r == ' ' || r == '(' }) {
+			if slices.Contains(keys, n) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // hasBareEnv reports whether cmd contains `-e KEY` (a bare forward, value from the
@@ -386,37 +133,15 @@ func hasBareEnv(cmd, key string) bool {
 	return false
 }
 
-func requireLiveStack(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
-	if !tmux.Available() {
-		t.Skip("tmux not installed (brew install tmux)")
-	}
-	for _, repo := range []string{"proveo/egress-proxy", "proveo/cursor"} {
-		if _, ok := anyImagePresent(t, repo); !ok {
-			t.Skipf("%s image not built (neither :%s nor :%s)", repo, maintain.LocalTag, maintain.PublishTag)
-		}
-	}
-}
-
-func anyImagePresent(t *testing.T, repo string) (string, bool) {
-	t.Helper()
-	for _, tag := range []string{maintain.LocalTag, maintain.PublishTag} {
-		if ref := repo + ":" + tag; dockerImagePresent(t, ref) {
-			return ref, true
-		}
-	}
-	return "", false
-}
-
+// printEnforcedPlan runs `proveo run <agent> --print` under a fresh PROVEO_HOME
+// with kv as the only provider keys, returning combined output.
 func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) string {
 	t.Helper()
+	requireSbx(t)
 	work := t.TempDir()
-	cmd := exec.Command(proveoBin, "run", agent, "--egress-mode", "allowlist", "--print", "--input", work)
+	cmd := exec.Command(proveoBin, "run", agent, "--print", "--input", work)
 	cmd.Dir = repoRoot(t)
-	cmd.Env = append(envWithoutProviderKeys(), kv...)
+	cmd.Env = append(append(envWithoutProviderKeys(), "PROVEO_HOME="+t.TempDir()), kv...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", agent, err, out)
@@ -424,7 +149,7 @@ func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) strin
 	return string(out)
 }
 
-// agentCommandLine extracts the agent's `docker …` command line from --print
+// agentCommandLine extracts the agent's `sbx run …` command line from --print
 // output (the line following the "# agent" marker).
 func agentCommandLine(t *testing.T, out string) string {
 	t.Helper()
@@ -438,7 +163,7 @@ func agentCommandLine(t *testing.T, out string) string {
 	return ""
 }
 
-// envValInCmd finds `-e KEY=VALUE` in a docker command line and returns VALUE.
+// envValInCmd finds `-e KEY=VALUE` in an sbx command line and returns VALUE.
 func envValInCmd(cmd, key string) (string, bool) {
 	for _, tok := range strings.Fields(cmd) {
 		if v, ok := strings.CutPrefix(tok, key+"="); ok {
@@ -474,106 +199,10 @@ func repoRoot(t *testing.T) string {
 	return filepath.Join(wd, "..")
 }
 
-// cleanLeftovers removes what earlier tests left behind and nothing live: no
-// --force, so an operator's in-progress run keeps its containers, and a
-// throwaway PROVEO_EGRESS_ROOT, so no real run's state dir is ever a candidate.
-func cleanLeftovers(proveoBin string) {
-	root, err := os.MkdirTemp("", "proveo-e2e-clean-")
-	if err != nil {
-		return
-	}
-	defer os.RemoveAll(root)
-	cmd := exec.Command(proveoBin, "clean")
-	cmd.Env = append(os.Environ(), "PROVEO_EGRESS_ROOT="+root)
-	_ = cmd.Run()
-}
-
-const cleanThreshold = 10
-
-func cleanLeftoversIfCrowded(proveoBin string) {
-	out, err := exec.Command("docker", "ps", "-aq", "--filter", "label=proveo.egress.session").Output()
-	if err != nil || len(strings.Fields(string(out))) < cleanThreshold {
-		return
-	}
-	cleanLeftovers(proveoBin)
-}
-
-func rmByAncestor(image string) {
-	if out, err := exec.Command("docker", "ps", "-aq", "--filter", "ancestor="+image).Output(); err == nil {
-		for _, id := range strings.Fields(string(out)) {
-			_ = exec.Command("docker", "rm", "-f", id).Run()
-		}
-	}
-}
-
 func randToken() string {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
 	}
 	return "tst_" + hex.EncodeToString(b)
-}
-
-func sha(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])[:16]
-}
-
-func dockerPSNames() []string {
-	out, err := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
-	if err != nil {
-		return nil
-	}
-	return strings.Fields(string(out))
-}
-
-func containersWithSuffix(suffix string) map[string]bool {
-	set := map[string]bool{}
-	for _, n := range dockerPSNames() {
-		if strings.HasSuffix(n, suffix) {
-			set[n] = true
-		}
-	}
-	return set
-}
-
-// mountSource returns the host path bind-mounted at dest inside container, and
-// whether such a mount exists.
-func mountSource(container, dest string) (string, bool) {
-	format := fmt.Sprintf(`{{range .Mounts}}{{if eq .Destination %q}}{{.Source}}{{end}}{{end}}`, dest)
-	out, err := exec.Command("docker", "inspect", container, "--format", format).Output()
-	if err != nil {
-		return "", false
-	}
-	src := strings.TrimSpace(string(out))
-	return src, src != ""
-}
-
-func waitForFileExists(t *testing.T, path string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("file %s did not appear within %s", path, timeout)
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-}
-
-func parseKVFile(t *testing.T, path string) map[string]string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	out := map[string]string{}
-	for _, line := range strings.Split(string(b), "\n") {
-		if k, v, ok := strings.Cut(line, "="); ok {
-			out[strings.TrimSpace(k)] = v
-		}
-	}
-	return out
 }

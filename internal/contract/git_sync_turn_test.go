@@ -117,8 +117,6 @@ func hookEnv(t *testing.T, extra ...string) []string {
 // stubModelCLI writes an executable named `name` (e.g. "claude") into a
 // fresh dir and returns that dir, for callers to prepend onto PATH so
 // git-sync-turn.sh's `command -v` finds the stub before any real CLI.
-// It also provides a pass-through `timeout`: the hook refuses an unbounded
-// model call, and macOS ships no coreutils timeout.
 func stubModelCLI(t *testing.T, name, body string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -656,7 +654,7 @@ _model_subject_once 20 'staged diff'`
 	if err != nil {
 		t.Fatalf("subject probe: %v\n%s", err, out)
 	}
-	for _, want := range []string{"INFLIGHT=1\n", "run\n--standalone\n-m\nanthropic/claude-haiku-4-5\n", "staged diff"} {
+	for _, want := range []string{"INFLIGHT=1\n", "run\n--standalone\n-m\nanthropic/claude-haiku-5-5\n", "staged diff"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("subject invocation lacks %q:\n%s", want, out)
 		}

@@ -9,19 +9,6 @@ import (
 
 // MemoryLimit is EMPTY unless the operator asked for a number, and empty means
 // sbx sizes the sandbox itself — half the HOST, its own factory default.
-//
-// It used to derive one unconditionally, and the derivation halved the wrong
-// number. `docker info MemTotal` reports the Docker VM's share, NOT the host's
-// (23.5 GiB of a 48 GiB machine), so halving it again handed each sandbox about
-// a QUARTER of the host where sbx's own default gives half. On a machine
-// running nested containers inside the guest — every def with
-// `com.docker.sandboxes.start-docker` — that ceiling is reached, and a guest
-// with no swap does not slow down when it gets there: it OOM-kills.
-//
-// So proveo now declares a share only when the operator declares an instance
-// count to divide by. Pre-diagnosing the number was worth less than the
-// headroom it cost. CPULimit is deliberately unchanged; see its own note and
-// _spec/minimum_requirements.puml on why the two knobs are not symmetrical.
 func MemoryLimit() string {
 	if b, ok := parseMemorySize(os.Getenv(EnvMemory)); ok {
 		return formatMemoryLimit(b)

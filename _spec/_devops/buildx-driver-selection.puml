@@ -12,7 +12,8 @@ title Buildx driver selection — which driver, and where a FROM resolves
 ' defs/lib/docker-build.sh 2026-09-22. The pull policy the deleted
 ' buildx_pull_policy_test.go held is now TestPullFlagsFromEnv and the
 ' TestLoad*Pull* cases in imagebuild_test.go.)
-'   push (Options.Push) or PROVEO_DOCKER_PUSH in {1,true,yes,on}  → push mode
+'   push (Options.Push) or envflag.On(PROVEO_DOCKER_PUSH)  → push mode
+'                                (1 true yes on enable enabled, any case; N6)
 '   PROVEO_PLATFORMS   default "linux/amd64,linux/arm64"
 '   PROVEO_BUILDX_BUILDER        names the container-driver builder
 '                                (default "proveo-multiarch")
@@ -21,8 +22,15 @@ title Buildx driver selection — which driver, and where a FROM resolves
 '                                auto (default) — pull-if-missing; on a
 '                                registry DNS failure, retry once with
 '                                --pull=false
-'                                0|false|never|off — --pull=false
-'                                1|true|always|on|yes — --pull=true
+'                                never, or an envflag OFF word — --pull=false
+'                                always, or an envflag ON word — --pull=true
+'                                anything else fails the build (want
+'                                auto|0|1, or never/always)
+'                                every match runs on the lowercased,
+'                                trimmed value (" Never ", "ALWAYS",
+'                                "Auto"); the error quotes the raw one
+'                                (internal/envflag since N6, 2026-10-18;
+'                                _spec/internal/envflag/env-switches.puml)
 '                                argv --pull / --pull=* wins over the env
 '                                push mode never retries (needs the registry)
 '

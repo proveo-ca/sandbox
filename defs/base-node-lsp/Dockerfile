@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE}
 # The slimming pass asks npm where globals actually live: the sandbox template
 # sets NPM_CONFIG_PREFIX=/usr/local/share/npm-global, so the hardcoded
 # /usr/lib/node_modules this used to walk would match nothing and delete nothing.
-# SPEC: _spec/_plans/image-size-reduction.puml, _spec/_devops/sandbox-template-rebase.puml
+# SPEC: _spec/_devops/image-size-reduction.puml, _spec/_devops/sandbox-template-rebase.puml
 RUN --mount=type=cache,id=proveo-base-node-lsp-npm,target=/root/.npm,sharing=locked \
     npm install -g --no-optional \
     typescript-language-server \

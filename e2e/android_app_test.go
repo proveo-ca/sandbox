@@ -62,6 +62,9 @@ func TestAndroidAppInWorkspaceInstallsOnTheHostEmulator(t *testing.T) {
 	if tags, err := ollamaTags(); err != nil || !containsString(tags, glimmer) {
 		t.Skipf("host Ollama lacks %s (%v)", glimmer, err)
 	}
+	if err := sbx.LocalModelFits(glimmer, os.Getenv); err != nil {
+		t.Skipf("local model %s does not fit this host right now: %v", glimmer, err)
+	}
 	port, err := hostadb.Port(os.Getenv)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +99,7 @@ func androidAppRow(t *testing.T, proveoBin string, port int, h androidHarness) {
 	sess := tmux.New(fmt.Sprintf("proveo-android-%s-%d", h.target, time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + t.TempDir(), "PROVEO_MOUNT_GH_CONFIG=0",
-		proveoBin, "run", h.target, "--local-model", glimmer, "--egress-mode", "open", "--input", work}
+		proveoBin, "run", h.target, "--local-model", glimmer, "--input", work}
 	runLog := filepath.Join(t.TempDir(), "run.log")
 	if err := sess.Start(220, 60, "sh", "-c", shellQuote(cmd)+" 2>&1 | tee "+shellQuote([]string{runLog})); err != nil {
 		t.Fatalf("start session: %v", err)

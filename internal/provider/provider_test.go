@@ -138,29 +138,6 @@ func TestResolveNotInjectable(t *testing.T) {
 	}
 }
 
-func TestACLBody(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		provider string
-		want     string
-		wantOK   bool
-	}{
-		{"anthropic", "dstdomain .anthropic.com", true},
-		{"moonshot", "dstdomain .moonshot.ai .kimi.com", true},
-		{"bedrock", `dstdom_regex (^|\.)bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com$`, true},
-		{"nonsense", "", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.provider, func(t *testing.T) {
-			t.Parallel()
-			got, ok := ACLBody(tc.provider)
-			if ok != tc.wantOK || got != tc.want {
-				t.Errorf("ACLBody(%q) = (%q, %v), want (%q, %v)", tc.provider, got, ok, tc.want, tc.wantOK)
-			}
-		})
-	}
-}
-
 func TestKeyVarsCoversInjectableProviders(t *testing.T) {
 	t.Parallel()
 	got := KeyVars()

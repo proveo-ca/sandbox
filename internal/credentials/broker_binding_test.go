@@ -32,11 +32,6 @@ func TestTheAnswerReachesTheBrokerNotJustTheEnvironment(t *testing.T) {
 		t.Error("withheld the very credential the operator chose")
 	}
 
-	usable := UsableProviders(man, detected, lookup)
-	brokered := BrokerProviders(false, man, Without(usable, withheld), lookup, true)
-	if !slices.Equal(brokered, []string{"opencode"}) {
-		t.Errorf("brokered = %v, want only the chosen side", brokered)
-	}
 }
 
 // The mirror: choosing your own keys must keep them ALL on the wire, and drop
@@ -54,13 +49,6 @@ func TestUsageCreditsKeepsEveryProviderKeyBrokered(t *testing.T) {
 	withheld := WithheldProviders(man, "opencode", AuthUsage, "", lookup, detected)
 	if !slices.Equal(withheld, []string{"opencode"}) {
 		t.Errorf("withheld = %v, want only the harness's own credential", withheld)
-	}
-	usable := UsableProviders(man, detected, lookup)
-	brokered := BrokerProviders(false, man, Without(usable, withheld), lookup, true)
-	for _, want := range []string{"anthropic", "openai"} {
-		if !slices.Contains(brokered, want) {
-			t.Errorf("%s was dropped on the side that chose it: %v", want, brokered)
-		}
 	}
 }
 
@@ -97,7 +85,7 @@ func TestAProviderWithASurvivingCredentialIsNotWithheld(t *testing.T) {
 func TestVendorPinnedRunWithholdsNothing(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
-		Name: "cursor", Subscription: true, Provider: "cursor",
+		Name: "cursor", Subscription: true,
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		Capabilities: manifest.Capabilities{Providers: []string{"cursor"}},
 	}
@@ -131,7 +119,7 @@ func TestAGatewayCredentialBacksBothSides(t *testing.T) {
 		t.Errorf("opencode caveat = %q, want both prefixes named", c)
 	}
 	cursor := manifest.Manifest{
-		Name: "cursor", Subscription: true, Provider: "cursor",
+		Name: "cursor", Subscription: true,
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		Capabilities: manifest.Capabilities{Providers: []string{"cursor"}},
 	}

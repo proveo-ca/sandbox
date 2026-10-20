@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPEC: _spec/defs/codex/codex-topology.puml, _spec/defs/codex/codex-paradigm.puml
-# Thin entrypoint: shared prelude via proveo-entrypoint (or bash fallback), then seed + exec.
+# Thin entrypoint: shared prelude, then seed + exec.
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -9,21 +9,10 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=codex
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep codex || true
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  load_env
-  bridge_git_identity /app
-  report_git_context /app
-  attach_rtk
-  ensure_project_tools
-fi
-
 set_working_directory "/app"
-load_env quiet
+bridge_google_keys
+bridge_git_identity
+proveo-entrypoint prep || true
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"
@@ -59,28 +48,16 @@ seed_codex_defaults
 
 # ── Compose user-level subagents ($CODEX_HOME/agents) ──────
 # Bodies are shared across harnesses; only the frontmatter is Codex's TOML schema.
-# This also installs the house rules and provisions the workspace toolchain, and
-# it is the SAME function the sbx Kit calls from setup.startup — so both backends
-# get the identical files.
+# Also installs the house rules and provisions the workspace toolchain.
 proveo_seed codex
 
 # ── Verification command discovery ────────────────────────
-# Prefer Go proveo-entrypoint verify; fall back to the thin detect-verify.sh wrapper.
 if command -v proveo-entrypoint >/dev/null 2>&1; then
   echo "── Verification Commands ────────────────────────────"
   proveo-entrypoint verify "$(pwd)" | while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     printf '  %s\n' "$line"
   done
-  echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
 
@@ -116,15 +93,10 @@ if (( ${#agent_files[@]} > 0 )); then
   echo "🧑‍💻 Subagents available: ${agent_files[*]}"
 fi
 
-[[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
-[[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
 
 # ── Auth check ─────────────────────────────────────────────
-# Two ways to be authenticated: a ChatGPT-plan login persisted at
-# $CODEX_HOME/auth.json (which the durable proveo home carries between runs), or
-# OPENAI_API_KEY. The login wins when both are present — codex's own default —
-# and proveo suppresses the competing key host-side for the same reason.
+# A ChatGPT-plan login ($CODEX_HOME/auth.json) or OPENAI_API_KEY; the login wins.
 if [[ -z "${OPENAI_API_KEY:-}" && ! -f "$CODEX_HOME/auth.json" ]]; then
   echo "⚠️  No credential found. Either export OPENAI_API_KEY (platform.openai.com/api-keys),"
   echo "   or run 'codex login' once — the login persists under proveo home"
@@ -158,10 +130,7 @@ LAUNCH_ARGS=()
 if codex_has_posture_flag "$@"; then
   echo "🔓 caller supplied its own approval/sandbox flags — leaving the posture to them"
 elif [[ -n "${PROVEO_CODEX_SANDBOX:-}" ]]; then
-  # Opt back INTO codex's own sandbox. Its Landlock+seccomp layer does not need an
-  # unprivileged userns, so unlike cursor's it can actually engage in a cap-dropped
-  # container — it is off by default because a workspace-write confinement of an
-  # already-disposable tree buys little and its approval prompts stall unattended runs.
+  # Opt back INTO codex's own sandbox (Landlock+seccomp); off by default.
   LAUNCH_ARGS+=(--sandbox "$PROVEO_CODEX_SANDBOX" --ask-for-approval never)
 else
   LAUNCH_ARGS+=(--dangerously-bypass-approvals-and-sandbox)

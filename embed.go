@@ -1,6 +1,5 @@
-// Package proveo embeds the harness manifests and the Squid config into the
-// Go binaries so the CLI (cmd/proveo) is self-contained and works without the
-// defs/ tree on disk.
+// Package proveo embeds the harness manifests into the Go binaries so the CLI
+// (cmd/proveo) is self-contained and works without the defs/ tree on disk.
 package proveo
 
 import "embed"
@@ -9,11 +8,3 @@ import "embed"
 //
 //go:embed defs/*/harness.manifest
 var Manifests embed.FS
-
-// SquidConfig holds the enforcement-proxy config staged into each session.
-//
-//go:embed defs/sidecars/squid-proxy/squid.conf
-//go:embed defs/sidecars/squid-proxy/firehol-blocked-nets.conf
-//go:embed defs/sidecars/squid-proxy/firehol-ipset.conf
-//go:embed defs/sidecars/squid-proxy/provider-allow.conf
-var SquidConfig embed.FS

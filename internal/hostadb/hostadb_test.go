@@ -12,7 +12,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func env(kv map[string]string) func(string) string { return func(k string) string { return kv[k] } }
@@ -37,15 +39,35 @@ func TestPolicyHostIsTheLoopbackServerPort(t *testing.T) {
 	}
 }
 
-// fakeServer answers host:devices with body over the adb smart-socket framing.
-func fakeServer(t *testing.T, body string) (port int, seen *[]string) {
+// adbServer is a fake host adb server: the nth host:devices request reads bodies[n], the last one repeats.
+type adbServer struct {
+	mu     sync.Mutex
+	bodies []string
+	seen   []string
+}
+
+func (s *adbServer) Seen() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.seen)
+}
+
+func (s *adbServer) answer(svc string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, svc)
+	return s.bodies[min(len(s.seen), len(s.bodies))-1]
+}
+
+// fakeServer answers host:devices over the adb smart-socket framing.
+func fakeServer(t *testing.T, bodies ...string) (port int, srv *adbServer) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	var got []string
+	srv = &adbServer{bodies: bodies}
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -57,7 +79,7 @@ func fakeServer(t *testing.T, body string) (port int, seen *[]string) {
 				n, _ := strconv.ParseUint(string(hdr), 16, 32)
 				svc := make([]byte, n)
 				_, _ = io.ReadFull(c, svc)
-				got = append(got, string(svc))
+				body := srv.answer(string(svc))
 				fmt.Fprintf(c, "OKAY%04x%s", len(body), body)
 			}
 			_ = c.Close()
@@ -67,17 +89,29 @@ func fakeServer(t *testing.T, body string) (port int, seen *[]string) {
 	t.Cleanup(func() { hostAddr = orig })
 	addr := ln.Addr().String()
 	hostAddr = func(int) string { return addr }
-	return 1, &got
+	return 1, srv
 }
 
 func TestDevicesKeepsOnlyUsableSerials(t *testing.T) {
-	port, seen := fakeServer(t, "emulator-5554\tdevice\n127.0.0.1:5555\tunauthorized\nemulator-5556\toffline\n")
+	port, srv := fakeServer(t, "emulator-5554\tdevice\n127.0.0.1:5555\tunauthorized\nemulator-5556\toffline\n")
 	got, err := Devices(port)
 	if err != nil || !slices.Equal(got, []string{"emulator-5554"}) {
 		t.Errorf("Devices = %v, %v", got, err)
 	}
-	if len(*seen) != 1 || (*seen)[0] != "host:devices" {
-		t.Errorf("server saw %v; want one host:devices", *seen)
+	if seen := srv.Seen(); len(seen) != 1 || seen[0] != "host:devices" {
+		t.Errorf("server saw %v; want one host:devices", seen)
+	}
+}
+
+func TestAllDevicesKeepsEveryState(t *testing.T) {
+	port, _ := fakeServer(t, "emulator-5554\tdevice\n127.0.0.1:5555\tunauthorized\nemulator-5556\toffline\n")
+	got, err := AllDevices(port)
+	want := []Device{{"emulator-5554", "device"}, {"127.0.0.1:5555", "unauthorized"}, {"emulator-5556", "offline"}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("AllDevices = %v, %v; want %v", got, err, want)
+	}
+	if got[1].Emulator() || !got[2].Emulator() {
+		t.Errorf("Emulator() must hold for emulator-* serials only: %v", got)
 	}
 }
 
@@ -160,12 +194,69 @@ func TestLaunchArgsAreWindowed(t *testing.T) {
 	}
 }
 
-func TestEnsureReusesARunningDevice(t *testing.T) {
+// hostTools stubs every adb and emulator command Ensure runs, and counts them.
+type hostTools struct {
+	env                                 func(string) string
+	starts, reconnects, boots, launches int
+	boot                                func(serial string) string
+	exit                                error // non-nil: the launched emulator exits with it at once
+	said                                []string
+}
+
+func (h *hostTools) report(f string, a ...any) { h.said = append(h.said, fmt.Sprintf(f, a...)) }
+
+func stubHostTools(t *testing.T) *hostTools {
+	t.Helper()
+	root := t.TempDir()
+	for _, p := range []string{"emulator/emulator", "platform-tools/adb"} {
+		_ = os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755)
+		_ = os.WriteFile(filepath.Join(root, p), nil, 0o755)
+	}
+	oList, oStart, oRe, oBoot, oEmu, oPoll, oWait := listAVDs, startAdb, reconnect, bootProp, startEmulator, pollEvery, readyWait
+	t.Cleanup(func() {
+		listAVDs, startAdb, reconnect, bootProp, startEmulator, pollEvery, readyWait = oList, oStart, oRe, oBoot, oEmu, oPoll, oWait
+	})
+	h := &hostTools{env: env(map[string]string{"ANDROID_HOME": root}), boot: func(string) string { return "1" }}
+	listAVDs = func(string) ([]byte, error) { return []byte("Pixel_9\n"), nil }
+	startAdb = func(string, int) error { h.starts++; return nil }
+	reconnect = func(string, int) error { h.reconnects++; return nil }
+	bootProp = func(_ string, _ int, serial string) string { h.boots++; return h.boot(serial) }
+	startEmulator = func(string, string, int) (<-chan error, error) {
+		h.launches++
+		exited := make(chan error, 1)
+		if h.exit != nil {
+			exited <- h.exit
+		}
+		return exited, nil
+	}
+	pollEvery, readyWait = time.Millisecond, 5*time.Second
+	return h
+}
+
+func TestEnsureReusesARunningDeviceOnceItsBootHolds(t *testing.T) {
 	fakeServer(t, "emulator-5554\tdevice\n")
-	origLook, origStat := lookPath, statFile
-	t.Cleanup(func() { lookPath, statFile = origLook, origStat })
-	lookPath = func(string) (string, error) { t.Fatal("must not look for a tool to launch"); return "", nil }
-	statFile = func(string) (os.FileInfo, error) { t.Fatal("must not look for a tool to launch"); return nil, nil }
+	h := stubHostTools(t)
+	if err := Ensure(h.env, 1, h.report); err != nil {
+		t.Fatal(err)
+	}
+	if h.starts != 0 || h.launches != 0 {
+		t.Errorf("a listed device must be reused: start-server=%d launches=%d", h.starts, h.launches)
+	}
+	if h.boots != StablePolls {
+		t.Errorf("boot checks = %d; want %d in a row", h.boots, StablePolls)
+	}
+	if last := h.said[len(h.said)-1]; !strings.Contains(last, "reusing emulator-5554") {
+		t.Errorf("report = %q", h.said)
+	}
+}
+
+func TestEnsureReusesARunningDeviceWithoutAdb(t *testing.T) {
+	fakeServer(t, "emulator-5554\tdevice\n")
+	origLook, origStat, origBoot := lookPath, statFile, bootProp
+	t.Cleanup(func() { lookPath, statFile, bootProp = origLook, origStat, origBoot })
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	statFile = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+	bootProp = func(string, int, string) string { t.Fatal("no adb, no boot check"); return "" }
 
 	var said string
 	if err := Ensure(env(nil), 1, func(f string, a ...any) { said = fmt.Sprintf(f, a...) }); err != nil {
@@ -173,6 +264,67 @@ func TestEnsureReusesARunningDevice(t *testing.T) {
 	}
 	if !strings.Contains(said, "reusing emulator-5554") {
 		t.Errorf("report = %q", said)
+	}
+}
+
+func TestEnsureWaitsForABootThatHoldsAfterLaunch(t *testing.T) {
+	fakeServer(t, "", "", "emulator-5554\tdevice\n", "emulator-5554\toffline\n", "emulator-5554\tdevice\n")
+	h := stubHostTools(t)
+	if err := Ensure(h.env, 1, h.report); err != nil {
+		t.Fatal(err)
+	}
+	if h.starts != 1 || h.launches != 1 {
+		t.Errorf("start-server=%d launches=%d; want one each", h.starts, h.launches)
+	}
+	if h.reconnects != 1 {
+		t.Errorf("reconnects = %d; want one for the offline blip", h.reconnects)
+	}
+	if h.boots != 1+StablePolls {
+		t.Errorf("boot checks = %d; want 1 before the blip and %d in a row after it", h.boots, StablePolls)
+	}
+	if last := h.said[len(h.said)-1]; last != "android: emulator-5554 booted" {
+		t.Errorf("report = %q", h.said)
+	}
+}
+
+func TestEnsureReconnectsAnOfflineEmulatorInsteadOfLaunchingAnother(t *testing.T) {
+	fakeServer(t, "emulator-5554\toffline\n", "emulator-5554\toffline\n", "emulator-5554\tdevice\n")
+	h := stubHostTools(t)
+	if err := Ensure(h.env, 1, h.report); err != nil {
+		t.Fatal(err)
+	}
+	if h.launches != 0 || h.starts != 0 {
+		t.Errorf("an offline emulator must not get a second one: launches=%d start-server=%d", h.launches, h.starts)
+	}
+	if h.reconnects != 1 {
+		t.Errorf("reconnects = %d; want 1", h.reconnects)
+	}
+	if !strings.Contains(h.said[0], "emulator-5554 offline") || !strings.Contains(h.said[len(h.said)-1], "reusing emulator-5554") {
+		t.Errorf("report = %q", h.said)
+	}
+}
+
+func TestEnsureReportsAnEmulatorThatExitsBeforeBoot(t *testing.T) {
+	fakeServer(t, "")
+	h := stubHostTools(t)
+	h.exit = errors.New("exit status 1")
+	err := Ensure(h.env, 1, h.report)
+	if err == nil || !strings.Contains(err.Error(), "Pixel_9") || !strings.Contains(err.Error(), "exited before it booted") {
+		t.Errorf("err = %v", err)
+	}
+	if h.launches != 1 {
+		t.Errorf("launches = %d; want 1", h.launches)
+	}
+}
+
+func TestEnsureGivesUpOnABootThatNeverHolds(t *testing.T) {
+	fakeServer(t, "", "", "emulator-5554\tdevice\n")
+	h := stubHostTools(t)
+	readyWait = 100 * time.Millisecond
+	h.boot = func(string) string { return strconv.Itoa(h.boots % 2) }
+	err := Ensure(h.env, 1, h.report)
+	if err == nil || !strings.Contains(err.Error(), "polls in a row") {
+		t.Errorf("err = %v", err)
 	}
 }
 

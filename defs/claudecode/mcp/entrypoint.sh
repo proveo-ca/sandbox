@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/defs/claudecode/claudecode-egress-topology.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/defs/claudecode/chrome-bridge.puml
+# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/internal/sbx/policy-baseline.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/defs/claudecode/chrome-bridge.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
@@ -8,22 +8,10 @@ if [[ -f /entrypoint-lib.sh ]]; then
 fi
 proveo_sbx_passthrough "$@"
 
-if command -v proveo-entrypoint >/dev/null 2>&1; then
-  export PROVEO_SMOKE_TARGET=claudecode
-  env PROVEO_SMOKE_TEST= proveo-entrypoint prep claudecode || true
-else
-  ensure_runtime_user
-  set_working_directory "/app"
-  load_env
-  bridge_git_identity /app
-  report_git_context /app
-  attach_rtk
-  run_smoke_test "claudecode"
-  ensure_project_tools
-fi
-
 set_working_directory "/app"
-load_env quiet
+bridge_google_keys
+bridge_git_identity
+proveo-entrypoint prep || true
 ensure_git_safe_directory "$(pwd)"
 ensure_github_git_transport
 scope_git_worktree "$(pwd)"
@@ -37,15 +25,6 @@ if command -v proveo-entrypoint >/dev/null 2>&1; then
     [[ -z "$line" ]] && continue
     printf '  %s\n' "$line"
   done
-  echo "─────────────────────────────────────────────────────"
-elif [[ -f /opt/proveo/lib/detect-verify.sh ]]; then
-  # shellcheck source=/dev/null
-  source /opt/proveo/lib/detect-verify.sh
-  echo "── Verification Commands ────────────────────────────"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    printf '  %s\n' "$line"
-  done < <(detect_verify_commands "$(pwd)")
   echo "─────────────────────────────────────────────────────"
 fi
 
@@ -76,8 +55,6 @@ if (( ${#agent_files[@]} > 0 )); then
 fi
 
 echo "Paradigm: ML blackbox algorithm (spec → plan → verify loop)"
-[[ -n "${ENFORCEMENT_PROXY:-}" ]] && echo "🛡️  Enforcement proxy: ${ENFORCEMENT_PROXY}"
-[[ -n "${INSPECT_PROXY:-}" && "${INSPECT_PROXY}" != "${ENFORCEMENT_PROXY:-}" ]] && echo "🔍  Inspection proxy: ${INSPECT_PROXY}"
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && echo "🧠  Local model: ${PROVEO_LOCAL_MODEL}"
 
 run_smoke_test "claudecode"

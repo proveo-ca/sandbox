@@ -11,7 +11,8 @@ skinparam noteTextAlignment left
 '   the store's own hazard, realised _spec/internal/sbx/kit-sandbox-credential-gap.puml
 '   the code .... internal/backend/sandbox/sandbox.go (agentCredentials, Spec)
 '   the code .... internal/sbx/secret.go (SecretSetArgs), internal/sbx/run.go (StoredSecretNames)
-'   the code .... packages/lib/entrypoint-lib.sh (load_env), internal/entrypoint/entrypoint.go (ShouldSkipEnvLoad)
+'   the code .... internal/backend/sandbox/project_env.go (seedProjectEnv) — since N7, 2026-10-17;
+'                 load_env and ShouldSkipEnvLoad, named here before, are deleted (repo-simplification.puml N7)
 '   the code .... internal/secretref/secretref.go (Parse, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
 '   the reference mechanism ........ _spec/internal/secretref/secret-references.puml
 '   the surface that provisions it . _spec/_plans/init-credential-provisioning.puml
@@ -338,6 +339,16 @@ skinparam noteTextAlignment left
 '   * whether `AWS_BEARER_TOKEN_BEDROCK` can reach `set-custom`, given
 '     the per-entry injectability trap above. If it can, this shrinks to two
 '     cases and vertex is the only hard one.
+'
+' UPDATE 2026-10-17 — SUPERSEDED BY N7 (repo-simplification.puml; the user:
+' "Keep 1+1, seed --env-file (Recommended)"). MEASURED: no image sources the
+' workspace .env any more (load_env and ShouldSkipEnvLoad are deleted), which
+' answers this section's first step and "WHETHER `load_env` SHOULD SOURCE
+' DOTENVS AT ALL" below: it does not. The project .env's non-provider values now
+' reach a new sandbox through sbx's `--env-file`, with provider keys dropped
+' unless the run forwards (seedProjectEnv). A dotenv `op://` reference passes
+' unresolved there (reported residual) — this plan's reference mechanism is still
+' the open question. The text below is the 2026-09-09 plan, kept as written.
 '
 ' ── THE SMALLEST FIRST STEP, AND IT IS NOT A NEW MECHANISM ─────────────────
 ' `load_env` already refuses to source a dotenv when PROVEO_EGRESS_MODE names a

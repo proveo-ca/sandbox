@@ -21,8 +21,7 @@ var agentEntrypoints = []string{
 	"defs/claudecode/mcp/entrypoint.sh",
 }
 
-// line reintroduces this silently, and the symptom appears three layers away as
-// (_spec/defs/cursor/cursor-paradigm.puml). A guarded default launch beside a
+// TestAgentEntrypointsDisambiguateTheirArguments pins that every agent entrypoint launches through proveo_exec_agent.
 func TestAgentEntrypointsDisambiguateTheirArguments(t *testing.T) {
 	t.Parallel()
 	for _, rel := range agentEntrypoints {
@@ -57,11 +56,7 @@ proveo_exec_agent codex "$@"`
 	return string(out)
 }
 
-// THE SUBCOMMAND IS NOT A COMMAND. codex's headless form is `codex exec`, and
-// `exec` is a bash keyword — so a probe that asks "can the shell run this word"
-// says yes and hands the whole argv to `exec`, which has no file to execve. The
-// run died before codex was reached, and the agent-evidence dial rewrites every
-// verbose headless run into exactly this shape.
+// THE SUBCOMMAND IS NOT A COMMAND.
 func TestASubcommandNamedLikeAShellKeywordStillReachesTheAgent(t *testing.T) {
 	t.Parallel()
 	out := execAgent(t, "--dangerously-bypass-approvals-and-sandbox", "--", "exec", "--json", "do the thing")

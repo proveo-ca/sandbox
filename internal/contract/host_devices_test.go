@@ -21,10 +21,8 @@ func TestAndroidIsDeclaredOnlyWhereTheServerCanLaunch(t *testing.T) {
 			t.Errorf("%s declares hostDevices: android, but hostadb.Launches has no working row (%q)",
 				m.Name, hostadb.Launches[m.Name].Why)
 		}
-		if m.IsSbx() {
-			if _, ok := hostadb.Launches[m.Name]; !ok {
-				t.Errorf("sbx harness %s has no hostadb.Launches row — add its mechanism or the reason it has none", m.Name)
-			}
+		if _, ok := hostadb.Launches[m.Name]; !ok {
+			t.Errorf("sbx harness %s has no hostadb.Launches row — add its mechanism or the reason it has none", m.Name)
 		}
 	}
 }

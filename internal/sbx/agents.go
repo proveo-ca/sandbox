@@ -5,6 +5,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/proveo-ca/proveo/internal/envflag"
 )
 
 var builtinAgent = map[string]string{
@@ -33,15 +35,20 @@ func ShellLaunch(target string, extra []string) []string {
 	if target == "" {
 		return nil
 	}
-	q, ep := shellQuote(target), shellQuote(target+"-entrypoint")
-	script := strings.Join([]string{
-		"if command -v -- " + ep + " >/dev/null 2>&1; then exec " + ep + ` "$@"; fi`,
-		`if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi`,
-		"exec " + q + ` "$@"`,
-	}, "; ")
+	script := strings.Join(append(defEntrypoint(target), "exec "+shellQuote(target)+` "$@"`), "; ")
 	// bash -c reads the word after the script as $0, so a placeholder has to sit
 	// there or the first real argument is swallowed.
 	return append([]string{"-c", script, "proveo-" + target}, extra...)
+}
+
+// defEntrypoint execs the def's entrypoint: <target>-entrypoint on PATH, else /entrypoint.sh.
+// SPEC: _spec/internal/sbx/startup-dispatch.puml
+func defEntrypoint(target string) []string {
+	ep := shellQuote(target + "-entrypoint")
+	return []string{
+		"if command -v -- " + ep + " >/dev/null 2>&1; then exec " + ep + ` "$@"; fi`,
+		`if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi`,
+	}
 }
 
 // IsShellLaunch reports whether cmd is a launch ShellLaunch built, which is what
@@ -55,18 +62,10 @@ func shellQuote(s string) string {
 
 func BuiltinAgent(target string) string { return builtinAgent[target] }
 
-// EnvAgentKit is now an OPT-OUT. A def with no built-in sbx agent declares
-// itself a COMPLETE AGENT (`kind: sandbox`) rather than borrowing sbx's
-// `shell`, and PROVEO_SBX_AGENT_KIT=0 restores the borrowed path.
+// EnvAgentKit set off makes a def without a built-in sbx agent borrow sbx's `shell` instead of `kind: sandbox`.
 const EnvAgentKit = "PROVEO_SBX_AGENT_KIT"
 
-func AgentKitEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvAgentKit))) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
+func AgentKitEnabled() bool { return envflag.Bool(os.Getenv(EnvAgentKit), true) }
 
 // DeclaresOwnAgent reports whether THIS run should render a sandbox Kit
 // naming its own agent.

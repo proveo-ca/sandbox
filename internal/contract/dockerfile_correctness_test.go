@@ -1,10 +1,8 @@
-// SPEC: _spec/_plans/image-size-reduction.puml, _spec/_devops/agent-version-pin.puml
+// SPEC: _spec/_devops/image-size-reduction.puml, _spec/_devops/agent-version-pin.puml
 package contract_test
 
 import (
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -16,7 +14,6 @@ var aptDockerfiles = []string{
 	"defs/base-node-browser/Dockerfile",
 	"defs/cecli/Dockerfile",
 	"defs/cursor/Dockerfile",
-	"defs/opencode/Dockerfile",
 	"defs/claudecode/mcp/Dockerfile",
 	"defs/claudecode/solidity/Dockerfile",
 }
@@ -98,22 +95,6 @@ func TestNoEnvVarsPresentedAsControlsThatNothingReads(t *testing.T) {
 	}
 }
 
-func TestSquidShipsConfigNotAnImage(t *testing.T) {
-	t.Parallel()
-	root := repoRoot(t)
-	if _, err := os.Stat(filepath.Join(root, "defs/sidecars/squid-proxy/Dockerfile")); err == nil {
-		t.Error("defs/sidecars/squid-proxy/Dockerfile is back — nothing builds or references proveo/squid-proxy")
-	}
-	for _, conf := range []string{"squid.conf", "firehol-blocked-nets.conf", "firehol-ipset.conf", "provider-allow.conf"} {
-		if _, err := os.Stat(filepath.Join(root, "defs/sidecars/squid-proxy", conf)); err != nil {
-			t.Errorf("%s must stay: embed.go carries it and StageSquidConfig writes it per session", conf)
-		}
-		if !strings.Contains(readRepoFile(t, "embed.go"), conf) {
-			t.Errorf("embed.go must embed %s", conf)
-		}
-	}
-}
-
 var backtickInDoubleQuotes = regexp.MustCompile("\"[^\"\n]*`[^\"\n]*`[^\"\n]*\"")
 
 // RUN is /bin/sh: a backtick pair inside double quotes is command substitution,
@@ -132,4 +113,36 @@ func TestDockerfileStringsQuoteNoBackticks(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestEveryAptInstallNamesAPackage(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	out, err := exec.Command("git", "-C", root, "ls-files", "*Dockerfile").Output()
+	if err != nil {
+		t.Skipf("git ls-files: %v", err)
+	}
+	for _, rel := range strings.Fields(string(out)) {
+		joined := strings.ReplaceAll(instructionsOnly(readRepoFile(t, rel)), "\\\n", " ")
+		for _, tail := range strings.Split(joined, "apt-get install")[1:] {
+			line, _, _ := strings.Cut(tail, "\n")
+			if firstPackage(line) == "" {
+				t.Errorf("%s runs `apt-get install%s` with no package", rel, line)
+			}
+		}
+	}
+}
+
+// firstPackage is the first non-flag word of an apt-get install tail, or "".
+func firstPackage(tail string) string {
+	for _, f := range strings.Fields(tail) {
+		switch {
+		case strings.HasPrefix(f, "-"):
+			continue
+		case f == "&&" || f == "||" || f == ";" || f == "|":
+			return ""
+		}
+		return f
+	}
+	return ""
 }

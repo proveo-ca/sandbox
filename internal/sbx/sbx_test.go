@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -71,19 +72,19 @@ func TestRunArgsFull(t *testing.T) {
 	got := RunArgs(RunConfig{
 		Name:   "proveo-1-2",
 		Agent:  "claude",
-		KitDir: "/state/egress/x/kit",
+		KitDir: "/state/runs/x/kit",
 		Image:  "proveo/claudecode:latest",
 		Mounts: []Mount{
 			{Host: "/repo", Container: "/app"},
 			{Host: "/out", Container: "/app/output", ReadOnly: true},
 		},
-		Env:     []string{"PROVEO_EVIDENCE=concise"},
+		Env:     []string{"PROVEO_AGENT_EVIDENCE=default"},
 		Command: []string{"-p", "hello"},
 	})
 	want := []string{
-		"run", "--name", "proveo-1-2", "--kit", "/state/egress/x/kit",
+		"run", "--name", "proveo-1-2", "--kit", "/state/runs/x/kit",
 		"-t", "proveo/claudecode:latest",
-		"-e", "PROVEO_EVIDENCE=concise",
+		"-e", "PROVEO_AGENT_EVIDENCE=default",
 		"claude",  // AGENT: the first positional, and mandatory
 		"/repo",   // workspaces follow, at their HOST paths
 		"/out:ro", // :ro is the only modifier a workspace takes
@@ -159,6 +160,30 @@ func TestNotFoundRecognisesAnAbsentSandbox(t *testing.T) {
 	}
 	if NotFound("Error: permission denied") {
 		t.Error("an unrelated failure must still be reported")
+	}
+}
+
+func TestRunExitCodeTakesTheAgentsCodeSbxNamed(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		status int
+		lines  []string
+		want   int
+	}{
+		{"named", 1, []string{"agent: fatal", "error: agent exited with code 3"}, 3},
+		{"no line", 1, []string{"agent: fatal", "error: sandbox failed"}, 1},
+		{"no output", 1, nil, 1},
+		{"code 0 keeps sbx's own failure", 1, []string{"error: agent exited with code 0"}, 1},
+		{"last line wins", 1, []string{"error: agent exited with code 3", "agent: retry", "error: agent exited with code 42"}, 42},
+		{"last match in a line wins", 1, []string{"agent exited with code 3; agent exited with code 7"}, 7},
+		{"negative code is not a code", 1, []string{"error: agent exited with code -1"}, 1},
+		{"other status passes through", 137, []string{"error: agent exited with code 3"}, 137},
+		{"success passes through", 0, []string{"error: agent exited with code 3"}, 0},
+	} {
+		if got := RunExitCode(tc.status, tc.lines); got != tc.want {
+			t.Errorf("%s: RunExitCode(%d, %q) = %d, want %d", tc.name, tc.status, tc.lines, got, tc.want)
+		}
 	}
 }
 
@@ -857,8 +882,7 @@ func TestAgentForSandboxesEveryTarget(t *testing.T) {
 			t.Errorf("AgentFor(%q) command = %v, want a wrapped shell launch = %v", c.target, command, c.launch)
 		}
 	}
-	// A built-in owns its own launch: handing it a command would put our word in
-	// its argv, which is the bug --shell exists to avoid.
+	// A built-in owns its own launch: a command from us would land in its argv.
 	for _, target := range SbxTargets() {
 		if _, command := AgentFor(target); command != nil {
 			t.Errorf("AgentFor(%q) must leave the launch to the built-in agent, got %v", target, command)
@@ -1232,5 +1256,165 @@ func TestTemplateStagingDirAvoidsTmpfsUnlessTMPDIRIsSet(t *testing.T) {
 	env := map[string]string{"TMPDIR": "/big/disk"}
 	if got := templateStagingDir(func(k string) string { return env[k] }); got != "" {
 		t.Errorf("explicit TMPDIR must win (empty parent ⇒ os.TempDir), got %q", got)
+	}
+}
+
+func TestSeedStepsSplitAtTheRelease(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		cmd        KitCommand
+		phase      string
+		background bool
+	}{
+		{"release step", SeedCommand("claudecode"), SeedPhaseRelease, false},
+		{"provision step", SeedProvisionCommand("claudecode"), SeedPhaseProvision, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := len(tc.cmd.Command)
+			if n < 2 || tc.cmd.Command[n-2] != "claudecode" || tc.cmd.Command[n-1] != tc.phase {
+				t.Errorf("%s argv = %q, want it to end with the target then %q", tc.name, tc.cmd.Command, tc.phase)
+			}
+			if tc.cmd.Background != tc.background {
+				t.Errorf("%s Background = %v, want %v", tc.name, tc.cmd.Background, tc.background)
+			}
+			if !strings.Contains(strings.Join(tc.cmd.Command, "\n"), `proveo-seed "$@"`) {
+				t.Errorf("%s does not hand proveo-seed its phase: %q", tc.name, tc.cmd.Command)
+			}
+		})
+	}
+	if got := strings.Join(SeedEntrypointCommand("claudecode").Command, " "); !strings.Contains(got, "PROVEO_SEED_PHASE="+SeedPhaseNone) {
+		t.Errorf("SeedEntrypointCommand() = %q, want PROVEO_SEED_PHASE=%s so the def entrypoint skips the shared seed", got, SeedPhaseNone)
+	}
+}
+
+func TestWriteKitRendersBackgroundOnlyWhereSet(t *testing.T) {
+	kitDir, err := WriteKit(filepath.Join(t.TempDir(), "kit"), Kit{
+		SchemaVersion: KitSchemaVersionV2,
+		Kind:          "mixin",
+		Name:          "claudecode-posture",
+		Setup: &KitSetup{Startup: []KitCommand{
+			SeedCommand("claudecode"), SeedEntrypointCommand("claudecode"), SeedProvisionCommand("claudecode"),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(b), "background: true"); got != 1 {
+		t.Errorf("spec.yaml has %d `background: true`, want exactly 1 (the provision step):\n%s", got, b)
+	}
+	if strings.Contains(string(b), "background: false") {
+		t.Errorf("spec.yaml spells out the default `background: false`:\n%s", b)
+	}
+}
+
+func TestSeedEntrypointStepFindsTheDefEntrypoint(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		named, legacy bool
+		want          string
+	}{
+		{"cecli-entrypoint on PATH and no /entrypoint.sh, as the cecli image ships", true, false, "named"},
+		{"/entrypoint.sh only", false, true, "legacy"},
+		{"both, the named one first as ShellLaunch picks", true, true, "named"},
+		{"neither, nothing to wire", false, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			bin, ran, legacy := filepath.Join(dir, "bin"), filepath.Join(dir, "ran"), filepath.Join(dir, "entrypoint.sh")
+			if err := os.MkdirAll(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			stub := func(path, label string) {
+				body := "#!/bin/sh\nprintf '" + label + ` %s %s\n' "$PROVEO_SEED_ONLY" "$PROVEO_SEED_PHASE" > '` + ran + "'\n"
+				if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.named {
+				stub(filepath.Join(bin, "cecli-entrypoint"), "named")
+			}
+			if tc.legacy {
+				stub(legacy, "legacy")
+			}
+			cmd := SeedEntrypointCommand("cecli").Command
+			argv := append([]string(nil), cmd[1:]...)
+			for i := range argv {
+				argv[i] = strings.ReplaceAll(argv[i], "/entrypoint.sh", legacy)
+			}
+			c := exec.Command(cmd[0], argv...)
+			c.Env = []string{"PATH=" + bin + ":/usr/bin:/bin"}
+			if out, err := c.CombinedOutput(); err != nil {
+				t.Fatalf("seed-only entrypoint step: %v — sbx's dispatcher fails the sandbox start on it\n%s", err, out)
+			}
+			want := ""
+			if tc.want != "" {
+				want = tc.want + " 1 " + SeedPhaseNone + "\n"
+			}
+			if got, _ := os.ReadFile(ran); string(got) != want {
+				t.Errorf("seed-only entrypoint step ran %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestSeedProvisionSkipsABootAlreadySeedDone(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("sh unavailable: %v", err)
+	}
+	for _, tc := range []struct {
+		name     string
+		cmd      KitCommand
+		seedDone bool
+		wantRun  bool
+	}{
+		{"provision on a fresh boot", SeedProvisionCommand("claudecode"), false, true},
+		{"provision after an old image's full seed", SeedProvisionCommand("claudecode"), true, false},
+		{"release never skips", SeedCommand("claudecode"), true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ran, done := filepath.Join(dir, "ran"), filepath.Join(dir, "seed-done")
+			stub := filepath.Join(dir, "proveo-seed")
+			if err := os.WriteFile(stub, []byte("#!/bin/sh\n: > '"+ran+"'\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.seedDone {
+				if err := os.WriteFile(done, nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			argv := append([]string(nil), tc.cmd.Command[1:]...)
+			argv[1] = strings.Replace(argv[1], SeedBinary, stub, 1)
+			c := exec.Command(sh, argv...)
+			c.Env = append(os.Environ(), "PROVEO_SEED_DONE_MARKER="+done)
+			if out, err := c.CombinedOutput(); err != nil {
+				t.Fatalf("%s: %v\n%s", tc.name, err, out)
+			}
+			if _, err := os.Stat(ran); (err == nil) != tc.wantRun {
+				t.Errorf("%s: proveo-seed ran = %v, want %v", tc.name, err == nil, tc.wantRun)
+			}
+		})
+	}
+}
+
+func TestTheProjectEnvFileRidesCreateAndRunButNotAReattach(t *testing.T) {
+	t.Parallel()
+	cfg := RunConfig{Name: "proveo-1-2", Agent: "claude", EnvFile: "/state/x/sbx/env",
+		Env: []string{"PROVEO_AGENT_EVIDENCE=default"}, Mounts: []Mount{{Host: "/repo"}}}
+	want := []string{"-e", "PROVEO_AGENT_EVIDENCE=default", "--env-file", "/state/x/sbx/env", "claude", "/repo"}
+	for name, args := range map[string][]string{"RunArgs": RunArgs(cfg), "CreateArgs": CreateArgs(cfg)} {
+		if got := args[len(args)-len(want):]; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s tail = %q, want %q: the env file follows proveo's own -e pairs, before the agent", name, got, want)
+		}
+	}
+	for _, a := range RunArgs(Reattach(cfg)) {
+		if a == "--env-file" {
+			t.Error("a reattach passed --env-file; sbx accepts only the name for an existing sandbox")
+		}
 	}
 }

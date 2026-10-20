@@ -1,51 +1,57 @@
 @startuml SandboxSteps
 ' SPEC source (the real orchestration this diagram tracks):
-'   internal/run/run.go           — run.Do() host flow, in seven stages
-'   internal/egress/{plan,exec,stage}.go — networks/sidecars/readiness/teardown
-'   internal/broker/broker.go     — credential inject / strip
-'   internal/egressproxy/*        — MITM proxy + flows.ndjson recorder
-'   internal/workspace/mount.go   — mount plan + .env masking
+'   internal/run/run.go           — run.Do() host flow (requireSandbox … launchSandbox)
+'   internal/backend/sandbox/sandbox.go — Kit, sbx secret store, sbx run, teardown
+'   internal/workspace/mount.go   — mount plan
 '   packages/lib/entrypoint-lib.sh, defs/*/entrypoint.sh — in-container steps
+' HISTORY: until 2026-10-16 the host flow also ran internal/egress (networks,
+' sidecars, readiness, teardown), internal/broker (inject/strip) and
+' internal/egressproxy (MITM + flows.ndjson). All three are DELETED with the
+' docker+egress backend ("Retire Docker egress"; "Refuse without sbx").
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/cursor/entrypoint.sh
 ' covers: defs/opencode/entrypoint.sh
 ' covers: defs/cecli/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 '
-' ── §2 · FINDING A .env, IN FOUR ORDERED ATTEMPTS ──────────────────────────
-' find_env_file stops at the first hit, and the order is the point: the most
-' specific answer wins over the most convenient one.
-'   1. ./.env in the current working directory.
-'   2. the git root, via `git rev-parse --show-toplevel`.
-'   3. the git root again, by PURE-BASH upward traversal looking for a directory
-'      holding both .git and .env — the fallback for an image with no git, or a
-'      checkout git refuses to read.
-'   4. any .env at `find -maxdepth 5`, excluding */node_modules/* and */.*/*,
-'      with `-print -quit` so the walk stops at the first match.
-'
-' load_env sources it inside `set -a` / `set +a`, so every assignment in the
-' file is EXPORTED rather than merely set — the agent is a child process and an
-' unexported variable would never reach it.
+' ── §2 · THE IMAGE READS NO .env; IT ONLY BRIDGES KEY ALIASES (N7, 2026-10-17) ─
+' The user: "Keep 1+1, seed --env-file (Recommended)" (repo-simplification.puml
+' N7). MEASURED: find_env_file is deleted, and load_env lost its sbx guard and
+' its `set -a` sourcing of the workspace .env and is renamed bridge_google_keys
+' (entrypoint-lib.sh:36-40 since N2, five lines); every def entrypoint, hermes
+' included, calls bridge_google_keys in the shell BEFORE `proveo-entrypoint prep`
+' (N1/N22/N24, 2026-10-17: prep keeps only the passwd entry and the git-context
+' report, has no smoke mode, and has no shell twin —
+' _spec/cmd/proveo-entrypoint/prep-sequence.puml). N2 + N23 deleted the generic
+' bridge machinery beside it (_normalize_model, _apply_env_bridge,
+' apply_env_bridges, _model_provider) and the opencode and hermes calls to
+' apply_env_bridges; TestOneGoogleKeyBridgeRemains pins one definition.
+' internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
+' pins that neither the bash prelude nor prep reads it. The project .env's
+' values now reach a NEW sandbox from the host, through sbx's own `--env-file`
+' (_spec/internal/credentials/credential-decisions.puml, PROJECT .env).
+' HISTORY: find_env_file tried ./.env, the git root (rev-parse, then a pure-bash
+' walk), then any .env at `find -maxdepth 5`; load_env sourced it under `set -a`
+' unless SANDBOX_NAME or SANDBOX_VM_ID was set (until 2026-10-16 the guard keyed
+' on PROVEO_EGRESS_MODE).
 '
 ' Provider key aliasing runs in both directions, because the ecosystem has not
 ' settled on one spelling: GOOGLE_GENERATIVE_AI_API_KEY is filled from
 ' GEMINI_API_KEY or GOOGLE_API_KEY when absent, and once it is set the two older
 ' names are filled back from it for tools that read only those. Every bridge
 ' fills an EMPTY slot and never overwrites, so a value the caller supplied wins.
+' Bash is the only implementation since N1 deleted Go BridgeGoogleKeys
+' (TestBashPreludeBridgesTheGoogleKeyAliases).
 '
-' Under egress mode open|allowlist|review the file is not sourced — a
-' containment step, not an optimisation (see the note on step 4 below).
-'
-' apply_broker_sentinel then runs in those same three modes: every name listed in
-' PROVEO_CREDENTIAL_BROKER_KEYS (comma-separated, whitespace trimmed) is
-' rewritten to PROVEO_BROKER_SENTINEL — default "proveo-brokered" — so the agent
-' process never holds the real key, and the MITM inspector injects it on-route
-' (_spec/_paradigms/credential-boundary.puml). Already-sentinel values are left
-' alone, and the substitution is announced by name.
+' HISTORY: apply_broker_sentinel rewrote every name in
+' PROVEO_CREDENTIAL_BROKER_KEYS to PROVEO_BROKER_SENTINEL ("proveo-brokered") so
+' proveo's MITM could inject on-route. It is DELETED with the MITM; on sbx the
+' agent holds sbx's own placeholder (_spec/_paradigms/credential-boundary.puml).
 '
 ' ── §2c · WHY THE gh PROBE IS TIME-BOUNDED ────────────────────────────────
-' report_git_context is read-only, but `gh auth status` validates GH_TOKEN and
-' config sessions OVER THE NETWORK. Under a locked-down egress tier that call
+' The git-context report (Go reportGitContext in cmd/proveo-entrypoint since
+' N24 deleted the shell report_git_context) is read-only, but `gh auth status` validates GH_TOKEN and
+' config sessions OVER THE NETWORK. Under a locked-down network policy that call
 ' can hang, and this runs before the agent, so it is capped at `timeout 5s` —
 ' an unanswered probe reports "not authenticated" rather than stalling startup.
 ' Seed never runs `gh auth login` and never installs gh: that is `proveo init`.
@@ -64,44 +70,48 @@
 ' job's stdin is otherwise /dev/null; fd 3 keeps the command's stderr while
 ' the job-control notices go to /dev/null.
 '
-' ── §3/§4 · TWO STEPS THAT DEGRADE RATHER THAN FAIL ───────────────────────
-' attach_rtk is opt-in (ATTACH_RTK=1|true|yes|on) and skips with a warning when
-' the working directory is not writable, since a read-only workspace is a
-' supported mount rather than an error.
+' ── §4 · A STEP THAT DEGRADES RATHER THAN FAILS ───────────────────────────
+' attach_rtk (opt-in clone of rtk-ai/rtk into the workspace) was removed
+' 2026-10-16 (Executor: "Remove rtk from proveo run"); _spec/_plans/repo-simplification.puml.
 '
 ' run_smoke_test, under PROVEO_SMOKE_TEST=1, prints
 ' "PROVEO_SMOKE_READY <PROVEO_SMOKE_TARGET|target>" and then
 ' `exec sleep infinity` — the container stays up for inspection and the agent
 ' never starts. Anything a def prints AFTER its own run_smoke_test call is
 ' therefore unreachable in smoke mode
-' (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml).
+' (_spec/cmd/proveo-entrypoint/prep-process-boundary.puml). It is the ONLY smoke
+' path since N22 deleted prep's SmokeReady (2026-10-17).
 '
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam shadowing false
 skinparam ConditionEndStyle hline
 
-title proveo run <target> — sandbox lifecycle\n(host orchestrator provisions → agent container runs → host tears down)
+title proveo run <target> — sandbox lifecycle\n(host resolves → sbx sandbox runs the agent → host tears down)
 
 start
 
+partition "0 · Refuse unless sbx can run it  «host»" {
+  :requireSandbox — sbx not ready\n→ refuse with the reason (no fallback; no manifest ""docker:"" key since F10);
+}
+
 partition "1 · LLM provider auth  «host»" {
-  :detect provider from host env + project **.env**\n(manifest ""provider:"" pin wins over key detection);
+  :detect provider from host env + project **.env**\n(filtered by the manifest's ""providers:"");
   if (declared key missing and a TTY?) then (prompt)
-    :missing-env wizard — read secret (echo off),\nfeed broker + provider detection;
+    :missing-env wizard — read secret (echo off),\nfeed provider detection;
   else (present)
   endif
-  if (firewall AND provider resolved AND broker enabled?) then (broker)
-    :write host-only ""broker.env"" 0600 into <egDir>/inject\n(mounted ONLY into the proxy, never the agent);
+  if (""--credentials forward""?) then (forward)
+    :bare ""-e NAME"" — sbx copies the value\nfrom proveo's child env into the agent;
+  else (broker — the default)
+    :""sbx secret set --force"" (value on stdin)\nsbx's proxy attaches it at egress;
     note right
       Raw key never enters the agent.
-      The MITM proxy injects the auth header
-      **only** for the pinned provider host;
-      client-supplied credential headers are
-      stripped off-provider.
+      HISTORY: until 2026-10-16 the docker
+      path wrote ""broker.env"" for proveo's
+      MITM; both are deleted.
     end note
-  else (broker / open mode)
-    :provider key forwarded to the agent env by design\n(""warnMountedSecrets"" warns it can leave);
   endif
+  :""WarnMountedSecrets"" — a workspace .env holding a\nprovider key is readable by the agent;
 }
 
 partition "2 · Filesystem mount  «host»" {
@@ -118,33 +128,24 @@ partition "2 · Filesystem mount  «host»" {
   else (app — analysis)
     :mount repo at /app (rw default; mode:ro optional)\n+ **RW** /app/output for artifacts (claudecode);
   endif
-  :mask ""/.env"" and ""/.env.*"" under the mounted tree\n(firewall: secrets stay host-side; templates stay readable);
-  :mount MITM CA cert **RO** (firewall);
+  :directory workspaces only — the plan binds no .env file\n(the /dev/null masks and /app/.env binds are deleted, F9);
+  :project .env values → ""<run>/sbx/env"" → ""--env-file""\nat ""sbx create"" / ""sbx run"" of a NEW sandbox only (N7);
 }
 
-partition "3 · Egress provision  «host»" {
-  if (open + ""--credentials forward""?) then (yes)
-    :no proxy chain — direct egress (the deliberate bypass:\npinned-TLS vendors / the Claude in Chrome bridge);
-  elseif (egress mode == open?) then (yes)
-    :agent ""--internal"" -> **proveo-egress** MITM -> internet\n(broker injects; no Squid, no write pin);
-  else (allowlist / review)
-    :create networks — agent net ""--internal"" (no direct route)\n+ external egress net;
-    :run **Squid** sidecar (config staged RO, log dir 0777)\n— run **proveo-egress** MITM (broker + DLP);
-    :connect nets · agent DNS blackholed ""--dns 0.0.0.0""\n(names resolve proxy-side only);
-    :wait Squid :3128 ready · wait MITM CA cert · wait Ollama;
-    note right
-      Layered egress: reads allow /
-      writes deny-by-default / DLP
-      (decode-scan + byte budget).
-    end note
-  endif
-  :pull image (pull-first) -> offer local build only if missing;
+partition "3 · Egress  «host + sbx»" {
+  :sbx's own policy decides egress (global baseline + ""sbx policy"");\nproveo reports it and never sets it;
+  :Kit ""network.allow"" = add-on ports (host Ollama · CDP · adb)\n∪ own-agent credential domains — no tier entries;
+  :ensure the agent image (""Deps.PreflightImages"", agent image only) —\nonly off ""--print"" and when sbx holds no template for it;
+  note right
+    HISTORY: until 2026-10-16 this step
+    built docker networks, a Squid and a
+    MITM sidecar per tier. All deleted.
+  end note
 }
 
-partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" {
-  :ensure run-as uid (root-free) · workdir **/app**;
-  :.env load — SKIPPED under firewall\n(""secrets stay on host / broker"");
-  :git identity · ""gh"" auth check;
+partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh»" {
+  :in-shell prelude FIRST (N1): workdir · ""bridge_google_keys""\n· ""bridge_git_identity"" — no .env load (N7);
+  :""proveo-entrypoint prep"": run-as uid passwd entry (root-free)\n· git-context report · ""gh"" auth check (no smoke mode, N22);
   :seed BAKED defaults into ~/.<tool>\n(agents, config, hooks — image-immutable, offline);
   :tool setup via **jq** — cursor HTTP/1.1 fallback;
   :**code intelligence** — shared LSP detector\n(entrypoint-lib.sh §8: bash+awk) ranks workspace\nlanguages vs INSTALLED servers, ""command -v""-gated;
@@ -192,16 +193,16 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
     agent's own output.
   end note
   :apply declarative env-var bridges (model routing);
-  :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched over egress = allowed reads);
-  :exec agent CLI\n(agent installs the repo's own deps on demand — reads pass firewall);
+  :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched as sbx's policy allows);
+  :exec agent CLI\n(agent installs the repo's own deps on demand);
   note left
   **Three contracts the shared lib holds for every entrypoint.**
 
-  //The "".env"" skip is a containment step, not an optimisation.// Under
-  proxy/firewall the wrapper has already masked ""/app/\.env"" and kept the
-  secret host-side, so the lib does not source the file — a leaked
-  or unmasked copy must not be able to re-export keys into the agent
-  process. Non-secret harness flags travel as ""-e"" instead.
+  //No image sources the workspace "".env"" (N7, 2026-10-17).// A copy in the
+  mounted tree must not be able to re-export keys into the agent process, so
+  the lib no longer reads it at all; its values reach a new sandbox from the
+  host through ""--env-file"", provider keys dropped unless forwarding.
+  Non-secret harness flags travel in the Kit environment.
 
   //Agent evidence defaults to verbose.// The host ships
   ""PROVEO_AGENT_EVIDENCE"" and anything other than an explicit ""default""
@@ -222,9 +223,9 @@ partition "4 · Install defaults / dynamic  «agent container: entrypoint.sh»" 
 }
 
 partition "5 · Reports / logging, post-session  «host»" {
-  :MITM records ""flows.ndjson"" audit throughout\n(query / headers / body omitted — never logs secrets);
+  :teardown saves ""sbx policy log"" to <runDir>/sbx/policy-log.json\n(allowed/blocked hosts — no MITM, so no flow record);
   :agent writes artifacts into reports/ (RW mount);
-  :on exit OR SIGINT/SIGTERM — **Teardown** (quiet runner):\n""rm -f"" sidecars · ""network rm"" · remove inject/broker.env;
+  :on exit OR SIGTERM/SIGHUP — **Teardown**: clone carry-back,\nstate save, ""sbx rm"" per the keep/remove decision;
 }
 
 stop

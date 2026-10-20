@@ -125,11 +125,9 @@ the list is ordered judgement, and a lower entry costs nothing.
 
 After editing, `go test ./internal/provider/`.
 
-> **This catalog has no reader today.** `PlanFallback` walked the list until an
-> id resolved, and `TestPlanFallbacksAreRealModels` checked every entry against
-> the registry. Both were deleted with the model bridging: proveo no longer
-> resolves a model id, because it no longer chooses an agent's model
-> (`_spec/_plans/retire-model-bridging.puml`). Whether the catalog retires too
-> or survives as VALIDATION — warning that a saved config names a model that no
-> longer exists — is that plan's **Q4**, which was never asked. Until it is, this
-> skill maintains a fact nothing consumes.
+> **This catalog validates; it no longer resolves.** `warnUnknownModel` checks a
+> saved model id through `CheckModel`, and `posture.RolesLine` reads
+> `ModelProvider`. `PlanFallback` and `TestPlanFallbacksAreRealModels` were
+> deleted with the model bridging: proveo no longer chooses an agent's model
+> (`_spec/_plans/retire-model-bridging.puml`). Whether the catalog stays as
+> validation or retires is that plan's open **Q4**.

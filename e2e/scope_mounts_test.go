@@ -32,7 +32,7 @@ func TestScopeCarriesRootSpecDir(t *testing.T) {
 			if tc.scope != "" {
 				input = filepath.Join(repo, tc.scope)
 			}
-			sess := launchShell(t, proveoBin, target, input)
+			k := launchKit(t, proveoBin, target, input, nil)
 
 			script := `root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "NO_REPO_ROOT"; exit 1; }
 [ -d "$root/_spec" ] || { echo "MISSING_SPEC_DIR"; exit 1; }
@@ -42,7 +42,7 @@ rm -f "$root/_spec/written.puml"
 [ -d "$root/apps/web" ] || { echo "MISSING_SCOPE"; exit 1; }
 echo "SPEC_OK"`
 
-			out, status := shellExec(t, sess, script, 60*time.Second)
+			out, status := k.exec(script, 60*time.Second)
 			if status != 0 || !strings.Contains(out, "SPEC_OK") {
 				t.Fatalf("%s scope cannot reach a writable _spec (exit %d):\n%s", tc.mode, status, out)
 			}
@@ -54,13 +54,13 @@ func TestSubdirScopeOmitsUnmountedPaths(t *testing.T) {
 	const target = "opencode"
 	requireHarness(t, target)
 	repo := newTempMonorepo(t)
-	sess := launchShell(t, buildProveo(t), target, filepath.Join(repo, "apps"))
+	k := launchKit(t, buildProveo(t), target, filepath.Join(repo, "apps"), nil)
 
 	script := `[ -e libs ] && { echo "LIBS_PRESENT"; exit 1; }
 [ -e unmounted ] && { echo "UNMOUNTED_PRESENT"; exit 1; }
 echo "NARROWED_OK"`
 
-	out, status := shellExec(t, sess, script, 60*time.Second)
+	out, status := k.exec(script, 60*time.Second)
 	if status != 0 || !strings.Contains(out, "NARROWED_OK") {
 		t.Fatalf("a subdir scope must not carry unrelated repo paths (exit %d):\n%s", status, out)
 	}
@@ -92,6 +92,17 @@ func newTempWorktree(t *testing.T) (worktree string) {
 	write(".gitignore", "node_modules\n.env\n")
 	write(".env", "SECRET=from-monorepo\n")
 	write("package.json", `{"name":"m","scripts":{"test":"echo t"}}`+"\n")
+	write("package-lock.json", `{
+  "name": "m",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "m"
+    }
+  }
+}
+`)
 	run(main, "add", "-A")
 	run(main, "commit", "-q", "-m", "seed")
 	run(main, "worktree", "add", "-q", wt, "-b", "hotfix")
@@ -101,10 +112,9 @@ func newTempWorktree(t *testing.T) (worktree string) {
 	return wt
 }
 
-// TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode
-// --shell`, not a hand-built `docker run --entrypoint bash`: the git-safe-dir
-// bridging under test is the real entrypoint's own, already applied before
-// the shell prompt appears, not a manually re-invoked copy of it. It asserts
+// TestWorktreeWorkspaceIsFullyUsable drives a real `proveo run claudecode`
+// through its kit and probes it with `sbx exec`, so the git configuration under
+// test is the run's own, not a manually re-invoked copy of it. It asserts
 // the MOUNTED worktree, which since clone-through-main is the explicit opt-out.
 func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	const target = "claudecode"
@@ -112,7 +122,7 @@ func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	proveoBin := buildProveo(t)
 	wt := newTempWorktree(t)
 
-	sess := launchShellEnv(t, proveoBin, target, wt, []string{"PROVEO_DEPS=shared"}, "--clone=false")
+	k := launchKit(t, proveoBin, target, wt, []string{"PROVEO_DEPS=shared"}, "--clone=false")
 	script := `grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "NOT_A_REPO"; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = hotfix ] || { echo "WRONG_BRANCH"; exit 1; }
@@ -123,12 +133,12 @@ touch AGENTS.md.probe 2>/dev/null || { echo "WORKSPACE_READONLY"; exit 1; }
 rm -f AGENTS.md.probe
 echo "WORKTREE_OK"`
 
-	out, status := shellExec(t, sess, script, 60*time.Second)
+	out, status := k.exec(script, 60*time.Second)
 	if status != 0 || !strings.Contains(out, "WORKTREE_OK") {
 		t.Fatalf("worktree workspace unusable (exit %d):\n%s", status, out)
 	}
 
-	seeded, _ := shellExec(t, sess, `git status --porcelain | head -5`, 30*time.Second)
+	seeded, _ := k.exec(`git status --porcelain | head -5`, 30*time.Second)
 	if !strings.Contains(seeded, "?? AGENTS.md") {
 		t.Errorf("claudecode left the worktree untouched, but its seed writes AGENTS.md "+
 			"into a workspace that carries none — the seed either stopped running or wrote elsewhere:\n%s", seeded)
@@ -162,105 +172,8 @@ func TestMountedWorktreeRefusesAForeignPlatformInstall(t *testing.T) {
 	}
 }
 
-func worktreeEnvArgs(t *testing.T, target, input string) []string {
-	t.Helper()
-	bin := buildProveo(t)
-	cmd := exec.Command(bin, "run", target, "--credentials", "forward", "--input", input, "--print")
-	cmd.Env = append(os.Environ(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
-	}
-	var args []string
-	for _, f := range strings.Fields(string(out)) {
-		if strings.HasPrefix(f, "GIT_DIR=") || strings.HasPrefix(f, "GIT_WORK_TREE=") {
-			args = append(args, "-e", f)
-		}
-	}
-	return args
-}
-
-// TestClaudecodeEntrypointOperatesOnTheInputDir deliberately stays on a raw
-// entrypoint.sh invocation: it relies on PROVEO_SMOKE_TEST, a self-test mode
-// built into the entrypoint script itself with no `proveo run` CLI surface
-// (no flag triggers it), so there is no real launch to convert this into.
-func TestClaudecodeEntrypointOperatesOnTheInputDir(t *testing.T) {
-	skipOutsideSbx(t, "a raw docker run of the entrypoint")
-	const target = "claudecode"
-	img := harnessImage(t, target)
-	wt := newTempWorktree(t)
-
-	args := []string{"run", "--rm", "--name", "proveo-cwd-probe-" + t.Name()}
-	args = append(args, workspaceMountArgs(t, target, wt)...)
-	args = append(args, worktreeEnvArgs(t, target, wt)...)
-	args = append(args,
-		"-v", entrypointLibPath(t)+":/entrypoint-lib.sh:ro",
-		"-v", filepath.Join(repoRootDir(t), "defs/claudecode/mcp/entrypoint.sh")+":/proveo-ep.sh:ro",
-		"--user", hostUIDGID(t),
-		"-e", "PROVEO_SMOKE_TEST=1", "-e", "PROVEO_SMOKE_TARGET=claudecode",
-		"--entrypoint", "bash", img, "/proveo-ep.sh")
-
-	cmd := exec.Command("docker", args...)
-	done := make(chan struct{})
-	var out []byte
-	go func() { out, _ = cmd.CombinedOutput(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(45 * time.Second):
-		_ = exec.Command("docker", "rm", "-f", "proveo-cwd-probe-"+t.Name()).Run()
-		<-done
-	}
-	s := string(out)
-
-	if !strings.Contains(s, "PROVEO_SMOKE_READY") {
-		t.Fatalf("entrypoint did not reach smoke readiness:\n%s", s)
-	}
-	if strings.Contains(s, "Could not seed AGENTS.md") {
-		t.Errorf("entrypoint seeded into a directory it cannot write — it is not working "+
-			"in the mounted input dir:\n%s", s)
-	}
-	if !verifyCommandsListed(s) {
-		t.Errorf("Verification Commands section is empty — the entrypoint scanned a directory "+
-			"that holds no project markers:\n%s", s)
-	}
-}
-
-// verifyCommandsListed reports whether at least one command follows the
-// "Verification Commands" banner before the section closes.
-func verifyCommandsListed(out string) bool {
-	lines := strings.Split(out, "\n")
-	for i, l := range lines {
-		if !strings.Contains(l, "Verification Commands") {
-			continue
-		}
-		for _, next := range lines[i+1:] {
-			t := strings.TrimSpace(next)
-			if t == "" || strings.HasPrefix(t, "─") {
-				break
-			}
-			return true
-		}
-	}
-	return false
-}
-
 // rootLibProbe runs a script against entrypoint-lib.sh inside the image, as
 // ROOT, with dir bind-mounted at /w.
-//
-// ROOT IS DELIBERATE — these probes exercise provisioning paths that install
-// packages — and it is also why this helper exists rather than four copies of
-// the invocation. A root container writing into a `t.TempDir()` leaves files the
-// TEST USER cannot unlink, and Go's TempDir cleanup then fails the test AFTER
-// its assertions have already passed. MEASURED: the absent-node_modules probe
-// below has no node_modules, so ensure_dependency_trees auto-installs, and
-// `pnpm install` left /w/.pnpm-store and /w/node_modules owned by root:root —
-// `TempDir RemoveAll cleanup: unlinkat .../.pnpm-store/v10/files/7b: permission
-// denied`, on a subtest whose own check had passed.
-//
-// So ownership is handed back before the container exits. The trap fires on
-// every exit path, including the `exit 1`s the scripts use to report failure, so
-// a FAILING probe cleans up too — otherwise the first real failure here would be
-// followed by a cleanup failure masking it.
 func rootLibProbe(t *testing.T, img, dir, script string) (string, error) {
 	t.Helper()
 	out, err := exec.Command("docker", "run", "--rm", "--user", "root",

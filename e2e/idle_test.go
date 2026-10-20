@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/proveo-ca/proveo/internal/envflag"
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 // runIDPattern finds the sandbox/run name proveo prints, so teardown can name it.
@@ -22,10 +25,7 @@ var runIDPattern = regexp.MustCompile(`proveo-\d+-\d+`)
 var authFailures = []string{
 	"Failed to authenticate",
 	"Credit balance is too low",
-	// The same state in other vendors' words. It arrives as a 403, which reads
-	// as an egress denial and was misread as one for a whole session before
-	// anyone opened the response body — so the wording, not the status, is what
-	// gets recognised here.
+	// The same out-of-credits state in other vendors' words.
 	"used all available credits",
 	"reached its monthly spending limit",
 	"insufficient_quota",
@@ -36,14 +36,6 @@ var authFailures = []string{
 	// cursor-agent's first-run screen. It IS at a prompt, but the only key it
 	// accepts starts a login — so an unattended session can never proceed.
 	"Press any key to log in",
-}
-
-var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[]P][^\x1b\x07]*(?:\x1b\\|\x07)|\x1b.`)
-
-// plain renders terminal output as the words a reader would see, so a marker can
-// be matched without depending on where the cursor happened to be.
-func plain(s string) string {
-	return strings.Join(strings.Fields(ansiSeq.ReplaceAllString(s, " ")), " ")
 }
 
 var blockedMarkers = []string{
@@ -65,7 +57,7 @@ func promptMarkers(target string) []string {
 }
 
 func reachedPromptFor(raw, target string) bool {
-	out := plain(raw)
+	out := withoutPlanLine(raw, target)
 	for _, m := range promptMarkers(target) {
 		if strings.Contains(out, m) {
 			return true
@@ -74,26 +66,43 @@ func reachedPromptFor(raw, target string) bool {
 	return false
 }
 
+// withoutPlanLine is raw as words, minus proveo's own `agent: <target> <version>` line.
+func withoutPlanLine(raw, target string) string {
+	plan := "agent: " + target + " "
+	var keep []string
+	for _, line := range strings.Split(raw, "\n") {
+		if w := termtext.Words(line); w != "" && !strings.Contains(w, plan) {
+			keep = append(keep, w)
+		}
+	}
+	return strings.Join(keep, " ")
+}
+
+func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
+	t.Parallel()
+	const target = "opencode"
+	plan := "\x1b[36m  \x1b[0m\x1b[90magent: opencode 1.4.0 — pinned at build (`proveo build opencode` moves it)\x1b[0m\r\n"
+	for _, tc := range []struct {
+		name, raw string
+		want      bool
+	}{
+		{"the plan line alone", "backend: docker sandboxes (sbx)\r\n" + plan, false},
+		{"the agent's banner after the plan line", plan + "\x1b[2J\x1b[1;1H\x1b[1mopencode\x1b[0m  Ask anything", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := reachedPromptFor(tc.raw, target); got != tc.want {
+				t.Errorf("reachedPromptFor(%q, %q) = %v, want %v", tc.raw, target, got, tc.want)
+			}
+		})
+	}
+}
+
 // deathMarkers are what the operator actually sees when this regresses.
 var deathMarkers = []string{
 	"was stopped",
 	"kept for diagnosis",
 	"agent exited with code",
-}
-
-func detectBackend(raw string) string {
-	out := plain(raw)
-	for _, m := range []string{
-		"docker sandboxes (sbx)", // proveo's own backend line
-		"Created sandbox ",       // sbx's
-		"/sbx/kit",               // the kit path in the posture block
-		"/sbx/policy-log.json",   // the egress record
-	} {
-		if strings.Contains(out, m) {
-			return "sbx"
-		}
-	}
-	return "docker+egress"
 }
 
 func idleTargets() []string {
@@ -113,7 +122,7 @@ func idleTargets() []string {
 }
 
 func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
-	if os.Getenv("PROVEO_IDLE_TEST") != "1" {
+	if !envflag.On(os.Getenv("PROVEO_IDLE_TEST")) {
 		t.Skip("set PROVEO_IDLE_TEST=1 to run the idle-survival check (it waits on purpose, ~6 minutes)")
 	}
 	for _, target := range idleTargets() {
@@ -122,7 +131,8 @@ func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 }
 
 func idleAtPrompt(t *testing.T, target string) {
-	harnessImage(t, target) // skips unless docker and the image are both here
+	requireSbx(t)
+	harnessImage(t, target)
 	proveoBin := buildProveo(t)
 
 	idle := durationEnv(t, "PROVEO_IDLE_FOR", 5*time.Minute)
@@ -143,7 +153,7 @@ func idleAtPrompt(t *testing.T, target string) {
 	})
 
 	args := append(childEnvArgsNoCredential(t), "PROVEO_TRACE_STDIN="+trace,
-		proveoBin, "run", target, "--input", work)
+		proveoBin, "run", target, "--clone", "--input", work)
 	cmd := exec.Command("env", args...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -191,30 +201,26 @@ func idleAtPrompt(t *testing.T, target string) {
 	for {
 		out := seen()
 		for _, f := range authFailures {
-			if strings.Contains(plain(out), f) {
+			if strings.Contains(termtext.Words(out), f) {
 				t.Skipf("agent never reached a prompt (%q) — idle survival is untestable without a session", f)
 			}
 		}
-		if reachedPromptFor(out, target) {
-			break
-		}
 		select {
 		case err := <-exited:
-			t.Fatalf("proveo exited before the agent reached a prompt (%v)\n%s", err, lastLines(out, 25))
+			t.Fatalf("proveo exited before the agent reached a prompt (%v)\n%s", err, lastLines(seen(), 25))
 		default:
+		}
+		if reachedPromptFor(out, target) {
+			break
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("the agent never reached a prompt within %s\n%s", startup, lastLines(out, 25))
 		}
 		time.Sleep(2 * time.Second)
 	}
-	backend := detectBackend(seen())
-	t.Logf("agent reached a prompt on the %s backend — injecting the reports a real terminal answers, then waiting %s with no further input", backend, idle)
+	t.Logf("agent reached a prompt — injecting the reports a real terminal answers, then waiting %s with no further input", idle)
 
-	// creack/pty does not answer Device Attributes. A host terminal does, and
-	// Cursor 2026.09.15 probes kitty-push then DA1 at startup. Without these
-	// writes, idle-all certified a path that never saw the bytes that kill
-	// `proveo run cursor` on a real tty.
+	// creack/pty answers no terminal reports; send the ones a host tty would.
 	injectTerminalReports(t, ptmx)
 
 	// ── do nothing, on purpose ───────────────────────────────────────────────
@@ -224,13 +230,13 @@ func idleAtPrompt(t *testing.T, target string) {
 		// An agent that was never logged in did not "die idle" — it could not
 		// start. Reported as a skip so the reader is not sent after the wrong bug.
 		for _, f := range authFailures {
-			if strings.Contains(plain(out), f) {
+			if strings.Contains(termtext.Words(out), f) {
 				t.Skipf("agent reached a prompt but was not authenticated (%q) — it exits on its own, "+
 					"so idle survival is untestable until the login works", f)
 			}
 		}
 		for _, m := range deathMarkers {
-			if strings.Contains(plain(out), m) {
+			if strings.Contains(termtext.Words(out), m) {
 				t.Fatalf("the agent died while IDLE after reaching a prompt: %q (%v)\n%s", m, err, lastLines(out, 30))
 			}
 		}
@@ -241,11 +247,11 @@ func idleAtPrompt(t *testing.T, target string) {
 	// ── it is still there ────────────────────────────────────────────────────
 	out := seen()
 	for _, m := range deathMarkers {
-		if strings.Contains(plain(out), m) {
+		if strings.Contains(termtext.Words(out), m) {
 			t.Errorf("output carries %q even though proveo is still running\n%s", m, lastLines(out, 30))
 		}
 	}
-	if name := runIDPattern.FindString(out); name != "" && backend == "sbx" {
+	if name := runIDPattern.FindString(out); name != "" {
 		if !sandboxRunning(name) {
 			t.Errorf("sandbox %s is no longer running after %s idle — the session was stopped underneath the agent", name, idle)
 		}
@@ -282,10 +288,8 @@ func lastLines(s string, n int) string {
 	return "── last output ──\n" + strings.Join(out, "\n")
 }
 
-// idleWorkspace is the shape that died at ~16s: go.mod (gopls / go mod
-// download) plus a package.json with no engines.node (the node-version lookup).
-// An empty TempDir never reached that seed path, so the idle gate passed while
-// `proveo run cursor` against this repo did not.
+// idleWorkspace is a committed repo holding go.mod and a package.json without engines.node.
+// SPEC: _spec/tests/testing-strategy.puml
 func idleWorkspace(t *testing.T) string {
 	t.Helper()
 	work := t.TempDir()
@@ -298,6 +302,7 @@ func idleWorkspace(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	gitInit(t, work)
 	return work
 }
 
@@ -326,30 +331,5 @@ func injectTerminalReports(t *testing.T, w *os.File) {
 	}
 	if _, err := w.Write([]byte("\x9b?6c")); err != nil {
 		t.Fatalf("inject 8-bit DA1: %v", err)
-	}
-}
-
-func TestDetectBackendReadsMoreThanProveosOwnLine(t *testing.T) {
-	t.Parallel()
-	// Every one of these appeared in the output of a run that WAS sbx.
-	for _, witness := range []string{
-		"● backend: docker sandboxes (sbx)",
-		"✓ Created sandbox proveo-1788711006-59906",
-		"  kit        /Users/x/.local/state/proveo/egress/proveo-1/sbx/kit",
-		"● egress record: /Users/x/.local/state/proveo/egress/proveo-1/sbx/policy-log.json",
-	} {
-		if got := detectBackend(witness); got != "sbx" {
-			t.Errorf("detectBackend(%q) = %q, want sbx", witness, got)
-		}
-	}
-	// And a genuine docker run must not be misread the other way.
-	for _, witness := range []string{
-		"● backend: docker + egress sidecars",
-		"docker run -d --rm --name proveo-1-squid",
-		"",
-	} {
-		if got := detectBackend(witness); got != "docker+egress" {
-			t.Errorf("detectBackend(%q) = %q, want docker+egress", witness, got)
-		}
 	}
 }

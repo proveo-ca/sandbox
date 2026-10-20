@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/cmd/proveo/usage.puml
 // Command proveo-dev is the maintainer tooling mise runs; it is not shipped.
 package main
 

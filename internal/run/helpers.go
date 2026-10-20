@@ -2,36 +2,19 @@
 package run
 
 import (
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
+	"sync"
 
-	"github.com/gdamore/tcell/v2"
-
-	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
-
-func policyProviderHosts(detected []string, c manifest.Capabilities) []string {
-	seen, out := map[string]bool{}, []string{}
-	for _, h := range append(credentials.ReachableHosts(detected), credentials.ReachableHosts(c.Providers)...) {
-		if h = strings.ToLower(strings.TrimSpace(h)); h != "" && !seen[h] {
-			seen[h] = true
-			out = append(out, h)
-		}
-	}
-	return out
-}
 
 func reportLinks(links []workspace.Link) {
 	for _, l := range links {
@@ -50,61 +33,18 @@ func reportLinks(links []workspace.Link) {
 	}
 }
 
-func CloneDefault(getenv func(string) string) bool {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_CLONE"))) {
-	case "0", "off", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
-}
+func CloneDefault(getenv func(string) string) bool { return envflag.Bool(getenv("PROVEO_CLONE"), true) }
 
 func mountRootDeps(getenv func(string) string) bool {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_MOUNT_ROOT_DEPS"))) {
-	case "0", "off", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
+	return envflag.Bool(getenv("PROVEO_MOUNT_ROOT_DEPS"), true)
 }
 
-func reviewConsent(mode string) (func(host, port string) bool, *ptyproxy.Proxy) {
-	if mode != "review" {
-		return nil, nil
-	}
-	if !ptyproxy.Usable(os.Stdin, os.Stdout) {
-		ui.Warnf("review tier without a terminal: no way to ask, so every new connection will be denied")
-		return nil, nil
-	}
-	proxy := ptyproxy.New(os.Stdin, os.Stdout)
-	return func(host, port string) bool {
-		allowed := false
-		if err := proxy.Overlay(func(in io.Reader, _ io.Writer) error {
-			var derr error
-			allowed, derr = choiceui.Consent(func() (tcell.Screen, error) {
-				return proxy.OverlayScreen(in)
-			}, host, port)
-			return derr
-		}); err != nil {
-			ui.Warnf("review prompt unavailable (%v): denying %s:%s", err, host, port)
-			return false
-		}
-		return allowed
-	}, proxy
-}
-
-func sbxStoredAuth(man manifest.Manifest, p *Params) []string {
-	if !sbxSuppliesCredential(man, p, true) {
-		return nil
-	}
-	ok, _ := sbx.Available()
-	if !sbxSuppliesCredential(man, p, ok) {
+// sbxStoredAuth names the subscription credentials sbx's secret store holds for man.
+func sbxStoredAuth(man manifest.Manifest) []string {
+	if !man.Subscription {
 		return nil
 	}
 	return credentials.StoreHolds(man, sbx.StoredSecretNames())
-}
-
-func sbxSuppliesCredential(man manifest.Manifest, p *Params, sbxOK bool) bool {
-	return man.Subscription && man.IsSbx() && p.Mode != "review" &&
-		sandbox.Enabled() && sbxOK
 }
 
 func gitRootOrEmpty(ws workspace.Scope, repoRoot string) string {
@@ -124,32 +64,6 @@ func warnUnknownModel(key, value, localModel string) {
 	}
 }
 
-func ollamaModelsDir() string {
-	if d := os.Getenv("PROVEO_OLLAMA_MODELS_DIR"); d != "" {
-		return d
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".ollama", "models")
-}
-
-func preferHostOllama() bool {
-	if os.Getenv("PROVEO_LOCAL_MODEL_SIDECAR") == "1" {
-		return false
-	}
-	return runtime.GOOS == "darwin"
-}
-
-func sidecarOllamaGPU() bool {
-	if runtime.GOOS != "linux" {
-		return false
-	}
-	out, err := exec.Command("docker", "info", "--format", "{{json .Runtimes}}").Output()
-	return err == nil && strings.Contains(string(out), "nvidia")
-}
-
 func OrWD(p string) string {
 	if p != "" {
 		return p
@@ -158,16 +72,24 @@ func OrWD(p string) string {
 	return wd
 }
 
-func brokerEnabled() bool {
-	switch strings.ToLower(os.Getenv("PROVEO_CREDENTIAL_BROKER")) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
+var warnedRetired sync.Map
+
+// renamedEnv reads name, else the retired old name with a one-time deprecation warning.
+func renamedEnv(name, old string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
 	}
-	return true
+	v := os.Getenv(old)
+	if v != "" {
+		if _, seen := warnedRetired.LoadOrStore(old, true); !seen {
+			ui.Warnf("%s is deprecated and goes away next release — set %s", old, name)
+		}
+	}
+	return v
 }
 
 func StateDir() string {
-	if x := os.Getenv("PROVEO_EGRESS_ROOT"); x != "" {
+	if x := renamedEnv("PROVEO_STATE_ROOT", "PROVEO_EGRESS_ROOT"); x != "" {
 		return x
 	}
 	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
@@ -176,10 +98,11 @@ func StateDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".local", "state", "proveo")
 }
 
-func WizardEnabled() bool {
-	switch strings.ToLower(os.Getenv("PROVEO_WIZARD")) {
-	case "off", "0", "no", "false", "disable", "disabled":
-		return false
-	}
-	return true
+// RunRoots are the per-run state roots, current first, then the retired egress/ root.
+func RunRoots() []string {
+	state := StateDir()
+	return []string{filepath.Join(state, "runs"), filepath.Join(state, "egress")}
 }
+
+// RunDirOf is the state directory of the run sid.
+func RunDirOf(sid string) string { return filepath.Join(RunRoots()[0], sid) }

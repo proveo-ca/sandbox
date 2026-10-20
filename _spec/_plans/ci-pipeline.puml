@@ -20,8 +20,8 @@ node "CI runner — standard" as STD <<host>> {
 }
 
 node "CI runner — Docker" as DKR <<host>> {
-  component "L3 egress infra-integration\nPROVEO_EGRESS_INTEGRATION=1\n-tags=integration" as L3 <<async>>
-  component "image graph build\nbase → base-node → base-node-lsp →\nbase-node-browser → harnesses + sidecars" as IMG <<async>>
+  component "L3 egress infra-integration\nRETIRED 2026-10-16 with the docker backend" as L3 <<error>>
+  component "image graph build\nbase → base-node → base-node-lsp →\nbase-node-browser → harnesses" as IMG <<async>>
 }
 
 node "CI runner — GPU (or pinned small model)" as GPU <<host>> {
@@ -46,7 +46,7 @@ end note
 note right of L4
   Both suites exist and pass: ""e2e_test.go"" (local model,
   opencode) and ""hello_world_test.go"" (cloud model, all
-  three harnesses, firewall + broker). CI needs a GPU
+  three harnesses, on sbx). CI needs a GPU
   runner for the former, or a pinned small model via
   ""PROVEO_TEST_LOCAL_MODEL"" on CPU.
   Detail: _spec/tests/testing-strategy.puml
@@ -60,16 +60,21 @@ end note
 
 note bottom of DKR
   **Then — supply chain, once the pipeline exists:**
-  * digest-pin the enforcement images (""ubuntu/squid"",
-    ""proveo/egress-proxy"", ""ollama/ollama"") — the egress
-    trust root, currently floating ""latest""
   * make the advertised CDN install self-verifying, or
     sign the artifacts (today checksum + binary share an
     origin)
-  * full egress validation matrix: per-mode invariants +
-    active Squid / proxy readiness probes
   * pre-bake ""@ai-sdk/openai-compatible"" so opencode's
-    local model resolves under firewall (runtime install
-    is blocked by the locked egress)
+    local model resolves under a deny-all sbx baseline
+    [Inference] (runtime install needs the registry)
+  * HISTORY: digest-pinning the enforcement images
+    (squid, egress-proxy, ollama) and a per-mode egress
+    matrix lost their subject 2026-10-16
+end note
+
+note bottom of L3
+  **Retired, not pending.** The docker egress
+  topology it would have run is deleted; sbx's
+  policy is exercised by e2e/sbx_egress_test.go
+  inside L4.
 end note
 @enduml

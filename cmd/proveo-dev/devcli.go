@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/cdn/distribution-update.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/internal/cdn/distribution-update.puml
 package main
 
 import (
@@ -17,7 +17,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			if err := stageCDN(root, os.Getenv("PROVEO_CDN_REQUIRE_DIST") == "1"); err != nil {
+			if err := stageCDN(root, distRequired(os.Getenv)); err != nil {
 				return err
 			}
 			return run(root, nil, "pnpm", wranglerArgs("dev")...)

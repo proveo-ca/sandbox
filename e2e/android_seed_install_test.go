@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/hostadb"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -39,6 +41,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	}
 	harnessImage(t, "opencode")
 	sweepSandboxesAfter(t)
+	before, _ := sbxSandboxNames()
 	proveoBin := buildProveo(t)
 	hostADB := func(args ...string) string {
 		out, _ := exec.Command(hostadb.AdbBinary(os.Getenv), append([]string{"-P", strconv.Itoa(port)}, args...)...).CombinedOutput()
@@ -64,19 +67,32 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	_ = first.Enter()
 	if !waitUntil(budget, installed) {
 		screen, _ := first.CaptureAll()
-		t.Fatalf("the seed did not install %s on the host emulator:\n%s", helloPackage, tail(screen, 60))
+		t.Fatalf("the seed did not install %s on the host emulator:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(before, hostADB))
 	}
 	if top := hostADB("shell", "dumpsys", "activity", "activities"); !strings.Contains(top, helloPackage) {
 		t.Errorf("%s installed but not launched:\n%s", helloPackage, tail(top, 20))
 	}
-	first.Kill()
+	if screen, ok := stopRun(first, 3*time.Minute); !ok {
+		t.Fatalf("the first run never finished its teardown after SIGTERM\n%s", tail(screen, 40))
+	}
 	hostADB("uninstall", helloPackage)
 
 	second := seedRun(t, proveoBin, home, work, "second", "--yes", "--addon", "android")
 	if !waitUntil(budget, installed) {
 		screen, _ := second.CaptureAll()
-		t.Fatalf("a --yes rerun did not reinstall %s from the remembered answer:\n%s", helloPackage, tail(screen, 60))
+		t.Fatalf("a --yes rerun did not reinstall %s from the remembered answer:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(before, hostADB))
 	}
+}
+
+// installEvidence is the seed's install log from each sandbox this test made, and the host's device list.
+func installEvidence(before map[string]bool, hostADB func(...string) string) string {
+	var b strings.Builder
+	for _, name := range newSandboxes(before) {
+		out, err := exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "cat", sandbox.AndroidLog).CombinedOutput()
+		fmt.Fprintf(&b, "── %s:%s (err=%v)\n%s\n", name, sandbox.AndroidLog, err, tail(string(out), 80))
+	}
+	fmt.Fprintf(&b, "── host adb devices -l\n%s", hostADB("devices", "-l"))
+	return b.String()
 }
 
 func seedRun(t *testing.T, proveoBin, home, work, tag string, extra ...string) *tmux.Session {
@@ -84,7 +100,7 @@ func seedRun(t *testing.T, proveoBin, home, work, tag string, extra ...string) *
 	sess := tmux.New(fmt.Sprintf("proveo-android-seed-%s-%d", tag, time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := append([]string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + home, "PROVEO_MOUNT_GH_CONFIG=0",
-		proveoBin, "run", "opencode", "--egress-mode", "open", "--input", work, "--shell"}, extra...)
+		proveoBin, "run", "opencode", "--input", work}, extra...)
 	if err := sess.Start(220, 60, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}

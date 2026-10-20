@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestHomeAccessExposesOnlyThisHarnessState(t *testing.T) {
@@ -105,52 +107,46 @@ func TestHomeAccessCommitUsesNewestFile(t *testing.T) {
 	}
 }
 
-func TestOpenCodeHomeAccessSharesOnlyDeclaredV2History(t *testing.T) {
+func TestOpenCodeHomeAccessMountsConfigButNeverHistory(t *testing.T) {
 	t.Parallel()
-	root, runDir := t.TempDir(), t.TempDir()
-	unselected := filepath.Join(root, "other-history")
-	if err := os.MkdirAll(unselected, 0o700); err != nil {
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
 		t.Fatal(err)
 	}
-	h := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{
-		{Host: "opencode/v2/config", Container: "/proveo-home/.config/opencode"},
-		{Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode"},
-	}}
+	var h manifest.Home
+	for _, m := range ms {
+		if m.Name == "opencode" {
+			h = m.Home
+		}
+	}
+	root, runDir := t.TempDir(), t.TempDir()
+	for _, store := range []string{"opencode/v2/share", "opencode/share", ".local/share/opencode", "opencode/carry"} {
+		if err := os.MkdirAll(filepath.Join(root, store), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	a, err := PrepareHomeAccess(root, runDir, h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{filepath.Join(root, "opencode/v2/config"), filepath.Join(root, "opencode/v2/share"), filepath.Join(root, "toolchains")}
+	want := []string{filepath.Join(root, "opencode/v2/config"), filepath.Join(root, "toolchains")}
 	if len(a.Mounts) != len(want) {
-		t.Fatalf("unexpected sharing plan: %+v", a.Mounts)
+		t.Fatalf("OpenCode's home plan = %+v, want only its config and the toolchain store", a.Mounts)
 	}
 	for _, host := range want {
 		if !slices.Contains(a.Mounts, runner.Mount{Host: host}) {
-			t.Errorf("sharing plan omits %s: %+v", host, a.Mounts)
+			t.Errorf("OpenCode's home plan omits %s: %+v", host, a.Mounts)
 		}
 	}
 	cfg, _, _ := Spec(Input{Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h}, Sid: "proveo-fixture",
-		EgDir: runDir, HomeRoot: root, HomeAccess: a, Lookup: func(string) string { return "" },
+		RunDir: runDir, HomeRoot: root, HomeAccess: a, Lookup: func(string) string { return "" },
 		Mounts: []runner.Mount{{Host: root, Container: "/proveo-home"}},
 	})
 	for _, m := range cfg.Mounts {
-		if m.Host == root || m.Host == unselected || m.Host == filepath.Join(root, ".local") || m.Host == filepath.Join(root, ".local/share") || m.Host == filepath.Join(root, "logs") {
-			t.Fatalf("history sharing widened the home view: %+v", cfg.Mounts)
+		if rel, err := filepath.Rel(root, m.Host); err == nil && !strings.HasPrefix(rel, "..") &&
+			m.Host != filepath.Join(root, "opencode/v2/config") && m.Host != filepath.Join(root, "toolchains") {
+			t.Errorf("the engine sees %s; OpenCode history lives in the engine and never on a host mount", m.Host)
 		}
-	}
-}
-
-func TestOpenCodeHomeAccessDoesNotCreateNativeHistoryInHostHome(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	_, err := PrepareHomeAccess(root, t.TempDir(), manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{
-		Host: "opencode/v2/share", Container: "/proveo-home/.local/share/opencode",
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".local/share/opencode")); !os.IsNotExist(err) {
-		t.Fatalf("preparation created an obsolete data tree: %v", err)
 	}
 }
 
@@ -172,7 +168,7 @@ func TestSpecReplacesTheWholeProveoHomeWithNarrowBinds(t *testing.T) {
 		Target: "cursor",
 		Man:    manifest.Manifest{Name: "cursor", Home: h},
 		Sid:    "proveo-1-2",
-		EgDir:  runDir,
+		RunDir: runDir,
 		Mounts: []runner.Mount{
 			{Host: repo, Container: "/app"},
 			{Host: root, Container: "/proveo-home"},
@@ -226,7 +222,7 @@ func TestSpecCarriesTheScopedIndexThroughANarrowedHome(t *testing.T) {
 	defer a.Cleanup()
 	cfg, _, _ := Spec(Input{
 		Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h},
-		Sid: "proveo-1-2", EgDir: runDir, Lookup: func(string) string { return "" },
+		Sid: "proveo-1-2", RunDir: runDir, Lookup: func(string) string { return "" },
 		RepoRoot: repo, ScopeRel: "apps/web",
 		Mounts: []runner.Mount{
 			{Host: filepath.Join(repo, "apps", "web"), Container: "/app/apps/web"},
@@ -261,6 +257,7 @@ func TestHomeAccessMountsALinkedDirReadOnly(t *testing.T) {
 	if err := os.Symlink(repo, filepath.Join(data, "skills-muse")); err != nil {
 		t.Fatal(err)
 	}
+	listLinkedDirs(t, root, repo)
 	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -297,6 +294,7 @@ func TestHomeAccessRefusesLinksThatWidenTheView(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	listLinkedDirs(t, root, root, string(filepath.Separator), "/usr", filepath.Join(root, "logs"), file, filepath.Join(root, "toolchains", "go"), other)
 	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -304,6 +302,64 @@ func TestHomeAccessRefusesLinksThatWidenTheView(t *testing.T) {
 	for _, m := range a.Mounts {
 		if m.ReadOnly {
 			t.Errorf("mounted %s: only a first-level link to a directory outside the home view may add a mount", m.Host)
+		}
+	}
+}
+
+// listLinkedDirs writes the host-side list of link targets a run may follow.
+func listLinkedDirs(t *testing.T, root string, targets ...string) {
+	t.Helper()
+	body := "# targets a home dir's links may reach\n\n" + strings.Join(targets, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(root, manifest.LinkedDirsFile), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHomeAccessFollowsOnlyLinksTheHostListed(t *testing.T) {
+	t.Parallel()
+	root, runDir, listed, secret := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	data := filepath.Join(root, "hermes", "data")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"skills": listed, "ssh": secret} {
+		if err := os.Symlink(target, filepath.Join(data, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listLinkedDirs(t, root, listed)
+	if err := os.WriteFile(filepath.Join(data, manifest.LinkedDirsFile), []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := PrepareHomeAccess(root, runDir, manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{{Host: "hermes/data"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantListed, _ := filepath.EvalSymlinks(listed)
+	wantSecret, _ := filepath.EvalSymlinks(secret)
+	if !slices.Contains(a.Mounts, runner.Mount{Host: wantListed, ReadOnly: true}) {
+		t.Errorf("mounts %+v: a link to a target the host lists must mount read-only", a.Mounts)
+	}
+	for _, m := range a.Mounts {
+		if m.Host == wantSecret {
+			t.Errorf("a link the guest could have planted reached %s; only %s/%s may name targets, and the guest's own copy inside a mounted dir must not count", m.Host, root, manifest.LinkedDirsFile)
+		}
+	}
+	if len(a.SkippedLinks) != 1 || !strings.Contains(a.SkippedLinks[0], wantSecret) {
+		t.Errorf("SkippedLinks = %v, want the unlisted ssh link named so the operator can list it", a.SkippedLinks)
+	}
+}
+
+func TestASkippedLinkNoticeNamesTheLinkAndTheListFile(t *testing.T) {
+	var buf strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&buf)
+	t.Cleanup(func() { ui.Default = prev })
+
+	noteSkippedLinks(HomeAccess{Root: "/h", SkippedLinks: []string{"/h/hermes/data/skills → /x/skills"}})
+	for _, want := range []string{"/h/hermes/data/skills → /x/skills", filepath.Join("/h", manifest.LinkedDirsFile)} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("notice %q must name %q", buf.String(), want)
 		}
 	}
 }

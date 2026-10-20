@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_paradigms/retire-dind.puml, _spec/_plans/image-size-reduction.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/_paradigms/retire-dind.puml, _spec/_devops/image-size-reduction.puml
 package e2e
 
 import (
@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -55,40 +56,36 @@ func pathWithFakeSbx(t *testing.T, version string) []string {
 }
 
 func TestSandboxBackendRefusesAnOutdatedSbx(t *testing.T) {
-	requireDocker(t)
 	old := "0.1.0" // unambiguously below any MinVersion this build will carry
-	out := printOnlyRun(t, t.TempDir(), pathWithFakeSbx(t, old), "claudecode")
-
-	if !strings.Contains(out, "falling back to docker+egress") {
-		t.Errorf("an outdated sbx must fall back, got:\n%s", out)
+	out, err := printOnlyRunErr(t, t.TempDir(), pathWithFakeSbx(t, old), "claudecode")
+	if err == nil {
+		t.Fatalf("an outdated sbx must refuse the run, got success:\n%s", out)
 	}
-	if !strings.Contains(out, sbx.MinVersion) {
-		t.Errorf("the fallback must name the version proveo targets (%s), got:\n%s", sbx.MinVersion, out)
+	if !strings.Contains(out, "proveo runs agents only in sbx") || !strings.Contains(out, sbx.MinVersion) {
+		t.Errorf("the refusal must say sbx is the only backend and name the version proveo targets (%s), got:\n%s", sbx.MinVersion, out)
 	}
-	if !strings.Contains(out, "docker run") {
-		t.Errorf("the fallback must still render a runnable docker argv, got:\n%s", out)
+	if strings.Contains(out, "docker run") {
+		t.Errorf("a refused run rendered a docker argv:\n%s", out)
 	}
 }
 
 func TestSandboxBackendOffersInstallOrUpgradeToMatch(t *testing.T) {
-	requireDocker(t)
 	if sbx.InstallCmd(false) == "" {
 		t.Skip("no sbx install route on this platform")
 	}
 
-	absent := printOnlyRun(t, t.TempDir(), pathWithoutSbx(t), "claudecode")
+	absent, _ := printOnlyRunErr(t, t.TempDir(), pathWithoutSbx(t), "claudecode")
 	if want := sbx.InstallCmd(false); !strings.Contains(absent, want) {
 		t.Errorf("with no sbx on PATH, want the install line %q, got:\n%s", want, absent)
 	}
 
-	outdated := printOnlyRun(t, t.TempDir(), pathWithFakeSbx(t, "0.1.0"), "claudecode")
+	outdated, _ := printOnlyRunErr(t, t.TempDir(), pathWithFakeSbx(t, "0.1.0"), "claudecode")
 	if want := sbx.InstallCmd(true); !strings.Contains(outdated, want) {
 		t.Errorf("with an outdated sbx, want the upgrade line %q, got:\n%s", want, outdated)
 	}
 }
 
 func TestSandboxBackendPrintOnlyInstallsNothing(t *testing.T) {
-	requireDocker(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "INSTALL_ATTEMPTED")
 	// A stub whose *install* route would leave evidence: proveo shells the install
@@ -103,7 +100,7 @@ func TestSandboxBackendPrintOnlyInstallsNothing(t *testing.T) {
 	// Even fully authorized to provision, --print must not act.
 	env = append(env, "PROVEO_AUTO_PROVISION=1")
 
-	printOnlyRun(t, t.TempDir(), env, "claudecode")
+	_, _ = printOnlyRunErr(t, t.TempDir(), env, "claudecode")
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("--print attempted an install; a dry run must only report")
 	}
@@ -111,18 +108,25 @@ func TestSandboxBackendPrintOnlyInstallsNothing(t *testing.T) {
 
 func printOnlyRun(t *testing.T, workdir string, extraEnv []string, target string) string {
 	t.Helper()
+	out, err := printOnlyRunErr(t, workdir, extraEnv, target)
+	if err != nil {
+		t.Fatalf("proveo run %s --print-only: %v\n%s", target, err, out)
+	}
+	return out
+}
+
+// printOnlyRunErr is printOnlyRun for runs that may refuse: it returns the output and the error.
+func printOnlyRunErr(t *testing.T, workdir string, extraEnv []string, target string) (string, error) {
+	t.Helper()
 	proveoBin := buildProveo(t)
 	cmd := exec.Command(proveoBin, "run", target, "--print")
 	cmd.Dir = workdir
 	cmd.Env = append(os.Environ(), extraEnv...)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("proveo run %s --print-only: %v\n%s", target, err, out)
-	}
-	return string(out)
+	return string(out), err
 }
 
-var sandboxHarnesses = dockerTargets(manifest.Manifest.IsSbx)
+var sandboxHarnesses = dockerTargets(func(manifest.Manifest) bool { return true })
 
 // daemonHarnesses are the sbx harnesses whose agent is promised a daemon.
 var daemonHarnesses = dockerTargets(manifest.Manifest.WantsDocker)
@@ -187,25 +191,19 @@ func TestSandboxBackendKitFlagPointsAtADirectory(t *testing.T) {
 	}
 }
 
-func TestSandboxBackendFallsBackToDockerWhenSbxAbsent(t *testing.T) {
-	skipOutsideSbx(t, "the docker+egress fallback")
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+func TestSandboxBackendRefusesWhenSbxAbsent(t *testing.T) {
 	for _, target := range sandboxHarnesses {
 		t.Run(target, func(t *testing.T) {
-			out := printOnlyRun(t, t.TempDir(), pathWithoutSbx(t), target)
-			if !strings.Contains(out, "falling back to docker+egress") {
-				t.Errorf("expected a fallback notice, got:\n%s", out)
+			out, err := printOnlyRunErr(t, t.TempDir(), pathWithoutSbx(t), target)
+			if err == nil || !strings.Contains(out, "proveo runs agents only in sbx") {
+				t.Errorf("with no sbx, want a refusal naming sbx as the only backend, got err=%v:\n%s", err, out)
 			}
-			if !strings.Contains(out, "docker run") {
-				t.Errorf("fallback must render the docker argv, got:\n%s", out)
+			if strings.Contains(out, "docker run") || strings.Contains(out, "falling back") {
+				t.Errorf("a refused run must not render or promise a docker fallback:\n%s", out)
 			}
 		})
 	}
 }
-
-// `sbx create` re-bakes the template (see _spec/_experiments/docker-sandbox.puml)
 
 func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
@@ -393,15 +391,35 @@ func brokenPrompt(screen string) string {
 	return ""
 }
 
-// answerSbxPrompt takes the default on sbx's own operator questions, which a run
-// on a PTY is expected to answer rather than trip over.
-func answerSbxPrompt(sess *tmux.Session, screen string) bool {
-	if !strings.Contains(screen, "[A]pprove all") {
-		return false
+// consentPrompt is the services sbx asks the operator to approve when screen shows its
+// credential prompt; a prompt without sbx's frame names "its credentials".
+func consentPrompt(screen string) (string, bool) {
+	lines := strings.Split(screen, "\n")
+	at := -1
+	for i, l := range lines {
+		if strings.Contains(l, "[A]pprove all") {
+			at = i
+		}
 	}
-	_ = sess.SendText("A")
-	_ = sess.Enter()
-	return true
+	if at < 0 {
+		return "", false
+	}
+	var services []string
+	for i := at - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(l, "This kit wants to use these credentials") {
+			return strings.Join(services, ", "), true
+		}
+		if f := strings.Fields(l); len(f) > 0 {
+			services = append([]string{f[0]}, services...)
+		}
+	}
+	return "its credentials", true
+}
+
+// consentFailure is how a leg fails when sbx asks consent for services: the e2e never approves.
+func consentFailure(services, target string) string {
+	return fmt.Sprintf("sbx asks to approve %s; approve once with an interactive `proveo run %s`, then rerun — the e2e never approves a credential binding", services, target)
 }
 
 func renderKit(t *testing.T, target string) string {
@@ -415,41 +433,18 @@ func renderKit(t *testing.T, target string) string {
 	cmd.Dir = repoRoot(t)
 	cmd.Env = append(os.Environ(),
 		"PROVEO_HOME="+t.TempDir(),
-		"PROVEO_EGRESS_ROOT="+state,
+		"PROVEO_STATE_ROOT="+state,
 		"PROVEO_WIZARD=off",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
 	}
 
-	// <state>/egress/<session>/sbx/kit — the "egress" segment is stateDir()'s own
-	// layout, not the session dir.
-	matches, _ := filepath.Glob(filepath.Join(state, "egress", "*", "sbx", "kit", "spec.yaml"))
+	matches, _ := filepath.Glob(filepath.Join(state, "runs", "*", "sbx", "kit", "spec.yaml"))
 	if len(matches) == 0 {
 		t.Fatalf("%s: --print rendered no Kit under %s", target, state)
 	}
 	return filepath.Dir(matches[0])
-}
-
-func TestEveryDaemonPromiseIsCoveredBySbx(t *testing.T) {
-	t.Parallel()
-	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
-	if err != nil {
-		t.Fatalf("load manifests: %v", err)
-	}
-	if len(sandboxHarnesses) == 0 {
-		t.Fatal("no def declares docker: sbx — the only daemon branch is empty, so this suite tests nothing")
-	}
-	for _, m := range ms {
-		if !m.WantsDocker() {
-			continue
-		}
-		if !contains(sandboxHarnesses, m.Name) {
-			t.Errorf("%s declares docker: %s but is not in the sbx branch, and there is no other branch left "+
-				"(sbx=%v)", m.Name, m.Docker, sandboxHarnesses)
-		}
-	}
-	t.Logf("docker access coverage: sbx=%v", sandboxHarnesses)
 }
 
 func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
@@ -486,21 +481,21 @@ func assertDockerServerReachable(t *testing.T, target, how, got string) {
 	low := strings.ToLower(got)
 	switch {
 	case strings.Contains(low, "command not found"), strings.Contains(low, "executable file not found"):
-		t.Fatalf("%s declares docker: %s but no docker client is present: %q\n"+
-			"the image ships none by design (the static tarball overlapped sbx), so this means "+
-			"sbx supplied no client either — fix it sbx-side or stop declaring docker: %s\n"+
-			"see _spec/_plans/image-size-reduction.puml", target, how, got, how)
+		t.Fatalf("%s is promised a daemon via %s but no docker client is present: %q\n"+
+			"sbx supplied no client — fix it sbx-side or set `daemon: false`\n"+
+			"see _spec/_devops/image-size-reduction.puml", target, how, got)
 	case strings.Contains(low, "cannot connect to the docker daemon"),
 		strings.Contains(low, "is the docker daemon running"),
 		strings.Contains(low, "permission denied"):
-		t.Fatalf("%s: the docker client is present but docker: %s exposed no usable daemon: %q", target, how, got)
+		t.Fatalf("%s: the docker client is present but %s exposed no usable daemon: %q", target, how, got)
 	case !dockerVersionish(got):
 		t.Fatalf("%s: `docker version` returned %q, want a server version", target, got)
 	}
 	t.Logf("%s: docker server reached via %s = %s", target, how, got)
 }
 
-// (_spec/_paradigms/retire-dind.puml) makes that daemon the only one there is, so a
+// assertSandboxSuppliesDocker fails unless the probe reached a docker server in the sandbox.
+// SPEC: _spec/_paradigms/retire-dind.puml
 func assertSandboxSuppliesDocker(t *testing.T, target, got string) {
 	t.Helper()
 	_, server, ok := strings.Cut(got, "SERVER:")
@@ -512,39 +507,9 @@ func assertSandboxSuppliesDocker(t *testing.T, target, got string) {
 	t.Logf("%s: the sandbox supplies docker: %s", target, strings.Join(strings.Fields(got), " · "))
 }
 
-func sbxShellHoldsInADetachedPane(t *testing.T) bool {
-	t.Helper()
-	work := t.TempDir()
-	name := fmt.Sprintf("proveo-shellprobe-%d", os.Getpid())
-	sess := tmux.New(name, nil)
-	t.Cleanup(func() {
-		sess.Kill()
-		_ = exec.Command(sbx.Binary, "rm", "--force", name).Run()
-	})
-	if err := sess.Start(120, 40, sbx.Binary, "run", "--name", name, "-t", "proveo/cursor:local", "shell", work); err != nil {
-		return false
-	}
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
-		screen, err := sess.CaptureAll()
-		if err != nil {
-			return false // the pane is gone: the shell did not hold
-		}
-		if promptReady(screen) || strings.Contains(screen, "$ ") {
-			return true
-		}
-		time.Sleep(time.Second)
-	}
-	return false
-}
-
 func sandboxBoundaryProbe(t *testing.T, target string) {
 	t.Helper()
-	if !sbxShellHoldsInADetachedPane(t) {
-		t.Skipf("sbx's own shell agent does not survive a detached tmux pane on this host, "+
-			"so %s cannot be driven to a prompt here; the sandbox Kit and backend selection "+
-			"stay covered by TestSandboxKit* and TestSandboxBackend*", target)
-	}
+	requireSbx(t)
 	requireHarnessCredential(t, target)
 	proveoBin := buildProveo(t)
 
@@ -579,84 +544,62 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
-		proveoBin, "run", target, "--shell", "--input", work,
+		proveoBin, "run", target, "--input", work,
 	)
 	if err := sess.Start(220, 50, cmd...); err != nil {
 		t.Fatalf("start sandbox session: %v", err)
 	}
 
 	w := newWatcher(t, sess)
-	timeout := durationEnv(t, "PROVEO_TEST_TIMEOUT", 6*time.Minute)
 
 	w.until("the sbx backend line", 2*time.Minute, func() bool {
 		s := w.Screen()
 		if strings.Contains(s, "docker sandbox: off") {
 			w.Fatalf("%s ran with the sandbox add-on unchecked — a remembered choice leaked into this run", target)
 		}
-		if strings.Contains(s, "falling back to docker+egress") {
-			w.Fatalf("%s fell back to docker+egress on a host where sbx.Available() said yes", target)
-		}
 		return strings.Contains(s, "backend: docker sandboxes (sbx)")
 	})
 
-	// _spec/_experiments/docker-sandbox.puml). Failing on sight would call that
-	w.until("the sandbox shell prompt", timeout, func() bool {
-		if line := sbxError(w.Screen()); line != "" && !retryable(line) {
-			w.Fatalf("%s: sbx refused the run — %s", target, line)
-		}
-		if line := brokenPrompt(w.Screen()); line != "" {
-			w.Fatalf("%s: a confirmation is eating input meant for something else — %s\n"+
-				"`sbx secret set` reads the secret from stdin, so this prompt consumes it and "+
-				"cancels the write; --force is what keeps that from happening", target, line)
-		}
-		// sbx asks the operator which credentials the Kit may use. That is a normal
-		// gate, not a fault — answer it the way an operator would.
-		answerSbxPrompt(sess, w.Screen())
-		return promptReady(w.Screen())
-	})
+	k := awaitKit(t, sess, before, target, work)
 
 	const mark = "SBX-MOUNT-OK"
 	probe := "{ ls /var/run/docker.sock >/dev/null 2>&1 && echo HAS-SOCKET || echo NO-SOCKET; " +
 		"printf SERVER:; timeout 20 docker version --format '{{.Server.Version}}' 2>/dev/null; echo; }; " +
 		"printf 'AGENT_HEAD=%s\\n' \"$(git rev-parse HEAD 2>/dev/null || echo none)\"; " +
 		"printf %s " + mark + " > " + probeMount
-	pane, status := shellExec(t, sess, probe, 3*time.Minute)
+	pane, status := k.exec(probe, 3*time.Minute)
 	if status != 0 {
 		t.Fatalf("%s: the boundary probe exited %d\n--- pane ---\n%s", target, status, pane)
 	}
 
-	// Claim 2 — the workspace. On the default (clone) plan nothing the agent writes
-	// reaches the host until teardown, so the reachable claim is that the tree it
-	// stands in is THIS workspace: same commit, from the run's own git daemon. Only
-	// a live bind can be asserted by a file arriving host-side.
+	// Claim 2 — the workspace: the sandbox stands on this checkout's commit.
 	if agentHead := paneValue(pane, "AGENT_HEAD="); agentHead != hostHead {
 		t.Errorf("%s: the sandbox stands on commit %q, want the workspace's %q — "+
 			"the clone did not come from this checkout", target, agentHead, hostHead)
 	}
-	if !strings.Contains(w.Screen(), "private clone") {
+	if screen, _ := sess.CaptureAll(); !strings.Contains(screen, "private clone") {
 		w.until("the sandbox to write through the workspace mount", 2*time.Minute, func() bool {
 			return strings.Contains(readIn(work, probeMount), mark)
 		})
 	}
 
-	// Claim 3 — the daemon. This is the whole point of `docker: sbx` now that it is
-	// the only way a harness gets one.
+	// Claim 3 — the daemon.
 	assertSandboxSuppliesDocker(t, target, probeReport(pane))
 
-	// Claim 4 — teardown. Exit the shell rather than killing the pane, so the
-	// run's own `sbx rm` (VM + images + volumes) is what gets exercised.
-	_ = sess.SendText("exit")
-	_ = sess.Enter()
-	if _, exited := waitSessionExit(sess, 3*time.Minute); !exited {
-		t.Errorf("%s: the sandbox session did not exit after `exit`", target)
+	// Claim 4 — teardown. SIGTERM rather than killing the pane, so the run's own
+	// `sbx rm` (VM + images + volumes) is what gets exercised.
+	screen, exited := k.end()
+	if !exited {
+		t.Errorf("%s: proveo did not finish its teardown after SIGTERM\n%s", target, screen)
 	}
 	if !canList {
 		return
 	}
+	retained := strings.Contains(screen, "retained") && strings.Contains(screen, k.name)
 	var leaked []string
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		leaked = newSandboxes(before)
+		leaked = slices.DeleteFunc(newSandboxes(before), func(n string) bool { return retained && n == k.name })
 		if len(leaked) == 0 || time.Now().After(deadline) {
 			break
 		}
@@ -694,18 +637,6 @@ func paneValue(pane, key string) string {
 		return strings.TrimSpace(strings.TrimPrefix(line, key))
 	}
 	return ""
-}
-
-func promptReady(screen string) bool {
-	lines := strings.Split(screen, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		l := strings.TrimRight(lines[i], " \t")
-		if l == "" {
-			continue
-		}
-		return strings.HasSuffix(l, "$") || strings.HasSuffix(l, "#")
-	}
-	return false
 }
 
 // dockerVersionish reports whether s looks like a docker server version.

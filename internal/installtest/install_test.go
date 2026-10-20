@@ -67,7 +67,6 @@ func TestInstallScripts(t *testing.T) {
 			"PATH=" + fakeBin + ":" + path,
 			"PROVEO_INSTALL_ROOT=" + installRoot,
 			"PROVEO_ASSET_BASE_URL=file://" + base,
-			"PROVEO_CLI_BASE_URL=file://" + base,
 		}
 		if skipInit {
 			env = append(env, "PROVEO_SKIP_INIT=1")
@@ -77,6 +76,16 @@ func TestInstallScripts(t *testing.T) {
 
 	outputContains(t, "install.sh installs Go proveo", "proveo v"+version+" installed to:",
 		install(installHome, installRoot, cdn, true), bash, installScript)
+
+	aliasEnv := install(filepath.Join(tmp, "home-alias"), filepath.Join(tmp, "install-alias"), cdn, true)
+	for i, kv := range aliasEnv {
+		if strings.HasPrefix(kv, "PROVEO_ASSET_BASE_URL=") {
+			aliasEnv[i] = "PROVEO_CLI_BASE_URL=file://" + cdn
+		}
+	}
+	outputContains(t, "PROVEO_CLI_BASE_URL still installs, as a deprecated alias",
+		"PROVEO_CLI_BASE_URL is deprecated", aliasEnv, bash, installScript)
+	fileExists(t, "the alias install writes uninstall.sh", filepath.Join(tmp, "install-alias", "uninstall.sh"))
 
 	installed := filepath.Join(installRoot, "bin", "proveo")
 	fileExists(t, "install writes proveo binary", installed)

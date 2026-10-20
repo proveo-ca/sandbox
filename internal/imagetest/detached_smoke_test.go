@@ -1,6 +1,6 @@
 //go:build image
 
-// SPEC: _spec/tests/testing-strategy.puml, _spec/_plans/host-shell-to-go.puml, _spec/_devops/image-lineage-and-publish.puml
+// SPEC: _spec/tests/testing-strategy.puml, _spec/_devops/image-lineage-and-publish.puml
 package imagetest_test
 
 import (
@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/imagetest"
 )
 
@@ -26,7 +27,7 @@ var smokeTargets = []struct{ target, repo string }{
 	{"cursor", "proveo/cursor"},
 }
 
-// SPEC: _spec/_plans/retire-model-bridging.puml
+// SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
 const smokeEnv = `# Non-secret values for detached image smoke tests only.
 CECLI_MODEL=openai/gpt-4o-mini
 CECLI_EDITOR_MODEL=openai/gpt-4o-mini
@@ -38,8 +39,6 @@ ANTHROPIC_API_KEY=proveo-smoke-test-key
 CLAUDE_CODE_OAUTH_TOKEN=proveo-smoke-test-token
 `
 
-var smokeKeepRE = regexp.MustCompile(`^(1|true|yes|on)$`)
-
 func TestImageDetachedSmoke(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatal("Docker is required for detached image smoke tests.")
@@ -49,10 +48,10 @@ func TestImageDetachedSmoke(t *testing.T) {
 	}
 
 	timeout := 30 * time.Second
-	if v := os.Getenv("PROVEO_DOCKER_SMOKE_TIMEOUT"); v != "" {
+	if v := os.Getenv("PROVEO_DETACHED_SMOKE_TIMEOUT"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			t.Fatalf("PROVEO_DOCKER_SMOKE_TIMEOUT=%q: want whole seconds", v)
+			t.Fatalf("PROVEO_DETACHED_SMOKE_TIMEOUT=%q: want whole seconds", v)
 		}
 		timeout = time.Duration(n) * time.Second
 	}
@@ -68,7 +67,7 @@ func TestImageDetachedSmoke(t *testing.T) {
 
 	var containers []string
 	t.Cleanup(func() {
-		if t.Failed() && smokeKeepRE.MatchString(os.Getenv("PROVEO_DOCKER_SMOKE_KEEP_FAILED")) {
+		if t.Failed() && envflag.On(os.Getenv("PROVEO_DETACHED_SMOKE_KEEP_FAILED")) {
 			t.Logf("Keeping failed smoke containers for inspection: %s", strings.Join(containers, " "))
 			return
 		}
@@ -79,10 +78,10 @@ func TestImageDetachedSmoke(t *testing.T) {
 
 	for _, tg := range smokeTargets {
 		desc := tg.target + " emitted smoke-ready log"
-		image := imagetest.Resolve("", tg.repo+":latest")
+		image := imagetest.Resolve(tg.target, tg.repo+":latest")
 		if !imagetest.Present(image) {
 			t.Run(desc, func(t *testing.T) {
-				t.Skipf("skip %s: neither %s:local nor %s:latest is built", tg.target, tg.repo, tg.repo)
+				t.Skipf("skip %s: %s is not built", tg.target, image)
 			})
 			continue
 		}

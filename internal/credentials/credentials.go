@@ -4,7 +4,6 @@ package credentials
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/entrypoint"
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -19,22 +19,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
-
-func JoinDomains(env string, hosts []string) string {
-	parts := strings.Fields(env)
-	parts = append(parts, hosts...)
-	return strings.Join(parts, " ")
-}
-
-func ReachableHosts(detected []string) []string {
-	var out []string
-	for _, name := range detected {
-		if e, ok := provider.Lookup(name); ok {
-			out = append(out, e.Hosts...)
-		}
-	}
-	return out
-}
 
 func FilterProviders(detected []string, c manifest.Capabilities) []string {
 	if len(c.Providers) == 0 {
@@ -84,13 +68,6 @@ func AvailableAuthVarsIn(man manifest.Manifest, lookup func(string) string, targ
 		out = append(out, AuthSubscription)
 	}
 	return out
-}
-
-// HasUsableAuth reports whether ANYTHING can authenticate this run: a login
-// on disk, the harness's own plan credential, or — where the harness reads
-// them — the operator's per-provider keys.
-func HasUsableAuth(man manifest.Manifest, target, homeRoot string, lookup func(string) string) bool {
-	return len(AvailableAuthVarsIn(man, lookup, target, homeRoot)) > 0
 }
 
 // SubscriptionVars lists the harness's OWN declared credentials that are set —
@@ -163,39 +140,6 @@ func WithheldProviders(man manifest.Manifest, target, chosen, homeRoot string,
 		// provider still holding one usable variable is still reachable.
 		if held > 0 && held == gone {
 			out = append(out, name)
-		}
-	}
-	return out
-}
-
-// UsableProviders drops the providers this harness can send NO credential to.
-func UsableProviders(man manifest.Manifest, detected []string, lookup func(string) string) []string {
-	family := HarnessFamily(man.Name)
-	out := make([]string, 0, len(detected))
-	for _, name := range detected {
-		for _, v := range provider.AuthVarsFor(name, family) {
-			if strings.TrimSpace(lookup(v)) != "" {
-				out = append(out, name)
-				break
-			}
-		}
-	}
-	return out
-}
-
-// Without drops the withheld providers from a detected set.
-func Without(providers, drop []string) []string {
-	if len(drop) == 0 {
-		return providers
-	}
-	gone := make(map[string]bool, len(drop))
-	for _, d := range drop {
-		gone[d] = true
-	}
-	out := make([]string, 0, len(providers))
-	for _, p := range providers {
-		if !gone[p] {
-			out = append(out, p)
 		}
 	}
 	return out
@@ -313,8 +257,7 @@ func AuthWhyUnavailable(man manifest.Manifest, target, homeRoot string) map[stri
 }
 
 func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
-	switch strings.ToLower(strings.TrimSpace(getenv("PROVEO_MOUNT_GH_CONFIG"))) {
-	case "0", "off", "no", "false":
+	if envflag.Off(getenv("PROVEO_MOUNT_GH_CONFIG")) {
 		return runner.Mount{}, false
 	}
 	dir := strings.TrimSpace(getenv("GH_CONFIG_DIR"))
@@ -337,11 +280,7 @@ func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
 
 var agentTranscriptDirs = map[string][]string{
 	"claudecode": {".claude/projects"},
-	// codex writes one rollout .jsonl per session, filed under a date tree
-	// ($CODEX_HOME/sessions/YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl). The walk
-	// below is recursive and matches on the suffix, so the tree needs no
-	// enumerating — only its root.
-	"codex": {".codex/sessions"},
+	"codex":      {".codex/sessions"},
 }
 
 func AgentTranscript(target, homeRoot string, since, until time.Time) string {
@@ -373,13 +312,7 @@ func AgentTranscript(target, homeRoot string, since, until time.Time) string {
 
 var subscriptionLoginFiles = map[string][]string{
 	"claudecode": {".claude/.credentials.json"},
-	// codex persists a completed `codex login` here. loginUsable does not
-	// recognise this file's shape and therefore reports PRESENCE only — which is
-	// the honest answer for it: the OAuth stamps live under a different key than
-	// claudecode's, and inferring "expired" from a shape we do not parse would
-	// refuse runs that work. So an expired codex login reads as a login, and the
-	// run reaches the CLI's own re-auth rather than proveo's guard.
-	"codex": {".codex/auth.json"},
+	"codex":      {".codex/auth.json"},
 }
 
 // EffectiveAuthVar resolves an answer to the ONE variable the broker should
@@ -578,25 +511,6 @@ func LoadedSecretNames(man manifest.Manifest, lookup func(string) string) []stri
 	return out
 }
 
-func BrokerProviders(forwards bool, man manifest.Manifest, detected []string, lookup func(string) string, brokerOn bool) []string {
-	if forwards || !brokerOn {
-		return nil
-	}
-	if pin := strings.TrimSpace(man.Provider); pin != "" {
-		e, ok := provider.Lookup(pin)
-		if !ok {
-			return nil
-		}
-		for _, v := range e.Detect {
-			if strings.TrimSpace(lookup(v)) != "" {
-				return []string{pin}
-			}
-		}
-		return nil
-	}
-	return detected
-}
-
 func ConfigVarsFor(man manifest.Manifest) []string {
 	out := append([]string(nil), entrypoint.ConfigVars...)
 	seen := make(map[string]bool, len(out))
@@ -610,20 +524,6 @@ func ConfigVarsFor(man manifest.Manifest) []string {
 		}
 	}
 	return out
-}
-
-func BrokerOffReason(forwards bool, routed []string, detected []string, brokerOn bool) string {
-	if forwards || len(routed) > 0 || len(detected) == 0 {
-		return ""
-	}
-	if !brokerOn {
-		return fmt.Sprintf("credential broker disabled (PROVEO_CREDENTIAL_BROKER) — the agent gets the %q "+
-			"sentinel, not a working key", entrypoint.DefaultSentinel)
-	}
-	return fmt.Sprintf("credential broker OFF: %d key(s) detected (%s) but none is broker-injectable — "+
-		"the agent will receive the %q sentinel and the provider will reject it. Use --credentials forward "+
-		"to hand the real key to the container.",
-		len(detected), strings.Join(detected, ", "), entrypoint.DefaultSentinel)
 }
 
 func ProviderOfKeyVar(envVar string) string {
@@ -648,15 +548,9 @@ func ProviderForAuthVar(envVar string) (string, provider.AuthOption, bool) {
 	return "", provider.AuthOption{}, false
 }
 
-func WarnMountedSecrets(dir, mode string, sandboxed bool, lookup func(string) string) {
+func WarnMountedSecrets(dir string, lookup func(string) string) {
 	if dir == "" {
 		return
-	}
-	if !sandboxed {
-		switch strings.ToLower(mode) {
-		case "allowlist", "review":
-			return // proveo masks .env* with /dev/null on these tiers
-		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
 		return
@@ -664,13 +558,8 @@ func WarnMountedSecrets(dir, mode string, sandboxed bool, lookup func(string) st
 	if len(provider.Detect(lookup)) == 0 {
 		return
 	}
-	if sandboxed {
-		ui.Warnf("%s/.env is inside the sandbox workspace and holds a provider key — the "+
-			"agent's prelude sources it with `set -a`, so the key becomes agent environment "+
-			"whatever egress tier you picked", dir)
-		return
-	}
-	ui.Warnf("%s/.env is mounted and a provider key is set — the agent can read it directly; use --egress-mode firewall so egress DLP blocks the key from leaving", dir)
+	ui.Warnf("%s/.env is inside the sandbox workspace and holds a provider key — the agent can read the file "+
+		"(the image never loads it into the agent's environment)", dir)
 }
 
 // ChildEnv carries the values a bare `-e NAME` needs the CHILD to inherit,
@@ -752,26 +641,6 @@ func ParseEnvFile(path string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-func WriteBrokerEnv(dir string, lookup func(string) string) (string, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, "broker.env")
-	var b strings.Builder
-	for _, name := range provider.KeyVars() {
-		if v := strings.TrimSpace(lookup(name)); v != "" {
-			b.WriteString(name + "=" + v + "\n")
-		}
-	}
-	if b.Len() == 0 {
-		return "", fmt.Errorf("no provider key in host env")
-	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
-		return "", err
-	}
-	return path, nil
 }
 
 // StageProjectEnv copies src to dir/.env (0600), dropping the lines that set a

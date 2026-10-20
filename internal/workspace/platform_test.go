@@ -33,37 +33,6 @@ func TestImagePlatformIsWhatTheDefsBuildAsDockerWillPickIt(t *testing.T) {
 	}
 }
 
-func TestDepCopyPolicyCopiesOnlyWhenHostAndImageAgree(t *testing.T) {
-	t.Parallel()
-	linuxArm := Platform{OS: "linux", Arch: "arm64"}
-	for _, tc := range []struct {
-		name  string
-		env   map[string]string
-		host  Platform
-		reuse bool
-		want  string // fragment of the reason
-	}{
-		{"macOS host never reuses", nil, Platform{OS: "darwin", Arch: "arm64"}, false, "darwin/arm64 ≠ image linux/arm64"},
-		{"windows host never reuses", nil, Platform{OS: "windows", Arch: "amd64"}, false, "≠ image"},
-		{"linux host of the same arch reuses", nil, linuxArm, true, "matches the image"},
-		{"linux host of another arch does not", nil, Platform{OS: "linux", Arch: "amd64"}, false, "linux/amd64 ≠ image linux/arm64"},
-		{"always overrides a mismatch", map[string]string{"PROVEO_DEPS_COPY": "always"}, Platform{OS: "darwin", Arch: "arm64"}, true, "PROVEO_DEPS_COPY=always"},
-		{"never overrides a match", map[string]string{"PROVEO_DEPS_COPY": "never"}, linuxArm, false, "PROVEO_DEPS_COPY=never"},
-		{"unknown host never reuses", nil, Platform{}, false, "≠ image"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			reuse, why := DepCopyPolicy(env(tc.env), tc.host, linuxArm)
-			if reuse != tc.reuse {
-				t.Errorf("reuse = %v, want %v (%s)", reuse, tc.reuse, why)
-			}
-			if !strings.Contains(why, tc.want) {
-				t.Errorf("reason %q does not say %q — the operator has to see why the tree was or was not copied", why, tc.want)
-			}
-		})
-	}
-}
-
 func TestSharedTreesAllowedOnlyWhenTheyRunAsIsOrTheOperatorSaysSo(t *testing.T) {
 	t.Parallel()
 	linuxArm := Platform{OS: "linux", Arch: "arm64"}
@@ -78,7 +47,9 @@ func TestSharedTreesAllowedOnlyWhenTheyRunAsIsOrTheOperatorSaysSo(t *testing.T) 
 		{"macOS host is refused", nil, mac, false, "darwin/arm64 ≠ image linux/arm64"},
 		{"cross-arch linux is refused", nil, Platform{OS: "linux", Arch: "amd64"}, false, "rewrites the host trees"},
 		{"matching linux host passes", nil, linuxArm, true, "matches the image"},
-		{"PROVEO_DEPS=shared accepts the rewrite", map[string]string{"PROVEO_DEPS": "shared"}, mac, true, "PROVEO_DEPS=shared"},
+		{"PROVEO_DEPS=shared carries the host trees in as they are", map[string]string{"PROVEO_DEPS": "shared"}, mac, true, "PROVEO_DEPS=shared"},
+		{"PROVEO_DEPS=off is not consent", map[string]string{"PROVEO_DEPS": "off"}, mac, false, "≠ image"},
+		{"an unknown PROVEO_DEPS is named and refused", map[string]string{"PROVEO_DEPS": "sharde"}, mac, false, "PROVEO_DEPS=sharde is not one of auto|off|shared|reinstall"},
 		{"PROVEO_DEPS=reinstall already accepts it", map[string]string{"PROVEO_DEPS": "Reinstall"}, mac, true, "PROVEO_DEPS=reinstall"},
 		{"PROVEO_DEPS_COPY is not consent", map[string]string{"PROVEO_DEPS_COPY": "never"}, mac, false, "≠ image"},
 	} {

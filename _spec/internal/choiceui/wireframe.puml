@@ -102,30 +102,32 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   ~~
   {
     . | ◀ riskier | . | safer ▶ | .
-    ▸ egress | (X) open | ( ) allowlist | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— review: not supported on the docker sandbox backend
-    credentials | (X) forward | ( ) broker | . | .
+    ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all | — locked: host-wide, not per-run
+    credentials | ( ) <color:#9a9a9a>forward</color> | (X) broker | . | <color:#9a9a9a>— forward: sbx's proxy holds the value…</color>
     . | . | ———— execution ———— | . | .
     . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | . | .
     . | . | ———— interface ———— | . | .
-    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>claude-in-chrome | <color:#9a9a9a>— claude-in-chrome: docker backend only — set…
-    agent evidence | ( ) default | (X) verbose | . | .
+    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>claude-in-chrome | <color:#9a9a9a>— claude-in-chrome: needs a real Claude token…
+    outputs | ( ) filtered | (X) verbose | . | .
   }
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
   ..
-  always on: every run on this harness is sandboxed — set PROVEO_SBX=0 to fall back to the docker backend
+  always on: every harness runs in the sandbox and nowhere else
 }
 {
 {^"1 · greyed — comingSoon"
-  egress | ( ) <color:#9a9a9a>review | <color:#9a9a9a>— needs a local docker daemon
+  credentials | ( ) <color:#9a9a9a>forward</color> | <color:#9a9a9a>— sbx's proxy holds the value; forward is what that guarantee gives up</color>
   .
   Rendered, never selectable. The cursor
   vacates it and the violated constraint
-  is named in place, so an unimplemented
-  tier is not misread as nonexistent.
+  is named in place, so a withheld option
+  is not misread as nonexistent.
+  (Until 2026-10-16 the example was the
+  review tier, now deleted.)
 }
 {^"2 · empty cell — option withdrawn"
-  egress | (X) open | ( ) allowlist | .
+  credentials | . | (X) broker | .
   .
   The slot persists, so surviving options
   retain the column they occupied while
@@ -133,14 +135,14 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 }
 {^"3 · absent region — applicableRows"
   . | ◀ riskier | . | safer ▶
-  egress | (X) open | ( ) allowlist | .
+  credentials | ( ) forward | (X) broker | .
   .
   An axis with nothing to determine is
   eliminated wholesale. The legend
   survives while one ordered row remains.
 }
 {^"4 · one answer — a radio, not a gated pair"
-  agent evidence | ( ) default | (X) verbose
+  outputs | ( ) filtered | (X) verbose
   execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color>
   .
   Brackets say "any number of these" and
@@ -207,16 +209,18 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 
   **The sandbox is greyed for the opposite reason: it is COMPULSORY.** A harness
   that declares sbx runs there and nowhere else, so the box is ticked and locked
-  and its help line reads "always on:". Unticking used to reach the docker
-  backend behind egress sidecars — a weaker boundary one keystroke away — and
-  that escape is now ""PROVEO_SBX=0"", which the greyed reason names. Like the
+  and its help line reads "always on: every harness runs in the sandbox and
+  nowhere else". Unticking used to reach the docker backend behind egress
+  sidecars — a weaker boundary one keystroke away — and that escape then became
+  ""PROVEO_SBX=0"". Since 2026-10-16 there is no escape: the docker backend is
+  deleted, and since 2026-10-17 ""PROVEO_SBX"" is simply unread. Like the
   two facts above it stays out of the row's inline ""Reason"": a note greyed on
   every run only teaches the operator to skip the line that sometimes matters.
 
   It is the one greyed box that IS reported as a selected add-on. ""Selections""
   drops every greyed option, which is right for the two facts above and wrong
-  here: a compulsory sandbox dropped from the read-back would send the run to
-  the very backend the lock exists to remove.
+  here: a compulsory sandbox dropped from the read-back once sent the run to
+  the very backend the lock existed to remove; that backend is now deleted.
 }
 {^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
   default (nerd) | <&code> typescript-language-server | <&terminal> bash-language-server

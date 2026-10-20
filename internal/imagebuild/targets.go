@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/host-shell-to-go.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/agent-version-pin.puml
+// SPEC: _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/agent-version-pin.puml
 package imagebuild
 
 import (
@@ -142,11 +142,6 @@ var Specs = map[string]Spec{
 	"codex-browser":      browserOf("codex", "codex"),
 	"cursor-browser":     browserOf("cursor", "cursor"),
 	"opencode-browser":   browserOf("opencode", "opencode"),
-
-	"egress-proxy": {Repo: "proveo/egress-proxy", Override: "PROVEO_EGRESS_PROXY_IMAGE",
-		Dockerfile: "defs/sidecars/egress-proxy/Dockerfile", Context: "."},
-	"mitmproxy": {Repo: "proveo/mitmproxy", Override: "PROVEO_MITMPROXY_IMAGE",
-		Context: "defs/sidecars/mitmproxy"},
 }
 
 // SpecNames is every target in Specs, sorted.

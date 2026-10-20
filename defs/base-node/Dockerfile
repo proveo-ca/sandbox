@@ -4,30 +4,10 @@ FROM ${BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Node arrives as the OFFICIAL nodejs.org tarball, pinned and sha256-verified,
-# the same way this lineage already installs mise, bun and plantuml.
-#
-# It used to come from NodeSource, which publishes PER UBUNTU RELEASE. The rebase
-# onto docker/sandbox-templates moved the floor to ubuntu:questing (26.04), and a
-# base whose Node install depends on a third party having packaged the exact
-# distro release the TEMPLATE happens to ship is a build that breaks on someone
-# else's schedule. The tarball has no distro coupling at all.
-#
-# The template already carries Ubuntu's nodejs (24.x with npm 9.2.0). This
-# REPLACES it outright. Putting /usr/local/bin ahead on PATH is not enough: the
-# distro copy stays on disk and `type -a node` reports two, which
-# e2e TestToolchainShipsNoDuplicateBinaries reads as one tool installed in two
-# layers — and it is right to. NodeSource used to replace the package in place,
-# so the duplicate is new with the tarball. Purging the distro nodejs after the
-# tarball lands removes 361 packages (Ubuntu's node-* module set) and 293 MB
-# from /usr, measured — the version and the resolved path are then asserted so a
-# silent fallback to a distro copy fails the build.
-#
-# xz-utils is installed BEFORE the extract, not after: `tar -J` shells out to xz,
-# and the template is not guaranteed to carry it. Ordering it after the extract
-# would fail on a missing decompressor with tar's own error, not ours.
+# Node: the official nodejs.org tarball, pinned and sha256-verified; the distro nodejs is purged.
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
 # SPEC: _spec/_devops/sandbox-template-rebase.puml
+# SPEC: _spec/defs/base-image-layers.puml
 ARG NODE_VERSION=22.23.2
 ARG NODE_SHA256_X64=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
 ARG NODE_SHA256_ARM64=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8

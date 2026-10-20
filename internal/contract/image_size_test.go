@@ -1,7 +1,9 @@
-// SPEC: _spec/_plans/image-size-reduction.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/sandbox-template-rebase.puml
+// SPEC: _spec/_devops/image-size-reduction.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/sandbox-template-rebase.puml
 package contract_test
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -81,7 +83,7 @@ func TestBaseRunsPlantUMLOnTheTemplateJDK(t *testing.T) {
 
 func TestRepoRootDockerignoreFiltersTheBuildContext(t *testing.T) {
 	t.Parallel()
-	ignored := dockerignoreEntries(t)
+	ignored := dockerignoreEntries(t, ".dockerignore")
 	for _, want := range []string{"node_modules", ".git", "apps", ".pnpm-store"} {
 		if !ignored[want] {
 			t.Errorf(".dockerignore must exclude %q from the repo-root build context", want)
@@ -102,7 +104,6 @@ func TestRepoRootDockerignoreFiltersTheBuildContext(t *testing.T) {
 
 func TestDockerignoreNeverHidesSomethingADockerfileCopies(t *testing.T) {
 	t.Parallel()
-	ignored := dockerignoreEntries(t)
 	copyRe := regexp.MustCompile(`(?m)^COPY\s+(?:--[^\s]+\s+)*([^\s]+)`)
 
 	// The defs that build from the repo root. base-node-browser and the sidecars use
@@ -114,6 +115,11 @@ func TestDockerignoreNeverHidesSomethingADockerfileCopies(t *testing.T) {
 		"defs/cecli/Dockerfile",
 		"defs/claudecode/mcp/Dockerfile",
 	} {
+		ignore := ".dockerignore"
+		if _, err := os.Stat(filepath.Join(repoRoot(t), rel+".dockerignore")); err == nil {
+			ignore = rel + ".dockerignore"
+		}
+		ignored := dockerignoreEntries(t, ignore)
 		for _, m := range copyRe.FindAllStringSubmatch(readRepoFile(t, rel), -1) {
 			src := m[1]
 			if strings.HasPrefix(src, "/") || strings.HasPrefix(src, "--") {
@@ -121,17 +127,38 @@ func TestDockerignoreNeverHidesSomethingADockerfileCopies(t *testing.T) {
 			}
 			top := strings.SplitN(strings.TrimPrefix(src, "./"), "/", 2)[0]
 			if ignored[top] {
-				t.Errorf("%s copies %q but .dockerignore excludes %q — the COPY would silently "+
-					"produce an empty directory", rel, src, top)
+				t.Errorf("%s copies %q but %s excludes %q — the COPY would silently "+
+					"produce an empty directory", rel, src, ignore, top)
 			}
 		}
 	}
 }
 
-func dockerignoreEntries(t *testing.T) map[string]bool {
+func TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist(t *testing.T) {
+	t.Parallel()
+	if _, err := os.Stat(filepath.Join(repoRoot(t), "defs/cecli/.dockerignore")); err == nil {
+		t.Error("defs/cecli/.dockerignore is back; BuildKit never reads it for a repo-root build — " +
+			"defs/cecli/Dockerfile.dockerignore is the file that applies")
+	}
+	cecli := dockerignoreEntries(t, "defs/cecli/Dockerfile.dockerignore")
+	for entry := range dockerignoreEntries(t, ".dockerignore") {
+		if !cecli[entry] {
+			t.Errorf("defs/cecli/Dockerfile.dockerignore replaces the root .dockerignore for cecli builds "+
+				"but drops %q, so a cecli build would send it to the daemon", entry)
+		}
+	}
+	for _, want := range []string{"__pycache__", "*.pyc", ".pytest_cache/"} {
+		if !cecli[want] {
+			t.Errorf("defs/cecli/Dockerfile.dockerignore lost cecli's own %q", want)
+		}
+	}
+}
+
+// dockerignoreEntries is file's patterns, with a leading **/ dropped.
+func dockerignoreEntries(t *testing.T, file string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
-	for _, line := range strings.Split(readRepoFile(t, ".dockerignore"), "\n") {
+	for _, line := range strings.Split(readRepoFile(t, file), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -141,16 +168,17 @@ func dockerignoreEntries(t *testing.T) map[string]bool {
 	return out
 }
 
-// harnessDockerfiles are the four images that used to install the docker static
+// harnessDockerfiles are the images that used to install the docker static
 // tarball. claudecode-solidity is absent because it inherits claudecode's layers.
 var harnessDockerfiles = []string{
+	"defs/codex/Dockerfile",
 	"defs/claudecode/mcp/Dockerfile",
 	"defs/cursor/Dockerfile",
 	"defs/opencode/Dockerfile",
 	"defs/cecli/Dockerfile",
 }
 
-// _spec/_plans/image-size-reduction.puml
+// _spec/_devops/image-size-reduction.puml
 func TestNoHarnessImageShipsDockerBinaries(t *testing.T) {
 	t.Parallel()
 	for _, rel := range harnessDockerfiles {

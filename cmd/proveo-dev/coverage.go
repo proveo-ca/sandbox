@@ -1,4 +1,4 @@
-// SPEC: _spec/tests/testing-strategy.puml, _spec/tests/00-testing-overview.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/tests/testing-strategy.puml, _spec/tests/00-testing-overview.puml
 package main
 
 import (
@@ -11,19 +11,18 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-const coverageUsage = "usage: proveo-dev coverage {unit|merge|coverage|integration|e2e|all} [go test args]"
+const coverageUsage = "usage: proveo-dev coverage {unit|merge|coverage|e2e|all} [go test args]"
 
 func init() {
 	register(&cobra.Command{
-		Use:   "coverage {unit|merge|coverage|integration|e2e|all} [go test args]",
+		Use:   "coverage {unit|merge|coverage|e2e|all} [go test args]",
 		Short: "Go test lanes with GOCOVERDIR data, and the covdata merge/report",
 		Long: `Modes:
   unit         go test -race -cover ./... into $PROVEO_COV_DIR/unit (default)
-  merge        go tool covdata merge unit (+ integration) → coverage.out; alias: coverage
-  integration  -tags=integration ./internal/egress/ (needs PROVEO_EGRESS_INTEGRATION=1)
+  merge        go tool covdata merge unit → coverage.out; alias: coverage
   e2e          -tags=e2e ./e2e/ (timeout PROVEO_TEST_GO_TIMEOUT, default 45m)
   all          unit then merge
-integration and e2e forward trailing args to go test.`,
+e2e forwards trailing args to go test.`,
 		DisableFlagParsing: true,
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
@@ -38,7 +37,7 @@ integration and e2e forward trailing args to go test.`,
 	})
 }
 
-type covLayout struct{ cov, unit, merged, profile, integration string }
+type covLayout struct{ cov, unit, merged, profile string }
 
 func covPaths(root, override string) covLayout {
 	cov := override
@@ -46,11 +45,10 @@ func covPaths(root, override string) covLayout {
 		cov = filepath.Join(root, "cov")
 	}
 	return covLayout{
-		cov:         cov,
-		unit:        filepath.Join(cov, "unit"),
-		merged:      filepath.Join(cov, "merged"),
-		profile:     filepath.Join(cov, "coverage.out"),
-		integration: filepath.Join(cov, "integration"),
+		cov:     cov,
+		unit:    filepath.Join(cov, "unit"),
+		merged:  filepath.Join(cov, "merged"),
+		profile: filepath.Join(cov, "coverage.out"),
 	}
 }
 
@@ -60,7 +58,7 @@ func coverage(root string, l covLayout, args []string) error {
 		mode, args = args[0], args[1:]
 	}
 	switch mode {
-	case "unit", "merge", "coverage", "integration", "e2e", "all":
+	case "unit", "merge", "coverage", "e2e", "all":
 	default:
 		ui.Failf("%s", coverageUsage)
 		return &exitError{code: 2}
@@ -74,12 +72,6 @@ func coverage(root string, l covLayout, args []string) error {
 		return covUnit(root, l)
 	case "merge", "coverage":
 		return covMerge(root, l)
-	case "integration":
-		if os.Getenv("PROVEO_EGRESS_INTEGRATION") != "1" {
-			ui.Failf("set PROVEO_EGRESS_INTEGRATION=1 to run Layer 3")
-			return &exitError{code: 1}
-		}
-		return run(root, nil, "go", integrationArgs(args)...)
 	case "e2e":
 		return run(root, nil, "go", e2eArgs(os.Getenv("PROVEO_TEST_GO_TIMEOUT"), args)...)
 	}
@@ -97,10 +89,6 @@ func unitArgs(race bool, dir string) []string {
 	return append(a, "-cover", "-covermode=atomic", "./...", "-args", "-test.gocoverdir="+dir)
 }
 
-func integrationArgs(extra []string) []string {
-	return append([]string{"test", "-tags=integration", "-race", "./internal/egress/", "-count=1", "-timeout", "120s"}, extra...)
-}
-
 func e2eArgs(timeout string, extra []string) []string {
 	if timeout == "" {
 		timeout = "45m"
@@ -109,9 +97,6 @@ func e2eArgs(timeout string, extra []string) []string {
 }
 
 func mergeInputs(l covLayout) string {
-	if nonEmptyDir(l.integration) {
-		return l.unit + "," + l.integration
-	}
 	return l.unit
 }
 

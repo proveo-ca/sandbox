@@ -11,14 +11,16 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: defs/claudecode/solidity/Dockerfile
+' covers: internal/contract/dockerfile_correctness_test.go
 '
 ' Elsewhere on purpose:
 '   which parent, which tag ....... _spec/_devops/image-lineage-and-publish.puml
 '   why every agent is pinned ..... _spec/_devops/agent-version-pin.puml
 '   /home/agent and the alias ..... _spec/_paradigms/runtime-user-boundary.puml
 '   the harden pass ............... _spec/defs/harden-pass.puml
+'   codex's deleted apt layer ..... _spec/defs/codex/codex-topology.puml
 '   no docker binaries, and the
-'   evidence against that call .... _spec/_plans/image-size-reduction.puml
+'   evidence against that call .... _spec/_devops/image-size-reduction.puml
 '   the plugin seed ............... _spec/defs/claudecode/lsp-plugins-seed.puml
 '   house rules as managed policy . _spec/packages/lib/house-rules.puml
 '
@@ -77,6 +79,15 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' at container creation and `docker version` answers "Cannot connect to the
 ' Docker daemon" beside Compose files the agent can plainly read.
 '
+' SEC1 (DECIDED 2026-10-17 — the [rec], no code change; repo-simplification.puml):
+' the agent uid in the `docker` group is ACCEPTED. The daemon runs as root from
+' init and its socket is root:docker (defs/base/Dockerfile:133-141), so the
+' group is [Inference] root-equivalent INSIDE the VM. The sbx template ships
+' the same group (defs/base/Dockerfile:31), and the microVM, not the uid, is
+' the boundary every run gets. A harness that should not hold it declares
+' `daemon: false`; a rootless dockerd was considered and not taken. Raised on
+' OpenCode engines (defs/opencode/Dockerfile:38-41 since N26; :50-53 at the time).
+'
 ' ── opencode: xclip IS ABSENT ON PURPOSE ────────────────────────────────────
 ' xclip needs an X display. This container has none and sets no DISPLAY, and the
 ' package drags libx11/libxmu/libxt/libxext along for a clipboard that cannot
@@ -84,6 +95,25 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' from proveo/base-node-lsp rather than being installed here, as do the shared
 ' workspace language servers — only the opencode agent itself is installed in
 ' this file.
+'
+' ── NO EMPTY apt LAYER (N26, DONE (wt) 2026-10-18) ──────────────────────────
+' opencode and codex each carried an apt RUN whose `apt-get install` named no
+' package. It paid an `apt-get update` and two cache mounts and installed
+' nothing. [Inference] It is what removing the last package (xclip, for
+' opencode) leaves behind when the install line itself stays. MEASURED: both
+' RUNs are deleted, so neither file runs apt at all.
+' internal/contract TestEveryAptInstallNamesAPackage (dockerfile_correctness_
+' test.go) reads every tracked *Dockerfile. An `apt-get install` whose first
+' non-flag word is `&&`, `||`, `;`, `|` or the line end fails it, so the next
+' removal deletes the RUN or keeps a package. It found opencode's copy after
+' N26 was filed against codex alone.
+' With no apt left, defs/opencode/Dockerfile no longer declares `ARG
+' DEBIAN_FRONTEND=noninteractive`, and dockerfile_correctness_test.go's
+' aptDockerfiles list — the files that must declare it — no longer names
+' opencode (MEASURED, review follow-up). Its orphaned
+' `# SPEC: _spec/_devops/image-size-reduction.puml` moved to line 1.
+' Image (MEASURED by the coordinator): opencode and opencode-browser rebuilt;
+' TestImageOpencode passes (44.3s).
 '
 ' ── claudecode: THE DEV TOOLS EVERY REPO PINS ITSELF ARE ABSENT ─────────────
 ' No global typescript / ts-node / prettier / eslint. 65 MB measured, unpinned
@@ -95,7 +125,8 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' production would make every `npm`/`pnpm install` the agent runs in the
 ' workspace skip devDependencies — tsc, eslint, test runners — which are exactly
 ' the tools the agent needs. It is left undefined so the project's own .env can
-' set it if it wants one (load_env exports .env with `set -a`).
+' set it if it wants one — since N7 (2026-10-17) through the host's `--env-file`
+' seeding of a new sandbox, not an in-image load_env (deleted).
 '
 ' WORKSPACE ROOTS. /app is the workspace root, the same as every other def.
 ' /workspace survives only for the parts that were never claudecode's own:

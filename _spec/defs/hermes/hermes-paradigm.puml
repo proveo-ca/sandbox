@@ -30,6 +30,13 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' No such file or directory"). sandbox.OwnAgentCommand puts the entrypoint
 ' script back in front of them.
 '
+' ONE THING HERMES NO LONGER BREAKS FROM (N24, DONE (wt) 2026-10-17): the
+' upstream base also lacked proveo-entrypoint, so hermes alone ran the shell
+' twins of the runtime-user and git-context steps. The user chose "Ship prep
+' into hermes (Recommended)": the Dockerfile builds the binary in its own Go
+' stage, and the entrypoint runs the same prelude-then-`proveo-entrypoint prep`
+' as every def (_spec/defs/hermes/hermes-topology.puml has the stage).
+'
 ' ── WHY HERMES AND NOT xAI's "grok-bot" ─────────────────────────────────────
 ' This def was cut on a branch originally scoped for an xAI "grok-bot"
 ' integration. Research found neither xAI product fit: Grok Bot (the cloud
@@ -64,7 +71,7 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' foreground agent process per ephemeral sandbox, launched by dumb-init +
 ' entrypoint.sh, torn down with the container. Keeping s6-overlay would mean
 ' this repo supervising services (the dashboard, gateways) nothing here ever
-' needs, and reconciling "docker: sbx"'s ONE startup command against a
+' needs, and reconciling the sbx Kit's ONE startup command against a
 ' multi-service supervision tree it was never designed for.
 '
 ' So defs/hermes/Dockerfile overrides ENTRYPOINT to the usual
@@ -101,8 +108,8 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' entrypoint.sh, TestImageHermesBakedModel.
 '
 ' ── HERMES RUNS AS UID 1000, THE UID PROVEO LAUNCHES ────────────────────────
-' proveo starts the agent as uid 1000 (--user 1000:1000 on docker, the kit user
-' on sbx). stage2-hook.sh refuses any non-root uid other than the hermes user's
+' proveo starts the agent as uid 1000 (the kit user on sbx; --user 1000:1000 on
+' the docker backend until it was deleted 2026-10-16). stage2-hook.sh refuses any non-root uid other than the hermes user's
 ' own — upstream's answer is "start as root", which proveo never does. So the
 ' image remaps the hermes user to uid/gid 1000 at build time: proveo's launch IS
 ' the hermes user, the hook's guard passes, its root-only steps degrade to
@@ -114,8 +121,10 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' environment, which a launch without /init never reads — the browser tool
 ' would find no Chrome. entrypoint.sh finds the headless-shell binary and
 ' exports it, which also makes the hook skip its /run/s6 write (root-only).
-' HERMES_HOME follows the manifest's durable /proveo-home/data mount when one
-' is present, so config and sessions outlive --rm. The Dockerfile no longer
+' HERMES_HOME follows the manifest's durable mount — on sbx at its host path,
+' $PROVEO_STATE_HOME/hermes/data (the /proveo-home/data rendering went with the
+' docker backend, 2026-10-16) — so config and sessions outlive the sandbox
+' (_spec/defs/hermes/hermes-persistence.puml). The Dockerfile no longer
 ' wipes /tmp: upstream ships XDG_RUNTIME_DIR (/tmp/hermes-runtime) there.
 '
 ' ── PROVIDER KEYS ARE USAGE KEYS, AS FOR CECLI ──────────────────────────────
@@ -133,12 +142,33 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' Qwen 3.8 27B, Muse Glimmer 30B. Each option IS a --local-model value for this
 ' host (MLX tags on macOS arm64, GGUF :latest elsewhere; API keys = none), so the
 ' row and the flag are one knob. On sbx the host's Ollama serves it on the host GPU
-' (_spec/internal/sbx/host-inference.puml); on docker the existing --local-model
-' path applies. The image stays `hermes`. Layout:
+' (_spec/internal/sbx/host-inference.puml); the docker --local-model path (an
+' Ollama sidecar) is deleted with that backend. The image stays `hermes`. Layout:
 ' _spec/internal/choiceui/wireframe.puml (box 9).
 '
 ' The row merges with the auth row on harnesses that have a plan
 ' (_spec/internal/choiceui/wireframe.puml, box 9).
+'
+' ── WHAT THE CHECKS CAN AND CANNOT SEE ──────────────────────────────────────
+' THE LOCAL-MODEL e2e ASSERTS PROSE, NOT A SIDE EFFECT. TestHermesLocalModelE2E
+' expects a fixed reply, as internal/imagetest/hermes_test.go's hosted-provider
+' check does, unlike TestPromptfulE2E's file-writing task. Hermes's
+' non-interactive `chat -q` tool-invocation flags are unconfirmed, so a plain
+' text round-trip is the reliable sign that each model is reachable and
+' answering.
+' THE BROWSER IS FOUND BY GLOB. The browser tool is native to hermes, so unlike
+' every other def this image always carries a browser and has no -browser
+' variant. Upstream's non-desktop build (v2026.9.24) stages Playwright's
+' headless-shell Chromium, not the full Chromium the -desktop tag ships, at a
+' version- and arch-suffixed path. The image suite globs for it, because a
+' fixed path breaks on the next pin and the /etc/hermes marker file is written
+' by the desktop build alone.
+' THE PRIVILEGE DROP IS JUDGED BY THE SHIM'S OWN CONTRACT. The exec shim drops
+' root to "hermes" via /command/s6-setuidgid before it execs the binary, so
+' `id -un` after the call reports the CALLER's uid; the shim's process image
+' is gone by then. The shim fails loud, with a specific message and exit 126,
+' when /command/s6-setuidgid is missing. So success with no such message is
+' what a real drop looks like from outside.
 '
 actor "Operator" as OP
 
@@ -147,12 +177,12 @@ node "hermes container" as CTR <<host>> {
   component "stage2-hook.sh\n(upstream setup, run once)" as HOOK <<app>>
   component "/opt/hermes/bin/hermes\n(exec shim: root -> hermes user)" as SHIM <<app>>
   component "hermes chat / native browser tool" as CLI <<app>>
-  database "/proveo-home/data (HERMES_HOME)" as HOME <<db>>
+  database "$PROVEO_STATE_HOME/hermes/data (HERMES_HOME)" as HOME <<db>>
   database "/app — repo (rw, .git rw)" as WS <<db>>
 }
 
 cloud "Provider API\n(OpenAI-compatible endpoint)" as BACKEND
-cloud "Ollama sidecar\n(PROVEO_LOCAL_MODEL)" as OLLAMA
+cloud "host Ollama\n(PROVEO_LOCAL_MODEL; the docker sidecar is gone)" as OLLAMA
 
 OP ARROW_MAIN EP : starts container
 EP ARROW_MAIN HOOK : run once, as root

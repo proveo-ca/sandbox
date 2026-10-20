@@ -16,14 +16,23 @@
 '                                diagram were retired 2026-09-16 with the
 '                                docker egress mechanism)
 '   the pty a full-screen ask needs _spec/internal/ptyproxy/pty-ownership.puml
-'   the key on docker .......... _spec/_paradigms/credential-boundary.puml
+'   the credential boundary .... _spec/_paradigms/credential-boundary.puml
 '
-' THE CORRECTION THIS FILE EXISTS TO CARRY: there is no single egress axis. The
-' picker shows sbx's host BASELINE on a sbx harness and proveo's TIERS on a docker
-' one, and the two are different questions with different answers and a different
-' hop behind them. An earlier draft glossed allow-all/balanced/deny-all as nicer
-' names for open/allowlist/review; they are a separate, host-wide axis that proveo
-' reports and never sets. Every frame below therefore names its backend.
+' ── 2026-10-16: VARIANT D IS HISTORY ───────────────────────────────────────
+' The docker+egress backend, its tiers and the review gate are DELETED ("Retire
+' Docker egress"; "Nothing, `sbx` handles this. Drop that param"). MEASURED in
+' internal/run/topology.go: every frame is a Variant S frame — Hop "sbx proxy",
+' lanes from sbx's baseline, the key at the hop under broker, in the square
+' under forward, none on a local model (MEASURED at the last read). The
+' Variant D sheets, review's '?' frames and the "asked" motion are kept below
+' as the record of a picture proveo no longer draws.
+'
+' THE CORRECTION THIS FILE EXISTED TO CARRY: there was no single egress axis.
+' The picker showed sbx's host BASELINE on a sbx harness and proveo's TIERS on a
+' docker one — different questions with different answers and a different hop.
+' An earlier draft glossed allow-all/balanced/deny-all as nicer names for
+' open/allowlist/review; they are a separate, host-wide axis that proveo reports
+' and never sets. With the tiers deleted, the baseline is the only axis.
 '
 '
 ' THE GLYPHS BELOW ARE THE DIAGRAM'S, NOT THE TERMINAL'S. Salt draws a node as
@@ -41,7 +50,7 @@
 ' Salt has no conditional construct, so every state is a separate frame. Lanes use
 ' '-' and '=' because the diagram font carries no box-drawing set — which makes
 ' these sheets a literal picture of the PROVEO_GLYPHS=ascii tier.
-title The topology strip in every selectable state, on both backends
+title The topology strip in every selectable state (sbx; the docker frames are history)
 
 {
 {^"Anatomy — six columns, three rows, one caption. Nothing here ever moves."
@@ -58,14 +67,15 @@ title The topology strip in every selectable state, on both backends
 {^"Which axis you are on is decided by the harness, not by the operator"
 {#
   backend | harnesses | the egress row shows | the hop in the strip is | the row is
-  **sbx** | claudecode · cursor | allow-all · balanced · deny-all | sbx's own proxy; the Kit allowlist rides on top | **LOCKED** — reported, never set
-  **docker** | any def, as a FALLBACK only | open · allowlist · review | proveo's mitmproxy, plus Squid on the enforced tiers | a choice
+  **sbx** | every def | allow-all · balanced · deny-all | sbx's own proxy; the Kit adds only add-on reach | **LOCKED** — reported, never set
+  **docker** | DELETED 2026-10-16 | (open · allowlist · review) | (proveo's mitmproxy, plus Squid) | —
 }
   .
-  The sandbox add-on is now compulsory, so a harness that declares sbx is ALWAYS
-  on the first row and never sees a tier. Every def declares it, so the docker row
-  is reached only by PROVEO_SBX=0, --egress-mode review, or a host that cannot run
-  sbx (_spec/_paradigms/retire-dind.puml).
+  The sandbox add-on is compulsory, so every harness is on the first row. The
+  docker row was reached only by PROVEO_SBX=0, --egress-mode review, or a host
+  that could not run sbx. Since 2026-10-16 a host without sbx refuses the run,
+  and since 2026-10-17 PROVEO_SBX is unread and --egress-mode is an unknown flag
+  (_spec/internal/sbx/sandbox-backend.puml).
   .
   On sbx the baseline is host-wide and shared by sandboxes proveo never started,
   which is why the row is locked. The strip is REPORTING there — it draws a fact
@@ -73,9 +83,10 @@ title The topology strip in every selectable state, on both backends
   .
   **deny-all is the tightest posture, NOT a dead one.** It is classified by the
   ABSENCE of a network allow rule, not by an explicit deny — and the Kit can only
-  add allows, never subtract. So the Kit's list is the only one standing, and it
-  is built from the harness's declared hosts plus the API hosts of the providers
-  proveo actually detected. The agent reaches its model, and nothing else.
+  add allows, never subtract. HISTORY: the Kit's list carried the harness's
+  declared hosts plus the detected providers' API hosts. Since 2026-10-16 it
+  carries only add-on ports and own-agent credential domains (MEASURED).
+  [Inference] What reaches the model under deny-all is sbx's own agent definition.
   .
   That is also why the lane count falls 3 -> 2 -> 1 across the row rather than
   3 -> 2 -> 0: the axis runs riskier to safer, and the safest end still has to
@@ -92,9 +103,9 @@ title The topology strip in every selectable state, on both backends
 }
 {^"allow-all · forward"
   . | . | . | . | . | - - ▸ <:cloud:>
-  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | - - ▸ <:cloud:>
+  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | - - ▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | . | . | - - ▸ <:cloud:>
-  allow-all · forward — the row may still say forward; sbx holds the value at its proxy
+  allow-all · forward — the real key rides the sandbox env (CLI flag; the form gates it)
 }
 }
 {
@@ -106,9 +117,9 @@ title The topology strip in every selectable state, on both backends
 }
 {^"balanced · forward"
   . | . | . | ───▸ | . | ───▸ <:cloud:>
-  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ───▸ <:cloud:>
+  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ───▸ <:cloud:>
   ▴ | ◂── | () interface ↑ | ───▸ | . | ───×
-  balanced · forward — the host's allows plus proveo's; the key stays at the hop
+  balanced · forward — the host's allows plus proveo's; the key rides inside
 }
 }
 {
@@ -120,22 +131,20 @@ title The topology strip in every selectable state, on both backends
 }
 {^"deny-all · forward"
   . | . | . | ───▸ | . | ───▸ <:cloud:> the provider
-  () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy <:key:> | ──×
+  () host | . | [ <:key:> <:speech_balloon:> claudecode ] | ───▸ | () sbx proxy | ──×
   ▴ | ◂── | () interface ↑ | ───▸ | . | ──×
-  deny-all · forward — one lane out, and the key still sits on the proxy
+  deny-all · forward — one lane out, and the key rides inside the square
 }
 }
   .
-  'broker' names a different party here than it does on docker: there is no
-  proveo egress layer, so proveo steps aside and SBX brokers — the value
-  never reaches the agent either way, but the hop in the picture is sbx's.
+  'broker' names one party now: there is no proveo egress layer, so proveo
+  steps aside and SBX brokers — the hop in the picture is sbx's.
   .
-  cursor declares credentials [forward] alone; the row is still drawn with
-  both modes, and forward is gated. The key sits at the sbx proxy — that is
-  where the secret rests.
+  The credentials row draws both modes and gates forward. HISTORY: cursor
+  declared credentials [forward] alone until its pins were dropped 2026-10-16.
 }
 ..
-{^"Variant D · the docker backend — proveo's tiers, and proveo's mitmproxy"
+{^"HISTORY — Variant D · the docker backend (deleted 2026-10-16) — proveo's tiers, and proveo's mitmproxy"
 {
 {^"open · broker"
   . | . | . | . | . | - - ▸ <:cloud:>
@@ -188,7 +197,7 @@ title The topology strip in every selectable state, on both backends
   without host Ollama and it builds a network plus an Ollama sidecar — still no hop.
 }
 ..
-{^"...times agent evidence, which swaps one glyph and changes nothing else"
+{^"...times outputs, which swaps one glyph and changes nothing else"
 {
 {^"default"
   () host | . | [ <:speech_balloon:> claudecode ] | ───▸ | () egress <:key:>
@@ -217,7 +226,7 @@ title The topology strip in every selectable state, on both backends
 }
 {^"broker — it stops AT the hop"
   () host | . | [ claudecode ] | ───▸ | () egress <:key:>
-  injected at the hop — proveo's MITM on docker, sbx's own proxy on sbx
+  injected at the hop — sbx's own proxy (proveo's MITM on docker, deleted)
 }
 }
   .
@@ -240,7 +249,7 @@ title The topology strip in every selectable state, on both backends
 {^"cursor on interface"
   **▴** | **◂──** | **() interface ↑** | <color:#9a9a9a>───▸</color> | <color:#9a9a9a>() egress</color>
 }
-{^"cursor on agent evidence"
+{^"cursor on outputs"
   <color:#9a9a9a>() host</color> | . | **[ <:speaking_head:> claudecode ]** | <color:#9a9a9a>───▸</color> | <color:#9a9a9a>() egress</color>
 }
 }
@@ -269,7 +278,7 @@ title The topology strip in every selectable state, on both backends
   that actually change the drawing: the backend, the row it puts there, and the key.
   .
   **The lane counts are illustrative, never measured.** A real "how many hosts
-  survive" would mean reading the Kit allowlist or Squid's config at prompt time,
+  survive" would mean reading sbx's policy at prompt time (Squid's config, once),
   which costs more than the picture is worth — so the counts fall 3, 2, 1 to show
   the axis tightening, and every caption says what the tier DOES rather than
   claiming a number. One lane always survives, because the run has to work.
@@ -318,6 +327,7 @@ title The topology strip in every selectable state, on both backends
   the option under the cursor — balanced draws 2 open and 1 refused while you
   are reading balanced's help, not deny-all's 1 and 2.
   .
+  HISTORY (review retired 2026-10-16; no '?' frame is produced now):
   **'?' and '×' are different events, so they are different glyphs.** review's
   '?' is a question with somebody to ask: the MITM's CONNECT hook calls the
   reviewgate daemon, which raises a full-screen overlay on the real terminal —
@@ -337,10 +347,10 @@ title The topology strip in every selectable state, on both backends
 
 legend bottom
   **() host · () interface · () egress** — dots: the machine, what the agent drives, the hop
-  **the hop is not one thing** — proveo's mitmproxy on docker, sbx's own proxy on sbx
+  **the hop** — sbx's own proxy (proveo's mitmproxy on the docker backend until 2026-10-16)
   **a square** — the container boundary; the def name inside it is a label, never a shape
   **<:key:>** — the credential, drawn at the one place it actually rests for the run
-  **<:speech_balloon:> / <:speaking_head:>** — agent evidence: default, or verbose
+  **<:speech_balloon:> / <:speaking_head:>** — outputs: filtered, or verbose
   **<:cloud:>** — the internet: one cloud per lane that survives
   **───▸ into the hop** the session's traffic reaching it — SOLID on every tier, because
   the agent always reaches the hop. The host needs no rule of its own: the bottom bracket
@@ -348,7 +358,7 @@ legend bottom
   **after the hop** the lane kind, which is the one thing the tier names do not say:
   **───** terminated and re-originated · **- - -** only watched · **═══** asked first
   **───×** a lane the policy refuses · **×** — refused, and nobody was asked
-  **?** at the hop, with a lane back to () host — review asking YOU, agent suspended
+  **?** at the hop, with a lane back to () host — review asking YOU (retired 2026-10-16)
   **bold / dim** — what the cursor's row owns, and everything it does not; NOT the form's gated grey
   a "." cell — element absent, column position preserved for the survivors
 end legend

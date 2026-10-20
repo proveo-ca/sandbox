@@ -8,7 +8,7 @@ func scrollForm() *Form {
 		{Label: "credentials", Options: []string{"c", "d"}},
 		{Label: "execution", Options: []string{"e"}, Multi: true, Divider: true},
 		{Label: "interface", Options: []string{"f"}, Multi: true, Divider: true},
-		{Label: "agent evidence", Options: []string{"g"}, Multi: true},
+		{Label: "outputs", Options: []string{"g"}, Multi: true},
 	}}
 }
 

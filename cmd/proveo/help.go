@@ -148,13 +148,18 @@ func helpWidth(w io.Writer) int {
 	return 100
 }
 
-// renderHelp draws a command's help in the choice prompt's layout: title, header, headed bodies, hint.
-func renderHelp(w io.Writer, cmd *cobra.Command) {
+func newHelpPen(w io.Writer) helpPen {
 	p := ui.New(w)
 	h := helpPen{w: w, plain: p.Plain, rule: "─", width: helpWidth(w)}
 	if p.Plain || p.Tier != ui.GlyphsNerd {
 		h.rule = "-"
 	}
+	return h
+}
+
+// renderHelp draws a command's help in the choice prompt's layout: title, header, headed bodies, hint.
+func renderHelp(w io.Writer, cmd *cobra.Command) {
+	h := newHelpPen(w)
 	if !cmd.HasParent() {
 		ui.WriteBrandBanner(w)
 	}
@@ -232,6 +237,20 @@ func renderHelp(w io.Writer, cmd *cobra.Command) {
 		}
 		for _, c := range subs {
 			h.row(c.Name(), c.Short, col)
+		}
+		h.line("")
+	}
+
+	var topics []*cobra.Command
+	for _, c := range cmd.Commands() {
+		if c.IsAdditionalHelpTopicCommand() {
+			topics = append(topics, c)
+		}
+	}
+	if len(topics) > 0 {
+		h.heading("help topics")
+		for _, c := range topics {
+			h.row("help "+c.Name(), c.Short, helpDescCol)
 		}
 		h.line("")
 	}

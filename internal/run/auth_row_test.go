@@ -25,7 +25,7 @@ func opencodeMan() manifest.Manifest {
 
 func cursorMan() manifest.Manifest {
 	return manifest.Manifest{
-		Name: "cursor", Subscription: true, Provider: "cursor",
+		Name: "cursor", Subscription: true,
 		Env:          []manifest.EnvVar{{Name: "CURSOR_API_KEY", Secret: true}},
 		Capabilities: manifest.Capabilities{Providers: []string{"cursor"}},
 	}

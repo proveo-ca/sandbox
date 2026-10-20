@@ -5,17 +5,15 @@ package e2e
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/imagetest"
 )
 
 func TestOpenCodePresentationAndAutoacceptInImage(t *testing.T) {
-	image := os.Getenv("PROVEO_E2E_OPENCODE_IMAGE")
-	if image == "" {
-		image = "proveo/opencode:local"
-	}
+	image := imagetest.PinnedRef("opencode", "proveo/opencode:local")
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is unavailable")
 	}

@@ -1,4 +1,4 @@
-# SPEC: _spec/defs/opencode/native-v2-integration.puml
+# SPEC: _spec/defs/opencode/native-v2-integration.puml, _spec/defs/opencode/engine-local-history.puml
 
 import contextlib
 import json
@@ -58,13 +58,6 @@ class NativePresentationTests(unittest.TestCase):
         self.env = {
             "PATH": os.environ["PATH"],
             "HOME": str(self.home),
-            "PROVEO_HOME": str(self.home),
-            "PROVEO_OPENCODE_CREDENTIAL_HELPER": str(
-                RUNTIME.with_name("opencode-credentials.py")
-            ),
-            "PROVEO_OPENCODE_HOME_MANIFEST": str(
-                ROOT / "defs/opencode/harness.manifest"
-            ),
             "OPENCODE_DISABLE_MODELS_FETCH": "1",
             "OPENCODE_DISABLE_AUTOUPDATE": "1",
             "OPENCODE_CONFIG_PROJECT_DISABLE": "1",
@@ -120,7 +113,7 @@ class NativePresentationTests(unittest.TestCase):
         self.assertEqual(
             (self.root / "shell-executed").read_text(), report["shellOutput"]
         )
-        database = self.home / "opencode/v2/share/opencode.db"
+        database = self.home / ".local/share/opencode/opencode.db"
         with contextlib.closing(sqlite3.connect(database)) as db:
             messages = [
                 json.loads(row[0])
@@ -158,7 +151,13 @@ class NativePresentationTests(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 result = subprocess.run(
-                    [sys.executable, "-B", str(RUNTIME), NATIVE, *args],
+                    [
+                        sys.executable,
+                        "-B",
+                        str(RUNTIME),
+                        NATIVE,
+                        *args,
+                    ],
                     env=self.env,
                     cwd=self.root,
                     capture_output=True,

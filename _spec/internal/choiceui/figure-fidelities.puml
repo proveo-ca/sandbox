@@ -67,7 +67,7 @@ title The four fidelities of one figure, and how each was measured
   credentials | ( ) <color:#9a9a9a>forward | (X) broker | .
   . | ———— execution ———— | . | .
   . | [ ] host | [X] docker (sandbox) — locked | .
-  agent evidence | [ ] default | [X] verbose | .
+  outputs | [ ] filtered | [X] verbose | .
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
   › allow-all — the host baseline; the Kit ADDS reach here, it cannot subtract
@@ -84,7 +84,7 @@ title The four fidelities of one figure, and how each was measured
   ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all
   credentials | ( ) <color:#9a9a9a>forward | (X) broker | .
   . | [ ] host | [X] docker (sandbox) — locked | .
-  agent evidence | [ ] default | [X] verbose | .
+  outputs | [ ] filtered | [X] verbose | .
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
   › allow-all — the host baseline; the Kit ADDS reach here, it cannot subtract
@@ -148,7 +148,7 @@ title The four fidelities of one figure, and how each was measured
   ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all | . | . | . | - - ▸ <:cloud:>
   credentials | ( ) <color:#9a9a9a>forward | (X) broker | . | () host | [ <:speech_balloon:> claudecode ] | () sbx proxy <:key:> | - - ▸ <:cloud:>
   . | [ ] host | [X] docker (sandbox) — locked | . | ▴ ◂─ | ( ) interface | . | - - ▸ <:cloud:>
-  agent evidence | [ ] default | [X] verbose | . | open · broker | . | . | .
+  outputs | [ ] filtered | [X] verbose | . | open · broker | . | . | .
 }
 {^"72 <= w < 112 · BLOCK — under the help, five rows"
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel

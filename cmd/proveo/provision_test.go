@@ -28,13 +28,13 @@ func TestProvisionerEnsure(t *testing.T) {
 	}{
 		{
 			name:    "present images are untouched",
-			deps:    []imageDep{{Name: "ubuntu/squid:latest"}, {Name: "proveo/egress-proxy:latest"}},
-			present: map[string]bool{"ubuntu/squid:latest": true, "proveo/egress-proxy:latest": true},
+			deps:    []imageDep{{Name: "ubuntu:24.04"}, {Name: "proveo/codex:latest"}},
+			present: map[string]bool{"ubuntu:24.04": true, "proveo/codex:latest": true},
 		},
 		{
 			name:      "missing images are pulled first — including published proveo/* ones",
-			deps:      []imageDep{{Name: "ubuntu/squid:latest"}, {Name: "proveo/egress-proxy:latest", Target: "egress-proxy"}},
-			wantPulls: []string{"ubuntu/squid:latest", "proveo/egress-proxy:latest"},
+			deps:      []imageDep{{Name: "ubuntu:24.04"}, {Name: "proveo/codex:latest", Target: "codex"}},
+			wantPulls: []string{"ubuntu:24.04", "proveo/codex:latest"},
 		},
 		{
 			name:      "pull failure without a source tree is a hard error",
@@ -63,16 +63,16 @@ func TestProvisionerEnsure(t *testing.T) {
 		},
 		{
 			name:      "declined build keeps the actionable failure",
-			deps:      []imageDep{{Name: "proveo/egress-proxy:latest", Target: "egress-proxy"}},
+			deps:      []imageDep{{Name: "proveo/codex:latest", Target: "codex"}},
 			pullErr:   true,
 			confirm:   false,
-			wantPulls: []string{"proveo/egress-proxy:latest"},
-			wantErr:   "proveo build egress-proxy --tag local",
+			wantPulls: []string{"proveo/codex:latest"},
+			wantErr:   "proveo build codex --tag local",
 		},
 		{
 			name:      "duplicates are checked once",
-			deps:      []imageDep{{Name: "ubuntu/squid:latest"}, {Name: "ubuntu/squid:latest"}},
-			wantPulls: []string{"ubuntu/squid:latest"},
+			deps:      []imageDep{{Name: "ubuntu:24.04"}, {Name: "ubuntu:24.04"}},
+			wantPulls: []string{"ubuntu:24.04"},
 		},
 	}
 	for _, tc := range tests {
@@ -124,11 +124,10 @@ func TestBuildTargetResolution(t *testing.T) {
 		name, defs, image, want string
 		man                     manifest.Manifest
 	}{
-		{"sidecar image names its target", "/d", "proveo/egress-proxy:latest", "egress-proxy", manifest.Manifest{}},
 		{"a browser variant is its own target", "/d", "proveo/claudecode-browser:latest", "claudecode-browser", manifest.Manifest{Name: "claudecode"}},
 		{"an unknown proveo image falls back to the manifest", "/d", "proveo/cecli-node:latest", "cecli", manifest.Manifest{Name: "cecli"}},
-		{"public image never builds", "/d", "ubuntu/squid:latest", "", manifest.Manifest{}},
-		{"no source tree builds nothing", "", "proveo/egress-proxy:latest", "", manifest.Manifest{}},
+		{"public image never builds", "/d", "ubuntu:24.04", "", manifest.Manifest{}},
+		{"no source tree builds nothing", "", "proveo/claudecode:latest", "", manifest.Manifest{Name: "claudecode"}},
 		{"overridden non-proveo agent image builds nothing", "/d", "ghcr.io/acme/custom:1", "", manifest.Manifest{Name: "cecli"}},
 	} {
 		if got := buildTarget(c.defs, c.man, c.image); got != c.want {
@@ -249,6 +248,24 @@ func TestPromptYesNo(t *testing.T) {
 			}
 			if !strings.Contains(out.String(), wantSuffix) {
 				t.Errorf("prompt %q should show %s", out.String(), wantSuffix)
+			}
+		})
+	}
+}
+
+func TestProvisionConfirmFollowsAutoProvisionBeforeTheWizard(t *testing.T) {
+	t.Setenv("PROVEO_WIZARD", "0")
+	for _, c := range []struct {
+		val  string
+		want bool
+	}{
+		{"yes", true}, {"1", true}, {"Enabled", true},
+		{"disabled", false}, {"0", false}, {"", false}, {"maybe", false},
+	} {
+		t.Run("PROVEO_AUTO_PROVISION="+c.val, func(t *testing.T) {
+			t.Setenv("PROVEO_AUTO_PROVISION", c.val)
+			if got := provisionConfirm("build it?"); got != c.want {
+				t.Errorf("provisionConfirm = %v, want %v", got, c.want)
 			}
 		})
 	}

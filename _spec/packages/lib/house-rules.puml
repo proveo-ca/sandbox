@@ -9,6 +9,15 @@ title House rules and UI defaults — proveo's conventions in every session, wit
 '
 ' Knobs: PROVEO_HOUSE_RULES=off · PROVEO_UI_DEFAULTS=off.
 '
+' The codex row, absent from the ROUTE note (moved from _house_rules_target's
+' header, N14): $CODEX_HOME/AGENTS.md (~/.codex/AGENTS.md), the documented
+' global file. Codex reads AGENTS.md natively and ranks the project's above
+' it, so the house rules ADD to a repo's own rather than competing. It is the
+' lowest tier, and the right one: codex has no managed-policy path, so there is
+' nothing above the project layer to write to (_spec/defs/codex/
+' codex-paradigm.puml, "Instruction tiers"). codex and opencode are the "both
+' harnesses" the REPO note means.
+'
 ' ── 7g. UI DEFAULTS — A SANDBOX SHOULD LOOK LIKE A SANDBOX ─────────────────
 ' Two settings, both about reading the screen correctly, both claudecode-only
 ' because it is the only harness with a theme file proveo can write.

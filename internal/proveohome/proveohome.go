@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 )
@@ -83,13 +84,7 @@ func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 // a run survives into the next one.
 const EnvKeepLogins = "PROVEO_KEEP_AGENT_LOGINS"
 
-func keepDeniedLogins(getenv func(string) string) bool {
-	switch strings.ToLower(strings.TrimSpace(getenv(EnvKeepLogins))) {
-	case "1", "on", "yes", "true":
-		return true
-	}
-	return false
-}
+func keepDeniedLogins(getenv func(string) string) bool { return envflag.On(getenv(EnvKeepLogins)) }
 
 func scrubDeny(dir string, deny []string) error {
 	for _, name := range deny {

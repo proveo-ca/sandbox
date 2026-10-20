@@ -1,4 +1,4 @@
-// SPEC: _spec/_devops/git-hooks.puml, _spec/_plans/host-shell-to-go.puml
+// SPEC: _spec/_devops/git-hooks.puml
 package main
 
 import (
@@ -8,15 +8,23 @@ import (
 	"testing"
 )
 
-func TestSkipHooksAcceptsTheBashTruthyWords(t *testing.T) {
-	for _, v := range []string{"1", "true", "yes", "on"} {
-		if !skipHooks(v) {
-			t.Errorf("skipHooks(%q) = false", v)
+func TestSkipHooksAcceptsTheEnvflagOnWords(t *testing.T) {
+	env := func(v string) func(string) string {
+		return func(k string) string {
+			if k == "SKIP_GIT_HOOKS" {
+				return v
+			}
+			return ""
 		}
 	}
-	for _, v := range []string{"", "0", "false", "TRUE", "no"} {
-		if skipHooks(v) {
-			t.Errorf("skipHooks(%q) = true", v)
+	for _, v := range []string{"1", "true", "yes", "on", "TRUE", " enabled "} {
+		if !skipHooks(env(v)) {
+			t.Errorf("SKIP_GIT_HOOKS=%q: skipHooks = false", v)
+		}
+	}
+	for _, v := range []string{"", "0", "false", "no", "off", "maybe"} {
+		if skipHooks(env(v)) {
+			t.Errorf("SKIP_GIT_HOOKS=%q: skipHooks = true", v)
 		}
 	}
 }

@@ -29,6 +29,8 @@
 
 Count: **219 files**, including Go source, tests, and six testdata goldens.
 
+> **Snapshot, superseded in part (2026-10-16).** The docker+egress backend was deleted that day ("Retire Docker egress"; "Refuse without sbx"). Every row below for `internal/egress/**`, `internal/egresspolicy/**`, `internal/egressproxy/**`, `internal/broker/**`, `internal/reviewgate/**`, `internal/backend/dockeregress/**` `internal/runner/{pids,pids_test,runner_test}.go`, `internal/run/params_test.go` and `internal/choiceui/consent{,_test}.go` names a file that no longer exists; `internal/runner/runner.go` now holds only `type Mount`. The rows are kept as the record of how that code was valued. The current boundary is `_spec/internal/sbx/sandbox-backend.puml` and `_spec/internal/sbx/policy-baseline.puml`.
+
 Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, credential, workspace, release, or posture trust; **4** is major runtime correctness; **3** is supporting behavior and operator UX; **2** is peripheral or legacy Docker+egress behavior; **1** is mechanical or documentation hygiene. Complexity measures reasoning, state, and integration surface, not LOC: **1** is declarative/snapshot-like and **5** is cross-system orchestration. Tests inherit the value of the invariant they protect, but a narrow assertion can have lower complexity than its implementation. Legacy Docker+egress code is intentionally lower thesis value even where its proxy, PTY, or lifecycle logic remains complex.
 
 | File | Value | Complexity | Judgment |
@@ -171,7 +173,7 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/wsscan/wsscan.go` | 4 | 4 | Scans workspaces for risky inputs; heuristic detection is advisory, never prevention. |
 | `internal/agentio/agentio_test.go` | 3 | 1 | Pins TTY detection seams; tests cannot reproduce every pipe/console arrangement. |
 | `internal/choiceui/anim_test.go` | 3 | 1 | Pins animation timing behavior; timing tests can be platform-fragile. |
-| `internal/choiceui/consent_test.go` | 3 | 1 | Guards consent selection basics; it cannot prove informed consent. |
+| `internal/choiceui/consent_test.go` | 3 | 1 | **Deleted with the review tier's consent modal.** Guarded consent selection basics; it could not prove informed consent. |
 | `internal/choiceui/gated_reason_test.go` | 3 | 1 | Pins disabled-choice explanations; wording can conceal policy causes. |
 | `internal/choiceui/hover_test.go` | 3 | 1 | Guards hover state; terminal variance can change interaction. |
 | `internal/choiceui/layout_test.go` | 3 | 1 | Pins layout calculations; narrow terminal and Unicode widths remain. |
@@ -186,7 +188,7 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/ui/ui_test.go` | 3 | 1 | Guards plain and styled messages; text correctness can outpace factual correctness. |
 | `internal/choiceui/anim.go` | 3 | 2 | Drives UI animation; cosmetic state can complicate deterministic automation. |
 | `internal/choiceui/canvas.go` | 3 | 2 | Provides terminal drawing primitives; width assumptions can corrupt output. |
-| `internal/choiceui/consent.go` | 3 | 2 | Implements consent interactions; defaults remain a security-sensitive choice. |
+| `internal/choiceui/consent.go` | 3 | 2 | **Deleted with the review tier; `drawBorder` moved to `blocked_run.go`.** Implemented consent interactions; defaults were a security-sensitive choice. |
 | `internal/choiceui/field_test.go` | 3 | 2 | Guards field editing behavior; paste and Unicode edge cases remain. |
 | `internal/choiceui/pen.go` | 3 | 2 | Encapsulates terminal styles; capability fallback may reduce signal. |
 | `internal/choiceui/topology.go` | 3 | 2 | Renders topology summaries; visualization is only as honest as supplied state. |

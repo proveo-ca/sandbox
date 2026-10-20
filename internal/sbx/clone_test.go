@@ -3,6 +3,7 @@ package sbx
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,8 +62,8 @@ func TestCloneSnapshotCommitsOnlyWhenSomethingIsStaged(t *testing.T) {
 	t.Parallel()
 	args := CloneSnapshotArgs("sb", "/Users/op/repo")
 	joined := strings.Join(args, " ")
-	if args[0] != "exec" || !strings.Contains(joined, "-w /Users/op/repo") {
-		t.Errorf("snapshot must exec inside the clone's workdir: %q", joined)
+	if args[0] != "exec" || !strings.Contains(joined, "-w / sb") || !strings.Contains(joined, "cd '/Users/op/repo'") {
+		t.Errorf("snapshot must exec from / and cd into the clone's workdir: %q", joined)
 	}
 	if !strings.Contains(joined, "git add -A") || !strings.Contains(joined, "git diff --cached --quiet ||") {
 		t.Errorf("snapshot must stage everything and commit only when the index is not empty: %q", joined)
@@ -70,6 +71,145 @@ func TestCloneSnapshotCommitsOnlyWhenSomethingIsStaged(t *testing.T) {
 	if !strings.Contains(joined, "user.name=proveo") {
 		t.Errorf("a teardown commit must say who made it: %q", joined)
 	}
+}
+
+func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
+	t.Parallel()
+	git := func(t *testing.T, dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Env = isolatedGitEnv(t)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	repo := func(t *testing.T) string {
+		t.Helper()
+		dir := t.TempDir()
+		git(t, dir, "init", "-q", "-b", "main", ".")
+		git(t, dir, "commit", "-q", "--allow-empty", "-m", "seed")
+		return dir
+	}
+	snapshot := func(t *testing.T, dir string) (int, string) {
+		t.Helper()
+		args := CloneSnapshotArgs("sb", dir)
+		cmd := exec.Command("bash", "-c", args[len(args)-1])
+		cmd.Dir = t.TempDir()
+		cmd.Env = append(isolatedGitEnv(t), "GIT_CEILING_DIRECTORIES="+filepath.Dir(cmd.Dir))
+		out, err := cmd.CombinedOutput()
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode(), string(out)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return 0, string(out)
+	}
+	write := func(t *testing.T, path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("no workdir or an empty one leaves nothing to save", func(t *testing.T) {
+		t.Parallel()
+		for _, dir := range []string{filepath.Join(t.TempDir(), "gone"), t.TempDir()} {
+			if code, out := snapshot(t, dir); code != 0 {
+				t.Errorf("snapshot(%s) = exit %d, want 0 — nothing can be stranded there\n%s", dir, code, out)
+			}
+		}
+	})
+	t.Run("files outside any repository are stranded", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		write(t, filepath.Join(dir, "notes.md"), "the agent's work")
+		if code, _ := snapshot(t, dir); code == 0 {
+			t.Errorf("snapshot of a workdir git cannot read = exit 0; its files would be deleted with the sandbox")
+		}
+	})
+	t.Run("a rejecting pre-commit hook does not block the commit", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		for _, hook := range []string{"pre-commit", "prepare-commit-msg", "commit-msg"} {
+			write(t, filepath.Join(dir, ".git", "hooks", hook), "#!/bin/sh\nexit 1\n")
+		}
+		git(t, dir, "config", "commit.gpgsign", "true")
+		write(t, filepath.Join(dir, "work.txt"), "edit")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if got := git(t, dir, "log", "-1", "--format=%s"); !strings.Contains(got, "uncommitted work at teardown") {
+			t.Errorf("HEAD is %q; the hook kept the agent's edit out of every commit", got)
+		}
+	})
+	t.Run("a detached HEAD gets a branch", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		git(t, dir, "checkout", "-q", "--detach")
+		write(t, filepath.Join(dir, "work.txt"), "edit")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if got := git(t, dir, "log", "-1", "--format=%s"); !strings.Contains(got, "uncommitted work at teardown") {
+			t.Fatalf("HEAD is %q; the edit on the detached HEAD was never committed", got)
+		}
+		if head, br := git(t, dir, "rev-parse", "HEAD"), git(t, dir, "rev-parse", "refs/heads/proveo/detached-head"); head != br {
+			t.Errorf("proveo/detached-head = %s, want HEAD %s — `--branches` would leave the commit behind", br, head)
+		}
+	})
+	t.Run("a detached HEAD a branch already holds gets none", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		git(t, dir, "checkout", "-q", "--detach")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if refs := git(t, dir, "for-each-ref", "refs/heads/proveo/"); refs != "" {
+			t.Errorf("a clean detached checkout of main left %q; the seed's own --detach would report as the agent's work", refs)
+		}
+	})
+	t.Run("a detached HEAD only a stale stash branch holds gets its own", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		git(t, dir, "checkout", "-q", "--detach")
+		git(t, dir, "commit", "-q", "--allow-empty", "-m", "agent work")
+		git(t, dir, "update-ref", "refs/heads/proveo/stash-0", "HEAD")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		if refs := git(t, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/proveo/"); refs != "proveo/detached-head" {
+			t.Errorf("refs = %q, want only proveo/detached-head — the stale stash branch was pruned, so it cannot be what carries HEAD", refs)
+		}
+	})
+	t.Run("every stash gets a branch", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		for _, body := range []string{"first", "second"} {
+			write(t, filepath.Join(dir, "work.txt"), body)
+			git(t, dir, "add", "work.txt")
+			git(t, dir, "stash", "-q")
+		}
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("snapshot = exit %d\n%s", code, out)
+		}
+		for i := range 2 {
+			stash, br := git(t, dir, "rev-parse", fmt.Sprintf("stash@{%d}", i)), git(t, dir, "rev-parse", fmt.Sprintf("refs/heads/proveo/stash-%d", i))
+			if stash != br {
+				t.Errorf("proveo/stash-%d = %s, want stash@{%d} %s", i, br, i, stash)
+			}
+		}
+		git(t, dir, "stash", "drop", "-q")
+		if code, out := snapshot(t, dir); code != 0 {
+			t.Fatalf("second snapshot = exit %d\n%s", code, out)
+		}
+		if refs := git(t, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/proveo/"); refs != "proveo/stash-0" {
+			t.Errorf("after a stash was dropped the clone holds %q, want only proveo/stash-0 — a dropped stash would ride home again", refs)
+		}
+	})
 }
 
 func TestBrowserViewportPinsChromiumsPortAndRelaysFromAnother(t *testing.T) {
@@ -354,4 +494,16 @@ func TestCloneRefsAreKeyedPerRunNotPerSandbox(t *testing.T) {
 		t.Error("two runs of one sandbox fetched into the same namespace — the second " +
 			"would force-overwrite the first run's preserved work")
 	}
+}
+
+// isolatedGitEnv is the environment minus every GIT_* variable, with no global or system config.
+func isolatedGitEnv(t *testing.T) []string {
+	t.Helper()
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") && !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "XDG_CONFIG_HOME=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "HOME="+t.TempDir(), "GIT_CONFIG_NOSYSTEM=1")
 }

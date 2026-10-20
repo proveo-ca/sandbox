@@ -14,14 +14,13 @@ import (
 
 // _spec/_plans/tui-style-deferred-surfaces.puml — deferred because sbx is
 var exemptFromTheGlyphBan = map[string]string{
-	"cmd/proveo-entrypoint/main.go":     "surface A — the in-container preamble; sbx's kit may absorb it entirely",
-	"internal/entrypoint/entrypoint.go": "surface A — PROVEO_SMOKE_READY, printed inside the image",
+	"cmd/proveo-entrypoint/main.go": "surface A — the in-container preamble; sbx's kit may absorb it entirely",
 
 	// Fixtures, not print sites. Both are load-bearing exactly BECAUSE they
 	// hold what the vocabulary excludes.
 	"internal/choiceui/pen_test.go":             "fixture — proves the pen combines the zero-width runes this ban exists for",
 	"internal/agentio/agentio_test.go":          "fixture — the AGENT's own output being tailed, not proveo's",
-	"internal/imagetest/detached_smoke_test.go": "fixture — matches the image's own PROVEO_SMOKE_READY marker (internal/entrypoint)",
+	"internal/imagetest/detached_smoke_test.go": "fixture — matches the image's own PROVEO_SMOKE_READY marker (entrypoint-lib.sh run_smoke_test)",
 }
 
 // TestNoEmojiReachesTheTerminal walks every Go string literal that could

@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/tests/42-hello-world-e2e.puml, _spec/tests/testing-strategy.puml, _spec/_plans/retire-model-bridging.puml, _spec/_paradigms/retire-dind.puml
+// SPEC: _spec/tests/42-hello-world-e2e.puml, _spec/tests/testing-strategy.puml, _spec/_paradigms/retire-dind.puml
 
 package e2e
 
@@ -24,6 +24,7 @@ import (
 // LOCAL open-source model and asserts three observable facts per target:
 func TestHelloWorldE2E(t *testing.T) {
 	requireTmux(t)
+	requireSbx(t)
 	requireDocker(t)
 	model := localModel(t)
 
@@ -106,7 +107,7 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	cmd := []string{"env"}
 	cmd = append(cmd, childEnvArgsNoCredential(t)...)
 	cmd = append(cmd, proveoBin, "run", h.target,
-		"--egress-mode", "open", "--credentials", "forward",
+		"--credentials", "forward",
 		"--local-model", model, "--input", work, "--")
 	cmd = append(cmd, h.agentArgs(prompt)...)
 
@@ -322,7 +323,7 @@ func assertModels(t *testing.T, model, models, screen string) {
 
 func childEnvArgs(t *testing.T) []string {
 	t.Helper()
-	return append(childEnvArgsNoCredential(t), "PROVEO_EGRESS_ENV_FILE="+writeAgentEnvFile(t))
+	return append(childEnvArgsNoCredential(t), "PROVEO_ENV_FILE="+writeAgentEnvFile(t))
 }
 
 func childEnvArgsNoCredential(t *testing.T) []string {
@@ -337,7 +338,6 @@ func childEnvArgsNoCredential(t *testing.T) []string {
 	return append(args,
 		"PROVEO_WIZARD=off",       // no scope / capability pickers on this PTY
 		"PROVEO_AUTO_PROVISION=1", // build a missing sidecar image instead of asking
-		"PROVEO_DIND=0",
 	)
 }
 
