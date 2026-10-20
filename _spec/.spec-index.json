@@ -836,7 +836,9 @@
         "internal/backend/backend.go",
         "internal/backend/backend_test.go",
         "cmd/proveo/main.go",
-        "cmd/proveo/main_test.go"
+        "cmd/proveo/main_test.go",
+        "internal/sbx/run.go",
+        "internal/sbx/sbx_test.go"
       ],
       "fingerprint": null
     },
@@ -1507,7 +1509,8 @@
     {
       "spec": "_spec/internal/ui/output-vocabulary.puml",
       "covers": [
-        "internal/ui/**"
+        "internal/ui/**",
+        "e2e/stream_palette_test.go"
       ],
       "fingerprint": null
     },

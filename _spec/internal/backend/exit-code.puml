@@ -6,8 +6,31 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/backend_test.go
 ' covers: cmd/proveo/main.go (main, exitCode)
 ' covers: cmd/proveo/main_test.go (TestExitCodeIsTheAgentsOrTheStoppingSignals)
+' covers: internal/sbx/run.go (RunExitCode)
+' covers: internal/sbx/sbx_test.go (TestRunExitCodeTakesTheAgentsCodeSbxNamed)
 '   where a stop becomes Stopped .... _spec/internal/sbx/kit-lifecycle.puml
 '   the transcript's outcome line .. _spec/internal/runlog/run-transcript.puml
+'   the tail the code is read from . _spec/internal/agentio/agent-terminal-io.puml
+'
+' ── 2026-10-20: sbx EXITS 1 AND NAMES THE AGENT'S CODE ─────────────────────
+' MEASURED by e2e/stream_palette_test.go (fake cecli exits 3): the screen read
+' `error: agent exited with code 3` from sbx, then proveo's own
+' `× the agent exited with code 1` and PROVEO_EXIT=1. Run passed `sbx run`'s
+' process status through (ExitError{ee.ExitCode()}), and that status was 1.
+' [Inference] The newer sbx prints the agent's code, then exits 1 itself.
+' FIX: sbx.RunExitCode(status, tail.Lines()) — pure, internal/sbx/run.go:
+'   status ≠ 1                          → status (137, 0, a signal's -1)
+'   status = 1, a line matches
+'   `agent exited with code (\d+)`      → the LAST match, when it is non-zero
+'   last match names 0, or none matches → 1 (sbx's own failure stays 1)
+' "-1" never matches (\d+), so sbx's "code -1" for a killed agent stays 1.
+' Run applies it where it builds ExitError, on BOTH paths that feed the tail:
+' the pty proxy's OutTap (headed, filtered) and the MultiWriter tee
+' (streamed, non-TTY). A TTY run with the filter off and no stdin trace hands
+' sbx the terminal directly, so its tail is empty and the status stays sbx's.
+' Pinned by TestRunExitCodeTakesTheAgentsCodeSbxNamed (sbx_test.go): named,
+' no line, code 0, last line wins, last match in a line wins, negative, and
+' status pass-through.
 '
 ' ── 2026-10-17: A SECOND TYPE, Stopped ─────────────────────────────────────
 ' The user, on a stopped run's exit status: "Exit 128+sig, 'stopped'
@@ -82,6 +105,7 @@ participant "backend.Stopped" as ST <<data>>
 participant "cmd/proveo main\nexitCode" as MAIN <<app>>
 
 SBX ARROW_ERROR EE : agent exited 137
+SBX ARROW_ERROR EE : sbx exits 1 after "agent exited with code N"\n→ N via sbx.RunExitCode(1, tail)
 EE ARROW_MAIN MAIN : errors.As through the wrap chain
 MAIN ARROW_MAIN MAIN : os.Exit(code) — the AGENT's code
 SBX ARROW_ERROR ST : forwarded SIGTERM/SIGHUP,\nnot the Ctrl+C remove path

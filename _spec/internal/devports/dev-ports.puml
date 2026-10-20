@@ -57,6 +57,31 @@
 ' 3 s → 30 s backoff while the sandbox runs — deps installing in a fresh
 ' clone make the first attempts fail.
 '
+' ── A CLONE'S SERVER WAITS FOR THE CLONE (2026-10-20) ──────────────────────
+' MEASURED: TestPortsPublishE2E failed "GET http://127.0.0.1:4310/PORTS_OK
+' never reached the server proveo started" on a clone-mode run.
+' StartDevServers' goroutines start before `sbx run` and fire once
+' sbx.Running; sbx clones only into an EMPTY workspace that already exists
+' (_spec/internal/sbx/clone-workspace.puml, "NOTHING MAY BE MOUNTED").
+' [Inference] The exec could `cd` into that empty dir, or into one the clone
+' later replaced, and start python there; the exec then blocks for as long as
+' python runs, so the loop never restarts it in the real checkout.
+' FIX: DevServerScript(workdir, clone, p). When in.Clone, the script polls
+'   until git -C <workdir> rev-parse -q --verify HEAD && [ -n "$(ls -A <workdir>)" ]
+' once a second for devRetryMax (30 s), then exits 1 into the existing
+' backoff; the 30 s attempt resets the delay to devRetryMin. The emptiness
+' half exists because rev-parse alone passes in an empty dir nested inside a
+' parent repository. A worktree clone passes
+' once the seed's `git worktree add` lands. A mounted checkout (in.Clone
+' false) skips the gate, so a non-git mount still starts at once.
+' Pinned by TestDevServerScriptWaitsForTheCloneBeforeItStartsTheServer (the
+' rendered script) and TestDevServerScriptCloneGateRunsOnlyOnceTheCloneLands
+' (the gate run by bash: an empty dir fails, a committed repo passes).
+' e2e: assertServed's 2-minute GET deadline now starts once sbx.Running names
+' the workspace's claudecode sandbox (SandboxName of the path and of its
+' realpath), at most 3 minutes after the port report: the report prints
+' before `sbx run`, so boot and clone used to eat the server's window.
+'
 ' ── REMEMBERED PER PATH, APPLIED ON EVERY RUN ──────────────────────────────
 ' agent-settings.yml gains `workspaces: {<real path>: {ports: [...]}}`,
 ' harness-independent: the ports belong to the project, not the agent. The
@@ -116,7 +141,7 @@ component "portsRow\nunder execution · OS\nsbx only · unticked" as ROW <<app>>
 component "PlanPorts\nsame host port if free" as PLAN <<host>>
 component "sbx run -p H:G" as SBX <<cloud>>
 component "ReportPorts\nhttp://127.0.0.1:H → sandbox :G" as REP <<app>>
-component "StartDevServers\nsbx exec bash -lc\nskip if served · backoff" as DEV <<async>>
+component "StartDevServers\nsbx exec bash -lc\nskip if served · clone: wait for HEAD · backoff" as DEV <<async>>
 database "agent-settings.yml\nworkspaces.<path>.ports · .apps" as MEM <<db>>
 component "appsRow\ngreyed until android\n:app ca.proveo.hello" as APPS <<app>>
 component "proveo_android_install\nwait toolchain → assembleDebug\n→ adb install -r → monkey launch" as AINST <<async>>

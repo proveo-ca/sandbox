@@ -4,6 +4,7 @@ package sandbox
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -333,12 +334,71 @@ func TestPlanPortsKeepsFreePortsAndMovesTakenOnes(t *testing.T) {
 
 func TestDevServerScriptSkipsAPortAlreadyServedAndLogs(t *testing.T) {
 	t.Parallel()
-	got := DevServerScript("/work/repo", PublishedPort{Guest: 3000, Dir: "apps/web", Cmd: "HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0"})
+	got := DevServerScript("/work/repo", false, PublishedPort{Guest: 3000, Dir: "apps/web", Cmd: "HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0"})
 	want := "if (exec 3<>/dev/tcp/127.0.0.1/3000) 2>/dev/null; then exit 0; fi\n" +
 		"cd \"/work/repo/apps/web\" || exit 1\n" +
 		"exec HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0 >>/tmp/proveo-dev-3000.log 2>&1\n"
 	if got != want {
 		t.Errorf("DevServerScript() =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestDevServerScriptWaitsForTheCloneBeforeItStartsTheServer(t *testing.T) {
+	t.Parallel()
+	got := DevServerScript("/work/repo", true, PublishedPort{Guest: 4310, Cmd: "python3 -m http.server 4310"})
+	want := "if (exec 3<>/dev/tcp/127.0.0.1/4310) 2>/dev/null; then exit 0; fi\n" +
+		"n=30\n" +
+		"until git -C \"/work/repo\" rev-parse -q --verify HEAD >/dev/null 2>&1 && [ -n \"$(ls -A \"/work/repo\" 2>/dev/null)\" ]; do\n" +
+		"  n=$((n-1)); [ \"$n\" -gt 0 ] || exit 1; sleep 1\n" +
+		"done\n" +
+		"cd \"/work/repo\" || exit 1\n" +
+		"exec python3 -m http.server 4310 >>/tmp/proveo-dev-4310.log 2>&1\n"
+	if got != want {
+		t.Errorf("DevServerScript(clone) =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestDevServerScriptCloneGateRunsOnlyOnceTheCloneLands(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not on PATH")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	gate := func(script string) string {
+		var b strings.Builder
+		for _, l := range strings.Split(script, "\n")[1:] {
+			if strings.HasPrefix(l, "cd ") {
+				break
+			}
+			b.WriteString(l + "\n")
+		}
+		return b.String() + "echo ready\n"
+	}
+	run := func(dir string) (string, error) {
+		script := gate(DevServerScript(dir, true, PublishedPort{Guest: 1, Cmd: "true"}))
+		script = strings.Replace(script, "n=30", "n=1", 1)
+		out, err := exec.Command("bash", "-c", script).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	empty := t.TempDir()
+	if out, err := run(empty); err == nil {
+		t.Errorf("an empty clone target passed the gate: %q", out)
+	}
+	repo := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "."},
+		{"-c", "user.email=t@proveo.test", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "seed"},
+	} {
+		c := exec.Command("git", args...)
+		c.Dir = repo
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if out, err := run(repo); err != nil || out != "ready" {
+		t.Errorf("a landed clone failed the gate: %q, %v", out, err)
 	}
 }
 

@@ -407,6 +407,27 @@ func NotFound(out string) bool {
 	return strings.Contains(strings.ToLower(out), "not found")
 }
 
+var agentExitLine = regexp.MustCompile(`agent exited with code (\d+)\b`)
+
+// RunExitCode is the agent's own code when `sbx run` exits 1 after naming a non-zero one in lines, else status.
+// SPEC: _spec/internal/backend/exit-code.puml
+func RunExitCode(status int, lines []string) int {
+	if status != 1 {
+		return status
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		m := agentExitLine.FindAllStringSubmatch(lines[i], -1)
+		if len(m) == 0 {
+			continue
+		}
+		if code, err := strconv.Atoi(m[len(m)-1][1]); err == nil && code != 0 {
+			return code
+		}
+		return status
+	}
+	return status
+}
+
 var authLoginArgs = map[string][]string{
 	"claude": {"auth", "login"},
 }

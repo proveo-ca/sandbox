@@ -163,6 +163,30 @@ func TestNotFoundRecognisesAnAbsentSandbox(t *testing.T) {
 	}
 }
 
+func TestRunExitCodeTakesTheAgentsCodeSbxNamed(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		status int
+		lines  []string
+		want   int
+	}{
+		{"named", 1, []string{"agent: fatal", "error: agent exited with code 3"}, 3},
+		{"no line", 1, []string{"agent: fatal", "error: sandbox failed"}, 1},
+		{"no output", 1, nil, 1},
+		{"code 0 keeps sbx's own failure", 1, []string{"error: agent exited with code 0"}, 1},
+		{"last line wins", 1, []string{"error: agent exited with code 3", "agent: retry", "error: agent exited with code 42"}, 42},
+		{"last match in a line wins", 1, []string{"agent exited with code 3; agent exited with code 7"}, 7},
+		{"negative code is not a code", 1, []string{"error: agent exited with code -1"}, 1},
+		{"other status passes through", 137, []string{"error: agent exited with code 3"}, 137},
+		{"success passes through", 0, []string{"error: agent exited with code 3"}, 0},
+	} {
+		if got := RunExitCode(tc.status, tc.lines); got != tc.want {
+			t.Errorf("%s: RunExitCode(%d, %q) = %d, want %d", tc.name, tc.status, tc.lines, got, tc.want)
+		}
+	}
+}
+
 func TestRunArgsMinimal(t *testing.T) {
 	got := RunArgs(RunConfig{})
 	want := []string{"run"}

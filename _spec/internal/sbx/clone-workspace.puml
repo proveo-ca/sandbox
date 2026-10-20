@@ -231,6 +231,11 @@ skinparam noteTextAlignment left
 ' back at teardown; anything else nested is simply not mounted, and both are
 ' said out loud.
 '
+' The same empty target is visible to anything `sbx exec` starts once the
+' sandbox runs. A published port's dev server therefore waits for the clone's
+' HEAD and a non-empty workdir before its `cd` (DevServerScript, 2026-10-20):
+' _spec/internal/devports/dev-ports.puml, "A CLONE'S SERVER WAITS".
+'
 ' ── HOW THE WORK GETS BACK ─────────────────────────────────────────────────
 ' A snapshot commit first, of whatever the agent left UNCOMMITTED, so the fetch
 ' that follows carries it — only when there is something to commit, since a

@@ -694,11 +694,17 @@ func StartAndroidInstall(in Input, cfg sbx.RunConfig) func() {
 	return func() { close(stop) }
 }
 
-// DevServerScript starts cmd in dir unless something already listens on port.
-func DevServerScript(workdir string, p PublishedPort) string {
-	dir := filepath.Join(workdir, p.Dir)
-	return fmt.Sprintf("if (exec 3<>/dev/tcp/127.0.0.1/%d) 2>/dev/null; then exit 0; fi\ncd %q || exit 1\nexec %s >>%s 2>&1\n",
-		p.Guest, dir, p.Cmd, DevLog(p.Guest))
+// DevServerScript starts cmd in dir unless something already listens on port; a clone's script first waits for the clone.
+// SPEC: _spec/internal/devports/dev-ports.puml
+func DevServerScript(workdir string, clone bool, p PublishedPort) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "if (exec 3<>/dev/tcp/127.0.0.1/%d) 2>/dev/null; then exit 0; fi\n", p.Guest)
+	if clone {
+		fmt.Fprintf(&b, "n=%d\nuntil git -C %q rev-parse -q --verify HEAD >/dev/null 2>&1 && [ -n \"$(ls -A %q 2>/dev/null)\" ]; do\n"+
+			"  n=$((n-1)); [ \"$n\" -gt 0 ] || exit 1; sleep 1\ndone\n", int(devRetryMax/time.Second), workdir, workdir)
+	}
+	fmt.Fprintf(&b, "cd %q || exit 1\nexec %s >>%s 2>&1\n", filepath.Join(workdir, p.Dir), p.Cmd, DevLog(p.Guest))
+	return b.String()
 }
 
 const (
@@ -731,7 +737,7 @@ func StartDevServers(in Input, cfg sbx.RunConfig) func() {
 					}
 					continue
 				}
-				c := exec.Command(sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "bash", "-lc", DevServerScript(workdir, p))
+				c := exec.Command(sbx.Binary, "exec", "-w", "/", cfg.Name, "--", "bash", "-lc", DevServerScript(workdir, in.Clone, p))
 				c.Stdout, c.Stderr = io.Discard, io.Discard
 				began := time.Now()
 				if err := c.Start(); err == nil {
@@ -1689,7 +1695,7 @@ func Run(in Input) error {
 	}()
 	var ee *exec.ExitError
 	if errors.As(result, &ee) {
-		return backend.ExitError{Code: ee.ExitCode()}
+		return backend.ExitError{Code: sbx.RunExitCode(ee.ExitCode(), tail.Lines())}
 	}
 	return result
 }
