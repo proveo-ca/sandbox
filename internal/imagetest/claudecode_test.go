@@ -22,7 +22,7 @@ type ccImages struct {
 }
 
 func (c ccImages) list() []string {
-	if c.mcpAvailable {
+	if c.mcpAvailable && c.mcp != c.standalone {
 		return []string{c.standalone, c.mcp}
 	}
 	return []string{c.standalone}
