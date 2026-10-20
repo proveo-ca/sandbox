@@ -53,6 +53,45 @@ func TestTickerFrameKeepsAdvancing(t *testing.T) {
 
 // stop is reached from the normal return AND from a panic unwinding through
 // Run's defers, so it has to survive being called twice.
+func TestFlockClockOutrunsTheStrip(t *testing.T) {
+	t.Parallel()
+	tk := newTicker(func(tcell.Event) error { return nil })
+	defer tk.stop()
+	time.Sleep(2 * animFrame)
+	sky, frame := tk.flockTick(), tk.frame()
+	if sky < frame*4 {
+		t.Errorf("flock tick %d, strip frame %d", sky, frame)
+	}
+}
+
+func TestTickerKeepsOneInterruptQueued(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	posted := 0
+	tk := newTickerEvery(func(tcell.Event) error {
+		mu.Lock()
+		posted++
+		mu.Unlock()
+		return nil
+	}, flockFrame)
+	defer tk.stop()
+	time.Sleep(animFrame)
+	mu.Lock()
+	got := posted
+	mu.Unlock()
+	if got != 1 {
+		t.Errorf("posted %d interrupts before the frame was read", got)
+	}
+	_ = tk.frame()
+	time.Sleep(3 * flockFrame)
+	mu.Lock()
+	got = posted
+	mu.Unlock()
+	if got < 2 {
+		t.Errorf("posted %d interrupts after the frame was read", got)
+	}
+}
+
 func TestTickerStopIsIdempotent(t *testing.T) {
 	t.Parallel()
 	tk := newTicker(func(tcell.Event) error { return nil })

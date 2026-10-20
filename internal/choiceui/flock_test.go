@@ -5,6 +5,9 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gdamore/tcell/v2"
 )
 
 func TestFlockSameTickSameSky(t *testing.T) {
@@ -66,7 +69,8 @@ func TestFlockAdvanceIsCapped(t *testing.T) {
 func TestFlockStaysInBoundsAtBandSpeed(t *testing.T) {
 	t.Parallel()
 	s := newFlockSim(72)
-	for tick := 1; tick <= 500; tick++ {
+	horizon := int(math.Round(500 / flockStep))
+	for tick := 1; tick <= horizon; tick++ {
 		s.advance(tick)
 	}
 	for i, b := range s.birds {
@@ -76,6 +80,57 @@ func TestFlockStaysInBoundsAtBandSpeed(t *testing.T) {
 		if v := math.Hypot(b.vx, b.vy); v < flockMinSpeed-1e-9 || v > flockMaxSpeed+1e-9 {
 			t.Errorf("bird %d speed %v outside [%v,%v]", i, v, flockMinSpeed, flockMaxSpeed)
 		}
+	}
+}
+
+func TestFlockPictureChangesMostFrames(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(80)
+	prev := ""
+	changes := 0
+	const frames = 60
+	for tick := 1; tick <= frames; tick++ {
+		s.advance(tick)
+		got := strings.Join(s.frame(GlyphsNerd), "\n")
+		if got != prev {
+			changes++
+			prev = got
+		}
+	}
+	if changes < frames*2/3 {
+		t.Errorf("picture changed on %d of %d frames", changes, frames)
+	}
+}
+
+func TestFlockPaintKeepsTheSixtyHertzBudget(t *testing.T) {
+	t.Parallel()
+	f := budgetForm()
+	f.Flock = true
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 60)
+	start := time.Now()
+	for i := 1; i <= 60; i++ {
+		f.flockTick = i
+		f.draw(s, 0, 1)
+	}
+	if d := time.Since(start); d > 250*time.Millisecond {
+		t.Fatalf("60 paints took %s", d)
+	}
+}
+
+func TestFlockFrameIsSixtyHertz(t *testing.T) {
+	t.Parallel()
+	if time.Second/flockFrame != 60 {
+		t.Fatalf("flock frame %s, want 1/60s", flockFrame)
+	}
+	got := float64(60) * flockStep
+	want := float64(time.Second) / float64(animFrame)
+	if math.Abs(got-want) > 0.02 {
+		t.Fatalf("60 flock steps cover %v strip frames, want %v", got, want)
 	}
 }
 

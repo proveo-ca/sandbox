@@ -154,6 +154,7 @@ type Form struct {
 	StartOption string // option the cursor opens on within StartRow
 	scroll      int
 	flock       *flockSim
+	flockTick   int
 }
 
 func Banner() []string {
@@ -197,11 +198,16 @@ func (f *Form) Run() (confirmed bool, err error) {
 	}
 	registerGlyphFallbacks(screen)
 	defer screen.Fini()
-	tick := newTicker(screen.PostEvent)
+	every := animFrame
+	if f.Flock {
+		every = flockFrame
+	}
+	tick := newTickerEvery(screen.PostEvent, every)
 	defer tick.stop()
 
 	cursor := f.startCursor()
 	for {
+		f.flockTick = tick.flockTick()
 		f.draw(screen, cursor, tick.frame())
 		switch ev := screen.PollEvent().(type) {
 		case *tcell.EventResize:
@@ -445,7 +451,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 		if f.flock == nil {
 			f.flock = newFlockSim(w - 4)
 		}
-		drawFlock(s, c.y, w-4, tick, f.Glyphs, p.accent, f.flock)
+		drawFlock(s, c.y, w-4, f.flockTick, f.Glyphs, p.accent, f.flock)
 		c.y += flockRows + 1
 	} else if lay.banner {
 		for _, b := range f.Banner {

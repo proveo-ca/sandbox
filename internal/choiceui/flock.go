@@ -21,7 +21,7 @@ const (
 	flockMinSpeed   = 0.55
 	flockMaxSpeed   = 1.05
 	flockMaxAccel   = 0.06
-	flockMaxDelta   = 5
+	flockMaxDelta   = int(5 * animFrame / flockFrame)
 )
 
 type bird struct{ x, y, vx, vy float64 }
@@ -130,8 +130,8 @@ func (s *flockSim) step() {
 		if m := math.Hypot(ax, ay); m > flockMaxAccel {
 			ax, ay = ax/m*flockMaxAccel, ay/m*flockMaxAccel
 		}
-		b.vx, b.vy = flockSpeed(b.vx+ax, b.vy+ay)
-		b.x, b.y = b.x+b.vx, b.y+b.vy
+		b.vx, b.vy = flockSpeed(b.vx+ax*flockStep, b.vy+ay*flockStep)
+		b.x, b.y = b.x+b.vx*flockStep, b.y+b.vy*flockStep
 		if b.x < 0 {
 			b.x, b.vx = 0, math.Abs(b.vx)
 		}

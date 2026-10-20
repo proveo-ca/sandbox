@@ -36,11 +36,22 @@
 ' holds no reserved slot: help keeps its maximum, the body keeps its
 ' floor, and the hint stays pinned above both.
 
-' ── ONE TICK, THREE TIERS ──────────────────────────────────────────────────
-' The form's existing ticker already posts a frame every 120ms, so the
-' flock needs no second clock. flockSim advances only when tick moves,
-' by the delta since its last frame, capped so a stalled terminal does
-' not fast-forward on wake. GlyphsNerd and GlyphsSafe pack cells
+' ── TWO CLOCKS, THREE TIERS ────────────────────────────────────────────────
+' cbirds repeats the simulation sixty times a second (FRAME_RATE in
+' boids.c). The strip stays on animFrame, 120ms, so a mote still walks
+' one cell per strip frame. A form with Form.Flock posts at flockFrame
+' (time.Second/60) instead. flockTick is that count. The strip's frame()
+' is still time.Since/animFrame, so the faster poster does not speed
+' the motes. The event queue is ten deep and shared with keystrokes, so
+' the poster keeps a single interrupt queued: frame() drops the latch
+' when the loop reads the clock, and a tick that arrives while one is
+' unread is dropped. The clock is read at draw time, so a dropped post
+' loses no sky. flockSim advances by the delta since its last flock
+' frame, capped at five strip frames (flockMaxDelta) so a stalled
+' terminal does not fast-forward on wake. Each step integrates the
+' gains that were tuned at 120ms, scaled by flockStep, so a bird covers
+' the same dots per second and the braille picture changes on most of
+' the sixty paints. GlyphsNerd and GlyphsSafe pack cells
 ' as braille: two by four dots per cell, rune U+2800 plus the dot
 ' bits, which the glyph ban in tui-design-language leaves legal.
 ' Braille carries no emoji
@@ -56,7 +67,7 @@
 ' pull inside the margin, an acceleration cap (the turn limit that
 ' keeps fronts curved rather than snapping) and a speed band. The bird
 ' count scales with width and is capped, keeping the neighbour scan
-' trivially cheap at 8fps. Positions live in dot space, not cells, so
+' cheap at 60Hz. Positions live in dot space, not cells, so
 ' motion is smooth at sub-cell resolution and only the packing quantises.
 
 title An ambient flock for the choice prompt, ported from cbirds
@@ -66,7 +77,7 @@ component "internal/choiceui flockSim\nboids in dot space\ndeterministic seed" a
 component "braille packing\n2x4 dots per cell\nU+2800 + dot bits" as PACK <<app>>
 component "layout drop ladder\nflock takes the banner's place\nsix rows, tagline kept" as LADDER <<app>>
 component "Form.Flock opt-in\nrun form only" as FORM <<app>>
-component "existing ticker\n120ms frames, one clock" as TICK <<async>>
+component "flock clock\n60Hz post, one interrupt queued\nstrip frame stays 120ms" as TICK <<async>>
 database "tcell screen\nthe screen proveo owns\nuntil the prompt closes" as TERM <<db>>
 
 CBIRDS ARROW_OPTIONAL SIM : technique only — boids + packing
@@ -74,7 +85,7 @@ SIM ARROW_MAIN PACK : dot grid
 PACK ARROW_MAIN TERM : one rune per cell
 LADDER ARROW_MAIN PACK : affords or omits whole
 FORM ARROW_MAIN LADDER : asks, never insists
-TICK ARROW_QUEUE SIM : advances by tick delta
+TICK ARROW_QUEUE SIM : advances by flock-tick delta
 
 note right of CBIRDS
   **Not adopted as code.** cgo would break
