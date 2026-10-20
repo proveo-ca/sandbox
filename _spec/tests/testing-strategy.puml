@@ -428,7 +428,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     is in plain(tail(k.last, 15)) and otherwise fails with the last screen.
 '     (The pass-5 tail(plain(...)) was a no-op: plain joins every line with
 '     spaces, so tail saw one line.)
-'   kitRun.exec — `bash -c` through `sbx exec`, after
+'   kitRun.exec — `bash -c` through `sbx exec -u 1000` (sbxExecStatus,
+'     agentUID; see SEED READY under FOUR FIXTURE FAULTS), after
 '     `cd ${PROVEO_WORKDIR:-<dir>}` (falling back to <dir>; exit 97 when
 '     neither is enterable) and
 '     sourcing ~/.proveo-tool-env.sh, so the probe sees the agent's working
@@ -694,6 +695,66 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * An isolated proveo home is also what makes driving the choice prompt
 '     deterministic. A shared one would leak into the developer's real settings
 '     AND skip the prompt on every later run.
+' ── FOUR FIXTURE FAULTS, FIXED 2026-10-20 ───────────────────────────────────
+' Each failed a case for a reason outside its subject. The failing output is
+' reported from the Executor's run; no sbx ran where the fixes were written.
+'   * IDLE: A WORKSPACE WITH A DEPENDENCY TREE IS A COMMITTED REPO.
+'     idleWorkspace (e2e/idle_test.go) is the shape that died at ~16s: go.mod
+'     (gopls / go mod download) plus a package.json with no engines.node (the
+'     node-version lookup). An empty TempDir never reached that seed path, so
+'     the idle gate passed while `proveo run cursor` against this repo did not.
+'     The fixture was a plain TempDir. decideClone (internal/run/run.go)
+'     answered "not a git repository", so launchSandbox's mounted-checkout
+'     preflight refused the package.json tree; DepCopies counts a marker's
+'     dirs whether or not they exist (internal/workspace/deps.go, MEASURED).
+'     proveo exited, and the next pty write failed with `write /dev/ptmx:
+'     input/output error` on every target (reported). The fixture now runs
+'     gitInit, and the run passes `--clone`: a host PROVEO_CLONE=off then
+'     fails loudly (CloneSet) instead of reopening the mounted path.
+'     The prompt loop checks `exited` BEFORE reachedPromptFor. proveo's own
+'     plan line `agent: <target> <version> — pinned at build` matched a prompt
+'     marker, so a dead run read as a live prompt (reported).
+'     reachedPromptFor also drops that one line (withoutPlanLine).
+'     [Inference] opencode's and cecli's markers are their bare names, which
+'     other proveo lines may carry; for them the `exited` check is the guard.
+'     RESIDUAL: e2e/ladder_test.go still checks the marker before `exited`.
+'   * WORKTREE: A FIXTURE THE SEED INSTALLS INTO CARRIES ITS LOCKFILE.
+'     newTempWorktree (e2e/scope_mounts_test.go) committed a package.json and
+'     no lockfile. The seed's _dep_install_cmd (packages/lib/entrypoint-lib.sh)
+'     then picked `npm install`, which wrote package-lock.json into the mounted
+'     worktree: `DIRTY: ?? package-lock.json` (reported). The fixture commits
+'     the lockfile npm 11.19.0 writes for that package.json
+'     (`npm install --package-lock-only`, lockfileVersion 3). A lockfile sends
+'     the seed to `npm ci` (MEASURED, entrypoint-lib.sh _dep_install_cmd).
+'     `npm ci --offline` left that lockfile byte-identical and created no
+'     node_modules (MEASURED, npm 11.19.0 on the host). [Inference] The image's
+'     npm reads lockfileVersion 3 the same way; it is npm >= 7.
+'   * CREDENTIALS: A --print CHILD READS THE PROVEO HOME.
+'     printEnforcedPlan and runPrint (e2e/credentials_test.go) inherited the
+'     operator's ~/.proveo. A usable Claude login there makes
+'     credentials.AuthSuppressor withhold every key of a provider the
+'     manifest owns, so claudecode's secret-store line named none of the 30
+'     injected keys (reported). Both helpers set PROVEO_HOME to a t.TempDir().
+'     Nothing else in the --print path reads the real home (MEASURED in
+'     internal/run/run.go resolveCredentials): the Keychain read and
+'     reportSandboxLogin run only without --print, and sbx's stored-credential
+'     probe shapes a message the --print path never prints.
+'     [Inference] PROVEO_ENV_FILE and a .env beside the invocation directory
+'     still reach the key lookup; neither empties the secret-store line.
+'   * SEED READY: PROBE AS THE AGENT'S UID, NOT THE IMAGE'S LAST USER.
+'     hermes ends as `USER root` on purpose (defs/hermes/Dockerfile,
+'     _spec/defs/hermes/hermes-paradigm.puml), and sbx exec without -u ran the
+'     probe as that user, so the uid gate in launchReadyKit failed (reported).
+'     sbxExecStatus now passes `-u 1000` (agentUID), the uid every kit step
+'     names (internal/sbx/kit.go, MEASURED). The uid gate stays: it fails when
+'     sbx does not honour -u, and a probe that runs as any other uid fails it.
+'     [Unverified] `sbx exec -u <name|uid>[:<group|gid>]` comes from a search
+'     excerpt of docs.docker.com/reference/cli/sbx/exec; the Sandboxes API's
+'     ExecRequest schema carries `user` (fetched). No sbx ran it here.
+'     kitRun.try (e2e/kit_probe_test.go) still runs without -u; it reads only
+'     /dev/shm markers and the kit startup log.
+'     The cleanup's `sbx rm` counts sbx.NotFound as success: proveo's own
+'     teardown removes the sandbox first, and a removed sandbox is no leak.
 ' ── sbx IS THE RUNTIME UNDER TEST; NOTHING ELSE IS A SUBJECT ───────────────
 ' THE GOVERNING RULE, and it decides every question below it: anything mitm or
 ' egress outside sbx is neither tested nor a factor, and any test that does not
@@ -825,6 +886,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     one. It asserts no raw key value and no `KEY=` pair in argv.
 '   * cursor — TestCursorBrokersThroughTheSbxStore: cursor's key is named for
 '     sbx's secret store and never rides argv as a bare `-e CURSOR_API_KEY`.
+'   Both halves run their `--print` child under a fresh PROVEO_HOME
+'   (printEnforcedPlan, runPrint); CREDENTIALS under FOUR FIXTURE FAULTS says why.
 ' HISTORY, deleted 2026-10-16 with the docker rendering: the live "egress
 ' integrity" half (one firewall run whose broker.env, bind-mounted into the
 ' egress-proxy, had to receive each key byte-for-byte; claudecode drove it

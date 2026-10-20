@@ -92,6 +92,17 @@ func newTempWorktree(t *testing.T) (worktree string) {
 	write(".gitignore", "node_modules\n.env\n")
 	write(".env", "SECRET=from-monorepo\n")
 	write("package.json", `{"name":"m","scripts":{"test":"echo t"}}`+"\n")
+	write("package-lock.json", `{
+  "name": "m",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "m"
+    }
+  }
+}
+`)
 	run(main, "add", "-A")
 	run(main, "commit", "-q", "-m", "seed")
 	run(main, "worktree", "add", "-q", wt, "-b", "hotfix")

@@ -57,13 +57,45 @@ func promptMarkers(target string) []string {
 }
 
 func reachedPromptFor(raw, target string) bool {
-	out := termtext.Words(raw)
+	out := withoutPlanLine(raw, target)
 	for _, m := range promptMarkers(target) {
 		if strings.Contains(out, m) {
 			return true
 		}
 	}
 	return false
+}
+
+// withoutPlanLine is raw as words, minus proveo's own `agent: <target> <version>` line.
+func withoutPlanLine(raw, target string) string {
+	plan := "agent: " + target + " "
+	var keep []string
+	for _, line := range strings.Split(raw, "\n") {
+		if w := termtext.Words(line); w != "" && !strings.Contains(w, plan) {
+			keep = append(keep, w)
+		}
+	}
+	return strings.Join(keep, " ")
+}
+
+func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
+	t.Parallel()
+	const target = "opencode"
+	plan := "\x1b[36m  \x1b[0m\x1b[90magent: opencode 1.4.0 — pinned at build (`proveo build opencode` moves it)\x1b[0m\r\n"
+	for _, tc := range []struct {
+		name, raw string
+		want      bool
+	}{
+		{"the plan line alone", "backend: docker sandboxes (sbx)\r\n" + plan, false},
+		{"the agent's banner after the plan line", plan + "\x1b[2J\x1b[1;1H\x1b[1mopencode\x1b[0m  Ask anything", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := reachedPromptFor(tc.raw, target); got != tc.want {
+				t.Errorf("reachedPromptFor(%q, %q) = %v, want %v", tc.raw, target, got, tc.want)
+			}
+		})
+	}
 }
 
 // deathMarkers are what the operator actually sees when this regresses.
@@ -121,7 +153,7 @@ func idleAtPrompt(t *testing.T, target string) {
 	})
 
 	args := append(childEnvArgsNoCredential(t), "PROVEO_TRACE_STDIN="+trace,
-		proveoBin, "run", target, "--input", work)
+		proveoBin, "run", target, "--clone", "--input", work)
 	cmd := exec.Command("env", args...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -173,13 +205,13 @@ func idleAtPrompt(t *testing.T, target string) {
 				t.Skipf("agent never reached a prompt (%q) — idle survival is untestable without a session", f)
 			}
 		}
-		if reachedPromptFor(out, target) {
-			break
-		}
 		select {
 		case err := <-exited:
-			t.Fatalf("proveo exited before the agent reached a prompt (%v)\n%s", err, lastLines(out, 25))
+			t.Fatalf("proveo exited before the agent reached a prompt (%v)\n%s", err, lastLines(seen(), 25))
 		default:
+		}
+		if reachedPromptFor(out, target) {
+			break
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("the agent never reached a prompt within %s\n%s", startup, lastLines(out, 25))
@@ -256,10 +288,8 @@ func lastLines(s string, n int) string {
 	return "── last output ──\n" + strings.Join(out, "\n")
 }
 
-// idleWorkspace is the shape that died at ~16s: go.mod (gopls / go mod
-// download) plus a package.json with no engines.node (the node-version lookup).
-// An empty TempDir never reached that seed path, so the idle gate passed while
-// `proveo run cursor` against this repo did not.
+// idleWorkspace is a committed repo holding go.mod and a package.json without engines.node.
+// SPEC: _spec/tests/testing-strategy.puml
 func idleWorkspace(t *testing.T) string {
 	t.Helper()
 	work := t.TempDir()
@@ -272,6 +302,7 @@ func idleWorkspace(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	gitInit(t, work)
 	return work
 }
 

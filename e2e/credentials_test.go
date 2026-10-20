@@ -86,8 +86,9 @@ func TestCursorBrokersThroughTheSbxStore(t *testing.T) {
 
 // ── helpers ─────────────────────────────────────────────────
 
-// runPrint runs `proveo run <target> [extra] --print` with a probe CURSOR_API_KEY
-// (and real provider keys stripped), returning combined output.
+// runPrint runs `proveo run <target> [extra] --print` under a fresh PROVEO_HOME
+// with a probe CURSOR_API_KEY (and real provider keys stripped), returning
+// combined output.
 func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
 	t.Helper()
 	requireSbx(t)
@@ -96,7 +97,7 @@ func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
 	args = append(args, "--print", "--input", work)
 	cmd := exec.Command(proveoBin, args...)
 	cmd.Dir = repoRoot(t)
-	cmd.Env = append(envWithoutProviderKeys(), "CURSOR_API_KEY=crsr_test_probe")
+	cmd.Env = append(envWithoutProviderKeys(), "PROVEO_HOME="+t.TempDir(), "CURSOR_API_KEY=crsr_test_probe")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo %v: %v\n%s", args, err, out)
@@ -132,13 +133,15 @@ func hasBareEnv(cmd, key string) bool {
 	return false
 }
 
+// printEnforcedPlan runs `proveo run <agent> --print` under a fresh PROVEO_HOME
+// with kv as the only provider keys, returning combined output.
 func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) string {
 	t.Helper()
 	requireSbx(t)
 	work := t.TempDir()
 	cmd := exec.Command(proveoBin, "run", agent, "--print", "--input", work)
 	cmd.Dir = repoRoot(t)
-	cmd.Env = append(envWithoutProviderKeys(), kv...)
+	cmd.Env = append(append(envWithoutProviderKeys(), "PROVEO_HOME="+t.TempDir()), kv...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", agent, err, out)

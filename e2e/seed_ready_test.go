@@ -227,7 +227,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 		if engine == "" {
 			return
 		}
-		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(engine)...).CombinedOutput(); err != nil {
+		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(engine)...).CombinedOutput(); err != nil && !sbx.NotFound(string(out)) {
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, engine, err, out)
 		}
 		if cache, err := os.UserCacheDir(); err == nil {
@@ -277,9 +277,9 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 	run := func(script string, timeout time.Duration) (string, int) {
 		return sbxExecStatus(t, engine, cd+script, timeout+time.Minute)
 	}
-	if out, status := sbxExecStatus(t, engine, "id -u 2>/dev/null", time.Minute); status != 0 || strings.TrimSpace(out) != "1000" {
-		t.Fatalf("sbx exec into %s runs as uid %q (exit %d), not the agent's 1000 — the probes would not see what the agent sees",
-			engine, strings.TrimSpace(out), status)
+	if out, status := sbxExecStatus(t, engine, "id -u 2>/dev/null", time.Minute); status != 0 || strings.TrimSpace(out) != agentUID {
+		t.Fatalf("sbx exec -u %s into %s runs as uid %q (exit %d), not the agent's %s — the probes would not see what the agent sees",
+			agentUID, engine, strings.TrimSpace(out), status, agentUID)
 	}
 	if !promptAt.IsZero() && sbx.BuiltinAgent(target) != "" {
 		assertPromptSoonAfterRelease(t, run, target, promptAt)
@@ -327,13 +327,17 @@ func killAndAwait(t *testing.T, sess *tmux.Session, pid string, timeout time.Dur
 	t.Logf("pid %d still tearing down %s after the session ended", n, timeout)
 }
 
-// sbxExecStatus runs script under bash in the named sandbox and returns its
-// combined output and exit status.
+// agentUID is the uid every kit step and the agent run as.
+// SPEC: _spec/tests/testing-strategy.puml
+const agentUID = "1000"
+
+// sbxExecStatus runs script under bash in the named sandbox as agentUID and
+// returns its combined output and exit status.
 func sbxExecStatus(t *testing.T, name, script string, timeout time.Duration) (string, int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", script)
+	cmd := exec.CommandContext(ctx, sbx.Binary, "exec", "-u", agentUID, "-w", "/", name, "--", "bash", "-c", script)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.CombinedOutput()
 	var exit *exec.ExitError
