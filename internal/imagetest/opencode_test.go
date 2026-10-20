@@ -4,6 +4,8 @@
 package imagetest_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -25,9 +27,19 @@ var ocSeq atomic.Int64
 // force-removes the container afterwards, so a timed-out client leaves nothing behind.
 func ocRun(t *testing.T, timeout time.Duration, env []string, args ...string) imagetest.Result {
 	t.Helper()
+	return ocRunStdin(t, timeout, env, "", args...)
+}
+
+// ocRunStdin is ocRun with stdin attached (`docker run -i`) when stdin is not empty.
+func ocRunStdin(t *testing.T, timeout time.Duration, env []string, stdin string, args ...string) imagetest.Result {
+	t.Helper()
 	name := fmt.Sprintf("proveo-imagetest-opencode-%d-%d", os.Getpid(), ocSeq.Add(1))
 	t.Cleanup(func() { imagetest.Docker(30*time.Second, nil, "rm", "-f", name) })
-	return imagetest.Docker(timeout, env, append([]string{"run", "--rm", "--name", name}, args...)...)
+	run := []string{"run", "--rm", "--name", name}
+	if stdin != "" {
+		run = append(run, "-i")
+	}
+	return imagetest.DockerStdin(timeout, env, stdin, append(run, args...)...)
 }
 
 // ocNoInstalls keeps the config checks off the network: a markdown fixture made
@@ -72,44 +84,77 @@ code=$?
 ls -d /tmp/proveo-opencode-throwaway-* 2>/dev/null && exit 55
 echo INFLIGHT-UNTOUCHED`
 
-// ocImport stages a WAL database, imports it twice, then exports it, with the engine scripts the host runs over sbx exec.
+// ocImportFixture builds a WAL database as root and prints each file base64-encoded on a FILE<suffix>= line.
 // SPEC: _spec/defs/opencode/engine-local-history.puml
-const ocImport = `set -u
-db="$HOME/.local/share/opencode/opencode.db"
-stage() {
-  python3 - "$STAGE" "$1" <<'PY' || exit 60
-import os, shutil, sqlite3, sys
-stage, build = sys.argv[1], sys.argv[2]
-os.makedirs(build)
-src = os.path.join(build, "fixture.db")
+const ocImportFixture = `import base64, os, sqlite3, sys, tempfile
+src = os.path.join(tempfile.mkdtemp(), "opencode.db")
 con = sqlite3.connect(src)
 con.execute("PRAGMA journal_mode=WAL")
 con.execute("PRAGMA wal_autocheckpoint=0")
 con.execute("CREATE TABLE fixture (note TEXT)")
 con.executemany("INSERT INTO fixture VALUES (?)", [("engine-local",), ("imported-once",)])
 con.commit()
-shutil.copyfile(src, stage)
-shutil.copyfile(src + "-wal", stage + "-wal")
-assert os.path.getsize(stage + "-wal") > 0
-os._exit(0)
-PY
-}
+assert os.path.getsize(src + "-wal") > 0
+for suffix in ("", "-wal"):
+    with open(src + suffix, "rb") as f:
+        print("FILE" + suffix + "=" + base64.b64encode(f.read()).decode())
+sys.stdout.flush()
+os._exit(0)`
+
+// ocImport stages the host's import stream as root with mode 0600, then imports it twice and
+// exports it as uid 1000, the engine user `sbx exec` runs.
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+const ocImport = `set -u
+db=/home/agent/.local/share/opencode/opencode.db
+stage=/tmp/stage.tar
+as_agent() { HOME=/home/agent python3 -I -c 'import os, sys
+os.setgroups([]); os.setgid(1000); os.setuid(1000)
+os.execvp(sys.argv[1], sys.argv[1:])' "$@"; }
 notes() { python3 -c 'import sqlite3, sys; print(",".join(r[0] for r in sqlite3.connect(sys.argv[1]).execute("SELECT note FROM fixture ORDER BY rowid")))' "$1"; }
+[ "$(id -u)" = 0 ] || exit 60
 [ ! -e "$db" ] || exit 61
-stage /tmp/build-1
-python3 -I -c "$IMPORT_SCRIPT" "$STAGE"; code=$?
-[ "$code" = 0 ] || exit 62
-[ ! -e "$STAGE" ] && [ ! -e "$STAGE-wal" ] || exit 63
+(umask 077 && cat > "$stage") || exit 62
+[ "$(stat -c '%u %a' "$stage")" = "0 600" ] || exit 63
+as_agent test -r "$stage" && exit 63
+as_agent python3 -I -c "$IMPORT_SCRIPT" < "$stage"; code=$?
+[ "$code" = 0 ] || { echo "import exit=$code"; exit 64; }
+[ "$(stat -c '%u %a' "$db")" = "1000 600" ] || { stat -c '%u %a' "$db"; exit 65; }
 before=$(sha256sum "$db")
-stage /tmp/build-2
-python3 -I -c "$IMPORT_SCRIPT" "$STAGE"; code=$?
-[ "$code" = "$IMPORT_EXISTING" ] || { echo "second import exit=$code"; exit 64; }
-[ "$(sha256sum "$db")" = "$before" ] || exit 65
-[ ! -e "$STAGE" ] && [ ! -e "$STAGE-wal" ] || exit 66
+as_agent python3 -I -c "$IMPORT_SCRIPT" < "$stage"; code=$?
+[ "$code" = "$IMPORT_EXISTING" ] || { echo "second import exit=$code"; exit 66; }
+[ "$(sha256sum "$db")" = "$before" ] || exit 67
+ls -d /tmp/proveo-import-* 2>/dev/null && exit 68
 echo "IMPORTED=$(notes "$db")"
-python3 -I -c "$EXPORT_SCRIPT" >/tmp/export.db || exit 67
+as_agent python3 -I -c "$EXPORT_SCRIPT" >/tmp/export.db || exit 69
 echo "HEADER=$(od -An -tx1 -N16 /tmp/export.db | tr -d ' \n')"
 echo "EXPORTED=$(notes /tmp/export.db)"`
+
+// ocImportStream is the host's import stream for the WAL database ocImportFixture printed in out.
+func ocImportStream(t *testing.T, out string) string {
+	t.Helper()
+	src := filepath.Join(t.TempDir(), "opencode.db")
+	for _, suffix := range []string{"", "-wal"} {
+		var body []byte
+		for l := range strings.SplitSeq(out, "\n") {
+			if enc, ok := strings.CutPrefix(l, "FILE"+suffix+"="); ok {
+				b, err := base64.StdEncoding.DecodeString(enc)
+				if err != nil {
+					t.Fatalf("fixture FILE%s: %v", suffix, err)
+				}
+				body = b
+			}
+		}
+		if len(body) == 0 {
+			t.Fatalf("the fixture printed no FILE%s line:\n%s", suffix, out)
+		}
+		ocWrite(t, src+suffix, string(body), 0o600)
+	}
+	var stream bytes.Buffer
+	if err := sbx.WriteOpenCodeImport(&stream, src, sbx.OpenCodeImportFiles(src)); err != nil {
+		t.Fatal(err)
+	}
+	return stream.String()
+}
 
 func ocWrite(t *testing.T, path, body string, mode os.FileMode) {
 	t.Helper()
@@ -424,15 +469,18 @@ func ocHistory(s *imagetest.Suite) {
 		}
 	})
 
-	s.Check("the engine import installs a WAL database once and the export streams it", func(t *testing.T) {
-		r := ocRun(t, 60*time.Second, nil, "--network", "none",
-			"-e", "STAGE="+sbx.OpenCodeImportStage,
+	s.Check("uid 1000 imports a root-staged 0600 WAL stream once and the export streams it", func(t *testing.T) {
+		fixture := ocRun(t, 60*time.Second, nil, "--network", "none", "--user", "0:0", "--entrypoint", "python3", img, "-I", "-c", ocImportFixture)
+		if !fixture.OK() {
+			t.Fatalf("fixture: %v\n%s", fixture.Err, fixture.Out)
+		}
+		r := ocRunStdin(t, 60*time.Second, nil, ocImportStream(t, fixture.Out), "--network", "none", "--user", "0:0",
 			"-e", "IMPORT_EXISTING="+strconv.Itoa(sbx.OpenCodeImportExisting),
 			"-e", "IMPORT_SCRIPT="+sbx.OpenCodeImportScript,
 			"-e", "EXPORT_SCRIPT="+sbx.OpenCodeExportScript,
 			"--entrypoint", "bash", img, "-c", ocImport)
 		if !r.OK() {
-			t.Fatalf("import sequence (exit codes 60-67 name the failing step): %v\n%s", r.Err, r.Out)
+			t.Fatalf("import sequence (exit codes 60-69 name the failing step): %v\n%s", r.Err, r.Out)
 		}
 		for _, want := range []string{
 			"IMPORTED=engine-local,imported-once",

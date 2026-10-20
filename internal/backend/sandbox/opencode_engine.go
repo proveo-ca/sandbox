@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -82,40 +83,39 @@ func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, cr
 	return sbx.Reattach(cfg), true, nil
 }
 
-// importOpenCodeHistory copies src and its -wal/-journal into engine name and installs them as
-// its OpenCode database; it fails when src changes while it is copied.
+// importOpenCodeHistory streams src and its -wal/-journal into engine name over `sbx exec -i` and
+// installs them as its OpenCode database; it fails when src changes while it streams.
 func importOpenCodeHistory(name, src string) (int64, error) {
-	sides := []string{"", "-wal", "-journal"}
-	before := map[string]os.FileInfo{}
-	for _, s := range sides {
-		if info, err := os.Lstat(src + s); err == nil && info.Mode().IsRegular() {
-			before[s] = info
-		}
+	changed := fmt.Errorf("%s changed while it was copied; close the OpenCode that writes it", src)
+	files := sbx.OpenCodeImportFiles(src)
+	db, ok := files[""]
+	if !ok {
+		return 0, changed
 	}
-	for _, s := range sides {
-		if _, ok := before[s]; !ok {
-			continue
-		}
-		if out, err := SbxRun(sbx.OpenCodeImportCopyArgs(name, src+s, s)...); err != nil {
-			return 0, fmt.Errorf("sbx cp %s: %w: %s", src+s, err, strings.TrimSpace(out))
-		}
+	cmd := exec.Command(sbx.Binary, sbx.OpenCodeImportArgs(name)...)
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return 0, err
 	}
-	for _, s := range sides {
-		info, err := os.Lstat(src + s)
-		was, had := before[s]
-		if had != (err == nil) || had && (info.Size() != was.Size() || !info.ModTime().Equal(was.ModTime())) {
-			return 0, fmt.Errorf("%s changed while it was copied; close the OpenCode that writes it", src)
-		}
+	if err := cmd.Start(); err != nil {
+		return 0, fmt.Errorf("import: %w", err)
 	}
-	out, err := SbxRun(sbx.OpenCodeImportArgs(name)...)
-	switch code := exitCodeOf(err); {
-	case err == nil, code == sbx.OpenCodeImportExisting:
+	sendErr := sbx.WriteOpenCodeImport(stdin, src, files)
+	_ = stdin.Close()
+	runErr := cmd.Wait()
+	switch code := exitCodeOf(runErr); {
+	case runErr == nil, code == sbx.OpenCodeImportExisting:
+		return db.Size(), nil
+	case errors.Is(sendErr, sbx.ErrOpenCodeImportChanged):
+		return 0, changed
 	case code == sbx.OpenCodeImportCorrupt:
 		return 0, fmt.Errorf("%s fails SQLite's quick_check", src)
-	default:
-		return 0, fmt.Errorf("import: %w: %s", err, strings.TrimSpace(out))
+	case code == sbx.OpenCodeImportIncomplete && sendErr != nil:
+		return 0, fmt.Errorf("stream %s: %w", src, sendErr)
 	}
-	return before[""].Size(), nil
+	return 0, fmt.Errorf("import: %w: %s", runErr, strings.TrimSpace(out.String()))
 }
 
 // carryOpenCodeHistory streams engine name's database into its carry file under home; an

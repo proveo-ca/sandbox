@@ -2,8 +2,10 @@
 package sbx
 
 import (
+	"archive/tar"
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,12 +34,14 @@ func engineEnv(home string) []string {
 	return append(env, "HOME="+home)
 }
 
-// runScript runs an engine script with args and returns its stdout, stderr and exit status.
-func runScript(t *testing.T, home, script string, args ...string) ([]byte, string, int) {
+// runScript runs an engine script on stdin under its own TMPDIR, tmp, and returns its stdout,
+// stderr and exit status.
+func runScript(t *testing.T, home, tmp, script string, stdin []byte) ([]byte, string, int) {
 	t.Helper()
-	cmd := exec.Command(python(t), append([]string{"-I", "-c", script}, args...)...)
-	cmd.Env = engineEnv(home)
+	cmd := exec.Command(python(t), "-I", "-c", script)
+	cmd.Env = append(engineEnv(home), "TMPDIR="+tmp)
 	cmd.Dir = t.TempDir()
+	cmd.Stdin = bytes.NewReader(stdin)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -84,31 +88,77 @@ func sessions(t *testing.T, path string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// stage copies a host database and its -wal to dir the way OpenCodeImportCopyArgs places them.
-func stage(t *testing.T, src, dir string) string {
+// stream is the import stream WriteOpenCodeImport writes for the host database src.
+func stream(t *testing.T, src string) []byte {
 	t.Helper()
-	staged := filepath.Join(dir, "proveo-import-opencode.db")
-	for _, suffix := range []string{"", "-wal"} {
-		b, err := os.ReadFile(src + suffix)
-		if err != nil {
+	var b bytes.Buffer
+	if err := WriteOpenCodeImport(&b, src, OpenCodeImportFiles(src)); err != nil {
+		t.Fatalf("WriteOpenCodeImport(%s) = %v", src, err)
+	}
+	return b.Bytes()
+}
+
+// tarOf is a tar of {name, body} members in order.
+func tarOf(t *testing.T, members ...[2]string) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	tw := tar.NewWriter(&b)
+	for _, m := range members {
+		if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: m[0], Mode: 0o600, Size: int64(len(m[1]))}); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(staged+suffix, b, 0o644); err != nil {
+		if _, err := tw.Write([]byte(m[1])); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return staged
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+// leftovers lists what an engine script left in its TMPDIR.
+func leftovers(t *testing.T, tmp string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// appendOnWrite appends to path on its first Write, as an OpenCode writing the source mid-stream.
+type appendOnWrite struct {
+	io.Writer
+	path string
+	done bool
+}
+
+func (a *appendOnWrite) Write(p []byte) (int, error) {
+	if !a.done {
+		a.done = true
+		f, err := os.OpenFile(a.path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+		if err != nil {
+			return 0, err
+		}
+		_, _ = f.WriteString("grown")
+		_ = f.Close()
+	}
+	return a.Writer.Write(p)
 }
 
 func TestTheOpenCodeImportInstallsTheHostDatabaseOnce(t *testing.T) {
 	t.Parallel()
 	host := filepath.Join(t.TempDir(), "opencode.db")
 	walDatabase(t, host, "ses_host")
-	home := t.TempDir()
+	home, tmp := t.TempDir(), t.TempDir()
 	target := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
 
-	staged := stage(t, host, t.TempDir())
-	if _, errOut, code := runScript(t, home, OpenCodeImportScript, staged); code != 0 {
+	if _, errOut, code := runScript(t, home, tmp, OpenCodeImportScript, stream(t, host)); code != 0 {
 		t.Fatalf("import = exit %d, want 0\n%s", code, errOut)
 	}
 	if got := sessions(t, target); got != "ses_host" {
@@ -117,15 +167,13 @@ func TestTheOpenCodeImportInstallsTheHostDatabaseOnce(t *testing.T) {
 	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o600 {
 		t.Errorf("engine database mode = %v (%v), want 0600", info.Mode().Perm(), err)
 	}
-	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
-		if _, err := os.Stat(staged + suffix); err == nil {
-			t.Errorf("the staged %s was left behind in the engine", filepath.Base(staged+suffix))
-		}
+	if left := leftovers(t, tmp); len(left) != 0 {
+		t.Errorf("the import left %v in the engine's temp dir", left)
 	}
 
 	other := filepath.Join(t.TempDir(), "opencode.db")
 	walDatabase(t, other, "ses_other")
-	if _, _, code := runScript(t, home, OpenCodeImportScript, stage(t, other, t.TempDir())); code != OpenCodeImportExisting {
+	if _, _, code := runScript(t, home, tmp, OpenCodeImportScript, stream(t, other)); code != OpenCodeImportExisting {
 		t.Errorf("a second import = exit %d, want %d: the engine's own history must never be overwritten", code, OpenCodeImportExisting)
 	}
 	if got := sessions(t, target); got != "ses_host" {
@@ -135,23 +183,87 @@ func TestTheOpenCodeImportInstallsTheHostDatabaseOnce(t *testing.T) {
 
 func TestTheOpenCodeImportRefusesACorruptCopy(t *testing.T) {
 	t.Parallel()
-	home := t.TempDir()
-	staged := filepath.Join(t.TempDir(), "proveo-import-opencode.db")
-	if err := os.WriteFile(staged, []byte("not a database, just bytes long enough to look like one"), 0o644); err != nil {
+	home, tmp := t.TempDir(), t.TempDir()
+	host := filepath.Join(t.TempDir(), "opencode.db")
+	if err := os.WriteFile(host, []byte("not a database, just bytes long enough to look like one"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, code := runScript(t, home, OpenCodeImportScript, staged); code != OpenCodeImportCorrupt {
+	if _, _, code := runScript(t, home, tmp, OpenCodeImportScript, stream(t, host)); code != OpenCodeImportCorrupt {
 		t.Errorf("import of a corrupt copy = exit %d, want %d", code, OpenCodeImportCorrupt)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".local", "share", "opencode", "opencode.db")); err == nil {
 		t.Error("a corrupt copy was installed as the engine database")
+	}
+	if left := leftovers(t, tmp); len(left) != 0 {
+		t.Errorf("the import left %v in the engine's temp dir", left)
+	}
+}
+
+func TestTheOpenCodeImportInstallsNothingWithoutTheCommit(t *testing.T) {
+	t.Parallel()
+	host := filepath.Join(t.TempDir(), "opencode.db")
+	walDatabase(t, host, "ses_host")
+	whole := stream(t, host)
+	db, err := os.ReadFile(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name  string
+		stdin []byte
+	}{
+		{"no stdin", nil},
+		{"a stream cut before the commit", tarOf(t, [2]string{"opencode.db", string(db)})},
+		{"a stream cut inside a file", whole[:len(whole)/2]},
+		{"a member outside the database files", tarOf(t, [2]string{"../opencode.db", string(db)}, [2]string{OpenCodeImportCommit, ""})},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			home, tmp := t.TempDir(), t.TempDir()
+			if _, errOut, code := runScript(t, home, tmp, OpenCodeImportScript, c.stdin); code != OpenCodeImportIncomplete {
+				t.Errorf("import = exit %d, want %d\n%s", code, OpenCodeImportIncomplete, errOut)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".local", "share", "opencode", "opencode.db")); err == nil {
+				t.Error("an uncommitted stream was installed as the engine database")
+			}
+			if left := leftovers(t, tmp); len(left) != 0 {
+				t.Errorf("the import left %v in the engine's temp dir", left)
+			}
+		})
+	}
+}
+
+func TestWriteOpenCodeImportWithholdsTheCommitFromAChangingSource(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, grows string }{
+		{"the database grows", ""},
+		{"its -wal grows", "-wal"},
+		{"a -journal appears", "-journal"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			host := filepath.Join(t.TempDir(), "opencode.db")
+			walDatabase(t, host, "ses_host")
+			files := OpenCodeImportFiles(host)
+			var b bytes.Buffer
+			err := WriteOpenCodeImport(&appendOnWrite{Writer: &b, path: host + c.grows}, host, files)
+			if !errors.Is(err, ErrOpenCodeImportChanged) {
+				t.Fatalf("WriteOpenCodeImport = %v, want ErrOpenCodeImportChanged", err)
+			}
+			if bytes.Contains(b.Bytes(), []byte(OpenCodeImportCommit+"\x00")) {
+				t.Error("the stream of a changing source carries the commit member")
+			}
+			if _, _, code := runScript(t, t.TempDir(), t.TempDir(), OpenCodeImportScript, b.Bytes()); code != OpenCodeImportIncomplete {
+				t.Errorf("import of the withheld stream = exit %d, want %d", code, OpenCodeImportIncomplete)
+			}
+		})
 	}
 }
 
 func TestTheOpenCodeExportStreamsAConsistentCopy(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	if _, _, code := runScript(t, home, OpenCodeExportScript); code != OpenCodeExportNone {
+	if _, _, code := runScript(t, home, t.TempDir(), OpenCodeExportScript, nil); code != OpenCodeExportNone {
 		t.Errorf("export from an engine with no database = exit %d, want %d", code, OpenCodeExportNone)
 	}
 	db := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
@@ -159,7 +271,7 @@ func TestTheOpenCodeExportStreamsAConsistentCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	walDatabase(t, db, "ses_engine")
-	out, errOut, code := runScript(t, home, OpenCodeExportScript)
+	out, errOut, code := runScript(t, home, t.TempDir(), OpenCodeExportScript, nil)
 	if code != 0 {
 		t.Fatalf("export = exit %d\n%s", code, errOut)
 	}
@@ -177,12 +289,9 @@ func TestTheOpenCodeExportStreamsAConsistentCopy(t *testing.T) {
 
 func TestOpenCodeHistoryArgsTargetTheEngine(t *testing.T) {
 	t.Parallel()
-	if got := strings.Join(OpenCodeImportCopyArgs("eng", "/h/opencode.db", "-wal"), " "); got != "cp /h/opencode.db eng:"+OpenCodeImportStage+"-wal" {
-		t.Errorf("OpenCodeImportCopyArgs = %q", got)
-	}
 	imp := OpenCodeImportArgs("eng")
-	if strings.Join(imp[:5], " ") != "exec -w / eng --" || imp[len(imp)-1] != OpenCodeImportStage {
-		t.Errorf("OpenCodeImportArgs = %q, want an exec from / in eng that names the stage", imp)
+	if strings.Join(imp[:6], " ") != "exec -i -w / eng --" || imp[len(imp)-1] != OpenCodeImportScript {
+		t.Errorf("OpenCodeImportArgs = %q, want an exec from / in eng with stdin attached and no staged path", imp[:len(imp)-1])
 	}
 	if exp := OpenCodeExportArgs("eng"); strings.Join(exp[:5], " ") != "exec -w / eng --" {
 		t.Errorf("OpenCodeExportArgs = %q", exp)

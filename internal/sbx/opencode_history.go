@@ -1,18 +1,34 @@
 // SPEC: _spec/defs/opencode/engine-local-history.puml
 package sbx
 
-// OpenCodeImportStage is where a new engine receives the host database before the import installs it.
-const OpenCodeImportStage = "/tmp/proveo-import-opencode.db"
+import (
+	"archive/tar"
+	"errors"
+	"io"
+	"io/fs"
+	"maps"
+	"os"
+)
 
 // OpenCodeDatabaseHeader opens every SQLite database file.
 const OpenCodeDatabaseHeader = "SQLite format 3\x00"
 
+// OpenCodeImportCommit is the last member of an import stream; the import installs nothing without it.
+const OpenCodeImportCommit = "commit"
+
 // Exit statuses of the engine-side history scripts.
 const (
-	OpenCodeImportExisting = 3
-	OpenCodeImportCorrupt  = 4
-	OpenCodeExportNone     = 3
+	OpenCodeImportExisting   = 3
+	OpenCodeImportCorrupt    = 4
+	OpenCodeImportIncomplete = 5
+	OpenCodeExportNone       = 3
 )
+
+// ErrOpenCodeImportChanged reports a host database file that changed while it streamed.
+var ErrOpenCodeImportChanged = errors.New("changed while it was copied")
+
+// openCodeImportSides are the suffixes of the host database files an import carries.
+var openCodeImportSides = []string{"", "-wal", "-journal"}
 
 // openCodeDatabasePath is the python that resolves the database path OpenCode itself opens.
 const openCodeDatabasePath = `def database():
@@ -22,24 +38,35 @@ const openCodeDatabasePath = `def database():
     return os.path.join(data, "opencode", "opencode.db")
 `
 
-// OpenCodeImportScript installs the staged database (argv[1]) as the engine's OpenCode database
-// once, through SQLite's backup API, and removes the stage: exit 0 installed,
-// OpenCodeImportExisting when the engine already holds one, OpenCodeImportCorrupt on a failed
-// quick_check.
-const OpenCodeImportScript = `import os, shutil, sqlite3, sys, tempfile
+// OpenCodeImportScript reads a WriteOpenCodeImport tar on stdin into a private temp dir and installs it
+// once as the engine's OpenCode database through SQLite's backup API: exit 0 installed,
+// OpenCodeImportExisting, OpenCodeImportCorrupt, or OpenCodeImportIncomplete without the commit member.
+const OpenCodeImportScript = `import os, shutil, sqlite3, sys, tarfile, tempfile
 ` + openCodeDatabasePath + `
-stage = sys.argv[1]
 dest = database()
+if os.path.lexists(dest):
+    sys.exit(3)
+names = {"opencode.db", "opencode.db-wal", "opencode.db-journal"}
+def receive(work):
+    try:
+        with tarfile.open(fileobj=sys.stdin.buffer.raw, mode="r|") as tar:
+            for member in tar:
+                if member.name == "` + OpenCodeImportCommit + `":
+                    return True
+                if member.name not in names or not member.isfile():
+                    return False
+                with tar.extractfile(member) as r, open(os.path.join(work, member.name), "xb") as w:
+                    shutil.copyfileobj(r, w)
+    except (tarfile.TarError, EOFError):
+        pass
+    return False
 code = 0
 work = tempfile.mkdtemp(prefix="proveo-import-")
 try:
-    if os.path.lexists(dest):
-        code = 3
+    copy = os.path.join(work, "opencode.db")
+    if not receive(work) or not os.path.isfile(copy):
+        code = 5
     else:
-        copy = os.path.join(work, "opencode.db")
-        for suffix in ("", "-wal", "-journal"):
-            if os.path.isfile(stage + suffix):
-                shutil.copyfile(stage + suffix, copy + suffix)
         try:
             src = sqlite3.connect(copy)
             ok = src.execute("PRAGMA quick_check").fetchone()[0] == "ok"
@@ -66,11 +93,6 @@ try:
             src.close()
 finally:
     shutil.rmtree(work, ignore_errors=True)
-    for suffix in ("", "-wal", "-shm", "-journal"):
-        try:
-            os.unlink(stage + suffix)
-        except FileNotFoundError:
-            pass
 sys.exit(code)
 `
 
@@ -96,14 +118,69 @@ finally:
     shutil.rmtree(work, ignore_errors=True)
 `
 
-// OpenCodeImportCopyArgs copies one host database file (suffix "", "-wal" or "-journal") to the stage.
-func OpenCodeImportCopyArgs(name, hostFile, suffix string) []string {
-	return []string{"cp", hostFile, name + ":" + OpenCodeImportStage + suffix}
+// OpenCodeImportFiles stats src and its -wal/-journal, keyed by suffix; -shm never travels.
+func OpenCodeImportFiles(src string) map[string]os.FileInfo {
+	files := map[string]os.FileInfo{}
+	for _, s := range openCodeImportSides {
+		if info, err := os.Lstat(src + s); err == nil && info.Mode().IsRegular() {
+			files[s] = info
+		}
+	}
+	return files
 }
 
-// OpenCodeImportArgs runs the import script in engine name.
+// WriteOpenCodeImport streams files, OpenCodeImportFiles(src) taken before, to w as the tar
+// OpenCodeImportScript reads; it appends OpenCodeImportCommit only when none changed while it streamed,
+// else it returns ErrOpenCodeImportChanged.
+func WriteOpenCodeImport(w io.Writer, src string, files map[string]os.FileInfo) error {
+	tw := tar.NewWriter(w)
+	for _, s := range openCodeImportSides {
+		info, ok := files[s]
+		if !ok {
+			continue
+		}
+		if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: "opencode.db" + s, Mode: 0o600, Size: info.Size()}); err != nil {
+			return err
+		}
+		if err := copyOpenCodeFile(tw, src+s, info.Size()); err != nil {
+			return err
+		}
+	}
+	if !maps.EqualFunc(OpenCodeImportFiles(src), files, sameOpenCodeFile) {
+		return ErrOpenCodeImportChanged
+	}
+	if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: OpenCodeImportCommit, Mode: 0o600}); err != nil {
+		return err
+	}
+	return tw.Close()
+}
+
+// copyOpenCodeFile copies the first size bytes of path to w.
+func copyOpenCodeFile(w io.Writer, path string, size int64) error {
+	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ErrOpenCodeImportChanged
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := io.CopyN(w, f, size); errors.Is(err, io.EOF) {
+		return ErrOpenCodeImportChanged
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+// sameOpenCodeFile reports an unchanged size and mtime.
+func sameOpenCodeFile(a, b os.FileInfo) bool {
+	return a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
+}
+
+// OpenCodeImportArgs runs the import script in engine name with stdin attached.
 func OpenCodeImportArgs(name string) []string {
-	return []string{"exec", "-w", "/", name, "--", "python3", "-I", "-c", OpenCodeImportScript, OpenCodeImportStage}
+	return []string{"exec", "-i", "-w", "/", name, "--", "python3", "-I", "-c", OpenCodeImportScript}
 }
 
 // OpenCodeExportArgs streams engine name's OpenCode database on stdout.

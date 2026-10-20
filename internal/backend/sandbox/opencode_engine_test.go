@@ -18,7 +18,7 @@ const ocEngine = "proveo-opencode-1a2b3c4d"
 
 // fakeEngine is an sbx on PATH with one sandbox, engine, whose guest home is guest/home.
 // state/exists marks the engine present; state/create-fails, state/exec-fails and
-// state/mutate (the source grows while it is copied) inject failures.
+// state/mutate (it names a host file that grows as the import starts) inject failures.
 type fakeEngine struct {
 	calls, state, guest string
 }
@@ -46,12 +46,13 @@ case "$1" in
   ls) printf 'SANDBOX AGENT STATUS\n'; [ -e "$S/exists" ] && printf '` + ocEngine + ` opencode stopped\n'; exit 0 ;;
   create) [ -e "$S/create-fails" ] && exit 1; touch "$S/exists" ;;
   rm) rm -f "$S/exists" ;;
-  cp) cp "$2" "$G${3#*:}" || exit 1; [ -e "$S/mutate" ] && echo grown >> "$2"; exit 0 ;;
-  exec) shift; while [ "$1" != "--" ]; do shift; done; shift
+  cp) echo 'sbx cp: the history import must not stage files' >&2; exit 1 ;;
+  exec) shift; I=; while [ "$1" != "--" ]; do [ "$1" = -i ] && I=1; shift; done; shift
     [ "$1" = python3 ] || exit 0
     [ -e "$S/exec-fails" ] && { echo 'sbx: exec failed' >&2; exit 1; }
-    if [ -n "$5" ]; then exec env -u XDG_DATA_HOME -u OPENCODE_DB HOME="$G/home" '` + py + `' -I -c "$4" "$G$5"; fi
-    exec env -u XDG_DATA_HOME -u OPENCODE_DB HOME="$G/home" '` + py + `' -I -c "$4" ;;
+    [ -s "$S/mutate" ] && echo grown >> "$(cat "$S/mutate")"
+    [ -n "$I" ] || exec </dev/null
+    exec env -u XDG_DATA_HOME -u OPENCODE_DB HOME="$G/home" TMPDIR="$G/tmp" '` + py + `' -I -c "$4" ;;
 esac
 `
 	bin := filepath.Join(root, "bin")
@@ -71,7 +72,12 @@ esac
 
 func (f fakeEngine) set(t *testing.T, flag string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(f.state, flag), nil, 0o644); err != nil {
+	f.setTo(t, flag, "")
+}
+
+func (f fakeEngine) setTo(t *testing.T, flag, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(f.state, flag), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -213,10 +219,11 @@ func TestANewEngineImportsTheFirstHostDatabaseOnce(t *testing.T) {
 			if c.wantCarry && err == nil {
 				t.Error("the carried database is still on the host after a successful import")
 			}
-			for _, side := range []string{"", "-wal", "-journal", "-shm"} {
-				if _, err := os.Stat(filepath.Join(f.guest, sbx.OpenCodeImportStage+side)); err == nil {
-					t.Errorf("the stage %s was left in the engine", sbx.OpenCodeImportStage+side)
-				}
+			if left, _ := os.ReadDir(filepath.Join(f.guest, "tmp")); len(left) != 0 {
+				t.Errorf("the import left %d entries in the engine's /tmp", len(left))
+			}
+			if log := f.log(); c.want != "" && !strings.Contains(log, "exec -i -w / "+ocEngine+" --") {
+				t.Errorf("the import did not stream over `sbx exec -i`:\n%s", log)
 			}
 		})
 	}
@@ -224,21 +231,22 @@ func TestANewEngineImportsTheFirstHostDatabaseOnce(t *testing.T) {
 
 func TestAFailedImportRemovesTheFreshEngineAndKeepsTheSource(t *testing.T) {
 	for _, c := range []struct {
-		name  string
-		flag  string
-		bytes string
+		name    string
+		flag    string
+		bytes   string
+		wantErr string
 	}{
-		{"a corrupt database", "", "not a sqlite database at all, but long enough"},
-		{"a source that changes while it is copied", "mutate", ""},
-		{"an exec that fails", "exec-fails", ""},
+		{"a corrupt database", "", "not a sqlite database at all, but long enough", "fails SQLite's quick_check"},
+		{"a source that changes while it streams", "mutate", strings.Repeat("x", 4<<20), "changed while it was copied"},
+		{"an exec that fails", "exec-fails", "", "sbx: exec failed"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFakeEngine(t, false)
-			if c.flag != "" {
-				f.set(t, c.flag)
-			}
 			home := t.TempDir()
 			carry := filepath.Join(home, "opencode", "carry", ocEngine+".db")
+			if c.flag != "" {
+				f.setTo(t, c.flag, carry)
+			}
 			if c.bytes != "" {
 				if err := os.MkdirAll(filepath.Dir(carry), 0o700); err != nil {
 					t.Fatal(err)
@@ -252,8 +260,11 @@ func TestAFailedImportRemovesTheFreshEngineAndKeepsTheSource(t *testing.T) {
 			writeReceipt(ocEngine, launchReceipt{Agent: "opencode"})
 
 			_, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
-			if err == nil || !strings.Contains(err.Error(), "next") {
-				t.Fatalf("ensureOpenCodeEngine = %v, want an error that says the next run retries", err)
+			if err == nil || !strings.Contains(err.Error(), "next") || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("ensureOpenCodeEngine = %v, want an error naming %q that says the next run retries", err, c.wantErr)
+			}
+			if _, err := os.Stat(f.guestDB()); err == nil {
+				t.Error("a failed import installed an engine database")
 			}
 			if f.exists() {
 				t.Errorf("the fresh engine survived a failed import, so the next run would reattach to it empty\ncalls:\n%s", f.log())

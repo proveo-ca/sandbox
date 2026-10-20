@@ -43,6 +43,8 @@ skinparam noteTextAlignment left
 ' test_opencode_runtime.py OK; the e2e package green except the known
 ' TestScheduleAgentThatDiesBeforeReadyFailsFast. [Unverified] here: the sbx
 ' legs — no sbx on that VM.
+' 2026-10-20: the import streams the database over `sbx exec -i` stdin; it no
+' longer stages through `sbx cp` (WHY STDIN, NOT `sbx cp` below).
 '
 ' ── THE DECISIONS (the user, 2026-10-16; verbatim TUI labels where given) ───
 ' The architect's brief recommended an option for each; where the user chose
@@ -93,27 +95,61 @@ skinparam noteTextAlignment left
 '        opencode/share/opencode.db         (the pre-V2 share)
 '        .local/share/opencode/opencode.db
 '      None → "OpenCode: new engine <name> starts with empty history".
-'   3. importOpenCodeHistory stats the db and any -wal / -journal, `sbx cp`s
-'      each to /tmp/proveo-import-opencode.db* (OpenCodeImportCopyArgs), and
-'      re-stats them: a size or mtime change, or a side appearing or vanishing,
-'      fails with "<src> changed while it was copied; close the OpenCode that
-'      writes it". It never copies -shm and never writes the source.
-'   4. `sbx exec -w / <engine> -- python3 -I -c OpenCodeImportScript <stage>`:
-'      exit 3 at once if the engine already has a database (accepted as done);
-'      else copy the stage into a private temp dir, `PRAGMA quick_check`
-'      (exit 4 → "<src> fails SQLite's quick_check"), fold the WAL through
-'      SQLite's backup API into a temp file BESIDE the target, chmod 0600,
-'      `link()` it into place — never over an existing file — and remove the
-'      stage (-shm included) on every path. Exit 0 = imported.
+'   3. importOpenCodeHistory stats the db and any -wal / -journal
+'      (sbx.OpenCodeImportFiles), starts `sbx exec -i -w / <engine> -- python3
+'      -I -c OpenCodeImportScript` (OpenCodeImportArgs) and writes its stdin
+'      with sbx.WriteOpenCodeImport: a tar of one member per file
+'      (opencode.db, opencode.db-wal, opencode.db-journal), then an empty
+'      `commit` member (OpenCodeImportCommit) — written only when a re-stat
+'      finds every file unchanged. A size or mtime change, or a side appearing
+'      or vanishing, withholds the commit and fails with "<src> changed while
+'      it was copied; close the OpenCode that writes it". It never sends -shm,
+'      never writes the source, and names no path inside the engine.
+'   4. The script: exit 3 at once if the engine already has a database
+'      (accepted as done; it reads no stdin); else `mkdtemp` a private dir it
+'      owns and extract only the three known member names into it. No commit
+'      member, a cut stream or an unknown member → exit 5
+'      (OpenCodeImportIncomplete), nothing installed. Then `PRAGMA
+'      quick_check` (exit 4 → "<src> fails SQLite's quick_check"), fold the
+'      WAL through SQLite's backup API into a temp file BESIDE the target,
+'      chmod 0600, `link()` it into place — never over an existing file — and
+'      remove the private dir on every path. Exit 0 = imported.
 '   5. A consumed carry file is deleted ("OpenCode: carried history (<size>)
 '      into new engine <name>"); a share source prints "OpenCode: imported <src>
 '      (<size>) into new engine <name> once; the host copy stays unchanged".
 '      The host V2 share is NEVER edited.
 '   6. Run reattaches with `sbx run --name <engine>`.
-' D5: any other failure (copy, change, exec, corrupt) `sbx rm`s the fresh
-' engine, deletes its receipt and stops the run: "OpenCode history import into
-' <engine> failed: … — the new engine was removed and <src> stays; the next
-' run retries".
+' D5: any other failure (change, exec, incomplete stream, corrupt) `sbx rm`s
+' the fresh engine, deletes its receipt and stops the run: "OpenCode history
+' import into <engine> failed: … — the new engine was removed and <src> stays;
+' the next run retries".
+'
+' ── WHY STDIN, NOT `sbx cp` (2026-10-20) ───────────────────────────────────
+' REPORTED: TestOpenCodeEngineKeepsHistoryAndImportsOnce failed on a macOS
+' host. The import (uid 1000 under `sbx exec`) raised PermissionError [Errno
+' 13] on shutil.copyfile of /tmp/proveo-import-opencode.db, then [Errno 1] on
+' os.unlink of it. `sbx cp` had left the stage owned by another uid with the
+' source's 0600 mode (carryOpenCodeHistory always writes 0600), and /tmp is
+' sticky, so uid 1000 could neither read nor remove it.
+' MEASURED 2026-10-20 in a python:3.12-slim stand-in: a root-owned 0600 file in
+' /tmp gives uid 1000 exactly those two errors.
+' The sbx cp reference documents no ownership or mode rule
+' (https://docs.docker.com/reference/cli/sbx/cp/, read 2026-10-20).
+' docker cp: "files copied to a container are created with UID:GID of the root
+' user", permissions "preserved if possible"
+' (https://docs.docker.com/reference/cli/docker/container/cp/, read
+' 2026-10-20). [Inference] sbx cp follows that rule; the failure fits it.
+' The sbx exec reference documents "-i, --interactive Keep STDIN open even if
+' not attached" and "Flags match the behavior of docker exec"
+' (https://docs.docker.com/reference/cli/sbx/exec/, read 2026-10-20).
+' So the bytes travel on stdin into a dir the engine user creates: nothing in
+' the engine is owned by anyone else, and no fixed /tmp path exists to collide.
+' The commit member keeps the change verdict in-band: the host re-stats after
+' the bytes leave and before the engine installs, within one exec.
+' The script reads stdin unbuffered (sys.stdin.buffer.raw), so it acts on the
+' commit member without waiting for EOF.
+' NOT TAKEN: `sbx exec -u root … chown 1000:1000` + chmod on a unique stage
+' path — two more execs, and the engine still holds a root-written file.
 '
 ' ── A REPLACED ENGINE CARRIES ITS DATABASE (D1, D7) ────────────────────────
 ' retireSandbox (launch_receipt.go), for an OpenCode engine, runs
@@ -179,8 +215,13 @@ skinparam noteTextAlignment left
 ' D2) is gone with them. test_opencode_startup.py is trimmed, not deleted.
 '
 ' ── TESTS (MEASURED to exist; pass/fail as reported above) ─────────────────
-'   internal/sbx/opencode_history_test.go — 4: import once and refuse a
-'     second; refuse a corrupt copy; export a consistent copy; argv shapes.
+'   internal/sbx/opencode_history_test.go — 6, each feeding the script the
+'     stream sbx.WriteOpenCodeImport writes: import once and refuse a second;
+'     refuse a corrupt copy; install nothing without the commit (no stdin,
+'     cut before the commit, cut inside a file, an unknown member); withhold
+'     the commit from a changing source (db grows, -wal grows, -journal
+'     appears); export a consistent copy; argv shapes (`exec -i`, no path).
+'     Each import case also checks its TMPDIR is left empty.
 '   internal/backend/sandbox/opencode_engine_test.go (!windows) — a fake sbx
 '     on PATH that runs the REAL scripts against a guest dir: an existing
 '     engine is left alone (1); the import source order, the empty start and
@@ -188,13 +229,26 @@ skinparam noteTextAlignment left
 '     the source — corrupt, changed mid-copy, exec failure (3); retire carries
 '     the history, carries nothing from an engine with none, keeps the engine
 '     when the export fails (3). 12 cases by count (the brief said 11).
+'     The fake hands the script stdin only under `exec -i`, fails any `sbx
+'     cp`, and runs it with TMPDIR=<guest>/tmp; an import must leave that
+'     empty and log `exec -i`. Each failure case names its error; the
+'     mid-stream change uses a 4 MiB source, so the host blocks on the pipe
+'     until the fake has grown it.
 '   internal/backend/sandbox/home_access_test.go
 '     TestOpenCodeHomeAccessMountsConfigButNeverHistory.
 '   internal/imagetest/opencode_test.go ocHistory — 3 checks in the image: two
 '     shim launches share the native default database and create no V2 share
 '     and leave no throwaway dir; the inflight call leaves the engine database
-'     byte-identical; the import installs a WAL database once (the second
-'     exits 3) and the export streams it with the SQLite header.
+'     byte-identical; "uid 1000 imports a root-staged 0600 WAL stream once
+'     and the export streams it": a root container builds the WAL fixture,
+'     the host writes it 0600 and builds the stream with
+'     sbx.WriteOpenCodeImport, and a second root container saves that stream
+'     as a root-owned 0600 file, checks uid 1000 cannot read it, and hands it
+'     as stdin to the import run as uid 1000 — installed 1000/0600, a second
+'     import exits 3, no /tmp/proveo-import-* is left, the export carries the
+'     SQLite header and both rows. MEASURED 2026-10-20 green on a
+'     python:3.12-slim stand-in with a uid-1000 user; NOT run on
+'     proveo/opencode (not built on that VM).
 '   internal/contract/opencode_credentials_test.go TestOpenCodeRuntimeFixtures,
 '     TestOpenCodeImageShipsOnlyTheThinRuntime, TestOpenCodeDocumentsEngineLocalLogins;
 '     e2e/opencode_credentials_test.go TestOpenCodeRuntimeInImage.
@@ -225,8 +279,8 @@ skinparam noteTextAlignment left
 ' setup.files for any value that needs to land on disk before the agent runs";
 ' setup.files writes text content; a kit "can't read arbitrary host environment
 ' variables or files"; v2 volumes take no host source. So no kit surface can
-' carry a SQLite database in — hence `sbx create` + `sbx cp` + `sbx exec` before
-' the reattach. https://docs.docker.com/ai/sandboxes/agents/opencode/
+' carry a SQLite database in — hence `sbx create` + `sbx exec -i` (the database
+' on stdin) before the reattach. https://docs.docker.com/ai/sandboxes/agents/opencode/
 ' documents no data or history path and no import.
 ' SQLITE WAL ACROSS MACHINES:
 '   * SQLite's active state stays on the ENGINE'S LOCAL filesystem, never a
@@ -239,8 +293,8 @@ skinparam noteTextAlignment left
 '   * SQLite cannot open a WAL database read-only in a directory where it
 '     cannot create the -shm (measured 2026-10-15: "unable to open database
 '     file"; [Unverified] https://www.sqlite.org/wal.html, "Read-Only
-'     Databases"). So the import never opens the stage where it lands: it
-'     copies it into a private writable temp dir first, and it never copies a
+'     Databases"). So the import writes the streamed files into a private
+'     writable temp dir and opens them there, and the host never sends a
 '     -shm, which describes another machine's memory.
 ' E2E FACTS: an sbx e2e must keep the operator's HOME, where sbx keeps its
 ' login — with a temporary HOME `sbx template load` failed "Not authenticated
@@ -269,9 +323,11 @@ skinparam noteTextAlignment left
 '     repo-simplification.puml).
 '   * [Inference] The old preflight ENTRYPOINT waited up to 300 s for the
 '     seed-done marker; that wait is gone with it.
-'   * [Unverified] `sbx cp` file ownership in the engine — the import copies
-'     the stage into its own temp dir before opening it, so a root-owned stage
-'     is read, not written.
+'   * RESOLVED 2026-10-20 (was "[Unverified] `sbx cp` file ownership"): the
+'     ownership broke the import for uid 1000; the import no longer uses
+'     `sbx cp` (WHY STDIN, NOT `sbx cp`).
+'   * [Unverified] `sbx exec -i` carrying a multi-MB binary stdin and its EOF
+'     on a live engine — no sbx on the verifying VM; the e2e is the proof.
 '   * [Unverified] sbx create's "Created sandbox" output on a live engine.
 '   * [Unverified] OpenCode's behaviour with two clients on one SQLite
 '     database (D4: no proveo lock; the old runtime refused a second client
@@ -299,12 +355,11 @@ participant "opencode\nthin runtime → native" as OC <<app>>
 group new engine (ensureOpenCodeEngine)
   PV ARROW_MAIN SBX : sbx create <engine>
   PV ARROW_OPTIONAL HOMEDB : first regular file:\ncarry/<engine>.db · v2/share · share · .local/share
-  PV ARROW_MAIN SBX : sbx cp db (+ -wal, -journal) → stage\nsource stat before/after; never -shm
-  PV ARROW_MAIN ENG : sbx exec python3 -I -c OpenCodeImportScript
-  ENG ARROW_MAIN ENG : private copy · quick_check · backup API\nlink() only if absent · 0600
+  PV ARROW_MAIN ENG : sbx exec -i python3 -I -c OpenCodeImportScript\nstdin: tar db (+ -wal, -journal) · commit; never -shm
+  ENG ARROW_MAIN ENG : extract into own mkdtemp · quick_check\nbackup API · link() only if absent · 0600
   alt exit 0, or 3 (already has one)
     PV ARROW_OPTIONAL HOMEDB : delete the consumed carry file
-  else copy / change / exec / corrupt (D5)
+  else change / exec / incomplete / corrupt (D5)
     PV ARROW_ERROR SBX : sbx rm <engine>; receipt removed; run stops
   end
 end
@@ -333,9 +388,9 @@ note over ENG
 end note
 
 note right of PV
-  **Import once, read-only.** The host copies
-  the source and checks it did not change; it
-  never copies -shm and never writes it.
+  **Import once, over stdin.** The host streams
+  the source and commits only if it did not
+  change; it never sends -shm or writes it.
 end note
 
 note over SBX
