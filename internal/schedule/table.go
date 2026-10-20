@@ -173,7 +173,7 @@ func Render(p *ui.Printer, rows []Row, now time.Time, tick Tick, logDir func(job
 		return pre + s + ui.ANSIReset
 	}
 	next := "▸"
-	if p.Tier != ui.GlyphsNerd {
+	if p.Tier != ui.GlyphsNerd && p.Tier != ui.GlyphsSafe {
 		next = ">"
 	}
 	var order []string

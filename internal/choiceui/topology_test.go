@@ -294,6 +294,37 @@ func screenLines(s tcell.SimulationScreen) []string {
 	return out
 }
 
+// The font-safe set is the undeclared default: best accessible first, so
+// no private-use rune and every icon one rune of one column.
+func TestSafeTierIsFontSafe(t *testing.T) {
+	t.Parallel()
+	g := glyphsFor(GlyphsSafe)
+	for _, s := range []string{g.cloud, g.key, g.quiet, g.speaking} {
+		if n := len([]rune(s)); n != 1 {
+			t.Errorf("font-safe %q is %d runes, want 1", s, n)
+		}
+		if w := textWidth(s); w != 1 {
+			t.Errorf("font-safe %q measures %d columns, want 1", s, w)
+		}
+		for _, r := range s {
+			if r >= 0xE000 && r <= 0xF8FF {
+				t.Errorf("font-safe set carries private-use U+%04X", r)
+			}
+		}
+	}
+	if glyphsFor(GlyphsSafe) == glyphsFor(GlyphsNerd) {
+		t.Error("font-safe and nerd must differ, or the fallback chain has one rung")
+	}
+	rows := paint(t, Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Open: 3}, GlyphsSafe, 0)
+	joined := strings.Join(rows, "\n")
+	if n := strings.Count(joined, g.cloud); n != 3 {
+		t.Errorf("painted %d font-safe clouds, want 3", n)
+	}
+	if !strings.Contains(joined, g.key) {
+		t.Error("painted figure carries no font-safe key")
+	}
+}
+
 func TestGlyphsOffDrawsTheASCIISet(t *testing.T) {
 	t.Parallel()
 	if glyphsFor(GlyphsOff) != glyphsFor(GlyphsASCII) {

@@ -21,9 +21,10 @@ import (
 type GlyphTier int
 
 const (
-	GlyphsNerd GlyphTier = iota // default
+	GlyphsNerd GlyphTier = iota // declared: the operator's font carries private-use devicons
 	GlyphsASCII
 	GlyphsOff
+	GlyphsSafe // undeclared default: standard Unicode only, no private-use runes
 )
 
 func GlyphTierFrom(lookup func(string) string) GlyphTier {
@@ -32,8 +33,12 @@ func GlyphTierFrom(lookup func(string) string) GlyphTier {
 		return GlyphsASCII
 	case v == "none" || envflag.Off(v):
 		return GlyphsOff
+	case v == "nerd" || v == "nerdfont":
+		return GlyphsNerd
+	case v == "safe":
+		return GlyphsSafe
 	}
-	return GlyphsNerd
+	return GlyphsSafe
 }
 
 // Role is what a status line is ABOUT — which layer of the run is speaking.
@@ -148,7 +153,7 @@ func (p *Printer) Section(label string) {
 }
 
 func sectionRule(t GlyphTier, plain bool) string {
-	if plain || t != GlyphsNerd {
+	if plain || (t != GlyphsNerd && t != GlyphsSafe) {
 		return "-"
 	}
 	return "─"

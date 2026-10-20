@@ -122,6 +122,7 @@ func TestTheGlyphTierNeedsNoTranslation(t *testing.T) {
 		{posture.GlyphsNerd, choiceui.GlyphsNerd},
 		{posture.GlyphsASCII, choiceui.GlyphsASCII},
 		{posture.GlyphsOff, choiceui.GlyphsOff},
+		{posture.GlyphsSafe, choiceui.GlyphsSafe},
 	} {
 		if c.in != c.want {
 			t.Errorf("%v: posture and choiceui disagree, got %v want %v", c.in, c.in, c.want)

@@ -192,15 +192,19 @@ func TestGlyphTierFrom(t *testing.T) {
 		in   string
 		want GlyphTier
 	}{
-		{"", GlyphsNerd},
+		{"", GlyphsSafe},
+		{"safe", GlyphsSafe},
 		{"ascii", GlyphsASCII},
 		{"ASCII", GlyphsASCII},
 		{"  ascii  ", GlyphsASCII},
 		{"off", GlyphsOff},
 		{"none", GlyphsOff},
 		{"0", GlyphsOff},
-		// A typo degrades to the default rather than silently stripping the run.
+		// A declared nerd font keeps the best set; a typo degrades to
+		// font-safe rather than silently stripping the run.
+		{"nerd", GlyphsNerd},
 		{"nerdfont", GlyphsNerd},
+		{"typo", GlyphsSafe},
 	} {
 		got := GlyphTierFrom(func(string) string { return tc.in })
 		if got != tc.want {

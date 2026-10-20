@@ -83,9 +83,10 @@ var lspMarkers = []wsscan.Marker{
 type GlyphMode = ui.GlyphTier
 
 const (
-	GlyphsNerd  = ui.GlyphsNerd // default
+	GlyphsNerd  = ui.GlyphsNerd
 	GlyphsASCII = ui.GlyphsASCII
 	GlyphsOff   = ui.GlyphsOff
+	GlyphsSafe  = ui.GlyphsSafe // undeclared default
 )
 
 var lspNerd = map[string]string{

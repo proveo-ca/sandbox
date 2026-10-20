@@ -10,7 +10,7 @@ import (
 
 const (
 	flockRows = 4
-	flockCost = flockRows + 1
+	flockCost = flockRows + 2
 )
 
 const (

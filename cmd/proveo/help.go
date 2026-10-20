@@ -151,7 +151,7 @@ func helpWidth(w io.Writer) int {
 func newHelpPen(w io.Writer) helpPen {
 	p := ui.New(w)
 	h := helpPen{w: w, plain: p.Plain, rule: "─", width: helpWidth(w)}
-	if p.Plain || p.Tier != ui.GlyphsNerd {
+	if p.Plain || (p.Tier != ui.GlyphsNerd && p.Tier != ui.GlyphsSafe) {
 		h.rule = "-"
 	}
 	return h

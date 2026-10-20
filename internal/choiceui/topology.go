@@ -66,6 +66,7 @@ const (
 	GlyphsNerd  = ui.GlyphsNerd
 	GlyphsASCII = ui.GlyphsASCII
 	GlyphsOff   = ui.GlyphsOff
+	GlyphsSafe  = ui.GlyphsSafe
 )
 
 type glyphSet struct {
@@ -79,7 +80,7 @@ type glyphSet struct {
 }
 
 func glyphsFor(t GlyphTier) glyphSet {
-	if t != GlyphsNerd {
+	if t != GlyphsNerd && t != GlyphsSafe {
 		return glyphSet{
 			cloud: "(~)", key: "K", quiet: "\"", speaking: "\"!",
 			spine: "=", screened: "-", watched: ".",
@@ -89,7 +90,7 @@ func glyphsFor(t GlyphTier) glyphSet {
 			cornerTL: "+", cornerTR: "+", cornerBL: "+", cornerBR: "+", tee: "+", cross: "+", rule: "-",
 		}
 	}
-	return glyphSet{
+	g := glyphSet{
 		cloud: "", key: "", quiet: "", speaking: "",
 		spine: "═", screened: "─", watched: "╌",
 		refused: "×", asking: "?",
@@ -97,6 +98,10 @@ func glyphsFor(t GlyphTier) glyphSet {
 		node: "●", wallL: "│", wallR: "│",
 		cornerTL: "┌", cornerTR: "┐", cornerBL: "└", cornerBR: "┘", tee: "┬", cross: "┼", rule: "─",
 	}
+	if t == GlyphsSafe {
+		g.cloud, g.key, g.quiet, g.speaking = "☁", "⚿", "❝", "❞"
+	}
+	return g
 }
 
 func (g glyphSet) lane(k LaneKind) string {

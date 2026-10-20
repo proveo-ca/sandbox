@@ -59,7 +59,8 @@ skinparam noteTextAlignment left
 ' ── ENUMS: THEIR OWN WORDS FIRST, THEN envflag ─────────────────────────────
 ' MEASURED:
 '   PROVEO_GLYPHS          ascii → ASCII; none or any OFF word → no glyphs;
-'                          anything else → Nerd (internal/ui/ui.go GlyphTierFrom)
+'                          nerd/nerdfont → Nerd; safe or anything else → Safe
+'                          (internal/ui/ui.go GlyphTierFrom)
 '   PROVEO_DOCKER_PULL     "" or auto → no --pull; never or OFF → --pull=false;
 '                          always or ON → --pull=true; anything else fails.
 '                          The value is lowercased and trimmed before ANY

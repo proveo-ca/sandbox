@@ -173,7 +173,8 @@ func TestEveryLSPMarkerHasAnASCIIGlyph(t *testing.T) {
 func TestGlyphModeFromLookup(t *testing.T) {
 	t.Parallel()
 	cases := map[string]GlyphMode{
-		"": GlyphsNerd, "nerd": GlyphsNerd, "1": GlyphsNerd, "typo": GlyphsNerd,
+		"": GlyphsSafe, "safe": GlyphsSafe, "1": GlyphsSafe, "typo": GlyphsSafe,
+		"nerd": GlyphsNerd, "nerdfont": GlyphsNerd,
 		"ascii": GlyphsASCII, "ASCII": GlyphsASCII,
 		"off": GlyphsOff, "0": GlyphsOff, "false": GlyphsOff, "none": GlyphsOff,
 	}

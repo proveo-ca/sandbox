@@ -223,13 +223,16 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   the very backend the lock existed to remove; that backend is now deleted.
 }
 {^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
-  default (nerd) | <&code> typescript-language-server | <&terminal> bash-language-server
+  default (safe) | <> typescript-language-server | $ bash-language-server
+  ""=nerd"" | <&code> typescript-language-server | <&terminal> bash-language-server
   ""=ascii"" | <> typescript-language-server | $ bash-language-server
   ""=off"" | typescript-language-server | bash-language-server
   .
   Devicons live in a range a Powerline-patched font does not carry, and a terminal
-  cannot be asked whether its font holds a codepoint — so nerd is the default and
-  ""ascii"" is the fallback an operator selects, never one autodetection guesses.
+  cannot be asked whether its font holds a codepoint — so nerd is the tier an
+  operator declares with ""=nerd"", and the undeclared default falls back to
+  Safe (here the same category markers as ""=ascii""; in the figure, standard
+  Unicode icons), never to a guess autodetection makes.
   ASCII markers are category-level (""<>"" code, ""$"" shell, ""#"" container,
   ""{}"" data) because a decoded symbol cannot carry per-language identity, and they
   avoid ""["", ""("" and "">"", which the checkbox, radio and legend already own.

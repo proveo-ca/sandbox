@@ -150,4 +150,7 @@ func TestFlockRendersInsideTheForm(t *testing.T) {
 	if !flockPainted(rows) {
 		t.Error("a tall terminal with Form.Flock paints no braille flock")
 	}
+	if !strings.Contains(strings.Join(rows, "\n"), "pr●veo") {
+		t.Error("the flock replaced the banner and took the proveo wordmark with it")
+	}
 }

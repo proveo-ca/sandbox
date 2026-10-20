@@ -105,7 +105,7 @@ component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
 component "termWidth(w)\nioctl, else 100" as WIDTH <<host>>
-component "GlyphTier\nPROVEO_GLYPHS\nNerd · ASCII · Off" as TIER <<host>>
+component "GlyphTier\nPROVEO_GLYPHS\nNerd · Safe · ASCII · Off" as TIER <<host>>
 component "termtext.StripANSI" as STRIP <<app>>
 component "Default → os.Stderr" as DEF <<app>>
 component "TeeTo(w)\nrun log" as TEE <<app>>

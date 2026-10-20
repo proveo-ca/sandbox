@@ -26,11 +26,12 @@
 ' through Form.Flock, and the run form is its first and only customer.
 
 ' ── THE LADDER DECIDES, THE FLOCK NEVER PUSHES ────────────────────────────
-' flockRows plus its separating blank cost five rows, charged in the
-' banner's place in the drop ladder in layout.go: an afforded flock
-' replaces the banner instead of stacking under it, because charging
-' both (eight plus six rows) put the flock past the height of a typical
-' terminal and it was silently never seen. It still ranks below every
+' A wordmark line, flockRows and a separating blank cost six rows,
+' charged in the banner's place in the drop ladder in layout.go: an
+' afforded flock replaces the banner box instead of stacking under it,
+' because charging both put the flock past the height of a typical
+' terminal and it was silently never seen. The wordmark line keeps
+' 'pr●veo' on screen — the box goes, the name does not. It still ranks below every
 ' informative region — axis, header and strip all outrank it — and it
 ' holds no reserved slot: help keeps its maximum, the body keeps its
 ' floor, and the hint stays pinned above both.
@@ -39,9 +40,10 @@
 ' The form's existing ticker already posts a frame every 120ms, so the
 ' flock needs no second clock. flockSim advances only when tick moves,
 ' by the delta since its last frame, capped so a stalled terminal does
-' not fast-forward on wake. GlyphsNerd packs each cell as braille: two
-' by four dots per cell, rune U+2800 plus the dot bits, which the glyph
-' ban in tui-design-language leaves legal — braille carries no emoji
+' not fast-forward on wake. GlyphsNerd and GlyphsSafe pack cells
+' as braille: two by four dots per cell, rune U+2800 plus the dot
+' bits, which the glyph ban in tui-design-language leaves legal.
+' Braille carries no emoji
 ' presentation and its width is one column in every font that has it.
 ' GlyphsASCII degrades a cell to '.' for a sparse cell and '*' for a
 ' dense one. GlyphsOff affords no region at all, matching how the tier
@@ -62,7 +64,7 @@ title An ambient flock for the choice prompt, ported from cbirds
 component "cbirds\nC99 · MIT · own VT layer\nno library API" as CBIRDS <<cloud>>
 component "internal/choiceui flockSim\nboids in dot space\ndeterministic seed" as SIM <<app>>
 component "braille packing\n2x4 dots per cell\nU+2800 + dot bits" as PACK <<app>>
-component "layout drop ladder\nflock takes the banner's place\nfive rows or nothing" as LADDER <<app>>
+component "layout drop ladder\nflock takes the banner's place\nsix rows, wordmark kept" as LADDER <<app>>
 component "Form.Flock opt-in\nrun form only" as FORM <<app>>
 component "existing ticker\n120ms frames, one clock" as TICK <<async>>
 database "tcell screen\nthe screen proveo owns\nuntil the prompt closes" as TERM <<db>>
@@ -98,10 +100,10 @@ end note
 
 note bottom of LADDER
   **The banner's place, not its own.**
-  Five rows buy the flock only after body,
+  Six rows buy the flock only after body,
   hint, help and strip are afforded, and
-  the banner then stays home. Stacking it
-  under the banner priced it out of sight.
+  the banner box then stays home — but its
+  wordmark line rides above the birds.
 end note
 
 note bottom of FORM

@@ -204,7 +204,13 @@ skinparam noteTextAlignment left
 ' runes that go-runewidth measures as one column and terminals draw as two, and
 ' the cloud is an ambiguous-width character whose column count depends on the
 ' font. A Nerd Font devicon is one rune of one column with no ambiguity, so
-' nerd is the decorated tier and ASCII is the tier that is correct everywhere.
+' nerd is the decorated tier when the operator declares it
+' (""PROVEO_GLYPHS=nerd""). Undeclared, the figure falls back to Safe:
+' the same icons in standard Unicode — U+2601 cloud, U+26BF key,
+' U+275D and U+275E quotes — which regular fonts carry, because a
+' private-use rune in a font without it paints as a blank cell and
+' no terminal can be asked whether its font holds a codepoint.
+' ASCII remains the tier that is correct everywhere.
 '
 ' The node and wall glyphs are the BANNER's vocabulary rather than ASCII
 ' punctuation: the mark is dots interrupting rules inside a bracketed frame,
@@ -593,10 +599,10 @@ end note
 
 note top of GLYPH
   **No emoji reach the terminal.** The speaking
-  head is two runes that ""go-runewidth"" measures
-  as ONE column and terminals draw as two, and
-  the cloud is ambiguous-width. A devicon is one
-  rune of one column, so nerd is the top tier.
+  head measures one column and draws as two,
+  and the cloud is ambiguous-width. A devicon
+  is one rune of one column: nerd on top when
+  declared, Safe as its font-carried rung.
 end note
 
 note bottom of GLYPH

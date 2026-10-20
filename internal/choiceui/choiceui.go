@@ -419,11 +419,13 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	c := newCanvas(s)
 
 	if lay.flock {
+		c.put(0, p.brand, clip("  pr●veo  SOLUTIONS — "+ui.BrandTagline, w))
+		c.y++
 		if f.flock == nil {
 			f.flock = newFlockSim(w - 4)
 		}
 		drawFlock(s, c.y, w-4, tick, f.Glyphs, p.accent, f.flock)
-		c.y += flockCost
+		c.y += flockRows + 1
 	} else if lay.banner {
 		for _, b := range f.Banner {
 			c.put(0, p.brand, b)
@@ -459,7 +461,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	for i := 0; i < lay.body && f.scroll+i < len(lines); i++ {
 		c.y = bodyTop + i
 		ln := lines[f.scroll+i]
-		if glyph, thumb := g.glyph(i, f.Glyphs != GlyphsNerd); glyph != "" {
+		if glyph, thumb := g.glyph(i, f.Glyphs == GlyphsASCII || f.Glyphs == GlyphsOff); glyph != "" {
 			st := p.idle
 			if thumb {
 				st = p.brand
@@ -786,10 +788,11 @@ func preferUTF8Locale() {
 }
 
 func registerGlyphFallbacks(s tcell.Screen) {
-	ascii, nerd := glyphsFor(GlyphsASCII), glyphsFor(GlyphsNerd)
-	pairs := [][2]string{
-		{nerd.cloud, ascii.cloud}, {nerd.key, ascii.key},
-		{nerd.quiet, ascii.quiet}, {nerd.speaking, ascii.speaking},
+	ascii := glyphsFor(GlyphsASCII)
+	var pairs [][2]string
+	for _, set := range []glyphSet{glyphsFor(GlyphsNerd), glyphsFor(GlyphsSafe)} {
+		pairs = append(pairs, [2]string{set.cloud, ascii.cloud}, [2]string{set.key, ascii.key},
+			[2]string{set.quiet, ascii.quiet}, [2]string{set.speaking, ascii.speaking})
 	}
 	for _, p := range pairs {
 		for _, r := range p[0] {
