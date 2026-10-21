@@ -62,19 +62,29 @@
 
 ' ── THE SIMULATION ─────────────────────────────────────────────────────────
 ' Deterministic from a fixed seed, so a test paints the same sky as a
-' run at the same tick. Each bird steers by separation, alignment and
-' cohesion over neighbours inside a perception radius, with a boundary
-' pull inside the margin, an acceleration cap (the turn limit that
-' keeps fronts curved rather than snapping) and a speed band. The bird
-' count scales with width and is capped, keeping the neighbour scan
-' cheap at 60Hz. Positions live in dot space, not cells, so
-' motion is smooth at sub-cell resolution and only the packing quantises.
+' run at the same tick. Each bird holds a heading and a speed. Separation,
+' alignment and cohesion over neighbours inside the perception radius,
+' plus the boundary pull, name a desired heading. The bird turns toward
+' it by at most flockTurn radians per strip frame, scaled by flockStep,
+' then steps along the heading. The edge banks that heading inward.
+' It does not reverse a velocity component. The margin is 3 dots so the
+' 16-dot sky has an interior. Speed stays in the band. The bird count
+' scales with width and is capped, keeping the neighbour scan cheap at
+' 60Hz. Positions live in dot space, not cells.
+'
+' ── THE BODY ───────────────────────────────────────────────────────────────
+' A bird is five dots: nose, two wings, body, tail, the east chevron
+' rotated through eight headings (flockBody). Eight is the resolution
+' at which this grid changes shape. Finer bins repeat a stamp. The anchor
+' is the bird's dot, and a dot that falls outside the grid is skipped.
+' GlyphsNerd and GlyphsSafe OR those dots into the braille cell. ASCII
+' still collapses a lit cell to '.' or '*'.
 
 title An ambient flock for the choice prompt, ported from cbirds
 
 component "cbirds\nC99 · MIT · own VT layer\nno library API" as CBIRDS <<cloud>>
-component "internal/choiceui flockSim\nboids in dot space\ndeterministic seed" as SIM <<app>>
-component "braille packing\n2x4 dots per cell\nU+2800 + dot bits" as PACK <<app>>
+component "internal/choiceui flockSim\nheading, turn limit\ndeterministic seed" as SIM <<app>>
+component "braille packing\n5-dot body, 8 headings\nU+2800 + dot bits" as PACK <<app>>
 component "layout drop ladder\nflock takes the banner's place\nsix rows, tagline kept" as LADDER <<app>>
 component "Form.Flock opt-in\nrun form only" as FORM <<app>>
 component "flock clock\n60Hz post, one interrupt queued\nstrip frame stays 120ms" as TICK <<async>>
@@ -103,7 +113,8 @@ note right of SIM
 end note
 
 note bottom of PACK
-  **Braille is legal here.** U+2800 carries
+  **A nose, not a speck.** Eight headings
+  of a five-dot chevron. U+2800 carries
   no emoji presentation and measures one
   column. ASCII tiers get '.' and '*';
   the Off tier gets no region at all.

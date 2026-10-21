@@ -77,8 +77,8 @@ func TestFlockStaysInBoundsAtBandSpeed(t *testing.T) {
 		if b.x < 0 || b.x > float64(s.dotsW-1) || b.y < 0 || b.y > float64(s.dotsH-1) {
 			t.Errorf("bird %d out of bounds at (%v,%v) in %dx%d", i, b.x, b.y, s.dotsW, s.dotsH)
 		}
-		if v := math.Hypot(b.vx, b.vy); v < flockMinSpeed-1e-9 || v > flockMaxSpeed+1e-9 {
-			t.Errorf("bird %d speed %v outside [%v,%v]", i, v, flockMinSpeed, flockMaxSpeed)
+		if b.speed < flockMinSpeed-1e-9 || b.speed > flockMaxSpeed+1e-9 {
+			t.Errorf("bird %d speed %v outside [%v,%v]", i, b.speed, flockMinSpeed, flockMaxSpeed)
 		}
 	}
 }
@@ -132,6 +132,70 @@ func TestFlockFrameIsSixtyHertz(t *testing.T) {
 	if math.Abs(got-want) > 0.02 {
 		t.Fatalf("60 flock steps cover %v strip frames, want %v", got, want)
 	}
+}
+
+func TestFlockEightFacings(t *testing.T) {
+	t.Parallel()
+	seen := map[string]bool{}
+	for bin := 0; bin < flockFacings; bin++ {
+		s := newFlockSim(72)
+		s.birds = []bird{{x: 40, y: 8, heading: float64(bin) * math.Pi / 4, speed: flockMinSpeed}}
+		sky := strings.Join(s.frame(GlyphsNerd), "\n")
+		if seen[sky] {
+			t.Errorf("facing %d repeats an earlier stamp", bin)
+		}
+		seen[sky] = true
+		if n := flockDots(s.frame(GlyphsNerd)); n != 5 {
+			t.Errorf("facing %d lights %d dots, want 5", bin, n)
+		}
+	}
+}
+
+func TestFlockEdgeBanksTheHeading(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(40)
+	s.birds = []bird{{x: 1, y: 8, heading: math.Pi, speed: flockMinSpeed}}
+	before := s.birds[0].heading
+	s.step()
+	turned := flockAngleBetween(before, s.birds[0].heading)
+	limit := flockTurn * flockStep
+	if turned > limit+1e-9 {
+		t.Errorf("turned %v, limit %v", turned, limit)
+	}
+	if turned < 1e-6 {
+		t.Error("the edge left the heading unchanged")
+	}
+	if flockAngleBetween(s.birds[0].heading, 0) < math.Pi/2 {
+		t.Error("the heading snapped inward")
+	}
+}
+
+func flockDots(rows []string) int {
+	n := 0
+	for _, row := range rows {
+		for _, r := range row {
+			if r <= 0x2800 || r > 0x28FF {
+				continue
+			}
+			for m := uint(r - 0x2800); m > 0; m >>= 1 {
+				n += int(m & 1)
+			}
+		}
+	}
+	return n
+}
+
+func flockAngleBetween(a, b float64) float64 {
+	d := math.Mod(b-a, 2*math.Pi)
+	if d > math.Pi {
+		d -= 2 * math.Pi
+	} else if d < -math.Pi {
+		d += 2 * math.Pi
+	}
+	if d < 0 {
+		return -d
+	}
+	return d
 }
 
 func TestFlockTiers(t *testing.T) {

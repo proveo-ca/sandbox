@@ -17,14 +17,15 @@ const (
 	flockSeed       = 0xcb17d5
 	flockPerception = 16.0
 	flockSeparation = 5.0
-	flockMargin     = 8.0
+	flockMargin     = 3.0
 	flockMinSpeed   = 0.55
 	flockMaxSpeed   = 1.05
-	flockMaxAccel   = 0.06
+	flockTurn       = 0.4 // radians per strip frame, scaled by flockStep
 	flockMaxDelta   = int(5 * animFrame / flockFrame)
+	flockFacings    = 8
 )
 
-type bird struct{ x, y, vx, vy float64 }
+type bird struct{ x, y, heading, speed float64 }
 
 type flockSim struct {
 	birds    []bird
@@ -72,10 +73,10 @@ func (s *flockSim) resize(cols int) {
 	for i := range s.birds {
 		a := s.next() * 2 * math.Pi
 		s.birds[i] = bird{
-			x:  s.next() * float64(w),
-			y:  s.next() * float64(h),
-			vx: math.Cos(a) * flockMinSpeed,
-			vy: math.Sin(a) * flockMinSpeed,
+			x:       s.next() * float64(w),
+			y:       s.next() * float64(h),
+			heading: a,
+			speed:   flockMinSpeed,
 		}
 	}
 }
@@ -111,7 +112,8 @@ func (s *flockSim) step() {
 				continue
 			}
 			n++
-			avx, avy = avx+prev[j].vx, avy+prev[j].vy
+			avx += math.Cos(prev[j].heading)
+			avy += math.Sin(prev[j].heading)
 			cx, cy = cx+prev[j].x, cy+prev[j].y
 			if d2 < flockSeparation*flockSeparation && d2 > 0.001 {
 				sx, sy = sx-dx/d2, sy-dy/d2
@@ -120,54 +122,79 @@ func (s *flockSim) step() {
 		ax, ay := sx*0.08, sy*0.08
 		if n > 0 {
 			fn := float64(n)
-			ax += (avx/fn - b.vx) * 0.04
-			ay += (avy/fn - b.vy) * 0.04
+			ax += (avx/fn - math.Cos(b.heading)) * 0.04
+			ay += (avy/fn - math.Sin(b.heading)) * 0.04
 			ax += (cx/fn - b.x) * 0.005
 			ay += (cy/fn - b.y) * 0.005
 		}
 		ax += flockBoundary(b.x, float64(s.dotsW))
 		ay += flockBoundary(b.y, float64(s.dotsH))
-		if m := math.Hypot(ax, ay); m > flockMaxAccel {
-			ax, ay = ax/m*flockMaxAccel, ay/m*flockMaxAccel
+		desired := b.heading
+		if math.Hypot(ax, ay) > 1e-9 {
+			desired = math.Atan2(ay, ax)
 		}
-		b.vx, b.vy = flockSpeed(b.vx+ax*flockStep, b.vy+ay*flockStep)
-		b.x, b.y = b.x+b.vx*flockStep, b.y+b.vy*flockStep
+		b.heading = flockTurnTowards(b.heading, desired, flockTurn*flockStep)
+		b.x += math.Cos(b.heading) * b.speed * flockStep
+		b.y += math.Sin(b.heading) * b.speed * flockStep
 		if b.x < 0 {
-			b.x, b.vx = 0, math.Abs(b.vx)
+			b.x = 0
 		}
 		if b.x > float64(s.dotsW-1) {
-			b.x, b.vx = float64(s.dotsW-1), -math.Abs(b.vx)
+			b.x = float64(s.dotsW - 1)
 		}
 		if b.y < 0 {
-			b.y, b.vy = 0, math.Abs(b.vy)
+			b.y = 0
 		}
 		if b.y > float64(s.dotsH-1) {
-			b.y, b.vy = float64(s.dotsH-1), -math.Abs(b.vy)
+			b.y = float64(s.dotsH - 1)
 		}
 	}
+}
+
+func flockTurnTowards(from, to, limit float64) float64 {
+	d := math.Mod(to-from, 2*math.Pi)
+	if d > math.Pi {
+		d -= 2 * math.Pi
+	} else if d < -math.Pi {
+		d += 2 * math.Pi
+	}
+	if d > limit {
+		d = limit
+	} else if d < -limit {
+		d = -limit
+	}
+	return from + d
 }
 
 func flockBoundary(pos, size float64) float64 {
 	switch {
 	case pos < flockMargin:
-		return (flockMargin - pos) * 0.02
+		return (flockMargin - pos) / flockMargin
 	case pos > size-flockMargin:
-		return (size - flockMargin - pos) * 0.02
+		return (size - flockMargin - pos) / flockMargin
 	}
 	return 0
 }
 
-func flockSpeed(vx, vy float64) (float64, float64) {
-	m := math.Hypot(vx, vy)
-	switch {
-	case m > flockMaxSpeed:
-		return vx / m * flockMaxSpeed, vy / m * flockMaxSpeed
-	case m < flockMinSpeed && m > 0:
-		return vx / m * flockMinSpeed, vy / m * flockMinSpeed
-	case m == 0:
-		return flockMinSpeed, 0
+// flockBody is the east-facing chevron rotated through eight headings.
+// Offsets are nose, two wings, body, tail.
+var flockBody = [flockFacings][5][2]int{
+	{{2, 0}, {1, 1}, {1, -1}, {0, 0}, {-1, 0}},
+	{{1, 1}, {0, 1}, {1, 0}, {0, 0}, {-1, -1}},
+	{{0, 2}, {-1, 1}, {1, 1}, {0, 0}, {0, -1}},
+	{{-1, 1}, {-1, 0}, {0, 1}, {0, 0}, {1, -1}},
+	{{-2, 0}, {-1, -1}, {-1, 1}, {0, 0}, {1, 0}},
+	{{-1, -1}, {0, -1}, {-1, 0}, {0, 0}, {1, 1}},
+	{{0, -2}, {1, -1}, {-1, -1}, {0, 0}, {0, 1}},
+	{{1, -1}, {1, 0}, {0, -1}, {0, 0}, {-1, 1}},
+}
+
+func flockBin(heading float64) int {
+	a := math.Mod(heading, 2*math.Pi)
+	if a < 0 {
+		a += 2 * math.Pi
 	}
-	return vx, vy
+	return int(math.Floor((a+math.Pi/8)/(math.Pi/4))) % flockFacings
 }
 
 var flockBrailleBits = [2][4]uint8{{1, 2, 4, 64}, {8, 16, 32, 128}}
@@ -181,13 +208,16 @@ func (s *flockSim) frame(tier GlyphTier) []string {
 	masks := make([]uint8, cols*flockRows)
 	counts := make([]uint8, cols*flockRows)
 	for _, b := range s.birds {
-		dx, dy := int(b.x), int(b.y)
-		if dx < 0 || dy < 0 || dx >= s.dotsW || dy >= s.dotsH {
-			continue
+		ax, ay := int(b.x), int(b.y)
+		for _, off := range flockBody[flockBin(b.heading)] {
+			dx, dy := ax+off[0], ay+off[1]
+			if dx < 0 || dy < 0 || dx >= s.dotsW || dy >= s.dotsH {
+				continue
+			}
+			i := (dy/4)*cols + dx/2
+			masks[i] |= flockBrailleBits[dx%2][dy%4]
+			counts[i]++
 		}
-		i := (dy/4)*cols + dx/2
-		masks[i] |= flockBrailleBits[dx%2][dy%4]
-		counts[i]++
 	}
 	out := make([]string, flockRows)
 	for row := 0; row < flockRows; row++ {
