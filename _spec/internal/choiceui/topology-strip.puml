@@ -278,13 +278,13 @@ skinparam noteTextAlignment left
 ' ── NO API KEY, NO KEY GLYPH (2026-09-27) ──────────────────────────────────
 ' The key is drawn only while the model row answers "API keys". Any other answer
 ' — subscription, or a local model — sets KeyNone: no glyph anywhere, the caption
-' says "no API key is in play", and the square names the model instead:
-' `sbx · <harness> + <model>`, model short (qwen3.8 · glimmer · plan, or the tag).
-' The box is `boxW` = 30 inner columns (was 26; hop and lanes are laid out from
-' it), and SquareMax = boxW - 4 = 26 is the widest square drawn whole —
-' `sbx · claudecode + qwen3.8` is exactly 26. squareWith trims ONLY the model,
-' ending in "…", so the harness is never the part that is cut. The pane is now
-' 66 columns (was 62), so it needs 4 more terminal columns before it docks.
+' says "no API key is in play". A local model leaves the square as
+' `sbx · <harness>` and stands beside the host on two rows: `<host> + Ollama`,
+' then the selection (Qwen 3.8, Glimmer, or the tag). The OS row yields while
+' that model is shown. hostPad widens the host column so the Ollama line fits,
+' and the figure's floor grows with it. plan still joins the square
+' (`sbx · <harness> + plan`); squareWith trims ONLY that suffix, ending in "…".
+' The box is `boxW` = 30 inner columns. SquareMax = boxW - 4 = 26.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's
@@ -326,10 +326,10 @@ skinparam noteTextAlignment left
 ' where a run is one rule wide, the mote IS the lane for that frame.
 '
 ' ── THE BUDGET'S EXACT ARITHMETIC ──────────────────────────────────────────
-' Five rows and 72 columns are the strip's fixed geometry. Five because a
-' figure clipped mid-body is worse than one that is absent; 72 because that is
-' already the width the add-on divider centres on, so carrying the strip gives
-' the form no new minimum width.
+' Five rows and stripCols columns are the strip's fixed geometry. Five because a
+' figure clipped mid-body is worse than one that is absent. The floor was 72,
+' the width the add-on divider centres on; hostPad added the columns the host
+' name needs once it also carries " + Ollama".
 '
 ' THE PROMISE IS DELIBERATELY NARROW. draw() has always painted straight down
 ' and tcell has always discarded the overflow, so a terminal shorter than the

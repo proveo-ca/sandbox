@@ -15,6 +15,7 @@ import (
 type Frame struct {
 	Host      string
 	HostOS    string
+	HostModel string // a local model under the host name; this row replaces HostOS
 	Square    string // inside the box: "sbx · claudecode", or a bare target with no daemon
 	Hop       string // "sbx proxy", "mitm + squid"; empty means there is no hop
 	Interface string // the interface dot's label
@@ -126,17 +127,20 @@ type topoCols struct {
 // boxW is the container's inner width; everything right of the box is laid out from it.
 const boxW = 30
 
+// hostPad widens the host column so "<name> + Ollama" fits before the box.
+const hostPad = 12
+
 // SquareMax is the widest Frame.Square the box shows whole: walls, padding and the speaking dot take 4.
 const SquareMax = boxW - 4
 
 var blockCols = topoCols{
-	host: 2, box: 13, boxW: boxW, hop: 13 + boxW + 7, lanes: 13 + boxW + 18,
+	host: 2, box: 13 + hostPad, boxW: boxW, hop: 13 + hostPad + boxW + 7, lanes: 13 + hostPad + boxW + 18,
 	width: stripCols, runLen: 3, asksLabel: true,
 }
 
 var paneCols = topoCols{
-	host: 1, box: 11, boxW: boxW, hop: 11 + boxW + 7, lanes: 11 + boxW + 18,
-	width: 11 + boxW + 25, runLen: 1, headCaption: true,
+	host: 1, box: 11 + hostPad, boxW: boxW, hop: 11 + hostPad + boxW + 7, lanes: 11 + hostPad + boxW + 18,
+	width: 11 + hostPad + boxW + 25, runLen: 1, headCaption: true,
 }
 
 const (
@@ -241,6 +245,10 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 
 	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
 	at(3, colHost, x0, on(FocusNone), fit(fr.Host, boxL-x0-1))
+	under, underStyle := fr.HostOS, p.aside
+	if fr.HostModel != "" {
+		under, underStyle = fr.HostModel, on(FocusNone)
+	}
 	if fr.Hop != "" {
 		key := keyIf(g, fr, KeyAtHop)
 		label := fit(fr.Hop, colLanes-boxR-3)
@@ -258,7 +266,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		}
 	}
 
-	at(4, colHost, x0, p.aside, fit(fr.HostOS, boxL-x0-1))
+	at(4, colHost, x0, underStyle, fit(under, boxL-x0-1))
 	floor := newPen(s, boxL, y0+4).write(on(FocusSquare), g.cornerBL)
 	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxMid-boxL-1)+g.tee)
 	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxR-boxMid-1)+g.cornerBR)

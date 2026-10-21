@@ -15,7 +15,16 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		tier := egressTier(f, cursor, "")
 		creds := rowChoice(f, cursor, "credentials", credsDefault)
 		lane, open, refused := lanesOf(tier)
-		model := modelShort(f.Selection(rowModel))
+		option := f.Selection(rowModel)
+		model := modelShort(option)
+		host, hostModel := hostAccount(), ""
+		square := squareOf(target)
+		if name, ok := localBesideHost(option); ok {
+			host += " + Ollama"
+			hostModel = name
+		} else {
+			square = squareWith(square, model)
+		}
 		key := choiceui.KeyAtHop
 		if creds == "forward" {
 			key = choiceui.KeyInSquare
@@ -24,9 +33,10 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			key = choiceui.KeyNone
 		}
 		fr := choiceui.Frame{
-			Host:      hostAccount(),
+			Host:      host,
 			HostOS:    "(" + hostPlatform() + ")",
-			Square:    squareWith(squareOf(target), model),
+			HostModel: hostModel,
+			Square:    square,
 			Hop:       "sbx proxy",
 			Interface: interfaceOf(f),
 			Key:       key,

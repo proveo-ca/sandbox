@@ -248,17 +248,24 @@ func modelForm(model string) *choiceui.Form {
 func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		option, square string
-		key            choiceui.KeyHome
+		option, square, hostModel string
+		key                       choiceui.KeyHome
 	}{
-		{modelAPIKeys, "sbx · hermes", choiceui.KeyAtHop},
-		{credentials.AuthSubscription, "sbx · hermes + plan", choiceui.KeyNone},
-		{localModels[0].label(), "sbx · hermes + qwen3.8", choiceui.KeyNone},
-		{localModels[1].label(), "sbx · hermes + glimmer", choiceui.KeyNone},
+		{modelAPIKeys, "sbx · hermes", "", choiceui.KeyAtHop},
+		{credentials.AuthSubscription, "sbx · hermes + plan", "", choiceui.KeyNone},
+		{localModels[0].label(), "sbx · hermes", "Qwen 3.8", choiceui.KeyNone},
+		{localModels[1].label(), "sbx · hermes", "Glimmer", choiceui.KeyNone},
 	} {
 		fr := topologyOf("hermes", "broker")(modelForm(c.option), 0)
-		if fr.Key != c.key || fr.Square != c.square {
-			t.Errorf("%q: key=%v square=%q, want key=%v square=%q", c.option, fr.Key, fr.Square, c.key, c.square)
+		if fr.Key != c.key || fr.Square != c.square || fr.HostModel != c.hostModel {
+			t.Errorf("%q: key=%v square=%q model=%q, want key=%v square=%q model=%q",
+				c.option, fr.Key, fr.Square, fr.HostModel, c.key, c.square, c.hostModel)
+		}
+		if c.hostModel != "" && !strings.HasSuffix(fr.Host, " + Ollama") {
+			t.Errorf("%q: host = %q, want the account plus Ollama", c.option, fr.Host)
+		}
+		if c.hostModel == "" && strings.Contains(fr.Host, "Ollama") {
+			t.Errorf("%q: host = %q names Ollama without a local model", c.option, fr.Host)
 		}
 		if c.key == choiceui.KeyNone && !strings.Contains(fr.Caption, "no API key") {
 			t.Errorf("%q: caption %q must say no API key is in play", c.option, fr.Caption)

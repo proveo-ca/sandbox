@@ -319,6 +319,19 @@ func (p *Params) applySource(v string, hasAuth bool) {
 	}
 }
 
+// localBesideHost is the name drawn under the host when option is a local model.
+func localBesideHost(option string) (string, bool) {
+	if option == "" || !isLocalOption(option) {
+		return "", false
+	}
+	for _, m := range localModels {
+		if m.label() == option {
+			return m.label(), true
+		}
+	}
+	return option, true
+}
+
 // modelShort is what the topology box prints for a model-row answer; "" for API keys.
 func modelShort(option string) string {
 	switch option {

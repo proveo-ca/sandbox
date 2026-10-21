@@ -526,6 +526,28 @@ func TestNoOpenLaneMeansNoTraffic(t *testing.T) {
 	}
 }
 
+func TestALocalModelSitsBesideTheHostOnTwoRows(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Host = "pluvo + Ollama"
+	fr.HostModel = "Qwen 3.8"
+	fr.Key = KeyNone
+	rows := paint(t, fr, GlyphsASCII, 0)
+	joined := strings.Join(rows, "\n")
+	if !strings.Contains(rows[3], "pluvo + Ollama") {
+		t.Errorf("the host row clipped Ollama:\n%s", joined)
+	}
+	if !strings.Contains(rows[4], "Qwen 3.8") {
+		t.Errorf("the model row is missing:\n%s", joined)
+	}
+	if strings.Contains(rows[4], "(macOS)") {
+		t.Errorf("the OS stayed on the model row:\n%s", joined)
+	}
+	if strings.Contains(rows[2], "Qwen") {
+		t.Errorf("the model landed in the agent box:\n%s", joined)
+	}
+}
+
 func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {
 	t.Parallel()
 	fr := base()

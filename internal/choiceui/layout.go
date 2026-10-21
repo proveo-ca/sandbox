@@ -3,7 +3,7 @@ package choiceui
 
 const (
 	stripRows  = figureRows + 1 // the figure, plus a blank separating it from the help
-	stripCols  = 72             // the narrowest terminal the figure is drawn on
+	stripCols  = 72 + hostPad   // the narrowest terminal the figure is drawn on
 	digestRows = 2              // one blank, the caption alone
 )
 
