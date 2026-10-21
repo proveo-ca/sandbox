@@ -37,7 +37,7 @@ title The four fidelities of one figure, and how each was measured
 {^"The height already runs out. draw() falls straight down and tcell drops the rest in silence."
 {#
   region | rows | A · fit-or-omit | B · scrolling rows | C · responsive panes
-  banner + blank | 8 | **dropped 1st** | dropped 1st | dropped 1st
+  banner + blanks | 9 | **dropped 1st** | dropped 1st | dropped 1st
   the run title + blank | 2 | kept | kept | kept
   the env header + blank | 8 | dropped 3rd | dropped 3rd | dropped 3rd
   riskier/safer legend | 2 | dropped 4th | dropped 4th | dropped 4th
@@ -45,10 +45,10 @@ title The four fidelities of one figure, and how each was measured
   the hint + blank | 2 | never dropped | pinned foot | pinned foot
   help slot, reserved | 5 | never dropped | pinned foot | pinned foot
   **topology strip** | **5** | **dropped 2nd** | **dropped 2nd** | **moves, then shrinks, then drops**
-  **total** | **43-44** | . | . | .
+  **total** | **44-45** | . | . | .
 }
   .
-  Today the form is 38-39 rows before the strip and 43-44 after it — the auth row
+  Today the form is 39-40 rows before the strip and 44-45 after it — the auth row
   exists only when a harness offers more than one auth var. A 24-row terminal is
   short by about 20 and says nothing: the paint runs past the last row and tcell
   discards the overflow, so the hint and the help the operator is meant to read

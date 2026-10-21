@@ -101,7 +101,7 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 			room = false // the figure did not fit, so nothing below it may
 		}
 	}
-	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+1)
+	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+2)
 
 	lay.body = lines
 	if deficit := need - h; deficit > 0 {

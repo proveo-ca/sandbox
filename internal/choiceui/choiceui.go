@@ -438,8 +438,13 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	c := newCanvas(s)
 
 	if lay.banner {
-		for _, b := range f.Banner {
-			c.put(0, p.brand, b)
+		c.y++
+		if n := len(f.Banner); n > 0 {
+			for _, b := range f.Banner[:n-1] {
+				c.put(0, p.brand, b)
+				c.y++
+			}
+			c.put(0, p.body, f.Banner[n-1])
 			c.y++
 		}
 		c.y++

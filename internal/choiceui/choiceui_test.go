@@ -55,8 +55,61 @@ func TestBannerRendersOnTop(t *testing.T) {
 	if !strings.Contains(got, ui.BrandTagline) {
 		t.Error("the brand tagline must render with the banner")
 	}
+	assertHelpHeader(t, f)
 	if !strings.Contains(joined(t, f), "run opencode") {
 		t.Error("title must render below the banner")
+	}
+}
+
+func assertHelpHeader(t *testing.T, f *Form) {
+	t.Helper()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 40)
+	f.draw(s, f.firstSelectable(), 0)
+
+	brand := tcell.NewHexColor(int32(ui.ColorBrand))
+	body := tcell.NewHexColor(int32(ui.ColorSecondary))
+	box := strings.Split(ui.BrandBanner, "\n")
+	for x := 0; x < 80; x++ {
+		if r, _, _, _ := s.GetContent(x, 0); r != ' ' && r != 0 {
+			t.Fatalf("row 0 col %d is %q, help opens with a blank line", x, string(r))
+		}
+	}
+	for i, line := range box {
+		assertBannerLine(t, s, i+1, line, brand, true)
+	}
+	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, body, false)
+	for x := 0; x < 80; x++ {
+		if r, _, _, _ := s.GetContent(x, len(box)+2); r != ' ' && r != 0 {
+			t.Fatalf("row %d col %d is %q, help closes the header with a blank line", len(box)+2, x, string(r))
+		}
+	}
+}
+
+func assertBannerLine(t *testing.T, s tcell.Screen, y int, line string, fg tcell.Color, bold bool) {
+	t.Helper()
+	x := 0
+	for _, r := range line {
+		got, _, style, _ := s.GetContent(x, y)
+		if got != r {
+			t.Errorf("row %d col %d = %q, want %q", y, x, string(got), string(r))
+		}
+		gfg, _, attrs := style.Decompose()
+		if gfg != fg {
+			t.Errorf("row %d col %d color %v, want %v", y, x, gfg, fg)
+		}
+		if gotBold := attrs&tcell.AttrBold != 0; gotBold != bold {
+			t.Errorf("row %d col %d bold=%v, want %v", y, x, gotBold, bold)
+		}
+		w := runeCols(r)
+		if w < 1 {
+			w = 1
+		}
+		x += w
 	}
 }
 
