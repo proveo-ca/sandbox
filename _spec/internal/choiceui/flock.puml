@@ -37,21 +37,20 @@
 ' floor, and the hint stays pinned above both.
 
 ' ── TWO CLOCKS, THREE TIERS ────────────────────────────────────────────────
-' cbirds repeats the simulation sixty times a second (FRAME_RATE in
-' boids.c). The strip stays on animFrame, 120ms, so a mote still walks
-' one cell per strip frame. A form with Form.Flock posts at flockFrame
-' (time.Second/60) instead. flockTick is that count. The strip's frame()
-' is still time.Since/animFrame, so the faster poster does not speed
-' the motes. The event queue is ten deep and shared with keystrokes, so
-' the poster keeps a single interrupt queued: frame() drops the latch
-' when the loop reads the clock, and a tick that arrives while one is
-' unread is dropped. The clock is read at draw time, so a dropped post
-' loses no sky. flockSim advances by the delta since its last flock
-' frame, capped at five strip frames (flockMaxDelta) so a stalled
-' terminal does not fast-forward on wake. Each step integrates the
-' gains that were tuned at 120ms, scaled by flockStep, so a bird covers
-' the same dots per second and the braille picture changes on most of
-' the sixty paints. GlyphsNerd and GlyphsSafe pack cells
+' The braille clip in cbirds is 80 by 22 cells at 33 frames a second
+' (docs/README.md, docs/braille.gif). This strip keeps four rows. Its
+' width caps at flockCols (80). The strip clock stays on animFrame,
+' 120ms, so a mote still walks one cell per strip frame. A form with
+' Form.Flock posts at flockFrame (time.Second/30), near that clip.
+' flockTick is that count. The strip's frame() is still
+' time.Since/animFrame, so the faster poster does not speed the motes.
+' The event queue is ten deep and shared with keystrokes, so the poster
+' keeps a single interrupt queued. release() drops the latch after the
+' paint, not before it, so a tick that lands during the draw waits for
+' the next gap instead of bunching two paints. flockMaxDelta is 1: a
+' late paint takes one step and drops the missed ones, so the birds do
+' not hop. Each step scales the 120ms gains by flockStep. GlyphsNerd
+' and GlyphsSafe pack cells
 ' as braille: two by four dots per cell, rune U+2800 plus the dot
 ' bits, which the glyph ban in tui-design-language leaves legal.
 ' Braille carries no emoji
@@ -69,25 +68,31 @@
 ' then steps along the heading. The edge banks that heading inward.
 ' It does not reverse a velocity component. The margin is 3 dots so the
 ' 16-dot sky has an interior. Speed stays in the band. The bird count
-' scales with width and is capped, keeping the neighbour scan cheap at
-' 60Hz. Positions live in dot space, not cells.
+' scales with width and is capped. Positions live in dot space.
+' One hawk flies at the top of the speed band and steers toward the
+' nearest bird. A bird inside flockFlee dots adds a push away from the
+' hawk, so the flock parts. The hawk is drawn in the warn style. Birds
+' stay in the accent style. A cell that holds both takes the hawk's
+' style. ASCII still collapses either to '.' or '*'.
 '
 ' ── THE BODY ───────────────────────────────────────────────────────────────
 ' A bird is five dots: nose, two wings, body, tail, the east chevron
-' rotated through eight headings (flockBody). Eight is the resolution
-' at which this grid changes shape. Finer bins repeat a stamp. The anchor
-' is the bird's dot, and a dot that falls outside the grid is skipped.
-' GlyphsNerd and GlyphsSafe OR those dots into the braille cell. ASCII
-' still collapses a lit cell to '.' or '*'.
+' rotated through eight headings (flockBody). The hawk uses the same
+' chevron at flockHawkScale. The anchor keeps the fractional part of
+' the position, and a dot lights when a sample falls within
+' flockDotRadius, so a move of a fraction of a dot changes the stamp
+' before the anchor crosses an integer. A dot outside the grid is
+' skipped. GlyphsNerd and GlyphsSafe OR those dots into the braille
+' cell.
 
 title An ambient flock for the choice prompt, ported from cbirds
 
 component "cbirds\nC99 · MIT · own VT layer\nno library API" as CBIRDS <<cloud>>
 component "internal/choiceui flockSim\nheading, turn limit\ndeterministic seed" as SIM <<app>>
-component "braille packing\n5-dot body, 8 headings\nU+2800 + dot bits" as PACK <<app>>
+component "braille packing\n5-dot body, hawk at 2x\nU+2800 + dot bits" as PACK <<app>>
 component "layout drop ladder\nflock takes the banner's place\nsix rows, tagline kept" as LADDER <<app>>
 component "Form.Flock opt-in\nrun form only" as FORM <<app>>
-component "flock clock\n60Hz post, one interrupt queued\nstrip frame stays 120ms" as TICK <<async>>
+component "flock clock\n30fps, one step per paint\nstrip frame stays 120ms" as TICK <<async>>
 database "tcell screen\nthe screen proveo owns\nuntil the prompt closes" as TERM <<db>>
 
 CBIRDS ARROW_OPTIONAL SIM : technique only — boids + packing

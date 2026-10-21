@@ -79,7 +79,7 @@ skinparam noteTextAlignment left
 ' up, in exchange for motion that does not decay to a still picture. animFrame
 ' stays 120ms — ~8 fps is motion rather than a strobe — so the cost is bounded
 ' and known rather than merely unmeasured. A form with a flock posts at
-' flockFrame (1/60s, the cbirds rate) instead. frame() stays on animFrame, so
+' flockFrame (1/30s, near the braille clip) instead. frame() stays on animFrame, so
 ' a mote still advances one cell per 120ms. The poster keeps one interrupt
 ' queued: the event queue is ten deep and shared with keystrokes, and the
 ' clock is read at draw time, so a second interrupt while one is unread
@@ -397,7 +397,7 @@ node "internal/choiceui" as PKG <<host>> {
 component "draw(screen, cursor)\nexisting paint, now budget-aware" as DRAW <<app>>
 component "Run()\nexisting event loop" as RUN <<app>>
 component "Rows\negress · credentials · auth\nexecution · interface · outputs" as ROWS <<app>>
-queue "animTicker\n120ms, or 60Hz while a flock is up\none interrupt queued" as TICK <<async>>
+queue "animTicker\n120ms, or 30fps while a flock is up\none interrupt queued" as TICK <<async>>
 component "Operator terminal\nw x h, resized at will" as TTY <<host>>
 
 component "A figure that only decorates" as DECOR <<error>>
@@ -583,7 +583,7 @@ note top of TICK
   **""PollEvent"" blocks, so the clock has to be
   an event.** One queued interrupt is the tick
   that does not starve keystrokes: the queue is
-  ten deep, and a flock posts at 60Hz.
+  ten deep, and a flock posts at 30fps.
 end note
 
 note bottom of TICK
@@ -592,7 +592,7 @@ note bottom of TICK
   idle prompt cost nothing. Flow that halts is a
   picture of a FAILED network, so the window is
   gone: a redraw every 120ms while the form is up,
-  every 1/60s while a flock is.
+  every 1/30s while a flock is.
 end note
 
 note bottom of TICK

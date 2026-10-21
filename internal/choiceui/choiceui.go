@@ -209,6 +209,7 @@ func (f *Form) Run() (confirmed bool, err error) {
 	for {
 		f.flockTick = tick.flockTick()
 		f.draw(screen, cursor, tick.frame())
+		tick.release()
 		switch ev := screen.PollEvent().(type) {
 		case *tcell.EventResize:
 			screen.Sync()
@@ -448,10 +449,11 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	if lay.flock {
 		c.put(0, p.brand, clip(ui.BrandTagline, w))
 		c.y++
+		cols := flockSpan(w - 4)
 		if f.flock == nil {
-			f.flock = newFlockSim(w - 4)
+			f.flock = newFlockSim(cols)
 		}
-		drawFlock(s, c.y, w-4, f.flockTick, f.Glyphs, p.accent, f.flock)
+		drawFlock(s, c.y, cols, f.flockTick, f.Glyphs, p.accent, p.warn, f.flock)
 		c.y += flockRows + 1
 	} else if lay.banner {
 		for _, b := range f.Banner {

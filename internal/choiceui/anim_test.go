@@ -59,7 +59,7 @@ func TestFlockClockOutrunsTheStrip(t *testing.T) {
 	defer tk.stop()
 	time.Sleep(2 * animFrame)
 	sky, frame := tk.flockTick(), tk.frame()
-	if sky < frame*4 {
+	if sky < frame*2 {
 		t.Errorf("flock tick %d, strip frame %d", sky, frame)
 	}
 }
@@ -82,7 +82,7 @@ func TestTickerKeepsOneInterruptQueued(t *testing.T) {
 	if got != 1 {
 		t.Errorf("posted %d interrupts before the frame was read", got)
 	}
-	_ = tk.frame()
+	tk.release()
 	time.Sleep(3 * flockFrame)
 	mu.Lock()
 	got = posted

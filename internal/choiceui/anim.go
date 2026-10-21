@@ -11,7 +11,7 @@ import (
 
 const (
 	animFrame  = 120 * time.Millisecond // ~8 fps: motion, not a strobe
-	flockFrame = time.Second / 60
+	flockFrame = time.Second / 30
 	// flockStep is one flock frame measured in animFrame units.
 	flockStep = float64(flockFrame) / float64(animFrame)
 )
@@ -58,11 +58,14 @@ func (t *ticker) run(post func(tcell.Event) error) {
 	}
 }
 
-// frame advances for as long as the prompt is open.
-// Reading it releases the queued interrupt.
+// frame is the strip frame for as long as the prompt is open.
 func (t *ticker) frame() int {
-	t.pending.Store(false)
 	return int(time.Since(t.base)/animFrame) + 1
+}
+
+// release lets the next interrupt post. Call it after the paint.
+func (t *ticker) release() {
+	t.pending.Store(false)
 }
 
 // flockTick counts flock frames since the prompt opened.

@@ -73,7 +73,7 @@ func TestFlockStaysInBoundsAtBandSpeed(t *testing.T) {
 	for tick := 1; tick <= horizon; tick++ {
 		s.advance(tick)
 	}
-	for i, b := range s.birds {
+	for i, b := range append(append([]bird{}, s.birds...), s.hawk) {
 		if b.x < 0 || b.x > float64(s.dotsW-1) || b.y < 0 || b.y > float64(s.dotsH-1) {
 			t.Errorf("bird %d out of bounds at (%v,%v) in %dx%d", i, b.x, b.y, s.dotsW, s.dotsH)
 		}
@@ -122,15 +122,13 @@ func TestFlockPaintKeepsTheSixtyHertzBudget(t *testing.T) {
 	}
 }
 
-func TestFlockFrameIsSixtyHertz(t *testing.T) {
+func TestFlockFrameMatchesTheBrailleClip(t *testing.T) {
 	t.Parallel()
-	if time.Second/flockFrame != 60 {
-		t.Fatalf("flock frame %s, want 1/60s", flockFrame)
+	if time.Second/flockFrame != 30 {
+		t.Fatalf("flock frame %s, want 1/30s", flockFrame)
 	}
-	got := float64(60) * flockStep
-	want := float64(time.Second) / float64(animFrame)
-	if math.Abs(got-want) > 0.02 {
-		t.Fatalf("60 flock steps cover %v strip frames, want %v", got, want)
+	if flockMaxDelta != 1 {
+		t.Fatalf("catch-up is %d steps, want one step per paint", flockMaxDelta)
 	}
 }
 
@@ -139,6 +137,7 @@ func TestFlockEightFacings(t *testing.T) {
 	seen := map[string]bool{}
 	for bin := 0; bin < flockFacings; bin++ {
 		s := newFlockSim(72)
+		s.hawk.x, s.hawk.y = -30, -30
 		s.birds = []bird{{x: 40, y: 8, heading: float64(bin) * math.Pi / 4, speed: flockMinSpeed}}
 		sky := strings.Join(s.frame(GlyphsNerd), "\n")
 		if seen[sky] {
@@ -148,6 +147,76 @@ func TestFlockEightFacings(t *testing.T) {
 		if n := flockDots(s.frame(GlyphsNerd)); n != 5 {
 			t.Errorf("facing %d lights %d dots, want 5", bin, n)
 		}
+	}
+}
+
+func TestFlockBodySlidesBetweenDots(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(72)
+	s.hawk.x, s.hawk.y = -30, -30
+	s.birds = []bird{{x: 40, y: 8, heading: 0, speed: flockMinSpeed}}
+	before := strings.Join(s.frame(GlyphsNerd), "\n")
+	s.birds[0].x = 40.7
+	after := strings.Join(s.frame(GlyphsNerd), "\n")
+	if before == after {
+		t.Error("a fraction of a dot left the stamp unchanged")
+	}
+}
+
+func TestFlockPartsAroundTheHawk(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(40)
+	s.birds = []bird{{x: 20, y: 8, heading: 0, speed: flockMinSpeed}}
+	s.hawk = bird{x: 24, y: 8, heading: math.Pi, speed: flockMaxSpeed}
+	s.step()
+	if s.birds[0].heading <= 0 {
+		t.Errorf("heading %v still points at the hawk", s.birds[0].heading)
+	}
+	if flockAngleBetween(s.birds[0].heading, 0) > flockTurn*flockStep+1e-9 {
+		t.Errorf("turned %v, limit %v", s.birds[0].heading, flockTurn*flockStep)
+	}
+}
+
+func TestFlockStaysWithinEightyColumns(t *testing.T) {
+	t.Parallel()
+	f := budgetForm()
+	f.Flock = true
+	rows := renderAt(t, f, 0, 140, 60)
+	for y, row := range rows {
+		for x, r := range []rune(row) {
+			if r > 0x2800 && r <= 0x28FF && x >= 2+flockCols {
+				t.Errorf("braille at row %d col %d, past the 80-column flock", y, x)
+			}
+		}
+	}
+}
+
+func TestFlockHawkHasItsOwnColor(t *testing.T) {
+	t.Parallel()
+	f := budgetForm()
+	f.Flock = true
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 60)
+	f.flockTick = 1
+	f.draw(s, 0, 1)
+	colors := map[tcell.Color]bool{}
+	w, h := s.Size()
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r, _, style, _ := s.GetContent(x, y)
+			if r <= 0x2800 || r > 0x28FF {
+				continue
+			}
+			fg, _, _ := style.Decompose()
+			colors[fg] = true
+		}
+	}
+	if len(colors) < 2 {
+		t.Errorf("braille uses %d colors, want the flock and the hawk", len(colors))
 	}
 }
 
