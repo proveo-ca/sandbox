@@ -160,7 +160,7 @@ func captionOf(fr choiceui.Frame, tier, creds string) string {
 	case choiceui.KeyInSquare:
 		where = "the real key rides inside the container"
 	case choiceui.KeyAtHop:
-		where = "the key stops at the hop and never enters the container"
+		where = "the keys are only seen by the host and the cloud recipients, never the agent"
 	case choiceui.KeyNone:
 		where = "no API key is in play"
 	}

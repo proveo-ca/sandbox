@@ -33,8 +33,9 @@ skinparam noteTextAlignment left
 ' only sbx's baselines (allow-all → watched 3/0, balanced → screened 2/1,
 ' anything else → screened 1/2); Key is KeyAtHop, KeyInSquare when the
 ' credentials are forward (the value rides the sandbox env), and KeyNone when
-' the model row picks a local model (MEASURED at the last read; the code was
-' still moving). The docker tiers, the "mitm + squid" hop, the hop-less
+' the model row picks a local model. KeyAtHop's clause: the keys are only
+' seen by the host and the cloud recipients, never the agent.
+' The docker tiers, the "mitm + squid" hop, the hop-less
 ' open+forward frame and review's LaneAsked are no longer produced.
 ' internal/choiceui still draws LaneAsked and its tests still exercise it:
 ' geometry with no producer left (repo-simplification.puml N18 shape).

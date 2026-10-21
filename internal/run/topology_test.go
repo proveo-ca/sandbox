@@ -77,8 +77,8 @@ func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	if fr.Key != choiceui.KeyAtHop {
 		t.Errorf("with no row to read, the key still lives at the sbx proxy, got %v", fr.Key)
 	}
-	if !strings.Contains(fr.Caption, "the key stops at the hop") {
-		t.Errorf("the caption must say the proxy holds the key, got %q", fr.Caption)
+	if !strings.Contains(fr.Caption, "only seen by the host and the cloud recipients") {
+		t.Errorf("the caption must say who sees the key, got %q", fr.Caption)
 	}
 }
 
