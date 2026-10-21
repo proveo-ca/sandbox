@@ -121,6 +121,13 @@ func TestExecutionRowIsNamedOSUnderTheExecutionHeading(t *testing.T) {
 	}
 }
 
+func TestInterfaceRowIsNamedDevicesUnderTheInterfaceHeading(t *testing.T) {
+	t.Parallel()
+	if rowInterface != "devices" || addonHeading[rowInterface] != "interface" {
+		t.Errorf("interface row = {Label %q Heading %q}, want {devices interface}", rowInterface, addonHeading[rowInterface])
+	}
+}
+
 func TestRememberedPortsFollowThisRunsDiscovery(t *testing.T) {
 	t.Parallel()
 	saved := []agentsettings.Port{

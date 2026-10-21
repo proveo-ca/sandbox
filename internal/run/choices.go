@@ -512,7 +512,7 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 
 const (
 	rowExecution = "OS"
-	rowInterface = "interface"
+	rowInterface = "devices"
 	rowPorts     = "ports"
 	portsMore    = "...More"
 	rowApps      = "apps"
@@ -530,7 +530,7 @@ const (
 var addonRows = []string{rowExecution, rowInterface}
 
 // addonHeading names a divider whose group is not named for its row.
-var addonHeading = map[string]string{rowExecution: "execution"}
+var addonHeading = map[string]string{rowExecution: "execution", rowInterface: "interface"}
 
 func scanRoot(input, repoRoot string) string {
 	if input != "" {
@@ -608,7 +608,7 @@ func pinSequence(r choiceui.Row) choiceui.Row {
 	return r
 }
 
-const appsNeedAndroid = "needs [x] android under interface: the install goes to the emulator that add-on boots"
+const appsNeedAndroid = "needs [x] android under devices: the install goes to the emulator that add-on boots"
 
 // gateApps greys the apps row while android is unticked.
 func gateApps(f *choiceui.Form) {

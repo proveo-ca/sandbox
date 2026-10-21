@@ -108,7 +108,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     . | . | ———— execution ———— | . | .
     . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | . | .
     . | . | ———— interface ———— | . | .
-    . | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
+    devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
     outputs | ( ) filtered | (X) verbose | . | .
   }
   --
@@ -172,7 +172,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   because a half-highlighted row reads as one model mattering more than another.
 }
 {^"7 · described — the cursor's option explains itself, BELOW the hint"
-  interface | [X] <color:#9a9a9a>tui</color> | [X] browser | [ ] android | [ ] ios
+  devices | [X] <color:#9a9a9a>tui</color> | [X] browser | [ ] android | [ ] ios
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel | . | . | .
   <color:#00BAC6>› ios — an iOS Simulator on this host — coming soon</color> | . | . | .
   <color:#9a9a9a>off: coming soon — not built yet</color> | . | . | .
@@ -201,7 +201,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 }
 {^"8 · fixed — a box that states a fact"
   execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | .
-  interface | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
+  devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
   .
   Greyed, and left in the state it states. ""host"" is the alternative an operator
   might otherwise assume unticking the daemon selects — it never is, because
@@ -287,7 +287,9 @@ end legend
 @endsaltnote as PortsRow
   **2026-10-05: execution's row is "OS"; "ports" joins it.**
   The divider still reads ""execution""; its row label is
-  ""OS"" (host · sandbox). Under it, sbx only, a
+  ""OS"" (host · sandbox). The interface divider stays; its
+  row label is ""devices"" (tui · browser · android · ios).
+  Under OS, sbx only, a
   multi-select ""ports"" row offers each discovered dev
   port, all unticked. Past four, column 4 is ""...More""
   and a dropdown lists the rest.

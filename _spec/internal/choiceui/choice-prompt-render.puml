@@ -108,7 +108,7 @@ skinparam noteTextAlignment left
 ' `move` admits a locked row; `firstSelectable` still does not. The first thing
 ' the operator meets should be something they can answer. The run form says
 ' where that is instead of deriving it: StartRow/StartOption open the cursor
-' on the interface row, on browser — the first option the operator can
+' on the devices row, on browser — the first option the operator can
 ' actually change — because credentials has joined egress among the locked
 ' facts above it, hoverable to read and never to rewrite.
 '
@@ -188,7 +188,9 @@ skinparam noteTextAlignment left
 ' the thing the reserved help slot exists to hold still.
 '
 ' headingsInWindow is the set of rows whose divider heading is on screen. Only
-' those rows may drop their own label; every other row keeps it, because its
+' those rows drop their own label only when the heading is that label. A
+' declared Heading keeps the name: OS under execution, devices under
+' interface. Every other row keeps its label, because its
 ' label is the only place its name was ever going to appear. Built once per
 ' frame rather than rescanned per line: the body repaints at the ticker's rate.
 '
