@@ -176,6 +176,28 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 	}
 }
 
+func TestHoveringTheHostDropsTheSandbox(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: "egress", Options: []string{"allow-all"}, Selected: 0},
+		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Selected: 0, Multi: true},
+	}}
+	onHost := topologyOf("opencode", "broker")(f, 1)
+	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "" || onHost.Key != choiceui.KeyAtHost {
+		t.Errorf("hovering host: direct=%v square=%q hop=%q key=%v", onHost.Direct, onHost.Square, onHost.Hop, onHost.Key)
+	}
+	f.Rows[1].Selected = 1
+	onSandbox := topologyOf("opencode", "broker")(f, 1)
+	if onSandbox.Direct || onSandbox.Square != squareOf("opencode") || onSandbox.Hop != "sbx proxy" {
+		t.Errorf("hovering sandbox: direct=%v square=%q hop=%q", onSandbox.Direct, onSandbox.Square, onSandbox.Hop)
+	}
+	f.Rows[1].Selected = 0
+	away := topologyOf("opencode", "broker")(f, 0)
+	if away.Direct || away.Hop != "sbx proxy" || !strings.Contains(away.Square, "sbx") {
+		t.Errorf("cursor elsewhere: direct=%v square=%q hop=%q", away.Direct, away.Square, away.Hop)
+	}
+}
+
 func TestHoveringForwardPutsTheKeyBesideTheAgent(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{

@@ -295,6 +295,11 @@ skinparam noteTextAlignment left
 ' and the figure's floor grows with it. plan still joins the square
 ' (`sbx · <harness> + plan`); squareWith trims ONLY that suffix, ending in "…".
 ' The box is `boxW` = 32 inner columns. SquareMax = boxW - 4 = 28.
+' Hovering the OS row's host option sets Direct. The square, its walls and the
+' proxy dot go away: Square is the harness name alone, Hop is empty, and a rule
+' runs from the host node to a corner where the proxy dot sat. The interface
+' row reads "+ ● tui". The key, when one is in play, rests on the host. Leaving
+' that option puts the square and the proxy back.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's

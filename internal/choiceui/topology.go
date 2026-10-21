@@ -27,6 +27,7 @@ type Frame struct {
 	Open      int // lanes that reach a cloud
 	Refused   int // lanes drawn as refused
 	Speaking  bool
+	Direct    bool // no box and no hop; a line runs from the host node to a corner
 	Focus     Focus
 }
 
@@ -248,31 +249,35 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		}
 	}
 
-	newPen(s, boxL, y0+1).write(on(FocusSquare),
-		g.cornerTL+strings.Repeat(g.rule, boxR-boxL-1)+g.cornerTR)
+	if !fr.Direct {
+		newPen(s, boxL, y0+1).write(on(FocusSquare),
+			g.cornerTL+strings.Repeat(g.rule, boxR-boxL-1)+g.cornerTR)
+	}
 
 	pn := newPen(s, colHost, y0+2)
 	pn.write(keyStyle(fr, KeyAtHost, on, p.accent), keyIf(g, fr, KeyAtHost))
 	pn.write(on(FocusNone), g.node).write(dim, " ")
-	pn.padTo(boxL)
 	say := g.quiet
 	if fr.Speaking {
 		say = g.speaking
 	}
-	inside(2, say, fr.Square, keyIf(g, fr, KeyInSquare), on(FocusSay), on(FocusSquare))
-
-	spine := newPen(s, boxR+1, y0+2)
-	if fr.Hop == "" {
-		spine.write(dim, strings.Repeat(g.spine, colLanes-boxR-1))
+	if fr.Direct {
+		drawDirect(pn, y0, boxL, colHop, colLanes, fr, g, on, dim)
 	} else {
-		spine.write(dim, strings.Repeat(g.screened, colHop-boxR-1))
-		spine.padTo(colHop).write(on(FocusHop), g.node)
-		if fr.Open+fr.Refused > 0 {
-			spine.write(dim, strings.Repeat(g.lane(fr.Lane), colLanes-spine.col()))
+		pn.padTo(boxL)
+		inside(2, say, fr.Square, keyIf(g, fr, KeyInSquare), on(FocusSay), on(FocusSquare))
+		spine := newPen(s, boxR+1, y0+2)
+		if fr.Hop == "" {
+			spine.write(dim, strings.Repeat(g.spine, colLanes-boxR-1))
+		} else {
+			spine.write(dim, strings.Repeat(g.screened, colHop-boxR-1))
+			spine.padTo(colHop).write(on(FocusHop), g.node)
+			if fr.Open+fr.Refused > 0 {
+				spine.write(dim, strings.Repeat(g.lane(fr.Lane), colLanes-spine.col()))
+			}
 		}
+		inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
 	}
-
-	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
 	table := fr.HostRight != "" || fr.HostModel != ""
 	top, under, underStyle := fr.Host, fr.HostOS, p.aside
 	rightStyle := on(FocusNone)
@@ -324,15 +329,18 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	} else {
 		at(4, colHost, x0, underStyle, fit(under, boxL-x0-1))
 	}
-	floor := newPen(s, boxL, y0+4).write(on(FocusSquare), g.cornerBL)
-	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxMid-boxL-1)+g.tee)
-	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxR-boxMid-1)+g.cornerBR)
-
-	newPen(s, colHost, y0+5).write(on(FocusReturn),
-		g.cornerBL+strings.Repeat(g.rule, boxMid-colHost-1)+g.cornerBR)
+	if !fr.Direct {
+		floor := newPen(s, boxL, y0+4).write(on(FocusSquare), g.cornerBL)
+		floor.write(on(FocusSquare), strings.Repeat(g.rule, boxMid-boxL-1)+g.tee)
+		floor.write(on(FocusSquare), strings.Repeat(g.rule, boxR-boxMid-1)+g.cornerBR)
+		newPen(s, colHost, y0+5).write(on(FocusReturn),
+			g.cornerBL+strings.Repeat(g.rule, boxMid-colHost-1)+g.cornerBR)
+	}
 
 	trafficFrom := boxR + 1
-	if fr.Hop != "" {
+	if fr.Direct {
+		trafficFrom = colHop + 1
+	} else if fr.Hop != "" {
 		trafficFrom = colHop + 1
 	}
 	drawLanes(s, y0, colLanes, fr, g, on(FocusHop), p.warn, tick, cs.runLen, trafficFrom)
@@ -343,6 +351,41 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		caption, room = captionHead(caption), cs.width
 	}
 	newPen(s, colHost, y0+6).write(p.aside, clip(caption, room))
+}
+
+func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, on func(Focus) tcell.Style, dim tcell.Style) {
+	s := pn.s
+	start := pn.col()
+	wire := on(FocusSquare)
+	newPen(s, start, y0+2).write(wire, strings.Repeat(g.rule, colHop-start)+g.cornerTR)
+	if fr.Open+fr.Refused > 0 {
+		newPen(s, colHop+1, y0+2).write(dim, strings.Repeat(g.lane(fr.Lane), colLanes-colHop-1))
+	}
+	name := fr.Square
+	for textWidth(name) > colHop-boxL-2 && name != "" {
+		r := []rune(name)
+		name = string(r[:len(r)-1])
+	}
+	if name != "" {
+		x := boxL
+		if boxL > start {
+			name = " " + name
+			x = boxL - 1
+		}
+		newPen(s, x, y0+2).write(wire, name+" ")
+	}
+	label := fr.Interface
+	lead := "+ " + g.node + " "
+	room := colLanes - boxL - textWidth(lead)
+	for room > 0 && textWidth(label) > room {
+		r := []rune(label)
+		if len(r) <= 1 {
+			label = ""
+			break
+		}
+		label = string(r[:len(r)-1])
+	}
+	newPen(s, boxL, y0+3).write(on(FocusReturn), lead+label)
 }
 
 func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell.Style, tick, runLen, from int) {

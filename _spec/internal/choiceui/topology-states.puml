@@ -144,6 +144,13 @@ title The topology strip in every selectable state (sbx; the docker frames are h
   declared credentials [forward] alone until its pins were dropped 2026-10-16.
 }
 ..
+{^"Hovering OS · host — no sandbox. The host connects directly"
+  . | . | . | . | . | - - ▸ <:cloud:>
+  () host ──────── opencode ──────── + | . | . | - - ▸ <:cloud:>
+  ▴ | . | + () tui | . | . | - - ▸ <:cloud:>
+  the square and "sbx proxy" are gone; one line runs from the host to the corner
+}
+..
 {^"HISTORY — Variant D · the docker backend (deleted 2026-10-16) — proveo's tiers, and proveo's mitmproxy"
 {
 {^"open · broker"

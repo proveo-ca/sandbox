@@ -599,6 +599,40 @@ func TestHoveredLocalModelLightsOnlyTheOllamaSide(t *testing.T) {
 	}
 }
 
+func TestADirectHostDropsTheSquareAndJoinsTheCorner(t *testing.T) {
+	t.Parallel()
+	g := glyphsFor(GlyphsNerd)
+	fr := base()
+	fr.Direct = true
+	fr.Hop = ""
+	fr.Square = "opencode"
+	fr.Interface = "tui"
+	fr.Key = KeyAtHost
+	rows := paint(t, fr, GlyphsNerd, 0)
+	joined := strings.Join(rows, "\n")
+	if strings.Contains(joined, "sbx") || strings.Contains(joined, "proxy") {
+		t.Fatalf("a direct host still names the sandbox:\n%s", joined)
+	}
+	if strings.Contains(rows[1], strings.Repeat(g.rule, 8)) || strings.Contains(rows[2], g.wallL) {
+		t.Fatalf("the square is still drawn:\n%s", joined)
+	}
+	node := strings.Index(rows[2], g.node)
+	name := strings.Index(rows[2], "opencode")
+	corner := strings.Index(rows[2], g.cornerTR)
+	if node < 0 || name < node || corner < name {
+		t.Fatalf("row 2 = %q, want the host node, the agent, then the corner", rows[2])
+	}
+	if !strings.Contains(rows[2][node:name], g.rule) || !strings.Contains(rows[2][name:corner], g.rule) {
+		t.Fatalf("the line from the host to the corner is broken: %q", rows[2])
+	}
+	if !strings.Contains(rows[3], "+ "+g.node+" tui") {
+		t.Fatalf("the tui row = %q, want a plus before the node", rows[3])
+	}
+	if strings.Count(rows[2], g.node) != 1 {
+		t.Fatalf("the proxy dot is still on the top row: %q", rows[2])
+	}
+}
+
 func TestOSArchIsItalicOnTheHostAndInTheSquare(t *testing.T) {
 	t.Parallel()
 	fr := base()

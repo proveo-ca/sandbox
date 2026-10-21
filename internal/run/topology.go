@@ -19,9 +19,12 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		model := modelShort(option)
 		host, hostRight, hostModel := hostAccount(), "", ""
 		hostOS := hostOSArch()
+		direct := hoveringHost(f, cursor)
 		square := squareOf(target)
 		hostLit := false
-		if name, ok := localBesideHost(option); ok {
+		if direct {
+			square = target
+		} else if name, ok := localBesideHost(option); ok {
 			hostRight = "Ollama"
 			hostModel = name
 			hostLit = cursor >= 0 && cursor < len(f.Rows) && f.Rows[cursor].Label == rowModel
@@ -35,6 +38,13 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		if model != "" {
 			key = choiceui.KeyNone
 		}
+		if direct && key != choiceui.KeyNone {
+			key = choiceui.KeyAtHost
+		}
+		hop := "sbx proxy"
+		if direct {
+			hop = ""
+		}
 		fr := choiceui.Frame{
 			Host:      host,
 			HostOS:    hostOS,
@@ -42,7 +52,8 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			HostModel: hostModel,
 			HostLit:   hostLit,
 			Square:    square,
-			Hop:       "sbx proxy",
+			Hop:       hop,
+			Direct:    direct,
 			Interface: interfaceOf(f),
 			Key:       key,
 			Lane:      lane,
@@ -87,6 +98,21 @@ func lanesOf(baseline string) (choiceui.LaneKind, int, int) {
 	default:
 		return choiceui.LaneScreened, 1, 2
 	}
+}
+
+func hoveringHost(f *choiceui.Form, cursor int) bool {
+	if f == nil || cursor < 0 || cursor >= len(f.Rows) {
+		return false
+	}
+	r := &f.Rows[cursor]
+	if r.Label != rowExecution {
+		return false
+	}
+	idx := r.Selected
+	if r.Locked {
+		idx = r.Hover
+	}
+	return idx >= 0 && idx < len(r.Options) && r.Options[idx] == addonHost
 }
 
 func hostAccount() string {
