@@ -35,7 +35,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
-		Flock:    true,
 		Topology: topologyOf(p.Target, p.credentialsOrDefault()),
 		Rows: append(
 			applicableRows(egressRow()),

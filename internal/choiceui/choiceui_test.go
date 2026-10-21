@@ -48,7 +48,11 @@ func TestBannerRendersOnTop(t *testing.T) {
 	if lines[0] != strings.TrimRight(want, " ") {
 		t.Errorf("first line = %q, want ui.BrandBanner's first line %q", lines[0], want)
 	}
-	if !strings.Contains(joined(t, f), ui.BrandTagline) {
+	got := joined(t, f)
+	if !strings.Contains(got, "S O L U T I O N S") || !strings.Contains(got, "pr●veo") {
+		t.Error("the solutions banner must render with the form")
+	}
+	if !strings.Contains(got, ui.BrandTagline) {
 		t.Error("the brand tagline must render with the banner")
 	}
 	if !strings.Contains(joined(t, f), "run opencode") {

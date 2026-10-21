@@ -149,12 +149,9 @@ type Form struct {
 	// NoAxis hides "◀ riskier … safer ▶". The legend is a claim about policy
 	// radios (egress, credentials). Init's radios are not a safety axis.
 	NoAxis      bool
-	Flock       bool
 	StartRow    string // row label the cursor opens on; empty means first selectable
 	StartOption string // option the cursor opens on within StartRow
 	scroll      int
-	flock       *flockSim
-	flockTick   int
 }
 
 func Banner() []string {
@@ -198,18 +195,12 @@ func (f *Form) Run() (confirmed bool, err error) {
 	}
 	registerGlyphFallbacks(screen)
 	defer screen.Fini()
-	every := animFrame
-	if f.Flock {
-		every = flockFrame
-	}
-	tick := newTickerEvery(screen.PostEvent, every)
+	tick := newTicker(screen.PostEvent)
 	defer tick.stop()
 
 	cursor := f.startCursor()
 	for {
-		f.flockTick = tick.flockTick()
 		f.draw(screen, cursor, tick.frame())
-		tick.release()
 		switch ev := screen.PollEvent().(type) {
 		case *tcell.EventResize:
 			screen.Sync()
@@ -446,16 +437,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 
 	c := newCanvas(s)
 
-	if lay.flock {
-		c.put(0, p.brand, clip(ui.BrandTagline, w))
-		c.y++
-		cols := flockSpan(w - 4)
-		if f.flock == nil {
-			f.flock = newFlockSim(cols)
-		}
-		drawFlock(s, c.y, cols, f.flockTick, f.Glyphs, p.body, p.accent, p.warn, f.flock)
-		c.y += flockRows + 1
-	} else if lay.banner {
+	if lay.banner {
 		for _, b := range f.Banner {
 			c.put(0, p.brand, b)
 			c.y++
