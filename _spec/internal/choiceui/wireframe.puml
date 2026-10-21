@@ -250,6 +250,8 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   ""subscription"" as ""plan"", so every harness reads the same cells. A harness
   with no plan (hermes, cecli) draws ""Qwen 3.8 | API keys | . | Glimmer"" —
   the plan column stays empty.
+  The row name occupies 16 columns, marker included. credentials is the
+  longest name; 12 would put its last letter on the first option.
   Every option row pins to the same four columns. OS, outputs, ports and apps
   included: a missing value leaves its column blank. A cell is at most 10 runes.
   ""docker (sandbox)"" paints ""sandbox""; ""claude-in-chrome"" paints ""chrome"".

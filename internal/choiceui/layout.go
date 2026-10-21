@@ -114,7 +114,7 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 const paneGutter = 2
 
 func (r *Row) rightEdge() int {
-	x := bodyIndent + len("  "+r.Label)
+	x := optOrigin
 	if len(r.Cols) > 0 {
 		for j, opt := range r.Options {
 			col := j

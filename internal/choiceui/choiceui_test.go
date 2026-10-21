@@ -637,6 +637,55 @@ func TestOverlongReasonWrapsInTheHelpBlock(t *testing.T) {
 	}
 }
 
+func TestRowNamesOccupySixteenColumns(t *testing.T) {
+	t.Parallel()
+	if labelWidth != 16 {
+		t.Fatalf("labelWidth = %d, want 16", labelWidth)
+	}
+	f := &Form{Rows: []Row{
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
+		{Label: "credentials-and-then-some", Options: []string{"forward"}, Selected: 0},
+	}}
+	lines := render(t, f)
+	line := func(n int) string {
+		t.Helper()
+		var seen int
+		for _, l := range lines {
+			if strings.Contains(l, "forward") {
+				if seen == n {
+					return l
+				}
+				seen++
+			}
+		}
+		t.Fatalf("forward line %d missing:\n%s", n, strings.Join(lines, "\n"))
+		return ""
+	}
+	at := func(l, needle string) int {
+		t.Helper()
+		i := strings.Index(l, needle)
+		if i < 0 {
+			t.Fatalf("%q missing from %q", needle, l)
+		}
+		return utf8.RuneCountInString(l[:i])
+	}
+	creds := line(0)
+	if got := at(creds, "( ) "); got != optOrigin {
+		t.Errorf("first option at %d, want the name column to end at %d:\n%s", got, optOrigin, creds)
+	}
+	name := string([]rune(creds)[:optOrigin])
+	if !strings.Contains(name, "credentials") {
+		t.Errorf("the name left its column:\n%s", creds)
+	}
+	long := line(1)
+	if got := at(long, "(•) "); got != optOrigin {
+		t.Errorf("a long name reached the option, glyph at %d:\n%s", got, long)
+	}
+	if !strings.HasSuffix(string([]rune(long)[:optOrigin]), "…") {
+		t.Errorf("a name past the column must clip:\n%s", long)
+	}
+}
+
 func TestStaticColumnsDoNotSlide(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{

@@ -129,8 +129,8 @@ skinparam noteTextAlignment left
 ' never shows LESS than the inline copy did.
 '
 ' Three things fell out. ""anyOff"" lost its only caller and is gone. The width
-' budget no longer reserves for the reason, so ""rightEdge"" is the label and the
-' options and nothing else, and the pane's breakpoint stops depending on how
+' budget no longer reserves for the reason. The row name is clipped to its
+' 16 columns, so ""rightEdge"" starts at the options, and the pane's breakpoint stops depending on how
 ' long a sentence is. And the pane can no longer clip a fact, because there is
 ' no fact on the row to clip — which retires the constraint that shaped it.
 '

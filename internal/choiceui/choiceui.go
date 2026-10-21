@@ -766,7 +766,7 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 	if r.Divider && named && r.Heading == "" {
 		rowLabel = "" // the heading above it is on screen and already says this
 	}
-	c.put(bodyIndent, labelStyle, marker+rowLabel)
+	c.put(bodyIndent, labelStyle, marker+clipRunes(rowLabel, labelWidth-textWidth(marker)))
 	x := optOrigin
 	if r.Field {
 		f.drawField(c, p, r, x, ln.row == cursor)
