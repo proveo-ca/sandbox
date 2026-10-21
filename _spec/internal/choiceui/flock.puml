@@ -39,7 +39,7 @@
 ' ── TWO CLOCKS, THREE TIERS ────────────────────────────────────────────────
 ' The braille clip in cbirds is 80 by 22 cells at 33 frames a second
 ' (docs/README.md, docs/braille.gif). This strip keeps four rows. Its
-' width caps at flockCols (80). The strip clock stays on animFrame,
+' width caps at flockCols (40). The strip clock stays on animFrame,
 ' 120ms, so a mote still walks one cell per strip frame. A form with
 ' Form.Flock posts at flockFrame (time.Second/30), near that clip.
 ' flockTick is that count. The strip's frame() is still

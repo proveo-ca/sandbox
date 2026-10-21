@@ -177,7 +177,7 @@ func TestFlockPartsAroundTheHawk(t *testing.T) {
 	}
 }
 
-func TestFlockStaysWithinEightyColumns(t *testing.T) {
+func TestFlockStaysWithinFortyColumns(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
 	f.Flock = true
@@ -185,7 +185,7 @@ func TestFlockStaysWithinEightyColumns(t *testing.T) {
 	for y, row := range rows {
 		for x, r := range []rune(row) {
 			if r > 0x2800 && r <= 0x28FF && x >= 2+flockCols {
-				t.Errorf("braille at row %d col %d, past the 80-column flock", y, x)
+				t.Errorf("braille at row %d col %d, past the 40-column flock", y, x)
 			}
 		}
 	}

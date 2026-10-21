@@ -23,7 +23,7 @@ const (
 	flockTurn       = 0.4 // radians per strip frame, scaled by flockStep
 	flockMaxDelta   = 1
 	flockFacings    = 8
-	flockCols       = 80
+	flockCols       = 40
 	flockDotRadius  = 0.55
 	flockFlee       = 14.0
 	flockHawkWeight = 6.0
