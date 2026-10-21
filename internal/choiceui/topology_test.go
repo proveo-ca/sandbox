@@ -296,6 +296,16 @@ func screenLines(s tcell.SimulationScreen) []string {
 
 // The font-safe set is the undeclared default: best accessible first, so
 // no private-use rune and every icon one rune of one column.
+func TestFilteredIsABulletAndVerboseFallsBackToBang(t *testing.T) {
+	t.Parallel()
+	if got := glyphsFor(GlyphsSafe).quiet; got != "●" {
+		t.Errorf("filtered = %q, want ●", got)
+	}
+	if got := glyphsFor(GlyphsASCII).speaking; got != "!" {
+		t.Errorf("verbose ASCII = %q, want !", got)
+	}
+}
+
 func TestSafeTierIsFontSafe(t *testing.T) {
 	t.Parallel()
 	g := glyphsFor(GlyphsSafe)

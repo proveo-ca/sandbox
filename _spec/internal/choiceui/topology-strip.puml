@@ -210,7 +210,8 @@ skinparam noteTextAlignment left
 ' nerd is the decorated tier when the operator declares it
 ' (""PROVEO_GLYPHS=nerd""). Undeclared, the figure falls back to Safe:
 ' the same icons in standard Unicode — U+2601 cloud, U+26BF key,
-' U+275D and U+275E quotes — which regular fonts carry, because a
+' U+25CF filtered, U+275E verbose. Verbose's ASCII fallback is "!".
+' Regular fonts carry these, because a
 ' private-use rune in a font without it paints as a blank cell and
 ' no terminal can be asked whether its font holds a codepoint.
 ' ASCII remains the tier that is correct everywhere.

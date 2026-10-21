@@ -83,7 +83,7 @@ type glyphSet struct {
 func glyphsFor(t GlyphTier) glyphSet {
 	if t != GlyphsNerd && t != GlyphsSafe {
 		return glyphSet{
-			cloud: "(~)", key: "K", quiet: "\"", speaking: "\"!",
+			cloud: "(~)", key: "K", quiet: "\"", speaking: "!",
 			spine: "=", screened: "-", watched: ".",
 			refused: "x", asking: "?",
 			east: ">", west: "<", north: "^", up: "^", pulse: "*",
@@ -100,7 +100,7 @@ func glyphsFor(t GlyphTier) glyphSet {
 		cornerTL: "┌", cornerTR: "┐", cornerBL: "└", cornerBR: "┘", tee: "┬", cross: "┼", rule: "─",
 	}
 	if t == GlyphsSafe {
-		g.cloud, g.key, g.quiet, g.speaking = "☁", "⚿", "❝", "❞"
+		g.cloud, g.key, g.quiet, g.speaking = "☁", "⚿", "●", "❞"
 	}
 	return g
 }
