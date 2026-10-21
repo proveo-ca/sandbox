@@ -261,11 +261,16 @@ func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 			t.Errorf("%q: key=%v square=%q model=%q, want key=%v square=%q model=%q",
 				c.option, fr.Key, fr.Square, fr.HostModel, c.key, c.square, c.hostModel)
 		}
-		if c.hostModel != "" && !strings.HasSuffix(fr.Host, " + Ollama") {
-			t.Errorf("%q: host = %q, want the account plus Ollama", c.option, fr.Host)
+		if c.hostModel != "" {
+			if fr.HostRight != "Ollama" || strings.Contains(fr.Host, "+") {
+				t.Errorf("%q: host = %q right = %q, want the account beside Ollama", c.option, fr.Host, fr.HostRight)
+			}
+			if !strings.Contains(fr.HostOS, "/") || len([]rune(fr.HostOS)) > choiceui.HostSide {
+				t.Errorf("%q: os/arch = %q, want a cell of at most %d", c.option, fr.HostOS, choiceui.HostSide)
+			}
 		}
-		if c.hostModel == "" && strings.Contains(fr.Host, "Ollama") {
-			t.Errorf("%q: host = %q names Ollama without a local model", c.option, fr.Host)
+		if c.hostModel == "" && (fr.HostRight != "" || strings.Contains(fr.Host, "Ollama")) {
+			t.Errorf("%q: host = %q right = %q names Ollama without a local model", c.option, fr.Host, fr.HostRight)
 		}
 		if c.key == choiceui.KeyNone && !strings.Contains(fr.Caption, "no API key") {
 			t.Errorf("%q: caption %q must say no API key is in play", c.option, fr.Caption)

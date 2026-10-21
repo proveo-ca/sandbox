@@ -15,7 +15,8 @@ import (
 type Frame struct {
 	Host      string
 	HostOS    string
-	HostModel string // a local model under the host name; this row replaces HostOS
+	HostRight string // paired with Host on the name row; "Ollama" for a local model
+	HostModel string // paired with HostOS on the row beneath
 	Square    string // inside the box: "sbx · claudecode", or a bare target with no daemon
 	Hop       string // "sbx proxy", "mitm + squid"; empty means there is no hop
 	Interface string // the interface dot's label
@@ -127,8 +128,11 @@ type topoCols struct {
 // boxW is the container's inner width; everything right of the box is laid out from it.
 const boxW = 30
 
-// hostPad widens the host column so "<name> + Ollama" fits before the box.
+// hostPad widens the host column so a name/Ollama table fits before the box.
 const hostPad = 12
+
+// HostSide is one cell of the host table. Two cells and " + " are 23 columns.
+const HostSide = 10
 
 // SquareMax is the widest Frame.Square the box shows whole: walls, padding and the speaking dot take 4.
 const SquareMax = boxW - 4
@@ -155,6 +159,18 @@ const (
 
 func drawTopology(s tcell.Screen, y0 int, fr Frame, tier GlyphTier, p palette, tick int) {
 	drawFigure(s, 0, y0, blockCols, fr, tier, p, tick)
+}
+
+func hostTable(left, right string) string {
+	return hostCell(left) + " + " + clipRunes(right, HostSide)
+}
+
+func hostCell(s string) string {
+	s = clipRunes(s, HostSide)
+	if w := textWidth(s); w < HostSide {
+		s += strings.Repeat(" ", HostSide-w)
+	}
+	return s
 }
 
 func captionHead(caption string) string {
@@ -244,11 +260,13 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	}
 
 	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
-	at(3, colHost, x0, on(FocusNone), fit(fr.Host, boxL-x0-1))
-	under, underStyle := fr.HostOS, p.aside
-	if fr.HostModel != "" {
-		under, underStyle = fr.HostModel, on(FocusNone)
+	top, under, underStyle := fr.Host, fr.HostOS, p.aside
+	if fr.HostRight != "" || fr.HostModel != "" {
+		top = hostTable(fr.Host, fr.HostRight)
+		under = hostTable(fr.HostOS, fr.HostModel)
+		underStyle = on(FocusNone)
 	}
+	at(3, colHost, x0, on(FocusNone), fit(top, boxL-x0-1))
 	if fr.Hop != "" {
 		key := keyIf(g, fr, KeyAtHop)
 		label := fit(fr.Hop, colLanes-boxR-3)

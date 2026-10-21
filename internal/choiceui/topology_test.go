@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
@@ -539,22 +540,32 @@ func TestNoOpenLaneMeansNoTraffic(t *testing.T) {
 func TestALocalModelSitsBesideTheHostOnTwoRows(t *testing.T) {
 	t.Parallel()
 	fr := base()
-	fr.Host = "pluvo + Ollama"
+	fr.Host = "pluvo"
+	fr.HostRight = "Ollama"
+	fr.HostOS = "linux/x64"
 	fr.HostModel = "Qwen 3.8"
 	fr.Key = KeyNone
 	rows := paint(t, fr, GlyphsASCII, 0)
 	joined := strings.Join(rows, "\n")
-	if !strings.Contains(rows[3], "pluvo + Ollama") {
-		t.Errorf("the host row clipped Ollama:\n%s", joined)
+	plusAt := func(row string) int {
+		t.Helper()
+		i := strings.Index(row, "+")
+		if i < 0 {
+			t.Fatalf("no plus in %q\n%s", row, joined)
+		}
+		return utf8.RuneCountInString(row[:i])
 	}
-	if !strings.Contains(rows[4], "Qwen 3.8") {
-		t.Errorf("the model row is missing:\n%s", joined)
+	if !strings.Contains(rows[3], "pluvo") || !strings.Contains(rows[3], "Ollama") {
+		t.Errorf("the name row lost a cell:\n%s", joined)
 	}
-	if strings.Contains(rows[4], "(macOS)") {
-		t.Errorf("the OS stayed on the model row:\n%s", joined)
+	if !strings.Contains(rows[4], "linux/x64") || !strings.Contains(rows[4], "Qwen 3.8") {
+		t.Errorf("the OS row lost a cell:\n%s", joined)
 	}
-	if strings.Contains(rows[2], "Qwen") {
-		t.Errorf("the model landed in the agent box:\n%s", joined)
+	if a, b := plusAt(rows[3]), plusAt(rows[4]); a != b || a != HostSide+1 {
+		t.Errorf("plus columns %d and %d, want both at %d", a, b, HostSide+1)
+	}
+	if strings.Contains(rows[2], "Qwen") || strings.Contains(rows[2], "Ollama") {
+		t.Errorf("the pair landed in the agent box:\n%s", joined)
 	}
 }
 

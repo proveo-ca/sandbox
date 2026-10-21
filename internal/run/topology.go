@@ -17,11 +17,13 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		lane, open, refused := lanesOf(tier)
 		option := f.Selection(rowModel)
 		model := modelShort(option)
-		host, hostModel := hostAccount(), ""
+		host, hostRight, hostModel := hostAccount(), "", ""
+		hostOS := "(" + hostPlatform() + ")"
 		square := squareOf(target)
 		if name, ok := localBesideHost(option); ok {
-			host += " + Ollama"
+			hostRight = "Ollama"
 			hostModel = name
+			hostOS = hostOSArch()
 		} else {
 			square = squareWith(square, model)
 		}
@@ -34,7 +36,8 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		}
 		fr := choiceui.Frame{
 			Host:      host,
-			HostOS:    "(" + hostPlatform() + ")",
+			HostOS:    hostOS,
+			HostRight: hostRight,
 			HostModel: hostModel,
 			Square:    square,
 			Hop:       "sbx proxy",
@@ -91,6 +94,34 @@ func hostAccount() string {
 		}
 	}
 	return "host"
+}
+
+func hostOSArch() string {
+	name := hostPlatform()
+	arch := runtime.GOARCH
+	switch arch {
+	case "amd64":
+		arch = "x64"
+	case "386":
+		arch = "x86"
+	}
+	cell := name + "/" + arch
+	if utf8.RuneCountInString(cell) <= choiceui.HostSide {
+		return cell
+	}
+	switch name {
+	case "linux":
+		name = "lin"
+	case "windows":
+		name = "win"
+	case "macOS":
+		name = "mac"
+	}
+	cell = name + "/" + arch
+	if r := []rune(cell); len(r) > choiceui.HostSide {
+		return string(r[:choiceui.HostSide-1]) + "…"
+	}
+	return cell
 }
 
 func hostPlatform() string {
