@@ -262,7 +262,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		say = g.speaking
 	}
 	if fr.Direct {
-		drawDirect(pn, y0, boxL, colHop, colLanes, fr, g, on, dim)
+		drawDirect(pn, y0, boxL, colHop, colLanes, fr, g, on, dim, p.brand)
 	} else {
 		pn.padTo(boxL)
 		inside(2, say, fr.Square, keyIf(g, fr, KeyInSquare), on(FocusSay), on(FocusSquare))
@@ -353,7 +353,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	newPen(s, colHost, y0+6).write(p.aside, clip(caption, room))
 }
 
-func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, on func(Focus) tcell.Style, dim tcell.Style) {
+func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, on func(Focus) tcell.Style, dim, keyLit tcell.Style) {
 	s := pn.s
 	start := pn.col()
 	wire := on(FocusSquare)
@@ -361,18 +361,22 @@ func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, o
 	if fr.Open+fr.Refused > 0 {
 		newPen(s, colHop+1, y0+2).write(dim, strings.Repeat(g.lane(fr.Lane), colLanes-colHop-1))
 	}
+	k := keyIf(g, fr, KeyInSquare)
 	name := fr.Square
-	for textWidth(name) > colHop-boxL-2 && name != "" {
+	for textWidth(k+name) > colHop-boxL-2 && name != "" {
 		r := []rune(name)
 		name = string(r[:len(r)-1])
 	}
 	if name != "" {
 		x := boxL
 		if boxL > start {
-			name = " " + name
 			x = boxL - 1
 		}
-		newPen(s, x, y0+2).write(wire, name+" ")
+		pn := newPen(s, x, y0+2)
+		if x < boxL {
+			pn.write(wire, " ")
+		}
+		pn.write(keyLit, k).write(wire, name+" ")
 	}
 	label := fr.Interface
 	lead := "+ " + g.node + " "

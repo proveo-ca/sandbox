@@ -39,7 +39,8 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			key = choiceui.KeyNone
 		}
 		if direct && key != choiceui.KeyNone {
-			key = choiceui.KeyAtHost
+			creds = "forward"
+			key = choiceui.KeyInSquare
 		}
 		hop := "sbx proxy"
 		if direct {
@@ -238,6 +239,9 @@ func captionOf(fr choiceui.Frame, tier, creds string) string {
 	switch fr.Key {
 	case choiceui.KeyInSquare:
 		where = "the real key rides inside the container"
+		if fr.Direct {
+			where = "the real key rides with the agent"
+		}
 	case choiceui.KeyAtHop:
 		where = "the keys are only seen by the host and the cloud recipients, never the agent"
 	case choiceui.KeyNone:

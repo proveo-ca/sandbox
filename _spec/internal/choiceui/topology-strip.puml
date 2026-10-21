@@ -298,8 +298,10 @@ skinparam noteTextAlignment left
 ' Hovering the OS row's host option sets Direct. The square, its walls and the
 ' proxy dot go away: Square is the harness name alone, Hop is empty, and a rule
 ' runs from the host node to a corner where the proxy dot sat. The interface
-' row reads "+ ● tui". The key, when one is in play, rests on the host. Leaving
-' that option puts the square and the proxy back.
+' row reads "+ ● tui". A key in play is drawn beside the agent, in the selected
+' style, and the caption names forward — the row underneath still says broker,
+' and both host and forward stay disabled. Leaving that option puts the square
+' and the proxy back.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's

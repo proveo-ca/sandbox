@@ -179,22 +179,32 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 func TestHoveringTheHostDropsTheSandbox(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1, Locked: true, Off: []bool{true, false}},
 		{Label: "egress", Options: []string{"allow-all"}, Selected: 0},
-		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Selected: 0, Multi: true},
+		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Selected: 0, Multi: true, Off: []bool{true, true}, On: []bool{false, true}},
 	}}
-	onHost := topologyOf("opencode", "broker")(f, 1)
-	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "" || onHost.Key != choiceui.KeyAtHost {
+	onHost := topologyOf("opencode", "broker")(f, 2)
+	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "" || onHost.Key != choiceui.KeyInSquare {
 		t.Errorf("hovering host: direct=%v square=%q hop=%q key=%v", onHost.Direct, onHost.Square, onHost.Hop, onHost.Key)
 	}
-	f.Rows[1].Selected = 1
-	onSandbox := topologyOf("opencode", "broker")(f, 1)
-	if onSandbox.Direct || onSandbox.Square != squareOf("opencode") || onSandbox.Hop != "sbx proxy" {
-		t.Errorf("hovering sandbox: direct=%v square=%q hop=%q", onSandbox.Direct, onSandbox.Square, onSandbox.Hop)
+	if !strings.Contains(onHost.Caption, "forward") || !strings.Contains(onHost.Caption, "rides with the agent") {
+		t.Errorf("caption %q must show the key forwarded", onHost.Caption)
 	}
-	f.Rows[1].Selected = 0
-	away := topologyOf("opencode", "broker")(f, 0)
-	if away.Direct || away.Hop != "sbx proxy" || !strings.Contains(away.Square, "sbx") {
-		t.Errorf("cursor elsewhere: direct=%v square=%q hop=%q", away.Direct, away.Square, away.Hop)
+	if f.Rows[0].Selected != 1 || !f.Rows[0].Off[0] || !f.Rows[0].Locked {
+		t.Error("the preview selected forward")
+	}
+	if f.Rows[2].On[0] || !f.Rows[2].Off[0] {
+		t.Error("the preview enabled host")
+	}
+	f.Rows[2].Selected = 1
+	onSandbox := topologyOf("opencode", "broker")(f, 2)
+	if onSandbox.Direct || onSandbox.Square != squareOf("opencode") || onSandbox.Hop != "sbx proxy" || onSandbox.Key != choiceui.KeyAtHop {
+		t.Errorf("hovering sandbox: direct=%v square=%q hop=%q key=%v", onSandbox.Direct, onSandbox.Square, onSandbox.Hop, onSandbox.Key)
+	}
+	f.Rows[2].Selected = 0
+	away := topologyOf("opencode", "broker")(f, 1)
+	if away.Direct || away.Hop != "sbx proxy" || away.Key != choiceui.KeyAtHop || !strings.Contains(away.Square, "sbx") {
+		t.Errorf("cursor elsewhere: direct=%v square=%q hop=%q key=%v", away.Direct, away.Square, away.Hop, away.Key)
 	}
 }
 

@@ -607,7 +607,8 @@ func TestADirectHostDropsTheSquareAndJoinsTheCorner(t *testing.T) {
 	fr.Hop = ""
 	fr.Square = "opencode"
 	fr.Interface = "tui"
-	fr.Key = KeyAtHost
+	fr.Key = KeyInSquare
+	fr.Focus = FocusReturn
 	rows := paint(t, fr, GlyphsNerd, 0)
 	joined := strings.Join(rows, "\n")
 	if strings.Contains(joined, "sbx") || strings.Contains(joined, "proxy") {
@@ -618,9 +619,13 @@ func TestADirectHostDropsTheSquareAndJoinsTheCorner(t *testing.T) {
 	}
 	node := strings.Index(rows[2], g.node)
 	name := strings.Index(rows[2], "opencode")
+	key := strings.Index(rows[2], g.key)
 	corner := strings.Index(rows[2], g.cornerTR)
-	if node < 0 || name < node || corner < name {
-		t.Fatalf("row 2 = %q, want the host node, the agent, then the corner", rows[2])
+	if node < 0 || key < node || name < key || corner < name {
+		t.Fatalf("row 2 = %q, want the host node, the key, the agent, then the corner", rows[2])
+	}
+	if styleOf(t, fr, glyphsFor(GlyphsASCII).key) != styles().brand {
+		t.Error("the forwarded key is not drawn as selected")
 	}
 	if !strings.Contains(rows[2][node:name], g.rule) || !strings.Contains(rows[2][name:corner], g.rule) {
 		t.Fatalf("the line from the host to the corner is broken: %q", rows[2])
