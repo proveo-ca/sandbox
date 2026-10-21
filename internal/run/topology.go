@@ -18,13 +18,12 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		option := f.Selection(rowModel)
 		model := modelShort(option)
 		host, hostRight, hostModel := hostAccount(), "", ""
-		hostOS := "(" + hostPlatform() + ")"
+		hostOS := hostOSArch()
 		square := squareOf(target)
 		hostLit := false
 		if name, ok := localBesideHost(option); ok {
 			hostRight = "Ollama"
 			hostModel = name
-			hostOS = hostOSArch()
 			hostLit = cursor >= 0 && cursor < len(f.Rows) && f.Rows[cursor].Label == rowModel
 		} else {
 			square = squareWith(square, model)
@@ -99,15 +98,20 @@ func hostAccount() string {
 	return "host"
 }
 
+func archShort() string {
+	switch runtime.GOARCH {
+	case "amd64", "386":
+		return "x86"
+	case "arm64", "arm":
+		return "arm"
+	default:
+		return runtime.GOARCH
+	}
+}
+
 func hostOSArch() string {
 	name := hostPlatform()
-	arch := runtime.GOARCH
-	switch arch {
-	case "amd64":
-		arch = "x64"
-	case "386":
-		arch = "x86"
-	}
+	arch := archShort()
 	cell := name + "/" + arch
 	if utf8.RuneCountInString(cell) <= choiceui.HostSide {
 		return cell
@@ -152,14 +156,7 @@ func squareWith(square, model string) string {
 }
 
 func vmPlatform() string {
-	arch := runtime.GOARCH
-	switch arch {
-	case "amd64", "386":
-		arch = "x86"
-	case "arm64", "arm":
-		arch = "arm"
-	}
-	return "linux/" + arch
+	return "linux/" + archShort()
 }
 
 func squareOf(target string) string {

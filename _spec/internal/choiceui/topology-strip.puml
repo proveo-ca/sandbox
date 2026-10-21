@@ -281,6 +281,9 @@ skinparam noteTextAlignment left
 ' — subscription, or a local model — sets KeyNone: no glyph anywhere, the caption
 ' says "no API key is in play". The square names the microVM and the harness:
 ' `sbx (linux/x86) · opencode` on amd64, `sbx (linux/arm) · opencode` on arm.
+' The parenthetical is italic. The host's own OS/arch uses the same arch
+' word — `(linux)` becomes `linux/x86` — and is italic on the idle line and
+' on the local-model row.
 ' A local model leaves that square as it is and stands beside the host as a table. Each row is two
 ' cells of HostSide (10). The name row centers "" + "" between the host and
 ' Ollama. The OS row keeps that column as a space, so the OS/arch and the

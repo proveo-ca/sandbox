@@ -599,6 +599,39 @@ func TestHoveredLocalModelLightsOnlyTheOllamaSide(t *testing.T) {
 	}
 }
 
+func TestOSArchIsItalicOnTheHostAndInTheSquare(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Host = "pluvo"
+	fr.HostRight = "Ollama"
+	fr.HostOS = "linux/x86"
+	fr.HostModel = "Qwen 3.8"
+	fr.Square = "sbx · opencode"
+	if !italic(styleOf(t, fr, "linux/x86")) {
+		t.Error("the host OS/arch is not italic")
+	}
+	if italic(styleOf(t, fr, "pluvo")) || italic(styleOf(t, fr, "Qwen")) {
+		t.Error("the hostname or the model took the italic")
+	}
+	plain := base()
+	plain.Square = "sbx (linux/x86) · opencode"
+	plain.HostOS = "macOS/arm"
+	if !italic(styleOf(t, plain, "(linux/x86)")) {
+		t.Error("the microVM OS/arch is not italic")
+	}
+	if italic(styleOf(t, plain, "sbx")) || italic(styleOf(t, plain, "opencode")) {
+		t.Error("the harness name took the italic")
+	}
+	if !italic(styleOf(t, plain, "macOS/arm")) {
+		t.Error("the idle host OS/arch is not italic")
+	}
+}
+
+func italic(st tcell.Style) bool {
+	_, _, attrs := st.Decompose()
+	return attrs&tcell.AttrItalic != 0
+}
+
 func styleOf(t *testing.T, fr Frame, word string) tcell.Style {
 	t.Helper()
 	s := tcell.NewSimulationScreen("UTF-8")

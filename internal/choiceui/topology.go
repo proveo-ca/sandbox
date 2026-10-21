@@ -162,6 +162,18 @@ func drawTopology(s tcell.Screen, y0 int, fr Frame, tier GlyphTier, p palette, t
 	drawFigure(s, 0, y0, blockCols, fr, tier, p, tick)
 }
 
+func writeNoted(pn *pen, text string, textStyle, noteStyle tcell.Style) {
+	open := strings.Index(text, "(")
+	close := strings.Index(text, ")")
+	if open < 0 || close < open {
+		pn.write(textStyle, text)
+		return
+	}
+	pn.write(textStyle, text[:open])
+	pn.write(noteStyle, text[open:close+1])
+	pn.write(textStyle, text[close+1:])
+}
+
 func hostTable(left, right, join string) string {
 	return hostCell(left) + join + clipRunes(right, HostSide)
 }
@@ -223,7 +235,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		pn := newPen(s, boxL, y0+row).write(on(FocusSquare), g.wallL+" ")
 		pn.write(dotStyle, dot).write(textStyle, " ")
 		pn.write(keyStyle(fr, KeyInSquare, on, p.accent), key)
-		pn.write(textStyle, fit(text, boxR-pn.col()-1))
+		writeNoted(pn, fit(text, boxR-pn.col()-1), textStyle, p.aside)
 		pn.padTo(boxR).write(on(FocusSquare), g.wallR)
 	}
 
@@ -269,7 +281,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 			rightStyle = p.brand
 		}
 	}
-	writePair := func(row int, left, right, join string) {
+	writePair := func(row int, left, right, join string, leftStyle tcell.Style) {
 		l := hostCell(left)
 		line := fit(l+join+clipRunes(right, HostSide), boxL-x0-1)
 		x := colHost - textWidth(line)/2
@@ -280,13 +292,13 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		head := []rune(l + join)
 		all := []rune(line)
 		if len(all) <= len(head) {
-			pn.write(on(FocusNone), line)
+			pn.write(leftStyle, line)
 			return
 		}
-		pn.write(on(FocusNone), string(all[:len(head)])).write(rightStyle, string(all[len(head):]))
+		pn.write(leftStyle, string(all[:len(head)])).write(rightStyle, string(all[len(head):]))
 	}
 	if table {
-		writePair(3, fr.Host, fr.HostRight, " + ")
+		writePair(3, fr.Host, fr.HostRight, " + ", on(FocusNone))
 	} else {
 		at(3, colHost, x0, on(FocusNone), fit(top, boxL-x0-1))
 	}
@@ -308,7 +320,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	}
 
 	if table {
-		writePair(4, fr.HostOS, fr.HostModel, "   ")
+		writePair(4, fr.HostOS, fr.HostModel, "   ", p.aside)
 	} else {
 		at(4, colHost, x0, underStyle, fit(under, boxL-x0-1))
 	}

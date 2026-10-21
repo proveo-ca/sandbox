@@ -265,9 +265,12 @@ func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 			if fr.HostRight != "Ollama" || strings.Contains(fr.Host, "+") {
 				t.Errorf("%q: host = %q right = %q, want the account beside Ollama", c.option, fr.Host, fr.HostRight)
 			}
-			if !strings.Contains(fr.HostOS, "/") || len([]rune(fr.HostOS)) > choiceui.HostSide {
-				t.Errorf("%q: os/arch = %q, want a cell of at most %d", c.option, fr.HostOS, choiceui.HostSide)
+			if fr.HostOS != hostOSArch() || strings.Contains(fr.HostOS, "(") || !strings.HasSuffix(fr.HostOS, "/"+archShort()) {
+				t.Errorf("%q: os/arch = %q, want %q", c.option, fr.HostOS, hostOSArch())
 			}
+		}
+		if c.hostModel == "" && fr.HostOS != hostOSArch() {
+			t.Errorf("%q: os/arch = %q, want %q", c.option, fr.HostOS, hostOSArch())
 		}
 		if c.hostModel == "" && (fr.HostRight != "" || strings.Contains(fr.Host, "Ollama")) {
 			t.Errorf("%q: host = %q right = %q names Ollama without a local model", c.option, fr.Host, fr.HostRight)
