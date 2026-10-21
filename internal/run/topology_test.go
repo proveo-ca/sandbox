@@ -176,6 +176,31 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 	}
 }
 
+func TestHoveringForwardPutsTheKeyBesideTheAgent(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: "egress", Options: []string{"allow-all"}, Selected: 0, Locked: true},
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1, Hover: 0, Locked: true},
+	}}
+	onRow := topologyOf("claudecode", "broker")(f, 1)
+	if onRow.Key != choiceui.KeyInSquare {
+		t.Errorf("hovering forward: key = %v, want it beside the agent", onRow.Key)
+	}
+	if !strings.Contains(onRow.Caption, "forward") {
+		t.Errorf("caption %q must name the hovered mode", onRow.Caption)
+	}
+	f.Rows[1].Hover = 1
+	onBroker := topologyOf("claudecode", "broker")(f, 1)
+	if onBroker.Key != choiceui.KeyAtHop {
+		t.Errorf("hovering broker: key = %v, want it at the hop", onBroker.Key)
+	}
+	f.Rows[1].Hover = 0
+	away := topologyOf("claudecode", "broker")(f, 0)
+	if away.Key != choiceui.KeyAtHop {
+		t.Errorf("cursor elsewhere: key = %v, want the selection at the hop", away.Key)
+	}
+}
+
 func TestTheFigureFollowsTheHoveredBaseline(t *testing.T) {
 	t.Parallel()
 	const egressRowIdx = 0

@@ -109,10 +109,12 @@ skinparam noteTextAlignment left
 ' drawing deny-all's 1 open lane and 2 refusals. Reported as "balanced shows
 ' 2 x".
 '
-' egressTier(f, cursor, fallback) prefers Options[Hover] when the row is locked
-' AND the cursor is on it, falling back to Selected otherwise — so an unlocked
-' row, or a locked row the cursor has walked away from, still shows what is in
-' force rather than what someone once pointed at.
+' rowChoice prefers Options[Hover] when the row is locked AND the cursor is
+' on it, falling back to Selected otherwise — so an unlocked row, or a locked
+' row the cursor has walked away from, still shows what is in force rather
+' than what someone once pointed at. egressTier and the credentials mode
+' both read through it. Hovering forward draws the key beside the agent
+' (KeyInSquare); walking away puts it back on the hop.
 '
 ' WHERE THE BUG WAS NOT: lanesOf was already correct — balanced is 2 open and 1
 ' refused, and always was. The wrong tier reached it. That distinction is

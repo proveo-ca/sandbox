@@ -13,10 +13,7 @@ import (
 func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
 		tier := egressTier(f, cursor, "")
-		creds := f.Selection("credentials")
-		if creds == "" {
-			creds = credsDefault
-		}
+		creds := rowChoice(f, cursor, "credentials", credsDefault)
 		lane, open, refused := lanesOf(tier)
 		model := modelShort(f.Selection(rowModel))
 		key := choiceui.KeyAtHop
@@ -45,9 +42,13 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 }
 
 func egressTier(f *choiceui.Form, cursor int, fallback string) string {
+	return rowChoice(f, cursor, "egress", fallback)
+}
+
+func rowChoice(f *choiceui.Form, cursor int, label, fallback string) string {
 	for i := range f.Rows {
 		r := &f.Rows[i]
-		if r.Label != "egress" {
+		if r.Label != label {
 			continue
 		}
 		idx := r.Selected
