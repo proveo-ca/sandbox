@@ -472,8 +472,11 @@ func credentialsRow(man manifest.Manifest, mode string) choiceui.Row {
 	r = comingSoon(r, "forward", "sbx's proxy uses Secrets Manager. Away from the VM and the agent, attached in each request")
 	r.Locked = true
 	r.Hover = r.Selected
+	r.Help = map[string]string{
+		"forward": "the key rides the sandbox env, where the agent can read it",
+	}
 	if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
-		r.Help = map[string]string{"broker": man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"}
+		r.Help["broker"] = man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"
 	}
 	return r
 }

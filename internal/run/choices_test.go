@@ -166,7 +166,11 @@ func TestCredentialsRowSaysCursorBrokersNativelyOnSbx(t *testing.T) {
 			t.Error("forward must stay disabled for cursor on sbx")
 		}
 	}
-	if r := credentialsRow(manifest.Manifest{Name: "codex"}, "broker"); r.Help["broker"] != "" {
-		t.Errorf("a harness that declares no credentials capability gets no cursor note: %q", r.Help["broker"])
+	plain := credentialsRow(manifest.Manifest{Name: "codex"}, "broker")
+	if plain.Help["broker"] != "" {
+		t.Errorf("a harness that declares no credentials capability gets no cursor note: %q", plain.Help["broker"])
+	}
+	if !strings.Contains(plain.Help["forward"], "sandbox env") {
+		t.Errorf("forward help = %q, want what forwarding does", plain.Help["forward"])
 	}
 }
