@@ -729,6 +729,70 @@ func TestStaticColumnsDoNotSlide(t *testing.T) {
 	}
 }
 
+func TestMoreDrawsUnderTheFourthColumn(t *testing.T) {
+	t.Parallel()
+	row := Row{
+		Label: "ports", Multi: true, Selected: 3,
+		Options: []string{"3000 next", "5173 vite", "8080 web", "...More"},
+		Cols:    []int{0, 1, 2, 3},
+		On:      []bool{false, false, false, true},
+		More:    &More{Cell: 3, Options: []string{"4000 jekyll", "1313 hugo"}, On: []bool{true, false}},
+		Help:    map[string]string{"4000 jekyll": "the jekyll server"},
+	}
+	lines := render(t, &Form{Rows: []Row{row}})
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"...More", "4000 jekyll", "1313 hugo", "› 4000 jekyll — the jekyll server"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q\n%s", want, joined)
+		}
+	}
+	at := func(needle string) int {
+		t.Helper()
+		for _, l := range lines {
+			if i := strings.Index(l, needle); i >= 0 && strings.Contains(l, "ports") {
+				return utf8.RuneCountInString(l[:i])
+			}
+		}
+		t.Fatalf("%q missing from the ports row\n%s", needle, joined)
+		return 0
+	}
+	if got := at("...More") - at("3000 next"); got != 3*colPitch {
+		t.Errorf("...More is %d from the first port, want %d", got, 3*colPitch)
+	}
+	row.Selected = 0
+	closed := strings.Join(render(t, &Form{Rows: []Row{row}}), "\n")
+	if strings.Contains(closed, "4000 jekyll") {
+		t.Errorf("the list stays up when another cell is selected\n%s", closed)
+	}
+}
+
+func TestMoreListMovesAndTicks(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{{
+		Label: "ports", Multi: true, Selected: 3,
+		Options: []string{"3000 next", "5173 vite", "8080 web", "...More"},
+		On:      []bool{false, false, false, true},
+		More:    &More{Cell: 3, Options: []string{"4000 jekyll", "1313 hugo"}, On: []bool{true, false}},
+	}}}
+	down := tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+	space := tcell.NewEventKey(tcell.KeyRune, ' ', tcell.ModNone)
+	if !f.moreKey(0, down) || f.Rows[0].More.At != 1 {
+		t.Fatalf("down left the cursor at %d", f.Rows[0].More.At)
+	}
+	if !f.moreKey(0, space) || !f.Rows[0].More.On[1] || !f.Rows[0].On[3] {
+		t.Fatalf("space ticks = %v cell %v", f.Rows[0].More.On, f.Rows[0].On)
+	}
+	if f.moreKey(0, down) {
+		t.Fatal("down on the last item stayed inside the list")
+	}
+	f.moreKey(0, space)
+	f.Rows[0].More.At = 0
+	f.moreKey(0, space)
+	if got := f.Selections("ports"); len(got) != 0 {
+		t.Errorf("selections = %v, want none — ...More is not a port", got)
+	}
+}
+
 func TestColumnTextCapsAtTenRunes(t *testing.T) {
 	t.Parallel()
 	r := Row{

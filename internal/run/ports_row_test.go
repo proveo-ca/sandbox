@@ -46,6 +46,57 @@ func TestPortsRowKeepsAnEarlierChoice(t *testing.T) {
 	}
 }
 
+func TestPortsPastFourOpenFromMore(t *testing.T) {
+	t.Parallel()
+	found := []devports.Candidate{
+		{Port: 3000, Tool: "next", Command: "dev", Source: "a/package.json"},
+		{Port: 5173, Tool: "vite", Command: "dev", Source: "b/package.json"},
+		{Port: 8080, Tool: "web", Command: "dev", Source: "c/package.json"},
+		{Port: 4000, Tool: "jekyll", Command: "serve", Source: "d/package.json"},
+		{Port: 1313, Tool: "hugo", Command: "server", Source: "e/package.json"},
+	}
+	r, ok := portsRow(found, found[3:4])
+	if !ok {
+		t.Fatal("five ports drew no row")
+	}
+	if diff := cmp.Diff([]string{"3000 next", "5173 vite", "8080 web", portsMore}, r.Options); diff != "" {
+		t.Errorf("options mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]int{0, 1, 2, 3}, r.Cols); diff != "" {
+		t.Errorf("cols mismatch (-want +got):\n%s", diff)
+	}
+	if r.More == nil {
+		t.Fatal("...More has no list")
+	}
+	if diff := cmp.Diff([]string{"4000 jekyll", "1313 hugo"}, r.More.Options); diff != "" {
+		t.Errorf("dropdown mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]bool{false, false, false, true}, r.On); diff != "" {
+		t.Errorf("row ticks mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]bool{true, false}, r.More.On); diff != "" {
+		t.Errorf("dropdown ticks mismatch (-want +got):\n%s", diff)
+	}
+	f := &choiceui.Form{Rows: []choiceui.Row{r}}
+	if diff := cmp.Diff(found[3:4], selectedPorts(f, found)); diff != "" {
+		t.Errorf("selectedPorts mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestFourPortsStayOnTheRow(t *testing.T) {
+	t.Parallel()
+	found := []devports.Candidate{
+		{Port: 1, Tool: "a", Source: "a"},
+		{Port: 2, Tool: "b", Source: "b"},
+		{Port: 3, Tool: "c", Source: "c"},
+		{Port: 4, Tool: "d", Source: "d"},
+	}
+	r, ok := portsRow(found, nil)
+	if !ok || r.More != nil || len(r.Options) != 4 {
+		t.Fatalf("options %v more %v ok %v, want four cells and no dropdown", r.Options, r.More, ok)
+	}
+}
+
 func TestPortsRowHidesWhenNothingIsFound(t *testing.T) {
 	t.Parallel()
 	if _, ok := portsRow(nil, nil); ok {

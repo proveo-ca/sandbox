@@ -511,6 +511,7 @@ const (
 	rowExecution = "OS"
 	rowInterface = "interface"
 	rowPorts     = "ports"
+	portsMore    = "...More"
 	rowApps      = "apps"
 
 	addonHost    = "host"
@@ -551,7 +552,34 @@ func portsRow(found []devports.Candidate, chosen []devports.Candidate) (choiceui
 		}
 		r.Help[opt] = fmt.Sprintf("publish sandbox :%d to this host's loopback — %q in %s, %s", c.Port, c.Command, c.Source, how)
 	}
+	if len(r.Options) > 4 {
+		r = foldPorts(r)
+	}
 	return pinSequence(r), true
+}
+
+// foldPorts keeps three ports on the row and puts the rest behind ...More.
+func foldPorts(r choiceui.Row) choiceui.Row {
+	rest := append([]string{}, r.Options[3:]...)
+	restOn := append([]bool{}, r.On[3:]...)
+	r.Options = append(append([]string{}, r.Options[:3]...), portsMore)
+	on := append([]bool{}, r.On[:3]...)
+	r.On = append(on, anyBool(restOn))
+	if r.Help == nil {
+		r.Help = map[string]string{}
+	}
+	r.Help[portsMore] = "the other ports — ↑↓ moves, space ticks"
+	r.More = &choiceui.More{Cell: 3, Options: rest, On: restOn}
+	return r
+}
+
+func anyBool(v []bool) bool {
+	for _, on := range v {
+		if on {
+			return true
+		}
+	}
+	return false
 }
 
 // appsRow offers each Android application module for build + install + launch on the host emulator.

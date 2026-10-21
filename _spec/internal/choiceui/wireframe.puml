@@ -287,6 +287,8 @@ end legend
   The divider still reads ""execution""; its row label is
   ""OS"" (host · sandbox). Under it, sbx only, a
   multi-select ""ports"" row offers each discovered dev
-  port, all unticked. _spec/internal/devports/dev-ports.puml
+  port, all unticked. Past four, column 4 is ""...More""
+  and a dropdown lists the rest.
+  _spec/internal/devports/dev-ports.puml
 end note
 
