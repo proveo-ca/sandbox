@@ -278,6 +278,21 @@ func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 	}
 }
 
+func TestHoveringALocalModelLightsTheHostCells(t *testing.T) {
+	t.Parallel()
+	f := modelForm(localModels[0].label())
+	if !topologyOf("hermes", "broker")(f, len(f.Rows)-1).HostLit {
+		t.Error("cursor on Qwen left Ollama and the model unlit")
+	}
+	if topologyOf("hermes", "broker")(f, 0).HostLit {
+		t.Error("cursor off the model row still lit Ollama and the model")
+	}
+	keys := modelForm(modelAPIKeys)
+	if topologyOf("hermes", "broker")(keys, len(keys.Rows)-1).HostLit {
+		t.Error("API keys lit Ollama and the model")
+	}
+}
+
 func TestSquareTrimsOnlyTheModelToSquareMax(t *testing.T) {
 	t.Parallel()
 	if got := squareWith("sbx · claudecode", "qwen3.8"); got != "sbx · claudecode + qwen3.8" {

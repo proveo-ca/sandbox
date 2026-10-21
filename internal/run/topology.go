@@ -20,10 +20,12 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		host, hostRight, hostModel := hostAccount(), "", ""
 		hostOS := "(" + hostPlatform() + ")"
 		square := squareOf(target)
+		hostLit := false
 		if name, ok := localBesideHost(option); ok {
 			hostRight = "Ollama"
 			hostModel = name
 			hostOS = hostOSArch()
+			hostLit = cursor >= 0 && cursor < len(f.Rows) && f.Rows[cursor].Label == rowModel
 		} else {
 			square = squareWith(square, model)
 		}
@@ -39,6 +41,7 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			HostOS:    hostOS,
 			HostRight: hostRight,
 			HostModel: hostModel,
+			HostLit:   hostLit,
 			Square:    square,
 			Hop:       "sbx proxy",
 			Interface: interfaceOf(f),

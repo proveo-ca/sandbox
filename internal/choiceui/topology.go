@@ -17,6 +17,7 @@ type Frame struct {
 	HostOS    string
 	HostRight string // paired with Host on the name row; "Ollama" for a local model
 	HostModel string // paired with HostOS on the row beneath
+	HostLit   bool   // cursor is on that local model; the right-hand cells take the brand
 	Square    string // inside the box: "sbx · claudecode", or a bare target with no daemon
 	Hop       string // "sbx proxy", "mitm + squid"; empty means there is no hop
 	Interface string // the interface dot's label
@@ -260,13 +261,35 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	}
 
 	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
+	table := fr.HostRight != "" || fr.HostModel != ""
 	top, under, underStyle := fr.Host, fr.HostOS, p.aside
-	if fr.HostRight != "" || fr.HostModel != "" {
-		top = hostTable(fr.Host, fr.HostRight, " + ")
-		under = hostTable(fr.HostOS, fr.HostModel, "   ")
-		underStyle = on(FocusNone)
+	rightStyle := on(FocusNone)
+	if table {
+		if fr.HostLit {
+			rightStyle = p.brand
+		}
 	}
-	at(3, colHost, x0, on(FocusNone), fit(top, boxL-x0-1))
+	writePair := func(row int, left, right, join string) {
+		l := hostCell(left)
+		line := fit(l+join+clipRunes(right, HostSide), boxL-x0-1)
+		x := colHost - textWidth(line)/2
+		if x < x0 {
+			x = x0
+		}
+		pn := newPen(s, x, y0+row)
+		head := []rune(l + join)
+		all := []rune(line)
+		if len(all) <= len(head) {
+			pn.write(on(FocusNone), line)
+			return
+		}
+		pn.write(on(FocusNone), string(all[:len(head)])).write(rightStyle, string(all[len(head):]))
+	}
+	if table {
+		writePair(3, fr.Host, fr.HostRight, " + ")
+	} else {
+		at(3, colHost, x0, on(FocusNone), fit(top, boxL-x0-1))
+	}
 	if fr.Hop != "" {
 		key := keyIf(g, fr, KeyAtHop)
 		label := fit(fr.Hop, colLanes-boxR-3)
@@ -284,7 +307,11 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		}
 	}
 
-	at(4, colHost, x0, underStyle, fit(under, boxL-x0-1))
+	if table {
+		writePair(4, fr.HostOS, fr.HostModel, "   ")
+	} else {
+		at(4, colHost, x0, underStyle, fit(under, boxL-x0-1))
+	}
 	floor := newPen(s, boxL, y0+4).write(on(FocusSquare), g.cornerBL)
 	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxMid-boxL-1)+g.tee)
 	floor.write(on(FocusSquare), strings.Repeat(g.rule, boxR-boxMid-1)+g.cornerBR)

@@ -576,6 +576,56 @@ func TestALocalModelSitsBesideTheHostOnTwoRows(t *testing.T) {
 	}
 }
 
+func TestHoveredLocalModelLightsOnlyTheOllamaSide(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Host = "pluvo"
+	fr.HostRight = "Ollama"
+	fr.HostOS = "linux/x64"
+	fr.HostModel = "Qwen 3.8"
+	fr.HostLit = true
+	fr.Focus = FocusKey
+	brand := styles().brand
+	if got := styleOf(t, fr, "Ollama"); got != brand {
+		t.Errorf("Ollama style = %v, want bold cyan", got)
+	}
+	if got := styleOf(t, fr, "Qwen"); got != brand {
+		t.Errorf("Qwen style = %v, want bold cyan", got)
+	}
+	for _, plain := range []string{"pluvo", "linux"} {
+		if got := styleOf(t, fr, plain); got == brand {
+			t.Errorf("%s took the highlight", plain)
+		}
+	}
+}
+
+func styleOf(t *testing.T, fr Frame, word string) tcell.Style {
+	t.Helper()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 20)
+	drawTopology(s, 0, fr, GlyphsASCII, styles(), 0)
+	s.Show()
+	cells, w, h := s.GetContents()
+	for y := 0; y < h; y++ {
+		var b strings.Builder
+		for x := 0; x < w; x++ {
+			b.WriteString(string(cells[y*w+x].Runes))
+		}
+		line := b.String()
+		i := strings.Index(line, word)
+		if i < 0 {
+			continue
+		}
+		return cells[y*w+utf8.RuneCountInString(line[:i])].Style
+	}
+	t.Fatalf("%q is not on the figure", word)
+	return tcell.StyleDefault
+}
+
 func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {
 	t.Parallel()
 	fr := base()
