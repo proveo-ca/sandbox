@@ -31,13 +31,33 @@ type Row struct {
 	// A field row takes typing instead of options.
 	// SPEC: _spec/cmd/proveo/init-credential-wireframe.puml
 	Field       bool
-	Heading     string // the divider's text, when the group is not named for this row
-	Cols        []int  // 0-based column of each option; nil packs left to right
+	Heading     string            // the divider's text, when the group is not named for this row
+	Cols        []int             // 0-based column of each option; nil packs left to right
+	Paint       map[string]string // option → cell text, when the cell is shorter than the option
 	Value       string
 	Placeholder string
 	Masked      bool
 	Held        bool
 	Warn        bool
+}
+
+// columnText is the cell drawn for opt: Paint when set, else the option, at most 10 runes.
+func (r Row) columnText(opt string) string {
+	if s, ok := r.Paint[opt]; ok && s != "" {
+		return clipRunes(s, columnRunes)
+	}
+	return clipRunes(opt, columnRunes)
+}
+
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n < 1 {
+		return ""
+	}
+	return string(r[:n-1]) + "…"
 }
 
 func (r *Row) cursorAt() int {
@@ -604,9 +624,10 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		if j < len(r.Cols) {
 			at = optOrigin + r.Cols[j]*colPitch
 		}
-		c.put(at, st, glyph+opt)
+		cell := r.columnText(opt)
+		c.put(at, st, glyph+cell)
 		if j >= len(r.Cols) {
-			x += textWidth(glyph+opt) + 3
+			x += textWidth(glyph+cell) + 3
 		}
 	}
 }

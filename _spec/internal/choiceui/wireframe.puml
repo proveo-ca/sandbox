@@ -104,9 +104,9 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     . | ◀ riskier | . | . | safer ▶
     ▸ egress | (X) allow-all | . | ( ) balanced | ( ) deny-all
     credentials | ( ) <color:#9a9a9a>forward</color> | . | . | (X) broker
-    model | ( ) Qwen 3.8 27B | (X) API keys | ( ) subscription | ( ) Muse Glimmer 30B
+    model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
     . | . | ———— execution ———— | . | .
-    . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | . | .
+    . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | . | .
     . | . | ———— interface ———— | . | .
     . | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
     outputs | ( ) filtered | (X) verbose | . | .
@@ -146,7 +146,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 }
 {^"4 · one answer — a radio, not a gated pair"
   outputs | ( ) filtered | (X) verbose
-  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color>
+  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color>
   .
   Brackets say "any number of these" and
   parentheses "one of these". Evidence is
@@ -200,7 +200,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   what the checkbox shows.
 }
 {^"8 · fixed — a box that states a fact"
-  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | .
+  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | .
   interface | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
   .
   Greyed, and left in the state it states. ""host"" is the alternative an operator
@@ -241,19 +241,23 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   avoid ""["", ""("" and "">"", which the checkbox, radio and legend already own.
 }
 {^"9 · model — one row: where the model comes from (every harness)"
-  model | ( ) Qwen 3.8 27B | (X) API keys | ( ) subscription | ( ) Muse Glimmer 30B
-  <color:#00BAC6>› Qwen 3.8 27B — MLX, same as --local-model qwen3.8:27b-mlx on darwin/arm64</color> | . | . | . | .
+  model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
+  <color:#00BAC6>› Qwen 3.8 — 27B, MLX, same as --local-model qwen3.8:27b-mlx on darwin/arm64</color> | . | . | . | .
   .
   ONE row picks the model source (2026-09-27). It merges what used to be two:
   the auth row (""usage credits"" · ""subscription"", drawn for a harness with a
-  plan) and the local-model row. ""usage credits"" is drawn as ""API keys"" so every
-  harness reads the same; a harness with no plan (hermes, cecli) draws
-  ""Qwen | API keys | . | Glimmer"" — the subscription column stays empty.
-  The four columns are static across egress, credentials and model:
-  allow-all and forward and Qwen share column 1, API keys is column 2,
-  balanced and subscription share column 3, deny-all and broker and Glimmer
-  share column 4. A missing value leaves its column blank.
-  The option text is the model name. GGUF and MLX are the hint, not the label:
+  plan) and the local-model row. ""usage credits"" is drawn as ""API keys"" and
+  ""subscription"" as ""plan"", so every harness reads the same cells. A harness
+  with no plan (hermes, cecli) draws ""Qwen 3.8 | API keys | . | Glimmer"" —
+  the plan column stays empty.
+  Every option row pins to the same four columns. OS, outputs, ports and apps
+  included: a missing value leaves its column blank. A cell is at most 10 runes.
+  ""docker (sandbox)"" paints ""sandbox""; ""claude-in-chrome"" paints ""chrome"".
+  allow-all and forward and Qwen and host and filtered share column 1,
+  API keys and sandbox and browser and verbose share column 2,
+  balanced and plan share column 3, deny-all and broker and Glimmer share column 4.
+  27B and 30B live in the hint. Glimmer's hint still says Muse Glimmer.
+  GGUF and MLX are the hint, not the label:
   darwin/arm64 says MLX (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx""), every
   other host says GGUF (""qwen3.8:latest"", ""muse-glimmer:latest"").
   Picking one on a plan harness also
@@ -281,7 +285,7 @@ end legend
 @endsaltnote as PortsRow
   **2026-10-05: execution's row is "OS"; "ports" joins it.**
   The divider still reads ""execution""; its row label is
-  ""OS"" (host · docker (sandbox)). Under it, sbx only, a
+  ""OS"" (host · sandbox). Under it, sbx only, a
   multi-select ""ports"" row offers each discovered dev
   port, all unticked. _spec/internal/devports/dev-ports.puml
 end note

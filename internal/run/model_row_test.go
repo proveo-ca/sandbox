@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
@@ -160,16 +161,23 @@ func TestModelBuildLivesInTheHint(t *testing.T) {
 		t.Fatal("no model row")
 	}
 	for _, opt := range r.Options {
-		if strings.Contains(opt, "GGUF") || strings.Contains(opt, "MLX") {
-			t.Errorf("build leaked into the option %q", opt)
+		if strings.Contains(opt, "GGUF") || strings.Contains(opt, "MLX") || strings.Contains(opt, "27B") || strings.Contains(opt, "30B") {
+			t.Errorf("build or size leaked into the option %q", opt)
+		}
+		if n := utf8.RuneCountInString(opt); n > 10 {
+			t.Errorf("option %q is %d runes, want at most 10", opt, n)
 		}
 	}
 	if cols := []int{0, 1, 3}; !slices.Equal(r.Cols, cols) {
-		t.Errorf("cols = %v, want %v (subscription's column stays empty)", r.Cols, cols)
+		t.Errorf("cols = %v, want %v (plan's column stays empty)", r.Cols, cols)
 	}
 	h := r.Help[qwen.label()]
-	if !strings.Contains(h, qwen.buildFor(ollamaPlatform())) {
-		t.Errorf("hint = %q, want the %s build", h, qwen.buildFor(ollamaPlatform()))
+	if !strings.Contains(h, "27B") || !strings.Contains(h, qwen.buildFor(ollamaPlatform())) {
+		t.Errorf("hint = %q, want 27B and the %s build", h, qwen.buildFor(ollamaPlatform()))
+	}
+	g := r.Help[glimmer.label()]
+	if !strings.Contains(g, "Muse Glimmer") || !strings.Contains(g, "30B") {
+		t.Errorf("hint = %q, want Muse Glimmer and 30B", g)
 	}
 }
 
@@ -186,7 +194,7 @@ func TestSourceRowMergesThePlanAndTheLocalModels(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode got no source row")
 	}
-	want := []string{qwen.label(), modelAPIKeys, credentials.AuthSubscription, glimmer.label()}
+	want := []string{qwen.label(), modelAPIKeys, modelPlan, glimmer.label()}
 	if r.Label != rowModel || !slices.Equal(r.Options, want) {
 		t.Errorf("row %q = %v, want %q = %v", r.Label, r.Options, rowModel, want)
 	}
@@ -196,8 +204,8 @@ func TestSourceRowMergesThePlanAndTheLocalModels(t *testing.T) {
 	if len(r.Off) != len(r.Options) || r.Help[qwen.label()] == "" || r.Help[modelAPIKeys] == "" {
 		t.Errorf("merged row lost its gates or help: off=%v help=%v", r.Off, r.Help)
 	}
-	if got := r.Options[r.Selected]; got != credentials.AuthSubscription {
-		t.Errorf("with a plan available the row opens on %q, want subscription", got)
+	if got := r.Options[r.Selected]; got != modelPlan {
+		t.Errorf("with a plan available the row opens on %q, want %q", got, modelPlan)
 	}
 
 	r, _ = sourceFor(t, opencodeMan(), keys, "qwen3.8:latest")
@@ -234,7 +242,7 @@ func TestApplySourceSetsLocalModelAndAuthTogether(t *testing.T) {
 	if p.LocalModel != qwen.tag() || p.AuthVar != credentials.AuthLocal {
 		t.Errorf("local on a plan harness: model=%q auth=%q", p.LocalModel, p.AuthVar)
 	}
-	p.applySource(credentials.AuthSubscription, true)
+	p.applySource(modelPlan, true)
 	if p.LocalModel != "" || p.AuthVar != credentials.AuthSubscription {
 		t.Errorf("subscription must clear the local model: model=%q auth=%q", p.LocalModel, p.AuthVar)
 	}

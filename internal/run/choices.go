@@ -63,8 +63,11 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 			Radio: label == rowExecution,
 			On:    p.addonDefaults(opts), Help: addonHelpFor(man),
 		}
-		if label == rowInterface {
+		switch label {
+		case rowInterface:
 			row = layoutInterface(row)
+		case rowExecution:
+			row = layoutExecution(row)
 		}
 		form.Rows = append(form.Rows, applicableRows(row)...)
 		if label == rowExecution {
@@ -224,7 +227,7 @@ func evidenceRow(current string) choiceui.Row {
 	if current == EvidenceVerbose {
 		sel = 1
 	}
-	return choiceui.Row{Label: evidenceLabel, Options: opts, Selected: sel}
+	return pinCols(choiceui.Row{Label: evidenceLabel, Options: opts, Selected: sel}, evidenceColumn)
 }
 
 func orElseFirst(v string, opts []string) string {
@@ -356,6 +359,26 @@ func credentialColumn(name string) int {
 	return 0
 }
 
+func executionColumn(name string) int {
+	if name == addonSandbox {
+		return 1
+	}
+	return 0
+}
+
+func layoutExecution(r choiceui.Row) choiceui.Row {
+	r = pinCols(r, executionColumn)
+	r.Paint = map[string]string{addonSandbox: "sandbox"}
+	return r
+}
+
+func evidenceColumn(name string) int {
+	if name == EvidenceVerbose {
+		return 1
+	}
+	return 0
+}
+
 func interfaceColumn(name string) int {
 	switch name {
 	case addonTUI:
@@ -389,6 +412,7 @@ func layoutInterface(r choiceui.Row) choiceui.Row {
 		items[i] = item{opt, on, col}
 	}
 	slices.SortStableFunc(items, func(a, b item) int { return cmp.Compare(a.col, b.col) })
+	r.Paint = map[string]string{addonChrome: "chrome"}
 	r.Options = make([]string, len(items))
 	r.On = make([]bool, len(items))
 	r.Cols = make([]int, len(items))
@@ -527,7 +551,7 @@ func portsRow(found []devports.Candidate, chosen []devports.Candidate) (choiceui
 		}
 		r.Help[opt] = fmt.Sprintf("publish sandbox :%d to this host's loopback — %q in %s, %s", c.Port, c.Command, c.Source, how)
 	}
-	return r, true
+	return pinSequence(r), true
 }
 
 // appsRow offers each Android application module for build + install + launch on the host emulator.
@@ -542,7 +566,15 @@ func appsRow(found []devports.AndroidApp, chosen []devports.AndroidApp) (choiceu
 		r.On = append(r.On, slices.ContainsFunc(chosen, func(x devports.AndroidApp) bool { return x.Module == a.Module }))
 		r.Help[opt] = fmt.Sprintf("once the sandbox toolchain is ready: gradle %s, adb install, then launch %s on the host emulator — %s", a.Task(), a.AppID, a.Source)
 	}
-	return r, true
+	return pinSequence(r), true
+}
+
+func pinSequence(r choiceui.Row) choiceui.Row {
+	r.Cols = make([]int, len(r.Options))
+	for i := range r.Options {
+		r.Cols[i] = i
+	}
+	return r
 }
 
 const appsNeedAndroid = "needs [x] android under interface: the install goes to the emulator that add-on boots"

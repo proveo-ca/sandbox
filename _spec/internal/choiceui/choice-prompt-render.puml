@@ -51,8 +51,9 @@ skinparam noteTextAlignment left
 ' :512-518): a clone of addonHelp — the shared map is never edited — whose
 ' sandbox line, for a `daemon: false` harness (hermes), reads "a microVM (sbx)
 ' with no Docker daemon for the agent — the boundary every run on this harness
-' gets" instead of "a microVM with its own Docker daemon (sbx) — …". The label
-' stays "docker (sandbox)". TestThePickerPromisesADaemonOnlyWhereTheManifestDoes
+' gets" instead of "a microVM with its own Docker daemon (sbx) — …". The option
+' value stays "docker (sandbox)"; the column paints "sandbox".
+' TestThePickerPromisesADaemonOnlyWhereTheManifestDoes
 ' (run_test.go:867) pins both texts and the untouched shared map.
 '
 ' HISTORY: the egress axis was chosen by AVAILABILITY, not by the add-on.

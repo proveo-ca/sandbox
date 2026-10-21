@@ -121,7 +121,7 @@ func (r *Row) rightEdge() int {
 			if j < len(r.Cols) {
 				col = r.Cols[j]
 			}
-			if end := optOrigin + col*colPitch + textWidth("( ) "+opt); end > x {
+			if end := optOrigin + col*colPitch + textWidth("( ) "+r.columnText(opt)); end > x {
 				x = end
 			}
 		}
@@ -129,7 +129,7 @@ func (r *Row) rightEdge() int {
 	}
 	opts := optOrigin
 	for _, opt := range r.Options {
-		opts += 4 + len(opt) + 3
+		opts += textWidth("( ) "+r.columnText(opt)) + 3
 	}
 	if opts > x {
 		x = opts

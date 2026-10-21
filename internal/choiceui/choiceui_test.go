@@ -642,8 +642,10 @@ func TestStaticColumnsDoNotSlide(t *testing.T) {
 	f := &Form{Rows: []Row{
 		{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Cols: []int{0, 2, 3}, Selected: 0, Locked: true},
 		{Label: "credentials", Options: []string{"forward", "broker"}, Cols: []int{0, 3}, Selected: 1},
-		{Label: "model", Options: []string{"Qwen 3.8 27B", "API keys", "subscription", "Muse Glimmer 30B"}, Cols: []int{0, 1, 2, 3}, Selected: 1},
+		{Label: "model", Options: []string{"Qwen 3.8", "API keys", "plan", "Glimmer"}, Cols: []int{0, 1, 2, 3}, Selected: 1},
+		{Label: "OS", Options: []string{"host", "sandbox"}, Cols: []int{0, 1}, Multi: true, Radio: true, On: []bool{false, true}},
 		{Label: "interface", Options: []string{"tui", "browser", "android", "ios"}, Cols: []int{0, 1, 2, 3}, Multi: true, Divider: true, On: []bool{true, false, false, false}},
+		{Label: "outputs", Options: []string{"filtered", "verbose"}, Cols: []int{0, 1}, Selected: 1},
 	}}
 	lines := render(t, f)
 	line := func(needle string) string {
@@ -680,18 +682,29 @@ func TestStaticColumnsDoNotSlide(t *testing.T) {
 		t.Errorf("broker and deny-all are both column 4 and must share an x")
 	}
 	model := line("API keys")
-	qwen := at(model, "Qwen 3.8 27B")
+	qwen := at(model, "Qwen 3.8")
 	for _, c := range []struct {
 		name string
 		col  int
 	}{
 		{"API keys", 1},
-		{"subscription", 2},
-		{"Muse Glimmer 30B", 3},
+		{"plan", 2},
+		{"Glimmer", 3},
 	} {
 		if got := at(model, c.name); got != qwen+c.col*colPitch {
 			t.Errorf("%s at %d, want column %d", c.name, got, c.col+1)
 		}
+	}
+	osRow := line("sandbox")
+	if at(osRow, "host") != allow {
+		t.Errorf("host at %d, allow-all at %d, want the same column", at(osRow, "host"), allow)
+	}
+	if at(osRow, "sandbox") != qwen+colPitch {
+		t.Errorf("sandbox at %d, want column 2", at(osRow, "sandbox"))
+	}
+	outputs := line("filtered")
+	if at(outputs, "filtered") != allow || at(outputs, "verbose") != at(osRow, "sandbox") {
+		t.Errorf("outputs drifted off the grid: %q", outputs)
 	}
 	iface := line("[x] tui")
 	tui := at(iface, "tui")
@@ -713,6 +726,22 @@ func TestStaticColumnsDoNotSlide(t *testing.T) {
 	legend := line("safer")
 	if got := at(legend, "safer"); got != optOrigin+3*colPitch {
 		t.Errorf("safer legend at %d, want column 4 at %d", got, optOrigin+3*colPitch)
+	}
+}
+
+func TestColumnTextCapsAtTenRunes(t *testing.T) {
+	t.Parallel()
+	r := Row{
+		Paint: map[string]string{"docker (sandbox)": "sandbox"},
+	}
+	if got := r.columnText("docker (sandbox)"); got != "sandbox" {
+		t.Errorf("paint = %q, want sandbox", got)
+	}
+	if got := r.columnText("6006 storybook"); utf8.RuneCountInString(got) != columnRunes {
+		t.Errorf("clip = %q, want %d runes", got, columnRunes)
+	}
+	if got := r.columnText("API keys"); got != "API keys" {
+		t.Errorf("a short cell must stay whole, got %q", got)
 	}
 }
 

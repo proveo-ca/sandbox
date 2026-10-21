@@ -90,6 +90,7 @@ func TestTheCursorsRowIsAlwaysPainted(t *testing.T) {
 				continue // it said so, loudly, which is the contract down here
 			}
 			opts := f.Rows[cursor].Options
+			cell := f.Rows[cursor].columnText(opts[len(opts)-1])
 			hint := len(rows)
 			for y, line := range rows {
 				if strings.Contains(line, "enter accept") {
@@ -98,7 +99,7 @@ func TestTheCursorsRowIsAlwaysPainted(t *testing.T) {
 			}
 			marked := false
 			for _, line := range rows[:hint] {
-				if strings.Contains(line, "› ") && strings.Contains(line, opts[len(opts)-1]) {
+				if strings.Contains(line, "› ") && strings.Contains(line, cell) {
 					marked = true
 				}
 			}

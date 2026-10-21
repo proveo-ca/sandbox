@@ -15,21 +15,22 @@ import (
 const (
 	rowModel     = "model"
 	modelAPIKeys = "API keys"
+	modelPlan    = "plan"
 )
 
 // localModel is one row choice: repo claims any of its tags, tags and builds pick this host's build.
 type localModel struct {
-	name, repo, short string            // short is the name the topology box prints
-	tags              map[string]string // "goos/goarch" → Ollama tag; "" = every other host
-	builds            map[string]string // "goos/goarch" → label suffix naming that build; "" = every other host
+	name, repo, short, size string // short is the topology box; size is the hint, not the cell
+	tags                    map[string]string
+	builds                  map[string]string
 }
 
 // localModels are the row's local choices in order.
 var localModels = []localModel{
-	{"Qwen 3.8 27B", "qwen3.8", "qwen3.8",
+	{"Qwen 3.8", "qwen3.8", "qwen3.8", "27B",
 		map[string]string{"darwin/arm64": "qwen3.8:27b-mlx", "": "qwen3.8:latest"},
 		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
-	{"Muse Glimmer 30B", "muse-glimmer", "glimmer",
+	{"Glimmer", "muse-glimmer", "glimmer", "30B",
 		map[string]string{"darwin/arm64": "muse-glimmer:30b-mlx", "": "muse-glimmer:latest"},
 		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
 }
@@ -80,11 +81,22 @@ func modelHelp(localModel string) map[string]string {
 	return h
 }
 
-func modelHint(m localModel, rest string) string {
-	if b := m.buildFor(ollamaPlatform()); b != "" {
-		return b + ", " + rest
+func (m localModel) hintLead() string {
+	if m.repo == "muse-glimmer" {
+		return "Muse Glimmer " + m.size
 	}
-	return rest
+	if m.size != "" {
+		return m.size
+	}
+	return m.name
+}
+
+func modelHint(m localModel, rest string) string {
+	lead := m.hintLead()
+	if b := m.buildFor(ollamaPlatform()); b != "" {
+		lead += ", " + b
+	}
+	return lead + ", " + rest
 }
 
 // noLocalModel names the harnesses whose inference is vendor-pinned.
@@ -100,7 +112,7 @@ func modelRiskRank(opt string) int {
 		return 0
 	case opt == modelAPIKeys:
 		return 1
-	case opt == credentials.AuthSubscription:
+	case opt == credentials.AuthSubscription || opt == modelPlan:
 		return 2
 	case len(localModels) > 1 && opt == localModels[1].label():
 		return 3
@@ -198,6 +210,7 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 	r := auth
 	r.Label = rowModel
 	renameOption(&r, credentials.AuthUsage, modelAPIKeys)
+	renameOption(&r, credentials.AuthSubscription, modelPlan)
 	if !hasLocal {
 		sortModelRow(&r)
 		return r, true
@@ -281,7 +294,7 @@ func renameOption(r *choiceui.Row, from, to string) {
 
 // isLocalOption reports whether a source-row option names a local model.
 func isLocalOption(v string) bool {
-	return v != modelAPIKeys && !credentials.IsAuthSentinel(v)
+	return v != modelAPIKeys && v != modelPlan && !credentials.IsAuthSentinel(v)
 }
 
 // applySource records a source-row answer as --local-model and, on a harness with a plan, the auth answer.
@@ -299,6 +312,8 @@ func (p *Params) applySource(v string, hasAuth bool) {
 	switch {
 	case v == modelAPIKeys && hasAuth:
 		p.AuthVar = credentials.AuthUsage
+	case v == modelPlan:
+		p.AuthVar = credentials.AuthSubscription
 	case v != modelAPIKeys:
 		p.AuthVar = v
 	}
@@ -309,7 +324,7 @@ func modelShort(option string) string {
 	switch option {
 	case "", modelAPIKeys, credentials.AuthUsage:
 		return ""
-	case credentials.AuthSubscription:
+	case credentials.AuthSubscription, modelPlan:
 		return "plan"
 	}
 	for _, m := range localModels {

@@ -82,6 +82,25 @@ func TestInterfaceColumnsStayPutWhenOneIsMissing(t *testing.T) {
 	if !slices.Equal(full.Options, want) || !slices.Equal(full.Cols, []int{0, 1, 2, 3, 4}) {
 		t.Errorf("full = %v cols %v, want %v", full.Options, full.Cols, want)
 	}
+	if full.Paint[addonChrome] != "chrome" {
+		t.Errorf("chrome cell = %q, want chrome", full.Paint[addonChrome])
+	}
+}
+
+func TestExecutionOutputsAndPortsUseTheColumnGrid(t *testing.T) {
+	t.Parallel()
+	exec := layoutExecution(choiceui.Row{Options: executionOptions()})
+	if !slices.Equal(exec.Cols, []int{0, 1}) || exec.Paint[addonSandbox] != "sandbox" {
+		t.Errorf("execution cols %v paint %v, want host at 0, sandbox at 1", exec.Cols, exec.Paint)
+	}
+	out := evidenceRow("")
+	if !slices.Equal(out.Cols, []int{0, 1}) {
+		t.Errorf("outputs cols = %v, want filtered at 0 and verbose at 1", out.Cols)
+	}
+	ports, ok := portsRow(foundPorts, nil)
+	if !ok || !slices.Equal(ports.Cols, []int{0, 1}) {
+		t.Errorf("ports cols = %v ok=%v, want 0, 1", ports.Cols, ok)
+	}
 }
 
 func TestFormSelectedBrokerSurvivesAForwardOnlyManifestOnSbx(t *testing.T) {
