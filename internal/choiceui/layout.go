@@ -2,9 +2,9 @@
 package choiceui
 
 const (
-	stripRows  = figureRows + 1 // the figure, plus a blank separating it from the help
-	stripCols  = 72             // the narrowest terminal the figure is drawn on
-	digestRows = 2              // one blank, the caption alone
+	stripRows  = figureRows + 1             // the figure, plus a blank separating it from the help
+	stripCols  = 72 + hostPad + (boxW - 30) // the narrowest terminal the figure is drawn on
+	digestRows = 2                          // one blank, the caption alone
 )
 
 type stripFit int
@@ -101,7 +101,7 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 			room = false // the figure did not fit, so nothing below it may
 		}
 	}
-	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+1)
+	lay.banner = step(len(f.Banner) > 0, len(f.Banner)+2)
 
 	lay.body = lines
 	if deficit := need - h; deficit > 0 {
@@ -114,10 +114,22 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 const paneGutter = 2
 
 func (r *Row) rightEdge() int {
-	x := bodyIndent + len("  "+r.Label)
-	opts := bodyIndent + 22
+	x := optOrigin
+	if len(r.Cols) > 0 {
+		for j, opt := range r.Options {
+			col := j
+			if j < len(r.Cols) {
+				col = r.Cols[j]
+			}
+			if end := optOrigin + col*colPitch + textWidth("( ) "+r.columnText(opt)); end > x {
+				x = end
+			}
+		}
+		return x
+	}
+	opts := optOrigin
 	for _, opt := range r.Options {
-		opts += 4 + len(opt) + 3
+		opts += textWidth("( ) "+r.columnText(opt)) + 3
 	}
 	if opts > x {
 		x = opts

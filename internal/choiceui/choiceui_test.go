@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -48,11 +49,68 @@ func TestBannerRendersOnTop(t *testing.T) {
 	if lines[0] != strings.TrimRight(want, " ") {
 		t.Errorf("first line = %q, want ui.BrandBanner's first line %q", lines[0], want)
 	}
-	if !strings.Contains(joined(t, f), ui.BrandTagline) {
+	got := joined(t, f)
+	if !strings.Contains(got, "S O L U T I O N S") || !strings.Contains(got, "pr●veo") {
+		t.Error("the solutions banner must render with the form")
+	}
+	if !strings.Contains(got, ui.BrandTagline) {
 		t.Error("the brand tagline must render with the banner")
 	}
+	assertHelpHeader(t, f)
 	if !strings.Contains(joined(t, f), "run opencode") {
 		t.Error("title must render below the banner")
+	}
+}
+
+func assertHelpHeader(t *testing.T, f *Form) {
+	t.Helper()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 40)
+	f.draw(s, f.firstSelectable(), 0)
+
+	brand := tcell.NewHexColor(int32(ui.ColorBrand))
+	body := tcell.NewHexColor(int32(ui.ColorSecondary))
+	box := strings.Split(ui.BrandBanner, "\n")
+	for x := 0; x < 80; x++ {
+		if r, _, _, _ := s.GetContent(x, 0); r != ' ' && r != 0 {
+			t.Fatalf("row 0 col %d is %q, help opens with a blank line", x, string(r))
+		}
+	}
+	for i, line := range box {
+		assertBannerLine(t, s, i+1, line, brand, true)
+	}
+	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, body, false)
+	for x := 0; x < 80; x++ {
+		if r, _, _, _ := s.GetContent(x, len(box)+2); r != ' ' && r != 0 {
+			t.Fatalf("row %d col %d is %q, help closes the header with a blank line", len(box)+2, x, string(r))
+		}
+	}
+}
+
+func assertBannerLine(t *testing.T, s tcell.Screen, y int, line string, fg tcell.Color, bold bool) {
+	t.Helper()
+	x := 0
+	for _, r := range line {
+		got, _, style, _ := s.GetContent(x, y)
+		if got != r {
+			t.Errorf("row %d col %d = %q, want %q", y, x, string(got), string(r))
+		}
+		gfg, _, attrs := style.Decompose()
+		if gfg != fg {
+			t.Errorf("row %d col %d color %v, want %v", y, x, gfg, fg)
+		}
+		if gotBold := attrs&tcell.AttrBold != 0; gotBold != bold {
+			t.Errorf("row %d col %d bold=%v, want %v", y, x, gotBold, bold)
+		}
+		w := runeCols(r)
+		if w < 1 {
+			w = 1
+		}
+		x += w
 	}
 }
 
@@ -73,7 +131,11 @@ func TestHeaderShowsGitAndEnvWithSecretsByNameOnly(t *testing.T) {
 func TestEnvHeaderNeverPrintsASecretValue(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-do-not-render-this"
-	lines := EnvHeader([]string{"ANTHROPIC_API_KEY"}, map[string]string{"DARK_MODE": "1"})
+	lines := EnvHeader([]string{"ANTHROPIC_API_KEY"}, map[string]string{
+		"DARK_MODE":       "true",
+		"CODE_THEME":      "one-dark",
+		"ARCHITECT_MODEL": "claude-opus-5",
+	})
 	all := strings.Join(lines, "\n")
 	if strings.Contains(all, secret) {
 		t.Fatalf("EnvHeader leaked a secret value:\n%s", all)
@@ -81,8 +143,14 @@ func TestEnvHeaderNeverPrintsASecretValue(t *testing.T) {
 	if !strings.Contains(all, "ANTHROPIC_API_KEY") {
 		t.Error("secret keys must still be listed by name")
 	}
-	if !strings.Contains(all, "DARK_MODE=1") {
-		t.Error("non-secret settings must show their value")
+	if strings.Contains(all, "one-dark") || strings.Contains(all, "DARK_MODE=true") || strings.Contains(all, "CODE_THEME=") {
+		t.Errorf("theme settings must keep the name and drop the value:\n%s", all)
+	}
+	if !strings.Contains(all, "CODE_THEME") || !strings.Contains(all, "DARK_MODE") {
+		t.Errorf("theme settings must still be named:\n%s", all)
+	}
+	if !strings.Contains(all, "ARCHITECT_MODEL=claude-opus-5") {
+		t.Error("a model setting must show its value")
 	}
 }
 
@@ -367,7 +435,7 @@ func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	// rule could not express.
 	two := &Form{Rows: []Row{
 		{Label: "execution", Options: []string{"host", "docker (sandbox)"}, Multi: true, Divider: true, On: make([]bool, 2)},
-		{Label: "interface", Options: []string{"tui (this session)", "browser"}, Multi: true, Divider: true, On: make([]bool, 2)},
+		{Label: "interface", Options: []string{"tui", "browser"}, Multi: true, Divider: true, On: make([]bool, 2)},
 	}}
 	got := strings.Join(render(t, two), "\n")
 	for _, want := range []string{"─ execution ─", "─ interface ─"} {
@@ -566,6 +634,227 @@ func TestOverlongReasonWrapsInTheHelpBlock(t *testing.T) {
 	}
 	if got := clip("abc", 9); got != "abc" {
 		t.Errorf("clip must leave text that fits alone, got %q", got)
+	}
+}
+
+func TestRowNamesOccupySixteenColumns(t *testing.T) {
+	t.Parallel()
+	if labelWidth != 16 {
+		t.Fatalf("labelWidth = %d, want 16", labelWidth)
+	}
+	f := &Form{Rows: []Row{
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
+		{Label: "credentials-and-then-some", Options: []string{"forward"}, Selected: 0},
+	}}
+	lines := render(t, f)
+	line := func(n int) string {
+		t.Helper()
+		var seen int
+		for _, l := range lines {
+			if strings.Contains(l, "forward") {
+				if seen == n {
+					return l
+				}
+				seen++
+			}
+		}
+		t.Fatalf("forward line %d missing:\n%s", n, strings.Join(lines, "\n"))
+		return ""
+	}
+	at := func(l, needle string) int {
+		t.Helper()
+		i := strings.Index(l, needle)
+		if i < 0 {
+			t.Fatalf("%q missing from %q", needle, l)
+		}
+		return utf8.RuneCountInString(l[:i])
+	}
+	creds := line(0)
+	if got := at(creds, "( ) "); got != optOrigin {
+		t.Errorf("first option at %d, want the name column to end at %d:\n%s", got, optOrigin, creds)
+	}
+	name := string([]rune(creds)[:optOrigin])
+	if !strings.Contains(name, "credentials") {
+		t.Errorf("the name left its column:\n%s", creds)
+	}
+	long := line(1)
+	if got := at(long, "(•) "); got != optOrigin {
+		t.Errorf("a long name reached the option, glyph at %d:\n%s", got, long)
+	}
+	if !strings.HasSuffix(string([]rune(long)[:optOrigin]), "…") {
+		t.Errorf("a name past the column must clip:\n%s", long)
+	}
+}
+
+func TestStaticColumnsDoNotSlide(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Cols: []int{0, 2, 3}, Selected: 0, Locked: true},
+		{Label: "credentials", Options: []string{"forward", "broker"}, Cols: []int{0, 3}, Selected: 1},
+		{Label: "model", Options: []string{"Qwen 3.8", "API keys", "plan", "Glimmer"}, Cols: []int{0, 1, 2, 3}, Selected: 1},
+		{Label: "OS", Options: []string{"host", "sandbox"}, Cols: []int{0, 1}, Multi: true, Radio: true, On: []bool{false, true}},
+		{Label: "interface", Options: []string{"tui", "browser", "android", "ios"}, Cols: []int{0, 1, 2, 3}, Multi: true, Divider: true, On: []bool{true, false, false, false}},
+		{Label: "outputs", Options: []string{"filtered", "verbose"}, Cols: []int{0, 1}, Selected: 1},
+	}}
+	lines := render(t, f)
+	line := func(needle string) string {
+		t.Helper()
+		for _, l := range lines {
+			if strings.Contains(l, needle) {
+				return l
+			}
+		}
+		t.Fatalf("no line contains %q:\n%s", needle, strings.Join(lines, "\n"))
+		return ""
+	}
+	at := func(l, needle string) int {
+		t.Helper()
+		i := strings.Index(l, needle)
+		if i < 0 {
+			t.Fatalf("%q missing from %q", needle, l)
+		}
+		return utf8.RuneCountInString(l[:i])
+	}
+	egress := line("allow-all")
+	allow := at(egress, "allow-all")
+	if got := at(egress, "balanced"); got != allow+2*colPitch {
+		t.Errorf("balanced at %d, want %d (column 3, with column 2 empty)", got, allow+2*colPitch)
+	}
+	if got := at(egress, "deny-all"); got != allow+3*colPitch {
+		t.Errorf("deny-all at %d, want %d", got, allow+3*colPitch)
+	}
+	creds := line("forward")
+	if got := at(creds, "broker"); got != at(creds, "forward")+3*colPitch {
+		t.Errorf("broker at %d, forward at %d, want three columns apart", got, at(creds, "forward"))
+	}
+	if at(creds, "broker") != at(egress, "deny-all") {
+		t.Errorf("broker and deny-all are both column 4 and must share an x")
+	}
+	model := line("API keys")
+	qwen := at(model, "Qwen 3.8")
+	for _, c := range []struct {
+		name string
+		col  int
+	}{
+		{"API keys", 1},
+		{"plan", 2},
+		{"Glimmer", 3},
+	} {
+		if got := at(model, c.name); got != qwen+c.col*colPitch {
+			t.Errorf("%s at %d, want column %d", c.name, got, c.col+1)
+		}
+	}
+	osRow := line("sandbox")
+	if at(osRow, "host") != allow {
+		t.Errorf("host at %d, allow-all at %d, want the same column", at(osRow, "host"), allow)
+	}
+	if at(osRow, "sandbox") != qwen+colPitch {
+		t.Errorf("sandbox at %d, want column 2", at(osRow, "sandbox"))
+	}
+	outputs := line("filtered")
+	if at(outputs, "filtered") != allow || at(outputs, "verbose") != at(osRow, "sandbox") {
+		t.Errorf("outputs drifted off the grid: %q", outputs)
+	}
+	iface := line("[x] tui")
+	tui := at(iface, "tui")
+	for _, c := range []struct {
+		name string
+		col  int
+	}{
+		{"browser", 1},
+		{"android", 2},
+		{"ios", 3},
+	} {
+		if got := at(iface, c.name); got != tui+c.col*colPitch {
+			t.Errorf("%s at %d, want column %d", c.name, got, c.col+1)
+		}
+	}
+	if tui != allow {
+		t.Errorf("tui at %d, allow-all at %d, want the same column", tui, allow)
+	}
+	legend := line("safer")
+	if got := at(legend, "safer"); got != optOrigin+3*colPitch {
+		t.Errorf("safer legend at %d, want column 4 at %d", got, optOrigin+3*colPitch)
+	}
+}
+
+func TestMoreDrawsUnderTheFourthColumn(t *testing.T) {
+	t.Parallel()
+	row := Row{
+		Label: "ports", Multi: true, Selected: 3,
+		Options: []string{"3000 next", "5173 vite", "8080 web", "...More"},
+		Cols:    []int{0, 1, 2, 3},
+		On:      []bool{false, false, false, true},
+		More:    &More{Cell: 3, Options: []string{"4000 jekyll", "1313 hugo"}, On: []bool{true, false}},
+		Help:    map[string]string{"4000 jekyll": "the jekyll server"},
+	}
+	lines := render(t, &Form{Rows: []Row{row}})
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"...More", "4000 jekyll", "1313 hugo", "› 4000 jekyll — the jekyll server"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q\n%s", want, joined)
+		}
+	}
+	at := func(needle string) int {
+		t.Helper()
+		for _, l := range lines {
+			if i := strings.Index(l, needle); i >= 0 && strings.Contains(l, "ports") {
+				return utf8.RuneCountInString(l[:i])
+			}
+		}
+		t.Fatalf("%q missing from the ports row\n%s", needle, joined)
+		return 0
+	}
+	if got := at("...More") - at("3000 next"); got != 3*colPitch {
+		t.Errorf("...More is %d from the first port, want %d", got, 3*colPitch)
+	}
+	row.Selected = 0
+	closed := strings.Join(render(t, &Form{Rows: []Row{row}}), "\n")
+	if strings.Contains(closed, "4000 jekyll") {
+		t.Errorf("the list stays up when another cell is selected\n%s", closed)
+	}
+}
+
+func TestMoreListMovesAndTicks(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{{
+		Label: "ports", Multi: true, Selected: 3,
+		Options: []string{"3000 next", "5173 vite", "8080 web", "...More"},
+		On:      []bool{false, false, false, true},
+		More:    &More{Cell: 3, Options: []string{"4000 jekyll", "1313 hugo"}, On: []bool{true, false}},
+	}}}
+	down := tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+	space := tcell.NewEventKey(tcell.KeyRune, ' ', tcell.ModNone)
+	if !f.moreKey(0, down) || f.Rows[0].More.At != 1 {
+		t.Fatalf("down left the cursor at %d", f.Rows[0].More.At)
+	}
+	if !f.moreKey(0, space) || !f.Rows[0].More.On[1] || !f.Rows[0].On[3] {
+		t.Fatalf("space ticks = %v cell %v", f.Rows[0].More.On, f.Rows[0].On)
+	}
+	if f.moreKey(0, down) {
+		t.Fatal("down on the last item stayed inside the list")
+	}
+	f.moreKey(0, space)
+	f.Rows[0].More.At = 0
+	f.moreKey(0, space)
+	if got := f.Selections("ports"); len(got) != 0 {
+		t.Errorf("selections = %v, want none — ...More is not a port", got)
+	}
+}
+
+func TestColumnTextCapsAtTenRunes(t *testing.T) {
+	t.Parallel()
+	r := Row{
+		Paint: map[string]string{"docker (sandbox)": "sandbox"},
+	}
+	if got := r.columnText("docker (sandbox)"); got != "sandbox" {
+		t.Errorf("paint = %q, want sandbox", got)
+	}
+	if got := r.columnText("6006 storybook"); utf8.RuneCountInString(got) != columnRunes {
+		t.Errorf("clip = %q, want %d runes", got, columnRunes)
+	}
+	if got := r.columnText("API keys"); got != "API keys" {
+		t.Errorf("a short cell must stay whole, got %q", got)
 	}
 }
 

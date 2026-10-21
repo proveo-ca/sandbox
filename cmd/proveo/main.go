@@ -96,8 +96,9 @@ func rootCmd() *cobra.Command {
 	root.Flags().BoolVar(&flagLS, "ls", false, "List available harness targets")
 	root.Flags().BoolVar(&flagInit, "init", false, "Install and sign in to the sbx backend proveo runs on")
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { renderHelp(cmd.OutOrStdout(), cmd) })
-	root.AddCommand(versionCmd(), lsCmd(), runCmd(), scheduleCmd(), projectsCmd(), setupCmd(), initCmd(),
+	root.AddCommand(versionCmd(), lsCmd(), runCmd(), scheduleCmd(), attachCmd(), projectsCmd(), setupCmd(), initCmd(),
 		updateCmd(), uninstallCmd(), cleanCmd(), buildCmd(), deployCmd(), testCmd(), envHelpCmd())
+	addHarnessAliases(root)
 	return root
 }
 
@@ -137,87 +138,181 @@ func doList() error {
 	if err != nil {
 		return err
 	}
-	p := ui.New(os.Stdout)
-	p.Section(ui.SectionTargets)
-	names := sortedKeys(targets)
-	width := 0
-	for _, n := range names {
-		width = max(width, len(n))
-	}
-	for _, name := range names {
-		p.Appf("%-*s  %s", width, name, targets[name])
-	}
+	writeTargets(os.Stdout, targets)
 	return nil
 }
 
-func runCmd() *cobra.Command {
-	var credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
-	var printOnly, contSession, listSessions, cloneMode, yes bool
-	var addons []string
-	cmd := &cobra.Command{
-		Use:   "run <target> [-- args...]",
-		Short: "Run a harness against the current repo",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			target := args[0]
-			targets, err := loadTargets()
-			if err != nil {
-				return err
-			}
-			image, ok := targets[target]
-			if !ok {
-				return fmt.Errorf("unknown target %q (see `proveo ls`)", target)
-			}
-			if imageOverride != "" {
-				image = imageOverride // an explicit --image is a decision, not a default
-			} else {
-				chosen, isLocal := posture.ResolveImageChoice(image)
-				if isLocal {
-					ui.Section(ui.SectionRun)
-					ui.Appf("image: %s (local build — newer than the published tag)", chosen)
-				}
-				image = chosen
-			}
-			credsSet := cmd.Flags().Changed("credentials")
-			if !run.ValidCredentials(credentials) {
-				return fmt.Errorf("invalid --credentials %q (%s)", credentials, strings.Join(run.CredentialModes(), "|"))
-			}
-			resumeArgs, err := proveohome.ResumeArgs(target, resumeID, contSession, listSessions)
-			if err != nil {
-				return err
-			}
-			extra := args[1:]
-			if len(resumeArgs) > 0 {
-				extra = append(append([]string{}, resumeArgs...), extra...)
-			}
-			return run.Do(run.Params{
-				Target: target, Image: image, Credentials: credentials,
-				CredsSet: credsSet, LocalModel: localModel,
-				Input: input, Output: output, Scope: scope, DataDir: dataDir,
-				PrintOnly: printOnly, Extra: extra,
-				Clone: cloneMode, CloneSet: cmd.Flags().Changed("clone"),
-				Addons: addons, AddonsSet: cmd.Flags().Changed("addon"), Yes: yes,
-			}, runDeps())
-		},
-	}
-	cmd.Flags().StringVar(&credentials, "credentials", "broker",
+// runFlags are the flags shared by `proveo run` and each harness alias.
+type runFlags struct {
+	credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
+	printOnly, contSession, listSessions, cloneMode, yes                            bool
+	addons                                                                          []string
+}
+
+func (f *runFlags) bind(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&f.credentials, "credentials", "broker",
 		strings.Join(run.CredentialModes(), "|")+" (default broker: sbx's proxy holds the key and attaches it; forward puts it in the sandbox env)")
-	cmd.Flags().StringVar(&localModel, "local-model", "", "Ollama model to serve locally")
-	cmd.Flags().StringVar(&input, "input", "", "input dir to mount read-only (default: cwd)")
-	cmd.Flags().StringVar(&output, "output", "", "output dir to mount read-write (default: <input>/reports)")
-	cmd.Flags().StringVar(&scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
-	cmd.Flags().StringVar(&dataDir, "data-dir", "", "extra directory to mount read-only at /workspace/data")
-	cmd.Flags().StringVar(&imageOverride, "image", "", "override the image for the target")
-	cmd.Flags().BoolVar(&cloneMode, "clone", run.CloneDefault(os.Getenv),
+	cmd.Flags().StringVar(&f.localModel, "local-model", "", "Ollama model to serve locally")
+	cmd.Flags().StringVar(&f.input, "input", "", "input dir to mount read-only (default: cwd)")
+	cmd.Flags().StringVar(&f.output, "output", "", "output dir to mount read-write (default: <input>/reports)")
+	cmd.Flags().StringVar(&f.scope, "scope", "", "monorepo sub-project to open (repo-relative; omit for an interactive picker)")
+	cmd.Flags().StringVar(&f.dataDir, "data-dir", "", "extra directory to mount read-only at /workspace/data")
+	cmd.Flags().StringVar(&f.imageOverride, "image", "", "override the image for the target")
+	cmd.Flags().BoolVar(&f.cloneMode, "clone", run.CloneDefault(os.Getenv),
 		"run the agent on a private in-container CLONE of the repo (sbx backend; default on, PROVEO_CLONE=off flips it): "+
 			"the checkout is never written, host-built dependency trees never cross, and the agent's commits are fetched back "+
 			"at teardown under refs/proveo/<sid>/ — `--clone=false` edits the mounted checkout directly")
-	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
-	cmd.Flags().BoolVar(&contSession, "continue", false, "continue the most recent session for this workspace")
-	cmd.Flags().BoolVar(&listSessions, "ls", false, "list resumable sessions (cursor/claude/codex) and exit into the tool picker")
-	cmd.Flags().BoolVar(&printOnly, "print", false, "write the sbx kit and print the sbx command instead of executing")
-	cmd.Flags().StringArrayVar(&addons, "addon", nil, "interface add-on to enable without the choice form (repeatable): host-chrome, browser, claude-in-chrome")
-	cmd.Flags().BoolVar(&yes, "yes", false, "accept the remembered and flagged choices without drawing the choice form (unattended runs)")
+	cmd.Flags().StringVar(&f.resumeID, "resume", "", "resume a prior agent session by id (harness-specific)")
+	cmd.Flags().BoolVar(&f.contSession, "continue", false, "continue the most recent session for this workspace")
+	cmd.Flags().BoolVar(&f.listSessions, "ls", false, "list resumable sessions (cursor/claude/codex) and exit into the tool picker")
+	cmd.Flags().BoolVar(&f.printOnly, "print", false, "write the sbx kit and print the sbx command instead of executing")
+	cmd.Flags().StringArrayVar(&f.addons, "addon", nil, "interface add-on to enable without the choice form (repeatable): host-chrome, browser, claude-in-chrome")
+	cmd.Flags().BoolVar(&f.yes, "yes", false, "accept the remembered and flagged choices without drawing the choice form (unattended runs)")
+}
+
+// prompts is a terminal with no unattended flag, so a picker may open.
+func (f *runFlags) prompts(cmd *cobra.Command) bool {
+	if f.yes || f.printOnly || f.listSessions || f.resumeID != "" || f.contSession {
+		return false
+	}
+	return stdioInteractive(cmd)
+}
+
+func (f *runFlags) execute(cmd *cobra.Command, target string, extra []string) error {
+	targets, err := loadTargets()
+	if err != nil {
+		return err
+	}
+	image, ok := targets[target]
+	if !ok {
+		return fmt.Errorf("unknown target %q (see `proveo ls`)", target)
+	}
+	if f.imageOverride != "" {
+		image = f.imageOverride // an explicit --image is a decision, not a default
+	} else {
+		chosen, isLocal := posture.ResolveImageChoice(image)
+		if isLocal {
+			ui.Section(ui.SectionRun)
+			ui.Appf("image: %s (local build — newer than the published tag)", chosen)
+		}
+		image = chosen
+	}
+	credsSet := cmd.Flags().Changed("credentials")
+	if !run.ValidCredentials(f.credentials) {
+		return fmt.Errorf("invalid --credentials %q (%s)", f.credentials, strings.Join(run.CredentialModes(), "|"))
+	}
+	resumeArgs, err := proveohome.ResumeArgs(target, f.resumeID, f.contSession, f.listSessions)
+	if err != nil {
+		return err
+	}
+	if len(resumeArgs) > 0 {
+		extra = append(append([]string{}, resumeArgs...), extra...)
+	}
+	return run.Do(run.Params{
+		Target: target, Image: image, Credentials: f.credentials,
+		CredsSet: credsSet, LocalModel: f.localModel,
+		Input: f.input, Output: f.output, Scope: f.scope, DataDir: f.dataDir,
+		PrintOnly: f.printOnly, Extra: extra,
+		Clone: f.cloneMode, CloneSet: cmd.Flags().Changed("clone"),
+		Addons: f.addons, AddonsSet: cmd.Flags().Changed("addon"), Yes: f.yes,
+	}, runDeps())
+}
+
+func runCmd() *cobra.Command {
+	var f runFlags
+	cmd := &cobra.Command{
+		Use:   "run [target] [-- args...]",
+		Short: "Run a harness against the current repo",
+		Long: `With no target, a terminal lists running tasks and the harnesses.
+Picking a running task opens its terminal. Picking a harness starts it.
+Without a terminal the same lists print and proveo stops.
+
+proveo <harness> is proveo run <harness>. When a task is already running
+and no arguments are given, that command lists the running tasks and
+offers to start the harness.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				name, err := f.chooseTarget(cmd)
+				if err != nil || name == "" {
+					return err
+				}
+				return f.execute(cmd, name, nil)
+			}
+			return f.execute(cmd, args[0], args[1:])
+		},
+	}
+	f.bind(cmd)
+	return cmd
+}
+
+// chooseTarget lists running tasks and harnesses. An empty name means the lists were printed.
+func (f *runFlags) chooseTarget(cmd *cobra.Command) (string, error) {
+	targets, err := loadTargets()
+	if err != nil {
+		return "", err
+	}
+	tasks := runningOrNone()
+	if !f.prompts(cmd) {
+		if stdioInteractive(cmd) {
+			return "", fmt.Errorf("no target given (see `proveo ls`)")
+		}
+		writeRunLists(cmd.OutOrStdout(), tasks, targets)
+		return "", nil
+	}
+	got, err := offer(runChoices(tasks, targets), "run> ", "no target selected")
+	if err != nil {
+		return "", err
+	}
+	if got.Attach {
+		return "", attachSession(got.Name, false)
+	}
+	return got.Name, nil
+}
+
+func addHarnessAliases(root *cobra.Command) {
+	targets, err := loadTargets()
+	if err != nil {
+		return
+	}
+	taken := map[string]bool{}
+	for _, c := range root.Commands() {
+		taken[c.Name()] = true
+		for _, a := range c.Aliases {
+			taken[a] = true
+		}
+	}
+	for _, name := range sortedKeys(targets) {
+		if taken[name] {
+			continue
+		}
+		root.AddCommand(harnessCmd(name))
+	}
+}
+
+func harnessCmd(name string) *cobra.Command {
+	var f runFlags
+	cmd := &cobra.Command{
+		Use:   name + " [-- args...]",
+		Short: "Alias for `proveo run " + name + "`",
+		Annotations: map[string]string{
+			"proveo": annHarness,
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 && f.prompts(cmd) {
+				if tasks := runningOrNone(); len(tasks) > 0 {
+					got, err := offer(aliasChoices(name, tasks), name+"> ", "no task selected")
+					if err != nil {
+						return err
+					}
+					if got.Attach {
+						return attachSession(got.Name, false)
+					}
+				}
+			}
+			return f.execute(cmd, name, args)
+		},
+	}
+	f.bind(cmd)
 	return cmd
 }
 

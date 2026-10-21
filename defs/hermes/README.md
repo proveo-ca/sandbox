@@ -28,7 +28,7 @@ compose with this repo's per-sandbox isolated-microVM model.
 
 ## Local models on the model row
 
-The model row picks the source: API keys (an external provider through your keys), Qwen 3.8 27B or
+The model row picks the source, riskier to safer: Qwen 3.8 27B, API keys (an external provider through your keys), or
 Muse Glimmer 30B. Each local option is a `--local-model` value for this host — "… MLX" on macOS arm64
 (`qwen3.8:27b-mlx`, `muse-glimmer:30b-mlx`, 2.6x the generation speed of GGUF measured on an M4 Pro),
 "… GGUF" elsewhere (`qwen3.8:latest`, `muse-glimmer:latest`). On sbx the model runs on **your host's
@@ -39,7 +39,7 @@ not running, or the model would not fit in free memory (`PROVEO_LOCAL_MODEL_FORC
 
 ## Host Chrome (logged-in sites)
 
-Tick **host chrome (CDP)** in the interface row (sbx only). proveo opens Chrome on a dedicated
+Tick **chrome** in the interface row (sbx only). proveo opens Chrome on a dedicated
 profile (`~/Library/Application Support/proveo/host-chrome/hermes` on macOS) with CDP on
 `127.0.0.1:9222` (`PROVEO_HOST_CDP_PORT` overrides), or reuses a browser already serving CDP there.
 Log into the site in that window once; the profile keeps the session across runs. hermes attaches by

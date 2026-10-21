@@ -113,12 +113,30 @@ func TestHelpHighlightsAnIndentedYAMLBlock(t *testing.T) {
 	}
 }
 
+func TestHelpSplitsHarnessAliasesFromCommands(t *testing.T) {
+	t.Parallel()
+	root := &cobra.Command{Use: "proveo", RunE: func(*cobra.Command, []string) error { return nil }}
+	root.AddCommand(
+		&cobra.Command{Use: "run", Short: "Run a harness", Run: func(*cobra.Command, []string) {}},
+		&cobra.Command{Use: "cursor", Short: "Alias for `proveo run cursor`", Annotations: map[string]string{"proveo": annHarness}, Run: func(*cobra.Command, []string) {}},
+	)
+	var b strings.Builder
+	renderHelp(&b, root)
+	out := b.String()
+	runAt := strings.Index(out, "\n  run ")
+	harnessAt := strings.Index(out, "harnesses")
+	cursorAt := strings.Index(out, "\n  cursor ")
+	if runAt < 0 || harnessAt < 0 || cursorAt < 0 || !(runAt < harnessAt && harnessAt < cursorAt) {
+		t.Errorf("harness aliases follow the command list:\n%s", out)
+	}
+}
+
 func TestAttachHelpNamesTheTaskItTakes(t *testing.T) {
 	t.Parallel()
 	var b strings.Builder
 	renderHelp(&b, scheduleAttachCmd())
-	for _, want := range []string{"attach <task>", "key under jobs:", "proveo-sched-<task>",
-		"proveo schedule attach sample-task -r", "Ctrl-b d"} {
+	for _, want := range []string{"attach [task]", "key under jobs:", "proveo-sched-<task>",
+		"proveo schedule attach sample-task -r", "With no task", "Ctrl-b d"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("attach help missing %q:\n%s", want, b.String())
 		}

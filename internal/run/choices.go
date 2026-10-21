@@ -2,6 +2,7 @@
 package run
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -44,6 +45,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
 	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
 		form.Rows = append(form.Rows, r)
+	} else {
+		form.NoAxis = true
 	}
 	found := p.discovered
 	var apps []devports.AndroidApp
@@ -55,11 +58,18 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		if len(opts) == 0 {
 			continue
 		}
-		form.Rows = append(form.Rows, applicableRows(choiceui.Row{
+		row := choiceui.Row{
 			Label: label, Heading: addonHeading[label], Options: opts, Multi: true, Divider: true,
 			Radio: label == rowExecution,
 			On:    p.addonDefaults(opts), Help: addonHelpFor(man),
-		})...)
+		}
+		switch label {
+		case rowInterface:
+			row = layoutInterface(row)
+		case rowExecution:
+			row = layoutExecution(row)
+		}
+		form.Rows = append(form.Rows, applicableRows(row)...)
 		if label == rowExecution {
 			if r, ok := portsRow(found, p.Ports); ok {
 				form.Rows = append(form.Rows, r)
@@ -72,6 +82,15 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		}
 	}
 	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
+	form.StartRow = rowInterface
+	for i := range form.Rows {
+		r := &form.Rows[i]
+		if r.Label != rowInterface {
+			continue
+		}
+		form.StartOption = firstChoice(r)
+		break
+	}
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f, chromeWhy)
 		gateApps(f)
@@ -208,7 +227,7 @@ func evidenceRow(current string) choiceui.Row {
 	if current == EvidenceVerbose {
 		sel = 1
 	}
-	return choiceui.Row{Label: evidenceLabel, Options: opts, Selected: sel}
+	return pinCols(choiceui.Row{Label: evidenceLabel, Options: opts, Selected: sel}, evidenceColumn)
 }
 
 func orElseFirst(v string, opts []string) string {
@@ -244,7 +263,7 @@ func gateAddons(f *choiceui.Form, chromeWhy string) {
 			case addonSandbox:
 				r.Off[j] = true
 				r.On[j] = true
-				r.OffWhy[opt] = "every harness runs in the sandbox and nowhere else"
+				r.OffWhy[opt] = "Mount the current git project in a sandbox for the agent"
 			case addonIOS:
 				r.Off[j] = true
 				r.On[j] = false
@@ -290,6 +309,21 @@ func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen
 	return ""
 }
 
+// firstChoice is the first option on a row the operator can actually change.
+func firstChoice(r *choiceui.Row) string {
+	for _, opt := range r.Options {
+		if opt == addonBrowser {
+			return opt
+		}
+	}
+	for _, opt := range r.Options {
+		if _, fixed := addonFixed[opt]; !fixed {
+			return opt
+		}
+	}
+	return ""
+}
+
 func firstSelectableIn(r *choiceui.Row) int {
 	for i := range r.Options {
 		if i >= len(r.Off) || !r.Off[i] {
@@ -297,6 +331,97 @@ func firstSelectableIn(r *choiceui.Row) int {
 		}
 	}
 	return 0
+}
+
+func pinCols(r choiceui.Row, col func(string) int) choiceui.Row {
+	r.Cols = make([]int, len(r.Options))
+	for i, opt := range r.Options {
+		r.Cols[i] = col(opt)
+	}
+	return r
+}
+
+func egressColumn(name string) int {
+	switch name {
+	case sbx.BaselineBalanced:
+		return 2
+	case sbx.BaselineDenyAll:
+		return 3
+	default:
+		return 0
+	}
+}
+
+func credentialColumn(name string) int {
+	if name == "broker" {
+		return 3
+	}
+	return 0
+}
+
+func executionColumn(name string) int {
+	if name == addonSandbox {
+		return 1
+	}
+	return 0
+}
+
+func layoutExecution(r choiceui.Row) choiceui.Row {
+	r = pinCols(r, executionColumn)
+	r.Paint = map[string]string{addonSandbox: "sandbox"}
+	return r
+}
+
+func evidenceColumn(name string) int {
+	if name == EvidenceVerbose {
+		return 1
+	}
+	return 0
+}
+
+func interfaceColumn(name string) int {
+	switch name {
+	case addonTUI:
+		return 0
+	case addonBrowser:
+		return 1
+	case addonAndroid:
+		return 2
+	case addonIOS:
+		return 3
+	default:
+		return 4
+	}
+}
+
+func layoutInterface(r choiceui.Row) choiceui.Row {
+	type item struct {
+		opt string
+		on  bool
+		col int
+	}
+	used := map[int]bool{}
+	items := make([]item, len(r.Options))
+	for i, opt := range r.Options {
+		col := interfaceColumn(opt)
+		for used[col] {
+			col++
+		}
+		used[col] = true
+		on := i < len(r.On) && r.On[i]
+		items[i] = item{opt, on, col}
+	}
+	slices.SortStableFunc(items, func(a, b item) int { return cmp.Compare(a.col, b.col) })
+	r.Paint = map[string]string{addonChrome: "chrome"}
+	r.Options = make([]string, len(items))
+	r.On = make([]bool, len(items))
+	r.Cols = make([]int, len(items))
+	for i, it := range items {
+		r.Options[i] = it.opt
+		r.On[i] = it.on
+		r.Cols[i] = it.col
+	}
+	return r
 }
 
 func axisRow(label string, all, allowed []string, preselect string) choiceui.Row {
@@ -343,11 +468,15 @@ const changeBaselineHint = "host-wide, not per-run — to change, run on the hos
 var policyBaseline = sbx.PolicyBaseline
 
 func credentialsRow(man manifest.Manifest, mode string) choiceui.Row {
-	r := axisRow("credentials", CredentialModes(), nil, mode)
-	r = comingSoon(r, "forward", "sbx's proxy holds the value; forward is what that guarantee gives up")
-	r.OffWhy = map[string]string{"forward": r.Reason}
+	r := pinCols(axisRow("credentials", CredentialModes(), nil, mode), credentialColumn)
+	r = comingSoon(r, "forward", "sbx's proxy uses Secrets Manager. Away from the VM and the agent, attached in each request")
+	r.Locked = true
+	r.Hover = r.Selected
+	r.Help = map[string]string{
+		"forward": "the key rides the sandbox env, where the agent can read it",
+	}
 	if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
-		r.Help = map[string]string{"broker": man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"}
+		r.Help["broker"] = man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"
 	}
 	return r
 }
@@ -368,7 +497,7 @@ func egressRow() choiceui.Row {
 		}
 	}
 	r.Reason = changeBaselineHint
-	return r
+	return pinCols(r, egressColumn)
 }
 
 func applicableRows(rows ...choiceui.Row) []choiceui.Row {
@@ -383,12 +512,13 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 
 const (
 	rowExecution = "OS"
-	rowInterface = "interface"
+	rowInterface = "devices"
 	rowPorts     = "ports"
+	portsMore    = "...More"
 	rowApps      = "apps"
 
 	addonHost    = "host"
-	addonTUI     = "tui (this session)"
+	addonTUI     = "tui"
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
 	addonChrome  = chromebridge.Addon
@@ -400,7 +530,7 @@ const (
 var addonRows = []string{rowExecution, rowInterface}
 
 // addonHeading names a divider whose group is not named for its row.
-var addonHeading = map[string]string{rowExecution: "execution"}
+var addonHeading = map[string]string{rowExecution: "execution", rowInterface: "interface"}
 
 func scanRoot(input, repoRoot string) string {
 	if input != "" {
@@ -425,7 +555,34 @@ func portsRow(found []devports.Candidate, chosen []devports.Candidate) (choiceui
 		}
 		r.Help[opt] = fmt.Sprintf("publish sandbox :%d to this host's loopback — %q in %s, %s", c.Port, c.Command, c.Source, how)
 	}
-	return r, true
+	if len(r.Options) > 4 {
+		r = foldPorts(r)
+	}
+	return pinSequence(r), true
+}
+
+// foldPorts keeps three ports on the row and puts the rest behind ...More.
+func foldPorts(r choiceui.Row) choiceui.Row {
+	rest := append([]string{}, r.Options[3:]...)
+	restOn := append([]bool{}, r.On[3:]...)
+	r.Options = append(append([]string{}, r.Options[:3]...), portsMore)
+	on := append([]bool{}, r.On[:3]...)
+	r.On = append(on, anyBool(restOn))
+	if r.Help == nil {
+		r.Help = map[string]string{}
+	}
+	r.Help[portsMore] = "the other ports — ↑↓ moves, space ticks"
+	r.More = &choiceui.More{Cell: 3, Options: rest, On: restOn}
+	return r
+}
+
+func anyBool(v []bool) bool {
+	for _, on := range v {
+		if on {
+			return true
+		}
+	}
+	return false
 }
 
 // appsRow offers each Android application module for build + install + launch on the host emulator.
@@ -440,10 +597,18 @@ func appsRow(found []devports.AndroidApp, chosen []devports.AndroidApp) (choiceu
 		r.On = append(r.On, slices.ContainsFunc(chosen, func(x devports.AndroidApp) bool { return x.Module == a.Module }))
 		r.Help[opt] = fmt.Sprintf("once the sandbox toolchain is ready: gradle %s, adb install, then launch %s on the host emulator — %s", a.Task(), a.AppID, a.Source)
 	}
-	return r, true
+	return pinSequence(r), true
 }
 
-const appsNeedAndroid = "needs [x] android under interface: the install goes to the emulator that add-on boots"
+func pinSequence(r choiceui.Row) choiceui.Row {
+	r.Cols = make([]int, len(r.Options))
+	for i := range r.Options {
+		r.Cols[i] = i
+	}
+	return r
+}
+
+const appsNeedAndroid = "needs [x] android under devices: the install goes to the emulator that add-on boots"
 
 // gateApps greys the apps row while android is unticked.
 func gateApps(f *choiceui.Form) {
@@ -500,8 +665,8 @@ var addonFixed = map[string]struct {
 }
 
 var addonHelp = map[string]string{
-	addonHost:    "your own machine, with your files and your credentials — not a place proveo will run an agent",
-	addonTUI:     "this terminal — the agent's transcript and your prompts, for the whole run",
+	addonHost:    "your own machine, with your files and your credentials — not a place proveo recommends for an agent",
+	addonTUI:     "this session — this terminal, the agent's transcript and your prompts, for the whole run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonHostCDP: "the agent drives a dedicated Chrome profile on this host over CDP — log in there once; your everyday profile is never touched",
@@ -596,11 +761,21 @@ func rowTicked(f *choiceui.Form, label, option string) bool {
 	return false
 }
 
+var addonLegacy = map[string]string{
+	"tui (this session)":      addonTUI,
+	"android (host emulator)": addonAndroid,
+	"ios (host simulator)":    addonIOS,
+	"host chrome (CDP)":       addonHostCDP,
+}
+
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
 	for _, a := range addons {
 		if a == "dind" || a == "docker (dind)" {
 			continue
+		}
+		if n, ok := addonLegacy[a]; ok {
+			a = n
 		}
 		out = append(out, a)
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
@@ -294,6 +295,47 @@ func screenLines(s tcell.SimulationScreen) []string {
 	return out
 }
 
+// The font-safe set is the undeclared default: best accessible first, so
+// no private-use rune and every icon one rune of one column.
+func TestFilteredIsABulletAndVerboseFallsBackToBang(t *testing.T) {
+	t.Parallel()
+	if got := glyphsFor(GlyphsSafe).quiet; got != "●" {
+		t.Errorf("filtered = %q, want ●", got)
+	}
+	if got := glyphsFor(GlyphsASCII).speaking; got != "!" {
+		t.Errorf("verbose ASCII = %q, want !", got)
+	}
+}
+
+func TestSafeTierIsFontSafe(t *testing.T) {
+	t.Parallel()
+	g := glyphsFor(GlyphsSafe)
+	for _, s := range []string{g.cloud, g.key, g.quiet, g.speaking} {
+		if n := len([]rune(s)); n != 1 {
+			t.Errorf("font-safe %q is %d runes, want 1", s, n)
+		}
+		if w := textWidth(s); w != 1 {
+			t.Errorf("font-safe %q measures %d columns, want 1", s, w)
+		}
+		for _, r := range s {
+			if r >= 0xE000 && r <= 0xF8FF {
+				t.Errorf("font-safe set carries private-use U+%04X", r)
+			}
+		}
+	}
+	if glyphsFor(GlyphsSafe) == glyphsFor(GlyphsNerd) {
+		t.Error("font-safe and nerd must differ, or the fallback chain has one rung")
+	}
+	rows := paint(t, Frame{Square: "sbx · claudecode", Hop: "sbx proxy", Open: 3}, GlyphsSafe, 0)
+	joined := strings.Join(rows, "\n")
+	if n := strings.Count(joined, g.cloud); n != 3 {
+		t.Errorf("painted %d font-safe clouds, want 3", n)
+	}
+	if !strings.Contains(joined, g.key) {
+		t.Error("painted figure carries no font-safe key")
+	}
+}
+
 func TestGlyphsOffDrawsTheASCIISet(t *testing.T) {
 	t.Parallel()
 	if glyphsFor(GlyphsOff) != glyphsFor(GlyphsASCII) {
@@ -495,10 +537,174 @@ func TestNoOpenLaneMeansNoTraffic(t *testing.T) {
 	}
 }
 
+func TestALocalModelSitsBesideTheHostOnTwoRows(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Host = "pluvo"
+	fr.HostRight = "Ollama"
+	fr.HostOS = "linux/x64"
+	fr.HostModel = "Qwen 3.8"
+	fr.Key = KeyNone
+	rows := paint(t, fr, GlyphsASCII, 0)
+	joined := strings.Join(rows, "\n")
+	at := func(row, needle string) int {
+		t.Helper()
+		i := strings.Index(row, needle)
+		if i < 0 {
+			t.Fatalf("%q missing from %q\n%s", needle, row, joined)
+		}
+		return utf8.RuneCountInString(row[:i])
+	}
+	if !strings.Contains(rows[3], "pluvo") || !strings.Contains(rows[3], "Ollama") {
+		t.Errorf("the name row lost a cell:\n%s", joined)
+	}
+	if !strings.Contains(rows[4], "linux/x64") || !strings.Contains(rows[4], "Qwen 3.8") {
+		t.Errorf("the OS row lost a cell:\n%s", joined)
+	}
+	plus := at(rows[3], "+")
+	if plus != HostSide+1 {
+		t.Errorf("plus at %d, want %d", plus, HostSide+1)
+	}
+	if under := []rune(rows[4]); plus >= len(under) || under[plus] != ' ' {
+		t.Errorf("the OS row kept a plus at %d: %q", plus, rows[4])
+	}
+	if a, b := at(rows[3], "Ollama"), at(rows[4], "Qwen 3.8"); a != b {
+		t.Errorf("Ollama at %d and Qwen at %d, want one column", a, b)
+	}
+	if strings.Contains(rows[2], "Qwen") || strings.Contains(rows[2], "Ollama") {
+		t.Errorf("the pair landed in the agent box:\n%s", joined)
+	}
+}
+
+func TestHoveredLocalModelLightsOnlyTheOllamaSide(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Host = "pluvo"
+	fr.HostRight = "Ollama"
+	fr.HostOS = "linux/x64"
+	fr.HostModel = "Qwen 3.8"
+	fr.HostLit = true
+	fr.Focus = FocusKey
+	brand := styles().brand
+	if got := styleOf(t, fr, "Ollama"); got != brand {
+		t.Errorf("Ollama style = %v, want bold cyan", got)
+	}
+	if got := styleOf(t, fr, "Qwen"); got != brand {
+		t.Errorf("Qwen style = %v, want bold cyan", got)
+	}
+	for _, plain := range []string{"pluvo", "linux"} {
+		if got := styleOf(t, fr, plain); got == brand {
+			t.Errorf("%s took the highlight", plain)
+		}
+	}
+}
+
+func TestADirectHostDropsTheSquareAndKeepsADash(t *testing.T) {
+	t.Parallel()
+	g := glyphsFor(GlyphsNerd)
+	fr := base()
+	fr.Direct = true
+	fr.Hop = ""
+	fr.Square = "opencode"
+	fr.Interface = "tui"
+	fr.Key = KeyInSquare
+	fr.Focus = FocusReturn
+	rows := paint(t, fr, GlyphsNerd, 0)
+	joined := strings.Join(rows, "\n")
+	if strings.Contains(joined, "sbx") || strings.Contains(joined, "proxy") {
+		t.Fatalf("a direct host still names the sandbox:\n%s", joined)
+	}
+	if strings.Contains(rows[1], strings.Repeat(g.rule, 8)) || strings.Contains(rows[2], g.wallL) {
+		t.Fatalf("the square is still drawn:\n%s", joined)
+	}
+	node := strings.Index(rows[2], g.node)
+	name := strings.Index(rows[2], "opencode")
+	key := strings.Index(rows[2], g.key)
+	lane := strings.Index(rows[2], g.watched)
+	if node < 0 || key < node || name < key || lane < name {
+		t.Fatalf("row 2 = %q, want the host node, the key, the agent, then the lane", rows[2])
+	}
+	if strings.Contains(rows[2], g.cornerTR) {
+		t.Fatalf("the host line ends in a corner: %q", rows[2])
+	}
+	if styleOf(t, fr, glyphsFor(GlyphsASCII).key) != styles().brand {
+		t.Error("the forwarded key is not drawn as selected")
+	}
+	if !strings.Contains(rows[2][node:name], g.rule) || !strings.Contains(rows[2][name:lane], g.rule) {
+		t.Fatalf("the line from the host to the lane is broken: %q", rows[2])
+	}
+	if !strings.Contains(rows[3], "+ "+g.node+" tui") {
+		t.Fatalf("the tui row = %q, want a plus before the node", rows[3])
+	}
+	if strings.Count(rows[2], g.node) != 1 {
+		t.Fatalf("the proxy dot is still on the top row: %q", rows[2])
+	}
+}
+
+func TestOSArchIsItalicOnTheHostAndInTheSquare(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.Host = "pluvo"
+	fr.HostRight = "Ollama"
+	fr.HostOS = "linux/x86"
+	fr.HostModel = "Qwen 3.8"
+	fr.Square = "sbx · opencode"
+	if !italic(styleOf(t, fr, "linux/x86")) {
+		t.Error("the host OS/arch is not italic")
+	}
+	if italic(styleOf(t, fr, "pluvo")) || italic(styleOf(t, fr, "Qwen")) {
+		t.Error("the hostname or the model took the italic")
+	}
+	plain := base()
+	plain.Square = "sbx (linux/x86) · opencode"
+	plain.HostOS = "macOS/arm"
+	if !italic(styleOf(t, plain, "(linux/x86)")) {
+		t.Error("the microVM OS/arch is not italic")
+	}
+	if italic(styleOf(t, plain, "sbx")) || italic(styleOf(t, plain, "opencode")) {
+		t.Error("the harness name took the italic")
+	}
+	if !italic(styleOf(t, plain, "macOS/arm")) {
+		t.Error("the idle host OS/arch is not italic")
+	}
+}
+
+func italic(st tcell.Style) bool {
+	_, _, attrs := st.Decompose()
+	return attrs&tcell.AttrItalic != 0
+}
+
+func styleOf(t *testing.T, fr Frame, word string) tcell.Style {
+	t.Helper()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 20)
+	drawTopology(s, 0, fr, GlyphsASCII, styles(), 0)
+	s.Show()
+	cells, w, h := s.GetContents()
+	for y := 0; y < h; y++ {
+		var b strings.Builder
+		for x := 0; x < w; x++ {
+			b.WriteString(string(cells[y*w+x].Runes))
+		}
+		line := b.String()
+		i := strings.Index(line, word)
+		if i < 0 {
+			continue
+		}
+		return cells[y*w+utf8.RuneCountInString(line[:i])].Style
+	}
+	t.Fatalf("%q is not on the figure", word)
+	return tcell.StyleDefault
+}
+
 func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {
 	t.Parallel()
 	fr := base()
-	fr.Square = "sbx · claudecode + qwen3.8"
+	fr.Square = "sbx (linux/x86) · claudecode"
 	if n := len([]rune(fr.Square)); n != SquareMax {
 		t.Fatalf("fixture is %d runes; this test pins the widest square, SquareMax = %d", n, SquareMax)
 	}

@@ -23,6 +23,10 @@
 ' registry is read only through loadMaintainRegistry (maintain_cmd.go).
 ' Pinned by TestRootHelpShowsBuildAndKeepsReleaseToolingHidden
 ' (cmd/proveo/maintainer_surface_test.go).
+' 2026-10-20: that visibility is reversed. mise owns the `build` verb
+' (`mise run build` → `go run ./cmd/proveo build`). The command stays
+' registered and is Hidden, with deploy and test. Root help no longer
+' lists it. TestRootHelpHidesMaintainerCommands is the pin.
 title Maintainer image pipeline — proveo build / test / deploy
 
 actor "Maintainer" as MT

@@ -26,13 +26,15 @@ func FetchPushedCopy(branches []string, wait time.Duration) []string {
 	if secs < 1 {
 		secs = 1
 	}
-	lines = append(lines,
-		"",
-		"y  git fetch them into this repository",
-		"n / esc  leave them on the remote",
-		fmt.Sprintf("%ds with no answer leaves them", secs),
-	)
+	lines = append(lines, "", fmt.Sprintf("%ds with no answer leaves them", secs))
 	return lines
+}
+
+func fetchPushedChoices() []modalChoice {
+	return []modalChoice{
+		{Key: "y/N", Text: "git fetch them into this repository"},
+		{Key: "esc", Text: "leave them on the remote"},
+	}
 }
 
 // ConfirmFetchPushed waits for permission to fetch. Silence returns false.
@@ -52,25 +54,6 @@ func ConfirmFetchPushed(s tcell.Screen, branches []string, wait time.Duration) b
 	}()
 	lines := FetchPushedCopy(branches, wait)
 	title := "the agent pushed these branches"
-	for {
-		drawPrompt(s, lines, title)
-		switch ev := s.PollEvent().(type) {
-		case *tcell.EventResize:
-			s.Sync()
-		case *tcell.EventInterrupt:
-			return false
-		case *tcell.EventKey:
-			switch ev.Key() {
-			case tcell.KeyEscape, tcell.KeyEnter, tcell.KeyCtrlC:
-				return false
-			case tcell.KeyRune:
-				switch ev.Rune() {
-				case 'y', 'Y':
-					return true
-				case 'n', 'N':
-					return false
-				}
-			}
-		}
-	}
+	input, sig := readModal(s, lines, title, fetchPushedChoices())
+	return sig == modalEnter && modalYes(input)
 }

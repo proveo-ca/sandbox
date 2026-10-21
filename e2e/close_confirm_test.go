@@ -63,13 +63,17 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	for _, want := range []string{
 		"That deletes the session.",
 		"Uncommitted changes can be permanently lost.",
-		"y  remove the sandbox",
+		"[y/N]",
+		"[esc]",
+		"[ctrl+c]",
+		"remove the sandbox",
+		"enter submits",
 	} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("confirm modal missing %q:\n%s", want, screen)
 		}
 	}
-	if err := sess.SendKeys("n"); err != nil {
+	if err := sess.SendKeys("n", "Enter"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(10 * time.Second)

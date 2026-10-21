@@ -77,8 +77,8 @@ func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	if fr.Key != choiceui.KeyAtHop {
 		t.Errorf("with no row to read, the key still lives at the sbx proxy, got %v", fr.Key)
 	}
-	if !strings.Contains(fr.Caption, "the key stops at the hop") {
-		t.Errorf("the caption must say the proxy holds the key, got %q", fr.Caption)
+	if !strings.Contains(fr.Caption, "only seen by the host and the cloud recipients") {
+		t.Errorf("the caption must say who sees the key, got %q", fr.Caption)
 	}
 }
 
@@ -122,6 +122,7 @@ func TestTheGlyphTierNeedsNoTranslation(t *testing.T) {
 		{posture.GlyphsNerd, choiceui.GlyphsNerd},
 		{posture.GlyphsASCII, choiceui.GlyphsASCII},
 		{posture.GlyphsOff, choiceui.GlyphsOff},
+		{posture.GlyphsSafe, choiceui.GlyphsSafe},
 	} {
 		if c.in != c.want {
 			t.Errorf("%v: posture and choiceui disagree, got %v want %v", c.in, c.in, c.want)
@@ -175,6 +176,63 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 	}
 }
 
+func TestHoveringTheHostDropsTheSandbox(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1, Locked: true, Off: []bool{true, false}},
+		{Label: "egress", Options: []string{"allow-all"}, Selected: 0},
+		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Selected: 0, Multi: true, Off: []bool{true, true}, On: []bool{false, true}},
+	}}
+	onHost := topologyOf("opencode", "broker")(f, 2)
+	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "" || onHost.Key != choiceui.KeyInSquare {
+		t.Errorf("hovering host: direct=%v square=%q hop=%q key=%v", onHost.Direct, onHost.Square, onHost.Hop, onHost.Key)
+	}
+	if !strings.Contains(onHost.Caption, "forward") || !strings.Contains(onHost.Caption, "rides with the agent") {
+		t.Errorf("caption %q must show the key forwarded", onHost.Caption)
+	}
+	if f.Rows[0].Selected != 1 || !f.Rows[0].Off[0] || !f.Rows[0].Locked {
+		t.Error("the preview selected forward")
+	}
+	if f.Rows[2].On[0] || !f.Rows[2].Off[0] {
+		t.Error("the preview enabled host")
+	}
+	f.Rows[2].Selected = 1
+	onSandbox := topologyOf("opencode", "broker")(f, 2)
+	if onSandbox.Direct || onSandbox.Square != squareOf("opencode") || onSandbox.Hop != "sbx proxy" || onSandbox.Key != choiceui.KeyAtHop {
+		t.Errorf("hovering sandbox: direct=%v square=%q hop=%q key=%v", onSandbox.Direct, onSandbox.Square, onSandbox.Hop, onSandbox.Key)
+	}
+	f.Rows[2].Selected = 0
+	away := topologyOf("opencode", "broker")(f, 1)
+	if away.Direct || away.Hop != "sbx proxy" || away.Key != choiceui.KeyAtHop || !strings.Contains(away.Square, "sbx") {
+		t.Errorf("cursor elsewhere: direct=%v square=%q hop=%q key=%v", away.Direct, away.Square, away.Hop, away.Key)
+	}
+}
+
+func TestHoveringForwardPutsTheKeyBesideTheAgent(t *testing.T) {
+	t.Parallel()
+	f := &choiceui.Form{Rows: []choiceui.Row{
+		{Label: "egress", Options: []string{"allow-all"}, Selected: 0, Locked: true},
+		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1, Hover: 0, Locked: true},
+	}}
+	onRow := topologyOf("claudecode", "broker")(f, 1)
+	if onRow.Key != choiceui.KeyInSquare {
+		t.Errorf("hovering forward: key = %v, want it beside the agent", onRow.Key)
+	}
+	if !strings.Contains(onRow.Caption, "forward") {
+		t.Errorf("caption %q must name the hovered mode", onRow.Caption)
+	}
+	f.Rows[1].Hover = 1
+	onBroker := topologyOf("claudecode", "broker")(f, 1)
+	if onBroker.Key != choiceui.KeyAtHop {
+		t.Errorf("hovering broker: key = %v, want it at the hop", onBroker.Key)
+	}
+	f.Rows[1].Hover = 0
+	away := topologyOf("claudecode", "broker")(f, 0)
+	if away.Key != choiceui.KeyAtHop {
+		t.Errorf("cursor elsewhere: key = %v, want the selection at the hop", away.Key)
+	}
+}
+
 func TestTheFigureFollowsTheHoveredBaseline(t *testing.T) {
 	t.Parallel()
 	const egressRowIdx = 0
@@ -222,21 +280,61 @@ func modelForm(model string) *choiceui.Form {
 func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		option, square string
-		key            choiceui.KeyHome
+		option, square, hostModel string
+		key                       choiceui.KeyHome
 	}{
-		{modelAPIKeys, "sbx · hermes", choiceui.KeyAtHop},
-		{credentials.AuthSubscription, "sbx · hermes + plan", choiceui.KeyNone},
-		{localModels[0].label(), "sbx · hermes + qwen3.8", choiceui.KeyNone},
-		{localModels[1].label(), "sbx · hermes + glimmer", choiceui.KeyNone},
+		{modelAPIKeys, squareOf("hermes"), "", choiceui.KeyAtHop},
+		{credentials.AuthSubscription, squareWith(squareOf("hermes"), "plan"), "", choiceui.KeyNone},
+		{localModels[0].label(), squareOf("hermes"), "Qwen 3.8", choiceui.KeyNone},
+		{localModels[1].label(), squareOf("hermes"), "Glimmer", choiceui.KeyNone},
 	} {
 		fr := topologyOf("hermes", "broker")(modelForm(c.option), 0)
-		if fr.Key != c.key || fr.Square != c.square {
-			t.Errorf("%q: key=%v square=%q, want key=%v square=%q", c.option, fr.Key, fr.Square, c.key, c.square)
+		if fr.Key != c.key || fr.Square != c.square || fr.HostModel != c.hostModel {
+			t.Errorf("%q: key=%v square=%q model=%q, want key=%v square=%q model=%q",
+				c.option, fr.Key, fr.Square, fr.HostModel, c.key, c.square, c.hostModel)
+		}
+		if c.hostModel != "" {
+			if fr.HostRight != "Ollama" || strings.Contains(fr.Host, "+") {
+				t.Errorf("%q: host = %q right = %q, want the account beside Ollama", c.option, fr.Host, fr.HostRight)
+			}
+			if fr.HostOS != hostOSArch() || strings.Contains(fr.HostOS, "(") || !strings.HasSuffix(fr.HostOS, "/"+archShort()) {
+				t.Errorf("%q: os/arch = %q, want %q", c.option, fr.HostOS, hostOSArch())
+			}
+		}
+		if c.hostModel == "" && fr.HostOS != hostOSArch() {
+			t.Errorf("%q: os/arch = %q, want %q", c.option, fr.HostOS, hostOSArch())
+		}
+		if c.hostModel == "" && (fr.HostRight != "" || strings.Contains(fr.Host, "Ollama")) {
+			t.Errorf("%q: host = %q right = %q names Ollama without a local model", c.option, fr.Host, fr.HostRight)
 		}
 		if c.key == choiceui.KeyNone && !strings.Contains(fr.Caption, "no API key") {
 			t.Errorf("%q: caption %q must say no API key is in play", c.option, fr.Caption)
 		}
+	}
+}
+
+func TestHoveringALocalModelLightsTheHostCells(t *testing.T) {
+	t.Parallel()
+	f := modelForm(localModels[0].label())
+	if !topologyOf("hermes", "broker")(f, len(f.Rows)-1).HostLit {
+		t.Error("cursor on Qwen left Ollama and the model unlit")
+	}
+	if topologyOf("hermes", "broker")(f, 0).HostLit {
+		t.Error("cursor off the model row still lit Ollama and the model")
+	}
+	keys := modelForm(modelAPIKeys)
+	if topologyOf("hermes", "broker")(keys, len(keys.Rows)-1).HostLit {
+		t.Error("API keys lit Ollama and the model")
+	}
+}
+
+func TestTheSquareNamesTheMicroVM(t *testing.T) {
+	t.Parallel()
+	if !strings.HasPrefix(vmPlatform(), "linux/") {
+		t.Fatalf("vm = %q, want linux and an arch", vmPlatform())
+	}
+	if got := squareOf("opencode"); got != "sbx ("+vmPlatform()+") · opencode" {
+		t.Errorf("square = %q", got)
 	}
 }
 

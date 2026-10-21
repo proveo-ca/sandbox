@@ -33,8 +33,9 @@ skinparam noteTextAlignment left
 ' only sbx's baselines (allow-all → watched 3/0, balanced → screened 2/1,
 ' anything else → screened 1/2); Key is KeyAtHop, KeyInSquare when the
 ' credentials are forward (the value rides the sandbox env), and KeyNone when
-' the model row picks a local model (MEASURED at the last read; the code was
-' still moving). The docker tiers, the "mitm + squid" hop, the hop-less
+' the model row picks a local model. KeyAtHop's clause: the keys are only
+' seen by the host and the cloud recipients, never the agent.
+' The docker tiers, the "mitm + squid" hop, the hop-less
 ' open+forward frame and review's LaneAsked are no longer produced.
 ' internal/choiceui still draws LaneAsked and its tests still exercise it:
 ' geometry with no producer left (repo-simplification.puml N18 shape).
@@ -108,10 +109,12 @@ skinparam noteTextAlignment left
 ' drawing deny-all's 1 open lane and 2 refusals. Reported as "balanced shows
 ' 2 x".
 '
-' egressTier(f, cursor, fallback) prefers Options[Hover] when the row is locked
-' AND the cursor is on it, falling back to Selected otherwise — so an unlocked
-' row, or a locked row the cursor has walked away from, still shows what is in
-' force rather than what someone once pointed at.
+' rowChoice prefers Options[Hover] when the row is locked AND the cursor is
+' on it, falling back to Selected otherwise — so an unlocked row, or a locked
+' row the cursor has walked away from, still shows what is in force rather
+' than what someone once pointed at. egressTier and the credentials mode
+' both read through it. Hovering forward draws the key beside the agent
+' (KeyInSquare); walking away puts it back on the hop.
 '
 ' WHERE THE BUG WAS NOT: lanesOf was already correct — balanced is 2 open and 1
 ' refused, and always was. The wrong tier reached it. That distinction is
@@ -204,7 +207,14 @@ skinparam noteTextAlignment left
 ' runes that go-runewidth measures as one column and terminals draw as two, and
 ' the cloud is an ambiguous-width character whose column count depends on the
 ' font. A Nerd Font devicon is one rune of one column with no ambiguity, so
-' nerd is the decorated tier and ASCII is the tier that is correct everywhere.
+' nerd is the decorated tier when the operator declares it
+' (""PROVEO_GLYPHS=nerd""). Undeclared, the figure falls back to Safe:
+' the same icons in standard Unicode — U+2601 cloud, U+26BF key,
+' U+25CF filtered, U+275E verbose. Verbose's ASCII fallback is "!".
+' Regular fonts carry these, because a
+' private-use rune in a font without it paints as a blank cell and
+' no terminal can be asked whether its font holds a codepoint.
+' ASCII remains the tier that is correct everywhere.
 '
 ' The node and wall glyphs are the BANNER's vocabulary rather than ASCII
 ' punctuation: the mark is dots interrupting rules inside a bracketed frame,
@@ -269,13 +279,29 @@ skinparam noteTextAlignment left
 ' ── NO API KEY, NO KEY GLYPH (2026-09-27) ──────────────────────────────────
 ' The key is drawn only while the model row answers "API keys". Any other answer
 ' — subscription, or a local model — sets KeyNone: no glyph anywhere, the caption
-' says "no API key is in play", and the square names the model instead:
-' `sbx · <harness> + <model>`, model short (qwen3.8 · glimmer · plan, or the tag).
-' The box is `boxW` = 30 inner columns (was 26; hop and lanes are laid out from
-' it), and SquareMax = boxW - 4 = 26 is the widest square drawn whole —
-' `sbx · claudecode + qwen3.8` is exactly 26. squareWith trims ONLY the model,
-' ending in "…", so the harness is never the part that is cut. The pane is now
-' 66 columns (was 62), so it needs 4 more terminal columns before it docks.
+' says "no API key is in play". The square names the microVM and the harness:
+' `sbx (linux/x86) · opencode` on amd64, `sbx (linux/arm) · opencode` on arm.
+' The parenthetical is italic. The host's own OS/arch uses the same arch
+' word — `(linux)` becomes `linux/x86` — and is italic on the idle line and
+' on the local-model row.
+' A local model leaves that square as it is and stands beside the host as a table. Each row is two
+' cells of HostSide (10). The name row centers "" + "" between the host and
+' Ollama. The OS row keeps that column as a space, so the OS/arch and the
+' selection (Qwen 3.8, Glimmer, or the tag) stay aligned under them. While the
+' cursor is on that local model, Ollama and the selection are bold cyan.
+' The hostname and the OS/arch stay plain. An OS/arch longer than the cell
+' shortens the OS word
+' and keeps the arch. hostPad widens the host column so the table fits,
+' and the figure's floor grows with it. plan still joins the square
+' (`sbx · <harness> + plan`); squareWith trims ONLY that suffix, ending in "…".
+' The box is `boxW` = 32 inner columns. SquareMax = boxW - 4 = 28.
+' Hovering the OS row's host option sets Direct. The square, its walls and the
+' proxy dot go away: Square is the harness name alone, Hop is empty, and a rule
+' runs from the host node through where the proxy dot sat. The interface
+' row reads "+ ● tui". A key in play is drawn beside the agent, in the selected
+' style, and the caption names forward — the row underneath still says broker,
+' and both host and forward stay disabled. Leaving that option puts the square
+' and the proxy back.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's
@@ -317,10 +343,10 @@ skinparam noteTextAlignment left
 ' where a run is one rule wide, the mote IS the lane for that frame.
 '
 ' ── THE BUDGET'S EXACT ARITHMETIC ──────────────────────────────────────────
-' Five rows and 72 columns are the strip's fixed geometry. Five because a
-' figure clipped mid-body is worse than one that is absent; 72 because that is
-' already the width the add-on divider centres on, so carrying the strip gives
-' the form no new minimum width.
+' Five rows and stripCols columns are the strip's fixed geometry. Five because a
+' figure clipped mid-body is worse than one that is absent. The floor was 72,
+' the width the add-on divider centres on; hostPad added the columns the host
+' name needs once it also carries " + Ollama".
 '
 ' THE PROMISE IS DELIBERATELY NARROW. draw() has always painted straight down
 ' and tcell has always discarded the overflow, so a terminal shorter than the
@@ -593,10 +619,10 @@ end note
 
 note top of GLYPH
   **No emoji reach the terminal.** The speaking
-  head is two runes that ""go-runewidth"" measures
-  as ONE column and terminals draw as two, and
-  the cloud is ambiguous-width. A devicon is one
-  rune of one column, so nerd is the top tier.
+  head measures one column and draws as two,
+  and the cloud is ambiguous-width. A devicon
+  is one rune of one column: nerd on top when
+  declared, Safe as its font-carried rung.
 end note
 
 note bottom of GLYPH

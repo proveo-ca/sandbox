@@ -138,8 +138,10 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' drift silently when the registry grows.
 '
 ' ── ONE MODEL SOURCE PER RUN: THE MODEL ROW ─────────────────────────────────
-' `proveo run hermes` draws a single-select model row: API keys (default),
-' Qwen 3.8 27B, Muse Glimmer 30B. Each option IS a --local-model value for this
+' `proveo run hermes` draws a single-select model row, riskier to safer:
+' Qwen 3.8, API keys (default), Glimmer, in columns 1, 2 and 4.
+' 27B and 30B live in the hint; Glimmer's hint still says Muse Glimmer.
+' GGUF and MLX live in the hint. Each local option IS a --local-model value for this
 ' host (MLX tags on macOS arm64, GGUF :latest elsewhere; API keys = none), so the
 ' row and the flag are one knob. On sbx the host's Ollama serves it on the host GPU
 ' (_spec/internal/sbx/host-inference.puml); the docker --local-model path (an

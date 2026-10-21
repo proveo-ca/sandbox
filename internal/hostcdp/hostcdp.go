@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	Addon       = "host chrome (CDP)"
+	Addon       = "chrome"
 	EnvPort     = "PROVEO_HOST_CDP_PORT"
 	DefaultPort = 9222
 )

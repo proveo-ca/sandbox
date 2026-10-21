@@ -173,7 +173,7 @@ func Render(p *ui.Printer, rows []Row, now time.Time, tick Tick, logDir func(job
 		return pre + s + ui.ANSIReset
 	}
 	next := "▸"
-	if p.Tier != ui.GlyphsNerd {
+	if p.Tier != ui.GlyphsNerd && p.Tier != ui.GlyphsSafe {
 		next = ">"
 	}
 	var order []string
@@ -210,16 +210,41 @@ func Render(p *ui.Printer, rows []Row, now time.Time, tick Tick, logDir func(job
 	}
 }
 
-// liveLine names a run in progress: since when, elapsed against the budget, and how to watch it.
-func liveLine(r Row, job string, now time.Time) string {
-	attach := "`proveo schedule attach " + job + "`"
+// liveSummary is the clock half of a run in progress, without the attach command.
+func liveSummary(r Row, now time.Time) string {
 	if r.Since.IsZero() {
-		return "● running now · " + attach
+		return "● running now"
 	}
 	elapsed := now.Sub(r.Since).Truncate(time.Minute)
 	clock := fmt.Sprintf("%s of %s", compact(elapsed), compact(r.Span))
 	if elapsed > r.Span {
 		clock += ", past the budget"
 	}
-	return fmt.Sprintf("● running since %s · %s · %s", r.Since.Format("15:04 MST"), clock, attach)
+	return fmt.Sprintf("● running since %s · %s", r.Since.Format("15:04 MST"), clock)
+}
+
+// liveLine names a run in progress: since when, elapsed against the budget, and how to watch it.
+func liveLine(r Row, job string, now time.Time) string {
+	return liveSummary(r, now) + " · `proveo attach " + job + "`"
+}
+
+// RunningTask is one job whose tmux session is up.
+type RunningTask struct {
+	Job, Target, Summary, Line string
+}
+
+// RunningTasks lists each running job once, soonest scheduled entry first.
+func RunningTasks(c Config, now time.Time, running func(job string) *Live) []RunningTask {
+	var out []RunningTask
+	seen := map[string]bool{}
+	for _, r := range Rows(c, now, running, nil) {
+		if r.Status != "running" || seen[r.Job] {
+			continue
+		}
+		seen[r.Job] = true
+		out = append(out, RunningTask{
+			Job: r.Job, Target: r.Target, Summary: liveSummary(r, now), Line: liveLine(r, r.Job, now),
+		})
+	}
+	return out
 }

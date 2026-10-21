@@ -17,7 +17,8 @@
 ' would happily let a scrolled-off body row paint over the hint, and a foot
 ' silently painted over is the exact failure the viewport exists to end.
 ' Vertical only — horizontal clipping already exists as clip(), and the row
-' painter's column arithmetic is left alone. With the window wide open it is
+' painter's column arithmetic is left alone. The row-name column is 16 wide,
+' marker included (viewport.go labelWidth). With the window wide open it is
 ' byte-for-byte the closure it replaces, which is what let it land as a proven
 ' no-op before anything scrolled.
 '

@@ -249,11 +249,12 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 	if f.layout(w, 30).strip != stripPane {
 		t.Fatalf("the fixture must draw the pane at width %d, or this proves nothing", w)
 	}
-	// Every option of every row survives intact.
+	// Every cell of every row survives. A cell is the option, capped at 10 runes.
 	for _, r := range f.Rows {
 		for _, opt := range r.Options {
-			if !strings.Contains(joined, opt) {
-				t.Errorf("the pane overwrote the option %q:\n%s", opt, joined)
+			cell := r.columnText(opt)
+			if !strings.Contains(joined, cell) {
+				t.Errorf("the pane overwrote the option %q:\n%s", cell, joined)
 			}
 		}
 	}

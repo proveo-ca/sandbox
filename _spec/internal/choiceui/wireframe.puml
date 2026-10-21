@@ -101,41 +101,44 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   }
   ~~
   {
-    . | ◀ riskier | . | safer ▶ | .
-    ▸ egress | (X) allow-all | ( ) balanced | ( ) deny-all | — locked: host-wide, not per-run
-    credentials | ( ) <color:#9a9a9a>forward</color> | (X) broker | . | <color:#9a9a9a>— forward: sbx's proxy holds the value…</color>
+    . | ◀ riskier | . | . | safer ▶
+    ▸ egress | (X) allow-all | . | ( ) balanced | ( ) deny-all
+    credentials | ( ) <color:#9a9a9a>forward</color> | . | . | (X) broker
+    model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
     . | . | ———— execution ———— | . | .
-    . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | . | .
+    . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | . | .
     . | . | ———— interface ———— | . | .
-    . | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>claude-in-chrome | <color:#9a9a9a>— claude-in-chrome: needs a real Claude token…
+    devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
     outputs | ( ) filtered | (X) verbose | . | .
   }
   --
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
   ..
-  always on: every harness runs in the sandbox and nowhere else
+  always on: Mount the current git project in a sandbox for the agent
 }
 {
 {^"1 · greyed — comingSoon"
-  credentials | ( ) <color:#9a9a9a>forward</color> | <color:#9a9a9a>— sbx's proxy holds the value; forward is what that guarantee gives up</color>
+  credentials | ( ) <color:#9a9a9a>forward</color> | . | . | <color:#9a9a9a>(X) broker</color>
   .
-  Rendered, never selectable. The cursor
-  vacates it and the violated constraint
-  is named in place, so a withheld option
+  Rendered, never selectable: the whole
+  credentials row is locked like egress.
+  Arrows hover each mode to read it; the
+  answer stays broker. A withheld option
   is not misread as nonexistent.
   (Until 2026-10-16 the example was the
   review tier, now deleted.)
 }
 {^"2 · empty cell — option withdrawn"
-  credentials | . | (X) broker | .
+  credentials | . | . | . | (X) broker
   .
   The slot persists, so surviving options
   retain the column they occupied while
-  the full complement was offered.
+  the full complement was offered. broker
+  stays in column 4, the safest.
 }
 {^"3 · absent region — applicableRows"
-  . | ◀ riskier | . | safer ▶
-  credentials | ( ) forward | (X) broker | .
+  . | ◀ riskier | . | . | safer ▶
+  credentials | ( ) forward | . | . | (X) broker
   .
   An axis with nothing to determine is
   eliminated wholesale. The legend
@@ -143,7 +146,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 }
 {^"4 · one answer — a radio, not a gated pair"
   outputs | ( ) filtered | (X) verbose
-  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color>
+  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color>
   .
   Brackets say "any number of these" and
   parentheses "one of these". Evidence is
@@ -169,10 +172,10 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   because a half-highlighted row reads as one model mattering more than another.
 }
 {^"7 · described — the cursor's option explains itself, BELOW the hint"
-  interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | [ ] <color:#9a9a9a>claude-in-chrome</color>
+  devices | [X] <color:#9a9a9a>tui</color> | [X] browser | [ ] android | [ ] ios
   ↑↓ row · ↔ move · space toggle · enter accept · esc cancel | . | . | .
-  <color:#00BAC6>› claude-in-chrome — your own Chrome, with your profile and logins,</color> | . | . | .
-  <color:#9a9a9a>off: Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions</color> | . | . | .
+  <color:#00BAC6>› ios — an iOS Simulator on this host — coming soon</color> | . | . | .
+  <color:#9a9a9a>off: coming soon — not built yet</color> | . | . | .
   .
   The picker could only ever explain what it had taken AWAY: ""Reason"" is written
   when an option is gated off, so the add-ons that were available and ticked
@@ -197,8 +200,8 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   what the checkbox shows.
 }
 {^"8 · fixed — a box that states a fact"
-  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>docker (sandbox)</color> | .
-  interface | [X] <color:#9a9a9a>tui (this session)</color> | [X] browser | .
+  execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | .
+  devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
   .
   Greyed, and left in the state it states. ""host"" is the alternative an operator
   might otherwise assume unticking the daemon selects — it never is, because
@@ -209,8 +212,8 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 
   **The sandbox is greyed for the opposite reason: it is COMPULSORY.** A harness
   that declares sbx runs there and nowhere else, so the box is ticked and locked
-  and its help line reads "always on: every harness runs in the sandbox and
-  nowhere else". Unticking used to reach the docker backend behind egress
+  and its help line reads "always on: Mount the current git project in a
+  sandbox for the agent". Unticking used to reach the docker backend behind egress
   sidecars — a weaker boundary one keystroke away — and that escape then became
   ""PROVEO_SBX=0"". Since 2026-10-16 there is no escape: the docker backend is
   deleted, and since 2026-10-17 ""PROVEO_SBX"" is simply unread. Like the
@@ -223,30 +226,43 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   the very backend the lock existed to remove; that backend is now deleted.
 }
 {^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
-  default (nerd) | <&code> typescript-language-server | <&terminal> bash-language-server
+  default (safe) | <> typescript-language-server | $ bash-language-server
+  ""=nerd"" | <&code> typescript-language-server | <&terminal> bash-language-server
   ""=ascii"" | <> typescript-language-server | $ bash-language-server
   ""=off"" | typescript-language-server | bash-language-server
   .
   Devicons live in a range a Powerline-patched font does not carry, and a terminal
-  cannot be asked whether its font holds a codepoint — so nerd is the default and
-  ""ascii"" is the fallback an operator selects, never one autodetection guesses.
+  cannot be asked whether its font holds a codepoint — so nerd is the tier an
+  operator declares with ""=nerd"", and the undeclared default falls back to
+  Safe (here the same category markers as ""=ascii""; in the figure, standard
+  Unicode icons), never to a guess autodetection makes.
   ASCII markers are category-level (""<>"" code, ""$"" shell, ""#"" container,
   ""{}"" data) because a decoded symbol cannot carry per-language identity, and they
   avoid ""["", ""("" and "">"", which the checkbox, radio and legend already own.
 }
 {^"9 · model — one row: where the model comes from (every harness)"
-  model | (X) API keys | ( ) subscription | ( ) Qwen 3.8 27B MLX | ( ) Muse Glimmer 30B MLX
-  <color:#00BAC6>› API keys — no local model: an external LLM provider through your keys</color> | . | . | . | .
+  model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
+  <color:#00BAC6>› Qwen 3.8 — 27B, MLX, same as --local-model qwen3.8:27b-mlx on darwin/arm64</color> | . | . | . | .
   .
   ONE row picks the model source (2026-09-27). It merges what used to be two:
   the auth row (""usage credits"" · ""subscription"", drawn for a harness with a
-  plan) and the local-model row. ""usage credits"" is drawn as ""API keys"" so every
-  harness reads the same; a harness with no plan (hermes, cecli) draws
-  ""API keys | Qwen | Glimmer"". The "local model — coming soon" placeholder is gone:
-  the models themselves take its place.
-  Each local option IS ""--local-model"" for THIS host: darwin/arm64 ""… MLX""
-  (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx""), every other host ""… GGUF""
-  (""qwen3.8:latest"", ""muse-glimmer:latest""). Picking one on a plan harness also
+  plan) and the local-model row. ""usage credits"" is drawn as ""API keys"" and
+  ""subscription"" as ""plan"", so every harness reads the same cells. A harness
+  with no plan (hermes, cecli) draws ""Qwen 3.8 | API keys | . | Glimmer"" —
+  the plan column stays empty.
+  The row name occupies 16 columns, marker included. credentials is the
+  longest name; 12 would put its last letter on the first option.
+  Every option row pins to the same four columns. OS, outputs, ports and apps
+  included: a missing value leaves its column blank. A cell is at most 10 runes.
+  ""docker (sandbox)"" paints ""sandbox""; ""claude-in-chrome"" paints ""chrome"".
+  allow-all and forward and Qwen and host and filtered share column 1,
+  API keys and sandbox and browser and verbose share column 2,
+  balanced and plan share column 3, deny-all and broker and Glimmer share column 4.
+  27B and 30B live in the hint. Glimmer's hint still says Muse Glimmer.
+  GGUF and MLX are the hint, not the label:
+  darwin/arm64 says MLX (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx""), every
+  other host says GGUF (""qwen3.8:latest"", ""muse-glimmer:latest"").
+  Picking one on a plan harness also
   answers auth = ""local model"", which withholds the plan credential.
   ""--local-model <tag>"" preselects the option whose Ollama repo owns the tag and,
   untouched, keeps that exact tag; an unlisted tag is drawn as its own option. A
@@ -271,8 +287,12 @@ end legend
 @endsaltnote as PortsRow
   **2026-10-05: execution's row is "OS"; "ports" joins it.**
   The divider still reads ""execution""; its row label is
-  ""OS"" (host · docker (sandbox)). Under it, sbx only, a
+  ""OS"" (host · sandbox). The interface divider stays; its
+  row label is ""devices"" (tui · browser · android · ios).
+  Under OS, sbx only, a
   multi-select ""ports"" row offers each discovered dev
-  port, all unticked. _spec/internal/devports/dev-ports.puml
+  port, all unticked. Past four, column 4 is ""...More""
+  and a dropdown lists the rest.
+  _spec/internal/devports/dev-ports.puml
 end note
 

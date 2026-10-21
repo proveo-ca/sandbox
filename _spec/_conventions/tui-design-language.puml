@@ -167,7 +167,7 @@ title TUI design language — one palette, one closed glyph set, two speakers
 
 package "the language — internal/ui" as LANG <<app>> {
   component "Role\nhost · app · async\ncloud · store · error" as ROLE <<app>>
-  component "GlyphTier\nNerd · ASCII · Off\nPROVEO_GLYPHS, once per session" as TIER <<host>>
+  component "GlyphTier\nNerd · Safe · ASCII · Off\nPROVEO_GLYPHS, once per session" as TIER <<host>>
   component "marks[tier][severity]\nok · warn · fail · dot" as MARK <<app>>
   component "palette\nColorHost · ColorApp · ColorAsync\nColorCloud · ColorDB · ColorError" as PAL <<db>>
   component "wrap · clip · textWidth\nmeasured, hanging indent" as FIT <<app>>
@@ -233,14 +233,17 @@ end note
 note bottom of TIER
   **The tier is a capability of the session, so it is read
   once and never re-decided.** A terminal offers no way to
-  ask whether its font carries a codepoint, so this is the
-  operator's declaration — ""PROVEO_GLYPHS=ascii"" — not a
-  probe. ""off"" strips the marks and keeps the colour.
+  ask whether its font carries a codepoint, so access is
+  declared, never probed: ""=nerd"" asserts a font carrying
+  private-use devicons, and an undeclared session falls
+  back to Safe, whose runes are standard Unicode only.
+  ""off"" strips the marks and keeps the colour.
 
   ""Off"" used to reach ""choiceui\.glyphsFor"" and come back
   with the NERD set, because the switch tested for ASCII
   rather than against Nerd. Aliasing the three types onto
   one made that reachable, so it is fixed here.
+  Safe joined the alias set unchanged in kind.
 end note
 
 note right of PRN

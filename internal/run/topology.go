@@ -13,12 +13,24 @@ import (
 func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
 		tier := egressTier(f, cursor, "")
-		creds := f.Selection("credentials")
-		if creds == "" {
-			creds = credsDefault
-		}
+		creds := rowChoice(f, cursor, "credentials", credsDefault)
 		lane, open, refused := lanesOf(tier)
-		model := modelShort(f.Selection(rowModel))
+		option := f.Selection(rowModel)
+		model := modelShort(option)
+		host, hostRight, hostModel := hostAccount(), "", ""
+		hostOS := hostOSArch()
+		direct := hoveringHost(f, cursor)
+		square := squareOf(target)
+		hostLit := false
+		if direct {
+			square = target
+		} else if name, ok := localBesideHost(option); ok {
+			hostRight = "Ollama"
+			hostModel = name
+			hostLit = cursor >= 0 && cursor < len(f.Rows) && f.Rows[cursor].Label == rowModel
+		} else {
+			square = squareWith(square, model)
+		}
 		key := choiceui.KeyAtHop
 		if creds == "forward" {
 			key = choiceui.KeyInSquare
@@ -26,11 +38,23 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 		if model != "" {
 			key = choiceui.KeyNone
 		}
+		if direct && key != choiceui.KeyNone {
+			creds = "forward"
+			key = choiceui.KeyInSquare
+		}
+		hop := "sbx proxy"
+		if direct {
+			hop = ""
+		}
 		fr := choiceui.Frame{
-			Host:      hostAccount(),
-			HostOS:    "(" + hostPlatform() + ")",
-			Square:    squareWith(squareOf(target), model),
-			Hop:       "sbx proxy",
+			Host:      host,
+			HostOS:    hostOS,
+			HostRight: hostRight,
+			HostModel: hostModel,
+			HostLit:   hostLit,
+			Square:    square,
+			Hop:       hop,
+			Direct:    direct,
 			Interface: interfaceOf(f),
 			Key:       key,
 			Lane:      lane,
@@ -45,9 +69,13 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 }
 
 func egressTier(f *choiceui.Form, cursor int, fallback string) string {
+	return rowChoice(f, cursor, "egress", fallback)
+}
+
+func rowChoice(f *choiceui.Form, cursor int, label, fallback string) string {
 	for i := range f.Rows {
 		r := &f.Rows[i]
-		if r.Label != "egress" {
+		if r.Label != label {
 			continue
 		}
 		idx := r.Selected
@@ -73,6 +101,21 @@ func lanesOf(baseline string) (choiceui.LaneKind, int, int) {
 	}
 }
 
+func hoveringHost(f *choiceui.Form, cursor int) bool {
+	if f == nil || cursor < 0 || cursor >= len(f.Rows) {
+		return false
+	}
+	r := &f.Rows[cursor]
+	if r.Label != rowExecution {
+		return false
+	}
+	idx := r.Selected
+	if r.Locked {
+		idx = r.Hover
+	}
+	return idx >= 0 && idx < len(r.Options) && r.Options[idx] == addonHost
+}
+
 func hostAccount() string {
 	for _, k := range []string{"USER", "LOGNAME", "USERNAME"} {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -80,6 +123,39 @@ func hostAccount() string {
 		}
 	}
 	return "host"
+}
+
+func archShort() string {
+	switch runtime.GOARCH {
+	case "amd64", "386":
+		return "x86"
+	case "arm64", "arm":
+		return "arm"
+	default:
+		return runtime.GOARCH
+	}
+}
+
+func hostOSArch() string {
+	name := hostPlatform()
+	arch := archShort()
+	cell := name + "/" + arch
+	if utf8.RuneCountInString(cell) <= choiceui.HostSide {
+		return cell
+	}
+	switch name {
+	case "linux":
+		name = "lin"
+	case "windows":
+		name = "win"
+	case "macOS":
+		name = "mac"
+	}
+	cell = name + "/" + arch
+	if r := []rune(cell); len(r) > choiceui.HostSide {
+		return string(r[:choiceui.HostSide-1]) + "…"
+	}
+	return cell
 }
 
 func hostPlatform() string {
@@ -106,8 +182,12 @@ func squareWith(square, model string) string {
 	return square + " + " + model
 }
 
+func vmPlatform() string {
+	return "linux/" + archShort()
+}
+
 func squareOf(target string) string {
-	return "sbx · " + target
+	return "sbx (" + vmPlatform() + ") · " + target
 }
 
 func interfaceOf(f *choiceui.Form) string {
@@ -159,8 +239,11 @@ func captionOf(fr choiceui.Frame, tier, creds string) string {
 	switch fr.Key {
 	case choiceui.KeyInSquare:
 		where = "the real key rides inside the container"
+		if fr.Direct {
+			where = "the real key rides with the agent"
+		}
 	case choiceui.KeyAtHop:
-		where = "the key stops at the hop and never enters the container"
+		where = "the keys are only seen by the host and the cloud recipients, never the agent"
 	case choiceui.KeyNone:
 		where = "no API key is in play"
 	}

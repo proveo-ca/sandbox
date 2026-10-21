@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 )
@@ -27,11 +28,78 @@ func TestForwardIsGatedOnSbxAndTheRowStillHasBothModes(t *testing.T) {
 	if i >= len(row.Off) || !row.Off[i] {
 		t.Error("forward is still selectable on sbx; the proxy holds the value")
 	}
+	if !slices.Equal(row.Cols, []int{0, 3}) {
+		t.Errorf("credential cols = %v, want forward at 0 and broker at 3", row.Cols)
+	}
 	if row.Options[row.Selected] != "broker" {
 		t.Errorf("selected %q, want broker — the only route sbx will honour", row.Options[row.Selected])
 	}
 	if row.Reason == "" {
 		t.Error("no reason given, so a greyed forward looks like a defect")
+	}
+	if !row.Locked {
+		t.Error("credentials is not locked, so the operator cannot hover both modes to read them")
+	}
+	if row.Options[row.Hover] != "broker" {
+		t.Errorf("hover opens on %q, want broker — the mode in force", row.Options[row.Hover])
+	}
+}
+
+func TestFirstChoiceIsTheFirstChangeableOption(t *testing.T) {
+	t.Parallel()
+	withBrowser := &choiceui.Row{Options: []string{addonTUI, addonBrowser, addonAndroid}}
+	if got := firstChoice(withBrowser); got != addonBrowser {
+		t.Errorf("firstChoice = %q, want browser", got)
+	}
+	noBrowser := &choiceui.Row{Options: []string{addonTUI, addonAndroid}}
+	if got := firstChoice(noBrowser); got != addonAndroid {
+		t.Errorf("firstChoice without browser = %q, want the first unfixed option", got)
+	}
+	onlyFixed := &choiceui.Row{Options: []string{addonTUI}}
+	if got := firstChoice(onlyFixed); got != "" {
+		t.Errorf("firstChoice with only compulsory options = %q, want none", got)
+	}
+}
+
+func TestInterfaceColumnsStayPutWhenOneIsMissing(t *testing.T) {
+	t.Parallel()
+	partial := layoutInterface(choiceui.Row{
+		Label: rowInterface, Multi: true,
+		Options: []string{addonTUI, addonAndroid, addonIOS},
+		On:      []bool{true, false, true},
+	})
+	if !slices.Equal(partial.Options, []string{addonTUI, addonAndroid, addonIOS}) || !slices.Equal(partial.Cols, []int{0, 2, 3}) {
+		t.Errorf("partial = %v cols %v, want tui, android, ios in columns 0, 2, 3", partial.Options, partial.Cols)
+	}
+	if !partial.On[0] || partial.On[1] || !partial.On[2] {
+		t.Errorf("ticks moved with the sort: %v", partial.On)
+	}
+	full := layoutInterface(choiceui.Row{
+		Label: rowInterface, Multi: true,
+		Options: []string{addonChrome, addonIOS, addonTUI, addonBrowser, addonAndroid},
+	})
+	want := []string{addonTUI, addonBrowser, addonAndroid, addonIOS, addonChrome}
+	if !slices.Equal(full.Options, want) || !slices.Equal(full.Cols, []int{0, 1, 2, 3, 4}) {
+		t.Errorf("full = %v cols %v, want %v", full.Options, full.Cols, want)
+	}
+	if full.Paint[addonChrome] != "chrome" {
+		t.Errorf("chrome cell = %q, want chrome", full.Paint[addonChrome])
+	}
+}
+
+func TestExecutionOutputsAndPortsUseTheColumnGrid(t *testing.T) {
+	t.Parallel()
+	exec := layoutExecution(choiceui.Row{Options: executionOptions()})
+	if !slices.Equal(exec.Cols, []int{0, 1}) || exec.Paint[addonSandbox] != "sandbox" {
+		t.Errorf("execution cols %v paint %v, want host at 0, sandbox at 1", exec.Cols, exec.Paint)
+	}
+	out := evidenceRow("")
+	if !slices.Equal(out.Cols, []int{0, 1}) {
+		t.Errorf("outputs cols = %v, want filtered at 0 and verbose at 1", out.Cols)
+	}
+	ports, ok := portsRow(foundPorts, nil)
+	if !ok || !slices.Equal(ports.Cols, []int{0, 1}) {
+		t.Errorf("ports cols = %v ok=%v, want 0, 1", ports.Cols, ok)
 	}
 }
 
@@ -98,7 +166,11 @@ func TestCredentialsRowSaysCursorBrokersNativelyOnSbx(t *testing.T) {
 			t.Error("forward must stay disabled for cursor on sbx")
 		}
 	}
-	if r := credentialsRow(manifest.Manifest{Name: "codex"}, "broker"); r.Help["broker"] != "" {
-		t.Errorf("a harness that declares no credentials capability gets no cursor note: %q", r.Help["broker"])
+	plain := credentialsRow(manifest.Manifest{Name: "codex"}, "broker")
+	if plain.Help["broker"] != "" {
+		t.Errorf("a harness that declares no credentials capability gets no cursor note: %q", plain.Help["broker"])
+	}
+	if !strings.Contains(plain.Help["forward"], "sandbox env") {
+		t.Errorf("forward help = %q, want what forwarding does", plain.Help["forward"])
 	}
 }

@@ -2,6 +2,7 @@
 package run
 
 import (
+	"cmp"
 	"runtime"
 	"slices"
 	"strings"
@@ -14,35 +15,33 @@ import (
 const (
 	rowModel     = "model"
 	modelAPIKeys = "API keys"
+	modelPlan    = "plan"
 )
 
 // localModel is one row choice: repo claims any of its tags, tags and builds pick this host's build.
 type localModel struct {
-	name, repo, short string            // short is the name the topology box prints
-	tags              map[string]string // "goos/goarch" → Ollama tag; "" = every other host
-	builds            map[string]string // "goos/goarch" → label suffix naming that build; "" = every other host
+	name, repo, short, size string // short is the topology box; size is the hint, not the cell
+	tags                    map[string]string
+	builds                  map[string]string
 }
 
 // localModels are the row's local choices in order.
 var localModels = []localModel{
-	{"Qwen 3.8 27B", "qwen3.8", "qwen3.8",
+	{"Qwen 3.8", "qwen3.8", "qwen3.8", "27B",
 		map[string]string{"darwin/arm64": "qwen3.8:27b-mlx", "": "qwen3.8:latest"},
 		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
-	{"Muse Glimmer 30B", "muse-glimmer", "glimmer",
+	{"Glimmer", "muse-glimmer", "glimmer", "30B",
 		map[string]string{"darwin/arm64": "muse-glimmer:30b-mlx", "": "muse-glimmer:latest"},
 		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
 }
 
-// labelFor is the option text on platform.
-func (m localModel) labelFor(platform string) string {
-	b, ok := m.builds[platform]
-	if !ok {
-		b = m.builds[""]
+func (m localModel) labelFor(string) string { return m.name }
+
+func (m localModel) buildFor(platform string) string {
+	if b, ok := m.builds[platform]; ok {
+		return b
 	}
-	if b == "" {
-		return m.name
-	}
-	return m.name + " " + b
+	return m.builds[""]
 }
 
 func (m localModel) label() string { return m.labelFor(ollamaPlatform()) }
@@ -68,11 +67,11 @@ func modelHelp(localModel string) map[string]string {
 	}
 	claimed := false
 	for _, m := range localModels {
-		h[m.label()] = "same as --local-model " + m.tag() + " on " + ollamaPlatform() + ": the host's Ollama serves it, no key"
+		h[m.label()] = modelHint(m, "same as --local-model "+m.tag()+" on "+ollamaPlatform()+": the host's Ollama serves it, no key")
 		if m.owns(localModel) {
 			claimed = true
 			if localModel != m.tag() {
-				h[m.label()] = "keeps your --local-model " + localModel + " (the row picks " + m.tag() + " on " + ollamaPlatform() + ")"
+				h[m.label()] = modelHint(m, "keeps your --local-model "+localModel+" (the row picks "+m.tag()+" on "+ollamaPlatform()+")")
 			}
 		}
 	}
@@ -82,11 +81,50 @@ func modelHelp(localModel string) map[string]string {
 	return h
 }
 
+func (m localModel) hintLead() string {
+	if m.repo == "muse-glimmer" {
+		return "Muse Glimmer " + m.size
+	}
+	if m.size != "" {
+		return m.size
+	}
+	return m.name
+}
+
+func modelHint(m localModel, rest string) string {
+	lead := m.hintLead()
+	if b := m.buildFor(ollamaPlatform()); b != "" {
+		lead += ", " + b
+	}
+	return lead + ", " + rest
+}
+
 // noLocalModel names the harnesses whose inference is vendor-pinned.
 var noLocalModel = map[string]bool{"cursor": true}
 
 // acceptsLocalModel reports whether target can run on --local-model.
 func acceptsLocalModel(target string) bool { return !noLocalModel[target] }
+
+// modelRiskRank orders the model row riskier to safer, matching the axis legend.
+func modelRiskRank(opt string) int {
+	switch {
+	case len(localModels) > 0 && opt == localModels[0].label():
+		return 0
+	case opt == modelAPIKeys:
+		return 1
+	case opt == credentials.AuthSubscription || opt == modelPlan:
+		return 2
+	case len(localModels) > 1 && opt == localModels[1].label():
+		return 3
+	}
+	return 4
+}
+
+func sortModelOptions(opts []string) {
+	slices.SortStableFunc(opts, func(a, b string) int {
+		return cmp.Compare(modelRiskRank(a), modelRiskRank(b))
+	})
+}
 
 // modelRow is the single-select model row, drawn for every harness that accepts --local-model.
 func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
@@ -105,8 +143,10 @@ func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
 		opts = append(opts, localModel)
 		preselect = localModel
 	}
+	sortModelOptions(opts)
 	r := axisRow(rowModel, opts, nil, preselect)
 	r.Help = modelHelp(localModel)
+	pinModelCols(&r)
 	return r, true
 }
 
@@ -170,7 +210,9 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 	r := auth
 	r.Label = rowModel
 	renameOption(&r, credentials.AuthUsage, modelAPIKeys)
+	renameOption(&r, credentials.AuthSubscription, modelPlan)
 	if !hasLocal {
+		sortModelRow(&r)
 		return r, true
 	}
 	if r.Help == nil {
@@ -192,7 +234,44 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 			r.Selected = i
 		}
 	}
+	sortModelRow(&r)
 	return r, true
+}
+
+// sortModelRow orders options riskier to safer, carrying each option's gate with it.
+func sortModelRow(r *choiceui.Row) {
+	chosen := ""
+	if r.Selected >= 0 && r.Selected < len(r.Options) {
+		chosen = r.Options[r.Selected]
+	}
+	type item struct {
+		opt string
+		off bool
+	}
+	items := make([]item, len(r.Options))
+	for i, opt := range r.Options {
+		items[i] = item{opt, i < len(r.Off) && r.Off[i]}
+	}
+	slices.SortStableFunc(items, func(a, b item) int {
+		return cmp.Compare(modelRiskRank(a.opt), modelRiskRank(b.opt))
+	})
+	for i, it := range items {
+		r.Options[i] = it.opt
+		if i < len(r.Off) {
+			r.Off[i] = it.off
+		}
+	}
+	if i := slices.Index(r.Options, chosen); i >= 0 {
+		r.Selected = i
+	}
+	pinModelCols(r)
+}
+
+func pinModelCols(r *choiceui.Row) {
+	r.Cols = make([]int, len(r.Options))
+	for i, opt := range r.Options {
+		r.Cols[i] = modelRiskRank(opt)
+	}
 }
 
 func renameOption(r *choiceui.Row, from, to string) {
@@ -215,7 +294,7 @@ func renameOption(r *choiceui.Row, from, to string) {
 
 // isLocalOption reports whether a source-row option names a local model.
 func isLocalOption(v string) bool {
-	return v != modelAPIKeys && !credentials.IsAuthSentinel(v)
+	return v != modelAPIKeys && v != modelPlan && !credentials.IsAuthSentinel(v)
 }
 
 // applySource records a source-row answer as --local-model and, on a harness with a plan, the auth answer.
@@ -233,9 +312,24 @@ func (p *Params) applySource(v string, hasAuth bool) {
 	switch {
 	case v == modelAPIKeys && hasAuth:
 		p.AuthVar = credentials.AuthUsage
+	case v == modelPlan:
+		p.AuthVar = credentials.AuthSubscription
 	case v != modelAPIKeys:
 		p.AuthVar = v
 	}
+}
+
+// localBesideHost is the name drawn under the host when option is a local model.
+func localBesideHost(option string) (string, bool) {
+	if option == "" || !isLocalOption(option) {
+		return "", false
+	}
+	for _, m := range localModels {
+		if m.label() == option {
+			return m.label(), true
+		}
+	}
+	return option, true
 }
 
 // modelShort is what the topology box prints for a model-row answer; "" for API keys.
@@ -243,7 +337,7 @@ func modelShort(option string) string {
 	switch option {
 	case "", modelAPIKeys, credentials.AuthUsage:
 		return ""
-	case credentials.AuthSubscription:
+	case credentials.AuthSubscription, modelPlan:
 		return "plan"
 	}
 	for _, m := range localModels {

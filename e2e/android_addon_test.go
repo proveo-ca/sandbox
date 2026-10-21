@@ -20,8 +20,8 @@ import (
 
 var deviceLineRE = regexp.MustCompile(`emulator-\d+\s+device\b`)
 
-// TestAndroidTickedInTheChoiceFormOpensTheHostEmulator ticks "android (host
-// emulator)" with keystrokes in the real choice form, then proves the run
+// TestAndroidTickedInTheChoiceFormOpensTheHostEmulator ticks "android" with
+// keystrokes in the real choice form, then proves the run
 // booted an emulator on the host and handed the sandbox a working route to it.
 func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 	if !sbxAvailable() {
@@ -187,7 +187,7 @@ func tickAndroid(t *testing.T, sess *tmux.Session) {
 			t.Fatalf("never reached %q with %s:\n%s", opt, key, screen)
 		}
 	}
-	step("Down", "tui (this session)", 12)
+	step("Down", "tui", 12)
 	step("Right", hostadb.Addon, 6)
 	if err := sess.SendKeys("Space"); err != nil {
 		t.Fatalf("send Space: %v", err)

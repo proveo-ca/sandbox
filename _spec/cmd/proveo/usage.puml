@@ -9,6 +9,8 @@ skinparam packageStyle rectangle
 ' covers: cmd/proveo/help.go, cmd/proveo/help_test.go
 ' covers: cmd/proveo/maintainer_surface_test.go
 ' covers: cmd/proveo/env_help.go
+' covers: cmd/proveo/running.go
+' covers: cmd/proveo/running_test.go
 '   the variable registry `help env` renders ... _spec/internal/envreg/env-registry.puml
 '
 ' ── 2026-10-18: `build` VISIBLE, `targets` GONE, `help env` ADDED ──────────
@@ -24,6 +26,22 @@ skinparam packageStyle rectangle
 ' listing `help env`, a cobra help topic rather than a command. `proveo help
 ' env` draws the operator and maintainer rows of internal/envreg; reported:
 ' `proveo env` renders the same page because the topic is not runnable.
+'
+' ── 2026-10-20: END-USER COMMANDS, HARNESS ALIASES, ATTACH ─────────────────
+' `build` is Hidden again. mise.toml tasks.build is `go run ./cmd/proveo
+' build`, so the command stays registered and stays off root help, beside
+' deploy and test. TestRootHelpHidesMaintainerCommands pins that.
+' Each manifest target that does not collide with a command is a root
+' command: `proveo cursor` is `proveo run cursor`, with the same flags.
+' renderHelp lists those under "harnesses", not "commands".
+' `proveo attach` is `proveo schedule attach`. With no task, a terminal
+' opens a picker of jobs whose tmux session is up and attaches to the
+' choice; without a terminal it prints that list and stops. `proveo run`
+' with no target prints or picks the same running tasks plus the harness
+' list: a running row attaches, a harness row starts. `proveo <harness>`
+' with no arguments does that running list only when a task is already up,
+' and its last row starts the harness. `--yes`, `--print`, `--ls`,
+' `--resume` and `--continue` skip the picker.
 '
 ' ── HELP SPEAKS THE CHOICE PROMPT'S VOCABULARY (2026-09-28) ────────────────
 ' renderHelp replaces cobra's template on every command with the layout of
@@ -69,7 +87,7 @@ actor "Maintainer" as Maintainer
 
 package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
  component "proveo" as Proveo <<app>>
- component "version · ls · run · schedule · projects · setup · init\nupdate · uninstall · clean · build\nhidden: deploy · test · help topic: env" as Commands <<commands>>
+ component "version · ls · run · schedule · attach · projects · setup · init\nupdate · uninstall · clean\nharness aliases (cursor · …)\nhidden: build · deploy · test · help topic: env" as Commands <<commands>>
  component "run flags\n--credentials · --local-model\n--scope · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 

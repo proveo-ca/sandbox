@@ -43,16 +43,17 @@ skinparam noteTextAlignment left
 ' was missing. An unticked box is a posture too, and "docker (sandbox)" said
 ' nothing about what unticking it selects — not the host, which proveo never
 ' runs an agent on, but (until 2026-10-16) the docker backend behind egress
-' sidecars. Since that backend's deletion the box's help reads "every harness
-' runs in the sandbox and nowhere else" (MEASURED, gateAddons).
+' sidecars. Since that backend's deletion the box's help reads "Mount the
+' current git project in a sandbox for the agent" (MEASURED, gateAddons).
 '
 ' THE HELP PROMISES A DAEMON ONLY WHERE THE MANIFEST DOES (N20, DONE (wt)
 ' 2026-10-17). The form passes addonHelpFor(man) (internal/run/choices.go:60,
 ' :512-518): a clone of addonHelp — the shared map is never edited — whose
 ' sandbox line, for a `daemon: false` harness (hermes), reads "a microVM (sbx)
 ' with no Docker daemon for the agent — the boundary every run on this harness
-' gets" instead of "a microVM with its own Docker daemon (sbx) — …". The label
-' stays "docker (sandbox)". TestThePickerPromisesADaemonOnlyWhereTheManifestDoes
+' gets" instead of "a microVM with its own Docker daemon (sbx) — …". The option
+' value stays "docker (sandbox)"; the column paints "sandbox".
+' TestThePickerPromisesADaemonOnlyWhereTheManifestDoes
 ' (run_test.go:867) pins both texts and the untouched shared map.
 '
 ' HISTORY: the egress axis was chosen by AVAILABILITY, not by the add-on.
@@ -105,7 +106,11 @@ skinparam noteTextAlignment left
 ' nothing reports as changed, and Selection() returns the baseline untouched.
 '
 ' `move` admits a locked row; `firstSelectable` still does not. The first thing
-' the operator meets should be something they can answer.
+' the operator meets should be something they can answer. The run form says
+' where that is instead of deriving it: StartRow/StartOption open the cursor
+' on the devices row, on browser — the first option the operator can
+' actually change — because credentials has joined egress among the locked
+' facts above it, hoverable to read and never to rewrite.
 '
 ' The UNDERLINE is the cursor mark and must survive the unavailable style, so it
 ' is applied after it — which also fixes an off option the cursor legitimately
@@ -124,8 +129,8 @@ skinparam noteTextAlignment left
 ' never shows LESS than the inline copy did.
 '
 ' Three things fell out. ""anyOff"" lost its only caller and is gone. The width
-' budget no longer reserves for the reason, so ""rightEdge"" is the label and the
-' options and nothing else, and the pane's breakpoint stops depending on how
+' budget no longer reserves for the reason. The row name is clipped to its
+' 16 columns, so ""rightEdge"" starts at the options, and the pane's breakpoint stops depending on how
 ' long a sentence is. And the pane can no longer clip a fact, because there is
 ' no fact on the row to clip — which retires the constraint that shaped it.
 '
@@ -183,7 +188,9 @@ skinparam noteTextAlignment left
 ' the thing the reserved help slot exists to hold still.
 '
 ' headingsInWindow is the set of rows whose divider heading is on screen. Only
-' those rows may drop their own label; every other row keeps it, because its
+' those rows drop their own label only when the heading is that label. A
+' declared Heading keeps the name: OS under execution, devices under
+' interface. Every other row keeps its label, because its
 ' label is the only place its name was ever going to appear. Built once per
 ' frame rather than rescanned per line: the body repaints at the ticker's rate.
 '
@@ -252,10 +259,18 @@ note bottom of DRAW
   both and the divider ends its authority.
 end note
 
+note bottom of HDR
+  CODE_THEME and DARK_MODE are named
+  and their values stay off the prompt.
+  A model setting still prints key=value.
+end note
+
 note left of FORM
   **The legend is a claim.** Init's radios are
   not a safety axis, so ""NoAxis"" keeps
   ""◀ riskier … safer ▶"" off that screen.
+  The run form claims it only when no
+  model row is drawn; Qwen sits riskiest.
 end note
 
 note top of GATE

@@ -16,7 +16,7 @@ func TestTheUpgradePromptNamesTheConsequence(t *testing.T) {
 	}
 	defer sim.Fini()
 	sim.SetSize(120, 40)
-	drawPrompt(sim, SandboxUpgradeCopy("proveo-claudecode-abc", []string{"image", "kit"}, true, true, false), "this sandbox was created with different settings")
+	drawModal(sim, SandboxUpgradeCopy("proveo-claudecode-abc", []string{"image", "kit"}, true, true, false), "this sandbox was created with different settings", upgradeChoices(), "")
 	upgrade := rendered(t, sim)
 	for _, want := range []string{
 		"image, kit",
@@ -26,6 +26,11 @@ func TestTheUpgradePromptNamesTheConsequence(t *testing.T) {
 		"This session does not persist.",
 		"It is running. Yes replaces that live session.",
 		"Uncommitted clone edits are lost unless fetched.",
+		"[y/N]",
+		"replace the sandbox",
+		"[esc]",
+		"keep it — the next run reattaches",
+		"enter submits",
 	} {
 		if !strings.Contains(upgrade, want) {
 			t.Errorf("upgrade modal missing %q\n%s", want, upgrade)
@@ -35,7 +40,7 @@ func TestTheUpgradePromptNamesTheConsequence(t *testing.T) {
 		t.Errorf("a claudecode upgrade promises to move OpenCode history\n%s", upgrade)
 	}
 	sim.Clear()
-	drawPrompt(sim, SandboxUpgradeCopy("proveo-opencode-abc", []string{"image"}, false, false, true), "this sandbox was created with different settings")
+	drawModal(sim, SandboxUpgradeCopy("proveo-opencode-abc", []string{"image"}, false, false, true), "this sandbox was created with different settings", upgradeChoices(), "")
 	engine := rendered(t, sim)
 	for _, want := range []string{"Edits in the host checkout stay on disk.", "Its OpenCode history moves to the new sandbox."} {
 		if !strings.Contains(engine, want) {
@@ -53,10 +58,12 @@ func TestTheUpgradePromptKeys(t *testing.T) {
 	t.Cleanup(sim.Fini)
 	sim.SetSize(100, 36)
 	sim.InjectKey(tcell.KeyRune, 'n', tcell.ModNone)
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	if ConfirmSandboxUpgrade(sim, "proveo-opencode-abc", []string{"image"}, false, false, true) {
 		t.Fatal("n replaced the sandbox")
 	}
 	sim.InjectKey(tcell.KeyRune, 'y', tcell.ModNone)
+	sim.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	if !ConfirmSandboxUpgrade(sim, "proveo-opencode-abc", []string{"image"}, false, false, true) {
 		t.Fatal("y did not replace the sandbox")
 	}

@@ -36,6 +36,10 @@
 ' 2026-10-16, so sbx is always the runtime). Every box starts
 ' unticked — publishing opens an inbound path, and the closed default the
 ' tunnels plan argues for is kept. Several ports tick independently.
+' Four ports fill the four columns. A fifth replaces column 4 with
+' ""...More""; the cell opens a dropdown of the rest, each a checkbox.
+' Space ticks the highlighted row. ↑↓ moves inside the list until an
+' edge, then the form. The cell shows [x] while any hidden port is on.
 '
 ' ── PUBLISH: SAME HOST PORT WHEN FREE ──────────────────────────────────────
 ' Each ticked port becomes `sbx run -p HOST:GUEST` after the CDP relay's

@@ -207,8 +207,8 @@ Two different browsers, two different add-ons in the `proveo run` picker:
 
 | add-on | what the agent drives | image | backend |
 | --- | --- | --- | --- |
-| `android (host emulator)` | an Android emulator **on your host**, through its adb server, with [mobile-next/mobile-mcp](https://github.com/mobile-next/mobile-mcp) tools (tap, swipe, type, element list, screenshot) on Claude Code's own model | any claudecode image | sbx only |
-| `ios (host simulator)` | greyed: coming soon | — | — |
+| `android` | an Android emulator **on your host**, through its adb server, with [mobile-next/mobile-mcp](https://github.com/mobile-next/mobile-mcp) tools (tap, swipe, type, element list, screenshot) on Claude Code's own model | any claudecode image | sbx only |
+| `ios` | greyed: coming soon — an iOS Simulator on this host | — | — |
 
 `proveo run claudecode --addon android` reuses any device the host adb server
 (`127.0.0.1:5037`, `PROVEO_HOST_ADB_PORT`) lists, else boots a windowed AVD

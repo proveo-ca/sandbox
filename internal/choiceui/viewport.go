@@ -3,6 +3,10 @@ package choiceui
 
 const (
 	bodyIndent   = 2
+	labelWidth   = 16                      // marker plus the row name; "› credentials" is 13
+	optOrigin    = bodyIndent + labelWidth // column 0 of the four-column grid
+	colPitch     = 22                      // one column: glyph, a 10-rune cell, a gap
+	columnRunes  = 10
 	minBodyLines = 3
 	scrollMargin = 1
 	pageRows     = 5
