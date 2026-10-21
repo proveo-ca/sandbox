@@ -161,8 +161,8 @@ func drawTopology(s tcell.Screen, y0 int, fr Frame, tier GlyphTier, p palette, t
 	drawFigure(s, 0, y0, blockCols, fr, tier, p, tick)
 }
 
-func hostTable(left, right string) string {
-	return hostCell(left) + " + " + clipRunes(right, HostSide)
+func hostTable(left, right, join string) string {
+	return hostCell(left) + join + clipRunes(right, HostSide)
 }
 
 func hostCell(s string) string {
@@ -262,8 +262,8 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	inside(3, g.node, fr.Interface, "", on(FocusReturn), on(FocusReturn))
 	top, under, underStyle := fr.Host, fr.HostOS, p.aside
 	if fr.HostRight != "" || fr.HostModel != "" {
-		top = hostTable(fr.Host, fr.HostRight)
-		under = hostTable(fr.HostOS, fr.HostModel)
+		top = hostTable(fr.Host, fr.HostRight, " + ")
+		under = hostTable(fr.HostOS, fr.HostModel, "   ")
 		underStyle = on(FocusNone)
 	}
 	at(3, colHost, x0, on(FocusNone), fit(top, boxL-x0-1))

@@ -547,11 +547,11 @@ func TestALocalModelSitsBesideTheHostOnTwoRows(t *testing.T) {
 	fr.Key = KeyNone
 	rows := paint(t, fr, GlyphsASCII, 0)
 	joined := strings.Join(rows, "\n")
-	plusAt := func(row string) int {
+	at := func(row, needle string) int {
 		t.Helper()
-		i := strings.Index(row, "+")
+		i := strings.Index(row, needle)
 		if i < 0 {
-			t.Fatalf("no plus in %q\n%s", row, joined)
+			t.Fatalf("%q missing from %q\n%s", needle, row, joined)
 		}
 		return utf8.RuneCountInString(row[:i])
 	}
@@ -561,8 +561,15 @@ func TestALocalModelSitsBesideTheHostOnTwoRows(t *testing.T) {
 	if !strings.Contains(rows[4], "linux/x64") || !strings.Contains(rows[4], "Qwen 3.8") {
 		t.Errorf("the OS row lost a cell:\n%s", joined)
 	}
-	if a, b := plusAt(rows[3]), plusAt(rows[4]); a != b || a != HostSide+1 {
-		t.Errorf("plus columns %d and %d, want both at %d", a, b, HostSide+1)
+	plus := at(rows[3], "+")
+	if plus != HostSide+1 {
+		t.Errorf("plus at %d, want %d", plus, HostSide+1)
+	}
+	if under := []rune(rows[4]); plus >= len(under) || under[plus] != ' ' {
+		t.Errorf("the OS row kept a plus at %d: %q", plus, rows[4])
+	}
+	if a, b := at(rows[3], "Ollama"), at(rows[4], "Qwen 3.8"); a != b {
+		t.Errorf("Ollama at %d and Qwen at %d, want one column", a, b)
 	}
 	if strings.Contains(rows[2], "Qwen") || strings.Contains(rows[2], "Ollama") {
 		t.Errorf("the pair landed in the agent box:\n%s", joined)
