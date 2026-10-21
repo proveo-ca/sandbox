@@ -743,10 +743,32 @@ func EnvHeader(secretNames []string, settings map[string]string) []string {
 	if len(secretNames) > 0 {
 		out = append(out, "keys:     "+strings.Join(secretNames, "  "))
 	}
+	var names []string
+	flush := func() {
+		if len(names) == 0 {
+			return
+		}
+		out = append(out, fmt.Sprintf("%-9s %s", "", strings.Join(names, "  ")))
+		names = nil
+	}
 	for _, k := range sortedKeys(settings) {
+		if settingValueHidden(k) {
+			names = append(names, k)
+			continue
+		}
+		flush()
 		out = append(out, fmt.Sprintf("%-9s %s=%s", "", k, settings[k]))
 	}
+	flush()
 	return out
+}
+
+func settingValueHidden(k string) bool {
+	switch k {
+	case "CODE_THEME", "DARK_MODE":
+		return true
+	}
+	return false
 }
 
 func sortedKeys(m map[string]string) []string {

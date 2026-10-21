@@ -256,6 +256,12 @@ note bottom of DRAW
   both and the divider ends its authority.
 end note
 
+note bottom of HDR
+  CODE_THEME and DARK_MODE are named
+  and their values stay off the prompt.
+  A model setting still prints key=value.
+end note
+
 note left of FORM
   **The legend is a claim.** Init's radios are
   not a safety axis, so ""NoAxis"" keeps

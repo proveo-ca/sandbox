@@ -131,7 +131,11 @@ func TestHeaderShowsGitAndEnvWithSecretsByNameOnly(t *testing.T) {
 func TestEnvHeaderNeverPrintsASecretValue(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-do-not-render-this"
-	lines := EnvHeader([]string{"ANTHROPIC_API_KEY"}, map[string]string{"DARK_MODE": "1"})
+	lines := EnvHeader([]string{"ANTHROPIC_API_KEY"}, map[string]string{
+		"DARK_MODE":       "true",
+		"CODE_THEME":      "one-dark",
+		"ARCHITECT_MODEL": "claude-opus-5",
+	})
 	all := strings.Join(lines, "\n")
 	if strings.Contains(all, secret) {
 		t.Fatalf("EnvHeader leaked a secret value:\n%s", all)
@@ -139,8 +143,14 @@ func TestEnvHeaderNeverPrintsASecretValue(t *testing.T) {
 	if !strings.Contains(all, "ANTHROPIC_API_KEY") {
 		t.Error("secret keys must still be listed by name")
 	}
-	if !strings.Contains(all, "DARK_MODE=1") {
-		t.Error("non-secret settings must show their value")
+	if strings.Contains(all, "one-dark") || strings.Contains(all, "DARK_MODE=true") || strings.Contains(all, "CODE_THEME=") {
+		t.Errorf("theme settings must keep the name and drop the value:\n%s", all)
+	}
+	if !strings.Contains(all, "CODE_THEME") || !strings.Contains(all, "DARK_MODE") {
+		t.Errorf("theme settings must still be named:\n%s", all)
+	}
+	if !strings.Contains(all, "ARCHITECT_MODEL=claude-opus-5") {
+		t.Error("a model setting must show its value")
 	}
 }
 
