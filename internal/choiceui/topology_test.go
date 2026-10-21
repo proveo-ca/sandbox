@@ -599,7 +599,7 @@ func TestHoveredLocalModelLightsOnlyTheOllamaSide(t *testing.T) {
 	}
 }
 
-func TestADirectHostDropsTheSquareAndJoinsTheCorner(t *testing.T) {
+func TestADirectHostDropsTheSquareAndKeepsADash(t *testing.T) {
 	t.Parallel()
 	g := glyphsFor(GlyphsNerd)
 	fr := base()
@@ -620,15 +620,18 @@ func TestADirectHostDropsTheSquareAndJoinsTheCorner(t *testing.T) {
 	node := strings.Index(rows[2], g.node)
 	name := strings.Index(rows[2], "opencode")
 	key := strings.Index(rows[2], g.key)
-	corner := strings.Index(rows[2], g.cornerTR)
-	if node < 0 || key < node || name < key || corner < name {
-		t.Fatalf("row 2 = %q, want the host node, the key, the agent, then the corner", rows[2])
+	lane := strings.Index(rows[2], g.watched)
+	if node < 0 || key < node || name < key || lane < name {
+		t.Fatalf("row 2 = %q, want the host node, the key, the agent, then the lane", rows[2])
+	}
+	if strings.Contains(rows[2], g.cornerTR) {
+		t.Fatalf("the host line ends in a corner: %q", rows[2])
 	}
 	if styleOf(t, fr, glyphsFor(GlyphsASCII).key) != styles().brand {
 		t.Error("the forwarded key is not drawn as selected")
 	}
-	if !strings.Contains(rows[2][node:name], g.rule) || !strings.Contains(rows[2][name:corner], g.rule) {
-		t.Fatalf("the line from the host to the corner is broken: %q", rows[2])
+	if !strings.Contains(rows[2][node:name], g.rule) || !strings.Contains(rows[2][name:lane], g.rule) {
+		t.Fatalf("the line from the host to the lane is broken: %q", rows[2])
 	}
 	if !strings.Contains(rows[3], "+ "+g.node+" tui") {
 		t.Fatalf("the tui row = %q, want a plus before the node", rows[3])

@@ -148,7 +148,7 @@ title The topology strip in every selectable state (sbx; the docker frames are h
   . | . | . | . | . | - - ▸ <:cloud:>
   () host ──────── opencode ──────── + | . | . | - - ▸ <:cloud:>
   ▴ | . | + () tui | . | . | - - ▸ <:cloud:>
-  the square and "sbx proxy" are gone; one line runs from the host to the corner
+  the square and the proxy are gone; one dash runs from the host to the lanes
 }
 ..
 {^"HISTORY — Variant D · the docker backend (deleted 2026-10-16) — proveo's tiers, and proveo's mitmproxy"

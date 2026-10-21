@@ -27,7 +27,7 @@ type Frame struct {
 	Open      int // lanes that reach a cloud
 	Refused   int // lanes drawn as refused
 	Speaking  bool
-	Direct    bool // no box and no hop; a line runs from the host node to a corner
+	Direct    bool // no box and no hop; a rule runs from the host node to the lanes
 	Focus     Focus
 }
 
@@ -357,7 +357,7 @@ func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, o
 	s := pn.s
 	start := pn.col()
 	wire := on(FocusSquare)
-	newPen(s, start, y0+2).write(wire, strings.Repeat(g.rule, colHop-start)+g.cornerTR)
+	newPen(s, start, y0+2).write(wire, strings.Repeat(g.rule, colHop-start+1))
 	if fr.Open+fr.Refused > 0 {
 		newPen(s, colHop+1, y0+2).write(dim, strings.Repeat(g.lane(fr.Lane), colLanes-colHop-1))
 	}
