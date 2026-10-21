@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestFlockSameTickSameSky(t *testing.T) {
@@ -191,6 +192,63 @@ func TestFlockStaysWithinFortyColumns(t *testing.T) {
 	}
 }
 
+func TestFlockFarPlaneLags(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(40)
+	s.hawk.x, s.hawk.y = -30, -30
+	s.birds = []bird{
+		{x: 20, y: 8, heading: 0, speed: flockMinSpeed},
+		{x: 20, y: 8, heading: 0, speed: flockMinSpeed, far: true},
+	}
+	s.step()
+	if s.birds[1].x >= s.birds[0].x {
+		t.Errorf("far bird at %v, near bird at %v", s.birds[1].x, s.birds[0].x)
+	}
+}
+
+func TestFlockFarPlaneIgnoresTheHawk(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(40)
+	s.birds = []bird{{x: 20, y: 8, heading: 0, speed: flockMinSpeed, far: true}}
+	s.hawk = bird{x: 24, y: 8, heading: math.Pi, speed: flockMaxSpeed}
+	s.step()
+	if flockAngleBetween(s.birds[0].heading, 0) > 1e-9 {
+		t.Errorf("far heading %v turned for the hawk", s.birds[0].heading)
+	}
+}
+
+func TestFlockPlanesKeepToThemselves(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(40)
+	s.hawk.x, s.hawk.y = -30, -30
+	s.birds = []bird{
+		{x: 20, y: 8, heading: 0, speed: flockMinSpeed, far: true},
+		{x: 22, y: 8, heading: math.Pi, speed: flockMinSpeed},
+	}
+	s.step()
+	if flockAngleBetween(s.birds[0].heading, 0) > 1e-9 {
+		t.Errorf("far heading %v followed the near bird", s.birds[0].heading)
+	}
+}
+
+func TestFlockNearPlaneCoversTheFar(t *testing.T) {
+	t.Parallel()
+	s := newFlockSim(72)
+	s.hawk.x, s.hawk.y = -30, -30
+	s.birds = []bird{
+		{x: 20, y: 8, heading: 0, speed: flockMinSpeed, far: true},
+		{x: 40, y: 8, heading: 0, speed: flockMinSpeed, far: true},
+		{x: 40, y: 8, heading: 0, speed: flockMinSpeed},
+	}
+	_, who, _ := s.raster(GlyphsNerd)
+	if who[2][10] != flockPlaneFar {
+		t.Errorf("far bird cell is plane %d", who[2][10])
+	}
+	if who[2][20] != flockPlaneNear {
+		t.Errorf("shared cell is plane %d", who[2][20])
+	}
+}
+
 func TestFlockHawkHasItsOwnColor(t *testing.T) {
 	t.Parallel()
 	f := budgetForm()
@@ -215,8 +273,14 @@ func TestFlockHawkHasItsOwnColor(t *testing.T) {
 			colors[fg] = true
 		}
 	}
-	if len(colors) < 2 {
-		t.Errorf("braille uses %d colors, want the flock and the hawk", len(colors))
+	for _, want := range []tcell.Color{
+		tcell.NewHexColor(int32(ui.ColorSecondary)),
+		tcell.NewHexColor(int32(ui.ColorAccent)),
+		tcell.NewHexColor(int32(ui.ColorWarn)),
+	} {
+		if !colors[want] {
+			t.Errorf("braille missing %v; have %v", want, colors)
+		}
 	}
 }
 

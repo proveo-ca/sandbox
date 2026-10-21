@@ -28,9 +28,18 @@ const (
 	flockFlee       = 14.0
 	flockHawkWeight = 6.0
 	flockHawkScale  = 2.0
+	flockFarShare   = 0.35
+	flockFarPace    = 0.72
+	flockFarScale   = 0.62
+	flockPlaneFar   = 1
+	flockPlaneNear  = 2
+	flockPlaneHawk  = 3
 )
 
-type bird struct{ x, y, heading, speed float64 }
+type bird struct {
+	x, y, heading, speed float64
+	far                  bool
+}
 
 type flockSim struct {
 	birds    []bird
@@ -92,6 +101,7 @@ func (s *flockSim) resize(cols int) {
 			y:       s.next() * float64(h),
 			heading: a,
 			speed:   flockMinSpeed,
+			far:     s.next() < flockFarShare,
 		}
 	}
 	s.hawk = bird{x: float64(w) / 2, y: float64(h) / 2, heading: 0, speed: flockMaxSpeed}
@@ -124,6 +134,9 @@ func (s *flockSim) step() {
 			if j == i {
 				continue
 			}
+			if prev[j].far != b.far {
+				continue
+			}
 			dx, dy := prev[j].x-b.x, prev[j].y-b.y
 			d2 := dx*dx + dy*dy
 			if d2 > flockPerception*flockPerception {
@@ -147,17 +160,23 @@ func (s *flockSim) step() {
 		}
 		ax += flockBoundary(b.x, float64(s.dotsW))
 		ay += flockBoundary(b.y, float64(s.dotsH))
-		if dx, dy := b.x-hx, b.y-hy; dx*dx+dy*dy < flockFlee*flockFlee && dx*dx+dy*dy > 0.001 {
-			ax += dx / (dx*dx + dy*dy) * flockHawkWeight
-			ay += dy / (dx*dx + dy*dy) * flockHawkWeight
+		if !b.far {
+			if dx, dy := b.x-hx, b.y-hy; dx*dx+dy*dy < flockFlee*flockFlee && dx*dx+dy*dy > 0.001 {
+				ax += dx / (dx*dx + dy*dy) * flockHawkWeight
+				ay += dy / (dx*dx + dy*dy) * flockHawkWeight
+			}
 		}
 		desired := b.heading
 		if math.Hypot(ax, ay) > 1e-9 {
 			desired = math.Atan2(ay, ax)
 		}
 		b.heading = flockTurnTowards(b.heading, desired, flockTurn*flockStep)
-		b.x += math.Cos(b.heading) * b.speed * flockStep
-		b.y += math.Sin(b.heading) * b.speed * flockStep
+		pace := 1.0
+		if b.far {
+			pace = flockFarPace
+		}
+		b.x += math.Cos(b.heading) * b.speed * flockStep * pace
+		b.y += math.Sin(b.heading) * b.speed * flockStep * pace
 		b.x = flockClamp(b.x, float64(s.dotsW))
 		b.y = flockClamp(b.y, float64(s.dotsH))
 	}
@@ -168,6 +187,9 @@ func (s *flockSim) steerHawk(prev []bird) bird {
 	var nearest float64 = -1
 	var tx, ty float64
 	for _, b := range prev {
+		if b.far {
+			continue
+		}
 		dx, dy := b.x-h.x, b.y-h.y
 		d2 := dx*dx + dy*dy
 		if nearest < 0 || d2 < nearest {
@@ -243,7 +265,7 @@ func flockBin(heading float64) int {
 
 var flockBrailleBits = [2][4]uint8{{1, 2, 4, 64}, {8, 16, 32, 128}}
 
-func (s *flockSim) stamp(masks, counts, hawk []uint8, cols int, b bird, scale float64, isHawk bool) {
+func (s *flockSim) stamp(masks, counts, plane []uint8, cols int, b bird, scale float64, layer uint8) {
 	fx, fy := b.x-math.Floor(b.x), b.y-math.Floor(b.y)
 	ax, ay := int(math.Floor(b.x)), int(math.Floor(b.y))
 	r2 := flockDotRadius * flockDotRadius
@@ -264,9 +286,7 @@ func (s *flockSim) stamp(masks, counts, hawk []uint8, cols int, b bird, scale fl
 				i := (y/4)*cols + x/2
 				masks[i] |= flockBrailleBits[x%2][y%4]
 				counts[i]++
-				if isHawk {
-					hawk[i] = 1
-				}
+				plane[i] = layer
 			}
 		}
 	}
@@ -278,26 +298,33 @@ func (s *flockSim) frame(tier GlyphTier) []string {
 	return lines
 }
 
-func (s *flockSim) raster(tier GlyphTier) (lines []string, hawk [][]bool, cols int) {
+func (s *flockSim) raster(tier GlyphTier) (lines []string, who [][]uint8, cols int) {
 	if tier == GlyphsOff || s.dotsW < 2 {
 		return nil, nil, 0
 	}
 	cols = s.dotsW / 2
 	masks := make([]uint8, cols*flockRows)
 	counts := make([]uint8, cols*flockRows)
-	who := make([]uint8, cols*flockRows)
+	plane := make([]uint8, cols*flockRows)
 	for _, b := range s.birds {
-		s.stamp(masks, counts, who, cols, b, 1, false)
+		if b.far {
+			s.stamp(masks, counts, plane, cols, b, flockFarScale, flockPlaneFar)
+		}
 	}
-	s.stamp(masks, counts, who, cols, s.hawk, flockHawkScale, true)
+	for _, b := range s.birds {
+		if !b.far {
+			s.stamp(masks, counts, plane, cols, b, 1, flockPlaneNear)
+		}
+	}
+	s.stamp(masks, counts, plane, cols, s.hawk, flockHawkScale, flockPlaneHawk)
 	lines = make([]string, flockRows)
-	hawk = make([][]bool, flockRows)
+	who = make([][]uint8, flockRows)
 	for row := 0; row < flockRows; row++ {
 		var sb strings.Builder
-		flags := make([]bool, cols)
+		flags := make([]uint8, cols)
 		for col := 0; col < cols; col++ {
 			i := row*cols + col
-			flags[col] = who[i] != 0
+			flags[col] = plane[i]
 			switch {
 			case masks[i] == 0:
 				sb.WriteByte(' ')
@@ -313,13 +340,13 @@ func (s *flockSim) raster(tier GlyphTier) (lines []string, hawk [][]bool, cols i
 		if n := len([]rune(lines[row])); n < len(flags) {
 			flags = flags[:n]
 		}
-		hawk[row] = flags
+		who[row] = flags
 	}
-	return lines, hawk, cols
+	return lines, who, cols
 }
 
 // drawFlock paints the flock at y0 in a cols-wide region starting at x=2.
-func drawFlock(s tcell.Screen, y0, cols, tick int, tier GlyphTier, birdStyle, hawkStyle tcell.Style, sim *flockSim) {
+func drawFlock(s tcell.Screen, y0, cols, tick int, tier GlyphTier, farStyle, nearStyle, hawkStyle tcell.Style, sim *flockSim) {
 	if tier == GlyphsOff || cols < 20 || sim == nil {
 		return
 	}
@@ -329,9 +356,14 @@ func drawFlock(s tcell.Screen, y0, cols, tick int, tier GlyphTier, birdStyle, ha
 	for i, line := range lines {
 		pen := newPen(s, 2, y0+i)
 		for col, r := range line {
-			style := birdStyle
-			if col < len(who[i]) && who[i][col] {
-				style = hawkStyle
+			style := nearStyle
+			if col < len(who[i]) {
+				switch who[i][col] {
+				case flockPlaneFar:
+					style = farStyle
+				case flockPlaneHawk:
+					style = hawkStyle
+				}
 			}
 			pen.write(style, string(r))
 		}

@@ -70,10 +70,14 @@
 ' 16-dot sky has an interior. Speed stays in the band. The bird count
 ' scales with width and is capped. Positions live in dot space.
 ' One hawk flies at the top of the speed band and steers toward the
-' nearest bird. A bird inside flockFlee dots adds a push away from the
-' hawk, so the flock parts. The hawk is drawn in the warn style. Birds
-' stay in the accent style. A cell that holds both takes the hawk's
-' style. ASCII still collapses either to '.' or '*'.
+' nearest near bird. A near bird inside flockFlee dots adds a push
+' away from the hawk, so that plane parts. flockFarShare of the birds
+' fly a second plane. They flock only with each other, step at
+' flockFarPace, and ignore the hawk. That pace is the parallax. The
+' far plane is stamped first, at flockFarScale, in the body style.
+' The near plane is the accent style. The hawk is the warn style. A
+' shared cell keeps the later stamp's style. ASCII still collapses
+' any of them to '.' or '*'.
 '
 ' ── THE BODY ───────────────────────────────────────────────────────────────
 ' A bird is five dots: nose, two wings, body, tail, the east chevron
@@ -89,7 +93,7 @@ title An ambient flock for the choice prompt, ported from cbirds
 
 component "cbirds\nC99 · MIT · own VT layer\nno library API" as CBIRDS <<cloud>>
 component "internal/choiceui flockSim\nheading, turn limit\ndeterministic seed" as SIM <<app>>
-component "braille packing\n5-dot body, hawk at 2x\nU+2800 + dot bits" as PACK <<app>>
+component "braille packing\nfar plane under near\nhawk at 2x" as PACK <<app>>
 component "layout drop ladder\nflock takes the banner's place\nsix rows, tagline kept" as LADDER <<app>>
 component "Form.Flock opt-in\nrun form only" as FORM <<app>>
 component "flock clock\n30fps, one step per paint\nstrip frame stays 120ms" as TICK <<async>>

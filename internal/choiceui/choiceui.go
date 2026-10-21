@@ -453,7 +453,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 		if f.flock == nil {
 			f.flock = newFlockSim(cols)
 		}
-		drawFlock(s, c.y, cols, f.flockTick, f.Glyphs, p.accent, p.warn, f.flock)
+		drawFlock(s, c.y, cols, f.flockTick, f.Glyphs, p.body, p.accent, p.warn, f.flock)
 		c.y += flockRows + 1
 	} else if lay.banner {
 		for _, b := range f.Banner {
