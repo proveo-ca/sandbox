@@ -32,6 +32,7 @@ type Row struct {
 	// SPEC: _spec/cmd/proveo/init-credential-wireframe.puml
 	Field       bool
 	Heading     string // the divider's text, when the group is not named for this row
+	Cols        []int  // 0-based column of each option; nil packs left to right
 	Value       string
 	Placeholder string
 	Masked      bool
@@ -459,8 +460,8 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 		c.y++
 	}
 	if lay.axis {
-		c.put(bodyIndent+22, p.body, "◀ riskier")
-		c.put(bodyIndent+60, p.body, "safer ▶")
+		c.put(optOrigin, p.body, "◀ riskier")
+		c.put(optOrigin+3*colPitch, p.body, "safer ▶")
 		c.y += 2
 	}
 
@@ -571,7 +572,7 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		rowLabel = "" // the heading above it is on screen and already says this
 	}
 	c.put(bodyIndent, labelStyle, marker+rowLabel)
-	x := bodyIndent + 22
+	x := optOrigin
 	if r.Field {
 		f.drawField(c, p, r, x, ln.row == cursor)
 		return
@@ -599,8 +600,14 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		if ln.row == cursor && j == r.cursorAt() {
 			st = st.Underline(true)
 		}
-		c.put(x, st, glyph+opt)
-		x += textWidth(glyph+opt) + 3
+		at := x
+		if j < len(r.Cols) {
+			at = optOrigin + r.Cols[j]*colPitch
+		}
+		c.put(at, st, glyph+opt)
+		if j >= len(r.Cols) {
+			x += textWidth(glyph+opt) + 3
+		}
 	}
 }
 

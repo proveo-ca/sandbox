@@ -39,7 +39,7 @@ not running, or the model would not fit in free memory (`PROVEO_LOCAL_MODEL_FORC
 
 ## Host Chrome (logged-in sites)
 
-Tick **host chrome (CDP)** in the interface row (sbx only). proveo opens Chrome on a dedicated
+Tick **chrome** in the interface row (sbx only). proveo opens Chrome on a dedicated
 profile (`~/Library/Application Support/proveo/host-chrome/hermes` on macOS) with CDP on
 `127.0.0.1:9222` (`PROVEO_HOST_CDP_PORT` overrides), or reuses a browser already serving CDP there.
 Log into the site in that window once; the profile keeps the session across runs. hermes attaches by

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -424,7 +425,7 @@ func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 	// rule could not express.
 	two := &Form{Rows: []Row{
 		{Label: "execution", Options: []string{"host", "docker (sandbox)"}, Multi: true, Divider: true, On: make([]bool, 2)},
-		{Label: "interface", Options: []string{"tui (this session)", "browser"}, Multi: true, Divider: true, On: make([]bool, 2)},
+		{Label: "interface", Options: []string{"tui", "browser"}, Multi: true, Divider: true, On: make([]bool, 2)},
 	}}
 	got := strings.Join(render(t, two), "\n")
 	for _, want := range []string{"─ execution ─", "─ interface ─"} {
@@ -623,6 +624,85 @@ func TestOverlongReasonWrapsInTheHelpBlock(t *testing.T) {
 	}
 	if got := clip("abc", 9); got != "abc" {
 		t.Errorf("clip must leave text that fits alone, got %q", got)
+	}
+}
+
+func TestStaticColumnsDoNotSlide(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Cols: []int{0, 2, 3}, Selected: 0, Locked: true},
+		{Label: "credentials", Options: []string{"forward", "broker"}, Cols: []int{0, 3}, Selected: 1},
+		{Label: "model", Options: []string{"Qwen 3.8 27B", "API keys", "subscription", "Muse Glimmer 30B"}, Cols: []int{0, 1, 2, 3}, Selected: 1},
+		{Label: "interface", Options: []string{"tui", "browser", "android", "ios"}, Cols: []int{0, 1, 2, 3}, Multi: true, Divider: true, On: []bool{true, false, false, false}},
+	}}
+	lines := render(t, f)
+	line := func(needle string) string {
+		t.Helper()
+		for _, l := range lines {
+			if strings.Contains(l, needle) {
+				return l
+			}
+		}
+		t.Fatalf("no line contains %q:\n%s", needle, strings.Join(lines, "\n"))
+		return ""
+	}
+	at := func(l, needle string) int {
+		t.Helper()
+		i := strings.Index(l, needle)
+		if i < 0 {
+			t.Fatalf("%q missing from %q", needle, l)
+		}
+		return utf8.RuneCountInString(l[:i])
+	}
+	egress := line("allow-all")
+	allow := at(egress, "allow-all")
+	if got := at(egress, "balanced"); got != allow+2*colPitch {
+		t.Errorf("balanced at %d, want %d (column 3, with column 2 empty)", got, allow+2*colPitch)
+	}
+	if got := at(egress, "deny-all"); got != allow+3*colPitch {
+		t.Errorf("deny-all at %d, want %d", got, allow+3*colPitch)
+	}
+	creds := line("forward")
+	if got := at(creds, "broker"); got != at(creds, "forward")+3*colPitch {
+		t.Errorf("broker at %d, forward at %d, want three columns apart", got, at(creds, "forward"))
+	}
+	if at(creds, "broker") != at(egress, "deny-all") {
+		t.Errorf("broker and deny-all are both column 4 and must share an x")
+	}
+	model := line("API keys")
+	qwen := at(model, "Qwen 3.8 27B")
+	for _, c := range []struct {
+		name string
+		col  int
+	}{
+		{"API keys", 1},
+		{"subscription", 2},
+		{"Muse Glimmer 30B", 3},
+	} {
+		if got := at(model, c.name); got != qwen+c.col*colPitch {
+			t.Errorf("%s at %d, want column %d", c.name, got, c.col+1)
+		}
+	}
+	iface := line("[x] tui")
+	tui := at(iface, "tui")
+	for _, c := range []struct {
+		name string
+		col  int
+	}{
+		{"browser", 1},
+		{"android", 2},
+		{"ios", 3},
+	} {
+		if got := at(iface, c.name); got != tui+c.col*colPitch {
+			t.Errorf("%s at %d, want column %d", c.name, got, c.col+1)
+		}
+	}
+	if tui != allow {
+		t.Errorf("tui at %d, allow-all at %d, want the same column", tui, allow)
+	}
+	legend := line("safer")
+	if got := at(legend, "safer"); got != optOrigin+3*colPitch {
+		t.Errorf("safer legend at %d, want column 4 at %d", got, optOrigin+3*colPitch)
 	}
 }
 

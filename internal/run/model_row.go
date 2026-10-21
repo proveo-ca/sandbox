@@ -34,16 +34,13 @@ var localModels = []localModel{
 		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
 }
 
-// labelFor is the option text on platform.
-func (m localModel) labelFor(platform string) string {
-	b, ok := m.builds[platform]
-	if !ok {
-		b = m.builds[""]
+func (m localModel) labelFor(string) string { return m.name }
+
+func (m localModel) buildFor(platform string) string {
+	if b, ok := m.builds[platform]; ok {
+		return b
 	}
-	if b == "" {
-		return m.name
-	}
-	return m.name + " " + b
+	return m.builds[""]
 }
 
 func (m localModel) label() string { return m.labelFor(ollamaPlatform()) }
@@ -69,11 +66,11 @@ func modelHelp(localModel string) map[string]string {
 	}
 	claimed := false
 	for _, m := range localModels {
-		h[m.label()] = "same as --local-model " + m.tag() + " on " + ollamaPlatform() + ": the host's Ollama serves it, no key"
+		h[m.label()] = modelHint(m, "same as --local-model "+m.tag()+" on "+ollamaPlatform()+": the host's Ollama serves it, no key")
 		if m.owns(localModel) {
 			claimed = true
 			if localModel != m.tag() {
-				h[m.label()] = "keeps your --local-model " + localModel + " (the row picks " + m.tag() + " on " + ollamaPlatform() + ")"
+				h[m.label()] = modelHint(m, "keeps your --local-model "+localModel+" (the row picks "+m.tag()+" on "+ollamaPlatform()+")")
 			}
 		}
 	}
@@ -81,6 +78,13 @@ func modelHelp(localModel string) map[string]string {
 		h[localModel] = "from --local-model: the host's Ollama serves it, no key"
 	}
 	return h
+}
+
+func modelHint(m localModel, rest string) string {
+	if b := m.buildFor(ollamaPlatform()); b != "" {
+		return b + ", " + rest
+	}
+	return rest
 }
 
 // noLocalModel names the harnesses whose inference is vendor-pinned.
@@ -130,6 +134,7 @@ func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
 	sortModelOptions(opts)
 	r := axisRow(rowModel, opts, nil, preselect)
 	r.Help = modelHelp(localModel)
+	pinModelCols(&r)
 	return r, true
 }
 
@@ -194,6 +199,7 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 	r.Label = rowModel
 	renameOption(&r, credentials.AuthUsage, modelAPIKeys)
 	if !hasLocal {
+		sortModelRow(&r)
 		return r, true
 	}
 	if r.Help == nil {
@@ -244,6 +250,14 @@ func sortModelRow(r *choiceui.Row) {
 	}
 	if i := slices.Index(r.Options, chosen); i >= 0 {
 		r.Selected = i
+	}
+	pinModelCols(r)
+}
+
+func pinModelCols(r *choiceui.Row) {
+	r.Cols = make([]int, len(r.Options))
+	for i, opt := range r.Options {
+		r.Cols[i] = modelRiskRank(opt)
 	}
 }
 

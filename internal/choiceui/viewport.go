@@ -3,6 +3,8 @@ package choiceui
 
 const (
 	bodyIndent   = 2
+	optOrigin    = bodyIndent + 22 // column 0 of the four-column grid
+	colPitch     = 22              // one column: glyph, the longest option, a gap
 	minBodyLines = 3
 	scrollMargin = 1
 	pageRows     = 5

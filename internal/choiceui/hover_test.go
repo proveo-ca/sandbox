@@ -69,7 +69,7 @@ func TestStartCursorOpensOnTheNamedRowAndOption(t *testing.T) {
 		Rows: []Row{
 			{Label: "egress", Options: []string{"allow-all"}, Locked: true},
 			{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1, Hover: 1, Locked: true},
-			{Label: "interface", Options: []string{"tui (this session)", "browser", "android"}, Multi: true},
+			{Label: "interface", Options: []string{"tui", "browser", "android"}, Multi: true},
 		},
 	}
 	if got := f.startCursor(); got != 2 {

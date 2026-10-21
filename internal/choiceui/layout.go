@@ -115,7 +115,19 @@ const paneGutter = 2
 
 func (r *Row) rightEdge() int {
 	x := bodyIndent + len("  "+r.Label)
-	opts := bodyIndent + 22
+	if len(r.Cols) > 0 {
+		for j, opt := range r.Options {
+			col := j
+			if j < len(r.Cols) {
+				col = r.Cols[j]
+			}
+			if end := optOrigin + col*colPitch + textWidth("( ) "+opt); end > x {
+				x = end
+			}
+		}
+		return x
+	}
+	opts := optOrigin
 	for _, opt := range r.Options {
 		opts += 4 + len(opt) + 3
 	}

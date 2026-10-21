@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	Addon       = "android (host emulator)"
-	AddonIOS    = "ios (host simulator)"
+	Addon       = "android"
+	AddonIOS    = "ios"
 	IOSWhy      = "coming soon — not built yet; iOS Simulators also need a macOS host with Xcode"
 	EnvPort     = "PROVEO_HOST_ADB_PORT"
 	EnvAVD      = "PROVEO_HOST_AVD"

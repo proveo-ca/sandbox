@@ -549,8 +549,8 @@ func TestTheDockerAddonStartsChecked(t *testing.T) {
 
 func TestNormalizeAddonsDropsTheRetiredSidecarNames(t *testing.T) {
 	t.Parallel()
-	got := normalizeAddons([]string{"browser", "dind", "docker (dind)", addonSandbox})
-	if diff := cmp.Diff([]string{"browser", addonSandbox}, got); diff != "" {
+	got := normalizeAddons([]string{"browser", "dind", "docker (dind)", addonSandbox, "tui (this session)", "android (host emulator)", "host chrome (CDP)"})
+	if diff := cmp.Diff([]string{"browser", addonSandbox, addonTUI, addonAndroid, addonHostCDP}, got); diff != "" {
 		t.Errorf("normalizeAddons() mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -617,6 +617,9 @@ func TestEgressRowShowsTheHostBaseline(t *testing.T) {
 		if got.Options[got.Selected] != sbx.BaselineBalanced {
 			t.Errorf("selected %q, want the host's actual baseline %q",
 				got.Options[got.Selected], sbx.BaselineBalanced)
+		}
+		if !slices.Equal(got.Cols, []int{0, 2, 3}) {
+			t.Errorf("egress cols = %v, want allow-all, gap, balanced, deny-all", got.Cols)
 		}
 	})
 

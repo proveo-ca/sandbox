@@ -3,6 +3,7 @@ package run
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -125,24 +126,50 @@ func TestLocalModelIsSeededFromTheCache(t *testing.T) {
 
 func TestLocalModelFollowsTheHostPlatform(t *testing.T) {
 	t.Parallel()
-	for _, c := range []struct{ platform, qwenTag, qwenLabel, glimmerTag, glimmerLabel string }{
-		{"darwin/arm64", "qwen3.8:27b-mlx", "Qwen 3.8 27B MLX", "muse-glimmer:30b-mlx", "Muse Glimmer 30B MLX"},
-		{"linux/amd64", "qwen3.8:latest", "Qwen 3.8 27B GGUF", "muse-glimmer:latest", "Muse Glimmer 30B GGUF"},
-		{"darwin/amd64", "qwen3.8:latest", "Qwen 3.8 27B GGUF", "muse-glimmer:latest", "Muse Glimmer 30B GGUF"},
-		{"linux/arm64", "qwen3.8:latest", "Qwen 3.8 27B GGUF", "muse-glimmer:latest", "Muse Glimmer 30B GGUF"},
+	for _, c := range []struct{ platform, qwenTag, build, glimmerTag string }{
+		{"darwin/arm64", "qwen3.8:27b-mlx", "MLX", "muse-glimmer:30b-mlx"},
+		{"linux/amd64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest"},
+		{"darwin/amd64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest"},
+		{"linux/arm64", "qwen3.8:latest", "GGUF", "muse-glimmer:latest"},
 	} {
 		if got := qwen.tagFor(c.platform); got != c.qwenTag {
 			t.Errorf("Qwen tag on %s = %q, want %q", c.platform, got, c.qwenTag)
 		}
-		if got := qwen.labelFor(c.platform); got != c.qwenLabel {
-			t.Errorf("Qwen label on %s = %q, want %q", c.platform, got, c.qwenLabel)
+		if got := qwen.labelFor(c.platform); got != qwen.name {
+			t.Errorf("Qwen label on %s = %q, want %q", c.platform, got, qwen.name)
+		}
+		if got := qwen.buildFor(c.platform); got != c.build {
+			t.Errorf("Qwen build on %s = %q, want %q", c.platform, got, c.build)
 		}
 		if got := glimmer.tagFor(c.platform); got != c.glimmerTag {
 			t.Errorf("Glimmer tag on %s = %q, want %q", c.platform, got, c.glimmerTag)
 		}
-		if got := glimmer.labelFor(c.platform); got != c.glimmerLabel {
-			t.Errorf("Glimmer label on %s = %q, want %q", c.platform, got, c.glimmerLabel)
+		if got := glimmer.labelFor(c.platform); got != glimmer.name {
+			t.Errorf("Glimmer label on %s = %q, want %q", c.platform, got, glimmer.name)
 		}
+		if got := glimmer.buildFor(c.platform); got != c.build {
+			t.Errorf("Glimmer build on %s = %q, want %q", c.platform, got, c.build)
+		}
+	}
+}
+
+func TestModelBuildLivesInTheHint(t *testing.T) {
+	t.Parallel()
+	r, ok := modelRow(hermesImagesMan(), "")
+	if !ok {
+		t.Fatal("no model row")
+	}
+	for _, opt := range r.Options {
+		if strings.Contains(opt, "GGUF") || strings.Contains(opt, "MLX") {
+			t.Errorf("build leaked into the option %q", opt)
+		}
+	}
+	if cols := []int{0, 1, 3}; !slices.Equal(r.Cols, cols) {
+		t.Errorf("cols = %v, want %v (subscription's column stays empty)", r.Cols, cols)
+	}
+	h := r.Help[qwen.label()]
+	if !strings.Contains(h, qwen.buildFor(ollamaPlatform())) {
+		t.Errorf("hint = %q, want the %s build", h, qwen.buildFor(ollamaPlatform()))
 	}
 }
 
@@ -162,6 +189,9 @@ func TestSourceRowMergesThePlanAndTheLocalModels(t *testing.T) {
 	want := []string{qwen.label(), modelAPIKeys, credentials.AuthSubscription, glimmer.label()}
 	if r.Label != rowModel || !slices.Equal(r.Options, want) {
 		t.Errorf("row %q = %v, want %q = %v", r.Label, r.Options, rowModel, want)
+	}
+	if !slices.Equal(r.Cols, []int{0, 1, 2, 3}) {
+		t.Errorf("model cols = %v, want one option per risk column", r.Cols)
 	}
 	if len(r.Off) != len(r.Options) || r.Help[qwen.label()] == "" || r.Help[modelAPIKeys] == "" {
 		t.Errorf("merged row lost its gates or help: off=%v help=%v", r.Off, r.Help)

@@ -268,7 +268,7 @@ title The topology strip in every selectable state (sbx; the docker frames are h
   row | selection | what changes in the strip
   the def being run | claudecode · cursor · opencode · cecli | the square's label, and which variant above applies
   execution | docker (sandbox) — compulsory wherever the harness declares sbx | the square reads 'sbx · <def>'
-  interface | tui (this session) — always on | the interface dot, always drawn
+  interface | tui — always on | the interface dot, always drawn
   interface | + browser | the dot reads 'interface: tui + browser'
   interface | + claude-in-chrome | the return arrow reaches PAST the host dot, to your own Chrome
 }

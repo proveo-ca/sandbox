@@ -28,6 +28,9 @@ func TestForwardIsGatedOnSbxAndTheRowStillHasBothModes(t *testing.T) {
 	if i >= len(row.Off) || !row.Off[i] {
 		t.Error("forward is still selectable on sbx; the proxy holds the value")
 	}
+	if !slices.Equal(row.Cols, []int{0, 3}) {
+		t.Errorf("credential cols = %v, want forward at 0 and broker at 3", row.Cols)
+	}
 	if row.Options[row.Selected] != "broker" {
 		t.Errorf("selected %q, want broker — the only route sbx will honour", row.Options[row.Selected])
 	}
@@ -55,6 +58,29 @@ func TestFirstChoiceIsTheFirstChangeableOption(t *testing.T) {
 	onlyFixed := &choiceui.Row{Options: []string{addonTUI}}
 	if got := firstChoice(onlyFixed); got != "" {
 		t.Errorf("firstChoice with only compulsory options = %q, want none", got)
+	}
+}
+
+func TestInterfaceColumnsStayPutWhenOneIsMissing(t *testing.T) {
+	t.Parallel()
+	partial := layoutInterface(choiceui.Row{
+		Label: rowInterface, Multi: true,
+		Options: []string{addonTUI, addonAndroid, addonIOS},
+		On:      []bool{true, false, true},
+	})
+	if !slices.Equal(partial.Options, []string{addonTUI, addonAndroid, addonIOS}) || !slices.Equal(partial.Cols, []int{0, 2, 3}) {
+		t.Errorf("partial = %v cols %v, want tui, android, ios in columns 0, 2, 3", partial.Options, partial.Cols)
+	}
+	if !partial.On[0] || partial.On[1] || !partial.On[2] {
+		t.Errorf("ticks moved with the sort: %v", partial.On)
+	}
+	full := layoutInterface(choiceui.Row{
+		Label: rowInterface, Multi: true,
+		Options: []string{addonChrome, addonIOS, addonTUI, addonBrowser, addonAndroid},
+	})
+	want := []string{addonTUI, addonBrowser, addonAndroid, addonIOS, addonChrome}
+	if !slices.Equal(full.Options, want) || !slices.Equal(full.Cols, []int{0, 1, 2, 3, 4}) {
+		t.Errorf("full = %v cols %v, want %v", full.Options, full.Cols, want)
 	}
 }
 
