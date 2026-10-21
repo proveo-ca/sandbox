@@ -127,7 +127,7 @@ type topoCols struct {
 }
 
 // boxW is the container's inner width; everything right of the box is laid out from it.
-const boxW = 30
+const boxW = 32
 
 // hostPad widens the host column so a name/Ollama table fits before the box.
 const hostPad = 12

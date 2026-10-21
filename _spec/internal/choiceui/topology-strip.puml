@@ -279,8 +279,9 @@ skinparam noteTextAlignment left
 ' ── NO API KEY, NO KEY GLYPH (2026-09-27) ──────────────────────────────────
 ' The key is drawn only while the model row answers "API keys". Any other answer
 ' — subscription, or a local model — sets KeyNone: no glyph anywhere, the caption
-' says "no API key is in play". A local model leaves the square as
-' `sbx · <harness>` and stands beside the host as a table. Each row is two
+' says "no API key is in play". The square names the microVM and the harness:
+' `sbx (linux/x86) · opencode` on amd64, `sbx (linux/arm) · opencode` on arm.
+' A local model leaves that square as it is and stands beside the host as a table. Each row is two
 ' cells of HostSide (10). The name row centers "" + "" between the host and
 ' Ollama. The OS row keeps that column as a space, so the OS/arch and the
 ' selection (Qwen 3.8, Glimmer, or the tag) stay aligned under them. While the
@@ -290,7 +291,7 @@ skinparam noteTextAlignment left
 ' and keeps the arch. hostPad widens the host column so the table fits,
 ' and the figure's floor grows with it. plan still joins the square
 ' (`sbx · <harness> + plan`); squareWith trims ONLY that suffix, ending in "…".
-' The box is `boxW` = 30 inner columns. SquareMax = boxW - 4 = 26.
+' The box is `boxW` = 32 inner columns. SquareMax = boxW - 4 = 28.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's

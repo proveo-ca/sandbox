@@ -629,7 +629,7 @@ func styleOf(t *testing.T, fr Frame, word string) tcell.Style {
 func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {
 	t.Parallel()
 	fr := base()
-	fr.Square = "sbx · claudecode + qwen3.8"
+	fr.Square = "sbx (linux/x86) · claudecode"
 	if n := len([]rune(fr.Square)); n != SquareMax {
 		t.Fatalf("fixture is %d runes; this test pins the widest square, SquareMax = %d", n, SquareMax)
 	}

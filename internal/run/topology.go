@@ -151,8 +151,19 @@ func squareWith(square, model string) string {
 	return square + " + " + model
 }
 
+func vmPlatform() string {
+	arch := runtime.GOARCH
+	switch arch {
+	case "amd64", "386":
+		arch = "x86"
+	case "arm64", "arm":
+		arch = "arm"
+	}
+	return "linux/" + arch
+}
+
 func squareOf(target string) string {
-	return "sbx · " + target
+	return "sbx (" + vmPlatform() + ") · " + target
 }
 
 func interfaceOf(f *choiceui.Form) string {

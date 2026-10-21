@@ -251,10 +251,10 @@ func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 		option, square, hostModel string
 		key                       choiceui.KeyHome
 	}{
-		{modelAPIKeys, "sbx · hermes", "", choiceui.KeyAtHop},
-		{credentials.AuthSubscription, "sbx · hermes + plan", "", choiceui.KeyNone},
-		{localModels[0].label(), "sbx · hermes", "Qwen 3.8", choiceui.KeyNone},
-		{localModels[1].label(), "sbx · hermes", "Glimmer", choiceui.KeyNone},
+		{modelAPIKeys, squareOf("hermes"), "", choiceui.KeyAtHop},
+		{credentials.AuthSubscription, squareWith(squareOf("hermes"), "plan"), "", choiceui.KeyNone},
+		{localModels[0].label(), squareOf("hermes"), "Qwen 3.8", choiceui.KeyNone},
+		{localModels[1].label(), squareOf("hermes"), "Glimmer", choiceui.KeyNone},
 	} {
 		fr := topologyOf("hermes", "broker")(modelForm(c.option), 0)
 		if fr.Key != c.key || fr.Square != c.square || fr.HostModel != c.hostModel {
@@ -290,6 +290,16 @@ func TestHoveringALocalModelLightsTheHostCells(t *testing.T) {
 	keys := modelForm(modelAPIKeys)
 	if topologyOf("hermes", "broker")(keys, len(keys.Rows)-1).HostLit {
 		t.Error("API keys lit Ollama and the model")
+	}
+}
+
+func TestTheSquareNamesTheMicroVM(t *testing.T) {
+	t.Parallel()
+	if !strings.HasPrefix(vmPlatform(), "linux/") {
+		t.Fatalf("vm = %q, want linux and an arch", vmPlatform())
+	}
+	if got := squareOf("opencode"); got != "sbx ("+vmPlatform()+") · opencode" {
+		t.Errorf("square = %q", got)
 	}
 }
 
