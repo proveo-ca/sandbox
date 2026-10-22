@@ -494,6 +494,11 @@ skinparam noteTextAlignment left
 '     what does com.docker.sandboxes.flavor govern beyond this message? That
 '     joins the KVM question (no --device on `sbx run`) as an upstream-shaped
 '     item; two findings may be worth one issue rather than three guesses.
+'     REAFFIRMED 2026-10-22 (user: "Ask upstream, then decide"): the same
+'     warning shows for claudecode under sbx's `claude` agent. A question for
+'     docker/sbx-releases is drafted for the operator to post. The flat base
+'     (_spec/_devops/sandbox-template-rebase.puml) re-declares
+'     flavor=shell-docker on purpose, so FROM scratch keeps the label as is.
 '
 '     EVIDENCE IT IS COSMETIC TODAY, and it is only evidence, not proof:
 '         ladder gate-off   5/5 rungs held

@@ -1,0 +1,127 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: move proveo from sbx v2 kits (built-in agent + kind: mixin, -t image) to v3 workloads, v3 as source of truth
+' would touch: internal/sbx/kit.go, internal/sbx/agents.go, internal/sbx/sbx.go, internal/sbx/version.go
+' would touch: internal/backend/sandbox/sandbox.go (Spec, startupCommands, agentCredentials), internal/sbx/run.go (RunArgs)
+' would touch: internal/imagebuild/**, defs/*/Dockerfile, cmd/proveo/testdata/plan/*.golden
+' would touch: internal/backend/sandbox/own_agent_test.go, internal/sbx/sbx_test.go
+' supersedes on landing: _spec/internal/sbx/sbx-kit-contract.puml (v2 field contract), the v2 half of _spec/_experiments/sbx-kit-capabilities.puml
+' status: PLANNED 2026-10-22 — user: "Plan a v3 migration", "use v3 guidelines as source of truth, downstream from there (port mapping)".
+' _spec/_plans/ is exempt from the SPEC-reference rule.
+'
+' ── SOURCES (read 2026-10-22) ───────────────────────────────────────────────
+'   github.com/docker/sandbox-kit-spec @ f53ac62: docs/spec/SPEC-v3.md,
+'     capabilities/com.docker.sandbox/{sbx,lifecycle,credential,port}@1,
+'     skills/migrate-kit-to-v3/FIELD-MAPPING.md ("where this document and the
+'     code disagree, the code wins")
+'   github.com/docker/sbx-kits-contrib/tree/v3/claude (= docker.io/docker/sbx-kit-claude)
+'   docs.docker.com/ai/sandboxes/customize/{,use-kits/,kits-v2/,author/**}
+'   docker/sbx-releases notes v0.45.0–v0.49.2; issues #696 #710 #738 #614 #474
+'
+' ── WHY (MEASURED) ──────────────────────────────────────────────────────────
+'   * "Docker recommends v3 kits"; "V2 remains supported and is not deprecated".
+'   * Built-in names (claude, codex, cursor, opencode) select v2, so proveo's
+'     v2 split (built-in agent + mixin + -t image) can never take a v3 mixin.
+'   * The recipe departure behind the flavor warning (shell-docker image run
+'     as `claude`, sbx-kit-capabilities.puml:473) exists only on the -t path.
+'     [Inference, untested] a v3 workload takes no -t, so no warning.
+'
+' ── v2 → v3, FIELD BY FIELD (from FIELD-MAPPING + proveo's Spec) ─────────────
+'   v2 (today)                         v3 (target)
+'   sbx run <builtin> -t IMG --kit D   sbx run ./proveo-<target> (own workload)
+'   kind: mixin <target>-posture       kind: workload, dir proveo-<target>
+'   kind: sandbox (cecli own-agent)    kind: workload (same shape as the rest)
+'   sandbox.image: IMG                 <stem>.dockerfile: FROM IMG
+'   environment.variables              ENV in the recipe (per-run values: see Q2)
+'   setup.startup (root seed)          lifecycle@1 install hook, user "0"
+'   setup.startup (agent seed)         lifecycle@1 startup hook, user agent
+'   permissions.network.allow          network-policy@2 (install / runtime)
+'   credentials[].apiKey (own-agent)   credential@1 service, phase: runtime
+'   built-in agent's credential        COPIED into proveo's descriptor: a FROM
+'                                      does not carry a published kit's
+'                                      capabilities (author/base-images/)
+'   image ENTRYPOINT as PID 1          sbx@1: the host launches the agent
+'   descriptor file spec.yaml          <stem>.yaml — NEVER spec.yaml (#738)
+'
+' ── PORTS (DOWNSTREAM OF v3) ────────────────────────────────────────────────
+' port@1: "A Kit cannot pin a host port … users pin host ports through the
+' runtime's own UX, not the descriptor"; the runtime allocates an ephemeral
+' loopback port for a kit-declared one. `-p [[IP:]HOST:]GUEST` and `sbx ports`
+' ARE that runtime UX and are not v2-only. So the 1–9 prefix rule
+' (_spec/internal/devports/dev-ports.puml, commit b424d23) stays on `-p`, and
+' proveo declares NO port@1 for dev ports: it would add a second, ephemeral
+' binding for the same guest port. [Inference] Revisit if probe P3 shows sbx
+' merges a kit port with a -p for the same guest port.
+'
+' ── CONSTRAINTS THAT SHAPE THE DESIGN ──────────────────────────────────────
+'   C1 v3 needs sbx ≥ 0.45 (lifecycle, credential, network-policy, port, sbx@1);
+'      SBX_AGENT and kit.env arrive in 0.48. Verified {0.42–0.44} drop out.
+'   C2 `-t` with a positional kit is refused (string in the 0.49.2 binary).
+'   C3 sbx pulls a kit's base image; "It can't use images stored only in your
+'      host's Docker image store"; local kits build in sandbox `sbx-kit-builder`.
+'   C4 a local kit's build context is its own directory (#710): no COPY from
+'      the proveo checkout unless the files are staged into the kit dir.
+'   C5 agent name = kit dir / repo last component; must not be a built-in.
+'   C6 one owner per (service, phase) credential; no duplicate `provides`.
+'   C7 hook env is deny-by-default ("a hook sees only what it declares").
+'
+' ── OPEN QUESTIONS (each needs a measured answer before code) ──────────────
+'   Q1 IMAGE SOURCE (C3): host-built proveo images vs sbx-kit-builder.
+'      P2 decides between (a) push proveo images to a registry sbx can pull
+'      (local registry for :local), (b) the kit dockerfile IS the image
+'      recipe (imagebuild emits kits), (c) a supported local-image path.
+'   Q2 PER-RUN VALUES: today's mixin carries host-resolved env (paths, sid,
+'      clone links). v3 env lives in the image; candidates: kit args
+'      (`--kit-arg`, honored for local kits since 0.49.1), kit.env (0.48),
+'      or a run-time file read by the startup hook.
+'   Q3 CREDENTIALS: copy sbx-kit-claude's credential@1 (apiKey x-api-key +
+'      OAuth sentinel, ~/.claude/.credentials.json) and its install hooks,
+'      or compose a kit set FROM docker/sbx-kit-claude + a proveo mixin
+'      (keeps Docker's credential code; Claude Code pin moves to Docker's
+'      kit; mixin image layers count toward the 44-layer limit).
+'
+' ── PROBES (P0, each ≤ 2 min, throwaway names, cleaned up) ──────────────────
+'   P1 `sbx create -t IMG ./v3kit` and `-t` with a v2 local kit: what C2 covers
+'   P2 v3 workload with FROM <host-only image>: does sbx-kit-builder resolve it?
+'   P3 kit port@1 + `-p H:P` for the same P: coexist, merge, or refuse?
+'   P4 v3 workload FROM proveo/claudecode:local run as proveo-claudecode: no
+'      flavor warning, Claude Code launches, OAuth credential flows
+'   P5 install vs startup hook timing against proveo-seed and proveo-await-seed
+'      (_spec/packages/lib/seed-and-launch.puml)
+'
+' ── ORDER OF WORK ──────────────────────────────────────────────────────────
+'   1 probes P1–P5 → record results here (MEASURED)
+'   2 user decisions on Q1–Q3
+'   3 internal/sbx: v3 Kit types + writer (<stem>.yaml + <stem>.dockerfile,
+'     `# syntax=docker/sandbox-kit:3`), unknown-field-free (SPEC §1.2)
+'   4 Spec(): one workload per run; startupCommands → lifecycle hooks;
+'     agentCredentials → credential@1; allow → network-policy@2
+'   5 RunArgs: positional kit, no -t, keep -p (ports section)
+'   6 MinVersion 0.45, Verified series update, init Release ≥ 0.45
+'   7 goldens + own_agent_test + contract test against the spec's examples
+'   8 retire the v2 renderer; supersede sbx-kit-contract.puml
+title sbx kit v3 migration — v3 is the source of truth, ports downstream
+
+rectangle "today (v2)" as V2 {
+  component "sbx built-in agent\nclaude · codex · cursor · opencode" as BUILTIN <<cloud>>
+  component "-t proveo/<target>:local\n(shell-docker base)" as TIMG <<app>>
+  component "kind: mixin <target>-posture\nenv · startup · allow" as MIX <<app>>
+}
+rectangle "target (v3)" as V3 {
+  component "workload ./proveo-<target>\n<stem>.yaml + <stem>.dockerfile" as WL <<app>>
+  component "FROM proveo image\n(source: Q1)" as FROMIMG <<app>>
+  component "sbx@1 · lifecycle@1 · credential@1\nnetwork-policy@2" as CAPS <<app>>
+}
+component "-p <k>P:P\n(runtime UX, unchanged)" as PORTS <<host>>
+database "probes P1–P5\nthen Q1–Q3" as GATE <<db>>
+
+BUILTIN -[hidden]-> TIMG
+TIMG -[hidden]-> MIX
+V2 --> GATE : migrate after
+GATE --> V3
+WL --> FROMIMG
+WL --> CAPS
+V2 --> PORTS
+V3 --> PORTS
+@enduml
