@@ -92,10 +92,25 @@ func Ensure(confirm func(string) bool) (bool, string) {
 }
 
 func Ready(printOnly bool, confirm func(string) bool) (bool, string) {
+	ready := Ensure
 	if printOnly {
-		return sbx.Available()
+		ready = func(func(string) bool) (bool, string) { return sbx.Available() }
 	}
-	return Ensure(confirm)
+	ok, why := ready(confirm)
+	if ok {
+		warnUnverified(sbx.Version)
+	}
+	return ok, why
+}
+
+func warnUnverified(version func() (string, error)) {
+	v, err := version()
+	if err != nil {
+		return
+	}
+	if note := sbx.UnverifiedNote(v); note != "" {
+		ui.Warnf("%s", note)
+	}
 }
 
 func StateHome(env []string) string {
@@ -110,6 +125,37 @@ func StateHome(env []string) string {
 func SbxRun(args ...string) (string, error) {
 	out, err := exec.Command(sbx.Binary, args...).CombinedOutput()
 	return string(out), err
+}
+
+// SPEC: _spec/internal/sbx/kit-lifecycle.puml (A HUNG TEARDOWN)
+var (
+	cloneProbeDeadline = 36 * time.Second
+	guestExecDeadline  = 3 * time.Minute
+)
+
+// guestGrace is how long a killed command may go on holding its pipes.
+const guestGrace = 2 * time.Second
+
+// guestCommand is exec.Command killed once d passes. finish releases the timer and
+// wraps context.DeadlineExceeded when the deadline ended the command.
+func guestCommand(d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = guestGrace
+	return cmd, func(err error) error {
+		defer cancel()
+		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("%s gave no answer within %s: %w", name, d, context.DeadlineExceeded)
+		}
+		return err
+	}
+}
+
+// guestRun is SbxRun bounded by guestExecDeadline.
+func guestRun(args ...string) (string, error) {
+	cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), finish(err)
 }
 
 func SaveState(name string, env []string, exists bool, run func(...string) (string, error)) (string, error) {
@@ -131,7 +177,9 @@ func TeardownClone(in Input, cfg sbx.RunConfig) error {
 			if wd == "" || !sbx.Exists(cfg.Name) {
 				return nil, errors.New("no sandbox to read from")
 			}
-			return exec.Command(sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...).Output()
+			cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...)
+			out, err := cmd.Output()
+			return out, finish(err)
 		})
 	}
 	return PreserveClone(in, cfg)
@@ -154,7 +202,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	var stranded error
 	wd := agentWorkdir(in, cfg.Mounts)
 	if wd != "" {
-		if out, err := SbxRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
+		if out, err := guestRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
 			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
 			stranded = fmt.Errorf("uncommitted work is still only in %s", cfg.Name)
 		}
@@ -170,7 +218,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	reportCloneRefs(in, cfg)
 	liftClonedSpec(in, wd, cloneSpanViaSbx(cfg.Name, wd), func(sha string) {
 		if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
-			_, _ = SbxRun(args...)
+			_, _ = guestRun(args...)
 		}
 	})
 	return stranded
@@ -248,8 +296,9 @@ func replaceFile(path string, body []byte) error {
 
 func cloneSpanViaSbx(name, wd string) func() (string, string, error) {
 	return func() (string, string, error) {
-		out, err := exec.Command(sbx.Binary, sbx.CloneSpanArgs(name, wd)...).Output()
-		if err != nil {
+		cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneSpanArgs(name, wd)...)
+		out, err := cmd.Output()
+		if err = finish(err); err != nil {
 			return "", "", err
 		}
 		f := strings.Fields(string(out))
@@ -388,8 +437,10 @@ func CloneRescueLines(name, refsKey, workdir, repoRoot string) []string {
 }
 
 func fetchViaRemote(in Input, cfg sbx.RunConfig) (int, string, error) {
-	out, err := exec.Command("git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...).CombinedOutput()
-	return exitCodeOf(err), string(out), err
+	cmd, finish := guestCommand(guestExecDeadline, "git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...)
+	out, err := cmd.CombinedOutput()
+	code := exitCodeOf(err)
+	return code, string(out), finish(err)
 }
 
 func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
@@ -404,15 +455,17 @@ func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
 	path := f.Name()
 	defer func() { _ = os.Remove(path) }()
 
-	src := exec.Command(sbx.Binary, sbx.CloneBundleArgs(cfg.Name, wd, hostTips(in.RepoRoot))...)
+	src, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneBundleArgs(cfg.Name, wd, hostTips(in.RepoRoot))...)
 	var errb strings.Builder
 	src.Stdout, src.Stderr = f, &errb
 	runErr := src.Run()
+	code := exitCodeOf(runErr)
+	runErr = finish(runErr)
 	if cerr := f.Close(); runErr == nil && cerr != nil {
 		return -1, errb.String(), cerr
 	}
 	if runErr != nil {
-		return exitCodeOf(runErr), errb.String(), runErr
+		return code, errb.String(), runErr
 	}
 	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, in.Sid)...).CombinedOutput()
 	if err != nil {
@@ -490,30 +543,26 @@ func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into
 }
 
 func liftViaSbx(args []string, into string) (int, string, error) {
-	src := exec.Command(sbx.Binary, args...)
+	src, finish := guestCommand(guestExecDeadline, sbx.Binary, args...)
 	var srcErr strings.Builder
 	src.Stderr = &srcErr
 	stdout, err := src.StdoutPipe()
 	if err != nil {
-		return -1, "", err
+		return -1, "", finish(err)
 	}
 	untar := exec.Command("tar", "-xf", "-", "-C", into)
 	untar.Stdin = stdout
 	var untarOut strings.Builder
 	untar.Stdout, untar.Stderr = &untarOut, &untarOut
 	if err := src.Start(); err != nil {
-		return -1, srcErr.String(), err
+		return -1, srcErr.String(), finish(err)
 	}
 	untarErr := untar.Run()
 	srcRun := src.Wait()
 	if srcRun != nil {
-		code := -1
-		var ee *exec.ExitError
-		if errors.As(srcRun, &ee) {
-			code = ee.ExitCode()
-		}
-		return code, srcErr.String() + untarOut.String(), srcRun
+		return exitCodeOf(srcRun), srcErr.String() + untarOut.String(), finish(srcRun)
 	}
+	_ = finish(nil)
 	if untarErr != nil {
 		return 0, untarOut.String(), untarErr
 	}
@@ -850,6 +899,7 @@ func worktreeClone(in Input) bool { return in.Clone && in.CloneSource.Main != ""
 // linked worktree's own bind; the worktree-nested output dir stays for SplitNested.
 func cloneThroughMain(in Input, mounts []sbx.Mount) []sbx.Mount {
 	out := []sbx.Mount{{Host: in.CloneSource.Main}}
+	var dropped []string
 	for _, m := range mounts {
 		host := filepath.Clean(m.Host)
 		if host == filepath.Clean(in.RepoRoot) || host == filepath.Clean(in.CloneSource.Main) ||
@@ -857,12 +907,36 @@ func cloneThroughMain(in Input, mounts []sbx.Mount) []sbx.Mount {
 			continue
 		}
 		if _, nested := nestedRel(in.CloneSource.Main, m.Host); nested {
-			ui.Warnf("clone: %s is inside the main worktree and cannot be mounted into a clone — read it from the clone instead", m.Host)
+			dropped = append(dropped, m.Host)
 			continue
 		}
 		out = append(out, m)
 	}
+	warnUnmountable(in.CloneSource.Main, "main worktree", dropped)
 	return out
+}
+
+// warnUnmountable warns once per top-level entry of root that holds dropped mounts.
+func warnUnmountable(root, where string, hosts []string) {
+	count := map[string]int{}
+	first := map[string]string{}
+	var tops []string
+	for _, h := range hosts {
+		rel, _ := nestedRel(root, h)
+		top, _, _ := strings.Cut(rel, "/")
+		if count[top] == 0 {
+			tops = append(tops, top)
+			first[top] = h
+		}
+		count[top]++
+	}
+	for _, top := range tops {
+		what := first[top]
+		if count[top] > 1 {
+			what = fmt.Sprintf("%s (%d entries)", filepath.Join(root, top), count[top])
+		}
+		ui.Warnf("clone: %s is inside the %s and cannot be mounted into a clone — read it from the clone instead", what, where)
+	}
 }
 
 // sandboxKey is the workspace a sandbox name is derived from.
@@ -1249,6 +1323,7 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 	if in.Clone && in.RepoRoot != "" {
 		var nested []sbx.Mount
+		var dropped []string
 		mounts, nested = SplitNested(in.RepoRoot, mounts)
 		for _, m := range nested {
 			if _, isOutput := nestedRel(in.RepoRoot, in.OutputDir); isOutput && filepath.Clean(m.Host) == filepath.Clean(in.OutputDir) {
@@ -1256,8 +1331,9 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 					"empty workspace; the agent writes it inside the clone and proveo lifts it back here at teardown", m.Host)
 				continue
 			}
-			ui.Warnf("clone: %s is inside the repository and cannot be mounted into a clone — read it from the clone instead", m.Host)
+			dropped = append(dropped, m.Host)
 		}
+		warnUnmountable(in.RepoRoot, "repository", dropped)
 	}
 	if in.Clone && in.CloneEnv != "" {
 		mounts = append(mounts, sbx.Mount{Host: filepath.Dir(in.CloneEnv)})

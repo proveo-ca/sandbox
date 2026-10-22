@@ -11,6 +11,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -158,5 +159,36 @@ func TestSpecTellsTheSeedAnAssistantNeedsNoToolchain(t *testing.T) {
 	cfg, _, _ = Spec(base)
 	if strings.Contains(strings.Join(cfg.Env, "\n"), "PROVEO_AGENT_KIND") {
 		t.Error("a coding harness was marked an assistant")
+	}
+}
+
+func TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry(t *testing.T) {
+	var buf strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&buf)
+	t.Cleanup(func() { ui.Default = prev })
+
+	in := Input{Clone: true, RepoRoot: "/host/worktrees/hotfix", CloneSource: workspace.WorktreeSource{Main: "/host/repo"}}
+	var mounts []sbx.Mount
+	for _, f := range []string{".gitignore", "codeStyles", "misc.xml", "vcs.xml"} {
+		mounts = append(mounts, sbx.Mount{Host: "/host/repo/.idea/" + f})
+	}
+	mounts = append(mounts, sbx.Mount{Host: "/host/repo/notes.md"}, sbx.Mount{Host: "/host/elsewhere"})
+
+	got := cloneThroughMain(in, mounts)
+	out := buf.String()
+	if n := strings.Count(out, "cannot be mounted into a clone"); n != 2 {
+		t.Errorf("warnings = %d, want 2 (one for .idea, one for notes.md):\n%s", n, out)
+	}
+	for _, want := range []string{"/host/repo/.idea (4 entries)", "/host/repo/notes.md"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("warnings lack %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "misc.xml") {
+		t.Errorf("warnings name a single .idea entry; want the folder once:\n%s", out)
+	}
+	if hosts := []string{got[0].Host, got[len(got)-1].Host}; len(got) != 2 || hosts[1] != "/host/elsewhere" {
+		t.Errorf("cloneThroughMain kept %v, want the main worktree and /host/elsewhere", got)
 	}
 }

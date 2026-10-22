@@ -12,6 +12,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
+func quietReport(string, ...any) {}
+
 func stubReceiptDir(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
@@ -67,7 +69,7 @@ func TestRetireIfStaleRecreatesOnlyAStoppedChangedSandbox(t *testing.T) {
 	yes := func(string) bool { return true }
 	no := func(string) bool { return false }
 	retired := 0
-	retire := func(Input, sbx.RunConfig) error { retired++; return nil }
+	retire := func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }
 	quiet := func(string, ...any) {}
 
 	if err := retireIfStale(Input{}, cfg, now, no, no, retire, quiet, quiet); err != nil || retired != 0 {
@@ -86,7 +88,7 @@ func TestRetireIfStaleRecreatesOnlyAStoppedChangedSandbox(t *testing.T) {
 	if err := retireIfStale(Input{}, cfg, now, yes, no, retire, func(f string, a ...any) { said += fmt.Sprintf(f, a...) + "\n" }, quiet); err != nil || retired != 1 {
 		t.Errorf("a stopped changed sandbox must be re-created: err=%v retired=%d", err, retired)
 	}
-	for _, want := range []string{"carrying its work home", "sbx rm --force", "does not persist", "3/3"} {
+	for _, want := range []string{"replacing " + cfg.Name, "PROVEO_HOST_CDP_PORT"} {
 		if !strings.Contains(said, want) {
 			t.Errorf("report = %q, missing %q", said, want)
 		}
@@ -114,13 +116,13 @@ func TestAHeadedYesReplacesARunningSandboxForAnyHarness(t *testing.T) {
 	retired := 0
 	var said string
 	err := retireIfStale(Input{Target: "claudecode"}, cfg, now, func(string) bool { return true }, func(string) bool { return true },
-		func(Input, sbx.RunConfig) error { retired++; return nil },
+		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil },
 		func(f string, a ...any) { said += fmt.Sprintf(f, a...) + "\n" },
 		func(string, ...any) {})
 	if err != nil || retired != 1 {
 		t.Fatalf("yes must replace a running sandbox: err=%v retired=%d", err, retired)
 	}
-	for _, want := range []string{"proveo-claudecode-abc", "1/3", "2/3", "sbx rm --force", "does not persist", "3/3"} {
+	for _, want := range []string{"replacing proveo-claudecode-abc", "image"} {
 		if !strings.Contains(said, want) && !strings.Contains(strings.Join(asked, " "), want) {
 			t.Errorf("missing %q\nreport=%s\nasked=%v", want, said, asked)
 		}
@@ -137,7 +139,7 @@ func TestAHeadedNoKeepsAStoppedSandbox(t *testing.T) {
 	now := receiptOf(cfg, []byte("k2"), "s1", "img")
 	retired := 0
 	err := retireIfStale(Input{Target: "codex"}, cfg, now, func(string) bool { return true }, func(string) bool { return false },
-		func(Input, sbx.RunConfig) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
+		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
 	if err == nil || retired != 0 || !strings.Contains(err.Error(), "reattaches") || !strings.Contains(err.Error(), "does not persist") {
 		t.Fatalf("no must keep the sandbox: err=%v retired=%d", err, retired)
 	}
@@ -158,7 +160,7 @@ func TestAnOpenCodeEngineFollowsTheStaleSandboxRuleAndCarriesItsHistory(t *testi
 	now := receiptOf(cfg, []byte("k2"), "s1", "img")
 	retired := 0
 	err := retireIfStale(Input{Target: "opencode"}, cfg, now, func(string) bool { return true }, func(string) bool { return true },
-		func(Input, sbx.RunConfig) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
+		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
 	if err != nil || retired != 1 {
 		t.Fatalf("a headed yes must replace a live OpenCode engine like any sandbox: err=%v retired=%d", err, retired)
 	}
@@ -180,7 +182,7 @@ func TestAFailedUpgradeScreenKeepsAStoppedSandbox(t *testing.T) {
 	now := receiptOf(cfg, []byte("k2"), "s1", "img")
 	retired := 0
 	err := retireIfStale(Input{Target: "cursor"}, cfg, now, func(string) bool { return true }, func(string) bool { return false },
-		func(Input, sbx.RunConfig) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
+		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
 	if err == nil || retired != 0 || !strings.Contains(err.Error(), "asks again") {
 		t.Fatalf("a screen failure must count as no: err=%v retired=%d", err, retired)
 	}

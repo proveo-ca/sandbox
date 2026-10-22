@@ -2,9 +2,28 @@ package sbx
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
+
+// SPEC: _spec/internal/sbx/host-readiness.puml (VERIFIED SBX SERIES)
+var Verified = []string{"0.42", "0.43", "0.44", "0.45", "0.46", "0.49"}
+
+// IsVerified reports whether version v belongs to a Verified minor series.
+func IsVerified(v string) bool {
+	g, ok := parseVer(v)
+	return ok && slices.Contains(Verified, fmt.Sprintf("%d.%d", g[0], g[1]))
+}
+
+// UnverifiedNote is the warning for an sbx outside Verified; "" for a verified or unknown one.
+func UnverifiedNote(v string) string {
+	if _, ok := parseVer(v); !ok || IsVerified(v) {
+		return ""
+	}
+	return fmt.Sprintf("%s %s is not a version proveo has verified (series %s) — sbx is alpha and its CLI can break between releases",
+		Binary, v, strings.Join(Verified, ", "))
+}
 
 func Available() (bool, string) {
 	if _, err := lookPath(Binary); err != nil {

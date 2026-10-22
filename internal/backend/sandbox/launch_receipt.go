@@ -2,12 +2,13 @@
 package sandbox
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -140,7 +141,7 @@ func writeReceipt(name string, r launchReceipt) {
 // A headed run asks first, for every harness. A non-interactive run still retires a
 // stopped sandbox and leaves a running one in place.
 func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, running func(string) bool,
-	retire func(Input, sbx.RunConfig) error, report, warn func(string, ...any)) error {
+	retire func(Input, sbx.RunConfig, func(string, ...any)) error, report, warn func(string, ...any)) error {
 	if !exists(cfg.Name) {
 		return nil
 	}
@@ -165,10 +166,8 @@ func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, runni
 			cfg.Name, strings.Join(changed, ", "), cfg.Name)
 		return nil
 	}
-	report("1/3 carrying its work home for %s (%s)", cfg.Name, strings.Join(changed, ", "))
-	report("2/3 sbx rm --force %s — deleting the session. This session does not persist", cfg.Name)
-	report("3/3 this run creates a new sandbox named %s", cfg.Name)
-	return retire(in, cfg)
+	report("replacing %s (%s changed)", cfg.Name, strings.Join(changed, ", "))
+	return retire(in, cfg, report)
 }
 
 var openTermScreen = openScreen
@@ -191,8 +190,12 @@ func sandboxClone(in Input, name string) (clones, known bool) {
 	if in.CloneKnown {
 		return in.Clone, true
 	}
-	out, err := exec.Command(sbx.Binary, sbx.CloneModeArgs(name)...).Output()
-	if err != nil {
+	cmd, finish := guestCommand(cloneProbeDeadline, sbx.Binary, sbx.CloneModeArgs(name)...)
+	out, err := cmd.Output()
+	if err = finish(err); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			ui.Warnf("clone: %s did not answer the clone-mode probe (%v)", name, err)
+		}
 		return false, false
 	}
 	switch strings.TrimSpace(string(out)) {
@@ -205,7 +208,9 @@ func sandboxClone(in Input, name string) (clones, known bool) {
 }
 
 // retireSandbox fetches the clone and agent state home, then removes the sandbox.
-func retireSandbox(in Input, cfg sbx.RunConfig) error {
+// It reports each step as that step starts.
+func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) error {
+	report("1/3 carrying its work home from %s", cfg.Name)
 	in.Sid += "-retired"
 	in.CloneKnown = false
 	if err := PreserveClone(in, cfg); err != nil {
@@ -219,10 +224,12 @@ func retireSandbox(in Input, cfg sbx.RunConfig) error {
 	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 		ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 	}
+	report("2/3 sbx rm --force %s — deleting the session. This session does not persist", cfg.Name)
 	if out, err := SbxRun(sbx.RemoveArgs(cfg.Name)...); err != nil && !sbx.NotFound(out) {
 		return fmt.Errorf("remove stale %s: %w: %s", cfg.Name, err, strings.TrimSpace(out))
 	}
 	_ = os.Remove(receiptPath(cfg.Name))
 	_ = os.Remove(legacyOwnerRecord(cfg.Name))
+	report("3/3 this run creates a new sandbox named %s", cfg.Name)
 	return nil
 }

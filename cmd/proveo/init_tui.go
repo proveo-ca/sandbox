@@ -84,7 +84,7 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
-		Title:  fmt.Sprintf("init — ready %s for sbx %s", describeHost(host), sbx.Release),
+		Title:  fmt.Sprintf("init — ready %s for sbx %s", describeHost(host), targetVersion(installed, o.force)),
 		Header: initHeader(plan, installed, checks),
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
 		NoAxis: true,
@@ -125,6 +125,14 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		out.Baseline = v
 	}
 	return out, nil
+}
+
+// targetVersion is the sbx this init leaves on the host.
+func targetVersion(installed string, force bool) string {
+	if installed != "" && !force {
+		return installed
+	}
+	return sbx.Release
 }
 
 func initHeader(plan sbx.Plan, installed string, checks []sbx.Prereq) []string {

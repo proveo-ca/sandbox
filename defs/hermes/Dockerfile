@@ -12,7 +12,30 @@ RUN --mount=type=cache,id=proveo-hermes-gomod,target=/go/pkg/mod,sharing=locked 
     --mount=type=cache,id=proveo-hermes-gocache,target=/root/.cache/go-build,sharing=locked \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/proveo-entrypoint ./cmd/proveo-entrypoint
 
-FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}
+FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION} AS hermes-upstream
+
+# One layer, so the image stays under sbx 0.49.2's 44-layer boot limit.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml (FLAT BASE)
+FROM scratch AS hermes-flat
+COPY --from=hermes-upstream / /
+ENV PATH=/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright \
+    npm_config_install_links=false \
+    HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist \
+    HERMES_TUI_DIR=/opt/hermes/ui-tui \
+    HERMES_HOME=/opt/data \
+    HERMES_WRITE_SAFE_ROOT=/opt/data \
+    HERMES_DISABLE_LAZY_INSTALLS=1 \
+    HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages \
+    XDG_RUNTIME_DIR=/tmp/hermes-runtime
+VOLUME ["/opt/data"]
+WORKDIR /opt/hermes
+ENTRYPOINT ["/opt/hermes/docker/entrypoint-dispatch.sh"]
+CMD []
+
+FROM hermes-flat
 
 USER root
 ARG DEBIAN_FRONTEND=noninteractive

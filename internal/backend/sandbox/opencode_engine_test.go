@@ -309,7 +309,7 @@ func TestRetiringAnOpenCodeEngineCarriesItsDatabase(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err := retireSandbox(openCodeInput(home), sbx.RunConfig{Name: ocEngine})
+			err := retireSandbox(openCodeInput(home), sbx.RunConfig{Name: ocEngine}, quietReport)
 			if (err != nil) != c.wantErr {
 				t.Fatalf("retireSandbox = %v, want error %v\ncalls:\n%s", err, c.wantErr, f.log())
 			}

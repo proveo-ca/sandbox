@@ -423,3 +423,20 @@ func TestAndroidInstallScriptHandsTheModulesToTheSeed(t *testing.T) {
 		t.Errorf("AndroidInstallScript() =\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestARunOnAnUnverifiedSbxWarnsAndCarriesOn(t *testing.T) {
+	var buf strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&buf)
+	t.Cleanup(func() { ui.Default = prev })
+
+	warnUnverified(func() (string, error) { return "0.48.0", nil })
+	if !strings.Contains(buf.String(), "not a version proveo has verified") {
+		t.Errorf("an unverified sbx printed %q, want the warning", buf.String())
+	}
+	buf.Reset()
+	warnUnverified(func() (string, error) { return "0.49.2", nil })
+	if buf.Len() != 0 {
+		t.Errorf("a verified sbx printed %q, want nothing", buf.String())
+	}
+}

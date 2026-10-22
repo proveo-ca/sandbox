@@ -76,25 +76,15 @@ func doInit(o initOptions) error {
 		return err
 	}
 
+	installed, why := installedVersion(plan)
 	ui.Section(ui.SectionRun)
 	ui.Hostf("host: %s", describeHost(host))
-	ui.Storef("sbx %s — %s", sbx.Release, plan.Asset)
-	if plan.Prefix != "" {
-		ui.Notef("prefix: %s", plan.Prefix)
-	}
-	if plan.Note != "" {
-		ui.Notef("%s", plan.Note)
-	}
-	if plan.Alt != "" {
-		ui.Notef("from your package manager instead, if you would rather it owned this: %s", plan.Alt)
-	}
+	reportPlan(plan, installed, o.force || o.printOnly)
 
 	checks := reportPrereqs(host)
 	if stop := sbx.Blocking(checks, sbx.BlocksInstall); len(stop) > 0 && !o.printOnly {
 		return fmt.Errorf("nothing good follows an install here: %s", strings.Join(sbx.Names(stop), ", "))
 	}
-
-	installed, why := installedVersion(plan)
 	if o.printOnly {
 		printPlan(plan, installed)
 		if err := credentialStage(o); err != nil { // reports where each credential rests; provisions nothing
@@ -121,6 +111,9 @@ func doInit(o initOptions) error {
 	case installSkip:
 		ui.Section(ui.SectionStarting)
 		ui.Okf("sbx %s is already installed — proveo installs it once and leaves it alone", installed)
+		if note := sbx.UnverifiedNote(installed); note != "" {
+			ui.Warnf("%s", note)
+		}
 		if sbx.Older(installed, sbx.MinVersion) {
 			ui.Warnf("sbx %s is older than the %s proveo can drive; a run will refuse it", installed, sbx.MinVersion)
 			ui.Notef("upgrade it yourself, or let proveo reinstall the pinned %s with `proveo init --force`", sbx.Release)
@@ -188,6 +181,24 @@ func reportPrereqs(h sbx.Host) []sbx.Prereq {
 		}
 	}
 	return checks
+}
+
+// reportPlan names the sbx this host runs, or the pinned release init would install.
+func reportPlan(plan sbx.Plan, installed string, installing bool) {
+	if installed != "" && !installing {
+		ui.Storef("sbx %s on this host — proveo pins %s only for a host without sbx", installed, sbx.Release)
+		return
+	}
+	ui.Storef("sbx %s — %s", sbx.Release, plan.Asset)
+	if plan.Prefix != "" {
+		ui.Notef("prefix: %s", plan.Prefix)
+	}
+	if plan.Note != "" {
+		ui.Notef("%s", plan.Note)
+	}
+	if plan.Alt != "" {
+		ui.Notef("from your package manager instead, if you would rather it owned this: %s", plan.Alt)
+	}
 }
 
 func installedVersion(plan sbx.Plan) (version, why string) {
@@ -410,9 +421,17 @@ func resolveBin(plan sbx.Plan) string {
 	return sbx.Binary
 }
 
+// sbxPathDir is the prefix's bin directory once it holds sbx; "" otherwise.
+func sbxPathDir(plan sbx.Plan) string {
+	if plan.Bin == "" || resolveBin(plan) != plan.Bin {
+		return ""
+	}
+	return filepath.Dir(plan.Bin)
+}
+
 func finish(bin string, plan sbx.Plan, d initDecisions, host sbx.Host) error {
-	if plan.Bin != "" {
-		ensureSbxOnPath(filepath.Dir(plan.Bin), d.AddPath)
+	if dir := sbxPathDir(plan); dir != "" {
+		ensureSbxOnPath(dir, d.AddPath)
 	}
 
 	if d.Login {

@@ -5,6 +5,9 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
 ' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
 ' covers: cmd/proveo/init.go (verify, reportHostReadiness)
+' covers: internal/sbx/version.go (Verified, IsVerified, UnverifiedNote, Available)
+' covers: internal/sbx/version_test.go
+' covers: internal/backend/sandbox/sandbox.go (Ready, warnUnverified)
 ' covers: cmd/proveo/init_tui.go (defaultDecisions)
 ' covers: e2e/init_test.go (TestInitReportsThisHostsPrerequisites, TestInitReadsSbxDiagnoseOnThisHost)
 '   the install this gates ......... _spec/cmd/proveo/init-sbx-bootstrap.puml
@@ -149,6 +152,24 @@ skinparam noteTextAlignment left
 ' rather than silently upgraded. `--force` is the explicit ask, and it is the
 ' only thing that turns the default from "keep what is installed" back into an
 ' install.
+'
+' ── VERIFIED SBX SERIES (DECIDED 2026-10-22) ─────────────────────────────────
+' sbx is alpha and its CLI and runtime break between releases. MEASURED that
+' day: brew moved the host 0.46.0 → 0.49.2 and every proveo image stopped
+' booting (bisect in kit-lifecycle.puml, A HUNG TEARDOWN), while sbx's own
+' templates booted in seconds. The user decided:
+'   * proveo pins the series it has run against: Verified =
+'     {0.42, 0.43, 0.44, 0.45, 0.46, 0.49}, matched on major.minor ("~0.49").
+'     0.47 and 0.48 are added once verified downstream of 0.46; 0.49 is listed
+'     while its boot is being fixed (user: "include 0.49, and we work on
+'     fixing 0.49").
+'   * an unverified series WARNS ONLY (user: "Warn only"): Ready (every run)
+'     and init's keep-what-is-installed branch print UnverifiedNote, which
+'     names the version and the verified series, and the run goes on.
+'   * below MinVersion still REFUSES, as before: the CLI surface proveo drives
+'     is missing there.
+' Release (what a fresh install lands) and MinVersion must sit inside
+' Verified; TestThePinnedReleaseIsVerified pins that.
 title host readiness — sbx answers "can this host run a sandbox";\nproveo asks, renders, and installs
 
 actor "operator" as OP
