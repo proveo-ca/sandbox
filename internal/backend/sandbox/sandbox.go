@@ -630,18 +630,23 @@ type PublishedPort struct {
 	Cmd         string // shell command that starts the server on every interface
 }
 
-// PlanPorts keeps each guest port on the same host port unless the host already uses it.
-func PlanPorts(ports []PublishedPort, free func(int) bool) []PublishedPort {
+// PlanPorts puts each guest port on its first free devports.HostPorts entry outside reserved; a port with none is dropped.
+func PlanPorts(ports []PublishedPort, free func(int) bool, reserved ...int) (kept, dropped []PublishedPort) {
 	taken := map[int]bool{}
-	for i := range ports {
-		h := ports[i].Guest
-		if !free(h) || taken[h] {
-			h = FreeLoopbackPort()
+	for _, h := range reserved {
+		taken[h] = true
+	}
+	for _, p := range ports {
+		h, ok := devports.HostPortFor(p.Guest, func(h int) bool { return !taken[h] && free(h) })
+		if !ok {
+			dropped = append(dropped, p)
+			continue
 		}
 		taken[h] = true
-		ports[i].Host = h
+		p.Host = h
+		kept = append(kept, p)
 	}
-	return ports
+	return kept, dropped
 }
 
 // LoopbackFree reports whether port can be bound on the host's loopback.
@@ -673,8 +678,8 @@ func ReportPorts(in Input) {
 	ui.Section(ui.SectionInterface)
 	for _, p := range in.Ports {
 		moved := ""
-		if p.Host != p.Guest {
-			moved = fmt.Sprintf(" — host :%d was taken", p.Guest)
+		if first := devports.HostPorts(p.Guest); len(first) > 0 && p.Host != first[0] {
+			moved = fmt.Sprintf(" — host :%d was taken", first[0])
 		}
 		ui.Hostf("port %d: http://127.0.0.1:%d → sandbox :%d (%s)%s", p.Guest, p.Host, p.Guest, p.What, moved)
 		ui.Notef("runs `%s` in %s — log %s", p.Cmd, p.Dir, DevLog(p.Guest))

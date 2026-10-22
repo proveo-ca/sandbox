@@ -97,7 +97,7 @@ func TestExecutionOutputsAndPortsUseTheColumnGrid(t *testing.T) {
 	if !slices.Equal(out.Cols, []int{0, 1}) {
 		t.Errorf("outputs cols = %v, want filtered at 0 and verbose at 1", out.Cols)
 	}
-	ports, ok := portsRow(foundPorts, nil)
+	ports, ok := portsRow(foundPorts, nil, allFree)
 	if !ok || !slices.Equal(ports.Cols, []int{0, 1}) {
 		t.Errorf("ports cols = %v ok=%v, want 0, 1", ports.Cols, ok)
 	}

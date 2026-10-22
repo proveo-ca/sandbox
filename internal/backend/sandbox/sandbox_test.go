@@ -3,8 +3,10 @@ package sandbox
 
 import (
 	"errors"
+	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -319,16 +321,68 @@ func TestKitEnvVarsCarriesTheChromeBridgeToken(t *testing.T) {
 	}
 }
 
-func TestPlanPortsKeepsFreePortsAndMovesTakenOnes(t *testing.T) {
+func TestPlanPortsPrependsTheFirstFreePrefixAndDropsPortsWithNone(t *testing.T) {
 	t.Parallel()
-	taken := map[int]bool{3000: true}
-	got := PlanPorts([]PublishedPort{{Guest: 3000, What: "next"}, {Guest: 6006, What: "storybook"}},
+	taken := map[int]bool{13000: true, 23000: true}
+	kept, dropped := PlanPorts([]PublishedPort{{Guest: 3000, What: "next"}, {Guest: 6006, What: "storybook"}, {Guest: 18083, What: "api"}},
 		func(p int) bool { return !taken[p] })
-	if got[1].Host != 6006 {
-		t.Errorf("PlanPorts free 6006 = %+v, want host 6006", got[1])
+	if len(kept) != 2 || kept[0].Host != 33000 || kept[1].Host != 16006 {
+		t.Errorf("PlanPorts kept = %+v, want 3000 on 33000 and 6006 on 16006", kept)
 	}
-	if got[0].Guest != 3000 || got[0].Host == 3000 || got[0].Host <= 0 {
-		t.Errorf("PlanPorts taken 3000 = %+v, want a different free host port", got[0])
+	if len(dropped) != 1 || dropped[0].Guest != 18083 {
+		t.Errorf("PlanPorts dropped = %+v, want 18083: no prefix fits under 65535", dropped)
+	}
+}
+
+func TestPlanPortsNeverHandsOneHostPortToTwoGuests(t *testing.T) {
+	t.Parallel()
+	kept, _ := PlanPorts([]PublishedPort{{Guest: 3000}, {Guest: 3000}}, func(int) bool { return true })
+	if len(kept) != 2 || kept[0].Host != 13000 || kept[1].Host != 23000 {
+		t.Errorf("PlanPorts kept = %+v, want 13000 then 23000", kept)
+	}
+}
+
+func TestPlanPortsSkipsTheBrowserRelayHostPortForTheNextPrefix(t *testing.T) {
+	t.Parallel()
+	kept, dropped := PlanPorts([]PublishedPort{{Guest: 8083}}, func(int) bool { return true }, 18083)
+	if len(dropped) != 0 || len(kept) != 1 || kept[0].Host != 28083 {
+		t.Errorf("PlanPorts with relay on 18083 = kept %+v dropped %+v, want 8083 on 28083", kept, dropped)
+	}
+}
+
+func TestLoopbackFreeSeesAPortHeldOnTheLoopback(t *testing.T) {
+	t.Parallel()
+	var (
+		ln    net.Listener
+		held  int
+		guest int
+	)
+	for range 20 {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := l.Addr().(*net.TCPAddr).Port
+		digits := strconv.Itoa(p)
+		if len(digits) > 1 && digits[1] != '0' {
+			ln, held = l, p
+			guest, _ = strconv.Atoi(digits[1:])
+			break
+		}
+		_ = l.Close()
+	}
+	if ln == nil {
+		t.Skip("no ephemeral port without a zero second digit")
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	if LoopbackFree(held) {
+		t.Fatalf("LoopbackFree(%d) = true while a listener holds it", held)
+	}
+	kept, _ := PlanPorts([]PublishedPort{{Guest: guest}}, func(h int) bool { return h >= held && LoopbackFree(h) })
+	for _, k := range kept {
+		if k.Host == held {
+			t.Errorf("PlanPorts put guest %d on held host port %d", guest, held)
+		}
 	}
 }
 

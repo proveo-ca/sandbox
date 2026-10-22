@@ -48,6 +48,7 @@ type More struct {
 	Cell    int
 	Options []string
 	On      []bool
+	Off     []bool // greyed entries; Row.OffWhy names why
 	At      int
 }
 
@@ -56,13 +57,15 @@ func (m *More) visible(r Row) bool {
 }
 
 func (m *More) anyOn() bool {
-	for _, on := range m.On {
-		if on {
+	for i, on := range m.On {
+		if on && !m.offAt(i) {
 			return true
 		}
 	}
 	return false
 }
+
+func (m *More) offAt(i int) bool { return i < len(m.Off) && m.Off[i] }
 
 // columnText is the cell drawn for opt: Paint when set, else the option, at most 10 runes.
 func (r Row) columnText(opt string) string {
@@ -147,6 +150,11 @@ func (r *Row) moreHelp(width int) []helpLine {
 	var out []helpLine
 	for _, l := range wrap("› "+opt+" — "+h, width, 2) {
 		out = append(out, helpLine{text: l})
+	}
+	if why := r.OffWhy[opt]; why != "" && m.offAt(m.At) {
+		for _, l := range wrap("off: "+why, width, len("off: ")) {
+			out = append(out, helpLine{text: l, warn: true})
+		}
 	}
 	return out
 }
@@ -239,7 +247,7 @@ func (f *Form) Selections(label string) []string {
 		}
 		if r.More != nil {
 			for j, opt := range r.More.Options {
-				if j < len(r.More.On) && r.More.On[j] {
+				if j < len(r.More.On) && r.More.On[j] && !r.More.offAt(j) {
 					out = append(out, opt)
 				}
 			}
@@ -523,6 +531,9 @@ func (f *Form) moreRow(cursor int) (*Row, bool) {
 
 func (f *Form) toggleMore(r *Row) {
 	m := r.More
+	if m.offAt(m.At) {
+		return
+	}
 	for len(m.On) < len(m.Options) {
 		m.On = append(m.On, false)
 	}
@@ -721,6 +732,9 @@ func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
 		st := p.idle
 		if i < len(m.On) && m.On[i] {
 			mark, st = "[x] ", p.brand
+		}
+		if m.offAt(i) {
+			st = p.warn
 		}
 		if i == m.At {
 			st = st.Underline(true)
