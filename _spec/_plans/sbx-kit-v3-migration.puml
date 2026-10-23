@@ -156,6 +156,18 @@ skinparam noteTextAlignment left
 '      <user> <kit image> sh -c 'env -i <allowlist> sh -c …'` — dash, so
 '      bash-only code needs `bash -c`, and every proveo hook must never fail
 '      the create (as the v2 seedNeverAbort wrapper already ensures).
+'   P7 launch: workload ENTRYPOINT ["sh","-c","<log $0 $*>","launcher"]
+'      CMD ["default-cmd"]:
+'        PID 1 is sbx's keepalive (`sh -c trap …; sleep infinity & wait`),
+'        never the image ENTRYPOINT → proveo_sbx_passthrough is dead code
+'        under sbx@1 (DELETE).
+'        `sbx run --name X` (no args) launched `launcher default-cmd`, i.e.
+'        ENTRYPOINT + CMD.
+'        `sbx run --name X -- extra1 extra2` launched `sh extra1 extra2`
+'        ("cannot open extra1"): trailing args replace EVERYTHING after
+'        ENTRYPOINT[0]. So when proveo adds launch flags it sends
+'        launch[1:] + flags (e.g. --dangerously-skip-permissions …) — the
+'        v2 OwnAgentCommand rule, now for every harness.
 '      Probe hazards seen on the way: `sbx run` under `script` (pty) stalls
 '      at "building…" on an unanswered terminal query (OSC 11), and killing
 '      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart
@@ -187,6 +199,16 @@ skinparam noteTextAlignment left
 '        CLAUDE_ENV_FILE in the base" → ENV CLAUDE_ENV_FILE=/etc/sandbox-
 '        persistent.sh in defs/base (BASH_ENV already points there); copy
 '        agent-context@1 as is.
+'   ROLLOUT "hard switch to v3, compatibility upgrade. Drop support for sbx
+'      versions that aren't v3": no v2 fallback, no flag. MinVersion → 0.45
+'      (v3); Verified keeps only series measured on the v3 path (0.49 today;
+'      0.45–0.48 warn until measured); init's Release → 0.49.2.
+'   CURSOR "Keep upstream, lose the deny list": copy the kit's
+'      `files: cli-config.json (overwrite:false)` verbatim; proveo's cursor
+'      deny-list default goes.
+'   CODEX "Delete dup keys, merge the rest": approval/sandbox leave
+'      defs/codex/defaults/config.toml (upstream's install hook owns them);
+'      proveo merges its remaining keys into the file upstream wrote.
 '   LAUNCH "create, then run": `sbx create` (hooks finish, P5) then
 '      `sbx run --name`; proveo-await-seed is a safety net, not the gate.
 '
