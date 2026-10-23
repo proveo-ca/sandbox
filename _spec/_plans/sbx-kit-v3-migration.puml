@@ -57,7 +57,9 @@ skinparam noteTextAlignment left
 ' ── CONSTRAINTS THAT SHAPE THE DESIGN ──────────────────────────────────────
 '   C1 v3 needs sbx ≥ 0.45 (lifecycle, credential, network-policy, port, sbx@1);
 '      SBX_AGENT and kit.env arrive in 0.48. Verified {0.42–0.44} drop out.
-'   C2 `-t` with a positional kit is refused (string in the 0.49.2 binary).
+'   C2 CORRECTED by P1: `-t` with a positional LOCAL v3 workload is accepted
+'      and replaces the kit-built image (the binary's refusal string covers
+'      some other case, not this one).
 '   C3 sbx pulls a kit's base image; "It can't use images stored only in your
 '      host's Docker image store"; local kits build in sandbox `sbx-kit-builder`.
 '   C4 a local kit's build context is its own directory (#710): no COPY from
@@ -89,6 +91,58 @@ skinparam noteTextAlignment left
 '      flavor warning, Claude Code launches, OAuth credential flows
 '   P5 install vs startup hook timing against proveo-seed and proveo-await-seed
 '      (_spec/packages/lib/seed-and-launch.puml)
+'
+' ── PROBE RESULTS (MEASURED 2026-10-22, sbx 0.49.2, macOS arm64) ───────────
+'   P0 minimal local workload (FROM shell-docker-0.5.0, sbx@1 only): built
+'      as `sbx-kit-src:<dir>-<hash>` in sbx's store, created in 18s,
+'      SBX_AGENT=<dir name>, user agent. The build pulls the frontend
+'      docker.io/docker/sandbox-kit:3, so building needs Docker Hub.
+'   P1 the same kit + `-t docker/sandbox-templates:shell-docker-0.5.0`:
+'      accepted (10s); Image = the -t image, SBX_AGENT still the kit's, and
+'      the flavor warning returns ("built for the shell agent but you are
+'      using probe-v3shell"). So the warning belongs to -t, not to v2.
+'   P2 workload FROM proveo/claudecode:local (host Docker + sbx store): built
+'      and booted; Claude Code 2.1.308 runs as user claude; NO flavor warning.
+'   P2b workload FROM proveo-probe/layers44:local (host Docker store only):
+'      the build RESOLVED it (image ready), so C3 does not hold for local
+'      kits: sbx-kit-builder reads the host Docker store. The boot then hung:
+'      the kit build adds ≥1 layer, and 44 + ≥1 hits the 45-layer limit
+'      (_spec/_devops/sandbox-template-rebase.puml, FLAT BASE). Layer budget
+'      for a FROM image under a v3 kit is therefore ≤ 43.
+'   BUILD PATH: with a host Docker engine present, a local kit builds on IT,
+'      not in sbx-kit-builder: `docker buildx build ./<kit> -t sbx-kit-src:…`
+'      against the current context (here OrbStack, …/.orbstack/run/docker.sock).
+'      That is why P2/P2b resolve host-only images, and it couples proveo's
+'      v3 launch to the host engine's health (a hung engine hangs `sbx create`
+'      at "building…", measured after P5).
+'   Q1 → (c) holds for local runs: FROM the host-built proveo image, no
+'      registry. Published images still need a registry (pull path, C3).
+'   P3 port@1 alone: sbx publishes localhost:<ephemeral> → 8099. port@1 +
+'      `-p 18099:8099`: ONE binding, 127.0.0.1:18099 → 8099 — the operator's
+'      -p replaces the kit's ephemeral host port. So declaring port@1 AND
+'      pinning with -p is safe; the PORTS section's "no port@1" is revised:
+'      port@1 may name the port (permission surface), -p keeps the 1–9 rule.
+'   P4 workload proveo-claudecode FROM proveo/claudecode:local with the
+'      published kit's credential@1 (service anthropic, apiKey + OAuth
+'      sentinels), network-policy@1 and its root trust-seed install hook:
+'      created in 16s, no flavor warning, SBX_AGENT=proveo-claudecode, user
+'      claude, ~/.claude/.credentials.json holds the sentinel, and
+'      `claude -p` answered through sbx's OAuth proxy (daemon: POST
+'      /sandbox/<n>/credentials 200). Q3 → copying the credential block works.
+'   P5 hooks with 4s sleeps, timestamps in the guest (create t0):
+'        install (root)    +10.7 → +14.7
+'        startup (agent)   +15.5 → +19.5   (sequential, after install)
+'        create returned   ≈ +20           (it waits for both)
+'        `sbx run --name` on the created sandbox: agent at +21.3; startup did
+'        NOT rerun on attach.
+'      So create-then-run gates the agent on BOTH hook phases — the v2
+'      "startup never gates the agent" trap (proveo-await-seed) does not
+'      apply to that flow. [Inference] a one-shot `sbx run <kit>` still
+'      starts the agent alongside startup hooks (docs); untested.
+'      Probe hazards seen on the way: `sbx run` under `script` (pty) stalls
+'      at "building…" on an unanswered terminal query (OSC 11), and killing
+'      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart
+'      docker` recovered it (6s).
 '
 ' ── ORDER OF WORK ──────────────────────────────────────────────────────────
 '   1 probes P1–P5 → record results here (MEASURED)
