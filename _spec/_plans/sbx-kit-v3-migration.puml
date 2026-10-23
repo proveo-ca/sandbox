@@ -139,6 +139,10 @@ skinparam noteTextAlignment left
 '      "startup never gates the agent" trap (proveo-await-seed) does not
 '      apply to that flow. [Inference] a one-shot `sbx run <kit>` still
 '      starts the agent alongside startup hooks (docs); untested.
+'   Q2 probe: `sbx create -e PROVEO_PROBE_VAR=per-run-42 ./<v3 workload>`:
+'      the agent env sees it, and an install hook that declares
+'      `env: [PROVEO_PROBE_VAR]` sees it too. So per-run values keep riding
+'      on `-e` (today's mechanism); hooks list the names they read (C7).
 '      Probe hazards seen on the way: `sbx run` under `script` (pty) stalls
 '      at "building…" on an unanswered terminal query (OSC 11), and killing
 '      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart
