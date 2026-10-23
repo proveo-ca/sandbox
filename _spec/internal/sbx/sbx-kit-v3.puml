@@ -5,6 +5,9 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/kitv3.go
 ' covers: internal/sbx/kitv3_test.go
 ' covers: internal/sbx/sbx.go (BuiltinAgents)
+' covers: internal/sbx/upstream.go
+' covers: internal/sbx/upstream_test.go
+' covers: internal/sbx/upstream/ (vendored, Apache-2.0, LICENSE beside it)
 ' plan: _spec/_plans/sbx-kit-v3-migration.puml (decisions Q1–Q3, launch, probes P0–P5)
 '
 ' ── FILES AND NAMES (MEASURED P0, P4) ───────────────────────────────────────
@@ -29,6 +32,24 @@ skinparam noteTextAlignment left
 ' declares"), network-policy@1 runtime allow/deny, port@1. Capabilities
 ' copied from a published kit (credential@1, volume@1, …) pass through
 ' CapabilityV3.Config as decoded YAML.
+'
+' ── UPSTREAM KITS (Q3: "prefer using upstream") ─────────────────────────────
+' internal/sbx/upstream/ vendors claude, codex, cursor and opencode — each
+' <agent>.yaml + <agent>.dockerfile — from UpstreamKitsRef (docker/sbx-kits-
+' contrib@8b0844a, Apache-2.0; LICENSE kept beside them). A FROM never carries
+' a published kit's capabilities (author/base-images/), so proveo COPIES them:
+' UpstreamKitFor(target, opts) returns
+'   * every capability except sbx@1 (proveo declares its own): credential@1,
+'     network-policy, volume@1, agent-context, agent-skills, lifecycle@1;
+'   * the recipe's ENTRYPOINT with argv0 reduced to its PATH name, so the
+'     image's /opt/proveo/shims/<agent> → proveo-await-seed still runs first;
+'   * the recipe's ENV minus upstreamLayoutEnv (PATH, CODEX_INSTALL_DIR: the
+'     upstream image's install layout, not agent behaviour).
+' Hooks it drops, each a recorded decision (plan: Q3 EXCEPTIONS):
+'   * "Seed Claude bypass/trust flags" — `> ~/.claude.json` wiped the
+'     persisted host copy in P6; accept_workspace_trust merges instead. A test
+'     fails if a re-vendor renames it, so P6 gets re-checked.
+'   * any hook naming MCP_GATEWAY_URL unless opts.MCPGateway (the egress row).
 '
 ' ── PORTS (MEASURED P3) ─────────────────────────────────────────────────────
 ' port@1 alone publishes localhost:<ephemeral>; with `-p H:P` for the same P
