@@ -1603,12 +1603,6 @@ func Run(in Input) error {
 		writeReceipt(cfg.Name, receipt)
 	}
 	created := launchCfg.KitDir != ""
-	if opencodeTarget(in.Target) {
-		launchCfg, created, err = ensureOpenCodeEngine(in, cfg)
-		if err != nil {
-			return err
-		}
-	}
 	var child credentials.ChildEnv
 	for _, e := range cfg.Env {
 		if !strings.Contains(e, "=") {
@@ -1636,6 +1630,12 @@ func Run(in Input) error {
 	}
 	if len(secrets) > 0 {
 		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
+	}
+	if opencodeTarget(in.Target) {
+		launchCfg, created, err = ensureOpenCodeEngine(in, cfg)
+		if err != nil {
+			return err
+		}
 	}
 	PrintIDEAttach(in, cfg, true)
 	ReportPorts(in)
