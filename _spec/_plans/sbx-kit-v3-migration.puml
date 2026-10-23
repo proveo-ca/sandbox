@@ -143,6 +143,19 @@ skinparam noteTextAlignment left
 '      the agent env sees it, and an install hook that declares
 '      `env: [PROVEO_PROBE_VAR]` sees it too. So per-run values keep riding
 '      on `-e` (today's mechanism); hooks list the names they read (C7).
+'   P6 ~/.claude.json persistence, real proveo_sync_config restore/save
+'      against a scratch host copy (mcpServers, claudeInChromeDefaultEnabled,
+'      userID, project /old; mtime older than create):
+'        a) upstream root hook verbatim (`> ~/.claude.json`), then restore:
+'           restore SKIPS (host older, the `-nt` rule), the file keeps only
+'           upstream's 3 keys, and save OVERWRITES the host copy with them.
+'        b) restore, then proveo's accept_workspace_trust merge: every host
+'           key survives in the sandbox and on the host, plus workspace trust.
+'      Also measured: an install hook that exits non-zero ABORTS `sbx create`
+'      ("failed to apply kit to sandbox"); hooks run as `docker run --rm -u
+'      <user> <kit image> sh -c 'env -i <allowlist> sh -c …'` — dash, so
+'      bash-only code needs `bash -c`, and every proveo hook must never fail
+'      the create (as the v2 seedNeverAbort wrapper already ensures).
 '      Probe hazards seen on the way: `sbx run` under `script` (pty) stalls
 '      at "building…" on an unanswered terminal query (OSC 11), and killing
 '      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart
@@ -160,6 +173,20 @@ skinparam noteTextAlignment left
 '      proveo's workload, and DELETE the proveo code they make redundant.
 '      Keep proveo-only behaviour only where upstream lacks it or a recorded
 '      decision contradicts it (overlap table: pending research).
+'   Q3 EXCEPTIONS (user, after the overlap research and P6):
+'      * MCP gateway: "mcp can be a new row under the sbx's egress in
+'        internal/choiceui. If we only have on/off so be it" — copy the
+'        upstream gateway hooks, render them only when that row is on.
+'      * ~/.claude.json: "#1 but explain this issue further; we don't want to
+'        vibe the wheel" → P6 measured the loss; DO NOT copy upstream's root
+'        `> ~/.claude.json` hook. proveo's restore runs first and
+'        accept_workspace_trust (an existing merge) also sets
+'        bypassPermissionsModeAccepted and hasCompletedOnboarding and trusts
+'        `/`. The one deliberate skip of an upstream hook.
+'      * upstream claude-context.md assumes CLAUDE_ENV_FILE: "Set
+'        CLAUDE_ENV_FILE in the base" → ENV CLAUDE_ENV_FILE=/etc/sandbox-
+'        persistent.sh in defs/base (BASH_ENV already points there); copy
+'        agent-context@1 as is.
 '   LAUNCH "create, then run": `sbx create` (hooks finish, P5) then
 '      `sbx run --name`; proveo-await-seed is a safety net, not the gate.
 '
