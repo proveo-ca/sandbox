@@ -5,6 +5,8 @@
 ' covers: internal/backend/sandbox/sandbox.go (PlanPorts, portPublish, ReportPorts, DevServerScript, StartDevServers), internal/agentsettings/agentsettings.go (Workspaces, PortsFor, RememberPorts)
 ' covers: internal/devports/android.go, packages/lib/entrypoint-lib.sh (proveo_android_install, _proveo_debug_apk, PROVEO_TOOLCHAIN_READY)
 ' covers: internal/run/ports_row_test.go, internal/backend/sandbox/sandbox_test.go, e2e/ports_publish_test.go
+' covers: internal/devports/hostport.go (HostPorts, HostPortFor, HostPortWhy), internal/devports/hostport_test.go
+' covers: internal/choiceui/choiceui.go (More.Off, toggleMore, moreHelp, drawMore, Selections), internal/choiceui/more_off_test.go
 ' covers: internal/contract/android_install_lib_test.go, e2e/android_seed_install_test.go
 '   the form this row joins ......... _spec/internal/choiceui/wireframe.puml
 '   the publish half it generalises . _spec/_plans/tools-and-localhost-tunnels.puml (cdpPublish was the only caller)
@@ -41,10 +43,43 @@
 ' Space ticks the highlighted row. ↑↓ moves inside the list until an
 ' edge, then the form. The cell shows [x] while any hidden port is on.
 '
-' ── PUBLISH: SAME HOST PORT WHEN FREE ──────────────────────────────────────
-' Each ticked port becomes `sbx run -p HOST:GUEST` after the CDP relay's
-' entry. HOST = GUEST when the host loopback can bind it, else a free
-' loopback port, and the report says the host port was taken.
+' ── PUBLISH: A DIGIT 1–9 PREPENDED TO THE HOST PORT (2026-10-22) ──────────
+' DECISION SOURCE (user, 2026-10-22): "Whenever offering to publish ports in
+' internal/choiceui/, always prepend the host's port with a number, from 1-9
+' only. Start by checking <port>:1<port>, e.g. the sbx (sandbox) port 8083 and
+' the host's 18083 — check if 18083 is available on the host, and raise the
+' prefix up to 9; disable the selection otherwise."
+' Supersedes "HOST = GUEST when free, else a random free loopback port".
+'   HostPorts(G) .... k·10^digits(G) + G for k = 1…9, kept while ≤ 65535
+'                     8083 → 18083 … 58083 (68083+ overflow)
+'                     18083 → none: every 5-digit G overflows
+'                     never G itself, never prefix 0
+'   HostPortFor ..... the first HostPorts entry the probe accepts
+'   probe ........... sandbox.LoopbackFree: net.Listen on 127.0.0.1:H.
+'                     `sbx ports --help` (v0.49.2): no HOST_IP + no PROTOCOL
+'                     → tcp4 bound on 127.0.0.1, so the probe tests the
+'                     interface sbx binds.
+' THE ROW: portsRow(found, chosen, free) runs HostPortFor per candidate. The
+' help names "host 127.0.0.1:H". No H → Row.Off + Row.OffWhy = HostPortWhy:
+' "host :18083 … :58083 are all in use" or "no host port 1G…9G fits under
+' 65535"; the box never starts ticked, even when remembered. A port folded
+' behind ...More uses More.Off (parallel to More.On) with the same Row.OffWhy:
+' space refuses it, the dropdown paints it warn, the help adds "off: …",
+' Selections skips it. The ...More cell itself stays on, so the list opens.
+' PUBLISH: planPorts re-runs the same HostPortFor at launch, so the -p entry
+' equals what the help showed unless the host bound H in between; then the
+' next prefix wins and ReportPorts says "host :<first> was taken". A ticked
+' port with no H (a --yes run on a remembered 5-digit port, or every prefix
+' taken by launch) is dropped with a warning naming HostPortWhy. PlanPorts
+' also keeps two guests off one host port.
+' Each kept port becomes `sbx run -p H:G` after the CDP relay's entry.
+' RELAY PORT RESERVED (2026-10-22): the CDP relay's host port comes from
+' FreeLoopbackPort (bound then released) before planPorts probes, so a free-
+' looking prefixed H could equal it. DECISION SOURCE (user, 2026-10-22):
+' "Exclude it from planning". planPorts(…, relay) passes cdpPort to
+' PlanPorts(ports, free, reserved...) as already taken, so the candidate is
+' skipped for the next prefix. Gap closed. Pinned by
+' TestPlanPortsSkipsTheBrowserRelayHostPortForTheNextPrefix.
 '
 ' ── THE RUN COMMAND RUNS IN THE SANDBOX (2026-10-05) ───────────────────────
 ' Publishing an empty port is pointless, so proveo starts the server itself:
@@ -142,7 +177,7 @@ component "catalog\nnext 3000 · vite 5173 · astro 4321\nng 4200 · storybook 6
 component "Match(line)\nexplicit port > tool default" as MATCH <<app>>
 component "dedupe\none per port" as DEDUP <<app>>
 component "portsRow\nunder execution · OS\nsbx only · unticked" as ROW <<app>>
-component "PlanPorts\nsame host port if free" as PLAN <<host>>
+component "PlanPorts\nfirst free 1G…9G ≤ 65535\nnot the relay port · none → dropped" as PLAN <<host>>
 component "sbx run -p H:G" as SBX <<cloud>>
 component "ReportPorts\nhttp://127.0.0.1:H → sandbox :G" as REP <<app>>
 component "StartDevServers\nsbx exec bash -lc\nskip if served · clone: wait for HEAD · backoff" as DEV <<async>>

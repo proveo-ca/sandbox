@@ -235,6 +235,14 @@ skinparam noteTextAlignment left
 ' The nested bind is therefore dropped in clone mode. The output dir is lifted
 ' back at teardown; anything else nested is simply not mounted, and both are
 ' said out loud.
+' ONE WARNING PER TOP-LEVEL ENTRY (2026-10-22, user: "should be shown once in
+' the root folder only"). MEASURED: a run from worktrees/hotfix, whose .idea/*
+' entries are symlinks into monorepo/.idea/*, printed 20 identical warnings,
+' one per resolved link. warnUnmountable groups the dropped hosts by their
+' first path component under the root: one host keeps its full path, more
+' print "<root>/<top> (N entries)". Both drop sites (cloneThroughMain, the
+' SplitNested loop) use it. Pinned by
+' TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry.
 '
 ' The same empty target is visible to anything `sbx exec` starts once the
 ' sandbox runs. A published port's dev server therefore waits for the clone's

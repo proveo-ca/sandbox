@@ -2,8 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
-' covers: cmd/proveo/init.go (doInit, decide, install, installPackage, fetch, publishedDigest, resolveBin, ensureSbxOnPath, finish, verify)
-' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, askDecisions, initRows, baselineRow)
+' covers: cmd/proveo/init.go (doInit, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
+' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, askDecisions, targetVersion, initRows, baselineRow)
 ' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
 ' covers: cmd/proveo/init_git.go (applyGitIdentity)
 ' covers: cmd/proveo/ghtoken.go (resolve — a run only lifts; login is init's)
@@ -188,6 +188,17 @@ skinparam noteTextAlignment left
 ' which it does, because the CDN installer put it there minutes earlier. Asking
 ' about THIS directory is the only question with the right answer. The
 ' uninstaller strips both markers.
+' ONLY A PREFIX THAT HOLDS SBX EARNS THE LINE (2026-10-22, MEASURED): a host
+' whose sbx came from brew got `set -gx PATH ~/.docker/sbx/bin` in
+' config.fish although init installed nothing there — a dead entry today, and
+' a 0.42 shadowing brew's sbx the day `--force` fills it. finish now asks
+' sbxPathDir, which answers only when <prefix>/bin/sbx exists. Likewise the
+' run header names the sbx this host keeps ("sbx 0.49.2 on this host — proveo
+' pins 0.42.0 only for a host without sbx") and the TUI title uses
+' targetVersion; the asset, prefix and package-manager lines print only when
+' init will install (none installed, --force, or --print).
+' Pinned by TestInitAddsAPathLineOnlyForAPrefixHoldingSbx and
+' TestInitNamesTheSbxThisHostKeeps.
 '
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
 ' Every platform lands the same layout — <prefix>/bin/sbx beside a

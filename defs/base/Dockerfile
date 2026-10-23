@@ -21,7 +21,7 @@ RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
 
 # ── THE SUPPORTED BASE ──────────────────────────────────────────────────────
 # An sbx template; only its `-docker` variants carry the Engine (dockerd, containerd, runc).
-FROM ${SANDBOX_TEMPLATE}
+FROM ${SANDBOX_TEMPLATE} AS base-full
 
 # Re-declared: an ARG consumed by FROM does not survive into the build stage,
 # so the LABEL at the foot would otherwise record an empty template.
@@ -127,3 +127,29 @@ ENV NPM_CONFIG_AUDIT=false \
 LABEL security.hardened=true \
       org.opencontainers.image.title="proveo harness base" \
       proveo.base.template="${SANDBOX_TEMPLATE}"
+
+# One layer, so every image built on it stays under sbx 0.49.2's 44-layer boot limit.
+# SPEC: _spec/_devops/sandbox-template-rebase.puml (FLAT BASE)
+FROM scratch
+ARG SANDBOX_TEMPLATE
+COPY --from=base-full / /
+ENV PATH=/opt/jre/bin:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
+    NO_PROXY=localhost,127.0.0.1,::1,172.17.0.0/16 \
+    no_proxy=localhost,127.0.0.1,::1,172.17.0.0/16 \
+    BASH_ENV=/etc/sandbox-persistent.sh \
+    JAVA_HOME=/opt/jre \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+LABEL com.docker.sandboxes=templates \
+      com.docker.sandboxes.base=ubuntu:questing \
+      com.docker.sandboxes.flavor=shell-docker \
+      com.docker.sandboxes.start-docker=true \
+      security.hardened=true \
+      org.opencontainers.image.title="proveo harness base" \
+      proveo.base.template="${SANDBOX_TEMPLATE}"
+USER root
+WORKDIR /
+ENTRYPOINT ["tini", "--"]
+CMD ["bash"]

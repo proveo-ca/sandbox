@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -279,4 +281,42 @@ func hasOption(opts []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestInitNamesTheSbxThisHostKeeps(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		installed string
+		force     bool
+		want      string
+	}{
+		{"", false, sbx.Release},
+		{"0.49.2", false, "0.49.2"},
+		{"0.49.2", true, sbx.Release},
+	} {
+		if got := targetVersion(c.installed, c.force); got != c.want {
+			t.Errorf("targetVersion(%q, force=%v) = %q, want %q", c.installed, c.force, got, c.want)
+		}
+	}
+}
+
+func TestInitAddsAPathLineOnlyForAPrefixHoldingSbx(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	plan := linuxPlan(t, prefix)
+	if plan.Bin == "" {
+		t.Skip("this plan places no binary")
+	}
+	if got := sbxPathDir(plan); got != "" {
+		t.Errorf("sbxPathDir(empty prefix) = %q, want \"\" — a brew-installed sbx must not earn a dead PATH line", got)
+	}
+	if err := os.MkdirAll(filepath.Dir(plan.Bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plan.Bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sbxPathDir(plan), filepath.Dir(plan.Bin); got != want {
+		t.Errorf("sbxPathDir(prefix with sbx) = %q, want %q", got, want)
+	}
 }

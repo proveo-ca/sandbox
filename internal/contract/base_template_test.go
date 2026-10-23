@@ -267,3 +267,30 @@ func TestBaseInstallsFfmpegForEveryHarness(t *testing.T) {
 		t.Error("defs/base/Dockerfile apt layer lacks ffmpeg; every harness inherits its media tools from base")
 	}
 }
+
+func TestBaseShipsAsOneLayerThatStillReadsAsASandboxTemplate(t *testing.T) {
+	t.Parallel()
+	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
+	froms := regexp.MustCompile(`(?m)^FROM .*$`).FindAllStringIndex(src, -1)
+	if len(froms) == 0 {
+		t.Fatal("defs/base/Dockerfile has no FROM")
+	}
+	last := src[froms[len(froms)-1][0]:]
+	if !strings.HasPrefix(last, "FROM scratch\n") {
+		t.Fatalf("the final stage is %q; want FROM scratch so the base is one layer (sbx 0.49.2 hangs at 45 layers)",
+			strings.SplitN(last, "\n", 2)[0])
+	}
+	if !regexp.MustCompile(`(?m)^FROM \$\{SANDBOX_TEMPLATE\} AS base-full$`).MatchString(src) {
+		t.Error("the template stage must be named base-full for the flat stage to copy from")
+	}
+	for _, want := range []string{
+		"COPY --from=base-full / /",
+		"com.docker.sandboxes=templates", "com.docker.sandboxes.flavor=shell-docker",
+		"com.docker.sandboxes.start-docker=true", `proveo.base.template="${SANDBOX_TEMPLATE}"`,
+		"USER root", "WORKDIR /", `ENTRYPOINT ["tini", "--"]`, `CMD ["bash"]`, "BASH_ENV=", "PATH=",
+	} {
+		if !strings.Contains(last, want) {
+			t.Errorf("the flat stage lacks %q; FROM scratch drops every config the template set", want)
+		}
+	}
+}

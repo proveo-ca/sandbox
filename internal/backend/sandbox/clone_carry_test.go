@@ -4,12 +4,15 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -94,7 +97,7 @@ func TestRetiringASandboxKeepsItWhenTheCloneCouldNotBeCarriedHome(t *testing.T) 
 			in := Input{Clone: c.thisRunClone, RepoRoot: repo, Sid: "proveo-1-2"}
 			cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
 
-			err := retireSandbox(in, cfg)
+			err := retireSandbox(in, cfg, quietReport)
 			log := callsOf(t, calls)
 			if (err != nil) != c.wantErr {
 				t.Errorf("retireSandbox(%s) error = %v, want error %v", c.name, err, c.wantErr)
@@ -104,6 +107,75 @@ func TestRetiringASandboxKeepsItWhenTheCloneCouldNotBeCarriedHome(t *testing.T) 
 			}
 			if got := strings.Contains(log, "rm --force sb"); got != c.wantRemove {
 				t.Errorf("retireSandbox(%s) ran sbx rm = %v, want %v\ncalls:\n%s", c.name, got, c.wantRemove, log)
+			}
+		})
+	}
+}
+
+func shrinkGuestDeadlines(t *testing.T, d time.Duration) {
+	t.Helper()
+	probe, guest := cloneProbeDeadline, guestExecDeadline
+	t.Cleanup(func() { cloneProbeDeadline, guestExecDeadline = probe, guest })
+	cloneProbeDeadline, guestExecDeadline = d, d
+}
+
+func TestAGuestThatNeverAnswersKeepsTheSandboxInsteadOfHangingTheRun(t *testing.T) {
+	if cloneProbeDeadline != 36*time.Second || guestExecDeadline != 3*time.Minute {
+		t.Errorf("deadlines = %s probe, %s guest exec; decided 36s and 3m", cloneProbeDeadline, guestExecDeadline)
+	}
+	for _, c := range []struct {
+		name   string
+		guest  string
+		bundle string
+	}{
+		{"the clone-mode probe hangs", "sleep 30; echo clone", bundleEmpty},
+		{"the bundle hangs", guestClone, "sleep 30"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			shrinkGuestDeadlines(t, 300*time.Millisecond)
+			calls := fakeSbx(t, c.guest, 0, c.bundle)
+			repo := t.TempDir()
+			in := Input{Clone: true, RepoRoot: repo, Sid: "proveo-1-2"}
+			cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
+
+			start := time.Now()
+			err := retireSandbox(in, cfg, quietReport)
+			took := time.Since(start)
+			log := callsOf(t, calls)
+			if took > 10*time.Second {
+				t.Errorf("retireSandbox(%s) took %s; the deadline must end the wait", c.name, took)
+			}
+			if err == nil {
+				t.Errorf("retireSandbox(%s) error = nil, want the sandbox kept", c.name)
+			}
+			if strings.Contains(log, "rm --force sb") {
+				t.Errorf("retireSandbox(%s) ran sbx rm after a guest that never answered\ncalls:\n%s", c.name, log)
+			}
+		})
+	}
+}
+
+func TestRetireReportsEachStepOnlyWhenItStarts(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		bundle string
+		want   []string
+	}{
+		{"a failed carry stops at step 1", bundleFails, []string{"1/3"}},
+		{"a carry with nothing new runs all three", bundleEmpty, []string{"1/3", "2/3", "3/3"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fakeSbx(t, guestClone, 0, c.bundle)
+			repo := t.TempDir()
+			in := Input{Clone: true, RepoRoot: repo, Sid: "proveo-1-2"}
+			cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
+
+			var steps []string
+			_ = retireSandbox(in, cfg, func(f string, a ...any) {
+				steps = append(steps, strings.Fields(fmt.Sprintf(f, a...))[0])
+			})
+			if !slices.Equal(steps, c.want) {
+				t.Errorf("retireSandbox(%s) reported steps %v, want %v", c.name, steps, c.want)
 			}
 		})
 	}
@@ -166,7 +238,7 @@ func TestRetiredWorkLandsBesideThisRunsOwnRefs(t *testing.T) {
 	fakeSbx(t, guestClone, 0, "cat '"+bundle+"'")
 	in := Input{Clone: true, RepoRoot: host, Sid: "proveo-1-2"}
 	cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: host}}}
-	if err := retireSandbox(in, cfg); err != nil {
+	if err := retireSandbox(in, cfg, quietReport); err != nil {
 		t.Fatalf("retireSandbox = %v", err)
 	}
 	refs := git(host, "for-each-ref", "--format=%(refname)", "refs/proveo/")

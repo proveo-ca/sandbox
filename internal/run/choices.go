@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
@@ -71,7 +72,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		}
 		form.Rows = append(form.Rows, applicableRows(row)...)
 		if label == rowExecution {
-			if r, ok := portsRow(found, p.Ports); ok {
+			if r, ok := portsRow(found, p.Ports, sandbox.LoopbackFree); ok {
 				form.Rows = append(form.Rows, r)
 				p.portsAsked = true
 			}
@@ -539,21 +540,28 @@ func scanRoot(input, repoRoot string) string {
 	return OrWD(repoRoot)
 }
 
-// portsRow offers each discovered run command's port for publishing; every box starts unticked.
-func portsRow(found []devports.Candidate, chosen []devports.Candidate) (choiceui.Row, bool) {
+// portsRow offers each discovered port on its first free prefixed host port; a port with none is greyed.
+func portsRow(found []devports.Candidate, chosen []devports.Candidate, free func(int) bool) (choiceui.Row, bool) {
 	if len(found) == 0 {
 		return choiceui.Row{}, false
 	}
-	r := choiceui.Row{Label: rowPorts, Multi: true, Help: map[string]string{}}
+	r := choiceui.Row{Label: rowPorts, Multi: true, Help: map[string]string{}, OffWhy: map[string]string{}}
 	for _, c := range found {
 		opt := c.Label()
+		host, ok := devports.HostPortFor(c.Port, free)
 		r.Options = append(r.Options, opt)
-		r.On = append(r.On, slices.ContainsFunc(chosen, func(x devports.Candidate) bool { return x.Port == c.Port }))
+		r.Off = append(r.Off, !ok)
+		r.On = append(r.On, ok && slices.ContainsFunc(chosen, func(x devports.Candidate) bool { return x.Port == c.Port }))
 		how := "the tool's default port"
 		if c.Explicit {
 			how = "the port the command names"
 		}
-		r.Help[opt] = fmt.Sprintf("publish sandbox :%d to this host's loopback — %q in %s, %s", c.Port, c.Command, c.Source, how)
+		to := fmt.Sprintf("host 127.0.0.1:%d", host)
+		if !ok {
+			to = "this host's loopback"
+			r.OffWhy[opt] = devports.HostPortWhy(c.Port)
+		}
+		r.Help[opt] = fmt.Sprintf("publish sandbox :%d to %s — %q in %s, %s", c.Port, to, c.Command, c.Source, how)
 	}
 	if len(r.Options) > 4 {
 		r = foldPorts(r)
@@ -565,14 +573,16 @@ func portsRow(found []devports.Candidate, chosen []devports.Candidate) (choiceui
 func foldPorts(r choiceui.Row) choiceui.Row {
 	rest := append([]string{}, r.Options[3:]...)
 	restOn := append([]bool{}, r.On[3:]...)
+	restOff := append([]bool{}, r.Off[3:]...)
 	r.Options = append(append([]string{}, r.Options[:3]...), portsMore)
 	on := append([]bool{}, r.On[:3]...)
 	r.On = append(on, anyBool(restOn))
+	r.Off = append(append([]bool{}, r.Off[:3]...), false)
 	if r.Help == nil {
 		r.Help = map[string]string{}
 	}
 	r.Help[portsMore] = "the other ports — ↑↓ moves, space ticks"
-	r.More = &choiceui.More{Cell: 3, Options: rest, On: restOn}
+	r.More = &choiceui.More{Cell: 3, Options: rest, On: restOn, Off: restOff}
 	return r
 }
 

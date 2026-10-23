@@ -685,7 +685,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Clone: rs.Backend.Clone, Extra: p.Extra,
 		RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 		Browser: browserOn, CDPHostPort: cdpPort,
-		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly),
+		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort),
 		AndroidApps: androidApps(p), AndroidEnv: adbEnv,
 		Roles:    p.Roles,
 		Evidence: p.evidenceOrDefault(),
@@ -798,7 +798,8 @@ func portsToRemember(chosen []devports.Candidate) []agentsettings.Port {
 	return out
 }
 
-func planPorts(chosen []devports.Candidate, root string, printOnly bool) []sandbox.PublishedPort {
+// planPorts keeps every guest port off relay, the browser relay's host port.
+func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay int) []sandbox.PublishedPort {
 	free := sandbox.LoopbackFree
 	if printOnly {
 		free = func(int) bool { return true }
@@ -808,7 +809,11 @@ func planPorts(chosen []devports.Candidate, root string, printOnly bool) []sandb
 		dir, cmd := devports.Launch(c, root)
 		out = append(out, sandbox.PublishedPort{Guest: c.Port, What: c.Tool + " · " + c.Source, Dir: dir, Cmd: cmd})
 	}
-	return sandbox.PlanPorts(out, free)
+	kept, dropped := sandbox.PlanPorts(out, free, relay)
+	for _, d := range dropped {
+		ui.Warnf("port %d not published — %s", d.Guest, devports.HostPortWhy(d.Guest))
+	}
+	return kept
 }
 
 // recordOutcome writes the run's verdict into the transcript before Do returns

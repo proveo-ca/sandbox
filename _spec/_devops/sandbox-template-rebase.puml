@@ -11,6 +11,33 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/base_template_test.go
 ' covers: internal/contract/bun_toolchain_test.go
 ' covers: internal/imagetest/cursor_test.go
+' covers: internal/imagetest/layers_test.go
+' covers: defs/hermes/Dockerfile (hermes-upstream, hermes-flat)
+'
+' ── FLAT BASE (DECIDED 2026-10-22) ──────────────────────────────────────────
+' MEASURED: sbx 0.49.2 on macOS never boots an image with 45+ layers; 44
+' boots in 6s. Repro without proveo: shell-docker-0.5.0 + N `RUN echo`
+' layers. proveo images had 46–59 (claudecode 54, solidity 59, hermes 57),
+' so every run hung at "creating container task" after the 0.46.0 → 0.49.2
+' upgrade. Size is not it (a 4 GB filler at 16 layers boots), nor the
+' entrypoint, USER or WORKDIR (bisect: _spec/internal/sbx/kit-lifecycle.puml).
+' User picked "Base chain in Dockerfiles" over a post-build ggcr squash: it
+' is pure BuildKit, so --push and multi-arch keep working unchanged.
+'   * defs/base ends in `FROM scratch` + `COPY --from=base-full / /`: one
+'     layer. FROM scratch drops every config the template set, so the stage
+'     re-declares Env, the com.docker.sandboxes.* labels sbx reads to treat it
+'     as a template, USER root, WORKDIR /, ENTRYPOINT tini, CMD bash. The
+'     template's org.opencontainers.* labels (Ubuntu's metadata) are dropped.
+'   * hermes flattens nousresearch/hermes-agent the same way (hermes-flat),
+'     since it does not build on proveo's base chain.
+'   * Cost: the flat base duplicates the template's content once per host
+'     (no sharing with sbx's own templates); harness images still share it.
+'   * Guards: TestBaseShipsAsOneLayerThatStillReadsAsASandboxTemplate (static);
+'     TestEveryLocalImageStaysUnderTheSbxLayerCap (≤40, margin 4) and
+'     TestAFlatStageKeepsTheConfigOfTheLayersItReplaces (config parity)
+'     under the `image` tag.
+' Upstream: per-layer virtio disks hit a limit before (#361, fixed v0.37.0).
+'
 ' Lineage and tagging: image-lineage-and-publish.puml (same directory).
 ' Why the rebase happened: _spec/_devops/image-size-reduction.puml (Cut 4).
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.

@@ -27,6 +27,9 @@ skinparam noteTextAlignment left
 '   same receipt            → re-attach, as before
 '   changed, headed         → ask. Yes runs the three steps for every harness:
 '     carry clone and agent state home, sbx rm --force, create the same name.
+'     retireIfStale prints "replacing <name> (<changes> changed)"; retireSandbox
+'     prints each "n/3" line only as that step starts, so a hung step 1 never
+'     shows "3/3" (2026-10-22; TestRetireReportsEachStepOnlyWhenItStarts).
 '     The session does not persist. Host proveo files stay.
 '     No keeps it. [y/N] and [esc] are each a left-aligned row. The last row
 '     records the typing and the line under it says enter submits. Enter on
@@ -104,12 +107,28 @@ skinparam noteTextAlignment left
 ' (teardown_end_test.go, untagged).
 '
 ' ── RESIDUALS, RECORDED NOT FIXED (2026-10-17 review #4) ────────────────────
-'   * A HUNG TEARDOWN. Snapshot, SaveState and `sbx rm` carry no timeout, and
+'   * A HUNG TEARDOWN. SaveState and `sbx rm` carry no timeout, and
 '     proveo swallows signals after the first. A hung proveo can outlive the
 '     scheduler's kill-session, and its late `rm` can remove a same-named
 '     sandbox a later run has reattached to. A per-name lock or a teardown
 '     deadline would close it. Pre-existing; a stop widens the exposure
 '     (reported; the missing timeouts MEASURED by reading the calls).
+'     PARTLY CLOSED 2026-10-22 (user: "Drop P1, probe + deadline", "36s probe
+'     3m others"). MEASURED incident: sbx 0.49.2 could not boot any VM on the
+'     host (POST /sandbox/<name>/start 502 after 875s; every shim stalled after
+'     "creating container task"), so the retire's clone-mode probe `sbx exec`
+'     on the stopped sandbox waited forever while all three step lines were
+'     already on screen. guestCommand (sandbox.go) now bounds every guest
+'     call on the carry path: the probe at cloneProbeDeadline = 36s; snapshot,
+'     rebase, span, remote fetch, bundle, lift and the .env read at
+'     guestExecDeadline = 3m. A timeout reads as the error it replaces, so
+'     an unanswered probe leaves the mode unknown and the sandbox kept
+'     (STRANDED), never removed. The receipt stays out of it (review #6).
+'     STILL OPEN: SaveState and `sbx rm`. sbx's own rm on a clone sandbox
+'     starts the container first, and hung the same way; the decided next
+'     step is a 3m deadline plus a rescue recipe, never an automatic shim kill
+'     (killing the shim made the daemon respawn it and stall again).
+'     Pinned by TestAGuestThatNeverAnswersKeepsTheSandboxInsteadOfHangingTheRun.
 '   * HISTORY: a stop during the retry's prepareOpenCodeLaunch was honoured
 '     only after it returned (its prepare and recover steps allowed up to
 '     15 min each). D2 (DONE (wt)) replaced it with ensureOpenCodeEngine's
