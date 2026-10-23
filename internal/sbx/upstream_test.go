@@ -78,7 +78,7 @@ func TestUpstreamBehaviourEnvIsCopiedAndInstallLayoutIsNot(t *testing.T) {
 
 func TestTheClaudeJSONOverwriteHookIsTheOneUpstreamHookProveoSkips(t *testing.T) {
 	t.Parallel()
-	raw, err := upstreamFS.ReadFile("upstream/claude.yaml")
+	raw, err := upstreamFS.ReadFile("third_party/claude.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

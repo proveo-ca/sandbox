@@ -7,7 +7,7 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/sbx.go (BuiltinAgents)
 ' covers: internal/sbx/upstream.go
 ' covers: internal/sbx/upstream_test.go
-' covers: internal/sbx/upstream/ (vendored, Apache-2.0, LICENSE beside it)
+' covers: internal/sbx/third_party/ (vendored, Apache-2.0, LICENSE beside it)
 ' plan: _spec/_plans/sbx-kit-v3-migration.puml (decisions Q1–Q3, launch, probes P0–P5)
 '
 ' ── FILES AND NAMES (MEASURED P0, P4) ───────────────────────────────────────
@@ -34,7 +34,7 @@ skinparam noteTextAlignment left
 ' CapabilityV3.Config as decoded YAML.
 '
 ' ── UPSTREAM KITS (Q3: "prefer using upstream") ─────────────────────────────
-' internal/sbx/upstream/ vendors claude, codex, cursor and opencode — each
+' internal/sbx/third_party/ vendors claude, codex, cursor and opencode — each
 ' <agent>.yaml + <agent>.dockerfile — from UpstreamKitsRef (docker/sbx-kits-
 ' contrib@8b0844a, Apache-2.0; LICENSE kept beside them). A FROM never carries
 ' a published kit's capabilities (author/base-images/), so proveo COPIES them:

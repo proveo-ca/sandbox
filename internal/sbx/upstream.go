@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed upstream/*.yaml upstream/*.dockerfile
+//go:embed third_party/*.yaml third_party/*.dockerfile
 var upstreamFS embed.FS
 
 // UpstreamKitsRef is the published kits source the vendored files were read from.
@@ -53,11 +53,11 @@ func UpstreamKitFor(target string, o UpstreamOptions) (k UpstreamKit, ok bool, e
 	if agent == "" {
 		return UpstreamKit{}, false, nil
 	}
-	desc, err := upstreamFS.ReadFile("upstream/" + agent + ".yaml")
+	desc, err := upstreamFS.ReadFile("third_party/" + agent + ".yaml")
 	if err != nil {
 		return UpstreamKit{}, false, err
 	}
-	recipe, err := upstreamFS.ReadFile("upstream/" + agent + ".dockerfile")
+	recipe, err := upstreamFS.ReadFile("third_party/" + agent + ".dockerfile")
 	if err != nil {
 		return UpstreamKit{}, false, err
 	}

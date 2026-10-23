@@ -11,21 +11,22 @@ import (
 func TestCommentMarkerCoversEverySourceKind(t *testing.T) {
 	t.Parallel()
 	for path, want := range map[string]string{
-		"internal/run/run.go":                "//",
-		"e2e/sbx_test.go":                    "//",
-		"packages/lib/entrypoint-lib.sh":     "#",
-		"packages/lib/proveo-await-seed":     "#",
-		"defs/base/Dockerfile":               "#",
-		"defs/cecli/Dockerfile.dockerignore": "#",
-		"defs/hermes/harness.manifest":       "#",
-		"mise.toml":                          "#",
-		".dockerignore":                      "#",
-		"defs/codex/defaults/config.toml":    "#",
-		"README.md":                          "",
-		"_spec/_plans/x.puml":                "",
-		"internal/x/testdata/a.go":           "",
-		".serena/project.yml":                "",
-		"apps/cli/public/cli/install.sh":     "",
+		"internal/run/run.go":                  "//",
+		"e2e/sbx_test.go":                      "//",
+		"packages/lib/entrypoint-lib.sh":       "#",
+		"packages/lib/proveo-await-seed":       "#",
+		"defs/base/Dockerfile":                 "#",
+		"defs/cecli/Dockerfile.dockerignore":   "#",
+		"defs/hermes/harness.manifest":         "#",
+		"mise.toml":                            "#",
+		".dockerignore":                        "#",
+		"defs/codex/defaults/config.toml":      "#",
+		"README.md":                            "",
+		"_spec/_plans/x.puml":                  "",
+		"internal/x/testdata/a.go":             "",
+		"internal/sbx/third_party/claude.yaml": "",
+		".serena/project.yml":                  "",
+		"apps/cli/public/cli/install.sh":       "",
 	} {
 		if got := commentMarker(path); got != want {
 			t.Errorf("commentMarker(%q) = %q, want %q", path, got, want)

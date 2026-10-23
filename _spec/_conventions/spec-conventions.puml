@@ -47,7 +47,10 @@
 '   read         tracked (`git ls-files`) .go, .sh, Dockerfile*, .dockerignore,
 '                .toml, .yaml/.yml, .manifest, and extensionless packages/lib
 '                scripts
-'   skipped      _spec/, apps/, node_modules/, dot-directories, any testdata/
+'   skipped      _spec/, apps/, node_modules/, dot-directories, any testdata/,
+'                any third_party/ (vendored upstream files keep their own
+'                comments; 2026-10-22, internal/sbx/third_party/ = the
+'                published sbx kits, _spec/internal/sbx/sbx-kit-v3.puml)
 ' [Inference] An untracked file is not read until `git add`, because the file
 ' list is `git ls-files`.
 ' Tests (cmd/proveo-dev/commentlint_test.go): TestCommentMarkerCoversEverySourceKind,
