@@ -148,6 +148,21 @@ skinparam noteTextAlignment left
 '      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart
 '      docker` recovered it (6s).
 '
+' ── DECISIONS (2026-10-22, user, on the evidence above) ─────────────────────
+'   Q1 "Kit FROM proveo image": <stem>.dockerfile = FROM proveo/<target>:<tag>;
+'      :local resolves from the host engine, published tags pull. Images stay
+'      ≤ 43 layers (the kit adds ≥ 1).
+'   Q2 "Keep -e": per-run values stay on `-e`; each hook lists the names it
+'      reads in `env:` (C7).
+'   Q3 "if docker sbx supports any functionality proveo has, prefer using
+'      upstream (#2 in this case)": copy the published kit's credential@1,
+'      network-policy AND lifecycle hooks (and volumes, agent-context) into
+'      proveo's workload, and DELETE the proveo code they make redundant.
+'      Keep proveo-only behaviour only where upstream lacks it or a recorded
+'      decision contradicts it (overlap table: pending research).
+'   LAUNCH "create, then run": `sbx create` (hooks finish, P5) then
+'      `sbx run --name`; proveo-await-seed is a safety net, not the gate.
+'
 ' ── ORDER OF WORK ──────────────────────────────────────────────────────────
 '   1 probes P1–P5 → record results here (MEASURED)
 '   2 user decisions on Q1–Q3

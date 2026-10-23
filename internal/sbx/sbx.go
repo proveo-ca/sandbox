@@ -56,7 +56,7 @@ var templateReceiptDir = func() string {
 }
 
 var BuiltinAgents = []string{
-	"claude", "codex", "copilot", "cursor", "docker-agent",
+	"claude", "codex", "copilot", "cursor", "devin", "docker-agent",
 	"droid", "gemini", "kiro", "opencode", "shell",
 }
 
