@@ -717,11 +717,11 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	}
 	if p.PrintOnly {
 		defer homeAccess.Cleanup()
-		cfg, kit, secrets := sandbox.Spec(in)
-		if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
+		cfg, w, secrets := sandbox.Spec(in)
+		if _, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe); err != nil {
 			return fmt.Errorf("write sandbox kit: %w", err)
 		}
-		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", filepath.Join(cfg.KitDir, "spec.yaml"))
+		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", cfg.KitDir)
 		if len(secrets) > 0 {
 			names := make([]string, 0, len(secrets))
 			for _, kv := range secrets {
@@ -729,7 +729,8 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 			}
 			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
 		}
-		fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
+		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n", strings.Join(sbx.CreateArgs(cfg), " "),
+			strings.Join(sbx.RunArgs(sbx.Reattach(cfg)), " "))
 		return nil
 	}
 	rs.AgentLaunched = true

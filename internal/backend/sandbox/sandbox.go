@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1162,7 +1164,7 @@ func Harness(in Input) string {
 	return in.Target
 }
 
-func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
+func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	// The Kit allows only what add-ons wire up; sbx's own policy decides all other egress.
 	hosts := map[string]bool{}
 	addHost := func(h string) {
@@ -1345,78 +1347,120 @@ func Spec(in Input) (sbx.RunConfig, sbx.Kit, [][2]string) {
 	}
 
 	harness := Harness(in)
-	agent, launch := sbx.AgentFor(harness)
-	command := launch
-	if len(in.Extra) > 0 {
-		if agent == sbx.ShellAgent {
-			command = sbx.ShellLaunch(harness, in.Extra)
-		} else {
-			command = in.Extra
-		}
+	agent := sbx.AgentName(harness)
+	builtin := sbx.BuiltinAgent(harness)
+	up, hasUp, upErr := sbx.UpstreamKitFor(harness, sbx.UpstreamOptions{MCPGateway: MCPGatewayAllowed()})
+	if upErr != nil {
+		ui.Warnf("sandbox: the published %s kit could not be read (%v) — launching from the image alone", harness, upErr)
+		hasUp = false
 	}
-	entrypoint := imageEntrypoint(in)
-	ownAgent := sbx.DeclaresOwnAgent(harness)
-	if ownAgent && len(entrypoint) == 0 {
-		ownAgent = false
-		ui.Warnf("sandbox: no readable ENTRYPOINT on %s — %s runs under sbx's shell agent rather than one of its own",
-			in.Image, harness)
-	}
-	if ownAgent {
-		agent, command = sbx.AgentName(harness), OwnAgentCommand(entrypoint, in.Extra)
-	}
-	command = withChromeFlag(agent, in.BridgeEnv, command)
-	if agent != sbx.ShellAgent {
-		command = withMobileMCP(harness, in.AgentEnv, command)
-		command = withLocalModelTools(agent, in.AgentEnv, command)
+	recipe := sbx.RecipeV3{From: in.Image}
+	var command []string
+	switch entrypoint := imageEntrypoint(in); {
+	case hasUp:
+		recipe.Entrypoint, recipe.Env = up.Launch, up.Env
+		flags := withChromeFlag(builtin, in.BridgeEnv, append([]string{}, in.Extra...))
+		flags = withMobileMCP(harness, in.AgentEnv, flags)
+		flags = withLocalModelTools(builtin, in.AgentEnv, flags)
+		command = sbx.LaunchArgs(up.Launch, flags)
+	case len(entrypoint) == 0:
+		ui.Warnf("sandbox: no readable ENTRYPOINT on %s — %s launches through bash", in.Image, harness)
+		recipe.Entrypoint = []string{"bash"}
+		command = sbx.ShellLaunch(harness, in.Extra)
+	default:
+		command = sbx.LaunchArgs(entrypoint, withMobileMCP(harness, in.AgentEnv, append([]string{}, in.Extra...)))
 	}
 	cfg := sbx.RunConfig{
 		Name:    sbx.SandboxName(in.Target, sandboxKey(in, mounts)),
-		KitDir:  filepath.Join(in.RunDir, "sbx", "kit"),
-		Image:   in.Image,
+		KitDir:  sbx.KitDirV3(filepath.Join(in.RunDir, "sbx", "kit"), agent),
 		Memory:  in.Memory,
 		CPUs:    in.CPUs,
 		Clone:   in.Clone,
 		Publish: append(cdpPublish(in), portPublish(in)...),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env:     DeclineMCPGateway(Home(launchEnv(in, agent, env, mounts), homeSourceMounts)),
+		Env:     DeclineMCPGateway(Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts)),
 		Command: command,
 	}
 	if in.HomeAccess.FilesRoot != "" {
 		cfg.Env = append(cfg.Env, proveohome.ConfigFilesRootVar+"="+in.HomeAccess.FilesRoot)
 	}
-	var creds []sbx.KitCredential
-	if ownAgent {
-		var domains []string
-		creds, domains, secrets = agentCredentials(in, secrets)
-		for _, d := range domains {
-			if !hosts[d] {
-				hosts[d] = true
-				allow = append(allow, d)
+
+	caps := []sbx.CapabilityV3{{Type: sbx.CapSbx}}
+	if hasUp {
+		caps = append(caps, up.Capabilities...)
+	}
+	creds, secrets := agentCredentials(in, secrets)
+	owned := upstreamServices(caps)
+	for _, c := range creds {
+		if owned[c.Service] {
+			continue
+		}
+		caps = append(caps, sbx.CapabilityV3{Type: sbx.CapCredential, Optional: true, Config: c})
+		for _, inj := range c.APIKey.Inject {
+			if !hosts[inj.Domain] {
+				hosts[inj.Domain] = true
+				allow = append(allow, inj.Domain)
 			}
 		}
-		sort.Strings(allow)
 	}
+	sort.Strings(allow)
+	var err error
+	if caps, err = sbx.WithRuntimeAllow(caps, allow); err == nil {
+		caps, err = sbx.WithLifecycle(caps, sbx.LifecycleV3{Startup: startupHooks(in, !hasUp, envNames(cfg.Env))})
+	}
+	if err != nil {
+		ui.Warnf("sandbox: the workload's capabilities could not be merged (%v)", err)
+	}
+	w := Workload{
+		Descriptor: sbx.WorkloadV3{
+			DisplayName:  in.Target + " (proveo)",
+			Description:  "proveo harness " + in.Target + ": image, launch, reachability and the seed step.",
+			Version:      "1.0.0",
+			Capabilities: caps,
+		},
+		Recipe: recipe,
+	}
+	return cfg, w, secrets
+}
 
-	kit := sbx.Kit{
-		SchemaVersion: sbx.KitSchemaVersionV2,
-		Kind:          "mixin",
-		Name:          in.Target + "-posture",
-		DisplayName:   "proveo posture (" + in.Target + ")",
-		Description:   "Reachability, host-resolved environment and the seed step for a proveo run.",
-		Permissions:   sbx.KitPermissions{Network: sbx.KitNet{Allow: allow}},
-		Environment:   &sbx.KitEnv{Variables: WithMCPGatewayPolicy(KitEnvVars(cfg.Env))},
-		Setup:         &sbx.KitSetup{Startup: startupCommands(in, ownAgent)},
+// upstreamServices are the credential services a copied published kit already owns (one owner per service).
+func upstreamServices(caps []sbx.CapabilityV3) map[string]bool {
+	out := map[string]bool{}
+	for _, c := range caps {
+		if m, ok := c.Config.(map[string]any); ok && c.Type == sbx.CapCredential {
+			if svc, _ := m["service"].(string); svc != "" {
+				out[svc] = true
+			}
+		}
 	}
-	if ownAgent {
-		kit.Kind = "sandbox"
-		kit.Name = cfg.Agent
-		kit.DisplayName = in.Target + " (proveo)"
-		kit.Description = "proveo harness " + in.Target + ": image, launch, reachability and the seed step."
-		kit.Sandbox = &sbx.KitSandbox{Image: in.Image, Entrypoint: entrypoint}
-		kit.Credentials = creds
+	return out
+}
+
+// envNames are the variable names a run passes with -e, which every proveo hook declares (hooks see only what they name).
+func envNames(env []string) []string {
+	var out []string
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		if k != "" && !slices.Contains(out, k) {
+			out = append(out, k)
+		}
 	}
-	return cfg, kit, secrets
+	sort.Strings(out)
+	return out
+}
+
+// startupHooks are proveo's seed steps as lifecycle@1 startup hooks: they re-run on every boot, as the v2 startup did.
+func startupHooks(in Input, ownLaunch bool, env []string) []sbx.HookV3 {
+	var out []sbx.HookV3
+	for _, c := range startupCommands(in, ownLaunch) {
+		user := c.User
+		if user == "root" {
+			user = "0"
+		}
+		out = append(out, sbx.HookV3{Command: c.Command, User: user, Background: c.Background, Env: env, Description: c.Description})
+	}
+	return out
 }
 
 // OwnAgentCommand is an own-agent Kit's trailing command. sbx replaces the
@@ -1538,31 +1582,25 @@ func Run(in Input) error {
 			homeAccess.Cleanup()
 		}
 	}()
-	cfg, kit, secrets := Spec(in)
+	cfg, w, secrets := Spec(in)
 	envValues := 0
 	if path, n, err := seedProjectEnv(in.ProjectEnv, in.RunDir, in.Forwards, cfg.Env); err != nil {
 		ui.Warnf("project .env not seeded into the sandbox: %v", err)
 	} else {
 		cfg.EnvFile, envValues = path, n
 	}
-	kitDir, err := sbx.WriteKit(cfg.KitDir, kit)
+	kitDir, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe)
 	if err != nil {
 		return err
 	}
 	ui.Section(ui.SectionStarting)
-	kitYAML, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
-	receipt := receiptOf(cfg, kitYAML, in.Sid, sbx.LocalImageID(cfg.Image))
+	receipt := receiptOf(cfg, in.Image, workloadBytes(kitDir), in.Sid, sbx.LocalImageID(in.Image))
 	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
 		return err
 	}
 	launchCfg := reuseOrCreate(cfg, sbx.Exists)
 	if launchCfg.KitDir != "" {
 		writeReceipt(cfg.Name, receipt)
-	}
-	if err := sbx.EnsureTemplate(launchCfg.Image, func(f string, a ...any) {
-		ui.Appf(f, a...)
-	}); err != nil {
-		return err
 	}
 	created := launchCfg.KitDir != ""
 	if opencodeTarget(in.Target) {
@@ -1612,6 +1650,12 @@ func Run(in Input) error {
 		} else {
 			ui.Notef("project .env: %s keeps the values it was created with; `sbx rm --force %s` reseeds them", cfg.Name, cfg.Name)
 		}
+	}
+	if launchCfg.KitDir != "" {
+		if err := createSandbox(launchCfg); err != nil {
+			return err
+		}
+		launchCfg = sbx.Reattach(launchCfg)
 	}
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
@@ -1665,26 +1709,6 @@ func Run(in Input) error {
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
-	if runErr != nil && signalled() == 0 && !forceRemove.Load() && !sbx.Exists(cfg.Name) {
-		ui.Section(ui.SectionStarting)
-		if err := sbx.ReloadTemplate(cfg.Image, func(f string, a ...any) {
-			ui.Appf(f, a...)
-		}); err == nil && signalled() == 0 {
-			ui.Asyncf("the sandbox did not start — retrying once on a freshly loaded template")
-			retryCfg, retryCreated, prepErr := cfg, true, error(nil)
-			if opencodeTarget(in.Target) {
-				retryCfg, retryCreated, prepErr = ensureOpenCodeEngine(in, cfg)
-			}
-			if prepErr != nil {
-				runErr = prepErr
-			} else {
-				in.CloneKnown = retryCreated
-				args = sbx.RunArgs(retryCfg)
-				runErr = run()
-			}
-			endedAt = time.Now()
-		}
-	}
 	runErr, result := stopOutcome(runErr, signalled(), forceRemove.Load())
 	if _, ok := result.(backend.Stopped); ok {
 		ui.Hostf("%v — ending as on a normal exit", result)
@@ -1945,11 +1969,8 @@ func CaptureMemoryEvidence(runDir, name string) {
 
 var storedSecretNames = sbx.StoredSecretNames
 
-func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []string, [][2]string) {
-	var (
-		creds   []sbx.KitCredential
-		domains []string
-	)
+func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]string) {
+	var creds []sbx.CredentialV3
 	stored := map[string]bool{}
 	for _, n := range storedSecretNames() {
 		stored[n] = true
@@ -1977,28 +1998,22 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.KitCredential, []str
 		if r.Bearer {
 			format = "Bearer %s"
 		}
-		// SPEC-v2 requires every inject domain to also appear in
-		// permissions.network.allow, so it has to be the SAME translated form —
-		// a domain sbx cannot match is a credential sbx cannot attach.
-		inject := make([]sbx.KitCredInject, 0, len(r.Hosts)*2)
+		// credential@1: every inject domain must appear, in the same form, in the runtime allow list.
+		inject := make([]sbx.CredInjectV3, 0, len(r.Hosts)*2)
 		for _, h := range r.Hosts {
 			for _, d := range sbx.DomainPatterns(h) {
-				inject = append(inject, sbx.KitCredInject{Domain: d, Header: r.Header, Format: format})
-				domains = append(domains, d)
+				inject = append(inject, sbx.CredInjectV3{Domain: d, Header: r.Header, Format: format})
 			}
 		}
-		creds = append(creds, sbx.KitCredential{
+		creds = append(creds, sbx.CredentialV3{
 			Service: name,
-			APIKey: &sbx.KitCredAPIKey{
-				Name:         r.EnvVar,
-				ProxyManaged: true,
-				Inject:       inject,
-			},
+			Phase:   "runtime",
+			APIKey:  &sbx.APIKeyV3{Name: r.EnvVar, ProxyManaged: true, Inject: inject},
 		})
 		seen[name] = true
 	}
 	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
-	return creds, domains, secrets
+	return creds, secrets
 }
 
 // customSecretTarget answers whether a credential needs `sbx secret set-custom`
@@ -2275,6 +2290,24 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 // is KEPT for diagnosis — so the next run met a sandbox sbx will not give new
 // workspaces to and stopped before the agent started.
 // SPEC: _spec/internal/sbx/kit-lifecycle.puml
+// createSandbox builds the workload and runs its install and startup hooks before any agent launches (P5).
+func createSandbox(cfg sbx.RunConfig) error {
+	c := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
+	c.Stdout, c.Stderr = os.Stderr, os.Stderr
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("sbx create %s: %w", cfg.Name, err)
+	}
+	return nil
+}
+
+// workloadBytes is the descriptor and recipe a receipt digests.
+func workloadBytes(dir string) []byte {
+	agent := filepath.Base(dir)
+	desc, _ := os.ReadFile(filepath.Join(dir, agent+".yaml"))
+	recipe, _ := os.ReadFile(filepath.Join(dir, agent+".dockerfile"))
+	return append(desc, recipe...)
+}
+
 func reuseOrCreate(cfg sbx.RunConfig, exists func(string) bool) sbx.RunConfig {
 	if !exists(cfg.Name) {
 		return cfg

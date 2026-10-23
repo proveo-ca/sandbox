@@ -12,19 +12,18 @@ import (
 )
 
 func TestHostADBAddsTheServerPortToTheKit(t *testing.T) {
-	t.Setenv(sbx.EnvAgentKit, "1")
 	in := specInput("claudecode")
 	in.AgentEnv = []string{hostadb.EnvPort + "=5037"}
 	_, kit, _ := Spec(in)
 	for _, want := range []string{"localhost:5037", "registry.npmjs.org"} {
-		if !has(kit.Permissions.Network.Allow, want) {
-			t.Errorf("network.allow = %v, missing %s", kit.Permissions.Network.Allow, want)
+		if !has(kit.Allow(), want) {
+			t.Errorf("network.allow = %v, missing %s", kit.Allow(), want)
 		}
 	}
 	in.AgentEnv = nil
 	_, kit, _ = Spec(in)
-	if has(kit.Permissions.Network.Allow, "localhost:5037") || has(kit.Permissions.Network.Allow, "registry.npmjs.org") {
-		t.Errorf("no android add-on ⇒ neither the adb port nor the registry: %v", kit.Permissions.Network.Allow)
+	if has(kit.Allow(), "localhost:5037") || has(kit.Allow(), "registry.npmjs.org") {
+		t.Errorf("no android add-on ⇒ neither the adb port nor the registry: %v", kit.Allow())
 	}
 }
 
@@ -83,7 +82,6 @@ func TestOpencodeConfigCarriesTheMobileServer(t *testing.T) {
 }
 
 func TestHostADBEnvReachesTheKit(t *testing.T) {
-	t.Setenv(sbx.EnvAgentKit, "1")
 	in := specInput("claudecode")
 	in.AgentEnv = hostadb.GuestEnv(5037)
 	cfg, _, _ := Spec(in)

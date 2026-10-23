@@ -117,8 +117,8 @@ var nonAlnumSbx = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 type RunConfig struct {
 	Name    string // sandbox/session name; empty lets sbx assign one
 	Agent   string
-	KitDir  string // directory holding the rendered Kit spec.yaml
-	Image   string // template image, passed as -t
+	KitDir  string // the v3 workload directory, passed as the first positional
+	Image   string // template image, passed as -t; a workload run leaves it empty
 	Memory  string // -m limit; empty leaves sbx's host-derived default in place
 	CPUs    int    // --cpus; zero leaves sbx's default (every host CPU) in place
 	Clone   bool
@@ -147,9 +147,6 @@ func RunArgs(cfg RunConfig) []string {
 	if cfg.Name != "" {
 		args = append(args, "--name", cfg.Name)
 	}
-	if cfg.KitDir != "" {
-		args = append(args, "--kit", cfg.KitDir)
-	}
 	if cfg.Image != "" {
 		args = append(args, "-t", cfg.Image)
 	}
@@ -171,7 +168,10 @@ func RunArgs(cfg RunConfig) []string {
 	if cfg.EnvFile != "" {
 		args = append(args, "--env-file", cfg.EnvFile)
 	}
-	if cfg.Agent != "" {
+	switch {
+	case cfg.KitDir != "":
+		args = append(args, cfg.KitDir)
+	case cfg.Agent != "":
 		args = append(args, cfg.Agent)
 	}
 	for _, m := range cfg.Mounts {

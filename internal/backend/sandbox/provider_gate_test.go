@@ -3,8 +3,6 @@ package sandbox
 import (
 	"strings"
 	"testing"
-
-	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 // gatedInput is a run where the host holds keys for BOTH providers but the
@@ -29,18 +27,17 @@ func gatedInput(t *testing.T, permitted ...string) Input {
 }
 
 func TestForbiddenProviderIsNeitherDeclaredNorForwarded(t *testing.T) {
-	t.Setenv(sbx.EnvAgentKit, "1")
 	withStoredSecrets(t, "anthropic", "xai")
 	cfg, kit, secrets := Spec(gatedInput(t, "anthropic"))
 
-	for _, c := range kit.Credentials {
+	for _, c := range kit.Credentials() {
 		if c.Service == "xai" {
 			t.Error("the kit declares an xai credential the manifest forbids — sbx then " +
 				"sets XAI_API_KEY to a sentinel, and a harness that reads os.environ to " +
 				"decide which providers to talk to will talk to that one")
 		}
 	}
-	for _, a := range kit.Permissions.Network.Allow {
+	for _, a := range kit.Allow() {
 		if strings.HasSuffix(a, "x.ai") {
 			t.Errorf("network.allow carries %q for a forbidden provider", a)
 		}
@@ -59,7 +56,7 @@ func TestForbiddenProviderIsNeitherDeclaredNorForwarded(t *testing.T) {
 	// The control: the permitted provider must still come through, or this test
 	// would pass just as well against a Spec that declared nothing at all.
 	var sawAnthropic bool
-	for _, c := range kit.Credentials {
+	for _, c := range kit.Credentials() {
 		if c.Service == "anthropic" {
 			sawAnthropic = true
 		}
@@ -67,20 +64,19 @@ func TestForbiddenProviderIsNeitherDeclaredNorForwarded(t *testing.T) {
 	if !sawAnthropic {
 		t.Fatal("no anthropic credential either — the gate is not selecting, it is emptying")
 	}
-	if !has(kit.Permissions.Network.Allow, "anthropic.com") {
-		t.Errorf("network.allow = %v, missing the permitted provider", kit.Permissions.Network.Allow)
+	if !has(kit.Allow(), "anthropic.com") {
+		t.Errorf("network.allow = %v, missing the permitted provider", kit.Allow())
 	}
 }
 
 // The pre-fix behaviour, kept as a named contrast: an empty list is not a wide
 // capability statement, it is no statement, and it allows everything.
 func TestEmptyProviderListStillAllowsEverything(t *testing.T) {
-	t.Setenv(sbx.EnvAgentKit, "1")
 	withStoredSecrets(t, "anthropic", "xai")
 	_, kit, _ := Spec(gatedInput(t))
 
 	var sawXai bool
-	for _, c := range kit.Credentials {
+	for _, c := range kit.Credentials() {
 		if c.Service == "xai" {
 			sawXai = true
 		}

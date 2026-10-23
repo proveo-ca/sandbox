@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -54,21 +52,27 @@ func assertGolden(t *testing.T, name, got string) {
 
 func section(b *strings.Builder, title string) { fmt.Fprintf(b, "== %s ==\n", title) }
 
-func renderSandboxPlan(t *testing.T, cfg sbx.RunConfig, kit sbx.Kit, secrets [][2]string) string {
+func renderSandboxPlan(t *testing.T, cfg sbx.RunConfig, w sandbox.Workload, secrets [][2]string) string {
 	t.Helper()
 	var b strings.Builder
 	section(&b, "sbx argv")
-	fmt.Fprintf(&b, "sbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
+	fmt.Fprintf(&b, "sbx %s\nsbx %s\n", strings.Join(sbx.CreateArgs(cfg), " "), strings.Join(sbx.RunArgs(sbx.Reattach(cfg)), " "))
 	section(&b, "secret names")
 	for _, kv := range secrets {
 		fmt.Fprintln(&b, kv[0])
 	}
-	section(&b, "kit spec.yaml")
-	doc, err := yaml.Marshal(kit)
+	dir, err := sbx.WriteWorkloadV3(filepath.Join(t.TempDir(), filepath.Base(cfg.KitDir)), w.Descriptor, w.Recipe)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.Write(doc)
+	for _, f := range []string{".yaml", ".dockerfile"} {
+		section(&b, "kit "+filepath.Base(dir)+f)
+		doc, err := os.ReadFile(filepath.Join(dir, filepath.Base(dir)+f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Write(doc)
+	}
 	return b.String()
 }
 

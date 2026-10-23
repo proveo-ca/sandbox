@@ -237,24 +237,22 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}
 	}
 
-	if allow := kit.Permissions.Network.Allow; len(allow) != 0 {
-		t.Errorf("network.allow = %v; sbx's own policy decides egress, so the Kit names no hosts", allow)
+	up, _, _ := sbx.UpstreamKitFor("claudecode", sbx.UpstreamOptions{})
+	if got, want := kit.Allow(), (sandbox.Workload{Descriptor: sbx.WorkloadV3{Capabilities: up.Capabilities}}).Allow(); !slices.Equal(got, want) {
+		t.Errorf("runtime allow = %v, want the published claude kit's own list and no tier-driven hosts", got)
 	}
-	if kit.Kind != "mixin" {
-		t.Errorf("kit.Kind = %q, want mixin: a sandbox kit declares an agent sbx will not register", kit.Kind)
-	}
-	if kit.Setup == nil || len(kit.Setup.Startup) == 0 {
-		t.Error("the Kit must carry the seed step, or nothing composes subagents under sbx")
+	if len(kit.Hooks()) == 0 {
+		t.Error("the workload must carry the seed step, or nothing composes subagents under sbx")
 	}
 
-	if cfg.Name != sbx.SandboxName("claudecode", "") || cfg.Image != "proveo/claudecode:latest" {
-		t.Errorf("run config name/image = %q/%q, want the def-keyed sandbox name", cfg.Name, cfg.Image)
+	if cfg.Name != sbx.SandboxName("claudecode", "") || kit.Recipe.From != "proveo/claudecode:latest" {
+		t.Errorf("run config name/FROM = %q/%q, want the def-keyed sandbox name", cfg.Name, kit.Recipe.From)
 	}
 	if strings.Contains(cfg.Name, "proveo-1-2") {
 		t.Errorf("sandbox name %q carries the session id — every run would build its own", cfg.Name)
 	}
-	if len(cfg.Command) != 1 || cfg.Command[0] != "--verbose" {
-		t.Errorf("command = %v, want agent args passed through", cfg.Command)
+	if want := []string{"--dangerously-skip-permissions", "--verbose"}; !slices.Equal(cfg.Command, want) {
+		t.Errorf("command = %v, want %v: agent args after the launch's own (sbx replaces argv[1:])", cfg.Command, want)
 	}
 }
 
@@ -282,12 +280,9 @@ func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
 	}
 
 	// Brokered: sbx's store holds it and the agent's environment carries none.
-	cfg, kit, secrets := sandbox.Spec(in(false))
+	cfg, _, secrets := sandbox.Spec(in(false))
 	if len(secrets) != 1 || secrets[0][0] != "CURSOR_API_KEY" {
 		t.Errorf("secrets = %v, want the key routed to sbx's store", secrets)
-	}
-	if kit.Kind != "mixin" {
-		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
 	}
 	for _, e := range cfg.Env {
 		if e == "CURSOR_API_KEY" || strings.HasPrefix(e, "CURSOR_API_KEY=") {
@@ -373,7 +368,7 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 		Lookup: lookup,
 	}
 
-	_, kit, secrets := sandbox.Spec(in)
+	_, _, secrets := sandbox.Spec(in)
 
 	if len(secrets) == 0 {
 		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
@@ -386,9 +381,6 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 	}
 	if !named {
 		t.Errorf("secrets = %v, want the declared credential injected host-side", secrets)
-	}
-	if kit.Kind != "mixin" {
-		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
 	}
 }
 

@@ -42,7 +42,7 @@ func digest(s string) string {
 	return hex.EncodeToString(sum[:6])
 }
 
-func receiptOf(cfg sbx.RunConfig, kitYAML []byte, sid, imageID string) launchReceipt {
+func receiptOf(cfg sbx.RunConfig, image string, kitYAML []byte, sid, imageID string) launchReceipt {
 	norm := func(s string) string {
 		if sid == "" {
 			return s
@@ -51,7 +51,7 @@ func receiptOf(cfg sbx.RunConfig, kitYAML []byte, sid, imageID string) launchRec
 	}
 	r := launchReceipt{
 		Agent: cfg.Agent,
-		Image: cfg.Image, ImageID: imageID, Kit: digest(norm(string(kitYAML))),
+		Image: image, ImageID: imageID, Kit: digest(norm(string(kitYAML))),
 		Clone: cfg.Clone, Env: map[string]string{},
 	}
 	for _, m := range cfg.Mounts {

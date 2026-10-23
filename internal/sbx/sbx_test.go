@@ -82,12 +82,12 @@ func TestRunArgsFull(t *testing.T) {
 		Command: []string{"-p", "hello"},
 	})
 	want := []string{
-		"run", "--name", "proveo-1-2", "--kit", "/state/runs/x/kit",
+		"run", "--name", "proveo-1-2",
 		"-t", "proveo/claudecode:latest",
 		"-e", "PROVEO_AGENT_EVIDENCE=default",
-		"claude",  // AGENT: the first positional, and mandatory
-		"/repo",   // workspaces follow, at their HOST paths
-		"/out:ro", // :ro is the only modifier a workspace takes
+		"/state/runs/x/kit", // the v3 workload: the first positional, ahead of any agent name
+		"/repo",             // workspaces follow, at their HOST paths
+		"/out:ro",           // :ro is the only modifier a workspace takes
 		"--", "-p", "hello",
 	}
 	if !reflect.DeepEqual(got, want) {
