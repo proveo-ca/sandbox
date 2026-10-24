@@ -718,7 +718,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	if p.PrintOnly {
 		defer homeAccess.Cleanup()
 		cfg, w, secrets := sandbox.Spec(in)
-		if _, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe); err != nil {
+		if _, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files); err != nil {
 			return fmt.Errorf("write sandbox kit: %w", err)
 		}
 		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", cfg.KitDir)

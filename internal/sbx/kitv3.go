@@ -112,8 +112,8 @@ type CredInjectV3 struct {
 // KitDirV3 is the workload directory for agent: its base name is the agent name sbx registers.
 func KitDirV3(root, agent string) string { return filepath.Join(root, agent) }
 
-// WriteWorkloadV3 writes <dir>/<agent>.yaml and <dir>/<agent>.dockerfile, where agent is dir's base name.
-func WriteWorkloadV3(dir string, w WorkloadV3, r RecipeV3) (string, error) {
+// WriteWorkloadV3 writes <dir>/<agent>.yaml, <dir>/<agent>.dockerfile and each kit file beside them, where agent is dir's base name.
+func WriteWorkloadV3(dir string, w WorkloadV3, r RecipeV3, files map[string][]byte) (string, error) {
 	agent := filepath.Base(dir)
 	if err := checkAgentNameV3(agent); err != nil {
 		return "", err
@@ -140,6 +140,14 @@ func WriteWorkloadV3(dir string, w WorkloadV3, r RecipeV3) (string, error) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, agent+".dockerfile"), []byte(r.render()), 0o600); err != nil {
 		return "", fmt.Errorf("sbx v3 kit write: %w", err)
+	}
+	for name, body := range files {
+		if name != filepath.Base(name) || name == agent+".yaml" || name == agent+".dockerfile" {
+			return "", fmt.Errorf("sbx v3 kit %s: file %q must be a plain name beside the descriptor", agent, name)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
+			return "", fmt.Errorf("sbx v3 kit write: %w", err)
+		}
 	}
 	return dir, nil
 }

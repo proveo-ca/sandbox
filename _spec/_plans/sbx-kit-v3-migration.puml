@@ -173,6 +173,17 @@ skinparam noteTextAlignment left
 '      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart
 '      docker` recovered it (6s).
 '
+' ── LIVE RUNS (2026-10-23/24, operator, CLI dev@3ac97ff-v3 from this branch) ─
+'   hermes (no published kit, image ENTRYPOINT): created, launched; banner
+'      showed 64 skills incl. the muse ones (linked-dirs) on muse-glimmer.
+'   claudecode: first blocked retiring v2-era sandboxes (f8781ef6 never
+'      answered the clone probe — old layered image; hermes-0ad8f1e5 broken
+'      by an earlier shim kill), then the kit build failed: "open
+'      claude-context.md: no such file or directory" — agent-context@1's
+'      contentFile is kit-relative and was not vendored. Fixed: the kit's
+'      files travel with UpstreamKit.Files and are written beside the
+'      descriptor; a test fails for any unvendored contentFile.
+'
 ' ── DECISIONS (2026-10-22, user, on the evidence above) ─────────────────────
 '   Q1 "Kit FROM proveo image": <stem>.dockerfile = FROM proveo/<target>:<tag>;
 '      :local resolves from the host engine, published tags pull. Images stay

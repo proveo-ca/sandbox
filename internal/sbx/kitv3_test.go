@@ -13,7 +13,7 @@ import (
 
 func writeProbeWorkload(t *testing.T, agent string, w WorkloadV3, r RecipeV3) (string, error) {
 	t.Helper()
-	return WriteWorkloadV3(KitDirV3(t.TempDir(), agent), w, r)
+	return WriteWorkloadV3(KitDirV3(t.TempDir(), agent), w, r, nil)
 }
 
 func TestAV3WorkloadIsNamedForItsAgentAndOpensWithTheKitSyntax(t *testing.T) {
@@ -196,5 +196,24 @@ func TestProveoHooksAndHostsMergeIntoTheUpstreamSingletons(t *testing.T) {
 	}
 	if fresh, _ := WithRuntimeAllow(nil, []string{"x"}); len(fresh) != 1 || fresh[0].Type != CapNetworkPolicy {
 		t.Errorf("WithRuntimeAllow on a kit with no policy = %+v, want one network-policy@1", fresh)
+	}
+}
+
+func TestKitFilesLandBesideTheDescriptorAndNowhereElse(t *testing.T) {
+	t.Parallel()
+	agent := AgentName("claudecode")
+	dir, err := WriteWorkloadV3(KitDirV3(t.TempDir(), agent), WorkloadV3{Version: "1", Capabilities: []CapabilityV3{{Type: CapSbx}}},
+		RecipeV3{From: "x"}, map[string][]byte{"claude-context.md": []byte("ctx")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "claude-context.md")); string(b) != "ctx" {
+		t.Errorf("claude-context.md beside the descriptor = %q", b)
+	}
+	for _, bad := range []string{"../escape.md", "sub/x.md", agent + ".yaml"} {
+		if _, err := WriteWorkloadV3(KitDirV3(t.TempDir(), agent), WorkloadV3{Version: "1"}, RecipeV3{From: "x"},
+			map[string][]byte{bad: []byte("x")}); err == nil {
+			t.Errorf("kit file %q was written; only plain names beside the descriptor are allowed", bad)
+		}
 	}
 }

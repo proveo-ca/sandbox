@@ -61,7 +61,7 @@ func renderSandboxPlan(t *testing.T, cfg sbx.RunConfig, w sandbox.Workload, secr
 	for _, kv := range secrets {
 		fmt.Fprintln(&b, kv[0])
 	}
-	dir, err := sbx.WriteWorkloadV3(filepath.Join(t.TempDir(), filepath.Base(cfg.KitDir)), w.Descriptor, w.Recipe)
+	dir, err := sbx.WriteWorkloadV3(filepath.Join(t.TempDir(), filepath.Base(cfg.KitDir)), w.Descriptor, w.Recipe, w.Files)
 	if err != nil {
 		t.Fatal(err)
 	}

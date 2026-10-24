@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed third_party/*.yaml third_party/*.dockerfile
+//go:embed third_party/*.yaml third_party/*.dockerfile third_party/*.md
 var upstreamFS embed.FS
 
 // UpstreamKitsRef is the published kits source the vendored files were read from.
@@ -45,6 +45,7 @@ type UpstreamKit struct {
 	Capabilities []CapabilityV3
 	Launch       []string
 	Env          []string
+	Files        map[string][]byte
 }
 
 // UpstreamKitFor returns the published kit target copies; ok is false for a harness with none.
@@ -69,7 +70,30 @@ func UpstreamKitFor(target string, o UpstreamOptions) (k UpstreamKit, ok bool, e
 	if err != nil {
 		return UpstreamKit{}, false, fmt.Errorf("upstream kit %s: %w", agent, err)
 	}
-	return UpstreamKit{Agent: agent, Capabilities: caps, Launch: launch, Env: env}, true, nil
+	files, err := upstreamFiles(caps)
+	if err != nil {
+		return UpstreamKit{}, false, fmt.Errorf("upstream kit %s: %w", agent, err)
+	}
+	return UpstreamKit{Agent: agent, Capabilities: caps, Launch: launch, Env: env, Files: files}, true, nil
+}
+
+// upstreamFiles loads every kit-relative contentFile a copied capability names; the kit build reads it beside the descriptor.
+func upstreamFiles(caps []CapabilityV3) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	for _, c := range caps {
+		m, _ := c.Config.(map[string]any)
+		rel, _ := m["contentFile"].(string)
+		if !strings.HasPrefix(rel, "./") {
+			continue
+		}
+		name := path.Base(rel)
+		b, err := upstreamFS.ReadFile("third_party/" + name)
+		if err != nil {
+			return nil, fmt.Errorf("%s names %s, which is not vendored: %w", c.Type, rel, err)
+		}
+		out[name] = b
+	}
+	return out, nil
 }
 
 func upstreamCapabilities(desc []byte, o UpstreamOptions) ([]CapabilityV3, error) {

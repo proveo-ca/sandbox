@@ -123,3 +123,21 @@ func TestMCPGatewayHooksAreCopiedOnlyWhenTheOperatorTurnsThemOn(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryKitRelativeFileACopiedCapabilityNamesIsVendored(t *testing.T) {
+	t.Parallel()
+	for target := range upstreamAgent {
+		k := upstreamKit(t, target, UpstreamOptions{MCPGateway: true})
+		for _, c := range k.Capabilities {
+			m, _ := c.Config.(map[string]any)
+			rel, _ := m["contentFile"].(string)
+			if !strings.HasPrefix(rel, "./") {
+				continue
+			}
+			if body := k.Files[strings.TrimPrefix(rel, "./")]; len(body) == 0 {
+				t.Errorf("%s: %s names %s, but no vendored body travels with the kit — the build fails "+
+					"(\"open %s: no such file or directory\", measured on the first live run)", target, c.Type, rel, strings.TrimPrefix(rel, "./"))
+			}
+		}
+	}
+}

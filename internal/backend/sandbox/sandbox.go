@@ -1420,6 +1420,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 			Capabilities: caps,
 		},
 		Recipe: recipe,
+		Files:  up.Files,
 	}
 	return cfg, w, secrets
 }
@@ -1589,7 +1590,7 @@ func Run(in Input) error {
 	} else {
 		cfg.EnvFile, envValues = path, n
 	}
-	kitDir, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe)
+	kitDir, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files)
 	if err != nil {
 		return err
 	}
