@@ -9,7 +9,7 @@
 title The four harness paradigms — intended working mode per def
 
 component "claudecode\n**ML blackbox algorithm**\nspec → plan → implement → verify → loop" as CC <<app>>
-component "cursor\n**Policy-gated blackbox**\nsame autonomous loop, bounded by\nnative deny rules + root-owned hooks" as CU <<app>>
+component "cursor\n**Policy-gated blackbox**\nsame autonomous loop, bounded by\nsbx egress + root-owned hooks" as CU <<app>>
 component "opencode\n**Subagent crew**\nsoftware team with HITL oversight" as OC <<app>>
 component "cecli\n**Pair-programming sniper**\nprecise, low-token, human-guided" as CE <<app>>
 

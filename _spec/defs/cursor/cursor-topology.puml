@@ -22,7 +22,7 @@ package "Harness Layer" as Harness {
 }
 
 package "Native Policy Layer" as Policy {
- component "cli-config.json\npermissions.deny\n(survives --force)" as Deny <<config>>
+ component "cli-config.json\nsbx cursor kit: useHttp1ForAgent\n(proveo seeds no deny list)" as Deny <<config>>
  component "/etc/cursor/hooks.json\nenterprise shell-audit + git-sync stop\n(root-owned, immutable)" as Hooks <<security>>
 ' cursor-agent reads <workspace>/.cursor/agents and .claude/agents.
 ' ~/.cursor/agents is not on that scan. The seed writes the workspace tree and excludes it.
@@ -55,7 +55,7 @@ Cursor --> Loop : executes loop
 Loop --> Verify : runs detected commands
 Verify -> Inspect : on failure
 Inspect -> Plan : next iteration
-Cursor --> Deny : every tool call checked
+Cursor --> Deny : read at startup
 Cursor --> Hooks : shell audited; stop\ncommits and pushes
 Cursor --> Subagents : in-loop review gates
 Cursor -[#00BAC6,dashed,bold]-> Backend : inference (vendor-pinned)

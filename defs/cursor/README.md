@@ -112,8 +112,7 @@ run. Re-run with `-e CURSOR_RESEED=1` to force a refresh. The launch posture is 
 
 | Layer | File | What it does |
 | ----- | ---- | ------------ |
-| Deny rules | `~/.cursor/cli-config.json` | Denies `sudo`/`su`, host power commands, `nc`/`netcat`, and credential reads (`.env*`, `.ssh`, AWS creds). Deny beats allow — even under `--force`. **Caveat:** a bind-mounted `.env` stays readable to the agent, and any key in the agent's environment sits in its process memory — deny rules are policy guidance, not isolation. The entrypoint never sources `.env`. See [Security — egress & credentials](../../README.md#security--egress--credentials). |
-| Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in deny rules + egress. A `stop` hook at the same layer commits and pushes before the turn returns (`PROVEO_GIT_SYNC=off` no-ops the script; `PROVEO_GIT_SYNC_MSG=off` keeps the commit but skips asking a model for the subject line). The seed also writes that command into `~/.cursor/hooks.json`, the file the CLI loads for a local agent. |
+| Enterprise hook | `/etc/cursor/hooks.json` (root-owned) | Audits every `beforeShellExecution` to `~/.cursor/audit-shell.ndjson` (override: `PROVEO_CURSOR_AUDIT_LOG`). Highest hooks precedence; the run-as uid cannot edit or out-rank it. Audit-only and fail-open — enforcement lives in sbx egress. A `stop` hook at the same layer commits and pushes before the turn returns (`PROVEO_GIT_SYNC=off` no-ops the script; `PROVEO_GIT_SYNC_MSG=off` keeps the commit but skips asking a model for the subject line). The seed also writes that command into `~/.cursor/hooks.json`, the file the CLI loads for a local agent. |
 | Readonly subagents | `~/.cursor/agents/*.md` | `adversarial-reviewer` and `security-reviewer` review gates with the native `readonly: true` bit. |
 
 Cursor's own OS sandbox is disabled (`--sandbox disabled`): sbx is the sandbox, and
@@ -136,9 +135,9 @@ Precedence (highest wins): enterprise hooks (`/etc/cursor/hooks.json`) → proje
 `.cursor/cli.json` + `.cursor/hooks.json` + `.cursor/agents/*.md` → seeded `~/.cursor/*`.
 The CLI loads subagents from the workspace `.cursor/agents` and `.claude/agents` trees. The seed writes the roster into the workspace `.cursor/agents`
 and lists each roster file in `.git/info/exclude`, so those files are visible to the CLI
-and stay out of `git add`. Project deny rules extend (and can only tighten alongside)
-the seeded baseline; drop a `.cursor/agents/<name>.md` in your repo to override or add
-a subagent.
+and stay out of `git add`. Drop a `.cursor/agents/<name>.md` in your repo to override or
+add a subagent. `~/.cursor/cli-config.json` comes from the sbx cursor kit
+(`network.useHttp1ForAgent`); proveo ships no deny-list default.
 
 ## Egress
 

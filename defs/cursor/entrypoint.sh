@@ -16,23 +16,11 @@ proveo-entrypoint prep || true
 CURSOR_HOME="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"
 
 seed_defaults() {
-  local src="/opt/cursor/defaults"
   local dst="$CURSOR_HOME"
   mkdir -p "$dst" "$dst/agents"
 
-  if [[ "${CURSOR_RESEED:-0}" == "1" ]]; then
-    echo "🔁 CURSOR_RESEED=1 — re-seeding $dst from baked-in defaults"
-    cp -f "$src/cli-config.json" "$dst/cli-config.json"
-    proveo_seed cursor
-    return 0
-  fi
-
-  local seeded=()
-  [[ -f "$dst/cli-config.json" ]] || { cp "$src/cli-config.json" "$dst/cli-config.json"; seeded+=("cli-config.json"); }
+  [[ "${CURSOR_RESEED:-0}" == "1" ]] && echo "🔁 CURSOR_RESEED=1 — re-seeding $dst from baked-in defaults"
   proveo_seed cursor
-  if (( ${#seeded[@]} > 0 )); then
-    echo "🌱 Seeded global defaults into $dst: ${seeded[*]}"
-  fi
 }
 seed_defaults
 ensure_git_safe_directory "$(pwd)"
@@ -69,9 +57,6 @@ echo "node version:       $(command_version node unknown --version)"
 echo "pnpm version:       $(command_version pnpm n/a -v)"
 
 echo "── Policy Layer ─────────────────────────────────────"
-deny_count="$(jq -r '(.permissions.deny // []) | length' "$CURSOR_HOME/cli-config.json" 2>/dev/null || echo 0)"
-deny_count="${deny_count:-0}"
-echo "Deny rules (survive --force): ${deny_count} — $CURSOR_HOME/cli-config.json"
 if [[ -f /etc/cursor/hooks.json ]]; then
   echo "Enterprise hooks: /etc/cursor/hooks.json (shell audit + git-sync stop, root-owned)"
 fi

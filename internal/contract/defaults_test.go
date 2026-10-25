@@ -2,36 +2,16 @@
 package contract_test
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestCursorDenyBaseline(t *testing.T) {
+func TestCursorShipsNoDenyListDefault(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(repoRoot(t), "defs/cursor/defaults/cli-config.json")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cfg struct {
-		Permissions struct {
-			Deny []string `json:"deny"`
-		} `json:"permissions"`
-	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
-		t.Fatalf("parse cli-config.json: %v", err)
-	}
-	has := map[string]bool{}
-	for _, d := range cfg.Permissions.Deny {
-		has[d] = true
-	}
-	for _, need := range []string{"Shell(sudo)", "Read(.env*)"} {
-		if !has[need] {
-			t.Errorf("cli-config deny missing %q; got %v", need, cfg.Permissions.Deny)
-		}
+	if _, err := os.Stat(filepath.Join(repoRoot(t), "defs/cursor/defaults/cli-config.json")); err == nil {
+		t.Error("defs/cursor/defaults/cli-config.json is back; the cursor kit seeds cli-config.json and proveo keeps no deny list (decision: \"Keep upstream, lose the deny list\")")
 	}
 }
 

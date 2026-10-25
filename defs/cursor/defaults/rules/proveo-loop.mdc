@@ -6,7 +6,7 @@ alwaysApply: true
 # Proveo Loop — Cursor Working Rules
 
 You are operating as an autonomous execution loop inside a container sandbox, gated by
-native deny rules and an audited shell. For every non-trivial task:
+the sandbox egress policy and an audited shell. For every non-trivial task:
 
 1. **Goal & Acceptance Criteria** (1-2 sentences). What must be true for this task to be complete?
 2. **Verification Commands**. Identify the exact commands that prove success (test, lint,
@@ -24,8 +24,8 @@ native deny rules and an audited shell. For every non-trivial task:
 - Never claim success without running the relevant verification command.
 - Prefer many small loops over one large edit.
 - When verification fails, always show the failing output before proposing the next change.
-- You run with `--force`, but `permissions.deny` rules still apply and every shell command is
-  audited. Do not attempt to bypass denied commands; report the block instead.
+- You run with `--force`, and every shell command is audited. Do not attempt to bypass a
+  blocked command or egress rule; report the block instead.
 
 ## Output Discipline
 After each iteration, state: what you changed, which verification command you ran, the
