@@ -27,3 +27,5 @@ capabilities:
   hosts: [] # browser targets are open-ended by design; the operator's own egress policy scopes them
   # SPEC: _spec/internal/sbx/host-browser-cdp.puml
   hostBrowser: cdp
+  # SPEC: _spec/_plans/hermes-desktop-over-ssh.puml
+  hostDevices: [desktop]

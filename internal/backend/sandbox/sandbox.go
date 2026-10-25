@@ -1102,7 +1102,9 @@ func FirstHost(mounts []sbx.Mount) string {
 // Input is the resolved input to the sbx backend.
 type Input struct {
 	Target, Image, AuthVar string
-	MCPGateway             bool // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
+	MCPGateway             bool     // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
+	Desktop                bool     // Hermes Desktop drives the sandbox over SSH instead of this terminal
+	DesktopLaunch          []string // opens Hermes Desktop on the host
 	Clone                  bool
 	CloneKnown             bool   // Clone is the sandbox's own mode: this run created it, or teardown asked it
 	RepoRoot               string // host repository root: where a clone's commits are fetched back to
@@ -1666,6 +1668,9 @@ func Run(in Input) error {
 		}
 		c.Stdin, c.Stdout, c.Stderr = os.Stdin, stdout, stderr
 		return c.Run()
+	}
+	if in.Desktop {
+		run = func() error { return holdForDesktop(runCtx, cfg.Name, in.DesktopLaunch, SbxRun, startDetached) }
 	}
 	startedAt := time.Now()
 	runErr := run()

@@ -555,6 +555,7 @@ const (
 	addonHostCDP = hostcdp.Addon
 	addonAndroid = hostadb.Addon
 	addonIOS     = hostadb.AddonIOS
+	addonDesktop = "desktop"
 )
 
 var addonRows = []string{rowExecution, rowInterface}
@@ -706,6 +707,7 @@ var addonFixed = map[string]struct {
 var addonHelp = map[string]string{
 	addonHost:    "your own machine, with your files and your credentials — not a place proveo recommends for an agent",
 	addonTUI:     "this session — this terminal, the agent's transcript and your prompts, for the whole run",
+	addonDesktop: "Hermes Desktop on this host drives the agent in the sandbox over sbx's SSH; this terminal only holds the run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
 	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonHostCDP: "the agent drives a dedicated Chrome profile on this host over CDP — log in there once; your everyday profile is never touched",
@@ -745,6 +747,9 @@ func interfaceOptions(man manifest.Manifest) []string {
 	}
 	if man.Capabilities.HasHostDevice(manifest.HostDeviceIOS) {
 		opts = append(opts, addonIOS)
+	}
+	if man.Capabilities.HasHostDevice(manifest.HostDeviceDesktop) {
+		opts = append(opts, addonDesktop)
 	}
 	return opts
 }

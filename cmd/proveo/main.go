@@ -469,5 +469,6 @@ func runDeps() run.Deps {
 		},
 		ProvisionConfirm: provisionConfirm,
 		PreflightImages:  preflightImages,
+		EnsureDesktop:    ensureDesktop,
 	}
 }

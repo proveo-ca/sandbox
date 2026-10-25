@@ -89,6 +89,21 @@ skinparam noteTextAlignment left
 '   an undeletable "Local" gateway whose tools run on the host. proveo must
 '   steer the operator to the sbx gateway (H5, open).
 '
+' ── BUILT (2026-10-24, user: "devices row: desktop") ────────────────────────
+'   * manifest hostDevices accepts `desktop`; defs/hermes declares it, so only
+'     hermes's devices row offers it (TestOnlyHermesOffersTheDesktopDevice).
+'   * run: picking desktop calls Deps.EnsureDesktop (cmd/proveo/desktop.go):
+'     installed → launch argv; missing → the pinned plan is shown and
+'     provisionConfirm asks (PROVEO_AUTO_PROVISION applies); declined → the
+'     run stops with how to proceed and nothing is written.
+'   * backend: Input.Desktop swaps the TUI attach for holdForDesktop: `sbx
+'     setup ssh`, print `hermes@<name>.sbx`, open the app detached, wait for
+'     the stop; Ctrl+C is backend.Stopped, so teardown is the normal one.
+'   * --print shows `# desktop` with the setup and the gateway instead of `#
+'     agent`.
+'   STILL OPEN: H2–H5 need the app on a host (the first `proveo run hermes`
+'   with desktop installs it on this Mac after a yes).
+'
 ' ── DESIGN (after H2–H4) ────────────────────────────────────────────────────
 '   `proveo run hermes` with a `desktop` interface: create the workload as
 '   today (seed, credentials, allowlist), skip attaching the TUI, run

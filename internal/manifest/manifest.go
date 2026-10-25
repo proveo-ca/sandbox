@@ -98,10 +98,11 @@ type Capabilities struct {
 // HostBrowserCDP is the hostBrowser value for a harness that attaches to a host Chrome over CDP.
 const HostBrowserCDP = "cdp"
 
-// hostDevices values: the host emulators a harness can drive.
+// hostDevices values: the host emulators a harness can drive, and the host desktop client.
 const (
 	HostDeviceAndroid = "android"
 	HostDeviceIOS     = "ios"
+	HostDeviceDesktop = "desktop"
 )
 
 // HasHostDevice reports whether the harness declares the host device kind.
@@ -212,8 +213,8 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("manifest %q: invalid workspace.mode %q", m.Name, m.Workspace.Mode)
 	}
 	for _, d := range m.Capabilities.HostDevices {
-		if d != HostDeviceAndroid && d != HostDeviceIOS {
-			return fmt.Errorf("manifest %q: invalid capabilities.hostDevices entry %q (want %s or %s)", m.Name, d, HostDeviceAndroid, HostDeviceIOS)
+		if d != HostDeviceAndroid && d != HostDeviceIOS && d != HostDeviceDesktop {
+			return fmt.Errorf("manifest %q: invalid capabilities.hostDevices entry %q (want %s, %s or %s)", m.Name, d, HostDeviceAndroid, HostDeviceIOS, HostDeviceDesktop)
 		}
 	}
 	seen := map[string]bool{}

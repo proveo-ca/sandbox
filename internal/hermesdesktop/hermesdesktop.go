@@ -48,7 +48,7 @@ func PlanFor(h sbx.Host, home, download string) (Plan, error) {
 	}
 	p := Plan{
 		Script:     filepath.Join(download, "hermes-install-"+Commit[:12]+".sh"),
-		LaunchArgv: []string{filepath.Join(home, ".local", "bin", "hermes"), "desktop", "--skip-build"},
+		LaunchArgv: LaunchArgv(home),
 		ReleaseDir: ReleaseDir(home),
 	}
 	p.InstallArgv = []string{"bash", p.Script, "--commit", Commit, "--include-desktop",
@@ -91,6 +91,11 @@ func cmpOr(v, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// LaunchArgv opens the built app through the hermes command install.sh publishes.
+func LaunchArgv(home string) []string {
+	return []string{filepath.Join(home, ".local", "bin", "hermes"), "desktop", "--skip-build"}
 }
 
 // ReleaseDir is where install.sh's desktop build leaves the app.

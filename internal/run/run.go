@@ -41,6 +41,7 @@ type Deps struct {
 	GitHubTokenEnv   func() string
 	ProvisionConfirm func(question string) bool
 	PreflightImages  func(man manifest.Manifest, agentImage string) (string, error)
+	EnsureDesktop    func() ([]string, error) // installs Hermes Desktop when missing; returns its launch argv
 }
 
 func Do(p Params, d Deps) (err error) {
@@ -606,6 +607,15 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		}
 		p.Image = image
 	}
+	desktop := slices.Contains(p.Addons, addonDesktop)
+	var desktopLaunch []string
+	if desktop && !p.PrintOnly && d.EnsureDesktop != nil {
+		launch, err := d.EnsureDesktop()
+		if err != nil {
+			return err
+		}
+		desktopLaunch = launch
+	}
 	rs.Model.HostLLM = p.LocalModel != ""
 
 	ui.Section(ui.SectionEgress)
@@ -698,7 +708,8 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Evidence:   p.evidenceOrDefault(),
 		Forwards:   p.forwards(),
 		MCPGateway: p.mcpAllowed(),
-		Man:        rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
+		Desktop:    desktop, DesktopLaunch: desktopLaunch,
+		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
 		ImageEntrypoint:  sbx.ImageEntrypoint,
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,
@@ -736,6 +747,11 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 				names = append(names, kv[0])
 			}
 			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
+		}
+		if desktop {
+			fmt.Printf("# sandbox\nsbx %s\n# desktop\nsbx %s && Hermes Desktop → SSH gateway %s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+				sbx.ShellJoin(sbx.SetupSSHArgs()), sandbox.DesktopGateway(cfg.Name))
+			return nil
 		}
 		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
 			sbx.ShellJoin(sbx.RunArgs(sbx.Reattach(cfg))))
