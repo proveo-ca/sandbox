@@ -192,6 +192,9 @@ func CloneRemote(name string) string { return "sandbox-" + name }
 
 func CloneRefs(name string) string { return "refs/proveo/" + name }
 
+// MirrorRefs is where sbx mirrors a clone sandbox's branches in the host repository.
+func MirrorRefs(name string) string { return "refs/sandboxes/" + name }
+
 // CloneModeArgs prints "clone" inside a sandbox sbx created with --clone, else "direct".
 func CloneModeArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c", "[ -d /run/sandbox/source ] && echo clone || echo direct"}

@@ -155,6 +155,68 @@ func TestAGuestThatNeverAnswersKeepsTheSandboxInsteadOfHangingTheRun(t *testing.
 	}
 }
 
+func TestAnUnansweredSandboxIsRemovedOnlyOnAYesThatNamesItsMirroredRefs(t *testing.T) {
+	git := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Env = gitEnv(t)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	for _, c := range []struct {
+		name       string
+		guest      string
+		bundle     string
+		yes        bool
+		wantAsked  bool
+		wantRemove bool
+	}{
+		{"a yes removes a sandbox that never answered the probe", "sleep 30; echo clone", bundleEmpty, true, true, true},
+		{"a no keeps it", "sleep 30; echo clone", bundleEmpty, false, true, false},
+		{"a sandbox that answered and then hung is never offered", guestClone, "sleep 30", true, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			shrinkGuestDeadlines(t, 300*time.Millisecond)
+			calls := fakeSbx(t, c.guest, 0, c.bundle)
+			repo := t.TempDir()
+			git(repo, "init", "-q", "-b", "main", ".")
+			git(repo, "commit", "-q", "--allow-empty", "-m", "mirrored")
+			git(repo, "update-ref", sbx.MirrorRefs("sb")+"/feat", "HEAD")
+			previous := confirmUnansweredRemoval
+			t.Cleanup(func() { confirmUnansweredRemoval = previous })
+			var asked []string
+			confirmUnansweredRemoval = func(name string, refs []string, _ bool) bool {
+				asked = append([]string{name}, refs...)
+				return c.yes
+			}
+			in := Input{Clone: true, RepoRoot: repo, Sid: "proveo-1-2"}
+			cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
+
+			err := retireSandbox(in, cfg, quietReport)
+			log := callsOf(t, calls)
+			if got := asked != nil; got != c.wantAsked {
+				t.Fatalf("asked = %v, want asked %v", asked, c.wantAsked)
+			}
+			if c.wantAsked && !slices.Equal(asked, []string{"sb", "refs/sandboxes/sb/feat"}) {
+				t.Errorf("asked about %v; the prompt must name the sandbox and every ref sbx mirrored from it", asked)
+			}
+			if got := strings.Contains(log, "rm --force sb"); got != c.wantRemove {
+				t.Errorf("ran sbx rm = %v, want %v\ncalls:\n%s", got, c.wantRemove, log)
+			}
+			if (err == nil) != c.wantRemove {
+				t.Errorf("err = %v; removal and a nil error go together", err)
+			}
+			if !c.wantRemove && c.wantAsked && (err == nil || !strings.Contains(err.Error(), "refs/sandboxes/sb/ (1 refs)")) {
+				t.Errorf("a kept sandbox must say what is mirrored, got %v", err)
+			}
+			if n := strings.Count(log, "exec "); c.wantRemove && n != 1 {
+				t.Errorf("%d guest execs; after an unanswered probe only `rm` may follow it\ncalls:\n%s", n, log)
+			}
+		})
+	}
+}
+
 func TestRetireReportsEachStepOnlyWhenItStarts(t *testing.T) {
 	for _, c := range []struct {
 		name   string

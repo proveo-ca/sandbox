@@ -193,9 +193,9 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	if in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
 		return nil
 	}
-	clones, known := sandboxClone(in, cfg.Name)
-	if !known {
-		return fmt.Errorf("cannot tell whether %s holds a clone, so its work may be only there", cfg.Name)
+	clones, err := sandboxClone(in, cfg.Name)
+	if err != nil {
+		return fmt.Errorf("cannot tell whether %s holds a clone, so its work may be only there: %w", cfg.Name, err)
 	}
 	if !clones {
 		return nil
@@ -1715,7 +1715,7 @@ func Run(in Input) error {
 		ui.Hostf("%v — ending as on a normal exit", result)
 	}
 	defer func() {
-		if clones, known := sandboxClone(in, cfg.Name); known {
+		if clones, err := sandboxClone(in, cfg.Name); err == nil {
 			in.Clone, in.CloneKnown = clones, true
 		}
 		reportPushedBranches(in, cfg, startedAt)

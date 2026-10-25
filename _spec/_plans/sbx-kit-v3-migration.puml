@@ -183,6 +183,12 @@ skinparam noteTextAlignment left
 '      contentFile is kit-relative and was not vendored. Fixed: the kit's
 '      files travel with UpstreamKit.Files and are written beside the
 '      descriptor; a test fails for any unvendored contentFile.
+'      Re-run on cb7b344 (2026-10-24): PASSED — the operator reported it
+'      worked; sbx lists proveo-claudecode-f8781ef6 with agent
+'      proveo-claudecode (the v3 workload, not the built-in "claude").
+'   RETIRE FIX (user: "Offer remove-anyway"): a sandbox that never answers the
+'      clone probe can be removed on a headed yes that lists its
+'      refs/sandboxes/<name>/ mirrors; kit-lifecycle.puml records it.
 '
 ' ── DECISIONS (2026-10-22, user, on the evidence above) ─────────────────────
 '   Q1 "Kit FROM proveo image": <stem>.dockerfile = FROM proveo/<target>:<tag>;

@@ -444,9 +444,9 @@ skinparam noteTextAlignment left
 '        /run/sandbox/source (measured 2026-09-02, above; that a DIRECT
 '        sandbox never has that path is [Unverified] here);
 '     3. else known = false.
-'   Run's teardown defer STARTS by resolving truth: `if clones, known :=
-'     sandboxClone(in, cfg.Name); known { in.Clone, in.CloneKnown = clones,
-'     true }` (sandbox.go:1599-1601). So reportPushedBranches, PrintIDEAttach
+'   Run's teardown defer STARTS by resolving truth: `if clones, err :=
+'     sandboxClone(in, cfg.Name); err == nil { in.Clone, in.CloneKnown =
+'     clones, true }` (sandbox.go:1599-1601). So reportPushedBranches, PrintIDEAttach
 '     (its "DISPOSABLE CLONE" vs "mounted checkout" help) and TeardownClone all
 '     see the sandbox's real mode — review #6 MEDIUM: before, only
 '     PreserveClone's local copy was corrected.
@@ -454,7 +454,9 @@ skinparam noteTextAlignment left
 '     in.Clone && in.CloneKnown.
 '   PreserveClone asks sandboxClone itself when the mode is still unknown:
 '     unknown → error "cannot tell whether <name> holds a clone, so its work
-'       may be only there" → the sandbox is KEPT (stranded);
+'       may be only there: <why>" → the sandbox is KEPT (stranded); a probe
+'       timeout wraps errNoCloneAnswer, which lets retireSandbox offer
+'       removal on a headed yes (kit-lifecycle.puml, AN UNANSWERED SANDBOX);
 '     direct → nil, no snapshot;
 '     clone → in.Clone, in.CloneKnown = true, true; snapshot and carry.
 '   retireSandbox sets in.CloneKnown = false, so the OLD sandbox is always
