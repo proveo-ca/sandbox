@@ -156,6 +156,12 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 		}
 		p.Evidence, rs.Choices.EvidenceSet = v, true
 	}
+	if strings.TrimSpace(os.Getenv("PROVEO_SBX_MCP")) != "" {
+		p.MCP, p.MCPSet = mcpOff, true
+		if sandbox.MCPGatewayAllowed() {
+			p.MCP = mcpOn
+		}
+	}
 
 	return nil
 }
@@ -203,6 +209,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
 			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
+			MCP: p.MCP,
 		})
 		if p.portsAsked {
 			rs.Choices.Settings.RememberPorts(rs.Choices.PortsRoot, portsToRemember(p.Ports))
@@ -489,7 +496,7 @@ func buildPosture(rs *Spec, p *Params) {
 		Image:         posture.Image(p.Image),
 		ModelRoles:    posture.RolesLine(p.Roles),
 		RoleProviders: strings.Join(p.Roles.Providers(), ","),
-		MCPGateway:    posture.MCPGateway(sandbox.MCPGatewayAllowed(), sandbox.MCPGatewayVar),
+		MCPGateway:    posture.MCPGateway(p.mcpAllowed(), sandbox.MCPGatewayVar),
 		Workspace:     posture.Workspace(predictClone(p, rs.Workspace.WS)),
 	}
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
@@ -687,10 +694,11 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Browser: browserOn, CDPHostPort: cdpPort,
 		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort),
 		AndroidApps: androidApps(p), AndroidEnv: adbEnv,
-		Roles:    p.Roles,
-		Evidence: p.evidenceOrDefault(),
-		Forwards: p.forwards(),
-		Man:      rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
+		Roles:      p.Roles,
+		Evidence:   p.evidenceOrDefault(),
+		Forwards:   p.forwards(),
+		MCPGateway: p.mcpAllowed(),
+		Man:        rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
 		ImageEntrypoint:  sbx.ImageEntrypoint,
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,

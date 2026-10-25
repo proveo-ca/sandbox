@@ -60,7 +60,18 @@ skinparam noteTextAlignment left
 '     restore (TestWorkspaceTrustMergesUpstreamsFlagsIntoTheRestoredClaudeJSON,
 '     TestTheSeedAcceptsTrustAfterItRestoresConfig). Inert in an image until
 '     `proveo build <harness>` bakes the lib.
-'   * any hook naming MCP_GATEWAY_URL unless opts.MCPGateway (the egress row).
+'   * any hook naming MCP_GATEWAY_URL unless opts.MCPGateway (the mcp row).
+' THE MCP ROW (user: "mcp can be a new row under the sbx's egress in
+' internal/choiceui. If we only have on/off so be it for now"):
+'   * internal/run mcpRow sits right under egress, off | on, and shows only
+'     when sbx.OffersMCPGateway(target) — the kit has more hooks with the
+'     gateway than without (claudecode, codex, opencode; not cursor — MEASURED).
+'   * precedence: PROVEO_SBX_MCP (locks the row, names why) > the remembered
+'     answer (agentsettings Choice.MCP) > off.
+'   * the answer reaches the backend as sandbox.Input.MCPGateway; Spec and
+'     DeclineMCPGateway read that, never the env (posture reads it too).
+'   Pinned by internal/run/mcp_row_test.go, TestOnlyKitsWithGatewayHooksOfferTheGateway
+'   and TestTheGatewayHooksFollowTheOperatorsChoice.
 '
 ' ── PORTS (MEASURED P3) ─────────────────────────────────────────────────────
 ' port@1 alone publishes localhost:<ephemeral>; with `-p H:P` for the same P

@@ -39,7 +39,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Glyphs:   posture.GlyphModeFrom(lookup),
 		Topology: topologyOf(p.Target, p.credentialsOrDefault()),
 		Rows: append(
-			applicableRows(egressRow()),
+			applicableRows(egressRow(), mcpRow(p.Target, p.MCP, p.MCPSet)),
 			credentialsRow(man, p.credentialsOrDefault()),
 		),
 	}
@@ -120,6 +120,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	if v := form.Selection(evidenceLabel); v != "" {
 		p.Evidence = evidenceOf(v)
+	}
+	if v := form.Selection(mcpLabel); v != "" && !p.MCPSet {
+		p.MCP = v
 	}
 	return nil
 }
@@ -220,6 +223,32 @@ func evidenceOf(answer string) string {
 		return EvidenceDefault
 	}
 	return answer
+}
+
+// mcpRow offers sbx's MCP gateway hooks for a harness whose published kit has them.
+// SPEC: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
+func mcpRow(target, current string, fromEnv bool) choiceui.Row {
+	if !sbx.OffersMCPGateway(target) {
+		return choiceui.Row{}
+	}
+	r := choiceui.Row{Label: mcpLabel, Options: []string{mcpOff, mcpOn}, Help: map[string]string{
+		mcpOff: "the published kit's MCP gateway hooks are left out",
+		mcpOn:  "the kit registers sbx's MCP gateway into the agent's config (user scope, in the proveo home)",
+	}}
+	if current == mcpOn {
+		r.Selected = 1
+	}
+	if fromEnv {
+		r.Locked, r.Reason = true, "PROVEO_SBX_MCP sets this; unset it to choose here"
+	}
+	return pinCols(r, mcpColumn)
+}
+
+func mcpColumn(name string) int {
+	if name == mcpOn {
+		return 1
+	}
+	return 0
 }
 
 func evidenceRow(current string) choiceui.Row {

@@ -1102,6 +1102,7 @@ func FirstHost(mounts []sbx.Mount) string {
 // Input is the resolved input to the sbx backend.
 type Input struct {
 	Target, Image, AuthVar string
+	MCPGateway             bool // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
 	Clone                  bool
 	CloneKnown             bool   // Clone is the sandbox's own mode: this run created it, or teardown asked it
 	RepoRoot               string // host repository root: where a clone's commits are fetched back to
@@ -1349,7 +1350,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	harness := Harness(in)
 	agent := sbx.AgentName(harness)
 	builtin := sbx.BuiltinAgent(harness)
-	up, hasUp, upErr := sbx.UpstreamKitFor(harness, sbx.UpstreamOptions{MCPGateway: MCPGatewayAllowed()})
+	up, hasUp, upErr := sbx.UpstreamKitFor(harness, sbx.UpstreamOptions{MCPGateway: in.MCPGateway})
 	if upErr != nil {
 		ui.Warnf("sandbox: the published %s kit could not be read (%v) — launching from the image alone", harness, upErr)
 		hasUp = false
@@ -1379,7 +1380,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		Publish: append(cdpPublish(in), portPublish(in)...),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env:     DeclineMCPGateway(Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts)),
+		Env:     DeclineMCPGateway(in.MCPGateway, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts)),
 		Command: command,
 	}
 	if in.HomeAccess.FilesRoot != "" {
@@ -1494,8 +1495,8 @@ func WithMCPGatewayPolicy(vars map[string]string) map[string]string {
 	return vars
 }
 
-func DeclineMCPGateway(env []string) []string {
-	if MCPGatewayAllowed() {
+func DeclineMCPGateway(allowed bool, env []string) []string {
+	if allowed {
 		return env
 	}
 	for _, e := range env {

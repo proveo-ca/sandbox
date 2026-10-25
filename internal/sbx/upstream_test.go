@@ -141,3 +141,14 @@ func TestEveryKitRelativeFileACopiedCapabilityNamesIsVendored(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyKitsWithGatewayHooksOfferTheGateway(t *testing.T) {
+	if !OffersMCPGateway("claudecode") {
+		t.Error("claudecode's published kit gates hooks on MCP_GATEWAY_URL; the gateway must be offered")
+	}
+	for _, target := range []string{"cecli", "hermes", "no-such-harness"} {
+		if OffersMCPGateway(target) {
+			t.Errorf("%s has no published kit, yet the gateway is offered", target)
+		}
+	}
+}

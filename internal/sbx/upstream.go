@@ -119,6 +119,31 @@ func upstreamCapabilities(desc []byte, o UpstreamOptions) ([]CapabilityV3, error
 	return out, nil
 }
 
+// OffersMCPGateway reports whether target's published kit has hooks gated on the MCP gateway.
+func OffersMCPGateway(target string) bool {
+	on, ok, err := UpstreamKitFor(target, UpstreamOptions{MCPGateway: true})
+	if !ok || err != nil {
+		return false
+	}
+	off, _, _ := UpstreamKitFor(target, UpstreamOptions{})
+	return hookCount(on.Capabilities) > hookCount(off.Capabilities)
+}
+
+func hookCount(caps []CapabilityV3) int {
+	n := 0
+	for _, c := range caps {
+		if c.Type != CapLifecycle {
+			continue
+		}
+		m, _ := asMap(c.Config)
+		for _, phase := range []string{"install", "startup"} {
+			hooks, _ := m[phase].([]any)
+			n += len(hooks)
+		}
+	}
+	return n
+}
+
 func keepHooks(cfg any, o UpstreamOptions) any {
 	m, ok := cfg.(map[string]any)
 	if !ok {

@@ -255,9 +255,11 @@ func TestProveoSeedHooksDeclareEveryEnvNameTheRunPasses(t *testing.T) {
 }
 
 func TestTheGatewayHooksFollowTheOperatorsChoice(t *testing.T) {
-	gateway := func() int {
+	gateway := func(allowed bool) int {
 		n := 0
-		_, w := specFor(t, "claudecode")
+		in := specInput("claudecode")
+		in.MCPGateway = allowed
+		_, w, _ := Spec(in)
 		for _, h := range w.Hooks() {
 			if strings.HasPrefix(h.Description, "proveo:") {
 				continue
@@ -268,12 +270,11 @@ func TestTheGatewayHooksFollowTheOperatorsChoice(t *testing.T) {
 		}
 		return n
 	}
-	t.Setenv("PROVEO_SBX_MCP", "")
-	if n := gateway(); n != 0 {
-		t.Errorf("gateway off: %d gateway hooks copied", n)
-	}
 	t.Setenv("PROVEO_SBX_MCP", "on")
-	if n := gateway(); n == 0 {
+	if n := gateway(false); n != 0 {
+		t.Errorf("gateway off: %d gateway hooks copied; Spec must follow Input.MCPGateway, not the env", n)
+	}
+	if n := gateway(true); n == 0 {
 		t.Error("gateway on: no gateway hook copied")
 	}
 }

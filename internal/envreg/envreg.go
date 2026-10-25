@@ -191,7 +191,7 @@ var Vars = []Var{
 	{Name: "PROVEO_SBX_INSTANCES", Scope: Operator, Where: Binary, Default: "no split: sbx sizes each sandbox",
 		Doc: "Size sandboxes for N at once: Docker's memory total / N, half the CPUs when N ≥ 2"},
 	{Name: "PROVEO_SBX_MCP", Scope: Operator, Where: Binary, Default: "off",
-		Doc: "Let sbx's MCP gateway register in the agent"},
+		Doc: "Let sbx's MCP gateway register in the agent; outranks the run screen's mcp row"},
 	{Name: "PROVEO_SBX_MEMORY", Scope: Operator, Where: Binary, Default: "no -m: sbx decides",
 		Doc: "Set the sandbox memory ceiling, e.g. 16g; capped at 32g"},
 	{Name: "PROVEO_SBX_RELOAD", Scope: Operator, Where: Binary, Default: "off",
