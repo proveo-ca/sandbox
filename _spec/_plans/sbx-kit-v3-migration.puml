@@ -36,7 +36,7 @@ skinparam noteTextAlignment left
 '   environment.variables              ENV in the recipe (per-run values: see Q2)
 '   setup.startup (root seed)          lifecycle@1 install hook, user "0"
 '   setup.startup (agent seed)         lifecycle@1 startup hook, user agent
-'   permissions.network.allow          network-policy@2 (install / runtime)
+'   permissions.network.allow          network-policy@1 (runtime allow; singleton)
 '   credentials[].apiKey (own-agent)   credential@1 service, phase: runtime
 '   built-in agent's credential        COPIED into proveo's descriptor: a FROM
 '                                      does not carry a published kit's
@@ -244,8 +244,14 @@ skinparam noteTextAlignment left
 '     (agent identity: claudecode → claude for auth and --chrome).
 '   MEASURED: `sbx kit validate --offline <workload dir>` refuses a v3 source
 '     kit ("no kit builder configured"); validation needs the daemon's builder.
-'   OPEN: the e2e suite (ladder, sbx_test kit-shape tests, startup_dispatch,
-'     two probes) still speaks v2 — pending the operator's call.
+'   E2E (user: "Full v3 port"): ladder rungs are v3 (capability-ladder.puml);
+'     sbx_test checks the workload dir, the v3 descriptor shape and `sbx kit
+'     validate` (skips when sbx needs a kit builder); startup_dispatch pins P5;
+'     chrome/adb/resume probes create from a minimal workload
+'     (e2e/workload_v3_test.go); print-mode parsers read the `# sandbox` create
+'     line (env, mounts) and the `# agent` run line (trailing args). The
+'     offline and print-mode e2e tests PASS locally (MEASURED); sandbox-creating
+'     ones await a live climb.
 '
 ' ── ORDER OF WORK ──────────────────────────────────────────────────────────
 '   1 probes P1–P5 → record results here (MEASURED)
@@ -253,7 +259,7 @@ skinparam noteTextAlignment left
 '   3 internal/sbx: v3 Kit types + writer (<stem>.yaml + <stem>.dockerfile,
 '     `# syntax=docker/sandbox-kit:3`), unknown-field-free (SPEC §1.2)
 '   4 Spec(): one workload per run; startupCommands → lifecycle hooks;
-'     agentCredentials → credential@1; allow → network-policy@2
+'     agentCredentials → credential@1; allow → network-policy@1
 '   5 RunArgs: positional kit, no -t, keep -p (ports section)
 '   6 MinVersion 0.45, Verified series update, init Release ≥ 0.45
 '   7 goldens + own_agent_test + contract test against the spec's examples
@@ -268,7 +274,7 @@ rectangle "today (v2)" as V2 {
 rectangle "target (v3)" as V3 {
   component "workload ./proveo-<target>\n<stem>.yaml + <stem>.dockerfile" as WL <<app>>
   component "FROM proveo image\n(source: Q1)" as FROMIMG <<app>>
-  component "sbx@1 · lifecycle@1 · credential@1\nnetwork-policy@2" as CAPS <<app>>
+  component "sbx@1 · lifecycle@1 · credential@1\nnetwork-policy@1" as CAPS <<app>>
 }
 component "-p <k>P:P\n(runtime UX, unchanged)" as PORTS <<host>>
 database "probes P1–P5\nthen Q1–Q3" as GATE <<db>>

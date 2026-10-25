@@ -4,6 +4,9 @@
 ' fine for a one-line aside, wrong for a list, where ragged-left destroys the column
 ' the eye reads down. Scoped to notes: the legend and labels keep the theme's choice.
 skinparam noteTextAlignment left
+' SUPERSEDED 2026-10-24 by _spec/internal/sbx/sbx-kit-v3.puml for the KIT (v2 Kit,
+' WriteKit, spec.yaml, kind mixin|sandbox are deleted; plan: sbx-kit-v3-migration.puml,
+' STEP 8 DELETIONS). Session, exit code and handoff notes below still describe sbx.
 ' purpose: the sbx Kit contract proveo writes against — schema, handoff, session, exit
 ' covers: internal/sbx/**
 ' covers: cmd/proveo/main.go

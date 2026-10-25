@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -20,7 +21,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/termtext"
 )
@@ -37,94 +37,41 @@ type rung struct {
 
 func ladderTarget() string { return env("PROVEO_LADDER_TARGET", "claudecode") }
 
-// sbxAgentFor maps the def to the sbx agent that runs it, the same mapping
-// internal/sbx uses. Rung 0 needs it to name a STOCK agent with no proveo image.
-func sbxAgentFor(t *testing.T, target string) string {
-	agent, _ := sbx.AgentFor(target)
-	if agent == "" {
-		t.Skipf("%s resolves to no sbx agent at all", target)
+// stockAgent is rung 0's agent: sbx's own built-in for the target, else its shell agent.
+func stockAgent(target string) string { return cmp.Or(sbx.BuiltinAgent(target), "shell") }
+
+// imageRecipe launches image the way proveo would: through the published kit's ENTRYPOINT when
+// the harness has one, else through the image's own.
+func imageRecipe(target, image string) sbx.RecipeV3 {
+	r := sbx.RecipeV3{From: image}
+	if up, ok, err := sbx.UpstreamKitFor(target, sbx.UpstreamOptions{}); err == nil && ok {
+		r.Entrypoint = up.Launch
 	}
-	return agent
+	return r
 }
 
-func shellAgentTarget(target string) bool {
-	return sbx.BuiltinAgent(target) == "" && !sbx.DeclaresOwnAgent(target)
-}
-
-func kitAgentFor(t *testing.T, target string) string {
-	t.Helper()
-	if sbx.DeclaresOwnAgent(target) {
-		return sbx.AgentName(target)
-	}
-	return sbxAgentFor(t, target)
-}
-
-// agentCommand is what proveo appends after `--` for a shell-agent target, and
-// nothing for a built-in one, whose agent name already carries its launch.
-func agentCommand(target string) []string {
-	_, cmd := sbx.AgentFor(target)
-	return cmd
-}
-
-func launcherProgram(target string) string {
-	if !shellAgentTarget(target) {
-		return ""
+// launchProgram is the program the workload's launch resolves, for the probe after a death.
+func launchProgram(target string) string {
+	if up, ok, err := sbx.UpstreamKitFor(target, sbx.UpstreamOptions{}); err == nil && ok && len(up.Launch) > 0 {
+		return up.Launch[0]
 	}
 	return target + "-entrypoint"
 }
 
-// withCommand appends the `-- <command>` tail sbx expects.
-func withCommand(argv []string, cmd []string) []string {
-	if len(cmd) == 0 {
-		return argv
-	}
-	return append(append(argv, "--"), cmd...)
-}
-
 func ladderRungs() []rung {
 	target := ladderTarget()
-	rungs := baseRungs(target)
-	if !shellAgentTarget(target) {
-		return rungs
-	}
-	cmd := agentCommand(target)
-	withCmd := rung{
-		name: "2-agent-command", adds: "the def's own launcher as the sbx COMMAND (-- -c 'exec " +
-			launcherProgram(target) + "', wrapped so bash -l survives)",
-		argv: func(t *testing.T, work string) []string {
-			img := harnessImage(t, target)
-			freshTemplate(t, img)
-			base := append([]string{"run", "--name", ladderName(t, 2), "-t", img},
-				append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
-			return withCommand(base, cmd)
-		},
-	}
-	out := append([]rung{}, rungs[:2]...)
-	out = append(out, withCmd)
-	for i := 2; i < len(rungs); i++ {
-		r := rungs[i]
-		inner := r.argv
-		r.argv = func(t *testing.T, work string) []string { return withCommand(inner(t, work), cmd) }
-		r.name = fmt.Sprintf("%d-%s", i+1, strings.SplitN(r.name, "-", 2)[1])
-		out = append(out, r)
-	}
-	return out
-}
-
-func baseRungs(target string) []rung {
 	return []rung{
 		{
 			name: "0-bare-sbx-agent", adds: "nothing — stock sbx agent and stock image",
 			argv: func(t *testing.T, work string) []string {
-				return append([]string{"run", "--name", ladderName(t, 0)}, append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
+				return append([]string{"run", "--name", ladderName(t, 0)}, append(credentialArgs(t, target), stockAgent(target), work)...)
 			},
 		},
 		{
-			name: "1-proveo-base-image", adds: "the proveo harness image (-t)",
+			name: "1-proveo-image-workload", adds: "the proveo harness image, as a v3 workload with sbx@1 only",
 			argv: func(t *testing.T, work string) []string {
-				img := harnessImage(t, target)
-				freshTemplate(t, img)
-				return append([]string{"run", "--name", ladderName(t, 1), "-t", img}, append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
+				kit := probeWorkload(t, sbx.AgentName(target), imageRecipe(target, harnessImage(t, target)))
+				return append([]string{"run", "--name", ladderName(t, 1)}, append(credentialArgs(t, target), kit, work)...)
 			},
 		},
 		{
@@ -134,28 +81,17 @@ func baseRungs(target string) []rung {
 				if !imageExists(img) {
 					t.Skipf("browser image %s not built", img)
 				}
-				freshTemplate(t, img)
-				return append([]string{"run", "--name", ladderName(t, 2), "-t", img}, append(credentialArgs(t, target), sbxAgentFor(t, target), work)...)
+				kit := probeWorkload(t, sbx.AgentName(target), imageRecipe(target, img))
+				return append([]string{"run", "--name", ladderName(t, 2)}, append(credentialArgs(t, target), kit, work)...)
 			},
 		},
 		{
-			name: "3-proveo-mixin-and-seed", adds: "proveo's posture Kit — allowlist, env, and the seed (LSPs + toolchain)",
+			name: "3-proveo-workload", adds: "proveo's whole workload — credentials, allowlist, hooks and the seed, as `proveo run` writes it",
 			argv: func(t *testing.T, work string) []string {
-				kit := renderPostureKit(t, work, target)
-				img := harnessImage(t, target)
-				freshTemplate(t, img)
-				home := proveohome.Root(os.Getenv)
-				return append([]string{"run", "--name", ladderName(t, 3), "-t", img, "--kit", kit},
-					append(credentialArgs(t, target), kitAgentFor(t, target), work, home)...)
+				_, create := proveoWorkload(t, work, target, nil)
+				return append([]string{"run"}, withName(create[1:], ladderName(t, 3))...)
 			},
 		},
-	}
-}
-
-func freshTemplate(t *testing.T, image string) {
-	t.Helper()
-	if err := sbx.ReloadTemplate(image, func(f string, a ...any) { t.Logf(f, a...) }); err != nil {
-		t.Skipf("could not load %s into the sandbox store: %v", image, err)
 	}
 }
 
@@ -183,51 +119,32 @@ func ladderName(t *testing.T, i int) string {
 	return fmt.Sprintf("proveo-ladder-%s-%d-%d", ladderTarget(), i, os.Getpid())
 }
 
-// renderPostureKit asks proveo for the Kit it would write, so the rung tests the REAL
-// mixin rather than a hand-copied approximation that can drift from it.
-func renderPostureKit(t *testing.T, work, target string) string {
-	return renderPostureKitEnv(t, work, target, nil)
-}
-
-func renderPostureKitEnv(t *testing.T, work, target string, extra []string) string {
+// proveoWorkload asks proveo for the workload it would write, so the rung tests the REAL one
+// rather than a hand-copied approximation; it returns the directory and the printed create argv.
+func proveoWorkload(t *testing.T, work, target string, extra []string) (string, []string) {
 	t.Helper()
 	bin := buildProveo(t)
 	args := append(childEnvArgsNoCredential(t), extra...)
-	out, err := exec.Command("env", append(args,
-		bin, "run", target, "--input", work, "--print")...).CombinedOutput()
+	out, err := exec.Command("env", append(args, bin, "run", target, "--input", work, "--print")...).CombinedOutput()
 	if err != nil {
-		t.Skipf("could not render the posture kit: %v\n%s", err, out)
+		t.Skipf("could not render the workload: %v\n%s", err, out)
 	}
-	for _, line := range strings.Split(termtext.Words(string(out)), " ") {
-		if strings.HasSuffix(line, "/sbx/kit/spec.yaml") {
-			assertKitShape(t, line, target)
-			return strings.TrimSuffix(line, "/spec.yaml")
-		}
+	create := shellWords(printedLine(t, string(out), "# sandbox"))
+	if len(create) == 0 || create[0] != "create" {
+		t.Fatalf("the printed sandbox line is not an `sbx create`: %q", create)
 	}
-	t.Skip("proveo --print named no kit directory")
-	return ""
+	return printedKitDir(t, string(out)), create
 }
 
-func assertKitShape(t *testing.T, specPath, target string) {
-	t.Helper()
-	b, err := os.ReadFile(specPath)
-	if err != nil {
-		t.Fatalf("rendered kit unreadable: %v", err)
+// withName replaces the --name value in argv.
+func withName(argv []string, name string) []string {
+	out := append([]string{}, argv...)
+	for i, a := range out {
+		if a == "--name" && i+1 < len(out) {
+			out[i+1] = name
+		}
 	}
-	body := string(b)
-	wantKind, wantName := "kind: mixin", ""
-	if sbx.DeclaresOwnAgent(target) {
-		wantKind, wantName = "kind: sandbox", "name: "+sbx.AgentName(target)
-	}
-	if !strings.Contains(body, wantKind) {
-		t.Fatalf("rendered Kit is not %q — the gate did not reach the renderer, so the "+
-			"rung would prove nothing about it:\n%s", wantKind, body)
-	}
-	if wantName != "" && !strings.Contains(body, wantName) {
-		t.Fatalf("sandbox Kit does not declare %q; the agent name IS the selector:\n%s",
-			wantName, body)
-	}
-	t.Logf("kit shape measured: %s%s", wantKind, map[bool]string{true: ", " + wantName}[wantName != ""])
+	return out
 }
 
 func TestSandboxLadder(t *testing.T) {
@@ -271,7 +188,7 @@ func TestSandboxLadder(t *testing.T) {
 					"Every rung above this one is untestable until it does", r.adds, res.authFailure)
 			case res.death != "":
 				v.detail = fmt.Sprintf("died %q after %s", res.death, res.aliveFor.Round(time.Second))
-				if probe := probeLaunch(t, name, launcherProgram(ladderTarget())); probe != "" {
+				if probe := probeLaunch(t, name, launchProgram(ladderTarget())); probe != "" {
 					t.Logf("-- why the command could not be exec'd --\n%s", probe)
 				}
 				t.Fatalf("RUNG FAILED — this rung adds %s, and it is the first layer that could not "+
@@ -666,56 +583,39 @@ func TestLadderReportSaysWhenNothingBroke(t *testing.T) {
 	}
 }
 
-func TestLadderGivesShellAgentTargetsTheirOwnCommandRung(t *testing.T) {
-	t.Setenv(sbx.EnvAgentKit, "0")
-	if !shellAgentTarget("cecli") {
-		t.Skip("cecli gained a built-in sbx agent; this shape no longer applies")
-	}
-	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
-	rungs := ladderRungs()
-
-	if len(rungs) != 5 {
-		t.Fatalf("shell-agent ladder has %d rungs, want 5 (the four base rungs plus the command)", len(rungs))
-	}
-	want := []string{"0-bare-sbx-agent", "1-proveo-base-image", "2-agent-command",
-		"3-proveo-browser-image", "4-proveo-mixin-and-seed"}
-	for i, w := range want {
-		if rungs[i].name != w {
-			t.Errorf("rung %d is %q, want %q — the command must come after the image and before the rest",
-				i, rungs[i].name, w)
+func TestEveryTargetClimbsFourRungs(t *testing.T) {
+	for _, target := range []string{"claudecode", "cecli", "opencode"} {
+		t.Setenv("PROVEO_LADDER_TARGET", target)
+		rungs := ladderRungs()
+		want := []string{"0-bare-sbx-agent", "1-proveo-image-workload", "2-proveo-browser-image", "3-proveo-workload"}
+		if len(rungs) != len(want) {
+			t.Fatalf("%s: %d rungs, want %d — v3 has no borrowed-shell command rung", target, len(rungs), len(want))
 		}
-	}
-
-	zero := rungs[0].argv(t, t.TempDir())
-	if contains(zero, "-t") || contains(zero, "--") {
-		t.Errorf("rung 0 is not stock — it names an image or a command: %v", zero)
-	}
-
-	cmd := agentCommand("cecli")
-	if len(cmd) == 0 || !strings.HasPrefix(cmd[0], "-") {
-		t.Errorf("agentCommand(cecli) = %v, want a flag-leading command — a bare word makes "+
-			"sbx run `bash <launcher>` and read it as a shell script", cmd)
-	}
-	got := withCommand([]string{"run", "shell", "/w"}, cmd)
-	if len(got) != 3+1+len(cmd) || got[3] != "--" {
-		t.Errorf("withCommand = %v, want the `-- <command>` tail sbx expects", got)
-	}
-	if got[4] != cmd[0] {
-		t.Errorf("withCommand reordered the command: %v", got)
-	}
-	if again := withCommand([]string{"run"}, nil); len(again) != 1 {
-		t.Errorf("withCommand with no command appended something: %v", again)
+		for i, w := range want {
+			if rungs[i].name != w {
+				t.Errorf("%s: rung %d is %q, want %q", target, i, rungs[i].name, w)
+			}
+		}
 	}
 }
 
-func TestLadderLeavesBuiltinTargetsAtFourRungs(t *testing.T) {
-	t.Setenv("PROVEO_LADDER_TARGET", "opencode")
-	rungs := ladderRungs()
-	if len(rungs) != 4 {
-		t.Fatalf("built-in ladder has %d rungs, want 4", len(rungs))
+func TestRungZeroIsStockAndTheRestAreWorkloads(t *testing.T) {
+	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
+	zero := ladderRungs()[0].argv(t, t.TempDir())
+	if !contains(zero, "shell") || contains(zero, "-t") || contains(zero, "--") {
+		t.Errorf("rung 0 for a harness with no built-in agent must be stock sbx's shell, nothing of proveo's: %v", zero)
 	}
-	if cmd := agentCommand("opencode"); len(cmd) != 0 {
-		t.Errorf("opencode is a built-in agent and must carry no command, got %v", cmd)
+	if got := stockAgent("claudecode"); got != "claude" {
+		t.Errorf("stockAgent(claudecode) = %q, want sbx's built-in claude", got)
+	}
+	if r := imageRecipe("claudecode", "proveo/claudecode:local"); len(r.Entrypoint) == 0 || r.Entrypoint[0] != "claude" {
+		t.Errorf("claudecode's image rung must launch through the published kit's ENTRYPOINT, got %q", r.Entrypoint)
+	}
+	if r := imageRecipe("cecli", "proveo/cecli:local"); len(r.Entrypoint) != 0 {
+		t.Errorf("cecli has no published kit; its image ENTRYPOINT must run untouched, got %q", r.Entrypoint)
+	}
+	if got := withName([]string{"--name", "a", "/kit", "/w"}, "b"); got[1] != "b" || got[2] != "/kit" {
+		t.Errorf("withName = %v", got)
 	}
 }
 
@@ -747,44 +647,6 @@ func TestQuoteWordSurvivesAQuote(t *testing.T) {
 	}
 }
 
-func TestAgentKitGateCollapsesTheCommandRung(t *testing.T) {
-	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
-
-	t.Setenv(sbx.EnvAgentKit, "0") // the kit path is the default now; opt OUT to borrow
-	borrowed := ladderRungs()
-	if len(borrowed) != 5 {
-		t.Fatalf("borrowed-shell ladder has %d rungs, want 5", len(borrowed))
-	}
-	if !shellAgentTarget("cecli") {
-		t.Error("without the gate cecli must borrow the shell agent")
-	}
-
-	t.Setenv(sbx.EnvAgentKit, "1")
-	own := ladderRungs()
-	if len(own) != 4 {
-		t.Fatalf("own-agent ladder has %d rungs, want 4 — the command rung should be gone", len(own))
-	}
-	for _, r := range own {
-		if strings.Contains(r.name, "agent-command") {
-			t.Errorf("rung %q survived: with its own agent there is no borrowed command", r.name)
-		}
-	}
-	if shellAgentTarget("cecli") {
-		t.Error("with the gate cecli declares its own agent and borrows nothing")
-	}
-}
-
-func TestOnlyTheKitRungNamesOurOwnAgent(t *testing.T) {
-	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
-	t.Setenv(sbx.EnvAgentKit, "1")
-	if got := kitAgentFor(t, "cecli"); got != sbx.AgentName("cecli") {
-		t.Errorf("kit rung agent = %q, want %q", got, sbx.AgentName("cecli"))
-	}
-	if got, _ := sbx.AgentFor("cecli"); got != sbx.ShellAgent {
-		t.Errorf("rungs below the Kit must still use a stock agent, got %q", got)
-	}
-}
-
 const dummyAPIKey = "sk-ant-proveo-ladder-dummy-do-not-use"
 
 const (
@@ -792,9 +654,9 @@ const (
 	credClose = "]"
 )
 
-// TestSandboxKitProxyManagesTheCredential asserts the property E1 would
-// otherwise silently drop.
-func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
+// TestSandboxWorkloadProxyManagesTheCredential asserts that the agent holds a sentinel, never the
+// key, BECAUSE the workload declares credential@1 — measured with and without the declaration.
+func TestSandboxWorkloadProxyManagesTheCredential(t *testing.T) {
 	if !envflag.On(os.Getenv("PROVEO_LADDER_TEST")) {
 		t.Skip("set PROVEO_LADDER_TEST=1 — this starts a real sandbox")
 	}
@@ -803,122 +665,88 @@ func TestSandboxKitProxyManagesTheCredential(t *testing.T) {
 		t.Skipf("sbx not available: %s", why)
 	}
 	target := ladderTarget()
-	if !sbx.DeclaresOwnAgent(target) {
-		t.Skipf("%s does not declare its own agent (set %s=1); a mixin MUST NOT declare "+
-			"credentials — sbx refuses a service the built-in agent already declares",
-			target, sbx.EnvAgentKit)
-	}
-
 	work := t.TempDir()
-	kitDir := renderPostureKitEnv(t, work, target, []string{"ANTHROPIC_API_KEY=" + dummyAPIKey})
-	raw, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
+	kitDir, _ := proveoWorkload(t, work, target, []string{"ANTHROPIC_API_KEY=" + dummyAPIKey})
+	raw, err := os.ReadFile(filepath.Join(kitDir, filepath.Base(kitDir)+".yaml"))
 	if err != nil {
-		t.Fatalf("read rendered kit: %v", err)
-	}
-	var kit sbx.Kit
-	if err := yaml.Unmarshal(raw, &kit); err != nil {
-		t.Fatalf("the rendered Kit does not round-trip through sbx.Kit: %v\n%s", err, raw)
-	}
-	if len(kit.Credentials) == 0 {
-		t.Fatalf("rendered Kit declares no credentials even with a key present — the agent "+
-			"would hold the real value:\n%s", raw)
-	}
-	var proxied bool
-	for _, c := range kit.Credentials {
-		if c.APIKey != nil && c.APIKey.ProxyManaged {
-			proxied = true
-		}
-	}
-	if !proxied {
-		t.Fatalf("credentials declared without proxyManaged, which is the entire point:\n%s", raw)
+		t.Fatalf("read rendered workload: %v", err)
 	}
 	if strings.Contains(string(raw), dummyAPIKey) {
-		t.Fatalf("the Kit embeds the credential VALUE; it must name the variable only:\n%s", raw)
+		t.Fatalf("the workload embeds the credential VALUE; it must name the variable only:\n%s", raw)
+	}
+	var w sbx.WorkloadV3
+	if err := yaml.Unmarshal(raw, &w); err != nil {
+		t.Fatalf("the rendered workload does not round-trip through sbx.WorkloadV3: %v\n%s", err, raw)
 	}
 
 	known := sbxKnownServices(t)
-	kept := kit.Credentials[:0]
+	var creds []sbx.CapabilityV3
 	var dropped []string
-	for _, c := range kit.Credentials {
-		if known[c.Service] {
-			kept = append(kept, c)
+	for _, c := range w.Capabilities {
+		if c.Type != sbx.CapCredential {
 			continue
 		}
-		dropped = append(dropped, c.Service)
+		m, _ := c.Config.(map[string]any)
+		svc, _ := m["service"].(string)
+		if known[svc] {
+			creds = append(creds, c)
+			continue
+		}
+		dropped = append(dropped, svc)
 	}
-	kit.Credentials = kept
 	if len(dropped) > 0 {
 		t.Logf("not declaring %v: sbx holds no secret for them, and declaring one it does "+
 			"not know makes it prompt", dropped)
 	}
-	if len(kit.Credentials) == 0 {
-		t.Skipf("sbx holds no secret for any service proveo declares (%v) — nothing to "+
+	if len(creds) == 0 {
+		t.Skipf("sbx holds no secret for any service the workload declares (%v) — nothing to "+
 			"measure without writing to the host-wide store", dropped)
 	}
 
-	// Swap ONLY the entrypoint, so the value is observable in the agent process.
-	// The seed goes with it: proveo-seed expects the harness, not a bare shell.
-	kit.Sandbox.Entrypoint = []string{"bash", "-lc",
-		`printf '` + credOpen + `%s` + credClose + `\n' "${ANTHROPIC_API_KEY-<unset>}"; sleep 5`}
-	kit.Sandbox.Command = nil
-	kit.Setup = nil
-	got := runCredProbe(t, target, work, kit, "declared")
+	got := runCredProbe(t, target, work, creds, "declared")
 	switch got {
 	case dummyAPIKey:
-		t.Fatalf("the agent holds the REAL credential — proxyManaged did not take effect, and " +
-			"this def is worse off declaring its own agent than borrowing one")
+		t.Fatalf("the agent holds the REAL credential — the declaration did not make the proxy manage it")
 	case "<unset>", "":
 		t.Fatalf("the variable is %q in the agent: the declaration resolved against no stored "+
 			"secret, so the agent cannot authenticate at all", got)
 	}
-
-	bare := kit
-	bare.Credentials = nil
-	ctl := runCredProbe(t, target, work, bare, "control")
+	ctl := runCredProbe(t, target, work, nil, "control")
 	if ctl == got {
-		t.Fatalf("the SAME value (%q) appears with and WITHOUT the credentials block, so the "+
-			"declaration is not what produces it — this test would pass with the feature "+
-			"deleted", got)
+		t.Fatalf("the SAME value (%q) appears with and WITHOUT credential@1, so the declaration "+
+			"is not what produces it — this test would pass with the feature deleted", got)
 	}
-	t.Logf("✅ proxy-managed BECAUSE we declare it: %q with the block, %q without", got, ctl)
+	t.Logf("✅ proxy-managed BECAUSE we declare it: %q with credential@1, %q without", got, ctl)
 }
 
-func runCredProbe(t *testing.T, target, work string, kit sbx.Kit, label string) string {
+// runCredProbe launches the harness image with creds and an ENTRYPOINT that prints the key variable.
+func runCredProbe(t *testing.T, target, work string, creds []sbx.CapabilityV3, label string) string {
 	t.Helper()
-	out, err := yaml.Marshal(kit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), out, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	img := harnessImage(t, target)
-	freshTemplate(t, img)
+	kit := probeWorkload(t, sbx.AgentName(target), sbx.RecipeV3{
+		From: harnessImage(t, target),
+		Entrypoint: []string{"bash", "-lc",
+			`printf '` + credOpen + `%s` + credClose + `\n' "${ANTHROPIC_API_KEY-<unset>}"; sleep 5`},
+	}, creds...)
+	desc, _ := os.ReadFile(filepath.Join(kit, filepath.Base(kit)+".yaml"))
 	name := fmt.Sprintf("proveo-credprobe-%s-%s-%d", target, label, os.Getpid())
 	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
 
-	argv := append([]string{"run", "--name", name, "-t", img, "--kit", dir},
-		kitAgentFor(t, target), work)
-	// No prompt: this probe's entrypoint is a printf and a sleep, not a TUI —
-	// there is nothing to type into and nothing that would answer.
-	res := holdSbxSession(t, argv,
+	// No prompt: this probe's entrypoint is a printf and a sleep, not a TUI.
+	res := holdSbxSession(t, []string{"run", "--name", name, kit, work},
 		durationEnv(t, "PROVEO_LADDER_STARTUP", 5*time.Minute),
 		durationEnv(t, "PROVEO_LADDER_HOLD", 15*time.Second), "")
 
-	// A credential sbx has no stored secret for makes it ASK, and an unattended
-	// run stops there — a distinct fault from a refused block or a dead sandbox.
+	// A credential sbx has no stored secret for makes it ASK, and an unattended run stops there.
 	if strings.Contains(termtext.Words(res.out), "wants to use these credentials") {
 		t.Fatalf("[%s] sbx asked for consent instead of starting: a declared credential has "+
 			"no stored secret under its SERVICE name, so the run blocks on a human.\n"+
-			"-- Kit --\n%s\n-- session --\n%s", label, out, lastLines(res.out, 20))
+			"-- workload --\n%s\n-- session --\n%s", label, desc, lastLines(res.out, 20))
 	}
 	v, seen := credValueFrom(res.out)
 	if !seen {
 		t.Fatalf("[%s] the probe never printed %q, so nothing was measured — the sandbox may "+
-			"have refused the Kit or never started. death=%q\n-- Kit --\n%s\n-- session --\n%s",
-			label, credOpen, res.death, out, lastLines(res.out, 30))
+			"have refused the workload or never started. death=%q\n-- workload --\n%s\n-- session --\n%s",
+			label, credOpen, res.death, desc, lastLines(res.out, 30))
 	}
 	return v
 }

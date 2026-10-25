@@ -49,19 +49,9 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 		t.Cleanup(func() { stopEmulators(t, port) })
 	}
 
-	if err := sbx.EnsureTemplate(image, func(string, ...any) {}); err != nil {
-		t.Skipf("sbx template for %s: %v", image, err)
-	}
 	name := fmt.Sprintf("proveo-adbsbx-%d", time.Now().UnixNano())
-	if out, err := exec.Command(sbx.Binary, "create", "--name", name,
-		"-t", image, sbx.BuiltinAgent("claudecode"), t.TempDir()).CombinedOutput(); err != nil {
-		t.Skipf("sbx create: %v\n%s", err, out)
-	}
-	t.Cleanup(func() {
-		if out, err := exec.Command(sbx.Binary, "rm", "--force", name).CombinedOutput(); err != nil {
-			t.Logf("probe sandbox %s not removed: %v\n%s", name, err, out)
-		}
-	})
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: probeWorkload(t, "proveo-adbsbx", sbx.RecipeV3{From: image}),
+		Mounts: mountsOf(t.TempDir())})
 	if out, err := exec.Command(sbx.Binary, "policy", "allow", "network", "--sandbox", name,
 		hostadb.PolicyHost(port)).CombinedOutput(); err != nil {
 		t.Fatalf("policy allow: %v\n%s", err, out)

@@ -73,22 +73,9 @@ func TestChromeBridgeOnSbxReachesTheHostFromTheSandbox(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = relay.Close() })
 
-	// sbx keeps its OWN image store, so the harness image has to be handed over
-	// before a Kit can name it — the same hop `proveo run` makes.
-	if err := sbx.EnsureTemplate(image, func(string, ...any) {}); err != nil {
-		t.Skipf("sbx template for %s: %v", image, err)
-	}
-	ws := t.TempDir()
 	name := fmt.Sprintf("proveo-cbsbx-%d", time.Now().UnixNano())
-	if out, err := exec.Command(sbx.Binary, "create", "--name", name,
-		"-t", image, sbx.BuiltinAgent("claudecode"), ws).CombinedOutput(); err != nil {
-		t.Skipf("sbx create: %v\n%s", err, out)
-	}
-	t.Cleanup(func() {
-		if out, err := exec.Command(sbx.Binary, "rm", "--force", name).CombinedOutput(); err != nil {
-			t.Logf("probe sandbox %s not removed: %v\n%s", name, err, out)
-		}
-	})
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: probeWorkload(t, "proveo-cbsbx", sbx.RecipeV3{From: image}),
+		Mounts: mountsOf(t.TempDir())})
 
 	start := fmt.Sprintf(`set -e
 export HOME=/tmp
