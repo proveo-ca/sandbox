@@ -32,7 +32,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
-		Topology: topologyOf(p.Target, p.credentialsOrDefault()),
+		Topology: topologyWith(p.Target, p.credentialsOrDefault(), man.Capabilities.AlwaysMCPGateway()),
 		Rows: append(
 			applicableRows(egressRow(), mcpRow(p.Target, p.MCP, p.MCPSet)),
 			credentialsRow(man, p.credentialsOrDefault()),

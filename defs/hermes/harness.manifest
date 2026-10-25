@@ -29,3 +29,5 @@ capabilities:
   hostBrowser: cdp
   # SPEC: _spec/_plans/hermes-desktop-over-ssh.puml
   hostDevices: [desktop]
+  # Hermes's own MCP client always takes sbx's gateway (proveo_wire_hermes_mcp_gateway).
+  mcpGateway: always

@@ -467,7 +467,7 @@ func buildPosture(rs *Spec, p *Params) {
 		Image:         posture.Image(p.Image),
 		ModelRoles:    posture.RolesLine(p.Roles),
 		RoleProviders: strings.Join(p.Roles.Providers(), ","),
-		MCPGateway:    posture.MCPGateway(p.mcpAllowed(), sandbox.MCPGatewayVar),
+		MCPGateway:    posture.MCPGateway(p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(), sandbox.MCPGatewayVar),
 		Workspace:     posture.Workspace(predictClone(p, rs.Workspace.WS)),
 	}
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
@@ -671,7 +671,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Roles:      p.Roles,
 		Evidence:   p.evidenceOrDefault(),
 		Forwards:   p.forwards(),
-		MCPGateway: p.mcpAllowed(),
+		MCPGateway: p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
 		Desktop:    desktop, DesktopLaunch: desktopLaunch,
 		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
 		ImageEntrypoint:  sbx.ImageEntrypoint,

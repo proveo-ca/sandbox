@@ -278,3 +278,21 @@ func TestTheGatewayHooksFollowTheOperatorsChoice(t *testing.T) {
 		t.Error("gateway on: no gateway hook copied")
 	}
 }
+
+func TestAnAllowedGatewayIsNotBlankedAndTheSeedHookCanSeeIt(t *testing.T) {
+	in := specInput("hermes")
+	in.MCPGateway = true
+	cfg, w, _ := Spec(in)
+	if slices.Contains(cfg.Env, sbx.MCPGatewayEnv+"=") {
+		t.Errorf("env %v blanks %s for a harness that takes the gateway", cfg.Env, sbx.MCPGatewayEnv)
+	}
+	var seed *Hook
+	for _, h := range w.Hooks() {
+		if sbx.CommandNamesSeed(h.Argv) {
+			seed = &h
+		}
+	}
+	if seed == nil || !slices.Contains(seed.Env, sbx.MCPGatewayEnv) || !slices.Contains(seed.Env, sbx.MCPSentinelEnv) {
+		t.Fatalf("seed hook %+v does not declare the gateway names; a hook sees only the env it names", seed)
+	}
+}

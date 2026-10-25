@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 )
 
 func TestTheMCPRowAppearsOnlyForAKitWithGatewayHooks(t *testing.T) {
@@ -40,5 +41,15 @@ func TestTheEnvOutranksTheRememberedMCPAnswer(t *testing.T) {
 	q.seedFromCache(agentsettings.Choice{MCP: mcpOn}, func(string) string { return "" }, false)
 	if !q.mcpAllowed() {
 		t.Error("the remembered on was dropped")
+	}
+}
+
+func TestAHarnessThatAlwaysTakesTheGatewayAlwaysShowsIt(t *testing.T) {
+	f := &choiceui.Form{}
+	if got := topologyWith("hermes", "broker", true)(f, -1).HopNote; got != "+ mcp" {
+		t.Errorf("hermes hop note = %q, want + mcp with no row to read", got)
+	}
+	if got := topologyWith("cecli", "broker", false)(f, -1).HopNote; got != "" {
+		t.Errorf("cecli hop note = %q, want none", got)
 	}
 }

@@ -297,6 +297,48 @@ codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
 	})
 }
 
+// TestHermesTakesSbxsMCPGateway is layer 5: hermes always takes sbx's gateway (mcpGateway: always).
+func TestHermesTakesSbxsMCPGateway(t *testing.T) {
+	if !envflag.On(os.Getenv("PROVEO_MCP_TEST")) {
+		t.Skip("set PROVEO_MCP_TEST=1 — starts a real sandbox and registers a probe server in sbx's host-wide MCP store")
+	}
+	requireDocker(t)
+	if ok, why := sbxReadyForTests(); !ok {
+		t.Skipf("sbx not available: %s", why)
+	}
+	p := startProbeMCP(t)
+	reg := fmt.Sprintf("proveo-e2e-probe-h%d", os.Getpid())
+	if out, err := exec.Command(sbx.Binary, "mcp", "add", reg, "--url",
+		fmt.Sprintf("http://localhost:%d/mcp", p.port), "--skip-ssrf-check", "--skip-auth").CombinedOutput(); err != nil {
+		t.Skipf("sbx mcp add: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command(sbx.Binary, "mcp", "rm", "--force", reg).Run() })
+	_, create := proveoWorkload(t, t.TempDir(), "hermes", isolatedHome(t))
+	if slices.Contains(create, sbx.MCPGatewayEnv+"=") {
+		t.Fatalf("hermes declares mcpGateway: always, yet create blanks %s: %v", sbx.MCPGatewayEnv, create)
+	}
+	name := mcpSandboxName("hermes")
+	t.Cleanup(func() { _ = exec.Command(sbx.Binary, sbx.RemoveArgs(name)...).Run() })
+	makeTempMounts(t, create)
+	if out, err := exec.Command(sbx.Binary, withName(create, name)...).CombinedOutput(); err != nil {
+		t.Skipf("sbx create (hermes workload): %v\n%s", err, out)
+	}
+	if out, err := exec.Command(sbx.Binary, "mcp", "load", reg, "--sandbox", name).CombinedOutput(); err != nil {
+		t.Fatalf("sbx mcp load: %v\n%s", err, out)
+	}
+	lib := filepath.Join(repoRoot(t), "packages", "lib", "entrypoint-lib.sh")
+	if out, err := exec.Command(sbx.Binary, "cp", lib, name+":/tmp/entrypoint-lib.sh").CombinedOutput(); err != nil {
+		t.Fatalf("sbx cp: %v\n%s", err, out)
+	}
+	out, err := agentExec(t, name, `source /tmp/entrypoint-lib.sh && proveo_wire_hermes_mcp_gateway hermes
+H="$(command -v hermes || echo /opt/hermes/.venv/bin/hermes)"
+HERMES_HOME="${HERMES_HOME:-/opt/data}" "$H" mcp test mcp-gateway`, 3*time.Minute)
+	if err != nil || !strings.Contains(out, probeTool) {
+		t.Fatalf("LAYER FAILED — adds Hermes's MCP client on sbx's gateway: `hermes mcp test mcp-gateway` does not "+
+			"list %s (err %v); probe saw %v\n%s", probeTool, err, p.seen(), lastLines(out, 30))
+	}
+}
+
 // isolatedHome points a rendered workload's proveo home and state at temp dirs, so kit hooks
 // that write user config never reach the operator's ~/.proveo.
 func isolatedHome(t *testing.T) []string {

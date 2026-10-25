@@ -1407,7 +1407,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	sort.Strings(allow)
 	var err error
 	if caps, err = sbx.WithRuntimeAllow(caps, allow); err == nil {
-		caps, err = sbx.WithLifecycle(caps, sbx.LifecycleV3{Startup: startupHooks(in, !hasUp, envNames(cfg.Env))})
+		caps, err = sbx.WithLifecycle(caps, sbx.LifecycleV3{Startup: startupHooks(in, !hasUp, hookEnv(in, cfg.Env))})
 	}
 	if err != nil {
 		ui.Warnf("sandbox: the workload's capabilities could not be merged (%v)", err)
@@ -1452,6 +1452,15 @@ func envNames(env []string) []string {
 }
 
 // startupHooks are proveo's seed steps as lifecycle@1 startup hooks: they re-run on every boot, as the v2 startup did.
+// hookEnv is what proveo's seed hooks declare: every -e name, plus the gateway's when it is allowed.
+func hookEnv(in Input, env []string) []string {
+	names := envNames(env)
+	if in.MCPGateway {
+		names = append(names, sbx.MCPGatewayEnv, sbx.MCPSentinelEnv)
+	}
+	return names
+}
+
 func startupHooks(in Input, ownLaunch bool, env []string) []sbx.HookV3 {
 	var out []sbx.HookV3
 	for _, c := range startupCommands(in, ownLaunch) {

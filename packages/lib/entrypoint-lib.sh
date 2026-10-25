@@ -2653,6 +2653,19 @@ proveo_assert_shares() {
  return 1
 }
 
+# SPEC: _spec/internal/sbx/sbx-kit-v3.puml (HERMES AND THE MCP GATEWAY)
+# Registers sbx's MCP gateway in Hermes's config; Hermes expands the ${VAR}s itself at runtime.
+proveo_wire_hermes_mcp_gateway() {
+ local hermes
+ [[ "${1:-}" == hermes && -n "${MCP_GATEWAY_URL:-}" ]] || return 0
+ hermes="$(command -v hermes 2>/dev/null || echo /opt/hermes/.venv/bin/hermes)"
+ [[ -x "$hermes" ]] || return 0
+ # shellcheck disable=SC2016 # the ${VAR}s are Hermes's placeholders, written verbatim
+ HERMES_HOME="${HERMES_HOME:-/opt/data}" "$hermes" config set mcp_servers.mcp-gateway.url '${MCP_GATEWAY_URL}' >/dev/null 2>&1 || return 0
+ # shellcheck disable=SC2016
+ HERMES_HOME="${HERMES_HOME:-/opt/data}" "$hermes" config set mcp_servers.mcp-gateway.headers.Authorization 'Bearer ${MCP_SENTINEL_TOKEN_NAME}' >/dev/null 2>&1 || true
+}
+
 # SPEC: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
 # Merges proveo's top-level codex defaults into config.toml, above its first table.
 proveo_merge_codex_defaults() {
@@ -2751,6 +2764,10 @@ proveo_seed() {
  if [[ "$target" == codex ]]; then
   proveo_seed_step setup "merging Codex defaults" "$target"
   proveo_merge_codex_defaults || true
+ fi
+ if [[ "$target" == hermes ]]; then
+  proveo_seed_step setup "wiring sbx's MCP gateway into Hermes" "$target"
+  proveo_wire_hermes_mcp_gateway "$target" || true
  fi
 
  proveo_seed_step setup "installing hooks and rendering agents" "$target"

@@ -65,7 +65,8 @@ skinparam noteTextAlignment left
 ' internal/choiceui. If we only have on/off so be it for now"):
 '   * internal/run mcpRow sits right under egress, off | on, and shows only
 '     when sbx.OffersMCPGateway(target) — the kit has more hooks with the
-'     gateway than without (claudecode, codex, opencode; not cursor — MEASURED).
+'     gateway than without (claudecode, codex, opencode; not cursor — MEASURED);
+'     hermes never shows it: mcpGateway: always (below).
 '   * precedence: PROVEO_SBX_MCP (locks the row, names why) > the remembered
 '     answer (agentsettings Choice.MCP) > off.
 '   * the figure: "+ mcp" on the row under the "sbx proxy" hop label (user:
@@ -76,6 +77,25 @@ skinparam noteTextAlignment left
 '     DeclineMCPGateway read that, never the env (posture reads it too).
 '   Pinned by internal/run/mcp_row_test.go, TestOnlyKitsWithGatewayHooksOfferTheGateway
 '   and TestTheGatewayHooksFollowTheOperatorsChoice.
+'
+' ── HERMES AND THE MCP GATEWAY (2026-10-24, user: "Wire gateway always, show
+' + mcp") ──────────────────────────────────────────────────────────────────────
+' Hermes ships its own MCP client (`hermes mcp add/list/test`, catalog, serve)
+' but no published sbx kit, so no upstream hook registers sbx's gateway. So:
+'   * manifest capabilities.mcpGateway: always (defs/hermes) → Input.MCPGateway
+'     is true on every hermes run: MCP_GATEWAY_URL is never blanked, the posture
+'     reads allowed, the run screen draws "+ mcp" under the hop with no mcp row
+'     (topologyWith), and proveo's seed hook declares MCP_GATEWAY_URL and
+'     MCP_SENTINEL_TOKEN_NAME (hookEnv) — a hook sees only the env it names.
+'   * proveo_wire_hermes_mcp_gateway (entrypoint-lib.sh, after config restore)
+'     runs `hermes config set mcp_servers.mcp-gateway.url '${MCP_GATEWAY_URL}'`
+'     and `.headers.Authorization 'Bearer ${MCP_SENTINEL_TOKEN_NAME}'`, verbatim:
+'     Hermes interpolates ${VAR} in mcp_servers at runtime (tools/
+'     mcp_tool_config.py _interpolate_env_vars, MEASURED in v0.21.5), and
+'     `hermes mcp list` then shows mcp-gateway enabled. No gateway URL → no-op.
+'   MEASURED 2026-10-24 (TestHermesTakesSbxsMCPGateway, layer 5): with a probe
+'   loaded into a hermes sandbox's gateway, `hermes mcp test mcp-gateway` lists
+'   proveo_ping. The image bakes the lib: `proveo build hermes` makes it live.
 '
 ' ── MCP CONNECTION E2E (2026-10-24, user: "Add the sbx gateway row too") ─────
 ' e2e/mcp_connect_sbx_test.go, opt-in PROVEO_MCP_TEST=1. The oracle is a

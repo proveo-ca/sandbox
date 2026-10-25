@@ -35,6 +35,9 @@ const upstreamSkippedHook = "Seed Claude bypass/trust flags"
 
 const MCPGatewayEnv = "MCP_GATEWAY_URL"
 
+// MCPSentinelEnv names the bearer placeholder sbx's proxy swaps for the gateway token.
+const MCPSentinelEnv = "MCP_SENTINEL_TOKEN_NAME"
+
 type UpstreamOptions struct {
 	MCPGateway bool
 }
