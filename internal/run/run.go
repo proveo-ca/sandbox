@@ -737,8 +737,8 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 			}
 			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
 		}
-		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n", strings.Join(sbx.CreateArgs(cfg), " "),
-			strings.Join(sbx.RunArgs(sbx.Reattach(cfg)), " "))
+		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+			sbx.ShellJoin(sbx.RunArgs(sbx.Reattach(cfg))))
 		return nil
 	}
 	rs.AgentLaunched = true

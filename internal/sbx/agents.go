@@ -2,6 +2,7 @@
 package sbx
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -42,6 +43,20 @@ func IsShellLaunch(cmd []string) bool { return len(cmd) > 0 && cmd[0] == "-c" }
 // shellQuote makes one POSIX single-quoted word.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+var plainWord = regexp.MustCompile(`^[\w:./@=,+%-]+$`)
+
+// ShellJoin renders argv as one pasteable shell line, single-quoting each word that needs it.
+func ShellJoin(argv []string) string {
+	q := make([]string, len(argv))
+	for i, a := range argv {
+		q[i] = a
+		if !plainWord.MatchString(a) {
+			q[i] = shellQuote(a)
+		}
+	}
+	return strings.Join(q, " ")
 }
 
 func BuiltinAgent(target string) string { return builtinAgent[target] }

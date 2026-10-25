@@ -2,6 +2,7 @@
 package sbx
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -51,5 +52,22 @@ func TestShellLaunchKeepsExtraArguments(t *testing.T) {
 func TestShellQuoteClosesTheWord(t *testing.T) {
 	if got := shellQuote("a'b"); got != `'a'\''b'` {
 		t.Fatalf("quoting would break the script: %q", got)
+	}
+}
+
+func TestShellJoinRoundTripsThroughAShell(t *testing.T) {
+	argv := []string{"create", "-e", "GIT_AUTHOR_NAME=Ada Lovelace", "-e", "PROVEO_CONFIG_DIRS=.claude|.claude|jobs/*/tmp",
+		"-e", "Q=it's", "-e", "PLAIN=/a/b:c", "/w"}
+	line := ShellJoin(argv)
+	if strings.Contains(line, "'PLAIN=/a/b:c'") || strings.Contains(line, "'/w'") {
+		t.Errorf("plain words were quoted: %s", line)
+	}
+	out, err := exec.Command("sh", "-c", "set -- "+line+`; for a in "$@"; do printf '%s\n' "$a"; done`).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	if strings.Join(got, "\x00") != strings.Join(argv, "\x00") {
+		t.Errorf("a shell reads %q back as %q", line, got)
 	}
 }
