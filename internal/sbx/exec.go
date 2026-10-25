@@ -16,9 +16,6 @@ type CLI struct {
 	Version        func() ([]byte, error)
 	VersionJSON    func() ([]byte, error)
 	DockerMemTotal func() ([]byte, error)
-	TemplateList   func() ([]byte, error)
-	TemplateLoad   func(image string) error
-	TemplateRemove func(image string) error
 	PolicyLog      func(sandbox string) ([]byte, error)
 	MemoryEvidence func(sandbox string) ([]byte, error)
 	InspectPolicy  func() ([]byte, error)
@@ -71,10 +68,7 @@ func defaultCLI() CLI {
 		DockerMemTotal: func() ([]byte, error) {
 			return bounded("docker", "info", "--format", "{{.MemTotal}}")
 		},
-		TemplateList:   func() ([]byte, error) { return bounded(Binary, TemplateListArgs()...) },
-		TemplateRemove: func(image string) error { return exec.Command(Binary, TemplateRemoveArgs(image)...).Run() },
-		TemplateLoad:   templateLoadViaTar,
-		PolicyLog:      func(sandbox string) ([]byte, error) { return bounded(Binary, PolicyLogArgs(sandbox)...) },
+		PolicyLog: func(sandbox string) ([]byte, error) { return bounded(Binary, PolicyLogArgs(sandbox)...) },
 		MemoryEvidence: func(sandbox string) ([]byte, error) {
 			return boundedCombined(Binary, MemoryEvidenceArgs(sandbox)...)
 		},

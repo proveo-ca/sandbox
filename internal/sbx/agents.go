@@ -2,11 +2,8 @@
 package sbx
 
 import (
-	"os"
 	"sort"
 	"strings"
-
-	"github.com/proveo-ca/proveo/internal/envflag"
 )
 
 var builtinAgent = map[string]string{
@@ -14,19 +11,6 @@ var builtinAgent = map[string]string{
 	"codex":      "codex",
 	"cursor":     "cursor",
 	"opencode":   "opencode",
-}
-
-// ShellAgent is sbx's own shell agent, and it carries two jobs.
-const ShellAgent = "shell"
-
-func AgentFor(target string) (agent string, command []string) {
-	if a := builtinAgent[target]; a != "" {
-		return a, nil
-	}
-	if target == "" {
-		return "", nil
-	}
-	return ShellAgent, ShellLaunch(target, nil)
 }
 
 // ShellLaunch is how a def with NO built-in sbx agent gets launched, and the
@@ -61,17 +45,6 @@ func shellQuote(s string) string {
 }
 
 func BuiltinAgent(target string) string { return builtinAgent[target] }
-
-// EnvAgentKit set off makes a def without a built-in sbx agent borrow sbx's `shell` instead of `kind: sandbox`.
-const EnvAgentKit = "PROVEO_SBX_AGENT_KIT"
-
-func AgentKitEnabled() bool { return envflag.Bool(os.Getenv(EnvAgentKit), true) }
-
-// DeclaresOwnAgent reports whether THIS run should render a sandbox Kit
-// naming its own agent.
-func DeclaresOwnAgent(target string) bool {
-	return target != "" && BuiltinAgent(target) == "" && AgentKitEnabled()
-}
 
 func SbxTargets() []string {
 	out := make([]string, 0, len(builtinAgent))

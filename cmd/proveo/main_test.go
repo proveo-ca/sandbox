@@ -422,26 +422,14 @@ func TestSandboxSpecOmitsSuppressedCredentials(t *testing.T) {
 	}
 }
 
-func TestMCPGatewayIsDeclinedByDefault(t *testing.T) {
-	t.Setenv("PROVEO_SBX_MCP", "")
-	got := sandbox.WithMCPGatewayPolicy(map[string]string{"HOME": "/proveo-home"})
-	v, ok := got[sandbox.MCPGatewayVar]
-	if !ok || v != "" {
-		t.Errorf("%s = %q (present=%v), want an explicit empty value — that is what makes sbx's `[ -n ... ] || exit 0` no-op", sandbox.MCPGatewayVar, v, ok)
-	}
-	if got["HOME"] != "/proveo-home" {
-		t.Error("declining the gateway must not disturb the rest of the environment")
-	}
-	// A nil map is the ordinary case for a run that resolved no variables.
-	if got := sandbox.WithMCPGatewayPolicy(nil); got[sandbox.MCPGatewayVar] != "" {
-		t.Error("a nil environment must still carry the decline")
-	}
-}
-
-func TestMCPGatewayCanBeAllowed(t *testing.T) {
+func TestMCPGatewayIsDeclinedUnlessAllowed(t *testing.T) {
 	t.Setenv("PROVEO_SBX_MCP", "on")
-	if got := sandbox.WithMCPGatewayPolicy(map[string]string{"HOME": "/proveo-home"}); len(got) != 1 {
-		t.Errorf("PROVEO_SBX_MCP=on must leave the environment untouched, got %v", got)
+	got := sandbox.DeclineMCPGateway(false, []string{"HOME=/proveo-home"})
+	if !slices.Contains(got, sandbox.MCPGatewayVar+"=") || !slices.Contains(got, "HOME=/proveo-home") {
+		t.Errorf("declined: env = %v, want an explicit empty %s beside the rest — that is what makes sbx's `[ -n ... ] || exit 0` no-op; the env var must not decide", got, sandbox.MCPGatewayVar)
+	}
+	if got := sandbox.DeclineMCPGateway(true, []string{"HOME=/proveo-home"}); len(got) != 1 {
+		t.Errorf("allowed: env = %v, want it untouched", got)
 	}
 }
 

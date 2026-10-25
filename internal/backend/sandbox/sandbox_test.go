@@ -4,7 +4,6 @@ package sandbox
 import (
 	"errors"
 	"net"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -301,23 +299,6 @@ func TestPrintIDEAttachLiveOpensTheInterfaceSection(t *testing.T) {
 	}
 	if strings.Contains(got, "------ starting ------") {
 		t.Errorf("live attach drew the starting heading instead of interface:\n%s", got)
-	}
-}
-
-func TestKitEnvVarsCarriesTheChromeBridgeToken(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "cb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	r, err := chromebridge.Start("127.0.0.1:0", dir, func(string, ...any) {})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = r.Close() })
-	vars := KitEnvVars(r.ResolvedEnv())
-	if vars[chromebridge.EnvAddr] != r.ContainerAddr() || vars[chromebridge.EnvToken] != r.Token() {
-		t.Fatalf("Kit variables = %v: the seed refuses %s without %s", vars, chromebridge.EnvAddr, chromebridge.EnvToken)
 	}
 }
 

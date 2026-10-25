@@ -599,7 +599,7 @@ func assembleEnv(rs *Spec, p *Params, d Deps) {
 
 // launchSandbox resolves the clone and add-ons, then runs the agent in sbx (or prints the plan).
 func launchSandbox(rs *Spec, p *Params, d Deps) error {
-	if !p.PrintOnly && d.PreflightImages != nil && !sbx.HasTemplate(p.Image) {
+	if !p.PrintOnly && d.PreflightImages != nil {
 		image, err := d.PreflightImages(rs.Man, p.Image)
 		if err != nil {
 			return err

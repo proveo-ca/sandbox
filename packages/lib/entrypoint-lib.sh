@@ -2541,18 +2541,6 @@ _proveo_persist_tool_env() {
 }
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml
-# True inside an sbx sandbox.
-_proveo_in_sbx() {
- [[ -n "${SANDBOX_NAME:-}" || -n "${SANDBOX_ID:-}" || -n "${SANDBOX_VM_ID:-}" ]]
-}
-
-# sbx keeps the image ENTRYPOINT and hands it its keepalive; act as tini there.
-proveo_sbx_passthrough() {
- _proveo_in_sbx && [[ "${1:-}" == sh && "${2:-}" == -c ]] || return 0
- case "${3:-}" in *"sleep infinity"*) exec "$@" ;; esac
-}
-
-# SPEC: _spec/packages/lib/seed-and-launch.puml
 PROVEO_INSTRUCTIONS_MARKER="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 PROVEO_HOOKS_MARKER="${PROVEO_HOOKS_MARKER:-/dev/shm/proveo-hooks-seeded}"
 

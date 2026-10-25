@@ -158,7 +158,7 @@ func TestChromeBridgeLaunchesClaudeWithTheChromeFlag(t *testing.T) {
 	if got := withChromeFlag(claude, nil, []string{"-p", "hi"}); strings.Join(got, " ") != "-p hi" {
 		t.Errorf("no bridge must leave the args alone, got %v", got)
 	}
-	if got := withChromeFlag(sbx.ShellAgent, bridge, []string{"-c", "x"}); strings.Join(got, " ") != "-c x" {
+	if got := withChromeFlag("proveo-cecli", bridge, []string{"-c", "x"}); strings.Join(got, " ") != "-c x" {
 		t.Errorf("a non-claude agent got --chrome: %v", got)
 	}
 	if got := withChromeFlag(claude, bridge, []string{"--chrome", "-p", "hi"}); strings.Join(got, " ") != "--chrome -p hi" {

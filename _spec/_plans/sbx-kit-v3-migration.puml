@@ -229,6 +229,24 @@ skinparam noteTextAlignment left
 '   LAUNCH "create, then run": `sbx create` (hooks finish, P5) then
 '      `sbx run --name`; proveo-await-seed is a safety net, not the gate.
 '
+' ── STEP 8 DELETIONS (2026-10-24, "prefer using upstream, delete proveo code") ─
+'   DONE: proveo_sbx_passthrough + _proveo_in_sbx + the six entrypoint calls
+'     (v3 PID 1 is sbx's keepalive, P7; the keepalive test went, the
+'     await-seed identity test stayed); WithMCPGatewayPolicy; KitEnvVars;
+'     OwnAgentCommand; AgentFor, ShellAgent, EnvAgentKit/AgentKitEnabled/
+'     DeclaresOwnAgent + PROVEO_SBX_AGENT_KIT; the v2 Kit/KitCredential*/
+'     KitEnv/KitSetup/KitSandbox*/KitPermissions/KitNet types, WriteKit,
+'     KitSchemaVersion(V2); template.go whole (EnsureTemplate, ReloadTemplate,
+'     HasTemplate, receipts) + PROVEO_SBX_RELOAD + the CLI template hooks —
+'     the recipe's FROM resolves from the host engine (P2), so launchSandbox
+'     preflights the image on every run instead of asking sbx's store.
+'   KEPT: KitCommand (the hook intermediate SeedCommand returns), BuiltinAgent
+'     (agent identity: claudecode → claude for auth and --chrome).
+'   MEASURED: `sbx kit validate --offline <workload dir>` refuses a v3 source
+'     kit ("no kit builder configured"); validation needs the daemon's builder.
+'   OPEN: the e2e suite (ladder, sbx_test kit-shape tests, startup_dispatch,
+'     two probes) still speaks v2 — pending the operator's call.
+'
 ' ── ORDER OF WORK ──────────────────────────────────────────────────────────
 '   1 probes P1–P5 → record results here (MEASURED)
 '   2 user decisions on Q1–Q3

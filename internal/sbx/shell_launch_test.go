@@ -6,13 +6,10 @@ import (
 	"testing"
 )
 
-func TestShellAgentCommandIsFlagLeading(t *testing.T) {
-	agent, cmd := AgentFor("cecli")
-	if agent != ShellAgent {
-		t.Fatalf("cecli has no built-in sbx agent, so it must run under %q, got %q", ShellAgent, agent)
-	}
+func TestShellLaunchIsFlagLeading(t *testing.T) {
+	cmd := ShellLaunch("cecli", nil)
 	if len(cmd) == 0 {
-		t.Fatal("a shell-agent def needs a COMMAND — without one sbx opens a bare login shell")
+		t.Fatal("a bash launch needs a COMMAND — without one bash opens a bare login shell")
 	}
 	if !strings.HasPrefix(cmd[0], "-") {
 		t.Fatalf("command %q is a bare word: sbx would drop `-l` and run `bash %s`, "+
@@ -26,8 +23,7 @@ func TestShellAgentCommandIsFlagLeading(t *testing.T) {
 // The shebang is only consulted on exec, so a launch that merely NAMES the
 // binary reintroduces the bug in a different spelling.
 func TestShellLaunchExecsRatherThanSourcing(t *testing.T) {
-	_, cmd := AgentFor("cecli")
-	script := cmd[1]
+	script := ShellLaunch("cecli", nil)[1]
 	if !strings.Contains(script, "exec ") {
 		t.Fatalf("launch script never execs, so the interpreter line is still ignored: %q", script)
 	}
@@ -49,20 +45,6 @@ func TestShellLaunchKeepsExtraArguments(t *testing.T) {
 	}
 	if got := cmd[len(cmd)-2:]; got[0] != "--version" || got[1] != "--help" {
 		t.Fatalf("extras did not survive: %q", cmd)
-	}
-}
-
-// Built-in agents carry their own launch; adding a command there is what made
-// opencode run `opencode opencode` and exit.
-func TestBuiltinAgentsCarryNoCommand(t *testing.T) {
-	for _, target := range []string{"claudecode", "cursor", "opencode"} {
-		agent, cmd := AgentFor(target)
-		if agent == ShellAgent || agent == "" {
-			t.Fatalf("%s has a built-in sbx agent, got %q", target, agent)
-		}
-		if len(cmd) != 0 {
-			t.Fatalf("%s: built-in agent already launches itself, extra command %q duplicates it", target, cmd)
-		}
 	}
 }
 

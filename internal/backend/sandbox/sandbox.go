@@ -1465,35 +1465,9 @@ func startupHooks(in Input, ownLaunch bool, env []string) []sbx.HookV3 {
 	return out
 }
 
-// OwnAgentCommand is an own-agent Kit's trailing command. sbx replaces the
-// entrypoint's part after `--` with trailing args, so that part leads them.
-// SPEC: _spec/internal/sbx/sbx-kit-contract.puml
-func OwnAgentCommand(entrypoint, extra []string) []string {
-	if len(extra) == 0 {
-		return extra
-	}
-	for i, a := range entrypoint {
-		if a == "--" && i+1 < len(entrypoint) {
-			return append(append([]string{}, entrypoint[i+1:]...), extra...)
-		}
-	}
-	return extra
-}
-
 // MCPGatewayVar is the variable sbx's built-in agent kits gate their MCP
 // registration on.
 const MCPGatewayVar = "MCP_GATEWAY_URL"
-
-func WithMCPGatewayPolicy(vars map[string]string) map[string]string {
-	if MCPGatewayAllowed() {
-		return vars
-	}
-	if vars == nil {
-		vars = map[string]string{}
-	}
-	vars[MCPGatewayVar] = ""
-	return vars
-}
 
 func DeclineMCPGateway(allowed bool, env []string) []string {
 	if allowed {
@@ -1550,21 +1524,6 @@ func withMobileMCP(harness string, env, command []string) []string {
 		}
 	}
 	return append(append([]string{}, flags...), command...)
-}
-
-func KitEnvVars(env []string) map[string]string {
-	out := map[string]string{}
-	for _, e := range env {
-		k, v, ok := strings.Cut(e, "=")
-		if !ok || k == "" || v == "" {
-			continue
-		}
-		out[k] = v
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func Run(in Input) error {
