@@ -109,12 +109,9 @@
 '    consent for a different thing.
 '
 ' 3. THE TIER GATE OUTLIVED THE SIDECAR IT WAS WRITTEN FOR. `gateAddons` lost
-'    its dind arm but not its job: it governed the Claude in Chrome bridge on
-'    the DOCKER backend, where an intercepting tier left the agent no route to
-'    the host. MEASURED 2026-10-16: the tier is gone, and gateAddons greys
-'    claude-in-chrome on every sbx run with chromebridge.SbxWhy ("needs a real
-'    Claude token — sbx keeps it proxy-managed and the Chrome bridge rejects
-'    the sentinel (401)"). chromebridge.TierSupported/TierWhy are deleted.
+'    its dind arm; the tier is gone (MEASURED 2026-10-16). The Claude in Chrome
+'    add-on it last governed was removed on 2026-10-24 (user: "Remove the
+'    claude-in-chrome option for claude … leave it only agent-browser").
 '
 ' 4. HISTORY — `PROVEO_DIND` SAID SO RATHER THAN STAYING SILENT. Its whole job
 '    was the warning, for an operator who exported it months ago. The warning
@@ -200,7 +197,6 @@ component "sbx sandbox\na daemon per sandbox, behind a policy" as SBX <<app>>
 folder "what this costs, and to whom" as COST <<host>> {
   component "review tier\nneeds proveo's MITM; sbx has none" as REV <<error>>
   component "flow-level analytics\nflows.ndjson -> sbx policy log" as OBS <<error>>
-  component "claude-in-chrome\ngreyed on sbx (SbxWhy) since 2026-10-16" as CHR <<error>>
 }
 
 GATE ARROW_MAIN DIND
@@ -209,7 +205,6 @@ CE ARROW_MAIN SBX
 DIND ARROW_ERROR SBX : deleted, not replaced
 SBX ARROW_ERROR REV
 SBX ARROW_ERROR OBS
-SBX ARROW_ERROR CHR : no working path today
 
 note bottom of DIND
   **It is privileged, and it is reachable.** A
@@ -283,7 +278,6 @@ note bottom of OBS
   so that gap is structural, not a setting.
 end note
 
-note bottom of CHR
   **The network was never the cost; the token
   is.** host.docker.internal reaches the host's
   loopback from a sandbox, but the bridge needs a

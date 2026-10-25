@@ -12,7 +12,8 @@
 ' (defs/lib/, defs/cecli/proveo-lib/, defs/claudecode/mcp/proveo-lib/) are
 ' deleted, and so are the now-empty defs/lib/ and defs/cecli/proveo-lib/
 ' (internal/contract/defaults_test.go TestDeadHostLibsRemoved).
-' defs/claudecode/mcp/proveo-lib/ stays for chrome-bridge.js. Every def
+' defs/claudecode/mcp/proveo-lib/ went with the Claude in Chrome bridge
+' (2026-10-24). Every def
 ' entrypoint that prints the block (codex, opencode, cursor, cecli,
 ' claudecode/mcp) runs it only `if command -v proveo-entrypoint`; the
 ' `elif … detect-verify` fallbacks and the lib COPY lines (codex, opencode,

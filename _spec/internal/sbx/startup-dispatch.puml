@@ -96,13 +96,6 @@ skinparam noteTextAlignment left
 ' step ends the start. internal/imagetest/cecli_test.go runs the Kit's own
 ' argv in the image under su's PATH and requires cecli's "seed-only" line.
 '
-' The chrome bridge moved BEFORE the release. It needs only node, which the
-' image bakes, takes at most 3s, and writes hasCompletedClaudeInChromeOnboarding
-' into ~/.claude.json with a plain read-then-write. After the release that write
-' would race Claude Code's own writes to the same file, and the onboarding
-' dialog it suppresses is one no automation answers
-' (_spec/defs/claudecode/chrome-bridge.puml).
-'
 ' The gate the agent waits on stays proveo's own: proveo-await-seed polls the
 ' release marker for PROVEO_INSTRUCTIONS_WAIT (30s). The docs make that gate
 ' necessary, since no startup step holds the agent. Step 1 therefore has to

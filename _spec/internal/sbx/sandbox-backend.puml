@@ -193,10 +193,9 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' covers: packages/lib/entrypoint-lib.sh (bridge_google_keys, _proveo_in_sbx, proveo_sbx_passthrough)
 ' covers: packages/lib/proveo-await-seed (_proveo_in_sbx)
 ' covers: internal/contract/env_prelude_test.go
-' covers: internal/contract/sbx_passthrough_test.go (TestBothSbxSitesDetectSbxByAnyIdentityVariable)
+' covers: internal/contract/await_seed_sbx_test.go (TestAwaitSeedDetectsSbxByAnyIdentityVariable)
 ' covers: e2e/sbx_test.go (the refusal tests)
 ' covers: e2e/idle_test.go
-' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
 ' covers: internal/credentials/credentials.go (AgentTranscript, agentTranscriptDirs)
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml

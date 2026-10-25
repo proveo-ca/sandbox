@@ -596,24 +596,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/defs/claudecode/chrome-bridge.puml",
-      "covers": [
-        "internal/chromebridge/**",
-        "defs/claudecode/mcp/proveo-lib/chrome-bridge.js",
-        "packages/lib/entrypoint-lib.sh",
-        "internal/run/choices.go",
-        "internal/run/run.go",
-        "internal/backend/sandbox/sandbox_test.go",
-        "internal/chromebridge/chromebridge_test.go",
-        "internal/entrypoint/parity_test.go",
-        "internal/contract/browser_layer_test.go",
-        "e2e/chrome_bridge_sbx_test.go",
-        "e2e/claude_in_chrome_test.go",
-        "internal/imagetest/claudecode_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/defs/claudecode/claudecode-paradigm.puml",
       "covers": [
         "defs/claudecode/mcp/entrypoint.sh",
@@ -1369,7 +1351,6 @@
         "internal/contract/await_seed_sbx_test.go",
         "e2e/sbx_test.go",
         "e2e/idle_test.go",
-        "e2e/chrome_bridge_sbx_test.go",
         "cmd/proveo/golden_test.go",
         "internal/credentials/credentials.go"
       ],

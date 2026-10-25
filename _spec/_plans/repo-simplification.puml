@@ -81,8 +81,8 @@
 '     and sidecar paths are absent; a grep for proveo-egress, egressProxyImage, SquidConfig,
 '     DockerSpec and BrokerFile outside _spec/ finds only the stagecdn_test fixture name and
 '     the "proveo-egress-probe.invalid" probe host.
-'   Residue (MEASURED): internal/run/run.go startChromeBridge still takes `tierBlocked` and
-'     is always passed chromebridge.SbxWhy (F16); live env names still carry "EGRESS" (F17).
+'   Residue (MEASURED): live env names still carry "EGRESS" (F17); the startChromeBridge
+'     residue (F16) went with the bridge (F14, 2026-10-24).
 '     Cleared since (wt, 2026-10-17): the parameter is `blocked` (F16) and the variables and run
 '     dir are renamed (F17, N13).
 '     Cleared since the first D1 read (MEASURED, wt): internal/choiceui/consent.go and its
@@ -156,7 +156,7 @@
 '   all three (Recommended)".
 '   Evidence: MEASURED. No detect-verify.sh exists; defs/lib/ and defs/cecli/proveo-lib/ are gone
 '     (TestDeadHostLibsRemoved, internal/contract/defaults_test.go:137); defs/claudecode/mcp/
-'     proveo-lib/chrome-bridge.js stays (claudecode/mcp/Dockerfile:106 still copies that dir). No
+'     proveo-lib/ went with the Claude in Chrome bridge (F14, 2026-10-24). No
 '     entrypoint or Dockerfile names detect-verify; codex_test.go:101 and cursor_test.go:90 now
 '     assert "proveo-entrypoint (verification commands) is baked" with `command -v
 '     proveo-entrypoint`. Spec: _spec/internal/verify/verification-discovery.puml.
@@ -313,12 +313,9 @@
 '     test-e2e-full (:103) depend on it; TestOneImageTaskGatesBothReleaseGates
 '     (base_template_test.go:237). Spec: _spec/_devops/release-gate.puml.
 ' N18 · Exported API kept alive only by its own tests — DONE (wt), option 1.
-'   Evidence: MEASURED. credentials.HasUsableAuth (with TestHasUsableAuthCountsProviderKeys),
-'     chromebridge Relay.Env() and SetTokenEnv() and entrypoint.NormalizeModel (with N1) are absent;
-'     startChromeBridge returns *chromebridge.Relay (run.go:285) and the sbx path uses ResolvedEnv
-'     (:655). Reported: Close no longer unsets the token, and the chromebridge test asserts the relay
-'     never exports its token into the host process. Specs: _spec/defs/claudecode/chrome-bridge.puml,
-'     _spec/internal/credentials/credential-decisions.puml.
+'   Evidence: MEASURED. credentials.HasUsableAuth (with TestHasUsableAuthCountsProviderKeys) and
+'     entrypoint.NormalizeModel (with N1) are absent; the chromebridge pieces went with F14
+'     (2026-10-24). Spec: _spec/internal/credentials/credential-decisions.puml.
 ' FIXES AFTER THE ADVERSARIAL REVIEW of this batch (all (wt), MEASURED unless marked):
 '   SEC2 — the skipped-link notice never printed on a real run: run.go prepares HomeAccess, and
 '     the Notef sat inside sandbox.Run's own-prepare branch. Now noteSkippedLinks(a HomeAccess)
@@ -332,7 +329,7 @@
 '     TestAStaleManifestKeyFailsLoading asserts the hint. Reported: e2e
 '     assertDockerServerReachable and the defs/base/Dockerfile comment no longer name `docker: sbx`.
 '   Doc comments (reported): reportCredentialGaps' and recordOutcome's moved onto their funcs in
-'     run.go; chromebridge's package comment and linkedDirs' comment repaired.
+'     run.go; linkedDirs' comment repaired.
 '   Verification (reported): image suites rebuilt from the tree (`proveo build all`) — all 7
 '     TestImage* PASS (19 live-API skips), so the N1/F18/N12 image behaviour is now measured in an
 '     image; unit and e2e show only T1's 2 known failures; vet clean for every tag plus darwin and
@@ -354,9 +351,7 @@
 '     mount, the list as a file). Specs: _spec/internal/sbx/ide-attach.puml,
 '     _spec/internal/manifest/harness-manifest-schema.puml.
 ' F16 · startChromeBridge's `tierBlocked` — DONE (wt), option 2 (the user: "Rename to blocked").
-'   Evidence: MEASURED. startChromeBridge(rs, p, blocked string) (run.go:285); the guard stays
-'     (:291) and launchSandbox still passes chromebridge.SbxWhy (:651). F14 and N21 stay PROPOSED.
-'     Spec: _spec/defs/claudecode/chrome-bridge.puml.
+'   Moot since F14 removed the bridge and startChromeBridge with it (2026-10-24).
 ' N20 · The picker promised a daemon to `daemon: false` — DONE (wt), option 1.
 '   Evidence: MEASURED. choices.go addonHelpFor(man) (:512-518) clones addonHelp; for
 '     !man.WantsDocker() the sandbox help reads "a microVM (sbx) with no Docker daemon for the
@@ -454,7 +449,7 @@
 '   The user's rulings on refused blocks: Node and cecli — the code was measured (the nodejs.org
 '     tarball; the proveo_exec_agent PATH probe) and base-image-layers.puml and cecli-paradigm.puml
 '     were corrected; Chrome env-token scope — "Record as open, strip (Recommended)"
-'     (chrome-bridge.puml OPEN QUESTION); codex static docker — "Delete the layer (Recommended)":
+'     (moot since F14 removed the bridge); codex static docker — "Delete the layer (Recommended)":
 '     the RUN is gone and codex joined harnessDockerfiles, so TestNoHarnessImageShipsDockerBinaries
 '     guards it (red before, green after; image-size-reduction.puml Cut 4, codex-topology.puml).
 '   HELD OPEN — the opencode plain-secret 401, the user: "Re-measure first".
@@ -713,7 +708,7 @@
 '   internal/imagetest/pin.go PinVar/PinnedRef (MEASURED here; moved from e2e/testimage after the
 '   review, so internal/ imports nothing from e2e/). It folds PROVEO_TEST_IMAGE,
 '   PROVEO_TEST_IMAGE_<T>, PROVEO_TEST_HERMES_IMAGE (name kept), PROVEO_E2E_OPENCODE_IMAGE,
-'   PROVEO_CHROME_BRIDGE_IMAGE, PROVEO_HOST_ADB_IMAGE, IMAGE, STANDALONE_IMAGE, MCP_IMAGE, SOL_IMAGE,
+'   PROVEO_HOST_ADB_IMAGE, IMAGE, STANDALONE_IMAGE, MCP_IMAGE, SOL_IMAGE,
 '   BROWSER_IMAGE, CURSOR_BROWSER_IMAGE, OPENCODE_BROWSER_IMAGE and the test-side read of
 '   PROVEO_CECLI_IMAGE. PROVEO_OPENCODE_V2_IMAGE stays: it pins v2.0.25 for an offline check.
 '   imagetest.Resolve(target, ref) returns a pin as given — it no longer swaps a pinned :latest
@@ -910,25 +905,14 @@
 '     2. Keep every docker sweep permanently.
 '     3. Delete all docker sweeps now; name `docker volume rm` in the release notes.
 '
-' F14 · The claude-in-chrome add-on is unreachable — PROPOSED (removal). (F16 renamed the
-'     `tierBlocked` parameter to `blocked` 2026-10-17; the name below is first-read.)
-'   Evidence: MEASURED. gateAddons (internal/run/choices.go) always greys claude-in-chrome:
-'     chromeWhy when set, else chromebridge.SbxWhy.
-'   Evidence: MEASURED. launchSandbox passes chromebridge.SbxWhy as startChromeBridge's
-'     tierBlocked, so the relay never starts; the docker path that held a real token is deleted.
-'   Evidence: MEASURED. Still compiled: internal/chromebridge (relay, ScopeGate, SetTokenEnv,
-'     bare-name Env), chrome-bridge.js, the seed's relay start, e2e/claude_in_chrome_test.go,
-'     e2e/chrome_bridge_sbx_test.go. _spec/defs/claudecode/chrome-bridge.puml records why.
-'   Env names (2026-10-18 env audit): option 1 also retires PROVEO_CHROME_BRIDGE, _TOKEN, _JS
-'     and PROVEO_CHROME_READY; the audit files no separate finding for them (N27-N33). The test
-'     knob PROVEO_CHROME_BRIDGE_IMAGE is folded into PROVEO_TEST_<TARGET>_IMAGE by N31.
-'   Options:
-'     1. [rec] Remove the add-on, internal/chromebridge and the in-image relay; keep the spec
-'        as the record of what sbx would need (a real token in the VM, or a host launch).
-'     2. Keep the code; drop only the dead docker-era parts (SetTokenEnv, bare-name Env,
-'        the tierBlocked parameter).
-'     3. Keep as is until host-execution-fallback.puml is decided.
-'
+' F14 · The claude-in-chrome add-on is unreachable — DONE 2026-10-24, option 1 (user: "Remove
+'     the claude-in-chrome option for claude, cleanup everything related to it in _spec, leave it
+'     only agent-browser"). internal/chromebridge, chrome-bridge.js and proveo-lib/, the seed's
+'     proveo_chrome_bridge, the --chrome launch flag, BridgeEnv, the add-on and its gates, the
+'     PROVEO_CHROME_BRIDGE/_TOKEN/_JS/_READY names, both e2e files and their tests are deleted;
+'     _spec/defs/claudecode/chrome-bridge.puml with them. A cached `claude-in-chrome` add-on is
+'     dropped on read (normalizeAddons). claudecode's browser is agent-browser only.
+
 ' F15 · "proveo home: … (mounted at /proveo-home)" is stale on sbx — DONE (wt) 2026-10-17, option 1
 '     (see DONE).
 '   Evidence: MEASURED. internal/run/run.go:448 prints the HomePlan root "mounted at"
@@ -942,9 +926,7 @@
 '     3. Keep it; document the difference in proveo-home-components.puml.
 '
 ' F16 · startChromeBridge keeps a `tierBlocked` parameter for a tier that no longer exists — DONE (wt)
-'     2026-10-17, option 2, "Rename to blocked" (see DONE, third batch).
-'   Evidence: MEASURED. internal/run/run.go startChromeBridge(rs, p, tierBlocked); its one
-'     caller passes chromebridge.SbxWhy.
+'     2026-10-17, option 2, "Rename to blocked" (see DONE, third batch); moot since F14 (2026-10-24).
 '   Options:
 '     1. [rec] Fold into F14 option 1.
 '     2. Rename the parameter to `blocked` and keep the guard.
@@ -1210,7 +1192,7 @@
 '   Evidence: MEASURED. imagetest asserts the fallback: cursor_test.go:91, codex_test.go:102.
 '   Options:
 '     1. [rec] Delete all three copies, the elif branches, the COPY lines and the fallback asserts;
-'        keep claudecode's proveo-lib/chrome-bridge.js.
+'        keep claudecode's proveo-lib/ (since removed with F14).
 '     2. Keep defs/lib/ only; delete the two per-def copies.
 '     3. Keep as is.
 '
@@ -1407,9 +1389,7 @@
 '     workspace.MaterializeDeps/DepCopyPolicy (F9) share the pattern.
 '   UPDATE 2026-10-17 (MEASURED): MaterializeDeps and DepCopyPolicy are gone with F9, and
 '     DockerRunArgs/Hardening with F12b. Still open: credentials.HasUsableAuth,
-'     entrypoint.NormalizeModel, chromebridge SetTokenEnv and the bare-name Env().
-'   Evidence: MEASURED. chromebridge SetTokenEnv and the bare-name Env() serve only the docker
-'     `-e NAME` form; the sbx path uses ResolvedEnv (internal/run/run.go:648).
+'     entrypoint.NormalizeModel; the chromebridge pieces went with F14 (2026-10-24).
 '   DONE 2026-10-16 (MEASURED, wt): choiceui.Consent (internal/choiceui/consent.go) — the
 '     review tier's connection modal, left with no non-test caller — is deleted with its test;
 '     drawBorder moved to blocked_run.go and the `rendered` helper to render_test.go.
@@ -1444,19 +1424,8 @@
 '     2. Also stop starting the daemon in images that declare `daemon: false` (a Kit/label change).
 '     3. Delete `daemon:` and WantsDocker; the e2e matrix reads the image label instead.
 '
-' N21 · The Claude-in-Chrome bridge path is unreachable under sbx — PROPOSED.
-'   Evidence: MEASURED. internal/run/run.go:651 passes the constant chromebridge.SbxWhy as
-'     startChromeBridge's tierBlocked, and gateAddons greys the add-on with the same SbxWhy
-'     (choices.go:254), so chromeUnavailable (choices.go:268), chromebridge.Start, ResolvedEnv
-'     (run.go:655) and sandbox.Input.BridgeEnv (sandbox.go:1042,1189,1279) never carry a value.
-'   Overlaps F14 (remove the add-on) and F16 (the tierBlocked parameter); this is the decision
-'     both waited on. F16 is DONE (renamed `blocked`, guard kept), so only F14 waits now.
-'   Env names: the Chrome PROVEO_* names go with this decision (see F14; 2026-10-18 env audit).
-'   Options:
-'     1. [rec] Decide whether Claude-in-Chrome under sbx is retired; if so, delete the dead path
-'        (F14 option 1 with F16 folded in).
-'     2. Keep the path for a future real-token route; collapse it behind one guard.
-'     3. Keep as is.
+' N21 · The Claude-in-Chrome bridge path is unreachable under sbx — DONE 2026-10-24 with F14
+'     option 1: the dead path is deleted.
 '
 ' N22 · Smoke mode cannot fire from any def entrypoint — DONE (wt) 2026-10-17, option 1 (see DONE,
 '     third batch, final pass).
@@ -1546,8 +1515,8 @@
 '   and PROVEO_SMOKE_READY; the marker strings PROVEO_RC_START/END, PROVEO_RULES_START/END and
 '   PROVEO_ANDROID_START/END; the heredoc delimiter PROVEO_JDTLS; the private shell variable
 '   _PROVEO_TOOL_HOME.
-' The Chrome names (PROVEO_CHROME_BRIDGE, _TOKEN, _JS, _IMAGE and PROVEO_CHROME_READY) belong to
-'   F14 and N21, which carry a cross-reference; they get no finding here.
+' The Chrome names (PROVEO_CHROME_BRIDGE, _TOKEN, _JS, _IMAGE and PROVEO_CHROME_READY) went with
+'   F14 (2026-10-24).
 '
 ' N27 · Env fallbacks nothing sets — DONE (wt) 2026-10-18, option 1 (added the same day, env
 '     audit; see DONE, fifth batch).
@@ -1619,11 +1588,10 @@
 '     batch).
 '   Evidence: MEASURED that each exists: PROVEO_TEST_IMAGE, PROVEO_TEST_HERMES_IMAGE and
 '     PROVEO_E2E_OPENCODE_IMAGE (e2e/); PROVEO_OPENCODE_V2_IMAGE
-'     (internal/contract/opencode_v2_test.go:435); PROVEO_CHROME_BRIDGE_IMAGE and
-'     PROVEO_HOST_ADB_IMAGE (e2e/); `IMAGE=` for `mise run test-defs` (defs/codex/README.md); plus
+'     (internal/contract/opencode_v2_test.go:435); PROVEO_HOST_ADB_IMAGE
+'     (e2e/); `IMAGE=` for `mise run test-defs` (defs/codex/README.md); plus
 '     the build-side PROVEO_<TARGET>_IMAGE family (env-registry.puml).
 '   [Inference] They do the same job; this pass did not check each one's exact meaning.
-'   Overlap: PROVEO_CHROME_BRIDGE_IMAGE goes with F14 if the add-on is removed.
 '   Options:
 '     1. [rec] Measure each, then fold them into one family (e.g. PROVEO_TEST_<TARGET>_IMAGE) read
 '        through one helper.
@@ -1752,7 +1720,7 @@
 '  4. The prelude remnants — ALL DONE (wt) 2026-10-17: N1, N4, N7, F7, F18, then N2 + N22 + N23 +
 '     N24 (bridge machinery, the unreachable smoke mode, the duplicate Google bridge, the shell/Go
 '     twins; hermes now ships prep). Image builds for N24 [Unverified] at recording time.
-'  5. N21 (decides F14) — the Go residue D1 leaves behind (F9, F10, F11, F15, F17, F19,
+'  5. N21 + F14 — DONE 2026-10-24 (the bridge removed). The Go residue D1 left behind (F9, F10, F11, F15, F17, F19,
 '     F20 and N18 DONE; F16, N20 and N13 DONE (wt) 2026-10-17, third batch; N25 DONE (wt)
 '     2026-10-18, fourth batch).
 '  6. T1 — hermetic contract tests (N12 DONE (wt) 2026-10-17: one image task, hermes in the gate).
@@ -1778,7 +1746,7 @@ component "D2 · OpenCode engine-local DB\nDONE (wt) 2026-10-17 · keeper gone" 
 component "F6 · .env guard rekey\nDONE (wt) inside D1;\nthe guard itself deleted by N7" as F6 <<app>>
 component "security\n(SEC1 SEC2 SEC3 SEC4 DONE)" as SEC <<error>>
 component "image prelude\n(N1 N2 N3 N4 N7 N22 N23 N24\nF7 F18 DONE)" as PRE <<app>>
-component "post-D1 Go residue\nF14 N21\n(C1 F9 F10 F11 F15 F16 F17 F19 F20\nN13 N18 N20 N25 DONE)" as GO <<app>>
+component "post-D1 Go residue\n(C1 F9 F10 F11 F14 F15 F16 F17 F19 F20\nN13 N18 N20 N21 N25 DONE)" as GO <<app>>
 queue "test gates · T1\nhermetic contract tests\n(N12 DONE)" as TST <<async>>
 database "spec hygiene · N11\nfix drift\n(N10 N14 DONE; 3 N14 blocks held)" as SPEC <<db>>
 component "helpers + splits\nN15 N19\n(N5 N6 N8 N9 N16 N17 N26 DONE)" as HLP <<app>>
@@ -1810,7 +1778,7 @@ legend bottom
   SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added;
   third batch: SEC1, SEC4, F16, N20, N13, N5, N10 DONE, then N2, N22, N23, N24, N14 DONE;
   N26 added; 2026-10-18 fourth batch: N6, N8, N9, N16, N25, N26 DONE; PROVEO_* env
-  audit: N27-N33 added; fifth batch: N27-N33 DONE, N34-N38 added. Still PROPOSED:
-  F14, T1, N11, N15, N19, N21, N34-N38)
+  audit: N27-N33 added; fifth batch: N27-N33 DONE, N34-N38 added; 2026-10-24: F14 and N21
+  DONE (Claude in Chrome removed). Still PROPOSED: T1, N11, N15, N19, N34-N38)
 end legend
 @enduml

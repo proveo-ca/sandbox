@@ -241,7 +241,7 @@ skinparam noteTextAlignment left
 '     the recipe's FROM resolves from the host engine (P2), so launchSandbox
 '     preflights the image on every run instead of asking sbx's store.
 '   KEPT: KitCommand (the hook intermediate SeedCommand returns), BuiltinAgent
-'     (agent identity: claudecode → claude for auth and --chrome).
+'     (agent identity: claudecode → claude for auth and the local-model tools).
 '   MEASURED: `sbx kit validate --offline <workload dir>` refuses a v3 source
 '     kit ("no kit builder configured"); validation needs the daemon's builder.
 '   E2E (user: "Full v3 port"): ladder rungs are v3 (capability-ladder.puml);

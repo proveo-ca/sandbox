@@ -107,7 +107,7 @@ skinparam noteTextAlignment left
 ' sbx harness with no row at all.
 '   claudecode  --mcp-config <hostadb.MCPConfig>, prepended host-side by
 '               withMobileMCP (sbx runs claude as its own agent, so the
-'               image's entrypoint never launches it), as --chrome is
+'               image's entrypoint never launches it)
 '   opencode    "mcp": {"mobile": {"type": "local", ...}} merged into the
 '               OPENCODE_CONFIG_CONTENT launchConfigEnv already builds
 '   codex       not wired yet: -c mcp_servers.mobile.* per launch

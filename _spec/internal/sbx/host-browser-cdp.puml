@@ -10,7 +10,6 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/host_inference_test.go
 ' covers: defs/hermes/entrypoint.sh (PROVEO_HOST_CDP_PORT block)
 ' covers: defs/hermes/harness.manifest (capabilities.hostBrowser: cdp)
-'   the Claude-in-Chrome bridge (claudecode) ... _spec/defs/claudecode/chrome-bridge.puml
 '   the in-sandbox browser viewport ............ _spec/internal/sbx/browser-viewport.puml
 '
 ' ── WHY (2026-09-27) ───────────────────────────────────────────────────────
@@ -20,8 +19,8 @@ skinparam noteTextAlignment left
 ' from a Linux VM. A host Chrome on a DEDICATED profile gives all three.
 '
 ' ── capabilities.hostBrowser SELECTS THE MECHANISM ─────────────────────────
-'   claude-in-chrome → addonChrome  (native-host bridge; claudecode)
-'   cdp              → addonHostCDP (this file; hermes)
+'   cdp → addonHostCDP (this file; hermes) — the only mechanism since the
+'   Claude-in-Chrome bridge was removed (2026-10-24)
 ' The add-on greys out without sbx: it rides sbx's host gateway.
 '
 ' ── MEASURED FROM A GUEST (sbx v0.42.1, Chrome 153, host.docker.internal = 169.254.1.1) ─

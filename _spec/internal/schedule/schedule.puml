@@ -229,7 +229,7 @@ skinparam noteTextAlignment left
 '
 ' ── `proveo run` FOR UNATTENDED USE ────────────────────────────────────────
 '   --yes           seed from the choice cache, never draw the form
-'   --addon <name>  host-chrome · browser · claude-in-chrome; refused unless the
+'   --addon <name>  host-chrome · browser · desktop · android; refused unless the
 '                   harness offers it; the cache never overrides a flagged set
 '
 ' ── E2E, NO MODEL ──────────────────────────────────────────────────────────

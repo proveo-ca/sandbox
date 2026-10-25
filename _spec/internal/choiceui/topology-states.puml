@@ -277,7 +277,7 @@ title The topology strip in every selectable state (sbx; the docker frames are h
   execution | docker (sandbox) — compulsory wherever the harness declares sbx | the square reads 'sbx · <def>'
   interface | tui — always on | the interface dot, always drawn
   interface | + browser | the dot reads 'interface: tui + browser'
-  interface | + claude-in-chrome | the return arrow reaches PAST the host dot, to your own Chrome
+  interface | + chrome (hermes, host CDP) | the return arrow reaches PAST the host dot, to the dedicated Chrome profile
 }
   .
   These re-label; they do not re-shape. Keeping them out of the matrix is what

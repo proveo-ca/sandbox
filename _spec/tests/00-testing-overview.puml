@@ -24,7 +24,7 @@ skinparam packageStyle rectangle
 ' (_spec/_devops/image-lineage-and-publish.puml). imagetest.Env is deleted, and
 ' pin.go lives in internal/ so internal/ imports nothing from e2e/.
 ' Folded into the family (reported): PROVEO_TEST_IMAGE, PROVEO_TEST_IMAGE_<T>,
-' PROVEO_E2E_OPENCODE_IMAGE, PROVEO_CHROME_BRIDGE_IMAGE, PROVEO_HOST_ADB_IMAGE,
+' PROVEO_E2E_OPENCODE_IMAGE, PROVEO_HOST_ADB_IMAGE,
 ' IMAGE, STANDALONE_IMAGE, MCP_IMAGE, SOL_IMAGE, BROWSER_IMAGE,
 ' CURSOR_BROWSER_IMAGE, OPENCODE_BROWSER_IMAGE and the test-side read of
 ' PROVEO_CECLI_IMAGE. PROVEO_TEST_HERMES_IMAGE keeps its name, which the family

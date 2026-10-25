@@ -269,7 +269,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   longest name; 12 would put its last letter on the first option.
   Every option row pins to the same four columns. OS, outputs, ports and apps
   included: a missing value leaves its column blank. A cell is at most 10 runes.
-  ""docker (sandbox)"" paints ""sandbox""; ""claude-in-chrome"" paints ""chrome"".
+  ""docker (sandbox)"" paints ""sandbox"".
   allow-all and forward and Qwen and host and filtered share column 1,
   API keys and sandbox and browser and verbose share column 2,
   balanced and plan share column 3, deny-all and broker and Glimmer share column 4.

@@ -193,14 +193,12 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/choiceui/pen.go` | 3 | 2 | Encapsulates terminal styles; capability fallback may reduce signal. |
 | `internal/choiceui/topology.go` | 3 | 2 | Renders topology summaries; visualization is only as honest as supplied state. |
 | `internal/choiceui/viewport.go` | 3 | 2 | Manages scrollable terminal content; asynchronous resize can desynchronize it. |
-| `internal/chromebridge/chromebridge_test.go` | 3 | 2 | Guards browser bridge addresses and lifecycle; mocked sockets miss browser auth risks. |
 | `internal/clean/clean_test.go` | 3 | 2 | Pins cleanup selection and safety; stale external resources may evade discovery. |
 | `internal/maintain/maintain_test.go` | 3 | 2 | Guards image maintenance selection; registry freshness is external. |
 | `internal/runlog/runlog_test.go` | 3 | 2 | Pins transcript fields and redaction; novel secret forms may still leak. |
 | `internal/choiceui/choiceui.go` | 3 | 3 | Coordinates interactive choices; UI state and policy state can diverge. |
 | `internal/choiceui/choiceui_test.go` | 3 | 3 | Exercises choice flows; scripted keys miss human misunderstanding. |
 | `internal/choiceui/layout.go` | 3 | 3 | Computes responsive terminal layout; complex width rules are brittle. |
-| `internal/chromebridge/chromebridge.go` | 3 | 3 | Bridges sandbox agents to host Chrome; publishing CDP expands host authority. |
 | `internal/clean/clean.go` | 3 | 3 | Removes proveo resources and stale state; ownership heuristics risk over- or under-cleaning. |
 | `internal/maintain/maintain.go` | 3 | 3 | Resolves and refreshes harness images; mutable tags weaken reproducibility. |
 | `internal/shell/shell.go` | 3 | 3 | Edits PATH configuration per shell; rc-file mutation is broad and hard to roll back perfectly. |

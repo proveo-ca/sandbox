@@ -85,11 +85,6 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     phases 3–6 (security, config, defaults, llm) never ran. The check was
 '     DROPPED from cursor's suite; opencode's twin stays, because base-node
 '     really provides bun there.
-'   * claudecode's chrome-bridge phase read a script with `read -d ''`, which
-'     returns 1 at EOF because no NUL delimiter arrives. Without `|| true` that
-'     line killed the sourced script before a single Phase 10 assertion ran,
-'     and it stayed invisible while an earlier phase always failed first.
-'     ccChromeBridge (claudecode_test.go) holds the script as a Go string.
 '
 ' A FAKE HARNESS BINARY KEEPS AN ENTRYPOINT TEST ON THE ENTRYPOINT. codex's and
 ' cursor's config checks put a stub `codex` / `agent` first on PATH that prints
@@ -226,9 +221,6 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * NODE_ENV is asserted ABSENT, because baking it would make the agent's own
 '     `npm`/`pnpm install` skip devDependencies — the project's .env is the only
 '     place allowed to set it.
-' The Claude-in-Chrome phase runs a FAKE host relay inside the container in place
-' of `proveo run`'s, so the chain is driven end to end without a browser
-' (_spec/defs/claudecode/chrome-bridge.puml).
 '
 ' ── THE GO SUITES SKIP FOR ONE REASON: A MISSING PREREQUISITE ───────────────
 ' The `//go:build e2e` tag IS the opt-in. A suite that compiles under it must
@@ -530,7 +522,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * requireSbx also requires `sbx ls` to answer (sbxReadyForTests).
 '
 ' A SEEDED CHOICE, NEVER A DRIVEN CHECKBOX. Where a case needs an add-on on
-' ("browser", "claude-in-chrome"), it writes an agentsettings.Store into an
+' ("browser"), it writes an agentsettings.Store into an
 ' ISOLATED proveo home and lets the real choiceui form come up with the box
 ' already ticked; acceptChoicePrompt then confirms it with one Enter, the same
 ' pattern every other seeded-choice case uses. Navigating the picker's
@@ -797,7 +789,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' WHAT THE RULE TOOK, named so nobody restores one by accident. These were
 ' SKIPPED from 2026-09-15 and DELETED 2026-10-16 (MEASURED: review_tier_test.go,
-' signal_test.go, chrome_bridge_test.go and opencode_sessions_test.go are gone;
+' signal_test.go and opencode_sessions_test.go are gone;
 ' the rest were removed as docker-only subtests):
 '   the -egress sidecar . CredentialForwardingIntegrity/egress_broker_receives
 '                         _all_keys · ProjectDotEnvAtEgressLayer
@@ -808,7 +800,6 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   a docker home ....... TestOpenCodeTwoSessionsSurviveProveoRuns
 '                         (opencode_sessions_test.go, pinned PROVEO_SBX=0)
 '   the consent gate .... ReviewTierConsentGate
-'   the docker bridge ... ChromeBridgeCarriesTheHostSocketIntoTheContainer
 '   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent, now the
 '                         refusal TestSandboxBackendRefusesWhenSbxAbsent
 '                         (TestRetiredSbxOffValuesRefuseTheRun lived one day; its
