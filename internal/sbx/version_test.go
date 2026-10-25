@@ -11,8 +11,9 @@ func TestOnlyVerifiedSeriesPassWithoutAWarning(t *testing.T) {
 		version  string
 		verified bool
 	}{
-		{"0.42.0", true},
-		{"0.46.0", true},
+		{"0.42.0", false},
+		{"0.45.0", false},
+		{"0.46.0", false},
 		{"0.49.2", true},
 		{"0.49.7", true},
 		{"0.47.0", false},
@@ -29,7 +30,7 @@ func TestOnlyVerifiedSeriesPassWithoutAWarning(t *testing.T) {
 
 func TestAnUnverifiedSbxNamesTheVerifiedSeries(t *testing.T) {
 	note := UnverifiedNote("0.48.0")
-	for _, want := range []string{"0.48.0", "not a version proveo has verified", "0.46", "0.49"} {
+	for _, want := range []string{"0.48.0", "not a version proveo has verified", "0.49"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("UnverifiedNote(0.48.0) = %q, lacks %q", note, want)
 		}
@@ -42,7 +43,18 @@ func TestAnUnverifiedSbxNamesTheVerifiedSeries(t *testing.T) {
 }
 
 func TestThePinnedReleaseIsVerified(t *testing.T) {
-	if !IsVerified(Release) || !IsVerified(MinVersion) {
-		t.Errorf("Release %s and MinVersion %s must sit in Verified %v", Release, MinVersion, Verified)
+	if !IsVerified(Release) {
+		t.Errorf("Release %s must sit in Verified %v", Release, Verified)
+	}
+	for _, series := range Verified {
+		if Older(series+".0", MinVersion) {
+			t.Errorf("Verified series %s sits below MinVersion %s, which refuses it", series, MinVersion)
+		}
+	}
+}
+
+func TestTheFloorIsTheFirstV3Release(t *testing.T) {
+	if MinVersion != "0.45.0" {
+		t.Errorf("MinVersion = %s; v3 workloads arrived in 0.45 and the rollout drops every sbx without them", MinVersion)
 	}
 }

@@ -14,7 +14,7 @@ import (
 )
 
 // Release is the sbx build `proveo init` puts on the host.
-const Release = "0.42.0"
+const Release = "0.49.2"
 
 // ReleaseRepo is where Docker publishes the builds.
 const ReleaseRepo = "docker/sbx-releases"

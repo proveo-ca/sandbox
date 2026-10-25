@@ -303,8 +303,12 @@ skinparam noteTextAlignment left
 ' The subject is matched by NAME. These statements carry a list, and taking
 ' subject[0] would silently verify against whatever a future build puts first.
 '
-' ── THE PIN IS NOT THE FLOOR, THOUGH TODAY THEY MEET ───────────────────────
-' Release (0.42.0) is what init hands you. MinVersion is what the run path
+' ── THE PIN IS NOT THE FLOOR ────────────────────────────────────────────────
+' 2026-10-24 (v3 rollout): Release = 0.49.2, MinVersion = 0.45.0 (first v3
+' sbx); they no longer meet. host-readiness.puml (VERIFIED SBX SERIES) holds
+' the rule. Provenance subject static/linux/amd64/docker-sbx_0.49.2.tgz parsed
+' by DigestFromProvenance (MEASURED). History below:
+' Release (0.42.0) was what init handed you. MinVersion is what the run path
 ' refuses below, and it is a claim about the CLI SURFACE this build drives, not
 ' a preference for newness. They are equal as of 2026-09-15 because the surface
 ' moved: `version --json` — and the `server.state` that ServerState reads rather

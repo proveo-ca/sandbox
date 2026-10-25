@@ -133,13 +133,13 @@ func TestInstalledVersionAsksThePrefixBeforePATH(t *testing.T) {
 	}
 
 	// A stub that answers `sbx version` the way the real one does.
-	script := "#!/bin/sh\necho 'sbx version: v0.42.0 ca4a4bd'\n"
+	script := "#!/bin/sh\necho 'sbx version: v" + sbx.Release + " ca4a4bd'\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	v, why := installedVersion(plan)
-	if v != "0.42.0" {
-		t.Fatalf("installedVersion = %q (%s), want the prefix's 0.42.0", v, why)
+	if v != sbx.Release {
+		t.Fatalf("installedVersion = %q (%s), want the prefix's %s", v, why, sbx.Release)
 	}
 	if sbx.Older(v, sbx.Release) {
 		t.Fatalf("%s read from the prefix is older than the pin, so init would reinstall it every run", v)
