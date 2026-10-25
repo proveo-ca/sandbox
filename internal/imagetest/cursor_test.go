@@ -102,7 +102,6 @@ func TestImageCursor(t *testing.T) {
 		s.Contains("[browser] agent-browser drives a headless Chromium as the image user", browser,
 			`export HOME=/tmp AGENT_BROWSER_SOCKET_DIR=/tmp/ab; mkdir -p /tmp/ab; agent-browser open about:blank >/dev/null && agent-browser get url; agent-browser close >/dev/null`,
 			"about:blank")
-		s.Failure("[browser] Claude in Chrome relay is claudecode's alone", browser, "test -f /opt/proveo/lib/chrome-bridge.js")
 	} else {
 		s.Skip("[browser] cursor-browser variant", "image "+browser+" not built (mise run build cursor-browser)")
 	}

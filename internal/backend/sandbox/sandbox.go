@@ -1130,7 +1130,6 @@ type Input struct {
 	Detected         []string
 	GitEnv           []string
 	HomeEnv          []string
-	BridgeEnv        []string
 	ScopeRel         string
 	WorktreeFallback bool
 	CloneSource      workspace.WorktreeSource // a linked worktree cloned through its main worktree
@@ -1277,7 +1276,6 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	env = append(env, in.Man.AgentEnvPairs(in.Lookup)...)
 	env = append(env, in.GitEnv...)
 	env = append(env, in.HomeEnv...)
-	env = append(env, in.BridgeEnv...)
 	if in.Browser && in.CDPHostPort > 0 {
 		existing := ""
 		if in.Lookup != nil {
@@ -1362,8 +1360,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	switch entrypoint := imageEntrypoint(in); {
 	case hasUp:
 		recipe.Entrypoint, recipe.Env = up.Launch, up.Env
-		flags := withChromeFlag(builtin, in.BridgeEnv, append([]string{}, in.Extra...))
-		flags = withMobileMCP(harness, in.AgentEnv, flags)
+		flags := withMobileMCP(harness, in.AgentEnv, append([]string{}, in.Extra...))
 		flags = withLocalModelTools(builtin, in.AgentEnv, flags)
 		command = sbx.LaunchArgs(up.Launch, flags)
 	case len(entrypoint) == 0:
@@ -1484,19 +1481,6 @@ func DeclineMCPGateway(allowed bool, env []string) []string {
 }
 
 func MCPGatewayAllowed() bool { return envflag.On(os.Getenv("PROVEO_SBX_MCP")) }
-
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml
-func withChromeFlag(agent string, bridge, command []string) []string {
-	if len(bridge) == 0 || agent != sbx.BuiltinAgent("claudecode") {
-		return command
-	}
-	for _, a := range command {
-		if a == "--chrome" {
-			return command
-		}
-	}
-	return append([]string{"--chrome"}, command...)
-}
 
 // LocalModelTools is the built-in tool set Claude Code keeps on a local model, where each tool schema costs prefill.
 const LocalModelTools = "Bash,Read,Edit,Write"

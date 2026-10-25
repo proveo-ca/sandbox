@@ -1,4 +1,4 @@
-// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
 package run
 
 import (
@@ -16,7 +16,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/hostadb"
@@ -284,35 +283,6 @@ func startHostADB(p *Params) ([]string, error) {
 	}
 	ui.Warnf("%s: the agent controls every device on that adb server, and the server dials any address it is told to from this host — outside sbx egress", addonAndroid)
 	return hostadb.GuestEnv(port), nil
-}
-
-func startChromeBridge(rs *Spec, p *Params, blocked string) *chromebridge.Relay {
-	ui.Section(ui.SectionInterface)
-	if !hasAddon(p.Addons, addonChrome) {
-		return nil
-	}
-	switch {
-	case blocked != "":
-		ui.Warnf("%s: skipped — %s", addonChrome, blocked)
-		return nil
-	case p.PrintOnly:
-		ui.Hostf("%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
-			addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
-		return nil
-	}
-	if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
-		ui.Warnf("%s: skipped — %s", addonChrome, why)
-		return nil
-	}
-	r, err := chromebridge.Start(chromebridge.BindAddr(), chromebridge.HostSocketDir(), ui.Warnf)
-	if err != nil {
-		ui.Warnf("%s: skipped — %v", addonChrome, err)
-		return nil
-	}
-	ui.Hostf("chrome: Claude in Chrome through YOUR browser — host relay %s → %s. "+
-		"The agent gets your logged-in sessions; site permissions stay the extension's",
-		r.Addr(), chromebridge.HostSocketDir())
-	return r
 }
 
 func hostStoreResolver() *secretref.Resolver {
@@ -661,12 +631,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	if browserOn && !p.PrintOnly {
 		cdpPort = sandbox.FreeLoopbackPort()
 	}
-	sbxBridge := startChromeBridge(rs, p, chromebridge.SbxWhy)
-	var sbxBridgeEnv []string
-	if sbxBridge != nil {
-		defer func() { _ = sbxBridge.Close() }()
-		sbxBridgeEnv = sbxBridge.ResolvedEnv()
-	}
 	if rs.Model.HostLLM {
 		if !p.PrintOnly {
 			if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default); err != nil {
@@ -716,7 +680,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Detected:         rs.Creds.Detected,
 		GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
 		HomeEnv:          rs.Creds.HomePlan.Env,
-		BridgeEnv:        sbxBridgeEnv,
 		ScopeRel:         rs.Workspace.WS.ScopeRel(),
 		WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
 		WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),

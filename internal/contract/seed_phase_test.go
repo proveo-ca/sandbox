@@ -31,7 +31,7 @@ var seedSteps = []string{
 	"accept_workspace_trust", "proveo_wire_config", "proveo_compose_house_rules",
 	"proveo_address_operator_claude", "proveo_apply_ui_defaults", "proveo_install_claude_hooks",
 	"proveo_install_claude_env_hook", "proveo_seed_browser_skills", "proveo_release_agent",
-	"proveo_sync_tools", "proveo_provision_toolchain", "proveo_chrome_bridge", "proveo_merge_codex_defaults",
+	"proveo_sync_tools", "proveo_provision_toolchain", "proveo_merge_codex_defaults",
 }
 
 // runSeedPhase sources the lib, stubs every step, and runs proveo_seed with args.
@@ -70,7 +70,7 @@ func TestSeedPhasesSplitAtTheRelease(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	releaseSide := []string{"CALL proveo_sync_config restore", "CALL render_subagents claudecode", "CALL proveo_install_claude_hooks",
-		"CALL proveo_chrome_bridge claudecode", "CALL proveo_release_agent claudecode"}
+		"CALL proveo_release_agent claudecode"}
 	provisionSide := []string{"CALL proveo_sync_tools restore", "CALL proveo_provision_toolchain"}
 	for _, tc := range []struct {
 		name      string
@@ -107,10 +107,6 @@ func TestSeedPhasesSplitAtTheRelease(t *testing.T) {
 			}
 			if tc.name == "all" && strings.Index(calls, "CALL proveo_release_agent") > strings.Index(calls, "CALL proveo_sync_tools restore") {
 				t.Errorf("proveo_seed %q restored toolchains before releasing the agent\n%s", tc.args, calls)
-			}
-			if strings.Contains(calls, "CALL proveo_chrome_bridge") &&
-				strings.Index(calls, "CALL proveo_chrome_bridge") > strings.Index(calls, "CALL proveo_release_agent") {
-				t.Errorf("proveo_seed %q starts the chrome bridge after the release, while Claude Code already owns ~/.claude.json\n%s", tc.args, calls)
 			}
 		})
 	}

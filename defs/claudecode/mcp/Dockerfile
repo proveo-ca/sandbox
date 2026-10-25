@@ -101,7 +101,6 @@ COPY defs/claudecode/mcp/themes/ /opt/proveo/themes/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/claude-config.json /home/${USER_NAME}/.claude.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /home/${USER_NAME}/.claude/settings.local.json
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/settings.local.json /app/.claude/settings.local.json
-COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/proveo-lib/ /opt/proveo/lib/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/claudecode/mcp/defaults/ /opt/claudecode/defaults/
 COPY --chown=${USER_NAME}:${USER_NAME} defs/subagents/ /opt/proveo/subagents/
 

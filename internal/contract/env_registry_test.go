@@ -34,8 +34,6 @@ var notVariables = map[string]string{
 	"PROVEO_ANDROID_END":       "marker line in gradle.properties",
 	"PROVEO_ANDROID_START":     "marker line in gradle.properties",
 	"PROVEO_BROWSER_SKILL_SRC": "readonly shell constant",
-	"PROVEO_CHROME_BRIDGE_JS":  "readonly shell constant",
-	"PROVEO_CHROME_READY":      "unexported shell flag the lib resets when sourced",
 	"PROVEO_HOUSE_RULES_FILE":  "readonly shell constant",
 	"PROVEO_JDTLS":             "heredoc delimiter",
 	"PROVEO_MODELS":            "log line the def entrypoints print",

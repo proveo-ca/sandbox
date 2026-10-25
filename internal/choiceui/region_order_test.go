@@ -18,10 +18,10 @@ func TestFigureStaysBelowTheHintAndTheHelpBlock(t *testing.T) {
 			{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Locked: true,
 				Reason: "host-wide, not per-run — to change, run on the host: `sbx policy reset && sbx policy init allow-all|balanced|deny-all`",
 				Help:   map[string]string{"allow-all": "every destination the host baseline permits"}},
-			{Label: "add-ons", Options: []string{"tui", "browser", "claude-in-chrome"}, Multi: true,
+			{Label: "add-ons", Options: []string{"tui", "browser", "ios"}, Multi: true,
 				Selected: 2, On: []bool{true, true, false}, Off: []bool{true, false, true},
-				Help:   map[string]string{"claude-in-chrome": "Claude Code drives YOUR Chrome"},
-				OffWhy: map[string]string{"claude-in-chrome": "the sandbox cannot reach the host Chrome"}},
+				Help:   map[string]string{"ios": "an iOS simulator on this host"},
+				OffWhy: map[string]string{"ios": "the iOS simulator path is not built yet"}},
 		},
 		Topology: func(_ *Form, _ int) *Frame { return &fr },
 	}
@@ -32,7 +32,7 @@ func TestFigureStaysBelowTheHintAndTheHelpBlock(t *testing.T) {
 			switch {
 			case strings.Contains(l, "enter accept"):
 				hint = i
-			case strings.Contains(l, "sbx policy init") || strings.Contains(l, "cannot reach the host Chrome"):
+			case strings.Contains(l, "sbx policy init") || strings.Contains(l, "iOS simulator path is not built yet"):
 				if help < 0 {
 					help = i
 				}

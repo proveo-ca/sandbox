@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/ide-attach.puml, _spec/defs/claudecode/chrome-bridge.puml
+// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/ide-attach.puml
 package sandbox
 
 import (

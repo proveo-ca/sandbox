@@ -597,15 +597,15 @@ func TestHelpIsDrawnForTheCursorRowAlone(t *testing.T) {
 func TestGreyedOptionExplainsItselfUnderTheRow(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{{
-		Label: "add-ons", Options: []string{"claude-in-chrome"}, Multi: true,
+		Label: "add-ons", Options: []string{"ios"}, Multi: true,
 		On: []bool{false}, Off: []bool{true},
-		Help:   map[string]string{"claude-in-chrome": "your own Chrome, driven through proveo's bridge"},
-		OffWhy: map[string]string{"claude-in-chrome": "Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions"},
+		Help:   map[string]string{"ios": "an iOS simulator on this host"},
+		OffWhy: map[string]string{"ios": "the iOS simulator path is not built yet"},
 	}}}
 	got := joined(t, f)
 	for _, want := range []string{
-		"› claude-in-chrome — your own Chrome, driven through proveo's bridge",
-		"off: Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions",
+		"› ios — an iOS simulator on this host",
+		"off: the iOS simulator path is not built yet",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered form lacks %q\n--- rendered ---\n%s", want, got)

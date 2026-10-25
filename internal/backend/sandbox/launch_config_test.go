@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml
+// SPEC: _spec/defs/opencode/opencode-topology.puml
 package sandbox
 
 import (
@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 type opencodeLaunchConfig struct {
@@ -143,25 +141,5 @@ func TestOpencodeLaunchConfigRequiresALocalModelOrMobileAddon(t *testing.T) {
 				t.Errorf("no OpenCode launch override requested, got %v", got)
 			}
 		})
-	}
-}
-
-func TestChromeBridgeLaunchesClaudeWithTheChromeFlag(t *testing.T) {
-	bridge := []string{"PROVEO_CHROME_BRIDGE=host.docker.internal:1", "PROVEO_CHROME_BRIDGE_TOKEN=t"}
-	claude := sbx.BuiltinAgent("claudecode")
-	if got := withChromeFlag(claude, bridge, []string{"-p", "hi"}); strings.Join(got, " ") != "--chrome -p hi" {
-		t.Errorf("claude with a bridge = %v, want --chrome ahead of the caller's args", got)
-	}
-	if got := withChromeFlag(claude, bridge, nil); strings.Join(got, " ") != "--chrome" {
-		t.Errorf("interactive claude with a bridge = %v, want [--chrome]", got)
-	}
-	if got := withChromeFlag(claude, nil, []string{"-p", "hi"}); strings.Join(got, " ") != "-p hi" {
-		t.Errorf("no bridge must leave the args alone, got %v", got)
-	}
-	if got := withChromeFlag("proveo-cecli", bridge, []string{"-c", "x"}); strings.Join(got, " ") != "-c x" {
-		t.Errorf("a non-claude agent got --chrome: %v", got)
-	}
-	if got := withChromeFlag(claude, bridge, []string{"--chrome", "-p", "hi"}); strings.Join(got, " ") != "--chrome -p hi" {
-		t.Errorf("an explicit --chrome must not be doubled, got %v", got)
 	}
 }

@@ -168,7 +168,7 @@ func TestInterfaceNamesEveryDrivenSurface(t *testing.T) {
 		{true, true, "tui + browser + chrome"},
 	} {
 		f := &choiceui.Form{Rows: []choiceui.Row{{Label: rowInterface, Multi: true,
-			Options: []string{addonTUI, addonBrowser, addonChrome},
+			Options: []string{addonTUI, addonBrowser, addonHostCDP},
 			On:      []bool{true, c.browser, c.chrome}}}}
 		if got := interfaceOf(f); got != c.want {
 			t.Errorf("browser=%v chrome=%v: %q, want %q", c.browser, c.chrome, got, c.want)

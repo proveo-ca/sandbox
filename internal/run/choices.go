@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-path.puml
+// SPEC: _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-path.puml
 package run
 
 import (
@@ -14,7 +14,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/hostadb"
@@ -28,10 +27,6 @@ import (
 func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
 
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
-	chromeWhy := ""
-	if man.Capabilities.HostBrowser == addonChrome {
-		chromeWhy = chromeUnavailable(man, lookup, p.AuthVar, p.Target, homeRoot)
-	}
 	form := &choiceui.Form{
 		Banner:   choiceui.Banner(),
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
@@ -94,7 +89,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
 	form.OnChange = func(f *choiceui.Form) {
-		gateAddons(f, chromeWhy)
+		gateAddons(f)
 		gateApps(f)
 		for i := range f.Rows {
 			if f.Rows[i].Label == rowInterface {
@@ -276,7 +271,7 @@ func orElseFirst(v string, opts []string) string {
 	return ""
 }
 
-func gateAddons(f *choiceui.Form, chromeWhy string) {
+func gateAddons(f *choiceui.Form) {
 	for i := range f.Rows {
 		r := &f.Rows[i]
 		if !isAddonRow(r.Label) {
@@ -309,44 +304,10 @@ func gateAddons(f *choiceui.Form, chromeWhy string) {
 				r.On[j] = false
 				reasons = append(reasons, addonIOS+": "+hostadb.IOSWhy)
 				r.OffWhy[opt] = hostadb.IOSWhy
-			case addonChrome:
-				why := chromeWhy
-				if why == "" {
-					why = chromebridge.SbxWhy
-				}
-				if why != "" {
-					r.Off[j] = true
-					r.On[j] = false
-					reasons = append(reasons, addonChrome+": "+why)
-					r.OffWhy[opt] = why
-				}
 			}
 		}
 		r.Reason = strings.Join(reasons, " · ")
 	}
-}
-
-func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen, target, homeRoot string) string {
-	suppressed := credentials.AuthSuppressor(man, target, chosen, homeRoot, lookup)
-	effective := func(k string) string {
-		if suppressed(k) {
-			return ""
-		}
-		return lookup(k)
-	}
-	if effective(chromebridge.EnvOAuthToken) == "" &&
-		effective(chromebridge.EnvOAuthTokenFD) == "" &&
-		credentials.LoginBlanked(target, homeRoot) {
-		return "the login in the proveo home is empty (macOS keeps it in the Keychain, " +
-			"which the container cannot read) — /login INSIDE the run to put one there"
-	}
-	if why := chromebridge.ScopeGate(effective, suppressed(chromebridge.EnvOAuthToken)); why != "" {
-		return why
-	}
-	if ok, why := chromebridge.Available(chromebridge.HostSocketDir()); !ok {
-		return why
-	}
-	return ""
 }
 
 // firstChoice is the first option on a row the operator can actually change.
@@ -454,7 +415,6 @@ func layoutInterface(r choiceui.Row) choiceui.Row {
 		items[i] = item{opt, on, col}
 	}
 	slices.SortStableFunc(items, func(a, b item) int { return cmp.Compare(a.col, b.col) })
-	r.Paint = map[string]string{addonChrome: "chrome"}
 	r.Options = make([]string, len(items))
 	r.On = make([]bool, len(items))
 	r.Cols = make([]int, len(items))
@@ -586,7 +546,6 @@ const (
 	addonTUI     = "tui"
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
-	addonChrome  = chromebridge.Addon
 	addonHostCDP = hostcdp.Addon
 	addonAndroid = hostadb.Addon
 	addonIOS     = hostadb.AddonIOS
@@ -744,7 +703,6 @@ var addonHelp = map[string]string{
 	addonTUI:     "this session — this terminal, the agent's transcript and your prompts, for the whole run",
 	addonDesktop: "Hermes Desktop on this host drives the agent in the sandbox over sbx's SSH; this terminal only holds the run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
-	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonHostCDP: "the agent drives a dedicated Chrome profile on this host over CDP — log in there once; your everyday profile is never touched",
 	addonAndroid: "the agent drives an Android emulator on this host through its adb server (mobile-mcp) — log in there once; the emulator stays open after the run",
 	addonIOS:     "the agent drives an iOS Simulator on this host — coming soon",
@@ -772,8 +730,6 @@ func interfaceOptions(man manifest.Manifest) []string {
 		}
 	}
 	switch man.Capabilities.HostBrowser {
-	case addonChrome:
-		opts = append(opts, addonChrome)
 	case manifest.HostBrowserCDP:
 		opts = append(opts, addonHostCDP)
 	}
@@ -850,7 +806,7 @@ var addonLegacy = map[string]string{
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
 	for _, a := range addons {
-		if a == "dind" || a == "docker (dind)" {
+		if a == "dind" || a == "docker (dind)" || a == "claude-in-chrome" {
 			continue
 		}
 		if n, ok := addonLegacy[a]; ok {
@@ -912,12 +868,11 @@ func gitHeader(repoRoot string) []string {
 
 // addonAliases are the short --addon spellings of the interface add-ons.
 var addonAliases = map[string]string{
-	"browser":          addonBrowser,
-	"host-chrome":      addonHostCDP,
-	"cdp":              addonHostCDP,
-	"claude-in-chrome": addonChrome,
-	"android":          addonAndroid,
-	"ios":              addonIOS,
+	"browser":     addonBrowser,
+	"host-chrome": addonHostCDP,
+	"cdp":         addonHostCDP,
+	"android":     addonAndroid,
+	"ios":         addonIOS,
 }
 
 // resolveAddonFlags maps --addon values to the add-ons this harness offers, refusing any it does not.

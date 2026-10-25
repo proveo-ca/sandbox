@@ -83,14 +83,11 @@ func TestTheDevicesRowPacksItsOptionsWithoutGaps(t *testing.T) {
 	}
 	full := layoutInterface(choiceui.Row{
 		Label: rowInterface, Multi: true,
-		Options: []string{addonChrome, addonIOS, addonTUI, addonBrowser, addonAndroid},
+		Options: []string{addonHostCDP, addonIOS, addonTUI, addonBrowser, addonAndroid},
 	})
-	want := []string{addonTUI, addonBrowser, addonAndroid, addonIOS, addonChrome}
+	want := []string{addonTUI, addonBrowser, addonAndroid, addonIOS, addonHostCDP}
 	if !slices.Equal(full.Options, want) || !slices.Equal(full.Cols, []int{0, 1, 2, 3, 4}) {
 		t.Errorf("full = %v cols %v, want %v", full.Options, full.Cols, want)
-	}
-	if full.Paint[addonChrome] != "chrome" {
-		t.Errorf("chrome cell = %q, want chrome", full.Paint[addonChrome])
 	}
 }
 
@@ -117,7 +114,7 @@ func TestTUIAndDesktopAreOneRadioChoice(t *testing.T) {
 		t.Error("unticking the only choice must leave it on — a radio is never empty")
 	}
 	f := &choiceui.Form{Rows: []choiceui.Row{r}}
-	gateAddons(f, "")
+	gateAddons(f)
 	if f.Rows[0].Off[slices.Index(r.Options, addonTUI)] {
 		t.Error("tui is still locked where desktop is offered")
 	}

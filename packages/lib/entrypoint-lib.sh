@@ -1495,7 +1495,7 @@ proveo_enable_claude_lsp_plugins() {
   return 0
 }
 
-# SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
+# SPEC: _spec/defs/browser-layer.puml
 _browser_skill_dir() { case "$1" in
   claudecode) echo ".claude/skills" ;;
   cursor)     echo ".cursor/skills" ;;
@@ -1521,81 +1521,6 @@ proveo_seed_browser_skills() {
   fi
   ver="$(agent-browser --version 2>/dev/null | awk '{print $NF}')"
   echo "🕸️  browser: agent-browser ${ver:-?} + Playwright Chromium (headless) — skill at ~/${dir}/agent-browser"
-  return 0
-}
-
-# SPEC: _spec/defs/claudecode/chrome-bridge.puml
-readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js
-PROVEO_CHROME_READY=""
-
-# SPEC: _spec/defs/claudecode/chrome-bridge.puml
-_proveo_chrome_scope_ok() {
-  local scopes home
-  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
-    scopes="${CLAUDE_CODE_OAUTH_SCOPES:-user:inference}"
-    case " $scopes " in
-      *" user:profile "*|*" user:office "*|*" user:ccr_inference "*) return 0 ;;
-    esac
-    return 1
-  fi
-  [[ -n "${CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR:-}" ]] && return 0
-  home="$(_proveo_agent_home)"
-  if [[ -n "$home" ]] && grep -q '"accessToken":"[^"]' "$home/.claude/.credentials.json" 2>/dev/null; then
-    return 0
-  fi
-  [[ -n "${ANTHROPIC_API_KEY:-}" ]] && return 1
-  return 0  # nothing we can classify: not ours to warn about
-}
-
-proveo_chrome_bridge() {
-  local target="${1:-}" home log out sock i
-  [[ "$target" == claudecode ]] || return 0
-  [[ -n "${PROVEO_CHROME_BRIDGE:-}" ]] || return 0
-  if [[ -z "${PROVEO_CHROME_BRIDGE_TOKEN:-}" ]]; then
-    echo "⚠️  chrome: PROVEO_CHROME_BRIDGE is set without PROVEO_CHROME_BRIDGE_TOKEN — the relay will not run unauthenticated; Claude in Chrome stays off" >&2
-    return 0
-  fi
-  command -v node >/dev/null 2>&1 || return 0
-  if proveo_env_on PROVEO_CHROME_READY; then
-    return 0
-  fi
-  if [[ ! -s "$PROVEO_CHROME_BRIDGE_JS" ]]; then
-    echo "⚠️  chrome: $PROVEO_CHROME_BRIDGE_JS is not in this image; Claude in Chrome stays off" >&2
-    return 0
-  fi
-  log="${TMPDIR:-/tmp}/proveo-chrome-bridge.log"
-  out="${TMPDIR:-/tmp}/proveo-chrome-bridge.sock-path"
-  : > "$out"
-  if command -v setsid >/dev/null 2>&1; then
-    setsid node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
-  else
-    node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
-  fi
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    sock="$(head -n1 "$out" 2>/dev/null)"
-    [[ -n "$sock" && -S "$sock" ]] && break
-    sleep 0.3
-  done
-  if [[ -z "$sock" || ! -S "$sock" ]]; then
-    echo "⚠️  chrome: relay did not come up (see $log); Claude in Chrome stays off" >&2
-    return 0
-  fi
-  home="$(_proveo_agent_home)"
-  if [[ -n "$home" ]]; then
-    PROVEO_AGENT_HOME="$home" node -e '
-      const fs = require("fs"), path = process.env.PROVEO_AGENT_HOME + "/.claude.json";
-      let j = {};
-      try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
-      if (j.hasCompletedClaudeInChromeOnboarding === undefined) j.hasCompletedClaudeInChromeOnboarding = true;
-      fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
-    ' 2>/dev/null || true
-  fi
-  # shellcheck disable=SC2034  # read by defs/claudecode/mcp/entrypoint.sh after this returns
-  PROVEO_CHROME_READY=1
-  echo "🧭 chrome: Claude in Chrome via the host browser — relay ${sock} → ${PROVEO_CHROME_BRIDGE} (the agent drives YOUR Chrome, with your logins)"
-  if ! _proveo_chrome_scope_ok; then
-    echo "⚠️  chrome: this session's OAuth scopes name none of user:profile / user:office / user:ccr_inference, so Claude Code turns Chrome integration off; set CLAUDE_CODE_OAUTH_SCOPES to the scopes the token was issued with, or sign in with /login" >&2
-  fi
   return 0
 }
 
@@ -2853,9 +2778,6 @@ proveo_seed() {
  proveo_install_claude_env_hook "$target"
  proveo_seed_step interface "seeding browser skills" "$target"
  proveo_seed_browser_skills "$target"
- # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
- proveo_seed_step interface "configuring host browser bridge" "$target"
- proveo_chrome_bridge "$target"
  proveo_seed_step starting "releasing agent; background setup continues" "$target"
  proveo_release_agent "$target"
  [[ "$phase" == all ]] || return 0

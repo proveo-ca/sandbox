@@ -29,9 +29,7 @@ It is `FROM debian:bookworm-slim` and lands at ~200 MB.
   `cursor-browser`), selected at run time from the `proveo run` capability picker
   (Tab to add, Enter continues). Default images stay slim; each variant carries one
   Chromium that both clients share. (cecli/Python remains install-on-demand: `python -m playwright install
-  chromium` into a mounted cache dir.) The operator's OWN browser is a different
-  add-on — `chrome (host browser)`, claudecode only, via the Claude in Chrome bridge
-  (`defs/claudecode/README.md`).
+  chromium` into a mounted cache dir.)
 
 ## FROM tree
 

@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
+// SPEC: _spec/defs/browser-layer.puml
 package contract_test
 
 import (
@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
 )
 
@@ -111,60 +110,6 @@ func TestBrowserSkillSeedNamesEveryHarnessSkillsDir(t *testing.T) {
 	}
 	if !strings.Contains(lib, `command -v agent-browser >/dev/null 2>&1 || return 0`) {
 		t.Error("the skill seed must be gated on the agent-browser binary, not the image name")
-	}
-}
-
-func TestChromeBridgeHalvesAgreeOnTheWireContract(t *testing.T) {
-	t.Parallel()
-	js := readRepoFile(t, "defs/claudecode/mcp/proveo-lib/chrome-bridge.js")
-	for _, want := range []string{
-		`const HANDSHAKE_PREFIX = "PROVEO-CHROME-BRIDGE ";`,
-		`const SOCKET_DIR_PREFIX = "` + chromebridge.SocketDirPrefix + `";`,
-		`process.env.` + chromebridge.EnvAddr,
-		`process.env.` + chromebridge.EnvToken,
-		`fs.chmodSync(dir, 0o700)`,
-		`fs.chmodSync(sock, 0o600)`,
-	} {
-		if !strings.Contains(js, want) {
-			t.Errorf("chrome-bridge.js lacks %q", want)
-		}
-	}
-	if hs := chromebridge.Handshake("T"); hs != "PROVEO-CHROME-BRIDGE T\n" {
-		t.Errorf("Go handshake = %q", hs)
-	}
-
-	lib := readRepoFile(t, "packages/lib/entrypoint-lib.sh")
-	for _, want := range []string{
-		`[[ -n "${PROVEO_CHROME_BRIDGE:-}" ]] || return 0`,
-		`PROVEO_CHROME_BRIDGE_TOKEN`,
-		`readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js`,
-		`hasCompletedClaudeInChromeOnboarding`,
-	} {
-		if !strings.Contains(lib, want) {
-			t.Errorf("entrypoint-lib.sh proveo_chrome_bridge lacks %q", want)
-		}
-	}
-	if strings.Contains(lib, `j.claudeInChromeDefaultEnabled = true`) {
-		t.Error("claudeInChromeDefaultEnabled must not be persisted into the operator's ~/.claude.json (see proveo_chrome_bridge)")
-	}
-	if !strings.Contains(lib, `proveo_chrome_bridge "$target"`) {
-		t.Error("proveo_seed must start the bridge, or the sbx backend never gets one")
-	}
-	if !strings.Contains(lib, `if proveo_env_on PROVEO_CHROME_READY; then`) {
-		t.Error("proveo_chrome_bridge must be idempotent: two relays leave Claude Code choosing by mtime")
-	}
-	ep := readRepoFile(t, "defs/claudecode/mcp/entrypoint.sh")
-	if strings.Contains(ep, "proveo_chrome_bridge claudecode") {
-		t.Error("the entrypoint must NOT start the bridge as well — proveo_seed owns it")
-	}
-	for _, want := range []string{`CLAUDE_CHROME_ARGS=(--chrome)`, `"${CLAUDE_CHROME_ARGS[@]}"`} {
-		if !strings.Contains(ep, want) {
-			t.Errorf("claudecode entrypoint lacks %q", want)
-		}
-	}
-	man := readRepoFile(t, "defs/claudecode/harness.manifest")
-	if !strings.Contains(man, "hostBrowser: claude-in-chrome") {
-		t.Error("claudecode's manifest must declare hostBrowser: claude-in-chrome — it is what offers the add-on")
 	}
 }
 

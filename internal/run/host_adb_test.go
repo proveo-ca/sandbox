@@ -30,7 +30,7 @@ func TestIOSIsAlwaysGreyedComingSoon(t *testing.T) {
 	f := &choiceui.Form{Rows: []choiceui.Row{
 		{Label: rowInterface, Options: []string{addonTUI, addonAndroid, addonIOS}, Multi: true, On: []bool{true, false, true}},
 	}}
-	gateAddons(f, "")
+	gateAddons(f)
 	r := f.Rows[0]
 	if !r.Off[2] || r.On[2] {
 		t.Errorf("ios must be greyed and unticked: off=%v on=%v", r.Off, r.On)
