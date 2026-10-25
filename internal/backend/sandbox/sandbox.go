@@ -1357,7 +1357,8 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	}
 	recipe := sbx.RecipeV3{From: in.Image}
 	var command []string
-	switch entrypoint := imageEntrypoint(in); {
+	entrypoint := imageEntrypoint(in)
+	switch {
 	case hasUp:
 		recipe.Entrypoint, recipe.Env = up.Launch, up.Env
 		flags := withMobileMCP(harness, in.AgentEnv, append([]string{}, in.Extra...))
@@ -1419,8 +1420,12 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 			Version:      "1.0.0",
 			Capabilities: caps,
 		},
-		Recipe: recipe,
-		Files:  up.Files,
+		Recipe:     recipe,
+		Files:      up.Files,
+		Entrypoint: entrypoint,
+	}
+	if len(recipe.Entrypoint) > 0 {
+		w.Entrypoint = recipe.Entrypoint
 	}
 	return cfg, w, secrets
 }

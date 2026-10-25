@@ -23,6 +23,7 @@ type CLI struct {
 
 	LocalImageID    func(image string) string
 	ImageEntrypoint func(image string) []string
+	ImageCmd        func(image string) []string
 
 	SandboxList        func() ([]byte, error)
 	SecretList         func() ([]byte, error)
@@ -76,7 +77,8 @@ func defaultCLI() CLI {
 		PolicyCheck:   func(host string) ([]byte, error) { return bounded(Binary, CheckNetworkArgs(host)...) },
 
 		LocalImageID:    dockerImageID,
-		ImageEntrypoint: dockerImageEntrypoint,
+		ImageEntrypoint: func(image string) []string { return dockerImageList(image, "Entrypoint") },
+		ImageCmd:        func(image string) []string { return dockerImageList(image, "Cmd") },
 		SandboxList:     func() ([]byte, error) { return boundedCombined(Binary, "ls") },
 		SecretList:      func() ([]byte, error) { return boundedCombined(Binary, "secret", "ls") },
 		SecretSet:       sbxSecretSet,
@@ -99,9 +101,10 @@ func dockerImageID(image string) string {
 	return id
 }
 
-func dockerImageEntrypoint(image string) []string {
+// dockerImageList reads one list field of the image's config (Entrypoint, Cmd); nil when unreadable.
+func dockerImageList(image, field string) []string {
 	out, err := exec.Command("docker", "image", "inspect", image,
-		"--format", "{{json .Config.Entrypoint}}").Output()
+		"--format", "{{json .Config."+field+"}}").Output()
 	if err != nil {
 		return nil
 	}

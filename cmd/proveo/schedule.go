@@ -203,7 +203,8 @@ func scheduleTickCmd() *cobra.Command {
 }
 
 func scheduleRunCmd() *cobra.Command {
-	return &cobra.Command{
+	var printOnly bool
+	cmd := &cobra.Command{
 		Use:   "run <task>",
 		Short: "Start a job now, outside its schedule",
 		Args:  cobra.ExactArgs(1),
@@ -216,6 +217,9 @@ func scheduleRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if printOnly {
+				return schedule.Describe(cmd.OutOrStdout(), home, proveoExe(), args[0], j, scheduleNow(), printScheduledRun)
+			}
 			if err := schedule.Launch(home, proveoExe(), args[0], "manual", j, nil); err != nil {
 				return err
 			}
@@ -223,6 +227,16 @@ func scheduleRunCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&printOnly, "print", false, "print the session command, the sandbox plan and the typed line instead of starting the job")
+	return cmd
+}
+
+func printScheduledRun(argv []string, dir string) error {
+	c := exec.Command(argv[0], argv[1:]...)
+	c.Dir = dir
+	c.Env = append(os.Environ(), "PROVEO_SCHEDULE=1")
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return c.Run()
 }
 
 func scheduleRetryCmd() *cobra.Command {

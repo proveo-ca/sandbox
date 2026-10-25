@@ -2,6 +2,7 @@
 package run
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -177,7 +178,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if err := p.applyCapabilities(rs.Man); err != nil {
 		return err
 	}
-	if rs.Choices.Promptable {
+	if rs.Choices.Promptable || (p.PrintOnly && scheduled() && agentio.WizardEnabled()) {
 		if cached, ok := rs.Choices.Settings.Lookup(p.Target, rs.Man.Capabilities); ok {
 			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
@@ -219,6 +220,11 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		}
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
+		}
+	}
+	if scheduled() {
+		if err := p.tuiForSchedule(); err != nil {
+			return err
 		}
 	}
 	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
@@ -716,8 +722,13 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 				sbx.ShellJoin(sbx.SetupSSHArgs()), sandbox.DesktopGateway(cfg.Name))
 			return nil
 		}
-		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
-			sbx.ShellJoin(sbx.RunArgs(sbx.Reattach(cfg))))
+		var imageCmd []string
+		if len(w.Recipe.Entrypoint) == 0 {
+			imageCmd = sbx.ImageCmd(in.Image)
+		}
+		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n# in-sandbox\n%s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+			sbx.ShellJoin(sbx.RunArgs(sbx.Reattach(cfg))),
+			cmp.Or(sbx.ShellJoin(sbx.Launched(w.Entrypoint, imageCmd, cfg.Command)), "(no readable ENTRYPOINT on "+in.Image+")"))
 		return nil
 	}
 	rs.AgentLaunched = true

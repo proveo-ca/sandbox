@@ -708,3 +708,35 @@ func TestThePickerPromisesADaemonOnlyWhereTheManifestDoes(t *testing.T) {
 		}
 	}
 }
+
+func TestAScheduledRunKeepsToTheTUI(t *testing.T) {
+	t.Run("a saved desktop choice gives way and stays saved", func(t *testing.T) {
+		p := &Params{Addons: []string{addonBrowser, addonDesktop}}
+		cached := p.Addons
+		if err := p.tuiForSchedule(); err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff([]string{addonBrowser}, p.Addons); diff != "" {
+			t.Errorf("addons mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{addonBrowser, addonDesktop}, cached); diff != "" {
+			t.Errorf("the saved choice changed (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("an explicit --addon desktop is refused", func(t *testing.T) {
+		p := &Params{Addons: []string{addonDesktop}, AddonsSet: true}
+		if err := p.tuiForSchedule(); err == nil || !strings.Contains(err.Error(), "scheduled run") {
+			t.Errorf("tuiForSchedule() = %v, want the scheduled-run refusal", err)
+		}
+	})
+	t.Run("only PROVEO_SCHEDULE marks a run scheduled", func(t *testing.T) {
+		t.Setenv("PROVEO_SCHEDULE", "")
+		if scheduled() {
+			t.Error("scheduled() with PROVEO_SCHEDULE empty")
+		}
+		t.Setenv("PROVEO_SCHEDULE", "1")
+		if !scheduled() {
+			t.Error("scheduled() false under PROVEO_SCHEDULE=1")
+		}
+	})
+}

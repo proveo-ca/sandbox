@@ -22,6 +22,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
@@ -898,5 +899,22 @@ func (p *Params) resolveAddonFlags(man manifest.Manifest) error {
 		}
 	}
 	p.Addons, p.AddonsAnswered = out, true
+	return nil
+}
+
+// scheduled reports whether `proveo schedule` launched this run.
+// SPEC: _spec/internal/schedule/schedule.puml (TUI ONLY)
+func scheduled() bool { return os.Getenv("PROVEO_SCHEDULE") != "" }
+
+// tuiForSchedule keeps a scheduled run on the tui its watcher types into; the saved desktop choice stays saved.
+func (p *Params) tuiForSchedule() error {
+	if !slices.Contains(p.Addons, addonDesktop) {
+		return nil
+	}
+	if p.AddonsSet {
+		return fmt.Errorf("--addon %s: a scheduled run types its prompt into the tui — drop %s from the job's addons", addonDesktop, addonDesktop)
+	}
+	p.Addons = slices.DeleteFunc(slices.Clone(p.Addons), func(a string) bool { return a == addonDesktop })
+	ui.Notef("schedule: tui, not the saved desktop choice — the scheduler types the prompt into the terminal")
 	return nil
 }

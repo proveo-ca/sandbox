@@ -12,6 +12,7 @@ type Workload struct {
 	Descriptor sbx.WorkloadV3
 	Recipe     sbx.RecipeV3
 	Files      map[string][]byte
+	Entrypoint []string // the ENTRYPOINT sbx launches: the recipe's, else the image's
 }
 
 // Allow is the workload's network-policy@1 runtime allow list.

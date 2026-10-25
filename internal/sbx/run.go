@@ -92,6 +92,8 @@ func StoredSecretNames() []string {
 
 func ImageEntrypoint(image string) []string { return sh.ImageEntrypoint(image) }
 
+func ImageCmd(image string) []string { return sh.ImageCmd(image) }
+
 // Mount is a workspace bind into the sandbox VM.
 type Mount struct {
 	Host      string

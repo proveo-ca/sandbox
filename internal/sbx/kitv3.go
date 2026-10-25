@@ -90,6 +90,18 @@ func LaunchArgs(launch, flags []string) []string {
 	return append(append([]string{}, launch[1:]...), flags...)
 }
 
+// Launched is the argv `sbx run` starts: ENTRYPOINT[0] plus the trailing command, else ENTRYPOINT then CMD.
+// SPEC: _spec/_plans/sbx-kit-v3-migration.puml (P7 launch)
+func Launched(entrypoint, cmd, command []string) []string {
+	if len(entrypoint) == 0 {
+		return nil
+	}
+	if len(command) > 0 {
+		return append([]string{entrypoint[0]}, command...)
+	}
+	return append(append([]string{}, entrypoint...), cmd...)
+}
+
 // CredentialV3 is credential@1's config.
 type CredentialV3 struct {
 	Service string    `yaml:"service"`

@@ -217,3 +217,24 @@ func TestKitFilesLandBesideTheDescriptorAndNowhereElse(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchedIsWhatSbxRunStarts(t *testing.T) {
+	t.Parallel()
+	ep := []string{"dumb-init", "--", "/entrypoint.sh"}
+	for _, tc := range []struct {
+		name                     string
+		entrypoint, cmd, command []string
+		want                     []string
+	}{
+		{"entrypoint alone", ep, nil, nil, ep},
+		{"entrypoint then CMD", []string{"dumb-init", "--", "cecli-entrypoint"}, []string{"cecli"}, nil,
+			[]string{"dumb-init", "--", "cecli-entrypoint", "cecli"}},
+		{"trailing command replaces all after argv0", ep, []string{"cecli"}, []string{"--", "/entrypoint.sh", "--yolo"},
+			[]string{"dumb-init", "--", "/entrypoint.sh", "--yolo"}},
+		{"no entrypoint", nil, []string{"x"}, nil, nil},
+	} {
+		if got := Launched(tc.entrypoint, tc.cmd, tc.command); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: Launched = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

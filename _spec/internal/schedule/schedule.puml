@@ -229,8 +229,33 @@ skinparam noteTextAlignment left
 '
 ' ── `proveo run` FOR UNATTENDED USE ────────────────────────────────────────
 '   --yes           seed from the choice cache, never draw the form
-'   --addon <name>  host-chrome · browser · desktop · android; refused unless the
+'   --addon <name>  host-chrome · browser · android; refused unless the
 '                   harness offers it; the cache never overrides a flagged set
+'
+' ── TUI ONLY (2026-10-25) ──────────────────────────────────────────────────
+' covers: internal/run/choices.go (scheduled, tuiForSchedule), internal/run/run.go (promptChoices)
+' tmux hands `proveo run` a pty, so cacheApplies() is true and seedFromCache
+' loads the operator's last interactive add-ons. A saved `desktop` (hermes,
+' _spec/_plans/hermes-desktop-over-ssh.puml) would then call EnsureDesktop
+' (an install prompt nobody answers) and holdForDesktop: the pane never shows
+' the ready marker, so the run ends not-ready. Under PROVEO_SCHEDULE:
+'   cached desktop  -> dropped AFTER Remember, so the saved choice survives
+'   --addon desktop -> refused (the job's addons name it)
+'
+' ── DESCRIBE: `proveo schedule run <task> --print` (2026-10-25) ─────────────
+' covers: internal/schedule/runner.go (Describe), cmd/proveo/schedule.go (printScheduledRun)
+' covers: internal/sbx/kitv3.go (Launched), internal/run/run.go (print mode)
+' Executor asked for the exact chain a job runs. It prints, in order:
+'   # session      the `sh -c` line tmux starts (sessionCommand, <stamp> for the
+'                  transcript); a `command:` job stops here
+'   # sandbox      `proveo run --print <target> …` in the job's workdir with
+'   # agent        PROVEO_SCHEDULE=1: sbx create, sbx run
+'   # in-sandbox   sbx.Launched: ENTRYPOINT[0] + trailing command, else
+'                  ENTRYPOINT + CMD (MEASURED P7, sbx-kit-v3-migration.puml);
+'                  the def entrypoint then execs its agent with its launch args
+'   # typed        Instruction + Clock as if the agent were ready now
+' Print mode skips the choice cache, but a scheduled run applies it (pty), so
+' under PROVEO_SCHEDULE the print seeds from the cache too; it never saves.
 '
 ' ── E2E, NO MODEL ──────────────────────────────────────────────────────────
 ' A `command:` job stands in for the agent: it prints FAKE-READY>, reads one
