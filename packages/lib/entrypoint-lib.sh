@@ -2665,7 +2665,7 @@ proveo_name_operator_hermes() {
  entry="Preferred name (set in proveo): $name — address the user as \"$name\", not by any account, host or path name."
  mkdir -p "$dir" 2>/dev/null || return 0
  tmp="$(mktemp "$file.XXXXXX" 2>/dev/null)" || return 0
- PROVEO_ENTRY="$entry" awk '
+ HERMES_USER_ENTRY="$entry" awk '
   function flush(t) {
    t = cur; sub(/\n+$/, "", t)
    if (have && t != "" && index(t, "Preferred name (set in proveo):") != 1) out[++n] = t
@@ -2675,9 +2675,9 @@ proveo_name_operator_hermes() {
   { cur = (have ? cur "\n" : "") $0; have = 1 }
   END {
    flush()
-   print ENVIRON["PROVEO_ENTRY"]
+   print ENVIRON["HERMES_USER_ENTRY"]
    for (i = 1; i <= n; i++) { print "§"; print out[i] }
-  }' "$file" 2>/dev/null > "$tmp" || PROVEO_ENTRY="$entry" awk 'BEGIN { print ENVIRON["PROVEO_ENTRY"] }' > "$tmp"
+  }' "$file" 2>/dev/null > "$tmp" || HERMES_USER_ENTRY="$entry" awk 'BEGIN { print ENVIRON["HERMES_USER_ENTRY"] }' > "$tmp"
  mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 0; }
  echo "📐 hermes addresses you as \"$name\" (USER.md)"
 }
