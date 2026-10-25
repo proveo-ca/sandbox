@@ -2653,35 +2653,6 @@ proveo_assert_shares() {
  return 1
 }
 
-# SPEC: _spec/cmd/proveo/operator-name.puml (HERMES)
-# Keeps one proveo-owned entry naming the operator (default Executor) in Hermes's USER.md; other entries stay.
-proveo_name_operator_hermes() {
- local name dir file entry tmp
- [[ "${1:-}" == hermes ]] || return 0
- name="$(_proveo_operator_name)"
- name="${name:-Executor}"
- dir="${HERMES_HOME:-/opt/data}/memories"
- file="$dir/USER.md"
- entry="Preferred name (set in proveo): $name — address the user as \"$name\", not by any account, host or path name."
- mkdir -p "$dir" 2>/dev/null || return 0
- tmp="$(mktemp "$file.XXXXXX" 2>/dev/null)" || return 0
- HERMES_USER_ENTRY="$entry" awk '
-  function flush(t) {
-   t = cur; sub(/\n+$/, "", t)
-   if (have && t != "" && index(t, "Preferred name (set in proveo):") != 1) out[++n] = t
-   cur = ""; have = 0
-  }
-  $0 == "§" { flush(); next }
-  { cur = (have ? cur "\n" : "") $0; have = 1 }
-  END {
-   flush()
-   print ENVIRON["HERMES_USER_ENTRY"]
-   for (i = 1; i <= n; i++) { print "§"; print out[i] }
-  }' "$file" 2>/dev/null > "$tmp" || HERMES_USER_ENTRY="$entry" awk 'BEGIN { print ENVIRON["HERMES_USER_ENTRY"] }' > "$tmp"
- mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 0; }
- echo "📐 hermes addresses you as \"$name\" (USER.md)"
-}
-
 # SPEC: _spec/internal/sbx/sbx-kit-v3.puml (HERMES AND THE MCP GATEWAY)
 # Registers sbx's MCP gateway in Hermes's config; Hermes expands the ${VAR}s itself at runtime.
 proveo_wire_hermes_mcp_gateway() {
@@ -2797,7 +2768,6 @@ proveo_seed() {
  if [[ "$target" == hermes ]]; then
   proveo_seed_step setup "wiring sbx's MCP gateway into Hermes" "$target"
   proveo_wire_hermes_mcp_gateway "$target" || true
-  proveo_name_operator_hermes "$target" || true
  fi
 
  proveo_seed_step setup "installing hooks and rendering agents" "$target"
