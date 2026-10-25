@@ -42,9 +42,12 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			creds = "forward"
 			key = choiceui.KeyInSquare
 		}
-		hop := "sbx proxy"
+		hop, hopNote := "sbx proxy", ""
+		if rowChoice(f, cursor, mcpLabel, mcpOff) == mcpOn {
+			hopNote = "+ mcp"
+		}
 		if direct {
-			hop = ""
+			hop, hopNote = "", ""
 		}
 		fr := choiceui.Frame{
 			Host:      host,
@@ -54,6 +57,7 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			HostLit:   hostLit,
 			Square:    square,
 			Hop:       hop,
+			HopNote:   hopNote,
 			Direct:    direct,
 			Interface: interfaceOf(f),
 			Key:       key,
@@ -209,7 +213,7 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 		return choiceui.FocusNone
 	}
 	switch f.Rows[cursor].Label {
-	case "egress":
+	case "egress", mcpLabel:
 		return choiceui.FocusHop
 	case "credentials", "auth", rowModel:
 		return choiceui.FocusKey

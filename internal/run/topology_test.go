@@ -99,10 +99,10 @@ func TestFocusMapsRowsToElements(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{
 		{Label: "egress"}, {Label: "credentials"}, {Label: "auth"},
-		{Label: rowExecution}, {Label: rowInterface}, {Label: evidenceLabel}, {Label: "mystery"},
+		{Label: rowExecution}, {Label: rowInterface}, {Label: evidenceLabel}, {Label: "mystery"}, {Label: mcpLabel},
 	}}
 	want := []choiceui.Focus{choiceui.FocusHop, choiceui.FocusKey, choiceui.FocusKey,
-		choiceui.FocusSquare, choiceui.FocusReturn, choiceui.FocusSay, choiceui.FocusNone}
+		choiceui.FocusSquare, choiceui.FocusReturn, choiceui.FocusSay, choiceui.FocusNone, choiceui.FocusHop}
 	for i, w := range want {
 		if got := focusOf(f, i); got != w {
 			t.Errorf("row %q: focus %v, want %v", f.Rows[i].Label, got, w)
@@ -349,5 +349,18 @@ func TestSquareTrimsOnlyTheModelToSquareMax(t *testing.T) {
 	}
 	if got := squareWith("sbx · claudecode", ""); got != "sbx · claudecode" {
 		t.Errorf("API keys adds nothing, got %q", got)
+	}
+}
+
+func TestTheMCPRowNotesTheHop(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		answer, want string
+	}{{mcpOn, "+ mcp"}, {mcpOff, ""}} {
+		r := mcpRow("claudecode", c.answer, false)
+		f := &choiceui.Form{Rows: []choiceui.Row{r}}
+		if got := topologyOf("claudecode", "broker")(f, -1).HopNote; got != c.want {
+			t.Errorf("mcp %s: hop note %q, want %q", c.answer, got, c.want)
+		}
 	}
 }

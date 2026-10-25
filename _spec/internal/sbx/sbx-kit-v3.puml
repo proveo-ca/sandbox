@@ -68,6 +68,10 @@ skinparam noteTextAlignment left
 '     gateway than without (claudecode, codex, opencode; not cursor — MEASURED).
 '   * precedence: PROVEO_SBX_MCP (locks the row, names why) > the remembered
 '     answer (agentsettings Choice.MCP) > off.
+'   * the figure: "+ mcp" on the row under the "sbx proxy" hop label (user:
+'     "+ mcp in the row underneath"; the label row has 14 columns, so beside it
+'     clipped to "+ mc"); the mcp row focuses the hop, so both light cyan
+'     (Frame.HopNote; TestTheMCPNoteSitsUnderTheHopLabel, TestTheMCPRowNotesTheHop).
 '   * the answer reaches the backend as sandbox.Input.MCPGateway; Spec and
 '     DeclineMCPGateway read that, never the env (posture reads it too).
 '   Pinned by internal/run/mcp_row_test.go, TestOnlyKitsWithGatewayHooksOfferTheGateway
