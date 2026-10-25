@@ -1,0 +1,71 @@
+@startuml HermesDesktopOverSSH
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: offer a desktop GUI agent — Hermes Desktop on the host, its backend inside sbx
+' covers: defs/hermes/**
+' covers: internal/backend/sandbox/**
+' covers: internal/run/**
+'
+' ── DECISION (2026-10-24, user: "Desktop → sbx over SSH") ───────────────────
+' Research (sources in the session report): no desktop agent proveo could offer
+' is VM-isolated by default except Cowork, which boots its own VM (Apple
+' Virtualization.framework) and moves to cloud execution on 2026-10-06 — wrapping
+' it in sbx is the oxymoron the operator named. Codex app = Seatbelt; Goose
+' Desktop = optional sandbox-exec; Ollama's app = chat + models, no agent tools.
+' Hermes Desktop's own local backend runs tools ON THE HOST unless
+' terminal.backend is docker/ssh/modal/daytona, and its plugins are "not
+' sandboxed". Hermes Desktop is a client: it can attach to a remote backend
+' (Remote gateway URL, SSH, Hermes Cloud). So proveo keeps the backend in sbx
+' and the GUI on the host.
+'
+' ── PROBE H1 (MEASURED 2026-10-24, sbx 0.49.2, proveo/hermes:local) ─────────
+'   * The image ships Hermes Agent v0.21.5 with `hermes serve` (JSON-RPC/
+'     WebSocket backend for the desktop; --port 9119, --host 127.0.0.1 default;
+'     a non-loopback bind always requires password/OAuth since June 2026).
+'   * `sbx setup ssh` writes the *.sbx ssh_config (already Included from
+'     ~/.ssh/config on this host). `ssh <name>.sbx` lands as root;
+'     `ssh hermes@<name>.sbx` (or agent@) lands as uid 1000. Both sessions carry
+'     the image ENV (PATH with /opt/hermes/bin, HERMES_HOME=/opt/data).
+'   * `ssh -L 19119:127.0.0.1:9119 hermes@<name>.sbx -- hermes serve --skip-build`
+'     printed HERMES_BACKEND_READY port=9119; host
+'     `curl 127.0.0.1:19119/api/status` → version 0.21.5, auth_required false
+'     (loopback bind; only the tunnel reaches it).
+'   * A bare probe workload has no seed, so /opt/data was root-owned and had to
+'     be chowned to 1000; proveo's real hermes workload seeds it.
+'   * sbx itself ships desktop SSH profiles for Codex and Claude Desktop
+'     (`sbx setup ssh --auto-create`): desktop-app-over-SSH is an upstream pattern.
+'
+' ── OPEN (needs the app; not installed on this host) ─────────────────────────
+'   H2 Hermes Desktop's SSH gateway type accepts host `hermes@<name>.sbx`, uses
+'      the system OpenSSH (so the Included *.sbx config resolves), and starts
+'      `hermes serve --ssh-session-token-file … --ssh-owner-nonce …` in the
+'      sandbox itself. [Unverified]
+'   H3 Whether the app's gateway list can be written by proveo (a file in its
+'      user-data dir) or must be added by hand in Settings → Gateways. [Unverified]
+'   H4 What the session needs from the running workload: models reach providers
+'      through sbx's credential proxy and Ollama through open+forward, exactly
+'      as the TUI run does. [Inference]
+'
+' ── DESIGN (after H2–H4) ────────────────────────────────────────────────────
+'   `proveo run hermes` with a `desktop` interface: create the workload as
+'   today (seed, credentials, allowlist), skip attaching the TUI, run
+'   `sbx setup ssh`, register or print the SSH gateway `hermes@<name>.sbx`,
+'   open Hermes Desktop, and hold until Ctrl+C; teardown is the normal one
+'   (clone carried home, state saved, sandbox kept or removed by the usual rule).
+'   Keys never enter ~/.hermes/.env on the host.
+title Hermes Desktop on the host, Hermes backend in sbx — over sbx's own SSH
+
+node "host (macOS)" as HOST <<host>> {
+  component "Hermes Desktop\n(GUI client)" as APP <<app>>
+  component "ssh hermes@<name>.sbx\n(*.sbx from `sbx setup ssh`)" as SSH <<app>>
+}
+node "sbx sandbox proveo-hermes-<id>" as SBX <<host>> {
+  component "hermes serve\n127.0.0.1:9119" as SERVE <<app>>
+  component "tools · files · terminal\n(inside the VM)" as TOOLS <<app>>
+}
+cloud "providers via sbx credential proxy\nOllama via open+forward" as MODELS <<cloud>>
+APP --> SSH : SSH gateway
+SSH --> SERVE : tunnel (loopback only)
+SERVE --> TOOLS
+SERVE --> MODELS
+@enduml
