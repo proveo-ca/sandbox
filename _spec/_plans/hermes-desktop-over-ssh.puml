@@ -46,6 +46,49 @@ skinparam noteTextAlignment left
 '      through sbx's credential proxy and Ollama through open+forward, exactly
 '      as the TUI run does. [Inference]
 '
+' ── INSTALL (user: "proveo should be able to install it, for macOS and linux:
+' fedora/ubuntu/debian") ───────────────────────────────────────────────────────
+' MEASURED 2026-10-24:
+'   * GitHub releases of NousResearch/hermes-agent carry NO assets (v0.22.0–
+'     v0.22.5); v0.22.5's tag is unsigned (verified=false) → commit
+'     bf0203a794a07aac3ff764972ab9087baa4e4f4e is the integrity anchor.
+'   * hermes-agent.nousresearch.com/desktop offers Hermes-Setup.dmg (6.7 MB,
+'     sha256 b61e047e…, notarized Developer ID "Brooklyn Nicholson
+'     (T2F6S8MF7C)") and a Windows .exe; Linux installs "through the terminal".
+'     No published checksums.
+'   * The DMG is a bootstrapper, not the app: Hermes.app
+'     (com.nousresearch.hermes.setup 0.0.1) downloads scripts/install.sh from
+'     raw.githubusercontent.com/NousResearch/hermes-agent/<pin> and runs it.
+'   * install.sh: --commit SHA pins the clone; --include-desktop builds the
+'     Electron app from source (electron-builder: dmg/zip, AppImage/deb/rpm)
+'     into <install dir>/apps/desktop/release; uv is sha256-pinned; node and
+'     build tools arrive through `hermes pm`. install.sh at bf0203a7 has
+'     sha256 99cb3691d55019c6973a7acb775a915648666cc24e483ca827a1cdbb3531a674.
+'   * LINUX PROBES (MEASURED, throwaway containers, arm64, install.sh at
+'     bf0203a7 run as a non-root user with --commit bf0203a7 --include-desktop
+'     --non-interactive --skip-browser --skip-computer-use):
+'       ubuntu:24.04 PASS with curl git ca-certificates xz-utils libatomic1
+'                    build-essential python3
+'       fedora:42    PASS with curl git ca-certificates xz libatomic make
+'                    gcc-c++ python3
+'       debian:13    PASS with the ubuntu set
+'     internal/hermesdesktop pins Tag/Commit/InstallScriptSHA256, maps hosts to
+'     these sets (apt: ubuntu, debian, ID_LIKE ubuntu|debian; dnf: fedora) and
+'     refuses others; Install runs nothing when install.sh misses the digest.
+'     Each failed first on libatomic.so.1 (Hermes' pinned node 26.12.1; its
+'     own error names `apt-get install -y libatomic1` / `dnf install -y
+'     libatomic`), then on `make` (node-pty's node-gyp rebuild). Output:
+'     ~/.hermes/hermes-agent/apps/desktop/release/linux-arm64-unpacked (no
+'     AppImage); the launcher entry ($XDG_DATA_HOME/applications/hermes.desktop)
+'     appears on the first `hermes desktop`. A fresh install takes minutes.
+'   → proveo follows upstream's own path on every OS, pinned harder: fetch
+'     install.sh at the pinned commit, check its sha256, run it with --commit
+'     <pin> --include-desktop --non-interactive (--skip-browser
+'     --skip-computer-use: the host runtime is only the GUI's shell).
+'   CAVEAT: this installs a Hermes runtime on the host too, and the app keeps
+'   an undeletable "Local" gateway whose tools run on the host. proveo must
+'   steer the operator to the sbx gateway (H5, open).
+'
 ' ── DESIGN (after H2–H4) ────────────────────────────────────────────────────
 '   `proveo run hermes` with a `desktop` interface: create the workload as
 '   today (seed, credentials, allowlist), skip attaching the TUI, run
