@@ -92,9 +92,15 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		form.StartOption = firstChoice(r)
 		break
 	}
+	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f, chromeWhy)
 		gateApps(f)
+		for i := range f.Rows {
+			if f.Rows[i].Label == rowInterface {
+				desktopWas = pairTUIDesktop(&f.Rows[i], desktopWas)
+			}
+		}
 	}
 	form.OnChange(form)
 
@@ -282,7 +288,11 @@ func gateAddons(f *choiceui.Form, chromeWhy string) {
 		}
 		r.OffWhy = map[string]string{}
 		var reasons []string
+		desktop := slices.Contains(r.Options, addonDesktop)
 		for j, opt := range r.Options {
+			if opt == addonTUI && desktop {
+				continue
+			}
 			if fixed, ok := addonFixed[opt]; ok {
 				r.Off[j] = true
 				r.On[j] = fixed.on
@@ -413,14 +423,16 @@ func interfaceColumn(name string) int {
 	switch name {
 	case addonTUI:
 		return 0
-	case addonBrowser:
+	case addonDesktop:
 		return 1
-	case addonAndroid:
+	case addonBrowser:
 		return 2
-	case addonIOS:
+	case addonAndroid:
 		return 3
-	default:
+	case addonIOS:
 		return 4
+	default:
+		return 5
 	}
 }
 
@@ -449,9 +461,32 @@ func layoutInterface(r choiceui.Row) choiceui.Row {
 	for i, it := range items {
 		r.Options[i] = it.opt
 		r.On[i] = it.on
-		r.Cols[i] = it.col
+		r.Cols[i] = i
+	}
+	if slices.Contains(r.Options, addonDesktop) {
+		r.RadioSet = []string{addonTUI, addonDesktop}
+		pairTUIDesktop(&r, false)
 	}
 	return r
+}
+
+// pairTUIDesktop keeps exactly one of tui and desktop on; desktopWas breaks a tie toward the newer tick.
+// It reports whether desktop is on afterwards.
+func pairTUIDesktop(r *choiceui.Row, desktopWas bool) bool {
+	ti, di := slices.Index(r.Options, addonTUI), slices.Index(r.Options, addonDesktop)
+	if ti < 0 || di < 0 {
+		return false
+	}
+	for len(r.On) < len(r.Options) {
+		r.On = append(r.On, false)
+	}
+	switch tui, desk := r.On[ti], r.On[di]; {
+	case tui && desk:
+		r.On[ti], r.On[di] = desktopWas, !desktopWas
+	case !tui && !desk:
+		r.On[ti], r.On[di] = !desktopWas, desktopWas
+	}
+	return r.On[di]
 }
 
 func axisRow(label string, all, allowed []string, preselect string) choiceui.Row {
@@ -767,7 +802,7 @@ func selectedAddons(f *choiceui.Form) []string {
 		out = append(out, f.Selections(label)...)
 		out = append(out, compulsory(f, label)...)
 	}
-	return out
+	return slices.DeleteFunc(out, func(a string) bool { return a == addonTUI })
 }
 
 func compulsory(f *choiceui.Form, label string) []string {

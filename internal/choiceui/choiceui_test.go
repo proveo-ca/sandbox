@@ -875,3 +875,23 @@ func TestPreferUTF8LocaleLeavesAUTF8LocaleAlone(t *testing.T) {
 		t.Errorf("a UTF-8 locale must not be rewritten, got %q", got)
 	}
 }
+
+func TestARadioSetDrawsRadiosBesideCheckboxes(t *testing.T) {
+	t.Parallel()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(110, 30)
+	f := &Form{Title: "run hermes", Rows: []Row{{Label: "devices", Options: []string{"tui", "desktop", "chrome"}, Multi: true,
+		RadioSet: []string{"tui", "desktop"}, On: []bool{true, false, false}, Cols: []int{0, 1, 2}}}}
+	f.draw(s, 0, 0)
+	s.Show()
+	got := rendered(t, s.(tcell.SimulationScreen))
+	for _, want := range []string{"(•) tui", "( ) desktop", "[ ] chrome"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("devices row lacks %q:\n%s", want, got)
+		}
+	}
+}
