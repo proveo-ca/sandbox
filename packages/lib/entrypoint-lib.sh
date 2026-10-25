@@ -2743,7 +2743,7 @@ proveo_assert_shares() {
 # SPEC: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
 # Merges proveo's top-level codex defaults into config.toml, above its first table.
 proveo_merge_codex_defaults() {
- local src="${PROVEO_CODEX_DEFAULTS:-/opt/codex/defaults}/config.toml" home dst
+ local src="${1:-/opt/codex/defaults}/config.toml" home dst
  [[ -f "$src" ]] || return 0
  home="$(_proveo_agent_home)"
  dst="${CODEX_HOME:-$home/.codex}/config.toml"

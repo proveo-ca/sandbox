@@ -23,9 +23,9 @@ name = "Sandbox Proxy"
 
 func mergeCodexDefaults(t *testing.T, codexHome string, env ...string) string {
 	t.Helper()
-	cmd := exec.Command(bashOrSkip(t), "-c", `source "$1/packages/lib/entrypoint-lib.sh"; proveo_merge_codex_defaults`, "bash", repoRoot(t))
-	cmd.Env = append(os.Environ(), append([]string{"CODEX_HOME=" + codexHome, "CODEX_RESEED=",
-		"PROVEO_CODEX_DEFAULTS=" + filepath.Join(repoRoot(t), "defs/codex/defaults")}, env...)...)
+	cmd := exec.Command(bashOrSkip(t), "-c", `source "$1/packages/lib/entrypoint-lib.sh"; proveo_merge_codex_defaults "$2"`,
+		"bash", repoRoot(t), filepath.Join(repoRoot(t), "defs/codex/defaults"))
+	cmd.Env = append(os.Environ(), append([]string{"CODEX_HOME=" + codexHome, "CODEX_RESEED="}, env...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("proveo_merge_codex_defaults: %v\n%s", err, out)
 	}
