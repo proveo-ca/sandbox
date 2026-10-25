@@ -130,6 +130,9 @@ func proveoWorkload(t *testing.T, work, target string, extra []string) (string, 
 		t.Skipf("could not render the workload: %v\n%s", err, out)
 	}
 	create := shellWords(printedLine(t, string(out), "# sandbox"))
+	if len(create) > 0 && create[0] == sbx.Binary {
+		create = create[1:]
+	}
 	if len(create) == 0 || create[0] != "create" {
 		t.Fatalf("the printed sandbox line is not an `sbx create`: %q", create)
 	}

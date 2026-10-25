@@ -77,6 +77,30 @@ skinparam noteTextAlignment left
 '   Pinned by internal/run/mcp_row_test.go, TestOnlyKitsWithGatewayHooksOfferTheGateway
 '   and TestTheGatewayHooksFollowTheOperatorsChoice.
 '
+' ── MCP CONNECTION E2E (2026-10-24, user: "Add the sbx gateway row too") ─────
+' e2e/mcp_connect_sbx_test.go, opt-in PROVEO_MCP_TEST=1. The oracle is a
+' streamable-HTTP MCP probe the test serves on host loopback (initialize,
+' tools/list, tools/call proveo_ping → "pong"); each layer asserts what the
+' probe LOGGED, not what an agent printed.
+'   1 transport ..... python client in a sbx@1 workload → host.docker.internal:P
+'                     after `sbx policy allow network --sandbox` localhost:P and
+'                     host.docker.internal:P
+'   2 claude ........ `claude mcp add --transport http` + `claude mcp list`
+'                     (health-checks; no model turn) → "Connected" + initialize
+'   3 codex ......... PROVEO_MCP_TEST_CODEX=1: `codex mcp list` never connects
+'                     (MEASURED, codex-cli 0.164.0: 32 ms, Auth Unknown), so a
+'                     `codex exec` turn must produce tools/call
+'   4 sbx gateway ... `sbx mcp add <probe> --url http://localhost:P
+'                     --skip-ssrf-check --skip-auth` (host-wide store, removed
+'                     after) + `sbx mcp load`; the claudecode workload with
+'                     PROVEO_SBX_MCP=on → `claude mcp list` shows mcp-gateway
+'                     Connected, and a tools/call through $MCP_GATEWAY_URL with
+'                     the $MCP_SENTINEL_TOKEN_NAME bearer reaches the probe.
+' MEASURED 2026-10-24 on sbx 0.49.2: layers 1, 2 and 4 PASS; the gateway
+' reaches a host-loopback registration. Rendered workloads in layers 3–4 use a
+' temp PROVEO_HOME/PROVEO_STATE_ROOT (TestARenderedProbeWorkloadNeverMounts-
+' TheOperatorsHome), since kit hooks write user config into mounted homes.
+'
 ' ── PORTS (MEASURED P3) ─────────────────────────────────────────────────────
 ' port@1 alone publishes localhost:<ephemeral>; with `-p H:P` for the same P
 ' sbx keeps ONE binding on H. So a workload may name a port with port@1 and
