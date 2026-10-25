@@ -31,7 +31,7 @@ var seedSteps = []string{
 	"accept_workspace_trust", "proveo_wire_config", "proveo_compose_house_rules",
 	"proveo_address_operator_claude", "proveo_apply_ui_defaults", "proveo_install_claude_hooks",
 	"proveo_install_claude_env_hook", "proveo_seed_browser_skills", "proveo_release_agent",
-	"proveo_sync_tools", "proveo_provision_toolchain", "proveo_chrome_bridge",
+	"proveo_sync_tools", "proveo_provision_toolchain", "proveo_chrome_bridge", "proveo_merge_codex_defaults",
 }
 
 // runSeedPhase sources the lib, stubs every step, and runs proveo_seed with args.

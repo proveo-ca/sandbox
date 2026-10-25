@@ -23,7 +23,7 @@ everything the CLI itself decides — see [Differences from claudecode](#differe
 └── .codex/             # PROJECT-scoped codex config (the repo's, never written here)
 
 $CODEX_HOME (~/.codex)  # USER-scoped, durable under ~/.proveo/.codex
-├── config.toml         # seeded from the baked defaults, missing-only
+├── config.toml         # the codex kit's file + proveo's missing top-level keys
 ├── AGENTS.md           # proveo house rules (user layer)
 ├── agents/*.toml       # composed subagents
 ├── auth.json           # `codex login`, persisted between runs
@@ -73,7 +73,7 @@ row (or `--addon browser`) and the run swaps the image, leaving the target `code
 | --- | --- |
 | `OPENAI_API_KEY` | API-key auth. Optional when a `codex login` is persisted. |
 | `CODEX_MODEL` | Model id passed as `--model`, when set. proveo does not choose a model by role name — codex's own default applies otherwise. |
-| `CODEX_RESEED=1` | Overwrite `$CODEX_HOME/config.toml` and every composed subagent with the baked defaults. |
+| `CODEX_RESEED=1` | Reset proveo's keys in `$CODEX_HOME/config.toml` and every composed subagent to the baked defaults. |
 | `PROVEO_CODEX_SANDBOX` | Opt back into codex's own sandbox: launches `--sandbox <value> --ask-for-approval never` instead of the bypass flag. |
 | `PROVEO_CODEX_IMAGE` / `PROVEO_CODEX_BROWSER_IMAGE` | Override the image reference a build writes. |
 | `PROVEO_AGENT_EVIDENCE=default` | Drop the extra narration (`codex exec --json`). |

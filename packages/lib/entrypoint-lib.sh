@@ -2740,6 +2740,29 @@ proveo_assert_shares() {
  return 1
 }
 
+# SPEC: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
+# Merges proveo's top-level codex defaults into config.toml, above its first table.
+proveo_merge_codex_defaults() {
+ local src="${PROVEO_CODEX_DEFAULTS:-/opt/codex/defaults}/config.toml" home dst
+ [[ -f "$src" ]] || return 0
+ home="$(_proveo_agent_home)"
+ dst="${CODEX_HOME:-$home/.codex}/config.toml"
+ mkdir -p "${dst%/*}" 2>/dev/null || return 0
+ [[ -f "$dst" ]] || : > "$dst"
+ awk -v reseed="${CODEX_RESEED:-0}" '
+  function key(l) { sub(/[ \t]*=.*/, "", l); return l }
+  function flush(  i) { if (done++) return; for (i = 1; i <= n; i++) if (!(order[i] in have)) print want[order[i]] }
+  FNR == 1 { file++; table = 0 }
+  /^[ \t]*\[/ { table = 1 }
+  file == 1 { if (!table && /^[A-Za-z0-9_-]+[ \t]*=/) { want[key($0)] = $0; order[++n] = key($0) } next }
+  file == 2 { if (!table && /^[A-Za-z0-9_-]+[ \t]*=/) have[key($0)] = 1; next }
+  table { flush() }
+  !table && /^[A-Za-z0-9_-]+[ \t]*=/ && reseed == "1" && (key($0) in want) { print want[key($0)]; next }
+  { print }
+  END { flush() }
+ ' "$src" "$dst" "$dst" > "$dst.proveo-tmp" && mv -f "$dst.proveo-tmp" "$dst"
+}
+
 # SPEC: _spec/defs/opencode/native-v2-integration.puml
 proveo_bootstrap_opencode_config() {
  local src="${PROVEO_OPENCODE_DEFAULTS_DIR:-/opt/opencode/defaults}"
@@ -2811,6 +2834,10 @@ proveo_seed() {
  if [[ "$target" == opencode ]]; then
   proveo_seed_step setup "seeding OpenCode defaults" "$target"
   proveo_bootstrap_opencode_config || return 1
+ fi
+ if [[ "$target" == codex ]]; then
+  proveo_seed_step setup "merging Codex defaults" "$target"
+  proveo_merge_codex_defaults || true
  fi
 
  proveo_seed_step setup "installing hooks and rendering agents" "$target"

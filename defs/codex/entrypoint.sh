@@ -26,26 +26,6 @@ if [[ -n "${CODEX_HOME:-}" && "${CODEX_HOME}" != "$_codex_home" ]]; then
 fi
 export CODEX_HOME="$_codex_home"
 
-# ── Seed user-level defaults ($CODEX_HOME) ─────────────────
-# Missing-only, unless CODEX_RESEED=1 forces a re-seed. The mounted workspace is
-# never touched: codex reads AGENTS.md natively, so there is no bridge file to
-# write into the operator's checkout.
-seed_codex_defaults() {
-  local src=/opt/codex/defaults dst="$CODEX_HOME"
-  mkdir -p "$dst" 2>/dev/null || { echo "⚠️  Could not create $dst; continuing" >&2; return 0; }
-
-  if [[ -f "$src/config.toml" ]]; then
-    if [[ "${CODEX_RESEED:-0}" == "1" ]]; then
-      cp -f "$src/config.toml" "$dst/config.toml" \
-        && echo "🔁 CODEX_RESEED=1 — re-seeded $dst/config.toml from the baked defaults"
-    elif [[ ! -f "$dst/config.toml" ]]; then
-      cp "$src/config.toml" "$dst/config.toml" \
-        && echo "🌱 Seeded config.toml into $dst"
-    fi
-  fi
-}
-seed_codex_defaults
-
 # ── Compose user-level subagents ($CODEX_HOME/agents) ──────
 # Bodies are shared across harnesses; only the frontmatter is Codex's TOML schema.
 # Also installs the house rules and provisions the workspace toolchain.
