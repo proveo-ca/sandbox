@@ -60,8 +60,11 @@ skinparam noteTextAlignment left
 '                             2026-10-24). MEASURED: Hermes's MemoryStore reads
 '                             the result as separate entries; the awk is line-
 '                             based so BSD awk and mawk agree.
-'   no name                   every file stays as baked: "Executor"; hermes's
-'                             USER.md is not touched
+'   no name                   every file stays as baked: "Executor"; hermes has
+'                             nothing baked, so its USER.md entry names
+'                             operator.Default ("Executor") — an empty init
+'                             answer keeps the default without saving
+'                             operator.yml, which left Hermes guessing
 ' The /opt/proveo/AGENTS.md template is never edited, so every run starts from
 ' the shipped default and a removed name takes effect on the next boot.
 

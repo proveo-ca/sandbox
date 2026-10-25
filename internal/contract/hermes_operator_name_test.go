@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/operator"
 )
 
 func nameHermesOperator(t *testing.T, home, target string, env ...string) {
@@ -52,22 +54,19 @@ func TestHermesLearnsTheOperatorsNameAndKeepsWhatItLearned(t *testing.T) {
 	}
 }
 
-func TestHermesNamingSeedsAFreshProfileAndSkipsWithoutAName(t *testing.T) {
+func TestHermesNamingSeedsAFreshProfileWithTheHouseDefault(t *testing.T) {
 	t.Parallel()
-	fresh := t.TempDir()
-	nameHermesOperator(t, fresh, "hermes", "PROVEO_OPERATOR_NAME=Ada")
-	if b, err := os.ReadFile(filepath.Join(fresh, "memories", "USER.md")); err != nil || !strings.HasPrefix(string(b), "Preferred name (set in proveo): Ada") {
-		t.Errorf("no USER.md yet ⇒ one entry naming Ada, got %q (%v)", b, err)
-	}
-	for _, c := range []struct {
-		target string
-		env    []string
-	}{{"hermes", nil}, {"claudecode", []string{"PROVEO_OPERATOR_NAME=Ada"}}} {
+	for name, want := range map[string]string{"Ada": "Ada", "": operator.Default} {
 		home := t.TempDir()
-		nameHermesOperator(t, home, c.target, c.env...)
-		if _, err := os.Stat(filepath.Join(home, "memories")); err == nil {
-			t.Errorf("%s %v wrote a Hermes profile", c.target, c.env)
+		nameHermesOperator(t, home, "hermes", "PROVEO_OPERATOR_NAME="+name)
+		if b, err := os.ReadFile(filepath.Join(home, "memories", "USER.md")); err != nil || !strings.HasPrefix(string(b), "Preferred name (set in proveo): "+want) {
+			t.Errorf("stored name %q ⇒ one entry naming %q, got %q (%v) — with nothing stored Hermes otherwise guesses from the account or host", name, want, b, err)
 		}
+	}
+	home := t.TempDir()
+	nameHermesOperator(t, home, "claudecode", "PROVEO_OPERATOR_NAME=Ada")
+	if _, err := os.Stat(filepath.Join(home, "memories")); err == nil {
+		t.Error("claudecode wrote a Hermes profile")
 	}
 }
 

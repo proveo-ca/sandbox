@@ -2654,12 +2654,12 @@ proveo_assert_shares() {
 }
 
 # SPEC: _spec/cmd/proveo/operator-name.puml (HERMES)
-# Keeps one proveo-owned entry naming the operator in Hermes's USER.md; other entries stay.
+# Keeps one proveo-owned entry naming the operator (default Executor) in Hermes's USER.md; other entries stay.
 proveo_name_operator_hermes() {
  local name dir file entry tmp
  [[ "${1:-}" == hermes ]] || return 0
  name="$(_proveo_operator_name)"
- [[ -n "$name" ]] || return 0
+ name="${name:-Executor}"
  dir="${HERMES_HOME:-/opt/data}/memories"
  file="$dir/USER.md"
  entry="Preferred name (set in proveo): $name — address the user as \"$name\", not by any account, host or path name."
