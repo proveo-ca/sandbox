@@ -120,9 +120,11 @@ COPY defs/base/ssh/github_known_hosts /etc/ssh/ssh_known_hosts
 COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
 COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 
+# SPEC: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
 ENV NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    CLAUDE_ENV_FILE=/etc/sandbox-persistent.sh
 
 LABEL security.hardened=true \
       org.opencontainers.image.title="proveo harness base" \
@@ -141,7 +143,8 @@ ENV PATH=/opt/jre/bin:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/us
     JAVA_HOME=/opt/jre \
     NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    CLAUDE_ENV_FILE=/etc/sandbox-persistent.sh
 LABEL com.docker.sandboxes=templates \
       com.docker.sandboxes.base=ubuntu:questing \
       com.docker.sandboxes.flavor=shell-docker \

@@ -45,10 +45,21 @@ skinparam noteTextAlignment left
 '     image's /opt/proveo/shims/<agent> → proveo-await-seed still runs first;
 '   * the recipe's ENV minus upstreamLayoutEnv (PATH, CODEX_INSTALL_DIR: the
 '     upstream image's install layout, not agent behaviour).
+' Kit files: agent-context@1 names ./claude-context.md, which ships beside the
+'   descriptor. That text tells Claude to persist env in $CLAUDE_ENV_FILE, so
+'   defs/base sets CLAUDE_ENV_FILE=/etc/sandbox-persistent.sh (= BASH_ENV) in
+'   base-full and the flat stage (user: "Set CLAUDE_ENV_FILE in the base");
+'   TestTheBasePointsClaudeAtTheFileSbxPersistsEnvIn pins it.
 ' Hooks it drops, each a recorded decision (plan: Q3 EXCEPTIONS):
 '   * "Seed Claude bypass/trust flags" — `> ~/.claude.json` wiped the
 '     persisted host copy in P6; accept_workspace_trust merges instead. A test
-'     fails if a re-vendor renames it, so P6 gets re-checked.
+'     fails if a re-vendor renames it, so P6 gets re-checked. The merge sets
+'     the hook's three effects — bypassPermissionsModeAccepted,
+'     hasCompletedOnboarding, trust for "/" and the scan root — and keeps
+'     every restored key; proveo_seed runs it after proveo_sync_config
+'     restore (TestWorkspaceTrustMergesUpstreamsFlagsIntoTheRestoredClaudeJSON,
+'     TestTheSeedAcceptsTrustAfterItRestoresConfig). Inert in an image until
+'     `proveo build <harness>` bakes the lib.
 '   * any hook naming MCP_GATEWAY_URL unless opts.MCPGateway (the egress row).
 '
 ' ── PORTS (MEASURED P3) ─────────────────────────────────────────────────────

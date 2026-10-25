@@ -60,9 +60,12 @@ accept_workspace_trust() {
    const fs = require("fs"), path = process.env.PROVEO_AGENT_HOME + "/.claude.json";
    let j = {};
    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+   j.bypassPermissionsModeAccepted = true;
+   j.hasCompletedOnboarding = true;
    j.projects = j.projects || {};
-   const d = process.env.PROVEO_TRUST_DIR;
-   j.projects[d] = Object.assign({}, j.projects[d], { hasTrustDialogAccepted: true });
+   for (const d of new Set(["/", process.env.PROVEO_TRUST_DIR])) {
+     j.projects[d] = Object.assign({}, j.projects[d], { hasTrustDialogAccepted: true });
+   }
    fs.writeFileSync(path, JSON.stringify(j, null, 2));
  ' 2>/dev/null || true
 }
