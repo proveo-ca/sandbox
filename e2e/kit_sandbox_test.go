@@ -62,16 +62,18 @@ func TestKitSandboxNamesOnlyTheRunsOwnSandbox(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			listing, err := json.Marshal(map[string][]sandbox{"sandboxes": c.listed})
-			if err != nil {
-				t.Fatal(err)
-			}
 			before := map[string]bool{}
 			for _, n := range c.before {
 				before[n] = true
 			}
-			if got := pickKitSandbox(listing, before, "claudecode", c.dirs); got != c.want {
-				t.Errorf("pickKitSandbox(%s) = %q, want %q", listing, got, c.want)
+			for _, shape := range []any{c.listed, map[string][]sandbox{"sandboxes": c.listed}} {
+				listing, err := json.Marshal(shape)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := pickKitSandbox(listing, before, "claudecode", c.dirs); got != c.want {
+					t.Errorf("pickKitSandbox(%s) = %q, want %q", listing, got, c.want)
+				}
 			}
 		})
 	}

@@ -460,6 +460,54 @@ func renderWorkload(t *testing.T, target string) (string, string) {
 	return printedKitDir(t, string(out)), string(out)
 }
 
+// printedMounts is the host side of every workspace mount in a printed `sbx create` argv.
+func printedMounts(create []string) []string {
+	valued := map[string]bool{"--name": true, "-t": true, "-m": true, "--cpus": true, "-p": true, "-e": true, "--env-file": true}
+	var positional []string
+	for i := 1; i < len(create) && create[i] != "--"; i++ {
+		switch a := create[i]; {
+		case valued[a]:
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			positional = append(positional, strings.TrimSuffix(a, ":ro"))
+		}
+	}
+	if len(positional) == 0 {
+		return nil
+	}
+	return positional[1:]
+}
+
+func TestEveryMountThePrintedCreateLineNamesExists(t *testing.T) {
+	for _, target := range dockerTargets(func(m manifest.Manifest) bool { return len(m.Home.Files) > 0 }) {
+		t.Run(target, func(t *testing.T) {
+			_, out := renderWorkload(t, target)
+			create := shellWords(printedLine(t, out, "# sandbox"))
+			if len(create) > 0 && create[0] == sbx.Binary {
+				create = create[1:]
+			}
+			mounts := printedMounts(create)
+			if len(mounts) == 0 {
+				t.Fatalf("the printed create line mounts nothing: %q", create)
+			}
+			for _, m := range mounts {
+				if _, err := os.Stat(m); err != nil {
+					t.Errorf("the printed create line mounts %s, which --print left missing — sbx stops at \"The selected workspace does not exist\"", m)
+				}
+			}
+		})
+	}
+}
+
+func TestPrintedMountsSkipsFlagValuesAndTheKit(t *testing.T) {
+	t.Parallel()
+	create := []string{"create", "--name", "n", "-t", "img", "--clone", "-e", "A=/x", "/kit", "/work", "/home-files:ro", "--", "/cmd"}
+	if got, want := printedMounts(create), []string{"/work", "/home-files"}; !slices.Equal(got, want) {
+		t.Errorf("printedMounts = %q, want %q", got, want)
+	}
+}
+
 func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
 	requireTmux(t)
 
@@ -660,22 +708,48 @@ func dockerVersionish(s string) bool {
 // sbxSandboxNames lists the sandboxes a test could have made: those whose
 // primary workspace lies under the test process's temp root. An operator's
 // sandbox never qualifies, so no cleanup built on this can remove one.
+type listedSandbox struct {
+	Name       string   `json:"name"`
+	Workspaces []string `json:"workspaces"`
+}
+
+// sbxListing reads `sbx ls --json`: a bare array since sbx 0.48, {"sandboxes": [...]} before it.
+func sbxListing(out []byte) ([]listedSandbox, error) {
+	var bare []listedSandbox
+	if err := json.Unmarshal(out, &bare); err == nil {
+		return bare, nil
+	}
+	var wrapped struct {
+		Sandboxes []listedSandbox `json:"sandboxes"`
+	}
+	if err := json.Unmarshal(out, &wrapped); err != nil {
+		return nil, err
+	}
+	return wrapped.Sandboxes, nil
+}
+
+func TestSbxListingReadsTheInstalledSbx(t *testing.T) {
+	requireSbx(t)
+	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
+	if err != nil {
+		t.Skipf("sbx ls --json: %v", err)
+	}
+	if _, err := sbxListing(out); err != nil {
+		t.Errorf("sbx ls --json changed shape (%v); every sandbox wait and sweep reads it:\n%.400s", err, out)
+	}
+}
+
 func sbxSandboxNames() (map[string]bool, bool) {
 	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
 	if err != nil {
 		return nil, false
 	}
-	var listing struct {
-		Sandboxes []struct {
-			Name       string   `json:"name"`
-			Workspaces []string `json:"workspaces"`
-		} `json:"sandboxes"`
-	}
-	if json.Unmarshal(out, &listing) != nil {
+	listing, err := sbxListing(out)
+	if err != nil {
 		return nil, false
 	}
 	names := map[string]bool{}
-	for _, sb := range listing.Sandboxes {
+	for _, sb := range listing {
 		if strings.HasPrefix(sb.Name, sbx.NamePrefix) && len(sb.Workspaces) > 0 && underTestTemp(sb.Workspaces[0]) {
 			names[sb.Name] = true
 		}

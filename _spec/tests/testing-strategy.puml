@@ -707,9 +707,44 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     plan line `agent: <target> <version> — pinned at build` matched a prompt
 '     marker, so a dead run read as a live prompt (reported).
 '     reachedPromptFor also drops that one line (withoutPlanLine).
-'     [Inference] opencode's and cecli's markers are their bare names, which
-'     other proveo lines may carry; for them the `exited` check is the guard.
+'     Markers are text only the agent's own screen shows (2026-10-26). The
+'     bare names `opencode`/`cecli` matched sbx's kit line
+'     `…/kit/proveo-<target> — cached`; codex had no case and fell to
+'     Claude Code's text, so stock-sbx rung 0 failed at a live Codex prompt.
+'     codex "Ask Codex to do anything", opencode "Ask anything" (readySpecs,
+'     MEASURED); cecli "(edit format)" from get_announcements
+'     (cecli-dev/cecli base_coder.py, v1.9.0 and v1.10.0).
+'     Test: e2e/idle_test.go TestSbxBuildOutputIsNotAPrompt.
 '     RESIDUAL: e2e/ladder_test.go still checks the marker before `exited`.
+'   * SBX LS --JSON IS A BARE ARRAY SINCE 0.48 (2026-10-26).
+'     docker/sbx-releases v0.48.0 dropped the {"sandboxes": [...]} wrapper.
+'     sbxSandboxNames and pickKitSandbox still unwrapped it, so on 0.49.2 every
+'     launchKit waited 8m for "no claudecode sandbox appeared" and every sweep
+'     logged "`sbx ls` failed" while leaking its sandboxes (test-e2e, MEASURED).
+'     sbxListing (e2e/sbx_test.go) reads both shapes; MinVersion 0.45 still
+'     admits the wrapper. Tests: TestSbxListingReadsTheInstalledSbx (live),
+'     TestKitSandboxNamesOnlyTheRunsOwnSandbox (both shapes).
+'   * THE CHOICE FORM OPENS ON THE DEVICES ROW.
+'     StartRow = rowInterface puts the cursor on `devices` (option browser);
+'     tickAndroid pressed Down to find `tui` and walked past it onto
+'     `outputs`. It now climbs to `› devices` and moves Right to android.
+'     TestPortsPublishE2E had the same stale walk (Down from devices; ports
+'     sits above it) and expected "4310 python" whole, but option cells clip
+'     at columnRunes = 10 (choiceui/viewport.go, #71) to "4310 pyth…". It now
+'     climbs with Up and matches the clip-proof prefix "<port> pyth".
+'   * PROBES CARRY WHAT THE ASSERTION NEEDS (2026-10-26, kit v3 port).
+'     resume_test.go's bare sbx@1 probe had no volume@1, so
+'     _proveo_volume_state_dirs found no /dev mount and restore/save were
+'     no-ops; resumeWorkload adds the published claude kit's volume@1 and
+'     lifecycle@1 (its chown re-owns the root-owned ext4 roots).
+'     close_confirm_test.go faked `sbx template ls` for an image the v2 store
+'     held; fb80d65 moved the preflight to `docker image inspect`, so the
+'     test now tags the claudecode harness image as proveo/close-confirm:e2e.
+'   * THE PRESS THAT EXITS THE TUI GETS NO REPLY (opencode_presentation.mjs).
+'     The second ctrl+c exits opencode 0, often before it answers that RPC;
+'     the driver waited 10s for "RPC timeout: ui.press" and exited 1 (10/28
+'     drives, MEASURED; the failing key moved with load). That press is now
+'     fire-and-forget, and a closed socket rejects every pending call at once.
 '   * WORKTREE: A FIXTURE THE SEED INSTALLS INTO CARRIES ITS LOCKFILE.
 '     newTempWorktree (e2e/scope_mounts_test.go) committed a package.json and
 '     no lockfile. The seed's _dep_install_cmd (packages/lib/entrypoint-lib.sh)

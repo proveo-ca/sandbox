@@ -5,7 +5,6 @@ package e2e
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -237,17 +236,12 @@ func kitDirs(dir string) []string {
 
 // pickKitSandbox is kitSandbox over an `sbx ls --json` listing.
 func pickKitSandbox(listing []byte, before map[string]bool, target string, dirs []string) string {
-	var parsed struct {
-		Sandboxes []struct {
-			Name       string   `json:"name"`
-			Workspaces []string `json:"workspaces"`
-		} `json:"sandboxes"`
-	}
-	if json.Unmarshal(listing, &parsed) != nil {
+	parsed, err := sbxListing(listing)
+	if err != nil {
 		return ""
 	}
 	prefix := sbx.SandboxName(target, "") + "-"
-	for _, sb := range parsed.Sandboxes {
+	for _, sb := range parsed {
 		if before[sb.Name] || !strings.HasPrefix(sb.Name, prefix) || !testOwned(sb.Workspaces) {
 			continue
 		}

@@ -14,6 +14,22 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
+// resumeWorkload is a probe workload carrying the published claude kit's state volumes and the startup hook that re-owns them.
+func resumeWorkload(t *testing.T, img string) string {
+	t.Helper()
+	k, ok, err := sbx.UpstreamKitFor("claudecode", sbx.UpstreamOptions{})
+	if err != nil || !ok {
+		t.Fatalf("published claude kit: ok=%v err=%v", ok, err)
+	}
+	var caps []sbx.CapabilityV3
+	for _, c := range k.Capabilities {
+		if c.Type == sbx.CapVolume || c.Type == sbx.CapLifecycle {
+			caps = append(caps, c)
+		}
+	}
+	return probeWorkload(t, "proveo-resume", sbx.RecipeV3{From: img}, caps...)
+}
+
 // TestResumeStateSurvivesSandboxTeardown is the sbx-side half of
 // resumability.
 func TestResumeStateSurvivesSandboxTeardown(t *testing.T) {
@@ -35,7 +51,7 @@ func TestResumeStateSurvivesSandboxTeardown(t *testing.T) {
 	name := "resume-guard-" + filepath.Base(home)
 	// -e PROVEO_STATE_HOME is how proveo publishes the host path; the save step
 	// reads it from the sandbox environment rather than being handed it again.
-	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: probeWorkload(t, "proveo-resume", sbx.RecipeV3{From: img}),
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
 		Env: []string{sbx.StateHomeVar + "=" + home}, Mounts: mountsOf(home)})
 
 	// The seed's half: yesterday's transcripts must be in place before the agent
@@ -83,7 +99,7 @@ func TestSaveStateSkipsTelemetryVolumes(t *testing.T) {
 	img := harnessImage(t, "claudecode")
 
 	name := "resume-skip-" + filepath.Base(t.TempDir())
-	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: probeWorkload(t, "proveo-resume", sbx.RecipeV3{From: img}),
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
 		Mounts: mountsOf(t.TempDir())})
 
 	got := sbxExec(t, name, `. /entrypoint-lib.sh && _proveo_volume_state_dirs`)
@@ -112,7 +128,7 @@ func TestSaveStateSurvivesAnInvalidatedWorkspaceCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := "resume-cwd-" + filepath.Base(parent)
-	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: probeWorkload(t, "proveo-resume", sbx.RecipeV3{From: img}),
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
 		Env: []string{sbx.StateHomeVar + "=" + home}, Mounts: mountsOf(ws, home)})
 
 	// The run's transcript, written while the workspace is still healthy.

@@ -6,6 +6,7 @@ package e2e
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,6 +32,10 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	home := t.TempDir()
 	work := t.TempDir()
 	const image = "proveo/close-confirm:e2e"
+	if out, err := exec.Command("docker", "tag", harnessImage(t, "claudecode"), image).CombinedOutput(); err != nil {
+		t.Fatalf("docker tag %s: %v\n%s", image, err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "rmi", image).Run() })
 
 	sess := tmux.New(fmt.Sprintf("proveo-closecfm-%d", os.Getpid()), nil)
 	t.Cleanup(func() { stopRun(sess, time.Minute) })
@@ -100,11 +105,6 @@ case "$1" in
       printf '%s\n' '{"client":{"version":"VERSION"}}'
     else
       printf '%s\n' 'sbx version: vVERSION deadbeef'
-    fi
-    ;;
-  template)
-    if [ "$2" = "ls" ]; then
-      printf '%s\n' 'REPOSITORY TAG IMAGE ID' 'proveo/close-confirm e2e deadbeef'
     fi
     ;;
   run)
