@@ -412,10 +412,10 @@ func brokenPrompt(screen string) string {
 // credential prompt; a prompt without sbx's frame names "its credentials".
 func consentPrompt(screen string) (string, bool) {
 	lines := strings.Split(screen, "\n")
-	at := -1
+	at, numbered := -1, false
 	for i, l := range lines {
-		if strings.Contains(l, "[A]pprove all") {
-			at = i
+		if strings.Contains(l, "[A]pprove all") || strings.Contains(l, "Approve these credentials?") {
+			at, numbered = i, strings.Contains(l, "Approve these credentials?")
 		}
 	}
 	if at < 0 {
@@ -427,7 +427,12 @@ func consentPrompt(screen string) (string, bool) {
 		if strings.HasPrefix(l, "This kit wants to use these credentials") {
 			return strings.Join(services, ", "), true
 		}
-		if f := strings.Fields(l); len(f) > 0 {
+		f := strings.Fields(l)
+		switch {
+		case len(f) == 0:
+		case numbered && strings.HasSuffix(f[0], ":"): // sbx 0.49: "openai: API key sent to api.openai.com"
+			services = append([]string{strings.TrimSuffix(f[0], ":")}, services...)
+		case !numbered: // before 0.49: "opencode     API key → sent to .opencode.ai"
 			services = append([]string{f[0]}, services...)
 		}
 	}

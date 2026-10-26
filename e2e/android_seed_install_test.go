@@ -41,7 +41,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	}
 	harnessImage(t, "opencode")
 	sweepSandboxesAfter(t)
-	before, _ := sbxSandboxNames()
+	before, canList := sbxSandboxNames()
 	proveoBin := buildProveo(t)
 	hostADB := func(args ...string) string {
 		out, _ := exec.Command(hostadb.AdbBinary(os.Getenv), append([]string{"-P", strconv.Itoa(port)}, args...)...).CombinedOutput()
@@ -58,6 +58,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 		t.Fatalf("copy fixture: %v\n%s", err, out)
 	}
 	home := t.TempDir()
+	t.Cleanup(func() { removeLeakedSandboxes(t, before, canList) }) // before home's RemoveAll: a live sandbox still writes its toolchains
 	budget := durationEnv(t, "PROVEO_ANDROID_BUILD_TIMEOUT", 25*time.Minute)
 
 	first := seedRun(t, proveoBin, home, work, "first")

@@ -189,6 +189,10 @@ func TestSandboxLadder(t *testing.T) {
 				v.detail = fmt.Sprintf("never authenticated (%q)", res.authFailure)
 				t.Skipf("rung adds %s — but the session never authenticated (%q). "+
 					"Every rung above this one is untestable until it does", r.adds, res.authFailure)
+			case res.consent != "":
+				v.detail = fmt.Sprintf("waits for credential approval (%s)", res.consent)
+				t.Fatalf("RUNG NEEDS CONSENT — this rung adds %s, and sbx stopped to ask for credential approval. %s",
+					r.adds, consentFailure(res.consent, ladderTarget()))
 			case res.death != "":
 				v.detail = fmt.Sprintf("died %q after %s", res.death, res.aliveFor.Round(time.Second))
 				if probe := probeLaunch(t, name, launchProgram(ladderTarget())); probe != "" {
@@ -325,6 +329,7 @@ type sessionResult struct {
 	reachedPrompt bool
 	blocked       string
 	authFailure   string
+	consent       string // services sbx asks the operator to approve
 	death         string
 	// promptFailure is a refusal the render carried AFTER we typed something.
 	promptFailure string
@@ -421,6 +426,10 @@ func holdSbxSession(t *testing.T, argv []string, startup, hold time.Duration, pr
 				res.authFailure, res.out = f, seen()
 				return res
 			}
+		}
+		if services, ok := consentPrompt(termtext.StripANSI(seen())); ok {
+			res.consent, res.out = services, seen()
+			return res
 		}
 		if reachedPromptFor(seen(), target) {
 			res.reachedPrompt = true

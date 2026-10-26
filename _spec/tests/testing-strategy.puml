@@ -745,6 +745,19 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     the driver waited 10s for "RPC timeout: ui.press" and exited 1 (10/28
 '     drives, MEASURED; the failing key moved with load). That press is now
 '     fire-and-forget, and a closed socket rejects every pending call at once.
+'   * SBX 0.49 SCREENS THE OLD MATCHERS MISSED (2026-10-26).
+'     consentPrompt now reads the numbered "Approve these credentials? /
+'     1. Approve all" frame (services = "<name>:" rows); the ladder reports it
+'     as RUNG NEEDS CONSENT at once instead of a 5m "never reached a prompt".
+'     A rebuilt image changes the kit source hash, so sbx asks again.
+'     seedReadyProbe answers first-run dialogs after the ready text — Claude
+'     Code's "Make auto mode your default permission mode" carries the ready
+'     text "bypass permissions", codex's "Trust this folder?" lands a second
+'     after its prompt — and fails fast on cursor's "Press any key to log in".
+'     The Android test removes its sandboxes before its temp home: LIFO
+'     cleanup removed home while the --yes run still wrote its toolchains.
+'     The palette test (whiteRun) carries an open SGR across lines and ends
+'     proveo's stretch at sbx 0.49's "  KITS"/"  SANDBOX" blocks.
 '   * WORKTREE: A FIXTURE THE SEED INSTALLS INTO CARRIES ITS LOCKFILE.
 '     newTempWorktree (e2e/scope_mounts_test.go) committed a package.json and
 '     no lockfile. The seed's _dep_install_cmd (packages/lib/entrypoint-lib.sh)
