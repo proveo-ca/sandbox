@@ -138,6 +138,8 @@ var Vars = []Var{
 		Doc: "Set the host Chrome DevTools port the host-chrome add-on uses; the image needs it set"},
 	{Name: "PROVEO_HOUSE_RULES", Scope: Operator, Where: Image, Default: "on",
 		Doc: "Write proveo's house rules into codex's and opencode's user AGENTS.md"},
+	{Name: "PROVEO_IMAGE_ADB", Scope: Operator, Where: Image, Default: "/usr/bin/adb",
+		Doc: "The image's own adb, linked over an Android SDK adb that cannot run in the sandbox"},
 	{Name: "PROVEO_INSTALL_LOCK_WAIT", Scope: Operator, Where: Image, Default: "300s",
 		Doc: "Wait this many seconds for another run's tool installs, then skip installs"},
 	{Name: "PROVEO_INSTALL_ROOT", Scope: Operator, Where: Binary | Installer, Default: "~/.proveo",
