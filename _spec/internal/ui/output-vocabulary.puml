@@ -57,6 +57,16 @@
 ' line under a preceding verb, and it now indents to that verb's TEXT column
 ' instead of to zero, so a warning's detail reads as part of the warning.
 
+' ── WRAPPED LINES KEEP THEIR COLOUR (2026-10-26) ─────────────────────────
+' wrapOne broke a grey line with "\n"+pad and no SGR, so each continuation
+' showed default colour in logs and pagers (the Toolbox jetbrains:// link,
+' long paths). It now re-emits activeSGR — every SGR since the last reset —
+' after the pad. tmux capture-pane -e still omits an SGR that repeats the
+' previous line's state, so the e2e whiteRun carries the open colour across
+' lines, and it ends proveo's stretch at sbx 0.49's "  KITS"/"  SANDBOX"
+' blocks. Tests: TestWrapCarriesTheColourOntoEachContinuation,
+' TestWhiteRunSkipsSbxsOwnLines, TestStreamPaletteE2E.
+'
 ' ── GREY DETAIL (2026-10-05) ──────────────────────────────────────────────
 ' Colouring only the mark left every line's TEXT in the terminal default, so a
 ' prelude read as a wall of white. Signal-only rendering: role lines (● host,

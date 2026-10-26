@@ -19,7 +19,13 @@ func runHermesGatewayWire(t *testing.T, target string, env ...string) string {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bashOrSkip(t), "-c", `source "$1/packages/lib/entrypoint-lib.sh"; proveo_wire_hermes_mcp_gateway "$2"`, "bash", repoRoot(t), target)
-	cmd.Env = append(os.Environ(), append([]string{"PATH=" + bin + ":" + os.Getenv("PATH"), "HERMES_HOME=", "MCP_GATEWAY_URL="}, env...)...)
+	path := bin + ":" + os.Getenv("PATH")
+	for _, kv := range env {
+		if first, ok := strings.CutPrefix(kv, "PROVEO_TEST_PATH_FIRST="); ok {
+			path = first + ":" + path
+		}
+	}
+	cmd.Env = append(os.Environ(), append([]string{"PATH=" + path, "HERMES_HOME=", "MCP_GATEWAY_URL="}, env...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("proveo_wire_hermes_mcp_gateway: %v\n%s", err, out)
 	}
@@ -56,5 +62,22 @@ func TestTheHermesSeedWiresTheGatewayAfterItRestoresConfig(t *testing.T) {
 	restore, wire := strings.Index(calls, "CALL proveo_sync_config restore"), strings.Index(calls, "CALL proveo_wire_hermes_mcp_gateway")
 	if restore < 0 || wire < restore {
 		t.Errorf("restore at %d, wire at %d; the entry must land on the restored config.yaml\n%s", restore, wire, calls)
+	}
+}
+
+func TestTheHermesGatewayStepSkipsTheAwaitSeedShim(t *testing.T) {
+	t.Parallel()
+	shims := t.TempDir()
+	marker := filepath.Join(shims, "shim-ran")
+	shim := "#!/bin/sh\n: > '" + marker + "'\nexec /usr/local/bin/proveo-await-seed /opt/hermes/bin/hermes \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(shims, "hermes"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := runHermesGatewayWire(t, "hermes", "MCP_GATEWAY_URL=http://gw.invalid/mcp", "PROVEO_TEST_PATH_FIRST="+shims)
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the seed called the await-seed shim; it waits for the release marker the seed writes later — 30s per call, 60s on every hermes start")
+	}
+	if !strings.Contains(got, "config set mcp_servers.mcp-gateway.url") {
+		t.Errorf("the real hermes behind the shim was never configured:\n%s", got)
 	}
 }

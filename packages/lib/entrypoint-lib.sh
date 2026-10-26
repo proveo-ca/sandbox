@@ -2657,10 +2657,13 @@ proveo_assert_shares() {
 # SPEC: _spec/internal/sbx/sbx-kit-v3.puml (HERMES AND THE MCP GATEWAY)
 # Registers sbx's MCP gateway in Hermes's config; Hermes expands the ${VAR}s itself at runtime.
 proveo_wire_hermes_mcp_gateway() {
- local hermes
+ local hermes="" p
  [[ "${1:-}" == hermes && -n "${MCP_GATEWAY_URL:-}" ]] || return 0
- hermes="$(command -v hermes 2>/dev/null || echo /opt/hermes/.venv/bin/hermes)"
- [[ -x "$hermes" ]] || return 0
+ # first hermes on PATH that is not the await-seed shim
+ for p in $(type -ap hermes 2>/dev/null) /opt/hermes/.venv/bin/hermes; do
+  [[ -x "$p" ]] && ! grep -q proveo-await-seed "$p" 2>/dev/null && { hermes="$p"; break; }
+ done
+ [[ -n "$hermes" ]] || return 0
  # shellcheck disable=SC2016 # the ${VAR}s are Hermes's placeholders, written verbatim
  HERMES_HOME="${HERMES_HOME:-/opt/data}" "$hermes" config set mcp_servers.mcp-gateway.url '${MCP_GATEWAY_URL}' >/dev/null 2>&1 || return 0
  # shellcheck disable=SC2016

@@ -1,4 +1,13 @@
 @startuml StartupDispatch
+' ── THE SEED NEVER CALLS AN AWAIT-SEED SHIM (2026-10-26) ─────────────────
+' proveo_wire_hermes_mcp_gateway resolved `hermes` through PATH to
+' /opt/proveo/shims/hermes, which runs proveo-await-seed — a wait for the
+' release marker the seed itself writes later. Two `config set` calls waited
+' PROVEO_INSTRUCTIONS_WAIT (30s) each: every hermes start took ~64.6s
+' (daemon.log POST /start duration_ms), and the seed-ready probe's 1-minute
+' exec was killed (MEASURED). The step takes the first hermes on PATH that is
+' not an await-seed shim. Test: TestTheHermesGatewayStepSkipsTheAwaitSeedShim.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how proveo consumes sbx's startup dispatcher on Docker's documented terms — what blocks, what runs beside the agent, and the probe that pins the contract
