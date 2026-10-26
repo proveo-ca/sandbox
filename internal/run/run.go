@@ -704,12 +704,14 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		HomeAccess:       homeAccess,
 	}
 	if p.PrintOnly {
-		defer homeAccess.Cleanup()
 		cfg, w, secrets := sandbox.Spec(in)
 		if _, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files); err != nil {
 			return fmt.Errorf("write sandbox kit: %w", err)
 		}
 		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", cfg.KitDir)
+		if homeAccess.FilesRoot != "" {
+			ui.Storef("home files: %s (copies the printed create line mounts; removed by `proveo clean`)", homeAccess.FilesRoot)
+		}
 		if len(secrets) > 0 {
 			names := make([]string, 0, len(secrets))
 			for _, kv := range secrets {

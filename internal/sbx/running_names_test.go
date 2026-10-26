@@ -27,6 +27,26 @@ func TestRunningNamesFiltersToProveosOwnRunningSandboxes(t *testing.T) {
 	}
 }
 
+func TestRunningReadsTheStatusPastSbxsStateGlyph(t *testing.T) {
+	origList, origLook := sh.SandboxList, lookPath
+	t.Cleanup(func() { sh.SandboxList, lookPath = origList, origLook })
+	lookPath = func(string) (string, error) { return "/usr/local/bin/sbx", nil }
+	sh.SandboxList = func() ([]byte, error) {
+		return []byte("SANDBOX                      AGENT               STATUS      PORTS                      WORKSPACE   CREATED\n" +
+			"proveo-claudecode-c14a4ad7   proveo-claudecode   ● running   127.0.0.1:49658->9222/tcp4 /w          1m\n" +
+			"proveo-opencode-322bfc3c     opencode            ○ stopped                              /w          6d\n"), nil
+	}
+	if !Running("proveo-claudecode-c14a4ad7") {
+		t.Error("sbx 0.49 prints STATUS as \"● running\"; reading the glyph as the status left every Running() false")
+	}
+	if Running("proveo-opencode-322bfc3c") {
+		t.Error("a stopped sandbox must not read as running")
+	}
+	if names, _ := RunningNames(); len(names) != 1 || names[0] != "proveo-claudecode-c14a4ad7" {
+		t.Errorf("RunningNames() = %v, want only the running sandbox", names)
+	}
+}
+
 // Unreadable while sbx IS installed is undecidable, not quiet: the caller uses
 // this to gate a destructive prune.
 func TestRunningNamesReportsAnUnreadableListing(t *testing.T) {

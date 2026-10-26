@@ -102,6 +102,15 @@ skinparam noteTextAlignment left
 ' Guessing the house style rather than reading the command's own help cost the
 ' whole e2e suite one run.
 '
+' ── SUPERSEDED 2026-10-26: THE FLAG IS `--json` ─────────────────────────
+' v0.49.2 `diagnose --help` lists only `--format string` (table, json, yaml,
+' github-issue), `--json` and `--upload`; `-o json` exits 1 with
+' `error: unknown shorthand flag: 'o' in -o` and empty stdout, so DiagnoseAt
+' had nothing to parse (TestInitReadsSbxDiagnoseOnThisHost, MEASURED).
+' `--json` exists from 0.42 through 0.49.2 and MinVersion is 0.45, so it is now
+' the one spelling every supported version accepts. Exit 1 with a payload
+' still means "a check failed", and DiagnoseAt parses it.
+'
 ' `status` has a FOURTH value the first reading missed: `warn`, which the real
 ' binary returns for an available update. Only `fail` may block; treating warn
 ' as failure would refuse every host running anything but the newest sbx.
@@ -186,7 +195,7 @@ actor "operator" as OP
 node "the host" as HOST <<host>> {
   component "proveo init — verify\nreportHostReadiness" as INIT <<app>>
   component "internal/sbx.Prereqs\nBlocksInstall + BlocksNothing only" as PRE <<app>>
-  component "<prefix>/bin/sbx diagnose -o json\n12 checks: pass · warn · fail · skip" as DIAG <<cloud>>
+  component "<prefix>/bin/sbx diagnose --json\n12 checks: pass · warn · fail · skip" as DIAG <<cloud>>
   database "an sbx already installed\nthe operator's, whatever its version" as OWNED <<db>>
 }
 
@@ -241,7 +250,7 @@ note bottom of PKG
 end note
 
 note top of DIAG
-  **""-o json"" is what both floors accept.**
+  **""--json"" is what every supported version accepts (0.42–0.49; ""-o"" is gone in 0.49).**
   ""--json"" is a 0.42.x alias that a 0.39.0 host
   rejected outright, and reading the house style
   instead of the command's help left proveo

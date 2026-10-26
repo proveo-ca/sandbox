@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 func Exists(name string) bool {
@@ -42,10 +43,20 @@ func Running(name string) bool {
 
 func statusOf(out, name string) string {
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.Fields(line)
-		if len(f) >= 3 && f[0] == name {
-			return strings.ToLower(f[2])
+		if f := strings.Fields(line); len(f) >= 3 && f[0] == name {
+			return rowStatus(f)
 		}
+	}
+	return ""
+}
+
+// rowStatus is the STATUS word of an `sbx ls` row, past the state glyph 0.49 prints before it ("● running").
+func rowStatus(f []string) string {
+	for _, w := range f[2:] {
+		if r := []rune(w); len(r) == 1 && !unicode.IsLetter(r[0]) {
+			continue
+		}
+		return strings.ToLower(w)
 	}
 	return ""
 }
@@ -67,7 +78,7 @@ func RunningNames() (names []string, ok bool) {
 		if len(f) < 3 || !strings.HasPrefix(f[0], NamePrefix) {
 			continue
 		}
-		if strings.ToLower(f[2]) == "running" {
+		if rowStatus(f) == "running" {
 			names = append(names, f[0])
 		}
 	}

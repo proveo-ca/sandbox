@@ -197,4 +197,14 @@ MEM ARROW_MAIN ROW : seeds ticks · --yes uses as-is
 ROW ARROW_OPTIONAL MEM : answered form
 MEM ARROW_MAIN APPS
 APPS ARROW_MAIN AINST : sbx exec, once
+note as DEVEXEC
+  **The command runs grouped, not exec'd (2026-10-26).**
+  Launch prefixes ""HOST=0.0.0.0 PORT=<n>"", and
+  ""exec HOST=… cmd"" makes bash look up "HOST=…" as
+  the command: "exec: HOST=0.0.0.0: not found", so no
+  published server ever started (TestPortsPublishE2E,
+  MEASURED). DevServerScript writes ""{ <cmd>\n} >>log"",
+  which takes env prefixes and compound commands.
+  Test: TestDevServerScriptRunsACommandWithAnEnvPrefix.
+end note
 @enduml

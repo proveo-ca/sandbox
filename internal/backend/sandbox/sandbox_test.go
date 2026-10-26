@@ -4,7 +4,9 @@ package sandbox
 import (
 	"errors"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -372,9 +374,25 @@ func TestDevServerScriptSkipsAPortAlreadyServedAndLogs(t *testing.T) {
 	got := DevServerScript("/work/repo", false, PublishedPort{Guest: 3000, Dir: "apps/web", Cmd: "HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0"})
 	want := "if (exec 3<>/dev/tcp/127.0.0.1/3000) 2>/dev/null; then exit 0; fi\n" +
 		"cd \"/work/repo/apps/web\" || exit 1\n" +
-		"exec HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0 >>/tmp/proveo-dev-3000.log 2>&1\n"
+		"{ HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0\n} >>/tmp/proveo-dev-3000.log 2>&1\n"
 	if got != want {
 		t.Errorf("DevServerScript() =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestDevServerScriptRunsACommandWithAnEnvPrefix(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not on PATH")
+	}
+	dir := t.TempDir()
+	p := PublishedPort{Guest: 1, Cmd: `HOST=0.0.0.0 PORT=1 sh -c 'echo "$HOST:$PORT" > served'`}
+	t.Cleanup(func() { _ = os.Remove(DevLog(p.Guest)) })
+	if out, err := exec.Command("bash", "-c", DevServerScript(dir, false, p)).CombinedOutput(); err != nil {
+		t.Fatalf("the dev-server script failed: %v\n%s", err, out)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "served")); err != nil || strings.TrimSpace(string(got)) != "0.0.0.0:1" {
+		t.Errorf("devports prefixes HOST/PORT; the server must start with them set, got %q (%v)", got, err)
 	}
 }
 
@@ -387,7 +405,7 @@ func TestDevServerScriptWaitsForTheCloneBeforeItStartsTheServer(t *testing.T) {
 		"  n=$((n-1)); [ \"$n\" -gt 0 ] || exit 1; sleep 1\n" +
 		"done\n" +
 		"cd \"/work/repo\" || exit 1\n" +
-		"exec python3 -m http.server 4310 >>/tmp/proveo-dev-4310.log 2>&1\n"
+		"{ python3 -m http.server 4310\n} >>/tmp/proveo-dev-4310.log 2>&1\n"
 	if got != want {
 		t.Errorf("DevServerScript(clone) =\n%s\nwant\n%s", got, want)
 	}

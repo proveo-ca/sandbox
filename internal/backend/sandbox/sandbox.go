@@ -759,7 +759,7 @@ func DevServerScript(workdir string, clone bool, p PublishedPort) string {
 		fmt.Fprintf(&b, "n=%d\nuntil git -C %q rev-parse -q --verify HEAD >/dev/null 2>&1 && [ -n \"$(ls -A %q 2>/dev/null)\" ]; do\n"+
 			"  n=$((n-1)); [ \"$n\" -gt 0 ] || exit 1; sleep 1\ndone\n", int(devRetryMax/time.Second), workdir, workdir)
 	}
-	fmt.Fprintf(&b, "cd %q || exit 1\nexec %s >>%s 2>&1\n", filepath.Join(workdir, p.Dir), p.Cmd, DevLog(p.Guest))
+	fmt.Fprintf(&b, "cd %q || exit 1\n{ %s\n} >>%s 2>&1\n", filepath.Join(workdir, p.Dir), p.Cmd, DevLog(p.Guest))
 	return b.String()
 }
 
