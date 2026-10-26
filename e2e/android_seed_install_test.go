@@ -69,8 +69,12 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 		screen, _ := first.CaptureAll()
 		t.Fatalf("the seed did not install %s on the host emulator:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(before, hostADB))
 	}
-	if top := hostADB("shell", "dumpsys", "activity", "activities"); !strings.Contains(top, helloPackage) {
-		t.Errorf("%s installed but not launched:\n%s", helloPackage, tail(top, 20))
+	var top string
+	if !waitUntil(time.Minute, func() bool {
+		top = hostADB("shell", "dumpsys", "activity", "activities")
+		return strings.Contains(top, helloPackage)
+	}) {
+		t.Errorf("%s installed but not launched within a minute:\n%s", helloPackage, tail(top, 20))
 	}
 	if screen, ok := stopRun(first, 3*time.Minute); !ok {
 		t.Fatalf("the first run never finished its teardown after SIGTERM\n%s", tail(screen, 40))

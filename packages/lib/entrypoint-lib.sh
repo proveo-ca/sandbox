@@ -573,6 +573,7 @@ ensure_jvm_toolchain() {
  [[ -d "$root" ]] || { echo "WARN: no Android SDK root after the install"; return 0; }
  export ANDROID_HOME="$root" ANDROID_SDK_ROOT="$root"
  export PATH="$root/cmdline-tools/${ver}/bin:$root/platform-tools:$PATH"
+ _proveo_pin_adb
  yes 2>/dev/null | sdkmanager --licenses >/dev/null 2>&1 || true
  [[ -n "$emulated" ]] || return 0
  local bt="${PROVEO_ANDROID_BUILD_TOOLS:-36.0.0}"
@@ -2868,6 +2869,17 @@ _proveo_debug_apk() {
   find "${dir:-.}/build/outputs/apk" -type f -path '*/debug/*.apk' ! -path '*/androidTest/*' 2>/dev/null | LC_ALL=C sort | head -n1
 }
 
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+# Points the SDK's platform-tools/adb at the image's adb when the SDK copy cannot run in this guest.
+_proveo_pin_adb() {
+  local sdk="${ANDROID_HOME:-}" img="${PROVEO_IMAGE_ADB:-/usr/bin/adb}" pt
+  [[ -n "$sdk" && -x "$img" ]] || return 0
+  pt="$sdk/platform-tools/adb"
+  [[ -e "$pt" && ! -L "$pt" ]] || return 0
+  "$pt" version >/dev/null 2>&1 && return 0
+  mv -f "$pt" "$pt.foreign" && ln -s "$img" "$pt"
+}
+
 proveo_android_install() {
   (($#)) || return 0
   local waited=0 limit="${PROVEO_ANDROID_WAIT:-3600}" log="$PROVEO_ANDROID_LOG"
@@ -2900,6 +2912,7 @@ proveo_android_install() {
       rc=1
       continue
     fi
+    _proveo_pin_adb
     apk="$(_proveo_debug_apk "$module")"
     if [[ -z "$apk" ]]; then
       echo "⚠️  android: $task wrote no debug APK for $app — see $log" | tee -a "$log" >&2
