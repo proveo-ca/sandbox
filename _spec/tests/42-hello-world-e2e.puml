@@ -171,7 +171,7 @@ note over RUN
 
   The workspace ."".env"" is **deleted**, not rewritten. On the
   docker backend the entrypoint sourced it //after// ""-e"", so a
-  project ""CECLI_MODEL"" or ""OPENCODE_MODEL"" outranked what
+  project ""OPENCODE_MODEL"" outranked what
   ""--local-model"" wired. Inside sbx the image no longer sources
   it (2026-10-16); the deletion stays as the cheaper guarantee.
 
@@ -235,7 +235,7 @@ note over TEST
   failures, tracebacks, ""command not found"", entrypoint line
   errors) and fails on them.
 
-  Written after cecli shipped for weeks with its Serena MCP
+  Written after a harness shipped for weeks with its Serena MCP
   server dead on every boot — a package version skew — while
   the side-effect assertion stayed green.
 end note

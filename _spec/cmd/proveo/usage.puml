@@ -201,7 +201,7 @@ end note
 
 note right of RunFlags
 ""proveo run <target>"" applies to every
-harness with a manifest (cecli, claudecode*,
+harness with a manifest (claudecode*,
 opencode, cursor, codex, hermes). Every run goes
 to an sbx sandbox with its own daemon (hermes:
 ""daemon: false""); a host without sbx refuses

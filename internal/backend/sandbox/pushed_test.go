@@ -71,7 +71,7 @@ func TestGitReflogSeesPushesFromEveryWorktree(t *testing.T) {
 
 func TestPushedFetchSkipsAnAssistant(t *testing.T) {
 	t.Parallel()
-	coding := []string{"cursor", "opencode", "codex", "claudecode", "cecli"}
+	coding := []string{"cursor", "opencode", "codex", "claudecode"}
 	for _, name := range coding {
 		if !offerPushedFetch(Input{Target: name}) {
 			t.Errorf("%s is a coding harness and must be asked", name)

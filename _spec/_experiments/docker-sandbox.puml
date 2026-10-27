@@ -5,7 +5,7 @@
 ' covers: e2e/sbx_test.go
 ' EXPERIMENT → ADOPTED (subscription harnesses). claudecode + cursor run on the
 ' sbx backend when available (internal/sbx; auto with docker+egress fallback);
-' the egress layer is reserved for open-source harnesses (opencode, cecli).
+' the egress layer is reserved for open-source harnesses (opencode).
 ' Cursor's egress hole remains the owning question for full adoption.
 '
 ' Docker Sandboxes research (2026-07, sbx v0.35.0 — "generally stable", pre-GA):

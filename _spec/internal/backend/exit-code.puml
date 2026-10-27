@@ -13,7 +13,7 @@ skinparam noteTextAlignment left
 '   the tail the code is read from . _spec/internal/agentio/agent-terminal-io.puml
 '
 ' ── 2026-10-20: sbx EXITS 1 AND NAMES THE AGENT'S CODE ─────────────────────
-' MEASURED by e2e/stream_palette_test.go (fake cecli exits 3): the screen read
+' MEASURED by e2e/stream_palette_test.go (fake agent exits 3): the screen read
 ' `error: agent exited with code 3` from sbx, then proveo's own
 ' `× the agent exited with code 1` and PROVEO_EXIT=1. Run passed `sbx run`'s
 ' process status through (ExitError{ee.ExitCode()}), and that status was 1.

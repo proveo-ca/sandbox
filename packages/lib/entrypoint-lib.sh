@@ -216,11 +216,6 @@ run_smoke_test() {
  fi
 }
 
-command_version_cecli() {
- local fallback="$1"; shift
- timeout 5s "$@" 2>/dev/null || echo "$fallback"
-}
-
 command_version_opencode() {
  local name="$1"; shift
  local fallback="${1:-n/a}"; shift || true
@@ -1056,7 +1051,7 @@ _house_rules_target() { case "$1" in
   claudecode) echo "" ;;
   codex)      echo ".codex/AGENTS.md" ;;
   opencode)   echo ".config/opencode/AGENTS.md" ;;
-  cursor|cecli) echo "" ;;
+  cursor)     echo "" ;;
 esac; }
 
 # SPEC: _spec/cmd/proveo/operator-name.puml
@@ -1501,7 +1496,7 @@ _browser_skill_dir() { case "$1" in
   claudecode) echo ".claude/skills" ;;
   cursor)     echo ".cursor/skills" ;;
   opencode)   echo ".config/opencode/skills" ;;
-  cecli|*)    echo "" ;;
+  *)          echo "" ;;
 esac; }
 
 readonly PROVEO_BROWSER_SKILL_SRC=/opt/proveo/skills/agent-browser/SKILL.md
@@ -2001,8 +1996,8 @@ configure_codex_lsp() {
   fi
 }
 
-# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml,
-_proveo_config_classes() { echo "plugin lsp formatter mcp"; }
+# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
+_proveo_config_classes() { echo "plugin lsp formatter"; }
 
 _proveo_class_wire() {
   case "$1:$2" in
@@ -2011,61 +2006,11 @@ _proveo_class_wire() {
   lsp:opencode) echo "configure_opencode_lsp" ;;
   lsp:cursor) echo "configure_cursor_lsp" ;;
   formatter:opencode) echo "configure_opencode_formatter" ;;
-  mcp:cecli) echo "configure_cecli_mcp" ;;
   plugin:claudecode) echo "configure_claude_plugins" ;;
   esac
 }
 
-_proveo_class_probe() {
-  case "$1" in
-  mcp) echo "_proveo_mcp_probe" ;;
-  plugin) echo "_proveo_plugin_probe" ;;
-  esac
-}
-
-_proveo_mcp_probe() {
-  local secs="${PROVEO_MCP_PROBE_TIMEOUT:-10}" out
-  command -v "$1" >/dev/null 2>&1 || return 1
-  out="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"proveo","version":"1"}}}' \
-    | _proveo_bounded "$secs" "$@" 2>/dev/null | head -c 65536)" || true
-  case "$out" in
-  *'"result"'*'"protocolVersion"'* | *'"result"'*'"serverInfo"'*) return 0 ;;
-  esac
-  return 1
-}
-
-_proveo_plugin_probe() { command -v "$1" >/dev/null 2>&1; }
-
 configure_claude_plugins() { proveo_enable_claude_lsp_plugins "${2:-}"; }
-
-# SPEC: _spec/defs/cecli/cecli-paradigm.puml
-configure_cecli_mcp() {
-  local scan="${1:-$(pwd)}" conf probe
-  proveo_env_enabled PROVEO_CECLI_MCP on || return 0
-  command -v serena >/dev/null 2>&1 || return 0
-
-  conf="$(_proveo_agent_home)/.cecli.conf.yml"
-  if [[ -f "$conf" ]] && grep -qE '^[[:space:]]*mcp-servers:' "$conf"; then
-    echo "🧠 MCP: mcp-servers already declared in $conf; leaving it alone"
-    return 0
-  fi
-
-  probe="$(_proveo_class_probe mcp)"
-  if ! "$probe" serena start-mcp-server --context ide-assistant --project "$scan"; then
-    echo "⚠️  MCP: serena did not answer an initialize handshake within ${PROVEO_MCP_PROBE_TIMEOUT:-10}s;" >&2
-    echo "    code intelligence for cecli stays off rather than declaring a dead server." >&2
-    return 0
-  fi
-
-  cat >>"$conf" <<YAML
-mcp-servers:
-  mcpServers:
-    serena:
-      command: serena
-      args: [start-mcp-server, --context, ide-assistant, --project, $scan]
-YAML
-  echo "🧠 MCP code intelligence via Serena (initialize handshake answered): $conf"
-}
 
 proveo_wire_config() {
   local target="${1:-}" scan class fn
@@ -2509,7 +2454,6 @@ _proveo_release_paths() {
  claudecode) printf '%s\n' "$h/.claude/agents" "$h/.claude/settings.json" "$h/.claude/plugins/installed_plugins.json" "$h/.claude/skills/proveo-lsp" ;;
  codex) c="${CODEX_HOME:-$h/.codex}"; printf '%s\n' "$h/.codex/agents" "$c/config.toml" ;;
  cursor) c="${CURSOR_CONFIG_DIR:-$h/.cursor}"; printf '%s\n' "$h/.cursor/agents" "$c/mcp.json" ;;
- cecli) printf '%s\n' "${CECLI_HOME:-$h/.cecli}/agents" "$h/.cecli.conf.yml" ;;
  opencode) printf '%s\n' "$h/.config/opencode/agents" "$h/.config/opencode/opencode.json" ;;
  esac
 }
@@ -2783,7 +2727,6 @@ proveo_seed() {
  codex) render_subagents codex "$home/.codex/agents" "${CODEX_RESEED:-0}" ;;
  cursor) render_subagents cursor "$home/.cursor/agents" "${CURSOR_RESEED:-0}"
   proveo_seed_cursor_workspace_agents ;;
- cecli) render_subagents cecli "${CECLI_HOME:-$home/.cecli}/agents" "${CECLI_RESEED:-0}" ;;
  opencode) render_subagents opencode "${HOME}/.config/opencode/agents" "${OPENCODE_RESEED:-0}" ;;
  esac
 

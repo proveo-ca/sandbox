@@ -12,7 +12,6 @@ var aptDockerfiles = []string{
 	"defs/base/Dockerfile",
 	"defs/base-node/Dockerfile",
 	"defs/base-node-browser/Dockerfile",
-	"defs/cecli/Dockerfile",
 	"defs/cursor/Dockerfile",
 	"defs/claudecode/mcp/Dockerfile",
 	"defs/claudecode/solidity/Dockerfile",
@@ -56,7 +55,7 @@ func TestHealthchecksDoNotDependOnTheUserName(t *testing.T) {
 			if !strings.Contains(line, "test -f /home/") && !strings.Contains(line, "CMD test -f") {
 				continue
 			}
-			if regexp.MustCompile(`/home/(claude|cursor|opencode|cecli)\b`).MatchString(line) {
+			if regexp.MustCompile(`/home/(claude|cursor|opencode)\b`).MatchString(line) {
 				t.Errorf("%s healthcheck hard-codes a username path (%q); use /home/agent, the real home",
 					rel, strings.TrimSpace(line))
 			}

@@ -40,7 +40,6 @@ var readySpecs = map[string]readySpec{
 	"codex":      {agents: ".codex/agents", ext: "toml", lspFiles: []string{".codex/config.toml"}, baked: "typescript|pyright", ready: "Ask Codex to do anything"},
 	"opencode":   {agents: ".config/opencode/agents", lspFiles: []string{".config/opencode/opencode.json"}, baked: "typescript|pyright", register: "opencode", ready: "Ask anything"},
 	"cursor":     {agents: ".cursor/agents", lspFiles: []string{".cursor/mcp.json"}, baked: "gopls", ready: "Cursor Agent"},
-	"cecli":      {agents: ".cecli/agents"},
 	"hermes":     {assist: true},
 }
 

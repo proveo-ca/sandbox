@@ -337,7 +337,7 @@ func TestUnknownHarnessReadsNothing(t *testing.T) {
 	t.Parallel()
 	k := &keychainStub{items: map[string]string{"Claude Code-credentials": measuredPayload(
 		"sk-ant-oat01-a", "sk-ant-ort01-b", time.Now().Add(time.Hour), time.Now().Add(time.Hour))}}
-	for _, target := range []string{"cursor", "opencode", "cecli"} {
+	for _, target := range []string{"cursor", "opencode", "hermes"} {
 		got := ReadKeychainLogin(target, envOf(nil), k.resolver(), time.Now())
 		if got.Found {
 			t.Errorf("%s: read a claudecode credential: %+v", target, got)
@@ -493,7 +493,7 @@ func TestNonDarwinHostIsNeverProbedAndSaysNothing(t *testing.T) {
 
 func TestAHarnessWithNoKeychainPathIsNotAFailedRead(t *testing.T) {
 	t.Parallel()
-	for _, target := range []string{"cursor", "opencode", "cecli", "shell"} {
+	for _, target := range []string{"cursor", "opencode", "hermes", "shell"} {
 		k := &keychainStub{}
 		got := ReadKeychainLogin(target, envOf(map[string]string{"USER": "pluvo"}), k.resolver(), time.Now())
 

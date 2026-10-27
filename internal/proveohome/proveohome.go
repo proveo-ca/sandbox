@@ -153,8 +153,6 @@ func ResumeArgs(target, resumeID string, cont, list bool) ([]string, error) {
 		default:
 			return []string{"--session", resumeID}, nil
 		}
-	case "cecli":
-		return nil, fmt.Errorf("cecli does not support --resume/--continue/--ls")
 	default:
 		return nil, fmt.Errorf("unknown harness for resume: %q", target)
 	}
@@ -169,8 +167,6 @@ func harnessFamily(target string) string {
 		return "cursor"
 	case t == "opencode":
 		return "opencode"
-	case t == "cecli":
-		return "cecli"
 	case strings.HasPrefix(t, "claudecode"):
 		return "claudecode"
 	default:

@@ -30,7 +30,7 @@
 '     (_spec/internal/choiceui/wireframe.puml). None of them sets a model.
 '
 ' A HARNESS'S OWN MODEL VAR IS THE OPERATOR CONFIGURING THAT HARNESS.
-' OPENCODE_MODEL, CECLI_MODEL, CURSOR_MODEL, CODEX_MODEL, ANTHROPIC_MODEL pass
+' OPENCODE_MODEL, CURSOR_MODEL, CODEX_MODEL, ANTHROPIC_MODEL pass
 ' through untouched (CODING_HARNESSES.md "Models are not bridged"). A retirement that
 ' dropped them would have taken a working control with it. The host still
 ' warns on an unknown id in one of them: run.assembleEnv → warnUnknownModel
@@ -46,8 +46,7 @@
 ' from PROVEO_LOCAL_MODEL and never from a role name. opencode needs its own
 ' block because the bridge alone used to name its local model:
 ' configure_opencode_local_model (defs/opencode/entrypoint.sh:25-70) registers
-' the ollama provider AND sets .model and .agents.title.model. cecli sets
-' CECLI_*_MODEL itself (defs/cecli/entrypoint.sh:46-48); claudecode reads
+' the ollama provider AND sets .model and .agents.title.model. claudecode reads
 ' ANTHROPIC_MODEL from sbx.LocalModelEnv. Whether this carve-out is permanent
 ' is retire-model-bridging Q2.
 '
@@ -69,7 +68,7 @@
 ' name reaches the harness as nothing and the harness's OWN var survives; the
 ' detached smoke's .env carries only each harness's own model vars.
 ' The role-name guard matches on a WORD BOUNDARY. An agent's own variables are
-' named after the same roles (CECLI_EDITOR_MODEL, OPENCODE_SMALL_MODEL), and
+' named after the same roles (OPENCODE_SMALL_MODEL, ANTHROPIC_SMALL_FAST_MODEL), and
 ' those must remain; a substring test would flag every one and be deleted.
 ' The seed guard exists because the retirement itself SHIPPED that defect: the
 ' run after the deletion wrote model="" into the durable home, where it
@@ -168,7 +167,7 @@
 ' container.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Model choice — no model by environment; the retired alias tables, four harness dialects
+title Model choice — no model by environment; the retired alias tables, three harness dialects
 ' purpose: why proveo chooses no agent model by environment, what guards that, and the alias tables it retired
 ' covers: internal/entrypoint/**
 ' covers: packages/lib/entrypoint-lib.sh
@@ -188,7 +187,6 @@ node "Agent container" as CTR <<host>> {
   component "apply_model_bridges <harness>\ndefs/bridges/<harness>.tsv" as BRIDGE <<app>>
 
   component "opencode — models.dev ids,\nprovider-prefixed\nOPENCODE_MODEL · OPENCODE_BUILD_MODEL\nOPENCODE_SMALL_MODEL" as OC <<app>>
-  component "cecli — litellm ids; local is\n""ollama_chat/<model>""; also two-level\n""openrouter/<vendor>/<model>""\nCECLI_MODEL · CECLI_EDITOR_MODEL\nCECLI_WEAK_MODEL (+AIDER_* aliases)" as CE <<app>>
   component "claudecode — bare vendor ids\nANTHROPIC_MODEL\nANTHROPIC_SMALL_FAST_MODEL" as CC <<app>>
   component "cursor — bare vendor ids\nCURSOR_MODEL" as CU <<app>>
 }
@@ -199,7 +197,6 @@ SRC ARROW_MAIN RUN
 RUN ARROW_MAIN ENVIN : " ""-e NAME=value"" "
 ENVIN ARROW_MAIN BRIDGE
 BRIDGE ARROW_MAIN OC : normalize → ""provider/model""
-BRIDGE ARROW_MAIN CE : as written
 BRIDGE ARROW_MAIN CC : bare id\n(strip ""provider/"" prefix)
 BRIDGE ARROW_MAIN CU : bare id
 OLLAMA ARROW_CLOUD ENVIN : overrides all three tiers\n(""-e"" applied after Env)
@@ -209,7 +206,7 @@ note top of SRC
   That is the only reason these aliases exist: an
   operator names a tier once and each harness
   receives the dialect it parses, rather than
-  learning four vocabularies to switch tools.
+  learning three vocabularies to switch tools.
 end note
 
 note bottom of SRC
@@ -262,7 +259,7 @@ end note
 note right of BRIDGE
   **Tier mapping is not uniform, on purpose.**
   Opencode prefers ""EDITOR_MODEL"" for its small
-  slot while cecli and claudecode map
+  slot while claudecode maps
   ""SMALL_MODEL"" straight through, so the table
   keeps each dialect instead of averaging them.
 end note

@@ -488,10 +488,7 @@ func TestEveryMountThePrintedCreateLineNamesExists(t *testing.T) {
 	for _, target := range dockerTargets(func(m manifest.Manifest) bool { return len(m.Home.Files) > 0 }) {
 		t.Run(target, func(t *testing.T) {
 			_, out := renderWorkload(t, target)
-			create := shellWords(printedLine(t, out, "# sandbox"))
-			if len(create) > 0 && create[0] == sbx.Binary {
-				create = create[1:]
-			}
+			create := createArgv(printedLine(t, out, "# sandbox"))
 			mounts := printedMounts(create)
 			if len(mounts) == 0 {
 				t.Fatalf("the printed create line mounts nothing: %q", create)

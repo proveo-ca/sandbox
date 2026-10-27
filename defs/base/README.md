@@ -15,10 +15,9 @@ It is `FROM debian:bookworm-slim` and lands at ~200 MB.
 ## What is deliberately NOT here
 
 - **No language runtime.** Node and Python are not universal — `cursor` needs
-  neither (its `cursor-agent` is a self-contained binary), `cecli` is Python,
+  neither (its `cursor-agent` is a self-contained binary),
   `opencode`/`claudecode` are Node. Node lives in the thin `proveo/base-node`
-  intermediate (`defs/base-node`), which the Node harnesses build FROM; Python
-  is added by the one harness that needs it (`cecli`).
+  intermediate (`defs/base-node`), which the Node harnesses build FROM.
 - **No browsers in the base floor.** Playwright/Chromium fattened the shared floor
   to multiple GB, so it is not universal. A `<harness>-browser` variant applies the
   opt-in browser layer (`defs/base-node-browser`: Playwright + a Chromium browser
@@ -28,8 +27,7 @@ It is `FROM debian:bookworm-slim` and lands at ~200 MB.
   of `proveo/<harness>` (`opencode-browser`, `claudecode-browser`, `codex-browser`,
   `cursor-browser`), selected at run time from the `proveo run` capability picker
   (Tab to add, Enter continues). Default images stay slim; each variant carries one
-  Chromium that both clients share. (cecli/Python remains install-on-demand: `python -m playwright install
-  chromium` into a mounted cache dir.)
+  Chromium that both clients share.
 
 ## FROM tree
 
@@ -38,7 +36,6 @@ debian:bookworm-slim
 └── proveo/base                    git/gh/jq/curl/dumb-init/bash/tmux/proveo-entrypoint/harden
      ├── cursor                    cursor-agent binary; no runtime
      │    └── cursor-browser
-     ├── cecli                     + python3-venv (aider fork)
      └── proveo/base-node          + Node 22 LTS + pnpm + Bun
           └── proveo/base-node-lsp        + workspace language servers
                ├── opencode

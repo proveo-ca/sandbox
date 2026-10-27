@@ -84,7 +84,7 @@ func TestSaveIsOwnerOnly(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	s, _ := Load(root)
-	s.Remember("cecli", manifest.Capabilities{}, Choice{Credentials: "broker"})
+	s.Remember("hermes", manifest.Capabilities{}, Choice{Credentials: "broker"})
 	if err := s.Save(root); err != nil {
 		t.Fatal(err)
 	}

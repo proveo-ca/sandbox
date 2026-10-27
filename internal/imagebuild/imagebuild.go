@@ -105,8 +105,6 @@ func (b *Builder) AgentVersion(overrideVar, eco, pkg string) (string, error) {
 			registry = "https://registry.npmjs.org"
 		}
 		v, lastErr = b.jsonField(registry+"/"+pkg+"/latest", "version")
-	case "pypi":
-		v, lastErr = b.jsonField("https://pypi.org/pypi/"+pkg+"/json", "info", "version")
 	case "cursor":
 		var body []byte
 		if body, lastErr = b.Fetch(pkg); lastErr == nil {
@@ -115,7 +113,7 @@ func (b *Builder) AgentVersion(overrideVar, eco, pkg string) (string, error) {
 			}
 		}
 	default:
-		b.UI.Failf("agent version: unknown ecosystem '%s' (want npm|pypi|cursor)", eco)
+		b.UI.Failf("agent version: unknown ecosystem '%s' (want npm|cursor)", eco)
 		return "", fmt.Errorf("unknown ecosystem %q", eco)
 	}
 	v = strings.Join(strings.Fields(v), "")
@@ -237,6 +235,21 @@ func (b *Builder) containerBuilder() string {
 	return name
 }
 
+// HostBuilder is the buildx builder that reads the host engine's image store:
+// PROVEO_BUILDX_LOCAL_BUILDER, else the current context when its driver is docker and running.
+// SPEC: _spec/internal/sbx/kit-image-source.puml
+func (b *Builder) HostBuilder() (string, bool) {
+	if v := b.env("PROVEO_BUILDX_LOCAL_BUILDER"); v != "" {
+		return v, true
+	}
+	ctx, _ := b.Docker.Output("context", "show")
+	if ctx = strings.TrimSpace(ctx); ctx != "" &&
+		b.inspectField(ctx, "driver", "docker") && b.inspectField(ctx, "status", "running") {
+		return ctx, true
+	}
+	return "", false
+}
+
 // EnsureBuildx picks the builder: a docker-driver one for a host-platform
 // --load, the container driver for --push or a foreign platform.
 func (b *Builder) EnsureBuildx(push bool, platforms string) (string, error) {
@@ -253,14 +266,8 @@ func (b *Builder) EnsureBuildx(push bool, platforms string) (string, error) {
 			"  A locally built parent image is NOT visible to it — base images resolve from the registry.", platforms, host)
 		return b.containerBuilder(), nil
 	}
-	if v := b.env("PROVEO_BUILDX_LOCAL_BUILDER"); v != "" {
-		return v, nil
-	}
-	if ctx, _ := b.Docker.Output("context", "show"); strings.TrimSpace(ctx) != "" {
-		ctx = strings.TrimSpace(ctx)
-		if b.inspectField(ctx, "driver", "docker") && b.inspectField(ctx, "status", "running") {
-			return ctx, nil
-		}
+	if name, ok := b.HostBuilder(); ok {
+		return name, nil
 	}
 	name := b.containerBuilder()
 	b.UI.Warnf("no running docker-driver builder; using %s — a locally built base image\n"+

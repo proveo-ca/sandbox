@@ -17,9 +17,9 @@ func TestRegistry(t *testing.T) {
 			"claudecode":          "proveo/claudecode:latest",
 			"claudecode-solidity": "proveo/claudecode-solidity:latest",
 		}},
-		{Name: "cecli", Dir: "/d/cecli", Images: map[string]string{
-			"cecli":      "proveo/cecli:latest",
-			"cecli-node": "proveo/cecli-node:latest",
+		{Name: "codex", Dir: "/d/codex", Images: map[string]string{
+			"codex":         "proveo/codex:latest",
+			"codex-browser": "proveo/codex-browser:latest",
 		}},
 	}
 
@@ -27,8 +27,8 @@ func TestRegistry(t *testing.T) {
 
 	// Stable order: base, then harness (sorted).
 	wantOrder := []string{
-		"base", "base-node", "base-node-lsp", "base-node-browser", "cecli", "cecli-node", "claudecode",
-		"claudecode-solidity",
+		"base", "base-node", "base-node-lsp", "base-node-browser", "claudecode",
+		"claudecode-solidity", "codex", "codex-browser",
 	}
 	if len(got) != len(wantOrder) {
 		t.Fatalf("got %d targets, want %d: %+v", len(got), len(wantOrder), got)
@@ -47,10 +47,10 @@ func TestRegistry(t *testing.T) {
 		{"base-node", KindBase, "proveo/base-node", "/d/base-node"},
 		{"base-node-lsp", KindBase, "proveo/base-node-lsp", "/d/base-node-lsp"},
 		{"base-node-browser", KindBase, "proveo/base-node-browser", "/d/base-node-browser"},
-		{"cecli", KindHarness, "proveo/cecli", "/d/cecli"},
-		{"cecli-node", KindHarness, "proveo/cecli-node", "/d/cecli"}, // shares cecli's def dir
 		{"claudecode", KindHarness, "proveo/claudecode", "/d/claudecode"},
 		{"claudecode-solidity", KindHarness, "proveo/claudecode-solidity", "/d/claudecode"},
+		{"codex", KindHarness, "proveo/codex", "/d/codex"},
+		{"codex-browser", KindHarness, "proveo/codex-browser", "/d/codex"}, // shares codex's def dir
 	} {
 		g := byName[tc.name]
 		if g.Kind != tc.kind || g.Image != tc.image || g.DefDir != tc.dir {
@@ -59,8 +59,8 @@ func TestRegistry(t *testing.T) {
 		}
 	}
 
-	if got := byName["cecli"]; got.RepoRoot != "/" {
-		t.Errorf("cecli RepoRoot = %q, want the defs dir's parent", got.RepoRoot)
+	if got := byName["codex"]; got.RepoRoot != "/" {
+		t.Errorf("codex RepoRoot = %q, want the defs dir's parent", got.RepoRoot)
 	}
 }
 
@@ -261,7 +261,6 @@ func TestScheduleBasesStaySerialRestConcurrent(t *testing.T) {
 		{Name: "base-node", Kind: KindBase},
 		{Name: "base-node-lsp", Kind: KindBase},
 		{Name: "base-node-browser", Kind: KindBase},
-		{Name: "cecli", Kind: KindHarness},
 		{Name: "claudecode", Kind: KindHarness},
 		{Name: "claudecode-browser", Kind: KindHarness},
 		{Name: "claudecode-solidity", Kind: KindHarness},

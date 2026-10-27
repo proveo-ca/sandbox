@@ -239,13 +239,13 @@ func TestLaunchedIsWhatSbxRunStarts(t *testing.T) {
 		want                     []string
 	}{
 		{"entrypoint alone", ep, nil, nil, ep},
-		{"entrypoint then CMD", []string{"dumb-init", "--", "cecli-entrypoint"}, []string{"cecli"}, nil,
-			[]string{"dumb-init", "--", "cecli-entrypoint", "cecli"}},
-		{"a leading flag appends to ENTRYPOINT + CMD", ep, []string{"cecli"}, []string{"--yolo"},
-			[]string{"dumb-init", "--", "/entrypoint.sh", "cecli", "--yolo"}},
+		{"entrypoint then CMD", []string{"dumb-init", "--", "agent-entrypoint"}, []string{"agent"}, nil,
+			[]string{"dumb-init", "--", "agent-entrypoint", "agent"}},
+		{"a leading flag appends to ENTRYPOINT + CMD", ep, []string{"agent"}, []string{"--yolo"},
+			[]string{"dumb-init", "--", "/entrypoint.sh", "agent", "--yolo"}},
 		{"a leading -- appends too", ep, nil, []string{"--", "/entrypoint.sh", "-s", "x"},
 			[]string{"dumb-init", "--", "/entrypoint.sh", "--", "/entrypoint.sh", "-s", "x"}},
-		{"a leading word replaces all after argv0", ep, []string{"cecli"}, []string{"/entrypoint.sh", "chat"},
+		{"a leading word replaces all after argv0", ep, []string{"agent"}, []string{"/entrypoint.sh", "chat"},
 			[]string{"dumb-init", "/entrypoint.sh", "chat"}},
 		{"no entrypoint", nil, []string{"x"}, nil, nil},
 	} {

@@ -3,7 +3,7 @@
 `proveo/base-node` = `proveo/base` + the TypeScript toolkit's runtimes: a Node 22 LTS
 runtime (NodeSource) + `pnpm`, and [Bun](https://bun.sh) (`bun` + `bunx`). It exists so
 the Node harnesses share the runtime layer once instead of each baking their own copy,
-while `cursor` (self-contained binary) and `cecli` (Python) stay off it and carry no Node.
+while `cursor` (self-contained binary) stays off it and carries no Node.
 
 - FROM `proveo/base` (inherits git/gh/dumb-init/proveo-entrypoint/harden).
 - Consumers: `base-node-lsp`, and through it `opencode`, `codex`, `claudecode` (mcp,

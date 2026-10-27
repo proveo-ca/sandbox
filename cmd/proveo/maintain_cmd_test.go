@@ -14,7 +14,7 @@ func TestExecuteFleetPrintGroupsConcurrentAfterBases(t *testing.T) {
 	ts := []maintain.Target{
 		{Name: "base", Kind: maintain.KindBase},
 		{Name: "base-node", Kind: maintain.KindBase},
-		{Name: "cecli", Kind: maintain.KindHarness},
+		{Name: "hermes", Kind: maintain.KindHarness},
 		{Name: "opencode", Kind: maintain.KindHarness},
 		{Name: "claudecode", Kind: maintain.KindHarness},
 		{Name: "claudecode-solidity", Kind: maintain.KindHarness},

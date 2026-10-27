@@ -16,7 +16,6 @@ func TestCommentMarkerCoversEverySourceKind(t *testing.T) {
 		"packages/lib/entrypoint-lib.sh":       "#",
 		"packages/lib/proveo-await-seed":       "#",
 		"defs/base/Dockerfile":                 "#",
-		"defs/cecli/Dockerfile.dockerignore":   "#",
 		"defs/hermes/harness.manifest":         "#",
 		"mise.toml":                            "#",
 		".dockerignore":                        "#",
@@ -25,7 +24,7 @@ func TestCommentMarkerCoversEverySourceKind(t *testing.T) {
 		"_spec/_plans/x.puml":                  "",
 		"internal/x/testdata/a.go":             "",
 		"internal/sbx/third_party/claude.yaml": "",
-		".serena/project.yml":                  "",
+		".github/workflows/ci.yml":             "",
 		"apps/cli/public/cli/install.sh":       "",
 	} {
 		if got := commentMarker(path); got != want {

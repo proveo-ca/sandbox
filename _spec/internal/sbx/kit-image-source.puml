@@ -1,0 +1,79 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: how a workload's FROM reaches sbx's kit build — the image source decides digest and builder, not ambient host state
+' covers: internal/sbx/image_source.go
+' covers: internal/sbx/image_source_test.go
+' covers: internal/sbx/run.go (RunConfig.HostEnv, CreateLine)
+' covers: internal/imagebuild/imagebuild.go (HostBuilder)
+' covers: internal/backend/sandbox/sandbox.go (Spec recipe, createSandbox)
+' covers: internal/backend/sandbox/opencode_engine.go (createOpenCodeEngine)
+' covers: e2e/kit_image_source_test.go
+' see: _spec/internal/sbx/sbx-kit-v3.puml (the recipe), _spec/internal/maintain/ (local vs published choice)
+'
+' ── FAILURE (MEASURED 2026-10-27, Fedora 44, docker-ce 29.9.2, sbx 0.50.0) ──
+' `proveo run opencode` → "create OpenCode engine …: exit status 1":
+'   load metadata for docker.io/proveo/opencode-browser:local → not found.
+' The image WAS in the host engine. sbx built the kit with the ACTIVE buildx
+' builder: proveo-multiarch (docker-container), which an old proveo shell
+' (db18277, removed in 9d971ed) selected globally with `docker buildx use`.
+' A container builder cannot read the host store, so a :local FROM fell
+' through to docker.io.
+'
+' ── MEASURED BEHAVIOUR (sbx 0.50.0, macOS OrbStack + Fedora) ────────────────
+'   M1 with a host engine, sbx builds a local kit on the host's buildx;
+'      sbx-kit-builder stays "not created".
+'   M2 BUILDX_BUILDER on the `sbx create` process selects the builder:
+'      BUILDX_BUILDER=proveo-multiarch reproduced the Fedora failure on macOS.
+'   M3 FROM proveo/codex:local@sha256:<Id> resolves on the docker-driver
+'      builder from the containerd store; a container builder fails it loudly
+'      (digest lookup on docker.io) instead of resolving the tag silently.
+'   M4 rejected channels: sbx's kit registry 127.0.0.1:5411 answers 403 to a
+'      push outside sbx-kit-src; a container builder cannot dial host
+'      127.0.0.1. Docs: sbx "can't use images stored only in your host's
+'      Docker image store" — M1 is behaviour, not contract.
+'
+' ── DECISION (user: "ImageSource model") ────────────────────────────────────
+' Image selection (maintain.ResolveImage: :local when newer than the published
+' tag) picks a REFERENCE. ResolveImageSource turns it into where it lives:
+'   ImageSource{Ref, Host, Digest, Builder}
+'   Host    the host engine holds Ref (docker image inspect succeeds)
+'   Digest  Ref's repo digest in that store ("" on a classic graphdriver
+'           store, which has no manifest digest for a local build)
+'   Builder imagebuild.HostBuilder(): PROVEO_BUILDX_LOCAL_BUILDER, else the
+'           current context when its driver is docker and running
+' The recipe and the sbx process follow the source:
+'   FROM    Ref@Digest when Digest is set (M3: a wrong builder fails, never
+'           swaps images); Ref otherwise
+'   HostEnv BUILDX_BUILDER=<Builder> on every `sbx create` that builds the
+'           workload (createSandbox, createOpenCodeEngine), appended last so
+'           it overrides an inherited one; never reaches the sandbox (Env does)
+' Not on the host → Ref unchanged, no HostEnv: the builder pulls a published
+' image as before. Host without a Builder → warn: the active builder decides.
+' Never `docker buildx use`: that global write is this bug's cause.
+' --print shows the env prefix on the `# sandbox` line (CreateLine) so a
+' pasted command builds the same way.
+' A post-create digest check is not needed: the pinned FROM already refuses a
+' different image at build time (M3).
+title Kit image source — FROM follows where the image lives
+
+component "maintain.ResolveImage\n:local newer? → :local\nelse published tag" as PICK <<app>>
+component "sbx.ResolveImageSource(ref)" as RES <<app>>
+database "host engine store\n(containerd)" as STORE <<host>>
+component "imagebuild.HostBuilder()\ndocker-driver context" as HB <<host>>
+file "proveo-<target>.dockerfile\nFROM ref@sha256:<digest>" as RECIPE <<app>>
+component "BUILDX_BUILDER=<builder> sbx create ./proveo-<target>" as CREATE <<host>>
+component "docker buildx build\n(builder = BUILDX_BUILDER)" as BUILD <<host>>
+
+PICK --> RES : ref
+RES --> STORE : inspect Id, RepoDigests
+RES --> HB : Host only
+RES --> RECIPE : From()
+RES --> CREATE : BuildEnv()
+CREATE --> BUILD : M1, M2
+BUILD --> STORE : FROM resolves locally (M3)
+note right of BUILD
+  container builder + pinned digest
+  → build fails loudly, no docker.io swap
+end note
+@enduml

@@ -73,7 +73,6 @@ package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
 
 package "Definitions\ndefs/" as Defs {
  package "Coding harnesses" as CodingDefs {
- component "cecli" as DefCecli <<definition>>
  component "claudecode\nmcp + solidity" as DefClaude <<definition>>
  component "opencode" as DefOpen <<definition>>
  component "cursor" as DefCursor <<definition>>

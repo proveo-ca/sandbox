@@ -124,7 +124,7 @@ func NoCredentialHint(man manifest.Manifest, target, homeRoot string, env []stri
 
 func HarnessFamily(name string) string {
 	name = strings.TrimSpace(name)
-	for _, base := range []string{"claudecode", "codex", "cursor", "opencode", "cecli"} {
+	for _, base := range []string{"claudecode", "codex", "cursor", "opencode"} {
 		if name == base || strings.HasPrefix(name, base+"-") {
 			return base
 		}

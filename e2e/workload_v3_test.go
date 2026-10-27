@@ -84,6 +84,19 @@ func shellWords(line string) []string {
 	return out
 }
 
+// createArgv is a printed `# sandbox` line as sbx argv: the kit build's KEY=VALUE prefix and the binary dropped.
+// SPEC: _spec/internal/sbx/kit-image-source.puml
+func createArgv(line string) []string {
+	words := shellWords(line)
+	for len(words) > 0 && strings.Contains(words[0], "=") && !strings.HasPrefix(words[0], "-") {
+		words = words[1:]
+	}
+	if len(words) > 0 && (words[0] == sbx.Binary || words[0] == "sbx") {
+		words = words[1:]
+	}
+	return words
+}
+
 // printedLine is the command line under marker ("# sandbox" or "# agent") in --print output.
 func printedLine(t *testing.T, out, marker string) string {
 	t.Helper()

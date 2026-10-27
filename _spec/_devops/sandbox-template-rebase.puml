@@ -161,7 +161,7 @@ skinparam noteTextAlignment left
 ' posture change to the one binary that had to change.
 '
 ' ── WHAT THE REBASE DOES NOT CHANGE ─────────────────────────────────────────
-' The per-def rename (agent -> claude/cursor/opencode/cecli, home symlinked back
+' The per-def rename (agent -> claude/cursor/opencode, home symlinked back
 ' to /home/agent) STAYS. TestImageClaudecode's workspace phase (ccWorkspace in
 ' internal/imagetest/claudecode_test.go) asserts both
 ' halves — "HOME is /home/agent" and "/home/claude resolves to /home/agent" — so
@@ -232,7 +232,7 @@ skinparam noteTextAlignment left
 ' Whether the RENAMED user needs its own sudo grant. The template grants
 ' NOPASSWD:ALL to `agent` by name; after the rename that name belongs to a
 ' recreated uid-1000 user, so the grant survives while the working user
-' (claude/cursor/cecli) has none. Our images shipped NO sudo until now,
+' (claude/cursor) has none. Our images shipped NO sudo until now,
 ' so granting one is a posture change and is the operator's call, not a
 ' packaging detail. Nothing is known to need it yet: sbx starts the daemon
 ' itself and does not invoke dockerd through the agent's sudo (scoped sudo was

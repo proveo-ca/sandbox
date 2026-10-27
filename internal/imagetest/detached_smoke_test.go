@@ -21,7 +21,6 @@ import (
 
 // smokeTargets pairs each target with its repository; the tag resolves per run.
 var smokeTargets = []struct{ target, repo string }{
-	{"cecli", "proveo/cecli"},
 	{"claudecode", "proveo/claudecode"},
 	{"opencode", "proveo/opencode"},
 	{"cursor", "proveo/cursor"},
@@ -29,9 +28,6 @@ var smokeTargets = []struct{ target, repo string }{
 
 // SPEC: _spec/internal/entrypoint/model-alias-bridges.puml
 const smokeEnv = `# Non-secret values for detached image smoke tests only.
-CECLI_MODEL=openai/gpt-4o-mini
-CECLI_EDITOR_MODEL=openai/gpt-4o-mini
-CECLI_WEAK_MODEL=openai/gpt-4o-mini
 OPENCODE_MODEL=openai/gpt-4o-mini
 OPENCODE_SMALL_MODEL=openai/gpt-4o-mini
 OPENAI_API_KEY=proveo-smoke-test-key
@@ -110,13 +106,10 @@ func smokeTarget(t *testing.T, target, image, workspace, envFile, container stri
 		"-e", "PROVEO_SMOKE_EXPECTED=" + expected,
 	}
 	switch target {
-	case "cecli", "opencode", "claudecode":
+	case "opencode", "claudecode":
 		args = append(args, "-v", workspace+":/app", "-w", "/app")
 	}
 	args = append(args, image)
-	if target == "cecli" {
-		args = append(args, "bash", "-lc", `printf "%s\n" "$PROVEO_SMOKE_EXPECTED"; exec sleep infinity`)
-	}
 
 	t.Logf("==> %s (%s)", target, image)
 	imagetest.Docker(30*time.Second, nil, "rm", "-f", container)

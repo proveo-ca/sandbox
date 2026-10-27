@@ -47,7 +47,6 @@ var Launches = map[string]Launch{
 		},
 	}},
 	"codex":  {Why: "not wired yet: codex takes -c mcp_servers.mobile.* per launch"},
-	"cecli":  {Why: "not wired yet: cecli takes --mcp-servers / CECLI_MCP_SERVERS per launch"},
 	"cursor": {Why: "cursor-agent reads MCP servers only from a persistent ~/.cursor/mcp.json"},
 	"hermes": {Why: "hermes reads MCP servers only from its persistent config.yaml"},
 }

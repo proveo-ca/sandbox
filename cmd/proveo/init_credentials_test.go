@@ -66,13 +66,13 @@ func TestANarrowDefShowsItsOwnVendorAndNoOther(t *testing.T) {
 func TestABroadDefShowsTheShortListNotTheRegistry(t *testing.T) {
 	var broad []manifest.Manifest
 	for _, m := range defs(t) {
-		if m.Name == "cecli" {
+		if m.Name == "opencode" {
 			broad = append(broad, m)
 		}
 	}
 	slots := surveyCredentials(broad, nil, envOf(map[string]string{"GROQ_API_KEY": "k"}))
 	if len(slots) == 0 || len(slots) > 8 {
-		t.Fatalf("cecli offers %d slots — the short list is what keeps the four that matter visible", len(slots))
+		t.Fatalf("opencode offers %d slots — the short list is what keeps the four that matter visible", len(slots))
 	}
 	if !hasSlot(slots, "groq") {
 		t.Error("a key already on this host got no slot, so init cannot move it into the store")
@@ -158,8 +158,8 @@ func TestEveryFieldIsMaskedAndGroupedByDef(t *testing.T) {
 			if r.Heading == "" {
 				t.Errorf("%q opens a group with no heading", r.Label)
 			}
-			if strings.Contains(r.Heading, "cecli") && strings.Contains(r.Heading, "api") {
-				t.Errorf("usage keys headed %q — they are not cecli's; any agent can spend them", r.Heading)
+			if strings.Contains(r.Heading, "opencode") && strings.Contains(r.Heading, "api") {
+				t.Errorf("usage keys headed %q — they are not opencode's; any agent can spend them", r.Heading)
 			}
 			if r.Heading == "usage api keys" {
 				keyHeading = r.Heading

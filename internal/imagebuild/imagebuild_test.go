@@ -2,6 +2,7 @@
 package imagebuild
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ type fakeDocker struct {
 	calls     []string
 	buildErr  string
 	published map[string]bool
+	driver    string // the current context's buildx driver; "" is docker
 }
 
 func (f *fakeDocker) Output(args ...string) (string, error) {
@@ -29,7 +31,7 @@ func (f *fakeDocker) Output(args ...string) (string, error) {
 	case len(args) >= 2 && args[0] == "context" && args[1] == "show":
 		return "default\n", nil
 	case len(args) >= 2 && args[0] == "buildx" && args[1] == "inspect":
-		return "Driver: docker\nStatus: running\n", nil
+		return "Driver: " + cmp.Or(f.driver, "docker") + "\nStatus: running\n", nil
 	case len(args) >= 3 && args[1] == "imagetools":
 		if f.published[args[3]] {
 			return "", nil
@@ -253,10 +255,6 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 			env:      map[string]string{"NPM_CONFIG_REGISTRY": "https://npm.example/"},
 			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
 			wantURL: "https://npm.example/@opencode/cli/latest", want: "2.0.0", note: "@2.0.0 (resolved upstream"},
-		{name: "pypi current release", body: `{"info":{"name":"cecli-dev","version":"1.4.0"},"releases":{"1.3.0":[]}}`,
-			override: "CECLI_VERSION", eco: "pypi", pkg: "cecli-dev",
-			wantURL: "https://pypi.org/pypi/cecli-dev/json", want: "1.4.0",
-			note: "pin: cecli-dev@1.4.0 (resolved upstream; override with CECLI_VERSION=<version>)"},
 		{name: "cursor reads the release out of the installer",
 			body:     "FINAL_DIR=\"$HOME/.local/share/cursor-agent/versions/2026.08.31-4057e58\"\nln -s ~/.local/share/cursor-agent/versions/2026.08.31-4057e58/cursor-agent ~/.local/bin/agent\n",
 			override: "CURSOR_AGENT_VERSION", eco: "cursor", pkg: "https://cursor.com/install",
@@ -335,7 +333,6 @@ func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ override, eco, pkg string }{
 		{"OPENCODE_VERSION", "npm", "@opencode/cli"},
-		{"CECLI_VERSION", "pypi", "cecli-dev"},
 	} {
 		b, errb := newTest(t, &fakeDocker{}, nil)
 		got, err := b.AgentVersion(c.override, c.eco, c.pkg)
@@ -385,6 +382,32 @@ func TestRefTagAndRepo(t *testing.T) {
 		if got := RefRepo(c.ref); got != c.repo {
 			t.Errorf("RefRepo(%q) = %q, want %q", c.ref, got, c.repo)
 		}
+	}
+}
+
+func TestHostBuilderIsTheBuilderThatReadsTheHostStore(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		driver string
+		env    map[string]string
+		want   string
+		wantOK bool
+	}{
+		{name: "docker-driver context", want: "default", wantOK: true},
+		{name: "container-driver context reads no host store", driver: "docker-container"},
+		{name: "operator override wins", driver: "docker-container",
+			env: map[string]string{"PROVEO_BUILDX_LOCAL_BUILDER": "orbstack"}, want: "orbstack", wantOK: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b, _ := newTest(t, &fakeDocker{driver: tc.driver}, tc.env)
+			got, ok := b.HostBuilder()
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("HostBuilder() with driver %q env %v = %q, %v; want %q, %v", tc.driver, tc.env, got, ok, tc.want, tc.wantOK)
+			}
+		})
 	}
 }
 

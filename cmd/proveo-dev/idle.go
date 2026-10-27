@@ -13,7 +13,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-var idleTargets = []string{"cecli", "claudecode", "cursor", "opencode"}
+var idleTargets = []string{"claudecode", "cursor", "opencode"}
 
 var idleSkip = regexp.MustCompile(`(?m)^--- SKIP: TestAgentSurvivesIdleAtPrompt [(]`)
 

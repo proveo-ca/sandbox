@@ -366,7 +366,7 @@ func TestAgentNameNeverCollidesWithAnSbxBuiltin(t *testing.T) {
 	}
 	// The two that made this fail in practice, plus the ones that did not: a def
 	// escaping the prefix would land back on a built-in without warning.
-	for _, target := range []string{"cursor", "opencode", "claudecode", "cecli"} {
+	for _, target := range []string{"cursor", "opencode", "claudecode", "hermes"} {
 		got := AgentName(target)
 		if builtin[got] {
 			t.Errorf("AgentName(%q) = %q, which sbx already registers as a built-in agent", target, got)
@@ -541,8 +541,8 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 			t.Errorf("target %q names an agent of our own (%q); that is the bug this replaces", target, agent)
 		}
 	}
-	if got := BuiltinAgent("cecli"); got != "" {
-		t.Errorf("cecli has no built-in sbx agent; got %q", got)
+	if got := BuiltinAgent("hermes"); got != "" {
+		t.Errorf("hermes has no built-in sbx agent; got %q", got)
 	}
 }
 
@@ -927,7 +927,7 @@ func TestSeedEntrypointStepFindsTheDefEntrypoint(t *testing.T) {
 		named, legacy bool
 		want          string
 	}{
-		{"cecli-entrypoint on PATH and no /entrypoint.sh, as the cecli image ships", true, false, "named"},
+		{"hermes-entrypoint on PATH and no /entrypoint.sh", true, false, "named"},
 		{"/entrypoint.sh only", false, true, "legacy"},
 		{"both, the named one first as ShellLaunch picks", true, true, "named"},
 		{"neither, nothing to wire", false, false, ""},
@@ -945,12 +945,12 @@ func TestSeedEntrypointStepFindsTheDefEntrypoint(t *testing.T) {
 				}
 			}
 			if tc.named {
-				stub(filepath.Join(bin, "cecli-entrypoint"), "named")
+				stub(filepath.Join(bin, "hermes-entrypoint"), "named")
 			}
 			if tc.legacy {
 				stub(legacy, "legacy")
 			}
-			cmd := SeedEntrypointCommand("cecli").Command
+			cmd := SeedEntrypointCommand("hermes").Command
 			argv := append([]string(nil), cmd[1:]...)
 			for i := range argv {
 				argv[i] = strings.ReplaceAll(argv[i], "/entrypoint.sh", legacy)

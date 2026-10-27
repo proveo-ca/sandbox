@@ -12,7 +12,7 @@ func TestTheMCPRowAppearsOnlyForAKitWithGatewayHooks(t *testing.T) {
 	if r := applicableRows(mcpRow("claudecode", "", false)); len(r) != 1 || r[0].Label != mcpLabel {
 		t.Errorf("claudecode rows = %+v; its published kit has gateway hooks, so the mcp row must show", r)
 	}
-	for _, target := range []string{"cecli", "hermes"} {
+	for _, target := range []string{"hermes"} {
 		if r := applicableRows(mcpRow(target, "", false)); len(r) != 0 {
 			t.Errorf("%s rows = %+v; no published kit, nothing to turn on", target, r)
 		}
@@ -49,7 +49,7 @@ func TestAHarnessThatAlwaysTakesTheGatewayAlwaysShowsIt(t *testing.T) {
 	if got := topologyWith("hermes", "broker", true)(f, -1).HopNote; got != "+ mcp" {
 		t.Errorf("hermes hop note = %q, want + mcp with no row to read", got)
 	}
-	if got := topologyWith("cecli", "broker", false)(f, -1).HopNote; got != "" {
-		t.Errorf("cecli hop note = %q, want none", got)
+	if got := topologyWith("codex", "broker", false)(f, -1).HopNote; got != "" {
+		t.Errorf("codex hop note = %q, want none", got)
 	}
 }

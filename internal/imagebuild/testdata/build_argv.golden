@@ -28,13 +28,6 @@
 --builder default | --cache-from=type=local,src=<cache>/proveo/base | --cache-to=type=local,dest=<cache>/proveo/base,mode=max | --load | --platform linux/arm64 | -f <root>/defs/base/Dockerfile | -t proveo/base:local | ctx <root>
 --build-arg BASE_IMAGE=proveo/base:local | --builder default | --cache-from=type=local,src=<cache>/proveo/base-node | --cache-to=type=local,dest=<cache>/proveo/base-node,mode=max | --load | --platform linux/arm64 | -f <root>/defs/base-node/Dockerfile | -t proveo/base-node:local | ctx <root>/defs/base-node
 --build-arg BASE_IMAGE=proveo/base-node:local | --builder default | --cache-from=type=local,src=<cache>/proveo/base-node-lsp | --cache-to=type=local,dest=<cache>/proveo/base-node-lsp,mode=max | --load | --platform linux/arm64 | -f <root>/defs/base-node-lsp/Dockerfile | -t proveo/base-node-lsp:local | ctx <root>/defs/base-node-lsp
-## cecli local
---build-arg BASE_IMAGE=proveo/base:local | --build-arg CECLI_VERSION=9.9.3 | --build-arg SERENA_VERSION=9.9.4 | --builder default | --cache-from=type=local,src=<cache>/proveo/cecli | --cache-to=type=local,dest=<cache>/proveo/cecli,mode=max | --load | --platform linux/arm64 | -f <root>/defs/cecli/Dockerfile | -t proveo/cecli:local | ctx <root>
-## cecli latest
---build-arg BASE_IMAGE=proveo/base:latest | --build-arg CECLI_VERSION=9.9.3 | --build-arg SERENA_VERSION=9.9.4 | --builder proveo-multiarch | --cache-from=type=local,src=<cache>/proveo/cecli | --cache-to=type=local,dest=<cache>/proveo/cecli,mode=max | --platform linux/amd64,linux/arm64 | --push | -f <root>/defs/cecli/Dockerfile | -t proveo/cecli:latest | ctx <root>
-## cecli cold
---builder default | --cache-from=type=local,src=<cache>/proveo/base | --cache-to=type=local,dest=<cache>/proveo/base,mode=max | --load | --platform linux/arm64 | -f <root>/defs/base/Dockerfile | -t proveo/base:local | ctx <root>
---build-arg BASE_IMAGE=proveo/base:local | --build-arg CECLI_VERSION=9.9.3 | --build-arg SERENA_VERSION=9.9.4 | --builder default | --cache-from=type=local,src=<cache>/proveo/cecli | --cache-to=type=local,dest=<cache>/proveo/cecli,mode=max | --load | --platform linux/arm64 | -f <root>/defs/cecli/Dockerfile | -t proveo/cecli:local | ctx <root>
 ## claudecode local
 --build-arg BASE_IMAGE=proveo/base-node-lsp:local | --build-arg CLAUDE_CODE_VERSION=9.9.1 | --builder default | --cache-from=type=local,src=<cache>/proveo/claudecode | --cache-to=type=local,dest=<cache>/proveo/claudecode,mode=max | --load | --platform linux/arm64 | -f <root>/defs/claudecode/mcp/Dockerfile | -t proveo/claudecode:local | ctx <root>
 ## claudecode latest

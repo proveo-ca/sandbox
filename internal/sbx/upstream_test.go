@@ -48,7 +48,7 @@ func TestEveryBuiltinHarnessCopiesItsPublishedKitsLaunch(t *testing.T) {
 			t.Errorf("%s launch = %q, want %q (argv0 by its PATH name, so proveo's shim gates the seed)", target, got, want)
 		}
 	}
-	for _, target := range []string{"cecli", "hermes"} {
+	for _, target := range []string{"hermes"} {
 		if _, ok, _ := UpstreamKitFor(target, UpstreamOptions{}); ok {
 			t.Errorf("%s has no published kit, yet one was found", target)
 		}
@@ -146,7 +146,7 @@ func TestOnlyKitsWithGatewayHooksOfferTheGateway(t *testing.T) {
 	if !OffersMCPGateway("claudecode") {
 		t.Error("claudecode's published kit gates hooks on MCP_GATEWAY_URL; the gateway must be offered")
 	}
-	for _, target := range []string{"cecli", "hermes", "no-such-harness"} {
+	for _, target := range []string{"hermes", "no-such-harness"} {
 		if OffersMCPGateway(target) {
 			t.Errorf("%s has no published kit, yet the gateway is offered", target)
 		}

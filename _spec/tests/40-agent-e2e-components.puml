@@ -92,7 +92,7 @@ node "Host" as Host <<node>> {
 }
 
 node "Docker · per-session agent network" as Dnet <<node>> {
-  component "harness TUI (docker run -it)\nopencode / cecli / echo-agent fixture" as Harness <<container>>
+  component "harness TUI (docker run -it)\nopencode / echo-agent fixture" as Harness <<container>>
   component "Ollama sidecar\nserves host models (read-only)" as Sidecar <<container>>
 }
 

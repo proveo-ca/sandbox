@@ -16,7 +16,7 @@ func has(list []string, want string) bool {
 
 // sbx's own policy decides egress: the Kit carries no provider or harness hosts.
 func TestTheKitWritesNoProviderOrHarnessHosts(t *testing.T) {
-	in := specInput("cecli")
+	in := specInput("hermes")
 	in.Detected = []string{"anthropic"}
 	in.Man.Capabilities.Hosts = []string{"api2.cursor.sh"}
 	_, kit, _ := Spec(in)

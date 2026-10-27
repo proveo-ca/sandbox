@@ -27,6 +27,9 @@ skinparam noteTextAlignment left
 ' description, kind workload, version and capabilities. Image, env, user,
 ' workdir and launch live in the recipe, not the descriptor (§8):
 '   FROM <image>; ENTRYPOINT/CMD in exec form when the workload sets a launch.
+'   The FROM reference and the builder that resolves it come from the image
+'   source (_spec/internal/sbx/kit-image-source.puml): ref@digest for an image
+'   the host engine holds.
 ' Typed configs cover what proveo generates: lifecycle@1 (install/startup
 ' hooks with user and the env names each reads — "a hook sees only what it
 ' declares"), network-policy@1 runtime allow/deny, port@1. Capabilities
@@ -129,9 +132,9 @@ title sbx v3 workload — what proveo writes
 
 folder "<kit root>/proveo-<target>/" as DIR <<app>> {
   file "proveo-<target>.yaml\n# syntax=docker/sandbox-kit:3\nschemaVersion \"3\" · kind workload\ncapabilities: sbx@1, lifecycle@1, credential@1, …" as DESC
-  file "proveo-<target>.dockerfile\nFROM proveo/<target>:<tag>\n[ENTRYPOINT/CMD]" as RECIPE
+  file "proveo-<target>.dockerfile\nFROM proveo/<target>:<tag>[@sha256:…]\n[ENTRYPOINT/CMD]" as RECIPE
 }
-component "sbx create ./proveo-<target>\n-e K=V · -p <k>P:P" as CREATE <<host>>
+component "[BUILDX_BUILDER=…] sbx create ./proveo-<target>\n-e K=V · -p <k>P:P" as CREATE <<host>>
 component "SBX_AGENT=proveo-<target>" as AGENT <<cloud>>
 DIR --> CREATE
 CREATE --> AGENT : dir name = agent name

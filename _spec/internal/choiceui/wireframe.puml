@@ -263,7 +263,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   the auth row (""usage credits"" · ""subscription"", drawn for a harness with a
   plan) and the local-model row. ""usage credits"" is drawn as ""API keys"" and
   ""subscription"" as ""plan"", so every harness reads the same cells. A harness
-  with no plan (hermes, cecli) draws ""Qwen 3.8 | API keys | . | Glimmer"" —
+  with no plan (hermes) draws ""Qwen 3.8 | API keys | . | Glimmer"" —
   the plan column stays empty.
   The row name occupies 16 columns, marker included. credentials is the
   longest name; 12 would put its last letter on the first option.

@@ -68,7 +68,7 @@ skinparam noteTextAlignment left
 '     sbx exec <sandbox> -- sh -c <script>
 ' against a live sandbox and reads the output, and it has produced real answers
 ' all session — the shebang/execve probe that eliminated every file-level cause
-' of the cecli defect ran through it. No setup step, no ssh client config, no
+' of the shell-agent launch defect ran through it. No setup step, no ssh client config, no
 ' second auth path.
 '
 ' ── SO THE REAL QUESTION IS NARROWER ────────────────────────────────────────
@@ -128,7 +128,7 @@ note bottom of EXEC
   **The tool is already in the tree.** probeLaunch
   runs `sbx exec <sandbox> -- sh -c` and produced
   the shebang evidence that cleared every
-  file-level cause of the cecli defect, so its
+  file-level cause of a launch defect, so its
   reach into a live sandbox is measured.
 end note
 

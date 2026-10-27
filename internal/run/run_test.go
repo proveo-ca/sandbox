@@ -316,17 +316,17 @@ func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
 		return map[string]string{"AWS_ACCESS_KEY_ID": "AKIA-value"}[k]
 	}
 	in := sandbox.Input{
-		Target:   "cecli",
-		Image:    "proveo/cecli:latest",
+		Target:   "hermes",
+		Image:    "proveo/hermes:latest",
 		Evidence: EvidenceDefault,
 		Man: manifest.Manifest{
-			Name: "cecli",
+			Name: "hermes",
 			Env:  []manifest.EnvVar{{Name: "AWS_ACCESS_KEY_ID", Secret: true}},
 			Capabilities: manifest.Capabilities{
 				Credentials: []string{"broker"},
 			},
 		},
-		Sid:    "proveo-cecli-1",
+		Sid:    "proveo-hermes-1",
 		Lookup: lookup,
 	}
 

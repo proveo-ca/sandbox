@@ -18,7 +18,7 @@ home:
     - host: hermes/data
       mode: rw
 
-# Provider keys are usage keys (brokered, no auth row), as for cecli; the list
+# Provider keys are usage keys (brokered, no auth row); the list
 # is proveo's registry where hermes reads the same key env var.
 # SPEC: _spec/defs/hermes/hermes-paradigm.puml, _spec/internal/credentials/credential-decisions.puml
 capabilities:

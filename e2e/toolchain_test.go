@@ -66,7 +66,7 @@ func entrypointLibPath(t *testing.T) string {
 	return p
 }
 
-var toolchainHarnesses = []string{"opencode", "claudecode", "codex", "cursor", "cecli"}
+var toolchainHarnesses = []string{"opencode", "claudecode", "codex", "cursor"}
 
 type runOpts struct {
 	env     map[string]string

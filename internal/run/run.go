@@ -21,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/operator"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -680,7 +681,10 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		MCPGateway: p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
 		Desktop:    desktop, DesktopLaunch: desktopLaunch,
 		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
-		ImageEntrypoint:  sbx.ImageEntrypoint,
+		ImageEntrypoint: sbx.ImageEntrypoint,
+		ImageSource: func(ref string) sbx.ImageSource {
+			return sbx.ResolveImageSource(ref, imagebuild.New("").HostBuilder)
+		},
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,
 		Detected:         rs.Creds.Detected,
@@ -720,7 +724,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
 		}
 		if desktop {
-			fmt.Printf("# sandbox\nsbx %s\n# desktop\nsbx %s && Hermes Desktop → SSH gateway %s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+			fmt.Printf("# sandbox\n%s\n# desktop\nsbx %s && Hermes Desktop → SSH gateway %s\n", sbx.CreateLine(cfg),
 				sbx.ShellJoin(sbx.SetupSSHArgs()), sandbox.DesktopGateway(cfg.Name))
 			return nil
 		}
@@ -728,7 +732,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		if len(w.Recipe.Entrypoint) == 0 {
 			imageCmd = sbx.ImageCmd(in.Image)
 		}
-		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n# in-sandbox\n%s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+		fmt.Printf("# sandbox\n%s\n# agent\nsbx %s\n# in-sandbox\n%s\n", sbx.CreateLine(cfg),
 			sbx.ShellJoin(sbx.RunArgs(sbx.Reattach(cfg))),
 			cmp.Or(sbx.ShellJoin(sbx.Launched(w.Entrypoint, imageCmd, cfg.Command)), "(no readable ENTRYPOINT on "+in.Image+")"))
 		return nil

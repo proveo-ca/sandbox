@@ -27,7 +27,7 @@ func TestOpenCodeImageEnablesSeedProgressOnlyForOpenCode(t *testing.T) {
 	if !strings.Contains(dockerfile, "PROVEO_SEED_PROGRESS=1") {
 		t.Error("OpenCode image lacks PROVEO_SEED_PROGRESS=1")
 	}
-	for _, path := range []string{"defs/claudecode/mcp/Dockerfile", "defs/codex/Dockerfile", "defs/cursor/Dockerfile", "defs/cecli/Dockerfile"} {
+	for _, path := range []string{"defs/claudecode/mcp/Dockerfile", "defs/codex/Dockerfile", "defs/cursor/Dockerfile"} {
 		if strings.Contains(readRepoFile(t, path), "PROVEO_SEED_PROGRESS=1") {
 			t.Errorf("OpenCode-only progress enabled in %s", path)
 		}

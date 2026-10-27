@@ -106,11 +106,6 @@ var Specs = map[string]Spec{
 		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",
 		Floor: browserFloor, FloorWhat: "the Playwright/Chromium/agent-browser floor"},
 
-	"cecli": {Repo: "proveo/cecli", Override: "PROVEO_CECLI_IMAGE",
-		Dockerfile: "defs/cecli/Dockerfile", Context: ".",
-		Parent: "base", ParentOverride: "PROVEO_BASE_IMAGE",
-		Pins: []Pin{{Arg: "CECLI_VERSION", Eco: "pypi", Pkg: "cecli-dev"},
-			{Arg: "SERENA_VERSION", Eco: "pypi", Pkg: "serena-agent"}}},
 	"claudecode": {Repo: "proveo/claudecode",
 		Dockerfile: "defs/claudecode/mcp/Dockerfile", Context: ".",
 		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",

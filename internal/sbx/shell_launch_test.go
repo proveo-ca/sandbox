@@ -8,7 +8,7 @@ import (
 )
 
 func TestShellLaunchIsFlagLeading(t *testing.T) {
-	cmd := ShellLaunch("cecli", nil)
+	cmd := ShellLaunch("hermes", nil)
 	if len(cmd) == 0 {
 		t.Fatal("a bash launch needs a COMMAND — without one bash opens a bare login shell")
 	}
@@ -24,11 +24,11 @@ func TestShellLaunchIsFlagLeading(t *testing.T) {
 // The shebang is only consulted on exec, so a launch that merely NAMES the
 // binary reintroduces the bug in a different spelling.
 func TestShellLaunchExecsRatherThanSourcing(t *testing.T) {
-	script := ShellLaunch("cecli", nil)[1]
+	script := ShellLaunch("hermes", nil)[1]
 	if !strings.Contains(script, "exec ") {
 		t.Fatalf("launch script never execs, so the interpreter line is still ignored: %q", script)
 	}
-	if !strings.Contains(script, "'cecli-entrypoint'") {
+	if !strings.Contains(script, "'hermes-entrypoint'") {
 		t.Fatalf("launch skips the def's entrypoint, so the harness starts without the rule and "+
 			"evidence arguments the def declares — a green rung that dropped the contract: %q", script)
 	}
@@ -37,7 +37,7 @@ func TestShellLaunchExecsRatherThanSourcing(t *testing.T) {
 // bash -c takes the word after the script as $0. Without a placeholder the
 // first real argument is swallowed, which is silent rather than loud.
 func TestShellLaunchKeepsExtraArguments(t *testing.T) {
-	cmd := ShellLaunch("cecli", []string{"--version", "--help"})
+	cmd := ShellLaunch("hermes", []string{"--version", "--help"})
 	if len(cmd) != 5 {
 		t.Fatalf("want -c, script, $0, then both extras; got %q", cmd)
 	}

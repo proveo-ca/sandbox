@@ -27,7 +27,7 @@ Definition-local scripts are the preferred deterministic command surface:
 
 No definition is considered mature yet; this project is still standardizing the contract.
 
-- Candidate coding harnesses: `cecli`, `opencode`, `claudecode`, `codex`, `cursor`
+- Candidate coding harnesses: `opencode`, `claudecode`, `codex`, `cursor`
 - Candidate general-purpose harness: `hermes` (native browser automation, not coding-focused)
 - Non-harness base layers: `base`, `base-node`, `base-node-lsp`, `base-node-browser`
 

@@ -1,6 +1,6 @@
 # Coding Harness Containers
 
-This document defines the expected contract for containerized coding harnesses in this repository. A coding harness is a Dockerized CLI agent or coding assistant definition such as `cecli`, `claudecode`, or `opencode`.
+This document defines the expected contract for containerized coding harnesses in this repository. A coding harness is a Dockerized CLI agent or coding assistant definition such as `claudecode` or `opencode`.
 
 ## Goals
 
@@ -35,7 +35,7 @@ layer and nothing in the build says so. Every def follows one shape
 (`_spec/_devops/agent-version-pin.puml`, enforced by `internal/contract/agent_pin_test.go`):
 
 - The target's `Pins` in `internal/imagebuild/targets.go` resolve the current release
-  (`Builder.AgentVersion`, npm / pypi / cursor), print a `pin: <pkg>@<version>` line, and
+  (`Builder.AgentVersion`, npm / cursor), print a `pin: <pkg>@<version>` line, and
   pass it as `--build-arg <ARG>=…`. Resolution failure is a refusal that names the override, never a
   silent fallback to `latest`.
 - The `Dockerfile` declares the ARG **bare** (no default), guards it with `test -n`, installs
@@ -93,7 +93,7 @@ the agent's own default. There is no proveo-side role vocabulary an entrypoint
 should read, and normalizing a model id is not an entrypoint's job either — the
 bridge that did it was shaping ids for consumers whose rules it did not model.
 
-A harness's OWN model variables (`OPENCODE_MODEL`, `CECLI_MODEL`, `CURSOR_MODEL`,
+A harness's OWN model variables (`OPENCODE_MODEL`, `CURSOR_MODEL`,
 `ANTHROPIC_MODEL`, …) are the operator configuring that harness, and an entrypoint
 must pass them through untouched — never overwrite one that is already set.
 
@@ -122,11 +122,6 @@ Harnesses should detect and/or seed tool-specific config files. Examples include
 
  - `.env`
  - conventions files used by the harness prompt
-- cecli:
- - `.cecli.config.yml`
- - `.cecliignore`
- - `.env`
- - runtime home/config directories
 - Claude Code-style harnesses:
  - project instructions such as `CLAUDE.md` or `AGENTS.md`;
  - project `.claude/` folders mounted from the working tree;
@@ -153,7 +148,7 @@ Expected behavior:
  - lockfiles: `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `poetry.lock`;
  - shared config: `tsconfig*.json`, `.npmrc`, `.yarnrc.yml`, `.tool-versions`;
  - agent instructions: `AGENTS.md`, `CONVENTIONS.md`, `CLAUDE.md`;
- - tool config: `.cecli.config.yml`, `.cecliignore`, `opencode.json`.
+ - tool config: `opencode.json`.
 
 For **`.env`**: do not treat it as a file to preserve into the agent mount set when
 credential isolation matters. The target posture is host-exported keys: `--credentials broker`
@@ -248,7 +243,6 @@ The level is one axis, chosen in the run prompt's `agent evidence` row and shipp
 | **codex** | `--json`, headless only (`codex exec`) | The TUI has no verbosity switch. A caller's own `--json` / `--output-last-message` is a parse contract and wins. |
 | **cursor** | `--output-format stream-json --stream-partial-output`, headless only | The CLI has no verbosity switch for its TUI, and it suppresses thinking events in print mode. A caller's own `--output-format` wins. |
 | **opencode** | `--log-level debug`; `--print-logs` and `--thinking` on headless `run` | `--print-logs` writes to stderr, so it is withheld while the TUI owns the terminal. |
-| **cecli** | `--verbose --show-diffs` | `--show-repo-map` / `--show-prompts` print and **exit**, so they can never be defaults. |
 
 An operator opts out per run by picking `default` in the prompt (remembered per harness) or by exporting `PROVEO_AGENT_EVIDENCE=default`. Any other value warns and resolves to verbose.
 

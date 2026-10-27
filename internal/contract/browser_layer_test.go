@@ -102,9 +102,6 @@ func TestBrowserSkillSeedNamesEveryHarnessSkillsDir(t *testing.T) {
 			t.Errorf("_browser_skill_dir %s = %v, want %q", target, got, dir)
 		}
 	}
-	if !strings.Contains(caseBody(t, lib, "_browser_skill_dir"), "cecli") {
-		t.Error("_browser_skill_dir must state cecli's (empty) case explicitly")
-	}
 	if !strings.Contains(seedBody(t, lib), `proveo_seed_browser_skills "$target"`) {
 		t.Error("proveo_seed must call proveo_seed_browser_skills so both backends seed the skill")
 	}

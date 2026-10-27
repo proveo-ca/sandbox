@@ -9,7 +9,7 @@ import (
 
 func TestLadderClimbsEveryDef(t *testing.T) {
 	t.Parallel()
-	want := []string{"cecli", "claudecode", "codex", "cursor", "opencode"}
+	want := []string{"claudecode", "codex", "cursor", "opencode"}
 	if !slices.Equal(ladderTargets, want) {
 		t.Fatalf("ladder targets = %v, want %v", ladderTargets, want)
 	}
@@ -39,15 +39,15 @@ func TestLadderVerdictReadsOnlyATopLevelSkip(t *testing.T) {
 		code int
 		want verdict
 	}{
-		{"subtest skip is a pass", ranButOneRungSkipped, 0, verdict{"PASS", "cecli"}},
-		{"top-level skip exits 0 and is not a pass", neverRan, 0, verdict{"SKIP", "cecli sbx not on PATH"}},
-		{"skip without a reason", "--- SKIP: TestSandboxLadder (0.00s)\n", 0, verdict{"SKIP", "cecli the ladder did not run"}},
-		{"red exit", "--- FAIL: TestSandboxLadder (3.00s)\n", 1, verdict{"FAIL", "cecli"}},
-		{"no output, exit 0", "", 0, verdict{"PASS", "cecli"}},
-		{"go missing", "", 127, verdict{"FAIL", "cecli"}},
+		{"subtest skip is a pass", ranButOneRungSkipped, 0, verdict{"PASS", "claudecode"}},
+		{"top-level skip exits 0 and is not a pass", neverRan, 0, verdict{"SKIP", "claudecode sbx not on PATH"}},
+		{"skip without a reason", "--- SKIP: TestSandboxLadder (0.00s)\n", 0, verdict{"SKIP", "claudecode the ladder did not run"}},
+		{"red exit", "--- FAIL: TestSandboxLadder (3.00s)\n", 1, verdict{"FAIL", "claudecode"}},
+		{"no output, exit 0", "", 0, verdict{"PASS", "claudecode"}},
+		{"go missing", "", 127, verdict{"FAIL", "claudecode"}},
 	}
 	for _, c := range cases {
-		if got := ladderVerdict("cecli", c.log, c.code); got != c.want {
+		if got := ladderVerdict("claudecode", c.log, c.code); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
 	}

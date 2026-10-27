@@ -22,7 +22,6 @@ skinparam noteTextAlignment left
 ' covers: scripts/proveo-jitter-probe.py
 ' covers: e2e/seed_ready_test.go
 ' covers: internal/sbx/agents.go
-' covers: internal/imagetest/cecli_test.go
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── AUTHORITATIVE SOURCE ────────────────────────────────────────────────────
@@ -82,28 +81,27 @@ skinparam noteTextAlignment left
 '
 ' ONLY a target with a built-in sbx agent (claudecode, codex, cursor, opencode)
 ' splits. Their agent command is the harness binary, so nothing in the agent
-' process seeds. cecli and hermes run their def entrypoint AS the agent (an
+' process seeds. hermes runs its def entrypoint AS the agent (an
 ' own-agent Kit, or ShellLaunch when PROVEO_SBX_AGENT_KIT=0), and that
 ' entrypoint seeds inline before it execs. A background step 3 there would
 ' install beside that inline seed — two pnpm installs in one workspace, two
-' `mise use -g` into one MISE_DATA_DIR — so those Kits keep one foreground
+' `mise use -g` into one MISE_DATA_DIR — so its Kit keeps one foreground
 ' `proveo-seed <target> all`, exactly the old shape.
 '
 ' ── STEP 2 FINDS THE DEF'S ENTRYPOINT THE WAY ShellLaunch DOES ─────────────
-' Not every image ships /entrypoint.sh. cecli's entrypoint is
-' /usr/local/bin/cecli-entrypoint, and the cecli image has no /entrypoint.sh.
-' Step 2 named /entrypoint.sh outright, so on cecli `env` exited 127 and sbx
+' Not every image ships /entrypoint.sh. A def may ship only
+' /usr/local/bin/<target>-entrypoint.
+' Step 2 named /entrypoint.sh outright, so on such an image `env` exited 127 and sbx
 ' failed the sandbox start ("kit startup exited with code 127"). That hit
-' every mixin-kit cecli run: `--shell` (retired 2026-10-17), and
+' every mixin-kit run of that def: `--shell` (retired 2026-10-17), and
 ' PROVEO_SBX_AGENT_KIT=0. It predates
 ' the split: base e66eb45c (#68) carried the same argv. Found 2026-10-14 by
-' TestSeedReleasesEveryHarnessReady/cecli.
+' TestSeedReleasesEveryHarnessReady.
 ' Step 2 now execs <target>-entrypoint when PATH has it, else /entrypoint.sh,
 ' the order ShellLaunch launches in (defEntrypoint, internal/sbx/agents.go).
 ' su's PATH keeps /usr/local/bin, so the lookup holds inside the dispatcher.
 ' An image with neither exits 0: it has no def wiring to run, and a failing
-' step ends the start. internal/imagetest/cecli_test.go runs the Kit's own
-' argv in the image under su's PATH and requires cecli's "seed-only" line.
+' step ends the start.
 '
 ' The gate the agent waits on stays proveo's own: proveo-await-seed polls the
 ' release marker for PROVEO_INSTRUCTIONS_WAIT (30s). The docs make that gate
@@ -192,8 +190,8 @@ skinparam noteTextAlignment left
 ' harness but opencode ran `proveo run <target> --shell` — so it carries this
 ' guard instead of a second launch. It waits for the harness's own prompt text
 ' (readySpec.ready: claudecode "bypass permissions", codex "Ask Codex to do
-' anything", opencode "Ask anything", cursor "Cursor Agent"; cecli and hermes
-' have none and wait for the release marker and a quiet pane), then asserts the
+' anything", opencode "Ask anything", cursor "Cursor Agent"; hermes
+' has none and waits for the release marker and a quiet pane), then asserts the
 ' prompt came within 20s of the release marker (assertPromptSoonAfterRelease:
 ' host time of the prompt minus the guest mtime of the marker). [Unverified]
 ' That subtraction assumes the host and guest clocks agree. It then types into

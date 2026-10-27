@@ -50,6 +50,7 @@ func openCodeImportSource(home, name string) string {
 
 var createOpenCodeEngine = func(cfg sbx.RunConfig) error {
 	cmd := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
+	cmd.Env = sbx.CreateEnv(os.Environ(), cfg)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }

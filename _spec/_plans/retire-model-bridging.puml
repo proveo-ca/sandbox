@@ -28,7 +28,7 @@ skinparam noteTextAlignment left
 '          remove once Q2 is answered.
 '   guest  each def entrypoint selects its own model from PROVEO_LOCAL_MODEL:
 '          opencode's configure_opencode_local_model writes .model and
-'          .agents.title.model; cecli exports CECLI_*_MODEL; hermes wires its
+'          .agents.title.model; hermes wires its
 '          endpoint; claudecode reads ANTHROPIC_MODEL; cursor is refused
 '          (vendor-pinned, run.acceptsLocalModel).
 '   route  the operator's host Ollama: _spec/internal/sbx/host-inference.puml.

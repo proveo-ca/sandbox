@@ -6,7 +6,7 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/seed_abort_test.go
 '
 ' NOT THE ONLY ONE. _node_json_field had the same defect for a different reason —
-' it runs `node -e`, and the cecli image ships python and no node, so it returned
+' it runs `node -e`, and an image that ships no node made it return
 ' 127 into the same kind of command substitution. A harness image WITHOUT node is
 ' the ordinary case there, so absence is not failure: the helper now returns 0
 ' when `command -v node` finds nothing. All 24 command-substituted helpers were

@@ -127,7 +127,7 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' (_spec/defs/hermes/hermes-persistence.puml). The Dockerfile no longer
 ' wipes /tmp: upstream ships XDG_RUNTIME_DIR (/tmp/hermes-runtime) there.
 '
-' ── PROVIDER KEYS ARE USAGE KEYS, AS FOR CECLI ──────────────────────────────
+' ── PROVIDER KEYS ARE USAGE KEYS ────────────────────────────────────────────
 ' The CLI reads any `env: secret: true` entry as the harness's OWN plan
 ' credential: it draws an auth row for it and can withhold it. Hermes has no
 ' plan — OPENAI/ANTHROPIC/XAI keys are ordinary usage keys — so the manifest

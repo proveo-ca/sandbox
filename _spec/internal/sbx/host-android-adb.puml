@@ -111,7 +111,6 @@ skinparam noteTextAlignment left
 '   opencode    "mcp": {"mobile": {"type": "local", ...}} merged into the
 '               OPENCODE_CONFIG_CONTENT launchConfigEnv already builds
 '   codex       not wired yet: -c mcp_servers.mobile.* per launch
-'   cecli       not wired yet: --mcp-servers / CECLI_MCP_SERVERS
 '   cursor      none: MCP only from a persistent ~/.cursor/mcp.json
 '   hermes      none: MCP only from its persistent config.yaml; no built-in
 '               Android control (the community plugin wants a local SDK)

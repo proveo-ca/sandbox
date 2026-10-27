@@ -33,9 +33,9 @@ func TestParse(t *testing.T) {
 		{name: "bad mode", yaml: "name: x\nimages:\n  x: y\nworkspace:\n  mode: bogus\n", wantErr: true},
 		{
 			name: "workspace round-trip",
-			yaml: "name: cecli\nimages:\n  cecli: img\nworkspace:\n  layout: app\n  configDir: .cecli\n  gitMode: ro\n  output: true\n  mode: ro\n",
-			want: Manifest{Name: "cecli", Images: map[string]string{"cecli": "img"},
-				Workspace: Workspace{Layout: "app", ConfigDir: ".cecli", GitMode: "ro", Output: true, Mode: "ro"}, Dir: "dir"},
+			yaml: "name: hermes\nimages:\n  hermes: img\nworkspace:\n  layout: app\n  configDir: .hermes\n  gitMode: ro\n  output: true\n  mode: ro\n",
+			want: Manifest{Name: "hermes", Images: map[string]string{"hermes": "img"},
+				Workspace: Workspace{Layout: "app", ConfigDir: ".hermes", GitMode: "ro", Output: true, Mode: "ro"}, Dir: "dir"},
 		},
 		{
 			name: "env round-trip",

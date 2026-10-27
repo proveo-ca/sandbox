@@ -80,7 +80,7 @@ func subscriptionHowTo(def string) string {
 }
 
 // narrowProviders is the def's own vendor list. An empty list means the def
-// routes anywhere — opencode and cecli — and gets the short list instead.
+// routes anywhere — opencode — and gets the short list instead.
 func narrowProviders(m manifest.Manifest) []string {
 	if len(m.Capabilities.Providers) == 0 || len(m.Capabilities.Providers) > 3 {
 		return nil

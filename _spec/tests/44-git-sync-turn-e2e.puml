@@ -50,8 +50,7 @@ end note
 
 note as N_SCOPE
   **Rows: claudecode, codex, cursor, opencode.**
-  cecli wires no turn-end hook, so it has no
-  row. cursor has no local model; it skips
+  cursor has no local model; it skips
   without a funded CURSOR_API_KEY.
 end note
 

@@ -119,7 +119,7 @@ func TestWizardEnabled(t *testing.T) {
 
 func TestNumberedPickersUseTheStatusVocabulary(t *testing.T) {
 	var out strings.Builder
-	got, err := pickTargetsNumbered([]maintain.Target{{Name: "hermes"}, {Name: "cecli"}}, "build", strings.NewReader("1\n"), &out)
+	got, err := pickTargetsNumbered([]maintain.Target{{Name: "hermes"}, {Name: "opencode"}}, "build", strings.NewReader("1\n"), &out)
 	if err != nil || len(got) != 1 || got[0].Name != "hermes" {
 		t.Fatalf("pick = %v, %v", got, err)
 	}

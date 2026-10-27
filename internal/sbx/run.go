@@ -139,12 +139,23 @@ type RunConfig struct {
 	Publish []string
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
 	EnvFile string   // KEY=value file sbx loads with --env-file
+	HostEnv []string // KEY=VALUE for the sbx process itself (kit build); never reaches the sandbox
 	Command []string // trailing agent command (after "--")
 }
 
 func CreateArgs(cfg RunConfig) []string {
 	cfg.Command = nil
 	return append([]string{"create"}, RunArgs(cfg)[1:]...)
+}
+
+// CreateLine is the shell line for `sbx create`, prefixed with the env its kit build needs.
+func CreateLine(cfg RunConfig) string {
+	return strings.TrimSpace(ShellJoin(cfg.HostEnv) + " sbx " + ShellJoin(CreateArgs(cfg)))
+}
+
+// CreateEnv is environ with cfg.HostEnv appended, so a HostEnv key overrides an inherited one.
+func CreateEnv(environ []string, cfg RunConfig) []string {
+	return append(append([]string{}, environ...), cfg.HostEnv...)
 }
 
 // Reattach is the launch config for a sandbox that already exists.

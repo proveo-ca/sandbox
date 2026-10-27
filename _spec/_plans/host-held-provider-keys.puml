@@ -28,7 +28,7 @@ skinparam noteTextAlignment left
 ' below was hit for real in the session that produced this plan.
 '
 ' ── WHAT IS ALREADY TRUE (measured 2026-09-09, live sandbox) ───────────────
-'   the agent holds SENTINELS ONLY. /proc/<pid>/environ of the cecli process
+'   the agent holds SENTINELS ONLY. /proc/<pid>/environ of the agent process
 '     carries XAI_API_KEY=proxy-managed and six more. No real key is in the
 '     agent, which is the whole property credential-boundary.puml asks for.
 '   the proxy REPLACES the header. `Authorization: Bearer xai-junk` sent from
@@ -91,7 +91,7 @@ skinparam noteTextAlignment left
 '
 '   B1 provider surface   RECORD ONLY. No manifest change. The selection
 '                         mechanism and the two-key floor go in this file so the
-'                         next reader knows why cecli probes what it probes.
+'                         next reader knows why an agent probes what it probes.
 '   B2 naming             MAP, DON'T RENAME. Env var names stay verbatim and
 '                         service ids stay kebab-case; add a slug map and show
 '                         both names. NO LONGER A BLOCKER — it is a task.
@@ -110,8 +110,8 @@ skinparam noteTextAlignment left
 ' direction.
 '
 ' ── RECORDED (B1): HOW EACH AGENT SELECTS, AND THE TWO-KEY FLOOR ───────────
-' Selection happens in two layers, and conflating them is what made the cecli
-' probe look mysterious.
+' Selection happens in two layers, and conflating them makes an agent's probe
+' look mysterious.
 '
 '   proveo decides WHAT TO SUPPLY    provider.KeyVars() intersected with
 '                                    capabilities.providers, plus the def's own
@@ -126,17 +126,13 @@ skinparam noteTextAlignment left
 '               reads CURSOR_API_KEY only
 '   opencode    env OPENCODE_API_KEY · NO providers list, so all
 '               reads its gateway key, or any provider key it recognises
-'   cecli       NO `env:` secret · providers [29]
-'               reads ANY of the 63 providers.json slugs whose api_key_env is
-'               set — the row this whole thread came from
 '
-' A SINGLE KEY FOR ALL FOUR IS IMPOSSIBLE, and this tree already said why: the
-' cecli manifest records that "Cursor has no bring-your-own-key path".
-' `providers: [cursor]` is irreducible, and claudecode is pinned to
-' `[anthropic]`. The intersection of {claudecode, cecli, opencode} is anthropic.
+' A SINGLE KEY FOR ALL THREE IS IMPOSSIBLE: Cursor has no bring-your-own-key
+' path, so `providers: [cursor]` is irreducible, and claudecode is pinned to
+' `[anthropic]`. The intersection of {claudecode, opencode} is anthropic.
 '
-' So the floor is TWO keys — ANTHROPIC_API_KEY for three defs, CURSOR_API_KEY
-' for the fourth. Narrowing capabilities.providers would ALSO close the cecli
+' So the floor is TWO keys — ANTHROPIC_API_KEY for two defs, CURSOR_API_KEY
+' for the third. Narrowing capabilities.providers would ALSO close an unwanted
 ' probe at its source, because an unpermitted provider never gets a sentinel;
 ' that is left unbuilt on purpose, recorded rather than done.
 '

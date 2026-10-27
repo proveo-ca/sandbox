@@ -31,7 +31,7 @@ skinparam noteTextAlignment left
 '   v2 (today)                         v3 (target)
 '   sbx run <builtin> -t IMG --kit D   sbx run ./proveo-<target> (own workload)
 '   kind: mixin <target>-posture       kind: workload, dir proveo-<target>
-'   kind: sandbox (cecli own-agent)    kind: workload (same shape as the rest)
+'   kind: sandbox (own-agent)          kind: workload (same shape as the rest)
 '   sandbox.image: IMG                 <stem>.dockerfile: FROM IMG
 '   environment.variables              ENV in the recipe (per-run values: see Q2)
 '   setup.startup (root seed)          lifecycle@1 install hook, user "0"

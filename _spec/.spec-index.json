@@ -98,7 +98,6 @@
       "covers": [
         "defs/**/Dockerfile",
         ".dockerignore",
-        "defs/cecli/Dockerfile.dockerignore",
         "internal/contract/image_size_test.go",
         "internal/contract/dockerfile_correctness_test.go",
         "e2e/sbx_test.go"
@@ -221,8 +220,6 @@
         "e2e/claudecode_auth_test.go",
         "e2e/opencode_auth_test.go",
         "e2e/credentials_test.go",
-        "defs/cecli/harness.manifest",
-        "internal/contract/cecli_providers_test.go",
         "internal/backend/sandbox/provider_gate_test.go",
         "e2e/sbx_test.go"
       ],
@@ -269,7 +266,6 @@
         "defs/codex/harness.manifest",
         "defs/claudecode/harness.manifest",
         "defs/hermes/harness.manifest",
-        "defs/cecli/harness.manifest",
         "internal/credentials/credentials.go",
         "packages/lib/proveo-opencode-runtime"
       ],
@@ -307,7 +303,6 @@
       "covers": [
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/home_symlink_test.go",
-        "defs/cecli/Dockerfile",
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
@@ -577,25 +572,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/defs/cecli/cecli-paradigm.puml",
-      "covers": [
-        "defs/cecli/entrypoint.sh",
-        "packages/lib/entrypoint-lib.sh",
-        "defs/cecli/sample.cecli.conf.yml",
-        "internal/contract/cecli_autoupdater_test.go",
-        "internal/contract/mcp_class_test.go",
-        "defs/bridges/cecli.tsv"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/defs/cecli/cecli-topology.puml",
-      "covers": [
-        "defs/cecli/**"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/defs/claudecode/claudecode-paradigm.puml",
       "covers": [
         "defs/claudecode/mcp/entrypoint.sh",
@@ -666,7 +642,6 @@
         "defs/base-node/Dockerfile",
         "defs/base-node-lsp/Dockerfile",
         "defs/base-node-browser/Dockerfile",
-        "defs/cecli/Dockerfile",
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
@@ -678,7 +653,6 @@
     {
       "spec": "_spec/defs/harness-image-layers.puml",
       "covers": [
-        "defs/cecli/Dockerfile",
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
@@ -1253,8 +1227,20 @@
         "internal/sbx/domain.go",
         "internal/sbx/domain_test.go",
         "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/domain_form_test.go",
-        "defs/cecli/harness.manifest"
+        "internal/backend/sandbox/domain_form_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/kit-image-source.puml",
+      "covers": [
+        "internal/sbx/image_source.go",
+        "internal/sbx/image_source_test.go",
+        "internal/sbx/run.go",
+        "internal/imagebuild/imagebuild.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/opencode_engine.go",
+        "e2e/kit_image_source_test.go"
       ],
       "fingerprint": null
     },
@@ -1398,8 +1384,7 @@
         "e2e/startup_dispatch_test.go",
         "scripts/proveo-jitter-probe.py",
         "e2e/seed_ready_test.go",
-        "internal/sbx/agents.go",
-        "internal/imagetest/cecli_test.go"
+        "internal/sbx/agents.go"
       ],
       "fingerprint": null
     },
@@ -1511,7 +1496,6 @@
       "covers": [
         "internal/workspace/mount.go",
         "internal/manifest/manifest.go",
-        "defs/cecli/harness.manifest",
         "defs/*/harness.manifest",
         "defs/cursor/harness.manifest",
         "defs/opencode/harness.manifest",
@@ -1519,7 +1503,6 @@
         "packages/lib/entrypoint-lib.sh",
         "defs/cursor/entrypoint.sh",
         "defs/opencode/entrypoint.sh",
-        "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh"
       ],
       "fingerprint": null
@@ -1606,7 +1589,6 @@
         "internal/contract/config_set_test.go",
         "internal/contract/config_sync_test.go",
         "internal/contract/config_files_test.go",
-        "internal/contract/mcp_class_test.go",
         "internal/contract/formatter_class_test.go",
         "cmd/proveo/clean_tool_roots_test.go",
         "cmd/proveo/golden_test.go"
@@ -1622,7 +1604,6 @@
         "internal/run/run.go",
         "defs/opencode/entrypoint.sh",
         "defs/cursor/entrypoint.sh",
-        "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh",
         "internal/workspace/platform.go",
         "internal/workspace/platform_test.go",
@@ -1639,7 +1620,6 @@
         "defs/base/ssh/github_known_hosts",
         "defs/cursor/entrypoint.sh",
         "defs/opencode/entrypoint.sh",
-        "defs/cecli/entrypoint.sh",
         "defs/codex/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh",
         "internal/contract/github_ssh_hosts_test.go"
@@ -1716,7 +1696,6 @@
         "packages/lib/entrypoint-lib.sh",
         "defs/opencode/entrypoint.sh",
         "defs/cursor/entrypoint.sh",
-        "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh"
       ],
       "fingerprint": null
@@ -1728,7 +1707,6 @@
         "packages/lib/entrypoint-lib.sh",
         "defs/cursor/entrypoint.sh",
         "defs/opencode/entrypoint.sh",
-        "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh",
         "internal/sbx/kit.go",
         "internal/contract/seed_command_shipped_test.go",
@@ -1751,7 +1729,6 @@
         "packages/lib/entrypoint-lib.sh",
         "defs/cursor/entrypoint.sh",
         "defs/opencode/entrypoint.sh",
-        "defs/cecli/entrypoint.sh",
         "defs/claudecode/mcp/entrypoint.sh"
       ],
       "fingerprint": null

@@ -170,7 +170,7 @@ func TestResumeArgs(t *testing.T) {
 		{target: "opencode", cont: true, list: true, wantErr: true},
 		{target: "opencode", id: "sess", list: true, wantErr: true},
 		{target: "opencode", id: "sess", cont: true, wantErr: true},
-		{target: "cecli", id: "x", wantErr: true},
+		{target: "hermes", id: "x", wantErr: true},
 		{target: "cursor", id: "a", cont: true, wantErr: true},
 	}
 	for _, tc := range tests {

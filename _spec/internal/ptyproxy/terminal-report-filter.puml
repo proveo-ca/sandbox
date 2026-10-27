@@ -95,7 +95,7 @@ skinparam noteTextAlignment left
 ' TRUE of the reports proveo's own overlay provokes and FALSE of a child that
 ' asked for itself.
 '
-' MEASURED, from a cecli run's own startup:
+' MEASURED, from a prompt_toolkit agent's own startup:
 '     WARNING: your terminal doesn't support cursor position requests (CPR).
 '     Open documentation url for more info? (Y)es/(N)o/(D)on't ask again [Yes]:
 ' prompt_toolkit sends `CSI 6n` and blocks on the answer. `keep()` classified the
@@ -170,9 +170,9 @@ skinparam noteTextAlignment left
 ' `OutTap` and the tracker; that split is what makes it testable without a pty.
 '
 ' ── WHY IT LOOKED AGENT-SPECIFIC ───────────────────────────────────────────
-' The operator saw this on opencode and cecli but NOT on cursor, and asked why,
+' The operator saw this on opencode but NOT on cursor, and asked why,
 ' given `DropReports` is set backend-wide. Because mouse tracking is a mode the
-' APPLICATION turns on, so the three agents were never in the same code path:
+' APPLICATION turns on, so the two agents were never in the same code path:
 '   opencode's captured start-up bundle, now pinned in the tests, is
 '   `CSI ?1049h CSI ?1002h CSI ?1006h` — alt screen, button-drag tracking, SGR.
 ' The moment `?1002h` goes out, the terminal STOPS doing native drag-selection

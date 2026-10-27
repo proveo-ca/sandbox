@@ -20,7 +20,7 @@ folder "The four places a provider must exist" as FOUR <<host>> {
   component "4. harness\ncapabilities.providers" as P4 <<app>>
 }
 
-cloud "Harness public docs\nopencode · cursor · cecli" as DOCS <<cloud>>
+cloud "Harness public docs\nopencode · cursor" as DOCS <<cloud>>
 component "Advertised but unregistered\n→ silent 401/403" as GHOST <<error>>
 
 DOCS ARROW_CLOUD ENTRY : sync-providers skill
@@ -122,7 +122,7 @@ note bottom of DOCS
   **Scope: first-class only.** The registry carries 30 providers — those
   a harness names first-class in its own docs, or that directly vendor a
   model family an operator would put in ""ARCHITECT_MODEL"". OpenCode
-  alone lists ~48 and cecli's LiteLLM surface many more; that long tail
+  alone lists ~48; that long tail
   routes through ""openrouter"" or a custom OpenAI-compatible endpoint,
   because every individually allowlisted host is unvetted egress
   surface. Local runtimes (Ollama, LM Studio, llama\.cpp) are not
@@ -169,8 +169,8 @@ note bottom of ENTRY
 end note
 
 note bottom of AMBIG
-  **A bare id names the model, not always who hosts it.** opencode and cecli
-  are not vendor-locked, so an operator may write an unprefixed id and mean
+  **A bare id names the model, not always who hosts it.** opencode is not
+  vendor-locked, so an operator may write an unprefixed id and mean
   any of several hosts. Open-weights families are the ambiguous case —
   many providers serve them — so those ids are classified as ambiguous
   rather than mapped, and the pin is refused instead of guessed.

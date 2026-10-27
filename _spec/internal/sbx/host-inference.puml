@@ -85,10 +85,9 @@ skinparam noteTextAlignment left
 '     runtime; `--gpus all` was added only when `docker info` listed it.
 '   A 32k CONTEXT WINDOW IS A FLOOR. Ollama's 2-4k default truncates tool
 '     schemas plus repo context, which breaks every local-capable harness.
-'   ONE ENDPOINT, THREE DIALECTS. The env is a superset each harness reads
+'   ONE ENDPOINT, TWO DIALECTS. The env is a superset each harness reads
 '     selectively: OpenAI-compatible (OPENAI_BASE_URL …/v1, opencode),
-'     litellm/Ollama (OLLAMA_API_BASE, cecli), Anthropic Messages
-'     (ANTHROPIC_BASE_URL, Claude Code). sbx.LocalModelEnv keeps that shape.
+'     Anthropic Messages (ANTHROPIC_BASE_URL, Claude Code). sbx.LocalModelEnv keeps that shape.
 '   cursor is vendor-pinned and takes no custom base URL (run.acceptsLocalModel).
 
 actor "Operator" as OP

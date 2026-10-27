@@ -18,13 +18,13 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-const volatileImage = "proveo/cecli:volatile-e2e"
+const volatileImage = "proveo/hermes:volatile-e2e"
 
 // TestStreamPaletteE2E renders a real start + exit stream in tmux.
 func TestStreamPaletteE2E(t *testing.T) {
 	requireTmux(t)
 	requireSbx(t)
-	buildVolatileImage(t, harnessImage(t, "cecli"))
+	buildVolatileImage(t, harnessImage(t, "hermes"))
 	proveoBin := buildProveo(t)
 	out := os.Getenv("PROVEO_E2E_CAPTURE_DIR")
 
@@ -63,9 +63,9 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 	sbxOut := []string{
 		"── RESOLVE SETUP ─────────",
 		"  kit: proveo",
-		"⚠ WARNING: template proveo/cecli:volatile-e2e built for the \"shell\" agent",
+		"⚠ WARNING: template proveo/hermes:volatile-e2e built for the \"shell\" agent",
 		"warning: passing a sandbox kit through --kit is deprecated",
-		"proveo entrypoint: cecli",
+		"proveo entrypoint: hermes",
 		"agent: booting",
 		"agent: fatal",
 		"error: agent exited with code 3",
@@ -76,9 +76,9 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 		"    Name:       proveo-claudecode-1a2b3c4d", "    Workspace:  /work (rw)", "                /home/.claude (rw)",
 		"                /home/toolchains (rw)", "                /state/runs/sid/sbx/home-files (rw)"}
 	loud := []string{"  head one", "  head two", "  head three"}
-	templateLoad := []string{"Loading template proveo/cecli:volatile-e2e", "Template loaded.", "Ready."}
+	templateLoad := []string{"Loading template proveo/hermes:volatile-e2e", "Template loaded.", "Ready."}
 	prelude := func(extra ...string) []string {
-		return append([]string{rule(ui.SectionRun), host("image proveo/cecli:volatile-e2e"), "", rule(ui.SectionStarting),
+		return append([]string{rule(ui.SectionRun), host("image proveo/hermes:volatile-e2e"), "", rule(ui.SectionStarting),
 			host("template loaded")}, extra...)
 	}
 	results := func(extra ...string) []string {
@@ -110,14 +110,13 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 	}
 }
 
-// buildVolatileImage replaces base's cecli binary with one that prints two lines
+// buildVolatileImage replaces base's hermes binary with one that prints two lines
 // and exits 3; the image entrypoint, seed and kit stay base's own.
 func buildVolatileImage(t *testing.T, base string) {
 	t.Helper()
 	dir := t.TempDir()
 	df := "FROM " + base + "\nUSER root\n" +
-		"RUN printf '#!/bin/sh\\necho \"agent: booting\"\\necho \"agent: fatal\"\\nexit 3\\n' > /opt/cecli/bin/cecli && chmod 0755 /opt/cecli/bin/cecli\n" +
-		"USER cecli\n"
+		"RUN rm -f /opt/hermes/bin/hermes && printf '#!/bin/sh\\necho \"agent: booting\"\\necho \"agent: fatal\"\\nexit 3\\n' > /opt/hermes/bin/hermes && chmod 0755 /opt/hermes/bin/hermes\n"
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(df), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +134,7 @@ func runVolatile(t *testing.T, proveoBin string) string {
 
 	sess := tmux.New(fmt.Sprintf("proveo-palette-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
-	script := fmt.Sprintf("%s run cecli --image %s --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
+	script := fmt.Sprintf("%s run hermes --image %s --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
 		shellQuote([]string{proveoBin}), volatileImage, shellQuote([]string{work}))
 	if err := sess.Start(110, 60, "env", "TERM=xterm-256color", "COLORTERM=truecolor", "PROVEO_WIZARD=off",
 		"PROVEO_HOME="+t.TempDir(), "sh", "-c", script); err != nil {

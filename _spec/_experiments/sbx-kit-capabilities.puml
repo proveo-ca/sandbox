@@ -51,10 +51,11 @@ skinparam noteTextAlignment left
 '   setup.files[]        path + content + mode, written at startup
 '
 ' ── CANDIDATE EXPERIMENTS, RANKED BY WHAT THEY RETIRE ───────────────────────
-' E1  cecli as a first-class agent (`kind: sandbox`)   -- ADOPTED, DEFAULT ON
+' E1  a def with no built-in agent as a first-class agent (`kind: sandbox`)
+'     -- ADOPTED, DEFAULT ON
 '     Retires the shell-agent launch entirely — the `-c` wrapper, bash -l
-'     semantics, and the whole class of defect that made `-- cecli` run
-'     `bash cecli`. cecli declares its own entrypoint the way pi does.
+'     semantics, and the whole class of defect that made `-- <target>` run
+'     `bash <target>`. The def declares its own entrypoint the way pi does.
 '
 '     DEFAULT ON since 2026-09-07; PROVEO_SBX_AGENT_KIT=0 is the opt-OUT. A def
 '     with no built-in agent renders `kind: sandbox`, names the agent
@@ -65,8 +66,8 @@ skinparam noteTextAlignment left
 '
 '     WHAT WAS MEASURED BEFORE FLIPPING, in order:
 '       kit registers an agent   `kit shape measured: kind: sandbox,
-'                                 name: proveo-cecli`; ladder 4/4 gate-on
-'       a real run works         `cecli@proveo-1788742241-52218:sandbox$`
+'                                 name: proveo-<target>`; ladder 4/4 gate-on
+'       a real run works         `<user>@proveo-<sid>:sandbox$`
 '       credential proxy-managed `"proxy-managed" with the block, "<unset>"
 '                                 without` — a CONTROL pass, run again after
 '                                 the credential path changed, so the green
@@ -97,7 +98,7 @@ skinparam noteTextAlignment left
 '     at rung 3. Only a rung CARRYING the Kit may name our agent, because the
 '     Kit is what declares the name.
 '
-'         PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=cecli \
+'         PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=<target> \
 '         PROVEO_SBX_AGENT_KIT=1 go test -tags e2e ./e2e/ -run Ladder -v
 '
 '     Green on rung 3 means the borrowed shell can go and sbx.ShellLaunch with
@@ -168,8 +169,8 @@ skinparam noteTextAlignment left
 '
 '     E2 IS ONLY REACHABLE ON THE E1 PATH. A `kind: sandbox` kit is a complete
 '     agent with no parent to collide with, so it MAY declare every shared block
-'     — credentials included. cecli is the one def in that position, and only
-'     because E1 put it there. The two experiments are one feature.
+'     — credentials included. A def reaches that position only through E1.
+'     The two experiments are one feature.
 '
 '     For the other three the equivalent would mean abandoning the vendor's
 '     built-in agent for a proveo- prefixed one (a built-in name cannot be
@@ -190,22 +191,22 @@ skinparam noteTextAlignment left
 '
 '     (Note the probe command: the first version used a BARE first word after
 '     `--` and sbx ran `bash '<the whole string>'`, which failed with "No such
-'     file or directory" — the identical defect as `-- cecli`, in a command
+'     file or directory" — the identical defect E1 retires, in a command
 '     written to test something else. shell-agent-launch.puml draws this exact
 '     case. `-c` leads with a flag and is appended instead.)
 '
 '     ── AND IT EXPOSES A REGRESSION INSIDE E1 ──────────────────────────────
 '     Follow the two measurements together:
-'       gate OFF  cecli borrows `shell`, `shell` declares the credential,
-'                 so cecli's env holds a SENTINEL
-'       gate ON   cecli runs agent proveo-cecli from OUR sandbox kit, and
+'       gate OFF  the def borrows `shell`, `shell` declares the credential,
+'                 so the def's env holds a SENTINEL
+'       gate ON   the def runs agent proveo-<target> from OUR sandbox kit, and
 '                 sbx.Kit has no Credentials field — nothing declares
 '                 the credential, so nothing proxy-manages it
 '
-'     E1 therefore risks moving cecli from a sentinel to NO CREDENTIAL AT ALL:
+'     E1 therefore risks moving the def from a sentinel to NO CREDENTIAL:
 '     a downgrade hidden inside a launch fix. It is exactly the class of defect
 '     the gate exists to catch, and it is why the gate must not be defaulted on
-'     until sbx.Kit can declare credentials[] and the cecli kit does.
+'     until sbx.Kit can declare credentials[] and the sandbox kit does.
 '
 '     CORRECTED after the control run measured it. This paragraph first read
 '     "from sentinel to REAL KEY in the agent process", and repeated that
@@ -284,15 +285,15 @@ skinparam noteTextAlignment left
 '
 '     Both fall out of one command:
 '         PROVEO_SBX_AGENT_KIT=1 PROVEO_LADDER_TEST=1 \
-'         PROVEO_LADDER_TARGET=cecli go test -tags e2e ./e2e/ -run Ladder -v
+'         PROVEO_LADDER_TARGET=<target> go test -tags e2e ./e2e/ -run Ladder -v
 '     Rung 3 carries the Kit. Green means the declaration parses, the domains
 '     are accepted and the agent still reaches a prompt; a 400 names which of
 '     the two guesses was wrong.
 '
 '     ── RUN 2026-09-07: E1 CONFIRMED, CREDENTIALS UNTOUCHED ────────────────
 '     Every rung held, and the shape assertion printed what it measured:
-'         kit shape measured: kind: sandbox, name: proveo-cecli
-'     So the sandbox kit registers an agent, sbx resolves proveo-cecli, and the
+'         kit shape measured: kind: sandbox, name: proveo-<target>
+'     So the sandbox kit registers an agent, sbx resolves proveo-<target>, and the
 '     session reaches a prompt and holds 45s. E1 is measured, not inferred.
 '
 '     The credentials block was NOT exercised, and the ladder CANNOT exercise
@@ -356,7 +357,7 @@ skinparam noteTextAlignment left
 '     written to PREVENT exactly this class:
 '
 '         ✅ credential is proxy-managed: ANTHROPIC_API_KEY holds
-'         "ERROR: no sandbox named 'proveo-credprobe-cecli-49376' ..."
+'         "ERROR: no sandbox named 'proveo-credprobe-<target>-<pid>' ..."
 '
 '     Two faults compounding. It read the variable with `sbx exec` AFTER the
 '     session ended, by which time sbx had removed the sandbox — so the probe
@@ -429,13 +430,13 @@ skinparam noteTextAlignment left
 '     it exists to catch.
 '
 '     ── REAL RUN 2026-09-07: THE GATE WORKS, AND COST TWO THINGS ───────────
-'         PROVEO_SBX_AGENT_KIT=1 proveo run cecli --input .
-'         agent      proveo-cecli
-'         ✓ Created sandbox proveo-1788742241-52218
-'         cecli@proveo-1788742241-52218:sandbox$
+'         PROVEO_SBX_AGENT_KIT=1 proveo run <target> --input .
+'         agent      proveo-<target>
+'         ✓ Created sandbox proveo-<sid>
+'         <user>@proveo-<sid>:sandbox$
 '
 '     E1 works end to end on the real path: proveo renders the Kit, sbx resolves
-'     proveo-cecli, the harness reaches its prompt. Not a ladder, not a probe —
+'     proveo-<target>, the harness reaches its prompt. Not a ladder, not a probe —
 '     the thing itself.
 '
 '     TWO DEFECTS THE RUN EXPOSED, BOTH MINE, BOTH NOW FIXED.
@@ -471,19 +472,19 @@ skinparam noteTextAlignment left
 '     agent and belongs in the release note, not in a surprise.
 '
 '     ── THE FLAVOR LABEL WARNING: DIAGNOSED, DELIBERATELY NOT FIXED ────────
-'         ⚠ template "proveo/cecli:local" was built for the "shell" agent but
-'           you are using "proveo-cecli".
+'         ⚠ template "proveo/<target>:local" was built for the "shell" agent but
+'           you are using "proveo-<target>".
 '
 '     CAUSE, measured on the built image: it inherits
 '         com.docker.sandboxes.flavor = shell-docker
 '     from docker/sandbox-templates:shell-docker, and sbx reads that label to
 '     decide which agent an image belongs to. Under E1 the agent is
-'     proveo-cecli, so the two disagree. Nothing else is involved — it is not
+'     proveo-<target>, so the two disagree. Nothing else is involved — it is not
 '     freshTemplate, and not how the template was loaded.
 '
 '     LEFT AS IS, on the operator's call 2026-09-07. The label describes WHAT
 '     THE IMAGE IS BUILT FROM, and that is still shell-docker; overwriting it
-'     with "proveo-cecli" would assert an identity sbx never issued. The label
+'     with "proveo-<target>" would assert an identity sbx never issued. The label
 '     sits in sbx's own namespace and nothing tells us what else reads it —
 '     `template ls`, store keying, a future feature — so changing it is exactly
 '     the kind of guess this tree has already paid for twice (210 MB an image,
@@ -503,7 +504,7 @@ skinparam noteTextAlignment left
 '     EVIDENCE IT IS COSMETIC TODAY, and it is only evidence, not proof:
 '         ladder gate-off   5/5 rungs held
 '         ladder gate-on    4/4 rungs held
-'         real proveo run   reached cecli@...:sandbox$
+'         real proveo run   reached the agent prompt
 '
 '     THE BINDINGS FILE EXISTS AND IS POPULATED. ~/.config/sbx/credentials.yaml
 '     carries bindings for anthropic, cursor, google, openai and xai, each a
@@ -528,7 +529,7 @@ skinparam noteTextAlignment left
 '     cursor-agent-docker, opencode-docker and inherit the vendor's own agent
 '     wiring. Conflicts with _spec/_devops/agent-version-pin.puml, which pins
 '     and asserts exact versions; a template's preinstalled agent moves on the
-'     template's schedule. cecli has no variant, so shell-docker stays anyway.
+'     template's schedule.
 '
 ' E5  branch mode / per-run worktrees
 '     sbx gives each run its own worktree under .sbx/. proveo has clone mode
@@ -552,13 +553,13 @@ component "SPEC-v2\nkind: sandbox is a COMPLETE AGENT" as SPEC <<cloud>>
 component "pi / copilot kits\nnon-built-in agents, shipped" as WIT <<cloud>>
 
 node "proveo today" as NOW <<host>> {
-  component "shell agent + -c wrapper\ncecli has no sbx agent" as SHELL <<error>>
+  component "shell agent + -c wrapper\na def with no sbx agent" as SHELL <<error>>
   component "internal/broker\ninject on-route · strip off-route" as BROKER <<app>>
   component "proveo-seed\nhouse rules · settings · trust" as SEED <<app>>
   component "e2e/sbx_test.go\nskips: no tmux-survivable session" as SKIP <<error>>
 }
 
-component "E1 cecli as kind: sandbox" as E1 <<db>>
+component "E1 own agent as kind: sandbox" as E1 <<db>>
 component "E2 credentials[].apiKey.inject" as E2 <<db>>
 component "E3 sbx ssh as the e2e entry" as E3 <<db>>
 
@@ -596,7 +597,7 @@ end note
 note bottom of SHELL
   **A borrowed agent brings its contract.** The
   shell agent's rule for words after `--` is not
-  cecli's rule, and a def that borrows the launch
+  the harness's, and a def that borrows the launch
   inherits every semantic attached to it, seen or
   unseen.
 end note

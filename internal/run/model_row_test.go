@@ -80,7 +80,7 @@ func TestModelRowOptionIsExactlyTheLocalModelFlag(t *testing.T) {
 
 func TestModelRowIsDrawnForEveryHarnessThatAcceptsLocalModel(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"hermes", "opencode", "cecli", "codex", "claudecode"} {
+	for _, name := range []string{"hermes", "opencode", "codex", "claudecode"} {
 		if _, ok := modelRow(manifest.Manifest{Name: name}, ""); !ok {
 			t.Errorf("%s accepts --local-model but got no model row", name)
 		}

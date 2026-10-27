@@ -556,7 +556,7 @@ func TestSolicitedCPRSurvivesTheBlanketDrop(t *testing.T) {
 	f.cpr.observe([]byte("\x1b[6n"))
 	if !f.keep(cpr) {
 		t.Error("the child sent CSI 6n and is blocked waiting; withholding the answer " +
-			"is what makes cecli report 'your terminal doesn't support cursor position " +
+			"is what makes an agent report 'your terminal doesn't support cursor position " +
 			"requests (CPR)' and then block startup on a Y/N prompt")
 	}
 	// One query, one answer. The credit must not persist.

@@ -22,6 +22,7 @@ type CLI struct {
 	PolicyCheck    func(host string) ([]byte, error)
 
 	LocalImageID    func(image string) string
+	RepoDigests     func(image string) []string
 	ImageEntrypoint func(image string) []string
 	ImageCmd        func(image string) []string
 
@@ -77,6 +78,7 @@ func defaultCLI() CLI {
 		PolicyCheck:   func(host string) ([]byte, error) { return bounded(Binary, CheckNetworkArgs(host)...) },
 
 		LocalImageID:    dockerImageID,
+		RepoDigests:     dockerRepoDigests,
 		ImageEntrypoint: func(image string) []string { return dockerImageList(image, "Entrypoint") },
 		ImageCmd:        func(image string) []string { return dockerImageList(image, "Cmd") },
 		SandboxList:     func() ([]byte, error) { return boundedCombined(Binary, "ls") },

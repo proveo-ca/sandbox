@@ -112,7 +112,6 @@ func TestDockerignoreNeverHidesSomethingADockerfileCopies(t *testing.T) {
 		"defs/base/Dockerfile",
 		"defs/opencode/Dockerfile",
 		"defs/cursor/Dockerfile",
-		"defs/cecli/Dockerfile",
 		"defs/claudecode/mcp/Dockerfile",
 	} {
 		ignore := ".dockerignore"
@@ -130,26 +129,6 @@ func TestDockerignoreNeverHidesSomethingADockerfileCopies(t *testing.T) {
 				t.Errorf("%s copies %q but %s excludes %q — the COPY would silently "+
 					"produce an empty directory", rel, src, ignore, top)
 			}
-		}
-	}
-}
-
-func TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist(t *testing.T) {
-	t.Parallel()
-	if _, err := os.Stat(filepath.Join(repoRoot(t), "defs/cecli/.dockerignore")); err == nil {
-		t.Error("defs/cecli/.dockerignore is back; BuildKit never reads it for a repo-root build — " +
-			"defs/cecli/Dockerfile.dockerignore is the file that applies")
-	}
-	cecli := dockerignoreEntries(t, "defs/cecli/Dockerfile.dockerignore")
-	for entry := range dockerignoreEntries(t, ".dockerignore") {
-		if !cecli[entry] {
-			t.Errorf("defs/cecli/Dockerfile.dockerignore replaces the root .dockerignore for cecli builds "+
-				"but drops %q, so a cecli build would send it to the daemon", entry)
-		}
-	}
-	for _, want := range []string{"__pycache__", "*.pyc", ".pytest_cache/"} {
-		if !cecli[want] {
-			t.Errorf("defs/cecli/Dockerfile.dockerignore lost cecli's own %q", want)
 		}
 	}
 }
@@ -175,7 +154,6 @@ var harnessDockerfiles = []string{
 	"defs/claudecode/mcp/Dockerfile",
 	"defs/cursor/Dockerfile",
 	"defs/opencode/Dockerfile",
-	"defs/cecli/Dockerfile",
 }
 
 // _spec/_devops/image-size-reduction.puml

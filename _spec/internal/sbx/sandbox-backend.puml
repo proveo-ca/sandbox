@@ -242,7 +242,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 '           never proceed unattended: a different fault from dying.
 '   ALIVE   the harness's OWN TUI frame. "reached a prompt" is not a shared
 '           shape, so there is one marker row per target (cursor · opencode ·
-'           cecli · claudecode). Matching Claude Code's frame against a cursor
+'           claudecode). Matching Claude Code's frame against a cursor
 '           session reported a healthy agent as a hang for 481 seconds — a test
 '           failing rather than a def failing.
 '   DEAD    "was stopped" · "kept for diagnosis" · "agent exited with code".

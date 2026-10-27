@@ -1122,6 +1122,8 @@ type Input struct {
 	// ImageEntrypoint reads the image's declared ENTRYPOINT; a sandbox Kit needs
 	// it verbatim. Injected so Spec stays testable without docker.
 	ImageEntrypoint func(image string) []string
+	// ImageSource locates Image for the kit build; nil leaves FROM as Image and the active builder.
+	ImageSource func(image string) sbx.ImageSource
 	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
 	AgentEnv         []string
 	Sid, RunDir      string
@@ -1155,6 +1157,18 @@ func imageEntrypoint(in Input) []string {
 		return nil
 	}
 	return in.ImageEntrypoint(in.Image)
+}
+
+// imageSource is where Image lives for the kit build.
+func imageSource(in Input) sbx.ImageSource {
+	if in.ImageSource == nil {
+		return sbx.ImageSource{Ref: in.Image}
+	}
+	src := in.ImageSource(in.Image)
+	if src.Host && src.Builder == "" {
+		ui.Warnf("sandbox: no docker-driver buildx builder reads the host image store — the active builder (`docker buildx ls`, marked *) builds %s; set PROVEO_BUILDX_LOCAL_BUILDER to choose one", in.Image)
+	}
+	return src
 }
 
 // Harness is the def a target belongs to. One manifest owns several targets —
@@ -1355,7 +1369,8 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		ui.Warnf("sandbox: the published %s kit could not be read (%v) — launching from the image alone", harness, upErr)
 		hasUp = false
 	}
-	recipe := sbx.RecipeV3{From: in.Image}
+	src := imageSource(in)
+	recipe := sbx.RecipeV3{From: src.From()}
 	var command []string
 	entrypoint := imageEntrypoint(in)
 	switch {
@@ -1381,6 +1396,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
 		Env:     DeclineMCPGateway(in.MCPGateway, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts)),
+		HostEnv: src.BuildEnv(),
 		Command: command,
 	}
 	if in.HomeAccess.FilesRoot != "" {
@@ -2257,6 +2273,7 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 // createSandbox builds the workload and runs its install and startup hooks before any agent launches (P5).
 func createSandbox(cfg sbx.RunConfig) error {
 	c := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
+	c.Env = sbx.CreateEnv(os.Environ(), cfg)
 	c.Stdout, c.Stderr = os.Stderr, os.Stderr
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("sbx create %s: %w", cfg.Name, err)

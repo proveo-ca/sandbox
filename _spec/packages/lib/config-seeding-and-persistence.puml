@@ -1,9 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyond-claudecode is a later plan, hook-formatters stay unwired
+title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-claudecode is a later plan, hook-formatters stay unwired
 
-' purpose: the detect→provide→probe→wire chain, and how tools MOVE while configs COPY so an sbx teardown does not discard them
+' purpose: the detect→provide→wire chain, and how tools MOVE while configs COPY so an sbx teardown does not discard them
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/proveohome/**
 ' covers: internal/manifest/manifest.go
@@ -13,7 +13,7 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 ' covers: internal/contract/tool_home_test.go, internal/contract/tool_sync_test.go
 ' covers: internal/contract/config_set_test.go, internal/contract/config_sync_test.go
 ' covers: internal/contract/config_files_test.go
-' covers: internal/contract/mcp_class_test.go, internal/contract/formatter_class_test.go
+' covers: internal/contract/formatter_class_test.go
 ' covers: cmd/proveo/clean_tool_roots_test.go, cmd/proveo/golden_test.go
 '
 ' ── THE GO MODULE CACHE IS WRITTEN WRITABLE ────────────────────────────────
@@ -28,7 +28,7 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 ' already holds from before keep their old modes until they are rewritten.
 ' APPLIED 2026-09-17. Numbered steps 1-5 landed. Closed out of _plans.
 '   plugin beyond claudecode ... _spec/_plans/plugin-class-beyond-claudecode.puml
-'   re-wire policy ............. formatter/MCP skip if declared; LSP setdefault
+'   re-wire policy ............. formatter skips if declared; LSP setdefault
 '                                every open — the mix, not a gap
 '   hook formatters ............ standing note; not this chain
 '   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
@@ -43,10 +43,7 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '                                   internal/proveohome (ConfigFiles) ·
 '                                   packages/lib/entrypoint-lib.sh (_proveo_config_file)
 '   step 4 · the class table ...... packages/lib/entrypoint-lib.sh (_proveo_config_classes,
-'                                   _proveo_class_wire, _proveo_class_probe,
-'                                   _proveo_mcp_probe, proveo_wire_config)
-'   step 5 · the MCP row .......... packages/lib/entrypoint-lib.sh (configure_cecli_mcp) ·
-'                                   defs/cecli/Dockerfile · internal/imagebuild/targets.go (cecli Pins)
+'                                   _proveo_class_wire, proveo_wire_config)
 '   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
 '   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
 '                                   internal/proveohome/proveohome_test.go
@@ -56,8 +53,6 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '   the durable home ............... internal/proveohome/proveohome.go · cmd/proveo/clean.go (toolSubdirs)
 '   the home that is NOT durable ... internal/backend/sandbox/sandbox.go (Home)
 '   the copy that stands in for it . packages/lib/entrypoint-lib.sh (proveo_sync_state)
-'   the Serena attempt ............. git 88cefc47 (removed) · _spec/defs/cecli/cecli-paradigm.puml
-'   how it failed silently ......... _spec/tests/42-hello-world-e2e.puml
 '   the chain, drawn ............... _spec/packages/lib/language-server-provisioning.puml
 '   what a class must not assume ... _spec/_runtimes/toolchain-provisioning.puml
 '   what leans on this chain ..... _spec/internal/entrypoint/model-alias-bridges.puml
@@ -66,8 +61,8 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '                                   plan named; it no longer blocks that one.
 '   plugin beyond claudecode ..... _spec/_plans/plugin-class-beyond-claudecode.puml
 '
-' ── FOUR CONFIG CLASSES, WIRED WHERE THE SURFACE IS A YES/NO ──────────────
-' A harness opens onto a workspace and needs four kinds of thing configured
+' ── THREE CONFIG CLASSES, WIRED WHERE THE SURFACE IS A YES/NO ─────────────
+' A harness opens onto a workspace and needs three kinds of thing configured
 ' before it is useful. They differ only in the file format at the end:
 '
 '   class       detect                provide             wire
@@ -76,15 +71,13 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '               map, ranked by count) mise / ubi          configure_opencode_lsp
 '                                                         configure_cursor_lsp
 '                                                         configure_codex_lsp
-'   MCP         —                     /opt/serena         configure_cecli_mcp
-'                                     (handshake probe)   (cecli only)
 '   formatters  —                     harness built-ins   configure_opencode_
 '                                                         formatter only
 '   plugins     fixed list            image seed dir      configure_claude_
 '                                                         plugins (claudecode)
 '
 ' The plugin row is a fixed list against one harness's baked marketplace cache.
-' Hook-shaped formatters (claudecode, cursor, cecli) stay unwired: a hook asks
+' Hook-shaped formatters (claudecode, cursor) stay unwired: a hook asks
 ' proveo to pick a command per project, and guessing rewrites source.
 '
 ' For the formatter row the answer turned out to be neither: opencode ships 24
@@ -92,39 +85,6 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 ' row was empty on proveo's side while the surface sat there unused. A first pass
 ' at this plan concluded "formatters are not a class" from a grep of `defs/` and
 ' `_spec/` — which only ever showed that PROVEO does not wire them. See step 4b.
-'
-' ── THE MCP ROW IS EMPTY BECAUSE THE ONE ATTEMPT WAS DELETED ──────────────
-' cecli has no native LSP client, so its code intelligence has to arrive as
-' MCP — the same delivery cursor uses (mcp-language-server), and the reason
-' _spec/packages/lib/steps.puml still names "cecli: Serena MCP toolkit" in the
-' MCP-capable branch of the WIRE step. That branch describes code that is gone.
-'
-' What was there (git 88cefc47 removed it):
-'   defs/cecli/Dockerfile      a second venv, /opt/serena, `pip install
-'                              serena-agent`, launcher symlinked onto PATH
-'   defs/cecli/entrypoint.sh   seed_cecli_serena_mcp — `command -v serena`
-'                              gate, then APPEND an mcp-servers block to
-'                              ~/.cecli.conf.yml unless one is already declared
-'
-' The shape was right and the outcome was not: the harness "shipped for weeks
-' with its Serena MCP server dead on every boot — a package version skew —
-' while the side-effect assertion stayed green" (42-hello-world-e2e.puml). The
-' `command -v serena` gate proved a launcher existed. Nothing proved it SERVED.
-' The whole feature was then deleted rather than probed, because there was no
-' shared chain to hang a probe on: no per-class provide step, no per-class
-' health contract, no test that a wired server answers.
-'
-' ── WHY A HEALTH PROBE IS DECIDABLE HERE AND WAS NOT FOR LSP ──────────────
-' language-server-provisioning.puml records a measured refusal: feeding EOF to
-' healthy servers returns 124, 2, 1 and 0 depending on the server, so no exit
-' code separates healthy from broken and any LSP probe would discard working
-' servers. That finding is about LSP stdio, and it does not carry to MCP.
-'
-' MCP has a handshake with a defined success value: an `initialize` request
-' over stdio answers with a result object naming protocolVersion and
-' serverInfo. A server that cannot start answers nothing. So the class that
-' failed silently is precisely the class that CAN be probed — which is the
-' argument for a per-class contract rather than one rule copied across.
 '
 ' ── AND NOTHING ANY OF THEM WRITES SURVIVES AN SBX RUN ────────────────────
 ' The chain assumes a durable home. _spec/_runtimes/toolchain-provisioning.puml
@@ -327,7 +287,7 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 '
 '   CONFIGS  files the agent finds by an absolute path under its own home
 '            (~/.claude/settings.json, ~/.cursor/mcp.json,
-'            ~/.config/opencode/opencode.json, ~/.cecli.conf.yml). These
+'            ~/.config/opencode/opencode.json). These
 '            CANNOT move — moving them is what broke the credential — so they
 '            must be COPIED, by name, in both directions, the way resume
 '            state already is.
@@ -335,7 +295,6 @@ title APPLIED — one chain for LSPs, MCPs, formatters and plugins;\nplugin-beyo
 node "The chain, generalised" as CHAIN <<app>> {
   component "**detect** — what this workspace needs\nper class, from the tree" as DET <<app>>
   component "**provide** — image layer first,\nthen mise/venv, else refuse" as PRO <<app>>
-  component "**probe** — per-class health\nMCP: ""initialize"" · LSP: none" as PRB <<app>>
   component "**wire** — the harness's own\nconfig format, setdefault merge" as WIRE <<app>>
 }
 
@@ -356,9 +315,7 @@ cloud "mise registry · ubi → GitHub API\n60 req/h unauthenticated" as NET <<c
 SEED ARROW_MAIN CHAIN : per class, per target
 DET ARROW_MAIN PRO
 PRO ARROW_CLOUD NET : only when the image layer misses
-PRO ARROW_MAIN PRB
-PRB ARROW_MAIN WIRE : wire only what ANSWERED
-PRB ARROW_ERROR NET : refuse, and say which class
+PRO ARROW_MAIN WIRE
 
 DOCK ARROW_MAIN SEED
 SBX ARROW_MAIN SEED
@@ -367,19 +324,6 @@ CHAIN ARROW_ERROR SHOME : discarded today
 TOOLS ARROW_MAIN STATE : relocate
 CFGS ARROW_QUEUE STATE : copy, both directions
 SHOME ARROW_OPTIONAL CFGS : the agent still reads HERE
-
-note bottom of PRB
-  **The step Serena needed and did not have.**
-  ""command -v serena"" proved a launcher existed.
-  It served nothing for weeks, and the e2e
-  side-effect assertion stayed green throughout.
-end note
-
-note right of PRB
-  **Per-class, not one rule.** LSP stdio has no
-  exit code that separates healthy from broken.
-  MCP answers ""initialize"" or it does not.
-end note
 
 note bottom of SHOME
   **The deletion of HOME was correct.** sbx's
@@ -457,27 +401,26 @@ legend bottom
   deliberately skips.
   --
   **3b. Home-ROOT config files needed declaring too.** — LANDED.
-  A set derived from ""home\.mounts"" is DIRECTORY-shaped, and two harnesses keep a
-  config file beside those subtrees rather than inside one: claudecode's
+  A set derived from ""home\.mounts"" is DIRECTORY-shaped, and claudecode keeps a
+  config file beside those subtrees rather than inside one:
   ""~/\.claude\.json"" (accepted workspace trust, Chrome onboarding, the operator's
-  own MCP servers) and cecli's ""~/\.cecli\.conf\.yml"". docker persists them with
-  the whole-home bind and never had to name them; sbx rebuilt both from scratch
-  on every open. ""Home\.Files"" declares them, ""Validate"" refuses anything but a
+  own MCP servers). docker persists it with
+  the whole-home bind and never had to name it; sbx rebuilt it from scratch
+  on every open. ""Home\.Files"" declares it, ""Validate"" refuses anything but a
   bare name, and ""PROVEO_CONFIG_FILES"" carries them.
   --
   **4. Generalise the chain into one table and one entry point.** — LANDED.
-  ""_proveo_config_classes"" is ""plugin lsp formatter mcp"" — an ORDER, not a
+  ""_proveo_config_classes"" is ""plugin lsp formatter"" — an ORDER, not a
   preference: the
   plugin row exports ""PROVEO_CLAUDE_LSP_OFFICIAL"" and the lsp row reads it to
   decide which languages to yield. ""_proveo_class_wire <class>:<harness>"" names
-  the wiring function, ""_proveo_class_probe <class>"" names the health check, and
-  ""proveo_wire_config"" is the single entry point ""proveo_seed"" calls. The
+  the wiring function, and ""proveo_wire_config"" is the single entry point ""proveo_seed"" calls. The
   per-class ""case"" that used to sit in the seed is gone.
   --
   **4b. Formatters ARE a class — and the earlier answer here was wrong.**
   It read "no harness has a formatter config format", from a grep of ""defs/"" and
   ""_spec/"". Absence in proveo's tree is not absence of a surface in the harness.
-  All four have one, in three different shapes, and opencode's is why a workspace
+  All three have one, in two different shapes, and opencode's is why a workspace
   carrying ""prettier"" and ""oxfmt"" formatted nothing:
   --
   ""opencode"" a REGISTRY: 24 built-ins under the ""formatter"" key, **off unless
@@ -492,29 +435,13 @@ legend bottom
   --
   ""cursor"" a COMMAND HOOK: ""afterFileEdit"" in ""\.cursor/hooks\.json"", beside the
   ""beforeShellExecution"" audit hook proveo already ships.
-  --
-  ""cecli"" LINT COMMANDS: ""auto-lint"" (on by default) plus
-  ""lint-cmd: ['<lang>: <cmd>']"" in the aider-shaped home config.
   ==
   **Why only the registry is wired.** A registry asks a yes/no question and the
   harness resolves the rest. A hook asks proveo to CHOOSE A COMMAND per project —
   which formatter, with which arguments, over which files — and choosing wrongly
-  rewrites the operator's source on every edit. cecli adds a trap on top: aider
-  treats a non-zero exit as a lint failure, and formatters exit non-zero
-  precisely when they changed something, so a formatter wired as a ""lint-cmd""
-  reports an error every time it works. Those three rows want the
+  rewrites the operator's source on every edit. Those two rows want the
   dependency-tree chain's knowledge of what the project actually pins, and they
   are left open rather than guessed at.
-  --
-  **5. Serena, on that chain, as the MCP row's first entry.** — LANDED.
-  ""/opt/serena"" in its own venv (serena-agent and cecli-dev disagree about
-  dependency versions), PINNED by ""SERENA_VERSION"" through the same
-  ""imagebuild.AgentVersion"" resolver the agents use — because an unpinned install is
-  precisely what shipped the skew that killed it. ""configure_cecli_mcp"" declares
-  it in ""~/\.cecli\.conf\.yml"" only when the handshake ANSWERS, points
-  ""--project"" at the scan root rather than ""/app"" (which does not exist on sbx),
-  and leaves an existing ""mcp-servers"" block alone — the operator's, or the one
-  step 3b just carried back.
   ==
   **Settled on step 2 — install-then-sync, not install-in-place.** Running a
   toolchain straight off the durable root put every ""command -v"", every shim and
@@ -540,11 +467,11 @@ legend bottom
   _spec/_plans/plugin-class-beyond-claudecode.puml. The seed is one vendor's
   marketplace cache; a second class waits on a second seed.
   --
-  **Re-wire mix is the policy.** Formatter and MCP skip when the operator's key
+  **Re-wire mix is the policy.** The formatter skips when the operator's key
   already exists; LSP setdefault-merges every open. No fingerprint, no first-open
   gate. Codified, not deferred.
   --
-  **Hook formatters stay unwired.** claudecode PostToolUse, cursor afterFileEdit
-  and cecli lint-cmd wait on the dependency-tree pin knowledge. Not this chain.
+  **Hook formatters stay unwired.** claudecode PostToolUse and cursor
+  afterFileEdit wait on the dependency-tree pin knowledge. Not this chain.
 end legend
 @enduml

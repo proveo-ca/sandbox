@@ -8,7 +8,6 @@ title GitHub SSH host keys — git@github.com in an sbx world
 ' covers: defs/base/ssh/github_known_hosts
 ' covers: defs/cursor/entrypoint.sh
 ' covers: defs/opencode/entrypoint.sh
-' covers: defs/cecli/entrypoint.sh
 ' covers: defs/codex/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: internal/contract/github_ssh_hosts_test.go

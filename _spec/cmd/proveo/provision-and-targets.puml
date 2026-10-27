@@ -109,8 +109,7 @@ note bottom of ENS
 
   Mapping an image to its imagebuild target (""buildTarget"") tries the
   image's own name in ""imagebuild.Specs"" first, then the manifest name —
-  which covers images whose name differs from their def directory
-  (""proveo/cecli-node"" → target ""cecli"").
+  which covers images whose name differs from their def directory.
 end note
 
 note bottom of IB
