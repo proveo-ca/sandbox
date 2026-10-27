@@ -82,25 +82,35 @@ type RecipeV3 struct {
 	Cmd        []string
 }
 
-// LaunchArgs is the trailing command that adds flags to launch: sbx replaces everything after argv0, so launch[1:] leads.
+// LaunchArgs is the trailing command that adds flags to launch; a leading flag appends, anything else replaces launch[1:].
+// SPEC: _spec/_plans/sbx-kit-v3-migration.puml (P7 launch)
 func LaunchArgs(launch, flags []string) []string {
 	if len(flags) == 0 || len(launch) == 0 {
 		return nil
 	}
-	return append(append([]string{}, launch[1:]...), flags...)
+	if appends(flags) {
+		return append([]string{}, flags...)
+	}
+	rest := launch[1:]
+	for len(rest) > 0 && rest[0] == "--" {
+		rest = rest[1:]
+	}
+	return append(append([]string{}, rest...), flags...)
 }
 
-// Launched is the argv `sbx run` starts: ENTRYPOINT[0] plus the trailing command, else ENTRYPOINT then CMD.
+// Launched is the argv `sbx run` starts: ENTRYPOINT + CMD, plus a trailing command that opens with a flag; else ENTRYPOINT[0] plus it.
 // SPEC: _spec/_plans/sbx-kit-v3-migration.puml (P7 launch)
 func Launched(entrypoint, cmd, command []string) []string {
 	if len(entrypoint) == 0 {
 		return nil
 	}
-	if len(command) > 0 {
+	if len(command) > 0 && !appends(command) {
 		return append([]string{entrypoint[0]}, command...)
 	}
-	return append(append([]string{}, entrypoint...), cmd...)
+	return append(append(append([]string{}, entrypoint...), cmd...), command...)
 }
+
+func appends(command []string) bool { return len(command) > 0 && strings.HasPrefix(command[0], "-") }
 
 // CredentialV3 is credential@1's config.
 type CredentialV3 struct {

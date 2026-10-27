@@ -168,6 +168,24 @@ skinparam noteTextAlignment left
 '        ENTRYPOINT[0]. So when proveo adds launch flags it sends
 '        launch[1:] + flags (e.g. --dangerously-skip-permissions …) — the
 '        v2 OwnAgentCommand rule, now for every harness.
+'      CORRECTED 2026-10-26 (MEASURED, sbx 0.49.2, ENTRYPOINT
+'      ["/bin/echo","EP0","EP1"] CMD ["C1"]): the rule splits on the
+'      trailing command's first word.
+'        `-- A B`       → `A B`               (argv0 + trailing: replace)
+'        `-- /x A`      → `/x A`              (replace)
+'        `-- -x A`      → `EP0 EP1 C1 -x A`   (leading flag: APPEND to
+'        `-- --flag A`  → `EP0 EP1 C1 --flag A`  ENTRYPOINT + CMD)
+'        `-- -- A B`    → `EP0 EP1 C1 -- A B` (a bare -- appends too)
+'      Every proveo image's ENTRYPOINT is `dumb-init -- /entrypoint.sh`, so
+'      launch[1:] opened with `--`: sbx appended it, /entrypoint.sh got
+'      `-- /entrypoint.sh -s …`, and hermes exited 2 ("'/entrypoint.sh' is
+'      not a hermes command") on every scheduled muse run since 2026-10-22.
+'      Kit-launched harnesses only duplicated their own flag
+'      (`claude --dangerously-skip-permissions --dangerously-skip-…`).
+'      LaunchArgs now sends flags alone when they lead (append), else
+'      launch[1:] without dumb-init's `--` (replace); sbx.Launched models
+'      both. Tests: TestLaunchArgsFollowSbxsAppendAndReplaceRule,
+'      TestLaunchedIsWhatSbxRunStarts.
 '      Probe hazards seen on the way: `sbx run` under `script` (pty) stalls
 '      at "building…" on an unanswered terminal query (OSC 11), and killing
 '      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart

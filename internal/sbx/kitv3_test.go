@@ -115,18 +115,30 @@ func TestLifecycleHooksDeclareTheirUserAndTheEnvTheyRead(t *testing.T) {
 	}
 }
 
-func TestLaunchFlagsResendTheLaunchTailBecauseSbxReplacesArgvAfterZero(t *testing.T) {
+func TestLaunchArgsFollowSbxsAppendAndReplaceRule(t *testing.T) {
 	t.Parallel()
-	launch := []string{"claude", "--dangerously-skip-permissions"}
-	if got := LaunchArgs(launch, nil); got != nil {
-		t.Errorf("LaunchArgs without flags = %q; no trailing command keeps ENTRYPOINT + CMD", got)
+	claude := []string{"claude", "--dangerously-skip-permissions"}
+	dumbInit := []string{"dumb-init", "--", "/entrypoint.sh"}
+	for _, tc := range []struct {
+		name          string
+		launch, flags []string
+		want          []string
+	}{
+		{"no flags keeps ENTRYPOINT + CMD", claude, nil, nil},
+		{"a leading flag is appended to the whole launch", claude, []string{"--chrome"}, []string{"--chrome"}},
+		{"dumb-init's -- never leads: hermes's -s appends", dumbInit, []string{"-s", "scheduled-run"}, []string{"-s", "scheduled-run"}},
+		{"a word replaces launch[1:], minus dumb-init's --", dumbInit, []string{"chat"}, []string{"/entrypoint.sh", "chat"}},
+	} {
+		got := LaunchArgs(tc.launch, tc.flags)
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: LaunchArgs = %q, want %q", tc.name, got, tc.want)
+		}
+		if len(got) > 0 && got[0] == "--" {
+			t.Errorf("%s: the trailing command opens with --, which sbx appends to ENTRYPOINT: %q", tc.name, got)
+		}
 	}
-	got := LaunchArgs(launch, []string{"--chrome"})
-	if want := []string{"--dangerously-skip-permissions", "--chrome"}; !slices.Equal(got, want) {
-		t.Errorf("LaunchArgs = %q, want %q (P7: `-- extra` alone would drop the launch's own flags)", got, want)
-	}
-	if launch[1] != "--dangerously-skip-permissions" || len(launch) != 2 {
-		t.Errorf("LaunchArgs mutated its input: %q", launch)
+	if claude[1] != "--dangerously-skip-permissions" || len(claude) != 2 {
+		t.Errorf("LaunchArgs mutated its input: %q", claude)
 	}
 }
 
@@ -229,8 +241,12 @@ func TestLaunchedIsWhatSbxRunStarts(t *testing.T) {
 		{"entrypoint alone", ep, nil, nil, ep},
 		{"entrypoint then CMD", []string{"dumb-init", "--", "cecli-entrypoint"}, []string{"cecli"}, nil,
 			[]string{"dumb-init", "--", "cecli-entrypoint", "cecli"}},
-		{"trailing command replaces all after argv0", ep, []string{"cecli"}, []string{"--", "/entrypoint.sh", "--yolo"},
-			[]string{"dumb-init", "--", "/entrypoint.sh", "--yolo"}},
+		{"a leading flag appends to ENTRYPOINT + CMD", ep, []string{"cecli"}, []string{"--yolo"},
+			[]string{"dumb-init", "--", "/entrypoint.sh", "cecli", "--yolo"}},
+		{"a leading -- appends too", ep, nil, []string{"--", "/entrypoint.sh", "-s", "x"},
+			[]string{"dumb-init", "--", "/entrypoint.sh", "--", "/entrypoint.sh", "-s", "x"}},
+		{"a leading word replaces all after argv0", ep, []string{"cecli"}, []string{"/entrypoint.sh", "chat"},
+			[]string{"dumb-init", "/entrypoint.sh", "chat"}},
 		{"no entrypoint", nil, []string{"x"}, nil, nil},
 	} {
 		if got := Launched(tc.entrypoint, tc.cmd, tc.command); !slices.Equal(got, tc.want) {

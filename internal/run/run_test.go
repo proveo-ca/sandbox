@@ -251,8 +251,8 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 	if strings.Contains(cfg.Name, "proveo-1-2") {
 		t.Errorf("sandbox name %q carries the session id — every run would build its own", cfg.Name)
 	}
-	if want := []string{"--dangerously-skip-permissions", "--verbose"}; !slices.Equal(cfg.Command, want) {
-		t.Errorf("command = %v, want %v: agent args after the launch's own (sbx replaces argv[1:])", cfg.Command, want)
+	if want := []string{"--verbose"}; !slices.Equal(cfg.Command, want) {
+		t.Errorf("command = %v, want %v: a leading flag appends to the kit's launch (P7)", cfg.Command, want)
 	}
 }
 

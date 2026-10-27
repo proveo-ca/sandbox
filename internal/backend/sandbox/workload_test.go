@@ -95,8 +95,8 @@ func TestAHarnessWithAPublishedKitLaunchesThroughItAndKeepsItsFlags(t *testing.T
 		t.Errorf("no extras ⇒ no trailing command (ENTRYPOINT + CMD run as is), got %q", cfg.Command)
 	}
 	cfg, _ = specFor(t, "claudecode", "-p", "hi")
-	if want := []string{"--dangerously-skip-permissions", "-p", "hi"}; !slices.Equal(cfg.Command, want) {
-		t.Errorf("command = %q, want %q — sbx replaces everything after argv0 (P7)", cfg.Command, want)
+	if want := []string{"-p", "hi"}; !slices.Equal(cfg.Command, want) {
+		t.Errorf("command = %q, want %q — a leading flag appends to the kit's launch (P7)", cfg.Command, want)
 	}
 }
 
@@ -105,8 +105,8 @@ func TestAHarnessWithoutAPublishedKitLaunchesTheImageEntrypoint(t *testing.T) {
 	if len(w.Recipe.Entrypoint) != 0 {
 		t.Errorf("recipe ENTRYPOINT = %q; FROM already carries the image's own", w.Recipe.Entrypoint)
 	}
-	if want := []string{"--", "cecli-entrypoint", "--yes"}; !slices.Equal(cfg.Command, want) {
-		t.Errorf("command = %q, want %q (entrypoint[1:] + extras, P7)", cfg.Command, want)
+	if want := []string{"--yes"}; !slices.Equal(cfg.Command, want) {
+		t.Errorf("command = %q, want %q — a leading flag appends to ENTRYPOINT + CMD; a leading -- would re-run the entrypoint (P7)", cfg.Command, want)
 	}
 	if cfg, _ := specFor(t, "cecli"); cfg.Command != nil {
 		t.Errorf("no extras ⇒ the image ENTRYPOINT runs untouched, got %q", cfg.Command)
