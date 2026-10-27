@@ -5,6 +5,7 @@ package choiceui
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -26,6 +27,7 @@ type Row struct {
 	Help     map[string]string
 	OffWhy   map[string]string
 	Radio    bool
+	RadioSet []string // options drawn as one radio group inside a checkbox row
 	Divider  bool
 
 	// A field row takes typing instead of options.
@@ -209,6 +211,10 @@ func clip(text string, width int) string {
 func (r *Row) offAt(i int) bool { return i < len(r.Off) && r.Off[i] }
 
 func (r *Row) onAt(i int) bool { return i < len(r.On) && r.On[i] }
+
+func (r *Row) radioAt(i int) bool {
+	return r.Radio || (i < len(r.Options) && slices.Contains(r.RadioSet, r.Options[i]))
+}
 
 type Form struct {
 	Banner   []string
@@ -790,9 +796,9 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		var glyph string
 		st := p.idle
 		switch {
-		case r.Multi && r.Radio && r.onAt(j):
+		case r.Multi && r.radioAt(j) && r.onAt(j):
 			glyph, st = "(•) ", p.brand
-		case r.Multi && r.Radio:
+		case r.Multi && r.radioAt(j):
 			glyph = "( ) "
 		case r.Multi && r.onAt(j):
 			glyph, st = "[x] ", p.brand

@@ -597,15 +597,15 @@ func TestHelpIsDrawnForTheCursorRowAlone(t *testing.T) {
 func TestGreyedOptionExplainsItselfUnderTheRow(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{{
-		Label: "add-ons", Options: []string{"claude-in-chrome"}, Multi: true,
+		Label: "add-ons", Options: []string{"ios"}, Multi: true,
 		On: []bool{false}, Off: []bool{true},
-		Help:   map[string]string{"claude-in-chrome": "your own Chrome, driven through proveo's bridge"},
-		OffWhy: map[string]string{"claude-in-chrome": "Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions"},
+		Help:   map[string]string{"ios": "an iOS simulator on this host"},
+		OffWhy: map[string]string{"ios": "the iOS simulator path is not built yet"},
 	}}}
 	got := joined(t, f)
 	for _, want := range []string{
-		"› claude-in-chrome — your own Chrome, driven through proveo's bridge",
-		"off: Claude Code disables it for CLAUDE_CODE_OAUTH_TOKEN sessions",
+		"› ios — an iOS simulator on this host",
+		"off: the iOS simulator path is not built yet",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered form lacks %q\n--- rendered ---\n%s", want, got)
@@ -873,5 +873,25 @@ func TestPreferUTF8LocaleLeavesAUTF8LocaleAlone(t *testing.T) {
 	preferUTF8Locale()
 	if got := os.Getenv("LC_ALL"); got != "en_US.UTF-8" {
 		t.Errorf("a UTF-8 locale must not be rewritten, got %q", got)
+	}
+}
+
+func TestARadioSetDrawsRadiosBesideCheckboxes(t *testing.T) {
+	t.Parallel()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(110, 30)
+	f := &Form{Title: "run hermes", Rows: []Row{{Label: "devices", Options: []string{"tui", "desktop", "chrome"}, Multi: true,
+		RadioSet: []string{"tui", "desktop"}, On: []bool{true, false, false}, Cols: []int{0, 1, 2}}}}
+	f.draw(s, 0, 0)
+	s.Show()
+	got := rendered(t, s.(tcell.SimulationScreen))
+	for _, want := range []string{"(•) tui", "( ) desktop", "[ ] chrome"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("devices row lacks %q:\n%s", want, got)
+		}
 	}
 }

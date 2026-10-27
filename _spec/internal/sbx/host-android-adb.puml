@@ -107,7 +107,7 @@ skinparam noteTextAlignment left
 ' sbx harness with no row at all.
 '   claudecode  --mcp-config <hostadb.MCPConfig>, prepended host-side by
 '               withMobileMCP (sbx runs claude as its own agent, so the
-'               image's entrypoint never launches it), as --chrome is
+'               image's entrypoint never launches it)
 '   opencode    "mcp": {"mobile": {"type": "local", ...}} merged into the
 '               OPENCODE_CONFIG_CONTENT launchConfigEnv already builds
 '   codex       not wired yet: -c mcp_servers.mobile.* per launch
@@ -320,4 +320,15 @@ note as SeedInstall
   has the seed build, install, launch the app:
   _spec/internal/devports/dev-ports.puml
 end note
+' ── platform-tools/adb → the image's adb (2026-10-26) ───────────────────
+' AGP downloads Platform-Tools 37.0.1 (x86_64-only) into the shared toolchain
+' on the first build; a later run's `mise use -g android-sdk` reshims it onto
+' PATH, and every adb call in an arm64 guest failed with "Syntax error: word
+' unexpected" — the --yes rerun never reinstalled
+' (TestAndroidAppInstallsFromTheSeed, MEASURED). _proveo_pin_adb keeps the SDK
+' copy as adb.foreign and links /usr/bin/adb (apt, arm64) in its place, after
+' SDK setup and after each build; a runnable SDK adb (x86_64 guests) stays.
+' Tests: TestPinAdbReplacesAnSdkAdbThatCannotRunHere,
+'        TestPinAdbLeavesAWorkingSdkAdbAlone.
+' The e2e launch check waits a minute: monkey launches after the install.
 @enduml

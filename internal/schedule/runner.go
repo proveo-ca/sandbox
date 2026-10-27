@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -544,6 +545,31 @@ func keepAwake() func() {
 
 // sessionCommand is the tmux pane: an unattended proveo, so Ctrl+C is a key to
 // the agent and never the headed close confirm.
+// Describe prints what Launch and Watch would run for job name, in order, without starting it.
+// printRun runs the job's `proveo run … --print` in dir with PROVEO_SCHEDULE=1.
+func Describe(out io.Writer, home, proveo, name string, j Job, now time.Time, printRun func(argv []string, dir string) error) error {
+	wd := j.WorkDir(home, name)
+	if err := os.MkdirAll(wd, 0o700); err != nil {
+		return err
+	}
+	transcript := filepath.Join(LogDir(home, name), "<stamp>.log")
+	fmt.Fprintf(out, "# session (tmux %s)\n%s\n", SessionName(name), sessionCommand(wd, transcript, proveo, j))
+	if len(j.Command) == 0 {
+		argv := j.RunArgv(proveo)
+		argv = append([]string{argv[0], argv[1], "--print"}, argv[2:]...)
+		if err := printRun(argv, wd); err != nil {
+			return fmt.Errorf("%s: %w", shellJoin(argv), err)
+		}
+	}
+	prompt, err := os.ReadFile(j.PromptFile)
+	if err != nil {
+		return fmt.Errorf("prompt: %w", err)
+	}
+	budget, _ := j.BudgetDuration()
+	fmt.Fprintf(out, "# typed once %q shows\n%s %s\n", j.readyMarker(), j.Instruction(string(prompt)), j.Clock(now.Add(budget), budget))
+	return nil
+}
+
 func sessionCommand(wd, transcript, proveo string, j Job) string {
 	return "cd " + shellQuote(wd) + " && PROVEO_SCHEDULE=1 " + shellJoin(j.RunArgv(proveo)) + "; echo $? > " + shellQuote(ExitFile(transcript))
 }

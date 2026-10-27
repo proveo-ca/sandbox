@@ -39,7 +39,7 @@ func TestProveoHomePersistence(t *testing.T) {
 				home := t.TempDir()
 				work := t.TempDir()
 				out := runPrintWithHome(t, proveoBin, home, a.target, "--input", work)
-				agentCmd := agentCommandLine(t, out)
+				agentCmd := launchPlan(t, out)
 
 				if !strings.Contains(out, "proveo home: "+home) {
 					t.Errorf("missing proveo home preamble:\n%s", out)
@@ -93,7 +93,7 @@ func TestProveoHomePersistence(t *testing.T) {
 		}
 		out := runPrintWithHome(t, proveoBin, home, "claudecode",
 			"--input", t.TempDir())
-		agentCmd := agentCommandLine(t, out)
+		agentCmd := launchPlan(t, out)
 
 		for _, v := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
 			if strings.Contains(agentCmd, v) {

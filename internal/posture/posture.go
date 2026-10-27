@@ -204,9 +204,9 @@ func Workspace(clone bool) string {
 
 func MCPGateway(allowed bool, gatewayVar string) string {
 	if allowed {
-		return "allowed (PROVEO_SBX_MCP=on) — sbx registers it into the proveo home, --scope user"
+		return "allowed (the mcp row or PROVEO_SBX_MCP=on) — sbx registers it into the proveo home, --scope user"
 	}
-	return "declined (" + gatewayVar + " empty; PROVEO_SBX_MCP=on to allow)"
+	return "declined (" + gatewayVar + " empty; the mcp row or PROVEO_SBX_MCP=on allows it)"
 }
 
 func EnforcedBy() string {

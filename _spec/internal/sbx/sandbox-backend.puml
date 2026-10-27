@@ -193,10 +193,9 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' covers: packages/lib/entrypoint-lib.sh (bridge_google_keys, _proveo_in_sbx, proveo_sbx_passthrough)
 ' covers: packages/lib/proveo-await-seed (_proveo_in_sbx)
 ' covers: internal/contract/env_prelude_test.go
-' covers: internal/contract/sbx_passthrough_test.go (TestBothSbxSitesDetectSbxByAnyIdentityVariable)
+' covers: internal/contract/await_seed_sbx_test.go (TestAwaitSeedDetectsSbxByAnyIdentityVariable)
 ' covers: e2e/sbx_test.go (the refusal tests)
 ' covers: e2e/idle_test.go
-' covers: e2e/chrome_bridge_sbx_test.go
 ' covers: cmd/proveo/golden_test.go (TestSandboxPlanGolden)
 ' covers: internal/credentials/credentials.go (AgentTranscript, agentTranscriptDirs)
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
@@ -746,6 +745,18 @@ note bottom of SEL
   refuses a run without it, so printing a path
   nothing wrote fails like an sbx bug. The
   printed argv still needs the secrets stored.
+  **It keeps every path it prints (2026-10-26).**
+  ""defer homeAccess.Cleanup()"" deleted
+  ""runs/<id>/sbx/home-files"", which the printed
+  create line mounts; sbx then stopped at "The
+  selected workspace does not exist… (y/N)" (ladder
+  rung 3, claudecode, MEASURED). The copies stay
+  under the run dir, and ""proveo clean"" removes
+  them like the Kit. A printed run never commits
+  them back: ""HomeAccess.Commit"" runs only in
+  ""sandbox.Run"".
+  Test: e2e/sbx_test.go
+  TestEveryMountThePrintedCreateLineNamesExists.
 end note
 
 note top of SBX
@@ -849,4 +860,14 @@ note as Idle #F4F9FB
   a passing sweep stays quiet.
 end note
 
+note as LSGLYPH
+  **""sbx ls"" STATUS is two fields since 0.49 (2026-10-26).**
+  Rows print ""● running"" / ""○ stopped""; statusOf and
+  RunningNames read ""Fields[2]"", the glyph, so Running()
+  was always false. Every caller stalled: the CDP relay
+  never started (browser viewport reset), dev servers and
+  the Android install never launched, ""proveo clean"" saw
+  nothing running. rowStatus skips a lone non-letter glyph.
+  Test: TestRunningReadsTheStatusPastSbxsStateGlyph.
+end note
 @enduml

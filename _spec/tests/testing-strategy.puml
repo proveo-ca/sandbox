@@ -85,11 +85,6 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     phases 3–6 (security, config, defaults, llm) never ran. The check was
 '     DROPPED from cursor's suite; opencode's twin stays, because base-node
 '     really provides bun there.
-'   * claudecode's chrome-bridge phase read a script with `read -d ''`, which
-'     returns 1 at EOF because no NUL delimiter arrives. Without `|| true` that
-'     line killed the sourced script before a single Phase 10 assertion ran,
-'     and it stayed invisible while an earlier phase always failed first.
-'     ccChromeBridge (claudecode_test.go) holds the script as a Go string.
 '
 ' A FAKE HARNESS BINARY KEEPS AN ENTRYPOINT TEST ON THE ENTRYPOINT. codex's and
 ' cursor's config checks put a stub `codex` / `agent` first on PATH that prints
@@ -226,9 +221,6 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * NODE_ENV is asserted ABSENT, because baking it would make the agent's own
 '     `npm`/`pnpm install` skip devDependencies — the project's .env is the only
 '     place allowed to set it.
-' The Claude-in-Chrome phase runs a FAKE host relay inside the container in place
-' of `proveo run`'s, so the chain is driven end to end without a browser
-' (_spec/defs/claudecode/chrome-bridge.puml).
 '
 ' ── THE GO SUITES SKIP FOR ONE REASON: A MISSING PREREQUISITE ───────────────
 ' The `//go:build e2e` tag IS the opt-in. A suite that compiles under it must
@@ -530,7 +522,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * requireSbx also requires `sbx ls` to answer (sbxReadyForTests).
 '
 ' A SEEDED CHOICE, NEVER A DRIVEN CHECKBOX. Where a case needs an add-on on
-' ("browser", "claude-in-chrome"), it writes an agentsettings.Store into an
+' ("browser"), it writes an agentsettings.Store into an
 ' ISOLATED proveo home and lets the real choiceui form come up with the box
 ' already ticked; acceptChoicePrompt then confirms it with one Enter, the same
 ' pattern every other seeded-choice case uses. Navigating the picker's
@@ -715,9 +707,57 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     plan line `agent: <target> <version> — pinned at build` matched a prompt
 '     marker, so a dead run read as a live prompt (reported).
 '     reachedPromptFor also drops that one line (withoutPlanLine).
-'     [Inference] opencode's and cecli's markers are their bare names, which
-'     other proveo lines may carry; for them the `exited` check is the guard.
+'     Markers are text only the agent's own screen shows (2026-10-26). The
+'     bare names `opencode`/`cecli` matched sbx's kit line
+'     `…/kit/proveo-<target> — cached`; codex had no case and fell to
+'     Claude Code's text, so stock-sbx rung 0 failed at a live Codex prompt.
+'     codex "Ask Codex to do anything", opencode "Ask anything" (readySpecs,
+'     MEASURED); cecli "(edit format)" from get_announcements
+'     (cecli-dev/cecli base_coder.py, v1.9.0 and v1.10.0).
+'     Test: e2e/idle_test.go TestSbxBuildOutputIsNotAPrompt.
 '     RESIDUAL: e2e/ladder_test.go still checks the marker before `exited`.
+'   * SBX LS --JSON IS A BARE ARRAY SINCE 0.48 (2026-10-26).
+'     docker/sbx-releases v0.48.0 dropped the {"sandboxes": [...]} wrapper.
+'     sbxSandboxNames and pickKitSandbox still unwrapped it, so on 0.49.2 every
+'     launchKit waited 8m for "no claudecode sandbox appeared" and every sweep
+'     logged "`sbx ls` failed" while leaking its sandboxes (test-e2e, MEASURED).
+'     sbxListing (e2e/sbx_test.go) reads both shapes; MinVersion 0.45 still
+'     admits the wrapper. Tests: TestSbxListingReadsTheInstalledSbx (live),
+'     TestKitSandboxNamesOnlyTheRunsOwnSandbox (both shapes).
+'   * THE CHOICE FORM OPENS ON THE DEVICES ROW.
+'     StartRow = rowInterface puts the cursor on `devices` (option browser);
+'     tickAndroid pressed Down to find `tui` and walked past it onto
+'     `outputs`. It now climbs to `› devices` and moves Right to android.
+'     TestPortsPublishE2E had the same stale walk (Down from devices; ports
+'     sits above it) and expected "4310 python" whole, but option cells clip
+'     at columnRunes = 10 (choiceui/viewport.go, #71) to "4310 pyth…". It now
+'     climbs with Up and matches the clip-proof prefix "<port> pyth".
+'   * PROBES CARRY WHAT THE ASSERTION NEEDS (2026-10-26, kit v3 port).
+'     resume_test.go's bare sbx@1 probe had no volume@1, so
+'     _proveo_volume_state_dirs found no /dev mount and restore/save were
+'     no-ops; resumeWorkload adds the published claude kit's volume@1 and
+'     lifecycle@1 (its chown re-owns the root-owned ext4 roots).
+'     close_confirm_test.go faked `sbx template ls` for an image the v2 store
+'     held; fb80d65 moved the preflight to `docker image inspect`, so the
+'     test now tags the claudecode harness image as proveo/close-confirm:e2e.
+'   * THE PRESS THAT EXITS THE TUI GETS NO REPLY (opencode_presentation.mjs).
+'     The second ctrl+c exits opencode 0, often before it answers that RPC;
+'     the driver waited 10s for "RPC timeout: ui.press" and exited 1 (10/28
+'     drives, MEASURED; the failing key moved with load). That press is now
+'     fire-and-forget, and a closed socket rejects every pending call at once.
+'   * SBX 0.49 SCREENS THE OLD MATCHERS MISSED (2026-10-26).
+'     consentPrompt now reads the numbered "Approve these credentials? /
+'     1. Approve all" frame (services = "<name>:" rows); the ladder reports it
+'     as RUNG NEEDS CONSENT at once instead of a 5m "never reached a prompt".
+'     A rebuilt image changes the kit source hash, so sbx asks again.
+'     seedReadyProbe answers first-run dialogs after the ready text — Claude
+'     Code's "Make auto mode your default permission mode" carries the ready
+'     text "bypass permissions", codex's "Trust this folder?" lands a second
+'     after its prompt — and fails fast on cursor's "Press any key to log in".
+'     The Android test removes its sandboxes before its temp home: LIFO
+'     cleanup removed home while the --yes run still wrote its toolchains.
+'     The palette test (whiteRun) carries an open SGR across lines and ends
+'     proveo's stretch at sbx 0.49's "  KITS"/"  SANDBOX" blocks.
 '   * WORKTREE: A FIXTURE THE SEED INSTALLS INTO CARRIES ITS LOCKFILE.
 '     newTempWorktree (e2e/scope_mounts_test.go) committed a package.json and
 '     no lockfile. The seed's _dep_install_cmd (packages/lib/entrypoint-lib.sh)
@@ -797,7 +837,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' WHAT THE RULE TOOK, named so nobody restores one by accident. These were
 ' SKIPPED from 2026-09-15 and DELETED 2026-10-16 (MEASURED: review_tier_test.go,
-' signal_test.go, chrome_bridge_test.go and opencode_sessions_test.go are gone;
+' signal_test.go and opencode_sessions_test.go are gone;
 ' the rest were removed as docker-only subtests):
 '   the -egress sidecar . CredentialForwardingIntegrity/egress_broker_receives
 '                         _all_keys · ProjectDotEnvAtEgressLayer
@@ -808,7 +848,6 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   a docker home ....... TestOpenCodeTwoSessionsSurviveProveoRuns
 '                         (opencode_sessions_test.go, pinned PROVEO_SBX=0)
 '   the consent gate .... ReviewTierConsentGate
-'   the docker bridge ... ChromeBridgeCarriesTheHostSocketIntoTheContainer
 '   the fallback itself . SandboxBackendFallsBackToDockerWhenSbxAbsent, now the
 '                         refusal TestSandboxBackendRefusesWhenSbxAbsent
 '                         (TestRetiredSbxOffValuesRefuseTheRun lived one day; its

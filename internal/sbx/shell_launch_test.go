@@ -2,17 +2,15 @@
 package sbx
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
 
-func TestShellAgentCommandIsFlagLeading(t *testing.T) {
-	agent, cmd := AgentFor("cecli")
-	if agent != ShellAgent {
-		t.Fatalf("cecli has no built-in sbx agent, so it must run under %q, got %q", ShellAgent, agent)
-	}
+func TestShellLaunchIsFlagLeading(t *testing.T) {
+	cmd := ShellLaunch("cecli", nil)
 	if len(cmd) == 0 {
-		t.Fatal("a shell-agent def needs a COMMAND — without one sbx opens a bare login shell")
+		t.Fatal("a bash launch needs a COMMAND — without one bash opens a bare login shell")
 	}
 	if !strings.HasPrefix(cmd[0], "-") {
 		t.Fatalf("command %q is a bare word: sbx would drop `-l` and run `bash %s`, "+
@@ -26,8 +24,7 @@ func TestShellAgentCommandIsFlagLeading(t *testing.T) {
 // The shebang is only consulted on exec, so a launch that merely NAMES the
 // binary reintroduces the bug in a different spelling.
 func TestShellLaunchExecsRatherThanSourcing(t *testing.T) {
-	_, cmd := AgentFor("cecli")
-	script := cmd[1]
+	script := ShellLaunch("cecli", nil)[1]
 	if !strings.Contains(script, "exec ") {
 		t.Fatalf("launch script never execs, so the interpreter line is still ignored: %q", script)
 	}
@@ -52,22 +49,25 @@ func TestShellLaunchKeepsExtraArguments(t *testing.T) {
 	}
 }
 
-// Built-in agents carry their own launch; adding a command there is what made
-// opencode run `opencode opencode` and exit.
-func TestBuiltinAgentsCarryNoCommand(t *testing.T) {
-	for _, target := range []string{"claudecode", "cursor", "opencode"} {
-		agent, cmd := AgentFor(target)
-		if agent == ShellAgent || agent == "" {
-			t.Fatalf("%s has a built-in sbx agent, got %q", target, agent)
-		}
-		if len(cmd) != 0 {
-			t.Fatalf("%s: built-in agent already launches itself, extra command %q duplicates it", target, cmd)
-		}
-	}
-}
-
 func TestShellQuoteClosesTheWord(t *testing.T) {
 	if got := shellQuote("a'b"); got != `'a'\''b'` {
 		t.Fatalf("quoting would break the script: %q", got)
+	}
+}
+
+func TestShellJoinRoundTripsThroughAShell(t *testing.T) {
+	argv := []string{"create", "-e", "GIT_AUTHOR_NAME=Ada Lovelace", "-e", "PROVEO_CONFIG_DIRS=.claude|.claude|jobs/*/tmp",
+		"-e", "Q=it's", "-e", "PLAIN=/a/b:c", "/w"}
+	line := ShellJoin(argv)
+	if strings.Contains(line, "'PLAIN=/a/b:c'") || strings.Contains(line, "'/w'") {
+		t.Errorf("plain words were quoted: %s", line)
+	}
+	out, err := exec.Command("sh", "-c", "set -- "+line+`; for a in "$@"; do printf '%s\n' "$a"; done`).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	if strings.Join(got, "\x00") != strings.Join(argv, "\x00") {
+		t.Errorf("a shell reads %q back as %q", line, got)
 	}
 }

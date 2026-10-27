@@ -1,30 +1,127 @@
 == sbx argv ==
-sbx run --name proveo-claudecode-<WORKHASH> --kit /st/sbx/kit -t proveo/claudecode:latest -m 4096m --clone -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e PROVEO_CONFIG_DIRS=.claude|.claude| -e PROVEO_CONFIG_FILES=.claude.json -e GIT_AUTHOR_NAME=Executor -e PROVEO_SCOPE_REL=apps/web -e PROVEO_CLONE_WORKSPACE=1 -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e PROVEO_STATE_HOME=<HOME> -e MCP_GATEWAY_URL= -e PROVEO_CONFIG_FILES_ROOT=<RUN>/sbx/home-files claude <WORK> <HOME>/.claude <HOME>/toolchains <RUN>/sbx/home-files <DATA>:ro
+sbx create --name proveo-claudecode-<WORKHASH> -m 4096m --clone -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e PROVEO_CONFIG_DIRS=.claude|.claude| -e PROVEO_CONFIG_FILES=.claude.json -e GIT_AUTHOR_NAME=Executor -e PROVEO_SCOPE_REL=apps/web -e PROVEO_CLONE_WORKSPACE=1 -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e PROVEO_STATE_HOME=<HOME> -e MCP_GATEWAY_URL= -e PROVEO_CONFIG_FILES_ROOT=<RUN>/sbx/home-files /st/sbx/kit/proveo-claudecode <WORK> <HOME>/.claude <HOME>/toolchains <RUN>/sbx/home-files <DATA>:ro
+sbx run --name proveo-claudecode-<WORKHASH>
 == secret names ==
 CLAUDE_CODE_OAUTH_TOKEN
-== kit spec.yaml ==
-schemaVersion: "2"
-kind: mixin
-name: claudecode-posture
-displayName: proveo posture (claudecode)
-description: Reachability, host-resolved environment and the seed step for a proveo run.
-environment:
-    variables:
-        ANTHROPIC_BASE_URL: https://api.anthropic.com
-        GIT_AUTHOR_NAME: Executor
-        GIT_DISCOVERY_ACROSS_FILESYSTEM: "1"
-        MCP_GATEWAY_URL: ""
-        PROVEO_AGENT_EVIDENCE: verbose
-        PROVEO_CLONE_WORKSPACE: "1"
-        PROVEO_CONFIG_DIRS: .claude|.claude|
-        PROVEO_CONFIG_FILES: .claude.json
-        PROVEO_CONFIG_FILES_ROOT: <RUN>/sbx/home-files
-        PROVEO_HOST_OS: <HOSTOS>
-        PROVEO_SCOPE_REL: apps/web
-        PROVEO_STATE_HOME: <HOME>
-        PROVEO_WORKDIR: <WORK>
-setup:
-    startup:
+== kit proveo-claudecode.yaml ==
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: claudecode (proveo)
+description: 'proveo harness claudecode: image, launch, reachability and the seed step.'
+kind: workload
+version: 1.0.0
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.anthropic.com
+          - console.anthropic.com
+          - claude.ai
+          - mcp-proxy.anthropic.com
+          - platform.claude.com
+          - downloads.claude.ai
+          - claude.com
+          - code.claude.com
+          - bridge.claudeusercontent.com
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    config:
+      apiKey:
+        inject:
+          - domain: api.anthropic.com
+            format: '%s'
+            header: x-api-key
+          - domain: console.anthropic.com
+            format: '%s'
+            header: x-api-key
+          - domain: claude.ai
+            format: '%s'
+            header: x-api-key
+          - domain: mcp-proxy.anthropic.com
+            format: '%s'
+            header: x-api-key
+        name: ANTHROPIC_API_KEY
+      oauth:
+        credentialFile:
+          path: ~/.claude/.credentials.json
+          structure:
+            claudeAiOauth:
+              accessToken: '{{.AccessToken}}'
+              expiresAt: '{{.ExpiresAt}}'
+              refreshToken: '{{.RefreshToken}}'
+              scopes: '{{.Scopes}}'
+            primaryApiKey: '{{.PrimaryApiKey}}'
+        sentinels:
+          accessToken: sk-ant-oat01-proxy-managed
+          refreshToken: sk-ant-ort01-proxy-managed
+        tokenEndpoint:
+          host: platform.claude.com
+          path: /v1/oauth/token
+      phase: runtime
+      service: anthropic
+  - type: com.docker.sandbox/volume@1
+    config:
+      path: /home/agent/.claude/projects
+      size: 2g
+  - type: com.docker.sandbox/volume@1
+    config:
+      path: /home/agent/.claude/sessions
+      size: 512m
+  - type: com.docker.sandbox/volume@1
+    config:
+      path: /home/agent/.claude/todos
+      size: 512m
+  - type: com.docker.sandbox/volume@1
+    config:
+      path: /home/agent/.claude/shell-snapshots
+      size: 512m
+  - type: com.docker.sandbox/volume@1
+    config:
+      path: /home/agent/.claude/statsig
+      size: 512m
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -e
+            mkdir -p /home/agent/.claude
+            HELPER=''
+            if [ "${SBX_CRED_ANTHROPIC_MODE:-none}" != none ]; then
+              HELPER='  "apiKeyHelper": "echo proxy-managed",
+            '
+            fi
+            printf '%s' "{
+              \"themeId\": 1,
+              \"alwaysThinkingEnabled\": true,
+            ${HELPER}  \"permissions\": { \"defaultMode\": \"bypassPermissions\" },
+              \"bypassPermissionsModeAccepted\": true,
+              \"skipDangerousModePermissionPrompt\": true
+            }
+            " > /home/agent/.claude/settings.json
+          description: Seed Claude settings.json from SBX_CRED_ANTHROPIC_MODE
+          env:
+            - SBX_CRED_ANTHROPIC_MODE
+          user: agent
+      startup:
+        - command:
+            - sh
+            - -c
+            - chown -R agent:agent /home/agent/.claude/projects /home/agent/.claude/sessions /home/agent/.claude/todos /home/agent/.claude/shell-snapshots /home/agent/.claude/statsig 2>/dev/null || true
+          description: Re-own claude session-state volume mount roots to agent (block-volume mkfs trap)
+          user: "0"
+        - background: true
+          command:
+            - sh
+            - -c
+            - '{ command -v apt-get && apt-get update -qq -y || true; } >/dev/null 2>&1 </dev/null'
+          description: Update apt package cache in background
+          user: root
         - command:
             - /bin/sh
             - -c
@@ -42,8 +139,22 @@ setup:
             - proveo-seed
             - claudecode
             - release
-          user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'
+          env:
+            - ANTHROPIC_BASE_URL
+            - GIT_AUTHOR_NAME
+            - GIT_DISCOVERY_ACROSS_FILESYSTEM
+            - MCP_GATEWAY_URL
+            - PROVEO_AGENT_EVIDENCE
+            - PROVEO_CLONE_WORKSPACE
+            - PROVEO_CONFIG_DIRS
+            - PROVEO_CONFIG_FILES
+            - PROVEO_CONFIG_FILES_ROOT
+            - PROVEO_HOST_OS
+            - PROVEO_SCOPE_REL
+            - PROVEO_STATE_HOME
+            - PROVEO_WORKDIR
+          user: "1000"
         - command:
             - /usr/bin/env
             - PROVEO_SEED_ONLY=1
@@ -52,9 +163,24 @@ setup:
             - -c
             - if command -v -- 'claudecode-entrypoint' >/dev/null 2>&1; then exec 'claudecode-entrypoint' "$@"; fi; if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi
             - proveo-claudecode
-          user: "1000"
           description: 'proveo: the def''s own wiring, launch skipped'
-        - command:
+          env:
+            - ANTHROPIC_BASE_URL
+            - GIT_AUTHOR_NAME
+            - GIT_DISCOVERY_ACROSS_FILESYSTEM
+            - MCP_GATEWAY_URL
+            - PROVEO_AGENT_EVIDENCE
+            - PROVEO_CLONE_WORKSPACE
+            - PROVEO_CONFIG_DIRS
+            - PROVEO_CONFIG_FILES
+            - PROVEO_CONFIG_FILES_ROOT
+            - PROVEO_HOST_OS
+            - PROVEO_SCOPE_REL
+            - PROVEO_STATE_HOME
+            - PROVEO_WORKDIR
+          user: "1000"
+        - background: true
+          command:
             - /bin/sh
             - -c
             - |-
@@ -71,6 +197,32 @@ setup:
             - proveo-seed
             - claudecode
             - provision
-          user: "1000"
-          background: true
           description: 'proveo: toolchains, dependencies and language servers, beside the agent'
+          env:
+            - ANTHROPIC_BASE_URL
+            - GIT_AUTHOR_NAME
+            - GIT_DISCOVERY_ACROSS_FILESYSTEM
+            - MCP_GATEWAY_URL
+            - PROVEO_AGENT_EVIDENCE
+            - PROVEO_CLONE_WORKSPACE
+            - PROVEO_CONFIG_DIRS
+            - PROVEO_CONFIG_FILES
+            - PROVEO_CONFIG_FILES_ROOT
+            - PROVEO_HOST_OS
+            - PROVEO_SCOPE_REL
+            - PROVEO_STATE_HOME
+            - PROVEO_WORKDIR
+          user: "1000"
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      contentFile: ./claude-context.md
+      filename: CLAUDE.md
+== kit proveo-claudecode.dockerfile ==
+# syntax=docker/dockerfile:1
+FROM proveo/claudecode:latest
+ENV CLAUDE_ENV_FILE="/etc/sandbox-persistent.sh"
+ENV IS_SANDBOX="1"
+ENV DISABLE_TELEMETRY="1"
+ENV DISABLE_ERROR_REPORTING="1"
+ENTRYPOINT ["claude", "--dangerously-skip-permissions"]
+CMD []

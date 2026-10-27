@@ -1,0 +1,138 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the v3 workload proveo writes per run — files, names, fields — measured against sbx 0.49.2
+' covers: internal/sbx/kitv3.go
+' covers: internal/sbx/kitv3_test.go
+' covers: internal/sbx/sbx.go (BuiltinAgents)
+' covers: internal/sbx/upstream.go
+' covers: internal/sbx/upstream_test.go
+' covers: internal/sbx/third_party/ (vendored, Apache-2.0, LICENSE beside it)
+' plan: _spec/_plans/sbx-kit-v3-migration.puml (decisions Q1–Q3, launch, probes P0–P5)
+'
+' ── FILES AND NAMES (MEASURED P0, P4) ───────────────────────────────────────
+' A local workload is a DIRECTORY; sbx registers its base name as the agent
+' (SBX_AGENT). proveo names it AgentName(target) = proveo-<target>, which no
+' built-in shadows. Inside: <agent>.yaml (descriptor, first line
+' `# syntax=docker/sandbox-kit:3`) and <agent>.dockerfile (the recipe).
+' WriteWorkloadV3 refuses:
+'   * a built-in name — it "fails to register" (use-kits/). BuiltinAgents
+'     follows `sbx run --help` on 0.49.2, which added devin.
+'   * the stem `spec` — sbx parses spec.yaml as v2 (docker/sbx-releases #738).
+'   * a recipe without FROM — a workload "MUST have content" (SPEC-v3).
+'
+' ── FIELDS ──────────────────────────────────────────────────────────────────
+' "Any unrecognized field anywhere in the document is an error" (SPEC-v3
+' §1.2), so WorkloadV3 holds only schemaVersion "3", displayName,
+' description, kind workload, version and capabilities. Image, env, user,
+' workdir and launch live in the recipe, not the descriptor (§8):
+'   FROM <image>; ENTRYPOINT/CMD in exec form when the workload sets a launch.
+' Typed configs cover what proveo generates: lifecycle@1 (install/startup
+' hooks with user and the env names each reads — "a hook sees only what it
+' declares"), network-policy@1 runtime allow/deny, port@1. Capabilities
+' copied from a published kit (credential@1, volume@1, …) pass through
+' CapabilityV3.Config as decoded YAML.
+'
+' ── UPSTREAM KITS (Q3: "prefer using upstream") ─────────────────────────────
+' internal/sbx/third_party/ vendors claude, codex, cursor and opencode — each
+' <agent>.yaml + <agent>.dockerfile — from UpstreamKitsRef (docker/sbx-kits-
+' contrib@8b0844a, Apache-2.0; LICENSE kept beside them). A FROM never carries
+' a published kit's capabilities (author/base-images/), so proveo COPIES them:
+' UpstreamKitFor(target, opts) returns
+'   * every capability except sbx@1 (proveo declares its own): credential@1,
+'     network-policy, volume@1, agent-context, agent-skills, lifecycle@1;
+'   * the recipe's ENTRYPOINT with argv0 reduced to its PATH name, so the
+'     image's /opt/proveo/shims/<agent> → proveo-await-seed still runs first;
+'   * the recipe's ENV minus upstreamLayoutEnv (PATH, CODEX_INSTALL_DIR: the
+'     upstream image's install layout, not agent behaviour).
+' Kit files: agent-context@1 names ./claude-context.md, which ships beside the
+'   descriptor. That text tells Claude to persist env in $CLAUDE_ENV_FILE, so
+'   defs/base sets CLAUDE_ENV_FILE=/etc/sandbox-persistent.sh (= BASH_ENV) in
+'   base-full and the flat stage (user: "Set CLAUDE_ENV_FILE in the base");
+'   TestTheBasePointsClaudeAtTheFileSbxPersistsEnvIn pins it.
+' Hooks it drops, each a recorded decision (plan: Q3 EXCEPTIONS):
+'   * "Seed Claude bypass/trust flags" — `> ~/.claude.json` wiped the
+'     persisted host copy in P6; accept_workspace_trust merges instead. A test
+'     fails if a re-vendor renames it, so P6 gets re-checked. The merge sets
+'     the hook's three effects — bypassPermissionsModeAccepted,
+'     hasCompletedOnboarding, trust for "/" and the scan root — and keeps
+'     every restored key; proveo_seed runs it after proveo_sync_config
+'     restore (TestWorkspaceTrustMergesUpstreamsFlagsIntoTheRestoredClaudeJSON,
+'     TestTheSeedAcceptsTrustAfterItRestoresConfig). Inert in an image until
+'     `proveo build <harness>` bakes the lib.
+'   * any hook naming MCP_GATEWAY_URL unless opts.MCPGateway (the mcp row).
+' THE MCP ROW (user: "mcp can be a new row under the sbx's egress in
+' internal/choiceui. If we only have on/off so be it for now"):
+'   * internal/run mcpRow sits right under egress, off | on, and shows only
+'     when sbx.OffersMCPGateway(target) — the kit has more hooks with the
+'     gateway than without (claudecode, codex, opencode; not cursor — MEASURED);
+'     hermes never shows it: mcpGateway: always (below).
+'   * precedence: PROVEO_SBX_MCP (locks the row, names why) > the remembered
+'     answer (agentsettings Choice.MCP) > off.
+'   * the figure: "+ mcp" on the row under the "sbx proxy" hop label (user:
+'     "+ mcp in the row underneath"; the label row has 14 columns, so beside it
+'     clipped to "+ mc"); the mcp row focuses the hop, so both light cyan
+'     (Frame.HopNote; TestTheMCPNoteSitsUnderTheHopLabel, TestTheMCPRowNotesTheHop).
+'   * the answer reaches the backend as sandbox.Input.MCPGateway; Spec and
+'     DeclineMCPGateway read that, never the env (posture reads it too).
+'   Pinned by internal/run/mcp_row_test.go, TestOnlyKitsWithGatewayHooksOfferTheGateway
+'   and TestTheGatewayHooksFollowTheOperatorsChoice.
+'
+' ── HERMES AND THE MCP GATEWAY (2026-10-24, user: "Wire gateway always, show
+' + mcp") ──────────────────────────────────────────────────────────────────────
+' Hermes ships its own MCP client (`hermes mcp add/list/test`, catalog, serve)
+' but no published sbx kit, so no upstream hook registers sbx's gateway. So:
+'   * manifest capabilities.mcpGateway: always (defs/hermes) → Input.MCPGateway
+'     is true on every hermes run: MCP_GATEWAY_URL is never blanked, the posture
+'     reads allowed, the run screen draws "+ mcp" under the hop with no mcp row
+'     (topologyWith), and proveo's seed hook declares MCP_GATEWAY_URL and
+'     MCP_SENTINEL_TOKEN_NAME (hookEnv) — a hook sees only the env it names.
+'   * proveo_wire_hermes_mcp_gateway (entrypoint-lib.sh, after config restore)
+'     runs `hermes config set mcp_servers.mcp-gateway.url '${MCP_GATEWAY_URL}'`
+'     and `.headers.Authorization 'Bearer ${MCP_SENTINEL_TOKEN_NAME}'`, verbatim:
+'     Hermes interpolates ${VAR} in mcp_servers at runtime (tools/
+'     mcp_tool_config.py _interpolate_env_vars, MEASURED in v0.21.5), and
+'     `hermes mcp list` then shows mcp-gateway enabled. No gateway URL → no-op.
+'   MEASURED 2026-10-24 (TestHermesTakesSbxsMCPGateway, layer 5): with a probe
+'   loaded into a hermes sandbox's gateway, `hermes mcp test mcp-gateway` lists
+'   proveo_ping. The image bakes the lib: `proveo build hermes` makes it live.
+'
+' ── MCP CONNECTION E2E (2026-10-24, user: "Add the sbx gateway row too") ─────
+' e2e/mcp_connect_sbx_test.go, opt-in PROVEO_MCP_TEST=1. The oracle is a
+' streamable-HTTP MCP probe the test serves on host loopback (initialize,
+' tools/list, tools/call proveo_ping → "pong"); each layer asserts what the
+' probe LOGGED, not what an agent printed.
+'   1 transport ..... python client in a sbx@1 workload → host.docker.internal:P
+'                     after `sbx policy allow network --sandbox` localhost:P and
+'                     host.docker.internal:P
+'   2 claude ........ `claude mcp add --transport http` + `claude mcp list`
+'                     (health-checks; no model turn) → "Connected" + initialize
+'   3 codex ......... PROVEO_MCP_TEST_CODEX=1: `codex mcp list` never connects
+'                     (MEASURED, codex-cli 0.164.0: 32 ms, Auth Unknown), so a
+'                     `codex exec` turn must produce tools/call
+'   4 sbx gateway ... `sbx mcp add <probe> --url http://localhost:P
+'                     --skip-ssrf-check --skip-auth` (host-wide store, removed
+'                     after) + `sbx mcp load`; the claudecode workload with
+'                     PROVEO_SBX_MCP=on → `claude mcp list` shows mcp-gateway
+'                     Connected, and a tools/call through $MCP_GATEWAY_URL with
+'                     the $MCP_SENTINEL_TOKEN_NAME bearer reaches the probe.
+' MEASURED 2026-10-24 on sbx 0.49.2: layers 1, 2 and 4 PASS; the gateway
+' reaches a host-loopback registration. Rendered workloads in layers 3–4 use a
+' temp PROVEO_HOME/PROVEO_STATE_ROOT (TestARenderedProbeWorkloadNeverMounts-
+' TheOperatorsHome), since kit hooks write user config into mounted homes.
+'
+' ── PORTS (MEASURED P3) ─────────────────────────────────────────────────────
+' port@1 alone publishes localhost:<ephemeral>; with `-p H:P` for the same P
+' sbx keeps ONE binding on H. So a workload may name a port with port@1 and
+' proveo still pins H with the 1–9 prefix rule (_spec/internal/devports/dev-ports.puml).
+title sbx v3 workload — what proveo writes
+
+folder "<kit root>/proveo-<target>/" as DIR <<app>> {
+  file "proveo-<target>.yaml\n# syntax=docker/sandbox-kit:3\nschemaVersion \"3\" · kind workload\ncapabilities: sbx@1, lifecycle@1, credential@1, …" as DESC
+  file "proveo-<target>.dockerfile\nFROM proveo/<target>:<tag>\n[ENTRYPOINT/CMD]" as RECIPE
+}
+component "sbx create ./proveo-<target>\n-e K=V · -p <k>P:P" as CREATE <<host>>
+component "SBX_AGENT=proveo-<target>" as AGENT <<cloud>>
+DIR --> CREATE
+CREATE --> AGENT : dir name = agent name
+@enduml

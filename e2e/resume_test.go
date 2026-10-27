@@ -14,6 +14,22 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
+// resumeWorkload is a probe workload carrying the published claude kit's state volumes and the startup hook that re-owns them.
+func resumeWorkload(t *testing.T, img string) string {
+	t.Helper()
+	k, ok, err := sbx.UpstreamKitFor("claudecode", sbx.UpstreamOptions{})
+	if err != nil || !ok {
+		t.Fatalf("published claude kit: ok=%v err=%v", ok, err)
+	}
+	var caps []sbx.CapabilityV3
+	for _, c := range k.Capabilities {
+		if c.Type == sbx.CapVolume || c.Type == sbx.CapLifecycle {
+			caps = append(caps, c)
+		}
+	}
+	return probeWorkload(t, "proveo-resume", sbx.RecipeV3{From: img}, caps...)
+}
+
 // TestResumeStateSurvivesSandboxTeardown is the sbx-side half of
 // resumability.
 func TestResumeStateSurvivesSandboxTeardown(t *testing.T) {
@@ -21,7 +37,6 @@ func TestResumeStateSurvivesSandboxTeardown(t *testing.T) {
 		t.Skip("sandbox backend unavailable")
 	}
 	img := harnessImage(t, "claudecode")
-	freshTemplate(t, img)
 
 	// Stand in for the operator's proveo home, holding one earlier session.
 	home := t.TempDir()
@@ -36,17 +51,8 @@ func TestResumeStateSurvivesSandboxTeardown(t *testing.T) {
 	name := "resume-guard-" + filepath.Base(home)
 	// -e PROVEO_STATE_HOME is how proveo publishes the host path; the save step
 	// reads it from the sandbox environment rather than being handed it again.
-	create := exec.Command("sbx", "create", "--name", name, "-t", img,
-		"-e", sbx.StateHomeVar+"="+home, "claude", home)
-	if out, err := create.CombinedOutput(); err != nil {
-		t.Fatalf("sbx create: %v\n%s", err, out)
-	}
-	removed := false
-	t.Cleanup(func() {
-		if !removed {
-			_ = exec.Command("sbx", "rm", "--force", name).Run()
-		}
-	})
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
+		Env: []string{sbx.StateHomeVar + "=" + home}, Mounts: mountsOf(home)})
 
 	// The seed's half: yesterday's transcripts must be in place before the agent
 	// looks for them, and the volume must be the thing they land in.
@@ -73,7 +79,6 @@ echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 	if out, err := exec.Command("sbx", sbx.RemoveArgs(name)...).CombinedOutput(); err != nil {
 		t.Fatalf("teardown: %v\n%s", err, out)
 	}
-	removed = true
 
 	// The property: the volumes are gone, and the transcripts are not.
 	live := filepath.Join(home, ".claude", "projects", "-work-live", "live.jsonl")
@@ -92,14 +97,10 @@ func TestSaveStateSkipsTelemetryVolumes(t *testing.T) {
 		t.Skip("sandbox backend unavailable")
 	}
 	img := harnessImage(t, "claudecode")
-	freshTemplate(t, img)
 
 	name := "resume-skip-" + filepath.Base(t.TempDir())
-	if out, err := exec.Command("sbx", "create", "--name", name, "-t", img,
-		"claude", t.TempDir()).CombinedOutput(); err != nil {
-		t.Fatalf("sbx create: %v\n%s", err, out)
-	}
-	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
+		Mounts: mountsOf(t.TempDir())})
 
 	got := sbxExec(t, name, `. /entrypoint-lib.sh && _proveo_volume_state_dirs`)
 	for _, skip := range []string{"statsig", "shell-snapshots"} {
@@ -119,7 +120,6 @@ func TestSaveStateSurvivesAnInvalidatedWorkspaceCwd(t *testing.T) {
 		t.Skip("sandbox backend unavailable")
 	}
 	img := harnessImage(t, "claudecode")
-	freshTemplate(t, img)
 
 	home := t.TempDir()
 	parent := t.TempDir()
@@ -128,12 +128,8 @@ func TestSaveStateSurvivesAnInvalidatedWorkspaceCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := "resume-cwd-" + filepath.Base(parent)
-	create := exec.Command("sbx", "create", "--name", name, "-t", img,
-		"-e", sbx.StateHomeVar+"="+home, "claude", ws, home)
-	if out, err := create.CombinedOutput(); err != nil {
-		t.Fatalf("sbx create: %v\n%s", err, out)
-	}
-	t.Cleanup(func() { _ = exec.Command("sbx", "rm", "--force", name).Run() })
+	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
+		Env: []string{sbx.StateHomeVar + "=" + home}, Mounts: mountsOf(ws, home)})
 
 	// The run's transcript, written while the workspace is still healthy.
 	sbxExec(t, name, `mkdir -p "$HOME/.claude/projects/-work-live" &&

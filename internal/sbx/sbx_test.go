@@ -82,12 +82,12 @@ func TestRunArgsFull(t *testing.T) {
 		Command: []string{"-p", "hello"},
 	})
 	want := []string{
-		"run", "--name", "proveo-1-2", "--kit", "/state/runs/x/kit",
+		"run", "--name", "proveo-1-2",
 		"-t", "proveo/claudecode:latest",
 		"-e", "PROVEO_AGENT_EVIDENCE=default",
-		"claude",  // AGENT: the first positional, and mandatory
-		"/repo",   // workspaces follow, at their HOST paths
-		"/out:ro", // :ro is the only modifier a workspace takes
+		"/state/runs/x/kit", // the v3 workload: the first positional, ahead of any agent name
+		"/repo",             // workspaces follow, at their HOST paths
+		"/out:ro",           // :ro is the only modifier a workspace takes
 		"--", "-p", "hello",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -219,57 +219,6 @@ func TestSecretSetPipesValueViaStdin(t *testing.T) {
 	}
 }
 
-func TestWriteKitRendersAMixinNotASandbox(t *testing.T) {
-	dir := t.TempDir()
-	kitDir, err := WriteKit(filepath.Join(dir, "kit"), Kit{
-		SchemaVersion: KitSchemaVersionV2,
-		Kind:          "mixin",
-		Name:          "claudecode-posture",
-		Permissions: KitPermissions{Network: KitNet{
-			Allow: []string{"api.anthropic.com", "statsig.anthropic.com"},
-		}},
-		Environment: &KitEnv{Variables: map[string]string{
-			"ANTHROPIC_MODEL": "claude-opus-5",
-			"PROVEO_WORKDIR":  "/w",
-		}},
-		Setup: &KitSetup{Startup: []KitCommand{SeedCommand("claudecode")}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(b)
-
-	for _, want := range []string{
-		`schemaVersion: "2"`, "kind: mixin", "name: claudecode-posture",
-		"allow:", "- api.anthropic.com",
-		"environment:", "ANTHROPIC_MODEL: claude-opus-5",
-		"setup:", "startup:", "/usr/local/bin/proveo-seed",
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("spec.yaml missing %q:\n%s", want, s)
-		}
-	}
-	for _, banned := range []string{"sandbox:", "image:", "entrypoint:", "credentials:"} {
-		if strings.Contains(s, banned) {
-			t.Errorf("a mixin must not declare %q:\n%s", banned, s)
-		}
-	}
-	if strings.Contains(s, "sk-") {
-		t.Errorf("spec.yaml carries something secret-shaped:\n%s", s)
-	}
-	fi, err := os.Stat(filepath.Join(kitDir, "spec.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("spec.yaml mode = %v, want 0600", fi.Mode().Perm())
-	}
-}
-
 func TestSeedCommandNeverFailsTheDispatcher(t *testing.T) {
 	cmd := SeedCommand("cursor").Command
 	if !CommandNamesSeed(cmd) {
@@ -279,24 +228,6 @@ func TestSeedCommandNeverFailsTheDispatcher(t *testing.T) {
 	for _, needle := range []string{SeedBinary, "exit 0", "set +e"} {
 		if !strings.Contains(joined, needle) {
 			t.Errorf("SeedCommand missing %q — a non-zero seed would tear a live agent down:\n%s", needle, joined)
-		}
-	}
-}
-
-func TestWriteKitOmitsEmptyNetwork(t *testing.T) {
-	dir := t.TempDir()
-	kitDir, err := WriteKit(dir, Kit{
-		SchemaVersion: KitSchemaVersionV2,
-		Kind:          "mixin",
-		Name:          "cursor-posture",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
-	for _, absent := range []string{"allow:", "credentials:"} {
-		if strings.Contains(string(b), absent) {
-			t.Errorf("an unset block should be omitted, found %q:\n%s", absent, b)
 		}
 	}
 }
@@ -427,150 +358,6 @@ func TestAvailableRejectsATooOldCLI(t *testing.T) {
 	}
 }
 
-func TestEnsureTemplateSkipsAnImageAlreadyLoaded(t *testing.T) {
-	origList, origLoad := sh.TemplateList, sh.TemplateLoad
-	t.Cleanup(func() { sh.TemplateList, sh.TemplateLoad = origList, origLoad })
-
-	loads := 0
-	sh.TemplateLoad = func(string) error { loads++; return nil }
-	stubIDs(t, map[string]string{"proveo/claudecode:latest": "aaaaaaaaaaaa"})
-	stubReceipts(t, map[string]string{"proveo/claudecode:latest": "aaaaaaaaaaaa"})
-
-	sh.TemplateList = func() ([]byte, error) {
-		return []byte("REPOSITORY              TAG\nproveo/claudecode       latest\n"), nil
-	}
-	if err := EnsureTemplate("proveo/claudecode:latest", nil); err != nil {
-		t.Fatalf("EnsureTemplate: %v", err)
-	}
-	if loads != 0 {
-		t.Errorf("an image already in the store was loaded again (%d times)", loads)
-	}
-
-	sh.TemplateList = func() ([]byte, error) { return []byte("REPOSITORY  TAG\n"), nil }
-	if err := EnsureTemplate("proveo/claudecode:latest", nil); err != nil {
-		t.Fatalf("EnsureTemplate: %v", err)
-	}
-	if loads != 1 {
-		t.Errorf("a missing image was loaded %d times, want exactly 1", loads)
-	}
-
-	// An unreadable store is treated as "not present": loading again is wasteful,
-	// but running against an image that is genuinely absent fails the whole run.
-	sh.TemplateList = func() ([]byte, error) { return nil, errors.New("daemon down") }
-	if HasTemplate("proveo/claudecode:latest") {
-		t.Error("an unreadable store must not report the image as present")
-	}
-}
-
-// An empty image is not an error to load — it is nothing to load.
-func TestEnsureTemplateIgnoresAnEmptyImage(t *testing.T) {
-	origLoad := sh.TemplateLoad
-	t.Cleanup(func() { sh.TemplateLoad = origLoad })
-	sh.TemplateLoad = func(string) error { t.Fatal("empty image must not reach the loader"); return nil }
-	if err := EnsureTemplate("", nil); err != nil {
-		t.Errorf("EnsureTemplate(\"\") = %v, want nil", err)
-	}
-}
-
-const realTemplateLS = `REPOSITORY                           TAG            IMAGE ID       FLAVOR         CREATED
-docker.io/docker/sandbox-templates   shell-docker   d86a6cdc105a   shell-docker   46 minutes ago
-docker.io/proveo/egress-proxy        latest         4ee370d17e72                  Less than a minute ago
-`
-
-// stubIDs makes localImageID answer from a map, so identity can be varied without
-// a host engine.
-func stubIDs(t *testing.T, ids map[string]string) {
-	t.Helper()
-	orig := sh.LocalImageID
-	t.Cleanup(func() { sh.LocalImageID = orig })
-	sh.LocalImageID = func(image string) string { return ids[image] }
-}
-
-func stubReceipts(t *testing.T, loaded map[string]string) string {
-	t.Helper()
-	dir := t.TempDir()
-	orig := templateReceiptDir
-	t.Cleanup(func() { templateReceiptDir = orig })
-	templateReceiptDir = func() string { return dir }
-	for image, id := range loaded {
-		if err := os.WriteFile(receiptFile(image), []byte(id), 0o644); err != nil {
-			t.Fatalf("seed receipt for %s: %v", image, err)
-		}
-	}
-	return dir
-}
-
-func TestHasTemplateReloadsARebuiltImage(t *testing.T) {
-	orig := sh.TemplateList
-	t.Cleanup(func() { sh.TemplateList = orig })
-	sh.TemplateList = func() ([]byte, error) { return []byte(realTemplateLS), nil }
-
-	// What proveo last handed to the store, recorded at load time.
-	stubReceipts(t, map[string]string{"proveo/egress-proxy:latest": "4ee370d17e72"})
-
-	stubIDs(t, map[string]string{"proveo/egress-proxy:latest": "4ee370d17e72"})
-	if !HasTemplate("proveo/egress-proxy:latest") {
-		t.Error("same reference AND same id must count as present")
-	}
-
-	stubIDs(t, map[string]string{"proveo/egress-proxy:latest": "ffffffffffff"})
-	if HasTemplate("proveo/egress-proxy:latest") {
-		t.Error("a rebuilt image (same ref, new id) must NOT count as present")
-	}
-
-	// Not built locally: identity is unknowable, so presence is the best answer.
-	stubIDs(t, map[string]string{})
-	if !HasTemplate("proveo/egress-proxy:latest") {
-		t.Error("with no local image to compare, presence must still count")
-	}
-
-	stubIDs(t, map[string]string{"proveo/egress-proxy:latest": "4ee370d17e72"})
-	stubReceipts(t, map[string]string{"proveo/egress-proxy:latest": "4ee370d17e72"})
-	baked := `REPOSITORY                       TAG      IMAGE ID       FLAVOR   CREATED
-docker.io/proveo/egress-proxy    latest   5fcb2266417f            1 minute ago
-`
-	sh.TemplateList = func() ([]byte, error) { return []byte(baked), nil }
-	if !HasTemplate("proveo/egress-proxy:latest") {
-		t.Error("a template sbx re-baked after loading must still count as loaded")
-	}
-}
-
-func TestHasTemplateReadsTheStoresRealColumns(t *testing.T) {
-	orig := sh.TemplateList
-	t.Cleanup(func() { sh.TemplateList = orig })
-	sh.TemplateList = func() ([]byte, error) { return []byte(realTemplateLS), nil }
-	// Identity is a separate axis (TestHasTemplateReloadsARebuiltImage); here the
-	// ids are made to agree so the columns are what is under test.
-	ids := map[string]string{
-		"proveo/egress-proxy:latest":            "4ee370d17e72",
-		"docker.io/proveo/egress-proxy:latest":  "4ee370d17e72",
-		"proveo/egress-proxy":                   "4ee370d17e72",
-		"docker/sandbox-templates:shell-docker": "d86a6cdc105a",
-	}
-	stubIDs(t, ids)
-	stubReceipts(t, ids)
-
-	for _, tc := range []struct {
-		image string
-		want  bool
-	}{
-		// Present, despite the store qualifying it with a registry.
-		{"proveo/egress-proxy:latest", true},
-		{"docker.io/proveo/egress-proxy:latest", true},
-		{"proveo/egress-proxy", true}, // bare ref means :latest, as docker does
-		{"docker/sandbox-templates:shell-docker", true},
-		// Absent — and the TAG is why. A repository-only match would call this
-		// present and then run the agent on a stale image forever.
-		{"proveo/egress-proxy:v2", false},
-		{"proveo/claudecode:latest", false},
-		{"proveo/claudecode-browser:latest", false},
-	} {
-		if got := HasTemplate(tc.image); got != tc.want {
-			t.Errorf("HasTemplate(%q) = %v, want %v", tc.image, got, tc.want)
-		}
-	}
-}
-
 func TestAgentNameNeverCollidesWithAnSbxBuiltin(t *testing.T) {
 	t.Parallel()
 	builtin := map[string]bool{}
@@ -614,36 +401,6 @@ func TestExistsSeparatesAColdSandboxFromAFailedAgent(t *testing.T) {
 	sh.SandboxList = func() ([]byte, error) { return nil, errors.New("daemon down") }
 	if !Exists("proveo-1787-1") {
 		t.Error("an unreadable listing must not license a retry")
-	}
-}
-
-// The repair path must load unconditionally: it runs precisely when a receipt
-// already says the image is current and the template is nonetheless unusable.
-func TestReloadTemplateLoadsEvenWithAMatchingReceipt(t *testing.T) {
-	origLoad, origList := sh.TemplateLoad, sh.TemplateList
-	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateList = origLoad, origList })
-	loads := 0
-	loaded := false
-	sh.TemplateLoad = func(string) error { loads++; loaded = true; return nil }
-	sh.TemplateList = func() ([]byte, error) {
-		id := "000000000000"
-		if loaded {
-			id = "abcabcabcabc"
-		}
-		return []byte("REPOSITORY                  TAG      IMAGE ID       FLAVOR   CREATED\n" +
-			"docker.io/proveo/cursor     latest   " + id + "            1 minute ago\n"), nil
-	}
-	stubIDs(t, map[string]string{"proveo/cursor:latest": "abcabcabcabc"})
-	stubReceipts(t, map[string]string{"proveo/cursor:latest": "abcabcabcabc"})
-
-	if err := ReloadTemplate("proveo/cursor:latest", nil); err != nil {
-		t.Fatalf("ReloadTemplate: %v", err)
-	}
-	if loads != 1 {
-		t.Errorf("loads = %d, want 1: the repair must not consult the receipt it is repairing past", loads)
-	}
-	if err := ReloadTemplate("", nil); err != nil || loads != 1 {
-		t.Errorf("an empty image must be a no-op, got err=%v loads=%d", err, loads)
 	}
 }
 
@@ -765,70 +522,6 @@ func TestRunArgsMemoryIsOptional(t *testing.T) {
 	}
 }
 
-func TestLoadThatDoesNotLandLeavesNoReceipt(t *testing.T) {
-	origLoad, origList := sh.TemplateLoad, sh.TemplateList
-	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateList = origLoad, origList })
-
-	// The store keeps the OLD image no matter what it is handed.
-	sh.TemplateList = func() ([]byte, error) {
-		return []byte("REPOSITORY                  TAG      IMAGE ID       FLAVOR   CREATED\n" +
-			"docker.io/proveo/cursor     latest   5fcb2266417f            10 hours ago\n"), nil
-	}
-	sh.TemplateLoad = func(string) error { return nil } // exits 0, changes nothing
-	stubIDs(t, map[string]string{"proveo/cursor:latest": "06f0e0810f10"})
-	dir := stubReceipts(t, map[string]string{})
-
-	err := EnsureTemplate("proveo/cursor:latest", nil)
-	if err == nil {
-		t.Fatal("a load that did not land must be an error, not a silent success")
-	}
-	for _, want := range []string{"5fcb2266417f", "06f0e0810f10", "did not take"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error must name %q so the mismatch is actionable: %v", want, err)
-		}
-	}
-	if b, statErr := os.ReadFile(filepath.Join(dir, "proveo_cursor_latest")); statErr == nil {
-		t.Errorf("no receipt may be written for a load that did not land, got %q", b)
-	}
-}
-
-func TestForceReloadDropsFirst(t *testing.T) {
-	origLoad, origRemove, origList := sh.TemplateLoad, sh.TemplateRemove, sh.TemplateList
-	t.Cleanup(func() { sh.TemplateLoad, sh.TemplateRemove, sh.TemplateList = origLoad, origRemove, origList })
-
-	var removed, loaded int
-	sh.TemplateRemove = func(string) error { removed++; return nil }
-	sh.TemplateLoad = func(string) error { loaded++; return nil }
-	sh.TemplateList = func() ([]byte, error) {
-		return []byte("REPOSITORY                  TAG      IMAGE ID       FLAVOR   CREATED\n" +
-			"docker.io/proveo/cursor     latest   abcabcabcabc            1 minute ago\n"), nil
-	}
-	stubIDs(t, map[string]string{"proveo/cursor:latest": "abcabcabcabc"})
-	stubReceipts(t, map[string]string{"proveo/cursor:latest": "abcabcabcabc"})
-
-	// Without the hatch, a matching receipt short-circuits the whole thing.
-	if err := EnsureTemplate("proveo/cursor:latest", nil); err != nil {
-		t.Fatal(err)
-	}
-	if removed != 0 || loaded != 0 {
-		t.Errorf("a current template must not be touched, got removed=%d loaded=%d", removed, loaded)
-	}
-
-	t.Setenv("PROVEO_SBX_RELOAD", "1")
-	if err := EnsureTemplate("proveo/cursor:latest", nil); err != nil {
-		t.Fatal(err)
-	}
-	if removed != 1 || loaded != 1 {
-		t.Errorf("the hatch must drop then load, got removed=%d loaded=%d", removed, loaded)
-	}
-
-	for _, off := range []string{"", "0", "no", "maybe"} {
-		if ForceReload(func(string) string { return off }) {
-			t.Errorf("%q must not force a reload", off)
-		}
-	}
-}
-
 // The agent must be one sbx already ships: its list is closed, a Kit cannot extend
 // it, and naming one of our own is what skipped the binding gate on every run.
 func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
@@ -850,48 +543,6 @@ func TestBuiltinAgentNamesOnlySbxsOwn(t *testing.T) {
 	}
 	if got := BuiltinAgent("cecli"); got != "" {
 		t.Errorf("cecli has no built-in sbx agent; got %q", got)
-	}
-}
-
-func TestAgentForSandboxesEveryTarget(t *testing.T) {
-	t.Parallel()
-	sbxKnows := map[string]bool{
-		"claude": true, "codex": true, "copilot": true, "cursor": true,
-		"docker-agent": true, "droid": true, "gemini": true, "kiro": true,
-		"opencode": true, "shell": true,
-	}
-	for _, c := range []struct {
-		target string
-		agent  string
-		launch bool
-	}{
-		{"claudecode", "claude", false},
-		{"cursor", "cursor", false},
-		{"opencode", "opencode", false},
-		{"cecli", ShellAgent, true},
-		{"some-future-harness", ShellAgent, true},
-	} {
-		agent, command := AgentFor(c.target)
-		if agent != c.agent {
-			t.Errorf("AgentFor(%q) agent = %q, want %q", c.target, agent, c.agent)
-		}
-		if !sbxKnows[agent] {
-			t.Errorf("AgentFor(%q) resolved %q, which sbx does not ship", c.target, agent)
-		}
-		if got := IsShellLaunch(command); got != c.launch {
-			t.Errorf("AgentFor(%q) command = %v, want a wrapped shell launch = %v", c.target, command, c.launch)
-		}
-	}
-	// A built-in owns its own launch: a command from us would land in its argv.
-	for _, target := range SbxTargets() {
-		if _, command := AgentFor(target); command != nil {
-			t.Errorf("AgentFor(%q) must leave the launch to the built-in agent, got %v", target, command)
-		}
-	}
-	// No target, no agent — never the shell agent with an empty command, which sbx
-	// would read as a workspace path.
-	if agent, command := AgentFor(""); agent != "" || command != nil {
-		t.Errorf(`AgentFor("") = %q, %v; want no agent at all`, agent, command)
 	}
 }
 
@@ -1170,10 +821,9 @@ func TestEveryReadOnlyDaemonCallIsBounded(t *testing.T) {
 
 	cli := defaultCLI()
 	calls := map[string]func() ([]byte, error){
-		"Version":      cli.Version,
-		"TemplateList": cli.TemplateList,
-		"SandboxList":  cli.SandboxList,
-		"SecretList":   cli.SecretList,
+		"Version":     cli.Version,
+		"SandboxList": cli.SandboxList,
+		"SecretList":  cli.SecretList,
 	}
 	type result struct {
 		name    string
@@ -1243,22 +893,6 @@ func TestOOMEvidenceSeparatesAKillFromMerePressure(t *testing.T) {
 	}
 }
 
-func TestTemplateStagingDirAvoidsTmpfsUnlessTMPDIRIsSet(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CACHE_HOME", "")
-
-	got := templateStagingDir(func(string) string { return "" })
-	if !strings.HasPrefix(got, home) || !strings.HasSuffix(got, filepath.Join("proveo", "sbx-staging")) {
-		t.Errorf("unset TMPDIR must stage under the user cache dir in %s, got %q", home, got)
-	}
-
-	env := map[string]string{"TMPDIR": "/big/disk"}
-	if got := templateStagingDir(func(k string) string { return env[k] }); got != "" {
-		t.Errorf("explicit TMPDIR must win (empty parent ⇒ os.TempDir), got %q", got)
-	}
-}
-
 func TestSeedStepsSplitAtTheRelease(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -1284,30 +918,6 @@ func TestSeedStepsSplitAtTheRelease(t *testing.T) {
 	}
 	if got := strings.Join(SeedEntrypointCommand("claudecode").Command, " "); !strings.Contains(got, "PROVEO_SEED_PHASE="+SeedPhaseNone) {
 		t.Errorf("SeedEntrypointCommand() = %q, want PROVEO_SEED_PHASE=%s so the def entrypoint skips the shared seed", got, SeedPhaseNone)
-	}
-}
-
-func TestWriteKitRendersBackgroundOnlyWhereSet(t *testing.T) {
-	kitDir, err := WriteKit(filepath.Join(t.TempDir(), "kit"), Kit{
-		SchemaVersion: KitSchemaVersionV2,
-		Kind:          "mixin",
-		Name:          "claudecode-posture",
-		Setup: &KitSetup{Startup: []KitCommand{
-			SeedCommand("claudecode"), SeedEntrypointCommand("claudecode"), SeedProvisionCommand("claudecode"),
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Count(string(b), "background: true"); got != 1 {
-		t.Errorf("spec.yaml has %d `background: true`, want exactly 1 (the provision step):\n%s", got, b)
-	}
-	if strings.Contains(string(b), "background: false") {
-		t.Errorf("spec.yaml spells out the default `background: false`:\n%s", b)
 	}
 }
 

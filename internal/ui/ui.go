@@ -494,7 +494,7 @@ func wrapOne(ln []byte, width int) []byte {
 		word := ln[wordStart:end]
 		w := displayWidth(word)
 		if lineHasWord && col+1+w > width {
-			out.WriteString("\n" + pad)
+			out.WriteString("\n" + pad + activeSGR(out.Bytes()))
 			col = textCol
 		} else if lineHasWord {
 			out.WriteByte(' ')
@@ -550,7 +550,7 @@ func breakWord(out *bytes.Buffer, word []byte, col, width int, pad string) int {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		rw := runewidth.RuneWidth(r)
 		if col+rw > width {
-			out.WriteString("\n" + pad)
+			out.WriteString("\n" + pad + activeSGR(out.Bytes()))
 			col = textCol
 		}
 		out.WriteString(s[i : i+size])
@@ -558,6 +558,25 @@ func breakWord(out *bytes.Buffer, word []byte, col, width int, pad string) int {
 		i += size
 	}
 	return col
+}
+
+// activeSGR is the colour state b leaves open: every SGR since its last reset, re-emitted after an inserted line break.
+func activeSGR(b []byte) string {
+	var active strings.Builder
+	s := string(b)
+	for i := strings.Index(s, "\x1b["); i >= 0; i = strings.Index(s, "\x1b[") {
+		j := strings.IndexByte(s[i:], 'm')
+		if j < 0 {
+			break
+		}
+		if seq := s[i : i+j+1]; seq == "\x1b[0m" || seq == "\x1b[m" {
+			active.Reset()
+		} else {
+			active.WriteString(seq)
+		}
+		s = s[i+j+1:]
+	}
+	return active.String()
 }
 
 func displayWidth(b []byte) int {

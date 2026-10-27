@@ -127,3 +127,43 @@ func TestSeedMarksTheToolchainReadyAfterProvisioning(t *testing.T) {
 		t.Errorf("_proveo_seed_provision must provision, then mark (provision=%d mark=%d)", provision, mark)
 	}
 }
+
+// pinAdb runs _proveo_pin_adb with platform-tools/adb holding sdkAdb and the image's adb a working stub.
+func pinAdb(t *testing.T, sdkAdb string) (sdk, img string) {
+	t.Helper()
+	bash := bashOrSkip(t)
+	sdk, bin := t.TempDir(), t.TempDir()
+	img = filepath.Join(bin, "adb")
+	if err := os.WriteFile(img, []byte("#!/bin/sh\necho image adb\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sdk, "platform-tools"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sdk, "platform-tools", "adb"), []byte(sdkAdb), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bash, "-c", `source "$1/packages/lib/entrypoint-lib.sh" && _proveo_pin_adb`, "bash", repoRoot(t))
+	cmd.Env = append(os.Environ(), "ANDROID_HOME="+sdk, "PROVEO_IMAGE_ADB="+img)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("_proveo_pin_adb: %v\n%s", err, out)
+	}
+	return sdk, img
+}
+
+func TestPinAdbReplacesAnSdkAdbThatCannotRunHere(t *testing.T) {
+	sdk, img := pinAdb(t, "\x7fELF\x02\x01\x01 x86_64 only (")
+	if got, err := os.Readlink(filepath.Join(sdk, "platform-tools", "adb")); err != nil || got != img {
+		t.Errorf("platform-tools/adb -> %q (%v), want the image's adb %s: Google's platform-tools are x86_64-only, and an arm64 guest then fails every adb call", got, err, img)
+	}
+	if _, err := os.Stat(filepath.Join(sdk, "platform-tools", "adb.foreign")); err != nil {
+		t.Errorf("the SDK's own adb must be kept aside, not deleted: %v", err)
+	}
+}
+
+func TestPinAdbLeavesAWorkingSdkAdbAlone(t *testing.T) {
+	sdk, _ := pinAdb(t, "#!/bin/sh\necho sdk adb\n")
+	if fi, err := os.Lstat(filepath.Join(sdk, "platform-tools", "adb")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("a platform-tools adb that runs must stay as shipped (%v)", err)
+	}
+}

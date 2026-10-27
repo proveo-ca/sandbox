@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 func Exists(name string) bool {
@@ -42,10 +43,20 @@ func Running(name string) bool {
 
 func statusOf(out, name string) string {
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.Fields(line)
-		if len(f) >= 3 && f[0] == name {
-			return strings.ToLower(f[2])
+		if f := strings.Fields(line); len(f) >= 3 && f[0] == name {
+			return rowStatus(f)
 		}
+	}
+	return ""
+}
+
+// rowStatus is the STATUS word of an `sbx ls` row, past the state glyph 0.49 prints before it ("● running").
+func rowStatus(f []string) string {
+	for _, w := range f[2:] {
+		if r := []rune(w); len(r) == 1 && !unicode.IsLetter(r[0]) {
+			continue
+		}
+		return strings.ToLower(w)
 	}
 	return ""
 }
@@ -67,7 +78,7 @@ func RunningNames() (names []string, ok bool) {
 		if len(f) < 3 || !strings.HasPrefix(f[0], NamePrefix) {
 			continue
 		}
-		if strings.ToLower(f[2]) == "running" {
+		if rowStatus(f) == "running" {
 			names = append(names, f[0])
 		}
 	}
@@ -91,6 +102,8 @@ func StoredSecretNames() []string {
 }
 
 func ImageEntrypoint(image string) []string { return sh.ImageEntrypoint(image) }
+
+func ImageCmd(image string) []string { return sh.ImageCmd(image) }
 
 // Mount is a workspace bind into the sandbox VM.
 type Mount struct {
@@ -117,8 +130,8 @@ var nonAlnumSbx = regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 type RunConfig struct {
 	Name    string // sandbox/session name; empty lets sbx assign one
 	Agent   string
-	KitDir  string // directory holding the rendered Kit spec.yaml
-	Image   string // template image, passed as -t
+	KitDir  string // the v3 workload directory, passed as the first positional
+	Image   string // template image, passed as -t; a workload run leaves it empty
 	Memory  string // -m limit; empty leaves sbx's host-derived default in place
 	CPUs    int    // --cpus; zero leaves sbx's default (every host CPU) in place
 	Clone   bool
@@ -147,9 +160,6 @@ func RunArgs(cfg RunConfig) []string {
 	if cfg.Name != "" {
 		args = append(args, "--name", cfg.Name)
 	}
-	if cfg.KitDir != "" {
-		args = append(args, "--kit", cfg.KitDir)
-	}
 	if cfg.Image != "" {
 		args = append(args, "-t", cfg.Image)
 	}
@@ -171,7 +181,10 @@ func RunArgs(cfg RunConfig) []string {
 	if cfg.EnvFile != "" {
 		args = append(args, "--env-file", cfg.EnvFile)
 	}
-	if cfg.Agent != "" {
+	switch {
+	case cfg.KitDir != "":
+		args = append(args, cfg.KitDir)
+	case cfg.Agent != "":
 		args = append(args, cfg.Agent)
 	}
 	for _, m := range cfg.Mounts {
@@ -191,6 +204,9 @@ func RunArgs(cfg RunConfig) []string {
 func CloneRemote(name string) string { return "sandbox-" + name }
 
 func CloneRefs(name string) string { return "refs/proveo/" + name }
+
+// MirrorRefs is where sbx mirrors a clone sandbox's branches in the host repository.
+func MirrorRefs(name string) string { return "refs/sandboxes/" + name }
 
 // CloneModeArgs prints "clone" inside a sandbox sbx created with --clone, else "direct".
 func CloneModeArgs(name string) []string {

@@ -33,8 +33,8 @@ func launchCfg(sid string, env ...string) sbx.RunConfig {
 func TestReceiptIgnoresThePerRunSessionID(t *testing.T) {
 	t.Parallel()
 	kit := func(sid string) []byte { return []byte("kitDir: /state/runs/" + sid + "/sbx/kit\n") }
-	a := receiptOf(launchCfg("proveo-1-1"), kit("proveo-1-1"), "proveo-1-1", "img1")
-	b := receiptOf(launchCfg("proveo-2-2"), kit("proveo-2-2"), "proveo-2-2", "img1")
+	a := receiptOf(launchCfg("proveo-1-1"), launchCfg("proveo-1-1").Image, kit("proveo-1-1"), "proveo-1-1", "img1")
+	b := receiptOf(launchCfg("proveo-2-2"), launchCfg("proveo-2-2").Image, kit("proveo-2-2"), "proveo-2-2", "img1")
 	if got := b.changes(&a); got != nil {
 		t.Errorf("two runs differing only by session ID must match, got %v", got)
 	}
@@ -42,9 +42,10 @@ func TestReceiptIgnoresThePerRunSessionID(t *testing.T) {
 
 func TestReceiptNamesWhatChanged(t *testing.T) {
 	t.Parallel()
-	was := receiptOf(launchCfg("s1", "OLLAMA_API_BASE=http://host.docker.internal:11434"), []byte("k1"), "s1", "img1")
-	now := receiptOf(launchCfg("s2", "OLLAMA_API_BASE=http://host.docker.internal:11434", "PROVEO_HOST_CDP_PORT=9222"),
+	was := receiptOf(launchCfg("s1", "OLLAMA_API_BASE=http://host.docker.internal:11434"), launchCfg("s1", "OLLAMA_API_BASE=http://host.docker.internal:11434").Image, []byte("k1"), "s1", "img1")
+	now := receiptOf(launchCfg("s2", "OLLAMA_API_BASE=http://host.docker.internal:11434", "PROVEO_HOST_CDP_PORT=9222"), launchCfg("s2", "OLLAMA_API_BASE=http://host.docker.internal:11434", "PROVEO_HOST_CDP_PORT=9222").Image,
 		[]byte("k2"), "s2", "img2")
+
 	got := now.changes(&was)
 	for _, want := range []string{"image", "kit", "PROVEO_HOST_CDP_PORT"} {
 		if !slices.Contains(got, want) {
@@ -62,9 +63,9 @@ func TestReceiptNamesWhatChanged(t *testing.T) {
 func TestRetireIfStaleRecreatesOnlyAStoppedChangedSandbox(t *testing.T) {
 	stubReceiptDir(t)
 	cfg := launchCfg("s1")
-	old := receiptOf(cfg, []byte("k1"), "s1", "img")
+	old := receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img")
 	writeReceipt(cfg.Name, old)
-	now := receiptOf(launchCfg("s2", "PROVEO_HOST_CDP_PORT=9222"), []byte("k2"), "s2", "img")
+	now := receiptOf(launchCfg("s2", "PROVEO_HOST_CDP_PORT=9222"), launchCfg("s2", "PROVEO_HOST_CDP_PORT=9222").Image, []byte("k2"), "s2", "img")
 
 	yes := func(string) bool { return true }
 	no := func(string) bool { return false }
@@ -75,7 +76,7 @@ func TestRetireIfStaleRecreatesOnlyAStoppedChangedSandbox(t *testing.T) {
 	if err := retireIfStale(Input{}, cfg, now, no, no, retire, quiet, quiet); err != nil || retired != 0 {
 		t.Errorf("no sandbox: err=%v retired=%d", err, retired)
 	}
-	same := receiptOf(launchCfg("s3"), []byte("k1"), "s3", "img")
+	same := receiptOf(launchCfg("s3"), launchCfg("s3").Image, []byte("k1"), "s3", "img")
 	if err := retireIfStale(Input{}, cfg, same, yes, no, retire, quiet, quiet); err != nil || retired != 0 {
 		t.Errorf("unchanged settings must re-attach: err=%v retired=%d", err, retired)
 	}
@@ -101,8 +102,8 @@ func TestAHeadedYesReplacesARunningSandboxForAnyHarness(t *testing.T) {
 	t.Cleanup(func() { confirmStaleSandbox = previous })
 	cfg := launchCfg("s1")
 	cfg.Name = "proveo-claudecode-abc"
-	writeReceipt(cfg.Name, receiptOf(cfg, []byte("k1"), "s1", "img"))
-	now := receiptOf(cfg, []byte("k2"), "s1", "img2")
+	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img2")
 	now.Image = cfg.Image
 	var asked []string
 	confirmStaleSandbox = func(name string, changed []string, live, clone, history bool) (bool, bool) {
@@ -135,8 +136,8 @@ func TestAHeadedNoKeepsAStoppedSandbox(t *testing.T) {
 	t.Cleanup(func() { confirmStaleSandbox = previous })
 	confirmStaleSandbox = func(string, []string, bool, bool, bool) (bool, bool) { return false, true }
 	cfg := launchCfg("s1")
-	writeReceipt(cfg.Name, receiptOf(cfg, []byte("k1"), "s1", "img"))
-	now := receiptOf(cfg, []byte("k2"), "s1", "img")
+	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
 	err := retireIfStale(Input{Target: "codex"}, cfg, now, func(string) bool { return true }, func(string) bool { return false },
 		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
@@ -156,8 +157,8 @@ func TestAnOpenCodeEngineFollowsTheStaleSandboxRuleAndCarriesItsHistory(t *testi
 	}
 	cfg := launchCfg("s1")
 	cfg.Name = "proveo-opencode-11c4aed0"
-	writeReceipt(cfg.Name, receiptOf(cfg, []byte("k1"), "s1", "img"))
-	now := receiptOf(cfg, []byte("k2"), "s1", "img")
+	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
 	err := retireIfStale(Input{Target: "opencode"}, cfg, now, func(string) bool { return true }, func(string) bool { return true },
 		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
@@ -178,8 +179,8 @@ func TestAFailedUpgradeScreenKeepsAStoppedSandbox(t *testing.T) {
 	headedConfirm = func() bool { return true }
 	openTermScreen = func() (tcell.Screen, error) { return nil, fmt.Errorf("no screen") }
 	cfg := launchCfg("s1")
-	writeReceipt(cfg.Name, receiptOf(cfg, []byte("k1"), "s1", "img"))
-	now := receiptOf(cfg, []byte("k2"), "s1", "img")
+	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
 	err := retireIfStale(Input{Target: "cursor"}, cfg, now, func(string) bool { return true }, func(string) bool { return false },
 		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
@@ -190,7 +191,7 @@ func TestAFailedUpgradeScreenKeepsAStoppedSandbox(t *testing.T) {
 
 func TestReceiptRoundTrips(t *testing.T) {
 	stubReceiptDir(t)
-	r := receiptOf(launchCfg("s1", "A=1"), []byte("k"), "s1", "img")
+	r := receiptOf(launchCfg("s1", "A=1"), launchCfg("s1", "A=1").Image, []byte("k"), "s1", "img")
 	writeReceipt("n", r)
 	got := readReceipt("n")
 	if got == nil || r.changes(got) != nil {

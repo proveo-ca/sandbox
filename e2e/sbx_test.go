@@ -172,20 +172,28 @@ func TestSandboxBackendPrintOnlyRendersSbx(t *testing.T) {
 	}
 }
 
-func TestSandboxBackendKitFlagPointsAtADirectory(t *testing.T) {
+func TestSandboxBackendCreatesFromItsOwnWorkloadDirectory(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sbx not available on this host")
 	}
 	for _, target := range sandboxHarnesses {
 		t.Run(target, func(t *testing.T) {
 			out := printOnlyRun(t, t.TempDir(), nil, target)
-			i := strings.Index(out, "--kit ")
-			if i < 0 {
-				t.Fatalf("sbx argv carries no --kit flag:\n%s", out)
+			kit := printedKitDir(t, out)
+			argv := shellWords(printedLine(t, out, "# sandbox"))
+			if !slices.Contains(argv, kit) {
+				t.Errorf("sbx create does not name the workload %s positionally:\n%v", kit, argv)
 			}
-			kit := strings.Fields(out[i+len("--kit "):])[0]
-			if strings.HasSuffix(kit, "spec.yaml") {
-				t.Errorf("--kit = %q, want the directory holding spec.yaml", kit)
+			for _, v2 := range []string{"--kit", "-t"} {
+				if slices.Contains(argv, v2) {
+					t.Errorf("sbx create carries %s — the v2 kit path; a v3 workload is positional and its recipe names the image:\n%v", v2, argv)
+				}
+			}
+			agent := filepath.Base(kit)
+			for _, f := range []string{agent + ".yaml", agent + ".dockerfile"} {
+				if _, err := os.Stat(filepath.Join(kit, f)); err != nil {
+					t.Errorf("workload lacks %s: %v", f, err)
+				}
 			}
 		})
 	}
@@ -205,120 +213,129 @@ func TestSandboxBackendRefusesWhenSbxAbsent(t *testing.T) {
 	}
 }
 
-func TestSandboxKitValidatesAgainstTheRealCLI(t *testing.T) {
+func TestSandboxWorkloadValidatesAgainstTheRealCLI(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx not available on this host: %s", why)
 	}
 	for _, target := range sandboxHarnesses {
 		t.Run(target, func(t *testing.T) {
-			kitDir := renderKit(t, target)
+			kitDir, _ := renderWorkload(t, target)
 			out, err := exec.Command(sbx.Binary, "kit", "validate", kitDir).CombinedOutput()
-			spec, _ := os.ReadFile(filepath.Join(kitDir, "spec.yaml"))
-			if err != nil {
-				t.Fatalf("%s: sbx rejected the Kit proveo writes: %v\n--- sbx ---\n%s\n--- spec.yaml ---\n%s",
-					target, err, out, spec)
+			if strings.Contains(string(out), "no kit builder configured") {
+				t.Skipf("this sbx validates v3 source kits only through a kit builder (`sbx kit builder`):\n%s", out)
 			}
-			// A deprecation warning is sbx telling us the schema moved under us,
-			// which is the drift this whole file is guarding against.
+			desc, _ := os.ReadFile(filepath.Join(kitDir, filepath.Base(kitDir)+".yaml"))
+			if err != nil {
+				t.Fatalf("%s: sbx rejected the workload proveo writes: %v\n--- sbx ---\n%s\n--- descriptor ---\n%s",
+					target, err, out, desc)
+			}
 			if strings.Contains(string(out), "deprecated") {
-				t.Errorf("%s: Kit uses a deprecated field — the schema has moved:\n%s\n--- spec.yaml ---\n%s",
-					target, out, spec)
+				t.Errorf("%s: the workload uses a deprecated field — the schema has moved:\n%s\n--- descriptor ---\n%s",
+					target, out, desc)
 			}
 		})
 	}
 }
 
-func TestSandboxKitIsAMixinCarryingNoCredentials(t *testing.T) {
+func TestSandboxWorkloadHasTheV3Shape(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx not available on this host: %s", why)
 	}
 	for _, target := range sandboxHarnesses {
 		t.Run(target, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join(renderKit(t, target), "spec.yaml"))
+			kitDir, printed := renderWorkload(t, target)
+			agent := filepath.Base(kitDir)
+			raw, err := os.ReadFile(filepath.Join(kitDir, agent+".yaml"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			var kit struct {
+			if !strings.HasPrefix(string(raw), sbx.KitSyntaxV3+"\n") {
+				t.Errorf("%s: descriptor does not open with %q — sbx then reads it as v2\n%s", target, sbx.KitSyntaxV3, raw)
+			}
+			var w struct {
 				SchemaVersion string `yaml:"schemaVersion"`
 				Kind          string `yaml:"kind"`
-				Name          string `yaml:"name"`
-				Credentials   []struct {
-					Service string `yaml:"service"`
-				} `yaml:"credentials"`
-				Environment struct {
-					Variables map[string]string `yaml:"variables"`
-				} `yaml:"environment"`
-				Setup struct {
-					Startup []struct {
-						Command []string `yaml:"command"`
-						User    string   `yaml:"user"`
-					} `yaml:"startup"`
-				} `yaml:"setup"`
+				Capabilities  []struct {
+					Type   string         `yaml:"type"`
+					Config map[string]any `yaml:"config"`
+				} `yaml:"capabilities"`
 			}
-			if err := yaml.Unmarshal(raw, &kit); err != nil {
-				t.Fatalf("%s: Kit is not parseable YAML: %v\n%s", target, err, raw)
+			if err := yaml.Unmarshal(raw, &w); err != nil {
+				t.Fatalf("%s: descriptor is not parseable YAML: %v\n%s", target, err, raw)
 			}
-
-			wantKind := "mixin"
-			if sbx.DeclaresOwnAgent(target) {
-				wantKind = "sandbox" // no built-in sbx agent to mix into; the kit names its own
+			if w.SchemaVersion != sbx.KitSchemaVersionV3 || w.Kind != "workload" {
+				t.Errorf("%s: schemaVersion=%q kind=%q, want %q workload\n%s", target, w.SchemaVersion, w.Kind, sbx.KitSchemaVersionV3, raw)
 			}
-			if kit.Kind != wantKind {
-				t.Errorf("%s: kind=%q, want %q\n%s", target, kit.Kind, wantKind, raw)
+			if agent != sbx.AgentName(target) || slices.Contains(sbx.BuiltinAgents, agent) {
+				t.Errorf("%s: workload dir %q; sbx registers the dir name, and a built-in name selects v2", target, agent)
 			}
-			// SPEC-v2 types this as a string. An int is normalised on the way in, so
-			// the mistake survives validate and only shows up against a stricter reader.
-			if kit.SchemaVersion != "2" {
-				t.Errorf("%s: schemaVersion=%q, want the string \"2\"\n%s",
-					target, kit.SchemaVersion, raw)
+			if len(w.Capabilities) == 0 || w.Capabilities[0].Type != sbx.CapSbx {
+				t.Errorf("%s: sbx@1 is not the first capability — without it the image ENTRYPOINT is PID 1\n%s", target, raw)
 			}
-			if !sbx.DeclaresOwnAgent(target) {
-				for _, c := range kit.Credentials {
-					t.Errorf("%s: mixin declares credential %q — the built-in agent owns "+
-						"credentials, and declaring one twice is refused as \"defined in both\"\n%s",
-						target, c.Service, raw)
-				}
-			}
-			if builtin := sbx.BuiltinAgent(target); builtin != "" && kit.Name == builtin {
-				t.Errorf("%s: Kit name %q shadows the built-in agent; sbx refuses that outright",
-					target, kit.Name)
-			}
-
-			// The seed is the file-shaped half of setup, and it must run as the agent
-			// user or it composes into a home the agent never reads.
-			var seeded bool
-			for _, st := range kit.Setup.Startup {
-				if sbx.CommandNamesSeed(st.Command) {
-					seeded = true
-					if st.User != "1000" {
-						t.Errorf("%s: seed runs as user %q, want the agent's 1000", target, st.User)
+			services := map[string]int{}
+			var seed map[string]any
+			for _, c := range w.Capabilities {
+				switch c.Type {
+				case sbx.CapCredential:
+					svc, _ := c.Config["service"].(string)
+					services[svc]++
+				case sbx.CapLifecycle:
+					hooks, _ := c.Config["startup"].([]any)
+					for _, h := range hooks {
+						hm, _ := h.(map[string]any)
+						if argv, ok := hm["command"].([]any); ok && sbx.CommandNamesSeed(anyStrings(argv)) {
+							seed = hm
+						}
 					}
 				}
 			}
-			if !seeded {
-				t.Errorf("%s: no proveo-seed step in setup.startup — subagents, settings and "+
-					"workspace trust would never be composed\n%s", target, raw)
-			}
-
-			// Env-shaped work is resolved host-side because a setup command exports
-			// into a process the agent never inherits.
-			for _, k := range []string{"PROVEO_WORKDIR", sbx.StateHomeVar} {
-				if kit.Environment.Variables[k] == "" {
-					t.Errorf("%s: Kit environment omits %s\n%s", target, k, raw)
+			for svc, n := range services {
+				if n > 1 {
+					t.Errorf("%s: credential %q declared %d times — one owner per service\n%s", target, svc, n, raw)
 				}
 			}
-			if v := kit.Environment.Variables[sbx.StateHomeVar]; v != "" && !filepath.IsAbs(v) {
-				t.Errorf("%s: %s=%q is not an absolute host path\n%s", target, sbx.StateHomeVar, v, raw)
+			if seed == nil {
+				t.Fatalf("%s: no proveo seed in lifecycle startup — subagents, settings and workspace trust "+
+					"would never be composed\n%s", target, raw)
+			}
+			if seed["user"] != "1000" {
+				t.Errorf("%s: seed runs as user %v, want the agent's 1000", target, seed["user"])
+			}
+
+			// Env-shaped work rides `-e` on create, and the seed hook names what it reads.
+			create := printedLine(t, printed, "# sandbox")
+			declared := anyStrings(asSlice(seed["env"]))
+			for _, k := range []string{"PROVEO_WORKDIR", sbx.StateHomeVar} {
+				v, ok := envValInCmd(create, k)
+				if !ok || v == "" {
+					t.Errorf("%s: sbx create omits -e %s\n%s", target, k, create)
+				}
+				if !slices.Contains(declared, k) {
+					t.Errorf("%s: the seed hook does not declare %s; a hook sees only the env it names", target, k)
+				}
+			}
+			if v, _ := envValInCmd(create, sbx.StateHomeVar); v != "" && !filepath.IsAbs(v) {
+				t.Errorf("%s: %s=%q is not an absolute host path", target, sbx.StateHomeVar, v)
 			}
 			for _, k := range []string{"HOME", "PROVEO_HOME"} {
-				if v, ok := kit.Environment.Variables[k]; ok {
-					t.Errorf("%s: Kit sets %s=%q — the HOME redirect is deliberately deleted on "+
-						"the sbx backend; reinstating it orphans the proxy-written credential\n%s",
-						target, k, v, raw)
+				if v, ok := envValInCmd(create, k); ok {
+					t.Errorf("%s: sbx create sets %s=%q — the HOME redirect orphans the proxy-written credential", target, k, v)
 				}
 			}
 		})
 	}
+}
+
+func asSlice(v any) []any { s, _ := v.([]any); return s }
+
+func anyStrings(in []any) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func TestSandboxStoreDoesNotExportSecretsAsEnvVars(t *testing.T) {
@@ -395,10 +412,10 @@ func brokenPrompt(screen string) string {
 // credential prompt; a prompt without sbx's frame names "its credentials".
 func consentPrompt(screen string) (string, bool) {
 	lines := strings.Split(screen, "\n")
-	at := -1
+	at, numbered := -1, false
 	for i, l := range lines {
-		if strings.Contains(l, "[A]pprove all") {
-			at = i
+		if strings.Contains(l, "[A]pprove all") || strings.Contains(l, "Approve these credentials?") {
+			at, numbered = i, strings.Contains(l, "Approve these credentials?")
 		}
 	}
 	if at < 0 {
@@ -410,7 +427,12 @@ func consentPrompt(screen string) (string, bool) {
 		if strings.HasPrefix(l, "This kit wants to use these credentials") {
 			return strings.Join(services, ", "), true
 		}
-		if f := strings.Fields(l); len(f) > 0 {
+		f := strings.Fields(l)
+		switch {
+		case len(f) == 0:
+		case numbered && strings.HasSuffix(f[0], ":"): // sbx 0.49: "openai: API key sent to api.openai.com"
+			services = append([]string{strings.TrimSuffix(f[0], ":")}, services...)
+		case !numbered: // before 0.49: "opencode     API key → sent to .opencode.ai"
 			services = append([]string{f[0]}, services...)
 		}
 	}
@@ -422,29 +444,73 @@ func consentFailure(services, target string) string {
 	return fmt.Sprintf("sbx asks to approve %s; approve once with an interactive `proveo run %s`, then rerun — the e2e never approves a credential binding", services, target)
 }
 
-func renderKit(t *testing.T, target string) string {
+// renderWorkload runs `proveo run <target> --print` and returns the workload directory and the printed output.
+func renderWorkload(t *testing.T, target string) (string, string) {
 	t.Helper()
 	proveoBin := buildProveo(t)
 	work := t.TempDir()
 	mustRun(t, work, "git", "init", "-q", ".")
-	state := t.TempDir()
 
 	cmd := exec.Command(proveoBin, "run", target, "--print", "--input", work)
 	cmd.Dir = repoRoot(t)
 	cmd.Env = append(os.Environ(),
 		"PROVEO_HOME="+t.TempDir(),
-		"PROVEO_STATE_ROOT="+state,
+		"PROVEO_STATE_ROOT="+t.TempDir(),
 		"PROVEO_WIZARD=off",
 	)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		t.Fatalf("proveo run %s --print: %v\n%s", target, err, out)
 	}
+	return printedKitDir(t, string(out)), string(out)
+}
 
-	matches, _ := filepath.Glob(filepath.Join(state, "runs", "*", "sbx", "kit", "spec.yaml"))
-	if len(matches) == 0 {
-		t.Fatalf("%s: --print rendered no Kit under %s", target, state)
+// printedMounts is the host side of every workspace mount in a printed `sbx create` argv.
+func printedMounts(create []string) []string {
+	valued := map[string]bool{"--name": true, "-t": true, "-m": true, "--cpus": true, "-p": true, "-e": true, "--env-file": true}
+	var positional []string
+	for i := 1; i < len(create) && create[i] != "--"; i++ {
+		switch a := create[i]; {
+		case valued[a]:
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			positional = append(positional, strings.TrimSuffix(a, ":ro"))
+		}
 	}
-	return filepath.Dir(matches[0])
+	if len(positional) == 0 {
+		return nil
+	}
+	return positional[1:]
+}
+
+func TestEveryMountThePrintedCreateLineNamesExists(t *testing.T) {
+	for _, target := range dockerTargets(func(m manifest.Manifest) bool { return len(m.Home.Files) > 0 }) {
+		t.Run(target, func(t *testing.T) {
+			_, out := renderWorkload(t, target)
+			create := shellWords(printedLine(t, out, "# sandbox"))
+			if len(create) > 0 && create[0] == sbx.Binary {
+				create = create[1:]
+			}
+			mounts := printedMounts(create)
+			if len(mounts) == 0 {
+				t.Fatalf("the printed create line mounts nothing: %q", create)
+			}
+			for _, m := range mounts {
+				if _, err := os.Stat(m); err != nil {
+					t.Errorf("the printed create line mounts %s, which --print left missing — sbx stops at \"The selected workspace does not exist\"", m)
+				}
+			}
+		})
+	}
+}
+
+func TestPrintedMountsSkipsFlagValuesAndTheKit(t *testing.T) {
+	t.Parallel()
+	create := []string{"create", "--name", "n", "-t", "img", "--clone", "-e", "A=/x", "/kit", "/work", "/home-files:ro", "--", "/cmd"}
+	if got, want := printedMounts(create), []string{"/work", "/home-files"}; !slices.Equal(got, want) {
+		t.Errorf("printedMounts = %q, want %q", got, want)
+	}
 }
 
 func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
@@ -647,22 +713,48 @@ func dockerVersionish(s string) bool {
 // sbxSandboxNames lists the sandboxes a test could have made: those whose
 // primary workspace lies under the test process's temp root. An operator's
 // sandbox never qualifies, so no cleanup built on this can remove one.
+type listedSandbox struct {
+	Name       string   `json:"name"`
+	Workspaces []string `json:"workspaces"`
+}
+
+// sbxListing reads `sbx ls --json`: a bare array since sbx 0.48, {"sandboxes": [...]} before it.
+func sbxListing(out []byte) ([]listedSandbox, error) {
+	var bare []listedSandbox
+	if err := json.Unmarshal(out, &bare); err == nil {
+		return bare, nil
+	}
+	var wrapped struct {
+		Sandboxes []listedSandbox `json:"sandboxes"`
+	}
+	if err := json.Unmarshal(out, &wrapped); err != nil {
+		return nil, err
+	}
+	return wrapped.Sandboxes, nil
+}
+
+func TestSbxListingReadsTheInstalledSbx(t *testing.T) {
+	requireSbx(t)
+	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
+	if err != nil {
+		t.Skipf("sbx ls --json: %v", err)
+	}
+	if _, err := sbxListing(out); err != nil {
+		t.Errorf("sbx ls --json changed shape (%v); every sandbox wait and sweep reads it:\n%.400s", err, out)
+	}
+}
+
 func sbxSandboxNames() (map[string]bool, bool) {
 	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
 	if err != nil {
 		return nil, false
 	}
-	var listing struct {
-		Sandboxes []struct {
-			Name       string   `json:"name"`
-			Workspaces []string `json:"workspaces"`
-		} `json:"sandboxes"`
-	}
-	if json.Unmarshal(out, &listing) != nil {
+	listing, err := sbxListing(out)
+	if err != nil {
 		return nil, false
 	}
 	names := map[string]bool{}
-	for _, sb := range listing.Sandboxes {
+	for _, sb := range listing {
 		if strings.HasPrefix(sb.Name, sbx.NamePrefix) && len(sb.Workspaces) > 0 && underTestTemp(sb.Workspaces[0]) {
 			names[sb.Name] = true
 		}

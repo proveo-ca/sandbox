@@ -11,6 +11,11 @@ import (
 )
 
 func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *choiceui.Frame {
+	return topologyWith(target, credsDefault, false)
+}
+
+// topologyWith is topologyOf for a harness that may wire sbx's MCP gateway on every run.
+func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
 		tier := egressTier(f, cursor, "")
 		creds := rowChoice(f, cursor, "credentials", credsDefault)
@@ -42,9 +47,12 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			creds = "forward"
 			key = choiceui.KeyInSquare
 		}
-		hop := "sbx proxy"
+		hop, hopNote := "sbx proxy", ""
+		if alwaysMCP || rowChoice(f, cursor, mcpLabel, mcpOff) == mcpOn {
+			hopNote = "+ mcp"
+		}
 		if direct {
-			hop = ""
+			hop, hopNote = "", ""
 		}
 		fr := choiceui.Frame{
 			Host:      host,
@@ -54,6 +62,7 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 			HostLit:   hostLit,
 			Square:    square,
 			Hop:       hop,
+			HopNote:   hopNote,
 			Direct:    direct,
 			Interface: interfaceOf(f),
 			Key:       key,
@@ -195,7 +204,7 @@ func interfaceOf(f *choiceui.Form) string {
 	if rowTicked(f, rowInterface, addonBrowser) {
 		driven = append(driven, "browser")
 	}
-	if rowTicked(f, rowInterface, addonChrome) || rowTicked(f, rowInterface, addonHostCDP) {
+	if rowTicked(f, rowInterface, addonHostCDP) {
 		driven = append(driven, "chrome")
 	}
 	if rowTicked(f, rowInterface, addonAndroid) {
@@ -209,7 +218,7 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 		return choiceui.FocusNone
 	}
 	switch f.Rows[cursor].Label {
-	case "egress":
+	case "egress", mcpLabel:
 		return choiceui.FocusHop
 	case "credentials", "auth", rowModel:
 		return choiceui.FocusKey

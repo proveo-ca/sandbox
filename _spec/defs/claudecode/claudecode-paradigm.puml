@@ -52,11 +52,9 @@
 ' .claude/settings.local.json are copied into that durable home — MISSING-ONLY,
 ' so a returning operator's own files are never overwritten.
 '
-' --chrome is passed for THIS SESSION only, gated on PROVEO_CHROME_READY, which
-' proveo_seed sets in the same shell. Nothing is persisted:
-' claudeInChromeDefaultEnabled stays untouched, so a run without the add-on does
-' not inherit the last one's browser integration
-' (_spec/defs/claudecode/chrome-bridge.puml).
+' The only browser is agent-browser in the -browser variant
+' (_spec/defs/browser-layer.puml); the Claude in Chrome bridge and its --chrome
+' launch flag were removed on 2026-10-24.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title claudecode paradigm — ML blackbox algorithm (spec → plan → implement → verify → loop)
@@ -134,9 +132,7 @@ note bottom of EP
   **on top of mcp** — the heaviest variant; ""-browser"" is
   the base-node-browser layer applied onto mcp's image
   ""proveo/claudecode"" (Playwright + Chromium +
-  agent-browser, _spec/defs/browser-layer.puml). Every
-  variant also carries the Claude in Chrome bridge for the
-  ""claude-in-chrome"" add-on (chrome-bridge.puml).
+  agent-browser, _spec/defs/browser-layer.puml).
 
   Subscription harness: proveo warns rather than prompts
   when ""CLAUDE_CODE_OAUTH_TOKEN"" is absent and lets the

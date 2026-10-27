@@ -10,6 +10,6 @@
   model roles            main=claude-opus-5 (anthropic)
   observability          sbx/policy-log.json — the daemon's allowed/blocked hosts (no MITM, so no DLP or body scan)
   role providers         anthropic
-  sbx mcp gateway        declined (MCP_GATEWAY_URL empty; PROVEO_SBX_MCP=on to allow)
+  sbx mcp gateway        declined (MCP_GATEWAY_URL empty; the mcp row or PROVEO_SBX_MCP=on allows it)
   target                 claudecode
   workspace              mounted checkout — the agent edits it directly

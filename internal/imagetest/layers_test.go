@@ -70,6 +70,9 @@ func inspectConfig(t *testing.T, ref string) imageConfig {
 			delete(c.Labels, k)
 		}
 	}
+	if len(c.Labels) == 0 {
+		c.Labels = nil
+	}
 	return c
 }
 

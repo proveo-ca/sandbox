@@ -1,4 +1,4 @@
-// SPEC: _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-path.puml
+// SPEC: _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-path.puml
 package run
 
 import (
@@ -14,7 +14,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/hostadb"
@@ -23,23 +22,20 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
 
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
-	chromeWhy := ""
-	if man.Capabilities.HostBrowser == addonChrome {
-		chromeWhy = chromeUnavailable(man, lookup, p.AuthVar, p.Target, homeRoot)
-	}
 	form := &choiceui.Form{
 		Banner:   choiceui.Banner(),
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
-		Topology: topologyOf(p.Target, p.credentialsOrDefault()),
+		Topology: topologyWith(p.Target, p.credentialsOrDefault(), man.Capabilities.AlwaysMCPGateway()),
 		Rows: append(
-			applicableRows(egressRow()),
+			applicableRows(egressRow(), mcpRow(p.Target, p.MCP, p.MCPSet)),
 			credentialsRow(man, p.credentialsOrDefault()),
 		),
 	}
@@ -92,9 +88,15 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		form.StartOption = firstChoice(r)
 		break
 	}
+	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
 	form.OnChange = func(f *choiceui.Form) {
-		gateAddons(f, chromeWhy)
+		gateAddons(f)
 		gateApps(f)
+		for i := range f.Rows {
+			if f.Rows[i].Label == rowInterface {
+				desktopWas = pairTUIDesktop(&f.Rows[i], desktopWas)
+			}
+		}
 	}
 	form.OnChange(form)
 
@@ -120,6 +122,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	if v := form.Selection(evidenceLabel); v != "" {
 		p.Evidence = evidenceOf(v)
+	}
+	if v := form.Selection(mcpLabel); v != "" && !p.MCPSet {
+		p.MCP = v
 	}
 	return nil
 }
@@ -222,6 +227,32 @@ func evidenceOf(answer string) string {
 	return answer
 }
 
+// mcpRow offers sbx's MCP gateway hooks for a harness whose published kit has them.
+// SPEC: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
+func mcpRow(target, current string, fromEnv bool) choiceui.Row {
+	if !sbx.OffersMCPGateway(target) {
+		return choiceui.Row{}
+	}
+	r := choiceui.Row{Label: mcpLabel, Options: []string{mcpOff, mcpOn}, Help: map[string]string{
+		mcpOff: "the published kit's MCP gateway hooks are left out",
+		mcpOn:  "the kit registers sbx's MCP gateway into the agent's config (user scope, in the proveo home)",
+	}}
+	if current == mcpOn {
+		r.Selected = 1
+	}
+	if fromEnv {
+		r.Locked, r.Reason = true, "PROVEO_SBX_MCP sets this; unset it to choose here"
+	}
+	return pinCols(r, mcpColumn)
+}
+
+func mcpColumn(name string) int {
+	if name == mcpOn {
+		return 1
+	}
+	return 0
+}
+
 func evidenceRow(current string) choiceui.Row {
 	opts := []string{evidenceFilter, EvidenceVerbose}
 	sel := 0
@@ -241,7 +272,7 @@ func orElseFirst(v string, opts []string) string {
 	return ""
 }
 
-func gateAddons(f *choiceui.Form, chromeWhy string) {
+func gateAddons(f *choiceui.Form) {
 	for i := range f.Rows {
 		r := &f.Rows[i]
 		if !isAddonRow(r.Label) {
@@ -253,7 +284,11 @@ func gateAddons(f *choiceui.Form, chromeWhy string) {
 		}
 		r.OffWhy = map[string]string{}
 		var reasons []string
+		desktop := slices.Contains(r.Options, addonDesktop)
 		for j, opt := range r.Options {
+			if opt == addonTUI && desktop {
+				continue
+			}
 			if fixed, ok := addonFixed[opt]; ok {
 				r.Off[j] = true
 				r.On[j] = fixed.on
@@ -270,44 +305,10 @@ func gateAddons(f *choiceui.Form, chromeWhy string) {
 				r.On[j] = false
 				reasons = append(reasons, addonIOS+": "+hostadb.IOSWhy)
 				r.OffWhy[opt] = hostadb.IOSWhy
-			case addonChrome:
-				why := chromeWhy
-				if why == "" {
-					why = chromebridge.SbxWhy
-				}
-				if why != "" {
-					r.Off[j] = true
-					r.On[j] = false
-					reasons = append(reasons, addonChrome+": "+why)
-					r.OffWhy[opt] = why
-				}
 			}
 		}
 		r.Reason = strings.Join(reasons, " · ")
 	}
-}
-
-func chromeUnavailable(man manifest.Manifest, lookup func(string) string, chosen, target, homeRoot string) string {
-	suppressed := credentials.AuthSuppressor(man, target, chosen, homeRoot, lookup)
-	effective := func(k string) string {
-		if suppressed(k) {
-			return ""
-		}
-		return lookup(k)
-	}
-	if effective(chromebridge.EnvOAuthToken) == "" &&
-		effective(chromebridge.EnvOAuthTokenFD) == "" &&
-		credentials.LoginBlanked(target, homeRoot) {
-		return "the login in the proveo home is empty (macOS keeps it in the Keychain, " +
-			"which the container cannot read) — /login INSIDE the run to put one there"
-	}
-	if why := chromebridge.ScopeGate(effective, suppressed(chromebridge.EnvOAuthToken)); why != "" {
-		return why
-	}
-	if ok, why := chromebridge.Available(chromebridge.HostSocketDir()); !ok {
-		return why
-	}
-	return ""
 }
 
 // firstChoice is the first option on a row the operator can actually change.
@@ -384,14 +385,16 @@ func interfaceColumn(name string) int {
 	switch name {
 	case addonTUI:
 		return 0
-	case addonBrowser:
+	case addonDesktop:
 		return 1
-	case addonAndroid:
+	case addonBrowser:
 		return 2
-	case addonIOS:
+	case addonAndroid:
 		return 3
-	default:
+	case addonIOS:
 		return 4
+	default:
+		return 5
 	}
 }
 
@@ -413,16 +416,38 @@ func layoutInterface(r choiceui.Row) choiceui.Row {
 		items[i] = item{opt, on, col}
 	}
 	slices.SortStableFunc(items, func(a, b item) int { return cmp.Compare(a.col, b.col) })
-	r.Paint = map[string]string{addonChrome: "chrome"}
 	r.Options = make([]string, len(items))
 	r.On = make([]bool, len(items))
 	r.Cols = make([]int, len(items))
 	for i, it := range items {
 		r.Options[i] = it.opt
 		r.On[i] = it.on
-		r.Cols[i] = it.col
+		r.Cols[i] = i
+	}
+	if slices.Contains(r.Options, addonDesktop) {
+		r.RadioSet = []string{addonTUI, addonDesktop}
+		pairTUIDesktop(&r, false)
 	}
 	return r
+}
+
+// pairTUIDesktop keeps exactly one of tui and desktop on; desktopWas breaks a tie toward the newer tick.
+// It reports whether desktop is on afterwards.
+func pairTUIDesktop(r *choiceui.Row, desktopWas bool) bool {
+	ti, di := slices.Index(r.Options, addonTUI), slices.Index(r.Options, addonDesktop)
+	if ti < 0 || di < 0 {
+		return false
+	}
+	for len(r.On) < len(r.Options) {
+		r.On = append(r.On, false)
+	}
+	switch tui, desk := r.On[ti], r.On[di]; {
+	case tui && desk:
+		r.On[ti], r.On[di] = desktopWas, !desktopWas
+	case !tui && !desk:
+		r.On[ti], r.On[di] = !desktopWas, desktopWas
+	}
+	return r.On[di]
 }
 
 func axisRow(label string, all, allowed []string, preselect string) choiceui.Row {
@@ -522,10 +547,10 @@ const (
 	addonTUI     = "tui"
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
-	addonChrome  = chromebridge.Addon
 	addonHostCDP = hostcdp.Addon
 	addonAndroid = hostadb.Addon
 	addonIOS     = hostadb.AddonIOS
+	addonDesktop = "desktop"
 )
 
 var addonRows = []string{rowExecution, rowInterface}
@@ -677,8 +702,8 @@ var addonFixed = map[string]struct {
 var addonHelp = map[string]string{
 	addonHost:    "your own machine, with your files and your credentials — not a place proveo recommends for an agent",
 	addonTUI:     "this session — this terminal, the agent's transcript and your prompts, for the whole run",
+	addonDesktop: "Hermes Desktop on this host drives the agent in the sandbox over sbx's SSH; this terminal only holds the run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
-	addonChrome:  "Claude Code drives YOUR Chrome — your profile, your logins — over proveo's bridge",
 	addonHostCDP: "the agent drives a dedicated Chrome profile on this host over CDP — log in there once; your everyday profile is never touched",
 	addonAndroid: "the agent drives an Android emulator on this host through its adb server (mobile-mcp) — log in there once; the emulator stays open after the run",
 	addonIOS:     "the agent drives an iOS Simulator on this host — coming soon",
@@ -706,8 +731,6 @@ func interfaceOptions(man manifest.Manifest) []string {
 		}
 	}
 	switch man.Capabilities.HostBrowser {
-	case addonChrome:
-		opts = append(opts, addonChrome)
 	case manifest.HostBrowserCDP:
 		opts = append(opts, addonHostCDP)
 	}
@@ -716,6 +739,9 @@ func interfaceOptions(man manifest.Manifest) []string {
 	}
 	if man.Capabilities.HasHostDevice(manifest.HostDeviceIOS) {
 		opts = append(opts, addonIOS)
+	}
+	if man.Capabilities.HasHostDevice(manifest.HostDeviceDesktop) {
+		opts = append(opts, addonDesktop)
 	}
 	return opts
 }
@@ -733,7 +759,7 @@ func selectedAddons(f *choiceui.Form) []string {
 		out = append(out, f.Selections(label)...)
 		out = append(out, compulsory(f, label)...)
 	}
-	return out
+	return slices.DeleteFunc(out, func(a string) bool { return a == addonTUI })
 }
 
 func compulsory(f *choiceui.Form, label string) []string {
@@ -781,7 +807,7 @@ var addonLegacy = map[string]string{
 func normalizeAddons(addons []string) []string {
 	out := make([]string, 0, len(addons))
 	for _, a := range addons {
-		if a == "dind" || a == "docker (dind)" {
+		if a == "dind" || a == "docker (dind)" || a == "claude-in-chrome" {
 			continue
 		}
 		if n, ok := addonLegacy[a]; ok {
@@ -843,12 +869,11 @@ func gitHeader(repoRoot string) []string {
 
 // addonAliases are the short --addon spellings of the interface add-ons.
 var addonAliases = map[string]string{
-	"browser":          addonBrowser,
-	"host-chrome":      addonHostCDP,
-	"cdp":              addonHostCDP,
-	"claude-in-chrome": addonChrome,
-	"android":          addonAndroid,
-	"ios":              addonIOS,
+	"browser":     addonBrowser,
+	"host-chrome": addonHostCDP,
+	"cdp":         addonHostCDP,
+	"android":     addonAndroid,
+	"ios":         addonIOS,
 }
 
 // resolveAddonFlags maps --addon values to the add-ons this harness offers, refusing any it does not.
@@ -874,5 +899,22 @@ func (p *Params) resolveAddonFlags(man manifest.Manifest) error {
 		}
 	}
 	p.Addons, p.AddonsAnswered = out, true
+	return nil
+}
+
+// scheduled reports whether `proveo schedule` launched this run.
+// SPEC: _spec/internal/schedule/schedule.puml (TUI ONLY)
+func scheduled() bool { return os.Getenv("PROVEO_SCHEDULE") != "" }
+
+// tuiForSchedule keeps a scheduled run on the tui its watcher types into; the saved desktop choice stays saved.
+func (p *Params) tuiForSchedule() error {
+	if !slices.Contains(p.Addons, addonDesktop) {
+		return nil
+	}
+	if p.AddonsSet {
+		return fmt.Errorf("--addon %s: a scheduled run types its prompt into the tui — drop %s from the job's addons", addonDesktop, addonDesktop)
+	}
+	p.Addons = slices.DeleteFunc(slices.Clone(p.Addons), func(a string) bool { return a == addonDesktop })
+	ui.Notef("schedule: tui, not the saved desktop choice — the scheduler types the prompt into the terminal")
 	return nil
 }

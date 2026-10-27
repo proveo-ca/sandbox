@@ -133,20 +133,6 @@ func TestCloneLinksCarriesOnlyTheMountedLinksOfAClone(t *testing.T) {
 	}
 }
 
-func TestOwnAgentCommandKeepsTheEntrypointScriptAheadOfTrailingArgs(t *testing.T) {
-	t.Parallel()
-	ep := []string{"dumb-init", "--", "/entrypoint.sh"}
-	if got := OwnAgentCommand(ep, []string{"chat", "-q", "PONG"}); !slices.Equal(got, []string{"/entrypoint.sh", "chat", "-q", "PONG"}) {
-		t.Errorf("= %v — sbx drops the entrypoint's part after --, so dumb-init ran `chat` itself (\"[dumb-init] chat: No such file or directory\")", got)
-	}
-	if got := OwnAgentCommand(ep, nil); got != nil {
-		t.Errorf("no trailing args must leave sbx's default launch alone, got %v", got)
-	}
-	if got := OwnAgentCommand([]string{"/entrypoint.sh"}, []string{"x"}); !slices.Equal(got, []string{"x"}) {
-		t.Errorf("an entrypoint without -- has no tail to restore, got %v", got)
-	}
-}
-
 func TestSpecTellsTheSeedAnAssistantNeedsNoToolchain(t *testing.T) {
 	t.Parallel()
 	base := Input{Target: "hermes", Sid: "proveo-1-2", RunDir: t.TempDir(), Lookup: func(string) string { return "" }}

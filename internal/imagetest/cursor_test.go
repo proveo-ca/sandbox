@@ -102,7 +102,6 @@ func TestImageCursor(t *testing.T) {
 		s.Contains("[browser] agent-browser drives a headless Chromium as the image user", browser,
 			`export HOME=/tmp AGENT_BROWSER_SOCKET_DIR=/tmp/ab; mkdir -p /tmp/ab; agent-browser open about:blank >/dev/null && agent-browser get url; agent-browser close >/dev/null`,
 			"about:blank")
-		s.Failure("[browser] Claude in Chrome relay is claudecode's alone", browser, "test -f /opt/proveo/lib/chrome-bridge.js")
 	} else {
 		s.Skip("[browser] cursor-browser variant", "image "+browser+" not built (mise run build cursor-browser)")
 	}
@@ -129,9 +128,6 @@ func TestImageCursor(t *testing.T) {
 	s.Check("preamble states the paradigm", func(t *testing.T) {
 		cursorExpect(t, strings.Contains(smoke, "policy-gated autonomous loop"), smoke)
 	})
-	s.Check("preamble reports the deny-rule baseline", func(t *testing.T) {
-		cursorExpect(t, strings.Contains(smoke, "Deny rules (survive --force)"), smoke)
-	})
 	s.Check("preamble lists seeded subagents", func(t *testing.T) {
 		cursorExpect(t, strings.Contains(smoke, "Subagents available:"), smoke)
 	})
@@ -142,7 +138,7 @@ func TestImageCursor(t *testing.T) {
 	})
 	s.Check("no proxy env leaves useHttp1ForAgent disabled", func(t *testing.T) {
 		out := cursorRun(60*time.Second, "--entrypoint", "bash", image, "-c",
-			`/entrypoint.sh --version >/dev/null 2>&1; grep -c "\"useHttp1ForAgent\": true" "$HOME/.cursor/cli-config.json" || true`)
+			`/entrypoint.sh --version >/dev/null 2>&1; cat "$HOME/.cursor/cli-config.json" 2>/dev/null | grep -c "\"useHttp1ForAgent\": true" || true`)
 		cursorExpect(t, cursorLine(out, "^0$"), out)
 	})
 
@@ -179,7 +175,7 @@ func TestImageCursor(t *testing.T) {
 	})
 
 	// Phase 5: Baked-in Defaults
-	s.Success("baked defaults: cli-config.json present in /opt", image, "test -f /opt/cursor/defaults/cli-config.json")
+	s.Success("no proveo deny-list default: the cursor kit seeds cli-config.json", image, "test ! -e /opt/cursor/defaults/cli-config.json")
 	s.Success("baked defaults: loop rule present in /opt", image, "test -f /opt/cursor/defaults/rules/proveo-loop.mdc")
 	s.Success("baked defaults: audit hook script is executable", image, "test -x /opt/cursor/defaults/hooks/audit-shell.sh")
 	s.Success("baked subagents: every agent in the cursor roster has a body and is readonly", image, `set -eu
@@ -191,8 +187,6 @@ func TestImageCursor(t *testing.T) {
        || { echo "$a frontmatter is not readonly: true"; exit 1; }
    done
    echo "roster: $(echo $roster | tr "\n" " ")"`)
-	s.Contains("default cli-config.json denies privilege escalation", image, "cat /opt/cursor/defaults/cli-config.json", `"Shell(sudo)"`)
-	s.Contains("default cli-config.json denies env-file reads", image, "cat /opt/cursor/defaults/cli-config.json", `"Read(.env*)"`)
 	s.Contains("enterprise hooks.json wires the shell audit hook", image, "cat /etc/cursor/hooks.json", "beforeShellExecution")
 	s.Contains("enterprise hooks.json wires the git-sync stop hook", image, "cat /etc/cursor/hooks.json", "git-sync-turn.sh")
 	s.Success("git-sync turn hook is executable", image, "test -x /opt/proveo/hooks/git-sync-turn.sh")
@@ -209,13 +203,7 @@ func TestImageCursor(t *testing.T) {
 		})
 	}
 	cursorEntry("entrypoint seeds ~/.cursor on first run", "OK", nil,
-		`/entrypoint.sh --version >/dev/null 2>&1; test -f "$HOME/.cursor/cli-config.json" && test -f "$HOME/.cursor/agents/adversarial-reviewer.md" && echo OK`)
-	cursorEntry("CURSOR_RESEED=1 overwrites existing config", "RESEEDED", []string{"CURSOR_RESEED=1", "PROVEO_SMOKE_TEST=1"}, `
-    mkdir -p "$HOME/.cursor"
-    echo "{ \"version\": 1, \"permissions\": { \"deny\": [] } }" > "$HOME/.cursor/cli-config.json"
-    timeout 10 /entrypoint.sh >/dev/null 2>&1
-    grep -q "Shell(sudo)" "$HOME/.cursor/cli-config.json" && echo RESEEDED || echo NOT_RESEEDED
-  `)
+		`/entrypoint.sh --version >/dev/null 2>&1; test -f "$HOME/.cursor/agents/adversarial-reviewer.md" && echo OK`)
 	cursorEntry("entrypoint preserves existing cli-config.json (no reseed)", "PRESERVED", []string{"PROVEO_SMOKE_TEST=1"}, `
     mkdir -p "$HOME/.cursor"
     echo "{ \"version\": 1, \"permissions\": { \"deny\": [\"Shell(USER_CUSTOM)\"] } }" > "$HOME/.cursor/cli-config.json"

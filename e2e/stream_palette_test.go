@@ -70,6 +70,11 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 		"agent: fatal",
 		"error: agent exited with code 3",
 	}
+	wrapped := []string{ui.ANSI(ui.ColorHost) + "● " + ui.ANSIReset + ui.ANSI(ui.ColorMuted) + "Toolbox: `jetbrains://gateway/ssh/env",
+		"  ironment?h=x.sbx&launchIde=true&p=22&projectHint=%2Fwork", "  %2Frepo&u=_default_", "  user_`" + ui.ANSIReset}
+	sbxCreate := []string{"  KITS", "    ✓ /state/runs/sid/sbx/kit/proveo-claudecode — cached", "  SANDBOX",
+		"    Name:       proveo-claudecode-1a2b3c4d", "    Workspace:  /work (rw)", "                /home/.claude (rw)",
+		"                /home/toolchains (rw)", "                /state/runs/sid/sbx/home-files (rw)"}
 	loud := []string{"  head one", "  head two", "  head three"}
 	templateLoad := []string{"Loading template proveo/cecli:volatile-e2e", "Template loaded.", "Ready."}
 	prelude := func(extra ...string) []string {
@@ -92,6 +97,8 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 		{"loud results still count", [][]string{prelude(), sbxOut, results(loud...)}, 3},
 		{"template-load output is not proveo's", [][]string{prelude(templateLoad...), sbxOut, results()}, 0},
 		{"a heading after sbx output reopens proveo's stream", [][]string{prelude(afterLoad...), sbxOut, results()}, 3},
+		{"sbx 0.49's indented create blocks are not proveo's", [][]string{prelude(), sbxCreate, results()}, 0},
+		{"a wrapped grey line stays grey on its continuations", [][]string{prelude(wrapped...), sbxOut, results()}, 0},
 	} {
 		var screen []string
 		for _, part := range tc.lines {
@@ -170,9 +177,11 @@ func stripSGR(s string) string {
 
 // whiteRun counts the longest run of proveo lines whose text carries no SGR.
 func whiteRun(screen string) int {
-	run, best := 0, 0
+	run, best, painted := 0, 0, false
 	for _, l := range proveoLines(screen) {
-		if strings.TrimSpace(stripSGR(l)) == "" || strings.Contains(l, "\x1b[") {
+		inherited := painted
+		painted = colourOpenAfter(l, painted)
+		if strings.TrimSpace(stripSGR(l)) == "" || strings.Contains(l, "\x1b[") || inherited {
 			run = 0
 			continue
 		}
@@ -180,6 +189,17 @@ func whiteRun(screen string) int {
 		best = max(best, run)
 	}
 	return best
+}
+
+// colourOpenAfter reports whether a colour is still set after l; tmux's capture repeats no SGR on a line that continues one.
+func colourOpenAfter(l string, open bool) bool {
+	if l == "" {
+		return false
+	}
+	for _, m := range sgr.FindAllString(l, -1) {
+		open = m != "\x1b[0m" && m != "\x1b[m" && m != "\x1b[39m"
+	}
+	return open
 }
 
 // proveoLines keeps the stretches ui.Printer wrote: from the top, and from each of its section headings, to the first line it could not have written.
@@ -195,6 +215,8 @@ func proveoLines(screen string) []string {
 				out = append(out, "")
 			}
 			open = true
+		case sbxHeading.MatchString(plain):
+			open = false
 		case open && strings.TrimSpace(plain) != "" && !printerLine(plain):
 			open = false
 		}
@@ -207,6 +229,8 @@ func proveoLines(screen string) []string {
 
 var (
 	proveoHeading = regexp.MustCompile(`^\s*[─-]{6} [a-z]+ [─-]+\s*$`)
+	sgr           = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	sbxHeading    = regexp.MustCompile(`^\s+[A-Z][A-Z ]+$`) // sbx 0.49's create blocks: "  KITS", "  SANDBOX", "  IMAGE"
 	printerMarks  = []string{"  ", "● ", "✓ ", "⚠ ", "× ", "› "}
 )
 

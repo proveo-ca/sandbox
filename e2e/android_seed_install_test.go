@@ -41,7 +41,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	}
 	harnessImage(t, "opencode")
 	sweepSandboxesAfter(t)
-	before, _ := sbxSandboxNames()
+	before, canList := sbxSandboxNames()
 	proveoBin := buildProveo(t)
 	hostADB := func(args ...string) string {
 		out, _ := exec.Command(hostadb.AdbBinary(os.Getenv), append([]string{"-P", strconv.Itoa(port)}, args...)...).CombinedOutput()
@@ -58,6 +58,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 		t.Fatalf("copy fixture: %v\n%s", err, out)
 	}
 	home := t.TempDir()
+	t.Cleanup(func() { removeLeakedSandboxes(t, before, canList) }) // before home's RemoveAll: a live sandbox still writes its toolchains
 	budget := durationEnv(t, "PROVEO_ANDROID_BUILD_TIMEOUT", 25*time.Minute)
 
 	first := seedRun(t, proveoBin, home, work, "first")
@@ -69,8 +70,12 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 		screen, _ := first.CaptureAll()
 		t.Fatalf("the seed did not install %s on the host emulator:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(before, hostADB))
 	}
-	if top := hostADB("shell", "dumpsys", "activity", "activities"); !strings.Contains(top, helloPackage) {
-		t.Errorf("%s installed but not launched:\n%s", helloPackage, tail(top, 20))
+	var top string
+	if !waitUntil(time.Minute, func() bool {
+		top = hostADB("shell", "dumpsys", "activity", "activities")
+		return strings.Contains(top, helloPackage)
+	}) {
+		t.Errorf("%s installed but not launched within a minute:\n%s", helloPackage, tail(top, 20))
 	}
 	if screen, ok := stopRun(first, 3*time.Minute); !ok {
 		t.Fatalf("the first run never finished its teardown after SIGTERM\n%s", tail(screen, 40))

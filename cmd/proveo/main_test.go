@@ -353,8 +353,8 @@ func TestSandboxSpecUsesTheHarnessAgent(t *testing.T) {
 	}{
 		{name: "claudecode", def: "claudecode", target: "claudecode", want: "claude"},
 		{name: "claudecode variant", def: "claudecode", target: "claudecode-browser", want: "claude"},
-		{name: "cursor", def: "cursor", target: "cursor", want: "cursor"},
-		{name: "cursor variant", def: "cursor", target: "cursor-browser", want: "cursor"},
+		{name: "cursor", def: "cursor", target: "cursor", want: "cursor-agent"},
+		{name: "cursor variant", def: "cursor", target: "cursor-browser", want: "cursor-agent"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -364,9 +364,12 @@ func TestSandboxSpecUsesTheHarnessAgent(t *testing.T) {
 				Lookup: func(string) string { return "" },
 				Target: tc.target, Image: "proveo/x:local",
 			}
-			if cfg, _, _ := sandbox.Spec(in); cfg.Agent != tc.want {
-				t.Errorf("Spec(def %q, target %q).Agent = %q, want %q",
-					tc.def, tc.target, cfg.Agent, tc.want)
+			cfg, w, _ := sandbox.Spec(in)
+			if want := sbx.AgentName(tc.def); cfg.Agent != want {
+				t.Errorf("Spec(def %q, target %q).Agent = %q, want the def's workload %q", tc.def, tc.target, cfg.Agent, want)
+			}
+			if len(w.Recipe.Entrypoint) == 0 || w.Recipe.Entrypoint[0] != tc.want {
+				t.Errorf("Spec(def %q, target %q) launches %q, want the def's published %s", tc.def, tc.target, w.Recipe.Entrypoint, tc.want)
 			}
 		})
 	}
@@ -419,26 +422,14 @@ func TestSandboxSpecOmitsSuppressedCredentials(t *testing.T) {
 	}
 }
 
-func TestMCPGatewayIsDeclinedByDefault(t *testing.T) {
-	t.Setenv("PROVEO_SBX_MCP", "")
-	got := sandbox.WithMCPGatewayPolicy(map[string]string{"HOME": "/proveo-home"})
-	v, ok := got[sandbox.MCPGatewayVar]
-	if !ok || v != "" {
-		t.Errorf("%s = %q (present=%v), want an explicit empty value — that is what makes sbx's `[ -n ... ] || exit 0` no-op", sandbox.MCPGatewayVar, v, ok)
-	}
-	if got["HOME"] != "/proveo-home" {
-		t.Error("declining the gateway must not disturb the rest of the environment")
-	}
-	// A nil map is the ordinary case for a run that resolved no variables.
-	if got := sandbox.WithMCPGatewayPolicy(nil); got[sandbox.MCPGatewayVar] != "" {
-		t.Error("a nil environment must still carry the decline")
-	}
-}
-
-func TestMCPGatewayCanBeAllowed(t *testing.T) {
+func TestMCPGatewayIsDeclinedUnlessAllowed(t *testing.T) {
 	t.Setenv("PROVEO_SBX_MCP", "on")
-	if got := sandbox.WithMCPGatewayPolicy(map[string]string{"HOME": "/proveo-home"}); len(got) != 1 {
-		t.Errorf("PROVEO_SBX_MCP=on must leave the environment untouched, got %v", got)
+	got := sandbox.DeclineMCPGateway(false, []string{"HOME=/proveo-home"})
+	if !slices.Contains(got, sandbox.MCPGatewayVar+"=") || !slices.Contains(got, "HOME=/proveo-home") {
+		t.Errorf("declined: env = %v, want an explicit empty %s beside the rest — that is what makes sbx's `[ -n ... ] || exit 0` no-op; the env var must not decide", got, sandbox.MCPGatewayVar)
+	}
+	if got := sandbox.DeclineMCPGateway(true, []string{"HOME=/proveo-home"}); len(got) != 1 {
+		t.Errorf("allowed: env = %v, want it untouched", got)
 	}
 }
 
@@ -567,14 +558,10 @@ func TestSandboxSpecHandsTheAgentItsManifestDefaults(t *testing.T) {
 			Target: "claudecode", Image: "proveo/claudecode:local", Man: man, Sid: "proveo-1-2",
 			Lookup: func(k string) string { return tc.set[k] },
 		}
-		cfg, kit, _ := sandbox.Spec(in)
+		cfg, _, _ := sandbox.Spec(in)
 		for _, w := range tc.want {
 			if !slices.Contains(cfg.Env, w) {
 				t.Errorf("%s: -e argv lacks %s: %v", tc.why, w, cfg.Env)
-			}
-			k, v, _ := strings.Cut(w, "=")
-			if kit.Environment == nil || kit.Environment.Variables[k] != v {
-				t.Errorf("%s: Kit environment lacks %s", tc.why, w)
 			}
 		}
 	}

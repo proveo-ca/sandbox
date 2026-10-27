@@ -68,3 +68,41 @@ func TestTheUpgradePromptKeys(t *testing.T) {
 		t.Fatal("y did not replace the sandbox")
 	}
 }
+
+func TestTheUnansweredRemovalPromptListsTheMirroredRefs(t *testing.T) {
+	t.Parallel()
+	sim := tcell.NewSimulationScreen("UTF-8")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer sim.Fini()
+	sim.SetSize(120, 40)
+	mirror := "refs/sandboxes/proveo-claudecode-abc"
+	refs := []string{mirror + "/main", mirror + "/a", mirror + "/b", mirror + "/c", mirror + "/d", mirror + "/e", mirror + "/f", mirror + "/g"}
+	drawModal(sim, UnansweredRemovalCopy("proveo-claudecode-abc", mirror, refs, false), "proveo-claudecode-abc gave no answer", unansweredChoices(), "")
+	got := rendered(t, sim)
+	for _, want := range []string{
+		"its work cannot be carried home",
+		"Mirrored on the host under " + mirror + "/:",
+		"  main",
+		"… and 2 more",
+		"1. sbx rm --force proveo-claudecode-abc will run.",
+		"Work newer than those refs is lost.",
+		"remove it anyway",
+		"keep it — this run stops",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("unanswered modal missing %q\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "OpenCode history") {
+		t.Errorf("a claudecode removal mentions OpenCode history\n%s", got)
+	}
+	none := UnansweredRemovalCopy("proveo-opencode-abc", "refs/sandboxes/proveo-opencode-abc", nil, true)
+	joined := strings.Join(none, "\n")
+	for _, want := range []string{"Nothing of it is mirrored", "Its OpenCode history is lost."} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("unanswered copy without refs missing %q\n%s", want, joined)
+		}
+	}
+}

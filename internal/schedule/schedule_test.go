@@ -621,3 +621,60 @@ func TestBudgetStopLeavesAReplacedSessionAlone(t *testing.T) {
 		t.Errorf("stop = %q, keys %q, typed %q, killed %v: a retry under the same name is not this run's session", got, f.keys, f.typed, f.killed)
 	}
 }
+
+func TestDescribePrintsTheSessionThePlanAndTheTypedLine(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("ship\n  the  fix"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := Job{Target: "hermes", Model: "m:30b", PromptFile: prompt, Budget: "45m", Timezone: "UTC"}
+	var gotArgv []string
+	var gotDir string
+	var out strings.Builder
+	now := time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
+	err := Describe(&out, home, "/bin/proveo", "nightly", j, now, func(argv []string, dir string) error {
+		gotArgv, gotDir = argv, dir
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"/bin/proveo", "run", "--print", "hermes", "--yes", "--local-model", "m:30b"}; !slices.Equal(gotArgv, want) {
+		t.Errorf("print argv = %v\nwant         %v", gotArgv, want)
+	}
+	if gotDir != j.WorkDir(home, "nightly") {
+		t.Errorf("print dir = %s, want the job's workdir %s", gotDir, j.WorkDir(home, "nightly"))
+	}
+	for _, want := range []string{
+		"# session (tmux proveo-sched-nightly)",
+		"PROVEO_SCHEDULE=1 '/bin/proveo' 'run' 'hermes' '--yes' '--local-model' 'm:30b'; echo $? > ",
+		"/goal ship the fix Clock: proveo stops this session at 09:45 UTC",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestDescribeSkipsThePlanForAJobWithItsOwnCommand(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	prompt := filepath.Join(home, "p.md")
+	if err := os.WriteFile(prompt, []byte("go"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := Job{Command: []string{"my-agent", "--flag"}, PromptFile: prompt}
+	var out strings.Builder
+	err := Describe(&out, home, "/bin/proveo", "own", j, time.Now(), func([]string, string) error {
+		t.Error("printRun ran for a job with its own command")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "PROVEO_SCHEDULE=1 'my-agent' '--flag';") {
+		t.Errorf("session line lacks the job's command:\n%s", out.String())
+	}
+}

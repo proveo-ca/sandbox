@@ -78,9 +78,9 @@ skinparam noteTextAlignment left
 ' character precedes it, so a private `_PROVEO_*` shell variable is not a name.
 ' Test code is skipped: e2e/, internal/imagetest/, internal/installtest/,
 ' testdata, goldens, node_modules, *_test.go, test_* and *.golden.
-' notVariables lists 13 tokens that name no variable: marker lines
-' (PROVEO_RC_*, PROVEO_RULES_*, PROVEO_ANDROID_*), three readonly shell
-' constants, the unexported shell flag PROVEO_CHROME_READY, the heredoc
+' notVariables lists 11 tokens that name no variable: marker lines
+' (PROVEO_RC_*, PROVEO_RULES_*, PROVEO_ANDROID_*), two readonly shell
+' constants, the heredoc
 ' delimiter PROVEO_JDTLS, the log line PROVEO_MODELS and the sentinel
 ' PROVEO_SMOKE_READY.
 '

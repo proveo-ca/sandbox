@@ -23,7 +23,11 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: internal/contract/seed_shares_test.go
 ' covers: internal/imagetest/*_test.go
 '
-' ── ON sbx THE IMAGE ENTRYPOINT IS PID 1, SO IT PASSES THROUGH ─────────────
+' ── ON sbx THE IMAGE ENTRYPOINT WAS PID 1 (v2 / -t TEMPLATES ONLY) ──────────
+' SUPERSEDED 2026-10-24: a v3 workload declares sbx@1, so PID 1 is sbx's
+' keepalive (probe P7) and proveo_sbx_passthrough, _proveo_in_sbx and their six
+' entrypoint calls are deleted (_spec/_plans/sbx-kit-v3-migration.puml, STEP 8).
+' HISTORY:
 ' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
 ' it its keepalive as the command. The stock template's ENTRYPOINT is
 ' `tini --` (CMD `bash`), a pass-through; proveo's images declare
@@ -35,8 +39,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' LSP installs happened there and printed to container stdout, never to
 ' /var/log/sbx-kit-startup.log; the dispatcher's seed waited on the lock, found
 ' everything present and skipped in silence. That is why
-' TestToolchainProvisioningIsIdempotent read zero installs, and why each sandbox
-' ran three chrome-bridge relays.
+' TestToolchainProvisioningIsIdempotent read zero installs.
 ' So every harness entrypoint calls proveo_sbx_passthrough "$@" right after
 ' sourcing the lib: when _proveo_in_sbx holds (SANDBOX_NAME, then SANDBOX_ID,
 ' then SANDBOX_VM_ID — F18, 2026-10-17; it read SANDBOX_VM_ID alone before) AND

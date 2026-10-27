@@ -204,7 +204,7 @@ func TestMCPGatewayPostureNamesTheDecision(t *testing.T) {
 		t.Errorf("allowing it must say so AND name where it lands, got %q", got)
 	}
 	t.Setenv("PROVEO_SBX_MCP", "on")
-	if MCPGateway(false, gwVar) != "declined ("+gwVar+" empty; PROVEO_SBX_MCP=on to allow)" {
+	if MCPGateway(false, gwVar) != "declined ("+gwVar+" empty; the mcp row or PROVEO_SBX_MCP=on allows it)" {
 		t.Error("the row read the environment instead of its argument")
 	}
 }

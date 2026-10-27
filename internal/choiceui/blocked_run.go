@@ -2,6 +2,7 @@
 package choiceui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -45,6 +46,48 @@ func upgradeChoices() []modalChoice {
 // ConfirmSandboxUpgrade waits for permission to replace a kept sandbox.
 func ConfirmSandboxUpgrade(s tcell.Screen, name string, changed []string, live, clone, history bool) bool {
 	return confirmPrompt(s, SandboxUpgradeCopy(name, changed, live, clone, history), "this sandbox was created with different settings", upgradeChoices())
+}
+
+// UnansweredRemovalCopy explains removing a kept sandbox that gave no answer.
+// It lists the refs sbx mirrored from it, since nothing else of it reaches the host.
+func UnansweredRemovalCopy(name, mirror string, refs []string, history bool) []string {
+	lines := []string{"it gave no answer, so its work cannot be carried home", ""}
+	if len(refs) == 0 {
+		lines = append(lines, "Nothing of it is mirrored under "+mirror+"/.")
+	} else {
+		lines = append(lines, "Mirrored on the host under "+mirror+"/:")
+		for i, r := range refs {
+			if i == maxListedRefs {
+				lines = append(lines, fmt.Sprintf("  … and %d more", len(refs)-i))
+				break
+			}
+			lines = append(lines, "  "+strings.TrimPrefix(r, mirror+"/"))
+		}
+	}
+	lines = append(lines, "",
+		"1. sbx rm --force "+name+" will run.",
+		"2. this run creates a new sandbox with this same name",
+		"",
+		"Work newer than those refs is lost.",
+	)
+	if history {
+		lines = append(lines, "Its OpenCode history is lost.")
+	}
+	return lines
+}
+
+const maxListedRefs = 6
+
+func unansweredChoices() []modalChoice {
+	return []modalChoice{
+		{Key: "y/N", Text: "remove it anyway"},
+		{Key: "esc", Text: "keep it — this run stops"},
+	}
+}
+
+// ConfirmUnansweredRemoval waits for permission to remove a sandbox that gave no answer.
+func ConfirmUnansweredRemoval(s tcell.Screen, name, mirror string, refs []string, history bool) bool {
+	return confirmPrompt(s, UnansweredRemovalCopy(name, mirror, refs, history), name+" gave no answer", unansweredChoices())
 }
 
 func confirmPrompt(s tcell.Screen, lines []string, title string, choices []modalChoice) bool {

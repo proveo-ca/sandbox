@@ -2,60 +2,8 @@
 package sbx
 
 import (
-	"bytes"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
-
-type Kit struct {
-	SchemaVersion string         `yaml:"schemaVersion"`
-	Kind          string         `yaml:"kind"`
-	Name          string         `yaml:"name"`
-	DisplayName   string         `yaml:"displayName,omitempty"`
-	Description   string         `yaml:"description,omitempty"`
-	Permissions   KitPermissions `yaml:"permissions,omitempty"`
-	Environment   *KitEnv        `yaml:"environment,omitempty"`
-	Setup         *KitSetup      `yaml:"setup,omitempty"`
-	Sandbox       *KitSandbox    `yaml:"sandbox,omitempty"`
-	// "shell" and "credprobe"`.
-	Credentials []KitCredential `yaml:"credentials,omitempty"`
-}
-
-// KitCredential is one service sbx should hold on the agent's behalf.
-type KitCredential struct {
-	Service  string         `yaml:"service"`
-	Required bool           `yaml:"required,omitempty"`
-	APIKey   *KitCredAPIKey `yaml:"apiKey,omitempty"`
-}
-
-// KitCredAPIKey names the env var to sentinel and where the value may go.
-type KitCredAPIKey struct {
-	Name         string          `yaml:"name"`
-	ProxyManaged bool            `yaml:"proxyManaged,omitempty"`
-	Inject       []KitCredInject `yaml:"inject,omitempty"`
-}
-
-// KitCredInject is one destination the value may be attached to. SPEC-v2:
-// every domain here MUST also appear in permissions.network.allow.
-type KitCredInject struct {
-	Domain string `yaml:"domain"`
-	Header string `yaml:"header"`
-	Format string `yaml:"format,omitempty"`
-}
-
-// KitEnv carries values RESOLVED ON THE HOST.
-type KitEnv struct {
-	Variables map[string]string `yaml:"variables,omitempty"`
-}
-
-// KitSetup holds the container-side steps.
-type KitSetup struct {
-	Startup []KitCommand `yaml:"startup,omitempty"`
-}
 
 // KitCommand is one setup step. `startup` takes a LIST command (install takes a
 // string) — the two spellings differ and the loader is strict about it.
@@ -151,47 +99,4 @@ func CommandNamesSeed(cmd []string) bool {
 		}
 	}
 	return false
-}
-
-// KitSandbox names the image and what runs in it.
-type KitSandbox struct {
-	Image      string             `yaml:"image"`
-	Entrypoint []string           `yaml:"entrypoint,omitempty"`
-	Command    *KitSandboxCommand `yaml:"command,omitempty"`
-}
-
-// KitSandboxCommand is the mode-specific tail appended to the entrypoint.
-type KitSandboxCommand struct {
-	Default     []string `yaml:"default,omitempty"`
-	Interactive []string `yaml:"interactive,omitempty"`
-}
-
-// KitPermissions carries the network policy.
-type KitPermissions struct {
-	Network KitNet `yaml:"network,omitempty"`
-}
-
-// KitNet is the sandbox network allow and deny lists.
-type KitNet struct {
-	Allow []string `yaml:"allow,omitempty"`
-	Deny  []string `yaml:"deny,omitempty"`
-}
-
-func WriteKit(dir string, k Kit) (string, error) {
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(k); err != nil {
-		return "", fmt.Errorf("sbx kit encode: %w", err)
-	}
-	if err := enc.Close(); err != nil {
-		return "", fmt.Errorf("sbx kit encode: %w", err)
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("sbx kit dir: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "spec.yaml"), buf.Bytes(), 0o600); err != nil {
-		return "", fmt.Errorf("sbx kit write: %w", err)
-	}
-	return dir, nil
 }

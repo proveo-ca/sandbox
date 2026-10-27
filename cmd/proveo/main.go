@@ -166,7 +166,7 @@ func (f *runFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&f.contSession, "continue", false, "continue the most recent session for this workspace")
 	cmd.Flags().BoolVar(&f.listSessions, "ls", false, "list resumable sessions (cursor/claude/codex) and exit into the tool picker")
 	cmd.Flags().BoolVar(&f.printOnly, "print", false, "write the sbx kit and print the sbx command instead of executing")
-	cmd.Flags().StringArrayVar(&f.addons, "addon", nil, "interface add-on to enable without the choice form (repeatable): host-chrome, browser, claude-in-chrome")
+	cmd.Flags().StringArrayVar(&f.addons, "addon", nil, "interface add-on to enable without the choice form (repeatable): browser, chrome, desktop, android")
 	cmd.Flags().BoolVar(&f.yes, "yes", false, "accept the remembered and flagged choices without drawing the choice form (unattended runs)")
 }
 
@@ -469,5 +469,6 @@ func runDeps() run.Deps {
 		},
 		ProvisionConfirm: provisionConfirm,
 		PreflightImages:  preflightImages,
+		EnsureDesktop:    ensureDesktop,
 	}
 }

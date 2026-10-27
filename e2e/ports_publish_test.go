@@ -53,13 +53,13 @@ func TestPortsPublishE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("choice form never drew: %v\n%s", err, screen)
 	}
-	for _, want := range []string{"execution", "OS", "ports", fmt.Sprintf("%d python", guestPort)} {
+	for _, want := range []string{"execution", "OS", "ports", fmt.Sprintf("%d pyth", guestPort)} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("choice form lacks %q:\n%s", want, screen)
 		}
 	}
 	for i := 0; i < 20 && !strings.Contains(screen, "› ports"); i++ {
-		_ = first.SendKeys("Down")
+		_ = first.SendKeys("Up")
 		time.Sleep(150 * time.Millisecond)
 		screen, _ = first.Capture()
 	}

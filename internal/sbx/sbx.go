@@ -4,7 +4,6 @@ package sbx
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"time"
@@ -14,7 +13,7 @@ import (
 const Binary = "sbx"
 
 // MinVersion is the oldest sbx whose CLI surface this package targets.
-const MinVersion = "0.42.0"
+const MinVersion = "0.45.0"
 
 const VersionJSONSince = "0.42.0"
 
@@ -47,16 +46,8 @@ const (
 
 var verLine = regexp.MustCompile(`v?(\d+)\.(\d+)\.(\d+)`)
 
-var templateReceiptDir = func() string {
-	base, err := os.UserCacheDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(base, "proveo", "sbx-templates")
-}
-
 var BuiltinAgents = []string{
-	"claude", "codex", "copilot", "cursor", "docker-agent",
+	"claude", "codex", "copilot", "cursor", "devin", "docker-agent",
 	"droid", "gemini", "kiro", "opencode", "shell",
 }
 
@@ -68,6 +59,5 @@ const (
 	BaselineDenyAll  = "deny-all"
 )
 
-const KitSchemaVersion = 2
-
-const KitSchemaVersionV2 = "2"
+// LocalImageID is the local Docker image ID for image, or "" when it cannot be read.
+func LocalImageID(image string) string { return sh.LocalImageID(image) }

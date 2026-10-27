@@ -1,12 +1,6 @@
 # proveo baked defaults for the Codex CLI; the argv can still override every key.
-# Seeded into $CODEX_HOME/config.toml once (missing-only), so your edits persist;
-# CODEX_RESEED=1 replaces them with these defaults.
-
-# The sandbox VM is the boundary, so codex's own sandbox and approval prompts stay off.
-# Mirrors the entrypoint's --dangerously-bypass-approvals-and-sandbox for exec, resume and bare codex.
-# Override per run with PROVEO_CODEX_SANDBOX.
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
+# proveo_merge_codex_defaults adds each top-level key missing from $CODEX_HOME/config.toml;
+# CODEX_RESEED=1 resets them. Approval and sandbox keys belong to the codex kit's install hook.
 
 # Reasoning summaries stay visible. The harness's evidence posture is that an
 # operator reading a transcript can tell what the agent did and why; hiding the

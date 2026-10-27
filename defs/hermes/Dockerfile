@@ -31,6 +31,7 @@ ENV PATH=/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/s
     HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages \
     XDG_RUNTIME_DIR=/tmp/hermes-runtime
 VOLUME ["/opt/data"]
+USER root
 WORKDIR /opt/hermes
 ENTRYPOINT ["/opt/hermes/docker/entrypoint-dispatch.sh"]
 CMD []

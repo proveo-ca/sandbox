@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/internal/sbx/policy-baseline.puml, _spec/defs/claudecode/claudecode-paradigm.puml, _spec/defs/claudecode/chrome-bridge.puml
+# SPEC: _spec/defs/claudecode/claudecode-topology.puml, _spec/internal/sbx/policy-baseline.puml, _spec/defs/claudecode/claudecode-paradigm.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then
   # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
-proveo_sbx_passthrough "$@"
 
 set_working_directory "/app"
 bridge_google_keys
@@ -85,12 +84,10 @@ export CLAUDE_CODE_NO_FLICKER="${CLAUDE_CODE_NO_FLICKER:-0}"
 export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"
 export DISABLE_AUTOUPDATER="${DISABLE_AUTOUPDATER:-1}"
 
-CLAUDE_CHROME_ARGS=()
-[[ -n "${PROVEO_CHROME_READY:-}" ]] && CLAUDE_CHROME_ARGS=(--chrome)
 
 # SPEC: _spec/internal/sbx/host-android-adb.puml
 CLAUDE_LOCAL_ARGS=()
 [[ -n "${PROVEO_LOCAL_MODEL:-}" ]] && CLAUDE_LOCAL_ARGS=(--tools Bash,Read,Edit,Write)
 
 echo "🚀 Launching Claude Code..."
-proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_CHROME_ARGS[@]}" "${CLAUDE_LOCAL_ARGS[@]}" -- "$@"
+proveo_exec_agent claude --dangerously-skip-permissions "${CLAUDE_EVIDENCE_ARGS[@]}" "${CLAUDE_LOCAL_ARGS[@]}" -- "$@"

@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/ide-attach.puml, _spec/defs/claudecode/chrome-bridge.puml
+// SPEC: _spec/internal/sbx/virtiofs-cwd-invalidation.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/ide-attach.puml
 package sandbox
 
 import (
@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -304,23 +304,6 @@ func TestPrintIDEAttachLiveOpensTheInterfaceSection(t *testing.T) {
 	}
 }
 
-func TestKitEnvVarsCarriesTheChromeBridgeToken(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "cb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	r, err := chromebridge.Start("127.0.0.1:0", dir, func(string, ...any) {})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = r.Close() })
-	vars := KitEnvVars(r.ResolvedEnv())
-	if vars[chromebridge.EnvAddr] != r.ContainerAddr() || vars[chromebridge.EnvToken] != r.Token() {
-		t.Fatalf("Kit variables = %v: the seed refuses %s without %s", vars, chromebridge.EnvAddr, chromebridge.EnvToken)
-	}
-}
-
 func TestPlanPortsPrependsTheFirstFreePrefixAndDropsPortsWithNone(t *testing.T) {
 	t.Parallel()
 	taken := map[int]bool{13000: true, 23000: true}
@@ -391,9 +374,25 @@ func TestDevServerScriptSkipsAPortAlreadyServedAndLogs(t *testing.T) {
 	got := DevServerScript("/work/repo", false, PublishedPort{Guest: 3000, Dir: "apps/web", Cmd: "HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0"})
 	want := "if (exec 3<>/dev/tcp/127.0.0.1/3000) 2>/dev/null; then exit 0; fi\n" +
 		"cd \"/work/repo/apps/web\" || exit 1\n" +
-		"exec HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0 >>/tmp/proveo-dev-3000.log 2>&1\n"
+		"{ HOST=0.0.0.0 PORT=3000 npm run dev -- -H 0.0.0.0\n} >>/tmp/proveo-dev-3000.log 2>&1\n"
 	if got != want {
 		t.Errorf("DevServerScript() =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestDevServerScriptRunsACommandWithAnEnvPrefix(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not on PATH")
+	}
+	dir := t.TempDir()
+	p := PublishedPort{Guest: 1, Cmd: `HOST=0.0.0.0 PORT=1 sh -c 'echo "$HOST:$PORT" > served'`}
+	t.Cleanup(func() { _ = os.Remove(DevLog(p.Guest)) })
+	if out, err := exec.Command("bash", "-c", DevServerScript(dir, false, p)).CombinedOutput(); err != nil {
+		t.Fatalf("the dev-server script failed: %v\n%s", err, out)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "served")); err != nil || strings.TrimSpace(string(got)) != "0.0.0.0:1" {
+		t.Errorf("devports prefixes HOST/PORT; the server must start with them set, got %q (%v)", got, err)
 	}
 }
 
@@ -406,7 +405,7 @@ func TestDevServerScriptWaitsForTheCloneBeforeItStartsTheServer(t *testing.T) {
 		"  n=$((n-1)); [ \"$n\" -gt 0 ] || exit 1; sleep 1\n" +
 		"done\n" +
 		"cd \"/work/repo\" || exit 1\n" +
-		"exec python3 -m http.server 4310 >>/tmp/proveo-dev-4310.log 2>&1\n"
+		"{ python3 -m http.server 4310\n} >>/tmp/proveo-dev-4310.log 2>&1\n"
 	if got != want {
 		t.Errorf("DevServerScript(clone) =\n%s\nwant\n%s", got, want)
 	}

@@ -34,6 +34,21 @@
 '   still unbuilt ..... _spec/internal/choiceui/figure-fidelities.puml (the side pane)
 ' This file stays the resolved layout of one screenful, at a size that holds it.
 
+' ── THE DEVICES ROW PACKS; TUI AND DESKTOP ARE ONE RADIO (2026-10-24) ──────
+' User: "has empty spaces for browser/android/ios, avoid that. Show chrome and
+' desktop directly there … Remove the disabled option in tui (radio button
+' style) let the user choose tui or desktop". layoutInterface keeps the
+' canonical order (tui, desktop, browser, android, ios, the rest) but packs the
+' columns 0..n-1, so a harness without browser/android/ios shows no gaps
+' (hermes: (•) tui  ( ) desktop  [ ] chrome). Where a harness offers desktop,
+' tui stops being a locked [X]: Row.RadioSet draws tui and desktop as radios
+' inside the checkbox row, pairTUIDesktop keeps exactly one on (the newer tick
+' wins, an empty radio snaps back), and tui never enters the add-on list.
+' Elsewhere tui stays the fixed [X] of addonFixed.
+' Pinned by TestTheDevicesRowPacksItsOptionsWithoutGaps,
+' TestTUIAndDesktopAreOneRadioChoice (internal/run) and
+' TestARadioSetDrawsRadiosBesideCheckboxes (internal/choiceui).
+'
 ' ── THE AUTH ROW IS AN AXIS, AND IT IS ORDERED BY RISK ─────────────────────
 ' Three options, always drawn in this order, because the prompt labels the row's
 ' horizontal as "◀ riskier ... safer ▶" and reading it left to right has to mean
@@ -254,7 +269,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   longest name; 12 would put its last letter on the first option.
   Every option row pins to the same four columns. OS, outputs, ports and apps
   included: a missing value leaves its column blank. A cell is at most 10 runes.
-  ""docker (sandbox)"" paints ""sandbox""; ""claude-in-chrome"" paints ""chrome"".
+  ""docker (sandbox)"" paints ""sandbox"".
   allow-all and forward and Qwen and host and filtered share column 1,
   API keys and sandbox and browser and verbose share column 2,
   balanced and plan share column 3, deny-all and broker and Glimmer share column 4.

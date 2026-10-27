@@ -8,7 +8,6 @@ skinparam noteTextAlignment left
 '   switch) was deleted 2026-10-16 with the docker backend, so that half has no target now
 ' would touch: internal/manifest/manifest.go (a capability, if a tunnel becomes one)
 ' would touch: packages/lib/entrypoint-lib.sh (ensure_project_tools — the CLIENT half)
-'   the worked example, one direction .. _spec/defs/claudecode/chrome-bridge.puml
 '   the host-side viewport ............. _spec/internal/sbx/browser-viewport.puml
 '   the grammar an allow entry must use  _spec/internal/sbx/kit-domain-form.puml
 '   direction two, per service ......... _spec/internal/sbx/host-android-adb.puml
@@ -79,7 +78,7 @@ skinparam noteTextAlignment left
 ' analysis is still the load-bearing part.
 '
 ' ── THE ITEM COVERS TWO DIRECTIONS, AND THEY SHARE NO MACHINERY ────────────
-' "tools & localhost tunnels (e.g. psql, claude-in-chrome)" names one need and
+' "tools & localhost tunnels (e.g. psql)" names one need and
 ' two mechanisms. Separating them is the first useful thing this plan does.
 '
 '   HOST -> SANDBOX   something on the operator's machine reaches a service
@@ -93,7 +92,7 @@ skinparam noteTextAlignment left
 '                     (host-inference.puml, host-browser-cdp.puml,
 '                     host-android-adb.puml). A generic tunnel stays unbuilt.
 '
-' claude-in-chrome is the worked example of the first: `cdpPublish` derives one
+' The browser viewport is the worked example of the first: `cdpPublish` derives one
 ' publish spec and `StartCDPViewport` holds the host end while the run lives. A
 ' dev server or a preview URL is the SAME SHAPE and simply has no caller.
 '
@@ -135,7 +134,7 @@ skinparam noteTextAlignment left
 ' misreading exactly that shape, so the two halves want separate diagnostics.
 '
 ' ── THE SHAPE WORTH COPYING IS ALREADY IN THE MANIFEST ─────────────────────
-' `hostBrowser: claude-in-chrome` is a CAPABILITY a def declares, off by
+' `hostBrowser: cdp` is a CAPABILITY a def declares, off by
 ' default, that grants a specific cross-boundary reach. A tunnel is the same
 ' shape, and reusing it means the picker already has a row for it and the
 ' posture already has a place to print it.

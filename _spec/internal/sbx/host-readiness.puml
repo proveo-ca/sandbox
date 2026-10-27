@@ -102,6 +102,15 @@ skinparam noteTextAlignment left
 ' Guessing the house style rather than reading the command's own help cost the
 ' whole e2e suite one run.
 '
+' ── SUPERSEDED 2026-10-26: THE FLAG IS `--json` ─────────────────────────
+' v0.49.2 `diagnose --help` lists only `--format string` (table, json, yaml,
+' github-issue), `--json` and `--upload`; `-o json` exits 1 with
+' `error: unknown shorthand flag: 'o' in -o` and empty stdout, so DiagnoseAt
+' had nothing to parse (TestInitReadsSbxDiagnoseOnThisHost, MEASURED).
+' `--json` exists from 0.42 through 0.49.2 and MinVersion is 0.45, so it is now
+' the one spelling every supported version accepts. Exit 1 with a payload
+' still means "a check failed", and DiagnoseAt parses it.
+'
 ' `status` has a FOURTH value the first reading missed: `warn`, which the real
 ' binary returns for an available update. Only `fail` may block; treating warn
 ' as failure would refuse every host running anything but the newest sbx.
@@ -168,8 +177,17 @@ skinparam noteTextAlignment left
 '     names the version and the verified series, and the run goes on.
 '   * below MinVersion still REFUSES, as before: the CLI surface proveo drives
 '     is missing there.
-' Release (what a fresh install lands) and MinVersion must sit inside
-' Verified; TestThePinnedReleaseIsVerified pins that.
+' SUPERSEDED 2026-10-24 by the v3 rollout (user: "hard switch to v3,
+' compatibility upgrade. Drop support for sbx versions that aren't v3"):
+'   * MinVersion = 0.45.0, the first sbx with v3 workloads; older refuses.
+'   * Verified = {0.49}: only series measured on the v3 path (hermes and
+'     claudecode live runs, sbx-kit-v3-migration.puml). 0.45–0.48 run and
+'     WARN until measured (0.47/0.48 each need their own `sbx login`).
+'   * Release = 0.49.2; its asset names match 0.42.0's (MEASURED with
+'     `gh release view`).
+' Release must sit inside Verified, and no Verified series may sit below
+' MinVersion; TestThePinnedReleaseIsVerified and TestTheFloorIsTheFirstV3Release
+' pin that.
 title host readiness — sbx answers "can this host run a sandbox";\nproveo asks, renders, and installs
 
 actor "operator" as OP
@@ -177,7 +195,7 @@ actor "operator" as OP
 node "the host" as HOST <<host>> {
   component "proveo init — verify\nreportHostReadiness" as INIT <<app>>
   component "internal/sbx.Prereqs\nBlocksInstall + BlocksNothing only" as PRE <<app>>
-  component "<prefix>/bin/sbx diagnose -o json\n12 checks: pass · warn · fail · skip" as DIAG <<cloud>>
+  component "<prefix>/bin/sbx diagnose --json\n12 checks: pass · warn · fail · skip" as DIAG <<cloud>>
   database "an sbx already installed\nthe operator's, whatever its version" as OWNED <<db>>
 }
 
@@ -232,7 +250,7 @@ note bottom of PKG
 end note
 
 note top of DIAG
-  **""-o json"" is what both floors accept.**
+  **""--json"" spans 0.42–0.49; ""-o"" is gone.**
   ""--json"" is a 0.42.x alias that a 0.39.0 host
   rejected outright, and reading the house style
   instead of the command's help left proveo

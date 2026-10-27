@@ -93,15 +93,23 @@ type Capabilities struct {
 	Hosts       []string `yaml:"hosts"`
 	HostBrowser string   `yaml:"hostBrowser"`
 	HostDevices []string `yaml:"hostDevices"`
+	MCPGateway  string   `yaml:"mcpGateway"` // "always": sbx's MCP gateway is wired on every run
 }
+
+// MCPGatewayAlways is the mcpGateway value for a harness whose agent always takes sbx's MCP gateway.
+const MCPGatewayAlways = "always"
+
+// AlwaysMCPGateway reports whether the harness wires sbx's MCP gateway on every run.
+func (c Capabilities) AlwaysMCPGateway() bool { return c.MCPGateway == MCPGatewayAlways }
 
 // HostBrowserCDP is the hostBrowser value for a harness that attaches to a host Chrome over CDP.
 const HostBrowserCDP = "cdp"
 
-// hostDevices values: the host emulators a harness can drive.
+// hostDevices values: the host emulators a harness can drive, and the host desktop client.
 const (
 	HostDeviceAndroid = "android"
 	HostDeviceIOS     = "ios"
+	HostDeviceDesktop = "desktop"
 )
 
 // HasHostDevice reports whether the harness declares the host device kind.
@@ -212,9 +220,12 @@ func (m Manifest) Validate() error {
 		return fmt.Errorf("manifest %q: invalid workspace.mode %q", m.Name, m.Workspace.Mode)
 	}
 	for _, d := range m.Capabilities.HostDevices {
-		if d != HostDeviceAndroid && d != HostDeviceIOS {
-			return fmt.Errorf("manifest %q: invalid capabilities.hostDevices entry %q (want %s or %s)", m.Name, d, HostDeviceAndroid, HostDeviceIOS)
+		if d != HostDeviceAndroid && d != HostDeviceIOS && d != HostDeviceDesktop {
+			return fmt.Errorf("manifest %q: invalid capabilities.hostDevices entry %q (want %s, %s or %s)", m.Name, d, HostDeviceAndroid, HostDeviceIOS, HostDeviceDesktop)
 		}
+	}
+	if g := m.Capabilities.MCPGateway; g != "" && g != MCPGatewayAlways {
+		return fmt.Errorf("manifest %q: invalid capabilities.mcpGateway %q (want %s or unset)", m.Name, g, MCPGatewayAlways)
 	}
 	seen := map[string]bool{}
 	for _, e := range m.Env {

@@ -1,0 +1,308 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: move proveo from sbx v2 kits (built-in agent + kind: mixin, -t image) to v3 workloads, v3 as source of truth
+' would touch: internal/sbx/kit.go, internal/sbx/agents.go, internal/sbx/sbx.go, internal/sbx/version.go
+' would touch: internal/backend/sandbox/sandbox.go (Spec, startupCommands, agentCredentials), internal/sbx/run.go (RunArgs)
+' would touch: internal/imagebuild/**, defs/*/Dockerfile, cmd/proveo/testdata/plan/*.golden
+' would touch: internal/backend/sandbox/own_agent_test.go, internal/sbx/sbx_test.go
+' supersedes on landing: _spec/internal/sbx/sbx-kit-contract.puml (v2 field contract), the v2 half of _spec/_experiments/sbx-kit-capabilities.puml
+' status: PLANNED 2026-10-22 — user: "Plan a v3 migration", "use v3 guidelines as source of truth, downstream from there (port mapping)".
+' _spec/_plans/ is exempt from the SPEC-reference rule.
+'
+' ── SOURCES (read 2026-10-22) ───────────────────────────────────────────────
+'   github.com/docker/sandbox-kit-spec @ f53ac62: docs/spec/SPEC-v3.md,
+'     capabilities/com.docker.sandbox/{sbx,lifecycle,credential,port}@1,
+'     skills/migrate-kit-to-v3/FIELD-MAPPING.md ("where this document and the
+'     code disagree, the code wins")
+'   github.com/docker/sbx-kits-contrib/tree/v3/claude (= docker.io/docker/sbx-kit-claude)
+'   docs.docker.com/ai/sandboxes/customize/{,use-kits/,kits-v2/,author/**}
+'   docker/sbx-releases notes v0.45.0–v0.49.2; issues #696 #710 #738 #614 #474
+'
+' ── WHY (MEASURED) ──────────────────────────────────────────────────────────
+'   * "Docker recommends v3 kits"; "V2 remains supported and is not deprecated".
+'   * Built-in names (claude, codex, cursor, opencode) select v2, so proveo's
+'     v2 split (built-in agent + mixin + -t image) can never take a v3 mixin.
+'   * The recipe departure behind the flavor warning (shell-docker image run
+'     as `claude`, sbx-kit-capabilities.puml:473) exists only on the -t path.
+'     [Inference, untested] a v3 workload takes no -t, so no warning.
+'
+' ── v2 → v3, FIELD BY FIELD (from FIELD-MAPPING + proveo's Spec) ─────────────
+'   v2 (today)                         v3 (target)
+'   sbx run <builtin> -t IMG --kit D   sbx run ./proveo-<target> (own workload)
+'   kind: mixin <target>-posture       kind: workload, dir proveo-<target>
+'   kind: sandbox (cecli own-agent)    kind: workload (same shape as the rest)
+'   sandbox.image: IMG                 <stem>.dockerfile: FROM IMG
+'   environment.variables              ENV in the recipe (per-run values: see Q2)
+'   setup.startup (root seed)          lifecycle@1 install hook, user "0"
+'   setup.startup (agent seed)         lifecycle@1 startup hook, user agent
+'   permissions.network.allow          network-policy@1 (runtime allow; singleton)
+'   credentials[].apiKey (own-agent)   credential@1 service, phase: runtime
+'   built-in agent's credential        COPIED into proveo's descriptor: a FROM
+'                                      does not carry a published kit's
+'                                      capabilities (author/base-images/)
+'   image ENTRYPOINT as PID 1          sbx@1: the host launches the agent
+'   descriptor file spec.yaml          <stem>.yaml — NEVER spec.yaml (#738)
+'
+' ── PORTS (DOWNSTREAM OF v3) ────────────────────────────────────────────────
+' port@1: "A Kit cannot pin a host port … users pin host ports through the
+' runtime's own UX, not the descriptor"; the runtime allocates an ephemeral
+' loopback port for a kit-declared one. `-p [[IP:]HOST:]GUEST` and `sbx ports`
+' ARE that runtime UX and are not v2-only. So the 1–9 prefix rule
+' (_spec/internal/devports/dev-ports.puml, commit b424d23) stays on `-p`, and
+' proveo declares NO port@1 for dev ports: it would add a second, ephemeral
+' binding for the same guest port. [Inference] Revisit if probe P3 shows sbx
+' merges a kit port with a -p for the same guest port.
+'
+' ── CONSTRAINTS THAT SHAPE THE DESIGN ──────────────────────────────────────
+'   C1 v3 needs sbx ≥ 0.45 (lifecycle, credential, network-policy, port, sbx@1);
+'      SBX_AGENT and kit.env arrive in 0.48. Verified {0.42–0.44} drop out.
+'   C2 CORRECTED by P1: `-t` with a positional LOCAL v3 workload is accepted
+'      and replaces the kit-built image (the binary's refusal string covers
+'      some other case, not this one).
+'   C3 sbx pulls a kit's base image; "It can't use images stored only in your
+'      host's Docker image store"; local kits build in sandbox `sbx-kit-builder`.
+'   C4 a local kit's build context is its own directory (#710): no COPY from
+'      the proveo checkout unless the files are staged into the kit dir.
+'   C5 agent name = kit dir / repo last component; must not be a built-in.
+'   C6 one owner per (service, phase) credential; no duplicate `provides`.
+'   C7 hook env is deny-by-default ("a hook sees only what it declares").
+'
+' ── OPEN QUESTIONS (each needs a measured answer before code) ──────────────
+'   Q1 IMAGE SOURCE (C3): host-built proveo images vs sbx-kit-builder.
+'      P2 decides between (a) push proveo images to a registry sbx can pull
+'      (local registry for :local), (b) the kit dockerfile IS the image
+'      recipe (imagebuild emits kits), (c) a supported local-image path.
+'   Q2 PER-RUN VALUES: today's mixin carries host-resolved env (paths, sid,
+'      clone links). v3 env lives in the image; candidates: kit args
+'      (`--kit-arg`, honored for local kits since 0.49.1), kit.env (0.48),
+'      or a run-time file read by the startup hook.
+'   Q3 CREDENTIALS: copy sbx-kit-claude's credential@1 (apiKey x-api-key +
+'      OAuth sentinel, ~/.claude/.credentials.json) and its install hooks,
+'      or compose a kit set FROM docker/sbx-kit-claude + a proveo mixin
+'      (keeps Docker's credential code; Claude Code pin moves to Docker's
+'      kit; mixin image layers count toward the 44-layer limit).
+'
+' ── PROBES (P0, each ≤ 2 min, throwaway names, cleaned up) ──────────────────
+'   P1 `sbx create -t IMG ./v3kit` and `-t` with a v2 local kit: what C2 covers
+'   P2 v3 workload with FROM <host-only image>: does sbx-kit-builder resolve it?
+'   P3 kit port@1 + `-p H:P` for the same P: coexist, merge, or refuse?
+'   P4 v3 workload FROM proveo/claudecode:local run as proveo-claudecode: no
+'      flavor warning, Claude Code launches, OAuth credential flows
+'   P5 install vs startup hook timing against proveo-seed and proveo-await-seed
+'      (_spec/packages/lib/seed-and-launch.puml)
+'
+' ── PROBE RESULTS (MEASURED 2026-10-22, sbx 0.49.2, macOS arm64) ───────────
+'   P0 minimal local workload (FROM shell-docker-0.5.0, sbx@1 only): built
+'      as `sbx-kit-src:<dir>-<hash>` in sbx's store, created in 18s,
+'      SBX_AGENT=<dir name>, user agent. The build pulls the frontend
+'      docker.io/docker/sandbox-kit:3, so building needs Docker Hub.
+'   P1 the same kit + `-t docker/sandbox-templates:shell-docker-0.5.0`:
+'      accepted (10s); Image = the -t image, SBX_AGENT still the kit's, and
+'      the flavor warning returns ("built for the shell agent but you are
+'      using probe-v3shell"). So the warning belongs to -t, not to v2.
+'   P2 workload FROM proveo/claudecode:local (host Docker + sbx store): built
+'      and booted; Claude Code 2.1.308 runs as user claude; NO flavor warning.
+'   P2b workload FROM proveo-probe/layers44:local (host Docker store only):
+'      the build RESOLVED it (image ready), so C3 does not hold for local
+'      kits: sbx-kit-builder reads the host Docker store. The boot then hung:
+'      the kit build adds ≥1 layer, and 44 + ≥1 hits the 45-layer limit
+'      (_spec/_devops/sandbox-template-rebase.puml, FLAT BASE). Layer budget
+'      for a FROM image under a v3 kit is therefore ≤ 43.
+'   BUILD PATH: with a host Docker engine present, a local kit builds on IT,
+'      not in sbx-kit-builder: `docker buildx build ./<kit> -t sbx-kit-src:…`
+'      against the current context (here OrbStack, …/.orbstack/run/docker.sock).
+'      That is why P2/P2b resolve host-only images, and it couples proveo's
+'      v3 launch to the host engine's health (a hung engine hangs `sbx create`
+'      at "building…", measured after P5).
+'   Q1 → (c) holds for local runs: FROM the host-built proveo image, no
+'      registry. Published images still need a registry (pull path, C3).
+'   P3 port@1 alone: sbx publishes localhost:<ephemeral> → 8099. port@1 +
+'      `-p 18099:8099`: ONE binding, 127.0.0.1:18099 → 8099 — the operator's
+'      -p replaces the kit's ephemeral host port. So declaring port@1 AND
+'      pinning with -p is safe; the PORTS section's "no port@1" is revised:
+'      port@1 may name the port (permission surface), -p keeps the 1–9 rule.
+'   P4 workload proveo-claudecode FROM proveo/claudecode:local with the
+'      published kit's credential@1 (service anthropic, apiKey + OAuth
+'      sentinels), network-policy@1 and its root trust-seed install hook:
+'      created in 16s, no flavor warning, SBX_AGENT=proveo-claudecode, user
+'      claude, ~/.claude/.credentials.json holds the sentinel, and
+'      `claude -p` answered through sbx's OAuth proxy (daemon: POST
+'      /sandbox/<n>/credentials 200). Q3 → copying the credential block works.
+'   P5 hooks with 4s sleeps, timestamps in the guest (create t0):
+'        install (root)    +10.7 → +14.7
+'        startup (agent)   +15.5 → +19.5   (sequential, after install)
+'        create returned   ≈ +20           (it waits for both)
+'        `sbx run --name` on the created sandbox: agent at +21.3; startup did
+'        NOT rerun on attach.
+'      So create-then-run gates the agent on BOTH hook phases — the v2
+'      "startup never gates the agent" trap (proveo-await-seed) does not
+'      apply to that flow. [Inference] a one-shot `sbx run <kit>` still
+'      starts the agent alongside startup hooks (docs); untested.
+'   Q2 probe: `sbx create -e PROVEO_PROBE_VAR=per-run-42 ./<v3 workload>`:
+'      the agent env sees it, and an install hook that declares
+'      `env: [PROVEO_PROBE_VAR]` sees it too. So per-run values keep riding
+'      on `-e` (today's mechanism); hooks list the names they read (C7).
+'   P6 ~/.claude.json persistence, real proveo_sync_config restore/save
+'      against a scratch host copy (mcpServers, claudeInChromeDefaultEnabled,
+'      userID, project /old; mtime older than create):
+'        a) upstream root hook verbatim (`> ~/.claude.json`), then restore:
+'           restore SKIPS (host older, the `-nt` rule), the file keeps only
+'           upstream's 3 keys, and save OVERWRITES the host copy with them.
+'        b) restore, then proveo's accept_workspace_trust merge: every host
+'           key survives in the sandbox and on the host, plus workspace trust.
+'      Also measured: an install hook that exits non-zero ABORTS `sbx create`
+'      ("failed to apply kit to sandbox"); hooks run as `docker run --rm -u
+'      <user> <kit image> sh -c 'env -i <allowlist> sh -c …'` — dash, so
+'      bash-only code needs `bash -c`, and every proveo hook must never fail
+'      the create (as the v2 seedNeverAbort wrapper already ensures).
+'   P7 launch: workload ENTRYPOINT ["sh","-c","<log $0 $*>","launcher"]
+'      CMD ["default-cmd"]:
+'        PID 1 is sbx's keepalive (`sh -c trap …; sleep infinity & wait`),
+'        never the image ENTRYPOINT → proveo_sbx_passthrough is dead code
+'        under sbx@1 (DELETE).
+'        `sbx run --name X` (no args) launched `launcher default-cmd`, i.e.
+'        ENTRYPOINT + CMD.
+'        `sbx run --name X -- extra1 extra2` launched `sh extra1 extra2`
+'        ("cannot open extra1"): trailing args replace EVERYTHING after
+'        ENTRYPOINT[0]. So when proveo adds launch flags it sends
+'        launch[1:] + flags (e.g. --dangerously-skip-permissions …) — the
+'        v2 OwnAgentCommand rule, now for every harness.
+'      CORRECTED 2026-10-26 (MEASURED, sbx 0.49.2, ENTRYPOINT
+'      ["/bin/echo","EP0","EP1"] CMD ["C1"]): the rule splits on the
+'      trailing command's first word.
+'        `-- A B`       → `A B`               (argv0 + trailing: replace)
+'        `-- /x A`      → `/x A`              (replace)
+'        `-- -x A`      → `EP0 EP1 C1 -x A`   (leading flag: APPEND to
+'        `-- --flag A`  → `EP0 EP1 C1 --flag A`  ENTRYPOINT + CMD)
+'        `-- -- A B`    → `EP0 EP1 C1 -- A B` (a bare -- appends too)
+'      Every proveo image's ENTRYPOINT is `dumb-init -- /entrypoint.sh`, so
+'      launch[1:] opened with `--`: sbx appended it, /entrypoint.sh got
+'      `-- /entrypoint.sh -s …`, and hermes exited 2 ("'/entrypoint.sh' is
+'      not a hermes command") on every scheduled muse run since 2026-10-22.
+'      Kit-launched harnesses only duplicated their own flag
+'      (`claude --dangerously-skip-permissions --dangerously-skip-…`).
+'      LaunchArgs now sends flags alone when they lead (append), else
+'      launch[1:] without dumb-init's `--` (replace); sbx.Launched models
+'      both. Tests: TestLaunchArgsFollowSbxsAppendAndReplaceRule,
+'      TestLaunchedIsWhatSbxRunStarts.
+'      Probe hazards seen on the way: `sbx run` under `script` (pty) stalls
+'      at "building…" on an unanswered terminal query (OSC 11), and killing
+'      it orphaned a `docker buildx` while OrbStack's API hung; `orb restart
+'      docker` recovered it (6s).
+'
+' ── LIVE RUNS (2026-10-23/24, operator, CLI dev@3ac97ff-v3 from this branch) ─
+'   hermes (no published kit, image ENTRYPOINT): created, launched; banner
+'      showed 64 skills incl. the muse ones (linked-dirs) on muse-glimmer.
+'   claudecode: first blocked retiring v2-era sandboxes (f8781ef6 never
+'      answered the clone probe — old layered image; hermes-0ad8f1e5 broken
+'      by an earlier shim kill), then the kit build failed: "open
+'      claude-context.md: no such file or directory" — agent-context@1's
+'      contentFile is kit-relative and was not vendored. Fixed: the kit's
+'      files travel with UpstreamKit.Files and are written beside the
+'      descriptor; a test fails for any unvendored contentFile.
+'      Re-run on cb7b344 (2026-10-24): PASSED — the operator reported it
+'      worked; sbx lists proveo-claudecode-f8781ef6 with agent
+'      proveo-claudecode (the v3 workload, not the built-in "claude").
+'   RETIRE FIX (user: "Offer remove-anyway"): a sandbox that never answers the
+'      clone probe can be removed on a headed yes that lists its
+'      refs/sandboxes/<name>/ mirrors; kit-lifecycle.puml records it.
+'
+' ── DECISIONS (2026-10-22, user, on the evidence above) ─────────────────────
+'   Q1 "Kit FROM proveo image": <stem>.dockerfile = FROM proveo/<target>:<tag>;
+'      :local resolves from the host engine, published tags pull. Images stay
+'      ≤ 43 layers (the kit adds ≥ 1).
+'   Q2 "Keep -e": per-run values stay on `-e`; each hook lists the names it
+'      reads in `env:` (C7).
+'   Q3 "if docker sbx supports any functionality proveo has, prefer using
+'      upstream (#2 in this case)": copy the published kit's credential@1,
+'      network-policy AND lifecycle hooks (and volumes, agent-context) into
+'      proveo's workload, and DELETE the proveo code they make redundant.
+'      Keep proveo-only behaviour only where upstream lacks it or a recorded
+'      decision contradicts it (overlap table: pending research).
+'   Q3 EXCEPTIONS (user, after the overlap research and P6):
+'      * MCP gateway: "mcp can be a new row under the sbx's egress in
+'        internal/choiceui. If we only have on/off so be it" — copy the
+'        upstream gateway hooks, render them only when that row is on.
+'      * ~/.claude.json: "#1 but explain this issue further; we don't want to
+'        vibe the wheel" → P6 measured the loss; DO NOT copy upstream's root
+'        `> ~/.claude.json` hook. proveo's restore runs first and
+'        accept_workspace_trust (an existing merge) also sets
+'        bypassPermissionsModeAccepted and hasCompletedOnboarding and trusts
+'        `/`. The one deliberate skip of an upstream hook.
+'      * upstream claude-context.md assumes CLAUDE_ENV_FILE: "Set
+'        CLAUDE_ENV_FILE in the base" → ENV CLAUDE_ENV_FILE=/etc/sandbox-
+'        persistent.sh in defs/base (BASH_ENV already points there); copy
+'        agent-context@1 as is.
+'   ROLLOUT "hard switch to v3, compatibility upgrade. Drop support for sbx
+'      versions that aren't v3": no v2 fallback, no flag. MinVersion → 0.45
+'      (v3); Verified keeps only series measured on the v3 path (0.49 today;
+'      0.45–0.48 warn until measured); init's Release → 0.49.2.
+'   CURSOR "Keep upstream, lose the deny list": copy the kit's
+'      `files: cli-config.json (overwrite:false)` verbatim; proveo's cursor
+'      deny-list default goes.
+'   CODEX "Delete dup keys, merge the rest": approval/sandbox leave
+'      defs/codex/defaults/config.toml (upstream's install hook owns them);
+'      proveo merges its remaining keys into the file upstream wrote.
+'   LAUNCH "create, then run": `sbx create` (hooks finish, P5) then
+'      `sbx run --name`; proveo-await-seed is a safety net, not the gate.
+'
+' ── STEP 8 DELETIONS (2026-10-24, "prefer using upstream, delete proveo code") ─
+'   DONE: proveo_sbx_passthrough + _proveo_in_sbx + the six entrypoint calls
+'     (v3 PID 1 is sbx's keepalive, P7; the keepalive test went, the
+'     await-seed identity test stayed); WithMCPGatewayPolicy; KitEnvVars;
+'     OwnAgentCommand; AgentFor, ShellAgent, EnvAgentKit/AgentKitEnabled/
+'     DeclaresOwnAgent + PROVEO_SBX_AGENT_KIT; the v2 Kit/KitCredential*/
+'     KitEnv/KitSetup/KitSandbox*/KitPermissions/KitNet types, WriteKit,
+'     KitSchemaVersion(V2); template.go whole (EnsureTemplate, ReloadTemplate,
+'     HasTemplate, receipts) + PROVEO_SBX_RELOAD + the CLI template hooks —
+'     the recipe's FROM resolves from the host engine (P2), so launchSandbox
+'     preflights the image on every run instead of asking sbx's store.
+'   KEPT: KitCommand (the hook intermediate SeedCommand returns), BuiltinAgent
+'     (agent identity: claudecode → claude for auth and the local-model tools).
+'   MEASURED: `sbx kit validate --offline <workload dir>` refuses a v3 source
+'     kit ("no kit builder configured"); validation needs the daemon's builder.
+'   E2E (user: "Full v3 port"): ladder rungs are v3 (capability-ladder.puml);
+'     sbx_test checks the workload dir, the v3 descriptor shape and `sbx kit
+'     validate` (skips when sbx needs a kit builder); startup_dispatch pins P5;
+'     chrome/adb/resume probes create from a minimal workload
+'     (e2e/workload_v3_test.go); print-mode parsers read the `# sandbox` create
+'     line (env, mounts) and the `# agent` run line (trailing args). The
+'     offline and print-mode e2e tests PASS locally (MEASURED); sandbox-creating
+'     ones await a live climb.
+'
+' ── ORDER OF WORK ──────────────────────────────────────────────────────────
+'   1 probes P1–P5 → record results here (MEASURED)
+'   2 user decisions on Q1–Q3
+'   3 internal/sbx: v3 Kit types + writer (<stem>.yaml + <stem>.dockerfile,
+'     `# syntax=docker/sandbox-kit:3`), unknown-field-free (SPEC §1.2)
+'   4 Spec(): one workload per run; startupCommands → lifecycle hooks;
+'     agentCredentials → credential@1; allow → network-policy@1
+'   5 RunArgs: positional kit, no -t, keep -p (ports section)
+'   6 MinVersion 0.45, Verified series update, init Release ≥ 0.45
+'   7 goldens + own_agent_test + contract test against the spec's examples
+'   8 retire the v2 renderer; supersede sbx-kit-contract.puml
+title sbx kit v3 migration — v3 is the source of truth, ports downstream
+
+rectangle "today (v2)" as V2 {
+  component "sbx built-in agent\nclaude · codex · cursor · opencode" as BUILTIN <<cloud>>
+  component "-t proveo/<target>:local\n(shell-docker base)" as TIMG <<app>>
+  component "kind: mixin <target>-posture\nenv · startup · allow" as MIX <<app>>
+}
+rectangle "target (v3)" as V3 {
+  component "workload ./proveo-<target>\n<stem>.yaml + <stem>.dockerfile" as WL <<app>>
+  component "FROM proveo image\n(source: Q1)" as FROMIMG <<app>>
+  component "sbx@1 · lifecycle@1 · credential@1\nnetwork-policy@1" as CAPS <<app>>
+}
+component "-p <k>P:P\n(runtime UX, unchanged)" as PORTS <<host>>
+database "probes P1–P5\nthen Q1–Q3" as GATE <<db>>
+
+BUILTIN -[hidden]-> TIMG
+TIMG -[hidden]-> MIX
+V2 --> GATE : migrate after
+GATE --> V3
+WL --> FROMIMG
+WL --> CAPS
+V2 --> PORTS
+V3 --> PORTS
+@enduml

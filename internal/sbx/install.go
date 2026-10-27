@@ -14,7 +14,7 @@ import (
 )
 
 // Release is the sbx build `proveo init` puts on the host.
-const Release = "0.42.0"
+const Release = "0.49.2"
 
 // ReleaseRepo is where Docker publishes the builds.
 const ReleaseRepo = "docker/sbx-releases"
@@ -449,7 +449,7 @@ func PolicyInitArgs(baseline string) []string {
 }
 
 // DiagnoseArgs asks sbx to report on the host, machine-readably.
-func DiagnoseArgs() []string { return []string{"diagnose", "-o", "json"} }
+func DiagnoseArgs() []string { return []string{"diagnose", "--json"} }
 
 // Check is one row of `sbx diagnose`.
 type Check struct {
@@ -461,16 +461,16 @@ type Check struct {
 
 func (c Check) Failed() bool { return c.Status == "fail" }
 
-// ParseDiagnose reads a `sbx diagnose -o json` payload.
+// ParseDiagnose reads a `sbx diagnose --json` payload.
 func ParseDiagnose(b []byte) ([]Check, error) {
 	var out struct {
 		Checks []Check `json:"checks"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("sbx diagnose -o json: %w", err)
+		return nil, fmt.Errorf("sbx diagnose --json: %w", err)
 	}
 	if len(out.Checks) == 0 {
-		return nil, fmt.Errorf("sbx diagnose -o json reported no checks")
+		return nil, fmt.Errorf("sbx diagnose --json reported no checks")
 	}
 	return out.Checks, nil
 }

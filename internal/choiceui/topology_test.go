@@ -722,3 +722,25 @@ func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {
 		}
 	}
 }
+
+func TestTheMCPNoteSitsUnderTheHopLabel(t *testing.T) {
+	t.Parallel()
+	fr := base()
+	fr.HopNote = "+ mcp"
+	rows := paint(t, fr, GlyphsNerd, 0)
+	col := func(row, text string) int {
+		i := strings.Index(row, text)
+		if i < 0 {
+			return -1
+		}
+		return runewidth.StringWidth(row[:i])
+	}
+	hop, note := col(rows[3], "sbx proxy"), col(rows[4], "+ mcp")
+	if hop < 0 || note != hop {
+		t.Errorf("the note must start under the hop label: label at %d, note at %d\n%s\n%s", hop, note, rows[3], rows[4])
+	}
+	fr.HopNote = ""
+	if strings.Contains(paint(t, fr, GlyphsNerd, 0)[4], "mcp") {
+		t.Error("no note set, yet mcp was drawn")
+	}
+}

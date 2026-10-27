@@ -15,7 +15,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/chromebridge"
+	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -33,14 +33,14 @@ func TestEachPlaneOffersOnlyItsOwnKindOfChoice(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{
 		Name: "claudecode", Images: map[string]string{"claudecode": "i", "claudecode-browser": "i"},
-		Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"},
+		Capabilities: manifest.Capabilities{HostBrowser: manifest.HostBrowserCDP},
 	}
 	exec := addonOptions(man, rowExecution)
 	iface := addonOptions(man, rowInterface)
 	if !slices.Equal(exec, []string{addonHost, addonSandbox}) {
 		t.Errorf("execution = %v, want the excluded host then the declared daemon", exec)
 	}
-	if !slices.Equal(iface, []string{addonTUI, addonBrowser, addonChrome}) {
+	if !slices.Equal(iface, []string{addonTUI, addonBrowser, addonHostCDP}) {
 		t.Errorf("interface = %v, want the tui then each browser it can drive", iface)
 	}
 	for _, o := range append(append([]string{}, exec...), iface...) {
@@ -58,7 +58,7 @@ func TestFixedBoxesAreGreyedInTheStateTheyState(t *testing.T) {
 		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Multi: true, On: []bool{false, true}},
 		{Label: rowInterface, Options: []string{addonTUI, addonBrowser}, Multi: true, On: []bool{false, true}},
 	}}
-	gateAddons(f, "")
+	gateAddons(f)
 
 	exec, iface := f.Rows[0], f.Rows[1]
 	if !exec.Off[0] || exec.On[0] {
@@ -237,24 +237,22 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 		}
 	}
 
-	if allow := kit.Permissions.Network.Allow; len(allow) != 0 {
-		t.Errorf("network.allow = %v; sbx's own policy decides egress, so the Kit names no hosts", allow)
+	up, _, _ := sbx.UpstreamKitFor("claudecode", sbx.UpstreamOptions{})
+	if got, want := kit.Allow(), (sandbox.Workload{Descriptor: sbx.WorkloadV3{Capabilities: up.Capabilities}}).Allow(); !slices.Equal(got, want) {
+		t.Errorf("runtime allow = %v, want the published claude kit's own list and no tier-driven hosts", got)
 	}
-	if kit.Kind != "mixin" {
-		t.Errorf("kit.Kind = %q, want mixin: a sandbox kit declares an agent sbx will not register", kit.Kind)
-	}
-	if kit.Setup == nil || len(kit.Setup.Startup) == 0 {
-		t.Error("the Kit must carry the seed step, or nothing composes subagents under sbx")
+	if len(kit.Hooks()) == 0 {
+		t.Error("the workload must carry the seed step, or nothing composes subagents under sbx")
 	}
 
-	if cfg.Name != sbx.SandboxName("claudecode", "") || cfg.Image != "proveo/claudecode:latest" {
-		t.Errorf("run config name/image = %q/%q, want the def-keyed sandbox name", cfg.Name, cfg.Image)
+	if cfg.Name != sbx.SandboxName("claudecode", "") || kit.Recipe.From != "proveo/claudecode:latest" {
+		t.Errorf("run config name/FROM = %q/%q, want the def-keyed sandbox name", cfg.Name, kit.Recipe.From)
 	}
 	if strings.Contains(cfg.Name, "proveo-1-2") {
 		t.Errorf("sandbox name %q carries the session id — every run would build its own", cfg.Name)
 	}
-	if len(cfg.Command) != 1 || cfg.Command[0] != "--verbose" {
-		t.Errorf("command = %v, want agent args passed through", cfg.Command)
+	if want := []string{"--verbose"}; !slices.Equal(cfg.Command, want) {
+		t.Errorf("command = %v, want %v: a leading flag appends to the kit's launch (P7)", cfg.Command, want)
 	}
 }
 
@@ -282,12 +280,9 @@ func TestTheSandboxStoresCredentialsUnlessForwardIsChosen(t *testing.T) {
 	}
 
 	// Brokered: sbx's store holds it and the agent's environment carries none.
-	cfg, kit, secrets := sandbox.Spec(in(false))
+	cfg, _, secrets := sandbox.Spec(in(false))
 	if len(secrets) != 1 || secrets[0][0] != "CURSOR_API_KEY" {
 		t.Errorf("secrets = %v, want the key routed to sbx's store", secrets)
-	}
-	if kit.Kind != "mixin" {
-		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
 	}
 	for _, e := range cfg.Env {
 		if e == "CURSOR_API_KEY" || strings.HasPrefix(e, "CURSOR_API_KEY=") {
@@ -373,7 +368,7 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 		Lookup: lookup,
 	}
 
-	_, kit, secrets := sandbox.Spec(in)
+	_, _, secrets := sandbox.Spec(in)
 
 	if len(secrets) == 0 {
 		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
@@ -387,9 +382,6 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 	if !named {
 		t.Errorf("secrets = %v, want the declared credential injected host-side", secrets)
 	}
-	if kit.Kind != "mixin" {
-		t.Errorf("kit.Kind = %q, want mixin", kit.Kind)
-	}
 }
 
 func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T) {
@@ -397,90 +389,23 @@ func TestAddonOptionsOffersTheHostBrowserOnlyToAHarnessWithAClient(t *testing.T)
 	man := manifest.Manifest{
 		Name:         "claudecode",
 		Images:       map[string]string{"claudecode": "proveo/claudecode:latest", "claudecode-browser": "proveo/claudecode-browser:latest"},
-		Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"},
+		Capabilities: manifest.Capabilities{HostBrowser: manifest.HostBrowserCDP},
 	}
-	want := []string{addonTUI, addonBrowser, addonChrome}
+	want := []string{addonTUI, addonBrowser, addonHostCDP}
 	if diff := cmp.Diff(want, addonOptions(man, rowInterface)); diff != "" {
 		t.Errorf("interface options mismatch (-want +got):\n%s", diff)
 	}
-	if opts := addonOptions(manifest.Manifest{Name: "cursor"}, rowInterface); slices.Contains(opts, addonChrome) {
-		t.Errorf("no hostBrowser capability, yet offered %q: %v", addonChrome, opts)
+	if opts := addonOptions(manifest.Manifest{Name: "cursor"}, rowInterface); slices.Contains(opts, addonHostCDP) {
+		t.Errorf("no hostBrowser capability, yet offered %q: %v", addonHostCDP, opts)
 	}
 	// Off by default: the picker never pre-ticks a box that hands the agent the
 	// operator's logged-in browser.
 	p := &Params{}
 	if on := p.addonDefaults(want); on[2] {
-		t.Errorf("%q must start unticked, got %v", addonChrome, on)
+		t.Errorf("%q must start unticked, got %v", addonHostCDP, on)
 	}
-	if on := (&Params{Addons: []string{addonChrome}, AddonsAnswered: true}).addonDefaults(want); !on[2] {
-		t.Errorf("a remembered %q must come back ticked, got %v", addonChrome, on)
-	}
-}
-
-func TestGateAddonsGreysTheHostBrowserForEachReason(t *testing.T) {
-	t.Parallel()
-	row := func() *choiceui.Form {
-		return &choiceui.Form{Rows: []choiceui.Row{
-			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{true}},
-			{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
-		}}
-	}
-	chrome := func(f *choiceui.Form) *choiceui.Row { return &f.Rows[1] }
-	f := row()
-	gateAddons(f, "no Claude in Chrome native host on this machine")
-	if c := chrome(f); !c.Off[0] || c.On[0] || !strings.Contains(c.Reason, "native host") {
-		t.Errorf("host preflight failure must grey+untick with its reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
-	}
-	// a path there. Measured; see _spec/defs/claudecode/chrome-bridge.puml.
-	f = row()
-	gateAddons(f, "")
-	if c := chrome(f); !c.Off[0] || c.On[0] || c.Reason != addonChrome+": "+chromebridge.SbxWhy {
-		t.Errorf("the sandbox must grey+untick the bridge with the sentinel reason: off=%v on=%v reason=%q", c.Off, c.On, c.Reason)
-	}
-	if sb := f.Rows[0]; !sb.Off[0] || !sb.On[0] {
-		t.Errorf("the sandbox box itself must be greyed and ticked: off=%v on=%v", sb.Off, sb.On)
-	}
-}
-
-// What this pins is that the preflight asks chromebridge's scope table, and
-// asks it WITH the proveo home — the login that answers is a file in there.
-func TestChromeUnavailableNamesTheCredentialThatDisablesIt(t *testing.T) {
-	t.Parallel()
-	lookup := func(k string) string {
-		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
-			return "sk-ant-oat01-…"
-		}
-		return ""
-	}
-	why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", "")
-	if !strings.Contains(why, "CLAUDE_CODE_OAUTH_TOKEN") || !strings.Contains(why, "/login") {
-		t.Errorf("why = %q", why)
-	}
-}
-
-func TestChromeUnavailableReadsTheLoginInTheProveoHome(t *testing.T) {
-	t.Parallel()
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
-		time.Now().Add(8*time.Hour).UnixMilli())
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	lookup := func(k string) string {
-		if k == "ANTHROPIC_API_KEY" {
-			return "sk-ant-api03-…"
-		}
-		return ""
-	}
-	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", home); strings.Contains(why, "ANTHROPIC_API_KEY") {
-		t.Errorf("the login in the home must outrank the key beside it: %q", why)
-	}
-	// Same key, no login: now the refusal is the honest one.
-	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "ANTHROPIC_API_KEY") {
-		t.Errorf("why = %q", why)
+	if on := (&Params{Addons: []string{addonHostCDP}, AddonsAnswered: true}).addonDefaults(want); !on[2] {
+		t.Errorf("a remembered %q must come back ticked, got %v", addonHostCDP, on)
 	}
 }
 
@@ -490,14 +415,14 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 		return &choiceui.Form{Rows: []choiceui.Row{
 			// On=false is what a cache answered before the lock looks like.
 			{Label: rowExecution, Options: []string{addonSandbox}, Multi: true, On: []bool{false}},
-			{Label: rowInterface, Options: []string{addonChrome}, Multi: true, On: []bool{true}},
+			{Label: rowInterface, Options: []string{addonIOS}, Multi: true, On: []bool{true}},
 		}}
 	}
 	first := form()
-	gateAddons(first, "")
+	gateAddons(first)
 	second := form()
-	gateAddons(second, "")
-	gateAddons(second, "")
+	gateAddons(second)
+	gateAddons(second)
 	for _, tc := range []struct {
 		name string
 		f    *choiceui.Form
@@ -505,9 +430,9 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 		if sb := tc.f.Rows[0]; !sb.Off[0] || !sb.On[0] {
 			t.Errorf("%s: the sandbox must be greyed and ticked, got off=%v on=%v", tc.name, sb.Off, sb.On)
 		}
-		if c := tc.f.Rows[1]; !c.Off[0] || c.On[0] || c.OffWhy[addonChrome] != chromebridge.SbxWhy {
-			t.Errorf("%s: a sandboxed run must grey the bridge for the sentinel, got off=%v on=%v why=%q",
-				tc.name, c.Off, c.On, c.OffWhy[addonChrome])
+		if c := tc.f.Rows[1]; !c.Off[0] || c.On[0] || c.OffWhy[addonIOS] != hostadb.IOSWhy {
+			t.Errorf("%s: ios must stay greyed with its reason, got off=%v on=%v why=%q",
+				tc.name, c.Off, c.On, c.OffWhy[addonIOS])
 		}
 	}
 }
@@ -517,7 +442,7 @@ func TestGateAddonsKeepsTheSandboxCompulsory(t *testing.T) {
 	f := &choiceui.Form{Rows: []choiceui.Row{{
 		Label: rowExecution, Options: []string{addonHost, addonSandbox}, Multi: true, On: []bool{false, true},
 	}}}
-	gateAddons(f, "")
+	gateAddons(f)
 	r := f.Rows[0]
 	if !r.Off[1] || !r.On[1] {
 		t.Errorf("the sandbox is compulsory: greyed and ticked, got off=%v on=%v", r.Off, r.On)
@@ -673,72 +598,6 @@ func claudecodeMan() manifest.Manifest {
 	}
 }
 
-func TestChromeGateAsksWhatTheAgentWillSeeNotTheHost(t *testing.T) {
-	t.Parallel()
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
-		time.Now().Add(8*time.Hour).UnixMilli())
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// A bare setup-token on the host — the shape Claude Code calls inference-only.
-	lookup := func(k string) string {
-		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
-			return "sk-ant-oat01-…"
-		}
-		return ""
-	}
-	why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", home)
-	if strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
-		t.Errorf("the token is suppressed in favour of the mounted login, so the gate "+
-			"must not refuse over it: %q", why)
-	}
-	// And with no login to suppress it, the refusal is the honest one again.
-	if why := chromeUnavailable(claudecodeMan(), lookup, "", "claudecode", t.TempDir()); !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
-		t.Errorf("without a login the token IS the credential, so the gate must refuse: %q", why)
-	}
-	// The operator naming the token explicitly is their answer, and it stands.
-	why = chromeUnavailable(claudecodeMan(), lookup, "CLAUDE_CODE_OAUTH_TOKEN", "claudecode", home)
-	if !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
-		t.Errorf("a token the operator CHOSE is the credential even beside a login: %q", why)
-	}
-}
-
-// A blanked credential file is the ordinary state of the proveo home on macOS,
-// and ScopeGate cannot see it — it reasons about the session's SHAPE.
-func TestChromeGateWarnsAboutABlankedLogin(t *testing.T) {
-	t.Parallel()
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	blanked := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","refreshTokenExpiresAt":%d}}`,
-		time.Now().Add(20*24*time.Hour).UnixMilli())
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(blanked), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	none := func(string) string { return "" }
-	why := chromeUnavailable(claudecodeMan(), none, "", "claudecode", home)
-	if !strings.Contains(why, "Keychain") || !strings.Contains(why, "/login") {
-		t.Errorf("a blanked login must be named, with the action that fixes it: %q", why)
-	}
-	if len(why) > 150 {
-		t.Errorf("the warning is %d chars; it must stay one line: %q", len(why), why)
-	}
-	// A real login is not warned about.
-	live := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"real","expiresAt":%d}}`,
-		time.Now().Add(8*time.Hour).UnixMilli())
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(live), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if why := chromeUnavailable(claudecodeMan(), none, "", "claudecode", home); strings.Contains(why, "Keychain") {
-		t.Errorf("a usable login must not be reported as blanked: %q", why)
-	}
-}
-
 // blankedHome writes the macOS husk: tokens cleared, stamps intact.
 func blankedHome(t *testing.T) string {
 	t.Helper()
@@ -752,42 +611,6 @@ func blankedHome(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return home
-}
-
-func TestChromeGateIgnoresABlankedHomeWhenTheEnvTokenCarriesTheSession(t *testing.T) {
-	t.Parallel()
-	home := blankedHome(t)
-	scoped := func(k string) string {
-		switch k {
-		case "CLAUDE_CODE_OAUTH_TOKEN":
-			return "sk-ant-oat01-x"
-		case "CLAUDE_CODE_OAUTH_SCOPES":
-			return "user:inference user:profile"
-		}
-		return ""
-	}
-	if why := chromeUnavailable(claudecodeMan(), scoped, "", "claudecode", home); strings.Contains(why, "Keychain") {
-		t.Errorf("a well-scoped env token carries the session; the husk is irrelevant: %q", why)
-	}
-}
-
-func TestChromeGateRemedyNamesTheRunNotTheHost(t *testing.T) {
-	t.Parallel()
-	unscoped := func(k string) string {
-		if k == "CLAUDE_CODE_OAUTH_TOKEN" {
-			return "sk-ant-oat01-x"
-		}
-		return ""
-	}
-	for _, home := range []string{blankedHome(t), t.TempDir()} {
-		why := chromeUnavailable(claudecodeMan(), unscoped, "", "claudecode", home)
-		if !strings.Contains(why, "CLAUDE_CODE_OAUTH_SCOPES") {
-			t.Fatalf("an unscoped env token must be named: %q", why)
-		}
-		if !strings.Contains(why, "INSIDE the run") {
-			t.Errorf("the remedy must say where /login has to happen: %q", why)
-		}
-	}
 }
 
 // SPEC: _spec/_plans/init-credential-provisioning.puml
@@ -828,18 +651,17 @@ func TestHostCDPAddonIsOfferedByCapabilityAndNeedsSbx(t *testing.T) {
 	t.Parallel()
 	cdp := manifest.Manifest{Capabilities: manifest.Capabilities{HostBrowser: manifest.HostBrowserCDP}}
 	opts := interfaceOptions(cdp)
-	if !slices.Contains(opts, addonHostCDP) || slices.Contains(opts, addonChrome) {
-		t.Errorf("hostBrowser: cdp ⇒ %v; want %q and not the Claude-in-Chrome bridge", opts, addonHostCDP)
+	if !slices.Contains(opts, addonHostCDP) {
+		t.Errorf("hostBrowser: cdp ⇒ %v; want %q", opts, addonHostCDP)
 	}
-	bridge := manifest.Manifest{Capabilities: manifest.Capabilities{HostBrowser: addonChrome}}
-	if opts := interfaceOptions(bridge); slices.Contains(opts, addonHostCDP) || !slices.Contains(opts, addonChrome) {
-		t.Errorf("hostBrowser: claude-in-chrome ⇒ %v", opts)
+	if opts := interfaceOptions(manifest.Manifest{Capabilities: manifest.Capabilities{HostBrowser: "claude-in-chrome"}}); slices.Contains(opts, "claude-in-chrome") {
+		t.Errorf("the retired Claude-in-Chrome bridge is offered again: %v", opts)
 	}
 
 	f := &choiceui.Form{Rows: []choiceui.Row{
 		{Label: rowInterface, Options: []string{addonHostCDP}, Multi: true, On: []bool{true}},
 	}}
-	gateAddons(f, "")
+	gateAddons(f)
 	if r := f.Rows[0]; r.Off[0] {
 		t.Errorf("with sbx the add-on must be live: reason=%q", r.Reason)
 	}
@@ -852,7 +674,7 @@ func TestAddonFlagResolvesAliasesAndRefusesTheUnoffered(t *testing.T) {
 	if err := p.resolveAddonFlags(cdp); err != nil || !slices.Equal(p.Addons, []string{addonHostCDP}) || !p.AddonsAnswered {
 		t.Errorf("addons = %v answered=%v err=%v", p.Addons, p.AddonsAnswered, err)
 	}
-	bad := Params{Target: "hermes", Addons: []string{"claude-in-chrome"}, AddonsSet: true}
+	bad := Params{Target: "hermes", Addons: []string{"android"}, AddonsSet: true}
 	if err := bad.resolveAddonFlags(cdp); err == nil || !strings.Contains(err.Error(), addonHostCDP) {
 		t.Errorf("an add-on the harness does not offer must be refused and the offered ones named: %v", err)
 	}
@@ -885,4 +707,36 @@ func TestThePickerPromisesADaemonOnlyWhereTheManifestDoes(t *testing.T) {
 			t.Errorf("help for %q changed to %q", k, got[k])
 		}
 	}
+}
+
+func TestAScheduledRunKeepsToTheTUI(t *testing.T) {
+	t.Run("a saved desktop choice gives way and stays saved", func(t *testing.T) {
+		p := &Params{Addons: []string{addonBrowser, addonDesktop}}
+		cached := p.Addons
+		if err := p.tuiForSchedule(); err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff([]string{addonBrowser}, p.Addons); diff != "" {
+			t.Errorf("addons mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]string{addonBrowser, addonDesktop}, cached); diff != "" {
+			t.Errorf("the saved choice changed (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("an explicit --addon desktop is refused", func(t *testing.T) {
+		p := &Params{Addons: []string{addonDesktop}, AddonsSet: true}
+		if err := p.tuiForSchedule(); err == nil || !strings.Contains(err.Error(), "scheduled run") {
+			t.Errorf("tuiForSchedule() = %v, want the scheduled-run refusal", err)
+		}
+	})
+	t.Run("only PROVEO_SCHEDULE marks a run scheduled", func(t *testing.T) {
+		t.Setenv("PROVEO_SCHEDULE", "")
+		if scheduled() {
+			t.Error("scheduled() with PROVEO_SCHEDULE empty")
+		}
+		t.Setenv("PROVEO_SCHEDULE", "1")
+		if !scheduled() {
+			t.Error("scheduled() false under PROVEO_SCHEDULE=1")
+		}
+	})
 }

@@ -9,6 +9,18 @@ skinparam noteTextAlignment left
 ' covers: defs/**/entrypoint.sh
 ' What a launch must not drop: _spec/packages/lib/seed-and-launch.puml.
 '
+' ── THE RUNGS ON v3 (2026-10-24, user: "Full v3 port") ──────────────────────
+'   0 bare sbx agent ........ stock: sbx's built-in for the target, else `shell`
+'   1 proveo image workload . FROM the harness image, sbx@1 only; launch through
+'                             the published kit's ENTRYPOINT when there is one
+'   2 browser image ......... the same, FROM <target>-browser
+'   3 proveo workload ....... the printed `sbx create` argv of `proveo run
+'                             --print` (sbx.ShellJoin → shellWords), as `run`
+' The v2 borrowed-shell command rung and the PROVEO_SBX_AGENT_KIT gate are gone.
+' TestSandboxWorkloadProxyManagesTheCredential copies the rendered workload's
+' credential@1 capabilities (known services only) onto a probe FROM the image
+' whose ENTRYPOINT prints the key variable, then runs a control without them.
+'
 ' ── THE METHOD ─────────────────────────────────────────────────────────────
 ' Start with the smallest thing that can run an agent — stock sbx, stock
 ' image, no proveo — and add exactly ONE capability per rung. Run the same

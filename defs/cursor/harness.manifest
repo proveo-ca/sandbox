@@ -1,6 +1,6 @@
 # SPEC: _spec/components.puml
 name: cursor
-description: Policy-gated autonomous loop (Cursor CLI, --force + native deny rules)
+description: Policy-gated autonomous loop (Cursor CLI, --force + audited shell)
 subscription: true
 stability: candidate
 images:

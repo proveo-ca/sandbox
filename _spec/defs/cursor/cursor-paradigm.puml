@@ -5,6 +5,16 @@ title cursor paradigm — policy-gated autonomous loop (layered enforcement)
 ' covers: defs/cursor/entrypoint.sh
 ' covers: packages/lib/entrypoint-lib.sh
 '
+' ── NO PROVEO DENY LIST (2026-10-24, user: "Keep upstream, lose the deny list")
+' The sbx cursor kit seeds ~/.cursor/cli-config.json as
+' {"network":{"useHttp1ForAgent":true}} (lifecycle files:, overwrite:false);
+' proveo copies that entry with the kit (WithLifecycle keeps `files`).
+' defs/cursor/defaults/cli-config.json and its permissions.deny baseline are
+' deleted; the entrypoint no longer seeds or counts deny rules. Layer 1 keeps
+' the root-owned hooks and readonly subagents; an operator's own deny entries
+' in cli-config.json or a project .cursor/cli.json still apply. Pinned by
+' TestCursorShipsNoDenyListDefault (internal/contract/defaults_test.go).
+'
 ' ── THREE ENTRYPOINT DETAILS WORTH KEEPING ─────────────────────────────────
 ' PROXY COMPATIBILITY is two changes, not one. Beside the nested
 ' `network.useHttp1ForAgent` written into cli-config.json, the entrypoint also
@@ -40,7 +50,7 @@ node "cursor container" as CTR <<host>> {
   component "cursor-agent --force" as CLI <<app>>
 
   frame "Layer 1 — in-process policy" as L1 <<host>> {
-    component "permissions.deny\ncli-config.json" as DENY <<error>>
+    component "operator's own permissions.deny\n(proveo seeds none)" as DENY <<error>>
     component "hooks.json\nallow / deny / ask on tool events" as HOOKS <<error>>
     component "subagents with native readonly" as RO <<app>>
   }
@@ -66,8 +76,8 @@ SBX ARROW_CLOUD VENDOR : via EG
 
 note right of L1
   **Enforcement is layered, and ""--force"" only removes
-  the interactive prompt.** ""permissions.deny"" entries are
-  hard stops; the enterprise hook layer is root-owned at
+  the interactive prompt.** An operator's ""permissions.deny""
+  entries are hard stops (proveo seeds none); the enterprise hook layer is root-owned at
   ""/etc/cursor/hooks.json"" — highest precedence
   (enterprise > team > project > user), so the sandboxed
   agent can neither edit nor out-rank it.

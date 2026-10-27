@@ -61,29 +61,65 @@ func TestFirstChoiceIsTheFirstChangeableOption(t *testing.T) {
 	}
 }
 
-func TestInterfaceColumnsStayPutWhenOneIsMissing(t *testing.T) {
+func TestTheDevicesRowPacksItsOptionsWithoutGaps(t *testing.T) {
 	t.Parallel()
 	partial := layoutInterface(choiceui.Row{
 		Label: rowInterface, Multi: true,
 		Options: []string{addonTUI, addonAndroid, addonIOS},
 		On:      []bool{true, false, true},
 	})
-	if !slices.Equal(partial.Options, []string{addonTUI, addonAndroid, addonIOS}) || !slices.Equal(partial.Cols, []int{0, 2, 3}) {
-		t.Errorf("partial = %v cols %v, want tui, android, ios in columns 0, 2, 3", partial.Options, partial.Cols)
+	if !slices.Equal(partial.Options, []string{addonTUI, addonAndroid, addonIOS}) || !slices.Equal(partial.Cols, []int{0, 1, 2}) {
+		t.Errorf("partial = %v cols %v, want tui, android, ios in columns 0, 1, 2", partial.Options, partial.Cols)
 	}
 	if !partial.On[0] || partial.On[1] || !partial.On[2] {
 		t.Errorf("ticks moved with the sort: %v", partial.On)
 	}
+	hermes := layoutInterface(choiceui.Row{
+		Label: rowInterface, Multi: true,
+		Options: []string{addonTUI, addonHostCDP, addonDesktop},
+	})
+	if want := []string{addonTUI, addonDesktop, addonHostCDP}; !slices.Equal(hermes.Options, want) || !slices.Equal(hermes.Cols, []int{0, 1, 2}) {
+		t.Errorf("hermes = %v cols %v, want %v in columns 0, 1, 2", hermes.Options, hermes.Cols, want)
+	}
 	full := layoutInterface(choiceui.Row{
 		Label: rowInterface, Multi: true,
-		Options: []string{addonChrome, addonIOS, addonTUI, addonBrowser, addonAndroid},
+		Options: []string{addonHostCDP, addonIOS, addonTUI, addonBrowser, addonAndroid},
 	})
-	want := []string{addonTUI, addonBrowser, addonAndroid, addonIOS, addonChrome}
+	want := []string{addonTUI, addonBrowser, addonAndroid, addonIOS, addonHostCDP}
 	if !slices.Equal(full.Options, want) || !slices.Equal(full.Cols, []int{0, 1, 2, 3, 4}) {
 		t.Errorf("full = %v cols %v, want %v", full.Options, full.Cols, want)
 	}
-	if full.Paint[addonChrome] != "chrome" {
-		t.Errorf("chrome cell = %q, want chrome", full.Paint[addonChrome])
+}
+
+func TestTUIAndDesktopAreOneRadioChoice(t *testing.T) {
+	t.Parallel()
+	r := layoutInterface(choiceui.Row{Label: rowInterface, Multi: true, Options: []string{addonTUI, addonDesktop, addonHostCDP}})
+	if !slices.Equal(r.RadioSet, []string{addonTUI, addonDesktop}) {
+		t.Fatalf("radio set = %v, want tui and desktop", r.RadioSet)
+	}
+	on := func(opt string) bool { return r.On[slices.Index(r.Options, opt)] }
+	if !on(addonTUI) || on(addonDesktop) {
+		t.Fatalf("no answer yet: tui %v desktop %v, want tui", on(addonTUI), on(addonDesktop))
+	}
+	r.On[slices.Index(r.Options, addonDesktop)] = true
+	if !pairTUIDesktop(&r, false) || on(addonTUI) {
+		t.Errorf("ticking desktop must untick tui: tui %v desktop %v", on(addonTUI), on(addonDesktop))
+	}
+	r.On[slices.Index(r.Options, addonTUI)] = true
+	if pairTUIDesktop(&r, true) || on(addonDesktop) {
+		t.Errorf("ticking tui must untick desktop: tui %v desktop %v", on(addonTUI), on(addonDesktop))
+	}
+	r.On[slices.Index(r.Options, addonTUI)] = false
+	if pairTUIDesktop(&r, false); !on(addonTUI) {
+		t.Error("unticking the only choice must leave it on — a radio is never empty")
+	}
+	f := &choiceui.Form{Rows: []choiceui.Row{r}}
+	gateAddons(f)
+	if f.Rows[0].Off[slices.Index(r.Options, addonTUI)] {
+		t.Error("tui is still locked where desktop is offered")
+	}
+	if slices.Contains(selectedAddons(f), addonTUI) {
+		t.Error("tui leaked into the add-ons; it is the default, not an add-on")
 	}
 }
 

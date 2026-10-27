@@ -11,7 +11,6 @@ skinparam noteTextAlignment left
 '   why the host cannot reach in ... _spec/internal/sbx/browser-viewport.puml
 '   the reach this needs, unbuilt .. _spec/_plans/tools-and-localhost-tunnels.puml
 '   the prize .................... .. _spec/_devops/image-size-reduction.puml
-'   the operator-Chrome case, gated  _spec/defs/claudecode/chrome-bridge.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── AUTHORITATIVE SOURCES ───────────────────────────────────────────────────
@@ -64,10 +63,9 @@ skinparam noteTextAlignment left
 '     log becomes decorative for anything fetched through that browser.
 '
 ' A host-side engine is therefore not a smaller version of this idea; it is an
-' EXFILTRATION PATH wearing the same API. That case already exists, is already
-' gated, and is already specced as its own thing — claude-in-chrome, with
-' `chromebridge.ScopeGate` — and it must not be reached by accident through a
-' variable meant for image size.
+' EXFILTRATION PATH wearing the same API. proveo offers no such path (the
+' Claude in Chrome bridge was removed on 2026-10-24), and none may be reached
+' by accident through a variable meant for image size.
 '
 ' SO THE TOPOLOGY IS DECIDED IN ADVANCE: sidecar, never host. That is a
 ' constraint on the experiment, not an outcome of it.
@@ -174,8 +172,8 @@ note bottom of HOSTCH
   **Not a smaller version of this idea.** A
   host-side engine's traffic leaves by the host's
   network, so browsing it bypasses the allowlist,
-  the tier and the policy log. That case is
-  claude-in-chrome, and it is gated for a reason.
+  the tier and the policy log. proveo
+  offers no such path.
 end note
 
 note bottom of SIDE

@@ -54,7 +54,7 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 		t.Errorf("%s: the plan's secret-store line names none of the %d injected keys — proveo never saw "+
 			"them, so their absence from argv proves nothing:\n%s", agent, len(keys), plan)
 	}
-	agentCmd := agentCommandLine(t, plan)
+	agentCmd := launchPlan(t, plan)
 	for _, k := range keys {
 		if strings.Contains(agentCmd, want[k]) {
 			t.Errorf("%s: RAW %s value appears in the agent launch command — it belongs in sbx's secret store", agent, k)
@@ -72,7 +72,7 @@ func TestCursorBrokersThroughTheSbxStore(t *testing.T) {
 	proveoBin := buildProveo(t)
 
 	def := runPrint(t, proveoBin, "cursor")
-	defCmd := agentCommandLine(t, def)
+	defCmd := launchPlan(t, def)
 	if hasBareEnv(defCmd, "CURSOR_API_KEY") {
 		t.Errorf("cursor brokers natively — the key belongs in sbx's secret store, not a bare -e:\n%s", defCmd)
 	}
@@ -149,25 +149,25 @@ func printEnforcedPlan(t *testing.T, proveoBin, agent string, kv []string) strin
 	return string(out)
 }
 
-// agentCommandLine extracts the agent's `sbx run …` command line from --print
-// output (the line following the "# agent" marker).
+// agentCommandLine is the agent's `sbx run --name …` line from --print output: the trailing args.
 func agentCommandLine(t *testing.T, out string) string {
 	t.Helper()
-	lines := strings.Split(out, "\n")
-	for i, l := range lines {
-		if strings.TrimSpace(l) == "# agent" && i+1 < len(lines) {
-			return lines[i+1]
-		}
-	}
-	t.Fatalf("no '# agent' command in --print output:\n%s", out)
-	return ""
+	return printedLine(t, out, "# agent")
 }
 
-// envValInCmd finds `-e KEY=VALUE` in an sbx command line and returns VALUE.
+// launchPlan is the whole printed launch: the `sbx create` line (env, mounts, workload) and the run line.
+func launchPlan(t *testing.T, out string) string {
+	t.Helper()
+	return printedLine(t, out, "# sandbox") + "\n" + agentCommandLine(t, out)
+}
+
+// envValInCmd finds `-e KEY=VALUE` in printed sbx command lines and returns VALUE.
 func envValInCmd(cmd, key string) (string, bool) {
-	for _, tok := range strings.Fields(cmd) {
-		if v, ok := strings.CutPrefix(tok, key+"="); ok {
-			return v, true
+	for _, line := range strings.Split(cmd, "\n") {
+		for _, tok := range shellWords(line) {
+			if v, ok := strings.CutPrefix(tok, key+"="); ok {
+				return v, true
+			}
 		}
 	}
 	return "", false

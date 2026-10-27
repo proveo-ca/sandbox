@@ -6,7 +6,6 @@ if [[ -f /entrypoint-lib.sh ]]; then
   # shellcheck source=/dev/null
   source /entrypoint-lib.sh
 fi
-proveo_sbx_passthrough "$@"
 
 set_working_directory "/app"
 bridge_google_keys

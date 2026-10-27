@@ -433,3 +433,16 @@ func TestAStaleManifestKeyFailsLoading(t *testing.T) {
 		t.Errorf("Parse(docker: sbx) error = %v, want the migration to `daemon: false`", err)
 	}
 }
+
+func TestMCPGatewayAcceptsAlwaysOrNothing(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		v  string
+		ok bool
+	}{{"", true}, {MCPGatewayAlways, true}, {"sometimes", false}} {
+		m := Manifest{Name: "x", Images: map[string]string{"x": "x:latest"}, Capabilities: Capabilities{MCPGateway: c.v}}
+		if err := m.Validate(); (err == nil) != c.ok {
+			t.Errorf("mcpGateway %q: err = %v, want ok %v", c.v, err, c.ok)
+		}
+	}
+}

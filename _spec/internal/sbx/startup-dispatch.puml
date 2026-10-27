@@ -1,4 +1,13 @@
 @startuml StartupDispatch
+' ── THE SEED NEVER CALLS AN AWAIT-SEED SHIM (2026-10-26) ─────────────────
+' proveo_wire_hermes_mcp_gateway resolved `hermes` through PATH to
+' /opt/proveo/shims/hermes, which runs proveo-await-seed — a wait for the
+' release marker the seed itself writes later. Two `config set` calls waited
+' PROVEO_INSTRUCTIONS_WAIT (30s) each: every hermes start took ~64.6s
+' (daemon.log POST /start duration_ms), and the seed-ready probe's 1-minute
+' exec was killed (MEASURED). The step takes the first hermes on PATH that is
+' not an await-seed shim. Test: TestTheHermesGatewayStepSkipsTheAwaitSeedShim.
+'
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how proveo consumes sbx's startup dispatcher on Docker's documented terms — what blocks, what runs beside the agent, and the probe that pins the contract
@@ -96,13 +105,6 @@ skinparam noteTextAlignment left
 ' step ends the start. internal/imagetest/cecli_test.go runs the Kit's own
 ' argv in the image under su's PATH and requires cecli's "seed-only" line.
 '
-' The chrome bridge moved BEFORE the release. It needs only node, which the
-' image bakes, takes at most 3s, and writes hasCompletedClaudeInChromeOnboarding
-' into ~/.claude.json with a plain read-then-write. After the release that write
-' would race Claude Code's own writes to the same file, and the onboarding
-' dialog it suppresses is one no automation answers
-' (_spec/defs/claudecode/chrome-bridge.puml).
-'
 ' The gate the agent waits on stays proveo's own: proveo-await-seed polls the
 ' release marker for PROVEO_INSTRUCTIONS_WAIT (30s). The docs make that gate
 ' necessary, since no startup step holds the agent. Step 1 therefore has to
@@ -165,8 +167,17 @@ skinparam noteTextAlignment left
 ' the same workspace. The second wire pass still rewrites LSP wiring after the
 ' agent started, as the seed-and-launch order already accepted.
 '
-' ── THE PROBE ───────────────────────────────────────────────────────────────
-' e2e/startup_dispatch_test.go starts STOCK sbx — no proveo image, no proveo
+' ── THE PROBE, ON v3 (2026-10-24, the "Full v3 port" of e2e) ────────────────
+' A workload's create runs its install and startup hooks and returns after the
+' FOREGROUND ones (P5, sbx-kit-v3-migration.puml); proveo launches right after
+' create. TestWorkloadCreateWaitsForForegroundStartupHooksOnly creates a
+' workload FROM the stock template docker/sandbox-templates:shell-docker with
+' a foreground hook (sleeps PROVEO_DISPATCH_STEP, default 20s) and a background
+' one (3×): after create returns, the foreground end-stamp must exist and the
+' background one must not. The v2 rows below (shell agent, mixin, "startup never
+' gates") and foregroundGateVersions are gone with the v2 kit path.
+' HISTORY (v2):
+' e2e/startup_dispatch_test.go started STOCK sbx — no proveo image, no proveo
 ' seed — with a one-step mixin whose step sleeps, in two rows: FOREGROUND (the
 ' docs' own claim) and BACKGROUND (the one this split relies on). The shell
 ' agent records its own start. The docs say it starts before the sleep ends;

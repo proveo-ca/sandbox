@@ -1,7 +1,8 @@
-// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/defs/claudecode/chrome-bridge.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
 package run
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/chromebridge"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/hostadb"
@@ -41,6 +41,7 @@ type Deps struct {
 	GitHubTokenEnv   func() string
 	ProvisionConfirm func(question string) bool
 	PreflightImages  func(man manifest.Manifest, agentImage string) (string, error)
+	EnsureDesktop    func() ([]string, error) // installs Hermes Desktop when missing; returns its launch argv
 }
 
 func Do(p Params, d Deps) (err error) {
@@ -156,6 +157,12 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 		}
 		p.Evidence, rs.Choices.EvidenceSet = v, true
 	}
+	if strings.TrimSpace(os.Getenv("PROVEO_SBX_MCP")) != "" {
+		p.MCP, p.MCPSet = mcpOff, true
+		if sandbox.MCPGatewayAllowed() {
+			p.MCP = mcpOn
+		}
+	}
 
 	return nil
 }
@@ -171,7 +178,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	if err := p.applyCapabilities(rs.Man); err != nil {
 		return err
 	}
-	if rs.Choices.Promptable {
+	if rs.Choices.Promptable || (p.PrintOnly && scheduled() && agentio.WizardEnabled()) {
 		if cached, ok := rs.Choices.Settings.Lookup(p.Target, rs.Man.Capabilities); ok {
 			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
@@ -203,6 +210,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
 			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
+			MCP: p.MCP,
 		})
 		if p.portsAsked {
 			rs.Choices.Settings.RememberPorts(rs.Choices.PortsRoot, portsToRemember(p.Ports))
@@ -212,6 +220,11 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		}
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
 			ui.Warnf("%v", err)
+		}
+	}
+	if scheduled() {
+		if err := p.tuiForSchedule(); err != nil {
+			return err
 		}
 	}
 	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
@@ -276,35 +289,6 @@ func startHostADB(p *Params) ([]string, error) {
 	}
 	ui.Warnf("%s: the agent controls every device on that adb server, and the server dials any address it is told to from this host — outside sbx egress", addonAndroid)
 	return hostadb.GuestEnv(port), nil
-}
-
-func startChromeBridge(rs *Spec, p *Params, blocked string) *chromebridge.Relay {
-	ui.Section(ui.SectionInterface)
-	if !hasAddon(p.Addons, addonChrome) {
-		return nil
-	}
-	switch {
-	case blocked != "":
-		ui.Warnf("%s: skipped — %s", addonChrome, blocked)
-		return nil
-	case p.PrintOnly:
-		ui.Hostf("%s: the run starts a host relay and sets %s + %s on the agent (not started in print mode)",
-			addonChrome, chromebridge.EnvAddr, chromebridge.EnvToken)
-		return nil
-	}
-	if why := chromeUnavailable(rs.Man, rs.Creds.Lookup, p.AuthVar, p.Target, rs.Creds.HomePlan.Root); why != "" {
-		ui.Warnf("%s: skipped — %s", addonChrome, why)
-		return nil
-	}
-	r, err := chromebridge.Start(chromebridge.BindAddr(), chromebridge.HostSocketDir(), ui.Warnf)
-	if err != nil {
-		ui.Warnf("%s: skipped — %v", addonChrome, err)
-		return nil
-	}
-	ui.Hostf("chrome: Claude in Chrome through YOUR browser — host relay %s → %s. "+
-		"The agent gets your logged-in sessions; site permissions stay the extension's",
-		r.Addr(), chromebridge.HostSocketDir())
-	return r
 }
 
 func hostStoreResolver() *secretref.Resolver {
@@ -489,7 +473,7 @@ func buildPosture(rs *Spec, p *Params) {
 		Image:         posture.Image(p.Image),
 		ModelRoles:    posture.RolesLine(p.Roles),
 		RoleProviders: strings.Join(p.Roles.Providers(), ","),
-		MCPGateway:    posture.MCPGateway(sandbox.MCPGatewayAllowed(), sandbox.MCPGatewayVar),
+		MCPGateway:    posture.MCPGateway(p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(), sandbox.MCPGatewayVar),
 		Workspace:     posture.Workspace(predictClone(p, rs.Workspace.WS)),
 	}
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
@@ -592,12 +576,21 @@ func assembleEnv(rs *Spec, p *Params, d Deps) {
 
 // launchSandbox resolves the clone and add-ons, then runs the agent in sbx (or prints the plan).
 func launchSandbox(rs *Spec, p *Params, d Deps) error {
-	if !p.PrintOnly && d.PreflightImages != nil && !sbx.HasTemplate(p.Image) {
+	if !p.PrintOnly && d.PreflightImages != nil {
 		image, err := d.PreflightImages(rs.Man, p.Image)
 		if err != nil {
 			return err
 		}
 		p.Image = image
+	}
+	desktop := slices.Contains(p.Addons, addonDesktop)
+	var desktopLaunch []string
+	if desktop && !p.PrintOnly && d.EnsureDesktop != nil {
+		launch, err := d.EnsureDesktop()
+		if err != nil {
+			return err
+		}
+		desktopLaunch = launch
 	}
 	rs.Model.HostLLM = p.LocalModel != ""
 
@@ -644,12 +637,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	if browserOn && !p.PrintOnly {
 		cdpPort = sandbox.FreeLoopbackPort()
 	}
-	sbxBridge := startChromeBridge(rs, p, chromebridge.SbxWhy)
-	var sbxBridgeEnv []string
-	if sbxBridge != nil {
-		defer func() { _ = sbxBridge.Close() }()
-		sbxBridgeEnv = sbxBridge.ResolvedEnv()
-	}
 	if rs.Model.HostLLM {
 		if !p.PrintOnly {
 			if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default); err != nil {
@@ -687,17 +674,18 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Browser: browserOn, CDPHostPort: cdpPort,
 		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort),
 		AndroidApps: androidApps(p), AndroidEnv: adbEnv,
-		Roles:    p.Roles,
-		Evidence: p.evidenceOrDefault(),
-		Forwards: p.forwards(),
-		Man:      rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
+		Roles:      p.Roles,
+		Evidence:   p.evidenceOrDefault(),
+		Forwards:   p.forwards(),
+		MCPGateway: p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
+		Desktop:    desktop, DesktopLaunch: desktopLaunch,
+		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
 		ImageEntrypoint:  sbx.ImageEntrypoint,
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,
 		Detected:         rs.Creds.Detected,
 		GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
 		HomeEnv:          rs.Creds.HomePlan.Env,
-		BridgeEnv:        sbxBridgeEnv,
 		ScopeRel:         rs.Workspace.WS.ScopeRel(),
 		WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
 		WorktreeEnv:      rs.Workspace.WS.WorktreeEnv(),
@@ -716,12 +704,14 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		HomeAccess:       homeAccess,
 	}
 	if p.PrintOnly {
-		defer homeAccess.Cleanup()
-		cfg, kit, secrets := sandbox.Spec(in)
-		if _, err := sbx.WriteKit(cfg.KitDir, kit); err != nil {
+		cfg, w, secrets := sandbox.Spec(in)
+		if _, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files); err != nil {
 			return fmt.Errorf("write sandbox kit: %w", err)
 		}
-		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", filepath.Join(cfg.KitDir, "spec.yaml"))
+		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", cfg.KitDir)
+		if homeAccess.FilesRoot != "" {
+			ui.Storef("home files: %s (copies the printed create line mounts; removed by `proveo clean`)", homeAccess.FilesRoot)
+		}
 		if len(secrets) > 0 {
 			names := make([]string, 0, len(secrets))
 			for _, kv := range secrets {
@@ -729,7 +719,18 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 			}
 			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
 		}
-		fmt.Printf("# agent\nsbx %s\n", strings.Join(sbx.RunArgs(cfg), " "))
+		if desktop {
+			fmt.Printf("# sandbox\nsbx %s\n# desktop\nsbx %s && Hermes Desktop → SSH gateway %s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+				sbx.ShellJoin(sbx.SetupSSHArgs()), sandbox.DesktopGateway(cfg.Name))
+			return nil
+		}
+		var imageCmd []string
+		if len(w.Recipe.Entrypoint) == 0 {
+			imageCmd = sbx.ImageCmd(in.Image)
+		}
+		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n# in-sandbox\n%s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+			sbx.ShellJoin(sbx.RunArgs(sbx.Reattach(cfg))),
+			cmp.Or(sbx.ShellJoin(sbx.Launched(w.Entrypoint, imageCmd, cfg.Command)), "(no readable ENTRYPOINT on "+in.Image+")"))
 		return nil
 	}
 	rs.AgentLaunched = true

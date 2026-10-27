@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -42,7 +43,7 @@ func digest(s string) string {
 	return hex.EncodeToString(sum[:6])
 }
 
-func receiptOf(cfg sbx.RunConfig, kitYAML []byte, sid, imageID string) launchReceipt {
+func receiptOf(cfg sbx.RunConfig, image string, kitYAML []byte, sid, imageID string) launchReceipt {
 	norm := func(s string) string {
 		if sid == "" {
 			return s
@@ -51,7 +52,7 @@ func receiptOf(cfg sbx.RunConfig, kitYAML []byte, sid, imageID string) launchRec
 	}
 	r := launchReceipt{
 		Agent: cfg.Agent,
-		Image: cfg.Image, ImageID: imageID, Kit: digest(norm(string(kitYAML))),
+		Image: image, ImageID: imageID, Kit: digest(norm(string(kitYAML))),
 		Clone: cfg.Clone, Env: map[string]string{},
 	}
 	for _, m := range cfg.Mounts {
@@ -184,27 +185,32 @@ var confirmStaleSandbox = func(name string, changed []string, live, clone, histo
 	return choiceui.ConfirmSandboxUpgrade(screen, name, changed, live, clone, history), true
 }
 
+// errNoCloneAnswer marks a sandbox that gave no answer to the clone-mode probe.
+var errNoCloneAnswer = errors.New("no answer to the clone-mode probe")
+
 // sandboxClone reports whether sandbox name holds a clone: this run's mode when this run
-// created it, else the sandbox's own answer; known is false when it gives none.
-func sandboxClone(in Input, name string) (clones, known bool) {
+// created it, else the sandbox's own answer; err is set when it gives none.
+func sandboxClone(in Input, name string) (bool, error) {
 	if in.CloneKnown {
-		return in.Clone, true
+		return in.Clone, nil
 	}
 	cmd, finish := guestCommand(cloneProbeDeadline, sbx.Binary, sbx.CloneModeArgs(name)...)
 	out, err := cmd.Output()
 	if err = finish(err); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			ui.Warnf("clone: %s did not answer the clone-mode probe (%v)", name, err)
+			return false, fmt.Errorf("%w: %v", errNoCloneAnswer, err)
 		}
-		return false, false
+		return false, err
 	}
-	switch strings.TrimSpace(string(out)) {
+	switch mode := strings.TrimSpace(string(out)); mode {
 	case "clone":
-		return true, true
+		return true, nil
 	case "direct":
-		return false, true
+		return false, nil
+	default:
+		return false, fmt.Errorf("unreadable clone mode %q", mode)
 	}
-	return false, false
 }
 
 // retireSandbox fetches the clone and agent state home, then removes the sandbox.
@@ -214,7 +220,15 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 	in.Sid += "-retired"
 	in.CloneKnown = false
 	if err := PreserveClone(in, cfg); err != nil {
-		return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
+		if !errors.Is(err, errNoCloneAnswer) {
+			return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
+		}
+		refs := mirroredRefs(in.RepoRoot, cfg.Name)
+		if !confirmUnansweredRemoval(cfg.Name, refs, opencodeTarget(in.Target)) {
+			return fmt.Errorf("%w — %s kept; %s. `sbx rm --force %s` deletes it and any work past that",
+				err, cfg.Name, mirrorNote(cfg.Name, refs), cfg.Name)
+		}
+		return removeRetired(cfg, report)
 	}
 	if opencodeTarget(in.Target) {
 		if err := carryOpenCodeHistory(in.HomeRoot, cfg.Name); err != nil {
@@ -224,12 +238,48 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
 		ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 	}
+	return removeRetired(cfg, report)
+}
+
+// removeRetired removes a retired sandbox and its records, bounded by guestExecDeadline.
+func removeRetired(cfg sbx.RunConfig, report func(string, ...any)) error {
 	report("2/3 sbx rm --force %s — deleting the session. This session does not persist", cfg.Name)
-	if out, err := SbxRun(sbx.RemoveArgs(cfg.Name)...); err != nil && !sbx.NotFound(out) {
-		return fmt.Errorf("remove stale %s: %w: %s", cfg.Name, err, strings.TrimSpace(out))
+	if out, err := guestRun(sbx.RemoveArgs(cfg.Name)...); err != nil && !sbx.NotFound(out) {
+		return fmt.Errorf("remove stale %s: %w: %s — check `sbx ls`, then `sbx rm --force %s` once sbx answers", cfg.Name, err, strings.TrimSpace(out), cfg.Name)
 	}
 	_ = os.Remove(receiptPath(cfg.Name))
 	_ = os.Remove(legacyOwnerRecord(cfg.Name))
 	report("3/3 this run creates a new sandbox named %s", cfg.Name)
 	return nil
+}
+
+// mirroredRefs lists the refs sbx mirrored from sandbox name into the host repository.
+func mirroredRefs(repo, name string) []string {
+	if repo == "" {
+		return nil
+	}
+	out, err := exec.Command("git", "-C", repo, "for-each-ref", "--format=%(refname)", sbx.MirrorRefs(name)+"/").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}
+
+func mirrorNote(name string, refs []string) string {
+	if len(refs) == 0 {
+		return "nothing of it is mirrored on the host"
+	}
+	return fmt.Sprintf("its branches are mirrored under %s/ (%d refs)", sbx.MirrorRefs(name), len(refs))
+}
+
+var confirmUnansweredRemoval = func(name string, refs []string, history bool) bool {
+	if !headedConfirm() {
+		return false
+	}
+	screen, err := openTermScreen()
+	if err != nil {
+		return false
+	}
+	defer screen.Fini()
+	return choiceui.ConfirmUnansweredRemoval(screen, name, sbx.MirrorRefs(name), refs, history)
 }

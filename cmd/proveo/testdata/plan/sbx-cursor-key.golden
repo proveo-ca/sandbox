@@ -1,25 +1,97 @@
 == sbx argv ==
-sbx run --name proveo-cursor-<WORKHASH> --kit /st/sbx/kit -t proveo/cursor:latest -m 8192m -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e MCP_GATEWAY_URL= cursor <WORK>
+sbx create --name proveo-cursor-<WORKHASH> -m 8192m -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e MCP_GATEWAY_URL= /st/sbx/kit/proveo-cursor <WORK>
+sbx run --name proveo-cursor-<WORKHASH>
 == secret names ==
 CURSOR_API_KEY
-== kit spec.yaml ==
-schemaVersion: "2"
-kind: mixin
-name: cursor-posture
-displayName: proveo posture (cursor)
-description: Reachability, host-resolved environment and the seed step for a proveo run.
-environment:
-    variables:
-        GIT_AUTHOR_NAME: Executor
-        GIT_DISCOVERY_ACROSS_FILESYSTEM: "1"
-        HOME: /proveo-home
-        MCP_GATEWAY_URL: ""
-        PROVEO_AGENT_EVIDENCE: default
-        PROVEO_HOME: /proveo-home
-        PROVEO_HOST_OS: <HOSTOS>
-        PROVEO_WORKDIR: <WORK>
-setup:
-    startup:
+== kit proveo-cursor.yaml ==
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: cursor (proveo)
+description: 'proveo harness cursor: image, launch, reachability and the seed step.'
+kind: workload
+version: 1.0.0
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api2.cursor.sh
+          - api3.cursor.sh
+          - repo42.cursor.sh
+          - cursor.com
+          - '*.cursor.sh'
+          - downloads.cursor.com
+          - registry.npmjs.org
+          - archive.ubuntu.com
+          - security.ubuntu.com
+          - ports.ubuntu.com
+          - download.docker.com
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    config:
+      apiKey:
+        inject:
+          - domain: api2.cursor.sh
+            format: Bearer %s
+            header: Authorization
+          - domain: api3.cursor.sh
+            format: Bearer %s
+            header: Authorization
+          - domain: repo42.cursor.sh
+            format: Bearer %s
+            header: Authorization
+          - domain: cursor.com
+            format: Bearer %s
+            header: Authorization
+        name: CURSOR_API_KEY
+      oauth:
+        resourceHosts:
+          - api3.cursor.sh
+          - repo42.cursor.sh
+          - cursor.com
+        responseFields:
+          accessToken: accessToken
+          refreshToken: refreshToken
+        sentinels:
+          accessToken: cursor-oat-proxy-managed
+          refreshToken: cursor-ort-proxy-managed
+        tokenEndpoint:
+          host: api2.cursor.sh
+          path: /auth/poll
+      phase: runtime
+      service: cursor
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      files:
+        - content: '{"network": {"useHttp1ForAgent": true}}'
+          description: Seed HTTP/1.1+SSE for agent connections so traffic goes through the forward proxy
+          overwrite: false
+          path: /home/agent/.cursor/cli-config.json
+      install:
+        - command: mkdir -p /home/agent/.cursor && chown agent:agent /home/agent/.cursor
+          description: Ensure .cursor is owned by agent before the file seed and bind mounts run
+          user: "0"
+        - command: |
+            [ -n "$WORKSPACE_DIR" ] || { echo "WORKSPACE_DIR unset; skipping Cursor workspace pre-trust" >&2; exit 0; }
+            ws="$WORKSPACE_DIR"
+            slug=$(printf '%s' "$ws" | LC_ALL=C tr -c 'A-Za-z0-9' '-' | tr -s '-' | sed 's/^-//; s/-$//')
+            dir="/home/agent/.cursor/projects/$slug"
+            mkdir -p "$dir"
+            esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
+            [ -f "$dir/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$esc" > "$dir/.workspace-trusted"
+          description: Pre-trust the workspace so cursor-agent skips the interactive Workspace Trust prompt
+          env:
+            - WORKSPACE_DIR
+          user: agent
+      startup:
+        - background: true
+          command:
+            - sh
+            - -c
+            - command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true)
+          description: Update apt package cache in background
+          user: root
         - command:
             - /bin/sh
             - -c
@@ -37,8 +109,17 @@ setup:
             - proveo-seed
             - cursor
             - release
-          user: "1000"
           description: 'proveo: compose subagents, settings and workspace trust'
+          env:
+            - GIT_AUTHOR_NAME
+            - GIT_DISCOVERY_ACROSS_FILESYSTEM
+            - HOME
+            - MCP_GATEWAY_URL
+            - PROVEO_AGENT_EVIDENCE
+            - PROVEO_HOME
+            - PROVEO_HOST_OS
+            - PROVEO_WORKDIR
+          user: "1000"
         - command:
             - /usr/bin/env
             - PROVEO_SEED_ONLY=1
@@ -47,9 +128,19 @@ setup:
             - -c
             - if command -v -- 'cursor-entrypoint' >/dev/null 2>&1; then exec 'cursor-entrypoint' "$@"; fi; if [ -x /entrypoint.sh ]; then exec /entrypoint.sh "$@"; fi
             - proveo-cursor
-          user: "1000"
           description: 'proveo: the def''s own wiring, launch skipped'
-        - command:
+          env:
+            - GIT_AUTHOR_NAME
+            - GIT_DISCOVERY_ACROSS_FILESYSTEM
+            - HOME
+            - MCP_GATEWAY_URL
+            - PROVEO_AGENT_EVIDENCE
+            - PROVEO_HOME
+            - PROVEO_HOST_OS
+            - PROVEO_WORKDIR
+          user: "1000"
+        - background: true
+          command:
             - /bin/sh
             - -c
             - |-
@@ -66,6 +157,24 @@ setup:
             - proveo-seed
             - cursor
             - provision
-          user: "1000"
-          background: true
           description: 'proveo: toolchains, dependencies and language servers, beside the agent'
+          env:
+            - GIT_AUTHOR_NAME
+            - GIT_DISCOVERY_ACROSS_FILESYSTEM
+            - HOME
+            - MCP_GATEWAY_URL
+            - PROVEO_AGENT_EVIDENCE
+            - PROVEO_HOME
+            - PROVEO_HOST_OS
+            - PROVEO_WORKDIR
+          user: "1000"
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+== kit proveo-cursor.dockerfile ==
+# syntax=docker/dockerfile:1
+FROM proveo/cursor:latest
+ENV IS_SANDBOX="1"
+ENV AGENT_CLI_CREDENTIAL_STORE="memory"
+ENTRYPOINT ["cursor-agent", "--yolo"]
+CMD []

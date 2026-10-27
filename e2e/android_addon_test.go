@@ -164,8 +164,8 @@ func stopEmulators(t *testing.T, port int) {
 	t.Errorf("an emulator on 127.0.0.1:%d outlived the test", port)
 }
 
-// tickAndroid walks the form the way an operator does: down to the interface
-// row, right onto the android box, space to tick it.
+// tickAndroid walks the form the way an operator does: onto the devices row,
+// right onto the android box, space to tick it.
 func tickAndroid(t *testing.T, sess *tmux.Session) {
 	t.Helper()
 	if _, err := sess.WaitFor("enter accept", 90*time.Second); err != nil {
@@ -187,7 +187,16 @@ func tickAndroid(t *testing.T, sess *tmux.Session) {
 			t.Fatalf("never reached %q with %s:\n%s", opt, key, screen)
 		}
 	}
-	step("Down", "tui", 12)
+	onDevices := func() bool {
+		screen, _ := sess.Capture()
+		return strings.Contains(screen, "› devices ")
+	}
+	for i := 0; i < 12 && !onDevices(); i++ {
+		if err := sess.SendKeys("Up"); err != nil {
+			t.Fatalf("send Up: %v", err)
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
 	step("Right", hostadb.Addon, 6)
 	if err := sess.SendKeys("Space"); err != nil {
 		t.Fatalf("send Space: %v", err)

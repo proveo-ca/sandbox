@@ -47,10 +47,12 @@ func promptMarkers(target string) []string {
 	switch target {
 	case "cursor":
 		return []string{"Cursor Agent", "cursor-agent"}
+	case "codex":
+		return []string{"Ask Codex to do anything"}
 	case "opencode":
-		return []string{"opencode"}
+		return []string{"Ask anything"}
 	case "cecli":
-		return []string{"cecli", "aider"}
+		return []string{"(edit format)"}
 	default: // claudecode
 		return []string{"Claude Code", "bypass permissions"}
 	}
@@ -95,6 +97,16 @@ func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
 				t.Errorf("reachedPromptFor(%q, %q) = %v, want %v", tc.raw, target, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSbxBuildOutputIsNotAPrompt(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"claudecode", "codex", "cursor", "opencode", "cecli"} {
+		build := "Building image proveo/" + target + ":local\r\nkit: /Users/x/.local/state/proveo/runs/proveo-1-2/sbx/kit/proveo-" + target + " — cached\r\n"
+		if reachedPromptFor(build, target) {
+			t.Errorf("%s: sbx's kit line counts as the agent's prompt; markers must be text only the agent's own screen shows", target)
+		}
 	}
 }
 

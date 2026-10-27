@@ -211,10 +211,8 @@ func TestImageCodex(t *testing.T) {
 	s.Success("git-sync turn hook is executable", image, "test -x /opt/proveo/hooks/git-sync-turn.sh")
 	s.Contains("managed requirements wire the git-sync Stop hook", image,
 		"cat /etc/codex/requirements.toml", "git-sync-turn.sh")
-	s.Contains("default config.toml never pauses an unattended loop", image,
-		"cat /opt/codex/defaults/config.toml", `approval_policy = "never"`)
-	s.Contains("default config.toml leaves confinement to the container", image,
-		"cat /opt/codex/defaults/config.toml", `sandbox_mode = "danger-full-access"`)
+	s.Success("default config.toml leaves approval and sandbox to the codex kit", image,
+		`! grep -Eq "^(approval_policy|sandbox_mode) =" /opt/codex/defaults/config.toml`)
 	s.Contains("default config.toml falls back to CLAUDE.md for project docs", image,
 		"cat /opt/codex/defaults/config.toml", "project_doc_fallback_filenames")
 
@@ -248,11 +246,11 @@ func TestImageCodex(t *testing.T) {
 	probe("house rules install at $CODEX_HOME/AGENTS.md",
 		codexSeedProbe+`test -s "$HOME/.codex/AGENTS.md" && echo OK`, `^OK$`)
 
-	probe("CODEX_RESEED=1 overwrites an existing config", `
+	probe("CODEX_RESEED=1 resets proveo's keys in an existing config", `
     mkdir -p "$HOME/.codex"
-    echo "approval_policy = \"untrusted\"" > "$HOME/.codex/config.toml"
+    echo "hide_agent_reasoning = true" > "$HOME/.codex/config.toml"
     /entrypoint.sh --version >/dev/null 2>&1
-    grep -q "danger-full-access" "$HOME/.codex/config.toml" && echo RESEEDED || echo NOT_RESEEDED
+    grep -q "hide_agent_reasoning = false" "$HOME/.codex/config.toml" && echo RESEEDED || echo NOT_RESEEDED
   `, `^RESEEDED$`, "-e", "CODEX_RESEED=1")
 
 	probe("entrypoint preserves an existing config.toml (no reseed)", `

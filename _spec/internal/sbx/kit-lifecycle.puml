@@ -124,10 +124,13 @@ skinparam noteTextAlignment left
 '     guestExecDeadline = 3m. A timeout reads as the error it replaces, so
 '     an unanswered probe leaves the mode unknown and the sandbox kept
 '     (STRANDED), never removed. The receipt stays out of it (review #6).
-'     STILL OPEN: SaveState and `sbx rm`. sbx's own rm on a clone sandbox
-'     starts the container first, and hung the same way; the decided next
-'     step is a 3m deadline plus a rescue recipe, never an automatic shim kill
-'     (killing the shim made the daemon respawn it and stall again).
+'     STILL OPEN: SaveState and teardown's `sbx rm`. sbx's own rm on a clone
+'     sandbox starts the container first, and hung the same way; the decided
+'     next step is a 3m deadline plus a rescue recipe, never an automatic shim
+'     kill (killing the shim made the daemon respawn it and stall again).
+'     DONE for the retire path (2026-10-24): removeRetired runs `sbx rm` through
+'     guestRun (3m); a timeout keeps this run stopped and names `sbx ls` and the
+'     rm to repeat once sbx answers.
 '     Pinned by TestAGuestThatNeverAnswersKeepsTheSandboxInsteadOfHangingTheRun.
 '   * HISTORY: a stop during the retry's prepareOpenCodeLaunch was honoured
 '     only after it returned (its prepare and recover steps allowed up to
@@ -159,6 +162,26 @@ skinparam noteTextAlignment left
 ' forced Ctrl+C remove still deletes: its dialog says "Uncommitted changes can
 ' be permanently lost" (internal/choiceui/sandbox_close.go). Detail:
 ' _spec/internal/sbx/clone-workspace.puml.
+' AN UNANSWERED SANDBOX MAY BE REMOVED ON A HEADED YES (2026-10-24, user:
+' "Offer remove-anyway"). MEASURED incident: sbx 0.49.2 could not boot the
+' v2-era proveo-claudecode-f8781ef6 (57-layer image), so every retire stopped
+' at "cannot tell whether … holds a clone" and blocked the v3 run until the
+' operator removed it by hand. Its branches already sat under
+' refs/sandboxes/<name>/ (sbx's own mirror; proveo never writes there).
+'   sandboxClone wraps errNoCloneAnswer only when the probe hit
+'     cloneProbeDeadline. An unreadable answer or a later hang (snapshot,
+'     bundle) is a guest that runs, so it keeps the old STRANDED rule.
+'   retireSandbox on errNoCloneAnswer: mirroredRefs lists
+'     refs/sandboxes/<name>/*; confirmUnansweredRemoval shows them
+'     (choiceui.UnansweredRemovalCopy, ≤ 6 then "… and N more").
+'     yes → removeRetired: no SaveState, no OpenCode history carry (both exec
+'       in the guest); the prompt says that history is lost.
+'     no, non-headed, or no screen → error "<probe err> — <name> kept; its
+'       branches are mirrored under refs/sandboxes/<name>/ (N refs)" (or
+'       "nothing of it is mirrored on the host"), and the run stops.
+'   Pinned by TestAnUnansweredSandboxIsRemovedOnlyOnAYesThatNamesItsMirroredRefs
+'   (clone_carry_test.go) and TestTheUnansweredRemovalPromptListsTheMirroredRefs
+'   (choiceui).
 ' THE SANDBOX, NOT THIS RUN, SAYS WHETHER IT CLONES (MEASURED, reviews #5-#6):
 ' sandboxClone(in, name) answers from in.Clone only when in.CloneKnown — this
 ' run created the sandbox (launchCfg.KitDir != "", set before sbx.RunArgs and

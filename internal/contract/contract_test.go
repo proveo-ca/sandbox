@@ -127,7 +127,7 @@ func TestOwnAgentDefsDeclareAnImageEntrypoint(t *testing.T) {
 	}
 	var own []manifest.Manifest
 	for _, m := range ms {
-		if sbx.DeclaresOwnAgent(m.Name) {
+		if _, published, _ := sbx.UpstreamKitFor(m.Name, sbx.UpstreamOptions{}); !published {
 			own = append(own, m)
 		}
 	}

@@ -60,9 +60,12 @@ accept_workspace_trust() {
    const fs = require("fs"), path = process.env.PROVEO_AGENT_HOME + "/.claude.json";
    let j = {};
    try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
+   j.bypassPermissionsModeAccepted = true;
+   j.hasCompletedOnboarding = true;
    j.projects = j.projects || {};
-   const d = process.env.PROVEO_TRUST_DIR;
-   j.projects[d] = Object.assign({}, j.projects[d], { hasTrustDialogAccepted: true });
+   for (const d of new Set(["/", process.env.PROVEO_TRUST_DIR])) {
+     j.projects[d] = Object.assign({}, j.projects[d], { hasTrustDialogAccepted: true });
+   }
    fs.writeFileSync(path, JSON.stringify(j, null, 2));
  ' 2>/dev/null || true
 }
@@ -570,6 +573,7 @@ ensure_jvm_toolchain() {
  [[ -d "$root" ]] || { echo "WARN: no Android SDK root after the install"; return 0; }
  export ANDROID_HOME="$root" ANDROID_SDK_ROOT="$root"
  export PATH="$root/cmdline-tools/${ver}/bin:$root/platform-tools:$PATH"
+ _proveo_pin_adb
  yes 2>/dev/null | sdkmanager --licenses >/dev/null 2>&1 || true
  [[ -n "$emulated" ]] || return 0
  local bt="${PROVEO_ANDROID_BUILD_TOOLS:-36.0.0}"
@@ -1492,7 +1496,7 @@ proveo_enable_claude_lsp_plugins() {
   return 0
 }
 
-# SPEC: _spec/defs/browser-layer.puml, _spec/defs/claudecode/chrome-bridge.puml
+# SPEC: _spec/defs/browser-layer.puml
 _browser_skill_dir() { case "$1" in
   claudecode) echo ".claude/skills" ;;
   cursor)     echo ".cursor/skills" ;;
@@ -1518,81 +1522,6 @@ proveo_seed_browser_skills() {
   fi
   ver="$(agent-browser --version 2>/dev/null | awk '{print $NF}')"
   echo "🕸️  browser: agent-browser ${ver:-?} + Playwright Chromium (headless) — skill at ~/${dir}/agent-browser"
-  return 0
-}
-
-# SPEC: _spec/defs/claudecode/chrome-bridge.puml
-readonly PROVEO_CHROME_BRIDGE_JS=/opt/proveo/lib/chrome-bridge.js
-PROVEO_CHROME_READY=""
-
-# SPEC: _spec/defs/claudecode/chrome-bridge.puml
-_proveo_chrome_scope_ok() {
-  local scopes home
-  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
-    scopes="${CLAUDE_CODE_OAUTH_SCOPES:-user:inference}"
-    case " $scopes " in
-      *" user:profile "*|*" user:office "*|*" user:ccr_inference "*) return 0 ;;
-    esac
-    return 1
-  fi
-  [[ -n "${CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR:-}" ]] && return 0
-  home="$(_proveo_agent_home)"
-  if [[ -n "$home" ]] && grep -q '"accessToken":"[^"]' "$home/.claude/.credentials.json" 2>/dev/null; then
-    return 0
-  fi
-  [[ -n "${ANTHROPIC_API_KEY:-}" ]] && return 1
-  return 0  # nothing we can classify: not ours to warn about
-}
-
-proveo_chrome_bridge() {
-  local target="${1:-}" home log out sock i
-  [[ "$target" == claudecode ]] || return 0
-  [[ -n "${PROVEO_CHROME_BRIDGE:-}" ]] || return 0
-  if [[ -z "${PROVEO_CHROME_BRIDGE_TOKEN:-}" ]]; then
-    echo "⚠️  chrome: PROVEO_CHROME_BRIDGE is set without PROVEO_CHROME_BRIDGE_TOKEN — the relay will not run unauthenticated; Claude in Chrome stays off" >&2
-    return 0
-  fi
-  command -v node >/dev/null 2>&1 || return 0
-  if proveo_env_on PROVEO_CHROME_READY; then
-    return 0
-  fi
-  if [[ ! -s "$PROVEO_CHROME_BRIDGE_JS" ]]; then
-    echo "⚠️  chrome: $PROVEO_CHROME_BRIDGE_JS is not in this image; Claude in Chrome stays off" >&2
-    return 0
-  fi
-  log="${TMPDIR:-/tmp}/proveo-chrome-bridge.log"
-  out="${TMPDIR:-/tmp}/proveo-chrome-bridge.sock-path"
-  : > "$out"
-  if command -v setsid >/dev/null 2>&1; then
-    setsid node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
-  else
-    node "$PROVEO_CHROME_BRIDGE_JS" > "$out" 2>> "$log" < /dev/null &
-  fi
-  for i in 1 2 3 4 5 6 7 8 9 10; do
-    sock="$(head -n1 "$out" 2>/dev/null)"
-    [[ -n "$sock" && -S "$sock" ]] && break
-    sleep 0.3
-  done
-  if [[ -z "$sock" || ! -S "$sock" ]]; then
-    echo "⚠️  chrome: relay did not come up (see $log); Claude in Chrome stays off" >&2
-    return 0
-  fi
-  home="$(_proveo_agent_home)"
-  if [[ -n "$home" ]]; then
-    PROVEO_AGENT_HOME="$home" node -e '
-      const fs = require("fs"), path = process.env.PROVEO_AGENT_HOME + "/.claude.json";
-      let j = {};
-      try { j = JSON.parse(fs.readFileSync(path, "utf8")) || {}; } catch (e) {}
-      if (j.hasCompletedClaudeInChromeOnboarding === undefined) j.hasCompletedClaudeInChromeOnboarding = true;
-      fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
-    ' 2>/dev/null || true
-  fi
-  # shellcheck disable=SC2034  # read by defs/claudecode/mcp/entrypoint.sh after this returns
-  PROVEO_CHROME_READY=1
-  echo "🧭 chrome: Claude in Chrome via the host browser — relay ${sock} → ${PROVEO_CHROME_BRIDGE} (the agent drives YOUR Chrome, with your logins)"
-  if ! _proveo_chrome_scope_ok; then
-    echo "⚠️  chrome: this session's OAuth scopes name none of user:profile / user:office / user:ccr_inference, so Claude Code turns Chrome integration off; set CLAUDE_CODE_OAUTH_SCOPES to the scopes the token was issued with, or sign in with /login" >&2
-  fi
   return 0
 }
 
@@ -2538,18 +2467,6 @@ _proveo_persist_tool_env() {
 }
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml
-# True inside an sbx sandbox.
-_proveo_in_sbx() {
- [[ -n "${SANDBOX_NAME:-}" || -n "${SANDBOX_ID:-}" || -n "${SANDBOX_VM_ID:-}" ]]
-}
-
-# sbx keeps the image ENTRYPOINT and hands it its keepalive; act as tini there.
-proveo_sbx_passthrough() {
- _proveo_in_sbx && [[ "${1:-}" == sh && "${2:-}" == -c ]] || return 0
- case "${3:-}" in *"sleep infinity"*) exec "$@" ;; esac
-}
-
-# SPEC: _spec/packages/lib/seed-and-launch.puml
 PROVEO_INSTRUCTIONS_MARKER="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 PROVEO_HOOKS_MARKER="${PROVEO_HOOKS_MARKER:-/dev/shm/proveo-hooks-seeded}"
 
@@ -2737,6 +2654,45 @@ proveo_assert_shares() {
  return 1
 }
 
+# SPEC: _spec/internal/sbx/sbx-kit-v3.puml (HERMES AND THE MCP GATEWAY)
+# Registers sbx's MCP gateway in Hermes's config; Hermes expands the ${VAR}s itself at runtime.
+proveo_wire_hermes_mcp_gateway() {
+ local hermes="" p
+ [[ "${1:-}" == hermes && -n "${MCP_GATEWAY_URL:-}" ]] || return 0
+ # first hermes on PATH that is not the await-seed shim
+ for p in $(type -ap hermes 2>/dev/null) /opt/hermes/.venv/bin/hermes; do
+  [[ -x "$p" ]] && ! grep -q proveo-await-seed "$p" 2>/dev/null && { hermes="$p"; break; }
+ done
+ [[ -n "$hermes" ]] || return 0
+ # shellcheck disable=SC2016 # the ${VAR}s are Hermes's placeholders, written verbatim
+ HERMES_HOME="${HERMES_HOME:-/opt/data}" "$hermes" config set mcp_servers.mcp-gateway.url '${MCP_GATEWAY_URL}' >/dev/null 2>&1 || return 0
+ # shellcheck disable=SC2016
+ HERMES_HOME="${HERMES_HOME:-/opt/data}" "$hermes" config set mcp_servers.mcp-gateway.headers.Authorization 'Bearer ${MCP_SENTINEL_TOKEN_NAME}' >/dev/null 2>&1 || true
+}
+
+# SPEC: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
+# Merges proveo's top-level codex defaults into config.toml, above its first table.
+proveo_merge_codex_defaults() {
+ local src="${1:-/opt/codex/defaults}/config.toml" home dst
+ [[ -f "$src" ]] || return 0
+ home="$(_proveo_agent_home)"
+ dst="${CODEX_HOME:-$home/.codex}/config.toml"
+ mkdir -p "${dst%/*}" 2>/dev/null || return 0
+ [[ -f "$dst" ]] || : > "$dst"
+ awk -v reseed="${CODEX_RESEED:-0}" '
+  function key(l) { sub(/[ \t]*=.*/, "", l); return l }
+  function flush(  i) { if (done++) return; for (i = 1; i <= n; i++) if (!(order[i] in have)) print want[order[i]] }
+  FNR == 1 { file++; table = 0 }
+  /^[ \t]*\[/ { table = 1 }
+  file == 1 { if (!table && /^[A-Za-z0-9_-]+[ \t]*=/) { want[key($0)] = $0; order[++n] = key($0) } next }
+  file == 2 { if (!table && /^[A-Za-z0-9_-]+[ \t]*=/) have[key($0)] = 1; next }
+  table { flush() }
+  !table && /^[A-Za-z0-9_-]+[ \t]*=/ && reseed == "1" && (key($0) in want) { print want[key($0)]; next }
+  { print }
+  END { flush() }
+ ' "$src" "$dst" "$dst" > "$dst.proveo-tmp" && mv -f "$dst.proveo-tmp" "$dst"
+}
+
 # SPEC: _spec/defs/opencode/native-v2-integration.puml
 proveo_bootstrap_opencode_config() {
  local src="${PROVEO_OPENCODE_DEFAULTS_DIR:-/opt/opencode/defaults}"
@@ -2809,6 +2765,14 @@ proveo_seed() {
   proveo_seed_step setup "seeding OpenCode defaults" "$target"
   proveo_bootstrap_opencode_config || return 1
  fi
+ if [[ "$target" == codex ]]; then
+  proveo_seed_step setup "merging Codex defaults" "$target"
+  proveo_merge_codex_defaults || true
+ fi
+ if [[ "$target" == hermes ]]; then
+  proveo_seed_step setup "wiring sbx's MCP gateway into Hermes" "$target"
+  proveo_wire_hermes_mcp_gateway "$target" || true
+ fi
 
  proveo_seed_step setup "installing hooks and rendering agents" "$target"
  proveo_install_git_sync_hooks "$target"
@@ -2835,9 +2799,6 @@ proveo_seed() {
  proveo_install_claude_env_hook "$target"
  proveo_seed_step interface "seeding browser skills" "$target"
  proveo_seed_browser_skills "$target"
- # PROVEO_CHROME_BRIDGE. SPEC: _spec/defs/claudecode/chrome-bridge.puml
- proveo_seed_step interface "configuring host browser bridge" "$target"
- proveo_chrome_bridge "$target"
  proveo_seed_step starting "releasing agent; background setup continues" "$target"
  proveo_release_agent "$target"
  [[ "$phase" == all ]] || return 0
@@ -2911,6 +2872,17 @@ _proveo_debug_apk() {
   find "${dir:-.}/build/outputs/apk" -type f -path '*/debug/*.apk' ! -path '*/androidTest/*' 2>/dev/null | LC_ALL=C sort | head -n1
 }
 
+# SPEC: _spec/internal/sbx/host-android-adb.puml
+# Points the SDK's platform-tools/adb at the image's adb when the SDK copy cannot run in this guest.
+_proveo_pin_adb() {
+  local sdk="${ANDROID_HOME:-}" img="${PROVEO_IMAGE_ADB:-/usr/bin/adb}" pt
+  [[ -n "$sdk" && -x "$img" ]] || return 0
+  pt="$sdk/platform-tools/adb"
+  [[ -e "$pt" && ! -L "$pt" ]] || return 0
+  "$pt" version >/dev/null 2>&1 && return 0
+  mv -f "$pt" "$pt.foreign" && ln -s "$img" "$pt"
+}
+
 proveo_android_install() {
   (($#)) || return 0
   local waited=0 limit="${PROVEO_ANDROID_WAIT:-3600}" log="$PROVEO_ANDROID_LOG"
@@ -2943,6 +2915,7 @@ proveo_android_install() {
       rc=1
       continue
     fi
+    _proveo_pin_adb
     apk="$(_proveo_debug_apk "$module")"
     if [[ -z "$apk" ]]; then
       echo "⚠️  android: $task wrote no debug APK for $app — see $log" | tee -a "$log" >&2

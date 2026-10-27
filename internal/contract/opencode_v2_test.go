@@ -180,7 +180,6 @@ proveo_install_git_sync_hooks() { :; }
 accept_workspace_trust() { :; }
 proveo_compose_house_rules() { :; }
 proveo_seed_browser_skills() { :; }
-proveo_chrome_bridge() { :; }
 proveo_release_agent() {
   [[ -f "$HOME/.config/opencode/opencode.json" || -f "$HOME/.config/opencode/opencode.jsonc" ]]
   [[ -f "$HOME/.config/opencode/agents/architect.md" ]]

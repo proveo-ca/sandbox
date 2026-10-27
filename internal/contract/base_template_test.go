@@ -294,3 +294,15 @@ func TestBaseShipsAsOneLayerThatStillReadsAsASandboxTemplate(t *testing.T) {
 		}
 	}
 }
+
+func TestTheBasePointsClaudeAtTheFileSbxPersistsEnvIn(t *testing.T) {
+	t.Parallel()
+	src := readFileOrFail(t, filepath.Join(repoRoot(t), "defs/base/Dockerfile"))
+	froms := regexp.MustCompile(`(?m)^FROM .*$`).FindAllStringIndex(src, -1)
+	full, flat := src[:froms[len(froms)-1][0]], src[froms[len(froms)-1][0]:]
+	for stage, body := range map[string]string{"base-full": full, "the flat stage": flat} {
+		if !strings.Contains(body, "CLAUDE_ENV_FILE=/etc/sandbox-persistent.sh") {
+			t.Errorf("%s lacks CLAUDE_ENV_FILE=/etc/sandbox-persistent.sh; the published claude kit's context tells the agent to persist env there", stage)
+		}
+	}
+}

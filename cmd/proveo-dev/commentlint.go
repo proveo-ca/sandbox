@@ -26,7 +26,7 @@ func commentMarker(p string) string {
 	if nested && (strings.HasPrefix(first, ".") || slices.Contains([]string{"_spec", "apps", "node_modules"}, first)) {
 		return ""
 	}
-	if strings.Contains("/"+rest, "/testdata/") {
+	if strings.Contains("/"+rest, "/testdata/") || strings.Contains("/"+rest, "/third_party/") {
 		return ""
 	}
 	base := path.Base(p)

@@ -254,6 +254,25 @@ func TestWrapDoesNotChargeForColour(t *testing.T) {
 	}
 }
 
+// SPEC: _spec/internal/ui/output-vocabulary.puml (GREY DETAIL)
+func TestWrapCarriesTheColourOntoEachContinuation(t *testing.T) {
+	t.Parallel()
+	grey := ANSI(ColorMuted)
+	in := "  " + grey + "jetbrains://gateway/ssh/environment?h=x.sbx " + strings.Repeat("abcdefghij", 10) + ANSIReset + "\n"
+	lines := strings.Split(strings.TrimRight(string(wrapLines([]byte(in), 40)), "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("nothing wrapped at width 40: %q", lines)
+	}
+	for i, l := range lines[1:] {
+		if !strings.HasPrefix(l, strings.Repeat(" ", textCol)+grey) {
+			t.Errorf("continuation %d drops the grey the line opened with — a pager, a log or tmux capture shows it uncoloured: %q", i+1, l)
+		}
+	}
+	if got := activeSGR([]byte(grey + "x" + ANSIReset + "y")); got != "" {
+		t.Errorf("activeSGR after a reset = %q, want none", got)
+	}
+}
+
 // A line that fits is returned untouched, byte for byte — wrapping must not be
 // a reformatter that runs on every line whether or not it is needed.
 func TestWrapLeavesShortLinesAlone(t *testing.T) {

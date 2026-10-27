@@ -285,8 +285,21 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 		assertPromptSoonAfterRelease(t, run, target, promptAt)
 	}
 	out, _ := run("test -e "+seedDone+" && echo installed || echo seeding", time.Minute)
+	if ready != "" {
+		awaitQuietScreen(sess, 30*time.Second)
+		if pane, _ := sess.Capture(); strings.Contains(pane, "Press any key to log in") {
+			t.Fatalf("%s reached its login splash, not a prompt — the sandbox holds no credential the agent can use:\n%s", target, tail(pane, 15))
+		}
+		answerDialogs(t, sess, firstRunDialogs)
+	}
 	assertEchoes(t, sess, target, strings.Contains(out, "seeding"))
 	return run
+}
+
+// firstRunDialogs open on or just after an agent's prompt; each takes the answer that keeps the session as launched.
+var firstRunDialogs = []tuiDialog{
+	{"Make auto mode your default permission mode", []string{"Down", "Enter"}},
+	{"Trust this folder?", []string{"Enter"}},
 }
 
 // assertPromptSoonAfterRelease fails when the agent's prompt appeared later

@@ -74,6 +74,13 @@ async function connect(port) {
       },
       notification: async () => {},
     }
+    candidate.onclose = () => {
+      for (const [id, waiter] of pending) {
+        pending.delete(id)
+        clearTimeout(waiter.timeout)
+        waiter.reject(new Error("native simulator closed the socket"))
+      }
+    }
     candidate.onmessage = message => {
       const event = JSON.parse(message.data)
       if (event.id !== undefined) {
@@ -174,7 +181,7 @@ try {
     }
     await ui.call("ui.press", { key: "escape" })
     await ui.call("ui.press", { key: "c", modifiers: { ctrl: true } })
-    await ui.call("ui.press", { key: "c", modifiers: { ctrl: true } })
+    ui.call("ui.press", { key: "c", modifiers: { ctrl: true } }).catch(() => {})
     await exited
     assert.equal(exit.code, 0, `${stdout}\n${stderr}`)
     console.log(JSON.stringify({ mode, value, observed }))

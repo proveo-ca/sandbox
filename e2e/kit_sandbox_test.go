@@ -62,16 +62,18 @@ func TestKitSandboxNamesOnlyTheRunsOwnSandbox(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			listing, err := json.Marshal(map[string][]sandbox{"sandboxes": c.listed})
-			if err != nil {
-				t.Fatal(err)
-			}
 			before := map[string]bool{}
 			for _, n := range c.before {
 				before[n] = true
 			}
-			if got := pickKitSandbox(listing, before, "claudecode", c.dirs); got != c.want {
-				t.Errorf("pickKitSandbox(%s) = %q, want %q", listing, got, c.want)
+			for _, shape := range []any{c.listed, map[string][]sandbox{"sandboxes": c.listed}} {
+				listing, err := json.Marshal(shape)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := pickKitSandbox(listing, before, "claudecode", c.dirs); got != c.want {
+					t.Errorf("pickKitSandbox(%s) = %q, want %q", listing, got, c.want)
+				}
 			}
 		})
 	}
@@ -131,6 +133,7 @@ func TestASbxConsentPromptNamesItsServices(t *testing.T) {
 	}{
 		{"sbx's frame with two services", "Starting sandbox\nThis kit wants to use these credentials:\n  opencode     API key → sent to .opencode.ai   (not set)\n  anthropic    API key → sent to .anthropic.com\n[A]pprove all · [R]eview each · [N]o:\n", "opencode, anthropic", true},
 		{"a bare prompt", "[A]pprove all · [R]eview each · [N]o:", "its credentials", true},
+		{"sbx 0.49's numbered frame", "This kit wants to use these credentials:\n  openai: API key sent to api.openai.com, openai.com (not set)\n    OAuth refreshed at auth.openai.com; used at chatgpt.com\n  xai: API key sent to api.x.ai (stored)\nApprove these credentials?\n  1. Approve all\n  2. Review each\n  3. No start without them\nChoice [1-3, default 3]:", "openai, xai", true},
 		{"no prompt", "agent: ready\n", "", false},
 	} {
 		got, ok := consentPrompt(c.screen)

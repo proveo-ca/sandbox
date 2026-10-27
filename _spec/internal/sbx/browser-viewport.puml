@@ -148,11 +148,8 @@ note over RELAY
 end note
 
 note over OP, RUN
-  **This is the sbx answer to a question the host bridge cannot take.**
-  ""claude-in-chrome"" points the OTHER way: the agent reaches OUT to the operator's
-  own Chrome through a relay on the host, named as ""host.docker.internal"" — which
-  only the docker backend's bridge network resolves, and which a sandbox VM
-  cannot name. Published ports run host→sandbox, so they cannot serve it.
+  **The operator watches the agent's own browser.** Published ports run
+  host→sandbox, which is the direction this needs.
 
   Nothing leaves this machine: sbx binds published ports on loopback (127.0.0.1
   and ::1) only. The exposure is a CDP endpoint with full control of that

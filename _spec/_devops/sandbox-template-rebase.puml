@@ -29,7 +29,9 @@ skinparam noteTextAlignment left
 '     as a template, USER root, WORKDIR /, ENTRYPOINT tini, CMD bash. The
 '     template's org.opencontainers.* labels (Ubuntu's metadata) are dropped.
 '   * hermes flattens nousresearch/hermes-agent the same way (hermes-flat),
-'     since it does not build on proveo's base chain.
+'     since it does not build on proveo's base chain. It re-declares upstream's
+'     Env, VOLUME /opt/data, USER root, WORKDIR, ENTRYPOINT and CMD; the first
+'     image-tag run (2026-10-24) caught the missing USER root.
 '   * Cost: the flat base duplicates the template's content once per host
 '     (no sharing with sbx's own templates); harness images still share it.
 '   * Guards: TestBaseShipsAsOneLayerThatStillReadsAsASandboxTemplate (static);
