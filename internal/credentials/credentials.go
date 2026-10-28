@@ -16,7 +16,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
-	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -675,38 +674,14 @@ func StageProjectEnv(src, dir string, strip []string) (string, []string, error) 
 	return path, dropped, nil
 }
 
+// ProviderLookup reads a variable from the host env, else the env file; a secret reference comes back as written, for sbx to resolve.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R11)
 func ProviderLookup(envFile string) func(string) string {
-	return ProviderLookupWith(envFile, &secretref.Resolver{
-		Getenv: os.Getenv,
-		Announce: func(scheme string) {
-			ui.Hostf("resolving a %s: secret reference on the host — approve the prompt if one appears", scheme)
-		},
-	}, ui.Warnf)
-}
-
-func ProviderLookupWith(envFile string, r *secretref.Resolver, warn func(string, ...any)) func(string) string {
 	fileVals := ParseEnvFile(envFile)
-	warned := map[string]bool{}
 	return func(k string) string {
-		raw := strings.TrimSpace(os.Getenv(k))
-		if raw == "" {
-			raw = strings.TrimSpace(fileVals[k])
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
 		}
-		if raw == "" {
-			return ""
-		}
-		ref, isRef := secretref.Parse(raw)
-		if !isRef || r == nil {
-			return raw
-		}
-		res := r.Resolve(k, ref)
-		if res.Outcome == secretref.OK {
-			return res.Value
-		}
-		if warn != nil && !warned[k] {
-			warned[k] = true
-			warn("%s", secretref.Advice(k, res))
-		}
-		return ""
+		return strings.TrimSpace(fileVals[k])
 	}
 }

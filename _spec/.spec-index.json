@@ -1199,7 +1199,7 @@
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/workload_test.go",
         "internal/credentials/storename.go",
-        "internal/credentials/keychain.go",
+        "internal/credentials/login.go",
         "internal/run/run.go",
         "internal/run/params.go",
         "internal/run/choices.go",
@@ -1210,7 +1210,11 @@
         "internal/sbx/bindings_test.go",
         "internal/backend/sandbox/credential_report.go",
         "internal/backend/sandbox/credential_report_test.go",
-        "internal/backend/sandbox/opencode_engine.go"
+        "internal/backend/sandbox/opencode_engine.go",
+        "internal/credentials/login_test.go",
+        "internal/secretref/secretref.go",
+        "internal/secretref/secretref_test.go",
+        "e2e/secret_source_test.go"
       ],
       "fingerprint": null
     },
@@ -1431,12 +1435,12 @@
       "spec": "_spec/internal/secretref/secret-references.puml",
       "covers": [
         "internal/secretref/**",
-        "internal/credentials/keychain.go",
+        "internal/credentials/login.go",
         "internal/credentials/credentials.go",
         "internal/runner/runner.go",
         "internal/backend/sandbox/sandbox.go",
-        "internal/credentials/keychain_test.go",
-        "e2e/keychain_test.go",
+        "internal/credentials/login_test.go",
+        "e2e/secret_source_test.go",
         "internal/secretref/secretref.go",
         "internal/secretref/secretref_test.go"
       ],

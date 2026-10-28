@@ -26,9 +26,10 @@ type CLI struct {
 	ImageEntrypoint func(image string) []string
 	ImageCmd        func(image string) []string
 
-	SandboxList func() ([]byte, error)
-	SecretList  func() ([]byte, error)
-	SecretSet   func(name, value string) error
+	SandboxList   func() ([]byte, error)
+	SecretList    func() ([]byte, error)
+	SecretSet     func(name, value string) error
+	SecretSetFrom func(args []string, stdin string) error
 }
 
 var sh = defaultCLI()
@@ -82,6 +83,7 @@ func defaultCLI() CLI {
 		SandboxList:     func() ([]byte, error) { return boundedCombined(Binary, "ls") },
 		SecretList:      func() ([]byte, error) { return boundedCombined(Binary, "secret", "ls") },
 		SecretSet:       sbxSecretSet,
+		SecretSetFrom:   sbxSecretSetFrom,
 	}
 }
 
@@ -109,6 +111,14 @@ func dockerImageList(image, field string) []string {
 		return nil
 	}
 	return ep
+}
+
+func sbxSecretSetFrom(args []string, stdin string) error {
+	cmd := exec.Command(Binary, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func sbxSecretSet(name, value string) error {

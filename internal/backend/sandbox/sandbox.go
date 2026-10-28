@@ -42,6 +42,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -1234,6 +1235,10 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 			}
 		}
 		service, kind := credentials.StoreName(name)
+		if (in.Forwards || kind == credentials.StoreUninjectable) && secretref.IsReference(v) {
+			ui.Warnf("%s holds a secret reference; only sbx resolves references, and this variable would ride the agent env — not passed", name)
+			return
+		}
 		if kind == credentials.StoreUninjectable {
 			addForward(name) // nothing to attach: a signing key or a credentials file, not a header
 			return
@@ -1601,15 +1606,21 @@ func Run(in Input) error {
 		if name == "" || kind != credentials.StoreAPIKey {
 			continue
 		}
-		ui.Hostf("sandbox secret: %s stored as %s — sbx's proxy attaches it, the agent never holds it", kv[0], name)
-		if err := sbx.SecretSet(name, kv[1]); err != nil {
+		flags, stdin := secretref.SbxSource(kv[0], kv[1], os.Getenv)
+		if len(flags) == 0 && stdin == "" {
+			ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
+			continue
+		}
+		how := "its value"
+		if len(flags) > 0 {
+			how = "a source sbx resolves on the host (" + flags[0] + ") — proveo never reads the value"
+		}
+		ui.Hostf("sandbox secret: %s stored as %s for %s only, from %s; it leaves with the sandbox", kv[0], name, cfg.Name, how)
+		if err := sbx.SecretSetSource(name, cfg.Name, flags, stdin); err != nil {
 			return fmt.Errorf("sandbox secret %s: %w", name, err)
 		}
 	}
-	if len(secrets) > 0 {
-		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
-	}
-	if err := reportCredentials(in, w.Descriptor.Capabilities, created); err != nil {
+	if err := reportCredentials(in, cfg.Name, w.Descriptor.Capabilities, created); err != nil {
 		return err
 	}
 	if opencodeTarget(in.Target) {

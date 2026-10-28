@@ -55,7 +55,7 @@ func TestAMissingBindingsFileApprovesNothing(t *testing.T) {
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R9)
 func TestStoreEntriesSplitKeysFromOAuthAndSkipScopedRows(t *testing.T) {
 	t.Parallel()
-	got := parseStoreEntries(`SCOPE      TYPE      NAME                SECRET
+	listing := `SCOPE      TYPE      NAME                SECRET
 (global)   service   OPENAI_API_KEY      (stored)
 (global)   service   cursor              (stored)
 (global)   service   anthropic           (oauth configured)
@@ -65,7 +65,8 @@ p0-m5      service   groq                (stored)
 CUSTOM SECRETS
 SCOPE      TARGETS          ENV        PLACEHOLDER        SECRET
 (global)   api.example.com  EXAMPLE    sbx-cs-abc         (stored)
-`)
+`
+	got := parseStoreEntries(listing, "")
 	want := map[string]StoreEntry{
 		"OPENAI_API_KEY": {APIKey: true},
 		"cursor":         {APIKey: true},
@@ -74,6 +75,10 @@ SCOPE      TARGETS          ENV        PLACEHOLDER        SECRET
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("parseStoreEntries mismatch (-want +got):\n%s", diff)
+	}
+	want["groq"] = StoreEntry{APIKey: true}
+	if diff := cmp.Diff(want, parseStoreEntries(listing, "p0-m5")); diff != "" {
+		t.Errorf("parseStoreEntries(sandbox p0-m5) must add that sandbox's rows (-want +got):\n%s", diff)
 	}
 }
 

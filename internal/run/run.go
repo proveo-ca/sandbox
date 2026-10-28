@@ -29,7 +29,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -292,46 +291,16 @@ func startHostADB(p *Params) ([]string, error) {
 	return hostadb.GuestEnv(port), nil
 }
 
-func hostStoreResolver() *secretref.Resolver {
-	return &secretref.Resolver{
-		Getenv: os.Getenv,
-		Announce: func(string) {
-			ui.Section(ui.SectionCredentials)
-			ui.Hostf("reading the host secret store — approve the prompt if one appears")
-		},
-	}
-}
-
-func reportSandboxLogin(rs *Spec, p *Params) {
+func reportSandboxLogin(rs *Spec) {
 	ui.Section(ui.SectionCredentials)
 	if !credentials.NeedsSandboxLogin(rs.Man, true,
 		rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
 		return
 	}
-	argv := ""
-	// Keyed on the DEF: a variant target (claudecode-browser) is the same
-	// harness and the same built-in agent.
-	if a := sbx.AuthLoginArgs(sbx.BuiltinAgent(rs.Man.Name), rs.Workspace.WS.InputDir); a != nil {
-		argv = sbx.Binary + " " + strings.Join(a, " ")
-	}
-	lines := rs.Creds.Keychain.SandboxLoginHint(argv)
-	ui.Hostf("%s", lines[0])
-	for _, l := range lines[1:] {
-		ui.Notef("%s", l)
-	}
-}
-
-func reportKeychain(k credentials.KeychainLogin, sbxBackend, fileLogin bool) {
-	ui.Section(ui.SectionCredentials)
-	if line := k.Report(); line != "" {
-		ui.Hostf("%s", line)
-		if advice := k.KeychainAdvice(sbxBackend, fileLogin); advice != "" {
-			ui.Notef("%s", advice)
-		}
-		return
-	}
-	if advice := k.KeychainFailureAdvice(); advice != "" {
-		ui.Warnf("%s", advice)
+	svc := sbx.SubscriptionService(sbx.BuiltinAgent(credentials.HarnessFamily(rs.Man.Name)))
+	ui.Hostf("the sandbox has no credential of its own — sbx keeps a subscription login only in its own store")
+	if how := sbx.SignIn(svc); how != "" {
+		ui.Notef("sign in once with %s; sbx then holds it as %s (oauth configured) for every sandbox", how, svc)
 	}
 }
 
@@ -341,10 +310,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man)
 	rs.Creds.LoggedIn = rs.Creds.FileLogin || len(rs.Creds.StoreHeld) > 0
 	if !p.PrintOnly {
-		rs.Creds.Keychain = credentials.ReadKeychainLogin(
-			p.Target, credentials.OSLookupEnv, hostStoreResolver(), time.Now())
-		reportKeychain(rs.Creds.Keychain, true, rs.Creds.FileLogin)
-		reportSandboxLogin(rs, p)
+		reportSandboxLogin(rs)
 	}
 	if rs.Creds.LoginNeedsRefresh && !p.PrintOnly {
 		ui.Hostf("the login in the proveo home needs a refresh — the agent may report " +

@@ -58,12 +58,15 @@ type StoreEntry struct {
 
 // StoreEntries reads the global service rows of `sbx secret ls`.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R9)
-func StoreEntries() map[string]StoreEntry {
+func StoreEntries() map[string]StoreEntry { return StoreEntriesFor("") }
+
+// StoreEntriesFor adds the rows scoped to sandbox to the global ones.
+func StoreEntriesFor(sandbox string) map[string]StoreEntry {
 	out, err := sh.SecretList()
 	if err != nil {
 		return nil
 	}
-	return parseStoreEntries(string(out))
+	return parseStoreEntries(string(out), sandbox)
 }
 
 // StoredServices names every global service the store holds a key or an OAuth login for.
@@ -76,14 +79,14 @@ func StoredServices() []string {
 	return out
 }
 
-func parseStoreEntries(listing string) map[string]StoreEntry {
+func parseStoreEntries(listing, sandbox string) map[string]StoreEntry {
 	out := map[string]StoreEntry{}
 	for _, line := range strings.Split(listing, "\n") {
 		if strings.TrimSpace(line) == "CUSTOM SECRETS" {
 			break
 		}
 		f := strings.Fields(line)
-		if len(f) < 4 || f[0] != "(global)" || f[1] != "service" {
+		if len(f) < 4 || (f[0] != "(global)" && (sandbox == "" || f[0] != sandbox)) || f[1] != "service" {
 			continue
 		}
 		e := out[f[2]]

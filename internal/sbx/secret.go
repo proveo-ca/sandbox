@@ -10,6 +10,21 @@ func SecretSet(name, value string) error {
 	return sh.SecretSet(name, value)
 }
 
+// SecretSetSourceArgs stores service from source flags (--ref, --command) or stdin, scoped to sandbox when it is set.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R11, R12)
+func SecretSetSourceArgs(service, sandbox string, source []string) []string {
+	args := SecretSetArgs(service)
+	if sandbox != "" {
+		args = append(args, "--sandbox", sandbox)
+	}
+	return append(args, source...)
+}
+
+// SecretSetSource runs `sbx secret set` for service with source flags, or with stdin carrying the value.
+func SecretSetSource(service, sandbox string, source []string, stdin string) error {
+	return sh.SecretSetFrom(SecretSetSourceArgs(service, sandbox, source), stdin)
+}
+
 // OAuthServices are the built-in services whose one entry also holds a
 // subscription login; an API key stored there outranks it for every sandbox.
 var OAuthServices = []string{"anthropic", "openai"}

@@ -18,6 +18,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -339,12 +340,21 @@ func defNames(ms []manifest.Manifest) []string {
 	return out
 }
 
-// provisionSlot writes one credential under its service id.
+// provisionSlot writes one credential under its service id: a reference as an sbx source, a value on stdin.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R2)
 func provisionSlot(s credSlot, value string) error {
-	if err := sbx.SecretSet(s.Store, value); err != nil {
+	flags, stdin := secretref.SbxSource(s.Store, value, os.Getenv)
+	if len(flags) > 0 {
+		if err := sbx.SecretSetSource(s.Store, "", flags, ""); err != nil {
+			return fmt.Errorf("register %s: %w", s.Store, err)
+		}
+		ui.Storef("%s registered as %s from a source sbx resolves on the host (%s); proveo never reads the value", s.Label, s.Store, flags[0])
+		return nil
+	}
+	if err := sbx.SecretSet(s.Store, stdin); err != nil {
 		return fmt.Errorf("store as %s: %w", s.Store, err)
 	}
+	value = stdin
 	ui.Storef("%s stored as %s", s.Label, s.Store)
 	switch ok, detail := verifySlot(s, value); {
 	case ok:

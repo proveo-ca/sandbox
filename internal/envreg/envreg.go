@@ -150,8 +150,6 @@ var Vars = []Var{
 		Doc: "Download the Java language server from this tarball URL"},
 	{Name: "PROVEO_KEEP_AGENT_LOGINS", Scope: Operator, Where: Binary, Default: "off",
 		Doc: "Keep logins an agent makes inside a run instead of scrubbing them next run"},
-	{Name: "PROVEO_KEYCHAIN_SERVICE", Scope: Operator, Where: Binary, Default: "Claude Code's own item names",
-		Doc: "Name the macOS Keychain item proveo reads the Claude Code login from"},
 	{Name: "PROVEO_LOCAL_MODEL_FORCE", Scope: Operator, Where: Binary, Default: "off",
 		Doc: "Load a local model even when host memory looks too small"},
 	{Name: "PROVEO_LOCAL_MODEL_PULL", Scope: Operator, Where: Binary, Default: "on",

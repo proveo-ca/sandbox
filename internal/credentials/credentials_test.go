@@ -3,8 +3,6 @@ package credentials
 
 import (
 	"bytes"
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +13,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -89,46 +86,23 @@ func TestChildEnvSkipsWhatTheChildAlreadyInherits(t *testing.T) {
 	}
 }
 
-// TestProviderLookupResolvesReferences: a stored reference resolves; an
-// unresolvable one warns once and yields "", never the reference text.
-func TestProviderLookupResolvesReferences(t *testing.T) {
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R11)
+func TestProviderLookupHandsReferencesBackUnresolved(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "keychain:Some Service")
-	t.Setenv("OPENAI_API_KEY", "keychain:Missing Service")
 	t.Setenv("XAI_API_KEY", "sk-xai-literal:with-colon")
-
-	var warnings []string
-	r := &secretref.Resolver{
-		GOOS: "darwin",
-		Exec: func(_ context.Context, _ string, args ...string) ([]byte, []byte, error) {
-			for i, a := range args {
-				if a == "-s" && i+1 < len(args) && args[i+1] == "Some Service" {
-					return []byte("sk-ant-resolved\n"), nil, nil
-				}
-			}
-			return nil, []byte("security: SecKeychainSearchCopyNext: " +
-				"The specified item could not be found in the keychain."), errors.New("exit status 44")
-		},
+	envFile := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envFile, []byte("OPENAI_API_KEY=op://Private/OpenAI/key\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	lookup := ProviderLookupWith("", r, func(f string, a ...any) {
-		warnings = append(warnings, fmt.Sprintf(f, a...))
-	})
-
-	if got := lookup("ANTHROPIC_API_KEY"); got != "sk-ant-resolved" {
-		t.Errorf("resolved value = %q", got)
-	}
-	if got := lookup("XAI_API_KEY"); got != "sk-xai-literal:with-colon" {
-		t.Errorf("literal with a colon = %q, want it untouched", got)
-	}
-	for range 3 {
-		if got := lookup("OPENAI_API_KEY"); got != "" {
-			t.Fatalf("unresolvable reference = %q, want empty", got)
+	lookup := ProviderLookup(envFile)
+	for k, want := range map[string]string{
+		"ANTHROPIC_API_KEY": "keychain:Some Service",
+		"XAI_API_KEY":       "sk-xai-literal:with-colon",
+		"OPENAI_API_KEY":    "op://Private/OpenAI/key",
+	} {
+		if got := lookup(k); got != want {
+			t.Errorf("lookup(%s) = %q, want %q as written — sbx resolves references, proveo never does", k, got, want)
 		}
-	}
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %v, want exactly one", warnings)
-	}
-	if !strings.Contains(warnings[0], "OPENAI_API_KEY") || !strings.Contains(warnings[0], "Missing Service") {
-		t.Errorf("warning = %q", warnings[0])
 	}
 }
 

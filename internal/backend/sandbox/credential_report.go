@@ -223,13 +223,13 @@ func consentInteractive() bool {
 
 // reportCredentials prints each declared service sbx holds something for, and refuses an unattended create that would withhold the run's own credential.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R9)
-func reportCredentials(in Input, caps []sbx.CapabilityV3, created bool) error {
+func reportCredentials(in Input, name string, caps []sbx.CapabilityV3, created bool) error {
 	binds, err := sbx.LoadBindings(sbx.BindingsPath(os.Getenv))
 	if err != nil {
 		ui.Warnf("credentials.yaml unreadable (%v); sbx decides approvals on its own", err)
 		return nil
 	}
-	states := resolveCredentials(declaredCredentials(caps), sbx.StoreEntries(), binds)
+	states := resolveCredentials(declaredCredentials(caps), sbx.StoreEntriesFor(name), binds)
 	chosen := chosenService(in.Target, in.AuthVar, in.Man.Subscription)
 	lines, warn := credentialLines(states, chosen)
 	if len(lines) > 0 {
