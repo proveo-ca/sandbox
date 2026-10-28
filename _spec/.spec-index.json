@@ -1205,7 +1205,12 @@
         "internal/run/choices.go",
         "internal/run/choices_test.go",
         "cmd/proveo/init_credentials.go",
-        "e2e/ladder_test.go"
+        "e2e/ladder_test.go",
+        "internal/sbx/bindings.go",
+        "internal/sbx/bindings_test.go",
+        "internal/backend/sandbox/credential_report.go",
+        "internal/backend/sandbox/credential_report_test.go",
+        "internal/backend/sandbox/opencode_engine.go"
       ],
       "fingerprint": null
     },

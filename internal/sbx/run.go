@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -466,4 +467,10 @@ func AuthLoginArgs(agent, workspace string) []string {
 	}
 	args := []string{"run", agent, workspace, "--"}
 	return append(args, sub...)
+}
+
+// ExecOutput runs script under bash in a running sandbox and returns its stdout, killed after timeout.
+func ExecOutput(name, script string, timeout time.Duration) (string, error) {
+	out, err := boundedWith(timeout, Binary, "exec", "-w", "/", name, "--", "bash", "-c", script)
+	return string(out), err
 }

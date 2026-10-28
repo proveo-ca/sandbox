@@ -1611,6 +1611,9 @@ func Run(in Input) error {
 	if len(secrets) > 0 {
 		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
 	}
+	if err := reportCredentials(in, w.Descriptor.Capabilities, created); err != nil {
+		return err
+	}
 	if opencodeTarget(in.Target) {
 		launchCfg, created, err = ensureOpenCodeEngine(in, cfg)
 		if err != nil {
@@ -1697,6 +1700,7 @@ func Run(in Input) error {
 		ui.Hostf("%v — ending as on a normal exit", result)
 	}
 	defer func() {
+		reportCredentialInUse(in.Target, cfg.Name)
 		if clones, err := sandboxClone(in, cfg.Name); err == nil {
 			in.Clone, in.CloneKnown = clones, true
 		}
@@ -2304,6 +2308,9 @@ func createSandbox(cfg sbx.RunConfig) error {
 	c := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
 	c.Env = sbx.CreateEnv(os.Environ(), cfg)
 	c.Stdout, c.Stderr = os.Stderr, os.Stderr
+	if consentInteractive() {
+		c.Stdin = os.Stdin
+	}
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("sbx create %s: %w", cfg.Name, err)
 	}
