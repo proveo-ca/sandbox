@@ -1135,6 +1135,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/backed-api-key-env.puml",
+      "covers": [
+        "internal/sbx/secret.go",
+        "internal/sbx/secret_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/workload_test.go",
+        "internal/run/run.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/sbx/browser-viewport.puml",
       "covers": [
         "internal/sbx/run.go",

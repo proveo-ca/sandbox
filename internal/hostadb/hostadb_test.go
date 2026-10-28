@@ -201,6 +201,8 @@ type hostTools struct {
 	boot                                func(serial string) string
 	exit                                error // non-nil: the launched emulator exits with it at once
 	said                                []string
+	stale                               []string // pids retireStale reports killing
+	retiredOn                           []string // serials retireStale was asked about
 }
 
 func (h *hostTools) report(f string, a ...any) { h.said = append(h.said, fmt.Sprintf(f, a...)) }
@@ -212,15 +214,19 @@ func stubHostTools(t *testing.T) *hostTools {
 		_ = os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755)
 		_ = os.WriteFile(filepath.Join(root, p), nil, 0o755)
 	}
-	oList, oStart, oRe, oBoot, oEmu, oPoll, oWait := listAVDs, startAdb, reconnect, bootProp, startEmulator, pollEvery, readyWait
+	oList, oStart, oRe, oBoot, oEmu, oPoll, oWait, oRetire := listAVDs, startAdb, reconnect, bootProp, startEmulator, pollEvery, readyWait, retireStale
 	t.Cleanup(func() {
-		listAVDs, startAdb, reconnect, bootProp, startEmulator, pollEvery, readyWait = oList, oStart, oRe, oBoot, oEmu, oPoll, oWait
+		listAVDs, startAdb, reconnect, bootProp, startEmulator, pollEvery, readyWait, retireStale = oList, oStart, oRe, oBoot, oEmu, oPoll, oWait, oRetire
 	})
 	h := &hostTools{env: env(map[string]string{"ANDROID_HOME": root}), boot: func(string) string { return "1" }}
 	listAVDs = func(string) ([]byte, error) { return []byte("Pixel_9\n"), nil }
 	startAdb = func(string, int) error { h.starts++; return nil }
 	reconnect = func(string, int) error { h.reconnects++; return nil }
 	bootProp = func(_ string, _ int, serial string) string { h.boots++; return h.boot(serial) }
+	retireStale = func(_ string, _ int, serial string) []string {
+		h.retiredOn = append(h.retiredOn, serial)
+		return h.stale
+	}
 	startEmulator = func(string, string, int) (<-chan error, error) {
 		h.launches++
 		exited := make(chan error, 1)
@@ -247,6 +253,34 @@ func TestEnsureReusesARunningDeviceOnceItsBootHolds(t *testing.T) {
 	}
 	if last := h.said[len(h.said)-1]; !strings.Contains(last, "reusing emulator-5554") {
 		t.Errorf("report = %q", h.said)
+	}
+}
+
+// SPEC: _spec/internal/sbx/host-android-adb.puml (STALE DEVICESERVER)
+func TestEnsureRetiresAStaleDeviceServerOnAReusedDevice(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stale    []string
+		wantSaid bool
+	}{
+		{name: "a DeviceServer older than system_server is retired and named", stale: []string{"18145"}, wantSaid: true},
+		{name: "nothing stale stays quiet"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeServer(t, "emulator-5554\tdevice\n")
+			h := stubHostTools(t)
+			h.stale = tc.stale
+			if err := Ensure(h.env, 1, h.report); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(h.retiredOn, []string{"emulator-5554"}) {
+				t.Errorf("Ensure asked retireStale about %q, want the reused emulator-5554 once", h.retiredOn)
+			}
+			said := strings.Join(h.said, "\n")
+			if got := strings.Contains(said, "retired mobilecli DeviceServer 18145 on emulator-5554"); got != tc.wantSaid {
+				t.Errorf("Ensure with stale %q reported %q; want a retirement line = %v", tc.stale, h.said, tc.wantSaid)
+			}
+		})
 	}
 }
 

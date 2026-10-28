@@ -207,14 +207,12 @@ func awaitNewSandbox(t *testing.T, sess *tmux.Session, before map[string]bool, t
 func awaitGuestSeed(t *testing.T, guest func(string) string, target string, timeout time.Duration) {
 	t.Helper()
 	probe := `printf 'SEED %s %s\n' "$(grep -c '^> ' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)" "$(grep -cE '^(ok|fail|error)' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`
-	posture := fmt.Sprintf(`grep -cE '^ok .*-startup-%s-posture/' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0`, target)
 	if !waitUntil(timeout, func() bool {
 		started, done := seedCounts(guest(probe))
 		if started == 0 || done < started {
 			return false
 		}
-		n, _ := strconv.Atoi(strings.TrimSpace(guest(posture)))
-		return n > 0
+		return strings.TrimSpace(guest("test -e "+seedDone+" && echo done")) == "done"
 	}) {
 		t.Fatalf("the seed did not finish within %s:\n%s", timeout, guest(`tail -40 /var/log/sbx-kit-startup.log`))
 	}

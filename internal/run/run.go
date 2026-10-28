@@ -685,6 +685,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		ImageSource: func(ref string) sbx.ImageSource {
 			return sbx.ResolveImageSource(ref, imagebuild.New("").HostBuilder)
 		},
+		StoredAPIKeys:    sbx.APIKeyServices,
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,
 		Detected:         rs.Creds.Detected,

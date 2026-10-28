@@ -101,6 +101,16 @@ skinparam noteTextAlignment left
 ' a scripted host:devices sequence; listAVDs, startAdb, reconnect, bootProp
 ' and startEmulator are package vars the tests swap and count.
 '
+' ── STALE DEVICESERVER (hostadb.retireStale, 2026-10-27) ───────────────────
+' MEASURED: on a reused emulator, mobile-mcp's tap and press_button failed with
+'   "agent error -32603: Internal error: android.os.DeadSystemException" while
+'   list/launch/screenshot (plain adb) worked. com.mobilenext.mobilecli.DeviceServer
+'   had started 12:35; system_server restarted 14:11, so its binder was dead.
+'   Killing it let mobilecli start a fresh one; the e2e passed.
+' attach, after a reused device's boot holds, runs retireStaleDeviceServer on it:
+'   each DeviceServer whose /proc/<pid>/stat starttime precedes system_server's
+'   is killed, and proveo names the pids. A fresh one is left alone.
+'
 ' ── ONE ROW PER HARNESS (hostadb.Launches) ─────────────────────────────────
 ' A harness gets android only with a per-launch way to take the mobile server;
 ' a contract test fails a manifest that declares android without one, and an

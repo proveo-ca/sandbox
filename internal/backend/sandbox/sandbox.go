@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -1124,6 +1125,8 @@ type Input struct {
 	ImageEntrypoint func(image string) []string
 	// ImageSource locates Image for the kit build; nil leaves FROM as Image and the active builder.
 	ImageSource func(image string) sbx.ImageSource
+	// StoredAPIKeys lists the services sbx's store holds an API key for; nil reads as none.
+	StoredAPIKeys func() []string
 	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
 	AgentEnv         []string
 	Sid, RunDir      string
@@ -1405,7 +1408,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 
 	caps := []sbx.CapabilityV3{{Type: sbx.CapSbx}}
 	if hasUp {
-		caps = append(caps, up.Capabilities...)
+		caps = append(caps, backAPIKeys(up.Capabilities, storedAPIKeys(in))...)
 	}
 	creds, secrets := agentCredentials(in, secrets)
 	owned := upstreamServices(caps)
@@ -1948,6 +1951,39 @@ func CaptureMemoryEvidence(runDir, name string) {
 }
 
 var storedSecretNames = sbx.StoredSecretNames
+
+// apiKeyEnvWhenBacked are the services whose upstream kit withholds proxyManaged so an unbacked key leaves sign-in open.
+// SPEC: _spec/internal/sbx/backed-api-key-env.puml
+var apiKeyEnvWhenBacked = map[string]bool{"cursor": true}
+
+func storedAPIKeys(in Input) []string {
+	if in.StoredAPIKeys == nil {
+		return nil
+	}
+	return in.StoredAPIKeys()
+}
+
+// backAPIKeys sets apiKey.proxyManaged on each apiKeyEnvWhenBacked credential the store backs, copying what it changes.
+func backAPIKeys(caps []sbx.CapabilityV3, stored []string) []sbx.CapabilityV3 {
+	out := append([]sbx.CapabilityV3(nil), caps...)
+	for i, c := range out {
+		cfg, ok := c.Config.(map[string]any)
+		if c.Type != sbx.CapCredential || !ok {
+			continue
+		}
+		service, _ := cfg["service"].(string)
+		apiKey, ok := cfg["apiKey"].(map[string]any)
+		if !ok || !apiKeyEnvWhenBacked[service] || !slices.Contains(stored, service) {
+			continue
+		}
+		key := maps.Clone(apiKey)
+		key["proxyManaged"] = true
+		next := maps.Clone(cfg)
+		next["apiKey"] = key
+		out[i].Config = next
+	}
+	return out
+}
 
 func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]string) {
 	var creds []sbx.CredentialV3

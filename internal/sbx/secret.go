@@ -98,3 +98,23 @@ func SecretSetCustom(hosts []string, envVar, value string) error {
 	}
 	return sh.SecretSetCustom(hosts, envVar, value)
 }
+
+// APIKeyServices are the service-secret names `sbx secret ls` lists as "(stored)": API keys, not OAuth slots.
+// SPEC: _spec/internal/sbx/backed-api-key-env.puml
+func APIKeyServices() []string {
+	out, err := sh.SecretList()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == "CUSTOM SECRETS" {
+			break
+		}
+		f := strings.Fields(line)
+		if len(f) == 4 && f[1] == "service" && f[3] == "(stored)" {
+			names = append(names, f[2])
+		}
+	}
+	return names
+}

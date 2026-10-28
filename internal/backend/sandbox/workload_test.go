@@ -340,3 +340,44 @@ func TestAnAllowedGatewayIsNotBlankedAndTheSeedHookCanSeeIt(t *testing.T) {
 		t.Fatalf("seed hook %+v does not declare the gateway names; a hook sees only the env it names", seed)
 	}
 }
+
+// SPEC: _spec/internal/sbx/backed-api-key-env.puml
+func TestABackedCursorKeyGetsSbxsPlaceholderAndAnUnbackedOneStaysSignIn(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		target      string
+		service     string
+		stored      []string
+		wantManaged bool
+	}{
+		{name: "cursor key stored", target: "cursor", service: "cursor", stored: []string{"cursor"}, wantManaged: true},
+		{name: "nothing stored keeps cursor's sign-in", target: "cursor", service: "cursor"},
+		{name: "only the env-var-named entry stored is not the service", target: "cursor", service: "cursor", stored: []string{"CURSOR_API_KEY"}},
+		{name: "a stored anthropic key leaves claude's subscription path alone", target: "claudecode", service: "anthropic", stored: []string{"anthropic"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := specInput(tc.target)
+			in.StoredAPIKeys = func() []string { return tc.stored }
+			_, w, _ := Spec(in)
+			apiKey := credentialAPIKey(t, w, tc.service)
+			if got := apiKey["proxyManaged"] == true; got != tc.wantManaged {
+				t.Errorf("Spec(%q) with stored %q: %s apiKey.proxyManaged = %v, want %v", tc.target, tc.stored, tc.service, apiKey["proxyManaged"], tc.wantManaged)
+			}
+		})
+	}
+}
+
+// credentialAPIKey is the apiKey block of the workload's credential@1 for service.
+func credentialAPIKey(t *testing.T, w Workload, service string) map[string]any {
+	t.Helper()
+	for _, c := range w.Descriptor.Capabilities {
+		cfg, ok := c.Config.(map[string]any)
+		if c.Type != sbx.CapCredential || !ok || cfg["service"] != service {
+			continue
+		}
+		apiKey, _ := cfg["apiKey"].(map[string]any)
+		return apiKey
+	}
+	t.Fatalf("workload declares no %s credential", service)
+	return nil
+}
