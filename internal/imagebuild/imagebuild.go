@@ -125,7 +125,7 @@ func (b *Builder) AgentVersion(overrideVar, eco, pkg string) (string, error) {
 		b.UI.Failf("could not resolve the current %s release (%s).\n"+
 			"  The agent install is pinned by version, so a rebuild is reproducible and a\n"+
 			"  cached layer cannot hide an upstream release. Offline or behind a proxy, name\n"+
-			"  the version yourself:   %s=<x.y.z> proveo build <target>%s", pkg, eco, overrideVar, last)
+			"  the version yourself:   %s=<x.y.z> mise run build <target>%s", pkg, eco, overrideVar, last)
 		return "", fmt.Errorf("could not resolve %s (%s)", pkg, eco)
 	}
 	b.UI.Notef("pin: %s@%s (resolved upstream; override with %s=<version>)", pkg, v, overrideVar)
@@ -205,8 +205,8 @@ func (b *Builder) RequirePublished(ref, tag string) error {
 		"  A --push build takes its base from the registry, and this script will\n"+
 		"  not publish %s as a side effect of deploying its child.\n"+
 		"  Deploying one target whose parents are unpublished is not supported yet.\n"+
-		"  →  proveo deploy all%s   — publishes every base before its children\n"+
-		"  →  proveo deploy %s%s   — then re-run this target", ref, ref, tagflag, name, tagflag)
+		"  →  mise run deploy all%s   — publishes every base before its children\n"+
+		"  →  mise run deploy %s%s   — then re-run this target", ref, ref, tagflag, name, tagflag)
 	return fmt.Errorf("%s is not published", ref)
 }
 
@@ -375,8 +375,8 @@ func (b *Builder) Build(push bool, args []string) error {
 		if ref, _ := ArgRef(args); RefTag(ref) == "latest" {
 			b.UI.Failf("refusing to --load an image tagged :latest.\n" +
 				"  :latest means published. Build locally as :local, then promote:\n" +
-				"  →  proveo build <target>            — writes :local\n" +
-				"  →  proveo deploy <target>           — promotes :local to :latest and pushes")
+				"  →  mise run build <target>            — writes :local\n" +
+				"  →  mise run deploy <target>           — promotes :local to :latest and pushes")
 			return errors.New("refusing to --load :latest")
 		}
 		if strings.Contains(platforms, ",") {

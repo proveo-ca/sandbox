@@ -361,7 +361,7 @@ func TestRequirePublishedNamesTheDeployOrder(t *testing.T) {
 	if err := b.RequirePublished("proveo/claudecode:rc1", "rc1"); err == nil {
 		t.Fatal("an unpublished parent was accepted")
 	}
-	for _, want := range []string{"proveo/claudecode:rc1 is not published", "proveo deploy all --tag rc1", "proveo deploy claudecode --tag rc1"} {
+	for _, want := range []string{"proveo/claudecode:rc1 is not published", "mise run deploy all --tag rc1", "mise run deploy claudecode --tag rc1"} {
 		if !strings.Contains(errb.String(), want) {
 			t.Errorf("refusal lacks %q:\n%s", want, errb)
 		}

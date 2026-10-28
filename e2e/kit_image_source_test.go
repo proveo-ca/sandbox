@@ -26,7 +26,7 @@ func TestAHostOnlyImageBuildsWhileAContainerBuilderIsActive(t *testing.T) {
 	base := harnessImage(t, "codex")
 	if out, err := exec.Command("docker", "buildx", "inspect", containerBuilder).CombinedOutput(); err != nil ||
 		!strings.Contains(string(out), "docker-container") {
-		t.Skipf("no %s docker-container builder to stand in for the active one (`proveo build --push` creates it)", containerBuilder)
+		t.Skipf("no %s docker-container builder to stand in for the active one (`mise run deploy` creates it)", containerBuilder)
 	}
 	hostOnly := fmt.Sprintf("proveo-e2e/hostonly-%d:local", time.Now().UnixNano())
 	if out, err := exec.Command("docker", "tag", base, hostOnly).CombinedOutput(); err != nil {

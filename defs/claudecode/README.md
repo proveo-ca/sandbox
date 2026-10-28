@@ -100,7 +100,7 @@ Variant runners mount:
 Run tests:
 
 ```bash
-mise run test-defs claudecode      # or: proveo test claudecode
+mise run test-defs claudecode
 ```
 
 Open a shell in a running variant's sandbox with sbx:

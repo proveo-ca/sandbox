@@ -499,7 +499,7 @@ done`
 			for _, fn := range required {
 				if !strings.Contains(out, "present "+fn) {
 					t.Errorf("%s ships a STALE entrypoint-lib.sh: %q is missing. "+
-						"Rebuild it (`proveo build %s`) — the source fix is not live until you do.",
+						"Rebuild it (`mise run build %s`) — the source fix is not live until you do.",
 						name, fn, name)
 				}
 			}

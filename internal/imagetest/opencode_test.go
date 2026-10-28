@@ -222,7 +222,7 @@ func ocBuild(s *imagetest.Suite) {
 		s.Matches("opencode --version matches proveo.agent.version="+label, img, "opencode --version", `^opencode v`+regexp.QuoteMeta(label)+`$`)
 	} else {
 		s.Check("proveo.agent.version label is set", func(t *testing.T) {
-			t.Error("image predates the pin — proveo build opencode")
+			t.Error("image predates the pin — mise run build opencode")
 		})
 	}
 

@@ -8,7 +8,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' covers: internal/imagetest/imagetest.go
 ' covers: internal/imagetest/detached_smoke_test.go
 ' covers: internal/maintain/**
-' covers: cmd/proveo/maintain_cmd.go
+' covers: cmd/proveo-dev/maintain.go
 ' covers: cmd/proveo/provision.go
 ' covers: internal/contract/image_resolution_test.go
 ' covers: internal/contract/import_boundary_test.go
@@ -110,7 +110,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' below.
 '
 ' ── ONE RULE, IN ONE PLACE — AND THE SECOND OPINION IS BANNED ───────────────
-' The detached smoke first named each image with a HARDCODED tag. `proveo build`
+' The detached smoke first named each image with a HARDCODED tag. `mise run build`
 ' tags a local build :local and only a publish moves :latest, so it smoke-tested
 ' a published artifact while reading as though it covered the build in the tree.
 ' Its fix then grew its own `for tag in local latest`, which prefers :local by
@@ -148,8 +148,8 @@ folder "Lineage" as CHAIN <<host>> {
 }
 
 node "Tag policy" as TAGS <<host>> {
-  component "proveo build\n--load → :local (never :latest)" as BUILD <<app>>
-  component "proveo deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
+  component "mise run build\n--load → :local (never :latest)" as BUILD <<app>>
+  component "mise run deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
   component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
   component "imagetest.Resolve(target, ref)\na PROVEO_TEST_<TARGET>_IMAGE pin as given\nelse ResolveImage" as SHRESOLVE <<app>>
 }
@@ -183,7 +183,7 @@ SHRESOLVE ARROW_MAIN RESOLVE : calls it — one implementation
 
 note right of REF
   **A child never hardcodes ""latest"".** Every parent reference is
-  resolved through ""ImageRef"", so ""proveo deploy all --tag v2""
+  resolved through ""ImageRef"", so ""mise run deploy all --tag v2""
   publishes ""proveo/<harness>:v2"" built ""FROM proveo/base:v2"". Left
   hardcoded, the published lineage silently mixes two releases and
   nothing in the image records it.
@@ -191,7 +191,7 @@ note right of REF
   A PARENT's ""PROVEO_*_IMAGE"" override wins outright — it is a
   complete ref chosen by the caller, so the tag is not reapplied to it.
   The TARGET's own override names only its repo: ""TargetRef"" applies
-  ""--tag"" to it, so ""proveo build"" still writes ""<repo>:local"".
+  ""--tag"" to it, so ""mise run build"" still writes ""<repo>:local"".
 end note
 
 note bottom of ENSURE
@@ -218,7 +218,7 @@ note bottom of REQ
 
   Failing at the declaration site turns a bare 'failed to resolve
   source metadata … not found' 30 seconds into the build into an
-  actionable message naming ""proveo deploy all"" and the parent target.
+  actionable message naming ""mise run deploy all"" and the parent target.
 end note
 
 note right of CHAIN
@@ -255,7 +255,7 @@ end note
 
 
 note bottom of CHAIN
-  **""proveo deploy all"" is the coherent publish path.** The maintainer
+  **""mise run deploy all"" is the coherent publish path.** The maintainer
   registry is hand-ordered bases-first, then harnesses alphabetically,
   so every parent is published before its children — including
   claudecode before claudecode-solidity. Alphabetical order satisfying

@@ -12,7 +12,7 @@
 ' render_subagents is bash-4 code; macOS /bin/bash is 3.2. The preview runs it
 ' in the harness image's bash (docker --entrypoint bash, --network none, host
 ' uid:gid) and mounts the WORKING-TREE entrypoint-lib.sh over /entrypoint-lib.sh,
-' so a lib edit previews without `proveo build`. defs/subagents and the dest dir
+' so a lib edit previews without `mise run build`. defs/subagents and the dest dir
 ' mount at their host paths, so the "composed at runtime from <src>" header is
 ' byte-identical to the retired host-sourced defs/lib/render-subagents.sh.
 '

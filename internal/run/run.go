@@ -240,7 +240,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	}
 	if v := posture.AgentVersion(p.Image); v != "" {
 		ui.Section(ui.SectionRun)
-		ui.Appf("agent: %s %s — pinned at build (`proveo build %s` moves it)", p.Target, v, p.Target)
+		ui.Appf("agent: %s %s — pinned at build (`mise run build %s` moves it)", p.Target, v, p.Target)
 	}
 	return nil
 }

@@ -323,7 +323,7 @@ Commit-subject helper runs use a private `--standalone` server.
 ## Tests
 
 ```bash
-mise run test-defs opencode      # or: proveo test opencode
+mise run test-defs opencode
 ```
 
 The suite (`internal/imagetest/opencode_test.go`) covers build, tool presence, security hardening, baked-in default seeding

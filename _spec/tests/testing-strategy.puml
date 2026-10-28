@@ -57,8 +57,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' ── THE def SUITES ARE GO SINCE 2026-09-22 (host-shell-to-go P3) ────────────
 ' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
 ' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke.
-' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `proveo test <target>` and
-' `mise run test-defs <target>` run
+' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `mise run test-defs <target>`
+' (proveo-dev test) runs
 '   go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
 ' NO UNBOUNDED DOCKER CALL. imagetest.Resolve/Present once ran
 ' `docker image inspect` via bare exec.Command. On 2026-10-18 a wedged host
@@ -112,7 +112,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '    opencode and cursor verify AVAILABILITY here and never build; claudecode now
 '    matches them. Building is imagebuild's job (internal/imagebuild/targets.go),
 '    and it is the only caller that knows how to resolve the base chain:
-'    `proveo build claudecode`.
+'    `mise run build claudecode`.
 '
 ' 2. A MISSING HELPER THAT STILL PRODUCED A NUMBER. test_config.sh had called
 '    `run_timeout` since it was written and claudecode's helpers never defined it

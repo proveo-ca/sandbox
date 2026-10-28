@@ -81,7 +81,7 @@ func withoutPlanLine(raw, target string) string {
 func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
 	t.Parallel()
 	const target = "opencode"
-	plan := "\x1b[36m  \x1b[0m\x1b[90magent: opencode 1.4.0 — pinned at build (`proveo build opencode` moves it)\x1b[0m\r\n"
+	plan := "\x1b[36m  \x1b[0m\x1b[90magent: opencode 1.4.0 — pinned at build (`mise run build opencode` moves it)\x1b[0m\r\n"
 	for _, tc := range []struct {
 		name, raw string
 		want      bool

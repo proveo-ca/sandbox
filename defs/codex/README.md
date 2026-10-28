@@ -53,7 +53,7 @@ proveo run codex --resume <uuid>     # → codex resume <uuid>
 proveo run codex --ls                # → codex resume (the picker)
 ```
 
-Run the image suite with `mise run test-defs codex` or `proveo test codex`
+Run the image suite with `mise run test-defs codex`
 (`PROVEO_TEST_CODEX_IMAGE=proveo/codex:local mise run test-defs codex` pins the image under test).
 
 ### Variants

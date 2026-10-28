@@ -44,7 +44,7 @@ func TestImageClaudecode(t *testing.T) {
 			return
 		}
 		if r := imagetest.Docker(10*time.Minute, nil, "pull", img.standalone); !r.OK() {
-			t.Fatalf("cannot continue without the claudecode image %s — proveo build claudecode", img.standalone)
+			t.Fatalf("cannot continue without the claudecode image %s — mise run build claudecode", img.standalone)
 		}
 	})
 	if !available {
@@ -84,7 +84,7 @@ func ccBuild(s *imagetest.Suite, img ccImages) {
 			img.standalone, "claude --version", label)
 	} else {
 		s.Check("[claudecode] proveo.agent.version label is set", func(t *testing.T) {
-			t.Error("image predates the pin — proveo build claudecode")
+			t.Error("image predates the pin — mise run build claudecode")
 		})
 	}
 

@@ -171,7 +171,7 @@ Gate them with `Mcp(server:tool)` permission rules. See <https://cursor.com/docs
 ## Tests
 
 ```bash
-mise run test-defs cursor      # or: proveo test cursor
+mise run test-defs cursor
 PROVEO_TEST_CURSOR_IMAGE=proveo/cursor:local mise run test-defs cursor   # pin the image under test
 ```
 

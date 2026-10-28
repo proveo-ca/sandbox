@@ -50,7 +50,7 @@ skinparam noteTextAlignment left
 ' The architect's brief recommended an option for each; where the user chose
 ' differently, the user's answer is what this spec records.
 '   D1 "Carry the DB over" — when an engine's settings change (the image after
-'      `proveo build`, the kit, the mounts) and it is replaced, its database is
+'      `mise run build`, the kit, the mounts) and it is replaced, its database is
 '      copied to the host and imported into the new engine. (The architect had
 '      recommended never retiring without a headed yes.)
 '   D2 `--shell`: "if `proveo` retire it" — retired 2026-10-17. A shell in the

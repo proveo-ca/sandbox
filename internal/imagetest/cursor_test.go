@@ -68,7 +68,7 @@ func TestImageCursor(t *testing.T) {
 			"test -d /opt/cursor-dist/.local/share/cursor-agent/versions/"+version)
 	} else {
 		s.Check("proveo.agent.version label is set", func(t *testing.T) {
-			t.Error("image predates the pin — proveo build cursor")
+			t.Error("image predates the pin — mise run build cursor")
 		})
 	}
 	s.Inspect("Docker USER is non-root (cursor)", image, `{{.Config.User}}`, "cursor")

@@ -27,13 +27,15 @@
 ' (`mise run build` → `go run ./cmd/proveo build`). The command stays
 ' registered and is Hidden, with deploy and test. Root help no longer
 ' lists it. TestRootHelpHidesMaintainerCommands is the pin.
-title Maintainer image pipeline — proveo build / test / deploy
+' 2026-10-28: the verbs moved to cmd/proveo-dev/maintain.go (`mise run build` →
+' `go run ./cmd/proveo-dev build`); the consumer CLI registers none of them.
+title Maintainer image pipeline — proveo-dev build / test / deploy
 
 actor "Maintainer" as MT
 
 node "Maintainer host" as HOST <<host>> {
   component "mise tasks\nbuild · test-defs · deploy" as MISE <<app>>
-  component "cmd/proveo build|test|deploy\n(internal/maintain)" as CMD <<app>>
+  component "cmd/proveo-dev build|test|deploy\n(internal/maintain)" as CMD <<app>>
   component "internal/manifest\nharness.manifest set" as MAN <<app>>
   component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nrepoRoot · suite" as REG <<app>>
   component "imagebuild.BuildTarget (in-process)\ntargets.go Specs[<name>] → buildx" as BUILD <<app>>
@@ -49,7 +51,7 @@ folder "Target kinds" as KINDS <<host>> {
 cloud "Registry (docker push)" as REGISTRY <<cloud>>
 
 MT ARROW_MAIN MISE
-MISE ARROW_MAIN CMD : " ""go run ./cmd/proveo build …"" "
+MISE ARROW_MAIN CMD : " ""go run ./cmd/proveo-dev build …"" "
 CMD ARROW_MAIN MAN : enumerate defs
 MAN ARROW_MAIN REG
 REG ARROW_MAIN KINDS : one Target per buildable image

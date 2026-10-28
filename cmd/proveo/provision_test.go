@@ -67,7 +67,7 @@ func TestProvisionerEnsure(t *testing.T) {
 			pullErr:   true,
 			confirm:   false,
 			wantPulls: []string{"proveo/codex:latest"},
-			wantErr:   "proveo build codex --tag local",
+			wantErr:   "PROVEO_AUTO_PROVISION=1",
 		},
 		{
 			name:      "duplicates are checked once",

@@ -17,20 +17,16 @@ func TestRootHelpHidesMaintainerCommands(t *testing.T) {
 			t.Errorf("root help lists %q:\n%s", strings.TrimSpace(hidden), out)
 		}
 	}
-	var buildHidden bool
 	var sawCursor bool
 	for _, c := range root.Commands() {
 		switch c.Name() {
 		case "targets":
 			t.Error("proveo targets is registered; nothing calls it")
-		case "build":
-			buildHidden = c.Hidden
+		case "build", "deploy", "test":
+			t.Errorf("proveo %s is registered; image maintenance lives in proveo-dev (mise run %s)", c.Name(), c.Name())
 		case "cursor":
 			sawCursor = isHarnessCmd(c)
 		}
-	}
-	if !buildHidden {
-		t.Error("proveo build stays registered for mise, and root help omits it")
 	}
 	if !sawCursor {
 		t.Error("proveo cursor is the alias for proveo run cursor")

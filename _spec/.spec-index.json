@@ -86,7 +86,7 @@
         "internal/imagetest/imagetest.go",
         "internal/imagetest/detached_smoke_test.go",
         "internal/maintain/**",
-        "cmd/proveo/maintain_cmd.go",
+        "cmd/proveo-dev/maintain.go",
         "cmd/proveo/provision.go",
         "internal/contract/image_resolution_test.go",
         "internal/contract/import_boundary_test.go"
@@ -504,7 +504,7 @@
       "covers": [
         "cmd/proveo/provision.go",
         "cmd/proveo/wizard.go",
-        "cmd/proveo/maintain_cmd.go",
+        "cmd/proveo-dev/maintain.go",
         "internal/imagebuild/targets.go"
       ],
       "fingerprint": null
@@ -989,8 +989,8 @@
       "spec": "_spec/internal/maintain/build-schedule.puml",
       "covers": [
         "internal/maintain/**",
-        "cmd/proveo/maintain_cmd.go",
-        "cmd/proveo/maintain_cmd_test.go",
+        "cmd/proveo-dev/maintain.go",
+        "cmd/proveo-dev/maintain_test.go",
         "defs/**/Dockerfile",
         "internal/contract/image_build_cache_test.go"
       ],
@@ -1000,7 +1000,7 @@
       "spec": "_spec/internal/maintain/image-build-deploy.puml",
       "covers": [
         "internal/maintain/**",
-        "cmd/proveo/maintain_cmd.go",
+        "cmd/proveo-dev/maintain.go",
         "cmd/proveo/maintainer_surface_test.go",
         "internal/imagebuild/**",
         "internal/imagetest/**"

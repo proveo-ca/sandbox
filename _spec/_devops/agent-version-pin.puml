@@ -39,7 +39,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '   upstream → image    `Builder.AgentVersion` resolves the newest release AT
 '                       BUILD TIME and passes it as a build-arg. A real update
 '                       mechanism — but it turns only when a human runs
-'                       `proveo build <target>`. There is no CI in this repo and
+'                       `mise run build <target>`. There is no CI in this repo and
 '                       no scheduled rebuild.
 '   image → sbx store   SELF-INVALIDATING, and this was the surprise: sbx.
 '                       HasTemplate compares the local docker image ID against a
@@ -129,7 +129,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '           An image without the label predates the pin — rebuild rather than
 '           trust it.
 '
-' An exported override wins outright (OPENCODE_VERSION=2.0.6 proveo build
+' An exported override wins outright (OPENCODE_VERSION=2.0.6 mise run build
 ' opencode): that is how a maintainer rebuilds an older agent, or builds
 ' offline. AgentVersion returns the bare version; the `pin:` note (ui.Notef)
 ' saying which release is about to be baked, and how it was chosen, prints
@@ -163,7 +163,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' FK: note over LBL; words=31 syllables=59; FK 12.9
 
 actor "Maintainer" as MT
-participant "cmd/proveo build\n(internal/maintain BuildPlan)" as CMD <<app>>
+participant "cmd/proveo-dev build\n(internal/maintain BuildPlan)" as CMD <<app>>
 participant "imagebuild.BuildTarget\ntargets.go Specs[<target>].Pins" as BUILD <<app>>
 participant "imagebuild.go\nBuilder.AgentVersion" as LIB <<app>>
 participant "upstream release source\nnpm dist-tag · cursor.com/install" as UP <<cloud>>
@@ -171,7 +171,7 @@ participant "BuildKit\ndefs/<harness>/Dockerfile" as BK <<host>>
 database "image labels\nproveo.agent · proveo.agent.version" as LBL <<db>>
 participant "internal/contract\nagent_pin_test.go" as CT <<app>>
 
-MT ARROW_MAIN CMD : " ""proveo build <target>"" "
+MT ARROW_MAIN CMD : " ""mise run build <target>"" "
 CMD ARROW_MAIN BUILD : " ""imagebuild <target> --tag local"" (in-process) "
 BUILD ARROW_MAIN LIB : " ""AgentVersion(<ARG>, <eco>, <pkg>)"" "
 alt <ARG> exported by the maintainer
