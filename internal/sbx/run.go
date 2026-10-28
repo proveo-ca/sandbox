@@ -86,22 +86,6 @@ func RunningNames() (names []string, ok bool) {
 	return names, true
 }
 
-func StoredSecretNames() []string {
-	out, err := sh.SecretList()
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) < 3 || f[2] == "NAME" {
-			continue
-		}
-		names = append(names, f[2])
-	}
-	return names
-}
-
 func ImageEntrypoint(image string) []string { return sh.ImageEntrypoint(image) }
 
 func ImageCmd(image string) []string { return sh.ImageCmd(image) }

@@ -44,7 +44,7 @@ func sbxStoredAuth(man manifest.Manifest) []string {
 	if !man.Subscription {
 		return nil
 	}
-	return credentials.StoreHolds(man, sbx.StoredSecretNames())
+	return credentials.StoreHolds(man, sbx.StoredServices())
 }
 
 func gitRootOrEmpty(ws workspace.Scope, repoRoot string) string {

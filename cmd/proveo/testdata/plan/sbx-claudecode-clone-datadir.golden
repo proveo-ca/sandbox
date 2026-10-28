@@ -2,7 +2,6 @@
 sbx create --name proveo-claudecode-<WORKHASH> -m 4096m --clone -e ANTHROPIC_BASE_URL=https://api.anthropic.com -e PROVEO_AGENT_EVIDENCE=verbose -e PROVEO_CONFIG_DIRS=.claude|.claude| -e PROVEO_CONFIG_FILES=.claude.json -e GIT_AUTHOR_NAME=Executor -e PROVEO_SCOPE_REL=apps/web -e PROVEO_CLONE_WORKSPACE=1 -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e PROVEO_STATE_HOME=<HOME> -e MCP_GATEWAY_URL= -e PROVEO_CONFIG_FILES_ROOT=<RUN>/sbx/home-files /st/sbx/kit/proveo-claudecode <WORK> <HOME>/.claude <HOME>/toolchains <RUN>/sbx/home-files <DATA>:ro
 sbx run --name proveo-claudecode-<WORKHASH>
 == secret names ==
-CLAUDE_CODE_OAUTH_TOKEN
 == kit proveo-claudecode.yaml ==
 # syntax=docker/sandbox-kit:3
 schemaVersion: "3"

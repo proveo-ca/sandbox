@@ -430,7 +430,7 @@ func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
 		ui.Hostf("%s: using the login persisted in the proveo home", rs.Man.Name)
 		missing = nil
 	case rs.Man.Subscription && len(rs.Creds.StoreHeld) > 0:
-		ui.Hostf("%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
+		ui.Hostf("%s: sbx's store holds a credential for %s — the credentials lines before launch say which one sbx presents",
 			rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		missing = nil
 	case rs.Man.Subscription:

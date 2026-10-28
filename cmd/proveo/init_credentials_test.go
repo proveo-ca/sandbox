@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 func envOf(pairs map[string]string) func(string) string {
@@ -82,39 +85,62 @@ func TestABroadDefShowsTheShortListNotTheRegistry(t *testing.T) {
 	}
 }
 
-func TestTheTwoKindsNeverShareAStoreName(t *testing.T) {
-	slots := surveyCredentials(defs(t), nil, envOf(nil))
-	byStore := map[string][]string{}
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, R4)
+func TestInitWritesServiceIDsAndSignsSubscriptionsInThroughSbx(t *testing.T) {
+	slots := surveyCredentials(defs(t), map[string]sbx.StoreEntry{"openai": {OAuth: true}}, envOf(nil))
 	for _, s := range slots {
-		byStore[s.Store] = append(byStore[s.Store], s.Label)
-	}
-	for store, labels := range byStore {
-		if len(labels) > 1 {
-			t.Errorf("store id %q is claimed by %v — one id cannot say which KIND it holds", store, labels)
+		if _, ok := provider.Lookup(s.Store); !ok {
+			t.Errorf("%s stores as %q, which is no registry service — sbx never reads such an entry (P0 M2)", s.Label, s.Store)
 		}
 	}
-	if got := slotOf(t, slots, "claudecode").Store; got != "claudecode" {
-		t.Errorf("claudecode's subscription stores as %q, want the def name", got)
-	}
-	// cursor's def is named for its own provider, so both kinds carry the label
-	// "cursor" and only the store name keeps them apart.
-	var kinds []credKind
-	for _, s := range slots {
-		if s.Label == "cursor" {
-			kinds = append(kinds, s.Kind)
+	for def, svc := range map[string]string{"claudecode": "anthropic", "codex": "openai", "cursor": "cursor"} {
+		sign := slotByKind(t, slots, def, kindSignIn)
+		if sign.Store != svc {
+			t.Errorf("%s signs in as %q, want %q", def, sign.Store, svc)
 		}
 	}
-	if len(kinds) == 2 {
-		sub, key := slotByKind(t, slots, "cursor", kindSubscription), slotByKind(t, slots, "cursor", kindKey)
-		if sub.Store != "cursor-sub" || key.Store != "cursor" {
-			t.Errorf("cursor stores subscription=%q key=%q, want cursor-sub and cursor", sub.Store, key.Store)
+	if !slotByKind(t, slots, "codex", kindSignIn).Held {
+		t.Error("openai (oauth configured) must read as codex signed in")
+	}
+	if slotByKind(t, slots, "claudecode", kindSignIn).Held {
+		t.Error("nothing is stored for anthropic, yet claudecode reads as signed in")
+	}
+	if got := slotByKind(t, slots, "opencode", kindSubscription).Store; got != "opencode" {
+		t.Errorf("opencode's key slot stores as %q, want the opencode service", got)
+	}
+	rows := credentialRows(slots)
+	for i, s := range slots {
+		if s.Kind == kindSignIn && (rows[i].Field || !rows[i].Locked) {
+			t.Errorf("%s's sign-in row takes typing; sbx's OAuth slot has no import path (R4)", s.Label)
 		}
+	}
+}
+
+// SPEC: _spec/internal/sbx/credential-resolution.puml (P0 M2)
+func TestStaleEntriesAreTheOnesSbxNeverReads(t *testing.T) {
+	got := credentials.StaleStoreEntries(
+		[]string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "anthropic", "claudecode", "cursor-sub", "github", "opencode", "cecli"},
+		[]sbx.CustomSecret{{Env: "OPENCODE_API_KEY", Placeholder: "sbx-cs-a"}, {Env: "PLUVO_GUSTO_USER", Placeholder: "sbx-cs-b"}},
+		[]string{"claudecode", "opencode"})
+	var lines []string
+	for _, a := range got {
+		lines = append(lines, strings.Join(a, " "))
+	}
+	want := []string{
+		"secret rm ANTHROPIC_API_KEY -f",
+		"secret rm CLAUDE_CODE_OAUTH_TOKEN -f",
+		"secret rm claudecode -f",
+		"secret rm cursor-sub -f",
+		"secret rm --placeholder sbx-cs-a -f",
+	}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Errorf("StaleStoreEntries:\n got %q\nwant %q", lines, want)
 	}
 }
 
 func TestStateFollowsWhereTheCredentialRests(t *testing.T) {
 	slots := surveyCredentials(defs(t),
-		[]string{"anthropic"},
+		map[string]sbx.StoreEntry{"anthropic": {APIKey: true}},
 		envOf(map[string]string{"OPENAI_API_KEY": "sk-live"}))
 
 	held := slotOf(t, slots, "anthropic")
@@ -144,6 +170,9 @@ func TestEveryFieldIsMaskedAndGroupedByDef(t *testing.T) {
 	headings := 0
 	var keyHeading string
 	for _, r := range rows {
+		if r.Locked {
+			continue // a sign-in row: sbx's OAuth slot takes no typing (R4)
+		}
 		if !r.Field {
 			t.Fatalf("%q is not a field — every credential takes typing, not an option", r.Label)
 		}

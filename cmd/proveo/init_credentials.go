@@ -27,6 +27,7 @@ type credKind int
 const (
 	kindKey credKind = iota
 	kindSubscription
+	kindSignIn
 )
 
 // credSlot is one line of the screen: a credential, where it rests today, and
@@ -34,8 +35,7 @@ const (
 type credSlot struct {
 	Label   string // what the operator reads: the provider, or the def for a subscription
 	Kind    credKind
-	Store   string   // the name `sbx secret set` is given
-	Also    []string // the env var names the forward path and every harness read
+	Store   string   // the service id `sbx secret set` is given
 	Def     string   // the def this slot belongs to, for grouping
 	Held    bool     // the store answers for it
 	EnvVars []string // detect vars set on this host: the surface being retired
@@ -57,8 +57,12 @@ func (s credSlot) hint() string {
 	switch {
 	case len(s.EnvVars) > 0 && !s.Held:
 		return strings.Join(s.EnvVars, ", ") + " is set here; init moves it into the store"
+	case s.Kind == kindSignIn && s.Held:
+		return "sbx holds the login as " + s.Store + " (oauth configured)"
+	case s.Kind == kindSignIn:
+		return "sign in with " + sbx.SignIn(s.Store) + " — sbx keeps the login as " + s.Store
 	case s.Held:
-		return "stored as " + strings.Join(append([]string{s.Store}, s.Also...), " and ")
+		return "stored as " + s.Store
 	case s.Kind == kindSubscription:
 		return subscriptionHowTo(s.Def)
 	}
@@ -90,11 +94,7 @@ func narrowProviders(m manifest.Manifest) []string {
 
 // surveyCredentials builds the screen: one group per def, its subscription
 // first, then the api keys that def can actually spend.
-func surveyCredentials(ms []manifest.Manifest, stored []string, getenv func(string) string) []credSlot {
-	held := map[string]bool{}
-	for _, s := range stored {
-		held[strings.ToLower(strings.TrimSpace(s))] = true
-	}
+func surveyCredentials(ms []manifest.Manifest, store map[string]sbx.StoreEntry, getenv func(string) string) []credSlot {
 	envVarsOf := func(name string) []string {
 		e, ok := provider.Lookup(name)
 		if !ok {
@@ -108,53 +108,22 @@ func surveyCredentials(ms []manifest.Manifest, stored []string, getenv func(stri
 		}
 		return out
 	}
-	keyVarsOf := func(name string) []string {
-		e, ok := provider.Lookup(name)
-		if !ok {
-			return nil
-		}
-		var out []string
-		for _, v := range e.Detect {
-			if strings.HasSuffix(v, "_API_KEY") {
-				out = append(out, v)
-			}
-		}
-		return out
-	}
-	storedUnder := func(names ...string) bool {
-		for _, n := range names {
-			if held[strings.ToLower(n)] {
-				return true
-			}
-		}
-		return false
-	}
-
 	sort.Slice(ms, func(i, j int) bool { return ms[i].Name < ms[j].Name })
 	var out []credSlot
 	seen := map[string]bool{}
 	for _, m := range ms {
 		own := narrowProviders(m)
 		if m.Subscription {
-			vendor := ""
-			if len(own) > 0 {
-				vendor = own[0]
-			}
-			store := m.Name
-			for _, e := range m.Env {
-				if e.Secret {
-					if n, k := credentials.StoreName(e.Name, m.Name); k == credentials.StoreSubscription {
-						store = n
-						break
-					}
+			if svc := sbx.SubscriptionService(sbx.BuiltinAgent(credentials.HarnessFamily(m.Name))); svc != "" {
+				if !seen["sign-in "+svc] {
+					seen["sign-in "+svc] = true
+					out = append(out, credSlot{Label: m.Name, Kind: kindSignIn, Store: svc, Def: m.Name, Held: store[svc].OAuth})
 				}
-			}
-			_ = vendor
-			if !seen[store] {
-				seen[store] = true
+			} else if svc := keyServiceOf(m); svc != "" && !seen[svc] {
+				seen[svc] = true
 				out = append(out, credSlot{
-					Label: m.Name, Kind: kindSubscription, Store: store, Def: m.Name,
-					Held: storedUnder(store), EnvVars: subscriptionEnvVars(m, getenv),
+					Label: m.Name, Kind: kindSubscription, Store: svc, Def: m.Name,
+					Held: store[svc].APIKey, EnvVars: envVarsOf(svc),
 				})
 			}
 		}
@@ -171,10 +140,9 @@ func surveyCredentials(ms []manifest.Manifest, stored []string, getenv func(stri
 				continue // B4: a provider the proxy cannot inject needs no store entry
 			}
 			seen[name] = true
-			vars := keyVarsOf(name)
 			out = append(out, credSlot{
-				Label: name, Kind: kindKey, Store: name, Also: vars, Def: m.Name,
-				Held: storedUnder(append([]string{name}, vars...)...), EnvVars: envVarsOf(name),
+				Label: name, Kind: kindKey, Store: name, Def: m.Name,
+				Held: store[name].APIKey, EnvVars: envVarsOf(name),
 			})
 		}
 	}
@@ -195,19 +163,17 @@ func groupSlots(slots []credSlot) []credSlot {
 	return append(subs, keys...)
 }
 
-// subscriptionEnvVars are the non-key vars that carry a plan token, so a token
-// already exported on this host can be imported rather than retyped.
-func subscriptionEnvVars(m manifest.Manifest, getenv func(string) string) []string {
-	var out []string
+// keyServiceOf is the service of a def's first secret that is an API key.
+func keyServiceOf(m manifest.Manifest) string {
 	for _, e := range m.Env {
-		if !e.Secret || strings.HasSuffix(e.Name, "_API_KEY") {
+		if !e.Secret {
 			continue
 		}
-		if strings.TrimSpace(getenv(e.Name)) != "" {
-			out = append(out, e.Name)
+		if svc, kind := credentials.StoreName(e.Name); kind == credentials.StoreAPIKey {
+			return svc
 		}
 	}
-	return out
+	return ""
 }
 
 // broadShortList is what a def that routes anywhere shows: the providers other
@@ -261,6 +227,13 @@ func credentialRows(slots []credSlot) []choiceui.Row {
 			Placeholder: s.placeholder(),
 			Reason:      s.hint(),
 		}
+		if s.Kind == kindSignIn {
+			state := "not signed in"
+			if s.Held {
+				state = "signed in"
+			}
+			row = choiceui.Row{Label: s.Label, Options: []string{state}, Locked: true, Reason: s.hint()}
+		}
 		if group != lastGroup {
 			row.Divider, row.Heading = true, group
 			lastGroup = group
@@ -278,8 +251,9 @@ func credentialStage(o initOptions) error {
 	if err != nil || len(ms) == 0 {
 		return nil // nothing to provision for; the install is still good
 	}
-	slots := surveyCredentials(ms, sbx.StoredSecretNames(), os.Getenv)
+	slots := surveyCredentials(ms, sbx.StoreEntries(), os.Getenv)
 	reportCredentials(slots)
+	reportStaleEntries(credentials.StaleStoreEntries(sbx.StoredServices(), sbx.CustomSecrets(), defNames(ms)))
 	if o.printOnly || len(slots) == 0 {
 		return nil
 	}
@@ -307,6 +281,9 @@ func credentialStage(o initOptions) error {
 		value := ""
 		if i < len(form.Rows) {
 			value = strings.TrimSpace(form.Rows[i].Value)
+		}
+		if s.Kind == kindSignIn {
+			continue
 		}
 		if value == "" {
 			// An amber field left alone is the import: the key is already on this
@@ -343,15 +320,32 @@ func reportCredentials(slots []credSlot) {
 	}
 }
 
-// provisionSlot writes one credential under BOTH names.
-func provisionSlot(s credSlot, value string) error {
-	names := append([]string{s.Store}, s.Also...)
-	for _, n := range names {
-		if err := sbx.SecretSet(n, value); err != nil {
-			return fmt.Errorf("store as %s: %w", n, err)
-		}
+// reportStaleEntries lists the store entries sbx never reads, each with the command that removes it.
+func reportStaleEntries(argvs [][]string) {
+	if len(argvs) == 0 {
+		return
 	}
-	ui.Storef("%s stored as %s", s.Label, strings.Join(names, " and "))
+	ui.Warnf("%d store entries sbx never reads — older proveo wrote them under env-var or def names; remove with:", len(argvs))
+	for _, a := range argvs {
+		ui.Notef("  %s %s", sbx.Binary, strings.Join(a, " "))
+	}
+}
+
+func defNames(ms []manifest.Manifest) []string {
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.Name)
+	}
+	return out
+}
+
+// provisionSlot writes one credential under its service id.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2)
+func provisionSlot(s credSlot, value string) error {
+	if err := sbx.SecretSet(s.Store, value); err != nil {
+		return fmt.Errorf("store as %s: %w", s.Store, err)
+	}
+	ui.Storef("%s stored as %s", s.Label, s.Store)
 	switch ok, detail := verifySlot(s, value); {
 	case ok:
 		ui.Hostf("%s: the provider accepted it", s.Label)

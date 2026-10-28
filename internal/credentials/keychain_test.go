@@ -416,7 +416,7 @@ func TestNeedsSandboxLogin(t *testing.T) {
 		{name: "a usable file login authenticates the run", man: sub, sbx: true, file: true, lookup: none},
 		{
 			name: "sbx's store already holds something",
-			man:  sub, sbx: true, stored: []string{"CLAUDE_CODE_OAUTH_TOKEN"}, lookup: none,
+			man:  sub, sbx: true, stored: []string{"anthropic"}, lookup: none,
 		},
 		{
 			name: "an env credential carries the session",

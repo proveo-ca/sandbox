@@ -1233,7 +1233,8 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 				return
 			}
 		}
-		if _, kind := credentials.StoreName(name, in.Target); kind == credentials.StoreUninjectable {
+		service, kind := credentials.StoreName(name)
+		if kind == credentials.StoreUninjectable {
 			addForward(name) // nothing to attach: a signing key or a credentials file, not a header
 			return
 		}
@@ -1241,7 +1242,12 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 			addForward(name) // the operator chose the complete route over the safer one
 			return
 		}
-		if service, kind := credentials.StoreName(name, in.Target); kind == credentials.StoreAPIKey && sbx.HasOAuthSlot(service) {
+		if kind == credentials.StoreSubscription {
+			ui.Notef("sandbox secret: %s not stored — sbx holds a plan login only as %q's OAuth slot; sign in with %s",
+				name, service, cmp.Or(sbx.SignIn(service), "the agent's own login"))
+			return
+		}
+		if kind == credentials.StoreAPIKey && sbx.HasOAuthSlot(service) {
 			ui.Notef("sandbox secret: %s not stored — sbx's global %q entry also holds the subscription, and an API key "+
 				"there outranks it in every sandbox; to bill per token, `sbx secret set %s` yourself", name, service, service)
 			return
@@ -1591,17 +1597,9 @@ func Run(in Input) error {
 	}
 	for _, kv := range secrets {
 		ui.Section(ui.SectionSecrets)
-		if hosts, service, ok := customSecretTarget(kv[0], in.Lookup); ok {
-			ui.Hostf("sandbox secret: %s (custom — sbx does not know %q, so the hosts and the "+
-				"variable are declared with it)", kv[0], service)
-			if err := sbx.SecretSetCustom(hosts, kv[0], kv[1]); err != nil {
-				return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
-			}
+		name, kind := credentials.StoreName(kv[0])
+		if name == "" || kind != credentials.StoreAPIKey {
 			continue
-		}
-		name, _ := credentials.StoreName(kv[0], in.Target)
-		if name == "" {
-			name = kv[0]
 		}
 		ui.Hostf("sandbox secret: %s stored as %s — sbx's proxy attaches it, the agent never holds it", kv[0], name)
 		if err := sbx.SecretSet(name, kv[1]); err != nil {
@@ -1732,7 +1730,7 @@ func Run(in Input) error {
 			}
 			if !said {
 				if hint := credentials.NoCredentialHint(in.Man, in.Target, in.HomeRoot, cfg.Env, secrets,
-					sbx.StoredSecretNames(), in.Lookup); len(hint) > 0 {
+					sbx.StoredServices(), in.Lookup); len(hint) > 0 {
 					ui.Hostf("%s", hint[0])
 					for _, l := range hint[1:] {
 						ui.Notef("%s", l)
@@ -1954,7 +1952,7 @@ func CaptureMemoryEvidence(runDir, name string) {
 	ui.Storef("memory logs: %s", path)
 }
 
-var storedSecretNames = sbx.StoredSecretNames
+var storedSecretNames = sbx.APIKeyServices
 
 // apiKeyEnvWhenBacked are the services whose upstream kit withholds proxyManaged so an unbacked key leaves sign-in open.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R6)
@@ -1995,6 +1993,11 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]s
 	for _, n := range storedSecretNames() {
 		stored[n] = true
 	}
+	for _, kv := range secrets {
+		if name, kind := credentials.StoreName(kv[0]); kind == credentials.StoreAPIKey {
+			stored[name] = true
+		}
+	}
 	seen := map[string]bool{}
 	for _, name := range provider.Detect(in.Lookup) {
 		if seen[name] || !in.Man.Capabilities.AllowsProvider(name) {
@@ -2009,8 +2012,6 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]s
 		if r.Header == "" || r.Query != "" {
 			continue
 		}
-		// Nothing stored under the service name: sbx would ask a human, and an
-		// unattended run stops there.
 		if !stored[name] {
 			continue
 		}
@@ -2034,25 +2035,6 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]s
 	}
 	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
 	return creds, secrets
-}
-
-// customSecretTarget reports the hosts a credential outside sbx.BuiltinServices needs `sbx secret set-custom` for.
-// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, R3)
-func customSecretTarget(envVar string, lookup func(string) string) (hosts []string, service string, ok bool) {
-	for _, name := range provider.Names() {
-		r, found := provider.ResolveWith(name, envVar, lookup)
-		if !found || !strings.EqualFold(r.EnvVar, envVar) || len(r.Hosts) == 0 {
-			continue
-		}
-		if sbx.IsBuiltinService(name) {
-			return nil, name, false
-		}
-		for _, h := range r.Hosts {
-			hosts = append(hosts, sbx.DomainPatterns(h)...)
-		}
-		return hosts, name, len(hosts) > 0
-	}
-	return nil, "", false
 }
 
 // sandboxAgentEnv keeps the pairs a sandbox can honour and drops the ones that

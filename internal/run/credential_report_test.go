@@ -19,7 +19,7 @@ func TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing(t *testing.T) 
 		wantNotSet bool
 	}{
 		{"a login persisted in the proveo home", CredentialSpec{FileLogin: true}, "using the login persisted in the proveo home", false},
-		{"a credential sbx's store holds", CredentialSpec{StoreHeld: []string{"ANTHROPIC_API_KEY"}}, "from sbx's stored credentials", false},
+		{"a credential sbx's store holds", CredentialSpec{StoreHeld: []string{"anthropic"}}, "sbx's store holds a credential for anthropic", false},
 		{"nothing", CredentialSpec{}, "starting without a credential", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -72,9 +72,6 @@ func TestInitGitHubStoresTheBuiltinService(t *testing.T) {
 	if name != githubService {
 		t.Errorf("stored as %q, want builtin %q so the proxy injects it", name, githubService)
 	}
-	if !sbx.IsBuiltinService(name) {
-		t.Errorf("%q is not an sbx builtin service", name)
-	}
 	if value != "tok" {
 		t.Errorf("value = %q, want the env token", value)
 	}

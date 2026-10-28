@@ -3,9 +3,11 @@ package credentials
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 type subscriptionAuthHint struct {
@@ -68,11 +70,20 @@ func CredentialReachedAgent(man manifest.Manifest, target, homeRoot string, env 
 	return false
 }
 
+// StoreHolds names the services of man's secrets that the store holds a key or an OAuth login for; stored is service ids.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2)
 func StoreHolds(man manifest.Manifest, stored []string) []string {
-	var held []string
+	have := map[string]bool{}
 	for _, n := range stored {
-		if IsAuthVarOf(man, n) {
-			held = append(held, n)
+		have[n] = true
+	}
+	var held []string
+	for _, e := range man.Env {
+		if !e.Secret {
+			continue
+		}
+		if svc, kind := StoreName(e.Name); kind != StoreUninjectable && have[svc] && !slices.Contains(held, svc) {
+			held = append(held, svc)
 		}
 	}
 	return held
@@ -114,7 +125,14 @@ func NoCredentialHint(man manifest.Manifest, target, homeRoot string, env []stri
 		} else {
 			lines = append(lines, "  "+e.Name)
 		}
-		lines = append(lines, fmt.Sprintf("      sbx secret set %s", e.Name))
+		switch svc, kind := StoreName(e.Name); kind {
+		case StoreAPIKey:
+			lines = append(lines, fmt.Sprintf("      sbx secret set %s", svc))
+		case StoreSubscription:
+			if how := sbx.SignIn(svc); how != "" {
+				lines = append(lines, "      sign in with "+how)
+			}
+		}
 	}
 	lines = append(lines,
 		"  a store entry can already exist while holding an EMPTY value: `sbx secret ls` shows",

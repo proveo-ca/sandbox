@@ -654,33 +654,6 @@ func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
 	}
 }
 
-func TestStoredSecretNamesReadsNamesAndSkipsTheHeader(t *testing.T) {
-	orig := sh.SecretList
-	t.Cleanup(func() { sh.SecretList = orig })
-
-	sh.SecretList = func() ([]byte, error) {
-		return []byte("SCOPE      TYPE      NAME                      SECRET\n" +
-			"(global)   service   ANTHROPIC_API_KEY         (stored)\n" +
-			"(global)   service   CLAUDE_CODE_OAUTH_TOKEN   (stored)\n" +
-			"(global)   service   anthropic                 (oauth configured)\n"), nil
-	}
-	got := StoredSecretNames()
-	want := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "anthropic"}
-	if len(got) != len(want) {
-		t.Fatalf("want %v, got %v", want, got)
-	}
-	for i, w := range want {
-		if got[i] != w {
-			t.Errorf("row %d: want %q, got %q", i, w, got[i])
-		}
-	}
-
-	sh.SecretList = func() ([]byte, error) { return nil, errors.New("no daemon") }
-	if got := StoredSecretNames(); got != nil {
-		t.Errorf("an unreadable store must yield no names, got %v", got)
-	}
-}
-
 func TestPolicyEvidenceArgsMatchTheCLI(t *testing.T) {
 	t.Parallel()
 	if got, want := strings.Join(PolicyLogArgs("proveo-1"), " "), "policy log proveo-1 --json"; got != want {

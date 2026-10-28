@@ -57,7 +57,7 @@ func TestNoCredentialHintNamesTheRemedy(t *testing.T) {
 		"no credential reached the agent",
 		"CLAUDE_CODE_OAUTH_TOKEN",
 		"claude setup-token",
-		"sbx secret set CLAUDE_CODE_OAUTH_TOKEN",
+		"sign in with `/login` inside a claudecode sandbox",
 		"EMPTY value",
 	} {
 		if !strings.Contains(got, want) {
@@ -154,7 +154,7 @@ func TestNoCredentialHintDoesNotBlameACredentialTheStoreMayHold(t *testing.T) {
 	// The store already lists it. Still a hint — this run sent nothing, which is
 	// worth saying — but it must not assert what it cannot know.
 	held := strings.Join(NoCredentialHint(man, "claudecode", t.TempDir(), env, nil,
-		[]string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "github"}, nil), "\n")
+		[]string{"anthropic", "github"}, nil), "\n")
 	if held == "" {
 		t.Fatal("a run that sent no credential of its own is still worth explaining")
 	}
@@ -162,8 +162,8 @@ func TestNoCredentialHintDoesNotBlameACredentialTheStoreMayHold(t *testing.T) {
 		t.Errorf("the store may hold a live token; the hint must not claim none arrived, got:\n%s", held)
 	}
 	for _, want := range []string{
-		"CLAUDE_CODE_OAUTH_TOKEN", // the suspect is named
-		"cannot read",             // and the limit of what proveo knows is stated
+		"anthropic",   // the suspect service is named
+		"cannot read", // and the limit of what proveo knows is stated
 	} {
 		if !strings.Contains(held, want) {
 			t.Errorf("hint missing %q; got:\n%s", want, held)

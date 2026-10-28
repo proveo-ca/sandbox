@@ -1,10 +1,12 @@
-// SPEC: _spec/_plans/init-credential-provisioning.puml, _spec/cmd/proveo/init-credential-wireframe.puml
+// SPEC: _spec/_plans/init-credential-provisioning.puml, _spec/cmd/proveo/init-credential-wireframe.puml, _spec/internal/sbx/credential-resolution.puml
 package credentials
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 // StoreKind is which of the two things an entry holds.
@@ -16,9 +18,9 @@ const (
 	StoreUninjectable
 )
 
-// StoreName is the name sbx authenticates by for one credential variable.
-// SPEC: _spec/_plans/host-held-provider-keys.puml
-func StoreName(envVar, def string) (name string, kind StoreKind) {
+// StoreName is the service sbx authenticates by for one credential variable; a plan token's kind is StoreSubscription, which no store entry carries.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, R4)
+func StoreName(envVar string) (service string, kind StoreKind) {
 	envVar = strings.TrimSpace(envVar)
 	if envVar == "" {
 		return "", StoreUninjectable
@@ -30,7 +32,7 @@ func StoreName(envVar, def string) (name string, kind StoreKind) {
 	case !injectable:
 		return service, StoreUninjectable
 	case isPlanToken(envVar):
-		return subscriptionName(service, def), StoreSubscription
+		return service, StoreSubscription
 	}
 	return service, StoreAPIKey
 }
@@ -54,13 +56,24 @@ func providerOfVar(envVar string) (service string, injectable bool) {
 
 func isPlanToken(envVar string) bool { return !strings.HasSuffix(strings.ToUpper(envVar), "_API_KEY") }
 
-func subscriptionName(service, def string) string {
-	def = strings.TrimSpace(def)
-	if def != "" && def != service {
-		return def
+// StaleStoreEntries returns the `sbx secret rm` argv for each entry sbx never reads: a service named
+// for an env var or a def, and a custom secret on a registry provider's variable.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (P0 M2, R2)
+func StaleStoreEntries(services []string, custom []sbx.CustomSecret, defs []string) [][]string {
+	var out [][]string
+	for _, name := range services {
+		if _, isProvider := provider.Lookup(name); isProvider {
+			continue
+		}
+		svc, _ := providerOfVar(name)
+		if svc != "" || slices.Contains(defs, name) || strings.HasSuffix(name, "-sub") {
+			out = append(out, sbx.RemoveSecretArgs(name))
+		}
 	}
-	if def != "" {
-		return def + "-sub"
+	for _, c := range custom {
+		if svc, injectable := providerOfVar(c.Env); svc != "" && injectable {
+			out = append(out, sbx.RemoveCustomArgs(c.Placeholder))
+		}
 	}
-	return service + "-sub"
+	return out
 }

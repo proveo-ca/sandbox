@@ -238,6 +238,30 @@ func TestUnstoredServicesAreNotDeclared(t *testing.T) {
 	}
 }
 
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, P0 M1)
+func TestAProviderSbxDoesNotKnowTakesTheServiceRouteOnItsFirstRun(t *testing.T) {
+	withStoredSecrets(t)
+	in := specInput("opencode")
+	in.Lookup = func(k string) string {
+		if k == "MOONSHOT_API_KEY" {
+			return "sk-moonshot"
+		}
+		return ""
+	}
+	_, w, secrets := Spec(in)
+	if !slices.ContainsFunc(secrets, func(kv [2]string) bool { return kv[0] == "MOONSHOT_API_KEY" }) {
+		t.Fatalf("secrets = %v; the run stores the key under its service id before create", secrets)
+	}
+	i := slices.IndexFunc(w.Credentials(), func(c sbx.CredentialV3) bool { return c.Service == "moonshot" })
+	if i < 0 {
+		t.Fatalf("no moonshot credential@1 although this run stores it: %+v", w.Credentials())
+	}
+	c := w.Credentials()[i]
+	if c.APIKey == nil || !c.APIKey.ProxyManaged || c.APIKey.Name != "MOONSHOT_API_KEY" || len(c.APIKey.Inject) == 0 {
+		t.Errorf("moonshot credential = %+v; want a proxy-managed MOONSHOT_API_KEY with inject rules", c.APIKey)
+	}
+}
+
 func TestSpecNeverStoresAServiceNamedSecret(t *testing.T) {
 	withStoredSecrets(t, "anthropic")
 	_, _, secrets := Spec(anthropicKeyInput("hermes"))

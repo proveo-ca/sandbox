@@ -247,11 +247,12 @@ func TestSandboxSpecReadsTheHomeRootFromItsInput(t *testing.T) {
 		return out
 	}
 
-	// No home, so no login can be found: the plan token is stored; the API key
-	// never is, since sbx's anthropic entry would bill it over the subscription.
+	// No home, so no login can be found. Neither is stored: a plan token has no
+	// store slot (R4), and an API key in sbx's anthropic entry would bill over the
+	// subscription (R5).
 	noHome := names(base)
-	if !noHome["CLAUDE_CODE_OAUTH_TOKEN"] || noHome["ANTHROPIC_API_KEY"] {
-		t.Errorf("without a host login want only the plan token stored, got %v", noHome)
+	if len(noHome) != 0 {
+		t.Errorf("without a host login want nothing stored, got %v", noHome)
 	}
 
 	home := t.TempDir()
@@ -518,19 +519,16 @@ func TestStoreHoldsMatchesOnlyTheHarnessOwnCredentials(t *testing.T) {
 			{Name: "PROVEO_AGENT_EVIDENCE"},
 		},
 	}
-	stored := []string{
-		"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY",
-		"GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "github", "anthropic",
-	}
+	stored := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "github", "anthropic", "cursor"}
 	got := credentials.StoreHolds(man, stored)
-	want := []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
+	want := []string{"anthropic"}
 	if !slices.Equal(got, want) {
-		t.Errorf("credentials.StoreHolds = %v, want %v", got, want)
+		t.Errorf("credentials.StoreHolds = %v, want %v — the store is read by service id, never by env-var name (P0 M2)", got, want)
 	}
 	if len(credentials.StoreHolds(man, nil)) != 0 {
 		t.Error("an unreadable store must hold nothing, not everything")
 	}
-	if got := credentials.StoreHolds(man, []string{"CURSOR_API_KEY", "github"}); len(got) != 0 {
+	if got := credentials.StoreHolds(man, []string{"CURSOR_API_KEY", "cursor", "github"}); len(got) != 0 {
 		t.Errorf("another harness's credentials read as this one's login: %v", got)
 	}
 	if got := credentials.StoreHolds(man, []string{"PROVEO_AGENT_EVIDENCE"}); len(got) != 0 {
