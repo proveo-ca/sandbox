@@ -126,7 +126,7 @@ func TestHelpSplitsHarnessAliasesFromCommands(t *testing.T) {
 	runAt := strings.Index(out, "\n  run ")
 	harnessAt := strings.Index(out, "harnesses")
 	cursorAt := strings.Index(out, "\n  cursor ")
-	if runAt < 0 || harnessAt < 0 || cursorAt < 0 || !(runAt < harnessAt && harnessAt < cursorAt) {
+	if runAt < 0 || harnessAt < 0 || cursorAt < 0 || runAt >= harnessAt || harnessAt >= cursorAt {
 		t.Errorf("harness aliases follow the command list:\n%s", out)
 	}
 }

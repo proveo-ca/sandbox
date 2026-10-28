@@ -662,6 +662,20 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     of these and a sweep that reddens a passing test is worse than the leak it
 '     was added to prevent.
 '
+' ── A WEDGED GUEST HANGS sbx rm ────────────────────────────────────────────
+' MEASURED 2026-10-28, sbx 0.50.0, `PROVEO_TEST_GO_TIMEOUT=150m proveo-dev coverage e2e`:
+'   00:01:00  seed_ready/hermes creates proveo-hermes-89d1a8c6 FROM proveo/hermes:latest
+'             (57 layers; hermes:local absent, so ResolveImage fell back)
+'   00:02:01  the probe's `sbx exec` hits its 1m deadline → t.Fatalf
+'   00:02:16  daemon.log: "create sandbox failed … container start: context canceled"
+'   cleanup   `sbx rm --force proveo-hermes-89d1a8c6` never returned (shim alive, guest wedged)
+'   02:30:00  package timeout; codex, cursor, hermes, opencode still queued on the one-VM gate
+' Cleanups run LIFO, so the unbounded rm held the gate slot and starved every later harness.
+' removeSandbox bounds each `sbx rm` with PROVEO_TEST_TEARDOWN (default 3m) and
+' returns an error naming the SANDBOX_NAME whose shim to SIGKILL
+' (map shim → SANDBOX_NAME through its task bundle config.json; never kill every shim).
+' Every e2e `sbx rm` goes through it; TestRemoveSandboxGivesUpOnAWedgedGuest pins the bound.
+'
 ' ── THE ENVIRONMENT A SUITE HANDS ITS CHILD ─────────────────────────────────
 ' Three traps, all of which present as "the session started and printed nothing":
 '   * env(1) on BSD/macOS requires every -u option BEFORE any NAME=value operand,

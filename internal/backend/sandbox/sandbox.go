@@ -2032,15 +2032,8 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]s
 	return creds, secrets
 }
 
-// customSecretTarget answers whether a credential needs `sbx secret set-custom`
-// rather than a plain service secret, and with which hosts.
-//
-// sbx injects a plain service secret only for the thirteen services it has
-// built-in knowledge of. For any other provider it holds the value and knows
-// neither the host to match nor the header to write, which is why a stored
-// `opencode` secret still produced HTTP 401 while the same key forwarded fine.
-// A custom secret carries the hosts and the variable with it, so the proxy can
-// substitute at egress the way it does for a service it knows.
+// customSecretTarget reports the hosts a credential outside sbx.BuiltinServices needs `sbx secret set-custom` for.
+// SPEC: _spec/internal/sbx/credential-path.puml (THE CUSTOM ROUTE, N14)
 func customSecretTarget(envVar string, lookup func(string) string) (hosts []string, service string, ok bool) {
 	for _, name := range provider.Names() {
 		r, found := provider.ResolveWith(name, envVar, lookup)

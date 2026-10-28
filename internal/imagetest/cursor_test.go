@@ -159,7 +159,7 @@ func TestImageCursor(t *testing.T) {
 		if err := os.WriteFile(envFile, []byte("CURSOR_MODEL=from-workspace-env\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		defer os.Remove(envFile)
+		defer func() { _ = os.Remove(envFile) }()
 		out := launch()
 		cursorExpect(t, cursorLine(out, "PASSED_MODEL=$") && !strings.Contains(out, "from-workspace-env"), out)
 	})

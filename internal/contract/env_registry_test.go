@@ -192,7 +192,7 @@ func TestEveryProveoVariableIsRegistered(t *testing.T) {
 		if _, skip := notVariables[name]; skip {
 			continue
 		}
-		if !registered[name] && !(overrides[name] && registered[imageFamily]) {
+		if !registered[name] && (!overrides[name] || !registered[imageFamily]) {
 			t.Errorf("%s reads or sets %s, which internal/envreg does not register", file, name)
 		}
 	}

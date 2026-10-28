@@ -7,12 +7,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// sbx injects a plain service secret only for the services it knows. Measured
-// 2026-09-15: with `opencode` stored under BOTH the env var name and the
-// service name, and the value re-piped without the trailing newline the first
-// attempt carried, --credentials broker still answered HTTP 401 while the same
-// key forwarded to 200. sbx holds the value and knows neither the host to match
-// nor the header to write. A custom secret carries both with it.
+// SPEC: _spec/internal/sbx/credential-path.puml (THE CUSTOM ROUTE, N14)
 func TestCustomSecretsCarryTheirOwnHostsAndVariable(t *testing.T) {
 	t.Parallel()
 

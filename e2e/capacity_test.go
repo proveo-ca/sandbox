@@ -85,7 +85,7 @@ func TestHostCapacityUpperBound(t *testing.T) {
 	var live []string
 	t.Cleanup(func() {
 		for i := len(live) - 1; i >= 0; i-- {
-			_ = exec.Command(sbx.Binary, sbx.RemoveArgs(live[i])...).Run()
+			_, _ = removeSandbox(t, live[i])
 		}
 	})
 

@@ -2386,7 +2386,7 @@ _proveo_write_block() {
       $0 == s { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$path" > "$tmp" 2>/dev/null || cp "$path" "$tmp"
   fi
   { printf '%s\n' "$start"; cat; printf '%s\n' "$end"; } >> "$tmp"
-  mv "$tmp" "$path" 2>/dev/null || rm -f "$tmp"
+  mv "$tmp" "$path" 2>/dev/null || { cat "$tmp" > "$path" 2>/dev/null; rm -f "$tmp"; }
 }
 
 _proveo_persist_tool_env() {
@@ -2409,6 +2409,11 @@ _proveo_persist_tool_env() {
  })"
  printf '%s\n' "$env" | _proveo_write_block "$home/.bashrc" "$PROVEO_RC_START" "$PROVEO_RC_END"
  printf '%s\n' "$env" > "$home/.proveo-tool-env.sh" 2>/dev/null || true
+ # SPEC: _spec/internal/sbx/host-android-adb.puml (TOOLS PROVISIONED AFTER LAUNCH REACH THE AGENT)
+ if [[ -n "${BASH_ENV:-}" && -w "$BASH_ENV" ]]; then
+  printf '[ -f "%s/.proveo-tool-env.sh" ] && . "%s/.proveo-tool-env.sh"\n' "$home" "$home" |
+   _proveo_write_block "$BASH_ENV" "$PROVEO_RC_START" "$PROVEO_RC_END"
+ fi
 }
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml

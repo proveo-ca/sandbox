@@ -74,7 +74,7 @@ func createProbe(t *testing.T, from string, env []string) (string, error) {
 	if err != nil {
 		t.Fatalf("WriteWorkloadV3: %v", err)
 	}
-	t.Cleanup(func() { _ = exec.Command(sbx.Binary, sbx.RemoveArgs(name)...).Run() })
+	t.Cleanup(func() { _, _ = removeSandbox(t, name) })
 	c := exec.Command(sbx.Binary, sbx.CreateArgs(sbx.RunConfig{Name: name, KitDir: kit})...)
 	c.Env = env
 	out, err := c.CombinedOutput()

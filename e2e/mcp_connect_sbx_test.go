@@ -242,7 +242,7 @@ claude mcp list`, 3*time.Minute)
 		p := startProbeMCP(t)
 		_, create := proveoWorkload(t, t.TempDir(), "codex", isolatedHome(t))
 		name := mcpSandboxName("codex")
-		t.Cleanup(func() { _ = exec.Command(sbx.Binary, sbx.RemoveArgs(name)...).Run() })
+		t.Cleanup(func() { _, _ = removeSandbox(t, name) })
 		makeTempMounts(t, create)
 		if out, err := exec.Command(sbx.Binary, withName(create, name)...).CombinedOutput(); err != nil {
 			t.Skipf("sbx create (codex workload): %v\n%s", err, out)
@@ -275,7 +275,7 @@ codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
 			t.Fatalf("PROVEO_SBX_MCP=on still blanks %s on create: %v", sbx.MCPGatewayEnv, create)
 		}
 		name := mcpSandboxName("gateway")
-		t.Cleanup(func() { _ = exec.Command(sbx.Binary, sbx.RemoveArgs(name)...).Run() })
+		t.Cleanup(func() { _, _ = removeSandbox(t, name) })
 		makeTempMounts(t, create)
 		if out, err := exec.Command(sbx.Binary, withName(create, name)...).CombinedOutput(); err != nil {
 			t.Skipf("sbx create (claudecode workload): %v\n%s", err, out)
@@ -318,7 +318,7 @@ func TestHermesTakesSbxsMCPGateway(t *testing.T) {
 		t.Fatalf("hermes declares mcpGateway: always, yet create blanks %s: %v", sbx.MCPGatewayEnv, create)
 	}
 	name := mcpSandboxName("hermes")
-	t.Cleanup(func() { _ = exec.Command(sbx.Binary, sbx.RemoveArgs(name)...).Run() })
+	t.Cleanup(func() { _, _ = removeSandbox(t, name) })
 	makeTempMounts(t, create)
 	if out, err := exec.Command(sbx.Binary, withName(create, name)...).CombinedOutput(); err != nil {
 		t.Skipf("sbx create (hermes workload): %v\n%s", err, out)

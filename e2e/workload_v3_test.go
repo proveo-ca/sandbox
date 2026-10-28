@@ -31,7 +31,7 @@ func probeWorkload(t *testing.T, agent string, r sbx.RecipeV3, caps ...sbx.Capab
 func createWorkloadSandbox(t *testing.T, cfg sbx.RunConfig) {
 	t.Helper()
 	t.Cleanup(func() {
-		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput(); err != nil && !sbx.NotFound(string(out)) {
+		if out, err := removeSandbox(t, cfg.Name); err != nil && !sbx.NotFound(out) {
 			t.Logf("probe sandbox %s not removed: %v\n%s", cfg.Name, err, out)
 		}
 	})

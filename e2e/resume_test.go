@@ -76,7 +76,7 @@ echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 		t.Fatalf("save state: %v\n%s", err, out)
 	}
 
-	if out, err := exec.Command("sbx", sbx.RemoveArgs(name)...).CombinedOutput(); err != nil {
+	if out, err := removeSandbox(t, name); err != nil {
 		t.Fatalf("teardown: %v\n%s", err, out)
 	}
 

@@ -160,7 +160,7 @@ func TestImageCodex(t *testing.T) {
 		if err := os.WriteFile(envFile, []byte("CODEX_MODEL=from-workspace-env\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		defer os.Remove(envFile)
+		defer func() { _ = os.Remove(envFile) }()
 		out := runFake(doThing)
 		ok := codexGrep(out, `PASSED_MODEL=$`) && !strings.Contains(out, "from-workspace-env")
 		codexExpect(t, ok, "the entrypoint exported the workspace .env", out)

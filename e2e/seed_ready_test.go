@@ -226,7 +226,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 		if engine == "" {
 			return
 		}
-		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(engine)...).CombinedOutput(); err != nil && !sbx.NotFound(string(out)) {
+		if out, err := removeSandbox(t, engine); err != nil && !sbx.NotFound(out) {
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, engine, err, out)
 		}
 		if cache, err := os.UserCacheDir(); err == nil {

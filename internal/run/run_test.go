@@ -2,13 +2,10 @@
 package run
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -587,30 +584,6 @@ func TestEgressRowShowsTheHostBaseline(t *testing.T) {
 			}
 		}
 	})
-}
-
-func claudecodeMan() manifest.Manifest {
-	return manifest.Manifest{
-		Name: "claudecode", Subscription: true, Env: []manifest.EnvVar{
-			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
-			{Name: "ANTHROPIC_API_KEY", Secret: true},
-		},
-	}
-}
-
-// blankedHome writes the macOS husk: tokens cleared, stamps intact.
-func blankedHome(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	husk := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":%d}}`,
-		time.Now().Add(20*24*time.Hour).UnixMilli())
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(husk), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return home
 }
 
 // SPEC: _spec/_plans/init-credential-provisioning.puml

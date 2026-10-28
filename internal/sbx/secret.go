@@ -10,14 +10,8 @@ func SecretSet(name, value string) error {
 	return sh.SecretSet(name, value)
 }
 
-// BuiltinServices are the service ids `sbx secret set` has built-in knowledge
-// for — it knows each one's hosts and auth header, so a value stored under one
-// of these names is enough for sbx's proxy to inject it.
-//
-// Measured from `sbx secret set --help` on v0.42.1. A name OUTSIDE this list is
-// still storable (the store already holds several), but sbx has nowhere to put
-// the value: it knows neither the host to match nor the header to write. That
-// is what `sbx secret set-custom` supplies.
+// BuiltinServices are the service ids whose hosts and auth header sbx knows, per `sbx secret set --help` (v0.42.1).
+// SPEC: _spec/internal/sbx/credential-path.puml (THE CUSTOM ROUTE, N14)
 var BuiltinServices = []string{
 	"anthropic", "copilot", "cursor", "devin", "droid", "github", "google",
 	"groq", "mistral", "nebius", "openai", "openrouter", "xai",

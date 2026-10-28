@@ -176,10 +176,6 @@ func writeNoted(pn *pen, text string, textStyle, noteStyle tcell.Style) {
 	pn.write(textStyle, text[close+1:])
 }
 
-func hostTable(left, right, join string) string {
-	return hostCell(left) + join + clipRunes(right, HostSide)
-}
-
 func hostCell(s string) string {
 	s = clipRunes(s, HostSide)
 	if w := textWidth(s); w < HostSide {
