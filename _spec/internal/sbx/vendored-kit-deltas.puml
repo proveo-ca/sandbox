@@ -1,0 +1,46 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: every byte proveo's vendored sbx kits differ from UpstreamKitsRef, and when each delta can go
+' covers: internal/sbx/third_party/opencode.yaml
+' covers: internal/sbx/upstream_test.go (TestVendoredKitJqFiltersCompile)
+' see: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
+'
+' ── RULE ───────────────────────────────────────────────────────────────────
+' third_party/ is a copy of docker/sbx-kits-contrib at UpstreamKitsRef. A local
+' edit is a delta: it is listed here with its upstream report, and a re-vendor
+' re-checks each one (drop it when upstream carries the fix, re-apply otherwise).
+'
+' ── DELTA 1: opencode import filter, one `}` (2026-10-28) ──────────────────
+' MEASURED on Fedora, sbx 0.50.0, proveo dev@b6309a0, opencode + ChatGPT subscription:
+'   `sbx secret ls`                    openai (oauth configured)
+'   SBX_CRED_OPENAI_MODE               oauth
+'   ~/.local/share/opencode/auth.json  access/refresh == oai-oat01/oai-ort01-proxy-managed
+'   `opencode auth export`             []        ← no sbx-openai record
+'   opencode                           request without the subscription's auth header
+' The startup hook "Import sandbox OAuth credentials into OpenCode v2" reshapes
+' auth.json into `opencode auth import` records with jq. Its `oauth()` def opens
+' `then {` and closes only the `value: (…)` parens before `else empty end`:
+'   jq: error: syntax error, unexpected else, expecting '}' … line 19
+' The hook catches that as "auth.json is not valid OpenCode OAuth data" and exits 0,
+' so every start imports nothing. jq 1.7 and 1.8.1 reject it alike (MEASURED).
+' Present at 8b0844a and on sbx-kits-contrib main (f1979e6, 2026-10-26).
+' Delta: `else {} end))` → `else {} end))}`. With it the filter yields
+'   [{"id":"sbx-openai","integrationID":"openai","label":"Sandbox OpenAI","active":true,
+'     "value":{"type":"oauth","methodID":"chatgpt-browser",…}}]
+' TestVendoredKitJqFiltersCompile compiles every jq filter in every vendored
+' lifecycle hook (jq -n, bound args null/""; exit 3 = compile error) and fails
+' on this delta's absence.
+' Upstream report: not yet filed (drafted for review 2026-10-28).
+' Drop when: UpstreamKitsRef includes the brace.
+title Vendored kit deltas
+
+file "docker/sbx-kits-contrib\n@UpstreamKitsRef" as UP <<cloud>>
+file "internal/sbx/third_party/opencode.yaml\n+ `}` (delta 1)" as VEN <<app>>
+component "TestVendoredKitJqFiltersCompile\njq -n per hook filter" as T <<app>>
+component "sandbox start\nImport sandbox OAuth → opencode auth import" as HOOK <<cloud>>
+
+UP --> VEN : vendor + deltas
+VEN --> T : every jq filter compiles
+VEN --> HOOK : lifecycle@1 copied by UpstreamKitFor
+@enduml

@@ -1943,6 +1943,14 @@
         "internal/contract/config_set_test.go"
       ],
       "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/vendored-kit-deltas.puml",
+      "covers": [
+        "internal/sbx/third_party/opencode.yaml",
+        "internal/sbx/upstream_test.go"
+      ],
+      "fingerprint": null
     }
   ],
   "unresolved": []

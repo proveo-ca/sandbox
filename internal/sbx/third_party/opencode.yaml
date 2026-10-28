@@ -495,7 +495,7 @@ capabilities:
                       + (if (($credential.accountId | type) == "string") or (($credential.enterpriseUrl | type) == "string")
                          then {metadata: ({} + (if ($credential.accountId | type) == "string" then {accountID: $credential.accountId} else {} end)
                                                + (if ($credential.enterpriseUrl | type) == "string" then {enterpriseUrl: $credential.enterpriseUrl} else {} end))}
-                          else {} end))
+                          else {} end))}
                   else empty end;
                 [oauth("openai"; "sbx-openai"; "chatgpt-browser"; "Sandbox OpenAI"; "oai-oat01-proxy-managed"; "oai-ort01-proxy-managed"), oauth("github-copilot"; "sbx-github-copilot"; "device"; "Sandbox GitHub Copilot"; $github_token; $github_token)]' "$auth"); then
                   echo "auth.json is not valid OpenCode OAuth data; leaving v2 credentials unchanged" >&2
