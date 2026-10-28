@@ -341,7 +341,7 @@ func TestAnAllowedGatewayIsNotBlankedAndTheSeedHookCanSeeIt(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/sbx/backed-api-key-env.puml
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R6)
 func TestABackedCursorKeyGetsSbxsPlaceholderAndAnUnbackedOneStaysSignIn(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

@@ -840,7 +840,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '                       . _spec/internal/sbx/policy-baseline.puml (history)
 '   the credential boundary, now sbx's store and proxy
 '                       . _spec/_paradigms/credential-boundary.puml
-'   who brokers on sbx . _spec/internal/sbx/credential-path.puml
+'   who brokers on sbx . _spec/internal/sbx/credential-resolution.puml
 '   the PTY mechanics, which internal/backend/sandbox still uses on every
 '   interactive sbx run . _spec/internal/ptyproxy/pty-ownership.puml
 ' Only the docker-mechanism story — the Squid hop, the DLP layers, the CONNECT

@@ -1135,17 +1135,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/sbx/backed-api-key-env.puml",
-      "covers": [
-        "internal/sbx/secret.go",
-        "internal/sbx/secret_test.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/workload_test.go",
-        "internal/run/run.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/internal/sbx/browser-viewport.puml",
       "covers": [
         "internal/sbx/run.go",
@@ -1190,21 +1179,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/sbx/credential-path.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/sbx/sbx.go",
-        "internal/sbx/run.go",
-        "internal/run/choices.go",
-        "internal/run/params.go",
-        "internal/run/choices_test.go",
-        "internal/sbx/kit.go",
-        "internal/credentials/credentials.go",
-        "internal/sbx/secret.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/internal/sbx/host-readiness.puml",
       "covers": [
         "internal/sbx/install.go",
@@ -1212,6 +1186,26 @@
         "cmd/proveo/init.go",
         "cmd/proveo/init_tui.go",
         "e2e/init_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/credential-resolution.puml",
+      "covers": [
+        "internal/sbx/secret.go",
+        "internal/sbx/secret_test.go",
+        "internal/sbx/run.go",
+        "internal/sbx/upstream.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/workload_test.go",
+        "internal/credentials/storename.go",
+        "internal/credentials/keychain.go",
+        "internal/run/run.go",
+        "internal/run/params.go",
+        "internal/run/choices.go",
+        "internal/run/choices_test.go",
+        "cmd/proveo/init_credentials.go",
+        "e2e/ladder_test.go"
       ],
       "fingerprint": null
     },
@@ -1270,18 +1264,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/sbx/kit-sandbox-credential-gap.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/own_agent_test.go",
-        "internal/backend/sandbox/provider_gate_test.go",
-        "e2e/ladder_test.go",
-        "e2e/sbx_test.go",
-        "internal/sbx/kit.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/internal/sbx/launch-env.puml",
       "covers": [
         "internal/backend/sandbox/sandbox.go",
@@ -1299,17 +1281,6 @@
       "covers": [
         "internal/backend/sandbox/sandbox.go",
         "internal/posture/posture.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/internal/sbx/oauth-provisioning.puml",
-      "covers": [
-        "internal/sbx/run.go",
-        "internal/credentials/keychain.go",
-        "internal/run/run.go",
-        "internal/backend/sandbox/sandbox.go (Spec addSecret)",
-        "internal/sbx/secret.go (OAuthServices, HasOAuthSlot)"
       ],
       "fingerprint": null
     },

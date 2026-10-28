@@ -1,4 +1,4 @@
-// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-resolution.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
 package run
 
 import (

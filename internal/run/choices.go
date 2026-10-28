@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-path.puml
+// SPEC: _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-resolution.puml
 package run
 
 import (

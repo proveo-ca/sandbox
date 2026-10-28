@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/_paradigms/capability-ladder.puml, _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/internal/sbx/kit-sandbox-credential-gap.puml
+// SPEC: _spec/_paradigms/capability-ladder.puml, _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/internal/sbx/credential-resolution.puml
 package e2e
 
 import (

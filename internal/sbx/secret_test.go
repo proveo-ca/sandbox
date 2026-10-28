@@ -7,7 +7,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// SPEC: _spec/internal/sbx/credential-path.puml (THE CUSTOM ROUTE, N14)
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, R3)
 func TestCustomSecretsCarryTheirOwnHostsAndVariable(t *testing.T) {
 	t.Parallel()
 
@@ -51,7 +51,7 @@ func TestBuiltinServicesDecideWhichCommandStores(t *testing.T) {
 	}
 }
 
-// SPEC: _spec/internal/sbx/backed-api-key-env.puml
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R6)
 func TestAPIKeyServicesAreTheStoredRowsOnly(t *testing.T) {
 	restore := sh
 	t.Cleanup(func() { sh = restore })

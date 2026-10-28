@@ -10,7 +10,7 @@
 '   help pinned last, grows .... _spec/internal/choiceui/choice-prompt-render.puml
 '   THE SBX AXIS ............... _spec/internal/sbx/policy-baseline.puml
 '   what the Kit allowlists ..... internal/backend/sandbox/sandbox.go Spec()
-'   the key on sbx ............. _spec/internal/sbx/credential-path.puml
+'   the key on sbx ............. _spec/internal/sbx/credential-resolution.puml
 '   the tier vocabulary ........ _spec/internal/sbx/policy-baseline.puml
 '                                (egress-tiers.puml and the review gate's own
 '                                diagram were retired 2026-09-16 with the

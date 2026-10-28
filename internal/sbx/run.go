@@ -1,4 +1,4 @@
-// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/sbx/kit-lifecycle.puml, _spec/internal/sbx/ide-attach.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/credential-resolution.puml, _spec/internal/sbx/kit-lifecycle.puml, _spec/internal/sbx/ide-attach.puml
 package sbx
 
 import (

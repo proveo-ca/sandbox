@@ -11,7 +11,7 @@ func SecretSet(name, value string) error {
 }
 
 // BuiltinServices are the service ids whose hosts and auth header sbx knows, per `sbx secret set --help` (v0.42.1).
-// SPEC: _spec/internal/sbx/credential-path.puml (THE CUSTOM ROUTE, N14)
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, R3)
 var BuiltinServices = []string{
 	"anthropic", "copilot", "cursor", "devin", "droid", "github", "google",
 	"groq", "mistral", "nebius", "openai", "openrouter", "xai",
@@ -94,7 +94,7 @@ func SecretSetCustom(hosts []string, envVar, value string) error {
 }
 
 // APIKeyServices are the service-secret names `sbx secret ls` lists as "(stored)": API keys, not OAuth slots.
-// SPEC: _spec/internal/sbx/backed-api-key-env.puml
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R6)
 func APIKeyServices() []string {
 	out, err := sh.SecretList()
 	if err != nil {

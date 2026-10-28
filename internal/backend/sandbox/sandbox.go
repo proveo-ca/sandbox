@@ -1953,7 +1953,7 @@ func CaptureMemoryEvidence(runDir, name string) {
 var storedSecretNames = sbx.StoredSecretNames
 
 // apiKeyEnvWhenBacked are the services whose upstream kit withholds proxyManaged so an unbacked key leaves sign-in open.
-// SPEC: _spec/internal/sbx/backed-api-key-env.puml
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R6)
 var apiKeyEnvWhenBacked = map[string]bool{"cursor": true}
 
 func storedAPIKeys(in Input) []string {
@@ -2033,7 +2033,7 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]s
 }
 
 // customSecretTarget reports the hosts a credential outside sbx.BuiltinServices needs `sbx secret set-custom` for.
-// SPEC: _spec/internal/sbx/credential-path.puml (THE CUSTOM ROUTE, N14)
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, R3)
 func customSecretTarget(envVar string, lookup func(string) string) (hosts []string, service string, ok bool) {
 	for _, name := range provider.Names() {
 		r, found := provider.ResolveWith(name, envVar, lookup)
