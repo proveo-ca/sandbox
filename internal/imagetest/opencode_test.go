@@ -196,6 +196,7 @@ func TestImageOpencode(t *testing.T) {
 	ocDefaults(s)
 	ocHistory(s)
 	ocMCP(s)
+	ocCredentialImport(s)
 	ocLLM(s)
 }
 
@@ -616,4 +617,83 @@ func ocLLM(s *imagetest.Suite) {
 			}
 		})
 	}
+}
+
+// ocNativeLogin seeds an agent-owned ChatGPT login, active, the way opencode's own sign-in stores one.
+const ocNativeLogin = `printf '%s\n' '[{"integrationID":"openai","id":"cred_native1","label":"OpenAI","active":true,` +
+	`"value":{"type":"oauth","methodID":"chatgpt-token-sharing","access":"eyJnative.fake","refresh":"rt_fake","expires":1894064420972}}]' |
+  opencode auth import --standalone >/dev/null 2>&1 || exit 40`
+
+// ocSbxAuthJSON is the auth.json sbx renders for a stored OpenAI OAuth login: sentinels only.
+const ocSbxAuthJSON = `{"openai":{"type":"oauth","access":"oai-oat01-proxy-managed","refresh":"oai-ort01-proxy-managed","expires":1794064420972}}`
+
+// ocImportHook is the startup hook proveo's opencode workload ships to import sbx's OAuth record.
+func ocImportHook(t *testing.T) string {
+	t.Helper()
+	k, ok, err := sbx.UpstreamKitFor("opencode", sbx.UpstreamOptions{})
+	if err != nil || !ok {
+		t.Fatalf("UpstreamKitFor(opencode) = %v, %v", ok, err)
+	}
+	for _, c := range k.Capabilities {
+		phases, _ := c.Config.(map[string]any)
+		hooks, _ := phases["startup"].([]any)
+		for _, h := range hooks {
+			hm, _ := h.(map[string]any)
+			cmd, _ := hm["command"].([]any)
+			if hm["description"] == "Import sandbox OAuth credentials into OpenCode v2" && len(cmd) == 3 {
+				body, _ := cmd[2].(string)
+				return body
+			}
+		}
+	}
+	t.Fatal("the opencode workload ships no OAuth import hook")
+	return ""
+}
+
+// ocActive maps each exported credential id to whether it is active.
+func ocActive(t *testing.T, out string) map[string]bool {
+	t.Helper()
+	got := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		id, active, ok := strings.Cut(line, " ")
+		if ok && (active == "true" || active == "false") {
+			got[id] = active == "true"
+		}
+	}
+	return got
+}
+
+// ocCredentialImport runs the shipped import hook over an agent-owned login, with and without sbx's rendered credential.
+// SPEC: _spec/internal/sbx/vendored-kit-deltas.puml (DELTA 2)
+func ocCredentialImport(s *imagetest.Suite) {
+	img := s.Image
+	run := func(t *testing.T, sbxRendered bool) map[string]bool {
+		t.Helper()
+		script := "set -u\nmkdir -p ~/.local/share/opencode\n" + ocNativeLogin + "\n"
+		if sbxRendered {
+			script += "printf '%s\\n' '" + ocSbxAuthJSON + "' > ~/.local/share/opencode/auth.json\n"
+		}
+		script += "cat > /tmp/hook.sh <<'PROVEO_HOOK'\n" + ocImportHook(t) + "\nPROVEO_HOOK\n" +
+			"sh /tmp/hook.sh >/dev/null 2>&1 || exit 41\n" +
+			"opencode auth export --standalone | jq -r '.[] | \"\\(.id) \\(.active)\"'\n"
+		r := ocRunStdin(t, 2*time.Minute, nil, script, "--user", "1000", "-e", "HOME=/home/agent",
+			"--entrypoint", "sh", img, "-s")
+		if !r.OK() {
+			t.Fatalf("import hook run: %v\n%s", r.Err, r.Out)
+		}
+		return ocActive(t, r.Out)
+	}
+	s.Check("sbx's OAuth record becomes active over an agent-owned login, which is kept", func(t *testing.T) {
+		got := run(t, true)
+		if !got["sbx-openai"] || got["cred_native1"] {
+			t.Errorf("active = %v; want sbx-openai active and cred_native1 kept inactive — an agent-owned "+
+				"login sends a real token sbx's proxy does not manage (Fedora, 2026-10-28)", got)
+		}
+	})
+	s.Check("without sbx's rendered credential the agent-owned login stays active", func(t *testing.T) {
+		got := run(t, false)
+		if !got["cred_native1"] || len(got) != 1 {
+			t.Errorf("active = %v; want only cred_native1, active — nothing sbx manages to switch to", got)
+		}
+	})
 }

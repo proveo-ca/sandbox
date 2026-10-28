@@ -518,7 +518,7 @@ capabilities:
                    | {integrationID: $wanted.integrationID, id: $wanted.id, desired: $wanted.desired,
                       remove: [$records[] | select(managed($wanted)) | .id],
                      previousActiveID: (if $active != null and ($active | managed($wanted)) then $active.id else null end),
-                     activate: ($wanted.desired != null and $active != null and ($active | managed($wanted)))}
+                     activate: ($wanted.desired != null)}
                 )'); then
                 echo "unable to reconcile OpenCode v2 credentials; leaving them unchanged" >&2
                 exit 0

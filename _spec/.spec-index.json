@@ -1928,7 +1928,8 @@
       "spec": "_spec/internal/sbx/vendored-kit-deltas.puml",
       "covers": [
         "internal/sbx/third_party/opencode.yaml",
-        "internal/sbx/upstream_test.go"
+        "internal/sbx/upstream_test.go",
+        "internal/imagetest/opencode_test.go"
       ],
       "fingerprint": null
     }
