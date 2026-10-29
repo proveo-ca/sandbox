@@ -5,6 +5,8 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/third_party/opencode.yaml
 ' covers: internal/sbx/upstream_test.go (TestVendoredKitJqFiltersCompile)
 ' covers: internal/imagetest/opencode_test.go (ocCredentialImport)
+' covers: internal/imagetest/imagetest.go (AsHookUser, HookFinds)
+' covers: defs/opencode/Dockerfile, defs/claudecode/mcp/Dockerfile (/usr/local/bin link)
 ' see: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
 '
 ' ── RULE ───────────────────────────────────────────────────────────────────
@@ -63,6 +65,34 @@ skinparam noteTextAlignment left
 ' forced_login_method = "api" in managed modes.
 ' Upstream report: drafted with DELTA 1, not filed.
 ' Drop when: UpstreamKitsRef carries an equivalent rule.
+'
+' ── HOOK PATH: a `user: agent` hook runs under su's login PATH (2026-10-28) ─
+' Not a kit delta: proveo's images carry it. sbx renders each `user: agent`
+' hook as /etc/durable-startup.d/<n>/<k>-cmd.sh = `exec su -s /bin/sh -c '<cmd>' agent`.
+' pam_env (readenv=1) then sets PATH from /etc/environment:
+'   /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:…
+' The image's ENV PATH (/opt/proveo/shims, npm-global/bin) never reaches the hook.
+' MEASURED, Mac sbx 0.50.0, proveo dev@d4a8e0c, fresh proveo-opencode sandbox:
+'   /var/log/sbx-kit-startup.log   sh: 6: opencode: not found
+'                                  unable to read OpenCode v2 credentials; leaving them unchanged
+'   the same hook run by hand      Imported 1 credential; sbx-openai active
+' So DELTA 1 and DELTA 2 never ran in a real sandbox; the image test ran the
+' hook as uid 1000 with the image PATH and passed.
+' Effect on Fedora (opencode + ChatGPT subscription, MODE=oauth):
+'   opencode auth export          []  → the openai provider falls back to OPENAI_API_KEY=proxy-managed
+'   request                       api.openai.com/v1/responses
+'   sbx proxy                     swaps the sentinel for the ChatGPT OAuth JWT (MEASURED: a bare
+'                                 curl there from the sandbox returns invalid_jwt under a stale login)
+'   OpenAI                        403 "Missing scopes: api.responses.write"
+' Rule: an image links every agent binary a vendored `user: agent` hook calls
+' into /usr/local/bin, as the real binary. The shim stays first on the agent's
+' PATH; a hook must never reach it, because proveo-await-seed waits for the seed,
+' which runs after the hooks.
+'   opencode  → Import sandbox OAuth credentials into OpenCode v2
+'   claude    → Register the sandbox MCP gateway with claude (MCP gateway on)
+'   cursor-agent already lives in /usr/local/bin; codex's hooks call no binary.
+' imagetest.HookFinds checks the link per image; ocCredentialImport runs the
+' import hook through su as sbx does (red on the unlinked image, MEASURED).
 title Vendored kit deltas
 
 file "docker/sbx-kits-contrib\n@UpstreamKitsRef" as UP <<cloud>>

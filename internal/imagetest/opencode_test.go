@@ -229,6 +229,7 @@ func ocBuild(s *imagetest.Suite) {
 
 	// SPEC: _spec/packages/lib/seed-and-launch.puml
 	s.Success("ships the Kit's startup command (/usr/local/bin/proveo-seed)", img, "test -x /usr/local/bin/proveo-seed")
+	s.HookFinds("a `user: agent` startup hook finds the real opencode", img, "opencode")
 }
 
 func ocTools(s *imagetest.Suite) {
@@ -663,7 +664,8 @@ func ocActive(t *testing.T, out string) map[string]bool {
 	return got
 }
 
-// ocCredentialImport runs the shipped import hook over an agent-owned login, with and without sbx's rendered credential.
+// ocCredentialImport runs the shipped import hook as sbx does (root → su agent) over an agent-owned login, with and
+// without sbx's rendered credential.
 // SPEC: _spec/internal/sbx/vendored-kit-deltas.puml (DELTA 2)
 func ocCredentialImport(s *imagetest.Suite) {
 	img := s.Image
@@ -676,8 +678,8 @@ func ocCredentialImport(s *imagetest.Suite) {
 		script += "cat > /tmp/hook.sh <<'PROVEO_HOOK'\n" + ocImportHook(t) + "\nPROVEO_HOOK\n" +
 			"sh /tmp/hook.sh >/dev/null 2>&1 || exit 41\n" +
 			"opencode auth export --standalone | jq -r '.[] | \"\\(.id) \\(.active)\"'\n"
-		r := ocRunStdin(t, 2*time.Minute, nil, script, "--user", "1000", "-e", "HOME=/home/agent",
-			"--entrypoint", "sh", img, "-s")
+		r := ocRunStdin(t, 2*time.Minute, nil, script, "--user", "0", "--entrypoint", "su", img,
+			"-s", "/bin/sh", "-c", "sh -s", "agent")
 		if !r.OK() {
 			t.Fatalf("import hook run: %v\n%s", r.Err, r.Out)
 		}

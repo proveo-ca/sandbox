@@ -19,7 +19,7 @@ func TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing(t *testing.T) 
 		wantNotSet bool
 	}{
 		{"a login persisted in the proveo home", CredentialSpec{FileLogin: true}, "using the login persisted in the proveo home", false},
-		{"a credential sbx's store holds", CredentialSpec{StoreHeld: []string{"anthropic"}}, "sbx's store holds a credential for anthropic", false},
+		{"a credential sbx's store holds", CredentialSpec{StoreHeld: []string{"anthropic"}}, "", false},
 		{"nothing", CredentialSpec{}, "starting without a credential", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -32,6 +32,9 @@ func TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing(t *testing.T) 
 			rs := &Spec{Man: man, Creds: c.creds}
 			reportCredentialGaps(rs, &Params{Target: "claudecode"}, Deps{})
 			out := sb.String()
+			if c.wantUse == "" && strings.TrimSpace(out) != "" {
+				t.Errorf("reportCredentialGaps(%s) printed %q; want nothing — sbx reports what it presents", c.name, out)
+			}
 			if !strings.Contains(out, c.wantUse) {
 				t.Errorf("reportCredentialGaps(%s) never says %q:\n%s", c.name, c.wantUse, out)
 			}

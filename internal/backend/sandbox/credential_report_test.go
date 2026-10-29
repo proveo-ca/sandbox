@@ -64,28 +64,6 @@ func TestChosenServiceFollowsTheAuthVarElseTheSubscription(t *testing.T) {
 }
 
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R9)
-func TestTheReportSaysWhatSbxPresentsAndWhatItWithholds(t *testing.T) {
-	t.Parallel()
-	decl := declaredCredentials([]sbx.CapabilityV3{upstreamOpenAI(),
-		{Type: sbx.CapCredential, Config: sbx.CredentialV3{Service: "xai"}},
-		{Type: sbx.CapCredential, Config: sbx.CredentialV3{Service: "groq"}}})
-	store := map[string]sbx.StoreEntry{"openai": {OAuth: true}, "xai": {APIKey: true}, "groq": {APIKey: true}}
-	binds := map[string]sbx.Binding{"openai": {APIKey: true}, "xai": {APIKey: true}}
-	lines, warn := credentialLines(resolveCredentials(decl, store, binds), "openai")
-	want := []string{
-		"groq: stored API key withheld — no approval in credentials.yaml",
-		"openai (this run's credential): sbx presents the OAuth login",
-		"xai: sbx presents the API key",
-	}
-	if diff := cmp.Diff(want, lines); diff != "" {
-		t.Errorf("credentialLines mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff([]bool{true, false, false}, warn); diff != "" {
-		t.Errorf("warn mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// SPEC: _spec/internal/sbx/credential-resolution.puml (R9)
 func TestAnUnattendedCreateRefusesWhenItsOwnCredentialIsUnbound(t *testing.T) {
 	t.Parallel()
 	states := resolveCredentials(declaredCredentials([]sbx.CapabilityV3{upstreamOpenAI()}),
@@ -132,6 +110,9 @@ func TestCredentialInUseNamesAnAgentOwnedLoginThatOutranksSbx(t *testing.T) {
 		{"opencode", `[{"id":"sbx-openai","integrationID":"openai","active":true,"value":{"methodID":"chatgpt-browser"}},` +
 			`{"id":"cred_old","integrationID":"openai","active":false,"value":{"methodID":"chatgpt-token-sharing"}}]`,
 			"opencode uses openai: sbx's credential (sbx-openai)"},
+		{"opencode", `[{"id":"cred_mig","integrationID":"openai","label":"OAuth","active":true,` +
+			`"value":{"methodID":"chatgpt-browser","access":"oai-oat01-proxy-managed"}}]`,
+			"opencode uses openai: sbx's credential (cred_mig)"},
 		{"opencode", `[]`, "opencode holds no active credential"},
 		{"codex", `{"OPENAI_API_KEY": "proxy-managed"}`, "codex uses sbx's credential (sentinel in its credential file)"},
 		{"claudecode", `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-real"}}`, "claudecode uses a credential it holds itself, not sbx's sentinel"},

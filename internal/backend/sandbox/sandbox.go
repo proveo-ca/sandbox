@@ -1620,7 +1620,7 @@ func Run(in Input) error {
 			return fmt.Errorf("sandbox secret %s: %w", name, err)
 		}
 	}
-	if err := reportCredentials(in, cfg.Name, w.Descriptor.Capabilities, created); err != nil {
+	if err := refuseUnboundCredential(in, cfg.Name, w.Descriptor.Capabilities, created); err != nil {
 		return err
 	}
 	if opencodeTarget(in.Target) {

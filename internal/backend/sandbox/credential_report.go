@@ -106,34 +106,6 @@ func resolveCredentials(decl []declaredCredential, store map[string]sbx.StoreEnt
 
 var mechanismLabel = map[string]string{"apikey": "API key", "oauth": "OAuth login"}
 
-// credentialLines renders each resolved service as one line; warn marks a line that withholds something.
-func credentialLines(states []credentialState, chosen string) (lines []string, warn []bool) {
-	for _, s := range states {
-		mark := ""
-		if s.Service == chosen {
-			mark = " (this run's credential)"
-		}
-		var held []string
-		for _, w := range s.Withheld {
-			held = append(held, mechanismLabel[w])
-		}
-		switch {
-		case s.Use != "" && len(held) == 0:
-			lines = append(lines, fmt.Sprintf("%s%s: sbx presents the %s", s.Service, mark, mechanismLabel[s.Use]))
-			warn = append(warn, false)
-		case s.Use != "":
-			lines = append(lines, fmt.Sprintf("%s%s: sbx presents the %s; the stored %s has no approval in %s",
-				s.Service, mark, mechanismLabel[s.Use], strings.Join(held, " and "), "credentials.yaml"))
-			warn = append(warn, false)
-		default:
-			lines = append(lines, fmt.Sprintf("%s%s: stored %s withheld — no approval in credentials.yaml",
-				s.Service, mark, strings.Join(held, " and ")))
-			warn = append(warn, true)
-		}
-	}
-	return lines, warn
-}
-
 // unboundRefusal refuses a new, unattended sandbox whose own credential sbx would withhold; on a terminal sbx asks instead.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R9)
 func unboundRefusal(states []credentialState, chosen string, created, interactive bool) error {
@@ -187,6 +159,7 @@ func credentialInUse(target, out string) string {
 			Active        bool   `json:"active"`
 			Value         struct {
 				MethodID string `json:"methodID"`
+				Access   string `json:"access"`
 			} `json:"value"`
 		}
 		if json.Unmarshal([]byte(out), &recs) != nil {
@@ -198,7 +171,7 @@ func credentialInUse(target, out string) string {
 				continue
 			}
 			who := "an agent-owned login (" + cmp.Or(r.Value.MethodID, r.ID) + ") — it outranks sbx's credential"
-			if strings.HasPrefix(r.ID, "sbx-") {
+			if strings.HasPrefix(r.ID, "sbx-") || strings.Contains(r.Value.Access, "proxy-managed") {
 				who = "sbx's credential (" + r.ID + ")"
 			}
 			parts = append(parts, r.IntegrationID+": "+who)
@@ -221,35 +194,19 @@ func consentInteractive() bool {
 	return agentio.IsStdinTTY() && os.Getenv("PROVEO_SCHEDULE") == ""
 }
 
-// reportCredentials prints each declared service sbx holds something for, and refuses an unattended create that would withhold the run's own credential.
+// refuseUnboundCredential refuses an unattended create that would withhold the run's own credential; sbx reports the rest.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R9)
-func reportCredentials(in Input, name string, caps []sbx.CapabilityV3, created bool) error {
+func refuseUnboundCredential(in Input, name string, caps []sbx.CapabilityV3, created bool) error {
 	binds, err := sbx.LoadBindings(sbx.BindingsPath(os.Getenv))
 	if err != nil {
 		ui.Warnf("credentials.yaml unreadable (%v); sbx decides approvals on its own", err)
 		return nil
 	}
 	states := resolveCredentials(declaredCredentials(caps), sbx.StoreEntriesFor(name), binds)
-	chosen := chosenService(in.Target, in.AuthVar, in.Man.Subscription)
-	lines, warn := credentialLines(states, chosen)
-	if len(lines) > 0 {
-		ui.Section(ui.SectionCredentials)
-	}
-	for i, l := range lines {
-		if warn[i] {
-			ui.Warnf("%s", l)
-			continue
-		}
-		ui.Hostf("%s", l)
-	}
-	interactive := consentInteractive()
-	if created && interactive && slices.ContainsFunc(states, func(s credentialState) bool { return len(s.Withheld) > 0 }) {
-		ui.Notef("sbx asks next whether to approve the withheld ones; its answer is saved in credentials.yaml")
-	}
-	return unboundRefusal(states, chosen, created, interactive)
+	return unboundRefusal(states, chosenService(in.Target, in.AuthVar, in.Man.Subscription), created, consentInteractive())
 }
 
-// reportCredentialInUse prints, read-only, which credential the agent held; it skips a sandbox that is not running.
+// reportCredentialInUse warns, read-only, when the agent held a credential other than sbx's; it skips a sandbox that is not running.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R10)
 func reportCredentialInUse(target, name string) {
 	script, ok := inUseProbe[target]
@@ -260,12 +217,8 @@ func reportCredentialInUse(target, name string) {
 	if err != nil {
 		return
 	}
-	if line := credentialInUse(target, out); line != "" {
+	if line := credentialInUse(target, out); line != "" && !strings.Contains(line, "sbx's credential") {
 		ui.Section(ui.SectionCredentials)
-		if strings.Contains(line, "outranks") || strings.Contains(line, "itself") {
-			ui.Warnf("%s", line)
-			return
-		}
-		ui.Hostf("%s", line)
+		ui.Warnf("%s", line)
 	}
 }

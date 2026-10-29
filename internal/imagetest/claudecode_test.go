@@ -90,6 +90,7 @@ func ccBuild(s *imagetest.Suite, img ccImages) {
 
 	s.Success("[claudecode] ships the Kit's startup command (/usr/local/bin/proveo-seed)",
 		img.standalone, "test -x /usr/local/bin/proveo-seed")
+	s.HookFinds("[claudecode] a `user: agent` startup hook finds the real claude", img.standalone, "claude")
 	if img.mcpAvailable {
 		s.Success("[mcp] ships the Kit's startup command (/usr/local/bin/proveo-seed)",
 			img.mcp, "test -x /usr/local/bin/proveo-seed")
