@@ -448,6 +448,90 @@ func TestGitSyncPushesToOrigin(t *testing.T) {
 	}
 }
 
+func TestGitSyncUsesGhForGitHubSSHRemotesWithoutChangingOrigin(t *testing.T) {
+	t.Parallel()
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git unavailable")
+	}
+	for _, tc := range []struct {
+		remoteURL string
+		pushURL   string
+	}{
+		{remoteURL: "git@github.com:proveo-ca/sandbox.git"},
+		{remoteURL: "ssh://git@github.com/proveo-ca/sandbox.git"},
+		{remoteURL: "https://github.com/proveo-ca/sandbox.git", pushURL: "git@github.com:proveo-ca/sandbox.git"},
+	} {
+		t.Run(tc.remoteURL+tc.pushURL, func(t *testing.T) {
+			dir := initRepo(t)
+			gitCmd(t, dir, nil, "remote", "add", "origin", tc.remoteURL)
+			if tc.pushURL != "" {
+				gitCmd(t, dir, nil, "remote", "set-url", "--push", "origin", tc.pushURL)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "pushed.txt"), []byte("p\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			bin := t.TempDir()
+			pushArgs := filepath.Join(t.TempDir(), "push-args")
+			stub := `#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == push ]]; then
+    printf '%s\n' "$@" > "$PUSH_ARGS"
+    exit 0
+  fi
+done
+exec "$REAL_GIT" "$@"
+`
+			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(stub), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`,
+				hookEnv(t, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+					"PUSH_ARGS="+pushArgs, "REAL_GIT="+realGit))
+			if code != 0 || out != "" || errb != "" {
+				t.Fatalf("hook exit %d stdout %q stderr %q", code, out, errb)
+			}
+			b, err := os.ReadFile(pushArgs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Join([]string{
+				"-c", "credential.https://github.com.helper=",
+				"-c", "credential.https://github.com.helper=!gh auth git-credential",
+				"-c", "url.https://github.com/.insteadOf=git@github.com:",
+				"-c", "url.https://github.com/.insteadOf=ssh://git@github.com/",
+				"push", "-u", "origin", "HEAD", "",
+			}, "\n")
+			if string(b) != want {
+				t.Errorf("push args = %q, want %q", b, want)
+			}
+			rewrite := exec.Command(realGit,
+				"-c", "url.https://github.com/.insteadOf=git@github.com:",
+				"-c", "url.https://github.com/.insteadOf=ssh://git@github.com/",
+				"remote", "get-url", "--push", "origin")
+			rewrite.Dir = dir
+			resolved, err := rewrite.Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimSpace(string(resolved)); got != "https://github.com/proveo-ca/sandbox.git" {
+				t.Errorf("rewritten origin = %q", got)
+			}
+			if got := strings.TrimSpace(gitCmd(t, dir, nil, "remote", "get-url", "origin")); got != tc.remoteURL {
+				t.Errorf("origin changed to %q, want %q", got, tc.remoteURL)
+			}
+			if tc.pushURL != "" {
+				if got := strings.TrimSpace(gitCmd(t, dir, nil, "remote", "get-url", "--push", "origin")); got != tc.pushURL {
+					t.Errorf("push URL changed to %q, want %q", got, tc.pushURL)
+				}
+			}
+		})
+	}
+}
+
 func TestGitSyncBlocksWhenCommitHasNoIdentity(t *testing.T) {
 	t.Parallel()
 	dir := initRepo(t)

@@ -270,18 +270,32 @@ else
   remote="$(git remote 2>/dev/null | head -n 1 || true)"
 fi
 [[ -n "$remote" ]] || { _git_sync_emit allow ""; exit 0; }
-url="$(git remote get-url "$remote" 2>/dev/null || true)"
+url="$(git remote get-url --push "$remote" 2>/dev/null || true)"
 [[ -d "$url" && ! -w "$url" ]] && { _git_sync_emit allow ""; exit 0; }
+
+_git_push() {
+  case "$url" in
+    git@github.com:*|ssh://git@github.com/*)
+      command -v gh >/dev/null 2>&1 || { printf '%s\n' 'gh is required for GitHub SSH remotes' >&2; return 1; }
+      git -c credential.https://github.com.helper= \
+        -c 'credential.https://github.com.helper=!gh auth git-credential' \
+        -c 'url.https://github.com/.insteadOf=git@github.com:' \
+        -c 'url.https://github.com/.insteadOf=ssh://git@github.com/' \
+        push "$@"
+      ;;
+    *) git push "$@" ;;
+  esac
+}
 
 if git rev-parse '@{u}' >/dev/null 2>&1; then
   ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || printf '0')"
   if (( ahead > 0 )); then
-    if ! err="$(git push 2>&1)"; then
+    if ! err="$(_git_push 2>&1)"; then
       fail "git push failed: $err"
     fi
   fi
 else
-  if ! err="$(git push -u "$remote" HEAD 2>&1)"; then
+  if ! err="$(_git_push -u "$remote" HEAD 2>&1)"; then
     fail "git push failed: $err"
   fi
 fi

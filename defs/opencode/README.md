@@ -319,6 +319,8 @@ Set a server's `disabled` field to `true` to keep it configured without connecti
 The native v2 plugin observes session idle events and schedules best-effort git synchronization.
 The CLI can return before synchronization finishes.
 Commit-subject helper runs use a private `--standalone` server.
+For GitHub SSH remotes, the hook uses push-scoped HTTPS rewriting and `gh auth git-credential`.
+The repository remote stays unchanged; non-GitHub remotes keep their existing transport.
 
 ## Tests
 
