@@ -17,9 +17,10 @@ skinparam noteTextAlignment left
 ' ── THE RETIREMENT LEDGER BLOCKS A CLI RELEASE (N33, DONE (wt) 2026-10-18) ──
 ' A deprecated alias that promises to go "next release" needs something that
 ' notices the release happened. internal/contract/retirement_test.go holds a
-' ledger (reported): the PROVEO_EGRESS_ROOT alias, the PROVEO_EGRESS_ENV_FILE
-' alias, the retired egress/ run-root sweep and the PROVEO_CLI_BASE_URL alias,
-' each with a marker string. Tests (MEASURED that they exist):
+' ledger of live retirements, each with a marker string. The four v0.2.0
+' entries (two Go aliases, the egress/ run-root sweep, and the installer alias)
+' were removed before the next release. The empty ledger stays active so new
+' deprecations can be bounded. Tests:
 '   TestEveryRetirementMarkerIsStillInTheTree  a ledger row whose marker is gone
 '                                              must be deleted with it
 '   TestEveryDeprecatedAliasHasARetirement     every envreg AliasOf has a row
@@ -33,9 +34,8 @@ skinparam noteTextAlignment left
 ' test before goreleaser on `build-cli --release` and blocks the release unless
 ' it PASSES — a skip blocks too. Reported: red with a marker v0.1.2 contains,
 ' then green.
-' INTENDED CONSEQUENCE (recorded): main goes red from the first commit after the
-' next release until the aliases and the sweep are deleted. The deletions are
-' N33's second half and wait for that release.
+' The gate turned red after v0.2.0 shipped. Removing the expired surfaces
+' and their ledger rows made HEAD eligible for the next release.
 ' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '

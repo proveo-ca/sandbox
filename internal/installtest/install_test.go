@@ -77,15 +77,11 @@ func TestInstallScripts(t *testing.T) {
 	outputContains(t, "install.sh installs Go proveo", "proveo v"+version+" installed to:",
 		install(installHome, installRoot, cdn, true), bash, installScript)
 
-	aliasEnv := install(filepath.Join(tmp, "home-alias"), filepath.Join(tmp, "install-alias"), cdn, true)
-	for i, kv := range aliasEnv {
-		if strings.HasPrefix(kv, "PROVEO_ASSET_BASE_URL=") {
-			aliasEnv[i] = "PROVEO_CLI_BASE_URL=file://" + cdn
-		}
-	}
-	outputContains(t, "PROVEO_CLI_BASE_URL still installs, as a deprecated alias",
-		"PROVEO_CLI_BASE_URL is deprecated", aliasEnv, bash, installScript)
-	fileExists(t, "the alias install writes uninstall.sh", filepath.Join(tmp, "install-alias", "uninstall.sh"))
+	retiredEnv := append(install(filepath.Join(tmp, "home-retired"), filepath.Join(tmp, "install-retired"), cdn, true),
+		"PROVEO_CLI_BASE_URL=file://"+filepath.Join(tmp, "missing-channel"))
+	outputContains(t, "install.sh ignores the retired channel variable", "proveo v"+version+" installed to:",
+		retiredEnv, bash, installScript)
+	fileExists(t, "the configured channel provides uninstall.sh", filepath.Join(tmp, "install-retired", "uninstall.sh"))
 
 	installed := filepath.Join(installRoot, "bin", "proveo")
 	fileExists(t, "install writes proveo binary", installed)

@@ -622,8 +622,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' -36915573), which sbx then refused to start ("workspace directory … no longer
 ' exists on the host"). cleanLeftovers therefore runs `proveo clean` WITHOUT
 ' --force, so anything that looks live — a sibling still coming up, or the
-' operator's run — is kept, under a throwaway PROVEO_STATE_ROOT (PROVEO_EGRESS_ROOT
-' until F17, 2026-10-17; the old name is still read with a deprecation warning), so no real
+' operator's run — is kept, under a throwaway PROVEO_STATE_ROOT, so no real
 ' run's state dir is ever a candidate. HISTORY: cleanLeftoversIfCrowded waited
 ' for cleanThreshold = 10 `proveo.egress.session` containers before sweeping;
 ' neither it nor cleanLeftovers is in e2e/ any more (MEASURED 2026-10-16), and

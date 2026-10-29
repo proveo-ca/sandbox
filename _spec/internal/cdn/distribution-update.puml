@@ -37,18 +37,11 @@
 ' covers: internal/contract/installer_bash_test.go
 '
 ' ── ONE CHANNEL URL (N28, DONE (wt) 2026-10-18) ────────────────────────────
-' MEASURED, apps/cli/public/cli/install.sh:9: ASSET_BASE_URL is
-' ${PROVEO_ASSET_BASE_URL:-${PROVEO_CLI_BASE_URL:-https://proveo.ca/cli}}, and
-' uninstall.sh is fetched from it (:308), as `proveo update` already did with
-' the one URL. PROVEO_CLI_BASE_URL used to fetch only uninstall.sh; as an alias
-' it now points the whole channel, and the script says so on stderr (:292-295):
-'   CLI only   "deprecated and goes away next release; it now points the whole
-'              channel — set PROVEO_ASSET_BASE_URL"
-'   both set   "deprecated and ignored: PROVEO_ASSET_BASE_URL is set"
-' install.ps1 never read PROVEO_CLI_BASE_URL. internal/installtest sets only
-' PROVEO_ASSET_BASE_URL and adds an alias-only install that must print the
-' notice and write uninstall.sh (reported passing). The alias has a row in the
-' retirement ledger (_spec/_devops/release-gate.puml).
+' install.sh reads ${PROVEO_ASSET_BASE_URL:-https://proveo.ca/cli} for the
+' channel manifest, binary, checksums, and uninstall.sh. `proveo update` uses
+' the same URL. The PROVEO_CLI_BASE_URL alias shipped in v0.2.0 and was removed
+' before the next release; install.ps1 never read it. internal/installtest
+' checks that a retired channel variable cannot override the configured URL.
 ' Open: PROVEO_VERSION only relabels an install (N34), and the installers spell
 ' PROVEO_SKIP_INIT and PROVEO_UNINSTALL_ASSUME_YES their own way (N36).
 '

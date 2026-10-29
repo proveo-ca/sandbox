@@ -142,7 +142,7 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	}
 
 	rs.InvocationWD, _ = os.Getwd()
-	rs.Creds.HostEnvFile = strings.TrimSpace(renamedEnv("PROVEO_ENV_FILE", "PROVEO_EGRESS_ENV_FILE"))
+	rs.Creds.HostEnvFile = strings.TrimSpace(os.Getenv("PROVEO_ENV_FILE"))
 	if rs.Creds.HostEnvFile == "" {
 		rs.Creds.HostEnvFile = workspace.ProjectEnvFile(rs.InvocationWD, rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
 	}

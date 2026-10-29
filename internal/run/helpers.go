@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/envflag"
@@ -72,24 +71,8 @@ func OrWD(p string) string {
 	return wd
 }
 
-var warnedRetired sync.Map
-
-// renamedEnv reads name, else the retired old name with a one-time deprecation warning.
-func renamedEnv(name, old string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	v := os.Getenv(old)
-	if v != "" {
-		if _, seen := warnedRetired.LoadOrStore(old, true); !seen {
-			ui.Warnf("%s is deprecated and goes away next release — set %s", old, name)
-		}
-	}
-	return v
-}
-
 func StateDir() string {
-	if x := renamedEnv("PROVEO_STATE_ROOT", "PROVEO_EGRESS_ROOT"); x != "" {
+	if x := os.Getenv("PROVEO_STATE_ROOT"); x != "" {
 		return x
 	}
 	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
@@ -98,10 +81,10 @@ func StateDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".local", "state", "proveo")
 }
 
-// RunRoots are the per-run state roots, current first, then the retired egress/ root.
+// RunRoots are the per-run state roots.
 func RunRoots() []string {
 	state := StateDir()
-	return []string{filepath.Join(state, "runs"), filepath.Join(state, "egress")}
+	return []string{filepath.Join(state, "runs")}
 }
 
 // RunDirOf is the state directory of the run sid.

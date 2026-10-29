@@ -145,8 +145,8 @@ title Host shell → Go — FROZEN SNAPSHOT of the 2026-09-22 refactor (P1–P4 
 '         provider.Detect and egress.ProviderAllowConf directly instead. The
 '         binary also read PROVEO_EGRESS_ENV_FILE; the port ignores it, so
 '         that input has no image-suite coverage. (The proveo-egress binary is
-'         deleted with D1, and the host variable is PROVEO_ENV_FILE since F17,
-'         2026-10-17, the old name a deprecated alias.)
+'         deleted with D1; the host variable is PROVEO_ENV_FILE since F17,
+'         and its deprecated alias was removed after v0.2.0.)
 '       * Only the <cmd> strings survive, verbatim, inside the Go files; they
 '         still run in the image under Debian bash 5.
 ' P4  lib/ + scripts/ — ui/registry/helpers callers and go-test-coverage.sh /
