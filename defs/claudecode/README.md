@@ -228,18 +228,6 @@ stub tells Claude Code to load the version-matched guide and never to run
 `agent-browser install`. Opt out of the skill with `PROVEO_BROWSER_SKILL=off`. Details:
 `defs/base-node-browser/README.md`, spec `_spec/defs/browser-layer.puml`.
 
-## Code intelligence
-
-The image bakes the language servers and **seeds the official Claude Code LSP plugins**
-(`typescript-lsp`, `pyright-lsp`, `gopls-lsp`, `rust-analyzer-lsp`, `clangd-lsp`, `jdtls-lsp`,
-`lua-lsp`) at `/opt/proveo/claude-plugins`. Claude Code otherwise offers to install the plugin for every
-server binary it finds on PATH, on every fresh sandbox home. At seed time proveo registers the
-seeded plugins in the agent home (install and marketplace records pointing at the seed),
-enables each plugin whose binary is present after provisioning, and `proveo-lsp` (the skills-directory
-plugin proveo writes) declares only the languages no official plugin covers, so no extension
-gets two servers. Opt out with `PROVEO_CLAUDE_LSP_PLUGINS=off`, or disable one plugin with
-`/plugin disable <name>@claude-plugins-official`; that choice is kept across runs.
-
 ## Troubleshooting
 
 ### OAuth Token Issues

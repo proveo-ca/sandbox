@@ -1,6 +1,6 @@
 # base-node-browser
 
-`proveo/base-node-browser` = `proveo/base-node-lsp` + one headless Chromium and the two
+`proveo/base-node-browser` = `proveo/base-node` + one headless Chromium and the two
 clients that drive it:
 
 | client | what it is for | how it finds the browser |
@@ -13,7 +13,7 @@ browser (Chrome for Testing). agent-browser's bundled skills live at
 `AGENT_BROWSER_SKILLS_DIR=/opt/agent-browser/skill-data`, so `agent-browser skills get core`
 serves the guide matching the installed binary.
 
-- `proveo/base-node-browser` is FROM `proveo/base-node-lsp`. The `<harness>-browser` variants
+- `proveo/base-node-browser` is FROM `proveo/base-node`. The `<harness>-browser` variants
   (`opencode-browser`, `claudecode-browser`, `codex-browser`, `cursor-browser`;
   `mise run build <harness>-browser`) build this Dockerfile on `proveo/<harness>` instead.
 - Not a runnable harness — a `mise run build` / `mise run deploy` target like `base`.
