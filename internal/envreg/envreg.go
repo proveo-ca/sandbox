@@ -145,7 +145,7 @@ var Vars = []Var{
 	{Name: "PROVEO_KEEP_AGENT_LOGINS", Scope: Operator, Where: Binary, Default: "off",
 		Doc: "Keep logins an agent makes inside a run instead of scrubbing them next run"},
 	{Name: "PROVEO_LOCAL_MODEL_FORCE", Scope: Operator, Where: Binary, Default: "off",
-		Doc: "Load a local model even when host memory looks too small"},
+		Doc: "Load a local model without asking when free VRAM or RAM looks too small"},
 	{Name: "PROVEO_LOCAL_MODEL_PULL", Scope: Operator, Where: Binary, Default: "on",
 		Doc: "Pull a local model missing from the host's Ollama; 0 fails instead"},
 	{Name: "PROVEO_LSP_INSTALL", Scope: Operator, Where: Image, Default: "auto: every detected language",

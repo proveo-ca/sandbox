@@ -2,19 +2,13 @@
 package sbx
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
-	"regexp"
-	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -107,7 +101,8 @@ func sameRepo(models []ollamaModel, want string) []string {
 	return out
 }
 
-// EnsureHostOllama checks the host Ollama serves model, pulling it when missing, and that loading it fits in memory.
+// EnsureHostOllama checks the host Ollama serves model, pulling it when missing,
+// and returns a *NoFitError when loading it would overflow the host's free memory.
 func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) error {
 	tags, err := listOllama("/api/tags")
 	if err != nil {
@@ -254,7 +249,7 @@ func pullOllama(model string, p *ui.Printer) error {
 func gib(b uint64) float64 { return float64(b) / (1 << 30) }
 
 // LocalModelFits reports whether an installed host model fits the host's free
-// memory by the same estimate EnsureHostOllama refuses on; nil when it fits or
+// memory by the same estimate EnsureHostOllama reports on; nil when it fits or
 // cannot be judged.
 func LocalModelFits(model string, getenv func(string) string) error {
 	tags, err := listOllama("/api/tags")
@@ -268,81 +263,37 @@ func LocalModelFits(model string, getenv func(string) string) error {
 	return checkFit(m, getenv)
 }
 
+// NoFitError reports a model larger than the free host memory Ollama would load it into.
+type NoFitError struct {
+	Model               string
+	Need, Weights, Free uint64
+	Pool                string
+}
+
+func (e *NoFitError) Error() string {
+	return fmt.Sprintf("%s needs ~%.1f GiB (%.1f GiB weights + cache headroom) and the host has %.1f GiB of %s free — "+
+		"%s; free memory, pick a smaller tag, or set %s=1",
+		e.Model, gib(e.Need), gib(e.Weights), gib(e.Free), e.Pool, e.Consequence(), EnvLocalModelForce)
+}
+
+// Consequence names what loading the model anyway costs.
+func (e *NoFitError) Consequence() string {
+	if e.Pool == poolVRAM {
+		return "Ollama runs the overflow on the CPU, several times slower"
+	}
+	return "loading it pushes the host into swap"
+}
+
 func checkFit(m ollamaModel, getenv func(string) string) error {
 	need := m.Size + m.Size/8 + 1<<30
-	avail, known := availableMemory()
-	if !known || need <= avail {
+	mem, known := availableMemory()
+	if !known || need <= mem.Free {
 		return nil
 	}
 	if envflag.On(getenv(EnvLocalModelForce)) {
 		return nil
 	}
-	return fmt.Errorf("%s needs ~%.1f GiB (%.1f GiB weights + cache headroom) and the host has %.1f GiB available — "+
-		"loading it would push the host into swap; free memory, pick a smaller tag, or set %s=1",
-		m.Name, gib(need), gib(m.Size), gib(avail), EnvLocalModelForce)
-}
-
-func hostAvailableMemory() (uint64, bool) {
-	switch runtime.GOOS {
-	case "darwin":
-		out, err := exec.Command("vm_stat").Output()
-		if err != nil {
-			return 0, false
-		}
-		return parseVMStat(string(out))
-	case "linux":
-		b, err := os.ReadFile("/proc/meminfo")
-		if err != nil {
-			return 0, false
-		}
-		return parseMemInfo(string(b))
-	}
-	return 0, false
-}
-
-var (
-	vmPageSize = regexp.MustCompile(`page size of (\d+) bytes`)
-	vmLine     = regexp.MustCompile(`^(Pages [a-z]+|"[^"]+"|[A-Za-z ]+):\s+(\d+)\.`)
-)
-
-// parseVMStat sums the pages macOS can hand out without swapping: free, inactive, speculative, purgeable.
-func parseVMStat(out string) (uint64, bool) {
-	pm := vmPageSize.FindStringSubmatch(out)
-	if pm == nil {
-		return 0, false
-	}
-	page, _ := strconv.ParseUint(pm[1], 10, 64)
-	var pages uint64
-	seen := false
-	sc := bufio.NewScanner(strings.NewReader(out))
-	for sc.Scan() {
-		f := vmLine.FindStringSubmatch(strings.TrimSpace(sc.Text()))
-		if f == nil {
-			continue
-		}
-		switch f[1] {
-		case "Pages free", "Pages inactive", "Pages speculative", "Pages purgeable":
-			n, _ := strconv.ParseUint(f[2], 10, 64)
-			pages += n
-			seen = true
-		}
-	}
-	return pages * page, seen
-}
-
-func parseMemInfo(out string) (uint64, bool) {
-	sc := bufio.NewScanner(strings.NewReader(out))
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) >= 2 && f[0] == "MemAvailable:" {
-			kb, err := strconv.ParseUint(f[1], 10, 64)
-			if err != nil {
-				return 0, false
-			}
-			return kb * 1024, true
-		}
-	}
-	return 0, false
+	return &NoFitError{Model: m.Name, Need: need, Weights: m.Size, Free: mem.Free, Pool: mem.Pool}
 }
 
 // HostModelRef reports whether base points the agent at the host's Ollama.

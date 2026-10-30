@@ -2,6 +2,7 @@
 package sbx
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -42,9 +43,14 @@ func fakeOllama(t *testing.T, tags, ps string) {
 
 func stubAvailable(t *testing.T, gibs float64, known bool) {
 	t.Helper()
+	stubPool(t, gibs, poolRAM, known)
+}
+
+func stubPool(t *testing.T, gibs float64, pool string, known bool) {
+	t.Helper()
 	orig := availableMemory
 	t.Cleanup(func() { availableMemory = orig })
-	availableMemory = func() (uint64, bool) { return uint64(gibs * (1 << 30)), known }
+	availableMemory = func() (hostMemory, bool) { return hostMemory{uint64(gibs * (1 << 30)), pool}, known }
 }
 
 const hostTags = `{"models":[
@@ -82,12 +88,16 @@ func TestEnsureHostOllamaTreatsAnUntaggedNameAsLatest(t *testing.T) {
 	}
 }
 
-func TestEnsureHostOllamaRefusesAModelThatWouldSwap(t *testing.T) {
+func TestEnsureHostOllamaReportsAModelThatWouldNotFit(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
-	stubAvailable(t, 12, true)
+	stubPool(t, 12, poolVRAM, true)
 	err := EnsureHostOllama("qwen3.8:latest", noEnv, nil)
-	if err == nil || !strings.Contains(err.Error(), EnvLocalModelForce) {
-		t.Fatalf("16.5 GiB of weights with 12 GiB available must refuse and name the override, got %v", err)
+	var nofit *NoFitError
+	if !errors.As(err, &nofit) || nofit.Pool != poolVRAM || !strings.Contains(err.Error(), EnvLocalModelForce) {
+		t.Fatalf("16.5 GiB of weights with 12 GiB of VRAM free must report a NoFitError naming the override, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "12.0 GiB of VRAM free") {
+		t.Errorf("the report must name the pool it measured: %v", err)
 	}
 
 	force := func(k string) string {
@@ -217,8 +227,9 @@ func TestEnsureHostOllamaPullsButWillNotLoadWhatCannotFit(t *testing.T) {
 	if *pulls != 1 || !strings.Contains(out.String(), "would not fit in memory right now") {
 		t.Errorf("memory is transient and the download is not: pull with a warning; pulls=%d out=%q", *pulls, out.String())
 	}
-	if err == nil || !strings.Contains(err.Error(), EnvLocalModelForce) {
-		t.Errorf("the load check must still refuse 19 GB with 12 GiB free, got %v", err)
+	var nofit *NoFitError
+	if !errors.As(err, &nofit) {
+		t.Errorf("the load check must still report 19 GB against 12 GiB free, got %v", err)
 	}
 }
 

@@ -604,7 +604,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	}
 	if rs.Model.HostLLM {
 		if !p.PrintOnly {
-			if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default); err != nil {
+			if err := admitOversizedModel(sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default)); err != nil {
 				return fmt.Errorf("local model %s: %w", p.LocalModel, err)
 			}
 			ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)
