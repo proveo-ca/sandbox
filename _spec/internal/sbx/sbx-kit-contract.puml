@@ -10,7 +10,7 @@ skinparam noteTextAlignment left
 ' purpose: the sbx Kit contract proveo writes against — schema, handoff, session, exit
 ' covers: internal/sbx/**
 ' covers: cmd/proveo/main.go
-' covers: internal/contract/lsp_config_parity_test.go
+' covers: internal/contract/seed_phase_test.go
 ' covers: internal/contract/seed_command_shipped_test.go
 ' Backend selection and the fallback path: sandbox-backend.puml (same directory).
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
@@ -132,9 +132,9 @@ skinparam noteTextAlignment left
 '                  → resolved HOST-side into environment.variables. A setup
 '                    command runs in its own process; its exports never reach
 '                    the agent, so this cannot be done inside.
-'   file-shaped    subagents, settings, LSP config, the workspace trust flag,
+'   file-shaped    subagents, settings, formatter config, the workspace trust flag,
 '                  AND the whole toolchain: project tools, the Python env, the
-'                  dependency-tree probe, language servers. The toolchain lives
+'                  dependency-tree probe. The toolchain lives
 '                  here because the seed is the one step BOTH backends reach by a
 '                  route neither skips: docker calls it from the entrypoint, sbx
 '                  ALSO from setup.startup. NOTE: `-t` overrides the IMAGE, not

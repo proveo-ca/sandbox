@@ -2,7 +2,7 @@
 
 Custom Docker image for OpenCode v2 ([`@opencode/cli`](https://opencode.ai/v2/docs)) with:
 
-- `proveo/base-node-lsp` (Node 22, `pnpm`, Bun and the workspace language servers)
+- `proveo/base-node` (Node 22, `pnpm` and Bun)
 - Root-free runtime: baked non-root user `opencode` (uid 1000); sbx runs the agent as that uid
 - Monorepo-friendly entrypoint (`pnpm install` on first run if needed)
 - Auto-detection of common provider API keys
@@ -266,7 +266,7 @@ OpenCode merges global configuration, direct project configs from ancestors to t
 Within one config directory, `opencode.jsonc` takes precedence over `opencode.json`.
 Drop a `.opencode/agents/<name>.md` in your repo to override or add a subagent.
 proveo preserves existing global JSON, JSONC, and rendered agents unless `OPENCODE_RESEED=1` is set.
-Automatic LSP and formatter wiring leaves JSONC and malformed JSON untouched.
+Automatic formatter wiring leaves JSONC and malformed JSON untouched.
 An explicit local-model request fails if those files prevent safe wiring.
 Quit and restart OpenCode after changing its configuration.
 

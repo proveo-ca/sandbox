@@ -60,11 +60,11 @@ Run the image suite with `mise run test-defs codex`
 
 | Image | Base | Adds |
 | --- | --- | --- |
-| `proveo/codex` | `proveo/base-node-lsp` | node + the workspace language servers |
+| `proveo/codex` | `proveo/base-node` | node, pnpm and Bun |
 | `proveo/codex-browser` | `proveo/codex` | Playwright + Chromium (the `defs/base-node-browser` layer) |
 
 The browser layer builds on top of `proveo/codex`, so the browser variant is a
-strict superset — it keeps codex and the language servers. It is not a target of its own: pick `browser` in the run prompt's addon
+strict superset — it keeps codex and its toolchain. It is not a target of its own: pick `browser` in the run prompt's addon
 row (or `--addon browser`) and the run swaps the image, leaving the target `codex`.
 
 ## Environment Variables
@@ -148,7 +148,6 @@ the vocabulary codex actually enforces. `spec-keeper` is the single writer.
 | House rules | `/etc/claude-code/CLAUDE.md` (managed policy, cannot be excluded) | `$CODEX_HOME/AGENTS.md` (user layer — the project's file outranks it) |
 | Project steering | `CLAUDE.md`, bridged from `AGENTS.md` into the workspace | `AGENTS.md`, read natively — nothing is written into the checkout |
 | Subagent format | markdown + YAML frontmatter, `tools:` allowlist | TOML document, `sandbox_mode` |
-| LSP | native Claude Code plugin | MCP servers (`mcp-language-server`) in `config.toml` |
 | Autonomy flag | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` |
 | Resume | `--continue` / `--resume <id>` | `resume --last` / `resume <id>` (a subcommand) |
 
@@ -158,10 +157,6 @@ the vocabulary codex actually enforces. `spec-keeper` is the single writer.
 for an image carrying `com.docker.sandboxes.start-docker`. The label is set here;
 if the daemon still does not come up it is the sbx-side privilege question recorded
 in `defs/claudecode/mcp/Dockerfile`.
-
-**The MCP LSP block broke my `config.toml`** — the generated block is appended
-between `# >>> proveo lsp` markers and holds `[mcp_servers.*]` tables. TOML requires
-top-level keys to precede every table, so add yours ABOVE the marker, not after it.
 
 **Sessions do not survive `--rm`** — check that `CODEX_HOME` is unset in the
 container. It must follow `$HOME`, which proveo points at the mounted home.

@@ -11,7 +11,7 @@ node "internal/wsscan" as PKG <<host>> {
 }
 
 folder "Consumers" as USE <<host>> {
-  component "choice prompt header\ntooling · lsp prediction" as HDR <<app>>
+  component "choice prompt header\ntooling row" as HDR <<app>>
 }
 
 database "workspace tree\ndepth <= MaxDepth (7)" as TREE <<db>>
@@ -68,11 +68,11 @@ note left of HARD
   **One deny set, three walks.** ""AlwaysPrune"" is exported because the
   same question is asked by this scan, by mount planning's symlink walk
   (""_spec/internal/workspace/mount-symlink-escape\.puml"") and by the
-  in-container LSP detector's ""find"" expression — and three private
+  in-container ""_proveo_walk"" ""find"" expression — and three private
   copies drift the moment one is corrected.
 
   Package stores earn their place on it. ""\.pnpm-store"" was 110k of the
-  123k files the LSP detector crossed on one monorepo, and a store
+  123k files the in-container walk crossed on one monorepo, and a store
   object can never be workspace source: it is content-addressed and has
   no extension. This scan's budget usually stops before reaching one,
   which is why the names arrived late.
@@ -81,7 +81,7 @@ end note
 note right of SCAN
   **Markers, not globs.** ""Names"" match a basename exactly, ""Suffixes""
   match its end (""\.go""), and either satisfies the marker. Tooling
-  labels are reported as fact; LSP labels are a **prediction** — whether
-  a server exists depends on the image, which the host cannot see.
+  labels are reported as fact. The ""lsp:"" prediction row left with
+  the LSP removal (2026-10-30).
 end note
 @enduml

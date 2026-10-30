@@ -1,7 +1,7 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-claudecode is a later plan, hook-formatters stay unwired
+title APPLIED — one config-class chain (formatters; LSP and plugin rows removed 2026-10-30);\nhook-formatters stay unwired
 
 ' purpose: the detect→provide→wire chain, and how tools MOVE while configs COPY so an sbx teardown does not discard them
 ' covers: packages/lib/entrypoint-lib.sh
@@ -14,10 +14,11 @@ title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-cla
 ' covers: internal/contract/config_set_test.go, internal/contract/config_sync_test.go
 ' covers: internal/contract/config_files_test.go
 ' covers: internal/contract/formatter_class_test.go
+' covers: internal/contract/lsp_wiring_retirement_test.go, internal/contract/retirement_test.go
 ' covers: cmd/proveo/clean_tool_roots_test.go, cmd/proveo/golden_test.go
 '
 ' ── THE GO MODULE CACHE IS WRITTEN WRITABLE ────────────────────────────────
-' MEASURED 2026-09-23: `go install` (gopls, staticcheck) leaves a module cache
+' MEASURED 2026-09-23: `go install` (staticcheck; gopls until 2026-10-30) leaves a module cache
 ' under the tool home, and Go writes that cache read-only by design. The tool
 ' home is saved to the host store, so the read-only tree reached
 ' ~/.proveo/toolchains, where rm -rf, proveo clean and Go's own TempDir cleanup
@@ -28,8 +29,7 @@ title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-cla
 ' already holds from before keep their old modes until they are rewritten.
 ' APPLIED 2026-09-17. Numbered steps 1-5 landed. Closed out of _plans.
 '   plugin beyond claudecode ... _spec/_plans/plugin-class-beyond-claudecode.puml
-'   re-wire policy ............. formatter skips if declared; LSP setdefault
-'                                every open — the mix, not a gap
+'   re-wire policy ............. formatter skips if declared — the policy, not a gap
 '   hook formatters ............ standing note; not this chain
 '   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
 '   step 2 · install location ..... packages/lib/entrypoint-lib.sh (_proveo_tool_home,
@@ -47,13 +47,12 @@ title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-cla
 '   the durable root, host-side ... internal/proveohome (Root, UserHome) · cmd/proveo/clean.go (toolRoots)
 '   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
 '                                   internal/proveohome/proveohome_test.go
-'   the one chain that exists ...... packages/lib/entrypoint-lib.sh (§8 ensure_language_servers)
 '   where it is wired .............. packages/lib/entrypoint-lib.sh (proveo_seed)
-'   the plugin half ................ packages/lib/entrypoint-lib.sh (proveo_enable_claude_lsp_plugins)
+'   the one-release LSP strip ...... packages/lib/entrypoint-lib.sh (proveo_retire_lsp_wiring)
+'                                   · internal/contract/lsp_wiring_retirement_test.go
 '   the durable home ............... internal/proveohome/proveohome.go · cmd/proveo/clean.go (toolSubdirs)
 '   the home that is NOT durable ... internal/backend/sandbox/sandbox.go (Home)
 '   the copy that stands in for it . packages/lib/entrypoint-lib.sh (proveo_sync_state)
-'   the chain, drawn ............... _spec/packages/lib/language-server-provisioning.puml
 '   what a class must not assume ... _spec/_runtimes/toolchain-provisioning.puml
 '   what leans on this chain ..... _spec/internal/entrypoint/model-alias-bridges.puml
 '                                   Q1 is the agent's own default, not a seed.
@@ -61,22 +60,16 @@ title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-cla
 '                                   plan named; it no longer blocks that one.
 '   plugin beyond claudecode ..... _spec/_plans/plugin-class-beyond-claudecode.puml
 '
-' ── THREE CONFIG CLASSES, WIRED WHERE THE SURFACE IS A YES/NO ─────────────
-' A harness opens onto a workspace and needs three kinds of thing configured
-' before it is useful. They differ only in the file format at the end:
+' ── ONE CONFIG CLASS, WIRED WHERE THE SURFACE IS A YES/NO ─────────────────
+' The table had three rows — plugins, LSP, formatters — until 2026-10-30. The
+' LSP and plugin rows left with the LSP removal (the plugin row only ever seeded
+' Claude Code's LSP plugins); _spec/defs/harness-image-layers.puml records why.
 '
 '   class       detect                provide             wire
 '   ─────────── ───────────────────── ─────────────────── ─────────────────────
-'   LSP         _lsp_walk (ext+marker image layer, else   configure_claude_lsp
-'               map, ranked by count) mise / ubi          configure_opencode_lsp
-'                                                         configure_cursor_lsp
-'                                                         configure_codex_lsp
 '   formatters  —                     harness built-ins   configure_opencode_
 '                                                         formatter only
-'   plugins     fixed list            image seed dir      configure_claude_
-'                                                         plugins (claudecode)
 '
-' The plugin row is a fixed list against one harness's baked marketplace cache.
 ' Hook-shaped formatters (claudecode, cursor) stay unwired: a hook asks
 ' proveo to pick a command per project, and guessing rewrites source.
 '
@@ -112,12 +105,26 @@ title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-cla
 ' file the seed writes into a plain directory of the image home is not a block
 ' device, is never discovered, and is never copied out.
 '
-' Net: every sbx run re-walks the workspace, re-downloads every language
-' server through the GitHub API (60 requests/hour unauthenticated, shared per
-' source IP), re-renders every config, and throws the result away at teardown.
-' The one exception is the plugin row, which persists because it never left
-' the image: the seed dir is baked and the enablement is a merge into files
-' that are themselves ephemeral.
+' Net (before step 2): every sbx run re-walked the workspace, re-downloaded
+' every toolchain through the GitHub API (60 requests/hour unauthenticated,
+' shared per source IP), re-rendered every config, and threw the result away at
+' teardown.
+'
+' ── THE ONE-RELEASE LSP STRIP ─────────────────────────────────────────────
+' Config sync carries the agent's config out to the host and back, so LSP
+' wiring an earlier release wrote outlives the code that wrote it. A persisted
+' opencode `"lsp": true` alone would start opencode's built-in servers again.
+' proveo_wire_config therefore first runs proveo_retire_lsp_wiring <target>,
+' which removes only what proveo wrote:
+'   codex       the `# >>> proveo lsp` … `# <<< proveo lsp <<<` block in config.toml
+'   cursor      mcp.json mcpServers entries whose command is mcp-language-server
+'   opencode    the `lsp` key of opencode.json, unless it is false
+'   claudecode  ~/.claude/skills/proveo-lsp; installed_plugins.json records and
+'               the known_marketplaces.json entry under /opt/proveo/claude-plugins;
+'               the enabledPlugins keys of the records it dropped
+' The retirement ledger (internal/contract/retirement_test.go) bounds it to one
+' release: TestNoRetirementOutlivesOneRelease fails once the marker
+' `proveo_retire_lsp_wiring` ships in a tagged release.
 '
 ' ── WHAT CLONE MODE MOVES, AND WHAT IT CANNOT ─────────────────────────────
 ' sbx runs default to --clone precisely to keep the WORKSPACE off virtiofs: the
@@ -310,6 +317,7 @@ node "sbx backend" as SBX <<host>> {
 
 component "**tools** — move them\n""MISE_DATA_DIR"" → durable" as TOOLS <<app>>
 component "**configs** — copy them\nnamed set, restore + save" as CFGS <<async>>
+component "**retire** — ""proveo_retire_lsp_wiring""\nstrips persisted LSP wiring, one release" as RETIRE <<app>>
 cloud "mise registry · ubi → GitHub API\n60 req/h unauthenticated" as NET <<cloud>>
 
 SEED ARROW_MAIN CHAIN : per class, per target
@@ -324,6 +332,15 @@ CHAIN ARROW_ERROR SHOME : discarded today
 TOOLS ARROW_MAIN STATE : relocate
 CFGS ARROW_QUEUE STATE : copy, both directions
 SHOME ARROW_OPTIONAL CFGS : the agent still reads HERE
+CFGS ARROW_MAIN RETIRE : restored config, then the strip
+RETIRE ARROW_MAIN WIRE
+
+note right of RETIRE
+  **Synced config outlives the code.** A saved
+  ""lsp"": true restarts opencode's servers, so
+  the strip removes what proveo wrote, for one
+  release only.
+end note
 
 note bottom of SHOME
   **The deletion of HOME was correct.** sbx's
@@ -353,9 +370,9 @@ end note
 
 note top of NET
   **What the discard costs.** Every sbx open
-  re-walks, re-downloads, re-renders. ubi asks
+  re-walks, re-downloads, re-renders. mise asks
   the GitHub API, rate-limited per source IP, so
-  a fleet behind one NAT loses intelligence.
+  a fleet behind one NAT loses its toolchains.
 end note
 
 legend bottom
@@ -374,7 +391,7 @@ legend bottom
   --
   **2. Give TOOLS a durable home — install locally, sync at the edges.** — LANDED.
   ""MISE_DATA_DIR"", ""MISE_CONFIG_DIR"", ""MISE_STATE_DIR"", ""MISE_CACHE_DIR"",
-  ""MISE_INSTALL_PATH"", the ""npm -g --prefix"", ""GOROOT""/""GOPATH"", the jdtls tree and
+  ""MISE_INSTALL_PATH"", the ""npm -g --prefix"", ""GOROOT""/""GOPATH"" and
   the install lock all hang off ""_proveo_tool_home"" — the AGENT's own home, which
   is the VM's own disk on sbx. ""_proveo_tool_store"" is the durable half, and
   ""proveo_sync_tools"" carries the tree between them: restore in ""proveo_seed""
@@ -410,10 +427,8 @@ legend bottom
   bare name, and ""PROVEO_CONFIG_FILES"" carries them.
   --
   **4. Generalise the chain into one table and one entry point.** — LANDED.
-  ""_proveo_config_classes"" is ""plugin lsp formatter"" — an ORDER, not a
-  preference: the
-  plugin row exports ""PROVEO_CLAUDE_LSP_OFFICIAL"" and the lsp row reads it to
-  decide which languages to yield. ""_proveo_class_wire <class>:<harness>"" names
+  ""_proveo_config_classes"" is ""formatter"" (""plugin lsp formatter"" until
+  2026-10-30). ""_proveo_class_wire <class>:<harness>"" names
   the wiring function, and ""proveo_wire_config"" is the single entry point ""proveo_seed"" calls. The
   per-class ""case"" that used to sit in the seed is gone.
   --
@@ -457,19 +472,17 @@ legend bottom
   host-side wires a config — so a Go copy would exist only to be compared
   against. ""internal/contract"" pins the bash table against the tree instead:
   every named function defined in the lib, every row reachable from the seed, no
-  def entrypoint owning one, and the plugin row ahead of the lsp row. That is the
-  same shape ""_claude_lsp_plugins"" is already pinned by. If ""--print"" ever reports
+  def entrypoint owning one. If ""--print"" ever reports
   which classes a run will wire, the table is where that reader goes.
   ==
   **Decided 2026-09-17 — this file leaves _plans.**
   --
-  **Plugin beyond claudecode** is a later plan, not a hole here:
-  _spec/_plans/plugin-class-beyond-claudecode.puml. The seed is one vendor's
-  marketplace cache; a second class waits on a second seed.
+  **Plugin beyond claudecode** — moot since 2026-10-30: the only plugin
+  seed held Claude Code's LSP plugins and left with the LSP removal
+  (_spec/_plans/plugin-class-beyond-claudecode.puml).
   --
-  **Re-wire mix is the policy.** The formatter skips when the operator's key
-  already exists; LSP setdefault-merges every open. No fingerprint, no first-open
-  gate. Codified, not deferred.
+  **Re-wire is the policy.** The formatter skips when the operator's key
+  already exists. No fingerprint, no first-open gate. Codified, not deferred.
   --
   **Hook formatters stay unwired.** claudecode PostToolUse and cursor
   afterFileEdit wait on the dependency-tree pin knowledge. Not this chain.

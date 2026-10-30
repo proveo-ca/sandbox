@@ -5,7 +5,6 @@ skinparam noteTextAlignment left
 ' covers: defs/base/Dockerfile
 ' covers: defs/base/proveo-harden
 ' covers: defs/base-node/Dockerfile
-' covers: defs/base-node-lsp/Dockerfile
 ' covers: defs/base-node-browser/Dockerfile
 ' covers: defs/*/Dockerfile
 ' covers: internal/contract/base_template_test.go

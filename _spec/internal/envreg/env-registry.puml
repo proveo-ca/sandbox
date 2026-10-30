@@ -54,7 +54,8 @@ skinparam noteTextAlignment left
 ' (N31, internal/imagetest/pin.go) is a test knob and is deliberately NOT here.
 '
 ' Doc fixes (reported): PROVEO_HOME, PROVEO_HOST_ADB_PORT and PROVEO_HOST_CDP_PORT
-' name their in-image meanings; PROVEO_LSP_INSTALL takes the on words; PROVEO_VERSION
+' name their in-image meanings; PROVEO_LSP_INSTALL took the on words (removed
+' 2026-10-30); PROVEO_VERSION
 ' says the installers only label with it and do not pin. Two names still carry
 ' two meanings each — PROVEO_HOME and PROVEO_VERSION (N34, PROPOSED).
 '
@@ -78,11 +79,18 @@ skinparam noteTextAlignment left
 ' character precedes it, so a private `_PROVEO_*` shell variable is not a name.
 ' Test code is skipped: e2e/, internal/imagetest/, internal/installtest/,
 ' testdata, goldens, node_modules, *_test.go, test_* and *.golden.
-' notVariables lists 11 tokens that name no variable: marker lines
+' notVariables lists 10 tokens that name no variable: marker lines
 ' (PROVEO_RC_*, PROVEO_RULES_*, PROVEO_ANDROID_*), two readonly shell
-' constants, the heredoc
-' delimiter PROVEO_JDTLS, the log line PROVEO_MODELS and the sentinel
-' PROVEO_SMOKE_READY.
+' constants, the log line PROVEO_MODELS and the sentinel PROVEO_SMOKE_READY.
+' The heredoc delimiter PROVEO_JDTLS left with jdtls (2026-10-30).
+'
+' ── THE LSP REMOVAL (2026-10-30) ───────────────────────────────────────────
+' PROVEO_LSP_INSTALL_TIMEOUT became PROVEO_MISE_INSTALL_TIMEOUT: it always
+' bounded every mise install, not only LSP ones (repo-simplification N35).
+' Unregistered with their reads: PROVEO_LSP_INSTALL, PROVEO_LSP_MIN_FILES,
+' PROVEO_JDTLS_URL, PROVEO_CLAUDE_LSP_PLUGINS, PROVEO_CLAUDE_LSP_OFFICIAL,
+' PROVEO_PLUGINS and PROVEO_SEED. No deprecated alias carries the old timeout
+' name. Why: _spec/defs/harness-image-layers.puml, LSP REMOVED.
 '
 ' ── THE CHECKS ─────────────────────────────────────────────────────────────
 '   TestEveryProveoVariableIsRegistered

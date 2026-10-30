@@ -196,7 +196,7 @@ capabilities:
             - proveo-seed
             - claudecode
             - provision
-          description: 'proveo: toolchains, dependencies and language servers, beside the agent'
+          description: 'proveo: toolchains and dependencies, beside the agent'
           env:
             - ANTHROPIC_BASE_URL
             - GIT_AUTHOR_NAME

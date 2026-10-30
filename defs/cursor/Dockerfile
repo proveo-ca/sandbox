@@ -1,15 +1,6 @@
 # SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/_devops/image-lineage-and-publish.puml
 ARG BASE_IMAGE=proveo/base:latest
 
-FROM golang:1.26-trixie AS lsp-builder
-ARG MCP_LANGUAGE_SERVER_VERSION=v0.1.1
-ARG GOPLS_VERSION=v0.23.0
-ENV CGO_ENABLED=0
-RUN --mount=type=cache,id=proveo-cursor-gomod,target=/go/pkg/mod,sharing=locked \
-    --mount=type=cache,id=proveo-cursor-gocache,target=/root/.cache/go-build,sharing=locked \
-    go install "github.com/isaacphi/mcp-language-server@${MCP_LANGUAGE_SERVER_VERSION}" \
-    && go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
-
 FROM ${BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -60,8 +51,6 @@ RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \
  && usermod -aG docker agent
 LABEL com.docker.sandboxes.start-docker="true"
-
-COPY --from=lsp-builder /go/bin/mcp-language-server /go/bin/gopls /usr/local/bin/
 
 # SPEC: _spec/_devops/agent-version-pin.puml
 ARG CURSOR_AGENT_VERSION

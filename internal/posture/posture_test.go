@@ -4,7 +4,6 @@ package posture
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -13,7 +12,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/runlog"
 )
 
-func TestWorkspaceHeaderStatesFactsAndListsLSP(t *testing.T) {
+func TestWorkspaceHeaderStatesFacts(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	for _, f := range []string{"go.mod", "package.json", "nx.json", "main.go", "Dockerfile"} {
@@ -35,27 +34,21 @@ func TestWorkspaceHeaderStatesFactsAndListsLSP(t *testing.T) {
 	}
 
 	man := manifest.Manifest{Workspace: manifest.Workspace{ConfigDir: ".opencode"}}
-	got := strings.Join(WorkspaceHeader(man, dir, dir, t.TempDir(), GlyphsOff), "\n")
+	got := strings.Join(WorkspaceHeader(man, dir, dir, t.TempDir()), "\n")
 
 	for _, want := range []string{"tooling:", "go", "nx", "node", "docker", "subagents: 2 definition(s)", ".opencode/settings.json"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("header missing %q\n--- got ---\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "lsp:      gopls") {
-		t.Errorf("LSP row must list the servers plainly, got:\n%s", got)
-	}
-	// The "will start" prefix was dropped deliberately (_spec/internal/choiceui/wireframe.puml).
-	for _, banned := range []string{"lsp:      detected", "will start"} {
-		if strings.Contains(got, banned) {
-			t.Errorf("LSP row must state servers plainly; found %q in:\n%s", banned, got)
-		}
+	if strings.Contains(got, "lsp:") {
+		t.Errorf("the header must not carry an lsp: row, got:\n%s", got)
 	}
 }
 
 func TestWorkspaceHeaderIsEmptyWithoutAWorkspace(t *testing.T) {
 	t.Parallel()
-	if got := WorkspaceHeader(manifest.Manifest{}, "", "", "", GlyphsOff); got != nil {
+	if got := WorkspaceHeader(manifest.Manifest{}, "", "", ""); got != nil {
 		t.Errorf("no input dir must yield no header, got %v", got)
 	}
 }
@@ -85,88 +78,6 @@ func TestReadmePillsMatchToolingRegistry(t *testing.T) {
 	}
 	for stale := range inReadme {
 		t.Errorf("README.md has a pill for %q which is not in toolingMarkers", stale)
-	}
-}
-
-func TestLSPMarkerLabelsAreRealServerBinaries(t *testing.T) {
-	t.Parallel()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(wd, "..", "..", "packages", "lib", "entrypoint-lib.sh")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-
-	arm := regexp.MustCompile(`(?m)^\s*[a-z]+\)\s+echo\s+"([^"\s]+)`)
-	binaries := map[string]bool{}
-	for _, m := range arm.FindAllStringSubmatch(string(data), -1) {
-		binaries[m[1]] = true
-	}
-	if len(binaries) == 0 {
-		t.Fatalf("no _lsp_server arms parsed from %s", path)
-	}
-
-	for _, m := range lspMarkers {
-		if !binaries[m.Label] {
-			t.Errorf("lspMarkers predicts %q, which is not a command in _lsp_server(); "+
-				"the host would promise a binary the image never installs", m.Label)
-		}
-	}
-}
-
-func TestLSPGlyphModes(t *testing.T) {
-	t.Parallel()
-	labels := []string{"typescript-language-server", "bash-language-server", "gopls"}
-
-	if got := WithGlyphs(labels, GlyphsOff); !reflect.DeepEqual(got, labels) {
-		t.Errorf("glyphs off must not touch the labels, got %v", got)
-	}
-
-	for _, mode := range []GlyphMode{GlyphsNerd, GlyphsASCII} {
-		got := WithGlyphs(labels, mode)
-		for i, l := range labels {
-			if !strings.HasSuffix(got[i], l) {
-				t.Errorf("mode %d: %q must keep its server name, got %q", mode, l, got[i])
-			}
-			if got[i] == l {
-				t.Errorf("mode %d: %q should have gained a glyph", mode, l)
-			}
-		}
-	}
-
-	// Nerd falls back to the ASCII category marker rather than leaving a hole.
-	delete(lspNerd, "gopls")
-	defer func() { lspNerd["gopls"] = "\ue627" }()
-	if got := WithGlyphs([]string{"gopls"}, GlyphsNerd); got[0] != lspASCII["gopls"]+" gopls" {
-		t.Errorf("a server with no devicon must fall back to ASCII, got %q", got[0])
-	}
-
-	// A server in neither table stays bare.
-	if got := WithGlyphs([]string{"unknown-langserver"}, GlyphsNerd); got[0] != "unknown-langserver" {
-		t.Errorf("unmapped server must stay bare, got %q", got[0])
-	}
-}
-
-// Every language the scanner can detect needs a category marker, or enabling ASCII
-// silently produces a column where some rows are indented and others are not.
-
-// Every language the scanner can detect needs a category marker, or enabling ASCII
-// silently produces a column where some rows are indented and others are not.
-func TestEveryLSPMarkerHasAnASCIIGlyph(t *testing.T) {
-	t.Parallel()
-	for _, m := range lspMarkers {
-		if _, ok := lspASCII[m.Label]; !ok {
-			t.Errorf("%s has no ASCII category marker", m.Label)
-		}
-	}
-	// ASCII markers pad to two columns so names stay aligned across categories.
-	for label, g := range lspASCII {
-		if len([]rune(g)) != 2 {
-			t.Errorf("%s marker %q is %d cols; must be 2", label, g, len([]rune(g)))
-		}
 	}
 }
 

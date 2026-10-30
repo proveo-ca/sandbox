@@ -507,7 +507,7 @@ note bottom of KIT
   def changed its entrypoint, and nothing would notice until a sandbox ran the
   wrong command. It has to be declared because sbx's own agent command would
   otherwise replace it — and that entrypoint is where the seeded guide file, the
-  model-alias bridging, the LSP wiring and the subagent set come from.
+  model-alias bridging, the config wiring and the subagent set come from.
 end note
 
 note bottom of SEC

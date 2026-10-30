@@ -42,9 +42,8 @@ func ocRunStdin(t *testing.T, timeout time.Duration, env []string, stdin string,
 	return imagetest.DockerStdin(timeout, env, stdin, append(run, args...)...)
 }
 
-// ocNoInstalls keeps the config checks off the network: a markdown fixture made
-// the seed download marksman, and that alone outran the 30s budget.
-var ocNoInstalls = []string{"-e", "PROVEO_LSP_INSTALL=off", "-e", "PROVEO_AUTO_INSTALL_TOOLS=false"}
+// ocNoInstalls keeps the config checks off the network.
+var ocNoInstalls = []string{"-e", "PROVEO_AUTO_INSTALL_TOOLS=false"}
 
 // ocFixtureProvider is an unreachable OpenAI-compatible provider: a run creates its session, then retries until killed.
 const ocFixtureProvider = `{"plugins":[],"providers":{"fixture":{"package":"@opencode/ai/providers/openai-compatible",` +

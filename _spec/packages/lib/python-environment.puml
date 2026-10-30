@@ -29,7 +29,7 @@ title Python environments — detected and provisioned, never inherited
 ' ── WHY A PARTIAL ENVIRONMENT NOW NAMES ITS CAUSE ──────────────────────────
 ' A partial venv is not self-explanatory, and after the image-size cuts one
 ' cause dominates: there is no C compiler in ANY proveo image — base,
-' base-node-lsp, claudecode, cursor and opencode all answer nothing for
+' base-node, claudecode, cursor and opencode all answer nothing for
 ' gcc/cc/g++/make (_spec/_devops/image-size-reduction.puml, cut 8). So a
 ' dependency with no linux-<arch> wheel has to build from source and cannot.
 '
@@ -55,7 +55,7 @@ node "Container — ensure_python_env" as C <<host>> {
 }
 
 database "PROVEO_HOME\n""~/.cache/proveo/venv/<hash>""" as ENV <<db>>
-component "pyright\nresolves real packages" as PYRIGHT <<app>>
+component "the agent's ""python"" and test runs\nresolve real packages" as PYRUN <<app>>
 
 SCAN ARROW_MAIN KIND : one root at a time
 KIND ARROW_MAIN CAP
@@ -63,7 +63,7 @@ CAP ARROW_MAIN PROV : only when the image cannot
 PROV ARROW_MAIN BUILD
 BUILD ARROW_MAIN ENV : outside the workspace
 ENV ARROW_MAIN ACT
-ACT ARROW_MAIN PYRIGHT : VIRTUAL_ENV
+ACT ARROW_MAIN PYRUN : VIRTUAL_ENV
 HOSTENV ARROW_ERROR C : cannot cross the boundary
 HOSTVENV ARROW_ERROR ACT : shadowed, with a warning
 
@@ -87,9 +87,9 @@ note left of SCAN
   while the Python service sits under ""apps/"". Stat-ing ONE directory finds a
   standalone project and misses every nested one.
 
-  That asymmetry was the bug: ""ensure_language_servers"" walks the tree, so
-  pyright was provisioned for files whose interpreter was not, and the agent got
-  code intelligence for a project it could not run. Discovery is now shared —
+  That asymmetry was the bug: the LSP walk (removed 2026-10-30) covered the
+  tree, so pyright was provisioned for files whose interpreter was not, and the
+  agent got code intelligence for a project it could not run. Discovery is shared —
   ""_proveo_project_roots"" over ""_proveo_walk"" — with every other language
   (see dependency-trees\.puml), so only the MARKERS differ and the scans cannot
   prune different things again.
@@ -115,7 +115,7 @@ end note
 
 note right of PROV
   **mise is the mechanism, not a competitor to uv.** It is already on the floor
-  provisioning eight language servers, and its registry carries ""uv"",
+  provisioning Go, Java and Node pins, and its registry carries ""uv"",
   ""poetry"" and ""micromamba"" — so the Python tool a project needs is just
   another recipe, with the bounded timeouts, GitHub auth and idempotence
   ""_mise_install"" already provides.
@@ -147,10 +147,10 @@ note right of BUILD
   the dependency.
 end note
 
-note bottom of PYRIGHT
-  The payoff. pyright is already baked into the LSP images but, with no
-  environment to introspect, resolves no third-party package — it reports
-  ""reportMissingModuleSource"" and falls back to bundled stubs. It honours
-  ""VIRTUAL_ENV"", so activation alone fixes it; no extra LSP config is needed.
+note bottom of PYRUN
+  **The payoff.** Every command the agent runs
+  inherits ""VIRTUAL_ENV"", so the project's own
+  imports, tests and type checks resolve real
+  packages with no extra config.
 end note
 @enduml

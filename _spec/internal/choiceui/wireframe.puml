@@ -109,7 +109,6 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     git: | monorepo on <color:#00BAC6>rs-295-integration-discriminator</color> <i>(uncommitted changes)</i>
     keys: | ANTHROPIC_API_KEY
     tooling: | node  nx  python  docker
-    lsp: | <color:#00BAC6><&code></color> typescript-language-server  <color:#00BAC6><&code></color> pyright-langserver  <color:#00BAC6><&terminal></color> bash-language-server  <color:#00BAC6><&box></color> docker-langserver  <color:#00BAC6><&document></color> yaml-language-server
     subagents: | 7 definition(s)
     hooks: | .claude/settings.json
     llms: | <color:#00BAC6>main=claude-opus-5 (anthropic)</color>   <color:#00BAC6>small=claude-haiku-4-5 (anthropic)</color>
@@ -241,19 +240,13 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   the very backend the lock existed to remove; that backend is now deleted.
 }
 {^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
-  default (safe) | <> typescript-language-server | $ bash-language-server
-  ""=nerd"" | <&code> typescript-language-server | <&terminal> bash-language-server
-  ""=ascii"" | <> typescript-language-server | $ bash-language-server
-  ""=off"" | typescript-language-server | bash-language-server
+  The per-language devicons of the ""lsp:"" header row left with that row
+  (2026-10-30, LSP removal). The tiers still decorate status marks.
   .
   Devicons live in a range a Powerline-patched font does not carry, and a terminal
   cannot be asked whether its font holds a codepoint — so nerd is the tier an
   operator declares with ""=nerd"", and the undeclared default falls back to
-  Safe (here the same category markers as ""=ascii""; in the figure, standard
-  Unicode icons), never to a guess autodetection makes.
-  ASCII markers are category-level (""<>"" code, ""$"" shell, ""#"" container,
-  ""{}"" data) because a decoded symbol cannot carry per-language identity, and they
-  avoid ""["", ""("" and "">"", which the checkbox, radio and legend already own.
+  Safe, never to a guess autodetection makes.
 }
 {^"9 · model — one row: where the model comes from (every harness)"
   model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer

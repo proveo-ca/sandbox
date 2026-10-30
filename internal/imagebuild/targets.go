@@ -49,13 +49,8 @@ const (
       && command -v bun >/dev/null \
       && command -v bunx >/dev/null \
       && test -x /usr/local/bin/proveo-entrypoint`
-	lspFloor = `command -v node >/dev/null \
-      && command -v jq >/dev/null \
-      && command -v typescript-language-server >/dev/null \
-      && command -v pyright-langserver >/dev/null`
 	browserFloor = `command -v node >/dev/null \
       && command -v playwright >/dev/null \
-      && command -v typescript-language-server >/dev/null \
       && ls "${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}"/chromium-* >/dev/null 2>&1 \
       && command -v agent-browser >/dev/null \
       && test -x "${AGENT_BROWSER_EXECUTABLE_PATH:-/opt/proveo/chromium/chrome}" \
@@ -97,25 +92,21 @@ var Specs = map[string]Spec{
 		Dockerfile: "defs/base-node/Dockerfile", Context: "defs/base-node",
 		Parent: "base", ParentOverride: "PROVEO_BASE_IMAGE",
 		Floor: nodeFloor, FloorWhat: "the node/pnpm/bun floor"},
-	"base-node-lsp": {Repo: "proveo/base-node-lsp", Override: "PROVEO_BASE_NODE_LSP_IMAGE",
-		Dockerfile: "defs/base-node-lsp/Dockerfile", Context: "defs/base-node-lsp",
-		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
-		Floor: lspFloor, FloorWhat: "the LSP floor"},
 	"base-node-browser": {Repo: "proveo/base-node-browser", Override: "PROVEO_BASE_NODE_BROWSER_IMAGE",
 		Dockerfile: browserLayer + "/Dockerfile", Context: browserLayer,
-		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",
+		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
 		Floor: browserFloor, FloorWhat: "the Playwright/Chromium/agent-browser floor"},
 
 	"claudecode": {Repo: "proveo/claudecode",
 		Dockerfile: "defs/claudecode/mcp/Dockerfile", Context: ".",
-		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",
+		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
 		Pins: []Pin{{Arg: "CLAUDE_CODE_VERSION", Eco: "npm", Pkg: "@anthropic-ai/claude-code"}}},
 	"claudecode-solidity": {Repo: "proveo/claudecode-solidity",
 		Dockerfile: "defs/claudecode/solidity/Dockerfile", Context: ".",
 		Needs: "claudecode"},
 	"codex": {Repo: "proveo/codex", Override: "PROVEO_CODEX_IMAGE",
 		Dockerfile: "defs/codex/Dockerfile", Context: ".",
-		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",
+		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
 		EnvArgs: []EnvArg{{Arg: "CODEX_VERSION", Default: "latest"}}},
 	"cursor": {Repo: "proveo/cursor", Override: "PROVEO_CURSOR_IMAGE",
 		Dockerfile: "defs/cursor/Dockerfile", Context: ".",
@@ -124,7 +115,7 @@ var Specs = map[string]Spec{
 		Pins:    []Pin{{Arg: "CURSOR_AGENT_VERSION", Eco: "cursor", Pkg: "https://cursor.com/install", PkgEnv: "CURSOR_INSTALL_URL"}}},
 	"opencode": {Repo: "proveo/opencode", Override: "PROVEO_OPENCODE_IMAGE",
 		Dockerfile: "defs/opencode/Dockerfile", Context: ".",
-		Parent: "base-node-lsp", ParentOverride: "PROVEO_BASE_NODE_LSP_IMAGE",
+		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
 		Pins: []Pin{{Arg: "OPENCODE_VERSION", Eco: "npm", Pkg: "@opencode/cli"}}},
 	// hermes has no Parent, deliberately: it builds FROM nousresearch/hermes-agent
 	// directly rather than proveo's own base chain, which would duplicate what

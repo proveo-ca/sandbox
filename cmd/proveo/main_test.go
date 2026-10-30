@@ -318,8 +318,8 @@ func TestSaveStateArgsTargetTheSandbox(t *testing.T) {
 	if !strings.Contains(joined, "proveo_sync_tools save") {
 		t.Errorf("teardown must also carry the toolchain tree out: %v", got)
 	}
-	// The harness's own configuration — wired MCP servers, LSP config, plugin
-	// records, settings merges — reaches the operator only here.
+	// The harness's own configuration — wired MCP servers, plugin records,
+	// settings merges — reaches the operator only here.
 	if !strings.Contains(joined, "proveo_sync_config save") {
 		t.Errorf("teardown must also carry the harness configuration out: %v", got)
 	}

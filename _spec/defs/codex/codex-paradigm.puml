@@ -30,9 +30,6 @@
 '   * The baked defaults are the harness's, not the agent's. The agent may seed
 '     FROM them and edit its own $CODEX_HOME copy, but it must not rewrite the
 '     source under /opt.
-'   * The LSP bridge binary, mcp-language-server, must be on PATH: the language servers arrive from
-'     proveo/base-node-lsp and reach codex only as MCP servers, so without it
-'     the entrypoint wires nothing.
 '
 ' ── IMAGE FACTS defs/codex/Dockerfile STATES WITHOUT ARGUING (N14) ──────────
 ' /home/agent is the REAL home and /home/codex the alias, for the reason

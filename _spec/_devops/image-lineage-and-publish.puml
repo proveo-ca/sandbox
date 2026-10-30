@@ -37,9 +37,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 '                          /usr/local/bin/proveo-entrypoint. Explicitly no
 '                          browser, no Node, no Python — those moved out.
 '   proveo/base-node       git · jq · node · pnpm · bun · bunx · the entrypoint
-'   proveo/base-node-lsp   node · jq · typescript-language-server ·
-'                          pyright-langserver
-'   proveo/base-node-browser  node · playwright · typescript-language-server ·
+'   proveo/base-node-browser  node · playwright ·
 '                          a chromium-* dir under PLAYWRIGHT_BROWSERS_PATH ·
 '                          agent-browser · an executable
 '                          AGENT_BROWSER_EXECUTABLE_PATH · core/SKILL.md under
@@ -50,6 +48,8 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' then probe; pull failed or probe failed -> build from source. The messages name
 ' which of those three happened, because "missing the floor" and "not present"
 ' send a reader to different places. Spec.FloorWhat names the floor in each.
+' proveo/base-node-lsp and its floor left the lineage 2026-10-30
+' (_spec/defs/harness-image-layers.puml, LSP REMOVED).
 '
 ' ── BUILD CONTEXT IS NOT UNIFORM, AND THAT IS DELIBERATE ────────────────────
 ' Two groups, for one reason: does the Dockerfile COPY anything out of the repo?
@@ -57,7 +57,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 '   Context "."      base (the Go builder copies cmd/ and internal/),
 '                    cursor, opencode, codex, claudecode (both variants) — they
 '                    COPY packages/lib, defs/subagents, defs/bridges, AGENTS.md.
-'   Context <def>    base-node, base-node-lsp, base-node-browser — these COPY nothing
+'   Context <def>    base-node, base-node-browser — these COPY nothing
 '               from the module (base-node-browser copies only its own skills/),
 '               so the narrower context is free.
 '
@@ -140,7 +140,6 @@ node "internal/imagebuild" as HOST <<host>> {
 folder "Lineage" as CHAIN <<host>> {
   component "proveo/base" as B <<app>>
   component "proveo/base-node" as BN <<app>>
-  component "proveo/base-node-lsp" as BNL <<app>>
   component "proveo/base-node-browser" as BNB <<app>>
   component "cursor" as H1 <<app>>
   component "opencode · claudecode · codex" as H2 <<app>>
@@ -161,10 +160,9 @@ component "A published image shadowing\nthe build under test" as SHADOW <<error>
 component "Unpublished parent\non a --push build" as FAIL <<error>>
 
 B ARROW_MAIN BN
-BN ARROW_MAIN BNL
-BNL ARROW_MAIN BNB
+BN ARROW_MAIN BNB
 B ARROW_MAIN H1
-BNL ARROW_MAIN H2
+BN ARROW_MAIN H2
 H2 ARROW_MAIN H3
 
 REF ARROW_MAIN CHAIN : every ""BASE_IMAGE"" at the CHILD'S tag
@@ -227,7 +225,6 @@ note right of CHAIN
   | layer | holds | why not lower |
   | ""proveo/base"" | git · gh · ca-certs · curl · jq · dumb-init · bash · tmux · ""proveo-entrypoint"" · the harden pass | the universally-shared floor, and **no language runtime** |
   | ""proveo/base-node"" | Node + pnpm + Bun | cursor would otherwise carry a Node runtime it never calls |
-  | ""proveo/base-node-lsp"" | the language servers ""_lsp_server()"" can run | a non-LSP Node consumer should not pay for them |
   | ""proveo/base-node-browser"" | Playwright + Chromium + agent-browser, chromium library set | ``-browser`` variants apply this file onto the harness |
   | ""claudecode-solidity"" | Foundry · solc-select · solhint · semgrep | ~1.5 GB of toolchain, on the one harness that audits contracts |
 
@@ -275,7 +272,7 @@ note bottom of ENSURE
   Build context (""Spec.Context"") follows what the Dockerfile COPIES. The
   harnesses and ""base"" use the REPO ROOT, because they resolve
   ""packages/lib"", ""defs/subagents"", ""defs/bridges"", ""AGENTS\.md"" and (for
-  ""base"") ""cmd""/""internal"" from there. ""base-node"", ""base-node-lsp"" and
+  ""base"") ""cmd""/""internal"" from there. ""base-node"" and
   ""base-node-browser"" pass their own directory: they copy nothing out of the
   module, so the narrow context costs them nothing and hands the daemon far
   less. The root ""\.dockerignore"" is what keeps the wide case honest.

@@ -63,7 +63,7 @@ func TestGoProvisioningRoutesThroughMise(t *testing.T) {
 
 	if !strings.Contains(body, `_mise_install "go@${version}"`) {
 		t.Errorf("_install_go must provision through _mise_install (it carries MISE_YES "+
-			"and the PROVEO_LSP_INSTALL_TIMEOUT bound); body was:\n%s", body)
+			"and the PROVEO_MISE_INSTALL_TIMEOUT bound); body was:\n%s", body)
 	}
 	// The `g` call ended in `>/dev/null 2>&1`, so its own refusal never reached
 	// the operator. Whatever mise says has to survive to the warning.

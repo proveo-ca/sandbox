@@ -53,8 +53,8 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' TypeScript" check was therefore dropped in host-shell-to-go P3, and
 ' opencode's twin stays.
 '
-' The floor probe is the layer's contract restated as a runnable check: node,
-' playwright and typescript-language-server on PATH, a `chromium-*` directory
+' The floor probe is the layer's contract restated as a runnable check: node
+' and playwright on PATH, a `chromium-*` directory
 ' under the browser store, `agent-browser` on PATH, an executable
 ' AGENT_BROWSER_EXECUTABLE_PATH, core/SKILL.md under AGENT_BROWSER_SKILLS_DIR,
 ' and /opt/proveo/skills/agent-browser/SKILL.md present for the seed to copy.
@@ -85,7 +85,8 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 '
 ' The `-browser` variants apply this Dockerfile onto `proveo/<harness>`,
 ' then restore that harness user. The shared `proveo/base-node-browser`
-' image is the same file with its default parent, `base-node-lsp`.
+' image is the same file with its default parent, `base-node` (`base-node-lsp`
+' until 2026-10-30).
 ' The READMEs used to say a variant builds FROM `proveo/base-node-browser`
 ' (codex, claudecode, cursor, opencode; fixed by N26, 2026-10-18). Since then
 ' TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness (internal/contract/

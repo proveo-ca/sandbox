@@ -29,7 +29,7 @@ No definition is considered mature yet; this project is still standardizing the 
 
 - Candidate coding harnesses: `opencode`, `claudecode`, `codex`, `cursor`
 - Candidate general-purpose harness: `hermes` (native browser automation, not coding-focused)
-- Non-harness base layers: `base`, `base-node`, `base-node-lsp`, `base-node-browser`
+- Non-harness base layers: `base`, `base-node`, `base-node-browser`
 
 Non-harness base layers are not required to satisfy the coding harness contract.
 

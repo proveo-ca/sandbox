@@ -1,10 +1,15 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title Toolchain e2e — proving the language registry is true as BEHAVIOUR
+title Toolchain e2e — proving toolchain provisioning is true as BEHAVIOUR
 
 ' covers: e2e/toolchain_test.go, internal/contract/toolchain_test.go,
 ' covers: e2e/testdata/polyglot22
-'         e2e/testdata/polyglot22
+'
+' REMOVED 2026-10-30 with the LSP feature (_spec/defs/harness-image-layers.puml):
+' the language matrix, the fixture-coverage check, the LSP opt-outs
+' (PROVEO_LSP_INSTALL, PROVEO_LSP_MIN_FILES), TestToolchainOptOutStillSeesInstalledServers
+' and the contract half's registry checks. polyglot22 stays as a polyglot
+' workspace for idempotence and the auto-install opt-out.
 '   the pane-echo rules these probes obey . _spec/tests/testing-strategy.puml
 '   what the seed actually installs ....... _spec/_runtimes/toolchain-provisioning.puml
 '
@@ -45,43 +50,34 @@ title Toolchain e2e — proving the language registry is true as BEHAVIOUR
 ' `/work` becomes `$PWD`. A replica would corroborate the replica.
 '
 ' Its GitHub token requirement belongs inside the sandbox for the same reason: the
-' ubi recipes would otherwise hit the 60/hr anonymous limit, and sbx injects the
+' mise installs would otherwise hit the 60/hr anonymous limit, and sbx injects the
 ' token for its own `github` service — so the host holding one proves nothing
-' about what the recipes can reach.
+' about what the installs can reach.
 
 node "Layer 2 — contract (no Docker)" as L2 <<host>> {
-  component "registry self-consistency\nfour maps must agree" as C1 <<app>>
-  component "baked · provisioned · unreachable\nevery server accounted for once" as C2 <<app>>
   component "no image reinstalls its base's packages" as C3 <<app>>
-  component "host labels are real binaries" as C4 <<app>>
 }
 
 node "Layer 4 — e2e (real images)" as L4 <<host>> {
-  component "fixture integrity\n(host bash, no Docker)" as E0 <<app>>
-  component "language matrix — opt-in\n19 wired · all resolve" as E1 <<app>>
   component "idempotence — warm PROVEO_HOME" as E2 <<app>>
-  component "opt-outs · fail-soft · no duplicates" as E3 <<app>>
+  component "auto-install opt-out · fail-soft · no duplicates" as E3 <<app>>
   component "floor invariants — EVERY harness" as E4 <<app>>
   component "baked lib is CURRENT" as E5 <<app>>
 }
 
-database "testdata/polyglot22\none trigger per language" as FIX <<db>>
+database "testdata/polyglot22\none file per language" as FIX <<db>>
 component "working-tree lib\nbind-mounted over the baked one" as LIVE <<app>>
 component "stale image\nsource fixed, behaviour unchanged" as STALE <<error>>
 
-FIX ARROW_MAIN E0
-FIX ARROW_MAIN E1
-LIVE ARROW_MAIN E1 : no rebuild needed
-LIVE ARROW_MAIN E3
+FIX ARROW_MAIN E2
+LIVE ARROW_MAIN E3 : no rebuild needed
 E5 ARROW_ERROR STALE : the ONLY test that can see this
 
 note right of L2
-  **Source truth vs behavioural truth.** Layer 2 proves the registry is
-  self-consistent as SOURCE and runs on every ""go test ./..."". Layer 4 proves it
-  is true in a real image. Every bug worth having this suite for passed a static
-  reading: clangd installs an x86_64 binary on arm64 that satisfies
-  ""command -v"", marksman aborts for want of libicu, jdtls needs Java 21 while the
-  floor ships 17.
+  **Source truth vs behavioural truth.** Layer 2
+  proves the Dockerfiles agree as SOURCE on every
+  ""go test ./..."". Layer 4 proves the seed's
+  installs happen in a real image.
 end note
 
 note bottom of LIVE
@@ -101,14 +97,14 @@ end note
 note bottom of E4
   One lib, three harnesses, three different floors: cursor carries no Node
   runtime. Testing only opencode left two images
-  unverified — including whether ""plantuml-lsp"" reaches the runtime-free one,
+  unverified — including whether ""plantuml"" reaches the runtime-free one,
   which was the whole point of moving it onto ""proveo/base"".
 end note
 
-note right of E1
-  Opt-in behind PROVEO_TOOLCHAIN_TEST: it pulls ~600MB of servers and a JDK. It
-  SKIPS rather than fails when no GitHub token is reachable, because without one
-  the ubi recipes hit the 60/hr anonymous limit and the test would be flaky
-  instead of honest.
+note right of E2
+  Opt-in behind PROVEO_TOOLCHAIN_TEST. It SKIPS
+  rather than fails when no GitHub token is
+  reachable: mise would hit the 60/hr anonymous
+  limit, and the test would be flaky, not honest.
 end note
 @enduml

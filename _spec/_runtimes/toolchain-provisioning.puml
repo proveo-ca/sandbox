@@ -7,7 +7,6 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/base/Dockerfile
 ' covers: defs/base-node/Dockerfile
-' covers: defs/base-node-lsp/Dockerfile
 ' covers: internal/imagebuild/targets.go (base-node floor probe)
 ' covers: mise.toml
 ' covers: internal/contract/go_provisioning_test.go
@@ -15,7 +14,7 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' covers: internal/contract/toolchain_test.go
 ' covers: e2e/toolchain_test.go
 ' covers: internal/contract/java_major_test.go
-' How the three shared layers are assembled: _spec/defs/base-image-layers.puml.
+' How the shared layers are assembled: _spec/defs/base-image-layers.puml.
 '
 ' mise.toml's Go pin and go.mod's `toolchain` line stay byte-equal, enforced by
 ' internal/contract TestMiseGoPinMatchesGoModToolchain (go_provisioning_test.go).
@@ -26,9 +25,9 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' (Recommended)"). entrypoint-lib.sh defined it twice, and bash kept the LATER,
 ' sed copy, which read a legacy `1.8.0_x` as major 1. The sed copy is deleted;
 ' the awk one (entrypoint-lib.sh:669-672) maps "1.x" to x and is the only
-' definition (MEASURED). Both callers read it: the Gradle Java floor (< 17
-' installs temurin-21) and _install_jdtls (< 21 provisions Java 21). So the
-' jdtls message "the floor's JRE is <n>" now says 8, not 1, for a JDK 8.
+' definition (MEASURED). The Gradle Java floor reads it (< 17 installs
+' temurin-21); _install_jdtls was its second caller until the LSP removal
+' (2026-10-30, _spec/defs/harness-image-layers.puml).
 ' Pinned by TestJavaMajorReadsLegacyAndModernVersionStrings
 ' (internal/contract/java_major_test.go): "1.8.0_402" → 8, "1.8.0_202" → 8,
 ' "17" → 17, "21.0.4" → 21; reported red against the old sed copy (1.8 → 1).
@@ -133,7 +132,6 @@ node "Container startup — proveo_provision_toolchain" as BOOT <<host>> {
   component "2. turbo — turbo.json" as T2 <<app>>
   component "3. mise — mise.toml · .tool-versions" as T3 <<app>>
   component "4. go — go.mod · go.work · *.go" as T4 <<app>>
-  component "gopls" as GOPLS <<app>>
 }
 
 cloud "npm · mise.run" as NPM <<cloud>>
@@ -150,7 +148,6 @@ T2 ARROW_CLOUD NPM
 T3 ARROW_CLOUD NPM
 T4 ARROW_MAIN T3 : ""mise use -g go@<version>"" — the only Go path
 T3 ARROW_CLOUD GODL
-T4 ARROW_MAIN GOPLS : only once a toolchain exists
 BOOT ARROW_ERROR BLOCK : bounded timeouts · ""PROVEO_AUTO_INSTALL_TOOLS=false""
 CORE ARROW_ERROR APT : ""APT::Update::Error-Mode=any"" — fail at the fetch, not 15 layers later
 
@@ -166,8 +163,8 @@ note right of PUML
   was 194 MB (dpkg Installed-Size 198,806 kB) on all 14 images for one
   jar; a ""jlink"" runtime built in a discarded stage is **72 MB** and
   renders ""-tpng"" and ""-tsvg"" identically. Its module set is
-  deliberately larger than plantuml needs, because jdtls has to be
-  hostable on it — see ""_spec/defs/base-image-layers\.puml"".
+  larger than plantuml needs: it was sized for jdtls, removed
+  2026-10-30 — see ""_spec/defs/base-image-layers\.puml"".
 end note
 
 note bottom of TSFLOOR
@@ -269,12 +266,6 @@ note bottom of T4
   ""GOROOT"" points at the previous install after the next
   ""mise use -g go@<other>"". The shims are what put Go on PATH; a path
   written down is a fact that goes stale on its own.
-end note
-
-note bottom of GOPLS
-  The shared LSP detector already maps ""go\.mod"" and ""\.go"" to gopls,
-  so installing it here is what switches Go code intelligence on for
-  every LSP-capable harness.
 end note
 
 note right of BOOT

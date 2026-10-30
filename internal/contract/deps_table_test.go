@@ -12,6 +12,13 @@ import (
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
+// wantLanguages is every workspace language the seed classifies.
+var wantLanguages = []string{
+	"bash", "cpp", "css", "docker", "go", "html", "java", "json", "kotlin",
+	"lua", "markdown", "mermaid", "nix", "plantuml", "python", "ruby", "rust",
+	"terraform", "toml", "typescript", "yaml", "zig",
+}
+
 // The dependency-tree table lives twice — Go and shell — and these tests are
 // the lockstep.
 

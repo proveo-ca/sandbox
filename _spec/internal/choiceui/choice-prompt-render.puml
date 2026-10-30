@@ -149,16 +149,17 @@ skinparam noteTextAlignment left
 ' putHeader styles a header row by what each piece IS, never by where it sits:
 ' MARKERS take the accent and CONTENT stays body-styled, so the eye can find
 ' the row's structure without reading it. The label, every `key=` in a
-' multi-slot row, and every glyph are markers; model ids, LSP server names and
+' multi-slot row, and every glyph are markers; model ids, tool names and
 ' provider names are content. A parenthetical state is a third thing — a
 ' description of the fact rather than the fact — and takes the aside style.
 '
 ' The rule arrived from two rows that broke it in opposite directions.
 ' `llms:` accented only up to the label, so every slot after it rendered as
 ' body text and the row read as one model mattering more than the others — the
-' same half-highlighted failure the wireframe records. `lsp:` had the inverse
-' risk: its glyphs and its server names sit in one string, and accenting the
-' names would make the content compete with the markers meant to index it.
+' same half-highlighted failure the wireframe records. `lsp:` (removed
+' 2026-10-30) had the inverse risk: its glyphs and its server names sat in one
+' string, and accenting the names would make the content compete with the
+' markers meant to index it.
 ' `git: <repo> on <branch> (<state>)` is what pins the aside: a reader scans
 ' that row for the BRANCH.
 '

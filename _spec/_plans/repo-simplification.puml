@@ -1648,6 +1648,9 @@
 '     only to pass a value to :1892-1893 in the same shell, so it leaks into the agent env.
 '   Evidence: MEASURED by the coordinator. PROVEO_LSP_INSTALL list entries are not trimmed:
 '     "python, go" drops go.
+'   REMOVED 2026-10-30 (LSP removal, _spec/defs/harness-image-layers.puml): the timeout is now
+'     PROVEO_MISE_INSTALL_TIMEOUT; PROVEO_CLAUDE_LSP_OFFICIAL and PROVEO_LSP_INSTALL are gone, so
+'     those three findings are closed.
 '   Options:
 '     1. [rec] Rename, merge or unexport each: one timeout name for mise installs, one /proc seam,
 '        delete the Python depth override, a local instead of the export, trim the list entries.
@@ -1670,6 +1673,7 @@
 ' N37 · Test gaps the env audit left — PROPOSED (added 2026-10-18).
 '   Evidence: MEASURED by the coordinator. No test covers PROVEO_LSP_INSTALL on words → auto,
 '     PROVEO_SMOKE_TEST on words, or image-side PROVEO_DEPS=shared.
+'     (PROVEO_LSP_INSTALL removed 2026-10-30; that gap is moot.)
 '   Evidence: MEASURED by the coordinator. hermes is not in smokeTargets
 '     (internal/imagetest/detached_smoke_test.go:23), so its run_smoke_test call is unexercised.
 '   Evidence: MEASURED by the coordinator. The claudecode suite now runs the mcp and standalone
