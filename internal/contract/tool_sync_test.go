@@ -56,17 +56,17 @@ func TestToolSyncRoundTripsThroughTheDurableRoot(t *testing.T) {
 	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state}
 
 	// A previous run left a server in the store; this run must start with it.
-	seedFile(t, filepath.Join(state, "toolchains", plat, ".local", "bin", "gopls"), "old")
+	seedFile(t, filepath.Join(state, "toolchains", plat, ".local", "bin", "gofumpt"), "old")
 	runToolSync(t, bash, env, "restore")
-	restored := filepath.Join(agent, "toolchains", plat, ".local", "bin", "gopls")
+	restored := filepath.Join(agent, "toolchains", plat, ".local", "bin", "gofumpt")
 	if b, err := os.ReadFile(restored); err != nil || string(b) != "old" {
 		t.Fatalf("restore did not bring the stored toolchain onto the agent disk: %v", err)
 	}
 
 	// This run installs another one, and teardown must carry it out.
-	seedFile(t, filepath.Join(agent, "toolchains", plat, ".local", "bin", "pyright"), "new")
+	seedFile(t, filepath.Join(agent, "toolchains", plat, ".local", "bin", "ruff"), "new")
 	runToolSync(t, bash, env, "save")
-	saved := filepath.Join(state, "toolchains", plat, ".local", "bin", "pyright")
+	saved := filepath.Join(state, "toolchains", plat, ".local", "bin", "ruff")
 	if b, err := os.ReadFile(saved); err != nil || string(b) != "new" {
 		t.Fatalf("save did not carry the new toolchain to the durable root: %v", err)
 	}
@@ -97,15 +97,15 @@ func TestToolSyncRespectsTheOptOut(t *testing.T) {
 	agent, state := t.TempDir(), t.TempDir()
 	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_TOOL_SYNC": "off"}
 
-	seedFile(t, filepath.Join(state, "toolchains", plat, ".local", "bin", "gopls"), "old")
+	seedFile(t, filepath.Join(state, "toolchains", plat, ".local", "bin", "gofumpt"), "old")
 	runToolSync(t, bash, env, "restore")
-	if _, err := os.Stat(filepath.Join(agent, "toolchains", plat, ".local", "bin", "gopls")); err == nil {
+	if _, err := os.Stat(filepath.Join(agent, "toolchains", plat, ".local", "bin", "gofumpt")); err == nil {
 		t.Error("restore ran with PROVEO_TOOL_SYNC=off")
 	}
 
-	seedFile(t, filepath.Join(agent, "toolchains", plat, ".local", "bin", "pyright"), "new")
+	seedFile(t, filepath.Join(agent, "toolchains", plat, ".local", "bin", "ruff"), "new")
 	runToolSync(t, bash, env, "save")
-	if _, err := os.Stat(filepath.Join(state, "toolchains", plat, ".local", "bin", "pyright")); err == nil {
+	if _, err := os.Stat(filepath.Join(state, "toolchains", plat, ".local", "bin", "ruff")); err == nil {
 		t.Error("save ran with PROVEO_TOOL_SYNC=off")
 	}
 }
@@ -145,8 +145,8 @@ func TestToolRestoreSkipsAStoreTheHomeAlreadyHolds(t *testing.T) {
 	bash := bashOrSkip(t)
 	agent, state := t.TempDir(), t.TempDir()
 	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state}
-	stored := filepath.Join(state, "toolchains", plat, ".local", "bin", "gopls")
-	restored := filepath.Join(agent, "toolchains", plat, ".local", "bin", "gopls")
+	stored := filepath.Join(state, "toolchains", plat, ".local", "bin", "gofumpt")
+	restored := filepath.Join(agent, "toolchains", plat, ".local", "bin", "gofumpt")
 	storeStamp := filepath.Join(state, "toolchains", "."+plat+".proveo-sync")
 	homeStamp := filepath.Join(agent, "toolchains", "."+plat+".proveo-sync")
 

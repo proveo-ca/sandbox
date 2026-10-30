@@ -1171,7 +1171,7 @@ func TestOpenCodeLaunchWaitsForTheGitSyncPlugin(t *testing.T) {
 		t.Error("opencode waits on the release marker, so it must follow the plugin install and precede provisioning")
 	}
 	if strings.Contains(df, "PROVEO_INSTRUCTIONS_MARKER=/dev/shm/proveo-hooks-seeded") {
-		t.Error("the opencode shim still waits on the hooks marker, which lands before subagents and LSP config")
+		t.Error("the opencode shim still waits on the hooks marker, which lands before subagents and config wiring")
 	}
 }
 

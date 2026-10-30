@@ -209,7 +209,6 @@ func TestPythonEnvironmentIsProvisioned(t *testing.T) {
 [ -n "$VIRTUAL_ENV" ] || { echo "NO_VIRTUAL_ENV"; exit 1; }
 case "$VIRTUAL_ENV" in /w/*) echo "ENV_INSIDE_WORKSPACE"; exit 1 ;; esac
 python -c 'import requests' 2>/dev/null || { echo "DEP_UNIMPORTABLE"; exit 1; }
-pyright --outputjson app.py 2>/dev/null | grep -q reportMissingModuleSource && { echo "PYRIGHT_UNRESOLVED"; exit 1; }
 echo "PYENV_OK"`)
 
 	if err != nil || !strings.Contains(out, "PYENV_OK") {

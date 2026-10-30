@@ -70,16 +70,7 @@ var toolingMarkers = []wsscan.Marker{
 	{Label: "docker", Names: []string{"Dockerfile", "compose.yml", "docker-compose.yml"}},
 }
 
-var lspMarkers = []wsscan.Marker{
-	{Label: "gopls", Names: []string{"go.mod"}, Suffixes: []string{".go"}},
-	{Label: "typescript-language-server", Names: []string{"tsconfig.json", "package.json"}, Suffixes: []string{".ts", ".tsx"}},
-	{Label: "pyright-langserver", Names: []string{"pyproject.toml"}, Suffixes: []string{".py"}},
-	{Label: "bash-language-server", Suffixes: []string{".sh"}},
-	{Label: "docker-langserver", Names: []string{"Dockerfile"}},
-	{Label: "yaml-language-server", Suffixes: []string{".yml", ".yaml"}},
-}
-
-// GlyphMode selects what decorates the lsp: row.
+// GlyphMode selects the glyph tier the choice prompt draws.
 type GlyphMode = ui.GlyphTier
 
 const (
@@ -89,49 +80,9 @@ const (
 	GlyphsSafe  = ui.GlyphsSafe // undeclared default
 )
 
-var lspNerd = map[string]string{
-	"gopls":                      "\ue627",
-	"typescript-language-server": "\ue628",
-	"pyright-langserver":         "\ue73c",
-	"bash-language-server":       "\ue795",
-	"docker-langserver":          "\ue7b0",
-	"yaml-language-server":       "\ue60b",
-}
-
-var lspASCII = map[string]string{
-	"gopls":                      "<>",
-	"typescript-language-server": "<>",
-	"pyright-langserver":         "<>",
-	"bash-language-server":       "$ ",
-	"docker-langserver":          "# ",
-	"yaml-language-server":       "{}",
-}
-
 func GlyphModeFrom(lookup func(string) string) GlyphMode { return ui.GlyphTierFrom(lookup) }
 
-func WithGlyphs(labels []string, mode GlyphMode) []string {
-	if mode == GlyphsOff {
-		return labels
-	}
-	out := make([]string, 0, len(labels))
-	for _, l := range labels {
-		g, ok := "", false
-		if mode == GlyphsNerd {
-			g, ok = lspNerd[l]
-		}
-		if !ok {
-			g, ok = lspASCII[l]
-		}
-		if !ok {
-			out = append(out, l)
-			continue
-		}
-		out = append(out, g+" "+l)
-	}
-	return out
-}
-
-func WorkspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string, mode GlyphMode) []string {
+func WorkspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string) []string {
 	if inputDir == "" {
 		return nil
 	}
@@ -140,12 +91,8 @@ func WorkspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string,
 	if labels := tools.Labels(toolingMarkers); len(labels) > 0 {
 		out = append(out, "tooling:  "+strings.Join(labels, "  "))
 	}
-	lsp := wsscan.Scan(inputDir, repoRoot, lspMarkers, 0)
-	if labels := lsp.Labels(lspMarkers); len(labels) > 0 {
-		out = append(out, "lsp:      "+strings.Join(WithGlyphs(labels, mode), "  "))
-	}
-	if tools.Truncated || lsp.Truncated {
-		ui.Warnf("workspace scan hit its entry budget under %s — tooling/LSP lines may be incomplete", inputDir)
+	if tools.Truncated {
+		ui.Warnf("workspace scan hit its entry budget under %s — the tooling line may be incomplete", inputDir)
 	}
 	if n := countAgents(man, inputDir, homeRoot); n > 0 {
 		out = append(out, fmt.Sprintf("subagents: %d definition(s)", n))

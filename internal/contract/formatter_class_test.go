@@ -56,12 +56,12 @@ configure_opencode_formatter`
 
 	t.Run("unrelated config survives", func(t *testing.T) {
 		t.Parallel()
-		out := wire(t, `{"model":"kept","lsp":{"typescript":{"command":["x"]}}}`)
+		out := wire(t, `{"model":"kept","compaction":{"auto":true}}`)
 		var got map[string]any
 		if err := json.Unmarshal([]byte(out), &got); err != nil {
 			t.Fatalf("not valid JSON: %v", err)
 		}
-		if got["model"] != "kept" || got["lsp"] == nil {
+		if got["model"] != "kept" || got["compaction"] == nil {
 			t.Errorf("clobbered unrelated config: %s", out)
 		}
 		if got["formatter"] != true {
