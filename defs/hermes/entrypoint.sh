@@ -72,6 +72,11 @@ fi
 
 proveo_seed hermes || true
 
+# Nous guest tier off: no anonymous welcome-trial inference from this sandbox.
+# SPEC: _spec/_plans/hermes-desktop-over-ssh.puml (NOUS GUEST)
+/opt/hermes/bin/hermes config set nous.guest false >/dev/null 2>&1 \
+  || echo "⚠️  could not switch off the Nous guest tier in hermes config" >&2
+
 # hermes reads a local endpoint from its own config.yaml (model.provider custom
 # + model.base_url + model.default), not from OPENAI_BASE_URL or HERMES_MODEL.
 # SPEC: _spec/defs/hermes/hermes-paradigm.puml

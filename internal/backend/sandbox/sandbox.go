@@ -1699,7 +1699,7 @@ func Run(in Input) error {
 		return c.Run()
 	}
 	if in.Desktop {
-		run = func() error { return holdForDesktop(runCtx, cfg.Name, in.DesktopLaunch, SbxRun, startDetached) }
+		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch).run(runCtx) }
 	}
 	startedAt := time.Now()
 	runErr := run()

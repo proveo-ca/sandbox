@@ -3,6 +3,8 @@
 skinparam noteTextAlignment left
 ' purpose: offer a desktop GUI agent — Hermes Desktop on the host, its backend inside sbx
 ' covers: defs/hermes/**
+' covers: internal/hermesdesktop/gateway.go
+' covers: internal/hermesdesktop/gateway_test.go
 ' covers: internal/backend/sandbox/**
 ' covers: internal/run/**
 '
@@ -104,6 +106,45 @@ skinparam noteTextAlignment left
 '   STILL OPEN: H2–H5 need the app on a host (the first `proveo run hermes`
 '   with desktop installs it on this Mac after a yes).
 '
+' ── DESKTOP DEFAULTED TO THE HOST (MEASURED 2026-10-30) ─────────────────────
+' A `proveo run hermes` desktop session answered from Nous's free model, and
+' Hermes installed llama.cpp + a Qwen 3.8 27B GGUF instead of using the host's
+' Ollama. Cause, read from hermes-agent bf0203a7:
+'   * The app boots its connections.json PRIMARY; with no registry that is the
+'     injected `local` entry = a backend ON THE HOST (~/.hermes, host tools).
+'     proveo only printed the gateway, so every chat until the operator picked
+'     it ran on the host.
+'   * hermes_cli/auth.py resolve_provider: config.yaml model.provider is rung 2;
+'     the Nous free tier (`nous/welcome`) is rung 7 and exists only on the local
+'     Desktop backend (anon_auth.free_inference_active needs a claim only a
+'     native-ticket client makes; an SSH backend never holds one).
+'   * hermes_cli/local_runtime: Hermes' own managed llama.cpp runtime. detect.py
+'     fingerprints llama-server by /props and skips Ollama by design; models go
+'     to <hermes root>/models (host ~/.hermes, or ~/.proveo/hermes/data via the
+'     mount when the sbx backend ran it).
+'
+' ── GATEWAY (2026-10-30, user: "Register + verify", "Proveo-owned userData") ─
+' Answers H3. proveo writes <proveo home>/desktop/hermes/connections.json
+' (v2: version, primary, lastUsed, launchMode "primary", connections[] with
+' {id "proveo-sandbox", kind ssh, label, host <name>.sbx, user hermes}) and
+' launches with HERMES_DESKTOP_USER_DATA_DIR pointing there (main.ts reads it
+' before userData; upstream install e2e uses it). Consequences:
+'   * the operator's own Desktop userData is never written;
+'   * Electron's single-instance lock lives in userData ⇒ a second instance;
+'   * appearance/OAuth start blank in proveo's window.
+' registryPrimaryIsRemote() ⇒ the window dials the SSH primary. [Inference]
+' until a desktop run confirms it (H2 still open).
+' VERIFY: every 3 s proveo runs `sbx exec -w / <name> -- bash -c <probe>`; the
+' probe matches Desktop's `serve --isolated --host 127.0.0.1` (remote-lifecycle.ts
+' spawn command) in /proc/*/cmdline ([s]erve keeps the probe from matching
+' itself). Attached ⇒ ✓ line. None after 90 s ⇒ one ⚠ naming the host backend.
+'
+' ── NOUS GUEST (2026-10-30, user: "Sandbox config only") ────────────────────
+' entrypoint.sh: `hermes config set nous.guest false` on every hermes start.
+' config.py _coerce_config_set_value turns "false" into a YAML bool, which
+' anon_auth.guest_allowed reads. The host's ~/.hermes is untouched.
+' [Unverified] the image's hermes (v2026.9.24) coerces the same way.
+
 ' ── DESIGN (after H2–H4) ────────────────────────────────────────────────────
 '   `proveo run hermes` with a `desktop` interface: create the workload as
 '   today (seed, credentials, allowlist), skip attaching the TUI, run

@@ -4,9 +4,13 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"github.com/proveo-ca/proveo/internal/hermesdesktop"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -17,25 +21,99 @@ const DesktopSSHUser = "hermes"
 // DesktopGateway is the SSH gateway Hermes Desktop adds for sandbox name.
 func DesktopGateway(name string) string { return DesktopSSHUser + "@" + sbx.SSHHost(name) }
 
-// holdForDesktop hands sandbox name to Hermes Desktop over sbx's SSH, then waits until the run is stopped.
-func holdForDesktop(ctx context.Context, name string, launch []string, setup func(...string) (string, error), start func([]string) error) error {
-	if out, err := setup(sbx.SetupSSHArgs()...); err != nil {
+// desktopHold is one Hermes Desktop session driving sandbox name over sbx's SSH.
+type desktopHold struct {
+	name     string
+	launch   []string
+	userData string // proveo-owned Desktop userData; "" leaves the app's own
+	setup    func(...string) (string, error)
+	start    func(argv, env []string) error
+	attached func(name string) bool
+	poll     time.Duration
+	deadline time.Duration
+}
+
+var proveohomeRoot = func() string { return proveohome.Root(os.Getenv) }
+
+func newDesktopHold(name string, launch []string) desktopHold {
+	return desktopHold{
+		name: name, launch: launch,
+		userData: hermesdesktop.UserDataDir(proveohomeRoot()),
+		setup:    SbxRun, start: startDetached, attached: desktopAttached,
+		poll: 3 * time.Second, deadline: 90 * time.Second,
+	}
+}
+
+// run registers the gateway, opens the app on it, watches for its backend in the sandbox, and waits for the stop.
+func (h desktopHold) run(ctx context.Context) error {
+	if out, err := h.setup(sbx.SetupSSHArgs()...); err != nil {
 		return fmt.Errorf("sbx setup ssh: %w: %s", err, strings.TrimSpace(out))
 	}
-	ui.Storef("desktop: Hermes Desktop → Settings → Gateways → Add → SSH: %s", DesktopGateway(name))
-	if len(launch) > 0 {
-		if err := start(launch); err != nil {
-			ui.Warnf("desktop: could not open Hermes Desktop (%v) — open it yourself and add the gateway above", err)
+	var env []string
+	if h.userData != "" {
+		if err := hermesdesktop.RegisterGateway(h.userData, DesktopSSHUser, sbx.SSHHost(h.name)); err != nil {
+			ui.Warnf("desktop: could not register the gateway in %s (%v)", h.userData, err)
+		} else {
+			env = append(env, hermesdesktop.UserDataEnv+"="+h.userData)
+			ui.Hostf("desktop: Hermes Desktop opens on the gateway %s (its data: %s)", DesktopGateway(h.name), h.userData)
 		}
 	}
-	ui.Notef("this terminal holds %s for Hermes Desktop; Ctrl+C ends the run and tears the sandbox down", name)
+	if env == nil {
+		ui.Storef("desktop: Hermes Desktop → Settings → Gateways → Add → SSH: %s", DesktopGateway(h.name))
+	}
+	if len(h.launch) > 0 {
+		if err := h.start(h.launch, env); err != nil {
+			ui.Warnf("desktop: could not open Hermes Desktop (%v) — open it yourself and pick the gateway %s", err, DesktopGateway(h.name))
+		}
+	}
+	ui.Notef("this terminal holds %s for Hermes Desktop; Ctrl+C ends the run and tears the sandbox down", h.name)
+	watched := make(chan struct{})
+	if h.attached != nil {
+		go func() { h.watch(ctx); close(watched) }()
+	} else {
+		close(watched)
+	}
 	<-ctx.Done()
+	<-watched
 	return nil
 }
 
-// startDetached starts argv without waiting for it; the app outlives the run.
-func startDetached(argv []string) error {
+// watch reports when Desktop's backend starts in the sandbox, and warns once when it has not by the deadline.
+func (h desktopHold) watch(ctx context.Context) {
+	tick := time.NewTicker(h.poll)
+	defer tick.Stop()
+	late := time.After(h.deadline)
+	warned := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-late:
+			if !warned {
+				warned = true
+				ui.Warnf("desktop: no Hermes Desktop session reached %s after %s — a chat on the app's local backend runs on this HOST "+
+					"(host files, host tools, Nous's free model); pick the gateway %s in the app", h.name, h.deadline, DesktopGateway(h.name))
+			}
+		case <-tick.C:
+			if h.attached(h.name) {
+				ui.Okf("desktop: Hermes Desktop attached to %s", h.name)
+				return
+			}
+		}
+	}
+}
+
+// desktopServeProbe exits 0 while Desktop's `hermes serve --isolated --host 127.0.0.1` runs in the sandbox.
+const desktopServeProbe = `for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' <"$f"; echo; done 2>/dev/null | grep -q '[s]erve --isolated --host 127.0.0.1'`
+
+func desktopAttached(name string) bool {
+	return exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", desktopServeProbe).Run() == nil
+}
+
+// startDetached starts argv with env added, without waiting for it; the app outlives the run.
+func startDetached(argv, env []string) error {
 	c := exec.Command(argv[0], argv[1:]...)
+	c.Env = append(os.Environ(), env...)
 	if err := c.Start(); err != nil {
 		return err
 	}
