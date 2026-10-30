@@ -18,9 +18,7 @@ skinparam noteTextAlignment left
 '   sbx ports     : https://docs.docker.com/reference/cli/sbx/ports/
 '
 ' ── THE QUESTION ────────────────────────────────────────────────────────────
-' R4 in the requirement sheet asks whether `cecli-browser` is absent by design.
-' It is not — but the reason it looked absent by design points at something
-' larger: if agent-browser can drive an engine it did not launch, then the
+' If agent-browser can drive an engine it did not launch, then the
 ' expensive half of the browser layer need not be in any def's image.
 '
 ' So: can ONE engine serve every def, and what does that cost?
@@ -132,20 +130,14 @@ skinparam noteTextAlignment left
 '
 ' H5  DOES THE PRIZE SURVIVE THE MACHINERY?
 '     Total the cost — a sidecar image, a relay, an allow entry, a published
-'     port, per-run isolation — against four `-browser` variants deleted. If the
+'     port, per-run isolation — against the `-browser` variants deleted. If the
 '     sidecar plus plumbing is not decisively smaller, the honest answer is to
-'     leave the variants alone and give cecli one.
+'     leave the variants alone.
 '
 ' ── WHAT THIS WOULD BUY, AND WHY IT IS WORTH THE PROBE ────────────────────
-' Four `-browser` variants exist — claudecode, cursor, opencode, and the cecli
-' one that does not. Each carries a Chromium. If one engine can serve them all,
-' image-size-reduction.puml gets its largest single win and R4's gap closes as a
-' side effect rather than as a rebase.
-'
-' If it cannot, the fallback is small and already understood: rebase cecli onto
-' `base-node-browser` and build `cecli-browser` like the other three. That is
-' the outcome to accept quickly if H1 or H2 says so, rather than the one to
-' avoid.
+' The `-browser` variants — claudecode, cursor, opencode — each carry a
+' Chromium. If one engine can serve them all, image-size-reduction.puml gets its
+' largest single win.
 title EXPERIMENT — one engine over CDP, or a lighter engine per image;\nand why the engine may never live on the host
 
 package "the sandbox" as SB <<host>> {
@@ -222,9 +214,6 @@ legend bottom
   ==
   **H1 first, because it may end the experiment**: ""--engine lightpanda"" in-image needs no
   tunnel, no sidecar and no shared state. Only if that fails is the topology worth
-  building — and H5 asks whether the machinery is smaller than the four variants it deletes.
-  --
-  **The fallback is fine**: rebase cecli onto ""base-node-browser"" and build ""cecli-browser""
-  like the other three. That is the answer to accept quickly, not the one to avoid.
+  building — and H5 asks whether the machinery is smaller than the variants it deletes.
 end legend
 @enduml

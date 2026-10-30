@@ -12,26 +12,24 @@
 ' render_subagents is bash-4 code; macOS /bin/bash is 3.2. The preview runs it
 ' in the harness image's bash (docker --entrypoint bash, --network none, host
 ' uid:gid) and mounts the WORKING-TREE entrypoint-lib.sh over /entrypoint-lib.sh,
-' so a lib edit previews without `proveo build`. defs/subagents and the dest dir
+' so a lib edit previews without `mise run build`. defs/subagents and the dest dir
 ' mount at their host paths, so the "composed at runtime from <src>" header is
 ' byte-identical to the retired host-sourced defs/lib/render-subagents.sh.
 '
 ' ── SUBAGENTS ARE NOT BAKED AS FILES ───────────────────────────────────────
 ' One body per agent lives in /opt/proveo/subagents, and the entrypoint
 ' composes them per harness at start (proveo_seed <harness> → render_subagents)
-' into the harness's own agents directory — for cecli, $CECLI_HOME/agents,
-' which is where its subagent_paths point.
+' into the harness's own agents directory.
 '
 ' So the image test goes THROUGH the entrypoint and asks the harness's own
 ' registry to load what it seeded, against the roster _roster.json declares —
 ' READ FROM THE IMAGE rather than restated in the test, so a roster change
-' cannot leave the assertion stale again (TestImageCecli, internal/imagetest/
-' cecli_test.go; claudecode's, cursor's and opencode's suites read the same file).
+' cannot leave the assertion stale again (claudecode's, cursor's and opencode's
+' image suites read the same file).
 ' The two halves get different relations. The seeded FILES are proveo's, so
 ' they must EQUAL the roster: nothing missing, nothing stray. The REGISTRY is
-' cecli's: it merges its own built-ins (memorizer and worker among them) with
-' ours, so it must CONTAIN the roster, and equality would fail on every cecli
-' release that adds a built-in.
+' the harness's: it merges its own built-ins with ours, so it must CONTAIN the
+' roster, and equality would fail on every release that adds a built-in.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Subagent definition sharing — composed at container start, never duplicated
 
@@ -45,7 +43,6 @@ component "render_subagents()\nin packages/lib/entrypoint-lib.sh" as RENDER <<ap
 
 node "composed at first run" as OUT <<host>> {
   component "~/.claude/agents · 5\ntools: · model:" as CC <<app>>
-  component "cecli agents · 10\nmode: · permission:" as CE <<app>>
   component "opencode agents · 10\nmode: · permission:" as OC <<app>>
   component "~/.cursor/agents · 2\nreadonly:" as CU <<app>>
 }
@@ -57,7 +54,6 @@ BODY ARROW_MAIN RENDER
 FM ARROW_MAIN RENDER
 VARS ARROW_MAIN RENDER
 RENDER ARROW_MAIN CC
-RENDER ARROW_MAIN CE
 RENDER ARROW_MAIN OC
 RENDER ARROW_MAIN CU
 OUT ARROW_MAIN GUARD : asserted on composed output
@@ -65,16 +61,15 @@ GUARD ARROW_ERROR DRIFT : COPY asserted per Dockerfile
 
 note top of BODY
   **One body, because the advice is one advice.**
-  The four harnesses had drifted to four copies of
-  the same document, and cecli and opencode were
-  byte-identical for every agent they shared, so
-  the duplication bought nothing.
+  The harnesses had drifted to one copy each of
+  the same document, so the duplication bought
+  nothing.
 end note
 
 note bottom of FM
   **Frontmatter is the real difference.** Claude
   Code declares a ""tools"" allowlist and a model,
-  opencode and cecli declare ""mode"" with a
+  opencode declares ""mode"" with a
   permission block, and cursor declares
   ""readonly"", so the schema cannot be shared.
 end note
@@ -100,7 +95,7 @@ note top of OUT
   entrypoint joins the shared body to its own
   frontmatter at first run, so the repository
   holds one copy per agent and the image holds
-  one shared directory rather than four.
+  one shared directory rather than three.
 end note
 
 note bottom of GUARD

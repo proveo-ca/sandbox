@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/policy-baseline.puml, _spec/internal/sbx/credential-path.puml
+// SPEC: _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/policy-baseline.puml, _spec/internal/sbx/credential-resolution.puml
 package run
 
 import (

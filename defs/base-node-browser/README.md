@@ -16,7 +16,7 @@ serves the guide matching the installed binary.
 - `proveo/base-node-browser` is FROM `proveo/base-node-lsp`. The `<harness>-browser` variants
   (`opencode-browser`, `claudecode-browser`, `codex-browser`, `cursor-browser`;
   `mise run build <harness>-browser`) build this Dockerfile on `proveo/<harness>` instead.
-- Not a runnable harness — a `proveo build` / `proveo deploy` target like `base`.
+- Not a runnable harness — a `mise run build` / `mise run deploy` target like `base`.
 - The floor probe (`imagebuild.Specs["base-node-browser"].Floor`) checks Playwright, the Chromium store, `agent-browser`, its
   executable path, its skills tree and the seeded skill stub; a `:local` image missing any of
   them is rebuilt.

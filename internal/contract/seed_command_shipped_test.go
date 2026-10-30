@@ -12,7 +12,6 @@ import (
 )
 
 var seedImageSources = map[string]struct{ file, base string }{
-	"cecli":               {"defs/cecli/Dockerfile", "proveo/base:latest"},
 	"codex":               {"defs/codex/Dockerfile", "proveo/base-node-lsp:latest"},
 	"opencode":            {"defs/opencode/Dockerfile", "proveo/base-node-lsp:latest"},
 	"cursor":              {"defs/cursor/Dockerfile", ""},

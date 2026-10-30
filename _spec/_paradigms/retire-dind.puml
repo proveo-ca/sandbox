@@ -40,7 +40,7 @@
 ' (_spec/internal/manifest/harness-manifest-schema.puml).
 '
 ' ── WHAT ACTUALLY LANDED, AND THE TWO THINGS THE PLAN DID NOT KNOW ─────────
-' 1. Manifests moved. `opencode` AND `cecli` declare `docker: sbx`; both images
+' 1. Manifests moved. `opencode` declares `docker: sbx`; its image
 '    grew the layers that makes that true — the whole static docker tarball
 '    (dockerd, containerd, runc, docker-proxy, not just the client), `iptables`
 '    for the daemon's NAT chain, a `docker` group for the root:docker socket, a
@@ -55,12 +55,10 @@
 '    `ConnectNetwork`, and the `--privileged` run. proveo starts no privileged
 '    container any more.
 '
-' THING ONE THE PLAN DID NOT KNOW: sbx's agent list is CLOSED, and cecli is not
-' on it. `sbx run --help` prints claude, codex, copilot, cursor, docker-agent,
+' THING ONE THE PLAN DID NOT KNOW: sbx's agent list is CLOSED. `sbx run --help` prints claude, codex, copilot, cursor, docker-agent,
 ' droid, gemini, kiro, opencode, shell; a Kit cannot extend it. opencode maps
-' straight across. cecli is aider and nothing on that list is aider, so
-' `docker: sbx` would have sent it to a backend that could not launch it —
-' `sbx.BuiltinAgent("cecli")` returned "" and sbx reads the first workspace path
+' straight across. A target missing from the list gets
+' `sbx.BuiltinAgent(target) == ""`, and sbx reads the first workspace path
 ' as an agent name. `sbx.AgentFor` now resolves an unmapped target to the SHELL
 ' agent carrying the target's own launch command, which is what makes
 ' `docker: sbx` mean "runs in a sandbox" for every harness rather than only the
@@ -121,7 +119,7 @@
 ' ── AND ONE RESERVATION INVERTED ──────────────────────────────────────────
 ' The contract suite used to assert BOTH directions: a subscription harness must
 ' set `docker: sbx`, and a non-subscription one must NOT. That second arm
-' reserved the sandbox for the two vendor harnesses and left opencode and cecli
+' reserved the sandbox for the two vendor harnesses and left opencode
 ' on the privileged sidecar. It is deliberately GONE. sbx is where every harness
 ' runs; subscription now decides only HOW a credential gets there.
 '
@@ -190,7 +188,6 @@ component "**dind sidecar** — what retires\n""--privileged"", sibling daemon, 
 component "internal/dind\nfive gates, a prompt, a scope scan" as GATE <<app>>
 node "harnesses that must move" as MOVE <<host>> {
   component "opencode\n""docker: dind"" -> ""docker: sbx""" as OC <<app>>
-  component "cecli\n""docker: dind"" -> ""docker: sbx""" as CE <<app>>
 }
 component "sbx sandbox\na daemon per sandbox, behind a policy" as SBX <<app>>
 
@@ -201,7 +198,6 @@ folder "what this costs, and to whom" as COST <<host>> {
 
 GATE ARROW_MAIN DIND
 OC ARROW_MAIN SBX
-CE ARROW_MAIN SBX
 DIND ARROW_ERROR SBX : deleted, not replaced
 SBX ARROW_ERROR REV
 SBX ARROW_ERROR OBS
@@ -304,8 +300,8 @@ end note
 legend bottom
   **The order to do it in — each step is reversible until the last**
   ==
-  **1. Move the manifests.** ""opencode"" and ""cecli"" to ""docker: sbx"". Behaviour changes
-  for those two harnesses only, and PROVEO_SBX=0 still reaches the old path.
+  **1. Move the manifests.** ""opencode"" to ""docker: sbx"". Behaviour changes
+  for that harness only, and PROVEO_SBX=0 still reaches the old path.
   --
   **2. Stop offering it.** ""docker (dind)"" leaves the execution row; the row becomes the
   single compulsory fact it already is on the sbx harnesses. ""PROVEO_DIND"" warned and no-opped

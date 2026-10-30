@@ -101,6 +101,16 @@ skinparam noteTextAlignment left
 ' a scripted host:devices sequence; listAVDs, startAdb, reconnect, bootProp
 ' and startEmulator are package vars the tests swap and count.
 '
+' ── STALE DEVICESERVER (hostadb.retireStale, 2026-10-27) ───────────────────
+' MEASURED: on a reused emulator, mobile-mcp's tap and press_button failed with
+'   "agent error -32603: Internal error: android.os.DeadSystemException" while
+'   list/launch/screenshot (plain adb) worked. com.mobilenext.mobilecli.DeviceServer
+'   had started 12:35; system_server restarted 14:11, so its binder was dead.
+'   Killing it let mobilecli start a fresh one; the e2e passed.
+' attach, after a reused device's boot holds, runs retireStaleDeviceServer on it:
+'   each DeviceServer whose /proc/<pid>/stat starttime precedes system_server's
+'   is killed, and proveo names the pids. A fresh one is left alone.
+'
 ' ── ONE ROW PER HARNESS (hostadb.Launches) ─────────────────────────────────
 ' A harness gets android only with a per-launch way to take the mobile server;
 ' a contract test fails a manifest that declares android without one, and an
@@ -111,7 +121,6 @@ skinparam noteTextAlignment left
 '   opencode    "mcp": {"mobile": {"type": "local", ...}} merged into the
 '               OPENCODE_CONFIG_CONTENT launchConfigEnv already builds
 '   codex       not wired yet: -c mcp_servers.mobile.* per launch
-'   cecli       not wired yet: --mcp-servers / CECLI_MCP_SERVERS
 '   cursor      none: MCP only from a persistent ~/.cursor/mcp.json
 '   hermes      none: MCP only from its persistent config.yaml; no built-in
 '               Android control (the community plugin wants a local SDK)
@@ -188,8 +197,14 @@ skinparam noteTextAlignment left
 '
 ' ── TOOLS PROVISIONED AFTER LAUNCH REACH THE AGENT ─────────────────────────
 ' sbx starts the agent before the seed provisions, and Claude Code snapshots
-' its shell at start, so `!./install.sh` read `gradle: command not found`
-' (opencode re-reads its shell and was fine). Claude Code re-sources
+' its shell at start, so `!./install.sh` read `gradle: command not found`.
+' opencode (MEASURED 2026-10-27, sbx 0.50, opencode 2.2.0) hit the same line:
+' it runs `!` through NON-interactive bash with BASH_ENV=/etc/sandbox-persistent.sh
+' (empty), so the ~/.bashrc block never loads (`bash -c` found no gradle,
+' `bash -ic` found the mise shim). The seed now also writes a block into the
+' $BASH_ENV file sourcing ~/.proveo-tool-env.sh, IN PLACE: the agent owns that
+' file but not /etc, so _proveo_write_block falls back from mv to a rewrite.
+' Every agent's non-interactive shell gains the tools that way. Claude Code re-sources
 ' CLAUDE_ENV_FILE before each Bash command, but only a hook may write it:
 '   seed     _proveo_persist_tool_env writes ~/.proveo-tool-env.sh beside the
 '            ~/.bashrc block
@@ -205,7 +220,8 @@ skinparam noteTextAlignment left
 ' The hook writer runs `node` and no-ops without one (`command -v node … ||
 ' return 0`, entrypoint-lib.sh:1452). UNIT COVERAGE since 2026-10-17 (the user:
 ' "The 2 hook tests (Recommended)"): internal/contract/claude_env_hook_test.go
-' keeps TestClaudeEnvHookIsClaudeCodeOnly and TestPersistedToolEnvIsAlsoAFile.
+' keeps TestClaudeEnvHookIsClaudeCodeOnly, TestPersistedToolEnvIsAlsoAFile and
+' TestNonInteractiveShellsSourceTheToolEnvThroughBashEnv.
 ' TestClaudeEnvHookIsInstalledOnceAndKeepsOtherSettings and
 ' TestClaudeEnvHookSourcesToolsWrittenAfterLaunch are deleted: no runnable node
 ' existed on the test host (none under a clean `go test` env; an untrusted mise
@@ -238,6 +254,18 @@ skinparam noteTextAlignment left
 '   host       pm list packages ca.proveo.hello; am start -W → Status: ok
 '   agent      typed prompt; MOBILE-CHECK hello=yes, absent=no; a mobile
 '              tool INVOCATION in the harness's own session record
+' Re-measured 2026-10-27 (sbx 0.50, v3 workload, opencode 2.2.0), both rows pass:
+'   seed done  /dev/shm/proveo-seed-done — v3 runs the seed in the background
+'              after the dispatcher; the old `-startup-<t>-posture/` ok line was
+'              a v2 mixin directory and never appears
+'   opencode   2.x keeps sessions in SQLite session_message; a tool part is
+'              {"type":"tool","name":…}, and MCP calls go through an `execute`
+'              part whose state.metadata.toolCalls lists {"tool":"mobile.<t>",
+'              "status":"completed"}. Only completed calls count — the code
+'              text names tools it may never reach (opencodeToolCalls).
+'   claudecode mcp__mobile__* tool_use lines in the session jsonl, unchanged
+' The package timeout (PROVEO_TEST_GO_TIMEOUT, default 45m) is below this
+' test's worst-case budget; a run that fits the model can exhaust it alone.
 '
 ' ── ACCEPTED RISK: THE ADB SERVER DIALS FROM THE HOST (decided 2026-09-29) ─
 ' The android add-on hands the agent the host adb server (raw 5037; the

@@ -91,8 +91,6 @@ note right of ROUTE
   ""cursor""     NONE. cursor-agent reads ""\.cursor/rules"" and a project-root
               AGENTS\.md/CLAUDE\.md; its global "User Rules" live in the IDE
               settings UI, not a file the CLI reads.
-  ""cecli""      NONE established. It seeds a PROJECT CONVENTIONS\.md from its own
-              defaults; guessing a user-level path writes a file nothing reads.
 end note
 
 note bottom of WRITE

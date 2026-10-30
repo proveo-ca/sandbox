@@ -128,15 +128,15 @@ run = "go run ./cmd/proveo-dev dev-cli"
 [tasks.build]
 description = "Build a container harness def (buildx; host arch --load)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo build"
+run = "go run ./cmd/proveo-dev build"
 
 [tasks.test-defs]
-description = "Test a container harness def's image (Go: proveo test)"
+description = "Test a container harness def's image (Go: proveo-dev test)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo test"
+run = "go run ./cmd/proveo-dev test"
 
 [tasks.deploy]
 description = "Buildx --push multi-arch (amd64+arm64) container image def"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo deploy"
+run = "go run ./cmd/proveo-dev deploy"
 

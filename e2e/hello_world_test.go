@@ -54,13 +54,6 @@ type helloHarness struct {
 
 var helloHarnesses = []helloHarness{
 	{
-		target:          "cecli",
-		agentArgs:       func(p string) []string { return []string{"--yes-always", "--message", p} },
-		promptPath:      "HELLO_WORLD.txt",
-		hostPaths:       []string{"HELLO_WORLD.txt"},
-		repliesOnStdout: true,
-	},
-	{
 		target:     "opencode",
 		agentArgs:  func(p string) []string { return []string{"run", "--auto", "--agent", "build", p} },
 		promptPath: "HELLO_WORLD.txt",
@@ -86,7 +79,7 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 	mustRun(t, work, "git", "init", "-q", ".")
 	mustRun(t, work, "git", "config", "user.email", "e2e@proveo.test")
 	mustRun(t, work, "git", "config", "user.name", "proveo e2e")
-	// claudecode's output mount (and cecli's /app/output) — create it host-side so
+	// claudecode's output mount — create it host-side so
 	// the bind lands on a dir this user owns.
 	if err := os.MkdirAll(filepath.Join(work, "reports"), 0o755); err != nil {
 		t.Fatal(err)

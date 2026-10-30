@@ -20,14 +20,14 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' OpenCode v2 uses @opencode/cli; opencode-ai remains the v1 package. Resolve
 ' @opencode/cli/latest and install @opencode/cli@${OPENCODE_VERSION}, retaining
 ' the opencode command and OPENCODE_VERSION override. The proveo.agent label
-' names @opencode/cli, and the package contract checks that npm/PyPI pins resolve
+' names @opencode/cli, and the package contract checks that npm pins resolve
 ' the same package the Dockerfile installs rather than accepting only the arg.
 ' OpenCode v2 prints "opencode v<version>" from --version, so the Dockerfile and
 ' image suite compare that full string against the bare version pin.
 '
 ' ── THE PIN NEEDS A GAUGE, BECAUSE THE UPDATER USED TO BE ONE ──────────────
 ' Every harness must keep its CLI's auto-updater OFF — claudecode by
-' DISABLE_AUTOUPDATER, cecli by `check-update: false`, cursor by the same class.
+' DISABLE_AUTOUPDATER, cursor by the same class.
 ' Approved OpenCode v2 integration uses OPENCODE_DISABLE_AUTOUPDATE=1 and
 ' native update: disable; both are implemented in source with focused fixture proof.
 ' Latest rebuilt-image/full e2e acceptance remains pending in the native sibling.
@@ -39,7 +39,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '   upstream → image    `Builder.AgentVersion` resolves the newest release AT
 '                       BUILD TIME and passes it as a build-arg. A real update
 '                       mechanism — but it turns only when a human runs
-'                       `proveo build <target>`. There is no CI in this repo and
+'                       `mise run build <target>`. There is no CI in this repo and
 '                       no scheduled rebuild.
 '   image → sbx store   SELF-INVALIDATING, and this was the surprise: sbx.
 '                       HasTemplate compares the local docker image ID against a
@@ -67,8 +67,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' ── TWO PINNING SHAPES, AND WHEN EACH IS USED ──────────────────────────────
 ' A. RESOLVED AT BUILD TIME, bare ARG, no default — the AGENT itself, whose
 '    release moves constantly and whose version the image LABELs:
-'    CECLI_VERSION, SERENA_VERSION, OPENCODE_VERSION, CLAUDE_CODE_VERSION,
-'    CURSOR_AGENT_VERSION. Each is a `Pin` on its target's Specs row
+'    OPENCODE_VERSION, CLAUDE_CODE_VERSION, CURSOR_AGENT_VERSION. Each is a `Pin` on its target's Specs row
 '    (internal/imagebuild/targets.go); BuildTarget calls Builder.AgentVersion
 '    and passes the result in; the Dockerfile guards with `test -n` and
 '    verifies with the tool's own --version.
@@ -97,12 +96,6 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' The lsp-builder go installs and plantuml-lsp are pinned
 ' (_spec/internal/maintain/build-schedule.puml).
 '
-' ── TWO PINS IN ONE IMAGE: cecli ───────────────────────────────────────────
-' cecli resolves BOTH cecli-dev and serena-agent through the same resolver, into
-' separate venvs. Serena is pinned for the reason the layer was deleted the FIRST
-' time: an unpinned `pip install serena-agent` shipped a version skew that left
-' the MCP server dead on every boot for weeks.
-'
 ' ── FOUNDRY: WHY A DEFAULTED ARG WAS STILL AN UPGRADE ──────────────────────
 ' `curl -L https://foundry.paradigm.xyz | bash && foundryup` installs the
 ' NIGHTLY — foundryup with no argument takes latest, and foundry's release feed is
@@ -113,7 +106,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '
 ' ── WHY A PIN AT ALL: BuildKit's CACHE KEY ─────────────────────────────────
 ' The `pin:` note states the version AND how it was chosen. The first version of
-' it said "from CECLI_VERSION" on every build, because it was printed by the
+' it said "from <AGENT>_VERSION" on every build, because it was printed by the
 ' caller — which assigns the result to a variable named like the override, after
 ' which "override or resolved" is unknowable from outside.
 '
@@ -130,14 +123,13 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '
 ' One row per agent, uniform across ecosystems:
 '   npm     the registry's dist-tag `latest` for the package
-'   pypi    PyPI's current release
 '   cursor  the build cursor.com/install unpacks, read out of the script
 '           itself: the installer hardcodes its release and takes no version
 '           argument, so that script is the only place the version is stated.
 '           An image without the label predates the pin — rebuild rather than
 '           trust it.
 '
-' An exported override wins outright (OPENCODE_VERSION=2.0.6 proveo build
+' An exported override wins outright (OPENCODE_VERSION=2.0.6 mise run build
 ' opencode): that is how a maintainer rebuilds an older agent, or builds
 ' offline. AgentVersion returns the bare version; the `pin:` note (ui.Notef)
 ' saying which release is about to be baked, and how it was chosen, prints
@@ -152,9 +144,9 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' opencode-browser:latest from a week earlier still carried 1.18.23.
 ' A label alone does not move the install layer's cache key: ARG matters at use.
 ' Runtime checks: opencode --version prints opencode v<arg>; claude --version
-' contains the pin; pip show reports it; Cursor matches the installer release.
-' The Go resolver honors NPM_CONFIG_REGISTRY and reads PyPI info.version through
-' its HTTP client; the host needs no npm, curl, or python3 for those lookups.
+' contains the pin; Cursor matches the installer release.
+' The Go resolver honors NPM_CONFIG_REGISTRY and reads the registry through
+' its HTTP client; the host needs no npm or curl for those lookups.
 ' Failed or unsupported retrieval returns no version. A failed known-ecosystem
 ' lookup makes Failf name <ARG>=<x.y.z> and the last fetch error; an unsupported
 ' ecosystem gets its own refusal rather than silently accepting latest.
@@ -171,21 +163,21 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' FK: note over LBL; words=31 syllables=59; FK 12.9
 
 actor "Maintainer" as MT
-participant "cmd/proveo build\n(internal/maintain BuildPlan)" as CMD <<app>>
+participant "cmd/proveo-dev build\n(internal/maintain BuildPlan)" as CMD <<app>>
 participant "imagebuild.BuildTarget\ntargets.go Specs[<target>].Pins" as BUILD <<app>>
 participant "imagebuild.go\nBuilder.AgentVersion" as LIB <<app>>
-participant "upstream release source\nnpm dist-tag · PyPI · cursor.com/install" as UP <<cloud>>
+participant "upstream release source\nnpm dist-tag · cursor.com/install" as UP <<cloud>>
 participant "BuildKit\ndefs/<harness>/Dockerfile" as BK <<host>>
 database "image labels\nproveo.agent · proveo.agent.version" as LBL <<db>>
 participant "internal/contract\nagent_pin_test.go" as CT <<app>>
 
-MT ARROW_MAIN CMD : " ""proveo build <target>"" "
+MT ARROW_MAIN CMD : " ""mise run build <target>"" "
 CMD ARROW_MAIN BUILD : " ""imagebuild <target> --tag local"" (in-process) "
 BUILD ARROW_MAIN LIB : " ""AgentVersion(<ARG>, <eco>, <pkg>)"" "
 alt <ARG> exported by the maintainer
   LIB ARROW_OPTIONAL BUILD : that version, upstream not asked
 else resolve
-  LIB ARROW_CLOUD UP : npm registry JSON · PyPI JSON · read the installer
+  LIB ARROW_CLOUD UP : npm registry JSON · read the installer
   UP ARROW_CLOUD LIB : current release
   LIB ARROW_MAIN BUILD : version
 else unreachable
@@ -196,7 +188,7 @@ BUILD ARROW_MAIN BK : " ""--build-arg <ARG>=<version>"" "
 BK ARROW_MAIN BK : " ""ARG <ARG>"" (bare) → ""test -n"" guard\n→ install ""<pkg>@${<ARG>}"" → ""<agent> --version"" = ""${<ARG>}"" "
 BK ARROW_MAIN LBL : " ""LABEL proveo.agent=<pkg> proveo.agent.version=${<ARG>}"" "
 CT ARROW_OPTIONAL BK : every harness row: bare ARG · guard · pinned install\n· label · no ""@latest"" spelling
-CT ARROW_OPTIONAL LIB : imagebuild_test.go, fake Fetch: npm · PyPI\n· installer scrape · override · refusal
+CT ARROW_OPTIONAL LIB : imagebuild_test.go, fake Fetch: npm\n· installer scrape · override · refusal
 
 note over BK
   BuildKit reuses an unchanged install layer even

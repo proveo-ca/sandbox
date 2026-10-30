@@ -40,7 +40,6 @@ var readySpecs = map[string]readySpec{
 	"codex":      {agents: ".codex/agents", ext: "toml", lspFiles: []string{".codex/config.toml"}, baked: "typescript|pyright", ready: "Ask Codex to do anything"},
 	"opencode":   {agents: ".config/opencode/agents", lspFiles: []string{".config/opencode/opencode.json"}, baked: "typescript|pyright", register: "opencode", ready: "Ask anything"},
 	"cursor":     {agents: ".cursor/agents", lspFiles: []string{".cursor/mcp.json"}, baked: "gopls", ready: "Cursor Agent"},
-	"cecli":      {agents: ".cecli/agents"},
 	"hermes":     {assist: true},
 }
 
@@ -227,7 +226,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 		if engine == "" {
 			return
 		}
-		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(engine)...).CombinedOutput(); err != nil && !sbx.NotFound(string(out)) {
+		if out, err := removeSandbox(t, engine); err != nil && !sbx.NotFound(out) {
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, engine, err, out)
 		}
 		if cache, err := os.UserCacheDir(); err == nil {
@@ -292,8 +291,17 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 		}
 		answerDialogs(t, sess, firstRunDialogs)
 	}
+	skipOnProviderSetup(t, sess, target)
 	assertEchoes(t, sess, target, strings.Contains(out, "seeding"))
 	return run
+}
+
+// skipOnProviderSetup skips when the agent opened its own provider setup: no provider key reached it.
+func skipOnProviderSetup(t *testing.T, sess *tmux.Session, target string) {
+	t.Helper()
+	if pane, _ := sess.Capture(); strings.Contains(pane, "No inference provider is configured") {
+		t.Skipf("%s opened its provider setup, not a prompt — no provider key reached it (proveo reads env and the proveo home; a key held only in sbx's store is unreadable):\n%s", target, tail(pane, 5))
+	}
 }
 
 // firstRunDialogs open on or just after an agent's prompt; each takes the answer that keeps the session as launched.
@@ -430,6 +438,7 @@ func assertEchoes(t *testing.T, sess *tmux.Session, target string, seeding bool)
 		t.Fatal(err)
 	}
 	if !paneShows(sess, typed, 30*time.Second) {
+		skipOnProviderSetup(t, sess, target)
 		t.Fatalf("%s: typed %q never echoed", target, typed)
 	}
 	var lat []time.Duration
@@ -440,6 +449,7 @@ func assertEchoes(t *testing.T, sess *tmux.Session, target string, seeding bool)
 			t.Fatal(err)
 		}
 		if !paneShows(sess, typed, 5*time.Second) {
+			skipOnProviderSetup(t, sess, target)
 			t.Fatalf("%s dropped keystroke %q: %q never appeared", target, string(c), typed)
 		}
 		lat = append(lat, time.Since(start))

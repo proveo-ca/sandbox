@@ -19,8 +19,7 @@ import (
 )
 
 var pinned = map[string]string{
-	"CLAUDE_CODE_VERSION": "9.9.1", "OPENCODE_VERSION": "9.9.2", "CECLI_VERSION": "9.9.3",
-	"SERENA_VERSION": "9.9.4", "CURSOR_AGENT_VERSION": "9.9.5",
+	"CLAUDE_CODE_VERSION": "9.9.1", "OPENCODE_VERSION": "9.9.2", "CURSOR_AGENT_VERSION": "9.9.5",
 }
 
 type recorder struct {

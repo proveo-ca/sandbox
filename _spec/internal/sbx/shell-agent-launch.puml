@@ -20,12 +20,12 @@ skinparam noteTextAlignment left
 '   FLAG-LEADING  (begins with "-")  APPENDED to `bash -l`
 '                                    -- -c "echo hi"  →  bash -l -c "echo hi"
 '   BARE WORD                        REPLACES the -l entirely
-'                                    -- cecli         →  bash cecli
+'                                    -- <target>      →  bash <target>
 '
 ' `bash <file>` is not `bash -c <file>`. Bash reads the file AS SHELL SOURCE,
 ' and — when the name has no slash — searches PATH to find it. The interpreter
 ' line is never consulted, because a shebang is honoured by execve and nothing
-' here execve's. So /opt/cecli/bin/cecli, a Python console script, was read as
+' here execve's. So the harness binary, a Python console script, was read as
 ' shell: line 2 `import: not found`, line 3 `from: not found`.
 '
 ' ── WHAT THAT ERROR IS NOT ──────────────────────────────────────────────────
@@ -33,7 +33,7 @@ skinparam noteTextAlignment left
 ' one — it is bash failing to find a COMMAND by that name, having already
 ' decided the file is a shell script. The ladder's probe measured the file and
 ' eliminated every such reading before the docs were consulted:
-'   file -rwxr-xr-x · shebang #!/opt/cecli/bin/python3 · interp → python3.13
+'   file -rwxr-xr-x · shebang #!<venv>/bin/python3 · interp → python3.13
 '   runs Python 3.13.5 · execve OK · first4 "# ! / o" (no BOM)
 ' Python was present and the kernel would run the file. Only the CALLER was
 ' wrong, which is why no change to the image or the def could have fixed it.

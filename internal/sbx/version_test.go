@@ -18,7 +18,9 @@ func TestOnlyVerifiedSeriesPassWithoutAWarning(t *testing.T) {
 		{"0.49.7", true},
 		{"0.47.0", false},
 		{"0.48.0", false},
-		{"0.50.0", false},
+		{"0.50.0", true},
+		{"0.50.3", true},
+		{"0.51.0", false},
 		{"1.42.0", false},
 		{"garbage", false},
 	} {

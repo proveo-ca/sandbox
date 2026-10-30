@@ -32,14 +32,6 @@ var agentPins = []struct {
 		banned:  []string{"claude-code@latest", "npm install -g @anthropic-ai/claude-code "},
 	},
 	{
-		image: "proveo/cecli", target: "cecli",
-		arg: "CECLI_VERSION", pkg: "cecli-dev", ecosystem: "pypi",
-		// Flags may sit between `install` and the spec (--no-compile keeps 153 MB of
-		// bytecode out of the venv); the contract is that the SPEC names the arg.
-		install: regexp.MustCompile(`pip install (?:--[^\s"]+ )*"cecli-dev==\$\{CECLI_VERSION\}"`),
-		banned:  []string{"pip install cecli-dev "},
-	},
-	{
 		image: "proveo/cursor", target: "cursor",
 		arg: "CURSOR_AGENT_VERSION", pkg: "cursor-agent", ecosystem: "cursor",
 		install: regexp.MustCompile(`test -d "/opt/cursor-dist/\.local/share/cursor-agent/versions/\$\{CURSOR_AGENT_VERSION\}"`),
@@ -81,7 +73,7 @@ func TestEveryHarnessPinsItsAgentByABuildArgItUses(t *testing.T) {
 			}) {
 				t.Errorf("imagebuild target %s does not pin %s with %s via %s", p.target, p.pkg, p.arg, p.ecosystem)
 			}
-			if p.ecosystem == "npm" || p.ecosystem == "pypi" {
+			if p.ecosystem == "npm" {
 				if !slices.ContainsFunc(spec.Pins, func(pin imagebuild.Pin) bool {
 					return pin.Arg == p.arg && pin.Eco == p.ecosystem && pin.Pkg == p.pkg
 				}) {

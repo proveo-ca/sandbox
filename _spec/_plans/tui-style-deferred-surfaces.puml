@@ -54,8 +54,8 @@
 ' 105 emoji lines over 21 shell files. It splits almost in half by WHERE it runs,
 ' and the halves have different owners.
 '
-' In-container (~69 lines): the four harness entrypoints — opencode 19, cursor
-' 17, claudecode/mcp 11, cecli 10 — plus the mitmproxy and squid sidecar
+' In-container (~59 lines): the three harness entrypoints — opencode 19, cursor
+' 17, claudecode/mcp 11 — plus the mitmproxy and squid sidecar
 ' scripts. This is surface A again in another language, and it is deferred for
 ' the same reason: sbx's kit is expected to absorb the seeding. The two sidecars
 ' belonged to the docker backend, which retire-dind shrank to a PROVEO_SBX=0

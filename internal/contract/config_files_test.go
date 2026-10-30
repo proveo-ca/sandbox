@@ -19,7 +19,7 @@ func TestHarnessesDeclareTheirHomeRootConfigFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFS: %v", err)
 	}
-	want := map[string]string{"claudecode": ".claude.json", "cecli": ".cecli.conf.yml"}
+	want := map[string]string{"claudecode": ".claude.json"}
 	for _, m := range ms {
 		file, ok := want[m.Name]
 		if !ok {
@@ -61,7 +61,7 @@ echo "rc=$?"`
 		cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t))
 		cmd.Env = append(os.Environ(), "PROVEO_CONFIG_SYNC=", "PROVEO_CONFIG_DIRS=",
 			"HOME="+agent, "PROVEO_HOME=", "PROVEO_STATE_HOME="+state,
-			"PROVEO_CONFIG_FILES=.claude.json;.cecli.conf.yml")
+			"PROVEO_CONFIG_FILES=.claude.json;.harness.conf.yml")
 		out, err := cmd.CombinedOutput()
 		if err != nil || !strings.Contains(string(out), "rc=0") {
 			t.Fatalf("proveo_sync_config %s: %v\n%s", mode, err, out)
@@ -79,15 +79,15 @@ echo "rc=$?"`
 		t.Fatalf("restore did not bring ~/.claude.json back: %v", err)
 	}
 
-	// This run wires Serena; teardown must carry the declaration out.
-	if err := os.WriteFile(filepath.Join(agent, ".cecli.conf.yml"),
-		[]byte("mcp-servers:\n  mcpServers:\n    serena: {}\n"), 0o644); err != nil {
+	// This run writes a second home-root file; teardown must carry it out.
+	if err := os.WriteFile(filepath.Join(agent, ".harness.conf.yml"),
+		[]byte("mcp-servers:\n  mcpServers:\n    probe: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run("save")
-	if b, err := os.ReadFile(filepath.Join(state, ".cecli.conf.yml")); err != nil ||
-		!strings.Contains(string(b), "serena") {
-		t.Fatalf("save did not carry ~/.cecli.conf.yml out: %v", err)
+	if b, err := os.ReadFile(filepath.Join(state, ".harness.conf.yml")); err != nil ||
+		!strings.Contains(string(b), "probe") {
+		t.Fatalf("save did not carry ~/.harness.conf.yml out: %v", err)
 	}
 }
 
@@ -107,7 +107,7 @@ proveo_sync_config restore`
 		"PROVEO_STATE_HOME="+state,
 		proveohome.ConfigFilesRootVar+"="+files,
 		"PROVEO_CONFIG_DIRS=",
-		"PROVEO_CONFIG_FILES=.claude.json")
+		"PROVEO_CONFIG_FILES=.claude.json;.harness.conf.yml")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("restore through narrow root: %v\n%s", err, out)
 	}

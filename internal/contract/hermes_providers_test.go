@@ -48,7 +48,7 @@ func hermesManifest(t *testing.T) manifest.Manifest {
 
 func hermesCapabilities(t *testing.T) manifest.Capabilities { return hermesManifest(t).Capabilities }
 
-// Like cecli, hermes has no plan of its own: a provider key is a usage key, so
+// hermes has no plan of its own: a provider key is a usage key, so
 // it is brokered and no auth row can withhold it.
 func TestHermesProviderKeysAreUsageKeysNotAPlan(t *testing.T) {
 	m := hermesManifest(t)

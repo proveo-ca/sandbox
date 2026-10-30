@@ -54,18 +54,17 @@ skinparam noteTextAlignment left
 '
 ' ── A DEF WITH NO BUILT-IN AGENT GETS AN EXTRA RUNG ───────────────────────
 ' sbx has built-in agents for claudecode, cursor and opencode; their agent name
-' carries the launch. cecli has none, so it runs under the stock `shell` agent
+' carries the launch. A def with none runs under the stock `shell` agent
 ' with its own launcher as the COMMAND.
 '
 ' THE COMMAND IS FLAG-LEADING, AND THAT IS NOT COSMETIC. sbx's shell agent
 ' documents the rule: a word after `--` that BEGINS WITH A DASH is appended to
 ' `bash -l`, and a BARE word REPLACES it. proveo passed the bare target name, so
-' `-- cecli` ran `bash cecli`; bash searched PATH, found the Python console
-' script and read it as shell — `import: not found`. Nothing was absent from the
-' image, and the rung looked like a packaging failure.
+' `-- <target>` ran `bash <target>`; bash searched PATH, found the launcher and
+' read it as shell. Nothing was absent from the image, and the rung looked like a packaging failure.
 '
 ' So the command is `-c <script>` and the script EXECs the def's own
-' `cecli-entrypoint`. Both halves are load-bearing: a shebang is only consulted
+' `<target>-entrypoint`. Both halves are load-bearing: a shebang is only consulted
 ' on exec, so a launch that merely NAMES the binary reintroduces the same bug in
 ' another spelling, and skipping the def's entrypoint starts the harness without
 ' the rule and evidence arguments the def declares — a green rung that dropped
@@ -80,13 +79,13 @@ skinparam noteTextAlignment left
 '
 '   0  bare sbx shell     stock agent, stock image, NO command
 '   1  proveo base image  the image, still no command
-'   2  agent command      `-- -c '<exec cecli-entrypoint …>'` — the def's
+'   2  agent command      `-- -c '<exec <target>-entrypoint …>'` — the def's
 '                         entrypoint runs from here
 '   3  browser variant
 '   4  posture Kit + seed
 '
-' Rung 0 deliberately carries no command: `cecli` does not exist in the stock
-' image, so passing it there would fail for a reason that is not under test.
+' Rung 0 deliberately carries no command: the def's launcher does not exist in
+' the stock image, so passing it there would fail for a reason that is not under test.
 '
 ' The ladder used to SKIP these defs outright — "no sbx agent, docker only" —
 ' which left the one harness whose failure is still unexplained as the one the
@@ -176,8 +175,8 @@ end note
 
 note bottom of R1
   **Flag-leading, or sbx drops ""bash -l"".**
-  A bare word REPLACES it, so ""-- cecli"" ran
-  ""bash cecli"" — a Python console script read as
+  A bare word REPLACES it, so ""-- <target>"" ran
+  ""bash <target>"" — a launcher read as
   shell. The command is ""-c"" and it execs
   the def's own entrypoint.
 end note

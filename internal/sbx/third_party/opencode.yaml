@@ -495,7 +495,7 @@ capabilities:
                       + (if (($credential.accountId | type) == "string") or (($credential.enterpriseUrl | type) == "string")
                          then {metadata: ({} + (if ($credential.accountId | type) == "string" then {accountID: $credential.accountId} else {} end)
                                                + (if ($credential.enterpriseUrl | type) == "string" then {enterpriseUrl: $credential.enterpriseUrl} else {} end))}
-                          else {} end))
+                          else {} end))}
                   else empty end;
                 [oauth("openai"; "sbx-openai"; "chatgpt-browser"; "Sandbox OpenAI"; "oai-oat01-proxy-managed"; "oai-ort01-proxy-managed"), oauth("github-copilot"; "sbx-github-copilot"; "device"; "Sandbox GitHub Copilot"; $github_token; $github_token)]' "$auth"); then
                   echo "auth.json is not valid OpenCode OAuth data; leaving v2 credentials unchanged" >&2
@@ -518,7 +518,7 @@ capabilities:
                    | {integrationID: $wanted.integrationID, id: $wanted.id, desired: $wanted.desired,
                       remove: [$records[] | select(managed($wanted)) | .id],
                      previousActiveID: (if $active != null and ($active | managed($wanted)) then $active.id else null end),
-                     activate: ($wanted.desired != null and $active != null and ($active | managed($wanted)))}
+                     activate: ($wanted.desired != null)}
                 )'); then
                 echo "unable to reconcile OpenCode v2 credentials; leaving them unchanged" >&2
                 exit 0

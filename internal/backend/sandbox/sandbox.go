@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -41,6 +42,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -1122,6 +1124,10 @@ type Input struct {
 	// ImageEntrypoint reads the image's declared ENTRYPOINT; a sandbox Kit needs
 	// it verbatim. Injected so Spec stays testable without docker.
 	ImageEntrypoint func(image string) []string
+	// ImageSource locates Image for the kit build; nil leaves FROM as Image and the active builder.
+	ImageSource func(image string) sbx.ImageSource
+	// StoredAPIKeys lists the services sbx's store holds an API key for; nil reads as none.
+	StoredAPIKeys func() []string
 	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
 	AgentEnv         []string
 	Sid, RunDir      string
@@ -1155,6 +1161,18 @@ func imageEntrypoint(in Input) []string {
 		return nil
 	}
 	return in.ImageEntrypoint(in.Image)
+}
+
+// imageSource is where Image lives for the kit build.
+func imageSource(in Input) sbx.ImageSource {
+	if in.ImageSource == nil {
+		return sbx.ImageSource{Ref: in.Image}
+	}
+	src := in.ImageSource(in.Image)
+	if src.Host && src.Builder == "" {
+		ui.Warnf("sandbox: no docker-driver buildx builder reads the host image store — the active builder (`docker buildx ls`, marked *) builds %s; set PROVEO_BUILDX_LOCAL_BUILDER to choose one", in.Image)
+	}
+	return src
 }
 
 // Harness is the def a target belongs to. One manifest owns several targets —
@@ -1216,7 +1234,12 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 				return
 			}
 		}
-		if _, kind := credentials.StoreName(name, in.Target); kind == credentials.StoreUninjectable {
+		service, kind := credentials.StoreName(name)
+		if (in.Forwards || kind == credentials.StoreUninjectable) && secretref.IsReference(v) {
+			ui.Warnf("%s holds a secret reference; only sbx resolves references, and this variable would ride the agent env — not passed", name)
+			return
+		}
+		if kind == credentials.StoreUninjectable {
 			addForward(name) // nothing to attach: a signing key or a credentials file, not a header
 			return
 		}
@@ -1224,7 +1247,12 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 			addForward(name) // the operator chose the complete route over the safer one
 			return
 		}
-		if service, kind := credentials.StoreName(name, in.Target); kind == credentials.StoreAPIKey && sbx.HasOAuthSlot(service) {
+		if kind == credentials.StoreSubscription {
+			ui.Notef("sandbox secret: %s not stored — sbx holds a plan login only as %q's OAuth slot; sign in with %s",
+				name, service, cmp.Or(sbx.SignIn(service), "the agent's own login"))
+			return
+		}
+		if kind == credentials.StoreAPIKey && sbx.HasOAuthSlot(service) {
 			ui.Notef("sandbox secret: %s not stored — sbx's global %q entry also holds the subscription, and an API key "+
 				"there outranks it in every sandbox; to bill per token, `sbx secret set %s` yourself", name, service, service)
 			return
@@ -1355,7 +1383,8 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		ui.Warnf("sandbox: the published %s kit could not be read (%v) — launching from the image alone", harness, upErr)
 		hasUp = false
 	}
-	recipe := sbx.RecipeV3{From: in.Image}
+	src := imageSource(in)
+	recipe := sbx.RecipeV3{From: src.From()}
 	var command []string
 	entrypoint := imageEntrypoint(in)
 	switch {
@@ -1381,6 +1410,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
 		Env:     DeclineMCPGateway(in.MCPGateway, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts)),
+		HostEnv: src.BuildEnv(),
 		Command: command,
 	}
 	if in.HomeAccess.FilesRoot != "" {
@@ -1389,7 +1419,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 
 	caps := []sbx.CapabilityV3{{Type: sbx.CapSbx}}
 	if hasUp {
-		caps = append(caps, up.Capabilities...)
+		caps = append(caps, backAPIKeys(up.Capabilities, storedAPIKeys(in))...)
 	}
 	creds, secrets := agentCredentials(in, secrets)
 	owned := upstreamServices(caps)
@@ -1572,25 +1602,26 @@ func Run(in Input) error {
 	}
 	for _, kv := range secrets {
 		ui.Section(ui.SectionSecrets)
-		if hosts, service, ok := customSecretTarget(kv[0], in.Lookup); ok {
-			ui.Hostf("sandbox secret: %s (custom — sbx does not know %q, so the hosts and the "+
-				"variable are declared with it)", kv[0], service)
-			if err := sbx.SecretSetCustom(hosts, kv[0], kv[1]); err != nil {
-				return fmt.Errorf("sandbox secret %s: %w", kv[0], err)
-			}
+		name, kind := credentials.StoreName(kv[0])
+		if name == "" || kind != credentials.StoreAPIKey {
 			continue
 		}
-		name, _ := credentials.StoreName(kv[0], in.Target)
-		if name == "" {
-			name = kv[0]
+		flags, stdin := secretref.SbxSource(kv[0], kv[1], os.Getenv)
+		if len(flags) == 0 && stdin == "" {
+			ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
+			continue
 		}
-		ui.Hostf("sandbox secret: %s stored as %s — sbx's proxy attaches it, the agent never holds it", kv[0], name)
-		if err := sbx.SecretSet(name, kv[1]); err != nil {
+		how := "its value"
+		if len(flags) > 0 {
+			how = "a source sbx resolves on the host (" + flags[0] + ") — proveo never reads the value"
+		}
+		ui.Hostf("sandbox secret: %s stored as %s for %s only, from %s; it leaves with the sandbox", kv[0], name, cfg.Name, how)
+		if err := sbx.SecretSetSource(name, cfg.Name, flags, stdin); err != nil {
 			return fmt.Errorf("sandbox secret %s: %w", name, err)
 		}
 	}
-	if len(secrets) > 0 {
-		ui.Notef("sbx's secret store is host-wide and outlives this run — `sbx secret ls`")
+	if err := refuseUnboundCredential(in, cfg.Name, w.Descriptor.Capabilities, created); err != nil {
+		return err
 	}
 	if opencodeTarget(in.Target) {
 		launchCfg, created, err = ensureOpenCodeEngine(in, cfg)
@@ -1678,6 +1709,7 @@ func Run(in Input) error {
 		ui.Hostf("%v — ending as on a normal exit", result)
 	}
 	defer func() {
+		reportCredentialInUse(in.Target, cfg.Name)
 		if clones, err := sandboxClone(in, cfg.Name); err == nil {
 			in.Clone, in.CloneKnown = clones, true
 		}
@@ -1709,7 +1741,7 @@ func Run(in Input) error {
 			}
 			if !said {
 				if hint := credentials.NoCredentialHint(in.Man, in.Target, in.HomeRoot, cfg.Env, secrets,
-					sbx.StoredSecretNames(), in.Lookup); len(hint) > 0 {
+					sbx.StoredServices(), in.Lookup); len(hint) > 0 {
 					ui.Hostf("%s", hint[0])
 					for _, l := range hint[1:] {
 						ui.Notef("%s", l)
@@ -1931,13 +1963,51 @@ func CaptureMemoryEvidence(runDir, name string) {
 	ui.Storef("memory logs: %s", path)
 }
 
-var storedSecretNames = sbx.StoredSecretNames
+var storedSecretNames = sbx.APIKeyServices
+
+// apiKeyEnvWhenBacked are the services whose upstream kit withholds proxyManaged so an unbacked key leaves sign-in open.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R6)
+var apiKeyEnvWhenBacked = map[string]bool{"cursor": true}
+
+func storedAPIKeys(in Input) []string {
+	if in.StoredAPIKeys == nil {
+		return nil
+	}
+	return in.StoredAPIKeys()
+}
+
+// backAPIKeys sets apiKey.proxyManaged on each apiKeyEnvWhenBacked credential the store backs, copying what it changes.
+func backAPIKeys(caps []sbx.CapabilityV3, stored []string) []sbx.CapabilityV3 {
+	out := append([]sbx.CapabilityV3(nil), caps...)
+	for i, c := range out {
+		cfg, ok := c.Config.(map[string]any)
+		if c.Type != sbx.CapCredential || !ok {
+			continue
+		}
+		service, _ := cfg["service"].(string)
+		apiKey, ok := cfg["apiKey"].(map[string]any)
+		if !ok || !apiKeyEnvWhenBacked[service] || !slices.Contains(stored, service) {
+			continue
+		}
+		key := maps.Clone(apiKey)
+		key["proxyManaged"] = true
+		next := maps.Clone(cfg)
+		next["apiKey"] = key
+		out[i].Config = next
+	}
+	return out
+}
 
 func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]string) {
 	var creds []sbx.CredentialV3
 	stored := map[string]bool{}
 	for _, n := range storedSecretNames() {
 		stored[n] = true
+	}
+	for _, kv := range secrets {
+		if name, kind := credentials.StoreName(kv[0]); kind == credentials.StoreAPIKey {
+			stored[name] = true
+		}
 	}
 	seen := map[string]bool{}
 	for _, name := range provider.Detect(in.Lookup) {
@@ -1953,8 +2023,6 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]s
 		if r.Header == "" || r.Query != "" {
 			continue
 		}
-		// Nothing stored under the service name: sbx would ask a human, and an
-		// unattended run stops there.
 		if !stored[name] {
 			continue
 		}
@@ -1978,32 +2046,6 @@ func agentCredentials(in Input, secrets [][2]string) ([]sbx.CredentialV3, [][2]s
 	}
 	sort.Slice(creds, func(i, j int) bool { return creds[i].Service < creds[j].Service })
 	return creds, secrets
-}
-
-// customSecretTarget answers whether a credential needs `sbx secret set-custom`
-// rather than a plain service secret, and with which hosts.
-//
-// sbx injects a plain service secret only for the thirteen services it has
-// built-in knowledge of. For any other provider it holds the value and knows
-// neither the host to match nor the header to write, which is why a stored
-// `opencode` secret still produced HTTP 401 while the same key forwarded fine.
-// A custom secret carries the hosts and the variable with it, so the proxy can
-// substitute at egress the way it does for a service it knows.
-func customSecretTarget(envVar string, lookup func(string) string) (hosts []string, service string, ok bool) {
-	for _, name := range provider.Names() {
-		r, found := provider.ResolveWith(name, envVar, lookup)
-		if !found || !strings.EqualFold(r.EnvVar, envVar) || len(r.Hosts) == 0 {
-			continue
-		}
-		if sbx.IsBuiltinService(name) {
-			return nil, name, false
-		}
-		for _, h := range r.Hosts {
-			hosts = append(hosts, sbx.DomainPatterns(h)...)
-		}
-		return hosts, name, len(hosts) > 0
-	}
-	return nil, "", false
 }
 
 // sandboxAgentEnv keeps the pairs a sandbox can honour and drops the ones that
@@ -2257,7 +2299,11 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 // createSandbox builds the workload and runs its install and startup hooks before any agent launches (P5).
 func createSandbox(cfg sbx.RunConfig) error {
 	c := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
+	c.Env = sbx.CreateEnv(os.Environ(), cfg)
 	c.Stdout, c.Stderr = os.Stderr, os.Stderr
+	if consentInteractive() {
+		c.Stdin = os.Stdin
+	}
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("sbx create %s: %w", cfg.Name, err)
 	}

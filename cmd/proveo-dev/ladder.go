@@ -9,7 +9,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-var ladderTargets = []string{"cecli", "claudecode", "codex", "cursor", "opencode"}
+var ladderTargets = []string{"claudecode", "codex", "cursor", "opencode"}
 
 var (
 	ladderSkip = regexp.MustCompile(`(?m)^--- SKIP: TestSandboxLadder [(]`)

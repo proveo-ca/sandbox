@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-func TestIdleSweepsTheFourDefsPast30s(t *testing.T) {
+func TestIdleSweepsTheThreeDefsPast30s(t *testing.T) {
 	t.Parallel()
 	got := idleStep("45s").String()
 	for _, needle := range []string{
 		"PROVEO_IDLE_TEST=1",
-		"PROVEO_IDLE_TARGETS=cecli,claudecode,cursor,opencode",
+		"PROVEO_IDLE_TARGETS=claudecode,cursor,opencode",
 		"PROVEO_IDLE_FOR=45s",
 		"-run TestAgentSurvivesIdleAtPrompt",
 		"-timeout 30m",
@@ -25,14 +25,12 @@ func TestIdleSweepsTheFourDefsPast30s(t *testing.T) {
 
 func TestIdleVerdicts(t *testing.T) {
 	t.Parallel()
-	allPass := "    --- PASS: TestAgentSurvivesIdleAtPrompt/cecli (50s)\n" +
-		"    --- PASS: TestAgentSurvivesIdleAtPrompt/claudecode (50s)\n" +
+	allPass := "    --- PASS: TestAgentSurvivesIdleAtPrompt/claudecode (50s)\n" +
 		"    --- PASS: TestAgentSurvivesIdleAtPrompt/cursor (50s)\n" +
 		"    --- PASS: TestAgentSurvivesIdleAtPrompt/opencode (50s)\n" +
-		"--- PASS: TestAgentSurvivesIdleAtPrompt (200s)\n"
-	mixed := "    --- PASS: TestAgentSurvivesIdleAtPrompt/cecli (50s)\n" +
-		"    --- FAIL: TestAgentSurvivesIdleAtPrompt/claudecode (50s)\n" +
-		"    --- SKIP: TestAgentSurvivesIdleAtPrompt/cursor (0s)\n"
+		"--- PASS: TestAgentSurvivesIdleAtPrompt (150s)\n"
+	mixed := "    --- PASS: TestAgentSurvivesIdleAtPrompt/claudecode (50s)\n" +
+		"    --- FAIL: TestAgentSurvivesIdleAtPrompt/cursor (50s)\n"
 	cases := []struct {
 		name       string
 		log        string
@@ -40,12 +38,12 @@ func TestIdleVerdicts(t *testing.T) {
 		want       []string
 		wantFailed bool
 	}{
-		{"all pass", allPass, 0, []string{"PASS cecli", "PASS claudecode", "PASS cursor", "PASS opencode"}, false},
-		{"all pass but suite red", allPass, 2, []string{"PASS cecli", "PASS claudecode", "PASS cursor", "PASS opencode", "FAIL suite exit 2"}, true},
-		{"mixed", mixed, 1, []string{"PASS cecli", "FAIL claudecode", "SKIP cursor", "MISS opencode — no subtest result"}, true},
+		{"all pass", allPass, 0, []string{"PASS claudecode", "PASS cursor", "PASS opencode"}, false},
+		{"all pass but suite red", allPass, 2, []string{"PASS claudecode", "PASS cursor", "PASS opencode", "FAIL suite exit 2"}, true},
+		{"mixed", mixed, 1, []string{"PASS claudecode", "FAIL cursor", "MISS opencode — no subtest result"}, true},
 		{"top-level skip", "--- SKIP: TestAgentSurvivesIdleAtPrompt (0.00s)\n", 0, []string{"SKIP all — the idle suite did not run"}, true},
-		{"indented top-level name is not a skip-all", "    --- SKIP: TestAgentSurvivesIdleAtPrompt/cecli (0s)\n", 0,
-			[]string{"SKIP cecli", "MISS claudecode — no subtest result", "MISS cursor — no subtest result", "MISS opencode — no subtest result"}, true},
+		{"indented top-level name is not a skip-all", "    --- SKIP: TestAgentSurvivesIdleAtPrompt/claudecode (0s)\n", 0,
+			[]string{"SKIP claudecode", "MISS cursor — no subtest result", "MISS opencode — no subtest result"}, true},
 	}
 	for _, c := range cases {
 		vs, failed := idleVerdicts(c.log, c.code)

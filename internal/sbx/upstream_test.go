@@ -2,6 +2,10 @@
 package sbx
 
 import (
+	"errors"
+	"io/fs"
+	"os/exec"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -48,7 +52,7 @@ func TestEveryBuiltinHarnessCopiesItsPublishedKitsLaunch(t *testing.T) {
 			t.Errorf("%s launch = %q, want %q (argv0 by its PATH name, so proveo's shim gates the seed)", target, got, want)
 		}
 	}
-	for _, target := range []string{"cecli", "hermes"} {
+	for _, target := range []string{"hermes"} {
 		if _, ok, _ := UpstreamKitFor(target, UpstreamOptions{}); ok {
 			t.Errorf("%s has no published kit, yet one was found", target)
 		}
@@ -146,9 +150,94 @@ func TestOnlyKitsWithGatewayHooksOfferTheGateway(t *testing.T) {
 	if !OffersMCPGateway("claudecode") {
 		t.Error("claudecode's published kit gates hooks on MCP_GATEWAY_URL; the gateway must be offered")
 	}
-	for _, target := range []string{"cecli", "hermes", "no-such-harness"} {
+	for _, target := range []string{"hermes", "no-such-harness"} {
 		if OffersMCPGateway(target) {
 			t.Errorf("%s has no published kit, yet the gateway is offered", target)
+		}
+	}
+}
+
+var (
+	jqCallRE = regexp.MustCompile(`\bjq((?:\s+(?:-[a-zA-Z]+|--arg(?:json)?\s+\w+\s+"[^"]*"))*)\s+'([^']*)'`)
+	jqArgRE  = regexp.MustCompile(`--(arg(?:json)?)\s+(\w+)`)
+)
+
+// vendoredJqFilters returns each lifecycle hook's jq filters with the --arg/--argjson names they bind.
+func vendoredJqFilters(t *testing.T) map[string][]string {
+	t.Helper()
+	out := map[string][]string{}
+	paths, err := fs.Glob(upstreamFS, "third_party/*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		b, err := upstreamFS.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Capabilities []struct {
+				Type   string
+				Config any
+			}
+		}
+		if err := yaml.Unmarshal(b, &doc); err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		for _, c := range doc.Capabilities {
+			if c.Type != CapLifecycle {
+				continue
+			}
+			phases, _ := c.Config.(map[string]any)
+			for _, v := range phases {
+				hooks, _ := v.([]any)
+				for _, h := range hooks {
+					hm, _ := h.(map[string]any)
+					var body string
+					switch cmd := hm["command"].(type) {
+					case string:
+						body = cmd
+					case []any:
+						if len(cmd) > 0 {
+							body, _ = cmd[len(cmd)-1].(string)
+						}
+					}
+					for _, m := range jqCallRE.FindAllStringSubmatch(body, -1) {
+						args := []string{"-n"}
+						for _, a := range jqArgRE.FindAllStringSubmatch(m[1], -1) {
+							if a[1] == "argjson" {
+								args = append(args, "--argjson", a[2], "null")
+							} else {
+								args = append(args, "--arg", a[2], "")
+							}
+						}
+						out[p] = append(out[p], strings.Join(append(args, m[2]), "\x00"))
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// SPEC: _spec/internal/sbx/vendored-kit-deltas.puml
+func TestVendoredKitJqFiltersCompile(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not installed")
+	}
+	filters := vendoredJqFilters(t)
+	if n := len(filters["third_party/opencode.yaml"]); n < 7 {
+		t.Fatalf("found %d jq filters in the opencode kit's hooks, want ≥ 7; the extractor no longer sees them", n)
+	}
+	for p, calls := range filters {
+		for _, call := range calls {
+			args := strings.Split(call, "\x00")
+			out, err := exec.Command("jq", args...).CombinedOutput()
+			if exit, ok := errors.AsType[*exec.ExitError](err); ok && exit.ExitCode() == 3 {
+				t.Errorf("%s: a hook's jq filter does not compile — the hook exits 0 on that branch and imports nothing:\n%s\n%s",
+					p, out, args[len(args)-1])
+			}
 		}
 	}
 }

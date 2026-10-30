@@ -68,7 +68,7 @@ func TestImageCursor(t *testing.T) {
 			"test -d /opt/cursor-dist/.local/share/cursor-agent/versions/"+version)
 	} else {
 		s.Check("proveo.agent.version label is set", func(t *testing.T) {
-			t.Error("image predates the pin — proveo build cursor")
+			t.Error("image predates the pin — mise run build cursor")
 		})
 	}
 	s.Inspect("Docker USER is non-root (cursor)", image, `{{.Config.User}}`, "cursor")
@@ -159,7 +159,7 @@ func TestImageCursor(t *testing.T) {
 		if err := os.WriteFile(envFile, []byte("CURSOR_MODEL=from-workspace-env\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		defer os.Remove(envFile)
+		defer func() { _ = os.Remove(envFile) }()
 		out := launch()
 		cursorExpect(t, cursorLine(out, "PASSED_MODEL=$") && !strings.Contains(out, "from-workspace-env"), out)
 	})

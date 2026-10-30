@@ -186,6 +186,24 @@ func (s *Suite) Matches(desc, image, cmd, pattern string) {
 	})
 }
 
+// AsHookUser runs cmd the way sbx runs a kit hook declared `user: agent`: root, then `su -s /bin/sh -c cmd agent`.
+// SPEC: _spec/internal/sbx/vendored-kit-deltas.puml (HOOK PATH)
+func AsHookUser(image, cmd string) Result {
+	return Docker(DefaultTimeout, nil, "run", "--rm", "--user", "0", "--entrypoint", "su", image, "-s", "/bin/sh", "-c", cmd, "agent")
+}
+
+// HookFinds asserts a `user: agent` kit hook resolves bin to the agent's own binary, never a proveo shim.
+func (s *Suite) HookFinds(desc, image, bin string) {
+	s.Check(desc, func(t *testing.T) {
+		r := AsHookUser(image, "command -v "+bin+" && "+bin+" --version")
+		path, _, _ := strings.Cut(r.Out, "\n")
+		if !r.OK() || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "/opt/proveo/shims/") {
+			t.Errorf("su login PATH resolves %s to %q (ok=%v); want the real binary on /usr/local/bin\n  output: %s",
+				bin, path, r.OK(), clip(r.Out))
+		}
+	})
+}
+
 // Inspect asserts `docker inspect --format=format image` contains want.
 func (s *Suite) Inspect(desc, image, format, want string) {
 	s.Check(desc, func(t *testing.T) {

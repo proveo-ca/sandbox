@@ -4,7 +4,6 @@ title Where .git comes from, and how gitMode is honoured in each scope
 
 ' covers: internal/workspace/mount.go
 ' covers: internal/manifest/manifest.go
-' covers: defs/cecli/harness.manifest
 ' covers: defs/*/harness.manifest
 ' covers: defs/cursor/harness.manifest
 ' covers: defs/opencode/harness.manifest
@@ -12,7 +11,6 @@ title Where .git comes from, and how gitMode is honoured in each scope
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/cursor/entrypoint.sh
 ' covers: defs/opencode/entrypoint.sh
-' covers: defs/cecli/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 '
 ' ── THE CONTAINER SIDE: MAKING THAT MOUNT PLAN USABLE BY git ────────────────
@@ -96,12 +94,6 @@ note right of OVER
   **No harness sets ""gitMode: ro"" today, and a contract test keeps it that way.**
   Committing, amending and branching are normal agent work, so every harness
   mounts "".git"" read-WRITE in every scope.
-
-  cecli briefly declared ""ro"". While ""gitMode"" was only read in branch B that
-  was invisible at the repo root, so the harness kept working and the
-  declaration looked harmless. Honouring it everywhere turned it into a real
-  block — which is exactly what made the stale declaration worth removing rather
-  than preserving.
 
   The mechanism stays because it is now honest: if a harness ever needs a
   read-only history, declaring it will work in every scope instead of one.

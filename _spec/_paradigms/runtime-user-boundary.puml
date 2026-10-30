@@ -7,7 +7,6 @@ title Runtime user boundary — never root, any host uid
 '          only an alias, plus the two build-time mistakes that reversal invites
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/home_symlink_test.go
-' covers: defs/cecli/Dockerfile
 ' covers: defs/cursor/Dockerfile
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
@@ -63,10 +62,10 @@ title Runtime user boundary — never root, any host uid
 ' (e2e/ladder_test.go).
 '
 ' The reversal is therefore: the REAL home is /home/agent, and the
-' harness-specific name (/home/claude, /home/cursor, /home/opencode, /home/cecli)
+' harness-specific name (/home/claude, /home/cursor, /home/opencode)
 ' is the alias. /home/${USER_NAME} stays as a symlink because image healthchecks
-' and def tests read paths through it, and nothing ever mounts there. All four
-' harnesses do this; cecli and opencode joined cursor and claudecode because
+' and def tests read paths through it, and nothing ever mounts there. All three
+' harnesses do this; opencode joined cursor and claudecode because
 ' sbx is now the only backend that hands them a daemon. (The `docker: sbx`
 ' manifest key that once said so is deleted with F10, 2026-10-17; `daemon:
 ' false` is the one knob — _spec/internal/manifest/harness-manifest-schema.puml.)

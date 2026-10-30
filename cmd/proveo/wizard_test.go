@@ -8,7 +8,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -119,16 +118,6 @@ func TestWizardEnabled(t *testing.T) {
 
 func TestNumberedPickersUseTheStatusVocabulary(t *testing.T) {
 	var out strings.Builder
-	got, err := pickTargetsNumbered([]maintain.Target{{Name: "hermes"}, {Name: "cecli"}}, "build", strings.NewReader("1\n"), &out)
-	if err != nil || len(got) != 1 || got[0].Name != "hermes" {
-		t.Fatalf("pick = %v, %v", got, err)
-	}
-	for _, want := range []string{"build", "select a target to build:", "   0) all", "   1) hermes", "target [0]: "} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("target picker missing %q:\n%s", want, out.String())
-		}
-	}
-	out.Reset()
 	if p := pickProjectNumbered([]workspace.Project{{Path: "apps/web"}}, strings.NewReader("1\n"), &out); p != "apps/web" {
 		t.Fatalf("scope = %q", p)
 	}

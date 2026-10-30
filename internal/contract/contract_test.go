@@ -36,7 +36,7 @@ func TestEmbeddedManifestsLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Targets: %v", err)
 	}
-	for _, name := range []string{"cursor", "opencode", "cecli", "claudecode", "codex"} {
+	for _, name := range []string{"cursor", "opencode", "claudecode", "codex"} {
 		img, ok := targets[name]
 		if !ok {
 			t.Errorf("missing target %q in embedded manifests", name)
@@ -67,7 +67,6 @@ func TestEntrypointsRunTheShellPreludeThenPrep(t *testing.T) {
 		"defs/codex/entrypoint.sh",
 		"defs/opencode/entrypoint.sh",
 		"defs/cursor/entrypoint.sh",
-		"defs/cecli/entrypoint.sh",
 		"defs/claudecode/mcp/entrypoint.sh",
 		"defs/hermes/entrypoint.sh",
 	} {

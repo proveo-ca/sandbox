@@ -1,0 +1,106 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: every byte proveo's vendored sbx kits differ from UpstreamKitsRef, and when each delta can go
+' covers: internal/sbx/third_party/opencode.yaml
+' covers: internal/sbx/upstream_test.go (TestVendoredKitJqFiltersCompile)
+' covers: internal/imagetest/opencode_test.go (ocCredentialImport)
+' covers: internal/imagetest/imagetest.go (AsHookUser, HookFinds)
+' covers: defs/opencode/Dockerfile, defs/claudecode/mcp/Dockerfile (/usr/local/bin link)
+' see: _spec/internal/sbx/sbx-kit-v3.puml (UPSTREAM KITS)
+'
+' ── RULE ───────────────────────────────────────────────────────────────────
+' third_party/ is a copy of docker/sbx-kits-contrib at UpstreamKitsRef. A local
+' edit is a delta: it is listed here with its upstream report, and a re-vendor
+' re-checks each one (drop it when upstream carries the fix, re-apply otherwise).
+'
+' ── DELTA 1: opencode import filter, one `}` (2026-10-28) ──────────────────
+' MEASURED on Fedora, sbx 0.50.0, proveo dev@b6309a0, opencode + ChatGPT subscription:
+'   `sbx secret ls`                    openai (oauth configured)
+'   SBX_CRED_OPENAI_MODE               oauth
+'   ~/.local/share/opencode/auth.json  access/refresh == oai-oat01/oai-ort01-proxy-managed
+'   `opencode auth export`             []        ← no sbx-openai record
+'   opencode                           request without the subscription's auth header
+' The startup hook "Import sandbox OAuth credentials into OpenCode v2" reshapes
+' auth.json into `opencode auth import` records with jq. Its `oauth()` def opens
+' `then {` and closes only the `value: (…)` parens before `else empty end`:
+'   jq: error: syntax error, unexpected else, expecting '}' … line 19
+' The hook catches that as "auth.json is not valid OpenCode OAuth data" and exits 0,
+' so every start imports nothing. jq 1.7 and 1.8.1 reject it alike (MEASURED).
+' Present at 8b0844a and on sbx-kits-contrib main (f1979e6, 2026-10-26).
+' Delta: `else {} end))` → `else {} end))}`. With it the filter yields
+'   [{"id":"sbx-openai","integrationID":"openai","label":"Sandbox OpenAI","active":true,
+'     "value":{"type":"oauth","methodID":"chatgpt-browser",…}}]
+' TestVendoredKitJqFiltersCompile compiles every jq filter in every vendored
+' lifecycle hook (jq -n, bound args null/""; exit 3 = compile error) and fails
+' on this delta's absence.
+' Upstream report: not yet filed (drafted for review 2026-10-28).
+' Drop when: UpstreamKitsRef includes the brace.
+'
+' ── DELTA 2: opencode import activates sbx's record (2026-10-28, P4) ────────
+' The Executor chose C7 "the agent cannot outrank sbx"
+' (_spec/_plans/sbx-native-credential-storage.puml). Upstream's reconcile step
+' switches to the imported `sbx-openai` record only when the ACTIVE record is
+' already sbx-managed, so an agent-owned login (opencode's own "Sign in with
+' ChatGPT", methodID chatgpt-token-sharing, a real token) stays active and its
+' requests reach sbx's proxy without the sentinel it substitutes.
+' MEASURED in proveo/opencode:local, opencode auth export after the hook:
+'   upstream rule  → cred_native1 active, sbx-openai imported but inactive
+'                    (Fedora's state, credential-resolution.puml O3)
+' Delta, opencode.yaml reconcile filter:
+'   activate: ($wanted.desired != null and $active != null and ($active | managed($wanted)))
+'   → activate: ($wanted.desired != null)
+' Result, MEASURED in the same image:
+'   sbx credential rendered     → sbx-openai active, cred_native1 kept, inactive
+'   second start                → unchanged (idempotent)
+'   no sbx credential rendered  → cred_native1 stays active, nothing imported
+' The agent's own record is never deleted, so `opencode auth switch` still
+' reaches it. TestImageOpencode/"sbx's OAuth record becomes active over an
+' agent-owned login, which is kept" fails on the upstream rule and passes with
+' the delta; "without sbx's rendered credential…" pins the untouched case.
+' cursor needs no delta [Inference: its kit's oauth declares tokenEndpoint
+' api2.cursor.sh/auth/poll, which credential@1 says the runtime MUST intercept
+' and answer with sentinels, so an in-sandbox cursor login is sbx's; proveo
+' also scrubs .cursor/auth.json each run (manifest deny)]. codex already has
+' forced_login_method = "api" in managed modes.
+' Upstream report: drafted with DELTA 1, not filed.
+' Drop when: UpstreamKitsRef carries an equivalent rule.
+'
+' ── HOOK PATH: a `user: agent` hook runs under su's login PATH (2026-10-28) ─
+' Not a kit delta: proveo's images carry it. sbx renders each `user: agent`
+' hook as /etc/durable-startup.d/<n>/<k>-cmd.sh = `exec su -s /bin/sh -c '<cmd>' agent`.
+' pam_env (readenv=1) then sets PATH from /etc/environment:
+'   /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:…
+' The image's ENV PATH (/opt/proveo/shims, npm-global/bin) never reaches the hook.
+' MEASURED, Mac sbx 0.50.0, proveo dev@d4a8e0c, fresh proveo-opencode sandbox:
+'   /var/log/sbx-kit-startup.log   sh: 6: opencode: not found
+'                                  unable to read OpenCode v2 credentials; leaving them unchanged
+'   the same hook run by hand      Imported 1 credential; sbx-openai active
+' So DELTA 1 and DELTA 2 never ran in a real sandbox; the image test ran the
+' hook as uid 1000 with the image PATH and passed.
+' Effect on Fedora (opencode + ChatGPT subscription, MODE=oauth):
+'   opencode auth export          []  → the openai provider falls back to OPENAI_API_KEY=proxy-managed
+'   request                       api.openai.com/v1/responses
+'   sbx proxy                     swaps the sentinel for the ChatGPT OAuth JWT (MEASURED: a bare
+'                                 curl there from the sandbox returns invalid_jwt under a stale login)
+'   OpenAI                        403 "Missing scopes: api.responses.write"
+' Rule: an image links every agent binary a vendored `user: agent` hook calls
+' into /usr/local/bin, as the real binary. The shim stays first on the agent's
+' PATH; a hook must never reach it, because proveo-await-seed waits for the seed,
+' which runs after the hooks.
+'   opencode  → Import sandbox OAuth credentials into OpenCode v2
+'   claude    → Register the sandbox MCP gateway with claude (MCP gateway on)
+'   cursor-agent already lives in /usr/local/bin; codex's hooks call no binary.
+' imagetest.HookFinds checks the link per image; ocCredentialImport runs the
+' import hook through su as sbx does (red on the unlinked image, MEASURED).
+title Vendored kit deltas
+
+file "docker/sbx-kits-contrib\n@UpstreamKitsRef" as UP <<cloud>>
+file "internal/sbx/third_party/opencode.yaml\n+ `}` (delta 1)\nactivate sbx record (delta 2)" as VEN <<app>>
+component "TestVendoredKitJqFiltersCompile\njq -n per hook filter" as T <<app>>
+component "sandbox start\nImport sandbox OAuth → opencode auth import" as HOOK <<cloud>>
+
+UP --> VEN : vendor + deltas
+VEN --> T : every jq filter compiles
+VEN --> HOOK : lifecycle@1 copied by UpstreamKitFor
+@enduml

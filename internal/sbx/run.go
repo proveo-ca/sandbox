@@ -1,4 +1,4 @@
-// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/sbx/kit-lifecycle.puml, _spec/internal/sbx/ide-attach.puml
+// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/credential-resolution.puml, _spec/internal/sbx/kit-lifecycle.puml, _spec/internal/sbx/ide-attach.puml
 package sbx
 
 import (
@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -85,22 +86,6 @@ func RunningNames() (names []string, ok bool) {
 	return names, true
 }
 
-func StoredSecretNames() []string {
-	out, err := sh.SecretList()
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		if len(f) < 3 || f[2] == "NAME" {
-			continue
-		}
-		names = append(names, f[2])
-	}
-	return names
-}
-
 func ImageEntrypoint(image string) []string { return sh.ImageEntrypoint(image) }
 
 func ImageCmd(image string) []string { return sh.ImageCmd(image) }
@@ -139,12 +124,23 @@ type RunConfig struct {
 	Publish []string
 	Env     []string // non-secret KEY=VALUE (or bare NAME) passthrough
 	EnvFile string   // KEY=value file sbx loads with --env-file
+	HostEnv []string // KEY=VALUE for the sbx process itself (kit build); never reaches the sandbox
 	Command []string // trailing agent command (after "--")
 }
 
 func CreateArgs(cfg RunConfig) []string {
 	cfg.Command = nil
 	return append([]string{"create"}, RunArgs(cfg)[1:]...)
+}
+
+// CreateLine is the shell line for `sbx create`, prefixed with the env its kit build needs.
+func CreateLine(cfg RunConfig) string {
+	return strings.TrimSpace(ShellJoin(cfg.HostEnv) + " sbx " + ShellJoin(CreateArgs(cfg)))
+}
+
+// CreateEnv is environ with cfg.HostEnv appended, so a HostEnv key overrides an inherited one.
+func CreateEnv(environ []string, cfg RunConfig) []string {
+	return append(append([]string{}, environ...), cfg.HostEnv...)
 }
 
 // Reattach is the launch config for a sandbox that already exists.
@@ -455,4 +451,10 @@ func AuthLoginArgs(agent, workspace string) []string {
 	}
 	args := []string{"run", agent, workspace, "--"}
 	return append(args, sub...)
+}
+
+// ExecOutput runs script under bash in a running sandbox and returns its stdout, killed after timeout.
+func ExecOutput(name, script string, timeout time.Duration) (string, error) {
+	out, err := boundedWith(timeout, Binary, "exec", "-w", "/", name, "--", "bash", "-c", script)
+	return string(out), err
 }

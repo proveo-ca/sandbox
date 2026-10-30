@@ -13,13 +13,13 @@
 ' _spec/internal/entrypoint/model-alias-bridges.puml.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-' purpose: the planned model table — one canonical id, four harness dialects, three roles
+' purpose: the planned model table — one canonical id, three harness dialects, three roles
 ' covers: internal/provider/models.go, internal/provider/models_test.go
 ' covers: internal/provider/roles.go, internal/provider/roles_test.go
 ' tier 3 of resolution — planFallback, entitlement-safety, the `-free` heuristic
 ' and scripts/rank-plan-fallbacks.py — is specified in
 ' _spec/internal/credentials/credential-decisions.puml, not duplicated here
-title PLAN — model catalog: one canonical id, four harness dialects, three roles
+title PLAN — model catalog: one canonical id, three harness dialects, three roles
 
 node "proveo host" as HOST <<host>> {
   component "canonical id\nkimi-k3 · grok-4.5 · grok-4.5-fast" as CANON <<app>>
@@ -27,8 +27,7 @@ node "proveo host" as HOST <<host>> {
   component "role vars\nARCHITECT_MODEL · EDITOR_MODEL\nSMALL_MODEL" as ROLES <<app>>
 }
 
-folder "harness dialects — same model, four spellings" as DIA <<host>> {
-  component "cecli / aider\nlitellm: provider/model\nCECLI_* · AIDER_*" as CECLI <<app>>
+folder "harness dialects — same model, three spellings" as DIA <<host>> {
   component "opencode\nmodels.dev: provider/model\nOPENCODE_MODEL · _SMALL_MODEL" as OC <<app>>
   component "claudecode\nANTHROPIC_MODEL\nANTHROPIC_SMALL_FAST_MODEL" as CC <<app>>
   component "cursor\nvendor-pinned names\n--model, no override" as CUR <<error>>
@@ -38,7 +37,6 @@ component "sync-models skill\nfetch, never recall" as SYNC <<cloud>>
 
 CANON ARROW_MAIN CAT
 CAT ARROW_MAIN ROLES
-ROLES ARROW_MAIN CECLI : entrypoint translates
 ROLES ARROW_MAIN OC
 ROLES ARROW_MAIN CC
 ROLES ARROW_ERROR CUR : cannot be retargeted

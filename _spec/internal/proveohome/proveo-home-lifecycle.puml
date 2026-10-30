@@ -48,8 +48,7 @@ end note
 note over RUN
   ""ResumeArgs"" maps one proveo surface onto four CLIs:
   ""--resume <id>"" · ""--continue"" · ""--ls"" → the family
-  form for cursor / claudecode / opencode (cecli keeps
-  project state in ""/app/.cecli"", home conf only).
+  form for cursor / claudecode / opencode.
   Passing two of the three is an error, not a precedence rule.
 end note
 note over RUN

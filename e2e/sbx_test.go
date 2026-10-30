@@ -488,10 +488,7 @@ func TestEveryMountThePrintedCreateLineNamesExists(t *testing.T) {
 	for _, target := range dockerTargets(func(m manifest.Manifest) bool { return len(m.Home.Files) > 0 }) {
 		t.Run(target, func(t *testing.T) {
 			_, out := renderWorkload(t, target)
-			create := shellWords(printedLine(t, out, "# sandbox"))
-			if len(create) > 0 && create[0] == sbx.Binary {
-				create = create[1:]
-			}
+			create := createArgv(printedLine(t, out, "# sandbox"))
 			mounts := printedMounts(create)
 			if len(mounts) == 0 {
 				t.Fatalf("the printed create line mounts nothing: %q", create)
@@ -804,7 +801,7 @@ func removeLeakedSandboxes(t *testing.T, before map[string]bool, canList bool) {
 		return
 	}
 	for _, name := range newSandboxes(before) {
-		if out, err := exec.Command(sbx.Binary, sbx.RemoveArgs(name)...).CombinedOutput(); err != nil {
+		if out, err := removeSandbox(t, name); err != nil {
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, name, err, out)
 		}
 	}
@@ -850,6 +847,25 @@ func envValueInArgv(argv, name string) string {
 		}
 	}
 	return got
+}
+
+// TestRemoveSandboxGivesUpOnAWedgedGuest runs removeSandbox against an `sbx` that never exits.
+// SPEC: _spec/tests/testing-strategy.puml (A WEDGED GUEST HANGS sbx rm)
+func TestRemoveSandboxGivesUpOnAWedgedGuest(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "sbx"), []byte("#!/bin/sh\nexec sleep 600\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PROVEO_TEST_TEARDOWN", "2s")
+	start := time.Now()
+	_, err := removeSandbox(t, "proveo-hermes-wedged")
+	if took := time.Since(start); took > 15*time.Second {
+		t.Errorf("removeSandbox returned after %s; PROVEO_TEST_TEARDOWN=2s bounds it", took)
+	}
+	if err == nil || !strings.Contains(err.Error(), "SANDBOX_NAME=proveo-hermes-wedged") {
+		t.Errorf("removeSandbox error = %v; want the deadline named with the shim to kill", err)
+	}
 }
 
 // TestSweepNeverClaimsAnOperatorSandbox pins the ownership rule: a sandbox

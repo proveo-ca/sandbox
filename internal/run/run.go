@@ -1,4 +1,4 @@
-// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/oauth-provisioning.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
+// SPEC: _spec/_devops/agent-version-pin.puml, _spec/internal/runlog/run-transcript.puml, _spec/_paradigms/retire-dind.puml, _spec/internal/sbx/credential-resolution.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/clone-workspace.puml, _spec/_paradigms/credential-boundary.puml
 package run
 
 import (
@@ -21,6 +21,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/operator"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -28,7 +29,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -142,7 +142,7 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	}
 
 	rs.InvocationWD, _ = os.Getwd()
-	rs.Creds.HostEnvFile = strings.TrimSpace(renamedEnv("PROVEO_ENV_FILE", "PROVEO_EGRESS_ENV_FILE"))
+	rs.Creds.HostEnvFile = strings.TrimSpace(os.Getenv("PROVEO_ENV_FILE"))
 	if rs.Creds.HostEnvFile == "" {
 		rs.Creds.HostEnvFile = workspace.ProjectEnvFile(rs.InvocationWD, rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot)
 	}
@@ -239,7 +239,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	}
 	if v := posture.AgentVersion(p.Image); v != "" {
 		ui.Section(ui.SectionRun)
-		ui.Appf("agent: %s %s — pinned at build (`proveo build %s` moves it)", p.Target, v, p.Target)
+		ui.Appf("agent: %s %s — pinned at build (`mise run build %s` moves it)", p.Target, v, p.Target)
 	}
 	return nil
 }
@@ -291,46 +291,16 @@ func startHostADB(p *Params) ([]string, error) {
 	return hostadb.GuestEnv(port), nil
 }
 
-func hostStoreResolver() *secretref.Resolver {
-	return &secretref.Resolver{
-		Getenv: os.Getenv,
-		Announce: func(string) {
-			ui.Section(ui.SectionCredentials)
-			ui.Hostf("reading the host secret store — approve the prompt if one appears")
-		},
-	}
-}
-
-func reportSandboxLogin(rs *Spec, p *Params) {
+func reportSandboxLogin(rs *Spec) {
 	ui.Section(ui.SectionCredentials)
 	if !credentials.NeedsSandboxLogin(rs.Man, true,
 		rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
 		return
 	}
-	argv := ""
-	// Keyed on the DEF: a variant target (claudecode-browser) is the same
-	// harness and the same built-in agent.
-	if a := sbx.AuthLoginArgs(sbx.BuiltinAgent(rs.Man.Name), rs.Workspace.WS.InputDir); a != nil {
-		argv = sbx.Binary + " " + strings.Join(a, " ")
-	}
-	lines := rs.Creds.Keychain.SandboxLoginHint(argv)
-	ui.Hostf("%s", lines[0])
-	for _, l := range lines[1:] {
-		ui.Notef("%s", l)
-	}
-}
-
-func reportKeychain(k credentials.KeychainLogin, sbxBackend, fileLogin bool) {
-	ui.Section(ui.SectionCredentials)
-	if line := k.Report(); line != "" {
-		ui.Hostf("%s", line)
-		if advice := k.KeychainAdvice(sbxBackend, fileLogin); advice != "" {
-			ui.Notef("%s", advice)
-		}
-		return
-	}
-	if advice := k.KeychainFailureAdvice(); advice != "" {
-		ui.Warnf("%s", advice)
+	svc := sbx.SubscriptionService(sbx.BuiltinAgent(credentials.HarnessFamily(rs.Man.Name)))
+	ui.Hostf("the sandbox has no credential of its own — sbx keeps a subscription login only in its own store")
+	if how := sbx.SignIn(svc); how != "" {
+		ui.Notef("sign in once with %s; sbx then holds it as %s (oauth configured) for every sandbox", how, svc)
 	}
 }
 
@@ -340,10 +310,7 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man)
 	rs.Creds.LoggedIn = rs.Creds.FileLogin || len(rs.Creds.StoreHeld) > 0
 	if !p.PrintOnly {
-		rs.Creds.Keychain = credentials.ReadKeychainLogin(
-			p.Target, credentials.OSLookupEnv, hostStoreResolver(), time.Now())
-		reportKeychain(rs.Creds.Keychain, true, rs.Creds.FileLogin)
-		reportSandboxLogin(rs, p)
+		reportSandboxLogin(rs)
 	}
 	if rs.Creds.LoginNeedsRefresh && !p.PrintOnly {
 		ui.Hostf("the login in the proveo home needs a refresh — the agent may report " +
@@ -429,8 +396,6 @@ func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
 		ui.Hostf("%s: using the login persisted in the proveo home", rs.Man.Name)
 		missing = nil
 	case rs.Man.Subscription && len(rs.Creds.StoreHeld) > 0:
-		ui.Hostf("%s: using %s from sbx's stored credentials — proveo can see that it is there, not what it holds",
-			rs.Man.Name, strings.Join(rs.Creds.StoreHeld, ", "))
 		missing = nil
 	case rs.Man.Subscription:
 		rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
@@ -680,7 +645,11 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		MCPGateway: p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
 		Desktop:    desktop, DesktopLaunch: desktopLaunch,
 		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
-		ImageEntrypoint:  sbx.ImageEntrypoint,
+		ImageEntrypoint: sbx.ImageEntrypoint,
+		ImageSource: func(ref string) sbx.ImageSource {
+			return sbx.ResolveImageSource(ref, imagebuild.New("").HostBuilder)
+		},
+		StoredAPIKeys:    sbx.APIKeyServices,
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,
 		Detected:         rs.Creds.Detected,
@@ -720,7 +689,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
 		}
 		if desktop {
-			fmt.Printf("# sandbox\nsbx %s\n# desktop\nsbx %s && Hermes Desktop → SSH gateway %s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+			fmt.Printf("# sandbox\n%s\n# desktop\nsbx %s && Hermes Desktop → SSH gateway %s\n", sbx.CreateLine(cfg),
 				sbx.ShellJoin(sbx.SetupSSHArgs()), sandbox.DesktopGateway(cfg.Name))
 			return nil
 		}
@@ -728,7 +697,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		if len(w.Recipe.Entrypoint) == 0 {
 			imageCmd = sbx.ImageCmd(in.Image)
 		}
-		fmt.Printf("# sandbox\nsbx %s\n# agent\nsbx %s\n# in-sandbox\n%s\n", sbx.ShellJoin(sbx.CreateArgs(cfg)),
+		fmt.Printf("# sandbox\n%s\n# agent\nsbx %s\n# in-sandbox\n%s\n", sbx.CreateLine(cfg),
 			sbx.ShellJoin(sbx.RunArgs(sbx.Reattach(cfg))),
 			cmp.Or(sbx.ShellJoin(sbx.Launched(w.Entrypoint, imageCmd, cfg.Command)), "(no readable ENTRYPOINT on "+in.Image+")"))
 		return nil

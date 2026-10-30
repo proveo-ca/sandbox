@@ -16,16 +16,7 @@ type retirement struct {
 	what, file, marker string
 }
 
-var retirements = []retirement{
-	{"PROVEO_EGRESS_ROOT, the deprecated alias of PROVEO_STATE_ROOT",
-		"internal/run/helpers.go", `renamedEnv("PROVEO_STATE_ROOT", "PROVEO_EGRESS_ROOT")`},
-	{"PROVEO_EGRESS_ENV_FILE, the deprecated alias of PROVEO_ENV_FILE",
-		"internal/run/run.go", `renamedEnv("PROVEO_ENV_FILE", "PROVEO_EGRESS_ENV_FILE")`},
-	{"the retired egress/ run-state root that proveo clean still sweeps",
-		"internal/run/helpers.go", `filepath.Join(state, "egress")`},
-	{"PROVEO_CLI_BASE_URL, the deprecated alias of PROVEO_ASSET_BASE_URL",
-		"apps/cli/public/cli/install.sh", `PROVEO_CLI_BASE_URL is deprecated`},
-}
+var retirements = []retirement{}
 
 func TestEveryRetirementMarkerIsStillInTheTree(t *testing.T) {
 	t.Parallel()

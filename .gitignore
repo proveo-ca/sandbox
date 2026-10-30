@@ -62,7 +62,6 @@ Thumbs.db
 
 # --- AI Assistants & Coding Harnesses ---
 .aider*
-.cecli*
 .copilot*
 .opencode/
 # Project-scoped agent config IS shared: .claude/skills, agents, commands and

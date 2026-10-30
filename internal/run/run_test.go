@@ -2,13 +2,10 @@
 package run
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -196,10 +193,10 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 
 	cfg, kit, secrets := sandbox.Spec(in)
 
-	wantSecrets := map[string]bool{"CLAUDE_CODE_OAUTH_TOKEN": false}
+	wantSecrets := map[string]bool{}
 	if len(secrets) != len(wantSecrets) {
-		t.Fatalf("secrets = %v, want exactly the declared plan credential %v — an API key "+
-			"in sbx's anthropic entry outranks the subscription", secrets, wantSecrets)
+		t.Fatalf("secrets = %v, want none: a plan token has no store slot (R4) and an API key "+
+			"in sbx's anthropic entry outranks the subscription (R5)", secrets)
 	}
 	for _, kv := range secrets {
 		if _, tracked := wantSecrets[kv[0]]; !tracked {
@@ -316,17 +313,17 @@ func TestAProviderSbxCannotInjectIsStillForwarded(t *testing.T) {
 		return map[string]string{"AWS_ACCESS_KEY_ID": "AKIA-value"}[k]
 	}
 	in := sandbox.Input{
-		Target:   "cecli",
-		Image:    "proveo/cecli:latest",
+		Target:   "hermes",
+		Image:    "proveo/hermes:latest",
 		Evidence: EvidenceDefault,
 		Man: manifest.Manifest{
-			Name: "cecli",
+			Name: "hermes",
 			Env:  []manifest.EnvVar{{Name: "AWS_ACCESS_KEY_ID", Secret: true}},
 			Capabilities: manifest.Capabilities{
 				Credentials: []string{"broker"},
 			},
 		},
-		Sid:    "proveo-cecli-1",
+		Sid:    "proveo-hermes-1",
 		Lookup: lookup,
 	}
 
@@ -368,19 +365,16 @@ func TestSandboxSpecBrokeredCredentialsStayHostSide(t *testing.T) {
 		Lookup: lookup,
 	}
 
-	_, _, secrets := sandbox.Spec(in)
+	cfg, _, secrets := sandbox.Spec(in)
 
-	if len(secrets) == 0 {
-		t.Fatal("secrets = none, want the declared secret injected host-side outside forward mode")
+	// SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
+	if len(secrets) != 0 {
+		t.Errorf("secrets = %v, want none: sbx reads no store entry for a plan token, so the run stores nothing", secrets)
 	}
-	var named bool
-	for _, kv := range secrets {
-		if kv[0] == "CLAUDE_CODE_OAUTH_TOKEN" {
-			named = true
+	for _, e := range cfg.Env {
+		if strings.Contains(e, "oauth-value") {
+			t.Errorf("the plan token reached the sandbox env outside forward mode: %q", e)
 		}
-	}
-	if !named {
-		t.Errorf("secrets = %v, want the declared credential injected host-side", secrets)
 	}
 }
 
@@ -587,30 +581,6 @@ func TestEgressRowShowsTheHostBaseline(t *testing.T) {
 			}
 		}
 	})
-}
-
-func claudecodeMan() manifest.Manifest {
-	return manifest.Manifest{
-		Name: "claudecode", Subscription: true, Env: []manifest.EnvVar{
-			{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true},
-			{Name: "ANTHROPIC_API_KEY", Secret: true},
-		},
-	}
-}
-
-// blankedHome writes the macOS husk: tokens cleared, stamps intact.
-func blankedHome(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	husk := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0,"refreshTokenExpiresAt":%d}}`,
-		time.Now().Add(20*24*time.Hour).UnixMilli())
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(husk), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return home
 }
 
 // SPEC: _spec/_plans/init-credential-provisioning.puml

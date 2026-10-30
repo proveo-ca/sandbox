@@ -72,8 +72,8 @@ note right of WALK
   they never inspect the workspace. Install is the only step that touches the
   network, and wiring is the only step that knows a harness's config format.
 
-  That split is why one lib serves four harnesses whose floors differ: opencode
-  and claudecode carry the Node language servers, cursor and cecli carry no Node
+  That split is why one lib serves three harnesses whose floors differ: opencode
+  and claudecode carry the Node language servers, cursor carries no Node
   runtime, and only the WIRE step differs between them.
 end note
 

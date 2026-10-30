@@ -9,7 +9,6 @@ skinparam noteTextAlignment left
 ' covers: internal/runlog/runlog_test.go
 ' covers: internal/run/outcome_test.go
 ' covers: internal/ui/ui_test.go
-' covers: internal/run/state_warning_test.go
 '   the three records the failure line offers . _spec/internal/sbx/sandbox-backend.puml
 '   the tail's pty seam ...................... _spec/internal/ptyproxy/terminal-report-filter.puml
 '   the work the same teardown rescues ....... _spec/internal/sbx/clone-workspace.puml
@@ -73,21 +72,16 @@ skinparam noteTextAlignment left
 ' The per-run state dir is <StateDir>/runs/<sid> (run.RunDirOf); the egDir
 ' parameters are runDir — runlog.Artifacts(runDir) (runlog.go:105) and
 ' sandbox.CapturePolicyLog(runDir, name) (sandbox.go:1800). Runs before N13
-' wrote <StateDir>/egress/<sid>; `proveo clean` sweeps both for one release.
+' wrote <StateDir>/egress/<sid>; `proveo clean` swept both for one release.
 '
 ' ── NOTHING THAT CAN WARN RESOLVES BEFORE THE TEE (N25, DONE (wt) 2026-10-18) ─
-' Resolving the state root can print: StateDir() reads PROVEO_STATE_ROOT through
-' renamedEnv, which warns once when only the retired PROVEO_EGRESS_ROOT is set.
-' Do used to call it first, before runlog.Open, so that warning reached the
-' terminal and never the transcript. MEASURED: Do now sets
-' rs.RunDir = RunDirOf(rs.Sid) at run.go:60, after runlog.Open (:50) and
-' ui.TeeTo (:55). TestTheRetiredStateRootWarningReachesTheRunLog
-' (internal/run/state_warning_test.go) was red with a StateDir() call restored
-' before the log opens and green with the fix (MEASURED by the coordinator).
-' Only the sid is computed earlier, and it prints nothing.
-' KNOWN LIMIT (review, recorded, not fixed): state_warning_test and
+' History: StateDir once warned when the retired PROVEO_EGRESS_ROOT was set.
+' Do moved RunDirOf after runlog.Open and ui.TeeTo so the warning reached the
+' transcript. The alias, warning, and warning-specific test were removed
+' after v0.2.0. Do still opens the log before resolving the state root.
+' KNOWN LIMIT (review, recorded, not fixed):
 ' TestDoRecordsAnEarlyFailureInTheTranscript (internal/run/outcome_test.go)
-' leave ui's package-level logOnly (ui.go:244, set by TeeTo) pointing at a log
+' leaves ui's package-level logOnly (ui.go:244, set by TeeTo) pointing at a log
 ' Do has already closed. [Inference] A later ui.Logf in the same test binary
 ' writes to a closed file and is lost.
 title Run transcript — making a denial diagnosable after the fact

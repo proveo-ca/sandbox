@@ -126,12 +126,12 @@ func TestEveryGatedOptionCarriesItsReason(t *testing.T) {
 	}
 }
 
-// cecli has no plan of its own, so there is no question to put to it.
+// hermes has no plan of its own, so there is no question to put to it.
 func TestNoAuthRowForAHarnessWithNoPlan(t *testing.T) {
 	t.Parallel()
-	cecli := manifest.Manifest{Name: "cecli"}
-	if _, ok := authRow(cecli, env(map[string]string{"ANTHROPIC_API_KEY": "sk"}), "cecli", "", "", ""); ok {
-		t.Error("asked cecli a subscription question it has no answer to")
+	hermes := manifest.Manifest{Name: "hermes"}
+	if _, ok := authRow(hermes, env(map[string]string{"ANTHROPIC_API_KEY": "sk"}), "hermes", "", "", ""); ok {
+		t.Error("asked hermes a subscription question it has no answer to")
 	}
 }
 

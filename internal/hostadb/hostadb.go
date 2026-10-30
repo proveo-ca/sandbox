@@ -47,7 +47,6 @@ var Launches = map[string]Launch{
 		},
 	}},
 	"codex":  {Why: "not wired yet: codex takes -c mcp_servers.mobile.* per launch"},
-	"cecli":  {Why: "not wired yet: cecli takes --mcp-servers / CECLI_MCP_SERVERS per launch"},
 	"cursor": {Why: "cursor-agent reads MCP servers only from a persistent ~/.cursor/mcp.json"},
 	"hermes": {Why: "hermes reads MCP servers only from its persistent config.yaml"},
 }
@@ -92,7 +91,17 @@ var (
 		return strings.TrimSpace(string(out))
 	}
 	startEmulator = launchEmulator
+	retireStale   = func(adb string, port int, serial string) []string {
+		out, _ := exec.Command(adb, "-P", strconv.Itoa(port), "-s", serial, "shell", retireStaleDeviceServer).Output()
+		return strings.Fields(string(out))
+	}
 )
+
+// retireStaleDeviceServer kills each mobilecli DeviceServer whose start precedes system_server's and prints its pid.
+// SPEC: _spec/internal/sbx/host-android-adb.puml (STALE DEVICESERVER)
+const retireStaleDeviceServer = `ss=$(pidof system_server) || exit 0; s=$(cut -d" " -f22 /proc/$ss/stat); ` +
+	`for p in $(pgrep -f com.mobilenext.mobilecli.DeviceServer); do ` +
+	`[ "$(cut -d" " -f22 /proc/$p/stat 2>/dev/null)" -lt "$s" ] 2>/dev/null && kill "$p" && echo "$p"; done; true`
 
 // EmulatorLog is where a booted emulator's stdout and stderr go.
 func EmulatorLog() string { return filepath.Join(os.TempDir(), "proveo-emulator.log") }
@@ -351,6 +360,9 @@ func attach(adb string, port int, say func(string, ...any)) (bool, error) {
 		return true, fmt.Errorf("host adb server 127.0.0.1:%d: %w", port, err)
 	}
 	say("android: reusing %s on the host adb server 127.0.0.1:%d", serial, port)
+	if pids := retireStale(adb, port, serial); len(pids) > 0 {
+		say("android: retired mobilecli DeviceServer %s on %s — it predates the device's system_server", strings.Join(pids, ", "), serial)
+	}
 	return true, nil
 }
 

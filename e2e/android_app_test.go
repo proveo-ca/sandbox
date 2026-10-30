@@ -42,10 +42,25 @@ type tuiDialog struct {
 }
 
 var androidHarnesses = []androidHarness{
-	{"opencode", `grep -rhoasE '"tool": ?"mobile_mobile_[a-z_]*"' "$HOME/.local/share/opencode" 2>/dev/null | grep -o 'mobile_mobile_[a-z_]*' | sort -u`, "mobile_mobile_", nil},
+	{"opencode", opencodeToolCalls, "mobile.mobile_", nil},
 	{"claudecode", `grep -rhoasE --include='*.jsonl' '"type":"tool_use","id":"[^"]*","name":"mcp__mobile__[a-z_]*"' "$HOME/.claude" /proveo-home/.claude 2>/dev/null | grep -o 'mcp__mobile__[a-z_]*' | sort -u`, "mcp__mobile__",
 		[]tuiDialog{{"Make auto mode your default permission mode", []string{"Down", "Enter"}}}},
 }
+
+// opencodeToolCalls lists opencode 2.x's tool calls: part names and the completed MCP calls an `execute` part made.
+// SPEC: _spec/internal/sbx/host-android-adb.puml (THE USER-STYLE E2E)
+const opencodeToolCalls = `d=$(mktemp -d) && cp "$HOME"/.local/share/opencode/opencode.db* "$d"/ 2>/dev/null && python3 - "$d/opencode.db" <<'PY'
+import json, sqlite3, sys
+names = set()
+for (data,) in sqlite3.connect(sys.argv[1]).execute("select data from session_message where type = 'assistant'"):
+    for part in json.loads(data).get("content", []):
+        if part.get("type") == "tool":
+            names.add(part.get("name", ""))
+            for call in part.get("state", {}).get("metadata", {}).get("toolCalls", []):
+                if call.get("status") == "completed":
+                    names.add(call.get("tool", ""))
+print("\n".join(sorted(n for n in names if n)))
+PY`
 
 // TestAndroidAppInWorkspaceInstallsOnTheHostEmulator drives each harness the way a
 // user does: tick android in the form, let the seed provision the build from the
@@ -207,14 +222,12 @@ func awaitNewSandbox(t *testing.T, sess *tmux.Session, before map[string]bool, t
 func awaitGuestSeed(t *testing.T, guest func(string) string, target string, timeout time.Duration) {
 	t.Helper()
 	probe := `printf 'SEED %s %s\n' "$(grep -c '^> ' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)" "$(grep -cE '^(ok|fail|error)' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`
-	posture := fmt.Sprintf(`grep -cE '^ok .*-startup-%s-posture/' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0`, target)
 	if !waitUntil(timeout, func() bool {
 		started, done := seedCounts(guest(probe))
 		if started == 0 || done < started {
 			return false
 		}
-		n, _ := strconv.Atoi(strings.TrimSpace(guest(posture)))
-		return n > 0
+		return strings.TrimSpace(guest("test -e "+seedDone+" && echo done")) == "done"
 	}) {
 		t.Fatalf("the seed did not finish within %s:\n%s", timeout, guest(`tail -40 /var/log/sbx-kit-startup.log`))
 	}

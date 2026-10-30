@@ -17,9 +17,10 @@ skinparam noteTextAlignment left
 ' ── THE RETIREMENT LEDGER BLOCKS A CLI RELEASE (N33, DONE (wt) 2026-10-18) ──
 ' A deprecated alias that promises to go "next release" needs something that
 ' notices the release happened. internal/contract/retirement_test.go holds a
-' ledger (reported): the PROVEO_EGRESS_ROOT alias, the PROVEO_EGRESS_ENV_FILE
-' alias, the retired egress/ run-root sweep and the PROVEO_CLI_BASE_URL alias,
-' each with a marker string. Tests (MEASURED that they exist):
+' ledger of live retirements, each with a marker string. The four v0.2.0
+' entries (two Go aliases, the egress/ run-root sweep, and the installer alias)
+' were removed before the next release. The empty ledger stays active so new
+' deprecations can be bounded. Tests:
 '   TestEveryRetirementMarkerIsStillInTheTree  a ledger row whose marker is gone
 '                                              must be deleted with it
 '   TestEveryDeprecatedAliasHasARetirement     every envreg AliasOf has a row
@@ -33,9 +34,8 @@ skinparam noteTextAlignment left
 ' test before goreleaser on `build-cli --release` and blocks the release unless
 ' it PASSES — a skip blocks too. Reported: red with a marker v0.1.2 contains,
 ' then green.
-' INTENDED CONSEQUENCE (recorded): main goes red from the first commit after the
-' next release until the aliases and the sweep are deleted. The deletions are
-' N33's second half and wait for that release.
+' The gate turned red after v0.2.0 shipped. Removing the expired surfaces
+' and their ledger rows made HEAD eligible for the next release.
 ' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -60,7 +60,7 @@ skinparam noteTextAlignment left
 '
 ' ON THE HOST ONLY, because each needs sbx:
 '   6  the ladder, PER DEF — one climb per target, not one climb:
-'        for t in cecli claudecode cursor opencode; do
+'        for t in claudecode cursor opencode; do
 '          PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=$t \
 '            go test -tags e2e ./e2e/ -run Ladder -v
 '        done
@@ -69,13 +69,13 @@ skinparam noteTextAlignment left
 '      SYMMETRY rather than measurement — a contract with one data point.
 '   7  the credential control:
 '        PROVEO_SBX_AGENT_KIT=1 PROVEO_LADDER_TEST=1 \
-'        PROVEO_LADDER_TARGET=cecli go test -tags e2e ./e2e/ \
+'        go test -tags e2e ./e2e/ \
 '          -run ProxyManagesTheCredential -v
 '      It runs the SAME Kit twice, with and without credentials[], and fails if
 '      both give the same value — so it proves the declaration CAUSES the
 '      sentinel rather than merely coinciding with it.
 '   8  silent-death idle, PER DEF — `mise run test-e2e-full` is this plus 6:
-'        PROVEO_IDLE_TEST=1 PROVEO_IDLE_TARGETS=cecli,claudecode,cursor,opencode \
+'        PROVEO_IDLE_TEST=1 PROVEO_IDLE_TARGETS=claudecode,cursor,opencode \
 '        PROVEO_IDLE_FOR=45s go test -tags e2e ./e2e/ -run TestAgentSurvivesIdleAtPrompt
 '      The ladder holds raw `sbx run`. Idle holds `proveo run`, where a leaked
 '      DA1 becomes a prompt and the sandbox "was stopped". 45s is past sbx's
@@ -88,9 +88,8 @@ skinparam noteTextAlignment left
 '   1  a SKIP exits 0, so an unchecked exit status reported PASS for four defs
 '      on a host with no sbx — four climbs that never happened, certified.
 '   2  the fix grepped for "--- SKIP: TestSandboxLadder" UNANCHORED, which also
-'      matches the four-space-indented SUBTEST line. cecli passed every rung
-'      with only its browser rung skipped (there is no cecli-browser image) and
-'      was reported as not-run.
+'      matches the four-space-indented SUBTEST line. A def that passed every
+'      rung with only its browser rung skipped was reported as not-run.
 '
 ' Go prints the top-level result flush left and indents subtests, so the anchor
 ' is the whole correctness of the line. The pattern is pinned by a contract
@@ -160,8 +159,8 @@ node "in-sandbox · docker only" as BOX <<host>> {
 }
 
 node "host only · needs sbx" as HOST <<host>> {
-  component "idle × 4 defs\nproveo run · zero input" as IDLE <<db>>
-  component "ladder × 4 defs\ncecli claudecode cursor opencode" as LAD <<db>>
+  component "idle × 3 defs\nproveo run · zero input" as IDLE <<db>>
+  component "ladder × 3 defs\nclaudecode cursor opencode" as LAD <<db>>
   component "credential control\nsame Kit, with and without" as CRED <<db>>
 }
 
@@ -188,9 +187,9 @@ end note
 note right of LAD
   **One climb per def, not one climb.**
   The target defaults to claudecode,
-  so a bare run measures a quarter of
+  so a bare run measures a third of
   the fleet. ""test-e2e-full"" climbs
-  all four, then idles all four.
+  all three, then idles all three.
 end note
 
 note bottom of LAD

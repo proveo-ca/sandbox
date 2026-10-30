@@ -113,7 +113,7 @@ note bottom of ENV
   inside the container.** They are the non-secret half of the environment —
   the shared baseline plus whatever this harness declares in ""config:"" — and
   each entrypoint bridges them into its own tool-specific variable
-  (""OPENCODE_MODEL"", ""CECLI_MODEL"", ""ANTHROPIC_MODEL"", …).
+  (""OPENCODE_MODEL"", ""ANTHROPIC_MODEL"", …).
 
   They //must// arrive as env because no image reads the workspace ""\.env""
   (N7, 2026-10-17); the project's own values reach a new sandbox through

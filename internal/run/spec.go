@@ -5,7 +5,6 @@ package run
 
 import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
-	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -60,7 +59,6 @@ type CredentialSpec struct {
 	StoreHeld          []string // names sbx's store holds; proveo sees that they exist, not what they hold
 	LoggedIn           bool
 	AuthMissingAtStart []manifest.EnvVar
-	Keychain           credentials.KeychainLogin
 
 	HomePlan proveohome.Plan
 }

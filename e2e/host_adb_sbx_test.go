@@ -34,7 +34,7 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 	}
 	image := imagetest.PinnedRef("claudecode", "proveo/claudecode:local")
 	if !dockerImagePresent(t, image) {
-		t.Skipf("image %s not built (proveo build claudecode)", image)
+		t.Skipf("image %s not built (mise run build claudecode)", image)
 	}
 	port, err := hostadb.Port(os.Getenv)
 	if err != nil {

@@ -6,7 +6,7 @@
 
 <sub>The capability picker on `e2e/samples`. Record a live terminal version with `vhs _spec/_assets/hero.tape`.</sub>
 
-`proveo run <agent>` drops a coding agent (opencode, Claude Code, Codex, Cursor, cecli) into an
+`proveo run <agent>` drops a coding agent (opencode, Claude Code, Codex, Cursor) into an
 **ephemeral [Docker Sandboxes](https://github.com/docker/sbx-releases) (sbx) microVM** scoped to
 your repo — with sbx's network policy on egress, sbx's credential proxy keeping API keys **out of
 the agent**, opt-in Playwright/browser and Docker-in-Docker, and local-model support where the
@@ -105,7 +105,6 @@ pills and the first-run choice prompt.
 | **Claude Code** | `claudecode` (+ `-solidity`, `-browser`) | MCP / Solidity toolchain; subscription auth (Anthropic) |
 | **Codex** | `codex` · `codex-browser` | same loop as Claude Code; ChatGPT-plan login or `OPENAI_API_KEY`; LSP over MCP |
 | **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference; subscription auth |
-| **cecli** | `cecli` | aider fork (Python); `--local-model` |
 
 `-browser` variants add **Playwright + Chromium** (opt-in via the picker, sharing one Chromium
 layer).
@@ -174,7 +173,6 @@ other link is reported at launch and left unfollowed.
 | claudecode | `~/.proveo/.claude` | `proveo run claudecode --resume <id>` / `--continue` |
 | codex | `~/.proveo/.codex` | `proveo run codex --resume <id>` / `--continue` / `--ls` |
 | opencode | `~/.proveo/opencode/v2/config` (history lives in the engine) | `proveo run opencode --resume <session-id>` |
-| cecli | `~/.proveo/.cecli` | home conf only (project state stays in `/app/.cecli`) |
 | hermes | `~/.proveo/hermes/data`, bound as `HERMES_HOME` (sessions, memories, skills) | survives `sbx rm` |
 
 Routine `proveo clean` leaves this cache alone; reclaim with `proveo clean --homes`.

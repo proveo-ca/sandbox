@@ -11,7 +11,7 @@ import (
 // is what makes a harness probe a provider nobody asked it to use.
 func gatedInput(t *testing.T, permitted ...string) Input {
 	t.Helper()
-	in := specInput("cecli")
+	in := specInput("hermes")
 	in.Man.Capabilities.Providers = permitted
 	in.Detected = []string{"anthropic", "xai"}
 	in.Lookup = func(k string) string {

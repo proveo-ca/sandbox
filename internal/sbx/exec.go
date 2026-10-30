@@ -22,14 +22,14 @@ type CLI struct {
 	PolicyCheck    func(host string) ([]byte, error)
 
 	LocalImageID    func(image string) string
+	RepoDigests     func(image string) []string
 	ImageEntrypoint func(image string) []string
 	ImageCmd        func(image string) []string
 
-	SandboxList        func() ([]byte, error)
-	SecretList         func() ([]byte, error)
-	SecretSet          func(name, value string) error
-	SecretSetCustom    func(hosts []string, envVar, value string) error
-	SecretRemoveCustom func(placeholder string) error
+	SandboxList   func() ([]byte, error)
+	SecretList    func() ([]byte, error)
+	SecretSet     func(name, value string) error
+	SecretSetFrom func(args []string, stdin string) error
 }
 
 var sh = defaultCLI()
@@ -77,15 +77,13 @@ func defaultCLI() CLI {
 		PolicyCheck:   func(host string) ([]byte, error) { return bounded(Binary, CheckNetworkArgs(host)...) },
 
 		LocalImageID:    dockerImageID,
+		RepoDigests:     dockerRepoDigests,
 		ImageEntrypoint: func(image string) []string { return dockerImageList(image, "Entrypoint") },
 		ImageCmd:        func(image string) []string { return dockerImageList(image, "Cmd") },
 		SandboxList:     func() ([]byte, error) { return boundedCombined(Binary, "ls") },
 		SecretList:      func() ([]byte, error) { return boundedCombined(Binary, "secret", "ls") },
 		SecretSet:       sbxSecretSet,
-		SecretSetCustom: sbxSecretSetCustom,
-		SecretRemoveCustom: func(p string) error {
-			return exec.Command(Binary, SecretRemoveCustomArgs(p)...).Run()
-		},
+		SecretSetFrom:   sbxSecretSetFrom,
 	}
 }
 
@@ -115,9 +113,9 @@ func dockerImageList(image, field string) []string {
 	return ep
 }
 
-func sbxSecretSetCustom(hosts []string, envVar, value string) error {
-	cmd := exec.Command(Binary, SecretSetCustomArgs(hosts, envVar)...)
-	cmd.Stdin = strings.NewReader(value)
+func sbxSecretSetFrom(args []string, stdin string) error {
+	cmd := exec.Command(Binary, args...)
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

@@ -5,6 +5,8 @@
 package e2e
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -198,9 +200,25 @@ func sweepSandboxesAfter(t *testing.T) {
 			return
 		}
 		for _, name := range newSandboxes(before) {
-			_ = exec.Command(sbx.Binary, "rm", "--force", name).Run()
+			_, _ = removeSandbox(t, name)
 		}
 	})
 }
 
 var sweptTests sync.Map
+
+// removeSandbox runs `sbx rm --force name` within PROVEO_TEST_TEARDOWN (default 3m).
+// SPEC: _spec/tests/testing-strategy.puml (A WEDGED GUEST HANGS sbx rm)
+func removeSandbox(t *testing.T, name string) (string, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), durationEnv(t, "PROVEO_TEST_TEARDOWN", 3*time.Minute))
+	defer cancel()
+	cmd := exec.CommandContext(ctx, sbx.Binary, sbx.RemoveArgs(name)...)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		err = fmt.Errorf("%s rm %s outlived PROVEO_TEST_TEARDOWN; its guest is wedged — SIGKILL the shim whose config.json names SANDBOX_NAME=%s: %w",
+			sbx.Binary, name, name, ctx.Err())
+	}
+	return string(out), err
+}

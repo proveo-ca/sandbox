@@ -5,7 +5,6 @@ title Python environments — detected and provisioned, never inherited
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/opencode/entrypoint.sh
 ' covers: defs/cursor/entrypoint.sh
-' covers: defs/cecli/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 '
 ' Knobs: PROVEO_PYTHON_ENV=auto|off · PROVEO_PYTHON_VERSION (default 3.12) ·
@@ -30,7 +29,7 @@ title Python environments — detected and provisioned, never inherited
 ' ── WHY A PARTIAL ENVIRONMENT NOW NAMES ITS CAUSE ──────────────────────────
 ' A partial venv is not self-explanatory, and after the image-size cuts one
 ' cause dominates: there is no C compiler in ANY proveo image — base,
-' base-node-lsp, claudecode, cursor, opencode and cecli all answer nothing for
+' base-node-lsp, claudecode, cursor and opencode all answer nothing for
 ' gcc/cc/g++/make (_spec/_devops/image-size-reduction.puml, cut 8). So a
 ' dependency with no linux-<arch> wheel has to build from source and cannot.
 '
@@ -108,8 +107,8 @@ note right of CAP
   rather than the binary is what stops a decoy interpreter being mistaken for a
   usable one, the same lesson as clangd installing but not executing.
 
-  No harness ships a usable general-purpose Python: two have the decoy, cecli's
-  belongs to its own agent venv, and cursor has none. So there is nothing to
+  No harness ships a usable general-purpose Python: two have the decoy,
+  and cursor has none. So there is nothing to
   share and no ""base-python"" layer to build — Python is detected and
   provisioned, exactly like Go.
 end note

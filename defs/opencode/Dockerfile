@@ -78,7 +78,8 @@ COPY --chmod=0755 defs/opencode/entrypoint.sh /entrypoint.sh
 COPY --chmod=0755 packages/lib/proveo-await-seed /usr/local/bin/proveo-await-seed
 RUN install -d /opt/proveo/shims \
     && printf '#!/bin/sh\nexec /usr/local/bin/proveo-await-seed /usr/local/bin/proveo-opencode-runtime %s "$@"\n' "$(command -v opencode)" > /opt/proveo/shims/opencode \
-    && chmod 0755 /opt/proveo/shims/opencode
+    && chmod 0755 /opt/proveo/shims/opencode \
+    && ln -s "$(command -v opencode)" /usr/local/bin/opencode
 
 USER ${USER_NAME}
 WORKDIR /workspace

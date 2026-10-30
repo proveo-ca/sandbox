@@ -201,7 +201,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 '   the MCP gateway it declines .. _spec/internal/sbx/mcp-gateway.puml
 '   what the agent holds at launch _spec/internal/sbx/launch-env.puml
 '   what decides egress ........... _spec/internal/sbx/policy-baseline.puml
-'   who holds the key ............. _spec/internal/sbx/credential-path.puml
+'   who holds the key ............. _spec/internal/sbx/credential-resolution.puml
 '   the deferred host fallback .... _spec/_plans/host-execution-fallback.puml
 '
 ' ── WHERE THE FAILURE PATH LOOKS FOR THE AGENT'S TRANSCRIPT ────────────────
@@ -242,7 +242,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 '           never proceed unattended: a different fault from dying.
 '   ALIVE   the harness's OWN TUI frame. "reached a prompt" is not a shared
 '           shape, so there is one marker row per target (cursor · opencode ·
-'           cecli · claudecode). Matching Claude Code's frame against a cursor
+'           claudecode). Matching Claude Code's frame against a cursor
 '           session reported a healthy agent as a hang for 481 seconds — a test
 '           failing rather than a def failing.
 '   DEAD    "was stopped" · "kept for diagnosis" · "agent exited with code".

@@ -69,8 +69,8 @@ node "proveo/base-node — the TypeScript floor" as TSFLOOR <<host>> {
 '
 ' _node_json_field reads one field with `node -e`, never sed: parsing JSON with
 ' sed is how a trailing comma or a nested "engines" turns into a silently wrong
-' version. A harness image WITHOUT node is the ordinary case (cecli ships python
-' only), so the helper returns 0 when `command -v node` finds nothing — both
+' version. A harness image WITHOUT node is the ordinary case (cursor), so the
+' helper returns 0 when `command -v node` finds nothing — both
 ' callers assign it in a command substitution, and a 127 there aborted the whole
 ' seed under `set -euo pipefail`
 ' (_spec/internal/sbx/seed-node-version-abort.puml).
@@ -175,7 +175,7 @@ note bottom of TSFLOOR
   already chose ""bun install --frozen-lockfile"" for a
   ""bun.lock"" tree and then reported "bun is not on PATH" on every
   Bun project. One pinned binary in ""base-node"" reaches opencode,
-  claudecode and every ""-browser"" variant; cursor and cecli stay
+  claudecode and every ""-browser"" variant; cursor stays
   runtime-free by design.
 end note
 

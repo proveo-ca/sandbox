@@ -14,7 +14,6 @@ import (
 var calls = regexp.MustCompile(`(?m)^\s*proveo_exec_agent\s+\S`)
 
 var agentEntrypoints = []string{
-	"defs/cecli/entrypoint.sh",
 	"defs/codex/entrypoint.sh",
 	"defs/opencode/entrypoint.sh",
 	"defs/cursor/entrypoint.sh",

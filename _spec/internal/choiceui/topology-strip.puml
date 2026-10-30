@@ -24,7 +24,7 @@ skinparam noteTextAlignment left
 '   why the tier words are gone .... _spec/internal/sbx/policy-baseline.puml
 '                                    (tiers retired 2026-10-16)
 '   why the sbx row is LOCKED ...... _spec/internal/sbx/policy-baseline.puml
-'   the key on the sbx backend ..... _spec/internal/sbx/credential-path.puml
+'   the key on the sbx backend ..... _spec/internal/sbx/credential-resolution.puml
 '   the boundary the key rests in .. _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '

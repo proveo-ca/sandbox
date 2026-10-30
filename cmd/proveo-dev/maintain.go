@@ -22,10 +22,14 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/ui"
-	"github.com/proveo-ca/proveo/internal/workspace"
 )
+
+func init() {
+	register(buildCmd())
+	register(deployCmd())
+	register(testCmd())
+}
 
 func loadMaintainRegistry() ([]maintain.Target, error) {
 	defsDir, err := maintainerDefsDir()
@@ -43,15 +47,20 @@ func maintainerDefsDir() (string, error) {
 	if d := os.Getenv("PROVEO_DEFS_DIR"); d != "" {
 		return d, nil
 	}
-	root := run.OrWD("")
-	if ws := workspace.Resolve(root); ws.IsRepo {
-		root = ws.Root
+	root, err := repoRoot()
+	if err != nil {
+		return "", err
 	}
 	d := filepath.Join(root, "defs")
 	if fi, err := os.Stat(d); err == nil && fi.IsDir() {
 		return d, nil
 	}
 	return "", fmt.Errorf("no defs/ tree found (run inside the repo or set PROVEO_DEFS_DIR)")
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }
 
 func targetNames(reg []maintain.Target) string {
@@ -352,10 +361,9 @@ func buildCmd() *cobra.Command {
 	var tag string
 	var noCache, printOnly bool
 	cmd := &cobra.Command{
-		Use:    "build [target|all]",
-		Short:  "Build harness image(s) from a proveo checkout",
-		Hidden: true,
-		Args:   cobra.MaximumNArgs(1),
+		Use:   "build [target|all]",
+		Short: "Build harness image(s) from a proveo checkout",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			reg, err := loadMaintainRegistry()
 			if err != nil {
@@ -385,10 +393,9 @@ func deployCmd() *cobra.Command {
 	var tag string
 	var printOnly bool
 	cmd := &cobra.Command{
-		Use:    "deploy [target|all]",
-		Short:  "Build+push multi-arch harness image(s) to the registry (maintainer)",
-		Hidden: true,
-		Args:   cobra.MaximumNArgs(1),
+		Use:   "deploy [target|all]",
+		Short: "Build+push multi-arch harness image(s) to the registry",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			reg, err := loadMaintainRegistry()
 			if err != nil {
@@ -416,10 +423,9 @@ func deployCmd() *cobra.Command {
 func testCmd() *cobra.Command {
 	var printOnly bool
 	cmd := &cobra.Command{
-		Use:    "test [target|all]",
-		Short:  "Run a harness def's image test suite (maintainer)",
-		Hidden: true,
-		Args:   cobra.MaximumNArgs(1),
+		Use:   "test [target|all]",
+		Short: "Run a harness def's image test suite",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			reg, err := loadMaintainRegistry()
 			if err != nil {

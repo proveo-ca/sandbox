@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/kit-sandbox-credential-gap.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/credential-resolution.puml
 package e2e
 
 import (
@@ -51,8 +51,6 @@ func promptMarkers(target string) []string {
 		return []string{"Ask Codex to do anything"}
 	case "opencode":
 		return []string{"Ask anything"}
-	case "cecli":
-		return []string{"(edit format)"}
 	default: // claudecode
 		return []string{"Claude Code", "bypass permissions"}
 	}
@@ -83,7 +81,7 @@ func withoutPlanLine(raw, target string) string {
 func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
 	t.Parallel()
 	const target = "opencode"
-	plan := "\x1b[36m  \x1b[0m\x1b[90magent: opencode 1.4.0 — pinned at build (`proveo build opencode` moves it)\x1b[0m\r\n"
+	plan := "\x1b[36m  \x1b[0m\x1b[90magent: opencode 1.4.0 — pinned at build (`mise run build opencode` moves it)\x1b[0m\r\n"
 	for _, tc := range []struct {
 		name, raw string
 		want      bool
@@ -102,7 +100,7 @@ func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
 
 func TestSbxBuildOutputIsNotAPrompt(t *testing.T) {
 	t.Parallel()
-	for _, target := range []string{"claudecode", "codex", "cursor", "opencode", "cecli"} {
+	for _, target := range []string{"claudecode", "codex", "cursor", "opencode"} {
 		build := "Building image proveo/" + target + ":local\r\nkit: /Users/x/.local/state/proveo/runs/proveo-1-2/sbx/kit/proveo-" + target + " — cached\r\n"
 		if reachedPromptFor(build, target) {
 			t.Errorf("%s: sbx's kit line counts as the agent's prompt; markers must be text only the agent's own screen shows", target)

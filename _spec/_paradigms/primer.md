@@ -113,11 +113,9 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/agent_pin_test.go` | 4 | 1 | Pins agent versions in images; exact pins can become stale security liabilities. |
 | `internal/contract/browser_layer_test.go` | 4 | 1 | Guards browser image composition; static Dockerfile checks do not launch Chromium. |
 | `internal/contract/bun_toolchain_test.go` | 4 | 1 | Pins Bun provisioning contracts; textual checks miss runtime architecture faults. |
-| `internal/contract/cecli_providers_test.go` | 4 | 1 | Guards cecli provider declarations; upstream provider support can drift first. |
 | `internal/contract/defaults_test.go` | 4 | 1 | Checks shipped default file modes; it cannot prove runtime enforcement. |
 | `internal/contract/go_provisioning_test.go` | 4 | 1 | Guards Go toolchain provisioning; static assertions miss network/install failures. |
 | `internal/contract/image_size_test.go` | 4 | 1 | Prevents redundant browser payloads; size proxies do not measure startup cost. |
-| `internal/contract/mcp_class_test.go` | 4 | 1 | Pins MCP package classification; naming heuristics may misclassify new servers. |
 | `internal/contract/seed_command_shipped_test.go` | 4 | 1 | Ensures the seed command ships; presence does not prove successful seeding. |
 | `internal/contract/subagent_roster_test.go` | 4 | 1 | Pins shipped subagent roles; static roster checks cannot enforce permissions. |
 | `internal/contract/tool_home_test.go` | 4 | 1 | Guards tool-home placement; paths can be correct but unwritable at runtime. |
@@ -248,7 +246,6 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/egress_vocabulary_test.go` | 1 | 1 | Polices retired egress words; vocabulary hygiene can lag actual semantics. |
 | `internal/contract/formatter_class_test.go` | 1 | 1 | Classifies formatting tools; naming conventions are a brittle proxy. |
 | `internal/contract/tui_vocabulary_test.go` | 1 | 1 | Polices TUI terminology; consistent words can still describe wrong behavior. |
-| `internal/contract/cecli_autoupdater_test.go` | 1 | 2 | Guards cecli updater suppression; static config may stop being honored. |
 | `internal/contract/claudecode_autoupdater_test.go` | 1 | 2 | Guards updater suppression text/config; upstream updater behavior may change. |
 | `internal/contract/claudecode_renderer_test.go` | 1 | 2 | Pins Claude config rendering; rendering checks do not launch the client. |
 | `internal/contract/spec_notes_test.go` | 1 | 2 | Enforces diagram note formatting; readability rules do not validate claims. |

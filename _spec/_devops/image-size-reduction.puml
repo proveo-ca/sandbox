@@ -4,7 +4,6 @@
 '          cuts 1-13 and the `-browser` inversion bought, and what each cost
 ' covers: defs/**/Dockerfile
 ' covers: .dockerignore
-' covers: defs/cecli/Dockerfile.dockerignore
 ' covers: internal/contract/image_size_test.go
 ' covers: internal/contract/dockerfile_correctness_test.go
 ' covers: e2e/sbx_test.go
@@ -24,7 +23,6 @@
 '   proveo/base-node           1.42 GB  1.26 GB   1.26 GB    -160 MB
 '   proveo/base-node-lsp       1.63 GB  1.47 GB   1.47 GB    -160 MB
 '   proveo/base-node-browser   3.42 GB  2.80 GB   2.80 GB    **-620 MB**
-'   proveo/cecli               2.88 GB  2.73 GB   2.43 GB    **-450 MB**
 '   proveo/claudecode          2.38 GB  2.22 GB   1.92 GB    **-460 MB**
 '   proveo/claudecode-browser  4.17 GB  3.55 GB   3.25 GB    **-920 MB**
 '   proveo/claudecode-solidity 3.31 GB  3.16 GB   2.86 GB    **-450 MB**
@@ -43,7 +41,7 @@
 ' the two instruments agreeing, which is the point of naming both.
 '
 ' DEF SUITES AFTER CUT 4: cursor 0 failures (including the two inverted docker
-' assertions), opencode 0, cecli 0. claudecode fails one, `[sol] solc is
+' assertions), opencode 0. claudecode fails one, `[sol] solc is
 ' installed`, and it is NOT this work: the output is
 ' `OSError: [Errno 8] Exec format error` on solc-0.8.20 beside solc-select's own
 ' `.arm64_warning_shown` marker — solc publishes no linux-arm64 build, so
@@ -95,7 +93,6 @@
 '   proveo/base-node           1.42 GB  1.26 GB   1.18 GB     -240 MB
 '   proveo/base-node-lsp       1.63 GB  1.47 GB   1.38 GB     -250 MB
 '   proveo/base-node-browser   3.42 GB  2.80 GB   2.72 GB     -700 MB
-'   proveo/cecli               2.88 GB  2.43 GB   1.86 GB     **-1.02 GB**
 '   proveo/claudecode          2.38 GB  1.92 GB   1.76 GB     -620 MB
 '   proveo/claudecode-browser  4.17 GB  3.25 GB   3.09 GB     **-1.08 GB**
 '   proveo/claudecode-solidity 3.31 GB  2.86 GB   2.69 GB     -620 MB
@@ -112,42 +109,24 @@
 '   6  COPY --chmod          ~0 in the size column; the win is that a mode change
 '                            no longer copies each Go binary up into a second layer
 '   7  xclip                 folded into opencode's -90 MB with cut 5
-'   8  cecli build-essential  } together **-570 MB** on cecli, the largest single
-'   9  cecli --no-compile     } image win in the whole plan
 '   10 claudecode dev tools  -160 MB with cut 5
 '   11 node_modules prune    smaller than predicted: maps went to ZERO but the
 '                            tree only fell 219 -> 203 MB, so the 18 MB of docs
 '                            estimate was optimistic. Kept: it costs nothing.
 '
-' TWO MEASUREMENTS THAT CHANGED A DECISION:
-' 1. Cut 8 needed no multi-stage. Of cecli-dev's and serena-agent's entire
-'    dependency closures exactly ONE arrives as an sdist (proxy_tools 0.1.0) and it
-'    is pure Python, so setuptools alone builds its wheel. Both venvs were built on
-'    a base with NO compiler before the change landed — so `build-essential` could
-'    simply be deleted rather than moved to a builder stage.
-' 2. Cut 9's naive form was rejected on a measurement. `--no-compile` alone, with
-'    PYTHONDONTWRITEBYTECODE=1 left in place, took `cecli --version` from 876 ms to
-'    1850 ms — every launch, forever. Replacing that variable with
-'    PYTHONPYCACHEPREFIX=/tmp/proveo-pycache instead gives, at uid 4242:
-'      first launch 2315 ms · then 679 ms and 712 ms
-'    i.e. FASTER than the 876 ms baseline in steady state, because the cache holds
-'    only what was imported, and 153 MB still leaves the image.
-'
 ' VERIFIED after the rebuild: no /usr/include/node; proveo-harden, proveo-entrypoint
 ' and plantuml-lsp all still executable (cut 6 removed the chmod that made them so);
 ' zero `*.map` under /usr/lib/node_modules and all six LSP servers still resolve;
-' no compiler and zero shipped `.pyc` in cecli, whose venvs are 681 + 96 MB; no tsc,
-' ts-node, prettier or eslint in claudecode while `claude` and
+' no tsc, ts-node, prettier or eslint in claudecode while `claude` and
 ' typescript-language-server remain; no xclip in opencode.
-' Def suites: cursor 0 failures, opencode 0, cecli 0, claudecode only the arm64
+' Def suites: cursor 0 failures, opencode 0, claudecode only the arm64
 ' `[sol] solc` failure described above. lint 0 issues, `go vet -tags e2e` clean.
 '
-' NOTE ON THE FLEET AFTER CUT 8: there is now NO C compiler in ANY image — base,
-' base-node-lsp, claudecode, cursor, opencode and cecli all answer nothing for
-' gcc/cc/g++/make. cecli was the only one that ever had one, incidentally, for its
-' own venv. So a WORKSPACE Python project whose dependency has no linux-arm64 wheel
-' and must build a C extension now fails everywhere rather than in five of six
-' images. `_py_build_env` used to report that only as "Python dependency install
+' NOTE ON THE FLEET: there is NO C compiler in ANY image — base,
+' base-node-lsp, claudecode, cursor and opencode all answer nothing for
+' gcc/cc/g++/make. So a WORKSPACE Python project whose dependency has no
+' linux-arm64 wheel and must build a C extension fails everywhere.
+' `_py_build_env` used to report that only as "Python dependency install
 ' did not complete; the environment may be partial".
 ' DONE since: it now probes `cc`/`gcc` on failure and names the missing toolchain
 ' ("a dependency with no linux-<arch> wheel cannot build from source here. Pin a
@@ -157,9 +136,9 @@
 ' ── CUT 4 APPLIED: NO DOCKER BINARIES IN ANY HARNESS IMAGE ────────────────
 ' Decided by the operator, 2026-09-05: "since we migrated to sbx, everything that
 ' either overlaps or gets on its way." All eight binaries of the static tarball
-' left claudecode, cursor, opencode and cecli — docker, dockerd, containerd,
+' left claudecode, cursor and opencode — docker, dockerd, containerd,
 ' containerd-shim-runc-v2, ctr, runc, docker-proxy, docker-init, 210 MB measured
-' per image, ~840 MB across the four (claudecode-solidity inherits a fifth).
+' per image, ~630 MB across the three (claudecode-solidity inherits a fourth).
 '
 ' THREE THINGS STAYED, because none of them is an overlap:
 '   com.docker.sandboxes.start-docker — sbx's own switch, not a binary
@@ -206,8 +185,6 @@
 ' start-docker LABEL on the image — so the cut was applied exactly as designed.
 ' It is the bet underneath it that lost. sbx reads start-docker off the image and
 ' starts WHAT THE IMAGE SHIPS; the image now ships nothing, so nothing starts.
-' Same shape as the cecli defect: a promise whose executor was removed, not a
-' promise the runtime declined.
 '
 ' This settles the disagreement recorded above in favour of the three AGAINST
 ' entries. In particular retire-dind's "Server 29.7.2, measured" was reading the
@@ -355,13 +332,6 @@
 ' 4. Removing per-field comments changed gofmt's struct alignment groups in 23
 '    files. `gofmt -w` is the fix; `go build` and the linter do not catch it.
 '
-' AND ONE NEAR-MISS THAT JUSTIFIES THE ORDERING. The migration ran BEFORE the
-' strip. _spec/defs/cecli/cecli-paradigm.puml claimed the local-model prefix is
-' `ollama_chat/`; the source comment recorded the opposite — both litellm ollama
-' providers are broken in that image, so it must be `openai/<model>` against
-' Ollama's /v1. Stripping first would have left the spec actively wrong with no
-' record of the correction.
-'
 ' VERIFIED after both: gofmt clean · go build ./... · go vet clean · lint 0 issues
 ' · all 13 Dockerfiles pass `docker build --check` · every shell file parses ·
 ' 14/14 images rebuild · `mise run test-images` green except the pre-existing
@@ -381,8 +351,7 @@
 '   deduped local disk         10.80 GB -> 8.40 GB -> **7.66 GB** across cuts 1-11
 '
 ' claudecode's own unique size is 29 kB, because claudecode-solidity shares all of
-' it. cecli's 1.65 GB is the largest single unique payload in the fleet now, which
-' makes items 8 and 9 the biggest remaining targets on one host.
+' it.
 '
 ' ── PROVENANCE: EVERY NUMBER BELOW WAS MEASURED, NOT ESTIMATED ─────────────
 ' 2026-09-05, linux/arm64, from a full `mise run build all` (14/14 targets, no
@@ -411,7 +380,6 @@
 '   proveo/base-node           1.42 GB  1.42 GB   10.5 kB
 '   proveo/base-node-lsp       1.63 GB  1.63 GB   11.5 kB
 '   proveo/base-node-browser   3.42 GB  3.42 GB   16 kB
-'   proveo/cecli               2.88 GB  938 MB    1.95 GB
 '   proveo/claudecode          2.38 GB  2.38 GB   29 kB   (all of it shared with solidity)
 '   proveo/claudecode-browser  4.17 GB  3.42 GB   745 MB  <- claudecode's delta, REBUILT
 '   proveo/claudecode-solidity 3.31 GB  2.38 GB   938 MB
@@ -427,7 +395,7 @@
 '
 ' Lineage deltas: base 938 MB -> +482 MB node+bun -> +210 MB LSP servers ->
 ' +1.79 GB browser. Agents on top: opencode +558 MB, claudecode +745 MB,
-' cursor +1.10 GB, cecli +1.95 GB, solidity +938 MB over claudecode.
+' cursor +1.10 GB, solidity +938 MB over claudecode.
 '
 ' ── THE QUESTION THAT STARTED THIS, AND THE ANSWER THE TABLE GIVES ─────────
 ' "opencode vs opencode-browser both seem quite heavy — the variants should be
@@ -493,31 +461,14 @@
 '     defs/base/Dockerfile:28 · ~119 MB x every image
 '
 '  3. [APPLIED] THE BUILD CONTEXT IS THE WHOLE REPO, UNFILTERED. There is no root
-'     `.dockerignore` — `defs/cecli/.dockerignore` is dead, because BuildKit reads
-'     `<context>/.dockerignore` and the context is the repo root. So `.git` and
+'     `.dockerignore`; BuildKit reads `<context>/.dockerignore` and the context
+'     is the repo root. So `.git` and
 '     **201 MB of node_modules** enter every harness build, and `COPY . .` in the Go
 '     builder bakes them in AND re-runs `go build` + an unpinned
 '     `go install plantuml-lsp@latest` on any file change, README included.
 '     `defs/sidecars/egress-proxy/Dockerfile:12-13` already does this correctly
 '     (`COPY cmd` + `COPY internal`) — the fix is to copy that file's shape.
 '     repo root + defs/base/Dockerfile:9 · 0 image bytes, minutes per build
-'     UPDATE 2026-10-17 — THE CECLI IGNORE FILE NOW APPLIES (repo-simplification.puml
-'     N17; the user chose "Rename so it applies", NOT the recommended delete).
-'     defs/cecli/.dockerignore is renamed defs/cecli/Dockerfile.dockerignore
-'     (MEASURED: only the new name exists). MEASURED by the coordinator on this
-'     VM's BuildKit (buildx v0.36.1, a throwaway probe): a
-'     `defs/x/Dockerfile.dockerignore` applies to a `-f defs/x/Dockerfile` build
-'     from the repo root, and the root `.dockerignore` is then IGNORED for that
-'     build. So the cecli file repeats the root denylist plus cecli's own
-'     patterns, the any-depth ones written `**/`; the root .dockerignore:7 says
-'     "defs/cecli/Dockerfile.dockerignore replaces this file for cecli builds
-'     and repeats it." (MEASURED). A root entry added later must be added there
-'     too — internal/contract/image_size_test.go
-'     TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist fails otherwise (the
-'     old file is absent; every root entry is present; cecli's own patterns are
-'     kept), and TestDockerignoreNeverHidesSomethingADockerfileCopies now reads a
-'     Dockerfile's own ignore file when one exists (dockerignoreEntries(t, file)
-'     is parameterized). Reported: `proveo build cecli` and TestImageCecli pass.
 '     DENYLIST ON PURPOSE (moved from the root .dockerignore header, N14). An
 '     allowlist (`*` + `!`) would be tighter, but every repo-root-context
 '     Dockerfile COPYs from it — AGENTS.md, cmd/, internal/, go.mod, go.sum,
@@ -532,7 +483,7 @@
 '     The larger 171 MB x 4 turns on a contradiction nobody can resolve from the
 '     outside — see DOCKERD below. It is a correctness question first and a size
 '     question second.
-'     cecli:105 · opencode:59 · cursor:63 · claudecode/mcp:80
+'     opencode:59 · cursor:63 · claudecode/mcp:80
 '
 '  5. [APPLIED] NODE HEADERS SHIPPED TO RUNTIME. `/usr/include/node` is 65 MB in every node
 '     image. node-gyp fetches its own headers by default, so the exposure is a
@@ -547,20 +498,6 @@
 '
 '  7. [APPLIED] `xclip` IN A HEADLESS CONTAINER, dragging libx11/libxmu/libxt/libxext for a
 '     clipboard that cannot exist. defs/opencode/Dockerfile:49 · ~15-20 MB
-'
-'  8. [APPLIED] A C COMPILER SHIPPED TO AN AGENT IMAGE. cecli installs `build-essential`
-'     permanently so pip can compile sdists at build time. Measured survivors:
-'     gcc-14 61 + g++-14 33 + cpp-14 31 + libstdc++-dev 22 + binutils 16 +
-'     libgcc-dev 15 + linux-libc-dev 11 = **~190 MB**, in a sandbox that also hands
-'     the agent a compiler. `--only-binary=:all:` or a builder-stage venv.
-'     defs/cecli/Dockerfile:53 · ~190 MB
-'
-'  9. [APPLIED] `.pyc` BESIDE `.py`. `PYTHONDONTWRITEBYTECODE=1` is a RUNTIME variable; pip
-'     byte-compiles at install time regardless. Measured **140 MB** across
-'     /opt/cecli and /opt/serena. `pip install --no-compile` — but note the pairing:
-'     with PYTHONDONTWRITEBYTECODE set they are never regenerated either, so this
-'     buys 140 MB and pays import time on every run, forever.
-'     defs/cecli/Dockerfile:71,94 · 140 MB
 '
 ' 10. UNPINNED DEV TOOLS EVERY REPO PINS ITSELF. claudecode installs `typescript
 '     ts-node prettier eslint` unpinned (measured 65 MB) while the same file argues
@@ -586,7 +523,6 @@
 ' WHAT A HARNESS PULL LOOKS LIKE WITH 1-9 APPLIED:
 '   opencode          2.19 GB -> -394 MB  (-18%)
 '   opencode-browser  3.98 GB -> -728 MB  (-18%)
-'   cecli             2.88 GB -> -641 MB  (-22%)
 '
 ' ── MEASURED, AND DELIBERATELY NOT ON THE LIST ─────────────────────────────
 ' Three plausible wins that the instruments killed, recorded so nobody re-derives them:
@@ -604,12 +540,12 @@
 ' (a) DOCKERD. claudecode/mcp:57-90 says "Static docker CLI only" and spends 20
 '     lines concluding that shipping dockerd makes sbx attempt a start that fails
 '     and BLOCKS THE WHOLE SANDBOX. Line 88 then installs the whole tarball, :89
-'     symlinks /usr/bin/dockerd, :105 sets start-docker=true. cursor, opencode and
-'     cecli carry the opposite comment ("the whole static tarball, not just the
+'     symlinks /usr/bin/dockerd, :105 sets start-docker=true. cursor and
+'     opencode carry the opposite comment ("the whole static tarball, not just the
 '     client"). One of the two is stale; nothing in the tree says which.
 ' (b) `LABEL security.hardened=true` IS FALSE IN EVERY HARNESS. proveo-harden's own
 '     header says every layer that installs extras re-runs the pass; the last
-'     binary-adding layers never do — cecli:105, opencode:69 and :97, cursor:73 and
+'     binary-adding layers never do — opencode:69 and :97, cursor:73 and
 '     :105, claudecode/mcp:90,112,120,135,178 — and solidity never runs it
 '     while inheriting the label.
 ' (c) UNPINNED INSTALLS the repo's own doctrine (_spec/_devops/agent-version-pin.puml)

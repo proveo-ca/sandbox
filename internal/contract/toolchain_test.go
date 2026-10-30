@@ -247,7 +247,6 @@ var imageDockerfiles = map[string]string{
 	"proveo/base-node-browser": "defs/base-node-browser/Dockerfile",
 	"proveo/opencode":          "defs/opencode/Dockerfile",
 	"proveo/cursor":            "defs/cursor/Dockerfile",
-	"proveo/cecli":             "defs/cecli/Dockerfile",
 	"proveo/claudecode":        "defs/claudecode/mcp/Dockerfile",
 	"proveo/codex":             "defs/codex/Dockerfile",
 }

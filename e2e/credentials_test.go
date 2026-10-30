@@ -25,7 +25,7 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 	if len(keys) == 0 {
 		t.Fatal("provider.KeyVars() is empty")
 	}
-	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode claudecode cecli"))
+	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode claudecode"))
 
 	// Isolation — deterministic, one subtest per agent (parallel: pure --print).
 	for _, agent := range agents {

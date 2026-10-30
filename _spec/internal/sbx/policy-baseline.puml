@@ -15,7 +15,7 @@ skinparam noteTextAlignment left
 ' covers: internal/posture/posture.go (EnforcedBy, Observability)
 ' covers: e2e/sbx_egress_test.go
 '   the backend that refuses without sbx . _spec/internal/sbx/sandbox-backend.puml
-'   who holds the key on this backend .... _spec/internal/sbx/credential-path.puml
+'   who holds the key on this backend .... _spec/internal/sbx/credential-resolution.puml
 '   the domain form the Kit writes ....... _spec/internal/sbx/kit-domain-form.puml
 '
 ' ── DECIDED 2026-10-16: THE TIER VOCABULARY IS RETIRED ─────────────────────

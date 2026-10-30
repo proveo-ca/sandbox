@@ -33,7 +33,7 @@ node "PHASE 1 — host, BEFORE the container exists" as P1 <<host>> {
 node "PHASE 2 — container entrypoint" as P2 <<host>> {
   component "translate\ncanonical -> this harness's id" as XLAT <<app>>
   component "verify (where listable)\nagainst the harness registry" as VERIFY <<app>>
-  component "export role vars\nCECLI_* · OPENCODE_* · ANTHROPIC_*" as EXPORT <<app>>
+  component "export role vars\nOPENCODE_* · ANTHROPIC_*" as EXPORT <<app>>
 }
 
 database "agent-settings.yml\ntargets.<t>.models\nmain · editor · small\nCANONICAL ids" as CACHE <<db>>
@@ -151,8 +151,8 @@ note bottom of P1
 
   **Role names are proveo-level and translated per harness.** The stored
   yaml keys are ""main"" / ""editor"" / ""small"" — "main" rather than
-  "architect" because three of the four harnesses call it that; architect
-  is aider's term, and ""ARCHITECT_MODEL"" is the variable, not the concept.
+  "architect" because every harness calls it that; ""ARCHITECT_MODEL"" is
+  the variable, not the concept.
 
   Normalization deliberately **preserves a provider prefix**
   (""moonshot/kimi-k3""): that prefix is how a harness disambiguates a model

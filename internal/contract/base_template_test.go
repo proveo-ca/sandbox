@@ -135,7 +135,7 @@ func TestBaseDoesNotInheritTheTemplateWorkdir(t *testing.T) {
 // destination, because an inherited workdir can put one there between steps.
 func TestHomeMoveToleratesARecreatedStub(t *testing.T) {
 	t.Parallel()
-	for _, rel := range []string{"defs/cecli/Dockerfile", "defs/claudecode/mcp/Dockerfile",
+	for _, rel := range []string{"defs/claudecode/mcp/Dockerfile",
 		"defs/cursor/Dockerfile", "defs/opencode/Dockerfile"} {
 		src := readFileOrFail(t, filepath.Join(repoRoot(t), rel))
 		if !strings.Contains(src, "usermod -d /home/agent -m") {
@@ -225,7 +225,7 @@ func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 			t.Errorf("idle_test.go is missing %q — an empty TempDir and a PTY that never answers DA1 is how this gate passed while proveo run cursor died", needle)
 		}
 	}
-	for _, def := range []string{"cecli", "claudecode", "cursor", "opencode"} {
+	for _, def := range []string{"claudecode", "cursor", "opencode"} {
 		if !strings.Contains(src, `"`+def+`"`) {
 			t.Errorf("proveo-dev idle/e2e-full does not name %s — a per-def death would not run", def)
 		}

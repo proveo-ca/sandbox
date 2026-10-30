@@ -10,7 +10,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 )
 
-// SPEC: _spec/_plans/init-credential-provisioning.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/credential-path.puml
+// SPEC: _spec/_plans/init-credential-provisioning.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/credential-resolution.puml
 func TestForwardIsGatedOnSbxAndTheRowStillHasBothModes(t *testing.T) {
 	t.Parallel()
 	man := manifest.Manifest{

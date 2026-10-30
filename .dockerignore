@@ -1,6 +1,5 @@
 # Filters the repo-root build context (Context "." in internal/imagebuild/targets.go).
 # A denylist on purpose: never list a path a Dockerfile COPYs.
-# defs/cecli/Dockerfile.dockerignore replaces this file for cecli builds and repeats it.
 
 # JS toolchain: never copied by any Dockerfile, and the bulk of the context.
 node_modules

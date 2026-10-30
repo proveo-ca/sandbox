@@ -11,7 +11,6 @@
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/cursor/entrypoint.sh
 ' covers: defs/opencode/entrypoint.sh
-' covers: defs/cecli/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 '
 ' ── §2 · THE IMAGE READS NO .env; IT ONLY BRIDGES KEY ALIASES (N7, 2026-10-17) ─
@@ -56,10 +55,8 @@
 ' an unanswered probe reports "not authenticated" rather than stalling startup.
 ' Seed never runs `gh auth login` and never installs gh: that is `proveo init`.
 '
-' The same reasoning caps the version banners: command_version_cecli and
-' command_version_opencode both bound the call at 5s and fall back to a caller-
-' supplied string. There are two spellings only because the harnesses pass their
-' arguments in opposite orders (fallback-first vs command-first).
+' The same reasoning caps the version banners: command_version_opencode bounds
+' the call at 5s and falls back to a caller-supplied string.
 '
 ' _proveo_bounded is the one cap every such call goes through. Where `timeout`
 ' is missing (macOS, which the contract suite sources this lib on) it runs a
@@ -117,7 +114,7 @@ partition "1 · LLM provider auth  «host»" {
 partition "2 · Filesystem mount  «host»" {
   :resolve git repo root + monorepo scope\n(interactive picker on a TTY);
   if (manifest ""workspace.layout""?) then (app — coding agents)
-    :mount repo/scope **RW** at /app — agent EDITS IN PLACE\n(.git RW or RO per ""gitMode""; cursor/opencode=rw, cecli=ro);
+    :mount repo/scope **RW** at /app — agent EDITS IN PLACE\n(.git RW or RO per ""gitMode""; cursor/opencode=rw);
     :monorepo subdir: hoist shared root files **RO**\n(package.json, CLAUDE.md, lockfiles …) · optional **RW** /app/output;
     note right
       **Coding-harness convention:** every coding
@@ -152,15 +149,14 @@ partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh
   if (agent has native LSP config?) then (yes)
     :render detector output to the agent's config (jq) —\nopencode.json ""lsp"" (opencode) ·\nplugin ""/.lsp.json"" (claudecode);
   else (MCP-capable, no native LSP)
-    :wrap the detected servers in an MCP LSP bridge —\ncursor: **mcp-language-server** (Go, one/​server) → ~/.cursor/mcp.json ·\ncecli: **Serena** MCP toolkit → ""mcp-servers""\n(declared only when ""initialize"" answers);
+    :wrap the detected servers in an MCP LSP bridge —\ncursor: **mcp-language-server** (Go, one/​server) → ~/.cursor/mcp.json;
   endif
   note right
     Servers are BAKED into the image, not
     downloaded at runtime: Node LSPs via the
     shared **base-node-lsp** layer (opencode,
     claudecode); **gopls** + **mcp-language-server**
-    as static Go binaries (cursor); **Serena**
-    via the existing Python venv (cecli).
+    as static Go binaries (cursor).
   end note
   note left
     **This step is on the startup path, so its cost is

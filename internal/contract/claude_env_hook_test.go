@@ -40,3 +40,30 @@ func TestPersistedToolEnvIsAlsoAFile(t *testing.T) {
 		t.Errorf(".bashrc lost its block:\n%s", rc)
 	}
 }
+
+// SPEC: _spec/internal/sbx/host-android-adb.puml (TOOLS PROVISIONED AFTER LAUNCH REACH THE AGENT)
+func TestNonInteractiveShellsSourceTheToolEnvThroughBashEnv(t *testing.T) {
+	home := t.TempDir()
+	etc := t.TempDir()
+	bashEnv := filepath.Join(etc, "sandbox-persistent.sh")
+	if err := os.WriteFile(bashEnv, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(etc, 0o555); err != nil { // like /etc: the file is the agent's, the directory is not
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(etc, 0o755) })
+	for range 2 {
+		libRun(t, home, `_PROVEO_TOOL_HOME="$HOME/tools" _proveo_persist_tool_env`, "BASH_ENV="+bashEnv)
+	}
+	b, _ := os.ReadFile(bashEnv)
+	if n := strings.Count(string(b), ". \""); n != 1 {
+		t.Errorf("BASH_ENV file names ~/.proveo-tool-env.sh %d times, want once after two seeds:\n%s", n, b)
+	}
+	cmd := exec.Command(bashOrSkip(t), "-c", `printf %s "$PATH"`)
+	cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin", "BASH_ENV=" + bashEnv}
+	out, err := cmd.Output()
+	if err != nil || !strings.Contains(string(out), filepath.Join(home, "tools", ".local", "share", "mise", "shims")) {
+		t.Errorf("bash -c PATH = %q (%v); want the tool shims a seed provisioned after launch", out, err)
+	}
+}

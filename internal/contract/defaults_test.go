@@ -117,7 +117,7 @@ func frontmatterField(src, key string) (string, bool) {
 func TestDeadHostLibsRemoved(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
-	for _, rel := range []string{"defs/lib", "defs/cecli/proveo-lib"} {
+	for _, rel := range []string{"defs/lib"} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
 			t.Errorf("%s should be deleted (logic lives in Go)", rel)
 		}

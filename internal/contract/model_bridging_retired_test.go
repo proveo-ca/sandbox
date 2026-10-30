@@ -46,7 +46,6 @@ func TestNoBridgeTablesRemain(t *testing.T) {
 func TestNoEntrypointBridgesAModelByRole(t *testing.T) {
 	for _, rel := range []string{
 		"packages/lib/entrypoint-lib.sh",
-		"defs/cecli/entrypoint.sh",
 		"defs/codex/entrypoint.sh",
 		"defs/cursor/entrypoint.sh",
 		"defs/opencode/entrypoint.sh",
@@ -87,7 +86,6 @@ func TestNoEntrypointReadsARoleName(t *testing.T) {
 		"SMALL_MODEL":     regexp.MustCompile(`(^|[^0-9A-Za-z_])SMALL_MODEL\b`),
 	}
 	for _, rel := range []string{
-		"defs/cecli/entrypoint.sh",
 		"defs/codex/entrypoint.sh",
 		"defs/cursor/entrypoint.sh",
 		"defs/opencode/entrypoint.sh",
@@ -110,7 +108,7 @@ func TestTheRoleNameGuardActuallyFires(t *testing.T) {
 	if !re.MatchString(`export FOO="${EDITOR_MODEL}"`) {
 		t.Error("the boundary pattern misses a bare role read")
 	}
-	if re.MatchString(`export CECLI_EDITOR_MODEL="x"`) {
+	if re.MatchString(`export AGENT_EDITOR_MODEL="x"`) {
 		t.Error("the boundary pattern flags an agent's OWN variable, which must survive")
 	}
 }
@@ -142,14 +140,13 @@ func TestLocalModelStillSelectsAModelForOpencode(t *testing.T) {
 	}
 }
 
-// The three harnesses whose local-model tier the e2e asserts, each naming its
+// The two harnesses whose local-model tier the e2e asserts, each naming its
 // model by a route that does NOT read a role name. e2e/hello_world_test.go's
-// assertModels compares both PROVEO_MODELS tiers against --local-model for all
-// three, so a harness that names nothing fails there — 8 minutes into a docker
+// assertModels compares both PROVEO_MODELS tiers against --local-model for both,
+// so a harness that names nothing fails there — 8 minutes into a docker
 // run. This says it in a second.
 func TestEveryHarnessNamesItsLocalModelWithoutARoleName(t *testing.T) {
 	for _, c := range []struct{ rel, want string }{
-		{"defs/cecli/entrypoint.sh", `CECLI_MODEL="openai/${PROVEO_LOCAL_MODEL}"`},
 		{"defs/opencode/entrypoint.sh", `OPENCODE_MODEL="ollama/$model"`},
 		{"internal/sbx/host_ollama.go", `"ANTHROPIC_MODEL=" + model`},
 	} {

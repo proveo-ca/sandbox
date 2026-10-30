@@ -86,6 +86,50 @@ func TestEveryTargetRunsAsItsOwnProveoWorkload(t *testing.T) {
 	}
 }
 
+// SPEC: _spec/internal/sbx/kit-image-source.puml
+func TestTheRecipeAndTheCreateProcessFollowTheImageSource(t *testing.T) {
+	const digest = "sha256:ed1aa77cdeb03b2d810fd86ca0d15c7b1a44c9c840580b0539dbf66ac710d01f"
+	cases := []struct {
+		name     string
+		src      sbx.ImageSource
+		wantFrom string
+		wantEnv  []string
+	}{
+		{
+			name:     "host image: digest-pinned FROM, host builder on the sbx process",
+			src:      sbx.ImageSource{Ref: "proveo/codex:local", Host: true, Digest: digest, Builder: "default"},
+			wantFrom: "proveo/codex:local@" + digest,
+			wantEnv:  []string{"BUILDX_BUILDER=default"},
+		},
+		{
+			name:     "published image the host lacks: FROM as chosen, sbx's builder",
+			src:      sbx.ImageSource{Ref: "proveo/codex:local"},
+			wantFrom: "proveo/codex:local",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := specInput("codex")
+			in.Image = tc.src.Ref
+			var asked string
+			in.ImageSource = func(ref string) sbx.ImageSource { asked = ref; return tc.src }
+			cfg, w, _ := Spec(in)
+			if asked != in.Image {
+				t.Errorf("Spec resolved the source of %q, want %q", asked, in.Image)
+			}
+			if w.Recipe.From != tc.wantFrom {
+				t.Errorf("Spec(%+v) recipe FROM %q, want %q", tc.src, w.Recipe.From, tc.wantFrom)
+			}
+			if !slices.Equal(cfg.HostEnv, tc.wantEnv) {
+				t.Errorf("Spec(%+v) HostEnv = %q, want %q", tc.src, cfg.HostEnv, tc.wantEnv)
+			}
+			if slices.ContainsFunc(cfg.Env, func(e string) bool { return strings.HasPrefix(e, "BUILDX_BUILDER") }) {
+				t.Errorf("Spec(%+v) Env = %q: the kit build env must not reach the sandbox", tc.src, cfg.Env)
+			}
+		})
+	}
+}
+
 func TestAHarnessWithAPublishedKitLaunchesThroughItAndKeepsItsFlags(t *testing.T) {
 	cfg, w := specFor(t, "claudecode")
 	if want := []string{"claude", "--dangerously-skip-permissions"}; !slices.Equal(w.Recipe.Entrypoint, want) {
@@ -101,21 +145,21 @@ func TestAHarnessWithAPublishedKitLaunchesThroughItAndKeepsItsFlags(t *testing.T
 }
 
 func TestAHarnessWithoutAPublishedKitLaunchesTheImageEntrypoint(t *testing.T) {
-	cfg, w := specFor(t, "cecli", "--yes")
+	cfg, w := specFor(t, "hermes", "--yes")
 	if len(w.Recipe.Entrypoint) != 0 {
 		t.Errorf("recipe ENTRYPOINT = %q; FROM already carries the image's own", w.Recipe.Entrypoint)
 	}
 	if want := []string{"--yes"}; !slices.Equal(cfg.Command, want) {
 		t.Errorf("command = %q, want %q — a leading flag appends to ENTRYPOINT + CMD; a leading -- would re-run the entrypoint (P7)", cfg.Command, want)
 	}
-	if cfg, _ := specFor(t, "cecli"); cfg.Command != nil {
+	if cfg, _ := specFor(t, "hermes"); cfg.Command != nil {
 		t.Errorf("no extras ⇒ the image ENTRYPOINT runs untouched, got %q", cfg.Command)
 	}
 }
 
 func TestNoImageEntrypointLaunchesThroughBash(t *testing.T) {
 	for _, image := range [][]string{nil, {}} {
-		in := specInput("cecli")
+		in := specInput("hermes")
 		in.ImageEntrypoint = func(string) []string { return image }
 		cfg, w, _ := Spec(in)
 		if !slices.Equal(w.Recipe.Entrypoint, []string{"bash"}) || !sbx.IsShellLaunch(cfg.Command) {
@@ -126,7 +170,7 @@ func TestNoImageEntrypointLaunchesThroughBash(t *testing.T) {
 
 func TestAWorkloadDeclaresProveosCredentialsProxyManaged(t *testing.T) {
 	withStoredSecrets(t, "anthropic")
-	in := anthropicKeyInput("cecli")
+	in := anthropicKeyInput("hermes")
 	in.Detected = []string{"anthropic"}
 	_, w, secrets := Spec(in)
 	var c *sbx.CredentialV3
@@ -166,7 +210,7 @@ func TestAPublishedKitOwnsItsServiceAndProveoAddsNoSecondOwner(t *testing.T) {
 
 func TestInjectDomainsAreAllowlisted(t *testing.T) {
 	withStoredSecrets(t, "anthropic")
-	_, w, _ := Spec(anthropicKeyInput("cecli"))
+	_, w, _ := Spec(anthropicKeyInput("hermes"))
 	if len(w.Credentials()) == 0 {
 		t.Fatal("no credential built from the lookup alone — the test would prove nothing")
 	}
@@ -188,15 +232,39 @@ func TestInjectDomainsAreAllowlisted(t *testing.T) {
 
 func TestUnstoredServicesAreNotDeclared(t *testing.T) {
 	withStoredSecrets(t)
-	_, w, _ := Spec(anthropicKeyInput("cecli"))
+	_, w, _ := Spec(anthropicKeyInput("hermes"))
 	if n := len(w.Credentials()); n != 0 {
 		t.Errorf("declared %d credentials sbx has no secret for — each one is a prompt an unattended run stops on", n)
 	}
 }
 
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R2, P0 M1)
+func TestAProviderSbxDoesNotKnowTakesTheServiceRouteOnItsFirstRun(t *testing.T) {
+	withStoredSecrets(t)
+	in := specInput("opencode")
+	in.Lookup = func(k string) string {
+		if k == "MOONSHOT_API_KEY" {
+			return "sk-moonshot"
+		}
+		return ""
+	}
+	_, w, secrets := Spec(in)
+	if !slices.ContainsFunc(secrets, func(kv [2]string) bool { return kv[0] == "MOONSHOT_API_KEY" }) {
+		t.Fatalf("secrets = %v; the run stores the key under its service id before create", secrets)
+	}
+	i := slices.IndexFunc(w.Credentials(), func(c sbx.CredentialV3) bool { return c.Service == "moonshot" })
+	if i < 0 {
+		t.Fatalf("no moonshot credential@1 although this run stores it: %+v", w.Credentials())
+	}
+	c := w.Credentials()[i]
+	if c.APIKey == nil || !c.APIKey.ProxyManaged || c.APIKey.Name != "MOONSHOT_API_KEY" || len(c.APIKey.Inject) == 0 {
+		t.Errorf("moonshot credential = %+v; want a proxy-managed MOONSHOT_API_KEY with inject rules", c.APIKey)
+	}
+}
+
 func TestSpecNeverStoresAServiceNamedSecret(t *testing.T) {
 	withStoredSecrets(t, "anthropic")
-	_, _, secrets := Spec(anthropicKeyInput("cecli"))
+	_, _, secrets := Spec(anthropicKeyInput("hermes"))
 	for _, kv := range secrets {
 		if kv[0] == "anthropic" {
 			t.Fatal("Spec would store a secret under the SERVICE name, overwriting the operator's own entry")
@@ -295,4 +363,45 @@ func TestAnAllowedGatewayIsNotBlankedAndTheSeedHookCanSeeIt(t *testing.T) {
 	if seed == nil || !slices.Contains(seed.Env, sbx.MCPGatewayEnv) || !slices.Contains(seed.Env, sbx.MCPSentinelEnv) {
 		t.Fatalf("seed hook %+v does not declare the gateway names; a hook sees only the env it names", seed)
 	}
+}
+
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R6)
+func TestABackedCursorKeyGetsSbxsPlaceholderAndAnUnbackedOneStaysSignIn(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		target      string
+		service     string
+		stored      []string
+		wantManaged bool
+	}{
+		{name: "cursor key stored", target: "cursor", service: "cursor", stored: []string{"cursor"}, wantManaged: true},
+		{name: "nothing stored keeps cursor's sign-in", target: "cursor", service: "cursor"},
+		{name: "only the env-var-named entry stored is not the service", target: "cursor", service: "cursor", stored: []string{"CURSOR_API_KEY"}},
+		{name: "a stored anthropic key leaves claude's subscription path alone", target: "claudecode", service: "anthropic", stored: []string{"anthropic"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := specInput(tc.target)
+			in.StoredAPIKeys = func() []string { return tc.stored }
+			_, w, _ := Spec(in)
+			apiKey := credentialAPIKey(t, w, tc.service)
+			if got := apiKey["proxyManaged"] == true; got != tc.wantManaged {
+				t.Errorf("Spec(%q) with stored %q: %s apiKey.proxyManaged = %v, want %v", tc.target, tc.stored, tc.service, apiKey["proxyManaged"], tc.wantManaged)
+			}
+		})
+	}
+}
+
+// credentialAPIKey is the apiKey block of the workload's credential@1 for service.
+func credentialAPIKey(t *testing.T, w Workload, service string) map[string]any {
+	t.Helper()
+	for _, c := range w.Descriptor.Capabilities {
+		cfg, ok := c.Config.(map[string]any)
+		if c.Type != sbx.CapCredential || !ok || cfg["service"] != service {
+			continue
+		}
+		apiKey, _ := cfg["apiKey"].(map[string]any)
+		return apiKey
+	}
+	t.Fatalf("workload declares no %s credential", service)
+	return nil
 }

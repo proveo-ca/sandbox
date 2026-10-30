@@ -10,7 +10,6 @@ title The harden pass — one script, re-run by every layer that installs
 ' covers: defs/base-node/Dockerfile
 ' covers: defs/base-node-lsp/Dockerfile
 ' covers: defs/base-node-browser/Dockerfile
-' covers: defs/cecli/Dockerfile
 ' covers: defs/cursor/Dockerfile
 ' covers: defs/opencode/Dockerfile
 ' covers: defs/claudecode/mcp/Dockerfile
@@ -88,7 +87,7 @@ component "defs/base/proveo-harden\n""/usr/local/sbin/proveo-harden [paths…]""
 node "Callers, in lineage order" as CALL <<host>> {
   component "proveo/base — full ""/"" sweep\nonce, after the apt and curl layers" as C1 <<app>>
   component "base-node · base-node-lsp\nbase-node-browser — ""/usr /opt""" as C2 <<app>>
-  component "cecli · claudecode · solidity\n""/usr /opt"" after each install" as C3 <<app>>
+  component "claudecode · solidity\n""/usr /opt"" after each install" as C3 <<app>>
   component "cursor\nno args — a second full sweep\n(codex · opencode: no call since N26)" as C4 <<app>>
 }
 

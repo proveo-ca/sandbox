@@ -18,7 +18,7 @@ skinparam noteTextAlignment left
 ' anthropics/claude-plugins-official is baked at image build, chmod'd world-
 ' writable so Claude Code can drop .in_use/<pid> markers, and paired with
 ' home-side installed_plugins.json / known_marketplaces.json records. That
-' shape is Claude Code's. Cursor, opencode, cecli and codex have no equivalent
+' shape is Claude Code's. Cursor, opencode and codex have no equivalent
 ' seed. Copying the class onto them would invent a marketplace they do not
 ' speak.
 '
@@ -31,7 +31,7 @@ title PLANNED — plugin class past claudecode waits on a second seed
 
 component "**plugin:claudecode**\n""configure_claude_plugins""\nships today" as HAVE <<app>>
 component "the seed\n""/opt/proveo/claude-plugins""\none vendor's marketplace" as SEED <<db>>
-component "cursor · opencode\ncecli · codex" as OTHER <<error>>
+component "cursor · opencode\ncodex" as OTHER <<error>>
 component "**plugin:<target>**\nno arm, no seed, no probe" as MISS <<error>>
 component "a second seedable cache\nfiles + records + binary rule" as TRIGGER <<app>>
 
@@ -52,8 +52,8 @@ note bottom of MISS
   **Missing arms are the decision.** The
   table names plugin:claudecode and nothing
   else. Do not add a no-op arm to look
-  complete — a probe with no seed is the
-  Serena shape this chain already refused.
+  complete — an arm with no seed wires
+  nothing that serves.
 end note
 
 note right of TRIGGER

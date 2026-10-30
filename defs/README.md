@@ -20,14 +20,14 @@ Definition-local scripts are the preferred deterministic command surface:
 
 - The build recipe (parent, pins, variants) is the def's row in `internal/imagebuild/targets.go`; `mise run build <target>` runs it.
 - `proveo run <target>` runs the harness with the manifest's mounts and environment.
-- `mise run test-defs <target>` (or `proveo test <target>`) runs the image suite, `go test -tags=image -run '^TestImage<Name>$' ./internal/imagetest/`.
+- `mise run test-defs <target>` runs the image suite, `go test -tags=image -run '^TestImage<Name>$' ./internal/imagetest/`.
 - `sbx exec -it <sandbox> bash` opens a shell in a running harness sandbox (`sbx ls` names it).
 
 ## Current Classification
 
 No definition is considered mature yet; this project is still standardizing the contract.
 
-- Candidate coding harnesses: `cecli`, `opencode`, `claudecode`, `codex`, `cursor`
+- Candidate coding harnesses: `opencode`, `claudecode`, `codex`, `cursor`
 - Candidate general-purpose harness: `hermes` (native browser automation, not coding-focused)
 - Non-harness base layers: `base`, `base-node`, `base-node-lsp`, `base-node-browser`
 

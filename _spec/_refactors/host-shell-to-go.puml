@@ -118,7 +118,7 @@ title Host shell → Go — FROZEN SNAPSHOT of the 2026-09-22 refactor (P1–P4 
 '         with Success/Failure/Contains/Matches/Inspect/Skip/Check, and Docker
 '         bounded by a context timeout in place of run_timeout / timeout /
 '         gtimeout. Each check is its own subtest named by its description.
-'       * SUITES: internal/imagetest/{claudecode,codex,cursor,opencode,cecli,
+'       * SUITES: internal/imagetest/{claudecode,codex,cursor,opencode,
 '         mitmproxy,detached_smoke}_test.go, build tag `image`, one
 '         TestImage<Def> each. defs/lib/test-image.sh, defs/lib/egress.sh,
 '         e2e/docker-detached-smoke.sh, defs/tests/run_contract_tests.sh and
@@ -130,7 +130,7 @@ title Host shell → Go — FROZEN SNAPSHOT of the 2026-09-22 refactor (P1–P4 
 '         provider keys set (pass/fail/skip):
 '           claudecode 220/0/6 · codex 47/0/1 · opencode 60/0/8
 '           cursor 55/1/1, then 54/0/1 after the one dropped check
-'         cecli, mitmproxy and the detached smoke print few or no per-check
+'         mitmproxy and the detached smoke print few or no per-check
 '         lines, so their parity is exit status: all pass.
 '       * FINDING: cursor's shell suite aborted at check 21 (exit 127) and
 '         never ran phases 3–6 (security, config, defaults, llm). "[browser]
@@ -145,8 +145,8 @@ title Host shell → Go — FROZEN SNAPSHOT of the 2026-09-22 refactor (P1–P4 
 '         provider.Detect and egress.ProviderAllowConf directly instead. The
 '         binary also read PROVEO_EGRESS_ENV_FILE; the port ignores it, so
 '         that input has no image-suite coverage. (The proveo-egress binary is
-'         deleted with D1, and the host variable is PROVEO_ENV_FILE since F17,
-'         2026-10-17, the old name a deprecated alias.)
+'         deleted with D1; the host variable is PROVEO_ENV_FILE since F17,
+'         and its deprecated alias was removed after v0.2.0.)
 '       * Only the <cmd> strings survive, verbatim, inside the Go files; they
 '         still run in the image under Debian bash 5.
 ' P4  lib/ + scripts/ — ui/registry/helpers callers and go-test-coverage.sh /
@@ -196,7 +196,7 @@ title Host shell → Go — FROZEN SNAPSHOT of the 2026-09-22 refactor (P1–P4 
 '         runs install.sh / uninstall.sh under /bin/bash (3.2.57) on darwin.
 '         internal/contract/installer_bash_test.go adds `/bin/bash -n` and a
 '         bash-4-feature scan on both scripts; it found no violations.
-'       * DELETED: defs/{cecli,claudecode,codex,cursor,opencode}/run.sh,
+'       * DELETED: defs/{claudecode,codex,cursor,opencode}/run.sh,
 '         defs/sidecars/mitmproxy/{run,debug}.sh, lib/{ui,helpers,registry}.sh,
 '         scripts/go-test-coverage.sh, scripts/stage-cli-cdn.sh,
 '         scripts/githooks/install, defs/lib/render-subagents.sh,
@@ -209,7 +209,6 @@ title Host shell → Go — FROZEN SNAPSHOT of the 2026-09-22 refactor (P1–P4 
 '         installs into a temp git repo; TestLadderAllDetectsOnlyATopLevelSkip
 '         reads cmd/proveo-dev/ladder.go; TestE2EFullIsTheSilentDeathGate reads
 '         mise.toml + cmd/proveo-dev/{idle,e2efull}.go.
-'       * CECLI_IMAGE was documented but read by nothing; the docs dropped it.
 '
 ' ── THE GATE THAT FINISHES IT (LANDED P4) ──────────────────────────────────
 ' internal/contract/host_bash_test.go replaces TestHostScriptsAvoidBash4Builtins.

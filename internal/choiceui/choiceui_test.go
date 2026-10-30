@@ -888,7 +888,7 @@ func TestARadioSetDrawsRadiosBesideCheckboxes(t *testing.T) {
 		RadioSet: []string{"tui", "desktop"}, On: []bool{true, false, false}, Cols: []int{0, 1, 2}}}}
 	f.draw(s, 0, 0)
 	s.Show()
-	got := rendered(t, s.(tcell.SimulationScreen))
+	got := rendered(t, s)
 	for _, want := range []string{"(•) tui", "( ) desktop", "[ ] chrome"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("devices row lacks %q:\n%s", want, got)

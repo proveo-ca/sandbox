@@ -67,7 +67,7 @@ func TestProvisionerEnsure(t *testing.T) {
 			pullErr:   true,
 			confirm:   false,
 			wantPulls: []string{"proveo/codex:latest"},
-			wantErr:   "proveo build codex --tag local",
+			wantErr:   "PROVEO_AUTO_PROVISION=1",
 		},
 		{
 			name:      "duplicates are checked once",
@@ -125,10 +125,10 @@ func TestBuildTargetResolution(t *testing.T) {
 		man                     manifest.Manifest
 	}{
 		{"a browser variant is its own target", "/d", "proveo/claudecode-browser:latest", "claudecode-browser", manifest.Manifest{Name: "claudecode"}},
-		{"an unknown proveo image falls back to the manifest", "/d", "proveo/cecli-node:latest", "cecli", manifest.Manifest{Name: "cecli"}},
+		{"an unknown proveo image falls back to the manifest", "/d", "proveo/hermes-node:latest", "hermes", manifest.Manifest{Name: "hermes"}},
 		{"public image never builds", "/d", "ubuntu:24.04", "", manifest.Manifest{}},
 		{"no source tree builds nothing", "", "proveo/claudecode:latest", "", manifest.Manifest{Name: "claudecode"}},
-		{"overridden non-proveo agent image builds nothing", "/d", "ghcr.io/acme/custom:1", "", manifest.Manifest{Name: "cecli"}},
+		{"overridden non-proveo agent image builds nothing", "/d", "ghcr.io/acme/custom:1", "", manifest.Manifest{Name: "hermes"}},
 	} {
 		if got := buildTarget(c.defs, c.man, c.image); got != c.want {
 			t.Errorf("%s: buildTarget(%q) = %q, want %q", c.name, c.image, got, c.want)

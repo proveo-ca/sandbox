@@ -67,7 +67,7 @@ func (pv provisioner) Ensure(deps []imageDep) (map[string]string, error) {
 		tag := buildTag(d.Name)
 		pv.UI.Warnf("pull failed for %s — it can be built locally instead", d.Name)
 		if !pv.Confirm(fmt.Sprintf("%s is not available. Build %s from source now (tag %s)?", d.Name, d.Target, tag)) {
-			return built, fmt.Errorf("image unavailable: %s — pull failed and build declined; run `proveo build %s --tag %s`, or set PROVEO_AUTO_PROVISION=1 to build without prompting", d.Name, d.Target, tag)
+			return built, fmt.Errorf("image unavailable: %s — pull failed and build declined; re-run and accept the build, or set PROVEO_AUTO_PROVISION=1 to build without prompting", d.Name)
 		}
 		pv.UI.Appf("building %s", d.Target)
 		ref, err := pv.Build(d.Target, tag)

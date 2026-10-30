@@ -57,8 +57,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' ── THE def SUITES ARE GO SINCE 2026-09-22 (host-shell-to-go P3) ────────────
 ' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
 ' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke.
-' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `proveo test <target>` and
-' `mise run test-defs <target>` run
+' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `mise run test-defs <target>`
+' (proveo-dev test) runs
 '   go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
 ' NO UNBOUNDED DOCKER CALL. imagetest.Resolve/Present once ran
 ' `docker image inspect` via bare exec.Command. On 2026-10-18 a wedged host
@@ -112,7 +112,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '    opencode and cursor verify AVAILABILITY here and never build; claudecode now
 '    matches them. Building is imagebuild's job (internal/imagebuild/targets.go),
 '    and it is the only caller that knows how to resolve the base chain:
-'    `proveo build claudecode`.
+'    `mise run build claudecode`.
 '
 ' 2. A MISSING HELPER THAT STILL PRODUCED A NUMBER. test_config.sh had called
 '    `run_timeout` since it was written and claudecode's helpers never defined it
@@ -169,9 +169,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' image rather than a stale test.
 '
 ' So the roster is READ FROM THE IMAGE. A list copied into a test drifts silently
-' the moment the roster changes; cecli's suite already took this approach
-' ("read from the image, never restated here") and did not go stale. It is
-' TestImageCecli in internal/imagetest/cecli_test.go now.
+' the moment the roster changes.
 ' `tools:` and `readonly: true` moved with them, into the per-harness FRONTMATTER
 ' (_frontmatter/<harness>/<agent>.yaml) that render_subagents applies to the
 ' shared body — the bodies never carried either, so they are asserted there.
@@ -389,8 +387,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     cannot make every test sandbox "hold" dir.
 '     sbxSandboxNames keys on Workspaces[0] too, without the ":ro" trim or the
 '     root exclusion (MEASURED).
-'     HISTORY: an "every workspace under temp" rule never matched claudecode or
-'     cecli — home.files adds <StateDir>/runs/<sid>/sbx/home-files and a
+'     HISTORY: an "every workspace under temp" rule never matched claudecode —
+'     home.files adds <StateDir>/runs/<sid>/sbx/home-files and a
 '     clone with .env adds sbx/project-env, both outside temp.
 '     Pinned offline (e2e build tag, no sbx needed) by e2e/kit_sandbox_test.go:
 '     TestKitSandboxNamesOnlyTheRunsOwnSandbox, 10 pickKitSandbox cases
@@ -494,8 +492,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' OTHER CONVERSIONS IN THE SAME PASS (MEASURED unless marked):
 '   * seed_ready runs every harness through its kit; readySpec.ready is the
 '     prompt text — claudecode "bypass permissions", codex "Ask Codex to do
-'     anything", opencode "Ask anything", cursor "Cursor Agent". cecli and hermes
-'     have none, so they wait for the release marker and a quiet pane. The
+'     anything", opencode "Ask anything", cursor "Cursor Agent". hermes
+'     has none, so it waits for the release marker and a quiet pane. The
 '     release gap is the host time of the prompt minus the guest mtime of the
 '     release marker (assertPromptSoonAfterRelease). [Unverified] That
 '     subtraction assumes the host and guest clocks agree.
@@ -505,8 +503,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * close_confirm runs claudecode against the fake sbx, which reports
 '     sbx.MinVersion (MEASURED), and skips through sbx.Available() with the
 '     fake on PATH (reported).
-'   * the stream-palette test builds proveo/cecli:volatile-e2e FROM the local
-'     cecli image, replacing /opt/cecli/bin/cecli with a script that exits 3
+'   * the stream-palette test builds proveo/<target>:volatile-e2e FROM the local
+'     <target> image, replacing the harness binary with a script that exits 3
 '     and KEEPING the base ENTRYPOINT, seed and kit (MEASURED). A failed build
 '     FAILS the test, not skips it (MEASURED); the base image comes from
 '     harnessImage (MEASURED), which reportedly owns the sweep. Reported, not
@@ -624,8 +622,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' -36915573), which sbx then refused to start ("workspace directory … no longer
 ' exists on the host"). cleanLeftovers therefore runs `proveo clean` WITHOUT
 ' --force, so anything that looks live — a sibling still coming up, or the
-' operator's run — is kept, under a throwaway PROVEO_STATE_ROOT (PROVEO_EGRESS_ROOT
-' until F17, 2026-10-17; the old name is still read with a deprecation warning), so no real
+' operator's run — is kept, under a throwaway PROVEO_STATE_ROOT, so no real
 ' run's state dir is ever a candidate. HISTORY: cleanLeftoversIfCrowded waited
 ' for cleanThreshold = 10 `proveo.egress.session` containers before sweeping;
 ' neither it nor cleanLeftovers is in e2e/ any more (MEASURED 2026-10-16), and
@@ -663,6 +660,20 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * its failures are IGNORED, since proveo's own teardown already removes most
 '     of these and a sweep that reddens a passing test is worse than the leak it
 '     was added to prevent.
+'
+' ── A WEDGED GUEST HANGS sbx rm ────────────────────────────────────────────
+' MEASURED 2026-10-28, sbx 0.50.0, `PROVEO_TEST_GO_TIMEOUT=150m proveo-dev coverage e2e`:
+'   00:01:00  seed_ready/hermes creates proveo-hermes-89d1a8c6 FROM proveo/hermes:latest
+'             (57 layers; hermes:local absent, so ResolveImage fell back)
+'   00:02:01  the probe's `sbx exec` hits its 1m deadline → t.Fatalf
+'   00:02:16  daemon.log: "create sandbox failed … container start: context canceled"
+'   cleanup   `sbx rm --force proveo-hermes-89d1a8c6` never returned (shim alive, guest wedged)
+'   02:30:00  package timeout; codex, cursor, hermes, opencode still queued on the one-VM gate
+' Cleanups run LIFO, so the unbounded rm held the gate slot and starved every later harness.
+' removeSandbox bounds each `sbx rm` with PROVEO_TEST_TEARDOWN (default 3m) and
+' returns an error naming the SANDBOX_NAME whose shim to SIGKILL
+' (map shim → SANDBOX_NAME through its task bundle config.json; never kill every shim).
+' Every e2e `sbx rm` goes through it; TestRemoveSandboxGivesUpOnAWedgedGuest pins the bound.
 '
 ' ── THE ENVIRONMENT A SUITE HANDS ITS CHILD ─────────────────────────────────
 ' Three traps, all of which present as "the session started and printed nothing":
@@ -708,12 +719,11 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     marker, so a dead run read as a live prompt (reported).
 '     reachedPromptFor also drops that one line (withoutPlanLine).
 '     Markers are text only the agent's own screen shows (2026-10-26). The
-'     bare names `opencode`/`cecli` matched sbx's kit line
+'     bare name `opencode` matched sbx's kit line
 '     `…/kit/proveo-<target> — cached`; codex had no case and fell to
 '     Claude Code's text, so stock-sbx rung 0 failed at a live Codex prompt.
 '     codex "Ask Codex to do anything", opencode "Ask anything" (readySpecs,
-'     MEASURED); cecli "(edit format)" from get_announcements
-'     (cecli-dev/cecli base_coder.py, v1.9.0 and v1.10.0).
+'     MEASURED).
 '     Test: e2e/idle_test.go TestSbxBuildOutputIsNotAPrompt.
 '     RESIDUAL: e2e/ladder_test.go still checks the marker before `exited`.
 '   * SBX LS --JSON IS A BARE ARRAY SINCE 0.48 (2026-10-26).
@@ -829,7 +839,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '                       . _spec/internal/sbx/policy-baseline.puml (history)
 '   the credential boundary, now sbx's store and proxy
 '                       . _spec/_paradigms/credential-boundary.puml
-'   who brokers on sbx . _spec/internal/sbx/credential-path.puml
+'   who brokers on sbx . _spec/internal/sbx/credential-resolution.puml
 '   the PTY mechanics, which internal/backend/sandbox still uses on every
 '   interactive sbx run . _spec/internal/ptyproxy/pty-ownership.puml
 ' Only the docker-mechanism story — the Squid hop, the DLP layers, the CONNECT

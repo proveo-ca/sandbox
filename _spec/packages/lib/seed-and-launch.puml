@@ -8,7 +8,6 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: defs/cursor/entrypoint.sh
 ' covers: defs/opencode/entrypoint.sh
-' covers: defs/cecli/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 ' covers: internal/sbx/kit.go
 ' covers: internal/contract/seed_command_shipped_test.go
@@ -134,7 +133,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' where an offline listing exists (claude's stream-json init event, `opencode
 ' serve` plus GET /api/agent); the clone's .env is linked, writable and stripped
 ' of provider keys; _spec is relinked; and after seed-done, gopls — installed by the seed's
-' own toolchain step — is on PATH and wired. codex, cursor and cecli have no
+' own toolchain step — is on PATH and wired. codex and cursor have no
 ' offline registration listing, so their row asserts the files only.
 ' Since 2026-10-17 every row runs `proveo run <target>` through its kit
 ' (`--shell` is retired; readySpec.kit became readySpec.ready, the prompt
@@ -187,10 +186,10 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' ── THE STARTUP COMMAND IS CHECKED TWICE, AND ONLY ONE HALF WAS MISSING ────
 ' internal/contract asserts each sbx Dockerfile COPIES proveo-seed. Every image
 ' suite asserts the built IMAGE has it executable: the check "ships the Kit's
-' startup command (/usr/local/bin/proveo-seed)" in TestImageCecli,
+' startup command (/usr/local/bin/proveo-seed)" in
 ' TestImageClaudecode (ccBuild, both variants), TestImageCursor and
 ' TestImageOpencode (ocBuild). The image half is the one that was missing:
-' opencode and cecli shipped without the binary, and the Dockerfile check alone
+' opencode shipped without the binary, and the Dockerfile check alone
 ' could not have said so for an image built before it existed.
 '
 ' Sibling specs, so this one stays about the ORDER and the HAND-OFF:
@@ -238,7 +237,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '                    So the startup command is the ONLY run of the def
 '                    entrypoint for a mixin, not a second one.
 '   kind: sandbox    proveo copies the image's ENTRYPOINT into the Kit, so the
-'   (cecli)          def script IS the process prefix and sbx's command reaches
+'                    def script IS the process prefix and sbx's command reaches
 '                    it as "$@". The hand-off below is written for this.
 '   shell agent      `ShellLaunch` execs `/entrypoint.sh "$@"` by name
 '                    (_spec/internal/sbx/shell-agent-launch.puml). Same shape,
@@ -270,14 +269,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '                                  run's defaults — silently, because a merge
 '                                  that overwrites nothing looks identical to a
 '                                  merge that had nothing to overwrite.
-'   3. render_subagents <harness>  per-target destination. cecli reads subagents
-'                                  from CECLI_HOME (/app/.cecli in the image, the
-'                                  workspace by design — defs/cecli/README.md),
-'                                  and its entrypoint lists exactly that dir in
-'                                  CECLI_AGENT_CONFIG's subagent_paths.
-'                                  "$home/agents" was seeded where nothing
-'                                  looked: the banner never listed them and
-'                                  Delegate never saw them.
+'   3. render_subagents <harness>  per-target destination.
 '   4. accept_workspace_trust      before the agent, or the prompt appears.
 '   5. proveo_sync_tools restore   BEFORE provisioning: _proveo_tool_path puts
 '                                  the tree on PATH and every installer step
@@ -494,10 +486,9 @@ end note
 
 note top of WIRE
   **Hook formatters stay unwired.** A
-  PostToolUse / afterFileEdit / lint-cmd
+  PostToolUse / afterFileEdit
   row would pick a command per project.
-  Guessing rewrites source; cecli treats
-  formatter non-zero as a lint failure.
+  Guessing rewrites source.
 end note
 
 note bottom of TRUST
@@ -578,7 +569,7 @@ note as N_SEED_SHIPPED
 end note
 
 note as N_SEED_127
-  opencode and cecli never copied it, so every
+  opencode never copied it, so every
   sbx run failed startup with ""exit=127"" and
   seeded nothing — no subagents, no settings, no
   workspace trust.

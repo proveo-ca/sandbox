@@ -1,6 +1,6 @@
 //go:build e2e
 
-// SPEC: _spec/_paradigms/capability-ladder.puml, _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/internal/sbx/kit-sandbox-credential-gap.puml
+// SPEC: _spec/_paradigms/capability-ladder.puml, _spec/internal/sbx/sandbox-backend.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/internal/sbx/credential-resolution.puml
 package e2e
 
 import (
@@ -129,10 +129,7 @@ func proveoWorkload(t *testing.T, work, target string, extra []string) (string, 
 	if err != nil {
 		t.Skipf("could not render the workload: %v\n%s", err, out)
 	}
-	create := shellWords(printedLine(t, string(out), "# sandbox"))
-	if len(create) > 0 && create[0] == sbx.Binary {
-		create = create[1:]
-	}
+	create := createArgv(printedLine(t, string(out), "# sandbox"))
 	if len(create) == 0 || create[0] != "create" {
 		t.Fatalf("the printed sandbox line is not an `sbx create`: %q", create)
 	}
@@ -358,9 +355,6 @@ var providerRefusals = []string{
 	"no matching allow rule",
 	// What raise_for_status renders in any Python agent; it means "look", not "blocked".
 	"403 Client Error",
-	// cecli's provider model-list probe, which is the render this rung was
-	// written from.
-	"Failed to fetch",
 	// The load-bearing one: a key the keyless climb never chose reached the provider.
 	"Incorrect API key provided",
 }
@@ -596,7 +590,7 @@ func TestLadderReportSaysWhenNothingBroke(t *testing.T) {
 }
 
 func TestEveryTargetClimbsFourRungs(t *testing.T) {
-	for _, target := range []string{"claudecode", "cecli", "opencode"} {
+	for _, target := range []string{"claudecode", "hermes", "opencode"} {
 		t.Setenv("PROVEO_LADDER_TARGET", target)
 		rungs := ladderRungs()
 		want := []string{"0-bare-sbx-agent", "1-proveo-image-workload", "2-proveo-browser-image", "3-proveo-workload"}
@@ -612,7 +606,7 @@ func TestEveryTargetClimbsFourRungs(t *testing.T) {
 }
 
 func TestRungZeroIsStockAndTheRestAreWorkloads(t *testing.T) {
-	t.Setenv("PROVEO_LADDER_TARGET", "cecli")
+	t.Setenv("PROVEO_LADDER_TARGET", "hermes")
 	zero := ladderRungs()[0].argv(t, t.TempDir())
 	if !contains(zero, "shell") || contains(zero, "-t") || contains(zero, "--") {
 		t.Errorf("rung 0 for a harness with no built-in agent must be stock sbx's shell, nothing of proveo's: %v", zero)
@@ -623,8 +617,8 @@ func TestRungZeroIsStockAndTheRestAreWorkloads(t *testing.T) {
 	if r := imageRecipe("claudecode", "proveo/claudecode:local"); len(r.Entrypoint) == 0 || r.Entrypoint[0] != "claude" {
 		t.Errorf("claudecode's image rung must launch through the published kit's ENTRYPOINT, got %q", r.Entrypoint)
 	}
-	if r := imageRecipe("cecli", "proveo/cecli:local"); len(r.Entrypoint) != 0 {
-		t.Errorf("cecli has no published kit; its image ENTRYPOINT must run untouched, got %q", r.Entrypoint)
+	if r := imageRecipe("hermes", "proveo/hermes:local"); len(r.Entrypoint) != 0 {
+		t.Errorf("hermes has no published kit; its image ENTRYPOINT must run untouched, got %q", r.Entrypoint)
 	}
 	if got := withName([]string{"--name", "a", "/kit", "/w"}, "b"); got[1] != "b" || got[2] != "/kit" {
 		t.Errorf("withName = %v", got)
@@ -637,11 +631,11 @@ func TestProbeLaunchIsBestEffort(t *testing.T) {
 	if got := probeLaunch(t, "some-sandbox", ""); got != "" {
 		t.Errorf("probed with no command to resolve: %q", got)
 	}
-	if got := probeLaunch(t, "", "cecli"); got != "" {
+	if got := probeLaunch(t, "", "hermes"); got != "" {
 		t.Errorf("probed with no sandbox named: %q", got)
 	}
 	// A sandbox that does not exist returns nothing rather than erroring.
-	if got := probeLaunch(t, "proveo-ladder-does-not-exist-0-0", "cecli"); got != "" &&
+	if got := probeLaunch(t, "proveo-ladder-does-not-exist-0-0", "hermes"); got != "" &&
 		!strings.Contains(got, "id:") {
 		t.Logf("probe on a missing sandbox returned %q — acceptable, it must simply not fail", got)
 	}
@@ -651,11 +645,11 @@ func TestProbeLaunchIsBestEffort(t *testing.T) {
 // interpolated into a shell script and the def names it, not us.
 func TestQuoteWordSurvivesAQuote(t *testing.T) {
 	t.Parallel()
-	if got := quoteWord("ce'cli"); got != `'ce'\''cli'` {
+	if got := quoteWord("her'mes"); got != `'her'\''mes'` {
 		t.Errorf("quoteWord = %s, want the escaped single-quote form", got)
 	}
-	if got := quoteWord("cecli"); got != "'cecli'" {
-		t.Errorf("quoteWord = %s, want 'cecli'", got)
+	if got := quoteWord("hermes"); got != "'hermes'" {
+		t.Errorf("quoteWord = %s, want 'hermes'", got)
 	}
 }
 
@@ -793,10 +787,6 @@ func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 			out: "HTTP 403 Blocked by org policy", why: "centralised deny, details withheld"},
 		{name: "local deny rule", want: "Blocked by local rule for",
 			out: "Blocked by local rule for api.x.ai", why: "a deny outranks every allow"},
-		{name: "cecli's model-list probe", want: "Failed to fetch",
-			out: "Failed to fetch xai model list: 403 Client Error: Forbidden for url: " +
-				"https://api.x.ai/v1/models",
-			why: "the render measured from session proveo-1788935973-18915"},
 		{name: "raise_for_status alone", want: "403 Client Error",
 			out: "requests.exceptions.HTTPError: 403 Client Error for url: https://api.x.ai/v1/models",
 			why: "any Python agent, and 403 is never a provider's answer about a key"},
@@ -815,16 +805,9 @@ func TestProviderRefusalsFireOnRefusalsAndNothingElse(t *testing.T) {
 				`all available credits or reached its monthly spending limit."}`,
 			why: "an empty account is nobody's bug; the authFailures scan claims it first " +
 				"and the rung must not also claim it"},
-		{name: "cecli's render of that SAME 403 is a rung failure, because requests " +
-			"discards the body", want: "Failed to fetch",
-			out: "Failed to fetch xai model list: 403 Client Error: Forbidden for url: " +
-				"https://api.x.ai/v1/models",
-			why: "raise_for_status keeps only the status, so the credit wording never " +
-				"reaches the screen — which is exactly why this 403 was unattributable, " +
-				"and why the marker has to mean 'look' rather than 'blocked'"},
 
 		{name: "a clean session says nothing",
-			out: "cecli version: 1.4.1 🚀 Launching cecli main model: claude-opus-5",
+			out: "Claude Code v2.1.308 · claude-opus-5 · bypass permissions on",
 			why: "a rung that fires on a healthy render is worse than no rung"},
 		{name: "no credentials presented is the climb's OWN state",
 			out: `401 {"code":"unauthenticated:no-credentials","error":"No credentials presented."}`,

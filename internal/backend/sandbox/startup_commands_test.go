@@ -17,7 +17,7 @@ func TestStartupCommandsRunInstallsLastAndInTheBackground(t *testing.T) {
 		CloneSource: workspace.WorktreeSource{Main: filepath.Join(root, "main"), Ref: "feat"}}
 	plain := Input{Target: "claudecode"}
 	release, provision, entry := sbx.SeedCommand("claudecode"), sbx.SeedProvisionCommand("claudecode"), sbx.SeedEntrypointCommand("claudecode")
-	full := sbx.SeedFullCommand("cecli")
+	full := sbx.SeedFullCommand("hermes")
 	for _, tc := range []struct {
 		name     string
 		in       Input
@@ -26,8 +26,8 @@ func TestStartupCommandsRunInstallsLastAndInTheBackground(t *testing.T) {
 	}{
 		{"built-in agent mixin", plain, false, []string{release.Description, entry.Description, provision.Description}},
 		{"worktree mixin", worktree, false, []string{"", release.Description, entry.Description, provision.Description}},
-		{"own agent seeds inline", Input{Target: "cecli"}, true, []string{full.Description}},
-		{"shell-launched def seeds inline", Input{Target: "cecli"}, false, []string{full.Description, entry.Description}},
+		{"own agent seeds inline", Input{Target: "hermes"}, true, []string{full.Description}},
+		{"shell-launched def seeds inline", Input{Target: "hermes"}, false, []string{full.Description, entry.Description}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

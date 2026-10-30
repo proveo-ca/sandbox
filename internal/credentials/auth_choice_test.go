@@ -32,9 +32,8 @@ func cursorMan() manifest.Manifest {
 	}
 }
 
-// cecli is the def with no plan of its own: an aider fork that reads provider
-// keys and nothing else.
-func cecliMan() manifest.Manifest { return manifest.Manifest{Name: "cecli"} }
+// hermes is the def with no plan of its own: it reads provider keys and nothing else.
+func hermesMan() manifest.Manifest { return manifest.Manifest{Name: "hermes"} }
 
 func TestBothBillingClassesAreOffered(t *testing.T) {
 	t.Parallel()
@@ -118,11 +117,11 @@ func TestVendorPinnedHarnessStillHasAMeteredSide(t *testing.T) {
 	}
 }
 
-// cecli has no plan side, so there is no question to put to the operator.
+// hermes has no plan side, so there is no question to put to the operator.
 func TestAHarnessWithNoPlanAsksNothing(t *testing.T) {
 	t.Parallel()
-	if DeclaresSubscription(cecliMan()) {
-		t.Error("cecli reported as having a plan of its own")
+	if DeclaresSubscription(hermesMan()) {
+		t.Error("hermes reported as having a plan of its own")
 	}
 	for _, m := range []manifest.Manifest{opencodeMan(), cursorMan()} {
 		if !DeclaresSubscription(m) {
@@ -256,8 +255,8 @@ func TestEveryClassCanSayWhyItIsUnavailable(t *testing.T) {
 	if !strings.Contains(why[AuthUsage], "cursor") {
 		t.Errorf("cursor's usage reason = %q, want the vendor named", why[AuthUsage])
 	}
-	if oc := AuthWhyUnavailable(cecliMan(), "cecli", "")[AuthSubscription]; !strings.Contains(oc, "provider keys only") {
-		t.Errorf("cecli's subscription reason = %q, want it to say there is no plan", oc)
+	if oc := AuthWhyUnavailable(hermesMan(), "hermes", "")[AuthSubscription]; !strings.Contains(oc, "provider keys only") {
+		t.Errorf("hermes's subscription reason = %q, want it to say there is no plan", oc)
 	}
 	usage := AuthWhyUnavailable(opencodeMan(), "opencode", "")[AuthUsage]
 	if strings.Contains(usage, ".env") {

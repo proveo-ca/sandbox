@@ -11,7 +11,7 @@ func env(m map[string]string) func(string) string {
 
 func TestImagePlatformIsWhatTheDefsBuildAsDockerWillPickIt(t *testing.T) {
 	t.Parallel()
-	// No override: linux, at the host's architecture — a local `proveo build`
+	// No override: linux, at the host's architecture — a local `mise run build`
 	// loads exactly linux/<host arch> and the runner passes no --platform.
 	got := ImagePlatform(env(nil))
 	if got.OS != "linux" || got.Arch != HostPlatform().Arch {

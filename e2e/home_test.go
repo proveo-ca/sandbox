@@ -30,7 +30,6 @@ func TestProveoHomePersistence(t *testing.T) {
 			{"opencode", "opencode"},
 			{"claudecode", ".claude"},
 			{"codex", ".codex"},
-			{"cecli", ".cecli"},
 		}
 		for _, a := range agents {
 			a := a

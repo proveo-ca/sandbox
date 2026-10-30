@@ -104,8 +104,8 @@ bridge_git_identity`
 		env  []string
 	}{
 		{"outside sbx", nil},
-		{"inside sbx by SANDBOX_NAME", []string{"SANDBOX_NAME=proveo-cecli-0123abcd"}},
-		{"inside sbx by SANDBOX_VM_ID", []string{"SANDBOX_VM_ID=proveo-cecli-0123abcd"}},
+		{"inside sbx by SANDBOX_NAME", []string{"SANDBOX_NAME=proveo-hermes-0123abcd"}},
+		{"inside sbx by SANDBOX_VM_ID", []string{"SANDBOX_VM_ID=proveo-hermes-0123abcd"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

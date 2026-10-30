@@ -66,7 +66,7 @@ func entrypointLibPath(t *testing.T) string {
 	return p
 }
 
-var toolchainHarnesses = []string{"opencode", "claudecode", "codex", "cursor", "cecli"}
+var toolchainHarnesses = []string{"opencode", "claudecode", "codex", "cursor"}
 
 type runOpts struct {
 	env     map[string]string
@@ -499,7 +499,7 @@ done`
 			for _, fn := range required {
 				if !strings.Contains(out, "present "+fn) {
 					t.Errorf("%s ships a STALE entrypoint-lib.sh: %q is missing. "+
-						"Rebuild it (`proveo build %s`) — the source fix is not live until you do.",
+						"Rebuild it (`mise run build %s`) — the source fix is not live until you do.",
 						name, fn, name)
 				}
 			}

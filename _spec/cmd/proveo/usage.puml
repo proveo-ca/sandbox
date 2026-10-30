@@ -6,6 +6,7 @@ skinparam packageStyle rectangle
 ' purpose: the CLI surface proveo presents, and the maintainer tooling beside it
 ' covers: cmd/proveo/main.go
 ' covers: cmd/proveo-dev/main.go
+' covers: cmd/proveo-dev/maintain.go, cmd/proveo-dev/maintain_test.go
 ' covers: cmd/proveo/help.go, cmd/proveo/help_test.go
 ' covers: cmd/proveo/maintainer_surface_test.go
 ' covers: cmd/proveo/env_help.go
@@ -42,6 +43,18 @@ skinparam packageStyle rectangle
 ' with no arguments does that running list only when a task is already up,
 ' and its last row starts the harness. `--yes`, `--print`, `--ls`,
 ' `--resume` and `--continue` skip the picker.
+'
+' ── 2026-10-28: build · deploy · test LEFT cmd/proveo ───────────────────────
+' The Executor: "proveo should not have `proveo build`; that should only be
+' available via mise. proveo is the end consumer CLI." The three verbs moved
+' unchanged to cmd/proveo-dev/maintain.go (git mv of maintain_cmd.go);
+' maintainerDefsDir resolves the checkout through proveo-dev repoRoot.
+' mise.toml: build|test-defs|deploy → `go run ./cmd/proveo-dev <verb>`; mise
+' forwards flags (`mise run build codex --tag rc9 --print`, MEASURED).
+' Messages that named `proveo build|deploy` now name `mise run build|deploy`;
+' the declined-preflight error names PROVEO_AUTO_PROVISION=1 instead, since a
+' consumer has no checkout. TestRootHelpHidesMaintainerCommands fails if the
+' consumer root registers build, deploy or test.
 '
 ' ── HELP SPEAKS THE CHOICE PROMPT'S VOCABULARY (2026-09-28) ────────────────
 ' renderHelp replaces cobra's template on every command with the layout of
@@ -87,7 +100,7 @@ actor "Maintainer" as Maintainer
 
 package "Consumer / maintainer entrypoint\ncmd/proveo (static binary)" as Entrypoint {
  component "proveo" as Proveo <<app>>
- component "version · ls · run · schedule · attach · projects · setup · init\nupdate · uninstall · clean\nharness aliases (cursor · …)\nhidden: build · deploy · test · help topic: env" as Commands <<commands>>
+ component "version · ls · run · schedule · attach · projects · setup · init\nupdate · uninstall · clean\nharness aliases (cursor · …)\nhelp topic: env" as Commands <<commands>>
  component "run flags\n--credentials · --local-model\n--scope · --print\n--image · --data-dir · --input · --output" as RunFlags <<commands>>
 }
 
@@ -97,13 +110,13 @@ package "Installer" as Install {
 }
 
 package "Maintainer binary (not shipped)\ncmd/proveo-dev" as Shims {
- component "proveo-dev coverage · stage-cdn · build-cli\nlint · hooks · ladder · idle · e2e-full" as RunShim <<internal>>
+ component "proveo-dev coverage · stage-cdn · build-cli\nlint · hooks · ladder · idle · e2e-full\nbuild · deploy · test" as RunShim <<internal>>
 }
 
 package "Maintainer\nmise" as Maint {
  component "mise build|test|deploy" as Mise <<internal>>
- component "proveo build · deploy\ninternal/maintain → internal/imagebuild" as MaintLib <<internal>>
- component "proveo test <target>\ngo test -tags=image ./internal/imagetest" as BuildTest <<internal>>
+ component "proveo-dev build · deploy\ninternal/maintain → internal/imagebuild" as MaintLib <<internal>>
+ component "proveo-dev test <target>\ngo test -tags=image ./internal/imagetest" as BuildTest <<internal>>
 }
 
 package "Registration" as Reg {
@@ -201,7 +214,7 @@ end note
 
 note right of RunFlags
 ""proveo run <target>"" applies to every
-harness with a manifest (cecli, claudecode*,
+harness with a manifest (claudecode*,
 opencode, cursor, codex, hermes). Every run goes
 to an sbx sandbox with its own daemon (hermes:
 ""daemon: false""); a host without sbx refuses

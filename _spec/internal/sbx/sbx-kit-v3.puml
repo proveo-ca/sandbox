@@ -27,6 +27,9 @@ skinparam noteTextAlignment left
 ' description, kind workload, version and capabilities. Image, env, user,
 ' workdir and launch live in the recipe, not the descriptor (§8):
 '   FROM <image>; ENTRYPOINT/CMD in exec form when the workload sets a launch.
+'   The FROM reference and the builder that resolves it come from the image
+'   source (_spec/internal/sbx/kit-image-source.puml): ref@digest for an image
+'   the host engine holds.
 ' Typed configs cover what proveo generates: lifecycle@1 (install/startup
 ' hooks with user and the env names each reads — "a hook sees only what it
 ' declares"), network-policy@1 runtime allow/deny, port@1. Capabilities
@@ -36,7 +39,9 @@ skinparam noteTextAlignment left
 ' ── UPSTREAM KITS (Q3: "prefer using upstream") ─────────────────────────────
 ' internal/sbx/third_party/ vendors claude, codex, cursor and opencode — each
 ' <agent>.yaml + <agent>.dockerfile — from UpstreamKitsRef (docker/sbx-kits-
-' contrib@8b0844a, Apache-2.0; LICENSE kept beside them). A FROM never carries
+' contrib@8b0844a, Apache-2.0; LICENSE kept beside them).
+' Local edits to those files are deltas, each listed with its upstream report in
+' _spec/internal/sbx/vendored-kit-deltas.puml. A FROM never carries
 ' a published kit's capabilities (author/base-images/), so proveo COPIES them:
 ' UpstreamKitFor(target, opts) returns
 '   * every capability except sbx@1 (proveo declares its own): credential@1,
@@ -59,7 +64,7 @@ skinparam noteTextAlignment left
 '     every restored key; proveo_seed runs it after proveo_sync_config
 '     restore (TestWorkspaceTrustMergesUpstreamsFlagsIntoTheRestoredClaudeJSON,
 '     TestTheSeedAcceptsTrustAfterItRestoresConfig). Inert in an image until
-'     `proveo build <harness>` bakes the lib.
+'     `mise run build <harness>` bakes the lib.
 '   * any hook naming MCP_GATEWAY_URL unless opts.MCPGateway (the mcp row).
 ' THE MCP ROW (user: "mcp can be a new row under the sbx's egress in
 ' internal/choiceui. If we only have on/off so be it for now"):
@@ -129,9 +134,9 @@ title sbx v3 workload — what proveo writes
 
 folder "<kit root>/proveo-<target>/" as DIR <<app>> {
   file "proveo-<target>.yaml\n# syntax=docker/sandbox-kit:3\nschemaVersion \"3\" · kind workload\ncapabilities: sbx@1, lifecycle@1, credential@1, …" as DESC
-  file "proveo-<target>.dockerfile\nFROM proveo/<target>:<tag>\n[ENTRYPOINT/CMD]" as RECIPE
+  file "proveo-<target>.dockerfile\nFROM proveo/<target>:<tag>[@sha256:…]\n[ENTRYPOINT/CMD]" as RECIPE
 }
-component "sbx create ./proveo-<target>\n-e K=V · -p <k>P:P" as CREATE <<host>>
+component "[BUILDX_BUILDER=…] sbx create ./proveo-<target>\n-e K=V · -p <k>P:P" as CREATE <<host>>
 component "SBX_AGENT=proveo-<target>" as AGENT <<cloud>>
 DIR --> CREATE
 CREATE --> AGENT : dir name = agent name

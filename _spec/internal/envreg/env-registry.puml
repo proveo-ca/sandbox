@@ -34,14 +34,14 @@ skinparam noteTextAlignment left
 '   Var      {Name, Scope, Where, Default, Doc, AliasOf}: Default says what
 '            happens when it is unset, Doc what setting it does, AliasOf the
 '            replacement a deprecated alias stands for
-'   Vars     156 entries, by scope then name: Operator 76, Maintainer 48,
+'   Vars     153 entries, by scope then name: Operator 73, Maintainer 48,
 '            Internal 32
 '   ByScope  the Vars of one scope, in Vars order
 ' Lookup, Family, Matches and Scopes were deleted in the fourth-batch review: no
 ' non-test code called them.
-' Aliases (reported): PROVEO_EGRESS_ROOT → PROVEO_STATE_ROOT,
-' PROVEO_EGRESS_ENV_FILE → PROVEO_ENV_FILE, PROVEO_CLI_BASE_URL →
-' PROVEO_ASSET_BASE_URL. Each has a retirement in the release gate's ledger.
+' The three deprecated aliases shipped in v0.2.0 and were removed from Vars
+' with their readers before the next release. AliasOf and the retirement
+' ledger still cover future aliases.
 ' About twenty Doc lines start "Test seam:" — production reads them with a
 ' default and only tests set them, e.g. PROVEO_SEED_DONE_MARKER (N27).
 '
@@ -106,12 +106,12 @@ skinparam noteTextAlignment left
 title envreg — every PROVEO_* variable proveo's code reads or sets, who sets it, and who reads it
 
 node "internal/envreg" as REG <<host>> {
-  database "Vars — 156 entries\nscope, then name\nWhere · AliasOf" as VARS <<db>>
+  database "Vars — 153 entries\nscope, then name\nWhere · AliasOf" as VARS <<db>>
   component "PROVEO_<TARGET>_IMAGE\nthe one family entry" as FAM <<app>>
 }
 
 node "Scope" as SC <<host>> {
-  component "operator · 76\na user, on the host" as OPS <<app>>
+  component "operator · 73\na user, on the host" as OPS <<app>>
   component "maintainer · 48\nbuild · release · CI · tests" as MNT <<app>>
   component "internal · 32\nproveo, for itself and the sandbox" as INT <<app>>
 }

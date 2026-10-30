@@ -12,7 +12,6 @@ import (
 
 var subagentRoster = map[string]int{
 	"claudecode": 5,
-	"cecli":      10,
 	"opencode":   10,
 	"cursor":     2,
 }
@@ -181,7 +180,6 @@ func TestDockerfilesShipSharedSubagents(t *testing.T) {
 	root := repoRoot(t)
 	for _, rel := range []string{
 		"defs/claudecode/mcp/Dockerfile",
-		"defs/cecli/Dockerfile",
 		"defs/opencode/Dockerfile",
 		"defs/cursor/Dockerfile",
 		"defs/codex/Dockerfile",

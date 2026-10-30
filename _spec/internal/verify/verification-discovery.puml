@@ -8,16 +8,16 @@
 '
 ' ── ONE IMPLEMENTATION: proveo-entrypoint verify (N4, DONE (wt) 2026-10-17) ─
 ' The user: "Delete all three (Recommended)" (repo-simplification.puml N4).
-' MEASURED: the three identical detect-verify.sh shell wrappers
-' (defs/lib/, defs/cecli/proveo-lib/, defs/claudecode/mcp/proveo-lib/) are
-' deleted, and so are the now-empty defs/lib/ and defs/cecli/proveo-lib/
+' MEASURED: the identical detect-verify.sh shell wrappers
+' (defs/lib/, defs/claudecode/mcp/proveo-lib/) are
+' deleted, and so is the now-empty defs/lib/
 ' (internal/contract/defaults_test.go TestDeadHostLibsRemoved).
 ' defs/claudecode/mcp/proveo-lib/ went with the Claude in Chrome bridge
 ' (2026-10-24). Every def
-' entrypoint that prints the block (codex, opencode, cursor, cecli,
+' entrypoint that prints the block (codex, opencode, cursor,
 ' claudecode/mcp) runs it only `if command -v proveo-entrypoint`; the
 ' `elif … detect-verify` fallbacks and the lib COPY lines (codex, opencode,
-' cursor, hermes, cecli) are gone. Every proveo image bakes the binary
+' cursor, hermes) are gone. Every proveo image bakes the binary
 ' (defs/base/Dockerfile; the floor probe), and imagetest asserts it as
 ' "proveo-entrypoint (verification commands) is baked" with `command -v
 ' proveo-entrypoint` (codex_test.go:101, cursor_test.go:90).

@@ -10,7 +10,7 @@
 '   help pinned last, grows .... _spec/internal/choiceui/choice-prompt-render.puml
 '   THE SBX AXIS ............... _spec/internal/sbx/policy-baseline.puml
 '   what the Kit allowlists ..... internal/backend/sandbox/sandbox.go Spec()
-'   the key on sbx ............. _spec/internal/sbx/credential-path.puml
+'   the key on sbx ............. _spec/internal/sbx/credential-resolution.puml
 '   the tier vocabulary ........ _spec/internal/sbx/policy-baseline.puml
 '                                (egress-tiers.puml and the review gate's own
 '                                diagram were retired 2026-09-16 with the
@@ -273,7 +273,7 @@ title The topology strip in every selectable state (sbx; the docker frames are h
 {^"The axes that only re-label — same topology, different words in the same cells"
 {#
   row | selection | what changes in the strip
-  the def being run | claudecode · cursor · opencode · cecli | the square's label, and which variant above applies
+  the def being run | claudecode · cursor · opencode | the square's label, and which variant above applies
   execution | docker (sandbox) — compulsory wherever the harness declares sbx | the square reads 'sbx · <def>'
   interface | tui — always on | the interface dot, always drawn
   interface | + browser | the dot reads 'interface: tui + browser'

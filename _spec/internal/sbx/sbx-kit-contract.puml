@@ -110,9 +110,9 @@ skinparam noteTextAlignment left
 ' to kit, the approach now described as replacing built-ins for non-built-in
 ' agents.
 '
-' This matters most for cecli, the one harness with no built-in agent, which
-' currently borrows `shell` and inherits its argument semantics — the cause of
-' the `bash cecli` defect in _spec/internal/sbx/shell-agent-launch.puml. Not
+' This matters most for a harness with no built-in agent, which borrows
+' `shell` and inherits its argument semantics — the cause of
+' the `bash <target>` defect in _spec/internal/sbx/shell-agent-launch.puml. Not
 ' adopted: unmeasured, and tracked as E1 in the experiments spec.
 '
 ' ── CREDENTIALS: THREE SOURCES, AND ONLY TWO ARE PROVEO'S ───────────────────

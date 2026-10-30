@@ -43,7 +43,7 @@ func TestKitSandboxNamesOnlyTheRunsOwnSandbox(t *testing.T) {
 		{"a sandbox that existed before the run is never named", []string{"proveo-claudecode-1a2b3c4d"}, []string{work},
 			[]sandbox{{"proveo-claudecode-1a2b3c4d", []string{work}}}, ""},
 		{"another target's sandbox is never named", nil, []string{work},
-			[]sandbox{{"proveo-cecli-1a2b3c4d", []string{work}}}, ""},
+			[]sandbox{{"proveo-codex-1a2b3c4d", []string{work}}}, ""},
 		{"a linked worktree's clone is found through its main worktree", nil, []string{work, main},
 			[]sandbox{
 				{"proveo-claudecode-0000aaaa", []string{filepath.Join(tmp, "other")}},

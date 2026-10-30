@@ -145,16 +145,9 @@
 '     internal/contract/java_major_test.go pins 1.8.0_402/1.8.0_202 → 8, 17 → 17, 21.0.4 → 21
 '     (reported red before the fix). The jdtls message now reports 8, not 1, for a JDK 8.
 '     Spec: _spec/_runtimes/toolchain-provisioning.puml.
-' N17 · defs/cecli/.dockerignore never applied — DONE (wt). The user: "Rename so it applies" (NOT
-'   the recommended delete).
-'   Evidence: MEASURED. defs/cecli/Dockerfile.dockerignore exists and the old name does not; the
-'     root .dockerignore:7 says the cecli file replaces it for cecli builds and repeats it;
-'     image_size_test.go TestTheCecliDockerignoreAppliesAndKeepsTheRootDenylist. Reported, measured
-'     on buildx v0.36.1: a Dockerfile-specific ignore file makes BuildKit ignore the root one, so
-'     the merged denylist is required. Spec: _spec/_devops/image-size-reduction.puml item 3.
-' N4 · Three detect-verify.sh copies behind unreachable fallbacks — DONE (wt). The user: "Delete
+' N4 · Two detect-verify.sh copies behind unreachable fallbacks — DONE (wt). The user: "Delete
 '   all three (Recommended)".
-'   Evidence: MEASURED. No detect-verify.sh exists; defs/lib/ and defs/cecli/proveo-lib/ are gone
+'   Evidence: MEASURED. No detect-verify.sh exists; defs/lib/ is gone
 '     (TestDeadHostLibsRemoved, internal/contract/defaults_test.go:137); defs/claudecode/mcp/
 '     proveo-lib/ went with the Claude in Chrome bridge (F14, 2026-10-24). No
 '     entrypoint or Dockerfile names detect-verify; codex_test.go:101 and cursor_test.go:90 now
@@ -176,7 +169,7 @@
 '       (https://docs.docker.com/ai/sandboxes/configuration/environment-files.md).
 '   Evidence (image half): MEASURED. No find_env_file or load_env remains; the Google-alias block
 '     survives as bridge_google_keys (entrypoint-lib.sh:49), called from every def entrypoint
-'     (codex, cursor, opencode, cecli, hermes, claudecode/mcp). Go entrypoint FindEnvFile,
+'     (codex, cursor, opencode, hermes, claudecode/mcp). Go entrypoint FindEnvFile,
 '     LoadEnvFile and ShouldSkipEnvLoad are gone, and cmd/proveo-entrypoint runPrep reads no .env
 '     (main.go:88-101). internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
 '     (reported red against the old prelude) and TestBothPreludesBridgeTheGoogleKeyAliases (renamed
@@ -429,7 +422,7 @@
 '     and :49 copies it to /usr/local/bin. defs/hermes/entrypoint.sh:11-14 runs
 '     set_working_directory, bridge_google_keys, bridge_git_identity, then `proveo-entrypoint prep
 '     || true`. entrypoint-lib.sh defines neither ensure_runtime_user nor report_git_context; its
-'     top-level HOME fallback (:4-6) stays. Reported: the image tests (cecli ×2, claudecode,
+'     top-level HOME fallback (:4-6) stays. Reported: the image tests (claudecode,
 '     opencode) call `proveo-entrypoint prep` instead; CONTRIBUTING.md and the defs/codex/Dockerfile
 '     comment name prep. Tests: TestPrepIsTheOnlyRuntimeUserAndGitContextStep (contract_test.go:104);
 '     TestEntrypointsRunTheShellPreludeThenPrep now includes hermes. [Unverified] the image builds
@@ -446,9 +439,8 @@
 '     Spec: _spec/_conventions/spec-conventions.puml.
 '   Migration (reported): three spec-keepers migrated 89 blocks; 85 stanzas were stripped;
 '     agent_launch_guard_test.go's broken 2-line fragment became a WHAT label.
-'   The user's rulings on refused blocks: Node and cecli — the code was measured (the nodejs.org
-'     tarball; the proveo_exec_agent PATH probe) and base-image-layers.puml and cecli-paradigm.puml
-'     were corrected; Chrome env-token scope — "Record as open, strip (Recommended)"
+'   The user's rulings on refused blocks: Node — the code was measured (the nodejs.org
+'     tarball) and base-image-layers.puml was corrected; Chrome env-token scope — "Record as open, strip (Recommended)"
 '     (moot since F14 removed the bridge); codex static docker — "Delete the layer (Recommended)":
 '     the RUN is gone and codex joined harnessDockerfiles, so TestNoHarnessImageShipsDockerBinaries
 '     guards it (red before, green after; image-size-reduction.puml Cut 4, codex-topology.puml).
@@ -660,10 +652,10 @@
 '     TestToolSyncRoundTripsThroughTheDurableRoot failure that passed on rerun (the known flake);
 '     e2e fails only on TestScheduleAgentThatDiesBeforeReadyFailsFast; `proveo-dev lint` is red
 '     only on the three held N14 blocks. Images: all 15 rebuilt with the cache off after the shell
-'     work, and all 7 TestImage* suites passed (19 live-API skips). A second cacheless rebuild of
+'     work, and all 6 TestImage* suites passed (19 live-API skips). A second cacheless rebuild of
 '     all 15 after the review's fixes (_proveo_deps_mode trimming, the git-sync-turn.sh trim,
-'     proveo-await-seed on words) passed, and all 7 suites pass again with 19 live-API skips:
-'     Cecli 11.9s, Claudecode 40.8s, Codex 41.0s, Cursor 67.5s, DetachedSmoke 21.7s, Hermes 16.1s,
+'     proveo-await-seed on words) passed, and all 6 suites pass again with 19 live-API skips:
+'     Claudecode 40.8s, Codex 41.0s, Cursor 67.5s, DetachedSmoke 21.7s, Hermes 16.1s,
 '     Opencode 44.4s. Late change: e2e/capacity_test.go reads PROVEO_CAPACITY_TEST through
 '     envflag.On (it was `!= "1"`); no Go `PROVEO_* == "1"` check remains; `go vet -tags e2e` is
 '     clean.
@@ -709,8 +701,7 @@
 '   review, so internal/ imports nothing from e2e/). It folds PROVEO_TEST_IMAGE,
 '   PROVEO_TEST_IMAGE_<T>, PROVEO_TEST_HERMES_IMAGE (name kept), PROVEO_E2E_OPENCODE_IMAGE,
 '   PROVEO_HOST_ADB_IMAGE, IMAGE, STANDALONE_IMAGE, MCP_IMAGE, SOL_IMAGE,
-'   BROWSER_IMAGE, CURSOR_BROWSER_IMAGE, OPENCODE_BROWSER_IMAGE and the test-side read of
-'   PROVEO_CECLI_IMAGE. PROVEO_OPENCODE_V2_IMAGE stays: it pins v2.0.25 for an offline check.
+'   BROWSER_IMAGE, CURSOR_BROWSER_IMAGE and OPENCODE_BROWSER_IMAGE. PROVEO_OPENCODE_V2_IMAGE stays: it pins v2.0.25 for an offline check.
 '   imagetest.Resolve(target, ref) returns a pin as given — it no longer swaps a pinned :latest
 '   for a newer :local — and with no pin resolves ref by recency (imagetest.go:22-24, MEASURED
 '   here). imagetest.Env is deleted. Tests: internal/imagetest/pin_test.go;
@@ -1126,9 +1117,9 @@
 '   Evidence: MEASURED. _spec/cmd/proveo-entrypoint/prep-process-boundary.puml:20-25 and :50-60 state
 '     that prep's chdir and env exports die with the child process.
 '   Evidence: MEASURED. So every def redoes them in bash: codex/entrypoint.sh:24-25;
-'     opencode:14-16; cursor:14-15; cecli:14-15; claudecode/mcp/entrypoint.sh:24-25.
+'     opencode:14-16; cursor:14-15; claudecode/mcp/entrypoint.sh:24-25.
 '   Evidence: MEASURED. Each def also carries an `else` branch for an image without the binary:
-'     codex:15-22; opencode:17-24; cursor:16-22; cecli:16-19,44-48; claudecode/mcp:14-22.
+'     codex:15-22; opencode:17-24; cursor:16-22; claudecode/mcp:14-22.
 '   Evidence: MEASURED. Every proveo image ships the binary: defs/base/Dockerfile:60, asserted by
 '     baseFloor (internal/imagebuild/targets.go:41-44). hermes calls no prep (hermes/entrypoint.sh:11-16).
 '   Evidence: MEASURED. The exec mode `proveo-entrypoint <target> -- cmd` (main.go:55-61,74-85) has no
@@ -1181,19 +1172,19 @@
 '     2. Keep the sed version; delete :691-694.
 '     3. Keep one copy and add a contract case for "1.8.0_402" and "21.0.4".
 '
-' N4 · Three identical detect-verify.sh copies behind unreachable fallbacks — DONE (wt) 2026-10-17,
+' N4 · Two identical detect-verify.sh copies behind unreachable fallbacks — DONE (wt) 2026-10-17,
 '     option 1 (see DONE).
-'   Evidence: MEASURED. defs/lib/, defs/cecli/proveo-lib/ and defs/claudecode/mcp/proveo-lib/ each
+'   Evidence: MEASURED. defs/lib/ and defs/claudecode/mcp/proveo-lib/ each
 '     hold the same 27-line detect-verify.sh.
-'   Evidence: MEASURED. Six Dockerfiles copy one of them (codex:123, opencode:76, cursor:91, hermes:36,
-'     cecli:105, claudecode/mcp:106).
-'   Evidence: MEASURED. Five entrypoints reach it only when proveo-entrypoint is missing:
-'     codex:75-84, opencode:123-132, cursor:135-137, cecli:169-171, claudecode/mcp:40-49.
+'   Evidence: MEASURED. Five Dockerfiles copy one of them (codex:123, opencode:76, cursor:91, hermes:36,
+'     claudecode/mcp:106).
+'   Evidence: MEASURED. Four entrypoints reach it only when proveo-entrypoint is missing:
+'     codex:75-84, opencode:123-132, cursor:135-137, claudecode/mcp:40-49.
 '   Evidence: MEASURED. imagetest asserts the fallback: cursor_test.go:91, codex_test.go:102.
 '   Options:
-'     1. [rec] Delete all three copies, the elif branches, the COPY lines and the fallback asserts;
+'     1. [rec] Delete both copies, the elif branches, the COPY lines and the fallback asserts;
 '        keep claudecode's proveo-lib/ (since removed with F14).
-'     2. Keep defs/lib/ only; delete the two per-def copies.
+'     2. Keep defs/lib/ only; delete the per-def copy.
 '     3. Keep as is.
 '
 ' N5 · Four ANSI strippers with four grammars — DONE (wt) 2026-10-17, option 2 (the [rec] was
@@ -1300,7 +1291,7 @@
 ' N12 · Two image-test tasks; the release gate skips hermes — DONE (wt) 2026-10-17, option 1 (see
 '     DONE, second batch).
 '   Evidence: MEASURED. mise.toml:84-93 test-images runs every image suite.
-'   Evidence: MEASURED. mise.toml:99-106 test-images-sbx runs `^TestImage(Cecli|Claudecode|Codex|
+'   Evidence: MEASURED. mise.toml:99-106 test-images-sbx runs `^TestImage(Claudecode|Codex|
 '     Opencode|Cursor)$`, so TestImageHermes (hermes_test.go:43) never runs there.
 '   Evidence: MEASURED. test-e2e and test-e2e-full depend on test-images-sbx (mise.toml:111,117).
 '   Evidence: MEASURED. internal/contract/base_template_test.go:194-200 pins task names.
@@ -1334,9 +1325,9 @@
 '     internal/run/run.go:195-198; backend/sandbox/home_access.go:17-19,42-44.
 '   Evidence: MEASURED. AGENTS.md rule 3: source carries instructions, _spec/ carries reasoning.
 '   ADDED 2026-10-17 (adversarial review; MEASURED): why/history comments at
-'     defs/hermes/harness.manifest:4-5 and defs/cecli/entrypoint.sh:179-187; and stale backend
-'     wording — defs/codex/entrypoint.sh:52-54 ("so both backends get the identical files") and
-'     defs/cecli/entrypoint.sh:179 ("on docker it is cecli's own flags") — sbx is the only backend.
+'     defs/hermes/harness.manifest:4-5; and stale backend wording —
+'     defs/codex/entrypoint.sh:52-54 ("so both backends get the identical files") — sbx is the
+'     only backend.
 '   Options:
 '     1. [rec] Re-run migrate-then-strip and add a proveo-dev lint rule that flags comment blocks over
 '        three lines outside godoc first sentences, SPEC:/covers lines and pragmas.
@@ -1372,14 +1363,6 @@
 '     1. Move ExitError and Stopped into internal/backend/sandbox; delete internal/backend.
 '     2. [rec] Keep the package as the home of run errors; nothing else to do.
 '     3. Move both into internal/run.
-'
-' N17 · defs/cecli/.dockerignore never applies — DONE (wt) 2026-10-17, option 2 (see DONE).
-'   Evidence: MEASURED. cecli builds with Context "." (internal/imagebuild/targets.go:110).
-'   Evidence: MEASURED. The root .dockerignore:7-8 states that BuildKit never reads the cecli file.
-'   Options:
-'     1. [rec] Delete defs/cecli/.dockerignore.
-'     2. Rename it to the Dockerfile-specific form so BuildKit applies it.
-'     3. Keep as is.
 '
 ' N18 · Exported API kept alive only by its own tests — DONE (wt) 2026-10-17, option 1 (see DONE,
 '     second batch).
@@ -1729,7 +1712,7 @@
 '     internal/envreg and `proveo help env` (N5 DONE (wt) 2026-10-17: internal/termtext).
 '  9. N15 — split sandbox.go, then entrypoint-lib.sh, once 4 and D2 have shrunk them.
 ' 10. N19 — small deletions (N9 and N26 DONE (wt), N16 DONE as a decision, 2026-10-18, fourth
-'     batch; N17 and N3 DONE (wt) 2026-10-17).
+'     batch; N3 DONE (wt) 2026-10-17).
 ' 11. N14 — DONE (wt) 2026-10-17: the lint is in `proveo-dev lint`; it stays RED on three held
 '     blocks (sandbox.go:1917 since N6, was :1922; secret.go:13, secret_test.go:8) until a live sbx
 '     re-measure of the opencode plain-secret 401.
@@ -1749,7 +1732,7 @@ component "image prelude\n(N1 N2 N3 N4 N7 N22 N23 N24\nF7 F18 DONE)" as PRE <<ap
 component "post-D1 Go residue\n(C1 F9 F10 F11 F14 F15 F16 F17 F19 F20\nN13 N18 N20 N21 N25 DONE)" as GO <<app>>
 queue "test gates · T1\nhermetic contract tests\n(N12 DONE)" as TST <<async>>
 database "spec hygiene · N11\nfix drift\n(N10 N14 DONE; 3 N14 blocks held)" as SPEC <<db>>
-component "helpers + splits\nN15 N19\n(N5 N6 N8 N9 N16 N17 N26 DONE)" as HLP <<app>>
+component "helpers + splits\nN15 N19\n(N5 N6 N8 N9 N16 N26 DONE)" as HLP <<app>>
 component "env hygiene · PROVEO_* audit\nN34 N35 N36 N37 N38\n(N27-N33 DONE)" as ENV <<app>>
 
 D1 ARROW_MAIN F6 : landed together
@@ -1772,9 +1755,9 @@ legend bottom
   **IDs** — S seed done · D decided retirement · F seed finding · C credential report
   SEC security · T tests · N own sweep
   ==
-  **Counts** — DONE 59 · DECIDED 0 · PROPOSED 11 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
+  **Counts** — DONE 58 · DECIDED 0 · PROPOSED 11 (2026-10-16 spec pass: D1, F1, F3, F5, F6,
   F8, F12b moved to DONE; F14, F15, F16, F17 added. 2026-10-17: S3 DONE; F18, F19, F20 added;
-  D2, F13, C1, F20, N3, N17 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7;
+  D2, F13, C1, F20, N3 DONE; N19 added; N4, N7, F9, F11, F15 DONE; F7 resolved by N7;
   SEC2, SEC3, N1, F18, F10, F17, F19, N12, N18 DONE; review: N20-N25 and SEC4 added;
   third batch: SEC1, SEC4, F16, N20, N13, N5, N10 DONE, then N2, N22, N23, N24, N14 DONE;
   N26 added; 2026-10-18 fourth batch: N6, N8, N9, N16, N25, N26 DONE; PROVEO_* env
