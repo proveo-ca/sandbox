@@ -90,6 +90,47 @@ func TestLinuxMemoryPrefersDiscreteVRAMOverRAM(t *testing.T) {
 		if !ok || got.Free != c.free || got.Pool != c.pool {
 			t.Errorf("%s: memoryFor = %+v, %v; want %d of %s", c.name, got, ok, c.free, c.pool)
 		}
+		if c.pool == poolVRAM && got.RAM != 15309824*1024 {
+			t.Errorf("%s: a VRAM reading must carry the free RAM its overflow lands in, got %d", c.name, got.RAM)
+		}
+	}
+}
+
+func TestAVRAMOverflowStatesTheGPUShareAndWhereTheRestRuns(t *testing.T) {
+	const weights = 17741872154 // qwen3.8:latest
+	rtx3070 := NoFitError{Model: "qwen3.8:latest", Pool: poolVRAM, Weights: weights,
+		Need: weights + weights/8 + 1<<30, Free: 7740 << 20}
+	for _, c := range []struct {
+		name  string
+		ram   uint64
+		swaps bool
+	}{
+		{"20 GiB RAM free", 20 << 30, false},
+		{"8 GiB RAM free", 8 << 30, true},
+		{"RAM unread", 0, false},
+	} {
+		e := rtx3070
+		e.RAM = c.ram
+		got := e.Consequence()
+		for _, want := range []string{"~38% on the GPU", "~12.0 GiB on the CPU"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: consequence lacks %q: %q", c.name, want, got)
+			}
+		}
+		if strings.Contains(got, "swap") != c.swaps {
+			t.Errorf("%s: swap named = %v, want %v: %q", c.name, !c.swaps, c.swaps, got)
+		}
+	}
+}
+
+func TestGPUShare(t *testing.T) {
+	for _, c := range []struct {
+		free, need uint64
+		want       int
+	}{{0, 10, 0}, {5, 10, 50}, {10, 10, 100}, {20, 10, 100}, {1, 0, 100}} {
+		if got := gpuShare(c.free, c.need); got != c.want {
+			t.Errorf("gpuShare(%d, %d) = %d, want %d", c.free, c.need, got, c.want)
+		}
 	}
 }
 

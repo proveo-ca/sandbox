@@ -12,10 +12,12 @@ import (
 	"strings"
 )
 
-// hostMemory is the pool Ollama loads a model into and how much of it is free.
+// hostMemory is the pool Ollama loads a model into and how much of it is free;
+// RAM is the free system memory a VRAM overflow lands in.
 type hostMemory struct {
 	Free uint64
 	Pool string
+	RAM  uint64
 }
 
 const (
@@ -46,20 +48,16 @@ func memoryFor(goos, goarch string) (hostMemory, bool) {
 		if goarch == "arm64" {
 			pool = poolUnified
 		}
-		return hostMemory{free, pool}, ok
+		return hostMemory{Free: free, Pool: pool}, ok
 	case "linux":
+		ram, ramOK := readMemAvailable()
 		if free, ok := nvidiaFreeVRAM(); ok {
-			return hostMemory{free, poolVRAM}, true
+			return hostMemory{Free: free, Pool: poolVRAM, RAM: ram}, true
 		}
 		if free, ok := amdFreeVRAM(drmRoot); ok {
-			return hostMemory{free, poolVRAM}, true
+			return hostMemory{Free: free, Pool: poolVRAM, RAM: ram}, true
 		}
-		b, err := os.ReadFile(memInfoPath)
-		if err != nil {
-			return hostMemory{}, false
-		}
-		free, ok := parseMemInfo(string(b))
-		return hostMemory{free, poolRAM}, ok
+		return hostMemory{Free: ram, Pool: poolRAM}, ramOK
 	}
 	return hostMemory{}, false
 }
@@ -161,6 +159,14 @@ func parseVMStat(out string) (uint64, bool) {
 		}
 	}
 	return pages * page, seen
+}
+
+func readMemAvailable() (uint64, bool) {
+	b, err := os.ReadFile(memInfoPath)
+	if err != nil {
+		return 0, false
+	}
+	return parseMemInfo(string(b))
 }
 
 func parseMemInfo(out string) (uint64, bool) {

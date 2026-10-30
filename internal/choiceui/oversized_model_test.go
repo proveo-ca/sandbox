@@ -10,7 +10,7 @@ import (
 )
 
 var qwenOnVRAM = ModelFit{
-	Model: "qwen3.8:latest", Pool: "VRAM", Consequence: "Ollama runs the overflow on the CPU, several times slower",
+	Model: "qwen3.8:latest", Pool: "VRAM", Consequence: "Ollama puts ~74% on the GPU and the other ~5.0 GiB on the CPU, several times slower",
 	Need: 19.6, Weights: 16.5, Free: 14.6, ForceVar: "PROVEO_LOCAL_MODEL_FORCE",
 }
 
@@ -18,7 +18,7 @@ func TestOversizedModelCopyNamesPoolCostAndOverride(t *testing.T) {
 	got := strings.Join(OversizedModelCopy(qwenOnVRAM), "\n")
 	for _, want := range []string{
 		"qwen3.8:latest does not fit in VRAM", "~19.6 GiB", "16.5 GiB weights", "14.6 GiB of VRAM",
-		"runs the overflow on the CPU", "PROVEO_LOCAL_MODEL_FORCE=1",
+		"~74% on the GPU", "PROVEO_LOCAL_MODEL_FORCE=1",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("copy lacks %q:\n%s", want, got)

@@ -51,7 +51,7 @@ func stubPool(t *testing.T, gibs float64, pool string, known bool) {
 	t.Helper()
 	orig := availableMemory
 	t.Cleanup(func() { availableMemory = orig })
-	availableMemory = func() (hostMemory, bool) { return hostMemory{uint64(gibs * (1 << 30)), pool}, known }
+	availableMemory = func() (hostMemory, bool) { return hostMemory{Free: uint64(gibs * (1 << 30)), Pool: pool}, known }
 }
 
 const hostTags = `{"models":[

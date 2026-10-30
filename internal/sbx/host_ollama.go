@@ -272,11 +272,12 @@ func resident(model string) bool {
 	return ok
 }
 
-// NoFitError reports a model larger than the free host memory Ollama would load it into.
+// NoFitError reports a model larger than the free host memory Ollama would load it into;
+// RAM is the free system memory a VRAM overflow lands in, 0 when unread.
 type NoFitError struct {
-	Model               string
-	Need, Weights, Free uint64
-	Pool                string
+	Model                    string
+	Need, Weights, Free, RAM uint64
+	Pool                     string
 }
 
 func (e *NoFitError) Error() string {
@@ -285,12 +286,27 @@ func (e *NoFitError) Error() string {
 		e.Model, gib(e.Need), gib(e.Weights), gib(e.Free), e.Pool, e.Consequence(), EnvLocalModelForce)
 }
 
-// Consequence names what loading the model anyway costs.
+// Consequence names what loading the model anyway costs: for VRAM, the GPU's
+// share of the load and whether the CPU's share fits the free RAM.
 func (e *NoFitError) Consequence() string {
-	if e.Pool == poolVRAM {
-		return "Ollama runs the overflow on the CPU, several times slower"
+	if e.Pool != poolVRAM {
+		return "loading it pushes the host into swap"
 	}
-	return "loading it pushes the host into swap"
+	spill := e.Need - min(e.Free, e.Need)
+	s := fmt.Sprintf("Ollama puts ~%d%% on the GPU and the other ~%.1f GiB on the CPU, several times slower",
+		gpuShare(e.Free, e.Need), gib(spill))
+	if e.RAM > 0 && spill > e.RAM {
+		s += fmt.Sprintf("; only %.1f GiB of RAM is free, so the CPU share reaches swap", gib(e.RAM))
+	}
+	return s
+}
+
+// gpuShare is the percentage of a need-byte load that free VRAM holds.
+func gpuShare(free, need uint64) int {
+	if need == 0 || free >= need {
+		return 100
+	}
+	return int(free * 100 / need)
 }
 
 // FittingHostModels keeps the candidates the host's Ollama has installed and
@@ -318,7 +334,7 @@ func checkFit(m ollamaModel, getenv func(string) string) error {
 	if envflag.On(getenv(EnvLocalModelForce)) {
 		return nil
 	}
-	return &NoFitError{Model: m.Name, Need: need, Weights: m.Size, Free: mem.Free, Pool: mem.Pool}
+	return &NoFitError{Model: m.Name, Need: need, Weights: m.Size, Free: mem.Free, RAM: mem.RAM, Pool: mem.Pool}
 }
 
 // HostModelRef reports whether base points the agent at the host's Ollama.

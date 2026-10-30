@@ -74,6 +74,22 @@ skinparam noteTextAlignment left
 ' on the CPU (slow, no swap); RAM/unified overflow ⇒ the host swaps.
 '   https://github.com/ollama/ollama/blob/main/discover/amd.go
 '
+' ── GPU SHARE (2026-10-30, user: "Split with a GPU estimate") ──────────────
+' Measured on a Linux host: RTX 3070 Laptop, 7740 MiB free, only qwen3.8:latest
+' (17 GB) installed. "does not fit in VRAM" alone read as "will not use the GPU";
+' the operator saw 0% GPU (that run was proveo 218f6bc, so Desktop chatted on its
+' host backend and never reached Ollama — not the split).
+' A VRAM overflow is a split, so the warning states it:
+'   gpu%  = ⌊100 · free / need⌋                     (need = FIT POOL formula)
+'   cpu   = need − free                             GiB on the CPU
+'   swap  ⇔ RAM read ∧ cpu > MemAvailable            then the CPU share reaches swap
+'   qwen3.8:latest on that host ⇒ "~38% on the GPU and the other ~12.0 GiB on the CPU"
+' The estimate counts cache headroom on the GPU side the same as weights; Ollama's
+' real layer split differs by a few points. RAM rides along with the VRAM reading
+' (hostMemory.RAM, NoFitError.RAM); 0 means unread and names no swap.
+' Auto-pick (BEST HOST MODEL) still takes only fitting models: a split is the
+' operator's explicit --local-model choice, never a default.
+'
 ' ── FIT IS A QUESTION, NOT A REFUSAL (2026-10-30) ─────────────────────────
 ' memory is transient and the operator knows what else the host is doing.
 '   headed (tty in+out, PROVEO_WIZARD on, no PROVEO_SCHEDULE)
