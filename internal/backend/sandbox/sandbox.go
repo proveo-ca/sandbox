@@ -1409,7 +1409,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		Publish: append(cdpPublish(in), portPublish(in)...),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env:     DeclineMCPGateway(in.MCPGateway, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts)),
+		Env:     DeclineMCPGateway(in.MCPGateway, durableAgentHome(in.Target, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts))),
 		HostEnv: src.BuildEnv(),
 		Command: command,
 	}
@@ -1699,7 +1699,7 @@ func Run(in Input) error {
 		return c.Run()
 	}
 	if in.Desktop {
-		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch).run(runCtx) }
+		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch, imageEntrypoint(in)).run(runCtx) }
 	}
 	startedAt := time.Now()
 	runErr := run()

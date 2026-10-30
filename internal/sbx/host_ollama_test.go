@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -256,5 +257,29 @@ func TestLibraryRefCoversOllamaNamesOnly(t *testing.T) {
 	}
 	if _, _, ok := libraryRef("hf.co/unsloth/Qwen3-GGUF:Q4_K_M"); ok {
 		t.Error("a Hugging Face ref has no Ollama registry manifest; its size must read as unknown")
+	}
+}
+
+func TestFittingHostModelsKeepsInstalledTagsThatFitInOrder(t *testing.T) {
+	fakeOllama(t, hostTags, `{"models":[]}`)
+	stubPool(t, 20, poolVRAM, true)
+	got := FittingHostModels([]string{"muse-glimmer:latest", "qwen3.8:27b-mlx", "qwen3.8:latest"}, noEnv)
+	if want := []string{"qwen3.8:latest"}; !slices.Equal(got, want) {
+		t.Errorf("FittingHostModels = %v, want %v: glimmer is not installed, 27b-mlx needs ~21.5 GiB of 20", got, want)
+	}
+	stubPool(t, 30, poolUnified, true)
+	if got := FittingHostModels([]string{"qwen3.8:27b-mlx", "qwen3.8:latest"}, noEnv); len(got) != 2 || got[0] != "qwen3.8:27b-mlx" {
+		t.Errorf("FittingHostModels = %v, want candidate order kept", got)
+	}
+}
+
+func TestAResidentModelFitsEveryCheck(t *testing.T) {
+	fakeOllama(t, hostTags, `{"models":[{"name":"qwen3.8:27b-mlx","size":21260000000}]}`)
+	stubPool(t, 10, poolUnified, true)
+	if err := LocalModelFits("qwen3.8:27b-mlx", noEnv); err != nil {
+		t.Errorf("LocalModelFits(resident qwen3.8:27b-mlx) = %v; a loaded model costs no new memory", err)
+	}
+	if got := FittingHostModels([]string{"qwen3.8:27b-mlx", "qwen3.8:latest"}, noEnv); !slices.Equal(got, []string{"qwen3.8:27b-mlx"}) {
+		t.Errorf("FittingHostModels = %v, want only the resident tag with 10 GiB free", got)
 	}
 }

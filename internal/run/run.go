@@ -557,6 +557,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		}
 		desktopLaunch = launch
 	}
+	applyAutoLocalModel(rs, p)
 	rs.Model.HostLLM = p.LocalModel != ""
 
 	ui.Section(ui.SectionEgress)

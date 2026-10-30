@@ -2,6 +2,14 @@
 # SPEC: _spec/defs/hermes/hermes-topology.puml, _spec/defs/hermes/hermes-paradigm.puml
 set -e
 
+# --prepare: configure hermes, then exit before launching it (Hermes Desktop starts its own backend).
+# SPEC: _spec/_plans/hermes-desktop-over-ssh.puml (PREPARE)
+prepare_only=0
+if [[ "${1:-}" == "--prepare" ]]; then
+  prepare_only=1
+  shift
+fi
+
 if [[ -f /entrypoint-lib.sh ]]; then
   # shellcheck source=/dev/null
   source /entrypoint-lib.sh
@@ -72,10 +80,12 @@ fi
 
 proveo_seed hermes || true
 
-# Nous guest tier off: no anonymous welcome-trial inference from this sandbox.
-# SPEC: _spec/_plans/hermes-desktop-over-ssh.puml (NOUS GUEST)
-/opt/hermes/bin/hermes config set nous.guest false >/dev/null 2>&1 \
-  || echo "⚠️  could not switch off the Nous guest tier in hermes config" >&2
+# Nous guest tier off; hermes's own llama.cpp off (no GPU in the VM — local models run on the host's Ollama).
+# SPEC: _spec/_plans/hermes-desktop-over-ssh.puml (NOUS GUEST), _spec/internal/sbx/host-inference.puml (BEST HOST MODEL)
+for setting in nous.guest local_runtime.enabled; do
+  /opt/hermes/bin/hermes config set "$setting" false >/dev/null 2>&1 \
+    || echo "⚠️  could not set ${setting}=false in hermes config" >&2
+done
 
 # hermes reads a local endpoint from its own config.yaml (model.provider custom
 # + model.base_url + model.default), not from OPENAI_BASE_URL or HERMES_MODEL.
@@ -123,6 +133,11 @@ echo "hermes version: $(command_version_opencode hermes unknown --version)"
 echo "Paradigm: single foreground Hermes session — native browser tool, no stealth tier"
 echo "Browser real-profile-reuse is OFF unless explicitly configured — this sandbox never"
 echo "copies the operator's real cookies/saved logins by default."
+
+if (( prepare_only )); then
+  echo "✅ hermes configured for Hermes Desktop (HERMES_HOME=${HERMES_HOME:-/opt/data})"
+  exit 0
+fi
 
 run_smoke_test "hermes"
 

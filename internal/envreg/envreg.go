@@ -144,6 +144,8 @@ var Vars = []Var{
 		Doc: "Download the Java language server from this tarball URL"},
 	{Name: "PROVEO_KEEP_AGENT_LOGINS", Scope: Operator, Where: Binary, Default: "off",
 		Doc: "Keep logins an agent makes inside a run instead of scrubbing them next run"},
+	{Name: "PROVEO_LOCAL_MODEL_AUTO", Scope: Operator, Where: Binary, Default: "on",
+		Doc: "Without a model, key or plan, run on the host's best-fitting Ollama model; 0 turns it off"},
 	{Name: "PROVEO_LOCAL_MODEL_FORCE", Scope: Operator, Where: Binary, Default: "off",
 		Doc: "Load a local model without asking when free VRAM or RAM looks too small"},
 	{Name: "PROVEO_LOCAL_MODEL_PULL", Scope: Operator, Where: Binary, Default: "on",

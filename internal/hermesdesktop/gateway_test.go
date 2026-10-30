@@ -23,7 +23,7 @@ func readRegistry(t *testing.T, dir string) map[string]any {
 
 func TestRegisterGatewayMakesTheSandboxThePrimaryConnection(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "desktop", "hermes")
-	if err := RegisterGateway(dir, "hermes", "proveo-hermes-ab.sbx"); err != nil {
+	if err := RegisterGateway(dir, "hermes", "proveo-hermes-ab.sbx", "/opt/proveo/shims/hermes"); err != nil {
 		t.Fatal(err)
 	}
 	reg := readRegistry(t, dir)
@@ -32,7 +32,8 @@ func TestRegisterGatewayMakesTheSandboxThePrimaryConnection(t *testing.T) {
 	}
 	conns := reg["connections"].([]any)
 	got := conns[len(conns)-1].(map[string]any)
-	if got["kind"] != "ssh" || got["host"] != "proveo-hermes-ab.sbx" || got["user"] != "hermes" {
+	if got["kind"] != "ssh" || got["host"] != "proveo-hermes-ab.sbx" || got["user"] != "hermes" ||
+		got["remoteHermesPath"] != "/opt/proveo/shims/hermes" {
 		t.Errorf("gateway entry = %v", got)
 	}
 	if fi, _ := os.Stat(filepath.Join(dir, "connections.json")); fi.Mode().Perm() != 0o600 {
@@ -47,7 +48,7 @@ func TestRegisterGatewayReplacesItsOwnEntryAndKeepsOthers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "connections.json"), []byte(seed), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterGateway(dir, "hermes", "new.sbx"); err != nil {
+	if err := RegisterGateway(dir, "hermes", "new.sbx", "/opt/proveo/shims/hermes"); err != nil {
 		t.Fatal(err)
 	}
 	conns := readRegistry(t, dir)["connections"].([]any)
@@ -68,7 +69,7 @@ func TestRegisterGatewayRecoversFromACorruptRegistry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "connections.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterGateway(dir, "hermes", "a.sbx"); err != nil {
+	if err := RegisterGateway(dir, "hermes", "a.sbx", "/opt/proveo/shims/hermes"); err != nil {
 		t.Fatal(err)
 	}
 	if readRegistry(t, dir)["primary"] != gatewayID {

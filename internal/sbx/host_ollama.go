@@ -21,6 +21,7 @@ const (
 	HostOllamaPolicyHost = "localhost:11434"
 	EnvLocalModelForce   = "PROVEO_LOCAL_MODEL_FORCE"
 	EnvLocalModelPull    = "PROVEO_LOCAL_MODEL_PULL"
+	EnvLocalModelAuto    = "PROVEO_LOCAL_MODEL_AUTO"
 )
 
 // LocalModelEnv points every harness dialect at model on the host's Ollama, as the sandbox reaches it.
@@ -139,10 +140,8 @@ func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) e
 			return fmt.Errorf("pulled %s but the host's Ollama does not list it", model)
 		}
 	}
-	if loaded, err := listOllama("/api/ps"); err == nil {
-		if _, ok := matchTag(loaded, model); ok {
-			return nil
-		}
+	if resident(model) {
+		return nil
 	}
 	return checkFit(m, getenv)
 }
@@ -257,10 +256,20 @@ func LocalModelFits(model string, getenv func(string) string) error {
 		return nil
 	}
 	m, ok := matchTag(tags, model)
-	if !ok {
+	if !ok || resident(model) {
 		return nil
 	}
 	return checkFit(m, getenv)
+}
+
+// resident reports whether the host's Ollama already holds model in memory.
+func resident(model string) bool {
+	loaded, err := listOllama("/api/ps")
+	if err != nil {
+		return false
+	}
+	_, ok := matchTag(loaded, model)
+	return ok
 }
 
 // NoFitError reports a model larger than the free host memory Ollama would load it into.
@@ -282,6 +291,22 @@ func (e *NoFitError) Consequence() string {
 		return "Ollama runs the overflow on the CPU, several times slower"
 	}
 	return "loading it pushes the host into swap"
+}
+
+// FittingHostModels keeps the candidates the host's Ollama has installed and
+// whose load fits the free memory Ollama would use, in candidate order.
+func FittingHostModels(candidates []string, getenv func(string) string) []string {
+	tags, err := listOllama("/api/tags")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, c := range candidates {
+		if m, ok := matchTag(tags, c); ok && (resident(c) || checkFit(m, getenv) == nil) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func checkFit(m ollamaModel, getenv func(string) string) error {

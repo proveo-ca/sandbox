@@ -8,6 +8,8 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/host_memory_test.go
 ' covers: internal/run/local_model_fit.go (admitOversizedModel)
 ' covers: internal/run/local_model_fit_test.go
+' covers: internal/run/local_model_auto.go
+' covers: internal/run/local_model_auto_test.go
 ' covers: internal/choiceui/oversized_model.go (ConfirmOversizedModel)
 ' covers: internal/choiceui/oversized_model_test.go
 ' covers: internal/run/model_row.go (localModels, tagFor)
@@ -82,6 +84,19 @@ skinparam noteTextAlignment left
 ' EnsureHostOllama only reports; internal/run decides (admitOversizedModel).
 ' e2e suites still skip on LocalModelFits: a run that cannot fit is a host
 ' precondition there, not a harness fault.
+
+' ── BEST HOST MODEL (2026-10-30, user: "Off + auto-wire best") ─────────────
+' hermes ships its own llama.cpp runtime (hermes_cli/local_runtime, backend
+' auto = cuda|metal|vulkan|cpu). In the sbx VM it finds no GPU ⇒ CPU; its
+' detect.py also skips Ollama by design. So:
+'   * entrypoint.sh sets local_runtime.enabled false in the sandbox.
+'   * internal/run/local_model_auto.go: a run with no --local-model, no detected
+'     provider key, no subscription manifest and PROVEO_LOCAL_MODEL_AUTO not 0
+'     takes the first listed model (MODEL ROW MAPPING, this host's tag) that the
+'     host's Ollama has installed and that fits the FIT POOL — the host GPU path.
+'     It prints which. Only listed models: an arbitrary installed tag (a 0.3 GB
+'     fine-tune) is not an agent model.
+'   * sbx.FittingHostModels does the install + fit filter.
 
 ' ── WHY NOT llmman (removed 2026-09-26) ────────────────────────────────────
 ' sbx bundles llmman, and it served qwen3.8:27b on Metal. It also froze a 48 GB

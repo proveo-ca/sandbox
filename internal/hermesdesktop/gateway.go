@@ -15,9 +15,9 @@ const gatewayID = "proveo-sandbox"
 // UserDataDir is the Hermes Desktop userData proveo launches with, apart from the operator's own.
 func UserDataDir(proveoHome string) string { return filepath.Join(proveoHome, "desktop", "hermes") }
 
-// RegisterGateway makes the SSH gateway user@host the primary connection in userData's
-// connections.json, keeping every other connection the file holds.
-func RegisterGateway(userData, user, host string) error {
+// RegisterGateway makes the SSH gateway user@host, running the hermes at hermesPath, the
+// primary connection in userData's connections.json, keeping every other connection the file holds.
+func RegisterGateway(userData, user, host, hermesPath string) error {
 	if err := os.MkdirAll(userData, 0o700); err != nil {
 		return err
 	}
@@ -37,6 +37,7 @@ func RegisterGateway(userData, user, host string) error {
 	}
 	conns = append(conns, map[string]any{
 		"id": gatewayID, "kind": "ssh", "label": "proveo sandbox", "host": host, "user": user,
+		"remoteHermesPath": hermesPath,
 	})
 	reg["version"] = 2
 	reg["primary"] = gatewayID

@@ -5,6 +5,7 @@ skinparam noteTextAlignment left
 ' covers: defs/hermes/**
 ' covers: internal/hermesdesktop/gateway.go
 ' covers: internal/hermesdesktop/gateway_test.go
+' covers: e2e/hermes_desktop_test.go
 ' covers: internal/backend/sandbox/**
 ' covers: internal/run/**
 '
@@ -126,7 +127,8 @@ skinparam noteTextAlignment left
 ' ── GATEWAY (2026-10-30, user: "Register + verify", "Proveo-owned userData") ─
 ' Answers H3. proveo writes <proveo home>/desktop/hermes/connections.json
 ' (v2: version, primary, lastUsed, launchMode "primary", connections[] with
-' {id "proveo-sandbox", kind ssh, label, host <name>.sbx, user hermes}) and
+' {id "proveo-sandbox", kind ssh, label, host <name>.sbx, user hermes,
+' remoteHermesPath /opt/proveo/shims/hermes}) and
 ' launches with HERMES_DESKTOP_USER_DATA_DIR pointing there (main.ts reads it
 ' before userData; upstream install e2e uses it). Consequences:
 '   * the operator's own Desktop userData is never written;
@@ -143,7 +145,34 @@ skinparam noteTextAlignment left
 ' entrypoint.sh: `hermes config set nous.guest false` on every hermes start.
 ' config.py _coerce_config_set_value turns "false" into a YAML bool, which
 ' anon_auth.guest_allowed reads. The host's ~/.hermes is untouched.
-' [Unverified] the image's hermes (v2026.9.24) coerces the same way.
+' MEASURED 2026-10-30 in proveo/hermes:local (v0.21.5): `✓ Set nous.guest = False`,
+' config.yaml `guest: false`. As root the same command refuses (cron dir check); the
+' entrypoint runs as uid 1000.
+'
+' ── LIVE RUN 1 (MEASURED 2026-10-30, sbx 0.50.0, macOS, Desktop bf0203a7) ────
+' e2e/hermes_desktop_test.go: gateway PASS; guest FAIL; attach FAIL (5 min).
+'   * desktop.log: control master established, remote Linux/aarch64, then
+'     "Hermes is not installed on the remote host". Desktop's probe is
+'     `bash -lc 'command -v hermes'`; a login shell resets PATH and drops
+'     /opt/hermes/bin. FIX: the gateway entry carries remoteHermesPath
+'     /opt/proveo/shims/hermes (it awaits the seed). Re-measured: "located
+'     hermes at /opt/proveo/shims/hermes", "spawned remote dashboard", and
+'     proveo printed ✓ attached.
+'   * Desktop mode never dispatches the agent, so entrypoint.sh never ran: only
+'     sbx's keepalive (`sleep infinity`) in the VM, config.yaml the 124-byte seed.
+'     No model wiring, no guest switch — Desktop showed its provider onboarding,
+'     whose "Run models locally" installs hermes's llama.cpp IN THE VM (CPU, the
+'     operator's "GPU at 0%").
+'   * SSH sessions carry the workload env (PROVEO_STATE_HOME) but HERMES_HOME
+'     stayed the image's /opt/data: Desktop's state.db landed on the sandbox
+'     volume, not the proveo home. See hermes-persistence.puml (EVERY SESSION).
+'
+' ── PREPARE (2026-10-30, user: "entrypoint --prepare") ──────────────────────
+' entrypoint.sh --prepare runs every step up to the launch and exits 0. The
+' desktop hold runs `sbx exec -u hermes -w / <name> -- proveo-await-seed
+' /entrypoint.sh --prepare` (workload env included) BEFORE opening the app,
+' prints ✓ configured or ⚠ was-not-configured (and opens the app either way).
+' The same pass sets local_runtime.enabled false (host-inference.puml BEST HOST MODEL).
 
 ' ── DESIGN (after H2–H4) ────────────────────────────────────────────────────
 '   `proveo run hermes` with a `desktop` interface: create the workload as
