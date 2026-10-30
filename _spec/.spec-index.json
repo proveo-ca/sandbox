@@ -126,7 +126,6 @@
         "defs/base/Dockerfile",
         "defs/base/proveo-harden",
         "defs/base-node/Dockerfile",
-        "defs/base-node-lsp/Dockerfile",
         "defs/base-node-browser/Dockerfile",
         "defs/*/Dockerfile",
         "internal/contract/base_template_test.go",
@@ -357,8 +356,7 @@
     {
       "spec": "_spec/_plans/plugin-class-beyond-claudecode.puml",
       "covers": [
-        "packages/lib/entrypoint-lib.sh",
-        "internal/contract/lsp_config_parity_test.go"
+        "packages/lib/entrypoint-lib.sh"
       ],
       "fingerprint": null
     },
@@ -425,7 +423,6 @@
         "packages/lib/entrypoint-lib.sh",
         "defs/base/Dockerfile",
         "defs/base-node/Dockerfile",
-        "defs/base-node-lsp/Dockerfile",
         "internal/imagebuild/targets.go",
         "mise.toml",
         "internal/contract/go_provisioning_test.go",
@@ -551,9 +548,7 @@
         "defs/base/build.sh",
         "defs/base/ensure.sh",
         "defs/base-node/Dockerfile",
-        "defs/base-node/build.sh",
-        "defs/base-node-lsp/Dockerfile",
-        "defs/base-node-lsp/build.sh"
+        "defs/base-node/build.sh"
       ],
       "fingerprint": null
     },
@@ -585,15 +580,6 @@
       "spec": "_spec/defs/claudecode/claudecode-topology.puml",
       "covers": [
         "defs/claudecode/**"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/defs/claudecode/lsp-plugins-seed.puml",
-      "covers": [
-        "defs/claudecode/mcp/Dockerfile",
-        "packages/lib/entrypoint-lib.sh",
-        "internal/contract/claude_lsp_plugins_test.go"
       ],
       "fingerprint": null
     },
@@ -640,7 +626,6 @@
         "defs/base/proveo-harden",
         "defs/base/Dockerfile",
         "defs/base-node/Dockerfile",
-        "defs/base-node-lsp/Dockerfile",
         "defs/base-node-browser/Dockerfile",
         "defs/cursor/Dockerfile",
         "defs/opencode/Dockerfile",
@@ -657,7 +642,9 @@
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/Dockerfile",
         "defs/claudecode/solidity/Dockerfile",
-        "internal/contract/dockerfile_correctness_test.go"
+        "internal/contract/dockerfile_correctness_test.go",
+        "defs/codex/Dockerfile",
+        "defs/base-node-browser/Dockerfile"
       ],
       "fingerprint": null
     },
@@ -1338,8 +1325,8 @@
       "covers": [
         "internal/sbx/**",
         "cmd/proveo/main.go",
-        "internal/contract/lsp_config_parity_test.go",
-        "internal/contract/seed_command_shipped_test.go"
+        "internal/contract/seed_command_shipped_test.go",
+        "internal/contract/seed_phase_test.go"
       ],
       "fingerprint": null
     },
@@ -1582,7 +1569,9 @@
         "internal/contract/config_files_test.go",
         "internal/contract/formatter_class_test.go",
         "cmd/proveo/clean_tool_roots_test.go",
-        "cmd/proveo/golden_test.go"
+        "cmd/proveo/golden_test.go",
+        "internal/contract/lsp_wiring_retirement_test.go",
+        "internal/contract/retirement_test.go"
       ],
       "fingerprint": null
     },
@@ -1645,16 +1634,6 @@
         "defs/claudecode/mcp/Dockerfile",
         "defs/opencode/Dockerfile",
         "defs/claudecode/mcp/themes/**"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/packages/lib/language-server-provisioning.puml",
-      "covers": [
-        "packages/lib/entrypoint-lib.sh",
-        "internal/contract/lsp_config_parity_test.go",
-        "internal/contract/seed_abort_test.go",
-        "internal/sbx/kit.go"
       ],
       "fingerprint": null
     },

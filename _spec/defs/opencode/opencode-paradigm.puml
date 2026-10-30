@@ -115,7 +115,6 @@ node "opencode container" as CTR <<host>> {
     component "spec-keeper\nedit allow · shell deny\nedit scope enforced by prompt" as SPEC <<app>>
   }
 
-  component "native LSP\nauto-enabled per detected language" as LSP <<app>>
   artifact "AGENTS.md" as MD <<db>>
   database "/app — repo (rw, .git rw)" as WS <<db>>
   component "defs/opencode/Dockerfile\nOPENCODE_CLI_CONFIG_CONTENT" as DISPLAY <<app>>
@@ -128,7 +127,6 @@ node "opencode container" as CTR <<host>> {
 DEV ARROW_MAIN CLI
 EP ARROW_MAIN CREW : seed missing only\n(""OPENCODE_RESEED=1"" forces)
 EP ARROW_MAIN MD : seed when absent
-EP ARROW_MAIN LSP : detect workspace languages
 EP ARROW_MAIN CLI : " opencode.json in the durable home \n(no model env; ""--local-model"" writes one) "
 CLI ARROW_MAIN BUILD : implement
 BUILD ARROW_MAIN WS

@@ -145,54 +145,18 @@ partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh
   :""proveo-entrypoint prep"": run-as uid passwd entry (root-free)\n· git-context report · ""gh"" auth check (no smoke mode, N22);
   :seed BAKED defaults into ~/.<tool>\n(agents, config, hooks — image-immutable, offline);
   :tool setup via **jq** — cursor HTTP/1.1 fallback;
-  :**code intelligence** — shared LSP detector\n(entrypoint-lib.sh §8: bash+awk) ranks workspace\nlanguages vs INSTALLED servers, ""command -v""-gated;
-  if (agent has native LSP config?) then (yes)
-    :render detector output to the agent's config (jq) —\nopencode.json ""lsp"" (opencode) ·\nplugin ""/.lsp.json"" (claudecode);
-  else (MCP-capable, no native LSP)
-    :wrap the detected servers in an MCP LSP bridge —\ncursor: **mcp-language-server** (Go, one/​server) → ~/.cursor/mcp.json;
-  endif
-  note right
-    Servers are BAKED into the image, not
-    downloaded at runtime: Node LSPs via the
-    shared **base-node-lsp** layer (opencode,
-    claudecode); **gopls** + **mcp-language-server**
-    as static Go binaries (cursor).
-  end note
+  :**config wiring** — ""proveo_wire_config"": the formatter class\n(opencode) · LSP wiring removed 2026-10-30;
   note left
-    **This step is on the startup path, so its cost is
-    the agent's time-to-first-prompt.** Two things kept
-    it from being: a subshell per file, and a prune list
-    that missed the package stores.
-
-    ""_lsp_walk"" consults an extension map and a marker
-    map for every file it sees. Read back through
-    ""$(...)"" that is a fork each — and on a pnpm
-    monorepo (123k files with ""node_modules"" already
-    pruned) it made detection take ~85s on a tree
-    ""find"" crosses in 3. The maps answer in ""REPLY""
-    instead; every branch must set it, default
-    included, or a no-match reports the previous
-    file's language.
-
-    ""\.pnpm-store"" alone was 110k of those 123k files,
-    none of them ever a match: store objects are
-    content-addressed and carry no extension. The prune
-    expression now mirrors ""wsscan.AlwaysPrune"" so the
-    host's tooling preview and this detector describe
-    the same notion of workspace source.
-
-    Ordering matters too. The step ran AFTER
-    claudecode's ""Launching Claude Code..."" line, so its
-    time read as the agent failing to start rather than
-    prep still running. The launch line is now last
-    before the ""exec"": whatever appears next is the
-    agent's own output.
+    **The workspace walk prunes package stores.**
+    ""_proveo_walk"" mirrors ""wsscan.AlwaysPrune"";
+    ""\.pnpm-store"" alone was 110k of a monorepo's
+    123k files, none of them ever a match.
   end note
   :apply declarative env-var bridges (model routing);
   :DYNAMIC project tools when detected —\nmise / turbo / nx (fetched as sbx's policy allows);
   :exec agent CLI\n(agent installs the repo's own deps on demand);
   note left
-  **Three contracts the shared lib holds for every entrypoint.**
+  **Two contracts the shared lib holds for every entrypoint.**
 
   //No image sources the workspace "".env"" (N7, 2026-10-17).// A copy in the
   mounted tree must not be able to re-export keys into the agent process, so
@@ -206,15 +170,6 @@ partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh
   Only the level is shared: each harness spells verbosity differently — and
   some only in headless mode — so every entrypoint builds its own flag list
   and reports what the level bought.
-
-  //The detector has one output contract.// ""_lsp_walk"" emits
-  one tab-separated lang + ftype pair per file, where ftype is the extension, or the filename
-  for Docker, or empty when untracked; a marker file (""package\.json"",
-  ""go\.mod"") is credited to its marker language AND to its own extension's
-  language. Each harness renders that same stream into its own config —
-  claudecode into a skills-directory plugin at
-  ""~/\.claude/skills/proveo-lsp/\.lsp\.json"", which auto-loads on the next
-  session with no marketplace involved.
   end note
 }
 

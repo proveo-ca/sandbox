@@ -73,9 +73,8 @@ skinparam noteTextAlignment left
 '                                         returns at once, step 1 did it.
 '   3  proveo-seed <target> provision     background: true, always LAST.
 '                                         Tool restore, then the tool env
-'                                         block at once, toolchain, deps,
-'                                         LSPs, the second wire pass, then
-'                                         seed-done.
+'                                         block at once, toolchain and
+'                                         deps, then seed-done.
 ' Step 3 is last because background lets LATER steps run beside it: placed
 ' earlier, the def's wiring would race the installs.
 '
@@ -162,8 +161,8 @@ skinparam noteTextAlignment left
 ' block lands right after the restore, and Claude Code's shells source it per
 ' command (proveo_install_claude_env_hook), so restored tools appear first and
 ' installed ones as they finish. The agent's own installs can race step 3's in
-' the same workspace. The second wire pass still rewrites LSP wiring after the
-' agent started, as the seed-and-launch order already accepted.
+' the same workspace. Since 2026-10-30 step 3 rewrites no config: the second
+' wire pass left with the LSP removal.
 '
 ' ── THE PROBE, ON v3 (2026-10-24, the "Full v3 port" of e2e) ────────────────
 ' A workload's create runs its install and startup hooks and returns after the
