@@ -12,10 +12,10 @@ import (
 )
 
 var seedImageSources = map[string]struct{ file, base string }{
-	"codex":               {"defs/codex/Dockerfile", "proveo/base-node-lsp:latest"},
-	"opencode":            {"defs/opencode/Dockerfile", "proveo/base-node-lsp:latest"},
+	"codex":               {"defs/codex/Dockerfile", "proveo/base-node:latest"},
+	"opencode":            {"defs/opencode/Dockerfile", "proveo/base-node:latest"},
 	"cursor":              {"defs/cursor/Dockerfile", ""},
-	"claudecode":          {"defs/claudecode/mcp/Dockerfile", "proveo/base-node-lsp:latest"},
+	"claudecode":          {"defs/claudecode/mcp/Dockerfile", "proveo/base-node:latest"},
 	"claudecode-solidity": {"defs/claudecode/solidity/Dockerfile", "proveo/claudecode:latest"},
 	"hermes":              {"defs/hermes/Dockerfile", ""},
 
@@ -30,7 +30,6 @@ var seedImageSources = map[string]struct{ file, base string }{
 var baseDockerfiles = map[string]string{
 	"proveo/base:latest":              "defs/base/Dockerfile",
 	"proveo/base-node:latest":         "defs/base-node/Dockerfile",
-	"proveo/base-node-lsp:latest":     "defs/base-node-lsp/Dockerfile",
 	"proveo/base-node-browser:latest": "defs/base-node-browser/Dockerfile",
 	"proveo/claudecode:latest":        "defs/claudecode/mcp/Dockerfile",
 	"proveo/codex:latest":             "defs/codex/Dockerfile",

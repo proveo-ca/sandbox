@@ -1,13 +1,5 @@
 # SPEC: _spec/defs/codex/codex-topology.puml, _spec/defs/codex/codex-paradigm.puml, _spec/_devops/image-lineage-and-publish.puml
-ARG BASE_IMAGE=proveo/base-node-lsp:latest
-
-# mcp-language-server: carries the base's language servers to codex over MCP.
-FROM golang:1.26-trixie AS lsp-builder
-ARG MCP_LANGUAGE_SERVER_VERSION=v0.1.1
-ENV CGO_ENABLED=0
-RUN --mount=type=cache,id=proveo-codex-gomod,target=/go/pkg/mod,sharing=locked \
-    --mount=type=cache,id=proveo-codex-gocache,target=/root/.cache/go-build,sharing=locked \
-    go install "github.com/isaacphi/mcp-language-server@${MCP_LANGUAGE_SERVER_VERSION}"
+ARG BASE_IMAGE=proveo/base-node:latest
 
 # proveo-entrypoint is inherited from proveo/base-node (built once in defs/base).
 FROM ${BASE_IMAGE}
@@ -48,8 +40,6 @@ RUN groupadd -f docker \
  && usermod -aG docker "${USER_NAME}" \
  && usermod -aG docker agent
 LABEL com.docker.sandboxes.start-docker="true"
-
-COPY --from=lsp-builder /go/bin/mcp-language-server /usr/local/bin/
 
 # Install the Codex CLI. The npm distribution ships the same native binary as the
 # install script and is the pinnable one — a bare `curl | sh` resolves whatever

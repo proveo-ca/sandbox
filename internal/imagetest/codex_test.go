@@ -97,7 +97,6 @@ func TestImageCodex(t *testing.T) {
 	s.Success("gh is installed", image, "gh --version")
 	s.Success("node is installed", image, "node --version")
 	s.Success("docker client is installed (docker via the sbx sandbox backend)", image, "docker --version")
-	s.Success("mcp-language-server bridge is baked (LSP reaches codex over MCP)", image, "command -v mcp-language-server")
 	s.Success("proveo-entrypoint (verification commands) is baked", image, `command -v proveo-entrypoint >/dev/null`)
 	s.Success("shared subagent frontmatter is baked", image, "test -d /opt/proveo/subagents/_frontmatter/codex")
 
