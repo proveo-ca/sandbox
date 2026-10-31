@@ -84,6 +84,9 @@ skinparam noteTextAlignment left
 '   cpu   = need − free                             GiB on the CPU
 '   swap  ⇔ RAM read ∧ cpu > MemAvailable            then the CPU share reaches swap
 '   qwen3.8:latest on that host ⇒ "~38% on the GPU and the other ~12.0 GiB on the CPU"
+'   MEASURED there: Ollama offloaded 19/66 layers, `ollama ps` 68%/32% CPU/GPU — the
+'   estimate ran 6 points high; nvidia-smi read ~0% because the GPU waits on the CPU
+'   for every token of a dense model (the copy now says so).
 ' The estimate counts cache headroom on the GPU side the same as weights; Ollama's
 ' real layer split differs by a few points. RAM rides along with the VRAM reading
 ' (hostMemory.RAM, NoFitError.RAM); 0 means unread and names no swap.
@@ -100,6 +103,42 @@ skinparam noteTextAlignment left
 ' EnsureHostOllama only reports; internal/run decides (admitOversizedModel).
 ' e2e suites still skip on LocalModelFits: a run that cannot fit is a host
 ' precondition there, not a harness fault.
+
+' ── CONTEXT FLOOR (2026-10-30, user: "Abide to what hermes needs" → "Derived tag") ─
+' hermes refuses tool use under 64,000 tokens (agent/model_metadata.py
+' MINIMUM_CONTEXT_LENGTH). It asks Ollama for its window by sending
+' extra_body {"options":{"num_ctx":N}} to /v1/chat/completions
+' (plugins/model-providers/custom). MEASURED 2026-10-30, Ollama 0.40.13, M4 Pro:
+'   /v1 + options.num_ctx 12288            ⇒ /api/ps context_length 32768 (ignored)
+'   /v1 + options.num_ctx 65536            ⇒ 32768 (ignored)
+'   /api/chat + options.num_ctx 12288      ⇒ 12288 (honoured)
+'   /v1 on a tag whose Modelfile sets PARAMETER num_ctx 12288 ⇒ 12288 (honoured)
+' The RTX 3070 host showed the cost: `ollama ps` CONTEXT 4096 (Ollama's default
+' under 24 GiB of VRAM) while hermes believed 262,144 from /api/show — every
+' prompt (~14.6k tokens of system + tools) was cut to 4K and hermes never warned.
+' hermes has no native-Ollama provider, so no hermes config reaches num_ctx.
+' So proveo serves a derived tag:
+'   manifest capabilities.localModel.context: 65536   (hermes; 0 elsewhere)
+'   ContextTag(m, ctx)       = withTag(m) + "-ctx<ctx/1024>k"   qwen3.8:latest-ctx64k
+'   EnsureContextTag(m, ctx) = POST /api/create {model, from: m, parameters:{num_ctx}}
+'       0.1 s, shares m's blobs (no disk), refreshed every run so a re-pulled m carries over.
+'   PROVEO_LOCAL_MODEL = the derived tag ⇒ hermes's model.default; hermes's own
+'       query_ollama_num_ctx then reads the Modelfile num_ctx (65536) and sizes its
+'       compressor to the window Ollama actually serves.
+' The fit check counts the window when Ollama's model_info describes attention:
+'   kv/token = attn layers × KV heads × (key + value width) × 2 B   (f16)
+'     attn layers = ⌊block_count / full_attention_interval⌋ (hybrids), else block_count;
+'     a per-layer head_count_kv array sums instead; width = key_length or embedding/heads.
+'   need = weights + kv/token · ctx + 1 GiB runtime   (else the old weights + weights/8 + 1 GiB)
+'   qwen3.8:latest @64K: 16 × 4 × 512 × 2 = 64 KiB/token ⇒ 4.0 GiB ⇒ need 21.5 GiB
+'     check: the RTX 3070 host logged 80 MiB of K+V for its 5 GPU attention layers at 4,096.
+'   muse-glimmer @64K: 52 × 2 × 416 × 2 ≈ 84.5 KiB/token ⇒ 5.3 GiB [Inference: no sliding window]
+'   MLX tags (qwen3_5) carry no attention metadata ⇒ old headroom estimate.
+' A harness whose context fits keeps no prompt; one that does not fit gets the FIT IS A
+' QUESTION modal with notes: "<harness> needs a 64K-token context; this run serves it as
+' <tag>." and the manifest's rateHint (hermes: Desktop status bar → Tokens per second).
+' Auto-pick (BEST HOST MODEL) filters on the same need, so it never picks a model the
+' floor pushes off the GPU.
 
 ' ── BEST HOST MODEL (2026-10-30, user: "Off + auto-wire best") ─────────────
 ' hermes ships its own llama.cpp runtime (hermes_cli/local_runtime, backend

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/hermesdesktop"
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -85,7 +87,8 @@ func TestHermesDesktopOpensOnTheSandboxGateway(t *testing.T) {
 			t.Fatalf("read hermes config as the agent user: rc %d\n%s", rc, out)
 		}
 		for _, want := range []string{
-			"home=" + durable, "guest: false", "provider: custom", "host.docker.internal:11434", model,
+			"home=" + durable, "guest: false", "provider: custom", "host.docker.internal:11434",
+			sbx.ContextTag(model, localModelContext(t, "hermes")),
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("sandbox hermes config lacks %q:\n%s", want, out)
@@ -117,6 +120,10 @@ func TestHermesDesktopOpensOnTheSandboxGateway(t *testing.T) {
 		}
 		if fi, err := os.Stat(filepath.Join(durable, "state.db")); err != nil || fi.Size() == 0 {
 			t.Errorf("the session store must live in the proveo home %s: %v", durable, err)
+		}
+		served, floor := sbx.ContextTag(model, localModelContext(t, "hermes")), localModelContext(t, "hermes")
+		if got, ok := ollamaServedContext(served); !ok || got < floor {
+			t.Errorf("Ollama serves %s with %d tokens (loaded %v); hermes needs %d", served, got, ok, floor)
 		}
 	})
 
@@ -150,10 +157,50 @@ func hostQwen(t *testing.T) string {
 	if why != "" {
 		t.Skipf("local model %q: %s", want, why)
 	}
-	if err := sbx.LocalModelFits(model, os.Getenv); err != nil {
+	if err := sbx.LocalModelFits(model, localModelContext(t, "hermes"), os.Getenv); err != nil {
 		t.Skipf("local model %q does not fit this host right now: %v", model, err)
 	}
 	return model
+}
+
+// localModelContext is the context window harness declares it needs from a host model.
+func localModelContext(t *testing.T, harness string) int {
+	t.Helper()
+	ms, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		t.Fatalf("load manifests: %v", err)
+	}
+	for _, m := range ms {
+		if m.Name == harness {
+			return m.Capabilities.LocalModel.Context
+		}
+	}
+	t.Fatalf("no %s manifest", harness)
+	return 0
+}
+
+// ollamaServedContext is the context window the host's Ollama loaded name with.
+func ollamaServedContext(name string) (int, bool) {
+	resp, err := http.Get("http://localhost:11434/api/ps")
+	if err != nil {
+		return 0, false
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Models []struct {
+			Name          string `json:"name"`
+			ContextLength int    `json:"context_length"`
+		} `json:"models"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return 0, false
+	}
+	for _, m := range body.Models {
+		if m.Name == name {
+			return m.ContextLength, true
+		}
+	}
+	return 0, false
 }
 
 // hermesExec runs script as the agent user, the account Desktop's SSH session uses.

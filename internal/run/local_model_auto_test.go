@@ -12,7 +12,7 @@ func stubFitting(t *testing.T, fit ...string) *[]string {
 	var asked []string
 	orig := fittingHostModels
 	t.Cleanup(func() { fittingHostModels = orig })
-	fittingHostModels = func(c []string, _ func(string) string) []string { asked = c; return fit }
+	fittingHostModels = func(c []string, _ int, _ func(string) string) []string { asked = c; return fit }
 	return &asked
 }
 

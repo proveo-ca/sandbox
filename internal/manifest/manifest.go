@@ -88,12 +88,19 @@ func (m Manifest) WantsDocker() bool {
 }
 
 type Capabilities struct {
-	Credentials []string `yaml:"credentials"`
-	Providers   []string `yaml:"providers"`
-	Hosts       []string `yaml:"hosts"`
-	HostBrowser string   `yaml:"hostBrowser"`
-	HostDevices []string `yaml:"hostDevices"`
-	MCPGateway  string   `yaml:"mcpGateway"` // "always": sbx's MCP gateway is wired on every run
+	Credentials []string   `yaml:"credentials"`
+	Providers   []string   `yaml:"providers"`
+	Hosts       []string   `yaml:"hosts"`
+	HostBrowser string     `yaml:"hostBrowser"`
+	HostDevices []string   `yaml:"hostDevices"`
+	MCPGateway  string     `yaml:"mcpGateway"` // "always": sbx's MCP gateway is wired on every run
+	LocalModel  LocalModel `yaml:"localModel"`
+}
+
+// LocalModel is what the harness needs from a host Ollama model.
+type LocalModel struct {
+	Context  int    `yaml:"context"`  // minimum num_ctx; 0 keeps Ollama's default window
+	RateHint string `yaml:"rateHint"` // where the operator reads the live tokens/s
 }
 
 // MCPGatewayAlways is the mcpGateway value for a harness whose agent always takes sbx's MCP gateway.
@@ -226,6 +233,9 @@ func (m Manifest) Validate() error {
 	}
 	if g := m.Capabilities.MCPGateway; g != "" && g != MCPGatewayAlways {
 		return fmt.Errorf("manifest %q: invalid capabilities.mcpGateway %q (want %s or unset)", m.Name, g, MCPGatewayAlways)
+	}
+	if c := m.Capabilities.LocalModel.Context; c < 0 || c%1024 != 0 {
+		return fmt.Errorf("manifest %q: capabilities.localModel.context %d must be a non-negative multiple of 1024", m.Name, c)
 	}
 	seen := map[string]bool{}
 	for _, e := range m.Env {

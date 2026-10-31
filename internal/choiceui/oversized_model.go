@@ -7,12 +7,16 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// ModelFit is a local model the host's free memory cannot hold, in GiB.
+// ModelFit is a local model the host's free memory cannot hold, in GiB; Notes set
+// expectations for the run that loads it anyway.
 type ModelFit struct {
-	Model, Pool, Consequence string
-	Need, Weights, Free      float64
-	ForceVar                 string
+	Model, Pool, Consequence, Breakdown string
+	Need, Free                          float64
+	Notes                               []string
+	ForceVar                            string
 }
+
+const oversizedModelWidth = 64
 
 func oversizedModelTitle(f ModelFit) string {
 	return fmt.Sprintf("%s does not fit in %s", f.Model, f.Pool)
@@ -20,15 +24,14 @@ func oversizedModelTitle(f ModelFit) string {
 
 // OversizedModelCopy explains loading a local model larger than the pool Ollama loads it into.
 func OversizedModelCopy(f ModelFit) []string {
-	return []string{
-		oversizedModelTitle(f),
-		"",
-		fmt.Sprintf("needs ~%.1f GiB (%.1f GiB weights + cache headroom)", f.Need, f.Weights),
-		fmt.Sprintf("free   %.1f GiB of %s", f.Free, f.Pool),
-		"",
-		"Loading it anyway: " + f.Consequence + ".",
-		f.ForceVar + "=1 skips this question.",
+	lines := []string{oversizedModelTitle(f), ""}
+	lines = append(lines, wrap(fmt.Sprintf("needs ~%.1f GiB (%s)", f.Need, f.Breakdown), oversizedModelWidth, 7)...)
+	lines = append(lines, fmt.Sprintf("free   %.1f GiB of %s", f.Free, f.Pool), "")
+	lines = append(lines, wrap("Loading it anyway: "+f.Consequence+".", oversizedModelWidth, 0)...)
+	for _, n := range f.Notes {
+		lines = append(lines, wrap(n, oversizedModelWidth, 0)...)
 	}
+	return append(lines, f.ForceVar+"=1 skips this question.")
 }
 
 func oversizedModelChoices() []modalChoice {

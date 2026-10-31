@@ -44,7 +44,7 @@ func TestHermesLocalModelE2E(t *testing.T) {
 			}
 
 			// a model the host cannot hold is a host precondition, like an absent model, not a hermes fault.
-			if err := sbx.LocalModelFits(model, os.Getenv); err != nil {
+			if err := sbx.LocalModelFits(model, localModelContext(t, "hermes"), os.Getenv); err != nil {
 				t.Skipf("local model %q does not fit this host right now: %v", model, err)
 			}
 

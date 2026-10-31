@@ -22,7 +22,7 @@ func autoLocalModel(rs *Spec, p *Params, getenv func(string) string) string {
 	for _, m := range localModels {
 		tags = append(tags, m.tag())
 	}
-	fit := fittingHostModels(tags, getenv)
+	fit := fittingHostModels(tags, rs.Man.Capabilities.LocalModel.Context, getenv)
 	if len(fit) == 0 {
 		return ""
 	}

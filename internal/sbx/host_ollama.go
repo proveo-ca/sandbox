@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,12 +74,17 @@ func listOllama(path string) ([]ollamaModel, error) {
 	return body.Models, nil
 }
 
+// withTag spells an untagged name with ":latest", as Ollama reads it.
+func withTag(name string) string {
+	if !strings.Contains(name[strings.LastIndex(name, "/")+1:], ":") {
+		return name + ":latest"
+	}
+	return name
+}
+
 // matchTag finds want among models; an untagged name means ":latest", as in Ollama.
 func matchTag(models []ollamaModel, want string) (ollamaModel, bool) {
-	full := want
-	if !strings.Contains(want[strings.LastIndex(want, "/")+1:], ":") {
-		full = want + ":latest"
-	}
+	full := withTag(want)
 	for _, m := range models {
 		if m.Name == want || m.Name == full {
 			return m, true
@@ -102,9 +108,9 @@ func sameRepo(models []ollamaModel, want string) []string {
 	return out
 }
 
-// EnsureHostOllama checks the host Ollama serves model, pulling it when missing,
+// EnsureHostOllama checks the host Ollama serves model with a ctx-token window (0: Ollama's default), pulling it when missing,
 // and returns a *NoFitError when loading it would overflow the host's free memory.
-func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) error {
+func EnsureHostOllama(model string, ctx int, getenv func(string) string, p *ui.Printer) error {
 	tags, err := listOllama("/api/tags")
 	if err != nil {
 		return fmt.Errorf("no Ollama answers on 127.0.0.1:11434 (%v) — local models on sbx run on the host's Ollama: "+
@@ -124,7 +130,7 @@ func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) e
 		}
 		if size, known := registrySize(model); known {
 			p.Asyncf("%s is not in the host's Ollama — pulling %.1f GiB", model, gib(size))
-			if err := checkFit(ollamaModel{Name: model, Size: size}, getenv); err != nil {
+			if err := checkFit(ollamaModel{Name: model, Size: size}, ctx, getenv); err != nil {
 				p.Warnf("it would not fit in memory right now (%v); pulling anyway, the load check below decides", err)
 			}
 		} else {
@@ -140,10 +146,10 @@ func EnsureHostOllama(model string, getenv func(string) string, p *ui.Printer) e
 			return fmt.Errorf("pulled %s but the host's Ollama does not list it", model)
 		}
 	}
-	if resident(model) {
+	if resident(ContextTag(model, ctx)) {
 		return nil
 	}
-	return checkFit(m, getenv)
+	return checkFit(m, ctx, getenv)
 }
 
 // libraryRef splits an Ollama library tag into repo and tag; ok is false for other registries.
@@ -250,16 +256,16 @@ func gib(b uint64) float64 { return float64(b) / (1 << 30) }
 // LocalModelFits reports whether an installed host model fits the host's free
 // memory by the same estimate EnsureHostOllama reports on; nil when it fits or
 // cannot be judged.
-func LocalModelFits(model string, getenv func(string) string) error {
+func LocalModelFits(model string, ctx int, getenv func(string) string) error {
 	tags, err := listOllama("/api/tags")
 	if err != nil {
 		return nil
 	}
 	m, ok := matchTag(tags, model)
-	if !ok || resident(model) {
+	if !ok || resident(ContextTag(model, ctx)) {
 		return nil
 	}
-	return checkFit(m, getenv)
+	return checkFit(m, ctx, getenv)
 }
 
 // resident reports whether the host's Ollama already holds model in memory.
@@ -273,17 +279,37 @@ func resident(model string) bool {
 }
 
 // NoFitError reports a model larger than the free host memory Ollama would load it into;
-// RAM is the free system memory a VRAM overflow lands in, 0 when unread.
+// RAM is the free system memory a VRAM overflow lands in, 0 when unread; Cache is the
+// K+V cache of a Context-token window, 0 when the window is Ollama's default.
 type NoFitError struct {
-	Model                    string
-	Need, Weights, Free, RAM uint64
-	Pool                     string
+	Model                           string
+	Need, Weights, Free, RAM, Cache uint64
+	Context                         int
+	Pool                            string
 }
 
 func (e *NoFitError) Error() string {
-	return fmt.Sprintf("%s needs ~%.1f GiB (%.1f GiB weights + cache headroom) and the host has %.1f GiB of %s free — "+
+	return fmt.Sprintf("%s needs ~%.1f GiB (%s) and the host has %.1f GiB of %s free — "+
 		"%s; free memory, pick a smaller tag, or set %s=1",
-		e.Model, gib(e.Need), gib(e.Weights), gib(e.Free), e.Pool, e.Consequence(), EnvLocalModelForce)
+		e.Model, gib(e.Need), e.Breakdown(), gib(e.Free), e.Pool, e.Consequence(), EnvLocalModelForce)
+}
+
+// Breakdown names what the need is made of.
+func (e *NoFitError) Breakdown() string {
+	if e.Cache == 0 {
+		return fmt.Sprintf("%.1f GiB weights + cache headroom", gib(e.Weights))
+	}
+	return fmt.Sprintf("%.1f GiB weights + %.1f GiB for a %s-token context + 1 GiB runtime",
+		gib(e.Weights), gib(e.Cache), thousands(e.Context))
+}
+
+// thousands spells n with comma separators.
+func thousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 // Consequence names what loading the model anyway costs: for VRAM, the GPU's
@@ -293,7 +319,8 @@ func (e *NoFitError) Consequence() string {
 		return "loading it pushes the host into swap"
 	}
 	spill := e.Need - min(e.Free, e.Need)
-	s := fmt.Sprintf("Ollama puts ~%d%% on the GPU and the other ~%.1f GiB on the CPU, several times slower",
+	s := fmt.Sprintf("Ollama puts ~%d%% on the GPU and the other ~%.1f GiB on the CPU, several times slower; "+
+		"the GPU idles while the CPU computes its share of every token",
 		gpuShare(e.Free, e.Need), gib(spill))
 	if e.RAM > 0 && spill > e.RAM {
 		s += fmt.Sprintf("; only %.1f GiB of RAM is free, so the CPU share reaches swap", gib(e.RAM))
@@ -311,22 +338,26 @@ func gpuShare(free, need uint64) int {
 
 // FittingHostModels keeps the candidates the host's Ollama has installed and
 // whose load fits the free memory Ollama would use, in candidate order.
-func FittingHostModels(candidates []string, getenv func(string) string) []string {
+func FittingHostModels(candidates []string, ctx int, getenv func(string) string) []string {
 	tags, err := listOllama("/api/tags")
 	if err != nil {
 		return nil
 	}
 	var out []string
 	for _, c := range candidates {
-		if m, ok := matchTag(tags, c); ok && (resident(c) || checkFit(m, getenv) == nil) {
+		if m, ok := matchTag(tags, c); ok && (resident(ContextTag(c, ctx)) || checkFit(m, ctx, getenv) == nil) {
 			out = append(out, c)
 		}
 	}
 	return out
 }
 
-func checkFit(m ollamaModel, getenv func(string) string) error {
+func checkFit(m ollamaModel, ctx int, getenv func(string) string) error {
 	need := m.Size + m.Size/8 + 1<<30
+	cache, sized := contextCache(m.Name, ctx)
+	if sized {
+		need = m.Size + cache + 1<<30
+	}
 	mem, known := availableMemory()
 	if !known || need <= mem.Free {
 		return nil
@@ -334,7 +365,11 @@ func checkFit(m ollamaModel, getenv func(string) string) error {
 	if envflag.On(getenv(EnvLocalModelForce)) {
 		return nil
 	}
-	return &NoFitError{Model: m.Name, Need: need, Weights: m.Size, Free: mem.Free, RAM: mem.RAM, Pool: mem.Pool}
+	nofit := &NoFitError{Model: m.Name, Need: need, Weights: m.Size, Free: mem.Free, RAM: mem.RAM, Pool: mem.Pool}
+	if sized {
+		nofit.Cache, nofit.Context = cache, ctx
+	}
+	return nofit
 }
 
 // HostModelRef reports whether base points the agent at the host's Ollama.
