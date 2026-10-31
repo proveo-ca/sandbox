@@ -4,6 +4,14 @@ skinparam noteTextAlignment left
 ' purpose: how a local model reaches an sbx agent — the host's Ollama on the host GPU, one port across the VM boundary
 ' covers: internal/sbx/host_ollama.go (LocalModelEnv, EnsureHostOllama, HostOllamaPolicyHost)
 ' covers: internal/sbx/host_ollama_test.go
+' covers: internal/sbx/host_memory.go (memoryFor, amdFreeVRAM, parseNvidiaFree)
+' covers: internal/sbx/host_memory_test.go
+' covers: internal/run/local_model_fit.go (admitOversizedModel)
+' covers: internal/run/local_model_fit_test.go
+' covers: internal/run/local_model_auto.go
+' covers: internal/run/local_model_auto_test.go
+' covers: internal/choiceui/oversized_model.go (ConfirmOversizedModel)
+' covers: internal/choiceui/oversized_model_test.go
 ' covers: internal/run/model_row.go (localModels, tagFor)
 ' covers: internal/run/run.go (promptChoices, launchSandbox)
 ' covers: internal/backend/sandbox/sandbox.go (Spec allow, proxyOnlyVar)
@@ -30,10 +38,10 @@ skinparam noteTextAlignment left
 '      (`ollama pull <tag>` + installed tags of the same repo). A non-library ref
 '      (hf.co/…) pulls with no size shown.
 '   3. Already in /api/ps ⇒ resident, no new memory, done.
-'   4. Fit: need = size + size/8 + 1 GiB against reclaimable memory
-'      (macOS vm_stat free+inactive+speculative+purgeable; Linux MemAvailable).
-'      need > available ⇒ refuse unless PROVEO_LOCAL_MODEL_FORCE=1. No reading
-'      (windows, freebsd) ⇒ pass.
+'   4. Fit: need = size + size/8 + 1 GiB against the free memory of the POOL
+'      Ollama loads into (FIT POOL below). need > free ⇒ *sbx.NoFitError, a
+'      warning, never a refusal (FIT IS A QUESTION below).
+'      PROVEO_LOCAL_MODEL_FORCE=1 skips the check. No reading (windows, freebsd) ⇒ pass.
 '   5. agent env = sbx.LocalModelEnv(tag) — base http://host.docker.internal:11434
 '      — + SBX_CRED_ANTHROPIC_MODE=none + SBX_CRED_OPENAI_MODE=none, the pair sbx's
 '      own --model mixin sets so proxy-held auth cannot outrank the local route.
@@ -47,6 +55,65 @@ skinparam noteTextAlignment left
 '   deleted. HISTORY of the sidecar's measurements (GPU loss on macOS, the 32k
 '   context floor, one endpoint in three dialects) is below.
 '
+' ── FIT POOL (2026-10-30) ──────────────────────────────────────────────────
+' Before: every host measured RAM. A Linux host with 14.6 GiB MemAvailable was
+' refused qwen3.8:latest (19.6 GiB need) although Ollama loads it into the GPU.
+'   host                         pool             reading
+'   darwin/arm64                 unified memory   vm_stat free+inactive+speculative+purgeable
+'   darwin/amd64                 RAM              vm_stat (same sum)
+'   linux, NVIDIA answers        VRAM             Σ nvidia-smi --query-gpu=memory.free (MiB)
+'   linux, discrete amdgpu       VRAM             Σ sysfs mem_info_vram_total − mem_info_vram_used
+'   linux, neither               RAM              /proc/meminfo MemAvailable
+' Ollama exposes no VRAM endpoint (/api/ps reports loaded models only), so the
+' vendor reading is the source. A non-numeric nvidia-smi line ("[N/A]") gives no
+' reading and the probe falls through. amdgpu discrete-vs-APU follows Ollama's
+' discover/amd.go: mem_info_vram_vendor or board_info ⇒ discrete; else
+' vram ≤ 4 GiB ∧ gtt ≥ 8 GiB ∧ gtt ≥ 4·vram ⇒ APU, whose memory is RAM.
+' Connector entries (card0-DP-1) are skipped by ^card\d+$.
+' Consequence differs by pool: VRAM overflow ⇒ Ollama runs the remaining layers
+' on the CPU (slow, no swap); RAM/unified overflow ⇒ the host swaps.
+'   https://github.com/ollama/ollama/blob/main/discover/amd.go
+'
+' ── GPU SHARE (2026-10-30, user: "Split with a GPU estimate") ──────────────
+' Measured on a Linux host: RTX 3070 Laptop, 7740 MiB free, only qwen3.8:latest
+' (17 GB) installed. "does not fit in VRAM" alone read as "will not use the GPU";
+' the operator saw 0% GPU (that run was proveo 218f6bc, so Desktop chatted on its
+' host backend and never reached Ollama — not the split).
+' A VRAM overflow is a split, so the warning states it:
+'   gpu%  = ⌊100 · free / need⌋                     (need = FIT POOL formula)
+'   cpu   = need − free                             GiB on the CPU
+'   swap  ⇔ RAM read ∧ cpu > MemAvailable            then the CPU share reaches swap
+'   qwen3.8:latest on that host ⇒ "~38% on the GPU and the other ~12.0 GiB on the CPU"
+' The estimate counts cache headroom on the GPU side the same as weights; Ollama's
+' real layer split differs by a few points. RAM rides along with the VRAM reading
+' (hostMemory.RAM, NoFitError.RAM); 0 means unread and names no swap.
+' Auto-pick (BEST HOST MODEL) still takes only fitting models: a split is the
+' operator's explicit --local-model choice, never a default.
+'
+' ── FIT IS A QUESTION, NOT A REFUSAL (2026-10-30) ─────────────────────────
+' memory is transient and the operator knows what else the host is doing.
+'   headed (tty in+out, PROVEO_WIZARD on, no PROVEO_SCHEDULE)
+'       ⇒ choiceui modal "<tag> does not fit in <pool>", y/N, Enter/esc = stop.
+'         stop ⇒ the run ends with the NoFitError text. yes ⇒ ⚠ line, run goes on.
+'   headless (schedule, no tty, wizard off, or no screen opens)
+'       ⇒ ⚠ line in the run log, run goes on.
+' EnsureHostOllama only reports; internal/run decides (admitOversizedModel).
+' e2e suites still skip on LocalModelFits: a run that cannot fit is a host
+' precondition there, not a harness fault.
+
+' ── BEST HOST MODEL (2026-10-30, user: "Off + auto-wire best") ─────────────
+' hermes ships its own llama.cpp runtime (hermes_cli/local_runtime, backend
+' auto = cuda|metal|vulkan|cpu). In the sbx VM it finds no GPU ⇒ CPU; its
+' detect.py also skips Ollama by design. So:
+'   * entrypoint.sh sets local_runtime.enabled false in the sandbox.
+'   * internal/run/local_model_auto.go: a run with no --local-model, no detected
+'     provider key, no subscription manifest and PROVEO_LOCAL_MODEL_AUTO not 0
+'     takes the first listed model (MODEL ROW MAPPING, this host's tag) that the
+'     host's Ollama has installed and that fits the FIT POOL — the host GPU path.
+'     It prints which. Only listed models: an arbitrary installed tag (a 0.3 GB
+'     fine-tune) is not an agent model.
+'   * sbx.FittingHostModels does the install + fit filter.
+
 ' ── WHY NOT llmman (removed 2026-09-26) ────────────────────────────────────
 ' sbx bundles llmman, and it served qwen3.8:27b on Metal. It also froze a 48 GB
 ' M4 Pro: llama-server reserved the model's full 262k context across 4 unified
@@ -106,9 +173,10 @@ AG --> OLL : host.docker.internal:11434/v1
 
 note right of OLL
   **Check and pull, never manage.** proveo
-  pulls a missing tag and refuses a missing
-  server or a model that would swap; it
-  never starts or configures Ollama.
+  pulls a missing tag, refuses a missing
+  server, and asks before loading a model
+  larger than free VRAM/RAM; it never
+  starts or configures Ollama.
 end note
 
 note right of AG

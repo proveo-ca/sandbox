@@ -43,8 +43,7 @@ func TestHermesLocalModelE2E(t *testing.T) {
 				t.Skipf("local model %q: %s", m.want, why)
 			}
 
-			// proveo refuses a model the host cannot hold rather than swap it in;
-			// that is a host precondition, like an absent model, not a hermes fault.
+			// a model the host cannot hold is a host precondition, like an absent model, not a hermes fault.
 			if err := sbx.LocalModelFits(model, os.Getenv); err != nil {
 				t.Skipf("local model %q does not fit this host right now: %v", model, err)
 			}

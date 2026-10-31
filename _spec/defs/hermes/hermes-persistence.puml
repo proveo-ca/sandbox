@@ -3,12 +3,24 @@
 skinparam noteTextAlignment left
 ' purpose: where hermes keeps its home (sessions, memories, skills, vault) so it survives the sandbox
 ' covers: defs/hermes/entrypoint.sh (HERMES_HOME block)
+' covers: internal/backend/sandbox/agent_home.go
+' covers: internal/backend/sandbox/agent_home_test.go
 ' covers: internal/imagetest/hermes_test.go (hmPersistence)
 ' covers: defs/hermes/harness.manifest (home.mounts)
 ' covers: internal/manifest/manifest.go (home.mounts validation)
 ' covers: internal/contract/config_set_test.go (TestHermesDataIsBoundNotCopiedIntoTheAgentHome)
 '   the sandbox lifecycle that removes volumes ... _spec/internal/sbx/kit-lifecycle.puml
 '
+' ── EVERY SESSION (2026-10-30) ─────────────────────────────────────────────
+' Before: only entrypoint.sh pointed HERMES_HOME at <state home>/hermes/data, so
+' only the TUI agent used the durable home. sbx exec and SSH sessions (Hermes
+' Desktop's backend) read the image's HERMES_HOME=/opt/data — measured: Desktop's
+' state.db on the sandbox volume, the proveo home empty; gone with the sandbox.
+' Now internal/backend/sandbox/agent_home.go puts HERMES_HOME=<state home>/hermes/data
+' in the WORKLOAD env (table agentHomes), which every session inherits.
+' e2e/hermes_desktop_test.go "session survives the sandbox": a chat in run 1, the
+' sandbox removed, run 2 with the same proveo home exports the marker.
+
 ' ── F19 (DONE (wt) 2026-10-17): THE DURABLE HOME IS A DIRECT HOST BIND ─────
 ' The user asked to "research how to properly mount home data in hermes + sbx
 ' for F19" (repo-simplification.puml F19). Findings (reported by the
