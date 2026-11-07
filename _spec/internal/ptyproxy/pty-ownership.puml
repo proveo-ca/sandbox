@@ -2,6 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: who reads the operator's terminal while an agent runs, and how the pumps end without losing the child's last line
+' covers: internal/ptyproxy/ctrlc_keys.go
+' covers: internal/ptyproxy/ctrlc_keys_test.go
 ' covers: internal/ptyproxy/ptyproxy.go
 ' covers: internal/ptyproxy/overlaytty.go
 ' covers: internal/ptyproxy/drain_test.go
@@ -44,9 +46,12 @@ skinparam noteTextAlignment left
 ' sbx backend does not catch SIGINT.
 '
 ' ── HEADED CTRL+C ASKS BEFORE sbx rm --force ───────────────────────────────
-' On a usable terminal the line discipline is raw, so Ctrl+C is the byte 0x03
-' in the input pump, not a signal to proveo. Unless PROVEO_SCHEDULE is set,
-' that byte opens a confirm overlay instead of reaching the child. The modal
+' Every usable terminal uses the proxy even with PROVEO_STDIN_FILTER=off.
+' The input pump recognizes raw 0x03, CSI-u Ctrl+C press/repeat events, and
+' modifyOtherKeys Ctrl+C. It holds incomplete escape sequences across reads
+' even when report filtering is disabled. Other chords and release events
+' remain unchanged. Unless PROVEO_SCHEDULE is set, an interrupt key opens
+' a confirm overlay instead of reaching the child. The modal
 ' says `sbx rm --force` will run, that this deletes the session, and that
 ' uncommitted changes can be permanently lost. Each answer is its own
 ' left-aligned row: [y/N] removes, [esc] goes back, [ctrl+c] interrupts.

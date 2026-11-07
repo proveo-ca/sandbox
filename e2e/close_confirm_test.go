@@ -19,6 +19,16 @@ import (
 // TestHeadedCtrlCAsksBeforeRemoving drives a real proveo run on a tmux TTY and
 // asserts Ctrl+C opens the close confirm instead of deleting the session.
 func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
+	for _, tc := range []struct{ name, filter, key string }{
+		{"raw", "on", "\x03"},
+		{"CSI-u_without_filter", "off", "\x1b[99;5u"},
+		{"modifyOtherKeys", "on", "\x1b[27;5;99~"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { headedCtrlCAsksBeforeRemoving(t, tc.filter, tc.key) })
+	}
+}
+
+func headedCtrlCAsksBeforeRemoving(t *testing.T, filter, key string) {
 	requireTmux(t)
 	binDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(binDir, "sbx"), []byte(fakeSbx(sbx.MinVersion)), 0o755); err != nil {
@@ -43,6 +53,7 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 		"PROVEO_WIZARD=off",
+		"PROVEO_STDIN_FILTER="+filter,
 		"PROVEO_HOME="+home,
 		"PROVEO_MOUNT_GH_CONFIG=0",
 		"PATH="+os.Getenv("PATH"),
@@ -58,7 +69,7 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the headed sbx client never attached:\n%s", screen)
 	}
-	if err := sess.SendKeys("C-c"); err != nil {
+	if err := sess.SendText(key); err != nil {
 		t.Fatal(err)
 	}
 	screen, err = sess.WaitFor("sbx rm --force will run.", 15*time.Second)

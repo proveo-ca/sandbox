@@ -1077,6 +1077,8 @@
     {
       "spec": "_spec/internal/ptyproxy/pty-ownership.puml",
       "covers": [
+        "internal/ptyproxy/ctrlc_keys.go",
+        "internal/ptyproxy/ctrlc_keys_test.go",
         "internal/ptyproxy/ptyproxy.go",
         "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/drain_test.go",
