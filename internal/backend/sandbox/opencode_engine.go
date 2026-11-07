@@ -110,8 +110,10 @@ func importOpenCodeHistory(name, src string) (int64, error) {
 	_ = stdin.Close()
 	runErr := cmd.Wait()
 	switch code := exitCodeOf(runErr); {
-	case runErr == nil, code == sbx.OpenCodeImportExisting:
+	case runErr == nil:
 		return db.Size(), nil
+	case code == sbx.OpenCodeImportExisting:
+		return 0, fmt.Errorf("the new engine already has an OpenCode database; history was not imported")
 	case errors.Is(sendErr, sbx.ErrOpenCodeImportChanged):
 		return 0, changed
 	case code == sbx.OpenCodeImportCorrupt:

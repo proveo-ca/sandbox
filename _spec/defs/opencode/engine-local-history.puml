@@ -106,7 +106,7 @@ skinparam noteTextAlignment left
 '      it was copied; close the OpenCode that writes it". It never sends -shm,
 '      never writes the source, and names no path inside the engine.
 '   4. The script: exit 3 at once if the engine already has a database
-'      (accepted as done; it reads no stdin); else `mkdtemp` a private dir it
+'      (a failed import; it reads no stdin); else `mkdtemp` a private dir it
 '      owns and extract only the three known member names into it. No commit
 '      member, a cut stream or an unknown member → exit 5
 '      (OpenCodeImportIncomplete), nothing installed. Then `PRAGMA
@@ -119,10 +119,14 @@ skinparam noteTextAlignment left
 '      (<size>) into new engine <name> once; the host copy stays unchanged".
 '      The host V2 share is NEVER edited.
 '   6. Run reattaches with `sbx run --name <engine>`.
-' D5: any other failure (change, exec, incomplete stream, corrupt) `sbx rm`s
+' D5: any failure (existing target, change, exec, incomplete, corrupt) `sbx rm`s
 ' the fresh engine, deletes its receipt and stops the run: "OpenCode history
 ' import into <engine> failed: … — the new engine was removed and <src> stays;
 ' the next run retries".
+'
+' Startup credential export creates a native database even with no accounts.
+' An existing target is therefore not proof of a completed import; only exit
+' 0 permits the caller to delete a carried database.
 '
 ' ── WHY STDIN, NOT `sbx cp` (2026-10-20) ───────────────────────────────────
 ' REPORTED: TestOpenCodeEngineKeepsHistoryAndImportsOnce failed on a macOS
@@ -357,9 +361,9 @@ group new engine (ensureOpenCodeEngine)
   PV ARROW_OPTIONAL HOMEDB : first regular file:\ncarry/<engine>.db · v2/share · share · .local/share
   PV ARROW_MAIN ENG : sbx exec -i python3 -I -c OpenCodeImportScript\nstdin: tar db (+ -wal, -journal) · commit; never -shm
   ENG ARROW_MAIN ENG : extract into own mkdtemp · quick_check\nbackup API · link() only if absent · 0600
-  alt exit 0, or 3 (already has one)
+  alt exit 0 (import installed)
     PV ARROW_OPTIONAL HOMEDB : delete the consumed carry file
-  else change / exec / incomplete / corrupt (D5)
+  else existing target / change / exec / incomplete / corrupt (D5)
     PV ARROW_ERROR SBX : sbx rm <engine>; receipt removed; run stops
   end
 end

@@ -329,3 +329,26 @@ func TestRetiringAnOpenCodeEngineCarriesItsDatabase(t *testing.T) {
 		})
 	}
 }
+
+func TestSkippedImportNeverConsumesCarriedHistory(t *testing.T) {
+	f := newFakeEngine(t, false)
+	home := t.TempDir()
+	carry := openCodeCarry(home, ocEngine)
+	writeDB(t, carry, "ses_carry")
+	writeDB(t, f.guestDB(), "ses_bootstrap")
+	before, err := os.ReadFile(carry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+	if err == nil {
+		t.Error("a skipped import was reported as successful")
+	}
+	after, readErr := os.ReadFile(carry)
+	if readErr != nil || !bytes.Equal(before, after) {
+		t.Errorf("skipped import consumed the carried history: %v", readErr)
+	}
+	if f.exists() {
+		t.Error("the new engine survived without importing its history")
+	}
+}
