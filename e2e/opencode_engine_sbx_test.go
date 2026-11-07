@@ -222,6 +222,10 @@ func TestOpenCodeEngineKeepsHistoryAndImportsOnce(t *testing.T) {
 		}
 	}
 	reattached("api POST", created)
+	listed := run(image, "session", "list", "--format", "json")
+	if !strings.Contains(listed, id) {
+		t.Fatalf("saved session is absent from the workspace session list:\n%s", terminalText(listed))
+	}
 	reread := run(image, "api", "GET", "/api/session/"+id)
 	reattached("api GET", reread)
 	if got := sessionID(reread); got != id {
@@ -260,6 +264,10 @@ func TestOpenCodeEngineKeepsHistoryAndImportsOnce(t *testing.T) {
 	}
 	if got := sessionID(carried); got != id {
 		t.Fatalf("the replacement engine read session %q, want the carried %q:\n%s", got, id, terminalText(carried))
+	}
+	listed = run(retagged, "session", "list", "--format", "json")
+	if !strings.Contains(listed, id) {
+		t.Fatalf("carried session is absent from the replacement's session list:\n%s", terminalText(listed))
 	}
 	if _, err := os.Stat(filepath.Join(home, "opencode", "carry", engine+".db")); err == nil {
 		t.Error("the carry file stayed on the host after its import")

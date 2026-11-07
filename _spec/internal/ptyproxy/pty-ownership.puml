@@ -9,6 +9,8 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/drain_test.go
 ' covers: internal/ptyproxy/ptyproxy_test.go
 ' covers: internal/ptyproxy/overlaytty_test.go
+' covers: defs/*/harness.manifest
+' covers: e2e/close_confirm_live_test.go
 ' covers: e2e/close_confirm_test.go
 ' covers: internal/choiceui/sandbox_close.go
 ' covers: internal/choiceui/modal.go
@@ -79,6 +81,14 @@ skinparam noteTextAlignment left
 ' Residual, pre-existing (reported): this path returns the raw runErr, so it
 ' can print "context canceled" and exit 1, or "agent exited with code -1" and
 ' exit 255 when WaitDelay SIGKILLs the sbx client.
+'
+' Live terminal coverage runs the real proxy and confirmation modal on tmux.
+' Raw Ctrl+C, CSI-u without filtering, and modifyOtherKeys must open the
+' modal, resume input on n, and invoke removal only on y. This check needs
+' tmux and Python, independently of the full sbx CLI tests requiring KVM.
+' The CLI matrix discovers every target from defs/*/harness.manifest and
+' asserts the same three keyboard encodings, input resumption on n, and
+' sbx rm --force only after y, including browser and Solidity variants.
 '
 ' ── n HANDS THE TERMINAL BACK AT ONCE ──────────────────────────────────────
 ' FIXED 2026-10-20. e2e TestHeadedCtrlCAsksBeforeRemoving failed with "n did

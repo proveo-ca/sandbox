@@ -336,6 +336,8 @@ var Vars = []Var{
 		Doc: "Tell the sandbox the host's OS, as Go's GOOS names it"},
 	{Name: "PROVEO_LOCAL_MODEL", Scope: Internal, Where: Image, Default: "no local model",
 		Doc: "Carry the --local-model Ollama tag into the sandbox"},
+	{Name: "PROVEO_OPENCODE_HISTORY_IMPORT", Scope: Internal, Where: Binary, Default: "off",
+		Doc: "Defer OpenCode credential startup until engine history import is ready"},
 	{Name: "PROVEO_OPERATOR_NAME", Scope: Internal, Where: Image, Default: "the image keeps its house name",
 		Doc: "Carry the operator name `proveo init` stored into the sandbox"},
 	{Name: "PROVEO_PLUGINS", Scope: Internal, Where: Image, Default: "the lib always sets it",

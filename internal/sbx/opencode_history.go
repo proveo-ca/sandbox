@@ -10,6 +10,18 @@ import (
 	"os"
 )
 
+// OpenCodeHistoryGateEnv defers credential startup until history import completes.
+const OpenCodeHistoryGateEnv = "PROVEO_OPENCODE_HISTORY_IMPORT=1"
+
+// OpenCodeHistoryReadyScript marks history ready for credential startup.
+const OpenCodeHistoryReadyScript = `import os
+` + openCodeDatabasePath + `
+root = os.path.dirname(database())
+os.makedirs(root, mode=0o700, exist_ok=True)
+fd = os.open(os.path.join(root, ".proveo-history-ready"), os.O_WRONLY | os.O_CREAT, 0o600)
+os.close(fd)
+`
+
 // OpenCodeDatabaseHeader opens every SQLite database file.
 const OpenCodeDatabaseHeader = "SQLite format 3\x00"
 
@@ -186,4 +198,9 @@ func OpenCodeImportArgs(name string) []string {
 // OpenCodeExportArgs streams engine name's OpenCode database on stdout.
 func OpenCodeExportArgs(name string) []string {
 	return []string{"exec", "-w", "/", name, "--", "python3", "-I", "-c", OpenCodeExportScript}
+}
+
+// OpenCodeHistoryReadyArgs enables credential startup in the imported engine.
+func OpenCodeHistoryReadyArgs(name string) []string {
+	return []string{"exec", "-w", "/", name, "--", "python3", "-I", "-c", OpenCodeHistoryReadyScript}
 }

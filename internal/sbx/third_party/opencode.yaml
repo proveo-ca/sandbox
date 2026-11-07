@@ -469,6 +469,9 @@ capabilities:
               mkdir -p "$(dirname "$auth")"
               exec 9>>"$(dirname "$auth")/.credentials-sync.lock"
               flock 9
+              if [ "${PROVEO_OPENCODE_HISTORY_IMPORT:-}" = 1 ] && [ ! -f "$(dirname "$auth")/.proveo-history-ready" ]; then
+                exit 0
+              fi
               if ! existing=$(opencode auth export --standalone); then
                 echo "unable to read OpenCode v2 credentials; leaving them unchanged" >&2
                 exit 0
@@ -554,7 +557,7 @@ capabilities:
                   opencode auth switch "$integration" "$id" --standalone >/dev/null
                 done
           user: "agent"
-          env: [GH_TOKEN]
+          env: [GH_TOKEN, PROVEO_OPENCODE_HISTORY_IMPORT]
           description: Import sandbox OAuth credentials into OpenCode v2
 
   # No agent-sessions@1, deliberately -- and this is where this kit parts

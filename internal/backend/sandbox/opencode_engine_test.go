@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,6 +46,7 @@ S='` + f.state + `'; G='` + f.guest + `'
 case "$1" in
   ls) printf 'SANDBOX AGENT STATUS\n'; [ -e "$S/exists" ] && printf '` + ocEngine + ` opencode stopped\n'; exit 0 ;;
   create) [ -e "$S/create-fails" ] && exit 1; touch "$S/exists" ;;
+  stop) [ -e "$S/stop-fails" ] && exit 1; touch "$S/stopped" ;;
   rm) rm -f "$S/exists" ;;
   cp) echo 'sbx cp: the history import must not stage files' >&2; exit 1 ;;
   exec) shift; I=; while [ "$1" != "--" ]; do [ "$1" = -i ] && I=1; shift; done; shift
@@ -350,5 +352,54 @@ func TestSkippedImportNeverConsumesCarriedHistory(t *testing.T) {
 	}
 	if f.exists() {
 		t.Error("the new engine survived without importing its history")
+	}
+}
+
+func TestOpenCodeCreationDefersCredentialsUntilHistoryIsReady(t *testing.T) {
+	for _, target := range []string{"opencode", "opencode-browser"} {
+		cfg, _, _ := Spec(specInput(target))
+		if !slices.Contains(cfg.Env, sbx.OpenCodeHistoryGateEnv) {
+			t.Errorf("%s did not gate credential startup", target)
+		}
+	}
+	f := newFakeEngine(t, false)
+	home := t.TempDir()
+	carry := openCodeCarry(home, ocEngine)
+	writeDB(t, carry, "ses_carry")
+	_, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(f.guestDB()), ".proveo-history-ready")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.state, "stopped")); err != nil {
+		t.Fatal("engine was not stopped before the credential-enabled boot")
+	}
+	log := f.log()
+	create, imported, ready, stop := strings.Index(log, sbx.OpenCodeHistoryGateEnv), strings.Index(log, sbx.OpenCodeImportScript), strings.Index(log, sbx.OpenCodeHistoryReadyScript), strings.Index(log, "stop "+ocEngine)
+	if create < 0 || imported <= create || ready <= imported || stop <= ready {
+		t.Fatalf("wrong preparation order: %s", log)
+	}
+	if got := sessionsIn(t, f.guestDB()); got != "ses_carry" {
+		t.Errorf("history = %s", got)
+	}
+}
+
+func TestFailedCredentialRestartKeepsCarriedHistory(t *testing.T) {
+	f := newFakeEngine(t, false)
+	f.set(t, "stop-fails")
+	home := t.TempDir()
+	carry := openCodeCarry(home, ocEngine)
+	writeDB(t, carry, "ses_carry")
+	_, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+	if err == nil {
+		t.Fatal("failed stop was accepted")
+	}
+	if got := sessionsIn(t, carry); got != "ses_carry" {
+		t.Errorf("source history = %s", got)
+	}
+	if f.exists() {
+		t.Error("unfinished new engine survived")
 	}
 }

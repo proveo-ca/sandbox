@@ -1413,6 +1413,9 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		HostEnv: src.BuildEnv(),
 		Command: command,
 	}
+	if opencodeTarget(in.Target) {
+		cfg.Env = append(cfg.Env, sbx.OpenCodeHistoryGateEnv)
+	}
 	if in.HomeAccess.FilesRoot != "" {
 		cfg.Env = append(cfg.Env, proveohome.ConfigFilesRootVar+"="+in.HomeAccess.FilesRoot)
 	}
