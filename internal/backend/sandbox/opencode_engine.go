@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -64,19 +65,36 @@ func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, cr
 	if sbx.Exists(cfg.Name) {
 		return sbx.Reattach(cfg), false, nil
 	}
+	if !slices.Contains(cfg.Env, sbx.OpenCodeHistoryGateEnv) {
+		cfg.Env = append(cfg.Env, sbx.OpenCodeHistoryGateEnv)
+	}
 	if err := createOpenCodeEngine(cfg); err != nil {
 		return cfg, false, fmt.Errorf("create OpenCode engine %s: %w", cfg.Name, err)
 	}
 	src := openCodeImportSource(in.HomeRoot, cfg.Name)
-	if src == "" {
-		ui.Appf("OpenCode: new engine %s starts with empty history", cfg.Name)
-		return sbx.Reattach(cfg), true, nil
+	var size int64
+	if src != "" {
+		size, err = importOpenCodeHistory(cfg.Name, src)
 	}
-	size, err := importOpenCodeHistory(cfg.Name, src)
+	if err == nil {
+		cmd := exec.Command(sbx.Binary, sbx.OpenCodeHistoryReadyArgs(cfg.Name)...)
+		if out, readyErr := cmd.CombinedOutput(); readyErr != nil {
+			err = fmt.Errorf("enable OpenCode credential startup: %w: %s", readyErr, strings.TrimSpace(string(out)))
+		}
+	}
+	if err == nil {
+		if out, stopErr := SbxRun("stop", cfg.Name); stopErr != nil {
+			err = fmt.Errorf("stop OpenCode engine before credential startup: %w: %s", stopErr, strings.TrimSpace(out))
+		}
+	}
 	if err != nil {
 		_, _ = SbxRun(sbx.RemoveArgs(cfg.Name)...)
 		_ = os.Remove(receiptPath(cfg.Name))
-		return cfg, false, fmt.Errorf("OpenCode history import into %s failed: %w — the new engine was removed and %s stays; the next run retries", cfg.Name, err, src)
+		return cfg, false, fmt.Errorf("OpenCode history preparation for %s failed: %w — the new engine was removed; source history stays; the next run retries", cfg.Name, err)
+	}
+	if src == "" {
+		ui.Appf("OpenCode: new engine %s starts with empty history", cfg.Name)
+		return sbx.Reattach(cfg), true, nil
 	}
 	if carried := openCodeCarry(in.HomeRoot, cfg.Name); src == carried {
 		_ = os.Remove(carried)
@@ -110,8 +128,10 @@ func importOpenCodeHistory(name, src string) (int64, error) {
 	_ = stdin.Close()
 	runErr := cmd.Wait()
 	switch code := exitCodeOf(runErr); {
-	case runErr == nil, code == sbx.OpenCodeImportExisting:
+	case runErr == nil:
 		return db.Size(), nil
+	case code == sbx.OpenCodeImportExisting:
+		return 0, fmt.Errorf("the new engine already has an OpenCode database; history was not imported")
 	case errors.Is(sendErr, sbx.ErrOpenCodeImportChanged):
 		return 0, changed
 	case code == sbx.OpenCodeImportCorrupt:

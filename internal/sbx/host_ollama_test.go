@@ -2,9 +2,11 @@
 package sbx
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,9 +44,14 @@ func fakeOllama(t *testing.T, tags, ps string) {
 
 func stubAvailable(t *testing.T, gibs float64, known bool) {
 	t.Helper()
+	stubPool(t, gibs, poolRAM, known)
+}
+
+func stubPool(t *testing.T, gibs float64, pool string, known bool) {
+	t.Helper()
 	orig := availableMemory
 	t.Cleanup(func() { availableMemory = orig })
-	availableMemory = func() (uint64, bool) { return uint64(gibs * (1 << 30)), known }
+	availableMemory = func() (hostMemory, bool) { return hostMemory{Free: uint64(gibs * (1 << 30)), Pool: pool}, known }
 }
 
 const hostTags = `{"models":[
@@ -63,7 +70,7 @@ func TestEnsureHostOllamaNamesTheInstalledTagsWhenOneIsMissing(t *testing.T) {
 		}
 		return ""
 	}
-	err := EnsureHostOllama("qwen3.8:27b", noPull, nil)
+	err := EnsureHostOllama("qwen3.8:27b", 0, noPull, nil)
 	if err == nil {
 		t.Fatal("qwen3.8:27b is not installed and pulling is off; want a refusal before the sandbox starts")
 	}
@@ -77,17 +84,21 @@ func TestEnsureHostOllamaNamesTheInstalledTagsWhenOneIsMissing(t *testing.T) {
 func TestEnsureHostOllamaTreatsAnUntaggedNameAsLatest(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
 	stubAvailable(t, 40, true)
-	if err := EnsureHostOllama("qwen3.8", noEnv, nil); err != nil {
+	if err := EnsureHostOllama("qwen3.8", 0, noEnv, nil); err != nil {
 		t.Errorf("qwen3.8 ⇒ qwen3.8:latest is installed: %v", err)
 	}
 }
 
-func TestEnsureHostOllamaRefusesAModelThatWouldSwap(t *testing.T) {
+func TestEnsureHostOllamaReportsAModelThatWouldNotFit(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
-	stubAvailable(t, 12, true)
-	err := EnsureHostOllama("qwen3.8:latest", noEnv, nil)
-	if err == nil || !strings.Contains(err.Error(), EnvLocalModelForce) {
-		t.Fatalf("16.5 GiB of weights with 12 GiB available must refuse and name the override, got %v", err)
+	stubPool(t, 12, poolVRAM, true)
+	err := EnsureHostOllama("qwen3.8:latest", 0, noEnv, nil)
+	var nofit *NoFitError
+	if !errors.As(err, &nofit) || nofit.Pool != poolVRAM || !strings.Contains(err.Error(), EnvLocalModelForce) {
+		t.Fatalf("16.5 GiB of weights with 12 GiB of VRAM free must report a NoFitError naming the override, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "12.0 GiB of VRAM free") {
+		t.Errorf("the report must name the pool it measured: %v", err)
 	}
 
 	force := func(k string) string {
@@ -96,7 +107,7 @@ func TestEnsureHostOllamaRefusesAModelThatWouldSwap(t *testing.T) {
 		}
 		return ""
 	}
-	if err := EnsureHostOllama("qwen3.8:latest", force, nil); err != nil {
+	if err := EnsureHostOllama("qwen3.8:latest", 0, force, nil); err != nil {
 		t.Errorf("%s=1 must override the fit check: %v", EnvLocalModelForce, err)
 	}
 }
@@ -104,7 +115,7 @@ func TestEnsureHostOllamaRefusesAModelThatWouldSwap(t *testing.T) {
 func TestEnsureHostOllamaSkipsTheFitCheckForALoadedModel(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[{"name":"qwen3.8:latest","size":20000000000}]}`)
 	stubAvailable(t, 2, true)
-	if err := EnsureHostOllama("qwen3.8:latest", noEnv, nil); err != nil {
+	if err := EnsureHostOllama("qwen3.8:latest", 0, noEnv, nil); err != nil {
 		t.Errorf("an already-resident model costs no new memory: %v", err)
 	}
 }
@@ -112,7 +123,7 @@ func TestEnsureHostOllamaSkipsTheFitCheckForALoadedModel(t *testing.T) {
 func TestEnsureHostOllamaPassesWhenMemoryIsUnknown(t *testing.T) {
 	fakeOllama(t, hostTags, `{"models":[]}`)
 	stubAvailable(t, 0, false)
-	if err := EnsureHostOllama("qwen3.8:latest", noEnv, nil); err != nil {
+	if err := EnsureHostOllama("qwen3.8:latest", 0, noEnv, nil); err != nil {
 		t.Errorf("no reading (windows, freebsd) must not block: %v", err)
 	}
 }
@@ -121,7 +132,7 @@ func TestEnsureHostOllamaExplainsAMissingServer(t *testing.T) {
 	orig := hostOllamaURL
 	t.Cleanup(func() { hostOllamaURL = orig })
 	hostOllamaURL = "http://127.0.0.1:1"
-	err := EnsureHostOllama("qwen3.8:latest", noEnv, nil)
+	err := EnsureHostOllama("qwen3.8:latest", 0, noEnv, nil)
 	if err == nil || !strings.Contains(err.Error(), "ollama.com/download") {
 		t.Errorf("want an install pointer, got %v", err)
 	}
@@ -201,7 +212,7 @@ func TestEnsureHostOllamaPullsAMissingTag(t *testing.T) {
 	pulls := fakePullOllama(t, "muse-glimmer:30b-mlx", 19053621992, "")
 	stubAvailable(t, 40, true)
 	var out strings.Builder
-	if err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, ui.New(&out)); err != nil {
+	if err := EnsureHostOllama("muse-glimmer:30b-mlx", 0, noEnv, ui.New(&out)); err != nil {
 		t.Fatalf("a missing tag must be pulled, not refused: %v", err)
 	}
 	if *pulls != 1 || !strings.Contains(out.String(), "pulled muse-glimmer:30b-mlx") {
@@ -213,19 +224,20 @@ func TestEnsureHostOllamaPullsButWillNotLoadWhatCannotFit(t *testing.T) {
 	pulls := fakePullOllama(t, "muse-glimmer:30b-mlx", 19053621992, "")
 	stubAvailable(t, 12, true)
 	var out strings.Builder
-	err := EnsureHostOllama("muse-glimmer:30b-mlx", noEnv, ui.New(&out))
+	err := EnsureHostOllama("muse-glimmer:30b-mlx", 0, noEnv, ui.New(&out))
 	if *pulls != 1 || !strings.Contains(out.String(), "would not fit in memory right now") {
 		t.Errorf("memory is transient and the download is not: pull with a warning; pulls=%d out=%q", *pulls, out.String())
 	}
-	if err == nil || !strings.Contains(err.Error(), EnvLocalModelForce) {
-		t.Errorf("the load check must still refuse 19 GB with 12 GiB free, got %v", err)
+	var nofit *NoFitError
+	if !errors.As(err, &nofit) {
+		t.Errorf("the load check must still report 19 GB against 12 GiB free, got %v", err)
 	}
 }
 
 func TestEnsureHostOllamaReportsAFailedPull(t *testing.T) {
 	fakePullOllama(t, "nope:1", 1000, "pull model manifest: file does not exist")
 	stubAvailable(t, 40, true)
-	err := EnsureHostOllama("nope:1", noEnv, nil)
+	err := EnsureHostOllama("nope:1", 0, noEnv, nil)
 	if err == nil || !strings.Contains(err.Error(), "file does not exist") {
 		t.Errorf("want Ollama's own error, got %v", err)
 	}
@@ -245,5 +257,29 @@ func TestLibraryRefCoversOllamaNamesOnly(t *testing.T) {
 	}
 	if _, _, ok := libraryRef("hf.co/unsloth/Qwen3-GGUF:Q4_K_M"); ok {
 		t.Error("a Hugging Face ref has no Ollama registry manifest; its size must read as unknown")
+	}
+}
+
+func TestFittingHostModelsKeepsInstalledTagsThatFitInOrder(t *testing.T) {
+	fakeOllama(t, hostTags, `{"models":[]}`)
+	stubPool(t, 20, poolVRAM, true)
+	got := FittingHostModels([]string{"muse-glimmer:latest", "qwen3.8:27b-mlx", "qwen3.8:latest"}, 0, noEnv)
+	if want := []string{"qwen3.8:latest"}; !slices.Equal(got, want) {
+		t.Errorf("FittingHostModels = %v, want %v: glimmer is not installed, 27b-mlx needs ~21.5 GiB of 20", got, want)
+	}
+	stubPool(t, 30, poolUnified, true)
+	if got := FittingHostModels([]string{"qwen3.8:27b-mlx", "qwen3.8:latest"}, 0, noEnv); len(got) != 2 || got[0] != "qwen3.8:27b-mlx" {
+		t.Errorf("FittingHostModels = %v, want candidate order kept", got)
+	}
+}
+
+func TestAResidentModelFitsEveryCheck(t *testing.T) {
+	fakeOllama(t, hostTags, `{"models":[{"name":"qwen3.8:27b-mlx","size":21260000000}]}`)
+	stubPool(t, 10, poolUnified, true)
+	if err := LocalModelFits("qwen3.8:27b-mlx", 0, noEnv); err != nil {
+		t.Errorf("LocalModelFits(resident qwen3.8:27b-mlx) = %v; a loaded model costs no new memory", err)
+	}
+	if got := FittingHostModels([]string{"qwen3.8:27b-mlx", "qwen3.8:latest"}, 0, noEnv); !slices.Equal(got, []string{"qwen3.8:27b-mlx"}) {
+		t.Errorf("FittingHostModels = %v, want only the resident tag with 10 GiB free", got)
 	}
 }

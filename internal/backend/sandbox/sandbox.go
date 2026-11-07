@@ -1409,9 +1409,12 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		Publish: append(cdpPublish(in), portPublish(in)...),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
-		Env:     DeclineMCPGateway(in.MCPGateway, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts)),
+		Env:     DeclineMCPGateway(in.MCPGateway, durableAgentHome(in.Target, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts))),
 		HostEnv: src.BuildEnv(),
 		Command: command,
+	}
+	if opencodeTarget(in.Target) {
+		cfg.Env = append(cfg.Env, sbx.OpenCodeHistoryGateEnv)
 	}
 	if in.HomeAccess.FilesRoot != "" {
 		cfg.Env = append(cfg.Env, proveohome.ConfigFilesRootVar+"="+in.HomeAccess.FilesRoot)
@@ -1653,7 +1656,8 @@ func Run(in Input) error {
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
 	defer stopTrace()
-	filtered := ptyproxy.Usable(os.Stdin, os.Stdout) && agentio.FilterEnabled()
+	terminal := ptyproxy.Usable(os.Stdin, os.Stdout)
+	filtered := terminal && agentio.FilterEnabled()
 	var forceRemove atomic.Bool
 	runCtx, stopSignals, cancelRun, signalled := forwardStop()
 	defer stopSignals()
@@ -1662,7 +1666,7 @@ func Run(in Input) error {
 		c.Cancel = func() error { return c.Process.Signal(syscall.SIGTERM) }
 		c.WaitDelay = stopWait
 		c.Env = child.Apply(os.Environ())
-		if filtered || (traceIn != nil && ptyproxy.Usable(os.Stdin, os.Stdout)) {
+		if terminal {
 			px := ptyproxy.New(os.Stdin, os.Stdout)
 			px.DisableFilter = !filtered
 			px.DropReports = true
@@ -1699,7 +1703,7 @@ func Run(in Input) error {
 		return c.Run()
 	}
 	if in.Desktop {
-		run = func() error { return holdForDesktop(runCtx, cfg.Name, in.DesktopLaunch, SbxRun, startDetached) }
+		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch, imageEntrypoint(in)).run(runCtx) }
 	}
 	startedAt := time.Now()
 	runErr := run()

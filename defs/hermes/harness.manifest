@@ -31,3 +31,8 @@ capabilities:
   hostDevices: [desktop]
   # Hermes's own MCP client always takes sbx's gateway (proveo_wire_hermes_mcp_gateway).
   mcpGateway: always
+  # hermes refuses tool use under 64K (agent/model_metadata.py MINIMUM_CONTEXT_LENGTH).
+  # SPEC: _spec/internal/sbx/host-inference.puml (CONTEXT FLOOR)
+  localModel:
+    context: 65536
+    rateHint: "Hermes Desktop: right-click the status bar → Tokens per second"

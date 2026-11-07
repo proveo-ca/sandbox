@@ -672,6 +672,9 @@
     {
       "spec": "_spec/defs/opencode/engine-local-history.puml",
       "covers": [
+        "internal/envreg/envreg.go",
+        "internal/sbx/third_party/opencode.yaml",
+        "defs/opencode/README.md",
         "internal/sbx/opencode_history.go",
         "internal/sbx/opencode_history_test.go",
         "internal/backend/sandbox/opencode_engine.go",
@@ -1064,6 +1067,10 @@
     {
       "spec": "_spec/internal/ptyproxy/pty-ownership.puml",
       "covers": [
+        "defs/*/harness.manifest",
+        "e2e/close_confirm_live_test.go",
+        "internal/ptyproxy/ctrlc_keys.go",
+        "internal/ptyproxy/ctrlc_keys_test.go",
         "internal/ptyproxy/ptyproxy.go",
         "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/drain_test.go",

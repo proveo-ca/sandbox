@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
@@ -19,7 +21,40 @@ import (
 // TestHeadedCtrlCAsksBeforeRemoving drives a real proveo run on a tmux TTY and
 // asserts Ctrl+C opens the close confirm instead of deleting the session.
 func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
+	manifests, err := manifest.Load(filepath.Join(repoRoot(t), "defs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets, err := manifest.Targets(manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) == 0 {
+		t.Fatal("no runnable defs discovered")
+	}
+	names := make([]string, 0, len(targets))
+	for target := range targets {
+		names = append(names, target)
+	}
+	slices.Sort(names)
+	for _, target := range names {
+		t.Run(target, func(t *testing.T) {
+			for _, tc := range []struct{ name, filter, key string }{
+				{"raw", "on", "\x03"},
+				{"CSI-u_without_filter", "off", "\x1b[99;5u"},
+				{"modifyOtherKeys", "on", "\x1b[27;5;99~"},
+			} {
+				t.Run(tc.name, func(t *testing.T) { headedCtrlCAsksBeforeRemoving(t, target, tc.filter, tc.key) })
+			}
+		})
+	}
+}
+
+func headedCtrlCAsksBeforeRemoving(t *testing.T, target, filter, key string) {
 	requireTmux(t)
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 unavailable")
+	}
 	binDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(binDir, "sbx"), []byte(fakeSbx(sbx.MinVersion)), 0o755); err != nil {
 		t.Fatal(err)
@@ -30,9 +65,11 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	}
 	proveoBin := buildProveo(t)
 	home := t.TempDir()
+	calls := filepath.Join(t.TempDir(), "sbx-calls")
+	t.Setenv("PROVEO_CLOSE_TEST_LOG", calls)
 	work := t.TempDir()
-	const image = "proveo/close-confirm:e2e"
-	if out, err := exec.Command("docker", "tag", harnessImage(t, "claudecode"), image).CombinedOutput(); err != nil {
+	image := "proveo/close-confirm-" + target + ":e2e"
+	if out, err := exec.Command("docker", "tag", harnessImage(t, target), image).CombinedOutput(); err != nil {
 		t.Fatalf("docker tag %s: %v\n%s", image, err, out)
 	}
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", image).Run() })
@@ -43,10 +80,12 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 		"PROVEO_WIZARD=off",
+		"PROVEO_STDIN_FILTER="+filter,
+		"PROVEO_CLOSE_TEST_LOG="+calls,
 		"PROVEO_HOME="+home,
 		"PROVEO_MOUNT_GH_CONFIG=0",
 		"PATH="+os.Getenv("PATH"),
-		proveoBin, "run", "claudecode",
+		proveoBin, "run", target,
 		"--yes", "--clone=false",
 		"--credentials", "forward",
 		"--image", image, "--input", work,
@@ -58,7 +97,7 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the headed sbx client never attached:\n%s", screen)
 	}
-	if err := sess.SendKeys("C-c"); err != nil {
+	if err := sess.SendText(key); err != nil {
 		t.Fatal(err)
 	}
 	screen, err = sess.WaitFor("sbx rm --force will run.", 15*time.Second)
@@ -81,16 +120,33 @@ func TestHeadedCtrlCAsksBeforeRemoving(t *testing.T) {
 	if err := sess.SendKeys("n", "Enter"); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	var after string
+	if err := sess.SendText("A"); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err := sess.WaitFor("KEY:41", 10*time.Second); err != nil {
+		t.Fatalf("n did not restore input: %v\n%s", err, screen)
+	}
+	if b, _ := os.ReadFile(calls); strings.Contains(string(b), "rm --force") {
+		t.Fatal("sandbox removed before confirmation")
+	}
+	if err := sess.SendText(key); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err := sess.WaitFor("close this sandbox?", 5*time.Second); err != nil {
+		t.Fatalf("confirmation did not reopen: %v\n%s", err, screen)
+	}
+	if err := sess.SendKeys("y", "Enter"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		after, _ = sess.Capture()
-		if strings.Contains(after, "SBX_HEADED_READY") && !strings.Contains(after, "close this sandbox?") {
+		if b, _ := os.ReadFile(calls); strings.Contains(string(b), "rm --force") {
 			return
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("n did not return to the session:\n%s", after)
+	screen, _ = sess.Capture()
+	t.Fatalf("confirmed removal did not execute sbx rm --force:\n%s", screen)
 }
 
 // fakeSbx is an sbx that reports version, lists the test template, and holds a headed run.
@@ -99,6 +155,7 @@ func fakeSbx(version string) string {
 }
 
 const fakeSbxScript = `#!/bin/sh
+[ -z "${PROVEO_CLOSE_TEST_LOG:-}" ] || printf '%s\n' "$*" >> "$PROVEO_CLOSE_TEST_LOG"
 case "$1" in
   version)
     if [ "$2" = "--json" ]; then
@@ -108,9 +165,15 @@ case "$1" in
     fi
     ;;
   run)
-    printf '%s\n' 'SBX_HEADED_READY'
-    trap '' INT TERM
-    exec sleep 600
+    exec python3 -u -c '
+import sys, tty
+tty.setraw(sys.stdin.fileno())
+print("SBX_HEADED_READY", flush=True)
+while True:
+    b = sys.stdin.buffer.read(1)
+    if not b: break
+    print("KEY:%02x" % b[0], flush=True)
+'
     ;;
 esac
 exit 0

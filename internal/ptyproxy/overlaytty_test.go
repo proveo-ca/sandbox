@@ -5,6 +5,7 @@ package ptyproxy
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -272,5 +273,29 @@ func waitSignal(t *testing.T, ch <-chan struct{}, format string, args ...any) {
 	case <-ch:
 	case <-time.After(3 * time.Second):
 		t.Fatalf(format, args...)
+	}
+}
+
+func TestEncodedCtrlCOpensConfirm(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		for _, key := range []string{"\x03", "\x1b[99;5u", "\x1b[99;5:1u", "\x1b[27;5;99~"} {
+			t.Run(fmt.Sprintf("filterDisabled=%v/key=%q", disabled, key), func(t *testing.T) {
+				opened := make(chan struct{}, 1)
+				h := startEchoChild(t, func(p *Proxy) {
+					p.DisableFilter = disabled
+					p.HandleCtrlC(func(io.Reader, io.Writer) CtrlCAction { opened <- struct{}{}; return CtrlCStay }, nil)
+				})
+				for _, b := range []byte(key) {
+					h.typeBytes(t, b)
+					time.Sleep(time.Millisecond)
+				}
+				waitSignal(t, opened, "encoded Ctrl+C did not open confirmation")
+				h.typeBytes(t, 'A')
+				h.waitFor(t, seeLine('A'), "input did not resume after confirmation")
+				if strings.Contains(h.text(), seeLine(3)) || strings.Contains(h.text(), seeLine(0x1b)) {
+					t.Fatalf("interrupt reached child: %s", h.text())
+				}
+			})
+		}
 	}
 }
