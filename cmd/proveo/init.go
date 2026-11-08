@@ -96,6 +96,7 @@ func doInit(o initOptions) error {
 	}
 
 	var prev *initDecisions
+	viaPackage := false
 	setup := func(at choiceui.Step) (stepResult, error) {
 		d, err := decide(plan, host, installed, checks, o, prev, at)
 		if err != nil {
@@ -111,7 +112,8 @@ func doInit(o initOptions) error {
 			installed, why = installedVersion(plan)
 		}
 
-		applied := plan
+		viaPackage = d.Install == installPackaged || (d.Install == installSkip && viaPackage)
+		applied := appliedPlan(plan, viaPackage)
 		switch d.Install {
 		case installSkip:
 			ui.Section(ui.SectionStarting)
@@ -132,7 +134,6 @@ func doInit(o initOptions) error {
 			if err := installPackage(*plan.Packaged, download); err != nil {
 				return stepNext, err
 			}
-			applied.Bin, applied.Prefix = "", "" // the package manager owns placement, like the MSI
 		default:
 			ui.Section(ui.SectionStarting)
 			if installed != "" {
@@ -158,6 +159,14 @@ func doInit(o initOptions) error {
 		func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed) },
 		func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at) },
 	})
+}
+
+// appliedPlan is the plan setup acts on; a package manager owns placement, like the MSI.
+func appliedPlan(plan sbx.Plan, viaPackage bool) sbx.Plan {
+	if viaPackage {
+		plan.Bin, plan.Prefix = "", ""
+	}
+	return plan
 }
 
 // stepResult is how a screen of `proveo init` was left.

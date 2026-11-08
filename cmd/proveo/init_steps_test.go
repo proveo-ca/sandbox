@@ -92,7 +92,7 @@ func TestInitStepsIgnoreABackFromTheFirstScreenAndStopOnAnError(t *testing.T) {
 func TestARevisitOpensOnWhatIsLeft(t *testing.T) {
 	plan := sbx.Plan{Prefix: "/home/u/.docker/sbx"}
 	def := defaultDecisions(plan, "0.50.0", initOptions{})
-	prev := &initDecisions{Install: installTarball, Prefix: "/usr/local", AddPath: false,
+	prev := &initDecisions{Install: installTarball, Prefix: "/usr/local", AddPath: true,
 		Login: true, Wizard: true, Gh: true, Git: true, Baseline: sbx.BaselineDenyAll}
 	got := carried(def, prev)
 	if got.Install != installSkip || got.Prefix != plan.Prefix {
@@ -101,10 +101,24 @@ func TestARevisitOpensOnWhatIsLeft(t *testing.T) {
 	if got.Login || got.Wizard || got.Gh || got.Git || got.Baseline != "" {
 		t.Errorf("a revisit would re-run sbx login, the wizard, gh, git or the baseline: %+v", got)
 	}
-	if got.AddPath {
-		t.Error("the PATH answer was not kept")
+	if def.AddPath || !got.AddPath {
+		t.Errorf("the PATH answer was not kept (default %v, revisit %v)", def.AddPath, got.AddPath)
 	}
 	if carried(def, nil) != def {
 		t.Error("a first visit must open on the defaults")
+	}
+}
+
+// After a distro-package install, setup acts without the tarball's prefix whether it reinstalls or keeps.
+func TestTheAppliedPlanFollowsWhereSbxCameFrom(t *testing.T) {
+	plan := sbx.Plan{Prefix: "/home/u/.docker/sbx", Bin: "/home/u/.docker/sbx/bin/sbx"}
+	if got := appliedPlan(plan, true); got.Bin != "" || got.Prefix != "" {
+		t.Errorf("a package install acted on %q / %q; the package manager owns placement", got.Bin, got.Prefix)
+	}
+	if got := appliedPlan(plan, false); got.Bin != plan.Bin || got.Prefix != plan.Prefix {
+		t.Errorf("a tarball install acted on %q / %q, want the plan's own", got.Bin, got.Prefix)
+	}
+	if plan.Bin == "" {
+		t.Error("appliedPlan changed the plan a revisit still needs")
 	}
 }

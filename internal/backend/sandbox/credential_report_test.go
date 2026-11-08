@@ -150,6 +150,8 @@ func TestAnExpiredSbxLoginIsNamedWithItsService(t *testing.T) {
 		{"unreadable", "opencode", "not json", ""},
 		{"one odd expiry hides no other record", "opencode", `[{"id":"sbx-github-copilot","integrationID":"github-copilot","active":true,` +
 			`"value":{"access":"gho_x","expires":"soon"}},` + rec("sbx-openai", true, "oai-oat01-proxy-managed", past) + "]", "openai"},
+		{"quoted expiry", "opencode", `[{"id":"sbx-openai","integrationID":"openai","active":true,"value":{"access":"oai-oat01-proxy-managed","expires":"` +
+			fmt.Sprint(past) + `"}}]`, "openai"},
 		{"no integration id", "opencode", `[{"id":"sbx-openai","active":true,"value":{"access":"oai-oat01-proxy-managed","expires":` +
 			fmt.Sprint(past) + `}}]`, "openai"},
 	} {

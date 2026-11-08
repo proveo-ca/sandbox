@@ -252,8 +252,12 @@ func expiredSbxLogin(target, out string, now time.Time) (service string, at time
 	}
 	for _, r := range recs {
 		managed := strings.HasPrefix(r.ID, "sbx-") || strings.Contains(r.Value.Access, "proxy-managed")
-		var v int64
-		if !r.Active || !managed || json.Unmarshal(r.Value.Expires, &v) != nil || v <= 0 {
+		var n json.Number
+		if !r.Active || !managed || json.Unmarshal(r.Value.Expires, &n) != nil {
+			continue
+		}
+		v, err := n.Int64()
+		if err != nil || v <= 0 {
 			continue
 		}
 		if at := epochOf(v); at.Before(now) {

@@ -339,7 +339,7 @@ func TestSignInChoiceIsReadByPosition(t *testing.T) {
 	}
 }
 
-// A sign-in that exits 0 but leaves the store empty is a failure, and a failed run is not followed by a phantom warning.
+// A sign-in that exits 0 but leaves the store empty is a failure; a failed run still cleans up after itself.
 func TestApplySignInReadsTheStoreBack(t *testing.T) {
 	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}
 	ok := func([]string) error { return nil }
@@ -407,6 +407,14 @@ func TestAnswersSurviveAStepBack(t *testing.T) {
 	if signInChoice(again, sign) != signOut {
 		t.Errorf("the sign-in choice did not survive the step back: %q", signInChoice(again, sign))
 	}
+	// A key cleared after coming back is forgotten, not stored on the next enter.
+	again[key].Value = ""
+	keepAnswers(slots, again, typed)
+	third := credentialRows(slots)
+	restoreAnswers(slots, third, typed)
+	if third[key].Value != "" {
+		t.Errorf("a key the operator cleared came back as %q", third[key].Value)
+	}
 }
 
 // The screen opens on a field, so a pasted key never lands on a sign-in row's options.
@@ -424,8 +432,8 @@ func TestTheScreenOpensOnTheFirstField(t *testing.T) {
 			break
 		}
 	}
-	shared := []choiceui.Row{{Label: "cursor", Options: []string{notSignedIn}}, {Label: "cursor", Field: true}}
-	if got := firstField(shared); got != "" {
-		t.Errorf("firstField = %q for a label a sign-in row also carries; StartRow would land on the sign-in row", got)
+	shared := []choiceui.Row{{Label: "cursor", Options: []string{notSignedIn}}, {Label: "cursor", Field: true}, {Label: "groq", Field: true}}
+	if got := firstField(shared); got != "groq" {
+		t.Errorf("firstField = %q, want groq: StartRow matches the first row with a label, so cursor would land on the sign-in row", got)
 	}
 }

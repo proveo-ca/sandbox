@@ -309,8 +309,11 @@ func applySignIn(s credSlot, choice string, run func(argv []string) error, held 
 	err := run(append([]string{sbx.Binary}, argv...))
 	if sbx.SignInRuns(argv) {
 		rm := sbx.RemoveArgs(sbx.SignInSandbox)
-		if rmErr := run(append([]string{sbx.Binary}, rm...)); rmErr != nil && err == nil {
+		switch rmErr := run(append([]string{sbx.Binary}, rm...)); {
+		case rmErr != nil && err == nil:
 			ui.Warnf("%s: the sign-in sandbox stays (%v) — `%s %s`", s.Label, rmErr, sbx.Binary, strings.Join(rm, " "))
+		case rmErr != nil:
+			ui.Notef("%s: if a %s sandbox remains, `%s %s` removes it", s.Label, sbx.SignInSandbox, sbx.Binary, strings.Join(rm, " "))
 		}
 	}
 	if err != nil {
@@ -337,6 +340,8 @@ func keepAnswers(slots []credSlot, rows []choiceui.Row, typed map[string]string)
 			typed[slotKey(s)] = signInChoice(rows, i)
 		case rows[i].Value != "":
 			typed[slotKey(s)] = rows[i].Value
+		default:
+			delete(typed, slotKey(s))
 		}
 	}
 }
@@ -357,16 +362,15 @@ func restoreAnswers(slots []credSlot, rows []choiceui.Row, typed map[string]stri
 	}
 }
 
-// firstField is the label of the first row that takes typing; "" when none does or an earlier row shares it.
+// firstField is the label of the first field row no earlier row shares; "" when there is none.
 func firstField(rows []choiceui.Row) string {
 	for i, r := range rows {
 		if !r.Field {
 			continue
 		}
-		if slices.ContainsFunc(rows[:i], func(p choiceui.Row) bool { return p.Label == r.Label }) {
-			return ""
+		if !slices.ContainsFunc(rows[:i], func(p choiceui.Row) bool { return p.Label == r.Label }) {
+			return r.Label
 		}
-		return r.Label
 	}
 	return ""
 }
@@ -383,6 +387,10 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 	reportCredentials(slots)
 	reportStaleEntries(credentials.StaleStoreEntries(sbx.StoredServices(), sbx.CustomSecrets(), defNames(ms)))
 	if o.printOnly || len(slots) == 0 {
+		return stepNone, nil
+	}
+	if o.yes {
+		ui.Notef("--yes — nothing provisioned; run `proveo init` without it to provision credentials")
 		return stepNone, nil
 	}
 	if !interactiveTerminal() {
@@ -408,6 +416,7 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 	}
 	out, err := form.RunStep()
 	if err != nil || out == choiceui.Cancelled {
+		clear(typed)
 		return stepNext, err
 	}
 	if out == choiceui.Back {
@@ -417,7 +426,7 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 		return stepBack, nil
 	}
 	clear(typed)
-	held := func(service string) bool { return sbx.StoreEntries()[service].OAuth }
+	held := func(service string) bool { e := sbx.StoreEntries(); return e == nil || e[service].OAuth }
 	for i, s := range slots {
 		value := ""
 		if i < len(form.Rows) {
