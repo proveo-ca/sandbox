@@ -303,7 +303,7 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 		{cursor, "", nil},
 	} {
 		var ran []string
-		held := func(string) bool { return true }
+		held := func(string) (bool, bool) { return true, true }
 		err := applySignIn(tc.slot, tc.choice, func(argv []string) error {
 			line := strings.Join(argv, " ")
 			if i := strings.Index(line, " claude "); i >= 0 {
@@ -343,12 +343,15 @@ func TestSignInChoiceIsReadByPosition(t *testing.T) {
 func TestApplySignInReadsTheStoreBack(t *testing.T) {
 	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}
 	ok := func([]string) error { return nil }
-	if err := applySignIn(codex, signInNow, ok, func(string) bool { return false }); err == nil ||
+	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
 		!strings.Contains(err.Error(), "no OAuth login for openai") {
 		t.Errorf("an empty store after the sign-in reported %v", err)
 	}
-	if err := applySignIn(codex, signInNow, ok, func(string) bool { return true }); err != nil {
+	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
 		t.Errorf("a stored login reported %v", err)
+	}
+	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil {
+		t.Errorf("an unreadable listing is unconfirmed, not a failure: %v", err)
 	}
 	claude := credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"}
 	var ran []string
@@ -359,7 +362,7 @@ func TestApplySignInReadsTheStoreBack(t *testing.T) {
 			return boom
 		}
 		return errors.New("no such sandbox")
-	}, func(string) bool { return true })
+	}, func(string) (bool, bool) { return true, true })
 	if !errors.Is(err, boom) {
 		t.Errorf("the failed sign-in reported %v, want the run's error", err)
 	}

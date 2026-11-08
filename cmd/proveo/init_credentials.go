@@ -282,8 +282,8 @@ func signInHelp(s credSlot) string {
 	return out
 }
 
-// applySignIn runs the sbx command a sign-in row's choice asks for, then reads the store back.
-func applySignIn(s credSlot, choice string, run func(argv []string) error, held func(service string) bool) error {
+// applySignIn runs the sbx command a sign-in row's choice asks for, then reads the store back; known is false when it could not.
+func applySignIn(s credSlot, choice string, run func(argv []string) error, held func(service string) (held, known bool)) error {
 	switch choice {
 	case signOut:
 		ui.Appf("%s: signing out — `%s %s`", s.Label, sbx.Binary, strings.Join(sbx.SignOutArgs(s.Store), " "))
@@ -319,10 +319,14 @@ func applySignIn(s credSlot, choice string, run func(argv []string) error, held 
 	if err != nil {
 		return err
 	}
-	if !held(s.Store) {
+	switch ok, known := held(s.Store); {
+	case !known:
+		ui.Notef("%s: `%s secret ls` could not be read, so the login for %s is unconfirmed", s.Label, sbx.Binary, s.Store)
+	case !ok:
 		return fmt.Errorf("the sign-in ended, but sbx lists no OAuth login for %s", s.Store)
+	default:
+		ui.Storef("%s: sbx holds the login as %s (oauth configured)", s.Label, s.Store)
 	}
-	ui.Storef("%s: sbx holds the login as %s (oauth configured)", s.Label, s.Store)
 	return nil
 }
 
@@ -426,7 +430,7 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 		return stepBack, nil
 	}
 	clear(typed)
-	held := func(service string) bool { e := sbx.StoreEntries(); return e == nil || e[service].OAuth }
+	held := func(service string) (bool, bool) { e := sbx.StoreEntries(); return e[service].OAuth, e != nil }
 	for i, s := range slots {
 		value := ""
 		if i < len(form.Rows) {

@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
-' covers: cmd/proveo/init.go (doInit, runInitSteps, initStep, stepResult, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
+' covers: cmd/proveo/init.go (doInit, appliedPlan, runInitSteps, initStep, stepResult, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
 ' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, askDecisions, targetVersion, initRows, baselineRow)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
@@ -220,16 +220,21 @@ skinparam noteTextAlignment left
 '                as is", so enter never re-runs what already ran. --force is
 '                spent after the first apply (o.force = false), so a revisit
 '                does not reinstall.
-'                A packaged install never mutates `plan`: finish() and
-'                installedVersion() take a copy (`applied`) with Bin and Prefix
-'                cleared, so a revisit that picks the tarball still has the
-'                tarball plan's steps and prefix.
+'                `viaPackage` remembers where sbx came from: it is set by a
+'                distro-package install and kept by a later "keep what is
+'                installed". appliedPlan(plan, viaPackage) is the plan setup
+'                acts on, with Bin and Prefix cleared while viaPackage holds,
+'                because the package manager owns placement, like the MSI.
+'                The tarball plan itself is never mutated, so a revisit that
+'                picks the tarball still has its steps and prefix.
 '                prefixOptions(def, explicit) collapses to one option only for
 '                the --prefix FLAG, never for an earlier answer, so a revisit
 '                after picking /usr/local still offers the home prefix.
 '   credentials  _spec/cmd/proveo/init-credential-wireframe.puml. Typed keys
 '                and sign-in choices survive a step back and forward. Esc
 '                skips provisioning and moves on to the operator screen.
+'                --yes skips the form with a note and returns stepNone, as the
+'                operator screen does.
 '   operator     _spec/cmd/proveo/operator-name.puml. Esc ends init without
 '                changing the name.
 ' Esc on setup still errors "cancelled at the init prompt".
@@ -238,11 +243,18 @@ skinparam noteTextAlignment left
 ' init`, gh and git, and reinstalled under --force. A packaged install also
 ' cleared the shared plan's Bin and Prefix, so a revisit choosing the tarball
 ' lost its prefix, and the prefix row collapsed to the last answer.
+' SECOND PASS, 2026-11-08: the first fix cleared Bin and Prefix for the
+' package install only, so "keep what is installed" on a revisit after a
+' package install signed in, verified and wrote a PATH line for an older
+' home-prefix binary. Hence `viaPackage`.
 ' Pinned by cmd/proveo/init_steps_test.go: TestInitStepsWalkBackOneScreenAtATime,
 ' TestAStepBackPassesOverAScreenThatAsksNothing, TestAnUnpromptedInitNeverStepsBack,
 ' TestInitStepsIgnoreABackFromTheFirstScreenAndStopOnAnError,
-' TestARevisitOpensOnWhatIsLeft; cmd/proveo/init_tui_test.go
-' TestPrefixOptionsCollapseToAnExplicitChoice (the revisit case).
+' TestARevisitOpensOnWhatIsLeft (the PATH answer is kept, the one-shot actions
+' reopen on later), TestTheAppliedPlanFollowsWhereSbxCameFrom;
+' cmd/proveo/init_tui_test.go TestPrefixOptionsCollapseToAnExplicitChoice (the
+' revisit case). NO test pins `o.force = false` after the first apply: it is
+' inline in doInit's setup closure.
 ' The key line, Step and Outcome: _spec/internal/choiceui/wireframe.puml.
 '
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
