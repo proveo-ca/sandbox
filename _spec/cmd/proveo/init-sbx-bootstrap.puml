@@ -2,8 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
-' covers: cmd/proveo/init.go (doInit, runInitSteps, initStep, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
-' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, askDecisions, targetVersion, initRows, baselineRow)
+' covers: cmd/proveo/init.go (doInit, runInitSteps, initStep, stepResult, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
+' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, askDecisions, targetVersion, initRows, baselineRow)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
 ' covers: cmd/proveo/init_git.go (applyGitIdentity)
@@ -202,26 +202,47 @@ skinparam noteTextAlignment left
 ' TestInitNamesTheSbxThisHostKeeps.
 '
 ' ── THREE SCREENS, BACK ONE AT A TIME (DECISION 2026-11-08) ───────────────
-' The Executor chose "Back/next across screens". runInitSteps walks
-' [setup, credentials, operator] as page 1/3, 2/3, 3/3, handing each its
-' choiceui.Step. A Back (shift+tab, offered on screens 2 and 3 only) returns
-' exactly one screen; a Back reported by screen 1 is treated as done; an error
-' stops the walk.
+' The Executor chose "Back/next across screens". runInitSteps(prompted, steps)
+' walks [setup, credentials, operator]; prompted = !--yes && a terminal.
+'   prompted     each screen gets choiceui.Step{At, Of}: page 1/3, 2/3, 3/3,
+'                and shift+tab is offered on screens 2 and 3 only
+'   unprompted   --yes, or no TTY: every screen gets a zero Step, so no page
+'                label is drawn and no screen can step back
+' A screen returns a stepResult: stepNext | stepBack | stepNone (it had
+' nothing to ask). A stepBack returns one screen; on the way back a stepNone
+' screen is passed over, never stopped at; a back from screen 1 is ignored; an
+' error stops the walk. --print calls the credential and operator screens
+' directly with a zero Step.
 '   setup        askDecisions, then install and finish run on enter. A revisit
-'                re-asks with the earlier answers kept (carried), except
-'                install and prefix, which follow the host as it is NOW: after
-'                the first pass sbx is installed, so install offers "keep what
-'                is installed". Entering it again re-runs every action answered
-'                "now".
-'   credentials  _spec/cmd/proveo/init-credential-wireframe.puml. Esc skips
-'                provisioning and moves on, as before.
-'   operator     _spec/cmd/proveo/operator-name.puml.
-' Esc on setup still errors "cancelled at the init prompt". --print calls the
-' credential and operator screens directly with a zero Step (no page); a run
-' with no terminal walks the same steps and draws no form.
+'                opens on WHAT IS LEFT (carried): only the PATH answer is kept;
+'                install and prefix follow the host as it is now; sbx login,
+'                the wizard, gh, git and the baseline open on "later" / "leave
+'                as is", so enter never re-runs what already ran. --force is
+'                spent after the first apply (o.force = false), so a revisit
+'                does not reinstall.
+'                A packaged install never mutates `plan`: finish() and
+'                installedVersion() take a copy (`applied`) with Bin and Prefix
+'                cleared, so a revisit that picks the tarball still has the
+'                tarball plan's steps and prefix.
+'                prefixOptions(def, explicit) collapses to one option only for
+'                the --prefix FLAG, never for an earlier answer, so a revisit
+'                after picking /usr/local still offers the home prefix.
+'   credentials  _spec/cmd/proveo/init-credential-wireframe.puml. Typed keys
+'                and sign-in choices survive a step back and forward. Esc
+'                skips provisioning and moves on to the operator screen.
+'   operator     _spec/cmd/proveo/operator-name.puml. Esc ends init without
+'                changing the name.
+' Esc on setup still errors "cancelled at the init prompt".
+' ADVERSARIAL REVIEW [HIGH], 2026-11-08: the first stepper carried every
+' earlier answer, so each revisit re-ran `sbx login`, the wizard, `sbx policy
+' init`, gh and git, and reinstalled under --force. A packaged install also
+' cleared the shared plan's Bin and Prefix, so a revisit choosing the tarball
+' lost its prefix, and the prefix row collapsed to the last answer.
 ' Pinned by cmd/proveo/init_steps_test.go: TestInitStepsWalkBackOneScreenAtATime,
+' TestAStepBackPassesOverAScreenThatAsksNothing, TestAnUnpromptedInitNeverStepsBack,
 ' TestInitStepsIgnoreABackFromTheFirstScreenAndStopOnAnError,
-' TestARevisitKeepsAnswersButFollowsTheHostForTheInstall.
+' TestARevisitOpensOnWhatIsLeft; cmd/proveo/init_tui_test.go
+' TestPrefixOptionsCollapseToAnExplicitChoice (the revisit case).
 ' The key line, Step and Outcome: _spec/internal/choiceui/wireframe.puml.
 '
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
@@ -481,11 +502,19 @@ note bottom of PREFIX
 end note
 
 note right of STEPS
-  **Back returns one screen, never past the
-  first.** Setup applies its effects on enter,
-  so a revisit preserves the earlier answers
-  but re-derives install and prefix from the
-  host, which may already hold sbx.
+  **A step back returns exactly one screen,
+  passing over any screen that had nothing to
+  ask.** An unprompted init, under ""--yes"" or
+  without a terminal, numbers no screen and
+  offers no way back.
+end note
+
+note bottom of STEPS
+  **A revisit of setup opens on what is left.**
+  Its one-shot actions reopen on later and
+  ""--force"" is spent: the first version re-ran
+  sbx login, the wizard, gh and git on every
+  visit, and reinstalled under ""--force"".
 end note
 
 note bottom of DAEMON

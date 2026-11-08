@@ -46,9 +46,18 @@
 '   shift+tab back        only when Step.At > 1
 '   enter accept · esc cancel
 '   N more below          when the viewport hides rows (viewport.puml)
-' Wider than the screen, `pgup/pgdn scroll` is the first segment dropped, and
-' only then is the line clipped. The way out outranks the scroll keys: "enter
-' accept" is the e2e anchor (acceptChoicePrompt, _spec/tests/testing-strategy.puml).
+' Each segment carries a KEEP rank. Wider than the screen, the line drops the
+' lowest-ranked segment, again and again (a tie drops the leftmost), and only
+' when one segment is left does it clip. Display order never changes.
+'   1 pgup/pgdn scroll   2 space toggle   3 ↑↓ row, ←→ choose | ←→ move
+'   4 page n/m, N more below   5 esc cancel   6 shift+tab back
+'   9 enter accept — never dropped
+' "enter accept" is the e2e anchor (acceptChoicePrompt,
+' _spec/tests/testing-strategy.puml), so the way out outlives everything else.
+' ADVERSARIAL REVIEW, 2026-11-08: the first version dropped only the scroll
+' segment and then clipped, which cut "enter accept" at ≤61 columns on page 2/3.
+' Pinned by TestEnterAcceptSurvivesEveryWidthThatCanHoldIt (every width 12-160,
+' every step shape, multi rows).
 ' Form.Step{At, Of} places a form in a sequence; the zero value is a lone form.
 ' RunStep returns an Outcome, Accepted | Cancelled | Back, and Run keeps
 ' (bool, error) as RunStep == Accepted. leave() answers the keys that end a
@@ -59,7 +68,8 @@
 ' three: _spec/cmd/proveo/init-sbx-bootstrap.puml.
 ' Pinned by internal/choiceui/step_test.go: TestShiftTabStepsBackOnlyPastTheFirstScreen,
 ' TestHintNamesThePageTheWayBackAndTheScrollKeys,
-' TestANarrowHintDropsTheScrollKeysBeforeTheWayOut, TestTheDrawnFooterCarriesThePage.
+' TestANarrowHintDropsTheScrollKeysBeforeTheWayOut,
+' TestEnterAcceptSurvivesEveryWidthThatCanHoldIt, TestTheDrawnFooterCarriesThePage.
 
 ' ── THE DEVICES ROW PACKS; TUI AND DESKTOP ARE ONE RADIO (2026-10-24) ──────
 ' User: "has empty spaces for browser/android/ios, avoid that. Show chrome and
@@ -318,14 +328,17 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   page 1/3 · ↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel
   page 2/3 · ↑↓ row · ←→ choose · pgup/pgdn scroll · shift+tab back · enter accept · esc cancel
   page 2/3 · ↑↓ row · ←→ choose · shift+tab back · enter accept · esc cancel · 3 more below
+  shift+tab back · enter accept · esc cancel
   .
   A lone form (the zero Step) draws no page
   and no way back. shift+tab leaves as Back
   only past the first screen, so page 1
-  advertises none. When the line is wider
-  than the screen, the scroll keys drop
-  first and the rest is clipped: how to
-  leave outranks how to scroll.
+  advertises none. A narrow screen drops
+  whole segments by rank — scroll first,
+  then toggle, the row keys, the page, esc
+  and back — so at 50 columns page 2/3
+  keeps only the way out, and enter accept
+  is never dropped.
 }
 }
 }
