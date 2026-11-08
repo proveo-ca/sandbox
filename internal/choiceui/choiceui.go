@@ -728,31 +728,50 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 
 const hintScroll = "pgup/pgdn scroll"
 
-// hint is the key line; the scroll keys are the first segment a narrow screen drops.
+// hintPart is one key-line segment; a narrow screen drops the lowest keep first.
+type hintPart struct {
+	text string
+	keep int
+}
+
+// hint is the key line, narrowed segment by segment so "enter accept" goes last.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) hint(w, hidden int) string {
-	var parts []string
+	var parts []hintPart
 	if f.Step.Of > 1 {
-		parts = append(parts, fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of))
+		parts = append(parts, hintPart{fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
 	}
-	parts = append(parts, "↑↓ row", "←→ choose")
+	parts = append(parts, hintPart{"↑↓ row", 3})
 	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
-		parts[len(parts)-1] = "←→ move"
-		parts = append(parts, "space toggle")
+		parts = append(parts, hintPart{"←→ move", 3}, hintPart{"space toggle", 2})
+	} else {
+		parts = append(parts, hintPart{"←→ choose", 3})
 	}
-	parts = append(parts, hintScroll)
+	parts = append(parts, hintPart{hintScroll, 1})
 	if f.Step.backable() {
-		parts = append(parts, "shift+tab back")
+		parts = append(parts, hintPart{"shift+tab back", 6})
 	}
-	parts = append(parts, "enter accept", "esc cancel")
+	parts = append(parts, hintPart{"enter accept", 9}, hintPart{"esc cancel", 5})
 	if hidden > 0 {
-		parts = append(parts, fmt.Sprintf("%d more below", hidden))
+		parts = append(parts, hintPart{fmt.Sprintf("%d more below", hidden), 4})
 	}
-	line := strings.Join(parts, " · ")
-	if len([]rune(line)) > w {
-		line = strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == hintScroll }), " · ")
+	join := func() string {
+		texts := make([]string, len(parts))
+		for i, p := range parts {
+			texts[i] = p.text
+		}
+		return strings.Join(texts, " · ")
 	}
-	return clip(line, w)
+	for len([]rune(join())) > w && len(parts) > 1 {
+		low := 0
+		for i, p := range parts {
+			if p.keep < parts[low].keep {
+				low = i
+			}
+		}
+		parts = slices.Delete(parts, low, low+1)
+	}
+	return clip(join(), w)
 }
 
 func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {

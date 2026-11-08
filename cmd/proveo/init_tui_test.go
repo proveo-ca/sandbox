@@ -211,13 +211,17 @@ func TestDescribeDecisionsNamesEveryChoiceItMade(t *testing.T) {
 
 func TestPrefixOptionsCollapseToAnExplicitChoice(t *testing.T) {
 	t.Parallel()
-	if got := prefixOptions("/opt/somewhere"); len(got) != 1 || got[0] != "/opt/somewhere" {
+	if got := prefixOptions("/opt/somewhere", "/opt/somewhere"); len(got) != 1 || got[0] != "/opt/somewhere" {
 		t.Errorf("prefixOptions(--prefix) = %v, want only what was asked for", got)
 	}
 	def := sbx.DefaultPrefix(homeDir())
 	want := []string{prefixSystem, def}
-	if diff := cmp.Diff(want, prefixOptions(def)); diff != "" {
+	if diff := cmp.Diff(want, prefixOptions(def, "")); diff != "" {
 		t.Errorf("prefixOptions(default) mismatch (-want +got):\n%s", diff)
+	}
+	// A revisit after picking /usr/local still offers the home prefix.
+	if diff := cmp.Diff(want, prefixOptions(prefixSystem, "")); diff != "" {
+		t.Errorf("prefixOptions(revisit at /usr/local) mismatch (-want +got):\n%s", diff)
 	}
 }
 

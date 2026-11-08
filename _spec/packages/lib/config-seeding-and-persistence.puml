@@ -276,6 +276,19 @@ title APPLIED — one chain for LSPs, formatters and plugins;\nplugin-beyond-cla
 ' the cwd, and a workspace holding jobs/build/tmp turned the prune into that
 ' literal path (TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd).
 '
+' THE SYNC NEVER COPIES A SYMLINK, and a declared subtree can hold one
+' (2026-11-08). _proveo_config_plan lists source entries with `find -type f`
+' and `-type d` only, so a link is neither restored nor saved. codex 0.167.0
+' keeps its app-server daemon behind an ABSOLUTE link,
+' ~/.codex/packages/app-server-daemon/current → releases/<version>: the 392 MB
+' release tree crossed through ~/.proveo/.codex, `current` did not, and the
+' next sandbox reported "daemon executable not found". Copying links was
+' rejected (absolute and per-VM, 392 MB per save, and a change to the sync
+' every harness uses). codex declares packages, app-server-daemon and
+' app-server-control transient instead, so each sandbox installs its own
+' daemon (TestCodexDaemonStateNeverCrossesTheSandbox;
+' _spec/defs/codex/codex-topology.puml).
+'
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.
 '

@@ -2,8 +2,9 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
-' covers: cmd/proveo/init.go (doInit, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
-' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, askDecisions, targetVersion, initRows, baselineRow)
+' covers: cmd/proveo/init.go (doInit, runInitSteps, initStep, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
+' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, askDecisions, targetVersion, initRows, baselineRow)
+' covers: cmd/proveo/init_steps_test.go
 ' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
 ' covers: cmd/proveo/init_git.go (applyGitIdentity)
 ' covers: cmd/proveo/ghtoken.go (resolve — a run only lifts; login is init's)
@@ -200,6 +201,29 @@ skinparam noteTextAlignment left
 ' Pinned by TestInitAddsAPathLineOnlyForAPrefixHoldingSbx and
 ' TestInitNamesTheSbxThisHostKeeps.
 '
+' ── THREE SCREENS, BACK ONE AT A TIME (DECISION 2026-11-08) ───────────────
+' The Executor chose "Back/next across screens". runInitSteps walks
+' [setup, credentials, operator] as page 1/3, 2/3, 3/3, handing each its
+' choiceui.Step. A Back (shift+tab, offered on screens 2 and 3 only) returns
+' exactly one screen; a Back reported by screen 1 is treated as done; an error
+' stops the walk.
+'   setup        askDecisions, then install and finish run on enter. A revisit
+'                re-asks with the earlier answers kept (carried), except
+'                install and prefix, which follow the host as it is NOW: after
+'                the first pass sbx is installed, so install offers "keep what
+'                is installed". Entering it again re-runs every action answered
+'                "now".
+'   credentials  _spec/cmd/proveo/init-credential-wireframe.puml. Esc skips
+'                provisioning and moves on, as before.
+'   operator     _spec/cmd/proveo/operator-name.puml.
+' Esc on setup still errors "cancelled at the init prompt". --print calls the
+' credential and operator screens directly with a zero Step (no page); a run
+' with no terminal walks the same steps and draws no form.
+' Pinned by cmd/proveo/init_steps_test.go: TestInitStepsWalkBackOneScreenAtATime,
+' TestInitStepsIgnoreABackFromTheFirstScreenAndStopOnAnError,
+' TestARevisitKeepsAnswersButFollowsTheHostForTheInstall.
+' The key line, Step and Outcome: _spec/internal/choiceui/wireframe.puml.
+'
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
 ' Every platform lands the same layout — <prefix>/bin/sbx beside a
 ' <prefix>/libexec holding the kernel, the erofs rootfs and the shim. That is
@@ -360,9 +384,12 @@ component "a project .env of provider keys\nwhat init used to write" as ENV <<er
 
 component "install.sh\ncurl | bash — stdin is the SCRIPT" as CDN <<script>>
 component "choiceui prompt\nlocked rows still drawn" as ASK <<app>>
+component "runInitSteps\nsetup 1/3 · credentials 2/3 · operator 3/3" as STEPS <<app>>
 
 CDN ARROW_MAIN INIT : post-install, through /dev/tty or ""--yes""
 INIT ARROW_QUEUE ASK : when there is someone to ask
+INIT ARROW_MAIN STEPS : the three screens, in order
+STEPS ARROW_OPTIONAL ASK : shift+tab — back one screen
 OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · gh · git · baseline
 OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
 INIT ARROW_MAIN ASSET : download by exact tag
@@ -451,6 +478,14 @@ note bottom of PREFIX
   binary it just placed by ABSOLUTE PATH — calling
   ""sbx"" would miss, or drive the older one this run
   was replacing.
+end note
+
+note right of STEPS
+  **Back returns one screen, never past the
+  first.** Setup applies its effects on enter,
+  so a revisit preserves the earlier answers
+  but re-derives install and prefix from the
+  host, which may already hold sbx.
 end note
 
 note bottom of DAEMON

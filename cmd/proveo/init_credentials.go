@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ type credSlot struct {
 	Store   string   // the service id `sbx secret set` is given
 	Def     string   // the def this slot belongs to, for grouping
 	Held    bool     // the store answers for it
+	KeyHeld bool     // a sign-in slot whose service also holds an api key, which outranks the login
 	EnvVars []string // detect vars set on this host: the surface being retired
 }
 
@@ -118,7 +120,7 @@ func surveyCredentials(ms []manifest.Manifest, store map[string]sbx.StoreEntry, 
 			if svc := sbx.SubscriptionService(sbx.BuiltinAgent(credentials.HarnessFamily(m.Name))); svc != "" {
 				if !seen["sign-in "+svc] {
 					seen["sign-in "+svc] = true
-					out = append(out, credSlot{Label: m.Name, Kind: kindSignIn, Store: svc, Def: m.Name, Held: store[svc].OAuth})
+					out = append(out, credSlot{Label: m.Name, Kind: kindSignIn, Store: svc, Def: m.Name, Held: store[svc].OAuth, KeyHeld: store[svc].APIKey})
 				}
 			} else if svc := keyServiceOf(m); svc != "" && !seen[svc] {
 				seen[svc] = true
@@ -256,7 +258,7 @@ func signInRow(s credSlot) choiceui.Row {
 		return choiceui.Row{Label: s.Label, Options: []string{signedIn, signInAgain, signOut}, Help: map[string]string{
 			signedIn:    s.hint() + " — sbx lists it as present; that is not a check that it still refreshes",
 			signInAgain: signInHelp(s),
-			signOut:     "after enter: `" + sbx.Binary + " " + strings.Join(sbx.RemoveSecretArgs(s.Store), " ") + "` — removes the login and any api key stored as " + s.Store + ", for every sandbox",
+			signOut:     "after enter: `" + sbx.Binary + " " + strings.Join(sbx.SignOutArgs(s.Store), " ") + "` — sbx asks before it removes the login and any api key stored as " + s.Store + ", for every sandbox",
 		}}
 	}
 	return choiceui.Row{Label: s.Label, Options: []string{notSignedIn, signInNow}, Help: map[string]string{
@@ -267,91 +269,162 @@ func signInRow(s credSlot) choiceui.Row {
 
 func signInHelp(s credSlot) string {
 	argv := sbx.SignInArgs(s.Store, "<empty dir>")
+	out := "after enter: init names the step — " + sbx.SignIn(s.Store)
 	switch {
 	case sbx.SignInRuns(argv):
-		return "after enter: `" + sbx.Binary + " " + strings.Join(argv, " ") + "` — sbx keeps the login as " + s.Store + ", and init removes the sandbox"
+		out = "after enter: `" + sbx.Binary + " " + strings.Join(argv, " ") + "` — sbx keeps the login as " + s.Store + ", and init removes the sandbox"
 	case argv != nil:
-		return "after enter: `" + sbx.Binary + " " + strings.Join(argv, " ") + "` — a browser sign-in sbx keeps as " + s.Store
+		out = "after enter: `" + sbx.Binary + " " + strings.Join(argv, " ") + "` — a browser sign-in sbx keeps as " + s.Store
 	}
-	return "after enter: init names the step — " + sbx.SignIn(s.Store)
+	if s.KeyHeld {
+		out += "; the api key stored as " + s.Store + " still outranks it in every sandbox"
+	}
+	return out
 }
 
-// applySignIn runs the sbx command a sign-in row's choice asks for.
-func applySignIn(s credSlot, choice string, run func(argv []string) error) error {
+// applySignIn runs the sbx command a sign-in row's choice asks for, then reads the store back.
+func applySignIn(s credSlot, choice string, run func(argv []string) error, held func(service string) bool) error {
 	switch choice {
 	case signOut:
-		ui.Appf("%s: signing out — `%s %s`", s.Label, sbx.Binary, strings.Join(sbx.RemoveSecretArgs(s.Store), " "))
-		return run(append([]string{sbx.Binary}, sbx.RemoveSecretArgs(s.Store)...))
+		ui.Appf("%s: signing out — `%s %s`", s.Label, sbx.Binary, strings.Join(sbx.SignOutArgs(s.Store), " "))
+		return run(append([]string{sbx.Binary}, sbx.SignOutArgs(s.Store)...))
 	case signInAgain, signInNow:
 	default:
 		return nil
 	}
-	dir, err := os.MkdirTemp("", sbx.SignInSandbox+"-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	argv := sbx.SignInArgs(s.Store, dir)
-	if argv == nil {
+	if sbx.SignInArgs(s.Store, "<dir>") == nil {
 		ui.Notef("%s: sign in with %s — sbx keeps the login as %s", s.Label, sbx.SignIn(s.Store), s.Store)
 		return nil
 	}
+	dir := ""
+	if sbx.SignInRuns(sbx.SignInArgs(s.Store, "<dir>")) {
+		var err error
+		if dir, err = os.MkdirTemp("", sbx.SignInSandbox+"-"); err != nil {
+			return err
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+	}
+	argv := sbx.SignInArgs(s.Store, dir)
 	ui.Appf("%s: signing in — `%s %s`", s.Label, sbx.Binary, strings.Join(argv, " "))
-	err = run(append([]string{sbx.Binary}, argv...))
+	err := run(append([]string{sbx.Binary}, argv...))
 	if sbx.SignInRuns(argv) {
-		if rmErr := run(append([]string{sbx.Binary}, sbx.RemoveArgs(sbx.SignInSandbox)...)); rmErr != nil {
-			ui.Warnf("%s: the sign-in sandbox stays — `%s %s`", s.Label, sbx.Binary, strings.Join(sbx.RemoveArgs(sbx.SignInSandbox), " "))
+		rm := sbx.RemoveArgs(sbx.SignInSandbox)
+		if rmErr := run(append([]string{sbx.Binary}, rm...)); rmErr != nil && err == nil {
+			ui.Warnf("%s: the sign-in sandbox stays (%v) — `%s %s`", s.Label, rmErr, sbx.Binary, strings.Join(rm, " "))
 		}
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if !held(s.Store) {
+		return fmt.Errorf("the sign-in ended, but sbx lists no OAuth login for %s", s.Store)
+	}
+	ui.Storef("%s: sbx holds the login as %s (oauth configured)", s.Label, s.Store)
+	return nil
 }
 
-// credentialStage is `proveo init`'s credentials screen; back reports a step back.
-func credentialStage(o initOptions, at choiceui.Step) (back bool, err error) {
+// slotKey names a slot across visits of the credentials screen.
+func slotKey(s credSlot) string { return fmt.Sprintf("%d|%s|%s", s.Kind, s.Store, s.Label) }
+
+// keepAnswers records what a screen left behind on a step back; restoreAnswers puts it back.
+func keepAnswers(slots []credSlot, rows []choiceui.Row, typed map[string]string) {
+	for i, s := range slots {
+		if i >= len(rows) {
+			break
+		}
+		switch {
+		case s.Kind == kindSignIn:
+			typed[slotKey(s)] = signInChoice(rows, i)
+		case rows[i].Value != "":
+			typed[slotKey(s)] = rows[i].Value
+		}
+	}
+}
+
+func restoreAnswers(slots []credSlot, rows []choiceui.Row, typed map[string]string) {
+	for i, s := range slots {
+		v, ok := typed[slotKey(s)]
+		if !ok || i >= len(rows) {
+			continue
+		}
+		if s.Kind == kindSignIn {
+			if j := slices.Index(rows[i].Options, v); j >= 0 {
+				rows[i].Selected = j
+			}
+			continue
+		}
+		rows[i].Value = v
+	}
+}
+
+// firstField is the label of the first row that takes typing; "" when none does or an earlier row shares it.
+func firstField(rows []choiceui.Row) string {
+	for i, r := range rows {
+		if !r.Field {
+			continue
+		}
+		if slices.ContainsFunc(rows[:i], func(p choiceui.Row) bool { return p.Label == r.Label }) {
+			return ""
+		}
+		return r.Label
+	}
+	return ""
+}
+
+// credentialStage is `proveo init`'s credentials screen; typed carries its answers across a step back.
+func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (stepResult, error) {
 	// The embedded registry, not the defs/ tree: init runs on a freshly installed
 	// host where no repository exists.
 	ms, err := loadManifests()
 	if err != nil || len(ms) == 0 {
-		return false, nil // nothing to provision for; the install is still good
+		return stepNone, nil // nothing to provision for; the install is still good
 	}
 	slots := surveyCredentials(ms, sbx.StoreEntries(), os.Getenv)
 	reportCredentials(slots)
 	reportStaleEntries(credentials.StaleStoreEntries(sbx.StoredServices(), sbx.CustomSecrets(), defNames(ms)))
 	if o.printOnly || len(slots) == 0 {
-		return false, nil
+		return stepNone, nil
 	}
 	if !interactiveTerminal() {
 		ui.Notef("not a terminal — run `proveo init` from a shell to provision credentials")
-		return false, nil
+		return stepNone, nil
 	}
 
+	rows := credentialRows(slots)
+	restoreAnswers(slots, rows, typed)
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
-		Title:  "credentials — one field per credential, checked when sbx holds it",
+		Title:  "credentials — a field per key, a sign-in per subscription, checked when sbx holds it",
 		Header: []string{
 			"A stored secret is host-wide and outlives every run; the agent never holds it.",
 			"Without one an agent still launches and shows its own login — /login is the agent's, not proveo's.",
 			"Typing replaces what is stored. An empty field changes nothing. A sign-in row runs sbx's own sign-in after enter.",
 		},
-		Glyphs: posture.GlyphModeFrom(os.Getenv),
-		NoAxis: true,
-		Step:   at,
-		Rows:   credentialRows(slots),
+		Glyphs:   posture.GlyphModeFrom(os.Getenv),
+		NoAxis:   true,
+		Step:     at,
+		StartRow: firstField(rows),
+		Rows:     rows,
 	}
 	out, err := form.RunStep()
 	if err != nil || out == choiceui.Cancelled {
-		return false, err
+		return stepNext, err
 	}
 	if out == choiceui.Back {
-		return true, nil
+		if typed != nil {
+			keepAnswers(slots, form.Rows, typed)
+		}
+		return stepBack, nil
 	}
+	clear(typed)
+	held := func(service string) bool { return sbx.StoreEntries()[service].OAuth }
 	for i, s := range slots {
 		value := ""
 		if i < len(form.Rows) {
 			value = strings.TrimSpace(form.Rows[i].Value)
 		}
 		if s.Kind == kindSignIn {
-			if err := applySignIn(s, signInChoice(form.Rows, i), runArgv); err != nil {
+			if err := applySignIn(s, signInChoice(form.Rows, i), runArgv, held); err != nil {
 				ui.Warnf("%s: %v", s.Label, err)
 			}
 			continue
@@ -370,7 +443,7 @@ func credentialStage(o initOptions, at choiceui.Step) (back bool, err error) {
 			ui.Warnf("%s: %v", s.Label, err)
 		}
 	}
-	return false, nil
+	return stepNext, nil
 }
 
 // signInChoice is row i's selected option, read by position: a sign-in row and a usage key can share a label.

@@ -88,7 +88,7 @@ func doInit(o initOptions) error {
 	}
 	if o.printOnly {
 		printPlan(plan, installed)
-		if _, err := credentialStage(o, choiceui.Step{}); err != nil { // reports where each credential rests; provisions nothing
+		if _, err := credentialStage(o, choiceui.Step{}, nil); err != nil { // reports where each credential rests; provisions nothing
 			return err
 		}
 		_, err := operatorStage(o, choiceui.Step{})
@@ -96,21 +96,22 @@ func doInit(o initOptions) error {
 	}
 
 	var prev *initDecisions
-	setup := func(at choiceui.Step) (bool, error) {
+	setup := func(at choiceui.Step) (stepResult, error) {
 		d, err := decide(plan, host, installed, checks, o, prev, at)
 		if err != nil {
-			return false, err
+			return stepNext, err
 		}
 
 		// A prefix chosen at the prompt has to reach the plan, which was built
 		// around the default one.
 		if d.Prefix != plan.Prefix {
 			if plan, err = sbx.PlanFor(host, d.Prefix, download); err != nil {
-				return false, err
+				return stepNext, err
 			}
 			installed, why = installedVersion(plan)
 		}
 
+		applied := plan
 		switch d.Install {
 		case installSkip:
 			ui.Section(ui.SectionStarting)
@@ -124,14 +125,14 @@ func doInit(o initOptions) error {
 			}
 		case installPackaged:
 			if plan.Packaged == nil {
-				return false, fmt.Errorf("this release ships no distro package for %s", describeHost(host))
+				return stepNext, fmt.Errorf("this release ships no distro package for %s", describeHost(host))
 			}
 			ui.Section(ui.SectionStarting)
 			ui.Appf("installing the distro package — it will ask for your password")
 			if err := installPackage(*plan.Packaged, download); err != nil {
-				return false, err
+				return stepNext, err
 			}
-			plan.Bin, plan.Prefix = "", "" // the package manager owns placement, like the MSI
+			applied.Bin, applied.Prefix = "", "" // the package manager owns placement, like the MSI
 		default:
 			ui.Section(ui.SectionStarting)
 			if installed != "" {
@@ -140,40 +141,56 @@ func doInit(o initOptions) error {
 				ui.Appf("installing sbx: %s", why)
 			}
 			if err := install(plan, download); err != nil {
-				return false, err
+				return stepNext, err
 			}
 		}
 
-		if err := finish(resolveBin(plan), plan, d, host); err != nil {
-			return false, err
+		if err := finish(resolveBin(applied), applied, d, host); err != nil {
+			return stepNext, err
 		}
-		installed, why = installedVersion(plan)
-		prev = &d
-		return false, nil
+		installed, why = installedVersion(applied)
+		prev, o.force = &d, false
+		return stepNext, nil
 	}
-	return runInitSteps([]initStep{
+	typed := map[string]string{}
+	return runInitSteps(!o.yes && interactiveTerminal(), []initStep{
 		setup,
-		func(at choiceui.Step) (bool, error) { return credentialStage(o, at) },
-		func(at choiceui.Step) (bool, error) { return operatorStage(o, at) },
+		func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed) },
+		func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at) },
 	})
 }
 
-// initStep is one screen of `proveo init`; back reports that the operator stepped back.
-type initStep func(at choiceui.Step) (back bool, err error)
+// stepResult is how a screen of `proveo init` was left.
+type stepResult int
 
-// runInitSteps walks the screens in order and returns one screen on a step back.
+const (
+	stepNext stepResult = iota
+	stepBack
+	stepNone // the screen had nothing to ask
+)
+
+// initStep is one screen of `proveo init`.
+type initStep func(at choiceui.Step) (stepResult, error)
+
+// runInitSteps walks the screens in order; a step back passes over screens that ask nothing.
+// Unprompted, no screen is numbered and none can step back.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml
-func runInitSteps(steps []initStep) error {
+func runInitSteps(prompted bool, steps []initStep) error {
+	back := false
 	for i := 0; i < len(steps); {
-		back, err := steps[i](choiceui.Step{At: i + 1, Of: len(steps)})
+		at := choiceui.Step{}
+		if prompted {
+			at = choiceui.Step{At: i + 1, Of: len(steps)}
+		}
+		r, err := steps[i](at)
 		if err != nil {
 			return err
 		}
-		if back && i > 0 {
-			i--
+		if (r == stepBack || (r == stepNone && back)) && prompted && i > 0 {
+			i, back = i-1, true
 			continue
 		}
-		i++
+		i, back = i+1, false
 	}
 	return nil
 }

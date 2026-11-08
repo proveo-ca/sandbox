@@ -155,6 +155,9 @@ func SignInArgs(service, workspace string) []string {
 	return nil
 }
 
+// SignOutArgs removes service's global entry, OAuth login and api key alike; sbx asks first.
+func SignOutArgs(service string) []string { return []string{"secret", "rm", service} }
+
 // SignInRuns reports whether SignInArgs starts SignInSandbox, which the caller removes afterwards.
 func SignInRuns(argv []string) bool { return len(argv) > 0 && argv[0] == "run" }
 

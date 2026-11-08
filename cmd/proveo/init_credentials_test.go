@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -171,7 +172,7 @@ func TestEveryFieldIsMaskedAndGroupedByDef(t *testing.T) {
 	headings := 0
 	var keyHeading string
 	for _, r := range rows {
-		if !r.Field && len(r.Options) > 0 {
+		if len(r.Options) > 0 && (r.Options[0] == signedIn || r.Options[0] == notSignedIn) {
 			continue // a sign-in row: sbx's OAuth slot takes options, never typing (R4)
 		}
 		if !r.Field {
@@ -295,13 +296,14 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 	}{
 		{codex, signedIn, nil},
 		{codex, signInAgain, []string{"sbx secret set openai --oauth"}},
-		{codex, signOut, []string{"sbx secret rm openai -f"}},
+		{codex, signOut, []string{"sbx secret rm openai"}},
 		{claude, notSignedIn, nil},
 		{claude, signInNow, []string{"sbx run --name " + sbx.SignInSandbox + " claude <dir> -- auth login", "sbx rm --force " + sbx.SignInSandbox}},
 		{cursor, signInNow, nil},
 		{cursor, "", nil},
 	} {
 		var ran []string
+		held := func(string) bool { return true }
 		err := applySignIn(tc.slot, tc.choice, func(argv []string) error {
 			line := strings.Join(argv, " ")
 			if i := strings.Index(line, " claude "); i >= 0 {
@@ -311,7 +313,7 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 			}
 			ran = append(ran, line)
 			return nil
-		})
+		}, held)
 		if err != nil {
 			t.Errorf("%s %q: %v", tc.slot.Label, tc.choice, err)
 		}
@@ -334,5 +336,96 @@ func TestSignInChoiceIsReadByPosition(t *testing.T) {
 		if got := signInChoice(rows, i); got != "" {
 			t.Errorf("signInChoice(%d) = %q, want empty", i, got)
 		}
+	}
+}
+
+// A sign-in that exits 0 but leaves the store empty is a failure, and a failed run is not followed by a phantom warning.
+func TestApplySignInReadsTheStoreBack(t *testing.T) {
+	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}
+	ok := func([]string) error { return nil }
+	if err := applySignIn(codex, signInNow, ok, func(string) bool { return false }); err == nil ||
+		!strings.Contains(err.Error(), "no OAuth login for openai") {
+		t.Errorf("an empty store after the sign-in reported %v", err)
+	}
+	if err := applySignIn(codex, signInNow, ok, func(string) bool { return true }); err != nil {
+		t.Errorf("a stored login reported %v", err)
+	}
+	claude := credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"}
+	var ran []string
+	boom := errors.New("pull failed")
+	err := applySignIn(claude, signInNow, func(argv []string) error {
+		ran = append(ran, argv[1])
+		if argv[1] == "run" {
+			return boom
+		}
+		return errors.New("no such sandbox")
+	}, func(string) bool { return true })
+	if !errors.Is(err, boom) {
+		t.Errorf("the failed sign-in reported %v, want the run's error", err)
+	}
+	if strings.Join(ran, " ") != "run rm" {
+		t.Errorf("ran %v, want the sign-in then the cleanup", ran)
+	}
+}
+
+// R5: an api key on the same service outranks the login, and the row says so before enter.
+func TestSignInHelpNamesAKeyThatOutranksTheLogin(t *testing.T) {
+	slots := surveyCredentials(defs(t), map[string]sbx.StoreEntry{"openai": {OAuth: true, APIKey: true}}, envOf(nil))
+	r := signInRow(slotByKind(t, slots, "codex", kindSignIn))
+	if !strings.Contains(r.Help[signInAgain], "outranks") {
+		t.Errorf("sign in again help %q does not warn that the stored key outranks the login", r.Help[signInAgain])
+	}
+	if strings.Contains(r.Help[signOut], " -f") || !strings.Contains(r.Help[signOut], "asks") {
+		t.Errorf("sign out help %q must name sbx's own confirmation, not -f", r.Help[signOut])
+	}
+}
+
+// A step back and forward again keeps typed keys and sign-in choices.
+func TestAnswersSurviveAStepBack(t *testing.T) {
+	slots := surveyCredentials(defs(t), map[string]sbx.StoreEntry{"openai": {OAuth: true}}, envOf(nil))
+	rows := credentialRows(slots)
+	key, sign := -1, -1
+	for i, s := range slots {
+		switch {
+		case s.Kind == kindKey && key < 0:
+			key = i
+		case s.Kind == kindSignIn && s.Held && sign < 0:
+			sign = i
+		}
+	}
+	if key < 0 || sign < 0 {
+		t.Fatal("the survey has no key slot or no held sign-in slot")
+	}
+	rows[key].Value, rows[sign].Selected = "sk-typed", 2
+	typed := map[string]string{}
+	keepAnswers(slots, rows, typed)
+	again := credentialRows(slots)
+	restoreAnswers(slots, again, typed)
+	if again[key].Value != "sk-typed" {
+		t.Errorf("the typed key did not survive the step back: %q", again[key].Value)
+	}
+	if signInChoice(again, sign) != signOut {
+		t.Errorf("the sign-in choice did not survive the step back: %q", signInChoice(again, sign))
+	}
+}
+
+// The screen opens on a field, so a pasted key never lands on a sign-in row's options.
+func TestTheScreenOpensOnTheFirstField(t *testing.T) {
+	rows := credentialRows(surveyCredentials(defs(t), nil, envOf(nil)))
+	label := firstField(rows)
+	if label == "" {
+		t.Fatal("no field to open on")
+	}
+	for _, r := range rows {
+		if r.Label == label {
+			if !r.Field {
+				t.Errorf("%q opens on a sign-in row, not a field", label)
+			}
+			break
+		}
+	}
+	shared := []choiceui.Row{{Label: "cursor", Options: []string{notSignedIn}}, {Label: "cursor", Field: true}}
+	if got := firstField(shared); got != "" {
+		t.Errorf("firstField = %q for a label a sign-in row also carries; StartRow would land on the sign-in row", got)
 	}
 }

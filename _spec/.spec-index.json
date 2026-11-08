@@ -476,6 +476,7 @@
       "spec": "_spec/cmd/proveo/init-credential-wireframe.puml",
       "covers": [
         "cmd/proveo/init_credentials.go",
+        "cmd/proveo/init_credentials_test.go",
         "internal/choiceui/choiceui.go",
         "apps/cli/public/cli/install.sh"
       ],
@@ -493,6 +494,7 @@
         "apps/cli/public/cli/uninstall.sh",
         "cmd/proveo/init_test.go",
         "cmd/proveo/init_tui_test.go",
+        "cmd/proveo/init_steps_test.go",
         "internal/sbx/install_test.go",
         "e2e/init_test.go",
         "internal/installtest/install_test.go"
@@ -615,7 +617,8 @@
       "covers": [
         "defs/codex/**",
         "packages/lib/entrypoint-lib.sh",
-        "internal/contract/image_size_test.go"
+        "internal/contract/image_size_test.go",
+        "internal/contract/config_set_test.go"
       ],
       "fingerprint": null
     },
@@ -890,7 +893,8 @@
         "internal/choiceui/choiceui.go",
         "internal/choiceui/gated_reason_test.go",
         "internal/run/choices.go",
-        "internal/run/model_row.go"
+        "internal/run/model_row.go",
+        "internal/choiceui/step_test.go"
       ],
       "fingerprint": null
     },
@@ -1212,9 +1216,11 @@
         "internal/run/choices.go",
         "internal/run/choices_test.go",
         "cmd/proveo/init_credentials.go",
+        "cmd/proveo/init_credentials_test.go",
         "e2e/ladder_test.go",
         "internal/sbx/bindings.go",
         "internal/sbx/bindings_test.go",
+        "internal/sbx/sbx_test.go",
         "internal/backend/sandbox/credential_report.go",
         "internal/backend/sandbox/credential_report_test.go",
         "internal/backend/sandbox/opencode_engine.go",

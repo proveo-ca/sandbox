@@ -86,6 +86,20 @@ func TestANarrowHintDropsTheScrollKeysBeforeTheWayOut(t *testing.T) {
 	}
 }
 
+// e2e waits on "enter accept"; no width that can hold it may lose it.
+func TestEnterAcceptSurvivesEveryWidthThatCanHoldIt(t *testing.T) {
+	t.Parallel()
+	multi := stepForm(2, 3)
+	multi.Rows = append(multi.Rows, Row{Label: "m", Options: []string{"x"}, Multi: true})
+	for _, f := range []*Form{stepForm(2, 3), stepForm(1, 3), stepForm(0, 0), multi} {
+		for w := len("enter accept"); w <= 160; w++ {
+			if hint := f.hint(w, 7); !strings.Contains(hint, "enter accept") {
+				t.Fatalf("step %+v width %d: %q lost \"enter accept\"", f.Step, w, hint)
+			}
+		}
+	}
+}
+
 func TestTheDrawnFooterCarriesThePage(t *testing.T) {
 	t.Parallel()
 	if out := joined(t, stepForm(2, 3)); !strings.Contains(out, "page 2/3") || !strings.Contains(out, "enter accept") {

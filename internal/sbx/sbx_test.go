@@ -791,6 +791,9 @@ func TestSignInArgsAreSbxsOwnFlows(t *testing.T) {
 			t.Errorf("SignInRuns(%v) = %v, want %v", got, !tc.runs, tc.runs)
 		}
 	}
+	if got := strings.Join(SignOutArgs("openai"), " "); got != "secret rm openai" {
+		t.Errorf("SignOutArgs = %q; without -f sbx asks before it removes a login every sandbox shares", got)
+	}
 }
 
 func TestBoundedCombinedIsBoundedToo(t *testing.T) {

@@ -243,8 +243,8 @@ func expiredSbxLogin(target, out string, now time.Time) (service string, at time
 		IntegrationID string `json:"integrationID"`
 		Active        bool   `json:"active"`
 		Value         struct {
-			Access  string      `json:"access"`
-			Expires json.Number `json:"expires"`
+			Access  string          `json:"access"`
+			Expires json.RawMessage `json:"expires"`
 		} `json:"value"`
 	}
 	if json.Unmarshal([]byte(strings.TrimSpace(out)), &recs) != nil {
@@ -252,12 +252,12 @@ func expiredSbxLogin(target, out string, now time.Time) (service string, at time
 	}
 	for _, r := range recs {
 		managed := strings.HasPrefix(r.ID, "sbx-") || strings.Contains(r.Value.Access, "proxy-managed")
-		v, err := r.Value.Expires.Int64()
-		if !r.Active || !managed || err != nil || v <= 0 {
+		var v int64
+		if !r.Active || !managed || json.Unmarshal(r.Value.Expires, &v) != nil || v <= 0 {
 			continue
 		}
 		if at := epochOf(v); at.Before(now) {
-			return r.IntegrationID, at
+			return cmp.Or(r.IntegrationID, strings.TrimPrefix(r.ID, "sbx-")), at
 		}
 	}
 	return "", time.Time{}

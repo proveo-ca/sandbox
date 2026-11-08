@@ -47,11 +47,11 @@ const (
 // prefixOptions are the two the release's own installer documents. /usr/local
 // is leftmost (the system-wide choice); the home prefix stays the default
 // (Selected). An explicit --prefix is the only option there is.
-func prefixOptions(def string) []string {
-	if def != sbx.DefaultPrefix(homeDir()) {
+func prefixOptions(def, explicit string) []string {
+	if strings.TrimSpace(explicit) != "" {
 		return []string{def}
 	}
-	return []string{prefixSystem, def}
+	return []string{prefixSystem, sbx.DefaultPrefix(homeDir())}
 }
 
 func homeDir() string {
@@ -79,13 +79,14 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 	return d
 }
 
-// carried keeps a revisit's earlier answers; install and prefix follow the host as it is now.
+// carried opens a revisit on what is left: the host as it is now, PATH as answered, every one-shot action later.
 func carried(def initDecisions, prev *initDecisions) initDecisions {
 	if prev == nil {
 		return def
 	}
-	out := *prev
-	out.Install, out.Prefix = def.Install, def.Prefix
+	out := def
+	out.AddPath = prev.AddPath
+	out.Login, out.Wizard, out.Gh, out.Git, out.Baseline = false, false, false, false, ""
 	return out
 }
 
@@ -175,15 +176,13 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 	// Where it lands. Only meaningful for the prefix-based plans; the MSI owns
 	// its own location and there is nothing to choose.
 	if plan.Prefix != "" {
-		popts := prefixOptions(def.Prefix)
-		home := sbx.DefaultPrefix(homeDir())
+		popts := prefixOptions(def.Prefix, o.prefix)
 		help := map[string]string{
 			prefixSystem: "system-wide, and the install step will need to be run as root — " +
 				"choose the home prefix unless you know you want this",
+			sbx.DefaultPrefix(homeDir()): "per-user, no root — the safer default, and the release installer's own",
 		}
-		if def.Prefix == home {
-			help[home] = "per-user, no root — the safer default, and the release installer's own"
-		} else {
+		if strings.TrimSpace(o.prefix) != "" {
 			help[def.Prefix] = "the prefix --prefix asked for"
 		}
 		rows = append(rows, choiceui.Row{

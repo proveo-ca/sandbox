@@ -4,6 +4,7 @@
 ' covers: internal/choiceui/choiceui.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/run/choices.go
 ' covers: internal/run/model_row.go
+' covers: internal/choiceui/step_test.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows, comingSoon, gateAddons and gateEvidence have already executed.
@@ -33,6 +34,32 @@
 '   every frame ....... _spec/internal/choiceui/topology-states.puml
 '   still unbuilt ..... _spec/internal/choiceui/figure-fidelities.puml (the side pane)
 ' This file stays the resolved layout of one screenful, at a size that holds it.
+
+' ── THE KEY LINE, AND A FORM THAT IS ONE SCREEN OF SEVERAL (2026-11-08) ────
+' The Executor chose "Back/next across screens". Form.hint composes the key line
+' from segments, in this order, joined with " · ":
+'   page n/m              only when Step.Of > 1
+'   ↑↓ row
+'   ←→ choose | ←→ move   move, plus "space toggle", when any row is Multi
+'   pgup/pgdn scroll      PgUp/PgDn/Home/End already moved the cursor; the
+'                         line never said so
+'   shift+tab back        only when Step.At > 1
+'   enter accept · esc cancel
+'   N more below          when the viewport hides rows (viewport.puml)
+' Wider than the screen, `pgup/pgdn scroll` is the first segment dropped, and
+' only then is the line clipped. The way out outranks the scroll keys: "enter
+' accept" is the e2e anchor (acceptChoicePrompt, _spec/tests/testing-strategy.puml).
+' Form.Step{At, Of} places a form in a sequence; the zero value is a lone form.
+' RunStep returns an Outcome, Accepted | Cancelled | Back, and Run keeps
+' (bool, error) as RunStep == Accepted. leave() answers the keys that end a
+' form: esc and ctrl+c → Cancelled, enter → Accepted, shift+tab (tcell
+' KeyBacktab) → Back only when At > 1; on the first screen shift+tab does
+' nothing. `q` is not in leave(): a field takes it as typing first.
+' `proveo run` is one form, so only its footer changed. `proveo init` walks
+' three: _spec/cmd/proveo/init-sbx-bootstrap.puml.
+' Pinned by internal/choiceui/step_test.go: TestShiftTabStepsBackOnlyPastTheFirstScreen,
+' TestHintNamesThePageTheWayBackAndTheScrollKeys,
+' TestANarrowHintDropsTheScrollKeysBeforeTheWayOut, TestTheDrawnFooterCarriesThePage.
 
 ' ── THE DEVICES ROW PACKS; TUI AND DESKTOP ARE ONE RADIO (2026-10-24) ──────
 ' User: "has empty spaces for browser/android/ios, avoid that. Show chrome and
@@ -127,7 +154,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     outputs | ( ) filtered | (X) verbose | . | .
   }
   --
-  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel
+  ↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel
   ..
   always on: Mount the current git project in a sandbox for the agent
 }
@@ -188,7 +215,7 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
 }
 {^"7 · described — the cursor's option explains itself, BELOW the hint"
   devices | [X] <color:#9a9a9a>tui</color> | [X] browser | [ ] android | [ ] ios
-  ↑↓ row · ↔ move · space toggle · enter accept · esc cancel | . | . | .
+  ↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel | . | . | .
   <color:#00BAC6>› ios — an iOS Simulator on this host — coming soon</color> | . | . | .
   <color:#9a9a9a>off: coming soon — not built yet</color> | . | . | .
   .
@@ -286,6 +313,19 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   (its --endpoint picks a Cursor backend; open feature request
   forum.cursor.com/t/cursor-cli-custom-endpoint-and-api-key-support/129424).
   SPEC: _spec/defs/hermes/hermes-paradigm.puml
+}
+{^"10 · one screen of several — page n/m and the way back"
+  page 1/3 · ↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel
+  page 2/3 · ↑↓ row · ←→ choose · pgup/pgdn scroll · shift+tab back · enter accept · esc cancel
+  page 2/3 · ↑↓ row · ←→ choose · shift+tab back · enter accept · esc cancel · 3 more below
+  .
+  A lone form (the zero Step) draws no page
+  and no way back. shift+tab leaves as Back
+  only past the first screen, so page 1
+  advertises none. When the line is wider
+  than the screen, the scroll keys drop
+  first and the rest is clipped: how to
+  leave outranks how to scroll.
 }
 }
 }
