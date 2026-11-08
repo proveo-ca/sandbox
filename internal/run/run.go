@@ -557,6 +557,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		}
 		desktopLaunch = launch
 	}
+	applyAutoLocalModel(rs, p)
 	rs.Model.HostLLM = p.LocalModel != ""
 
 	ui.Section(ui.SectionEgress)
@@ -602,12 +603,19 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	if browserOn && !p.PrintOnly {
 		cdpPort = sandbox.FreeLoopbackPort()
 	}
+	servedModel := p.LocalModel
 	if rs.Model.HostLLM {
+		lm := rs.Man.Capabilities.LocalModel
+		servedModel = sbx.ContextTag(p.LocalModel, lm.Context)
 		if !p.PrintOnly {
-			if err := sbx.EnsureHostOllama(p.LocalModel, os.Getenv, ui.Default); err != nil {
+			notes := localModelNotes(lm, p.Target, servedModel)
+			if err := admitOversizedModel(sbx.EnsureHostOllama(p.LocalModel, lm.Context, os.Getenv, ui.Default), notes); err != nil {
 				return fmt.Errorf("local model %s: %w", p.LocalModel, err)
 			}
-			ui.Appf("local model: %s on the host's Ollama (host GPU)", p.LocalModel)
+			if _, err := sbx.EnsureContextTag(p.LocalModel, lm.Context); err != nil {
+				return fmt.Errorf("local model %s: serve the %d-token context %s needs: %w", p.LocalModel, lm.Context, p.Target, err)
+			}
+			ui.Appf("local model: %s on the host's Ollama (host GPU)", servedModel)
 		}
 	}
 	var agentEnv []string
@@ -623,7 +631,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	agentEnv = append(agentEnv, adbEnv...)
 	agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
 	if rs.Model.HostLLM {
-		agentEnv = append(agentEnv, sbx.LocalModelEnv(p.LocalModel)...)
+		agentEnv = append(agentEnv, sbx.LocalModelEnv(servedModel)...)
 		agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
 	}
 	homeAccess, err := sandbox.PrepareHomeAccess(

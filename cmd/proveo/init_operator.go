@@ -39,8 +39,8 @@ func applyOperatorAnswer(root, current, typed string) (string, error) {
 	return operator.Save(root, typed)
 }
 
-// operatorStage is `proveo init`'s last stage: the name agents address the operator by.
-func operatorStage(o initOptions) error {
+// operatorStage is `proveo init`'s last screen: the name agents address the operator by.
+func operatorStage(o initOptions, at choiceui.Step) (stepResult, error) {
 	root := proveohome.Root(os.Getenv)
 	current, err := operator.Load(root)
 	if err != nil {
@@ -53,7 +53,7 @@ func operatorStage(o initOptions) error {
 			name = operator.Default
 		}
 		ui.Notef("agents address you as %q — run `proveo init` from a shell to change it", name)
-		return nil
+		return stepNone, nil
 	}
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
@@ -61,16 +61,20 @@ func operatorStage(o initOptions) error {
 		Header: []string{"House rules tell every agent how to address you, in every sandbox this host runs."},
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
 		NoAxis: true,
+		Step:   at,
 		Rows:   []choiceui.Row{operatorRow(current)},
 	}
-	ok, err := form.Run()
-	if err != nil || !ok {
-		return err
+	out, err := form.RunStep()
+	if err != nil || out == choiceui.Cancelled {
+		return stepNext, err
+	}
+	if out == choiceui.Back {
+		return stepBack, nil
 	}
 	name, err := applyOperatorAnswer(root, current, form.FieldValue("name"))
 	if err != nil {
-		return err
+		return stepNext, err
 	}
 	ui.Okf("agents will address you as %q", name)
-	return nil
+	return stepNext, nil
 }

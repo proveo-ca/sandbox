@@ -31,6 +31,10 @@
 ' Lanes are drawn with '-' and '=' because the diagram font has no box-drawing
 ' set — which makes these sheets a literal picture of the PROVEO_GLYPHS=ascii
 ' tier rather than an approximation of it.
+' The key lines in these frames are as drawn when each fidelity was measured.
+' Since 2026-11-08 Form.hint also carries `pgup/pgdn scroll` (the first segment
+' a narrow screen drops), and a form in a sequence adds `page n/m` and
+' `shift+tab back`: _spec/internal/choiceui/wireframe.puml.
 title The four fidelities of one figure, and how each was measured
 
 {

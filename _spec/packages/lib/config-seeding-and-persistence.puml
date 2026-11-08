@@ -12,6 +12,7 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/contract/tool_home_test.go, internal/contract/tool_sync_test.go
 ' covers: internal/contract/config_set_test.go, internal/contract/config_sync_test.go
+' covers: e2e/codex_daemon_sync_test.go
 ' covers: internal/contract/config_files_test.go
 ' covers: internal/contract/formatter_class_test.go
 ' covers: internal/contract/lsp_wiring_retirement_test.go, internal/contract/retirement_test.go
@@ -282,6 +283,21 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 ' `read -a`, never an unquoted expansion: bash would glob jobs/*/tmp against
 ' the cwd, and a workspace holding jobs/build/tmp turned the prune into that
 ' literal path (TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd).
+'
+' THE SYNC NEVER COPIES A SYMLINK, and a declared subtree can hold one
+' (2026-11-08). _proveo_config_plan lists source entries with `find -type f`
+' and `-type d` only, so a link is neither restored nor saved. codex 0.167.0
+' keeps its app-server daemon behind an ABSOLUTE link,
+' ~/.codex/packages/app-server-daemon/current → releases/<version>: the 392 MB
+' release tree crossed through ~/.proveo/.codex, `current` did not, and the
+' next sandbox reported "daemon executable not found". Copying links was
+' rejected (absolute and per-VM, 392 MB per save, and a change to the sync
+' every harness uses). codex declares packages, app-server-daemon and
+' app-server-control transient instead, so each sandbox installs its own
+' daemon (TestCodexDaemonStateNeverCrossesTheSandbox;
+' _spec/defs/codex/codex-topology.puml). e2e/codex_daemon_sync_test.go runs a
+' real codex through this sync and reproduces the report when transient is
+' cleared.
 '
 ' ── THE SPLIT THE FIX HAS TO RESPECT ──────────────────────────────────────
 ' Two different problems wearing one word. Relocating both is wrong.

@@ -247,9 +247,26 @@ end note
 class "Capabilities\ncapabilities:" as CAP <<app>> {
   credentials []string
   providers []string
+  localModel LocalModel
+}
+
+class "LocalModel\ncapabilities.localModel:" as LM <<app>> {
+  context int
+  rateHint string
 }
 
 M *-- CAP
+CAP *-- LM
+
+note bottom of LM
+  What the harness needs from a host Ollama model (2026-10-30).
+  ""context"": the minimum num_ctx; 0 keeps Ollama's default window.
+  Validate: a non-negative multiple of 1024 (the derived tag names it
+  ""-ctx<N>k""). hermes declares 65536: it refuses tool use under
+  MINIMUM_CONTEXT_LENGTH 64,000. ""rateHint"": where the operator reads
+  the live tokens/s, shown with the fit prompt.
+  SPEC: _spec/internal/sbx/host-inference.puml (CONTEXT FLOOR)
+end note
 
 note bottom of CAP
   **The per-def choice matrix** — the only source of truth for which

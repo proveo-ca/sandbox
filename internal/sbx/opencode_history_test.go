@@ -297,3 +297,69 @@ func TestOpenCodeHistoryArgsTargetTheEngine(t *testing.T) {
 		t.Errorf("OpenCodeExportArgs = %q", exp)
 	}
 }
+
+func TestOpenCodeCredentialHookWaitsForHistory(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq unavailable")
+	}
+	k := upstreamKit(t, "opencode", UpstreamOptions{})
+	var script string
+	for _, hook := range hooksOf(k) {
+		if hook["description"] == "Import sandbox OAuth credentials into OpenCode v2" {
+			args := hook["command"].([]any)
+			script = args[2].(string)
+			env := hook["env"].([]any)
+			found := false
+			for _, name := range env {
+				if name == "PROVEO_OPENCODE_HISTORY_IMPORT" {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("hook cannot receive its history gate")
+			}
+		}
+	}
+	if script == "" {
+		t.Fatal("credential hook not found")
+	}
+	home, bin := t.TempDir(), t.TempDir()
+	calls := filepath.Join(home, "calls")
+	native := "#!/bin/sh\nprintf 'called\\n' >> \"$CALLS\"\nprintf '[]\\n'\n"
+	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(native), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(gated bool) {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", script)
+		gate := "0"
+		if gated {
+			gate = "1"
+		}
+		cmd.Env = append(engineEnv(home), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+calls, "GH_TOKEN=", "PROVEO_OPENCODE_HISTORY_IMPORT="+gate)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("credential startup: %v: %s", err, out)
+		}
+	}
+	run(true)
+	if _, err := os.Stat(calls); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("credential startup opened the database before import")
+	}
+	if _, stderr, code := runScript(t, home, t.TempDir(), OpenCodeHistoryReadyScript, nil); code != 0 {
+		t.Fatalf("history readiness: %d %s", code, stderr)
+	}
+	run(true)
+	if b, err := os.ReadFile(calls); err != nil || string(b) != "called\n" {
+		t.Fatalf("ready credentials did not synchronize: %q %v", b, err)
+	}
+	if err := os.Remove(calls); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, ".local/share/opencode/.proveo-history-ready")); err != nil {
+		t.Fatal(err)
+	}
+	run(false)
+	if _, err := os.Stat(calls); err != nil {
+		t.Fatal("ungated kit no longer synchronizes credentials")
+	}
+}

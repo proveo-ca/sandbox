@@ -145,6 +145,9 @@ The display does not delay instruction release.
 ## Engine-local history
 
 OpenCode keeps its session history in the sbx engine, at its native default `~/.local/share/opencode/opencode.db`.
+A new engine defers credential synchronization until history import finishes.
+Proveo then marks history ready and stops the engine; the next boot synchronizes credentials before launching OpenCode.
+A skipped or failed import preserves the host history source and stops the launch.
 proveo sets neither `OPENCODE_DB` nor `XDG_DATA_HOME` for an agent launch.
 The database survives reattach and `sbx stop`.
 `sbx rm` removes it with the engine.

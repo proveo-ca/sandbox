@@ -34,7 +34,9 @@ Muse Glimmer 30B. Each local option is a `--local-model` value for this host —
 "… GGUF" elsewhere (`qwen3.8:latest`, `muse-glimmer:latest`). On sbx the model runs on **your host's
 Ollama** and hermes reaches it at `host.docker.internal:11434`. A tag you have not pulled is pulled for you
 before launch, with progress (`PROVEO_LOCAL_MODEL_PULL=0` turns that off). proveo refuses when Ollama is
-not running, or the model would not fit in free memory (`PROVEO_LOCAL_MODEL_FORCE=1` overrides). The baked-model images (`hermes-muse-glimmer`,
+not running. When the model is larger than free memory (VRAM on a discrete GPU, unified memory on Apple
+silicon, RAM otherwise), proveo warns and asks y/N; a scheduled or tty-less run warns and proceeds
+(`PROVEO_LOCAL_MODEL_FORCE=1` skips the question). The baked-model images (`hermes-muse-glimmer`,
 `hermes-qwen3.8`) are retired. See `_spec/internal/sbx/host-inference.puml`.
 
 ## Host Chrome (logged-in sites)

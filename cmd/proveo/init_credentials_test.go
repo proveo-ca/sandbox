@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -110,8 +112,8 @@ func TestInitWritesServiceIDsAndSignsSubscriptionsInThroughSbx(t *testing.T) {
 	}
 	rows := credentialRows(slots)
 	for i, s := range slots {
-		if s.Kind == kindSignIn && (rows[i].Field || !rows[i].Locked) {
-			t.Errorf("%s's sign-in row takes typing; sbx's OAuth slot has no import path (R4)", s.Label)
+		if s.Kind == kindSignIn && (rows[i].Field || rows[i].Locked) {
+			t.Errorf("%s's sign-in row takes typing or is locked; sbx's OAuth slot has no import path, and the row runs sbx's own sign-in (R4)", s.Label)
 		}
 	}
 }
@@ -170,8 +172,8 @@ func TestEveryFieldIsMaskedAndGroupedByDef(t *testing.T) {
 	headings := 0
 	var keyHeading string
 	for _, r := range rows {
-		if r.Locked {
-			continue // a sign-in row: sbx's OAuth slot takes no typing (R4)
+		if len(r.Options) > 0 && (r.Options[0] == signedIn || r.Options[0] == notSignedIn) {
+			continue // a sign-in row: sbx's OAuth slot takes options, never typing (R4)
 		}
 		if !r.Field {
 			t.Fatalf("%q is not a field — every credential takes typing, not an option", r.Label)
@@ -253,5 +255,188 @@ func TestRowsAndSlotsStayOneToOne(t *testing.T) {
 		if rows[i].Label != slots[i].Label {
 			t.Fatalf("row %d is %q but slot %d is %q", i, rows[i].Label, i, slots[i].Label)
 		}
+	}
+}
+
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
+func TestSignInRowsOfferSbxsOwnSignInAndSignOut(t *testing.T) {
+	slots := surveyCredentials(defs(t), map[string]sbx.StoreEntry{"openai": {OAuth: true}}, envOf(nil))
+	for _, tc := range []struct {
+		def  string
+		want []string
+	}{
+		{"codex", []string{signedIn, signInAgain, signOut}},
+		{"claudecode", []string{notSignedIn, signInNow}},
+		{"cursor", []string{notSignedIn, signInNow}},
+	} {
+		r := signInRow(slotByKind(t, slots, tc.def, kindSignIn))
+		if strings.Join(r.Options, "|") != strings.Join(tc.want, "|") {
+			t.Errorf("%s offers %v, want %v", tc.def, r.Options, tc.want)
+		}
+		if r.Selected != 0 || r.Locked || r.Field {
+			t.Errorf("%s: selected=%d locked=%v field=%v — the row opens on the choice that changes nothing", tc.def, r.Selected, r.Locked, r.Field)
+		}
+		for _, opt := range r.Options {
+			if r.Help[opt] == "" {
+				t.Errorf("%s: %q has no help line naming what enter runs", tc.def, opt)
+			}
+		}
+	}
+}
+
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
+func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
+	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai", Held: true}
+	claude := credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"}
+	cursor := credSlot{Label: "cursor", Kind: kindSignIn, Store: "cursor"}
+	for _, tc := range []struct {
+		slot   credSlot
+		choice string
+		want   []string
+	}{
+		{codex, signedIn, nil},
+		{codex, signInAgain, []string{"sbx secret set openai --oauth"}},
+		{codex, signOut, []string{"sbx secret rm openai"}},
+		{claude, notSignedIn, nil},
+		{claude, signInNow, []string{"sbx run --name " + sbx.SignInSandbox + " claude <dir> -- auth login", "sbx rm --force " + sbx.SignInSandbox}},
+		{cursor, signInNow, nil},
+		{cursor, "", nil},
+	} {
+		var ran []string
+		held := func(string) (bool, bool) { return true, true }
+		err := applySignIn(tc.slot, tc.choice, func(argv []string) error {
+			line := strings.Join(argv, " ")
+			if i := strings.Index(line, " claude "); i >= 0 {
+				if j := strings.Index(line, " -- "); j > i {
+					line = line[:i] + " claude <dir>" + line[j:]
+				}
+			}
+			ran = append(ran, line)
+			return nil
+		}, held)
+		if err != nil {
+			t.Errorf("%s %q: %v", tc.slot.Label, tc.choice, err)
+		}
+		if strings.Join(ran, "\n") != strings.Join(tc.want, "\n") {
+			t.Errorf("%s %q ran %q, want %q", tc.slot.Label, tc.choice, ran, tc.want)
+		}
+	}
+}
+
+// The sign-in row for cursor and the usage key for cursor share a label.
+func TestSignInChoiceIsReadByPosition(t *testing.T) {
+	rows := []choiceui.Row{
+		{Label: "cursor", Options: []string{notSignedIn, signInNow}, Selected: 1},
+		{Label: "cursor", Field: true, Value: "k"},
+	}
+	if got := signInChoice(rows, 0); got != signInNow {
+		t.Errorf("signInChoice(0) = %q, want %q", got, signInNow)
+	}
+	for _, i := range []int{1, 2} {
+		if got := signInChoice(rows, i); got != "" {
+			t.Errorf("signInChoice(%d) = %q, want empty", i, got)
+		}
+	}
+}
+
+// A sign-in that exits 0 but leaves the store empty is a failure; a failed run still cleans up after itself.
+func TestApplySignInReadsTheStoreBack(t *testing.T) {
+	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}
+	ok := func([]string) error { return nil }
+	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
+		!strings.Contains(err.Error(), "no OAuth login for openai") {
+		t.Errorf("an empty store after the sign-in reported %v", err)
+	}
+	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
+		t.Errorf("a stored login reported %v", err)
+	}
+	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil {
+		t.Errorf("an unreadable listing is unconfirmed, not a failure: %v", err)
+	}
+	claude := credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"}
+	var ran []string
+	boom := errors.New("pull failed")
+	err := applySignIn(claude, signInNow, func(argv []string) error {
+		ran = append(ran, argv[1])
+		if argv[1] == "run" {
+			return boom
+		}
+		return errors.New("no such sandbox")
+	}, func(string) (bool, bool) { return true, true })
+	if !errors.Is(err, boom) {
+		t.Errorf("the failed sign-in reported %v, want the run's error", err)
+	}
+	if strings.Join(ran, " ") != "run rm" {
+		t.Errorf("ran %v, want the sign-in then the cleanup", ran)
+	}
+}
+
+// R5: an api key on the same service outranks the login, and the row says so before enter.
+func TestSignInHelpNamesAKeyThatOutranksTheLogin(t *testing.T) {
+	slots := surveyCredentials(defs(t), map[string]sbx.StoreEntry{"openai": {OAuth: true, APIKey: true}}, envOf(nil))
+	r := signInRow(slotByKind(t, slots, "codex", kindSignIn))
+	if !strings.Contains(r.Help[signInAgain], "outranks") {
+		t.Errorf("sign in again help %q does not warn that the stored key outranks the login", r.Help[signInAgain])
+	}
+	if strings.Contains(r.Help[signOut], " -f") || !strings.Contains(r.Help[signOut], "asks") {
+		t.Errorf("sign out help %q must name sbx's own confirmation, not -f", r.Help[signOut])
+	}
+}
+
+// A step back and forward again keeps typed keys and sign-in choices.
+func TestAnswersSurviveAStepBack(t *testing.T) {
+	slots := surveyCredentials(defs(t), map[string]sbx.StoreEntry{"openai": {OAuth: true}}, envOf(nil))
+	rows := credentialRows(slots)
+	key, sign := -1, -1
+	for i, s := range slots {
+		switch {
+		case s.Kind == kindKey && key < 0:
+			key = i
+		case s.Kind == kindSignIn && s.Held && sign < 0:
+			sign = i
+		}
+	}
+	if key < 0 || sign < 0 {
+		t.Fatal("the survey has no key slot or no held sign-in slot")
+	}
+	rows[key].Value, rows[sign].Selected = "sk-typed", 2
+	typed := map[string]string{}
+	keepAnswers(slots, rows, typed)
+	again := credentialRows(slots)
+	restoreAnswers(slots, again, typed)
+	if again[key].Value != "sk-typed" {
+		t.Errorf("the typed key did not survive the step back: %q", again[key].Value)
+	}
+	if signInChoice(again, sign) != signOut {
+		t.Errorf("the sign-in choice did not survive the step back: %q", signInChoice(again, sign))
+	}
+	// A key cleared after coming back is forgotten, not stored on the next enter.
+	again[key].Value = ""
+	keepAnswers(slots, again, typed)
+	third := credentialRows(slots)
+	restoreAnswers(slots, third, typed)
+	if third[key].Value != "" {
+		t.Errorf("a key the operator cleared came back as %q", third[key].Value)
+	}
+}
+
+// The screen opens on a field, so a pasted key never lands on a sign-in row's options.
+func TestTheScreenOpensOnTheFirstField(t *testing.T) {
+	rows := credentialRows(surveyCredentials(defs(t), nil, envOf(nil)))
+	label := firstField(rows)
+	if label == "" {
+		t.Fatal("no field to open on")
+	}
+	for _, r := range rows {
+		if r.Label == label {
+			if !r.Field {
+				t.Errorf("%q opens on a sign-in row, not a field", label)
+			}
+			break
+		}
+	}
+	shared := []choiceui.Row{{Label: "cursor", Options: []string{notSignedIn}}, {Label: "cursor", Field: true}, {Label: "groq", Field: true}}
+	if got := firstField(shared); got != "groq" {
+		t.Errorf("firstField = %q, want groq: StartRow matches the first row with a label, so cursor would land on the sign-in row", got)
 	}
 }

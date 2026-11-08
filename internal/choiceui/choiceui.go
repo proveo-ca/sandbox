@@ -229,8 +229,24 @@ type Form struct {
 	NoAxis      bool
 	StartRow    string // row label the cursor opens on; empty means first selectable
 	StartOption string // option the cursor opens on within StartRow
+	Step        Step   // place in a sequence of screens; the zero value is a lone form
 	scroll      int
 }
+
+// Step is screen At of Of; shift+tab leaves a screen past the first as Back.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+type Step struct{ At, Of int }
+
+func (s Step) backable() bool { return s.At > 1 }
+
+// Outcome is how the operator left a form.
+type Outcome int
+
+const (
+	Cancelled Outcome = iota
+	Accepted
+	Back
+)
 
 func Banner() []string {
 	return append(strings.Split(ui.BrandBanner, "\n"), "  "+ui.BrandTagline)
@@ -273,13 +289,19 @@ func (f *Form) Selection(label string) string {
 }
 
 func (f *Form) Run() (confirmed bool, err error) {
+	out, err := f.RunStep()
+	return out == Accepted, err
+}
+
+// RunStep is Run that also reports a step back.
+func (f *Form) RunStep() (Outcome, error) {
 	preferUTF8Locale()
 	screen, err := tcell.NewScreen()
 	if err != nil {
-		return false, fmt.Errorf("choice prompt: %w", err)
+		return Cancelled, fmt.Errorf("choice prompt: %w", err)
 	}
 	if err := screen.Init(); err != nil {
-		return false, fmt.Errorf("choice prompt: %w", err)
+		return Cancelled, fmt.Errorf("choice prompt: %w", err)
 	}
 	registerGlyphFallbacks(screen)
 	defer screen.Fini()
@@ -293,16 +315,12 @@ func (f *Form) Run() (confirmed bool, err error) {
 		case *tcell.EventResize:
 			screen.Sync()
 		case *tcell.EventKey:
+			if out, done := f.leave(ev); done {
+				return out, nil
+			}
 			if !f.navigable(screen) {
-				switch ev.Key() {
-				case tcell.KeyEscape, tcell.KeyCtrlC:
-					return false, nil
-				case tcell.KeyEnter:
-					return true, nil
-				case tcell.KeyRune:
-					if ev.Rune() == 'q' {
-						return false, nil
-					}
+				if ev.Key() == tcell.KeyRune && ev.Rune() == 'q' {
+					return Cancelled, nil
 				}
 				continue
 			}
@@ -313,10 +331,6 @@ func (f *Form) Run() (confirmed bool, err error) {
 				continue
 			}
 			switch ev.Key() {
-			case tcell.KeyEscape, tcell.KeyCtrlC:
-				return false, nil
-			case tcell.KeyEnter:
-				return true, nil
 			case tcell.KeyTab:
 				f.toggle(cursor)
 			case tcell.KeyUp:
@@ -352,11 +366,26 @@ func (f *Form) Run() (confirmed bool, err error) {
 						f.cycle(cursor, +1)
 					}
 				case 'q':
-					return false, nil
+					return Cancelled, nil
 				}
 			}
 		}
 	}
+}
+
+// leave answers the keys that end a form; shift+tab only past the first screen.
+func (f *Form) leave(ev *tcell.EventKey) (Outcome, bool) {
+	switch ev.Key() {
+	case tcell.KeyEscape, tcell.KeyCtrlC:
+		return Cancelled, true
+	case tcell.KeyEnter:
+		return Accepted, true
+	case tcell.KeyBacktab:
+		if f.Step.backable() {
+			return Back, true
+		}
+	}
+	return Cancelled, false
 }
 
 // typing routes a keystroke into a field row, and answers true when the key
@@ -664,18 +693,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 
 	c.y = bodyTop + lay.body + 1
 
-	hint := "↑↓ row · ←→ choose · enter accept · esc cancel"
-	for _, r := range f.Rows {
-		if r.Multi {
-			hint = "↑↓ row · ←→ move · space toggle · enter accept · esc cancel"
-			break
-		}
-	}
-	hint = clip(hint, w)
-	if n := g.hiddenRows(lines); n > 0 {
-		hint = clip(hint+fmt.Sprintf(" · %d more below", n), w)
-	}
-	c.put(0, p.body, hint)
+	c.put(0, p.body, f.hint(w, g.hiddenRows(lines)))
 	c.y++
 
 	if lay.helpSlot > 0 {
@@ -706,6 +724,54 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 		}
 	}
 	s.Show()
+}
+
+const hintScroll = "pgup/pgdn scroll"
+
+// hintPart is one key-line segment; a narrow screen drops the lowest keep first.
+type hintPart struct {
+	text string
+	keep int
+}
+
+// hint is the key line, narrowed segment by segment so "enter accept" goes last.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func (f *Form) hint(w, hidden int) string {
+	var parts []hintPart
+	if f.Step.Of > 1 {
+		parts = append(parts, hintPart{fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
+	}
+	parts = append(parts, hintPart{"↑↓ row", 3})
+	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
+		parts = append(parts, hintPart{"←→ move", 3}, hintPart{"space toggle", 2})
+	} else {
+		parts = append(parts, hintPart{"←→ choose", 3})
+	}
+	parts = append(parts, hintPart{hintScroll, 1})
+	if f.Step.backable() {
+		parts = append(parts, hintPart{"shift+tab back", 6})
+	}
+	parts = append(parts, hintPart{"enter accept", 9}, hintPart{"esc cancel", 5})
+	if hidden > 0 {
+		parts = append(parts, hintPart{fmt.Sprintf("%d more below", hidden), 4})
+	}
+	join := func() string {
+		texts := make([]string, len(parts))
+		for i, p := range parts {
+			texts[i] = p.text
+		}
+		return strings.Join(texts, " · ")
+	}
+	for len([]rune(join())) > w && len(parts) > 1 {
+		low := 0
+		for i, p := range parts {
+			if p.keep < parts[low].keep {
+				low = i
+			}
+		}
+		parts = slices.Delete(parts, low, low+1)
+	}
+	return clip(join(), w)
 }
 
 func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {

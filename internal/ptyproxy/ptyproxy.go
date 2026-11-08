@@ -6,7 +6,6 @@
 package ptyproxy
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -249,6 +248,8 @@ func (p *Proxy) pumpInFrom(r io.Reader) {
 				out := chunk
 				if !p.DisableFilter && p.filter != nil {
 					out, held = p.filter.split(chunk)
+				} else if p.ctrlC != nil {
+					out, held = holdKeySequence(chunk)
 				}
 				forward := len(out) > 0
 				if p.Tap != nil {
@@ -436,7 +437,7 @@ func (p *Proxy) deliverLocked(out []byte) bool {
 		return true
 	}
 	if armed {
-		if i := bytes.IndexByte(out, 0x03); i >= 0 {
+		if i, end := interruptKey(out); i >= 0 {
 			if i > 0 && !p.writeMaster(out[:i]) {
 				return false
 			}
@@ -447,7 +448,7 @@ func (p *Proxy) deliverLocked(out []byte) bool {
 				p.ctrlCPass = true
 				p.mu.Unlock()
 			}
-			if rest := out[i+1:]; len(rest) > 0 {
+			if rest := out[end:]; len(rest) > 0 {
 				return p.deliverLocked(rest)
 			}
 			return true

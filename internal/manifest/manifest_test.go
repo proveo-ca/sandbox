@@ -4,6 +4,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -444,5 +445,29 @@ func TestMCPGatewayAcceptsAlwaysOrNothing(t *testing.T) {
 		if err := m.Validate(); (err == nil) != c.ok {
 			t.Errorf("mcpGateway %q: err = %v, want ok %v", c.v, err, c.ok)
 		}
+	}
+}
+
+func TestLocalModelContextIsAWholeKiBMultiple(t *testing.T) {
+	m := Manifest{Name: "x", Images: map[string]string{"x": "proveo/x"}}
+	for ctx, ok := range map[int]bool{0: true, 65536: true, 65537: false, -1024: false} {
+		m.Capabilities.LocalModel.Context = ctx
+		if err := m.Validate(); (err == nil) != ok {
+			t.Errorf("context %d: Validate = %v, want ok=%v", ctx, err, ok)
+		}
+	}
+}
+
+func TestHermesDeclaresTheContextItRefusesToolUseWithout(t *testing.T) {
+	ms, err := Load(filepath.Join("..", "..", "defs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(ms, func(m Manifest) bool { return m.Name == "hermes" })
+	if i < 0 {
+		t.Fatal("no hermes manifest under defs/")
+	}
+	if c := ms[i].Capabilities.LocalModel.Context; c < 64000 {
+		t.Errorf("hermes localModel.context = %d; hermes's MINIMUM_CONTEXT_LENGTH is 64,000", c)
 	}
 }

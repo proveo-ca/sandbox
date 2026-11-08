@@ -2,6 +2,9 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: OpenCode keeps its own SQLite history inside the retained sbx engine; proveo imports it once into a new engine and carries it across a replacement
+' covers: internal/envreg/envreg.go
+' covers: internal/sbx/third_party/opencode.yaml
+' covers: defs/opencode/README.md
 ' covers: internal/sbx/opencode_history.go
 ' covers: internal/sbx/opencode_history_test.go
 ' covers: internal/backend/sandbox/opencode_engine.go
@@ -86,8 +89,10 @@ skinparam noteTextAlignment left
 ' Run calls it for opencode and opencode-browser (opencodeTarget), and again in
 ' the template-reload retry; its `created` result is what sets in.CloneKnown.
 '   0. An existing engine → sbx.Reattach, no create, no import.
-'   1. `sbx create` (createOpenCodeEngine), not `sbx run`: the import must
-'      finish before the agent's first open, and `sbx run` starts the agent.
+'   1. `sbx create` sets PROVEO_OPENCODE_HISTORY_IMPORT=1. The credential
+'      startup hook skips its database-opening commands until the engine
+'      contains .proveo-history-ready beside the native database. The other
+'      startup hooks still run; auth.json may be seeded without opening SQLite.
 '   2. openCodeImportSource: the FIRST REGULAR FILE (os.Lstat; a symlink is
 '      skipped) of, under the proveo home:
 '        opencode/carry/<engine>.db         (the D1 carry)
@@ -106,7 +111,7 @@ skinparam noteTextAlignment left
 '      it was copied; close the OpenCode that writes it". It never sends -shm,
 '      never writes the source, and names no path inside the engine.
 '   4. The script: exit 3 at once if the engine already has a database
-'      (accepted as done; it reads no stdin); else `mkdtemp` a private dir it
+'      (a failed import; it reads no stdin); else `mkdtemp` a private dir it
 '      owns and extract only the three known member names into it. No commit
 '      member, a cut stream or an unknown member → exit 5
 '      (OpenCodeImportIncomplete), nothing installed. Then `PRAGMA
@@ -114,15 +119,26 @@ skinparam noteTextAlignment left
 '      WAL through SQLite's backup API into a temp file BESIDE the target,
 '      chmod 0600, `link()` it into place — never over an existing file — and
 '      remove the private dir on every path. Exit 0 = imported.
-'   5. A consumed carry file is deleted ("OpenCode: carried history (<size>)
+'   5. After import, or when no host source exists, the host creates
+'      .proveo-history-ready beside the database and stops the new engine.
+'      Its next boot runs credential synchronization before the agent starts.
+'      A marker or stop failure removes the new engine and preserves the source.
+'   6. A consumed carry file is deleted ("OpenCode: carried history (<size>)
 '      into new engine <name>"); a share source prints "OpenCode: imported <src>
 '      (<size>) into new engine <name> once; the host copy stays unchanged".
 '      The host V2 share is NEVER edited.
-'   6. Run reattaches with `sbx run --name <engine>`.
-' D5: any other failure (change, exec, incomplete stream, corrupt) `sbx rm`s
+'   7. Run reattaches with `sbx run --name <engine>`.
+' D5: any failure (existing target, change, exec, incomplete, corrupt) `sbx rm`s
 ' the fresh engine, deletes its receipt and stops the run: "OpenCode history
 ' import into <engine> failed: … — the new engine was removed and <src> stays;
 ' the next run retries".
+'
+' Startup credential export creates a native database even with no accounts.
+' An existing target is therefore not proof of a completed import; only exit
+' 0 plus readiness and a successful stop permits deletion of a carry file.
+' The gate remains in the engine environment; its durable marker enables
+' credential startup on future boots. Kits without the flag keep their
+' existing startup behavior.
 '
 ' ── WHY STDIN, NOT `sbx cp` (2026-10-20) ───────────────────────────────────
 ' REPORTED: TestOpenCodeEngineKeepsHistoryAndImportsOnce failed on a macOS
@@ -353,17 +369,22 @@ participant "engine\n~/.local/share/opencode/opencode.db" as ENG <<host>>
 participant "opencode\nthin runtime → native" as OC <<app>>
 
 group new engine (ensureOpenCodeEngine)
-  PV ARROW_MAIN SBX : sbx create <engine>
+  PV ARROW_MAIN SBX : sbx create <engine>\nPROVEO_OPENCODE_HISTORY_IMPORT=1; credentials deferred
   PV ARROW_OPTIONAL HOMEDB : first regular file:\ncarry/<engine>.db · v2/share · share · .local/share
-  PV ARROW_MAIN ENG : sbx exec -i python3 -I -c OpenCodeImportScript\nstdin: tar db (+ -wal, -journal) · commit; never -shm
-  ENG ARROW_MAIN ENG : extract into own mkdtemp · quick_check\nbackup API · link() only if absent · 0600
-  alt exit 0, or 3 (already has one)
+  opt host history source exists
+    PV ARROW_MAIN ENG : sbx exec -i python3 -I -c OpenCodeImportScript\nstdin: tar db (+ -wal, -journal) · commit; never -shm
+    ENG ARROW_MAIN ENG : extract into own mkdtemp · quick_check\nbackup API · link() only if absent · 0600
+  end
+  alt exit 0 (import installed), or no source
+    PV ARROW_MAIN ENG : create .proveo-history-ready
+    PV ARROW_MAIN SBX : sbx stop <engine>
     PV ARROW_OPTIONAL HOMEDB : delete the consumed carry file
-  else change / exec / incomplete / corrupt (D5)
+  else existing target / change / exec / incomplete / corrupt / preparation failure (D5)
     PV ARROW_ERROR SBX : sbx rm <engine>; receipt removed; run stops
   end
 end
 PV ARROW_MAIN SBX : sbx run --name <engine> (reattach)
+SBX ARROW_MAIN ENG : credential startup after history readiness
 SBX ARROW_MAIN OC : agent launch
 OC ARROW_MAIN ENG : native default path; --auto / --standalone
 PV ARROW_OPTIONAL PV : teardown keeps the engine:\n"history lives in retained engine <name>"

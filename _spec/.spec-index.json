@@ -473,6 +473,8 @@
       "spec": "_spec/cmd/proveo/init-credential-wireframe.puml",
       "covers": [
         "cmd/proveo/init_credentials.go",
+        "cmd/proveo/init_credentials_test.go",
+        "e2e/init_steps_test.go",
         "internal/choiceui/choiceui.go",
         "apps/cli/public/cli/install.sh"
       ],
@@ -490,8 +492,10 @@
         "apps/cli/public/cli/uninstall.sh",
         "cmd/proveo/init_test.go",
         "cmd/proveo/init_tui_test.go",
+        "cmd/proveo/init_steps_test.go",
         "internal/sbx/install_test.go",
         "e2e/init_test.go",
+        "e2e/init_steps_test.go",
         "internal/installtest/install_test.go"
       ],
       "fingerprint": null
@@ -601,7 +605,9 @@
       "covers": [
         "defs/codex/**",
         "packages/lib/entrypoint-lib.sh",
-        "internal/contract/image_size_test.go"
+        "internal/contract/image_size_test.go",
+        "internal/contract/config_set_test.go",
+        "e2e/codex_daemon_sync_test.go"
       ],
       "fingerprint": null
     },
@@ -672,6 +678,9 @@
     {
       "spec": "_spec/defs/opencode/engine-local-history.puml",
       "covers": [
+        "internal/envreg/envreg.go",
+        "internal/sbx/third_party/opencode.yaml",
+        "defs/opencode/README.md",
         "internal/sbx/opencode_history.go",
         "internal/sbx/opencode_history_test.go",
         "internal/backend/sandbox/opencode_engine.go",
@@ -874,7 +883,8 @@
         "internal/choiceui/choiceui.go",
         "internal/choiceui/gated_reason_test.go",
         "internal/run/choices.go",
-        "internal/run/model_row.go"
+        "internal/run/model_row.go",
+        "internal/choiceui/step_test.go"
       ],
       "fingerprint": null
     },
@@ -1064,6 +1074,10 @@
     {
       "spec": "_spec/internal/ptyproxy/pty-ownership.puml",
       "covers": [
+        "defs/*/harness.manifest",
+        "e2e/close_confirm_live_test.go",
+        "internal/ptyproxy/ctrlc_keys.go",
+        "internal/ptyproxy/ctrlc_keys_test.go",
         "internal/ptyproxy/ptyproxy.go",
         "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/drain_test.go",
@@ -1192,9 +1206,11 @@
         "internal/run/choices.go",
         "internal/run/choices_test.go",
         "cmd/proveo/init_credentials.go",
+        "cmd/proveo/init_credentials_test.go",
         "e2e/ladder_test.go",
         "internal/sbx/bindings.go",
         "internal/sbx/bindings_test.go",
+        "internal/sbx/sbx_test.go",
         "internal/backend/sandbox/credential_report.go",
         "internal/backend/sandbox/credential_report_test.go",
         "internal/backend/sandbox/opencode_engine.go",
@@ -1570,6 +1586,7 @@
         "internal/contract/formatter_class_test.go",
         "cmd/proveo/clean_tool_roots_test.go",
         "cmd/proveo/golden_test.go",
+        "e2e/codex_daemon_sync_test.go",
         "internal/contract/lsp_wiring_retirement_test.go",
         "internal/contract/retirement_test.go"
       ],

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -87,68 +88,120 @@ func doInit(o initOptions) error {
 	}
 	if o.printOnly {
 		printPlan(plan, installed)
-		if err := credentialStage(o); err != nil { // reports where each credential rests; provisions nothing
+		if _, err := credentialStage(o, choiceui.Step{}, nil); err != nil { // reports where each credential rests; provisions nothing
 			return err
 		}
-		return operatorStage(o)
-	}
-
-	d, err := decide(plan, host, installed, checks, o)
-	if err != nil {
+		_, err := operatorStage(o, choiceui.Step{})
 		return err
 	}
 
-	// A prefix chosen at the prompt has to reach the plan, which was built
-	// around the default one.
-	if d.Prefix != plan.Prefix {
-		if plan, err = sbx.PlanFor(host, d.Prefix, download); err != nil {
+	var prev *initDecisions
+	viaPackage := false
+	setup := func(at choiceui.Step) (stepResult, error) {
+		d, err := decide(plan, host, installed, checks, o, prev, at)
+		if err != nil {
+			return stepNext, err
+		}
+
+		// A prefix chosen at the prompt has to reach the plan, which was built
+		// around the default one.
+		if d.Prefix != plan.Prefix {
+			if plan, err = sbx.PlanFor(host, d.Prefix, download); err != nil {
+				return stepNext, err
+			}
+			installed, why = installedVersion(plan)
+		}
+
+		viaPackage = d.Install == installPackaged || (d.Install == installSkip && viaPackage)
+		applied := appliedPlan(plan, viaPackage)
+		switch d.Install {
+		case installSkip:
+			ui.Section(ui.SectionStarting)
+			ui.Okf("sbx %s is already installed — proveo installs it once and leaves it alone", installed)
+			if note := sbx.UnverifiedNote(installed); note != "" {
+				ui.Warnf("%s", note)
+			}
+			if sbx.Older(installed, sbx.MinVersion) {
+				ui.Warnf("sbx %s is older than the %s proveo can drive; a run will refuse it", installed, sbx.MinVersion)
+				ui.Notef("upgrade it yourself, or let proveo reinstall the pinned %s with `proveo init --force`", sbx.Release)
+			}
+		case installPackaged:
+			if plan.Packaged == nil {
+				return stepNext, fmt.Errorf("this release ships no distro package for %s", describeHost(host))
+			}
+			ui.Section(ui.SectionStarting)
+			ui.Appf("installing the distro package — it will ask for your password")
+			if err := installPackage(*plan.Packaged, download); err != nil {
+				return stepNext, err
+			}
+		default:
+			ui.Section(ui.SectionStarting)
+			if installed != "" {
+				ui.Appf("reinstalling sbx %s as the pinned %s (--force)", installed, sbx.Release)
+			} else if why != "" {
+				ui.Appf("installing sbx: %s", why)
+			}
+			if err := install(plan, download); err != nil {
+				return stepNext, err
+			}
+		}
+
+		if err := finish(resolveBin(applied), applied, d, host); err != nil {
+			return stepNext, err
+		}
+		installed, why = installedVersion(applied)
+		prev, o.force = &d, false
+		return stepNext, nil
+	}
+	typed := map[string]string{}
+	return runInitSteps(!o.yes && interactiveTerminal(), []initStep{
+		setup,
+		func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed) },
+		func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at) },
+	})
+}
+
+// appliedPlan is the plan setup acts on; a package manager owns placement, like the MSI.
+func appliedPlan(plan sbx.Plan, viaPackage bool) sbx.Plan {
+	if viaPackage {
+		plan.Bin, plan.Prefix = "", ""
+	}
+	return plan
+}
+
+// stepResult is how a screen of `proveo init` was left.
+type stepResult int
+
+const (
+	stepNext stepResult = iota
+	stepBack
+	stepNone // the screen had nothing to ask
+)
+
+// initStep is one screen of `proveo init`.
+type initStep func(at choiceui.Step) (stepResult, error)
+
+// runInitSteps walks the screens in order; a step back passes over screens that ask nothing.
+// Unprompted, no screen is numbered and none can step back.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml
+func runInitSteps(prompted bool, steps []initStep) error {
+	back := false
+	for i := 0; i < len(steps); {
+		at := choiceui.Step{}
+		if prompted {
+			at = choiceui.Step{At: i + 1, Of: len(steps)}
+		}
+		r, err := steps[i](at)
+		if err != nil {
 			return err
 		}
-		installed, why = installedVersion(plan)
+		if (r == stepBack || (r == stepNone && back)) && prompted && i > 0 {
+			i, back = i-1, true
+			continue
+		}
+		i, back = i+1, false
 	}
-
-	switch d.Install {
-	case installSkip:
-		ui.Section(ui.SectionStarting)
-		ui.Okf("sbx %s is already installed — proveo installs it once and leaves it alone", installed)
-		if note := sbx.UnverifiedNote(installed); note != "" {
-			ui.Warnf("%s", note)
-		}
-		if sbx.Older(installed, sbx.MinVersion) {
-			ui.Warnf("sbx %s is older than the %s proveo can drive; a run will refuse it", installed, sbx.MinVersion)
-			ui.Notef("upgrade it yourself, or let proveo reinstall the pinned %s with `proveo init --force`", sbx.Release)
-		}
-	case installPackaged:
-		if plan.Packaged == nil {
-			return fmt.Errorf("this release ships no distro package for %s", describeHost(host))
-		}
-		ui.Section(ui.SectionStarting)
-		ui.Appf("installing the distro package — it will ask for your password")
-		if err := installPackage(*plan.Packaged, download); err != nil {
-			return err
-		}
-		plan.Bin, plan.Prefix = "", "" // the package manager owns placement, like the MSI
-	default:
-		ui.Section(ui.SectionStarting)
-		if installed != "" {
-			ui.Appf("reinstalling sbx %s as the pinned %s (--force)", installed, sbx.Release)
-		} else if why != "" {
-			ui.Appf("installing sbx: %s", why)
-		}
-		if err := install(plan, download); err != nil {
-			return err
-		}
-	}
-
-	bin := resolveBin(plan)
-	if err := finish(bin, plan, d, host); err != nil {
-		return err
-	}
-
-	if err := credentialStage(o); err != nil {
-		return err
-	}
-	return operatorStage(o)
+	return nil
 }
 
 func describeHost(h sbx.Host) string {
@@ -251,14 +304,14 @@ func printPlan(plan sbx.Plan, installed string) {
 	}
 }
 
-func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions) (initDecisions, error) {
+func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, at choiceui.Step) (initDecisions, error) {
 	if o.yes || !interactiveTerminal() {
-		d := defaultDecisions(plan, installed, o)
+		d := carried(defaultDecisions(plan, installed, o), prev)
 		ui.Section(ui.SectionStarting)
 		ui.Notef("no prompt (%s) — %s", promptlessBecause(o), describeDecisions(d))
 		return d, nil
 	}
-	return askDecisions(plan, host, installed, checks, o)
+	return askDecisions(plan, host, installed, checks, o, prev, at)
 }
 
 func promptlessBecause(o initOptions) string {
