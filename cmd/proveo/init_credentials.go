@@ -229,11 +229,7 @@ func credentialRows(slots []credSlot) []choiceui.Row {
 			Reason:      s.hint(),
 		}
 		if s.Kind == kindSignIn {
-			state := "not signed in"
-			if s.Held {
-				state = "signed in"
-			}
-			row = choiceui.Row{Label: s.Label, Options: []string{state}, Locked: true, Reason: s.hint()}
+			row = signInRow(s)
 		}
 		if group != lastGroup {
 			row.Divider, row.Heading = true, group
@@ -244,23 +240,89 @@ func credentialRows(slots []credSlot) []choiceui.Row {
 	return rows
 }
 
-// credentialStage is `proveo init`'s fourth stage.
-func credentialStage(o initOptions) error {
+// The choices a sign-in row offers; the first of each pair changes nothing.
+const (
+	signedIn    = "signed in"
+	notSignedIn = "not signed in"
+	signInAgain = "sign in again"
+	signInNow   = "sign in"
+	signOut     = "sign out"
+)
+
+// signInRow offers sbx's own sign-in and sign-out for a subscription's OAuth slot.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
+func signInRow(s credSlot) choiceui.Row {
+	if s.Held {
+		return choiceui.Row{Label: s.Label, Options: []string{signedIn, signInAgain, signOut}, Help: map[string]string{
+			signedIn:    s.hint() + " — sbx lists it as present; that is not a check that it still refreshes",
+			signInAgain: signInHelp(s),
+			signOut:     "after enter: `" + sbx.Binary + " " + strings.Join(sbx.RemoveSecretArgs(s.Store), " ") + "` — removes the login and any api key stored as " + s.Store + ", for every sandbox",
+		}}
+	}
+	return choiceui.Row{Label: s.Label, Options: []string{notSignedIn, signInNow}, Help: map[string]string{
+		notSignedIn: "leave it — the agent shows its own login at its next run",
+		signInNow:   signInHelp(s),
+	}}
+}
+
+func signInHelp(s credSlot) string {
+	argv := sbx.SignInArgs(s.Store, "<empty dir>")
+	switch {
+	case sbx.SignInRuns(argv):
+		return "after enter: `" + sbx.Binary + " " + strings.Join(argv, " ") + "` — sbx keeps the login as " + s.Store + ", and init removes the sandbox"
+	case argv != nil:
+		return "after enter: `" + sbx.Binary + " " + strings.Join(argv, " ") + "` — a browser sign-in sbx keeps as " + s.Store
+	}
+	return "after enter: init names the step — " + sbx.SignIn(s.Store)
+}
+
+// applySignIn runs the sbx command a sign-in row's choice asks for.
+func applySignIn(s credSlot, choice string, run func(argv []string) error) error {
+	switch choice {
+	case signOut:
+		ui.Appf("%s: signing out — `%s %s`", s.Label, sbx.Binary, strings.Join(sbx.RemoveSecretArgs(s.Store), " "))
+		return run(append([]string{sbx.Binary}, sbx.RemoveSecretArgs(s.Store)...))
+	case signInAgain, signInNow:
+	default:
+		return nil
+	}
+	dir, err := os.MkdirTemp("", sbx.SignInSandbox+"-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	argv := sbx.SignInArgs(s.Store, dir)
+	if argv == nil {
+		ui.Notef("%s: sign in with %s — sbx keeps the login as %s", s.Label, sbx.SignIn(s.Store), s.Store)
+		return nil
+	}
+	ui.Appf("%s: signing in — `%s %s`", s.Label, sbx.Binary, strings.Join(argv, " "))
+	err = run(append([]string{sbx.Binary}, argv...))
+	if sbx.SignInRuns(argv) {
+		if rmErr := run(append([]string{sbx.Binary}, sbx.RemoveArgs(sbx.SignInSandbox)...)); rmErr != nil {
+			ui.Warnf("%s: the sign-in sandbox stays — `%s %s`", s.Label, sbx.Binary, strings.Join(sbx.RemoveArgs(sbx.SignInSandbox), " "))
+		}
+	}
+	return err
+}
+
+// credentialStage is `proveo init`'s credentials screen; back reports a step back.
+func credentialStage(o initOptions, at choiceui.Step) (back bool, err error) {
 	// The embedded registry, not the defs/ tree: init runs on a freshly installed
 	// host where no repository exists.
 	ms, err := loadManifests()
 	if err != nil || len(ms) == 0 {
-		return nil // nothing to provision for; the install is still good
+		return false, nil // nothing to provision for; the install is still good
 	}
 	slots := surveyCredentials(ms, sbx.StoreEntries(), os.Getenv)
 	reportCredentials(slots)
 	reportStaleEntries(credentials.StaleStoreEntries(sbx.StoredServices(), sbx.CustomSecrets(), defNames(ms)))
 	if o.printOnly || len(slots) == 0 {
-		return nil
+		return false, nil
 	}
 	if !interactiveTerminal() {
 		ui.Notef("not a terminal — run `proveo init` from a shell to provision credentials")
-		return nil
+		return false, nil
 	}
 
 	form := &choiceui.Form{
@@ -269,14 +331,19 @@ func credentialStage(o initOptions) error {
 		Header: []string{
 			"A stored secret is host-wide and outlives every run; the agent never holds it.",
 			"Without one an agent still launches and shows its own login — /login is the agent's, not proveo's.",
-			"Typing replaces what is stored. An empty field changes nothing.",
+			"Typing replaces what is stored. An empty field changes nothing. A sign-in row runs sbx's own sign-in after enter.",
 		},
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
+		NoAxis: true,
+		Step:   at,
 		Rows:   credentialRows(slots),
 	}
-	ok, err := form.Run()
-	if err != nil || !ok {
-		return err
+	out, err := form.RunStep()
+	if err != nil || out == choiceui.Cancelled {
+		return false, err
+	}
+	if out == choiceui.Back {
+		return true, nil
 	}
 	for i, s := range slots {
 		value := ""
@@ -284,6 +351,9 @@ func credentialStage(o initOptions) error {
 			value = strings.TrimSpace(form.Rows[i].Value)
 		}
 		if s.Kind == kindSignIn {
+			if err := applySignIn(s, signInChoice(form.Rows, i), runArgv); err != nil {
+				ui.Warnf("%s: %v", s.Label, err)
+			}
 			continue
 		}
 		if value == "" {
@@ -300,7 +370,15 @@ func credentialStage(o initOptions) error {
 			ui.Warnf("%s: %v", s.Label, err)
 		}
 	}
-	return nil
+	return false, nil
+}
+
+// signInChoice is row i's selected option, read by position: a sign-in row and a usage key can share a label.
+func signInChoice(rows []choiceui.Row, i int) string {
+	if i >= len(rows) || rows[i].Selected < 0 || rows[i].Selected >= len(rows[i].Options) {
+		return ""
+	}
+	return rows[i].Options[rows[i].Selected]
 }
 
 func reportCredentials(slots []credSlot) {

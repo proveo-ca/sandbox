@@ -22,6 +22,9 @@ home:
       container: /proveo-home/.codex
       mode: rw
       # No deny list: `codex login`'s auth.json IS the ChatGPT-plan credential.
+      # Per-sandbox app-server daemon state; each sandbox installs its own.
+      # SPEC: _spec/defs/codex/codex-topology.puml
+      transient: [packages, app-server-daemon, app-server-control]
 env:
   - name: OPENAI_API_KEY
     description: OpenAI API key — create one at platform.openai.com/api-keys, or run `codex login` for a ChatGPT plan

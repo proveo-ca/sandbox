@@ -81,6 +81,72 @@ func TestEveryTransientPathReachesTheConfigSet(t *testing.T) {
 	}
 }
 
+// codex's app-server daemon state stays in the sandbox that installed it; its config and login still sync.
+// SPEC: _spec/defs/codex/codex-topology.puml
+func TestCodexDaemonStateNeverCrossesTheSandbox(t *testing.T) {
+	t.Parallel()
+	bash := bashOrSkip(t)
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var home manifest.Home
+	for _, m := range ms {
+		if m.Name == "codex" {
+			home = m.Home
+		}
+	}
+	set := proveohome.ConfigSet(home)
+	if set == "" {
+		t.Fatal("codex declares no synced home mount")
+	}
+	daemon := []string{"packages", "app-server-daemon", "app-server-control"}
+
+	// The host copy an earlier proveo left: the release tree without its `current` link.
+	state, agent := t.TempDir(), t.TempDir()
+	seedFile(t, filepath.Join(state, ".codex", "config.toml"), "model = \"x\"\n")
+	seedFile(t, filepath.Join(state, ".codex", "auth.json"), "{}")
+	seedFile(t, filepath.Join(state, ".codex", "packages", "app-server-daemon", "releases", "0.167.0-x", "bin", "codex"), "elf")
+	seedFile(t, filepath.Join(state, ".codex", "packages", "app-server-daemon", "selection-history"), "0.167.0-x")
+	seedFile(t, filepath.Join(state, ".codex", "app-server-daemon", "daemon.pid"), `{"pid":1}`)
+	runConfigSync(t, bash, map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_CONFIG_DIRS": set}, "restore")
+	for _, rel := range []string{"config.toml", "auth.json"} {
+		if _, err := os.Stat(filepath.Join(agent, ".codex", rel)); err != nil {
+			t.Errorf("restore dropped .codex/%s: %v", rel, err)
+		}
+	}
+	for _, d := range daemon {
+		if _, err := os.Lstat(filepath.Join(agent, ".codex", d)); err == nil {
+			t.Errorf("restore copied .codex/%s into the sandbox; codex then reports \"daemon executable not found\"", d)
+		}
+	}
+
+	// A sandbox's own install: an absolute `current` link and a socket link into /tmp.
+	state2, agent2 := t.TempDir(), t.TempDir()
+	rel := filepath.Join(agent2, ".codex", "packages", "app-server-daemon", "releases", "0.167.0-x")
+	seedFile(t, filepath.Join(rel, "bin", "codex"), "elf")
+	if err := os.Symlink(rel, filepath.Join(agent2, ".codex", "packages", "app-server-daemon", "current")); err != nil {
+		t.Fatal(err)
+	}
+	seedFile(t, filepath.Join(agent2, ".codex", "app-server-daemon", "daemon.pid"), `{"pid":1}`)
+	if err := os.MkdirAll(filepath.Join(agent2, ".codex", "app-server-control"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/tmp/codex-daemon-1000/sock", filepath.Join(agent2, ".codex", "app-server-control", "app-server-control.sock")); err != nil {
+		t.Fatal(err)
+	}
+	seedFile(t, filepath.Join(agent2, ".codex", "config.toml"), "model = \"y\"\n")
+	runConfigSync(t, bash, map[string]string{"HOME": agent2, "PROVEO_STATE_HOME": state2, "PROVEO_CONFIG_DIRS": set}, "save")
+	if _, err := os.Stat(filepath.Join(state2, ".codex", "config.toml")); err != nil {
+		t.Errorf("save dropped .codex/config.toml: %v", err)
+	}
+	for _, d := range daemon {
+		if _, err := os.Lstat(filepath.Join(state2, ".codex", d)); err == nil {
+			t.Errorf("save carried .codex/%s to the operator's home", d)
+		}
+	}
+}
+
 func TestHermesDataIsBoundNotCopiedIntoTheAgentHome(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)

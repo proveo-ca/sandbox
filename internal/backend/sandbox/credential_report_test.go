@@ -1,8 +1,10 @@
 package sandbox
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -121,6 +123,38 @@ func TestCredentialInUseNamesAnAgentOwnedLoginThatOutranksSbx(t *testing.T) {
 	} {
 		if got := credentialInUse(tc.target, tc.out); got != tc.want {
 			t.Errorf("credentialInUse(%s, %.40s…) = %q, want %q", tc.target, tc.out, got, tc.want)
+		}
+	}
+}
+
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R10)
+func TestAnExpiredSbxLoginIsNamedWithItsService(t *testing.T) {
+	t.Parallel()
+	now := time.UnixMilli(1_794_000_000_000)
+	past, future := now.Add(-time.Hour).UnixMilli(), now.Add(time.Hour).UnixMilli()
+	rec := func(id string, active bool, access string, expires int64) string {
+		return fmt.Sprintf(`{"id":%q,"integrationID":"openai","active":%v,"value":{"methodID":"chatgpt-browser","access":%q,"expires":%d}}`,
+			id, active, access, expires)
+	}
+	for _, tc := range []struct {
+		name, target, out, want string
+	}{
+		{"sbx record past its expiry", "opencode", "[" + rec("sbx-openai", true, "oai-oat01-proxy-managed", past) + "]", "openai"},
+		{"expiry in seconds", "opencode", "[" + rec("sbx-openai", true, "oai-oat01-proxy-managed", now.Add(-time.Hour).Unix()) + "]", "openai"},
+		{"migrated record holding the sentinel", "opencode", "[" + rec("cred_mig", true, "oai-oat01-proxy-managed", past) + "]", "openai"},
+		{"still valid", "opencode", "[" + rec("sbx-openai", true, "oai-oat01-proxy-managed", future) + "]", ""},
+		{"inactive", "opencode", "[" + rec("sbx-openai", false, "oai-oat01-proxy-managed", past) + "]", ""},
+		{"agent-owned login", "opencode", "[" + rec("cred_native", true, "eyJreal", past) + "]", ""},
+		{"no expiry recorded", "opencode", "[" + rec("sbx-github-copilot", true, "gho_x", 0) + "]", ""},
+		{"not opencode", "codex", "[" + rec("sbx-openai", true, "oai-oat01-proxy-managed", past) + "]", ""},
+		{"unreadable", "opencode", "not json", ""},
+	} {
+		svc, at := expiredSbxLogin(tc.target, tc.out, now)
+		if svc != tc.want {
+			t.Errorf("%s: service = %q, want %q", tc.name, svc, tc.want)
+		}
+		if svc != "" && !at.Before(now) {
+			t.Errorf("%s: expiry %v is not in the past", tc.name, at)
 		}
 	}
 }

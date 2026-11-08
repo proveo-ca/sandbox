@@ -138,6 +138,26 @@ var signIn = map[string]string{
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
 func SignIn(service string) string { return signIn[service] }
 
+// SignInSandbox is the throwaway sandbox an in-sandbox sign-in runs in.
+const SignInSandbox = "proveo-signin"
+
+// SignInArgs is the sbx argv that signs service in from this host; nil where only the agent's own prompt can.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
+func SignInArgs(service, workspace string) []string {
+	switch service {
+	case "openai":
+		return []string{"secret", "set", service, "--oauth"}
+	case "anthropic":
+		if login := AuthLoginArgs("claude", workspace); login != nil {
+			return append([]string{login[0], "--name", SignInSandbox}, login[1:]...)
+		}
+	}
+	return nil
+}
+
+// SignInRuns reports whether SignInArgs starts SignInSandbox, which the caller removes afterwards.
+func SignInRuns(argv []string) bool { return len(argv) > 0 && argv[0] == "run" }
+
 // CustomSecret is one `sbx secret set-custom` row: the variable it fills and its placeholder.
 type CustomSecret struct {
 	Env, Placeholder string

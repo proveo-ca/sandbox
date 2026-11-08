@@ -770,6 +770,29 @@ func TestAuthLoginArgs(t *testing.T) {
 	}
 }
 
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
+func TestSignInArgsAreSbxsOwnFlows(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		service, ws, want string
+		runs              bool
+	}{
+		{"openai", "/w", "secret set openai --oauth", false},
+		{"anthropic", "/w", "run --name " + SignInSandbox + " claude /w -- auth login", true},
+		{"anthropic", "", "", false},
+		{"cursor", "/w", "", false},
+		{"groq", "/w", "", false},
+	} {
+		got := SignInArgs(tc.service, tc.ws)
+		if strings.Join(got, " ") != tc.want {
+			t.Errorf("SignInArgs(%q, %q) = %v, want %q", tc.service, tc.ws, got, tc.want)
+		}
+		if SignInRuns(got) != tc.runs {
+			t.Errorf("SignInRuns(%v) = %v, want %v", got, !tc.runs, tc.runs)
+		}
+	}
+}
+
 func TestBoundedCombinedIsBoundedToo(t *testing.T) {
 	t.Parallel()
 	t0 := time.Now()

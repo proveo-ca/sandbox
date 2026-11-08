@@ -221,4 +221,52 @@ func reportCredentialInUse(target, name string) {
 		ui.Section(ui.SectionCredentials)
 		ui.Warnf("%s", line)
 	}
+	if svc, at := expiredSbxLogin(target, out, time.Now()); svc != "" {
+		ui.Section(ui.SectionCredentials)
+		ui.Warnf("%s's sbx-managed %s login expired %s; sbx's proxy answers its refresh with 401 (docker/sbx-releases#642)",
+			target, svc, at.Local().Format(time.DateTime))
+		if how := sbx.SignIn(svc); how != "" {
+			ui.Notef("sign in again with %s, or from `proveo init`", how)
+		}
+		ui.Notef("then start a new sandbox — this one keeps the expired token: `%s %s`", sbx.Binary, strings.Join(sbx.RemoveArgs(name), " "))
+	}
+}
+
+// expiredSbxLogin is the service and expiry of opencode's active sbx-managed OAuth record once that expiry has passed.
+// SPEC: _spec/internal/sbx/credential-resolution.puml (R10)
+func expiredSbxLogin(target, out string, now time.Time) (service string, at time.Time) {
+	if target != "opencode" {
+		return "", time.Time{}
+	}
+	var recs []struct {
+		ID            string `json:"id"`
+		IntegrationID string `json:"integrationID"`
+		Active        bool   `json:"active"`
+		Value         struct {
+			Access  string      `json:"access"`
+			Expires json.Number `json:"expires"`
+		} `json:"value"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(out)), &recs) != nil {
+		return "", time.Time{}
+	}
+	for _, r := range recs {
+		managed := strings.HasPrefix(r.ID, "sbx-") || strings.Contains(r.Value.Access, "proxy-managed")
+		v, err := r.Value.Expires.Int64()
+		if !r.Active || !managed || err != nil || v <= 0 {
+			continue
+		}
+		if at := epochOf(v); at.Before(now) {
+			return r.IntegrationID, at
+		}
+	}
+	return "", time.Time{}
+}
+
+// epochOf reads an expiry in milliseconds, or in seconds when it is too small to be milliseconds.
+func epochOf(v int64) time.Time {
+	if v >= 1e12 {
+		return time.UnixMilli(v)
+	}
+	return time.Unix(v, 0)
 }

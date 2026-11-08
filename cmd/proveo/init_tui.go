@@ -79,8 +79,18 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 	return d
 }
 
-func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions) (initDecisions, error) {
-	def := defaultDecisions(plan, installed, o)
+// carried keeps a revisit's earlier answers; install and prefix follow the host as it is now.
+func carried(def initDecisions, prev *initDecisions) initDecisions {
+	if prev == nil {
+		return def
+	}
+	out := *prev
+	out.Install, out.Prefix = def.Install, def.Prefix
+	return out
+}
+
+func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, at choiceui.Step) (initDecisions, error) {
+	def := carried(defaultDecisions(plan, installed, o), prev)
 
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),
@@ -88,6 +98,7 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		Header: initHeader(plan, installed, checks),
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
 		NoAxis: true,
+		Step:   at,
 		Rows:   initRows(plan, installed, def, o),
 	}
 
