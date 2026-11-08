@@ -5,6 +5,7 @@
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/image_size_test.go
 ' covers: internal/contract/config_set_test.go
+' covers: e2e/codex_daemon_sync_test.go
 '   how the harness is steered and gated _spec/defs/codex/codex-paradigm.puml
 '   the empty-apt guard ................ _spec/defs/harness-image-layers.puml
 '   what transient means to the sync ... _spec/packages/lib/config-seeding-and-persistence.puml
@@ -109,6 +110,16 @@
 ' Pinned by internal/contract/config_set_test.go
 ' TestCodexDaemonStateNeverCrossesTheSandbox: red on the old manifest (5 leaks),
 ' green now.
+' End to end, e2e/codex_daemon_sync_test.go (build tag e2e; a real codex ≥0.157
+' from PROVEO_TEST_CODEX or PATH, else skipped) runs the real proveo_sync_config
+' between two sandbox homes sharing one state dir:
+' TestCodexDaemonStartsInEverySandboxAfterAHomeRoundTrip (the second sandbox's
+' `codex app-server daemon start` succeeds; config.toml still round-trips) and
+' TestCodexDaemonRoundTripWithoutTransientReproducesTheReport (transient cleared
+' → "daemon executable not found at …/packages/app-server-daemon/current/bin/
+' codex"; skips if a future codex repairs itself). MEASURED 2026-11-08, codex
+' 0.167.0 linux-arm64: both pass, and the first fails with the operator's exact
+' error when defs/codex/harness.manifest is reverted to 595b80af.
 '
 ' ── NOTES BROUGHT INTO THE BOX (2026-11-08) ────────────────────────────────
 ' Every note below is 2-5 lines of at most 50 columns (TestSpecNotesFitTheBox).

@@ -477,6 +477,7 @@
       "covers": [
         "cmd/proveo/init_credentials.go",
         "cmd/proveo/init_credentials_test.go",
+        "e2e/init_steps_test.go",
         "internal/choiceui/choiceui.go",
         "apps/cli/public/cli/install.sh"
       ],
@@ -497,6 +498,7 @@
         "cmd/proveo/init_steps_test.go",
         "internal/sbx/install_test.go",
         "e2e/init_test.go",
+        "e2e/init_steps_test.go",
         "internal/installtest/install_test.go"
       ],
       "fingerprint": null
@@ -618,7 +620,8 @@
         "defs/codex/**",
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/image_size_test.go",
-        "internal/contract/config_set_test.go"
+        "internal/contract/config_set_test.go",
+        "e2e/codex_daemon_sync_test.go"
       ],
       "fingerprint": null
     },
@@ -1595,7 +1598,8 @@
         "internal/contract/config_files_test.go",
         "internal/contract/formatter_class_test.go",
         "cmd/proveo/clean_tool_roots_test.go",
-        "cmd/proveo/golden_test.go"
+        "cmd/proveo/golden_test.go",
+        "e2e/codex_daemon_sync_test.go"
       ],
       "fingerprint": null
     },

@@ -17,6 +17,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/init_tui_test.go
 ' covers: internal/sbx/install_test.go
 ' covers: e2e/init_test.go
+' covers: e2e/init_steps_test.go
 ' covers: internal/installtest/install_test.go
 '   the backend this readies ....... _spec/internal/sbx/sandbox-backend.puml
 '   how the binary arrives ......... _spec/internal/cdn/distribution-update.puml
@@ -255,6 +256,15 @@ skinparam noteTextAlignment left
 ' cmd/proveo/init_tui_test.go TestPrefixOptionsCollapseToAnExplicitChoice (the
 ' revisit case). NO test pins `o.force = false` after the first apply: it is
 ' inline in doInit's setup closure.
+' End to end, e2e/init_steps_test.go (build tag e2e) drives the real `proveo
+' init` on a tmux TTY against a logging stub sbx: page n/3 labels, shift+tab
+' only past page 1, a revisit opening on later/keep with `sbx login` and `sbx
+' setup` run once each, --yes never opening the credentials form, and a
+' 64-column footer keeping shift+tab back and enter accept
+' (TestInitStepsBackWithoutRerunningSetup, TestInitYesNeverOpensTheCredentialsForm,
+' TestInitNarrowFooterKeepsTheWayOut). MEASURED 2026-11-08: all four tests in
+' the file pass 3/3 runs and all four fail against the pre-change binary
+' 595b80af.
 ' The key line, Step and Outcome: _spec/internal/choiceui/wireframe.puml.
 '
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
