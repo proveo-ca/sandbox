@@ -13,14 +13,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
-var wantLanguages = []string{
-	"bash", "cpp", "css", "docker", "go", "html", "java", "json", "kotlin",
-	"lua", "markdown", "mermaid", "nix", "plantuml", "python", "ruby", "rust",
-	"terraform", "toml", "typescript", "yaml", "zig",
-}
-
-var serverlessLanguages = []string{"mermaid"}
-
 func entrypointLib(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(repoRoot(t), "packages", "lib", "entrypoint-lib.sh")
@@ -53,46 +45,7 @@ func caseBody(t *testing.T, src, name string) string {
 	return rest[:end]
 }
 
-var (
-	// _lsp_ext_lang/_lsp_marker_lang assign REPLY instead of echoing: the LSP
-	// walk calls them once per file, and a subshell per call is the hot path.
-	bareReplyRe  = regexp.MustCompile(`\)\s+REPLY=([a-z]+)\s*;;`)
-	quotedEchoRe = regexp.MustCompile(`(?m)^\s*([a-z]+)\)\s+echo\s+"([^"]+)"`)
-	popularityRe = regexp.MustCompile(`split\("([^"]+)", P, " "\)`)
-)
-
-func detectedLangs(t *testing.T, src string) map[string]bool {
-	t.Helper()
-	out := map[string]bool{}
-	for _, fn := range []string{"_lsp_ext_lang", "_lsp_marker_lang"} {
-		for _, m := range bareReplyRe.FindAllStringSubmatch(caseBody(t, src, fn), -1) {
-			out[m[1]] = true
-		}
-	}
-	return out
-}
-
-func serverArms(t *testing.T, src string) map[string]string {
-	t.Helper()
-	out := map[string]string{}
-	for _, m := range quotedEchoRe.FindAllStringSubmatch(caseBody(t, src, "_lsp_server"), -1) {
-		out[m[1]] = m[2]
-	}
-	return out
-}
-
-func rankedLangs(t *testing.T, src string) map[string]bool {
-	t.Helper()
-	m := popularityRe.FindStringSubmatch(src)
-	if m == nil {
-		t.Fatal("popularity list not found in detect_workspace_lsps")
-	}
-	out := map[string]bool{}
-	for _, l := range strings.Fields(m[1]) {
-		out[l] = true
-	}
-	return out
-}
+var quotedEchoRe = regexp.MustCompile(`(?m)^\s*([a-z]+)\)\s+echo\s+"([^"]+)"`)
 
 func keys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
@@ -120,109 +73,6 @@ func missingExtra(got map[string]bool, want []string) (missing, extra []string) 
 	return missing, extra
 }
 
-func TestWorkspaceLanguageRegistryIsSelfConsistent(t *testing.T) {
-	t.Parallel()
-	src := entrypointLib(t)
-
-	detected := detectedLangs(t, src)
-	servers := serverArms(t, src)
-	ranked := rankedLangs(t, src)
-
-	if missing, extra := missingExtra(detected, wantLanguages); len(missing) > 0 || len(extra) > 0 {
-		t.Errorf("detected languages drifted from wantLanguages\n  missing: %v\n  extra:   %v\n"+
-			"adding or removing a language means editing _lsp_ext_lang/_lsp_marker_lang, "+
-			"_lsp_server, the awk popularity list AND wantLanguages together", missing, extra)
-	}
-
-	for _, lang := range keys(boolSet(servers)) {
-		if !detected[lang] {
-			t.Errorf("_lsp_server has %q but no extension or marker maps to it — the arm is dead", lang)
-		}
-	}
-
-	for _, lang := range keys(detected) {
-		if _, ok := servers[lang]; ok {
-			continue
-		}
-		if !contains(serverlessLanguages, lang) {
-			t.Errorf("language %q is detected but has no _lsp_server arm and is not listed in "+
-				"serverlessLanguages — it will never start a server and nothing will say so", lang)
-		}
-	}
-	for _, lang := range serverlessLanguages {
-		if cmd, ok := servers[lang]; ok {
-			t.Errorf("%q now has a server (%q) — drop it from serverlessLanguages", lang, cmd)
-		}
-		if !detected[lang] {
-			t.Errorf("%q is in serverlessLanguages but nothing detects it", lang)
-		}
-	}
-
-	if missing, extra := missingExtra(ranked, keys(detected)); len(missing) > 0 || len(extra) > 0 {
-		t.Errorf("popularity ranking does not cover exactly the detected languages\n"+
-			"  unranked (fall back to 999): %v\n  ranked but undetectable:     %v", missing, extra)
-	}
-}
-
-var bakedServers = []string{
-	"bash", "css", "docker", "go", "html", "json", "plantuml", "python",
-	"typescript", "yaml",
-}
-
-var unreachableServers = []string{"nix", "ruby"}
-
-var customInstallServers = []string{"java"}
-
-func TestEveryServerIsBakedProvisionedOrKnownUnreachable(t *testing.T) {
-	t.Parallel()
-	src := entrypointLib(t)
-	servers := serverArms(t, src)
-	recipes := map[string]bool{}
-	for _, m := range quotedEchoRe.FindAllStringSubmatch(caseBody(t, src, "_lsp_mise_spec"), -1) {
-		recipes[m[1]] = true
-	}
-	for _, lang := range customInstallServers {
-		if !strings.Contains(src, "_lsp_custom_install() { case \"$1\" in\n  "+lang+")") {
-			t.Errorf("customInstallServers lists %q but _lsp_custom_install has no arm for it", lang)
-		}
-		if recipes[lang] {
-			t.Errorf("%q has both a mise spec and a custom installer — pick one", lang)
-		}
-		recipes[lang] = true
-	}
-	detected := detectedLangs(t, src)
-
-	for _, lang := range keys(recipes) {
-		if _, ok := servers[lang]; !ok {
-			t.Errorf("_lsp_mise_spec provisions %q but _lsp_server has no arm for it — "+
-				"the install would never be launched", lang)
-		}
-		if !detected[lang] {
-			t.Errorf("_lsp_mise_spec provisions %q but nothing detects it", lang)
-		}
-	}
-
-	for _, lang := range keys(boolSet(servers)) {
-		baked := contains(bakedServers, lang)
-		provisioned := recipes[lang]
-		unreachable := contains(unreachableServers, lang)
-		switch {
-		case baked && provisioned:
-			t.Errorf("%q is both baked into an image and provisioned by mise — pick one", lang)
-		case unreachable && (baked || provisioned):
-			t.Errorf("%q is now reachable; remove it from unreachableServers", lang)
-		case !baked && !provisioned && !unreachable:
-			t.Errorf("%q has a server but no image layer, no _lsp_mise_spec recipe and no "+
-				"entry in unreachableServers — it will never start and nothing says so", lang)
-		}
-	}
-	for _, lang := range unreachableServers {
-		if _, ok := servers[lang]; !ok {
-			t.Errorf("unreachableServers lists %q, which is no longer a declared server", lang)
-		}
-	}
-}
-
 func boolSet(m map[string]string) map[string]bool {
 	out := make(map[string]bool, len(m))
 	for k := range m {
@@ -231,19 +81,9 @@ func boolSet(m map[string]string) map[string]bool {
 	return out
 }
 
-func contains(hay []string, needle string) bool {
-	for _, s := range hay {
-		if s == needle {
-			return true
-		}
-	}
-	return false
-}
-
 var imageDockerfiles = map[string]string{
 	"proveo/base":              "defs/base/Dockerfile",
 	"proveo/base-node":         "defs/base-node/Dockerfile",
-	"proveo/base-node-lsp":     "defs/base-node-lsp/Dockerfile",
 	"proveo/base-node-browser": "defs/base-node-browser/Dockerfile",
 	"proveo/opencode":          "defs/opencode/Dockerfile",
 	"proveo/cursor":            "defs/cursor/Dockerfile",

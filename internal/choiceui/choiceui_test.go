@@ -477,8 +477,8 @@ func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
 	}
 }
 
-// The lsp: row is "lsp:  <glyph> name  <glyph> name". The label and the glyphs are
-// markers and take the accent; the server names are content and stay body-styled.
+// A glyph row is "label:  <glyph> name  <glyph> name". The label and the glyphs are
+// markers and take the accent; the names are content and stay body-styled.
 func TestPutHeaderAccentsGlyphsNotNames(t *testing.T) {
 	t.Parallel()
 	var accented, body []string
@@ -490,22 +490,22 @@ func TestPutHeaderAccentsGlyphsNotNames(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, "lsp:       typescript-language-server  {} yaml-language-server")
+	putHeader(put, pal, "tooling:   typescript  {} yaml")
 
 	acc := strings.Join(accented, "|")
-	for _, want := range []string{"lsp:", "", "{}"} {
+	for _, want := range []string{"tooling:", "", "{}"} {
 		if !strings.Contains(acc, want) {
 			t.Errorf("%q must be accented; accented=%q", want, acc)
 		}
 	}
 	joined := strings.Join(body, "")
-	for _, want := range []string{"typescript-language-server", "yaml-language-server"} {
+	for _, want := range []string{"typescript", "yaml"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%q must render as body text; body=%q", want, joined)
 		}
 	}
-	if strings.Contains(acc, "language-server") {
-		t.Errorf("server names must not be accented; accented=%q", acc)
+	if strings.Contains(acc, "typescript") || strings.Contains(acc, "yaml") {
+		t.Errorf("names must not be accented; accented=%q", acc)
 	}
 }
 

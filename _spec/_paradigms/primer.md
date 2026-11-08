@@ -31,6 +31,8 @@ Count: **219 files**, including Go source, tests, and six testdata goldens.
 
 > **Snapshot, superseded in part (2026-10-16).** The docker+egress backend was deleted that day ("Retire Docker egress"; "Refuse without sbx"). Every row below for `internal/egress/**`, `internal/egresspolicy/**`, `internal/egressproxy/**`, `internal/broker/**`, `internal/reviewgate/**`, `internal/backend/dockeregress/**` `internal/runner/{pids,pids_test,runner_test}.go`, `internal/run/params_test.go` and `internal/choiceui/consent{,_test}.go` names a file that no longer exists; `internal/runner/runner.go` now holds only `type Mount`. The rows are kept as the record of how that code was valued. The current boundary is `_spec/internal/sbx/sandbox-backend.puml` and `_spec/internal/sbx/policy-baseline.puml`.
 
+> **LSP removed (2026-10-30).** proveo no longer ships, provisions or wires language servers; the rows for `internal/contract/claude_lsp_plugins_test.go` and `internal/contract/lsp_config_parity_test.go` left with them. Why: `_spec/defs/harness-image-layers.puml`, section LSP REMOVED.
+
 Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, credential, workspace, release, or posture trust; **4** is major runtime correctness; **3** is supporting behavior and operator UX; **2** is peripheral or legacy Docker+egress behavior; **1** is mechanical or documentation hygiene. Complexity measures reasoning, state, and integration surface, not LOC: **1** is declarative/snapshot-like and **5** is cross-system orchestration. Tests inherit the value of the invariant they protect, but a narrow assertion can have lower complexity than its implementation. Legacy Docker+egress code is intentionally lower thesis value even where its proxy, PTY, or lifecycle logic remains complex.
 
 | File | Value | Complexity | Judgment |
@@ -127,7 +129,6 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/agent_launch_guard_test.go` | 4 | 2 | Ensures entrypoints use the launch disambiguator; static parsing can miss indirect bypasses. |
 | `internal/contract/agents_shared_test.go` | 4 | 2 | Guards shared agent definitions; equality can preserve a shared mistake. |
 | `internal/contract/base_template_test.go` | 4 | 2 | Pins daemon-capable base templates; labels do not prove daemon isolation. |
-| `internal/contract/claude_lsp_plugins_test.go` | 4 | 2 | Cross-checks Claude LSP plugin lists; textual parity does not prove activation. |
 | `internal/contract/config_files_test.go` | 4 | 2 | Guards declared config files; omissions are invisible until a new file appears. |
 | `internal/contract/config_set_test.go` | 4 | 2 | Pins scrub and sync config sets; duplicated declarations can drift together. |
 | `internal/contract/config_sync_test.go` | 4 | 2 | Guards config persistence wiring; end-to-end save/restore is not exercised. |
@@ -139,7 +140,6 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/home_symlink_test.go` | 4 | 2 | Guards real `/home/agent` ownership; it treats Docker rendering as the main oracle. |
 | `internal/contract/image_resolution_test.go` | 4 | 2 | Cross-checks image resolvers; mirrored logic can agree on a stale tag. |
 | `internal/contract/import_boundary_test.go` | 4 | 2 | Enforces package layering; allowed imports can still create runtime coupling. |
-| `internal/contract/lsp_config_parity_test.go` | 4 | 2 | Pins LSP config parity; matching files do not prove server compatibility. |
 | `internal/contract/model_bridging_retired_test.go` | 4 | 2 | Prevents retired model rewriting from returning; static scans may miss equivalent behavior. |
 | `internal/contract/seed_abort_test.go` | 4 | 2 | Guards nonfatal seed failures; shell probes cover only known abort shapes. |
 | `internal/agentsettings/agentsettings.go` | 4 | 3 | Discovers and merges harness settings; vendor schema changes can corrupt intent. |

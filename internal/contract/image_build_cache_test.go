@@ -97,36 +97,3 @@ func TestFetchRunsMountABuildKitCache(t *testing.T) {
 		t.Fatal("no cache mount ids under defs/")
 	}
 }
-
-func TestLSPBuilderGoInstallsArePinned(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		rel   string
-		wants []string
-	}{
-		{"defs/cursor/Dockerfile", []string{
-			"ARG MCP_LANGUAGE_SERVER_VERSION=v0.1.1",
-			"ARG GOPLS_VERSION=v0.23.0",
-			`mcp-language-server@${MCP_LANGUAGE_SERVER_VERSION}`,
-			`gopls@${GOPLS_VERSION}`,
-		}},
-		{"defs/codex/Dockerfile", []string{
-			"ARG MCP_LANGUAGE_SERVER_VERSION=v0.1.1",
-			`mcp-language-server@${MCP_LANGUAGE_SERVER_VERSION}`,
-		}},
-		{"defs/base/Dockerfile", []string{
-			"ARG PLANTUML_LSP_VERSION=v0.5.3",
-			`plantuml-lsp@${PLANTUML_LSP_VERSION}`,
-		}},
-	} {
-		df := instructionsOnly(readRepoFile(t, tc.rel))
-		for _, want := range tc.wants {
-			if !strings.Contains(df, want) {
-				t.Errorf("%s lacks %q", tc.rel, want)
-			}
-		}
-		if strings.Contains(df, "@latest") {
-			t.Errorf("%s still contains @latest", tc.rel)
-		}
-	}
-}

@@ -157,7 +157,7 @@ capabilities:
             - proveo-seed
             - cursor
             - provision
-          description: 'proveo: toolchains, dependencies and language servers, beside the agent'
+          description: 'proveo: toolchains and dependencies, beside the agent'
           env:
             - GIT_AUTHOR_NAME
             - GIT_DISCOVERY_ACROSS_FILESYSTEM

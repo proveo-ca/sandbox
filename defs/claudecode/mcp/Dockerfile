@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=proveo/base-node-lsp:latest
+ARG BASE_IMAGE=proveo/base-node:latest
 
 FROM ${BASE_IMAGE}
 
@@ -65,22 +65,6 @@ RUN --mount=type=cache,id=proveo-claudecode-npm,target=/root/.npm,sharing=locked
       || { echo "CLAUDE_CODE_VERSION build-arg is required — 'mise run build claudecode' resolves it" >&2; exit 1; } \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && claude --version | grep -qF "${CLAUDE_CODE_VERSION}"
-
-# SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
-ARG CLAUDE_PLUGIN_SEED=/opt/proveo/claude-plugins
-ENV CLAUDE_CODE_PLUGIN_SEED_DIR=${CLAUDE_PLUGIN_SEED}
-RUN set -e; \
-    export HOME=/tmp/claude-build DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-           CLAUDE_CODE_PLUGIN_CACHE_DIR="${CLAUDE_PLUGIN_SEED}"; \
-    mkdir -p "$HOME" "${CLAUDE_PLUGIN_SEED}" \
-    && claude plugin marketplace add anthropics/claude-plugins-official \
-    && for p in typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp; do \
-         claude plugin install "${p}@claude-plugins-official"; \
-       done \
-    && test -f "${CLAUDE_PLUGIN_SEED}/known_marketplaces.json" \
-    && test -d "${CLAUDE_PLUGIN_SEED}/cache/claude-plugins-official/typescript-lsp" \
-    && chmod -R a+rwX "${CLAUDE_PLUGIN_SEED}" \
-    && rm -rf /tmp/claude-build
 
 RUN mkdir -p /app \
     && mkdir -p /app/output \

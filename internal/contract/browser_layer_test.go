@@ -110,6 +110,18 @@ func TestBrowserSkillSeedNamesEveryHarnessSkillsDir(t *testing.T) {
 	}
 }
 
+var dashedEchoRe = regexp.MustCompile(`(?m)^\s*([a-z0-9-]+)\)\s+echo\s+"([^"]+)"`)
+
+// dashedEchoArms maps each `key) echo "value"` arm of fn's case to the value's fields.
+func dashedEchoArms(t *testing.T, src, fn string) map[string][]string {
+	t.Helper()
+	out := map[string][]string{}
+	for _, m := range dashedEchoRe.FindAllStringSubmatch(caseBody(t, src, fn), -1) {
+		out[m[1]] = strings.Fields(m[2])
+	}
+	return out
+}
+
 func firstLines(s string, n int) string {
 	lines := strings.SplitN(s, "\n", n+1)
 	if len(lines) > n {

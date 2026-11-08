@@ -118,7 +118,7 @@ defs/tests/echo-agent fixture (no vendor image needed).
 end note
 note bottom of Tmux
   **Captures include scrollback (""-S -"") on purpose.** A harness preamble —
-  the banner, the verification block, the LSP line — scrolls off the
+  the banner, the verification block, the seed lines — scrolls off the
   visible pane before the agent is even ready, so a visible-pane capture
   would assert against a window that has already moved. Waiting is
   poll-until-substring with a deadline, and on timeout the //last// capture

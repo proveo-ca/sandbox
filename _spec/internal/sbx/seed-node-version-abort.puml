@@ -137,11 +137,11 @@ note over NODE
   until someone assigns it under ""set -e"" — which the caller
   one line up does.
 
-  ""_lsp_custom_install"" and ""_mise_install"" return non-zero
-  on a real installer miss. ""ensure_language_servers"" assigns
-  both in a command substitution, so the status must be taken
-  with ""|| rc=$?"" — a bare ""out=""$(_mise_install)""; rc=$?""
+  ""_mise_install"" returns non-zero on a real installer miss.
+  A caller that assigns it in a command substitution must take
+  the status with ""|| rc=$?"" — a bare ""out=""$(_mise_install)""; rc=$?""
   never assigns rc: set -e exits first and the live agent dies.
+  (The LSP installer was that caller until 2026-10-30.)
 end note
 
 note over SEED

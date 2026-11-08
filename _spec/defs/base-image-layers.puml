@@ -3,18 +3,19 @@
 skinparam noteTextAlignment left
 title Base image layers — builder stages, the jlink runtime, and what must share a RUN
 
-' purpose: how proveo/base, base-node and base-node-lsp are actually assembled —
+' purpose: how proveo/base and base-node are actually assembled —
 '          stage ordering, pinning by digest, and the same-RUN rule that makes a
 '          deletion save bytes rather than only hide a path
 ' covers: defs/base/Dockerfile
 ' covers: defs/base-node/Dockerfile
-' covers: defs/base-node-lsp/Dockerfile
 ' covers: internal/imagebuild/targets.go
 '
 ' Lineage rules (which parent, which tag, the ensure step's two modes) are
 ' _spec/_devops/image-lineage-and-publish.puml. The size ARGUMENT and the
 ' fleet-wide measurements are _spec/_devops/image-size-reduction.puml. This file
-' is the current-state record of how the three shared layers are built.
+' is the current-state record of how the two shared layers are built.
+' base-node-lsp was the third until 2026-10-30
+' (_spec/defs/harness-image-layers.puml, LSP REMOVED).
 '
 ' ── STAGE 1: ONE proveo-entrypoint BUILDER FOR THE WHOLE FLEET ──────────────
 ' `FROM golang:1.26-trixie AS proveo-entrypoint-builder`. Built once, in
@@ -26,10 +27,6 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 '
 '   COPY go.mod go.sum ./ ; RUN go mod download
 '       module downloads cached separately from source.
-'   RUN CGO_ENABLED=0 GOBIN=/out go install "github.com/ptdewey/plantuml-lsp@${PLANTUML_LSP_VERSION}"
-'       ABOVE the source copy on purpose: plantuml-lsp is fetched from upstream
-'       and owes nothing to this repo's source. Below the copy, every edit in the
-'       tree re-ran the install.
 '   COPY cmd ./cmd ; COPY internal ./internal
 '       `COPY cmd` + `COPY internal`, NEVER `COPY . .` — the same shape
 '       defs/sidecars/egress-proxy/Dockerfile already used.
@@ -64,11 +61,11 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 '   java.scripting, java.sql, java.xml, jdk.attach, jdk.compiler, jdk.crypto.ec,
 '   jdk.jartool, jdk.jdi, jdk.unsupported, jdk.zipfs
 '   --strip-debug --no-header-files --no-man-pages --compress=zip-6
-' A plantuml-only prune is 59 MB and would break jdtls: `_install_jdtls`
-' provisions its own Java 21 only when `_java_major` reports < 21, and this
-' runtime reports 21 — so it must be able to HOST jdtls, an Eclipse/OSGi
-' application. java.compiler, java.instrument, jdk.attach, jdk.jdi, jdk.zipfs and
-' jdk.compiler are there for jdtls, and they cost 13 MB.
+' The list was sized to HOST jdtls, an Eclipse/OSGi application:
+' java.compiler, java.instrument, jdk.attach, jdk.jdi, jdk.zipfs and
+' jdk.compiler cost 13 MB. jdtls left with the LSP removal (2026-10-30), so
+' those six modules have no consumer; the 59 MB plantuml-only prune is now
+' open and unmeasured.
 '
 ' ── THE THREE APT PACKAGES THAT ONLY LOOK COSMETIC ──────────────────────────
 ' fontconfig, fonts-dejavu-core and libharfbuzz0b are installed explicitly
@@ -90,13 +87,12 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 ' `ENV JAVA_HOME=/opt/jre PATH="/opt/jre/bin:${PATH}"` sits immediately after the
 ' `COPY --from=jre-builder`, not in the ENV block at the end of the file, because
 ' the RUN that follows asserts the runtime works and an ENV declared later is not
-' in scope for it. `java` on PATH is also exactly what `_install_jdtls` probes.
+' in scope for it. `java` on PATH is also what `_java_major` probes for Gradle.
 '
 ' ── COPY --chmod, NOT COPY-THEN-chmod ───────────────────────────────────────
 ' The COPYs carry `--chmod=0755` so the mode arrives with the file. Setting it in
 ' a later RUN copied each binary UP into that layer in full — overlayfs has no
-' other way to record a metadata change — storing proveo-entrypoint and
-' plantuml-lsp twice. Two of the three chmods were no-ops anyway, because
+' other way to record a metadata change — storing each binary twice. Two of the three chmods were no-ops anyway, because
 ' `go build` already writes 0755.
 '
 ' ── proveo/base-node: ONE NODE, ONE pnpm, ONE BUN ───────────────────────────
@@ -142,18 +138,6 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 ' Which pins the SEED honours, and why bun rides this layer rather than a
 ' harness, is _spec/_runtimes/toolchain-provisioning.puml.
 '
-' ── proveo/base-node-lsp: SIX SERVERS, AND A PRUNE IN THE SAME RUN ──────────
-' `npm install -g --no-optional`: typescript-language-server,
-' vscode-langservers-extracted, bash-language-server,
-' dockerfile-language-server-nodejs, yaml-language-server, pyright.
-'
-' Measured in the installed tree: 11 MB of `*.map` and 18 MB of changelogs,
-' readmes and docs/ directories. Source maps only ever improve a stack trace from
-' a server nobody debugs from inside a sandbox.
-'
-' `test/` directories are deliberately NOT pruned — some packages load fixtures
-' from them at runtime, and 29 MB is not worth finding out which.
-'
 ' ── proveo/base's FLOOR PROBE ───────────────────────────────────────────────
 ' The `base` row's Floor (baseFloor in internal/imagebuild/targets.go; moved
 ' from defs/base/ensure.sh 2026-09-22) checks git + gh + jq + an executable
@@ -163,9 +147,9 @@ title Base image layers — builder stages, the jlink runtime, and what must sha
 '
 ' ── BUILD CONTEXT DIFFERS BY LAYER, AND IT IS NOT AN OVERSIGHT ──────────────
 ' The `base` row's Context is "." (the repo root), because the entrypoint
-' builder copies cmd/ and internal/ from the module. The `base-node` and
-' `base-node-lsp` rows name their own def dir: those Dockerfiles COPY nothing
-' from the repo, so the narrower context is free.
+' builder copies cmd/ and internal/ from the module. The `base-node` row
+' names its own def dir: that Dockerfile COPYs nothing from the repo, so the
+' narrower context is free.
 
 node "Builder stages — discarded after the copy" as B <<host>> {
   component "proveo-entrypoint-builder\n""golang:1.26-trixie""" as GO <<app>>
@@ -173,7 +157,7 @@ node "Builder stages — discarded after the copy" as B <<host>> {
 }
 
 node "proveo/base — the universal floor" as BASE <<host>> {
-  component """/usr/local/bin/proveo-entrypoint""\n""/usr/local/bin/plantuml-lsp""" as BIN <<app>>
+  component """/usr/local/bin/proveo-entrypoint""" as BIN <<app>>
   database "``/opt/jre`` — jlink, 72 MB\n20 modules, zip-6, stripped" as JLINK <<db>>
   component "``/opt/plantuml.jar`` + shim\nrendered once, at build" as PUML <<app>>
   component "git · gh · jq · tmux · ripgrep\ngraphviz · ffmpeg · fontconfig · harfbuzz" as APT <<app>>
@@ -182,10 +166,6 @@ node "proveo/base — the universal floor" as BASE <<host>> {
 node "proveo/base-node" as BN <<host>> {
   component "node 22 · pnpm 10.33.0 · unzip" as NODE <<app>>
   component "bun 1.4.0 + bunx\nversion AND sha256 pinned" as BUN <<app>>
-}
-
-node "proveo/base-node-lsp" as BNL <<host>> {
-  component "six language servers\n""npm install -g --no-optional""" as LSP <<app>>
 }
 
 component "``COPY . .`` into the Go builder\n201 MB node_modules · a README busts it" as WIDE <<error>>
@@ -202,18 +182,8 @@ JLINK ARROW_MAIN PUML : the shim execs this runtime
 APT ARROW_ERROR FONT : prevented — harfbuzz, fontconfig\nand dejavu are explicit now
 PUML ARROW_MAIN PUML : renders ""/tmp/floor.puml"" at BUILD
 BASE ARROW_MAIN BN
-BN ARROW_MAIN BNL
 NODE ARROW_ERROR LATER : ""rm -rf /usr/include/node""\nshares the Node install RUN
-LSP ARROW_ERROR LATER : the ""*.map"" and docs prune\nshares the install RUN
 BUN ARROW_ERROR NPMBUN : never — release zip,\nversion + SHASUMS256 digest
-
-note bottom of GO
-  **Upstream code goes above the source copy.**
-  plantuml-lsp owes nothing to this repo, so
-  installing it below ""COPY"" made every edit in
-  the tree re-run the fetch. Above it, the layer
-  is cached until the version moves.
-end note
 
 note bottom of WIDE
   **The context is the whole repo.**
@@ -224,11 +194,10 @@ note bottom of WIDE
 end note
 
 note right of JLINK
-  **The module list is deliberately not minimal.**
-  A plantuml-only prune is 59 MB and breaks jdtls:
-  ""_install_jdtls"" uses the floor's java once
-  ""_java_major"" reports 21, so this runtime must
-  HOST an OSGi app. Six modules for it, 13 MB.
+  **The module list is not minimal.**
+  Six modules (13 MB) were there to host jdtls,
+  which left with the LSP removal. The 59 MB
+  plantuml-only prune is open and unmeasured.
 end note
 
 note bottom of JRE
@@ -271,18 +240,10 @@ note bottom of LATER
   and the reader believes it is.
 end note
 
-note bottom of LSP
-  **""test/"" is kept, and that is a judgement.**
-  Maps and docs are 29 MB and safe to drop; some
-  packages load fixtures from ""test/"" at runtime
-  and another 29 MB is not worth discovering
-  which one does it in a sandbox.
-end note
-
 note bottom of BIN
   **The mode travels with the COPY.**
   A later ""chmod"" copies each binary up into
-  layer in full, storing both twice, and two of
+  a layer in full, storing it twice, and two of
   the three were no-ops because ""go build""
   already writes 0755.
 end note

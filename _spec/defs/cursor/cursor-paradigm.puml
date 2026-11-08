@@ -204,12 +204,6 @@ note bottom of SBX
   the filesystem and process boundary here; network containment is the
   egress tier. Overridable with ""PROVEO_CURSOR_SANDBOX"" — see
   ""_spec/_experiments/docker-sandbox\.puml"".
-
-  **LSP arrives over MCP because cursor has no external-LSP config.** The
-  ""mcp-language-server"" bridge runs one instance per language server, and
-  the bridge plus gopls are built as **static** binaries so a Go runtime
-  never ships in the final image. The shared detector picks only the
-  languages the workspace uses //and// the image installed.
 end note
 
 

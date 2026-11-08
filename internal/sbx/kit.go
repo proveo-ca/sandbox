@@ -51,7 +51,7 @@ func SeedFullCommand(target string) KitCommand {
 
 // SeedProvisionCommand runs the seed's installs beside the agent.
 func SeedProvisionCommand(target string) KitCommand {
-	c := seedPhaseCommand(target, SeedPhaseProvision, "proveo: toolchains, dependencies and language servers, beside the agent")
+	c := seedPhaseCommand(target, SeedPhaseProvision, "proveo: toolchains and dependencies, beside the agent")
 	c.Background = true
 	return c
 }

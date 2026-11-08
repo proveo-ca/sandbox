@@ -265,10 +265,9 @@ func TestOpencodeV2SeedOwnership(t *testing.T) {
 				}
 				got := opencodeV2JSON(t, filepath.Join(dst, name))
 				if tc.jsonc == "" {
-					if got["lsp"] != true || got["formatter"] != true {
+					if _, on := got["lsp"]; on || got["formatter"] != true {
 						t.Errorf("release did not follow optional wiring: %v", got)
 					}
-					delete(got, "lsp")
 					delete(got, "formatter")
 				}
 				want := opencodeV2JSON(t, filepath.Join(repoRoot(t), "defs/opencode/defaults/opencode.json"))
@@ -317,15 +316,12 @@ func TestOpencodeV2OptionalWritersPreserveUserFiles(t *testing.T) {
 			if tc.jsonc != "" {
 				seedFile(t, filepath.Join(dst, "opencode.jsonc"), tc.jsonc)
 			}
-			cmd := opencodeV2Command(t, home, `
-detect_workspace_lsps() { printf '%s\n' 'typescript|1|typescript-language-server|--stdio|.ts'; }
-configure_opencode_lsp "$PWD"
-configure_opencode_formatter`)
+			cmd := opencodeV2Command(t, home, `configure_opencode_formatter`)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("optional writers failed instead of skipping: %v\n%s", err, out)
 			}
-			if tc.warning != "" && (bytes.Count(out, []byte("Skipping automatic")) != 2 || !bytes.Contains(out, []byte(tc.warning))) {
+			if tc.warning != "" && (bytes.Count(out, []byte("Skipping automatic")) != 1 || !bytes.Contains(out, []byte(tc.warning))) {
 				t.Errorf("missing actionable warnings:\n%s", out)
 			}
 			if tc.json != "" {

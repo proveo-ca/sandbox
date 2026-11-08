@@ -9,7 +9,7 @@ backend out of the box.
 ## Base image
 
 `defs/hermes/Dockerfile` builds `FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}`
-directly — not proveo's own `base-node-lsp`/`base-node-browser` chain. Upstream's image already
+directly — not proveo's own `base-node`/`base-node-browser` chain. Upstream's image already
 bakes Python, Node, Chromium, ffmpeg, and ripgrep; extending `base-node-browser` on top would
 duplicate that Chromium install rather than reuse it. See
 `_spec/defs/hermes/hermes-paradigm.puml` for the full reasoning, including why this def

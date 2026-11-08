@@ -1,5 +1,5 @@
 # SPEC: _spec/_devops/image-size-reduction.puml
-ARG BASE_IMAGE=proveo/base-node-lsp:latest
+ARG BASE_IMAGE=proveo/base-node:latest
 
 FROM ${BASE_IMAGE}
 

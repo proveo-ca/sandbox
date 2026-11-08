@@ -37,7 +37,7 @@ skinparam noteTextAlignment left
 '   0  bare sbx agent      stock sbx agent, stock image, no proveo whatsoever
 '   1  proveo base image   the harness image (-t) and nothing else
 '   2  browser variant     the same, swapped for the -browser image
-'   3  posture Kit + seed  proveo's allowlist, env and seed (LSPs, toolchain),
+'   3  posture Kit + seed  proveo's allowlist, env and seed (toolchain, config),
 '                          plus the proveo home mounted as a workspace
 '
 ' RUNG 0 IS THE ONE THAT MATTERS and the one nobody runs first. It answers a

@@ -1,5 +1,5 @@
 # SPEC: _spec/components.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/defs/browser-layer.puml
-ARG BASE_IMAGE=proveo/base-node-lsp:latest
+ARG BASE_IMAGE=proveo/base-node:latest
 FROM ${BASE_IMAGE}
 USER root
 
@@ -80,4 +80,4 @@ COPY skills/ /opt/proveo/skills/
 USER ${USER_NAME}
 
 LABEL security.hardened=true \
-      org.opencontainers.image.title="proveo harness base (node + LSP + Playwright/Chromium + agent-browser)"
+      org.opencontainers.image.title="proveo harness base (node + Playwright/Chromium + agent-browser)"

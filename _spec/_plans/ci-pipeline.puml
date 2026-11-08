@@ -21,7 +21,7 @@ node "CI runner — standard" as STD <<host>> {
 
 node "CI runner — Docker" as DKR <<host>> {
   component "L3 egress infra-integration\nRETIRED 2026-10-16 with the docker backend" as L3 <<error>>
-  component "image graph build\nbase → base-node → base-node-lsp →\nbase-node-browser → harnesses" as IMG <<async>>
+  component "image graph build\nbase → base-node →\nbase-node-browser → harnesses" as IMG <<async>>
 }
 
 node "CI runner — GPU (or pinned small model)" as GPU <<host>> {

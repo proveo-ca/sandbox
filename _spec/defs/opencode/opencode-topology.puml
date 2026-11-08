@@ -13,12 +13,11 @@
 ' Focused/offline proof does not close pending reviews, latest image/e2e, cross-VM
 ' locking, or model-driven live idle synchronization gates in the native sibling.
 ' Legacy local-model e2e caught cloud fallback without an ollama provider definition.
-' The shared LSP detector emits lang|count|cmd|arg...|extcsv; native rendering keeps
-' every command field between the count and trailing extension CSV.
+' The LSP auto-detect step and its opencode `lsp` writer were removed 2026-10-30
+' (_spec/defs/harness-image-layers.puml, LSP REMOVED); opencode's `lsp` key stays absent (off).
 ' Register: manual normalized word/syllable counts; two sentences per reasoning note.
 ' FK: note right of Crew; words=31 syllables=57; FK 12.2
 ' FK: note right of Env; words=30 syllables=56; FK 12.3
-' FK: note right of Lsp; words=30 syllables=53; FK 11.1
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
@@ -35,7 +34,6 @@ actor "Primary Agent\n(Team Lead)" as Lead
 package "Harness Layer" as Harness {
  component "entrypoint.sh" as Entrypoint <<script>>
  component ".env + requested local-provider wiring" as Env <<logic>>
- component "LSP auto-detect" as Lsp <<logic>>
  component "shared native bootstrap + subagents" as Seed <<logic>>
  component "AGENTS.md\n(team rules)" as AgentsMd <<prompt>>
  component "Dockerfile\nOPENCODE_CLI_CONFIG_CONTENT" as CliPrefs <<logic>>
@@ -65,7 +63,6 @@ package "Verification Layer" as Verify {
 
 Human --> Entrypoint : launch
 Entrypoint --> Env
-Entrypoint --> Lsp
 Entrypoint --> Seed
 Entrypoint --> AgentsMd
 Lead --> Plan : delegate planning
@@ -106,13 +103,6 @@ note right of Env
   the retired role-to-model bridge.
 end note
 
-note right of Lsp
-  The shared detector emits command fields
-  followed by the extension list for each
-  language. The native writer preserves those
-  boundaries when building LSP entries, so
-  arguments cannot become file extensions.
-end note
 
 
 @enduml

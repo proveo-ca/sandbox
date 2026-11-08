@@ -177,8 +177,7 @@ func TestOpenCodeEngineKeepsHistoryAndImportsOnce(t *testing.T) {
 
 	bin := buildProveo(t)
 	env := append(os.Environ(), "PROVEO_HOME="+home, "PROVEO_WIZARD=off",
-		"PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_LSP_INSTALL=off",
-		"PROVEO_AUTO_INSTALL_TOOLS=false", "OPENCODE_DISABLE_MODELS_FETCH=1",
+		"PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_AUTO_INSTALL_TOOLS=false", "OPENCODE_DISABLE_MODELS_FETCH=1",
 		"TERM=xterm-256color", "NO_COLOR=1")
 	var outputs []string
 	t.Cleanup(func() { removeOpenCodeEngines(t, work, outputs) })

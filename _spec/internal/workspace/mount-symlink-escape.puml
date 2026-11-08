@@ -92,9 +92,9 @@ note bottom of PRUNE
 
   Escaping links are a scaffolding idiom — ""_spec"", ""docs"", ""\.env"" — that
   lives at or near the root. Walking a six-figure monorepo once per run to
-  find one is the cost that made LSP detection unusable (see
-  ""_lsp_walk"" in ""packages/lib/entrypoint-lib\.sh""), and this walk runs in
-  front of an operator waiting for a container to start.
+  find one is the cost that made the in-container LSP detection unusable
+  (removed 2026-10-30), and this walk runs in front of an operator waiting
+  for a container to start.
 
   ""WalkDir"" does not follow symlinks, so a link to a directory arrives as
   an entry that is never descended into: no cycle is reachable however

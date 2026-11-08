@@ -27,7 +27,7 @@ func TestRegistry(t *testing.T) {
 
 	// Stable order: base, then harness (sorted).
 	wantOrder := []string{
-		"base", "base-node", "base-node-lsp", "base-node-browser", "claudecode",
+		"base", "base-node", "base-node-browser", "claudecode",
 		"claudecode-solidity", "codex", "codex-browser",
 	}
 	if len(got) != len(wantOrder) {
@@ -45,7 +45,6 @@ func TestRegistry(t *testing.T) {
 	for _, tc := range []struct{ name, kind, image, dir string }{
 		{"base", KindBase, "proveo/base", "/d/base"},
 		{"base-node", KindBase, "proveo/base-node", "/d/base-node"},
-		{"base-node-lsp", KindBase, "proveo/base-node-lsp", "/d/base-node-lsp"},
 		{"base-node-browser", KindBase, "proveo/base-node-browser", "/d/base-node-browser"},
 		{"claudecode", KindHarness, "proveo/claudecode", "/d/claudecode"},
 		{"claudecode-solidity", KindHarness, "proveo/claudecode-solidity", "/d/claudecode"},
@@ -259,7 +258,6 @@ func TestScheduleBasesStaySerialRestConcurrent(t *testing.T) {
 	ts := []Target{
 		{Name: "base", Kind: KindBase},
 		{Name: "base-node", Kind: KindBase},
-		{Name: "base-node-lsp", Kind: KindBase},
 		{Name: "base-node-browser", Kind: KindBase},
 		{Name: "claudecode", Kind: KindHarness},
 		{Name: "claudecode-browser", Kind: KindHarness},
@@ -267,10 +265,10 @@ func TestScheduleBasesStaySerialRestConcurrent(t *testing.T) {
 		{Name: "codex", Kind: KindHarness},
 	}
 	waves := Schedule(ts)
-	if len(waves) < 5 {
-		t.Fatalf("waves = %d, want at least 4 serial bases then a concurrent group", len(waves))
+	if len(waves) < 4 {
+		t.Fatalf("waves = %d, want at least 3 serial bases then a concurrent group", len(waves))
 	}
-	for i, name := range []string{"base", "base-node", "base-node-lsp", "base-node-browser"} {
+	for i, name := range []string{"base", "base-node", "base-node-browser"} {
 		if waves[i].Concurrent || len(waves[i].Targets) != 1 || waves[i].Targets[0].Name != name {
 			t.Fatalf("wave[%d] = %+v, want serial %s", i, waves[i], name)
 		}
@@ -301,7 +299,7 @@ func TestScheduleBasesStaySerialRestConcurrent(t *testing.T) {
 	if idxConc < 0 {
 		t.Fatalf("print lacks concurrent group:\n%s", got)
 	}
-	for _, base := range []string{"# serial base\n", "# serial base-node\n", "# serial base-node-lsp\n", "# serial base-node-browser\n"} {
+	for _, base := range []string{"# serial base\n", "# serial base-node\n", "# serial base-node-browser\n"} {
 		idx := strings.Index(got, base)
 		if idx < 0 {
 			t.Errorf("print lacks %q", strings.TrimSpace(base))

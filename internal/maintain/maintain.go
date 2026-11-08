@@ -34,7 +34,6 @@ func Registry(ms []manifest.Manifest, defsDir string) []Target {
 	out := []Target{
 		{Name: "base", Kind: KindBase, Image: "proveo/base", DefDir: filepath.Join(defsDir, "base")},
 		{Name: "base-node", Kind: KindBase, Image: "proveo/base-node", DefDir: filepath.Join(defsDir, "base-node")},
-		{Name: "base-node-lsp", Kind: KindBase, Image: "proveo/base-node-lsp", DefDir: filepath.Join(defsDir, "base-node-lsp")},
 		{Name: "base-node-browser", Kind: KindBase, Image: "proveo/base-node-browser", DefDir: filepath.Join(defsDir, "base-node-browser")},
 	}
 
@@ -77,10 +76,8 @@ func parentOf(name string) string {
 	switch name {
 	case "base-node":
 		return "base"
-	case "base-node-lsp":
-		return "base-node"
 	case "base-node-browser":
-		return "base-node-lsp"
+		return "base-node"
 	case "claudecode-solidity", "claudecode-browser":
 		return "claudecode"
 	case "codex-browser":

@@ -20,9 +20,9 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' The Engine it does not get: `daemon: false` in the manifest withdraws the
 ' promise, because hermes is not a coding agent (operator decision).
 ' For the same reason the manifest declares `kind: assistant`: the Spec hands
-' the seed PROVEO_AGENT_KIND=assistant, and proveo_seed skips the tools restore,
-' the toolchain, dependency-tree and language-server installs, and the second
-' wiring pass. hermes renders no subagents and wires no LSP either. Its
+' the seed PROVEO_AGENT_KIND=assistant, and proveo_seed skips the tools restore
+' and the toolchain and dependency-tree installs. hermes renders no subagents
+' either. Its
 ' workspace still arrives as a clone with its .env and relinked symlinks.
 '
 ' sbx also REPLACES a Kit entrypoint's part after `--` with a run's trailing
@@ -52,7 +52,7 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 '
 ' ── WHY NO Parent, UNLIKE EVERY OTHER DEF ───────────────────────────────────
 ' Every other harness here builds FROM proveo's own base chain
-' (base/base-node/base-node-lsp/base-node-browser) and installs its CLI via
+' (base/base-node/base-node-browser) and installs its CLI via
 ' npm/pypi on top. Hermes's own upstream image is a mature, actively
 ' maintained multi-stage build that already bakes Python, Node, a pinned
 ' Chromium, ffmpeg and ripgrep, supervised by s6-overlay. Re-deriving that on

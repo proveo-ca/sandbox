@@ -251,8 +251,7 @@ func TestPythonDepFailureNamesTheMissingToolchain(t *testing.T) {
 		}
 	}
 
-	for _, rel := range append([]string{"defs/base/Dockerfile", "defs/base-node/Dockerfile",
-		"defs/base-node-lsp/Dockerfile"}, harnessDockerfiles...) {
+	for _, rel := range append([]string{"defs/base/Dockerfile", "defs/base-node/Dockerfile"}, harnessDockerfiles...) {
 		pkgs := installedPackages(dockerfileBody(t, rel))
 		for _, cc := range []string{"build-essential", "gcc", "g++"} {
 			if pkgs[cc] {

@@ -833,7 +833,7 @@ func buildHeader(man manifest.Manifest, lookup func(string) string, roles provid
 	}
 	h := gitHeader(repoRoot)
 	h = append(h, choiceui.EnvHeader(credentials.LoadedSecretNames(man, os.Getenv), loadedSettings(man, lookup))...)
-	h = append(h, posture.WorkspaceHeader(man, inputDir, repoRoot, homeRoot, posture.GlyphModeFrom(lookup))...)
+	h = append(h, posture.WorkspaceHeader(man, inputDir, repoRoot, homeRoot)...)
 	if line := posture.RolesLine(roles); line != "" {
 		h = append(h, "llms:     "+line)
 	}

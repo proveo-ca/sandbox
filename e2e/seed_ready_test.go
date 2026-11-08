@@ -26,20 +26,18 @@ import (
 
 // readySpec is what one harness must hold when the seed releases its agent.
 type readySpec struct {
-	agents   string   // subagent dir under the agent's home; "" when the harness renders none
-	ext      string   // subagent file extension; "md" unless the harness reads another
-	lspFiles []string // startup-read LSP wiring under the agent's home; nil when it wires none
-	baked    string   // regexp of a server the image bakes, so the first wiring pass names it
-	register string   // CLI that lists registered subagents offline; "" when none does
-	assist   bool     // a general assistant: the seed must provision nothing
-	ready    string   // text the agent's own prompt shows; "" waits for the release and a quiet pane
+	agents   string // subagent dir under the agent's home; "" when the harness renders none
+	ext      string // subagent file extension; "md" unless the harness reads another
+	register string // CLI that lists registered subagents offline; "" when none does
+	assist   bool   // a general assistant: the seed must provision nothing
+	ready    string // text the agent's own prompt shows; "" waits for the release and a quiet pane
 }
 
 var readySpecs = map[string]readySpec{
-	"claudecode": {agents: ".claude/agents", lspFiles: []string{".claude/skills/proveo-lsp/.lsp.json", ".claude/settings.json"}, baked: "typescript|pyright", register: "claude", ready: "bypass permissions"},
-	"codex":      {agents: ".codex/agents", ext: "toml", lspFiles: []string{".codex/config.toml"}, baked: "typescript|pyright", ready: "Ask Codex to do anything"},
-	"opencode":   {agents: ".config/opencode/agents", lspFiles: []string{".config/opencode/opencode.json"}, baked: "typescript|pyright", register: "opencode", ready: "Ask anything"},
-	"cursor":     {agents: ".cursor/agents", lspFiles: []string{".cursor/mcp.json"}, baked: "gopls", ready: "Cursor Agent"},
+	"claudecode": {agents: ".claude/agents", register: "claude", ready: "bypass permissions"},
+	"codex":      {agents: ".codex/agents", ext: "toml", ready: "Ask Codex to do anything"},
+	"opencode":   {agents: ".config/opencode/agents", register: "opencode", ready: "Ask anything"},
+	"cursor":     {agents: ".cursor/agents", ready: "Cursor Agent"},
 	"hermes":     {assist: true},
 }
 
@@ -149,9 +147,6 @@ func seedReadyProbe(t *testing.T, proveoBin, target string, spec readySpec) {
 	if spec.agents != "" {
 		want = append(want, "agents_late=0")
 	}
-	if spec.lspFiles != nil {
-		want = append(want, "lsp_at_launch=yes")
-	}
 	if spec.register != "" {
 		want = append(want, "registered=yes")
 	}
@@ -168,23 +163,20 @@ func seedReadyProbe(t *testing.T, proveoBin, target string, spec readySpec) {
 		after, status := run(fmt.Sprintf(`for i in $(seq 1 300); do [ -e %[1]s ] && break; sleep 1; done
 echo "seed_done=$([ -e %[1]s ] && echo yes || echo no)"
 echo "skipped=$(grep -c 'assistant: no toolchain' /var/log/sbx-kit-startup.log 2>/dev/null)"
-echo "installed=$(grep -cE 'Installing |language server' /var/log/sbx-kit-startup.log 2>/dev/null)"
+echo "installed=$(grep -c 'Installing ' /var/log/sbx-kit-startup.log 2>/dev/null)"
 `, seedDone), 6*time.Minute)
 		if status != 0 || !strings.Contains(after, "seed_done=yes") || strings.Contains(after, "skipped=0") || !strings.Contains(after, "installed=0") {
-			t.Errorf("%s is an assistant: its seed must skip every toolchain, dependency and LSP install (exit %d)\n%s", target, status, after)
+			t.Errorf("%s is an assistant: its seed must skip every toolchain and dependency install (exit %d)\n%s", target, status, after)
 		}
 		return
 	}
-	if spec.lspFiles == nil {
-		return
-	}
-	after, status := run(readyInstallScript(spec), durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 15*time.Minute))
+	after, status := run(readyInstallScript(), durationEnv(t, "PROVEO_TEST_SEED_TIMEOUT", 15*time.Minute))
 	if status != 0 {
 		t.Fatalf("install probe exited %d:\n%s", status, after)
 	}
-	for _, w := range []string{"seed_done=yes", "gopls=yes", "gopls_wired=yes"} {
+	for _, w := range []string{"seed_done=yes", "go=yes"} {
 		if !strings.Contains(after, w) {
-			t.Errorf("%s after the seed: probe lacks %q — the seed's own install, not a hand call, must leave gopls wired\n%s", target, w, after)
+			t.Errorf("%s after the seed: probe lacks %q — the seed's own install, not a hand call, must leave Go on PATH\n%s", target, w, after)
 		}
 	}
 }
@@ -386,15 +378,6 @@ func readyLaunchScript(spec readySpec) string {
 			"[ \"$(stat -c %%Z \"$f\")\" -le \"$(stat -c %%Y %s)\" ] || late=$((late+1)); done; echo \"agents_late=$late\"\n",
 			spec.agents, ext, releaseMarker)
 	}
-	if spec.lspFiles != nil {
-		var pats []string
-		for _, f := range spec.lspFiles {
-			pats = append(pats, fmt.Sprintf("-path '*/%s'", f))
-		}
-		fmt.Fprintf(&b, "files=$(find %s -type f \\( %s \\) 2>/dev/null); "+
-			"echo \"lsp_at_launch=$([ -n \"$files\" ] && grep -qE '%s' $files && echo yes || echo no)\"\n",
-			releaseSnap, strings.Join(pats, " -o "), spec.baked)
-	}
 	switch spec.register {
 	case "claude":
 		b.WriteString("echo \"registered=$(timeout 90 claude -p probe --output-format stream-json --verbose --max-turns 1 2>/dev/null | grep -m1 -E '\"subtype\": ?\"init\"' | grep -q '\"adversarial-reviewer\"' && echo yes || echo no)\"\n")
@@ -412,17 +395,11 @@ echo "git_clean=$(git status --porcelain | grep -cE '\.env|_spec')"
 	return b.String()
 }
 
-func readyInstallScript(spec readySpec) string {
-	var pats []string
-	for _, f := range spec.lspFiles {
-		pats = append(pats, fmt.Sprintf("-path '*/%s'", f))
-	}
+func readyInstallScript() string {
 	return fmt.Sprintf(`for i in $(seq 1 900); do [ -e %[1]s ] && break; sleep 1; done
 echo "seed_done=$([ -e %[1]s ] && echo yes || echo no)"
-echo "gopls=$(bash -lic 'command -v gopls' >/dev/null 2>&1 && echo yes || echo no)"
-files=$(find /home /app -type f \( %[2]s \) 2>/dev/null)
-echo "gopls_wired=$([ -n "$files" ] && grep -qE 'gopls' $files && echo yes || echo no)"
-`, seedDone, strings.Join(pats, " -o "))
+echo "go=$(bash -lic 'command -v go' >/dev/null 2>&1 && echo yes || echo no)"
+`, seedDone)
 }
 
 // assertEchoes types into the session while the background seed may still be

@@ -100,10 +100,10 @@ func TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls(t *testing.T) {
 	}
 	prov := provisionBody(t, src)
 	last := -1
-	for _, step := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain", "proveo_wire_config"} {
+	for _, step := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain"} {
 		i := strings.Index(prov, step)
 		if i <= last {
-			t.Errorf("_proveo_seed_provision lost the restore → provision → wire order at %s", step)
+			t.Errorf("_proveo_seed_provision lost the restore → provision order at %s", step)
 		}
 		last = i
 	}
@@ -215,7 +215,7 @@ func TestReleaseSnapshotsWhatTheAgentReadsAtStartup(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(home, f)), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(home, f), []byte(`{"lsp":{"typescript":{}}}`), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(home, f), []byte(`{"model":"x"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -273,9 +273,7 @@ echo SEED_END`
 }
 
 // proveo-seed runs under `set -euo pipefail`, so one bare $VAR a harness
-// entrypoint exports but the Kit does not aborts the WHOLE seed. codex's LSP
-// wiring read $CODEX_HOME unset and took the release, the snapshot and every
-// install with it ("CODEX_HOME: unbound variable", 2026-09-29).
+// entrypoint exports but the Kit does not aborts the WHOLE seed.
 func TestEverySeedSurvivesAnUnsetHarnessHome(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
@@ -285,13 +283,6 @@ func TestEverySeedSurvivesAnUnsetHarnessHome(t *testing.T) {
 			home, ws, bin := t.TempDir(), t.TempDir(), t.TempDir()
 			if err := os.WriteFile(filepath.Join(ws, "index.ts"), []byte("export const a = 1\n"), 0o644); err != nil {
 				t.Fatal(err)
-			}
-			// Every LSP wiring function returns early without its bridge, so the
-			// stub is what lets each one reach the variables it reads.
-			for _, b := range []string{"mcp-language-server", "typescript-language-server"} {
-				if err := os.WriteFile(filepath.Join(bin, b), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-					t.Fatal(err)
-				}
 			}
 			script := `set -euo pipefail
 source "$1/packages/lib/entrypoint-lib.sh"
@@ -313,7 +304,7 @@ echo SEED_END`
 }
 
 // sbx runs kit startup steps through su, which resets PATH to Debian's default,
-// so the seed's first LSP wiring pass could not see the npm-baked servers.
+// so the seed could not see the image's npm-global binaries.
 func TestSeedRestoresTheImagePathSuDropped(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)

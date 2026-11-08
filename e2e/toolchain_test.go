@@ -7,9 +7,7 @@ package e2e
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,26 +16,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/envflag"
 )
-
-type languageOutcome int
-
-const (
-	served languageOutcome = iota
-	servedOnAmd64
-	servedByProjectTools
-	unserved
-)
-
-var expectedLanguages = map[string]languageOutcome{
-	"typescript": served, "python": served, "bash": served, "docker": served,
-	"yaml": served, "json": served, "html": served, "css": served,
-	"plantuml": served,
-	"rust":     served, "markdown": served, "toml": served, "terraform": served,
-	"lua": served, "zig": served, "kotlin": served, "java": served,
-	"cpp":     servedOnAmd64,
-	"go":      servedByProjectTools,
-	"mermaid": unserved, "nix": unserved, "ruby": unserved,
-}
 
 func fixtureDir(t *testing.T) string {
 	t.Helper()
@@ -122,7 +100,7 @@ func toolchainSandboxHome(t *testing.T, target, work, home string) *kitRun {
 func seedInstalls(t *testing.T, k *kitRun) int {
 	t.Helper()
 	out, _ := k.exec(
-		`printf 'INSTALLS %s\n' "$(grep -c 'Installing' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`,
+		`printf 'INSTALLS %s\n' "$(grep -cE 'Dynamically installing|Installing ' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`,
 		60*time.Second)
 	n := -1
 	for _, line := range strings.Split(out, "\n") {
@@ -215,7 +193,7 @@ func fencedOutput(pane string) string {
 	return strings.TrimSpace(rest)
 }
 
-// requireSandboxGitHubToken keeps the ubi recipes off the anonymous rate limit.
+// requireSandboxGitHubToken keeps mise installs off the anonymous GitHub rate limit.
 func requireSandboxGitHubToken(t *testing.T, k *kitRun) {
 	t.Helper()
 	out, status := k.exec(`gh auth token >/dev/null 2>&1 && echo GH-TOKEN-OK || echo GH-TOKEN-NO`,
@@ -224,123 +202,6 @@ func requireSandboxGitHubToken(t *testing.T, k *kitRun) {
 		t.Skipf("no GitHub token inside the sandbox (`sbx secret set github`) — the ubi recipes " +
 			"would hit the 60/hr anonymous limit and make this flaky rather than failing honestly")
 	}
-}
-
-func TestToolchainFixtureCoversEveryLanguage(t *testing.T) {
-	t.Parallel()
-	entries, err := os.ReadDir(fixtureDir(t))
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
-	}
-	if len(entries) != len(expectedLanguages) {
-		t.Errorf("fixture has %d files but %d languages are expected — one trigger per language",
-			len(entries), len(expectedLanguages))
-	}
-	script := "source " + entrypointLibPath(t) + " 2>/dev/null; _lsp_walk " + fixtureDir(t) + " | cut -f1 | sort -u"
-	out, err := exec.Command("bash", "-c", script).Output()
-	if err != nil {
-		t.Fatalf("_lsp_walk on host: %v", err)
-	}
-	found := map[string]bool{}
-	for _, l := range strings.Split(string(out), "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			found[l] = true
-		}
-	}
-	for lang := range expectedLanguages {
-		if !found[lang] {
-			t.Errorf("no fixture file triggers %q", lang)
-		}
-	}
-	for lang := range found {
-		if _, ok := expectedLanguages[lang]; !ok {
-			t.Errorf("fixture triggers %q, which expectedLanguages does not describe", lang)
-		}
-	}
-}
-
-func TestToolchainLanguageMatrix(t *testing.T) {
-	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
-		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to run the full language matrix (~600MB of downloads)")
-	}
-	k := toolchainSandbox(t, "opencode", fixtureWorkspace(t))
-	requireSandboxGitHubToken(t, k)
-	o := runOpts{run: k, timeout: 25 * time.Minute}
-
-	out, err := runLib(t, o, `
-ensure_project_tools >/dev/null 2>&1
-ensure_language_servers /work
-echo "===DETECTED==="
-detect_workspace_lsps /work | cut -d'|' -f1
-echo "===UNRESOLVED==="
-detect_workspace_lsps /work | while IFS='|' read -r lang cnt cmd rest; do
-  command -v "$cmd" >/dev/null 2>&1 || echo "$lang:$cmd"
-done`)
-	if err != nil {
-		t.Fatalf("provisioning run failed: %v\n%s", err, out)
-	}
-
-	detected, unresolved := parseMatrix(t, out)
-	amd64 := isAmd64(t, o)
-
-	for lang, outcome := range expectedLanguages {
-		want := outcome == served || outcome == servedByProjectTools ||
-			(outcome == servedOnAmd64 && amd64)
-		switch {
-		case want && !detected[lang]:
-			t.Errorf("%s: expected to be wired but was not\n--- run ---\n%s", lang, out)
-		case !want && detected[lang]:
-			t.Errorf("%s: expected NOT to be wired (outcome %d) but was", lang, outcome)
-		}
-	}
-	if len(unresolved) > 0 {
-		t.Errorf("wired servers that do not resolve on PATH: %v", unresolved)
-	}
-	if !amd64 && !strings.Contains(out, "Skipping clangd") {
-		t.Errorf("on %s clangd must be skipped WITH a reason, not silently\n%s", runtime.GOARCH, out)
-	}
-}
-
-func parseMatrix(t *testing.T, out string) (detected map[string]bool, unresolved []string) {
-	t.Helper()
-	detected = map[string]bool{}
-	section := ""
-	for _, raw := range strings.Split(out, "\n") {
-		l := strings.TrimSpace(raw)
-		switch l {
-		case "===DETECTED===", "===UNRESOLVED===":
-			section = l
-			continue
-		}
-		if l == "" {
-			continue
-		}
-		switch section {
-		case "===DETECTED===":
-			detected[l] = true
-		case "===UNRESOLVED===":
-			unresolved = append(unresolved, l)
-		}
-	}
-	if len(detected) == 0 {
-		t.Fatalf("no languages detected at all — the run did not work:\n%s", out)
-	}
-	return detected, unresolved
-}
-
-func isAmd64(t *testing.T, o runOpts) bool {
-	t.Helper()
-	out, err := runLib(t, o, `uname -m`)
-	if err != nil {
-		t.Fatalf("uname: %v\n%s", err, out)
-	}
-	m := strings.TrimSpace(lastLine(out))
-	return m == "x86_64" || m == "amd64"
-}
-
-func lastLine(s string) string {
-	parts := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	return parts[len(parts)-1]
 }
 
 func TestToolchainProvisioningIsIdempotent(t *testing.T) {
@@ -371,13 +232,13 @@ func TestToolchainProvisioningIsIdempotent(t *testing.T) {
 		t.Fatalf("after teardown the store under %s is empty — the save half never wrote, "+
 			"so no later run can restore anything\n--- teardown ---\n%s", home, teardown)
 	}
-	t.Logf("cold seed installed %d server(s); store now carries %v", cold, store)
+	t.Logf("cold seed installed %d tool(s); store now carries %v", cold, store)
 
 	// A second `proveo run` over the SAME workspace and the same store is where
 	// the operator meets this claim: what one run installed, the next restores.
 	second := toolchainSandboxHome(t, "claudecode", work, home)
 	if warm := seedInstalls(t, second); warm > 0 {
-		t.Errorf("the second run's seed installed %d server(s) again (cold installed %d) — "+
+		t.Errorf("the second run's seed installed %d tool(s) again (cold installed %d) — "+
 			"the restore half is not reading the store, so every run pays the download again",
 			warm, cold)
 	}
@@ -394,38 +255,17 @@ func TestToolchainRespectsItsOptOuts(t *testing.T) {
 		env  map[string]string
 	}{
 		{"auto_install_tools_false", map[string]string{"PROVEO_AUTO_INSTALL_TOOLS": "false"}},
-		{"lsp_install_off", map[string]string{"PROVEO_LSP_INSTALL": "off"}},
-		{"min_files_above_fixture", map[string]string{"PROVEO_LSP_MIN_FILES": "5"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := runLib(t, runOpts{run: k, env: tc.env, timeout: 2 * time.Minute},
-				`ensure_language_servers /work`)
+				`proveo_provision_toolchain /work`)
 			if err != nil {
 				t.Fatalf("run: %v\n%s", err, out)
 			}
-			if strings.Contains(out, "Installing") {
+			if strings.Contains(out, "Installing") || strings.Contains(out, "Dynamically installing") {
 				t.Errorf("%v did not suppress provisioning:\n%s", tc.env, out)
 			}
 		})
-	}
-}
-
-func TestToolchainOptOutStillSeesInstalledServers(t *testing.T) {
-	if !envflag.On(os.Getenv("PROVEO_TOOLCHAIN_TEST")) {
-		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to drive the opt-out through a real sandbox")
-	}
-	out, err := runLib(t, runOpts{
-		env:     map[string]string{"PROVEO_AUTO_INSTALL_TOOLS": "false"},
-		timeout: 2 * time.Minute,
-	}, `ensure_language_servers /work; detect_workspace_lsps /work | cut -d'|' -f1`)
-	if err != nil {
-		t.Fatalf("run: %v\n%s", err, out)
-	}
-	for _, lang := range []string{"typescript", "bash", "plantuml"} {
-		if !strings.Contains(out, lang) {
-			t.Errorf("with auto-install off, baked server %q was not detected — "+
-				"PATH setup must not sit behind the opt-out\n%s", lang, out)
-		}
 	}
 }
 
@@ -442,7 +282,7 @@ func TestToolchainFloorInvariantsHoldForEveryHarness(t *testing.T) {
 	for _, name := range toolchainHarnesses {
 		t.Run(name, func(t *testing.T) {
 			out, err := runLib(t, runOpts{target: name, timeout: 2 * time.Minute}, `
-for b in plantuml plantuml-lsp mise jq git; do
+for b in plantuml mise jq git; do
   command -v "$b" >/dev/null 2>&1 && echo "HAVE $b" || echo "MISS $b"
 done
 echo "PLANTUML_COPIES=$(type -a plantuml 2>/dev/null | awk '{print $NF}' \
@@ -450,7 +290,7 @@ echo "PLANTUML_COPIES=$(type -a plantuml 2>/dev/null | awk '{print $NF}' \
 			if err != nil {
 				t.Fatalf("probe %s: %v\n%s", name, err, out)
 			}
-			for _, want := range []string{"plantuml", "plantuml-lsp", "mise", "jq", "git"} {
+			for _, want := range []string{"plantuml", "mise", "jq", "git"} {
 				if !strings.Contains(out, "HAVE "+want) {
 					t.Errorf("%s lacks floor tool %q — proveo/base is meant to provide it\n%s", name, want, out)
 				}
@@ -467,25 +307,22 @@ func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to read the baked lib inside a sandbox per harness")
 	}
 	required := []string{
-		"_proveo_lock_installs",            // §7/§8 concurrency guard
-		"_go_current_version",              // honours a go.mod toolchain pin
-		"ensure_language_servers",          // §8 provisioning
-		"_lsp_mise_spec",                   // the recipe table
-		"_proveo_github_token",             // GitHub API auth for ubi recipes
-		"_proveo_walk",                     // the prune list §7c, §7d and §8 must share
-		"_proveo_project_roots",            // NESTED project discovery, every language
-		"ensure_dependency_trees",          // §7d host-built dependency probe
-		"ensure_jvm_toolchain",             // Gradle/Android build tools from the build files
-		"_dep_lang_class",                  // the per-language remedy table
-		"proveo_provision_toolchain",       // §7 install-shaped work, reached by BOTH backends
-		"_proveo_agent_home",               // the home the AGENT runs with, not this process's
-		"_proveo_persist_tool_env",         // the resolved PATH, written where bash will read it
-		"proveo_compose_house_rules",       // §7e proveo's conventions as user-level instructions
-		"_proveo_write_block",              // marked-region rewrite that spares operator content
-		"proveo_apply_ui_defaults",         // §7g sandbox theme + syntax highlighting
-		"proveo_install_claude_hooks",      // §7h the cwd guard that names a vanished working directory
-		"proveo_install_git_sync_hooks",    // turn-end commit+push before idle/Stop
-		"proveo_enable_claude_lsp_plugins", // §7i seeded code-intelligence plugins, enabled per binary
+		"_proveo_lock_installs",         // §7 concurrency guard
+		"_go_current_version",           // honours a go.mod toolchain pin
+		"_proveo_github_token",          // GitHub API auth for mise installs
+		"_proveo_walk",                  // the prune list §7c and §7d share
+		"_proveo_project_roots",         // NESTED project discovery, every language
+		"ensure_dependency_trees",       // §7d host-built dependency probe
+		"ensure_jvm_toolchain",          // Gradle/Android build tools from the build files
+		"_dep_lang_class",               // the per-language remedy table
+		"proveo_provision_toolchain",    // §7 install-shaped work, reached by BOTH backends
+		"_proveo_agent_home",            // the home the AGENT runs with, not this process's
+		"_proveo_persist_tool_env",      // the resolved PATH, written where bash will read it
+		"proveo_compose_house_rules",    // §7e proveo's conventions as user-level instructions
+		"_proveo_write_block",           // marked-region rewrite that spares operator content
+		"proveo_apply_ui_defaults",      // §7g sandbox theme + syntax highlighting
+		"proveo_install_claude_hooks",   // §7h the cwd guard that names a vanished working directory
+		"proveo_install_git_sync_hooks", // turn-end commit+push before idle/Stop
 	}
 	for _, name := range toolchainHarnesses {
 		t.Run(name, func(t *testing.T) {
@@ -512,7 +349,7 @@ func TestToolchainShipsNoDuplicateBinaries(t *testing.T) {
 		t.Skip("set PROVEO_TOOLCHAIN_TEST=1 to scan the image from inside a sandbox")
 	}
 	out, err := runLib(t, runOpts{timeout: 2 * time.Minute}, `
-for b in plantuml plantuml-lsp mise node npm git gh jq tmux rg; do
+for b in plantuml mise node npm git gh jq tmux rg; do
   command -v "$b" >/dev/null 2>&1 || continue
   n=$(type -a "$b" 2>/dev/null | awk '{print $NF}' | xargs -r -n1 readlink -f 2>/dev/null | sort -u | wc -l)
   [ "$n" -gt 1 ] && echo "DUPLICATE $b ($n distinct files)"

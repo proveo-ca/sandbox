@@ -12,7 +12,7 @@ func budgetForm() *Form {
 	return &Form{
 		Banner: Banner(),
 		Title:  "run claudecode — confirm or change this run",
-		Header: []string{"git: r", "keys: K", "tooling: t", "lsp: l", "subagents: 7", "hooks: h", "llms: m"},
+		Header: []string{"git: r", "keys: K", "tooling: t", "subagents: 7", "hooks: h", "llms: m"},
 		Rows: []Row{
 			{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}},
 			{Label: "credentials", Options: []string{"forward", "broker"}},

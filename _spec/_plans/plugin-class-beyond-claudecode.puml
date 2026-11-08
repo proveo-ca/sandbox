@@ -3,9 +3,10 @@
 skinparam noteTextAlignment left
 ' purpose: the plugin class stays claudecode-only until a second harness ships a seedable plugin cache
 ' status: proposed 2026-09-17, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+' REMOVED 2026-10-30: plugin:claudecode, its seed and the lsp-plugins-seed spec
+' left with the LSP removal (_spec/defs/harness-image-layers.puml, LSP REMOVED).
+' No plugin class exists now; the history below names what this plan waited on.
 ' would touch: packages/lib/entrypoint-lib.sh (_proveo_class_wire plugin:* arms)
-' would touch: internal/contract/lsp_config_parity_test.go (configWiring table)
-'   what already ships ............. _spec/defs/claudecode/lsp-plugins-seed.puml
 '   the chain this split out of .... _spec/packages/lib/config-seeding-and-persistence.puml
 '   the seed order .................. _spec/packages/lib/seed-and-launch.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
@@ -27,7 +28,7 @@ skinparam noteTextAlignment left
 ' ⇔ plugin-on rule that is not an install prompt. Then add a plugin:<target>
 ' arm, a probe, and a contract row. Until then the table's missing arms are
 ' the decision, not an omission.
-title PLANNED — plugin class past claudecode waits on a second seed
+title MOOT since 2026-10-30 — the plugin class it would extend is gone
 
 component "**plugin:claudecode**\n""configure_claude_plugins""\nships today" as HAVE <<app>>
 component "the seed\n""/opt/proveo/claude-plugins""\none vendor's marketplace" as SEED <<db>>
@@ -69,7 +70,7 @@ legend bottom
   A second harness ships a seedable plugin cache. Then: a plugin:<target> arm
   in _proveo_class_wire, a probe, and a row in internal/contract's configWiring.
   --
-  Until then: do nothing. The claudecode seed and enable-per-binary rule live in
-  _spec/defs/claudecode/lsp-plugins-seed.puml and stay there.
+  Until then: do nothing. The claudecode seed this plan extended was removed
+  2026-10-30 with the LSP feature.
 end legend
 @enduml

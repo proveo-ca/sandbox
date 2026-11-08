@@ -50,7 +50,7 @@ func cleanCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would be removed, without removing it")
 	cmd.Flags().BoolVar(&homes, "homes", false, "also remove PROVEO_HOME (~/.proveo) durable session/config cache")
 	cmd.Flags().BoolVar(&tools, "tools", false,
-		"also remove toolchains provisioned on demand (language servers, Go, JDK) — they reinstall on next run")
+		"also remove toolchains provisioned on demand (Go, JDK, Node, Python) — they reinstall on next run")
 	return cmd
 }
 

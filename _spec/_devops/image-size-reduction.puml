@@ -14,6 +14,10 @@
 ' plan" below as the plan this record grew from. The Dockerfile SPEC pointers
 ' cite it as the record of why each cut is shaped the way it is.
 ' Wall-clock lives in _spec/internal/maintain/build-schedule.puml.
+' REMOVED 2026-10-30: base-node-lsp, its six servers, plantuml-lsp, the
+' mcp-language-server/gopls builders and jdtls left the fleet
+' (_spec/defs/harness-image-layers.puml, LSP REMOVED). Rows and findings below
+' that name them are the record as measured, not the current tree.
 '
 ' ── WHAT LANDED, AND WHAT THE REBUILD MEASURED ─────────────────────────────
 ' `mise run build all` after the change, 14/14 targets, no failures:

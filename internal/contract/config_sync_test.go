@@ -36,7 +36,7 @@ echo "rc=$?"`
 // The claudecode/cursor/opencode shape, as ConfigSet encodes it.
 const cfgSet = ".claude|.claude|;.cursor|.cursor|auth.json"
 
-// What step 3 exists for: a wired MCP server, an LSP config and a settings merge
+// What step 3 exists for: a wired MCP server, a skill and a settings merge
 // survive a teardown and are in place before the next run's agent reads them.
 func TestConfigSyncRoundTripsTheHarnessConfiguration(t *testing.T) {
 	t.Parallel()
@@ -44,14 +44,14 @@ func TestConfigSyncRoundTripsTheHarnessConfiguration(t *testing.T) {
 	agent, state := t.TempDir(), t.TempDir()
 	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_CONFIG_DIRS": cfgSet}
 
-	// A previous run persisted settings and a proveo-lsp plugin.
-	seedFile(t, filepath.Join(state, ".claude", "settings.json"), `{"enabledPlugins":{"gopls-lsp@x":true}}`)
-	seedFile(t, filepath.Join(state, ".claude", "skills", "proveo-lsp", ".lsp.json"), `{"bash":{}}`)
+	// A previous run persisted settings and a skill.
+	seedFile(t, filepath.Join(state, ".claude", "settings.json"), `{"enabledPlugins":{"example@x":true}}`)
+	seedFile(t, filepath.Join(state, ".claude", "skills", "example", "SKILL.md"), "# example\n")
 	runConfigSync(t, bash, env, "restore")
 
 	for _, rel := range []string{
 		filepath.Join(".claude", "settings.json"),
-		filepath.Join(".claude", "skills", "proveo-lsp", ".lsp.json"),
+		filepath.Join(".claude", "skills", "example", "SKILL.md"),
 	} {
 		if _, err := os.Stat(filepath.Join(agent, rel)); err != nil {
 			t.Fatalf("restore did not place %s where the agent reads it: %v", rel, err)

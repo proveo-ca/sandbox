@@ -101,9 +101,9 @@ pills and the first-run choice prompt.
 
 | Agent | Images | Notes |
 | --- | --- | --- |
-| **opencode** | `opencode` · `opencode-browser` | subagent crew; native LSP; `--local-model` |
+| **opencode** | `opencode` · `opencode-browser` | subagent crew; `--local-model` |
 | **Claude Code** | `claudecode` (+ `-solidity`, `-browser`) | MCP / Solidity toolchain; subscription auth (Anthropic) |
-| **Codex** | `codex` · `codex-browser` | same loop as Claude Code; ChatGPT-plan login or `OPENAI_API_KEY`; LSP over MCP |
+| **Codex** | `codex` · `codex-browser` | same loop as Claude Code; ChatGPT-plan login or `OPENAI_API_KEY` |
 | **Cursor** | `cursor` · `cursor-browser` | vendor-pinned inference; subscription auth |
 
 `-browser` variants add **Playwright + Chromium** (opt-in via the picker, sharing one Chromium

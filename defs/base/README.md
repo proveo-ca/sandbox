@@ -37,15 +37,14 @@ debian:bookworm-slim
      ├── cursor                    cursor-agent binary; no runtime
      │    └── cursor-browser
      └── proveo/base-node          + Node 22 LTS + pnpm + Bun
-          └── proveo/base-node-lsp        + workspace language servers
-               ├── opencode
-               │    └── opencode-browser
-               ├── codex
-               │    └── codex-browser
-               ├── claudecode (mcp)
-               │    ├── claudecode-solidity
-               │    └── claudecode-browser
-               └── proveo/base-node-browser   + Playwright + Chromium + agent-browser  (opt-in target)
+          ├── opencode
+          │    └── opencode-browser
+          ├── codex
+          │    └── codex-browser
+          ├── claudecode (mcp)
+          │    ├── claudecode-solidity
+          │    └── claudecode-browser
+          └── proveo/base-node-browser   + Playwright + Chromium + agent-browser  (opt-in target)
 ```
 
 `<harness>-browser` is the `defs/base-node-browser` Dockerfile built on `proveo/<harness>`.
@@ -60,7 +59,7 @@ debian:bookworm-slim
   bits. Pass the prefixes you touched (e.g. `proveo-harden /usr /opt`) so the
   scan doesn't re-walk the whole filesystem.
 - Every harness build ensures its parent (`proveo/base`, or
-  `proveo/base-node-lsp` for Node harnesses) first, so a lone
+  `proveo/base-node` for Node harnesses) first, so a lone
   `mise build <harness>` works on a clean machine and won't reuse a stale local
   tag from a different lineage.
 - Per-harness users, runtimes, configs, and entrypoints do NOT belong here. If

@@ -8,7 +8,7 @@ func TestPinVarUpperSnakesTheTarget(t *testing.T) {
 	for target, want := range map[string]string{
 		"opencode":            "PROVEO_TEST_OPENCODE_IMAGE",
 		"claudecode-solidity": "PROVEO_TEST_CLAUDECODE_SOLIDITY_IMAGE",
-		"base-node-lsp":       "PROVEO_TEST_BASE_NODE_LSP_IMAGE",
+		"base-node-browser":   "PROVEO_TEST_BASE_NODE_BROWSER_IMAGE",
 	} {
 		if got := PinVar(target); got != want {
 			t.Errorf("PinVar(%q) = %q, want %q", target, got, want)

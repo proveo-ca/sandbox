@@ -123,8 +123,8 @@ title Workspace dependency trees — one table, isolated by copy, installed befo
 '   terraform  `terraform init -input=false` honours .terraform.lock.hcl;
 '              `-upgrade` would rewrite it.
 '   rust       `cargo fetch` — crates land in CARGO_HOME, outside the tree.
-'   go         `go mod download` — modules land in GOMODCACHE, and gopls needs
-'              them present.
+'   go         `go mod download` — modules land in GOMODCACHE, where `go build`
+'              and `go test` read them.
 '   lua        luarocks installs INTO the tree named by _dep_lang_dirs, from the
 '              rockspec that roots it; bare `--only-deps` with no rockspec is an
 '              error, so the rockspec is resolved and passed by name.

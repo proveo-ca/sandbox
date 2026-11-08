@@ -5,14 +5,10 @@
 ARG SANDBOX_TEMPLATE=docker/sandbox-templates:shell-docker-0.5.0
 
 FROM golang:1.26-trixie AS proveo-entrypoint-builder
-ARG PLANTUML_LSP_VERSION=v0.5.3
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
     go mod download
-RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
-    --mount=type=cache,id=proveo-base-gocache,target=/root/.cache/go-build,sharing=locked \
-    CGO_ENABLED=0 GOBIN=/out go install "github.com/ptdewey/plantuml-lsp@${PLANTUML_LSP_VERSION}"
 COPY cmd ./cmd
 COPY internal ./internal
 RUN --mount=type=cache,id=proveo-base-gomod,target=/go/pkg/mod,sharing=locked \
@@ -29,7 +25,7 @@ ARG SANDBOX_TEMPLATE
 ARG DEBIAN_FRONTEND=noninteractive
 
 # The template's runtime user is `agent`; the build steps below are root's.
-# Downstream layers (base-node, base-node-lsp, the defs) apt-install and
+# Downstream layers (base-node, base-node-browser, the defs) apt-install and
 # npm -g, so this image ends as root and each LEAF def declares its own USER.
 USER root
 
@@ -38,7 +34,7 @@ USER root
 WORKDIR /
 
 COPY --chmod=0755 defs/base/proveo-harden /usr/local/sbin/proveo-harden
-COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /out/plantuml-lsp /usr/local/bin/
+COPY --chmod=0755 --from=proveo-entrypoint-builder /out/proveo-entrypoint /usr/local/bin/
 
 # Only what the template does NOT already carry.
 # SPEC: _spec/_devops/image-size-reduction.puml

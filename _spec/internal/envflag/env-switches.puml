@@ -94,8 +94,8 @@ skinparam noteTextAlignment left
 ' MEASURED here: packages/lib/entrypoint-lib.sh:8-40 defines _proveo_env_word and
 ' proveo_env_on / proveo_env_off / proveo_env_enabled with the envflag words.
 ' Reported: they ignore case, trim, run under bash 3.2 and 5, and keep REPLY,
-' and 18 switch sites are converted. PROVEO_LSP_INSTALL now reads on, true and 1
-' as auto. PROVEO_SMOKE_TEST takes every on word — before N32 only "1" — and the
+' and 18 switch sites are converted. PROVEO_LSP_INSTALL read on, true and 1
+' as auto until its removal (2026-10-30). PROVEO_SMOKE_TEST takes every on word — before N32 only "1" — and the
 ' hermes and opencode entrypoints call run_smoke_test. PROVEO_DEPS's image mode
 ' goes through proveo_env_off (_proveo_deps_mode, dependency-trees.puml).
 ' Two standalone scripts cannot source the lib and are listed exemptions:

@@ -46,7 +46,7 @@ func TestBaseExtendsASandboxTemplate(t *testing.T) {
 func TestEveryArgUsedByFromIsGlobal(t *testing.T) {
 	t.Parallel()
 	for _, rel := range []string{"defs/base/Dockerfile", "defs/base-node/Dockerfile",
-		"defs/base-node-lsp/Dockerfile", "defs/base-node-browser/Dockerfile"} {
+		"defs/base-node-browser/Dockerfile"} {
 		src := readFileOrFail(t, filepath.Join(repoRoot(t), rel))
 		firstFROM := regexp.MustCompile(`(?m)^FROM `).FindStringIndex(src)
 		if firstFROM == nil {

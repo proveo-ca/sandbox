@@ -73,8 +73,8 @@ CORE ARROW_OPTIONAL TOOLS : ""--tools"" only
 
 note bottom of TOOLS
   **A cache, held to a stricter liveness rule than everything else.** The
-  toolchain tree is what makes install-once/run-many work: language servers, the
-  Go toolchain and the jdtls JDK land under PROVEO_HOME, so a warm run installs
+  toolchain tree is what makes install-once/run-many work: the Go toolchain,
+  JDK, Node and Python pins land under PROVEO_HOME, so a warm run installs
   nothing. Nothing else prunes it, and it only grows.
 
   **One tree per platform, plus the legacy one.** ""_proveo_tool_home"" writes to

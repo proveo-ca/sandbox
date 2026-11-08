@@ -62,7 +62,7 @@ type Manifest struct {
 	Description  string            `yaml:"description"`
 	Subscription bool              `yaml:"subscription"` // subscription/login agent: warn, don't prompt for keys
 	Stability    string            `yaml:"stability"`    // experimental | candidate | stable
-	Kind         string            `yaml:"kind"`         // coding (default) | assistant: no toolchain, dependency or LSP provisioning
+	Kind         string            `yaml:"kind"`         // coding (default) | assistant: no toolchain or dependency provisioning
 	Images       map[string]string `yaml:"images"`       // target name -> image ref
 	Workspace    Workspace         `yaml:"workspace"`    // mount model
 	Home         Home              `yaml:"home"`         // durable ~/.proveo session/config mounts
@@ -75,8 +75,8 @@ type Manifest struct {
 	Daemon *bool `yaml:"daemon"` // false: the sandbox promises its agent no Docker daemon
 }
 
-// KindAssistant marks a general assistant: the seed provisions no toolchain,
-// dependency trees or language servers for it.
+// KindAssistant marks a general assistant: the seed provisions no toolchain
+// or dependency trees for it.
 const KindAssistant = "assistant"
 
 // IsAssistant reports whether the harness is a general assistant, not a coding agent.

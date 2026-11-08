@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/packages/lib/steps.puml, _spec/packages/lib/language-server-provisioning.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/github-ssh-hosts.puml
+# SPEC: _spec/packages/lib/steps.puml, _spec/_paradigms/runtime-user-boundary.puml, _spec/cmd/proveo-entrypoint/prep-process-boundary.puml, _spec/_runtimes/toolchain-provisioning.puml, _spec/internal/entrypoint/model-alias-bridges.puml, _spec/internal/sbx/state-sync.puml, _spec/internal/sbx/ide-attach.puml, _spec/internal/sbx/seed-node-version-abort.puml, _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/github-ssh-hosts.puml
 
 if [[ -z "${HOME:-}" || ! -w "${HOME:-/}" ]]; then
  export HOME=/tmp
@@ -398,10 +398,10 @@ _mise_install() {
   local spec="$1" tok="${2:-}"
   if [ -n "$tok" ]; then
     MISE_YES=1 GITHUB_TOKEN="$tok" \
-      _proveo_bounded "${PROVEO_LSP_INSTALL_TIMEOUT:-180}" mise use -g "$spec" 2>&1
+      _proveo_bounded "${PROVEO_MISE_INSTALL_TIMEOUT:-180}" mise use -g "$spec" 2>&1
   else
     MISE_YES=1 \
-      _proveo_bounded "${PROVEO_LSP_INSTALL_TIMEOUT:-180}" mise use -g "$spec" 2>&1
+      _proveo_bounded "${PROVEO_MISE_INSTALL_TIMEOUT:-180}" mise use -g "$spec" 2>&1
   fi
 }
 
@@ -494,12 +494,6 @@ ensure_project_tools() {
  elif [[ -n "$pinned" && "$current" != "$pinned" ]]; then
  echo "Go ${current} is installed but go.mod pins ${pinned}; installing the pinned toolchain..."
  _install_go "$pinned"
- fi
-
- if command -v go >/dev/null 2>&1 && ! command -v gopls >/dev/null 2>&1; then
- echo "Installing gopls for Go code intelligence..."
- go install golang.org/x/tools/gopls@latest >/dev/null 2>&1 \
-   || echo "WARN: failed to install gopls"
  fi
  fi
 
@@ -814,7 +808,7 @@ _dep_install_cmd() { local lang="$1" d="$2" spec; case "$lang" in
     [[ -n "$spec" ]] && echo "luarocks --tree lua_modules install --only-deps ${spec##*/}" ;;
   terraform) echo "terraform init -input=false" ;;   # honours .terraform.lock.hcl; -upgrade would rewrite it
   rust)      echo "cargo fetch" ;;                    # crates land in CARGO_HOME, outside the tree
-  go)        echo "go mod download" ;;                # modules land in GOMODCACHE; gopls needs them present
+  go)        echo "go mod download" ;;
 esac; return 0; }
 
 _dep_install_idempotent() { case "$1" in "npm ci"*) return 1 ;; esac; return 0; }
@@ -1401,96 +1395,6 @@ proveo_install_git_sync_hooks() {
   return 0
 }
 
-# SPEC: _spec/defs/claudecode/lsp-plugins-seed.puml
-_claude_lsp_plugins() { echo "typescript-lsp pyright-lsp gopls-lsp rust-analyzer-lsp clangd-lsp jdtls-lsp lua-lsp"; }
-_claude_lsp_plugin_binary() { case "$1" in
-  typescript-lsp)    echo "typescript-language-server" ;;
-  pyright-lsp)       echo "pyright-langserver" ;;
-  gopls-lsp)         echo "gopls" ;;
-  rust-analyzer-lsp) echo "rust-analyzer" ;;
-  clangd-lsp)        echo "clangd" ;;
-  jdtls-lsp)         echo "jdtls" ;;
-  lua-lsp)           echo "lua-language-server" ;;
-esac; }
-_claude_lsp_plugin_lang() { case "$1" in
-  typescript-lsp)    echo "typescript" ;;
-  pyright-lsp)       echo "python" ;;
-  gopls-lsp)         echo "go" ;;
-  rust-analyzer-lsp) echo "rust" ;;
-  clangd-lsp)        echo "cpp" ;;
-  jdtls-lsp)         echo "java" ;;
-  lua-lsp)           echo "lua" ;;
-esac; }
-
-proveo_enable_claude_lsp_plugins() {
-  local target="${1:-}" home seed p bin candidates="" enabled="" langs=""
-  export PROVEO_CLAUDE_LSP_OFFICIAL=""
-  proveo_env_enabled PROVEO_CLAUDE_LSP_PLUGINS on || return 0
-  [[ "$target" == claudecode ]] || return 0
-  seed="${CLAUDE_CODE_PLUGIN_SEED_DIR:-}"
-  [[ -n "$seed" && -d "$seed/cache/claude-plugins-official" ]] || return 0
-  home="$(_proveo_agent_home)"
-  [[ -n "$home" ]] || return 0
-  for p in $(_claude_lsp_plugins); do
-    [[ -d "$seed/cache/claude-plugins-official/$p" ]] || continue
-    bin="$(_claude_lsp_plugin_binary "$p")"
-    command -v "$bin" >/dev/null 2>&1 || continue
-    candidates="${candidates:+$candidates }$p"
-  done
-  [[ -n "$candidates" ]] || return 0
-  command -v node >/dev/null 2>&1 || return 0
-  enabled="$(PROVEO_AGENT_HOME="$home" PROVEO_SEED="$seed" PROVEO_PLUGINS="$candidates" node -e '
-    const fs = require("fs"), path = require("path");
-    const home = process.env.PROVEO_AGENT_HOME + "/.claude", seed = process.env.PROVEO_SEED;
-    const MKT = "claude-plugins-official";
-    const read = (p, fallback) => { try { return JSON.parse(fs.readFileSync(p, "utf8")) || fallback; } catch (e) { return fallback; } };
-    const write = (p, j) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n"); };
-    // 1. the marketplace, at the seed clone, unless the operator has one already
-    const known = read(home + "/plugins/known_marketplaces.json", {});
-    const seedKnown = read(seed + "/known_marketplaces.json", {});
-    if (!known[MKT]) {
-      known[MKT] = seedKnown[MKT] || { source: { source: "github", repo: "anthropics/" + MKT } };
-      known[MKT].installLocation = seed + "/marketplaces/" + MKT;
-      write(home + "/plugins/known_marketplaces.json", known);
-    }
-    // 2. the install records, at the seed cache, unless already installed
-    const inst = read(home + "/plugins/installed_plugins.json", { version: 2, plugins: {} });
-    if (typeof inst.plugins !== "object" || inst.plugins === null) inst.plugins = {};
-    const seedInst = read(seed + "/installed_plugins.json", { plugins: {} }).plugins || {};
-    const now = new Date().toISOString();
-    for (const p of process.env.PROVEO_PLUGINS.split(" ")) {
-      const key = p + "@" + MKT;
-      if (inst.plugins[key]) continue;
-      const cache = seed + "/cache/" + MKT + "/" + p;
-      let version = "", installPath = "";
-      const fromSeed = (seedInst[key] || [])[0];
-      if (fromSeed && fromSeed.installPath && fs.existsSync(fromSeed.installPath)) { version = fromSeed.version; installPath = fromSeed.installPath; }
-      else { const vs = fs.existsSync(cache) ? fs.readdirSync(cache).filter(d => !d.startsWith(".")) : []; if (vs.length) { version = vs[0]; installPath = cache + "/" + vs[0]; } }
-      if (!installPath) continue;
-      inst.plugins[key] = [{ scope: "user", installPath, version, installedAt: now, lastUpdated: now }];
-    }
-    write(home + "/plugins/installed_plugins.json", inst);
-    // 3. enablement, respecting an explicit false
-    const settingsPath = home + "/settings.json";
-    const j = read(settingsPath, {});
-    if (typeof j.enabledPlugins !== "object" || j.enabledPlugins === null) j.enabledPlugins = {};
-    const on = [];
-    for (const p of process.env.PROVEO_PLUGINS.split(" ")) {
-      const key = p + "@" + MKT;
-      if (!inst.plugins[key]) continue;
-      if (j.enabledPlugins[key] === undefined) j.enabledPlugins[key] = true;
-      if (j.enabledPlugins[key] === true) on.push(p);
-    }
-    write(settingsPath, j);
-    process.stdout.write(on.join(" "));
-  ' 2>/dev/null)" || return 0
-  [[ -n "$enabled" ]] || return 0
-  for p in $enabled; do langs="${langs:+$langs }$(_claude_lsp_plugin_lang "$p")"; done
-  export PROVEO_CLAUDE_LSP_OFFICIAL="$langs"
-  echo "🧠 code intelligence plugins (seeded in the image, no install prompt): ${enabled}"
-  return 0
-}
-
 # SPEC: _spec/defs/browser-layer.puml
 _browser_skill_dir() { case "$1" in
   claudecode) echo ".claude/skills" ;;
@@ -1520,139 +1424,6 @@ proveo_seed_browser_skills() {
   return 0
 }
 
-_lsp_ext_lang() { case "$1" in
-  .ts|.tsx|.js|.jsx|.mts|.cts|.mjs|.cjs|.vue|.svelte) REPLY=typescript ;;
-  .py|.pyi) REPLY=python ;;
-  .go) REPLY=go ;; .rs) REPLY=rust ;;
-  .sh|.bash|.zsh|.ksh) REPLY=bash ;;
-  .json|.jsonc) REPLY=json ;;
-  .yml|.yaml) REPLY=yaml ;;
-  .html|.htm) REPLY=html ;;
-  .css|.scss|.sass|.less) REPLY=css ;;
-  .md|.mdx) REPLY=markdown ;;
-  .toml) REPLY=toml ;;
-  .tf|.tfvars) REPLY=terraform ;;
-  .lua) REPLY=lua ;; .java) REPLY=java ;;
-  .c|.h|.cc|.cpp|.cxx|.hpp|.hh) REPLY=cpp ;;
-  .rb) REPLY=ruby ;; .kt|.kts) REPLY=kotlin ;; .nix) REPLY=nix ;; .zig) REPLY=zig ;;
-  .puml|.plantuml) REPLY=plantuml ;;
-  .mmd|.mermaid) REPLY=mermaid ;;
-  *) REPLY="" ;;
-esac; }
-_lsp_marker_lang() { case "$1" in
-  package.json|tsconfig.json|jsconfig.json) REPLY=typescript ;;
-  pyproject.toml|requirements.txt|setup.py|Pipfile) REPLY=python ;;
-  go.mod) REPLY=go ;; Cargo.toml) REPLY=rust ;;
-  Dockerfile|Containerfile|docker-compose.yml|docker-compose.yaml) REPLY=docker ;;
-  Gemfile) REPLY=ruby ;;
-  .terraform.lock.hcl|Terraform.lock.hcl) REPLY=terraform ;;
-  *) REPLY="" ;;
-esac; }
-_lsp_server() { case "$1" in
-  typescript) echo "typescript-language-server --stdio" ;;
-  python) echo "pyright-langserver --stdio" ;;
-  bash) echo "bash-language-server start" ;;
-  docker) echo "docker-langserver --stdio" ;;
-  yaml) echo "yaml-language-server --stdio" ;;
-  json) echo "vscode-json-language-server --stdio" ;;
-  html) echo "vscode-html-language-server --stdio" ;;
-  css) echo "vscode-css-language-server --stdio" ;;
-  markdown) echo "marksman server" ;;
-  toml) echo "taplo lsp stdio" ;;
-  terraform) echo "terraform-ls serve" ;;
-  lua) echo "lua-language-server" ;;
-  go) echo "gopls" ;;
-  rust) echo "rust-analyzer" ;;
-  java) echo "jdtls" ;;
-  cpp) echo "clangd" ;;
-  ruby) echo "ruby-lsp" ;;
-  kotlin) echo "kotlin-language-server" ;;
-  nix) echo "nil" ;;
-  zig) echo "zls" ;;
-  plantuml) echo "plantuml-lsp" ;;
-esac; }
-
-_lsp_mise_spec() { case "$1" in
-  rust)      echo "rust-analyzer" ;;
-  markdown)  echo "marksman" ;;
-  toml)      echo "taplo" ;;
-  terraform) echo "terraform-ls" ;;
-  lua)       echo "lua-language-server" ;;
-  zig)       echo "zls" ;;
-  cpp)       echo "ubi:clangd/clangd" ;;
-  kotlin)    echo "ubi:fwcd/kotlin-language-server[exe=kotlin-language-server,extract_all=true,bin_path=bin]" ;;
-esac; }
-
-_lsp_precondition() {
-  case "$1" in
-    cpp)
-      case "$(uname -m)" in
-        x86_64|amd64) ;;
-        *) echo "clangd publishes x86_64 Linux builds only — none for $(uname -m)"; return 1 ;;
-      esac ;;
-  esac
-  return 0
-}
-
-_lsp_custom_install() { case "$1" in
-  java) _install_jdtls "${2:-}" ;;
-  *)    return 1 ;;
-esac; }
-_lsp_has_custom_install() { case "$1" in
-  java) return 0 ;;
-  *)    return 1 ;;
-esac; }
-
-_install_jdtls() {
-  local gh_token="${1:-}" t home tarball rc
-  t="$(_proveo_tool_home)"
-  home="$t/.local/share/proveo/jdtls"
-  local url="${PROVEO_JDTLS_URL:-https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz}"
-
-  if [ "$(_java_major)" -lt 21 ]; then
-    echo "   provisioning a Java 21 runtime (jdtls needs it; the floor's JRE is $(_java_major))..."
-    _mise_install "java@21" "$gh_token" >/dev/null 2>&1 \
-      || { echo "   could not provision Java 21"; return 1; }
-    _proveo_tool_path
-  fi
-
-  tarball="$(mktemp)" || return 1
-  _proveo_bounded "${PROVEO_LSP_INSTALL_TIMEOUT:-180}" \
-    curl -fsSL --connect-timeout 5 "$url" -o "$tarball"
-  rc=$?
-  if [ $rc -ne 0 ]; then rm -f "$tarball"; return 1; fi
-  mkdir -p "$home"
-  tar -xzf "$tarball" -C "$home"
-  rc=$?
-  rm -f "$tarball"
-  [ $rc -eq 0 ] || return 1
-
-  mkdir -p "$t/.local/bin"
-  cat > "$t/.local/bin/jdtls" <<PROVEO_JDTLS
-#!/bin/sh
-J="${home}"
-case "\$(uname -m)" in
-  aarch64|arm64) CFG="\$J/config_linux_arm" ;;
-  *)             CFG="\$J/config_linux" ;;
-esac
-L=\$(ls "\$J"/plugins/org.eclipse.equinox.launcher_*.jar 2>/dev/null | head -n1)
-[ -n "\$L" ] || { echo "jdtls: equinox launcher not found under \$J" >&2; exit 1; }
-exec java \\
-  -Declipse.application=org.eclipse.jdt.ls.core.id1 \\
-  -Dosgi.bundles.defaultStartLevel=4 \\
-  -Declipse.product=org.eclipse.jdt.ls.core.product \\
-  -Dosgi.sharedConfiguration.area="\$CFG" \\
-  -Dosgi.sharedConfiguration.area.readOnly=true \\
-  -Dosgi.configuration.cascaded=true \\
-  --add-modules=ALL-SYSTEM \\
-  --add-opens java.base/java.util=ALL-UNNAMED \\
-  --add-opens java.base/java.lang=ALL-UNNAMED \\
-  -jar "\$L" \\
-  -data "\${JDTLS_WORKSPACE:-\$HOME/.cache/jdtls-workspace}" "\$@"
-PROVEO_JDTLS
-  chmod +x "$t/.local/bin/jdtls"
-}
-
 _proveo_walk() {
   local root="$1"; shift
   find "$root" \
@@ -1664,231 +1435,6 @@ _proveo_walk() {
        -o -name .terraform -o -name Pods \
        -o -name .pnpm-store -o -name .npm -o -name .yarn \) -prune \
     -o "$@" 2>/dev/null
-}
-
-_lsp_walk() {
-  local scan_root="$1" f base ext lang marker ftype mext ml
-  while IFS= read -r -d '' f; do
-    base="${f##*/}"
-    lang=""; ftype=""
-    _lsp_marker_lang "$base"; marker="$REPLY"
-    if [[ -n "$marker" ]]; then
-      lang="$marker"
-      [[ "$lang" == docker ]] && ftype="$base"
-    fi
-    if [[ -z "$lang" ]]; then
-      if [[ "$base" == *.* ]]; then ext=".${base##*.}"; else ext=""; fi
-      if [[ -n "$ext" ]]; then
-        _lsp_ext_lang "$ext"; lang="$REPLY"
-        [[ -n "$lang" ]] && ftype="$ext"
-      fi
-    fi
-    if [[ -z "$lang" && ( "$base" == *Dockerfile* || "$base" == *Containerfile* ) ]]; then
-      lang=docker; ftype="$base"
-    fi
-    [[ -n "$lang" ]] || continue
-    printf '%s\t%s\n' "$lang" "$ftype"
-    if [[ -n "$marker" && "$base" == *.* ]]; then
-      mext=".${base##*.}"
-      _lsp_ext_lang "$mext"; ml="$REPLY"
-      [[ -n "$ml" ]] && printf '%s\t%s\n' "$ml" "$mext"
-    fi
-  done < <(_proveo_walk "$scan_root" -type f -print0)
-}
-
-# SPEC: _spec/packages/lib/language-server-provisioning.puml
-ensure_language_servers() {
-  _proveo_tool_path
-  _proveo_auto_install_enabled || return 0
-
-  local scan_root="${1:-$(pwd)}" mode min_files installed="" lang cnt server cmd spec reason out rc gh_token
-  proveo_env_enabled PROVEO_LSP_INSTALL on || return 0
-  mode="$(printf '%s' "${PROVEO_LSP_INSTALL:-auto}" | tr '[:upper:]' '[:lower:]')"
-  proveo_env_on PROVEO_LSP_INSTALL && mode=auto
-  min_files="${PROVEO_LSP_MIN_FILES:-1}"
-
-  if ! command -v mise >/dev/null 2>&1; then
-    echo "ℹ️  mise not on PATH — skipping language-server provisioning"
-    return 0
-  fi
-
-  gh_token="$(_proveo_github_token)"
-
-  _proveo_lock_installs || return 0
-
-  while IFS=$'\t' read -r lang cnt; do
-    [[ -n "$lang" ]] || continue
-    [[ "$cnt" -ge "$min_files" ]] || continue
-    if [[ "$mode" != auto ]]; then
-      case ",${mode}," in *",${lang},"*) ;; *) continue ;; esac
-    fi
-    server="$(_lsp_server "$lang")"
-    [[ -n "$server" ]] || continue          # server-less language (mermaid)
-    cmd="${server%% *}"
-    command -v "$cmd" >/dev/null 2>&1 && continue   # image layer, or an earlier run
-
-    spec="$(_lsp_mise_spec "$lang")"
-    if [[ -z "$spec" ]] && ! _lsp_has_custom_install "$lang"; then
-      continue                              # no recipe — see _lsp_mise_spec
-    fi
-
-    if ! reason="$(_lsp_precondition "$lang")"; then
-      echo "⏭️  Skipping ${cmd} for ${lang}: ${reason}"
-      continue
-    fi
-
-    echo "📦 Detected ${lang} (${cnt} files). Installing ${cmd}..."
-    # `out="$(failing_cmd)"; rc=$?` never assigns rc: set -e exits the seed
-    # first, and sbx tears down the live agent. A failed LSP install is a
-    # warning. `|| rc=$?` is what makes the status reachable.
-    rc=0
-    if [[ -n "$spec" ]]; then
-      out="$(_mise_install "$spec" "$gh_token")" || rc=$?
-    else
-      out="$(_lsp_custom_install "$lang" "$gh_token" 2>&1)" || rc=$?
-      [[ -n "$out" ]] && printf '%s\n' "$out"
-    fi
-
-    if [[ $rc -eq 0 ]]; then
-      installed="${installed} ${cmd}"
-    else
-      case "$out" in
-        *403*|*"rate limit"*|*Forbidden*)
-          if [[ -n "$gh_token" ]]; then
-            echo "⚠️  GitHub API refused the request for ${cmd} despite an authenticated token."
-            echo "    Check the token's scopes; code intelligence for ${lang} stays off."
-          else
-            echo "⚠️  GitHub API rate limit while installing ${cmd}, and no token was found."
-            echo "    Run 'gh auth login' on the host (proveo mounts ~/.config/gh into the"
-            echo "    container) or set GITHUB_TOKEN; code intelligence for ${lang} stays off."
-          fi ;;
-        *)
-          echo "⚠️  Failed to install ${cmd}; code intelligence for ${lang} stays off" ;;
-      esac
-    fi
-  done < <(_lsp_walk "$scan_root" | cut -f1 | sort | uniq -c \
-             | awk '{ printf "%s\t%s\n", $2, $1 }')
-
-  _proveo_unlock_installs
-  [[ -n "$installed" ]] && echo "🧠 Provisioned language servers:${installed}"
-  return 0
-}
-
-detect_workspace_lsps() {
-  local scan_root="${1:-$(pwd)}"
-  local tab; tab="$(printf '\t')"
-  _lsp_walk "$scan_root" | awk -F'\t' '
-    BEGIN {
-      n = split("typescript python java cpp go rust kotlin ruby bash json yaml docker html css markdown toml terraform lua nix zig plantuml mermaid", P, " ")
-      for (i = 1; i <= n; i++) pop[P[i]] = i - 1
-    }
-    {
-      total[$1]++
-      if ($2 != "" && !((k = $1 SUBSEP $2) in seen)) { seen[k] = 1; e[$1] = (e[$1] == "" ? $2 : e[$1] "," $2) }
-    }
-    END { for (l in total) printf "%d\t%d\t%s\t%s\n", total[l], (l in pop ? pop[l] : 999), l, e[l] }
-  ' | sort -t"$tab" -k1,1nr -k2,2n -k3,3 | while IFS="$tab" read -r cnt _pop lang extcsv; do
-    local server cmd
-    server="$(_lsp_server "$lang")"
-    [[ -n "$server" ]] || continue
-    cmd="${server%% *}"
-    command -v "$cmd" >/dev/null 2>&1 || continue
-    extcsv="$(printf '%s' "$extcsv" | tr ',' '\n' | sort -u | paste -sd, -)"
-    printf '%s|%s|%s|%s\n' "$lang" "$cnt" "${server// /|}" "$extcsv"
-  done
-}
-
-configure_claude_lsp() {
-  command -v jq >/dev/null 2>&1 || return 0
-  local scan="${1:-$(pwd)}" lsp_json plugdir
-  plugdir="$(_proveo_agent_home)/.claude/skills/proveo-lsp"
-  lsp_json="$(detect_workspace_lsps "$scan" | jq -R -s '
-    split("\n") | map(select(length > 0) | split("|")) | map(. as $f | {
-      key: $f[0],
-      value: {
-        command: $f[2],
-        args: $f[3:-1],
-        extensionToLanguage: (($f[-1] | split(",") | map(select(length > 0)))
-          | map({key: ., value: $f[0]}) | from_entries)
-      }
-    }) | from_entries')"
-  [ -z "$lsp_json" ] && lsp_json="{}"
-  if [[ -n "${PROVEO_CLAUDE_LSP_OFFICIAL:-}" ]]; then
-    lsp_json="$(printf '%s' "$lsp_json" | jq --arg drop "$PROVEO_CLAUDE_LSP_OFFICIAL" \
-      'with_entries(select(.key as $k | ($drop | split(" ") | index($k)) == null))')"
-  fi
-  [ "$lsp_json" = "{}" ] && return 0
-
-  mkdir -p "$plugdir/.claude-plugin"
-  printf '{"name":"proveo-lsp","description":"Workspace language servers (auto-detected)","version":"1.0.0"}\n' \
-    > "$plugdir/.claude-plugin/plugin.json"
-  printf '%s\n' "$lsp_json" > "$plugdir/.lsp.json"
-  echo "🧠 LSP code intelligence (Claude Code plugin): $(printf '%s' "$lsp_json" | jq -r 'keys_unsorted | join(" ")')"
-}
-
-configure_opencode_lsp() {
-  command -v jq >/dev/null 2>&1 || return 0
-  local scan="${1:-$(pwd)}" config_file matched_json existing='{}' tmp
-  config_file="${HOME}/.config/opencode/opencode.json"
-  if [[ -e "${config_file}c" ]]; then
-    echo "⚠️  Skipping automatic LSP wiring; configure lsp in ${config_file}c directly (higher-priority JSONC config)" >&2
-    return 0
-  fi
-  if [[ -e "$config_file" ]]; then
-    if ! jq -e -s 'length == 1 and (.[0] | type == "object")' "$config_file" >/dev/null 2>&1; then
-      echo "⚠️  Skipping automatic LSP wiring; fix $config_file to contain one valid JSON object" >&2
-      return 0
-    fi
-    existing="$(cat "$config_file")" || return 0
-  fi
-  matched_json="$(detect_workspace_lsps "$scan" | jq -R -s '
-    split("\n") | map(select(length > 0) | split("|")) | map({
-      key: .[0],
-      value: { command: .[2:-1],
-               extensions: (if (.[-1] | length) > 0 then (.[-1] | split(",")) else [] end) }
-    }) | from_entries
-  ')"
-  [[ -n "$matched_json" ]] || matched_json="{}"
-
-  mkdir -p "$(dirname "$config_file")"
-
-  echo "── Workspace LSP Match ──────────────────────────────"
-
-  if [[ "$(printf '%s' "$existing" | jq -r '.lsp')" == "false" ]]; then
-    echo "🔎 LSP left off: $config_file sets \"lsp\": false"
-    echo "─────────────────────────────────────────────────────"
-    return 0
-  fi
-
-  # SPEC: _spec/packages/lib/language-server-provisioning.puml
-  if [[ "$matched_json" == "{}" ]]; then
-    echo "🔎 No installed LSP matched files under $scan"
-    tmp="$(mktemp)"
-    if printf '%s' "$existing" | jq 'if (.lsp | type) == "object" then . else .lsp = true end' > "$tmp"; then
-      mv "$tmp" "$config_file"
-      echo "✅ opencode's built-in LSPs enabled: $config_file"
-    else
-      rm -f "$tmp"
-      echo "⚠️  Could not update $config_file (jq failed)" >&2
-    fi
-    echo "─────────────────────────────────────────────────────"
-    return 0
-  fi
-
-  tmp="$(mktemp)"
-  if printf '%s' "$existing" | jq --argjson matched "$matched_json" \
-       '.lsp = ((if (.lsp | type) == "object" then .lsp else {} end) as $cur | $matched + $cur)' > "$tmp"; then
-    mv "$tmp" "$config_file"
-  else
-    rm -f "$tmp"
-    echo "⚠️  Could not update $config_file (jq failed)" >&2
-    return 0
-  fi
-
-  printf '✅ Enabled matching LSPs by workspace popularity: %s\n' \
-    "$(printf '%s' "$matched_json" | jq -r 'keys_unsorted | join(" ")')"
-  echo "Config: $config_file"
-  echo "─────────────────────────────────────────────────────"
 }
 
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
@@ -1922,99 +1468,70 @@ configure_opencode_formatter() {
   fi
 }
 
-configure_cursor_lsp() {
+# Strips the LSP wiring an earlier release persisted into the synced config.
+# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
+proveo_retire_lsp_wiring() {
+  local home tmp f
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
   command -v jq >/dev/null 2>&1 || return 0
-  command -v mcp-language-server >/dev/null 2>&1 || return 0
-  local scan="${1:-$(pwd)}" cursor_home mcp_file tmp base entries
-  cursor_home="${CURSOR_CONFIG_DIR:-$(_proveo_agent_home)/.cursor}"
-  mcp_file="$cursor_home/mcp.json"
-  entries="$(detect_workspace_lsps "$scan" | jq -R -s --arg ws "$scan" '
-    split("\n") | map(select(length > 0) | split("|")) | map({
-      key: .[0],
-      value: {
-        command: "mcp-language-server",
-        args: (["--workspace", $ws, "--lsp", .[2]]
-               + (.[3:-1] | if length > 0 then ["--"] + . else [] end))
-      }
-    }) | from_entries')"
-  [[ -z "$entries" || "$entries" == "{}" ]] && return 0
-
-  mkdir -p "$cursor_home"
-  base='{}'
-  [[ -f "$mcp_file" ]] && jq -e . "$mcp_file" >/dev/null 2>&1 && base="$(cat "$mcp_file")"
-  tmp="$(mktemp)"
-  if printf '%s' "$base" | jq --argjson e "$entries" \
-       '.mcpServers = ($e + ((.mcpServers // {}) | if type == "object" then . else {} end))' > "$tmp"; then
-    mv "$tmp" "$mcp_file"
-    echo "🧠 LSP code intelligence via mcp-language-server: $(printf '%s' "$entries" | jq -r 'keys_unsorted | join(" ")')"
-  else
-    rm -f "$tmp"
-  fi
-}
-
-_codex_toml_str() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }
-
-# Writes codex's [mcp_servers.lsp_*] block into config.toml between "# >>> proveo lsp" markers.
-# SPEC: _spec/defs/codex/codex-topology.puml
-configure_codex_lsp() {
-  command -v mcp-language-server >/dev/null 2>&1 || return 0
-  local scan="${1:-$(pwd)}"
-  local codex_home="${CODEX_HOME:-$(_proveo_agent_home)/.codex}"
-  local cfg="$codex_home/config.toml" langs=() block="" line lang server i n
-  local -a f extra
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    # detect_workspace_lsps prints: lang|count|server|server-arg...|extension-csv
-    # The trailing CSV maps extensions to a language for editors; MCP has no use
-    # for it, so it is dropped rather than passed to the server as an argument.
-    IFS='|' read -ra f <<< "$line"
-    n=${#f[@]}
-    (( n >= 4 )) || continue
-    lang="${f[0]}"; server="${f[2]}"
-    extra=()
-    for (( i = 3; i < n - 1; i++ )); do extra+=("${f[$i]}"); done
-    langs+=("$lang")
-
-    block+="[mcp_servers.lsp_${lang}]"$'\n'
-    block+="command = \"mcp-language-server\""$'\n'
-    block+="args = [$(_codex_toml_str --workspace), $(_codex_toml_str "$scan")"
-    block+=", $(_codex_toml_str --lsp), $(_codex_toml_str "$server")"
-    if (( ${#extra[@]} > 0 )); then
-      block+=", $(_codex_toml_str --)"
-      for i in "${extra[@]}"; do block+=", $(_codex_toml_str "$i")"; done
+  case "${1:-}" in
+  claudecode)
+    rm -rf "$home/.claude/skills/proveo-lsp" 2>/dev/null
+    local seed=/opt/proveo/claude-plugins gone='[]'
+    f="$home/.claude/plugins/installed_plugins.json"
+    if [[ -f "$f" ]] && tmp="$(mktemp)"; then
+      gone="$(jq -c --arg s "$seed" '[(.plugins // {}) | to_entries[]
+        | select((.value | length) > 0 and all(.value[]; (.installPath // "") | startswith($s))) | .key]' "$f" 2>/dev/null)" || gone='[]'
+      if jq --arg s "$seed" '.plugins |= ((. // {}) | with_entries(.value |= map(select((.installPath // "") | startswith($s) | not)))
+          | with_entries(select(.value | length > 0)))' "$f" > "$tmp" 2>/dev/null; then mv "$tmp" "$f"; else rm -f "$tmp"; fi
     fi
-    block+="]"$'\n'$'\n'
-  done < <(detect_workspace_lsps "$scan")
-
-  (( ${#langs[@]} > 0 )) || return 0
-  mkdir -p "$codex_home" 2>/dev/null || return 0
-  touch "$cfg" 2>/dev/null || return 0
-  if printf '%s' "$block" | _proveo_write_block "$cfg" \
-       "# >>> proveo lsp (generated — edits are overwritten) >>>" \
-       "# <<< proveo lsp <<<"; then
-    echo "🧠 LSP code intelligence (Codex MCP servers): ${langs[*]}"
-  fi
+    f="$home/.claude/plugins/known_marketplaces.json"
+    if [[ -f "$f" ]] && tmp="$(mktemp)"; then
+      if jq --arg s "$seed" 'with_entries(select((.value.installLocation // "") | startswith($s) | not))' "$f" > "$tmp" 2>/dev/null
+      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
+    fi
+    f="$home/.claude/settings.json"
+    if [[ "$gone" != '[]' && -f "$f" ]] && tmp="$(mktemp)"; then
+      if jq --argjson g "${gone:-[]}" 'if (.enabledPlugins | type) == "object"
+          then .enabledPlugins |= with_entries(select(.key as $k | $g | index($k) | not)) else . end' "$f" > "$tmp" 2>/dev/null
+      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
+    fi ;;
+  codex)
+    f="${CODEX_HOME:-$home/.codex}/config.toml"
+    if [[ -f "$f" ]] && grep -qF '# >>> proveo lsp ' "$f" && tmp="$(mktemp)"; then
+      if awk 'index($0, "# >>> proveo lsp ") == 1 { skip = 1 } !skip { print } $0 == "# <<< proveo lsp <<<" { skip = 0 }' "$f" > "$tmp"
+      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
+    fi ;;
+  cursor)
+    f="${CURSOR_CONFIG_DIR:-$home/.cursor}/mcp.json"
+    if [[ -f "$f" ]] && tmp="$(mktemp)"; then
+      if jq 'if (.mcpServers | type) == "object"
+          then .mcpServers |= with_entries(select(.value.command != "mcp-language-server")) else . end' "$f" > "$tmp" 2>/dev/null
+      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
+    fi ;;
+  opencode)
+    f="${HOME}/.config/opencode/opencode.json"
+    if [[ -f "$f" ]] && jq -e 'type == "object" and has("lsp") and .lsp != false' "$f" >/dev/null 2>&1 && tmp="$(mktemp)"; then
+      if jq 'del(.lsp)' "$f" > "$tmp" 2>/dev/null; then mv "$tmp" "$f"; else rm -f "$tmp"; fi
+    fi ;;
+  esac
+  return 0
 }
 
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
-_proveo_config_classes() { echo "plugin lsp formatter"; }
+_proveo_config_classes() { echo "formatter"; }
 
 _proveo_class_wire() {
   case "$1:$2" in
-  lsp:claudecode) echo "configure_claude_lsp" ;;
-  lsp:codex) echo "configure_codex_lsp" ;;
-  lsp:opencode) echo "configure_opencode_lsp" ;;
-  lsp:cursor) echo "configure_cursor_lsp" ;;
   formatter:opencode) echo "configure_opencode_formatter" ;;
-  plugin:claudecode) echo "configure_claude_plugins" ;;
   esac
 }
-
-configure_claude_plugins() { proveo_enable_claude_lsp_plugins "${2:-}"; }
 
 proveo_wire_config() {
   local target="${1:-}" scan class fn
   [[ -n "$target" ]] || return 0
+  proveo_retire_lsp_wiring "$target"
   scan="$(_proveo_scan_root "${2:-}")"
   for class in $(_proveo_config_classes); do
     fn="$(_proveo_class_wire "$class" "$target")"
@@ -2370,7 +1887,6 @@ proveo_provision_toolchain() {
  ensure_node_toolchain "$scan"
  ensure_python_env "$scan"
  ensure_dependency_trees "$scan"
- ensure_language_servers "$scan"
  _proveo_persist_tool_env
 }
 
@@ -2456,7 +1972,7 @@ _proveo_release_paths() {
  h="$(_proveo_agent_home)"
  [[ -n "$h" ]] || return 0
  case "${1:-}" in
- claudecode) printf '%s\n' "$h/.claude/agents" "$h/.claude/settings.json" "$h/.claude/plugins/installed_plugins.json" "$h/.claude/skills/proveo-lsp" ;;
+ claudecode) printf '%s\n' "$h/.claude/agents" "$h/.claude/settings.json" ;;
  codex) c="${CODEX_HOME:-$h/.codex}"; printf '%s\n' "$h/.codex/agents" "$c/config.toml" ;;
  cursor) c="${CURSOR_CONFIG_DIR:-$h/.cursor}"; printf '%s\n' "$h/.cursor/agents" "$c/mcp.json" ;;
  opencode) printf '%s\n' "$h/.config/opencode/agents" "$h/.config/opencode/opencode.json" ;;
@@ -2738,7 +2254,7 @@ proveo_seed() {
  proveo_seed_step workspace "accepting workspace trust" "$target"
  accept_workspace_trust "$(_proveo_scan_root)"
 
- proveo_seed_step setup "wiring language servers and house rules" "$target"
+ proveo_seed_step setup "wiring formatters and house rules" "$target"
  proveo_wire_config "$target"
  proveo_compose_house_rules "$target"
  proveo_address_operator_claude "$target"
@@ -2753,22 +2269,21 @@ proveo_seed() {
  _proveo_seed_provision "$target"
 }
 
-# The seed's toolchain, dependency and language-server work, after the release.
+# The seed's toolchain and dependency work, after the release.
 _proveo_seed_provision() {
  local target="${1:-}" home
  home="$(_proveo_agent_home)"
  [[ -n "$target" && -n "$home" ]] || return 0
  printf '%s\n' "$$" > "$PROVEO_PROVISIONING" 2>/dev/null || true
  if [[ "${PROVEO_AGENT_KIND:-}" == assistant ]]; then
-  echo "🧭 assistant: no toolchain, dependency or language-server provisioning"
+  echo "🧭 assistant: no toolchain or dependency provisioning"
  else
   proveo_seed_step setup "restoring toolchain folders" "$target"
   proveo_sync_tools restore || true
   _proveo_tool_path
   _proveo_persist_tool_env
-  proveo_seed_step setup "installing toolchains, dependencies and language servers" "$target"
+  proveo_seed_step setup "installing toolchains and dependencies" "$target"
   proveo_provision_toolchain
-  proveo_wire_config "$target"
  fi
  : > "$PROVEO_TOOLCHAIN_READY" 2>/dev/null || true
  rm -f "$PROVEO_PROVISIONING" 2>/dev/null || true

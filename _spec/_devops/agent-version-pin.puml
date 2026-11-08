@@ -91,10 +91,9 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '    with nothing in the build saying so.
 '
 ' Still unpinned, and known to be (see _spec/_devops/image-size-reduction.puml
-' item (c) for the full list): the six LSP servers in base-node-lsp, and the
-' codex agent (CODEX_VERSION=latest, above).
-' The lsp-builder go installs and plantuml-lsp are pinned
-' (_spec/internal/maintain/build-schedule.puml).
+' item (c) for the full list): the codex agent (CODEX_VERSION=latest, above).
+' The six unpinned LSP servers, the lsp-builder go installs and plantuml-lsp
+' left the images 2026-10-30 (_spec/defs/harness-image-layers.puml, LSP REMOVED).
 '
 ' ── FOUNDRY: WHY A DEFAULTED ARG WAS STILL AN UPGRADE ──────────────────────
 ' `curl -L https://foundry.paradigm.xyz | bash && foundryup` installs the
