@@ -1,0 +1,64 @@
+@startuml ClipboardBridge
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: native Codex text copy and image paste across the sbx boundary
+'
+' Observed 2026-11-09: Codex 0.167.0 used the native Wayland clipboard.
+' /usr/local/bin/clipboard-bridge identified itself in Go build metadata as
+' github.com/dvdksn/clipboardbridge v0.1.0, revision 9fdd7ed5cd1b.
+' The bridge accepted create_data_source and set_selection but ignored writes.
+' Codex accepted native success and skipped its local OSC 52 fallback.
+' Text paste over the terminal and image reads used different paths.
+'
+' The upstream fix ships in clipboardbridge v0.3.0 and remains in v0.3.1.
+' It requests UTF-8 plain text through source.send, then posts to the existing
+' host clipboard-write endpoint. It forwards SBX_HOST_SESSION_ID, prefers plain
+' text over HTML, caps copies at 1 MiB and bounds transfers at five seconds.
+' It keeps image/png reads and does not expose host clipboard text for reading.
+'
+' Controlled verification used the released amd64 binaries against an isolated
+' HTTP endpoint and a Wayland client. The host clipboard was not touched:
+'   v0.1.0: image paste passed; native text copy was silently ignored.
+'   v0.3.1: image paste and native text copy passed; session_id round-tripped.
+' Release asset clipboard-bridge-linux-amd64, v0.3.1, SHA256:
+'   062a6814730904dfb38f217a3e02766abf31bff53bc4e288a678321c40e97bb7
+' The release checksum matched before executing the downloaded binary.
+'
+' Session repair: replace the agent-owned bridge process at its existing
+' WAYLAND_DISPLAY socket with the verified v0.3.1 binary and current attach's
+' SBX_HOST_SESSION_ID. Keep the image's original binary for rollback.
+' This process replacement lasts only for the current sandbox lifetime.
+' A real copy followed by paste into a host application confirms delivery.
+'
+' Durable fix: upgrade host sbx to v0.51.0 or later, enable the host setting
+' `sbx settings set clipboard.textCopy true`, and restart the sandbox.
+' Check the running bridge version if an older sandbox still shows the bug.
+' Do not remove a sandbox merely to refresh helpers before carrying work home.
+'
+' Sources:
+' https://github.com/docker/sbx-releases/issues/646
+' https://github.com/docker/sbx-releases/releases/tag/v0.51.0
+' https://github.com/docker/clipboardbridge/pull/4
+' https://github.com/docker/clipboardbridge/releases/tag/v0.3.0
+' https://github.com/docker/clipboardbridge/blob/v0.3.1/README.md
+' https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/tui/src/clipboard_copy.rs
+
+title Codex clipboard — native copy and image paste
+
+component "Codex TUI\narboard / wl-clipboard-rs" as CODEX
+component "clipboard-bridge >= v0.3.0\nWayland data control" as BRIDGE
+component "sbx host proxy\nclipboard / clipboard-write" as PROXY
+component "Host clipboard" as CLIPBOARD
+
+CODEX --> BRIDGE : native text copy
+BRIDGE --> PROXY : text + session_id
+PROXY --> CLIPBOARD : clipboard.textCopy permits write
+CLIPBOARD --> PROXY : image/png
+PROXY --> BRIDGE : clipboard.imagePaste permits read
+BRIDGE --> CODEX : image paste
+
+note bottom of BRIDGE
+  v0.1.0 ignored native text writes.
+  v0.3.0 adds the missing write path.
+  Image paste remains a separate operation.
+end note
+@enduml
