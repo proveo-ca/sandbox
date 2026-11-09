@@ -1,0 +1,88 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title GitHub access — host selection, sandbox verification
+' purpose: init chooses Git transport independently of API login; run reports credential inventory
+' covers: internal/githubaccess/access.go, internal/githubaccess/access_test.go
+' covers: cmd/proveo/init_github_access.go, cmd/proveo/init_github_access_test.go
+' covers: internal/run/credential_inventory.go, internal/run/choices.go
+' covers: internal/run/credential_inventory_test.go
+' covers: internal/backend/sandbox/github_access_test.go
+' covers: internal/choiceui/credential_lists_test.go
+' covers: internal/contract/github_access_test.go
+' covers: e2e/init_github_access_test.go
+' Accepted proposal: _spec/_plans/init-github-access.puml
+' API token storage: _spec/cmd/proveo/github-credentials.puml
+' Runtime capability: https://docs.docker.com/ai/sandboxes/configuration/credentials/#ssh-agent
+' Upstream regression: https://github.com/docker/sbx-releases/issues/835
+'
+' INIT
+' Setup retains three numbered pages. GitHub now runs the existing API-token
+' stage and then a contextual access panel. API failure does not prevent the
+' operator choosing SSH. gh owns login; proveo does not change gh's protocol.
+' The panel shows host API identity, protocol, exposed SSH fingerprints and
+' sandbox verification pending. The initial choice follows gh's github.com
+' protocol unless a previous explicit choice exists.
+' SSH agent / HTTPS token / later are independent of trust repo.
+' SSH requires readable forwarding settings and a reachable host agent with
+' keys. A configured sbx ssh.agentSocketPath wins over client SSH_AUTH_SOCK.
+' An unset fixed socket stays unset; init never pins a transient socket.
+' Repair offers retry / HTTPS / later. Disabled forwarding also offers an
+' explicit enable + restart action describing its host-wide daemon impact.
+' Keys stay in the host agent. Public keys must already be registered at GitHub.
+' init never copies private keys, creates a key, or tests by creating a commit.
+' --yes and non-TTY report host readiness without a new transport grant.
+' The choice persists atomically as transport only, in the host user-config
+' directory's proveo/github.json. Unknown or malformed choices fail a run.
+'
+' RUN
+' A missing choice retains the existing HTTPS behavior.
+' SSH adds required runtime com.docker.sandbox/ssh-agent@1 and declares
+' SSH_AUTH_SOCK in startup-hook env. HTTPS and later add no SSH capability.
+' A changed descriptor follows the existing receipt-based recreation path.
+' HTTPS sets command-environment Git URL rewrites for github.com's two
+' standard SSH URL forms. Stored remotes and host gh configuration stay intact.
+' Repository safety and URL rewrites share one GIT_CONFIG_COUNT environment.
+' SSH leaves native Git transport intact; later adds no transport adaptation.
+' The Stop hook uses the same choice. Legacy empty mode retains HTTPS.
+' Seed installs trusted GitHub host keys, checks a real agent socket and keys,
+' then checks GitHub's successful SSH greeting with exit code 1.
+' SSH checks have deadlines. The seed refusal prevents agent launch on failure.
+' An instruction-wait timeout also refuses SSH-mode launch before seed release.
+' Where origin has a standard GitHub SSH push URL, ls-remote checks read access
+' at that destination. It never claims branch write permission or test-pushes.
+' API and SSH identities remain distinct. A failed check names recovery through init.
+'
+' CREDENTIAL INVENTORY
+' Execution order: OS, trust repo, credentials, optional ports/apps.
+' credentials: disabled [x] API keys v [x] OAuth v [x] SSH v.
+' Tick only nonempty classes; an empty class has no arrow.
+' This is host inventory, not a promise that the selected model uses each item.
+' API/OAuth entries use service names from sbx metadata and present credential
+' variable names, deduplicated. SSH entries show host-agent public fingerprints.
+' No token or private key value is displayed. The row is never read as a mode.
+' Each populated cell opens its complete read-only list with the ports dropdown
+' mechanism. Left/right changes the list; up/down moves inside it; space cannot
+' mutate credentials. Lists scroll to the highlighted entry on short terminals.
+' Topology always puts the credential marker at the broker, including local
+' models, OAuth and disabled legacy-forward/host previews.
+
+rectangle "proveo init\nGitHub now / later" as INIT
+rectangle "API login\nsbx github service" as API
+rectangle "Transport panel\nSSH / HTTPS / later" as PANEL
+database "Host user config\nproveo/github.json" as CONFIG
+rectangle "proveo run\ncredential inventory" as RUN
+rectangle "Runtime SSH capability\nagent socket + GitHub check" as SSH
+rectangle "HTTPS Git environment\nsbx credential proxy" as HTTPS
+rectangle "Agent + Stop hook\nselected transport" as AGENT
+
+INIT --> API
+INIT --> PANEL
+PANEL --> CONFIG
+CONFIG --> RUN
+RUN --> SSH : ssh
+RUN --> HTTPS : https
+SSH --> AGENT : verified
+HTTPS --> AGENT
+RUN --> AGENT : later
+@enduml

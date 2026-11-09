@@ -3,11 +3,13 @@
 ' purpose: the resolved layout of one screenful, and how a gated element is drawn in it
 ' covers: internal/choiceui/choiceui.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/run/choices.go
+' covers: internal/run/credential_inventory.go, internal/run/credential_inventory_test.go
+' covers: internal/choiceui/credential_lists_test.go
 ' covers: internal/run/model_row.go
 ' covers: internal/choiceui/step_test.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
-' applicableRows, comingSoon, gateAddons and gateEvidence have already executed.
+' applicableRows and gateAddons have already executed.
 '
 ' The checkboxes are grouped into two PLANES, each named by its own divider:
 ' execution (where the agent runs) and interface (what it can drive). One
@@ -23,6 +25,12 @@
 ' off-right order: enabling it grants an agent more integrations.
 ' Off skips new trust; it does not revoke a prior mise trust record in the
 ' durable tool home, including one the operator made outside proveo.
+'
+' Credentials now lives in execution below trust repo: disabled API keys,
+' OAuth and SSH checkboxes. Populated cells carry the ports-style arrow and
+' expose a full read-only list. Empty cells have neither a tick nor an arrow.
+' The host inventory never changes transport or billing selections.
+' See _spec/cmd/proveo/github-access.puml for inventory and transport contracts.
 '
 ' Salt possesses no conditional construct. Optionality is consequently encoded,
 ' never branched — the five encodings are demonstrated below and named in the
@@ -163,11 +171,11 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
     . | ◀ riskier | . | . | safer ▶
     ▸ egress | (X) allow-all | . | ( ) balanced | ( ) deny-all
     mcp | ( ) on | (X) off | . | .
-    credentials | ( ) <color:#9a9a9a>forward</color> | . | . | (X) broker
     model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
     . | . | ———— execution ———— | . | .
     . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | . | .
     trust repo | ( ) on | (X) off | . | .
+    credentials | <color:#9a9a9a>[X] API keys ▾</color> | <color:#9a9a9a>[X] OAuth ▾</color> | <color:#9a9a9a>[X] SSH ▾</color> | .
     . | . | ———— interface ———— | . | .
     devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
     outputs | ( ) filtered | (X) verbose | . | .
@@ -178,28 +186,29 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   always on: Mount the current git project in a sandbox for the agent
 }
 {
-{^"1 · greyed — comingSoon"
-  credentials | ( ) <color:#9a9a9a>forward</color> | . | . | <color:#9a9a9a>(X) broker</color>
+{^"1 · greyed — read-only inventory"
+  credentials | <color:#9a9a9a>[X] API keys ▾</color> | <color:#9a9a9a>[X] OAuth ▾</color> | <color:#9a9a9a>[X] SSH ▾</color> | .
   .
-  Rendered, never selectable: the whole
-  credentials row is locked like egress.
-  Arrows hover each mode to read it; the
-  answer stays broker. A withheld option
-  is not misread as nonexistent.
-  (Until 2026-10-16 the example was the
-  review tier, now deleted.)
+  Left/right opens each populated class.
+  Up/down traverses its complete list.
+  Space never changes a credential.
+  Empty classes stay unticked without
+  an arrow. Counts describe the host
+  inventory; model and kit bindings
+  determine which entries a run uses.
 }
 {^"2 · empty cell — option withdrawn"
-  credentials | . | . | . | (X) broker
+  model | ( ) Qwen 3.8 | (X) API keys | . | ( ) Glimmer
   .
   The slot persists, so surviving options
   retain the column they occupied while
-  the full complement was offered. broker
-  stays in column 4, the safest.
+  the full complement was offered.
+  A harness without a plan leaves its
+  model-source column empty.
 }
 {^"3 · absent region — applicableRows"
   . | ◀ riskier | . | . | safer ▶
-  credentials | ( ) forward | . | . | (X) broker
+  model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
   .
   An axis with nothing to determine is
   eliminated wholesale. The legend
@@ -310,9 +319,10 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   Every option row pins to the same four columns. OS, outputs, ports and apps
   included: a missing value leaves its column blank. A cell is at most 10 runes.
   ""docker (sandbox)"" paints ""sandbox"".
-  allow-all and forward and Qwen and host and filtered share column 1,
-  API keys and sandbox and browser and verbose share column 2,
-  balanced and plan share column 3, deny-all and broker and Glimmer share column 4.
+  allow-all and Qwen and host and filtered share column 1,
+  model API keys and sandbox and browser and verbose share column 2,
+  balanced and plan share column 3, deny-all and Glimmer share column 4.
+  The inventory uses API keys, OAuth and SSH in columns 1, 2 and 3.
   27B and 30B live in the hint. Glimmer's hint still says Muse Glimmer.
   GGUF and MLX are the hint, not the label:
   darwin/arm64 says MLX (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx""), every
@@ -360,7 +370,7 @@ end legend
   The divider still reads ""execution""; its row label is
   ""OS"" (host · sandbox). The interface divider stays; its
   row label is ""devices"" (tui · browser · android · ios).
-  Under OS, sbx only, a
+  Below trust repo and credentials, sbx only, a
   multi-select ""ports"" row offers each discovered dev
   port, all unticked. Past four, column 4 is ""...More""
   and a dropdown lists the rest.

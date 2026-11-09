@@ -11,37 +11,19 @@ import (
 )
 
 // SPEC: _spec/_plans/init-credential-provisioning.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/credential-resolution.puml
-func TestForwardIsGatedOnSbxAndTheRowStillHasBothModes(t *testing.T) {
+func TestCredentialsRowIsAReadOnlyInventory(t *testing.T) {
 	t.Parallel()
-	man := manifest.Manifest{
-		Name:         "cursor",
-		Capabilities: manifest.Capabilities{Credentials: []string{"forward"}},
+	row := credentialsRow(credentialInventory{APIKeys: []string{"github", "openai"}, OAuth: []string{"anthropic"}, SSH: []string{"SHA256:key (ED25519)"}})
+	if !row.Locked || !row.Multi || !slices.Equal(row.On, []bool{true, true, true}) || !slices.Equal(row.Off, []bool{true, true, true}) {
+		t.Fatalf("inventory must be checked and disabled: %#v", row)
 	}
-	row := credentialsRow(man, "forward")
-	if len(row.Options) < 2 {
-		t.Fatalf("options = %v, want both modes so applicableRows cannot drop the row", row.Options)
+	if !slices.Equal(row.Options, []string{"API keys", "OAuth", "SSH"}) || !slices.Equal(row.Cols, []int{0, 1, 2}) {
+		t.Fatalf("inventory cells: %#v", row)
 	}
-	i := slices.Index(row.Options, "forward")
-	if i < 0 {
-		t.Fatal("forward is missing, so the operator cannot see what is not on offer")
-	}
-	if i >= len(row.Off) || !row.Off[i] {
-		t.Error("forward is still selectable on sbx; the proxy holds the value")
-	}
-	if !slices.Equal(row.Cols, []int{0, 3}) {
-		t.Errorf("credential cols = %v, want forward at 0 and broker at 3", row.Cols)
-	}
-	if row.Options[row.Selected] != "broker" {
-		t.Errorf("selected %q, want broker — the only route sbx will honour", row.Options[row.Selected])
-	}
-	if row.Reason == "" {
-		t.Error("no reason given, so a greyed forward looks like a defect")
-	}
-	if !row.Locked {
-		t.Error("credentials is not locked, so the operator cannot hover both modes to read them")
-	}
-	if row.Options[row.Hover] != "broker" {
-		t.Errorf("hover opens on %q, want broker — the mode in force", row.Options[row.Hover])
+	for i := range row.Options {
+		if m := row.Lists[i]; m == nil || !m.ReadOnly || len(m.Options) == 0 {
+			t.Fatalf("cell %d has no read-only list", i)
+		}
 	}
 }
 
@@ -190,23 +172,10 @@ func TestHeaderOmitsKeysPresentOnlyInLookup(t *testing.T) {
 	}
 }
 
-func TestCredentialsRowSaysCursorBrokersNativelyOnSbx(t *testing.T) {
+func TestEmptyCredentialsHaveNoTicksOrDropdowns(t *testing.T) {
 	t.Parallel()
-	cursor := manifest.Manifest{Name: "cursor", Capabilities: manifest.Capabilities{Credentials: []string{"forward"}}}
-	r := credentialsRow(cursor, "broker")
-	if !strings.Contains(r.Help["broker"], "cursor always brokers credentials natively") {
-		t.Errorf("broker help = %q", r.Help["broker"])
-	}
-	for i, o := range r.Options {
-		if o == "forward" && (r.Off == nil || !r.Off[i]) {
-			t.Error("forward must stay disabled for cursor on sbx")
-		}
-	}
-	plain := credentialsRow(manifest.Manifest{Name: "codex"}, "broker")
-	if plain.Help["broker"] != "" {
-		t.Errorf("a harness that declares no credentials capability gets no cursor note: %q", plain.Help["broker"])
-	}
-	if !strings.Contains(plain.Help["forward"], "sandbox env") {
-		t.Errorf("forward help = %q, want what forwarding does", plain.Help["forward"])
+	r := credentialsRow(credentialInventory{})
+	if slices.Contains(r.On, true) || len(r.Lists) != 0 || !r.Locked {
+		t.Fatalf("empty inventory = %#v", r)
 	}
 }

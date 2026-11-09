@@ -24,6 +24,11 @@ case "$1 $2" in
   "version "*|"version") printf '%s\n' 'sbx version: v0.50.0 deadbeef' ;;
   "diagnose --json") printf '%s\n' '{"checks":[{"name":"virtualisation","status":"pass","detail":"stub"}]}' ;;
   "secret ls") cat "$STUB_SBX_SECRETS" 2>/dev/null ;;
+  "settings get")
+    case "$3" in
+      ssh.agentForwardingEnabled) echo true ;;
+      ssh.agentSocketPath) echo /tmp/proveo-test-agent.sock ;;
+    esac ;;
   "secret set")
     case "$*" in *--oauth*) printf '(global) service %s (oauth configured)\n' "$3" >> "$STUB_SBX_SECRETS" ;; esac ;;
   "secret rm")
@@ -45,6 +50,10 @@ type initRun struct {
 
 // startInit runs the real `proveo init` on a tmux TTY against initStubSbx, in a scrubbed environment.
 func startInit(t *testing.T, width int, args ...string) *initRun {
+	return startInitTools(t, width, nil, args...)
+}
+
+func startInitTools(t *testing.T, width int, bins map[string]string, args ...string) *initRun {
 	t.Helper()
 	if !tmux.Available() {
 		t.Skip("tmux unavailable")
@@ -55,6 +64,11 @@ func startInit(t *testing.T, width int, args ...string) *initRun {
 	}
 	proveoBin := buildProveo(t)
 	bin := t.TempDir()
+	for name, body := range bins {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(bin, "sbx"), []byte(initStubSbx), 0o755); err != nil {
 		t.Fatal(err)
 	}

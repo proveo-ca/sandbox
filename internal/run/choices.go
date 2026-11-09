@@ -16,6 +16,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/devports"
+	"github.com/proveo-ca/proveo/internal/githubaccess"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -34,10 +35,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
 		Topology: topologyWith(p.Target, p.credentialsOrDefault(), man.Capabilities.AlwaysMCPGateway()),
-		Rows: append(
-			applicableRows(egressRow(), mcpRow(p.Target, p.MCP, p.MCPSet)),
-			credentialsRow(man, p.credentialsOrDefault()),
-		),
+		Rows:     applicableRows(egressRow(), mcpRow(p.Target, p.MCP, p.MCPSet)),
 	}
 	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
 	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
@@ -69,6 +67,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		form.Rows = append(form.Rows, applicableRows(row)...)
 		if label == rowExecution {
 			form.Rows = append(form.Rows, repoTrustRow(p.MiseTrust, p.MiseTrustSet))
+			ssh := githubaccess.InspectSSH(sbx.Binary, githubaccess.Output, os.Getenv)
+			form.Rows = append(form.Rows, credentialsRow(inventoryOf(man, lookup, sbx.StoreEntries(), ssh.Keys)))
 			if r, ok := portsRow(found, p.Ports, sandbox.LoopbackFree); ok {
 				form.Rows = append(form.Rows, r)
 				p.portsAsked = true
@@ -107,9 +107,6 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	if !ok {
 		return fmt.Errorf("cancelled at the choice prompt")
-	}
-	if v := form.Selection("credentials"); v != "" && !p.CredsSet {
-		p.Credentials = v
 	}
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
 	if p.portsAsked {
@@ -374,13 +371,6 @@ func egressColumn(name string) int {
 	}
 }
 
-func credentialColumn(name string) int {
-	if name == "broker" {
-		return 3
-	}
-	return 0
-}
-
 func executionColumn(name string) int {
 	if name == addonSandbox {
 		return 1
@@ -484,48 +474,10 @@ func axisRow(label string, all, allowed []string, preselect string) choiceui.Row
 	return r
 }
 
-func comingSoon(r choiceui.Row, option, reason string) choiceui.Row {
-	r.Off = make([]bool, len(r.Options))
-	for i, o := range r.Options {
-		if o != option {
-			continue
-		}
-		r.Off[i] = true
-		r.Reason = reason
-		if r.Selected == i {
-			r.Selected = firstEnabled(r)
-		}
-	}
-	return r
-}
-
-func firstEnabled(r choiceui.Row) int {
-	for i := range r.Options {
-		if i >= len(r.Off) || !r.Off[i] {
-			return i
-		}
-	}
-	return 0
-}
-
 const changeBaselineHint = "host-wide, not per-run — to change, run on the host: " +
 	"`sbx policy reset && sbx policy init allow-all|balanced|deny-all`"
 
 var policyBaseline = sbx.PolicyBaseline
-
-func credentialsRow(man manifest.Manifest, mode string) choiceui.Row {
-	r := pinCols(axisRow("credentials", CredentialModes(), nil, mode), credentialColumn)
-	r = comingSoon(r, "forward", "sbx's proxy uses Secrets Manager. Away from the VM and the agent, attached in each request")
-	r.Locked = true
-	r.Hover = r.Selected
-	r.Help = map[string]string{
-		"forward": "the key rides the sandbox env, where the agent can read it",
-	}
-	if caps := man.Capabilities.Credentials; len(caps) > 0 && !slices.Contains(caps, "broker") {
-		r.Help["broker"] = man.Name + " always brokers credentials natively on sbx — its proxy attaches the key"
-	}
-	return r
-}
 
 // egressRow shows sbx's host-wide baseline, which decides egress; proveo only reports it.
 func egressRow() choiceui.Row {

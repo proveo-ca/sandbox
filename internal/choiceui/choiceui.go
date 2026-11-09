@@ -37,6 +37,8 @@ type Row struct {
 	Cols        []int             // 0-based column of each option; nil packs left to right
 	Paint       map[string]string // option → cell text, when the cell is shorter than the option
 	More        *More             // multi-select list opened from More.Cell
+	Lists       map[int]*More
+	CellRunes   int
 	Value       string
 	Placeholder string
 	Masked      bool
@@ -44,18 +46,36 @@ type Row struct {
 	Warn        bool
 }
 
-// More is the multi-select list one cell of a four-column row opens.
-// SPEC: _spec/internal/devports/dev-ports.puml
+// More is the selectable or read-only list a row cell opens.
+// SPEC: _spec/internal/devports/dev-ports.puml, _spec/cmd/proveo/github-access.puml
 type More struct {
-	Cell    int
-	Options []string
-	On      []bool
-	Off     []bool // greyed entries; Row.OffWhy names why
-	At      int
+	Cell     int
+	Options  []string
+	On       []bool
+	Off      []bool // greyed entries; Row.OffWhy names why
+	At       int
+	ReadOnly bool
 }
 
 func (m *More) visible(r Row) bool {
-	return m != nil && r.Selected == m.Cell && !r.offAt(m.Cell) && len(m.Options) > 0
+	return m != nil && r.cursorAt() == m.Cell && (m.ReadOnly || !r.offAt(m.Cell)) && len(m.Options) > 0
+}
+
+func (r *Row) activeMore() *More {
+	if r.More.visible(*r) {
+		return r.More
+	}
+	if m := r.Lists[r.cursorAt()]; m.visible(*r) {
+		return m
+	}
+	return nil
+}
+
+func (r *Row) cellMore(i int) *More {
+	if r.More != nil && r.More.Cell == i {
+		return r.More
+	}
+	return r.Lists[i]
 }
 
 func (m *More) anyOn() bool {
@@ -69,12 +89,16 @@ func (m *More) anyOn() bool {
 
 func (m *More) offAt(i int) bool { return i < len(m.Off) && m.Off[i] }
 
-// columnText is the cell drawn for opt: Paint when set, else the option, at most 10 runes.
+// columnText clips the option or its Paint label to the row's cell width.
 func (r Row) columnText(opt string) string {
-	if s, ok := r.Paint[opt]; ok && s != "" {
-		return clipRunes(s, columnRunes)
+	limit := columnRunes
+	if r.CellRunes > 0 {
+		limit = r.CellRunes
 	}
-	return clipRunes(opt, columnRunes)
+	if s, ok := r.Paint[opt]; ok && s != "" {
+		return clipRunes(s, limit)
+	}
+	return clipRunes(opt, limit)
 }
 
 func clipRunes(s string, n int) string {
@@ -107,7 +131,7 @@ func (r *Row) helpLines(width int) []helpLine {
 	if idx < 0 || idx >= len(r.Options) {
 		return nil
 	}
-	if r.More.visible(*r) {
+	if r.activeMore() != nil {
 		return r.moreHelp(width)
 	}
 	opt := r.Options[idx]
@@ -140,7 +164,7 @@ func (r *Row) helpLines(width int) []helpLine {
 }
 
 func (r *Row) moreHelp(width int) []helpLine {
-	m := r.More
+	m := r.activeMore()
 	if m.At < 0 || m.At >= len(m.Options) {
 		return nil
 	}
@@ -501,7 +525,7 @@ func (f *Form) toggle(cursor int) {
 		return
 	}
 	r := &f.Rows[cursor]
-	if r.More != nil && r.Selected == r.More.Cell {
+	if r.activeMore() != nil {
 		return
 	}
 	if r.Locked || !r.Multi || r.Selected >= len(r.Options) || r.offAt(r.Selected) {
@@ -520,7 +544,7 @@ func (f *Form) moreKey(cursor int, ev *tcell.EventKey) bool {
 	if !ok {
 		return false
 	}
-	m := r.More
+	m := r.activeMore()
 	n := len(m.Options)
 	switch ev.Key() {
 	case tcell.KeyDown:
@@ -558,15 +582,15 @@ func (f *Form) moreRow(cursor int) (*Row, bool) {
 		return nil, false
 	}
 	r := &f.Rows[cursor]
-	if !r.More.visible(*r) {
+	if r.activeMore() == nil {
 		return nil, false
 	}
 	return r, true
 }
 
 func (f *Form) toggleMore(r *Row) {
-	m := r.More
-	if m.offAt(m.At) {
+	m := r.activeMore()
+	if m == nil || m.ReadOnly || r.Locked || m.offAt(m.At) {
 		return
 	}
 	for len(m.On) < len(m.Options) {
@@ -667,7 +691,7 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	for i := 0; i < lay.body && f.scroll+i < len(lines); i++ {
 		c.y = bodyTop + i
 		ln := lines[f.scroll+i]
-		if ln.kind == lineRow && ln.row == cursor && f.Rows[ln.row].More.visible(f.Rows[ln.row]) {
+		if ln.kind == lineRow && ln.row == cursor && f.Rows[ln.row].activeMore() != nil {
 			dropY = c.y
 		}
 		if glyph, thumb := g.glyph(i, f.Glyphs == GlyphsASCII || f.Glyphs == GlyphsOff); glyph != "" {
@@ -688,7 +712,13 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 		}
 	}
 	if dropY >= 0 {
-		f.drawMore(c, p, cursor, optOrigin+3*colPitch, dropY+1)
+		r := &f.Rows[cursor]
+		cell := r.activeMore().Cell
+		col := cell
+		if cell < len(r.Cols) {
+			col = r.Cols[cell]
+		}
+		f.drawMore(c, p, cursor, optOrigin+col*colPitch, dropY+1)
 	}
 
 	c.y = bodyTop + lay.body + 1
@@ -775,20 +805,23 @@ func (f *Form) hint(w, hidden int) string {
 }
 
 func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
-	m := f.Rows[row].More
+	m := f.Rows[row].activeMore()
 	if m == nil || len(m.Options) == 0 {
 		return
 	}
+	w, h := c.s.Size()
+	x = min(x, max(0, w-8))
 	inner := 0
 	labels := make([]string, len(m.Options))
 	for i, opt := range m.Options {
-		labels[i] = clipRunes(opt, 32)
+		labels[i] = clipRunes(opt, max(1, w-x-6))
 		if n := textWidth("[x] " + labels[i]); n > inner {
 			inner = n
 		}
 	}
-	_, h := c.s.Size()
-	boxH := len(labels) + 2
+	visible := min(len(labels), max(1, h-4))
+	first := max(0, min(m.At-visible+1, len(labels)-visible))
+	boxH := visible + 2
 	if y+boxH > h {
 		y = y - 2 - boxH
 	}
@@ -798,14 +831,15 @@ func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
 	bar := strings.Repeat("─", inner)
 	c.y = y
 	c.put(x, p.body, "┌"+bar+"┐")
-	for i, label := range labels {
-		c.y = y + 1 + i
+	for i := first; i < first+visible; i++ {
+		label := labels[i]
+		c.y = y + 1 + i - first
 		mark := "[ ] "
 		st := p.idle
 		if i < len(m.On) && m.On[i] {
 			mark, st = "[x] ", p.brand
 		}
-		if m.offAt(i) {
+		if m.ReadOnly || m.offAt(i) {
 			st = p.warn
 		}
 		if i == m.At {
@@ -819,7 +853,7 @@ func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
 		c.put(x+1, st, cell)
 		c.put(x+1+inner, p.body, "│")
 	}
-	c.y = y + 1 + len(labels)
+	c.y = y + 1 + visible
 	c.put(x, p.body, "└"+bar+"┘")
 }
 
@@ -886,6 +920,13 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 			at = optOrigin + r.Cols[j]*colPitch
 		}
 		cell := r.columnText(opt)
+		if m := r.cellMore(j); m != nil && len(m.Options) > 0 {
+			arrow := " ▾"
+			if f.Glyphs == GlyphsASCII || f.Glyphs == GlyphsOff {
+				arrow = " v"
+			}
+			cell += arrow
+		}
 		c.put(at, st, glyph+cell)
 		if j >= len(r.Cols) {
 			x += textWidth(glyph+cell) + 3

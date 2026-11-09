@@ -457,12 +457,15 @@ func TestGitSyncUsesGhForGitHubSSHRemotesWithoutChangingOrigin(t *testing.T) {
 	for _, tc := range []struct {
 		remoteURL string
 		pushURL   string
+		transport string
 	}{
 		{remoteURL: "git@github.com:proveo-ca/sandbox.git"},
 		{remoteURL: "ssh://git@github.com/proveo-ca/sandbox.git"},
 		{remoteURL: "https://github.com/proveo-ca/sandbox.git", pushURL: "git@github.com:proveo-ca/sandbox.git"},
+		{remoteURL: "git@github.com:proveo-ca/sandbox.git", transport: "ssh"},
+		{remoteURL: "ssh://git@github.com/proveo-ca/sandbox.git", transport: "ssh"},
 	} {
-		t.Run(tc.remoteURL+tc.pushURL, func(t *testing.T) {
+		t.Run(tc.remoteURL+tc.pushURL+tc.transport, func(t *testing.T) {
 			dir := initRepo(t)
 			gitCmd(t, dir, nil, "remote", "add", "origin", tc.remoteURL)
 			if tc.pushURL != "" {
@@ -490,6 +493,7 @@ exec "$REAL_GIT" "$@"
 			}
 			out, errb, code := runGitSync(t, dir, `{"hook_event_name":"Stop"}`,
 				hookEnv(t, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+					"PROVEO_GITHUB_TRANSPORT="+tc.transport,
 					"PUSH_ARGS="+pushArgs, "REAL_GIT="+realGit))
 			if code != 0 || out != "" || errb != "" {
 				t.Fatalf("hook exit %d stdout %q stderr %q", code, out, errb)
@@ -505,6 +509,9 @@ exec "$REAL_GIT" "$@"
 				"-c", "url.https://github.com/.insteadOf=ssh://git@github.com/",
 				"push", "-u", "origin", "HEAD", "",
 			}, "\n")
+			if tc.transport == "ssh" {
+				want = "push\n-u\norigin\nHEAD\n"
+			}
 			if string(b) != want {
 				t.Errorf("push args = %q, want %q", b, want)
 			}

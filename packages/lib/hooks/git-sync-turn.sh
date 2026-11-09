@@ -274,6 +274,10 @@ url="$(git remote get-url --push "$remote" 2>/dev/null || true)"
 [[ -d "$url" && ! -w "$url" ]] && { _git_sync_emit allow ""; exit 0; }
 
 _git_push() {
+	if [[ "${PROVEO_GITHUB_TRANSPORT:-https}" != https ]]; then
+		git push "$@"
+		return
+	fi
   case "$url" in
     git@github.com:*|ssh://git@github.com/*)
       command -v gh >/dev/null 2>&1 || { printf '%s\n' 'gh is required for GitHub SSH remotes' >&2; return 1; }

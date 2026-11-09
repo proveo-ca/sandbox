@@ -18,7 +18,7 @@ func topologyOf(target string, credsDefault string) func(*choiceui.Form, int) *c
 func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Form, int) *choiceui.Frame {
 	return func(f *choiceui.Form, cursor int) *choiceui.Frame {
 		tier := egressTier(f, cursor, "")
-		creds := rowChoice(f, cursor, "credentials", credsDefault)
+		creds := "broker"
 		lane, open, refused := lanesOf(tier)
 		option := f.Selection(rowModel)
 		model := modelShort(option)
@@ -37,22 +37,9 @@ func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Fo
 			square = squareWith(square, model)
 		}
 		key := choiceui.KeyAtHop
-		if creds == "forward" {
-			key = choiceui.KeyInSquare
-		}
-		if model != "" {
-			key = choiceui.KeyNone
-		}
-		if direct && key != choiceui.KeyNone {
-			creds = "forward"
-			key = choiceui.KeyInSquare
-		}
 		hop, hopNote := "sbx proxy", ""
 		if alwaysMCP || rowChoice(f, cursor, mcpLabel, mcpOff) == mcpOn {
 			hopNote = "+ mcp"
-		}
-		if direct {
-			hop, hopNote = "", ""
 		}
 		fr := choiceui.Frame{
 			Host:      host,

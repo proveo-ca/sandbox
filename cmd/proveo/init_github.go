@@ -26,9 +26,13 @@ type ghStage struct {
 	secretSet func(name, value string) error
 	setenv    func(k, v string) error
 	tty       bool
+	access    func()
 }
 
 func applyGitHub(s ghStage) {
+	if s.access != nil {
+		defer s.access()
+	}
 	ui.Section(ui.SectionCredentials)
 	tok, err := s.auth.resolve()
 	if tok == "" && !errors.Is(err, errCredentialStoreTimeout) {

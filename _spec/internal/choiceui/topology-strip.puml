@@ -28,12 +28,16 @@ skinparam noteTextAlignment left
 '   the boundary the key rests in .. _spec/_paradigms/credential-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
+' Current credential projection: KeyAtHop for every model and credential class.
+' Legacy forward and disabled host previews also leave it at the broker.
+' API keys, OAuth and SSH are inventory, not topology position selectors.
+' See _spec/cmd/proveo/github-access.puml.
+'
 ' ── 2026-10-16: ONE BACKEND, SO THE PICTURE HAS ONE VOCABULARY ─────────────
 ' MEASURED in internal/run/topology.go: Hop is always "sbx proxy"; lanesOf maps
 ' only sbx's baselines (allow-all → watched 3/0, balanced → screened 2/1,
-' anything else → screened 1/2); Key is KeyAtHop, KeyInSquare when the
-' credentials are forward (the value rides the sandbox env), and KeyNone when
-' the model row picks a local model. KeyAtHop's clause: the keys are only
+' anything else → screened 1/2); Key is always KeyAtHop, including local
+' models and subscription authentication. KeyAtHop's clause: the keys are only
 ' seen by the host and the cloud recipients, never the agent.
 ' The docker tiers, the "mitm + squid" hop, the hop-less
 ' open+forward frame and review's LaneAsked are no longer produced.
@@ -112,9 +116,8 @@ skinparam noteTextAlignment left
 ' rowChoice prefers Options[Hover] when the row is locked AND the cursor is
 ' on it, falling back to Selected otherwise — so an unlocked row, or a locked
 ' row the cursor has walked away from, still shows what is in force rather
-' than what someone once pointed at. egressTier and the credentials mode
-' both read through it. Hovering forward draws the key beside the agent
-' (KeyInSquare); walking away puts it back on the hop.
+' than what someone once pointed at. egressTier reads through it.
+' Credential inventory hovers keep KeyAtHop at the broker.
 '
 ' WHERE THE BUG WAS NOT: lanesOf was already correct — balanced is 2 open and 1
 ' refused, and always was. The wrong tier reached it. That distinction is
@@ -132,13 +135,13 @@ skinparam noteTextAlignment left
 ' geometry and the glyphs and stays ignorant of the vocabulary, so a new tier
 ' renames a string there and redraws nothing.
 '
-' BOTH the egress and credentials rows need a fallback, because applicableRows
-' drops any axis with one option. HISTORY: cursor declared exactly one of each
+' The egress row needs a fallback, because applicableRows drops an axis with
+' one option. HISTORY: cursor declared exactly one of each
 ' (egress [open], credentials [forward]; pins dropped 2026-10-16), and reading
 ' the form alone drew a "mitm + squid" hop for a run whose plan was a bare
 ' bridge network: the strip inventing a boundary that does not exist is the
-' worst thing this picture can do. The credentials fallback still applies
-' (topologyOf's credsDefault); the egress one is "" and draws the tightest lanes.
+' worst thing this picture can do. The egress fallback is "" and draws the
+' tightest lanes. Credentials now always project to the broker.
 '
 ' THE LANE COUNTS ARE ILLUSTRATIVE, NOT MEASURED. A real "how many hosts
 ' survive" would mean reading sbx's policy at prompt time, which is a bigger
@@ -191,9 +194,7 @@ skinparam noteTextAlignment left
 ' ── WHY THE FRAME IS A PROJECTION, AND WHAT ITS ZERO VALUE DRAWS ───────────
 ' Frame is one still picture of the run the form currently describes. The hop
 ' and lanes follow Selection; the key follows where the secret actually rests.
-' On sbx that is the proxy even when the credentials row still names forward
-' (gated, not dropped) — the same fact credentialsPosture prints after
-' accept. Everything
+' The credential inventory always projects to the sbx broker. Everything
 ' the design calls a "re-label" is a STRING here rather than a shape, which
 ' holds the picture to one geometry.
 '
@@ -274,12 +275,11 @@ skinparam noteTextAlignment left
 ' thing a security figure can state. The host's key rides beside its DOT on the
 ' spine rather than beside its label, because the label lives on the row beneath
 ' — as every outside node's does. On sbx the home is always the hop: the proxy
-' holds the secret, and a gated forward checkbox does not move it inside the square.
+' holds the secret, and browsing credential inventories never moves it.
 '
-' ── NO API KEY, NO KEY GLYPH (2026-09-27) ──────────────────────────────────
-' The key is drawn only while the model row answers "API keys". Any other answer
-' — subscription, or a local model — sets KeyNone: no glyph anywhere, the caption
-' says "no API key is in play". The square names the microVM and the harness:
+' ── THE MODEL SOURCE DOES NOT MOVE THE CREDENTIAL GLYPH ───────────────────
+' API keys, subscription and local models keep KeyAtHop at the broker.
+' The square names the microVM and the harness:
 ' `sbx (linux/x86) · opencode` on amd64, `sbx (linux/arm) · opencode` on arm.
 ' The parenthetical is italic. The host's own OS/arch uses the same arch
 ' word — `(linux)` becomes `linux/x86` — and is italic on the idle line and
@@ -295,13 +295,11 @@ skinparam noteTextAlignment left
 ' and the figure's floor grows with it. plan still joins the square
 ' (`sbx · <harness> + plan`); squareWith trims ONLY that suffix, ending in "…".
 ' The box is `boxW` = 32 inner columns. SquareMax = boxW - 4 = 28.
-' Hovering the OS row's host option sets Direct. The square, its walls and the
-' proxy dot go away: Square is the harness name alone, Hop is empty, and a rule
-' runs from the host node through where the proxy dot sat. The interface
-' row reads "+ ● tui". A key in play is drawn beside the agent, in the selected
-' style, and the caption names forward — the row underneath still says broker,
-' and both host and forward stay disabled. Leaving that option puts the square
-' and the proxy back.
+' Hovering the OS row's host option sets Direct. The sandbox's walls go away:
+' Square is the harness name alone and a rule replaces its
+' boundary. Hop stays "sbx proxy" and KeyAtHop keeps the credential at the
+' broker. The interface row reads "+ ● tui". Leaving that option restores
+' the sandbox boundary.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's
@@ -485,8 +483,8 @@ end note
 note right of ROWS
   **On sbx the key lives at the hop.**
   The proxy retains the credential at
-  egress even when the row still names
-  forward and disables that option.
+  egress for every model selection and
+  credential inventory hover.
   A second glyph at the agent would lie.
 end note
 

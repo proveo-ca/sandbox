@@ -4,7 +4,11 @@ skinparam noteTextAlignment left
 title Launch environment — what the agent must already hold when sbx starts it
 
 ' purpose: why everything the agent needs AT LAUNCH is rendered host-side into the kit environment, and what that environment carries
-' covers: internal/backend/sandbox/sandbox.go (launchEnv, launchConfigEnv, gitSafeDirectoryEnv, scopedGitIndexEnv, startupCommands)
+' covers: internal/backend/sandbox/sandbox.go (launchEnv, launchConfigEnv, gitConfigEnv, scopedGitIndexEnv, startupCommands)
+' covers: internal/backend/sandbox/github_access_test.go
+' GitHub HTTPS URL rewrites and safe.directory share gitConfigEnv's single
+' GIT_CONFIG_COUNT. SSH and deferred access add no URL rewrite.
+' Transport selection: _spec/cmd/proveo/github-access.puml.
 ' covers: internal/backend/sandbox/launch_config_test.go
 ' covers: internal/backend/sandbox/own_agent_test.go
 ' covers: internal/sbx/kit.go (SeedEntrypointCommand)

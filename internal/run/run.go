@@ -19,6 +19,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/credentials"
+	"github.com/proveo-ca/proveo/internal/githubaccess"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
@@ -101,6 +102,15 @@ func requireSandbox(p Params, d Deps) error {
 }
 
 func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
+	path, err := githubaccess.Path()
+	if err != nil {
+		return fmt.Errorf("GitHub access settings: %w", err)
+	}
+	access, err := githubaccess.Load(path)
+	if err != nil {
+		return fmt.Errorf("GitHub access settings: %w", err)
+	}
+	p.GitTransport = access.Transport
 	rs.Start = OrWD(p.Input)
 	rs.Workspace.Scope = workspace.Resolve(rs.Start)
 	rs.Workspace.RepoRoot = rs.Start
@@ -655,12 +665,13 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Browser: browserOn, CDPHostPort: cdpPort,
 		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort),
 		AndroidApps: androidApps(p), AndroidEnv: adbEnv,
-		Roles:      p.Roles,
-		Evidence:   p.evidenceOrDefault(),
-		Forwards:   p.forwards(),
-		MCPGateway: p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
-		MiseTrust:  p.miseTrustAllowed(),
-		Desktop:    desktop, DesktopLaunch: desktopLaunch,
+		Roles:        p.Roles,
+		Evidence:     p.evidenceOrDefault(),
+		Forwards:     p.forwards(),
+		MCPGateway:   p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
+		MiseTrust:    p.miseTrustAllowed(),
+		GitTransport: p.GitTransport,
+		Desktop:      desktop, DesktopLaunch: desktopLaunch,
 		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
 		ImageEntrypoint: sbx.ImageEntrypoint,
 		ImageSource: func(ref string) sbx.ImageSource {

@@ -29,6 +29,7 @@ type Params struct {
 	MCPSet                                                                bool   // PROVEO_SBX_MCP was set; the cache and the row do not override it
 	MiseTrust                                                             string
 	MiseTrustSet                                                          bool
+	GitTransport                                                          string
 	PrintOnly                                                             bool
 	Extra                                                                 []string
 	Clone, CloneSet                                                       bool

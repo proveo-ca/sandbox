@@ -20,6 +20,7 @@ type initDecisions struct {
 	Gh       bool
 	Git      bool
 	Baseline string // "" leaves the host-wide network policy alone
+	NoPrompt bool
 }
 
 const (
@@ -32,7 +33,7 @@ const (
 	rowPath     = "PATH"
 	rowSignIn   = "sign in"
 	rowWizard   = "sbx setup"
-	rowGh       = "gh"
+	rowGh       = "GitHub"
 	rowGit      = "git identity"
 	rowBaseline = "network baseline"
 	rowNext     = "next steps"
@@ -72,6 +73,7 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 		Gh:       !o.skipGh,
 		Git:      !o.skipGit,
 		Baseline: "",
+		NoPrompt: o.yes,
 	}
 	if installed != "" && !o.force {
 		d.Install = installSkip
@@ -212,7 +214,7 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 	}))
 
 	rows = append(rows, nowLaterRow(rowGh, def.Gh, o.skipGh, "--skip-gh was passed", map[string]string{
-		"now":   "verify `gh`, install it if missing, `gh auth login` if needed — then store the token as sbx's github service so git push to github.com works",
+		"now":   "verify gh and API sign-in, then choose sandbox Git access: SSH agent, HTTPS token, or later",
 		"later": "runs stay on anonymous GitHub API limits; `git push` to github.com needs `sbx secret set github`",
 	}))
 
