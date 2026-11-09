@@ -1,1 +1,1 @@
-Git sync probe for the Codex Stop hook.
+Git sync probe with GitHub CLI git_protocol=ssh.
