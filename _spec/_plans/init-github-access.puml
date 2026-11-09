@@ -1,0 +1,120 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title PROPOSED — GitHub access during proveo init
+' PLANNED — this file proposes UX; no runtime behavior changes.
+' Existing flow: _spec/cmd/proveo/github-credentials.puml
+' Existing pages: _spec/cmd/proveo/init-sbx-bootstrap.puml
+' Existing host keys: _spec/packages/lib/github-ssh-hosts.puml
+'
+' EVIDENCE, read 2026-11-08:
+' https://docs.docker.com/ai/sandboxes/configuration/credentials/#ssh-agent
+' https://docs.docker.com/ai/sandboxes/configuration/settings/#sshagentforwardingenabled
+' https://github.com/docker/sbx-releases/issues/835
+' https://github.com/docker/sbx-kits-contrib/tree/main/github-ssh
+' https://cli.github.com/manual/gh_auth_login
+'
+' CURRENT SOURCE:
+' cmd/proveo/init_tui.go offers gh now/later on setup page 1 of 3.
+' cmd/proveo/init_github.go stores the API token under sbx service github.
+' internal/backend/sandbox/sandbox.go builds capabilities from vendored kits
+' and adds credentials, network policy and lifecycle; it adds no ssh-agent@1.
+' internal/sbx/third_party/{claude,codex,cursor,opencode}.yaml request no
+' ssh-agent@1 capability.
+' packages/lib/hooks/git-sync-turn.sh uses command-local HTTPS for GitHub
+' SSH remotes, regardless of the host's gh transport preference.
+'
+' RECOMMENDED POLICY, awaiting Executor preference:
+' Offer the host's github.com Git protocol as the initial selection.
+' The operator explicitly accepts sandbox SSH access before it is enabled.
+' Keep API authentication independent of Git transport.
+' Treat trust repo as a separate capability throughout this proposal.
+
+rectangle "Setup page 1/3\nGitHub: now / later" as SETUP
+rectangle "GitHub access\ncontextual panel during the existing gh stage" as PANEL
+rectangle "SSH agent\nforward host agent" as SSH
+rectangle "HTTPS token\nsbx github service" as HTTPS
+rectangle "Later\nGit access deferred" as LATER
+rectangle "Host configured\nsandbox verification pending" as HOST
+rectangle "Sandbox authentication verified\nrepository permissions checked separately" as VERIFIED
+
+SETUP --> PANEL : now
+PANEL --> SSH
+PANEL --> HTTPS
+PANEL --> LATER
+SSH --> HOST
+HTTPS --> HOST
+HOST --> VERIFIED : probe actual workload configuration
+
+note right of PANEL
+  Proposed panel; values below are examples.
+  GitHub API       signed in as <login>
+  Host Git         SSH
+  Sandbox Git      [SSH agent] HTTPS token later
+  Host SSH agent   reachable; <n> keys
+end note
+
+note bottom of SSH
+  Show exposed key fingerprints.
+  Keep private keys on the host.
+  Forwarding allows use of exposed keys.
+  Never imply one selected fingerprint
+  restricts an agent exposing more keys.
+end note
+
+note bottom of HTTPS
+  Use sbx's github service for API + Git.
+  Preserve host gh preference and remotes.
+  Apply transport adaptation inside sbx.
+  Run and Stop hook use the same policy.
+end note
+
+note bottom of HOST
+  Check the effective socket and host keys.
+  Inspect forwarding + runtime capability.
+  Report repairs before applying changes.
+  Missing key: guide loading/registration.
+  Recovery: retry / HTTPS / later.
+end note
+
+note bottom of VERIFIED
+  Check a real socket and ssh-add inside sbx.
+  Verify SSH identity with GitHub's greeting.
+  GitHub ssh -T exits 1 on success.
+  Keep API and SSH identities distinct.
+  Read access never proves push permission.
+end note
+
+' APPLY AND VERIFY:
+' API sign-in remains useful for gh commands when Git uses SSH. Missing API
+' credentials must not be reported as missing SSH authentication, or vice versa.
+' Keep existing gh preferences; let gh own login and explicit key-upload flows.
+' Use the configured sbx agent socket, or the invoking client's SSH_AUTH_SOCK.
+' Do not pin a transient socket as a permanent host setting by default.
+' Do not silently enable host-wide forwarding or restart a running daemon.
+' Show the scope and restart requirement in the repair action the user accepts.
+' SSH requires com.docker.sandbox/ssh-agent@1 for phase runtime in the actual
+' v3 workload; known_hosts alone cannot provide authentication.
+' Capability changes require a newly created workload; do not promise a restart
+' adds a missing capability to an existing locked v3 sandbox.
+' Verify using the effective workload, agent and network policy. If init cannot
+' perform that probe, show verification pending and check before agent handoff
+' in proveo run. A generic host-only probe must never mark a workload verified.
+' Where a repository is available, verify its effective push destination with
+' read-only checks; label write access unverified until a real authorized push.
+' Init creates no test commit or remote ref. Outside a repository, defer its
+' access check to proveo run. Distinguish branch-policy rejection from auth.
+' Preserve host SSH aliases and explicit push URLs when resolving the target;
+' unsupported host/alias configuration needs a specific diagnostic.
+' On --yes/non-TTY, provision existing API credentials as today, report SSH
+' readiness, and do not introduce a new forwarding grant or interactive repair.
+' Future runs and the Stop hook must consume the persisted selected transport.
+' An SSH failure offers a visible HTTPS choice, never a silent fallback.
+'
+' ALTERNATIVES surfaced to Executor:
+' 1. Follow host transport (recommended).
+' 2. Always use HTTPS inside sbx while preserving host SSH configuration.
+' 3. Guide a dedicated automation key + host agent instead of the regular agent.
+' A dedicated public key belongs at GitHub; its private key stays with that
+' host agent. A public key stored as an sbx secret cannot authenticate.
+@enduml
