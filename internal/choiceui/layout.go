@@ -44,6 +44,16 @@ func (f *Form) maxHelpLines(width int) int {
 					most = n
 				}
 			}
+			if m := r.cellMore(j); m != nil {
+				for at := range m.Options {
+					probe, list := r, *m
+					list.At = at
+					probe.More, probe.Lists, probe.Selected, probe.Hover = &list, nil, j, j
+					if n := len(probe.helpLines(width)); n > most {
+						most = n
+					}
+				}
+			}
 		}
 	}
 	return most
@@ -121,7 +131,11 @@ func (r *Row) rightEdge() int {
 			if j < len(r.Cols) {
 				col = r.Cols[j]
 			}
-			if end := optOrigin + col*colPitch + textWidth("( ) "+r.columnText(opt)); end > x {
+			extra := 0
+			if m := r.cellMore(j); m != nil && len(m.Options) > 0 {
+				extra = 2
+			}
+			if end := optOrigin + col*colPitch + textWidth("( ) "+r.columnText(opt)) + extra; end > x {
 				x = end
 			}
 		}

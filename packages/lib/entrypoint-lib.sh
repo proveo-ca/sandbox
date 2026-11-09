@@ -1913,6 +1913,8 @@ _proveo_persist_tool_env() {
    printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$tool" "$tool"
    printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
    printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
+   printf 'export MISE_STATE_DIR="%s/.local/state/mise"\n' "$tool"
+   printf 'export MISE_CACHE_DIR="%s/.cache/mise"\n' "$tool"
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
    [[ -n "${GOFLAGS:-}" ]] && printf 'export GOFLAGS="%s"\n' "$GOFLAGS"
    if [[ -n "${ANDROID_HOME:-}" && -d "${ANDROID_HOME}" ]]; then
@@ -2197,6 +2199,54 @@ proveo_seed_cursor_workspace_agents() {
  done < <(jq -r '.cursor[]?' "$src/_roster.json" 2>/dev/null)
 }
 
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+proveo_trust_workspace_mise() {
+ proveo_env_on PROVEO_MISE_TRUST || return 0
+ local scan config found=0
+ scan="$(_proveo_scan_root)"
+ [[ -d "$scan" ]] || return 0
+ _proveo_tool_path
+ command -v mise >/dev/null 2>&1 || { echo "proveo: mise trust requested but mise is unavailable" >&2; return 1; }
+ for config in mise.toml mise.local.toml .mise.toml .mise.local.toml mise/config.toml .mise/config.toml; do
+  [[ -f "$scan/$config" ]] || continue
+  found=1
+  mise trust --yes "$scan/$config" || return 1
+ done
+ ((found == 0)) || _proveo_persist_tool_env
+}
+
+# SPEC: _spec/internal/sbx/startup-dispatch.puml, _spec/cmd/proveo/github-access.puml
+proveo_verify_github_ssh() {
+ [[ "${PROVEO_GITHUB_TRANSPORT:-}" == ssh ]] || return 0
+ local reason="" greeting="" url="" dir rc=0
+ if [[ ! -S "${SSH_AUTH_SOCK:-}" ]]; then
+  reason="sandbox SSH-agent socket missing; enable forwarding and recreate with runtime ssh-agent@1"
+ elif ! _proveo_bounded 5 ssh-add -l >/dev/null 2>&1; then
+  reason="forwarded SSH agent has no available key; load a GitHub authentication key on the host"
+ else
+  greeting="$(_proveo_bounded 10 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=5 -T git@github.com 2>&1)" || rc=$?
+  if [[ "$rc" != 1 || "$greeting" != *"successfully authenticated"* ]]; then
+   reason="GitHub SSH authentication failed; check host key registration, known_hosts and network policy: $greeting"
+  else
+   printf 'proveo: GitHub SSH verified: %s\n' "$greeting" >&2
+   dir="$(_proveo_scan_root)"
+   url="$(git -C "$dir" remote get-url --push origin 2>/dev/null)" || url=""
+   case "$url" in
+    git@github.com:*|ssh://git@github.com/*)
+     if ! _proveo_bounded 10 git -C "$dir" ls-remote "$url" HEAD >/dev/null 2>&1; then
+      reason="GitHub SSH authenticated, but the origin push destination is unreadable; check repository access"
+     else
+      echo 'proveo: GitHub repository read access verified; push permission remains unverified' >&2
+     fi ;;
+   esac
+  fi
+ fi
+ [[ -n "$reason" ]] || return 0
+ printf '%s\n' "$reason; run proveo init to retry SSH, choose HTTPS token, or defer" > "$PROVEO_SEED_REFUSED"
+ printf 'proveo: %s — agent not released\n' "$reason" >&2
+ return 1
+}
+
 # SPEC: _spec/internal/sbx/startup-dispatch.puml
 proveo_seed() {
  local target="${1:-}" phase="${2:-${PROVEO_SEED_PHASE:-all}}"
@@ -2219,12 +2269,20 @@ proveo_seed() {
 
  proveo_seed_step credentials "preparing GitHub trust" "$target"
  seed_github_known_hosts "$home" || true
+ proveo_verify_github_ssh || return 1
 
  proveo_seed_step workspace "restoring persistent state folders" "$target"
  proveo_sync_state restore || true
 
  proveo_seed_step setup "restoring configuration folders" "$target"
  proveo_sync_config restore || true
+
+ if proveo_env_on PROVEO_MISE_TRUST; then
+  proveo_seed_step setup "restoring toolchain folders before mise trust" "$target"
+  proveo_sync_tools restore || true
+  proveo_seed_step setup "trusting workspace mise config" "$target"
+  proveo_trust_workspace_mise || return 1
+ fi
 
  if [[ "$target" == opencode ]]; then
   proveo_seed_step setup "seeding OpenCode defaults" "$target"
@@ -2279,7 +2337,9 @@ _proveo_seed_provision() {
   echo "🧭 assistant: no toolchain or dependency provisioning"
  else
   proveo_seed_step setup "restoring toolchain folders" "$target"
-  proveo_sync_tools restore || true
+  if ! proveo_env_on PROVEO_MISE_TRUST; then
+   proveo_sync_tools restore || true
+  fi
   _proveo_tool_path
   _proveo_persist_tool_env
   proveo_seed_step setup "installing toolchains and dependencies" "$target"

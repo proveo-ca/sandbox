@@ -24,6 +24,7 @@ const (
 	CapNetworkPolicy = "com.docker.sandbox/network-policy@1"
 	CapPort          = "com.docker.sandbox/port@1"
 	CapVolume        = "com.docker.sandbox/volume@1"
+	CapSSHAgent      = "com.docker.sandbox/ssh-agent@1"
 )
 
 // WorkloadV3 is a v3 `kind: workload` descriptor; it carries no field the spec does not define.

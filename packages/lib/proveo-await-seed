@@ -1,5 +1,5 @@
 #!/bin/sh
-# SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/opencode-seed-progress.puml
+# SPEC: _spec/packages/lib/seed-and-launch.puml, _spec/packages/lib/opencode-seed-progress.puml, _spec/cmd/proveo/github-access.puml
 # In an sbx session, waits for this boot's instruction seed, moves a worktree clone's launch into the worktree, then execs "$@" when given; --cwd prints that directory instead.
 marker="${PROVEO_INSTRUCTIONS_MARKER:-/dev/shm/proveo-instructions-seeded}"
 refused="${PROVEO_SEED_REFUSED:-/dev/shm/proveo-seed-refused}"
@@ -53,11 +53,21 @@ if _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
   done
   seed_progress_clear
   if [ "$progress" = 1 ]; then trap - INT TERM HUP; fi
-  [ -e "$marker" ] || [ -e "$refused" ] || echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
+  if [ ! -e "$marker" ] && [ ! -e "$refused" ]; then
+    if [ "${PROVEO_GITHUB_TRANSPORT:-}" = ssh ]; then
+      echo "proveo: workspace setup and SSH verification not completed after ${limit}s" >&2
+    else
+      echo "proveo: workspace instructions not seeded after ${limit}s; launching anyway" >&2
+    fi
+  fi
 fi
 if _proveo_in_sbx && [ -s "$refused" ]; then
   echo "proveo: the seed did not release the agent — $(cat "$refused")" >&2
   [ "${1:-}" = "--cwd" ] || exit 1
+fi
+if _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ] && [ "${PROVEO_GITHUB_TRANSPORT:-}" = ssh ] && [ ! -e "$marker" ] && [ "${1:-}" != --cwd ]; then
+  echo "proveo: SSH verification or workspace setup has not completed; agent not released" >&2
+  exit 1
 fi
 target="$PWD"
 if [ -n "${PROVEO_CLONE_MAIN:-}" ] && [ "$PWD" = "$PROVEO_CLONE_MAIN" ] && [ -n "${PROVEO_WORKDIR:-}" ] && [ -d "$PROVEO_WORKDIR" ]; then

@@ -12,7 +12,7 @@ import (
 func TestGitSafeDirectoryEnvDeclaresOnlyTheRepoRoot(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	got := gitSafeDirectoryEnv(root)
+	got := gitConfigEnv(root, "")
 	wantRoot := root
 	if r, err := filepath.EvalSymlinks(root); err == nil {
 		wantRoot = r
@@ -33,7 +33,7 @@ func TestGitSafeDirectoryEnvDeclaresOnlyTheRepoRoot(t *testing.T) {
 
 func TestGitSafeDirectoryEnvEmptyRepoRootIsSilent(t *testing.T) {
 	t.Parallel()
-	if got := gitSafeDirectoryEnv(""); got != nil {
+	if got := gitConfigEnv("", ""); got != nil {
 		t.Errorf("empty repoRoot = %q, want nil", got)
 	}
 }

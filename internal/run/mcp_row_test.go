@@ -23,6 +23,9 @@ func TestTheMCPRowDefaultsOffAndShowsTheRememberedAnswer(t *testing.T) {
 	if r := mcpRow("claudecode", "", false); r.Options[r.Selected] != mcpOff || r.Locked {
 		t.Errorf("no answer yet: selected %q locked %v; want off, open", r.Options[r.Selected], r.Locked)
 	}
+	if r := mcpRow("claudecode", "", false); r.Options[0] != mcpOn || r.Options[1] != mcpOff || r.Cols[0] >= r.Cols[1] {
+		t.Errorf("mcp risk order = %v cols %v; want on left of off", r.Options, r.Cols)
+	}
 	if r := mcpRow("claudecode", mcpOn, false); r.Options[r.Selected] != mcpOn {
 		t.Errorf("remembered on: selected %q", r.Options[r.Selected])
 	}

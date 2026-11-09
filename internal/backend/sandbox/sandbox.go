@@ -33,6 +33,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/envflag"
+	"github.com/proveo-ca/proveo/internal/githubaccess"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -1104,7 +1105,9 @@ func FirstHost(mounts []sbx.Mount) string {
 // Input is the resolved input to the sbx backend.
 type Input struct {
 	Target, Image, AuthVar string
-	MCPGateway             bool     // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
+	MCPGateway             bool // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
+	MiseTrust              bool
+	GitTransport           string
 	Desktop                bool     // Hermes Desktop drives the sandbox over SSH instead of this terminal
 	DesktopLaunch          []string // opens Hermes Desktop on the host
 	Clone                  bool
@@ -1295,6 +1298,14 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		}
 	}
 	env = append(env, EvidenceVar+"="+in.Evidence)
+	if in.MiseTrust {
+		env = append(env, "PROVEO_MISE_TRUST=on")
+	} else {
+		env = append(env, "PROVEO_MISE_TRUST=off")
+	}
+	if in.GitTransport != "" {
+		env = append(env, githubaccess.Env+"="+in.GitTransport)
+	}
 	if set := proveohome.ConfigSet(in.Man.Home); set != "" {
 		env = append(env, proveohome.ConfigSetVar+"="+set)
 	}
@@ -1425,6 +1436,9 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		caps = append(caps, backAPIKeys(up.Capabilities, storedAPIKeys(in))...)
 	}
 	creds, secrets := agentCredentials(in, secrets)
+	if in.GitTransport == githubaccess.SSH {
+		caps = append(caps, sbx.CapabilityV3{Type: sbx.CapSSHAgent, Config: map[string]any{"phase": "runtime"}})
+	}
 	owned := upstreamServices(caps)
 	for _, c := range creds {
 		if owned[c.Service] {
@@ -1493,6 +1507,9 @@ func envNames(env []string) []string {
 // hookEnv is what proveo's seed hooks declare: every -e name, plus the gateway's when it is allowed.
 func hookEnv(in Input, env []string) []string {
 	names := envNames(env)
+	if in.GitTransport == githubaccess.SSH {
+		names = append(names, "SSH_AUTH_SOCK")
+	}
 	if in.MCPGateway {
 		names = append(names, sbx.MCPGatewayEnv, sbx.MCPSentinelEnv)
 	}
@@ -2101,20 +2118,30 @@ func startupCommands(in Input, ownAgent bool) []sbx.KitCommand {
 	return cmds
 }
 
-// gitSafeDirectoryEnv declares the repository root safe for git, in the env the agent inherits.
-func gitSafeDirectoryEnv(repoRoot string) []string {
-	if repoRoot == "" {
+// gitConfigEnv declares repository safety and GitHub transport in the agent environment.
+// SPEC: _spec/internal/sbx/launch-env.puml, _spec/cmd/proveo/github-access.puml
+func gitConfigEnv(repoRoot, transport string) []string {
+	var entries [][2]string
+	if repoRoot != "" {
+		root := repoRoot
+		if r, err := filepath.EvalSymlinks(repoRoot); err == nil {
+			root = r
+		}
+		entries = append(entries, [2]string{"safe.directory", root})
+	}
+	if transport == githubaccess.HTTPS {
+		entries = append(entries,
+			[2]string{"url.https://github.com/.insteadOf", "git@github.com:"},
+			[2]string{"url.https://github.com/.insteadOf", "ssh://git@github.com/"})
+	}
+	if len(entries) == 0 {
 		return nil
 	}
-	root := repoRoot
-	if r, err := filepath.EvalSymlinks(repoRoot); err == nil {
-		root = r
+	out := []string{"GIT_CONFIG_COUNT=" + strconv.Itoa(len(entries))}
+	for i, entry := range entries {
+		out = append(out, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, entry[0]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, entry[1]))
 	}
-	return []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=safe.directory",
-		"GIT_CONFIG_VALUE_0=" + root,
-	}
+	return out
 }
 
 // launchConfigEnv renders OpenCode's per-launch model and MCP configuration.
@@ -2286,9 +2313,9 @@ func launchEnv(in Input, agent string, env []string, mounts []sbx.Mount) []strin
 		out = append(out, SharesVar+"="+v)
 	}
 	if worktreeClone(in) {
-		out = append(out, gitSafeDirectoryEnv(in.CloneSource.Main)...)
+		out = append(out, gitConfigEnv(in.CloneSource.Main, in.GitTransport)...)
 	} else {
-		out = append(out, gitSafeDirectoryEnv(in.RepoRoot)...)
+		out = append(out, gitConfigEnv(in.RepoRoot, in.GitTransport)...)
 	}
 	out = append(out, launchConfigEnv(agent, in.AgentEnv)...)
 	out = append(out, scopedGitIndexEnv(in, binds)...)

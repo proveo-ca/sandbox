@@ -1,5 +1,5 @@
 == sbx argv ==
-sbx create --name proveo-cursor-<WORKHASH> -m 8192m -e PROVEO_AGENT_EVIDENCE=default -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e MCP_GATEWAY_URL= /st/sbx/kit/proveo-cursor <WORK>
+sbx create --name proveo-cursor-<WORKHASH> -m 8192m -e PROVEO_AGENT_EVIDENCE=default -e PROVEO_MISE_TRUST=off -e GIT_AUTHOR_NAME=Executor -e HOME=/proveo-home -e PROVEO_HOME=/proveo-home -e PROVEO_WORKDIR=<WORK> -e GIT_DISCOVERY_ACROSS_FILESYSTEM=1 -e PROVEO_HOST_OS=<HOSTOS> -e MCP_GATEWAY_URL= /st/sbx/kit/proveo-cursor <WORK>
 sbx run --name proveo-cursor-<WORKHASH>
 == secret names ==
 CURSOR_API_KEY
@@ -118,6 +118,7 @@ capabilities:
             - PROVEO_AGENT_EVIDENCE
             - PROVEO_HOME
             - PROVEO_HOST_OS
+            - PROVEO_MISE_TRUST
             - PROVEO_WORKDIR
           user: "1000"
         - command:
@@ -137,6 +138,7 @@ capabilities:
             - PROVEO_AGENT_EVIDENCE
             - PROVEO_HOME
             - PROVEO_HOST_OS
+            - PROVEO_MISE_TRUST
             - PROVEO_WORKDIR
           user: "1000"
         - background: true
@@ -166,6 +168,7 @@ capabilities:
             - PROVEO_AGENT_EVIDENCE
             - PROVEO_HOME
             - PROVEO_HOST_OS
+            - PROVEO_MISE_TRUST
             - PROVEO_WORKDIR
           user: "1000"
   - type: com.docker.sandbox/agent-context@1

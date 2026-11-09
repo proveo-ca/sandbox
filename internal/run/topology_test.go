@@ -28,10 +28,10 @@ func TestFrameAgreesWithTheForm(t *testing.T) {
 	} {
 		f := stripForm(c.tier, c.creds)
 		fr := topologyOf("claudecode", "broker")(f, 0)
-		if !strings.HasPrefix(fr.Caption, c.tier+" · "+c.creds) {
+		if !strings.HasPrefix(fr.Caption, c.tier+" · broker") {
 			t.Errorf("%s/%s: caption %q does not name the selection", c.tier, c.creds, fr.Caption)
 		}
-		if c.creds != "forward" && fr.Key != choiceui.KeyAtHop {
+		if fr.Key != choiceui.KeyAtHop {
 			t.Errorf("%s/%s: sbx holds the secret at its proxy, got %v", c.tier, c.creds, fr.Key)
 		}
 	}
@@ -82,12 +82,12 @@ func TestTheKeyHasAHomeWhenTheRowWasDropped(t *testing.T) {
 	}
 }
 
-func TestForwardPutsTheKeyInTheSandbox(t *testing.T) {
+func TestLegacyForwardKeepsTheKeyAtTheBroker(t *testing.T) {
 	t.Parallel()
 	f := stripForm("allow-all", "forward")
 	fr := topologyOf("cursor", "broker")(f, 0)
-	if fr.Key != choiceui.KeyInSquare {
-		t.Errorf("forward rides the sandbox env, got %v", fr.Key)
+	if fr.Key != choiceui.KeyAtHop {
+		t.Errorf("legacy forward moved credentials away from the broker: %v", fr.Key)
 	}
 	if fr.Hop != "sbx proxy" {
 		t.Errorf("hop = %q, want sbx proxy", fr.Hop)
@@ -184,11 +184,11 @@ func TestHoveringTheHostDropsTheSandbox(t *testing.T) {
 		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Selected: 0, Multi: true, Off: []bool{true, true}, On: []bool{false, true}},
 	}}
 	onHost := topologyOf("opencode", "broker")(f, 2)
-	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "" || onHost.Key != choiceui.KeyInSquare {
+	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "sbx proxy" || onHost.Key != choiceui.KeyAtHop {
 		t.Errorf("hovering host: direct=%v square=%q hop=%q key=%v", onHost.Direct, onHost.Square, onHost.Hop, onHost.Key)
 	}
-	if !strings.Contains(onHost.Caption, "forward") || !strings.Contains(onHost.Caption, "rides with the agent") {
-		t.Errorf("caption %q must show the key forwarded", onHost.Caption)
+	if !strings.Contains(onHost.Caption, "broker") {
+		t.Errorf("caption %q must keep broker placement", onHost.Caption)
 	}
 	if f.Rows[0].Selected != 1 || !f.Rows[0].Off[0] || !f.Rows[0].Locked {
 		t.Error("the preview selected forward")
@@ -208,17 +208,17 @@ func TestHoveringTheHostDropsTheSandbox(t *testing.T) {
 	}
 }
 
-func TestHoveringForwardPutsTheKeyBesideTheAgent(t *testing.T) {
+func TestHoveringLegacyForwardKeepsTheKeyAtTheBroker(t *testing.T) {
 	t.Parallel()
 	f := &choiceui.Form{Rows: []choiceui.Row{
 		{Label: "egress", Options: []string{"allow-all"}, Selected: 0, Locked: true},
 		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1, Hover: 0, Locked: true},
 	}}
 	onRow := topologyOf("claudecode", "broker")(f, 1)
-	if onRow.Key != choiceui.KeyInSquare {
-		t.Errorf("hovering forward: key = %v, want it beside the agent", onRow.Key)
+	if onRow.Key != choiceui.KeyAtHop {
+		t.Errorf("hovering legacy forward: key = %v, want broker placement", onRow.Key)
 	}
-	if !strings.Contains(onRow.Caption, "forward") {
+	if !strings.Contains(onRow.Caption, "broker") {
 		t.Errorf("caption %q must name the hovered mode", onRow.Caption)
 	}
 	f.Rows[1].Hover = 1
@@ -277,16 +277,16 @@ func modelForm(model string) *choiceui.Form {
 	return f
 }
 
-func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
+func TestCredentialsStayAtTheBrokerForEveryModel(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		option, square, hostModel string
 		key                       choiceui.KeyHome
 	}{
 		{modelAPIKeys, squareOf("hermes"), "", choiceui.KeyAtHop},
-		{credentials.AuthSubscription, squareWith(squareOf("hermes"), "plan"), "", choiceui.KeyNone},
-		{localModels[0].label(), squareOf("hermes"), "Qwen 3.8", choiceui.KeyNone},
-		{localModels[1].label(), squareOf("hermes"), "Glimmer", choiceui.KeyNone},
+		{credentials.AuthSubscription, squareWith(squareOf("hermes"), "plan"), "", choiceui.KeyAtHop},
+		{localModels[0].label(), squareOf("hermes"), "Qwen 3.8", choiceui.KeyAtHop},
+		{localModels[1].label(), squareOf("hermes"), "Glimmer", choiceui.KeyAtHop},
 	} {
 		fr := topologyOf("hermes", "broker")(modelForm(c.option), 0)
 		if fr.Key != c.key || fr.Square != c.square || fr.HostModel != c.hostModel {
@@ -306,9 +306,6 @@ func TestTheKeyShowsOnlyForAPIKeys(t *testing.T) {
 		}
 		if c.hostModel == "" && (fr.HostRight != "" || strings.Contains(fr.Host, "Ollama")) {
 			t.Errorf("%q: host = %q right = %q names Ollama without a local model", c.option, fr.Host, fr.HostRight)
-		}
-		if c.key == choiceui.KeyNone && !strings.Contains(fr.Caption, "no API key") {
-			t.Errorf("%q: caption %q must say no API key is in play", c.option, fr.Caption)
 		}
 	}
 }

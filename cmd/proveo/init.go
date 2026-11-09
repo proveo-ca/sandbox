@@ -522,7 +522,8 @@ func finish(bin string, plan sbx.Plan, d initDecisions, host sbx.Host) error {
 			host:      host,
 			run:       runArgv,
 			secretSet: func(name, value string) error { return secretSetAt(bin, name, value) },
-			tty:       interactiveTerminal(),
+			tty:       !d.NoPrompt && interactiveTerminal(),
+			access:    func() { applyGitHubAccess(bin, !d.NoPrompt && interactiveTerminal()) },
 		})
 	}
 

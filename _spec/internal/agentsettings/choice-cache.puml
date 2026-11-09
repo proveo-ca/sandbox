@@ -15,6 +15,9 @@
 ' form turns it back on (`PROVEO_WIZARD=on`, which wins as a later NAME=value
 ' operand to env(1)). An empty workspace keeps the sub-project picker away, leaving
 ' the choice form as the only prompt on the PTY.
+' The per-harness choice stores miseTrust=off|on beside MCP. An explicit
+' PROVEO_MISE_TRUST=off|on locks the row and wins over the remembered value.
+' Older cache entries omit the field and therefore render off by default.
 '
 ' Seeding agent-settings.yml is NOT a way to skip the prompt. The prompt still
 ' appears — that is the whole rule above — so any test that starts a run on a TTY

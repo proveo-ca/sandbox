@@ -266,6 +266,14 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '                                  run's defaults — silently, because a merge
 '                                  that overwrites nothing looks identical to a
 '                                  merge that had nothing to overwrite.
+'   2a. opt-in mise trust           PROVEO_MISE_TRUST=on moves tool restore into
+'                                  the foreground, then trusts workspace-root
+'                                  mise config files before the agent release.
+'                                  The command uses _proveo_tool_path so its
+'                                  MISE_STATE_DIR is the restored tool home.
+'                                  _proveo_persist_tool_env exports that same
+'                                  state dir to the agent. Without opt-in,
+'                                  tool restore stays in the background.
 '   3. render_subagents <harness>  per-target destination.
 '   4. accept_workspace_trust      before the agent, or the prompt appears.
 '   5. proveo_wire_config          before the release; the formatter class
@@ -284,6 +292,8 @@ title Seed and launch — the one startup step both backends run, and how the ag
 '                                  gates on `command -v`, so a toolchain restored
 '                                  late is a toolchain the run reinstalls beside
 '                                  itself.
+'                                  The opt-in trust path already restored it,
+'                                  so the provision phase skips this repeat.
 '   8. proveo_provision_toolchain  project tools, node, python, dep trees.
 '
 ' `|| true` on the three sync calls is load-bearing and is NOT the old silence.
