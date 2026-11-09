@@ -93,10 +93,13 @@ func TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls(t *testing.T) {
 		}
 	}
 	at(`_proveo_seed_provision "$target"`, release)
-	for _, install := range []string{"proveo_sync_tools restore", "proveo_provision_toolchain"} {
+	for _, install := range []string{"proveo_provision_toolchain"} {
 		if strings.Contains(body[:release], install) {
 			t.Errorf("%s runs before the release: installs are what the agent must not wait on", install)
 		}
+	}
+	if !strings.Contains(body[:release], "if proveo_env_on PROVEO_MISE_TRUST; then\n  proveo_seed_step setup \"restoring toolchain folders before mise trust\"") {
+		t.Error("the foreground tool restore must require the explicit mise trust choice")
 	}
 	prov := provisionBody(t, src)
 	last := -1

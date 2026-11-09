@@ -1913,6 +1913,8 @@ _proveo_persist_tool_env() {
    printf 'export PATH="%s/.local/bin:%s/.local/share/mise/shims:$PATH"\n' "$tool" "$tool"
    printf 'export MISE_DATA_DIR="%s/.local/share/mise"\n' "$tool"
    printf 'export MISE_CONFIG_DIR="%s/.config/mise"\n' "$tool"
+   printf 'export MISE_STATE_DIR="%s/.local/state/mise"\n' "$tool"
+   printf 'export MISE_CACHE_DIR="%s/.cache/mise"\n' "$tool"
    [[ -n "${GOPATH:-}" ]] && printf 'export GOPATH="%s"\nexport PATH="%s/bin:$PATH"\n' "$GOPATH" "$GOPATH"
    [[ -n "${GOFLAGS:-}" ]] && printf 'export GOFLAGS="%s"\n' "$GOFLAGS"
    if [[ -n "${ANDROID_HOME:-}" && -d "${ANDROID_HOME}" ]]; then
@@ -2197,6 +2199,22 @@ proveo_seed_cursor_workspace_agents() {
  done < <(jq -r '.cursor[]?' "$src/_roster.json" 2>/dev/null)
 }
 
+# SPEC: _spec/packages/lib/seed-and-launch.puml
+proveo_trust_workspace_mise() {
+ proveo_env_on PROVEO_MISE_TRUST || return 0
+ local scan config found=0
+ scan="$(_proveo_scan_root)"
+ [[ -d "$scan" ]] || return 0
+ _proveo_tool_path
+ command -v mise >/dev/null 2>&1 || { echo "proveo: mise trust requested but mise is unavailable" >&2; return 1; }
+ for config in mise.toml mise.local.toml .mise.toml .mise.local.toml mise/config.toml .mise/config.toml; do
+  [[ -f "$scan/$config" ]] || continue
+  found=1
+  mise trust --yes "$scan/$config" || return 1
+ done
+ ((found == 0)) || _proveo_persist_tool_env
+}
+
 # SPEC: _spec/internal/sbx/startup-dispatch.puml
 proveo_seed() {
  local target="${1:-}" phase="${2:-${PROVEO_SEED_PHASE:-all}}"
@@ -2225,6 +2243,13 @@ proveo_seed() {
 
  proveo_seed_step setup "restoring configuration folders" "$target"
  proveo_sync_config restore || true
+
+ if proveo_env_on PROVEO_MISE_TRUST; then
+  proveo_seed_step setup "restoring toolchain folders before mise trust" "$target"
+  proveo_sync_tools restore || true
+  proveo_seed_step setup "trusting workspace mise config" "$target"
+  proveo_trust_workspace_mise || return 1
+ fi
 
  if [[ "$target" == opencode ]]; then
   proveo_seed_step setup "seeding OpenCode defaults" "$target"
@@ -2279,7 +2304,9 @@ _proveo_seed_provision() {
   echo "🧭 assistant: no toolchain or dependency provisioning"
  else
   proveo_seed_step setup "restoring toolchain folders" "$target"
-  proveo_sync_tools restore || true
+  if ! proveo_env_on PROVEO_MISE_TRUST; then
+   proveo_sync_tools restore || true
+  fi
   _proveo_tool_path
   _proveo_persist_tool_env
   proveo_seed_step setup "installing toolchains and dependencies" "$target"

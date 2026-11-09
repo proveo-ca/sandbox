@@ -16,6 +16,14 @@
 ' divider was inferred from "the first multi-select row" rather than declared.
 ' Source: internal/choiceui/choiceui.go draw(); internal/run/choices.go row builders.
 '
+' The execution group includes trust repo directly below OS. It defaults to
+' off. Its current opt-in runs mise trust on workspace-root config files before
+' the agent starts. On permits project-defined mise behavior, so the risk axis
+' places on left of off. The MCP gateway row follows the same on-left,
+' off-right order: enabling it grants an agent more integrations.
+' Off skips new trust; it does not revoke a prior mise trust record in the
+' durable tool home, including one the operator made outside proveo.
+'
 ' Salt possesses no conditional construct. Optionality is consequently encoded,
 ' never branched — the five encodings are demonstrated below and named in the
 ' legend. The variant that eliminates the form entirely (no TTY) has no frame.
@@ -154,10 +162,12 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   {
     . | ◀ riskier | . | . | safer ▶
     ▸ egress | (X) allow-all | . | ( ) balanced | ( ) deny-all
+    mcp | ( ) on | (X) off | . | .
     credentials | ( ) <color:#9a9a9a>forward</color> | . | . | (X) broker
     model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
     . | . | ———— execution ———— | . | .
     . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | . | .
+    trust repo | ( ) on | (X) off | . | .
     . | . | ———— interface ———— | . | .
     devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
     outputs | ( ) filtered | (X) verbose | . | .

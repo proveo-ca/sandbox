@@ -68,7 +68,7 @@ skinparam noteTextAlignment left
 '   * any hook naming MCP_GATEWAY_URL unless opts.MCPGateway (the mcp row).
 ' THE MCP ROW (user: "mcp can be a new row under the sbx's egress in
 ' internal/choiceui. If we only have on/off so be it for now"):
-'   * internal/run mcpRow sits right under egress, off | on, and shows only
+'   * internal/run mcpRow sits right under egress, on | off, and shows only
 '     when sbx.OffersMCPGateway(target) — the kit has more hooks with the
 '     gateway than without (claudecode, codex, opencode; not cursor — MEASURED);
 '     hermes never shows it: mcpGateway: always (below).

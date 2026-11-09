@@ -12,7 +12,7 @@ import (
 func libRun(t *testing.T, home, script string, env ...string) string {
 	t.Helper()
 	cmd := exec.Command(bashOrSkip(t), "-c", `source "$1/packages/lib/entrypoint-lib.sh"; `+script, "bash", repoRoot(t))
-	cmd.Env = append(append(os.Environ(), "PROVEO_HOME=", "HOME="+home), env...)
+	cmd.Env = append(append(os.Environ(), "BASH_ENV=", "PROVEO_HOME=", "HOME="+home), env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s: %v\n%s", script, err, out)
@@ -32,7 +32,7 @@ func TestPersistedToolEnvIsAlsoAFile(t *testing.T) {
 	home := t.TempDir()
 	libRun(t, home, `_PROVEO_TOOL_HOME="$HOME/tools" ANDROID_HOME="$HOME" _proveo_persist_tool_env`)
 	b, err := os.ReadFile(filepath.Join(home, ".proveo-tool-env.sh"))
-	if err != nil || !strings.Contains(string(b), "MISE_DATA_DIR") || !strings.Contains(string(b), "ANDROID_HOME") {
+	if err != nil || !strings.Contains(string(b), "MISE_DATA_DIR") || !strings.Contains(string(b), "MISE_STATE_DIR") || !strings.Contains(string(b), "MISE_CACHE_DIR") || !strings.Contains(string(b), "ANDROID_HOME") {
 		t.Errorf("~/.proveo-tool-env.sh = %q, %v; want the same exports as the .bashrc block", b, err)
 	}
 	rc, _ := os.ReadFile(filepath.Join(home, ".bashrc"))

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/devports"
+	"github.com/proveo-ca/proveo/internal/envflag"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -163,6 +164,12 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 			p.MCP = mcpOn
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("PROVEO_MISE_TRUST")); v != "" {
+		p.MiseTrust, p.MiseTrustSet = mcpOff, true
+		if envflag.On(v) {
+			p.MiseTrust = mcpOn
+		}
+	}
 
 	return nil
 }
@@ -210,7 +217,8 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
 			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
-			MCP: p.MCP,
+			MCP:       p.MCP,
+			MiseTrust: p.MiseTrust,
 		})
 		if p.portsAsked {
 			rs.Choices.Settings.RememberPorts(rs.Choices.PortsRoot, portsToRemember(p.Ports))
@@ -651,6 +659,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Evidence:   p.evidenceOrDefault(),
 		Forwards:   p.forwards(),
 		MCPGateway: p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
+		MiseTrust:  p.miseTrustAllowed(),
 		Desktop:    desktop, DesktopLaunch: desktopLaunch,
 		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
 		ImageEntrypoint: sbx.ImageEntrypoint,

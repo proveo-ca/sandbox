@@ -86,6 +86,20 @@ func TestEveryTargetRunsAsItsOwnProveoWorkload(t *testing.T) {
 	}
 }
 
+func TestMiseTrustChoiceReachesSeedEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		allowed bool
+		want    string
+	}{{false, "PROVEO_MISE_TRUST=off"}, {true, "PROVEO_MISE_TRUST=on"}} {
+		in := specInput("codex")
+		in.MiseTrust = tc.allowed
+		cfg, _, _ := Spec(in)
+		if !slices.Contains(cfg.Env, tc.want) {
+			t.Errorf("MiseTrust=%v env %v lacks %s", tc.allowed, cfg.Env, tc.want)
+		}
+	}
+}
+
 // SPEC: _spec/internal/sbx/kit-image-source.puml
 func TestTheRecipeAndTheCreateProcessFollowTheImageSource(t *testing.T) {
 	const digest = "sha256:ed1aa77cdeb03b2d810fd86ca0d15c7b1a44c9c840580b0539dbf66ac710d01f"

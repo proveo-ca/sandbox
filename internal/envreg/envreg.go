@@ -148,6 +148,8 @@ var Vars = []Var{
 		Doc: "Pull a local model missing from the host's Ollama; 0 fails instead"},
 	{Name: "PROVEO_MISE_INSTALL_TIMEOUT", Scope: Operator, Where: Image, Default: "180s",
 		Doc: "Bound each mise install the seed runs, in seconds"},
+	{Name: "PROVEO_MISE_TRUST", Scope: Operator, Where: Binary | Image, Default: "off",
+		Doc: "Trust workspace mise configs before launch; overrides the trust repo row"},
 	{Name: "PROVEO_MOBILE_MCP_VERSION", Scope: Operator, Where: Image, Default: "1.0.6",
 		Doc: "Pin the mobile-mcp version the android add-on installs"},
 	{Name: "PROVEO_MOUNT_GH_CONFIG", Scope: Operator, Where: Binary, Default: "on",

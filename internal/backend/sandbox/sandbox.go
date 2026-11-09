@@ -1104,7 +1104,8 @@ func FirstHost(mounts []sbx.Mount) string {
 // Input is the resolved input to the sbx backend.
 type Input struct {
 	Target, Image, AuthVar string
-	MCPGateway             bool     // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
+	MCPGateway             bool // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
+	MiseTrust              bool
 	Desktop                bool     // Hermes Desktop drives the sandbox over SSH instead of this terminal
 	DesktopLaunch          []string // opens Hermes Desktop on the host
 	Clone                  bool
@@ -1295,6 +1296,11 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		}
 	}
 	env = append(env, EvidenceVar+"="+in.Evidence)
+	if in.MiseTrust {
+		env = append(env, "PROVEO_MISE_TRUST=on")
+	} else {
+		env = append(env, "PROVEO_MISE_TRUST=off")
+	}
 	if set := proveohome.ConfigSet(in.Man.Home); set != "" {
 		env = append(env, proveohome.ConfigSetVar+"="+set)
 	}

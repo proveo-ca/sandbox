@@ -68,6 +68,7 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		}
 		form.Rows = append(form.Rows, applicableRows(row)...)
 		if label == rowExecution {
+			form.Rows = append(form.Rows, repoTrustRow(p.MiseTrust, p.MiseTrustSet))
 			if r, ok := portsRow(found, p.Ports, sandbox.LoopbackFree); ok {
 				form.Rows = append(form.Rows, r)
 				p.portsAsked = true
@@ -125,6 +126,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	if v := form.Selection(mcpLabel); v != "" && !p.MCPSet {
 		p.MCP = v
+	}
+	if v := form.Selection(repoTrustLabel); v != "" && !p.MiseTrustSet {
+		p.MiseTrust = v
 	}
 	return nil
 }
@@ -233,24 +237,40 @@ func mcpRow(target, current string, fromEnv bool) choiceui.Row {
 	if !sbx.OffersMCPGateway(target) {
 		return choiceui.Row{}
 	}
-	r := choiceui.Row{Label: mcpLabel, Options: []string{mcpOff, mcpOn}, Help: map[string]string{
+	r := choiceui.Row{Label: mcpLabel, Options: []string{mcpOn, mcpOff}, Selected: 1, Help: map[string]string{
 		mcpOff: "the published kit's MCP gateway hooks are left out",
 		mcpOn:  "the kit registers sbx's MCP gateway into the agent's config (user scope, in the proveo home)",
 	}}
 	if current == mcpOn {
-		r.Selected = 1
+		r.Selected = 0
 	}
 	if fromEnv {
 		r.Locked, r.Reason = true, "PROVEO_SBX_MCP sets this; unset it to choose here"
 	}
-	return pinCols(r, mcpColumn)
+	return pinCols(r, onOffRiskColumn)
 }
 
-func mcpColumn(name string) int {
+func onOffRiskColumn(name string) int {
 	if name == mcpOn {
-		return 1
+		return 0
 	}
-	return 0
+	return 1
+}
+
+const repoTrustLabel = "trust repo"
+
+func repoTrustRow(current string, fromEnv bool) choiceui.Row {
+	r := choiceui.Row{Label: repoTrustLabel, Options: []string{mcpOn, mcpOff}, Selected: 1, Help: map[string]string{
+		mcpOn:  "run mise trust on workspace config before the agent starts",
+		mcpOff: "do not add trust for workspace mise config",
+	}}
+	if current == mcpOn {
+		r.Selected = 0
+	}
+	if fromEnv {
+		r.Locked, r.Reason = true, "PROVEO_MISE_TRUST sets this; unset it to choose here"
+	}
+	return pinCols(r, onOffRiskColumn)
 }
 
 func evidenceRow(current string) choiceui.Row {

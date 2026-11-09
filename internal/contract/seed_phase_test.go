@@ -50,6 +50,7 @@ proveo_seed "$@"
 echo "rc=$?"`
 	cmd := exec.Command(bash, append([]string{"-c", script, "bash", repoRoot(t)}, args...)...)
 	cmd.Env = append(os.Environ(), "HOME="+home, "PROVEO_HOME=", "PROVEO_SEED_PHASE=", "PROVEO_AGENT_KIND=",
+		"BASH_ENV=",
 		"PROVEO_TOOLCHAIN_READY="+marker, "PROVEO_HOOKS_MARKER="+filepath.Join(home, "hooks"),
 		"PROVEO_PROVISIONING="+filepath.Join(home, "provisioning"))
 	cmd.Env = append(cmd.Env, env...)
@@ -112,6 +113,38 @@ func TestSeedPhasesSplitAtTheRelease(t *testing.T) {
 	}
 	if _, rc, _ := runSeedPhase(t, bash, nil, "claudecode", "sideways"); rc != "2" {
 		t.Errorf("proveo_seed claudecode sideways rc = %s, want 2 — an unknown phase must not fall through to a full seed", rc)
+	}
+}
+
+func TestMiseTrustRunsAfterToolRestoreBeforeAgentRelease(t *testing.T) {
+	bash := bashOrSkip(t)
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "mise.toml"), []byte("[tasks]\nhello = 'echo hello'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "mise"), []byte("#!/bin/sh\nprintf 'CALL mise %s state=%s\\n' \"$*\" \"$MISE_STATE_DIR\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"PROVEO_MISE_TRUST=on", "PROVEO_WORKDIR=" + workspace, "PATH=" + bin + ":" + os.Getenv("PATH")}
+	calls, rc, _ := runSeedPhase(t, bash, env, "claudecode", "all")
+	if rc != "0" {
+		t.Fatalf("seed rc=%s\n%s", rc, calls)
+	}
+	for _, step := range []string{"CALL proveo_sync_tools restore", "CALL mise trust --yes " + filepath.Join(workspace, "mise.toml"), "CALL proveo_release_agent"} {
+		if !strings.Contains(calls, step) {
+			t.Errorf("missing %q\n%s", step, calls)
+		}
+	}
+	if strings.Index(calls, "CALL proveo_sync_tools restore") > strings.Index(calls, "CALL mise trust") || strings.Index(calls, "CALL mise trust") > strings.Index(calls, "CALL proveo_release_agent") {
+		t.Errorf("restore → trust → release order lost:\n%s", calls)
+	}
+	if strings.Count(calls, "CALL proveo_sync_tools restore") != 1 || !strings.Contains(calls, "/.local/state/mise") {
+		t.Errorf("tool restore or mise state is wrong:\n%s", calls)
+	}
+	off, _, _ := runSeedPhase(t, bash, []string{"PROVEO_MISE_TRUST=off", "PROVEO_WORKDIR=" + workspace, "PATH=" + bin + ":" + os.Getenv("PATH")}, "claudecode", "all")
+	if strings.Contains(off, "CALL mise trust") || strings.Count(off, "CALL proveo_sync_tools restore") != 1 {
+		t.Errorf("off still trusted or moved tool restore:\n%s", off)
 	}
 }
 

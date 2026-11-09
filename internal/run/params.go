@@ -27,6 +27,8 @@ type Params struct {
 	Evidence                                                              string
 	MCP                                                                   string // mcpOn or mcpOff; "" until chosen
 	MCPSet                                                                bool   // PROVEO_SBX_MCP was set; the cache and the row do not override it
+	MiseTrust                                                             string
+	MiseTrustSet                                                          bool
 	PrintOnly                                                             bool
 	Extra                                                                 []string
 	Clone, CloneSet                                                       bool
@@ -69,6 +71,8 @@ const (
 
 func (p Params) mcpAllowed() bool { return p.MCP == mcpOn }
 
+func (p Params) miseTrustAllowed() bool { return p.MiseTrust == mcpOn }
+
 func (p Params) evidenceOrDefault() string {
 	if p.Evidence == EvidenceDefault {
 		return EvidenceDefault
@@ -108,6 +112,9 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	}
 	if !p.MCPSet && cached.MCP != "" {
 		p.MCP = cached.MCP
+	}
+	if !p.MiseTrustSet && cached.MiseTrust != "" {
+		p.MiseTrust = cached.MiseTrust
 	}
 	if p.LocalModel == "" {
 		p.LocalModel = hostTagFor(cached.LocalModel)
