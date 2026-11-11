@@ -8,6 +8,8 @@ skinparam noteTextAlignment left
 ' covers: e2e/hermes_desktop_test.go
 ' covers: internal/backend/sandbox/**
 ' covers: internal/run/**
+' covers: cmd/proveo/desktop.go
+' covers: cmd/proveo/desktop_test.go
 '
 ' ── DECISION (2026-10-24, user: "Desktop → sbx over SSH") ───────────────────
 ' Research (sources in the session report): no desktop agent proveo could offer
@@ -106,6 +108,14 @@ skinparam noteTextAlignment left
 '     agent`.
 '   STILL OPEN: H2–H5 need the app on a host (the first `proveo run hermes`
 '   with desktop installs it on this Mac after a yes).
+'   2026-11-11 (output-readability R1, decision B): the pinned plan goes to
+'   the run log (ui.Logf), not the screen; the question reads "Install Hermes
+'   Desktop <tag> now?". EnsureDesktop returns (launch, installed, err), and
+'   the interface block after `sbx create` carries one fact: "● desktop:
+'   Hermes Desktop", or "Hermes Desktop <tag> (installed now)" after a yes.
+'   Pinned by cmd/proveo/desktop_test.go
+'   TestADeclinedInstallInstallsNothingAndLogsThePlan and
+'   internal/run/host_adb_test.go TestEachHostAddOnFactNamesWhatTheRunLeftUp.
 '
 ' ── DESKTOP DEFAULTED TO THE HOST (MEASURED 2026-10-30) ─────────────────────
 ' A `proveo run hermes` desktop session answered from Nous's free model, and

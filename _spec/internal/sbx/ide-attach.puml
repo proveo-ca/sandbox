@@ -5,6 +5,7 @@ skinparam noteTextAlignment left
 ' status: applied 2026-09-21; JetBrains target 2026-10-01; launch links 2026-10-02;
 '   live local attach is offered; remote attach remains unsupported.
 ' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/report.go (reportInterface, skippedLinkItems)
 ' covers: internal/backend/sandbox/home_access.go
 ' covers: internal/sbx/sbx.go
 ' covers: internal/sbx/run.go (SSHHost, GatewayLink, VSCodeRemoteArgs, ShellLine)
@@ -22,11 +23,18 @@ skinparam noteTextAlignment left
 '   workspace boundary ....... _spec/_paradigms/workspace-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
-' LIVE AND LOCAL. proveo names `sbx setup ssh` and <sandbox>.sbx under the
-' interface heading, before the agent takes the TTY. Each sandbox has its own
-' host. Two writers share the tree; that is named, not refused. A successful
-' run still tears its sandbox down. A failed run reprints the same host so the
-' editor can stay after the agent has gone. A remote attach is not established.
+' LIVE AND LOCAL. proveo names <sandbox>.sbx under the interface heading,
+' before the agent takes the TTY. Each sandbox has its own host. Two writers
+' share the tree; that is named, not refused. A successful run still tears its
+' sandbox down. A failed run reprints the same host so the editor can stay
+' after the agent has gone. A remote attach is not established.
+' ONE ROW ON A LIVE RUN (2026-11-11, output-readability R1). The screen gets
+' "● ide: ssh <sandbox>.sbx" and one dim line: on a clone "IDE links in the
+' run log; a local Open edits the host checkout", else "JetBrains, Toolbox and
+' VS Code links in the run log". IDEAttachLines(live) goes whole to the run
+' log (ui.Logf): `sbx setup ssh`, JetBrains, Toolbox, VS Code, the local-Open
+' caution, the two-writers line, DISPOSABLE CLONE and the fetch recipe. A
+' kept sandbox at teardown still prints the whole block (PrintIDEAttach).
 '
 ' TRANSPORT STAYS UPSTREAM. proveo neither implements SSH nor branches on an
 ' SSH client's status, so MinVersion is not raised for this. `sbx setup ssh`
@@ -57,12 +65,13 @@ skinparam noteTextAlignment left
 ' ROOT is never mounted by a shipped def, so the guest cannot add an entry; a
 ' linked-dirs copy inside a mounted dir does not count (home_access_test.go).
 ' The widening filters above still run first. An unlisted link lands in
-' HomeAccess.SkippedLinks as "<link> → <target>", and noteSkippedLinks
-' (home_access.go:32-36) prints "home link <l> not followed — list its target in
-' <home>/linked-dirs to mount it read-only". The adversarial review found the
+' HomeAccess.SkippedLinks as "<link> → <target>", and the workspace block
+' (report.go skippedLinkItems, since R1) prints "⚠ home link <l> — not
+' followed" with the dim line "list its target in <home>/linked-dirs to mount
+' it read-only". The adversarial review found the
 ' notice first sat inside sandbox.Run's own-prepare branch, so it never printed
-' on a real run (run.go prepares HomeAccess); sandbox.Run now calls it after
-' either path (sandbox.go:1451). Tests: TestHomeAccessFollowsOnlyLinksTheHostListed,
+' on a real run (run.go prepares HomeAccess); ReportWorkspace reads in.HomeAccess
+' after either path. Tests: TestHomeAccessFollowsOnlyLinksTheHostListed,
 ' TestASkippedLinkNoticeNamesTheLinkAndTheListFile, with
 ' TestHomeAccessMountsALinkedDirReadOnly and
 ' TestHomeAccessRefusesLinksThatWidenTheView updated (reported). The README's
@@ -187,15 +196,16 @@ note right of AGENT
   **Two writers is a fact, not a veto.**
   A live agent and an editor share the
   tree with no mediation. proveo names
-  that in the interface section and
-  still prints the SSH host.
+  that in the run log and still prints
+  the SSH host in the interface block.
 end note
 
 legend bottom
   **Implemented contract**
   ==
-  A named sbx run prints `sbx setup ssh`, `<sid>.sbx`, and the workspace under
-  the interface heading so an editor can attach while the agent is live.
+  A named sbx run prints `ide: ssh <sid>.sbx` under the interface heading so an
+  editor can attach while the agent is live; the lines below go to the run log
+  on a live run and to the screen for a kept sandbox.
   --
   A JetBrains line names Remote Development → SSH → `<sid>.sbx` with the OpenSSH
   config and project = the agent workdir; a Toolbox line carries a

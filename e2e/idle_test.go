@@ -19,8 +19,10 @@ import (
 	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
-// runIDPattern finds the sandbox/run name proveo prints, so teardown can name it.
-var runIDPattern = regexp.MustCompile(`proveo-\d+-\d+`)
+// sandboxNameIn finds the name of target's sandbox in a run's output: sbx's create block and the ide row print it.
+func sandboxNameIn(out, target string) string {
+	return regexp.MustCompile(`\bproveo-` + regexp.QuoteMeta(target) + `-[0-9a-f]{8}\b`).FindString(termtext.Words(out))
+}
 
 var authFailures = []string{
 	"Failed to authenticate",
@@ -66,12 +68,12 @@ func reachedPromptFor(raw, target string) bool {
 	return false
 }
 
-// withoutPlanLine is raw as words, minus proveo's own `agent: <target> <version>` line.
+// withoutPlanLine is raw as words, minus proveo's own `<target> <version> — starting` line.
 func withoutPlanLine(raw, target string) string {
-	plan := "agent: " + target + " "
+	plan := regexp.MustCompile(`(^|\s)` + regexp.QuoteMeta(target) + `( \S+)? — starting\b`)
 	var keep []string
 	for _, line := range strings.Split(raw, "\n") {
-		if w := termtext.Words(line); w != "" && !strings.Contains(w, plan) {
+		if w := termtext.Words(line); w != "" && !plan.MatchString(w) {
 			keep = append(keep, w)
 		}
 	}
@@ -81,12 +83,12 @@ func withoutPlanLine(raw, target string) string {
 func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
 	t.Parallel()
 	const target = "opencode"
-	plan := "\x1b[36m  \x1b[0m\x1b[90magent: opencode 1.4.0 — pinned at build (`mise run build opencode` moves it)\x1b[0m\r\n"
+	plan := "\x1b[38;2;203;219;42m● \x1b[0m\x1b[38;2;138;138;138mopencode 1.4.0 — starting\x1b[0m\r\n"
 	for _, tc := range []struct {
 		name, raw string
 		want      bool
 	}{
-		{"the plan line alone", "backend: docker sandboxes (sbx)\r\n" + plan, false},
+		{"the plan line alone", "● sbx create\r\n" + plan, false},
 		{"the agent's banner after the plan line", plan + "\x1b[2J\x1b[1;1H\x1b[1mopencode\x1b[0m  Ask anything", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -95,6 +97,15 @@ func TestReachedPromptForSkipsTheAgentPlanLine(t *testing.T) {
 				t.Errorf("reachedPromptFor(%q, %q) = %v, want %v", tc.raw, target, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSandboxNameInSkipsTheRunID(t *testing.T) {
+	t.Parallel()
+	out := "\x1b[38;2;94;114;232m● \x1b[0mlog: ~/.proveo/logs/proveo-1794425966-86193.log\r\n" +
+		"● ide: ssh \x1b[38;2;138;138;138mproveo-claudecode-26e20865.sbx\x1b[0m\r\n"
+	if got := sandboxNameIn(out, "claudecode"); got != "proveo-claudecode-26e20865" {
+		t.Errorf("sandboxNameIn = %q, want the sandbox, not the run ID in the log path", got)
 	}
 }
 
@@ -201,7 +212,7 @@ func idleAtPrompt(t *testing.T, target string) {
 		}
 		// A kept sandbox outlives the test process, and this suite must not leave
 		// one behind for the next run to trip over.
-		if name := runIDPattern.FindString(seen()); name != "" {
+		if name := sandboxNameIn(seen(), target); name != "" {
 			_ = exec.Command("sbx", "rm", "--force", name).Run()
 		}
 	})
@@ -261,10 +272,10 @@ func idleAtPrompt(t *testing.T, target string) {
 			t.Errorf("output carries %q even though proveo is still running\n%s", m, lastLines(out, 30))
 		}
 	}
-	if name := runIDPattern.FindString(out); name != "" {
-		if !sandboxRunning(name) {
-			t.Errorf("sandbox %s is no longer running after %s idle — the session was stopped underneath the agent", name, idle)
-		}
+	if name := sandboxNameIn(out, target); name == "" {
+		t.Errorf("the run's output names no %s sandbox to check:\n%s", target, lastLines(out, 30))
+	} else if !sandboxRunning(name) {
+		t.Errorf("sandbox %s is no longer running after %s idle — the session was stopped underneath the agent", name, idle)
 	}
 	if t.Failed() {
 		return

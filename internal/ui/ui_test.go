@@ -374,6 +374,25 @@ func TestTeeDoesNotWrapTheLog(t *testing.T) {
 	}
 }
 
+func TestTeeRestoreLeavesNoLaterLogfInTheFinishedLog(t *testing.T) {
+	var log bytes.Buffer
+	saved, savedLogOnly := Default, logOnly
+	t.Cleanup(func() { Default, logOnly = saved, savedLogOnly })
+	Default, logOnly = New(&bytes.Buffer{}), nil
+	term := Default
+
+	restore := TeeTo(&log)
+	Logf("during")
+	restore()
+	Logf("after")
+	if Default != term || logOnly != nil {
+		t.Errorf("restore left Default=%p logOnly=%v, want the printer before the tee and no log-only printer", Default, logOnly)
+	}
+	if got := log.String(); !strings.Contains(got, "during") || strings.Contains(got, "after") {
+		t.Errorf("the log = %q, want only the line written while teed", got)
+	}
+}
+
 func TestNewDetectsPlain(t *testing.T) {
 	t.Run("non-file writer is plain", func(t *testing.T) {
 		if p := New(&bytes.Buffer{}); !p.Plain {

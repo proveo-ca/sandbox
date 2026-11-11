@@ -5,11 +5,13 @@ package run
 
 import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -35,6 +37,10 @@ type Spec struct {
 	// ever started" — `--print` and the not-ready paths both return nil.
 	AgentLaunched bool
 	Model         ModelSpec
+
+	Interface      []sandbox.Item // what the run decided about the ports, the browser and the add-ons; the interface block prints them
+	InterfaceFacts []ui.Fact      // one fact per host add-on the run started; the interface block prints them
+	ItemsHanded    bool           // the workspace and interface items went to sandbox.Run or the --print plan
 }
 
 // WorkspaceSpec is WHERE the run happens: the dirs, the repo, and the mount
@@ -42,7 +48,9 @@ type Spec struct {
 type WorkspaceSpec struct {
 	Scope         workspace.Scope
 	RepoRoot      string
-	SubScope      string // the picked project, relative to RepoRoot
+	SubScope      string         // the picked project, relative to RepoRoot
+	ScopeLabel    string         // the scope the run block names: the sub-scope, "repo root", or "" to name none
+	Items         []sandbox.Item // what the run decided about the workspace; the workspace block prints them
 	WS            workspace.MountSpec
 	Mounts        []runner.Mount
 	Links         []workspace.Link
@@ -81,7 +89,9 @@ type BackendSpec struct {
 	CloneEnvBase string                   // the staged bytes at launch, for the teardown merge
 	CloneEnvHost string                   // the host .env the staged copy came from
 	CloneStrip   []string                 // brokered keys the staged copy dropped
+	CloneDropped []string                 // the brokered keys the host .env held, which the staged copy leaves out
 	BrowserImage string
+	AgentVersion string // the agent version the image pins; "" when the image carries none
 }
 
 // ModelSpec is the local model, when --local-model asks for one.

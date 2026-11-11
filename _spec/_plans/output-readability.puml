@@ -28,7 +28,8 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '   sbx overlap .. proveo says only what sbx cannot: what sbx's create block
 '                  prints (mounts, kit, image, CPU, memory, port publishing)
 '                  leaves proveo's screen and stays in the run log; a
-'                  re-attach, which has no sbx block, prints it
+'                  re-attach, which has no sbx block, prints it. The image
+'                  was a wrong premise; see decision D below
 '   IDE attach ... one row on a live run; the JetBrains, Toolbox and VS Code
 '                  text goes to the run log; a kept sandbox still prints all
 '   fact rows .... keep the ● role dots and colours; align "key: value" in
@@ -54,11 +55,46 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '   P6 what     A screen line says what a thing is or what happened. The
 '               why goes to _spec, the how-to-change to the flag's help,
 '               maintainer commands to the run log.
-'   P7 outcome  A block ends on its outcome line; follow-ups go dim under it.
+'   P7 outcome  A block ends on a ✓/⚠/× line only when it reaches a verdict
+'               its facts do not already state: workspace ends on ✓ private
+'               clone or ✓ mounted checkout; credentials ends on its ⚠/×
+'               when one exists; run and egress stay facts only. Follow-ups
+'               go dim under that line. (Amended 2026-11-11, decision A; it
+'               read "a block ends on its outcome line".)
 '   P8 marks    ✓ done · ⚠ attention · × failed · ● a role-coloured fact or a
 '               running step (the operator kept the dots on facts).
 '   P9 once     Each fact is said once per run, on screen or in sbx's block;
-'               the run log keeps the full record.
+'               the run log keeps the full record. sbx's block names only
+'               the kit-built image tag, so proveo's image is proveo's to
+'               say (decision D).
+'
+' ── THE OPERATOR'S DECISIONS ON R1'S OPEN FORKS (2026-11-11) ──────────────
+'   A result lines  A block ends on a ✓/⚠/× line only for a verdict its
+'                   facts do not state (P7 above). NOT CHOSEN: an outcome
+'                   line on every block; a credentials ✓ line in place of
+'                   the login fact.
+'   B host add-ons  Android emulator, host Chrome over CDP, Hermes Desktop:
+'                   the "<add-on> — starting" live line leaves the screen
+'                   once the add-on is up; each add-on is then ONE aligned
+'                   fact in the interface block ("android: emulator-5554
+'                   (AVD Pixel_9)", "chrome: …", "desktop: …"); progress
+'                   lines and the Desktop install plan go to the run log;
+'                   warnings stay ⚠ interface items. NOT CHOSEN: an egress
+'                   fact; a new "host" heading.
+'   C log paths     The run log's header records "home: <absolute $HOME>"
+'                   once, so each teed "~/" resolves; rows stay as drawn.
+'                   NOT CHOSEN: "~/" unexplained; a tee that writes
+'                   absolute paths.
+'   D image row     MEASURED (R1 round-2 review, sbx v0.50.0, a sandbox made
+'                   for it): sbx's SANDBOX block reads "Image:
+'                   sbx-kit-src:proveo-claudecode-0148841a44ae", the tag its
+'                   kit build makes, and never names proveo's image. So a
+'                   create run's sbx block prints ONE fact right before "●
+'                   sbx create": "image: proveo/claudecode-browser:latest
+'                   (published)" or "… (local build)" (posture.Image: the
+'                   :local tag is the local build). A re-attach keeps its
+'                   image fact from the receipt. NOT CHOSEN: the image only
+'                   when non-default; the image in the run log only.
 '
 ' ── TECHNICAL CALLS (the Executor's, from the design review) ──────────────
 '   One shared helper, ui.Facts, aligns by display width, wraps a value at
@@ -88,15 +124,28 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 ' ── E2E ANCHORS THAT MOVE (R1) ─────────────────────────────────────────────
 '   e2e/instrument_test.go:61 "run log: (\S+\.log)" — and it must expand "~/"
 '     (a failed read returns "" silently)
-'   e2e/browser_viewport_test.go:85 "browser viewport: (http://\S+)"
+'   e2e/browser_viewport_test.go:85 "browser viewport: (http://\S+)", now
+'     read from the run log; the screen row reads "browser: the agent's
+'     Chromium over CDP"
 '   e2e/project_env_test.go:25 "project .env: 1 value(s) seeded into"
 '   e2e/clone_output_test.go:69,72 and e2e/sbx_test.go:623 "backend: docker
 '     sandboxes (sbx)", "lifts it back here at teardown"
 '   e2e/ide_attach_test.go:76-82 the JetBrains, VS Code and "a local Open"
 '     strings, which move to the run log
-'   e2e/idle_test.go:69-89 the "agent: <target> " filter
+'   e2e/idle_test.go:69-89 the "agent: <target> " filter; its runIDPattern
+'     read the run ID in the log row as a sandbox name (sandboxNameIn now)
 '   e2e/sbx_egress_test.go:61 "allows every host" under --print
 '   e2e/stream_palette_test.go: whiteRun and the sbx-block boundary
+'   e2e/ports_publish_test.go:95,134 "→ sandbox :<port>" (found while moving
+'     the list above; the screen row reads "port <n>: <what it serves>", and
+'     the test reads the host port from the run log's "port <n>: http://…")
+'   e2e/opencode_engine_sbx_test.go:219,280,292 "re-attaching to <engine>,"
+'   e2e/credentials_test.go secretLineNamesAny (stale since sbx's OAuth slots
+'     kept claudecode's keys out of the "secret store first:" line)
+'   e2e/android_addon_test.go:65 "android: booting AVD" + "booted" (round 3,
+'     decision B): now read from the run log; the pane must hold the fact
+'     "android: emulator-<n> (AVD …" and not the boot progress
+'   e2e/host_adb_sbx_test.go hostadb.Ensure's new (Started, error) return
 '
 ' ── PROGRESS ───────────────────────────────────────────────────────────────
 '   R0 ... done 2026-11-11: ui.Fact/Facts, Detailf, Tilde (schedule's
@@ -104,7 +153,107 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '          forwards it to the terminal half), output-vocabulary.puml FACTS
 '          AND DETAIL. No caller prints a Facts block yet. SectionSbx moves
 '          to R1: the contract test needs a caller for every Section*.
-'   R1 ... not started
+'   R1 ... done 2026-11-11, uncommitted, fixed after two reviews. Headings
+'          up to the agent's start, each drawn once in a run:
+'          run · credentials · egress · workspace · sbx · interface.
+'          run      the log row after the pages, the scope folded in (the
+'                   scope heading prints only in the numbered picker); a run
+'                   that fails before it still prints the log row, under
+'                   "run", before any held item (run.endEarly); the image
+'                   pull, before credentials; an sbx install or upgrade, the
+'                   one line before the log row ("sbx — installing" or "sbx —
+'                   upgrading", the command dim)
+'          credentials  ONE block (resolveCredentials → PrintBlock): login
+'                   (store role, "none found" or "persisted in the proveo
+'                   home"), "env token: <VAR> set, not injected", withheld;
+'                   then ⚠ refresh, gaps, role keys, unknown model ids
+'          egress   ONE block: sbx's baseline as a cloud-role "network" fact
+'                   and the local model, printed after the model is served;
+'                   the auto pick's reason and opt-out go to the run log
+'          workspace  sandbox.ReportWorkspace after Spec: checkout (worktree
+'                   only), .env (the clone's copy), output, links (file
+'                   targets sbx never binds are ⚠ items with no reason on
+'                   screen), ⚠ items with every home path as "~/" (TildeIn),
+'                   then the ✓ outcome; --print leads with "proveo home"
+'          sbx      Spec's notes, the live steps, the stale Hand when a stale
+'                   sandbox exists (retire lines unnumbered), then ONE Facts
+'                   block: a "secret" row per stored secret, the env-file
+'                   seed, proveo's image last; "● sbx create" and sbx's
+'                   block; a re-attach prints the secrets and the kept
+'                   sandbox's own record (image, kit dir, cpus, memory from
+'                   the receipt; mounts from sbx's row) as that block and
+'                   flags a workspace block it cannot vouch for
+'          interface  after sbx create, only when it has a row: what each
+'                   port serves (a stopped kept sandbox's host ports come
+'                   from its receipt), the browser row, one fact per host
+'                   add-on (chrome, android, desktop), the "android app"
+'                   rows, the ⚠ reach items, forgotten ports and apps, one
+'                   "ide" row
+'          start    "● <target> <version> — starting"
+'          Log-only: backend, variant, the local-build note, agent pin + mise
+'          hint, proveo home line, gh line, the create block's facts, the IDE
+'          block, port URLs and commands, the CDP how-to, the reasons the
+'          screen dropped, the host add-ons' progress, the Desktop install
+'          plan, the auto local model's reason, each Item.Log line, the
+'          home the "~/" rows resolve to. Lines that stay drop "step n/N"; the log keeps
+'          each place, under its heading (Steps.do draws it first).
+'          A failure before a block prints still prints its ⚠ items
+'          (run.reportUnhanded, sandbox.Run's deferred flush).
+'          FOUND: the gh line was false; proveo's WorkspaceBinds drops the
+'          bind (credential-boundary.puml, a bug to fix separately).
+'          FOUND (review): a symlink to a FILE was named in the links fact,
+'          but sbx binds directories only (mount-symlink-escape.puml).
+'          MEASURED (review, sbx v0.50.0, a sandbox made for it and removed):
+'          sbx's create block prints "✓ port 8080/tcp4 — published
+'          127.0.0.1:47123" (P9 holds; the browser row lost its ":9222"
+'          detail); a stopped sandbox lists no ports and gets the same host
+'          port back on `sbx run` (kit-lifecycle.puml).
+'          LOST: the measured run's log (proveo-1794413821-11931.log). keep=20
+'          pruned it while e2e runs wrote into ~/.proveo/logs. The trace ran
+'          against readability_0's BEFORE list instead; every fact lands on
+'          screen or in ui.Logf. A wave copies its measured log first.
+'          e2e: idle_test reads the sandbox name, not the run ID, from the
+'          screen (it failed at HEAD too). Passed after the review on macOS:
+'          clone_output, ide_attach, project_env, both android, browser
+'          viewport, ports publish, stream palette, idle (45s), the --print
+'          set. Skipped here: the OpenCode engine (no proveo/opencode image)
+'          and docker access (no harness credential env).
+'          RE-ATTACH, exercised by hand (a sandbox made for it, removed): a
+'          killed run left proveo-claudecode-<hash>; the next run printed
+'          image, kit, mounts under "sbx", then "● re-attach to <name> — left
+'          by an earlier run", "ide" alone under "interface". cpus and memory
+'          print only when proveo set them; sbx's own default leaves the
+'          receipt empty.
+'          DECIDED (the operator, 2026-11-11) AND BUILT IN ROUND 3: A, B, C and
+'          D above. A: P7 amended; the code already ended workspace on its ✓,
+'          credentials on its items (sandbox.PrintBlock), run and egress on
+'          facts. B: hostadb.Ensure → Started, hostcdp.Ensure → Opened,
+'          Deps.EnsureDesktop → (launch, installed, err); run.startAddon logs
+'          every report and, in plain output, its start line; Input and Spec
+'          carry InterfaceFacts. C: runlog.Open writes "home: <$HOME>".
+'          D: report.imageFact via posture.Image, last in the sbx block.
+'          ROUND 3 FIXES (the round-2 review): the auto local model's line
+'          went to the run log (one screen line: egress's fact); endEarly
+'          prints the log row under "run" before the held items, pinned
+'          through Do's own defers; the remembered port/app warnings stay
+'          after the form: MEASURED, the form draws on the alternate screen
+'          (dev-ports.puml); secrets, env seed and image are one Facts block;
+'          Item.Log carries the why and how-to (re-attach's plan note, the
+'          buildx knob, sbx secret set); "sbx — upgrading"; settings errors
+'          and the retire's lift line go through ui.TildeIn/Tilde (the lift
+'          line is teardown's too, so R2 inherits it); sbx reports no
+'          sandbox CPU or memory, so a re-attach prints them only when proveo
+'          set them (MEASURED, kit-lifecycle.puml); the stale spec text on
+'          the idle name and on unknownModel; the receipt comment's history
+'          clause; --print e2e runs under a t.TempDir() PROVEO_HOME
+'          (testing-strategy.puml; the idle test keeps the real one).
+'          KNOWN, NOT FIXED: the workspace ✓ prints before the stale step
+'          decides which sandbox runs (report.go ReportWorkspace); a ⚠ under
+'          "sbx" corrects it for a kept sandbox, as at HEAD. The OpenCode
+'          engine and docker-access e2e skip for a missing image or harness
+'          credential. The measured run's log stays LOST. An OpenCode engine
+'          created in the stale path prints its sbx facts after sbx's block
+'          (ensureOpenCodeEngine runs `sbx create` itself).
 '   R2 ... not started
 '   R3 ... not started
 '   R4 ... not started

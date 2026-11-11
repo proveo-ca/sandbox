@@ -32,3 +32,14 @@ func TestListReadsBothShapesAndSaysWhenThereIsNoListing(t *testing.T) {
 		}
 	}
 }
+
+func TestAListedSandboxCarriesItsPublishedPorts(t *testing.T) {
+	rows, err := ParseListing([]byte(`[{"name":"proveo-a","status":"running","ports":[` +
+		`{"host_ip":"127.0.0.1","host_port":28083,"sandbox_port":8083,"protocol":"tcp4"}]}]`))
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("ParseListing = %+v, %v", rows, err)
+	}
+	if got := rows[0].Ports; len(got) != 1 || got[0].HostPort != 28083 || got[0].SandboxPort != 8083 || got[0].HostIP != "127.0.0.1" {
+		t.Errorf("ports = %+v, want 127.0.0.1:28083 → 8083", got)
+	}
+}

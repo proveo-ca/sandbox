@@ -135,14 +135,19 @@ func TestRememberedPortsFollowThisRunsDiscovery(t *testing.T) {
 		{Port: 6006, Command: "storybook", Source: "apps/docs/package.json"},
 		{Port: 9000, Command: "dev", Source: "gone/package.json"},
 	}
-	if diff := cmp.Diff(foundPorts[1:], rememberedPorts(saved, foundPorts)); diff != "" {
+	kept, gone := rememberedPorts(saved, foundPorts)
+	if diff := cmp.Diff(foundPorts[1:], kept); diff != "" {
 		t.Errorf("rememberedPorts mismatch (-want +got):\n%s", diff)
+	}
+	if len(gone) != 1 || !gone[0].Warn || gone[0].Text != "port 9000 — gone from this workspace, not published" ||
+		strings.Join(gone[0].Detail, "") != "remembered: `dev` in gone/package.json" {
+		t.Errorf("rememberedPorts gone = %+v, want one ⚠ item for 9000 with its command as detail", gone)
 	}
 }
 
 func TestPortsRoundTripThroughTheStore(t *testing.T) {
 	t.Parallel()
-	if diff := cmp.Diff(foundPorts, rememberedPorts(portsToRemember(foundPorts), foundPorts)); diff != "" {
+	if diff := cmp.Diff(foundPorts, first(rememberedPorts(portsToRemember(foundPorts), foundPorts))); diff != "" {
 		t.Errorf("remember → recall mismatch (-want +got):\n%s", diff)
 	}
 	if got := portsToRemember(nil); got == nil || len(got) != 0 {
@@ -183,10 +188,10 @@ func TestAppsRowIsGreyedUntilAndroidIsTicked(t *testing.T) {
 func TestRememberedAppsFollowThisRunsDiscovery(t *testing.T) {
 	t.Parallel()
 	saved := []agentsettings.App{{Module: ":wear", AppID: "ca.proveo.wear"}, {Module: ":gone", AppID: "x.y"}}
-	if diff := cmp.Diff(foundApps[1:], rememberedApps(saved, foundApps)); diff != "" {
+	if diff := cmp.Diff(foundApps[1:], first(rememberedApps(saved, foundApps))); diff != "" {
 		t.Errorf("rememberedApps mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(foundApps, rememberedApps(appsToRemember(foundApps), foundApps)); diff != "" {
+	if diff := cmp.Diff(foundApps, first(rememberedApps(appsToRemember(foundApps), foundApps))); diff != "" {
 		t.Errorf("remember → recall mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -269,3 +274,6 @@ func TestPortsPastFourGreyTheirDropdownEntryToo(t *testing.T) {
 		t.Error("the greyed dropdown entry has no OffWhy")
 	}
 }
+
+// first is a call's first result.
+func first[T, U any](t T, _ U) T { return t }

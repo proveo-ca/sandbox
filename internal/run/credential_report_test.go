@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -18,7 +19,7 @@ func TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing(t *testing.T) 
 		wantUse    string
 		wantNotSet bool
 	}{
-		{"a login persisted in the proveo home", CredentialSpec{FileLogin: true}, "using the login persisted in the proveo home", false},
+		{"a login persisted in the proveo home", CredentialSpec{FileLogin: true}, "login: persisted in the proveo home", false},
 		{"a credential sbx's store holds", CredentialSpec{StoreHeld: []string{"anthropic"}}, "", false},
 		{"nothing", CredentialSpec{}, "starting without a credential", true},
 	} {
@@ -30,16 +31,17 @@ func TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing(t *testing.T) 
 
 			c.creds.Lookup = func(string) string { return "" }
 			rs := &Spec{Man: man, Creds: c.creds}
-			reportCredentialGaps(rs, &Params{Target: "claudecode"}, Deps{})
+			facts, items := credentialGaps(rs, &Params{Target: "claudecode"}, Deps{})
+			sandbox.PrintBlock(credentialsHeading, facts, items)
 			out := sb.String()
 			if c.wantUse == "" && strings.TrimSpace(out) != "" {
-				t.Errorf("reportCredentialGaps(%s) printed %q; want nothing — sbx reports what it presents", c.name, out)
+				t.Errorf("credentialGaps(%s) printed %q; want nothing — sbx reports what it presents", c.name, out)
 			}
 			if !strings.Contains(out, c.wantUse) {
-				t.Errorf("reportCredentialGaps(%s) never says %q:\n%s", c.name, c.wantUse, out)
+				t.Errorf("credentialGaps(%s) never says %q:\n%s", c.name, c.wantUse, out)
 			}
 			if got := strings.Contains(out, "ANTHROPIC_API_KEY not set"); got != c.wantNotSet {
-				t.Errorf("reportCredentialGaps(%s) warns \"not set\" = %v, want %v — one credential, one verdict:\n%s", c.name, got, c.wantNotSet, out)
+				t.Errorf("credentialGaps(%s) warns \"not set\" = %v, want %v — one credential, one verdict:\n%s", c.name, got, c.wantNotSet, out)
 			}
 		})
 	}

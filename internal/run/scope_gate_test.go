@@ -2,11 +2,12 @@
 package run
 
 import (
-	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/ui"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -33,21 +34,56 @@ func TestTheScopeGateAsksOnlyAHeadedRunThatWasNotToldYes(t *testing.T) {
 }
 
 func TestASkippedScopeQuestionTakesTheRepoRootAndSaysSo(t *testing.T) {
-	var term bytes.Buffer
-	prev := ui.Default
-	t.Cleanup(func() { ui.Default = prev })
-	ui.Default = ui.New(&term)
-	projs := []workspace.Project{{Name: "web", Path: "apps/web"}}
+	rs, p, term, projs := pagesFixture(t)
 	asked := false
-	scope, err := chooseScope(scopeRoot, ScopeAsk{Projects: projs}, func(ScopeAsk) (string, bool) { asked = true; return "apps/web", true })
-	if err != nil || scope != "" {
-		t.Errorf("chooseScope = %q, %v; want the repo root", scope, err)
+	err := walkPages(rs, p, scopeRoot, projs,
+		func(ScopeAsk) (string, bool) { asked = true; return "apps/web", true },
+		func(*formVisit) error { return nil })
+	if err != nil || rs.Workspace.SubScope != "" {
+		t.Errorf("walkPages = %v, scope %q; want the repo root", err, rs.Workspace.SubScope)
 	}
 	if asked {
 		t.Error("the picker opened for a run that skips the question")
 	}
+	if term.Len() != 0 {
+		t.Errorf("the pages printed before the run block:\n%s", term.String())
+	}
+	reportRun(rs, false)
 	if !strings.Contains(term.String(), "scope: repo root") {
-		t.Errorf("the run did not say which scope it took:\n%s", term.String())
+		t.Errorf("the run block did not say which scope the run took:\n%s", term.String())
+	}
+}
+
+func TestTheRunBlockAlignsTheLogAndTheScope(t *testing.T) {
+	rs, _, term, _ := pagesFixture(t)
+	home := t.TempDir()
+	t.Setenv("PROVEO_HOME", home)
+	log, err := runlog.Open("proveo-1-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(log.Close)
+	rs.Log = log
+	rs.Workspace.ScopeLabel = "apps/web"
+	reportRun(rs, false)
+	want := "------ run ------\nlog:   " + filepath.Join(home, "logs", "proveo-1-2.log") + "\nscope: apps/web\n"
+	if got := term.String(); !strings.Contains(got, want) {
+		t.Errorf("the run block = %q, want the log and the scope aligned in one block:\n%s", got, want)
+	}
+	term.Reset()
+	rs.Log, rs.Workspace.ScopeLabel = nil, ""
+	reportRun(rs, false)
+	if got := term.String(); got != "" {
+		t.Errorf("a run with no transcript and no scope prints nothing:\n%q", got)
+	}
+}
+
+func TestARunBlockWithNothingToSayDrawsNoHeading(t *testing.T) {
+	rs, _, term, _ := pagesFixture(t)
+	rs.Log, rs.Workspace.ScopeLabel = nil, ""
+	reportRun(rs, false)
+	if got := term.String(); got != "" {
+		t.Errorf("a run with no transcript and no scope drew %q; want nothing, not even the run heading", got)
 	}
 }
 
@@ -69,5 +105,23 @@ func TestClosingTheScopePickerCancelsTheRun(t *testing.T) {
 		if err != nil && !strings.Contains(err.Error(), "cancelled at the scope prompt") {
 			t.Errorf("%s: error %q does not say where the run was cancelled", c.name, err)
 		}
+	}
+}
+
+func TestARunThatEndsBeforeItsBlocksStillPrintsWhatItDecided(t *testing.T) {
+	rs, _, term, _ := pagesFixture(t)
+	rs.Workspace.Items = []sandbox.Item{{Warn: true, Text: "dependency trees — 2 cross into the sandbox as the host built them"}}
+	rs.Interface = []sandbox.Item{{Warn: true, Text: "port 3000 — not published", Detail: []string{"/w/apps/web"}}}
+	reportUnhanded(rs, true)
+	got := term.String()
+	for _, want := range []string{"------ workspace ------", "dependency trees — 2 cross", "------ interface ------", "port 3000 — not published", "/w/apps/web"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a run that failed before sandbox.Run lost %q:\n%s", want, got)
+		}
+	}
+	term.Reset()
+	reportUnhanded(&Spec{}, false)
+	if got := term.String(); got != "" {
+		t.Errorf("a run that decided nothing printed %q", got)
 	}
 }

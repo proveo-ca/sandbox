@@ -199,7 +199,8 @@ func consentInteractive() bool {
 func refuseUnboundCredential(in Input, name string, caps []sbx.CapabilityV3, created bool) error {
 	binds, err := sbx.LoadBindings(sbx.BindingsPath(os.Getenv))
 	if err != nil {
-		ui.Warnf("credentials.yaml unreadable (%v); sbx decides approvals on its own", err)
+		Item{Warn: true, Text: "credentials.yaml — unreadable", Detail: []string{ui.TildeIn(err.Error())}}.print()
+		ui.Logf("credentials.yaml unreadable: sbx decides approvals on its own")
 		return nil
 	}
 	states := resolveCredentials(declaredCredentials(caps), sbx.StoreEntriesFor(name), binds)
@@ -221,11 +222,9 @@ func reportCredentialInUse(target, name string) {
 		return
 	}
 	if line := credentialInUse(target, out); line != "" && !strings.Contains(line, "sbx's credential") {
-		ui.Section(ui.SectionCredentials)
 		ui.Warnf("%s", line)
 	}
 	if svc, at := expiredSbxLogin(target, out, time.Now()); svc != "" {
-		ui.Section(ui.SectionCredentials)
 		ui.Warnf("%s's sbx-managed %s login expired %s; sbx's proxy answers its refresh with 401 (docker/sbx-releases#642)",
 			target, svc, at.Local().Format(time.DateTime))
 		if how := sbx.SignIn(svc); how != "" {

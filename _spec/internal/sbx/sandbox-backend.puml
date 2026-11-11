@@ -94,8 +94,8 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' a NEW sandbox through sbx's `--env-file` (sbx accepts it since v0.39.0,
 ' reported; the floor is 0.42.0): _spec/internal/credentials/
 ' credential-decisions.puml, PROJECT .env. The agent can still READ a .env in
-' the mounted tree, and credentials.WarnMountedSecrets(dir, lookup) says so when
-' it holds a provider key. The broker sentinel (apply_broker_sentinel,
+' the mounted tree, and the workspace block says so (credentials.MountedSecretEnv
+' names the file) when it holds a provider key. The broker sentinel (apply_broker_sentinel,
 ' ApplyBrokerSentinel, "proveo-brokered", PROVEO_CREDENTIAL_BROKER_KEYS) and
 ' CanonicalTiers are deleted.
 ' HISTORY (2026-10-16 → N7): the guard skipped sourcing when SANDBOX_NAME or
@@ -845,7 +845,9 @@ note as Idle #F4F9FB
   infers a fact from one line of output.
 
   **Liveness is corroborating, so an unreadable listing reads as alive.**
-  ""sbx ls"" is consulted for the sandbox name proveo printed (""proveo-\d+-\d+"");
+  ""sbx ls"" is consulted for the sandbox name proveo printed
+  (""proveo-<target>-<hex8>"", read by ""sandboxNameIn""; the run ID
+  ""proveo-<unix>-<pid>"" in the log row is not a sandbox name);
   a listing that errors reports "running", because failing the test because
   ""sbx ls"" hiccuped would blame the agent for the tool. Listed NOWHERE is the
   failure — that is the sandbox being gone.

@@ -26,6 +26,8 @@ skinparam noteTextAlignment left
 ' covers: e2e/clone_test.go (TestCloneOfALinkedWorktreeLeavesItsHostTreeAlone)
 ' covers: internal/credentials/credentials.go (StageProjectEnv)
 ' covers: internal/run/run.go (stageCloneEnv)
+' covers: internal/backend/sandbox/report.go (ReportWorkspace, unmountable)
+' covers: internal/backend/sandbox/report_test.go
 ' covers: packages/lib/entrypoint-lib.sh (proveo_clone_env, proveo_clone_links)
 ' covers: internal/credentials/stage_env_test.go
 ' covers: e2e/seed_ready_test.go
@@ -238,11 +240,38 @@ skinparam noteTextAlignment left
 ' ONE WARNING PER TOP-LEVEL ENTRY (2026-10-22, user: "should be shown once in
 ' the root folder only"). MEASURED: a run from worktrees/hotfix, whose .idea/*
 ' entries are symlinks into monorepo/.idea/*, printed 20 identical warnings,
-' one per resolved link. warnUnmountable groups the dropped hosts by their
-' first path component under the root: one host keeps its full path, more
-' print "<root>/<top> (N entries)". Both drop sites (cloneThroughMain, the
-' SplitNested loop) use it. Pinned by
-' TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry.
+' one per resolved link. unmountable (report.go; warnUnmountable until R1)
+' groups the dropped hosts by their first path component under the root and
+' Spec returns one ⚠ item per group in Workload.Report: "<top>/ — N entries
+' inside the main worktree, not mounted" (or "<top> — inside the …"), with
+' "read it from the clone" dim under it. Both drop sites (cloneThroughMain,
+' which now returns what it dropped, and the SplitNested loop) feed it. Pinned
+' by TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry.
+'
+' ── WHAT THE OPERATOR READS: THE WORKSPACE BLOCK (2026-11-11) ──────────────
+' output-readability R1. One block, after Spec, says what sbx's create block
+' cannot: the worktree link, the clone's .env, the lifted output dir, where
+' links point, what was not mounted; then the outcome closes it:
+'   ● checkout: ~/w/hotfix (linked worktree)      worktree clones only
+'               cloned from ~/w/main at <ref>
+'               uncommitted edits stay on the host
+'   ● .env:     ~/w/main/.env (copy, rw)            stageCloneEnv's copy
+'               edits merge back at teardown
+'               leaves out <KEY…>, which sbx's proxy attaches   (broker)
+'   ● output:   reports/ (in the clone)
+'               lifted back at teardown
+'   ✓ private clone — your checkout is not written
+'       the agent's commits come back at teardown
+' A mounted run closes on "✓ mounted checkout — the agent edits it directly",
+' with the reason under it when the clone default could not apply. The refs
+' path (refs/proveo/<sid>/) left this line: the results block names the real
+' refs. "A copy, refreshed each run" left the .env row: the copy is staged
+' per run (above), and the row says (copy, rw).
+' e2e/clone_output_test.go reads "reports/ (in the clone)" and "lifted back at
+' teardown"; e2e/sbx_test.go reads "private clone". Unit-pinned by
+' TestTheWorkspaceBlockSaysWhatSbxCannotAndEndsOnItsOutcome,
+' TestAMountedRunNamesWhyTheCloneDidNotApply and
+' TestLiveWorkspacePathsAreHomeRelativeAndPrintPathsAbsolute (report_test.go).
 '
 ' The same empty target is visible to anything `sbx exec` starts once the
 ' sandbox runs. A published port's dev server therefore waits for the clone's
@@ -424,7 +453,11 @@ skinparam noteTextAlignment left
 ' retireSandbox deletes it); `--print` sandboxes have none. [Inference] A stale
 ' Clone=true receipt on a later DIRECT sandbox drove the snapshot into the
 ' operator's checkout. The receipt still feeds change detection
-' (retireIfStale), never clone mode.
+' (retireIfStale), never clone mode. A re-attach DISPLAYS its image, cpus and
+' memory as the kept sandbox's record (kit-lifecycle.puml, R1); the workspace
+' block above it is this run's plan, so a kept sandbox whose receipt differs
+' in clone gets "⚠ workspace — <name> keeps the mode it was created with",
+' which asserts no mode.
 ' MEASURED now:
 '   Input.CloneKnown — "Clone is the sandbox's own mode: this run created it,
 '     or teardown asked it". Since D2 (DONE (wt), MEASURED) Run computes
@@ -468,7 +501,10 @@ skinparam noteTextAlignment left
 ' "-retired", so the old clone lands in refs/proveo/<sid>-retired/*. Before,
 ' this run's own teardown force-fetched `+refs/heads/*` into the same
 ' refs/proveo/<sid>/* and overwrote it; the fixed proveo/* names made that
-' collision certain.
+' collision certain. It also sets in.Retiring, so reportCloneRefs prints the
+' old clone's refs under the stale step's "sbx" heading instead of declaring
+' "results", which teardown would then draw a second time (output-readability
+' R1; TestARetiredSandboxsRefsStayUnderTheSbxHeading).
 ' THE ADOPT HINT (review #6): reportCloneRefs suggests adoptLead(names, prefix,
 ' ahead), a pure function: the first ref NOT under <prefix>proveo/ that holds
 ' commits HEAD lacks (`git rev-list --count HEAD..<ref>` != 0), else the first

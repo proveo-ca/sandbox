@@ -81,9 +81,42 @@ skinparam noteTextAlignment left
 ' after v0.2.0. Do still opens the log before resolving the state root.
 ' KNOWN LIMIT (review, recorded, not fixed):
 ' TestDoRecordsAnEarlyFailureInTheTranscript (internal/run/outcome_test.go)
-' leaves ui's package-level logOnly (ui.go:244, set by TeeTo) pointing at a log
-' Do has already closed. [Inference] A later ui.Logf in the same test binary
-' writes to a closed file and is lost.
+' leaves ui's package-level logOnly (set by TeeTo) pointing at a log Do has
+' already closed. [Inference] A later ui.Logf in the same test binary writes
+' to a closed file and is lost. Since output-readability R1, TeeTo returns a
+' restore func that puts back Default and logOnly; every test that tees itself
+' calls it (TestTeeRestoreLeavesNoLaterLogfInTheFinishedLog). Do does not
+' call it, so the limit above stands.
+' A RUN THAT FAILS EARLY STILL NAMES ITS LOG. The run block prints the "log:"
+' row after the pages; when Do returns an error before that, the deferred
+' endEarly prints it, so e2e runLogTail always finds the path on screen.
+' endEarly is ONE defer, registered last so it runs first: it declares "run"
+' and prints the log row, THEN flushes the held items under their headings.
+' Two defers had run the item flush first (LIFO), so the row printed under
+' "interface" and "run" never drew (R1 round-2 review). Pinned through Do's
+' real defers by TestARunThatFailsAtItsPagesNamesItsLogUnderRunBeforeTheItemsItHeld
+' (internal/run/outcome_test.go: a refused --addon after a forgotten port).
+' THE HEADER RECORDS THE HOME (the operator, 2026-11-11, decision C of
+' output-readability R1). The tee copies screen rows as drawn, so a fact row
+' reaches the log with "~/" (output-vocabulary.puml, THE TEE KEEPS THE
+' SCREEN'S "~/"). runlog.Open writes, right under "=== run <sid> ===", one
+' line "home: <absolute $HOME>" (os.UserHomeDir, the same source ui.Tilde
+' reads), so every "~/" in the file resolves. Rows keep being written as they
+' are. NOT CHOSEN: "~/" unexplained; a tee that writes absolute paths.
+' Pinned by internal/runlog/runlog_test.go
+' TestTheHeaderRecordsTheHomeEveryTildeResolvesTo.
+' A RUN THAT FAILS EARLY STILL SAYS WHAT IT DECIDED (R1 review, 2026-11-11).
+' The workspace block prints after the mount plan and the interface block
+' after `sbx create`, but their ⚠ items are decided earlier: a
+' worktree fallback, an unstaged .env, a mounted .env holding a key, the
+' dependency trees, an unpublished or forgotten port, the host-cdp and
+' android reach. Each waits in rs.Workspace.Items / rs.Interface; until
+' launchSandbox hands them to sandbox.Run or the --print plan
+' (rs.ItemsHanded), a failing Do prints them under their headings
+' (reportUnhanded), and sandbox.Run does the same for a failure before its
+' own blocks. Screen and tee, so the run log keeps them too. Pinned by
+' TestARunThatEndsBeforeItsBlocksStillPrintsWhatItDecided and
+' TestARunThatFailsBeforeItsBlocksStillPrintsTheirItems.
 title Run transcript — making a denial diagnosable after the fact
 
 node "PROVEO_HOME/logs" as HOME <<host>> {

@@ -117,6 +117,50 @@ func TestPlainOutputGetsAStartLinePerStep(t *testing.T) {
 	}
 }
 
+func TestAnAsStepLeavesItsOwnLineAndLogsItsPlace(t *testing.T) {
+	term, log := &lockedTerm{}, &bytes.Buffer{}
+	asDefault(t, &Printer{W: term, Tier: GlyphsSafe, term: term}, log)
+	steps := NewSteps(3)
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- steps.DoAs("workload kit", "workload kit", func() error { <-release; return nil }) }()
+	await(t, term, "step 1/3 · workload kit · 0s")
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err := steps.HandAs("create sandbox", "sbx create", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	steps.StartAs("start claudecode", "claudecode — starting")
+	got := term.String()
+	for _, want := range []string{"sbx create" + ANSIReset + "\n", "claudecode — starting" + ANSIReset + "\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the terminal lacks %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "step 2/3") || strings.Contains(got, "step 3/3") {
+		t.Errorf("a line that stays on the terminal carries its place: %q", got)
+	}
+	for _, want := range []string{"step 1/3 · workload kit", "step 2/3 · create sandbox", "step: create sandbox started", "step 3/3 · start claudecode"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the log lacks %q:\n%s", want, log.String())
+		}
+	}
+}
+
+func TestPlainOutputOfAsStepsCarriesNoPlace(t *testing.T) {
+	var out bytes.Buffer
+	asDefault(t, New(&out), nil)
+	steps := NewSteps(3)
+	_ = steps.DoAs("workload kit", "workload kit", func() error { return nil })
+	_ = steps.HandAs("create sandbox", "sbx create", func() error { return nil })
+	steps.StartAs("start claudecode", "claudecode — starting")
+	if got := out.String(); got != "workload kit\nsbx create\nclaudecode — starting\n" {
+		t.Errorf("plain output = %q, want one unnumbered line per step", got)
+	}
+}
+
 func TestANilPlanRunsItsStepsAndShowsNothing(t *testing.T) {
 	var out bytes.Buffer
 	asDefault(t, New(&out), nil)
@@ -176,4 +220,19 @@ func TestAnOrdinaryLineUnderASuspendedLiveLineNeitherErasesNorRedrawsIt(t *testi
 		t.Errorf("a line printed under a suspended live line touched it: %q", got)
 	}
 	resume()
+}
+
+func TestALiveStepDrawsThePendingHeadingBeforeItsLogLines(t *testing.T) {
+	term, log := &lockedTerm{}, &bytes.Buffer{}
+	asDefault(t, &Printer{W: term, Tier: GlyphsSafe, term: term}, nil)
+	TeeTo(log)
+	Section(SectionSbx)
+	if err := NewSteps(1).DoAs("workload kit", "workload kit", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	got := log.String()
+	heading, place := strings.Index(got, " "+SectionSbx+" "), strings.Index(got, "step 1/1 · workload kit")
+	if heading < 0 || place < 0 || heading > place {
+		t.Errorf("the log must draw the step's heading before its place:\n%s", got)
+	}
 }

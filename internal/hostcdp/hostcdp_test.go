@@ -77,11 +77,15 @@ func TestEnsureReusesARunningBrowser(t *testing.T) {
 	lookPath = func(string) (string, error) { t.Fatal("must not look for a browser to launch"); return "", nil }
 
 	var said string
-	if err := Ensure("hermes", 9333, func(f string, a ...any) { said = f }); err != nil {
+	got, err := Ensure("hermes", 9333, func(f string, a ...any) { said = f })
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(said, "reusing") {
 		t.Errorf("report = %q, want the reuse line", said)
+	}
+	if got != (Opened{}) {
+		t.Errorf("Ensure = %+v, want no browser opened for a reused one", got)
 	}
 }
 
@@ -94,7 +98,7 @@ func TestEnsureNamesTheMissingBrowser(t *testing.T) {
 	statFile = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
 
-	err := Ensure("hermes", 9333, nil)
+	_, err := Ensure("hermes", 9333, nil)
 	if err == nil || !strings.Contains(err.Error(), "no Chrome") {
 		t.Errorf("want a named refusal, got %v", err)
 	}

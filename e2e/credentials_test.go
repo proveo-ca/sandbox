@@ -51,8 +51,8 @@ func assertPlanIsolation(t *testing.T, proveoBin, agent string, keys []string) {
 
 	plan := printEnforcedPlan(t, proveoBin, agent, kv)
 	if !secretLineNamesAny(plan, keys) {
-		t.Errorf("%s: the plan's secret-store line names none of the %d injected keys — proveo never saw "+
-			"them, so their absence from argv proves nothing:\n%s", agent, len(keys), plan)
+		t.Errorf("%s: the plan names none of the %d injected keys on its secret-store line or a sandbox-secret note — "+
+			"proveo never saw them, so their absence from argv proves nothing:\n%s", agent, len(keys), plan)
 	}
 	agentCmd := launchPlan(t, plan)
 	for _, k := range keys {
@@ -105,10 +105,13 @@ func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
 	return string(out)
 }
 
-// secretLineNamesAny reports whether the plan's "secret store first:" line names any of keys.
+// secretLineNamesAny reports whether the plan names any of keys on its "secret store first:" line or on a "sandbox secret: NAME" note.
 func secretLineNamesAny(plan string, keys []string) bool {
 	for _, line := range strings.Split(plan, "\n") {
 		_, names, ok := strings.Cut(line, "secret store first:")
+		if !ok {
+			_, names, ok = strings.Cut(line, "sandbox secret:")
+		}
 		if !ok {
 			continue
 		}

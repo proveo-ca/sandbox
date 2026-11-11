@@ -26,7 +26,7 @@ func TestAnExistingSandboxIsReattachedWithNameAndAgentArgsOnly(t *testing.T) {
 		Agent:   "cursor",
 		Command: []string{"--resume", "thread-1"},
 	}
-	got := reuseOrCreate(cfg, func(string) bool { return true })
+	got := reuseOrCreate(cfg, true)
 
 	want := []string{"run", "--name", cfg.Name, "--", "--resume", "thread-1"}
 	if args := sbx.RunArgs(got); !reflect.DeepEqual(args, want) {
@@ -41,7 +41,7 @@ func TestAFreshNameIsCreatedWithEverything(t *testing.T) {
 		Image:  "proveo/cursor:local",
 		Mounts: []sbx.Mount{{Host: "/w"}},
 	}
-	got := reuseOrCreate(cfg, func(string) bool { return false })
+	got := reuseOrCreate(cfg, false)
 	if len(got.Mounts) == 0 || got.Image == "" {
 		t.Errorf("a sandbox that does not exist yet must be created with its workspace and template: %+v", got)
 	}

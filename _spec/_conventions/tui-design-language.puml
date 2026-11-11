@@ -117,6 +117,9 @@
 ' question called "egress" and then reads what happened under a heading called
 ' "egress". A parallel vocabulary — "network", "creds" — would make the two
 ' surfaces describe one run in two languages.
+' AMENDED 2026-11-11: the shared names stay shared (credentials, egress,
+' interface). The form's "execution" divider has no narration twin any more:
+' the subjects under it (the workspace, sbx) print under their own headings.
 '
 ' THE HEADING IS LAZY, AND THAT IS THE WHOLE MECHANISM. Nearly every line in a
 ' prelude is conditional: no gh session, no symlinks, no broker, no sub-scope.
@@ -128,21 +131,42 @@
 ' previous one did — and that is what lets a later stage CONTINUE a block rather
 ' than reopen it.
 '
-' ── TWO PASSES, BECAUSE A RUN HAS TWO MOMENTS ─────────────────────────────
-' A run reports what it resolved, then starts. Three concerns appear in both
-' halves — credentials are read and then injected, execution is chosen and then
-' begun — and reusing one name would make the second heading read as a repeat
-' rather than as a different moment. So the live half has its own names:
+' ── ONE HEADING PER SUBJECT, IN THE ORDER THE RUN MAKES IT TRUE ───────────
+' SUPERSEDED 2026-11-11 (R1 of _spec/_plans/output-readability.puml): a run's
+' headings were phases — resolved "scope · run · credentials · workspace ·
+' egress · execution", live "starting · secrets · interface · results" — so
+' "interface" printed predictions between step 2/5 and step 4/5 and the
+' workspace was said in five places. A heading now names a SUBJECT, in one
+' lowercase word, and each subject prints once, after the step that makes it
+' true:
 '
-'   resolved ... scope · run · credentials · workspace · egress · execution
-'   live ....... starting · secrets · interface · results
+'   run · credentials · egress · workspace · sbx · interface · results
 '
-' Every divider in a run therefore appears exactly ONCE. Getting there took one
-' reordering, in run.selectBackend: the sbx baseline warning and the .env warning
-' now print before the "backend:" line, so they land in the egress block the
-' broker line opened instead of splitting execution in two. Deciding was
-' separated from reporting to make that safe — nothing about which backend runs
-' moved, only the order of two report calls.
+'   run         the log, the scope, the image pull
+'   egress      sbx's baseline, and the local model the sandbox reaches
+'   workspace   after the mount plan (sandbox.Spec)
+'   sbx         what proveo hands sbx, the steps, one Facts block (the
+'               stored secrets, the env seed, proveo's image), sbx's own
+'               create block; not "sandbox", which would sit on top of
+'               sbx's own SANDBOX sub-block
+'   interface   after `sbx create`, so its rows are facts, not predictions:
+'               what each port serves, the browser, one fact per host add-on
+'               (chrome, android, desktop; started before behind a live
+'               line, reported here), one "ide" row
+'
+' Every divider in a run therefore appears exactly ONCE: no stage declares a
+' heading another stage owns. The stale step's retire carries a replaced
+' sandbox's refs home under "sbx" (Input.Retiring), not "results". Teardown's
+' credential check (reportCredentialInUse) prints under "results", which
+' teardown declares first; it had redrawn "credentials" after "results".
+' A block with nothing to print declares no heading (sandbox.PrintBlock,
+' ui.Facts), so an empty subject never lends its heading to the next line.
+' "scope" and "secrets" stay in the
+' vocabulary for the numbered scope picker and for init; in a run their lines
+' fold into run and sbx. "execution" and "starting" stay for init.
+' THE FORM KEEPS ITS DIVIDERS. The run form groups its rows by where the agent
+' runs ("execution") and what it drives ("interface"); the narration names
+' subjects. e2e/ports_publish_test.go reads the form's "execution".
 '
 ' ── THE DIVIDER IS CHOICEUI'S, RE-ANCHORED ────────────────────────────────
 ' Same construction and same secondary colour: rules, the label spaced, rules.

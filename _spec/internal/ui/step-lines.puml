@@ -32,6 +32,7 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 '   Do(name, fn)     a live line: "step 2/5 · download sbx 0.49.2 · 12s"
 '   Hand(name, fn)   a start line only: "step 3/5 · sign in to Docker"
 '   Start(name)      the start line; the caller runs and records the step
+'   DoAs · HandAs · StartAs   the same, with the line that stays unnumbered
 ' Each Do and Hand writes two rows to the run log, in teardown's format:
 '   step: <name> started
 '   step: <name> <duration> ok | failed: <first line of the error>
@@ -87,19 +88,42 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' install() and installPackage() each split in two, so the download has a
 ' clock and the installer, which writes to the terminal itself, does not.
 '
-' ── A RUN'S START (W-k) ────────────────────────────────────────────────────
+' ── A RUN'S START (W-k; R1 of output-readability, 2026-11-11) ──────────────
 ' sandbox.Run shows five steps before the agent has the terminal:
 '   workload kit           live
-'   stale sandbox check    hand: it can ask, and retiring runs steps of its own
-'   sandbox secrets        live
-'   create sandbox         hand: `sbx create` writes to the terminal itself
-'                          (or the start line "re-attach to <name>")
-'   start <target>         a start line; the existing `agent` row records it
+'   stale sandbox check    live; hand only when a stale sandbox exists, since
+'                          then it can ask and retiring runs steps of its own
+'   sandbox secrets        live; it prints nothing while it runs, and each
+'                          secret it stored becomes a "secret" row of the
+'                          sbx block's one Facts block after it (R1 round 3)
+'   create sandbox         hand, line "sbx create": `sbx create` writes to the
+'                          terminal itself. A kept sandbox counts the step as
+'                          "re-attach to <name> — left by an earlier run"; an
+'                          OpenCode engine this run just created, "attach to
+'                          <name>"
+'   start <target>         the start line "<target> <version> — starting";
+'                          the existing `agent` row records it
+' A LINE THAT STAYS ON SCREEN CARRIES NO PLACE. DoAs, HandAs and StartAs take
+' the line to show; the live frame keeps "step n/N · name · 12s", and each
+' writes "step n/N · name" to the run log alone, so the log keeps the place.
+' Plain output (a pipe, CI) gets the same unnumbered lines, so it never mixes
+' the two forms. init keeps Do and Hand: its e2e reads "step n/N".
+' A LIVE STEP DRAWS ITS PENDING HEADING FIRST. Do writes the place and
+' "step: <name> started" to the log alone before its live frame would draw
+' the heading, so the log read "step 1/5 · workload kit" under "workspace"
+' and "sbx" mid-step (R1 review). Steps.do now calls Printer.heading before
+' it logs; screen order is unchanged (TestALiveStepDrawsThePendingHeadingBeforeItsLogLines).
+' The stale step's retire prints its own lines without "n/3" (kit-lifecycle.puml).
 ' The run log gains the first four rows ahead of `agent`, so one log now
 ' names every step of a run in order. The clone e2e compares that list.
 ' NOT WRAPPED: what run.Do does before sandbox.Run (image preflight, the
-' local-model pull). The pull draws a live line of its own, and two clocks
-' on one line would take turns.
+' local-model pull, the host add-ons). The pull draws a live line of its
+' own, and two clocks on one line would take turns. A host add-on draws
+' "<add-on> — starting" the same way (run.startAddon); in plain output it
+' writes that line to the run log only, so nothing stays under egress.
+' THE SBX INSTALL LINE reads "sbx — installing" or "sbx — upgrading", the
+' command dim under it; installVerb gives each verb its own -ing form
+' ("upgradeing" before R1 round 3; TestTheSbxInstallLineGivesEachVerbItsOwnIngForm).
 '
 ' ── WHAT RAN ───────────────────────────────────────────────────────────────
 ' macOS and linux/arm64 on tmux: the setup page lists what Enter runs, the
@@ -123,6 +147,8 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 '   TestAPlanThatRunsPastItsCountNeverShowsAStepBeyondTheTotal
 '   TestASuspendedLiveLineStaysOffTheTerminalUntilItIsResumed
 '   TestAnOrdinaryLineUnderASuspendedLiveLineNeitherErasesNorRedrawsIt
+'   TestAnAsStepLeavesItsOwnLineAndLogsItsPlace
+'   TestPlainOutputOfAsStepsCarriesNoPlace
 ' Pinned by cmd/proveo/init_apply_test.go:
 '   TestTheApplyPlanListsWhatEnterRunsInTheOrderItRuns
 '   TestOnlyStepsThatKeepTheTerminalGetALiveLine

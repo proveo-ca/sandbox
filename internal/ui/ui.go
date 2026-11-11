@@ -143,9 +143,8 @@ type Printer struct {
 	suspended int       // holders of SuspendLive; the live line stays off the terminal while any holds
 }
 
-// Section names the concern the following lines belong to, drawn as the
-// divider choiceui uses for a Divider row so the narration and the form name
-// the same things the same way.
+// Section names the subject the following lines describe, drawn as the divider
+// choiceui uses for a Divider row.
 func (p *Printer) Section(label string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -177,15 +176,16 @@ func sectionHeading(t GlyphTier, plain bool, label string, width int) string {
 }
 
 const (
-	SectionScope       = "scope"       // the sub-tree of a monorepo this run sees
-	SectionRun         = "run"         // images, the variant, the transcript path
+	SectionScope       = "scope"       // the numbered scope picker: the sub-tree of a monorepo
+	SectionRun         = "run"         // the transcript path, the scope, the image pull
 	SectionCredentials = "credentials" // form row: where the login rests
-	SectionWorkspace   = "workspace"   // mounts, symlinks, the proveo home
-	SectionEgress      = "egress"      // form row: the tier and its caveats
-	SectionExecution   = "execution"   // form divider: where the agent runs
-	SectionInterface   = "interface"   // form divider: what the agent can drive
-	SectionStarting    = "starting"    // live: handing the image over, retries
-	SectionSecrets     = "secrets"     // live: injection, and the store's prompt
+	SectionWorkspace   = "workspace"   // the checkout, the clone, links, what is not mounted
+	SectionEgress      = "egress"      // form row: sbx's policy and the host services the sandbox reaches
+	SectionExecution   = "execution"   // `proveo init`: where the agent runs
+	SectionInterface   = "interface"   // form divider: the ports, browser and IDE host the operator reaches
+	SectionStarting    = "starting"    // `proveo init`: installing and starting sbx
+	SectionSecrets     = "secrets"     // `proveo init`: the secret store and its prompt
+	SectionSbx         = "sbx"         // what proveo hands sbx, the stale check, sbx's own create block
 	SectionResults     = "results"     // after the agent: clones, transcripts
 	SectionTargets     = "targets"     // `proveo ls`: the harness images
 	SectionProjects    = "projects"    // `proveo projects`: monorepo members
@@ -205,6 +205,15 @@ func (p *Printer) width() int {
 		return w.cols()
 	}
 	return 0 // not measurable: the caller decides what to do without a width
+}
+
+// heading draws the pending section heading now.
+func (p *Printer) heading() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.eraseLive()
+	defer p.drawLive()
+	p.flushSection()
 }
 
 func (p *Printer) flushSection() {
@@ -297,9 +306,12 @@ func cutToWidth(s string, width int) string {
 // Default is the process-wide status printer (stderr).
 var Default = New(os.Stderr)
 
-func TeeTo(w io.Writer) {
+// TeeTo copies every line to w as well, and Logf lines to w alone; restore puts back the printers it replaced.
+func TeeTo(w io.Writer) (restore func()) {
+	prev, prevLog := Default, logOnly
+	restore = func() { Default, logOnly = prev, prevLog }
 	if w == nil {
-		return
+		return restore
 	}
 	term := Default
 	term.mu.Lock()
@@ -314,6 +326,7 @@ func TeeTo(w io.Writer) {
 		term:    term.term,
 	}
 	logOnly = &Printer{W: w, Plain: true, Tier: term.Tier}
+	return restore
 }
 
 var logOnly *Printer

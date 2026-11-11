@@ -38,8 +38,10 @@
 ' deleted targets.go) lands here. Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
 '
 ' PREFLIGHT, MEASURED: Deps.PreflightImages(man, agentImage) ensures the agent
-' image only; run.launchSandbox calls it only off `--print` and only when sbx
-' holds no template for the image (!sbx.HasTemplate). No sidecar images remain.
+' image only; run.preflightImage calls it right after the pages and the run
+' block (output-readability R1), before credentials, only off `--print` and
+' only when sbx holds no template for the image (!sbx.HasTemplate). Its lines
+' land under the run heading. No sidecar images remain.
 title Preflight provisioning, the maintainer registry, and the missing-env wizard
 
 node "Consumer path — before any container exists" as PRE <<host>> {

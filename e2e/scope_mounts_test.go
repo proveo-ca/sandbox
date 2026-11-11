@@ -159,7 +159,7 @@ func TestMountedWorktreeRefusesAForeignPlatformInstall(t *testing.T) {
 	wt := newTempWorktree(t)
 	run := func(env ...string) (string, error) {
 		cmd := exec.Command(buildProveo(t), "run", target, "--input", wt, "--clone=false", "--print")
-		cmd.Env = append(os.Environ(), append([]string{"PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_DEPS="}, env...)...)
+		cmd.Env = append(os.Environ(), append([]string{"PROVEO_HOME=" + t.TempDir(), "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_DEPS="}, env...)...)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}

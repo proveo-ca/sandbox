@@ -54,8 +54,11 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' on the image and asserted by the def tests — the fact was carried and never
 ' delivered.
 '
-' THE RUN NOW DELIVERS IT. posture.AgentVersion reads the label and run.go
-' prints one line under the `run` section. Best-effort by design: an sbx-only
+' THE RUN NOW DELIVERS IT. posture.AgentVersion reads the label of the image
+' run.preflightImage settled on. Since output-readability R1 the version rides
+' the start line ("● <target> <version> — starting"); the pin line and its
+' `mise run build <target>` hint go to the run log only, since a maintainer
+' command never prints on screen. Best-effort by design: an sbx-only
 ' host has no docker to inspect with, docker prints `<no value>` for a missing
 ' label, and in every such case the line is OMITTED rather than guessed. A gauge
 ' that lies is worse than one that is absent, and neither may fail a run.

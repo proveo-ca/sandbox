@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 	"time"
@@ -75,25 +76,39 @@ func (s *Steps) label(name string) string {
 }
 
 // Do runs fn as the next step behind a live line with a clock.
-func (s *Steps) Do(name string, fn func() error) error {
+func (s *Steps) Do(name string, fn func() error) error { return s.do(name, "", fn) }
+
+// DoAs runs fn as Do does; output with no live line gets line, with no place in it.
+func (s *Steps) DoAs(name, line string, fn func() error) error { return s.do(name, line, fn) }
+
+func (s *Steps) do(name, line string, fn func() error) error {
 	if s == nil {
 		return fn()
 	}
 	label := s.label(name)
+	Default.heading()
+	logPlace(label, line)
 	Logf("step: %s started", name)
 	done := Running(func(ran time.Duration) string {
 		return label + " · " + ran.Round(time.Second).String()
-	}, label)
+	}, cmp.Or(line, label))
 	return logged(name, done, fn)
 }
 
 // Hand runs fn as the next step under a start line alone: fn gives the terminal
 // to a prompt or to another program, which a live line would draw over.
-func (s *Steps) Hand(name string, fn func() error) error {
+func (s *Steps) Hand(name string, fn func() error) error { return s.hand(name, "", fn) }
+
+// HandAs runs fn as Hand does, under the start line `line`, with no place in it.
+func (s *Steps) HandAs(name, line string, fn func() error) error { return s.hand(name, line, fn) }
+
+func (s *Steps) hand(name, line string, fn func() error) error {
 	if s == nil {
 		return fn()
 	}
-	Asyncf("%s", s.label(name))
+	label := s.label(name)
+	Asyncf("%s", cmp.Or(line, label))
+	logPlace(label, line)
 	Logf("step: %s started", name)
 	return logged(name, func() {}, fn)
 }
@@ -102,6 +117,22 @@ func (s *Steps) Hand(name string, fn func() error) error {
 func (s *Steps) Start(name string) {
 	if s != nil {
 		Asyncf("%s", s.label(name))
+	}
+}
+
+// StartAs counts the next step and prints line, with no place in it; the caller runs the step and records it.
+func (s *Steps) StartAs(name, line string) {
+	if s != nil {
+		label := s.label(name)
+		Asyncf("%s", line)
+		logPlace(label, line)
+	}
+}
+
+// logPlace writes a step's place to the run log when its screen line carries none.
+func logPlace(label, line string) {
+	if line != "" {
+		Logf("%s", label)
 	}
 }
 

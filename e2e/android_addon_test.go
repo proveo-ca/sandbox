@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -62,8 +63,15 @@ func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 	k := awaitKit(t, sess, before, target, work)
 
 	log, _ := sess.CaptureAll()
-	if !strings.Contains(log, "android: booting AVD") || !strings.Contains(log, "booted") {
-		t.Fatalf("the run did not open an emulator on the host:\n%s", log)
+	runLog := readIn(home, filepath.Join("logs", "latest.log"))
+	if !strings.Contains(runLog, "android: booting AVD") || !strings.Contains(runLog, "booted") {
+		t.Fatalf("the run log does not say the run opened an emulator on the host:\n%s", tail(runLog, 40))
+	}
+	if !regexp.MustCompile(`android:\s+emulator-\d+ \(AVD `).MatchString(log) {
+		t.Errorf("the interface block does not name the emulator the run booted:\n%s", log)
+	}
+	if strings.Contains(log, "android: booting AVD") {
+		t.Errorf("the emulator's boot progress reached the screen; it belongs in the run log:\n%s", log)
 	}
 	if !strings.Contains(log, "the agent controls every device on that adb server") {
 		t.Errorf("the run did not warn about adb's reach:\n%s", log)

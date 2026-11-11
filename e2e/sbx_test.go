@@ -121,7 +121,7 @@ func printOnlyRunErr(t *testing.T, workdir string, extraEnv []string, target str
 	proveoBin := buildProveo(t)
 	cmd := exec.Command(proveoBin, "run", target, "--print")
 	cmd.Dir = workdir
-	cmd.Env = append(os.Environ(), extraEnv...)
+	cmd.Env = append(append(os.Environ(), "PROVEO_HOME="+t.TempDir()), extraEnv...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -130,6 +130,26 @@ var sandboxHarnesses = dockerTargets(func(manifest.Manifest) bool { return true 
 
 // daemonHarnesses are the sbx harnesses whose agent is promised a daemon.
 var daemonHarnesses = dockerTargets(manifest.Manifest.WantsDocker)
+
+// sbxHeadingLine is the run's "sbx" heading, drawn at its first start step, before `sbx create` or a re-attach.
+var sbxHeadingLine = regexp.MustCompile(`(?m)^\s*[─-]{6} sbx [─-]+\s*$`)
+
+func TestSbxHeadingLineMatchesOnlyTheHeading(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		screen string
+		want   bool
+	}{
+		{"  ────── workspace ──────\n✓ private clone\n\n  ────── sbx ──────────────────────\n● sbx create\n", true},
+		{"  ------ sbx ------\n", true},
+		{"● sbx create\n  SANDBOX\n    Name: proveo-claudecode-1a2b3c4d\n", false},
+		{"  ────── sbx-tools ──────\n", false},
+	} {
+		if got := sbxHeadingLine.MatchString(c.screen); got != c.want {
+			t.Errorf("sbxHeadingLine.MatchString(%q) = %v, want %v", c.screen, got, c.want)
+		}
+	}
+}
 
 func dockerTargets(pick func(manifest.Manifest) bool) []string {
 	wd, err := os.Getwd()
@@ -615,12 +635,12 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 
 	w := newWatcher(t, sess)
 
-	w.until("the sbx backend line", 2*time.Minute, func() bool {
+	w.until("the sbx heading", 2*time.Minute, func() bool {
 		s := w.Screen()
 		if strings.Contains(s, "docker sandbox: off") {
 			w.Fatalf("%s ran with the sandbox add-on unchecked — a remembered choice leaked into this run", target)
 		}
-		return strings.Contains(s, "backend: docker sandboxes (sbx)")
+		return sbxHeadingLine.MatchString(stripSGR(s))
 	})
 
 	k := awaitKit(t, sess, before, target, work)

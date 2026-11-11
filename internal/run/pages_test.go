@@ -4,10 +4,13 @@ package run
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -75,6 +78,10 @@ func TestAStepBackReturnsToTheScopePageWhereItWasLeft(t *testing.T) {
 	if rs.Workspace.SubScope != "apps/api" || !strings.HasSuffix(rs.Workspace.WS.InputDir, "apps/api") {
 		t.Errorf("scope = %q, input %q; want apps/api", rs.Workspace.SubScope, rs.Workspace.WS.InputDir)
 	}
+	if rs.Workspace.ScopeLabel != "apps/api" || term.Len() != 0 {
+		t.Errorf("the pages must record the scope the run took for the run block, and print nothing: %q\n%s", rs.Workspace.ScopeLabel, term.String())
+	}
+	reportRun(rs, false)
 	if out := term.String(); strings.Count(out, "scope: ") != 1 || !strings.Contains(out, "scope: apps/api") {
 		t.Errorf("the scope line must print once, for the scope the run took:\n%s", out)
 	}
@@ -116,6 +123,7 @@ func TestARunWithNoScopeQuestionShowsTheFormAloneAndCannotStepBack(t *testing.T)
 		if err != nil || rs.Workspace.SubScope != c.want || step != (choiceui.Step{}) {
 			t.Errorf("%s: err %v, scope %q, form step %+v; want %q and a lone form", c.name, err, rs.Workspace.SubScope, step, c.want)
 		}
+		reportRun(rs, false)
 		if out := term.String(); (c.says == "") != !strings.Contains(out, "scope: ") || !strings.Contains(out, c.says) {
 			t.Errorf("%s: terminal = %q, want %q", c.name, out, c.says)
 		}
@@ -131,7 +139,7 @@ func TestAFormErrorEndsThePages(t *testing.T) {
 	if !errors.Is(err, boom) {
 		t.Errorf("err = %v, want the form's", err)
 	}
-	if strings.Contains(term.String(), "scope: ") {
+	if rs.Workspace.ScopeLabel != "" || strings.Contains(term.String(), "scope: ") {
 		t.Errorf("a run that ended at the form announced a scope:\n%s", term.String())
 	}
 }
@@ -178,5 +186,34 @@ func TestTheRunFormNamesWhatEnterStarts(t *testing.T) {
 		if len(got) != c.n || !strings.HasPrefix(got[0], c.first) || got[len(got)-1] != "start claudecode" {
 			t.Errorf("%s: %q", c.name, got)
 		}
+	}
+}
+
+func TestUnreadableCachedSettingsNameTheirPathHomeRelativeOnALiveRun(t *testing.T) {
+	rs, p, term, _ := pagesFixture(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, ".proveo")
+	t.Setenv("PROVEO_HOME", root)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agentsettings.Path(root), []byte("targets: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := promptChoices(rs, p, Deps{}, &formVisit{}); err != nil {
+		t.Fatal(err)
+	}
+	got := term.String()
+	if !strings.Contains(got, "cached settings — unreadable, not used") || !strings.Contains(got, "~/.proveo/") || strings.Contains(got, root) {
+		t.Errorf("a live run's settings warning names its path absolute:\n%s", got)
+	}
+	term.Reset()
+	p.PrintOnly = true
+	if err := promptChoices(rs, p, Deps{}, &formVisit{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := term.String(); !strings.Contains(got, root) {
+		t.Errorf("a --print run's settings warning names its path home-relative:\n%s", got)
 	}
 }

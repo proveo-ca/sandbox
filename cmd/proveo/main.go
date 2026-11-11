@@ -190,12 +190,7 @@ func (f *runFlags) execute(cmd *cobra.Command, target string, extra []string) er
 	if f.imageOverride != "" {
 		image = f.imageOverride // an explicit --image is a decision, not a default
 	} else {
-		chosen, isLocal := posture.ResolveImageChoice(image)
-		if isLocal {
-			ui.Section(ui.SectionRun)
-			ui.Appf("image: %s (local build — newer than the published tag)", chosen)
-		}
-		image = chosen
+		image, _ = posture.ResolveImageChoice(image)
 	}
 	credsSet := cmd.Flags().Changed("credentials")
 	if !run.ValidCredentials(f.credentials) {

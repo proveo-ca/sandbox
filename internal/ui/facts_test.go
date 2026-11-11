@@ -53,6 +53,18 @@ func TestFactsAlignValuesInOneColumnAndKeepTheRoleDot(t *testing.T) {
 	}
 }
 
+func TestARowThatPrintsNothingWidensNoKeyColumn(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	(&Printer{W: &buf, Plain: true}).Facts(
+		Fact{Role: RoleStore, Key: "log", Value: "/var/log/run.log"},
+		Fact{Role: RoleStore, Key: "scope"},
+	)
+	if got := buf.String(); got != "log: /var/log/run.log\n" {
+		t.Errorf("Facts = %q, want the empty scope row to leave the log row unpadded", got)
+	}
+}
+
 func TestPlainFactsAlignWithoutMarks(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
@@ -123,5 +135,38 @@ func TestTildeAbbreviatesOnlyUnderHome(t *testing.T) {
 		if got := Tilde(in); got != want {
 			t.Errorf("Tilde(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestTildeInAbbreviatesEachHomePathInsideText(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sep := string(filepath.Separator)
+	for in, want := range map[string]string{
+		home: "~",
+		"open " + home + sep + "w" + sep + ".env: permission denied": "open ~" + sep + "w" + sep + ".env: permission denied",
+		home + sep + "a → " + home + sep + "b":                       "~" + sep + "a → ~" + sep + "b",
+		`"` + home + sep + "q" + `"`:                                 `"~` + sep + `q"`,
+		"/mnt" + home + sep + "x":                                    "/mnt" + home + sep + "x",
+		home + "-other" + sep + "x":                                  home + "-other" + sep + "x",
+	} {
+		if got := TildeIn(in); got != want {
+			t.Errorf("TildeIn(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFactsWithNothingToPrintDrawNoHeading(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	p := &Printer{W: &buf, Plain: true}
+	p.Section("run")
+	p.Facts(Fact{Role: RoleStore, Key: "log"}, Fact{Role: RoleStore, Key: "scope"})
+	if buf.Len() != 0 {
+		t.Errorf("Facts with no value drew %q; want nothing, not even the pending heading", buf.String())
+	}
+	p.Facts(Fact{Role: RoleStore, Key: "log", Value: "/l"})
+	if !strings.Contains(buf.String(), " run ") {
+		t.Errorf("the first row that prints must draw the pending heading:\n%s", buf.String())
 	}
 }

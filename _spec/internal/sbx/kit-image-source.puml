@@ -56,6 +56,10 @@ skinparam noteTextAlignment left
 '           it overrides an inherited one; never reaches the sandbox (Env does)
 ' Not on the host → Ref unchanged, no HostEnv: the builder pulls a published
 ' image as before. Host without a Builder → warn: the active builder decides.
+' The screen reads "⚠ buildx — no docker-driver builder reads the host image
+' store", dim "the active builder builds <image>"; the PROVEO_BUILDX_LOCAL_BUILDER
+' how-to goes to the run log alone (P6 of output-readability, R1 round 3;
+' report_test.go TestTheBuildxHowToReachesOnlyTheRunLog).
 ' Never `docker buildx use`: that global write is this bug's cause.
 ' --print shows the env prefix on the `# sandbox` line (CreateLine) so a
 ' pasted command builds the same way.

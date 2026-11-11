@@ -16,7 +16,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runner"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func FilterProviders(detected []string, c manifest.Capabilities) []string {
@@ -547,18 +546,19 @@ func ProviderForAuthVar(envVar string) (string, provider.AuthOption, bool) {
 	return "", provider.AuthOption{}, false
 }
 
-func WarnMountedSecrets(dir string, lookup func(string) string) {
+// MountedSecretEnv is the workspace's .env when it exists and a provider key is set; "" otherwise.
+func MountedSecretEnv(dir string, lookup func(string) string) string {
 	if dir == "" {
-		return
+		return ""
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
-		return
+	env := filepath.Join(dir, ".env")
+	if _, err := os.Stat(env); err != nil {
+		return ""
 	}
 	if len(provider.Detect(lookup)) == 0 {
-		return
+		return ""
 	}
-	ui.Warnf("%s/.env is inside the sandbox workspace and holds a provider key — the agent can read the file "+
-		"(the image never loads it into the agent's environment)", dir)
+	return env
 }
 
 // ChildEnv carries the values a bare `-e NAME` needs the CHILD to inherit,

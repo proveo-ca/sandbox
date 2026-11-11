@@ -15,41 +15,42 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// ensureDesktop installs the pinned Hermes Desktop when it is missing and returns its launch argv.
-func ensureDesktop() ([]string, error) {
+// ensureDesktop installs the pinned Hermes Desktop when it is missing and returns its launch argv;
+// installed reports this call's install. The install plan goes to the run log.
+func ensureDesktop() (launch []string, installed bool, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("hermes desktop: %w", err)
+		return nil, false, fmt.Errorf("hermes desktop: %w", err)
 	}
 	if hermesdesktop.Installed(home) {
-		return hermesdesktop.LaunchArgv(home), nil
+		return hermesdesktop.LaunchArgv(home), false, nil
 	}
 	download, err := os.MkdirTemp("", "proveo-hermes-desktop-")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = os.RemoveAll(download) }()
 	plan, err := hermesdesktop.PlanFor(sbx.DetectHost(), home, download)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	ui.Hostf("Hermes Desktop is not installed. The plan (Hermes %s, commit %s):", hermesdesktop.Tag, hermesdesktop.Commit[:12])
+	ui.Logf("Hermes Desktop is not installed. The plan (Hermes %s, commit %s):", hermesdesktop.Tag, hermesdesktop.Commit[:12])
 	if len(plan.PrereqArgv) > 0 {
-		ui.Notef("  %s", strings.Join(plan.PrereqArgv, " "))
+		ui.Logf("  %s", strings.Join(plan.PrereqArgv, " "))
 	}
-	ui.Notef("  fetch %s (sha256 %s…)", hermesdesktop.InstallScriptURL(), hermesdesktop.InstallScriptSHA256[:16])
-	ui.Notef("  %s", strings.Join(plan.InstallArgv, " "))
-	ui.Notef("  it builds the app from source into %s and takes minutes", plan.ReleaseDir)
-	if !provisionConfirm("Install Hermes Desktop now?") {
-		return nil, fmt.Errorf("hermes desktop is not installed — pick the tui instead, or rerun and accept the install (PROVEO_AUTO_PROVISION=1)")
+	ui.Logf("  fetch %s (sha256 %s…)", hermesdesktop.InstallScriptURL(), hermesdesktop.InstallScriptSHA256[:16])
+	ui.Logf("  %s", strings.Join(plan.InstallArgv, " "))
+	ui.Logf("  it builds the app from source into %s and takes minutes", plan.ReleaseDir)
+	if !provisionConfirm("Install Hermes Desktop " + hermesdesktop.Tag + " now?") {
+		return nil, false, fmt.Errorf("hermes desktop is not installed — pick the tui instead, or rerun and accept the install (PROVEO_AUTO_PROVISION=1)")
 	}
 	if err := hermesdesktop.Install(plan, fetchHTTP, runInheriting); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !hermesdesktop.Installed(home) {
-		return nil, fmt.Errorf("hermes desktop: install.sh finished but no app is under %s", plan.ReleaseDir)
+		return nil, false, fmt.Errorf("hermes desktop: install.sh finished but no app is under %s", plan.ReleaseDir)
 	}
-	return plan.LaunchArgv, nil
+	return plan.LaunchArgv, true, nil
 }
 
 func fetchHTTP(url string) ([]byte, error) {

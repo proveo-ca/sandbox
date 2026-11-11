@@ -12,7 +12,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // HomeAccess is the narrow host-state view an sbx run receives. The whole
@@ -22,15 +21,12 @@ type HomeAccess struct {
 	Root         string
 	FilesRoot    string
 	Mounts       []runner.Mount
-	SkippedLinks []string // "<link> → <target>" for links whose target manifest.LinkedDirsFile does not list
+	SkippedLinks []SkippedLink
 	files        []string
 }
 
-func noteSkippedLinks(a HomeAccess) {
-	for _, l := range a.SkippedLinks {
-		ui.Notef("home link %s not followed — list its target in %s to mount it read-only", l, filepath.Join(a.Root, manifest.LinkedDirsFile))
-	}
-}
+// SkippedLink is a home link whose target manifest.LinkedDirsFile does not list.
+type SkippedLink struct{ Link, Target string }
 
 func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error) {
 	a := HomeAccess{Root: root}
@@ -114,7 +110,7 @@ func listedLinkTargets(root string) map[string]bool {
 // linkedDirs mounts read-only the targets of dir's first-level symlinks that
 // leave the proveo home and appear in listed, and returns the links it skipped.
 // SPEC: _spec/internal/sbx/ide-attach.puml (LINKED DIRS FOLLOW, READ-ONLY)
-func linkedDirs(root, dir string, listed map[string]bool) (out []runner.Mount, skipped []string) {
+func linkedDirs(root, dir string, listed map[string]bool) (out []runner.Mount, skipped []SkippedLink) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, nil
@@ -135,7 +131,7 @@ func linkedDirs(root, dir string, listed map[string]bool) (out []runner.Mount, s
 			continue
 		}
 		if !listed[target] {
-			skipped = append(skipped, filepath.Join(dir, e.Name())+" → "+target)
+			skipped = append(skipped, SkippedLink{Link: filepath.Join(dir, e.Name()), Target: target})
 			continue
 		}
 		out = append(out, runner.Mount{Host: target, ReadOnly: true})

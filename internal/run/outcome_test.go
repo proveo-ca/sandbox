@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runlog"
@@ -42,9 +43,7 @@ func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 			}
 			// Exactly what Do does, and the reason an exit code reaches the
 			// transcript at all: ui writes to the terminal and the log together.
-			prev := ui.Default
-			ui.TeeTo(log.Writer())
-			defer func() { ui.Default = prev }()
+			defer ui.TeeTo(log.Writer())()
 
 			recordOutcome(tc.launched, tc.err)
 			log.Close()
@@ -122,6 +121,9 @@ func TestDoRecordsAnEarlyFailureInTheTranscript(t *testing.T) {
 	if !strings.Contains(string(b), "outcome: no such harness") {
 		t.Errorf("the transcript never says how the run ended:\n%s", b)
 	}
+	if !strings.Contains(sink.String(), "log: "+logs[0]) {
+		t.Errorf("a run that fails before its run block never names its log on screen:\n%s", sink.String())
+	}
 }
 
 func TestRequireSandboxRefusesEveryRunSbxCannotHost(t *testing.T) {
@@ -137,5 +139,47 @@ func TestRequireSandboxRefusesEveryRunSbxCannotHost(t *testing.T) {
 	ready = true
 	if err := requireSandbox(Params{Target: "claudecode"}, Deps{}); err != nil {
 		t.Errorf("a ready sbx refused: %v", err)
+	}
+}
+
+func TestARunThatFailsAtItsPagesNamesItsLogUnderRunBeforeTheItemsItHeld(t *testing.T) {
+	home, proveoHome := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PROVEO_HOME", proveoHome)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("PROVEO_ENV_FILE", "")
+	t.Setenv("PROVEO_SBX_MCP", "")
+	t.Setenv("PROVEO_MISE_TRUST", "")
+	t.Setenv("PROVEO_SCHEDULE", "")
+	prevReady := sandboxReady
+	t.Cleanup(func() { sandboxReady = prevReady })
+	sandboxReady = func(bool, func(string) bool) (bool, string) { return true, "" }
+
+	work := t.TempDir()
+	saved, err := agentsettings.Load(proveoHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.RememberPorts(realPathOf(work), []agentsettings.Port{{Port: 3000, Command: "pnpm dev", Source: "package.json"}})
+	if err := saved.Save(proveoHome); err != nil {
+		t.Fatal(err)
+	}
+
+	prev := ui.Default
+	var sink strings.Builder
+	ui.Default = ui.New(&sink)
+	defer func() { ui.Default = prev }()
+
+	err = Do(Params{Target: "claudecode", Input: work, PrintOnly: true, Addons: []string{"no-such-addon"}, AddonsSet: true}, Deps{
+		ManifestFor: func(string) (manifest.Manifest, error) { return manifest.Manifest{Name: "claudecode"}, nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "no-such-addon") {
+		t.Fatalf("Do = %v, want the refused --addon", err)
+	}
+	got := sink.String()
+	run, logRow := strings.Index(got, "------ run ------"), strings.Index(got, "log: ")
+	iface, gone := strings.Index(got, "------ interface ------"), strings.Index(got, "port 3000 — gone from this workspace")
+	if run < 0 || logRow < run || iface < logRow || gone < iface || strings.Count(got, "------ run ------") != 1 {
+		t.Errorf("want the run heading, its log row, then the interface heading and the item it held:\n%s", got)
 	}
 }

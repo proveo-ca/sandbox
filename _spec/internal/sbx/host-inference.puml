@@ -149,8 +149,16 @@ skinparam noteTextAlignment left
 '     provider key, no subscription manifest and PROVEO_LOCAL_MODEL_AUTO not 0
 '     takes the first listed model (MODEL ROW MAPPING, this host's tag) that the
 '     host's Ollama has installed and that fits the FIT POOL — the host GPU path.
-'     It prints which. Only listed models: an arbitrary installed tag (a 0.3 GB
-'     fine-tune) is not an agent model.
+'     Only listed models: an arbitrary installed tag (a 0.3 GB fine-tune) is
+'     not an agent model.
+'     WHERE IT SAYS SO (output-readability R1, 2026-11-11): the pick, its reason
+'     ("no provider key") and the PROVEO_LOCAL_MODEL_AUTO=0 opt-out go to the
+'     run log alone (ui.Logf). The screen says it once, as the egress block's
+'     "● local model: <served tag> on the host's Ollama (host GPU)" fact,
+'     printed after the model is served. Before, the pick printed a ● line
+'     under the credentials heading as well (R1 round-2 review). Pinned by
+'     internal/run/local_model_auto_test.go
+'     TestTheAutoLocalModelsReasonReachesOnlyTheRunLog.
 '   * sbx.FittingHostModels does the install + fit filter.
 
 ' ── WHY NOT llmman (removed 2026-09-26) ────────────────────────────────────

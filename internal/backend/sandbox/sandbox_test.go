@@ -4,6 +4,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -287,21 +288,108 @@ func TestIDEAttachNeedsANamedSandboxAndWorkspace(t *testing.T) {
 	}
 }
 
-func TestPrintIDEAttachLiveOpensTheInterfaceSection(t *testing.T) {
-	var buf strings.Builder
-	prev := ui.Default
-	ui.Default = ui.New(&buf)
-	t.Cleanup(func() { ui.Default = prev })
-
-	PrintIDEAttach(Input{}, sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}, true)
-	got := buf.String()
-	for _, want := range []string{"------ interface ------", "IDE attach (live):", "proveo-1-2.sbx", "sbx setup ssh"} {
+func TestALiveRunShowsOneIDERowAndLogsTheWholeAttachBlock(t *testing.T) {
+	screen, log := captured(t)
+	in := Input{Clone: true, RepoRoot: "/host/repo", Browser: true, CDPHostPort: 56855,
+		Ports: []PublishedPort{{Host: 18083, Guest: 8083, What: "next · apps/web/package.json", Dir: "apps/web", Cmd: "pnpm run dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}, publishing{created: true, relay: true})
+	got := screen.String()
+	for _, want := range []string{"------ interface ------", "ide:", "ssh proveo-1-2.sbx", "a local Open edits the host checkout",
+		"port 8083:", "next in apps/web", "log /tmp/proveo-dev-8083.log", "browser:", "the agent's Chromium over CDP"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("live attach output lacks %q:\n%s", want, got)
+			t.Errorf("the interface block lacks %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "------ starting ------") {
-		t.Errorf("live attach drew the starting heading instead of interface:\n%s", got)
+	for _, refuse := range []string{"JetBrains", "VS Code", "Toolbox (", "DISPOSABLE", "pnpm run dev", "connectOverCDP",
+		"http://127.0.0.1:18083", "http://127.0.0.1:56855", ":9222"} {
+		if strings.Contains(got, refuse) {
+			t.Errorf("the screen carries %q, which belongs in the run log or sbx's create block:\n%s", refuse, got)
+		}
+	}
+	for _, want := range []string{"IDE attach (live):", "JetBrains: File → Remote Development", "VS Code: `code --remote ssh-remote+proveo-1-2.sbx /host/repo`",
+		"a local Open or Recent of /host/repo edits the HOST checkout", "runs `pnpm run dev` in apps/web", "connectOverCDP",
+		"port 8083: http://127.0.0.1:18083 → sandbox :8083", "browser viewport: http://127.0.0.1:56855"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the run log lacks %q:\n%s", want, log.String())
+		}
+	}
+}
+
+func TestTheBrowserRowNeedsThisRunsOwnPublish(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		in     Input
+		launch sbx.RunConfig
+		want   bool
+	}{
+		{"created with the relay published", Input{Browser: true, CDPHostPort: 56855}, sbx.RunConfig{Publish: []string{"127.0.0.1:56855:9222"}}, true},
+		{"re-attached: the sandbox never published this run's port", Input{Browser: true, CDPHostPort: 56855}, sbx.RunConfig{}, false},
+		{"a dev port published and no browser", Input{Ports: []PublishedPort{{Host: 13000, Guest: 3000}}}, sbx.RunConfig{Publish: []string{"127.0.0.1:13000:3000"}}, false},
+	} {
+		screen, _ := captured(t)
+		reportInterface(c.in, sbx.RunConfig{Name: "sb"}, publishing{created: len(c.launch.Publish) > 0, relay: relayRuns(c.in, c.launch)})
+		if got := strings.Contains(screen.String(), "browser:"); got != c.want {
+			t.Errorf("%s: browser row printed = %v, want %v:\n%s", c.name, got, c.want, screen.String())
+		}
+		if strings.Contains(screen.String(), "127.0.0.1:0") {
+			t.Errorf("%s: a row names port 0:\n%s", c.name, screen.String())
+		}
+	}
+}
+
+func TestAReattachedSandboxsPortsAnswerWhereSbxListsThem(t *testing.T) {
+	screen, log := captured(t)
+	in := Input{Ports: []PublishedPort{
+		{Host: 18083, Guest: 8083, What: "next · apps/web/package.json", Dir: "apps/web", Cmd: "pnpm run dev"},
+		{Host: 13000, Guest: 3000, What: "vite", Dir: ".", Cmd: "pnpm dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "sb"},
+		publishing{hosts: keptPorts(&sbx.Listed{Status: "running", Ports: []sbx.ListedPort{{HostPort: 28083, SandboxPort: 8083}}}, nil)})
+	got := screen.String()
+	for _, want := range []string{"port 8083: next in apps/web", "http://127.0.0.1:28083 · log /tmp/proveo-dev-8083.log",
+		"warn: port 3000 — not published by sb", "vite · log /tmp/proveo-dev-3000.log"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the re-attach interface block lacks %q:\n%s", want, got)
+		}
+	}
+	for _, refuse := range []string{"18083", "13000", "was taken"} {
+		if strings.Contains(got, refuse) {
+			t.Errorf("a re-attach printed this run's planned port %q:\n%s", refuse, got)
+		}
+	}
+	if !strings.Contains(log.String(), "port 8083: http://127.0.0.1:28083 → sandbox :8083") {
+		t.Errorf("the run log lacks the listed host port:\n%s", log.String())
+	}
+}
+
+func TestAStoppedSandboxsPortsAnswerWhereItsCreatePublishedThem(t *testing.T) {
+	stopped := &sbx.Listed{Status: "stopped"}
+	got := keptPorts(stopped, &launchReceipt{Publish: []string{"56855:9222", "28083:8083"}})
+	if want := map[int]int{9222: 56855, 8083: 28083}; !maps.Equal(got, want) {
+		t.Errorf("keptPorts(stopped, receipt) = %v, want %v: sbx publishes a restarted sandbox's create-time ports again", got, want)
+	}
+	if got := keptPorts(stopped, &launchReceipt{Publish: []string{}}); got == nil || len(got) != 0 {
+		t.Errorf("a receipt that records no publishing = %v, want a known empty map", got)
+	}
+	screen, _ := captured(t)
+	in := Input{Ports: []PublishedPort{{Host: 18083, Guest: 8083, What: "next", Dir: ".", Cmd: "pnpm dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "sb"}, publishing{hosts: keptPorts(stopped, &launchReceipt{Publish: []string{"28083:8083"}})})
+	if out := screen.String(); !strings.Contains(out, "http://127.0.0.1:28083") || strings.Contains(out, "18083") {
+		t.Errorf("a stopped kept sandbox's port must answer where its create published it:\n%s", out)
+	}
+}
+
+func TestAStoppedSandboxsUnlistedPortsAreNotCalledUnpublished(t *testing.T) {
+	if got := keptPorts(&sbx.Listed{Status: "stopped"}, &launchReceipt{}); got != nil {
+		t.Errorf("a stopped sandbox's ports with a receipt written before publishing was recorded = %v, want unknown (nil)", got)
+	}
+	screen, log := captured(t)
+	in := Input{Ports: []PublishedPort{{Host: 13000, Guest: 3000, What: "vite", Dir: ".", Cmd: "pnpm dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "sb"}, publishing{hosts: keptPorts(&sbx.Listed{Status: "stopped"}, nil)})
+	if got := screen.String(); strings.Contains(got, "not published") || strings.Contains(got, "13000") || !strings.Contains(got, "port 3000: vite") {
+		t.Errorf("the interface block for a stopped kept sandbox:\n%s", got)
+	}
+	if !strings.Contains(log.String(), "sbx listed no host port for sb") {
+		t.Errorf("the run log does not say the host port is unknown:\n%s", log.String())
 	}
 }
 

@@ -1151,7 +1151,8 @@
         "internal/provider/models.go",
         "internal/provider/models_test.go",
         "internal/provider/roles.go",
-        "internal/provider/roles_test.go"
+        "internal/provider/roles_test.go",
+        "internal/run/helpers.go"
       ],
       "fingerprint": null
     },
@@ -1162,7 +1163,8 @@
         "internal/provider/roles_test.go",
         "internal/posture/posture.go",
         "internal/posture/posture_test.go",
-        "cmd/proveo/main.go"
+        "cmd/proveo/main.go",
+        "internal/run/helpers.go"
       ],
       "fingerprint": null
     },
@@ -1304,6 +1306,7 @@
       "covers": [
         "internal/sbx/run.go",
         "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/report.go",
         "internal/run/run.go",
         "e2e/browser_viewport_test.go",
         "internal/sbx/clone_test.go"
@@ -1316,6 +1319,8 @@
         "internal/run/run.go",
         "internal/sbx/run.go",
         "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/report.go",
+        "internal/backend/sandbox/report_test.go",
         "internal/backend/sandbox/pushed.go",
         "internal/choiceui/fetch_pushed.go",
         "internal/run/clone_test.go",
@@ -1381,7 +1386,9 @@
         "internal/credentials/login_test.go",
         "internal/secretref/secretref.go",
         "internal/secretref/secretref_test.go",
-        "e2e/secret_source_test.go"
+        "e2e/secret_source_test.go",
+        "internal/backend/sandbox/report.go",
+        "internal/backend/sandbox/report_test.go"
       ],
       "fingerprint": null
     },
@@ -1389,6 +1396,7 @@
       "spec": "_spec/internal/sbx/ide-attach.puml",
       "covers": [
         "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/report.go",
         "internal/backend/sandbox/home_access.go",
         "internal/sbx/sbx.go",
         "internal/sbx/run.go",
@@ -1435,7 +1443,10 @@
         "internal/backend/sandbox/launch_receipt_test.go",
         "internal/backend/sandbox/stop_signal_test.go",
         "internal/backend/sandbox/clone_carry_test.go",
-        "internal/backend/sandbox/teardown_end_test.go"
+        "internal/backend/sandbox/teardown_end_test.go",
+        "internal/backend/sandbox/report.go",
+        "internal/backend/sandbox/report_test.go",
+        "internal/sbx/list.go"
       ],
       "fingerprint": null
     },
@@ -1636,7 +1647,8 @@
         "internal/ui/**",
         "e2e/stream_palette_test.go",
         "internal/sbx/host_ollama.go",
-        "internal/sbx/host_ollama_pull_test.go"
+        "internal/sbx/host_ollama_pull_test.go",
+        "internal/backend/sandbox/report.go"
       ],
       "fingerprint": null
     },
@@ -1693,8 +1705,8 @@
       "covers": [
         "internal/workspace/mount.go",
         "internal/workspace/mount_test.go",
-        "internal/run/helpers.go",
-        "internal/run/link_lines_test.go"
+        "internal/backend/sandbox/report.go",
+        "internal/backend/sandbox/link_lines_test.go"
       ],
       "fingerprint": null
     },
@@ -2093,6 +2105,7 @@
         "internal/run/choices.go",
         "internal/run/run.go",
         "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/report.go",
         "internal/agentsettings/agentsettings.go",
         "internal/devports/android.go",
         "packages/lib/entrypoint-lib.sh",
@@ -2126,6 +2139,35 @@
         "internal/sbx/third_party/opencode.yaml",
         "internal/sbx/upstream_test.go",
         "internal/imagetest/opencode_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/hermes-desktop-over-ssh.puml",
+      "covers": [
+        "defs/hermes/**",
+        "internal/hermesdesktop/gateway.go",
+        "internal/hermesdesktop/gateway_test.go",
+        "e2e/hermes_desktop_test.go",
+        "internal/backend/sandbox/**",
+        "internal/run/**",
+        "cmd/proveo/desktop.go",
+        "cmd/proveo/desktop_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/sbx/host-browser-cdp.puml",
+      "covers": [
+        "internal/hostcdp/hostcdp.go",
+        "internal/hostcdp/hostcdp_test.go",
+        "internal/run/choices.go",
+        "internal/run/run.go",
+        "internal/run/host_adb_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/host_inference_test.go",
+        "defs/hermes/entrypoint.sh",
+        "defs/hermes/harness.manifest"
       ],
       "fingerprint": null
     }

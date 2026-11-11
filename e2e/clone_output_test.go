@@ -64,12 +64,11 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	}
 	w := newWatcher(t, sess)
 
-	w.until("the sbx backend line", 2*time.Minute, func() bool {
-		s := w.Screen()
-		return strings.Contains(s, "backend: docker sandboxes (sbx)")
+	w.until("the sbx heading", 2*time.Minute, func() bool {
+		return sbxHeadingLine.MatchString(stripSGR(w.Screen()))
 	})
-	w.until("the clone output line", 2*time.Minute, func() bool {
-		return strings.Contains(w.Screen(), "lifts it back here at teardown")
+	w.until("the clone output row", 2*time.Minute, func() bool {
+		return strings.Contains(w.Screen(), "reports/ (in the clone)") && strings.Contains(w.Screen(), "lifted back at teardown")
 	})
 	k := awaitKit(t, sess, before, target, work)
 

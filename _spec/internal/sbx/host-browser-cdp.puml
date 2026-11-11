@@ -6,6 +6,7 @@ skinparam noteTextAlignment left
 ' covers: internal/hostcdp/hostcdp_test.go
 ' covers: internal/run/choices.go (addonHostCDP, interfaceOptions, gateAddons)
 ' covers: internal/run/run.go (startHostCDP)
+' covers: internal/run/host_adb_test.go (TestEachHostAddOnFactNamesWhatTheRunLeftUp)
 ' covers: internal/backend/sandbox/sandbox.go (Spec allow)
 ' covers: internal/backend/sandbox/host_inference_test.go
 ' covers: defs/hermes/entrypoint.sh (PROVEO_HOST_CDP_PORT block)
@@ -51,6 +52,21 @@ skinparam noteTextAlignment left
 ' ── WHAT THE AGENT CAN DO ──────────────────────────────────────────────────
 ' CDP is full control of that browser: every tab, every cookie in the profile.
 ' The run warns so; the boundary is "log into only what the agent should touch".
+' Since output-readability R1 (2026-11-11) the browser opens before the sandbox,
+' behind the live line "host-cdp — starting", which leaves the screen once CDP
+' answers. ONE FACT PER ADD-ON (the operator, 2026-11-11, decision B): Ensure
+' returns hostcdp.Opened{Browser, Profile}, and the interface block's Facts
+' carry one row after `sbx create`:
+'   ● chrome: Google Chrome · CDP 127.0.0.1:9333    profile ~/… dim under it
+'   ● chrome: CDP 127.0.0.1:9333 (reused)           a browser already there
+' then "⚠ host-cdp — the agent controls every tab and session in that browser".
+' The reports ("host chrome: opened <bin> on profile <abs> …", "reusing the
+' browser already serving CDP …") go to the run log alone (startAddon →
+' ui.Logf), the profile absolute. Plain output draws no live line and writes
+' "host-cdp — starting" to the run log only. --print reads "chrome: not
+' started in print mode", CDP port and profile dim under it.
+' Should sandbox.Run fail before its interface block, the fact and the items
+' print anyway (Run's deferred flush; run.reportUnhanded before Run).
 ' [Unverified] whether sbx enforces the Kit allow on the direct (non-proxy) path;
 ' the host's global policy was allow-all during every measurement.
 

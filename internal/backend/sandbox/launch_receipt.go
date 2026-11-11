@@ -27,7 +27,14 @@ type launchReceipt struct {
 	Clone   bool              `json:"clone"`
 	Mounts  []string          `json:"mounts"`
 	Env     map[string]string `json:"env"`
+	CPUs    int               `json:"cpus,omitempty"`   // a record for the re-attach facts; changes ignores it
+	Memory  string            `json:"memory,omitempty"` // a record for the re-attach facts; changes ignores it
+	KitDir  string            `json:"kitDir,omitempty"` // a record for the re-attach facts; changes ignores it
+	Publish []string          `json:"publish"`          // a record for the re-attach facts; changes ignores it; nil is unknown
 }
+
+// noReceipt is the change a sandbox with no receipt reports.
+const noReceipt = "no record of the settings it was created with"
 
 var receiptDir = func() string {
 	base, err := os.UserCacheDir()
@@ -53,6 +60,8 @@ func receiptOf(cfg sbx.RunConfig, image string, kitYAML []byte, sid, imageID str
 		Agent: cfg.Agent,
 		Image: image, ImageID: imageID, Kit: digest(norm(string(kitYAML))),
 		Clone: cfg.Clone, Env: map[string]string{},
+		CPUs: cfg.CPUs, Memory: cfg.Memory,
+		KitDir: cfg.KitDir, Publish: append([]string{}, cfg.Publish...),
 	}
 	for _, m := range cfg.Mounts {
 		r.Mounts = append(r.Mounts, fmt.Sprintf("%s:%s:%v", norm(m.Host), m.Container, m.ReadOnly))
@@ -68,7 +77,7 @@ func receiptOf(cfg sbx.RunConfig, image string, kitYAML []byte, sid, imageID str
 // changes names what differs from the receipt a sandbox was created with; nil when nothing does.
 func (r launchReceipt) changes(was *launchReceipt) []string {
 	if was == nil {
-		return []string{"no record of the settings it was created with"}
+		return []string{noReceipt}
 	}
 	var out []string
 	if r.Agent != was.Agent {
@@ -137,38 +146,45 @@ func writeReceipt(name string, r launchReceipt) {
 	}
 }
 
-// retireIfStale replaces a kept sandbox whose stored settings differ from this run.
+// retireIfStale replaces a kept sandbox whose stored settings differ from this run (changed).
 // A headed run asks first, for every harness. A non-interactive run still retires a
-// stopped sandbox and leaves a running one in place.
-func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, running func(string) bool,
-	retire func(Input, sbx.RunConfig, func(string, ...any)) error, report, warn func(string, ...any)) error {
-	if !exists(cfg.Name) {
-		return nil
-	}
-	changed := now.changes(readReceipt(cfg.Name))
+// stopped sandbox and leaves a running one in place. kept is changed when the sandbox stays.
+func retireIfStale(in Input, cfg sbx.RunConfig, changed []string, running func(string) bool,
+	retire func(Input, sbx.RunConfig, func(string, ...any)) error, report func(string, ...any),
+	warn func(head string, detail ...string)) (kept []string, err error) {
 	if len(changed) == 0 {
-		return nil
+		return nil, nil
 	}
 	live := running(cfg.Name)
 	replace, asked := confirmStaleSandbox(cfg.Name, changed, live, cfg.Clone, opencodeTarget(in.Target))
+	notApplied := "not applied: " + strings.Join(changed, ", ")
 	if asked && !replace {
 		if live {
-			warn("%s stays running. Settings this run changed (%s) will not apply. The next proveo run reattaches to it",
-				cfg.Name, strings.Join(changed, ", "))
-			return nil
+			warn(cfg.Name+" — kept running without this run's changes", notApplied, "the next proveo run reattaches to it")
+			return changed, nil
 		}
-		return fmt.Errorf("sandbox %s kept. The next proveo run reattaches and asks again. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist. Settings that will not apply: %s",
+		return nil, fmt.Errorf("sandbox %s kept. The next proveo run reattaches and asks again. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist. Settings that will not apply: %s",
 			cfg.Name, cfg.Name, strings.Join(changed, ", "))
 	}
 	if !asked && live {
-		warn("%s is running with settings this run changed (%s) — they will NOT apply; exit the session using it, "+
-			"or `sbx rm --force %s`, then run again. That deletes the session. The next proveo run creates a new sandbox with this same name, and this session does not persist",
-			cfg.Name, strings.Join(changed, ", "), cfg.Name)
+		warn(cfg.Name+" — kept running without this run's changes", notApplied,
+			fmt.Sprintf("`sbx rm --force %s` deletes it and its session; the next run builds it fresh", cfg.Name))
+		return changed, nil
+	}
+	report("replacing %s — %s changed", cfg.Name, strings.Join(changed, ", "))
+	return nil, retire(in, cfg, report)
+}
+
+// staleChanges names what differs from the receipt of the sandbox name; nil when no such sandbox exists or nothing differs.
+func staleChanges(name string, now launchReceipt, exists bool) []string {
+	if !exists {
 		return nil
 	}
-	report("replacing %s (%s changed)", cfg.Name, strings.Join(changed, ", "))
-	return retire(in, cfg, report)
+	return now.changes(readReceipt(name))
 }
+
+// warnItem prints a ⚠ line with its dim detail lines.
+func warnItem(head string, detail ...string) { Item{Warn: true, Text: head, Detail: detail}.print() }
 
 var confirmStaleSandbox = func(name string, changed []string, live, clone, history bool) (bool, bool) {
 	if !headedConfirm() {
@@ -209,9 +225,9 @@ func sandboxClone(in Input, name string) (bool, error) {
 // retireSandbox fetches the clone and agent state home, then removes the sandbox.
 // It reports each step as that step starts.
 func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) error {
-	report("1/3 carrying its work home from %s", cfg.Name)
+	report("carrying its work home from %s", cfg.Name)
 	in.Sid += "-retired"
-	in.CloneKnown = false
+	in.CloneKnown, in.Retiring = false, true
 	if err := PreserveClone(in, cfg); err != nil {
 		if !errors.Is(err, errNoCloneAnswer) {
 			return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
@@ -236,13 +252,13 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 
 // removeRetired removes a retired sandbox and its records, bounded by guestExecDeadline.
 func removeRetired(cfg sbx.RunConfig, report func(string, ...any)) error {
-	report("2/3 sbx rm --force %s — deleting the session. This session does not persist", cfg.Name)
+	report("sbx rm --force %s — deleting it and its session", cfg.Name)
 	if out, err := guestRun(sbx.RemoveArgs(cfg.Name)...); err != nil && !sbx.NotFound(out) {
 		return fmt.Errorf("remove stale %s: %w: %s — check `sbx ls`, then `sbx rm --force %s` once sbx answers", cfg.Name, err, strings.TrimSpace(out), cfg.Name)
 	}
 	_ = os.Remove(receiptPath(cfg.Name))
 	_ = os.Remove(legacyOwnerRecord(cfg.Name))
-	report("3/3 this run creates a new sandbox named %s", cfg.Name)
+	report("%s — this run creates it anew", cfg.Name)
 	return nil
 }
 

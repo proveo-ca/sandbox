@@ -79,21 +79,26 @@ func Ensure(confirm func(string) bool) (bool, string) {
 	if install == "" {
 		return false, why // nothing to offer on this platform
 	}
-	verb := "install"
-	if sbx.Installed() {
-		verb = "upgrade"
-	}
+	verb, doing := installVerb(sbx.Installed())
 	if !confirm(fmt.Sprintf("%s the docker sandboxes CLI (%s)?", verb, install)) {
 		return false, why
 	}
-	ui.Section(ui.SectionStarting)
-	ui.Appf("%sing sbx: %s", verb, install)
+	ui.Appf("sbx — %s", doing)
+	ui.Detailf("%s", install)
 	c := exec.Command("bash", "-lc", install)
 	c.Stdout, c.Stderr = os.Stderr, os.Stderr
 	if err := c.Run(); err != nil {
 		return false, fmt.Sprintf("%s failed: %v", verb, err)
 	}
 	return sbx.Available()
+}
+
+// installVerb is what Ensure does to sbx, as the question asks it and as the line under way says it.
+func installVerb(installed bool) (verb, doing string) {
+	if installed {
+		return "upgrade", "upgrading"
+	}
+	return "install", "installing"
 }
 
 func Ready(printOnly bool, confirm func(string) bool) (bool, string) {
@@ -584,7 +589,9 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 		ui.Notef("clone: the agent left no branches to fetch")
 		return
 	}
-	ui.Section(ui.SectionResults)
+	if !in.Retiring {
+		ui.Section(ui.SectionResults)
+	}
 	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
 	leads := make(map[string]int, len(names))
 	for _, n := range names {
@@ -608,7 +615,7 @@ func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(ctx context.Context
 	code, out, err := lift(in.ctx(), sbx.CloneLiftArgs(cfg.Name, wd, rel), in.RepoRoot)
 	switch {
 	case err == nil:
-		ui.Storef("clone: deliverables lifted from the clone's %s/ into %s", rel, in.OutputDir)
+		ui.Storef("clone: deliverables lifted from the clone's %s/ into %s", rel, ui.Tilde(in.OutputDir))
 	case code == sbx.CloneLiftNothing:
 		ui.Notef("clone: the agent wrote nothing under %s/", rel)
 	default:
@@ -654,15 +661,11 @@ func FreeLoopbackPort() int {
 	return port
 }
 
+// StartCDPViewport relays the published CDP port to the agent's Chromium while the sandbox runs.
 func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
-	if len(cfg.Publish) == 0 {
+	if !relayRuns(in, cfg) {
 		return func() {}
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d", in.CDPHostPort)
-	ui.Section(ui.SectionInterface)
-	ui.Hostf("browser viewport: %s — attach Chrome DevTools or Playwright (connectOverCDP) to the agent's Chromium", url)
-	ui.Notef("%s/json/list once the agent opens a page; nothing is exposed beyond this machine's loopback", url)
-
 	stop := make(chan struct{})
 	go func() {
 		for {
@@ -745,36 +748,8 @@ func portPublish(in Input) []string {
 // DevLog is where a published port's server writes inside the sandbox.
 func DevLog(port int) string { return fmt.Sprintf("/tmp/proveo-dev-%d.log", port) }
 
-// ReportPorts names each published port where the operator will open it.
-func ReportPorts(in Input) {
-	if len(in.Ports) == 0 {
-		return
-	}
-	ui.Section(ui.SectionInterface)
-	for _, p := range in.Ports {
-		moved := ""
-		if first := devports.HostPorts(p.Guest); len(first) > 0 && p.Host != first[0] {
-			moved = fmt.Sprintf(" — host :%d was taken", first[0])
-		}
-		ui.Hostf("port %d: http://127.0.0.1:%d → sandbox :%d (%s)%s", p.Guest, p.Host, p.Guest, p.What, moved)
-		ui.Notef("runs `%s` in %s — log %s", p.Cmd, p.Dir, DevLog(p.Guest))
-	}
-}
-
 // AndroidLog is where the seed's Android install writes inside the sandbox.
 const AndroidLog = "/tmp/proveo-android-install.log"
-
-// ReportAndroidApps names each app the run installs on the host emulator.
-func ReportAndroidApps(in Input) {
-	if len(in.AndroidApps) == 0 {
-		return
-	}
-	ui.Section(ui.SectionInterface)
-	for _, a := range in.AndroidApps {
-		ui.Hostf("android app: %s — gradle %s, then launch, once the sandbox toolchain is ready", a.AppID, a.Task())
-	}
-	ui.Notef("log %s inside the sandbox", AndroidLog)
-}
 
 // AndroidInstallScript hands the chosen modules to the seed's proveo_android_install.
 func AndroidInstallScript(workdir string, env []string, apps []devports.AndroidApp) string {
@@ -977,9 +952,9 @@ func worktreeClone(in Input) bool { return in.Clone && in.CloneSource.Main != ""
 
 // cloneThroughMain makes the main worktree the primary workspace and drops the
 // linked worktree's own bind; the worktree-nested output dir stays for SplitNested.
-func cloneThroughMain(in Input, mounts []sbx.Mount) []sbx.Mount {
-	out := []sbx.Mount{{Host: in.CloneSource.Main}}
-	var dropped []string
+// dropped lists the binds nested in the main worktree.
+func cloneThroughMain(in Input, mounts []sbx.Mount) (kept []sbx.Mount, dropped []string) {
+	kept = []sbx.Mount{{Host: in.CloneSource.Main}}
 	for _, m := range mounts {
 		host := filepath.Clean(m.Host)
 		if host == filepath.Clean(in.RepoRoot) || host == filepath.Clean(in.CloneSource.Main) ||
@@ -990,33 +965,9 @@ func cloneThroughMain(in Input, mounts []sbx.Mount) []sbx.Mount {
 			dropped = append(dropped, m.Host)
 			continue
 		}
-		out = append(out, m)
+		kept = append(kept, m)
 	}
-	warnUnmountable(in.CloneSource.Main, "main worktree", dropped)
-	return out
-}
-
-// warnUnmountable warns once per top-level entry of root that holds dropped mounts.
-func warnUnmountable(root, where string, hosts []string) {
-	count := map[string]int{}
-	first := map[string]string{}
-	var tops []string
-	for _, h := range hosts {
-		rel, _ := nestedRel(root, h)
-		top, _, _ := strings.Cut(rel, "/")
-		if count[top] == 0 {
-			tops = append(tops, top)
-			first[top] = h
-		}
-		count[top]++
-	}
-	for _, top := range tops {
-		what := first[top]
-		if count[top] > 1 {
-			what = fmt.Sprintf("%s (%d entries)", filepath.Join(root, top), count[top])
-		}
-		ui.Warnf("clone: %s is inside the %s and cannot be mounted into a clone — read it from the clone instead", what, where)
-	}
+	return kept, dropped
 }
 
 // sandboxKey is the workspace a sandbox name is derived from.
@@ -1110,13 +1061,11 @@ func IDEAttachLines(in Input, cfg sbx.RunConfig, live bool) []string {
 		fmt.Sprintf("carry IDE commits home before `sbx rm`: `git %s`", fetch))
 }
 
-func PrintIDEAttach(in Input, cfg sbx.RunConfig, live bool) {
-	lines := IDEAttachLines(in, cfg, live)
+// PrintIDEAttach prints the whole attach block for a sandbox kept past the run.
+func PrintIDEAttach(in Input, cfg sbx.RunConfig) {
+	lines := IDEAttachLines(in, cfg, false)
 	if len(lines) == 0 {
 		return
-	}
-	if live {
-		ui.Section(ui.SectionInterface)
 	}
 	for i, l := range lines {
 		if i == 0 {
@@ -1187,12 +1136,16 @@ type Input struct {
 	Desktop                bool     // Hermes Desktop drives the sandbox over SSH instead of this terminal
 	DesktopLaunch          []string // opens Hermes Desktop on the host
 	Clone                  bool
+	CloneOff               string // why a clone could not apply, when the default asked for one
 	CloneKnown             bool   // Clone is the sandbox's own mode: this run created it, or teardown asked it
+	Retiring               bool   // the stale step carries a replaced sandbox's work home: its lines stay under the sbx heading
 	RepoRoot               string // host repository root: where a clone's commits are fetched back to
 	OutputDir              string
 	Browser                bool
 	CDPHostPort            int
 	Ports                  []PublishedPort
+	InterfaceItems         []Item    // what the run decided about the interface before Run, such as a port left unpublished
+	InterfaceFacts         []ui.Fact // one fact per host add-on the run started: the emulator, the host browser, the desktop app
 	AndroidApps            []devports.AndroidApp
 	AndroidEnv             []string // the host adb server's guest env, for the install's adb
 	Extra                  []string
@@ -1224,6 +1177,9 @@ type Input struct {
 	CloneEnvHost     string                   // the host .env teardown merges the clone's edits into
 	ProjectEnv       string                   // the project .env whose values a new sandbox gets through --env-file
 	CloneEnvStrip    []string                 // brokered keys the staged copy dropped
+	CloneEnvDropped  []string                 // the brokered keys the host .env held, which the staged copy leaves out
+	WorkspaceItems   []Item                   // what the run decided about the workspace before Run: the workspace block prints them
+	AgentVersion     string                   // the agent version the image pins, for the start line
 	Links            []workspace.Link         // escaping symlinks the plan resolved; a clone recreates the mounted ones
 	WorktreeEnv      []string
 	DataDir          string
@@ -1243,16 +1199,18 @@ func imageEntrypoint(in Input) []string {
 	return in.ImageEntrypoint(in.Image)
 }
 
-// imageSource is where Image lives for the kit build.
-func imageSource(in Input) sbx.ImageSource {
+// imageSource is where Image lives for the kit build, and a warning when no builder reads the host store.
+func imageSource(in Input) (sbx.ImageSource, []Item) {
 	if in.ImageSource == nil {
-		return sbx.ImageSource{Ref: in.Image}
+		return sbx.ImageSource{Ref: in.Image}, nil
 	}
 	src := in.ImageSource(in.Image)
 	if src.Host && src.Builder == "" {
-		ui.Warnf("sandbox: no docker-driver buildx builder reads the host image store — the active builder (`docker buildx ls`, marked *) builds %s; set PROVEO_BUILDX_LOCAL_BUILDER to choose one", in.Image)
+		return src, []Item{{Warn: true, Text: "buildx — no docker-driver builder reads the host image store",
+			Detail: []string{"the active builder builds " + in.Image},
+			Log:    []string{"PROVEO_BUILDX_LOCAL_BUILDER names the builder that reads the host image store"}}}
 	}
-	return src
+	return src, nil
 }
 
 // Harness is the def a target belongs to. One manifest owns several targets —
@@ -1303,20 +1261,18 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		forwarded = append(forwarded, name)
 	}
 
+	var report Report
 	var secrets [][2]string
+	seenSecret := map[string]bool{}
 	addSecret := func(name string) {
 		v := in.Lookup(name)
-		if v == "" {
+		if v == "" || seenSecret[name] {
 			return
 		}
-		for _, kv := range secrets {
-			if kv[0] == name {
-				return
-			}
-		}
+		seenSecret[name] = true
 		service, kind := credentials.StoreName(name)
 		if (in.Forwards || kind == credentials.StoreUninjectable) && secretref.IsReference(v) {
-			ui.Warnf("%s holds a secret reference; only sbx resolves references, and this variable would ride the agent env — not passed", name)
+			report.Notes = append(report.Notes, Item{Warn: true, Text: name + " — a secret reference, not passed"})
 			return
 		}
 		if kind == credentials.StoreUninjectable {
@@ -1328,13 +1284,15 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 			return
 		}
 		if kind == credentials.StoreSubscription {
-			ui.Notef("sandbox secret: %s not stored — sbx holds a plan login only as %q's OAuth slot; sign in with %s",
-				name, service, cmp.Or(sbx.SignIn(service), "the agent's own login"))
+			report.Notes = append(report.Notes, Item{Text: "sandbox secret: " + name + " — not stored",
+				Detail: []string{"sign in with " + cmp.Or(sbx.SignIn(service), "the agent's own login")},
+				Log:    []string{fmt.Sprintf("sbx keeps a plan login only in %q's OAuth slot, so %s stays out of its store", service, name)}})
 			return
 		}
 		if kind == credentials.StoreAPIKey && sbx.HasOAuthSlot(service) {
-			ui.Notef("sandbox secret: %s not stored — sbx's global %q entry also holds the subscription, and an API key "+
-				"there outranks it in every sandbox; to bill per token, `sbx secret set %s` yourself", name, service, service)
+			report.Notes = append(report.Notes, Item{Text: "sandbox secret: " + name + " — not stored",
+				Log: []string{fmt.Sprintf("an API key in sbx's %q entry outranks the subscription in every sandbox; `sbx secret set %s` stores %s there to bill per token",
+					service, service, name)}})
 			return
 		}
 		secrets = append(secrets, [2]string{name, v})
@@ -1443,21 +1401,24 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		mounts = append(mounts, sbx.Mount{Host: in.DataDir, Container: "/workspace/data", ReadOnly: true})
 	}
 	if worktreeClone(in) {
-		mounts = cloneThroughMain(in, mounts)
+		var dropped []string
+		mounts, dropped = cloneThroughMain(in, mounts)
+		report.NotMounted = append(report.NotMounted, dropped...)
+		report.Unmounted = append(report.Unmounted, unmountable(in.CloneSource.Main, "main worktree", dropped)...)
 	}
 	if in.Clone && in.RepoRoot != "" {
 		var nested []sbx.Mount
 		var dropped []string
 		mounts, nested = SplitNested(in.RepoRoot, mounts)
 		for _, m := range nested {
-			if _, isOutput := nestedRel(in.RepoRoot, in.OutputDir); isOutput && filepath.Clean(m.Host) == filepath.Clean(in.OutputDir) {
-				ui.Storef("clone: %s is inside the repository, so it is not mounted live — sbx clones only into an "+
-					"empty workspace; the agent writes it inside the clone and proveo lifts it back here at teardown", m.Host)
+			if rel, isOutput := nestedRel(in.RepoRoot, in.OutputDir); isOutput && filepath.Clean(m.Host) == filepath.Clean(in.OutputDir) {
+				report.OutputInClone = rel
 				continue
 			}
 			dropped = append(dropped, m.Host)
 		}
-		warnUnmountable(in.RepoRoot, "repository", dropped)
+		report.NotMounted = append(report.NotMounted, dropped...)
+		report.Unmounted = append(report.Unmounted, unmountable(in.RepoRoot, "repository", dropped)...)
 	}
 	if in.Clone && in.CloneEnv != "" {
 		mounts = append(mounts, sbx.Mount{Host: filepath.Dir(in.CloneEnv)})
@@ -1468,10 +1429,12 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	builtin := sbx.BuiltinAgent(harness)
 	up, hasUp, upErr := sbx.UpstreamKitFor(harness, sbx.UpstreamOptions{MCPGateway: in.MCPGateway})
 	if upErr != nil {
-		ui.Warnf("sandbox: the published %s kit could not be read (%v) — launching from the image alone", harness, upErr)
+		report.Notes = append(report.Notes, Item{Warn: true, Text: "published " + harness + " kit — unreadable, launching from the image alone",
+			Detail: []string{upErr.Error()}})
 		hasUp = false
 	}
-	src := imageSource(in)
+	src, srcNotes := imageSource(in)
+	report.Notes = append(report.Notes, srcNotes...)
 	recipe := sbx.RecipeV3{From: src.From()}
 	var command []string
 	entrypoint := imageEntrypoint(in)
@@ -1482,7 +1445,8 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		flags = withLocalModelTools(builtin, in.AgentEnv, flags)
 		command = sbx.LaunchArgs(up.Launch, flags)
 	case len(entrypoint) == 0:
-		ui.Warnf("sandbox: no readable ENTRYPOINT on %s — %s launches through bash", in.Image, harness)
+		report.Notes = append(report.Notes, Item{Warn: true, Text: in.Image + " — no readable ENTRYPOINT",
+			Detail: []string{harness + " launches through bash"}})
 		recipe.Entrypoint = []string{"bash"}
 		command = sbx.ShellLaunch(harness, in.Extra)
 	default:
@@ -1501,6 +1465,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		HostEnv: src.BuildEnv(),
 		Command: command,
 	}
+	report.Unbound = unboundLinks(in.Links, cfg.Mounts)
 	if opencodeTarget(in.Target) {
 		cfg.Env = append(cfg.Env, sbx.OpenCodeHistoryGateEnv)
 	}
@@ -1535,9 +1500,10 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		caps, err = sbx.WithLifecycle(caps, sbx.LifecycleV3{Startup: startupHooks(in, !hasUp, hookEnv(in, cfg.Env))})
 	}
 	if err != nil {
-		ui.Warnf("sandbox: the workload's capabilities could not be merged (%v)", err)
+		report.Notes = append(report.Notes, Item{Warn: true, Text: "workload capabilities — not merged", Detail: []string{err.Error()}})
 	}
 	w := Workload{
+		Report: report,
 		Descriptor: sbx.WorkloadV3{
 			DisplayName:  in.Target + " (proveo)",
 			Description:  "proveo harness " + in.Target + ": image, launch, reachability and the seed step.",
@@ -1654,6 +1620,19 @@ func withMobileMCP(harness string, env, command []string) []string {
 }
 
 func Run(in Input) error {
+	wsSaid, secretsSaid, ifaceSaid := false, false, false
+	var secretFacts []ui.Fact
+	defer func() {
+		if !wsSaid {
+			PrintBlock(WorkspaceHeading, nil, WithPaths(in.WorkspaceItems, ui.TildeIn))
+		}
+		if !secretsSaid {
+			ui.Facts(secretFacts...)
+		}
+		if !ifaceSaid {
+			PrintBlock(InterfaceHeading, in.InterfaceFacts, WithPaths(in.InterfaceItems, ui.TildeIn))
+		}
+	}()
 	homeAccess := in.HomeAccess
 	if homeAccess.Root == "" && in.HomeRoot != "" {
 		var err error
@@ -1662,7 +1641,6 @@ func Run(in Input) error {
 			return err
 		}
 	}
-	noteSkippedLinks(homeAccess)
 	in.HomeAccess = homeAccess
 	keepHomeAccess := false
 	defer func() {
@@ -1671,28 +1649,41 @@ func Run(in Input) error {
 		}
 	}()
 	cfg, w, secrets := Spec(in)
+	ReportWorkspace(in, w.Report, ui.TildeIn)
+	wsSaid = true
+	ui.Section(ui.SectionSbx)
+	PrintNotes(w.Report, ui.TildeIn)
 	envValues := 0
 	if path, n, err := seedProjectEnv(in.ProjectEnv, in.RunDir, in.Forwards, cfg.Env); err != nil {
-		ui.Warnf("project .env not seeded into the sandbox: %v", err)
+		ui.Warnf("project .env — not seeded into the sandbox")
+		ui.Detailf("%s", ui.TildeIn(err.Error()))
 	} else {
 		cfg.EnvFile, envValues = path, n
 	}
-	ui.Section(ui.SectionStarting)
 	start := ui.NewSteps(startSteps)
 	var kitDir string
-	if err := start.Do(stepKit, func() (err error) {
+	if err := start.DoAs(stepKit, stepKit, func() (err error) {
 		kitDir, err = sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files)
 		return err
 	}); err != nil {
 		return err
 	}
 	receipt := receiptOf(cfg, in.Image, workloadBytes(kitDir), in.Sid, sbx.LocalImageID(in.Image))
-	if err := start.Hand(stepStale, func() error {
-		return retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf)
+	exists := sbx.Exists(cfg.Name)
+	changed := staleChanges(cfg.Name, receipt, exists)
+	staleStep := start.DoAs
+	if len(changed) > 0 {
+		staleStep = start.HandAs
+	}
+	var kept []string
+	if err := staleStep(stepStale, stepStale, func() (err error) {
+		kept, err = retireIfStale(in, cfg, changed, sbx.Running, retireSandbox, ui.Notef, warnItem)
+		return err
 	}); err != nil {
 		return err
 	}
-	launchCfg := reuseOrCreate(cfg, sbx.Exists)
+	exists = exists && (len(changed) == 0 || kept != nil)
+	launchCfg := reuseOrCreate(cfg, exists)
 	if launchCfg.KitDir != "" {
 		writeReceipt(cfg.Name, receipt)
 	}
@@ -1703,9 +1694,8 @@ func Run(in Input) error {
 			child.Add(e, in.Lookup)
 		}
 	}
-	if err := start.Do(stepSecrets, func() error {
+	if err := start.DoAs(stepSecrets, stepSecrets, func() error {
 		for _, kv := range secrets {
-			ui.Section(ui.SectionSecrets)
 			name, kind := credentials.StoreName(kv[0])
 			if name == "" || kind != credentials.StoreAPIKey {
 				continue
@@ -1715,14 +1705,10 @@ func Run(in Input) error {
 				ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
 				continue
 			}
-			how := "its value"
-			if len(flags) > 0 {
-				how = "a source sbx resolves on the host (" + flags[0] + ") — proveo never reads the value"
-			}
-			ui.Hostf("sandbox secret: %s stored as %s for %s only, from %s; it leaves with the sandbox", kv[0], name, cfg.Name, how)
 			if err := sbx.SecretSetSource(name, cfg.Name, flags, stdin); err != nil {
 				return fmt.Errorf("sandbox secret %s: %w", name, err)
 			}
+			secretFacts = append(secretFacts, secretFact(kv[0], name, cfg.Name, flags, len(secretFacts) == 0))
 		}
 		return nil
 	}); err != nil {
@@ -1737,28 +1723,32 @@ func Run(in Input) error {
 			return err
 		}
 	}
-	PrintIDEAttach(in, cfg, true)
-	ReportPorts(in)
-	ReportAndroidApps(in)
 	defer StartDevServers(in, cfg)()
 	defer StartAndroidInstall(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
 	in.CloneKnown = created
-	if envValues > 0 {
-		if created {
-			ui.Storef("project .env: %d value(s) seeded into %s with --env-file", envValues, cfg.Name)
-		} else {
-			ui.Notef("project .env: %s keeps the values it was created with; `sbx rm --force %s` reseeds them", cfg.Name, cfg.Name)
-		}
-	}
-	if launchCfg.KitDir != "" {
-		if err := start.Hand(stepCreate, func() error { return createSandbox(launchCfg) }); err != nil {
+	pub := publishing{relay: relayRuns(in, launchCfg), created: created}
+	secretsSaid = true
+	switch {
+	case launchCfg.KitDir != "":
+		reportCreate(in, launchCfg, envValues, secretFacts)
+		if err := start.HandAs(stepCreate, "sbx create", func() error { return createSandbox(launchCfg) }); err != nil {
 			return err
 		}
 		launchCfg = sbx.Reattach(launchCfg)
-	} else {
-		start.Start("re-attach to " + cfg.Name)
+	case created:
+		reportCreate(in, cfg, envValues, secretFacts)
+		start.StartAs("attach to "+cfg.Name, "attach to "+cfg.Name)
+	default:
+		listed, receipt := listedSandbox(cfg.Name), readReceipt(cfg.Name)
+		pub.hosts = keptPorts(listed, receipt)
+		reportReattach(in, keptSandbox{name: cfg.Name, listed: listed, receipt: receipt, kept: kept}, envValues, secretFacts)
+		ui.Logf("re-attaching to %s, which an earlier run left here — its workspace is this one", cfg.Name)
+		start.StartAs("re-attach to "+cfg.Name, "re-attach to "+cfg.Name+" — left by an earlier run")
+		ui.Detailf("`sbx rm --force %s` builds it fresh next run", cfg.Name)
 	}
+	reportInterface(in, cfg, pub)
+	ifaceSaid = true
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
@@ -1804,7 +1794,7 @@ func Run(in Input) error {
 	if in.Desktop {
 		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch, imageEntrypoint(in)).run(runCtx) }
 	}
-	start.Start("start " + in.Target)
+	start.StartAs("start "+in.Target, agentStartLine(in))
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
@@ -1909,21 +1899,22 @@ func normalEndOf(forced bool, stranded error, retainsEngine bool) normalEnd {
 	return endRemove
 }
 
-// WarnBaseline reports sbx's network baseline and, unless it allows every host, the command that lets hosts through.
-func WarnBaseline(hosts []string) {
-	ui.Section(ui.SectionEgress)
+// Baseline is sbx's network baseline as the egress block's fact, with the command that lets hosts
+// through unless it allows every host; a ⚠ item instead when sbx's policy is unreadable.
+func Baseline(hosts []string) ([]ui.Fact, []Item) {
 	allowed, known := sbx.NetworkAllowed(unallowlistedProbe)
+	var allow []string
+	if len(hosts) > 0 {
+		allow = []string{"`sbx policy allow network " + strings.Join(hosts, ",") + "` lets the agent reach its provider"}
+	}
 	switch {
 	case known && allowed:
-		ui.Notef("sbx's global network policy allows every host; sbx decides this run's egress")
-		return
-	case !known:
-		ui.Notef("sbx network baseline: unreadable (`sbx policy check network %s`)", unallowlistedProbe)
+		return []ui.Fact{{Role: ui.RoleCloud, Key: "network", Value: "sbx's global policy allows every host"}}, nil
+	case known:
+		return []ui.Fact{{Role: ui.RoleCloud, Key: "network", Value: "sbx's global policy allows listed hosts only", Detail: allow}}, nil
 	}
-	if len(hosts) > 0 {
-		ui.Notef("sbx's policy decides egress; if the agent cannot reach its provider, run on the host: `sbx policy allow network %s`",
-			strings.Join(hosts, ","))
-	}
+	return nil, []Item{{Warn: true, Text: "sbx network baseline — unreadable",
+		Detail: append([]string{"`sbx policy check network " + unallowlistedProbe + "`"}, allow...)}}
 }
 
 // ReachHosts are the sbx patterns for the harness's declared hosts and the detected providers it may use.
@@ -2381,11 +2372,10 @@ func workloadBytes(dir string) []byte {
 	return append(desc, recipe...)
 }
 
-func reuseOrCreate(cfg sbx.RunConfig, exists func(string) bool) sbx.RunConfig {
-	if !exists(cfg.Name) {
+// reuseOrCreate is the launch config: a name-only re-attach when the sandbox exists, else cfg.
+func reuseOrCreate(cfg sbx.RunConfig, exists bool) sbx.RunConfig {
+	if !exists {
 		return cfg
 	}
-	ui.Notef("re-attaching to %s, which an earlier run left here — its workspace is this one", cfg.Name)
-	ui.Notef("for a sandbox built fresh instead: `sbx rm --force %s`", cfg.Name)
 	return sbx.Reattach(cfg)
 }

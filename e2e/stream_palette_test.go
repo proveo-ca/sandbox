@@ -77,10 +77,24 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 		"                /home/toolchains (rw)", "                /state/runs/sid/sbx/home-files (rw)"}
 	loud := []string{"  head one", "  head two", "  head three"}
 	templateLoad := []string{"Loading template proveo/hermes:volatile-e2e", "Template loaded.", "Ready."}
-	prelude := func(extra ...string) []string {
-		return append([]string{rule(ui.SectionRun), host("image proveo/hermes:volatile-e2e"), "", rule(ui.SectionStarting),
-			host("template loaded")}, extra...)
+	store := func(s string) string { return ui.ANSI(ui.ColorDB) + "● " + ui.ANSIReset + grey(s) }
+	dim := func(s string) string { return ui.ANSI(ui.ColorRule) + s + ui.ANSIReset }
+	ok := func(head, tail string) string {
+		return ui.ANSI(ui.ColorSuccess) + "✓ " + ui.ANSIReset + head + grey(tail)
 	}
+	async := func(s string) string { return ui.ANSI(ui.ColorAsync) + "● " + ui.ANSIReset + grey(s) }
+	prelude := func(extra ...string) []string {
+		return append([]string{rule(ui.SectionRun), store("log:   ~/.proveo/logs/proveo-1-2.log"), "", rule(ui.SectionSbx),
+			async("sbx create")}, extra...)
+	}
+	facts := []string{"", rule(ui.SectionWorkspace),
+		store("checkout: ~/w/hotfix (linked worktree)"), "            " + dim("cloned from ~/w/main at dev"),
+		store(".env:     ~/w/main/.env (copy, rw)"), "            " + dim("edits merge back at teardown"),
+		store("links:    _spec → ~/Syncd/_spec"), "          " + grey(".idea/ → ~/w/main/.idea/ (20 links)"),
+		ok("private clone", " — your checkout is not written"), "    " + dim("the agent's commits come back at teardown")}
+	iface := []string{"", rule(ui.SectionInterface), host("port 8083: next in apps/web"),
+		"           " + dim("log /tmp/proveo-dev-8083.log"), host("ide:       ssh proveo-claudecode-1a2b3c4d.sbx"),
+		async("claudecode 2.1.312 — starting")}
 	results := func(extra ...string) []string {
 		lines := append([]string{"", rule(ui.SectionResults), host("last output from the agent:"), grey("  agent: fatal")}, extra...)
 		return append(lines, ui.ANSI(ui.ColorFailure)+"× "+ui.ANSIReset+ui.ANSIBold+"the agent exited with code 3"+ui.ANSIReset,
@@ -99,6 +113,9 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 		{"a heading after sbx output reopens proveo's stream", [][]string{prelude(afterLoad...), sbxOut, results()}, 3},
 		{"sbx 0.49's indented create blocks are not proveo's", [][]string{prelude(), sbxCreate, results()}, 0},
 		{"a wrapped grey line stays grey on its continuations", [][]string{prelude(wrapped...), sbxOut, results()}, 0},
+		{"fact blocks, an outcome and dim detail are not white", [][]string{facts, prelude(), sbxCreate, results()}, 0},
+		{"the interface block after sbx's create block is proveo's and grey", [][]string{prelude(), sbxCreate, iface, sbxOut, results()}, 0},
+		{"a loud line under the interface heading still counts", [][]string{prelude(), sbxCreate, append(iface, loud...), sbxOut, results()}, 3},
 	} {
 		var screen []string
 		for _, part := range tc.lines {

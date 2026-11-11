@@ -21,7 +21,9 @@ skinparam noteTextAlignment left
 '   scopeAsk     a headed run that was not told yes: the operator picks
 '   scopeRoot    --yes or the scheduler: the repo root, and one line says so
 '                  scope: repo root
-'                (the Executor, D17: "Repo root, with a line")
+'                (the Executor, D17: "Repo root, with a line"); since
+'                2026-11-11 that line is the "scope" fact of the run block,
+'                printed after the pages beside "log" (output-readability R1)
 '   scopeSilent  --print, no terminal, or the wizard off: the repo root, as
 '                before, with no line
 ' --print stays silent because it starts nothing; the scheduler runs it first
@@ -227,9 +229,9 @@ end note
 
 note over SPEC
   **One gate for the scope question.** ""--yes""
-  and the scheduler take the repo root and
-  print ""scope: repo root"". Esc on the page
-  cancels the run; it no longer means root.
+  and the scheduler take the repo root; the run
+  block says ""scope: repo root"". Esc on the
+  page cancels the run; it no longer means root.
 end note
 
 note over DO

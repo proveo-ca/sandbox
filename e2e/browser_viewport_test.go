@@ -51,10 +51,13 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	k := awaitKit(t, sess, before, target, work)
 
 	screen, _ := sess.CaptureAll()
-	url := viewportURL(screen)
+	if !strings.Contains(strings.Join(strings.Fields(screen), " "), "browser: the agent's Chromium over CDP") {
+		t.Fatalf("no browser row in the interface block — the add-on did not start the relay:\n%s", screen)
+	}
+	logged := readIn(home, filepath.Join("logs", "latest.log"))
+	url := viewportURL(logged)
 	if url == "" {
-		t.Fatalf("no browser viewport line printed by the run — the add-on did not "+
-			"start the relay:\n%s", screen)
+		t.Fatalf("the run log names no browser viewport URL:\n%s", tail(logged, 40))
 	}
 
 	// The AGENT's browser, opened by the agent's own tool rather than by a
@@ -79,13 +82,13 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 	t.Fatalf("no CDP target reachable at %s within the budget — last answer: %q\nagent-browser:\n%s", listURL, last, abLog)
 }
 
-// viewportLineRE matches StartCDPViewport's own announcement
-// (internal/backend/sandbox/sandbox.go), so this test reads the exact string
-// an operator would, rather than reconstructing the port some other way.
+// viewportLineRE matches the run log's browser viewport row
+// (internal/backend/sandbox/report.go), so this test reads the exact URL the
+// run published rather than reconstructing the port some other way.
 var viewportLineRE = regexp.MustCompile(`browser viewport: (http://\S+)`)
 
-func viewportURL(screen string) string {
-	m := viewportLineRE.FindStringSubmatch(screen)
+func viewportURL(log string) string {
+	m := viewportLineRE.FindStringSubmatch(log)
 	if m == nil {
 		return ""
 	}

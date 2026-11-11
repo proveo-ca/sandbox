@@ -2,7 +2,6 @@
 package credentials
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func TestProviderDetectFromHostDotEnvOnly(t *testing.T) {
@@ -129,7 +127,7 @@ func TestAvailableAuthVarsOnlyWhenThereIsAChoice(t *testing.T) {
 	}
 }
 
-func TestWarnMountedSecretsFiresWhenTheWorkspaceEnvHoldsAKey(t *testing.T) {
+func TestMountedSecretEnvNamesTheWorkspaceEnvOnlyWhenAKeyIsSet(t *testing.T) {
 	dirWithEnv := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dirWithEnv, ".env"), []byte("ANTHROPIC_API_KEY=x\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -152,13 +150,9 @@ func TestWarnMountedSecretsFiresWhenTheWorkspaceEnvHoldsAKey(t *testing.T) {
 		{"no workspace dir at all", "", withKey, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var buf bytes.Buffer
-			restore := ui.Default
-			ui.Default = ui.New(&buf)
-			t.Cleanup(func() { ui.Default = restore })
-			WarnMountedSecrets(tc.dir, tc.lookup)
-			if got := strings.Contains(buf.String(), ".env is inside the sandbox workspace"); got != tc.wantWarning {
-				t.Errorf("warned = %v, want %v (output %q)", got, tc.wantWarning, buf.String())
+			got := MountedSecretEnv(tc.dir, tc.lookup)
+			if want := filepath.Join(tc.dir, ".env"); (got != "") != tc.wantWarning || (got != "" && got != want) {
+				t.Errorf("MountedSecretEnv = %q, want a warning %v at %s", got, tc.wantWarning, want)
 			}
 		})
 	}

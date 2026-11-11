@@ -53,8 +53,9 @@ func TestIDEAttachSSHLandsOnTheCloneNotTheHostTree(t *testing.T) {
 	} else {
 		cmd = append(cmd, childEnvArgs(t)...)
 	}
+	home := t.TempDir()
 	cmd = append(cmd,
-		"PROVEO_HOME="+t.TempDir(),
+		"PROVEO_HOME="+home,
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
 		proveoBin, "run", target, "--clone", "--input", work,
 	)
@@ -72,13 +73,20 @@ func TestIDEAttachSSHLandsOnTheCloneNotTheHostTree(t *testing.T) {
 
 	raw, _ := sess.CaptureAll()
 	pane := strings.Join(strings.Fields(raw), " ")
+	if !strings.Contains(pane, "ide: ssh "+sbx.SSHHost(name)) {
+		t.Errorf("the interface block lacks the IDE row for %s:\n%s", sbx.SSHHost(name), raw)
+	}
+	if strings.Contains(pane, "JetBrains:") {
+		t.Errorf("the JetBrains text reached the screen of a live run; it belongs in the run log:\n%s", raw)
+	}
+	logged := strings.Join(strings.Fields(readIn(home, filepath.Join("logs", "latest.log"))), " ")
 	for _, want := range []string{
 		"host `" + sbx.SSHHost(name) + "`, use OpenSSH config, project " + work,
 		"code --remote ssh-remote+" + sbx.SSHHost(name) + " " + work,
 		"a local Open or Recent of " + work + " edits the HOST checkout",
 	} {
-		if !strings.Contains(pane, want) {
-			t.Errorf("interface section lacks %q:\n%s", want, raw)
+		if !strings.Contains(logged, want) {
+			t.Errorf("the run log lacks %q", want)
 		}
 	}
 

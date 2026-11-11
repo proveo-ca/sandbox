@@ -698,6 +698,17 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * An isolated proveo home is also what makes driving the choice prompt
 '     deterministic. A shared one would leak into the developer's real settings
 '     AND skip the prompt on every later run.
+'   * AN E2E RUN UNDER THE REAL HOME PRUNES THE OPERATOR'S RUN LOGS. runlog
+'     keeps 20 logs in PROVEO_HOME/logs and prunes the oldest on each Open; one
+'     --print sweep wrote 21 and a measured log was lost (output-readability
+'     R1, 2026-11-11). printOnlyRunErr (every --print helper in sbx_test.go)
+'     and TestMountedWorktreeRefusesAForeignPlatformInstall run under a
+'     t.TempDir() PROVEO_HOME; an extraEnv PROVEO_HOME still wins (last value).
+'     Left on the real home: TestAgentSurvivesIdleAtPrompt (no credential env;
+'     claudecode reaches its prompt on the proveo home's persisted login),
+'     hello_world, e2e_test (opencode), hermes_local_model and ladder's
+'     proveoWorkload. [Inference] each needs the real home's login or agent
+'     state; none was re-run under a private one.
 ' ── FOUR FIXTURE FAULTS, FIXED 2026-10-20 ───────────────────────────────────
 ' Each failed a case for a reason outside its subject. The failing output is
 ' reported from the Executor's run; no sbx ran where the fixes were written.
@@ -717,7 +728,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     The prompt loop checks `exited` BEFORE reachedPromptFor. proveo's own
 '     plan line `agent: <target> <version> — pinned at build` matched a prompt
 '     marker, so a dead run read as a live prompt (reported).
-'     reachedPromptFor also drops that one line (withoutPlanLine).
+'     reachedPromptFor also drops that one line (withoutPlanLine); since
+'     2026-11-11 the plan line is the start line `<target> <version> —
+'     starting` (output-readability R1), and withoutPlanLine drops that.
 '     Markers are text only the agent's own screen shows (2026-10-26). The
 '     bare name `opencode` matched sbx's kit line
 '     `…/kit/proveo-<target> — cached`; codex had no case and fell to
@@ -787,7 +800,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     injected keys (reported). Both helpers set PROVEO_HOME to a t.TempDir().
 '     Nothing else in the --print path reads the real home (MEASURED in
 '     internal/run/run.go resolveCredentials): the Keychain read and
-'     reportSandboxLogin run only without --print, and sbx's stored-credential
+'     loginFacts run only without --print, and sbx's stored-credential
 '     probe shapes a message the --print path never prints.
 '     [Inference] PROVEO_ENV_FILE and a .env beside the invocation directory
 '     still reach the key lookup; neither empties the secret-store line.

@@ -108,7 +108,7 @@ partition "1 · LLM provider auth  «host»" {
       MITM; both are deleted.
     end note
   endif
-  :""WarnMountedSecrets"" — a workspace .env holding a\nprovider key is readable by the agent;
+  :""MountedSecretEnv"" — a workspace .env holding a\nprovider key is readable by the agent (⚠ in the workspace block);
 }
 
 partition "2 · Filesystem mount  «host»" {

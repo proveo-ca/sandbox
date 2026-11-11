@@ -216,7 +216,7 @@ func TestOpenCodeEngineKeepsHistoryAndImportsOnce(t *testing.T) {
 	reattached := func(leg, out string) {
 		t.Helper()
 		words := terminalWords(out)
-		if !strings.Contains(words, "re-attaching to "+engine+",") || strings.Contains(words, "new engine") {
+		if !strings.Contains(words, "re-attach to "+engine+" — left by an earlier run") || strings.Contains(words, "new engine") {
 			t.Fatalf("%s did not reattach to %s without importing again:\n%s", leg, engine, terminalText(out))
 		}
 	}
@@ -277,7 +277,7 @@ func TestTerminalLegsReadPtyOutput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	script := `[ -t 0 ] && [ -t 1 ] && echo TTY_BOTH
-printf 'Created sandbox proveo-opencode-0123abcd-sibling\n  re-attaching to proveo-opencode-0123abcd, which an earlier run left here\n'
+printf 'Created sandbox proveo-opencode-0123abcd-sibling\n  ● re-attach to proveo-opencode-0123abcd — left by an earlier run\n'
 printf '\r\033[2Kproveo: Waiting for seed — starting (1s) |' >&2; printf '\r\033[2K' >&2
 printf '{"data":{"id":"ses_fixture"}}\n'`
 	out, err := onTerminal(exec.CommandContext(ctx, "bash", "-c", script))
@@ -289,7 +289,7 @@ printf '{"data":{"id":"ses_fixture"}}\n'`
 		t.Fatalf("session id behind the seed wait = %q:\n%q", got, out)
 	}
 	words := terminalWords(string(out))
-	if !strings.Contains(words, "re-attaching to proveo-opencode-0123abcd,") {
+	if !strings.Contains(words, "re-attach to proveo-opencode-0123abcd — left by an earlier run") {
 		t.Fatalf("reattach marker lost: %q", words)
 	}
 	if regexp.MustCompile(`Created sandbox proveo-opencode-0123abcd(?:\s|$)`).MatchString(words) {

@@ -33,8 +33,11 @@
 ' OPENCODE_MODEL, CURSOR_MODEL, CODEX_MODEL, ANTHROPIC_MODEL pass
 ' through untouched (CODING_HARNESSES.md "Models are not bridged"). A retirement that
 ' dropped them would have taken a working control with it. The host still
-' warns on an unknown id in one of them: run.assembleEnv → warnUnknownModel
-' (internal/run/helpers.go:66-74) → provider.CheckModel.
+' warns on an unknown id in one of them: run.resolveCredentials →
+' unknownModels → unknownModel (internal/run/helpers.go) → provider.CheckModel,
+' a ⚠ "<VAR>=\"<id>\" — not a model id this proveo build knows" in the
+' credentials block; the run log keeps "a typo fails every call; a model
+' newer than this binary works" (output-readability R1 review, P6).
 '
 ' A SEED NAMES NO MODEL. opencode substitutes an UNSET {env:VAR} with "", so
 ' the old seed's "model": "{env:OPENCODE_MODEL}" pinned the model to NOTHING

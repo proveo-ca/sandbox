@@ -5,6 +5,7 @@
 ' covers: e2e/stream_palette_test.go (whiteRun, proveoLines, TestWhiteRunSkipsSbxsOwnLines)
 ' covers: internal/sbx/host_ollama.go (pullOllama: the first user of the live line)
 ' covers: internal/sbx/host_ollama_pull_test.go
+' covers: internal/backend/sandbox/report.go (Item.Log, PrintBlock)
 '   the language this obeys ....... _spec/_conventions/tui-design-language.puml
 '   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
 '   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
@@ -100,7 +101,9 @@
 ' one column per block: the widest key, its colon, one space. A row with no
 ' Key stacks its Value under the row above, with no dot. Detail lines sit at
 ' the value column in ColorRule #585858. A row with no Value and no Detail
-' prints nothing, so a caller passes every fact and lets the empty ones drop.
+' prints nothing, so a caller passes every fact and lets the empty ones drop;
+' such a row widens no key column either (R1: the run block's empty "scope"
+' padded "log:" to three spaces).
 ' PLAIN MODE drops the mark column and keeps the alignment: "log:   /x".
 ' A VALUE WRAPS AT ITS OWN COLUMN on a terminal. wrapWriter.writeHang takes
 ' the hanging column; multi forwards it to the terminal half alone, so the
@@ -114,6 +117,33 @@
 '   TestAFactValueWrapsAtItsOwnColumnAndTheLogStaysOneLine
 '   TestDetailfIndentsTwoPastTheTextColumn
 '   TestTildeAbbreviatesOnlyUnderHome
+'   TestARowThatPrintsNothingWidensNoKeyColumn
+'   TestFactsWithNothingToPrintDrawNoHeading: a block whose rows are all empty
+'     draws no pending heading either
+'   TestTildeInAbbreviatesEachHomePathInsideText: ui.TildeIn rewrites each home
+'     path that starts inside a line (an error's text, "link → target"); a
+'     path that only contains the home string mid-word stays as it was
+' Pinned without sbx by e2e/stream_palette_test.go TestWhiteRunSkipsSbxsOwnLines:
+' a fact block, a ✓ outcome with dim detail, and the interface block after
+' sbx's create block count 0 white lines.
+' THE TEE KEEPS THE SCREEN'S "~/". A Facts row reaches the run log as the
+' screen drew it, so a teed row carries "~/"; rows written with ui.Logf (the
+' create block's facts, the IDE block, the posture) stay absolute. The log's
+' header records "home: <absolute $HOME>" once, so each "~/" resolves (the
+' operator, 2026-11-11, decision C; _spec/internal/runlog/run-transcript.puml).
+' OUTCOME LINES (the operator, 2026-11-11, decision A; amends P7 of
+' _spec/_plans/output-readability.puml). A block ends on a ✓/⚠/× line only
+' when it reaches a verdict its facts do not already state:
+'   workspace    ends on ✓ "private clone — …" or ✓ "mounted checkout — …"
+'   credentials  ends on its ⚠/× items when one exists, else on its facts
+'   run, egress  facts only; no outcome line
+' A fact block never repeats itself as a ✓ line. NOT CHOSEN: an outcome line
+' on every block; a credentials ✓ line in place of the "login" fact.
+' sandbox.PrintBlock prints facts, then items, so an item is the last line.
+' ITEM LOG LINES. sandbox.Item.Log holds the why and the how-to-change of a
+' ⚠ or ● item; Item.print writes them with ui.Logf, so they reach the run log
+' and never the screen (P6): the re-attach's "workspace block is this run's
+' plan", the buildx builder knob, the sbx secret store's how-to.
 '
 ' ── WHICH SCREEN LINES ARE PROVEO'S (2026-10-20) ───────────────────────────
 ' MEASURED: the newer sbx prints its own uncoloured lines into the same pane —
@@ -178,7 +208,7 @@ component "Hostf · Appf · Asyncf\nCloudf · Storef · Dangerf\n— role: which
 component "Okf · Warnf · Failf\n— severity: fine · attention · broken" as SEV <<app>>
 component "Notef\ncontinuation, indented\nto the text column" as NOTE <<app>>
 component "Askf\nquestion, same line,\nawaits input" as ASK <<app>>
-component "Section(ui.Section*)\nten closed names\nheading drawn LAZILY" as SEC <<app>>
+component "Section(ui.Section*)\neighteen closed names\nheading drawn LAZILY" as SEC <<app>>
 component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
@@ -240,24 +270,21 @@ note bottom of SEV
 end note
 
 note right of SEC
-  **A divider names the concern, and the concern is the
-  form's.** ""egress"", ""credentials"", ""execution"" and
-  ""interface"" are the choice prompt's own rows and
-  plane dividers, so an operator answers a question and
-  then reads what happened under the same heading.
+  **A divider names a subject, in one lowercase word.**
+  A run reads ""run"", ""credentials"", ""egress"",
+  ""workspace"", ""sbx"", ""interface"", ""results"",
+  each after the step that makes its lines true, and
+  each once in a run (teardown's credential check
+  prints under ""results"").
 
   Drawn by the first line that FOLLOWS it, never by the
   call that declares it — a prelude is almost all
   conditional lines, and a stage with nothing to say
   must leave no heading behind. Re-declaring the current
-  heading continues its block, which is what lets
-  ""selectBackend"" add the sbx baseline warning to the
-  egress block the broker line opened.
-
-  A run's live phase carries its own four names —
-  ""starting"", ""secrets"", ""interface"", ""results"" — so
-  a second heading is a different moment rather than a
-  repeat, and every divider appears exactly once.
+  heading continues its block. A live step draws a
+  pending heading before it logs its place
+  (Steps.do → Printer.heading), so ""sbx"" sits above
+  the start steps in the run log as on screen.
 end note
 
 note bottom of SEC

@@ -269,7 +269,7 @@ func (t *teardown) failedEnd(ctx context.Context) {
 	}
 	if sbx.Exists(cfg.Name) {
 		t.keepHome, t.kept = true, "the run failed"
-		PrintIDEAttach(in, cfg, false)
+		PrintIDEAttach(in, cfg)
 	}
 }
 
@@ -300,7 +300,7 @@ func (t *teardown) normalEnd(ctx context.Context) {
 		} else {
 			ui.Warnf("%v — %s kept; `proveo rm %s` carries the work home and removes it", stranded, cfg.Name, cfg.Name)
 		}
-		PrintIDEAttach(in, cfg, false)
+		PrintIDEAttach(in, cfg)
 		return
 	case endRetainEngine:
 		t.keepHome = true
@@ -318,7 +318,7 @@ func (t *teardown) normalEnd(ctx context.Context) {
 		t.keepHome = sbx.Exists(cfg.Name)
 		if t.keepHome {
 			t.kept = "its removal failed"
-			PrintIDEAttach(in, cfg, false)
+			PrintIDEAttach(in, cfg)
 		}
 	}
 }

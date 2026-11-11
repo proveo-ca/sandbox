@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/results/result-store.puml
+// SPEC: _spec/internal/results/result-store.puml, _spec/internal/sbx/kit-lifecycle.puml
 package sbx
 
 import (
@@ -8,10 +8,18 @@ import (
 
 // Listed is one sandbox as `sbx ls --json` reports it.
 type Listed struct {
-	Name       string   `json:"name"`
-	Agent      string   `json:"agent"`
-	Status     string   `json:"status"`
-	Workspaces []string `json:"workspaces"`
+	Name       string       `json:"name"`
+	Agent      string       `json:"agent"`
+	Status     string       `json:"status"`
+	Workspaces []string     `json:"workspaces"`
+	Ports      []ListedPort `json:"ports"`
+}
+
+// ListedPort is one published port of a listed sandbox.
+type ListedPort struct {
+	HostIP      string `json:"host_ip"`
+	HostPort    int    `json:"host_port"`
+	SandboxPort int    `json:"sandbox_port"`
 }
 
 // Running reports whether the sandbox is up.

@@ -292,78 +292,85 @@ func parseAVDs(out []byte) []string {
 	return avds
 }
 
+// Started is the device Ensure leaves usable: its serial, and the AVD it booted ("" for a device it reused).
+type Started struct {
+	Serial string
+	AVD    string
+}
+
 // Ensure waits on a device the host adb server already lists, or boots an emulator, until its boot holds.
-func Ensure(getenv func(string) string, port int, report func(string, ...any)) error {
+func Ensure(getenv func(string) string, port int, report func(string, ...any)) (Started, error) {
 	say := func(f string, a ...any) {
 		if report != nil {
 			report(f, a...)
 		}
 	}
 	adb := AdbBinary(getenv)
-	if ok, err := attach(adb, port, say); ok || err != nil {
-		return err
+	if serial, ok, err := attach(adb, port, say); ok || err != nil {
+		return Started{Serial: serial}, err
 	}
 	if adb == "" {
-		return fmt.Errorf("no adb found — install Android SDK platform-tools or set ANDROID_HOME")
+		return Started{}, fmt.Errorf("no adb found — install Android SDK platform-tools or set ANDROID_HOME")
 	}
 	if err := startAdb(adb, port); err != nil {
-		return fmt.Errorf("adb start-server on port %d: %w", port, err)
+		return Started{}, fmt.Errorf("adb start-server on port %d: %w", port, err)
 	}
-	if ok, err := attach(adb, port, say); ok || err != nil {
-		return err
+	if serial, ok, err := attach(adb, port, say); ok || err != nil {
+		return Started{Serial: serial}, err
 	}
 	emu := EmulatorBinary(getenv)
 	if emu == "" {
-		return fmt.Errorf("no Android emulator found — install it from Android Studio's SDK Manager or set ANDROID_HOME")
+		return Started{}, fmt.Errorf("no Android emulator found — install it from Android Studio's SDK Manager or set ANDROID_HOME")
 	}
 	out, err := listAVDs(emu)
 	if err != nil {
-		return fmt.Errorf("emulator -list-avds: %w", err)
+		return Started{}, fmt.Errorf("emulator -list-avds: %w", err)
 	}
 	avd, err := PickAVD(getenv, parseAVDs(out))
 	if err != nil {
-		return err
+		return Started{}, err
 	}
 	exited, err := startEmulator(emu, avd, port)
 	if err != nil {
-		return fmt.Errorf("start emulator: %w", err)
+		return Started{}, fmt.Errorf("start emulator: %w", err)
 	}
 	say("android: booting AVD %s (adb server 127.0.0.1:%d)", avd, port)
 	serial, err := awaitBoot(adb, port, exited)
 	if err != nil {
-		return fmt.Errorf("AVD %s: %w", avd, err)
+		return Started{}, fmt.Errorf("AVD %s: %w", avd, err)
 	}
 	say("android: %s booted", serial)
-	return nil
+	return Started{Serial: serial, AVD: avd}, nil
 }
 
-// attach waits on a device the server already lists, usable or an emulator gone offline; false when it lists neither.
-func attach(adb string, port int, say func(string, ...any)) (bool, error) {
+// attach waits on a device the server already lists, usable or an emulator gone offline, and names
+// the serial it reused; false when the server lists neither.
+func attach(adb string, port int, say func(string, ...any)) (string, bool, error) {
 	all, err := AllDevices(port)
 	if err != nil {
-		return false, nil
+		return "", false, nil
 	}
 	usable, offline := split(all)
 	switch {
 	case len(usable) == 0 && len(offline) == 0:
-		return false, nil
+		return "", false, nil
 	case adb == "" && len(usable) > 0:
 		say("android: reusing %s on the host adb server 127.0.0.1:%d", strings.Join(usable, ", "), port)
-		return true, nil
+		return strings.Join(usable, ", "), true, nil
 	case adb == "":
-		return false, nil
+		return "", false, nil
 	case len(usable) == 0:
 		say("android: %s offline on the host adb server 127.0.0.1:%d — reconnecting", strings.Join(offline, ", "), port)
 	}
 	serial, err := awaitBoot(adb, port, nil)
 	if err != nil {
-		return true, fmt.Errorf("host adb server 127.0.0.1:%d: %w", port, err)
+		return "", true, fmt.Errorf("host adb server 127.0.0.1:%d: %w", port, err)
 	}
 	say("android: reusing %s on the host adb server 127.0.0.1:%d", serial, port)
 	if pids := retireStale(adb, port, serial); len(pids) > 0 {
 		say("android: retired mobilecli DeviceServer %s on %s — it predates the device's system_server", strings.Join(pids, ", "), serial)
 	}
-	return true, nil
+	return serial, true, nil
 }
 
 // awaitBoot polls until one serial reads state "device" and sys.boot_completed=1 on StablePolls polls in a row.

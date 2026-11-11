@@ -10,7 +10,7 @@ skinparam noteTextAlignment left
 ' covers: internal/run/topology.go
 ' covers: internal/run/params.go (seedFromCache)
 ' covers: internal/run/run_test.go (TestEgressRowShowsTheHostBaseline, network.allow)
-' covers: internal/backend/sandbox/sandbox.go (Spec: the Kit's network.allow; WarnBaseline, ReachHosts)
+' covers: internal/backend/sandbox/sandbox.go (Spec: the Kit's network.allow; Baseline, ReachHosts)
 ' covers: internal/backend/sandbox/domain_form_test.go (TestTheKitWritesNoProviderOrHarnessHosts)
 ' covers: internal/posture/posture.go (EnforcedBy, Observability)
 ' covers: e2e/sbx_egress_test.go
@@ -55,12 +55,21 @@ skinparam noteTextAlignment left
 ' against sbx's agent kits in this pass.
 ' What proveo does instead of allowlisting, MEASURED in the working tree at this
 ' pass (the code was still moving): run.launchSandbox calls
-' sandbox.WarnBaseline(sandbox.ReachHosts(man, detected)). On an allow-all host
-' it notes "sbx's global network policy allows every host; sbx decides this
-' run's egress". Otherwise it prints the operator's own command —
+' sandbox.Baseline(sandbox.ReachHosts(man, detected)), which returns the egress
+' block's facts and items; launchSandbox prints them with the local-model fact
+' as ONE block (sandbox.PrintBlock, P3; R1 review, 2026-11-11), so their values
+' share a column. On an allow-all host
+' the block reads "● network: sbx's global policy allows every host" (since
+' 2026-11-11; "sbx decides this run's egress" lives in the run log's "enforced
+' by" row). On a host that denies the probe it prints "● network: sbx's global
+' policy allows listed hosts only"; unreadable, "⚠ sbx network baseline —
+' unreadable" with the check command dim under it. Either way the dim line
+' names the operator's own command —
 ' `sbx policy allow network <hosts>` — built from the manifest's
 ' capabilities.hosts plus the capability-filtered detected providers' hosts,
 ' through sbx.DomainPatterns. proveo names the reach; the operator grants it.
+' The "network" fact takes the cloud role (slate dot): egress is the run's
+' external crossing, and the host role stays for what the operator reaches.
 '
 ' ── REACH THE BASELINE DOES NOT GOVERN ────────────────────────────────────
 ' The baseline and the Kit allow govern traffic that leaves the sandbox. An
@@ -106,8 +115,8 @@ skinparam noteTextAlignment left
 '   * a per-sandbox deny cannot express "only the allowlist", because deny beats
 '     allow — `sbx policy deny network --sandbox X "**"` blocks the allowlist too.
 ' So on an allow-all host the Kit allowlist ADDS REACH rather than limiting it,
-' and proveo's own line (sandbox.WarnBaseline) says sbx decides this run's
-' egress. The row says it in the place the operator is actually looking. Since
+' and proveo's own row (sandbox.Baseline) says sbx's policy allows every
+' host. The row says it in the place the operator is actually looking. Since
 ' 2026-10-16 the Kit adds only add-on ports and own-agent credential domains,
 ' so on a balanced or deny-all host those are the only reach proveo contributes;
 ' the rest is the `sbx policy allow network` hint described above.

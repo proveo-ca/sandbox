@@ -42,7 +42,7 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 	}
 
 	booted := !hostadb.Ready(port)
-	if err := hostadb.Ensure(os.Getenv, port, t.Logf); err != nil {
+	if _, err := hostadb.Ensure(os.Getenv, port, t.Logf); err != nil {
 		t.Skipf("host emulator: %v", err)
 	}
 	if booted {

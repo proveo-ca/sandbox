@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -20,6 +22,9 @@ type Fact struct {
 // no Key stacks its Value under the row above; a row with neither a Value nor
 // Detail prints nothing.
 func (p *Printer) Facts(rows ...Fact) {
+	if !slices.ContainsFunc(rows, func(r Fact) bool { return r.Value != "" || len(r.Detail) > 0 }) {
+		return
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.eraseLive()
@@ -31,7 +36,7 @@ func (p *Printer) Facts(rows ...Fact) {
 	}
 	keyW := 0
 	for _, r := range rows {
-		if r.Key != "" {
+		if r.Key != "" && (r.Value != "" || len(r.Detail) > 0) {
 			keyW = max(keyW, textWidthOf(r.Key)+1)
 		}
 	}
@@ -120,4 +125,18 @@ func Tilde(path string) string {
 		return "~" + string(os.PathSeparator) + rest
 	}
 	return path
+}
+
+// TildeIn writes s as Tilde does, and each path under the home directory that starts inside s, such as in an error's text, as "~/…".
+func TildeIn(s string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return s
+	}
+	if s == home {
+		return "~"
+	}
+	sep := regexp.QuoteMeta(string(os.PathSeparator))
+	at := regexp.MustCompile(`(^|[^\w.~` + sep + `-])` + regexp.QuoteMeta(home) + sep)
+	return at.ReplaceAllString(s, "${1}~"+string(os.PathSeparator))
 }

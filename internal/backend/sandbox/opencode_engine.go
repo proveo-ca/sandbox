@@ -100,7 +100,7 @@ func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, cr
 		_ = os.Remove(carried)
 		ui.Appf("OpenCode: carried history (%s) into new engine %s", byteSize(size), cfg.Name)
 	} else {
-		ui.Appf("OpenCode: imported %s (%s) into new engine %s once; the host copy stays unchanged", src, byteSize(size), cfg.Name)
+		ui.Appf("OpenCode: imported %s (%s) into new engine %s once; the host copy stays unchanged", ui.Tilde(src), byteSize(size), cfg.Name)
 	}
 	return sbx.Reattach(cfg), true, nil
 }
@@ -185,7 +185,7 @@ func carryOpenCodeHistory(home, name string) error {
 	if err := os.Rename(part, dest); err != nil {
 		return err
 	}
-	ui.Storef("OpenCode: carried %s's history (%s) to %s for the engine that replaces it", name, byteSize(info.Size()), dest)
+	ui.Storef("OpenCode: carried %s's history (%s) to %s for the engine that replaces it", name, byteSize(info.Size()), ui.Tilde(dest))
 	return nil
 }
 
