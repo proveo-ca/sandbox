@@ -1208,6 +1208,26 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/promptkit/prompt-kit.puml",
+      "covers": [
+        "internal/promptkit/pins.go",
+        "internal/promptkit/fetch.go",
+        "internal/promptkit/install.go",
+        "internal/promptkit/segment.go",
+        "internal/promptkit/kit.go",
+        "internal/promptkit/promptkit_test.go",
+        "internal/promptkit/gate_test.go",
+        "internal/shell/shell.go",
+        "internal/choiceui/glyphs_dialog.go",
+        "cmd/proveo/init_prompt.go",
+        "cmd/proveo/init_prompt_test.go",
+        "cmd/proveo/init_tui.go",
+        "cmd/proveo/prompt.go",
+        "cmd/proveo/uninstall.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/results/result-store.puml",
       "covers": [
         "internal/results/results.go",

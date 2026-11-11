@@ -84,7 +84,7 @@ func startInitTools(t *testing.T, width int, bins map[string]string, args ...str
 		"HOME=" + r.home, "TMPDIR=" + r.tmp, "TERM=xterm-256color",
 		"PATH=" + bin + ":/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		"STUB_SBX_LOG=" + r.log, "STUB_SBX_SECRETS=" + r.sec,
-		"sh", "-c", `"$0" init "$@"; echo "INIT_EXIT=$?"; exec sleep 600`, proveoBin}, args...)
+		"sh", "-c", `"$0" init --skip-prompt "$@"; echo "INIT_EXIT=$?"; exec sleep 600`, proveoBin}, args...)
 	if err := r.sess.Start(width, 50, argv...); err != nil {
 		t.Fatalf("start tmux: %v", err)
 	}

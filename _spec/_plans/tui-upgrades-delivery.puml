@@ -224,6 +224,20 @@ skinparam noteTextAlignment left
 '     in the operator's store went on the first `proveo rm`.
 '     An empty `sbx ls` clears nothing, in `rm` and in the reconcile.
 '     Reasoning: _spec/internal/results/result-store.puml.
+' W8  DONE 2026-11-11, S9 + S10 + S4 + S11 in one commit.
+'     THE GATE PASSED on macOS with the real tools: bash -n, zsh -n and fish
+'     --no-execute accept the block proveo appends; starship 1.27.0 drew the
+'     segment in a repository and nothing outside one; an existing
+'     starship.toml gained the fenced block and came back byte for byte.
+'     On linux/arm64 only bash was there to check.
+'     THE DIGESTS ARE PINNED IN THE SOURCE, not fetched beside the archive:
+'     six for starship, one for FiraCode.zip, read from the publishers on
+'     2026-11-11. The font archive is 28,602,426 bytes and holds 18 fonts.
+'     THE E2E INIT RUNS PASS --skip-prompt. Their HOME is a temp dir, so
+'     without it each run would download the font.
+'     NOT DONE: `proveo init` with the prompt row on this host. It edits the
+'     operator's rc file and starship config.
+'     Reasoning: _spec/internal/promptkit/prompt-kit.puml.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

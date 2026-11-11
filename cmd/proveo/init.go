@@ -24,14 +24,15 @@ import (
 )
 
 type initOptions struct {
-	printOnly bool
-	prefix    string
-	skipLogin bool
-	skipSetup bool
-	skipGh    bool
-	skipGit   bool
-	force     bool
-	yes       bool
+	printOnly  bool
+	prefix     string
+	skipLogin  bool
+	skipSetup  bool
+	skipGh     bool
+	skipGit    bool
+	skipPrompt bool
+	force      bool
+	yes        bool
 }
 
 func initCmd() *cobra.Command {
@@ -50,6 +51,7 @@ func initCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&o.skipSetup, "skip-setup", false, "do not run `sbx setup`, the first-run wizard")
 	cmd.Flags().BoolVar(&o.skipGh, "skip-gh", false, "do not verify, install, or log in via `gh`")
 	cmd.Flags().BoolVar(&o.skipGit, "skip-git", false, "do not check or set git user.name / user.email")
+	cmd.Flags().BoolVar(&o.skipPrompt, "skip-prompt", false, "do not install starship, a Nerd Font, or the proveo prompt segment")
 	cmd.Flags().BoolVar(&o.force, "force", false, "reinstall even when this host already carries a usable sbx")
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "take the defaults without prompting (implied when there is no terminal)")
 	return cmd
@@ -515,6 +517,9 @@ func finish(bin string, plan sbx.Plan, d initDecisions, host sbx.Host) error {
 
 	if d.Git {
 		applyGitIdentity(hostGitStage())
+	}
+	if d.Prompt {
+		applyPromptKit(!d.NoPrompt && interactiveTerminal())
 	}
 	if d.Gh {
 		applyGitHub(ghStage{

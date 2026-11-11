@@ -106,3 +106,30 @@ func TestAlreadyConfigured(t *testing.T) {
 		t.Error("unrelated rc should not be already-configured")
 	}
 }
+
+func TestTheStarshipLineIsEachShellsOwnAndItsBlockComesOutClean(t *testing.T) {
+	for path, want := range map[string]string{
+		"/bin/bash":     `eval "$(starship init bash)"`,
+		"/bin/zsh":      `eval "$(starship init zsh)"`,
+		"/usr/bin/fish": `starship init fish | source`,
+		"/bin/ksh":      "",
+	} {
+		s, _ := Detect(path)
+		if got := s.StarshipLine(); got != want {
+			t.Errorf("%s: StarshipLine = %q, want %q", path, got, want)
+		}
+	}
+	zsh, _ := Detect("/bin/zsh")
+	const theirs = "export EDITOR=vim\n"
+	with := theirs + zsh.PromptBlock()
+	if !StartsStarship(with) || StartsStarship(theirs) {
+		t.Error("StartsStarship does not follow the init line")
+	}
+	if got := WithoutPromptBlock(with); got != theirs {
+		t.Errorf("WithoutPromptBlock = %q, want %q", got, theirs)
+	}
+	const byHand = "export EDITOR=vim\neval \"$(starship init zsh)\"\n"
+	if got := WithoutPromptBlock(byHand); got != byHand {
+		t.Errorf("WithoutPromptBlock removed a line the operator wrote: %q", got)
+	}
+}

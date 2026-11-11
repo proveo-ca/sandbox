@@ -71,6 +71,7 @@ func theFiveDialogs() map[string]dialog {
 		"upgrade":    sandboxUpgradeDialog(upgradeArgs.name, upgradeArgs.changed, true, true, false),
 		"unanswered": unansweredRemovalDialog("proveo-claudecode-abc", mirror, []string{mirror + "/main"}, false),
 		"oversized":  oversizedModelDialog(qwenOnVRAM),
+		"glyphs":     drawsGlyphsDialog(),
 	}
 }
 

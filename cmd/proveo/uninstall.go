@@ -11,6 +11,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/envflag"
+	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -27,6 +28,10 @@ func uninstallCmd() *cobra.Command {
 		Short: "Remove the CDN-installed proveo binary and PATH markers",
 		Long: `Remove the proveo install root (default ~/.proveo) and strip PATH markers
 written by install.sh / proveo setup from common shell rc files.
+
+Also removes what the prompt kit of proveo init added: its line in the shell rc,
+its block in starship.toml, and the starship binary and Nerd Font files only
+when proveo installed them.
 
 Does not remove Docker images, project .env files, or host IDE homes.
 Use proveo clean --homes to reclaim proveo session caches under the install root
@@ -65,6 +70,10 @@ func doUninstall(yes bool) error {
 	for _, rc := range shellRCCandidates(home) {
 		_ = stripInstallPathBlock(rc, binDir)
 		_ = stripSetupPathBlock(rc)
+	}
+
+	if err := promptkit.Undo(promptKitOptions(false)); err != nil {
+		ui.Warnf("the prompt kit was not fully removed: %v", err)
 	}
 
 	if err := removeInstallRoot(root); err != nil {

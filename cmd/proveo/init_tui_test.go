@@ -93,7 +93,7 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowSignIn, rowWizard, rowGh, rowGit} {
+	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowSignIn, rowWizard, rowGh, rowGit, rowPrompt} {
 		if _, ok := byLabel[want]; !ok {
 			t.Errorf("no %q row; got %v", want, byLabel)
 		}

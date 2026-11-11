@@ -19,6 +19,7 @@ type initDecisions struct {
 	Wizard   bool
 	Gh       bool
 	Git      bool
+	Prompt   bool   // install the shell-prompt kit: starship, a Nerd Font, the segment
 	Baseline string // "" leaves the host-wide network policy alone
 	NoPrompt bool
 }
@@ -35,6 +36,7 @@ const (
 	rowWizard   = "sbx setup"
 	rowGh       = "GitHub"
 	rowGit      = "git identity"
+	rowPrompt   = "prompt"
 	rowBaseline = "network baseline"
 	rowNext     = "next steps"
 
@@ -72,6 +74,7 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 		Wizard:   !o.skipSetup,
 		Gh:       !o.skipGh,
 		Git:      !o.skipGit,
+		Prompt:   !o.skipPrompt,
 		Baseline: "",
 		NoPrompt: o.yes,
 	}
@@ -88,7 +91,7 @@ func carried(def initDecisions, prev *initDecisions) initDecisions {
 	}
 	out := def
 	out.AddPath = prev.AddPath
-	out.Login, out.Wizard, out.Gh, out.Git, out.Baseline = false, false, false, false, ""
+	out.Login, out.Wizard, out.Gh, out.Git, out.Prompt, out.Baseline = false, false, false, false, false, ""
 	return out
 }
 
@@ -134,6 +137,9 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 	}
 	if v := form.Selection(rowGit); v != "" {
 		out.Git = v == "now"
+	}
+	if v := form.Selection(rowPrompt); v != "" {
+		out.Prompt = v == "now"
 	}
 	if v := form.Selection(rowBaseline); v != "" && v != baselineLeave {
 		out.Baseline = v
@@ -221,6 +227,12 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 	rows = append(rows, nowLaterRow(rowGit, def.Git, o.skipGit, "--skip-git was passed", map[string]string{
 		"now":   "set `user.name` / `user.email` if this host has none — a commit inside a sandbox fails late without them",
 		"later": "the agent will hit 'Please tell me who you are' at the first commit",
+	}))
+
+	rows = append(rows, nowLaterRow(rowPrompt, def.Prompt, o.skipPrompt, "--skip-prompt was passed", map[string]string{
+		"now": "starship (if missing), a Nerd Font (if the host has none), its line in your shell rc, and a segment that " +
+			"shows what runs left — starship REPLACES this shell's prompt",
+		"later": "the shell prompt stays as it is; `proveo rm` and `proveo adopt` still list what runs left",
 	}))
 
 	// The host-wide network baseline. Offered because proveo otherwise only
@@ -336,7 +348,8 @@ func describeDecisions(d initDecisions) string {
 		"sign in: "+yesNo(d.Login),
 		"sbx setup: "+yesNo(d.Wizard),
 		"gh: "+yesNo(d.Gh),
-		"git identity: "+yesNo(d.Git))
+		"git identity: "+yesNo(d.Git),
+		"prompt: "+yesNo(d.Prompt))
 	if d.Baseline != "" {
 		parts = append(parts, "baseline: "+d.Baseline)
 	}

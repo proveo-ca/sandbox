@@ -93,6 +93,53 @@ func (s Shell) SbxBlock(binDir string) string {
 	return "\n" + SbxMarker + "\n" + s.PathLine(binDir) + "\n"
 }
 
+// PromptMarker opens the block `proveo init` appends to turn starship on.
+const PromptMarker = "# added by `proveo init` — starship prompt"
+
+// StarshipLine is the line that starts starship in this shell; "" for a shell starship
+// does not hook through an rc line proveo knows.
+func (s Shell) StarshipLine() string {
+	switch s.Name {
+	case "bash":
+		return `eval "$(starship init bash)"`
+	case "zsh":
+		return `eval "$(starship init zsh)"`
+	case "fish":
+		return `starship init fish | source`
+	}
+	return ""
+}
+
+// PromptBlock is the snippet appended to the rc file to turn starship on.
+func (s Shell) PromptBlock() string {
+	return "\n" + PromptMarker + "\n" + s.StarshipLine() + "\n"
+}
+
+// StartsStarship reports whether an rc file already starts starship, by proveo or by hand.
+func StartsStarship(rcContent string) bool {
+	return strings.Contains(rcContent, "starship init")
+}
+
+// WithoutPromptBlock is rcContent without the block PromptBlock appended; a
+// `starship init` line the operator wrote is left alone.
+func WithoutPromptBlock(rcContent string) string {
+	lines := strings.Split(rcContent, "\n")
+	var out []string
+	for i := 0; i < len(lines); i++ {
+		if lines[i] != PromptMarker {
+			out = append(out, lines[i])
+			continue
+		}
+		if n := len(out); n > 0 && out[n-1] == "" {
+			out = out[:n-1]
+		}
+		if i+1 < len(lines) && strings.Contains(lines[i+1], "starship init") {
+			i++
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 func AlreadyConfigured(rcContent, binDir string) bool {
 	return strings.Contains(rcContent, Marker) || strings.Contains(rcContent, binDir)
 }
