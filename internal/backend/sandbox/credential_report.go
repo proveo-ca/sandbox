@@ -208,12 +208,15 @@ func refuseUnboundCredential(in Input, name string, caps []sbx.CapabilityV3, cre
 
 // reportCredentialInUse warns, read-only, when the agent held a credential other than sbx's; it skips a sandbox that is not running.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R10)
+// credentialProbeWait bounds the guest read behind the credential check.
+const credentialProbeWait = 20 * time.Second
+
 func reportCredentialInUse(target, name string) {
 	script, ok := inUseProbe[target]
 	if !ok || !sbx.Running(name) {
 		return
 	}
-	out, err := sbx.ExecOutput(name, script, 20*time.Second)
+	out, err := sbx.ExecOutput(name, script, credentialProbeWait)
 	if err != nil {
 		return
 	}

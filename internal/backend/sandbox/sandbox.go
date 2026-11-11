@@ -194,7 +194,7 @@ func TeardownClone(in Input, cfg sbx.RunConfig) error {
 	}
 	if in.Clone && in.CloneKnown {
 		wd := agentWorkdir(in, cfg.Mounts)
-		stepDo(stepCloneEnv, func() {
+		shownDo(stepCloneEnv, func() {
 			writeBackCloneEnv(in, func() ([]byte, error) {
 				if wd == "" || !sbx.Exists(cfg.Name) {
 					return nil, errors.New("no sandbox to read from")
@@ -226,7 +226,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	wd := agentWorkdir(in, cfg.Mounts)
 	if wd != "" {
 		var out string
-		if err := step(stepCloneSnapshot, func() (err error) {
+		if err := shown(stepCloneSnapshot, func() (err error) {
 			out, err = guestRunIn(in.ctx(), sbx.CloneSnapshotArgs(cfg.Name, wd)...)
 			return err
 		}); err != nil {
@@ -234,9 +234,9 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 			stranded = fmt.Errorf("uncommitted work is still only in %s", cfg.Name)
 		}
 	}
-	stepDo(stepCloneOutput, func() { liftClonedOutput(in, cfg, liftViaSbx) })
+	shownDo(stepCloneOutput, func() { liftClonedOutput(in, cfg, liftViaSbx) })
 	var carried bool
-	if err := step(stepCloneCarry, func() (err error) {
+	if err := shown(stepCloneCarry, func() (err error) {
 		carried, err = carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx)
 		return err
 	}); err != nil {
@@ -246,7 +246,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 		return stranded
 	}
 	reportCloneRefs(in, cfg)
-	stepDo(stepCloneSpec, func() {
+	shownDo(stepCloneSpec, func() {
 		liftClonedSpec(in, wd, cloneSpanViaSbx(in.ctx(), cfg.Name, wd), func(sha string) {
 			if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
 				_, _ = guestRunIn(in.ctx(), args...)

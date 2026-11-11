@@ -41,11 +41,15 @@ func teardownPlan(failed bool) []string {
 	return plan
 }
 
-// do runs one top-level step; it skips it once ctx ended, and a panic becomes its error.
+// do runs one top-level step behind its start line; it skips the step once ctx
+// ended, and a panic becomes the step's error.
 func (t *teardown) do(ctx context.Context, name string, fn func() error) error {
 	if ctx.Err() != nil {
 		recordStep(name, 0, errStepSkipped)
 		return errStepSkipped
+	}
+	if name != stepClone {
+		announce(name)
 	}
 	return step(name, func() (err error) {
 		defer func() {
@@ -60,6 +64,7 @@ func (t *teardown) do(ctx context.Context, name string, fn func() error) error {
 func (t *teardown) run(ctx context.Context) {
 	t.in.Stop = ctx
 	cfg := t.cfg
+	ui.Section(ui.SectionResults)
 	_ = t.do(ctx, stepCredential, func() error { reportCredentialInUse(t.in.Target, cfg.Name); return nil })
 	_ = t.do(ctx, stepCloneMode, func() error {
 		clones, err := sandboxClone(t.in, cfg.Name)

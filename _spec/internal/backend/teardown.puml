@@ -29,7 +29,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' the run log through ui.Logf, as
 '   step: <name> <duration> ok
 '   step: <name> <duration> failed: <first line of the error>
-' NOTHING REACHES THE TERMINAL. ui.Logf writes to the log's own printer and
+' THE ROW NEVER REACHES THE TERMINAL. ui.Logf writes to the log's own printer and
 ' is a no-op when no log is open, so a run whose log failed to open records
 ' nothing; it does not fail.
 ' THE NAMES ARE CONSTANTS in teardown_steps.go, because the step list that
@@ -131,7 +131,47 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' is on the host (claudecode, claudecode-browser, hermes: 9 subtests) and
 ' skipped the other seven (21 subtests).
 '
+' ── EACH STEP SAYS IT STARTED, AND ITS CEILING (the rider on T3) ───────────
+' Before this the terminal printed a line when a step ENDED, so a slow step
+' showed as silence (tui-responsiveness.puml, C2). Now `announce(name)`
+' prints one line before a step runs:
+'   <name> — up to <ceiling>
+' A step that starts no subprocess prints its name alone (home config).
+' WHICH STEPS PRINT: every top-level step except `clone`, and each of the
+' clone's five parts. The parent prints nothing: its parts speak for it.
+' THE CEILING IS A SUM, NOT A NEW DEADLINE. stepCeiling(name) adds up the
+' bounds the step's calls already have. Nothing new can time out.
+'   one `sbx ls`   sbx.ListWait = 10s + 2s grace = 12s
+'   one call       guestExecDeadline + guestGrace = 3m2s
+'   credential check  ls + the 20s guest read + grace .............. 34s
+'   clone mode        the 36s probe + grace ........................ 38s
+'   pushed branches   ls + the reflog read ......................... 3m14s
+'   egress record     the policy log ............................... 12s
+'   memory evidence   ls + the guest read .......................... 24s
+'   clone/.env        ls + the read ................................ 3m14s
+'   clone/snapshot    one call ..................................... 3m2s
+'   clone/output      the lift ..................................... 3m2s
+'   clone/branches    ls + remote fetch + tips, bundle, its fetch .. 12m20s
+'   clone/spec        ls-files, span, three path lists, restore,
+'                     rebase ....................................... 21m14s
+'   resume state      ls + the save ................................ 3m14s
+'   remove sandbox    one call ..................................... 3m2s
+' `pushed branches` counts the part that runs before anything is asked. The
+' question and each fetch the operator accepts print their own lines.
+' The clone's ref report (two kinds of host git call, one per carried ref)
+' sits between two parts and has no line.
+' The deadlines are variables, so the ceilings follow a shortened deadline.
+' [Unverified] The sums are upper bounds and far above a healthy run. Each
+' real-sandbox clone run of 2026-11-10 took 27s to 39s from start to exit,
+' teardown included. T2's `step:` rows are the data for tightening them.
+' THE LINES ALSO PRINT WHEN A SANDBOX IS RETIRED AT RUN START, because
+' PreserveClone serves both. The wording names the step, not "teardown".
+' WRITTEN TWICE BY CHOICE: T6 (delivery plan, W5) replaces these lines with a
+' live step list that reads the same names and the same stepCeiling.
+'
 ' Pinned by internal/backend/sandbox/teardown_plan_test.go:
+'   TestEveryPlannedStepStartsWithItsNameAndCeilingOnTheTerminal
+'   TestStepCeilingsAddUpTheBoundsOfTheCallsAStepMakes
 '   TestATeardownRunRecordsExactlyItsPlan
 '   TestTheFailedPlanIsTheNormalPlanWithoutTheRemoval
 '   TestAPanickingStepBecomesItsErrorAndTheNextStepsStillRun
@@ -154,12 +194,14 @@ database "the run log\n""step: clone/snapshot 1.2s ok""" as LOG <<db>>
 component "four guest or network calls\nunder ""guestExecDeadline"" (3m)" as BOUND <<app>>
 component "**a wedged sbx daemon**\nhung teardown before the carry" as HANG <<error>>
 component "the rescue line\n""sbx ls"", then ""sbx rm --force""" as RESCUE <<host>>
+component "the terminal\n""clone/snapshot — up to 3m2s""" as TERM <<host>>
 
 EXIT ARROW_MAIN PLAN : before Run's result
 PLAN ARROW_MAIN STEP : each step, in plan order
 STOP ARROW_OPTIONAL PLAN : later steps are skipped
 STOP ARROW_OPTIONAL BOUND : the call in flight ends
 STEP ARROW_MAIN LOG : one row per step
+PLAN ARROW_OPTIONAL TERM : a start line per step
 STEP ARROW_MAIN BOUND
 HANG ARROW_ERROR BOUND : what the deadline ends
 BOUND ARROW_OPTIONAL RESCUE : a removal that timed out
@@ -178,11 +220,18 @@ note top of STOP
   prints.
 end note
 
+note bottom of TERM
+  **Said before, not after.** A step names
+  itself and its ceiling before it runs. The
+  ceiling adds up bounds its calls already
+  have, so no new timeout exists.
+end note
+
 note bottom of LOG
-  **The log, never the terminal.** A step row is
-  for the next person reading a slow run. The
-  operator's screen gets a step list later,
-  drawn from the same names.
+  **The row goes to the log only.** It is for
+  the next person reading a slow run. The
+  screen gets the start line now and a live
+  step list later, from the same names.
 end note
 
 note bottom of STEP

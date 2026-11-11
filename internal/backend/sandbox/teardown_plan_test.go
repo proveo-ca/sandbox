@@ -173,3 +173,50 @@ func removeSandboxQuiet(t *testing.T, ctx context.Context) error {
 	ui.Default = ui.New(&term)
 	return removeSandbox(ctx, "sb")
 }
+
+func TestEveryPlannedStepStartsWithItsNameAndCeilingOnTheTerminal(t *testing.T) {
+	captureSteps(t)
+	td, term, _ := quietTeardown(t, false)
+	td.run(context.Background())
+	at := 0
+	for _, name := range teardownPlan(false) {
+		if name == stepClone {
+			continue
+		}
+		line := name
+		if d := stepCeiling(name); d > 0 {
+			line = name + " — up to " + d.Round(time.Second).String()
+		}
+		i := strings.Index(term.String()[at:], line)
+		if i < 0 {
+			t.Fatalf("no start line %q after offset %d:\n%s", line, at, term.String())
+		}
+		at += i + len(line)
+	}
+}
+
+func TestStepCeilingsAddUpTheBoundsOfTheCallsAStepMakes(t *testing.T) {
+	for name, want := range map[string]time.Duration{
+		stepCredential:    34 * time.Second,
+		stepCloneMode:     38 * time.Second,
+		stepPushed:        3*time.Minute + 14*time.Second,
+		stepEgress:        12 * time.Second,
+		stepMemory:        24 * time.Second,
+		stepCloneEnv:      3*time.Minute + 14*time.Second,
+		stepCloneSnapshot: 3*time.Minute + 2*time.Second,
+		stepCloneOutput:   3*time.Minute + 2*time.Second,
+		stepCloneCarry:    12*time.Minute + 20*time.Second,
+		stepCloneSpec:     21*time.Minute + 14*time.Second,
+		stepState:         3*time.Minute + 14*time.Second,
+		stepHome:          0,
+		stepRemove:        3*time.Minute + 2*time.Second,
+	} {
+		if got := stepCeiling(name); got != want {
+			t.Errorf("stepCeiling(%q) = %s, want %s", name, got, want)
+		}
+	}
+	shrinkGuestDeadlines(t, time.Second)
+	if got := stepCeiling(stepRemove); got != time.Second+guestGrace {
+		t.Errorf("a shortened deadline left the removal's ceiling at %s", got)
+	}
+}

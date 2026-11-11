@@ -42,6 +42,12 @@ func bounded(name string, args ...string) ([]byte, error) {
 // before the pipe is closed out from under it.
 const boundedGrace = 2 * time.Second
 
+// ListWait is the longest one bounded `sbx ls` holds its caller.
+const ListWait = dockerInfoTimeout + boundedGrace
+
+// ExecWait is the longest ExecOutput holds its caller under timeout.
+func ExecWait(timeout time.Duration) time.Duration { return timeout + boundedGrace }
+
 func boundedWith(timeout time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

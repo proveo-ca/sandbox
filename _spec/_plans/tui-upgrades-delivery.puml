@@ -116,6 +116,22 @@ skinparam noteTextAlignment left
 '     NOT DONE: the hand trial in a host tab and `mise run build-cli`. That
 '     install replaces the proveo on PATH, which a live scheduled run on this
 '     host would pick up; it waits for the Executor.
+' W2  DONE 2026-11-10: T3 in 5f8b1e60, the start lines in the commit after.
+'     THE GATE RAN ON REAL SANDBOXES (macOS, sbx 0.50.0). The host held no
+'     proveo/claudecode image, so the first try SKIPPED; the published image
+'     was pulled and the run repeated.
+'     The clone-output e2e now compares the run log's `step:` rows with a
+'     fixed list. It passed at f7ff80a0 (the closure) and after T3, so the
+'     order did not change. The four other TestClone* suites passed, one at
+'     a time. TestHeadedCtrlCAsksBeforeRemoving passed for the three
+'     harnesses whose image is on this host and skipped the other seven.
+'     After the start lines: three TestClone* suites and the forced-remove
+'     test passed again.
+'     A STEP CEILING IS A SUM of the bounds its calls already had. It is
+'     printed, not enforced: no new timeout exists.
+'     Linux leg: five unit suites and two tmux pins passed.
+'     Reasoning: _spec/internal/backend/teardown.puml.
+'     NOT DONE, as in W1: the hand trial and `mise run build-cli`.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.
