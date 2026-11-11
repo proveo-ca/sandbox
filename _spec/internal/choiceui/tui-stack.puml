@@ -1,0 +1,83 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title The TUI stack — Bubble Tea v2, the versions proveo builds against, and what the proxy asks of a Program
+' purpose: which TUI library draws proveo's prompts, at which versions, and why those versions are pinned by a test
+' covers: go.mod (the charm.land requirements)
+' covers: internal/contract/tui_stack_pins_test.go
+'   why the stack changed ............ _spec/_plans/tui-responsiveness.puml (D3, D8, D9)
+'   the order the port lands in ...... _spec/_plans/tui-upgrades-delivery.puml (W4, W5, W9, W10)
+'   who owns the terminal ............ _spec/internal/ptyproxy/pty-ownership.puml
+'   what sbx's own TUI looks like .... _spec/_experiments/sbx-tui-observed.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' This file grows as the port lands. Landed so far: B0 (the pins), 2026-11-10.
+'
+' ── WHY BUBBLE TEA v2 ──────────────────────────────────────────────────────
+' The Executor, 2026-11-10: "Port everything to Bubble Tea v2" (D3), and for
+' the drawing: "Rewrite the views in lipgloss" (D9). The stated reference is
+' sbx's own TUI. MEASURED with `go version -m` on sbx 0.50.0: it embeds
+' bubbletea v2.0.10, bubbles v2.2.1 and lipgloss v2.0.6.
+' tcell v2.6.0 and go-fuzzyfinder stay until the last importer moves; the
+' delivery plan removes them in W10 (B9).
+'
+' ── THE PINS (B0) ──────────────────────────────────────────────────────────
+'   charm.land/bubbletea/v2  v2.1.1
+'   charm.land/bubbles/v2    v2.2.1
+'   charm.land/lipgloss/v2   v2.1.0
+' EXPLICIT VERSIONS, NEVER @latest. MEASURED: `go get …@latest` moved the go
+' directive and switched the toolchain without a word. lipgloss v2.1.0 needs
+' go 1.26.7, which is why go.mod's directive reads `go 1.26.7` and the
+' toolchain pin moved to 1.26.10 first (toolchain-provisioning.puml). The
+' Executor chose that over pinning lipgloss v2.0.6: "Bump Go to 1.26.7+".
+' WHAT THE PINS DRAGGED ALONG, MEASURED from `go get`'s own output:
+'   upgraded  go-runewidth v0.0.16 -> v0.0.30 (a direct dependency: ui and
+'             choiceui measure text with it), go-colorful v1.2.0 -> v1.4.1,
+'             golang.org/x/sys v0.46.0 -> v0.47.0, x/sync v0.13.0 -> v0.22.0
+'   added     ultraviolet (an untagged pseudo-version), colorprofile,
+'             x/ansi, x/term, x/termios, x/windows, displaywidth, uax29,
+'             cancelreader v0.2.2, xo/terminfo
+' The unit suites of ui, choiceui, ptyproxy, agentio and cmd/proveo passed
+' under the upgraded width library, and all eight release targets still build.
+' [Inference] No visible width changed. The suites compare rendered text; no
+' terminal was looked at for this.
+' A TEST HOLDS THE PINS, because a later `go get` of any Charm module can move
+' all three. It checks the resolved build list and the literal go.mod lines.
+'
+' Pinned by internal/contract/tui_stack_pins_test.go:
+'   TestTheTUIStackResolvesToItsPinnedVersions
+'   TestGoModNamesTheTUIStackVersionsExplicitly
+
+component "go.mod\nthree explicit versions" as MOD <<app>>
+component "the contract test\nresolved list + literal lines" as PIN <<app>>
+component """go get …@latest""\n**moves the toolchain silently**" as DRIFT <<error>>
+component "bubbletea v2.1.1\nthe event loop" as TEA <<cloud>>
+component "lipgloss v2.1.0\nthe drawing · needs go 1.26.7" as LIP <<cloud>>
+component "bubbles v2.2.1\ntree · textinput · viewport · list" as BUB <<cloud>>
+
+MOD ARROW_MAIN TEA
+MOD ARROW_MAIN LIP
+MOD ARROW_MAIN BUB
+PIN ARROW_MAIN MOD : holds
+DRIFT ARROW_ERROR MOD : what the test refuses
+
+note bottom of PIN
+  **Three modules move together.** A ""go get""
+  of one Charm module can raise the other
+  two. The test names all three versions, so
+  a drift fails before it ships.
+end note
+
+note bottom of LIP
+  **The one that set the toolchain.** v2.1.0
+  needs go 1.26.7. The Executor chose the
+  bump over an older lipgloss, so go.mod and
+  mise.toml moved to 1.26.10 first.
+end note
+
+note bottom of BUB
+  **No form, radio, checkbox or button.**
+  bubbles ships none of the four. proveo's
+  form and its button row stay proveo's own
+  models, drawn with lipgloss.
+end note
+@enduml

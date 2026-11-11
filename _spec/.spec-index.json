@@ -925,6 +925,14 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/choiceui/tui-stack.puml",
+      "covers": [
+        "go.mod",
+        "internal/contract/tui_stack_pins_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/choiceui/viewport.puml",
       "covers": [
         "internal/choiceui/viewport.go",

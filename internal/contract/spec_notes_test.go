@@ -87,6 +87,7 @@ var specNotesEnforced = []string{
 	"_spec/_plans/tui-upgrades-delivery.puml",
 	"_spec/_devops/unit-baseline.puml",
 	"_spec/internal/backend/teardown.puml",
+	"_spec/internal/choiceui/tui-stack.puml",
 }
 
 const (
