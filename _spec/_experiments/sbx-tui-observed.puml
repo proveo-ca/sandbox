@@ -1,0 +1,190 @@
+@startsalt
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how sbx's own dashboard, modals and controls look and behave, recorded so proveo can borrow the vocabulary
+' status: observed 2026-11-10 on sbx v0.50.0 (30d023c), darwin/arm64; a record, not a contract.
+'   what proveo takes from it ...... _spec/_plans/wizard-upgrades.puml
+'   the Ctrl+C half ................ _spec/_plans/tui-responsiveness.puml
+'   proveo's own resolved layout ... _spec/internal/choiceui/wireframe.puml
+'
+' ── HOW THIS WAS RECORDED ──────────────────────────────────────────────────
+' `sbx tui` ran in a detached tmux pane, 150x50. Each screen was captured twice:
+' `tmux capture-pane -p` for the text and `-e -p` for the SGR runs. Colours are
+' the 24-bit values sbx emits with TERM=xterm-256color, COLORTERM=truecolor and
+' TMUX unset. Inside tmux it downsamples to the 256-colour palette.
+' Raw captures are not committed: they hold host names and paths from live
+' sandboxes.
+' NOT PRESSED, on purpose: `s` (start/stop), `r` (remove), `Enter` (attach) and
+' `x` (shell). Three sandboxes held live sessions. The stop and remove
+' confirmations are therefore not recorded.
+' [Unverified] Whether `s` and `r` ask before acting.
+' `a` and `b` (allow / block a host) and `t` (theme) were not pressed either:
+' they change policy or a saved setting.
+'
+' ── THE STACK ──────────────────────────────────────────────────────────────
+' MEASURED with `go version -m $(command -v sbx)`: charm.land/bubbletea/v2
+' v2.0.10, lipgloss/v2 v2.0.6, bubbles/v2 v2.2.1, glamour/v2 v2.0.1,
+' charmbracelet/ultraviolet, charmbracelet/colorprofile v0.4.3,
+' muesli/cancelreader v0.2.2, spf13/cobra v1.10.2, x/term v0.46.0.
+'
+' ── THE PALETTE ────────────────────────────────────────────────────────────
+'   #e5f2fc  bold  the app name, the active tab, a key in the footer, a
+'                  selected card's name, the mnemonic letter of "exec"
+'   #c0c0c0  bold  a modal's question, a selected list item
+'   #808080        every description: footer words, inactive tabs, stats, dates
+'   #7aa2f7        the focused panel's border, the cursor ▸, the step chip text
+'   #5c648f        an unfocused panel's border; #484c5e and darker under a modal
+'   #7dcfff  bold  the split bar between panels (on #282d42); "info"
+'   #b083ea  bold  a chip: the card's "Sandbox" tag, "All sandboxes ▾" (on #39304a)
+'   #e0af68        attention: "stop", a stopped card's ■ and state, the !§ badge
+'   #f7768e        destructive or blocked: "remove", "block", "● 0 blocked"
+'   #9ece6a        healthy: "● 39 allowed", "Allowed"
+'   #282d42  bg    an unselected button, a badge, the step chip
+'   #7aa2f7  bg    the SELECTED button, with #000000 bold text
+'
+' ── THE MNEMONIC LETTER ────────────────────────────────────────────────────
+' A card's action row reads "stop  exec  remove  info". On the SELECTED card one
+' letter per word is bold and bright, and the rest of the word is the same hue
+' dimmed:
+'   s  bold #e0af68   top    #a17d4a
+'   x  bold #e5f2fc   e, ec  #a4aeb5     the letter sits mid-word
+'   r  bold #f7768e   emove  #b15466
+'   i  bold #7dcfff   nfo    #5995b7
+' The bold letter IS the key. On every other card the row is one dim colour
+' with no bold letter, so only the card that would act shows keys.
+' An inline row action uses the same device: the selected log row carries
+' "block" with a bold red b.
+' TABS DO NOT USE IT. The active tab is bold #e5f2fc, the others #808080, and
+' with the panel unfocused all three are grey. ← and → move between them.
+'
+' ── THE FOOTER IS CONTEXTUAL ───────────────────────────────────────────────
+' One line, bottom-left, version bottom-right. A key is bold #e5f2fc and its
+' word is #808080, two spaces between pairs. The pairs change with focus:
+'   sandboxes   ^c quit  ↑/↓/←/→/Tab navigate  Enter run  c create  n network
+'   network log ^c quit  ↑/↓/←/→/Tab navigate  / search  o status  n network  f filesystem
+'   net rules   ^c quit  ↑/↓/←/→/Tab navigate  / search  o type  a add rule  r remove resource  …
+'   searching   Esc cancel  Enter apply
+'   full screen ^c quit  ↑/↓/←/→/Tab navigate  / search  s sandbox  o status  Esc back
+' The same letter means different things by panel: `r` removes a sandbox on the
+' left and refreshes data on the right; `s` stops a sandbox on the left and
+' opens the sandbox filter on the right.
+'
+' ── MODALS ─────────────────────────────────────────────────────────────────
+' A centred box with a #6b75a8 border, a ✕ top-right, a bold grey title, and a
+' rule under it. The dashboard stays drawn behind it with its borders dimmed.
+'   exit      Ctrl+C opens it. "No ↵" is selected. ←/→ move the selection and
+'             the ↵ glyph follows it. Esc closes. A second Ctrl+C quits, status
+'             0. Sandboxes are untouched.
+'   create    A stepped wizard. The chip reads 1/2 and becomes 2/3 once "Local"
+'             is chosen: the count follows the answers. "Next ↵" sits
+'             bottom-right as the selected button. Esc steps BACK one page and
+'             closes only from page 1. A list scrolls behind a bar on its right
+'             edge.
+'   settings  Label left, value right as a badge. "Theme (t)" names its key in
+'             the label. One "Close" button.
+'   info      Titled sections with a rule drawn to the box edge: Identity,
+'             Mounts, Ports, Resources, Network. "↑/↓ scroll  Esc close".
+'   help      Ctrl+h or ?. Titled by the view ("Split View — Keyboard
+'             Shortcuts"), grouped Global / Navigation / Actions / Mouse, and
+'             the groups change with the focused panel.
+' A full-screen view (n, f) grows a "❮ esc" cell at the left of the header bar
+' and adds "Esc back" to the footer.
+' Docs: "At selection and text prompts, Enter accepts the default. Ctrl-D
+' cancels the prompt." (docs.docker.com/ai/sandboxes/usage/)
+title sbx v0.50.0 — the dashboard, its modals and its controls, as observed
+
+{
+{+
+  {
+    Docker Sandboxes | <color:#808080>Run coding agents in isolated environments safely | <color:#808080>(Ctrl+s) ⚙
+  }
+  ==split view — sandboxes panel focused
+  {
+    {^"Sandbox"
+      ● <b>claude-a1b2c3</b> | <color:#e0af68>!§
+      <b>claude</b> | <color:#7aa2f7>↵</color> <color:#808080>run
+      <color:#808080>~~/code/monorepo | .
+      <color:#808080>14c · 23.8GB · 7GB · 4h26m | .
+      <color:#e0af68><b>s</b></color><color:#a17d4a>top</color>  <color:#a4aeb5>e</color><b>x</b><color:#a4aeb5>ec</color>  <color:#f7768e><b>r</b></color><color:#b15466>emove</color>  <color:#7dcfff><b>i</b></color><color:#5995b7>nfo</color> | .
+    } | {
+      <b>claude-a1b2c3</b>
+      <color:#808080>Network Log (39)    Network Rules (2)    Filesystem Rules (2)
+      --
+      <color:#808080>39 total</color>  <color:#9ece6a>● 39 allowed</color>  <color:#f7768e>● 0 blocked
+      <color:#808080>Date ↑ | Host | Hits | Status
+      <color:#9ece6a>●</color> 10 Nov, 17:03 | <b>api.anthropic.com</b>  <color:#f7768e><b>b</b></color><color:#b15466>lock</color> | 106 | <color:#9ece6a><b>Allowed
+      <color:#9ece6a>●</color> 10 Nov, 15:47 | <color:#808080>api.github.com | <color:#808080>99 | <color:#9ece6a><b>Allowed
+    }
+  }
+  --
+  <b>^c</b> <color:#808080>quit</color>  <b>↑/↓/←/→/Tab</b> <color:#808080>navigate</color>  <b>Enter</b> <color:#808080>run</color>  <b>c</b> <color:#808080>create</color>  <b>n</b> <color:#808080>network</color> | <color:#808080>v0.50.0
+}
+{
+{^"1 · exit — Ctrl+C asks once, quits on the second"
+  . | <b><color:#808080>Exit</color></b> | ✕
+  --
+  . | <b>Do you want to exit?</b> | .
+  . | <back:#7aa2f7><color:#000000><b> No ↵ </b></color></back>   <back:#282d42><b> Yes </b></back> | .
+  .
+  The safe answer is selected.
+  ←/→ move it; ↵ follows.
+  Esc closes. Ctrl+C again quits, 0.
+}
+{^"2 · create — a stepped wizard, page 1"
+  <b>Create Sandbox</b> | <back:#282d42><color:#7aa2f7><b> 1/2 </b></color></back> | ✕
+  <color:#808080>Where should this run? | . | .
+  --
+  <b>Available targets</b> | . | .
+  <color:#7aa2f7><b>▸</b></color> <b>☁  Cloud   (logged in)</b> | . | .
+  <color:#808080>  ⌂  Local   (this machine) | . | .
+  --
+  . | . | <back:#7aa2f7><color:#000000><b> Next ↵ </b></color></back>
+}
+{^"3 · create — page 2, after choosing Local"
+  <b>Create Sandbox</b> | <back:#282d42><color:#7aa2f7><b> 2/3 </b></color></back> | ✕
+  <color:#808080>Choose the agent runtime for the sandbox. | . | .
+  --
+  <b>Claude Code</b> | <back:#282d42><color:#7aa2f7><b> Anthropic </b></color></back> | ▐
+  <color:#808080>claude | . | ▐
+  <b>Codex</b> | <back:#282d42><color:#808080><b> OpenAI </b></color></back> | │
+  <color:#808080>codex | . | │
+  --
+  . | . | <back:#7aa2f7><color:#000000><b> Next ↵ </b></color></back>
+  .
+  Esc steps back to page 1; the chip then
+  reads 1/3. Esc on page 1 closes.
+}
+{^"4 · settings — label left, value as a badge"
+  . | <b><color:#808080>Settings</color></b> | ✕
+  --
+  Theme <color:#808080>(t) | . | <back:#282d42><color:#808080><b> Dark </b></color></back>
+  Launch mode | . | <back:#282d42><color:#808080><b> Ask every time </b></color></back>
+  --
+  . | . | <back:#282d42><color:#808080> Close </color></back>
+}
+{^"5 · full screen — a way back in the header"
+  ❮ esc | Docker Sandboxes | <color:#808080>(Ctrl+s) ⚙
+  <back:#39304a><color:#b083ea><b> All sandboxes ▾ </b></color></back> | . | .
+  <b>Network Log (93)</b>  <color:#808080>Network Rules (5)  Filesystem Rules (2) | . | .
+  --
+  <b>^c</b> <color:#808080>quit</color>  <b>/</b> <color:#808080>search</color>  <b>s</b> <color:#808080>sandbox</color>  <b>o</b> <color:#808080>status</color>  <b>Esc</b> <color:#808080>back | . | .
+}
+{^"6 · a log row, expanded with Space"
+  <color:#9ece6a>●</color> 10 Nov, 17:03 | <b>api.anthropic.com</b>  <color:#f7768e><b>b</b></color><color:#b15466>lock</color> | 106  <color:#9ece6a><b>Allowed
+  ..
+  Status: | Allowed | .
+  Host: | api.anthropic.com | .
+  Port: | 443 | .
+  First seen: | 10 Nov, 08:27  allowed | .
+  Hits: | 106 total  106 allowed  0 blocked | .
+}
+}
+}
+
+legend bottom
+  <b>bold bright letter</b> — the key itself, drawn inside the word it triggers
+  <back:#7aa2f7><color:#000000> filled button </color></back> — the answer Enter gives; ↵ sits on it
+  <back:#282d42> dark badge </back> — a value, a step count, an unselected button
+  <color:#808080>grey</color> — every description; a key's word, an inactive tab
+  ✕ — every modal can be closed with Esc
+end legend
+@endsalt
