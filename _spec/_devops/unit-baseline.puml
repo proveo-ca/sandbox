@@ -55,6 +55,9 @@ title The unit baseline — green means no new failing test
 ' a flake rather than a failure. A retry inside the gate would also hide a
 ' test that fails only in the full run's order, so the gate has none.
 ' [Inference] The fixed sleep is the cause; the timing was read, not traced.
+' RE-RECORDED UNDER go1.26.10, 2026-11-10 (delivery plan, B12). The full run
+' failed the same 15 tests; the flake row passed in that run. The list did
+' not change.
 '
 ' Pinned by cmd/proveo-dev/baseline_test.go:
 '   TestFailedTestsKeepsTopLevelFailuresAndTestlessPackages

@@ -1,8 +1,8 @@
-# Go is pinned here and in go.mod (`toolchain go1.26.5`); keep the two byte-equal.
+# Go is pinned here and in go.mod (`toolchain go1.26.10`); keep the two byte-equal.
 # internal/contract TestMiseGoPinMatchesGoModToolchain fails when they drift.
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
 [tools]
-go = "1.26.5"
+go = "1.26.10"
 node = "24"
 pnpm = "10"
 tmux = "3.7b"
