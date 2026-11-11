@@ -1,0 +1,7 @@
+attach> _
+› attach  proveo-claudecode-1b3fcb7f  monorepo · running 2h
+  attach  proveo-hermes-f8781ef6      muse · stopped
+  run     claudecode                  a new sandbox
+  run     hermes                      a new sandbox
+
+↑↓ row · type to narrow · enter choose · esc cancel

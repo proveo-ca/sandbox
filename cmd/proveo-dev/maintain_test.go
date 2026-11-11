@@ -65,3 +65,33 @@ func TestNumberedTargetPickerUsesTheStatusVocabulary(t *testing.T) {
 		}
 	}
 }
+
+func TestTheAllRowAloneOrAmongOthersIsEveryTarget(t *testing.T) {
+	t.Parallel()
+	reg := []maintain.Target{{Name: "base"}, {Name: "hermes"}, {Name: "opencode"}}
+	names := func(ts []maintain.Target) string {
+		var out []string
+		for _, t := range ts {
+			out = append(out, t.Name)
+		}
+		return strings.Join(out, " ")
+	}
+	for _, c := range []struct {
+		name    string
+		idxs    []int
+		want    string
+		wantErr bool
+	}{
+		{"one target", []int{2}, "hermes", false},
+		{"two targets, in list order", []int{1, 3}, "base opencode", false},
+		{"all alone", []int{0}, "base hermes opencode", false},
+		{"all among others", []int{0, 2}, "base hermes opencode", false},
+		{"nothing taken", nil, "", true},
+		{"a row past the list", []int{9}, "", true},
+	} {
+		got, err := targetsAt(reg, c.idxs)
+		if names(got) != c.want || (err != nil) != c.wantErr {
+			t.Errorf("%s: targetsAt = %q, %v; want %q, error %v", c.name, names(got), err, c.want, c.wantErr)
+		}
+	}
+}

@@ -39,7 +39,7 @@ func TestASkippedScopeQuestionTakesTheRepoRootAndSaysSo(t *testing.T) {
 	ui.Default = ui.New(&term)
 	projs := []workspace.Project{{Name: "web", Path: "apps/web"}}
 	asked := false
-	scope, err := chooseScope(scopeRoot, projs, func([]workspace.Project) string { asked = true; return "apps/web" })
+	scope, err := chooseScope(scopeRoot, ScopeAsk{Projects: projs}, func(ScopeAsk) (string, bool) { asked = true; return "apps/web", true })
 	if err != nil || scope != "" {
 		t.Errorf("chooseScope = %q, %v; want the repo root", scope, err)
 	}
@@ -55,13 +55,14 @@ func TestClosingTheScopePickerCancelsTheRun(t *testing.T) {
 	projs := []workspace.Project{{Name: "web", Path: "apps/web"}}
 	for _, c := range []struct {
 		name, picked, want string
-		wantErr            bool
+		closed, wantErr    bool
 	}{
-		{"a project", "apps/web", "apps/web", false},
-		{"the repo root row", "", "", false},
-		{"the picker closed", ScopeCancelled, "", true},
+		{"a project", "apps/web", "apps/web", false, false},
+		{"the repo root row", "", "", false, false},
+		{"the page closed", "", "", true, true},
+		{"the page closed on a project", "apps/web", "", true, true},
 	} {
-		scope, err := chooseScope(scopeAsk, projs, func([]workspace.Project) string { return c.picked })
+		scope, err := chooseScope(scopeAsk, ScopeAsk{Projects: projs}, func(ScopeAsk) (string, bool) { return c.picked, !c.closed })
 		if scope != c.want || (err != nil) != c.wantErr {
 			t.Errorf("%s: chooseScope = %q, %v; want %q, error %v", c.name, scope, err, c.want, c.wantErr)
 		}

@@ -18,6 +18,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/githubaccess"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
@@ -39,7 +40,7 @@ import (
 // Deps are the host- and terminal-bound capabilities a run needs.
 type Deps struct {
 	ManifestFor      func(target string) (manifest.Manifest, error)
-	PickProject      func(projs []workspace.Project) string
+	PickProject      func(ask ScopeAsk) (scope string, ok bool)
 	PromptEnv        func(target string, missing []manifest.EnvVar) map[string]string
 	GitHubTokenEnv   func() string
 	ProvisionConfirm func(question string) bool
@@ -83,13 +84,13 @@ func Do(p Params, d Deps) (err error) {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
 	}
 
-	if err := resolveWorkspace(&rs, &p, d); err != nil {
+	if err := detectWorkspace(&rs, &p); err != nil {
 		return err
 	}
 	if !p.PrintOnly {
 		sandbox.ReconcileResults(results.Dir(StateDir()), rs.Workspace.RepoRoot)
 	}
-	if err := promptChoices(&rs, &p, d); err != nil {
+	if err := choosePages(&rs, &p, d); err != nil {
 		return err
 	}
 	if err := resolveCredentials(&rs, &p, d); err != nil {
@@ -110,8 +111,14 @@ func requireSandbox(p Params, d Deps) error {
 	return nil
 }
 
-// ScopeCancelled is what PickProject returns when the operator closes the picker without choosing.
-const ScopeCancelled = "\x00cancelled"
+// ScopeAsk is what the scope page is asked with.
+type ScopeAsk struct {
+	Target   string
+	RepoRoot string
+	Projects []workspace.Project
+	Picked   string        // the scope an earlier visit chose; "" is the repo root
+	Step     choiceui.Step // the page's place among the run's pages
+}
 
 // scopeChoice is what a monorepo run that named no scope does about it.
 type scopeChoice int
@@ -136,11 +143,11 @@ func scopeGate(p *Params, tty, wizard, scheduled bool) scopeChoice {
 }
 
 // chooseScope resolves the scope of a monorepo run that named none; "" is the repo root.
-func chooseScope(gate scopeChoice, projs []workspace.Project, pick func([]workspace.Project) string) (string, error) {
+func chooseScope(gate scopeChoice, ask ScopeAsk, pick func(ScopeAsk) (string, bool)) (string, error) {
 	switch gate {
 	case scopeAsk:
-		scope := pick(projs)
-		if scope == ScopeCancelled {
+		scope, ok := pick(ask)
+		if !ok {
 			return "", errors.New("cancelled at the scope prompt")
 		}
 		return scope, nil
@@ -151,7 +158,64 @@ func chooseScope(gate scopeChoice, projs []workspace.Project, pick func([]worksp
 	return "", nil
 }
 
-func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
+// errStepBack is the form reporting a step back to the page before it.
+var errStepBack = errors.New("step back")
+
+// formVisit is one visit to the run's form: its place among the pages, and the
+// form an earlier visit stepped back from.
+type formVisit struct {
+	step choiceui.Step
+	left *choiceui.Form
+}
+
+// choosePages walks the run's pages: the scope, then the form. A step back from
+// the form returns to the scope page with the cursor where it was left.
+// SPEC: _spec/internal/run/run-spec.puml
+func choosePages(rs *Spec, p *Params, d Deps) error {
+	gate := scopeGate(p, agentio.IsStdinTTY(), agentio.WizardEnabled(), scheduled())
+	var projs []workspace.Project
+	if strings.Trim(p.Scope, "/") == "" && gate != scopeSilent && rs.Workspace.Scope.IsRepo {
+		projs = workspace.DiscoverProjects(rs.Workspace.RepoRoot)
+	}
+	return walkPages(rs, p, gate, projs, d.PickProject, func(visit *formVisit) error {
+		return promptChoices(rs, p, d, visit)
+	})
+}
+
+// walkPages asks for the scope when projs holds any, applies it, and runs form;
+// each step back starts over from the parameters the pages were entered with.
+func walkPages(rs *Spec, p *Params, gate scopeChoice, projs []workspace.Project,
+	pick func(ScopeAsk) (string, bool), form func(*formVisit) error) error {
+	scope := strings.Trim(p.Scope, "/")
+	base, visit := p.clone(), formVisit{}
+	for {
+		*p = base.clone()
+		if len(projs) > 0 {
+			ask := ScopeAsk{Target: p.Target, RepoRoot: rs.Workspace.RepoRoot, Projects: projs, Picked: scope}
+			if gate == scopeAsk {
+				ask.Step, visit.step = choiceui.Step{At: 1, Of: 2}, choiceui.Step{At: 2, Of: 2}
+			}
+			var err error
+			if scope, err = chooseScope(gate, ask, pick); err != nil {
+				return err
+			}
+		}
+		applyScope(rs, p, scope)
+		err := form(&visit)
+		if errors.Is(err, errStepBack) {
+			continue
+		}
+		if err == nil && scope != "" {
+			ui.Section(ui.SectionScope)
+			ui.Storef("scope: %s", scope)
+		}
+		return err
+	}
+}
+
+// detectWorkspace finds, once, what the run stands on: the access settings, the
+// repository and the output directory.
+func detectWorkspace(rs *Spec, p *Params) error {
 	path, err := githubaccess.Path()
 	if err != nil {
 		return fmt.Errorf("GitHub access settings: %w", err)
@@ -176,19 +240,12 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 
-	rs.Workspace.SubScope = strings.Trim(p.Scope, "/")
-	if gate := scopeGate(p, agentio.IsStdinTTY(), agentio.WizardEnabled(), scheduled()); rs.Workspace.SubScope == "" && gate != scopeSilent && rs.Workspace.Scope.IsRepo {
-		if projs := workspace.DiscoverProjects(rs.Workspace.RepoRoot); len(projs) > 0 {
-			if rs.Workspace.SubScope, err = chooseScope(gate, projs, d.PickProject); err != nil {
-				return err
-			}
-		}
-	}
-	if rs.Workspace.SubScope != "" {
-		ui.Section(ui.SectionScope)
-		ui.Storef("scope: %s", rs.Workspace.SubScope)
-	}
+	return nil
+}
 
+// applyScope points the run at scope: its mount, its env file, and what that file sets.
+func applyScope(rs *Spec, p *Params, scope string) {
+	rs.Workspace.SubScope = scope
 	rs.Workspace.WS = workspace.MountSpec{
 		Workspace: rs.Man.Workspace, OutputDir: p.Output,
 		MountRootDeps: mountRootDeps(os.Getenv),
@@ -232,11 +289,9 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 			p.MiseTrust = mcpOn
 		}
 	}
-
-	return nil
 }
 
-func promptChoices(rs *Spec, p *Params, d Deps) error {
+func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 	var err error
 	rs.Choices.SettingsRoot = proveohome.Root(os.Getenv)
 	rs.Choices.Settings, err = agentsettings.Load(rs.Choices.SettingsRoot)
@@ -268,7 +323,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		return err
 	}
 	if rs.Choices.Promptable && !p.Yes {
-		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot); err != nil {
+		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot, visit); err != nil {
 			return err
 		}
 	}

@@ -10,16 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -92,32 +91,38 @@ func selectTargets(reg []maintain.Target, arg, verb string) ([]maintain.Target, 
 
 func pickTargets(reg []maintain.Target, verb string, in io.Reader, out io.Writer) ([]maintain.Target, error) {
 	if agentio.IsReaderTTY(in) {
-		return fuzzyPickTargets(reg, verb)
+		return listPickTargets(reg, verb)
 	}
 	return pickTargetsNumbered(reg, verb, in, out)
 }
 
-func fuzzyPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, error) {
+// listPickTargets asks for targets on the terminal: tab marks several, row 0 is every target.
+func listPickTargets(reg []maintain.Target, verb string) ([]maintain.Target, error) {
 	labels := make([]string, 0, len(reg)+1)
 	labels = append(labels, "all")
 	for _, t := range reg {
 		labels = append(labels, t.Name)
 	}
-	idxs, err := fuzzyfinder.FindMulti(labels, func(i int) string { return labels[i] },
-		fuzzyfinder.WithPromptString(verb+" [tab=multi]> "))
-	if errors.Is(err, fuzzyfinder.ErrAbort) {
+	idxs, err := (&choiceui.FilterList{Prompt: verb + "> ", Items: labels, Multi: true}).Pick()
+	if errors.Is(err, choiceui.ErrListClosed) {
 		return nil, fmt.Errorf("no target selected")
 	}
 	if err != nil {
 		return nil, err
 	}
-	sort.Ints(idxs)
+	return targetsAt(reg, idxs)
+}
+
+// targetsAt maps the list rows taken to targets; row 0, alone or among others, is every target.
+func targetsAt(reg []maintain.Target, idxs []int) ([]maintain.Target, error) {
 	out := make([]maintain.Target, 0, len(idxs))
 	for _, i := range idxs {
-		if i == 0 { // "all" selected (alone or alongside others) → every target
+		if i == 0 {
 			return reg, nil
 		}
-		out = append(out, reg[i-1])
+		if i > 0 && i <= len(reg) {
+			out = append(out, reg[i-1])
+		}
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("no target selected")

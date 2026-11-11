@@ -1,0 +1,12 @@
+run claudecode — where the agent works
+
+› monorepo  repo root  default
+    ▾ apps
+      api
+      web
+    ▾ packages
+      ui
+
+enter starts the agent at the repo root, with every folder …
+
+↑↓ row · ←→ fold · enter choose · esc cancel · 4 more below

@@ -941,6 +941,22 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/choiceui/scope-tree.puml",
+      "covers": [
+        "internal/choiceui/tree.go",
+        "internal/choiceui/tree_test.go",
+        "internal/choiceui/scope_page.go",
+        "internal/choiceui/scope_page_test.go",
+        "internal/choiceui/filter_list.go",
+        "internal/choiceui/filter_list_test.go",
+        "cmd/proveo/main.go",
+        "cmd/proveo/running.go",
+        "cmd/proveo-dev/maintain.go",
+        "e2e/target_list_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/choiceui/tui-stack.puml",
       "covers": [
         "go.mod",

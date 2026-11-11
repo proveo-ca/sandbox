@@ -8,10 +8,10 @@ import (
 	"os"
 	"os/exec"
 
-	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -21,10 +21,13 @@ var tmuxHasSession = func(name string) bool {
 	return exec.Command("tmux", "has-session", "-t", name).Run() == nil
 }
 
-// pickIndex is the mise-style selector. Tests replace it.
+// pickIndex asks for one row of labels on the terminal. Tests replace it.
 var pickIndex = func(prompt string, labels []string) (int, error) {
-	return fuzzyfinder.Find(labels, func(i int) string { return labels[i] },
-		fuzzyfinder.WithPromptString(prompt))
+	picked, err := (&choiceui.FilterList{Prompt: prompt, Items: labels}).Pick()
+	if err != nil {
+		return -1, err
+	}
+	return picked[0], nil
 }
 
 // menuChoice is one row in a run or attach picker.
@@ -132,7 +135,7 @@ func choiceLabels(choices []menuChoice) []string {
 
 func offer(choices []menuChoice, prompt, abort string) (menuChoice, error) {
 	idx, err := pickIndex(prompt, choiceLabels(choices))
-	if errors.Is(err, fuzzyfinder.ErrAbort) {
+	if errors.Is(err, choiceui.ErrListClosed) {
 		return menuChoice{}, fmt.Errorf("%s", abort)
 	}
 	if err != nil {

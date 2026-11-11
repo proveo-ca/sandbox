@@ -13,12 +13,12 @@ import (
 	"strconv"
 	"strings"
 
-	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 
 	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -410,33 +410,40 @@ func onPath(dir string) bool {
 	return false
 }
 
-func pickProject(projs []workspace.Project, in io.Reader, out io.Writer) string {
+// pickProject asks for the run's scope; ok is false when the operator closed the page.
+func pickProject(ask run.ScopeAsk, in io.Reader, out io.Writer) (scope string, ok bool) {
 	if agentio.IsReaderTTY(in) {
-		return fuzzyPickProject(projs)
+		return scopePageAnswer(scopePage(ask).Run())
 	}
-	return pickProjectNumbered(projs, in, out)
+	return pickProjectNumbered(ask.Projects, in, out), true
 }
 
-func fuzzyPickProject(projs []workspace.Project) string {
-	labels := make([]string, 0, len(projs)+1)
-	labels = append(labels, "<repo root>")
-	for _, p := range projs {
-		labels = append(labels, p.Path)
+// scopePage is the folder tree a monorepo run opens on.
+// SPEC: _spec/internal/choiceui/scope-tree.puml
+func scopePage(ask run.ScopeAsk) *choiceui.ScopePage {
+	paths := make([]string, len(ask.Projects))
+	for i, p := range ask.Projects {
+		paths[i] = p.Path
 	}
-	idx, err := fuzzyfinder.Find(labels, func(i int) string { return labels[i] },
-		fuzzyfinder.WithPromptString("scope> "))
-	return pickedScope(projs, idx, err)
+	tree := choiceui.NewTree(paths)
+	tree.Place(ask.Picked)
+	return &choiceui.ScopePage{
+		Banner: choiceui.Banner(),
+		Title:  fmt.Sprintf("run %s — where the agent works", ask.Target),
+		Root:   filepath.Base(ask.RepoRoot),
+		Tree:   tree,
+		Step:   ask.Step,
+		Glyphs: posture.GlyphModeFrom(os.Getenv),
+	}
 }
 
-// pickedScope maps the picker's answer to a scope: a closed picker cancels, row 0 is the repo root.
-func pickedScope(projs []workspace.Project, idx int, err error) string {
-	switch {
-	case errors.Is(err, fuzzyfinder.ErrAbort):
-		return run.ScopeCancelled
-	case err != nil || idx <= 0 || idx > len(projs):
-		return ""
+// scopePageAnswer maps the page's end to a scope: a page that could not draw keeps the repo root.
+func scopePageAnswer(scope string, out choiceui.Outcome, err error) (string, bool) {
+	if err != nil {
+		ui.Warnf("%v — keeping the repo root", err)
+		return "", true
 	}
-	return projs[idx-1].Path
+	return scope, out == choiceui.Accepted
 }
 
 func pickProjectNumbered(projs []workspace.Project, in io.Reader, out io.Writer) string {
@@ -468,7 +475,7 @@ func sortedKeys(m map[string]string) []string {
 func runDeps() run.Deps {
 	return run.Deps{
 		ManifestFor: manifestForTarget,
-		PickProject: func(projs []workspace.Project) string { return pickProject(projs, os.Stdin, os.Stderr) },
+		PickProject: func(ask run.ScopeAsk) (string, bool) { return pickProject(ask, os.Stdin, os.Stderr) },
 		PromptEnv: func(target string, missing []manifest.EnvVar) map[string]string {
 			return promptEnv(target, missing, os.Stdin, os.Stderr, termSecret)
 		},

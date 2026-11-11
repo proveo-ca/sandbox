@@ -89,6 +89,7 @@ var specNotesEnforced = []string{
 	"_spec/internal/backend/teardown.puml",
 	"_spec/internal/choiceui/tui-stack.puml",
 	"_spec/internal/choiceui/confirm-dialogs.puml",
+	"_spec/internal/choiceui/scope-tree.puml",
 	"_spec/internal/results/result-store.puml",
 	"_spec/internal/promptkit/prompt-kit.puml",
 }

@@ -1,0 +1,8 @@
+build which images
+
+build> _
+  [x] base
+  [x] claudecode
+› [ ] codex
+
+↑↓ row · tab mark · enter choose · esc cancel · 2 more below

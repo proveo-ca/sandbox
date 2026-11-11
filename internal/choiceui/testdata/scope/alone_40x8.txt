@@ -1,0 +1,8 @@
+run claudecode — where the agent works
+
+› monorepo  repo root  default
+    ▾ apps
+
+enter starts the agent at the repo root…
+
+enter choose · esc cancel · 8 more below

@@ -1,0 +1,208 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title The scope page and the filter list — a folder tree with the root first, and one list for every other pick
+' purpose: how a monorepo run asks where the agent works, and what replaced the three go-fuzzyfinder pickers
+' covers: internal/choiceui/tree.go
+' covers: internal/choiceui/tree_test.go
+' covers: internal/choiceui/scope_page.go
+' covers: internal/choiceui/scope_page_test.go
+' covers: internal/choiceui/filter_list.go
+' covers: internal/choiceui/filter_list_test.go
+' covers: cmd/proveo/main.go (pickProject, scopePage, scopePageAnswer)
+' covers: cmd/proveo/running.go (pickIndex, offer)
+' covers: cmd/proveo-dev/maintain.go (listPickTargets, targetsAt)
+' covers: e2e/target_list_test.go
+'   why the picker became a tree ..... _spec/_plans/wizard-upgrades.puml (W1, W2, D6)
+'   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W10)
+'   when a run shows the page ........ _spec/internal/run/run-spec.puml
+'   the stack it draws with .......... _spec/internal/choiceui/tui-stack.puml
+'   the key line it shares ........... _spec/internal/choiceui/wireframe.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT IT REPLACES ───────────────────────────────────────────────────────
+' go-fuzzyfinder had three call sites: the monorepo scope (a flat list under
+' "scope> "), the run and attach list, and proveo-dev's multi-select. The
+' scope list did not mark the root as the default, and it was a different
+' program from the form, so the choice could not be revisited.
+' The Executor, D6: "Every run, Enter keeps root".
+'
+' ── THE TREE IS A PURE MODEL (W-c) ─────────────────────────────────────────
+' Tree (tree.go) holds folders, folds, a filter and a cursor. It imports no
+' terminal library, so every rule below is a unit test.
+'   THE ROOT IS ROW 0 AND THE CURSOR STARTS ON IT. Enter alone keeps the
+'   answer a run took before the page existed.
+'   FOLDERS DERIVE FROM THE PROJECT PATHS. NewTree takes each
+'   workspace.Project.Path and adds every folder above it. Siblings sort by
+'   name.
+'   FOLD closes the cursor's folder. On a closed folder or a leaf it steps to
+'   the folder above, so one key walks up the tree. The root never folds.
+'   A FILTER KEEPS THE ROOT. It shows the paths that hold the text, and the
+'   folders above them, and sees through folds. The cursor goes to the first
+'   match unless it is on one; with no match it returns to the root.
+'   MEASURED: the first version kept the cursor on the root under a filter,
+'   so "/worker" then Enter chose the root. A unit test caught it.
+'   Clearing the filter keeps the cursor and opens the folders above it.
+'   PLACE puts the cursor on a path and opens what hides it. A step back from
+'   the form uses it, so the page reopens where it was left.
+' NOT A TOOL COLUMN: internal/workspace/discover.go gives every project in a
+' repository the same Tool.
+' EVERY FOLDER IS A SCOPE, NOT ONLY A PROJECT. The old list offered the root
+' and the projects. The tree also offers the folders between: `apps` when
+' the projects are `apps/web` and `apps/api`.
+' [Inference] That is safe because --scope already takes any path under the
+' repository and the run joins it to the root unchecked. No run was started
+' from a folder that is not a project.
+'
+' ── THE PAGE (W-f) ─────────────────────────────────────────────────────────
+' ScopePage (scope_page.go) is a Bubble Tea model over the tree. It draws
+' through the same screen, canvas and pen as the form.
+'   the banner            when the terminal holds it and the whole tree
+'   the title             "run <target> — where the agent works", and a chip
+'                         "scope · 1/2" at the right when it is one of two
+'   "/ <text>"            only while a filter is open or set
+'   the tree              a window that follows the cursor
+'   one sentence          where Enter starts the agent
+'   the key line          two-tone, narrowed by KEEP rank like the form's
+' A leaf's name starts in the column a sibling folder's fold mark does.
+' MEASURED: with the name one step further right, `tools` read as a child of
+' the folder above it.
+' The root row reads "<repository>  repo root  default".
+' A folded folder says how many given paths it hides: "2 inside".
+' The fold marks are U+25BE and U+25B8; under the ASCII glyph tier, - and +.
+' THE ENTER WORD IS "choose", NOT "accept". e2e's acceptChoicePrompt waits
+' for "enter accept" and presses Enter; on this page that would take the root
+' without anyone reading the tree. A unit test and an e2e both refuse the
+' string on this page.
+' KEYS. ↑↓ PgUp PgDn Home End move. ← folds, → opens. "/" opens the filter;
+' typing then narrows, Backspace on an empty filter closes it, Esc clears it.
+' Enter chooses the cursor's row. Esc with no filter cancels, as Ctrl+C does.
+' Esc means two things here on purpose: clear, then cancel.
+' UNDER ITS FLOOR (7 rows, 8 with a filter) the page says so, names what
+' Enter keeps, and takes only Enter, Esc and Ctrl+C.
+' Golden frames: internal/choiceui/testdata/scope/, 24 files (six states at
+' four sizes).
+'
+' ── THE FILTER LIST (B8) ───────────────────────────────────────────────────
+' FilterList (filter_list.go) is the one list for the other two pickers.
+' Typing narrows at once, as the finder did. Enter takes the cursor's row.
+' With Multi, Tab marks a row and moves down; Enter takes every marked row
+' in list order, or the cursor's row when none is marked.
+' A ROW MATCHES WHEN IT HOLDS EVERY TYPED WORD, case ignored. The finder
+' matched a subsequence of letters; this is stricter.
+' [Inference] No operator relied on subsequence matching for lists of about
+' ten harness names. Nobody was asked.
+' A mark survives a filter that hides its row.
+' Under its floor the list only cancels: Enter must not choose a row nobody
+' can see.
+' Pick() returns ErrListClosed for Esc, so each caller words its own refusal:
+' "no target selected", "no task selected".
+' proveo-dev's row 0 is "all": alone or among others it means every target.
+' Golden frames: internal/choiceui/testdata/list/, 9 files.
+'
+' ── THE LIBRARIES LEFT (B9) ────────────────────────────────────────────────
+' go.mod lost tcell, go-fuzzyfinder and the four modules only they required:
+' gdamore/encoding, go-ansisgr, termbox-go and pkg/errors. go.sum lost 13
+' lines. The lines were removed by hand: `go mod tidy` would also drop
+' martian, x/net, x/text and the bubbles pin, which this change does not own.
+' A contract test reads every import and go.mod for the three library names.
+'
+' ── WHAT RAN ───────────────────────────────────────────────────────────────
+' macOS, tmux: the scope page opens, Esc cancels with status 1; three rows
+' down and Enter opens the form as page 2/2; shift+tab returns to the page on
+' the same row; Home and Enter reopen the form; Esc ends the run and no
+' scope line prints. A bare `proveo run` lists its targets, narrows on
+' typing and ends with "no target selected" on Esc.
+' linux/arm64, tmux: the list test passed twice. The two scope tests SKIP
+' there: the container has no sbx, and the run refuses before the page.
+' NOT RUN: proveo-dev's multi-select on a terminal. Its mapping is unit
+' tested; the list it uses is the one the tmux test drives.
+'
+' Pinned by internal/choiceui/tree_test.go:
+'   TestTheRootIsTheFirstRowAndTheCursorStartsOnIt
+'   TestFoldingHidesAFoldersRowsAndCountsThem
+'   TestFoldOnALeafOrAClosedFolderStepsToTheFolderAbove
+'   TestPlaceOpensTheFoldersAboveAndRefusesAnUnknownPath
+'   TestAFilterKeepsTheRootTheMatchesAndTheFoldersAboveThem
+'   TestAFilterPutsTheCursorOnItsFirstMatch
+'   TestClearingAFilterKeepsTheCursorAndOpensTheFoldersAboveIt
+' Pinned by internal/choiceui/scope_page_test.go:
+'   TestEnterAloneKeepsTheRepoRoot
+'   TestTheScopePagesKeys
+'   TestTheRootRowIsMarkedDefaultAndTheLineUnderTheTreeFollowsTheCursor
+'   TestAShortTerminalScrollsTheTreeAndKeepsTheCursorAndTheFoot
+'   TestBelowItsFloorTheScopePageSaysSoAndStillLeaves
+'   TestTheScopePageMatchesItsGoldenFrames
+' Pinned by internal/choiceui/filter_list_test.go:
+'   TestTheFilterListsKeys
+'   TestAShortTerminalScrollsTheListAndATinyOneOnlyCancels
+'   TestTheFilterListMatchesItsGoldenFrames
+' Pinned by cmd/proveo/main_test.go:
+'   TestAClosedScopePageCancelsAndAPageThatCannotDrawKeepsTheRepoRoot
+'   TestTheScopePageOpensOnTheRepoRootOrWhereAnEarlierVisitLeftIt
+' Pinned by cmd/proveo-dev/maintain_test.go:
+'   TestTheAllRowAloneOrAmongOthersIsEveryTarget
+' Pinned by internal/contract/tui_ratchets_test.go:
+'   TestTheRetiredTUILibrariesStayOut
+' Pinned by e2e: TestEscInTheScopePageCancelsTheRun,
+'   TestTheFormStepsBackToTheScopePageWhereItWasLeft,
+'   TestABareRunListsItsTargetsNarrowsOnTypingAndCancelsOnEsc
+
+component "project paths\nworkspace.DiscoverProjects" as PROJ <<data>>
+component "Tree\nfolds · filter · cursor" as TREE <<app>>
+component "the root row\nrow 0 · default · the cursor starts here" as ROOT <<host>>
+component "ScopePage\npage 1 of a monorepo run" as PAGE <<app>>
+component "the form\npage 2 · shift+tab steps back" as FORM <<app>>
+component "FilterList\nrun · attach · proveo-dev targets" as LIST <<app>>
+component "go-fuzzyfinder · tcell\n**gone from go.mod**" as GONE <<error>>
+
+PROJ ARROW_MAIN TREE : every folder above each path
+TREE ARROW_MAIN ROOT
+TREE ARROW_MAIN PAGE
+PAGE ARROW_MAIN FORM : Enter
+FORM ARROW_OPTIONAL PAGE : a step back, same row
+GONE ARROW_ERROR PAGE : replaced by
+GONE ARROW_ERROR LIST : replaced by
+
+note bottom of ROOT
+  **Enter alone keeps the old answer.** The
+  root is the first row, marked default, and
+  the cursor starts on it. A run that only
+  presses Enter works on the whole repository.
+end note
+
+note bottom of TREE
+  **A filter moves the cursor to its match.**
+  The root stays on screen under a filter. A
+  cursor left on it would make "/web" then
+  Enter choose the root.
+end note
+
+note bottom of PAGE
+  **It never says "enter accept".** The e2e
+  helpers wait for those words and press
+  Enter. Here that would take the root, so
+  the page says "enter choose".
+end note
+
+note bottom of FORM
+  **A step back keeps both pages.** The scope
+  page reopens on the row it was left on, and
+  the form gets its earlier answers back where
+  the options are the same.
+end note
+
+note bottom of LIST
+  **Every typed word must be in the row.** The
+  finder matched a subsequence of letters. A
+  list of harness names needs less, and a
+  stricter match is easier to predict.
+end note
+
+note bottom of GONE
+  **Removed by hand, not by tidy.** A tidy
+  would also drop four lines this change does
+  not own. A contract test now fails on any
+  import or go.mod line that names them.
+end note
+@enduml

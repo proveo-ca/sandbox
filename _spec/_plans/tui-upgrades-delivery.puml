@@ -263,6 +263,33 @@ skinparam noteTextAlignment left
 '     Reasoning: _spec/internal/choiceui/tui-stack.puml (THE FORMS),
 '     _spec/internal/choiceui/wireframe.puml (the two-tone key line),
 '     _spec/internal/choiceui/topology-strip.puml (the clock is a message).
+' W10 DONE 2026-11-11, W-c, W-d, W-f, B8 and B9 in one commit.
+'     The scope page is a folder tree with the repo root first, marked
+'     default, under the cursor. It is page 1/2 of a monorepo run; the form
+'     is page 2/2 and steps back to it, onto the row it was left on.
+'     ONE COMMIT, NOT FIVE: the tree model has no caller without the page,
+'     the page has no caller without the split, and the libraries cannot
+'     leave while any picker imports them.
+'     DECIDED HERE, NOT IN THE PLAN, FOR THE EXECUTOR TO JUDGE:
+'       every folder is a scope, not only a project (`apps`, beside
+'       `apps/web`). --scope already took any path.
+'       a filter moves the cursor to its first match. Left on the root,
+'       "/web" then Enter chose the root.
+'       the form's answers survive a step back where the options match.
+'       the scope line prints after the pages, not before the form.
+'       the list matches every typed word; the finder matched a subsequence.
+'     go.mod lost six modules and go.sum 13 lines, by hand. A tidy would also
+'     drop martian, x/net, x/text and the bubbles pin.
+'     RAN: lint 0; the 16-row baseline; both builds; on macOS tmux the two
+'     scope tests, the target-list test, the form-with-stdout-redirected
+'     test, the Ctrl+C pin, an init pin, and the clone e2e on a real
+'     sandbox; on linux/arm64 the unit suites, six init pins, two dialog
+'     pins and the list test, twice each.
+'     SKIPPED ON LINUX: the two scope tests and the redirected-form test.
+'     The container has no sbx, and a run refuses before its first page.
+'     NOT RUN: proveo-dev's multi-select on a terminal; a hand trial.
+'     Reasoning: _spec/internal/choiceui/scope-tree.puml,
+'     _spec/internal/run/run-spec.puml (THE SCOPE IS PAGE 1).
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

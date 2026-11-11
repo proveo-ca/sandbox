@@ -1,0 +1,8 @@
+run claudecode — where the agent works
+
+      ui
+›   ▸ services  1 inside
+
+enter starts the agent in services
+
+enter choose · esc cancel · 1 more below

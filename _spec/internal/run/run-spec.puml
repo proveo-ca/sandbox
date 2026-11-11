@@ -6,7 +6,7 @@ skinparam noteTextAlignment left
 ' covers: internal/run/run.go
 ' covers: internal/run/**
 ' covers: cmd/proveo/golden_test.go
-' covers: cmd/proveo/main.go (pickProject, fuzzyPickProject, pickedScope)
+' covers: cmd/proveo/main.go (pickProject, scopePage, scopePageAnswer)
 ' covers: e2e/scope_picker_test.go
 '   why there is one backend ... _spec/internal/sbx/sandbox-backend.puml
 '
@@ -37,14 +37,58 @@ skinparam noteTextAlignment left
 ' back to the repo root.
 ' MEASURED on a real terminal (tmux), 2026-11-10: before the change proveo was
 ' still running 30s after Esc; after it, it printed the line and exited 1.
-' WRITTEN TWICE BY CHOICE: W10 (delivery plan, W-f) replaces fuzzyPickProject
-' with the tree page. The sentinel and the gate stay.
+' WRITTEN TWICE BY CHOICE, AND NOW REPLACED: on 2026-11-11 the tree page took
+' fuzzyPickProject's place (the next section). The gate stays; the sentinel
+' went.
 ' Pinned by internal/run/scope_gate_test.go:
 '   TestTheScopeGateAsksOnlyAHeadedRunThatWasNotToldYes
 '   TestASkippedScopeQuestionTakesTheRepoRootAndSaysSo
 '   TestClosingTheScopePickerCancelsTheRun
-' by cmd/proveo/main_test.go: TestAClosedScopePickerCancelsAndRowZeroIsTheRepoRoot
-' and by e2e/scope_picker_test.go: TestEscInTheScopePickerCancelsTheRun
+' by cmd/proveo/main_test.go:
+'   TestAClosedScopePageCancelsAndAPageThatCannotDrawKeepsTheRepoRoot
+' and by e2e/scope_picker_test.go: TestEscInTheScopePageCancelsTheRun
+'
+' ── 2026-11-11: THE SCOPE IS PAGE 1, AND THE FORM STEPS BACK TO IT (W-d) ───
+' resolveWorkspace did two jobs: it found the repository, and it applied a
+' scope to it. The second ran once, before the form, so a scope could not be
+' revisited. It is now two functions and a loop.
+'   detectWorkspace  once: the GitHub access settings, the repository, the
+'                    output directory
+'   applyScope       per visit: the mount, the env file, and what that file
+'                    sets (evidence, MCP, mise trust)
+'   choosePages      the scope page, applyScope, the form; again after each
+'                    step back
+' The page itself: _spec/internal/choiceui/scope-tree.puml.
+' A STEP BACK STARTS OVER FROM A COPY. The form's stage changes Params before
+' it draws: the cache seed, the add-on flags, the capabilities. choosePages
+' clones Params on entry and restores the clone before each visit, so a
+' second visit sees what the first one saw. clone copies every slice and map.
+' THE FORM'S ANSWERS SURVIVE THE ROUND TRIP. The form that stepped back goes
+' to the next visit, and Form.Adopt copies its answers into every row that
+' offers the same options. A locked row, and an option the new scope greys
+' out, keep the new form's own answer. The env file depends on the scope, so
+' the auth row can differ between two visits.
+' THE SCOPE LINE PRINTS ONCE, AFTER THE PAGES. It printed before the form.
+' Inside the loop it would repeat on each step back.
+' THE PAGES ARE NUMBERED ONLY WHEN BOTH SHOW. A run that asks no scope
+' question (--scope, no project found, --yes) draws the form with no page
+' and no way back, as before.
+' NOT HOISTED: the form's own lookups (dev ports, Android apps, SSH keys)
+' run again on each visit. The plan's "a step back re-runs no detection"
+' holds for the repository and the project list only.
+' THE SENTINEL IS GONE. PickProject returns (scope, ok); a closed page is
+' ok = false. A page that cannot open the terminal keeps the repo root and
+' says so, as a finder failure did.
+' Pinned by internal/run/pages_test.go:
+'   TestAStepBackReturnsToTheScopePageWhereItWasLeft
+'   TestClosingTheScopePageEndsThePagesBeforeTheForm
+'   TestARunWithNoScopeQuestionShowsTheFormAloneAndCannotStepBack
+'   TestAFormErrorEndsThePages
+'   TestACloneSharesNoSliceOrMapWithItsOriginal
+' by internal/choiceui/choiceui_test.go:
+'   TestAdoptCarriesAnswersToRowsThatOfferTheSameOptions
+' and by e2e/scope_picker_test.go:
+'   TestTheFormStepsBackToTheScopePageWhereItWasLeft
 '
 ' ── 2026-10-16: ONE BACKEND, ONE INPUT ─────────────────────────────────────
 ' The docker+egress backend is deleted ("Retire Docker egress"; "Refuse without
@@ -163,7 +207,7 @@ participant "sandbox.Input" as SBX <<cloud>>
 
 CMD ARROW_MAIN DO : Params (flags) + Deps (terminal, gh, docker)
 DO ARROW_ERROR DO : requireSandbox — refuse unless sbx is ready
-DO ARROW_MAIN SPEC : resolveWorkspace · promptChoices · resolveCredentials
+DO ARROW_MAIN SPEC : detectWorkspace · choosePages · resolveCredentials
 DO ARROW_MAIN SPEC : buildPosture · assembleEnv
 SPEC ARROW_QUEUE SBX : launchSandbox
 
@@ -176,7 +220,7 @@ end note
 note over SPEC
   **One gate for the scope question.** ""--yes""
   and the scheduler take the repo root and
-  print ""scope: repo root"". Esc in the picker
+  print ""scope: repo root"". Esc on the page
   cancels the run; it no longer means root.
 end note
 

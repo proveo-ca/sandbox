@@ -4,47 +4,43 @@ package contract_test
 import (
 	"go/ast"
 	"go/token"
-	"slices"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// retiringImporters lists every Go file that still imports a TUI library the port
-// removes. A row leaves when its file stops importing; no row is ever added.
-var retiringImporters = map[string][]string{
-	"github.com/gdamore/tcell/v2": {},
-	"github.com/ktr0731/go-fuzzyfinder": {
-		"cmd/proveo-dev/maintain.go",
-		"cmd/proveo/main.go",
-		"cmd/proveo/main_test.go",
-		"cmd/proveo/running.go",
-		"cmd/proveo/running_test.go",
-	},
+// retiredTUILibraries are the modules the Bubble Tea port removed. None may return.
+var retiredTUILibraries = []string{
+	"github.com/gdamore/tcell",
+	"github.com/ktr0731/go-fuzzyfinder",
+	"github.com/nsf/termbox-go",
 }
 
-func TestTheRetiringTUILibrariesGainNoImporter(t *testing.T) {
+func TestTheRetiredTUILibrariesStayOut(t *testing.T) {
 	t.Parallel()
-	got := map[string][]string{}
+	root := repoRoot(t)
 	for _, dir := range []string{"cmd", "internal", "e2e"} {
-		walkGoFiles(t, repoRoot(t), dir, func(rel string, file *ast.File, _ *token.FileSet) {
+		walkGoFiles(t, root, dir, func(rel string, file *ast.File, _ *token.FileSet) {
 			for _, imp := range file.Imports {
 				path := strings.Trim(imp.Path.Value, `"`)
-				if _, retiring := retiringImporters[path]; retiring {
-					got[path] = append(got[path], rel)
+				for _, lib := range retiredTUILibraries {
+					if strings.HasPrefix(path, lib) {
+						t.Errorf("%s imports %s; the port removed that library, so draw with Bubble Tea and lipgloss", rel, path)
+					}
 				}
 			}
 		})
 	}
-	for lib, listed := range retiringImporters {
-		for _, file := range got[lib] {
-			if !slices.Contains(listed, file) {
-				t.Errorf("%s is a new importer of %s; the port removes that library, so draw with Bubble Tea and lipgloss", file, lib)
-			}
-		}
-		for _, file := range listed {
-			if !slices.Contains(got[lib], file) {
-				t.Errorf("%s no longer imports %s; delete its row so the list only shrinks", file, lib)
+	mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(mod), "\n") {
+		for _, lib := range retiredTUILibraries {
+			if strings.Contains(line, lib) {
+				t.Errorf("go.mod requires %s again: %s", lib, strings.TrimSpace(line))
 			}
 		}
 	}

@@ -1,0 +1,20 @@
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+run claudecode — where the agent works                               scope · 1/2
+
+  / bill_
+  monorepo  repo root  default
+    ▾ services
+›     ▾ billing
+        worker
+
+enter starts the agent in services/billing
+
+page 1/2 · ↑↓ row · type to narrow · enter choose · esc clear

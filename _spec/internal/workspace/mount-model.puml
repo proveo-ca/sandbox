@@ -93,17 +93,18 @@ note right of PICK
   — would otherwise block forever on a keypress nobody is there to press:
   a PTY //passes// the TTY check, so the TTY check alone is not enough.
 
-  **Two pickers behind one call.** On a real TTY ""pickProject"" shows an
-  fzf-style arrow-key + type-to-filter finder; when its reader is a pipe or
-  a test's ""strings\.Reader"" it falls back to a numbered prompt driven by
-  that reader. The fallback is not a downgrade for looks: the fuzzy finder
-  reads ""/dev/tty"" directly and so escapes any injected reader, which is
-  exactly what would make tests and CI non-hermetic.
+  **Two pickers behind one call.** On a real TTY ""pickProject"" shows the
+  scope page, a folder tree (_spec/internal/choiceui/scope-tree.puml); when
+  its reader is a pipe or a test's ""strings\.Reader"" it falls back to a
+  numbered prompt driven by that reader. The fallback is not a downgrade for
+  looks: the page reads ""/dev/tty"" directly and so escapes any injected
+  reader, which is exactly what would make tests and CI non-hermetic.
 
-  **Anything unresolved means the repo root.** Entry 0 is ""<repo root>"", and
-  Esc/Ctrl-C (""ErrAbort""), a finder failure, and any invalid or empty
-  numbered input all resolve to the empty scope — the whole repo, never a
-  half-chosen subdirectory. Whether stdin counts as a terminal is one
+  **Anything unresolved means the repo root.** The root is the first row. A
+  page that cannot draw, and any invalid or empty numbered input, resolve to
+  the empty scope — the whole repo, never a half-chosen subdirectory. Esc and
+  Ctrl-C cancel the run instead (_spec/internal/run/run-spec.puml).
+  Whether stdin counts as a terminal is one
   shared ioctl check, described in
   ""_spec/internal/choiceui/choice-prompt-render\.puml"".
 end note

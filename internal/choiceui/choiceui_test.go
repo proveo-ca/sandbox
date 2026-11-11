@@ -859,3 +859,52 @@ func TestARadioSetDrawsRadiosBesideCheckboxes(t *testing.T) {
 		}
 	}
 }
+
+func TestAdoptCarriesAnswersToRowsThatOfferTheSameOptions(t *testing.T) {
+	t.Parallel()
+	rows := func() []Row {
+		return []Row{
+			{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}},
+			{Label: "interface", Options: []string{"tui", "browser"}, Multi: true, On: []bool{true, false}},
+			{Label: "auth", Options: []string{"usage", "subscription"}},
+			{Label: "mcp", Options: []string{"on", "off"}, Locked: true},
+			{Label: "key", Field: true},
+			{Label: "ports", Options: []string{"forward"}, Multi: true, On: []bool{false},
+				More: &More{Options: []string{"3000", "5173"}, On: []bool{true, true}}},
+		}
+	}
+	prev := &Form{Rows: rows()}
+	prev.Rows[0].Selected = 2
+	prev.Rows[1].On = []bool{false, true}
+	prev.Rows[2].Selected = 1
+	prev.Rows[3].Selected = 1
+	prev.Rows[4].Value = "typed"
+	prev.Rows[5].More.On = []bool{false, true}
+
+	next := &Form{Rows: rows()}
+	next.Rows[2].Off = []bool{false, true} // subscription is greyed out now
+	next.Rows = append(next.Rows, Row{Label: "new", Options: []string{"a", "b"}})
+	next.Rows[0].Options = []string{"allow-all", "deny-all"} // the row offers something else now
+	next.Adopt(prev)
+
+	if next.Rows[0].Selected != 0 {
+		t.Errorf("a row whose options changed took the old answer: %d", next.Rows[0].Selected)
+	}
+	if on := next.Rows[1].On; on[0] || !on[1] {
+		t.Errorf("the checkbox answers were not carried: %v", on)
+	}
+	if next.Rows[2].Selected != 0 {
+		t.Errorf("an answer the new form greys out was carried: %d", next.Rows[2].Selected)
+	}
+	if next.Rows[3].Selected != 0 {
+		t.Errorf("a locked row took the old answer: %d", next.Rows[3].Selected)
+	}
+	if next.Rows[4].Value != "typed" {
+		t.Errorf("the field's text was not carried: %q", next.Rows[4].Value)
+	}
+	if on := next.Rows[5].More.On; on[0] || !on[1] {
+		t.Errorf("the list's ticks were not carried: %v", on)
+	}
+	next.Adopt(nil)
+	(&Form{}).Adopt(prev)
+}

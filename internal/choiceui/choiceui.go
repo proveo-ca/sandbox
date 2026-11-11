@@ -313,6 +313,52 @@ func (f *Form) Selection(label string) string {
 	return ""
 }
 
+// Adopt copies the answers of prev into every row of f that offers the same
+// options; a locked row and an option f greys out keep f's own answer.
+func (f *Form) Adopt(prev *Form) {
+	if prev == nil {
+		return
+	}
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		at := slices.IndexFunc(prev.Rows, func(o Row) bool {
+			return o.Label == r.Label && o.Field == r.Field && slices.Equal(o.Options, r.Options)
+		})
+		if at < 0 || r.Locked {
+			continue
+		}
+		was := prev.Rows[at]
+		if r.Field {
+			r.Value = was.Value
+			continue
+		}
+		if !r.offAt(was.Selected) {
+			r.Selected = was.Selected
+		}
+		for j := range r.On {
+			if j < len(was.On) && !r.offAt(j) {
+				r.On[j] = was.On[j]
+			}
+		}
+		r.More.adopt(was.More)
+		for cell, m := range r.Lists {
+			m.adopt(was.Lists[cell])
+		}
+	}
+}
+
+// adopt copies the ticks of prev when both lists offer the same entries.
+func (m *More) adopt(prev *More) {
+	if m == nil || prev == nil || m.ReadOnly || !slices.Equal(m.Options, prev.Options) {
+		return
+	}
+	for i := range m.On {
+		if i < len(prev.On) && !m.offAt(i) {
+			m.On[i] = prev.On[i]
+		}
+	}
+}
+
 func (f *Form) Run() (confirmed bool, err error) {
 	out, err := f.RunStep()
 	return out == Accepted, err
@@ -830,6 +876,11 @@ func (f *Form) hintParts(w, hidden int) []hintPart {
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
+	return narrowed(parts, w)
+}
+
+// narrowed drops the lowest-kept segment, again and again, until the line fits w or one is left.
+func narrowed(parts []hintPart, w int) []hintPart {
 	for len([]rune(joinHint(parts))) > w && len(parts) > 1 {
 		low := 0
 		for i, p := range parts {
@@ -855,14 +906,19 @@ func (f *Form) hint(w, hidden int) string {
 	return clip(joinHint(f.hintParts(w, hidden)), w)
 }
 
-// drawHint paints the key line in two tones: each key bold and bright, its word grey.
+// drawHint paints the form's key line.
 func (f *Form) drawHint(c *canvas, p palette, w, hidden int) {
+	paintHint(c, p, f.hintParts(w, hidden), w)
+}
+
+// paintHint paints a key line in two tones, cut to w: each key bold and bright, its word grey.
+func paintHint(c *canvas, p palette, parts []hintPart, w int) {
 	type piece struct {
 		st   lipgloss.Style
 		text string
 	}
 	var pieces []piece
-	for i, part := range f.hintParts(w, hidden) {
+	for i, part := range parts {
 		if i > 0 {
 			pieces = append(pieces, piece{p.word, hintJoin})
 		}
@@ -877,7 +933,7 @@ func (f *Form) drawHint(c *canvas, p palette, w, hidden int) {
 			pieces = append(pieces, piece{p.word, word})
 		}
 	}
-	left := []rune(f.hint(w, hidden))
+	left := []rune(clip(joinHint(parts), w))
 	x := 0
 	for _, pc := range pieces {
 		n := min(len([]rune(pc.text)), len(left))

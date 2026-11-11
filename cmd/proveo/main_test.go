@@ -4,6 +4,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,16 +14,16 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/ktr0731/go-fuzzyfinder"
-
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -47,32 +48,49 @@ func TestPickProject(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := pickProject(projs, strings.NewReader(tc.input), &strings.Builder{})
-			if got != tc.want {
+			got, ok := pickProject(run.ScopeAsk{Projects: projs}, strings.NewReader(tc.input), &strings.Builder{})
+			if got != tc.want || !ok {
 				t.Errorf("pickProject(input=%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestAClosedScopePickerCancelsAndRowZeroIsTheRepoRoot(t *testing.T) {
+func TestAClosedScopePageCancelsAndAPageThatCannotDrawKeepsTheRepoRoot(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		scope string
+		out   choiceui.Outcome
+		err   error
+		want  string
+		ok    bool
+	}{
+		{"the repo root row", "", choiceui.Accepted, nil, "", true},
+		{"a project", "packages/util", choiceui.Accepted, nil, "packages/util", true},
+		{"the page closed with Esc", "", choiceui.Cancelled, nil, "", false},
+		{"no terminal to draw on", "", choiceui.Cancelled, errors.New("no terminal"), "", true},
+	} {
+		prev := ui.Default
+		ui.Default = ui.New(io.Discard)
+		got, ok := scopePageAnswer(c.scope, c.out, c.err)
+		ui.Default = prev
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: scopePageAnswer = %q, %v; want %q, %v", c.name, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestTheScopePageOpensOnTheRepoRootOrWhereAnEarlierVisitLeftIt(t *testing.T) {
 	t.Parallel()
 	projs := []workspace.Project{{Name: "web", Path: "apps/web"}, {Name: "util", Path: "packages/util"}}
-	for _, c := range []struct {
-		name string
-		idx  int
-		err  error
-		want string
-	}{
-		{"the repo root row", 0, nil, ""},
-		{"a project", 2, nil, "packages/util"},
-		{"the picker closed with Esc", -1, fuzzyfinder.ErrAbort, run.ScopeCancelled},
-		{"the finder failed", 0, errors.New("no terminal"), ""},
-		{"a row past the list", 9, nil, ""},
-	} {
-		if got := pickedScope(projs, c.idx, c.err); got != c.want {
-			t.Errorf("%s: pickedScope = %q, want %q", c.name, got, c.want)
-		}
+	page := scopePage(run.ScopeAsk{Target: "claudecode", RepoRoot: "/work/monorepo", Projects: projs,
+		Step: choiceui.Step{At: 1, Of: 2}})
+	if page.Tree.At() != "" || page.Root != "monorepo" || !strings.Contains(page.Title, "claudecode") {
+		t.Errorf("a first visit: cursor %q, root %q, title %q", page.Tree.At(), page.Root, page.Title)
+	}
+	page = scopePage(run.ScopeAsk{RepoRoot: "/work/monorepo", Projects: projs, Picked: "packages/util"})
+	if page.Tree.At() != "packages/util" {
+		t.Errorf("a return visit opens on %q, want packages/util", page.Tree.At())
 	}
 }
 

@@ -3,6 +3,7 @@ package run
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -39,6 +40,19 @@ type Params struct {
 	Apps                                                                  []devports.AndroidApp
 	discoveredApps                                                        []devports.AndroidApp
 	appsAsked                                                             bool // the form drew the apps row
+}
+
+// clone copies p deeply enough that a later page cannot change the original.
+func (p Params) clone() Params {
+	p.Addons = slices.Clone(p.Addons)
+	p.Extra = slices.Clone(p.Extra)
+	p.Ports = slices.Clone(p.Ports)
+	p.discovered = slices.Clone(p.discovered)
+	p.Apps = slices.Clone(p.Apps)
+	p.discoveredApps = slices.Clone(p.discoveredApps)
+	p.Roles = maps.Clone(p.Roles)
+	p.RolesRemembered = maps.Clone(p.RolesRemembered)
+	return p
 }
 
 // CredentialModes are the --credentials values: forward puts the key in the sandbox env, broker leaves it with sbx's proxy.

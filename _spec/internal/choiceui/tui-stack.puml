@@ -18,16 +18,15 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' This file grows as the port lands. Landed so far, all 2026-11-10: B0 (the
 ' pins), B2 (the proxy hosts a Program), B3 (the Ctrl+C dialog), B4 and B5
 ' (the tcell overlay and modal are deleted). On 2026-11-11: B11, B6, B7 and
-' W-e (the forms).
+' W-e (the forms), then B8 and B9 (the pickers; the old libraries left).
 '
 ' ── WHY BUBBLE TEA v2 ──────────────────────────────────────────────────────
 ' The Executor, 2026-11-10: "Port everything to Bubble Tea v2" (D3), and for
 ' the drawing: "Rewrite the views in lipgloss" (D9). The stated reference is
 ' sbx's own TUI. MEASURED with `go version -m` on sbx 0.50.0: it embeds
 ' bubbletea v2.0.10, bubbles v2.2.1 and lipgloss v2.0.6.
-' No proveo file imports tcell since the forms moved (W9). go.mod still
-' requires tcell v2.6.0 because go-fuzzyfinder does; the delivery plan removes
-' both in W10 (B9).
+' No proveo file imports tcell since the forms moved (W9). Both libraries
+' left go.mod on 2026-11-11 (W10, B9): _spec/internal/choiceui/scope-tree.puml.
 '
 ' ── THE PINS (B0) ──────────────────────────────────────────────────────────
 '   charm.land/bubbletea/v2  v2.1.1
@@ -130,17 +129,19 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' Pinned by e2e/form_tty_test.go:
 '   TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected
 '
-' ── THE OLD LIBRARIES ONLY LOSE IMPORTERS (G4) ─────────────────────────────
-' tcell and go-fuzzyfinder leave when their last importer moves (delivery
-' plan, B9). Until then a contract test lists every importing file: 34 for
-' tcell and 5 for go-fuzzyfinder when it landed, 18 and 5 after W5 deleted
-' the overlay and the modal, 0 and 5 after W9. A file outside the list fails
-' the test; so does a listed file that stopped importing, which keeps the
-' list exact while it shrinks.
+' ── THE OLD LIBRARIES STAY OUT (G4, then B9) ───────────────────────────────
+' While the port ran, a contract test listed every file that imported tcell
+' or go-fuzzyfinder: 34 and 5 when it landed, 18 and 5 after W5 deleted the
+' overlay and the modal, 0 and 5 after W9. A file outside the list failed
+' it; so did a listed file that had stopped importing, which kept the list
+' exact while it shrank.
+' W10 moved the last five and removed both modules. The test now fails on
+' any import, and any go.mod line, that names tcell, go-fuzzyfinder or
+' termbox-go.
 ' The same file holds G5: a row in the glyph ban's exemption list whose file
 ' is gone, or holds no banned rune any more, fails.
 ' Pinned by internal/contract/tui_ratchets_test.go:
-'   TestTheRetiringTUILibrariesGainNoImporter
+'   TestTheRetiredTUILibrariesStayOut
 '   TestEveryGlyphBanExemptionStillShieldsABannedRune
 '
 ' Pinned by internal/contract/tea_envmsg_test.go:

@@ -1,0 +1,11 @@
+build which images
+
+build> _
+  [ ] all
+  [x] base
+  [x] claudecode
+› [ ] codex
+  [ ] hermes
+  [ ] opencode
+
+↑↓ row · type to narrow · tab mark · enter choose · esc cancel

@@ -6,8 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
-
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
@@ -27,7 +26,7 @@ func TestOfferReturnsThePickedRow(t *testing.T) {
 func TestOfferAbortNamesTheCommand(t *testing.T) {
 	orig := pickIndex
 	t.Cleanup(func() { pickIndex = orig })
-	pickIndex = func(string, []string) (int, error) { return 0, fuzzyfinder.ErrAbort }
+	pickIndex = func(string, []string) (int, error) { return -1, choiceui.ErrListClosed }
 	_, err := offer([]menuChoice{{Name: "a"}}, "attach> ", "no task selected")
 	if err == nil || err.Error() != "no task selected" {
 		t.Fatalf("abort: %v", err)
