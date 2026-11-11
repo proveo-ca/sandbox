@@ -256,8 +256,11 @@ type Form struct {
 	StartOption string // option the cursor opens on within StartRow
 	Step        Step   // place in a sequence of screens; the zero value is a lone form
 	Skip        string // label of a focusable button under the rows; Enter on it is Skipped
-	scroll      int
-	onSkip      bool // the cursor is on the Skip button
+	// OnEnter names what accepting the form runs, in order, for the answers as they stand.
+	// SPEC: _spec/internal/choiceui/wireframe.puml
+	OnEnter func(*Form) []string
+	scroll  int
+	onSkip  bool // the cursor is on the Skip button
 }
 
 // Step is screen At of Of; Esc leaves a screen past the first as Back.
@@ -894,6 +897,49 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 			}
 		}
 	}
+	switch lay.strip {
+	case stripDigest:
+		c.y++
+	case stripBlock:
+		c.y += stripRows
+	}
+	f.drawOnEnter(c, p, w, h)
+}
+
+// onEnter is what accepting the form runs; nothing while the Skip button is focused.
+func (f *Form) onEnter() []string {
+	if f.OnEnter == nil || f.onSkip {
+		return nil
+	}
+	return f.OnEnter(f)
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// drawOnEnter lists what Enter runs in the rows left under every other region.
+// With too few rows the list ends on a count of what it left out.
+func (f *Form) drawOnEnter(c *canvas, p palette, w, h int) {
+	steps := f.onEnter()
+	room := h - c.y - 2 // a blank, then the heading
+	if len(steps) == 0 || room < 1 {
+		return
+	}
+	c.y++
+	c.put(0, p.accent, clip("on enter", w))
+	for i, text := range steps {
+		c.y++
+		if i == room-1 && len(steps) > room {
+			c.put(2, p.idle, clip(fmt.Sprintf("… and %d more", len(steps)-i), w-2))
+			return
+		}
+		c.put(2, p.idle, fmt.Sprintf("%d", i+1))
+		c.put(5, p.body, clip(text, w-5))
+	}
 }
 
 const hintScroll = "pgup/pgdn scroll"
@@ -949,7 +995,11 @@ func (f *Form) hintParts(w, hidden int) []hintPart {
 	if f.Step.backable() {
 		esc = hintPart{"esc", "back", 6}
 	}
-	parts = append(parts, enter, esc)
+	parts = append(parts, enter)
+	if n := len(f.onEnter()); n > 0 {
+		parts = append(parts, hintPart{"", plural(n, "step"), 3})
+	}
+	parts = append(parts, esc)
 	if f.Step.wizard() {
 		parts = append(parts, hintPart{"ctrl+c", "quit", 2})
 	}

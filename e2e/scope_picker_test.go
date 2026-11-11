@@ -108,7 +108,7 @@ func TestTheFormStepsBackToTheScopePageWhereItWasLeft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the form never followed the scope page: %v\n%s", err, tail(screen, 45))
 	}
-	for _, want := range []string{"page 2/2", "esc back", "ctrl+c quit", "confirm or change this run"} {
+	for _, want := range []string{"page 2/2", "esc back", "ctrl+c quit", "confirm or change this run", "enter accept · 3 steps"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the form lacks %q\n%s", want, tail(screen, 45))
 		}

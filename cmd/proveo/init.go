@@ -100,7 +100,7 @@ func doInit(o initOptions) error {
 	var prev *initDecisions
 	viaPackage := false
 	setup := func(at choiceui.Step) (stepResult, error) {
-		d, err := decide(plan, host, installed, checks, o, prev, at)
+		d, err := decide(plan, host, installed, checks, o, prev, viaPackage, at)
 		if err != nil {
 			return stepNext, err
 		}
@@ -133,9 +133,6 @@ func doInit(o initOptions) error {
 			}
 			ui.Section(ui.SectionStarting)
 			ui.Appf("installing the distro package — it will ask for your password")
-			if err := installPackage(*plan.Packaged, download); err != nil {
-				return stepNext, err
-			}
 		default:
 			ui.Section(ui.SectionStarting)
 			if installed != "" {
@@ -143,12 +140,9 @@ func doInit(o initOptions) error {
 			} else if why != "" {
 				ui.Appf("installing sbx: %s", why)
 			}
-			if err := install(plan, download); err != nil {
-				return stepNext, err
-			}
 		}
 
-		if err := finish(resolveBin(applied), applied, d, host); err != nil {
+		if err := runApply(applyPlan(d, applyCtx{plan: plan, applied: applied, download: download, host: host})); err != nil {
 			return stepNext, err
 		}
 		installed, why = installedVersion(applied)
@@ -310,14 +304,14 @@ func printPlan(plan sbx.Plan, installed string) {
 	}
 }
 
-func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, at choiceui.Step) (initDecisions, error) {
+func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
 	if o.yes || !interactiveTerminal() {
 		d := carried(defaultDecisions(plan, installed, o), prev)
 		ui.Section(ui.SectionStarting)
 		ui.Notef("no prompt (%s) — %s", promptlessBecause(o), describeDecisions(d))
 		return d, nil
 	}
-	return askDecisions(plan, host, installed, checks, o, prev, at)
+	return askDecisions(plan, host, installed, checks, o, prev, viaPackage, at)
 }
 
 func promptlessBecause(o initOptions) string {
@@ -329,72 +323,6 @@ func promptlessBecause(o initOptions) string {
 
 func interactiveTerminal() bool {
 	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stderr)
-}
-
-func installPackage(p sbx.Packaged, download string) error {
-	dest := filepath.Join(download, p.Asset)
-	ui.Appf("downloading %s", p.Asset)
-	sum, err := fetch(p.URL, dest)
-	if err != nil {
-		return err
-	}
-	ui.Notef("sha256 %s (no published digest covers this asset)", sum)
-
-	c := exec.Command(p.Argv[0], p.Argv[1:]...)
-	c.Dir = download
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stderr, os.Stderr
-	if err := c.Run(); err != nil {
-		return fmt.Errorf("%s: %w", strings.Join(p.Argv, " "), err)
-	}
-	return nil
-}
-
-func install(plan sbx.Plan, download string) error {
-	if err := prefixWritable(plan.Prefix); err != nil {
-		return err
-	}
-	dest := filepath.Join(download, plan.Asset)
-	ui.Appf("downloading %s", plan.Asset)
-	sum, err := fetch(plan.URL, dest)
-	if err != nil {
-		return err
-	}
-
-	if plan.Provenance != nil {
-		want, err := publishedDigest(*plan.Provenance)
-		if err != nil {
-			return err
-		}
-		if sum != want {
-			return fmt.Errorf("%s does not match the digest published for %s: got %s, want %s",
-				plan.Asset, plan.Provenance.Subject, sum, want)
-		}
-		ui.Okf("sha256 %s — matches the release's provenance", sum)
-	} else {
-		ui.Notef("sha256 %s (no published digest covers this asset)", sum)
-	}
-
-	for _, s := range plan.Steps {
-		ui.Appf("%s", s.What)
-		c := exec.Command(s.Argv[0], s.Argv[1:]...)
-		c.Dir = s.Dir
-		if c.Dir == "" {
-			c.Dir = download
-		}
-		c.Env = append(os.Environ(), s.Env...)
-		c.Stdout, c.Stderr = os.Stderr, os.Stderr
-		if err := c.Run(); err != nil {
-			return fmt.Errorf("%s (%s): %w", s.What, strings.Join(s.Argv, " "), err)
-		}
-	}
-
-	if plan.Bin != "" {
-		if _, err := os.Stat(plan.Bin); err != nil {
-			return fmt.Errorf("the installer reported success but %s is not there: %w", plan.Bin, err)
-		}
-		ui.Okf("installed %s", plan.Bin)
-	}
-	return nil
 }
 
 func prefixWritable(prefix string) error {
@@ -486,57 +414,6 @@ func sbxPathDir(plan sbx.Plan) string {
 		return ""
 	}
 	return filepath.Dir(plan.Bin)
-}
-
-func finish(bin string, plan sbx.Plan, d initDecisions, host sbx.Host) error {
-	if dir := sbxPathDir(plan); dir != "" {
-		ensureSbxOnPath(dir, d.AddPath)
-	}
-
-	if d.Login {
-		ui.Section(ui.SectionCredentials)
-		ui.Hostf("signing in to Docker — `%s login` owns this, and proveo never sees the credential", sbx.Binary)
-		if err := interactive(bin, sbx.LoginArgs()); err != nil {
-			return fmt.Errorf("sbx login: %w", err)
-		}
-	}
-
-	if d.Wizard {
-		ui.Section(ui.SectionStarting)
-		ui.Appf("running the first-run wizard (`%s setup`) — 0.42 stopped opening it on its own", sbx.Binary)
-		if err := interactive(bin, sbx.SetupArgs()); err != nil {
-			ui.Warnf("`%s setup` did not complete (%v) — run it yourself if a sandbox misbehaves", sbx.Binary, err)
-		}
-	}
-
-	if d.Baseline != "" {
-		ui.Section(ui.SectionEgress)
-		ui.Appf("binding the host-wide network baseline: `%s %s`", sbx.Binary,
-			strings.Join(sbx.PolicyInitArgs(d.Baseline), " "))
-		if err := interactive(bin, sbx.PolicyInitArgs(d.Baseline)); err != nil {
-			ui.Warnf("the baseline was not changed (%v) — `%s %s` by hand", err, sbx.Binary,
-				strings.Join(sbx.PolicyInitArgs(d.Baseline), " "))
-		}
-	}
-
-	if d.Git {
-		applyGitIdentity(hostGitStage())
-	}
-	if d.Prompt {
-		applyPromptKit(!d.NoPrompt && interactiveTerminal())
-	}
-	if d.Gh {
-		applyGitHub(ghStage{
-			auth:      hostGhAuth(),
-			host:      host,
-			run:       runArgv,
-			secretSet: func(name, value string) error { return secretSetAt(bin, name, value) },
-			tty:       !d.NoPrompt && interactiveTerminal(),
-			access:    func() { applyGitHubAccess(bin, !d.NoPrompt && interactiveTerminal()) },
-		})
-	}
-
-	return verify(bin)
 }
 
 func ensureSbxOnPath(dir string, write bool) {

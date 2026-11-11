@@ -164,8 +164,25 @@ var errStepBack = errors.New("step back")
 // formVisit is one visit to the run's form: its place among the pages, and the
 // form an earlier visit stepped back from.
 type formVisit struct {
-	step choiceui.Step
-	left *choiceui.Form
+	step    choiceui.Step
+	left    *choiceui.Form
+	onEnter func() []string // what accepting the form starts, for the scope this visit has
+}
+
+// runOnEnter names what accepting the run's form starts, in order.
+// SPEC: _spec/internal/run/run-spec.puml
+func runOnEnter(p *Params, ws workspace.MountSpec) []string {
+	var out []string
+	switch on, whyOff, err := decideClone(p, ws); {
+	case err != nil:
+	case on:
+		out = append(out, "clone the repository into a private workspace — the checkout is not written")
+	case whyOff != "":
+		out = append(out, "mount the checkout — the agent edits it directly ("+whyOff+")")
+	default:
+		out = append(out, "mount the checkout — the agent edits it directly (--clone=false)")
+	}
+	return append(out, "create the sandbox, or re-attach to the one this folder left", "start "+p.Target)
 }
 
 // choosePages walks the run's pages: the scope, then the form. A step back from
@@ -178,6 +195,7 @@ func choosePages(rs *Spec, p *Params, d Deps) error {
 		projs = workspace.DiscoverProjects(rs.Workspace.RepoRoot)
 	}
 	return walkPages(rs, p, gate, projs, d.PickProject, func(visit *formVisit) error {
+		visit.onEnter = func() []string { return runOnEnter(p, rs.Workspace.WS) }
 		return promptChoices(rs, p, d, visit)
 	})
 }

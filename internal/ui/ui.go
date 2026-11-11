@@ -138,8 +138,9 @@ type Printer struct {
 	mu             sync.Mutex
 	pending, shown string
 
-	term io.Writer // the terminal alone; nil when W is not one
-	live string    // the live line as drawn; "" when there is none
+	term      io.Writer // the terminal alone; nil when W is not one
+	live      string    // the live line as drawn; "" when there is none
+	suspended int       // holders of SuspendLive; the live line stays off the terminal while any holds
 }
 
 // Section names the concern the following lines belong to, drawn as the
@@ -270,14 +271,14 @@ func (p *Printer) liveFrame(r Role, body string) string {
 
 // eraseLive clears the live line off the terminal ahead of an ordinary line.
 func (p *Printer) eraseLive() {
-	if p.live != "" && p.term != nil {
+	if p.live != "" && p.term != nil && p.suspended == 0 {
 		fmt.Fprint(p.term, "\r\033[K")
 	}
 }
 
 // drawLive puts the live line back as the terminal's last line.
 func (p *Printer) drawLive() {
-	if p.live != "" && p.term != nil {
+	if p.live != "" && p.term != nil && p.suspended == 0 {
 		fmt.Fprint(p.term, "\r"+p.live+"\033[K")
 	}
 }

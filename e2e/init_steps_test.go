@@ -376,3 +376,35 @@ func TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton(t *testing.T) {
 		t.Errorf("a confirmed quit must say where init stopped and exit 1:\n%s", screen)
 	}
 }
+
+// The setup page names what Enter runs; the apply then shows each as a numbered step.
+func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
+	r := startInit(t, 140, "--skip-gh", "--skip-git")
+	screen := r.page(t, 1)
+	for _, want := range []string{"on enter", "sign in to Docker (sbx login)", "run sbx's first-run wizard (sbx setup)",
+		"verify sbx (sbx diagnose)"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("the setup page does not name %q among what Enter runs:\n%s", want, screen)
+		}
+	}
+	if !regexp.MustCompile(`enter accept · \d+ steps`).MatchString(screen) {
+		t.Errorf("the count of steps must follow \"enter accept\":\n%s", screen)
+	}
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	all := r.waitExit(t)
+	for _, want := range []string{"· sign in to Docker (sbx login)", "· run sbx's first-run wizard (sbx setup)"} {
+		if !regexp.MustCompile(`step \d+/\d+ ` + regexp.QuoteMeta(want)).MatchString(all) {
+			t.Errorf("the apply never announced %q as a numbered step:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, "· verify sbx (sbx diagnose)") {
+		t.Errorf("a step that kept the terminal left its live line behind:\n%s", all)
+	}
+	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 1 {
+		t.Errorf("each listed action must run once; sbx saw:\n%s", strings.Join(calls, "\n"))
+	}
+}

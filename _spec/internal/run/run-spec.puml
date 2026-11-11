@@ -76,6 +76,14 @@ skinparam noteTextAlignment left
 ' NOT HOISTED: the form's own lookups (dev ports, Android apps, SSH keys)
 ' run again on each visit. The plan's "a step back re-runs no detection"
 ' holds for the repository and the project list only.
+' THE FORM NAMES WHAT ENTER STARTS (W-j). runOnEnter lists, for the scope the
+' visit has: the workspace (a private clone, or the mounted checkout and
+' why), "create the sandbox, or re-attach to the one this folder left", and
+' "start <target>". The key line counts them.
+' THE SANDBOX'S NAME IS NOT ON THE PAGE, though the plan asked for it. The
+' name is a hash of the first workspace mount, and the mount plan is built
+' after the form, from the form's own answers.
+' Pinned by internal/run/pages_test.go: TestTheRunFormNamesWhatEnterStarts
 ' THE SENTINEL IS GONE. PickProject returns (scope, ok); a closed page is
 ' ok = false. A page that cannot open the terminal keeps the repo root and
 ' says so, as a finder failure did.

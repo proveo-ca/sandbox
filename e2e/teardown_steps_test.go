@@ -13,8 +13,9 @@ import (
 	"time"
 )
 
-// normalTeardownSteps is the top-level step order a run that ends normally logs.
-var normalTeardownSteps = []string{
+// normalRunSteps is the top-level step order a run that creates its sandbox and ends normally logs.
+var normalRunSteps = []string{
+	"workload kit", "stale sandbox check", "sandbox secrets", "create sandbox",
 	"agent",
 	"credential check", "clone mode", "pushed branches", "egress record", "memory evidence",
 	"clone", "resume state", "home config", "remove sandbox",
@@ -67,7 +68,7 @@ func TestStepRowNameReadsARunLogLine(t *testing.T) {
 			t.Errorf("stepRowName(%q) = %q, %v; want %q, %v", c.line, got, ok, c.want, c.ok)
 		}
 	}
-	if !slices.Contains(normalTeardownSteps, "remove sandbox") {
+	if !slices.Contains(normalRunSteps, "remove sandbox") {
 		t.Error("a normal exit's steps do not end in the removal")
 	}
 }

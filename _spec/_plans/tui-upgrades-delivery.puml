@@ -311,6 +311,34 @@ skinparam noteTextAlignment left
 '     macOS.
 '     NOT RUN: a hand trial.
 '     Reasoning: _spec/internal/choiceui/wizard-keys.puml.
+' W12 DONE 2026-11-11, W-j, W-k and W-o in one commit.
+'     The setup page and the run form list what Enter runs; the count
+'     follows "enter accept" as its own segment. init's apply and a run's
+'     start show numbered steps on the renderer teardown uses.
+'     W-o FOUND A DEFECT T6 SHIPPED IN W5. MEASURED on tmux: teardown's live
+'     line drew over the pushed-branch question inside 500 ms. Every prompt
+'     now takes the line off the terminal and puts it back. The new test
+'     fails on the code without that.
+'     DEVIATIONS, FOR THE EXECUTOR TO JUDGE:
+'       "step tables" are step lines. T6 is one live line, and W-k builds
+'       on T6; no table of done, running and pending rows exists.
+'       the sandbox's name is not on the run form. It is derived from the
+'       mount plan, which is built after the form.
+'       the on-enter region draws in the rows left under everything else,
+'       so it moves no other region. On a short terminal only the count
+'       shows.
+'       a run's start wraps the five steps inside sandbox.Run. Image
+'       preflight and the local-model pull before it are not steps.
+'     RAN: lint 0; the 16-row baseline; both builds; eight init tests, two
+'     dialog pins, the list test and the live-line test on macOS and, twice
+'     each, on linux/arm64; on macOS also the scope test, the clone e2e on
+'     a real sandbox with the longer step list, and the Ctrl+C dialog over
+'     a real agent and over the fake sbx.
+'     NOT RUN: an install from the network, so the download and install
+'     steps drew on no terminal; a hand trial.
+'     Reasoning: _spec/internal/ui/step-lines.puml,
+'     _spec/internal/choiceui/wireframe.puml (THE FORM SAYS WHAT ENTER WILL
+'     RUN).
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

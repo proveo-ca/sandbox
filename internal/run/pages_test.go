@@ -153,3 +153,27 @@ func TestACloneSharesNoSliceOrMapWithItsOriginal(t *testing.T) {
 		t.Errorf("cloning nothing made something: %+v", empty)
 	}
 }
+
+func TestTheRunFormNamesWhatEnterStarts(t *testing.T) {
+	t.Parallel()
+	repo := workspace.MountSpec{InputDir: "/work/repo", RepoRoot: "/work/repo"}
+	for _, c := range []struct {
+		name  string
+		p     Params
+		ws    workspace.MountSpec
+		first string
+		n     int
+	}{
+		{"a repository clones", Params{Target: "claudecode", Clone: true}, repo, "clone the repository", 3},
+		{"--clone=false mounts", Params{Target: "claudecode"}, repo, "mount the checkout — the agent edits it directly (--clone=false)", 3},
+		{"no repository mounts and says why", Params{Target: "claudecode", Clone: true},
+			workspace.MountSpec{InputDir: "/work/dir"}, "mount the checkout — the agent edits it directly (not a git repository", 3},
+		{"a --clone that cannot work names no workspace step", Params{Target: "claudecode", Clone: true, CloneSet: true},
+			workspace.MountSpec{InputDir: "/work/dir"}, "create the sandbox", 2},
+	} {
+		got := runOnEnter(&c.p, c.ws)
+		if len(got) != c.n || !strings.HasPrefix(got[0], c.first) || got[len(got)-1] != "start claudecode" {
+			t.Errorf("%s: %q", c.name, got)
+		}
+	}
+}

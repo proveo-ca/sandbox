@@ -95,7 +95,7 @@ func carried(def initDecisions, prev *initDecisions) initDecisions {
 	return out
 }
 
-func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, at choiceui.Step) (initDecisions, error) {
+func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
 	def := carried(defaultDecisions(plan, installed, o), prev)
 
 	form := &choiceui.Form{
@@ -107,6 +107,9 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		Step:   at,
 		Rows:   initRows(plan, installed, def, o),
 	}
+	form.OnEnter = func(f *choiceui.Form) []string {
+		return stepNames(applyPlan(answered(f, def), plannedCtx(plan, host, answered(f, def), viaPackage)))
+	}
 
 	ok, err := form.Run()
 	if err != nil {
@@ -115,7 +118,22 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 	if !ok {
 		return initDecisions{}, fmt.Errorf("cancelled at the init prompt")
 	}
+	return answered(form, def), nil
+}
 
+// plannedCtx is what an apply of d would act on, for naming its steps before any of them runs.
+func plannedCtx(plan sbx.Plan, host sbx.Host, d initDecisions, viaPackage bool) applyCtx {
+	if d.Prefix != plan.Prefix {
+		if alt, err := sbx.PlanFor(host, d.Prefix, ""); err == nil {
+			plan = alt
+		}
+	}
+	via := d.Install == installPackaged || (d.Install == installSkip && viaPackage)
+	return applyCtx{plan: plan, applied: appliedPlan(plan, via), host: host}
+}
+
+// answered is def with every answer the form holds.
+func answered(form *choiceui.Form, def initDecisions) initDecisions {
 	out := def
 	if v := form.Selection(rowInstall); v != "" {
 		out.Install = v
@@ -144,7 +162,7 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 	if v := form.Selection(rowBaseline); v != "" && v != baselineLeave {
 		out.Baseline = v
 	}
-	return out, nil
+	return out
 }
 
 // targetVersion is the sbx this init leaves on the host.

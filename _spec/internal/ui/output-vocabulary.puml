@@ -124,7 +124,9 @@
 ' first caller: its `!p.Plain` test and its three raw writes are gone.
 ' THIS IS ONE LINE, NOT A REGION. Teardown's running step is its second
 ' caller (_spec/internal/backend/teardown.puml, T6): one frame per step,
-' redrawn on a one-second clock.
+' redrawn on a one-second clock. init's apply and a run's start followed,
+' through ui.Steps. SuspendLive takes the line off while a prompt has the
+' terminal: _spec/internal/ui/step-lines.puml.
 ' ui.Fancy() tells a caller whether Default can redraw, so it can print a
 ' plain start line where it cannot. ui.NewTerminal(w, cols) is a Printer that
 ' treats w as a terminal of that width; tests in other packages read frames

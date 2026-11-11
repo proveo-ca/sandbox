@@ -103,8 +103,8 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	if !strings.Contains(screen, "deliverables lifted") {
 		t.Errorf("teardown did not report the lift — the file arrived, but the operator was not told\n%s", screen)
 	}
-	if got := loggedSteps(t, home); !slices.Equal(got, normalTeardownSteps) {
-		t.Errorf("the run log's steps:\n got %v\nwant %v", got, normalTeardownSteps)
+	if got := loggedSteps(t, home); !slices.Equal(got, normalRunSteps) {
+		t.Errorf("the run log's steps:\n got %v\nwant %v", got, normalRunSteps)
 	}
 	if log := readIn(home, filepath.Join("logs", "latest.log")); !strings.Contains(log, "step: remove sandbox (up to 3m2s) started") {
 		t.Errorf("the run log does not say when a step started; a hung step would leave no row\n%s", tail(log, 30))

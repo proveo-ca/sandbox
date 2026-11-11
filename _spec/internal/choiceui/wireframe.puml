@@ -60,6 +60,7 @@
 '   pgup/pgdn scroll      PgUp/PgDn/Home/End already moved the cursor; the
 '                         line never said so
 '   enter accept          "enter skip" while the Skip button is focused
+'   N steps               only when Form.OnEnter names what Enter runs
 '   esc cancel | esc back back when Step.At > 1
 '   ctrl+c quit           only when Step.Of > 1
 '   N more below          when the viewport hides rows (viewport.puml)
@@ -68,7 +69,7 @@
 ' Each segment carries a KEEP rank. Wider than the screen, the line drops the
 ' lowest-ranked segment, again and again (a tie drops the leftmost), and only
 ' when one segment is left does it clip. Display order never changes.
-'   1 pgup/pgdn scroll   2 space toggle, ctrl+c quit   3 ↑↓ row, ←→ choose | ←→ move
+'   1 pgup/pgdn scroll   2 space toggle, ctrl+c quit   3 ↑↓ row, ←→ choose | ←→ move, N steps
 '   4 page n/m, N more below   5 esc cancel   6 esc back
 '   9 enter accept — never dropped
 ' "enter accept" is the e2e anchor (acceptChoicePrompt,
@@ -88,6 +89,27 @@
 ' Pinned by internal/choiceui/step_test.go:
 '   TestTheKeyLinePaintsKeysBoldAndWordsGrey
 '   TestAClippedKeyLineStillEndsWhereThePlainLineEnds
+' THE FORM SAYS WHAT ENTER WILL RUN (2026-11-11, W-j). Form.OnEnter returns
+' the actions Enter runs, in order, for the answers as they stand. Two
+' places show them.
+'   the key line   "N steps" as its own segment right after "enter accept".
+'                  The literal "enter accept" is never widened: it is the e2e
+'                  anchor, and a segment of its own can be dropped while the
+'                  anchor stays.
+'   the region     "on enter", then one numbered line per action, in the rows
+'                  LEFT under every other region.
+' THE REGION TAKES NO ROW FROM ANYTHING. Its height changes with the
+' answers. Budgeted above the key line it would move that line on every
+' keystroke. Drawn last, in leftover rows, it moves nothing: with too few
+' rows it ends on "… and N more", with none it is absent and the count on
+' the key line still says how much Enter runs.
+' While the Skip button is focused Enter runs nothing, so both go.
+' WHO SETS IT: init's setup page, from the plan the apply executes
+' (_spec/internal/ui/step-lines.puml), and the run form, from the clone
+' decision (_spec/internal/run/run-spec.puml).
+' Pinned by internal/choiceui/form_model_test.go:
+'   TestTheCountOfWhatEnterRunsFollowsEnterAcceptAndNeverReplacesIt
+'   TestTheOnEnterRegionFillsOnlyTheRowsLeftAndNeverMovesTheKeyLine
 ' Form.Step{At, Of} places a form in a sequence; the zero value is a lone form.
 ' RunStep returns an Outcome, Accepted | Cancelled | Back, and Run keeps
 ' (bool, error) as RunStep == Accepted. leave() answers the keys that end a

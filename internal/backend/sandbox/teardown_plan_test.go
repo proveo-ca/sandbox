@@ -241,9 +241,9 @@ func TestATerminalGetsALiveLinePerStepAndNoStartLines(t *testing.T) {
 	td, _, _ := quietTeardown(t, false)
 	term := &lockedBuffer{}
 	ui.Default = ui.NewTerminal(term, 120)
-	clock := stepClock
-	t.Cleanup(func() { stepClock = clock })
-	stepClock = 5 * time.Millisecond
+	clock := ui.StepClock
+	t.Cleanup(func() { ui.StepClock = clock })
+	ui.StepClock = 5 * time.Millisecond
 	slow := make(chan struct{})
 	td.commitHome = func() error { <-slow; return nil }
 	done := make(chan struct{})

@@ -91,6 +91,9 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		break
 	}
 	form.Adopt(visit.left)
+	if visit.onEnter != nil {
+		form.OnEnter = func(*choiceui.Form) []string { return visit.onEnter() }
+	}
 	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f)

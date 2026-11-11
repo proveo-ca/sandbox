@@ -1677,13 +1677,19 @@ func Run(in Input) error {
 	} else {
 		cfg.EnvFile, envValues = path, n
 	}
-	kitDir, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files)
-	if err != nil {
+	ui.Section(ui.SectionStarting)
+	start := ui.NewSteps(startSteps)
+	var kitDir string
+	if err := start.Do(stepKit, func() (err error) {
+		kitDir, err = sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files)
+		return err
+	}); err != nil {
 		return err
 	}
-	ui.Section(ui.SectionStarting)
 	receipt := receiptOf(cfg, in.Image, workloadBytes(kitDir), in.Sid, sbx.LocalImageID(in.Image))
-	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
+	if err := start.Hand(stepStale, func() error {
+		return retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf)
+	}); err != nil {
 		return err
 	}
 	launchCfg := reuseOrCreate(cfg, sbx.Exists)
@@ -1697,32 +1703,37 @@ func Run(in Input) error {
 			child.Add(e, in.Lookup)
 		}
 	}
-	for _, kv := range secrets {
-		ui.Section(ui.SectionSecrets)
-		name, kind := credentials.StoreName(kv[0])
-		if name == "" || kind != credentials.StoreAPIKey {
-			continue
+	if err := start.Do(stepSecrets, func() error {
+		for _, kv := range secrets {
+			ui.Section(ui.SectionSecrets)
+			name, kind := credentials.StoreName(kv[0])
+			if name == "" || kind != credentials.StoreAPIKey {
+				continue
+			}
+			flags, stdin := secretref.SbxSource(kv[0], kv[1], os.Getenv)
+			if len(flags) == 0 && stdin == "" {
+				ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
+				continue
+			}
+			how := "its value"
+			if len(flags) > 0 {
+				how = "a source sbx resolves on the host (" + flags[0] + ") — proveo never reads the value"
+			}
+			ui.Hostf("sandbox secret: %s stored as %s for %s only, from %s; it leaves with the sandbox", kv[0], name, cfg.Name, how)
+			if err := sbx.SecretSetSource(name, cfg.Name, flags, stdin); err != nil {
+				return fmt.Errorf("sandbox secret %s: %w", name, err)
+			}
 		}
-		flags, stdin := secretref.SbxSource(kv[0], kv[1], os.Getenv)
-		if len(flags) == 0 && stdin == "" {
-			ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
-			continue
-		}
-		how := "its value"
-		if len(flags) > 0 {
-			how = "a source sbx resolves on the host (" + flags[0] + ") — proveo never reads the value"
-		}
-		ui.Hostf("sandbox secret: %s stored as %s for %s only, from %s; it leaves with the sandbox", kv[0], name, cfg.Name, how)
-		if err := sbx.SecretSetSource(name, cfg.Name, flags, stdin); err != nil {
-			return fmt.Errorf("sandbox secret %s: %w", name, err)
-		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if err := refuseUnboundCredential(in, cfg.Name, w.Descriptor.Capabilities, created); err != nil {
 		return err
 	}
 	if opencodeTarget(in.Target) {
-		launchCfg, created, err = ensureOpenCodeEngine(in, cfg)
-		if err != nil {
+		var err error
+		if launchCfg, created, err = ensureOpenCodeEngine(in, cfg); err != nil {
 			return err
 		}
 	}
@@ -1741,10 +1752,12 @@ func Run(in Input) error {
 		}
 	}
 	if launchCfg.KitDir != "" {
-		if err := createSandbox(launchCfg); err != nil {
+		if err := start.Hand(stepCreate, func() error { return createSandbox(launchCfg) }); err != nil {
 			return err
 		}
 		launchCfg = sbx.Reattach(launchCfg)
+	} else {
+		start.Start("re-attach to " + cfg.Name)
 	}
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
@@ -1791,6 +1804,7 @@ func Run(in Input) error {
 	if in.Desktop {
 		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch, imageEntrypoint(in)).run(runCtx) }
 	}
+	start.Start("start " + in.Target)
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
@@ -1822,6 +1836,10 @@ func Run(in Input) error {
 	}
 	return result
 }
+
+// startSteps is how many steps a run shows before the agent has the terminal:
+// the kit, the stale check, the secrets, the sandbox, the agent.
+const startSteps = 5
 
 // removeSandbox runs `sbx rm --force` under guestExecDeadline and reports a failed removal.
 func removeSandbox(ctx context.Context, name string) error {

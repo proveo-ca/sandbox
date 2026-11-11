@@ -13,6 +13,10 @@ import (
 
 // Step names, as the run log shows them.
 const (
+	stepKit           = "workload kit"
+	stepStale         = "stale sandbox check"
+	stepSecrets       = "sandbox secrets"
+	stepCreate        = "create sandbox"
 	stepAgent         = "agent"
 	stepStopWait      = "stop wait"
 	stepCredential    = "credential check"
@@ -80,9 +84,6 @@ type stepPlace struct{ n, of int }
 // placeNow is the running top-level step's place; nil outside teardown.
 var placeNow atomic.Pointer[stepPlace]
 
-// stepClock is how often a step's live line redraws its elapsed time.
-var stepClock = time.Second
-
 // stepFrame is a step's live line: its place in the plan, its name, how long it has run, and its ceiling.
 func stepFrame(name string, ran time.Duration) string {
 	frame := name
@@ -102,31 +103,7 @@ func stepFrame(name string, ran time.Duration) string {
 func showStep(name string) (done func()) {
 	lastStep.Store(&name)
 	ui.Logf("step: %s started", withCeiling(name))
-	if !ui.Fancy() {
-		ui.Asyncf("%s", startLine(name))
-		return func() {}
-	}
-	began := time.Now()
-	ui.Live(ui.RoleAsync, "%s", stepFrame(name, 0))
-	stop, stopped := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(stopped)
-		tick := time.NewTicker(stepClock)
-		defer tick.Stop()
-		for {
-			select {
-			case <-tick.C:
-				ui.Live(ui.RoleAsync, "%s", stepFrame(name, time.Since(began)))
-			case <-stop:
-				return
-			}
-		}
-	}()
-	return func() {
-		close(stop)
-		<-stopped
-		ui.EndLive()
-	}
+	return ui.Running(func(ran time.Duration) string { return stepFrame(name, ran) }, startLine(name))
 }
 
 // startLine is a step's start on plain output: its name, then its ceiling when it has one.

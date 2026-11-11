@@ -227,3 +227,74 @@ func TestCtrlCOnAWizardPageAsksAndASecondOneQuits(t *testing.T) {
 		t.Error("ctrl+c on a page too small to draw must quit without a question nobody can read")
 	}
 }
+
+func enterForm(n int) *Form {
+	f := stepForm(0, 0)
+	f.OnEnter = func(*Form) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = "action " + string(rune('a'+i))
+		}
+		return out
+	}
+	return f
+}
+
+func TestTheCountOfWhatEnterRunsFollowsEnterAcceptAndNeverReplacesIt(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		n    int
+		want string
+	}{
+		{3, "enter accept · 3 steps · esc cancel"},
+		{1, "enter accept · 1 step · esc cancel"},
+		{0, "enter accept · esc cancel"},
+	} {
+		if hint := enterForm(c.n).hint(200, 0); !strings.Contains(hint, c.want) {
+			t.Errorf("%d actions: hint %q lacks %q", c.n, hint, c.want)
+		}
+	}
+	f := enterForm(4)
+	for w := len("enter accept"); w <= 160; w++ {
+		if hint := f.hint(w, 7); !strings.Contains(hint, "enter accept") {
+			t.Fatalf("width %d: %q lost \"enter accept\" to the count", w, hint)
+		}
+	}
+	skip := enterForm(2)
+	skip.Skip, skip.onSkip = "Skip", true
+	if hint := skip.hint(200, 0); strings.Contains(hint, "steps") {
+		t.Errorf("with Skip focused Enter runs nothing, yet the hint counts steps: %q", hint)
+	}
+}
+
+func TestTheOnEnterRegionFillsOnlyTheRowsLeftAndNeverMovesTheKeyLine(t *testing.T) {
+	t.Parallel()
+	keyRow := func(lines []string) int {
+		for y, l := range lines {
+			if strings.Contains(l, "enter accept") {
+				return y
+			}
+		}
+		return -1
+	}
+	bare := keyRow(renderAt(t, stepForm(0, 0), 0, 100, 30))
+	tall := renderAt(t, enterForm(3), 0, 100, 30)
+	joined := strings.Join(tall, "\n")
+	for _, want := range []string{"on enter", "1  action a", "2  action b", "3  action c"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the region lacks %q:\n%s", want, joined)
+		}
+	}
+	if got := keyRow(tall); got != bare {
+		t.Errorf("the region moved the key line from row %d to %d", bare, got)
+	}
+	h := bare + 5
+	short := strings.Join(renderAt(t, enterForm(6), 0, 100, h), "\n")
+	if !strings.Contains(short, "1  action a") || !strings.Contains(short, "… and ") || strings.Contains(short, "action f") {
+		t.Errorf("a region with too few rows must end on a count of what it left out:\n%s", short)
+	}
+	none := renderAt(t, enterForm(3), 0, 100, bare+2)
+	if joined := strings.Join(none, "\n"); strings.Contains(joined, "on enter") || !strings.Contains(joined, "3 steps") {
+		t.Errorf("with no row to spare the region goes and the count stays:\n%s", joined)
+	}
+}

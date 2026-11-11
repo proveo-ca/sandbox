@@ -217,7 +217,9 @@ skinparam noteTextAlignment left
 ' screen is passed over, never stopped at; a back from screen 1 is ignored; an
 ' error stops the walk. --print calls the credential and operator screens
 ' directly with a zero Step.
-'   setup        askDecisions, then install and finish run on enter. A revisit
+'   setup        askDecisions, then the apply runs on enter: one ordered
+'                list of named steps, which the page also shows under "on
+'                enter" (_spec/internal/ui/step-lines.puml). A revisit
 '                opens on WHAT IS LEFT (carried): only the PATH answer is kept;
 '                install and prefix follow the host as it is now; sbx login,
 '                the wizard, gh, git and the baseline open on "later" / "leave

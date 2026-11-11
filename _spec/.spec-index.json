@@ -1655,6 +1655,19 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/ui/step-lines.puml",
+      "covers": [
+        "internal/ui/steps.go",
+        "internal/ui/steps_test.go",
+        "cmd/proveo/init_apply.go",
+        "cmd/proveo/init_apply_test.go",
+        "internal/choiceui/tty_unix.go",
+        "internal/choiceui/tty_windows.go",
+        "e2e/live_line_prompt_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/verify/verification-discovery.puml",
       "covers": [
         "internal/verify/**",

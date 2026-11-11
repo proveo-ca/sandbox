@@ -1,0 +1,192 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Step lines — one renderer for init's apply, a run's start and teardown, and a line that leaves when a prompt arrives
+' purpose: how a phase that runs things shows the step it is on, and what happens to that line when something else needs the terminal
+' covers: internal/ui/steps.go
+' covers: internal/ui/steps_test.go
+' covers: cmd/proveo/init_apply.go
+' covers: cmd/proveo/init_apply_test.go
+' covers: internal/choiceui/tty_unix.go (openTerminal suspends the live line)
+' covers: internal/choiceui/tty_windows.go
+' covers: e2e/live_line_prompt_test.go
+'   why every phase shows its steps ... _spec/_plans/wizard-upgrades.puml (W5, W6)
+'   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W12)
+'   the live line it is built on ...... _spec/internal/ui/output-vocabulary.puml
+'   teardown's steps, the first user .. _spec/internal/backend/teardown.puml (T6)
+'   the page that names the steps ..... _spec/internal/choiceui/wireframe.puml (on enter)
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS THERE ─────────────────────────────────────────────────────────
+' Teardown showed its running step as one live line with a clock (T6). The
+' code lived in the sandbox backend. init's apply and a run's start printed a
+' line when a step ENDED, so a slow download or a slow `sbx diagnose` looked
+' like a hang.
+'
+' ── ONE RENDERER, IN ui ────────────────────────────────────────────────────
+' ui.Running(frame, plain) is T6's loop, moved: on a terminal one live line,
+' redrawn every StepClock with frame(elapsed) and erased at the end; on any
+' other output the plain line, once. Teardown's showStep now calls it with
+' its own frame (place, name, clock, ceiling).
+' ui.Steps is a plan of N steps over it:
+'   Do(name, fn)     a live line: "step 2/5 · download sbx 0.49.2 · 12s"
+'   Hand(name, fn)   a start line only: "step 3/5 · sign in to Docker"
+'   Start(name)      the start line; the caller runs and records the step
+' Each Do and Hand writes two rows to the run log, in teardown's format:
+'   step: <name> started
+'   step: <name> <duration> ok | failed: <first line of the error>
+' A FINISHED Do LEAVES NO LINE ON A TERMINAL. What the step printed stays;
+' its frame is erased, as teardown's are.
+' A plan that runs past its count widens the total, so a line never reads
+' "step 6/5". A nil plan runs its steps and shows nothing.
+' STILL ONE LINE, NOT A TABLE. The delivery plan calls these "step tables".
+' T6 landed as a line under the Printer's lock (teardown.puml records why),
+' and W-k was written to build on T6's renderer. A table of done, running
+' and pending rows was not built.
+'
+' ── A STEP THAT GIVES THE TERMINAL AWAY (W-o) ──────────────────────────────
+' A live line is redrawn by a clock. Anything else drawing on the terminal
+' at the same time gets that line written into it.
+' MEASURED on tmux, 2026-11-11, with the code as W5 left it: a question
+' opened while a step's line ticked, and the line drew over the question
+' within 500 ms. That is teardown's pushed-branch question, behind the
+' "pushed branches" step, since T6.
+' TWO RULES NOW:
+'   a prompt of proveo's own   choiceui.openTerminal calls ui.SuspendLive
+'                              and resumes when the prompt closes. Every
+'                              form, page, list and dialog opens through
+'                              it, so none has to remember.
+'   another program            the step is a Hand: a start line, no clock.
+' SuspendLive erases the line and counts holders. While any holds, frames
+' are stored and not drawn, and an ordinary line neither erases nor redraws
+' the frame. The last resume draws the latest frame.
+' The plan's wording was "ends the list's Program and starts a new one after
+' it". There is no Program, so the line is taken off and put back.
+' [Inference] A program proveo starts outside a Hand step, with a live line
+' up, would still be drawn over. None is known: the three live-line steps of
+' init, and the two of a run's start, start no terminal program.
+'
+' ── init's APPLY IS A LIST BEFORE IT IS A RUN (W-j, W-k) ───────────────────
+' applyPlan(decisions, ctx) returns what setup's Enter runs, in order, each
+' with a name, whether it gives the terminal away, and the func that runs
+' it. Two readers use the one list:
+'   the setup page   lists the names under "on enter" as the answers change
+'   runApply         runs them, numbered, and stops at the first failure
+' So the page cannot promise a step the apply does not run.
+'   download sbx <release> | download the distro package        live
+'   install sbx into <prefix> | install the distro package      hand
+'   add <dir> to PATH        only when it will write the rc     live
+'   sign in to Docker (sbx login)                               hand
+'   run sbx's first-run wizard (sbx setup)                      hand
+'   bind the network baseline: <name>                           hand
+'   set the sandbox git identity      it can ask for a name     hand
+'   install the prompt kit            it can ask what draws     hand
+'   connect GitHub                    gh, then two forms        hand
+'   verify sbx (sbx diagnose)         always                    live
+' The PATH check still runs when it will only print; it is then no step.
+' install() and installPackage() each split in two, so the download has a
+' clock and the installer, which writes to the terminal itself, does not.
+'
+' ── A RUN'S START (W-k) ────────────────────────────────────────────────────
+' sandbox.Run shows five steps before the agent has the terminal:
+'   workload kit           live
+'   stale sandbox check    hand: it can ask, and retiring runs steps of its own
+'   sandbox secrets        live
+'   create sandbox         hand: `sbx create` writes to the terminal itself
+'                          (or the start line "re-attach to <name>")
+'   start <target>         a start line; the existing `agent` row records it
+' The run log gains the first four rows ahead of `agent`, so one log now
+' names every step of a run in order. The clone e2e compares that list.
+' NOT WRAPPED: what run.Do does before sandbox.Run (image preflight, the
+' local-model pull). The pull draws a live line of its own, and two clocks
+' on one line would take turns.
+'
+' ── WHAT RAN ───────────────────────────────────────────────────────────────
+' macOS and linux/arm64 on tmux: the setup page lists what Enter runs, the
+' count follows "enter accept", and the apply prints a numbered line for
+' each handed step and leaves none for a live one. A ticking step line stays
+' off a question for 500 ms and returns after it; that test fails on the
+' code without the suspend.
+' macOS, real sandboxes: the clone run's log holds the four start rows, then
+' `agent`, then teardown's nine. The Ctrl+C dialog still passes over a real
+' agent, and over the fake sbx for the three harnesses whose image this host
+' holds; the other seven skip.
+' NOT RUN: an install from the network. Every init test finds the stub sbx
+' already installed, so "download" and "install" ran in no test. Their names
+' and order are unit-tested; their output on a terminal is not.
+'
+' Pinned by internal/ui/steps_test.go:
+'   TestAStepShowsItsPlaceItsNameAndAClockThenLeavesNoLine
+'   TestAHandedStepPrintsOneStartLineAndNoLiveFrame
+'   TestPlainOutputGetsAStartLinePerStep
+'   TestANilPlanRunsItsStepsAndShowsNothing
+'   TestAPlanThatRunsPastItsCountNeverShowsAStepBeyondTheTotal
+'   TestASuspendedLiveLineStaysOffTheTerminalUntilItIsResumed
+'   TestAnOrdinaryLineUnderASuspendedLiveLineNeitherErasesNorRedrawsIt
+' Pinned by cmd/proveo/init_apply_test.go:
+'   TestTheApplyPlanListsWhatEnterRunsInTheOrderItRuns
+'   TestOnlyStepsThatKeepTheTerminalGetALiveLine
+'   TestAnApplyNumbersItsListedStepsAndStopsAtTheFirstFailure
+' Pinned by e2e: TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt,
+'   TestInitSaysWhatEnterRunsThenShowsEachStep,
+'   TestCloneModeLandsTheCloneAndLiftsTheOutputDir (the log's step order)
+
+component "ui.Running\na live line with a clock" as RUN <<app>>
+component "ui.Steps\nstep n/N · name" as STEPS <<app>>
+component "teardown\nnine steps, each with a ceiling" as TD <<app>>
+component "init's apply\napplyPlan: one list, two readers" as INIT <<app>>
+component "a run's start\nfive steps before the agent" as START <<app>>
+component "a prompt of proveo's own\nform · page · list · dialog" as ASK <<host>>
+component "another program\nsbx login · sbx create · a package manager" as OTHER <<cloud>>
+component "**the line drawn over a question**" as OVER <<error>>
+
+TD ARROW_MAIN RUN
+STEPS ARROW_MAIN RUN
+INIT ARROW_MAIN STEPS
+START ARROW_MAIN STEPS
+ASK ARROW_QUEUE RUN : SuspendLive, then resume
+OTHER ARROW_OPTIONAL STEPS : Hand — a start line, no clock
+RUN ARROW_ERROR OVER : what the suspend ended
+
+note bottom of RUN
+  **Erased when the step ends.** A terminal gets
+  one line that redraws each second. A pipe or
+  a log gets the plain line once, because it
+  cannot redraw.
+end note
+
+note bottom of INIT
+  **The page and the apply read one list.** The
+  setup page names what Enter runs from the
+  same plan the apply executes, so it cannot
+  promise a step that does not run.
+end note
+
+note bottom of ASK
+  **None has to remember.** Every prompt opens
+  the terminal through one function. It takes
+  the line off first and puts the latest
+  frame back when the prompt closes.
+end note
+
+note bottom of OVER
+  **Measured, then fixed.** Teardown's question
+  about pushed branches opened behind a
+  ticking line. On tmux the line drew over it
+  inside half a second.
+end note
+
+note bottom of OTHER
+  **No clock while it holds the terminal.** A
+  step that starts a program which writes to
+  the terminal prints its place once and
+  waits.
+end note
+
+note bottom of START
+  **One log names the whole run.** The start
+  steps log in teardown's format, ahead of
+  the agent's row. The clone e2e holds the
+  order.
+end note
+@enduml

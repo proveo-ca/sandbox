@@ -202,6 +202,11 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' terminal to the pushed-branch dialog in the middle. One live line under
 ' the Printer's own lock does the job without a second renderer owning the
 ' terminal; a list would have needed every ui line routed through it.
+' THE LOOP MOVED TO ui ON 2026-11-11, AND THE DIALOG STOPPED SHARING THE
+' TERMINAL WITH IT. showStep calls ui.Running; init's apply and a run's
+' start use the same renderer. MEASURED then: the line drew over the
+' pushed-branch question. Every prompt now suspends it:
+' _spec/internal/ui/step-lines.puml.
 ' Pinned by internal/backend/sandbox/teardown_plan_test.go:
 '   TestAStepFrameCarriesItsPlaceItsClockAndItsCeiling
 '   TestATerminalGetsALiveLinePerStepAndNoStartLines
