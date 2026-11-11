@@ -15,7 +15,7 @@ var sgr = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
 // plain is a view's text without styling.
 func plain(s string) string { return sgr.ReplaceAllString(s, "") }
 
-func press(m tea.Model, keys ...tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func pressKeys(m tea.Model, keys ...tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	for _, k := range keys {
 		m, cmd = m.Update(k)
@@ -43,7 +43,7 @@ var (
 // answered is the button a dialog accepted after keys; ended is false while it is still open.
 func answered(t *testing.T, d tea.Model, keys ...tea.KeyPressMsg) (answer int, ended bool) {
 	t.Helper()
-	m, cmd := press(d, keys...)
+	m, cmd := pressKeys(d, keys...)
 	got, ok := dialogAnswer(m)
 	if !ok {
 		return -1, false
@@ -126,15 +126,15 @@ func TestTheSelectionWrapsAndTheEnterMarkFollowsIt(t *testing.T) {
 	if row := plain(d.(dialog).buttonRow()); row != " Stay ↵    Remove    Interrupt agent " {
 		t.Errorf("button row = %q", row)
 	}
-	m, _ := press(d, teaRight)
+	m, _ := pressKeys(d, teaRight)
 	if row := plain(m.(dialog).buttonRow()); row != " Stay    Remove ↵    Interrupt agent " {
 		t.Errorf("button row after right = %q", row)
 	}
-	m, _ = press(d, teaLeft)
+	m, _ = pressKeys(d, teaLeft)
 	if got := m.(dialog).sel; got != 2 {
 		t.Errorf("left from the first button selected %d, want the last", got)
 	}
-	m, _ = press(m, teaRight)
+	m, _ = pressKeys(m, teaRight)
 	if got := m.(dialog).sel; got != 0 {
 		t.Errorf("right from the last button selected %d, want the first", got)
 	}
@@ -177,7 +177,7 @@ func TestAcceptingRemoveStopsTheAgentOnceAndKeepsTheDialogUp(t *testing.T) {
 	t.Parallel()
 	stops := 0
 	d := NewSandboxClose(func() { stops++ }, 30*time.Second)
-	m, cmd := press(d, append(typed("r"), teaEnter)...)
+	m, cmd := pressKeys(d, append(typed("r"), teaEnter)...)
 	if stops != 1 {
 		t.Fatalf("stop ran %d times, want once", stops)
 	}
@@ -200,7 +200,7 @@ func TestAcceptingRemoveStopsTheAgentOnceAndKeepsTheDialogUp(t *testing.T) {
 	if out := plain(later.(dialog).box()); !strings.Contains(out, "— 4s") {
 		t.Errorf("the held dialog shows no elapsed time\n%s", out)
 	}
-	again, _ := press(later, teaEnter, teaEsc, teaCtrlC)
+	again, _ := pressKeys(later, teaEnter, teaEsc, teaCtrlC)
 	if stops != 1 {
 		t.Errorf("a key on the held dialog ran stop again: %d", stops)
 	}

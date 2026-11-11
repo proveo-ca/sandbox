@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 func TestDisabledCredentialListsNavigateWithoutChangingCredentials(t *testing.T) {
@@ -20,8 +18,8 @@ func TestDisabledCredentialListsNavigateWithoutChangingCredentials(t *testing.T)
 		if got := f.Rows[0].activeMore(); got != r.Lists[i] {
 			t.Fatalf("cell %d opened wrong list", i)
 		}
-		f.moreKey(0, tcell.NewEventKey(tcell.KeyDown, 0, 0))
-		f.moreKey(0, tcell.NewEventKey(tcell.KeyRune, ' ', 0))
+		f.moreKey(0, named("down"))
+		f.moreKey(0, key(' '))
 		f.toggle(0)
 		if !r.Lists[i].On[1] || !r.On[i] {
 			t.Fatalf("read-only cell %d changed", i)
@@ -34,12 +32,7 @@ func TestDisabledCredentialListsNavigateWithoutChangingCredentials(t *testing.T)
 }
 
 func TestCredentialListsDrawAtTheirOwnColumnAndScroll(t *testing.T) {
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(120, 24)
+	s := simScreen(t, 120, 24)
 	items := make([]string, 40)
 	for i := range items {
 		items[i] = fmt.Sprintf("item-%02d", i)
@@ -70,12 +63,7 @@ func TestCredentialListsDrawAtTheirOwnColumnAndScroll(t *testing.T) {
 }
 
 func TestCredentialDropdownArrowMatchesPortsAndRespectsGlyphMode(t *testing.T) {
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(120, 24)
+	s := simScreen(t, 120, 24)
 	for _, tc := range []struct {
 		glyphs GlyphTier
 		arrow  string

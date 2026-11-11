@@ -7,19 +7,14 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gdamore/tcell/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/mattn/go-runewidth"
 )
 
 // paint renders one Frame on its own and returns the rows it touched.
 func paint(t *testing.T, fr Frame, tier GlyphTier, tick int) []string {
 	t.Helper()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(120, 20)
+	s := simScreen(t, 120, 20)
 	drawTopology(s, 0, fr, tier, styles(), tick)
 	s.Show()
 
@@ -244,12 +239,7 @@ func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 		},
 	}
 	at := func(cursor int) int {
-		s := tcell.NewSimulationScreen("UTF-8")
-		if err := s.Init(); err != nil {
-			t.Fatal(err)
-		}
-		defer s.Fini()
-		s.SetSize(120, 40)
+		s := simScreen(t, 120, 40)
 		f.draw(s, cursor, 0)
 		cells, w, h := s.GetContents()
 		for y := 0; y < h; y++ {
@@ -270,29 +260,6 @@ func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 	if short != tall {
 		t.Errorf("the figure moved from row %d to row %d as the help grew", short, tall)
 	}
-}
-
-func simScreen(t *testing.T, w, h int) tcell.SimulationScreen {
-	t.Helper()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	s.SetSize(w, h)
-	return s
-}
-
-func screenLines(s tcell.SimulationScreen) []string {
-	cells, w, h := s.GetContents()
-	out := make([]string, h)
-	for y := 0; y < h; y++ {
-		var b strings.Builder
-		for x := 0; x < w; x++ {
-			b.WriteString(string(cells[y*w+x].Runes))
-		}
-		out[y] = strings.TrimRight(b.String(), " ")
-	}
-	return out
 }
 
 // The font-safe set is the undeclared default: best accessible first, so
@@ -586,14 +553,14 @@ func TestHoveredLocalModelLightsOnlyTheOllamaSide(t *testing.T) {
 	fr.HostLit = true
 	fr.Focus = FocusKey
 	brand := styles().brand
-	if got := styleOf(t, fr, "Ollama"); got != brand {
-		t.Errorf("Ollama style = %v, want bold cyan", got)
+	if got := styleOf(t, fr, "Ollama"); !sameStyle(got, brand) {
+		t.Errorf("Ollama style = %q, want bold cyan", got.Render("x"))
 	}
-	if got := styleOf(t, fr, "Qwen"); got != brand {
-		t.Errorf("Qwen style = %v, want bold cyan", got)
+	if got := styleOf(t, fr, "Qwen"); !sameStyle(got, brand) {
+		t.Errorf("Qwen style = %q, want bold cyan", got.Render("x"))
 	}
 	for _, plain := range []string{"pluvo", "linux"} {
-		if got := styleOf(t, fr, plain); got == brand {
+		if got := styleOf(t, fr, plain); sameStyle(got, brand) {
 			t.Errorf("%s took the highlight", plain)
 		}
 	}
@@ -627,7 +594,7 @@ func TestADirectHostDropsTheSquareAndKeepsADash(t *testing.T) {
 	if strings.Contains(rows[2], g.cornerTR) {
 		t.Fatalf("the host line ends in a corner: %q", rows[2])
 	}
-	if styleOf(t, fr, glyphsFor(GlyphsASCII).key) != styles().brand {
+	if !sameStyle(styleOf(t, fr, glyphsFor(GlyphsASCII).key), styles().brand) {
 		t.Error("the forwarded key is not drawn as selected")
 	}
 	if !strings.Contains(rows[2][node:name], g.rule) || !strings.Contains(rows[2][name:lane], g.rule) {
@@ -669,19 +636,11 @@ func TestOSArchIsItalicOnTheHostAndInTheSquare(t *testing.T) {
 	}
 }
 
-func italic(st tcell.Style) bool {
-	_, _, attrs := st.Decompose()
-	return attrs&tcell.AttrItalic != 0
-}
+func italic(st lipgloss.Style) bool { return st.GetItalic() }
 
-func styleOf(t *testing.T, fr Frame, word string) tcell.Style {
+func styleOf(t *testing.T, fr Frame, word string) lipgloss.Style {
 	t.Helper()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(120, 20)
+	s := simScreen(t, 120, 20)
 	drawTopology(s, 0, fr, GlyphsASCII, styles(), 0)
 	s.Show()
 	cells, w, h := s.GetContents()
@@ -698,7 +657,7 @@ func styleOf(t *testing.T, fr Frame, word string) tcell.Style {
 		return cells[y*w+utf8.RuneCountInString(line[:i])].Style
 	}
 	t.Fatalf("%q is not on the figure", word)
-	return tcell.StyleDefault
+	return lipgloss.NewStyle()
 }
 
 func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {

@@ -4,8 +4,6 @@ package choiceui
 import (
 	"strings"
 	"testing"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 func stepForm(at, of int) *Form {
@@ -18,7 +16,7 @@ func stepForm(at, of int) *Form {
 
 func TestShiftTabStepsBackOnlyPastTheFirstScreen(t *testing.T) {
 	t.Parallel()
-	backtab := tcell.NewEventKey(tcell.KeyBacktab, 0, tcell.ModShift)
+	backtab := named("shift+tab")
 	for _, tc := range []struct {
 		step Step
 		want Outcome
@@ -35,13 +33,13 @@ func TestShiftTabStepsBackOnlyPastTheFirstScreen(t *testing.T) {
 		}
 	}
 	f := &Form{Step: Step{At: 2, Of: 3}}
-	if got, done := f.leave(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone)); got != Accepted || !done {
+	if got, done := f.leave(named("enter")); got != Accepted || !done {
 		t.Errorf("enter = (%v, %v), want Accepted", got, done)
 	}
-	if got, done := f.leave(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)); got != Cancelled || !done {
+	if got, done := f.leave(named("esc")); got != Cancelled || !done {
 		t.Errorf("esc = (%v, %v), want Cancelled", got, done)
 	}
-	if _, done := f.leave(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); done {
+	if _, done := f.leave(key('q')); done {
 		t.Error("q ended the form before a field could take it as typing")
 	}
 }

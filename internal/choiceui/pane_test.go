@@ -4,8 +4,6 @@ package choiceui
 import (
 	"strings"
 	"testing"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 func paneFrame() Frame {
@@ -123,7 +121,7 @@ func TestCaptionHeadKeepsTheFactsAndDropsTheGloss(t *testing.T) {
 	}
 }
 
-func lastPaintedCol(s tcell.SimulationScreen) []int {
+func lastPaintedCol(s *screen) []int {
 	cells, w, h := s.GetContents()
 	out := make([]int, h)
 	for y := 0; y < h; y++ {

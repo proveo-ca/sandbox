@@ -13,26 +13,7 @@ import (
 // retiringImporters lists every Go file that still imports a TUI library the port
 // removes. A row leaves when its file stops importing; no row is ever added.
 var retiringImporters = map[string][]string{
-	"github.com/gdamore/tcell/v2": {
-		"internal/choiceui/anim.go",
-		"internal/choiceui/anim_test.go",
-		"internal/choiceui/canvas.go",
-		"internal/choiceui/canvas_test.go",
-		"internal/choiceui/choiceui.go",
-		"internal/choiceui/choiceui_test.go",
-		"internal/choiceui/credential_lists_test.go",
-		"internal/choiceui/field_test.go",
-		"internal/choiceui/layout_test.go",
-		"internal/choiceui/more_off_test.go",
-		"internal/choiceui/pane_test.go",
-		"internal/choiceui/pen.go",
-		"internal/choiceui/pen_test.go",
-		"internal/choiceui/render_test.go",
-		"internal/choiceui/step_test.go",
-		"internal/choiceui/topology.go",
-		"internal/choiceui/topology_test.go",
-		"internal/choiceui/viewport_render_test.go",
-	},
+	"github.com/gdamore/tcell/v2": {},
 	"github.com/ktr0731/go-fuzzyfinder": {
 		"cmd/proveo-dev/maintain.go",
 		"cmd/proveo/main.go",

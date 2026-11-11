@@ -3,8 +3,6 @@ package choiceui
 import (
 	"strings"
 	"testing"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 // tallForm is the shape the viewport exists for: more rows than a small
@@ -238,18 +236,11 @@ func scrollingHeight(t *testing.T, f *Form) int {
 
 func TestATooSmallScreenIsNotNavigable(t *testing.T) {
 	t.Parallel()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
 	f := tallForm()
-	s.SetSize(80, 6)
-	if f.navigable(s) {
+	if f.navigable(80, 6) {
 		t.Error("six rows cannot draw this form, so it must not be steerable")
 	}
-	s.SetSize(80, 40)
-	if !f.navigable(s) {
+	if !f.navigable(80, 40) {
 		t.Error("forty rows draws it comfortably and must be steerable")
 	}
 }

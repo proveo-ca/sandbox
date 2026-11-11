@@ -3,8 +3,6 @@ package choiceui
 import (
 	"strings"
 	"testing"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 // SPEC: _spec/cmd/proveo/init-credential-wireframe.puml
@@ -18,8 +16,6 @@ func fieldForm() *Form {
 		},
 	}
 }
-
-func key(r rune) *tcell.EventKey { return tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone) }
 
 func TestTypingReachesTheFieldAndNotTheNavigation(t *testing.T) {
 	t.Parallel()
@@ -40,11 +36,11 @@ func TestBackspaceAndClear(t *testing.T) {
 	for _, r := range "abc" {
 		f.typing(1, key(r))
 	}
-	f.typing(1, tcell.NewEventKey(tcell.KeyBackspace2, 0, tcell.ModNone))
+	f.typing(1, named("backspace"))
 	if got := f.FieldValue("openai"); got != "ab" {
 		t.Errorf("after backspace: %q, want %q", got, "ab")
 	}
-	f.typing(1, tcell.NewEventKey(tcell.KeyCtrlU, 0, tcell.ModNone))
+	f.typing(1, named("ctrl+u"))
 	if got := f.FieldValue("openai"); got != "" {
 		t.Errorf("after ctrl-u: %q, want the field cleared", got)
 	}
@@ -53,13 +49,13 @@ func TestBackspaceAndClear(t *testing.T) {
 func TestEnterAndEscapeStayFormCommands(t *testing.T) {
 	t.Parallel()
 	f := fieldForm()
-	for _, ev := range []*tcell.EventKey{
-		tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone),
-		tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone),
-		tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone),
+	for _, ev := range []press{
+		named("enter"),
+		named("esc"),
+		named("up"),
 	} {
 		if f.typing(1, ev) {
-			t.Errorf("%v was swallowed by the field — accept, cancel and moving must still work while typing", ev.Key())
+			t.Errorf("%v was swallowed by the field — accept, cancel and moving must still work while typing", ev.key)
 		}
 	}
 }

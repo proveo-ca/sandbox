@@ -4,12 +4,13 @@ package choiceui
 
 import (
 	"fmt"
-	"os"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
-	"github.com/gdamore/tcell/v2"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -319,92 +320,140 @@ func (f *Form) Run() (confirmed bool, err error) {
 
 // RunStep is Run that also reports a step back.
 func (f *Form) RunStep() (Outcome, error) {
-	preferUTF8Locale()
-	screen, err := tcell.NewScreen()
+	in, out, done, err := openTerminal()
 	if err != nil {
 		return Cancelled, fmt.Errorf("choice prompt: %w", err)
 	}
-	if err := screen.Init(); err != nil {
+	defer done()
+	final, err := tea.NewProgram(formModel{f: f, cursor: f.startCursor(), tick: 1},
+		tea.WithInput(in), tea.WithOutput(out), tea.WithoutSignalHandler()).Run()
+	if err != nil {
 		return Cancelled, fmt.Errorf("choice prompt: %w", err)
 	}
-	registerGlyphFallbacks(screen)
-	defer screen.Fini()
-	tick := newTicker(screen.PostEvent)
-	defer tick.stop()
+	if m, ok := final.(formModel); ok {
+		return m.out, nil
+	}
+	return Cancelled, nil
+}
 
-	cursor := f.startCursor()
-	for {
-		f.draw(screen, cursor, tick.frame())
-		switch ev := screen.PollEvent().(type) {
-		case *tcell.EventResize:
-			screen.Sync()
-		case *tcell.EventKey:
-			if out, done := f.leave(ev); done {
-				return out, nil
-			}
-			if !f.navigable(screen) {
-				if ev.Key() == tcell.KeyRune && ev.Rune() == 'q' {
-					return Cancelled, nil
-				}
-				continue
-			}
-			if f.typing(cursor, ev) {
-				continue
-			}
-			if f.moreKey(cursor, ev) {
-				continue
-			}
-			switch ev.Key() {
-			case tcell.KeyTab:
-				f.toggle(cursor)
-			case tcell.KeyUp:
-				cursor = f.move(cursor, -1)
-			case tcell.KeyDown:
-				cursor = f.move(cursor, +1)
-			case tcell.KeyPgUp:
-				cursor = f.page(cursor, -1)
-			case tcell.KeyPgDn:
-				cursor = f.page(cursor, +1)
-			case tcell.KeyHome:
-				cursor = f.firstSelectable()
-			case tcell.KeyEnd:
-				cursor = f.lastSelectable()
-			case tcell.KeyLeft:
-				f.cycle(cursor, -1)
-			case tcell.KeyRight:
-				f.cycle(cursor, +1)
-			case tcell.KeyRune:
-				switch ev.Rune() {
-				case 'k':
-					cursor = f.move(cursor, -1)
-				case 'j':
-					cursor = f.move(cursor, +1)
-				case 'h':
-					f.cycle(cursor, -1)
-				case 'l':
-					f.cycle(cursor, +1)
-				case ' ':
-					if cursor < len(f.Rows) && f.Rows[cursor].Multi {
-						f.toggle(cursor)
-					} else {
-						f.cycle(cursor, +1)
-					}
-				case 'q':
-					return Cancelled, nil
-				}
-			}
+// press is one key as the form reads it: a named key, or typed text.
+type press struct {
+	key  string // "enter", "esc", "shift+tab", "up", …; empty for typed text
+	text string
+}
+
+// formModel runs a Form as a Bubble Tea model.
+type formModel struct {
+	f      *Form
+	cursor int
+	tick   int
+	w, h   int
+	out    Outcome
+}
+
+// formTick advances the figure's motion by one frame.
+type formTick struct{}
+
+func animTick() tea.Cmd {
+	return tea.Tick(animFrame, func(time.Time) tea.Msg { return formTick{} })
+}
+
+func (m formModel) Init() tea.Cmd { return animTick() }
+
+func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.w, m.h = msg.Width, msg.Height
+	case formTick:
+		m.tick++
+		return m, animTick()
+	case tea.KeyPressMsg:
+		p := press{key: msg.String()}
+		if msg.Text != "" {
+			p = press{text: msg.Text}
+		}
+		out, done := m.f.key(&m.cursor, p, m.w, m.h)
+		if done {
+			m.out = out
+			return m, tea.Quit
 		}
 	}
+	return m, nil
+}
+
+func (m formModel) View() tea.View {
+	v := tea.NewView(m.f.frame(m.w, m.h, m.cursor, m.tick))
+	v.AltScreen = true
+	return v
+}
+
+// frame is the form drawn at w by h, as the string a terminal shows.
+func (f *Form) frame(w, h, cursor, tick int) string {
+	s := newScreen(w, h)
+	f.draw(s, cursor, tick)
+	return s.view()
+}
+
+// key applies one key press: it moves the cursor, changes an answer, or ends the form.
+func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
+	if out, done := f.leave(p); done {
+		return out, true
+	}
+	if !f.navigable(w, h) {
+		return Cancelled, p.text == "q"
+	}
+	if f.typing(*cursor, p) || f.moreKey(*cursor, p) {
+		return Cancelled, false
+	}
+	switch p.key {
+	case "tab":
+		f.toggle(*cursor)
+	case "up":
+		*cursor = f.move(*cursor, -1)
+	case "down":
+		*cursor = f.move(*cursor, +1)
+	case "pgup":
+		*cursor = f.page(*cursor, -1)
+	case "pgdown":
+		*cursor = f.page(*cursor, +1)
+	case "home":
+		*cursor = f.firstSelectable()
+	case "end":
+		*cursor = f.lastSelectable()
+	case "left":
+		f.cycle(*cursor, -1)
+	case "right":
+		f.cycle(*cursor, +1)
+	}
+	switch p.text {
+	case "k":
+		*cursor = f.move(*cursor, -1)
+	case "j":
+		*cursor = f.move(*cursor, +1)
+	case "h":
+		f.cycle(*cursor, -1)
+	case "l":
+		f.cycle(*cursor, +1)
+	case " ":
+		if *cursor < len(f.Rows) && f.Rows[*cursor].Multi {
+			f.toggle(*cursor)
+		} else {
+			f.cycle(*cursor, +1)
+		}
+	case "q":
+		return Cancelled, true
+	}
+	return Cancelled, false
 }
 
 // leave answers the keys that end a form; shift+tab only past the first screen.
-func (f *Form) leave(ev *tcell.EventKey) (Outcome, bool) {
-	switch ev.Key() {
-	case tcell.KeyEscape, tcell.KeyCtrlC:
+func (f *Form) leave(p press) (Outcome, bool) {
+	switch p.key {
+	case "esc", "ctrl+c":
 		return Cancelled, true
-	case tcell.KeyEnter:
+	case "enter":
 		return Accepted, true
-	case tcell.KeyBacktab:
+	case "shift+tab":
 		if f.Step.backable() {
 			return Back, true
 		}
@@ -414,23 +463,23 @@ func (f *Form) leave(ev *tcell.EventKey) (Outcome, bool) {
 
 // typing routes a keystroke into a field row, and answers true when the key
 // belonged to it.
-func (f *Form) typing(cursor int, ev *tcell.EventKey) bool {
+func (f *Form) typing(cursor int, p press) bool {
 	if cursor < 0 || cursor >= len(f.Rows) || !f.Rows[cursor].Field {
 		return false
 	}
 	r := &f.Rows[cursor]
-	switch ev.Key() {
-	case tcell.KeyRune:
-		r.Value += string(ev.Rune())
+	switch {
+	case p.text != "":
+		r.Value += p.text
 		f.changed()
 		return true
-	case tcell.KeyBackspace, tcell.KeyBackspace2:
+	case p.key == "backspace":
 		if runes := []rune(r.Value); len(runes) > 0 {
 			r.Value = string(runes[:len(runes)-1])
 			f.changed()
 		}
 		return true
-	case tcell.KeyCtrlU:
+	case p.key == "ctrl+u":
 		r.Value = ""
 		f.changed()
 		return true
@@ -539,40 +588,27 @@ func (f *Form) toggle(cursor int) {
 }
 
 // moreKey drives the open list. It answers true when the key stayed inside it.
-func (f *Form) moreKey(cursor int, ev *tcell.EventKey) bool {
+func (f *Form) moreKey(cursor int, p press) bool {
 	r, ok := f.moreRow(cursor)
 	if !ok {
 		return false
 	}
 	m := r.activeMore()
 	n := len(m.Options)
-	switch ev.Key() {
-	case tcell.KeyDown:
+	switch {
+	case p.key == "down" || p.text == "j":
 		if m.At+1 < n {
 			m.At++
 			return true
 		}
-	case tcell.KeyUp:
+	case p.key == "up" || p.text == "k":
 		if m.At > 0 {
 			m.At--
 			return true
 		}
-	case tcell.KeyRune:
-		switch ev.Rune() {
-		case 'j':
-			if m.At+1 < n {
-				m.At++
-				return true
-			}
-		case 'k':
-			if m.At > 0 {
-				m.At--
-				return true
-			}
-		case ' ':
-			f.toggleMore(r)
-			return true
-		}
+	case p.text == " ":
+		f.toggleMore(r)
+		return true
 	}
 	return false
 }
@@ -610,41 +646,36 @@ func (f *Form) changed() {
 	}
 }
 
-func hexColor(c int) tcell.Color { return tcell.NewHexColor(int32(c)) }
-
+// palette is the prompt's styles: one per role a piece of text can play.
 type palette struct {
-	brand  tcell.Style // cyan — mark, selected / checked
-	accent tcell.Style // teal — labels, first-party emphasis
-	warn   tcell.Style // lime — attention (reasons, gated)
-	body   tcell.Style // light — readable supporting / value text
-	title  tcell.Style // bold default fg — section titles
-	idle   tcell.Style // unchecked / unfocused options
-	aside  tcell.Style // italic — parenthetical descriptions
+	brand  lipgloss.Style // the cursor's row and the selected answer
+	accent lipgloss.Style // first-party emphasis: row labels, header keys
+	warn   lipgloss.Style // a locked answer, a consequence
+	body   lipgloss.Style
+	title  lipgloss.Style
+	idle   lipgloss.Style
+	aside  lipgloss.Style // italic — parenthetical descriptions
 }
 
 func styles() palette {
-	fg := func(c int) tcell.Style {
-		return tcell.StyleDefault.Foreground(hexColor(c))
-	}
+	fg := func(c int) lipgloss.Style { return lipgloss.NewStyle().Foreground(hexOf(c)) }
 	return palette{
 		brand:  fg(ui.ColorBrand).Bold(true),
 		accent: fg(ui.ColorAccent).Bold(true),
 		warn:   fg(ui.ColorWarn),
 		body:   fg(ui.ColorSecondary),
-		title:  tcell.StyleDefault.Bold(true),
+		title:  lipgloss.NewStyle().Bold(true),
 		idle:   fg(ui.ColorSecondary),
 		aside:  fg(ui.ColorSecondary).Italic(true),
 	}
 }
 
-func (f *Form) draw(s tcell.Screen, cursor, tick int) {
-	s.Clear()
+func (f *Form) draw(s *screen, cursor, tick int) {
 	p := styles()
 	w, h := s.Size()
 	lay := f.layout(w, h)
 	if lay.tooSmall {
 		drawTooSmall(s, w, h, f.minHeight(w))
-		s.Show()
 		return
 	}
 
@@ -753,7 +784,6 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 			}
 		}
 	}
-	s.Show()
 }
 
 const hintScroll = "pgup/pgdn scroll"
@@ -944,8 +974,7 @@ func headingsInWindow(lines []bodyLine, off, window int) map[int]bool {
 	return named
 }
 
-func (f *Form) navigable(s tcell.Screen) bool {
-	w, h := s.Size()
+func (f *Form) navigable(w, h int) bool {
 	return !f.layout(w, h).tooSmall
 }
 
@@ -957,7 +986,7 @@ func (f *Form) minHeight(w int) int {
 	return need
 }
 
-func drawTooSmall(s tcell.Screen, w, h, needH int) {
+func drawTooSmall(s *screen, w, h, needH int) {
 	p := styles()
 	msg := fmt.Sprintf("terminal too small: %dx%d, need %d rows", w, h, needH)
 	c := newCanvas(s)
@@ -968,7 +997,7 @@ func drawTooSmall(s tcell.Screen, w, h, needH int) {
 	}
 }
 
-func putHeader(put func(int, tcell.Style, string), p palette, line string) {
+func putHeader(put func(int, lipgloss.Style, string), p palette, line string) {
 	const x0 = 2
 	runes := []rune(line)
 	i := 0
@@ -987,7 +1016,7 @@ func putHeader(put func(int, tcell.Style, string), p palette, line string) {
 	putPairs(put, p, x0+indent, rest)
 }
 
-func putPairs(put func(int, tcell.Style, string), p palette, col int, s string) {
+func putPairs(put func(int, lipgloss.Style, string), p palette, col int, s string) {
 	rs := []rune(s)
 	aside, afterOn := false, false
 	for i := 0; i < len(rs); {
@@ -1139,32 +1168,4 @@ func (f *Form) drawField(c *canvas, p palette, r Row, x int, focused bool) {
 	c.put(x, p.idle, "[")
 	c.put(x+1, bodyStyle, body)
 	c.put(x+1+fieldWidth, p.idle, "]")
-}
-
-func preferUTF8Locale() {
-	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
-		v := os.Getenv(k)
-		if v == "" {
-			continue
-		}
-		if v == "C" || v == "POSIX" {
-			_ = os.Setenv("LC_ALL", "C.UTF-8")
-		}
-		return
-	}
-	_ = os.Setenv("LC_ALL", "C.UTF-8")
-}
-
-func registerGlyphFallbacks(s tcell.Screen) {
-	ascii := glyphsFor(GlyphsASCII)
-	var pairs [][2]string
-	for _, set := range []glyphSet{glyphsFor(GlyphsNerd), glyphsFor(GlyphsSafe)} {
-		pairs = append(pairs, [2]string{set.cloud, ascii.cloud}, [2]string{set.key, ascii.key},
-			[2]string{set.quiet, ascii.quiet}, [2]string{set.speaking, ascii.speaking})
-	}
-	for _, p := range pairs {
-		for _, r := range p[0] {
-			s.RegisterRuneFallback(r, p[1])
-		}
-	}
 }

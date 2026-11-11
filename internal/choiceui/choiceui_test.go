@@ -2,24 +2,18 @@
 package choiceui
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
-	"github.com/gdamore/tcell/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func render(t *testing.T, f *Form) []string {
 	t.Helper()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(120, 40)
+	s := simScreen(t, 120, 40)
 	f.draw(s, f.firstSelectable(), 0)
 
 	cells, w, h := s.GetContents()
@@ -64,16 +58,11 @@ func TestBannerRendersOnTop(t *testing.T) {
 
 func assertHelpHeader(t *testing.T, f *Form) {
 	t.Helper()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(120, 40)
+	s := simScreen(t, 120, 40)
 	f.draw(s, f.firstSelectable(), 0)
 
-	brand := tcell.NewHexColor(int32(ui.ColorBrand))
-	body := tcell.NewHexColor(int32(ui.ColorSecondary))
+	brand := hexName(ui.ColorBrand)
+	body := hexName(ui.ColorSecondary)
 	box := strings.Split(ui.BrandBanner, "\n")
 	for x := 0; x < 80; x++ {
 		if r, _, _, _ := s.GetContent(x, 0); r != ' ' && r != 0 {
@@ -91,7 +80,7 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	}
 }
 
-func assertBannerLine(t *testing.T, s tcell.Screen, y int, line string, fg tcell.Color, bold bool) {
+func assertBannerLine(t *testing.T, s *screen, y int, line string, fg string, bold bool) {
 	t.Helper()
 	x := 0
 	for _, r := range line {
@@ -99,11 +88,14 @@ func assertBannerLine(t *testing.T, s tcell.Screen, y int, line string, fg tcell
 		if got != r {
 			t.Errorf("row %d col %d = %q, want %q", y, x, string(got), string(r))
 		}
-		gfg, _, attrs := style.Decompose()
-		if gfg != fg {
+		if r == ' ' {
+			x++
+			continue
+		}
+		if gfg := fgHex(style); gfg != fg {
 			t.Errorf("row %d col %d color %v, want %v", y, x, gfg, fg)
 		}
-		if gotBold := attrs&tcell.AttrBold != 0; gotBold != bold {
+		if gotBold := style.GetBold(); gotBold != bold {
 			t.Errorf("row %d col %d bold=%v, want %v", y, x, gotBold, bold)
 		}
 		w := runeCols(r)
@@ -363,21 +355,16 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 		Header: []string{"git:      sandbox on main", "keys:     CURSOR_API_KEY"},
 		Rows:   []Row{{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, On: []bool{true, false}}},
 	}
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(120, 40)
+	s := simScreen(t, 120, 40)
 	f.draw(s, 0, 0)
 
 	cells, w, h := s.GetContents()
-	slate := tcell.NewHexColor(int32(ui.ColorCloud))
-	light := tcell.NewHexColor(int32(ui.ColorSecondary))
+	slate := hexName(ui.ColorCloud)
+	light := hexName(ui.ColorSecondary)
 	var sawLight, sawSlate bool
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			fg, _, _ := cells[y*w+x].Style.Decompose()
+			fg := fgHex(cells[y*w+x].Style)
 			if fg == light {
 				sawLight = true
 			}
@@ -448,9 +435,9 @@ func TestOnlyADeclaredDividerReplacesTheRowLabel(t *testing.T) {
 func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
 	t.Parallel()
 	var accented, body []string
-	pal := palette{accent: tcell.StyleDefault.Foreground(tcell.ColorTeal), body: tcell.StyleDefault}
-	put := func(_ int, st tcell.Style, s string) {
-		if st == pal.accent {
+	pal := palette{accent: lipgloss.NewStyle().Foreground(lipgloss.Color("#008080")), body: lipgloss.NewStyle()}
+	put := func(_ int, st lipgloss.Style, s string) {
+		if sameStyle(st, pal.accent) {
 			accented = append(accented, s)
 		} else {
 			body = append(body, s)
@@ -482,9 +469,9 @@ func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
 func TestPutHeaderAccentsGlyphsNotNames(t *testing.T) {
 	t.Parallel()
 	var accented, body []string
-	pal := palette{accent: tcell.StyleDefault.Foreground(tcell.ColorTeal), body: tcell.StyleDefault}
-	put := func(_ int, st tcell.Style, s string) {
-		if st == pal.accent {
+	pal := palette{accent: lipgloss.NewStyle().Foreground(lipgloss.Color("#008080")), body: lipgloss.NewStyle()}
+	put := func(_ int, st lipgloss.Style, s string) {
+		if sameStyle(st, pal.accent) {
 			accented = append(accented, s)
 		} else {
 			body = append(body, s)
@@ -515,15 +502,15 @@ func TestPutHeaderAccentsBranchAndItalicisesAside(t *testing.T) {
 	t.Parallel()
 	var accented, aside, body []string
 	pal := palette{
-		accent: tcell.StyleDefault.Foreground(tcell.ColorTeal),
-		aside:  tcell.StyleDefault.Italic(true),
-		body:   tcell.StyleDefault,
+		accent: lipgloss.NewStyle().Foreground(lipgloss.Color("#008080")),
+		aside:  lipgloss.NewStyle().Italic(true),
+		body:   lipgloss.NewStyle(),
 	}
-	put := func(_ int, st tcell.Style, s string) {
-		switch st {
-		case pal.accent:
+	put := func(_ int, st lipgloss.Style, s string) {
+		switch {
+		case sameStyle(st, pal.accent):
 			accented = append(accented, s)
-		case pal.aside:
+		case sameStyle(st, pal.aside):
 			aside = append(aside, s)
 		default:
 			body = append(body, s)
@@ -823,8 +810,8 @@ func TestMoreListMovesAndTicks(t *testing.T) {
 		On:      []bool{false, false, false, true},
 		More:    &More{Cell: 3, Options: []string{"4000 jekyll", "1313 hugo"}, On: []bool{true, false}},
 	}}}
-	down := tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
-	space := tcell.NewEventKey(tcell.KeyRune, ' ', tcell.ModNone)
+	down := named("down")
+	space := key(' ')
 	if !f.moreKey(0, down) || f.Rows[0].More.At != 1 {
 		t.Fatalf("down left the cursor at %d", f.Rows[0].More.At)
 	}
@@ -858,32 +845,9 @@ func TestColumnTextCapsAtTenRunes(t *testing.T) {
 	}
 }
 
-func TestPreferUTF8LocaleRewritesPOSIX(t *testing.T) {
-	t.Setenv("LC_ALL", "")
-	t.Setenv("LC_CTYPE", "")
-	t.Setenv("LANG", "C")
-	preferUTF8Locale()
-	if got := os.Getenv("LC_ALL"); got != "C.UTF-8" {
-		t.Errorf("LC_ALL=%q, want C.UTF-8 so tcell does not encode nerd glyphs as US-ASCII", got)
-	}
-}
-
-func TestPreferUTF8LocaleLeavesAUTF8LocaleAlone(t *testing.T) {
-	t.Setenv("LC_ALL", "en_US.UTF-8")
-	preferUTF8Locale()
-	if got := os.Getenv("LC_ALL"); got != "en_US.UTF-8" {
-		t.Errorf("a UTF-8 locale must not be rewritten, got %q", got)
-	}
-}
-
 func TestARadioSetDrawsRadiosBesideCheckboxes(t *testing.T) {
 	t.Parallel()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(110, 30)
+	s := simScreen(t, 110, 30)
 	f := &Form{Title: "run hermes", Rows: []Row{{Label: "devices", Options: []string{"tui", "desktop", "chrome"}, Multi: true,
 		RadioSet: []string{"tui", "desktop"}, On: []bool{true, false, false}, Cols: []int{0, 1, 2}}}}
 	f.draw(s, 0, 0)
