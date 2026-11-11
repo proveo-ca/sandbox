@@ -70,7 +70,7 @@ func errBlocked(stop []sbx.Prereq) error {
 func preflightPage(host sbx.Host, rows []choiceui.CheckRow, stop []sbx.Prereq, at choiceui.Step) (stepResult, error) {
 	page := &choiceui.CheckPage{
 		Banner: choiceui.Banner(),
-		Title:  "init — what was checked on " + describeHost(host),
+		Title:  "init — preparing the " + describeHost(host) + " host",
 		Rows:   rows,
 		Step:   at,
 		Next:   "setup",

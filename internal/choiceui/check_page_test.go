@@ -14,7 +14,7 @@ import (
 func checkPage() *CheckPage {
 	return &CheckPage{
 		Banner: Banner(),
-		Title:  "init — what was checked on darwin/arm64",
+		Title:  "init — preparing the darwin/arm64 host",
 		Step:   Step{At: 1, Of: 4},
 		Next:   "setup",
 		Rows: []CheckRow{

@@ -427,7 +427,7 @@ func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
 func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
 	screen := r.checks(t)
-	for _, want := range []string{"what was checked on", "to install sbx", "sbx diagnose", "enter continue", "esc cancel", "ctrl+c quit"} {
+	for _, want := range []string{"init — preparing the ", "to install sbx", "sbx diagnose", "enter continue", "esc cancel", "ctrl+c quit"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the checks page lacks %q:\n%s", want, screen)
 		}

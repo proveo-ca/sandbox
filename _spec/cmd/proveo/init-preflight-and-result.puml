@@ -26,6 +26,7 @@ title init opens on every check and closes on the result
 ' ── PAGE 1: EVERY CHECK (W-l) ──────────────────────────────────────────────
 ' A prompted init has four pages now: the checks, setup, credentials,
 ' operator. The checks page asks nothing. It shows:
+'   the title        "init — preparing the <os>/<arch> host"
 '   to install sbx   every prerequisite sbx.Prereqs reports, passing ones
 '                    included
 '   sbx diagnose     every row of `sbx diagnose --json`, when sbx is already
