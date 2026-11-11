@@ -10,6 +10,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo-dev/idle.go
 ' covers: cmd/proveo-dev/e2efull.go
 ' covers: cmd/proveo-dev/gate.go
+' covers: internal/contract/release_targets_test.go
 ' covers: internal/contract/retirement_test.go
 ' covers: cmd/proveo-dev/buildcli.go (requireRetirementLedger)
 ' Lineage and tags: image-lineage-and-publish.puml (same directory).
@@ -47,6 +48,9 @@ skinparam noteTextAlignment left
 '
 ' IN-SANDBOX (or any host with docker):
 '   1  go build ./... && go vet ./... && go vet -tags e2e ./e2e/
+'      (`mise run lint` runs the e2e vet since 2026-11-10. A contract test,
+'      TestProveoBuildsForEveryReleaseTarget, cross-builds cmd/proveo for the
+'      eight goreleaser targets; `mise run ci` built the host platform only.)
 '   2  go test ./...                     unit + contract
 '   3  mise run build all                every image from source
 '   4  mise run test-images              every TestImage* suite, hermes included —

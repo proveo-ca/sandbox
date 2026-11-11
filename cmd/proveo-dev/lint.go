@@ -15,7 +15,7 @@ import (
 func init() {
 	register(&cobra.Command{
 		Use:   "lint",
-		Short: "Hard gates: gofmt -l, comment blocks, go vet (default + image tag), golangci-lint run",
+		Short: "Hard gates: gofmt -l, comment blocks, go vet (default, image and e2e tags), golangci-lint run",
 		Args:  cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			root, err := repoRoot()
@@ -28,6 +28,13 @@ func init() {
 }
 
 var lintDirs = []string{"internal", "cmd", "tests"}
+
+var lintSteps = [][]string{
+	{"go", "vet", "./..."},
+	{"go", "vet", "-tags=image", "./internal/imagetest/"},
+	{"go", "vet", "-tags=e2e", "./e2e/"},
+	{"golangci-lint", "run"},
+}
 
 func lint(root string) error {
 	if bad := unformatted(root); len(bad) > 0 {
@@ -45,11 +52,7 @@ func lint(root string) error {
 		}
 		return &exitError{code: 1}
 	}
-	for _, step := range [][]string{
-		{"go", "vet", "./..."},
-		{"go", "vet", "-tags=image", "./internal/imagetest/"},
-		{"golangci-lint", "run"},
-	} {
+	for _, step := range lintSteps {
 		if err := run(root, nil, step[0], step[1:]...); err != nil {
 			return err
 		}

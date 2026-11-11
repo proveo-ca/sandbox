@@ -39,6 +39,11 @@ description = "Local CI gate: lint + go build + unit/contract tests (no Docker)"
 depends = ["lint", "build-check", "test-go"]
 run = "printf '\\n✅ ci succeeded.\\n'"
 
+[tasks.baseline]
+description = "Unit gate where the suite is already red: fail only on a test outside cmd/proveo-dev/unit-baseline.txt"
+dir = "{{config_root}}"
+run = "go run ./cmd/proveo-dev baseline"
+
 # ── Go CLI ──────────────────────────────────────────────────
 
 [tasks.build-cli]

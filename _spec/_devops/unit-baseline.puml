@@ -1,0 +1,89 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title The unit baseline — green means no new failing test
+' purpose: how a branch proves it broke nothing while the unit suite is already red on the host it is built on
+' covers: cmd/proveo-dev/baseline.go
+' covers: cmd/proveo-dev/baseline_test.go
+' covers: cmd/proveo-dev/unit-baseline.txt
+' covers: mise.toml
+'   the decision ............ _spec/_plans/tui-responsiveness.puml (D12)
+'   the gate it stands in ... _spec/_plans/tui-upgrades-delivery.puml (the standing gate)
+'   the full gate ........... _spec/_devops/release-gate.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+' MEASURED 2026-11-10 at 0f34a714 (= main), darwin/arm64, with and without
+' -race: `go test -count=1 ./...` fails 15 tests in 3 of 47 packages. None
+' sits in a TUI package. Two fail on any host: envreg.go:153 puts
+' PROVEO_GITHUB_TRANSPORT in the wrong block, and probe_test.go:30 names a
+' `:latest` tag outside imagetest.Resolve. Thirteen trace to this macOS host:
+' /bin/bash is 3.2, `flock` is absent, and a unix socket path under the test
+' temp dir exceeds 104 bytes. The release gate runs `go test ./...` in its
+' in-sandbox Linux half, where those thirteen are expected to pass.
+' [Unverified] That they pass on Linux: no Linux run exists yet.
+' `mise run ci` therefore exits non-zero on this host before any change, and
+' a red suite cannot say whether a slice broke something.
+' The Executor, 2026-11-10: "Since the failures are not TUI related, let Green
+' be 'no new failing tests'".
+'
+' ── WHAT THE GATE DOES ─────────────────────────────────────────────────────
+' `mise run baseline` runs `go run ./cmd/proveo-dev baseline`: one
+' `go test -race -count=1 -json ./...`, read as a stream.
+'   a failing top-level test is "package Test", the module prefix trimmed
+'   a subtest's failure belongs to its parent and is not listed twice
+'   a package that fails with NO failing test of its own — a build error, a
+'     panic outside a test — is listed as "package (package)", so a slice that
+'     stops a package compiling cannot hide behind the list
+' The result is compared with cmd/proveo-dev/unit-baseline.txt.
+'   a failure outside the list ...... printed, exit 1
+'   a listed test that passes here .. printed as a note, exit 0
+' A LISTED TEST THAT PASSES DOES NOT FAIL THE GATE. The list is host-shaped:
+' thirteen rows are expected to pass on Linux, so a stale-row failure would
+' turn the gate red on the other host type. The note is the prompt to shrink
+' the list once a row passes on both.
+' A RED TEST GUARDS NOTHING. TestVarsSortByScopeThenName covers envreg.go.
+' A slice that edits that file fixes line 153 first and drops the row.
+' Extra arguments replace `./...`, so one package can be checked alone.
+'
+' Pinned by cmd/proveo-dev/baseline_test.go:
+'   TestFailedTestsKeepsTopLevelFailuresAndTestlessPackages
+'   TestNewFailuresSplitsAddedFromFixed
+'   TestTheBaselineListIsSortedUniqueAndWellFormed
+'   TestBaselineArgsDefaultToTheWholeModule
+
+component """go test -race -json ./...""" as RUN <<app>>
+component """failedTests""\ntop-level failures\nand test-less packages" as PARSE <<app>>
+database """unit-baseline.txt""\n15 rows" as LIST <<db>>
+component "a failure outside the list\nexit 1" as NEW <<error>>
+component "a listed test that passes\na note, exit 0" as FIXED <<app>>
+component """mise run ci""\nred on this host at main" as CI <<error>>
+
+RUN ARROW_MAIN PARSE
+PARSE ARROW_MAIN NEW : not in the list
+PARSE ARROW_OPTIONAL FIXED : in the list, passing
+LIST ARROW_MAIN NEW
+LIST ARROW_OPTIONAL FIXED
+CI ARROW_ERROR RUN : cannot tell old red from new
+
+note bottom of LIST
+  **Host-shaped, so it only shrinks by hand.**
+  Thirteen rows are macOS tooling failures.
+  A row leaves when its test passes on both
+  host types, not when one host says so.
+end note
+
+note bottom of NEW
+  **A build error counts.** A package that
+  fails without a failing test is listed as
+  its own row, so a slice cannot break a
+  package and still read as green.
+end note
+
+note bottom of CI
+  **Why not fix the fifteen first.** None is in
+  a TUI package, and thirteen need a Linux
+  host to judge. The owner chose to gate on
+  "no new failure" instead.
+end note
+@enduml

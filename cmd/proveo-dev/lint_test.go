@@ -41,3 +41,15 @@ func TestSplitLinesDropsBlanks(t *testing.T) {
 		t.Errorf("splitLines = %v", got)
 	}
 }
+
+func TestLintVetsEveryBuildTagTheSuitesUse(t *testing.T) {
+	for _, want := range [][]string{
+		{"go", "vet", "./..."},
+		{"go", "vet", "-tags=image", "./internal/imagetest/"},
+		{"go", "vet", "-tags=e2e", "./e2e/"},
+	} {
+		if !slices.ContainsFunc(lintSteps, func(s []string) bool { return slices.Equal(s, want) }) {
+			t.Errorf("lint runs no %v", want)
+		}
+	}
+}

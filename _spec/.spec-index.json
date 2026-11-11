@@ -116,7 +116,8 @@
         "cmd/proveo-dev/e2efull.go",
         "cmd/proveo-dev/gate.go",
         "internal/contract/retirement_test.go",
-        "cmd/proveo-dev/buildcli.go"
+        "cmd/proveo-dev/buildcli.go",
+        "internal/contract/release_targets_test.go"
       ],
       "fingerprint": null
     },
@@ -131,6 +132,16 @@
         "internal/contract/base_template_test.go",
         "internal/contract/bun_toolchain_test.go",
         "internal/imagetest/cursor_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_devops/unit-baseline.puml",
+      "covers": [
+        "cmd/proveo-dev/baseline.go",
+        "cmd/proveo-dev/baseline_test.go",
+        "cmd/proveo-dev/unit-baseline.txt",
+        "mise.toml"
       ],
       "fingerprint": null
     },
