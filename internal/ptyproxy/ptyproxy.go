@@ -694,6 +694,13 @@ func (r *chanReader) shut() {
 	r.halt()
 }
 
+// giveBack puts bytes a reader took and did not use back at the front of r.
+func (r *chanReader) giveBack(b []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buf = append(append([]byte(nil), b...), r.buf...)
+}
+
 // unread halts r and returns the bytes no Read consumed, in arrival order.
 func (r *chanReader) unread() []byte {
 	r.halt()

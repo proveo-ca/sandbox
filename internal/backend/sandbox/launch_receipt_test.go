@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gdamore/tcell/v2"
-
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -172,12 +170,12 @@ func TestAnOpenCodeEngineFollowsTheStaleSandboxRuleAndCarriesItsHistory(t *testi
 
 func TestAFailedUpgradeScreenKeepsAStoppedSandbox(t *testing.T) {
 	stubReceiptDir(t)
-	previousHeaded, previousScreen := headedConfirm, openTermScreen
+	previousHeaded, previousAsk := headedConfirm, askSandboxUpgrade
 	t.Cleanup(func() {
-		headedConfirm, openTermScreen = previousHeaded, previousScreen
+		headedConfirm, askSandboxUpgrade = previousHeaded, previousAsk
 	})
 	headedConfirm = func() bool { return true }
-	openTermScreen = func() (tcell.Screen, error) { return nil, fmt.Errorf("no screen") }
+	askSandboxUpgrade = func(string, []string, bool, bool, bool) (bool, bool) { return false, false }
 	cfg := launchCfg("s1")
 	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")

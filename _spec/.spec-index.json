@@ -422,7 +422,6 @@
       "spec": "_spec/_plans/tui-responsiveness.puml",
       "covers": [
         "internal/ptyproxy/ptyproxy.go",
-        "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/ptyproxy_windows.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/pushed.go",
@@ -725,7 +724,7 @@
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/home_access_test.go",
         "internal/choiceui/blocked_run.go",
-        "internal/choiceui/blocked_run_test.go",
+        "internal/choiceui/dialog_test.go",
         "packages/lib/proveo-opencode-runtime",
         "packages/lib/test_opencode_runtime.py",
         "packages/lib/entrypoint-lib.sh",
@@ -921,6 +920,23 @@
         "internal/choiceui/pen_test.go",
         "internal/choiceui/region_order_test.go",
         "internal/run/topology_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/choiceui/confirm-dialogs.puml",
+      "covers": [
+        "internal/choiceui/dialog.go",
+        "internal/choiceui/dialog_run.go",
+        "internal/choiceui/dialog_test.go",
+        "internal/choiceui/tty_unix.go",
+        "internal/choiceui/tty_windows.go",
+        "internal/choiceui/sandbox_close.go",
+        "internal/choiceui/fetch_pushed.go",
+        "internal/choiceui/blocked_run.go",
+        "internal/choiceui/oversized_model.go",
+        "internal/backend/sandbox/confirm.go",
+        "e2e/close_confirm_modes_test.go"
       ],
       "fingerprint": null
     },
@@ -1147,10 +1163,8 @@
         "internal/ptyproxy/ctrlc_keys.go",
         "internal/ptyproxy/ctrlc_keys_test.go",
         "internal/ptyproxy/ptyproxy.go",
-        "internal/ptyproxy/overlaytty.go",
         "internal/ptyproxy/drain_test.go",
         "internal/ptyproxy/ptyproxy_test.go",
-        "internal/ptyproxy/overlaytty_test.go",
         "e2e/close_confirm_test.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/pushed.go",
@@ -1166,8 +1180,6 @@
         "internal/ptyproxy/screenmodes.go",
         "internal/ptyproxy/screenmodes_test.go",
         "internal/ptyproxy/ptyproxy_windows.go",
-        "internal/choiceui/modal_tea.go",
-        "internal/choiceui/modal_tea_test.go",
         "e2e/close_confirm_modes_test.go",
         "e2e/close_confirm_sbx_test.go"
       ],

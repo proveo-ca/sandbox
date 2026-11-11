@@ -80,3 +80,72 @@ func TestLiveCtrlCDialogGivesTheChildItsScreenModesBack(t *testing.T) {
 		})
 	}
 }
+
+// TestLiveCloseDialogStaysUpWhileTheAgentStops accepts Remove over a child that takes three
+// seconds to stop, and reads the dialog's line while it waits.
+func TestLiveCloseDialogStaysUpWhileTheAgentStops(t *testing.T) {
+	requireTmux(t)
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 unavailable")
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := filepath.Join(t.TempDir(), "done")
+	sess := tmux.New(fmt.Sprintf("proveo-live-stopping-%d", os.Getpid()), nil)
+	t.Cleanup(sess.Kill)
+	if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_CLOSE_HELPER="+done,
+		"PROVEO_LIVE_CLOSE_FILTER=on", "PROVEO_LIVE_CLOSE_STOP=slow",
+		binary, "-test.run=^TestLiveCtrlCConfirmationHelper$", "-test.timeout=45s"); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err := sess.WaitFor("CHILD_READY", 10*time.Second); err != nil {
+		t.Fatalf("child readiness: %v\n%s", err, screen)
+	}
+	if err := sess.SendKeys("C-c"); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err := sess.WaitFor("close this sandbox?", 5*time.Second); err != nil {
+		t.Fatalf("confirmation missing: %v\n%s", err, screen)
+	}
+	if err := sess.SendKeys("Enter"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.SendText("A"); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err := sess.WaitFor("KEY:41", 5*time.Second); err != nil {
+		t.Fatalf("Enter alone did not hand the terminal back: %v\n%s", err, screen)
+	}
+	if _, err := os.Stat(done); err == nil {
+		t.Fatal("Enter alone removed the sandbox")
+	}
+
+	if err := sess.SendKeys("C-c"); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err := sess.WaitFor("close this sandbox?", 5*time.Second); err != nil {
+		t.Fatalf("confirmation did not reopen: %v\n%s", err, screen)
+	}
+	if err := sess.SendKeys("r", "Enter"); err != nil {
+		t.Fatal(err)
+	}
+	screen, err := sess.WaitFor("stopping the agent (up to 30s)", 5*time.Second)
+	if err != nil {
+		t.Fatalf("the dialog did not say a stop is in flight: %v\n%s", err, screen)
+	}
+	if strings.Contains(screen, "enter accept") {
+		t.Errorf("the waiting dialog still offers its buttons\n%s", screen)
+	}
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if b, err := os.ReadFile(done); err == nil {
+			if string(b) != "removed" {
+				t.Fatalf("helper: %s", b)
+			}
+			return
+		}
+	}
+	screen, _ = sess.Capture()
+	t.Fatalf("the removal did not finish: %s", screen)
+}

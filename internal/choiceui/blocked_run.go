@@ -1,18 +1,16 @@
-// SPEC: _spec/internal/sbx/kit-lifecycle.puml, _spec/defs/opencode/engine-local-history.puml
+// SPEC: _spec/internal/sbx/kit-lifecycle.puml, _spec/defs/opencode/engine-local-history.puml, _spec/internal/choiceui/confirm-dialogs.puml
 package choiceui
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 // SandboxUpgradeCopy explains replacing a kept sandbox so this run's settings apply.
 // Every harness reuses one sandbox name, so the question is the same for each.
 func SandboxUpgradeCopy(name string, changed []string, live, clone, history bool) []string {
 	lines := []string{
-		"this sandbox was created with different settings",
+		sandboxUpgradeTitle,
 		strings.Join(changed, ", "),
 		"",
 		"1. carry clone commits and agent state home",
@@ -36,16 +34,20 @@ func SandboxUpgradeCopy(name string, changed []string, live, clone, history bool
 	return lines
 }
 
-func upgradeChoices() []modalChoice {
-	return []modalChoice{
-		{Key: "y/N", Text: "replace the sandbox"},
-		{Key: "esc", Text: "keep it — the next run reattaches"},
-	}
+const sandboxUpgradeTitle = "this sandbox was created with different settings"
+
+// AskSandboxUpgrade asks on the operator's terminal whether to replace a kept sandbox.
+// asked is false when no terminal opens.
+func AskSandboxUpgrade(name string, changed []string, live, clone, history bool) (yes, asked bool) {
+	answer, asked := askDialog(sandboxUpgradeDialog(name, changed, live, clone, history))
+	return asked && answer == 1, asked
 }
 
-// ConfirmSandboxUpgrade waits for permission to replace a kept sandbox.
-func ConfirmSandboxUpgrade(s tcell.Screen, name string, changed []string, live, clone, history bool) bool {
-	return confirmPrompt(s, SandboxUpgradeCopy(name, changed, live, clone, history), "this sandbox was created with different settings", upgradeChoices())
+func sandboxUpgradeDialog(name string, changed []string, live, clone, history bool) dialog {
+	return newDialog(sandboxUpgradeTitle, SandboxUpgradeCopy(name, changed, live, clone, history), 0,
+		dialogButton{Label: "Keep", Key: 'k'},
+		dialogButton{Label: "Replace", Key: 'r', Danger: true},
+	)
 }
 
 // UnansweredRemovalCopy explains removing a kept sandbox that gave no answer.
@@ -78,41 +80,16 @@ func UnansweredRemovalCopy(name, mirror string, refs []string, history bool) []s
 
 const maxListedRefs = 6
 
-func unansweredChoices() []modalChoice {
-	return []modalChoice{
-		{Key: "y/N", Text: "remove it anyway"},
-		{Key: "esc", Text: "keep it — this run stops"},
-	}
+// AskUnansweredRemoval asks on the operator's terminal whether to remove a sandbox that gave
+// no answer. asked is false when no terminal opens.
+func AskUnansweredRemoval(name, mirror string, refs []string, history bool) (yes, asked bool) {
+	answer, asked := askDialog(unansweredRemovalDialog(name, mirror, refs, history))
+	return asked && answer == 1, asked
 }
 
-// ConfirmUnansweredRemoval waits for permission to remove a sandbox that gave no answer.
-func ConfirmUnansweredRemoval(s tcell.Screen, name, mirror string, refs []string, history bool) bool {
-	return confirmPrompt(s, UnansweredRemovalCopy(name, mirror, refs, history), name+" gave no answer", unansweredChoices())
-}
-
-func confirmPrompt(s tcell.Screen, lines []string, title string, choices []modalChoice) bool {
-	input, sig := readModal(s, lines, title, choices)
-	return sig == modalEnter && modalYes(input)
-}
-
-// drawBorder draws a single-line box.
-func drawBorder(s tcell.Screen, x0, y0, w, h int, style tcell.Style) {
-	set := func(x, y int, r rune) {
-		sw, sh := s.Size()
-		if x >= 0 && x < sw && y >= 0 && y < sh {
-			s.SetContent(x, y, r, nil, style)
-		}
-	}
-	for x := x0 + 1; x < x0+w-1; x++ {
-		set(x, y0, '─')
-		set(x, y0+h-1, '─')
-	}
-	for y := y0 + 1; y < y0+h-1; y++ {
-		set(x0, y, '│')
-		set(x0+w-1, y, '│')
-	}
-	set(x0, y0, '┌')
-	set(x0+w-1, y0, '┐')
-	set(x0, y0+h-1, '└')
-	set(x0+w-1, y0+h-1, '┘')
+func unansweredRemovalDialog(name, mirror string, refs []string, history bool) dialog {
+	return newDialog(name+" gave no answer", UnansweredRemovalCopy(name, mirror, refs, history), 0,
+		dialogButton{Label: "Keep", Key: 'k'},
+		dialogButton{Label: "Remove", Key: 'r', Danger: true},
+	)
 }

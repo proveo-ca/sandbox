@@ -1,12 +1,9 @@
-// SPEC: _spec/internal/sbx/clone-workspace.puml
+// SPEC: _spec/internal/sbx/clone-workspace.puml, _spec/internal/choiceui/confirm-dialogs.puml
 package choiceui
 
 import (
 	"fmt"
-	"sync/atomic"
 	"time"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 // FetchPushedCopy is the post-exit question for branches a run pushed.
@@ -17,7 +14,7 @@ func FetchPushedCopy(branches []string, wait time.Duration) []string {
 		extra = fmt.Sprintf("+%d more", len(shown)-8)
 		shown = shown[:8]
 	}
-	lines := []string{"the agent pushed these branches", ""}
+	lines := []string{fetchPushedTitle, ""}
 	lines = append(lines, shown...)
 	if extra != "" {
 		lines = append(lines, extra)
@@ -30,30 +27,23 @@ func FetchPushedCopy(branches []string, wait time.Duration) []string {
 	return lines
 }
 
-func fetchPushedChoices() []modalChoice {
-	return []modalChoice{
-		{Key: "y/N", Text: "git fetch them into this repository"},
-		{Key: "esc", Text: "leave them on the remote"},
-	}
-}
+const fetchPushedTitle = "the agent pushed these branches"
 
-// ConfirmFetchPushed waits for permission to fetch. Silence returns false.
-func ConfirmFetchPushed(s tcell.Screen, branches []string, wait time.Duration) bool {
+// AskFetchPushed asks on the operator's terminal whether to fetch the branches. Silence for
+// wait, Esc, and a terminal that does not open all answer no.
+func AskFetchPushed(branches []string, wait time.Duration) bool {
 	if wait <= 0 {
 		wait = 15 * time.Second
 	}
-	var closed atomic.Bool
-	timer := time.AfterFunc(wait, func() {
-		if !closed.Load() {
-			_ = s.PostEvent(tcell.NewEventInterrupt(nil))
-		}
-	})
-	defer func() {
-		closed.Store(true)
-		timer.Stop()
-	}()
-	lines := FetchPushedCopy(branches, wait)
-	title := "the agent pushed these branches"
-	input, sig := readModal(s, lines, title, fetchPushedChoices())
-	return sig == modalEnter && modalYes(input)
+	answer, asked := askDialog(fetchPushedDialog(branches, wait))
+	return asked && answer == 1
+}
+
+func fetchPushedDialog(branches []string, wait time.Duration) dialog {
+	d := newDialog(fetchPushedTitle, FetchPushedCopy(branches, wait), 0,
+		dialogButton{Label: "Leave", Key: 'l'},
+		dialogButton{Label: "Fetch", Key: 'f'},
+	)
+	d.wait = wait
+	return d
 }

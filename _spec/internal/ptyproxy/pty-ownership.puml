@@ -5,15 +5,12 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/ctrlc_keys.go
 ' covers: internal/ptyproxy/ctrlc_keys_test.go
 ' covers: internal/ptyproxy/ptyproxy.go
-' covers: internal/ptyproxy/overlaytty.go
 ' covers: internal/ptyproxy/drain_test.go
 ' covers: internal/ptyproxy/ptyproxy_test.go
-' covers: internal/ptyproxy/overlaytty_test.go
 ' covers: defs/*/harness.manifest
 ' covers: e2e/close_confirm_live_test.go
 ' covers: e2e/close_confirm_test.go
 ' covers: internal/choiceui/sandbox_close.go
-' covers: internal/choiceui/modal.go
 ' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
 ' covers: internal/backend/sandbox/pushed.go (confirmFetchPushed: DiscardInput)
 ' covers: internal/ptyproxy/cancelin.go
@@ -28,8 +25,6 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/screenmodes.go
 ' covers: internal/ptyproxy/screenmodes_test.go
 ' covers: internal/ptyproxy/ptyproxy_windows.go
-' covers: internal/choiceui/modal_tea.go
-' covers: internal/choiceui/modal_tea_test.go
 ' covers: e2e/close_confirm_modes_test.go
 ' covers: e2e/close_confirm_sbx_test.go
 '   (internal/backend/dockeregress ExecAgentWithProxy was the second caller;
@@ -305,6 +300,38 @@ skinparam noteTextAlignment left
 '   TestLiveCtrlCDialogGivesTheChildItsScreenModesBack,
 '   TestCtrlCDialogOverARealAgentGivesItsScreenBackAndRemovesOnYes (real sbx)
 '
+' ── EVERY BYTE AFTER THE DECIDING KEY GOES BACK TO THE CHILD (2026-11-10) ───
+' The residual this file recorded twice — "a key that lands between the dialog
+' deciding and Fini draining is read by tcell and dropped" — survived the
+' port. MEASURED on linux/arm64 with the button dialog: the unchanged tmux
+' driver failed 1 run in 4, "session did not resume". The Program's decoder
+' sat in Read on the hand-off; the `A` typed after `n Enter` arrived before
+' the QuitMsg halted the reader, was decoded as a key for a dialog that had
+' already answered, and was lost.
+' The fix is to stop letting anything but proveo count the bytes. feedKeys
+' replaces ultraviolet's TerminalReader:
+'   one goroutine reads the hand-off into proveo's own buffer
+'   ultraviolet's EventDecoder decodes ONE event from the front of it
+'   the key is sent to the Program, and the feed WAITS for the model's
+'     Update to return and say whether it has its answer (Done())
+'   once it has, the reader is halted and every byte read and not delivered
+'     goes back to the front of the hand-off (chanReader.giveBack), where
+'     Overlay's unread hands it to the child, in order
+' An escape waits 50 ms for the rest of its sequence, as the library's
+' scanner does: a lone ESC, an ESC plus one byte, and an unfinished CSI are
+' held until more arrives or the wait passes.
+' A PASTE NEVER ANSWERS A DIALOG. Everything between the bracketed-paste
+' markers is dropped, so pasted text cannot select and accept a button.
+' MEASURED after the fix: the four tmux pins passed 12 of 12 on linux/arm64
+' and 4 of 4 on macOS.
+' THE TCELL OVERLAY IS DELETED (delivery plan, B4): overlaytty.go, its test,
+' and OverlayScreen on both platforms. The dated sections above that describe
+' OverlayTty and Drain are history; nothing in the tree implements them.
+' Pinned by internal/ptyproxy:
+'   TestEveryByteAfterTheDecidingKeyGoesBackToTheChild
+'   TestAPasteNeverAnswersADialog
+'   TestALoneEscapeIsAKeyAndASequenceIsOne
+'
 title The PTY proxy — one reader of the real terminal, and how its pumps end
 
 actor "Operator" as OP
@@ -313,7 +340,6 @@ node "proveo — internal/ptyproxy" as PX <<host>> {
   component """Proxy.Run""\nowns the PTY master" as RUN <<app>>
   component "stdin pump\nreal tty → master" as IN <<app>>
   component "stdout pump\nmaster → real tty" as OUT <<app>>
-  component """OverlayTty""\nhand-off channel · operator's tty" as OVER <<app>>
   component """OverlayProgram""\na Bubble Tea Program on the hand-off" as PROG <<app>>
 }
 
@@ -329,10 +355,9 @@ IN ARROW_MAIN RUN
 RUN ARROW_MAIN CHILD : slave handed to the child
 CHILD ARROW_MAIN OUT
 OUT ARROW_MAIN OP : rendered frames
-IN ARROW_OPTIONAL OVER : re-routed while a modal holds the screen
-IN ARROW_OPTIONAL PROG : decoded by proveo, sent as keys
+IN ARROW_OPTIONAL PROG : re-routed while a dialog holds the screen
 PROG ARROW_MAIN OP : frames, LF as CR LF
-OVER ARROW_MAIN OP
+PROG ARROW_OPTIONAL RUN : unread bytes, back to the child
 IN ARROW_ERROR SECOND : what the design exists to prevent
 OUT ARROW_ERROR LOST : without the drain
 
@@ -343,19 +368,18 @@ note bottom of IN
   than standing down; at exit it is cancelled.
 end note
 
-note bottom of OVER
-  **A modal is given bytes, never its own tty.**
-  ""OverlayTty"" reads the pump's hand-off channel
-  and writes the operator's terminal, which makes
-  a full-screen prompt the exclusive consumer
-  without a second reader ever existing.
+note left of PROG
+  **A dialog is given keys, never its own tty.**
+  proveo reads the hand-off, decodes one key,
+  and waits for the dialog's verdict before
+  the next. No second reader ever exists.
 end note
 
-note right of OVER
-  **Drain halts the hand-off reader.** Fini waits
-  for tcell's input loop, parked in Read, so a
-  no-op Drain hung it until the next key. Bytes no
-  Read took go back to the child, in order.
+note top of PROG
+  **Nothing typed after the answer is lost.**
+  Once the dialog has its answer the feed
+  stops, and every byte it read and did not
+  deliver goes back to the child, in order.
 end note
 
 note bottom of PROG

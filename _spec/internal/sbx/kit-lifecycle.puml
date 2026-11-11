@@ -11,7 +11,7 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/clone_carry_test.go
 ' covers: internal/backend/sandbox/teardown_end_test.go
 ' covers: internal/choiceui/blocked_run.go
-' covers: internal/choiceui/modal.go
+' covers: internal/choiceui/blocked_run.go
 '
 ' ── A KEPT SANDBOX MUST NOT SILENTLY OVERRIDE THIS RUN (2026-09-27) ─────────
 ' Re-attach passes the name only, so a kept sandbox runs with the Kit, image

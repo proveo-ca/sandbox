@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -171,18 +170,12 @@ func retireIfStale(in Input, cfg sbx.RunConfig, now launchReceipt, exists, runni
 	return retire(in, cfg, report)
 }
 
-var openTermScreen = openScreen
-
 var confirmStaleSandbox = func(name string, changed []string, live, clone, history bool) (bool, bool) {
 	if !headedConfirm() {
 		return false, false
 	}
-	screen, err := openTermScreen()
-	if err != nil {
-		return false, true
-	}
-	defer screen.Fini()
-	return choiceui.ConfirmSandboxUpgrade(screen, name, changed, live, clone, history), true
+	yes, _ := askSandboxUpgrade(name, changed, live, clone, history)
+	return yes, true
 }
 
 // errNoCloneAnswer marks a sandbox that gave no answer to the clone-mode probe.
@@ -276,10 +269,6 @@ var confirmUnansweredRemoval = func(name string, refs []string, history bool) bo
 	if !headedConfirm() {
 		return false
 	}
-	screen, err := openTermScreen()
-	if err != nil {
-		return false
-	}
-	defer screen.Fini()
-	return choiceui.ConfirmUnansweredRemoval(screen, name, sbx.MirrorRefs(name), refs, history)
+	yes, _ := askUnansweredRemoval(name, sbx.MirrorRefs(name), refs, history)
+	return yes
 }

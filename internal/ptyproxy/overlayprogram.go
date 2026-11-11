@@ -4,10 +4,9 @@
 package ptyproxy
 
 import (
-	"context"
 	"io"
 	"os"
-	"sync/atomic"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -41,14 +40,31 @@ func crlf(p []byte) []byte {
 	return out
 }
 
-// overlayModel puts every frame of inner on the alternate screen and leaves bracketed paste alone.
-type overlayModel struct{ inner tea.Model }
+// fedKey is one key proveo decoded off the hand-off, on its way to the model.
+type fedKey struct{ key tea.KeyPressMsg }
+
+// overlayModel puts every frame of inner on the alternate screen, leaves bracketed
+// paste alone, and reports after each fed key whether inner has its answer.
+type overlayModel struct {
+	inner tea.Model
+	acked chan<- bool
+}
 
 func (m overlayModel) Init() tea.Cmd { return m.inner.Init() }
 
 func (m overlayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	inner, cmd := m.inner.Update(msg)
-	return overlayModel{inner}, cmd
+	fed, isKey := msg.(fedKey)
+	if !isKey {
+		inner, cmd := m.inner.Update(msg)
+		return overlayModel{inner, m.acked}, cmd
+	}
+	inner, cmd := m.inner.Update(fed.key)
+	done := false
+	if d, ok := inner.(interface{ Done() bool }); ok {
+		done = d.Done()
+	}
+	m.acked <- done
+	return overlayModel{inner, m.acked}, cmd
 }
 
 func (m overlayModel) View() tea.View {
@@ -64,56 +80,131 @@ func (p *Proxy) OverlayProgram(in io.Reader, model tea.Model) (tea.Model, error)
 	return overlayProgram(in, overlayOut{p.Out}, model)
 }
 
+// escWait is how long a lone ESC, or the start of a sequence, waits for its rest.
+const escWait = 50 * time.Millisecond
+
 // overlayProgram is OverlayProgram over any output; opts reach the Program after proveo's own.
 func overlayProgram(in io.Reader, out io.Writer, model tea.Model, opts ...tea.ProgramOption) (tea.Model, error) {
-	var quitting atomic.Bool
-	halt := func() {
-		quitting.Store(true)
-		if h, ok := in.(interface{ halt() }); ok {
-			h.halt()
-		}
-	}
-	base := []tea.ProgramOption{
-		tea.WithInput(nil),
-		tea.WithOutput(out),
-		tea.WithoutSignalHandler(),
-		tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
-			if _, ok := msg.(tea.QuitMsg); ok {
-				halt()
-			}
-			return msg
-		}),
-	}
-	prog := tea.NewProgram(overlayModel{model}, append(base, opts...)...)
+	acked := make(chan bool, 1)
+	ended := make(chan struct{})
+	base := []tea.ProgramOption{tea.WithInput(nil), tea.WithOutput(out), tea.WithoutSignalHandler()}
+	prog := tea.NewProgram(overlayModel{model, acked}, append(base, opts...)...)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	events := make(chan uv.Event, 16)
-	streamed := make(chan struct{})
+	fed := make(chan struct{})
 	go func() {
-		_ = uv.NewTerminalReader(in, os.Getenv("TERM")).StreamEvents(ctx, events)
-		close(events)
-		if !quitting.Load() {
-			prog.Kill()
-		}
-	}()
-	go func() {
-		defer close(streamed)
-		for ev := range events {
-			switch e := ev.(type) {
-			case uv.KeyPressEvent:
-				prog.Send(tea.KeyPressMsg(e))
-			case uv.PasteEvent:
-				prog.Send(tea.PasteMsg(e))
+		defer close(fed)
+		feedKeys(in, ended, func(key tea.KeyPressMsg) (done bool) {
+			prog.Send(fedKey{key})
+			select {
+			case done = <-acked:
+			case <-ended:
+				done = true
 			}
-		}
+			return done
+		}, prog.Kill)
 	}()
 
 	final, err := prog.Run()
-	halt()
-	cancel()
-	<-streamed
+	close(ended)
+	if h, ok := in.(interface{ halt() }); ok {
+		h.halt()
+	}
+	<-fed
 	if m, ok := final.(overlayModel); ok {
 		final = m.inner
 	}
 	return final, err
+}
+
+// feedKeys decodes in one key at a time and gives each to deliver. It stops when
+// deliver reports the model has its answer, when ended closes, or when in ends; in
+// that last case it calls inputEnded. Bytes it read and did not deliver go back to in.
+func feedKeys(in io.Reader, ended <-chan struct{}, deliver func(tea.KeyPressMsg) (done bool), inputEnded func()) {
+	chunks := make(chan []byte)
+	go func() {
+		defer close(chunks)
+		for {
+			b := make([]byte, 4096)
+			n, err := in.Read(b)
+			if n > 0 {
+				select {
+				case chunks <- b[:n]:
+				case <-ended:
+					giveBack(in, b[:n])
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var dec uv.EventDecoder
+	var buf []byte
+	pasting := false
+	stop := func() {
+		if h, ok := in.(interface{ halt() }); ok {
+			h.halt()
+		}
+		for b := range chunks {
+			buf = append(buf, b...)
+		}
+		giveBack(in, buf)
+	}
+	for {
+		expired := false
+		for len(buf) > 0 {
+			n, ev := dec.Decode(buf)
+			if n == 0 {
+				break
+			}
+			_, unknown := ev.(uv.UnknownEvent)
+			if !expired && (unknown || (buf[0] == 0x1b && n <= 2)) {
+				select {
+				case b, ok := <-chunks:
+					if !ok {
+						expired = true
+						continue
+					}
+					buf = append(buf, b...)
+				case <-time.After(escWait):
+					expired = true
+				case <-ended:
+					stop()
+					return
+				}
+				continue
+			}
+			buf, expired = buf[n:], false
+			switch e := ev.(type) {
+			case uv.PasteStartEvent:
+				pasting = true
+			case uv.PasteEndEvent:
+				pasting = false
+			case uv.KeyPressEvent:
+				if !pasting && deliver(tea.KeyPressMsg(e)) {
+					stop()
+					return
+				}
+			}
+		}
+		select {
+		case b, ok := <-chunks:
+			if !ok {
+				inputEnded()
+				return
+			}
+			buf = append(buf, b...)
+		case <-ended:
+			stop()
+			return
+		}
+	}
+}
+
+// giveBack returns bytes the overlay read and did not use to the hand-off, ahead of what it still holds.
+func giveBack(in io.Reader, b []byte) {
+	if g, ok := in.(interface{ giveBack([]byte) }); ok && len(b) > 0 {
+		g.giveBack(b)
+	}
 }

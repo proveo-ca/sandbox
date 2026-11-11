@@ -13,7 +13,8 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 '   what sbx's own TUI looks like .... _spec/_experiments/sbx-tui-observed.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' This file grows as the port lands. Landed so far, all 2026-11-10: B0 (the
-' pins), B2 (the proxy hosts a Program), B3 (the Ctrl+C dialog).
+' pins), B2 (the proxy hosts a Program), B3 (the Ctrl+C dialog), B4 and B5
+' (the tcell overlay and modal are deleted).
 '
 ' ── WHY BUBBLE TEA v2 ──────────────────────────────────────────────────────
 ' The Executor, 2026-11-10: "Port everything to Bubble Tea v2" (D3), and for
@@ -60,8 +61,12 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' row, placed with lipgloss.Place. A test draws the tcell dialog on a
 ' simulation screen and compares the two as plain text, cell for cell, at
 ' five sizes, three inputs and two dialogs. They are equal.
-' The typed y/N field stays for now. The delivery plan turns the typed
-' dialogs into a button row one wave later (W-h, W-n).
+' THAT COMPARISON WAS THE GATE, AND IT IS GONE WITH BOTH SIDES. One wave
+' later the typed dialog became a button row
+' (_spec/internal/choiceui/confirm-dialogs.puml) and the tcell modal was
+' deleted (B5), so neither renderer of the comparison exists any more. The
+' forms keep their tcell renderer until the delivery plan's W9, which holds
+' their rewrite to golden frames instead.
 ' NO MESSAGE REACHES A FORMATTER. tea.EnvMsg carries the whole environment,
 ' and a spike that logged its messages wrote the operator's variables to a
 ' file. A contract test parses every Go file that imports bubbletea and fails
@@ -73,7 +78,8 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' ── THE OLD LIBRARIES ONLY LOSE IMPORTERS (G4) ─────────────────────────────
 ' tcell and go-fuzzyfinder leave when their last importer moves (delivery
 ' plan, B9). Until then a contract test lists every importing file: 34 for
-' tcell and 5 for go-fuzzyfinder on 2026-11-10. A file outside the list fails
+' tcell and 5 for go-fuzzyfinder when it landed, 18 and 5 after W5 deleted
+' the overlay and the modal. A file outside the list fails
 ' the test; so does a listed file that stopped importing, which keeps the
 ' list exact while it shrinks.
 ' The same file holds G5: a row in the glyph ban's exemption list whose file

@@ -1757,24 +1757,18 @@ func Run(in Input) error {
 				px.OutTap = func(b []byte) { _, _ = tail.Write(b) }
 			}
 			if os.Getenv("PROVEO_SCHEDULE") == "" {
-				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
-					closed, err := px.OverlayProgram(in, choiceui.NewSandboxClose())
-					if err != nil {
-						return ptyproxy.CtrlCStay
-					}
-					switch choiceui.SandboxCloseAnswer(closed) {
-					case choiceui.SandboxCloseRemove:
-						return ptyproxy.CtrlCRemove
-					case choiceui.SandboxClosePass:
-						return ptyproxy.CtrlCPass
-					default:
-						return ptyproxy.CtrlCStay
-					}
-				}, func() {
+				stop := func() {
 					forceRemove.Store(true)
 					removeAsked.Store(time.Now().UnixNano())
 					cancelRun()
-				})
+				}
+				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
+					closed, _ := px.OverlayProgram(in, choiceui.NewSandboxClose(stop, stopWait))
+					if choiceui.SandboxCloseAnswer(closed) == choiceui.SandboxClosePass {
+						return ptyproxy.CtrlCPass
+					}
+					return ptyproxy.CtrlCStay
+				}, nil)
 			}
 			return px.Run(c)
 		}

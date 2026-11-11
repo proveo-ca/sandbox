@@ -13,7 +13,7 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/sandbox.go (Run: created → CloneKnown, the retention line)
 ' covers: internal/backend/sandbox/home_access_test.go (TestOpenCodeHomeAccessMountsConfigButNeverHistory)
 ' covers: internal/choiceui/blocked_run.go
-' covers: internal/choiceui/blocked_run_test.go
+' covers: internal/choiceui/dialog_test.go
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: packages/lib/test_opencode_runtime.py
 ' covers: packages/lib/entrypoint-lib.sh (the two .local/share/opencode sync skips)

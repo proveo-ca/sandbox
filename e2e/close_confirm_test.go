@@ -107,11 +107,10 @@ func headedCtrlCAsksBeforeRemoving(t *testing.T, target, filter, key string) {
 	for _, want := range []string{
 		"That deletes the session.",
 		"Uncommitted changes can be permanently lost.",
-		"[y/N]",
-		"[esc]",
-		"[ctrl+c]",
-		"remove the sandbox",
-		"enter submits",
+		"Stay",
+		"Remove",
+		"Interrupt agent",
+		"enter accept",
 	} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("confirm modal missing %q:\n%s", want, screen)

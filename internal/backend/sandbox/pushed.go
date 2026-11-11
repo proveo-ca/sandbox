@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -24,12 +23,7 @@ var confirmFetchPushed = func(branches []string) bool {
 		return false
 	}
 	ptyproxy.DiscardInput(os.Stdin)
-	screen, err := openScreen()
-	if err != nil {
-		return false
-	}
-	defer screen.Fini()
-	return choiceui.ConfirmFetchPushed(screen, branches, fetchPushedWait)
+	return askFetchPushed(branches, fetchPushedWait)
 }
 
 var fetchName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)

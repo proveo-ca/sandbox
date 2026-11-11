@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
-
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/tmux"
@@ -70,17 +68,8 @@ func TestLivePostExitPromptHelper(t *testing.T) {
 	if err := p.Run(exec.Command("true")); err != nil {
 		t.Fatal(err)
 	}
-	screen, err := tcell.NewScreen()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := screen.Init(); err != nil {
-		t.Fatal(err)
-	}
-	yes := choiceui.ConfirmFetchPushed(screen, []string{"origin/feat-live"}, 30*time.Second)
-	screen.Fini()
 	answer := "no"
-	if yes {
+	if choiceui.AskFetchPushed([]string{"origin/feat-live"}, 30*time.Second) {
 		answer = "yes"
 	}
 	if err := os.WriteFile(done+".tmp", []byte(answer), 0o600); err != nil {

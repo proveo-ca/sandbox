@@ -2,11 +2,8 @@
 package choiceui
 
 import (
-	"slices"
 	"strings"
 	"testing"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 var qwenOnVRAM = ModelFit{
@@ -34,37 +31,5 @@ func TestOversizedModelCopyFitsAnEightyColumnTerminal(t *testing.T) {
 		if n := len([]rune(l)); n > oversizedModelWidth {
 			t.Errorf("%d runes > %d: %q", n, oversizedModelWidth, l)
 		}
-	}
-}
-
-func confirmOversized(t *testing.T, keys ...*tcell.EventKey) bool {
-	t.Helper()
-	sim := tcell.NewSimulationScreen("UTF-8")
-	if err := sim.Init(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(sim.Fini)
-	sim.SetSize(100, 36)
-	for _, ev := range keys {
-		sim.InjectKey(ev.Key(), ev.Rune(), ev.Modifiers())
-	}
-	return ConfirmOversizedModel(sim, qwenOnVRAM)
-}
-
-func TestConfirmOversizedModelDefaultsToStop(t *testing.T) {
-	if !confirmOversized(t, key('y'), keyEnter()) {
-		t.Error("y then enter must load")
-	}
-	for name, keys := range map[string][]*tcell.EventKey{
-		"empty enter": {keyEnter()},
-		"n":           {key('n'), keyEnter()},
-		"esc":         {tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)},
-	} {
-		if confirmOversized(t, keys...) {
-			t.Errorf("%s loaded the model", name)
-		}
-	}
-	if !slices.ContainsFunc(oversizedModelChoices(), func(c modalChoice) bool { return c.Key == "y/N" }) {
-		t.Error("the prompt must show No as the default")
 	}
 }

@@ -88,6 +88,7 @@ var specNotesEnforced = []string{
 	"_spec/_devops/unit-baseline.puml",
 	"_spec/internal/backend/teardown.puml",
 	"_spec/internal/choiceui/tui-stack.puml",
+	"_spec/internal/choiceui/confirm-dialogs.puml",
 }
 
 const (
