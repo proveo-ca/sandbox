@@ -22,11 +22,12 @@ const (
 
 // CheckRow is one check on a CheckPage.
 type CheckRow struct {
-	State  CheckState
-	Name   string
-	Detail string
-	Hint   string // what to do about it; drawn under a row that is not CheckOK
-	Group  string // a heading drawn above the first row that carries it
+	State    CheckState
+	Name     string
+	Detail   string
+	Evidence []string // what the check found; drawn under a row that is not CheckOK, above its hint
+	Hint     string   // what to do about it; drawn under a row that is not CheckOK
+	Group    string   // a heading drawn above the first row that carries it
 }
 
 // CheckPage shows what was checked before a wizard asks anything: one row per check.
@@ -109,11 +110,11 @@ func (m checkModel) View() tea.View {
 	return v
 }
 
-// checkLine is one drawn line of the list: a heading, a check, or a hint under one.
+// checkLine is one drawn line of the list: a heading, a check, or a line of evidence or the hint under one.
 type checkLine struct {
-	kind  int // 0 heading, 1 check, 2 hint
+	kind  int // 0 heading, 1 check, 2 hint, 3 evidence
 	row   CheckRow
-	title string
+	title string // the heading, or the line of evidence
 }
 
 func (cp *CheckPage) lines() []checkLine {
@@ -125,7 +126,13 @@ func (cp *CheckPage) lines() []checkLine {
 			out = append(out, checkLine{kind: 0, title: group})
 		}
 		out = append(out, checkLine{kind: 1, row: r})
-		if r.State != CheckOK && r.Hint != "" {
+		if r.State == CheckOK {
+			continue
+		}
+		for _, e := range r.Evidence {
+			out = append(out, checkLine{kind: 3, row: r, title: e})
+		}
+		if r.Hint != "" {
 			out = append(out, checkLine{kind: 2, row: r})
 		}
 	}
@@ -290,6 +297,8 @@ func (cp *CheckPage) draw(s *screen) {
 			}
 		case 2:
 			c.put(6, p.aside, clip(ln.row.Hint, max(1, w-6)))
+		case 3:
+			c.put(6, p.idle, clip(ln.title, max(1, w-6)))
 		}
 		c.y++
 	}

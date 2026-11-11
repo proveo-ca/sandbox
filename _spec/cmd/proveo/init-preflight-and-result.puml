@@ -32,8 +32,14 @@ title init opens on every check and closes on the result
 '   sbx diagnose     every row of `sbx diagnose --json`, when sbx is already
 '                    on the host
 ' Each row carries a mark (passed, warning, failed, skipped), the check's
-' name and its detail. A row that did not pass shows the fix under it:
-' Prereq.Fix, or sbx's own hint.
+' name and what it found: Prereq.Detail, or sbx's message. Under a row that
+' did not pass come sbx's detail lines, then the fix: Prereq.Fix, or sbx's
+' own hint. That is the order of sbx's own `sbx diagnose` table.
+' MEASURED 2026-11-11 on sbx 0.50.0: the page drew sbx's detail where the
+' message belongs, "SSH client config — ~/.ssh/config:5: Host", and dropped
+' the message that says why ("an unmanaged sandbox Host stanza can shadow
+' the managed configuration"). The operator could not tell what it meant.
+' The payload's two fields: _spec/internal/sbx/host-readiness.puml.
 ' On a host with no sbx the page holds the install prerequisites alone. On
 ' macOS that is one row.
 ' One sentence gives the verdict: "every check passed", or "2 of 7 checks
@@ -86,6 +92,8 @@ title init opens on every check and closes on the result
 ' ran as done, what was skipped as later with its command, and the next
 ' command. The eight older init tests pass through one changed helper,
 ' which continues past the checks page.
+' 2026-11-11: the stub sends sbx 0.50.0's shape, one row with a warning; the
+' page shows its message, its detail and its hint (macOS, tmux).
 ' NOT RUN: a blocked host. The blocked page is unit-tested and drawn in the
 ' golden frames; no test host fails a blocking prerequisite.
 ' NOT RUN: a host without sbx, so the one-row page drew in no test.
@@ -94,11 +102,13 @@ title init opens on every check and closes on the result
 '   TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix
 '   TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds
 '   TestAnSbxThatDoesNotAnswerIsARowAndNotAnError
+'   TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence
 '   TestTheResultCountsAnActionThatRanOnAnEarlierVisitAsDone
 '   TestSignInLeftForLaterNamesSbxsOwnCommand
 ' Pinned by internal/choiceui/check_page_test.go:
 '   TestTheCheckPagesKeys
 '   TestTheCheckPageShowsEveryCheckItsMarkAndTheHintUnderOneThatFailed
+'   TestWhatACheckFoundDrawsUnderARowThatDidNotPassAboveItsHint
 '   TestABlockedCheckPageSaysWhyAndOffersNoWayOn
 '   TestAShortCheckPageScrollsAndKeepsItsVerdictAndItsKeys
 '   TestTheCheckPageMatchesItsGoldenFrames
@@ -124,7 +134,7 @@ note bottom of PAGE
   **It asks nothing.** Passing checks show too,
   and sbx's own rows join them when sbx is
   already installed. A row that did not pass
-  carries its fix.
+  carries what was found and its fix.
 end note
 
 note bottom of BLOCK

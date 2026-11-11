@@ -530,7 +530,10 @@ func reportHostReadiness(bin string) []sbx.Check {
 	}
 	ui.Warnf("sbx reports %d of %d host checks failing", len(failed), len(checks))
 	for _, c := range failed {
-		ui.Failf("%s — %s", c.Name, c.Detail)
+		ui.Failf("%s — %s", c.Name, c.Summary())
+		for _, e := range c.Evidence() {
+			ui.Notef("%s", e)
+		}
 		if c.Hint != "" {
 			ui.Notef("%s", c.Hint)
 		}

@@ -48,6 +48,24 @@ func TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix(t *testing.T) {
 	}
 }
 
+func TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence(t *testing.T) {
+	t.Parallel()
+	rows := preflightRows(nil, []sbx.Check{{
+		Name: "SSH client config", Status: "fail",
+		Message: "an unmanaged sandbox Host stanza can shadow the managed configuration",
+		Detail:  "/home/op/.ssh/config:5: Host",
+		Hint:    "Remove or rename the reported Host *.sbx stanza in /home/op/.ssh/config, then run `sbx setup ssh`",
+	}}, nil)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want one", rows)
+	}
+	r := rows[0]
+	if r.Detail != "an unmanaged sandbox Host stanza can shadow the managed configuration" ||
+		len(r.Evidence) != 1 || r.Evidence[0] != "/home/op/.ssh/config:5: Host" || !strings.HasPrefix(r.Hint, "Remove or rename") {
+		t.Errorf("row = %+v, want sbx's message as the detail, its detail as evidence, its hint as the hint", r)
+	}
+}
+
 func TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds(t *testing.T) {
 	t.Parallel()
 	rows := preflightRows([]sbx.Prereq{{Name: "Apple silicon", OK: true}}, nil, nil)

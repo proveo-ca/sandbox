@@ -7,4 +7,4 @@ init — preparing the darwin/arm64 host          checks · 1/4
 
 blocked: nothing good follows an install here: KVM
 
-page 1/4 · ↑↓ scroll · esc cancel · 5 more below
+page 1/4 · ↑↓ scroll · esc cancel · 6 more below

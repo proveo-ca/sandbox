@@ -22,7 +22,7 @@ printf '%s\n' "$*" >> "$STUB_SBX_LOG"
 case "$1 $2" in
   "version --json") printf '%s\n' '{"client":{"version":"0.50.0"},"server":{"state":"running"}}' ;;
   "version "*|"version") printf '%s\n' 'sbx version: v0.50.0 deadbeef' ;;
-  "diagnose --json") printf '%s\n' '{"checks":[{"name":"virtualisation","status":"pass","detail":"stub"}]}' ;;
+  "diagnose --json") printf '%s\n' '{"checks":[{"name":"virtualisation","status":"pass","message":"supported","detail":"stub"},{"name":"Binary version","status":"warn","message":"update available: v9.9.9","detail":"https://example.invalid/sbx/v9.9.9","hint":"Download the latest release from the link above"}]}' ;;
   "secret ls") cat "$STUB_SBX_SECRETS" 2>/dev/null ;;
   "settings get")
     case "$3" in
@@ -427,7 +427,8 @@ func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
 func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
 	screen := r.checks(t)
-	for _, want := range []string{"init — preparing the ", "to install sbx", "sbx diagnose", "enter continue", "esc cancel", "ctrl+c quit"} {
+	for _, want := range []string{"init — preparing the ", "to install sbx", "sbx diagnose", "enter continue", "esc cancel", "ctrl+c quit",
+		"Binary version — update available: v9.9.9", "https://example.invalid/sbx/v9.9.9", "Download the latest release from the link above"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the checks page lacks %q:\n%s", want, screen)
 		}

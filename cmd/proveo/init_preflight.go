@@ -47,7 +47,7 @@ func preflightRows(checks []sbx.Prereq, diag []sbx.Check, diagErr error) []choic
 		})
 	}
 	for _, c := range diag {
-		row := choiceui.CheckRow{Group: checksFromSbx, State: choiceui.CheckSkip, Name: c.Name, Detail: c.Detail, Hint: c.Hint}
+		row := choiceui.CheckRow{Group: checksFromSbx, State: choiceui.CheckSkip, Name: c.Name, Detail: c.Summary(), Evidence: c.Evidence(), Hint: c.Hint}
 		switch c.Status {
 		case "pass":
 			row.State = choiceui.CheckOK

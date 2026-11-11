@@ -19,8 +19,8 @@ func checkPage() *CheckPage {
 		Next:   "setup",
 		Rows: []CheckRow{
 			{State: CheckOK, Group: "to install sbx", Name: "Apple silicon", Detail: "macOS Sonoma 14 or later on Apple silicon"},
-			{State: CheckOK, Group: "sbx diagnose", Name: "virtualization", Detail: "Hypervisor.framework is available"},
-			{State: CheckFail, Group: "sbx diagnose", Name: "daemon", Detail: "not running", Hint: "start it with `sbx daemon start`"},
+			{State: CheckOK, Group: "sbx diagnose", Name: "virtualization", Detail: "Hypervisor.framework is available", Evidence: []string{"kern.hv_support is 1"}},
+			{State: CheckFail, Group: "sbx diagnose", Name: "daemon", Detail: "not running", Evidence: []string{"/run/sbx/sandboxd.sock: connection refused"}, Hint: "start it with `sbx daemon start`"},
 			{State: CheckWarn, Group: "sbx diagnose", Name: "disk", Detail: "12 GB free", Hint: "a sandbox image needs about 8 GB"},
 			{State: CheckSkip, Group: "sbx diagnose", Name: "kvm", Detail: "not a Linux host"},
 		},
@@ -91,6 +91,26 @@ func TestTheCheckPageShowsEveryCheckItsMarkAndTheHintUnderOneThatFailed(t *testi
 	clean.Rows = clean.Rows[:2]
 	if joined = strings.Join(checkLines(clean, 110, 30), "\n"); !strings.Contains(joined, "every check passed — enter continues to setup") {
 		t.Errorf("a clean page must say so:\n%s", joined)
+	}
+}
+
+func TestWhatACheckFoundDrawsUnderARowThatDidNotPassAboveItsHint(t *testing.T) {
+	t.Parallel()
+	lines := checkLines(checkPage(), 110, 30)
+	at := func(s string) int {
+		for i, l := range lines {
+			if strings.Contains(l, s) {
+				return i
+			}
+		}
+		return -1
+	}
+	row, found, hint := at("× daemon — not running"), at("/run/sbx/sandboxd.sock: connection refused"), at("start it with `sbx daemon start`")
+	if row < 0 || found != row+1 || hint != found+1 {
+		t.Errorf("row, evidence, hint at lines %d, %d, %d; want three lines in that order:\n%s", row, found, hint, strings.Join(lines, "\n"))
+	}
+	if at("kern.hv_support") >= 0 {
+		t.Errorf("a passing row drew its evidence:\n%s", strings.Join(lines, "\n"))
 	}
 }
 

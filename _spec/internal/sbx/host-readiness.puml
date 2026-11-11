@@ -2,8 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: who owns the question "can this host run a sandbox", and why proveo stopped answering it itself
-' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
-' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
+' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, Check.Summary, Check.Evidence, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
+' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
 ' covers: cmd/proveo/init.go (verify, reportHostReadiness)
 ' covers: internal/sbx/version.go (Verified, IsVerified, UnverifiedNote, Available)
 ' covers: internal/sbx/version_test.go
@@ -192,6 +192,21 @@ skinparam noteTextAlignment left
 ' Release must sit inside Verified, and no Verified series may sit below
 ' MinVersion; TestThePinnedReleaseIsVerified and TestTheFloorIsTheFirstV3Release
 ' pin that.
+'
+' ── 2026-11-11: A ROW'S MESSAGE IS THE VERDICT; ITS DETAIL BACKS IT ────────
+' MEASURED on sbx 0.50.0: every row is {name, status, message, detail, hint}.
+' The message is what sbx prints after the name: "healthy", "found", "an
+' unmanaged sandbox Host stanza can shadow the managed configuration". The
+' detail is what it prints under the row: a path, a release URL, a PID per
+' line. proveo read only the detail. The verify step and init's checks page
+' printed the evidence where the verdict belongs, without the reason:
+'   SSH client config — ~/.ssh/config:5: Host
+' Check.Summary is the message, or the detail when no message came.
+' Check.Evidence is the detail's non-blank lines when a message came, else
+' nil. reportHostReadiness prints sbx's own order: name — summary, then the
+' evidence, then the hint.
+' [Unverified] Whether 0.49.2, the pinned Release, sends a message: no 0.49.2
+' payload was read. A payload without one reads as before.
 title host readiness — sbx answers "can this host run a sandbox";\nproveo asks, renders, and installs
 
 actor "operator" as OP
@@ -214,7 +229,7 @@ OP ARROW_MAIN INIT : ""proveo init""
 INIT ARROW_MAIN PRE : before the download — is 100 MB worth it
 PRE ARROW_ERROR INIT : BlocksInstall refuses · BlocksNothing warns
 INIT ARROW_QUEUE DIAG : after the install, by ABSOLUTE path
-DIAG ARROW_MAIN INIT : ""checks[]"" of {name, status, detail, hint}
+DIAG ARROW_MAIN INIT : ""checks[]"" of {name, status, message, detail, hint}
 INIT ARROW_ERROR OP : sbx's own remediation, rendered verbatim
 POST ARROW_ERROR PROXY : nothing in the package grants kvm
 PROXY ARROW_ERROR INIT : withdrawn — it failed hosts that work

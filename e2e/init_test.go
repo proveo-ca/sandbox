@@ -110,7 +110,7 @@ func TestInitReadsSbxDiagnoseOnThisHost(t *testing.T) {
 	}
 	var virt bool
 	for _, c := range checks {
-		t.Logf("%-22s %-5s %s", c.Name, c.Status, c.Detail)
+		t.Logf("%-22s %-5s %s", c.Name, c.Status, c.Summary())
 		if c.Name == "Virtualization" {
 			virt = true
 		}

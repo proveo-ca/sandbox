@@ -453,13 +453,36 @@ func DiagnoseArgs() []string { return []string{"diagnose", "--json"} }
 
 // Check is one row of `sbx diagnose`.
 type Check struct {
-	Name   string `json:"name"`
-	Status string `json:"status"` // pass | warn | fail | skip
-	Detail string `json:"detail"`
-	Hint   string `json:"hint"`
+	Name    string `json:"name"`
+	Status  string `json:"status"` // pass | warn | fail | skip
+	Message string `json:"message"`
+	Detail  string `json:"detail"`
+	Hint    string `json:"hint"`
 }
 
 func (c Check) Failed() bool { return c.Status == "fail" }
+
+// Summary is what sbx prints after the check's name: the message, or the detail when no message came.
+func (c Check) Summary() string {
+	if c.Message != "" {
+		return c.Message
+	}
+	return c.Detail
+}
+
+// Evidence is the detail behind a message, one entry per line; nil when the detail is the summary.
+func (c Check) Evidence() []string {
+	if c.Message == "" {
+		return nil
+	}
+	var out []string
+	for line := range strings.SplitSeq(c.Detail, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
 
 // ParseDiagnose reads a `sbx diagnose --json` payload.
 func ParseDiagnose(b []byte) ([]Check, error) {

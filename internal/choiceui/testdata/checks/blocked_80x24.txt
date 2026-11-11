@@ -1,12 +1,3 @@
-
-        ┌───────●                        ───────┐
-        │                                       │
-        │      pr●veo                           │
-        │                S O L U T I O N S      │
-        │                                       │
-        └───────                         ●──────┘
-  proveo/sandbox: portable, safe AI coding agents
-
 init — preparing the darwin/arm64 host                              checks · 1/4
 
   to install sbx
@@ -14,6 +5,7 @@ init — preparing the darwin/arm64 host                              checks · 
   sbx diagnose
   ✓ virtualization — Hypervisor.framework is available
   × daemon — not running
+      /run/sbx/sandboxd.sock: connection refused
       start it with `sbx daemon start`
   ! disk — 12 GB free
       a sandbox image needs about 8 GB

@@ -7,4 +7,4 @@ init — preparing the darwin/arm64 host          checks · 1/4
 
 2 of 5 checks need attention — enter continues to setup
 
-page 1/4 · enter continue · esc cancel · 5 more below
+page 1/4 · enter continue · esc cancel · 6 more below

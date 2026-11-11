@@ -395,6 +395,32 @@ func TestDigestFromProvenanceMatchesBySubjectName(t *testing.T) {
 	}
 }
 
+func TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence(t *testing.T) {
+	t.Parallel()
+	const body = `{"checks":[
+		{"name":"SSH client config","status":"fail","message":"an unmanaged sandbox Host stanza can shadow the managed configuration","detail":"/home/op/.ssh/config:5: Host","hint":"Remove or rename the reported Host *.sbx stanza in /home/op/.ssh/config, then run ` + "`sbx setup ssh`" + `"},
+		{"name":"Host processes","status":"pass","message":"2 sbx, 0 containerd-shim-nerdbox-v1","detail":"sbx PID 1: /opt/sbx\n\nsbx PID 2: /opt/sbx\n"},
+		{"name":"Socket","status":"pass","message":"responsive"}
+	]}`
+	checks, err := ParseDiagnose([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ssh, procs, sock := checks[0], checks[1], checks[2]
+	if ssh.Summary() != "an unmanaged sandbox Host stanza can shadow the managed configuration" {
+		t.Errorf("Summary() = %q, want sbx's message", ssh.Summary())
+	}
+	if got := ssh.Evidence(); len(got) != 1 || got[0] != "/home/op/.ssh/config:5: Host" {
+		t.Errorf("Evidence() = %q, want the detail", got)
+	}
+	if got := procs.Evidence(); len(got) != 2 || got[0] != "sbx PID 1: /opt/sbx" || got[1] != "sbx PID 2: /opt/sbx" {
+		t.Errorf("Evidence() = %q, want one entry per non-blank line", got)
+	}
+	if sock.Summary() != "responsive" || sock.Evidence() != nil {
+		t.Errorf("a row with no detail: Summary() = %q, Evidence() = %q", sock.Summary(), sock.Evidence())
+	}
+}
+
 // sbx answers with a row per check and a non-zero exit whenever one fails, so
 // the payload has to be read regardless of the exit status.
 func TestParseDiagnoseReadsSbxsOwnVerdict(t *testing.T) {
@@ -421,6 +447,11 @@ func TestParseDiagnoseReadsSbxsOwnVerdict(t *testing.T) {
 	for _, c := range failed {
 		if c.Hint == "" {
 			t.Errorf("%q carries no hint, so the operator is told what broke and not what to do", c.Name)
+		}
+	}
+	for _, c := range checks {
+		if c.Summary() != c.Detail || c.Evidence() != nil {
+			t.Errorf("%q: a row without a message must keep its detail as the summary and carry no evidence", c.Name)
 		}
 	}
 	if _, err := ParseDiagnose([]byte(`{"checks":[]}`)); err == nil {
