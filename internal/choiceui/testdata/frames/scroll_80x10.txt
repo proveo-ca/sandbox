@@ -1,0 +1,10 @@
+
+
+▲   credentials   (•) c   ( ) d
+░
+░                               ────── execution ──────
+
+  ›               [ ] e
+▼
+
+↑↓ row · ←→ move · space toggle · enter accept · esc cancel · 1 more below

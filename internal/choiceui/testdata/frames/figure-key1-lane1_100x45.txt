@@ -1,0 +1,42 @@
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+run claudecode — confirm or change this run
+
+  git:  monorepo on fix-tools
+  keys: ANTHROPIC_API_KEY
+  llms: main=claude-opus-5
+
+                  ◀ riskier                                                         safer ▶
+
+    egress        (•) allow-all   ( ) balanced   ( ) deny-all
+    credentials   (•) forward   ( ) broker
+  › auth          (•) ANTHROPIC…   ( ) CLAUDE_CO…
+
+                                ────── execution ──────
+
+                  [ ] host   [ ] docker (s…
+
+                                ────── interface ──────
+
+                  [ ] tui   [ ] browser   [ ] chrome
+    outputs       [ ] filtered   [ ] verbose
+
+↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel
+
+
+
+
+
+                         ┌────────────────────────────────┐                ┌╌╌╌▸ 
+  ●                      │   sbx · claudecode           │─────●•╌╌╌•╌╌╌╌╌┼╌╌╌×
+pluvo                    │ ● tui + browser + chrome       │ mitm + squid   └╌╌╌×
+(macOS)                  └───────────────┬────────────────┘
+  └──────────────────────────────────────┘
+  deny-all · broker — only proveo's allowlist gets out; the key stops at the hop

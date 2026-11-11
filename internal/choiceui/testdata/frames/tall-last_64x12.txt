@@ -1,0 +1,8 @@
+run claudecode — confirm or change this run
+
+▲                               ────── interface ──────
+
+                  [ ] tui   [ ] browser   [ ] chrome
+░ › outputs       [ ] filtered   [ ] verbose
+
+↑↓ row · ←→ move · space toggle · enter accept · esc cancel
