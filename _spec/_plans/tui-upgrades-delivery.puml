@@ -132,6 +132,25 @@ skinparam noteTextAlignment left
 '     Linux leg: five unit suites and two tmux pins passed.
 '     Reasoning: _spec/internal/backend/teardown.puml.
 '     NOT DONE, as in W1: the hand trial and `mise run build-cli`.
+' W3  DONE 2026-11-10: T4 in 9327897f; W-a and the cancel sentinel in the
+'     commit after.
+'     T4 ON A REAL TERMINAL AND A REAL SANDBOX, with `sbx rm` slowed by a
+'     PATH shim: the first Ctrl+C printed its line and left the removal
+'     running; the second exited 130 with the sandbox still listed.
+'     T4 ALSO put sbx's own bounded calls in their own process group: the
+'     probes behind Running and Exists run inside teardown too.
+'     THE GROUP KILL REMOVED A WAIT nobody had named: a killed call's
+'     grandchild held the pipe for the 2s grace. The Linux unit suite for
+'     the package went from 24.3s to 5.7s.
+'     THE SCOPE PIN IS RED BEFORE AND GREEN AFTER: at 9327897f proveo was
+'     still running 30s after Esc; now it prints "cancelled at the scope
+'     prompt" and exits 1.
+'     [Inference] "A scheduled run in a monorepo opens the picker" stays an
+'     inference: the gate now refuses there, and no scheduled run was made
+'     to prove the old behaviour.
+'     Reasoning: _spec/internal/backend/teardown.puml (T4),
+'     _spec/internal/backend/exit-code.puml, _spec/internal/run/run-spec.puml.
+'     NOT DONE, as in W1: the hand trial and `mise run build-cli`.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

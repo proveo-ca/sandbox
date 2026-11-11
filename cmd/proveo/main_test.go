@@ -13,12 +13,15 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/ktr0731/go-fuzzyfinder"
+
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -49,6 +52,27 @@ func TestPickProject(t *testing.T) {
 				t.Errorf("pickProject(input=%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAClosedScopePickerCancelsAndRowZeroIsTheRepoRoot(t *testing.T) {
+	t.Parallel()
+	projs := []workspace.Project{{Name: "web", Path: "apps/web"}, {Name: "util", Path: "packages/util"}}
+	for _, c := range []struct {
+		name string
+		idx  int
+		err  error
+		want string
+	}{
+		{"the repo root row", 0, nil, ""},
+		{"a project", 2, nil, "packages/util"},
+		{"the picker closed with Esc", -1, fuzzyfinder.ErrAbort, run.ScopeCancelled},
+		{"the finder failed", 0, errors.New("no terminal"), ""},
+		{"a row past the list", 9, nil, ""},
+	} {
+		if got := pickedScope(projs, c.idx, c.err); got != c.want {
+			t.Errorf("%s: pickedScope = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 

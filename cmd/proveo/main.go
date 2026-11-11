@@ -425,7 +425,15 @@ func fuzzyPickProject(projs []workspace.Project) string {
 	}
 	idx, err := fuzzyfinder.Find(labels, func(i int) string { return labels[i] },
 		fuzzyfinder.WithPromptString("scope> "))
-	if err != nil || idx <= 0 { // ErrAbort, finder failure, or "<repo root>"
+	return pickedScope(projs, idx, err)
+}
+
+// pickedScope maps the picker's answer to a scope: a closed picker cancels, row 0 is the repo root.
+func pickedScope(projs []workspace.Project, idx int, err error) string {
+	switch {
+	case errors.Is(err, fuzzyfinder.ErrAbort):
+		return run.ScopeCancelled
+	case err != nil || idx <= 0 || idx > len(projs):
 		return ""
 	}
 	return projs[idx-1].Path

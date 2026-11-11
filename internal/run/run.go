@@ -101,6 +101,47 @@ func requireSandbox(p Params, d Deps) error {
 	return nil
 }
 
+// ScopeCancelled is what PickProject returns when the operator closes the picker without choosing.
+const ScopeCancelled = "\x00cancelled"
+
+// scopeChoice is what a monorepo run that named no scope does about it.
+type scopeChoice int
+
+const (
+	scopeSilent scopeChoice = iota // take the repo root and say nothing
+	scopeAsk                       // the operator picks
+	scopeRoot                      // the question is skipped: take the repo root and say so
+)
+
+// scopeGate decides whether a run asks for a scope: never under --print, --yes or the scheduler.
+func scopeGate(p *Params, tty, wizard, scheduled bool) scopeChoice {
+	switch {
+	case p.PrintOnly:
+		return scopeSilent
+	case p.Yes || scheduled:
+		return scopeRoot
+	case tty && wizard:
+		return scopeAsk
+	}
+	return scopeSilent
+}
+
+// chooseScope resolves the scope of a monorepo run that named none; "" is the repo root.
+func chooseScope(gate scopeChoice, projs []workspace.Project, pick func([]workspace.Project) string) (string, error) {
+	switch gate {
+	case scopeAsk:
+		scope := pick(projs)
+		if scope == ScopeCancelled {
+			return "", errors.New("cancelled at the scope prompt")
+		}
+		return scope, nil
+	case scopeRoot:
+		ui.Section(ui.SectionScope)
+		ui.Storef("scope: repo root")
+	}
+	return "", nil
+}
+
 func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	path, err := githubaccess.Path()
 	if err != nil {
@@ -127,9 +168,11 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 	}
 
 	rs.Workspace.SubScope = strings.Trim(p.Scope, "/")
-	if rs.Workspace.SubScope == "" && !p.PrintOnly && agentio.IsStdinTTY() && agentio.WizardEnabled() && rs.Workspace.Scope.IsRepo {
+	if gate := scopeGate(p, agentio.IsStdinTTY(), agentio.WizardEnabled(), scheduled()); rs.Workspace.SubScope == "" && gate != scopeSilent && rs.Workspace.Scope.IsRepo {
 		if projs := workspace.DiscoverProjects(rs.Workspace.RepoRoot); len(projs) > 0 {
-			rs.Workspace.SubScope = d.PickProject(projs)
+			if rs.Workspace.SubScope, err = chooseScope(gate, projs, d.PickProject); err != nil {
+				return err
+			}
 		}
 	}
 	if rs.Workspace.SubScope != "" {

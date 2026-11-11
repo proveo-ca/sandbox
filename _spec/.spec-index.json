@@ -1182,7 +1182,9 @@
         "internal/run/spec.go",
         "internal/run/run.go",
         "internal/run/**",
-        "cmd/proveo/golden_test.go"
+        "cmd/proveo/golden_test.go",
+        "cmd/proveo/main.go",
+        "e2e/scope_picker_test.go"
       ],
       "fingerprint": null
     },

@@ -6,7 +6,45 @@ skinparam noteTextAlignment left
 ' covers: internal/run/run.go
 ' covers: internal/run/**
 ' covers: cmd/proveo/golden_test.go
+' covers: cmd/proveo/main.go (pickProject, fuzzyPickProject, pickedScope)
+' covers: e2e/scope_picker_test.go
 '   why there is one backend ... _spec/internal/sbx/sandbox-backend.puml
+'
+' ── 2026-11-10: ONE GATE DECIDES WHETHER A RUN ASKS FOR A SCOPE ────────────
+' resolveWorkspace asked for a monorepo scope whenever stdin was a terminal
+' and the wizard was on. It read neither --yes nor PROVEO_SCHEDULE.
+'   `proveo run --yes` in a monorepo still opened the picker.
+'   [Inference] A scheduled run there opened it too and waited: the scheduler
+'   types into a tmux terminal. This rests on reading the gate; no scheduled
+'   run was recorded doing it.
+' scopeGate(p, tty, wizard, scheduled) now answers one of three:
+'   scopeAsk     a headed run that was not told yes: the operator picks
+'   scopeRoot    --yes or the scheduler: the repo root, and one line says so
+'                  scope: repo root
+'                (the Executor, D17: "Repo root, with a line")
+'   scopeSilent  --print, no terminal, or the wizard off: the repo root, as
+'                before, with no line
+' --print stays silent because it starts nothing; the scheduler runs it first
+' and reads its output.
+' Project discovery runs only when the gate is not silent, so --print still
+' pays for none.
+' ESC IN THE PICKER CANCELS. fuzzyPickProject returned "" for three things:
+' the "<repo root>" row, a finder failure, and Esc. "" means the repo root, so
+' Esc started a run on the whole repository. pickedScope now maps the finder's
+' ErrAbort to run.ScopeCancelled; chooseScope turns that into
+'   cancelled at the scope prompt
+' and the run exits 1 before anything is created. A finder failure still falls
+' back to the repo root.
+' MEASURED on a real terminal (tmux), 2026-11-10: before the change proveo was
+' still running 30s after Esc; after it, it printed the line and exited 1.
+' WRITTEN TWICE BY CHOICE: W10 (delivery plan, W-f) replaces fuzzyPickProject
+' with the tree page. The sentinel and the gate stay.
+' Pinned by internal/run/scope_gate_test.go:
+'   TestTheScopeGateAsksOnlyAHeadedRunThatWasNotToldYes
+'   TestASkippedScopeQuestionTakesTheRepoRootAndSaysSo
+'   TestClosingTheScopePickerCancelsTheRun
+' by cmd/proveo/main_test.go: TestAClosedScopePickerCancelsAndRowZeroIsTheRepoRoot
+' and by e2e/scope_picker_test.go: TestEscInTheScopePickerCancelsTheRun
 '
 ' ── 2026-10-16: ONE BACKEND, ONE INPUT ─────────────────────────────────────
 ' The docker+egress backend is deleted ("Retire Docker egress"; "Refuse without
@@ -133,6 +171,13 @@ note over CMD
   **Deps keeps this package honest.** Prompts,
   the gh session and image pulls stay in
   cmd/proveo and arrive as functions.
+end note
+
+note over SPEC
+  **One gate for the scope question.** ""--yes""
+  and the scheduler take the repo root and
+  print ""scope: repo root"". Esc in the picker
+  cancels the run; it no longer means root.
 end note
 
 note over DO
