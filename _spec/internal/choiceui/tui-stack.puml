@@ -6,6 +6,7 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' covers: go.mod (the charm.land requirements)
 ' covers: internal/contract/tui_stack_pins_test.go
 ' covers: internal/contract/tea_envmsg_test.go
+' covers: internal/contract/tui_ratchets_test.go
 '   why the stack changed ............ _spec/_plans/tui-responsiveness.puml (D3, D8, D9)
 '   the order the port lands in ...... _spec/_plans/tui-upgrades-delivery.puml (W4, W5, W9, W10)
 '   who owns the terminal ............ _spec/internal/ptyproxy/pty-ownership.puml
@@ -42,6 +43,10 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' under the upgraded width library, and all eight release targets still build.
 ' [Inference] No visible width changed. The suites compare rendered text; no
 ' terminal was looked at for this.
+' bubbles is pinned ahead of its first import, so go.mod marks it indirect
+' and `go mod tidy` would drop it. go.mod was not tidy before this either
+' (tidy also removes martian and x/net); only the three modules proveo now
+' imports were moved to the direct block, by hand.
 ' A TEST HOLDS THE PINS, because a later `go get` of any Charm module can move
 ' all three. It checks the resolved build list and the literal go.mod lines.
 '
@@ -64,6 +69,18 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' tea.EnvMsg, and tea.LogToFile.
 ' [Inference] The check is syntactic. A message copied into another variable
 ' and formatted there passes it.
+'
+' ── THE OLD LIBRARIES ONLY LOSE IMPORTERS (G4) ─────────────────────────────
+' tcell and go-fuzzyfinder leave when their last importer moves (delivery
+' plan, B9). Until then a contract test lists every importing file: 34 for
+' tcell and 5 for go-fuzzyfinder on 2026-11-10. A file outside the list fails
+' the test; so does a listed file that stopped importing, which keeps the
+' list exact while it shrinks.
+' The same file holds G5: a row in the glyph ban's exemption list whose file
+' is gone, or holds no banned rune any more, fails.
+' Pinned by internal/contract/tui_ratchets_test.go:
+'   TestTheRetiringTUILibrariesGainNoImporter
+'   TestEveryGlyphBanExemptionStillShieldsABannedRune
 '
 ' Pinned by internal/contract/tea_envmsg_test.go:
 '   TestNoSourceFormatsABubbleTeaMessage

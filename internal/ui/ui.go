@@ -137,6 +137,9 @@ type Printer struct {
 
 	mu             sync.Mutex
 	pending, shown string
+
+	term io.Writer // the terminal alone; nil when W is not one
+	live string    // the live line as drawn; "" when there is none
 }
 
 // Section names the concern the following lines belong to, drawn as the
@@ -221,9 +224,68 @@ func New(w io.Writer) *Printer {
 	fancy := isFancy(w)
 	p := &Printer{W: w, Plain: !fancy, Tier: GlyphTierFrom(os.Getenv)}
 	if fancy {
-		p.W = wrapFor(w)
+		p.W, p.term = wrapFor(w), w
 	}
 	return p
+}
+
+// Live draws one line that the next frame replaces in place. It reaches the
+// terminal alone, never a tee; a plain printer draws nothing.
+func (p *Printer) Live(r Role, format string, a ...any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.Plain || p.term == nil {
+		return
+	}
+	p.eraseLive()
+	p.flushSection()
+	p.live = p.liveFrame(r, fmt.Sprintf(format, a...))
+	p.drawLive()
+}
+
+// EndLive erases the live line.
+func (p *Printer) EndLive() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.eraseLive()
+	p.live = ""
+}
+
+// liveFrame is one frame: the role's mark, then body cut to the terminal's width.
+func (p *Printer) liveFrame(r Role, body string) string {
+	prefix := mark(p.Tier, sevNone, r)
+	if cols := p.width(); cols > 0 {
+		body = cutToWidth(body, cols-textWidthOf(prefix)-1)
+	}
+	if c, ok := r.color(); ok {
+		prefix = ANSI(c) + prefix + ANSIReset
+	}
+	return prefix + body
+}
+
+// eraseLive clears the live line off the terminal ahead of an ordinary line.
+func (p *Printer) eraseLive() {
+	if p.live != "" && p.term != nil {
+		fmt.Fprint(p.term, "\r\033[K")
+	}
+}
+
+// drawLive puts the live line back as the terminal's last line.
+func (p *Printer) drawLive() {
+	if p.live != "" && p.term != nil {
+		fmt.Fprint(p.term, "\r"+p.live+"\033[K")
+	}
+}
+
+// cutToWidth is s shortened to at most width columns.
+func cutToWidth(s string, width int) string {
+	w := 0
+	for i, r := range s {
+		if w += runewidth.RuneWidth(r); w > width {
+			return s[:i]
+		}
+	}
+	return s
 }
 
 // Default is the process-wide status printer (stderr).
@@ -243,6 +305,7 @@ func TeeTo(w io.Writer) {
 		Tier:    term.Tier,
 		pending: pending,
 		shown:   shown,
+		term:    term.term,
 	}
 	logOnly = &Printer{W: w, Plain: true, Tier: term.Tier}
 }
@@ -285,6 +348,8 @@ func isFancy(w io.Writer) bool {
 func (p *Printer) line(r Role, s sev, format string, a ...any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.eraseLive()
+	defer p.drawLive()
 	p.flushSection()
 	prefix := mark(p.Tier, s, r)
 	if p.Plain {
@@ -371,6 +436,8 @@ func (p *Printer) Notef(format string, a ...any) { p.line(RoleNone, sevNone, for
 func (p *Printer) Askf(format string, a ...any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.eraseLive()
+	p.live = ""
 	p.flushSection()
 	body := fmt.Sprintf(format, a...)
 	if p.Plain {

@@ -929,7 +929,8 @@
       "covers": [
         "go.mod",
         "internal/contract/tui_stack_pins_test.go",
-        "internal/contract/tea_envmsg_test.go"
+        "internal/contract/tea_envmsg_test.go",
+        "internal/contract/tui_ratchets_test.go"
       ],
       "fingerprint": null
     },
@@ -1555,7 +1556,9 @@
       "spec": "_spec/internal/ui/output-vocabulary.puml",
       "covers": [
         "internal/ui/**",
-        "e2e/stream_palette_test.go"
+        "e2e/stream_palette_test.go",
+        "internal/sbx/host_ollama.go",
+        "internal/sbx/host_ollama_pull_test.go"
       ],
       "fingerprint": null
     },

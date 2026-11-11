@@ -205,6 +205,9 @@ func registrySize(model string) (uint64, bool) {
 	return total, total > 0
 }
 
+// pullFrameEvery is the least time between two frames of the pull's live line.
+var pullFrameEvery = time.Second
+
 // pullOllama streams the host Ollama's /api/pull; a TTY gets a live progress line, anything else the start and end.
 func pullOllama(model string, p *ui.Printer) error {
 	body, _ := json.Marshal(map[string]any{"model": model, "stream": true})
@@ -217,7 +220,7 @@ func pullOllama(model string, p *ui.Printer) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	var last time.Time
-	drawn := false
+	defer p.EndLive()
 	dec := json.NewDecoder(resp.Body)
 	for {
 		var ev struct {
@@ -233,18 +236,13 @@ func pullOllama(model string, p *ui.Printer) error {
 		}
 		switch {
 		case ev.Error != "":
-			if drawn {
-				_, _ = fmt.Fprintln(p.W)
-			}
 			return errors.New(ev.Error)
-		case ev.Total > 0 && !p.Plain && time.Since(last) > time.Second:
-			last, drawn = time.Now(), true
-			_, _ = fmt.Fprintf(p.W, "\r%s● %s  pulling %s: %5.1f%% of %.1f GiB", ui.ANSI(ui.ColorAsync), ui.ANSIReset, model,
+		case ev.Total > 0 && time.Since(last) > pullFrameEvery:
+			last = time.Now()
+			p.Live(ui.RoleAsync, "pulling %s: %5.1f%% of %.1f GiB", model,
 				100*float64(ev.Completed)/float64(ev.Total), gib(ev.Total))
 		case ev.Status == "success":
-			if drawn {
-				_, _ = fmt.Fprint(p.W, "\r\033[K")
-			}
+			p.EndLive()
 			p.Okf("pulled %s", model)
 		}
 	}
