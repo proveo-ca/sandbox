@@ -115,6 +115,11 @@ func parent(path string) string {
 // At is the cursor's path; "" is the root.
 func (t *Tree) At() string { return t.at }
 
+// Holds reports whether path lies below the cursor's folder; the root holds every other path.
+func (t *Tree) Holds(path string) bool {
+	return path != "" && (t.at == "" || strings.HasPrefix(path, t.at+"/"))
+}
+
 // index is the cursor's row among rows; 0, the root, when its row is hidden.
 func (t *Tree) index(rows []TreeRow) int {
 	return max(0, slices.IndexFunc(rows, func(r TreeRow) bool { return r.Path == t.at }))

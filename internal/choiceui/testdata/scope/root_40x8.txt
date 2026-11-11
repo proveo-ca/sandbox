@@ -1,7 +1,7 @@
 run claudecode — where the agent works
 
 › monorepo  repo root  default
-    ▾ apps
+  │ ▾ apps
 
 enter starts the agent at the repo root…
 

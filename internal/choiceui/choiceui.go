@@ -764,6 +764,7 @@ type palette struct {
 	aside  lipgloss.Style // italic — parenthetical descriptions
 	key    lipgloss.Style // a key on the key line: bold and bright
 	word   lipgloss.Style // the word beside it: grey
+	rule   lipgloss.Style // a tree guide outside the cursor's folder
 }
 
 func styles() palette {
@@ -778,6 +779,7 @@ func styles() palette {
 		aside:  fg(ui.ColorSecondary).Italic(true),
 		key:    fg(ui.ColorSecondary).Bold(true),
 		word:   fg(ui.ColorMuted),
+		rule:   fg(ui.ColorRule),
 	}
 }
 

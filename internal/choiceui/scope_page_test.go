@@ -117,7 +117,7 @@ func TestTheRootRowIsMarkedDefaultAndTheLineUnderTheTreeFollowsTheCursor(t *test
 	}
 	sp.Tree.Place("apps/web")
 	joined = strings.Join(scopeLines(sp, 100, 30), "\n")
-	if !strings.Contains(joined, "enter starts the agent in apps/web") || !strings.Contains(joined, "›     web") {
+	if !strings.Contains(joined, "enter starts the agent in apps/web") || !strings.Contains(joined, "› │ │ web") {
 		t.Errorf("the cursor's folder is not named under the tree:\n%s", joined)
 	}
 }
@@ -182,6 +182,94 @@ func TestTheScopePagePaintsTheCursorsRowInTheBrandColour(t *testing.T) {
 		return
 	}
 	t.Fatalf("no cursor row on apps:\n%s", strings.Join(lines, "\n"))
+}
+
+// guides is each guide on the row that ends in name, left to right: "c" for a
+// brand guide, "d" for a rule guide, "?" for any other style.
+func guides(t *testing.T, sp *ScopePage, name string) string {
+	t.Helper()
+	s := newScreen(100, 30)
+	sp.draw(s)
+	p := styles()
+	for y, line := range screenLines(s) {
+		if !strings.HasSuffix(strings.TrimRight(line, " "), " "+name) {
+			continue
+		}
+		var out string
+		for x := 2; x < 100; x += 2 {
+			r, _, st, _ := s.GetContent(x, y)
+			if r != '│' && r != '|' {
+				return out
+			}
+			switch {
+			case sameStyle(st, p.brand):
+				out += "c"
+			case sameStyle(st, p.rule):
+				out += "d"
+			default:
+				out += "?"
+			}
+		}
+		return out
+	}
+	t.Fatalf("no row ends in %q", name)
+	return ""
+}
+
+func TestTheGuidesInsideTheCursorsFolderAreBrandAndTheRestAreRuleGrey(t *testing.T) {
+	t.Parallel()
+	if sameStyle(styles().brand, styles().rule) {
+		t.Fatal("the brand and rule styles render alike; this test cannot tell them apart")
+	}
+	for _, c := range []struct {
+		at   string
+		want map[string]string
+	}{
+		{"", map[string]string{"apps": "c", "api": "cc", "tools": "c", "worker": "ccc"}},
+		{"services", map[string]string{"apps": "d", "api": "dd", "billing": "dc", "worker": "dcc", "tools": "d"}},
+		{"services/billing", map[string]string{"billing": "dd", "worker": "ddc"}},
+		{"apps/api", map[string]string{"api": "dd", "web": "dd"}},
+	} {
+		sp := scopePage()
+		sp.Tree.Place(c.at)
+		for name, want := range c.want {
+			if got := guides(t, sp, name); got != want {
+				t.Errorf("cursor on %q: the guides on %s read %q, want %q", c.at, name, got, want)
+			}
+		}
+	}
+	sp := scopePage()
+	sp.Glyphs = GlyphsASCII
+	if got := guides(t, sp, "worker"); got != "ccc" {
+		t.Errorf("ASCII guides on worker read %q, want three | guides in the brand style", got)
+	}
+}
+
+func TestMovingDownOntoAFolderScrollsItsContentsIntoTheWindow(t *testing.T) {
+	t.Parallel()
+	sp := scopePage()
+	for range 6 {
+		sp.key(named("down"), 12)
+		scopeLines(sp, 60, 12)
+	}
+	s := newScreen(60, 12)
+	sp.draw(s)
+	lines := screenLines(s)
+	cursor, worker := -1, -1
+	for y, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "› ") && strings.HasSuffix(strings.TrimRight(line, " "), " services"):
+			cursor = y
+		case strings.HasSuffix(strings.TrimRight(line, " "), " worker"):
+			worker = y
+		}
+	}
+	if cursor < 0 || worker < 0 {
+		t.Fatalf("the cursor's folder or its last row is off the window:\n%s", strings.Join(lines, "\n"))
+	}
+	if _, _, st, _ := s.GetContent(4, worker); !sameStyle(st, styles().brand) {
+		t.Errorf("the guide beside worker is not brand:\n%s", strings.Join(lines, "\n"))
+	}
 }
 
 // TestTheScopePageMatchesItsGoldenFrames holds the page to recorded frames.

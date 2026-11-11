@@ -11,9 +11,9 @@ run claudecode — where the agent works                                        
 
   / bill_
   monorepo  repo root  default
-    ▾ services
-›     ▾ billing
-        worker
+  │ ▾ services
+› │ │ ▾ billing
+  │ │ │ worker
 
 enter starts the agent in services/billing
 

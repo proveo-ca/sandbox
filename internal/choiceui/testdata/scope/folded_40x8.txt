@@ -1,7 +1,7 @@
 run claudecode — where the agent works
 
-      ui
-›   ▸ services  1 inside
+  │ │ ui
+› │ ▸ services  1 inside
 
 enter starts the agent in services
 

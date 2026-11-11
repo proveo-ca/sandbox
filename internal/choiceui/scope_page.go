@@ -272,10 +272,14 @@ func (sp *ScopePage) draw(s *screen) {
 
 	rows := sp.Tree.Rows()
 	at := sp.Tree.index(rows)
-	sp.top = min(max(sp.top, at-lay.window+1), at)
+	end := at // the last row the cursor's folder holds
+	for end+1 < len(rows) && sp.Tree.Holds(rows[end+1].Path) {
+		end++
+	}
+	sp.top = min(max(sp.top, end-lay.window+1), at)
 	sp.top = max(0, min(sp.top, len(rows)-lay.window))
 	for i := 0; i < lay.window; i++ {
-		sp.drawRow(c, p, rows[sp.top+i], sp.top+i == at, w)
+		sp.drawRow(c, p, rows[sp.top+i], rows[at], w)
 		c.y++
 	}
 	c.y++
@@ -284,13 +288,22 @@ func (sp *ScopePage) draw(s *screen) {
 	paintHint(c, p, sp.hintParts(w, len(rows)-sp.top-lay.window), w)
 }
 
-// drawRow paints one folder: the cursor mark, the fold mark, the name, and what a fold hides.
-func (sp *ScopePage) drawRow(c *canvas, p palette, r TreeRow, cursor bool, w int) {
+// drawRow paints one folder: the cursor mark, a guide per folder above it, the fold
+// mark, the name, and what a fold hides. Guides inside the cursor's folder are brand.
+func (sp *ScopePage) drawRow(c *canvas, p palette, r, cur TreeRow, w int) {
 	marker, name := "  ", p.body
-	if cursor {
+	if r.Path == cur.Path {
 		marker, name = "› ", p.brand
 	}
 	c.put(0, p.brand, marker)
+	held := sp.Tree.Holds(r.Path)
+	for d := range r.Depth {
+		st := p.rule
+		if held && d >= cur.Depth {
+			st = p.brand
+		}
+		c.put(2+2*d, st, sp.guide())
+	}
 	pen := newPen(c.s, 2+2*r.Depth, c.y)
 	if r.Folder && r.Path != "" {
 		pen.write(p.idle, sp.foldMark(r.Folded))
@@ -306,6 +319,13 @@ func (sp *ScopePage) drawRow(c *canvas, p palette, r TreeRow, cursor bool, w int
 	case r.Folded:
 		pen.write(p.idle, fmt.Sprintf("  %d inside", r.Hidden))
 	}
+}
+
+func (sp *ScopePage) guide() string {
+	if sp.Glyphs == GlyphsASCII || sp.Glyphs == GlyphsOff {
+		return "|"
+	}
+	return "│"
 }
 
 func (sp *ScopePage) foldMark(folded bool) string {

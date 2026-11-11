@@ -1,7 +1,7 @@
 run claudecode — where the agent works
 
   / bill_
-›     ▾ billing
+› │ │ ▾ billing
 
 enter starts the agent in services/bill…
 

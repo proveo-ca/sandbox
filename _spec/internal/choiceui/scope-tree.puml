@@ -46,6 +46,9 @@ title The scope page and the filter list — a folder tree with the root first, 
 '   Clearing the filter keeps the cursor and opens the folders above it.
 '   PLACE puts the cursor on a path and opens what hides it. A step back from
 '   the form uses it, so the page reopens where it was left.
+'   HOLDS reports whether a path lies below the cursor's folder. The root
+'   holds every other path; a folder does not hold itself; "app" does not
+'   hold "apps/web". The page's cyan guides read it.
 ' NOT A TOOL COLUMN: internal/workspace/discover.go gives every project in a
 ' repository the same Tool.
 ' EVERY FOLDER IS A SCOPE, NOT ONLY A PROJECT. The old list offered the root
@@ -68,6 +71,20 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' A leaf's name starts in the column a sibling folder's fold mark does.
 ' MEASURED: with the name one step further right, `tools` read as a child of
 ' the folder above it.
+' GUIDES (2026-11-11). A row draws one guide per folder above it, under that
+' folder's fold mark; the root's guide is column 2. A guide inside the
+' cursor's folder is brand cyan; every other guide is ColorRule grey. The
+' cyan region is what the agent gets: on the root row every guide is cyan.
+' Under the ASCII and Off glyph tiers a guide is |.
+' The window scrolls ahead to the last row the cursor's folder holds, as far
+' as the cursor stays on screen. MEASURED by review: at 60x12, six downs left
+' "services" on the bottom row with billing and worker, and their cyan
+' guides, below the window.
+' The operator: "a cyan line should highlight what it contains for
+' visibility; lines should be shown for subfolders too", then chose the
+' cyan region over two proposals. NOT CHOSEN: cyan lines under the cursor's
+' folder with no grey guides elsewhere; one cyan guide for the cursor's own
+' folder with its subfolders' guides grey (VS Code's indent guides).
 ' The root row reads "<repository>  repo root  default".
 ' A folded folder says how many given paths it hides: "2 inside".
 ' The fold marks are U+25BE and U+25B8; under the ASCII glyph tier, - and +.
@@ -125,6 +142,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 '   TestFoldingHidesAFoldersRowsAndCountsThem
 '   TestFoldOnALeafOrAClosedFolderStepsToTheFolderAbove
 '   TestPlaceOpensTheFoldersAboveAndRefusesAnUnknownPath
+'   TestTheCursorsFolderHoldsEveryPathBelowItAndTheRootHoldsAll
 '   TestAFilterKeepsTheRootTheMatchesAndTheFoldersAboveThem
 '   TestAFilterPutsTheCursorOnItsFirstMatch
 '   TestClearingAFilterKeepsTheCursorAndOpensTheFoldersAboveIt
@@ -134,6 +152,8 @@ title The scope page and the filter list — a folder tree with the root first, 
 '   TestTheRootRowIsMarkedDefaultAndTheLineUnderTheTreeFollowsTheCursor
 '   TestAShortTerminalScrollsTheTreeAndKeepsTheCursorAndTheFoot
 '   TestBelowItsFloorTheScopePageSaysSoAndStillLeaves
+'   TestTheGuidesInsideTheCursorsFolderAreBrandAndTheRestAreRuleGrey
+'   TestMovingDownOntoAFolderScrollsItsContentsIntoTheWindow
 '   TestTheScopePageMatchesItsGoldenFrames
 ' Pinned by internal/choiceui/filter_list_test.go:
 '   TestTheFilterListsKeys
@@ -178,6 +198,13 @@ note bottom of TREE
   The root stays on screen under a filter. A
   cursor left on it would make "/web" then
   Enter choose the root.
+end note
+
+note right of PAGE
+  **Cyan is what the agent gets.** Every open
+  folder draws a grey guide; the guides inside
+  the cursor's folder turn cyan, the guides of
+  its subfolders too.
 end note
 
 note bottom of PAGE

@@ -67,6 +67,33 @@ func TestTheCursorStopsAtEitherEnd(t *testing.T) {
 	}
 }
 
+func TestTheCursorsFolderHoldsEveryPathBelowItAndTheRootHoldsAll(t *testing.T) {
+	t.Parallel()
+	tr := NewTree([]string{"app/x", "apps/web", "services/billing/worker", "tools"})
+	held := func() []string {
+		var out []string
+		for _, r := range tr.Rows() {
+			if tr.Holds(r.Path) {
+				out = append(out, r.Path)
+			}
+		}
+		return out
+	}
+	if got, want := held(), paths(tr)[1:]; !slices.Equal(got, want) {
+		t.Errorf("the root holds %q, want every row but itself %q", got, want)
+	}
+	for at, want := range map[string][]string{
+		"services": {"services/billing", "services/billing/worker"},
+		"app":      {"app/x"},
+		"tools":    nil,
+	} {
+		tr.Place(at)
+		if got := held(); !slices.Equal(got, want) {
+			t.Errorf("%s holds %q, want %q", at, got, want)
+		}
+	}
+}
+
 func TestFoldingHidesAFoldersRowsAndCountsThem(t *testing.T) {
 	t.Parallel()
 	tr := monoTree()

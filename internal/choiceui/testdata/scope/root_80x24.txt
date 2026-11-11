@@ -1,15 +1,15 @@
 run claudecode — where the agent works                               scope · 1/2
 
 › monorepo  repo root  default
-    ▾ apps
-      api
-      web
-    ▾ packages
-      ui
-    ▾ services
-      ▾ billing
-        worker
-    tools
+  │ ▾ apps
+  │ │ api
+  │ │ web
+  │ ▾ packages
+  │ │ ui
+  │ ▾ services
+  │ │ ▾ billing
+  │ │ │ worker
+  │ tools
 
 enter starts the agent at the repo root, with every folder below it
 

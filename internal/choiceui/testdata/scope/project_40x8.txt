@@ -1,7 +1,7 @@
 run claudecode — where the agent works
 
-      api
-›     web
+  │ │ api
+› │ │ web
 
 enter starts the agent in apps/web
 
