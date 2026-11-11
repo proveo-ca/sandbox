@@ -569,10 +569,17 @@ func adoptLead(names []string, prefix string, ahead func(string) bool) string {
 
 func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	list, listed := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "for-each-ref",
-		"--format=%(refname:short)", sbx.CloneRefs(in.Sid)+"/")
+		"--format=%(refname:short) %(objectname)", sbx.CloneRefs(in.Sid)+"/")
 	refs, err := list.Output()
 	_ = listed(err)
-	names := strings.Fields(string(refs))
+	var names []string
+	tips := map[string]string{}
+	for _, line := range strings.Split(string(refs), "\n") {
+		if f := strings.Fields(line); len(f) == 2 {
+			names = append(names, f[0])
+			tips[f[0]] = f[1]
+		}
+	}
 	if len(names) == 0 {
 		ui.Notef("clone: the agent left no branches to fetch")
 		return
@@ -581,15 +588,15 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
 	leads := make(map[string]int, len(names))
 	for _, n := range names {
-		count, counted := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "rev-list", "--count", "HEAD.."+n)
+		count, counted := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "rev-list", "--count", "refs/"+n, "--not", "--branches")
 		out, err := count.Output()
 		if counted(err) == nil {
 			leads[n], _ = strconv.Atoi(strings.TrimSpace(string(out)))
 		}
 	}
-	recordCarried(in, names, leads)
+	recordCarried(in, names, leads, tips)
 	lead := adoptLead(names, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/", func(n string) bool { return leads[n] > 0 })
-	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", lead, lead)
+	ui.Notef("review: `git log --oneline main..%s` · adopt: `proveo adopt %s`", lead, lead)
 }
 
 func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(ctx context.Context, args []string, into string) (int, string, error)) {
@@ -1050,7 +1057,7 @@ func KeptLines(name, runLog string) []string {
 // keptBecause is the kept-sandbox lines: why it stayed, then the way in and the removal.
 func keptBecause(name, why, runLog string) []string {
 	lines := []string{fmt.Sprintf(
-		"sandbox %s kept %s — `sbx exec -it %s bash`, then `sbx rm --force %s`",
+		"sandbox %s kept %s — `sbx exec -it %s bash` looks inside; `proveo rm %s` carries its work home and removes it",
 		name, why, name, name)}
 	if strings.TrimSpace(runLog) != "" {
 		lines = append(lines,

@@ -298,7 +298,7 @@ func (t *teardown) normalEnd(ctx context.Context) {
 		if opencodeTarget(in.Target) {
 			ui.Warnf("%v — %s kept with its OpenCode history", stranded, cfg.Name)
 		} else {
-			ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
+			ui.Warnf("%v — %s kept; `proveo rm %s` carries the work home and removes it", stranded, cfg.Name, cfg.Name)
 		}
 		PrintIDEAttach(in, cfg, false)
 		return

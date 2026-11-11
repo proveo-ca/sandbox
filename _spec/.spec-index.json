@@ -1219,7 +1219,17 @@
         "internal/run/run.go",
         "cmd/proveo/prompt.go",
         "cmd/proveo/prompt_test.go",
-        "e2e/prompt_test.go"
+        "e2e/prompt_test.go",
+        "internal/adopt/adopt.go",
+        "internal/adopt/adopt_test.go",
+        "internal/backend/sandbox/verbs.go",
+        "internal/backend/sandbox/verbs_test.go",
+        "internal/sbx/list.go",
+        "internal/sbx/list_test.go",
+        "cmd/proveo/verbs.go",
+        "cmd/proveo/verbs_test.go",
+        "cmd/proveo/clean.go",
+        "e2e/teardown_interrupt_test.go"
       ],
       "fingerprint": null
     },

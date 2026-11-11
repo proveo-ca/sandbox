@@ -170,7 +170,7 @@ func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
 		t.Fatalf("want the kept line plus the transcript, got %d: %q", len(got), got)
 	}
 	// The first line stays the actionable one: it is what an operator reads first.
-	for _, want := range []string{"kept for diagnosis", "sbx exec -it " + name + " bash", "sbx rm --force " + name} {
+	for _, want := range []string{"kept for diagnosis", "sbx exec -it " + name + " bash", "proveo rm " + name} {
 		if !strings.Contains(got[0], want) {
 			t.Errorf("first line dropped %q: %q", want, got[0])
 		}

@@ -155,7 +155,7 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	if status != 130 {
 		t.Errorf("exit status = %d, want 130\n%s", status, tail(screen, 40))
 	}
-	for _, want := range []string{"kept (teardown stopped by SIGINT at remove sandbox)", "sbx rm --force " + k.name} {
+	for _, want := range []string{"kept (teardown stopped by SIGINT at remove sandbox)", "proveo rm " + k.name} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the leave lines miss %q\n%s", want, tail(screen, 40))
 		}
@@ -181,5 +181,42 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	prompt.Env = append(os.Environ(), "PROVEO_STATE_ROOT="+state)
 	if out, err := prompt.CombinedOutput(); err != nil || !strings.HasPrefix(string(out), "1 kept") {
 		t.Errorf("proveo prompt in the run's repository = %q, %v; want it to count the kept sandbox", out, err)
+	}
+
+	proveo := func(args ...string) (string, error) {
+		cmd := exec.Command(proveoBin, args...)
+		cmd.Dir = work
+		cmd.Env = append(os.Environ(), "PROVEO_STATE_ROOT="+state, "PROVEO_HOME="+t.TempDir())
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	running := false
+	if rows, ok := sbx.List(); ok {
+		for _, r := range rows {
+			running = running || (r.Name == k.name && r.Running())
+		}
+	}
+	if running {
+		if out, err := proveo("rm", k.name); err == nil || !strings.Contains(out, "is running") {
+			t.Errorf("proveo rm of a running sandbox = %v, want a refusal\n%s", err, out)
+		}
+		if out, err := exec.Command(sbx.Binary, "stop", k.name).CombinedOutput(); err != nil {
+			t.Fatalf("sbx stop %s: %v\n%s", k.name, err, out)
+		}
+	}
+	out, err := proveo("rm", k.name)
+	if err != nil || !strings.Contains(out, k.name+" is removed") {
+		t.Fatalf("proveo rm = %v\n%s", err, out)
+	}
+	if now, ok := sbxSandboxNames(); ok && now[k.name] {
+		t.Errorf("proveo rm left sandbox %s in place", k.name)
+	}
+	for _, e := range results.List(results.Dir(state)) {
+		if e.Kind == results.Kept {
+			t.Errorf("the store still holds a kept entry after proveo rm: %+v", e)
+		}
+	}
+	if out, _ := proveo("prompt"); strings.Contains(out, "kept") {
+		t.Errorf("proveo prompt after the removal = %q, want no kept sandbox", out)
 	}
 }

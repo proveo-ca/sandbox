@@ -13,15 +13,25 @@ title The result store — what a run left behind, one file per entry, readable 
 ' covers: cmd/proveo/prompt.go
 ' covers: cmd/proveo/prompt_test.go
 ' covers: e2e/prompt_test.go
+' covers: internal/adopt/adopt.go
+' covers: internal/adopt/adopt_test.go
+' covers: internal/backend/sandbox/verbs.go
+' covers: internal/backend/sandbox/verbs_test.go
+' covers: internal/sbx/list.go
+' covers: internal/sbx/list_test.go
+' covers: cmd/proveo/verbs.go
+' covers: cmd/proveo/verbs_test.go
+' covers: cmd/proveo/clean.go (the reconcile after a clean)
+' covers: e2e/teardown_interrupt_test.go
 '   why proveo exits instead of staying . _spec/_plans/post-close-surface.puml
 '   the decision and its measurements ... _spec/_plans/tui-responsiveness.puml (D4, P4)
 '   the order it lands in ............... _spec/_plans/tui-upgrades-delivery.puml (W6, W7, W8)
 '   what teardown decides ............... _spec/internal/backend/teardown.puml
 '   what a carried ref is ............... _spec/internal/sbx/clone-workspace.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
-' Landed so far: S1 (the store), S3 (`proveo prompt`), S2 (the write points),
-' all 2026-11-10. The verbs that lower the counts and the reconcile of stale
-' entries are the delivery plan's next wave.
+' Landed, all 2026-11-10: S1 (the store), S3 (`proveo prompt`), S2 (the write
+' points), then S5 (`proveo rm`), S6 (`proveo adopt`), S7 (the reconcile) and
+' S8 (the end-of-run lines name the verbs).
 '
 ' ── WHY A STORE ────────────────────────────────────────────────────────────
 ' The Executor, 2026-11-10, on what stays after the agent exits: "proveo
@@ -88,6 +98,81 @@ title The result store — what a run left behind, one file per entry, readable 
 ' store. One did, and its entry was removed by hand; the reconcile of the
 ' next wave drops entries whose repository is gone.
 '
+' ── THE VERBS THAT LOWER THE COUNTS (S5, S6) ──────────────────────────────
+' A count nobody can lower is a nag. Each number in the prompt has a command.
+' `proveo rm [sandbox]` — the kept count.
+'   with no argument it lists the kept sandboxes, this repository's first
+'   it REFUSES A RUNNING SANDBOX: exit the session that uses it first
+'   it CARRIES BEFORE IT REMOVES. The Input the carry needs is rebuilt from
+'     `sbx ls --json` (the workspace, the agent) and the store's entry (the
+'     repository). Work that cannot come home keeps the sandbox, and the
+'     error names `sbx rm --force` as the way to delete it regardless
+'   then `sbx rm --force`, the launch receipt, and the entry
+'   a sandbox sbx no longer lists is already gone: only the entry is cleared
+' AN EMPTY LISTING CLEARS NOTHING. sbx prints an empty listing when its daemon
+' is busy as well as when the host is empty, so `rm` and the reconcile refuse
+' to conclude anything from one: "sbx gave no listing … nothing was changed".
+' `proveo adopt [ref|session]` — the to-adopt count.
+'   with no argument it lists every ref under refs/proveo/ that holds
+'     commits no local branch holds — read from git, so refs that predate
+'     the store are listed too
+'   it takes a ref, a session, or a branch name one session carried; a name
+'     that fits several refs is an error that lists them
+'   IT CREATES THE BRANCH AND NOTHING ELSE (the Executor, D11: "Create the
+'     branch only"). `git branch <name> <ref>`: HEAD, the index and the files
+'     stay, which keeps clone mode's promise that a run does not touch the
+'     checkout. An existing branch of that name is refused, with `--as`.
+' WHAT "TO ADOPT" COUNTS changed with the verbs. A ref's lead is the number
+' of its commits that NO LOCAL BRANCH holds (`git rev-list --count <ref>
+' --not --branches`), where S2 first counted against HEAD. So creating a
+' branch, by `proveo adopt` or by hand, lowers the count with no bookkeeping,
+' and so does merging the work.
+' TWO REFS AT ONE COMMIT COUNT ONCE. `proveo rm` carries again, under its own
+' session name, so the same commit can sit under two refs. MEASURED on a real
+' sandbox: the prompt read "2 to adopt" for one commit. Each ref now records
+' its tip, and the summary counts distinct tips.
+'
+' ── STALE ENTRIES ARE DROPPED WHERE GIT AND sbx ARE AT HAND (S7) ───────────
+' ReconcileResults runs at run start, in `rm`, in `adopt` and after `clean`:
+'   a kept entry whose sandbox a non-empty listing no longer holds
+'   a carried entry whose repository directory is gone
+'   for the repository at hand, a carried ref that was deleted or that a
+'     branch now holds; the entry goes when none is left
+' Another repository's carried entries are left alone: nothing is at hand to
+' judge them with. The prompt never reconciles; it only reads.
+' MEASURED 2026-11-10: a clone e2e had left a carried entry for a temporary
+' repository in the operator's own store; `proveo rm` with no argument
+' removed it.
+'
+' ── THE END-OF-RUN LINES NAME THE VERBS (S8) ───────────────────────────────
+'   sandbox <name> kept <why> — `sbx exec -it <name> bash` looks inside;
+'     `proveo rm <name>` carries its work home and removes it
+'   <stranded> — <name> kept; `proveo rm <name>` carries the work home and
+'     removes it
+'   review: `git log --oneline main..<ref>` · adopt: `proveo adopt <ref>`
+' The `sbx exec -it` recipe stays: it is how to look before deciding. The
+' rescue line after a removal that timed out still names sbx's own commands;
+' proveo cannot do better than sbx there.
+'
+' Pinned by internal/backend/sandbox/verbs_test.go:
+'   TestRemoveKeptClearsNothingOnAListingItCannotTrust
+'   TestRemoveKeptRefusesARunningSandboxAndForgetsAGoneOne
+'   TestRemoveKeptCarriesThenRemovesAStoppedSandbox
+'   TestRemoveKeptKeepsASandboxWhoseWorkCannotComeHome
+'   TestReconcileDropsOnlyWhatIsProvablyGone
+' by internal/adopt/adopt_test.go:
+'   TestCarriedListsEachRefWithTheWorkNoBranchHolds
+'   TestPickTakesARefASessionOrAnUnambiguousBranch
+'   TestBranchCreatesTheBranchAndMovesNothingElse
+' by cmd/proveo/verbs_test.go:
+'   TestAdoptCreatesTheBranchLeavesTheCheckoutAloneAndLowersThePromptCount
+'   TestAdoptOutsideARepositoryRefuses
+'   TestRmWithoutAnArgumentListsWhatWasKept
+' by internal/sbx/list_test.go: TestListReadsBothShapesAndSaysWhenThereIsNoListing
+' and on a real sandbox by e2e TestCtrlCInTeardownSaysOnceThenLeavesWith130:
+'   `proveo rm` refused it while it ran, then carried it, removed it and
+'   cleared its entry.
+'
 ' Pinned by internal/results/results_test.go:
 '   TestAnEntryRoundTripsAndReplacesItsPredecessor
 '   TestAKeyThatCouldLeaveTheStoreIsRefused
@@ -112,6 +197,7 @@ component """run.Do""\nthe exit status" as DO <<app>>
 database """<state>/results/""\none JSON file per entry" as STORE <<db>>
 component """proveo prompt""\nhidden · starts no process" as PROMPT <<host>>
 component "the shell prompt\n""1 kept · 2 to adopt""" as SHELL <<host>>
+component """proveo rm"" · ""proveo adopt""\nthe verbs that lower the counts" as VERBS <<app>>
 component """sbx ls"" at prompt time\n**237-483 ms, over the budget**" as SLOW <<error>>
 
 TD ARROW_MAIN STORE : kept-<sandbox>
@@ -120,6 +206,8 @@ DO ARROW_OPTIONAL STORE : exit
 STORE ARROW_MAIN PROMPT : read only
 PROMPT ARROW_MAIN SHELL
 SLOW ARROW_ERROR SHELL : what the store avoids
+SHELL ARROW_OPTIONAL VERBS : the operator acts
+VERBS ARROW_MAIN STORE : clear, after carrying or branching
 
 note bottom of STORE
   **One file per entry, written by rename.**
@@ -140,6 +228,13 @@ note bottom of PROMPT
   before each prompt. It finds the repository
   by walking up to "".git"" and counts files; it
   never calls git or sbx.
+end note
+
+note bottom of VERBS
+  **Carry first; branch only.** ""rm"" brings a
+  kept sandbox's work home before removing
+  it and refuses a running one. ""adopt"" makes
+  a branch and leaves HEAD and files alone.
 end note
 
 note bottom of CARRY

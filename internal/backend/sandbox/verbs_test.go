@@ -1,0 +1,200 @@
+//go:build !windows
+
+// SPEC: _spec/internal/results/result-store.puml
+package sandbox
+
+import (
+	"bytes"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/proveo-ca/proveo/internal/results"
+	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
+)
+
+// listing makes sbx's listing answer rows; ok false is sbx giving none.
+func listing(t *testing.T, ok bool, rows ...sbx.Listed) {
+	t.Helper()
+	prev := listSandboxes
+	t.Cleanup(func() { listSandboxes = prev })
+	listSandboxes = func() ([]sbx.Listed, bool) { return rows, ok }
+}
+
+func keptStore(t *testing.T, names ...string) string {
+	t.Helper()
+	dir := results.Dir(t.TempDir())
+	for _, n := range names {
+		if err := results.Put(dir, results.Entry{Kind: results.Kept, Key: n, Why: "the run failed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func keptNames(dir string) string {
+	var names []string
+	for _, e := range results.List(dir) {
+		if e.Kind == results.Kept {
+			names = append(names, e.Key)
+		}
+	}
+	return strings.Join(names, ",")
+}
+
+func TestRemoveKeptClearsNothingOnAListingItCannotTrust(t *testing.T) {
+	calls := fakeSbx(t, guestClone, 0, bundleEmpty)
+	for name, set := range map[string]func(){
+		"sbx gave no listing": func() { listing(t, false) },
+		"sbx listed nothing":  func() { listing(t, true) },
+	} {
+		dir := keptStore(t, "sb")
+		set()
+		err := RemoveKept("sb", dir, func(string, ...any) {})
+		if !errors.Is(err, errNoListing) {
+			t.Errorf("%s: RemoveKept = %v, want a refusal", name, err)
+		}
+		if keptNames(dir) != "sb" {
+			t.Errorf("%s: the entry was cleared on a listing that proves nothing", name)
+		}
+	}
+	if strings.Contains(sbxCalls(t, calls), "rm --force") {
+		t.Error("a refused removal still ran sbx rm")
+	}
+}
+
+func TestRemoveKeptRefusesARunningSandboxAndForgetsAGoneOne(t *testing.T) {
+	calls := fakeSbx(t, guestClone, 0, bundleEmpty)
+	dir := keptStore(t, "sb", "gone")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "running"}, sbx.Listed{Name: "other", Status: "stopped"})
+
+	err := RemoveKept("sb", dir, func(string, ...any) {})
+	if err == nil || !strings.Contains(err.Error(), "is running") {
+		t.Errorf("RemoveKept of a running sandbox = %v, want a refusal", err)
+	}
+	var said []string
+	if err := RemoveKept("gone", dir, func(f string, a ...any) { said = append(said, f) }); err != nil {
+		t.Errorf("RemoveKept of a sandbox sbx no longer lists = %v", err)
+	}
+	if keptNames(dir) != "sb" {
+		t.Errorf("entries = %q, want the running one kept and the gone one cleared", keptNames(dir))
+	}
+	if len(said) != 1 || !strings.Contains(said[0], "already gone") {
+		t.Errorf("reports = %q", said)
+	}
+	if strings.Contains(sbxCalls(t, calls), "rm --force") {
+		t.Error("sbx rm ran for a running or a missing sandbox")
+	}
+}
+
+func TestRemoveKeptCarriesThenRemovesAStoppedSandbox(t *testing.T) {
+	calls := fakeSbx(t, guestClone, 0, bundleEmpty)
+	dir := keptStore(t, "sb")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "stopped", Workspaces: []string{t.TempDir()}})
+	var said []string
+	if err := RemoveKept("sb", dir, func(f string, a ...any) { said = append(said, f) }); err != nil {
+		t.Fatalf("RemoveKept = %v", err)
+	}
+	if !strings.Contains(sbxCalls(t, calls), "rm --force sb") {
+		t.Errorf("the sandbox was not removed:\n%s", sbxCalls(t, calls))
+	}
+	if keptNames(dir) != "" {
+		t.Errorf("the entry outlived the removal: %q", keptNames(dir))
+	}
+	if len(said) != 2 || !strings.Contains(said[0], "carrying") || !strings.Contains(said[1], "sbx rm --force") {
+		t.Errorf("reports = %q, want the carry, then the removal", said)
+	}
+}
+
+func TestRemoveKeptKeepsASandboxWhoseWorkCannotComeHome(t *testing.T) {
+	calls := fakeSbx(t, guestClone, 0, bundleFails)
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	dir := keptStore(t, "sb")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "stopped", Workspaces: []string{repo}})
+	var term bytes.Buffer
+	prev := ui.Default
+	t.Cleanup(func() { ui.Default = prev })
+	ui.Default = ui.New(&term)
+	err := RemoveKept("sb", dir, func(string, ...any) {})
+	if err == nil || !strings.Contains(err.Error(), "kept") {
+		t.Fatalf("RemoveKept = %v, want a refusal that keeps the sandbox", err)
+	}
+	if strings.Contains(sbxCalls(t, calls), "rm --force") {
+		t.Error("a sandbox whose work did not come home was removed")
+	}
+	if keptNames(dir) != "sb" {
+		t.Error("the entry of a kept sandbox was cleared")
+	}
+}
+
+func TestReconcileDropsOnlyWhatIsProvablyGone(t *testing.T) {
+	repo := results.Canonical(t.TempDir())
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.test", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.test")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("commit", "-q", "--allow-empty", "-m", "base")
+	git("commit", "-q", "--allow-empty", "-m", "work")
+	git("update-ref", "refs/proveo/s1/feat", "HEAD")
+	git("update-ref", "refs/proveo/s1/done", "HEAD~1")
+	git("reset", "-q", "--hard", "HEAD~1")
+
+	dir := keptStore(t, "listed", "unlisted")
+	gone := filepath.Join(t.TempDir(), "deleted-repo")
+	for _, e := range []results.Entry{
+		{Kind: results.Carried, Key: "s1", Repo: repo, Refs: []results.Ref{{Name: "proveo/s1/feat", Lead: 1}, {Name: "proveo/s1/done", Lead: 1}, {Name: "proveo/s1/deleted", Lead: 2}}},
+		{Kind: results.Carried, Key: "s2", Repo: gone, Refs: []results.Ref{{Name: "proveo/s2/x", Lead: 1}}},
+		{Kind: results.Carried, Key: "s3", Repo: results.Canonical(t.TempDir()), Refs: []results.Ref{{Name: "proveo/s3/x", Lead: 1}}},
+	} {
+		if err := results.Put(dir, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	listing(t, true)
+	ReconcileResults(dir, repo)
+	if keptNames(dir) != "listed,unlisted" {
+		t.Errorf("an empty listing cleared a kept entry: %q", keptNames(dir))
+	}
+
+	listing(t, true, sbx.Listed{Name: "listed", Status: "stopped"})
+	ReconcileResults(dir, repo)
+	if keptNames(dir) != "listed" {
+		t.Errorf("kept entries = %q, want only the sandbox sbx still lists", keptNames(dir))
+	}
+	carried := map[string][]results.Ref{}
+	for _, e := range results.List(dir) {
+		if e.Kind == results.Carried {
+			carried[e.Key] = e.Refs
+		}
+	}
+	if refs := carried["s1"]; len(refs) != 1 || refs[0].Name != "proveo/s1/feat" {
+		t.Errorf("s1 refs = %+v, want only the one no branch holds", refs)
+	}
+	if _, ok := carried["s2"]; ok {
+		t.Error("a session whose repository is gone is still recorded")
+	}
+	if _, ok := carried["s3"]; !ok {
+		t.Error("another repository's session was dropped without looking at it")
+	}
+
+	git("branch", "adopted", "refs/proveo/s1/feat")
+	ReconcileResults(dir, repo)
+	for _, e := range results.List(dir) {
+		if e.Key == "s1" {
+			t.Errorf("a session whose refs are all on a branch is still recorded: %+v", e)
+		}
+	}
+}

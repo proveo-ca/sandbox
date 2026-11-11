@@ -53,6 +53,7 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	}
 	cmd = append(cmd,
 		"PROVEO_HOME="+home,
+		"PROVEO_STATE_ROOT="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
 		// Clone is the default on sbx; said explicitly so a changed default cannot
 		// turn this into a test of the mounted-checkout path.

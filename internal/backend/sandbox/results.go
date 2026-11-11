@@ -26,14 +26,14 @@ func recordKept(in Input, name, why string, pending bool) {
 }
 
 // recordCarried records the session's carried refs that hold commits HEAD lacks; with none, it forgets the session.
-func recordCarried(in Input, names []string, leads map[string]int) {
+func recordCarried(in Input, names []string, leads map[string]int, tips map[string]string) {
 	if in.ResultsDir == "" || in.Sid == "" {
 		return
 	}
 	var refs []results.Ref
 	for _, n := range names {
 		if leads[n] > 0 {
-			refs = append(refs, results.Ref{Name: n, Lead: leads[n]})
+			refs = append(refs, results.Ref{Name: n, Lead: leads[n], Tip: tips[n]})
 		}
 	}
 	var err error

@@ -86,6 +86,9 @@ func Do(p Params, d Deps) (err error) {
 	if err := resolveWorkspace(&rs, &p, d); err != nil {
 		return err
 	}
+	if !p.PrintOnly {
+		sandbox.ReconcileResults(results.Dir(StateDir()), rs.Workspace.RepoRoot)
+	}
 	if err := promptChoices(&rs, &p, d); err != nil {
 		return err
 	}

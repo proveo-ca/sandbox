@@ -23,10 +23,12 @@ const (
 	Carried Kind = "carried" // a session's refs, home and waiting to be adopted
 )
 
-// Ref is one carried ref and how many commits HEAD lacked when it came home.
+// Ref is one carried ref: the commit it points at, and how many of its commits no
+// branch held when it came home.
 type Ref struct {
 	Name string `json:"name"`
 	Lead int    `json:"lead"`
+	Tip  string `json:"tip,omitempty"`
 }
 
 // Entry is one thing a run left behind.
@@ -161,12 +163,20 @@ func RepoOf(dir string) string {
 	return ""
 }
 
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
 // Summary is the prompt segment for repo: how many sandboxes were kept and how many
-// carried refs wait to be adopted. It is "" when there is nothing to say. An empty
-// repo counts every entry.
+// carried commits wait to be adopted; two refs at one commit count once. It is ""
+// when there is nothing to say. An empty repo counts every entry.
 func Summary(entries []Entry, repo string) string {
 	repo = Canonical(repo)
-	kept, adopt := 0, 0
+	kept := 0
+	waiting := map[string]bool{}
 	for _, e := range entries {
 		if repo != "" && e.Repo != repo {
 			continue
@@ -177,11 +187,12 @@ func Summary(entries []Entry, repo string) string {
 		case Carried:
 			for _, r := range e.Refs {
 				if r.Lead > 0 {
-					adopt++
+					waiting[cmpOr(r.Tip, r.Name)] = true
 				}
 			}
 		}
 	}
+	adopt := len(waiting)
 	var parts []string
 	if kept > 0 {
 		parts = append(parts, fmt.Sprintf("%d kept", kept))

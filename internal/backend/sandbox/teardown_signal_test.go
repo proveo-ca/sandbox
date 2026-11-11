@@ -145,7 +145,7 @@ func TestTheFirstInterruptSaysWhatLeavingKeepsAndTheSecondLeaves(t *testing.T) {
 	}
 	for _, want := range []string{
 		"sandbox sb kept (teardown stopped by SIGINT at " + stepRemove + ")",
-		"sbx exec -it sb bash", "sbx rm --force sb", "/logs/run.log",
+		"sbx exec -it sb bash", "proveo rm sb", "/logs/run.log",
 	} {
 		if !strings.Contains(term.String(), want) {
 			t.Errorf("the leave lines miss %q:\n%s", want, term.String())

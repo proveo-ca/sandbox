@@ -14,8 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/clean"
 	"github.com/proveo-ca/proveo/internal/proveohome"
+	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -38,6 +40,9 @@ func cleanCmd() *cobra.Command {
 			}
 			if err := runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force, Tools: tools}), dryRun); err != nil {
 				return err
+			}
+			if !dryRun {
+				sandbox.ReconcileResults(results.Dir(run.StateDir()), "")
 			}
 			if homes {
 				return cleanProveoHomes(dryRun)

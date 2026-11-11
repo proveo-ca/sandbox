@@ -213,6 +213,17 @@ skinparam noteTextAlignment left
 '     PROVEO_STATE_ROOT. The entry was removed by hand. W7's reconcile drops
 '     an entry whose repository is gone.
 '     Reasoning: _spec/internal/results/result-store.puml.
+' W7  DONE 2026-11-10, S5 + S6 + S7 + S8 in one commit.
+'     ON A REAL SANDBOX: `proveo rm` refused the kept sandbox while it ran,
+'     then carried it, removed it and cleared its entry.
+'     "TO ADOPT" NOW COUNTS COMMITS NO LOCAL BRANCH HOLDS, not commits HEAD
+'     lacks. A branch made by `proveo adopt`, or by hand, lowers it with no
+'     bookkeeping. The same real run showed one commit counted twice (carried
+'     by teardown and again by `rm`); the summary counts distinct tips.
+'     THE RECONCILE CLEARED A REAL STALE ENTRY: the one a clone e2e had left
+'     in the operator's store went on the first `proveo rm`.
+'     An empty `sbx ls` clears nothing, in `rm` and in the reconcile.
+'     Reasoning: _spec/internal/results/result-store.puml.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

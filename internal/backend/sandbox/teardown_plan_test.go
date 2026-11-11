@@ -147,7 +147,7 @@ func TestAStoppedTeardownSkipsItsStepsAndKeepsTheSandbox(t *testing.T) {
 	if !td.keepHome {
 		t.Error("keepHome = false for a sandbox that outlives the run")
 	}
-	if !strings.Contains(term.String(), "sbx rm --force sb") {
+	if !strings.Contains(term.String(), "proveo rm sb") {
 		t.Errorf("the kept sandbox's removal command is missing:\n%s", term.String())
 	}
 }
