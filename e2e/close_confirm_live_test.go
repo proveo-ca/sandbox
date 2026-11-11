@@ -98,8 +98,9 @@ func TestLiveCtrlCConfirmationHelper(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "python3", "-u", "-c", `import sys, tty
+	cmd := exec.CommandContext(ctx, "python3", "-u", "-c", `import os, sys, tty
 tty.setraw(sys.stdin.fileno())
+sys.stdout.write(os.environ.get("PROVEO_LIVE_CLOSE_MODES", ""))
 print("CHILD_READY", flush=True)
 while True:
     b = sys.stdin.buffer.read(1)
@@ -110,17 +111,12 @@ while True:
 	p.DisableFilter = os.Getenv("PROVEO_LIVE_CLOSE_FILTER") == "off"
 	var removed atomic.Bool
 	p.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
-		screen, err := p.OverlayScreen(in)
+		closed, err := p.OverlayProgram(in, choiceui.NewSandboxClose())
 		if err != nil {
 			t.Error(err)
 			return ptyproxy.CtrlCStay
 		}
-		if err := screen.Init(); err != nil {
-			t.Error(err)
-			return ptyproxy.CtrlCStay
-		}
-		defer screen.Fini()
-		switch choiceui.ConfirmSandboxClose(screen) {
+		switch choiceui.SandboxCloseAnswer(closed) {
 		case choiceui.SandboxCloseRemove:
 			return ptyproxy.CtrlCRemove
 		case choiceui.SandboxClosePass:

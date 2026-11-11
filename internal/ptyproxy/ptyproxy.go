@@ -34,6 +34,8 @@ type Proxy struct {
 	filter        *inputFilter
 	DisableFilter bool
 
+	screen screenModes
+
 	DropReports bool
 
 	escIdle time.Duration
@@ -552,6 +554,7 @@ func (p *Proxy) onChildOutput(b []byte) {
 	if p.OutTap != nil {
 		p.OutTap(b)
 	}
+	p.screen.observe(b)
 	if !p.DisableFilter && p.filter != nil {
 		p.filter.mouse.observe(b)
 		p.filter.cpr.observe(b)
@@ -579,6 +582,9 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	p.mu.Unlock()
 
 	drawErr := draw(r, p.Out)
+	if modes := p.screen.reassert(); len(modes) > 0 {
+		_, _ = p.Out.Write(modes)
+	}
 
 	p.inMu.Lock()
 	p.mu.Lock()

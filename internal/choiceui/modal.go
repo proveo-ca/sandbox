@@ -115,18 +115,23 @@ func modalLineStyle(p palette, text, title string) tcell.Style {
 	switch {
 	case text == title:
 		return p.title
-	case strings.HasPrefix(strings.TrimSpace(text), "sbx rm --force"),
-		strings.Contains(text, "are lost"),
-		strings.Contains(text, "permanently lost"),
-		strings.Contains(text, "deletes the session"),
-		strings.Contains(text, "does not persist"),
-		strings.Contains(text, "lost unless fetched"),
-		strings.Contains(text, "not imported"),
-		strings.Contains(text, "does not survive"):
+	case modalWarns(text):
 		return p.warn
 	default:
 		return p.body
 	}
+}
+
+// modalWarns reports whether a body line states a consequence.
+func modalWarns(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "sbx rm --force") ||
+		strings.Contains(text, "are lost") ||
+		strings.Contains(text, "permanently lost") ||
+		strings.Contains(text, "deletes the session") ||
+		strings.Contains(text, "does not persist") ||
+		strings.Contains(text, "lost unless fetched") ||
+		strings.Contains(text, "not imported") ||
+		strings.Contains(text, "does not survive")
 }
 
 func modalAskMarker() string {

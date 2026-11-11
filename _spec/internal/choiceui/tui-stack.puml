@@ -5,12 +5,14 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' purpose: which TUI library draws proveo's prompts, at which versions, and why those versions are pinned by a test
 ' covers: go.mod (the charm.land requirements)
 ' covers: internal/contract/tui_stack_pins_test.go
+' covers: internal/contract/tea_envmsg_test.go
 '   why the stack changed ............ _spec/_plans/tui-responsiveness.puml (D3, D8, D9)
 '   the order the port lands in ...... _spec/_plans/tui-upgrades-delivery.puml (W4, W5, W9, W10)
 '   who owns the terminal ............ _spec/internal/ptyproxy/pty-ownership.puml
 '   what sbx's own TUI looks like .... _spec/_experiments/sbx-tui-observed.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
-' This file grows as the port lands. Landed so far: B0 (the pins), 2026-11-10.
+' This file grows as the port lands. Landed so far, all 2026-11-10: B0 (the
+' pins), B2 (the proxy hosts a Program), B3 (the Ctrl+C dialog).
 '
 ' ── WHY BUBBLE TEA v2 ──────────────────────────────────────────────────────
 ' The Executor, 2026-11-10: "Port everything to Bubble Tea v2" (D3), and for
@@ -43,6 +45,30 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' A TEST HOLDS THE PINS, because a later `go get` of any Charm module can move
 ' all three. It checks the resolved build list and the literal go.mod lines.
 '
+' ── THE FIRST SURFACE: THE CTRL+C DIALOG (B2, B3) ──────────────────────────
+' How the proxy hosts a Program, and why it decodes the keys itself:
+' _spec/internal/ptyproxy/pty-ownership.puml (THE OVERLAY HOSTS A BUBBLE TEA
+' PROGRAM). What this file keeps is the part every later surface repeats.
+' A VIEW IS REWRITTEN, AND HELD TO THE RENDERER IT REPLACES. typedModal
+' (modal_tea.go) is the typed-answer confirm as a model; its view is lipgloss:
+' a NormalBorder in the warning colour, padding 0 x 2, one styled string per
+' row, placed with lipgloss.Place. A test draws the tcell dialog on a
+' simulation screen and compares the two as plain text, cell for cell, at
+' five sizes, three inputs and two dialogs. They are equal.
+' The typed y/N field stays for now. The delivery plan turns the typed
+' dialogs into a button row one wave later (W-h, W-n).
+' NO MESSAGE REACHES A FORMATTER. tea.EnvMsg carries the whole environment,
+' and a spike that logged its messages wrote the operator's variables to a
+' file. A contract test parses every Go file that imports bubbletea and fails
+' on: a tea.Msg parameter passed to any call but a model's Update, the name
+' tea.EnvMsg, and tea.LogToFile.
+' [Inference] The check is syntactic. A message copied into another variable
+' and formatted there passes it.
+'
+' Pinned by internal/contract/tea_envmsg_test.go:
+'   TestNoSourceFormatsABubbleTeaMessage
+'   TestTheMessageLeakCheckSeesEachWayOut
+'
 ' Pinned by internal/contract/tui_stack_pins_test.go:
 '   TestTheTUIStackResolvesToItsPinnedVersions
 '   TestGoModNamesTheTUIStackVersionsExplicitly
@@ -53,12 +79,16 @@ component """go get …@latest""\n**moves the toolchain silently**" as DRIFT <<e
 component "bubbletea v2.1.1\nthe event loop" as TEA <<cloud>>
 component "lipgloss v2.1.0\nthe drawing · needs go 1.26.7" as LIP <<cloud>>
 component "bubbles v2.2.1\ntree · textinput · viewport · list" as BUB <<cloud>>
+component "a rewritten view\nlipgloss, compared with tcell's cells" as VIEW <<app>>
+component "tea.EnvMsg\n**the whole environment**" as ENV <<error>>
 
 MOD ARROW_MAIN TEA
 MOD ARROW_MAIN LIP
 MOD ARROW_MAIN BUB
 PIN ARROW_MAIN MOD : holds
 DRIFT ARROW_ERROR MOD : what the test refuses
+LIP ARROW_MAIN VIEW
+TEA ARROW_ERROR ENV : sent to every model
 
 note bottom of PIN
   **Three modules move together.** A ""go get""
@@ -72,6 +102,20 @@ note bottom of LIP
   needs go 1.26.7. The Executor chose the
   bump over an older lipgloss, so go.mod and
   mise.toml moved to 1.26.10 first.
+end note
+
+note bottom of VIEW
+  **Rewritten, then compared.** The lipgloss
+  dialog and the tcell dialog are drawn side
+  by side in a test and must agree cell for
+  cell before the old renderer goes.
+end note
+
+note bottom of ENV
+  **Never formatted.** A model may pass a
+  message to another model's Update and
+  nowhere else. A contract test reads every
+  file that imports bubbletea for it.
 end note
 
 note bottom of BUB

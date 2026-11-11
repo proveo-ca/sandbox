@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -47,6 +48,11 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 // OverlayScreen is unavailable on Windows (no PTY / terminfo overlay path).
 func (p *Proxy) OverlayScreen(in io.Reader) (tcell.Screen, error) {
 	return nil, fmt.Errorf("ptyproxy: OverlayScreen not supported on windows")
+}
+
+// OverlayProgram returns ErrNotRunning — there is never a live PTY child on Windows.
+func (p *Proxy) OverlayProgram(io.Reader, tea.Model) (tea.Model, error) {
+	return nil, ErrNotRunning
 }
 
 // DiscardInput is a no-op on Windows.

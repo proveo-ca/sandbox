@@ -928,7 +928,8 @@
       "spec": "_spec/internal/choiceui/tui-stack.puml",
       "covers": [
         "go.mod",
-        "internal/contract/tui_stack_pins_test.go"
+        "internal/contract/tui_stack_pins_test.go",
+        "internal/contract/tea_envmsg_test.go"
       ],
       "fingerprint": null
     },
@@ -1158,7 +1159,16 @@
         "internal/ptyproxy/stale_pump_test.go",
         "internal/ptyproxy/overlay_exit_test.go",
         "internal/ptyproxy/flush_test.go",
-        "e2e/post_exit_prompt_live_test.go"
+        "e2e/post_exit_prompt_live_test.go",
+        "internal/ptyproxy/overlayprogram.go",
+        "internal/ptyproxy/overlayprogram_test.go",
+        "internal/ptyproxy/screenmodes.go",
+        "internal/ptyproxy/screenmodes_test.go",
+        "internal/ptyproxy/ptyproxy_windows.go",
+        "internal/choiceui/modal_tea.go",
+        "internal/choiceui/modal_tea_test.go",
+        "e2e/close_confirm_modes_test.go",
+        "e2e/close_confirm_sbx_test.go"
       ],
       "fingerprint": null
     },

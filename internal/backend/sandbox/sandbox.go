@@ -1758,15 +1758,11 @@ func Run(in Input) error {
 			}
 			if os.Getenv("PROVEO_SCHEDULE") == "" {
 				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
-					screen, err := px.OverlayScreen(in)
+					closed, err := px.OverlayProgram(in, choiceui.NewSandboxClose())
 					if err != nil {
 						return ptyproxy.CtrlCStay
 					}
-					if err := screen.Init(); err != nil {
-						return ptyproxy.CtrlCStay
-					}
-					defer screen.Fini()
-					switch choiceui.ConfirmSandboxClose(screen) {
+					switch choiceui.SandboxCloseAnswer(closed) {
 					case choiceui.SandboxCloseRemove:
 						return ptyproxy.CtrlCRemove
 					case choiceui.SandboxClosePass:
