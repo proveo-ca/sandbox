@@ -302,6 +302,29 @@ func TestEveryDialogFitsAnEightyColumnTerminal(t *testing.T) {
 	}
 }
 
+func TestTheGlyphProbeDrawsThePresetsBranchAndLockAndCountsAnythingElseAsNo(t *testing.T) {
+	t.Parallel()
+	d := drawsGlyphsDialog()
+	box := plain(d.box())
+	for _, want := range []string{"\uf418  main", "\U000f033e  read-only", "Two icons mean", "a line, a blank"} {
+		if !strings.Contains(box, want) {
+			t.Errorf("the probe lacks %q:\n%s", want, box)
+		}
+	}
+	if strings.Contains(box, "\ue0a0") {
+		t.Errorf("the probe draws U+E0A0, a Powerline glyph the nerd-font-symbols preset never uses:\n%s", box)
+	}
+	if d.buttons[d.safe].Label != "Something else" || d.buttons[1].Label != "Two icons" {
+		t.Errorf("buttons = %+v, want the safe answer \"Something else\" first", d.buttons)
+	}
+	rows := strings.Split(box, "\n")
+	for _, row := range rows {
+		if textWidth(row) != textWidth(rows[0]) {
+			t.Errorf("a row is %d columns wide, the top edge %d: %q", textWidth(row), textWidth(rows[0]), row)
+		}
+	}
+}
+
 func TestADangerousAnswerDrawsItsMnemonicInTheFailureColour(t *testing.T) {
 	t.Parallel()
 	d := NewSandboxClose(nil, time.Second).(dialog)

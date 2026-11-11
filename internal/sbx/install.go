@@ -498,6 +498,25 @@ func ParseDiagnose(b []byte) ([]Check, error) {
 	return out.Checks, nil
 }
 
+// outsideARun maps a diagnose row a terminal run does not need to what it does affect.
+var outsideARun = map[string]string{
+	"SSH client config": "IDE attach and Hermes Desktop, which connect with `ssh <name>.sbx`",
+}
+
+// Affects names what a row breaks when a terminal run does not need it; "" when a run does.
+func (c Check) Affects() string { return outsideARun[c.Name] }
+
+// RunBlockers is the failing rows a terminal run needs; a row proveo does not know counts.
+func RunBlockers(in []Check) []Check {
+	var out []Check
+	for _, c := range FailedChecks(in) {
+		if c.Affects() == "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // FailedChecks is the subset the operator has to act on.
 func FailedChecks(in []Check) []Check {
 	var out []Check

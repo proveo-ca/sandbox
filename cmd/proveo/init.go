@@ -510,11 +510,7 @@ func verify(bin string) error {
 	return nil
 }
 
-// reportHostReadiness prints sbx's own verdict on this host.
-//
-// proveo asks and renders; it neither checks virtualisation itself nor repairs
-// anything. Each failing row carries sbx's remediation, which is better than
-// the paraphrase proveo used to print.
+// reportHostReadiness prints sbx's own verdict on this host and returns the failing rows a run needs.
 func reportHostReadiness(bin string) []sbx.Check {
 	checks, err := sbx.DiagnoseAt(bin)
 	if err != nil {
@@ -523,6 +519,14 @@ func reportHostReadiness(bin string) []sbx.Check {
 		ui.Notef("if sbx is broken or half-installed, reinstall the pinned %s with `proveo init --force`", sbx.Release)
 		return nil
 	}
+	return reportChecks(checks)
+}
+
+// outsideARunNote follows a failing row a run does not need.
+const outsideARunNote = "a run does not need this check; it affects %s"
+
+// reportChecks prints each failing row with its evidence and hint, and returns the ones a run needs.
+func reportChecks(checks []sbx.Check) []sbx.Check {
 	failed := sbx.FailedChecks(checks)
 	if len(failed) == 0 {
 		ui.Okf("sbx reports this host ready — %d checks passed", len(checks))
@@ -530,16 +534,24 @@ func reportHostReadiness(bin string) []sbx.Check {
 	}
 	ui.Warnf("sbx reports %d of %d host checks failing", len(failed), len(checks))
 	for _, c := range failed {
-		ui.Failf("%s — %s", c.Name, c.Summary())
+		affects := c.Affects()
+		if affects == "" {
+			ui.Failf("%s — %s", c.Name, c.Summary())
+		} else {
+			ui.Warnf("%s — %s", c.Name, c.Summary())
+		}
 		for _, e := range c.Evidence() {
 			ui.Notef("%s", e)
 		}
 		if c.Hint != "" {
 			ui.Notef("%s", c.Hint)
 		}
+		if affects != "" {
+			ui.Notef(outsideARunNote, affects)
+		}
 	}
 	ui.Notef("proveo does not manage the host: fix the above, or reinstall sbx with `proveo init --force`")
-	return failed
+	return sbx.RunBlockers(checks)
 }
 
 func interactive(bin string, args []string) error {

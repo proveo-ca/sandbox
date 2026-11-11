@@ -55,6 +55,10 @@ func preflightRows(checks []sbx.Prereq, diag []sbx.Check, diagErr error) []choic
 			row.State = choiceui.CheckWarn
 		case "fail":
 			row.State = choiceui.CheckFail
+			if affects := c.Affects(); affects != "" {
+				row.State = choiceui.CheckWarn
+				row.Evidence = append(row.Evidence, fmt.Sprintf(outsideARunNote, affects))
+			}
 		}
 		rows = append(rows, row)
 	}

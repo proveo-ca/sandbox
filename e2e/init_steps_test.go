@@ -22,7 +22,7 @@ printf '%s\n' "$*" >> "$STUB_SBX_LOG"
 case "$1 $2" in
   "version --json") printf '%s\n' '{"client":{"version":"0.50.0"},"server":{"state":"running"}}' ;;
   "version "*|"version") printf '%s\n' 'sbx version: v0.50.0 deadbeef' ;;
-  "diagnose --json") printf '%s\n' '{"checks":[{"name":"virtualisation","status":"pass","message":"supported","detail":"stub"},{"name":"Binary version","status":"warn","message":"update available: v9.9.9","detail":"https://example.invalid/sbx/v9.9.9","hint":"Download the latest release from the link above"}]}' ;;
+  "diagnose --json") printf '%s\n' '{"checks":[{"name":"virtualisation","status":"pass","message":"supported","detail":"stub"},{"name":"Binary version","status":"warn","message":"update available: v9.9.9","detail":"https://example.invalid/sbx/v9.9.9","hint":"Download the latest release from the link above"},{"name":"SSH client config","status":"fail","message":"an unmanaged sandbox Host stanza can shadow the managed configuration","detail":"/home/op/.ssh/config:5: Host","hint":"Remove or rename the reported Host *.sbx stanza, then run sbx setup ssh"}]}' ;;
   "secret ls") cat "$STUB_SBX_SECRETS" 2>/dev/null ;;
   "settings get")
     case "$3" in
@@ -428,7 +428,8 @@ func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
 	screen := r.checks(t)
 	for _, want := range []string{"init — preparing the ", "to install sbx", "sbx diagnose", "enter continue", "esc cancel", "ctrl+c quit",
-		"Binary version — update available: v9.9.9", "https://example.invalid/sbx/v9.9.9", "Download the latest release from the link above"} {
+		"Binary version — update available: v9.9.9", "https://example.invalid/sbx/v9.9.9", "Download the latest release from the link above",
+		"! SSH client config — an unmanaged sandbox Host stanza", "a run does not need this check; it affects IDE attach"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the checks page lacks %q:\n%s", want, screen)
 		}
@@ -459,6 +460,9 @@ func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	}
 	if strings.Contains(results, "later: sign in to Docker") {
 		t.Errorf("an action that ran is listed as left for later:\n%s", results)
+	}
+	if !strings.Contains(all, "a run does not need this check; it affects IDE attach") || strings.Contains(all, "host not ready to run") {
+		t.Errorf("a failing check a run does not need must warn and let init finish:\n%s", all)
 	}
 	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 1 {
 		t.Errorf("stepping back to the checks page re-ran setup; sbx saw:\n%s", strings.Join(calls, "\n"))

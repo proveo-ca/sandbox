@@ -51,19 +51,68 @@ func TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix(t *testing.T) {
 func TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence(t *testing.T) {
 	t.Parallel()
 	rows := preflightRows(nil, []sbx.Check{{
-		Name: "SSH client config", Status: "fail",
-		Message: "an unmanaged sandbox Host stanza can shadow the managed configuration",
-		Detail:  "/home/op/.ssh/config:5: Host",
-		Hint:    "Remove or rename the reported Host *.sbx stanza in /home/op/.ssh/config, then run `sbx setup ssh`",
+		Name: "Daemon", Status: "fail", Message: "not reachable",
+		Detail: "/run/sbx/sandboxd.sock: connection refused", Hint: "Run: sbx daemon start",
 	}}, nil)
 	if len(rows) != 1 {
 		t.Fatalf("rows = %+v, want one", rows)
 	}
 	r := rows[0]
-	if r.Detail != "an unmanaged sandbox Host stanza can shadow the managed configuration" ||
-		len(r.Evidence) != 1 || r.Evidence[0] != "/home/op/.ssh/config:5: Host" || !strings.HasPrefix(r.Hint, "Remove or rename") {
+	if r.State != choiceui.CheckFail || r.Detail != "not reachable" ||
+		len(r.Evidence) != 1 || r.Evidence[0] != "/run/sbx/sandboxd.sock: connection refused" || r.Hint != "Run: sbx daemon start" {
 		t.Errorf("row = %+v, want sbx's message as the detail, its detail as evidence, its hint as the hint", r)
 	}
+}
+
+func TestAFailingCheckARunDoesNotNeedIsAWarningThatSaysWhatItAffects(t *testing.T) {
+	t.Parallel()
+	rows := preflightRows(nil, []sbx.Check{sshClientConfig}, nil)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want one", rows)
+	}
+	r := rows[0]
+	if r.State != choiceui.CheckWarn || len(r.Evidence) != 2 || r.Evidence[0] != "/home/op/.ssh/config:5: Host" ||
+		!strings.Contains(r.Evidence[1], "a run does not need this check; it affects IDE attach and Hermes Desktop") {
+		t.Errorf("row = %+v, want a warning whose evidence ends on what the check affects", r)
+	}
+}
+
+func TestOnlyAFailingCheckARunNeedsFailsInit(t *testing.T) {
+	daemon := sbx.Check{Name: "Daemon", Status: "fail", Message: "not reachable", Hint: "Run: sbx daemon start"}
+	pass := sbx.Check{Name: "Socket", Status: "pass", Message: "responsive"}
+	for _, c := range []struct {
+		name     string
+		checks   []sbx.Check
+		blockers []string
+		says     []string
+	}{
+		{"a check a run does not need", []sbx.Check{pass, sshClientConfig}, nil,
+			[]string{"sbx reports 1 of 2 host checks failing", "SSH client config — an unmanaged sandbox Host stanza",
+				"/home/op/.ssh/config:5: Host", "Remove or rename", "a run does not need this check; it affects IDE attach"}},
+		{"a check a run needs", []sbx.Check{pass, daemon, sshClientConfig}, []string{"Daemon"},
+			[]string{"sbx reports 2 of 3 host checks failing", "Daemon — not reachable", "Run: sbx daemon start"}},
+		{"a check proveo does not know", []sbx.Check{{Name: "Something new", Status: "fail", Message: "broken"}}, []string{"Something new"},
+			[]string{"Something new — broken"}},
+		{"every check passed", []sbx.Check{pass}, nil, []string{"sbx reports this host ready — 1 checks passed"}},
+	} {
+		out := captureUI(t)
+		got := sbx.CheckNames(reportChecks(c.checks))
+		if !slices.Equal(got, c.blockers) {
+			t.Errorf("%s: init stops on %v, want %v", c.name, got, c.blockers)
+		}
+		for _, want := range c.says {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("%s: the report lacks %q:\n%s", c.name, want, out)
+			}
+		}
+	}
+}
+
+var sshClientConfig = sbx.Check{
+	Name: "SSH client config", Status: "fail",
+	Message: "an unmanaged sandbox Host stanza can shadow the managed configuration",
+	Detail:  "/home/op/.ssh/config:5: Host",
+	Hint:    "Remove or rename the reported Host *.sbx stanza in /home/op/.ssh/config, then run `sbx setup ssh`",
 }
 
 func TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds(t *testing.T) {

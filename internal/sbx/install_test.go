@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -418,6 +419,23 @@ func TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence(t *testing.T) {
 	}
 	if sock.Summary() != "responsive" || sock.Evidence() != nil {
 		t.Errorf("a row with no detail: Summary() = %q, Evidence() = %q", sock.Summary(), sock.Evidence())
+	}
+}
+
+func TestOnlyAFailingRowARunNeedsBlocksARun(t *testing.T) {
+	t.Parallel()
+	in := []Check{
+		{Name: "SSH client config", Status: "fail"},
+		{Name: "Daemon", Status: "fail"},
+		{Name: "Something new", Status: "fail"},
+		{Name: "Binary version", Status: "warn"},
+		{Name: "Socket", Status: "pass"},
+	}
+	if got := CheckNames(RunBlockers(in)); !slices.Equal(got, []string{"Daemon", "Something new"}) {
+		t.Errorf("RunBlockers = %v, want [Daemon Something new]: a row proveo does not know still blocks", got)
+	}
+	if !strings.Contains(in[0].Affects(), "ssh <name>.sbx") || in[1].Affects() != "" || in[2].Affects() != "" {
+		t.Errorf("Affects() = %q, %q, %q", in[0].Affects(), in[1].Affects(), in[2].Affects())
 	}
 }
 

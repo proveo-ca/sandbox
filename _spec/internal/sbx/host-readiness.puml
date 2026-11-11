@@ -2,9 +2,10 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: who owns the question "can this host run a sandbox", and why proveo stopped answering it itself
-' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, Check.Summary, Check.Evidence, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
-' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
-' covers: cmd/proveo/init.go (verify, reportHostReadiness)
+' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, Check.Summary, Check.Evidence, Check.Affects, RunBlockers, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
+' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence, TestOnlyAFailingRowARunNeedsBlocksARun, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
+' covers: cmd/proveo/init.go (verify, reportHostReadiness, reportChecks)
+' covers: cmd/proveo/init_preflight_test.go (TestOnlyAFailingCheckARunNeedsFailsInit)
 ' covers: internal/sbx/version.go (Verified, IsVerified, UnverifiedNote, Available)
 ' covers: internal/sbx/version_test.go
 ' covers: internal/backend/sandbox/sandbox.go (Ready, warnUnverified)
@@ -207,6 +208,30 @@ skinparam noteTextAlignment left
 ' evidence, then the hint.
 ' [Unverified] Whether 0.49.2, the pinned Release, sends a message: no 0.49.2
 ' payload was read. A payload without one reads as before.
+'
+' ── 2026-11-11: ONLY A FAILING ROW A RUN NEEDS FAILS INIT ──────────────────
+' MEASURED on this host: "SSH client config" failed on a hand-added
+' `Host *.sbx` block in ~/.ssh/config, and every `proveo init` ended with
+' "host not ready to run: SSH client config" (exit 1). The operator first
+' tried the other GitHub access answer, "HTTPS token"; that answer sets how
+' git in a sandbox reaches GitHub and cannot touch this row.
+' The row is about host-side `ssh <name>.sbx`. proveo uses that for IDE
+' attach (IDEAttachLines, GatewayLink, VS Code remote) and Hermes Desktop.
+' A terminal run starts with `sbx run` and `sbx exec`, and runs went on
+' working on this host with the row failing.
+' DECIDED 2026-11-11 (Executor: "Block only run rows"):
+'   outsideARun names each row a terminal run does not need, with what it
+'   does affect. It holds one row: "SSH client config".
+'   Check.Affects reads that map; RunBlockers is FailedChecks minus it.
+'   A ROW NAME PROVEO DOES NOT KNOW STILL BLOCKS. A renamed or new sbx row
+'   fails init until someone adds it to the map with what it affects.
+'   reportChecks prints a spared row as a warning, with its evidence, its
+'   hint, then "a run does not need this check; it affects …". verify
+'   fails init only on RunBlockers.
+'   init's checks page draws a spared row as a warning with the same line.
+' Not chosen: never blocking, which would pass a host whose daemon is down;
+' an operator-acknowledged list, which needs stored state; no change.
+' This narrows "only `fail` may block" above to "only a `fail` a run needs".
 title host readiness — sbx answers "can this host run a sandbox";\nproveo asks, renders, and installs
 
 actor "operator" as OP

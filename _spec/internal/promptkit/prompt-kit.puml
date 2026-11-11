@@ -76,13 +76,26 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' ── INSTALLED IS NOT ENABLED, SO INIT ASKS ─────────────────────────────────
 ' This host has FiraCode Nerd Font installed and no terminal set to use it.
 ' proveo cannot ask a terminal what it draws. When Apply CREATES starship's
-' config on a headed terminal, a button dialog shows one Nerd glyph (the
-' branch mark, U+E0A0) and asks what was drawn:
-'   Empty box (the safe answer, selected)   seeds starship's `no-nerd-font`
-'                  preset and prints the font to set in the terminal
-'   Icon           seeds its `nerd-font-symbols` preset
+' config on a headed terminal, a button dialog shows two Nerd glyphs, the
+' branch U+F418 and the lock U+F033E, and asks what was drawn:
+'   Something else (the safe answer, selected)   seeds starship's
+'                  `no-nerd-font` preset and prints the font to set in the
+'                  terminal
+'   Two icons      seeds its `nerd-font-symbols` preset
+' The text counts anything but two icons as "no": a box, a question mark, a
+' line, a blank, or one icon of the two.
 ' With --yes, without a terminal, or when the config already exists, nothing
 ' is asked: a new config gets `no-nerd-font`.
+' MEASURED 2026-11-11: the probe drew U+E0A0, the Powerline branch. The
+' `nerd-font-symbols` preset of starship 1.27.0 holds 128 private-use glyphs
+' and U+E0A0 is not one of them; its git branch is U+F418. An operator on
+' this host saw "a line", which the old text ("an empty box or a question
+' mark") did not name.
+' [Inference] A terminal that draws Powerline glyphs itself passed the old
+' probe without a Nerd Font.
+' DECIDED 2026-11-11 (Executor: "Preset glyphs + reword"): both glyphs come
+' from the preset. U+F033E, the preset's read-only lock, sits in plane 15,
+' so the probe also covers the preset's glyphs outside the BMP.
 ' AN EXISTING CONFIG GAINS THE BLOCK AND NOTHING ELSE. No preset is applied to
 ' a file the operator wrote; its mode is kept.
 '
@@ -128,6 +141,8 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' by internal/shell: TestTheStarshipLineIsEachShellsOwnAndItsBlockComesOutClean
 ' and by cmd/proveo/init_prompt_test.go:
 '   TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff
+' and by internal/choiceui/dialog_test.go:
+'   TestTheGlyphProbeDrawsThePresetsBranchAndLockAndCountsAnythingElseAsNo
 '   TestPromptInitPrintsEachShellsLineAndRefusesAnUnknownShell
 '   TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig
 
