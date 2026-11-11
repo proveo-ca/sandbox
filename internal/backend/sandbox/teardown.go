@@ -5,9 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
+	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -27,6 +34,13 @@ type teardown struct {
 	commitHome     func() error
 
 	keepHome bool // a sandbox outlives the run, so its home access does too
+
+	interrupts atomic.Int32           // SIGINTs since teardown began
+	asked      atomic.Int32           // the signal that asked teardown to leave; 0 for none
+	askedAt    atomic.Pointer[string] // the step running when it asked
+	began      []string               // the top-level steps that started
+	carry      error                  // the clone step's outcome
+	left       bool                   // teardown stopped with part of its plan undone
 }
 
 // errStepSkipped is a step's outcome once teardown's context has ended.
@@ -44,10 +58,12 @@ func teardownPlan(failed bool) []string {
 // do runs one top-level step behind its start line; it skips the step once ctx
 // ended, and a panic becomes the step's error.
 func (t *teardown) do(ctx context.Context, name string, fn func() error) error {
-	if ctx.Err() != nil {
+	if t.leaving(ctx) {
 		recordStep(name, 0, errStepSkipped)
 		return errStepSkipped
 	}
+	t.began = append(t.began, name)
+	lastStep.Store(&name)
 	if name != stepClone {
 		announce(name)
 	}
@@ -83,6 +99,114 @@ func (t *teardown) run(ctx context.Context) {
 	t.normalEnd(ctx)
 }
 
+// watch routes SIGINT, SIGTERM and SIGHUP to teardown until end is called. The
+// context it returns ends when the operator leaves.
+func (t *teardown) watch(parent context.Context) (ctx context.Context, end func()) {
+	ctx, cancel := context.WithCancel(parent)
+	sigs := make(chan os.Signal, 4)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case s := <-sigs:
+				if sig, ok := s.(syscall.Signal); ok {
+					t.signalled(sig, cancel)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	var once sync.Once
+	return ctx, func() {
+		once.Do(func() {
+			signal.Stop(sigs)
+			close(done)
+			cancel()
+		})
+	}
+}
+
+// signalled applies one signal. SIGTERM and SIGHUP leave once the running step
+// ends; the first SIGINT says what leaving keeps; the next one leaves now.
+func (t *teardown) signalled(sig syscall.Signal, leaveNow context.CancelFunc) {
+	at := runningStep()
+	switch {
+	case sig != syscall.SIGINT:
+		if t.asked.CompareAndSwap(0, int32(sig)) {
+			t.askedAt.Store(&at)
+			ui.Warnf("%v — leaving once %s finishes; sandbox %s stays", backend.Stopped{Signal: sig}, at, t.cfg.Name)
+		}
+	case t.interrupts.Add(1) == 1 && t.asked.Load() == 0:
+		ui.Warnf("teardown is at %s — Ctrl+C again leaves now", withCeiling(at))
+		ui.Notef("leaving keeps sandbox %s; work it has not carried home stays only there", t.cfg.Name)
+	default:
+		t.asked.Store(int32(syscall.SIGINT))
+		t.askedAt.Store(&at)
+		leaveNow()
+	}
+}
+
+// leaving reports whether a signal or an ended context asked teardown to stop.
+func (t *teardown) leaving(ctx context.Context) bool {
+	return ctx.Err() != nil || t.asked.Load() != 0
+}
+
+// notRun lists the planned steps that never started.
+func (t *teardown) notRun() []string {
+	var rest []string
+	for _, name := range teardownPlan(t.failed) {
+		if !slices.Contains(t.began, name) {
+			rest = append(rest, name)
+		}
+	}
+	return rest
+}
+
+// mustLeave reports whether a stop left part of the plan undone.
+func (t *teardown) mustLeave(ctx context.Context) bool {
+	return t.leaving(ctx) && (ctx.Err() != nil || len(t.notRun()) > 0)
+}
+
+// leftBy is the signal that made teardown leave part of its plan undone, or 0.
+func (t *teardown) leftBy() syscall.Signal {
+	if !t.left {
+		return 0
+	}
+	return syscall.Signal(t.asked.Load())
+}
+
+// leave says what a stopped teardown left in place: the sandbox, the steps not run, and the way back in.
+func (t *teardown) leave() {
+	why := "(teardown was stopped"
+	if sig := syscall.Signal(t.asked.Load()); sig != 0 {
+		why = "(teardown " + backend.Stopped{Signal: sig}.Error()
+	}
+	if at := t.askedAt.Load(); at != nil {
+		why += " at " + *at
+	}
+	why += ")"
+	if t.failed {
+		why = "for diagnosis (the run failed) " + why
+	}
+	ui.Section(ui.SectionResults)
+	lines := keptBecause(t.cfg.Name, why, t.in.RunLog)
+	ui.Warnf("%s", lines[0])
+	if rest := t.notRun(); len(rest) > 0 {
+		ui.Notef("not run: %s", strings.Join(rest, ", "))
+	}
+	if errors.Is(t.carry, errStepSkipped) && (t.in.Clone || !t.in.CloneKnown) {
+		for _, l := range CloneRescueLines(t.cfg.Name, t.in.Sid, agentWorkdir(t.in, t.cfg.Mounts), t.in.RepoRoot) {
+			ui.Notef("%s", l)
+		}
+	}
+	for _, l := range lines[1:] {
+		ui.Notef("%s", l)
+	}
+	t.keepHome, t.left = true, true
+}
+
 // saveState is SaveState under ctx.
 func (t *teardown) saveState(ctx context.Context) (string, error) {
 	return SaveState(t.cfg.Name, t.cfg.Env, sbx.Exists(t.cfg.Name), func(args ...string) (string, error) {
@@ -103,13 +227,17 @@ func (t *teardown) failedEnd(ctx context.Context) {
 		}
 	}
 	restarted := !sbx.Running(cfg.Name)
-	_ = t.do(ctx, stepClone, func() error { return TeardownClone(in, cfg) })
+	t.carry = t.do(ctx, stepClone, func() error { return TeardownClone(in, cfg) })
 	_ = t.do(ctx, stepState, func() error {
 		_, err := t.saveState(ctx)
 		return err
 	})
-	if err := t.do(ctx, stepHome, t.commitHome); err != nil {
+	if err := t.do(ctx, stepHome, t.commitHome); err != nil && !errors.Is(err, errStepSkipped) {
 		ui.Warnf("home-root config not preserved: %v", err)
+	}
+	if t.mustLeave(ctx) {
+		t.leave()
+		return
 	}
 	if tr := credentials.AgentTranscript(in.Target, in.HomeRoot, t.started, t.ended); tr != "" {
 		said = true
@@ -143,15 +271,20 @@ func (t *teardown) failedEnd(ctx context.Context) {
 func (t *teardown) normalEnd(ctx context.Context) {
 	in, cfg := t.in, t.cfg
 	stranded := t.do(ctx, stepClone, func() error { return TeardownClone(in, cfg) })
+	t.carry = stranded
 	var saved string
 	if err := t.do(ctx, stepState, func() (err error) {
 		saved, err = t.saveState(ctx)
 		return err
-	}); err != nil {
+	}); err != nil && !errors.Is(err, errStepSkipped) {
 		ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(saved))
 	}
-	if err := t.do(ctx, stepHome, t.commitHome); err != nil {
+	if err := t.do(ctx, stepHome, t.commitHome); err != nil && !errors.Is(err, errStepSkipped) {
 		ui.Warnf("home-root config not preserved: %v", err)
+	}
+	if t.mustLeave(ctx) {
+		t.leave()
+		return
 	}
 	switch normalEndOf(t.forced, stranded, opencodeTarget(in.Target)) {
 	case endKeepStranded:
@@ -172,6 +305,10 @@ func (t *teardown) normalEnd(ctx context.Context) {
 		ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
 	}
 	if t.do(ctx, stepRemove, func() error { return removeSandbox(ctx, cfg.Name) }) != nil {
+		if t.mustLeave(ctx) {
+			t.leave()
+			return
+		}
 		t.keepHome = sbx.Exists(cfg.Name)
 		if t.keepHome {
 			PrintIDEAttach(in, cfg, false)

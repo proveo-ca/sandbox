@@ -586,6 +586,7 @@ func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
 		{"the agent's own code", fmt.Errorf("run: %w", backend.ExitError{Code: 137}), 137, true},
 		{"a SIGTERM stop", fmt.Errorf("run: %w", backend.Stopped{Signal: syscall.SIGTERM}), 143, true},
 		{"a SIGHUP stop", backend.Stopped{Signal: syscall.SIGHUP}, 129, true},
+		{"a teardown the operator left", backend.Stopped{Signal: syscall.SIGINT}, 130, true},
 		{"proveo's own failure", errors.New("no sbx"), 0, false},
 	} {
 		if got, ok := exitCode(c.err); got != c.want || ok != c.wantOK {

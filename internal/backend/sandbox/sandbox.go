@@ -149,9 +149,16 @@ func (in Input) ctx() context.Context {
 	return context.Background()
 }
 
-// boundCommand is exec.Command killed once d passes or parent ends. finish releases
-// the timer and says which of the two ended the command.
+// boundCommand is boundForeground in its own process group, out of reach of the terminal's Ctrl+C.
 func boundCommand(parent context.Context, d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
+	cmd, finish := boundForeground(parent, d, name, args...)
+	ownGroup(cmd)
+	return cmd, finish
+}
+
+// boundForeground is exec.Command killed once d passes or parent ends. finish releases
+// the timer and says which of the two ended the command.
+func boundForeground(parent context.Context, d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
 	ctx, cancel := context.WithTimeout(parent, d)
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = guestGrace
@@ -211,7 +218,13 @@ func TeardownClone(in Input, cfg sbx.RunConfig) error {
 // PreserveClone snapshots, lifts and carries the clone's work home. It returns an
 // error while work remains only in the sandbox.
 func PreserveClone(in Input, cfg sbx.RunConfig) error {
-	if in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
+	if in.RepoRoot == "" {
+		return nil
+	}
+	if in.ctx().Err() != nil {
+		return stoppedBefore(cfg.Name)
+	}
+	if !sbx.Exists(cfg.Name) {
 		return nil
 	}
 	clones, err := sandboxClone(in, cfg.Name)
@@ -234,7 +247,13 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 			stranded = fmt.Errorf("uncommitted work is still only in %s", cfg.Name)
 		}
 	}
+	if in.ctx().Err() != nil {
+		return stoppedBefore(cfg.Name)
+	}
 	shownDo(stepCloneOutput, func() { liftClonedOutput(in, cfg, liftViaSbx) })
+	if in.ctx().Err() != nil {
+		return stoppedBefore(cfg.Name)
+	}
 	var carried bool
 	if err := shown(stepCloneCarry, func() (err error) {
 		carried, err = carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx)
@@ -242,7 +261,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	}); err != nil {
 		return err
 	}
-	if !carried {
+	if !carried || in.ctx().Err() != nil {
 		return stranded
 	}
 	reportCloneRefs(in, cfg)
@@ -254,6 +273,11 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 		})
 	})
 	return stranded
+}
+
+// stoppedBefore is the carry's outcome once teardown's context ended before the work reached home.
+func stoppedBefore(name string) error {
+	return fmt.Errorf("%w before the carry finished; work may still be only in %s", errStepSkipped, name)
 }
 
 // writeBackCloneEnv merges the clone's .env edits into the host .env it was staged from.
@@ -1015,9 +1039,14 @@ func nestedRel(root, path string) (string, bool) {
 }
 
 func KeptLines(name, runLog string) []string {
+	return keptBecause(name, "for diagnosis (the run failed)", runLog)
+}
+
+// keptBecause is the kept-sandbox lines: why it stayed, then the way in and the removal.
+func keptBecause(name, why, runLog string) []string {
 	lines := []string{fmt.Sprintf(
-		"sandbox %s kept for diagnosis (the run failed) — `sbx exec -it %s bash`, then `sbx rm --force %s`",
-		name, name, name)}
+		"sandbox %s kept %s — `sbx exec -it %s bash`, then `sbx rm --force %s`",
+		name, why, name, name)}
 	if strings.TrimSpace(runLog) != "" {
 		lines = append(lines,
 			fmt.Sprintf("every line this run printed, posture and warnings included: %s", runLog))
@@ -1776,8 +1805,14 @@ func Run(in Input) error {
 		started: startedAt, ended: endedAt,
 		lastOutput: tail.Lines, commitHome: homeAccess.Commit,
 	}
-	td.run(context.Background())
+	tdCtx, endWatch := td.watch(context.Background())
+	stopSignals()
+	td.run(tdCtx)
+	endWatch()
 	keepHomeAccess = td.keepHome
+	if sig := td.leftBy(); sig != 0 {
+		return backend.Stopped{Signal: sig}
+	}
 	var ee *exec.ExitError
 	if errors.As(result, &ee) {
 		return backend.ExitError{Code: sbx.RunExitCode(ee.ExitCode(), tail.Lines())}

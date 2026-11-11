@@ -53,6 +53,7 @@ func boundedWith(timeout time.Duration, name string, args ...string) ([]byte, er
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = boundedGrace
+	ownGroup(cmd)
 	return cmd.Output()
 }
 
@@ -65,6 +66,7 @@ func boundedCombinedWith(timeout time.Duration, name string, args ...string) ([]
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = boundedGrace
+	ownGroup(cmd)
 	return cmd.CombinedOutput()
 }
 

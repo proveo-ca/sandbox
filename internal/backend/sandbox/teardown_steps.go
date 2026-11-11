@@ -54,8 +54,28 @@ func stepCeiling(name string) time.Duration {
 	return 0
 }
 
+// lastStep is the step that most recently began.
+var lastStep atomic.Pointer[string]
+
+// runningStep names the step that most recently began.
+func runningStep() string {
+	if p := lastStep.Load(); p != nil {
+		return *p
+	}
+	return "its first step"
+}
+
+// withCeiling is name followed by its ceiling, when it has one.
+func withCeiling(name string) string {
+	if d := stepCeiling(name); d > 0 {
+		return name + " (up to " + d.Round(time.Second).String() + ")"
+	}
+	return name
+}
+
 // announce prints the step the terminal is about to wait on and its ceiling.
 func announce(name string) {
+	lastStep.Store(&name)
 	if d := stepCeiling(name); d > 0 {
 		ui.Asyncf("%s — up to %s", name, d.Round(time.Second))
 		return

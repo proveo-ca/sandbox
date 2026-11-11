@@ -32,6 +32,18 @@ skinparam noteTextAlignment left
 ' no line, code 0, last line wins, last match in a line wins, negative, and
 ' status pass-through.
 '
+' ── 2026-11-10: Stopped ALSO NAMES A TEARDOWN THE OPERATOR LEFT ────────────
+' The Executor, on Ctrl+C during teardown: "Say once, leave on two", and on
+' SIGTERM or SIGHUP there: "Finish the step, then leave".
+' Run now returns Stopped{Signal} when a signal made TEARDOWN leave part of
+' its plan undone, whatever the agent's own result was:
+'   Stopped{SIGINT}.Code()  130   Error() "stopped by SIGINT"
+'   SIGTERM 143 and SIGHUP 129, as below
+' A signal that arrives in the last step leaves nothing undone; the run's own
+' result stands. Why and how: _spec/internal/backend/teardown.puml (T4).
+' Pinned by TestAStopExitsWith128PlusTheSignal (the SIGINT row) and
+' TestExitCodeIsTheAgentsOrTheStoppingSignals ("a teardown the operator left").
+'
 ' ── 2026-10-17: A SECOND TYPE, Stopped ─────────────────────────────────────
 ' The user, on a stopped run's exit status: "Exit 128+sig, 'stopped'
 ' (Recommended)". MEASURED, internal/backend/backend.go:

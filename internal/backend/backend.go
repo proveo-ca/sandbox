@@ -12,7 +12,7 @@ type ExitError struct{ Code int }
 
 func (e ExitError) Error() string { return fmt.Sprintf("agent exited with code %d", e.Code) }
 
-// Stopped is a run a forwarded SIGTERM or SIGHUP ended.
+// Stopped is a run a forwarded SIGTERM or SIGHUP ended, or a teardown a signal made proveo leave.
 type Stopped struct{ Signal syscall.Signal }
 
 func (s Stopped) Error() string {
@@ -21,6 +21,8 @@ func (s Stopped) Error() string {
 		return "stopped by SIGTERM"
 	case syscall.SIGHUP:
 		return "stopped by SIGHUP"
+	case syscall.SIGINT:
+		return "stopped by SIGINT"
 	}
 	return fmt.Sprintf("stopped by signal %d", int(s.Signal))
 }

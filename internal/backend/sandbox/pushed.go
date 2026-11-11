@@ -182,7 +182,7 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 		return
 	}
 	for _, args := range pushedFetchArgs(in.RepoRoot, branches) {
-		cmd, finish := boundCommand(in.ctx(), guestExecDeadline, "git", args...)
+		cmd, finish := boundForeground(in.ctx(), guestExecDeadline, "git", args...)
 		out, err := cmd.CombinedOutput()
 		if err = finish(err); err != nil {
 			ui.Warnf("fetch failed (%v): %s", err, strings.TrimSpace(string(out)))

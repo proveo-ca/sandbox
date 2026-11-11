@@ -32,6 +32,7 @@ func TestAStopExitsWith128PlusTheSignal(t *testing.T) {
 	}{
 		{syscall.SIGTERM, 143, "stopped by SIGTERM"},
 		{syscall.SIGHUP, 129, "stopped by SIGHUP"},
+		{syscall.SIGINT, 130, "stopped by SIGINT"},
 	} {
 		var st backend.Stopped
 		if !errors.As(fmt.Errorf("sandbox teardown: %w", backend.Stopped{Signal: c.sig}), &st) {

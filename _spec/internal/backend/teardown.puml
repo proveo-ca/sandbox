@@ -5,6 +5,14 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' purpose: the steps proveo runs once the agent has exited, the ceiling on each, and the record each leaves in the run log
 ' covers: internal/backend/sandbox/teardown.go
 ' covers: internal/backend/sandbox/teardown_plan_test.go
+' covers: internal/backend/sandbox/teardown_signal_test.go
+' covers: internal/backend/sandbox/proc_unix.go
+' covers: internal/backend/sandbox/proc_windows.go
+' covers: internal/sbx/proc_unix.go
+' covers: internal/sbx/proc_windows.go
+' covers: internal/sbx/proc_unix_test.go
+' covers: internal/sbx/exec.go (boundedWith, boundedCombinedWith, ListWait, ExecWait)
+' covers: e2e/teardown_interrupt_test.go
 ' covers: internal/backend/sandbox/teardown_steps.go
 ' covers: internal/backend/sandbox/teardown_steps_test.go
 ' covers: internal/backend/sandbox/sandbox.go (Run's call to teardown, boundCommand, TeardownClone, PreserveClone, removeSandbox)
@@ -18,7 +26,8 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   what the clone carry does ....... _spec/internal/sbx/clone-workspace.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' This file grows as the delivery plan's teardown slices land. Landed so far:
-' T2 (step timing), T1 (deadlines) and T3 (teardown as a value), all 2026-11-10.
+' T2 (step timing), T1 (deadlines), T3 (teardown as a value) and T4 (signals
+' in teardown), all 2026-11-10.
 '
 ' ── EVERY STEP LEAVES ONE LINE IN THE RUN LOG (T2) ─────────────────────────
 ' Before this, the run log stamped section headers only. A finished run could
@@ -169,6 +178,78 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' WRITTEN TWICE BY CHOICE: T6 (delivery plan, W5) replaces these lines with a
 ' live step list that reads the same names and the same stepCeiling.
 '
+' ── A SIGNAL IN TEARDOWN HAS ONE MEANING EACH (T4; D2, D16) ────────────────
+' Until T4 a SIGTERM or SIGHUP in teardown was swallowed: forwardStop's parked
+' goroutine consumed it and cancelled a context nothing read any more. SIGINT
+' had no handler, and the terminal is back in cooked mode by then, so Ctrl+C
+' ended proveo on the spot: no carry, no state save, no removal, no line
+' (tui-responsiveness.puml, C3).
+' `teardown.watch` takes SIGINT, SIGTERM and SIGHUP for the length of
+' teardown. Run starts it BEFORE it stops forwardStop, so no signal meets a
+' gap with Go's default action.
+'   SIGINT, first     prints the running step with its ceiling and what
+'                     leaving keeps: "Ctrl+C again leaves now". Nothing stops.
+'   SIGINT, second    ends the context. The call in flight is killed, later
+'                     steps are skipped, the sandbox stays, and Run returns
+'                     Stopped{SIGINT}: exit 130. The Executor, D2: "Say once,
+'                     leave on two".
+'   SIGTERM, SIGHUP   the running top-level step finishes. Later steps are
+'                     skipped, the sandbox stays, exit 128+signal. D16:
+'                     "Finish the step, then leave". A clone in flight is one
+'                     step, so the whole carry completes.
+'   SIGINT after one  leaves at once and exits 130. The operator was already
+'   of those          told teardown is leaving, so Ctrl+C means now.
+' A STOP THAT LEAVES NOTHING UNDONE IS NOT A STOP. A SIGTERM during the last
+' step lets it finish. Every planned step ran, so the run's own result
+' stands. leftBy() names a signal only when a step was skipped or killed.
+' WHAT LEAVING PRINTS (leave): the kept-sandbox line, built by keptBecause as
+' KeptLines is; "not run: <steps>"; the by-hand bundle recipe when the carry
+' never ran; and the run log's path.
+'   sandbox sb kept (teardown stopped by SIGINT at remove sandbox) — `sbx
+'   exec -it sb bash`, then `sbx rm --force sb`
+' The home access stays with the kept sandbox (keepHome), as on a failed run.
+' THE CARRY STOPS BETWEEN ITS PARTS. After a hard stop PreserveClone returns
+' before its next part. Otherwise each remaining call would start, die at
+' once, and print a warning of its own.
+'
+' ── TEARDOWN'S CHILDREN LEAVE THE TERMINAL'S PROCESS GROUP (T4) ─────────────
+' A handler alone protects nothing. The terminal sends SIGINT to the whole
+' foreground process group, so the `sbx exec` or `git` in flight died on the
+' FIRST Ctrl+C (MEASURED with a probe: tui-responsiveness.puml, C3).
+' ownGroup(cmd) sets Setpgid and makes the command's cancel kill the group.
+'   boundCommand          every guest and host call teardown waits on
+'   sbx.boundedWith,      the 10s probes behind Running, Exists, the policy
+'   boundedCombinedWith   log and memory evidence, and ExecOutput
+' ONE CALL STAYS IN THE FOREGROUND: the pushed-branch `git fetch`
+' (boundForeground). The operator just asked for it, and git may need the
+' terminal for a passphrase. A background group that reads the terminal is
+' stopped by SIGTTIN and would sit there until its deadline.
+' THE GROUP KILL ALSO REMOVED A WAIT. Before, a deadline killed the direct
+' child only; a grandchild holding the output pipe kept the caller for the 2s
+' grace. MEASURED on linux/arm64: the package's unit suite went from 24.3s to
+' 5.7s.
+' [Inference] sbx's bounded calls run outside teardown too. A proveo that dies
+' mid-call now leaves that call to end by itself (10s at most) instead of
+' taking it down with the terminal's signal. None of them reads the terminal.
+' Windows has no process group of this kind; ownGroup does nothing there.
+' MEASURED 2026-11-10 on a real terminal (tmux) and a real sandbox, macOS, sbx
+' 0.50.0, with `sbx rm` slowed by a PATH shim: the first Ctrl+C printed the
+' line and left the removal running; the second exited 130 with the sandbox
+' still listed. e2e TestCtrlCInTeardownSaysOnceThenLeavesWith130.
+'
+' Pinned by internal/backend/sandbox/teardown_signal_test.go:
+'   TestTheFirstInterruptSaysWhatLeavingKeepsAndTheSecondLeaves
+'   TestATerminateLetsTheRunningStepFinishAndSkipsTheRest
+'   TestATerminateDuringTheLastStepLeavesNothingUndone
+'   TestAnInterruptAfterATerminateLeavesAtOnce
+'   TestAStoppedCarryNamesTheRescueRecipe
+'   TestTeardownChildrenRunInTheirOwnProcessGroup
+'   TestThePushedFetchStaysInTheTerminalsProcessGroup
+' by internal/sbx/proc_unix_test.go:
+'   TestABoundedCallRunsInItsOwnProcessGroup
+'   TestABoundedCallThatOutlivesItsTimeoutEndsWithItsChildren
+' and by e2e/teardown_interrupt_test.go.
+'
 ' Pinned by internal/backend/sandbox/teardown_plan_test.go:
 '   TestEveryPlannedStepStartsWithItsNameAndCeilingOnTheTerminal
 '   TestStepCeilingsAddUpTheBoundsOfTheCallsAStepMakes
@@ -188,7 +269,8 @@ title Teardown — what runs after the agent exits, how long each step may take,
 
 component "the agent exits" as EXIT <<app>>
 component "the ""teardown"" value\n""teardownPlan(failed)""" as PLAN <<app>>
-component "a stop\nthe context ends" as STOP <<host>>
+component "a stop\nCtrl+C twice · SIGTERM · SIGHUP" as STOP <<host>>
+component "the first Ctrl+C\nsays the step and what leaving keeps" as ONCE <<host>>
 component """step(name, fn)""\nname · duration · outcome" as STEP <<app>>
 database "the run log\n""step: clone/snapshot 1.2s ok""" as LOG <<db>>
 component "four guest or network calls\nunder ""guestExecDeadline"" (3m)" as BOUND <<app>>
@@ -198,6 +280,7 @@ component "the terminal\n""clone/snapshot — up to 3m2s""" as TERM <<host>>
 
 EXIT ARROW_MAIN PLAN : before Run's result
 PLAN ARROW_MAIN STEP : each step, in plan order
+ONCE ARROW_OPTIONAL STOP : pressed again
 STOP ARROW_OPTIONAL PLAN : later steps are skipped
 STOP ARROW_OPTIONAL BOUND : the call in flight ends
 STEP ARROW_MAIN LOG : one row per step
@@ -214,10 +297,17 @@ note top of PLAN
 end note
 
 note top of STOP
-  **A stopped teardown never removes.** A
-  skipped carry reads as stranded work, so the
-  sandbox stays and its removal command
-  prints.
+  **A stopped teardown never removes.** The
+  sandbox stays, the steps not run are named,
+  and proveo exits 130 for Ctrl+C or
+  128+signal for SIGTERM and SIGHUP.
+end note
+
+note top of ONCE
+  **Say once, leave on two.** The calls in
+  flight sit in their own process group, so
+  the terminal's Ctrl+C reaches proveo alone
+  and the first press costs nothing.
 end note
 
 note bottom of TERM

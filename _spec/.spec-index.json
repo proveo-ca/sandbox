@@ -837,10 +837,18 @@
         "internal/backend/sandbox/teardown_plan_test.go",
         "internal/backend/sandbox/teardown_steps.go",
         "internal/backend/sandbox/teardown_steps_test.go",
+        "internal/backend/sandbox/teardown_signal_test.go",
+        "internal/backend/sandbox/proc_unix.go",
+        "internal/backend/sandbox/proc_windows.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/pushed.go",
         "internal/backend/sandbox/launch_receipt.go",
-        "e2e/teardown_steps_test.go"
+        "internal/sbx/proc_unix.go",
+        "internal/sbx/proc_windows.go",
+        "internal/sbx/proc_unix_test.go",
+        "internal/sbx/exec.go",
+        "e2e/teardown_steps_test.go",
+        "e2e/teardown_interrupt_test.go"
       ],
       "fingerprint": null
     },
