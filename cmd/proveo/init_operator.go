@@ -62,11 +62,15 @@ func operatorStage(o initOptions, at choiceui.Step) (stepResult, error) {
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
 		NoAxis: true,
 		Step:   at,
+		Skip:   "Skip",
 		Rows:   []choiceui.Row{operatorRow(current)},
 	}
 	out, err := form.RunStep()
-	if err != nil || out == choiceui.Cancelled {
+	switch {
+	case err != nil || out == choiceui.Cancelled || out == choiceui.Skipped:
 		return stepNext, err
+	case out == choiceui.Quit:
+		return stepQuit, nil
 	}
 	if out == choiceui.Back {
 		return stepBack, nil

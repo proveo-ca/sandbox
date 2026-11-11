@@ -1,0 +1,167 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a button
+' purpose: what each key means on a page of a multi-page wizard, and why a lone form keeps its old keys
+' covers: internal/choiceui/quit_gate.go
+' covers: internal/choiceui/choiceui.go (Outcome, Step, leave, quitKey, drawSkip, Form.Skip)
+' covers: internal/choiceui/form_model_test.go
+' covers: internal/choiceui/step_test.go
+' covers: cmd/proveo/init.go (runInitSteps, stepQuit)
+' covers: cmd/proveo/init_steps_test.go
+' covers: e2e/init_steps_test.go
+'   why the keys changed ............. _spec/_plans/wizard-upgrades.puml (W4, D5, D10)
+'   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W11)
+'   the key line these words sit on .. _spec/internal/choiceui/wireframe.puml
+'   the dialog the question reuses ... _spec/internal/choiceui/confirm-dialogs.puml
+'   init's three pages ............... _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   run's two pages .................. _spec/internal/run/run-spec.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS WRONG ─────────────────────────────────────────────────────────
+' Esc meant three things in `proveo init`: an error on setup, a skip on
+' credentials, a clean end on operator. Ctrl+C shared all three. The footer
+' said "esc cancel" on every page, which was true on one of them.
+' The Executor, D5: "Adopt sbx: esc back, ^c quit". D10: "A focusable Skip
+' button".
+'
+' ── THE KEYS ON A WIZARD'S PAGE (Step.Of > 1) ──────────────────────────────
+'   Enter      forward: Accepted. On the Skip button: Skipped.
+'   Esc        Back past page 1. On page 1 it closes the wizard: Cancelled.
+'   Ctrl+C, q  a question first; a confirmed answer is Quit.
+'   shift+tab  still steps back past page 1. The key line no longer names it.
+' The footer reads "esc back" past page 1 and "esc cancel" on it, then
+' "ctrl+c quit". Under a narrow screen "ctrl+c quit" drops early: after the
+' scroll keys and, on a form with checkboxes, after "space toggle". "enter
+' accept" still goes last.
+'
+' ── A LONE FORM KEEPS ITS KEYS ─────────────────────────────────────────────
+' A form with a zero Step is not a wizard: Esc, Ctrl+C and q cancel at once,
+' and the footer carries no "ctrl+c quit". That covers the run form when no
+' scope page precedes it, and the two GitHub-access forms inside init's
+' setup.
+' WHY: "Quit" on a nested form would promise to end init, and the code that
+' opens those forms returns to the page that asked. A confirm that then only
+' cancels one form would lie about what it does.
+'
+' ── THE QUESTION ───────────────────────────────────────────────────────────
+' quitGate (quit_gate.go) holds a dialog inside the page's own model, so no
+' second Program opens. Its buttons are Stay and Quit. Stay is selected.
+'   Enter, Esc          Stay: the page comes back as it was
+'   q, or an arrow      selects Quit; Enter then quits (two keys, as D7 asks)
+'   Ctrl+C again        Quit: Ctrl+C twice leaves, as teardown does (D2)
+' The body says what leaving costs: answers on this page are not saved, and
+' what an earlier page did stays done.
+' The dialog's own tea.Quit command is dropped: the gate reads the answer and
+' the page decides.
+' ON A TERMINAL TOO SMALL TO DRAW THE PAGE, Ctrl+C quits at once. A question
+' nobody can read would trap the operator.
+' The gate's method is named Update because a contract test lets a Bubble Tea
+' message reach only a call of that name (tui-stack.puml).
+'
+' ── SKIP IS A BUTTON, NOT A KEY (D10) ──────────────────────────────────────
+' MEASURED before the decision: `s` types into the focused field. The
+' credentials page opens on a field and the operator page is one field.
+' Form.Skip names a button drawn under the rows: "[ Skip ]". Down from the
+' last row focuses it; Up, Home or PgUp leaves it. Focused, it is filled and
+' carries the enter mark, no row shows the cursor, the help slot is empty,
+' and the footer reads "enter skip" in place of "enter accept".
+' While it is focused the arrows, space and typing change no answer.
+' The button costs two rows (itself and a blank); the layout budget and the
+' floor count them.
+' "enter accept" STAYS THE E2E ANCHOR. A page opens with the cursor on a row,
+' so the words are there when a helper waits for them.
+'
+' ── WHAT EACH CALLER DOES WITH THE OUTCOME ─────────────────────────────────
+'   init setup (1/3)        anything but Accepted: "cancelled at the init
+'                           prompt", exit 1. Nothing ran yet.
+'   init credentials (2/3)  Back; Skipped moves on and stores nothing; Quit.
+'   init operator (3/3)     Back; Skipped ends init with the name unchanged;
+'                           Quit.
+'   init, on Quit           "quit at page n/3 — what earlier pages did stays
+'                           done", exit 1. No later page runs.
+'   run form (2/2)          Back returns to the scope page; Quit is "quit at
+'                           the choice prompt", exit 1.
+'   run scope page (1/2)    Esc and a confirmed Ctrl+C both end the run with
+'                           "cancelled at the scope prompt".
+' EXIT 1, NOT 130 AND NOT 0. Every other prompt the operator closes ends 1
+' ("cancelled at …"). Before this change Ctrl+C on init's later pages ended 0,
+' as a skip; a shell chain `proveo init && …` then ran on.
+' [Inference] 130 would also be defensible: the operator pressed Ctrl+C. No
+' signal was delivered, so the status of a refused prompt was kept.
+'
+' ── WHAT RAN ───────────────────────────────────────────────────────────────
+' macOS and linux/arm64, on tmux against the stub sbx: Esc returns from page
+' 2 to page 1 and from 3 to 2; the Skip button moves 2 to 3 and ends 3;
+' Ctrl+C asks, Enter stays, and a second Ctrl+C ends init with "quit at page
+' 3/3" and status 1. The six older init tests pass through the changed
+' helpers. macOS only: the run form steps back with Esc and quits on Ctrl+C
+' twice (the container has no sbx).
+' The golden frames changed in 14 files, on the key line only.
+'
+' Pinned by internal/choiceui/step_test.go:
+'   TestEscStepsBackPastTheFirstPageAndCancelsOnIt
+'   TestCtrlCAndQQuitAWizardAndCancelALoneForm
+'   TestShiftTabStepsBackOnlyPastTheFirstScreen
+'   TestHintNamesThePageTheWayBackAndTheScrollKeys
+' Pinned by internal/choiceui/form_model_test.go:
+'   TestDownPastTheLastRowFocusesSkipAndEnterThereSkips
+'   TestTheSkipButtonIsDrawnAndTheKeyLineSaysWhatEnterDoesOnIt
+'   TestCtrlCOnAWizardPageAsksAndASecondOneQuits
+' Pinned by internal/choiceui/scope_page_test.go: TestTheScopePagesKeys
+' Pinned by cmd/proveo/init_steps_test.go: TestAQuitEndsInitThereAndSaysWhichPage
+' Pinned by e2e: TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton,
+'   TestInitStepsBackWithoutRerunningSetup,
+'   TestTheFormStepsBackToTheScopePageWhereItWasLeft
+
+component "a wizard's page\nStep.Of > 1" as PAGE <<app>>
+component "a lone form\nzero Step" as LONE <<app>>
+component "Enter\nforward" as ENTER <<host>>
+component "Esc\nback · closes on page 1" as ESC <<host>>
+component "Ctrl+C\n**asks first**" as CC <<error>>
+component "the question\nStay ↵ · Quit" as ASK <<app>>
+component "Skip\na button under the rows" as SKIP <<app>>
+
+PAGE ARROW_MAIN ENTER
+PAGE ARROW_MAIN ESC
+PAGE ARROW_ERROR CC
+CC ARROW_MAIN ASK
+PAGE ARROW_OPTIONAL SKIP : when the page names one
+LONE ARROW_OPTIONAL ESC : cancels at once
+LONE ARROW_OPTIONAL CC : cancels at once
+
+note bottom of ESC
+  **One meaning.** Esc was an error on setup, a
+  skip on credentials and a clean end on
+  operator. It now steps back one page, and
+  closes the wizard from page 1.
+end note
+
+note bottom of ASK
+  **Stay is selected.** Enter and Esc keep the
+  page. Quit takes two keys, or Ctrl+C a
+  second time. The body says what leaving
+  costs.
+end note
+
+note bottom of SKIP
+  **Not a key.** ""s"" types into the focused
+  field, and two of init's pages open on one.
+  Down from the last row reaches the button;
+  Enter there skips.
+end note
+
+note bottom of LONE
+  **No question here.** A nested form returns
+  to the page that opened it. A confirm that
+  said "quit" and only closed one form would
+  lie, so a lone form cancels at once.
+end note
+
+note bottom of CC
+  **Exit 1, where it was 0.** Ctrl+C on init's
+  later pages used to count as a skip, so a
+  shell chain ran on. A confirmed quit now
+  ends init and says which page.
+end note
+@enduml

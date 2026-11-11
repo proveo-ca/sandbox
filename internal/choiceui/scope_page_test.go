@@ -65,7 +65,9 @@ func TestTheScopePagesKeys(t *testing.T) {
 		{"two down picks a project", []tea.KeyPressMsg{down, down, teaEnter}, "apps/api", Accepted, true},
 		{"up at the root stays on it", []tea.KeyPressMsg{up, teaEnter}, "", Accepted, true},
 		{"esc cancels", []tea.KeyPressMsg{down, teaEsc}, "apps", Cancelled, true},
-		{"ctrl+c cancels", []tea.KeyPressMsg{teaCtrlC}, "", Cancelled, true},
+		{"ctrl+c asks first", []tea.KeyPressMsg{teaCtrlC}, "", Cancelled, false},
+		{"ctrl+c twice quits", []tea.KeyPressMsg{teaCtrlC, teaCtrlC}, "", Quit, true},
+		{"ctrl+c then enter stays, and the page still takes keys", []tea.KeyPressMsg{teaCtrlC, teaEnter, down, teaEnter}, "apps", Accepted, true},
 		{"left folds, and the next row is the next folder", []tea.KeyPressMsg{down, teaLeft, down, teaEnter}, "packages", Accepted, true},
 		{"right reopens a folded folder", []tea.KeyPressMsg{down, teaLeft, teaRight, down, teaEnter}, "apps/api", Accepted, true},
 		{"a filter narrows and enter picks the match", append(append(typed("/"), typed("worker")...), teaEnter), "services/billing/worker", Accepted, true},
@@ -92,7 +94,7 @@ func TestTheRootRowIsMarkedDefaultAndTheLineUnderTheTreeFollowsTheCursor(t *test
 		"› monorepo  repo root  default",
 		"enter starts the agent at the repo root",
 		"scope · 1/2",
-		"page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel",
+		"page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the page lacks %q:\n%s", want, joined)

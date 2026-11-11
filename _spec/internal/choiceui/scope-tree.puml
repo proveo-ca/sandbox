@@ -76,7 +76,8 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' string on this page.
 ' KEYS. ↑↓ PgUp PgDn Home End move. ← folds, → opens. "/" opens the filter;
 ' typing then narrows, Backspace on an empty filter closes it, Esc clears it.
-' Enter chooses the cursor's row. Esc with no filter cancels, as Ctrl+C does.
+' Enter chooses the cursor's row. Esc with no filter cancels. Ctrl+C asks
+' first when the page is one of two (_spec/internal/choiceui/wizard-keys.puml).
 ' Esc means two things here on purpose: clear, then cancel.
 ' UNDER ITS FLOOR (7 rows, 8 with a filter) the page says so, names what
 ' Enter keeps, and takes only Enter, Esc and Ctrl+C.

@@ -20,4 +20,4 @@ run claudecode — where the agent works                               scope · 
 
 enter starts the agent in apps
 
-page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel
+page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit

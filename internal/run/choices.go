@@ -109,6 +109,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	case out == choiceui.Back:
 		visit.left = form
 		return errStepBack
+	case out == choiceui.Quit:
+		return fmt.Errorf("quit at the choice prompt")
 	case out != choiceui.Accepted:
 		return fmt.Errorf("cancelled at the choice prompt")
 	}

@@ -133,3 +133,97 @@ func TestATerminalTooSmallTakesOnlyTheKeysThatLeave(t *testing.T) {
 		t.Error("enter must still accept the resolved values on a terminal too small to draw the form")
 	}
 }
+
+func skipForm() *Form {
+	f := stepForm(2, 3)
+	f.Skip = "Skip"
+	return f
+}
+
+func TestDownPastTheLastRowFocusesSkipAndEnterThereSkips(t *testing.T) {
+	t.Parallel()
+	down, up := teaKey(tea.KeyDown, 0), teaKey(tea.KeyUp, 0)
+	for _, c := range []struct {
+		name string
+		keys []tea.KeyPressMsg
+		out  Outcome
+	}{
+		{"enter on a row accepts", []tea.KeyPressMsg{down, teaEnter}, Accepted},
+		{"down past the last row, then enter, skips", []tea.KeyPressMsg{down, down, teaEnter}, Skipped},
+		{"up leaves the button", []tea.KeyPressMsg{down, down, up, teaEnter}, Accepted},
+		{"arrows on the button change no answer", []tea.KeyPressMsg{down, down, teaRight, teaLeft, teaEnter}, Skipped},
+		{"esc on the button still steps back", []tea.KeyPressMsg{down, down, teaEsc}, Back},
+	} {
+		f := skipForm()
+		m, cmd := pressKeys(formAt(f, 100, 30), c.keys...)
+		if !quits(cmd) || m.(formModel).out != c.out {
+			t.Errorf("%s: ended %v, outcome %v; want %v", c.name, quits(cmd), m.(formModel).out, c.out)
+		}
+		if f.Rows[1].Selected != 0 {
+			t.Errorf("%s: a key on the Skip button changed row b: %d", c.name, f.Rows[1].Selected)
+		}
+	}
+	plain := stepForm(2, 3)
+	m, cmd := pressKeys(formAt(plain, 100, 30), down, down, down, teaEnter)
+	if !quits(cmd) || m.(formModel).out != Accepted {
+		t.Error("a form with no Skip button must accept from its last row")
+	}
+}
+
+func TestTheSkipButtonIsDrawnAndTheKeyLineSaysWhatEnterDoesOnIt(t *testing.T) {
+	t.Parallel()
+	f := skipForm()
+	joined := strings.Join(renderAt(t, f, 0, 100, 30), "\n")
+	if !strings.Contains(joined, "[ Skip ]") || !strings.Contains(joined, "enter accept") {
+		t.Errorf("an unfocused Skip button, and \"enter accept\", must show:\n%s", joined)
+	}
+	cursor := 1
+	f.key(&cursor, named("down"), 100, 30)
+	joined = strings.Join(renderAt(t, f, cursor, 100, 30), "\n")
+	for _, want := range []string{"› ", " Skip ", "enter skip"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the focused button lacks %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "enter accept") || strings.Contains(joined, "› b") {
+		t.Errorf("with the button focused no row carries the cursor, and enter does not accept:\n%s", joined)
+	}
+}
+
+func TestCtrlCOnAWizardPageAsksAndASecondOneQuits(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		keys []tea.KeyPressMsg
+		out  Outcome
+		ends bool
+	}{
+		{"ctrl+c alone asks", []tea.KeyPressMsg{teaCtrlC}, Cancelled, false},
+		{"ctrl+c twice quits", []tea.KeyPressMsg{teaCtrlC, teaCtrlC}, Quit, true},
+		{"ctrl+c then enter stays", []tea.KeyPressMsg{teaCtrlC, teaEnter}, Cancelled, false},
+		{"ctrl+c then esc stays", []tea.KeyPressMsg{teaCtrlC, teaEsc}, Cancelled, false},
+		{"ctrl+c, q, enter quits", append(append([]tea.KeyPressMsg{teaCtrlC}, typed("q")...), teaEnter), Quit, true},
+		{"after staying, enter accepts the page", []tea.KeyPressMsg{teaCtrlC, teaEnter, teaEnter}, Accepted, true},
+		{"q asks too", typed("q"), Cancelled, false},
+	} {
+		m, cmd := pressKeys(formAt(stepForm(2, 3), 100, 30), c.keys...)
+		if got := m.(formModel).out; quits(cmd) != c.ends || (c.ends && got != c.out) {
+			t.Errorf("%s: ended %v, outcome %v; want %v, %v", c.name, quits(cmd), got, c.ends, c.out)
+		}
+	}
+	m, _ := pressKeys(formAt(stepForm(2, 3), 100, 30), teaCtrlC)
+	view := plain(m.(formModel).View().Content)
+	for _, want := range []string{"leave the wizard?", "Stay", "Quit", "Answers on this page are not saved."} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the question lacks %q:\n%s", want, view)
+		}
+	}
+	lone, cmd := pressKeys(formAt(stepForm(0, 0), 100, 30), teaCtrlC)
+	if !quits(cmd) || lone.(formModel).out != Cancelled {
+		t.Error("ctrl+c on a lone form must cancel at once, as before")
+	}
+	tiny, cmd := pressKeys(formAt(stepForm(2, 3), 100, 3), teaCtrlC)
+	if !quits(cmd) || tiny.(formModel).out != Quit {
+		t.Error("ctrl+c on a page too small to draw must quit without a question nobody can read")
+	}
+}

@@ -22,4 +22,4 @@ run claudecode — where the agent works                                        
 
 enter starts the agent in apps/web
 
-page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel
+page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit

@@ -108,12 +108,12 @@ func TestTheFormStepsBackToTheScopePageWhereItWasLeft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the form never followed the scope page: %v\n%s", err, tail(screen, 45))
 	}
-	for _, want := range []string{"page 2/2", "shift+tab back", "confirm or change this run"} {
+	for _, want := range []string{"page 2/2", "esc back", "ctrl+c quit", "confirm or change this run"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the form lacks %q\n%s", want, tail(screen, 45))
 		}
 	}
-	if err := sess.SendKeys("BTab"); err != nil {
+	if err := sess.SendKeys("Escape"); err != nil {
 		t.Fatal(err)
 	}
 	screen, err = sess.WaitFor("enter starts the agent in apps/web", 30*time.Second)
@@ -131,14 +131,20 @@ func TestTheFormStepsBackToTheScopePageWhereItWasLeft(t *testing.T) {
 	if screen, err = sess.WaitFor("enter accept", time.Minute); err != nil {
 		t.Fatalf("the form did not reopen for the repo root: %v\n%s", err, tail(screen, 45))
 	}
-	if err := sess.SendKeys("Escape"); err != nil {
+	if err := sess.SendKeys("C-c"); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err = sess.WaitFor("leave the wizard?", 15*time.Second); err != nil {
+		t.Fatalf("Ctrl+C on the form did not ask first: %v\n%s", err, tail(screen, 45))
+	}
+	if err := sess.SendKeys("C-c"); err != nil {
 		t.Fatal(err)
 	}
 	screen, err = sess.WaitFor("PROVEO_EXIT=", 30*time.Second)
 	if err != nil {
-		t.Fatalf("Esc did not end the form: %v\n%s", err, tail(screen, 45))
+		t.Fatalf("a second Ctrl+C did not end the run: %v\n%s", err, tail(screen, 45))
 	}
-	if !strings.Contains(screen, "cancelled at the choice prompt") || strings.Contains(screen, "scope: ") {
+	if !strings.Contains(screen, "quit at the choice prompt") || strings.Contains(screen, "scope: ") {
 		t.Errorf("the run must end at the form, and announce no scope\n%s", tail(screen, 45))
 	}
 }

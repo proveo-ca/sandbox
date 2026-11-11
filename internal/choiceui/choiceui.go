@@ -255,14 +255,19 @@ type Form struct {
 	StartRow    string // row label the cursor opens on; empty means first selectable
 	StartOption string // option the cursor opens on within StartRow
 	Step        Step   // place in a sequence of screens; the zero value is a lone form
+	Skip        string // label of a focusable button under the rows; Enter on it is Skipped
 	scroll      int
+	onSkip      bool // the cursor is on the Skip button
 }
 
-// Step is screen At of Of; shift+tab leaves a screen past the first as Back.
-// SPEC: _spec/internal/choiceui/wireframe.puml
+// Step is screen At of Of; Esc leaves a screen past the first as Back.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml
 type Step struct{ At, Of int }
 
 func (s Step) backable() bool { return s.At > 1 }
+
+// wizard reports whether the form is one page of several.
+func (s Step) wizard() bool { return s.Of > 1 }
 
 // Outcome is how the operator left a form.
 type Outcome int
@@ -271,6 +276,8 @@ const (
 	Cancelled Outcome = iota
 	Accepted
 	Back
+	Skipped // the Skip button: this page changes nothing, the next one follows
+	Quit    // ctrl+c, confirmed: the wizard ends here
 )
 
 func Banner() []string {
@@ -395,6 +402,7 @@ type formModel struct {
 	tick   int
 	w, h   int
 	out    Outcome
+	quit   quitGate
 }
 
 // formTick advances the figure's motion by one frame.
@@ -410,16 +418,30 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		if m.quit.up() {
+			m.quit, _ = m.quit.Update(msg)
+		}
 	case formTick:
 		m.tick++
 		return m, animTick()
 	case tea.KeyPressMsg:
+		if m.quit.up() {
+			var leave bool
+			if m.quit, leave = m.quit.Update(msg); leave {
+				m.out = Quit
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		p := press{key: msg.String()}
 		if msg.Text != "" {
 			p = press{text: msg.Text}
 		}
 		out, done := m.f.key(&m.cursor, p, m.w, m.h)
-		if done {
+		switch {
+		case done && out == Quit && m.f.navigable(m.w, m.h):
+			m.quit = m.quit.open(m.w, m.h)
+		case done:
 			m.out = out
 			return m, tea.Quit
 		}
@@ -428,6 +450,9 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m formModel) View() tea.View {
+	if m.quit.up() {
+		return m.quit.view()
+	}
 	v := tea.NewView(m.f.frame(m.w, m.h, m.cursor, m.tick))
 	v.AltScreen = true
 	return v
@@ -446,7 +471,13 @@ func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
 		return out, true
 	}
 	if !f.navigable(w, h) {
-		return Cancelled, p.text == "q"
+		return f.quitKey(), p.text == "q"
+	}
+	if f.onSkip {
+		if p.key == "up" || p.key == "home" || p.key == "pgup" {
+			f.onSkip = false
+		}
+		return Cancelled, false
 	}
 	if f.typing(*cursor, p) || f.moreKey(*cursor, p) {
 		return Cancelled, false
@@ -457,7 +488,9 @@ func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
 	case "up":
 		*cursor = f.move(*cursor, -1)
 	case "down":
-		*cursor = f.move(*cursor, +1)
+		next := f.move(*cursor, +1)
+		f.onSkip = f.Skip != "" && next == *cursor
+		*cursor = next
 	case "pgup":
 		*cursor = f.page(*cursor, -1)
 	case "pgdown":
@@ -487,17 +520,36 @@ func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
 			f.cycle(*cursor, +1)
 		}
 	case "q":
-		return Cancelled, true
+		return f.quitKey(), true
 	}
 	return Cancelled, false
 }
 
-// leave answers the keys that end a form; shift+tab only past the first screen.
+// quitKey is what ctrl+c and q give: Quit on a wizard's page, which the model
+// confirms first, and Cancelled on a lone form.
+func (f *Form) quitKey() Outcome {
+	if f.Step.wizard() {
+		return Quit
+	}
+	return Cancelled
+}
+
+// leave answers the keys that end a form. Esc steps back past the first page and
+// cancels on it; shift+tab still steps back, unadvertised.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml
 func (f *Form) leave(p press) (Outcome, bool) {
 	switch p.key {
-	case "esc", "ctrl+c":
+	case "ctrl+c":
+		return f.quitKey(), true
+	case "esc":
+		if f.Step.backable() {
+			return Back, true
+		}
 		return Cancelled, true
 	case "enter":
+		if f.onSkip {
+			return Skipped, true
+		}
 		return Accepted, true
 	case "shift+tab":
 		if f.Step.backable() {
@@ -782,7 +834,11 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 			}
 			c.put(0, st, glyph)
 		}
-		f.drawBodyLine(c, p, ln, cursor, limit, named[ln.row])
+		mark := cursor
+		if f.onSkip {
+			mark = -1
+		}
+		f.drawBodyLine(c, p, ln, mark, limit, named[ln.row])
 	}
 	c.unclip()
 
@@ -803,6 +859,10 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	}
 
 	c.y = bodyTop + lay.body + 1
+	if f.Skip != "" {
+		f.drawSkip(c, p)
+		c.y += skipRows
+	}
 
 	f.drawHint(c, p, w, g.hiddenRows(lines))
 	c.y++
@@ -810,7 +870,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	if lay.helpSlot > 0 {
 		c.y++ // the blank the help block opens with
 		helpTop := c.y
-		if cursor >= 0 && cursor < len(f.Rows) {
+		if cursor >= 0 && cursor < len(f.Rows) && !f.onSkip {
 			for i, line := range f.Rows[cursor].helpLines(w - 4) {
 				st := p.body
 				if line.warn {
@@ -837,6 +897,19 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 }
 
 const hintScroll = "pgup/pgdn scroll"
+
+// skipRows is what the Skip button costs under the rows: the button and a blank.
+const skipRows = 2
+
+// drawSkip paints the Skip button; focused, it is filled and carries the enter mark.
+func (f *Form) drawSkip(c *canvas, p palette) {
+	if !f.onSkip {
+		c.put(2, p.idle, "[ "+f.Skip+" ]")
+		return
+	}
+	c.put(0, p.brand, "› ")
+	c.put(2, p.brand.Reverse(true), " "+f.Skip+" "+enterMark()+" ")
+}
 
 // hintPart is one key-line segment: a key and the word for what it does. A
 // narrow screen drops the lowest keep first.
@@ -869,10 +942,17 @@ func (f *Form) hintParts(w, hidden int) []hintPart {
 		parts = append(parts, hintPart{"←→", "choose", 3})
 	}
 	parts = append(parts, hintPart{"pgup/pgdn", "scroll", 1})
-	if f.Step.backable() {
-		parts = append(parts, hintPart{"shift+tab", "back", 6})
+	enter, esc := hintPart{"enter", "accept", 9}, hintPart{"esc", "cancel", 5}
+	if f.onSkip {
+		enter.word = "skip"
 	}
-	parts = append(parts, hintPart{"enter", "accept", 9}, hintPart{"esc", "cancel", 5})
+	if f.Step.backable() {
+		esc = hintPart{"esc", "back", 6}
+	}
+	parts = append(parts, enter, esc)
+	if f.Step.wizard() {
+		parts = append(parts, hintPart{"ctrl+c", "quit", 2})
+	}
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
@@ -1095,6 +1175,9 @@ func (f *Form) minHeight(w int) int {
 	need := 2 + minBodyLines + 2
 	if help := f.maxHelpLines(w - 4); help > 0 {
 		need += help + 1
+	}
+	if f.Skip != "" {
+		need += skipRows
 	}
 	return need
 }

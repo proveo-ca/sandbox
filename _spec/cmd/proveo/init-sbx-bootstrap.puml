@@ -207,11 +207,13 @@ skinparam noteTextAlignment left
 ' The Executor chose "Back/next across screens". runInitSteps(prompted, steps)
 ' walks [setup, credentials, operator]; prompted = !--yes && a terminal.
 '   prompted     each screen gets choiceui.Step{At, Of}: page 1/3, 2/3, 3/3,
-'                and shift+tab is offered on screens 2 and 3 only
+'                and the way back is offered on screens 2 and 3 only (Esc
+'                since 2026-11-11; shift+tab before, and still accepted)
 '   unprompted   --yes, or no TTY: every screen gets a zero Step, so no page
 '                label is drawn and no screen can step back
 ' A screen returns a stepResult: stepNext | stepBack | stepNone (it had
-' nothing to ask). A stepBack returns one screen; on the way back a stepNone
+' nothing to ask) | stepQuit (a confirmed Ctrl+C: the walk ends with "quit at
+' page n/3", exit 1). A stepBack returns one screen; on the way back a stepNone
 ' screen is passed over, never stopped at; a back from screen 1 is ignored; an
 ' error stops the walk. --print calls the credential and operator screens
 ' directly with a zero Step.
@@ -233,13 +235,15 @@ skinparam noteTextAlignment left
 '                the --prefix FLAG, never for an earlier answer, so a revisit
 '                after picking /usr/local still offers the home prefix.
 '   credentials  _spec/cmd/proveo/init-credential-wireframe.puml. Typed keys
-'                and sign-in choices survive a step back and forward. Esc
-'                skips provisioning and moves on to the operator screen.
+'                and sign-in choices survive a step back and forward. The
+'                Skip button skips provisioning and moves on to the operator
+'                screen; until 2026-11-11 Esc did.
 '                --yes skips the form with a note and returns stepNone, as the
 '                operator screen does.
-'   operator     _spec/cmd/proveo/operator-name.puml. Esc ends init without
-'                changing the name.
+'   operator     _spec/cmd/proveo/operator-name.puml. The Skip button ends
+'                init without changing the name; until 2026-11-11 Esc did.
 ' Esc on setup still errors "cancelled at the init prompt".
+' What each key means on a page: _spec/internal/choiceui/wizard-keys.puml.
 ' ADVERSARIAL REVIEW [HIGH], 2026-11-08: the first stepper carried every
 ' earlier answer, so each revisit re-ran `sbx login`, the wizard, `sbx policy
 ' init`, gh and git, and reinstalled under --force. A packaged install also
@@ -258,10 +262,10 @@ skinparam noteTextAlignment left
 ' revisit case). NO test pins `o.force = false` after the first apply: it is
 ' inline in doInit's setup closure.
 ' End to end, e2e/init_steps_test.go (build tag e2e) drives the real `proveo
-' init` on a tmux TTY against a logging stub sbx: page n/3 labels, shift+tab
-' only past page 1, a revisit opening on later/keep with `sbx login` and `sbx
-' setup` run once each, --yes never opening the credentials form, and a
-' 64-column footer keeping shift+tab back and enter accept
+' init` on a tmux TTY against a logging stub sbx: page n/3 labels, the way
+' back only past page 1, a revisit opening on later/keep with `sbx login` and
+' `sbx setup` run once each, --yes never opening the credentials form, and a
+' 64-column footer keeping the way back and enter accept
 ' (TestInitStepsBackWithoutRerunningSetup, TestInitYesNeverOpensTheCredentialsForm,
 ' TestInitNarrowFooterKeepsTheWayOut). MEASURED 2026-11-08: all four tests in
 ' the file pass 3/3 runs and all four fail against the pre-change binary
@@ -433,7 +437,7 @@ component "runInitSteps\nsetup 1/3 · credentials 2/3 · operator 3/3" as STEPS 
 CDN ARROW_MAIN INIT : post-install, through /dev/tty or ""--yes""
 INIT ARROW_QUEUE ASK : when there is someone to ask
 INIT ARROW_MAIN STEPS : the three screens, in order
-STEPS ARROW_OPTIONAL ASK : shift+tab — back one screen
+STEPS ARROW_OPTIONAL ASK : esc — back one screen
 OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · gh · git · baseline
 OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
 INIT ARROW_MAIN ASSET : download by exact tag

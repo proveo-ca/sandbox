@@ -957,6 +957,19 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/choiceui/wizard-keys.puml",
+      "covers": [
+        "internal/choiceui/quit_gate.go",
+        "internal/choiceui/choiceui.go",
+        "internal/choiceui/form_model_test.go",
+        "internal/choiceui/step_test.go",
+        "cmd/proveo/init.go",
+        "cmd/proveo/init_steps_test.go",
+        "e2e/init_steps_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/choiceui/tui-stack.puml",
       "covers": [
         "go.mod",

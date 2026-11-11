@@ -5,4 +5,4 @@ step
     a             (•) x   ( ) y
   › b             (•) x   ( ) y
 
-page 2/3 · shift+tab back · enter accept · esc cancel
+page 2/3 · ↑↓ row · ←→ choose · enter accept · esc back

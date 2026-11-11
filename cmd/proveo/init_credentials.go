@@ -415,13 +415,18 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 		Glyphs:   posture.GlyphModeFrom(os.Getenv),
 		NoAxis:   true,
 		Step:     at,
+		Skip:     "Skip",
 		StartRow: firstField(rows),
 		Rows:     rows,
 	}
 	out, err := form.RunStep()
-	if err != nil || out == choiceui.Cancelled {
+	switch {
+	case err != nil || out == choiceui.Cancelled || out == choiceui.Skipped:
 		clear(typed)
 		return stepNext, err
+	case out == choiceui.Quit:
+		clear(typed)
+		return stepQuit, nil
 	}
 	if out == choiceui.Back {
 		if typed != nil {

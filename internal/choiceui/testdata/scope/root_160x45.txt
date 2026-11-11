@@ -22,4 +22,4 @@ run claudecode — where the agent works                                        
 
 enter starts the agent at the repo root, with every folder below it
 
-page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel
+page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit

@@ -17,4 +17,4 @@ run claudecode — where the agent works                               scope · 
 
 enter starts the agent in services/billing
 
-page 1/2 · ↑↓ row · type to narrow · enter choose · esc clear
+page 1/2 · ↑↓ row · type to narrow · enter choose · esc clear · ctrl+c quit

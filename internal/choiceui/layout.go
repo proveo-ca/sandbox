@@ -81,6 +81,9 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 	if help > 0 {
 		need++ // the blank the help block opens with
 	}
+	if f.Skip != "" {
+		need += skipRows
+	}
 
 	afford := func(cost int) bool {
 		if need+cost > h {

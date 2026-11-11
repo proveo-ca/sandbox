@@ -178,6 +178,7 @@ const (
 	stepNext stepResult = iota
 	stepBack
 	stepNone // the screen had nothing to ask
+	stepQuit // the operator left the wizard: no later screen runs
 )
 
 // initStep is one screen of `proveo init`.
@@ -196,6 +197,9 @@ func runInitSteps(prompted bool, steps []initStep) error {
 		r, err := steps[i](at)
 		if err != nil {
 			return err
+		}
+		if r == stepQuit {
+			return fmt.Errorf("quit at page %d/%d — what earlier pages did stays done", i+1, len(steps))
 		}
 		if (r == stepBack || (r == stepNone && back)) && prompted && i > 0 {
 			i, back = i-1, true

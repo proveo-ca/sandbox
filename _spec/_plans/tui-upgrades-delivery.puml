@@ -290,6 +290,27 @@ skinparam noteTextAlignment left
 '     NOT RUN: proveo-dev's multi-select on a terminal; a hand trial.
 '     Reasoning: _spec/internal/choiceui/scope-tree.puml,
 '     _spec/internal/run/run-spec.puml (THE SCOPE IS PAGE 1).
+' W11 DONE 2026-11-11, W-i in one commit.
+'     On a wizard's page Esc steps back and closes from page 1; Ctrl+C and q
+'     ask first; Skip is a button under the rows of init's pages 2 and 3.
+'     DECIDED HERE, FOR THE EXECUTOR TO JUDGE:
+'       a lone form keeps its keys: Esc and Ctrl+C cancel at once. That
+'       covers the two GitHub-access forms inside setup, so they were not
+'       edited.
+'       a confirmed quit exits 1 and names the page. Ctrl+C on init's later
+'       pages used to end 0, as a skip.
+'       Ctrl+C a second time, inside the question, quits.
+'       shift+tab still steps back; the key line no longer names it.
+'     THE COUNTED TEST CHANGES LANDED THROUGH THE HELPERS W0 ADDED: the back
+'     key and its hint in one place, Escape-as-skip and Escape-as-finish as
+'     one key list. No init test body changed.
+'     The golden frames changed in 14 files, on the key line only.
+'     RAN: lint 0; the 16-row baseline; both builds; seven init tests, two
+'     dialog pins and the list test on macOS and, twice each, on
+'     linux/arm64; the two scope tests and the redirected-form test on
+'     macOS.
+'     NOT RUN: a hand trial.
+'     Reasoning: _spec/internal/choiceui/wizard-keys.puml.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

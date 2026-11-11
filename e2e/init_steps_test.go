@@ -127,12 +127,13 @@ func (r *initRun) keys(t *testing.T, keys ...string) {
 
 // init's numbered pages, and the keys and hint that move between them.
 const (
-	initPages     = 3
-	initBackKey   = "BTab"
-	initBackHint  = "shift+tab back"
-	initSkipKey   = "Escape"
-	initFinishKey = "Escape"
+	initPages    = 3
+	initBackKey  = "Escape"
+	initBackHint = "esc back"
 )
+
+// initSkipKeys focus the Skip button under a page's rows and press it.
+var initSkipKeys = []string{"End", "Down", "Enter"}
 
 func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n, initPages) }
 
@@ -151,13 +152,13 @@ func (r *initRun) back(t *testing.T) {
 // skip leaves the credentials page without provisioning.
 func (r *initRun) skip(t *testing.T) {
 	t.Helper()
-	r.keys(t, initSkipKey)
+	r.keys(t, initSkipKeys...)
 }
 
 // finish ends init from the operator page.
 func (r *initRun) finish(t *testing.T) {
 	t.Helper()
-	r.keys(t, initFinishKey)
+	r.keys(t, initSkipKeys...)
 }
 
 func (r *initRun) calls(t *testing.T) []string {
@@ -343,4 +344,35 @@ func TestInitNarrowFooterKeepsTheWayOut(t *testing.T) {
 	r.page(t, 3)
 	r.finish(t)
 	r.waitExit(t)
+}
+
+// Ctrl+C on a page asks before it leaves; Skip is a button the cursor reaches, not a key.
+func TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton(t *testing.T) {
+	r := startInit(t, 140, "--skip-gh", "--skip-git")
+	r.page(t, 1)
+	r.keys(t, "Enter")
+	screen := r.page(t, 2)
+	for _, want := range []string{"[ Skip ]", "ctrl+c quit", initBackHint, "enter accept"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("the credentials page lacks %q:\n%s", want, screen)
+		}
+	}
+	r.keys(t, "C-c")
+	screen = r.wait(t, "leave the wizard?")
+	if strings.Contains(screen, "INIT_EXIT=") {
+		t.Fatalf("one Ctrl+C ended init:\n%s", screen)
+	}
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.keys(t, "End", "Down")
+	r.wait(t, "enter skip")
+	r.keys(t, "Enter")
+	r.page(t, 3)
+	r.keys(t, "C-c")
+	r.wait(t, "leave the wizard?")
+	r.keys(t, "C-c")
+	screen = r.wait(t, "INIT_EXIT=")
+	if !strings.Contains(screen, "quit at page 3/3") || !strings.Contains(screen, "INIT_EXIT=1") {
+		t.Errorf("a confirmed quit must say where init stopped and exit 1:\n%s", screen)
+	}
 }

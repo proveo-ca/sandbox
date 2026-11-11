@@ -43,6 +43,7 @@ type scopeModel struct {
 	page *ScopePage
 	w, h int
 	out  Outcome
+	quit quitGate
 }
 
 func (m scopeModel) Init() tea.Cmd { return nil }
@@ -51,12 +52,27 @@ func (m scopeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		if m.quit.up() {
+			m.quit, _ = m.quit.Update(msg)
+		}
 	case tea.KeyPressMsg:
+		if m.quit.up() {
+			var leave bool
+			if m.quit, leave = m.quit.Update(msg); leave {
+				m.out = Quit
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		p := press{key: msg.String()}
 		if msg.Text != "" {
 			p = press{text: msg.Text}
 		}
-		if out, done := m.page.key(p, m.h); done {
+		out, done := m.page.key(p, m.h)
+		switch {
+		case done && out == Quit && !m.page.layout(m.h).tooSmall:
+			m.quit = m.quit.open(m.w, m.h)
+		case done:
 			m.out = out
 			return m, tea.Quit
 		}
@@ -65,6 +81,9 @@ func (m scopeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m scopeModel) View() tea.View {
+	if m.quit.up() {
+		return m.quit.view()
+	}
 	v := tea.NewView(m.page.frame(m.w, m.h))
 	v.AltScreen = true
 	return v
@@ -82,6 +101,9 @@ func (sp *ScopePage) key(p press, h int) (Outcome, bool) {
 	t := sp.Tree
 	switch p.key {
 	case "ctrl+c":
+		if sp.Step.wizard() {
+			return Quit, true
+		}
 		return Cancelled, true
 	case "enter":
 		return Accepted, true
@@ -199,6 +221,9 @@ func (sp *ScopePage) hintParts(w, hidden int) []hintPart {
 	} else {
 		parts = append(parts, hintPart{"←→", "fold", 2}, hintPart{"/", "filter", 1},
 			hintPart{"enter", "choose", 9}, hintPart{"esc", "cancel", 5})
+	}
+	if sp.Step.wizard() {
+		parts = append(parts, hintPart{"ctrl+c", "quit", 2})
 	}
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
