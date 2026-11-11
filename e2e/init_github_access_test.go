@@ -24,7 +24,7 @@ esac
 `,
 		"ssh-add": "#!/bin/sh\necho '256 SHA256:test-key test (ED25519)'\n",
 	}, "--skip-login", "--skip-setup", "--skip-git")
-	r.wait(t, "page 1/3")
+	r.page(t, 1)
 	r.keys(t, "Enter")
 	screen := r.wait(t, "GitHub access — API login and sandbox Git")
 	for _, text := range []string{"SSH agent", "HTTPS token", "SHA256:test-key", "verification pending"} {
@@ -33,7 +33,7 @@ esac
 		}
 	}
 	r.keys(t, "Enter")
-	r.wait(t, "page 2/3")
+	r.page(t, 2)
 	var saved string
 	_ = filepath.WalkDir(r.home, func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && d.Name() == "github.json" {
@@ -53,9 +53,9 @@ esac
 			t.Fatalf("ready host unexpectedly mutated: %s", call)
 		}
 	}
-	r.keys(t, "Escape")
-	r.wait(t, "page 3/3")
-	r.keys(t, "Escape")
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
 	r.waitExit(t)
 }
 

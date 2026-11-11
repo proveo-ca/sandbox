@@ -125,6 +125,41 @@ func (r *initRun) keys(t *testing.T, keys ...string) {
 	}
 }
 
+// init's numbered pages, and the keys and hint that move between them.
+const (
+	initPages     = 3
+	initBackKey   = "BTab"
+	initBackHint  = "shift+tab back"
+	initSkipKey   = "Escape"
+	initFinishKey = "Escape"
+)
+
+func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n, initPages) }
+
+// page waits for numbered page n and returns its screen.
+func (r *initRun) page(t *testing.T, n int) string {
+	t.Helper()
+	return r.wait(t, initPageLabel(n))
+}
+
+// back steps to the previous page.
+func (r *initRun) back(t *testing.T) {
+	t.Helper()
+	r.keys(t, initBackKey)
+}
+
+// skip leaves the credentials page without provisioning.
+func (r *initRun) skip(t *testing.T) {
+	t.Helper()
+	r.keys(t, initSkipKey)
+}
+
+// finish ends init from the operator page.
+func (r *initRun) finish(t *testing.T) {
+	t.Helper()
+	r.keys(t, initFinishKey)
+}
+
 func (r *initRun) calls(t *testing.T) []string {
 	t.Helper()
 	b, _ := os.ReadFile(r.log)
@@ -158,16 +193,16 @@ func (r *initRun) waitExit(t *testing.T) string {
 // Three numbered screens; a step back keeps typed keys and never re-runs what setup already ran.
 func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
-	screen := r.wait(t, "page 1/3")
+	screen := r.page(t, 1)
 	if !regexp.MustCompile(`sign in\s+\(•\) now`).MatchString(screen) {
 		t.Fatalf("setup does not open with sign in on now:\n%s", screen)
 	}
-	if strings.Contains(screen, "shift+tab back") {
+	if strings.Contains(screen, initBackHint) {
 		t.Errorf("page 1 offers a step back it cannot take:\n%s", screen)
 	}
 	r.keys(t, "Enter")
-	screen = r.wait(t, "page 2/3")
-	for _, want := range []string{"shift+tab back", "enter accept", "pgup/pgdn scroll", "a sign-in per subscription"} {
+	screen = r.page(t, 2)
+	for _, want := range []string{initBackHint, "enter accept", "pgup/pgdn scroll", "a sign-in per subscription"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("credentials screen lacks %q:\n%s", want, screen)
 		}
@@ -177,15 +212,15 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	}
 
 	r.keys(t, "s", "k", "-", "t", "y", "p", "e", "d")
-	r.keys(t, "BTab")
-	screen = r.wait(t, "page 1/3")
+	r.back(t)
+	screen = r.page(t, 1)
 	for _, re := range []string{`sign in\s+\( \) now\s+\(•\) later`, `sbx setup\s+\( \) now\s+\(•\) later`, `\(•\) keep what`} {
 		if !regexp.MustCompile(re).MatchString(screen) {
 			t.Errorf("the revisit does not open on what is left (%s):\n%s", re, screen)
 		}
 	}
 	r.keys(t, "Enter")
-	screen = r.wait(t, "page 2/3")
+	screen = r.page(t, 2)
 	if !regexp.MustCompile(`› opencode\s+✓ \[•{8}\s`).MatchString(screen) {
 		t.Errorf("the typed key did not survive the step back:\n%s", screen)
 	}
@@ -196,11 +231,11 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	}
 
 	r.keys(t, "C-u", "Enter")
-	r.wait(t, "page 3/3")
-	r.keys(t, "BTab")
-	r.wait(t, "page 2/3")
+	r.page(t, 3)
+	r.back(t)
+	r.page(t, 2)
 	r.keys(t, "Enter")
-	r.wait(t, "page 3/3")
+	r.page(t, 3)
 	if err := r.sess.SendText("Ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -220,15 +255,15 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 // A sign-in row runs sbx's own flow after enter, and sign out leaves the confirmation to sbx.
 func TestInitSignInRowsRunSbxsOwnFlows(t *testing.T) {
 	r := startInit(t, 140, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
-	r.wait(t, "page 1/3")
+	r.page(t, 1)
 	r.keys(t, "Enter")
-	r.wait(t, "page 2/3")
+	r.page(t, 2)
 	r.keys(t, "Up", "Up", "Right", "Right", "Up", "Right")
 	r.waitMatch(t, `claudecode\s+\( \) not signe…\s+\(•\) sign in`, `codex\s+\( \) signed in\s+\( \) sign in a…\s+\(•\) sign out`)
 	r.keys(t, "Enter")
 	r.wait(t, "[y/N]")
 	r.keys(t, "y", "Enter")
-	r.wait(t, "page 3/3")
+	r.page(t, 3)
 
 	calls := r.calls(t)
 	run, rm, out := -1, -1, -1
@@ -254,12 +289,12 @@ func TestInitSignInRowsRunSbxsOwnFlows(t *testing.T) {
 	if left, _ := filepath.Glob(filepath.Join(r.tmp, sbx.SignInSandbox+"-*")); len(left) > 0 {
 		t.Errorf("the sign-in workspace was left behind: %v", left)
 	}
-	r.keys(t, "BTab")
-	r.wait(t, "page 2/3")
+	r.back(t)
+	r.page(t, 2)
 	r.waitMatch(t, `claudecode\s+\(•\) signed in`, `codex\s+\(•\) not signe`)
-	r.keys(t, "Escape")
-	r.wait(t, "page 3/3")
-	r.keys(t, "Escape")
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
 	r.waitExit(t)
 }
 
@@ -287,16 +322,16 @@ func TestInitYesNeverOpensTheCredentialsForm(t *testing.T) {
 // On a narrow terminal the key line drops the scroll keys first; the way out stays.
 func TestInitNarrowFooterKeepsTheWayOut(t *testing.T) {
 	r := startInit(t, 64, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
-	r.wait(t, "page 1/3")
+	r.page(t, 1)
 	r.keys(t, "Enter")
-	screen := r.wait(t, "page 2/3")
+	screen := r.page(t, 2)
 	var footer string
 	for _, l := range strings.Split(screen, "\n") {
-		if strings.Contains(l, "page 2/3") {
+		if strings.Contains(l, initPageLabel(2)) {
 			footer = l
 		}
 	}
-	for _, want := range []string{"shift+tab back", "enter accept"} {
+	for _, want := range []string{initBackHint, "enter accept"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("64 columns lost %q: %q", want, footer)
 		}
@@ -304,8 +339,8 @@ func TestInitNarrowFooterKeepsTheWayOut(t *testing.T) {
 	if strings.Contains(footer, "pgup/pgdn") {
 		t.Errorf("64 columns kept the scroll keys over the way out: %q", footer)
 	}
-	r.keys(t, "Escape")
-	r.wait(t, "page 3/3")
-	r.keys(t, "Escape")
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
 	r.waitExit(t)
 }
