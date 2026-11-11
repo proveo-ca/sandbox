@@ -61,12 +61,11 @@ skinparam noteTextAlignment left
 ' non-zero on this host at main, so its three parts run as separate lines:
 '   1  mise run lint
 '   2  go build ./...
-'   3  go test -race -count=1 -json ./... | jq -R -r 'fromjson? |
-'      select(.Action=="fail" and .Test!=null and (.Test|contains("/")|not))
-'      | "\(.Package|sub("^github.com/proveo-ca/proveo/";"")) \(.Test)"' |
-'      sort | comm -23 - <the baseline list G0 commits>   # prints nothing:
-'      a line here is a NEW failing test. MEASURED on a sample: the program
-'      prints `internal/envreg TestVarsSortByScopeThenName`, the list's shape.
+'   3  mise run baseline        # one `go test -race -count=1 -json ./...`;
+'      exits 1 on a failing test outside cmd/proveo-dev/unit-baseline.txt, or
+'      on a package that fails with no failing test of its own (G0, landed
+'      2026-11-10 as a proveo-dev command instead of a jq line:
+'      _spec/_devops/unit-baseline.puml)
 '   4  go vet -tags=e2e ./e2e/                           # until G2 lands
 '   5  GOOS=windows GOARCH=amd64 go build ./...          # until G3 lands
 '   6  plantuml -checkonly <every .puml the wave edits>
@@ -91,6 +90,16 @@ skinparam noteTextAlignment left
 ' binary, so the pin needs tmux alone.
 ' THE WAY BACK for an operator whose terminal misdraws a ported surface: the
 ' existing PROVEO_WIZARD=off path, which every page keeps (the headless rule).
+'
+' ── PROGRESS ───────────────────────────────────────────────────────────────
+' W0  DONE 2026-11-10, eight slices in four commits on feat-tui-upgrades.
+'     G1 0e76988c · G0, G2, G3 cc03fc71 · W-b eda7352c · T2, T1 in the next.
+'     The oracle run before any change: all seven tmux pins passed at
+'     0f34a714. After W-b the six TestInit pins passed again, no skip.
+'     T2 logs `step:` rows, not `teardown:` rows: PreserveClone also serves
+'     the retire path at run start. T1 moved the removal into removeSandbox.
+'     Reasoning: _spec/internal/backend/teardown.puml.
+'     NOT RUN in W0: the Linux leg (it starts with W1), and any real-sbx e2e.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

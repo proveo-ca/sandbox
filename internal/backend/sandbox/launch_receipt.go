@@ -235,7 +235,7 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 			return fmt.Errorf("OpenCode history could not be carried out of %s (%v) — it is kept; `sbx rm --force %s` deletes it with its history", cfg.Name, err, cfg.Name)
 		}
 	}
-	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
+	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), guestRun); err != nil {
 		ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
 	}
 	return removeRetired(cfg, report)

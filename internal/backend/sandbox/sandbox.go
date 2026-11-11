@@ -178,13 +178,15 @@ func TeardownClone(in Input, cfg sbx.RunConfig) error {
 	}
 	if in.Clone && in.CloneKnown {
 		wd := agentWorkdir(in, cfg.Mounts)
-		writeBackCloneEnv(in, func() ([]byte, error) {
-			if wd == "" || !sbx.Exists(cfg.Name) {
-				return nil, errors.New("no sandbox to read from")
-			}
-			cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...)
-			out, err := cmd.Output()
-			return out, finish(err)
+		stepDo(stepCloneEnv, func() {
+			writeBackCloneEnv(in, func() ([]byte, error) {
+				if wd == "" || !sbx.Exists(cfg.Name) {
+					return nil, errors.New("no sandbox to read from")
+				}
+				cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...)
+				out, err := cmd.Output()
+				return out, finish(err)
+			})
 		})
 	}
 	return PreserveClone(in, cfg)
@@ -207,24 +209,33 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	var stranded error
 	wd := agentWorkdir(in, cfg.Mounts)
 	if wd != "" {
-		if out, err := guestRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
+		var out string
+		if err := step(stepCloneSnapshot, func() (err error) {
+			out, err = guestRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...)
+			return err
+		}); err != nil {
 			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
 			stranded = fmt.Errorf("uncommitted work is still only in %s", cfg.Name)
 		}
 	}
-	liftClonedOutput(in, cfg, liftViaSbx)
-	carried, err := carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx)
-	if err != nil {
+	stepDo(stepCloneOutput, func() { liftClonedOutput(in, cfg, liftViaSbx) })
+	var carried bool
+	if err := step(stepCloneCarry, func() (err error) {
+		carried, err = carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx)
+		return err
+	}); err != nil {
 		return err
 	}
 	if !carried {
 		return stranded
 	}
 	reportCloneRefs(in, cfg)
-	liftClonedSpec(in, wd, cloneSpanViaSbx(cfg.Name, wd), func(sha string) {
-		if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
-			_, _ = guestRun(args...)
-		}
+	stepDo(stepCloneSpec, func() {
+		liftClonedSpec(in, wd, cloneSpanViaSbx(cfg.Name, wd), func(sha string) {
+			if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
+				_, _ = guestRun(args...)
+			}
+		})
 	})
 	return stranded
 }
@@ -1676,6 +1687,7 @@ func Run(in Input) error {
 	terminal := ptyproxy.Usable(os.Stdin, os.Stdout)
 	filtered := terminal && agentio.FilterEnabled()
 	var forceRemove atomic.Bool
+	var removeAsked atomic.Int64
 	runCtx, stopSignals, cancelRun, signalled := forwardStop()
 	defer stopSignals()
 	run := func() error {
@@ -1711,6 +1723,7 @@ func Run(in Input) error {
 					}
 				}, func() {
 					forceRemove.Store(true)
+					removeAsked.Store(time.Now().UnixNano())
 					cancelRun()
 				})
 			}
@@ -1725,18 +1738,26 @@ func Run(in Input) error {
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
+	recordStep(stepAgent, endedAt.Sub(startedAt), nil)
+	if at := removeAsked.Load(); at != 0 {
+		recordStep(stepStopWait, endedAt.Sub(time.Unix(0, at)), nil)
+	}
 	runErr, result := stopOutcome(runErr, signalled(), forceRemove.Load())
 	if _, ok := result.(backend.Stopped); ok {
 		ui.Hostf("%v — ending as on a normal exit", result)
 	}
 	defer func() {
-		reportCredentialInUse(in.Target, cfg.Name)
-		if clones, err := sandboxClone(in, cfg.Name); err == nil {
-			in.Clone, in.CloneKnown = clones, true
-		}
-		reportPushedBranches(in, cfg, startedAt)
-		CapturePolicyLog(in.RunDir, cfg.Name)
-		CaptureMemoryEvidence(in.RunDir, cfg.Name)
+		stepDo(stepCredential, func() { reportCredentialInUse(in.Target, cfg.Name) })
+		_ = step(stepCloneMode, func() error {
+			clones, err := sandboxClone(in, cfg.Name)
+			if err == nil {
+				in.Clone, in.CloneKnown = clones, true
+			}
+			return err
+		})
+		stepDo(stepPushed, func() { reportPushedBranches(in, cfg, startedAt) })
+		stepDo(stepEgress, func() { CapturePolicyLog(in.RunDir, cfg.Name) })
+		stepDo(stepMemory, func() { CaptureMemoryEvidence(in.RunDir, cfg.Name) })
 		if runErr != nil && !forceRemove.Load() {
 			said := false
 			if lines := tail.Lines(); len(lines) > 0 {
@@ -1748,9 +1769,12 @@ func Run(in Input) error {
 				}
 			}
 			restarted := !sbx.Running(cfg.Name)
-			_ = TeardownClone(in, cfg)
-			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
-			if err := homeAccess.Commit(); err != nil {
+			_ = step(stepClone, func() error { return TeardownClone(in, cfg) })
+			_ = step(stepState, func() error {
+				_, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), guestRun)
+				return err
+			})
+			if err := step(stepHome, homeAccess.Commit); err != nil {
 				ui.Warnf("home-root config not preserved: %v", err)
 			}
 			if t := credentials.AgentTranscript(in.Target, in.HomeRoot, startedAt, endedAt); t != "" {
@@ -1781,11 +1805,15 @@ func Run(in Input) error {
 			}
 			return
 		}
-		stranded := TeardownClone(in, cfg)
-		if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
-			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
+		stranded := step(stepClone, func() error { return TeardownClone(in, cfg) })
+		var saved string
+		if err := step(stepState, func() (err error) {
+			saved, err = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), guestRun)
+			return err
+		}); err != nil {
+			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(saved))
 		}
-		if err := homeAccess.Commit(); err != nil {
+		if err := step(stepHome, homeAccess.Commit); err != nil {
 			ui.Warnf("home-root config not preserved: %v", err)
 		}
 		switch normalEndOf(forceRemove.Load(), stranded, opencodeTarget(in.Target)) {
@@ -1806,10 +1834,8 @@ func Run(in Input) error {
 		if forceRemove.Load() {
 			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
 		}
-		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
-		if rmErr != nil && !sbx.NotFound(string(rmOut)) {
+		if step(stepRemove, func() error { return removeSandbox(cfg.Name) }) != nil {
 			keepHomeAccess = sbx.Exists(cfg.Name)
-			ui.Warnf("sandbox teardown failed (%v): %s", rmErr, strings.TrimSpace(string(rmOut)))
 			if keepHomeAccess {
 				PrintIDEAttach(in, cfg, false)
 			}
@@ -1820,6 +1846,19 @@ func Run(in Input) error {
 		return backend.ExitError{Code: sbx.RunExitCode(ee.ExitCode(), tail.Lines())}
 	}
 	return result
+}
+
+// removeSandbox runs `sbx rm --force` under guestExecDeadline and reports a failed removal.
+func removeSandbox(name string) error {
+	out, err := guestRun(sbx.RemoveArgs(name)...)
+	if err == nil || sbx.NotFound(out) {
+		return nil
+	}
+	ui.Warnf("sandbox teardown failed (%v): %s", err, strings.TrimSpace(out))
+	if errors.Is(err, context.DeadlineExceeded) {
+		ui.Notef("check `%s ls`, then `%s %s` once sbx answers", sbx.Binary, sbx.Binary, strings.Join(sbx.RemoveArgs(name), " "))
+	}
+	return err
 }
 
 // stopWait bounds how long the sbx client may take to exit once proveo forwards a stop.

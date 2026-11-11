@@ -133,8 +133,9 @@ func gitReflog(dir string) (string, error) {
 }
 
 func sandboxReflog(name, workdir string) (string, error) {
-	out, err := exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "git", "-C", workdir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs").Output()
-	return string(out), err
+	cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, "exec", "-w", "/", name, "--", "git", "-C", workdir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs")
+	out, err := cmd.Output()
+	return string(out), finish(err)
 }
 
 func offerPushedFetch(in Input) bool {
@@ -177,8 +178,9 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 		return
 	}
 	for _, args := range pushedFetchArgs(in.RepoRoot, branches) {
-		out, err := exec.Command("git", args...).CombinedOutput()
-		if err != nil {
+		cmd, finish := guestCommand(guestExecDeadline, "git", args...)
+		out, err := cmd.CombinedOutput()
+		if err = finish(err); err != nil {
 			ui.Warnf("fetch failed (%v): %s", err, strings.TrimSpace(string(out)))
 			continue
 		}

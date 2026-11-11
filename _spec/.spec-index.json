@@ -831,6 +831,17 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/backend/teardown.puml",
+      "covers": [
+        "internal/backend/sandbox/teardown_steps.go",
+        "internal/backend/sandbox/teardown_steps_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/pushed.go",
+        "internal/backend/sandbox/launch_receipt.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/cdn/distribution-update.puml",
       "covers": [
         "internal/cdn/**",

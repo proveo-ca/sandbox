@@ -132,6 +132,11 @@ skinparam noteTextAlignment left
 '     guestRun (3m); a timeout keeps this run stopped and names `sbx ls` and the
 '     rm to repeat once sbx answers.
 '     Pinned by TestAGuestThatNeverAnswersKeepsTheSandboxInsteadOfHangingTheRun.
+'     CLOSED 2026-11-10 (tui-upgrades-delivery.puml, T1): SaveState and
+'     teardown's `sbx rm` run through guestRun (3m), as do the reflog read and
+'     the pushed-branch fetch. A removal that times out prints the warning and
+'     `sbx ls`, then `sbx rm --force <name>`. _spec/internal/backend/teardown.puml.
+'     Pinned by TestTeardownDeadlineEndsEveryGuestCallThatNeverAnswers.
 '   * HISTORY: a stop during the retry's prepareOpenCodeLaunch was honoured
 '     only after it returned (its prepare and recover steps allowed up to
 '     15 min each). D2 (DONE (wt)) replaced it with ensureOpenCodeEngine's

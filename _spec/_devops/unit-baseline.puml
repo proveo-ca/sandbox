@@ -45,6 +45,11 @@ title The unit baseline — green means no new failing test
 ' A RED TEST GUARDS NOTHING. TestVarsSortByScopeThenName covers envreg.go.
 ' A slice that edits that file fixes line 153 first and drops the row.
 ' Extra arguments replace `./...`, so one package can be checked alone.
+' THE GATE DOES NOT RETRY. MEASURED 2026-11-10: in one of three full runs
+' TestAdbMirrorStartsWithTheSocketAddress (a shell-timing contract test) failed
+' outside the list; alone it passed 6 of 6, at that tree and at the commit
+' before it. A failure outside the list is rerun alone by hand. A retry inside
+' the gate would also hide a test that fails only in the full run's order.
 '
 ' Pinned by cmd/proveo-dev/baseline_test.go:
 '   TestFailedTestsKeepsTopLevelFailuresAndTestlessPackages

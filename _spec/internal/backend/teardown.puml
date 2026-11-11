@@ -1,0 +1,127 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Teardown — what runs after the agent exits, how long each step may take, and what the run log keeps
+' purpose: the steps proveo runs once the agent has exited, the ceiling on each, and the record each leaves in the run log
+' covers: internal/backend/sandbox/teardown_steps.go
+' covers: internal/backend/sandbox/teardown_steps_test.go
+' covers: internal/backend/sandbox/sandbox.go (Run's deferred teardown, TeardownClone, PreserveClone, removeSandbox)
+' covers: internal/backend/sandbox/pushed.go (sandboxReflog, reportPushedBranches)
+' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox's SaveState)
+'   why this was needed ............. _spec/_plans/tui-responsiveness.puml (C2, C3)
+'   the order it is delivered in .... _spec/_plans/tui-upgrades-delivery.puml
+'   the earlier deadlines ........... _spec/internal/sbx/kit-lifecycle.puml (A HUNG TEARDOWN)
+'   how a run's status is chosen .... _spec/internal/backend/exit-code.puml
+'   what the clone carry does ....... _spec/internal/sbx/clone-workspace.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' This file grows as the delivery plan's teardown slices land. Landed so far:
+' T2 (step timing) and T1 (deadlines), both 2026-11-10.
+'
+' ── EVERY STEP LEAVES ONE LINE IN THE RUN LOG (T2) ─────────────────────────
+' Before this, the run log stamped section headers only. A finished run could
+' not say how long any teardown step took, so "typical" silence was unknown
+' and only the ceilings were (tui-responsiveness.puml, C2).
+' `step(name, fn)` runs fn and records its name, duration and outcome.
+' `stepDo` is the same for a call that returns no error. The record goes to
+' the run log through ui.Logf, as
+'   step: <name> <duration> ok
+'   step: <name> <duration> failed: <first line of the error>
+' NOTHING REACHES THE TERMINAL. ui.Logf writes to the log's own printer and
+' is a no-op when no log is open, so a run whose log failed to open records
+' nothing; it does not fail.
+' THE NAMES ARE CONSTANTS in teardown_steps.go, because the step list that
+' later draws them (delivery plan, T6) reads the same names.
+'   agent              the agent's own run, start to exit
+'   stop wait          from the Ctrl+C dialog's remove answer to the sbx
+'                      client exiting (bounded by stopWait, 30s)
+'   credential check · clone mode · pushed branches · egress record ·
+'   memory evidence    the five calls that open teardown
+'   clone              the whole carry; its parts are logged under it:
+'     clone/.env · clone/snapshot · clone/output · clone/branches · clone/spec
+'   resume state · home config · remove sandbox
+' A PARENT AND ITS PARTS ARE BOTH LOGGED. `clone` is the total; the parts add
+' up to less than it, because the probes between them (`sbx ls`, the clone-mode
+' probe inside PreserveClone) belong to the parent. A clone run starts up to 31
+' subprocesses; one row per subprocess would bury the steps an operator names.
+' PreserveClone also serves the retire path at run START, so a retired
+' sandbox's carry logs the same `clone/…` rows there. That is why the prefix
+' is `step:` and not `teardown:`.
+' THE SINK IS AN ATOMIC POINTER. Tests swap it to read the steps; one test in
+' the package runs in parallel and reaches carryClone.
+'
+' ── FOUR CALLS HAD NO DEADLINE; NOW EACH HAS ONE (T1) ──────────────────────
+' kit-lifecycle.puml bounded the carry path on 2026-10-22 and left SaveState
+' and teardown's `sbx rm` STILL OPEN. Two more were found unbounded on
+' 2026-11-10: sandboxReflog and the pushed-branch `git fetch`.
+' THE REFLOG READ RAN BEFORE THE CARRY. sbx.Exists answers true when `sbx ls`
+' fails, so on a wedged daemon a clone run waited 10s for `sbx ls` and then
+' started `sbx exec … git log -g` with no deadline. Teardown stopped there,
+' printed nothing, and no work had reached home.
+' All four now run through guestCommand / guestRun under guestExecDeadline
+' (3m, the ceiling the Executor chose on 2026-10-22: "36s probe 3m others").
+'   sandboxReflog           a timeout reads as "no reflog": no pushed-branch
+'                           lines and no question
+'   the pushed `git fetch`  a timeout prints `fetch failed` with the deadline
+'   SaveState               teardown and retire pass guestRun; a timeout
+'                           prints "resume state not preserved"
+'   `sbx rm --force`        removeSandbox; a timeout prints the warning and a
+'                           rescue line: check `sbx ls`, then `sbx rm --force
+'                           <name>` once sbx answers
+' NEVER AN AUTOMATIC SHIM KILL: killing the shim made the daemon respawn it and
+' stall again (kit-lifecycle.puml).
+' A REMOVAL THAT TIMES OUT MAY BE HALF-DONE. The rescue line says to look
+' first, because the sandbox's state is unknown at that point.
+' [Unverified] Whether 3m is generous or tight for a healthy `sbx rm` or state
+' save. No finished run had per-step times before T2; the first logs with
+' `step:` rows answer it.
+' Nine host-local git and tar calls still have no deadline. They get one when
+' teardown becomes named steps with a context (delivery plan, T3).
+'
+' Pinned by internal/backend/sandbox/teardown_steps_test.go:
+'   TestAStepIsRecordedOnceWithItsNameDurationAndOutcome
+'   TestAnUnsunkStepReachesNeitherTheTerminalNorAnUnopenedLog
+'   TestTeardownCloneRecordsItsSubStepsInOrder
+'   TestTeardownDeadlineEndsEveryGuestCallThatNeverAnswers
+'   TestAHungReflogAsksNoPushedBranchQuestion
+
+component "the agent exits" as EXIT <<app>>
+component """step(name, fn)""\nname · duration · outcome" as STEP <<app>>
+database "the run log\n""step: clone/snapshot 1.2s ok""" as LOG <<db>>
+component "four guest or network calls\nunder ""guestExecDeadline"" (3m)" as BOUND <<app>>
+component "**a wedged sbx daemon**\nhung teardown before the carry" as HANG <<error>>
+component "the rescue line\n""sbx ls"", then ""sbx rm --force""" as RESCUE <<host>>
+
+EXIT ARROW_MAIN STEP
+STEP ARROW_MAIN LOG : one row per step
+STEP ARROW_MAIN BOUND
+HANG ARROW_ERROR BOUND : what the deadline ends
+BOUND ARROW_OPTIONAL RESCUE : a removal that timed out
+
+note bottom of LOG
+  **The log, never the terminal.** A step row is
+  for the next person reading a slow run. The
+  operator's screen gets a step list later,
+  drawn from the same names.
+end note
+
+note bottom of STEP
+  **A parent and its parts.** ""clone"" is the
+  whole carry; ""clone/snapshot"" is one part.
+  Probes between parts count toward the
+  parent, so the rows stay few.
+end note
+
+note bottom of HANG
+  **It ran first, and unbounded.** The reflog
+  read sits before the carry. With no deadline
+  a wedged daemon stopped teardown silently,
+  with the agent's work still in the sandbox.
+end note
+
+note bottom of RESCUE
+  **Look before removing again.** A removal
+  that hit its deadline may be half-done. The
+  line names ""sbx ls"" first; proveo never
+  kills the shim itself.
+end note
+@enduml
