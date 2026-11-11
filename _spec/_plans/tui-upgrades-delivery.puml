@@ -100,6 +100,22 @@ skinparam noteTextAlignment left
 '     the retire path at run start. T1 moved the removal into removeSandbox.
 '     Reasoning: _spec/internal/backend/teardown.puml.
 '     NOT RUN in W0: the Linux leg (it starts with W1), and any real-sbx e2e.
+' W1  DONE 2026-11-10, P1a + P1b + P1c in one commit.
+'     Both pins are red at the commit before it (5f1d9236) and green after:
+'     the pty pin lost keys in round 0; the live pin answered "still open".
+'     THE FIRST LINUX LEG ran in a container from the local
+'     proveo/claudecode-browser image (linux/arm64, go1.26.5, tmux, python3;
+'     no C compiler, so no race detector): three unit suites passed and the
+'     live post-exit pin passed 3 of 3. It found one thing: the existing
+'     live Ctrl+C test fails about one run in eight on Linux, before and
+'     after this wave. _spec/internal/ptyproxy/pty-ownership.puml records it;
+'     W4 replaces the path it exercises.
+'     The new live test's first Linux run failed on its own read race (the
+'     helper's result file read between create and write); the helper now
+'     writes a temp file and renames it.
+'     NOT DONE: the hand trial in a host tab and `mise run build-cli`. That
+'     install replaces the proveo on PATH, which a live scheduled run on this
+'     host would pick up; it waits for the Executor.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

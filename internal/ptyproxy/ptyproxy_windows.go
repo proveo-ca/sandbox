@@ -49,5 +49,8 @@ func (p *Proxy) OverlayScreen(in io.Reader) (tcell.Screen, error) {
 	return nil, fmt.Errorf("ptyproxy: OverlayScreen not supported on windows")
 }
 
+// DiscardInput is a no-op on Windows.
+func DiscardInput(*os.File) {}
+
 // HandleCtrlC is a no-op on Windows, which has no PTY overlay.
 func (p *Proxy) HandleCtrlC(func(io.Reader, io.Writer) CtrlCAction, func()) {}

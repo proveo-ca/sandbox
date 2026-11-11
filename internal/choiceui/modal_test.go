@@ -2,6 +2,7 @@
 package choiceui
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -112,4 +113,30 @@ func lineCol(t *testing.T, lines []string, needle string) modalSpot {
 	}
 	t.Fatalf("missing %q", needle)
 	return modalSpot{}
+}
+
+func TestAModalWhoseInputEndsReturnsInsteadOfWaiting(t *testing.T) {
+	t.Parallel()
+	sim := tcell.NewSimulationScreen("UTF-8")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sim.Fini)
+	sim.SetSize(100, 36)
+	if err := sim.PostEvent(tcell.NewEventError(io.EOF)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan modalSignal, 1)
+	go func() {
+		_, sig := readModal(sim, SandboxCloseCopy(), "close this sandbox?", sandboxCloseChoices())
+		done <- sig
+	}()
+	select {
+	case sig := <-done:
+		if sig != modalInterrupt {
+			t.Errorf("readModal ended with signal %v, want modalInterrupt", sig)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("readModal kept waiting after its input ended")
+	}
 }

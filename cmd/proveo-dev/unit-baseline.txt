@@ -1,3 +1,6 @@
+# Fails at main on this macOS host (15 rows), or flakes under the full run (1 row).
+# Reasons and measurements: _spec/_devops/unit-baseline.puml
+internal/contract TestAdbMirrorStartsWithTheSocketAddress
 internal/contract TestCodexDaemonStateNeverCrossesTheSandbox
 internal/contract TestConfigSyncComparesSubSecondMtimes
 internal/contract TestConfigSyncCopiesInBulk

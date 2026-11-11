@@ -3,6 +3,7 @@ package sandbox
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -21,6 +23,7 @@ var confirmFetchPushed = func(branches []string) bool {
 	if !headedConfirm() {
 		return false
 	}
+	ptyproxy.DiscardInput(os.Stdin)
 	screen, err := openScreen()
 	if err != nil {
 		return false

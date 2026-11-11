@@ -1132,7 +1132,14 @@
         "internal/ptyproxy/overlaytty_test.go",
         "e2e/close_confirm_test.go",
         "internal/backend/sandbox/sandbox.go",
-        "internal/run/helpers.go"
+        "internal/backend/sandbox/pushed.go",
+        "internal/ptyproxy/cancelin.go",
+        "internal/ptyproxy/flush_linux.go",
+        "internal/ptyproxy/flush_bsd.go",
+        "internal/ptyproxy/stale_pump_test.go",
+        "internal/ptyproxy/overlay_exit_test.go",
+        "internal/ptyproxy/flush_test.go",
+        "e2e/post_exit_prompt_live_test.go"
       ],
       "fingerprint": null
     },

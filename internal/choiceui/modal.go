@@ -175,7 +175,7 @@ func readModal(s tcell.Screen, lines []string, title string, choices []modalChoi
 		switch ev := s.PollEvent().(type) {
 		case *tcell.EventResize:
 			s.Sync()
-		case *tcell.EventInterrupt:
+		case *tcell.EventInterrupt, *tcell.EventError:
 			return input, modalInterrupt
 		case *tcell.EventKey:
 			next, sig, done := applyModalKey(input, ev)

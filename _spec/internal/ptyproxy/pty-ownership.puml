@@ -15,7 +15,14 @@ skinparam noteTextAlignment left
 ' covers: internal/choiceui/sandbox_close.go
 ' covers: internal/choiceui/modal.go
 ' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
-' covers: internal/run/helpers.go
+' covers: internal/backend/sandbox/pushed.go (confirmFetchPushed: DiscardInput)
+' covers: internal/ptyproxy/cancelin.go
+' covers: internal/ptyproxy/flush_linux.go
+' covers: internal/ptyproxy/flush_bsd.go
+' covers: internal/ptyproxy/stale_pump_test.go
+' covers: internal/ptyproxy/overlay_exit_test.go
+' covers: internal/ptyproxy/flush_test.go
+' covers: e2e/post_exit_prompt_live_test.go
 '   (internal/backend/dockeregress ExecAgentWithProxy was the second caller;
 '   deleted 2026-10-16 with the docker backend. "internal/ptyproxy stays: every
 '   interactive sbx run uses it" — the Executor's retirement kept it.)
@@ -30,8 +37,9 @@ skinparam noteTextAlignment left
 ' sbx is the runtime under test now and that gate is retired with the mechanism
 ' (_spec/tests/testing-strategy.puml) — but `internal/ptyproxy` is NOT retired.
 ' internal/backend/sandbox/sandbox.go builds a `ptyproxy.New` on EVERY interactive
-' sbx run, for the stdin report filter and the stdout trace, and internal/run/
-' helpers.go builds one for the bare path. So the PTY mechanics outlive the gate
+' sbx run, for the stdin report filter and the stdout trace. It is the only
+' caller outside tests (CORRECTED 2026-11-10: this sentence used to name
+' internal/run/helpers.go, which holds no ptyproxy reference). So the PTY mechanics outlive the gate
 ' that provoked them. They are kept here rather than deleted with it; the consent
 ' prompt, the unix-socket transport and the CONNECT hook are what died.
 '
@@ -141,6 +149,75 @@ skinparam noteTextAlignment left
 ' out of 6, always inside the first 40, so the loop is a fail-fast ceiling and
 ' not half a second of work.
 '
+' ── THE STDIN READER ENDS WITH THE CHILD (2026-11-10) ──────────────────────
+' THE BUG. Run started the stdin pump and returned without stopping it. Its
+' reader stayed parked in read(0) and took 33 more chunks: 32 buffered and one
+' held in a blocked send. This file said "The IN pump cannot be waited on" and
+' named tcell.NewScreen as the second-reader trap DURING a run. Teardown opened
+' exactly that reader AFTER the run, for the pushed-branch question.
+' MEASURED on darwin/arm64 under tmux 3.7b: after a real Run that question
+' accepted y + Enter 0 of 12 times, then 1 of 12 on a re-run; without Run 12
+' of 12. A second reader of a pty pair got 95, then 93, of 200 keys.
+' [Inference] That was the operator's reported post-exit freeze.
+' WHY THE READ COULD NOT JUST BE STOPPED. os.Stdin is a blocking file:
+' SetReadDeadline is refused on it and Close does not unblock a read in
+' progress (golang/go#24842). Flipping fd 0 to non-blocking changes the open
+' file description the shell shares.
+' THE FIX (the Executor, D1: "select + self-pipe"). cancelin.go waits in
+' select(2) on the terminal's descriptor and on a wake pipe, and reads only
+' when the terminal is readable. A byte on the pipe ends the wait. Bytes
+' nobody read stay in the tty queue for whoever reads next.
+' Two other shapes were prototyped and not chosen. muesli/cancelreader, used
+' plainly, failed the -race gate 3 of 3 (it calls Fd() on every wait) and
+' missed a terminal reached under the name /dev/stdin. Keeping the pump alive
+' and routing prompts through the hand-off could not pass the pin below.
+' THE ORDER IN Run, after cmd.Wait returns:
+'   1  stop the reader's sends and write the wake byte, at once, so no key
+'      typed during the drain is taken
+'   2  end a live overlay (below) and wait for the Ctrl+C server, up to 2s
+'   3  drain the child's last output, up to drainGrace
+'   4  wait for the reader goroutine, up to 1s
+'   5  restore the terminal
+' The wake pipe is closed only after step 4 confirmed the join. A reader that
+' missed the deadline would otherwise select on a reused descriptor.
+' The terminal's descriptor is the one Run captured; Fd() is not called again.
+' A descriptor at or above FD_SETSIZE, or a failed pipe, falls back to the
+' plain reader: the old behaviour, not a new failure.
+'
+' AN OVERLAY OPEN AT CHILD EXIT ENDS WITH THE CHILD. MEASURED before the fix:
+' with the join alone, a Ctrl+C dialog that was up when the agent exited never
+' received another key, because nothing fed its hand-off any more.
+' Run now shuts the overlay's reader for good: Read returns io.EOF, and
+' OverlayTty.Start's resume no longer re-arms it. tcell posts an EventError
+' for that EOF and readModal treats it as an interrupt, so the dialog returns
+' "stay" and its remove hook does not run. Overlay refuses a new dialog once
+' the child has exited.
+'
+' TYPE-AHEAD IS DISCARDED BEFORE THE POST-EXIT QUESTION (the Executor, D15:
+' "Discard it"). MEASURED before the decision: with the reader joined, a `y`
+' typed during teardown showed in the question's field. confirmFetchPushed
+' calls DiscardInput first: TCFLSH on linux, TIOCFLUSH on the BSDs, nothing on
+' windows. Keys typed after the question draws answer it.
+'
+' THE FIRST LINUX RUN, 2026-11-10, linux/arm64 in a container (go1.26.5, tmux,
+' no race detector: the image has no C compiler). The ptyproxy, choiceui and
+' backend/sandbox suites passed. The live post-exit pin passed 3 of 3.
+' MEASURED there too: TestLiveCtrlCConfirmationOnTmux fails about one run in
+' eight with "session did not resume" — 1 of 8 at the commit before this
+' change, 2 of 8 after it. It is the residual recorded above: a key that
+' lands between the dialog deciding and Fini draining is read by tcell and
+' dropped. The Bubble Tea dialog replaces that path
+' (_spec/_plans/tui-upgrades-delivery.puml, W4).
+'
+' Pinned by internal/ptyproxy: TestRunLeavesNoReaderOnTheTerminal (a second
+' reader gets every key, 20 rounds; red before the fix),
+' TestAnOverlayOpenAtChildExitEndsWithTheChild,
+' TestAShutHandOffReaderStaysShutAcrossResume,
+' TestDiscardInputDropsWhatWasTypedBeforeIt; internal/choiceui:
+' TestAModalWhoseInputEndsReturnsInsteadOfWaiting; e2e (tmux only):
+' TestLivePostExitPromptTakesTheFirstKeysOnTmux, y + Enter accepted 12 of 12
+' (red before the fix).
+'
 title The PTY proxy — one reader of the real terminal, and how its pumps end
 
 actor "Operator" as OP
@@ -170,11 +247,10 @@ IN ARROW_ERROR SECOND : what the design exists to prevent
 OUT ARROW_ERROR LOST : without the drain
 
 note bottom of IN
-  **One reader, start to finish.** The child holds
-  the slave, so nothing else contends for stdin. A
-  goroutine already blocked in ""read()"" consumes
-  the next byte whatever a flag says, so the pump
-  re-routes rather than standing down.
+  **One reader while the child lives.** The child
+  holds the slave, so nothing else contends for
+  stdin. During a run the pump re-routes rather
+  than standing down; at exit it is cancelled.
 end note
 
 note bottom of OVER
@@ -209,19 +285,18 @@ note right of OUT
 end note
 
 note right of OUT
-  **Only the OUT pump is waited on.** The child
-  was the last holder of the slave, so the master
-  read fails when it exits — a ""WaitGroup"" there
-  costs nothing, bounded by ""drainGrace"" (2s)
-  for a grandchild still holding the slave.
+  **The OUT pump drains before Run returns.** The
+  child was the last holder of the slave, so the
+  master read fails when it exits. The wait is
+  bounded by ""drainGrace"" (2s) for a grandchild
+  still holding the slave.
 end note
 
 note right of OUT
-  **The IN pump cannot be waited on.** It blocks
-  reading the operator's stdin, which never
-  reaches EOF, so it can only notice the closed
-  master on the next keystroke. Waiting on it
-  would hang every exit.
+  **The IN reader is cancelled, then joined.** It
+  waits in ""select"" on the terminal and a wake
+  pipe. Run writes the wake byte when the child
+  exits, so no later reader shares the terminal.
 end note
 
 note bottom of LOST

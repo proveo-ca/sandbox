@@ -45,11 +45,16 @@ title The unit baseline — green means no new failing test
 ' A RED TEST GUARDS NOTHING. TestVarsSortByScopeThenName covers envreg.go.
 ' A slice that edits that file fixes line 153 first and drops the row.
 ' Extra arguments replace `./...`, so one package can be checked alone.
-' THE GATE DOES NOT RETRY. MEASURED 2026-11-10: in one of three full runs
-' TestAdbMirrorStartsWithTheSocketAddress (a shell-timing contract test) failed
-' outside the list; alone it passed 6 of 6, at that tree and at the commit
-' before it. A failure outside the list is rerun alone by hand. A retry inside
-' the gate would also hide a test that fails only in the full run's order.
+' THE GATE DOES NOT RETRY, SO ONE KNOWN FLAKE IS LISTED. MEASURED 2026-11-10:
+' TestAdbMirrorStartsWithTheSocketAddress failed in 2 of 8 full runs and passed
+' 6 of 6 alone. At main it passed 3 of 3 full runs. Its helper starts a stub in
+' the background, sleeps a fixed 50ms and then reads the stub's log
+' (internal/contract/host_adb_lib_test.go:42-44); under a loaded full run the
+' stub has not written yet. The branch adds tests and so adds load; it does
+' not touch that code. The row is the 16th in the list, and the first that is
+' a flake rather than a failure. A retry inside the gate would also hide a
+' test that fails only in the full run's order, so the gate has none.
+' [Inference] The fixed sleep is the cause; the timing was read, not traced.
 '
 ' Pinned by cmd/proveo-dev/baseline_test.go:
 '   TestFailedTestsKeepsTopLevelFailuresAndTestlessPackages
@@ -59,7 +64,7 @@ title The unit baseline — green means no new failing test
 
 component """go test -race -json ./...""" as RUN <<app>>
 component """failedTests""\ntop-level failures\nand test-less packages" as PARSE <<app>>
-database """unit-baseline.txt""\n15 rows" as LIST <<db>>
+database """unit-baseline.txt""\n15 failures · 1 flake" as LIST <<db>>
 component "a failure outside the list\nexit 1" as NEW <<error>>
 component "a listed test that passes\na note, exit 0" as FIXED <<app>>
 component """mise run ci""\nred on this host at main" as CI <<error>>

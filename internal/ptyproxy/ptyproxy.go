@@ -48,6 +48,8 @@ type Proxy struct {
 	suspended bool
 	buffered  []byte
 	overlayIn chan []byte
+	overlayR  *chanReader
+	exited    bool
 	inFd      int
 
 	ctrlC     chan struct{}
@@ -75,6 +77,7 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	}
 	p.mu.Lock()
 	p.master = m
+	p.exited = false
 	p.inFd = int(p.In.Fd())
 	p.mu.Unlock()
 	defer func() {
@@ -99,28 +102,70 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	}()
 	_ = pty.InheritSize(p.In, m)
 
-	// THE OUT PUMP IS WAITED ON; THE IN PUMP CANNOT BE.
 	var drained sync.WaitGroup
 	drained.Add(1)
 	go func() {
 		defer drained.Done()
 		p.pumpOutFrom(m)
 	}()
-	go p.pumpIn()
+	in := newCancelIn(p.In, p.fd())
+	stopIn := make(chan struct{})
+	chunks, readerDone := readChunks(in.r, stopIn)
+	go p.pumpChunks(chunks)
 
 	ctrlDone := make(chan struct{})
+	ctrlServed := make(chan struct{})
 	if p.ctrlC != nil {
-		go p.serveCtrlC(ctrlDone)
+		go func() {
+			defer close(ctrlServed)
+			p.serveCtrlC(ctrlDone)
+		}()
+	} else {
+		close(ctrlServed)
 	}
 
 	err = cmd.Wait()
+	close(stopIn)
+	in.cancel()
+	p.endOverlay()
 	close(ctrlDone)
+	waitClosed(ctrlServed, overlayJoinGrace)
 	// Drain BEFORE restoring: these are the child's own bytes, painted for the
 	// mode the child was running in. Restoring first puts the terminal back in
 	// cooked mode, where ONLCR rewrites the line endings on the way out.
 	waitDrained(&drained, drainGrace)
+	if waitClosed(readerDone, inJoinGrace) {
+		in.close()
+	}
 	p.Restore()
 	return err
+}
+
+// inJoinGrace caps the wait for the stdin reader to stop once it was cancelled.
+const inJoinGrace = time.Second
+
+// overlayJoinGrace caps the wait for an overlay that was up when the child exited.
+const overlayJoinGrace = 2 * time.Second
+
+// waitClosed reports whether ch closed within grace.
+func waitClosed(ch <-chan struct{}, grace time.Duration) bool {
+	select {
+	case <-ch:
+		return true
+	case <-time.After(grace):
+		return false
+	}
+}
+
+// endOverlay ends a live overlay's input and refuses any later overlay.
+func (p *Proxy) endOverlay() {
+	p.mu.Lock()
+	p.exited = true
+	r := p.overlayR
+	p.mu.Unlock()
+	if r != nil {
+		r.shut()
+	}
 }
 
 // drainGrace caps how long Run waits for the child's last output to reach the
@@ -183,29 +228,41 @@ type inRead struct {
 }
 
 // readChunks moves the blocking read off the pump so it can also wait on a
-// timer.
-func readChunks(r io.Reader) <-chan inRead {
+// timer; closing stop ends its sends, and done closes when it has returned.
+func readChunks(r io.Reader, stop <-chan struct{}) (chunks <-chan inRead, done <-chan struct{}) {
 	ch := make(chan inRead, 32)
+	ended := make(chan struct{})
 	go func() {
+		defer close(ended)
 		defer close(ch)
 		buf := make([]byte, 4096)
 		for {
 			n, err := r.Read(buf)
 			if n > 0 {
-				ch <- inRead{b: append([]byte(nil), buf[:n]...)}
+				select {
+				case ch <- inRead{b: append([]byte(nil), buf[:n]...)}:
+				case <-stop:
+					return
+				}
 			}
 			if err != nil {
-				ch <- inRead{err: err}
+				select {
+				case ch <- inRead{err: err}:
+				case <-stop:
+				}
 				return
 			}
 		}
 	}()
-	return ch
+	return ch, ended
 }
 
-func (p *Proxy) pumpIn() { p.pumpInFrom(p.In) }
-
 func (p *Proxy) pumpInFrom(r io.Reader) {
+	chunks, _ := readChunks(r, nil)
+	p.pumpChunks(chunks)
+}
+
+func (p *Proxy) pumpChunks(chunks <-chan inRead) {
 	idleAfter := p.escIdle
 	if idleAfter <= 0 {
 		idleAfter = DefaultEscIdle
@@ -214,7 +271,6 @@ func (p *Proxy) pumpInFrom(r io.Reader) {
 	if truncAfter <= 0 {
 		truncAfter = DefaultTruncatedReportIdle
 	}
-	chunks := readChunks(r)
 	var held []byte // a partial escape sequence carried from the previous read
 	for {
 		var idle <-chan time.Time
@@ -509,20 +565,19 @@ var ErrNotRunning = errors.New("ptyproxy: no child running")
 // Overlay suspends both pumps, hands the terminal to draw, then restores the
 // child's display. draw owns the terminal exclusively for its duration.
 func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
+	in := make(chan []byte, 16)
+	r := &chanReader{ch: in}
 	p.mu.Lock()
-	running := p.master != nil
-	p.mu.Unlock()
-	if !running {
+	if p.master == nil || p.exited {
+		p.mu.Unlock()
 		return ErrNotRunning
 	}
-	in := make(chan []byte, 16)
-	p.mu.Lock()
 	p.suspended = true
 	p.buffered = p.buffered[:0]
 	p.overlayIn = in
+	p.overlayR = r
 	p.mu.Unlock()
 
-	r := &chanReader{ch: in}
 	drawErr := draw(r, p.Out)
 
 	p.inMu.Lock()
@@ -530,6 +585,7 @@ func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	p.suspended = false
 	p.buffered = p.buffered[:0]
 	p.overlayIn = nil
+	p.overlayR = nil
 	p.mu.Unlock()
 	_ = p.writeMaster(r.unread())
 	p.inMu.Unlock()
@@ -568,6 +624,7 @@ type chanReader struct {
 	mu     sync.Mutex
 	buf    []byte
 	halted bool
+	ended  bool
 	wake   chan struct{}
 }
 
@@ -614,11 +671,21 @@ func (r *chanReader) halt() {
 	}
 }
 
-// resume lets Read consume the channel again.
+// resume lets Read consume the channel again, unless the reader was shut.
 func (r *chanReader) resume() {
 	r.mu.Lock()
-	r.halted = false
+	if !r.ended {
+		r.halted = false
+	}
 	r.mu.Unlock()
+}
+
+// shut halts r for good: resume no longer re-arms it.
+func (r *chanReader) shut() {
+	r.mu.Lock()
+	r.ended = true
+	r.mu.Unlock()
+	r.halt()
 }
 
 // unread halts r and returns the bytes no Read consumed, in arrival order.
