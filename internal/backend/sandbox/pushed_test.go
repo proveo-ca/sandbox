@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,7 +60,7 @@ func TestGitReflogSeesPushesFromEveryWorktree(t *testing.T) {
 	git(wt, "add", "b")
 	git(wt, "commit", "-qm", "other")
 	git(wt, "push", "-q", "-u", "origin", "other")
-	raw, err := gitReflog(src)
+	raw, err := gitReflog(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}

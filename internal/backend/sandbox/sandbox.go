@@ -141,24 +141,40 @@ var (
 // guestGrace is how long a killed command may go on holding its pipes.
 const guestGrace = 2 * time.Second
 
-// guestCommand is exec.Command killed once d passes. finish releases the timer and
-// wraps context.DeadlineExceeded when the deadline ended the command.
-func guestCommand(d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
-	ctx, cancel := context.WithTimeout(context.Background(), d)
+// ctx is the context teardown's subprocesses run under.
+func (in Input) ctx() context.Context {
+	if in.Stop != nil {
+		return in.Stop
+	}
+	return context.Background()
+}
+
+// boundCommand is exec.Command killed once d passes or parent ends. finish releases
+// the timer and says which of the two ended the command.
+func boundCommand(parent context.Context, d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
+	ctx, cancel := context.WithTimeout(parent, d)
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = guestGrace
 	return cmd, func(err error) error {
 		defer cancel()
-		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		switch {
+		case err == nil:
+			return nil
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			return fmt.Errorf("%s gave no answer within %s: %w", name, d, context.DeadlineExceeded)
+		case parent.Err() != nil:
+			return fmt.Errorf("%s stopped: %w", name, parent.Err())
 		}
 		return err
 	}
 }
 
 // guestRun is SbxRun bounded by guestExecDeadline.
-func guestRun(args ...string) (string, error) {
-	cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, args...)
+func guestRun(args ...string) (string, error) { return guestRunIn(context.Background(), args...) }
+
+// guestRunIn is guestRun under ctx.
+func guestRunIn(ctx context.Context, args ...string) (string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), finish(err)
 }
@@ -183,7 +199,7 @@ func TeardownClone(in Input, cfg sbx.RunConfig) error {
 				if wd == "" || !sbx.Exists(cfg.Name) {
 					return nil, errors.New("no sandbox to read from")
 				}
-				cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...)
+				cmd, finish := boundCommand(in.ctx(), guestExecDeadline, sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...)
 				out, err := cmd.Output()
 				return out, finish(err)
 			})
@@ -211,7 +227,7 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	if wd != "" {
 		var out string
 		if err := step(stepCloneSnapshot, func() (err error) {
-			out, err = guestRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...)
+			out, err = guestRunIn(in.ctx(), sbx.CloneSnapshotArgs(cfg.Name, wd)...)
 			return err
 		}); err != nil {
 			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
@@ -231,9 +247,9 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	}
 	reportCloneRefs(in, cfg)
 	stepDo(stepCloneSpec, func() {
-		liftClonedSpec(in, wd, cloneSpanViaSbx(cfg.Name, wd), func(sha string) {
+		liftClonedSpec(in, wd, cloneSpanViaSbx(in.ctx(), cfg.Name, wd), func(sha string) {
 			if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
-				_, _ = guestRun(args...)
+				_, _ = guestRunIn(in.ctx(), args...)
 			}
 		})
 	})
@@ -310,9 +326,9 @@ func replaceFile(path string, body []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-func cloneSpanViaSbx(name, wd string) func() (string, string, error) {
+func cloneSpanViaSbx(ctx context.Context, name, wd string) func() (string, string, error) {
 	return func() (string, string, error) {
-		cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneSpanArgs(name, wd)...)
+		cmd, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, sbx.CloneSpanArgs(name, wd)...)
 		out, err := cmd.Output()
 		if err = finish(err); err != nil {
 			return "", "", err
@@ -336,7 +352,7 @@ func commitID(s string) bool {
 // skipping every path the host changed since the clone's base.
 // SPEC: _spec/internal/sbx/clone-workspace.puml
 func liftClonedSpec(in Input, wd string, span func() (string, string, error), rebase func(string)) {
-	if wd == "" || !trackedSpec(wd) {
+	if wd == "" || !trackedSpec(in.ctx(), wd) {
 		return
 	}
 	base, head, err := span()
@@ -347,13 +363,13 @@ func liftClonedSpec(in Input, wd string, span func() (string, string, error), re
 	if base == head || !commitID(base) || !commitID(head) {
 		return
 	}
-	changed, err := gitPaths(wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, head, "--", "_spec")
+	changed, err := gitPaths(in.ctx(), wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, head, "--", "_spec")
 	if err != nil {
 		ui.Warnf("clone: _spec not lifted — %s..%s is not in this repository (%v); its edits are under %s/", base[:12], head[:12], err, sbx.CloneRefs(in.Sid))
 		return
 	}
-	hostDiff, _ := gitPaths(wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, "--", "_spec")
-	untracked, _ := gitPaths(wd, "ls-files", "-z", "--others", "--exclude-standard", "--", "_spec")
+	hostDiff, _ := gitPaths(in.ctx(), wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, "--", "_spec")
+	untracked, _ := gitPaths(in.ctx(), wd, "ls-files", "-z", "--others", "--exclude-standard", "--", "_spec")
 	dirty := map[string]bool{}
 	for _, p := range append(hostDiff, untracked...) {
 		dirty[p] = true
@@ -367,10 +383,11 @@ func liftClonedSpec(in Input, wd string, span func() (string, string, error), re
 		take = append(take, p)
 	}
 	if len(take) > 0 {
-		cmd := exec.Command("git", "--literal-pathspecs", "-C", wd, "restore", "--source="+head, "--worktree",
+		cmd, finish := boundCommand(in.ctx(), guestExecDeadline, "git", "--literal-pathspecs", "-C", wd, "restore", "--source="+head, "--worktree",
 			"--pathspec-from-file=-", "--pathspec-file-nul")
 		cmd.Stdin = strings.NewReader(strings.Join(take, "\x00"))
-		if out, err := cmd.CombinedOutput(); err != nil {
+		out, err := cmd.CombinedOutput()
+		if err = finish(err); err != nil {
 			ui.Warnf("clone: _spec not lifted (%v): %s — its edits are under %s/", err, strings.TrimSpace(string(out)), sbx.CloneRefs(in.Sid))
 			return
 		}
@@ -385,18 +402,19 @@ func liftClonedSpec(in Input, wd string, span func() (string, string, error), re
 
 // trackedSpec reports whether dir holds a real _spec directory git tracks; a
 // symlinked one is relinked live and needs no lift.
-func trackedSpec(dir string) bool {
+func trackedSpec(ctx context.Context, dir string) bool {
 	fi, err := os.Lstat(filepath.Join(dir, "_spec"))
 	if err != nil || !fi.IsDir() {
 		return false
 	}
-	paths, err := gitPaths(dir, "ls-files", "-z", "--", "_spec")
+	paths, err := gitPaths(ctx, dir, "ls-files", "-z", "--", "_spec")
 	return err == nil && len(paths) > 0
 }
 
-func gitPaths(dir string, args ...string) ([]string, error) {
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
-	if err != nil {
+func gitPaths(ctx context.Context, dir string, args ...string) ([]string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, "git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.Output()
+	if err = finish(err); err != nil {
 		return nil, err
 	}
 	var paths []string
@@ -453,7 +471,7 @@ func CloneRescueLines(name, refsKey, workdir, repoRoot string) []string {
 }
 
 func fetchViaRemote(in Input, cfg sbx.RunConfig) (int, string, error) {
-	cmd, finish := guestCommand(guestExecDeadline, "git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...)
+	cmd, finish := boundCommand(in.ctx(), guestExecDeadline, "git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...)
 	out, err := cmd.CombinedOutput()
 	code := exitCodeOf(err)
 	return code, string(out), finish(err)
@@ -471,7 +489,7 @@ func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
 	path := f.Name()
 	defer func() { _ = os.Remove(path) }()
 
-	src, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneBundleArgs(cfg.Name, wd, hostTips(in.RepoRoot))...)
+	src, finish := boundCommand(in.ctx(), guestExecDeadline, sbx.Binary, sbx.CloneBundleArgs(cfg.Name, wd, hostTips(in.ctx(), in.RepoRoot))...)
 	var errb strings.Builder
 	src.Stdout, src.Stderr = f, &errb
 	runErr := src.Run()
@@ -483,16 +501,18 @@ func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
 	if runErr != nil {
 		return code, errb.String(), runErr
 	}
-	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, in.Sid)...).CombinedOutput()
-	if err != nil {
+	fetch, fetched := boundCommand(in.ctx(), guestExecDeadline, "git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, in.Sid)...)
+	out, err := fetch.CombinedOutput()
+	if err = fetched(err); err != nil {
 		return exitCodeOf(err), errb.String() + string(out), err
 	}
 	return 0, "", nil
 }
 
-func hostTips(repoRoot string) []string {
-	out, err := exec.Command("git", sbx.CloneHostTipsArgs(repoRoot)...).Output()
-	if err != nil {
+func hostTips(ctx context.Context, repoRoot string) []string {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, "git", sbx.CloneHostTipsArgs(repoRoot)...)
+	out, err := cmd.Output()
+	if err = finish(err); err != nil {
 		return nil
 	}
 	tips := strings.Fields(string(out))
@@ -524,8 +544,10 @@ func adoptLead(names []string, prefix string, ahead func(string) bool) string {
 }
 
 func reportCloneRefs(in Input, cfg sbx.RunConfig) {
-	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref",
-		"--format=%(refname:short)", sbx.CloneRefs(in.Sid)+"/").Output()
+	list, listed := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "for-each-ref",
+		"--format=%(refname:short)", sbx.CloneRefs(in.Sid)+"/")
+	refs, err := list.Output()
+	_ = listed(err)
 	names := strings.Fields(string(refs))
 	if len(names) == 0 {
 		ui.Notef("clone: the agent left no branches to fetch")
@@ -534,19 +556,20 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	ui.Section(ui.SectionResults)
 	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
 	lead := adoptLead(names, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/", func(n string) bool {
-		out, err := exec.Command("git", "-C", in.RepoRoot, "rev-list", "--count", "HEAD.."+n).Output()
-		return err == nil && strings.TrimSpace(string(out)) != "0"
+		count, counted := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "rev-list", "--count", "HEAD.."+n)
+		out, err := count.Output()
+		return counted(err) == nil && strings.TrimSpace(string(out)) != "0"
 	})
 	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", lead, lead)
 }
 
-func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into string) (int, string, error)) {
+func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(ctx context.Context, args []string, into string) (int, string, error)) {
 	rel, ok := nestedRel(in.RepoRoot, in.OutputDir)
 	wd := agentWorkdir(in, cfg.Mounts)
 	if !ok || wd == "" {
 		return
 	}
-	code, out, err := lift(sbx.CloneLiftArgs(cfg.Name, wd, rel), in.RepoRoot)
+	code, out, err := lift(in.ctx(), sbx.CloneLiftArgs(cfg.Name, wd, rel), in.RepoRoot)
 	switch {
 	case err == nil:
 		ui.Storef("clone: deliverables lifted from the clone's %s/ into %s", rel, in.OutputDir)
@@ -558,15 +581,15 @@ func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into
 	}
 }
 
-func liftViaSbx(args []string, into string) (int, string, error) {
-	src, finish := guestCommand(guestExecDeadline, sbx.Binary, args...)
+func liftViaSbx(ctx context.Context, args []string, into string) (int, string, error) {
+	src, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, args...)
 	var srcErr strings.Builder
 	src.Stderr = &srcErr
 	stdout, err := src.StdoutPipe()
 	if err != nil {
 		return -1, "", finish(err)
 	}
-	untar := exec.Command("tar", "-xf", "-", "-C", into)
+	untar := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", into)
 	untar.Stdin = stdout
 	var untarOut strings.Builder
 	untar.Stdout, untar.Stderr = &untarOut, &untarOut
@@ -1115,6 +1138,7 @@ func FirstHost(mounts []sbx.Mount) string {
 
 // Input is the resolved input to the sbx backend.
 type Input struct {
+	Stop                   context.Context // ends teardown's subprocesses when cancelled; nil never does
 	Target, Image, AuthVar string
 	MCPGateway             bool // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
 	MiseTrust              bool
@@ -1746,101 +1770,14 @@ func Run(in Input) error {
 	if _, ok := result.(backend.Stopped); ok {
 		ui.Hostf("%v — ending as on a normal exit", result)
 	}
-	defer func() {
-		stepDo(stepCredential, func() { reportCredentialInUse(in.Target, cfg.Name) })
-		_ = step(stepCloneMode, func() error {
-			clones, err := sandboxClone(in, cfg.Name)
-			if err == nil {
-				in.Clone, in.CloneKnown = clones, true
-			}
-			return err
-		})
-		stepDo(stepPushed, func() { reportPushedBranches(in, cfg, startedAt) })
-		stepDo(stepEgress, func() { CapturePolicyLog(in.RunDir, cfg.Name) })
-		stepDo(stepMemory, func() { CaptureMemoryEvidence(in.RunDir, cfg.Name) })
-		if runErr != nil && !forceRemove.Load() {
-			said := false
-			if lines := tail.Lines(); len(lines) > 0 {
-				said = true
-				ui.Section(ui.SectionResults)
-				ui.Hostf("last output from the agent:")
-				for _, l := range lines {
-					ui.Notef("%s", l)
-				}
-			}
-			restarted := !sbx.Running(cfg.Name)
-			_ = step(stepClone, func() error { return TeardownClone(in, cfg) })
-			_ = step(stepState, func() error {
-				_, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), guestRun)
-				return err
-			})
-			if err := step(stepHome, homeAccess.Commit); err != nil {
-				ui.Warnf("home-root config not preserved: %v", err)
-			}
-			if t := credentials.AgentTranscript(in.Target, in.HomeRoot, startedAt, endedAt); t != "" {
-				said = true
-				ui.Storef("what the agent actually said is in %s", t)
-			} else if restarted && sbx.Exists(cfg.Name) {
-				ui.Storef("no transcript from this run — the sandbox had already stopped, " +
-					"so state was copied out after it ended and anything newer than the run is the harvest's own")
-			}
-			if !said {
-				if hint := credentials.NoCredentialHint(in.Man, in.Target, in.HomeRoot, cfg.Env, secrets,
-					sbx.StoredServices(), in.Lookup); len(hint) > 0 {
-					ui.Hostf("%s", hint[0])
-					for _, l := range hint[1:] {
-						ui.Notef("%s", l)
-					}
-				}
-			}
-			ui.Section(ui.SectionResults)
-			kept := KeptLines(cfg.Name, in.RunLog)
-			ui.Warnf("%s", kept[0])
-			for _, l := range kept[1:] {
-				ui.Notef("%s", l)
-			}
-			if sbx.Exists(cfg.Name) {
-				keepHomeAccess = true
-				PrintIDEAttach(in, cfg, false)
-			}
-			return
-		}
-		stranded := step(stepClone, func() error { return TeardownClone(in, cfg) })
-		var saved string
-		if err := step(stepState, func() (err error) {
-			saved, err = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), guestRun)
-			return err
-		}); err != nil {
-			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(saved))
-		}
-		if err := step(stepHome, homeAccess.Commit); err != nil {
-			ui.Warnf("home-root config not preserved: %v", err)
-		}
-		switch normalEndOf(forceRemove.Load(), stranded, opencodeTarget(in.Target)) {
-		case endKeepStranded:
-			keepHomeAccess = true
-			if opencodeTarget(in.Target) {
-				ui.Warnf("%v — %s kept with its OpenCode history", stranded, cfg.Name)
-			} else {
-				ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
-			}
-			PrintIDEAttach(in, cfg, false)
-			return
-		case endRetainEngine:
-			keepHomeAccess = true
-			ui.Storef("OpenCode: history lives in retained engine %s; `sbx rm --force %s` deletes it", cfg.Name, cfg.Name)
-			return
-		}
-		if forceRemove.Load() {
-			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
-		}
-		if step(stepRemove, func() error { return removeSandbox(cfg.Name) }) != nil {
-			keepHomeAccess = sbx.Exists(cfg.Name)
-			if keepHomeAccess {
-				PrintIDEAttach(in, cfg, false)
-			}
-		}
-	}()
+	td := &teardown{
+		in: in, cfg: cfg, secrets: secrets,
+		failed: runErr != nil && !forceRemove.Load(), forced: forceRemove.Load(),
+		started: startedAt, ended: endedAt,
+		lastOutput: tail.Lines, commitHome: homeAccess.Commit,
+	}
+	td.run(context.Background())
+	keepHomeAccess = td.keepHome
 	var ee *exec.ExitError
 	if errors.As(result, &ee) {
 		return backend.ExitError{Code: sbx.RunExitCode(ee.ExitCode(), tail.Lines())}
@@ -1849,8 +1786,8 @@ func Run(in Input) error {
 }
 
 // removeSandbox runs `sbx rm --force` under guestExecDeadline and reports a failed removal.
-func removeSandbox(name string) error {
-	out, err := guestRun(sbx.RemoveArgs(name)...)
+func removeSandbox(ctx context.Context, name string) error {
+	out, err := guestRunIn(ctx, sbx.RemoveArgs(name)...)
 	if err == nil || sbx.NotFound(out) {
 		return nil
 	}

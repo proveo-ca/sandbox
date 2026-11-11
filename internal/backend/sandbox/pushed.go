@@ -2,9 +2,9 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
@@ -130,13 +130,14 @@ func pushedBranches(reflog string, since time.Time) []string {
 	return out
 }
 
-func gitReflog(dir string) (string, error) {
-	out, err := exec.Command("git", "-C", dir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs").Output()
-	return string(out), err
+func gitReflog(ctx context.Context, dir string) (string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, "git", "-C", dir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs")
+	out, err := cmd.Output()
+	return string(out), finish(err)
 }
 
-func sandboxReflog(name, workdir string) (string, error) {
-	cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, "exec", "-w", "/", name, "--", "git", "-C", workdir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs")
+func sandboxReflog(ctx context.Context, name, workdir string) (string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, "exec", "-w", "/", name, "--", "git", "-C", workdir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs")
 	out, err := cmd.Output()
 	return string(out), finish(err)
 }
@@ -154,9 +155,9 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 		if wd == "" {
 			return
 		}
-		reflog, err = sandboxReflog(cfg.Name, wd)
+		reflog, err = sandboxReflog(in.ctx(), cfg.Name, wd)
 	case !in.Clone && in.RepoRoot != "":
-		reflog, err = gitReflog(in.RepoRoot)
+		reflog, err = gitReflog(in.ctx(), in.RepoRoot)
 	default:
 		return
 	}
@@ -181,7 +182,7 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 		return
 	}
 	for _, args := range pushedFetchArgs(in.RepoRoot, branches) {
-		cmd, finish := guestCommand(guestExecDeadline, "git", args...)
+		cmd, finish := boundCommand(in.ctx(), guestExecDeadline, "git", args...)
 		out, err := cmd.CombinedOutput()
 		if err = finish(err); err != nil {
 			ui.Warnf("fetch failed (%v): %s", err, strings.TrimSpace(string(out)))

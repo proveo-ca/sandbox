@@ -122,8 +122,8 @@ func TestTeardownDeadlineEndsEveryGuestCallThatNeverAnswers(t *testing.T) {
 			_, err := SaveState("sb", []string{sbx.StateHomeVar + "=/state"}, true, guestRun)
 			return err
 		}},
-		{"the reflog read", func() error { _, err := sandboxReflog("sb", "/work"); return err }},
-		{"the removal", func() error { return removeSandbox("sb") }},
+		{"the reflog read", func() error { _, err := sandboxReflog(context.Background(), "sb", "/work"); return err }},
+		{"the removal", func() error { return removeSandbox(context.Background(), "sb") }},
 	} {
 		start := time.Now()
 		err := c.call()

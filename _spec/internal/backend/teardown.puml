@@ -3,9 +3,12 @@
 skinparam noteTextAlignment left
 title Teardown — what runs after the agent exits, how long each step may take, and what the run log keeps
 ' purpose: the steps proveo runs once the agent has exited, the ceiling on each, and the record each leaves in the run log
+' covers: internal/backend/sandbox/teardown.go
+' covers: internal/backend/sandbox/teardown_plan_test.go
 ' covers: internal/backend/sandbox/teardown_steps.go
 ' covers: internal/backend/sandbox/teardown_steps_test.go
-' covers: internal/backend/sandbox/sandbox.go (Run's deferred teardown, TeardownClone, PreserveClone, removeSandbox)
+' covers: internal/backend/sandbox/sandbox.go (Run's call to teardown, boundCommand, TeardownClone, PreserveClone, removeSandbox)
+' covers: e2e/teardown_steps_test.go
 ' covers: internal/backend/sandbox/pushed.go (sandboxReflog, reportPushedBranches)
 ' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox's SaveState)
 '   why this was needed ............. _spec/_plans/tui-responsiveness.puml (C2, C3)
@@ -15,7 +18,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   what the clone carry does ....... _spec/internal/sbx/clone-workspace.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' This file grows as the delivery plan's teardown slices land. Landed so far:
-' T2 (step timing) and T1 (deadlines), both 2026-11-10.
+' T2 (step timing), T1 (deadlines) and T3 (teardown as a value), all 2026-11-10.
 '
 ' ── EVERY STEP LEAVES ONE LINE IN THE RUN LOG (T2) ─────────────────────────
 ' Before this, the run log stamped section headers only. A finished run could
@@ -57,7 +60,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' fails, so on a wedged daemon a clone run waited 10s for `sbx ls` and then
 ' started `sbx exec … git log -g` with no deadline. Teardown stopped there,
 ' printed nothing, and no work had reached home.
-' All four now run through guestCommand / guestRun under guestExecDeadline
+' All four now run through boundCommand / guestRun under guestExecDeadline
 ' (3m, the ceiling the Executor chose on 2026-10-22: "36s probe 3m others").
 '   sandboxReflog           a timeout reads as "no reflog": no pushed-branch
 '                           lines and no question
@@ -74,8 +77,67 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' [Unverified] Whether 3m is generous or tight for a healthy `sbx rm` or state
 ' save. No finished run had per-step times before T2; the first logs with
 ' `step:` rows answer it.
-' Nine host-local git and tar calls still have no deadline. They get one when
-' teardown becomes named steps with a context (delivery plan, T3).
+' Nine host-local git and tar calls had no deadline after T1. T3 gave each
+' one (below).
+'
+' ── TEARDOWN IS A VALUE, CALLED BEFORE THE RESULT (T3) ─────────────────────
+' Until T3 teardown was a deferred closure at the end of Run. Three things
+' followed from that shape:
+'   it ran AFTER Run chose its result, so nothing teardown learned could
+'     change the exit status (T4 returns 130 when the operator leaves);
+'   it captured Run's locals, so no test could call it;
+'   a panic in one step unwound past every later step, the removal included.
+' `teardown` (teardown.go) holds what the closure captured: the Input, the
+' RunConfig, the secrets, how the run ended, its two timestamps, the agent's
+' last output and the home-access commit. Run builds it and calls
+' `td.run(ctx)` on the line before it computes the result.
+' THE PLAN IS DATA. `teardownPlan(failed)` lists an ending's top-level steps
+' in the order they run:
+'   credential check · clone mode · pushed branches · egress record ·
+'   memory evidence · clone · resume state · home config
+'   + remove sandbox, when the run did not fail
+' A failed run keeps the sandbox for diagnosis, so its plan has no removal.
+' T6's step list (W5) draws "step n of N" from the same function.
+' THE PLAN IS AN UPPER BOUND ON A NORMAL EXIT. Two endings stop before the
+' removal: work stranded in the sandbox, and an OpenCode engine that holds
+' the history. Both keep the sandbox and say so.
+' ONE CONTEXT REACHES EVERY SUBPROCESS. Input.Stop carries it, so a function
+' that already takes the Input gained no parameter. boundCommand derives each
+' call's deadline from it: a call ends at its own ceiling OR when the context
+' ends, and its error says which ("gave no answer within 3m0s", or "stopped").
+' The nine calls T1 left open run under it at guestExecDeadline: the host
+' reflog read, the spec restore, gitPaths, the remote fetch, the bundle fetch,
+' hostTips, the two calls in reportCloneRefs, and the lift's `tar`.
+' Until T4 passes a context a signal ends, Run passes context.Background().
+' A STEP THAT WOULD START AFTER THE CONTEXT ENDED IS SKIPPED, and logged as
+'   step: <name> 0s failed: skipped: teardown was stopped
+' On a normal exit a skipped carry reads as stranded work, so the sandbox
+' stays and its removal command prints. A stopped teardown never removes.
+' A PANIC IS THE STEP'S ERROR. `do` recovers it, records `failed: panic: …`
+' and returns it. The step's own warning prints and the next step runs.
+' [Unverified] No panic in teardown was ever observed. The recover exists
+' because one would leave the agent's work in a sandbox with no line saying so.
+' WHAT T3 DID NOT CHANGE: the order, the lines printed, and which ending
+' keeps the sandbox. The gate is the step order in a real run's log:
+' e2e TestCloneModeLandsTheCloneAndLiftsTheOutputDir reads the rows from its
+' own PROVEO_HOME and compares them with a fixed list.
+' MEASURED 2026-11-10 on macOS, sbx 0.50.0, the published proveo/claudecode
+' image: the test passed at f7ff80a0 (the closure) and on the T3 tree, against
+' the same list:
+'   agent · credential check · clone mode · pushed branches · egress record ·
+'   memory evidence · clone · resume state · home config · remove sandbox
+' The other four TestClone* suites passed, one at a time.
+' TestHeadedCtrlCAsksBeforeRemoving passed for the three harnesses whose image
+' is on the host (claudecode, claudecode-browser, hermes: 9 subtests) and
+' skipped the other seven (21 subtests).
+'
+' Pinned by internal/backend/sandbox/teardown_plan_test.go:
+'   TestATeardownRunRecordsExactlyItsPlan
+'   TestTheFailedPlanIsTheNormalPlanWithoutTheRemoval
+'   TestAPanickingStepBecomesItsErrorAndTheNextStepsStillRun
+'   TestAStoppedTeardownSkipsItsStepsAndKeepsTheSandbox
+'   TestAStopEndsTheGuestCallInFlight
+' and by e2e/teardown_steps_test.go: TestStepRowNameReadsARunLogLine
 '
 ' Pinned by internal/backend/sandbox/teardown_steps_test.go:
 '   TestAStepIsRecordedOnceWithItsNameDurationAndOutcome
@@ -85,17 +147,36 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   TestAHungReflogAsksNoPushedBranchQuestion
 
 component "the agent exits" as EXIT <<app>>
+component "the ""teardown"" value\n""teardownPlan(failed)""" as PLAN <<app>>
+component "a stop\nthe context ends" as STOP <<host>>
 component """step(name, fn)""\nname · duration · outcome" as STEP <<app>>
 database "the run log\n""step: clone/snapshot 1.2s ok""" as LOG <<db>>
 component "four guest or network calls\nunder ""guestExecDeadline"" (3m)" as BOUND <<app>>
 component "**a wedged sbx daemon**\nhung teardown before the carry" as HANG <<error>>
 component "the rescue line\n""sbx ls"", then ""sbx rm --force""" as RESCUE <<host>>
 
-EXIT ARROW_MAIN STEP
+EXIT ARROW_MAIN PLAN : before Run's result
+PLAN ARROW_MAIN STEP : each step, in plan order
+STOP ARROW_OPTIONAL PLAN : later steps are skipped
+STOP ARROW_OPTIONAL BOUND : the call in flight ends
 STEP ARROW_MAIN LOG : one row per step
 STEP ARROW_MAIN BOUND
 HANG ARROW_ERROR BOUND : what the deadline ends
 BOUND ARROW_OPTIONAL RESCUE : a removal that timed out
+
+note top of PLAN
+  **A plan, not a closure.** The step names
+  are a list a test can compare a run against.
+  A panic in one step becomes that step's
+  error, and the next step still runs.
+end note
+
+note top of STOP
+  **A stopped teardown never removes.** A
+  skipped carry reads as stranded work, so the
+  sandbox stays and its removal command
+  prints.
+end note
 
 note bottom of LOG
   **The log, never the terminal.** A step row is

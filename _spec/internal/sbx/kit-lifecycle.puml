@@ -118,7 +118,7 @@ skinparam noteTextAlignment left
 '     host (POST /sandbox/<name>/start 502 after 875s; every shim stalled after
 '     "creating container task"), so the retire's clone-mode probe `sbx exec`
 '     on the stopped sandbox waited forever while all three step lines were
-'     already on screen. guestCommand (sandbox.go) now bounds every guest
+'     already on screen. boundCommand (sandbox.go) now bounds every guest
 '     call on the carry path: the probe at cloneProbeDeadline = 36s; snapshot,
 '     rebase, span, remote fetch, bundle, lift and the .env read at
 '     guestExecDeadline = 3m. A timeout reads as the error it replaces, so

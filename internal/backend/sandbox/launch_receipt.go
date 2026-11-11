@@ -194,7 +194,7 @@ func sandboxClone(in Input, name string) (bool, error) {
 	if in.CloneKnown {
 		return in.Clone, nil
 	}
-	cmd, finish := guestCommand(cloneProbeDeadline, sbx.Binary, sbx.CloneModeArgs(name)...)
+	cmd, finish := boundCommand(in.ctx(), cloneProbeDeadline, sbx.Binary, sbx.CloneModeArgs(name)...)
 	out, err := cmd.Output()
 	if err = finish(err); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {

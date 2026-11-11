@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,7 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	mustRun(t, work, "git", "add", "-A")
 	mustRun(t, work, "git", "commit", "-q", "-m", "init")
 
+	home := t.TempDir()
 	before, canList := sbxSandboxNames()
 	sess := tmux.New(fmt.Sprintf("proveo-cloneout-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
@@ -50,7 +52,7 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 		cmd = append(cmd, childEnvArgs(t)...)
 	}
 	cmd = append(cmd,
-		"PROVEO_HOME="+t.TempDir(),
+		"PROVEO_HOME="+home,
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
 		// Clone is the default on sbx; said explicitly so a changed default cannot
 		// turn this into a test of the mounted-checkout path.
@@ -99,5 +101,8 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	}
 	if !strings.Contains(screen, "deliverables lifted") {
 		t.Errorf("teardown did not report the lift — the file arrived, but the operator was not told\n%s", screen)
+	}
+	if got := loggedSteps(t, home); !slices.Equal(got, normalTeardownSteps) {
+		t.Errorf("the run log's steps:\n got %v\nwant %v", got, normalTeardownSteps)
 	}
 }

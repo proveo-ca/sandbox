@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -72,7 +73,7 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 
 	var gotArgs []string
 	var gotInto string
-	liftClonedOutput(in, cfg, func(args []string, into string) (int, string, error) {
+	liftClonedOutput(in, cfg, func(_ context.Context, args []string, into string) (int, string, error) {
 		gotArgs, gotInto = args, into
 		return 0, "", nil
 	})
@@ -88,14 +89,14 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 
 	called := false
 	liftClonedOutput(Input{Clone: true, RepoRoot: "/Users/op/repo", OutputDir: "/Users/op/out"}, cfg,
-		func([]string, string) (int, string, error) { called = true; return 0, "", nil })
+		func(context.Context, []string, string) (int, string, error) { called = true; return 0, "", nil })
 	if called {
 		t.Error("an output dir OUTSIDE the repo was mounted live; lifting it would be a second copy")
 	}
 
 	// "Nothing there" is a note, not a failure — it must not be reported as one.
 	// The fake returns the sentinel with an error, the way exec does.
-	liftClonedOutput(in, cfg, func([]string, string) (int, string, error) {
+	liftClonedOutput(in, cfg, func(context.Context, []string, string) (int, string, error) {
 		return sbx.CloneLiftNothing, "", errors.New("exit status 3")
 	})
 }

@@ -833,11 +833,14 @@
     {
       "spec": "_spec/internal/backend/teardown.puml",
       "covers": [
+        "internal/backend/sandbox/teardown.go",
+        "internal/backend/sandbox/teardown_plan_test.go",
         "internal/backend/sandbox/teardown_steps.go",
         "internal/backend/sandbox/teardown_steps_test.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/pushed.go",
-        "internal/backend/sandbox/launch_receipt.go"
+        "internal/backend/sandbox/launch_receipt.go",
+        "e2e/teardown_steps_test.go"
       ],
       "fingerprint": null
     },
