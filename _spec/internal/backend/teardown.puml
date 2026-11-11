@@ -26,8 +26,8 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   what the clone carry does ....... _spec/internal/sbx/clone-workspace.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' This file grows as the delivery plan's teardown slices land. Landed so far:
-' T2 (step timing), T1 (deadlines), T3 (teardown as a value) and T4 (signals
-' in teardown), all 2026-11-10.
+' T2 (step timing), T1 (deadlines), T3 (teardown as a value), T4 (signals in
+' teardown) and T6 (the live step line), all 2026-11-10.
 '
 ' ── EVERY STEP LEAVES ONE LINE IN THE RUN LOG (T2) ─────────────────────────
 ' Before this, the run log stamped section headers only. A finished run could
@@ -178,6 +178,36 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' WRITTEN TWICE BY CHOICE: T6 (delivery plan, W5) replaces these lines with a
 ' live step list that reads the same names and the same stepCeiling.
 '
+' ── THE RUNNING STEP IS ONE LIVE LINE WITH A CLOCK (T6) ─────────────────────
+' The start lines above were written to be replaced. On a terminal a step now
+' shows as one line that redraws every second and is erased when the step
+' ends:
+'   step 6/9 · clone/snapshot · 12s of up to 3m2s
+' Its place comes from teardownPlan, its ceiling from stepCeiling, and the
+' line itself from ui.Live (_spec/internal/ui/output-vocabulary.puml), so an
+' ordinary line a step prints lands above it and the frame is redrawn below.
+' A healthy teardown leaves no step lines behind: nine frames replace each
+' other and the last one is erased.
+' OUTPUT THAT IS NOT A TERMINAL KEEPS THE START LINE (`<name> — up to
+' <ceiling>`): a pipe or a CI log cannot redraw.
+' THE RUN LOG NOW RECORDS THE START TOO:
+'   step: clone/snapshot (up to 3m2s) started
+' Before, a row was written when a step ENDED, so a step that never ended
+' left none. The start row is what names a hung step in a log.
+' The same line shows for the clone's parts when a sandbox is retired at run
+' start; outside teardown it carries no `step n/N`.
+' A DEVIATION FROM THE DELIVERY PLAN, RECORDED. The plan drew T6 as a list
+' inside a Bubble Tea Program. Teardown prints through ui while its steps
+' run, holds the terminal in cooked mode for T4's signals, and hands the
+' terminal to the pushed-branch dialog in the middle. One live line under
+' the Printer's own lock does the job without a second renderer owning the
+' terminal; a list would have needed every ui line routed through it.
+' Pinned by internal/backend/sandbox/teardown_plan_test.go:
+'   TestAStepFrameCarriesItsPlaceItsClockAndItsCeiling
+'   TestATerminalGetsALiveLinePerStepAndNoStartLines
+' and by e2e TestCloneModeLandsTheCloneAndLiftsTheOutputDir: the log holds
+' the start row and no frame.
+'
 ' ── A SIGNAL IN TEARDOWN HAS ONE MEANING EACH (T4; D2, D16) ────────────────
 ' Until T4 a SIGTERM or SIGHUP in teardown was swallowed: forwardStop's parked
 ' goroutine consumed it and cancelled a context nothing read any more. SIGINT
@@ -276,7 +306,7 @@ database "the run log\n""step: clone/snapshot 1.2s ok""" as LOG <<db>>
 component "four guest or network calls\nunder ""guestExecDeadline"" (3m)" as BOUND <<app>>
 component "**a wedged sbx daemon**\nhung teardown before the carry" as HANG <<error>>
 component "the rescue line\n""sbx ls"", then ""sbx rm --force""" as RESCUE <<host>>
-component "the terminal\n""clone/snapshot — up to 3m2s""" as TERM <<host>>
+component "the terminal\n""step 6/9 · clone/snapshot · 12s""" as TERM <<host>>
 
 EXIT ARROW_MAIN PLAN : before Run's result
 PLAN ARROW_MAIN STEP : each step, in plan order
@@ -284,7 +314,7 @@ ONCE ARROW_OPTIONAL STOP : pressed again
 STOP ARROW_OPTIONAL PLAN : later steps are skipped
 STOP ARROW_OPTIONAL BOUND : the call in flight ends
 STEP ARROW_MAIN LOG : one row per step
-PLAN ARROW_OPTIONAL TERM : a start line per step
+PLAN ARROW_OPTIONAL TERM : one live line per step
 STEP ARROW_MAIN BOUND
 HANG ARROW_ERROR BOUND : what the deadline ends
 BOUND ARROW_OPTIONAL RESCUE : a removal that timed out
@@ -311,10 +341,10 @@ note top of ONCE
 end note
 
 note bottom of TERM
-  **Said before, not after.** A step names
-  itself and its ceiling before it runs. The
-  ceiling adds up bounds its calls already
-  have, so no new timeout exists.
+  **One line, with a clock.** The running step
+  shows its place, its elapsed time and its
+  ceiling, redrawn each second and erased when
+  it ends. A pipe gets a start line instead.
 end note
 
 note bottom of LOG

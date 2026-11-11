@@ -229,6 +229,11 @@ func New(w io.Writer) *Printer {
 	return p
 }
 
+// NewTerminal is a Printer that draws on w as on a terminal cols wide.
+func NewTerminal(w io.Writer, cols int) *Printer {
+	return &Printer{W: &wrapWriter{w: w, width: func() int { return cols }}, Tier: GlyphTierFrom(os.Getenv), term: w}
+}
+
 // Live draws one line that the next frame replaces in place. It reaches the
 // terminal alone, never a tee; a plain printer draws nothing.
 func (p *Printer) Live(r Role, format string, a ...any) {
@@ -491,6 +496,15 @@ func Askf(format string, a ...any) { Default.Askf(format, a...) }
 func Rolef(r Role, format string, a ...any) { Default.Rolef(r, format, a...) }
 
 func Section(label string) { Default.Section(label) }
+
+// Live draws Default's live line; see Printer.Live.
+func Live(r Role, format string, a ...any) { Default.Live(r, format, a...) }
+
+// EndLive erases Default's live line.
+func EndLive() { Default.EndLive() }
+
+// Fancy reports whether Default draws on a terminal: colour, glyphs, and a live line.
+func Fancy() bool { return !Default.Plain }
 
 func Hostf(format string, a ...any) { Default.Hostf(format, a...) }
 

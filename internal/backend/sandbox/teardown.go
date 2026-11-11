@@ -64,8 +64,11 @@ func (t *teardown) do(ctx context.Context, name string, fn func() error) error {
 	}
 	t.began = append(t.began, name)
 	lastStep.Store(&name)
+	plan := teardownPlan(t.failed)
+	placeNow.Store(&stepPlace{n: slices.Index(plan, name) + 1, of: len(plan)})
+	defer placeNow.Store(nil)
 	if name != stepClone {
-		announce(name)
+		defer showStep(name)()
 	}
 	return step(name, func() (err error) {
 		defer func() {

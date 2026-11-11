@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -218,5 +219,61 @@ func TestStepCeilingsAddUpTheBoundsOfTheCallsAStepMakes(t *testing.T) {
 	shrinkGuestDeadlines(t, time.Second)
 	if got := stepCeiling(stepRemove); got != time.Second+guestGrace {
 		t.Errorf("a shortened deadline left the removal's ceiling at %s", got)
+	}
+}
+
+func TestAStepFrameCarriesItsPlaceItsClockAndItsCeiling(t *testing.T) {
+	t.Cleanup(func() { placeNow.Store(nil) })
+	if got, want := stepFrame(stepCloneSnapshot, 12*time.Second), "clone/snapshot · 12s of up to 3m2s"; got != want {
+		t.Errorf("outside teardown: frame = %q, want %q", got, want)
+	}
+	placeNow.Store(&stepPlace{n: 6, of: 9})
+	if got, want := stepFrame(stepCloneSnapshot, 12*time.Second), "step 6/9 · clone/snapshot · 12s of up to 3m2s"; got != want {
+		t.Errorf("in teardown: frame = %q, want %q", got, want)
+	}
+	if got, want := stepFrame(stepHome, 0), "step 6/9 · home config · 0s"; got != want {
+		t.Errorf("a step with no ceiling: frame = %q, want %q", got, want)
+	}
+}
+
+func TestATerminalGetsALiveLinePerStepAndNoStartLines(t *testing.T) {
+	captureSteps(t)
+	td, _, _ := quietTeardown(t, false)
+	term := &lockedBuffer{}
+	ui.Default = ui.NewTerminal(term, 120)
+	clock := stepClock
+	t.Cleanup(func() { stepClock = clock })
+	stepClock = 5 * time.Millisecond
+	slow := make(chan struct{})
+	td.commitHome = func() error { <-slow; return nil }
+	done := make(chan struct{})
+	go func() { defer close(done); td.run(context.Background()) }()
+	term.await(t, "step 8/9 · home config · 0s")
+	for deadline := time.Now().Add(5 * time.Second); strings.Count(term.String(), "step 8/9 · home config") < 3; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the running step's line was not redrawn on its clock:\n%q", term.String())
+		}
+	}
+	close(slow)
+	<-done
+
+	screen := term.String()
+	at := 0
+	for n, name := range teardownPlan(false) {
+		if name == stepClone {
+			continue
+		}
+		frame := fmt.Sprintf("step %d/9 · %s · ", n+1, name)
+		i := strings.Index(screen[at:], frame)
+		if i < 0 {
+			t.Fatalf("no live line %q after offset %d:\n%q", frame, at, screen)
+		}
+		at += i
+	}
+	if strings.Contains(screen, " — up to ") {
+		t.Errorf("a terminal received a start line as well as the live line:\n%q", screen)
+	}
+	if !strings.HasSuffix(screen, "\r\x1b[K") {
+		t.Errorf("teardown left its live line on the terminal: %q", screen[max(0, len(screen)-80):])
 	}
 }

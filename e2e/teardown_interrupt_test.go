@@ -106,7 +106,7 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	if !waitUntil(teardown, func() bool {
 		screen, _ = sess.CaptureAll()
 		_, err := os.Stat(mark)
-		return err == nil && strings.Contains(screen, "remove sandbox — up to")
+		return err == nil && strings.Contains(screen, "· remove sandbox · ")
 	}) {
 		t.Fatalf("teardown never reached the removal\n%s", tail(screen, 40))
 	}

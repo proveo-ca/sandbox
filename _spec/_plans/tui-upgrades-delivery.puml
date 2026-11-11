@@ -178,6 +178,32 @@ skinparam noteTextAlignment left
 '     _spec/internal/ui/output-vocabulary.puml.
 '     NOT DONE: a hand trial of the dialog in a terminal that is not tmux,
 '     and, as before, `mise run build-cli`.
+' W5  DONE 2026-11-10: B4, B5, W-h, W-n and T7 in cd72e542; T6 in the commit
+'     after.
+'     B5 AND W-n LANDED AS ONE STEP. The four other confirms were never ported
+'     as typed dialogs: all five went straight to the button row, so the
+'     typed Bubble Tea modal of W4 was written once, for the gate, and
+'     deleted here.
+'     THE LINUX LEG FOUND THE OLD RESIDUAL AGAIN: the unchanged Ctrl+C driver
+'     failed 1 run in 4 with the button dialog. The cause was the one tcell
+'     had: a key typed right after the deciding key was consumed by the
+'     dialog's reader. proveo now decodes the hand-off itself, one key at a
+'     time, and returns every byte it did not deliver. After it: 12 of 12 on
+'     linux/arm64 for all four tmux pins.
+'     `y Enter` AND `n Enter` STILL WORK: y selects the non-safe answer, n the
+'     safe one. Two keys, as D7 asks; the tmux driver did not change.
+'     T6 IS A LIVE LINE, NOT A PROGRAM. A deviation from this plan: teardown
+'     prints through ui while it runs, keeps the terminal cooked for its
+'     signals, and hands the terminal to a dialog in the middle. One live
+'     line under the Printer's lock does it. W-k (W12) therefore builds on
+'     that line, and W-o reduces to ending the line before a step that takes
+'     the terminal.
+'     tcell's importers went from 34 files to 18.
+'     Reasoning: _spec/internal/choiceui/confirm-dialogs.puml,
+'     _spec/internal/ptyproxy/pty-ownership.puml,
+'     _spec/internal/backend/teardown.puml (T6).
+'     NOT DONE: a hand trial in a terminal that is not tmux; `mise run
+'     build-cli`.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

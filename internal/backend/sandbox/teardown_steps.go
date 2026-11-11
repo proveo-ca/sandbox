@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -73,25 +74,78 @@ func withCeiling(name string) string {
 	return name
 }
 
-// announce prints the step the terminal is about to wait on and its ceiling.
-func announce(name string) {
-	lastStep.Store(&name)
-	if d := stepCeiling(name); d > 0 {
-		ui.Asyncf("%s — up to %s", name, d.Round(time.Second))
-		return
+// stepPlace is where the running top-level step sits in teardown's plan.
+type stepPlace struct{ n, of int }
+
+// placeNow is the running top-level step's place; nil outside teardown.
+var placeNow atomic.Pointer[stepPlace]
+
+// stepClock is how often a step's live line redraws its elapsed time.
+var stepClock = time.Second
+
+// stepFrame is a step's live line: its place in the plan, its name, how long it has run, and its ceiling.
+func stepFrame(name string, ran time.Duration) string {
+	frame := name
+	if p := placeNow.Load(); p != nil {
+		frame = fmt.Sprintf("step %d/%d · %s", p.n, p.of, name)
 	}
-	ui.Asyncf("%s", name)
+	frame += " · " + ran.Round(time.Second).String()
+	if d := stepCeiling(name); d > 0 {
+		frame += " of up to " + d.Round(time.Second).String()
+	}
+	return frame
 }
 
-// shown is step behind its start line.
+// showStep says which step the terminal is about to wait on and returns the func that
+// ends it. A terminal gets one live line with a running clock; any other output gets
+// a start line. The run log gets the start either way.
+func showStep(name string) (done func()) {
+	lastStep.Store(&name)
+	ui.Logf("step: %s started", withCeiling(name))
+	if !ui.Fancy() {
+		ui.Asyncf("%s", startLine(name))
+		return func() {}
+	}
+	began := time.Now()
+	ui.Live(ui.RoleAsync, "%s", stepFrame(name, 0))
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		tick := time.NewTicker(stepClock)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				ui.Live(ui.RoleAsync, "%s", stepFrame(name, time.Since(began)))
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-stopped
+		ui.EndLive()
+	}
+}
+
+// startLine is a step's start on plain output: its name, then its ceiling when it has one.
+func startLine(name string) string {
+	if d := stepCeiling(name); d > 0 {
+		return name + " — up to " + d.Round(time.Second).String()
+	}
+	return name
+}
+
+// shown is step behind its live line.
 func shown(name string, fn func() error) error {
-	announce(name)
+	defer showStep(name)()
 	return step(name, fn)
 }
 
-// shownDo is stepDo behind its start line.
+// shownDo is stepDo behind its live line.
 func shownDo(name string, fn func()) {
-	announce(name)
+	defer showStep(name)()
 	stepDo(name, fn)
 }
 
