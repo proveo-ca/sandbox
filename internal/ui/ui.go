@@ -333,8 +333,17 @@ func (m multi) cols() int {
 	return 0
 }
 
-func (m multi) Write(p []byte) (int, error) {
-	n, err := m.term.Write(p)
+func (m multi) Write(p []byte) (int, error) { return m.writeHang(p, textCol) }
+
+// writeHang wraps the terminal copy at column hang; the log copy stays one line per line.
+func (m multi) writeHang(p []byte, hang int) (int, error) {
+	var n int
+	var err error
+	if hw, ok := m.term.(hangWriter); ok {
+		n, err = hw.writeHang(p, hang)
+	} else {
+		n, err = m.term.Write(p)
+	}
 	_, _ = m.log.Write([]byte(termtext.StripANSI(string(p))))
 	return n, err
 }
@@ -543,15 +552,23 @@ type wrapWriter struct {
 
 func (t *wrapWriter) cols() int { return t.width() }
 
-func (t *wrapWriter) Write(p []byte) (int, error) {
-	if _, err := t.w.Write(wrapLines(p, t.width())); err != nil {
+func (t *wrapWriter) Write(p []byte) (int, error) { return t.writeHang(p, textCol) }
+
+// writeHang writes p wrapped to the terminal, each continuation indented to column hang.
+func (t *wrapWriter) writeHang(p []byte, hang int) (int, error) {
+	if _, err := t.w.Write(wrapLines(p, t.width(), hang)); err != nil {
 		return 0, err
 	}
 	return len(p), nil
 }
 
-func wrapLines(p []byte, width int) []byte {
-	if width <= textCol+8 {
+// hangWriter wraps a write at a chosen column; the terminal side of a Printer implements it.
+type hangWriter interface {
+	writeHang(p []byte, hang int) (int, error)
+}
+
+func wrapLines(p []byte, width, hang int) []byte {
+	if width <= hang+8 {
 		return p // too narrow for a hanging indent to help; leave it alone
 	}
 	var out bytes.Buffer
@@ -560,16 +577,16 @@ func wrapLines(p []byte, width int) []byte {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
-		out.Write(wrapOne(ln, width))
+		out.Write(wrapOne(ln, width, hang))
 	}
 	return out.Bytes()
 }
 
-func wrapOne(ln []byte, width int) []byte {
+func wrapOne(ln []byte, width, hang int) []byte {
 	if displayWidth(ln) <= width {
 		return ln
 	}
-	pad := strings.Repeat(" ", textCol)
+	pad := strings.Repeat(" ", hang)
 	var out bytes.Buffer
 	col, wordStart, lineHasWord := 0, -1, false
 	flushWord := func(end int) {
@@ -577,7 +594,7 @@ func wrapOne(ln []byte, width int) []byte {
 		w := displayWidth(word)
 		if lineHasWord && col+1+w > width {
 			out.WriteString("\n" + pad + activeSGR(out.Bytes()))
-			col = textCol
+			col = hang
 		} else if lineHasWord {
 			out.WriteByte(' ')
 			col++
@@ -633,7 +650,7 @@ func breakWord(out *bytes.Buffer, word []byte, col, width int, pad string) int {
 		rw := runewidth.RuneWidth(r)
 		if col+rw > width {
 			out.WriteString("\n" + pad + activeSGR(out.Bytes()))
-			col = textCol
+			col = len(pad)
 		}
 		out.WriteString(s[i : i+size])
 		col += rw

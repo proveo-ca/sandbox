@@ -111,7 +111,7 @@ func scheduleTable(cmd *cobra.Command) error {
 		return &schedule.Live{Since: schedule.CurrentRun(home, job)}
 	}
 	last := func(job string) *schedule.Result { return schedule.LastResult(home, job) }
-	logDir := func(job string) string { return tildeHome(schedule.LogDir(home, job)) }
+	logDir := func(job string) string { return ui.Tilde(schedule.LogDir(home, job)) }
 	rows := schedule.Rows(c, now, running, last)
 	schedule.Render(ui.New(cmd.OutOrStdout()), rows, now, schedule.TickStatus(), logDir)
 	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
@@ -154,13 +154,6 @@ func retryJob(home string, c schedule.Config, name string) error {
 	}
 	ui.Appf("retrying %s (%s) — `proveo attach %s` to watch", name, last.Entry, name)
 	return nil
-}
-
-func tildeHome(p string) string {
-	if h, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, h+string(os.PathSeparator)) {
-		return "~" + p[len(h):]
-	}
-	return p
 }
 
 func scheduleLsCmd() *cobra.Command {

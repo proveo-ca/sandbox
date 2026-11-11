@@ -1,0 +1,143 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Output readability — sbx's principles in proveo's own idiom, across every command
+' purpose: the delivery plan for making proveo's stream read like sbx's, without copying sbx's look
+'   the vocabulary it amends ....... _spec/internal/ui/output-vocabulary.puml
+'   the design language ............ _spec/_conventions/tui-design-language.puml
+'   the step lines ................. _spec/internal/ui/step-lines.puml
+'   the design and its critique .... scratchpad of session e2da2921 (2026-11-11), summarised here
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS MEASURED (2026-11-11) ─────────────────────────────────────────
+' One `proveo run claudecode` on a linked-worktree monorepo put 58 proveo rows
+' on screen before the agent started; the longest was 235 columns. Workspace
+' facts appeared in five places, and sbx's own create block then listed the
+' mounts again. Sections were named by phase ("execution", "starting"), so
+' "interface" printed between step 2/5 and step 4/5. Every fact carried a ●
+' and most lines carried their own reason in parentheses.
+' sbx's create block, in the same terminal, read better: sections named by
+' subject, one item per line with a short result after " — ", aligned
+' key/value blocks, detail dim on the next line, home-relative paths, and one
+' closing outcome line.
+'
+' ── WHAT THE OPERATOR DECIDED (2026-11-11) ─────────────────────────────────
+'   "adopt the principles, but don't copy the design verbatim"
+'   scope ........ every command (run, init, adopt, attach/schedule, clean,
+'                  ls/projects, rm, setup, uninstall, update)
+'   sbx overlap .. proveo says only what sbx cannot: what sbx's create block
+'                  prints (mounts, kit, image, CPU, memory, port publishing)
+'                  leaves proveo's screen and stays in the run log; a
+'                  re-attach, which has no sbx block, prints it
+'   IDE attach ... one row on a live run; the JetBrains, Toolbox and VS Code
+'                  text goes to the run log; a kept sandbox still prints all
+'   fact rows .... keep the ● role dots and colours; align "key: value" in
+'                  one column per block; detail dim under the value
+' NOT CHOSEN: sbx's Title-case "Key:" column (the operator: not verbatim);
+' capturing sbx's block (a hidden sbx prompt would hang); keeping both voices.
+' proveo-dev is the maintainer CLI behind mise tasks and is out of scope
+' unless the operator asks.
+'
+' ── THE RULES (sbx's principle → proveo's rule) ────────────────────────────
+'   P1 subject  A heading names the subject its lines describe, in one
+'               lowercase word. sbx's own block runs under "sbx".
+'   P2 item     A state is one line: mark, item, " — ", a short result.
+'   P3 facts    Facts about one subject print as ONE ui.Facts block: role
+'               dot, "key:", value; values start in one column per block;
+'               a list value stacks under the value column.
+'   P4 detail   Secondary detail goes on its own dim line, under the value
+'               (a fact) or two columns past the text (an item). Never a
+'               parenthetical sentence, never a second " — " clause.
+'   P5 paths    Host paths on screen go through ui.Tilde. Guest paths,
+'               every --print line and the log-only blocks stay absolute.
+'               Mode flags trail in parentheses: (rw), (ro), (copy).
+'   P6 what     A screen line says what a thing is or what happened. The
+'               why goes to _spec, the how-to-change to the flag's help,
+'               maintainer commands to the run log.
+'   P7 outcome  A block ends on its outcome line; follow-ups go dim under it.
+'   P8 marks    ✓ done · ⚠ attention · × failed · ● a role-coloured fact or a
+'               running step (the operator kept the dots on facts).
+'   P9 once     Each fact is said once per run, on screen or in sbx's block;
+'               the run log keeps the full record.
+'
+' ── TECHNICAL CALLS (the Executor's, from the design review) ──────────────
+'   One shared helper, ui.Facts, aligns by display width, wraps a value at
+'   its own column on the terminal only (the log copy stays unwrapped), and
+'   prints aligned plain text in plain mode.
+'   Lines that stay on screen drop "step n/N ·"; live frames and the run log
+'   keep the numbers.
+'   Each subject prints once, after the step that makes it true: the
+'   workspace block after the mount plan, the interface block after sbx
+'   create.
+'
+' ── WAVES ──────────────────────────────────────────────────────────────────
+'   R0  internal/ui: Fact, Facts, Detailf, Tilde, SectionSbx, the hanging
+'       wrap; output-vocabulary.puml; unit tests. No caller changes.
+'   R1  the start of `proveo run`, up to "● <agent> — starting"
+'       (internal/run, internal/backend/sandbox): sections by subject, fact
+'       blocks, the sbx overlap rule, the one-row IDE line, step lines.
+'   R2  the end of a run: results, teardown, kept sandboxes, adopt/review
+'       hints (teardown.go, results.go, pushed.go, sandbox.go's results).
+'   R3  `proveo init`: the apply stream, the result block, the verify step.
+'   R4  the other commands: adopt, attach and schedule, clean, ls and
+'       projects, rm, setup, uninstall, update, version.
+' Each wave: lint, both builds, the unit baseline, the named e2e tests whose
+' anchors it moves (macOS; linux/arm64 where they run), the specs it touches,
+' and this file's PROGRESS.
+'
+' ── E2E ANCHORS THAT MOVE (R1) ─────────────────────────────────────────────
+'   e2e/instrument_test.go:61 "run log: (\S+\.log)" — and it must expand "~/"
+'     (a failed read returns "" silently)
+'   e2e/browser_viewport_test.go:85 "browser viewport: (http://\S+)"
+'   e2e/project_env_test.go:25 "project .env: 1 value(s) seeded into"
+'   e2e/clone_output_test.go:69,72 and e2e/sbx_test.go:623 "backend: docker
+'     sandboxes (sbx)", "lifts it back here at teardown"
+'   e2e/ide_attach_test.go:76-82 the JetBrains, VS Code and "a local Open"
+'     strings, which move to the run log
+'   e2e/idle_test.go:69-89 the "agent: <target> " filter
+'   e2e/sbx_egress_test.go:61 "allows every host" under --print
+'   e2e/stream_palette_test.go: whiteRun and the sbx-block boundary
+'
+' ── PROGRESS ───────────────────────────────────────────────────────────────
+'   R0 ... done 2026-11-11: ui.Fact/Facts, Detailf, Tilde (schedule's
+'          tildeHome removed), the hanging wrap (wrapWriter.writeHang, multi
+'          forwards it to the terminal half), output-vocabulary.puml FACTS
+'          AND DETAIL. No caller prints a Facts block yet. SectionSbx moves
+'          to R1: the contract test needs a caller for every Section*.
+'   R1 ... not started
+'   R2 ... not started
+'   R3 ... not started
+'   R4 ... not started
+
+component "sbx's create block\nsubject sections · items · aligned facts" as SBX <<cloud>>
+component "proveo's stream, 2026-11-11\nphase sections · prose · ● on every line" as OLD <<error>>
+component "the rules P1–P9\nin proveo's idiom" as RULES <<app>>
+component "ui.Facts · Detailf · Tilde\nR0" as UI <<app>>
+component "run start · run end · init · the rest\nR1 · R2 · R3 · R4" as WAVES <<app>>
+component "the run log\nthe full record" as LOG <<data>>
+
+SBX ARROW_MAIN RULES : the principles, not the look
+OLD ARROW_ERROR RULES : what they fix
+RULES ARROW_MAIN UI
+UI ARROW_MAIN WAVES
+WAVES ARROW_OPTIONAL LOG : what leaves the screen
+
+note bottom of RULES
+  **Principles, not the look.** proveo keeps its
+  rules, its lowercase keys and its ● dots. It
+  takes sbx's subject sections, aligned facts,
+  dim detail and one-line outcomes.
+end note
+
+note bottom of LOG
+  **Nothing is lost.** A fact that leaves the
+  screen, because sbx says it or because it is
+  a how-to, stays in the run log.
+end note
+
+note bottom of WAVES
+  **One wave per stream.** Each wave moves its
+  own e2e anchors and specs in the same change,
+  so the suite never reads a stale string.
+end note
+@enduml

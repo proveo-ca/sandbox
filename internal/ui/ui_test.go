@@ -218,7 +218,7 @@ func TestGlyphTierFrom(t *testing.T) {
 func TestWrapBreaksOnSpacesAndHangsAtTheTextColumn(t *testing.T) {
 	t.Parallel()
 	in := "● sbx's global network policy allows every host, so this run's Kit allowlist adds reach rather than limiting it\n"
-	got := string(wrapLines([]byte(in), 60))
+	got := string(wrapLines([]byte(in), 60, textCol))
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
 	if len(lines) < 2 {
 		t.Fatalf("nothing wrapped at width 60:\n%s", got)
@@ -247,8 +247,8 @@ func TestWrapDoesNotChargeForColour(t *testing.T) {
 		t.Fatalf("colour counted: %d vs %d",
 			displayWidth([]byte(painted)), displayWidth([]byte(plain)))
 	}
-	gotPlain := strings.Count(string(wrapLines([]byte(plain+"\n"), 12)), "\n")
-	gotPainted := strings.Count(string(wrapLines([]byte(painted+"\n"), 12)), "\n")
+	gotPlain := strings.Count(string(wrapLines([]byte(plain+"\n"), 12, textCol)), "\n")
+	gotPainted := strings.Count(string(wrapLines([]byte(painted+"\n"), 12, textCol)), "\n")
 	if gotPlain != gotPainted {
 		t.Errorf("coloured line wrapped into %d rows, plain into %d", gotPainted, gotPlain)
 	}
@@ -259,7 +259,7 @@ func TestWrapCarriesTheColourOntoEachContinuation(t *testing.T) {
 	t.Parallel()
 	grey := ANSI(ColorMuted)
 	in := "  " + grey + "jetbrains://gateway/ssh/environment?h=x.sbx " + strings.Repeat("abcdefghij", 10) + ANSIReset + "\n"
-	lines := strings.Split(strings.TrimRight(string(wrapLines([]byte(in), 40)), "\n"), "\n")
+	lines := strings.Split(strings.TrimRight(string(wrapLines([]byte(in), 40, textCol)), "\n"), "\n")
 	if len(lines) < 2 {
 		t.Fatalf("nothing wrapped at width 40: %q", lines)
 	}
@@ -278,7 +278,7 @@ func TestWrapCarriesTheColourOntoEachContinuation(t *testing.T) {
 func TestWrapLeavesShortLinesAlone(t *testing.T) {
 	t.Parallel()
 	in := []byte("● image: proveo/claudecode:local\n  a continuation\n")
-	if got := wrapLines(in, 100); !bytes.Equal(in, got) {
+	if got := wrapLines(in, 100, textCol); !bytes.Equal(in, got) {
 		t.Errorf("short lines were rewritten:\nwant %q\ngot  %q", in, got)
 	}
 }
@@ -287,7 +287,7 @@ func TestWrapLeavesShortLinesAlone(t *testing.T) {
 func TestWrapBreaksAWordWiderThanTheLine(t *testing.T) {
 	t.Parallel()
 	in := "● run log:\n  /tmp/" + strings.Repeat("abcdefghij", 12) + "/logs/x.log\n"
-	got := string(wrapLines([]byte(in), 40))
+	got := string(wrapLines([]byte(in), 40, textCol))
 	for i, l := range strings.Split(strings.TrimRight(got, "\n"), "\n") {
 		if w := displayWidth([]byte(l)); w > 40 {
 			t.Errorf("wrapLines(width 40) line %d is %d columns: %q", i, w, l)

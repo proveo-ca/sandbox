@@ -85,6 +85,36 @@
 ' Verified by e2e/stream_palette_test.go: one real run in tmux asserting the
 ' grey, rule and bold-failure SGRs and ≤ 2 consecutive default-colour lines.
 '
+' ── FACTS AND DETAIL (2026-11-11, R0 of _spec/_plans/output-readability.puml)
+' The operator compared sbx's create block with proveo's stream and chose to
+' adopt its principles, keeping proveo's ● dots ("Keep ● dots, aligned").
+' ui.Facts prints facts about one subject as ONE block:
+'   ● checkout: ~/w/hotfix (linked worktree)
+'               cloned from ~/w/main                  ← Detail, dim
+'   ● .env:     ~/w/main/.env (copy, rw)
+'               ~/w/main/.env.local (copy, rw)        ← a row with no Key
+'   ● links:    _spec → ~/Syncd/_spec
+' Each keyed row keeps its role's dot colour; key and value print grey as a
+' role line always has, so GREY DETAIL holds: no default-colour text, and a
+' clean run stays grey. Keys are lowercase and end in ":". Values start in
+' one column per block: the widest key, its colon, one space. A row with no
+' Key stacks its Value under the row above, with no dot. Detail lines sit at
+' the value column in ColorRule #585858. A row with no Value and no Detail
+' prints nothing, so a caller passes every fact and lets the empty ones drop.
+' PLAIN MODE drops the mark column and keeps the alignment: "log:   /x".
+' A VALUE WRAPS AT ITS OWN COLUMN on a terminal. wrapWriter.writeHang takes
+' the hanging column; multi forwards it to the terminal half alone, so the
+' log copy keeps one line per row (TestTeeDoesNotWrapTheLog's rule).
+' ui.Detailf writes a dim line two columns past the text column, under a
+' ✓ ⚠ × item. ui.Tilde writes a host path under $HOME as "~/…"; it replaced
+' schedule's private tildeHome.
+' Pinned by internal/ui/facts_test.go:
+'   TestFactsAlignValuesInOneColumnAndKeepTheRoleDot
+'   TestPlainFactsAlignWithoutMarks
+'   TestAFactValueWrapsAtItsOwnColumnAndTheLogStaysOneLine
+'   TestDetailfIndentsTwoPastTheTextColumn
+'   TestTildeAbbreviatesOnlyUnderHome
+'
 ' ── WHICH SCREEN LINES ARE PROVEO'S (2026-10-20) ───────────────────────────
 ' MEASURED: the newer sbx prints its own uncoloured lines into the same pane —
 ' a `── RESOLVE SETUP` block, `⚠ WARNING: template … built for the "shell"

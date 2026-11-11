@@ -424,6 +424,11 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/output-readability.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/tui-style-deferred-surfaces.puml",
       "covers": [],
       "fingerprint": null
