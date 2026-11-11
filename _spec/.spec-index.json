@@ -1208,6 +1208,22 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/results/result-store.puml",
+      "covers": [
+        "internal/results/results.go",
+        "internal/results/results_test.go",
+        "internal/backend/sandbox/results.go",
+        "internal/backend/sandbox/results_test.go",
+        "internal/backend/sandbox/teardown.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/run/run.go",
+        "cmd/proveo/prompt.go",
+        "cmd/proveo/prompt_test.go",
+        "e2e/prompt_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/run/run-spec.puml",
       "covers": [
         "internal/run/spec.go",

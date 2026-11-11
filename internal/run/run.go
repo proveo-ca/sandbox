@@ -29,6 +29,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -63,6 +64,11 @@ func Do(p Params, d Deps) (err error) {
 	rs.RunDir = RunDirOf(rs.Sid)
 	// Registered after the log's own Close, so LIFO runs it first.
 	defer func() { recordOutcome(rs.AgentLaunched, err) }()
+	defer func() {
+		if rs.AgentLaunched {
+			results.SetExit(results.Dir(StateDir()), rs.Sid, exitStatus(err))
+		}
+	}()
 
 	rs.Man, err = d.ManifestFor(p.Target)
 	if err != nil {
@@ -715,7 +721,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		MiseTrust:    p.miseTrustAllowed(),
 		GitTransport: p.GitTransport,
 		Desktop:      desktop, DesktopLaunch: desktopLaunch,
-		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
+		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir, ResultsDir: results.Dir(StateDir()),
 		ImageEntrypoint: sbx.ImageEntrypoint,
 		ImageSource: func(ref string) sbx.ImageSource {
 			return sbx.ResolveImageSource(ref, imagebuild.New("").HostBuilder)
@@ -859,6 +865,21 @@ func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay i
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
 // and the log closes.
+// exitStatus is the process status err leads to: the agent's own, 128+signal for a stop, else 1.
+func exitStatus(err error) int {
+	var ae backend.ExitError
+	var st backend.Stopped
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ae):
+		return ae.Code
+	case errors.As(err, &st):
+		return st.Code()
+	}
+	return 1
+}
+
 func recordOutcome(launched bool, err error) {
 	var ae backend.ExitError
 	switch {

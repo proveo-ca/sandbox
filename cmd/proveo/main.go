@@ -97,7 +97,7 @@ func rootCmd() *cobra.Command {
 	root.Flags().BoolVar(&flagInit, "init", false, "Install and sign in to the sbx backend proveo runs on")
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { renderHelp(cmd.OutOrStdout(), cmd) })
 	root.AddCommand(versionCmd(), lsCmd(), runCmd(), scheduleCmd(), attachCmd(), projectsCmd(), setupCmd(), initCmd(),
-		updateCmd(), uninstallCmd(), cleanCmd(), envHelpCmd())
+		updateCmd(), uninstallCmd(), cleanCmd(), envHelpCmd(), promptCmd())
 	addHarnessAliases(root)
 	return root
 }

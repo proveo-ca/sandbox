@@ -204,6 +204,15 @@ skinparam noteTextAlignment left
 '     _spec/internal/backend/teardown.puml (T6).
 '     NOT DONE: a hand trial in a terminal that is not tmux; `mise run
 '     build-cli`.
+' W6  DONE 2026-11-10, S1 + S3 + S2 in one commit.
+'     THE GATE PASSED. `proveo prompt`, with sbx, git, docker, tmux and
+'     starship replaced by logging scripts, logged no call. A real run left
+'     by Ctrl+C in teardown wrote its kept entry (exit 130) and the prompt
+'     command printed "1 kept" in its repository.
+'     A CLONE E2E WROTE INTO THE OPERATOR'S OWN STORE: it sets no
+'     PROVEO_STATE_ROOT. The entry was removed by hand. W7's reconcile drops
+'     an entry whose repository is gone.
+'     Reasoning: _spec/internal/results/result-store.puml.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

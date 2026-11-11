@@ -579,11 +579,16 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig) {
 	}
 	ui.Section(ui.SectionResults)
 	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
-	lead := adoptLead(names, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/", func(n string) bool {
+	leads := make(map[string]int, len(names))
+	for _, n := range names {
 		count, counted := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "rev-list", "--count", "HEAD.."+n)
 		out, err := count.Output()
-		return counted(err) == nil && strings.TrimSpace(string(out)) != "0"
-	})
+		if counted(err) == nil {
+			leads[n], _ = strconv.Atoi(strings.TrimSpace(string(out)))
+		}
+	}
+	recordCarried(in, names, leads)
+	lead := adoptLead(names, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/", func(n string) bool { return leads[n] > 0 })
 	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", lead, lead)
 }
 
@@ -1198,6 +1203,7 @@ type Input struct {
 	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
 	AgentEnv         []string
 	Sid, RunDir      string
+	ResultsDir       string // where what the run left behind is recorded; "" records nothing
 	Mounts           []runner.Mount
 	Lookup           func(string) string
 	Detected         []string

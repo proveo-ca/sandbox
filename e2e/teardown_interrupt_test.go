@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
@@ -79,8 +80,10 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	} else {
 		cmd = append(cmd, childEnvArgs(t)...)
 	}
+	state := t.TempDir()
 	cmd = append(cmd,
 		"PROVEO_HOME="+t.TempDir(),
+		"PROVEO_STATE_ROOT="+state,
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
 		"PATH="+shim+string(os.PathListSeparator)+os.Getenv("PATH"),
 		proveoBin, "run", target, "--clone", "--input", work,
@@ -162,5 +165,21 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	}
 	if !waitUntil(10*time.Second, func() bool { return !alive(removal) }) {
 		t.Errorf("the removal (pid %d) outlived proveo", removal)
+	}
+
+	var kept *results.Entry
+	for _, e := range results.List(results.Dir(state)) {
+		if e.Kind == results.Kept && e.Key == k.name {
+			kept = &e
+		}
+	}
+	if kept == nil || kept.Pending || kept.Exit == nil || *kept.Exit != 130 || !strings.Contains(kept.Why, "stopped by SIGINT at remove sandbox") {
+		t.Errorf("the store's entry for the kept sandbox = %+v, want a settled one with exit 130", kept)
+	}
+	prompt := exec.Command(proveoBin, "prompt")
+	prompt.Dir = work
+	prompt.Env = append(os.Environ(), "PROVEO_STATE_ROOT="+state)
+	if out, err := prompt.CombinedOutput(); err != nil || !strings.HasPrefix(string(out), "1 kept") {
+		t.Errorf("proveo prompt in the run's repository = %q, %v; want it to count the kept sandbox", out, err)
 	}
 }

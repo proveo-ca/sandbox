@@ -1,0 +1,151 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title The result store — what a run left behind, one file per entry, readable without a process
+' purpose: where proveo records a kept sandbox and carried refs after it exits, and what the shell prompt reads
+' covers: internal/results/results.go
+' covers: internal/results/results_test.go
+' covers: internal/backend/sandbox/results.go
+' covers: internal/backend/sandbox/results_test.go
+' covers: internal/backend/sandbox/teardown.go (recordKept: write-ahead, then settle)
+' covers: internal/backend/sandbox/sandbox.go (reportCloneRefs: recordCarried)
+' covers: internal/run/run.go (ResultsDir, exitStatus, results.SetExit)
+' covers: cmd/proveo/prompt.go
+' covers: cmd/proveo/prompt_test.go
+' covers: e2e/prompt_test.go
+'   why proveo exits instead of staying . _spec/_plans/post-close-surface.puml
+'   the decision and its measurements ... _spec/_plans/tui-responsiveness.puml (D4, P4)
+'   the order it lands in ............... _spec/_plans/tui-upgrades-delivery.puml (W6, W7, W8)
+'   what teardown decides ............... _spec/internal/backend/teardown.puml
+'   what a carried ref is ............... _spec/internal/sbx/clone-workspace.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' Landed so far: S1 (the store), S3 (`proveo prompt`), S2 (the write points),
+' all 2026-11-10. The verbs that lower the counts and the reconcile of stale
+' entries are the delivery plan's next wave.
+'
+' ── WHY A STORE ────────────────────────────────────────────────────────────
+' The Executor, 2026-11-10, on what stays after the agent exits: "proveo
+' exits; prompt segment" (D4). proveo does not stay alive to host a surface,
+' so whatever a run leaves has to be read later, by a shell prompt, without
+' proveo running.
+' MEASURED for that decision: `sbx ls` takes 237-483 ms, and a starship
+' module is budgeted 500 ms, so the prompt must never call sbx. And "refs to
+' adopt" cannot be derived at prompt time: 51 of 57 sessions on this host
+' sat only in packed-refs, and 47 of 63 carried refs were already reachable
+' from a branch. The count is computed with git while proveo runs, and stored.
+'
+' ── THE STORE (S1) ─────────────────────────────────────────────────────────
+' internal/results is a leaf: it imports nothing of proveo's.
+'   <state>/results/kept-<sandbox>.json      a sandbox that outlived its run
+'   <state>/results/carried-<session>.json   refs home, waiting to be adopted
+' ONE FILE PER ENTRY, because three live runs on this host shared one git
+' common directory and `proveo clean` removes run directories by pid: a
+' single index file would be raced and half-deleted.
+' A WRITE IS A RENAME. Put writes a temporary file beside the entry and
+' renames it over, so a reader sees the old entry or the new one.
+' A KEY IS A FILE NAME, so it is checked: letters, digits, `.`, `_`, `-`.
+' List skips a file it cannot parse and a file whose name does not match the
+' entry inside it.
+' An entry holds: kind, key, repo (symlinks resolved), sid, why, the refs
+' with their lead, pending, exit, and when.
+'
+' ── WHO WRITES (S2) ────────────────────────────────────────────────────────
+'   teardown, at its start    kept-<sandbox>, PENDING: "its teardown did not
+'                             finish". A teardown killed outright still
+'                             leaves the record that a sandbox exists.
+'   teardown, at its end      the entry is settled: removed when the sandbox
+'                             was removed (or is a retained OpenCode engine),
+'                             else rewritten with why it stays — "the run
+'                             failed", the stranded-work message, "its
+'                             removal failed", or "teardown stopped by SIGINT
+'                             at <step>".
+'   the clone carry           carried-<session>: each carried ref that held
+'                             commits HEAD lacked, with the count. With none
+'                             ahead the entry is removed. reportCloneRefs
+'                             writes it, so a sandbox retired at run START
+'                             records its refs too.
+'   run.Do, on return         the exit status, on every entry of the session.
+' The carry now counts the lead of every ref, where it used to stop at the
+' first one ahead: one local `git rev-list --count` per ref.
+' A store that cannot be written is logged and never fails a run.
+'
+' ── WHO READS: `proveo prompt` (S3) ────────────────────────────────────────
+' A hidden command. It prints one line for the repository the shell is in:
+'   1 kept · 2 to adopt
+' and nothing when there is nothing, or outside a repository.
+'   kept       entries of kind kept whose repo is this one, pending included
+'   to adopt   carried refs of this repo with a lead above zero
+' IT STARTS NO PROCESS. The repository is the nearest ancestor holding `.git`
+' (a directory, or a linked worktree's file), found by reading the
+' filesystem. MEASURED: with sbx, git, docker, tmux and starship replaced by
+' scripts that log every call, `proveo prompt` logged none.
+' MEASURED on a real sandbox, 2026-11-10: a run left by Ctrl+C in teardown
+' wrote kept-<sandbox> with exit 130 and why "teardown stopped by SIGINT at
+' remove sandbox", and `proveo prompt` in its repository printed "1 kept".
+' [Unverified] Nothing reads the store from a shell prompt yet; the starship
+' module is the delivery plan's W8.
+' e2e runs that do not set PROVEO_STATE_ROOT write into the operator's own
+' store. One did, and its entry was removed by hand; the reconcile of the
+' next wave drops entries whose repository is gone.
+'
+' Pinned by internal/results/results_test.go:
+'   TestAnEntryRoundTripsAndReplacesItsPredecessor
+'   TestAKeyThatCouldLeaveTheStoreIsRefused
+'   TestListSkipsWhatItCannotTrust
+'   TestTheSummaryCountsThisRepositorysEntries
+'   TestRepoOfFindsTheCheckoutFromInsideIt
+'   TestSetExitMarksOnlyTheSessionsEntries
+' by internal/backend/sandbox/results_test.go:
+'   TestTeardownWritesAheadThenSettlesTheKeptEntry
+'   TestAStoppedTeardownRecordsTheSandboxItLeft
+'   TestAStrandedCarryKeepsAnEntryNamingTheWork
+'   TestTheCarryRecordsEachRefThatHoldsWorkHEADLacks
+' by cmd/proveo/prompt_test.go:
+'   TestTheLeftLineCountsWhatThisRepositoryWasLeft
+'   TestThePromptCommandIsHiddenAndPrintsOneLine
+' and by e2e: TestThePromptCommandStartsNoProcess,
+'   TestCtrlCInTeardownSaysOnceThenLeavesWith130 (real sbx)
+
+component "teardown\nwrites ahead, then settles" as TD <<app>>
+component "the clone carry\nrefs and their lead" as CARRY <<app>>
+component """run.Do""\nthe exit status" as DO <<app>>
+database """<state>/results/""\none JSON file per entry" as STORE <<db>>
+component """proveo prompt""\nhidden · starts no process" as PROMPT <<host>>
+component "the shell prompt\n""1 kept · 2 to adopt""" as SHELL <<host>>
+component """sbx ls"" at prompt time\n**237-483 ms, over the budget**" as SLOW <<error>>
+
+TD ARROW_MAIN STORE : kept-<sandbox>
+CARRY ARROW_MAIN STORE : carried-<session>
+DO ARROW_OPTIONAL STORE : exit
+STORE ARROW_MAIN PROMPT : read only
+PROMPT ARROW_MAIN SHELL
+SLOW ARROW_ERROR SHELL : what the store avoids
+
+note bottom of STORE
+  **One file per entry, written by rename.**
+  Live runs share a state directory, and a
+  single index would be raced. A reader sees
+  an old entry or a new one, never half.
+end note
+
+note bottom of TD
+  **Written before it is true.** The entry is
+  put down pending when teardown starts, so a
+  teardown that is killed still leaves a
+  record that the sandbox exists.
+end note
+
+note bottom of PROMPT
+  **No process, every time.** A shell runs it
+  before each prompt. It finds the repository
+  by walking up to "".git"" and counts files; it
+  never calls git or sbx.
+end note
+
+note bottom of CARRY
+  **Counted while git is at hand.** Most
+  carried refs are already on a branch. Only
+  a ref HEAD lacked commits from counts, and
+  the count is stored, not derived later.
+end note
+@enduml

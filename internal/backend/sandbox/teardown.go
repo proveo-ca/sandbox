@@ -41,6 +41,7 @@ type teardown struct {
 	began      []string               // the top-level steps that started
 	carry      error                  // the clone step's outcome
 	left       bool                   // teardown stopped with part of its plan undone
+	kept       string                 // why the sandbox outlives the run; "" when it does not
 }
 
 // errStepSkipped is a step's outcome once teardown's context has ended.
@@ -83,6 +84,8 @@ func (t *teardown) do(ctx context.Context, name string, fn func() error) error {
 func (t *teardown) run(ctx context.Context) {
 	t.in.Stop = ctx
 	cfg := t.cfg
+	recordKept(t.in, cfg.Name, "its teardown did not finish", true)
+	defer func() { recordKept(t.in, cfg.Name, t.kept, false) }()
 	ui.Section(ui.SectionResults)
 	_ = t.do(ctx, stepCredential, func() error { reportCredentialInUse(t.in.Target, cfg.Name); return nil })
 	_ = t.do(ctx, stepCloneMode, func() error {
@@ -182,16 +185,16 @@ func (t *teardown) leftBy() syscall.Signal {
 
 // leave says what a stopped teardown left in place: the sandbox, the steps not run, and the way back in.
 func (t *teardown) leave() {
-	why := "(teardown was stopped"
+	reason := "teardown was stopped"
 	if sig := syscall.Signal(t.asked.Load()); sig != 0 {
-		why = "(teardown " + backend.Stopped{Signal: sig}.Error()
+		reason = "teardown " + backend.Stopped{Signal: sig}.Error()
 	}
 	if at := t.askedAt.Load(); at != nil {
-		why += " at " + *at
+		reason += " at " + *at
 	}
-	why += ")"
+	why := "(" + reason + ")"
 	if t.failed {
-		why = "for diagnosis (the run failed) " + why
+		why, reason = "for diagnosis (the run failed) "+why, "the run failed; "+reason
 	}
 	ui.Section(ui.SectionResults)
 	lines := keptBecause(t.cfg.Name, why, t.in.RunLog)
@@ -207,7 +210,7 @@ func (t *teardown) leave() {
 	for _, l := range lines[1:] {
 		ui.Notef("%s", l)
 	}
-	t.keepHome, t.left = true, true
+	t.keepHome, t.left, t.kept = true, true, reason
 }
 
 // saveState is SaveState under ctx.
@@ -265,7 +268,7 @@ func (t *teardown) failedEnd(ctx context.Context) {
 		ui.Notef("%s", l)
 	}
 	if sbx.Exists(cfg.Name) {
-		t.keepHome = true
+		t.keepHome, t.kept = true, "the run failed"
 		PrintIDEAttach(in, cfg, false)
 	}
 }
@@ -291,7 +294,7 @@ func (t *teardown) normalEnd(ctx context.Context) {
 	}
 	switch normalEndOf(t.forced, stranded, opencodeTarget(in.Target)) {
 	case endKeepStranded:
-		t.keepHome = true
+		t.keepHome, t.kept = true, stranded.Error()
 		if opencodeTarget(in.Target) {
 			ui.Warnf("%v — %s kept with its OpenCode history", stranded, cfg.Name)
 		} else {
@@ -314,6 +317,7 @@ func (t *teardown) normalEnd(ctx context.Context) {
 		}
 		t.keepHome = sbx.Exists(cfg.Name)
 		if t.keepHome {
+			t.kept = "its removal failed"
 			PrintIDEAttach(in, cfg, false)
 		}
 	}
