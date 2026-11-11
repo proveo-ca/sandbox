@@ -682,24 +682,17 @@ func TestTheBoxShowsASquareOfSquareMaxWhole(t *testing.T) {
 	}
 }
 
-func TestTheMCPNoteSitsUnderTheHopLabel(t *testing.T) {
+func TestTheMCPNoteEndsTheInterfaceLineUnderTheAgentAndNothingSitsUnderTheHop(t *testing.T) {
 	t.Parallel()
-	fr := base()
-	fr.HopNote = "+ mcp"
-	rows := paint(t, fr, GlyphsNerd, 0)
-	col := func(row, text string) int {
-		i := strings.Index(row, text)
-		if i < 0 {
-			return -1
+	for _, direct := range []bool{false, true} {
+		fr := base()
+		fr.Interface, fr.Direct = "tui + browser + mcp", direct
+		rows := paint(t, fr, GlyphsNerd, 0)
+		if !strings.Contains(rows[3], "tui + browser + mcp") {
+			t.Errorf("direct %v: the interface line under the agent must end \"+ mcp\":\n%s", direct, strings.Join(rows, "\n"))
 		}
-		return runewidth.StringWidth(row[:i])
-	}
-	hop, note := col(rows[3], "sbx proxy"), col(rows[4], "+ mcp")
-	if hop < 0 || note != hop {
-		t.Errorf("the note must start under the hop label: label at %d, note at %d\n%s\n%s", hop, note, rows[3], rows[4])
-	}
-	fr.HopNote = ""
-	if strings.Contains(paint(t, fr, GlyphsNerd, 0)[4], "mcp") {
-		t.Error("no note set, yet mcp was drawn")
+		if strings.Contains(rows[3], "sbx proxy") && strings.Count(rows[3], "mcp") != 1 || strings.Contains(rows[4], "mcp") {
+			t.Errorf("direct %v: mcp is drawn by the hop:\n%s", direct, strings.Join(rows, "\n"))
+		}
 	}
 }

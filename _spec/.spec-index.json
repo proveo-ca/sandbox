@@ -1688,7 +1688,8 @@
       "covers": [
         "internal/workspace/mount.go",
         "internal/workspace/mount_test.go",
-        "cmd/proveo/main.go"
+        "internal/run/helpers.go",
+        "internal/run/link_lines_test.go"
       ],
       "fingerprint": null
     },

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,12 @@ case "$1 $2" in
     [ "$answer" = y ] || { echo kept; exit 1; }
     grep -v " service $3 " "$STUB_SBX_SECRETS" > "$STUB_SBX_SECRETS.tmp"; mv "$STUB_SBX_SECRETS.tmp" "$STUB_SBX_SECRETS"
     echo removed ;;
+  "setup ")
+    if [ -n "$STUB_SBX_SETUP_READS" ]; then
+      printf 'setup asks: '
+      IFS= read -r line
+      printf 'setup read: %s\n' "$line" >> "$STUB_SBX_LOG"
+    fi ;;
   "policy check") printf '%s\n' '{"allowed":false}' ;;
   "run --name") printf '(global) service anthropic (oauth configured)\n' >> "$STUB_SBX_SECRETS" ;;
 esac
@@ -55,6 +62,12 @@ func startInit(t *testing.T, width int, args ...string) *initRun {
 }
 
 func startInitTools(t *testing.T, width int, bins map[string]string, args ...string) *initRun {
+	t.Helper()
+	return startInitWith(t, width, bins, nil, args...)
+}
+
+// startInitWith starts init with extra tools on PATH and extra environment for the stub sbx.
+func startInitWith(t *testing.T, width int, bins map[string]string, env []string, args ...string) *initRun {
 	t.Helper()
 	if !tmux.Available() {
 		t.Skip("tmux unavailable")
@@ -84,8 +97,9 @@ func startInitTools(t *testing.T, width int, bins map[string]string, args ...str
 	argv := append([]string{"env", "-i",
 		"HOME=" + r.home, "TMPDIR=" + r.tmp, "TERM=xterm-256color",
 		"PATH=" + bin + ":/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-		"STUB_SBX_LOG=" + r.log, "STUB_SBX_SECRETS=" + r.sec,
-		"sh", "-c", `"$0" init --skip-prompt "$@"; echo "INIT_EXIT=$?"; exec sleep 600`, proveoBin}, args...)
+		"STUB_SBX_LOG=" + r.log, "STUB_SBX_SECRETS=" + r.sec}, env...)
+	argv = append(append(argv,
+		"sh", "-c", `"$0" init --skip-prompt "$@"; echo "INIT_EXIT=$?"; exec sleep 600`, proveoBin), args...)
 	if err := r.sess.Start(width, 50, argv...); err != nil {
 		t.Fatalf("start tmux: %v", err)
 	}
@@ -420,6 +434,23 @@ func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
 	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 1 {
 		t.Errorf("each listed action must run once; sbx saw:\n%s", strings.Join(calls, "\n"))
 	}
+}
+
+// What the operator types while sbx's own wizard runs reaches the wizard, and nothing of it reaches proveo.
+func TestInitHandsTheTerminalWhollyToSbxSetup(t *testing.T) {
+	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SETUP_READS=1"}, "--skip-gh", "--skip-git")
+	r.page(t, 1)
+	r.keys(t, "Enter")
+	r.wait(t, "setup asks:")
+	r.keys(t, "typed-for-setup", "Enter")
+	screen, err := r.sess.WaitFor(initPageLabel(2), 15*time.Second)
+	if calls := r.calls(t); err != nil || !slices.Contains(calls, "setup read: typed-for-setup") {
+		t.Fatalf("sbx setup did not get the line typed for it (%v); sbx saw:\n%s\nscreen:\n%s", err, strings.Join(calls, "\n"), screen)
+	}
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	r.waitExit(t)
 }
 
 // init opens on every check before it asks anything, and closes on what it did,

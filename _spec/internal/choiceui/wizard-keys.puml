@@ -70,8 +70,22 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   Enter, Esc          Stay: the page comes back as it was
 '   q, or an arrow      selects Quit; Enter then quits (two keys, as D7 asks)
 '   Ctrl+C again        Quit: Ctrl+C twice leaves, as teardown does (D2)
-' The body says what leaving costs: answers on this page are not saved, and
-' what an earlier page did stays done.
+' THE WIZARD WORDS ITS OWN QUESTION. Step.Leave carries a title and a body
+' (one line per "\n"); every page of the wizard carries the same Step value,
+' so the scope page, the form and the checks page all ask in those words.
+'   proveo run      "Leave proveo run?" / "No sandbox has been created or
+'                   resumed." (internal/run runLeave). Both run pages come
+'                   before any sandbox exists, so that is all there is to say.
+'   proveo init     the zero Leave, so the generic question: "leave the
+'                   wizard?" / "Answers on this page are not saved." / "What
+'                   an earlier page did stays done." Init's earlier pages do
+'                   run steps, so the second sentence is true there.
+' DECIDED 2026-11-11 (user, on the generic question inside `proveo run`:
+' "this is too vague to show up in a `proveo run`. Title: Leave proveo run?
+' Description: No sandbox has been created or resumed"). The buttons, the
+' keys and the key line did not change.
+' [Inference] init could word its own question the same way ("Leave proveo
+' init?"); nobody asked, so it keeps the generic one.
 ' The dialog's own tea.Quit command is dropped: the gate reads the answer and
 ' the page decides.
 ' ON A TERMINAL TOO SMALL TO DRAW THE PAGE, Ctrl+C quits at once. A question
@@ -128,7 +142,10 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   TestDownPastTheLastRowFocusesSkipAndEnterThereSkips
 '   TestTheSkipButtonIsDrawnAndTheKeyLineSaysWhatEnterDoesOnIt
 '   TestCtrlCOnAWizardPageAsksAndASecondOneQuits
-' Pinned by internal/choiceui/scope_page_test.go: TestTheScopePagesKeys
+' Pinned by internal/choiceui/scope_page_test.go: TestTheScopePagesKeys,
+'   TestCtrlCOnTheScopePageAsksInTheWizardsOwnWords
+' Pinned by internal/run/pages_test.go: both run pages carry runLeave
+'   (TestAStepBackReturnsToTheScopePageWhereItWasLeft)
 ' Pinned by cmd/proveo/init_steps_test.go: TestAQuitEndsInitThereAndSaysWhichPage
 ' Pinned by e2e: TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton,
 '   TestInitStepsBackWithoutRerunningSetup,

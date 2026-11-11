@@ -161,6 +161,9 @@ func chooseScope(gate scopeChoice, ask ScopeAsk, pick func(ScopeAsk) (string, bo
 // errStepBack is the form reporting a step back to the page before it.
 var errStepBack = errors.New("step back")
 
+// runLeave is what Ctrl+C asks on a run's pages: nothing exists yet to leave behind.
+var runLeave = choiceui.Leave{Title: "Leave proveo run?", Body: "No sandbox has been created or resumed."}
+
 // formVisit is one visit to the run's form: its place among the pages, and the
 // form an earlier visit stepped back from.
 type formVisit struct {
@@ -211,7 +214,7 @@ func walkPages(rs *Spec, p *Params, gate scopeChoice, projs []workspace.Project,
 		if len(projs) > 0 {
 			ask := ScopeAsk{Target: p.Target, RepoRoot: rs.Workspace.RepoRoot, Projects: projs, Picked: scope}
 			if gate == scopeAsk {
-				ask.Step, visit.step = choiceui.Step{At: 1, Of: 2}, choiceui.Step{At: 2, Of: 2}
+				ask.Step, visit.step = choiceui.Step{At: 1, Of: 2, Leave: runLeave}, choiceui.Step{At: 2, Of: 2, Leave: runLeave}
 			}
 			var err error
 			if scope, err = chooseScope(gate, ask, pick); err != nil {

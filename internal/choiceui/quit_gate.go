@@ -2,10 +2,16 @@
 package choiceui
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 )
 
-const quitTitle = "leave the wizard?"
+// genericLeave is the question on a wizard that words none.
+var genericLeave = Leave{
+	Title: "leave the wizard?",
+	Body:  "Answers on this page are not saved.\nWhat an earlier page did stays done.",
+}
 
 const (
 	quitStay = iota
@@ -17,14 +23,13 @@ type quitGate struct {
 	ask *dialog
 }
 
-// open puts the question up on a terminal of w by h.
-func (g quitGate) open(w, h int) quitGate {
-	d := newDialog(quitTitle, []string{
-		quitTitle,
-		"",
-		"Answers on this page are not saved.",
-		"What an earlier page did stays done.",
-	}, quitStay, dialogButton{Label: "Stay", Key: 's'}, dialogButton{Label: "Quit", Key: 'q'})
+// open puts the question l up on a terminal of w by h.
+func (g quitGate) open(w, h int, l Leave) quitGate {
+	if l.Title == "" {
+		l = genericLeave
+	}
+	lines := append([]string{l.Title, ""}, strings.Split(l.Body, "\n")...)
+	d := newDialog(l.Title, lines, quitStay, dialogButton{Label: "Stay", Key: 's'}, dialogButton{Label: "Quit", Key: 'q'})
 	d.onCtrlC = quitLeave
 	d.w, d.h = w, h
 	return quitGate{ask: &d}

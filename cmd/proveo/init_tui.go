@@ -236,7 +236,7 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 	rows = append(rows, signIn)
 
 	rows = append(rows, nowLaterRow(rowWizard, def.Wizard, o.skipSetup, "--skip-setup was passed", map[string]string{
-		"now":   "next: `sbx setup` — the first-run wizard (SSH, daemon). 0.42 stopped opening it on its own",
+		"now":   "next: `sbx setup` — sbx's first-run wizard: agent secrets to import, SSH-agent forwarding",
 		"later": "a host nobody sets up stays half-configured, with no prompt to say so",
 	}))
 

@@ -298,11 +298,21 @@ skinparam noteTextAlignment left
 ' and the figure's floor grows with it. plan still joins the square
 ' (`sbx · <harness> + plan`); squareWith trims ONLY that suffix, ending in "…".
 ' The box is `boxW` = 32 inner columns. SquareMax = boxW - 4 = 28.
-' Hovering the OS row's host option sets Direct. The sandbox's walls go away:
-' Square is the harness name alone and a rule replaces its
-' boundary. Hop stays "sbx proxy" and KeyAtHop keeps the credential at the
-' broker. The interface row reads "+ ● tui". Leaving that option restores
-' the sandbox boundary.
+' Hovering the OS row's host option sets Direct. The square, its walls and the
+' proxy go away: Square is the harness name alone, Hop is empty, and a rule
+' runs from the host node to the lanes. The interface row reads "+ ● tui".
+' A key in play is drawn beside the agent (KeyInSquare) and the caption names
+' forward: "the real key rides with the agent". A model option (a plan login,
+' a local model) leaves no key in play: KeyNone. The rows underneath are not
+' changed by the hover. Leaving that option puts the square and the proxy
+' back. The lanes still follow the egress row.
+' HISTORY: 0f34a714 (#77) kept Hop "sbx proxy" and KeyAtHop on this hover.
+' DECIDED 2026-11-11 (user: '"sbx proxy" shouldn't display when "host" is
+' hovered (there would be no sbx in that scenario)'): the picture before #77
+' is back, and agrees with topology-states.puml ("the square and the proxy
+' are gone"). Pinned by internal/run/topology_test.go
+' TestHoveringTheHostDropsTheSandbox and internal/choiceui/topology_test.go
+' TestADirectHostDropsTheSquareAndKeepsADash.
 '
 ' ── THE GLYPH TIER CROSSES PACKAGES AS ONE TYPE, NOT AS A STRING ───────────
 ' `ui.GlyphTier` reaches the figure with NO translation, because the posture's

@@ -68,7 +68,7 @@ func applyPlan(d initDecisions, c applyCtx) []applyStep {
 	if d.Wizard {
 		add(actWizard, true, func() error {
 			ui.Section(ui.SectionStarting)
-			ui.Appf("running the first-run wizard (`%s setup`) — 0.42 stopped opening it on its own", sbx.Binary)
+			ui.Appf("running sbx's first-run wizard (`%s setup`): agent secrets to import, SSH-agent forwarding", sbx.Binary)
 			if err := interactive(bin(), sbx.SetupArgs()); err != nil {
 				ui.Warnf("`%s setup` did not complete (%v) — run it yourself if a sandbox misbehaves", sbx.Binary, err)
 			}

@@ -60,8 +60,11 @@ func TestAStepBackReturnsToTheScopePageWhereItWasLeft(t *testing.T) {
 	if len(asks) != 2 || asks[0].Picked != "" || asks[1].Picked != "apps/web" {
 		t.Fatalf("the scope page was asked %+v; the second visit must open on apps/web", asks)
 	}
-	if asks[0].Step != (choiceui.Step{At: 1, Of: 2}) || visits[0].step != (choiceui.Step{At: 2, Of: 2}) {
-		t.Errorf("pages are numbered %+v then %+v, want 1/2 then 2/2", asks[0].Step, visits[0].step)
+	if asks[0].Step != (choiceui.Step{At: 1, Of: 2, Leave: runLeave}) || visits[0].step != (choiceui.Step{At: 2, Of: 2, Leave: runLeave}) {
+		t.Errorf("pages are %+v then %+v, want 1/2 then 2/2, both asking in run's words", asks[0].Step, visits[0].step)
+	}
+	if runLeave.Title != "Leave proveo run?" || runLeave.Body != "No sandbox has been created or resumed." {
+		t.Errorf("run's quit question = %+v", runLeave)
 	}
 	if visits[1].left != left {
 		t.Error("the second visit to the form did not get the form the first one left")

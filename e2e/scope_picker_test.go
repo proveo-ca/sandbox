@@ -134,8 +134,11 @@ func TestTheFormStepsBackToTheScopePageWhereItWasLeft(t *testing.T) {
 	if err := sess.SendKeys("C-c"); err != nil {
 		t.Fatal(err)
 	}
-	if screen, err = sess.WaitFor("leave the wizard?", 15*time.Second); err != nil {
+	if screen, err = sess.WaitFor("Leave proveo run?", 15*time.Second); err != nil {
 		t.Fatalf("Ctrl+C on the form did not ask first: %v\n%s", err, tail(screen, 45))
+	}
+	if !strings.Contains(screen, "No sandbox has been created or resumed.") || strings.Contains(screen, "leave the wizard?") {
+		t.Errorf("the run's quit question must say what quitting leaves behind:\n%s", tail(screen, 45))
 	}
 	if err := sess.SendKeys("C-c"); err != nil {
 		t.Fatal(err)

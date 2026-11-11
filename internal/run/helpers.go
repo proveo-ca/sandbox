@@ -1,9 +1,10 @@
-// SPEC: _spec/internal/sbx/clone-workspace.puml
+// SPEC: _spec/internal/sbx/clone-workspace.puml, _spec/internal/workspace/mount-symlink-escape.puml
 package run
 
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/credentials"
@@ -16,20 +17,79 @@ import (
 )
 
 func reportLinks(links []workspace.Link) {
+	for _, ln := range linkLines(links) {
+		switch ln.to {
+		case lineScreen:
+			ui.Storef("%s", ln.text)
+		case lineWarn:
+			ui.Warnf("%s", ln.text)
+		default:
+			ui.Logf("%s", ln.text)
+		}
+	}
+}
+
+// linkLine is one line reportLinks prints, and where it goes.
+type linkLine struct {
+	text string
+	to   lineTo
+}
+
+type lineTo int
+
+const (
+	lineScreen lineTo = iota
+	lineWarn
+	lineLog // the run log only
+)
+
+// linkLines words each link decision in walk order. Mounted links that share a
+// directory and a target directory, each keeping its target's name, take one
+// screen line together; each of them still gets its own line in the run log.
+func linkLines(links []workspace.Link) []linkLine {
+	groups := map[[2]string]int{}
+	for _, l := range links {
+		if k, ok := linkDirs(l); ok {
+			groups[k]++
+		}
+	}
+	said := map[[2]string]bool{}
+	var out []linkLine
 	for _, l := range links {
 		switch l.Action {
 		case workspace.LinkMounted:
-			ui.Storef("%s → %s (symlink leaves the workspace; target mounted)", l.Rel, l.Target)
+			one := l.Rel + " → " + l.Target + " (symlink leaves the workspace; target mounted)"
+			k, ok := linkDirs(l)
+			if !ok || groups[k] < 2 {
+				out = append(out, linkLine{one, lineScreen})
+				continue
+			}
+			if !said[k] {
+				said[k] = true
+				out = append(out, linkLine{k[0] + "/ → " + k[1] + "/ (" + strconv.Itoa(groups[k]) +
+					" symlinks leave the workspace; targets mounted)", lineScreen})
+			}
+			out = append(out, linkLine{one, lineLog})
 		case workspace.LinkRefused:
 			target := l.Target
 			if target == "" {
 				target = "(unresolved)"
 			}
-			ui.Warnf("%s → %s is not available inside the sandbox: %s", l.Rel, target, l.Reason)
+			out = append(out, linkLine{l.Rel + " → " + target + " is not available inside the sandbox: " + l.Reason, lineWarn})
 		default:
-			ui.Logf("%s: %s", l.Rel, l.Reason)
+			out = append(out, linkLine{l.Rel + ": " + l.Reason, lineLog})
 		}
 	}
+	return out
+}
+
+// linkDirs is a mounted link's directory and its target's, when the link sits below the workspace root and keeps its target's name.
+func linkDirs(l workspace.Link) ([2]string, bool) {
+	dir := filepath.Dir(l.Rel)
+	if l.Action != workspace.LinkMounted || dir == "." || filepath.Base(l.Rel) != filepath.Base(l.Target) {
+		return [2]string{}, false
+	}
+	return [2]string{dir, filepath.Dir(l.Target)}, true
 }
 
 func CloneDefault(getenv func(string) string) bool { return envflag.Bool(getenv("PROVEO_CLONE"), true) }

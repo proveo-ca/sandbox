@@ -90,7 +90,7 @@ func (m checkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		out, done := m.page.key(msg.String(), m.h)
 		switch {
 		case done && out == Quit && m.page.window(m.h) >= 1:
-			m.quit = m.quit.open(m.w, m.h)
+			m.quit = m.quit.open(m.w, m.h, m.page.Step.Leave)
 		case done:
 			m.out = out
 			return m, tea.Quit

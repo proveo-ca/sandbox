@@ -160,6 +160,12 @@ skinparam noteTextAlignment left
 '                   Rows keep their labels under this heading:
 '   sign in ....... now | later   (`sbx login` — Docker Hub, after the binary)
 '   sbx setup ..... now | later   (first-run wizard; 0.42 stopped auto-opening)
+'                   The row and the start line name what the wizard offers,
+'                   from `sbx setup --help` on 0.50.0: agent secrets to
+'                   import, SSH-agent forwarding. MEASURED 2026-11-11: they
+'                   said "0.42 stopped opening it on its own", and an
+'                   operator on 0.50 read that as a version mismatch.
+'                   The history stays here, in the spec.
 '   gh ............ now | later   (verify `gh`, install via the host package
 '                   manager if missing, `gh auth login` if needed, then
 '                   `sbx secret set --force github` from that token. A run

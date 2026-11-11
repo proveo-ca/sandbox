@@ -218,6 +218,14 @@ func TestCtrlCOnAWizardPageAsksAndASecondOneQuits(t *testing.T) {
 			t.Errorf("the question lacks %q:\n%s", want, view)
 		}
 	}
+	worded := stepForm(2, 3)
+	worded.Step.Leave = Leave{Title: "Leave proveo run?", Body: "No sandbox has been created or resumed."}
+	m, _ = pressKeys(formAt(worded, 100, 30), teaCtrlC)
+	view = plain(m.(formModel).View().Content)
+	if !strings.Contains(view, "Leave proveo run?") || !strings.Contains(view, "No sandbox has been created or resumed.") ||
+		strings.Contains(view, "leave the wizard?") || strings.Contains(view, "Answers on this page") {
+		t.Errorf("a wizard that words its question must get its own words, and only those:\n%s", view)
+	}
 	lone, cmd := pressKeys(formAt(stepForm(0, 0), 100, 30), teaCtrlC)
 	if !quits(cmd) || lone.(formModel).out != Cancelled {
 		t.Error("ctrl+c on a lone form must cancel at once, as before")

@@ -265,7 +265,13 @@ type Form struct {
 
 // Step is screen At of Of; Esc leaves a screen past the first as Back.
 // SPEC: _spec/internal/choiceui/wizard-keys.puml
-type Step struct{ At, Of int }
+type Step struct {
+	At, Of int
+	Leave  Leave // what Ctrl+C asks on this page; the zero value asks the generic question
+}
+
+// Leave words the question Ctrl+C asks on a wizard's page: a title, and a body with one line per "\n".
+type Leave struct{ Title, Body string }
 
 func (s Step) backable() bool { return s.At > 1 }
 
@@ -443,7 +449,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		out, done := m.f.key(&m.cursor, p, m.w, m.h)
 		switch {
 		case done && out == Quit && m.f.navigable(m.w, m.h):
-			m.quit = m.quit.open(m.w, m.h)
+			m.quit = m.quit.open(m.w, m.h, m.f.Step.Leave)
 		case done:
 			m.out = out
 			return m, tea.Quit

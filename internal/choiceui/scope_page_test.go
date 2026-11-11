@@ -86,6 +86,18 @@ func TestTheScopePagesKeys(t *testing.T) {
 	}
 }
 
+func TestCtrlCOnTheScopePageAsksInTheWizardsOwnWords(t *testing.T) {
+	t.Parallel()
+	sp := scopePage()
+	sp.Step.Leave = Leave{Title: "Leave proveo run?", Body: "No sandbox has been created or resumed."}
+	m, _ := pressKeys(scopeAt(sp, 100, 30), teaCtrlC)
+	view := plain(m.(scopeModel).View().Content)
+	if !strings.Contains(view, "Leave proveo run?") || !strings.Contains(view, "No sandbox has been created or resumed.") ||
+		strings.Contains(view, "leave the wizard?") {
+		t.Errorf("the scope page must ask in the words its Step carries:\n%s", view)
+	}
+}
+
 func TestTheRootRowIsMarkedDefaultAndTheLineUnderTheTreeFollowsTheCursor(t *testing.T) {
 	t.Parallel()
 	sp := scopePage()

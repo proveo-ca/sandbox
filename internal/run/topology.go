@@ -36,10 +36,16 @@ func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Fo
 		} else {
 			square = squareWith(square, model)
 		}
-		key := choiceui.KeyAtHop
-		hop, hopNote := "sbx proxy", ""
+		hop, key := "sbx proxy", choiceui.KeyAtHop
+		if direct {
+			hop, key, creds = "", choiceui.KeyInSquare, "forward"
+			if model != "" {
+				key = choiceui.KeyNone
+			}
+		}
+		iface := interfaceOf(f)
 		if alwaysMCP || rowChoice(f, cursor, mcpLabel, mcpOff) == mcpOn {
-			hopNote = "+ mcp"
+			iface += " + mcp"
 		}
 		fr := choiceui.Frame{
 			Host:      host,
@@ -49,9 +55,8 @@ func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Fo
 			HostLit:   hostLit,
 			Square:    square,
 			Hop:       hop,
-			HopNote:   hopNote,
 			Direct:    direct,
-			Interface: interfaceOf(f),
+			Interface: iface,
 			Key:       key,
 			Lane:      lane,
 			Open:      open,
@@ -205,13 +210,13 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 		return choiceui.FocusNone
 	}
 	switch f.Rows[cursor].Label {
-	case "egress", mcpLabel:
+	case "egress":
 		return choiceui.FocusHop
 	case "credentials", "auth", rowModel:
 		return choiceui.FocusKey
 	case rowExecution, rowPorts, rowApps:
 		return choiceui.FocusSquare
-	case rowInterface:
+	case rowInterface, mcpLabel:
 		return choiceui.FocusReturn
 	case evidenceLabel:
 		return choiceui.FocusSay

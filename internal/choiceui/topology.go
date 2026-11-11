@@ -20,8 +20,7 @@ type Frame struct {
 	HostLit   bool   // cursor is on that local model; the right-hand cells take the brand
 	Square    string // inside the box: "sbx · claudecode", or a bare target with no daemon
 	Hop       string // "sbx proxy", "mitm + squid"; empty means there is no hop
-	HopNote   string // the row under the hop label: "+ mcp" when sbx's MCP gateway is on
-	Interface string // the interface dot's label
+	Interface string // the interface dot's label: "tui + browser", ending "+ mcp" when sbx's MCP gateway is on
 	Caption   string // one sentence, the same facts as the figure; clipped, never wrapped
 	Key       KeyHome
 	Lane      LaneKind
@@ -318,9 +317,6 @@ func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p 
 		p3 := newPen(s, x, y0+3).write(on(FocusHop), label)
 		if key != "" {
 			p3.write(dim, " ").write(keyStyle(fr, KeyAtHop, on, p.accent), key)
-		}
-		if note := fit(fr.HopNote, colLanes-x-1); note != "" {
-			newPen(s, x, y0+4).write(on(FocusHop), note)
 		}
 	}
 
