@@ -111,7 +111,7 @@
 ' Printer.W. After TeeTo that writer is the terminal AND the run log, so each
 ' frame reached the log with its carriage return (probe: 3 frames, 4 CRs). W
 ' also wraps to the width, so a wide frame was split into two rows and could
-' no longer be erased (_spec/_plans/tui-responsiveness.puml, C2).
+' no longer be erased (_spec/_experiments/terminal-handoff-probes.puml, C2).
 ' Live(role, format, …) draws one line that the next frame replaces:
 '   it writes to the terminal alone (Printer.term), never to a tee
 '   the frame is cut to the terminal's width, less one column, so it stays

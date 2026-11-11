@@ -13,8 +13,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' covers: cmd/proveo/running.go (pickIndex, offer)
 ' covers: cmd/proveo-dev/maintain.go (listPickTargets, targetsAt)
 ' covers: e2e/target_list_test.go
-'   why the picker became a tree ..... _spec/_plans/wizard-upgrades.puml (W1, W2, D6)
-'   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W10)
+'   the decision, D6 ................. _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W10)
 '   when a run shows the page ........ _spec/internal/run/run-spec.puml
 '   the stack it draws with .......... _spec/internal/choiceui/tui-stack.puml
 '   the key line it shares ........... _spec/internal/choiceui/wireframe.puml
@@ -25,7 +24,9 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' "scope> "), the run and attach list, and proveo-dev's multi-select. The
 ' scope list did not mark the root as the default, and it was a different
 ' program from the form, so the choice could not be revisited.
-' The Executor, D6: "Every run, Enter keeps root".
+' The Executor, D6: "Every run, Enter keeps root". Not chosen: the page on
+' the first run only, with a per-repo memory; a scope row inside the form,
+' which would have needed no page loop.
 '
 ' ── THE TREE IS A PURE MODEL (W-c) ─────────────────────────────────────────
 ' Tree (tree.go) holds folders, folds, a filter and a cursor. It imports no

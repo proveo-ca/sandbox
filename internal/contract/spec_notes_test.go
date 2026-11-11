@@ -82,8 +82,6 @@ var specNotesEnforced = []string{
 	"_spec/defs/opencode/opencode-paradigm.puml",
 	"_spec/defs/opencode/opencode-topology.puml",
 	"_spec/_devops/agent-version-pin.puml",
-	"_spec/_plans/tui-responsiveness.puml",
-	"_spec/_plans/wizard-upgrades.puml",
 	"_spec/_plans/tui-upgrades-delivery.puml",
 	"_spec/_devops/unit-baseline.puml",
 	"_spec/internal/backend/teardown.puml",
@@ -92,6 +90,8 @@ var specNotesEnforced = []string{
 	"_spec/internal/choiceui/scope-tree.puml",
 	"_spec/internal/choiceui/wizard-keys.puml",
 	"_spec/internal/ui/step-lines.puml",
+	"_spec/cmd/proveo/init-preflight-and-result.puml",
+	"_spec/_experiments/terminal-handoff-probes.puml",
 	"_spec/internal/results/result-store.puml",
 	"_spec/internal/promptkit/prompt-kit.puml",
 }

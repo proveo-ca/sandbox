@@ -17,7 +17,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' covers: cmd/proveo/init_tui.go (rowPrompt)
 ' covers: cmd/proveo/prompt.go (--init)
 ' covers: cmd/proveo/uninstall.go (promptkit.Undo)
-'   why a prompt segment at all ...... _spec/_plans/tui-responsiveness.puml (D4, D13, D14, D18)
+'   why a prompt segment at all ...... _spec/internal/results/result-store.puml (D4)
 '   what the segment prints .......... _spec/internal/results/result-store.puml
 '   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W8)
 '   the other block init writes ...... _spec/internal/shell/setup-path.puml

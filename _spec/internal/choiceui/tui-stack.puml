@@ -10,7 +10,8 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' covers: internal/choiceui/screen.go, internal/choiceui/screen_test.go
 ' covers: internal/choiceui/frames_test.go, internal/choiceui/form_model_test.go
 ' covers: e2e/form_tty_test.go
-'   why the stack changed ............ _spec/_plans/tui-responsiveness.puml (D3, D8, D9)
+'   what the spikes measured ......... _spec/_experiments/terminal-handoff-probes.puml (THE PORT)
+'   the decisions, D3 D8 D9 .......... _spec/_plans/tui-upgrades-delivery.puml (DECISIONS)
 '   the order the port lands in ...... _spec/_plans/tui-upgrades-delivery.puml (W4, W5, W9, W10)
 '   who owns the terminal ............ _spec/internal/ptyproxy/pty-ownership.puml
 '   what sbx's own TUI looks like .... _spec/_experiments/sbx-tui-observed.puml
@@ -21,6 +22,9 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' W-e (the forms), then B8 and B9 (the pickers; the old libraries left).
 '
 ' ── WHY BUBBLE TEA v2 ──────────────────────────────────────────────────────
+' THE STACK WAS NOT THE CAUSE of the three measured defects; none needed a
+' framework change. The recommendation was to stay on tcell while they were
+' fixed. D3 ports anyway.
 ' The Executor, 2026-11-10: "Port everything to Bubble Tea v2" (D3), and for
 ' the drawing: "Rewrite the views in lipgloss" (D9). The stated reference is
 ' sbx's own TUI. MEASURED with `go version -m` on sbx 0.50.0: it embeds

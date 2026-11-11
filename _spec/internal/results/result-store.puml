@@ -24,7 +24,7 @@ title The result store — what a run left behind, one file per entry, readable 
 ' covers: cmd/proveo/clean.go (the reconcile after a clean)
 ' covers: e2e/teardown_interrupt_test.go
 '   why proveo exits instead of staying . _spec/_plans/post-close-surface.puml
-'   the decision and its measurements ... _spec/_plans/tui-responsiveness.puml (D4, P4)
+'   the decision and its measurements ... _spec/_experiments/terminal-handoff-probes.puml (STARSHIP)
 '   the order it lands in ............... _spec/_plans/tui-upgrades-delivery.puml (W6, W7, W8)
 '   what teardown decides ............... _spec/internal/backend/teardown.puml
 '   what a carried ref is ............... _spec/internal/sbx/clone-workspace.puml

@@ -7,7 +7,7 @@ title The unit baseline — green means no new failing test
 ' covers: cmd/proveo-dev/baseline_test.go
 ' covers: cmd/proveo-dev/unit-baseline.txt
 ' covers: mise.toml
-'   the decision ............ _spec/_plans/tui-responsiveness.puml (D12)
+'   the decision ............ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, D12)
 '   the gate it stands in ... _spec/_plans/tui-upgrades-delivery.puml (the standing gate)
 '   the full gate ........... _spec/_devops/release-gate.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.

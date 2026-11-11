@@ -3,8 +3,9 @@
 skinparam noteTextAlignment left
 ' purpose: the order in which the TUI and wizard upgrades reach main from branch feat-tui-upgrades — waves, slices, decisions and gates
 ' status: proposed 2026-11-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
-'   what is being delivered ......... _spec/_plans/tui-responsiveness.puml (P0-P5)
-'                                     _spec/_plans/wizard-upgrades.puml (W1-W11)
+'   what was delivered .............. two plan diagrams, retired in W13. Their
+'                                     measurements: _spec/_experiments/terminal-handoff-probes.puml
+'                                     Their reasoning: the specs each PROGRESS entry names.
 '   the vocabulary it borrows ....... _spec/_experiments/sbx-tui-observed.puml
 '   the release gate it ends on ..... _spec/_devops/release-gate.puml
 '   how e2e suites are run .......... _spec/tests/testing-strategy.puml
@@ -49,7 +50,7 @@ skinparam noteTextAlignment left
 '           `man tmux`; ci's three parts, goreleaser's 8 targets and the
 '           post-commit hook, in mise.toml, .goreleaser.yaml and hooks.go.
 '   lines   25 path:line references in the two plans opened and read.
-'   counts  the test-anchor counts in wizard-upgrades.puml, by grep.
+'   counts  the test-anchor counts the wizard plan listed, by grep.
 ' That pass corrected two claims: go-fuzzyfinder has three call sites, not
 ' four, and the baseline command printed full package paths against a list
 ' of short ones.
@@ -75,7 +76,7 @@ skinparam noteTextAlignment left
 '   8  mise run build-cli && proveo --version            # dev@<HEAD>, then
 '      the wave's hand trial in a host terminal tab
 ' THE BASELINE, MEASURED at 0f34a714 (= main) with and without -race: 15 tests
-' in 3 of 47 packages; the names are in tui-responsiveness.puml (D12). Two fail
+' in 3 of 47 packages; the names are in _spec/_devops/unit-baseline.puml. Two fail
 ' on any host. TestVarsSortByScopeThenName guards envreg.go, which S1 may edit:
 ' fix envreg.go:153 in the first slice that touches that file.
 ' ONE PR PER WAVE. History here is squash-merged, so a wave reverts as one
@@ -339,6 +340,38 @@ skinparam noteTextAlignment left
 '     Reasoning: _spec/internal/ui/step-lines.puml,
 '     _spec/internal/choiceui/wireframe.puml (THE FORM SAYS WHAT ENTER WILL
 '     RUN).
+' W13 DONE 2026-11-11: W-l, W-m and the retirement. THE LAST WAVE.
+'     init has four pages. Page 1 shows every install prerequisite and, when
+'     sbx is on the host, every `sbx diagnose` row; a blocking prerequisite
+'     stops there. init ends on a result: what ran, what was left with the
+'     command that does it, and `proveo run`.
+'     DEVIATION, FOR THE EXECUTOR TO JUDGE: the result is printed in the
+'     stream, not drawn as a page. A page takes its text with it when it
+'     closes.
+'     THE TWO PLAN DIAGRAMS ARE RETIRED, in the spec-keeper's order. Their
+'     measurements moved word for word to
+'     _spec/_experiments/terminal-handoff-probes.puml. What only the wizard
+'     plan stated (what was not taken from sbx, the no-terminal rendering of
+'     each page, the alternatives D5, D6 and D10 rejected) moved to
+'     wizard-keys.puml and scope-tree.puml. Seven decision quotes moved to
+'     DECISIONS below. Every citation was repointed; a grep for either file
+'     name finds nothing. Their two note-size rows went.
+'     THE BRANCH SWEEP DID NOT RUN, AND WAITS FOR THE EXECUTOR.
+'       `mise run test-e2e` starts real sandboxes for every suite. Three
+'       sandboxes of the Executor's ran on this host throughout, and a
+'       scheduled run appeared during the work. Named tests ran instead,
+'       each wave: see the entries above.
+'       The in-sandbox half of release-gate.puml needs an sbx on Linux. The
+'       container used for the Linux leg has none.
+'     ALSO WAITING FOR THE EXECUTOR, from earlier waves:
+'       `mise run build-cli`: the proveo on PATH is still the old one.
+'       a hand trial in a host tab, and in a terminal that is not tmux.
+'       `proveo init` with the prompt row, on a real shell config.
+'       an install from the network: no test downloaded or placed sbx.
+'     RAN for W13: lint 0; the 16-row baseline; both builds; nine init
+'     tests, two dialog pins, the list test and the live-line test on macOS
+'     and, twice each, on linux/arm64.
+'     Reasoning: _spec/cmd/proveo/init-preflight-and-result.puml.
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.
@@ -523,7 +556,7 @@ skinparam noteTextAlignment left
 '   --  the branch sweep: `mise run test-e2e` on a quiet host, then the
 '       in-sandbox half of release-gate.puml on Linux
 '   --  the two plan diagrams retire: their reasoning now sits in the specs
-'       each wave rehomed, and their ratchet rows go
+'       each wave rehomed, and their ratchet rows go .................. done
 '
 ' DEFERRED, with the trigger that promotes each
 '   T8  stop the dev-server, Android and CDP loops before teardown. Promote
@@ -539,9 +572,23 @@ skinparam noteTextAlignment left
 ' Each buys a fix or a proof one to five waves earlier. Every view, dialog,
 ' key contract and page body is written once, on Bubble Tea.
 '
-' ── DECISIONS — ONE IS LEFT, AND IT WAITS FOR EVIDENCE ─────────────────────
-'   decided  D2, D3, D4, D5, D12, D13, D14, and on 2026-11-10 after the
-'            design round, by the Executor:
+' ── DECISIONS — ALL MADE BY THE EXECUTOR, 2026-11-10 ───────────────────────
+'   before the design round:
+'     D2  "Say once, leave on two": the first Ctrl+C in teardown prints the
+'         running step and what leaving costs; the second keeps the sandbox
+'         and exits 130.
+'     D3  "Port everything to Bubble Tea v2". The recommendation was to stay
+'         on tcell while the three measured defects were fixed.
+'     D4  "proveo exits; prompt segment": no process stays alive to host a
+'         post-close surface.
+'     D5  "Adopt sbx: esc back, ^c quit". The recommendation was to keep
+'         shift+tab.
+'     D12 "let Green be 'no new failing tests'": 15 tests failed at 0f34a714,
+'         none in a TUI package.
+'     D13 "starship should be installed along" with sbx by init.
+'     D14 "Let the post-install download FiraCode Nerd Font if no nerd font is
+'         present in the host at install time".
+'   after the design round:
 '     D1  "select + self-pipe"
 '     D15 "Discard it": input typed before the post-exit question draws is
 '         dropped. MEASURED before the decision: with the join alone, a `y`
@@ -563,12 +610,13 @@ skinparam noteTextAlignment left
 '         monorepo run.
 '     D10 "A focusable Skip button" on init's pages.
 '     D18 "The .zip, 27 MB" for the font download.
-'   OPEN, by the Executor's choice ("Decide in wave 4 on evidence"): how the
-'   Ctrl+C dialog gets its keys. Option A, it reads the hand-off itself and
-'   writes terminal queries over the agent's screen. Option B, proveo decodes
-'   the hand-off and sends keys, through a direct import of an untagged
-'   module. W4 captures the bytes each writes in Alacritty, iTerm2,
-'   Terminal.app, kitty and Ghostty and compares them with an allow-list.
+'   LEFT OPEN BY THE EXECUTOR ("Decide in wave 4 on evidence"), AND CLOSED IN
+'   W4: how the Ctrl+C dialog gets its keys. Option A, it reads the hand-off
+'   itself and writes terminal queries over the agent's screen. Option B,
+'   proveo decodes the hand-off and sends keys, through a direct import of an
+'   untagged module. A byte capture chose B: 58 bytes against 107, and none
+'   of the keyboard-mode sequences. The capture ran in tmux alone, not in the
+'   five terminals the plan named.
 '
 ' ── WHAT A GATE STILL CANNOT SEE ───────────────────────────────────────────
 '   A terminal other than tmux 3.7b, except by the W4 hand trial.

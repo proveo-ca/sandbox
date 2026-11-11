@@ -14,8 +14,7 @@ title Confirm dialogs — a button row, the safe answer selected, two keys to de
 ' covers: internal/choiceui/oversized_model.go (AskOversizedModel)
 ' covers: internal/backend/sandbox/confirm.go
 ' covers: e2e/close_confirm_modes_test.go (TestLiveCloseDialogStaysUpWhileTheAgentStops)
-'   why the dialogs changed ......... _spec/_plans/wizard-upgrades.puml (W9, D7)
-'   the order they landed in ........ _spec/_plans/tui-upgrades-delivery.puml (W5)
+'   the decision, D7 ................ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W5)
 '   how the proxy hosts one ......... _spec/internal/ptyproxy/pty-ownership.puml
 '   the stack they draw with ........ _spec/internal/choiceui/tui-stack.puml
 '   sbx's own dialogs, as observed .. _spec/_experiments/sbx-tui-observed.puml
@@ -70,7 +69,7 @@ title Confirm dialogs — a button row, the safe answer selected, two keys to de
 ' ── THE CLOSE DIALOG STAYS UP WHILE THE AGENT STOPS (T7) ───────────────────
 ' After Remove the sbx client has up to 30s (stopWait) to exit. Before, the
 ' dialog closed at once, the agent's screen came back, and nothing said a
-' stop was in flight (_spec/_plans/tui-responsiveness.puml, C2).
+' stop was in flight (_spec/_experiments/terminal-handoff-probes.puml, C2).
 ' NewSandboxClose(stop, stopWait) now runs `stop` itself when Remove is
 ' accepted and stays up, with the buttons replaced by
 '   stopping the agent (up to 30s) — 4s

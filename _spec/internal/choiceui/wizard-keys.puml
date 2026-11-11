@@ -10,8 +10,8 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' covers: cmd/proveo/init.go (runInitSteps, stepQuit)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: e2e/init_steps_test.go
-'   why the keys changed ............. _spec/_plans/wizard-upgrades.puml (W4, D5, D10)
-'   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W11)
+'   the decisions, D5 and D10 ........ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W11)
+'   the vocabulary it borrows ........ _spec/_experiments/sbx-tui-observed.puml
 '   the key line these words sit on .. _spec/internal/choiceui/wireframe.puml
 '   the dialog the question reuses ... _spec/internal/choiceui/confirm-dialogs.puml
 '   init's three pages ............... _spec/cmd/proveo/init-sbx-bootstrap.puml
@@ -22,8 +22,28 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' Esc meant three things in `proveo init`: an error on setup, a skip on
 ' credentials, a clean end on operator. Ctrl+C shared all three. The footer
 ' said "esc cancel" on every page, which was true on one of them.
-' The Executor, D5: "Adopt sbx: esc back, ^c quit". D10: "A focusable Skip
-' button".
+' The Executor, D5: "Adopt sbx: esc back, ^c quit". The recommendation was to
+' keep shift+tab. D10: "A focusable Skip button". Not chosen: a control-key
+' chord; no skip.
+'
+' ── WHAT THE WIZARDS DID NOT TAKE FROM sbx ─────────────────────────────────
+' sbx's panels, cards and dashboard: proveo has no long-lived screen. Its
+' centred dialogs over a dimmed dashboard: proveo's pages are full-screen
+' forms and stay so. Its per-panel key reuse (`r` removes on the left and
+' refreshes on the right): one key keeps one meaning across a proveo wizard.
+'
+' ── EVERY PAGE KEEPS A RENDERING WITH NO TERMINAL ──────────────────────────
+' "A form cannot be the only rendering"
+' (_spec/_plans/tui-style-deferred-surfaces.puml, surface B).
+'   the scope page    not drawn without a TTY, with PROVEO_WIZARD off, with
+'                     --print or with --scope; --yes and the scheduler take
+'                     the repo root and print `scope: repo root`
+'   the run form      skipped unless promptable and not --yes
+'   a confirmation    declines unless headed
+'   init's pages      each prints one note and returns; the checks print to
+'                     the stream, and the result prints either way
+' NOT BUILT: a "resolved values" rendering of the run form for a reader with
+' no terminal.
 '
 ' ── THE KEYS ON A WIZARD'S PAGE (Step.Of > 1) ──────────────────────────────
 '   Enter      forward: Accepted. On the Skip button: Skipped.

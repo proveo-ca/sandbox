@@ -19,7 +19,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' covers: e2e/teardown_steps_test.go
 ' covers: internal/backend/sandbox/pushed.go (sandboxReflog, reportPushedBranches)
 ' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox's SaveState)
-'   why this was needed ............. _spec/_plans/tui-responsiveness.puml (C2, C3)
+'   why this was needed ............. _spec/_experiments/terminal-handoff-probes.puml (C2, C3)
 '   the order it is delivered in .... _spec/_plans/tui-upgrades-delivery.puml
 '   the earlier deadlines ........... _spec/internal/sbx/kit-lifecycle.puml (A HUNG TEARDOWN)
 '   how a run's status is chosen .... _spec/internal/backend/exit-code.puml
@@ -32,7 +32,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' ── EVERY STEP LEAVES ONE LINE IN THE RUN LOG (T2) ─────────────────────────
 ' Before this, the run log stamped section headers only. A finished run could
 ' not say how long any teardown step took, so "typical" silence was unknown
-' and only the ceilings were (tui-responsiveness.puml, C2).
+' and only the ceilings were (terminal-handoff-probes.puml, C2).
 ' `step(name, fn)` runs fn and records its name, duration and outcome.
 ' `stepDo` is the same for a call that returns no error. The record goes to
 ' the run log through ui.Logf, as
@@ -142,7 +142,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '
 ' ── EACH STEP SAYS IT STARTED, AND ITS CEILING (the rider on T3) ───────────
 ' Before this the terminal printed a line when a step ENDED, so a slow step
-' showed as silence (tui-responsiveness.puml, C2). Now `announce(name)`
+' showed as silence (terminal-handoff-probes.puml, C2). Now `announce(name)`
 ' prints one line before a step runs:
 '   <name> — up to <ceiling>
 ' A step that starts no subprocess prints its name alone (home config).
@@ -218,7 +218,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' goroutine consumed it and cancelled a context nothing read any more. SIGINT
 ' had no handler, and the terminal is back in cooked mode by then, so Ctrl+C
 ' ended proveo on the spot: no carry, no state save, no removal, no line
-' (tui-responsiveness.puml, C3).
+' (terminal-handoff-probes.puml, C3).
 ' `teardown.watch` takes SIGINT, SIGTERM and SIGHUP for the length of
 ' teardown. Run starts it BEFORE it stops forwardStop, so no signal meets a
 ' gap with Go's default action.
@@ -250,7 +250,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' ── TEARDOWN'S CHILDREN LEAVE THE TERMINAL'S PROCESS GROUP (T4) ─────────────
 ' A handler alone protects nothing. The terminal sends SIGINT to the whole
 ' foreground process group, so the `sbx exec` or `git` in flight died on the
-' FIRST Ctrl+C (MEASURED with a probe: tui-responsiveness.puml, C3).
+' FIRST Ctrl+C (MEASURED with a probe: terminal-handoff-probes.puml, C3).
 ' ownGroup(cmd) sets Setpgid and makes the command's cancel kill the group.
 '   boundCommand          every guest and host call teardown waits on
 '   sbx.boundedWith,      the 10s probes behind Running, Exists, the policy

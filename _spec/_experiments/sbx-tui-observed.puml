@@ -2,8 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: how sbx's own dashboard, modals and controls look and behave, recorded so proveo can borrow the vocabulary
 ' status: observed 2026-11-10 on sbx v0.50.0 (30d023c), darwin/arm64; a record, not a contract.
-'   what proveo takes from it ...... _spec/_plans/wizard-upgrades.puml
-'   the Ctrl+C half ................ _spec/_plans/tui-responsiveness.puml
+'   what proveo takes from it ...... _spec/internal/choiceui/wizard-keys.puml
+'   the Ctrl+C half ................ _spec/internal/choiceui/confirm-dialogs.puml
 '   proveo's own resolved layout ... _spec/internal/choiceui/wireframe.puml
 '
 ' ── HOW THIS WAS RECORDED ──────────────────────────────────────────────────

@@ -10,7 +10,7 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' covers: internal/choiceui/tty_unix.go (openTerminal suspends the live line)
 ' covers: internal/choiceui/tty_windows.go
 ' covers: e2e/live_line_prompt_test.go
-'   why every phase shows its steps ... _spec/_plans/wizard-upgrades.puml (W5, W6)
+'   what a silent phase cost .......... _spec/_experiments/terminal-handoff-probes.puml (C2)
 '   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W12)
 '   the live line it is built on ...... _spec/internal/ui/output-vocabulary.puml
 '   teardown's steps, the first user .. _spec/internal/backend/teardown.puml (T6)

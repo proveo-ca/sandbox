@@ -419,25 +419,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/tui-responsiveness.puml",
-      "covers": [
-        "internal/ptyproxy/ptyproxy.go",
-        "internal/ptyproxy/ptyproxy_windows.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/pushed.go",
-        "internal/backend/sandbox/launch_receipt.go",
-        "internal/ui/ui.go",
-        "internal/sbx/host_ollama.go",
-        "internal/choiceui/**",
-        "internal/run/run.go",
-        "cmd/proveo/main.go",
-        "cmd/proveo/init*.go",
-        "cmd/proveo/uninstall.go",
-        "internal/shell/shell.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/tui-upgrades-delivery.puml",
       "covers": [],
       "fingerprint": null
@@ -2056,6 +2037,21 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_experiments/terminal-handoff-probes.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/cmd/proveo/init-preflight-and-result.puml",
+      "covers": [
+        "cmd/proveo/init_preflight.go",
+        "cmd/proveo/init_preflight_test.go",
+        "internal/choiceui/check_page.go",
+        "internal/choiceui/check_page_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/cmd/proveo/operator-name.puml",
       "covers": [
         "internal/operator/operator.go",
@@ -2105,27 +2101,6 @@
     {
       "spec": "_spec/_plans/repo-simplification.puml",
       "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/wizard-upgrades.puml",
-      "covers": [
-        "cmd/proveo/main.go",
-        "cmd/proveo/running.go",
-        "cmd/proveo/schedule.go",
-        "cmd/proveo-dev/maintain.go",
-        "internal/run/run.go",
-        "internal/run/choices.go",
-        "internal/choiceui/**",
-        "cmd/proveo/init.go",
-        "cmd/proveo/init_tui.go",
-        "cmd/proveo/init_credentials.go",
-        "cmd/proveo/init_operator.go",
-        "cmd/proveo/init_github_access.go",
-        "internal/sbx/install.go",
-        "internal/shell/shell.go",
-        "cmd/proveo/uninstall.go"
-      ],
       "fingerprint": null
     },
     {

@@ -22,7 +22,7 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' "One manager, not two" and "The two pins are checked for AGREEMENT" (N14).
 ' 2026-11-10: both pins moved from 1.26.5 to 1.26.10, the newest 1.26 release
 ' that day. The Executor: "Bump Go to 1.26.7+"; lipgloss v2.1.0 needs go
-' 1.26.7 (_spec/_plans/tui-responsiveness.puml, D8). The next image build
+' 1.26.7 (_spec/internal/choiceui/tui-stack.puml, THE PINS). The next image build
 ' refetches the Go layer once.
 '
 ' ONE _java_major (N3, DONE (wt) 2026-10-17; the user: "Keep awk, delete sed
