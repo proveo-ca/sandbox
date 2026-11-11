@@ -7,6 +7,9 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' covers: internal/contract/tui_stack_pins_test.go
 ' covers: internal/contract/tea_envmsg_test.go
 ' covers: internal/contract/tui_ratchets_test.go
+' covers: internal/choiceui/screen.go, internal/choiceui/screen_test.go
+' covers: internal/choiceui/frames_test.go, internal/choiceui/form_model_test.go
+' covers: e2e/form_tty_test.go
 '   why the stack changed ............ _spec/_plans/tui-responsiveness.puml (D3, D8, D9)
 '   the order the port lands in ...... _spec/_plans/tui-upgrades-delivery.puml (W4, W5, W9, W10)
 '   who owns the terminal ............ _spec/internal/ptyproxy/pty-ownership.puml
@@ -14,15 +17,17 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' This file grows as the port lands. Landed so far, all 2026-11-10: B0 (the
 ' pins), B2 (the proxy hosts a Program), B3 (the Ctrl+C dialog), B4 and B5
-' (the tcell overlay and modal are deleted).
+' (the tcell overlay and modal are deleted). On 2026-11-11: B11, B6, B7 and
+' W-e (the forms).
 '
 ' ── WHY BUBBLE TEA v2 ──────────────────────────────────────────────────────
 ' The Executor, 2026-11-10: "Port everything to Bubble Tea v2" (D3), and for
 ' the drawing: "Rewrite the views in lipgloss" (D9). The stated reference is
 ' sbx's own TUI. MEASURED with `go version -m` on sbx 0.50.0: it embeds
 ' bubbletea v2.0.10, bubbles v2.2.1 and lipgloss v2.0.6.
-' tcell v2.6.0 and go-fuzzyfinder stay until the last importer moves; the
-' delivery plan removes them in W10 (B9).
+' No proveo file imports tcell since the forms moved (W9). go.mod still
+' requires tcell v2.6.0 because go-fuzzyfinder does; the delivery plan removes
+' both in W10 (B9).
 '
 ' ── THE PINS (B0) ──────────────────────────────────────────────────────────
 '   charm.land/bubbletea/v2  v2.1.1
@@ -65,8 +70,7 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' later the typed dialog became a button row
 ' (_spec/internal/choiceui/confirm-dialogs.puml) and the tcell modal was
 ' deleted (B5), so neither renderer of the comparison exists any more. The
-' forms keep their tcell renderer until the delivery plan's W9, which holds
-' their rewrite to golden frames instead.
+' forms' port was held to golden frames instead: THE FORMS, below.
 ' NO MESSAGE REACHES A FORMATTER. tea.EnvMsg carries the whole environment,
 ' and a spike that logged its messages wrote the operator's variables to a
 ' file. A contract test parses every Go file that imports bubbletea and fails
@@ -75,11 +79,62 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' [Inference] The check is syntactic. A message copied into another variable
 ' and formatted there passes it.
 '
+' ── THE FORMS (B11, B6, B7, W-e) — 2026-11-11 ──────────────────────────────
+' THE ORACLE CAME FIRST (B11, 6fe4a3e2). frames_test.go draws every form,
+' page and topology state at the sizes viewport.puml names and compares each
+' frame's plain text with a file: 131 under internal/choiceui/testdata/frames/.
+' The tcell renderer wrote them, and they were committed before any drawing
+' changed. PROVEO_UPDATE_FRAMES=1 rewrites them.
+' THE DRAWING KEEPS ITS GEOMETRY (B6, B7, e9b719df). draw() still places text
+' by column and row. What changed is the sink. screen (screen.go) collects
+' styled runs; view() turns each run into one lipgloss Layer at its x and y
+' with a rising Z, composed on a Canvas of the terminal's size. A later run
+' covers an earlier one, which is what a cell grid did.
+' MEASURED: the port's first run equalled all 131 golden frames.
+' THIS IS NARROWER THAN THE PLAN'S READING OF D9. The plan had about 890
+' lines of drawing rewritten and the positional tests replaced by the
+' goldens. The port kept draw(), canvas and pen, retargeted at screen, and
+' kept the positional tests through a shim (screen_test.go renders a frame
+' and reads it back by cell).
+' [Inference] D9 ("Rewrite the views in lipgloss") may have meant flow layout
+' (JoinVertical, Place). The topology strip and the viewport budget are column
+' arithmetic; a flow rewrite would move frames the goldens hold fixed. The
+' Executor has not confirmed this reading.
+' B6 WAS NEVER DEAD CODE. The plan built the views beside the old drawing and
+' wired them in B7. With one sink swapped under an unchanged draw() there was
+' no second view to build, so B6 and B7 are one commit.
+' THE EVENT LOOP IS A MODEL. formModel holds the form, the cursor, the tick
+' and the size. A tea.KeyPressMsg becomes a press: a named key ("enter",
+' "shift+tab") or typed text. Form.key applies it and reports an Outcome when
+' the form ends. The figure's clock: _spec/internal/choiceui/topology-strip.puml.
+' THE FORM OPENS /dev/tty ITSELF. tcell wrote to /dev/tty. A Program writes to
+' stdout unless told otherwise, so `proveo run x >/dev/null` would have drawn
+' nothing. RunStep hands openTerminal()'s file to the Program as input and
+' output. MEASURED on tmux by e2e/form_tty_test.go: the form draws, takes a
+' key and leaves on Esc with stdout on /dev/null.
+' THE LOCALE REWRITE IS GONE. Under LANG=C tcell encoded private-use glyphs
+' as '?', so Run() rewrote POSIX locales to C.UTF-8. The rewrite left with
+' tcell.
+' [Unverified] That a LANG=C terminal shows the glyphs now. No run under
+' LANG=C was looked at.
+' ONE PALETTE. The dialogs carried a lipgloss palette beside the forms' tcell
+' one. Both read styles() now. The two-tone key line it gained:
+' _spec/internal/choiceui/wireframe.puml.
+' Pinned by internal/choiceui/frames_test.go: TestFramesMatchTheGoldenFiles
+' Pinned by internal/choiceui/form_model_test.go:
+'   TestTheFormsKeysMeanWhatTheyMeantOnTcell
+'   TestArrowsMoveTheCursorAndChangeTheAnswer
+'   TestTypingGoesToAFieldAndNotToTheForm
+'   TestTheFigureMovesOnTheClockAndTheFormDrawsOnTheAlternateScreen
+'   TestATerminalTooSmallTakesOnlyTheKeysThatLeave
+' Pinned by e2e/form_tty_test.go:
+'   TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected
+'
 ' ── THE OLD LIBRARIES ONLY LOSE IMPORTERS (G4) ─────────────────────────────
 ' tcell and go-fuzzyfinder leave when their last importer moves (delivery
 ' plan, B9). Until then a contract test lists every importing file: 34 for
 ' tcell and 5 for go-fuzzyfinder when it landed, 18 and 5 after W5 deleted
-' the overlay and the modal. A file outside the list fails
+' the overlay and the modal, 0 and 5 after W9. A file outside the list fails
 ' the test; so does a listed file that stopped importing, which keeps the
 ' list exact while it shrinks.
 ' The same file holds G5: a row in the glyph ban's exemption list whose file
@@ -103,6 +158,8 @@ component "bubbletea v2.1.1\nthe event loop" as TEA <<cloud>>
 component "lipgloss v2.1.0\nthe drawing · needs go 1.26.7" as LIP <<cloud>>
 component "bubbles v2.2.1\ntree · textinput · viewport · list" as BUB <<cloud>>
 component "a rewritten view\nlipgloss, compared with tcell's cells" as VIEW <<app>>
+component "screen\nstyled runs, one lipgloss layer each" as SCR <<app>>
+component "131 golden frames\nwritten by the tcell renderer" as GOLD <<app>>
 component "tea.EnvMsg\n**the whole environment**" as ENV <<error>>
 
 MOD ARROW_MAIN TEA
@@ -111,6 +168,8 @@ MOD ARROW_MAIN BUB
 PIN ARROW_MAIN MOD : holds
 DRIFT ARROW_ERROR MOD : what the test refuses
 LIP ARROW_MAIN VIEW
+LIP ARROW_MAIN SCR
+GOLD ARROW_MAIN SCR : holds every frame
 TEA ARROW_ERROR ENV : sent to every model
 
 note bottom of PIN
@@ -129,9 +188,23 @@ end note
 
 note bottom of VIEW
   **Rewritten, then compared.** The lipgloss
-  dialog and the tcell dialog are drawn side
-  by side in a test and must agree cell for
-  cell before the old renderer goes.
+  dialog and the tcell dialog were drawn side
+  by side in a test and agreed cell for cell
+  before the old renderer went.
+end note
+
+note bottom of SCR
+  **The sink changed, the geometry did not.**
+  The form still places text by column and
+  row. Each run becomes a layer; a later one
+  covers an earlier one, as cells did.
+end note
+
+note bottom of GOLD
+  **Written before the port.** Every form, page
+  and figure state at each named size, as
+  plain text. The port's first run equalled
+  all 131.
 end note
 
 note bottom of ENV

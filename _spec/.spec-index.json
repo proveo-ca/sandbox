@@ -872,7 +872,7 @@
       "covers": [
         "internal/choiceui/choiceui.go",
         "internal/choiceui/choiceui_test.go",
-        "internal/choiceui/render_test.go",
+        "internal/choiceui/screen_test.go",
         "internal/choiceui/hover_test.go",
         "internal/choiceui/gated_reason_test.go",
         "internal/choiceui/pane_test.go",
@@ -913,7 +913,7 @@
         "internal/choiceui/choiceui.go",
         "internal/choiceui/pen.go",
         "internal/run/topology.go",
-        "internal/choiceui/anim_test.go",
+        "internal/choiceui/form_model_test.go",
         "internal/choiceui/topology_test.go",
         "internal/choiceui/layout_test.go",
         "internal/choiceui/pane_test.go",
@@ -946,7 +946,12 @@
         "go.mod",
         "internal/contract/tui_stack_pins_test.go",
         "internal/contract/tea_envmsg_test.go",
-        "internal/contract/tui_ratchets_test.go"
+        "internal/contract/tui_ratchets_test.go",
+        "internal/choiceui/screen.go",
+        "internal/choiceui/screen_test.go",
+        "internal/choiceui/frames_test.go",
+        "internal/choiceui/form_model_test.go",
+        "e2e/form_tty_test.go"
       ],
       "fingerprint": null
     },

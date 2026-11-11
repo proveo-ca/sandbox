@@ -4,11 +4,11 @@ skinparam noteTextAlignment left
 ' purpose: the mechanism of the topology strip — its inputs, its budget, its clock
 ' covers: internal/choiceui/topology.go (drawLanes, drawTraffic, trafficMotes)
 ' covers: internal/choiceui/layout.go
-' covers: internal/choiceui/anim.go (animFrame, ticker, frame)
-' covers: internal/choiceui/choiceui.go (the EventKey case)
+' covers: internal/choiceui/anim.go (animFrame)
+' covers: internal/choiceui/choiceui.go (formModel: formTick, animTick)
 ' covers: internal/choiceui/pen.go, internal/choiceui/canvas.go
 ' covers: internal/run/topology.go (topologyOf, egressTier, lanesOf, squareWith)
-' covers: internal/choiceui/anim_test.go, internal/choiceui/topology_test.go
+' covers: internal/choiceui/form_model_test.go, internal/choiceui/topology_test.go
 ' covers: internal/choiceui/layout_test.go, internal/choiceui/pane_test.go
 ' covers: internal/choiceui/pen_test.go, internal/choiceui/canvas_test.go
 ' covers: internal/choiceui/region_order_test.go
@@ -76,9 +76,8 @@ skinparam noteTextAlignment left
 ' That argument does not survive the mote. The mote imitates NETWORK FLOW, and
 ' flow that stops after 1.2s is not a picture of a network — it is a picture of
 ' a network that failed. So animWindow, the `since` field and bump() are gone,
-' along with bump's call site in the EventKey case; frame() is
-' `time.Since(base)/animFrame + 1`, and the goroutine posts every frame for as
-' long as the prompt is open.
+' along with bump's call site in the key handler; a frame is asked for every
+' animFrame for as long as the prompt is open.
 '
 ' THE TRADE, RECORDED HONESTLY: a redraw every 120ms for as long as the form is
 ' up, in exchange for motion that does not decay to a still picture. animFrame
@@ -91,19 +90,22 @@ skinparam noteTextAlignment left
 ' hanging it off individual mutations would have left the one case that mattered
 ' uncovered. With every frame posted there is no longer a case to cover.
 '
-' PollEvent blocks, so the clock still cannot be a timer the draw loop reads; it
-' has to be an event. PostEvent is non-blocking and reports a full queue rather
-' than parking, so a tick arriving against a screen nobody is reading is dropped
-' instead of wedging the goroutine that sent it.
+' THE CLOCK IS A MESSAGE (2026-11-11, the Bubble Tea port). The model's Init
+' asks for one tea.Tick of animFrame. Each formTick adds one to the model's
+' tick and asks for the next. The Program draws after every message, so the
+' tick is what repaints the figure.
+' Under tcell the clock was a goroutine posting an interrupt into the event
+' queue, because PollEvent blocked. It had to be stopped, and waited for,
+' before the screen closed. A Program that has ended delivers nothing, so no
+' goroutine is left to stop and no dead screen is left to post into.
 '
-' The frame count is a DURATION off one monotonic reading, never a difference of
-' wall-clock instants: a clock stepped backwards by NTP makes an elapsed time
-' negative, and drawTraffic refuses a tick <= 0 rather than walking a path
-' backwards from it.
-'
-' stop WAITS for the goroutine to leave, so no post is in flight against a
-' screen the caller is tearing down; Run registers it after screen.Fini
-' precisely so it runs first.
+' The frame count is a COUNT OF TICKS, never a difference of wall-clock
+' instants. It starts at 1 and only rises, so the form never hands drawTraffic
+' the tick <= 0 it refuses.
+' [Inference] A Program held in a slow Update draws fewer frames than the wall
+' clock would give. The motes then move slower, never backwards.
+' Pinned by internal/choiceui/form_model_test.go:
+'   TestTheFigureMovesOnTheClockAndTheFormDrawsOnTheAlternateScreen
 '
 ' ── THE FIGURE FOLLOWS THE HOVERED BASELINE, NOT THE SETTLED ONE ───────────
 ' The sbx egress row is LOCKED — the baseline is the HOST's, not this run's —
@@ -175,21 +177,22 @@ skinparam noteTextAlignment left
 '
 ' Nerd Font private-use is pinned to one column inside runeCols. Unicode
 ' classes that block as East-Asian ambiguous, so a CJK locale stored width 2
-' and the next cell wiped the glyph. LANG=C made tcell encode them as
-' US-ASCII '?'; Run() rewrites POSIX locales to C.UTF-8 before NewScreen.
+' and the next cell wiped the glyph. Under tcell LANG=C encoded them as
+' US-ASCII '?', so Run() rewrote POSIX locales to C.UTF-8 before NewScreen.
+' That rewrite left with tcell: _spec/internal/choiceui/tui-stack.puml.
 '
-' A zero-width rune is attached to the PRECEDING cell as a tcell combining rune
-' instead of being given a column, and it is asked directly rather than through
-' go-runewidth — which reports U+FE0F, the variation selector, as ONE column.
-' That single disagreement is why emoji are kept out of the strip entirely: a
-' writer trusting the width table smears every variation-selected glyph one cell
-' right. The mark attaches to p.x-1's BASE cell, never to the continuation cell
-' of a wide rune, which tcell owns.
+' A zero-width rune gets NO column. It stays in its run's text behind its base,
+' and the pen does not advance for it. The pen asks zeroWidth directly rather
+' than go-runewidth — which reports U+FE0F, the variation selector, as ONE
+' column. That single disagreement is why emoji are kept out of the strip
+' entirely: a writer trusting the width table smears every variation-selected
+' glyph one cell right. A zero-width rune with nothing written before it has no
+' base to sit on, so the pen drops it.
 '
 ' textWidth is asked rather than assumed: a Nerd Font devicon lives in the
 ' private-use area, which Unicode classes as AMBIGUOUS width — one column in a
 ' Latin locale, two in a CJK one — so the figure's budget has to be measured the
-' same way tcell will measure it when it paints.
+' same way the pen advances when it paints.
 '
 ' ── WHY THE FRAME IS A PROJECTION, AND WHAT ITS ZERO VALUE DRAWS ───────────
 ' Frame is one still picture of the run the form currently describes. The hop
@@ -347,7 +350,7 @@ skinparam noteTextAlignment left
 ' name needs once it also carries " + Ollama".
 '
 ' THE PROMISE IS DELIBERATELY NARROW. draw() has always painted straight down
-' and tcell has always discarded the overflow, so a terminal shorter than the
+' and the screen drops every row past its last, so a terminal shorter than the
 ' form still loses its last rows. What the budget guarantees is only that THE
 ' STRIP is never what pushed them off.
 '
@@ -408,9 +411,9 @@ node "internal/choiceui" as PKG <<host>> {
 }
 
 component "draw(screen, cursor)\nexisting paint, now budget-aware" as DRAW <<app>>
-component "Run()\nexisting event loop" as RUN <<app>>
+component "formModel\nthe Bubble Tea event loop" as RUN <<app>>
 component "Rows\negress · credentials · auth\nexecution · interface · outputs" as ROWS <<app>>
-queue "animTicker\nPostEvent every 120ms, while the prompt is open" as TICK <<async>>
+queue "formTick\na tea.Tick every 120ms, while the prompt is open" as TICK <<async>>
 component "Operator terminal\nw x h, resized at will" as TTY <<host>>
 
 component "A figure that only decorates" as DECOR <<error>>
@@ -424,9 +427,9 @@ TTY ARROW_MAIN LAYOUT : width x height, on every resize
 LAYOUT ARROW_MAIN DRAW : which regions are affordable
 DRAW ARROW_OPTIONAL PAINT : only when the strip fits
 PAINT ARROW_MAIN TTY
-TICK ARROW_QUEUE RUN : EventInterrupt — the clock is an event
+TICK ARROW_QUEUE RUN : formTick — the clock is a message
 RUN ARROW_MAIN DRAW
-RUN ARROW_MAIN TICK : started with the prompt, stopped before ""Fini""
+RUN ARROW_MAIN TICK : asked for again after every tick
 PAINT ARROW_MAIN TRAFFIC : ""tick"", the spine and every drawn lane
 TRAFFIC ARROW_MAIN TTY : 5 motes, then 1500ms quiet
 PAINT ARROW_ERROR DECOR
@@ -593,10 +596,10 @@ note top of COLS
 end note
 
 note top of TICK
-  **""PollEvent"" blocks, so the clock has to be
-  an event.** A goroutine posting an interrupt
-  at ~8 fps is the only tick that does not
-  starve the keystrokes the form waits on.
+  **The clock is a message.** Each tick asks
+  for the next, and the Program draws after
+  every message. ~8 fps reach the figure with
+  no goroutine of proveo's own.
 end note
 
 note bottom of TICK
@@ -608,11 +611,10 @@ note bottom of TICK
 end note
 
 note bottom of TICK
-  **Stopped before ""Fini"", on every path.** A
-  ticker outliving the screen posts into a dead
-  ""tcell.Screen""; accept and cancel both return
-  through ""Run"", so the stop belongs on the
-  defer already standing beside it.
+  **Nothing to stop.** A tick is a command the
+  Program owns. When the form ends the Program
+  ends with it, so no post can reach a screen
+  that is gone.
 end note
 
 note top of GLYPH

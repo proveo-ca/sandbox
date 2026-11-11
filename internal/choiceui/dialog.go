@@ -146,7 +146,7 @@ func (d dialog) View() tea.View {
 
 // box is the bordered dialog: the body, then the button row and its key line, or the held line.
 func (d dialog) box() string {
-	p := teaStyles()
+	p := styles()
 	var rows []string
 	for _, text := range d.lines {
 		rows = append(rows, modalLineTea(p, text, d.title).Render(text))

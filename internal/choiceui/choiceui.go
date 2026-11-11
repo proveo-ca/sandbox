@@ -655,6 +655,8 @@ type palette struct {
 	title  lipgloss.Style
 	idle   lipgloss.Style
 	aside  lipgloss.Style // italic — parenthetical descriptions
+	key    lipgloss.Style // a key on the key line: bold and bright
+	word   lipgloss.Style // the word beside it: grey
 }
 
 func styles() palette {
@@ -667,6 +669,8 @@ func styles() palette {
 		title:  lipgloss.NewStyle().Bold(true),
 		idle:   fg(ui.ColorSecondary),
 		aside:  fg(ui.ColorSecondary).Italic(true),
+		key:    fg(ui.ColorSecondary).Bold(true),
+		word:   fg(ui.ColorMuted),
 	}
 }
 
@@ -754,7 +758,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 
 	c.y = bodyTop + lay.body + 1
 
-	c.put(0, p.body, f.hint(w, g.hiddenRows(lines)))
+	f.drawHint(c, p, w, g.hiddenRows(lines))
 	c.y++
 
 	if lay.helpSlot > 0 {
@@ -788,41 +792,45 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 
 const hintScroll = "pgup/pgdn scroll"
 
-// hintPart is one key-line segment; a narrow screen drops the lowest keep first.
+// hintPart is one key-line segment: a key and the word for what it does. A
+// narrow screen drops the lowest keep first.
 type hintPart struct {
-	text string
-	keep int
+	key, word string
+	keep      int
 }
 
-// hint is the key line, narrowed segment by segment so "enter accept" goes last.
+// text is the segment as the plain key line spells it.
+func (p hintPart) text() string {
+	if p.key == "" || p.word == "" {
+		return p.key + p.word
+	}
+	return p.key + " " + p.word
+}
+
+const hintJoin = " · "
+
+// hintParts is the key line's segments, narrowed one by one so "enter accept" goes last.
 // SPEC: _spec/internal/choiceui/wireframe.puml
-func (f *Form) hint(w, hidden int) string {
+func (f *Form) hintParts(w, hidden int) []hintPart {
 	var parts []hintPart
 	if f.Step.Of > 1 {
-		parts = append(parts, hintPart{fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
+		parts = append(parts, hintPart{"", fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
 	}
-	parts = append(parts, hintPart{"↑↓ row", 3})
+	parts = append(parts, hintPart{"↑↓", "row", 3})
 	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
-		parts = append(parts, hintPart{"←→ move", 3}, hintPart{"space toggle", 2})
+		parts = append(parts, hintPart{"←→", "move", 3}, hintPart{"space", "toggle", 2})
 	} else {
-		parts = append(parts, hintPart{"←→ choose", 3})
+		parts = append(parts, hintPart{"←→", "choose", 3})
 	}
-	parts = append(parts, hintPart{hintScroll, 1})
+	parts = append(parts, hintPart{"pgup/pgdn", "scroll", 1})
 	if f.Step.backable() {
-		parts = append(parts, hintPart{"shift+tab back", 6})
+		parts = append(parts, hintPart{"shift+tab", "back", 6})
 	}
-	parts = append(parts, hintPart{"enter accept", 9}, hintPart{"esc cancel", 5})
+	parts = append(parts, hintPart{"enter", "accept", 9}, hintPart{"esc", "cancel", 5})
 	if hidden > 0 {
-		parts = append(parts, hintPart{fmt.Sprintf("%d more below", hidden), 4})
+		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
-	join := func() string {
-		texts := make([]string, len(parts))
-		for i, p := range parts {
-			texts[i] = p.text
-		}
-		return strings.Join(texts, " · ")
-	}
-	for len([]rune(join())) > w && len(parts) > 1 {
+	for len([]rune(joinHint(parts))) > w && len(parts) > 1 {
 		low := 0
 		for i, p := range parts {
 			if p.keep < parts[low].keep {
@@ -831,7 +839,56 @@ func (f *Form) hint(w, hidden int) string {
 		}
 		parts = slices.Delete(parts, low, low+1)
 	}
-	return clip(join(), w)
+	return parts
+}
+
+func joinHint(parts []hintPart) string {
+	texts := make([]string, len(parts))
+	for i, p := range parts {
+		texts[i] = p.text()
+	}
+	return strings.Join(texts, hintJoin)
+}
+
+// hint is the key line as plain text, clipped to w; tests and e2e read this projection.
+func (f *Form) hint(w, hidden int) string {
+	return clip(joinHint(f.hintParts(w, hidden)), w)
+}
+
+// drawHint paints the key line in two tones: each key bold and bright, its word grey.
+func (f *Form) drawHint(c *canvas, p palette, w, hidden int) {
+	type piece struct {
+		st   lipgloss.Style
+		text string
+	}
+	var pieces []piece
+	for i, part := range f.hintParts(w, hidden) {
+		if i > 0 {
+			pieces = append(pieces, piece{p.word, hintJoin})
+		}
+		if part.key != "" {
+			pieces = append(pieces, piece{p.key, part.key})
+		}
+		if part.word != "" {
+			word := part.word
+			if part.key != "" {
+				word = " " + word
+			}
+			pieces = append(pieces, piece{p.word, word})
+		}
+	}
+	left := []rune(f.hint(w, hidden))
+	x := 0
+	for _, pc := range pieces {
+		n := min(len([]rune(pc.text)), len(left))
+		if n == 0 {
+			break
+		}
+		shown := string(left[:n])
+		c.put(x, pc.st, shown)
+		x += textWidth(shown)
+		left = left[n:]
+	}
 }
 
 func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {

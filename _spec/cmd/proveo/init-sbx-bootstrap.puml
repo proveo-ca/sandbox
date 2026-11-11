@@ -174,7 +174,8 @@ skinparam noteTextAlignment left
 ' the operator that the flag did nothing.
 '
 ' A terminal is required at BOTH ends before anything is asked — the form draws
-' through tcell, which needs a real screen, and reads keys from stdin. Either
+' on the controlling terminal and reads its keys there (/dev/tty), and init
+' takes stdin and stderr both being terminals as the sign that one exists. Either
 ' one missing is a legitimate answer ("no terminal to ask through") and not a
 ' failure, and the defaults are then printed so the operator finds out
 ' afterwards what was chosen for them.

@@ -4,6 +4,8 @@ package choiceui
 import (
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func stepForm(at, of int) *Form {
@@ -102,5 +104,51 @@ func TestTheDrawnFooterCarriesThePage(t *testing.T) {
 	t.Parallel()
 	if out := joined(t, stepForm(2, 3)); !strings.Contains(out, "page 2/3") || !strings.Contains(out, "enter accept") {
 		t.Errorf("the footer does not name the page:\n%s", out)
+	}
+}
+
+// The key line is two-tone: a key is bold and bright, the word beside it grey.
+func TestTheKeyLinePaintsKeysBoldAndWordsGrey(t *testing.T) {
+	t.Parallel()
+	f := stepForm(2, 3)
+	s := simScreen(t, 120, 30)
+	f.draw(s, 0, 0)
+	lines := screenLines(s)
+	row := -1
+	for y, l := range lines {
+		if strings.Contains(l, "enter accept") {
+			row = y
+		}
+	}
+	if row < 0 {
+		t.Fatalf("no key line on the frame:\n%s", strings.Join(lines, "\n"))
+	}
+	if got, want := lines[row], f.hint(120, 0); got != want {
+		t.Errorf("the painted key line %q is not its plain projection %q", got, want)
+	}
+	at := func(word string) int { return textWidth(lines[row][:strings.Index(lines[row], word)]) }
+	for _, key := range []string{"enter", "esc", "shift+tab", "↑↓"} {
+		if _, _, st, _ := s.GetContent(at(key), row); !st.GetBold() || fgHex(st) != hexName(ui.ColorSecondary) {
+			t.Errorf("the key %q is not bold and bright: %q", key, st.Render("x"))
+		}
+	}
+	for _, word := range []string{"accept", "cancel", "back", "row", "page 2/3"} {
+		if _, _, st, _ := s.GetContent(at(word), row); st.GetBold() || fgHex(st) != hexName(ui.ColorMuted) {
+			t.Errorf("the word %q is not grey: %q", word, st.Render("x"))
+		}
+	}
+}
+
+// A key line too long for the screen is clipped where the plain line is, whichever segment that falls in.
+func TestAClippedKeyLineStillEndsWhereThePlainLineEnds(t *testing.T) {
+	t.Parallel()
+	f := stepForm(0, 0)
+	for _, w := range []int{4, 9, 13, 20, 31} {
+		s := simScreen(t, w, 30)
+		c := newCanvas(s)
+		f.drawHint(c, styles(), w, 0)
+		if got, want := screenLines(s)[0], strings.TrimRight(f.hint(w, 0), " "); got != want {
+			t.Errorf("width %d: painted %q, plain %q", w, got, want)
+		}
 	}
 }

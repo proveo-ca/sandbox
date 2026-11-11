@@ -238,6 +238,31 @@ skinparam noteTextAlignment left
 '     NOT DONE: `proveo init` with the prompt row on this host. It edits the
 '     operator's rc file and starship config.
 '     Reasoning: _spec/internal/promptkit/prompt-kit.puml.
+' W9  DONE 2026-11-11: the goldens in 6fe4a3e2, the port in e9b719df, the
+'     key line and the specs in the commit after.
+'     B11: 131 frames, written by the tcell renderer before any drawing
+'     changed. THE PORT EQUALLED ALL 131 ON ITS FIRST RUN, as plain text.
+'     A DEVIATION FOR THE EXECUTOR TO JUDGE. The plan had about 890 lines of
+'     drawing rewritten as lipgloss views and the positional tests replaced
+'     by the goldens. What landed keeps draw(), canvas and pen and swaps the
+'     sink: styled runs become lipgloss layers on a canvas. The positional
+'     tests stay, through a shim that reads a rendered frame back by cell.
+'     B6 was never dead code, so B6 and B7 are one commit.
+'     [Inference] D9 may have meant flow layout. Nobody asked.
+'     tcell HAS NO IMPORTER LEFT. go.mod keeps it until W10: go-fuzzyfinder
+'     requires it.
+'     THE GATE'S HOST-TAB CHECK RAN ON tmux INSTEAD. e2e/form_tty_test.go
+'     runs `proveo run claudecode >/dev/null`: the form draws, takes a key
+'     and leaves on Esc. No host tab was used.
+'     Also green on the port: the six TestInit pins and two dialog pins on
+'     macOS and, twice each, on linux/arm64; the scope-picker pin; the clone
+'     e2e and the Ctrl+C dialog over a real claudecode agent (macOS, real
+'     sandboxes); the 16-row baseline.
+'     THE LOCALE REWRITE WENT WITH tcell. [Unverified] No LANG=C terminal
+'     was looked at.
+'     Reasoning: _spec/internal/choiceui/tui-stack.puml (THE FORMS),
+'     _spec/internal/choiceui/wireframe.puml (the two-tone key line),
+'     _spec/internal/choiceui/topology-strip.puml (the clock is a message).
 '
 ' ── THE WAVES ──────────────────────────────────────────────────────────────
 ' Size: S under 150 changed lines, M under 500, L under 1500.

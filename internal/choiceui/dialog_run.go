@@ -8,32 +8,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // modalPad is the blank columns between a dialog's border and its text.
 const modalPad = 2
 
-// teaPalette is the prompt palette as lipgloss styles.
-type teaPalette struct {
-	warn, body, title, aside lipgloss.Style
-}
-
-func teaStyles() teaPalette {
-	fg := func(c int) lipgloss.Style { return lipgloss.NewStyle().Foreground(hexOf(c)) }
-	return teaPalette{
-		warn:  fg(ui.ColorWarn),
-		body:  fg(ui.ColorSecondary),
-		title: lipgloss.NewStyle().Bold(true),
-		aside: fg(ui.ColorSecondary).Italic(true),
-	}
-}
-
 func hexOf(c int) color.Color { return lipgloss.Color(fmt.Sprintf("#%06X", c)) }
 
 // modalLineTea styles one body line: the title bold, a consequence in the warning colour.
-func modalLineTea(p teaPalette, text, title string) lipgloss.Style {
+func modalLineTea(p palette, text, title string) lipgloss.Style {
 	switch {
 	case text == title:
 		return p.title

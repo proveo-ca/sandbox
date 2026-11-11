@@ -217,8 +217,9 @@ skinparam noteTextAlignment left
 ' reader gets every key, 20 rounds; red before the fix),
 ' TestAnOverlayOpenAtChildExitEndsWithTheChild,
 ' TestAShutHandOffReaderStaysShutAcrossResume,
-' TestDiscardInputDropsWhatWasTypedBeforeIt; internal/choiceui:
-' TestAModalWhoseInputEndsReturnsInsteadOfWaiting; e2e (tmux only):
+' TestDiscardInputDropsWhatWasTypedBeforeIt,
+' TestAnOverlayProgramEndsWhenTheHandOffIsShut (it took over from choiceui's
+' modal pin when the tcell modal went); e2e (tmux only):
 ' TestLivePostExitPromptTakesTheFirstKeysOnTmux, y + Enter accepted 12 of 12
 ' (red before the fix).
 '
@@ -292,10 +293,9 @@ skinparam noteTextAlignment left
 '   TestOverlayOutputTurnsABareLineFeedIntoCarriageReturnLineFeed
 '   TestScreenModesFollowTheChildsAlternateScreenAndCursor
 '   TestAnOverlayGivesTheChildItsScreenModesBack
-' by internal/choiceui:
-'   TestTheCloseDialogAnswersAsItsTcellTwinDoes
-'   TestTheTypedFieldTakesTextAndPasteUpToItsCap
-'   TestTheLipglossDialogMatchesTheTcellDialogCellForCell
+' by internal/choiceui (three pins against the tcell twin left with it):
+'   TestEnterAloneGivesTheSafeAnswerInEveryDialog
+'   TestTheCloseDialogSaysWhatItDoesAndNamesItsKeys
 ' and by e2e (tmux): TestLiveCtrlCConfirmationOnTmux (driver unchanged),
 '   TestLiveCtrlCDialogGivesTheChildItsScreenModesBack,
 '   TestCtrlCDialogOverARealAgentGivesItsScreenBackAndRemovesOnYes (real sbx)
@@ -347,7 +347,7 @@ node "agent process" as CH <<host>> {
   component "PTY slave is its tty\n(the sbx client running the agent;\ndocker agent and --shell retired)" as CHILD <<app>>
 }
 
-component "a SECOND reader\n""tcell.NewScreen"" · a bare prompt" as SECOND <<error>>
+component "a SECOND reader\na prompt on ""/dev/tty"" during a run" as SECOND <<error>>
 component "the child's last line\nlost to ""m.Close()""" as LOST <<error>>
 
 OP ARROW_MAIN IN : keystrokes
@@ -398,11 +398,11 @@ note right of PROG
 end note
 
 note bottom of SECOND
-  **""tcell.NewScreen"" is the trap.** It opens
-  ""/dev/tty"" and runs its own input loop, so the
-  modal renders correctly and then takes no
-  keystrokes — measured on a live run. Build over
-  ""NewTerminfoScreenFromTty"" instead.
+  **A second reader is the trap.** A prompt that
+  opens ""/dev/tty"" while the proxy reads it
+  draws correctly and then takes no keys:
+  measured on a live run. During a run a
+  dialog goes through ""OverlayProgram"".
 end note
 
 note right of OUT
