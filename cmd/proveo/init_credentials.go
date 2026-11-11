@@ -380,7 +380,7 @@ func firstField(rows []choiceui.Row) string {
 }
 
 // credentialStage is `proveo init`'s credentials screen; typed carries its answers across a step back.
-func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (stepResult, error) {
+func credentialStage(o initOptions, at choiceui.Step, typed map[string]string, rec *initRecord) (stepResult, error) {
 	// The embedded registry, not the defs/ tree: init runs on a freshly installed
 	// host where no repository exists.
 	ms, err := loadManifests()
@@ -423,6 +423,9 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 	switch {
 	case err != nil || out == choiceui.Cancelled || out == choiceui.Skipped:
 		clear(typed)
+		if rec != nil && err == nil {
+			rec.leave(actCreds, "proveo init")
+		}
 		return stepNext, err
 	case out == choiceui.Quit:
 		clear(typed)
@@ -460,6 +463,9 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 		if err := provisionSlot(s, value); err != nil {
 			ui.Warnf("%s: %v", s.Label, err)
 		}
+	}
+	if rec != nil {
+		rec.did(actCreds)
 	}
 	return stepNext, nil
 }

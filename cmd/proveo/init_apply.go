@@ -56,7 +56,7 @@ func applyPlan(d initDecisions, c applyCtx) []applyStep {
 		return nil
 	})
 	if d.Login {
-		add("sign in to Docker (sbx login)", true, func() error {
+		add(actSignIn, true, func() error {
 			ui.Section(ui.SectionCredentials)
 			ui.Hostf("signing in to Docker — `%s login` owns this, and proveo never sees the credential", sbx.Binary)
 			if err := interactive(bin(), sbx.LoginArgs()); err != nil {
@@ -66,7 +66,7 @@ func applyPlan(d initDecisions, c applyCtx) []applyStep {
 		})
 	}
 	if d.Wizard {
-		add("run sbx's first-run wizard (sbx setup)", true, func() error {
+		add(actWizard, true, func() error {
 			ui.Section(ui.SectionStarting)
 			ui.Appf("running the first-run wizard (`%s setup`) — 0.42 stopped opening it on its own", sbx.Binary)
 			if err := interactive(bin(), sbx.SetupArgs()); err != nil {
@@ -87,13 +87,13 @@ func applyPlan(d initDecisions, c applyCtx) []applyStep {
 		})
 	}
 	if d.Git {
-		add("set the sandbox git identity", true, func() error { applyGitIdentity(hostGitStage()); return nil })
+		add(actGit, true, func() error { applyGitIdentity(hostGitStage()); return nil })
 	}
 	if d.Prompt {
-		add("install the prompt kit", true, func() error { applyPromptKit(!d.NoPrompt && interactiveTerminal()); return nil })
+		add(actPrompt, true, func() error { applyPromptKit(!d.NoPrompt && interactiveTerminal()); return nil })
 	}
 	if d.Gh {
-		add("connect GitHub", true, func() error {
+		add(actGitHub, true, func() error {
 			applyGitHub(ghStage{
 				auth:      hostGhAuth(),
 				host:      c.host,
@@ -120,9 +120,10 @@ func stepNames(plan []applyStep) []string {
 	return out
 }
 
-// runApply runs plan in order and stops at the first step that fails. A step
-// that hands the terminal away gets a start line; any other gets a live line.
-func runApply(plan []applyStep) error {
+// runApply runs plan in order and stops at the first step that fails; ran hears
+// each listed step that did not fail. A step that hands the terminal away gets a
+// start line; any other gets a live line.
+func runApply(plan []applyStep, ran func(name string)) error {
 	steps := ui.NewSteps(len(stepNames(plan)))
 	for _, s := range plan {
 		var err error
@@ -136,6 +137,9 @@ func runApply(plan []applyStep) error {
 		}
 		if err != nil {
 			return err
+		}
+		if ran != nil {
+			ran(s.name)
 		}
 	}
 	return nil

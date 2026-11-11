@@ -1,0 +1,156 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title init opens on every check and closes on the result
+' purpose: what `proveo init` shows before it asks anything, and what it says once it has finished
+' covers: cmd/proveo/init_preflight.go
+' covers: cmd/proveo/init_preflight_test.go
+' covers: internal/choiceui/check_page.go
+' covers: internal/choiceui/check_page_test.go
+'   the pages between the two ......... _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   what each key means on a page ..... _spec/internal/choiceui/wizard-keys.puml
+'   the apply the result reads ........ _spec/internal/ui/step-lines.puml
+'   sbx's verdict on the host ......... _spec/internal/sbx/host-readiness.puml
+'   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W13)
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS THERE ─────────────────────────────────────────────────────────
+' init printed its install prerequisites to the stream and listed only the
+' FAILED ones in the setup form's header. sbx's own checks (`sbx diagnose`)
+' ran after the install, so an operator with sbx already installed learned
+' the host was not ready only at the end. A failed blocking prerequisite
+' ended init with one error line before any page drew.
+' init ended on whatever the last step printed. Nothing said what had been
+' answered "later", or what to type next.
+'
+' ── PAGE 1: EVERY CHECK (W-l) ──────────────────────────────────────────────
+' A prompted init has four pages now: the checks, setup, credentials,
+' operator. The checks page asks nothing. It shows:
+'   to install sbx   every prerequisite sbx.Prereqs reports, passing ones
+'                    included
+'   sbx diagnose     every row of `sbx diagnose --json`, when sbx is already
+'                    on the host
+' Each row carries a mark (passed, warning, failed, skipped), the check's
+' name and its detail. A row that did not pass shows the fix under it:
+' Prereq.Fix, or sbx's own hint.
+' On a host with no sbx the page holds the install prerequisites alone. On
+' macOS that is one row.
+' One sentence gives the verdict: "every check passed", or "2 of 7 checks
+' need attention". Either way Enter continues to setup: a failing sbx check
+' is a reason to reinstall, which setup offers.
+' A BLOCKING PREREQUISITE STOPS HERE, ON A PAGE. The verdict reads "blocked:
+' nothing good follows an install here: <names>", Enter does nothing, and
+' the key line offers Esc alone. Closing the page returns the same error as
+' before. With --yes or no terminal the error is still immediate.
+' sbx diagnose RUNS ONCE. A step back from setup redraws the rows it got.
+' AN sbx THAT DOES NOT ANSWER IS A ROW, NOT A FAILURE: "gave no answer", with
+' `proveo init --force` as the fix. The page still continues.
+' THE STREAM STILL CARRIES THE PREREQUISITES. reportPrereqs prints before
+' the page, so a pipe, a log and the scrollback have them. The page adds
+' sbx's rows; the apply's verify step prints those to the stream later.
+' THE PAGE IS NO FORM. Its Enter word is "continue", not "accept": the e2e
+' helpers wait for "enter accept" to find a form.
+' Esc on setup now steps back to the checks. It used to end init with
+' "cancelled at the init prompt"; that is Esc on the checks page now.
+' Golden frames: internal/choiceui/testdata/checks/, 12 files.
+'
+' ── THE CLOSE: WHAT RAN, WHAT WAITS, WHAT IS NEXT (W-m) ────────────────────
+' initRecord collects across every page and every revisit:
+'   done    each listed step of an apply that did not fail, once, in order
+'   later   each one-shot action answered "later", with the command that
+'           does it
+' An action that ran on an earlier visit stays done. A revisit opens every
+' one-shot action on "later" (init-sbx-bootstrap.puml), and without the
+' record that revisit would list a finished sign-in as waiting.
+' The commands: `sbx login` and `sbx setup` for sbx's own two; `proveo init`
+' for the git identity, the prompt kit, GitHub and the credentials, because
+' init is the only place proveo offers them.
+' Skipping the credentials page is "later"; accepting it is done.
+' "leave as is" on the network baseline is no "later": nothing waits.
+' THE RESULT IS PRINTED, NOT PAGED. The plan calls it a page. A page lives
+' on the alternate screen and takes its text with it when it closes; the
+' next command to type is what an operator wants left on the terminal. The
+' block prints under the `results` section:
+'   done: sign in to Docker (sbx login)
+'   later: connect GitHub — `proveo init`
+'   next: `proveo run` — it lists the harnesses this host can start
+' It prints at the end of a finished init and of a confirmed quit. It does
+' not print when a step failed: the error is then the last line.
+' It prints with --yes and with no terminal too.
+'
+' ── WHAT RAN ───────────────────────────────────────────────────────────────
+' macOS and linux/arm64, on tmux against the stub sbx: the checks page shows
+' both groups and no "enter accept"; Esc on setup returns to it and Enter
+' goes on without re-running sbx login or sbx setup; the result lists what
+' ran as done, what was skipped as later with its command, and the next
+' command. The eight older init tests pass through one changed helper,
+' which continues past the checks page.
+' NOT RUN: a blocked host. The blocked page is unit-tested and drawn in the
+' golden frames; no test host fails a blocking prerequisite.
+' NOT RUN: a host without sbx, so the one-row page drew in no test.
+'
+' Pinned by cmd/proveo/init_preflight_test.go:
+'   TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix
+'   TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds
+'   TestAnSbxThatDoesNotAnswerIsARowAndNotAnError
+'   TestTheResultCountsAnActionThatRanOnAnEarlierVisitAsDone
+'   TestSignInLeftForLaterNamesSbxsOwnCommand
+' Pinned by internal/choiceui/check_page_test.go:
+'   TestTheCheckPagesKeys
+'   TestTheCheckPageShowsEveryCheckItsMarkAndTheHintUnderOneThatFailed
+'   TestABlockedCheckPageSaysWhyAndOffersNoWayOn
+'   TestAShortCheckPageScrollsAndKeepsItsVerdictAndItsKeys
+'   TestTheCheckPageMatchesItsGoldenFrames
+' Pinned by e2e/init_steps_test.go:
+'   TestInitOpensOnTheChecksAndClosesOnTheResult
+
+component "install prerequisites\nsbx.Prereqs" as PRE <<data>>
+component "sbx diagnose\nwhen sbx is on the host" as DIAG <<cloud>>
+component "page 1 · the checks\nevery row, with its mark" as PAGE <<app>>
+component "**a blocking prerequisite**\nEnter does nothing" as BLOCK <<error>>
+component "setup · credentials · operator" as PAGES <<app>>
+component "initRecord\ndone · later" as REC <<data>>
+component "the result\ndone · later with its command · next" as RESULT <<host>>
+
+PRE ARROW_MAIN PAGE
+DIAG ARROW_OPTIONAL PAGE
+PAGE ARROW_MAIN PAGES : Enter
+PAGE ARROW_ERROR BLOCK
+PAGES ARROW_MAIN REC : each step that ran, each answer "later"
+REC ARROW_MAIN RESULT
+
+note bottom of PAGE
+  **It asks nothing.** Passing checks show too,
+  and sbx's own rows join them when sbx is
+  already installed. A row that did not pass
+  carries its fix.
+end note
+
+note bottom of BLOCK
+  **Stopped on a page, not by a line.** The
+  verdict names the prerequisite and the key
+  line offers Esc alone. Without a terminal
+  the old error is still immediate.
+end note
+
+note bottom of REC
+  **A step back cannot undo "done".** A revisit
+  opens every one-shot action on "later". The
+  record remembers the sign-in that already
+  ran, so the result does not list it twice.
+end note
+
+note bottom of RESULT
+  **Printed, so it stays.** A page would take
+  its text with it. The block prints in the
+  stream: what ran, what waits and its
+  command, and the next command to type.
+end note
+
+note bottom of DIAG
+  **Asked once.** The rows are kept for the
+  whole init. A sbx that gives no answer is
+  one warning row with the reinstall command,
+  and the wizard goes on.
+end note
+@enduml

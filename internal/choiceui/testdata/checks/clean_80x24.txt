@@ -1,0 +1,19 @@
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+init — what was checked on darwin/arm64                             checks · 1/4
+
+  to install sbx
+  ✓ Apple silicon — macOS Sonoma 14 or later on Apple silicon
+  sbx diagnose
+  ✓ virtualization — Hypervisor.framework is available
+
+every check passed — enter continues to setup
+
+page 1/4 · enter continue · esc cancel · ctrl+c quit

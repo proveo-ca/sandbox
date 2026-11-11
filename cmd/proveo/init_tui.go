@@ -111,11 +111,14 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		return stepNames(applyPlan(answered(f, def), plannedCtx(plan, host, answered(f, def), viaPackage)))
 	}
 
-	ok, err := form.Run()
-	if err != nil {
+	switch out, err := form.RunStep(); {
+	case err != nil:
 		return initDecisions{}, err
-	}
-	if !ok {
+	case out == choiceui.Back:
+		return initDecisions{}, errInitBack
+	case out == choiceui.Quit:
+		return initDecisions{}, errInitQuit
+	case out != choiceui.Accepted:
 		return initDecisions{}, fmt.Errorf("cancelled at the init prompt")
 	}
 	return answered(form, def), nil

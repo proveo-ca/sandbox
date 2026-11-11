@@ -46,6 +46,7 @@ exit 0
 type initRun struct {
 	sess                *tmux.Session
 	home, tmp, log, sec string
+	pastChecks          bool // the checks page was continued past
 }
 
 // startInit runs the real `proveo init` on a tmux TTY against initStubSbx, in a scrubbed environment.
@@ -127,7 +128,7 @@ func (r *initRun) keys(t *testing.T, keys ...string) {
 
 // init's numbered pages, and the keys and hint that move between them.
 const (
-	initPages    = 3
+	initPages    = 4 // the checks, then setup, credentials and operator
 	initBackKey  = "Escape"
 	initBackHint = "esc back"
 )
@@ -135,11 +136,23 @@ const (
 // initSkipKeys focus the Skip button under a page's rows and press it.
 var initSkipKeys = []string{"End", "Down", "Enter"}
 
-func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n, initPages) }
+// initPageLabel is the key line's label for form n: 1 setup, 2 credentials, 3 operator.
+func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n+1, initPages) }
 
-// page waits for numbered page n and returns its screen.
+// checks waits for the checks page, which opens every prompted init, and returns its screen.
+func (r *initRun) checks(t *testing.T) string {
+	t.Helper()
+	return r.wait(t, fmt.Sprintf("page 1/%d", initPages))
+}
+
+// page waits for form n and returns its screen; the first call continues past the checks page.
 func (r *initRun) page(t *testing.T, n int) string {
 	t.Helper()
+	if !r.pastChecks {
+		r.checks(t)
+		r.keys(t, "Enter")
+		r.pastChecks = true
+	}
 	return r.wait(t, initPageLabel(n))
 }
 
@@ -198,8 +211,8 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	if !regexp.MustCompile(`sign in\s+\(•\) now`).MatchString(screen) {
 		t.Fatalf("setup does not open with sign in on now:\n%s", screen)
 	}
-	if strings.Contains(screen, initBackHint) {
-		t.Errorf("page 1 offers a step back it cannot take:\n%s", screen)
+	if !strings.Contains(screen, initBackHint) {
+		t.Errorf("setup does not offer the step back to the checks page:\n%s", screen)
 	}
 	r.keys(t, "Enter")
 	screen = r.page(t, 2)
@@ -372,7 +385,7 @@ func TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton(t *testing.T) {
 	r.wait(t, "leave the wizard?")
 	r.keys(t, "C-c")
 	screen = r.wait(t, "INIT_EXIT=")
-	if !strings.Contains(screen, "quit at page 3/3") || !strings.Contains(screen, "INIT_EXIT=1") {
+	if !strings.Contains(screen, "quit at page 4/4") || !strings.Contains(screen, "INIT_EXIT=1") {
 		t.Errorf("a confirmed quit must say where init stopped and exit 1:\n%s", screen)
 	}
 }
@@ -406,5 +419,47 @@ func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
 	}
 	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 1 {
 		t.Errorf("each listed action must run once; sbx saw:\n%s", strings.Join(calls, "\n"))
+	}
+}
+
+// init opens on every check before it asks anything, and closes on what it did,
+// what it left with the command that does it, and the next command to type.
+func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
+	r := startInit(t, 140, "--skip-gh", "--skip-git")
+	screen := r.checks(t)
+	for _, want := range []string{"what was checked on", "to install sbx", "sbx diagnose", "enter continue", "esc cancel", "ctrl+c quit"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("the checks page lacks %q:\n%s", want, screen)
+		}
+	}
+	if strings.Contains(screen, "enter accept") || strings.Contains(screen, initBackHint) {
+		t.Errorf("the checks page is the first page and no form: it must not say \"enter accept\" or offer a step back:\n%s", screen)
+	}
+	r.page(t, 1)
+	r.back(t)
+	r.checks(t)
+	r.keys(t, "Enter")
+	r.page(t, 1)
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	all := r.waitExit(t)
+	results := all[strings.LastIndex(all, "results"):]
+	for _, want := range []string{
+		"done: sign in to Docker (sbx login)", "done: run sbx's first-run wizard (sbx setup)", "done: verify sbx (sbx diagnose)",
+		"later: set the sandbox git identity — `proveo init`", "later: connect GitHub — `proveo init`",
+		"later: provision credentials — `proveo init`", "next: `proveo run`",
+	} {
+		if !strings.Contains(results, want) {
+			t.Errorf("the result lacks %q:\n%s", want, results)
+		}
+	}
+	if strings.Contains(results, "later: sign in to Docker") {
+		t.Errorf("an action that ran is listed as left for later:\n%s", results)
+	}
+	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 1 {
+		t.Errorf("stepping back to the checks page re-ran setup; sbx saw:\n%s", strings.Join(calls, "\n"))
 	}
 }

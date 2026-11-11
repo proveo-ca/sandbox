@@ -206,6 +206,8 @@ skinparam noteTextAlignment left
 ' ── THREE SCREENS, BACK ONE AT A TIME (DECISION 2026-11-08) ───────────────
 ' The Executor chose "Back/next across screens". runInitSteps(prompted, steps)
 ' walks [setup, credentials, operator]; prompted = !--yes && a terminal.
+' SINCE 2026-11-11 A CHECKS PAGE COMES FIRST, so the walk has four screens and
+' the labels read page 1/4 to 4/4: _spec/cmd/proveo/init-preflight-and-result.puml.
 '   prompted     each screen gets choiceui.Step{At, Of}: page 1/3, 2/3, 3/3,
 '                and the way back is offered on screens 2 and 3 only (Esc
 '                since 2026-11-11; shift+tab before, and still accepted)
@@ -244,7 +246,9 @@ skinparam noteTextAlignment left
 '                operator screen does.
 '   operator     _spec/cmd/proveo/operator-name.puml. The Skip button ends
 '                init without changing the name; until 2026-11-11 Esc did.
-' Esc on setup still errors "cancelled at the init prompt".
+' Esc on setup errored "cancelled at the init prompt" while setup was the
+' first screen. It steps back to the checks page now, and Esc there errors
+' the same way.
 ' What each key means on a page: _spec/internal/choiceui/wizard-keys.puml.
 ' ADVERSARIAL REVIEW [HIGH], 2026-11-08: the first stepper carried every
 ' earlier answer, so each revisit re-ran `sbx login`, the wizard, `sbx policy

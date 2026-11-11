@@ -4,6 +4,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -85,12 +86,14 @@ func doInit(o initOptions) error {
 	reportPlan(plan, installed, o.force || o.printOnly)
 
 	checks := reportPrereqs(host)
-	if stop := sbx.Blocking(checks, sbx.BlocksInstall); len(stop) > 0 && !o.printOnly {
-		return fmt.Errorf("nothing good follows an install here: %s", strings.Join(sbx.Names(stop), ", "))
+	prompted := !o.yes && !o.printOnly && interactiveTerminal()
+	stop := sbx.Blocking(checks, sbx.BlocksInstall)
+	if len(stop) > 0 && !o.printOnly && !prompted {
+		return errBlocked(stop)
 	}
 	if o.printOnly {
 		printPlan(plan, installed)
-		if _, err := credentialStage(o, choiceui.Step{}, nil); err != nil { // reports where each credential rests; provisions nothing
+		if _, err := credentialStage(o, choiceui.Step{}, nil, nil); err != nil { // reports where each credential rests; provisions nothing
 			return err
 		}
 		_, err := operatorStage(o, choiceui.Step{})
@@ -99,9 +102,30 @@ func doInit(o initOptions) error {
 
 	var prev *initDecisions
 	viaPackage := false
+	rec := &initRecord{}
+	var rows []choiceui.CheckRow
+	preflight := func(at choiceui.Step) (stepResult, error) {
+		if !prompted {
+			return stepNone, nil
+		}
+		if rows == nil {
+			var diag []sbx.Check
+			var diagErr error
+			if installed != "" {
+				diag, diagErr = sbx.DiagnoseAt(resolveBin(plan))
+			}
+			rows = preflightRows(checks, diag, diagErr)
+		}
+		return preflightPage(host, rows, stop, at)
+	}
 	setup := func(at choiceui.Step) (stepResult, error) {
 		d, err := decide(plan, host, installed, checks, o, prev, viaPackage, at)
-		if err != nil {
+		switch {
+		case errors.Is(err, errInitBack):
+			return stepBack, nil
+		case errors.Is(err, errInitQuit):
+			return stepQuit, nil
+		case err != nil:
 			return stepNext, err
 		}
 
@@ -142,7 +166,8 @@ func doInit(o initOptions) error {
 			}
 		}
 
-		if err := runApply(applyPlan(d, applyCtx{plan: plan, applied: applied, download: download, host: host})); err != nil {
+		rec.leaveUnchosen(d)
+		if err := runApply(applyPlan(d, applyCtx{plan: plan, applied: applied, download: download, host: host}), rec.did); err != nil {
 			return stepNext, err
 		}
 		installed, why = installedVersion(applied)
@@ -150,11 +175,16 @@ func doInit(o initOptions) error {
 		return stepNext, nil
 	}
 	typed := map[string]string{}
-	return runInitSteps(!o.yes && interactiveTerminal(), []initStep{
+	err = runInitSteps(!o.yes && interactiveTerminal(), []initStep{
+		preflight,
 		setup,
-		func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed) },
+		func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed, rec) },
 		func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at) },
 	})
+	if err == nil || errors.Is(err, errInitLeft) {
+		rec.report()
+	}
+	return err
 }
 
 // appliedPlan is the plan setup acts on; a package manager owns placement, like the MSI.
@@ -175,6 +205,9 @@ const (
 	stepQuit // the operator left the wizard: no later screen runs
 )
 
+// errInitLeft is the error a confirmed quit ends init with.
+var errInitLeft = errors.New("quit")
+
 // initStep is one screen of `proveo init`.
 type initStep func(at choiceui.Step) (stepResult, error)
 
@@ -193,7 +226,7 @@ func runInitSteps(prompted bool, steps []initStep) error {
 			return err
 		}
 		if r == stepQuit {
-			return fmt.Errorf("quit at page %d/%d — what earlier pages did stays done", i+1, len(steps))
+			return fmt.Errorf("%w at page %d/%d — what earlier pages did stays done", errInitLeft, i+1, len(steps))
 		}
 		if (r == stepBack || (r == stepNone && back)) && prompted && i > 0 {
 			i, back = i-1, true

@@ -71,12 +71,16 @@ func TestAnApplyNumbersItsListedStepsAndStopsAtTheFirstFailure(t *testing.T) {
 	step := func(name string, hands bool, err error) applyStep {
 		return applyStep{name, hands, func() error { ran = append(ran, name+"!"); return err }}
 	}
+	var heard []string
 	err := runApply([]applyStep{
 		step("download sbx", false, nil),
 		step("", false, nil),
 		step("sign in to Docker", true, boom),
 		step("verify sbx", false, nil),
-	})
+	}, func(name string) { heard = append(heard, name) })
+	if got := strings.Join(heard, "|"); got != "download sbx|" {
+		t.Errorf("heard %q; a step that failed must not be reported as run", got)
+	}
 	if !errors.Is(err, boom) {
 		t.Errorf("err = %v, want the failing step's", err)
 	}
