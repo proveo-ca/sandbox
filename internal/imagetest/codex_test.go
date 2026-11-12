@@ -85,6 +85,20 @@ func TestImageCodex(t *testing.T) {
 	s.Inspect("declares the sbx start-docker label", image, `{{index .Config.Labels "com.docker.sandboxes.start-docker"}}`, "true")
 	s.Inspect("Docker USER is non-root (codex)", image, `{{.Config.User}}`, "codex")
 	s.Inspect("entrypoint uses dumb-init", image, `{{json .Config.Entrypoint}}`, "dumb-init")
+
+	// SPEC: _spec/_devops/agent-version-pin.puml
+	s.Inspect("proveo.agent label names the agent package", image, `{{index .Config.Labels "proveo.agent"}}`, "@openai/codex")
+	label := ""
+	if r := imagetest.Docker(imagetest.DefaultTimeout, nil, "image", "inspect", "-f", `{{index .Config.Labels "proveo.agent.version"}}`, image); r.OK() {
+		label = strings.TrimRight(r.Out, "\n")
+	}
+	if label != "" {
+		s.Matches("codex --version matches proveo.agent.version="+label, image, "codex --version", `^codex-cli `+regexp.QuoteMeta(label)+`$`)
+	} else {
+		s.Check("proveo.agent.version label is set", func(t *testing.T) {
+			t.Error("image predates the pin — mise run build codex")
+		})
+	}
 	s.Check("CODEX_HOME is not baked (it must follow $HOME)", func(t *testing.T) {
 		r := imagetest.Docker(imagetest.DefaultTimeout, nil, "inspect", "--format", "{{json .Config.Env}}", image)
 		codexExpect(t, !strings.Contains(r.Out, "CODEX_HOME"), "CODEX_HOME must not be baked", r.Out)
@@ -264,6 +278,8 @@ func TestImageCodex(t *testing.T) {
     found=$(ls -A /app 2>/dev/null | grep -v "^output$" || true)
     [ -z "$found" ] && echo UNTOUCHED || echo "MUTATED:$found"
   `, `^UNTOUCHED$`)
+
+	overlaySwap(s, "codex", image)
 
 	// Phase 6: Direct LLM API
 	if os.Getenv("OPENAI_API_KEY") == "" {

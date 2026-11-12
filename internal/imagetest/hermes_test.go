@@ -64,6 +64,17 @@ func hmBuild(s *imagetest.Suite) {
 
 	// SPEC: _spec/_devops/agent-version-pin.puml
 	s.Inspect("proveo.agent label names the agent package", img, `{{index .Config.Labels "proveo.agent"}}`, "hermes-agent")
+	label := ""
+	if r := imagetest.Docker(imagetest.DefaultTimeout, nil, "image", "inspect", "-f", `{{index .Config.Labels "proveo.agent.version"}}`, img); r.OK() {
+		label = strings.TrimRight(r.Out, "\n")
+	}
+	if label != "" {
+		s.Contains("hermes --version matches proveo.agent.version="+label, img, "/opt/hermes/bin/hermes --version", "Hermes Agent "+label)
+	} else {
+		s.Check("proveo.agent.version label is set", func(t *testing.T) {
+			t.Error("image predates the pin — mise run build hermes")
+		})
+	}
 
 	// SPEC: _spec/packages/lib/seed-and-launch.puml
 	s.Success("ships the Kit's startup command (/usr/local/bin/proveo-seed)", img, "test -x /usr/local/bin/proveo-seed")
@@ -74,12 +85,6 @@ func hmBuild(s *imagetest.Suite) {
 		r := hmRun(t, 3*time.Minute, nil, "--user", "1000:1000", img, "--version")
 		if !r.OK() || !strings.Contains(r.Out, "Hermes Agent") {
 			t.Errorf("entrypoint did not reach hermes as uid 1000 (rc=%d, output tail: %s)", r.Code, hmTail(r.Out, 400))
-		}
-	})
-	s.Check("the entrypoint hands the browser path to the agent", func(t *testing.T) {
-		r := hmRun(t, 3*time.Minute, nil, "--user", "1000:1000", img, "env")
-		if want := "AGENT_BROWSER_EXECUTABLE_PATH=/opt/hermes/.playwright/"; !strings.Contains(r.Out, want) {
-			t.Errorf("agent env missing %s (output tail: %s)", want, hmTail(r.Out, 400))
 		}
 	})
 	s.Check("the real entrypoint boots and launches hermes", func(t *testing.T) {
@@ -105,9 +110,9 @@ func hmTools(s *imagetest.Suite) {
 		s.Success(tl.name+" is installed", img, tl.cmd)
 	}
 
-	// hermes always carries a browser; glob for the headless-shell Chromium.
-	s.Success("headless-shell chromium resolved by upstream's own pin is present and runs", img,
-		`bin="$(find /opt/hermes/.playwright -maxdepth 3 -type f -iname 'chrome-headless-shell' 2>/dev/null | head -1)"; test -n "$bin" && "$bin" --version`)
+	// SPEC: _spec/defs/hermes/hermes-paradigm.puml (THE BROWSER IS UPSTREAM'S MARKER)
+	s.Success("the chromium upstream's marker names is present and runs", img,
+		`bin="$(cat /etc/hermes/chromium-executable-path)"; test -x "$bin" && "$bin" --version`)
 }
 
 // hermesKnownSetuidBinaries is the accepted baseline: standard Debian

@@ -61,8 +61,9 @@ skinparam noteTextAlignment left
 ' image's /opt/data (non-durable), or ~/.hermes for a non-root uid that cannot
 ' write /opt/data. MEASURED: defs/hermes/entrypoint.sh probes only the
 ' PROVEO_STATE_HOME path now. The /proveo-home/data candidate (the docker+egress
-' rendering) is gone with that backend, and the hermes image test asserts only
-' AGENT_BROWSER_EXECUTABLE_PATH there, no /proveo-home/data probe. The manifest
+' rendering) is gone with that backend, and the hermes image test makes no
+' /proveo-home/data probe (its AGENT_BROWSER_EXECUTABLE_PATH check went
+' 2026-11-12, hermes-paradigm.puml THE BROWSER IS UPSTREAM'S MARKER). The manifest
 ' no longer names a `container:` path at all (F19 above; it named
 ' /proveo-home/data until 2026-10-17, which sbx ignored). upstream stage2-hook.sh
 ' reads HERMES_HOME and bootstraps/chowns whatever path it is given.

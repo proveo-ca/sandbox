@@ -60,6 +60,7 @@ func TestImageClaudecode(t *testing.T) {
 	ccWorkspace(s, img)
 	ccVolumes(s, img)
 	ccFunctional(s, img)
+	overlaySwap(s, "claudecode", img.standalone)
 }
 
 func ccBuild(s *imagetest.Suite, img ccImages) {

@@ -40,10 +40,17 @@ func New(name string, run Runner) *Session {
 // window.pane and ":" is session:window, so "hermes-qwen3.8" named no session.
 var sessionName = strings.NewReplacer(".", "-", ":", "-")
 
+// SessionEnv is KEY=VALUE pairs every session Start launches gets, over what the tmux server holds.
+var SessionEnv []string
+
 // Start launches cmd in a new detached session sized w×h (a fixed size keeps
 // captures deterministic).
 func (s *Session) Start(w, h int, cmd ...string) error {
-	args := append([]string{"new-session", "-d", "-s", s.Name, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h)}, cmd...)
+	args := []string{"new-session", "-d", "-s", s.Name, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h)}
+	for _, kv := range SessionEnv {
+		args = append(args, "-e", kv)
+	}
+	args = append(args, cmd...)
 	out, err := s.run(args...)
 	if said := strings.TrimSpace(out); err != nil && said != "" {
 		return fmt.Errorf("%w: %s", err, said)
