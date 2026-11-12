@@ -34,6 +34,8 @@ var notVariables = map[string]string{
 	"PROVEO_ANDROID_END":       "marker line in gradle.properties",
 	"PROVEO_ANDROID_START":     "marker line in gradle.properties",
 	"PROVEO_BROWSER_SKILL_SRC": "readonly shell constant",
+	"PROVEO_DEFAULTS_END":      "marker line in the managed CLAUDE.md",
+	"PROVEO_DEFAULTS_START":    "marker line in the managed CLAUDE.md",
 	"PROVEO_HOUSE_RULES_FILE":  "readonly shell constant",
 	"PROVEO_MODELS":            "log line the def entrypoints print",
 	"PROVEO_RC_END":            "marker line in ~/.bashrc",

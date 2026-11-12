@@ -126,7 +126,7 @@ func TestWorktreeWorkspaceIsFullyUsable(t *testing.T) {
 	script := `grep -q from-monorepo .env || { echo "ENV_UNREACHABLE"; exit 1; }
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "NOT_A_REPO"; exit 1; }
 [ "$(git rev-parse --abbrev-ref HEAD)" = hotfix ] || { echo "WRONG_BRANCH"; exit 1; }
-unexpected=$(git status --porcelain | grep -v '^?? AGENTS\.md$' || true)
+unexpected=$(git status --porcelain || true)
 [ -z "$unexpected" ] || { echo "DIRTY: $(printf '%s' "$unexpected" | head -2)"; exit 1; }
 proveo-entrypoint verify "$PWD" 2>/dev/null | grep -q . || { echo "NO_VERIFY_COMMANDS"; exit 1; }
 touch AGENTS.md.probe 2>/dev/null || { echo "WORKSPACE_READONLY"; exit 1; }
@@ -138,10 +138,10 @@ echo "WORKTREE_OK"`
 		t.Fatalf("worktree workspace unusable (exit %d):\n%s", status, out)
 	}
 
-	seeded, _ := k.exec(`git status --porcelain | head -5`, 30*time.Second)
-	if !strings.Contains(seeded, "?? AGENTS.md") {
-		t.Errorf("claudecode left the worktree untouched, but its seed writes AGENTS.md "+
-			"into a workspace that carries none — the seed either stopped running or wrote elsewhere:\n%s", seeded)
+	seeded, _ := k.exec(`grep -c 'proveo default instructions' /etc/claude-code/CLAUDE.md`, 30*time.Second)
+	if strings.TrimSpace(seeded) != "2" {
+		t.Errorf("a workspace carrying no AGENTS.md or CLAUDE.md must get proveo's defaults as one marked block "+
+			"in the managed /etc/claude-code/CLAUDE.md, and nothing in the worktree; the block markers counted:\n%s", seeded)
 	}
 }
 

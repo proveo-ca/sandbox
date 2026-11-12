@@ -1859,6 +1859,21 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/packages/lib/instruction-injection.puml",
+      "covers": [
+        "packages/lib/entrypoint-lib.sh",
+        "defs/opencode/entrypoint.sh",
+        "defs/opencode/Dockerfile",
+        "defs/opencode/managed/opencode.json",
+        "internal/contract/instructions_seed_test.go",
+        "internal/contract/seed_phase_test.go",
+        "internal/imagetest/claudecode_test.go",
+        "internal/imagetest/opencode_test.go",
+        "e2e/scope_mounts_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/packages/lib/opencode-seed-progress.puml",
       "covers": [
         "defs/opencode/Dockerfile",

@@ -222,8 +222,10 @@ skinparam noteTextAlignment left
 ' TestCloneCarriesAGitignoredSymlinkedDotEnv uses the same shape for the staged
 ' .env: gitignored, symlinked out of the checkout, it must read back in the
 ' clone, accept a write, stay out of `git status`, and land that write in the
-' host target at teardown. It asserts on .env alone, because the instructions
-' seed leaves AGENTS.md untracked in the clone. TestCloneLiftsTrackedSpecEdits
+' host target at teardown. It asserts on .env alone. Since 2026-11-11 the
+' instructions seed writes nothing into the clone, so the snapshot holds only
+' the agent's work (_spec/packages/lib/instruction-injection.puml).
+' TestCloneLiftsTrackedSpecEdits
 ' edits a tracked _spec in the clone and reads the edit back from the host
 ' worktree after teardown.
 '

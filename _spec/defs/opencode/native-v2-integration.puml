@@ -90,8 +90,10 @@
 ' Advisors: edit deny, shell deny. spec-keeper: edit allow, shell deny; its
 ' existing prompt limits editing to _spec/, PLAN.md, and AGENTS.md.
 ' Do not introduce path-filter enforcement or new delegation denies by default.
-' Config, generated user agent files, and project AGENTS.md remain missing-only;
-' OPENCODE_RESEED=1 is the existing explicit replacement override.
+' Config and generated user agent files remain missing-only; OPENCODE_RESEED=1
+' is the existing explicit replacement override. The default instructions
+' never touch the project: /etc/opencode/opencode.json lists a /dev/shm file
+' (_spec/packages/lib/instruction-injection.puml).
 ' Explicit local-model/add-on wiring remains distinct from default reseeding.
 ' Shared proveo_bootstrap_opencode_config replaces the old sample-search fallback.
 ' Restore config, seed missing defaults, render agents, wire config, then release;

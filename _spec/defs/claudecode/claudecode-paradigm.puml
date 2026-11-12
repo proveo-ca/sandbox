@@ -35,17 +35,19 @@
 ' class is "a CLI auto-updater cannot write where the harness puts it"; the
 ' answer is always to stop it trying.
 '
-' ── AGENTS.md IS READ NATIVELY; THE DEFAULT SHIPS AS AGENTS.md ────────────
+' ── AGENTS.md IS READ NATIVELY; THE DEFAULT IS A MANAGED BLOCK ────────────
 ' Claude Code 2.1.277 reads AGENTS.md when a project has no CLAUDE.md, so the
 ' old one-line "@AGENTS.md" CLAUDE.md bridge is retired: a repo's own AGENTS.md
-' or CLAUDE.md is left as it is. Only when neither exists is the baked default
-' copied in, as AGENTS.md, by proveo_seed_instructions — the first seed step,
-' which the sbx launch waits on (_spec/packages/lib/seed-and-launch.puml).
+' or CLAUDE.md is left as it is. Under sbx, sbx's CLAUDE.md beside the
+' workspace hid every project AGENTS.md until proveo_claude_reads_agents_md
+' (2026-11-11) set instructionFiles to read both. When the workspace carries
+' neither file, the baked default goes into the managed /etc/claude-code/
+' CLAUDE.md as a marked block, never into the workspace
+' (_spec/packages/lib/instruction-injection.puml).
 '
-' The write is best-effort: the workspace may be a read-only mount, and a
-' failure warns and continues rather than killing the run. This is a PROJECT
-' file and therefore distinct from the house rules, which are never written to
-' the workspace (_spec/packages/lib/house-rules.puml).
+' The block write is best-effort: an unwritable managed file warns and the
+' agent starts without the default. The house rules, also in that file, are
+' never written to the workspace either (_spec/packages/lib/house-rules.puml).
 '
 ' seed_claude_proveo_home covers the other direction: when proveo mounts
 ' ~/.proveo at /proveo-home and sets HOME, the image's baked .claude.json and

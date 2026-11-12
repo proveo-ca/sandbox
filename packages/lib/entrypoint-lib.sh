@@ -1299,6 +1299,34 @@ proveo_install_claude_env_hook() {
   return 0
 }
 
+# SPEC: _spec/packages/lib/instruction-injection.puml
+# Sets Claude Code to load a project's AGENTS.md beside CLAUDE.md, unless the settings already choose.
+proveo_claude_reads_agents_md() {
+  local target="${1:-}" home
+  [[ "$target" == claudecode ]] || return 0
+  home="$(_proveo_agent_home)"
+  [[ -n "$home" ]] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  PROVEO_AGENT_HOME="$home" node -e '
+    const fs = require("fs");
+    const dir = process.env.PROVEO_AGENT_HOME + "/.claude";
+    const path = dir + "/settings.json";
+    const obj = (v) => (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
+    let j = {};
+    try { j = obj(JSON.parse(fs.readFileSync(path, "utf8"))); } catch (e) {}
+    const configs = obj(j.pluginConfigs), plugin = obj(configs["cc-plugin-agents-md@builtin"]), options = obj(plugin.options);
+    if (options.instructionFiles) process.exit(0);
+    options.instructionFiles = "claude-md-and-agents-md";
+    plugin.options = options;
+    configs["cc-plugin-agents-md@builtin"] = plugin;
+    j.pluginConfigs = configs;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n");
+    console.log("📄 Claude Code loads the project AGENTS.md beside CLAUDE.md");
+  ' 2>/dev/null
+  return 0
+}
+
 # SPEC: _spec/packages/lib/git-sync-turn.puml
 _proveo_merge_stop_hook() {
   local path="$1" cmd="$2"
@@ -1893,6 +1921,18 @@ proveo_provision_toolchain() {
 readonly PROVEO_RC_START="# >>> proveo toolchain (generated — edits are overwritten) >>>"
 readonly PROVEO_RC_END="# <<< proveo toolchain <<<"
 
+# Removes the marked block from path; a file without it stays as it is.
+_proveo_drop_block() {
+  local path="$1" start="$2" end="$3" tmp
+  [[ -f "$path" ]] && grep -qxF -- "$start" "$path" 2>/dev/null || return 0
+  tmp="$(mktemp)" || return 0
+  if awk -v s="$start" -v e="$end" '$0 == s { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$path" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$path" 2>/dev/null || { cat "$tmp" > "$path" 2>/dev/null; rm -f "$tmp"; }
+  else
+    rm -f "$tmp"
+  fi
+}
+
 _proveo_write_block() {
   local path="$1" start="$2" end="$3" tmp
   mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
@@ -1951,21 +1991,40 @@ proveo_seed_step() {
  return 0
 }
 
-# Seeds the def's default AGENTS.md into a workspace carrying neither file, then marks the boot seeded.
+# SPEC: _spec/packages/lib/instruction-injection.puml
+readonly PROVEO_DEFAULTS_START="<!-- >>> proveo default instructions (generated — edits are overwritten) >>> -->"
+readonly PROVEO_DEFAULTS_END="<!-- <<< proveo default instructions <<< -->"
+PROVEO_OPENCODE_INSTRUCTIONS="${PROVEO_OPENCODE_INSTRUCTIONS:-/dev/shm/proveo-default-instructions.md}"
+
+# Puts the def's default instructions in the agent's VM-local context while the workspace carries neither AGENTS.md nor CLAUDE.md, and takes them out otherwise.
 proveo_seed_instructions() {
- local target="${1:-}" dir defaults
+ local target="${1:-}" dir defaults bare=0
  dir="$(_proveo_scan_root)"
  case "$target" in
-  claudecode) defaults="${PROVEO_INSTRUCTIONS_DEFAULTS:-/opt/claudecode/defaults/AGENTS.md}" ;;
+  claudecode | opencode) defaults="${PROVEO_INSTRUCTIONS_DEFAULTS:-/opt/$target/defaults/AGENTS.md}" ;;
   *) return 0 ;;
  esac
- if [[ -f "$defaults" && -d "$dir" && ! -f "$dir/AGENTS.md" && ! -f "$dir/CLAUDE.md" ]]; then
-  if cp "$defaults" "$dir/AGENTS.md" 2>/dev/null; then
-   echo "🌱 Seeded AGENTS.md into workspace"
-  else
-   echo "⚠️  Could not seed AGENTS.md (workspace may be read-only); continuing" >&2
-  fi
- fi
+ [[ -f "$defaults" && -d "$dir" && ! -f "$dir/AGENTS.md" && ! -f "$dir/CLAUDE.md" ]] && bare=1
+ case "$target" in
+  claudecode)
+   if (( ! bare )); then
+    _proveo_drop_block "$PROVEO_CLAUDE_MANAGED_MD" "$PROVEO_DEFAULTS_START" "$PROVEO_DEFAULTS_END"
+   elif [[ -w "$PROVEO_CLAUDE_MANAGED_MD" ]]; then
+    _proveo_write_block "$PROVEO_CLAUDE_MANAGED_MD" "$PROVEO_DEFAULTS_START" "$PROVEO_DEFAULTS_END" < "$defaults"
+    echo "🌱 default instructions → ${PROVEO_CLAUDE_MANAGED_MD} (the workspace carries no AGENTS.md or CLAUDE.md)"
+   else
+    echo "⚠️  ${PROVEO_CLAUDE_MANAGED_MD} is not writable; the agent starts without proveo's default instructions" >&2
+   fi ;;
+  opencode)
+   if (( ! bare )); then
+    rm -f "$PROVEO_OPENCODE_INSTRUCTIONS" 2>/dev/null
+   elif cp "$defaults" "$PROVEO_OPENCODE_INSTRUCTIONS" 2>/dev/null; then
+    echo "🌱 default instructions → ${PROVEO_OPENCODE_INSTRUCTIONS} (the workspace carries no AGENTS.md or CLAUDE.md)"
+   else
+    echo "⚠️  could not write ${PROVEO_OPENCODE_INSTRUCTIONS}; the agent starts without proveo's default instructions" >&2
+   fi ;;
+ esac
+ return 0
 }
 
 # SPEC: _spec/packages/lib/seed-and-launch.puml
@@ -2319,6 +2378,7 @@ proveo_seed() {
  proveo_apply_ui_defaults "$target"
  proveo_install_claude_hooks "$target"
  proveo_install_claude_env_hook "$target"
+ proveo_claude_reads_agents_md "$target"
  proveo_seed_step interface "seeding browser skills" "$target"
  proveo_seed_browser_skills "$target"
  proveo_seed_step starting "releasing agent; background setup continues" "$target"

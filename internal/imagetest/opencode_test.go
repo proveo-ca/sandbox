@@ -386,6 +386,9 @@ fi
 func ocDefaults(s *imagetest.Suite) {
 	img := s.Image
 	s.Success("baked defaults: opencode.json present in /opt", img, "test -f /opt/opencode/defaults/opencode.json")
+	// SPEC: _spec/packages/lib/instruction-injection.puml
+	s.Contains("/etc/opencode lists proveo's default instructions file", img, "cat /etc/opencode/opencode.json",
+		"/dev/shm/proveo-default-instructions.md")
 	s.Success("git-sync turn hook is executable", img, "test -x /opt/proveo/hooks/git-sync-turn.sh")
 	s.Success("git-sync idle plugin is baked", img, "test -f /opt/proveo/hooks/proveo-git-sync-turn.js")
 
