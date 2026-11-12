@@ -38,6 +38,7 @@ type Entry struct {
 	Repo    string    `json:"repo,omitempty"`
 	Sid     string    `json:"sid,omitempty"`
 	Why     string    `json:"why,omitempty"`
+	Output  string    `json:"output,omitempty"` // a kept clone's host output dir: what `proveo rm` lifts into
 	Refs    []Ref     `json:"refs,omitempty"`
 	Pending bool      `json:"pending,omitempty"` // written ahead: the teardown that would settle it has not finished
 	Exit    *int      `json:"exit,omitempty"`

@@ -61,13 +61,30 @@ func manifestForTarget(target string) (manifest.Manifest, error) {
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
-		if code, ok := exitCode(err); ok {
-			os.Exit(code)
-		}
-		ui.Failf("%v", err)
-		os.Exit(1)
+		exitWith(err)
 	}
 }
+
+// exitWith ends proveo with err's status, printing err unless a block already said it; a
+// reraised stop ends proveo by its signal.
+// SPEC: _spec/internal/backend/exit-code.puml
+func exitWith(err error) {
+	code, ok := exitCode(err)
+	if !ok {
+		ui.Failf("%v", err)
+		code = 1
+	}
+	var r reraised
+	if errors.As(err, &r) {
+		dieOf(r.Signal)
+	}
+	os.Exit(code)
+}
+
+// reraised is a stop proveo ends by its own signal once it printed its blocks.
+type reraised struct{ backend.Stopped }
+
+func (r reraised) Unwrap() error { return r.Stopped }
 
 func rootCmd() *cobra.Command {
 	var flagLS, flagInit bool

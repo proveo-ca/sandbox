@@ -216,6 +216,15 @@ func (b *Block) Print() {
 	PrintBlock(b.heading, ordered(b.facts), b.items)
 }
 
+// Take is what Print would print, for a caller that prints it itself; the block then counts as printed.
+func (b *Block) Take() ([]ui.Fact, []Item) {
+	if b == nil || b.printed {
+		return nil, nil
+	}
+	b.printed = true
+	return ordered(b.facts), b.items
+}
+
 // resultOrder is the order what came home prints in, whichever step found it first.
 var resultOrder = []string{"output", ".env", "branches", "_spec", "pushed", "transcript"}
 

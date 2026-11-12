@@ -45,6 +45,28 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 '              (STARSHIP_CONFIG, else ~/.config/starship.toml).
 ' Each step says what it did, or that the host already had it. A second
 ' Apply downloads nothing and adds nothing.
+' HOW IT SAYS SO (R3 of _spec/_plans/output-readability.puml, 2026-11-11).
+' Options.Report still receives each step's sentence; `proveo uninstall`
+' passes ui.Hostf, so Undo's "removed the starship line from <rc>", "removed
+' the proveo segment from <config>" and "removed <starship>" still print
+' (R4 owns their look; TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig
+' pins that they print). Options.Fact and Options.Warn are new: init sets
+' Report to nil and prints ONE block under "prompt" from them:
+'   starship  <version> + dim "installed at ~/…", or <path> + "already on PATH"
+'   font      FiraCode Nerd Font + dim "<n> files in ~/…", or "a Nerd Font"
+'             + "already installed"
+'   rc        <rc> + dim "added `<line>`" or "already starts starship"
+'   config    <config> + dim "created from starship's <preset> preset",
+'             "holds the proveo segment"
+'   ⚠ <shell> — no starship line known, dim "start starship from its
+'             startup file yourself" (a degrade the operator did not cause)
+'   ⚠ prompt kit — not finished, its error dim
+' "open a new shell to see it; `proveo uninstall` takes it out again" and
+' "to see icons, set your terminal's font …, then `starship preset …`" moved
+' to `proveo init --help` (F2). NOT CHOSEN: routing Report to ui.Logf (init
+' writes no log, so the lines would land nowhere, and uninstall shares the
+' options). Pinned by internal/promptkit/promptkit_test.go
+' TestApplySaysWhatItFoundAsFactsAndAShellWithNoLineAsAWarning.
 '
 ' ── EVERY DOWNLOAD IS HELD TO A DIGEST IN THE SOURCE ───────────────────────
 ' The plan said "checked against its published .sha256". The digests are

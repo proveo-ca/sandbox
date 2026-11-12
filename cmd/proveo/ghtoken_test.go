@@ -36,9 +36,9 @@ func TestGitHubTokenPrefersExplicitEnv(t *testing.T) {
 	t.Parallel()
 	for _, key := range []string{"GITHUB_TOKEN", "GH_TOKEN"} {
 		g, logins := stubAuth(map[string]string{key: "from-env"}, true, "from-gh", nil, nil)
-		got, err := g.resolve()
+		got, err := g.lookup()
 		if err != nil {
-			t.Errorf("%s set: resolve error %v", key, err)
+			t.Errorf("%s set: lookup error %v", key, err)
 		}
 		if got != "from-env" {
 			t.Errorf("%s set: token = %q, want the env value to win over gh", key, got)
@@ -52,9 +52,9 @@ func TestGitHubTokenPrefersExplicitEnv(t *testing.T) {
 func TestGitHubTokenComesFromHostGhSession(t *testing.T) {
 	t.Parallel()
 	g, logins := stubAuth(nil, true, "keyring-token", nil, nil)
-	got, err := g.resolve()
+	got, err := g.lookup()
 	if err != nil {
-		t.Errorf("resolve error %v", err)
+		t.Errorf("lookup error %v", err)
 	}
 	if got != "keyring-token" {
 		t.Errorf("token = %q, want the host gh session's token", got)
@@ -67,7 +67,7 @@ func TestGitHubTokenComesFromHostGhSession(t *testing.T) {
 func TestGitHubTokenNeverLogsInOnARun(t *testing.T) {
 	t.Parallel()
 	g, logins := stubAuth(nil, true, "", errors.New("not logged in"), nil)
-	got, _ := g.resolve()
+	got, _ := g.lookup()
 	if got != "" {
 		t.Errorf("token = %q, want empty", got)
 	}
@@ -79,7 +79,7 @@ func TestGitHubTokenNeverLogsInOnARun(t *testing.T) {
 func TestGitHubTokenLockedKeychainDoesNotOfferLogin(t *testing.T) {
 	t.Parallel()
 	g, logins := stubAuth(nil, true, "", errCredentialStoreTimeout, nil)
-	got, err := g.resolve()
+	got, err := g.lookup()
 	if got != "" {
 		t.Errorf("token = %q, want empty when the credential store times out", got)
 	}
@@ -94,7 +94,7 @@ func TestGitHubTokenLockedKeychainDoesNotOfferLogin(t *testing.T) {
 func TestGitHubTokenSkippedWithoutGh(t *testing.T) {
 	t.Parallel()
 	g, logins := stubAuth(nil, false, "", errors.New("nope"), nil)
-	got, err := g.resolve()
+	got, err := g.lookup()
 	if got != "" {
 		t.Errorf("token = %q, want empty when gh is not installed", got)
 	}

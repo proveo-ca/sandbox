@@ -170,9 +170,27 @@
 ' "credentials" after "results".
 ' A block with nothing to print declares no heading (sandbox.PrintBlock,
 ' ui.Facts), so an empty subject never lends its heading to the next line.
-' "scope" and "secrets" stay in the
-' vocabulary for the numbered scope picker and for init; in a run their lines
-' fold into run and sbx. "execution" and "starting" stay for init.
+' "scope" stays in the vocabulary for the numbered scope picker; in a run its
+' lines fold into run.
+' `proveo init` (R3, 2026-11-11) names its subjects the same way, each once,
+' each after the step that makes it true:
+'
+'   sbx · prompt · git · credentials · operator · results
+'
+'   sbx          the programs sbx owns (their hand lines), then one Facts
+'                block: host, sbx, network; then its items
+'   prompt       the shell-prompt kit's facts
+'   git          the sandbox git identity, GitHub's token, sandbox Git access
+'   credentials  what sbx's store holds after the credentials page
+'   operator     the name agents use
+'   results      what waits ("later"), what a failure kept from running
+'                ("not run"), sbx's failing checks, one closing verdict
+' "execution", "starting" and "secrets" left the vocabulary with init's
+' phase headings (ui.go, 18 sections); "setup" stays `proveo setup`'s.
+' A revisit of init's setup page prints only what it changed: a hand line, an
+' item or a fact never printed before. A heading redraws only above those
+' lines; a revisit that changed nothing draws none. NOT CHOSEN: reprinting
+' the block (host twice); never redrawing (its hand line lands under git).
 ' THE FORM KEEPS ITS DIVIDERS. The run form groups its rows by where the agent
 ' runs ("execution") and what it drives ("interface"); the narration names
 ' subjects. e2e/ports_publish_test.go reads the form's "execution".

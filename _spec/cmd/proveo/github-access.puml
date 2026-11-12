@@ -32,6 +32,20 @@ title GitHub access — host selection, sandbox verification
 ' Keys stay in the host agent. Public keys must already be registered at GitHub.
 ' init never copies private keys, creates a key, or tests by creating a commit.
 ' --yes and non-TTY report host readiness without a new transport grant.
+' WHAT INIT PRINTS (R3, 2026-11-11): one "access" fact in the "git" block
+' (_spec/cmd/proveo/init-sbx-bootstrap.puml, WHAT INIT PRINTS). A saved choice
+' reads "access: ssh" with its github.json path dim (~/…). Unprompted it reads
+' the saved choice or "not chosen", dim "N host key(s); sandbox verification
+' pending" and the SSH problem's state, cut before its ";" ("host agent
+' unavailable or empty", without "load … with ssh-add"); with no terminal one
+' more dim line, "`proveo init` from a terminal signs in and chooses it";
+' --yes keeps no how-to. Pinned by cmd/proveo/init_github_access_test.go
+' TestAnUnaskedAccessKeepsSSHsStateAndAHowToOnlyWithoutATerminal.
+' Gone: "sandbox Git: <mode> — <abs path>", "host configured; proveo run
+' verifies sandbox SSH before releasing the agent" (what a later command
+' does), "run proveo init from a terminal to choose access" under --yes.
+' Failures are ⚠ items in the same block; a Ctrl+C that ends `sbx settings
+' set` or `sbx daemon restart` stops init.
 ' The choice persists atomically as transport only, in the host user-config
 ' directory's proveo/github.json. Unknown or malformed choices fail a run.
 '

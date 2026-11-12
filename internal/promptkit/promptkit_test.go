@@ -353,3 +353,43 @@ func TestTheGlyphAnswerPicksThePreset(t *testing.T) {
 		}
 	}
 }
+
+// Apply says what it found as facts init prints in one block, and a shell it has no line for as a
+// warning; Report stays Undo's.
+func TestApplySaysWhatItFoundAsFactsAndAShellWithNoLineAsAWarning(t *testing.T) {
+	fetch, _ := pinTo(t, starshipArchive(t, "#!/bin/sh\n"), fontArchive(t))
+	o := kitOptions(t, "/bin/zsh", fetch)
+	facts := map[string][]string{}
+	var warned []string
+	o.Fact = func(key, value string, detail ...string) { facts[key] = append([]string{value}, detail...) }
+	o.Warn = func(text string, detail ...string) { warned = append(warned, text) }
+	if _, err := Apply(o); err != nil {
+		t.Fatal(err)
+	}
+	rc, config := filepath.Join(o.Home, ".zshrc"), filepath.Join(o.Home, ".config", "starship.toml")
+	for key, want := range map[string][]string{
+		"starship": {StarshipVersion, "installed at " + filepath.Join(o.BinDir, "starship")},
+		"rc":       {rc, "added `eval \"$(starship init zsh)\"`"},
+		"config":   {config, "created from starship's " + presetPlain + " preset", "holds the proveo segment"},
+	} {
+		if got := facts[key]; strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("fact %s = %q, want %q", key, got, want)
+		}
+	}
+	if got := facts["font"]; len(got) != 2 || got[0] != FontFamily || !strings.HasPrefix(got[1], "3 files in ") {
+		t.Errorf("fact font = %q", got)
+	}
+	if len(warned) != 0 {
+		t.Errorf("warned %q on a shell with a line", warned)
+	}
+
+	csh := kitOptions(t, "/bin/csh", fetch)
+	csh.LookPath = func(string) (string, error) { return "/usr/local/bin/starship", nil }
+	csh.Warn = func(text string, detail ...string) { warned = append(warned, text+"|"+strings.Join(detail, "|")) }
+	if _, err := Apply(csh); err != nil {
+		t.Fatal(err)
+	}
+	if len(warned) != 1 || warned[0] != "csh — no starship line known|start starship from its startup file yourself" {
+		t.Errorf("a shell with no starship line warned %q", warned)
+	}
+}

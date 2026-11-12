@@ -201,7 +201,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 			return m[1]
 		}
 		var mine []string
-		for _, n := range newSandboxes(before) {
+		for _, n := range newSandboxes(t, before) {
 			if strings.HasPrefix(n, "proveo-"+target+"-") && !strings.HasSuffix(n, "-prepare") {
 				mine = append(mine, n)
 			}

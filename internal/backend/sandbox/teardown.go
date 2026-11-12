@@ -210,7 +210,8 @@ func (t *teardown) leave() {
 		reason += " at " + *at
 	}
 	t.left = true
-	if sbx.Gone(name) {
+	isGone, running := fateWithin(name, leaveWait)
+	if isGone {
 		gone(name, reason).print()
 		return
 	}
@@ -225,13 +226,38 @@ func (t *teardown) leave() {
 	if sig == syscall.SIGINT && !t.failed {
 		it.Log = append(it.Log, keptFix(name, true)+"; `proveo rm "+name+"` once it is stopped")
 	} else {
-		it.Detail = append(it.Detail, keptFix(name, sbx.Running(name)))
+		it.Detail = append(it.Detail, keptFix(name, running))
 	}
 	if errors.Is(t.carry, errStepSkipped) && (t.in.Clone || !t.in.CloneKnown) {
 		it.Log = append(it.Log, CloneRescueLines(name, t.in.Sid, agentWorkdir(t.in, t.cfg.Mounts), t.in.RepoRoot)...)
 	}
 	t.keepHome = true
 	t.closeKept(it)
+}
+
+// leaveWait bounds what a stopped teardown asks sbx before it leaves; tests shorten it.
+var leaveWait = 3 * time.Second
+
+// fateWithin asks sbx whether name is gone and whether it runs, for at most wait; past it, the
+// answer is not gone and running.
+// SPEC: _spec/internal/backend/teardown.puml
+func fateWithin(name string, wait time.Duration) (gone, running bool) {
+	type fate struct{ gone, running bool }
+	got := make(chan fate, 1)
+	go func() {
+		f := fate{gone: sbx.Gone(name)}
+		if !f.gone {
+			f.running = sbx.Running(name)
+		}
+		got <- f
+	}()
+	select {
+	case f := <-got:
+		return f.gone, f.running
+	case <-time.After(wait):
+		ui.Logf("sbx did not list %s within %s; leaving it as kept", name, wait)
+		return false, true
+	}
 }
 
 // lookInside is the run-log line that opens a shell in a kept sandbox.
@@ -353,6 +379,10 @@ func (t *teardown) normalEnd(ctx context.Context) {
 	}
 	switch normalEndOf(t.forced, stranded, opencodeTarget(in.Target)) {
 	case endKeepStranded:
+		if sbx.Gone(cfg.Name) {
+			gone(cfg.Name, stranded.Error()).print()
+			return
+		}
 		t.keepHome, t.kept = true, stranded.Error()
 		why := stranded.Error()
 		if opencodeTarget(in.Target) {

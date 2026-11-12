@@ -144,7 +144,7 @@ type Printer struct {
 }
 
 // Section names the subject the following lines describe, drawn as the divider
-// choiceui uses for a Divider row.
+// choiceui uses for a Divider row. Section("") withdraws a heading not yet drawn.
 func (p *Printer) Section(label string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -178,15 +178,14 @@ func sectionHeading(t GlyphTier, plain bool, label string, width int) string {
 const (
 	SectionScope       = "scope"       // the numbered scope picker: the sub-tree of a monorepo
 	SectionRun         = "run"         // the transcript path, the scope, the image pull
-	SectionCredentials = "credentials" // form row: where the login rests
+	SectionCredentials = "credentials" // form row: where the login rests; `proveo init`: what sbx's store holds
 	SectionWorkspace   = "workspace"   // the checkout, the clone, links, what is not mounted
 	SectionEgress      = "egress"      // form row: sbx's policy and the host services the sandbox reaches
-	SectionExecution   = "execution"   // `proveo init`: where the agent runs
 	SectionInterface   = "interface"   // form divider: the ports, browser and IDE host the operator reaches
-	SectionStarting    = "starting"    // `proveo init`: installing and starting sbx
-	SectionSecrets     = "secrets"     // `proveo init`: the secret store and its prompt
-	SectionSbx         = "sbx"         // what proveo hands sbx, the stale check, sbx's own create block
-	SectionResults     = "results"     // after the agent: how it ended, what came home, the sandbox's fate
+	SectionSbx         = "sbx"         // what proveo hands sbx, the stale check, sbx's own create block; `proveo init`: the host and its sbx
+	SectionPrompt      = "prompt"      // `proveo init`: the shell-prompt kit
+	SectionGit         = "git"         // `proveo init`: the sandbox git identity and GitHub access
+	SectionResults     = "results"     // after the agent: how it ended, what came home, the sandbox's fate; `proveo init`: what waits and the verdict
 	SectionIDE         = "ide"         // a kept sandbox: how an IDE attaches to it
 	SectionTargets     = "targets"     // `proveo ls`: the harness images
 	SectionProjects    = "projects"    // `proveo projects`: monorepo members
@@ -194,7 +193,7 @@ const (
 	SectionUninstall   = "uninstall"   // `proveo uninstall`: what is removed
 	SectionSchedule    = "schedule"    // `proveo schedule`: the tick, then one section per job
 	SectionRunning     = "running"     // `proveo attach` / `proveo run`: tasks whose session is up
-	SectionOperator    = "operator"    // `proveo init`: how agents address the operator
+	SectionOperator    = "operator"    // `proveo init`: the name agents address the operator by
 )
 
 const sectionRules = 6
@@ -554,6 +553,9 @@ func Askf(format string, a ...any) { Default.Askf(format, a...) }
 func Rolef(r Role, format string, a ...any) { Default.Rolef(r, format, a...) }
 
 func Section(label string) { Default.Section(label) }
+
+// WithdrawSection withdraws Default's heading declared and not yet drawn.
+func WithdrawSection() { Default.Section("") }
 
 // Live draws Default's live line; see Printer.Live.
 func Live(r Role, format string, a ...any) { Default.Live(r, format, a...) }

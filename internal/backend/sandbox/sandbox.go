@@ -1790,9 +1790,8 @@ func Run(in Input) error {
 		listed, receipt := listedSandbox(cfg.Name), readReceipt(cfg.Name)
 		pub.hosts = keptPorts(listed, receipt)
 		reportReattach(in, keptSandbox{name: cfg.Name, listed: listed, receipt: receipt, kept: kept}, envValues, secretFacts)
-		ui.Logf("re-attaching to %s, which an earlier run left here — its workspace is this one", cfg.Name)
+		reattachLog(cfg.Name)
 		start.StartAs("re-attach to "+cfg.Name, "re-attach to "+cfg.Name+" — left by an earlier run")
-		ui.Logf("`sbx rm --force %s` builds it fresh next run", cfg.Name)
 	}
 	reportInterface(in, cfg, pub)
 	ifaceSaid = true
@@ -2007,6 +2006,12 @@ func normalEndOf(forced bool, stranded error, retainsEngine bool) normalEnd {
 		return endRetainEngine
 	}
 	return endRemove
+}
+
+// reattachLog is what a re-attach writes to the run log alone: whose sandbox it is, and how the next run builds it fresh.
+func reattachLog(name string) {
+	ui.Logf("re-attaching to %s, which an earlier run left here — its workspace is this one", name)
+	ui.Logf("`sbx rm --force %s` builds it fresh next run", name)
 }
 
 // Baseline is sbx's network baseline as the egress block's fact; a ⚠ item instead when sbx's policy

@@ -49,9 +49,9 @@ func endingSbx(t *testing.T, e ending) string {
 	}
 	or := func(body, def string) string {
 		if body == "" {
-			return def
+			body = def
 		}
-		return body
+		return strings.ReplaceAll(body, "{gone}", "'"+gone+"'")
 	}
 	script := "#!/bin/sh\n" +
 		"echo \"$*\" >> '" + calls + "'\n" +
@@ -574,5 +574,23 @@ func TestAFailedCreateThatLeftASandboxSaysSoAndHowToRemoveIt(t *testing.T) {
 	listing(t, false)
 	if _, ok := leftByCreate("sb"); ok {
 		t.Error("no listing proves nothing; it printed a kept line")
+	}
+}
+
+// A sandbox kept because its work did not come home asks sbx first, as every kept line does.
+func TestAStrandedSandboxSbxNoLongerListsClosesOnTheGoneLine(t *testing.T) {
+	host := t.TempDir()
+	gitIn(t, host, "init", "-q", "-b", "main", ".")
+	endingSbx(t, ending{row: "sb claude stopped", lift: "touch {gone}; echo 'tar: reports: Cannot open' >&2; exit 1"})
+	captureSteps(t)
+	screen, _ := captured(t)
+	td := endingTeardown(Input{Clone: true, RepoRoot: host, Sid: "proveo-1-2", OutputDir: filepath.Join(host, "reports")}, false)
+	td.run(context.Background())
+	got := screen.String()
+	if !strings.HasSuffix(got, "warn: sb — not listed by sbx\n    the output is only in it\n") || strings.Contains(got, "------ ide") || strings.Contains(got, "sb — kept") {
+		t.Errorf("a stranded sandbox sbx no longer lists closes on the gone line:\n%s", got)
+	}
+	if td.keepHome || td.kept != "" {
+		t.Errorf("keepHome %v, kept %q for a sandbox that is gone", td.keepHome, td.kept)
 	}
 }

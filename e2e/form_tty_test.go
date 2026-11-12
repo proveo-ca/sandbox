@@ -65,7 +65,7 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 	if strings.Contains(screen, "enter accept") {
 		t.Errorf("the form stayed on the terminal after it ended\n%s", tail(screen, 45))
 	}
-	if made := newSandboxes(before); canList && len(made) > 0 {
+	if made := newSandboxes(t, before); canList && len(made) > 0 {
 		t.Errorf("a cancelled run created %v", made)
 	}
 }

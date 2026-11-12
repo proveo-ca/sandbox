@@ -35,7 +35,7 @@ func monorepoRun(t *testing.T, name string) *tmux.Session {
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)
-		if made := newSandboxes(before); canList && len(made) > 0 {
+		if made := newSandboxes(t, before); canList && len(made) > 0 {
 			t.Errorf("a cancelled run created %v", made)
 		}
 	})

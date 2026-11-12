@@ -2,10 +2,13 @@
 package main
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/githubaccess"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -52,54 +55,61 @@ func githubAccessForm(h githubaccess.Host, current string) *choiceui.Form {
 	}
 }
 
-func applyGitHubAccess(bin string, prompt bool) {
+// applyGitHubAccess asks how sandbox Git reaches GitHub and saves the answer, and says what it is
+// in the git block as the "access" fact. Unprompted it only reports; a Ctrl+C that ended a
+// program it handed the terminal to is its error.
+func applyGitHubAccess(bin string, prompt bool, out *sandbox.Block, noTerminal bool) error {
 	path, err := githubaccess.Path()
 	if err != nil {
-		ui.Warnf("GitHub access settings: %v", err)
-		return
+		out.Item(sandbox.Item{Warn: true, Text: "GitHub access — settings unreadable", Detail: errLines(err)})
+		return nil
 	}
 	current := ""
 	if _, err := os.Stat(path); err == nil {
 		cfg, err := githubaccess.Load(path)
 		if err != nil {
-			ui.Warnf("GitHub access settings: %v", err)
-			return
+			out.Item(sandbox.Item{Warn: true, Text: "GitHub access — settings unreadable", Detail: errLines(err)})
+			return nil
 		}
 		current = cfg.Transport
 	}
 	for {
 		h := githubaccess.Inspect(bin, githubaccess.Output, os.Getenv)
 		if !prompt {
-			ui.Notef("GitHub SSH: %d host key(s); sandbox verification pending; run proveo init from a terminal to choose access", len(h.Keys))
-			if why := h.SSHProblem(); why != "" {
-				ui.Notef("%s", why)
-			}
-			return
+			out.Fact(unaskedAccess(h, current, noTerminal))
+			return nil
 		}
 		form := githubAccessForm(h, current)
 		ok, err := form.Run()
 		if err != nil {
-			ui.Warnf("GitHub access: %v", err)
-			return
+			out.Item(sandbox.Item{Warn: true, Text: "GitHub access — not chosen", Detail: errLines(err)})
+			return nil
 		}
 		if !ok {
-			return
+			out.Fact(ui.Fact{Role: ui.RoleHost, Key: "access", Value: cmp.Or(current, "not chosen")})
+			return nil
 		}
 		mode := map[string]string{githubSSH: githubaccess.SSH, githubHTTPS: githubaccess.HTTPS, "later": githubaccess.Later}[form.Selection("sandbox Git")]
 		if mode == githubaccess.SSH && h.SSHProblem() != "" {
 			action, err := githubSSHRepair(h)
 			if err != nil {
-				ui.Warnf("GitHub SSH: %v", err)
-				return
+				out.Item(sandbox.Item{Warn: true, Text: "GitHub SSH — not repaired", Detail: errLines(err)})
+				return nil
 			}
 			switch action {
 			case "enable + restart":
 				if err := runArgv([]string{bin, "settings", "set", "ssh.agentForwardingEnabled", "true"}); err != nil {
-					ui.Warnf("could not enable SSH forwarding: %v", err)
+					if interrupted(err) {
+						return err
+					}
+					out.Item(sandbox.Item{Warn: true, Text: "SSH-agent forwarding — not enabled", Detail: errDetail(err)})
 					continue
 				}
 				if err := runArgv([]string{bin, "daemon", "restart"}); err != nil {
-					ui.Warnf("daemon restart failed: %v", err)
+					if interrupted(err) {
+						return err
+					}
+					out.Item(sandbox.Item{Warn: true, Text: "sbx daemon — not restarted", Detail: errDetail(err)})
 					continue
 				}
 				current = githubaccess.SSH
@@ -112,26 +122,58 @@ func applyGitHubAccess(bin string, prompt bool) {
 			case "later":
 				mode = githubaccess.Later
 			default:
-				return
+				return nil
 			}
 		}
 		if mode == githubaccess.HTTPS {
-			if tok, _ := hostGhAuth().resolve(); tok == "" {
-				ui.Warnf("HTTPS requires a GitHub API credential; run gh auth login on the host, then retry")
+			if it, missing := httpsTokenMissing(hostGhAuth()); missing {
+				out.Item(it)
 				current = githubaccess.HTTPS
 				continue
 			}
 		}
 		if err := githubaccess.Save(path, mode); err != nil {
-			ui.Warnf("could not save GitHub access: %v", err)
-			return
+			out.Item(sandbox.Item{Warn: true, Text: "GitHub access — not saved", Detail: errLines(err)})
+			return nil
 		}
-		ui.Storef("sandbox Git: %s — %s", mode, path)
-		if mode == githubaccess.SSH {
-			ui.Notef("host configured; proveo run verifies sandbox SSH before releasing the agent")
-		}
-		return
+		out.Fact(ui.Fact{Role: ui.RoleHost, Key: "access", Value: mode, Detail: []string{ui.Tilde(path)}})
+		return nil
 	}
+}
+
+// httpsTokenMissing is the warning an HTTPS choice gets when g holds no GitHub token; missing is
+// false when it holds one.
+func httpsTokenMissing(g ghAuth) (it sandbox.Item, missing bool) {
+	tok, err := g.lookup()
+	switch {
+	case errors.Is(err, errCredentialStoreTimeout):
+		return ghTimeoutItem(githubHTTPS), true
+	case tok == "":
+		return sandbox.Item{Warn: true, Text: githubHTTPS + " — needs a GitHub API credential", Detail: []string{"`gh auth login` on the host, then choose it again"}}, true
+	}
+	return sandbox.Item{}, false
+}
+
+// unaskedAccess is the "access" fact when init did not ask: the transport, the host's keys and
+// what is wrong with its SSH, with one how-to only when no terminal could ask.
+func unaskedAccess(h githubaccess.Host, current string, noTerminal bool) ui.Fact {
+	access := ui.Fact{Role: ui.RoleHost, Key: "access", Value: cmp.Or(current, "not chosen"),
+		Detail: []string{hostKeys(len(h.Keys)) + "; sandbox verification pending"}}
+	if state, _, _ := strings.Cut(h.SSHProblem(), ";"); state != "" {
+		access.Detail = append(access.Detail, state)
+	}
+	if noTerminal {
+		access.Detail = append(access.Detail, "`proveo init` from a terminal signs in and chooses it")
+	}
+	return access
+}
+
+// hostKeys counts the host agent's keys.
+func hostKeys(n int) string {
+	if n == 1 {
+		return "1 host key"
+	}
+	return fmt.Sprintf("%d host keys", n)
 }
 
 func githubSSHRepair(h githubaccess.Host) (string, error) {

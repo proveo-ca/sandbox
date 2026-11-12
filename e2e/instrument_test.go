@@ -225,6 +225,7 @@ func sweepSandboxesAfter(t *testing.T) {
 	if _, already := sweptTests.LoadOrStore(t.Name(), true); already {
 		return
 	}
+	root := testRoot(t)
 	before, ok := sbxSandboxNames()
 	t.Cleanup(func() {
 		sweptTests.Delete(t.Name())
@@ -232,10 +233,16 @@ func sweepSandboxesAfter(t *testing.T) {
 			t.Logf("sweep skipped: `sbx ls` failed when %s started, so nothing proves which sandboxes it made", t.Name())
 			return
 		}
-		for _, name := range newSandboxes(before) {
+		for _, name := range newSandboxesUnder(before, root) {
 			_, _ = removeSandbox(t, name)
 		}
 	})
+}
+
+// testRoot is the directory every t.TempDir of t sits in; no other test, in this process or another, shares it.
+func testRoot(t *testing.T) string {
+	t.Helper()
+	return filepath.Dir(t.TempDir())
 }
 
 var sweptTests sync.Map

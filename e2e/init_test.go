@@ -28,8 +28,16 @@ func TestInitPrintChangesNothingOnThisHost(t *testing.T) {
 	work := t.TempDir()
 	prefix := filepath.Join(work, "prefix")
 
+	// The host's plan and prerequisites are this machine's; its sbx, home and secret store are not.
+	stubs, state := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubs, "sbx"), []byte(initStubSbx), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command(bin, "init", "--print", "--prefix", prefix)
 	cmd.Dir = work
+	cmd.Env = []string{"HOME=" + t.TempDir(), "TMPDIR=" + t.TempDir(), "TERM=dumb",
+		"PATH=" + stubs + ":/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+		"STUB_SBX_LOG=" + filepath.Join(state, "sbx.log"), "STUB_SBX_SECRETS=" + filepath.Join(state, "secrets")}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("proveo init --print: %v\n%s", err, out)

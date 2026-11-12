@@ -6,7 +6,7 @@ skinparam noteTextAlignment left
 ' LIFETIME DECIDED 2026-11-10 — the Executor: "proveo exits; prompt segment". proveo does not
 '   stay alive to host a surface. A shell-prompt segment and verbs carry the result:
 '   _spec/internal/results/result-store.puml (D4). The interactive surface below is not built.
-' would touch: internal/backend/sandbox/sandbox.go (SectionResults block, KeptLines, CloneRescueLines)
+' would touch: internal/backend/sandbox/teardown.go (the results Block, the kept item), sandbox.go (CloneRescueLines)
 ' would touch: internal/runlog/runlog.go (the artifact name -> path map)
 ' would touch: internal/ui/ui.go (SectionResults), internal/choiceui/**
 '   the language it would join ..... _spec/_conventions/tui-design-language.puml
@@ -17,20 +17,22 @@ skinparam noteTextAlignment left
 '   the recipes it would replace .... _spec/internal/sbx/clone-workspace.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
-' ── WHAT THE SURFACE IS TODAY ──────────────────────────────────────────────
-' `SectionResults` — "after the agent: clones, transcripts" — is a FLAT STREAM
-' of `ui.Storef` lines emitted as teardown discovers things:
-'   the clone's refs under refs/proveo/<sid>/, and the branch names in them
-'   deliverables lifted out of the clone into the output directory
-'   where the transcript is, or that there is none because the sandbox had gone
-'   the policy log and the memory evidence, each as a path
-'   on failure, KeptLines, CloneRescueLines and IDEAttachLines — recipes the
-'     operator is expected to read and retype; attach is print-only and is
-'     also offered live at start (_spec/internal/sbx/ide-attach.puml), not
-'     this interactive surface
+' ── WHAT THE SURFACE IS TODAY (R2 of _spec/_plans/output-readability.puml) ──
+' `SectionResults` is ONE results block teardown gathers while its steps run
+' and prints when the carry ends (sandbox.Block), then one closing line:
+'   a Facts block of what came home: output, .env, branches (refs under
+'     refs/proveo/<sid>/ with their lead), _spec, pushed, transcript
+'   ⚠ items for what did not come home, the OOM, the resume state
+'   the sandbox's fate: "✓ <name> — removed", or "⚠ <name> — kept: <why>"
+'     with one dim fix (`proveo rm [--stop] <name>`), then the "ide" block
+'     of a kept sandbox (_spec/internal/sbx/ide-attach.puml)
+' The policy log and the memory evidence paths, the carry's rescue recipe,
+' the tar recipe and `sbx exec -it <name> bash` go to the run log
+' (_spec/internal/backend/teardown.puml, WHAT TEARDOWN PRINTS).
 '
-' It is a PRINT, not a surface. Nothing is navigable, nothing is actionable, and
-' the ordering is whatever teardown happened to reach first.
+' It is a PRINT, not a surface. Nothing is navigable and nothing is
+' actionable; the facts print in one fixed order (resultOrder), whichever step
+' found them first.
 '
 ' ── THE QUESTION A choiceui STYLE HAS TO ANSWER FIRST ──────────────────────
 ' Every choiceui surface in this tree is PRE-RUN and interactive: the choice

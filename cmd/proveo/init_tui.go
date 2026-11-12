@@ -22,6 +22,7 @@ type initDecisions struct {
 	Prompt   bool   // install the shell-prompt kit: starship, a Nerd Font, the segment
 	Baseline string // "" leaves the host-wide network policy alone
 	NoPrompt bool
+	pathDone string // the PATH dir an earlier visit's step settled
 }
 
 const (
@@ -90,7 +91,7 @@ func carried(def initDecisions, prev *initDecisions) initDecisions {
 		return def
 	}
 	out := def
-	out.AddPath = prev.AddPath
+	out.AddPath, out.pathDone = prev.AddPath, prev.pathDone
 	out.Login, out.Wizard, out.Gh, out.Git, out.Prompt, out.Baseline = false, false, false, false, false, ""
 	return out
 }
@@ -119,7 +120,7 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 	case out == choiceui.Quit:
 		return initDecisions{}, errInitQuit
 	case out != choiceui.Accepted:
-		return initDecisions{}, fmt.Errorf("cancelled at the init prompt")
+		return initDecisions{}, fmt.Errorf("%w at the setup page", errInitCancel)
 	}
 	return answered(form, def), nil
 }
@@ -355,31 +356,4 @@ func indexOf(opts []string, want string) int {
 		}
 	}
 	return 0
-}
-
-// describeDecisions is what init prints when it did NOT ask — the non-TTY path,
-// where the operator finds out afterwards what was chosen for them.
-func describeDecisions(d initDecisions) string {
-	parts := []string{rowInstall + ": " + d.Install}
-	if d.Prefix != "" {
-		parts = append(parts, rowPrefix+": "+d.Prefix)
-	}
-	parts = append(parts,
-		"PATH: "+yesNo(d.AddPath),
-		"sign in: "+yesNo(d.Login),
-		"sbx setup: "+yesNo(d.Wizard),
-		"gh: "+yesNo(d.Gh),
-		"git identity: "+yesNo(d.Git),
-		"prompt: "+yesNo(d.Prompt))
-	if d.Baseline != "" {
-		parts = append(parts, "baseline: "+d.Baseline)
-	}
-	return strings.Join(parts, " · ")
-}
-
-func yesNo(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
 }

@@ -369,6 +369,24 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '     COST: a run whose sandbox was the host's only one and is gone closes
 '     on a kept line; ReconcileResults drops its entry once a listing
 '     names any sandbox.
+'   THE LEAVE PATH WAITS AT MOST leaveWait (3s) FOR sbx (R3, R2 carry-over
+'   1). sbx.Gone and sbx.Running are bounded `sbx ls` calls of up to ~12s
+'   each in their own process group, so a third Ctrl+C never reached them
+'   and a slow daemon held exit 130 for ~20s. leave() now asks both in one
+'   goroutine (fateWithin) and stops waiting at leaveWait: an unanswered
+'   listing proves nothing, so the sandbox closes as kept and a failed
+'   run's fix names --stop, which `proveo rm` honours for a stopped sandbox
+'   too; the run log says sbx did not answer. "Say once, leave on two"
+'   holds. NOT CHOSEN: skip the listing on SIGINT (a sandbox sbx finished
+'   removing would print as kept); cancel it on a third Ctrl+C (a third
+'   keypress to learn of).
+'     Pinned by TestASecondCtrlCLeavesWithinItsBoundWhileSbxIsSlowToList.
+'   A STRANDED SANDBOX ASKS sbx FIRST TOO (R3, R2 carry-over 2). normalEnd's
+'   endKeepStranded asks sbx.Gone like failedEnd, leave() and a failed
+'   removal: a sandbox lost during the carry closes on "⚠ <name> — not
+'   listed by sbx" with what was stranded dim, and gets no kept entry, no
+'   ide block and no kept home access.
+'     Pinned by TestAStrandedSandboxSbxNoLongerListsClosesOnTheGoneLine.
 '   THE TRANSCRIPT FOLLOWS THE STATE SAVE (R2 review fix, 2026-11-11).
 '   R2's first cut looked the transcript up before stepState so the fact
 '   could join the block printed after the clone step. The transcript is
@@ -385,9 +403,15 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' egress-record and memory-log paths, the review and adopt commands, the
 ' carry's by-hand recipe, the tar recipe, `sbx exec -it <name> bash`.
 ' A FAILED LIFT STRANDS THE OUTPUT. liftClonedOutput returns "the output is
-' only in it", so normalEnd keeps the sandbox; the launch receipt records
-' OutputDir and `proveo rm` lifts it (verbs.go keptInput). A stale
-' sandbox's retire keeps it the same way (_spec/internal/sbx/clone-workspace.puml).
+' only in it", so normalEnd keeps the sandbox; the kept entry records this
+' run's output dir (results.Entry.Output, a re-attach's as well as a
+' create's) and the launch receipt records the creating run's; `proveo rm`
+' lifts into the entry's, else the receipt's (verbs.go keptInput). R3 fixed
+' the re-attach: its receipt predates R2 or names the creating run's dir.
+' Pinned by TestKeptInputLiftsIntoTheDirTheKeepingRunRecorded and
+' TestRemoveKeptLiftsTheOutputTheReceiptRecords (RemoveKept → PreserveClone
+' → liftClonedOutput's `tar -cf -`). A stale sandbox's retire keeps it the
+' same way (_spec/internal/sbx/clone-workspace.puml).
 ' THE PLAIN AFTER (MEASURED, probe-plain, NO_COLOR): output that is not a
 ' terminal prints in step order. The agent's end, then a start line per step
 ' up to the clone's parts ("credential check — up to 34s" … "clone/spec — up
@@ -398,8 +422,12 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' later steps' start lines follow it. A failed run's block follows the resume
 ' state's start line (the transcript lookup waits for the state save).
 ' A RUN THAT NEVER REACHED THE AGENT has no teardown: nothing came home, so
-' no "results" heading; main's "× <err>" lands under the heading of the step
-' that failed (P1). A failed `sbx create` that left its sandbox listed says
+' no "results" heading; main's "× <err>" lands under the last heading drawn:
+' the failed step's, except when Run's deferred interface block prints
+' first. A failed `sbx create` on a run with interface facts or items prints
+' leftByCreate's line under "sbx", then that block under "interface", then
+' main's × under "interface" (R2 review, recorded in R3: the block keeps the
+' add-ons' warnings a failed run still owes). A failed `sbx create` that left its sandbox listed says
 ' so first: "⚠ <name> — kept: its create failed", dim "`sbx rm --force
 ' <name>` removes it" (leftByCreate; no listing proves nothing, so none).
 ' Pinned by TestAFailedCreateThatLeftASandboxSaysSoAndHowToRemoveIt.

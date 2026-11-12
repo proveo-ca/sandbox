@@ -3,11 +3,13 @@ package main
 import (
 	"errors"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -58,7 +60,7 @@ func TestInitGitHubStoresTheBuiltinService(t *testing.T) {
 	t.Parallel()
 	g, logins := stubAuth(map[string]string{"GH_TOKEN": "tok"}, true, "from-gh", nil, nil)
 	var name, value string
-	applyGitHub(ghStage{
+	mustApplyGitHub(t, ghStage{
 		auth:   *g,
 		setenv: func(string, string) error { return nil },
 		secretSet: func(n, v string) error {
@@ -93,7 +95,7 @@ func TestInitGitHubLogsInWhenGhIsPresentButUnauthed(t *testing.T) {
 		login: func() error { return nil },
 	}
 	var stored string
-	applyGitHub(ghStage{
+	mustApplyGitHub(t, ghStage{
 		auth:   g,
 		tty:    true,
 		setenv: func(string, string) error { return nil },
@@ -110,12 +112,34 @@ func TestInitGitHubLogsInWhenGhIsPresentButUnauthed(t *testing.T) {
 func TestInitGitHubDoesNotLoginOnALockedKeychain(t *testing.T) {
 	t.Parallel()
 	g, logins := stubAuth(nil, true, "", errCredentialStoreTimeout, nil)
-	applyGitHub(ghStage{auth: *g, tty: true, setenv: func(string, string) error { return nil }, secretSet: func(string, string) error {
+	mustApplyGitHub(t, ghStage{auth: *g, tty: true, setenv: func(string, string) error { return nil }, secretSet: func(string, string) error {
 		t.Error("must not store a token that was never read")
 		return nil
 	}})
 	if *logins != 0 {
 		t.Error("a timed-out credential store must not trigger `gh auth login`")
+	}
+}
+
+// A gh that gives no token in time is one ⚠ in the git block with its fix dim, during the token
+// step and an HTTPS choice alike; nothing prints outside the block, and nothing goes to a log init
+// does not write.
+func TestALockedKeychainIsOneGitItemDuringInit(t *testing.T) {
+	out := captureUI(t)
+	g, logins := stubAuth(nil, true, "", errCredentialStoreTimeout, nil)
+	block := sandbox.NewBlock(func() {})
+	mustApplyGitHub(t, ghStage{auth: *g, tty: true, out: block, setenv: func(string, string) error { return nil }})
+	_, items := block.Take()
+	fix := []string{"unlock the login keychain, or set " + ghTokenEnvVar}
+	if len(items) != 1 || items[0].Text != "github — gh gave no token within 5s" || !slices.Equal(items[0].Detail, fix) || len(items[0].Log) != 0 {
+		t.Errorf("git block items = %+v, want one ⚠ with its fix dim", items)
+	}
+	it, missing := httpsTokenMissing(*g)
+	if !missing || it.Text != "HTTPS token — gh gave no token within 5s" || !slices.Equal(it.Detail, fix) {
+		t.Errorf("the HTTPS choice's item = %+v, %v", it, missing)
+	}
+	if *logins != 0 || out.String() != "" {
+		t.Errorf("a locked keychain logged in (%d) or printed outside the git block: %q", *logins, out.String())
 	}
 }
 
@@ -147,7 +171,7 @@ func TestInitGitHubInstallsThenLogsIn(t *testing.T) {
 		login: func() error { logins++; return nil },
 	}
 	var stored string
-	applyGitHub(ghStage{
+	mustApplyGitHub(t, ghStage{
 		auth: g,
 		host: sbx.Host{OS: "darwin", Arch: "arm64"},
 		tty:  true,
@@ -186,7 +210,7 @@ func TestInitGitHubHeadlessDoesNotInstallOrLogin(t *testing.T) {
 			return nil
 		},
 	}
-	applyGitHub(ghStage{
+	mustApplyGitHub(t, ghStage{
 		auth: g,
 		host: sbx.Host{OS: "darwin"},
 		tty:  false,
@@ -202,10 +226,50 @@ func TestInitGitHubHeadlessDoesNotInstallOrLogin(t *testing.T) {
 	})
 }
 
-func TestInitGitHubFailedLoginIsNotFatal(t *testing.T) {
+// HAND-OFF FAILURE: a `gh auth login` that fails is the step's error, so init stops after it.
+func TestInitGitHubAFailedLoginStopsTheStep(t *testing.T) {
 	t.Parallel()
-	g, _ := stubAuth(nil, true, "", errors.New("no session"), func() error {
-		return errors.New("user aborted")
-	})
-	applyGitHub(ghStage{auth: *g, tty: true, setenv: func(string, string) error { return nil }}) // must not panic
+	aborted := errors.New("user aborted")
+	g, _ := stubAuth(nil, true, "", errors.New("no session"), func() error { return aborted })
+	err := applyGitHub(ghStage{auth: *g, tty: true, setenv: func(string, string) error { return nil },
+		access: func() error {
+			t.Error("access was asked after a failed sign-in")
+			return nil
+		}})
+	if !errors.Is(err, aborted) {
+		t.Errorf("applyGitHub = %v, want the login's failure", err)
+	}
+}
+
+// mustApplyGitHub runs the GitHub step; its errors are a failed `gh auth login` and a Ctrl+C that ended a handed program.
+func mustApplyGitHub(t *testing.T, s ghStage) {
+	t.Helper()
+	if err := applyGitHub(s); err != nil {
+		t.Fatalf("applyGitHub = %v", err)
+	}
+}
+
+// NO ASKING, NO INSTALL: a manager on PATH installs no gh when init cannot ask, and the ⚠ keeps no
+// how-to; --yes's flag help names gh's install instead.
+func TestUnaskedInitInstallsNoGh(t *testing.T) {
+	g := ghAuth{lookPath: func(name string) (string, error) {
+		if name == "brew" {
+			return "/opt/homebrew/bin/brew", nil
+		}
+		return "", exec.ErrNotFound
+	}}
+	block := sandbox.NewBlock(func() {})
+	ok, err := installGh(ghStage{auth: g, host: sbx.Host{OS: "darwin"}, out: block, run: func([]string) error {
+		t.Error("init ran an install it could not ask about")
+		return nil
+	}})
+	if ok || err != nil {
+		t.Fatalf("installGh = %v, %v; want gh still missing", ok, err)
+	}
+	if _, items := block.Take(); len(items) != 1 || items[0].Text != "gh — not on PATH" || len(items[0].Detail) != 0 {
+		t.Errorf("git block items = %+v, want one ⚠ with no how-to", items)
+	}
+	if yes := initCmd().Flags().Lookup("yes").Usage; !strings.Contains(yes, "gh's install") {
+		t.Errorf("--yes help %q does not name gh's install", yes)
+	}
 }

@@ -2,8 +2,10 @@
 package promptkit
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +28,9 @@ type Options struct {
 	// DrawsGlyphs asks the operator whether the terminal drew a Nerd glyph; nil does not ask.
 	DrawsGlyphs func() (icon, asked bool)
 	Report      func(format string, a ...any)
+	// Fact and Warn say what Apply found as a key, its value and dim detail, or as a warning; nil says nothing.
+	Fact func(key, value string, detail ...string)
+	Warn func(text string, detail ...string)
 }
 
 // Record is what proveo itself installed, so an uninstall removes that and no more.
@@ -61,6 +66,18 @@ func (o Options) say(format string, a ...any) {
 	}
 }
 
+func (o Options) fact(key, value string, detail ...string) {
+	if o.Fact != nil {
+		o.Fact(key, value, detail...)
+	}
+}
+
+func (o Options) warn(text string, detail ...string) {
+	if o.Warn != nil {
+		o.Warn(text, detail...)
+	}
+}
+
 // Presets proveo seeds when it creates starship's config.
 const (
 	presetIcons = "nerd-font-symbols"
@@ -79,13 +96,16 @@ func Apply(o Options) (Record, error) {
 		}
 		rec.Starship = starship
 		o.say("starship %s installed at %s", StarshipVersion, starship)
+		o.fact("starship", StarshipVersion, "installed at "+starship)
 	} else {
 		o.say("starship is already on PATH: %s", starship)
+		o.fact("starship", starship, "already on PATH")
 	}
 
 	scan, fontDir := FontDirs(o.GOOS, o.Home, o.getenv)
 	if HasNerdFont(scan) {
 		o.say("a Nerd Font is already installed")
+		o.fact("font", "a Nerd Font", "already installed")
 	} else {
 		fonts, err := InstallFont(fontDir, o.Fetch)
 		if err != nil {
@@ -93,25 +113,30 @@ func Apply(o Options) (Record, error) {
 		}
 		rec.Fonts = fonts
 		o.say("%s installed: %d files in %s", FontFamily, len(fonts), fontDir)
+		o.fact("font", FontFamily, fmt.Sprintf("%d files in %s", len(fonts), fontDir))
 	}
 
 	if line := o.Shell.StarshipLine(); line == "" {
 		o.say("no rc line known for this shell — start starship from its startup file yourself")
+		o.warn(cmp.Or(o.Shell.Name, "this shell")+" — no starship line known", "start starship from its startup file yourself")
 	} else {
 		rc := o.Shell.RCFile(o.GOOS, o.Home)
 		body, _ := os.ReadFile(rc)
 		if shell.StartsStarship(string(body)) {
 			o.say("%s already starts starship", rc)
+			o.fact("rc", rc, "already starts starship")
 		} else {
 			if err := writeFile(rc, append(body, o.Shell.PromptBlock()...), modeOf(rc, 0o644)); err != nil {
 				return rec, err
 			}
 			rec.RC = rc
 			o.say("added `%s` to %s — it replaces this shell's prompt", line, rc)
+			o.fact("rc", rc, "added `"+line+"`")
 		}
 	}
 
 	config := ConfigPath(o.Home, o.getenv)
+	var configDetail []string
 	body, err := os.ReadFile(config)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -125,6 +150,7 @@ func Apply(o Options) (Record, error) {
 			if seeded, err := o.Preset(starship, preset); err == nil {
 				body = seeded
 				o.say("%s created from starship's %s preset", config, preset)
+				configDetail = append(configDetail, "created from starship's "+preset+" preset")
 			}
 		}
 		if preset == presetPlain {
@@ -139,6 +165,7 @@ func Apply(o Options) (Record, error) {
 	}
 	rec.Config = config
 	o.say("the proveo segment is in %s", config)
+	o.fact("config", config, append(configDetail, "holds the proveo segment")...)
 	return rec, saveRecord(o.StateDir, rec)
 }
 

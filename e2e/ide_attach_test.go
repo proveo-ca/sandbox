@@ -65,7 +65,7 @@ func TestIDEAttachSSHLandsOnTheCloneNotTheHostTree(t *testing.T) {
 
 	k := awaitKit(t, sess, before, target, work)
 
-	created := newSandboxes(before)
+	created := newSandboxes(t, before)
 	if len(created) != 1 {
 		t.Fatalf("want exactly one new sandbox for this run, got %q", created)
 	}

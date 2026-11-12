@@ -105,8 +105,14 @@ title The result store — what a run left behind, one file per entry, readable 
 '   it REFUSES A RUNNING SANDBOX unless --stop asks it to run `sbx stop`
 '     first (R2, the operator: "Do not stop sandboxes implicitly"); the
 '     refusal names `proveo rm --stop <name>`
-'   it LIFTS THE OUTPUT DIR the launch receipt records (OutputDir), so a
-'     sandbox a failed lift kept gives its output up (R2, F6)
+'   it LIFTS THE OUTPUT DIR the kept entry records (Entry.Output, written by
+'     the run that kept it, a re-attach included), else the launch receipt's
+'     OutputDir, so a sandbox a failed lift kept gives its output up (R2, F6;
+'     R3 carry-over 3: a re-attach's receipt predates R2 or names the
+'     creating run's dir)
+'   it PRINTS THREE UNNUMBERED LINES under --stop: "sbx stop <name>",
+'     "carrying its work home from <name>", "sbx rm --force <name>" (R3,
+'     R2 carry-over 6: a line that stays drops its place)
 '   it CARRIES BEFORE IT REMOVES. The Input the carry needs is rebuilt from
 '     `sbx ls --json` (the workspace, the agent) and the store's entry (the
 '     repository). Work that cannot come home keeps the sandbox, and the

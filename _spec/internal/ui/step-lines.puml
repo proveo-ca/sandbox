@@ -33,6 +33,11 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 '   Hand(name, fn)   a start line only: "step 3/5 · sign in to Docker"
 '   Start(name)      the start line; the caller runs and records the step
 '   DoAs · HandAs · StartAs   the same, with the line that stays unnumbered
+'   Quiet(name, fn)  the live frame alone: plain output gets no line, because
+'                    the caller prints what the step found (R3: init's verify)
+'   Silent(name, fn) counts and logs the step, prints nothing: its own
+'                    heading and block follow (R3: the prompt kit, git, GitHub)
+' Running skips an empty plain line, which is how Quiet stays out of a pipe.
 ' Each Do and Hand writes two rows to the run log, in teardown's format:
 '   step: <name> started
 '   step: <name> <duration> ok | failed: <first line of the error>
@@ -75,16 +80,24 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 '   runApply         runs them, numbered, and stops at the first failure
 ' So the page cannot promise a step the apply does not run.
 '   download sbx <release> | download the distro package        live
-'   install sbx into <prefix> | install the distro package      hand
-'   add <dir> to PATH        only when it will write the rc     live
+'   install sbx into <prefix> | … with msiexec.exe | install the distro package   hand
+'   add <dir> to PATH        when it will write the rc, and the
+'                            prefix holds sbx or a tarball fills it   live
 '   sign in to Docker (sbx login)                               hand
 '   run sbx's first-run wizard (sbx setup)                      hand
 '   bind the network baseline: <name>                           hand
-'   set the sandbox git identity      it can ask for a name     hand
-'   install the prompt kit            it can ask what draws     hand
-'   connect GitHub                    gh, then two forms        hand
-'   verify sbx (sbx diagnose)         always                    live
+'   install the prompt kit            it can ask what draws     silent
+'   set the sandbox git identity      it can ask for a name     silent
+'   connect GitHub                    gh, then two forms        silent
+'   verify sbx (sbx diagnose)         always                    quiet
+' The prompt kit runs before git since R3, so "git" stays one stretch. Unlisted
+' steps around them open the sbx and git headings and print their blocks
+' (_spec/cmd/proveo/init-sbx-bootstrap.puml, WHAT INIT PRINTS).
 ' The PATH check still runs when it will only print; it is then no step.
+' Each step carries the setup page's row it answers (sbx install, PATH, sign
+' in, sbx setup, network baseline, prompt, git identity, GitHub, sbx
+' diagnose); runApply reports each that ran by it, and a failure returns
+' stepErr{label, rest}: the row that failed and the chosen ones after it.
 ' install() and installPackage() each split in two, so the download has a
 ' clock and the installer, which writes to the terminal itself, does not.
 '
@@ -107,7 +120,14 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' the line to show; the live frame keeps "step n/N · name · 12s", and each
 ' writes "step n/N · name" to the run log alone, so the log keeps the place.
 ' Plain output (a pipe, CI) gets the same unnumbered lines, so it never mixes
-' the two forms. init keeps Do and Hand: its e2e reads "step n/N".
+' the two forms. SINCE R3 init DOES TOO (the rules, F1): its hand lines read
+' "<program> — <what>" ("sbx login — signing in to Docker"), its live steps'
+' plain lines are their names, verify leaves none, and the prompt kit, git
+' and GitHub print no start line. R1 kept init's numbers because its e2e
+' read them; R3 moved those anchors (e2e/init_steps_test.go:426-431) and
+' init_apply_test.go's. NOT CHOSEN: "step n/N" on every line that stays (the
+' screen showed 2/4 and 3/4 with gaps); numbering only the lines that stay
+' (the setup page's "N steps" would not match).
 ' A LIVE STEP DRAWS ITS PENDING HEADING FIRST. Do writes the place and
 ' "step: <name> started" to the log alone before its live frame would draw
 ' the heading, so the log read "step 1/5 · workload kit" under "workspace"
@@ -128,7 +148,12 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' ── WHAT RAN ───────────────────────────────────────────────────────────────
 ' macOS and linux/arm64 on tmux: the setup page lists what Enter runs, the
 ' count follows "enter accept", and the apply prints a numbered line for
-' each handed step and leaves none for a live one. A ticking step line stays
+' each handed step and leaves none for a live one. Since R3 (macOS, the
+' stubbed harness) the handed lines carry no number. Since the second R3
+' review the plain e2e (`init --yes`, stderr a pipe) runs the git and GitHub
+' steps too, so verify's Quiet step follows a drawn "git" block in a pipe: it
+' leaves no line there, and each heading draws once, in order, over lines of
+' its own (a git block under "credentials" fails it). A ticking step line stays
 ' off a question for 500 ms and returns after it; that test fails on the
 ' code without the suspend.
 ' macOS, real sandboxes: the clone run's log holds the four start rows, then
@@ -149,12 +174,17 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 '   TestAnOrdinaryLineUnderASuspendedLiveLineNeitherErasesNorRedrawsIt
 '   TestAnAsStepLeavesItsOwnLineAndLogsItsPlace
 '   TestPlainOutputOfAsStepsCarriesNoPlace
+'   TestAQuietStepShowsALiveFrameAndLeavesNoPlainLine
+'   TestASilentStepCountsAndPrintsNothing
 ' Pinned by cmd/proveo/init_apply_test.go:
 '   TestTheApplyPlanListsWhatEnterRunsInTheOrderItRuns
-'   TestOnlyStepsThatKeepTheTerminalGetALiveLine
-'   TestAnApplyNumbersItsListedStepsAndStopsAtTheFirstFailure
+'   TestThePathStepIsListedOnlyWhenThePrefixWillHoldSbx
+'   TestEachStepShowsTheWayItsKindDoes
+'   TestAHandedStepPrintsItsProgramAndNoPlace
+'   TestQuietAndSilentStepsLeaveNoPlainLine
 ' Pinned by e2e: TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt,
 '   TestInitSaysWhatEnterRunsThenShowsEachStep,
+'   TestInitYesInPlainOutputCarriesNoStepPlaces,
 '   TestCloneModeLandsTheCloneAndLiftsTheOutputDir (the log's step order)
 
 component "ui.Running\na live line with a clock" as RUN <<app>>

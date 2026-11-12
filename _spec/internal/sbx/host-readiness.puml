@@ -4,7 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: who owns the question "can this host run a sandbox", and why proveo stopped answering it itself
 ' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, Check.Summary, Check.Evidence, Check.Affects, RunBlockers, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
 ' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence, TestOnlyAFailingRowARunNeedsBlocksARun, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
-' covers: cmd/proveo/init.go (verify, reportHostReadiness, reportChecks)
+' covers: cmd/proveo/init.go (verify, checkItems)
 ' covers: cmd/proveo/init_preflight_test.go (TestOnlyAFailingCheckARunNeedsFailsInit)
 ' covers: internal/sbx/version.go (Verified, IsVerified, UnverifiedNote, Available)
 ' covers: internal/sbx/version_test.go
@@ -232,12 +232,39 @@ skinparam noteTextAlignment left
 ' Not chosen: never blocking, which would pass a host whose daemon is down;
 ' an operator-acknowledged list, which needs stored state; no change.
 ' This narrows "only `fail` may block" above to "only a `fail` a run needs".
+'
+' ── 2026-11-11, R3: THE VERDICT IS init'S LAST LINE ─────────────────────────
+' reportHostReadiness and reportChecks are gone. verify keeps sbx's verdict as
+' the result's readiness (checkItems; _spec/cmd/proveo/init-preflight-and-
+' result.puml, THE CLOSE), replaced whole by each verify, so a revisit prints
+' one set, and init prints it LAST, after the credentials and operator pages
+' (the operator's F3). Each failing row is one item, sbx's own order: × when
+' a run needs it, ⚠ when it is spared, "<name> — <summary>", then the
+' evidence, sbx's hint and, for a spared row, "a run does not need this
+' check; it affects …", dim. Then one closing line: "✓ host — ready to run"
+' or "× host — not ready to run", which returns backend.Reported so main
+' adds no "× host not ready to run: <names>" (MEASURED c3: the blocker was
+' said twice).
+' LEFT THE SCREEN: the count ("sbx reports N of M host checks failing", "…
+' this host ready — N checks passed"; P9, its items say it), "sbx X on PATH"
+' (the sbx block's fact says it), and "proveo does not manage the host: fix
+' the above, or reinstall sbx with `proveo init --force`" (a why and a
+' fallback; in `proveo init --help` now). A ROW WITH NO HINT KEEPS A FIX: a
+' blocking row proveo does not know, with no hint of its own, gets dim
+' "`proveo init --force` reinstalls the pinned <Release>" (the sentence that
+' left was its only fix).
+' A diagnose that gave no answer is "⚠ sbx diagnose — gave no answer", its
+' first error line and the --force line dim, and no closing verdict. An sbx
+' this process cannot reach by PATH (the MSI on Windows) is "⚠ sbx — not on
+' this shell's PATH" and no verdict.
+' Pinned by cmd/proveo/init_preflight_test.go TestOnlyAFailingCheckARunNeedsFailsInit
+' and cmd/proveo/init_report_test.go TestARunBlockerClosesOnOneHostVerdictAndNamesWhatNeverRan.
 title host readiness — sbx answers "can this host run a sandbox";\nproveo asks, renders, and installs
 
 actor "operator" as OP
 
 node "the host" as HOST <<host>> {
-  component "proveo init — verify\nreportHostReadiness" as INIT <<app>>
+  component "proveo init — verify\ncheckItems · the closing verdict" as INIT <<app>>
   component "internal/sbx.Prereqs\nBlocksInstall + BlocksNothing only" as PRE <<app>>
   component "<prefix>/bin/sbx diagnose --json\n12 checks: pass · warn · fail · skip" as DIAG <<cloud>>
   database "an sbx already installed\nthe operator's, whatever its version" as OWNED <<db>>

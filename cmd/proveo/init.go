@@ -9,15 +9,16 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/shell"
@@ -42,7 +43,13 @@ func initCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Install and sign in to the sbx backend proveo runs on (alias for --init)",
 		Long: "Detect this host, install the pinned Docker Sandboxes release (v" + sbx.Release +
-			"), check every prerequisite a run depends on, sign in, and ready git/gh.",
+			"), check every prerequisite a run depends on, sign in, and ready git/gh.\n\n" +
+			"`proveo init` again offers what was left for later; `sbx login` and `sbx setup` run sbx's own.\n" +
+			"Then `proveo run` lists the harnesses this host can start.\n\n" +
+			"proveo does not manage the host: fix what sbx diagnose reports, or reinstall sbx with --force.\n" +
+			"A PATH line init adds reaches a new shell; `source <rc>` brings it into this one.\n" +
+			"The prompt kit shows in a new shell; `proveo uninstall` takes it out again. It seeds starship's\n" +
+			"no-nerd-font preset unless the terminal draws Nerd glyphs; `starship preset nerd-font-symbols -o <config>` switches it.",
 		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error { return doInit(o) },
 	}
@@ -53,8 +60,10 @@ func initCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&o.skipGh, "skip-gh", false, "do not verify, install, or log in via `gh`")
 	cmd.Flags().BoolVar(&o.skipGit, "skip-git", false, "do not check or set git user.name / user.email")
 	cmd.Flags().BoolVar(&o.skipPrompt, "skip-prompt", false, "do not install starship, a Nerd Font, or the proveo prompt segment")
-	cmd.Flags().BoolVar(&o.force, "force", false, "reinstall even when this host already carries a usable sbx")
-	cmd.Flags().BoolVar(&o.yes, "yes", false, "take the defaults without prompting (implied when there is no terminal)")
+	cmd.Flags().BoolVar(&o.force, "force", false, "reinstall even when this host already carries a usable sbx, or one that is broken or half-installed")
+	cmd.Flags().BoolVar(&o.yes, "yes", false, "take the defaults without prompting (implied when there is no terminal); "+
+		"credentials, gh's install, GitHub sign-in and access, and the operator's name wait for `proveo init` on a terminal; "+
+		"a missing git identity waits for `git config --global user.name` and `user.email`")
 	return cmd
 }
 
@@ -80,24 +89,25 @@ func doInit(o initOptions) error {
 		return err
 	}
 
-	installed, why := installedVersion(plan)
-	ui.Section(ui.SectionRun)
-	ui.Hostf("host: %s", describeHost(host))
-	reportPlan(plan, installed, o.force || o.printOnly)
-
-	checks := reportPrereqs(host)
+	installed, _ := installedVersion(plan)
+	checks := sbx.Prereqs(host, sbx.DefaultProbe())
+	rep := newInitReport(o, host, checks, plan)
 	prompted := !o.yes && !o.printOnly && interactiveTerminal()
 	stop := sbx.Blocking(checks, sbx.BlocksInstall)
 	if len(stop) > 0 && !o.printOnly && !prompted {
-		return errBlocked(stop)
+		return rep.close(nil, blockedErr{stop})
 	}
 	if o.printOnly {
-		printPlan(plan, installed)
-		if _, err := credentialStage(o, choiceui.Step{}, nil, nil); err != nil { // reports where each credential rests; provisions nothing
+		rep.printSbx()
+		printPlan(plan)
+		if _, err := credentialStage(o, choiceui.Step{}, nil, nil, rep); err != nil { // reports where each credential rests; provisions nothing
 			return err
 		}
-		_, err := operatorStage(o, choiceui.Step{})
-		return err
+		if _, err := operatorStage(o, choiceui.Step{}, rep); err != nil {
+			return err
+		}
+		rep.printCredentials()
+		return nil
 	}
 
 	var prev *initDecisions
@@ -116,7 +126,7 @@ func doInit(o initOptions) error {
 			}
 			rows = preflightRows(checks, diag, diagErr)
 		}
-		return preflightPage(host, rows, stop, at)
+		return preflightPage(host, rows, stop, at, rep)
 	}
 	setup := func(at choiceui.Step) (stepResult, error) {
 		d, err := decide(plan, host, installed, checks, o, prev, viaPackage, at)
@@ -135,56 +145,33 @@ func doInit(o initOptions) error {
 			if plan, err = sbx.PlanFor(host, d.Prefix, download); err != nil {
 				return stepNext, err
 			}
-			installed, why = installedVersion(plan)
+			installed, _ = installedVersion(plan)
 		}
-
 		viaPackage = d.Install == installPackaged || (d.Install == installSkip && viaPackage)
 		applied := appliedPlan(plan, viaPackage)
-		switch d.Install {
-		case installSkip:
-			ui.Section(ui.SectionStarting)
-			ui.Okf("sbx %s is already installed — proveo installs it once and leaves it alone", installed)
-			if note := sbx.UnverifiedNote(installed); note != "" {
-				ui.Warnf("%s", note)
-			}
-			if sbx.Older(installed, sbx.MinVersion) {
-				ui.Warnf("sbx %s is older than the %s proveo can drive; a run will refuse it", installed, sbx.MinVersion)
-				ui.Notef("upgrade it yourself, or let proveo reinstall the pinned %s with `proveo init --force`", sbx.Release)
-			}
-		case installPackaged:
-			if plan.Packaged == nil {
-				return stepNext, fmt.Errorf("this release ships no distro package for %s", describeHost(host))
-			}
-			ui.Section(ui.SectionStarting)
-			ui.Appf("installing the distro package — it will ask for your password")
-		default:
-			ui.Section(ui.SectionStarting)
-			if installed != "" {
-				ui.Appf("reinstalling sbx %s as the pinned %s (--force)", installed, sbx.Release)
-			} else if why != "" {
-				ui.Appf("installing sbx: %s", why)
-			}
-		}
-
+		rep.applied = applied
 		rec.leaveUnchosen(d)
-		if err := runApply(applyPlan(d, applyCtx{plan: plan, applied: applied, download: download, host: host}), rec.did); err != nil {
+		steps := applyPlan(d, applyCtx{plan: plan, applied: applied, download: download, host: host, rep: rep})
+		if err := runApply(steps, rec.did); err != nil {
+			var failed stepErr
+			if errors.As(err, &failed) {
+				rec.unreached(failed.rest...)
+			}
 			return stepNext, err
 		}
-		installed, why = installedVersion(applied)
+		d = settle(d, steps, applied)
+		installed, _ = installedVersion(applied)
 		prev, o.force = &d, false
 		return stepNext, nil
 	}
 	typed := map[string]string{}
-	err = runInitSteps(!o.yes && interactiveTerminal(), []initStep{
-		preflight,
-		setup,
-		func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed, rec) },
-		func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at) },
-	})
-	if err == nil || errors.Is(err, errInitLeft) {
-		rec.report()
-	}
-	return err
+	err = runInitSteps(!o.yes && interactiveTerminal(), rec.pages([]initPage{
+		{run: preflight},
+		{run: setup},
+		{label: labelCredentials, run: func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed, rec, rep) }},
+		{label: labelOperator, run: func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at, rep) }},
+	}))
+	return rep.close(rec, err)
 }
 
 // appliedPlan is the plan setup acts on; a package manager owns placement, like the MSI.
@@ -226,7 +213,7 @@ func runInitSteps(prompted bool, steps []initStep) error {
 			return err
 		}
 		if r == stepQuit {
-			return fmt.Errorf("%w at page %d/%d — what earlier pages did stays done", errInitLeft, i+1, len(steps))
+			return fmt.Errorf("%w at page %d/%d", errInitLeft, i+1, len(steps))
 		}
 		if (r == stepBack || (r == stepNone && back)) && prompted && i > 0 {
 			i, back = i-1, true
@@ -246,45 +233,6 @@ func describeHost(h sbx.Host) string {
 		}
 	}
 	return out
-}
-
-func reportPrereqs(h sbx.Host) []sbx.Prereq {
-	checks := sbx.Prereqs(h, sbx.DefaultProbe())
-	if len(checks) == 0 {
-		return nil
-	}
-	ui.Section(ui.SectionExecution)
-	for _, c := range checks {
-		switch {
-		case c.OK:
-			ui.Okf("%s — %s", c.Name, c.Detail)
-		case c.Blocks == sbx.BlocksInstall:
-			ui.Failf("%s — %s", c.Name, c.Detail)
-			ui.Notef("fix: %s", c.Fix)
-		default:
-			ui.Warnf("%s — %s", c.Name, c.Detail)
-			ui.Notef("%s", c.Fix)
-		}
-	}
-	return checks
-}
-
-// reportPlan names the sbx this host runs, or the pinned release init would install.
-func reportPlan(plan sbx.Plan, installed string, installing bool) {
-	if installed != "" && !installing {
-		ui.Storef("sbx %s on this host — proveo pins %s only for a host without sbx", installed, sbx.Release)
-		return
-	}
-	ui.Storef("sbx %s — %s", sbx.Release, plan.Asset)
-	if plan.Prefix != "" {
-		ui.Notef("prefix: %s", plan.Prefix)
-	}
-	if plan.Note != "" {
-		ui.Notef("%s", plan.Note)
-	}
-	if plan.Alt != "" {
-		ui.Notef("from your package manager instead, if you would rather it owned this: %s", plan.Alt)
-	}
 }
 
 func installedVersion(plan sbx.Plan) (version, why string) {
@@ -307,10 +255,19 @@ func installedVersion(plan sbx.Plan) (version, why string) {
 	return got, ""
 }
 
-func printPlan(plan sbx.Plan, installed string) {
-	ui.Section(ui.SectionStarting)
-	if installed != "" {
-		ui.Notef("this host carries sbx %s", installed)
+// printPlan is --print's plan: the release and its install steps under "sbx", then what init asks
+// of gh and git under "git". Every path stays absolute so each line can be copied.
+func printPlan(plan sbx.Plan) {
+	ui.Section(ui.SectionSbx)
+	ui.Storef("sbx %s — %s", sbx.Release, plan.Asset)
+	if plan.Prefix != "" {
+		ui.Notef("prefix: %s", plan.Prefix)
+	}
+	if plan.Note != "" {
+		ui.Notef("%s", plan.Note)
+	}
+	if plan.Alt != "" {
+		ui.Notef("from your package manager instead, if you would rather it owned this: %s", plan.Alt)
 	}
 	ui.Hostf("download %s", plan.URL)
 	if plan.Provenance != nil {
@@ -324,34 +281,25 @@ func printPlan(plan sbx.Plan, installed string) {
 	if plan.Bin != "" {
 		ui.Notef("then %s must exist", plan.Bin)
 	}
+	if plan.Packaged != nil {
+		ui.Notef("or, at the prompt: %s (%s)", strings.Join(plan.Packaged.Argv, " "), plan.Packaged.Asset)
+	}
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.LoginArgs(), " "))
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.SetupArgs(), " "))
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.VersionJSONArgs(), " "))
+	ui.Section(ui.SectionGit)
 	ui.Appf("gh auth status")
 	ui.Appf("gh auth login")
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.SecretSetArgs("github"), " "))
 	ui.Appf("git config --get user.name")
 	ui.Appf("git config --get user.email")
-	if plan.Packaged != nil {
-		ui.Notef("or, at the prompt: %s (%s)", strings.Join(plan.Packaged.Argv, " "), plan.Packaged.Asset)
-	}
 }
 
 func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
 	if o.yes || !interactiveTerminal() {
-		d := carried(defaultDecisions(plan, installed, o), prev)
-		ui.Section(ui.SectionStarting)
-		ui.Notef("no prompt (%s) — %s", promptlessBecause(o), describeDecisions(d))
-		return d, nil
+		return carried(defaultDecisions(plan, installed, o), prev), nil
 	}
 	return askDecisions(plan, host, installed, checks, o, prev, viaPackage, at)
-}
-
-func promptlessBecause(o initOptions) string {
-	if o.yes {
-		return "--yes"
-	}
-	return "no terminal to ask through"
 }
 
 func interactiveTerminal() bool {
@@ -449,113 +397,107 @@ func sbxPathDir(plan sbx.Plan) string {
 	return filepath.Dir(plan.Bin)
 }
 
-func ensureSbxOnPath(dir string, write bool) {
+// ensureSbxOnPath puts dir on PATH in the shell's rc when write allows it, and returns the item
+// that says what changed or what is left to do; a zero Item when dir is on PATH already.
+// settle records on d what its applied steps settled, for a revisit to carry.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (REVISIT)
+func settle(d initDecisions, steps []applyStep, applied sbx.Plan) initDecisions {
+	if slices.ContainsFunc(steps, func(s applyStep) bool { return s.label == rowPath }) {
+		d.pathDone = filepath.Dir(applied.Bin)
+	}
+	return d
+}
+
+// rcAdds reports whether the shell's rc file already names dir.
+func rcAdds(dir string) bool {
+	sh, ok := shell.Detect(os.Getenv("SHELL"))
+	if !ok {
+		return false
+	}
+	home, _ := os.UserHomeDir()
+	content, _ := os.ReadFile(sh.RCFile(runtime.GOOS, home))
+	return strings.Contains(string(content), dir)
+}
+
+func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 	if onPath(dir) {
-		return
+		return sandbox.Item{}
 	}
 	sh, ok := shell.Detect(os.Getenv("SHELL"))
 	home, _ := os.UserHomeDir()
 	rc := sh.RCFile(runtime.GOOS, home)
 	line := sh.PathLine(dir)
-
-	ui.Section(ui.SectionWorkspace)
 	if !write || !ok || !sh.Supported {
-		ui.Warnf("%s is not on your PATH, so `sbx` will not resolve in a new shell", dir)
-		ui.Notef("add it to %s: %s", rc, line)
-		return
+		return sandbox.Item{Warn: true, Text: ui.Tilde(dir) + " — not on PATH", Detail: []string{"add to " + ui.Tilde(rc) + ": " + line}}
+	}
+	notWritten := func(err error) sandbox.Item {
+		return sandbox.Item{Warn: true, Text: ui.Tilde(rc) + " — not written", Detail: append(errLines(err), "add it yourself: "+line)}
 	}
 	content, _ := os.ReadFile(rc) // a missing rc is fine; it gets created
 	if strings.Contains(string(content), dir) {
-		ui.Okf("%s already configures %s — restart your shell", rc, dir)
-		return
+		return sandbox.Item{Warn: true, Text: ui.Tilde(dir) + " — not on this shell's PATH", Detail: []string{ui.Tilde(rc) + " adds it; a new shell picks it up"}}
 	}
 	if err := os.MkdirAll(filepath.Dir(rc), 0o755); err != nil {
-		ui.Warnf("could not prepare %s (%v) — add it yourself: %s", rc, err, line)
-		return
+		return notWritten(err)
 	}
 	f, err := os.OpenFile(rc, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		ui.Warnf("could not write %s (%v) — add it yourself: %s", rc, err, line)
-		return
+		return notWritten(err)
 	}
 	defer func() { _ = f.Close() }()
 	if _, err := f.WriteString(sh.SbxBlock(dir)); err != nil {
-		ui.Warnf("could not write %s (%v) — add it yourself: %s", rc, err, line)
-		return
+		return notWritten(err)
 	}
-	ui.Okf("added %s to PATH in %s — restart your shell or run: source %s", dir, rc, rc)
+	return sandbox.Item{Ok: true, Text: ui.Tilde(dir) + " — added to PATH in " + ui.Tilde(rc), Detail: []string{"a new shell picks it up"}}
 }
 
-func verify(bin string) error {
-	ui.Section(ui.SectionResults)
-
-	if got, err := sbx.VersionAt(bin); err == nil {
-		if bin == sbx.Binary {
-			ui.Storef("sbx %s on PATH", got)
-		} else {
-			ui.Storef("sbx %s at %s — not on PATH yet; the export line above fixes a new shell", got, bin)
-		}
-	} else {
-		ui.Warnf("installed sbx does not report a version (%v)", err)
-	}
-
-	failed := reportHostReadiness(bin)
-
-	if allowed, known := sbx.NetworkAllowed("proveo-egress-probe.invalid"); known && allowed {
-		ui.Notef("sbx's global network policy currently allows every host; sbx decides every run's egress (`sbx policy ls`)")
-	}
-	if len(failed) > 0 {
-		return fmt.Errorf("host not ready to run: %s", strings.Join(sbx.CheckNames(failed), ", "))
-	}
-	return nil
-}
-
-// reportHostReadiness prints sbx's own verdict on this host and returns the failing rows a run needs.
-func reportHostReadiness(bin string) []sbx.Check {
-	checks, err := sbx.DiagnoseAt(bin)
-	if err != nil {
-		ui.Warnf("could not ask sbx about this host (`%s %s`): %v", sbx.Binary,
-			strings.Join(sbx.DiagnoseArgs(), " "), err)
-		ui.Notef("if sbx is broken or half-installed, reinstall the pinned %s with `proveo init --force`", sbx.Release)
+// verify asks sbx for its verdict on this host and keeps it as the result's readiness: the failing
+// checks as items, and whether a run can start. A failing check a run needs is its error.
+func verify(bin string, rep *initReport) error {
+	rep.readiness, rep.ready = nil, false
+	if bin == sbx.Binary && !sbx.Installed() {
+		rep.readiness = []sandbox.Item{{Warn: true, Text: "sbx — not on this shell's PATH",
+			Detail: []string{"a new shell finds it; `" + sbx.Binary + " diagnose` there gives the host's verdict"}}}
 		return nil
 	}
-	return reportChecks(checks)
+	if _, err := sbx.VersionAt(bin); err != nil {
+		rep.readiness = append(rep.readiness, sandbox.Item{Warn: true, Text: "sbx — reports no version", Detail: errLines(err)})
+	}
+	checks, err := sbx.DiagnoseAt(bin)
+	if err != nil {
+		first, _, _ := strings.Cut(err.Error(), "\n")
+		rep.readiness = append(rep.readiness, sandbox.Item{Warn: true, Text: "sbx diagnose — gave no answer",
+			Detail: []string{ui.TildeIn(first), "`proveo init --force` reinstalls the pinned " + sbx.Release}})
+		return nil
+	}
+	items, blockers := checkItems(checks)
+	rep.readiness = append(rep.readiness, items...)
+	if len(blockers) > 0 {
+		return hostNotReady{names: sbx.CheckNames(blockers)}
+	}
+	rep.ready = true
+	return nil
 }
 
 // outsideARunNote follows a failing row a run does not need.
 const outsideARunNote = "a run does not need this check; it affects %s"
 
-// reportChecks prints each failing row with its evidence and hint, and returns the ones a run needs.
-func reportChecks(checks []sbx.Check) []sbx.Check {
-	failed := sbx.FailedChecks(checks)
-	if len(failed) == 0 {
-		ui.Okf("sbx reports this host ready — %d checks passed", len(checks))
-		return nil
-	}
-	ui.Warnf("sbx reports %d of %d host checks failing", len(failed), len(checks))
-	for _, c := range failed {
+// checkItems are sbx's failing rows as items, × for a check a run needs and ⚠ for one it does not,
+// each with sbx's evidence and hint dim; blockers are the rows a run needs.
+func checkItems(checks []sbx.Check) (items []sandbox.Item, blockers []sbx.Check) {
+	for _, c := range sbx.FailedChecks(checks) {
 		affects := c.Affects()
-		if affects == "" {
-			ui.Failf("%s — %s", c.Name, c.Summary())
-		} else {
-			ui.Warnf("%s — %s", c.Name, c.Summary())
-		}
-		for _, e := range c.Evidence() {
-			ui.Notef("%s", e)
-		}
-		if c.Hint != "" {
-			ui.Notef("%s", c.Hint)
+		it := sandbox.Item{Fail: affects == "", Warn: affects != "", Text: c.Name + " — " + c.Summary(), Detail: slices.Clone(c.Evidence())}
+		switch {
+		case c.Hint != "":
+			it.Detail = append(it.Detail, c.Hint)
+		case affects == "":
+			it.Detail = append(it.Detail, "`proveo init --force` reinstalls the pinned "+sbx.Release)
 		}
 		if affects != "" {
-			ui.Notef(outsideARunNote, affects)
+			it.Detail = append(it.Detail, fmt.Sprintf(outsideARunNote, affects))
 		}
+		items = append(items, it)
 	}
-	ui.Notef("proveo does not manage the host: fix the above, or reinstall sbx with `proveo init --force`")
-	return sbx.RunBlockers(checks)
-}
-
-func interactive(bin string, args []string) error {
-	c := exec.Command(bin, args...)
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stderr, os.Stderr
-	return c.Run()
+	return sandbox.WithPaths(items, ui.TildeIn), sbx.RunBlockers(checks)
 }

@@ -68,7 +68,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	_ = first.Enter()
 	if !waitUntil(budget, installed) {
 		screen, _ := first.CaptureAll()
-		t.Fatalf("the seed did not install %s on the host emulator:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(before, hostADB))
+		t.Fatalf("the seed did not install %s on the host emulator:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(t, before, hostADB))
 	}
 	var top string
 	if !waitUntil(time.Minute, func() bool {
@@ -85,14 +85,15 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	second := seedRun(t, proveoBin, home, work, "second", "--yes", "--addon", "android")
 	if !waitUntil(budget, installed) {
 		screen, _ := second.CaptureAll()
-		t.Fatalf("a --yes rerun did not reinstall %s from the remembered answer:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(before, hostADB))
+		t.Fatalf("a --yes rerun did not reinstall %s from the remembered answer:\n%s\n%s", helloPackage, tail(screen, 60), installEvidence(t, before, hostADB))
 	}
 }
 
 // installEvidence is the seed's install log from each sandbox this test made, and the host's device list.
-func installEvidence(before map[string]bool, hostADB func(...string) string) string {
+func installEvidence(t *testing.T, before map[string]bool, hostADB func(...string) string) string {
+	t.Helper()
 	var b strings.Builder
-	for _, name := range newSandboxes(before) {
+	for _, name := range newSandboxes(t, before) {
 		out, err := exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "cat", sandbox.AndroidLog).CombinedOutput()
 		fmt.Fprintf(&b, "── %s:%s (err=%v)\n%s\n", name, sandbox.AndroidLog, err, tail(string(out), 80))
 	}

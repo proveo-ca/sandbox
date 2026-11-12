@@ -17,7 +17,7 @@ func recordKept(in Input, name, why string, pending bool) {
 		err = results.Remove(in.ResultsDir, results.Kept, name)
 	} else {
 		err = results.Put(in.ResultsDir, results.Entry{
-			Kind: results.Kept, Key: name, Sid: in.Sid, Repo: in.RepoRoot, Why: why, Pending: pending,
+			Kind: results.Kept, Key: name, Sid: in.Sid, Repo: in.RepoRoot, Output: in.OutputDir, Why: why, Pending: pending,
 		})
 	}
 	if err != nil {

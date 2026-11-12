@@ -449,6 +449,22 @@ func TestSectionsAreLazy(t *testing.T) {
 	}
 }
 
+// A heading withdrawn before anything follows it never draws, not even for a live line.
+func TestAWithdrawnSectionDrawsNothing(t *testing.T) {
+	var buf bytes.Buffer
+	asDefault(t, &Printer{W: &buf, Plain: true}, nil)
+	Section(SectionEgress)
+	Warnf("broker off")
+	Section(SectionGit)
+	WithdrawSection()
+	Default.heading()
+	Warnf("baseline is open")
+	got := buf.String()
+	if strings.Contains(got, SectionGit) || strings.Count(got, "------ "+SectionEgress) != 1 {
+		t.Errorf("a withdrawn heading drew, or the shown one drew again:\n%s", got)
+	}
+}
+
 func TestReDeclaringTheCurrentSectionDrawsNothing(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer

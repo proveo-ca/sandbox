@@ -3,6 +3,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -87,23 +88,37 @@ func TestOnlyAFailingCheckARunNeedsFailsInit(t *testing.T) {
 		says     []string
 	}{
 		{"a check a run does not need", []sbx.Check{pass, sshClientConfig}, nil,
-			[]string{"sbx reports 1 of 2 host checks failing", "SSH client config — an unmanaged sandbox Host stanza",
-				"/home/op/.ssh/config:5: Host", "Remove or rename", "a run does not need this check; it affects IDE attach"}},
+			[]string{"⚠ SSH client config — an unmanaged sandbox Host stanza", "/home/op/.ssh/config:5: Host", "Remove or rename",
+				"a run does not need this check; it affects IDE attach"}},
 		{"a check a run needs", []sbx.Check{pass, daemon, sshClientConfig}, []string{"Daemon"},
-			[]string{"sbx reports 2 of 3 host checks failing", "Daemon — not reachable", "Run: sbx daemon start"}},
+			[]string{"× Daemon — not reachable", "Run: sbx daemon start"}},
 		{"a check proveo does not know", []sbx.Check{{Name: "Something new", Status: "fail", Message: "broken"}}, []string{"Something new"},
-			[]string{"Something new — broken"}},
-		{"every check passed", []sbx.Check{pass}, nil, []string{"sbx reports this host ready — 1 checks passed"}},
+			[]string{"× Something new — broken", "`proveo init --force` reinstalls the pinned " + sbx.Release}},
+		{"every check passed", []sbx.Check{pass}, nil, nil},
 	} {
-		out := captureUI(t)
-		got := sbx.CheckNames(reportChecks(c.checks))
-		if !slices.Equal(got, c.blockers) {
+		items, blockers := checkItems(c.checks)
+		if got := sbx.CheckNames(blockers); !slices.Equal(got, c.blockers) {
 			t.Errorf("%s: init stops on %v, want %v", c.name, got, c.blockers)
 		}
-		for _, want := range c.says {
-			if !strings.Contains(out.String(), want) {
-				t.Errorf("%s: the report lacks %q:\n%s", c.name, want, out)
+		var said []string
+		for _, it := range items {
+			mark := "⚠ "
+			if it.Fail {
+				mark = "× "
 			}
+			said = append(append(said, mark+it.Text), it.Detail...)
+		}
+		out := strings.Join(said, "\n")
+		for _, want := range c.says {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: the items lack %q:\n%s", c.name, want, out)
+			}
+		}
+		if strings.Contains(out, "checks passed") || strings.Contains(out, "host checks failing") || strings.Contains(out, "does not manage the host") {
+			t.Errorf("%s: a count or the --force sentence is back on screen:\n%s", c.name, out)
+		}
+		if c.says == nil && len(items) != 0 {
+			t.Errorf("%s: a passing host printed items: %+v", c.name, items)
 		}
 	}
 }
@@ -132,42 +147,121 @@ func TestAnSbxThatDoesNotAnswerIsARowAndNotAnError(t *testing.T) {
 	}
 }
 
-func TestTheResultCountsAnActionThatRanOnAnEarlierVisitAsDone(t *testing.T) {
+func TestTheResultLeavesOutAnActionThatRanOnAnEarlierVisit(t *testing.T) {
 	t.Parallel()
 	rec := &initRecord{}
 	first := initDecisions{Login: true, Wizard: true}
 	rec.leaveUnchosen(first)
-	for _, name := range []string{actSignIn, actWizard, "", "verify sbx (sbx diagnose)", actSignIn} {
-		rec.did(name)
+	for _, label := range []string{rowSignIn, rowWizard, "", labelVerify, rowSignIn} {
+		rec.did(label)
 	}
 	rec.leaveUnchosen(initDecisions{}) // the revisit: every one-shot action opens on later
-	rec.leave(actCreds, "proveo init")
-	ran, later, next := rec.lines()
-	if !slices.Equal(ran, []string{actSignIn, actWizard, "verify sbx (sbx diagnose)"}) {
-		t.Errorf("ran = %q; each action once, in the order it ran", ran)
+	rec.leave(labelCredentials)
+	later, notRun := rec.lines()
+	if want := []string{rowGh, rowGit, rowPrompt, labelCredentials}; !slices.Equal(later, want) {
+		t.Errorf("later = %q\n want  %q", later, want)
 	}
-	wantLater := []string{
-		actGit + " — `proveo init`", actPrompt + " — `proveo init`", actGitHub + " — `proveo init`", actCreds + " — `proveo init`",
+	if len(notRun) != 0 {
+		t.Errorf("not run = %q on an init that ran to its end", notRun)
 	}
-	if !slices.Equal(later, wantLater) {
-		t.Errorf("later = %q\n want  %q", later, wantLater)
-	}
-	if next != "proveo run" {
-		t.Errorf("next = %q", next)
-	}
-	rec.did(actCreds)
-	if _, later, _ = rec.lines(); slices.Contains(later, actCreds+" — `proveo init`") {
+	rec.did(labelCredentials)
+	if later, _ = rec.lines(); slices.Contains(later, labelCredentials) {
 		t.Errorf("an action that ran after being left is still listed as later: %q", later)
 	}
 }
 
-func TestSignInLeftForLaterNamesSbxsOwnCommand(t *testing.T) {
+func TestSignInLeftForLaterUsesTheSetupPagesRowNames(t *testing.T) {
 	t.Parallel()
 	rec := &initRecord{}
 	rec.leaveUnchosen(initDecisions{Git: true, Prompt: true, Gh: true})
-	_, later, _ := rec.lines()
-	want := []string{actSignIn + " — `" + sbx.Binary + " login`", actWizard + " — `" + sbx.Binary + " setup`"}
-	if !slices.Equal(later, want) {
-		t.Errorf("later = %q, want %q", later, want)
+	if later, _ := rec.lines(); !slices.Equal(later, []string{rowSignIn, rowWizard}) {
+		t.Errorf("later = %q, want the setup page's own rows", later)
+	}
+}
+
+// UNREACHED: what a failure kept from running stacks under its own "not run" key; "later" keeps
+// only what was answered later.
+func TestAFailureNamesWhatItKeptFromRunningApartFromLater(t *testing.T) {
+	t.Parallel()
+	rec := &initRecord{}
+	rec.leaveUnchosen(initDecisions{Login: true, Wizard: true, Gh: true})
+	rec.did(rowInstall)
+	rec.unreached(rowWizard, rowGh, labelVerify, rowGh)
+	rec.unreached(labelCredentials, labelOperator)
+	later, notRun := rec.lines()
+	if !slices.Equal(later, []string{rowGit, rowPrompt}) {
+		t.Errorf("later = %q", later)
+	}
+	if want := []string{rowWizard, rowGh, labelVerify, labelCredentials, labelOperator}; !slices.Equal(notRun, want) {
+		t.Errorf("not run = %q, want %q", notRun, want)
+	}
+	var keys []string
+	for _, f := range rec.facts() {
+		keys = append(keys, f.Key)
+	}
+	if want := []string{"later", "", "not run", "", "", "", ""}; !slices.Equal(keys, want) {
+		t.Errorf("fact keys = %q, want each list stacked under its key", keys)
+	}
+}
+
+// A page answered "later" that a failure then kept init from reaching again stays "later" alone.
+func TestARowAnsweredLaterIsNeverAlsoNotRun(t *testing.T) {
+	t.Parallel()
+	rec := &initRecord{}
+	rec.leave(labelCredentials)
+	rec.unreached(labelCredentials, labelOperator)
+	later, notRun := rec.lines()
+	if !slices.Equal(later, []string{labelCredentials}) || !slices.Equal(notRun, []string{labelOperator}) {
+		t.Errorf("later = %q, not run = %q; want credentials under later only", later, notRun)
+	}
+}
+
+// A row answered "later", then chosen "now" on a revisit that fails before it runs, is "not run"
+// and no longer "later"; the row that failed is neither.
+func TestARowChosenNowOnARevisitLeavesLater(t *testing.T) {
+	t.Parallel()
+	rec := &initRecord{}
+	rec.leaveUnchosen(initDecisions{Wizard: true, Gh: true, Prompt: true})
+	for _, label := range []string{rowWizard, rowGh, rowPrompt, labelVerify} {
+		rec.did(label)
+	}
+	rec.leaveUnchosen(initDecisions{Login: true, Git: true})
+	rec.unreached(rowGit, labelVerify)
+	rec.unreached(labelCredentials, labelOperator)
+	later, notRun := rec.lines()
+	if len(later) != 0 {
+		t.Errorf("later = %q; the revisit chose them now", later)
+	}
+	if want := []string{rowGit, labelCredentials, labelOperator}; !slices.Equal(notRun, want) {
+		t.Errorf("not run = %q, want %q", notRun, want)
+	}
+}
+
+// A page that fails names every page after it as never run; a quit, a cancel and a blocked host do not.
+func TestAFailedPageNamesThePagesAfterIt(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		err  error
+		want []string
+	}{
+		{errors.New("boom"), []string{labelCredentials, labelOperator}},
+		{fmt.Errorf("%w at the setup page", errInitCancel), nil},
+		{blockedErr{}, nil},
+	} {
+		rec := &initRecord{}
+		steps := rec.pages([]initPage{
+			{run: func(choiceui.Step) (stepResult, error) { return stepNext, tc.err }},
+			{label: labelCredentials, run: func(choiceui.Step) (stepResult, error) { return stepNext, nil }},
+			{label: labelOperator, run: func(choiceui.Step) (stepResult, error) { return stepNext, nil }},
+		})
+		_ = runInitSteps(false, steps)
+		if _, notRun := rec.lines(); !slices.Equal(notRun, tc.want) {
+			t.Errorf("%v: not run = %q, want %q", tc.err, notRun, tc.want)
+		}
+	}
+	rec := &initRecord{}
+	_ = runInitSteps(true, rec.pages([]initPage{{run: func(choiceui.Step) (stepResult, error) { return stepQuit, nil }}, {label: labelOperator}}))
+	if _, notRun := rec.lines(); len(notRun) != 0 {
+		t.Errorf("a quit named %q as never run", notRun)
 	}
 }

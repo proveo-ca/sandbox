@@ -31,6 +31,15 @@ skinparam noteTextAlignment left
 '   empty    keeps the stored name; with none stored, Executor and no file
 '   skipped  --print, --yes or no terminal: reports the name in use
 '   store    ~/.proveo/operator.yml   `name: <value>`  (PROVEO_HOME honoured)
+'   prints   (R3, 2026-11-11) one "name" fact under "operator", at the end of
+'            init: the name set on accept, or the one in use when nothing
+'            asked; nothing on Skip. With no terminal, dim "`proveo init` from
+'            a terminal changes it"; --yes keeps no how-to (the flag's help
+'            says it). Gone: "✓ agents will address you as "X"" (a fact said
+'            as a ✓, P7) and "agents address you as "X" — run `proveo init`
+'            from a shell to change it". An unreadable operator.yml is a ⚠
+'            item there. Pinned by cmd/proveo/init_report_test.go
+'            TestTheOperatorsNameIsAFact.
 '
 ' ── CARRY (proveo run) ─────────────────────────────────────────────────────
 '   sbx      agent env PROVEO_OPERATOR_NAME=<name>

@@ -6,6 +6,7 @@
 ' covers: internal/sbx/host_ollama.go (pullOllama: the first user of the live line)
 ' covers: internal/sbx/host_ollama_pull_test.go
 ' covers: internal/backend/sandbox/report.go (Item.Log, PrintBlock, Block)
+' covers: internal/backend/sandbox/log_moves_test.go
 '   the language this obeys ....... _spec/_conventions/tui-design-language.puml
 '   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
 '   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
@@ -100,7 +101,10 @@
 ' clean run stays grey. Keys are lowercase and end in ":". Values start in
 ' one column per block: the widest key, its colon, one space. A row with no
 ' Key stacks its Value under the row above, with no dot. Detail lines sit at
-' the value column in ColorRule #585858. A row with no Value and no Detail
+' the value column in ColorRule #585858; under a value in a stack they sit
+' two columns further, so plain output (no shade) cannot read a detail as one
+' more value of the list (R3: "later:" stacked "prompt", "credentials" and
+' credentials' how-to in one column). A row with no Value and no Detail
 ' prints nothing, so a caller passes every fact and lets the empty ones drop;
 ' such a row widens no key column either (R1: the run block's empty "scope"
 ' padded "log:" to three spaces).
@@ -151,6 +155,12 @@
 ' sandbox.Block gathers one subject's facts and items while its steps run and
 ' prints them once (PrintBlock); a row added after Print prints at once. The
 ' results block of _spec/internal/backend/teardown.puml is its first user.
+' Block.Take hands what Print would print to a caller that prints it its own
+' way, and counts as Print: init's revisit drops what it printed before
+' (_spec/cmd/proveo/init-sbx-bootstrap.puml). ui.WithdrawSection withdraws
+' a heading declared and not drawn, so a subject a revisit left unchanged
+' does not lend its heading to the next live line, which Printer.Live draws
+' (TestAWithdrawnSectionDrawsNothing).
 ' SectionIDE ("ide") heads a kept sandbox's attach facts; it prints only when
 ' the sandbox stays, after results, so nothing redraws "results" after it.
 ' Item gained Ok (✓) and Fail (×): a closing "✓ <name> — removed" is a
@@ -166,6 +176,29 @@
 ' starts (MEASURED on the kept ide block, TestStreamPaletteE2E's capture).
 ' Pinned by TestAWrappedFactKeepsItsAlignedGapAndBreaksALongWordAtItsOwnColumn
 ' and TestLogWriterSendsEachLineToTheRunLogAlone.
+'
+' ── WHAT INIT PRINTS (2026-11-11, R3 of _spec/_plans/output-readability.puml)
+' `proveo init` names its subjects: sbx · prompt · git · credentials · operator
+' · results, each once, each after the step that makes it true. SectionPrompt
+' ("prompt") and SectionGit ("git") are new; SectionExecution, SectionStarting
+' and SectionSecrets lost their last callers and left: eighteen sections.
+' OUTCOME LINES, init's (decision A applied): sbx, prompt, git, credentials and
+' operator are facts with their ⚠/× items; results ends on ONE closing line
+' for a verdict no fact states: "✓ host — ready to run", "× host — not ready
+' to run", "⚠ init — quit at page n/N", "⚠ init — cancelled at the checks
+' page", "⚠ init — stopped at <row>" (a program init handed the terminal to
+' failed and printed its own error, P9 and R2's F3), "× <row> — failed" (a
+' failure only proveo saw), or "× init — stopped" (an error no step names:
+' the setup page's own form error, no plan for a prefix it chose), the error
+' dim. After a verify that found the host ready, each ending but ✓ keeps "host
+' ready to run" as its last dim line. Every one but ✓ returns
+' backend.Reported, or a Stopped proveo re-raises after a Ctrl+C in a
+' hand-off, so main adds no second ×. A fact never
+' repeats as a ✓: the operator's name, the git identity and a stored key are
+' facts; "done:" left (it was false three ways).
+' Steps.Quiet and Steps.Silent: _spec/internal/ui/step-lines.puml.
+' init writes no run log, so ui.Logf is a no-op there; nothing init used to
+' print moved to Logf. Its how-tos went to `proveo init --help` (F2).
 '
 ' ── WHICH SCREEN LINES ARE PROVEO'S (2026-10-20) ───────────────────────────
 ' MEASURED: the newer sbx prints its own uncoloured lines into the same pane —
@@ -227,14 +260,14 @@
 '     a plain printer keeps one start line, and egress's "local model" fact
 '     gains a dim "pulled this run · 4.0 GiB")
 '
-title Output vocabulary — six roles, three severities, nineteen sections, one measured writer
+title Output vocabulary — six roles, three severities, eighteen sections, one measured writer
 
 component "Printer{W, Plain, Tier}" as P <<app>>
 component "Hostf · Appf · Asyncf\nCloudf · Storef · Dangerf\n— role: which layer speaks" as ROLES <<app>>
 component "Okf · Warnf · Failf\n— severity: fine · attention · broken" as SEV <<app>>
 component "Notef\ncontinuation, indented\nto the text column" as NOTE <<app>>
 component "Askf\nquestion, same line,\nawaits input" as ASK <<app>>
-component "Section(ui.Section*)\nnineteen closed names\nheading drawn LAZILY" as SEC <<app>>
+component "Section(ui.Section*)\neighteen closed names\nheading drawn LAZILY" as SEC <<app>>
 component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>

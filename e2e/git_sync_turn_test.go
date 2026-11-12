@@ -113,7 +113,7 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	var name string
 	if m := sandboxNameRE.FindStringSubmatch(w.Screen()); m != nil {
 		name = m[1]
-	} else if fresh := newSandboxes(before); len(fresh) == 1 {
+	} else if fresh := newSandboxes(t, before); len(fresh) == 1 {
 		name = fresh[0]
 	} else {
 		w.Fatalf("cannot name the sandbox %s runs in (new: %v)", h.target, fresh)

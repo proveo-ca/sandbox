@@ -251,9 +251,9 @@ func TestTheSecretsTheEnvSeedAndProveosImagePrintAsOneBlockBeforeSbxCreate(t *te
 	}
 	reportCreate(Input{Image: "proveo/claudecode-browser:local", ProjectEnv: "/w/.env"}, sbx.RunConfig{Name: "sb"}, 2, secrets, nil)
 	want := "secret: ANTHROPIC_API_KEY → sbx's \"anthropic\" entry, for sb only\n" +
-		"        from its value\n" +
+		"          from its value\n" +
 		"        OPENAI_API_KEY → sbx's \"openai\" entry, for sb only\n" +
-		"        sbx resolves --from-op on the host\n" +
+		"          sbx resolves --from-op on the host\n" +
 		"env:    2 values from /w/.env (--env-file)\n" +
 		"image:  proveo/claudecode-browser:local (local build)\n"
 	if got := screen.String(); got != want {

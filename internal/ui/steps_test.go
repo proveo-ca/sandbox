@@ -236,3 +236,49 @@ func TestALiveStepDrawsThePendingHeadingBeforeItsLogLines(t *testing.T) {
 		t.Errorf("the log must draw the step's heading before its place:\n%s", got)
 	}
 }
+
+// A quiet step's live frame shows on a terminal; plain output gets no line for it: its caller
+// prints what it found under its own heading.
+func TestAQuietStepShowsALiveFrameAndLeavesNoPlainLine(t *testing.T) {
+	term, log := &lockedTerm{}, &bytes.Buffer{}
+	asDefault(t, &Printer{W: term, Tier: GlyphsSafe, term: term}, log)
+	steps := NewSteps(2)
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- steps.Quiet("verify sbx", func() error { <-release; return nil }) }()
+	await(t, term, "step 1/2 · verify sbx · 0s")
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), "step 1/2 · verify sbx") {
+		t.Errorf("the log lacks the quiet step's place:\n%s", log.String())
+	}
+
+	var out bytes.Buffer
+	asDefault(t, New(&out), nil)
+	if err := NewSteps(1).Quiet("verify sbx", func() error { return nil }); err != nil || out.Len() != 0 {
+		t.Errorf("plain output of a quiet step = %q, %v; want nothing", out.String(), err)
+	}
+}
+
+// A silent step counts toward the plan and logs its place; it prints nothing anywhere.
+func TestASilentStepCountsAndPrintsNothing(t *testing.T) {
+	term, log := &lockedTerm{}, &bytes.Buffer{}
+	asDefault(t, &Printer{W: term, Tier: GlyphsSafe, term: term}, log)
+	steps := NewSteps(2)
+	ran := false
+	if err := steps.Silent("set the sandbox git identity", func() error { ran = true; return nil }); err != nil || !ran {
+		t.Fatalf("Silent ran=%v err=%v", ran, err)
+	}
+	if term.String() != "" {
+		t.Errorf("a silent step drew %q", term.String())
+	}
+	if !strings.Contains(log.String(), "step 1/2 · set the sandbox git identity") {
+		t.Errorf("the log lacks the silent step's place:\n%s", log.String())
+	}
+	_ = steps.HandAs("sign in", "sbx login — signing in to Docker", func() error { return nil })
+	if !strings.Contains(log.String(), "step 2/2 · sign in") {
+		t.Errorf("the next step did not count on from the silent one:\n%s", log.String())
+	}
+}

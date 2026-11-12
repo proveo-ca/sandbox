@@ -4,8 +4,10 @@ skinparam noteTextAlignment left
 ' purpose: why a package exists for its exit-status types, how main turns them into proveo's exit code, and why the interface it was created for is never written
 ' covers: internal/backend/backend.go
 ' covers: internal/backend/backend_test.go
-' covers: cmd/proveo/main.go (main, exitCode)
-' covers: cmd/proveo/main_test.go (TestExitCodeIsTheAgentsOrTheStoppingSignals)
+' covers: cmd/proveo/main.go (main, exitWith, reraised, exitCode)
+' covers: cmd/proveo/main_test.go (TestExitCodeIsTheAgentsOrTheStoppingSignals, TestAnInitACtrlCStoppedDiesOfSIGINT)
+' covers: cmd/proveo/die_unix.go
+' covers: cmd/proveo/die_windows.go
 ' covers: internal/sbx/run.go (RunExitCode)
 ' covers: internal/sbx/sbx_test.go (TestRunExitCodeTakesTheAgentsCodeSbxNamed, TestSaidErrorReadsSbxsOwnLastLine)
 ' covers: e2e/stream_palette_test.go (TestStreamPaletteE2E, TestNoProveoExitLineWhenOnlyStdinIsRedirected)
@@ -106,6 +108,26 @@ skinparam noteTextAlignment left
 ' Pinned by TestRunExitCodeTakesTheAgentsCodeSbxNamed (sbx_test.go): named,
 ' no line, code 0, last line wins, last match in a line wins, negative, and
 ' status pass-through.
+'
+' ── 2026-11-11 (R3 review): INIT DIES OF THE SIGINT IT WAS HANDED ──────────
+' A Ctrl+C in a program `proveo init` handed the terminal to (sbx setup, sbx
+' login, gh auth login, an installer) reaches that program; init prints its
+' blocks and "⚠ init — stopped at <row>", then returns reraised{Stopped
+' {SIGINT}}. exitWith calls dieOf: signal.Reset, kill(self, SIGINT), so the
+' shell that waits on init sees a process SIGINT ended. bash's
+' wait-and-cooperative-exit then stops that shell too: install.sh's `proveo
+' init </dev/tty || init_incomplete` no longer prints init_incomplete and the
+' post-install message after a Ctrl+C. Exit 130 alone read as a child that
+' handled the Ctrl+C, and the caller went on. MEASURED (macOS /bin/sh, bash
+' 3.2.57): a child that exits 130 lets `sh -c "child; echo went on"` print
+' "went on"; a child SIGINT ends stops it. When SIGINT is ignored dieOf
+' returns after 1s and exitWith exits 130. Windows has no signal to re-raise:
+' exit 130 there. A run's Stopped keeps its plain 128+signal exit: its
+' teardown e2e reads the status through a shell (NOT CHOSEN: re-raise every
+' Stopped). Pinned by TestAnInitACtrlCStoppedDiesOfSIGINT (a helper process
+' that must die of SIGINT) and e2e TestInitCtrlCInSbxsWizardEndsOnWhereItStopped
+' (a wrapper shell like install.sh's stops; the outer one, trapping INT, reads
+' 130).
 '
 ' ── 2026-11-10: Stopped ALSO NAMES A TEARDOWN THE OPERATOR LEFT ────────────
 ' The Executor, on Ctrl+C during teardown: "Say once, leave on two", and on

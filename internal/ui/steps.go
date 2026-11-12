@@ -12,10 +12,12 @@ import (
 var StepClock = time.Second
 
 // Running shows a step while it runs and returns the func that ends it. A terminal
-// gets one live line, redrawn with frame(elapsed); any other output gets plain, once.
+// gets one live line, redrawn with frame(elapsed); any other output gets plain, once, unless it is "".
 func Running(frame func(ran time.Duration) string, plain string) (done func()) {
 	if !Fancy() {
-		Asyncf("%s", plain)
+		if plain != "" {
+			Asyncf("%s", plain)
+		}
 		return func() {}
 	}
 	began := time.Now()
@@ -93,6 +95,32 @@ func (s *Steps) do(name, line string, fn func() error) error {
 		return label + " · " + ran.Round(time.Second).String()
 	}, cmp.Or(line, label))
 	return logged(name, done, fn)
+}
+
+// Quiet runs fn as the next step behind a live line with a clock; output with no live line
+// gets nothing.
+func (s *Steps) Quiet(name string, fn func() error) error {
+	if s == nil {
+		return fn()
+	}
+	label := s.label(name)
+	Default.heading()
+	Logf("%s", label)
+	Logf("step: %s started", name)
+	done := Running(func(ran time.Duration) string {
+		return label + " · " + ran.Round(time.Second).String()
+	}, "")
+	return logged(name, done, fn)
+}
+
+// Silent counts fn as the next step and logs its place; it prints nothing.
+func (s *Steps) Silent(name string, fn func() error) error {
+	if s == nil {
+		return fn()
+	}
+	Logf("%s", s.label(name))
+	Logf("step: %s started", name)
+	return logged(name, func() {}, fn)
 }
 
 // Hand runs fn as the next step under a start line alone: fn gives the terminal

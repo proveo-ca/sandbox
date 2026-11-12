@@ -62,7 +62,7 @@ func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool)
 		}
 	}
 	in, cfg := keptInput(*row, resultsDir)
-	report("1/2 carrying its work home from %s", name)
+	report("carrying its work home from %s", name)
 	carried := NewBlock(ResultsHeading)
 	err = PreserveClone(in, cfg, carried)
 	carried.Print()
@@ -74,7 +74,7 @@ func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool)
 			return fmt.Errorf("OpenCode history could not be carried out of %s (%v) — it is kept", name, err)
 		}
 	}
-	report("2/2 sbx rm --force %s", name)
+	report("sbx rm --force %s", name)
 	if out, err := guestRun(sbx.RemoveArgs(name)...); err != nil && !sbx.NotFound(out) {
 		return fmt.Errorf("remove %s: %w: %s — check `sbx ls`, then run `proveo rm %s` again", name, err, strings.TrimSpace(out), name)
 	}
@@ -96,13 +96,19 @@ func keptInput(row sbx.Listed, resultsDir string) (Input, sbx.RunConfig) {
 		cfg.Mounts = []sbx.Mount{{Host: row.Workspaces[0]}}
 		in.RepoRoot = gitTop(row.Workspaces[0])
 	}
-	for _, e := range results.List(resultsDir) {
-		if e.Kind == results.Kept && e.Key == row.Name && e.Repo != "" {
-			in.RepoRoot = e.Repo
-		}
-	}
 	if r := readReceipt(row.Name); r != nil {
 		in.OutputDir = r.OutputDir
+	}
+	for _, e := range results.List(resultsDir) {
+		if e.Kind != results.Kept || e.Key != row.Name {
+			continue
+		}
+		if e.Repo != "" {
+			in.RepoRoot = e.Repo
+		}
+		if e.Output != "" {
+			in.OutputDir = e.Output
+		}
 	}
 	return in, cfg
 }

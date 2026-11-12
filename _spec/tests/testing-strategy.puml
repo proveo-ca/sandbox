@@ -654,7 +654,19 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     ("sandbox … was stopped"). And `sbx ls` was measured returning an EMPTY
 '     table with exit 0 under that load, which made every sandbox "new". A
 '     listing that fails skips the sweep; TestSweepNeverClaimsAnOperatorSandbox
-'     pins the ownership rule;
+'     pins the ownership rule. The process temp root was still too wide: two
+'     e2e processes share it, so one test's sweep removed the other's
+'     sandboxes. Since R3 (R2 carry-over 9) a test claims only sandboxes new
+'     since it started whose workspace sits in ITS OWN temp root,
+'     filepath.Dir(t.TempDir()) with symlinks resolved (newSandboxesUnder);
+'     TestASweepClaimsOnlyItsOwnTestsTempRoot pins it. The R3 review found
+'     the other cleanup still claiming the process root: removeLeakedSandboxes
+'     and every "what did this test make" check (newSandboxes(t, before):
+'     scope_picker's "a cancelled run created", form_tty, the SIGTERM leak
+'     check, the kit and sandbox namers) now read the same root;
+'     TestALeakCleanupRemovesOnlyItsOwnTestsSandboxes pins it against a stub
+'     sbx. COST: a sandbox a
+'     subtest's workspace holds, under a parent's sweep, leaks, as before;
 '   * it is registered BEFORE the tmux session's Kill, because cleanups run LIFO
 '     and the session has to die before the VM underneath it;
 '   * its failures are IGNORED, since proveo's own teardown already removes most
@@ -970,6 +982,26 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' at install time, so a bumped Release with a moved subject name would only fail on
 ' a host nobody is watching. Details of what init plans are in
 ' _spec/cmd/proveo/init-sbx-bootstrap.puml.
+' THE HOST, NOT ITS CONFIGURATION (R3, 2026-11-11). Both cmd/proveo tests that
+' run doInit(--print) (TestInitWritesNoEnvFileIntoTheWorkspace,
+' TestInitPrintDescribesThePlanForThisHost) and the e2e
+' TestInitPrintChangesNothingOnThisHost read the operator's real `sbx
+' version`, three `sbx secret ls` and ~/.proveo/operator.yml until R3. They now
+' run under isolatedInitHost (cmd/proveo/init_test.go) or `env`-scrubbed
+' children: a temp HOME, PROVEO_HOME and state root, and a stub sbx first on a
+' PATH without the host's own; the plan and the prerequisites stay this
+' machine's. The unit test asserts the stub answered. The stubbed tmux harness
+' (e2e/init_steps_test.go startInitWith) was already isolated this way.
+' THE HARNESS'S WRAPPER IS A SHELL, SO IT HEARS THE Ctrl+C (the second R3
+' review). startInitWrapped takes the `sh -c` script; initWrapper is the old
+' `"$0" init …; echo INIT_EXIT=$?`. A Ctrl+C test sends SIGINT to the pane's
+' whole process group, and since init dies of it a plain wrapper would stop
+' too (wait-and-cooperative-exit) and never print INIT_EXIT. installerWrapper
+' runs init as install.sh does, `proveo init || init_incomplete`, in an inner
+' shell, under an outer one that traps INT and prints the inner one's status:
+' "INIT_EXIT=130" and no INIT_INCOMPLETE prove the caller stopped. A
+' cmd/proveo test proves the death itself by re-running its own binary as a
+' helper process (TestAnInitACtrlCStoppedDiesOfSIGINT).
 '
 ' ── THE INVOCATIONS, AS THE SUITES THEMSELVES RECORD THEM ───────────────────
 '   go test -tags=e2e ./e2e/ -run CredentialForwardingIntegrity -v

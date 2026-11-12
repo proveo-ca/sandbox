@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/run"
@@ -14,7 +15,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// promptKitOptions is the kit for this host: starship lands beside proveo's own binary.
+// promptKitOptions is the kit for this host: starship lands beside proveo's own binary. Its Report
+// prints each line, which `proveo uninstall` keeps; init routes the kit to facts instead.
 func promptKitOptions(ask bool) promptkit.Options {
 	binDir := ""
 	if exe, err := os.Executable(); err == nil {
@@ -36,12 +38,26 @@ func promptKitOptions(ask bool) promptkit.Options {
 	return o
 }
 
-// applyPromptKit installs the shell-prompt kit; a failure is reported and init goes on.
-func applyPromptKit(ask bool) {
-	ui.Section(ui.SectionSetup)
-	if _, err := promptkit.Apply(promptKitOptions(ask)); err != nil {
-		ui.Warnf("the prompt kit was not finished (%v) — `proveo init` again retries it", err)
-		return
+// applyPromptKit installs the shell-prompt kit and prints its block under "prompt": starship, the
+// font, the rc line and starship's config as facts, without what an earlier visit printed; a
+// failure is a ⚠ and init goes on.
+func applyPromptKit(ask bool, rep *initReport) {
+	ui.Section(ui.SectionPrompt)
+	var facts []ui.Fact
+	var items []sandbox.Item
+	o := promptKitOptions(ask)
+	o.Report = nil
+	o.Fact = func(key, value string, detail ...string) {
+		for i := range detail {
+			detail[i] = ui.TildeIn(detail[i])
+		}
+		facts = append(facts, ui.Fact{Role: ui.RoleApp, Key: key, Value: ui.TildeIn(value), Detail: detail})
 	}
-	ui.Notef("open a new shell to see it; `proveo uninstall` takes it out again")
+	o.Warn = func(text string, detail ...string) {
+		items = append(items, sandbox.Item{Warn: true, Text: text, Detail: detail})
+	}
+	if _, err := promptkit.Apply(o); err != nil {
+		items = append(items, sandbox.Item{Warn: true, Text: "prompt kit — not finished", Detail: errLines(err)})
+	}
+	rep.printFresh(promptHeading, ui.SectionPrompt, facts, items)
 }

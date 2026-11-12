@@ -156,6 +156,71 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 ' recorded here: it answers the keypress with what the next one does; the
 ' kept line of a failed run keeps the words "kept for diagnosis".
 '
+' ── THE OPERATOR'S DECISIONS ON R3 (2026-11-11) ───────────────────────────
+' The design measured eleven init paths through the stubbed tmux harness
+' (BEFORE: 26 rows and 8 headings on the main path, 2 drawn twice, 9 rows that
+' said again what another row said, 1 false); its critique found 15 faults.
+' The operator chose, or the rules settled:
+'   F1 numbering  (rules) lines that stay drop "step n/N": a hand line reads
+'                 "<program> — <what>" ("sbx login — signing in to Docker");
+'                 live frames keep "step n/N · name · 3s"; git, GitHub and the
+'                 prompt kit print no start line (Steps.Silent); verify leaves
+'                 no plain line (Steps.Quiet). NOT CHOSEN: "step n/N" on
+'                 every line that stays (2/4 and 3/4 with gaps); numbering only
+'                 the lines that stay (the setup page's count would differ).
+'   F2 how-tos    (operator) what leaves init's screen goes to `proveo init
+'                 --help`, the flag help and _spec; init writes NO log file. A
+'                 dynamic how-to (the prompt kit's rc, the sign-in command,
+'                 "source <rc>") stays as the dim line under the ⚠ it fixes
+'                 when the HOW-TO rule allows, or goes; never to a no-op Logf.
+'                 NOT CHOSEN: an init log (a row per init, keep=20 shared);
+'                 dim how-tos under every "later" row.
+'   F3 verdict    (operator) the readiness verdict prints LAST, in results:
+'                 "later", "not run", the ⚠/× check items with sbx's hint dim,
+'                 then ONE closing line, "✓ host — ready to run" or "× host —
+'                 not ready to run". Step order unchanged: a run blocker still
+'                 stops the credentials and operator pages. NOT CHOSEN: the
+'                 verdict under "sbx" with verify moved ahead of git (a blocker
+'                 would no longer stop the later pages); a "host" heading with
+'                 no closing verdict.
+'   UNREACHED     (operator) a separate results fact "not run" stacks the
+'                 chosen steps and pages a failure or a run blocker kept from
+'                 running; "later" lists only what was answered later. NOT
+'                 CHOSEN: joining them into "later"; no list on a failure.
+'   HAND-OFF FAILURE (rules: P9 + R2's F3) a program init hands the terminal to
+'                 that fails (sbx login, the release installer, the distro
+'                 package, gh auth login) keeps its own error; init ends on "⚠
+'                 init — stopped at <row>", exit 1, Reported. No "× <program> —
+'                 <error>". NOT CHOSEN: tee its stderr (may change how sbx and
+'                 gh see a terminal); always ×.
+'   NO TTY        (rules) a question init could not ask (no terminal, not --yes)
+'                 degrades without the operator acting: git identity,
+'                 credentials, GitHub access and the operator name each keep
+'                 ONE dim how-to. --yes is an operator act: its how-tos go to
+'                 flag help. NOT CHOSEN: every how-to to flag help; only git's.
+'   --yes GIT     (rules, a bug) --yes asks for nothing: hostGitStage reads the
+'                 terminal through !d.NoPrompt. NOT CHOSEN: a separate commit;
+'                 leaving it.
+'   QUIT          one closing line: "⚠ init — quit at page n/N", with dim "host
+'                 ready to run" when verify reached it (critique a8). NOT
+'                 CHOSEN: two closing lines; dropping the verdict.
+'   REVISIT       (rules: each subject once, critique 7; the R3 review) a
+'                 revisit prints only what it changed: its hand lines, a fact
+'                 or item no visit printed under that subject. "sbx", "git"
+'                 or "prompt" redraws only above those lines, and a subject
+'                 with nothing new withdraws its heading (ui.WithdrawSection).
+'                 NOT CHOSEN: the whole block again (host twice, the shipped
+'                 R3 draft); never redrawing (a hand line under git).
+'   Ctrl+C        (the Executor's call, the task's "decide and pin") during a
+'                 hand-off the program gets it; init stops after it like bash
+'                 (wait-and-cooperative-exit), prints its blocks and "⚠ init —
+'                 stopped at <row>", dim "Ctrl+C ended it", then re-raises
+'                 SIGINT and dies of it (status 130), so a calling shell such
+'                 as install.sh's stops too. NOT CHOSEN: a handler over the
+'                 whole apply (a print from a signal goroutine races the step
+'                 writing the same blocks); exit 130 alone (the second R3
+'                 review: a caller reads it as handled and goes on).
+'
 ' ── TECHNICAL CALLS (the Executor's, from the design review) ──────────────
 '   One shared helper, ui.Facts, aligns by display width, wraps a value at
 '   its own column on the terminal only (the log copy stays unwrapped), and
@@ -234,6 +299,40 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '     <name>", "imported <path>", "carried history", "carried <engine>'s
 '     history"; e2e/teardown_steps_test.go step names; the live-line and
 '     post-exit dialog tests (the dialog title).
+'
+' ── E2E ANCHORS THAT MOVE (R3) ─────────────────────────────────────────────
+'   e2e/init_steps_test.go initStubSbx: a STUB_SBX_DIAGNOSE knob (the default
+'     payload unchanged), for a ready host and a run blocker
+'   :336 "--yes — nothing provisioned" → `(?m)^\s+credentials$` in the result
+'   :426-428 `step \d+/\d+ · sign in to Docker (sbx login)` and the wizard's →
+'     `(?m)^. sbx login — signing in to Docker$`, `(?m)^. sbx setup — running
+'     the first-run wizard$`, and no `step \d+/\d+` anywhere on screen
+'   :482-495 done:/later: … `proveo init`/next: → `(?m)^. later: GitHub$`, the
+'     stacked `git identity` and `credentials` rows, no `sign in`/`sbx setup`
+'     row, the last line "✓ host — ready to run", no "done:", "next:", "not
+'     ready to run" or "proveo init`", one results heading
+'   Checked unchanged: :402 "quit at page 4/4" (now "⚠ init — quit at page
+'     4/4"); :431 "· verify sbx (sbx diagnose)" absent; the checks page's
+'     strings; e2e/init_github_access_test.go "sandbox verification pending"
+'     (dim under "access: not chosen") and its form title
+'   e2e/init_test.go TestInitPrintChangesNothingOnThisHost: its strings stay;
+'     it runs under a temp HOME and a stub sbx now (not run here, by rule)
+'   New: TestInitOnAReadyHostClosesOnReady, TestInitARunBlockerClosesOnThe
+'     HostVerdict, TestInitAddsNoPathStepForAnSbxOutsideThePrefix (FOUND 1),
+'     TestInitYesNeverAsksForAGitIdentity (FOUND 3), TestInitYesInPlain
+'     OutputCarriesNoStepPlaces (the CDN installer's CI path),
+'     TestInitCtrlCInSbxsWizardEndsOnWhereItStopped, TestInitAFailedGh
+'     AuthLoginEndsOnWhereItStopped (the R3 review), and e2e/sbx_test.go
+'     TestALeakCleanupRemovesOnlyItsOwnTestsSandboxes (stub sbx)
+'   The second R3 review: TestInitCtrlCInSbxsWizardEndsOnWhereItStopped runs
+'     under installerWrapper (no INIT_INCOMPLETE, INIT_EXIT=130);
+'     TestInitYesInPlainOutputCarriesNoStepPlaces drops --skip-gh and
+'     --skip-git and reads headings sbx · git · credentials · operator ·
+'     results, once each, each over lines of its own
+'   cmd/proveo/init_apply_test.go:91 numbered lines → TestAHandedStepPrints
+'     ItsProgramAndNoPlace; :49-62 split by `hands` → TestEachStepShowsTheWay
+'     ItsKindDoes; init_preflight_test.go's count rows and done/later lines;
+'     init_tui_test.go TestDescribeDecisionsNamesEveryChoiceItMade deleted
 '
 ' ── PROGRESS ───────────────────────────────────────────────────────────────
 '   R0 ... done 2026-11-11: ui.Fact/Facts, Detailf, Tilde (schedule's
@@ -477,7 +576,95 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '            TestTheCredentialPromptPrintsUnderCredentials (askOnTerminal).
 '          9 the stdin-redirected e2e asserts PROVEO_EXIT=3.
 '          10 a removal that failed with no sbx output logs no dangling ": ".
-'   R3 ... not started
+'   R3 ... done 2026-11-11, uncommitted. `proveo init` prints by subject:
+'          sbx · prompt · git · credentials · operator · results, each once,
+'          after the step that makes it true (initReport, cmd/proveo/
+'          init_report.go). sbx: the programs' hand lines, then ONE Facts
+'          block (host + prerequisites met, sbx + where, network) and its
+'          items, printed after the sbx steps; a revisit prints only what
+'          it changed (REVISIT). git: identity, github, access.
+'          credentials: the store
+'          after the page, once, at the end (rebuilt on each pass, critique
+'          3). results: later, not run, sbx's failing checks, one verdict.
+'          Gone: the run header, "already installed", describeDecisions'
+'          ~230-column line, "done:", "next:", the readiness count, "sbx X
+'          on PATH", "proveo does not manage the host", main's second × for a
+'          blocker, a quit or a cancel (Reported). Headings execution,
+'          starting, secrets left ui.go (18 sections); prompt and git came.
+'          Every critique must-fix: 1 the two doInit(--print) unit tests run
+'          under isolatedInitHost (temp HOME, PROVEO_HOME, state root, a stub
+'          sbx first on PATH), and so does the e2e --print child; 2 the sbx
+'          facts print after the sbx steps; 3 readiness and credentials are
+'          replaced, never appended; 4 Steps.Quiet; 5 "not run"; 6 no ×
+'          after a hand-off; 7 a revisit's sbx lines under "sbx"; 8 the
+'          prompt kit's Fact/Warn callbacks (uninstall keeps Report, pinned),
+'          a PATH item for an rc that adds the dir but this shell lacks it,
+'          a hint-less blocker keeps the --force fix; 9 one how-to per
+'          unasked question; 10 Windows: "installing with msiexec.exe", the
+'          MSI's note dim under its ✓, verify's "not on this shell's PATH";
+'          11 F2 routes nothing to Logf; 12 Ctrl+C in a hand-off; 13 --print
+'          prints credentials and operator; 14 row labels are the page's
+'          own, the sbx path is looked up, one closing line, no invented
+'          "missing", the download error split dim under "× sbx install —
+'          failed"; 15 applyStep keyed, the kinds tested, FOUND 1 and FOUND 3
+'          e2e, a plain-output e2e. FOUND 1 (the PATH step) and FOUND 3
+'          (--yes asked for git) fixed.
+'          R2 CARRY-OVERS, each with a test: 1 leave() waits at most
+'          leaveWait (3s) for sbx's listing; 2 endKeepStranded asks sbx.Gone;
+'          3 the kept entry records the output dir (a re-attach's too) and
+'          keptInput prefers it; 4 screen-vs-log tests for the re-attach's
+'          "builds it fresh", Baseline's allow and check commands, "sign in
+'          with"; 5 RemoveKept → PreserveClone → liftClonedOutput's tar call;
+'          6 `proveo rm --stop` prints three unnumbered lines; 7 teardown.puml
+'          says main's × lands under "interface" after a failed create; 8
+'          sandbox-backend.puml:78 and post-close-surface.puml; 9 the e2e
+'          sweep claims only its own test's temp root.
+'          MEASURED AFTER (the stubbed harness, macOS, 140 columns; captures
+'          in the session scratchpad r3impl/after; rows include headings and
+'          dim rows, BEFORE → AFTER): ready host 21 → 17 rows, 8 → 3
+'          headings; warn+fail 26 → 21, 8 → 3; run blocker 19 → 22 (it now
+'          says what never ran), 6 → 2, one × host, exit 1; --yes 38 → 27,
+'          11 → 5; no terminal 36 → 31 with four how-tos; quit 26 → 18 with
+'          "host ready to run" dim; a revisit prints one readiness set; a
+'          failed `sbx login` ends on "⚠ init — stopped at sign in"; Ctrl+C
+'          in sbx setup exits 130; 64 columns wrap at each row's own column.
+'          The widest row (113) is outsideARunNote, shared with the page.
+'          e2e PASS: the ten init tests, the six new ones.
+'          THE R3 REVIEW (10 findings, each with a test that fails without
+'          its fix): a failed `gh auth login` stops init like the other
+'          three hand-offs the decision lists ("⚠ init — stopped at
+'          GitHub", exit 1); every page that fails names the pages after
+'          it under "not run" (initRecord.pages), a credentials-page Ctrl+C
+'          also the rows answered after it, and a missing distro package
+'          fails the install step; a label under "later" never also lists
+'          as "not run"; a revisit prints only what changed (REVISIT);
+'          --yes's help carries the git identity's how-to; a sign-in whose
+'          run and cleanup both failed keeps "sign-in sandbox may be left"
+'          with the rm; unasked "access:" keeps SSH's state, not its fix;
+'          "⚠ sbx — this shell's PATH finds <path>" when PATH finds another
+'          sbx than the prefix's; two dated or why comments left source;
+'          removeLeakedSandboxes and newSandboxes read the test's own root.
+'          KNOWN, NOT FIXED: a Ctrl+C during a live step or proveo's own git
+'          prompt still ends init at once; one survey runs `sbx secret ls`
+'          three times (FOUND 10); install.sh suggests `proveo init --print`
+'          right after init and its "the lines above say which condition
+'          failed" reads oddly after a quit (FOUND 11, d10: the installer's
+'          owner or R4); the Windows AFTER is drawn from the plan, not run.
+'          THE SECOND R3 REVIEW (9 findings, each with a test that fails
+'          without its fix, mutation-checked): a row a revisit chooses "now"
+'          leaves "later", so a failure before it runs lists it under "not
+'          run"; every ending after a passed verify keeps "host ready to run"
+'          as its last dim line, not only a quit or a cancel; "× init —
+'          stopped" (an error no step names) is in THE CLOSE and pinned;
+'          init's locked-keychain warning is one ⚠ in the git block
+'          (ghAuth.resolve and its ~190-column line are gone); the install ✓
+'          reads "sbx — installed" with "replaced <v>" dim when the prefix
+'          held one, since the "sbx:" fact names version and bin; init dies
+'          of the SIGINT a hand-off was ended by, so install.sh stops;
+'          "answers: the defaults" recorded NOT CHOSEN and gh's "cannot pin
+'          a Homebrew install" why moved to github-credentials.puml; the
+'          plain e2e runs the git and GitHub steps; three why clauses left
+'          source comments.
 '   R4 ... not started
 
 component "sbx's create block\nsubject sections · items · aligned facts" as SBX <<cloud>>
@@ -501,9 +688,10 @@ note bottom of RULES
 end note
 
 note bottom of LOG
-  **Nothing is lost.** A fact that leaves the
-  screen, because sbx says it or because it is
-  a how-to, stays in the run log.
+  **Nothing is lost.** What leaves a run's
+  screen stays in its run log. init writes
+  none: its how-tos went to its --help, its
+  whys to _spec (R3, F2).
 end note
 
 note bottom of WAVES

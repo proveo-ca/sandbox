@@ -6,6 +6,7 @@ package sandbox
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -221,6 +222,11 @@ func TestRemoveKeptStopsARunningSandboxOnlyWhenAsked(t *testing.T) {
 	if keptNames(dir) != "" || len(said) != 3 || said[0] != "sbx stop %s" {
 		t.Errorf("entries %q, reports %q", keptNames(dir), said)
 	}
+	for _, line := range said {
+		if strings.Contains(line, "/2 ") {
+			t.Errorf("%q carries a place; `proveo rm --stop` prints three unnumbered lines", line)
+		}
+	}
 }
 
 func TestKeptInputLiftsTheOutputDirTheReceiptRecords(t *testing.T) {
@@ -234,5 +240,46 @@ func TestKeptInputLiftsTheOutputDirTheReceiptRecords(t *testing.T) {
 	was.OutputDir = "/elsewhere"
 	if receiptOf(sbx.RunConfig{}, "img", nil, "", "").changes(&was) != nil {
 		t.Error("a different output dir marked the sandbox stale")
+	}
+}
+
+// The run that keeps a sandbox records its output dir in the kept entry, a
+// re-attach as well as a create, so `proveo rm` lifts into it even when the receipt predates it.
+func TestKeptInputLiftsIntoTheDirTheKeepingRunRecorded(t *testing.T) {
+	fakeSbx(t, guestClone, 0, bundleEmpty)
+	writeReceipt("sb", launchReceipt{})
+	dir := results.Dir(t.TempDir())
+	recordKept(Input{ResultsDir: dir, RepoRoot: "/w/repo", OutputDir: "/w/repo/out"}, "sb", "the output is only in it", false)
+	in, _ := keptInput(sbx.Listed{Name: "sb", Agent: "proveo-claudecode"}, dir)
+	if in.OutputDir != "/w/repo/out" || in.RepoRoot != "/w/repo" {
+		t.Errorf("keptInput = %q in %q, want the keeping run's output dir and repo", in.OutputDir, in.RepoRoot)
+	}
+}
+
+// `proveo rm` lifts a kept clone's output, from the receipt's OutputDir, through
+// sbx's tar stream, before it removes the sandbox.
+func TestRemoveKeptLiftsTheOutputTheReceiptRecords(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "init", "-q", "-b", "main", ".")
+	calls := endingSbx(t, ending{row: "sb claude stopped", lift: "tar -cf - -T /dev/null"})
+	writeReceipt("sb", launchReceipt{OutputDir: filepath.Join(repo, "reports")})
+	captureSteps(t)
+	captured(t)
+	dir := keptStore(t, "sb")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "stopped", Workspaces: []string{repo}})
+	var said []string
+	if err := RemoveKept("sb", dir, func(f string, a ...any) { said = append(said, fmt.Sprintf(f, a...)) }, false); err != nil {
+		t.Fatalf("RemoveKept = %v", err)
+	}
+	got := callsOf(t, calls)
+	lift, rm := strings.Index(got, "cd '"+repo+"' && { [ -d 'reports' ] || exit 3; } && tar -cf - 'reports'"), strings.Index(got, "rm --force sb")
+	if lift < 0 || rm < lift {
+		t.Errorf("want the output lifted from the clone's reports/, then the removal:\n%s", got)
+	}
+	if strings.Join(said, "|") != "carrying its work home from sb|sbx rm --force sb" {
+		t.Errorf("reports = %q, want unnumbered lines", said)
 	}
 }

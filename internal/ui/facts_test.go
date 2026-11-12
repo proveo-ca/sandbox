@@ -78,6 +78,20 @@ func TestPlainFactsAlignWithoutMarks(t *testing.T) {
 	}
 }
 
+func TestAStackedValuesDetailSitsPastTheList(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	(&Printer{W: &buf, Plain: true}).Facts(
+		Fact{Role: RoleHost, Key: "later", Value: "prompt"},
+		Fact{Role: RoleHost, Value: "credentials", Detail: []string{"`proveo init` from a terminal provisions them"}},
+		Fact{Role: RoleHost, Key: "name", Value: "ada", Detail: []string{"the default"}},
+	)
+	want := "later: prompt\n       credentials\n         `proveo init` from a terminal provisions them\nname:  ada\n       the default\n"
+	if buf.String() != want {
+		t.Errorf("plain Facts = %q, want %q", buf.String(), want)
+	}
+}
+
 func TestAFactValueWrapsAtItsOwnColumnAndTheLogStaysOneLine(t *testing.T) {
 	var term, log bytes.Buffer
 	saved, savedLogOnly := Default, logOnly

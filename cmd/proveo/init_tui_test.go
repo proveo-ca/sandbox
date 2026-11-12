@@ -190,25 +190,6 @@ func TestWindowsIsNotAskedAboutAPrefix(t *testing.T) {
 	}
 }
 
-// The promptless path has to SAY what it chose. An installer that silently
-// picked for you and printed nothing is the shape nobody can debug.
-func TestDescribeDecisionsNamesEveryChoiceItMade(t *testing.T) {
-	t.Parallel()
-	got := describeDecisions(initDecisions{
-		Install: installTarball, Prefix: "/opt/sbx",
-		AddPath: true, Login: true, Wizard: false, Gh: true, Git: false, Baseline: sbx.BaselineDenyAll,
-	})
-	for _, want := range []string{installTarball, "/opt/sbx", "PATH: yes", "sign in: yes", "sbx setup: no", "gh: yes", "git identity: no", sbx.BaselineDenyAll, rowInstall, rowPrefix} {
-		if !strings.Contains(got, want) {
-			t.Errorf("describeDecisions() = %q, missing %q", got, want)
-		}
-	}
-	// A baseline nobody chose must not be reported as a change.
-	if got := describeDecisions(initDecisions{Install: installSkip}); strings.Contains(got, "baseline") {
-		t.Errorf("an untouched baseline was announced: %q", got)
-	}
-}
-
 func TestPrefixOptionsCollapseToAnExplicitChoice(t *testing.T) {
 	t.Parallel()
 	if got := prefixOptions("/opt/somewhere", "/opt/somewhere"); len(got) != 1 || got[0] != "/opt/somewhere" {

@@ -381,3 +381,43 @@ func TestThePushedFetchStaysInTheTerminalsProcessGroup(t *testing.T) {
 		t.Errorf("pgid = %d, want the test's own group %d: git may need the terminal to ask for a credential", pgid, syscall.Getpgrp())
 	}
 }
+
+// The second Ctrl+C leaves within leaveWait even when sbx is slow to list; the
+// sandbox stays kept, and a failed run's fix names --stop, which works whether it runs or not.
+func TestASecondCtrlCLeavesWithinItsBoundWhileSbxIsSlowToList(t *testing.T) {
+	td, term, _ := liveTeardown(t, "exit 0")
+	bin := t.TempDir()
+	slow := filepath.Join(bin, "slow")
+	script := "#!/bin/sh\n" +
+		"case \"$*\" in\n" +
+		"  ls*) [ -e '" + slow + "' ] && sleep 30; printf 'SANDBOX AGENT STATUS\\nsb claude stopped\\nbystander claude running\\n' ;;\n" +
+		"  rm*) touch '" + slow + "'; sleep 30 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(bin, sbx.Binary), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	prev := leaveWait
+	t.Cleanup(func() { leaveWait = prev })
+	leaveWait = 300 * time.Millisecond
+	done := runWatched(t, td)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(slow); err == nil {
+			break
+		}
+	}
+	signalSelf(t, syscall.SIGINT)
+	term.await(t, "Ctrl+C again leaves now")
+	start := time.Now()
+	signalSelf(t, syscall.SIGINT)
+	awaitEnd(t, done, "the second interrupt")
+	if took := time.Since(start); took > 4*time.Second {
+		t.Errorf("leaving took %s; a slow `sbx ls` must not hold the second Ctrl+C", took)
+	}
+	if got := term.String(); !strings.Contains(got, "warn: sb — kept: teardown stopped by SIGINT at "+stepRemove+"\n") {
+		t.Errorf("an unanswered listing proves nothing, so the sandbox stays kept:\n%s", got)
+	}
+	if !strings.Contains(runLog.String(), "sbx did not list sb within") {
+		t.Errorf("the run log does not say why the listing was not waited for:\n%s", runLog.String())
+	}
+}

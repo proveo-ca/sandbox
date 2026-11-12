@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -13,30 +14,36 @@ import (
 // gitStage is `proveo init`'s git-identity step. Seed still bridges the
 // resolved pair into GIT_CONFIG_KEY_n; init is the one place that can ASK.
 type gitStage struct {
-	resolve   func() gitidentity.Identity
-	lookPath  func(string) (string, error)
-	setGlobal func(name, email string) error
-	prompt    func(label string) string
-	tty       bool
+	resolve    func() gitidentity.Identity
+	lookPath   func(string) (string, error)
+	setGlobal  func(name, email string) error
+	prompt     func(label string) string
+	tty        bool
+	out        *sandbox.Block // the git block; nil prints each row at once
+	noTerminal bool           // no terminal stood in for the operator, so a missing identity keeps its how-to
 }
 
+// noIdentityHowTo is the one how-to a missing identity keeps when no terminal could ask for it.
+const noIdentityHowTo = "`git config --global user.name` and `user.email`, or `proveo init` from a terminal"
+
 func applyGitIdentity(s gitStage) {
-	ui.Section(ui.SectionWorkspace)
 	if _, err := s.lookPath("git"); err != nil {
-		ui.Warnf("git is not on PATH — a sandbox cannot commit until this host has git")
+		s.out.Item(sandbox.Item{Warn: true, Text: "git — not on PATH"})
 		return
 	}
 	id := s.resolve()
 	if id.Complete() {
-		ui.Okf("git identity %s <%s>", id.Name, id.Email)
+		s.out.Fact(ui.Fact{Role: ui.RoleHost, Key: "identity", Value: id.Name + " <" + id.Email + ">"})
 		return
 	}
 	if !s.tty {
-		ui.Warnf("no git identity (user.name / user.email) — a commit inside a sandbox fails late. " +
-			"Set them with `git config --global`, or re-run `proveo init` from a terminal")
+		missing := sandbox.Item{Warn: true, Text: "git identity — not set"}
+		if s.noTerminal {
+			missing.Detail = []string{noIdentityHowTo}
+		}
+		s.out.Item(missing)
 		return
 	}
-	ui.Hostf("this host has no complete git identity — commits inside a sandbox fail with 'Please tell me who you are'")
 	name, email := id.Name, id.Email
 	if name == "" && s.prompt != nil {
 		name = s.prompt("git user.name")
@@ -45,17 +52,17 @@ func applyGitIdentity(s gitStage) {
 		email = s.prompt("git user.email")
 	}
 	if name == "" || email == "" {
-		ui.Warnf("git identity still incomplete — set `git config --global user.name` and `user.email`")
+		s.out.Item(sandbox.Item{Warn: true, Text: "git identity — not set"})
 		return
 	}
 	if s.setGlobal == nil {
 		return
 	}
 	if err := s.setGlobal(name, email); err != nil {
-		ui.Warnf("could not write git config (%v)", err)
+		s.out.Item(sandbox.Item{Warn: true, Text: "git identity — not written", Detail: errLines(err)})
 		return
 	}
-	ui.Okf("git identity %s <%s> written to --global", name, email)
+	s.out.Fact(ui.Fact{Role: ui.RoleHost, Key: "identity", Value: name + " <" + email + ">", Detail: []string{"written to git's global config"}})
 }
 
 func setGitConfigGlobal(name, email string) error {
@@ -76,7 +83,8 @@ func setGitConfigGlobal(name, email string) error {
 	return nil
 }
 
-func hostGitStage() gitStage {
+// hostGitStage is the git step against this host; tty is whether init may ask, which --yes takes away.
+func hostGitStage(tty bool, out *sandbox.Block, noTerminal bool) gitStage {
 	return gitStage{
 		resolve:   func() gitidentity.Identity { return gitidentity.Resolve(os.Getenv, nil) },
 		lookPath:  exec.LookPath,
@@ -84,6 +92,8 @@ func hostGitStage() gitStage {
 		prompt: func(label string) string {
 			return promptLine(label+":", os.Stdin, os.Stderr)
 		},
-		tty: interactiveTerminal(),
+		tty:        tty,
+		out:        out,
+		noTerminal: noTerminal,
 	}
 }

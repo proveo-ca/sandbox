@@ -75,8 +75,10 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' Lifecycle: _spec/internal/sbx/kit-lifecycle.puml; exit status:
 ' _spec/internal/backend/exit-code.puml; the Ctrl+C path:
 ' _spec/internal/ptyproxy/pty-ownership.puml.
-' A failed run's kept-for-diagnosis hint names `sbx exec -it <name> bash`, as
-' in sbx's own exec reference (https://docs.docker.com/reference/cli/sbx/exec/).
+' A failed run's kept-for-diagnosis line keeps one dim fix on screen, `proveo
+' rm [--stop] <name>`; `sbx exec -it <name> bash`, as in sbx's own exec
+' reference (https://docs.docker.com/reference/cli/sbx/exec/), goes to the run
+' log (R2: lookInside is the kept item's Log line).
 '
 ' sandbox.Input.Workdir and run.Spec's Workspace.Workdir are deleted: nothing
 ' read them (MEASURED). The agent's working directory reaches the sandbox as

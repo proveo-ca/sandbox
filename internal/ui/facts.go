@@ -41,16 +41,17 @@ func (p *Printer) Facts(rows ...Fact) {
 		}
 	}
 	valCol := lead + keyW + 1
-	for _, r := range rows {
-		if r.Value == "" && len(r.Detail) == 0 {
-			continue
-		}
+	printed := slices.DeleteFunc(slices.Clone(rows), func(r Fact) bool { return r.Value == "" && len(r.Detail) == 0 })
+	for i, r := range printed {
 		key := ""
 		if r.Key != "" {
 			key = r.Key + ":"
 		}
 		gap := strings.Repeat(" ", valCol-lead-textWidthOf(key))
 		under := strings.Repeat(" ", valCol)
+		if r.Key == "" || i+1 < len(printed) && printed[i+1].Key == "" {
+			under += "  " // detail under a stacked value
+		}
 		if p.Plain {
 			fmt.Fprint(p.W, key+gap+r.Value+"\n")
 			for _, d := range r.Detail {
@@ -69,7 +70,7 @@ func (p *Printer) Facts(rows ...Fact) {
 			p.writeHang(prefix+grey(key+gap+r.Value)+"\n", valCol)
 		}
 		for _, d := range r.Detail {
-			p.writeHang(under+tint(ColorRule, d)+"\n", valCol)
+			p.writeHang(under+tint(ColorRule, d)+"\n", len(under))
 		}
 	}
 }
