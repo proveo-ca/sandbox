@@ -50,7 +50,7 @@ container keeps what it uses; --tools keeps every toolchain while any
 sandbox runs. --force removes those too and disrupts the run that holds
 them. A removal that fails is a warning; clean exits 1 only when the proveo
 home stays (--homes).`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(*cobra.Command, []string) error {
 			inv, err := gatherCleanInventory(deep)
 			if err != nil {

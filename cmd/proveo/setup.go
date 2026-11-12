@@ -29,7 +29,7 @@ already names it, gets no second line.
 
 The line reaches a new shell; ` + "`source <rc>`" + ` brings it into this one. csh and tcsh
 are not written: setup prints the line to add.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(*cobra.Command, []string) error {
 			exe, err := executable()
 			if err != nil {

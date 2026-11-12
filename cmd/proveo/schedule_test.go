@@ -165,16 +165,23 @@ func TestARefusalNamesItsJobAndWritesHomePathsWithATilde(t *testing.T) {
 	}
 }
 
-func TestAStrayScheduleArgumentStillListsAndExitsZero(t *testing.T) {
+func TestAStrayScheduleArgumentIsRefusedWithOneFix(t *testing.T) {
 	scheduleHome(t, twoJobs, schedule.Tick{})
-	for _, args := range [][]string{{"schedule", "retyr", "lineup"}, {"schedule", "ls", "extra"}} {
-		if stdout, _, err := proveoOut(t, args...); err != nil || !strings.Contains(stdout, "lineup:") {
-			t.Errorf("proveo %s = %v, stdout %q; want the listing and exit 0", strings.Join(args, " "), err, stdout)
-		}
-	}
-	for _, args := range [][]string{{"schedule", "tick", "extra"}, {"schedule", "uninstall", "extra"}} {
-		if _, _, err := proveoOut(t, args...); err != nil {
-			t.Errorf("proveo %s = %v; want the argument ignored", strings.Join(args, " "), err)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"schedule", "retyr", "lineup"}, "error: proveo schedule — no command \"retyr\"\n    nearest: `proveo schedule retry`\n"},
+		{[]string{"rnu"}, "error: proveo — no command \"rnu\"\n    nearest: `proveo rm`, `proveo run`\n"},
+		{[]string{"clean", "extra"}, "error: proveo clean — takes no argument \"extra\"\n    `proveo clean --help` says what it takes\n"},
+		{[]string{"schedule", "ls", "extra"}, "error: proveo schedule ls — takes no argument \"extra\"\n    `proveo schedule ls --help` says what it takes\n"},
+		{[]string{"schedule", "tick", "extra"}, "error: proveo schedule tick — takes no argument \"extra\"\n    `proveo schedule tick --help` says what it takes\n"},
+		{[]string{"schedule", "install", "extra"}, "error: proveo schedule install — takes no argument \"extra\"\n    `proveo schedule install --help` says what it takes\n"},
+		{[]string{"schedule", "uninstall", "extra"}, "error: proveo schedule uninstall — takes no argument \"extra\"\n    `proveo schedule uninstall --help` says what it takes\n"},
+	} {
+		stdout, stderr, err := proveoOut(t, c.args...)
+		if !errors.As(err, new(backend.Reported)) || stdout != "" || stderr != c.want {
+			t.Errorf("proveo %s = %v\nstdout %q\nstderr %q\nwant stderr %q", strings.Join(c.args, " "), err, stdout, stderr, c.want)
 		}
 	}
 }

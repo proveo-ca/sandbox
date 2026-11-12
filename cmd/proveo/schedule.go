@@ -75,6 +75,7 @@ not-ready shows × with its reason; on a terminal it asks to retry, and
 by its task name; add -r to watch without typing into it.
 
 Transcripts and results: <proveo home>/logs/schedule/<job>/.`,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
 	}
 	cmd.AddCommand(scheduleLsCmd(), scheduleTickCmd(), scheduleRunCmd(), scheduleRetryCmd(), scheduleWatchCmd(),
@@ -265,6 +266,7 @@ func scheduleLsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List every job, soonest run first: its runs, target, model, mode, budget and last result",
+		Args:  noArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return scheduleTable(cmd) },
 	}
 }
@@ -273,6 +275,7 @@ func scheduleTickCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tick",
 		Short: "Start every job that is due (what launchd/systemd runs each minute)",
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, c, err := loadSchedule()
 			var none errNoSchedule
@@ -522,6 +525,7 @@ func scheduleInstallCmd() *cobra.Command {
 On macOS it writes ~/Library/LaunchAgents/` + schedule.LaunchdLabel + `.plist, and the tick
 logs to <proveo home>/logs/schedule/tick.log. The tick reads ~/.proveo/schedule.yml
 whatever PROVEO_HOME says.`,
+		Args: noArgs,
 		RunE: func(*cobra.Command, []string) error {
 			home, _, err := loadSchedule()
 			if err != nil {
@@ -566,6 +570,7 @@ func scheduleUninstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall",
 		Short: "Remove the minutely tick",
+		Args:  noArgs,
 		RunE: func(*cobra.Command, []string) error {
 			removed, err := schedule.Uninstall(serviceManager)
 			switch {

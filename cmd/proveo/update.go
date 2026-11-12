@@ -28,7 +28,7 @@ and atomically replace this executable when a newer version is available.
 
 Skips self-update for local/dev builds unless --force is set.
 Override the channel with PROVEO_ASSET_BASE_URL (default https://proveo.ca/cli).`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(*cobra.Command, []string) error {
 			return doUpdate(force, checkOnly)
 		},

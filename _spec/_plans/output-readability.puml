@@ -322,6 +322,7 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '   R3  `proveo init`: the apply stream, the result block, the verify step.
 '   R4  the other commands: adopt, attach and schedule, clean, ls and
 '       projects, rm, setup, uninstall, update, version.
+'   R5  stray arguments: every no-argument command refuses one with one ×.
 ' Each wave: lint, both builds, the unit baseline, the named e2e tests whose
 ' anchors it moves (macOS; linux/arm64 where they run), the specs it touches,
 ' and this file's PROGRESS.
@@ -964,7 +965,9 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '                   main's ×, exit 1).
 '                   NOT CHOSEN: exit 1 on every failed removal (kept must-fix
 '                   4) and refusing stray arguments: behaviour, so the
-'                   operator's to choose in a later wave.
+'                   operator's to choose in a later wave. The operator chose
+'                   "refuse stray args" (R5, _spec/cmd/proveo/usage.puml
+'                   STRAY ARGUMENTS); exit codes stay as here.
 '            PATH LINES  uninstall strips setup's block only when its PATH
 '                   line names this root's bin dir, since FOUND 9 makes two
 '                   blocks in one rc normal (~/go/bin's stays); findInstalled
@@ -994,6 +997,12 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '                   the stub, but /usr/bin/qemu-x86_64 stayed on the row's
 '                   PATH. Its PATH now links /usr/bin and /bin minus qemu-*;
 '                   the cross-built test binary passes in that image.
+'   R5 ... done 2026-11-12: the operator chose "refuse stray args" over
+'          keeping them, exit 1 on every failed removal, and an exit-code
+'          table first. noArgs replaces cobra.NoArgs in cmd/proveo and joins
+'          schedule, ls, tick, install and uninstall: one ×, one fix (the
+'          nearest subcommands, or --help). Behaviour in
+'          _spec/cmd/proveo/usage.puml STRAY ARGUMENTS.
 
 component "sbx's create block\nsubject sections · items · aligned facts" as SBX <<cloud>>
 component "proveo's stream, 2026-11-11\nphase sections · prose · ● on every line" as OLD <<error>>

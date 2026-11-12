@@ -68,6 +68,20 @@ skinparam packageStyle rectangle
 ' schedule's "● no <~schedule.yml>" / "● no jobs in <~schedule.yml>".
 ' `proveo version` stays as it is (DELIBERATELY PLAIN, output-vocabulary.puml).
 '
+' ── 2026-11-12: STRAY ARGUMENTS (R5, the operator: "refuse stray args") ────
+' R4 kept HEAD's rule, under which `proveo schedule retyr lineup` listed and
+' exited 0, so a typo read as success. Every command that takes no argument
+' (the root, clean, init, setup, update, uninstall, prompt, schedule and its
+' ls · tick · install · uninstall) now refuses one through noArgs: one ×, one
+' dim fix, exit 1 (backend.Reported, so main adds nothing):
+'   × proveo schedule — no command "retyr"      a command with subcommands
+'       nearest: `proveo schedule retry`        (cobra's suggestions, distance 2)
+'   × proveo clean — takes no argument "extra"  a command without
+'       `proveo clean --help` says what it takes
+' It replaces cobra's "unknown command … for …" line. Exit codes stay R4's.
+' NOT CHOSEN: keep ignoring them; exit 1 on every failed removal; an exit-code
+' table for every command first. Pinned by TestAStrayScheduleArgumentIsRefusedWithOneFix.
+'
 ' ── 2026-10-28: build · deploy · test LEFT cmd/proveo ───────────────────────
 ' The Executor: "proveo should not have `proveo build`; that should only be
 ' available via mise. proveo is the end consumer CLI." The three verbs moved

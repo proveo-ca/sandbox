@@ -50,7 +50,7 @@ func initCmd() *cobra.Command {
 			"A PATH line init adds reaches a new shell; `source <rc>` brings it into this one.\n" +
 			"The prompt kit shows in a new shell; `proveo uninstall` takes it out again. It seeds starship's\n" +
 			"no-nerd-font preset unless the terminal draws Nerd glyphs; `starship preset nerd-font-symbols -o <config>` switches it.",
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(*cobra.Command, []string) error { return doInit(o) },
 	}
 	cmd.Flags().BoolVar(&o.printOnly, "print", false, "show the plan and the host's verdict without changing anything")

@@ -90,6 +90,27 @@ func reported(it sandbox.Item, err error) error {
 	return backend.Reported{Err: err}
 }
 
+// noArgs refuses an argument with one ×, naming the nearest subcommand or the command's help.
+// SPEC: _spec/cmd/proveo/usage.puml (STRAY ARGUMENTS)
+func noArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	text := fmt.Sprintf("%s — takes no argument %q", cmd.CommandPath(), args[0])
+	fix := "`" + cmd.CommandPath() + " --help` says what it takes"
+	if cmd.HasAvailableSubCommands() {
+		text = fmt.Sprintf("%s — no command %q", cmd.CommandPath(), args[0])
+		cmd.SuggestionsMinimumDistance = max(cmd.SuggestionsMinimumDistance, 2)
+		if near := cmd.SuggestionsFor(args[0]); len(near) > 0 {
+			for i, n := range near {
+				near[i] = "`" + cmd.CommandPath() + " " + n + "`"
+			}
+			fix = "nearest: " + strings.Join(near, ", ")
+		}
+	}
+	return reported(sandbox.Item{Fail: true, Text: text, Detail: []string{fix}}, errors.New(text))
+}
+
 func rootCmd() *cobra.Command {
 	var flagLS, flagInit bool
 	root := &cobra.Command{
@@ -97,7 +118,7 @@ func rootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
-		Args:          cobra.NoArgs,
+		Args:          noArgs,
 		CompletionOptions: cobra.CompletionOptions{
 			DisableDefaultCmd: true,
 		},
@@ -145,7 +166,7 @@ func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the proveo version (alias for --version)",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		Run:   func(*cobra.Command, []string) { fmt.Printf("proveo version %s\n", version) },
 	}
 }
@@ -154,7 +175,7 @@ func lsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List available harness targets (alias for --ls)",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return doList(cmd.OutOrStdout()) },
 	}
 }
@@ -347,7 +368,7 @@ func projectsCmd() *cobra.Command {
 workspaces, else apps/*, packages/*, libs/*, projects/* and services/*; a member holds
 package.json, project.json, Cargo.toml or go.mod. With none, a note on stderr names
 the repo it read, and stdout stays empty.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root := workspace.Resolve(run.OrWD("")).Root
 			projs := workspace.DiscoverProjects(root)

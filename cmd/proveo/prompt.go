@@ -20,7 +20,7 @@ func promptCmd() *cobra.Command {
 		Use:    "prompt",
 		Short:  "Print what earlier runs left in this repository, for a shell prompt",
 		Hidden: true,
-		Args:   cobra.NoArgs,
+		Args:   noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if initShell != "" {
 				line, err := starshipInit(initShell)

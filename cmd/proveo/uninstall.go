@@ -55,7 +55,7 @@ path: a new shell, ` + "`hash -r`" + ` (bash) or ` + "`rehash`" + ` (zsh) forget
 Use proveo clean --homes to reclaim proveo session caches under the install root
 before uninstall if you want those gone separately — uninstall removes the whole
 install root including homes that live there.`,
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(*cobra.Command, []string) error { return doUninstall(yes) },
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the question (PROVEO_UNINSTALL_ASSUME_YES=1 does the same)")
