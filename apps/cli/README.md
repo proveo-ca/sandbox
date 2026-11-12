@@ -18,16 +18,13 @@ Current layout:
 public/
   cli/
     install.sh       # checksum-verified Go binary installer (reads latest.json)
+    install.ps1      # the Windows installer
     uninstall.sh     # prefers `proveo uninstall`; fallback strips PATH + ~/.proveo
     latest.json      # { version, checksums } — release channel for install/update
-    checksums.txt    # SHA-256 of staged binaries (written by deploy-cli / build-cli --release)
+    checksums.txt    # SHA-256 of staged binaries (written by stage-cdn from goreleaser's dist/)
     bin/
-      proveo-linux-amd64
-      proveo-linux-arm64
-      proveo-darwin-amd64
-      proveo-darwin-arm64
-    tests/
-      run_tests.sh
+      proveo-{linux,darwin,freebsd}-{amd64,arm64}
+      proveo-windows-{amd64,arm64}.exe
 ```
 
 `proveo update` fetches `latest.json`, verifies the platform asset checksum, and
@@ -46,18 +43,30 @@ git push origin v0.1.0          # optional but good
 mise run deploy-cli
 ```
 
-On an exact tag, `deploy-cli` runs `build-cli -- --release` with
-`goreleaser release --clean --skip=publish` (version from the tag), stages
-`latest.json` + `bin/` into `apps/cli/public/cli`, then `wrangler deploy`.
+`deploy-cli` depends on `mise run release`. On a tagged HEAD, `release` checks the
+retirement ledger, runs `goreleaser release --clean --skip=publish` (version from the tag),
+and stages `latest.json`, `checksums.txt` and `bin/` into `apps/cli/public/cli` from
+goreleaser's `dist/`. `deploy-cli` then asks to confirm (`mise run --yes deploy-cli` in a
+script) and runs `wrangler deploy`. An untagged HEAD refuses before goreleaser runs.
 
-Untagged `mise run build-cli -- --release` still uses `goreleaser --snapshot` (dev/CI dry-run).
-Override with `PROVEO_VERSION=…` only if you must force the channel stamp.
+mise asks after the depends finish. A "no" therefore leaves `dist/` built and
+`apps/cli/public/cli` restaged; `git checkout -- apps/cli/public/cli` restores the tracked files.
+A dry run also meets the confirm: `mise run -n deploy-cli` exits 1 without a TTY, and
+`mise run -n --yes deploy-cli` prints the release-ledger → goreleaser → stage-cdn → wrangler
+plan and runs none of it.
 
 Publish pieces separately:
 
 ```bash
-mise run build-cli -- --release   # goreleaser + stage CDN assets
+mise run release                         # tagged HEAD: goreleaser + stage CDN assets
 pnpm exec wrangler deploy --cwd apps/cli
+```
+
+Preview without a tag:
+
+```bash
+mise run snapshot   # goreleaser --snapshot into dist/ (version X-SNAPSHOT-<sha>)
+mise run dev-cli    # snapshot, stage, then wrangler dev — never deploys
 ```
 
 Run the CDN install test suite:

@@ -6,15 +6,23 @@ working mode lives in [`_spec/_paradigms/harness-paradigms.puml`](_spec/_paradig
 `_spec/defs/<name>/<name>.paradigm.md`. This file collects the cross-cutting rules every
 contribution must satisfy.
 
+## Git hook (once per clone)
+
+Run `mise run install-git-hooks` once per clone. mise writes an untracked
+`.git/hooks/post-commit` that runs `mise run post-commit` (fmt, then lint) after each commit;
+`SKIP_GIT_HOOKS=1` skips it. A hook installed before 2026-11-12 runs a deleted maintainer
+package and prints a `go run` error after every commit; run the task once to replace it
+([`_spec/_devops/git-hooks.puml`](_spec/_devops/git-hooks.puml)).
+
 ## Image builds (buildx multi-arch)
 
-`mise run build` / `proveo build` drive `docker buildx` from Go
+`mise run build <target>` drives `docker buildx` from Go
 ([`internal/imagebuild`](internal/imagebuild)); each target's recipe is one row of
 `imagebuild.Specs`. No host shell runs, so macOS's frozen `/bin/bash` 3.2 is out of the build path. Defaults:
 
 - **Platforms:** `linux/amd64,linux/arm64` (`PROVEO_PLATFORMS` to override)
 - **Local build:** `--load` of the **host** platform only (buildx cannot load a multi-arch image into the engine)
-- **Deploy:** `mise run deploy` / `proveo deploy` rebuilds with `--push` and publishes a multi-arch manifest to Docker Hub (plain `docker push` of a local image is not enough)
+- **Deploy:** `mise run deploy <target>` rebuilds with `--push` and publishes a multi-arch manifest to Docker Hub (plain `docker push` of a local image is not enough)
 
 Requires Docker Buildx. A `proveo-multiarch` builder (`docker-container` driver) is created on first use (`PROVEO_BUILDX_BUILDER` to override).
 
@@ -76,7 +84,7 @@ keeps the key-in-agent behavior with the existing honest warnings (see
 
 The boundary is asserted in Go (`go test ./internal/contract/ ./internal/verify/ …`, part of
 `mise run ci`) and exercised live in each definition's image suite, `internal/imagetest/<name>_test.go`
-(`mise run test-defs <name>` or `proveo test <name>`).
+(`mise run test-defs <name>`).
 `PROVEO_TEST_<TARGET>_IMAGE` pins the image the image suites and the e2e suite run against for one
 build target, upper-snake-cased (`claudecode-browser` → `PROVEO_TEST_CLAUDECODE_BROWSER_IMAGE`).
 Unset, each suite keeps its own default.
@@ -89,7 +97,7 @@ When you add a definition:
  A def whose image is not built FROM proveo/base copies `proveo-entrypoint` from a builder stage, as hermes does.
 3. Cover the runtime posture in the definition's image suite, `internal/imagetest/<name>_test.go`
  (build tag `image`, func `TestImage<Name>`): runs as the baked user, no setuid binaries, no `nc`.
-4. Run `mise run ci` (or `go test ./internal/contract/`) — it must pass.
+4. Run `mise run ci` (or `go test ./internal/contract/`) — it must pass. On a Go toolchain without cgo, run `mise run ci --no-race`.
 
 ## Definition checklist
 

@@ -75,6 +75,9 @@ func TestHelpEnvNamesReadersOtherThanTheBinary(t *testing.T) {
 			t.Errorf("%s (%s): row says also read = %v, want %v: %q", v.Name, v.Where, also, want, row)
 		}
 	}
+	if row := rows["PROVEO_VERSION"]; !strings.Contains(row, "· read by the install scripts") || strings.Contains(row, "· also read") {
+		t.Errorf("PROVEO_VERSION's row reads %q; only the install scripts read it", row)
+	}
 	for _, c := range []struct {
 		w    envreg.Where
 		want string

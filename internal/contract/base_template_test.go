@@ -2,11 +2,20 @@
 package contract_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/proveo-ca/proveo/internal/maintain"
+	"github.com/proveo-ca/proveo/internal/manifest"
 )
 
 func TestBaseExtendsASandboxTemplate(t *testing.T) {
@@ -162,58 +171,140 @@ func readFileOrFail(t *testing.T, path string) string {
 	return string(b)
 }
 
-func TestLadderAllDetectsOnlyATopLevelSkip(t *testing.T) {
+// topFunc parses the repo Go file rel and returns its top-level func name.
+func topFunc(t *testing.T, rel, name string) *ast.FuncDecl {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), rel, readRepoFile(t, rel), parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("%s: %v", rel, err)
+	}
+	for _, decl := range f.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == name && fn.Body != nil {
+			return fn
+		}
+	}
+	t.Fatalf("%s declares no func %s", rel, name)
+	return nil
+}
+
+// selectorCalls lists every x.M(…) call under n as "x.M".
+func selectorCalls(n ast.Node) []string {
+	var out []string
+	ast.Inspect(n, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if x, ok := sel.X.(*ast.Ident); ok {
+					out = append(out, x.Name+"."+sel.Sel.Name)
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// isGateCall reports whether stmt is failSkipsWhenOptedIn(t, "<optIn>").
+func isGateCall(stmt ast.Stmt, optIn string) bool {
+	es, ok := stmt.(*ast.ExprStmt)
+	if !ok {
+		return false
+	}
+	call, ok := es.X.(*ast.CallExpr)
+	if !ok || len(call.Args) != 2 {
+		return false
+	}
+	fn, okFn := call.Fun.(*ast.Ident)
+	tv, okT := call.Args[0].(*ast.Ident)
+	lit, okLit := call.Args[1].(*ast.BasicLit)
+	return okFn && fn.Name == "failSkipsWhenOptedIn" && okT && tv.Name == "t" && okLit && lit.Value == strconv.Quote(optIn)
+}
+
+func TestOptedInE2EGatesFailTheirSkips(t *testing.T) {
 	t.Parallel()
-	src := readFileOrFail(t, filepath.Join(repoRoot(t), "cmd", "proveo-dev", "ladder.go"))
-	if !strings.Contains(src, "`(?m)^--- SKIP: TestSandboxLadder [(]`") {
-		t.Fatal("proveo-dev ladder's skip match is not anchored at column 0 with a bracketed '(' — " +
-			"an unanchored pattern matches the indented SUBTEST line and reports a def that " +
-			"climbed every rung as not-run")
+	gate := topFunc(t, "e2e/gate_test.go", "failSkipsWhenOptedIn")
+	for _, call := range []string{"envflag.On", "t.Cleanup", "t.Skipped", "t.Errorf"} {
+		if !slices.Contains(selectorCalls(gate.Body), call) {
+			t.Errorf("e2e/gate_test.go failSkipsWhenOptedIn never calls %s; a skip under an opted-in gate must fail at cleanup", call)
+		}
 	}
 
-	// The two shapes it has to tell apart, verbatim from real runs.
-	ranButOneRungSkipped := "--- PASS: TestSandboxLadder (168.93s)\n" +
-		"    --- SKIP: TestSandboxLadder/2-proveo-browser-image (0.14s)\n"
-	neverRan := "    ladder_test.go:314: sbx not available: sbx not on PATH\n" +
-		"--- SKIP: TestSandboxLadder (0.00s)\n"
-
-	re := regexp.MustCompile(`(?m)^--- SKIP: TestSandboxLadder [(]`)
-	if re.MatchString(ranButOneRungSkipped) {
-		t.Error("a def that climbed every rung, with one rung skipped, reads as not-run")
+	ladder := topFunc(t, "e2e/ladder_test.go", "TestSandboxLadder").Body.List
+	optOut, ok := ladder[0].(*ast.IfStmt)
+	var lits []string
+	if ok {
+		ast.Inspect(optOut.Cond, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok {
+				lits = append(lits, lit.Value)
+			}
+			return true
+		})
 	}
-	if !re.MatchString(neverRan) {
-		t.Error("a ladder that never ran reads as having run — the gate would certify nothing")
+	if !ok || !slices.Contains(lits, `"PROVEO_LADDER_TEST"`) || !slices.Contains(selectorCalls(optOut.Body), "t.Skip") {
+		t.Error("TestSandboxLadder's first statement is not the PROVEO_LADDER_TEST opt-out skip")
+	}
+	if len(ladder) < 2 || !isGateCall(ladder[1], "PROVEO_LADDER_TEST") {
+		t.Error(`TestSandboxLadder's second statement is not failSkipsWhenOptedIn(t, "PROVEO_LADDER_TEST"); ` +
+			"ladder-all would pass a ladder that skipped on a missing docker or sbx")
+	}
+
+	idle := topFunc(t, "e2e/idle_test.go", "idleAtPrompt").Body.List
+	if len(idle) == 0 || !isGateCall(idle[0], "PROVEO_IDLE_TEST") {
+		t.Error(`idleAtPrompt's first statement is not failSkipsWhenOptedIn(t, "PROVEO_IDLE_TEST"); ` +
+			"idle-all would pass a def whose sbx, image or credential was missing")
 	}
 }
 
+var idleForDefault = regexp.MustCompile(`^\{% set idle = get_env\(name='PROVEO_IDLE_FOR', default=''\) \| trim %\}` +
+	`\{% if idle %\}\{\{ idle \}\}\{% else %\}([^{}]+)\{% endif %\}$`)
+
 func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 	t.Parallel()
-	root := repoRoot(t)
-	mise := readFileOrFail(t, filepath.Join(root, "mise.toml"))
-	for _, needle := range []string{
-		"[tasks.test-e2e-full]",
-		"go run ./cmd/proveo-dev e2e-full",
-		"[tasks.idle-all]",
-		"go run ./cmd/proveo-dev idle",
-	} {
-		if !strings.Contains(mise, needle) {
-			t.Errorf("mise.toml is missing %q — test-e2e-full is the host gate that must catch sandbox was stopped", needle)
+	cfg := readMise(t)
+	full := cfg.task(t, "test-e2e-full")
+	if !slices.Contains(full.list("depends"), "test-images") {
+		t.Error("test-e2e-full must depend on test-images")
+	}
+	if runs := full.cmds(); len(full.run()) != 1 || len(runs) != 1 ||
+		!strings.HasPrefix(runs[0], "mise run --continue-on-error e2e-gated") ||
+		!strings.HasSuffix(runs[0], " ::: idle-all ::: ladder-all") {
+		t.Errorf("test-e2e-full runs %q, want `mise run --continue-on-error e2e-gated … ::: idle-all ::: ladder-all`: "+
+			"a red half must not stop the next", runs)
+	}
+
+	gated := cfg.task(t, "e2e-gated")
+	for _, k := range []string{"PROVEO_IDLE_TEST", "PROVEO_TOOLCHAIN_TEST"} {
+		if v := gated.env()[k]; v != "1" {
+			t.Errorf("e2e-gated sets %s=%q, want 1", k, v)
 		}
 	}
-	src := readFileOrFail(t, filepath.Join(root, "cmd", "proveo-dev", "idle.go")) +
-		readFileOrFail(t, filepath.Join(root, "cmd", "proveo-dev", "e2efull.go"))
-	for _, needle := range []string{
-		"PROVEO_IDLE_TEST=1",
-		"TestAgentSurvivesIdleAtPrompt",
-		"PROVEO_IDLE_FOR",
-		"runIdle(root)",
-		"runLadder(root)",
-	} {
-		if !strings.Contains(src, needle) {
-			t.Errorf("the silent-death gate is missing %q", needle)
-		}
+	wantGated := "go test -tags=e2e ./e2e/ -count=1 -timeout " + timeoutArg("150m")
+	if got := gated.cmds(); len(gated.run()) != 1 || len(got) != 1 || got[0] != wantGated {
+		t.Errorf("e2e-gated runs %q, want %q", got, wantGated)
 	}
-	idle := readFileOrFail(t, filepath.Join(repoRoot(t), "e2e/idle_test.go"))
+
+	idleAll := cfg.task(t, "idle-all")
+	if !slices.Contains(idleAll.list("wait_for"), "e2e-gated") {
+		t.Error("idle-all must wait for e2e-gated")
+	}
+	env := idleAll.env()
+	if env["PROVEO_IDLE_TEST"] != "1" || env["PROVEO_IDLE_TARGETS"] != "claudecode,cursor,opencode" {
+		t.Errorf("idle-all env = %q, want PROVEO_IDLE_TEST=1 and PROVEO_IDLE_TARGETS=claudecode,cursor,opencode — "+
+			"a per-def death would not run", env)
+	}
+	if m := idleForDefault.FindStringSubmatch(env["PROVEO_IDLE_FOR"]); m == nil {
+		t.Errorf("idle-all PROVEO_IDLE_FOR = %q, want the operator's value, or a fallback when it is unset or blank", env["PROVEO_IDLE_FOR"])
+	} else if d, err := time.ParseDuration(m[1]); err != nil || d <= 30*time.Second {
+		t.Errorf("idle-all idles %q by default, want over 30s: the silent death lands past 30s", m[1])
+	}
+	if runs := idleAll.cmds(); len(runs) != 1 || !strings.Contains(runs[0], " -run=^TestAgentSurvivesIdleAtPrompt$ ") ||
+		!strings.HasPrefix(runs[0], "go test -tags=e2e ") {
+		t.Errorf("idle-all runs %q, want go test -tags=e2e … -run=^TestAgentSurvivesIdleAtPrompt$", runs)
+	}
+	if !slices.Contains(cfg.task(t, "ladder-all").list("wait_for"), "idle-all") {
+		t.Error("ladder-all must wait for idle-all")
+	}
+
+	idle := readRepoFile(t, "e2e/idle_test.go")
 	for _, needle := range []string{
 		"idleWorkspace",
 		"injectTerminalReports",
@@ -225,35 +316,123 @@ func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 			t.Errorf("idle_test.go is missing %q — an empty TempDir and a PTY that never answers DA1 is how this gate passed while proveo run cursor died", needle)
 		}
 	}
-	for _, def := range []string{"claudecode", "cursor", "opencode"} {
-		if !strings.Contains(src, `"`+def+`"`) {
-			t.Errorf("proveo-dev idle/e2e-full does not name %s — a per-def death would not run", def)
+}
+
+func TestLadderTasksClimbEveryDefInItsOwnProcess(t *testing.T) {
+	t.Parallel()
+	cfg := readMise(t)
+	defs := []string{"claudecode", "codex", "cursor", "opencode"}
+	want := "mise run --continue-on-error --jobs=1 ladder:claudecode ::: ladder:codex ::: ladder:cursor ::: ladder:opencode"
+	all := cfg.task(t, "ladder-all")
+	if got := all.cmds(); len(all.run()) != 1 || len(got) != 1 || got[0] != want {
+		t.Errorf("ladder-all runs %q, want %q: one def at a time, in order, past a red one", got, want)
+	}
+	var declared []string
+	for name := range cfg.tasks {
+		if def, ok := strings.CutPrefix(name, "ladder:"); ok {
+			declared = append(declared, def)
+		}
+	}
+	slices.Sort(declared)
+	if !slices.Equal(declared, defs) {
+		t.Errorf("mise.toml declares ladder tasks for %q, want %q", declared, defs)
+	}
+	climb := "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
+	for _, def := range defs {
+		task := cfg.task(t, "ladder:"+def)
+		if env := task.env(); env["PROVEO_LADDER_TEST"] != "1" || env["PROVEO_LADDER_TARGET"] != def || len(env) != 2 {
+			t.Errorf("ladder:%s env = %q, want PROVEO_LADDER_TEST=1 and PROVEO_LADDER_TARGET=%s", def, env, def)
+		}
+		if got := task.cmds(); len(task.run()) != 1 || len(got) != 1 || got[0] != climb {
+			t.Errorf("ladder:%s runs %q, want %q: its own 30m process", def, got, climb)
 		}
 	}
 }
 
-var miseTask = regexp.MustCompile(`(?m)^\[tasks\.([^\]]+)\]\n((?:[^\[\n].*\n|\n)*)`)
+// imageTasks are the tasks that reach the fleet main, each with its exact run line.
+var imageTasks = map[string]string{
+	"build": "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.no_cache %}-no-cache {% endif %}" +
+		"{% if usage.print %}-print {% endif %}build {{ usage.target | quote }}",
+	"deploy": "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.print %}-print {% endif %}" +
+		"deploy {{ usage.target | quote }}",
+	"test-defs": "go run ./internal/maintain/fleet {% if usage.print %}-print {% endif %}test {{ usage.target | quote }}",
+}
+
+func TestImageTasksChoicesMatchTheRegistry(t *testing.T) {
+	t.Parallel()
+	defs := filepath.Join(repoRoot(t), "defs")
+	ms, err := manifest.Load(defs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"all"}
+	for _, target := range maintain.Registry(ms, defs) {
+		want = append(want, target.Name)
+	}
+	cfg := readMise(t)
+	for name := range imageTasks {
+		if got := cfg.task(t, name).choices(); !slices.Equal(got, want) {
+			t.Errorf("%s offers the targets %q, want %q (all, then maintain.Registry in order)", name, got, want)
+		}
+	}
+}
+
+func TestImageTasksRunTheFleetMain(t *testing.T) {
+	t.Parallel()
+	cfg := readMise(t)
+	declares := func(name, line string) bool {
+		return regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( |$)`).MatchString(cfg.task(t, name).str("usage"))
+	}
+	for name, want := range imageTasks {
+		task := cfg.task(t, name)
+		if got := task.cmds(); len(task.run()) != 1 || len(got) != 1 || got[0] != want {
+			t.Errorf("%s runs %q, want %q", name, got, want)
+		}
+		for _, line := range []string{`arg "<target>"`, `flag "--print"`} {
+			if !declares(name, line) {
+				t.Errorf("%s's usage lacks %s", name, line)
+			}
+		}
+	}
+	for name, line := range map[string]string{
+		"build":  `flag "--tag <tag>" default="local"`,
+		"deploy": `flag "--tag <tag>" default="latest"`,
+	} {
+		if !declares(name, line) {
+			t.Errorf("%s's usage lacks %s", name, line)
+		}
+	}
+	if !declares("build", `flag "--no-cache"`) {
+		t.Error(`build's usage lacks flag "--no-cache"`)
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", readRepoFile(t, "internal/maintain/fleet/main.go"), parser.PackageClauseOnly)
+	if err != nil || f.Name.Name != "main" {
+		t.Errorf("internal/maintain/fleet/main.go is not a package main (%v)", err)
+	}
+}
+
+var narrowsTests = regexp.MustCompile(`(^|\s)'?-(test\.)?run\b`)
 
 func TestOneImageTaskGatesBothReleaseGates(t *testing.T) {
 	t.Parallel()
-	tasks := map[string]string{}
-	for _, m := range miseTask.FindAllStringSubmatch(readRepoFile(t, "mise.toml"), -1) {
-		tasks[m[1]] = m[2]
-	}
-	var image []string
-	for name, body := range tasks {
-		if strings.Contains(body, "./internal/imagetest/") {
-			image = append(image, name)
+	cfg := readMise(t)
+	var image, entries []string
+	for name, task := range cfg.tasks {
+		for _, cmd := range task.cmds() {
+			if strings.HasPrefix(cmd, "go test ") && strings.Contains(cmd, "./internal/imagetest/") {
+				image = append(image, name)
+				entries = append(entries, cmd)
+			}
 		}
 	}
 	if len(image) != 1 || image[0] != "test-images" {
 		t.Fatalf("mise.toml runs the image suites from tasks %v, want test-images alone", image)
 	}
-	if regexp.MustCompile(`-run\b[^"]*\./internal/imagetest/`).MatchString(tasks["test-images"]) {
-		t.Error("test-images narrows the image suites with -run; every TestImage* must run, hermes included")
+	if narrowsTests.MatchString(entries[0]) {
+		t.Errorf("test-images narrows the image suites with -run (%q); every TestImage* must run, hermes included", entries[0])
 	}
 	for _, gate := range []string{"test-e2e", "test-e2e-full"} {
-		if !regexp.MustCompile(`(?m)^depends = \[[^\]]*"test-images"`).MatchString(tasks[gate]) {
+		if !slices.Contains(cfg.task(t, gate).list("depends"), "test-images") {
 			t.Errorf("%s must depend on test-images", gate)
 		}
 	}

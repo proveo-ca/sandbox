@@ -3,10 +3,8 @@
 skinparam noteTextAlignment left
 title The unit baseline — green means no new failing test
 ' purpose: how a branch proves it broke nothing while the unit suite is already red on the host it is built on
-' covers: cmd/proveo-dev/baseline.go
-' covers: cmd/proveo-dev/baseline_test.go
-' covers: cmd/proveo-dev/unit-baseline.txt
 ' covers: mise.toml
+' covers: internal/contract/mise_gates_test.go
 '   the decision ............ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, D12)
 '   the gate it stands in ... _spec/_plans/tui-upgrades-delivery.puml (the standing gate)
 '   the full gate ........... _spec/_devops/release-gate.puml
@@ -27,24 +25,29 @@ title The unit baseline — green means no new failing test
 ' The Executor, 2026-11-10: "Since the failures are not TUI related, let Green
 ' be 'no new failing tests'".
 '
-' ── WHAT THE GATE DOES ─────────────────────────────────────────────────────
-' `mise run baseline` runs `go run ./cmd/proveo-dev baseline`: one
-' `go test -race -count=1 -json ./...`, read as a stream.
-'   a failing top-level test is "package Test", the module prefix trimmed
-'   a subtest's failure belongs to its parent and is not listed twice
-'   a package that fails with NO failing test of its own — a build error, a
-'     panic outside a test — is listed as "package (package)", so a slice that
-'     stops a package compiling cannot hide behind the list
-' The result is compared with cmd/proveo-dev/unit-baseline.txt.
-'   a failure outside the list ...... printed, exit 1
-'   a listed test that passes here .. printed as a note, exit 0
-' A LISTED TEST THAT PASSES DOES NOT FAIL THE GATE. The list is host-shaped:
-' thirteen rows are expected to pass on Linux, so a stale-row failure would
-' turn the gate red on the other host type. The note is the prompt to shrink
-' the list once a row passes on both.
+' ── WHAT THE GATE DOES (2026-11-12) ───────────────────────────────────────
+' `mise run baseline` is one mise run string:
+'   go test [-race] -count=1 -skip='^(<[vars] unit_baseline>)$' [go_test_args]
+' The list lives in mise.toml [vars] unit_baseline: one backslash-continued
+' string, one name per line, joined by |. -skip drops exactly those top-level
+' tests; every other failure, a build error or a panic outside a test fails
+' go test, and go test's exit code is the verdict.
+'   --no-race ........... drops -race, for a toolchain without cgo
+'   [go_test_args]... ... packages replace ./...; go test flags pass after --
+' LOST ON 2026-11-12, BY DESIGN: a listed test never runs here, so the gate
+' prints no "passes here" note, and a row is a bare test name with no package
+' scope (-skip is unscoped). A stale row stays silent until someone reads
+' test-go, which runs every test. TestUnitBaselineRowsNameRealTests keeps each
+' row a top-level test defined in exactly one tracked _test.go, so a row
+' cannot skip a second test of the same name.
+' HISTORY, 2026-11-10 to 2026-11-12: the gate was a Go program over
+' `go test -race -count=1 -json ./...`. It listed a failing top-level test as
+' "package Test", a test-less package failure as "package (package)", and
+' diffed them against a unit-baseline.txt: a failure outside the list exited
+' 1, a listed test that passed printed a note and exited 0, so a row could
+' pass on one host type without turning the gate red on the other.
 ' A RED TEST GUARDS NOTHING. TestVarsSortByScopeThenName covers envreg.go.
 ' A slice that edits that file fixes line 153 first and drops the row.
-' Extra arguments replace `./...`, so one package can be checked alone.
 ' THE GATE DOES NOT RETRY, SO ONE KNOWN FLAKE IS LISTED. MEASURED 2026-11-10:
 ' TestAdbMirrorStartsWithTheSocketAddress failed in 2 of 8 full runs and passed
 ' 6 of 6 alone. At main it passed 3 of 3 full runs. Its helper starts a stub in
@@ -59,24 +62,22 @@ title The unit baseline — green means no new failing test
 ' failed the same 15 tests; the flake row passed in that run. The list did
 ' not change.
 '
-' Pinned by cmd/proveo-dev/baseline_test.go:
-'   TestFailedTestsKeepsTopLevelFailuresAndTestlessPackages
-'   TestNewFailuresSplitsAddedFromFixed
-'   TestTheBaselineListIsSortedUniqueAndWellFormed
-'   TestBaselineArgsDefaultToTheWholeModule
+' Pinned by internal/contract/mise_gates_test.go:
+'   TestUnitBaselineRowsNameRealTests       sorted, unique, one test each, and
+'                                           the anchored pattern matches each
+'                                           name alone
+'   TestBaselineSkipsExactlyTheListedTests  the exact run string and usage
+'   TestUnitLanesOfferNoRace                -race only behind --no-race
 
-component """go test -race -json ./...""" as RUN <<app>>
-component """failedTests""\ntop-level failures\nand test-less packages" as PARSE <<app>>
-database """unit-baseline.txt""\n15 failures · 1 flake" as LIST <<db>>
-component "a failure outside the list\nexit 1" as NEW <<error>>
-component "a listed test that passes\na note, exit 0" as FIXED <<app>>
+component """go test -race -count=1\n-skip='^(<list>)$' ./...""" as RUN <<app>>
+database """[vars] unit_baseline""\nmise.toml · 15 failures · 1 flake" as LIST <<db>>
+component "any failure, build error\nor panic · exit 1" as NEW <<error>>
+component "the 'passes here' note\nand per-package scope\nLOST 2026-11-12" as FIXED <<error>>
 component """mise run ci""\nred on this host at main" as CI <<error>>
 
-RUN ARROW_MAIN PARSE
-PARSE ARROW_MAIN NEW : not in the list
-PARSE ARROW_OPTIONAL FIXED : in the list, passing
-LIST ARROW_MAIN NEW
-LIST ARROW_OPTIONAL FIXED
+LIST ARROW_MAIN RUN : -skip, anchored
+RUN ARROW_MAIN NEW : go test's exit code
+FIXED ARROW_ERROR LIST : a listed test never runs here
 CI ARROW_ERROR RUN : cannot tell old red from new
 
 note bottom of LIST
@@ -87,10 +88,16 @@ note bottom of LIST
 end note
 
 note bottom of NEW
-  **A build error counts.** A package that
-  fails without a failing test is listed as
-  its own row, so a slice cannot break a
-  package and still read as green.
+  **A build error counts.** go test fails a
+  package that does not compile, and -skip
+  names tests, never packages, so a slice
+  cannot break a package and read green.
+end note
+
+note bottom of FIXED
+  **A stale row stays silent.** The gate
+  skips a listed test instead of running it,
+  so only test-go shows a row that passes.
 end note
 
 note bottom of CI

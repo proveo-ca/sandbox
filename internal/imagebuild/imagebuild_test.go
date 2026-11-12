@@ -170,15 +170,17 @@ func TestLoadPullNeverSkipsTheRegistryHEAD(t *testing.T) {
 
 func TestRegistryDNSHelpPrintsOnAFinalDNSFailure(t *testing.T) {
 	t.Parallel()
-	d := &fakeDocker{buildErr: hubDNSErr}
-	b, errb := newTest(t, d, map[string]string{"PROVEO_DOCKER_PULL": "1", "PROVEO_BUILDKIT_CACHE": "0"})
-	if err := b.Build(false, []string{"-t", "proveo/base:local", "/tmp"}); err == nil {
-		t.Fatal("an explicit --pull=true must not be retried away")
-	}
-	for _, want := range []string{"registry-1.docker.io", "PROVEO_DOCKER_PULL=0",
-		"docker pull docker/sandbox-templates:shell-docker-0.5.0", "docker buildx rm proveo-multiarch"} {
-		if !strings.Contains(errb.String(), want) {
-			t.Errorf("help missing %q\n%s", want, errb)
+	for ref, target := range map[string]string{"proveo/base:local": "base", "registry.example:5000/proveo/claudecode-solidity:rc1": "claudecode-solidity"} {
+		d := &fakeDocker{buildErr: hubDNSErr}
+		b, errb := newTest(t, d, map[string]string{"PROVEO_DOCKER_PULL": "1", "PROVEO_BUILDKIT_CACHE": "0"})
+		if err := b.Build(false, []string{"-t", ref, "/tmp"}); err == nil {
+			t.Fatal("an explicit --pull=true must not be retried away")
+		}
+		for _, want := range []string{"registry-1.docker.io", "PROVEO_DOCKER_PULL=0 mise run build " + target + "\n",
+			"docker pull docker/sandbox-templates:shell-docker-0.5.0", "docker buildx rm proveo-multiarch"} {
+			if !strings.Contains(errb.String(), want) {
+				t.Errorf("%s: help missing %q\n%s", ref, want, errb)
+			}
 		}
 	}
 }

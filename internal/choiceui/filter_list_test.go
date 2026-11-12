@@ -36,30 +36,25 @@ func TestTheFilterListsKeys(t *testing.T) {
 	t.Parallel()
 	down, tab := teaKey(tea.KeyDown, 0), teaKey(tea.KeyTab, 0)
 	for _, c := range []struct {
-		name  string
-		multi bool
-		keys  []tea.KeyPressMsg
-		want  []int
-		out   Outcome
-		ends  bool
+		name string
+		keys []tea.KeyPressMsg
+		want []int
+		out  Outcome
+		ends bool
 	}{
-		{"enter takes the first row", false, []tea.KeyPressMsg{teaEnter}, []int{0}, Accepted, true},
-		{"down then enter", false, []tea.KeyPressMsg{down, down, teaEnter}, []int{2}, Accepted, true},
-		{"the cursor stops at the last row", false, []tea.KeyPressMsg{down, down, down, down, down, teaEnter}, []int{3}, Accepted, true},
-		{"typing narrows, and enter takes the first match", false, append(typed("hermes"), teaEnter), []int{1}, Accepted, true},
-		{"every typed word must be in the row", false, append(typed("run herm"), teaEnter), []int{3}, Accepted, true},
-		{"case does not matter", false, append(typed("MUSE"), teaEnter), []int{1}, Accepted, true},
-		{"enter with nothing matching does nothing", false, append(typed("zzz"), teaEnter), nil, Cancelled, false},
-		{"backspace widens again", false, append(append(typed("zz"), teaKey(tea.KeyBackspace, 0), teaKey(tea.KeyBackspace, 0)), teaEnter), []int{0}, Accepted, true},
-		{"esc cancels", false, []tea.KeyPressMsg{down, teaEsc}, nil, Cancelled, true},
-		{"ctrl+c cancels", false, []tea.KeyPressMsg{teaCtrlC}, nil, Cancelled, true},
-		{"tab does nothing in a list of one answer", false, []tea.KeyPressMsg{tab, teaEnter}, []int{0}, Accepted, true},
-		{"tab marks rows and enter takes them in list order", true, []tea.KeyPressMsg{down, down, tab, teaKey(tea.KeyHome, 0), tab, teaEnter}, []int{0, 2}, Accepted, true},
-		{"a second tab unmarks", true, []tea.KeyPressMsg{tab, teaKey(tea.KeyUp, 0), tab, down, teaEnter}, []int{2}, Accepted, true},
-		{"a mark survives a filter that hides its row", true, append(append([]tea.KeyPressMsg{tab}, typed("hermes")...), teaEnter), []int{0}, Accepted, true},
+		{"enter takes the first row", []tea.KeyPressMsg{teaEnter}, []int{0}, Accepted, true},
+		{"down then enter", []tea.KeyPressMsg{down, down, teaEnter}, []int{2}, Accepted, true},
+		{"the cursor stops at the last row", []tea.KeyPressMsg{down, down, down, down, down, teaEnter}, []int{3}, Accepted, true},
+		{"typing narrows, and enter takes the first match", append(typed("hermes"), teaEnter), []int{1}, Accepted, true},
+		{"every typed word must be in the row", append(typed("run herm"), teaEnter), []int{3}, Accepted, true},
+		{"case does not matter", append(typed("MUSE"), teaEnter), []int{1}, Accepted, true},
+		{"enter with nothing matching does nothing", append(typed("zzz"), teaEnter), nil, Cancelled, false},
+		{"backspace widens again", append(append(typed("zz"), teaKey(tea.KeyBackspace, 0), teaKey(tea.KeyBackspace, 0)), teaEnter), []int{0}, Accepted, true},
+		{"esc cancels", []tea.KeyPressMsg{down, teaEsc}, nil, Cancelled, true},
+		{"ctrl+c cancels", []tea.KeyPressMsg{teaCtrlC}, nil, Cancelled, true},
+		{"tab does nothing in a list of one answer", []tea.KeyPressMsg{tab, teaEnter}, []int{0}, Accepted, true},
 	} {
 		l := runList()
-		l.Multi = c.multi
 		m, cmd := pressKeys(listAt(l, 100, 20), c.keys...)
 		got := m.(listModel).out
 		var picked []int
@@ -135,14 +130,6 @@ func TestTheFilterListMatchesItsGoldenFrames(t *testing.T) {
 	}{
 		{"open", runList},
 		{"narrowed", func() *FilterList { l := runList(); l.key(press{text: "hermes"}, 24); return l }},
-		{"multi", func() *FilterList {
-			l := &FilterList{Title: "build which images", Prompt: "build> ", Multi: true,
-				Items: []string{"all", "base", "claudecode", "codex", "hermes", "opencode"}}
-			l.key(press{key: "down"}, 24)
-			l.key(press{key: "tab"}, 24)
-			l.key(press{key: "tab"}, 24)
-			return l
-		}},
 	}
 	seen := map[string]bool{}
 	for _, c := range cases {

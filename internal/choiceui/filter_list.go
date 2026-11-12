@@ -10,21 +10,18 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// FilterList is a list narrowed by typing. Enter takes the cursor's row; with
-// Multi, tab marks rows and Enter takes every marked one.
+// FilterList is a list narrowed by typing. Enter takes the cursor's row.
 type FilterList struct {
 	Title  string
 	Prompt string // drawn before the typed text, as given: "attach> "
 	Items  []string
-	Multi  bool
 
-	query  string
-	at     int // the cursor, as an index into shown()
-	marked map[int]bool
-	top    int
+	query string
+	at    int // the cursor, as an index into shown()
+	top   int
 }
 
-// Run draws the list on the terminal and returns the indexes of the rows taken, in list order.
+// Run draws the list on the terminal and returns the row taken, as a one-index slice.
 func (l *FilterList) Run() (picked []int, out Outcome, err error) {
 	in, term, done, err := openTerminal()
 	if err != nil {
@@ -45,7 +42,7 @@ func (l *FilterList) Run() (picked []int, out Outcome, err error) {
 // ErrListClosed is Pick's error when the operator closed the list without choosing.
 var ErrListClosed = errors.New("list closed")
 
-// Pick runs the list and returns the rows taken, never none.
+// Pick runs the list and returns the row taken, never none.
 func (l *FilterList) Pick() ([]int, error) {
 	picked, out, err := l.Run()
 	switch {
@@ -104,18 +101,12 @@ func (l *FilterList) shown() []int {
 	return out
 }
 
-// picked is what Enter takes: the marked rows, or the cursor's row when none is marked.
+// picked is what Enter takes: the cursor's row, or none when nothing matches.
 func (l *FilterList) picked() []int {
-	var out []int
-	for i := range l.Items {
-		if l.marked[i] {
-			out = append(out, i)
-		}
+	if shown := l.shown(); l.at < len(shown) {
+		return []int{shown[l.at]}
 	}
-	if shown := l.shown(); len(out) == 0 && l.at < len(shown) {
-		out = []int{shown[l.at]}
-	}
-	return out
+	return nil
 }
 
 // listFoot is the rows under the list: a blank and the key line.
@@ -130,7 +121,7 @@ func (l *FilterList) window(h int) int {
 	return h - fixed
 }
 
-// key applies one key press: it moves the cursor, marks a row, edits the text, or ends the list.
+// key applies one key press: it moves the cursor, edits the text, or ends the list.
 func (l *FilterList) key(p press, h int) (Outcome, bool) {
 	if p.key == "esc" || p.key == "ctrl+c" {
 		return Cancelled, true
@@ -157,12 +148,6 @@ func (l *FilterList) key(p press, h int) (Outcome, bool) {
 		move(-len(shown))
 	case p.key == "end":
 		move(+len(shown))
-	case p.key == "tab" && l.Multi && l.at < len(shown):
-		if l.marked == nil {
-			l.marked = map[int]bool{}
-		}
-		l.marked[shown[l.at]] = !l.marked[shown[l.at]]
-		move(+1)
 	case p.text != "":
 		l.query, l.at = l.query+p.text, 0
 	case p.key == "backspace":
@@ -176,11 +161,7 @@ func (l *FilterList) key(p press, h int) (Outcome, bool) {
 }
 
 func (l *FilterList) hintParts(w, hidden int) []hintPart {
-	parts := []hintPart{{"↑↓", "row", 3}, {"type", "to narrow", 1}}
-	if l.Multi {
-		parts = append(parts, hintPart{"tab", "mark", 2})
-	}
-	parts = append(parts, hintPart{"enter", "choose", 9}, hintPart{"esc", "cancel", 5})
+	parts := []hintPart{{"↑↓", "row", 3}, {"type", "to narrow", 1}, {"enter", "choose", 9}, {"esc", "cancel", 5}}
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
@@ -222,13 +203,6 @@ func (l *FilterList) draw(s *screen) {
 		}
 		row := newPen(s, 0, c.y+i)
 		row.write(p.brand, marker)
-		if l.Multi {
-			mark, ms := "[ ] ", p.idle
-			if l.marked[item] {
-				mark, ms = "[x] ", p.brand
-			}
-			row.write(ms, mark)
-		}
 		row.write(st, clip(l.Items[item], max(1, w-row.col())))
 	}
 	c.y += min(window, max(1, len(shown))) + 1

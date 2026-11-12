@@ -5,32 +5,53 @@
 ' covers: cmd/proveo/update.go
 ' covers: cmd/proveo/update_test.go
 ' covers: apps/cli/public/cli/**
-' covers: cmd/proveo-dev/stagecdn.go
-' covers: cmd/proveo-dev/buildcli.go
-' covers: cmd/proveo-dev/deploycli.go
-' covers: cmd/proveo-dev/devcli.go
+' covers: internal/cdn/stage/main.go
+' covers: internal/cdn/stage/main_test.go
+' covers: internal/contract/cli_tasks_test.go
+' covers: mise.toml
 ' covers: .goreleaser.yaml
 '
-' ── MAINTAINER RELEASE PATH: cmd/proveo-dev (not shipped) ──────────────────
-' `proveo-dev stage-cdn` replaced scripts/stage-cli-cdn.sh, and
-' `proveo-dev build-cli|deploy-cli|dev-cli` replaced the mise task bodies
-' (host-shell-to-go P4). goreleaser lists its binaries explicitly and
-' proveo-dev is not among them, so it never reaches the CDN.
-' * stage-cdn sources each proveo-<goos>-<goarch>[.exe] from dist/ in order:
-'   proveo_*_<os>_<arch>.{tar.gz,tgz,zip}, the flat cdn-proveo archive, then
-'   raw goreleaser build dirs. It cross-compiles only when none exists, and
-'   PROVEO_CDN_REQUIRE_DIST=1 (set by build-cli --release) turns that fallback
-'   into a failure, so a release never ships a dev cross-build.
-' * Version precedence: PROVEO_VERSION, dist/artifacts.json, dist/VERSION,
-'   git describe (exact tag, then --always), "dev".
-' * It first deletes the legacy bash consumer assets (bin/proveo, help.sh,
-'   init.sh, lib/) and every stale proveo-* asset, so the tree carries exactly
-'   what latest.json lists.
-' * build-cli installs into $(go env GOPATH)/bin, not a toolchain-local GOBIN
-'   that mise may set. It stamps dev@<short-sha> so a stale binary is visible
-'   in `proveo --version`.
-' * goreleaser is pinned (v2.17.0) when build-cli installs it, so release
-'   builds are reproducible; bump it deliberately.
+' ── MAINTAINER RELEASE PATH: mise tasks + goreleaser (2026-11-12) ──────────
+' mise.toml owns the path; the one Go program on it is internal/cdn/stage.
+'   snapshot ...... goreleaser release --snapshot --clean into dist/
+'                   (version X-SNAPSHOT-<sha>)
+'   release ....... depends release-ledger (a tagged HEAD and the retirement
+'                   ledger, _spec/_devops/release-gate.puml), then goreleaser
+'                   release --clean --skip=publish, then stage-cdn
+'   stage-cdn ..... hidden; go run ./internal/cdn/stage
+'   deploy-cli .... depends release, asks to confirm, then pnpm exec wrangler
+'                   deploy --cwd apps/cli; scripted: `mise run --yes deploy-cli`
+'   dev-cli ....... snapshot, stage-cdn, then pnpm exec wrangler dev; it
+'                   never deploys
+'   test-images ... snapshot and stage-cdn first, then the installer suite
+'                   against that tree (PROVEO_INSTALLTEST_CDN)
+'   build-cli ..... go install proveo and proveo-entrypoint into GOPATH/bin
+'                   (env GOBIN = false; a `go env -w GOBIN` entry still
+'                   wins), version dev@<sha> from build info
+' goreleaser 2.17.0 is pinned on snapshot and release alone, never in [tools],
+' so fmt, lint and post-commit never resolve it. goreleaser lists its binaries
+' explicitly, and no maintainer program is among them.
+' * stage reads the platforms from .goreleaser.yaml builds[id=proveo], the
+'   version from dist/metadata.json, and the cdn-proveo Binary entries from
+'   dist/artifacts.json. It checks each binary's sha256 against goreleaser's
+'   extra.Checksum BEFORE it touches the tree, so a refused stage leaves bin/,
+'   checksums.txt and latest.json as they were. Then it removes stale
+'   bin/proveo-* files, copies each binary 0755, and writes checksums.txt and
+'   latest.json (json.MarshalIndent of cdn.Manifest).
+' * latest.json's version is goreleaser's, equal to the binaries' --version.
+'   MEASURED 2026-11-12: latest.json, dist/metadata.json and
+'   bin/proveo-darwin-arm64 --version all read 0.1.6-SNAPSHOT-7a0c8cf4, and
+'   `shasum -a 256 -c checksums.txt` passed 8 of 8.
+' * GONE on 2026-11-12 with the old stager: the cross-compile fallback, the
+'   tar.gz/zip/flat/raw extraction, the legacy-asset reset, the git-describe
+'   version chain, PROVEO_CDN_ROOT, PROVEO_DIST_DIR, PROVEO_CDN_REQUIRE_DIST
+'   and PROVEO_VERSION's stamp role. A dist/ missing a platform, its metadata
+'   or a matching checksum now fails, naming `mise run snapshot` (or `mise run
+'   release` on a tag).
+' * Pinned by internal/cdn/stage/main_test.go and
+'   internal/contract/cli_tasks_test.go (TestBuildCLIInstallsOnlyTheShippedBinaries,
+'   TestGoreleaserIsPinnedPerTask, TestDeployCLIShipsOnlyATaggedRelease,
+'   TestCDNStagingFollowsAFreshSnapshot).
 ' * .goreleaser.yaml emits the multi-arch static binaries AND a sha256
 '   checksums.txt, so the installer can verify what it downloads. It replaced an
 '   unverified `curl | bash` pipeline (moved from its header, N14).
@@ -129,7 +150,7 @@ actor "Consumer" as USER
 
 node "Maintainer host" as MH <<host>> {
   component "goreleaser\nmulti-arch static binaries" as GR <<app>>
-  component "proveo-dev stage-cdn\nstages apps/cli/public/cli" as STAGE <<app>>
+  component "mise run stage-cdn\ninternal/cdn/stage → apps/cli/public/cli" as STAGE <<app>>
 }
 
 cloud "Cloudflare — proveo.ca/cli" as CDN <<cloud>> {

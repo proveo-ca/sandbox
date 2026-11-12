@@ -16,8 +16,7 @@
       "covers": [
         "internal/contract/spec_notes_test.go",
         "internal/ui/ui.go",
-        "cmd/proveo-dev/commentlint.go",
-        "cmd/proveo-dev/commentlint_test.go"
+        "internal/contract/comment_blocks_test.go"
       ],
       "fingerprint": null
     },
@@ -70,12 +69,10 @@
     {
       "spec": "_spec/_devops/git-hooks.puml",
       "covers": [
-        "scripts/githooks/post-commit",
-        "cmd/proveo-dev/hooks.go",
         "mise.toml",
+        ".golangci.yml",
         "internal/contract/git_hooks_test.go",
-        "cmd/proveo-dev/lint.go",
-        "cmd/proveo-dev/lint_test.go"
+        "internal/contract/comment_blocks_test.go"
       ],
       "fingerprint": null
     },
@@ -86,7 +83,6 @@
         "internal/imagetest/imagetest.go",
         "internal/imagetest/detached_smoke_test.go",
         "internal/maintain/**",
-        "cmd/proveo-dev/maintain.go",
         "cmd/proveo/provision.go",
         "internal/contract/image_resolution_test.go",
         "internal/contract/import_boundary_test.go"
@@ -108,16 +104,13 @@
       "spec": "_spec/_devops/release-gate.puml",
       "covers": [
         "mise.toml",
+        "e2e/gate_test.go",
         "e2e/ladder_test.go",
         "e2e/idle_test.go",
         "internal/contract/base_template_test.go",
-        "cmd/proveo-dev/ladder.go",
-        "cmd/proveo-dev/idle.go",
-        "cmd/proveo-dev/e2efull.go",
-        "cmd/proveo-dev/gate.go",
-        "internal/contract/retirement_test.go",
-        "cmd/proveo-dev/buildcli.go",
-        "internal/contract/release_targets_test.go"
+        "internal/contract/release_gate_test.go",
+        "internal/contract/release_targets_test.go",
+        "internal/contract/retirement_test.go"
       ],
       "fingerprint": null
     },
@@ -138,10 +131,8 @@
     {
       "spec": "_spec/_devops/unit-baseline.puml",
       "covers": [
-        "cmd/proveo-dev/baseline.go",
-        "cmd/proveo-dev/baseline_test.go",
-        "cmd/proveo-dev/unit-baseline.txt",
-        "mise.toml"
+        "mise.toml",
+        "internal/contract/mise_gates_test.go"
       ],
       "fingerprint": null
     },
@@ -527,7 +518,7 @@
       "covers": [
         "cmd/proveo/provision.go",
         "cmd/proveo/wizard.go",
-        "cmd/proveo-dev/maintain.go",
+        "internal/maintain/fleet.go",
         "internal/imagebuild/targets.go"
       ],
       "fingerprint": null
@@ -536,11 +527,15 @@
       "spec": "_spec/cmd/proveo/usage.puml",
       "covers": [
         "cmd/proveo/main.go",
-        "cmd/proveo-dev/main.go",
+        "cmd/proveo/version.go",
+        "cmd/proveo/version_test.go",
+        "internal/contract/mise_mains_test.go",
         "cmd/proveo/help.go",
         "cmd/proveo/help_test.go",
         "cmd/proveo/maintainer_surface_test.go",
-        "cmd/proveo/env_help.go"
+        "cmd/proveo/env_help.go",
+        "cmd/proveo/running.go",
+        "cmd/proveo/running_test.go"
       ],
       "fingerprint": null
     },
@@ -559,7 +554,6 @@
       "spec": "_spec/defs/agent-definition-sharing.puml",
       "covers": [
         "defs/subagents/**",
-        "cmd/proveo-dev/render_subagents.go",
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/agents_shared_test.go",
         "internal/contract/subagent_roster_test.go",
@@ -854,13 +848,13 @@
         "cmd/proveo/update.go",
         "cmd/proveo/update_test.go",
         "apps/cli/public/cli/**",
+        "internal/cdn/stage/main.go",
+        "internal/cdn/stage/main_test.go",
+        "internal/contract/cli_tasks_test.go",
+        "mise.toml",
+        ".goreleaser.yaml",
         "internal/installtest/**",
-        "internal/contract/installer_bash_test.go",
-        "cmd/proveo-dev/stagecdn.go",
-        "cmd/proveo-dev/buildcli.go",
-        "cmd/proveo-dev/deploycli.go",
-        "cmd/proveo-dev/devcli.go",
-        ".goreleaser.yaml"
+        "internal/contract/installer_bash_test.go"
       ],
       "fingerprint": null
     },
@@ -948,7 +942,6 @@
         "internal/choiceui/filter_list_test.go",
         "cmd/proveo/main.go",
         "cmd/proveo/running.go",
-        "cmd/proveo-dev/maintain.go",
         "e2e/target_list_test.go"
       ],
       "fingerprint": null
@@ -1102,8 +1095,7 @@
       "spec": "_spec/internal/maintain/build-schedule.puml",
       "covers": [
         "internal/maintain/**",
-        "cmd/proveo-dev/maintain.go",
-        "cmd/proveo-dev/maintain_test.go",
+        "internal/imagebuild/imagebuild.go",
         "defs/**/Dockerfile",
         "internal/contract/image_build_cache_test.go"
       ],
@@ -1113,7 +1105,6 @@
       "spec": "_spec/internal/maintain/image-build-deploy.puml",
       "covers": [
         "internal/maintain/**",
-        "cmd/proveo-dev/maintain.go",
         "cmd/proveo/maintainer_surface_test.go",
         "internal/imagebuild/**",
         "internal/imagetest/**"
@@ -1956,8 +1947,8 @@
         "e2e/**",
         "internal/*/*_test.go",
         "cmd/proveo/*_test.go",
+        "mise.toml",
         "internal/imagetest/**",
-        "cmd/proveo-dev/coverage.go",
         "internal/contract/test_image_knobs_test.go"
       ],
       "fingerprint": null
@@ -2030,7 +2021,7 @@
         "e2e/kit_sandbox_test.go",
         "internal/sbx/clone_test.go",
         "internal/backend/sandbox/clone_carry_test.go",
-        "cmd/proveo-dev/coverage.go"
+        "mise.toml"
       ],
       "fingerprint": null
     },

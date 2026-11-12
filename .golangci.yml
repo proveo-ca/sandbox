@@ -1,6 +1,6 @@
 # golangci-lint v2 (Go format + lint) — https://golangci-lint.run/docs/configuration/file/
 # Format: `mise run fmt` → golangci-lint fmt
-# Lint:  `mise run lint` → gofmt check + go vet + golangci-lint run
+# Lint:  `mise run lint` → gofmt + comment-block contract tests, go vet, golangci-lint run
 version: "2"
 
 run:
@@ -8,6 +8,7 @@ run:
   tests: true
   build-tags:
     - image
+    - e2e
 
 linters:
   # Default set: errcheck, govet, ineffassign, staticcheck, unused

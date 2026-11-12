@@ -3,61 +3,81 @@
 skinparam noteTextAlignment left
 title git post-commit — format, then lint
 ' purpose: why a commit still runs fmt and lint after HEAD moves, and how the hook is installed without git config
-' covers: scripts/githooks/post-commit
-' covers: cmd/proveo-dev/hooks.go
 ' covers: mise.toml
+' covers: .golangci.yml
 ' covers: internal/contract/git_hooks_test.go
-' covers: cmd/proveo-dev/lint.go
-' covers: cmd/proveo-dev/lint_test.go
-' `proveo-dev lint` (lint.go) is the body of `mise run lint`. Its gates, in
-' order (lint.go:18, :41-42): gofmt -l, the comment-block lint (N14 —
-' _spec/_conventions/spec-conventions.puml), go vet (default, image and e2e
-' tags; the e2e vet joined 2026-11-10 so `mise run ci` compiles the tmux pins),
-' golangci-lint run. So a post-commit hook now also reports comment blocks
-' over three lines, after the fact like every other lint finding.
+' covers: internal/contract/comment_blocks_test.go
+' `mise run lint` is a run array in mise.toml. Its gates, in order:
+'   1 go test of TestEveryTrackedGoFileIsGofmted and
+'     TestNoCommentBlockOverThreeLines (internal/contract): go/format over every
+'     tracked .go file, whatever its build tags, and the comment-block rule (N14,
+'     _spec/_conventions/spec-conventions.puml)
+'   2 go vet ./..., go vet -tags=image ./internal/imagetest/, go vet -tags=e2e
+'     ./e2e/ (the e2e vet joined 2026-11-10 so `mise run ci` compiles the tmux pins)
+'   3 golangci-lint run, with build-tags [image, e2e] in .golangci.yml
+' So a post-commit hook also reports comment blocks over three lines and
+' unformatted e2e files, after the fact like every other lint finding.
+' The two contract tests also run in test-go, baseline and ci.
+'
+' ── THE HOOK (2026-11-12) ──────────────────────────────────────────────────
+' `mise run install-git-hooks` runs `mise generate git-pre-commit --hook
+' post-commit --task post-commit --write`. mise writes an untracked #!/bin/sh
+' hook that execs `mise run post-commit`, moves an existing hook to
+' post-commit.old, and in a linked worktree writes the common .git/hooks
+' (MEASURED on mise 2026.10.17; a worktree commit fired it).
+' The hidden [tasks.post-commit] runs [{ task = "fmt" }, { task = "lint" }].
+' Its skip_if reads SKIP_GIT_HOOKS through `get_env | trim | lower in [...]`
+' with envflag.On's words, so 1, true, yes, on, enable and enabled skip it.
+' Pinned by internal/contract/git_hooks_test.go:
+'   TestPostCommitRunsFormatThenLint
+'   TestPostCommitSkipIfSpeaksTheEnvflagWords
+'   TestMiseDeclaresInstallGitHooks
+' A clone that never ran install-git-hooks has no hook; one installed before
+' 2026-11-12 holds the old shim and needs the task run once. Until then every
+' commit prints a go run error, which git ignores for post-commit.
+' CONTRIBUTING.md names the step (TestMiseDeclaresInstallGitHooks).
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 
 participant "git commit" as COMMIT <<app>>
-participant ".git/hooks/post-commit" as HOOK <<app>>
-participant "proveo-dev hooks post-commit" as BODY <<app>>
+participant ".git/hooks/post-commit\n(mise's, untracked)" as HOOK <<app>>
+participant "mise run post-commit\n(hidden, skip_if)" as BODY <<app>>
 participant "mise run fmt" as FMT <<app>>
 participant "mise run lint" as LINT <<app>>
-participant "proveo-dev hooks install" as INST <<app>>
+participant "mise run install-git-hooks" as INST <<app>>
 
 COMMIT ARROW_MAIN HOOK : HEAD already advanced
-HOOK ARROW_MAIN BODY : exec mise exec -- go run
-BODY ARROW_MAIN FMT
+HOOK ARROW_MAIN BODY : exec mise run post-commit
+BODY ARROW_MAIN FMT : { task = "fmt" }
 FMT ARROW_MAIN LINT : format first so lint sees it
-INST ARROW_OPTIONAL HOOK : cp, chmod 0755
+INST ARROW_OPTIONAL HOOK : mise generate git-pre-commit
 
 note right of HOOK
   **HEAD is already written.** This hook
   cannot change the commit. Format may
   dirty the tree; lint failing prints
-  after the fact. SKIP_GIT_HOOKS=1
-  skips both tasks.
+  after the fact.
 end note
 
 note over INST
   **No git config.** core.hooksPath is
-  not set. Go copies the versioned
-  shim into .git/hooks, so a clone
-  still needs one command:
+  not set. mise writes the hook into
+  git's hooks dir, so a clone still
+  needs one command:
   mise run install-git-hooks.
 end note
 
 note right of FMT
   **Format before lint.** Lint's first
-  gate is gofmt -l. Running lint first
-  would fail the files fmt is about
-  to rewrite. The hook does not
+  gate is the gofmt test. Running lint
+  first would fail the files fmt is
+  about to rewrite. The hook does not
   git add or git commit.
 end note
 
 note right of BODY
-  **A POSIX shim, a Go body.** git runs
-  a hook FILE, so post-commit stays a
-  6-line #!/bin/sh that execs Go; no
-  host bash (20-contract allowlist).
+  **SKIP_GIT_HOOKS keeps its name.**
+  skip_if reads it with envflag's
+  on-words, so CI skips both tasks
+  and "0" still runs them.
 end note
 @enduml

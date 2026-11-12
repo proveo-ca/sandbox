@@ -107,7 +107,7 @@ skinparam noteTextAlignment left
 '     `hermes mcp list` then shows mcp-gateway enabled. No gateway URL → no-op.
 '   MEASURED 2026-10-24 (TestHermesTakesSbxsMCPGateway, layer 5): with a probe
 '   loaded into a hermes sandbox's gateway, `hermes mcp test mcp-gateway` lists
-'   proveo_ping. The image bakes the lib: `proveo build hermes` makes it live.
+'   proveo_ping. The image bakes the lib: `mise run build hermes` makes it live.
 '
 ' ── MCP CONNECTION E2E (2026-10-24, user: "Add the sbx gateway row too") ─────
 ' e2e/mcp_connect_sbx_test.go, opt-in PROVEO_MCP_TEST=1. The oracle is a

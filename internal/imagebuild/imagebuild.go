@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -343,12 +344,13 @@ var registryDNS = regexp.MustCompile(`(?i)temporary failure in name resolution|l
 // IsRegistryDNSError reports a build log that failed on Docker Hub's DNS.
 func IsRegistryDNSError(log string) bool { return registryDNS.MatchString(log) }
 
-// RegistryDNSHelp names the escape hatches for a Hub DNS failure.
-const RegistryDNSHelp = `Docker Hub name lookup failed (registry-1.docker.io).
+// RegistryDNSHelp names the escape hatches for a Hub DNS failure while building target.
+func RegistryDNSHelp(target string) string {
+	return `Docker Hub name lookup failed (registry-1.docker.io).
    That is the daemon's DNS, not the Dockerfile FROM line.
 
    If the FROM image is already local, skip the registry HEAD:
-     PROVEO_DOCKER_PULL=0 mise run build
+     PROVEO_DOCKER_PULL=0 mise run build ` + target + `
 
    If it is not local, Hub must resolve first:
      docker pull docker/sandbox-templates:shell-docker-0.5.0
@@ -357,6 +359,7 @@ const RegistryDNSHelp = `Docker Hub name lookup failed (registry-1.docker.io).
    Frozen container-builder resolv.conf (proveo-multiarch):
      docker buildx rm proveo-multiarch
 `
+}
 
 // ── build ──────────────────────────────────────────────────────────────────
 
@@ -412,7 +415,11 @@ func (b *Builder) Build(push bool, args []string) error {
 		log, err = invoke([]string{"--pull=false"})
 	}
 	if err != nil && IsRegistryDNSError(log) {
-		b.UI.Failf("%s", RegistryDNSHelp)
+		target := "<target>"
+		if ref, ok := ArgRef(args); ok {
+			target = path.Base(RefRepo(ref))
+		}
+		b.UI.Failf("%s", RegistryDNSHelp(target))
 	}
 	return err
 }

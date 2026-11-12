@@ -38,7 +38,7 @@
 ' (tui_vocabulary_test.go:18) is therefore stale (repo-simplification.puml N22).
 '
 ' Three things make it a bad first customer. It runs INSIDE the image, so a
-' source edit is inert until `proveo build <harness>` — the loop is a rebuild
+' source edit is inert until `mise run build <harness>` — the loop is a rebuild
 ' per iteration rather than a test run. Its tier cannot be read from the
 ' operator's PROVEO_GLYPHS unless that variable is deliberately forwarded into
 ' the container, which is a plumbing decision this pass did not want to make
@@ -144,7 +144,7 @@ SHIN ARROW_OPTIONAL SHUI
 note bottom of EP
   **Inert until a rebuild.** The images bake the
   entrypoint, so every iteration on this file costs
-  ""proveo build <harness>"" rather than ""go test"".
+  ""mise run build <harness>"" rather than ""go test"".
   That alone makes it the wrong surface to iterate a
   design language on — and the reason to decide its
   FATE before its styling.

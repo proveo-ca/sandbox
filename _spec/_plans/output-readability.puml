@@ -36,8 +36,8 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '                  one column per block; detail dim under the value
 ' NOT CHOSEN: sbx's Title-case "Key:" column (the operator: not verbatim);
 ' capturing sbx's block (a hidden sbx prompt would hang); keeping both voices.
-' proveo-dev is the maintainer CLI behind mise tasks and is out of scope
-' unless the operator asks.
+' The maintainer tooling behind mise tasks (since 2026-11-12 go test gates and
+' two internal/ mains) is out of scope unless the operator asks.
 '
 ' ── THE RULES (sbx's principle → proveo's rule) ────────────────────────────
 '   P1 subject  A heading names the subject its lines describe, in one
@@ -806,7 +806,8 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '          pnpm-workspace.yaml excludes (workspace, not output; not fixed);
 '          TestSectionsNameAConstant checks ui.Section(...) only, so a
 '          Printer.Section(<data>) escapes it (none is left in cmd/proveo or
-'          internal; proveo-dev's pr.Section(verb) is out of scope); a run far
+'          internal; the maintainer dispatcher's pr.Section(verb) was out of
+'          scope, and it is deleted since 2026-11-12); a run far
 '          past its budget stays a grey running value (the watcher's ladder
 '          stops it within minutes; no ⚠ added).
 '          KEPT (rm, adopt, attach, clean): no heading on any of them; every

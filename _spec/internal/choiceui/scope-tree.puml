@@ -11,7 +11,6 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' covers: internal/choiceui/filter_list_test.go
 ' covers: cmd/proveo/main.go (pickProject, scopePage, scopePageAnswer)
 ' covers: cmd/proveo/running.go (pickIndex, offer)
-' covers: cmd/proveo-dev/maintain.go (listPickTargets, targetsAt)
 ' covers: e2e/target_list_test.go
 '   the decision, D6 ................. _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W10)
 '   when a run shows the page ........ _spec/internal/run/run-spec.puml
@@ -21,7 +20,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 '
 ' ── WHAT IT REPLACES ───────────────────────────────────────────────────────
 ' go-fuzzyfinder had three call sites: the monorepo scope (a flat list under
-' "scope> "), the run and attach list, and proveo-dev's multi-select. The
+' "scope> "), the run and attach list, and the maintainer's multi-select. The
 ' scope list did not mark the root as the default, and it was a different
 ' program from the form, so the choice could not be revisited.
 ' The Executor, D6: "Every run, Enter keeps root". Not chosen: the page on
@@ -103,23 +102,23 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' four sizes).
 '
 ' ── THE FILTER LIST (B8) ───────────────────────────────────────────────────
-' FilterList (filter_list.go) is the one list for the other two pickers.
-' Typing narrows at once, as the finder did. Enter takes the cursor's row.
-' With Multi, Tab marks a row and moves down; Enter takes every marked row
-' in list order, or the cursor's row when none is marked.
+' FilterList (filter_list.go) is the one list for the run and attach picker.
+' Typing narrows at once, as the finder did. Enter takes the cursor's row;
+' Tab does nothing. It is single-pick since 2026-11-12: its Multi mode (Tab
+' marked rows, Enter took every marked one) went with its one caller, the
+' maintainer's image picker, when mise's usage choices replaced it.
 ' A ROW MATCHES WHEN IT HOLDS EVERY TYPED WORD, case ignored. The finder
 ' matched a subsequence of letters; this is stricter.
 ' [Inference] No operator relied on subsequence matching for lists of about
 ' ten harness names. Nobody was asked.
-' A mark survives a filter that hides its row.
 ' Under its floor the list only cancels: Enter must not choose a row nobody
 ' can see.
 ' Pick() returns ErrListClosed for Esc, so each caller words its own refusal:
 ' "no target selected", "no task selected". Since R4 `proveo attach` prints
 ' its own "⚠ attach — no task selected" (exit 1, the operator's choice); `proveo
 ' run` and the harness aliases still end on main's ×.
-' proveo-dev's row 0 is "all": alone or among others it means every target.
-' Golden frames: internal/choiceui/testdata/list/, 9 files.
+' Golden frames: internal/choiceui/testdata/list/, 6 files (open and
+' narrowed at three sizes; the three multi frames went with Multi).
 '
 ' ── THE LIBRARIES LEFT (B9) ────────────────────────────────────────────────
 ' go.mod lost tcell, go-fuzzyfinder and the four modules only they required:
@@ -136,8 +135,6 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' typing and ends with "no target selected" on Esc.
 ' linux/arm64, tmux: the list test passed twice. The two scope tests SKIP
 ' there: the container has no sbx, and the run refuses before the page.
-' NOT RUN: proveo-dev's multi-select on a terminal. Its mapping is unit
-' tested; the list it uses is the one the tmux test drives.
 '
 ' Pinned by internal/choiceui/tree_test.go:
 '   TestTheRootIsTheFirstRowAndTheCursorStartsOnIt
@@ -164,8 +161,6 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' Pinned by cmd/proveo/main_test.go:
 '   TestAClosedScopePageCancelsAndAPageThatCannotDrawKeepsTheRepoRoot
 '   TestTheScopePageOpensOnTheRepoRootOrWhereAnEarlierVisitLeftIt
-' Pinned by cmd/proveo-dev/maintain_test.go:
-'   TestTheAllRowAloneOrAmongOthersIsEveryTarget
 ' Pinned by internal/contract/tui_ratchets_test.go:
 '   TestTheRetiredTUILibrariesStayOut
 ' Pinned by e2e: TestEscInTheScopePageCancelsTheRun,
@@ -177,7 +172,7 @@ component "Tree\nfolds · filter · cursor" as TREE <<app>>
 component "the root row\nrow 0 · default · the cursor starts here" as ROOT <<host>>
 component "ScopePage\npage 1 of a monorepo run" as PAGE <<app>>
 component "the form\npage 2 · shift+tab steps back" as FORM <<app>>
-component "FilterList\nrun · attach · proveo-dev targets" as LIST <<app>>
+component "FilterList\nrun · attach · one row" as LIST <<app>>
 component "go-fuzzyfinder · tcell\n**gone from go.mod**" as GONE <<error>>
 
 PROJ ARROW_MAIN TREE : every folder above each path

@@ -60,6 +60,7 @@ var specNotesEnforced = []string{
 	"_spec/_plans/host-held-provider-keys.puml",
 	"_spec/_plans/post-close-surface.puml",
 	"_spec/_refactors/host-shell-to-go.puml",
+	"_spec/_refactors/proveo-dev-to-mise.puml",
 	"_spec/_plans/tools-and-localhost-tunnels.puml",
 	"_spec/internal/sbx/ide-attach.puml",
 	"_spec/_plans/sbx-dep-tree-isolation.puml",

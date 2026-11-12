@@ -7,8 +7,9 @@
 ' would touch: cmd/proveo/{main,clean,targets,maintain_cmd}.go, internal/run/{run,helpers,spec}.go
 ' would touch: internal/backend/sandbox/{sandbox,home_access}.go, internal/backend/backend.go
 ' would touch: internal/agentio/agentio.go, internal/ui/ui.go, e2e/{idle,opencode_cache_sbx}_test.go
-' would touch: mise.toml, .goreleaser.yaml, cmd/proveo-dev/{buildcli,coverage}.go
+' would touch: mise.toml, .goreleaser.yaml, internal/contract/release_gate_test.go
 ' status: PLANNED — a findings record. _spec/_plans/ is exempt from the SPEC-reference rule.
+' history: rows dated before 2026-11-12 name cmd/proveo-dev as it stood then; _spec/_refactors/proveo-dev-to-mise.puml retired it
 ' Referenced from: _spec/packages/lib/steps.puml (attach_rtk removal) and the D1 rehoming
 '   targets below. D1's decisions live in the living specs:
 '     backend selection, refusal, .env guard ... _spec/internal/sbx/sandbox-backend.puml

@@ -129,8 +129,8 @@ var deathMarkers = []string{
 func idleTargets() []string {
 	raw := strings.TrimSpace(os.Getenv("PROVEO_IDLE_TARGETS"))
 	if raw == "" {
-		// The long 5-minute wait stays one def. `mise run test-e2e-full` sets
-		// all four at 45s — that is the silent-death gate.
+		// The long 5-minute wait stays one def. idle-all sets claudecode, cursor
+		// and opencode at 45s — the silent-death gate.
 		return []string{"claudecode"}
 	}
 	var out []string
@@ -152,6 +152,7 @@ func TestAgentSurvivesIdleAtPrompt(t *testing.T) {
 }
 
 func idleAtPrompt(t *testing.T, target string) {
+	failSkipsWhenOptedIn(t, "PROVEO_IDLE_TEST")
 	requireSbx(t)
 	harnessImage(t, target)
 	proveoBin := buildProveo(t)

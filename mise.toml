@@ -1,3 +1,28 @@
+# skip_if (post-commit) needs mise 2026.10.10.
+min_version = "2026.10.10"
+
+# Top-level tests `mise run baseline` skips; reasons live in the SPEC.
+# SPEC: _spec/_devops/unit-baseline.puml
+[vars]
+unit_baseline = """\
+  TestAdbMirrorStartsWithTheSocketAddress|\
+  TestCodexDaemonStateNeverCrossesTheSandbox|\
+  TestConfigSyncComparesSubSecondMtimes|\
+  TestConfigSyncCopiesInBulk|\
+  TestConfigSyncNeverCarriesADeniedFileOut|\
+  TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd|\
+  TestConfigSyncPrunesTheVolumesStateOwns|\
+  TestConfigSyncRoundTripsTheHarnessConfiguration|\
+  TestConfigSyncSkipsTransientPathsBothWays|\
+  TestGitHubSSHVerificationRequiresAnAgentAndAcceptsGitHubExitOne|\
+  TestImageSuitesResolveRatherThanPinThePublishTag|\
+  TestOpenCodeCredentialHookWaitsForHistory|\
+  TestOpenCodeNativeGitSyncPluginLifecycle|\
+  TestOpenCodeSeedProgressFixtures|\
+  TestOpencodeV2SeedOwnership|\
+  TestVarsSortByScopeThenName\
+  """
+
 # Go is pinned here and in go.mod (`toolchain go1.26.10`); keep the two byte-equal.
 # internal/contract TestMiseGoPinMatchesGoModToolchain fails when they drift.
 # SPEC: _spec/_runtimes/toolchain-provisioning.puml
@@ -20,14 +45,28 @@ dir = "{{config_root}}"
 run = "golangci-lint fmt"
 
 [tasks.lint]
-description = "Go format check + go vet + golangci-lint (standard linters)"
+description = "gofmt + comment-block contract tests, go vet (default, image, e2e tags), golangci-lint run"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev lint"
+run = [
+  "go test -count=1 '-run=^(TestEveryTrackedGoFileIsGofmted|TestNoCommentBlockOverThreeLines)$' ./internal/contract/",
+  "go vet ./...",
+  "go vet -tags=image ./internal/imagetest/",
+  "go vet -tags=e2e ./e2e/",
+  "golangci-lint run",
+]
+
+# SPEC: _spec/_devops/git-hooks.puml
+[tasks.post-commit]
+description = "Git post-commit body: fmt, then lint; SKIP_GIT_HOOKS=1 skips it"
+hide = true
+dir = "{{config_root}}"
+skip_if = "{% if get_env(name='SKIP_GIT_HOOKS', default='') | trim | lower in ['1', 'true', 'yes', 'on', 'enable', 'enabled'] %}true{% else %}false{% endif %}"
+run = [{ task = "fmt" }, { task = "lint" }]
 
 [tasks.install-git-hooks]
-description = "Copy scripts/githooks/post-commit into .git/hooks (no git config)"
+description = "Write .git/hooks/post-commit with mise's generator (it execs mise run post-commit); sets no git config"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev hooks install"
+run = "mise generate git-pre-commit --hook post-commit --task post-commit --write"
 
 [tasks.build-check]
 description = "Compile all Go packages (go build ./...)"
@@ -35,51 +74,67 @@ dir = "{{config_root}}"
 run = "go build ./..."
 
 [tasks.ci]
-description = "Local CI gate: lint + go build + unit/contract tests (no Docker)"
-depends = ["lint", "build-check", "test-go"]
-run = "printf '\\n✅ ci succeeded.\\n'"
+description = "Local CI gate: lint + go build + unit/contract tests (no Docker); --no-race reaches test-go"
+usage = 'flag "--no-race" help="run test-go without the race detector (a toolchain without cgo)"'
+run = "mise run lint ::: build-check ::: test-go{% if usage.no_race %} --no-race{% endif %}"
 
 [tasks.baseline]
-description = "Unit gate where the suite is already red: fail only on a test outside cmd/proveo-dev/unit-baseline.txt"
+description = "Unit gate where the suite is already red: go test -race ./... minus the [vars] unit_baseline tests"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev baseline"
+usage = '''
+flag "--no-race" help="run without the race detector (a toolchain without cgo)"
+arg "[go_test_args]..." var=#true default="./..." help="packages, or go test flags after --"
+'''
+run = "go test {% if not usage.no_race %}-race {% endif %}-count=1 -skip={{ ('^(' ~ vars.unit_baseline ~ ')$') | quote }}{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %}"
 
 # ── Go CLI ──────────────────────────────────────────────────
 
+# SPEC: _spec/cmd/proveo/usage.puml
 [tasks.build-cli]
-description = "Install Go proveo CLIs onto GOPATH/bin; pass -- --release for goreleaser → dist/ + CDN stage"
+description = "go install proveo and proveo-entrypoint into GOPATH/bin (GOBIN unset); proveo --version reads dev@<sha> from Go build info"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev build-cli"
+env = { CGO_ENABLED = "0", GOBIN = false }
+run = "go install -trimpath '-ldflags=-s -w' ./cmd/proveo ./cmd/proveo-entrypoint"
 
 # ── Tests ───────────────────────────────────────────────────
 
 [tasks.test-go]
-description = "Go unit + contract tests with coverage data dir (no Docker / no integration tags)"
+description = "Go unit + contract tests with -race and coverage data in cov/unit (no Docker / no integration tags)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev coverage unit"
+usage = 'flag "--no-race" help="run without the race detector (a toolchain without cgo)"'
+run = [
+  "rm -rf cov/unit",
+  "mkdir -p cov/unit",
+  "go test {% if not usage.no_race %}-race {% endif %}-cover -covermode=atomic ./... -args -test.gocoverdir={{ config_root | quote }}/cov/unit",
+]
 
 [tasks.test]
 description = "Fast gate: Go unit + contract tests (same as test-go)"
 depends = ["test-go"]
 
 [tasks.test-go-e2e]
-description = "Layer 4 agent E2E (-tags=e2e; skips per missing prerequisite: tmux/docker/image/credential)"
+description = "Layer 4 agent E2E (-tags=e2e; skips per missing prerequisite: tmux/docker/image/credential); extra args reach go test"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev coverage e2e"
+run = "go test -tags=e2e ./e2e/ -count=1 -timeout {% set timeout = get_env(name='PROVEO_TEST_GO_TIMEOUT', default='') | trim %}{% if timeout %}{{ timeout | quote }}{% else %}45m{% endif %}"
 
 [tasks.coverage]
-description = "Merge GOCOVERDIR profiles and print percent (run test-go first)"
+description = "Print unit coverage percent and write cov/coverage.out from cov/unit (run test-go first)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev coverage merge"
-
-[tasks.test-images]
-description = "Every image suite (TestImage*) + the consumer CLI suite (needs Docker; slow)"
-dir = "{{config_root}}"
-# The installer suite runs install.sh under /bin/bash against the staged CDN;
-# the image suites are Go (internal/imagetest, build tag `image`).
+wait_for = ["test-go"]
 run = [
-  "go run ./cmd/proveo-dev stage-cdn",
-  "PROVEO_INSTALLTEST_CDN=apps/cli/public/cli go test -count=1 ./internal/installtest/",
+  "go tool covdata percent -i=cov/unit",
+  "go tool covdata textfmt -i=cov/unit -o=cov/coverage.out",
+]
+
+# SPEC: _spec/internal/cdn/distribution-update.puml
+[tasks.test-images]
+description = "Every image suite (TestImage*) + the installer suite against a fresh snapshot CDN stage (needs Docker; slow)"
+dir = "{{config_root}}"
+env = { PROVEO_INSTALLTEST_CDN = "apps/cli/public/cli" }
+run = [
+  { task = "snapshot" },
+  { task = "stage-cdn" },
+  "go test -count=1 ./internal/installtest/",
   "go test -tags=image -count=1 -timeout 60m ./internal/imagetest/",
 ]
 
@@ -91,26 +146,63 @@ depends = ["test-go", "test-images"]
 description = "Everything e2e up to tier 3, on the sbx runtime: image + consumer suites, then the Go agent suite (opt-in gates off; ~45m)"
 dir = "{{config_root}}"
 depends = ["test-images"]
-run = "go run ./cmd/proveo-dev coverage e2e"
+run = "go test -tags=e2e ./e2e/ -count=1 -timeout {% set timeout = get_env(name='PROVEO_TEST_GO_TIMEOUT', default='') | trim %}{% if timeout %}{{ timeout | quote }}{% else %}45m{% endif %}"
 
+# SPEC: _spec/_devops/release-gate.puml
 [tasks.test-e2e-full]
-description = "test-e2e plus tier 4: idle/signal/toolchain gates, per-def silent-death idle-all, then the sbx ladder. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
+description = "test-e2e plus tier 4: the e2e suite with idle/toolchain gates on, idle-all, then ladder-all; every half runs, and a skip inside an opted-in gate fails. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
 dir = "{{config_root}}"
 depends = ["test-images"]
-# Both host halves keep going after a failure: stopping at idle hides whether
-# the ladder shares the fault. A SKIP on either is not a pass.
-# SPEC: _spec/_devops/release-gate.puml
-run = "go run ./cmd/proveo-dev e2e-full"
+usage = 'arg "[go_test_args]..." var=#true help="go test arguments for the e2e pass; idle-all and ladder-all take none"'
+run = "mise run --continue-on-error e2e-gated{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %} ::: idle-all ::: ladder-all"
 
-[tasks.ladder-all]
-description = "Climb the sbx ladder for every def (host only: needs sbx)"
+[tasks.e2e-gated]
+description = "test-e2e-full's first half: the e2e suite with PROVEO_IDLE_TEST and PROVEO_TOOLCHAIN_TEST on"
+hide = true
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev ladder"
+env = { PROVEO_IDLE_TEST = "1", PROVEO_TOOLCHAIN_TEST = "1" }
+run = "go test -tags=e2e ./e2e/ -count=1 -timeout {% set timeout = get_env(name='PROVEO_TEST_GO_TIMEOUT', default='') | trim %}{% if timeout %}{{ timeout | quote }}{% else %}150m{% endif %}"
 
 [tasks.idle-all]
-description = "Idle-survival sweep for every def (host only: needs sbx; catches silent deaths)"
+description = "Idle-survival sweep for claudecode, cursor and opencode, idling PROVEO_IDLE_FOR (default 45s) (host only: needs sbx; a skip fails it)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev idle"
+wait_for = ["e2e-gated"]
+env = { PROVEO_IDLE_TEST = "1", PROVEO_IDLE_TARGETS = "claudecode,cursor,opencode", PROVEO_IDLE_FOR = "{% set idle = get_env(name='PROVEO_IDLE_FOR', default='') | trim %}{% if idle %}{{ idle }}{% else %}45s{% endif %}" }
+run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestAgentSurvivesIdleAtPrompt$ -v"
+
+[tasks.ladder-all]
+description = "Climb the sbx ladder for every def, one go test process each, past a red def (host only: needs sbx)"
+dir = "{{config_root}}"
+wait_for = ["idle-all"]
+run = "mise run --continue-on-error --jobs=1 ladder:claudecode ::: ladder:codex ::: ladder:cursor ::: ladder:opencode"
+
+[tasks."ladder:claudecode"]
+description = "Climb the sbx ladder for claudecode (a skip fails it)"
+hide = true
+dir = "{{config_root}}"
+env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "claudecode" }
+run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
+
+[tasks."ladder:codex"]
+description = "Climb the sbx ladder for codex (a skip fails it)"
+hide = true
+dir = "{{config_root}}"
+env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "codex" }
+run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
+
+[tasks."ladder:cursor"]
+description = "Climb the sbx ladder for cursor (a skip fails it)"
+hide = true
+dir = "{{config_root}}"
+env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "cursor" }
+run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
+
+[tasks."ladder:opencode"]
+description = "Climb the sbx ladder for opencode (a skip fails it)"
+hide = true
+dir = "{{config_root}}"
+env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "opencode" }
+run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
 
 # ── Consumer CDN (apps/cli) ─────────────────────────────────
 
@@ -118,30 +210,84 @@ run = "go run ./cmd/proveo-dev idle"
 description = "Show the local wrangler version"
 run = "pnpm exec wrangler --version"
 
-[tasks.deploy-cli]
-description = "Goreleaser (tag→semver, else snapshot) → stage CDN → Wrangler deploy apps/cli"
+# SPEC: _spec/internal/cdn/distribution-update.puml
+[tasks.snapshot]
+description = "goreleaser snapshot of HEAD into dist/ (gitignored; version X-SNAPSHOT-<sha>)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev deploy-cli"
+tools = { goreleaser = "2.17.0" }
+run = "goreleaser release --snapshot --clean"
+
+[tasks.release-ledger]
+description = "Release gate: HEAD carries a v* tag and no retirement outlives one release (a skip fails it)"
+hide = true
+dir = "{{config_root}}"
+env = { PROVEO_RELEASE_GATE = "1" }
+run = "go test -count=1 '-run=^(TestNoRetirementOutlivesOneRelease|TestReleaseShipsATaggedHead)$' ./internal/contract/"
+
+[tasks.release]
+description = "goreleaser release of a tagged HEAD into dist/ (no GitHub publish), then stage the CDN tree"
+dir = "{{config_root}}"
+depends = ["release-ledger"]
+tools = { goreleaser = "2.17.0" }
+run = ["goreleaser release --clean --skip=publish", { task = "stage-cdn" }]
+
+[tasks.stage-cdn]
+description = "Copy goreleaser's CDN binaries from dist/ into apps/cli/public/cli with checksums.txt and latest.json"
+hide = true
+dir = "{{config_root}}"
+run = "go run ./internal/cdn/stage"
+
+[tasks.deploy-cli]
+description = "Release a tagged HEAD (goreleaser → dist/ → CDN stage), then wrangler deploy apps/cli; an untagged HEAD or a stage that is not its release refuses"
+dir = "{{config_root}}"
+depends = ["release"]
+confirm = "Deploy apps/cli to Cloudflare?"
+env = { PROVEO_RELEASE_GATE = "1" }
+run = [
+  "go test -count=1 '-run=^TestStagedCDNIsTheTaggedRelease$' ./internal/contract/",
+  "pnpm exec wrangler deploy --cwd apps/cli",
+]
 
 [tasks.dev-cli]
-description = "Stage Go CDN binaries then run apps/cli Cloudflare assets locally with Wrangler"
+description = "Snapshot HEAD, stage the CDN tree, serve apps/cli locally with wrangler dev (never deploys)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev dev-cli"
+run = [{ task = "snapshot" }, { task = "stage-cdn" }, "pnpm exec wrangler dev --cwd apps/cli"]
 
 # ── Harness images (maintainer) ─────────────────────────────
 
+# SPEC: _spec/internal/maintain/image-build-deploy.puml
 [tasks.build]
-description = "Build a container harness def (buildx; host arch --load)"
+description = "Build harness image(s) as :local with buildx --load (bases serially, then harness waves concurrently)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev build"
+usage = '''
+arg "<target>" help="a registry target, or all" {
+  choices "all" "base" "base-node" "base-node-browser" "claudecode" "claudecode-browser" "claudecode-solidity" "codex" "codex-browser" "cursor" "cursor-browser" "hermes" "opencode" "opencode-browser"
+}
+flag "--tag <tag>" default="local" help="image tag to build (:latest is refused for --load)"
+flag "--no-cache" help="pass --no-cache to docker buildx build"
+flag "--print" help="print the wave plan instead of running it"
+'''
+run = "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.no_cache %}-no-cache {% endif %}{% if usage.print %}-print {% endif %}build {{ usage.target | quote }}"
 
 [tasks.test-defs]
-description = "Test a container harness def's image (Go: proveo-dev test)"
+description = "Run the image suite of a def, or of all (each suite once; bases have none)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev test"
+usage = '''
+arg "<target>" help="a registry target, or all" {
+  choices "all" "base" "base-node" "base-node-browser" "claudecode" "claudecode-browser" "claudecode-solidity" "codex" "codex-browser" "cursor" "cursor-browser" "hermes" "opencode" "opencode-browser"
+}
+flag "--print" help="print the go test lines instead of running them"
+'''
+run = "go run ./internal/maintain/fleet {% if usage.print %}-print {% endif %}test {{ usage.target | quote }}"
 
 [tasks.deploy]
-description = "Buildx --push multi-arch (amd64+arm64) container image def"
+description = "Promote :local to the tag and buildx --push amd64+arm64 (bases serially, then harness waves concurrently)"
 dir = "{{config_root}}"
-run = "go run ./cmd/proveo-dev deploy"
-
+usage = '''
+arg "<target>" help="a registry target, or all" {
+  choices "all" "base" "base-node" "base-node-browser" "claudecode" "claudecode-browser" "claudecode-solidity" "codex" "codex-browser" "cursor" "cursor-browser" "hermes" "opencode" "opencode-browser"
+}
+flag "--tag <tag>" default="latest" help="image tag to publish (promoted from the :local build)"
+flag "--print" help="print the wave plan instead of running it"
+'''
+run = "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.print %}-print {% endif %}deploy {{ usage.target | quote }}"

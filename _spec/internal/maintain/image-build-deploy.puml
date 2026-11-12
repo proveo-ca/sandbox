@@ -2,7 +2,6 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: the build/verify/deploy chain for every proveo image, and why :local and :latest stay distinct
 ' covers: internal/maintain/**
-' covers: cmd/proveo/maintain_cmd.go
 ' covers: cmd/proveo/maintainer_surface_test.go
 ' covers: internal/imagebuild/**
 ' covers: internal/imagetest/**
@@ -27,15 +26,26 @@
 ' (`mise run build` → `go run ./cmd/proveo build`). The command stays
 ' registered and is Hidden, with deploy and test. Root help no longer
 ' lists it. TestRootHelpHidesMaintainerCommands is the pin.
-' 2026-10-28: the verbs moved to cmd/proveo-dev/maintain.go (`mise run build` →
-' `go run ./cmd/proveo-dev build`); the consumer CLI registers none of them.
-title Maintainer image pipeline — proveo-dev build / test / deploy
+' 2026-10-28: the verbs moved to the maintainer dispatcher (`mise run build` →
+' a `go run` of it); the consumer CLI registers none of them.
+' 2026-11-12: the dispatcher is deleted. mise.toml build, deploy and test-defs
+' run `go run ./internal/maintain/fleet -tag='…' [-no-cache] [-print] <verb>
+' '<target>'`; --tag and the target arrive quoted, and the two booleans only
+' when set. internal/maintain/fleet/main.go parses the flags (exit 2 on a
+' wrong verb or argument count), maintain.DefsDir finds the defs, and
+' maintain.Fleet loads the registry, Selects the target or all, and runs
+' RunFleet (build, deploy) or each distinct image suite once (test). The
+' library moved verbatim from the dispatcher: RunPlan, PlanIO, prefixWriter,
+' runTimed, RunFleet. Pinned by internal/maintain/fleet_test.go,
+' internal/maintain/fleet/main_test.go and base_template_test.go
+' (TestImageTasksRunTheFleetMain, TestImageTasksChoicesMatchTheRegistry).
+title Maintainer image pipeline — mise run build / test-defs / deploy
 
 actor "Maintainer" as MT
 
 node "Maintainer host" as HOST <<host>> {
   component "mise tasks\nbuild · test-defs · deploy" as MISE <<app>>
-  component "cmd/proveo-dev build|test|deploy\n(internal/maintain)" as CMD <<app>>
+  component "internal/maintain/fleet build|test|deploy\n(maintain.Fleet)" as CMD <<app>>
   component "internal/manifest\nharness.manifest set" as MAN <<app>>
   component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nrepoRoot · suite" as REG <<app>>
   component "imagebuild.BuildTarget (in-process)\ntargets.go Specs[<name>] → buildx" as BUILD <<app>>
@@ -51,12 +61,12 @@ folder "Target kinds" as KINDS <<host>> {
 cloud "Registry (docker push)" as REGISTRY <<cloud>>
 
 MT ARROW_MAIN MISE
-MISE ARROW_MAIN CMD : " ""go run ./cmd/proveo-dev build …"" "
+MISE ARROW_MAIN CMD : " ""go run ./internal/maintain/fleet … build <target>"" "
 CMD ARROW_MAIN MAN : enumerate defs
 MAN ARROW_MAIN REG
 REG ARROW_MAIN KINDS : one Target per buildable image
 REG ARROW_MAIN BUILD : local → buildx ""--load"" (host arch)
-REG ARROW_OPTIONAL TEST : ""proveo test <target>""
+REG ARROW_OPTIONAL TEST : ""mise run test-defs <target>""
 BUILD ARROW_CLOUD REGISTRY : deploy → buildx ""--push""\n""PROVEO_PLATFORMS"" (default linux/amd64,linux/arm64)
 
 note right of REG
@@ -131,14 +141,14 @@ note bottom of REG
 end note
 
 note bottom of CMD
-  **Target selection has three shapes and one ordering rule.** An explicit
-  name, the literal ""all"", or — with no argument on a TTY — a picker:
-  type-to-filter, ""Tab"" toggles several (space is reserved for the filter
-  query, which is why Tab is the multi-select key), ""Enter"" confirms.
+  **Target selection has two shapes and one ordering rule.** An explicit
+  name or the literal ""all"". mise's usage choices refuse anything else,
+  and a missing target, before Go runs; the TTY picker and its Tab
+  multi-select are gone (2026-11-12).
 
-  The chosen set is then returned **in registry order, not in
-  Tab-selection order**, because build order matters and the operator's
-  click sequence carries no dependency information.
+  ""all"" runs **in registry order**, because build order matters.
+  ""--print"" prints the wave plan instead of running it; ""mise run -n""
+  shows only the fleet line, so the flag stays on all three verbs.
 end note
 
 

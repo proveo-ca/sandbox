@@ -1,13 +1,11 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: execute order and cache reuse for proveo build and deploy
+' purpose: execute order and cache reuse for mise run build and deploy
 ' covers: internal/maintain/**
-' covers: cmd/proveo/maintain_cmd.go
 ' covers: internal/imagebuild/imagebuild.go
 ' covers: defs/**/Dockerfile
 ' covers: internal/contract/image_build_cache_test.go
-' covers: cmd/proveo/maintain_cmd_test.go
 ' browser variants layer on the harness ... _spec/defs/browser-layer.puml
 ' size of that layer ................ _spec/_devops/image-size-reduction.puml
 ' standing pipeline .......... _spec/internal/maintain/image-build-deploy.puml

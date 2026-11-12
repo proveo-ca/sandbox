@@ -62,10 +62,10 @@ skinparam noteTextAlignment left
 ' non-zero on this host at main, so its three parts run as separate lines:
 '   1  mise run lint
 '   2  go build ./...
-'   3  mise run baseline        # one `go test -race -count=1 -json ./...`;
-'      exits 1 on a failing test outside cmd/proveo-dev/unit-baseline.txt, or
-'      on a package that fails with no failing test of its own (G0, landed
-'      2026-11-10 as a proveo-dev command instead of a jq line:
+'   3  mise run baseline        # one `go test -race -count=1 -skip=… ./...`;
+'      exits 1 on any failure outside mise.toml [vars] unit_baseline, a
+'      build error included (G0, landed 2026-11-10 as a maintainer Go
+'      command instead of a jq line; a go test -skip since 2026-11-12:
 '      _spec/_devops/unit-baseline.puml)
 '   4  go vet -tags=e2e ./e2e/                           # until G2 lands
 '   5  GOOS=windows GOARCH=amd64 go build ./...          # until G3 lands
@@ -288,7 +288,8 @@ skinparam noteTextAlignment left
 '     pins and the list test, twice each.
 '     SKIPPED ON LINUX: the two scope tests and the redirected-form test.
 '     The container has no sbx, and a run refuses before its first page.
-'     NOT RUN: proveo-dev's multi-select on a terminal; a hand trial.
+'     NOT RUN: the maintainer's multi-select on a terminal; a hand trial
+'     (the picker was deleted 2026-11-12).
 '     Reasoning: _spec/internal/choiceui/scope-tree.puml,
 '     _spec/internal/run/run-spec.puml (THE SCOPE IS PAGE 1).
 ' W11 DONE 2026-11-11, W-i in one commit.
@@ -380,7 +381,7 @@ skinparam noteTextAlignment left
 '   G1  commit the six spec files (this one included); ratchet rows for the
 '       two plan diagrams with notes ............................... written
 '   G0  commit the 15-name baseline list and the diff command above ..... S
-'   G2  `go vet -tags=e2e ./e2e/` joins proveo-dev lint ................. S
+'   G2  `go vet -tags=e2e ./e2e/` joins `mise run lint` ................. S
 '   G3  a contract test cross-builds cmd/proveo for the 8 release targets S
 '   W-b e2e helpers for init page waits and keys (28 literals, 4 helpers) S
 '   --  run the tagged oracles ONCE, unchanged, before any behaviour change:
@@ -719,7 +720,7 @@ end note
 note bottom of W10
   **Three call sites, three files.** The tree
   replaces one picker. tcell leaves go.mod
-  only after the attach list, proveo-dev's
+  only after the attach list, the maintainer's
   multi-select and the windows stub move.
 end note
 

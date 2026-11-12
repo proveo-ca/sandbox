@@ -165,7 +165,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' FK: note over LBL; words=31 syllables=59; FK 12.9
 
 actor "Maintainer" as MT
-participant "cmd/proveo-dev build\n(internal/maintain BuildPlan)" as CMD <<app>>
+participant "mise run build\n(internal/maintain/fleet → BuildPlan)" as CMD <<app>>
 participant "imagebuild.BuildTarget\ntargets.go Specs[<target>].Pins" as BUILD <<app>>
 participant "imagebuild.go\nBuilder.AgentVersion" as LIB <<app>>
 participant "upstream release source\nnpm dist-tag · cursor.com/install" as UP <<cloud>>

@@ -1,18 +1,18 @@
 @startuml TestingOverview
-' SPEC source: internal/contract/**, internal/imagetest/**, cmd/proveo-dev/coverage.go
+' SPEC source: internal/contract/**, internal/imagetest/**, mise.toml (test-go, coverage)
 ' The four testing layers: fast + keyless at the base, gated + high-fidelity above.
-' Coverage: unit GOCOVERDIR + in-process profiles merge via go tool covdata.
+' Coverage: test-go writes GOCOVERDIR data to cov/unit; coverage reads it with go tool covdata.
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
 skinparam packageStyle rectangle
 
 ' purpose: the four testing layers at a glance — what each costs, what gates it,
-'          and how coverage is merged across them
+'          and how coverage is read from the unit lane
 ' covers: e2e/**
 ' covers: internal/*/*_test.go
 ' covers: cmd/proveo/*_test.go
-' covers: cmd/proveo-dev/coverage.go
+' covers: mise.toml
 ' covers: internal/imagetest/**
 ' covers: internal/contract/test_image_knobs_test.go
 '
@@ -55,7 +55,7 @@ skinparam packageStyle rectangle
 ' LAYER 3 IS RETIRED (2026-10-16). It stood up the docker egress topology
 ' (internal/egress BuildPlan, `-tags=integration`, PROVEO_EGRESS_INTEGRATION=1).
 ' The Executor's "Retire Docker egress" deleted its subject; the
-' test-go-integration task and `proveo-dev coverage integration` are gone. The
+' test-go-integration task and its `coverage integration` lane are gone. The
 ' number is kept so the 40-series names stay stable
 ' (_spec/tests/testing-strategy.puml).
 
@@ -75,8 +75,8 @@ package "Layer 3 · Infra — RETIRED 2026-10-16" as L3 {
 package "Layer 4 · Agent E2E — -tags=e2e (self-skipping preconditions)" as L4 {
   component "internal/tmux + echo-agent\nreal agent · local model\nasserts side-effects" as E2E <<container>>
 }
-package "Coverage merge" as Cov {
-  component "go tool covdata merge\ncov/unit only" as Merge <<app>>
+package "Coverage · mise run coverage" as Cov {
+  component "go tool covdata percent · textfmt\n-i=cov/unit" as Merge <<app>>
 }
 
 Dev --> Unit    : run
@@ -92,7 +92,7 @@ note right of E2E     : NON-deterministic\nskip if tools/model absent
 
 note bottom of Cov
 Default **go test ./...** never compiles Layer 4 or the image suites (build tags).
-Coverage merges cov/unit alone; the in-process egressproxy/broker profiles and
+Coverage reads cov/unit alone; the in-process egressproxy/broker profiles and
 the Stage 0b proveo/egress-proxy:cover image went with Layer 3 (2026-10-16).
 No hard % gate until a baseline exists.
 end note

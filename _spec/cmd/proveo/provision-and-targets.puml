@@ -3,36 +3,42 @@
 ' purpose: how a target is resolved to an image and provisioned before a run can start
 ' covers: cmd/proveo/provision.go
 ' covers: cmd/proveo/wizard.go
-' covers: cmd/proveo-dev/maintain.go (loadMaintainRegistry, maintainerDefsDir)
+' covers: internal/maintain/fleet.go (DefsDir, Select, Fleet)
 ' covers: internal/imagebuild/targets.go (BuildTarget, TargetRef, Specs)
 '
 ' ── `proveo targets` IS GONE (N9, DONE (wt) 2026-10-18) ─────────────────────
-' MEASURED: cmd/proveo/targets.go is deleted. Nothing in mise.toml, cmd/proveo-dev,
-' scripts or tests called the command it registered. maintainerDefsDir
+' MEASURED: cmd/proveo/targets.go is deleted. Nothing in mise.toml, the maintainer
+' tooling, scripts or tests called the command it registered. maintainerDefsDir
 ' (PROVEO_DEFS_DIR, else <repo>/defs) moved unchanged into maintain_cmd.go, and
 ' build, deploy and test read the registry through loadMaintainRegistry. `build`
 ' was visible in root help; deploy and test stay hidden (usage.puml).
 ' 2026-10-20: `build` is Hidden again — mise owns the verb — and the command
 ' remains, so the "missing image" error and the agent-pin line can still name
 ' `proveo build`. Root help does not list it.
-' 2026-10-28: the command left the consumer CLI (usage.puml). maintain_cmd.go is
-' cmd/proveo-dev/maintain.go; maintainerDefsDir = PROVEO_DEFS_DIR, else
-' proveo-dev repoRoot()/defs. The declined-preflight error names
+' 2026-10-28: the command left the consumer CLI (usage.puml) for the
+' maintainer dispatcher; maintainerDefsDir = PROVEO_DEFS_DIR, else the
+' dispatcher's repo root/defs. The declined-preflight error names
 ' PROVEO_AUTO_PROVISION=1; the agent-pin line names `mise run build <target>`.
+' 2026-11-12: the dispatcher is deleted. `mise run build|deploy|test-defs
+' <target>` run go run ./internal/maintain/fleet; maintain.DefsDir(getenv, cwd)
+' = PROVEO_DEFS_DIR, else <cwd>/defs (mise runs tasks in the config root), and
+' maintain.Fleet loads the registry and Selects the target or all. mise's
+' usage choices refuse an unknown target first; the TTY picker is gone.
 ' KNOWN LIMITS (review, recorded, not fixed; MEASURED):
-'   * run.go:229's `proveo build <target>` hint works only inside a source
-'     checkout; a binary-only install has no defs/ tree to build from.
-'   * provision.go sourceDefsDir and maintain_cmd.go maintainerDefsDir are
-'     near-copies with different existence probes: the first requires
+'   * run.go's agent-pin line names `mise run build <target>`, which works
+'     only inside a source checkout; a binary-only install has no defs/ tree.
+'   * provision.go sourceDefsDir and maintain.DefsDir are near-copies with
+'     different existence probes: the first requires
 '     <root>/defs/base/Dockerfile and returns "" without it; the second accepts
-'     any <root>/defs directory and errors without one.
+'     any <cwd>/defs directory and errors without one.
 ' PROVEO_AUTO_PROVISION goes through envflag (_spec/internal/envflag/
 ' env-switches.puml): ON builds, OFF declines, anything else asks on a TTY
 ' with the wizard on.
-' HISTORY: `proveo-dev debug` (host-shell-to-go P4) read the registry in-process
-' via manifest.Load + maintain.Registry and launched `proveo run <target> --shell`.
-' RETIRED 2026-10-17 (the user: "Retire debug too"): cmd/proveo-dev/debug.go,
-' its test and `mise run debug` are deleted (MEASURED), and `--shell` with them.
+' HISTORY: the maintainer `debug` verb (host-shell-to-go P4) read the registry
+' in-process via manifest.Load + maintain.Registry and launched `proveo run
+' <target> --shell`. RETIRED 2026-10-17 (the user: "Retire debug too"): its
+' source, its test and `mise run debug` are deleted (MEASURED), and `--shell`
+' with them.
 ' A shell in a run's sandbox is sbx's: `sbx ls`, then `sbx exec -it <sandbox> bash`.
 ' Destination diagram — prose from cmd/proveo/{provision,wizard}.go (and the
 ' deleted targets.go) lands here. Image lineage itself: _spec/_devops/image-lineage-and-publish.puml.
@@ -54,8 +60,8 @@ node "Consumer path — before any container exists" as PRE <<host>> {
 }
 
 node "Maintainer path — source tree required" as MAINT <<host>> {
-  component "loadMaintainRegistry\nproveo-dev build · deploy · test\n(cmd/proveo-dev/maintain.go)" as LMR <<app>>
-  component "maintain.Registry\nmanifest.Load (proveo-dev debug read it\nuntil 2026-10-17)" as REG <<app>>
+  component "maintain.Fleet\nmise run build · deploy · test-defs\n(go run ./internal/maintain/fleet)" as LMR <<app>>
+  component "maintain.Registry\nmanifest.Load (the debug verb read it\nuntil 2026-10-17)" as REG <<app>>
 }
 
 node "Missing declared env" as WIZ <<host>> {
@@ -85,12 +91,12 @@ WEN ARROW_ERROR HEADLESS
 note bottom of REG
   **Maintainer tooling owns no copy of what targets exist.**
   ""manifest.Load"" + ""maintain.Registry"" on ""PROVEO_DEFS_DIR"" (else
-  ""<repo>/defs"") is the one registry; build, deploy and test read it through
-  ""loadMaintainRegistry"". It replaced ""lib/registry.sh"", which parsed a TSV
+  ""<repo>/defs"") is the one registry; build, deploy and test-defs read it
+  through ""maintain.Fleet"". It replaced ""lib/registry.sh"", which parsed a TSV
   into parallel bash arrays (host-shell-to-go P4). ""proveo targets"", which
   printed that TSV, had no caller and went 2026-10-18 (N9).
 
-  //HISTORY: ""proveo-dev debug"" read the same registry and ran the first//
+  //HISTORY: the maintainer ""debug"" verb read the same registry and ran the first//
   //""proveo"" in ""$(go env GOPATH)/bin"" ahead of PATH, so a stale binary could//
   //not report a registry that no longer matched the source. It was retired//
   //2026-10-17 ("Retire debug too") with ""--shell"".//

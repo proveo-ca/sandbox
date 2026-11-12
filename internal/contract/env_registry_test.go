@@ -68,7 +68,7 @@ func testCode(rel string, dir bool) bool {
 }
 
 // scannedNames maps every PROVEO_* token in non-test code to its first file: Go string literals
-// under cmd/ and internal/, and every non-Markdown file under imageAndInstallerRoots.
+// under cmd/ and internal/, the whole of mise.toml, and every non-Markdown file under imageAndInstallerRoots.
 func scannedNames(t *testing.T) map[string]string {
 	t.Helper()
 	found, _ := scan(t)
@@ -87,7 +87,7 @@ func scan(t *testing.T) (map[string]string, map[string]envreg.Where) {
 	add := func(rel string, names []string) {
 		w := envreg.Image
 		switch {
-		case strings.HasSuffix(rel, ".go"):
+		case strings.HasSuffix(rel, ".go"), rel == "mise.toml":
 			w = envreg.Binary
 		case installerScript(rel):
 			w = envreg.Installer
@@ -141,6 +141,7 @@ func scan(t *testing.T) (map[string]string, map[string]envreg.Where) {
 			return nil
 		})
 	}
+	add("mise.toml", proveoNames(readRepoFile(t, "mise.toml")))
 	for _, start := range imageAndInstallerRoots {
 		walk(start, func(p, rel string) error {
 			if strings.HasSuffix(rel, ".md") {
