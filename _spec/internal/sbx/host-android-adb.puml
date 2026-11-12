@@ -194,6 +194,10 @@ skinparam noteTextAlignment left
 '                              x86_64 aapt2 under qemu-user (base image, arm64
 '                              only: qemu-user + amd64-cross libc, ~13 MB)
 '   arm64 guest, other host    notice, no SDK: no measured path
+' internal/contract/jvm_toolchain_test.go runs the row with mise, java, uname
+' and sdkmanager stubbed. For "no qemu" (NO_QEMU=1) the row's PATH links
+' /usr/bin and /bin minus qemu-*, since a Linux proveo image holds a real
+' /usr/bin/qemu-x86_64 (the R4 review's Linux leg; failed there at HEAD).
 '
 ' ── TOOLS PROVISIONED AFTER LAUNCH REACH THE AGENT ─────────────────────────
 ' sbx starts the agent before the seed provisions, and Claude Code snapshots
@@ -278,9 +282,29 @@ skinparam noteTextAlignment left
 '   the emulator's own NIC    apps and the browser inside Android use the
 '                             host's NAT, so their traffic is outside policy
 ' The Kit's localhost:<port> allow governs only the sandbox→server hop.
-' Accepted with a run-time warning (startHostADB, every run with the add-on):
-'   "the agent controls every device on that adb server, and the server dials
-'    any address it is told to from this host — outside sbx egress"
+' Accepted with a run-time warning (startHostADB, every run with the add-on),
+' in the interface block after `sbx create` since 2026-11-11
+' (output-readability R1):
+'   "⚠ android — the agent controls every device on that adb server", dim under
+'   it "the server dials any address it is told to from this host, outside sbx
+'   egress"
+' ONE FACT PER ADD-ON (the operator, 2026-11-11, decision B of R1). The boot
+' runs behind the live line "android — starting", which leaves the screen once
+' the device is up. Ensure returns hostadb.Started{Serial, AVD}; the interface
+' block's Facts then carry one row, the adb server dim under it:
+'   ● android: emulator-5554 (AVD Pixel_9)      a boot by this run
+'   ● android: emulator-5556 (reused)           a device the server listed
+'              adb server 127.0.0.1:5037
+' The progress reports ("android: booting AVD …", "android: <serial>
+' booted", "reusing …", "retired mobilecli DeviceServer …") go to the run log
+' alone (startAddon → ui.Logf). Plain output (a pipe, CI) draws no live line
+' and writes "android — starting" to the run log only, so no start line sits
+' under the egress heading. --print reads "android: not started in print
+' mode". The apps the run installs take the key "android app".
+' Pinned by internal/run/host_adb_test.go TestEachHostAddOnFactNamesWhatTheRunLeftUp
+' and TestAnAddonsProgressReachesOnlyTheRunLog; e2e by
+' TestAndroidTickedInTheChoiceFormOpensTheHostEmulator (the run log holds
+' "android: booting AVD", the pane holds the fact and not the progress).
 ' The same class of reach as host Chrome over CDP (host-browser-cdp.puml).
 ' Deferred mitigations, none built:
 '   relay        a host relay forwarding only host:version, host:devices[-l],

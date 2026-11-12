@@ -1,0 +1,10 @@
+run claudecode — confirm or change this run
+
+▲   execution     [ ] host   [ ] docker (s…
+
+                                ────── interface ──────
+░
+░                 [ ] tui   [ ] browser   [ ] chrome
+░ › outputs       [ ] filtered   [ ] verbose
+
+↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel

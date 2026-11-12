@@ -48,6 +48,7 @@ end note
 
 note right of GoTest
 Always runs. No Docker, no network, no API keys.
-Deterministic; milliseconds. Feeds coverage merge.
+Deterministic; milliseconds. Feeds cov/unit,
+which `mise run coverage` reads.
 end note
 @enduml

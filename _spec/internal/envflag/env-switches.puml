@@ -45,8 +45,11 @@ skinparam noteTextAlignment left
 '   PROVEO_KEEP_AGENT_LOGINS [off] ...................... internal/proveohome/proveohome.go
 '   PROVEO_SBX_MCP [off] ................................ internal/backend/sandbox/sandbox.go
 '   PROVEO_UNINSTALL_ASSUME_YES [off] ................... cmd/proveo/uninstall.go
-'   SKIP_GIT_HOOKS [off] ................................ cmd/proveo-dev/hooks.go
-'   PROVEO_CDN_REQUIRE_DIST [off] ....................... cmd/proveo-dev/stagecdn.go
+'   SKIP_GIT_HOOKS [off] ................................ mise.toml post-commit
+'                                                         skip_if (Tera, the same
+'                                                         words; TestPostCommit-
+'                                                         SkipIfSpeaksTheEnvflagWords)
+' PROVEO_CDN_REQUIRE_DIST left 2026-11-12 with the stager that read it.
 '
 ' PROVEO_WIZARD has ONE reader with ONE name, agentio.WizardEnabled(). MEASURED:
 ' run.WizardEnabled is deleted; internal/run (run.go twice, choices.go

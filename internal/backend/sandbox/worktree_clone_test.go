@@ -11,7 +11,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -149,11 +148,7 @@ func TestSpecTellsTheSeedAnAssistantNeedsNoToolchain(t *testing.T) {
 }
 
 func TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry(t *testing.T) {
-	var buf strings.Builder
-	prev := ui.Default
-	ui.Default = ui.New(&buf)
-	t.Cleanup(func() { ui.Default = prev })
-
+	t.Parallel()
 	in := Input{Clone: true, RepoRoot: "/host/worktrees/hotfix", CloneSource: workspace.WorktreeSource{Main: "/host/repo"}}
 	var mounts []sbx.Mount
 	for _, f := range []string{".gitignore", "codeStyles", "misc.xml", "vcs.xml"} {
@@ -161,18 +156,20 @@ func TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry(t *testing.T) {
 	}
 	mounts = append(mounts, sbx.Mount{Host: "/host/repo/notes.md"}, sbx.Mount{Host: "/host/elsewhere"})
 
-	got := cloneThroughMain(in, mounts)
-	out := buf.String()
-	if n := strings.Count(out, "cannot be mounted into a clone"); n != 2 {
-		t.Errorf("warnings = %d, want 2 (one for .idea, one for notes.md):\n%s", n, out)
+	got, dropped := cloneThroughMain(in, mounts)
+	if len(dropped) != 5 {
+		t.Errorf("dropped = %q, want the four .idea entries and notes.md", dropped)
 	}
-	for _, want := range []string{"/host/repo/.idea (4 entries)", "/host/repo/notes.md"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("warnings lack %q:\n%s", want, out)
+	var texts []string
+	for _, it := range unmountable(in.CloneSource.Main, "main worktree", dropped) {
+		if !it.Warn || len(it.Detail) != 0 || len(it.Log) != 1 {
+			t.Errorf("an unmountable entry must be a ⚠ item whose advice goes to the run log: %+v", it)
 		}
+		texts = append(texts, it.Text)
 	}
-	if strings.Contains(out, "misc.xml") {
-		t.Errorf("warnings name a single .idea entry; want the folder once:\n%s", out)
+	want := []string{".idea/ — 4 entries inside the main worktree, not mounted", "notes.md — inside the main worktree, not mounted"}
+	if !slices.Equal(texts, want) {
+		t.Errorf("items = %q, want %q", texts, want)
 	}
 	if hosts := []string{got[0].Host, got[len(got)-1].Host}; len(got) != 2 || hosts[1] != "/host/elsewhere" {
 		t.Errorf("cloneThroughMain kept %v, want the main worktree and /host/elsewhere", got)

@@ -8,22 +8,21 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 
-	fuzzyfinder "github.com/ktr0731/go-fuzzyfinder"
 	"github.com/spf13/cobra"
 
 	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/run"
-	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -60,12 +59,56 @@ func manifestForTarget(target string) (manifest.Manifest, error) {
 
 func main() {
 	if err := rootCmd().Execute(); err != nil {
-		if code, ok := exitCode(err); ok {
-			os.Exit(code)
-		}
-		ui.Failf("%v", err)
-		os.Exit(1)
+		exitWith(err)
 	}
+}
+
+// exitWith ends proveo with err's status, printing err unless a block already said it; a
+// reraised stop ends proveo by its signal.
+// SPEC: _spec/internal/backend/exit-code.puml
+func exitWith(err error) {
+	code, ok := exitCode(err)
+	if !ok {
+		ui.Failf("%v", err)
+		code = 1
+	}
+	var r reraised
+	if errors.As(err, &r) {
+		dieOf(r.Signal)
+	}
+	os.Exit(code)
+}
+
+// reraised is a stop proveo ends by its own signal once it printed its blocks.
+type reraised struct{ backend.Stopped }
+
+func (r reraised) Unwrap() error { return r.Stopped }
+
+// reported prints it, under no heading, and returns err as one main prints nothing for.
+func reported(it sandbox.Item, err error) error {
+	sandbox.PrintBlock(func() {}, nil, []sandbox.Item{it})
+	return backend.Reported{Err: err}
+}
+
+// noArgs refuses an argument with one ×, naming the nearest subcommand or the command's help.
+// SPEC: _spec/cmd/proveo/usage.puml (STRAY ARGUMENTS)
+func noArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	text := fmt.Sprintf("%s — takes no argument %q", cmd.CommandPath(), args[0])
+	fix := "`" + cmd.CommandPath() + " --help` says what it takes"
+	if cmd.HasAvailableSubCommands() {
+		text = fmt.Sprintf("%s — no command %q", cmd.CommandPath(), args[0])
+		cmd.SuggestionsMinimumDistance = max(cmd.SuggestionsMinimumDistance, 2)
+		if near := cmd.SuggestionsFor(args[0]); len(near) > 0 {
+			for i, n := range near {
+				near[i] = "`" + cmd.CommandPath() + " " + n + "`"
+			}
+			fix = "nearest: " + strings.Join(near, ", ")
+		}
+	}
+	return reported(sandbox.Item{Fail: true, Text: text, Detail: []string{fix}}, errors.New(text))
 }
 
 func rootCmd() *cobra.Command {
@@ -75,7 +118,7 @@ func rootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
-		Args:          cobra.NoArgs,
+		Args:          noArgs,
 		CompletionOptions: cobra.CompletionOptions{
 			DisableDefaultCmd: true,
 		},
@@ -84,7 +127,7 @@ func rootCmd() *cobra.Command {
 				return fmt.Errorf("flags --ls and --init are mutually exclusive")
 			}
 			if flagLS {
-				return doList()
+				return doList(cmd.OutOrStdout())
 			}
 			if flagInit {
 				return doInit(initOptions{})
@@ -97,7 +140,7 @@ func rootCmd() *cobra.Command {
 	root.Flags().BoolVar(&flagInit, "init", false, "Install and sign in to the sbx backend proveo runs on")
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) { renderHelp(cmd.OutOrStdout(), cmd) })
 	root.AddCommand(versionCmd(), lsCmd(), runCmd(), scheduleCmd(), attachCmd(), projectsCmd(), setupCmd(), initCmd(),
-		updateCmd(), uninstallCmd(), cleanCmd(), envHelpCmd())
+		updateCmd(), uninstallCmd(), cleanCmd(), envHelpCmd(), promptCmd(), rmCmd(), adoptCmd())
 	addHarnessAliases(root)
 	return root
 }
@@ -112,6 +155,10 @@ func exitCode(err error) (int, bool) {
 	if errors.As(err, &st) {
 		return st.Code(), true
 	}
+	var rp backend.Reported
+	if errors.As(err, &rp) {
+		return 1, true
+	}
 	return 0, false
 }
 
@@ -119,7 +166,7 @@ func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the proveo version (alias for --version)",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		Run:   func(*cobra.Command, []string) { fmt.Printf("proveo version %s\n", version) },
 	}
 }
@@ -128,17 +175,18 @@ func lsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List available harness targets (alias for --ls)",
-		Args:  cobra.NoArgs,
-		RunE:  func(*cobra.Command, []string) error { return doList() },
+		Args:  noArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return doList(cmd.OutOrStdout()) },
 	}
 }
 
-func doList() error {
+// doList prints each harness target and its image on w, one aligned row per target.
+func doList(w io.Writer) error {
 	targets, err := loadTargets()
 	if err != nil {
 		return err
 	}
-	writeTargets(os.Stdout, targets)
+	writeTargets(ui.New(w), targets)
 	return nil
 }
 
@@ -190,12 +238,7 @@ func (f *runFlags) execute(cmd *cobra.Command, target string, extra []string) er
 	if f.imageOverride != "" {
 		image = f.imageOverride // an explicit --image is a decision, not a default
 	} else {
-		chosen, isLocal := posture.ResolveImageChoice(image)
-		if isLocal {
-			ui.Section(ui.SectionRun)
-			ui.Appf("image: %s (local build — newer than the published tag)", chosen)
-		}
-		image = chosen
+		image, _ = posture.ResolveImageChoice(image)
 	}
 	credsSet := cmd.Flags().Changed("credentials")
 	if !run.ValidCredentials(f.credentials) {
@@ -320,115 +363,66 @@ func projectsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "projects",
 		Short: "List monorepo sub-projects discoverable from the current repo",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		Long: `Print the repo-relative path of each monorepo sub-project, one per line: what
+` + "`proveo run --scope`" + ` takes. Members come from pnpm-workspace.yaml, else package.json
+workspaces, else apps/*, packages/*, libs/*, projects/* and services/*; a member holds
+package.json, project.json, Cargo.toml or go.mod. With none, a note on stderr names
+the repo it read, and stdout stays empty.`,
+		Args: noArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			root := workspace.Resolve(run.OrWD("")).Root
 			projs := workspace.DiscoverProjects(root)
 			if len(projs) == 0 {
-				ui.Notef("no monorepo sub-projects found (not a monorepo, or no workspace members)")
+				where := ui.Tilde(root)
+				if root == "" {
+					where = "the working directory"
+				}
+				ui.New(cmd.ErrOrStderr()).Storef("no monorepo sub-projects under %s", where)
 				return nil
 			}
-			out := ui.New(os.Stdout)
-			out.Section(ui.SectionProjects)
+			out := ui.New(cmd.OutOrStdout())
 			for _, p := range projs {
-				out.Storef("%-34s %s", p.Path, p.Tool)
+				out.Storef("%s", p.Path)
 			}
 			return nil
 		},
 	}
 }
 
-func setupCmd() *cobra.Command {
-	var printOnly bool
-	cmd := &cobra.Command{
-		Use:   "setup",
-		Short: "Add the proveo binary's directory to your shell PATH",
-		Args:  cobra.NoArgs,
-		RunE:  func(*cobra.Command, []string) error { return doSetup(printOnly) },
-	}
-	cmd.Flags().BoolVar(&printOnly, "print", false, "show the change without writing it")
-	return cmd
-}
-
-func doSetup(printOnly bool) error {
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
-	if !ok {
-		return fmt.Errorf("unrecognized shell %q; add the proveo dir to PATH manually", os.Getenv("SHELL"))
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	binDir := filepath.Dir(exe)
-	home, _ := os.UserHomeDir()
-	rc := sh.RCFile(runtime.GOOS, home)
-	line := sh.PathLine(binDir)
-
-	if !sh.Supported {
-		ui.Notef("%s is not auto-configured. Add this to %s manually:\n  %s", sh.Name, rc, line)
-		return nil
-	}
-	if onPath(binDir) {
-		ui.Okf("%s is already on PATH", binDir)
-		return nil
-	}
-	content, _ := os.ReadFile(rc) // missing rc is fine
-	if shell.AlreadyConfigured(string(content), binDir) {
-		ui.Okf("%s already configures PATH — restart your shell", rc)
-		return nil
-	}
-	if printOnly {
-		ui.Section(ui.SectionSetup)
-		ui.Storef("would append to %s:", rc)
-		for _, l := range strings.Split(strings.TrimRight(sh.Block(binDir), "\n"), "\n") {
-			ui.Notef("  %s", l)
-		}
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(rc), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(rc, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.WriteString(sh.Block(binDir)); err != nil {
-		return err
-	}
-	ui.Okf("added %s to PATH in %s — restart your shell or run: source %s", binDir, rc, rc)
-	return nil
-}
-
-func onPath(dir string) bool {
-	dir = filepath.Clean(dir)
-	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
-		if p != "" && filepath.Clean(p) == dir {
-			return true
-		}
-	}
-	return false
-}
-
-func pickProject(projs []workspace.Project, in io.Reader, out io.Writer) string {
+// pickProject asks for the run's scope; ok is false when the operator closed the page.
+func pickProject(ask run.ScopeAsk, in io.Reader, out io.Writer) (scope string, ok bool) {
 	if agentio.IsReaderTTY(in) {
-		return fuzzyPickProject(projs)
+		return scopePageAnswer(scopePage(ask).Run())
 	}
-	return pickProjectNumbered(projs, in, out)
+	return pickProjectNumbered(ask.Projects, in, out), true
 }
 
-func fuzzyPickProject(projs []workspace.Project) string {
-	labels := make([]string, 0, len(projs)+1)
-	labels = append(labels, "<repo root>")
-	for _, p := range projs {
-		labels = append(labels, p.Path)
+// scopePage is the folder tree a monorepo run opens on.
+// SPEC: _spec/internal/choiceui/scope-tree.puml
+func scopePage(ask run.ScopeAsk) *choiceui.ScopePage {
+	paths := make([]string, len(ask.Projects))
+	for i, p := range ask.Projects {
+		paths[i] = p.Path
 	}
-	idx, err := fuzzyfinder.Find(labels, func(i int) string { return labels[i] },
-		fuzzyfinder.WithPromptString("scope> "))
-	if err != nil || idx <= 0 { // ErrAbort, finder failure, or "<repo root>"
-		return ""
+	tree := choiceui.NewTree(paths)
+	tree.Place(ask.Picked)
+	return &choiceui.ScopePage{
+		Banner: choiceui.Banner(),
+		Title:  fmt.Sprintf("run %s — where the agent works", ask.Target),
+		Root:   filepath.Base(ask.RepoRoot),
+		Tree:   tree,
+		Step:   ask.Step,
+		Glyphs: posture.GlyphModeFrom(os.Getenv),
 	}
-	return projs[idx-1].Path
+}
+
+// scopePageAnswer maps the page's end to a scope: a page that could not draw keeps the repo root.
+func scopePageAnswer(scope string, out choiceui.Outcome, err error) (string, bool) {
+	if err != nil {
+		ui.Warnf("%v — keeping the repo root", err)
+		return "", true
+	}
+	return scope, out == choiceui.Accepted
 }
 
 func pickProjectNumbered(projs []workspace.Project, in io.Reader, out io.Writer) string {
@@ -460,11 +454,11 @@ func sortedKeys(m map[string]string) []string {
 func runDeps() run.Deps {
 	return run.Deps{
 		ManifestFor: manifestForTarget,
-		PickProject: func(projs []workspace.Project) string { return pickProject(projs, os.Stdin, os.Stderr) },
+		PickProject: func(ask run.ScopeAsk) (string, bool) { return pickProject(ask, os.Stdin, os.Stderr) },
 		PromptEnv: func(target string, missing []manifest.EnvVar) map[string]string {
 			return promptEnv(target, missing, os.Stdin, os.Stderr, termSecret)
 		},
-		GitHubTokenEnv: func() string {
+		GitHubTokenEnv: func() (string, []sandbox.Item) {
 			return resolveGitHubTokenEnv(hostGhAuth())
 		},
 		ProvisionConfirm: provisionConfirm,

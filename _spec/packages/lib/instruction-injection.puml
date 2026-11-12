@@ -1,0 +1,136 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Instruction injection — proveo's default instructions reach the agent without touching the project, and the project's own AGENTS.md is read
+' purpose: where the def's default instructions go, and how Claude Code under sbx reads a project's AGENTS.md
+' covers: packages/lib/entrypoint-lib.sh (proveo_seed_instructions, proveo_claude_reads_agents_md, _proveo_drop_block)
+' covers: defs/opencode/entrypoint.sh
+' covers: defs/opencode/Dockerfile
+' covers: defs/opencode/managed/opencode.json
+' covers: internal/contract/instructions_seed_test.go
+' covers: internal/contract/seed_phase_test.go
+' covers: internal/imagetest/claudecode_test.go
+' covers: internal/imagetest/opencode_test.go
+' covers: e2e/scope_mounts_test.go
+'   the seed and its release point ... _spec/packages/lib/seed-and-launch.puml
+'   the house rules (user layer) ..... _spec/packages/lib/house-rules.puml
+'   the clone the snapshot commits ... _spec/internal/sbx/clone-workspace.puml
+'   the research (2026-11-11) ........ scratchpad agents-md-research.md of session e2da2921
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS WRONG (2026-11-11) ────────────────────────────────────────────
+' claudecode (proveo_seed_instructions) and opencode (seed_project_agents_md)
+' copied the def's default AGENTS.md INTO the workspace when it carried
+' neither AGENTS.md nor CLAUDE.md. Teardown's clone snapshot (`git add -A`)
+' then committed it, so a run where the agent changed nothing reported
+' "<branch> (1 new commit)", and the git-sync turn hook committed it too.
+' The operator asked: "could the seed be directly injected as LLM context,
+' without modifying the project's AGENTS.md instead?"
+'
+' ── THE DECISION (the operator, 2026-11-11) ────────────────────────────────
+' Option A: the default goes to a VM-local tier, per boot.
+'   claudecode  a marked block in the managed /etc/claude-code/CLAUDE.md
+'               (PROVEO_DEFAULTS_START/END), written by _proveo_write_block and
+'               taken out by _proveo_drop_block when the workspace carries
+'               either file, so a kept sandbox's restart follows the project
+'   opencode    /dev/shm/proveo-default-instructions.md, which the image's
+'               system config /etc/opencode/opencode.json lists under
+'               "instructions" (a union across documents, loaded after the
+'               AGENTS.md files); removed when the workspace carries either file
+' The workspace is never written. Nothing persists on the host.
+' NOT CHOSEN: B, `--append-system-prompt-file` and OPENCODE_CONFIG_CONTENT at
+' launch (Claude's subagents miss it; more plumbing); C, keep the file and
+' hide it with .git/info/exclude (the worktree is still modified, and with
+' --clone=false the exclude lands in the operator's checkout); the user
+' instruction files (~/.claude/CLAUDE.md, ~/.config/opencode/AGENTS.md), which
+' sync to ~/.proveo and would leak one project's default into every run.
+' The /etc/opencode floor: @opencode/cli >= 2.0.30, asserted by the Dockerfile.
+' /etc/opencode/opencode.json holds only "instructions": a managed scalar
+' would override the operator's own config.
+'
+' ── CLAUDE CODE UNDER SBX DID NOT READ A PROJECT'S AGENTS.md ───────────────
+' Claude Code reads AGENTS.md only when no CLAUDE.md exists in the cwd or
+' above it (code.claude.com/docs/en/memory). sbx's agent-context@1 writes its
+' environment profile as CLAUDE.md in the workspace's PARENT directory
+' (sandbox-kit-spec: "the workspace directory's sibling when directory is
+' omitted"; internal/sbx/third_party/claude.yaml). So every project AGENTS.md
+' under sbx was hidden, the seeded default included.
+' MEASURED (2026-11-11, Claude Code 2.1.312, sbx v0.50.0, one throwaway repo
+' with a marker line in AGENTS.md, `claude -p` asked to repeat the marker):
+'   published image ............................... NONE
+'   pluginConfigs in managed-settings.d drop-in ... NONE
+'   the drop-in plus an empty managed-settings.json NONE
+'   pluginConfigs in managed-settings.json ........ NONE
+'   the drop-in, /etc/claude-code owned by root ... NONE
+'   the same JSON through --settings .............. the marker
+'   the same JSON in ~/.claude/settings.json ...... the marker
+' Each NONE session's transcript listed only /etc/claude-code/CLAUDE.md and
+' the sibling CLAUDE.md. The docs say managed settings carry pluginConfigs;
+' on 2.1.312 they do not.
+' THE FIX (the operator chose user settings over --settings at launch):
+' proveo_claude_reads_agents_md merges
+'   pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles =
+'   "claude-md-and-agents-md"
+' into the sandbox's ~/.claude/settings.json on every seed, before the
+' release, and leaves a value the operator already set. Every claude in the
+' sandbox reads it, IDE and `sbx exec` sessions included. It persists in
+' ~/.proveo/.claude/settings.json, never in the operator's own ~/.claude.
+' After the fix, on the same repo: the marker. On a bare repo: a clean
+' worktree, the managed block present, no /dev/shm file for claudecode.
+' NOT VERIFIED LIVE: opencode (no proveo/opencode image on the host); the
+' full image builds (the probes overlaid the changed files on the published
+' claudecode image).
+'
+' Pinned by internal/contract/instructions_seed_test.go:
+'   TestInstructionSeedPutsDefaultsInVMLocalContextAndNeverInTheWorkspace
+'   TestTheOpencodeImageListsTheDefaultsWhereOpencodeReadsThem
+'   TestTheSeedSetsClaudeCodeToLoadAgentsMdBesideClaudeMd
+'   TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls
+' Pinned by internal/imagetest: the claudecode seed sets instructionFiles;
+'   /etc/opencode/opencode.json lists the defaults file.
+' Pinned by e2e: TestWorktreeWorkspaceIsFullyUsable (a clean worktree and the
+'   managed block; needs a claudecode image built from this source).
+
+component "the workspace\nthe operator's project" as WS <<data>>
+component "proveo_seed_instructions\nper boot, before the release" as SEED <<app>>
+component "/etc/claude-code/CLAUDE.md\nhouse rules + the default block" as MANAGED <<host>>
+component "/dev/shm/proveo-default-instructions.md\nlisted by /etc/opencode/opencode.json" as SHM <<host>>
+component "sbx's CLAUDE.md\nbeside the workspace" as SIB <<cloud>>
+component "~/.claude/settings.json\ninstructionFiles: both" as SET <<data>>
+component "the agent\nclaudecode · opencode" as AGENT <<app>>
+
+SEED ARROW_MAIN MANAGED : claudecode
+SEED ARROW_MAIN SHM : opencode
+SEED ARROW_ERROR WS : never written
+SEED ARROW_MAIN SET : claudecode
+MANAGED ARROW_MAIN AGENT
+SHM ARROW_MAIN AGENT
+WS ARROW_MAIN AGENT : its own AGENTS.md
+SIB ARROW_ERROR AGENT : hid AGENTS.md until SET
+
+note bottom of WS
+  **The project is never written.** A run where
+  the agent changed nothing reports no new
+  commits, and the operator's own AGENTS.md or
+  CLAUDE.md is the only project instruction.
+end note
+
+note bottom of MANAGED
+  **One block, per boot.** It is written while
+  the workspace carries no instructions and
+  taken out when it does, so a kept sandbox
+  follows the project across restarts.
+end note
+
+note bottom of SET
+  **Measured, not assumed.** Five managed-file
+  variants left AGENTS.md unread on 2.1.312;
+  --settings and user settings both read it.
+  The operator chose user settings.
+end note
+
+note bottom of SIB
+  **sbx's sibling CLAUDE.md** counts as a
+  CLAUDE.md above the cwd, so Claude Code's
+  default skipped every project AGENTS.md.
+end note
+@enduml

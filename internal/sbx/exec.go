@@ -23,6 +23,7 @@ type CLI struct {
 
 	LocalImageID    func(image string) string
 	RepoDigests     func(image string) []string
+	ImageBuilt      func(image string) (built, known bool)
 	ImageEntrypoint func(image string) []string
 	ImageCmd        func(image string) []string
 
@@ -42,11 +43,18 @@ func bounded(name string, args ...string) ([]byte, error) {
 // before the pipe is closed out from under it.
 const boundedGrace = 2 * time.Second
 
+// ListWait is the longest one bounded `sbx ls` holds its caller.
+const ListWait = dockerInfoTimeout + boundedGrace
+
+// ExecWait is the longest ExecOutput holds its caller under timeout.
+func ExecWait(timeout time.Duration) time.Duration { return timeout + boundedGrace }
+
 func boundedWith(timeout time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = boundedGrace
+	ownGroup(cmd)
 	return cmd.Output()
 }
 
@@ -59,6 +67,7 @@ func boundedCombinedWith(timeout time.Duration, name string, args ...string) ([]
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = boundedGrace
+	ownGroup(cmd)
 	return cmd.CombinedOutput()
 }
 
@@ -78,6 +87,7 @@ func defaultCLI() CLI {
 
 		LocalImageID:    dockerImageID,
 		RepoDigests:     dockerRepoDigests,
+		ImageBuilt:      dockerImageBuilt,
 		ImageEntrypoint: func(image string) []string { return dockerImageList(image, "Entrypoint") },
 		ImageCmd:        func(image string) []string { return dockerImageList(image, "Cmd") },
 		SandboxList:     func() ([]byte, error) { return boundedCombined(Binary, "ls") },

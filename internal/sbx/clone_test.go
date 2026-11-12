@@ -146,6 +146,18 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 			t.Errorf("HEAD is %q; the hook kept the agent's edit out of every commit", got)
 		}
 	})
+	t.Run("the snapshot says which branch it committed on, and only when it committed", func(t *testing.T) {
+		t.Parallel()
+		dir := repo(t)
+		if code, out := snapshot(t, dir); code != 0 || strings.Contains(out, snapshotMark) {
+			t.Fatalf("a clean clone: exit %d, said %q; want no mark", code, out)
+		}
+		write(t, filepath.Join(dir, "work.txt"), "edit")
+		code, out := snapshot(t, dir)
+		if branch, ok := SnapshotBranch(out); code != 0 || !ok || branch != "main" {
+			t.Errorf("snapshot of an edit: exit %d, branch %q %v, want main\n%s", code, branch, ok, out)
+		}
+	})
 	t.Run("a detached HEAD gets a branch", func(t *testing.T) {
 		t.Parallel()
 		dir := repo(t)

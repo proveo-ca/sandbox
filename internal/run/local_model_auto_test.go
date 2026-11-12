@@ -2,9 +2,12 @@
 package run
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func stubFitting(t *testing.T, fit ...string) *[]string {
@@ -60,5 +63,25 @@ func TestAutoLocalModelNeedsAFit(t *testing.T) {
 	stubFitting(t)
 	if got := autoLocalModel(&Spec{Man: manifest.Manifest{Name: "hermes"}}, &Params{Target: "hermes"}, func(string) string { return "" }); got != "" {
 		t.Errorf("autoLocalModel with nothing fitting = %q, want none", got)
+	}
+}
+
+func TestTheAutoLocalModelsReasonReachesOnlyTheRunLog(t *testing.T) {
+	stubFitting(t, localModels[0].tag())
+	var screen, log strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&screen)
+	restore := ui.TeeTo(&log)
+	t.Cleanup(func() { restore(); ui.Default = prev })
+	if got := autoLocalModel(&Spec{Man: manifest.Manifest{Name: "hermes"}}, &Params{Target: "hermes"}, func(string) string { return "" }); got == "" {
+		t.Fatal("autoLocalModel picked nothing")
+	}
+	if got := screen.String(); got != "" {
+		t.Errorf("the auto pick printed %q on screen; the egress block's local model fact is its one line", got)
+	}
+	for _, want := range []string{"no provider key", sbx.EnvLocalModelAuto + "=0"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the run log lacks %q:\n%s", want, log.String())
+		}
 	}
 }

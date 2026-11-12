@@ -2,6 +2,8 @@
 package main
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,11 +13,15 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/clean"
 	"github.com/proveo-ca/proveo/internal/proveohome"
+	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -26,7 +32,25 @@ func cleanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Reclaim leaked proveo run artifacts (--deep also removes proveo/* images)",
-		Args:  cobra.NoArgs,
+		Long: `Reclaim what crashed or killed runs left on this host. When it is done it
+prints what went, by kind, and one closing line:
+
+  state       a run's state dir, <state root>/runs/<run id>: its sbx kit, its
+              policy log and a clone's staged .env. The state root is
+              $PROVEO_STATE_ROOT, else $XDG_STATE_HOME/proveo, else
+              ~/.local/state/proveo
+  containers, networks, volumes
+              what the retired docker backend left
+  images      proveo/* images (--deep)
+  tools       toolchains provisioned on demand (--tools)
+  home        PROVEO_HOME, ~/.proveo: sessions and seeded config (--homes)
+
+A run whose proveo process still answers keeps its state dir, and a running
+container keeps what it uses; --tools keeps every toolchain while any
+sandbox runs. --force removes those too and disrupts the run that holds
+them. A removal that fails is a warning; clean exits 1 only when the proveo
+home stays (--homes).`,
+		Args: noArgs,
 		RunE: func(*cobra.Command, []string) error {
 			inv, err := gatherCleanInventory(deep)
 			if err != nil {
@@ -36,19 +60,22 @@ func cleanCmd() *cobra.Command {
 				inv.ToolDirs = gatherToolDirs()
 				inv.Sandboxes, inv.SandboxesUnknown = gatherSandboxes()
 			}
-			if err := runClean(clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force, Tools: tools}), dryRun); err != nil {
-				return err
-			}
+			p := clean.BuildPlan(inv, clean.Options{Deep: deep, Force: force, Tools: tools})
+			home := ""
 			if homes {
-				return cleanProveoHomes(dryRun)
+				home = proveohome.Root(os.Getenv)
 			}
-			return nil
+			res := runClean(p, home, dryRun)
+			if !dryRun {
+				sandbox.ReconcileResults(results.Dir(run.StateDir()), "")
+			}
+			return printClean(res, p.SkippedLive, inv.SandboxesUnknown, dryRun)
 		},
 	}
 	cmd.Flags().BoolVar(&deep, "deep", false, "also remove proveo/* images (harness + base)")
 	cmd.Flags().BoolVar(&force, "force", false, "also remove resources that look live (disrupts an in-progress run)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would be removed, without removing it")
-	cmd.Flags().BoolVar(&homes, "homes", false, "also remove PROVEO_HOME (~/.proveo) durable session/config cache")
+	cmd.Flags().BoolVar(&homes, "homes", false, "also remove PROVEO_HOME (~/.proveo): sessions and seeded config")
 	cmd.Flags().BoolVar(&tools, "tools", false,
 		"also remove toolchains provisioned on demand (Go, JDK, Node, Python) — they reinstall on next run")
 	return cmd
@@ -123,23 +150,6 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f%cB", float64(n)/float64(div), "KMGTPE"[exp])
-}
-
-func cleanProveoHomes(dryRun bool) error {
-	root := proveohome.Root(os.Getenv)
-	verb := "removing"
-	if dryRun {
-		verb = "would remove"
-	}
-	if _, err := os.Stat(root); os.IsNotExist(err) {
-		ui.Okf("no proveo home at %s", root)
-		return nil
-	}
-	ui.Dangerf("%s proveo home %s (sessions + seeded config)", verb, root)
-	if dryRun {
-		return nil
-	}
-	return os.RemoveAll(root)
 }
 
 func gatherCleanInventory(deep bool) (clean.Inventory, error) {
@@ -227,71 +237,169 @@ func stateSessions() []string {
 	return slices.Compact(out)
 }
 
-func runClean(p clean.Plan, dryRun bool) error {
-	if len(p.Containers)+len(p.Networks)+len(p.Volumes)+len(p.StateDirs)+len(p.Images)+len(p.ToolDirs) == 0 {
-		if len(p.SkippedLive) == 0 {
-			ui.Okf("nothing to clean")
-			return nil
+// cleanTarget is one removal: its kind, its name as the screen writes it, a toolchain's size, and how it goes.
+type cleanTarget struct {
+	kind, name string
+	bytes      int64
+	remove     func() (string, error)
+}
+
+// cleanResult is what runClean removed, or under a dry run would remove, and each removal that failed.
+type cleanResult struct {
+	gone       []cleanTarget
+	failed     []sandbox.Item
+	homeFailed bool
+	reclaimed  int64
+}
+
+// cleanTargets is the plan's removals in the block's order, and home when it exists.
+func cleanTargets(p clean.Plan, home string) []cleanTarget {
+	docker := func(args ...string) func() (string, error) {
+		return func() (string, error) {
+			out, err := exec.Command("docker", args...).CombinedOutput()
+			return string(out), err
 		}
 	}
-	verb := "removing"
-	if dryRun {
-		verb = "would remove"
+	removeAll := func(dir string) func() (string, error) {
+		return func() (string, error) { return "", os.RemoveAll(dir) }
 	}
+	var ts []cleanTarget
 	for _, c := range p.Containers {
-		ui.Dangerf("%s container %s", verb, c)
-		if !dryRun {
-			_ = exec.Command("docker", "rm", "-f", c).Run()
-		}
+		ts = append(ts, cleanTarget{kind: "container", name: c, remove: docker("rm", "-f", c)})
 	}
 	for _, n := range p.Networks {
-		ui.Dangerf("%s network %s", verb, n)
-		if !dryRun {
-			_ = exec.Command("docker", "network", "rm", n).Run()
-		}
+		ts = append(ts, cleanTarget{kind: "network", name: n, remove: docker("network", "rm", n)})
 	}
 	for _, v := range p.Volumes {
-		ui.Dangerf("%s volume %s", verb, v)
-		if !dryRun {
-			_ = exec.Command("docker", "volume", "rm", v).Run()
-		}
+		ts = append(ts, cleanTarget{kind: "volume", name: v, remove: docker("volume", "rm", v)})
 	}
 	for _, sid := range p.StateDirs {
 		for _, root := range run.RunRoots() {
-			dir := filepath.Join(root, sid)
-			if _, err := os.Stat(dir); err != nil {
-				continue
-			}
-			ui.Dangerf("%s state %s (sbx kit, policy log, staged clone .env)", verb, dir)
-			if !dryRun {
-				_ = os.RemoveAll(dir)
+			if dir := filepath.Join(root, sid); isDir(dir) {
+				ts = append(ts, cleanTarget{kind: "state", name: sid, remove: removeAll(dir)})
 			}
 		}
 	}
 	for _, img := range p.Images {
-		ui.Dangerf("%s image %s", verb, img)
-		if !dryRun {
-			_ = exec.Command("docker", "image", "rm", img).Run()
-		}
+		ts = append(ts, cleanTarget{kind: "image", name: img, remove: docker("image", "rm", img)})
 	}
-	var reclaimed int64
 	for _, dir := range p.ToolDirs {
-		size := dirSize(dir)
-		reclaimed += size
-		ui.Dangerf("%s toolchain %s (%s)", verb, dir, humanBytes(size))
+		ts = append(ts, cleanTarget{kind: "tools", name: ui.Tilde(dir), bytes: dirSize(dir), remove: removeAll(dir)})
+	}
+	if home != "" && isDir(home) {
+		ts = append(ts, cleanTarget{kind: "home", name: ui.Tilde(home), remove: removeAll(home)})
+	}
+	return ts
+}
+
+func isDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+// runClean removes each of the plan's targets behind a live line; a dry run removes nothing.
+func runClean(p clean.Plan, home string, dryRun bool) cleanResult {
+	var res cleanResult
+	for _, t := range cleanTargets(p, home) {
 		if !dryRun {
-			_ = os.RemoveAll(dir)
+			done := ui.Running(func(ran time.Duration) string {
+				return "clean · " + t.kind + " " + t.name + " · " + ran.Round(time.Second).String()
+			}, "")
+			out, err := t.remove()
+			done()
+			if err != nil {
+				said := cmp.Or(strings.TrimSpace(out), err.Error())
+				res.failed = append(res.failed, sandbox.Item{Warn: true, Text: t.kind + " " + t.name + " — not removed",
+					Detail: errLines(errors.New(said))})
+				res.homeFailed = res.homeFailed || t.kind == "home"
+				continue
+			}
+		}
+		res.gone = append(res.gone, t)
+		res.reclaimed += t.bytes
+	}
+	return res
+}
+
+// cleanKeys is each kind's key in the block, in the block's order.
+var cleanKeys = []struct{ kind, key string }{
+	{"container", "containers"}, {"network", "networks"}, {"volume", "volumes"},
+	{"state", "state"}, {"image", "images"}, {"tools", "tools"}, {"home", "home"},
+}
+
+// printClean prints what went as one block by kind, each failed removal and what was left live as ⚠,
+// then one closing line; a home that stays comes back Reported.
+func printClean(res cleanResult, left []string, sbxUnknown, dryRun bool) error {
+	var facts []ui.Fact
+	for _, k := range cleanKeys {
+		key := k.key
+		for _, t := range res.gone {
+			if t.kind != k.kind {
+				continue
+			}
+			value := t.name
+			if t.kind == "tools" {
+				value += " (" + humanBytes(t.bytes) + ")"
+			}
+			facts = append(facts, ui.Fact{Role: ui.RoleError, Key: key, Value: value})
+			key = ""
 		}
 	}
-	if len(p.ToolDirs) > 0 {
-		ui.Okf("%s %s of provisioned toolchains — they reinstall on the next run that needs them",
-			map[bool]string{true: "would reclaim", false: "reclaimed"}[dryRun], humanBytes(reclaimed))
+	items := slices.Clone(res.failed)
+	if len(left) > 0 {
+		items = append(items, leftLive(left, sbxUnknown))
 	}
+	sandbox.PrintBlock(func() {}, facts, items)
+	return cleanClosing(res, len(left), dryRun)
+}
 
-	if len(p.SkippedLive) > 0 {
-		ui.Warnf("left %d resource(s) that look live (in-progress run?): %s",
-			len(p.SkippedLive), strings.Join(p.SkippedLive, ", "))
-		ui.Notef("re-run with --force to remove those too (disrupts an in-progress run)")
+// leftLive is the one ⚠ for what clean held back as live: each one dim, then the --force fix.
+func leftLive(left []string, sbxUnknown bool) sandbox.Item {
+	it := sandbox.Item{Warn: true, Text: fmt.Sprintf("left: %d that look live", len(left))}
+	fix := "`--force` removes them too and disrupts the runs that hold them"
+	if len(left) == 1 {
+		it.Text, fix = "left: 1 that looks live", "`--force` removes it too and disrupts the run that holds it"
+	}
+	tools := false
+	for _, l := range left {
+		if dir, ok := strings.CutPrefix(l, "tools "); ok {
+			l, tools = "tools "+ui.Tilde(dir), true
+		}
+		it.Detail = append(it.Detail, l)
+	}
+	if tools && sbxUnknown {
+		it.Detail = append(it.Detail, "sbx did not say whether a sandbox runs")
+	}
+	it.Detail = append(it.Detail, fix)
+	return it
+}
+
+// cleanClosing is clean's one closing line: a failed removal wins over what went; a home that stays is ×
+// and exits 1.
+func cleanClosing(res cleanResult, left int, dryRun bool) error {
+	reclaimed := func(what string) {
+		if res.reclaimed > 0 {
+			ui.Detailf("%s of toolchains %s", humanBytes(res.reclaimed), what)
+		}
+	}
+	switch {
+	case res.homeFailed:
+		ui.Failf("clean — %d not removed", len(res.failed))
+		reclaimed("reclaimed")
+		return backend.Reported{Err: fmt.Errorf("clean: %d not removed", len(res.failed))}
+	case len(res.failed) > 0:
+		ui.Warnf("clean — %d not removed", len(res.failed))
+		reclaimed("reclaimed")
+	case len(res.gone) == 0 && left == 0:
+		ui.Okf("clean — nothing to remove")
+	case dryRun:
+		ui.Storef("clean — nothing removed (dry run)")
+		reclaimed("to reclaim")
+	case len(res.gone) == 0:
+		ui.Warnf("clean — nothing removed")
+	default:
+		ui.Okf("clean — %d removed", len(res.gone))
+		reclaimed("reclaimed")
 	}
 	return nil
 }

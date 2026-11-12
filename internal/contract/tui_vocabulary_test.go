@@ -157,12 +157,11 @@ func TestEveryRoleVerbIsWired(t *testing.T) {
 	}
 	body := string(src)
 	for verb, role := range map[string]string{
-		"Hostf":   "RoleHost",
-		"Appf":    "RoleApp",
-		"Asyncf":  "RoleAsync",
-		"Cloudf":  "RoleCloud",
-		"Storef":  "RoleStore",
-		"Dangerf": "RoleError",
+		"Hostf":  "RoleHost",
+		"Appf":   "RoleApp",
+		"Asyncf": "RoleAsync",
+		"Cloudf": "RoleCloud",
+		"Storef": "RoleStore",
 	} {
 		if !strings.Contains(body, "func (p *Printer) "+verb+"(") {
 			t.Errorf("internal/ui has no %s verb", verb)

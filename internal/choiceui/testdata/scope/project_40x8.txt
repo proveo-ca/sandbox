@@ -1,0 +1,8 @@
+run claudecode — where the agent works
+
+  │ │ api
+› │ │ web
+
+enter starts the agent in apps/web
+
+enter choose · esc cancel · 6 more below

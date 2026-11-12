@@ -74,10 +74,17 @@ skinparam noteTextAlignment left
 '     hermes never shows it: mcpGateway: always (below).
 '   * precedence: PROVEO_SBX_MCP (locks the row, names why) > the remembered
 '     answer (agentsettings Choice.MCP) > off.
-'   * the figure: "+ mcp" on the row under the "sbx proxy" hop label (user:
-'     "+ mcp in the row underneath"; the label row has 14 columns, so beside it
-'     clipped to "+ mc"); the mcp row focuses the hop, so both light cyan
-'     (Frame.HopNote; TestTheMCPNoteSitsUnderTheHopLabel, TestTheMCPRowNotesTheHop).
+'   * the figure: "+ mcp" ends the interface line under the agent, in the box
+'     ("● tui + browser + mcp") and in the direct form ("+ ● tui + browser +
+'     mcp"); the mcp row focuses that line, so both light together
+'     (Frame.Interface; TestTheMCPNoteEndsTheInterfaceLineUnderTheAgentAndNothingSitsUnderTheHop,
+'     TestTheMCPRowEndsTheAgentsInterfaceLine, TestFocusMapsRowsToElements).
+'     DECIDED 2026-11-11 (user: "the topology should stop showing `sbx proxy
+'     + mcp` in that node, and move the + mcp at the tail end under
+'     `claudecode`"). Before that, "+ mcp" sat on the row under the "sbx
+'     proxy" hop label (Frame.HopNote, removed), and the mcp row lit the hop.
+'     EDGE: the box's interface line holds about 28 columns. With browser,
+'     chrome and android all ticked the line clips, and "+ mcp" goes first.
 '   * the answer reaches the backend as sandbox.Input.MCPGateway; Spec and
 '     DeclineMCPGateway read that, never the env (posture reads it too).
 '   Pinned by internal/run/mcp_row_test.go, TestOnlyKitsWithGatewayHooksOfferTheGateway
@@ -100,7 +107,7 @@ skinparam noteTextAlignment left
 '     `hermes mcp list` then shows mcp-gateway enabled. No gateway URL → no-op.
 '   MEASURED 2026-10-24 (TestHermesTakesSbxsMCPGateway, layer 5): with a probe
 '   loaded into a hermes sandbox's gateway, `hermes mcp test mcp-gateway` lists
-'   proveo_ping. The image bakes the lib: `proveo build hermes` makes it live.
+'   proveo_ping. The image bakes the lib: `mise run build hermes` makes it live.
 '
 ' ── MCP CONNECTION E2E (2026-10-24, user: "Add the sbx gateway row too") ─────
 ' e2e/mcp_connect_sbx_test.go, opt-in PROVEO_MCP_TEST=1. The oracle is a

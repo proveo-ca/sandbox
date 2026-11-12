@@ -102,7 +102,7 @@ func TestFocusMapsRowsToElements(t *testing.T) {
 		{Label: rowExecution}, {Label: rowInterface}, {Label: evidenceLabel}, {Label: "mystery"}, {Label: mcpLabel},
 	}}
 	want := []choiceui.Focus{choiceui.FocusHop, choiceui.FocusKey, choiceui.FocusKey,
-		choiceui.FocusSquare, choiceui.FocusReturn, choiceui.FocusSay, choiceui.FocusNone, choiceui.FocusHop}
+		choiceui.FocusSquare, choiceui.FocusReturn, choiceui.FocusSay, choiceui.FocusNone, choiceui.FocusReturn}
 	for i, w := range want {
 		if got := focusOf(f, i); got != w {
 			t.Errorf("row %q: focus %v, want %v", f.Rows[i].Label, got, w)
@@ -184,11 +184,13 @@ func TestHoveringTheHostDropsTheSandbox(t *testing.T) {
 		{Label: rowExecution, Options: []string{addonHost, addonSandbox}, Selected: 0, Multi: true, Off: []bool{true, true}, On: []bool{false, true}},
 	}}
 	onHost := topologyOf("opencode", "broker")(f, 2)
-	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "sbx proxy" || onHost.Key != choiceui.KeyAtHop {
-		t.Errorf("hovering host: direct=%v square=%q hop=%q key=%v", onHost.Direct, onHost.Square, onHost.Hop, onHost.Key)
+	if !onHost.Direct || onHost.Square != "opencode" || onHost.Hop != "" || onHost.Key != choiceui.KeyInSquare {
+		t.Errorf("hovering host: direct=%v square=%q hop=%q key=%v; want no sbx proxy and the key with the agent",
+			onHost.Direct, onHost.Square, onHost.Hop, onHost.Key)
 	}
-	if !strings.Contains(onHost.Caption, "broker") {
-		t.Errorf("caption %q must keep broker placement", onHost.Caption)
+	if !strings.Contains(onHost.Caption, "forward") || !strings.Contains(onHost.Caption, "the real key rides with the agent") ||
+		strings.Contains(onHost.Caption, "broker") {
+		t.Errorf("caption %q must say the key rides with the agent, with no broker", onHost.Caption)
 	}
 	if f.Rows[0].Selected != 1 || !f.Rows[0].Off[0] || !f.Rows[0].Locked {
 		t.Error("the preview selected forward")
@@ -349,15 +351,19 @@ func TestSquareTrimsOnlyTheModelToSquareMax(t *testing.T) {
 	}
 }
 
-func TestTheMCPRowNotesTheHop(t *testing.T) {
+func TestTheMCPRowEndsTheAgentsInterfaceLine(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		answer, want string
-	}{{mcpOn, "+ mcp"}, {mcpOff, ""}} {
+	}{{mcpOn, "tui + mcp"}, {mcpOff, "tui"}} {
 		r := mcpRow("claudecode", c.answer, false)
 		f := &choiceui.Form{Rows: []choiceui.Row{r}}
-		if got := topologyOf("claudecode", "broker")(f, -1).HopNote; got != c.want {
-			t.Errorf("mcp %s: hop note %q, want %q", c.answer, got, c.want)
+		fr := topologyOf("claudecode", "broker")(f, 0)
+		if fr.Interface != c.want {
+			t.Errorf("mcp %s: interface %q, want %q", c.answer, fr.Interface, c.want)
+		}
+		if fr.Focus != choiceui.FocusReturn {
+			t.Errorf("mcp %s: the mcp row focuses %v, want the interface line it writes to", c.answer, fr.Focus)
 		}
 	}
 }

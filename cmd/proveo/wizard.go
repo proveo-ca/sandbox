@@ -25,8 +25,17 @@ func termSecret() (string, error) {
 	return string(b), err
 }
 
+// printerOn is ui.Default when out is the terminal it writes to, so a question draws the pending
+// heading and reaches the run log; any other writer gets a printer of its own.
+func printerOn(out io.Writer) *ui.Printer {
+	if out == os.Stderr {
+		return ui.Default
+	}
+	return ui.New(out)
+}
+
 func promptLine(question string, in io.Reader, out io.Writer) string {
-	ui.New(out).Askf("%s", question)
+	printerOn(out).Askf("%s", question)
 	s, _ := bufio.NewReader(in).ReadString('\n')
 	return strings.TrimSpace(s)
 }
@@ -36,7 +45,7 @@ func promptYesNo(question string, def bool, in io.Reader, out io.Writer) bool {
 	if !def {
 		suffix = "[y/N]"
 	}
-	ui.New(out).Askf("%s %s", question, suffix)
+	printerOn(out).Askf("%s %s", question, suffix)
 	s, _ := bufio.NewReader(in).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "y", "yes":
@@ -48,7 +57,7 @@ func promptYesNo(question string, def bool, in io.Reader, out io.Writer) bool {
 }
 
 func promptEnv(target string, missing []manifest.EnvVar, in io.Reader, out io.Writer, readSecret secretReader) map[string]string {
-	p := ui.New(out)
+	p := printerOn(out)
 	n := "s"
 	if len(missing) == 1 {
 		n = ""

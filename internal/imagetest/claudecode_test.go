@@ -264,6 +264,10 @@ func ccConfig(s *imagetest.Suite, img ccImages) {
 		`export HOME=/tmp/seedhome && mkdir -p $HOME && source /entrypoint-lib.sh && render_subagents claudecode "$HOME/.claude/agents" >/dev/null && ls $HOME/.claude/agents | tr '\n' ' '`,
 		"adversarial-reviewer.md architect.md monorepo-coordinator.md security-reviewer.md spec-keeper.md")
 	s.Contains("[standalone] AGENTS.md wires the review gates", image, "cat /opt/claudecode/defaults/AGENTS.md", "Review Gates")
+	// SPEC: _spec/packages/lib/instruction-injection.puml
+	s.Contains("[standalone] the seed sets Claude Code to load AGENTS.md beside CLAUDE.md", image,
+		`export HOME=/tmp/agentsmd && mkdir -p $HOME && source /entrypoint-lib.sh && proveo_claude_reads_agents_md claudecode >/dev/null && cat $HOME/.claude/settings.json`,
+		`"instructionFiles": "claude-md-and-agents-md"`)
 
 	if !img.mcpAvailable {
 		return

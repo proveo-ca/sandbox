@@ -87,7 +87,7 @@ func codexIn(t *testing.T, bin, home string, args ...string) (string, error) {
 }
 
 // The report: a second sandbox restored a daemon install whose `current` link the sync had dropped.
-func roundTrip(t *testing.T, bin, set string) (string, error, string) {
+func roundTrip(t *testing.T, bin, set string) (string, string, error) {
 	t.Helper()
 	state := t.TempDir()
 	first := sandboxHome(t, state, set)
@@ -101,13 +101,13 @@ func roundTrip(t *testing.T, bin, set string) (string, error, string) {
 	configSync(t, first, state, set, "save")
 	second := sandboxHome(t, state, set)
 	out, err := codexIn(t, bin, second, "app-server", "daemon", "start")
-	return out, err, second
+	return out, second, err
 }
 
 func TestCodexDaemonStartsInEverySandboxAfterAHomeRoundTrip(t *testing.T) {
 	bin := codexForDaemon(t)
 	set := proveohome.ConfigSet(codexHomeMount(t))
-	out, err, second := roundTrip(t, bin, set)
+	out, second, err := roundTrip(t, bin, set)
 	if err != nil || !strings.Contains(out, `"status":"started"`) {
 		t.Fatalf("the second sandbox's daemon did not start: %v\n%s", err, out)
 	}

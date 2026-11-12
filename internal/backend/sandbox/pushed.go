@@ -2,15 +2,16 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -21,12 +22,8 @@ var confirmFetchPushed = func(branches []string) bool {
 	if !headedConfirm() {
 		return false
 	}
-	screen, err := openScreen()
-	if err != nil {
-		return false
-	}
-	defer screen.Fini()
-	return choiceui.ConfirmFetchPushed(screen, branches, fetchPushedWait)
+	ptyproxy.DiscardInput(os.Stdin)
+	return askFetchPushed(branches, fetchPushedWait)
 }
 
 var fetchName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -127,21 +124,25 @@ func pushedBranches(reflog string, since time.Time) []string {
 	return out
 }
 
-func gitReflog(dir string) (string, error) {
-	out, err := exec.Command("git", "-C", dir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs").Output()
-	return string(out), err
+func gitReflog(ctx context.Context, dir string) (string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, "git", "-C", dir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs")
+	out, err := cmd.Output()
+	return string(out), finish(err)
 }
 
-func sandboxReflog(name, workdir string) (string, error) {
-	out, err := exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "git", "-C", workdir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs").Output()
-	return string(out), err
+func sandboxReflog(ctx context.Context, name, workdir string) (string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, "exec", "-w", "/", name, "--", "git", "-C", workdir, "log", "-g", "--date=unix", "--all", "--format=%gd%x09%gs")
+	out, err := cmd.Output()
+	return string(out), finish(err)
 }
 
 func offerPushedFetch(in Input) bool {
 	return !in.Man.IsAssistant()
 }
 
-func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
+// reportPushedBranches names, into out, each branch the agent pushed during the run, and fetches
+// them when the operator asks; the fetch commands otherwise go to the run log.
+func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time, out *Block) {
 	var reflog string
 	var err error
 	switch {
@@ -150,9 +151,9 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 		if wd == "" {
 			return
 		}
-		reflog, err = sandboxReflog(cfg.Name, wd)
+		reflog, err = sandboxReflog(in.ctx(), cfg.Name, wd)
 	case !in.Clone && in.RepoRoot != "":
-		reflog, err = gitReflog(in.RepoRoot)
+		reflog, err = gitReflog(in.ctx(), in.RepoRoot)
 	default:
 		return
 	}
@@ -163,25 +164,45 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 	if len(branches) == 0 {
 		return
 	}
-	ui.Section(ui.SectionResults)
-	for _, branch := range branches {
-		ui.Storef("pushed %s", branch)
-	}
+	fetched := map[string]bool{}
+	defer func() { out.Fact(pushedFacts(branches, fetched)...) }()
 	if !offerPushedFetch(in) || in.RepoRoot == "" || len(pushedFetchArgs(in.RepoRoot, branches)) == 0 {
 		return
 	}
 	if !confirmFetchPushed(branches) {
 		for _, line := range fetchPushedLines(in.RepoRoot, branches) {
-			ui.Notef("%s", line)
+			ui.Logf("%s", line)
 		}
 		return
 	}
 	for _, args := range pushedFetchArgs(in.RepoRoot, branches) {
-		out, err := exec.Command("git", args...).CombinedOutput()
-		if err != nil {
-			ui.Warnf("fetch failed (%v): %s", err, strings.TrimSpace(string(out)))
+		remote := args[4]
+		cmd, finish := boundForeground(in.ctx(), guestExecDeadline, "git", args...)
+		said, err := cmd.CombinedOutput()
+		if err = finish(err); err != nil {
+			for _, b := range args[5:] {
+				out.Item(Item{Warn: true, Text: remote + "/" + b + " — not fetched", Detail: []string{failure(err, string(said))}})
+			}
 			continue
 		}
-		ui.Storef("fetched %s", strings.Join(args[4:], " "))
+		for _, b := range args[5:] {
+			fetched[remote+"/"+b] = true
+		}
 	}
+}
+
+// pushedFacts is the pushed fact: one row per pushed branch, dim "fetched" under each one fetched.
+func pushedFacts(branches []string, fetched map[string]bool) []ui.Fact {
+	rows := make([]ui.Fact, 0, len(branches))
+	for i, b := range branches {
+		row := ui.Fact{Role: ui.RoleCloud, Value: b}
+		if i == 0 {
+			row.Key = "pushed"
+		}
+		if fetched[b] {
+			row.Detail = []string{"fetched"}
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }

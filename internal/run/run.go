@@ -18,9 +18,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/githubaccess"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/hermesdesktop"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
@@ -29,6 +31,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -38,12 +41,12 @@ import (
 // Deps are the host- and terminal-bound capabilities a run needs.
 type Deps struct {
 	ManifestFor      func(target string) (manifest.Manifest, error)
-	PickProject      func(projs []workspace.Project) string
+	PickProject      func(ask ScopeAsk) (scope string, ok bool)
 	PromptEnv        func(target string, missing []manifest.EnvVar) map[string]string
-	GitHubTokenEnv   func() string
+	GitHubTokenEnv   func() (envVar string, items []sandbox.Item) // stages the host's GitHub token; items say what degraded
 	ProvisionConfirm func(question string) bool
 	PreflightImages  func(man manifest.Manifest, agentImage string) (string, error)
-	EnsureDesktop    func() ([]string, error) // installs Hermes Desktop when missing; returns its launch argv
+	EnsureDesktop    func() (launch []string, installed bool, err error) // installs Hermes Desktop when missing; installed is this run's install
 }
 
 func Do(p Params, d Deps) (err error) {
@@ -52,17 +55,27 @@ func Do(p Params, d Deps) (err error) {
 
 	log, logErr := runlog.Open(rs.Sid)
 	rs.Log = log
+	runReported := false
 	if logErr != nil {
 		ui.Warnf("run log unavailable: %v", logErr)
 	} else {
 		ui.TeeTo(rs.Log.Writer())
 		defer rs.Log.Close()
 		ui.Section(ui.SectionRun)
-		ui.Storef("run log: %s", rs.Log.Path())
 	}
 	rs.RunDir = RunDirOf(rs.Sid)
 	// Registered after the log's own Close, so LIFO runs it first.
 	defer func() { recordOutcome(rs.AgentLaunched, err) }()
+	defer func() {
+		if rs.AgentLaunched {
+			results.SetExit(results.Dir(StateDir()), rs.Sid, exitStatus(err))
+		}
+	}()
+	defer func() {
+		if err != nil {
+			endEarly(&rs, p.PrintOnly, runReported)
+		}
+	}()
 
 	rs.Man, err = d.ManifestFor(p.Target)
 	if err != nil {
@@ -77,21 +90,102 @@ func Do(p Params, d Deps) (err error) {
 		return fmt.Errorf("cursor has no --local-model path (inference is vendor-pinned); unset it or use another harness")
 	}
 
-	if err := resolveWorkspace(&rs, &p, d); err != nil {
+	if err := detectWorkspace(&rs, &p); err != nil {
 		return err
 	}
-	if err := promptChoices(&rs, &p, d); err != nil {
+	if !p.PrintOnly {
+		sandbox.ReconcileResults(results.Dir(StateDir()), rs.Workspace.RepoRoot)
+	}
+	if err := choosePages(&rs, &p, d); err != nil {
 		return err
 	}
-	if err := resolveCredentials(&rs, &p, d); err != nil {
+	reportRun(&rs, p.PrintOnly)
+	runReported = true
+	if err := preflightImage(&rs, &p, d); err != nil {
+		return err
+	}
+	if err := ensureDesktop(&rs, &p, d); err != nil {
+		return err
+	}
+	resolveCredentials(&rs, &p, d)
+	if err := planMounts(&rs, &p); err != nil {
 		return err
 	}
 	buildPosture(&rs, &p)
-	assembleEnv(&rs, &p, d)
 	return launchSandbox(&rs, &p, d)
 }
 
+// ensureDesktop makes sure Hermes Desktop is installed when the run drives it, under "run" with the image pull.
+func ensureDesktop(rs *Spec, p *Params, d Deps) error {
+	if !slices.Contains(p.Addons, addonDesktop) || p.PrintOnly || d.EnsureDesktop == nil {
+		return nil
+	}
+	launch, installed, err := d.EnsureDesktop()
+	if err != nil {
+		return err
+	}
+	rs.DesktopLaunch, rs.Desktop = launch, desktopFact(installed)
+	return nil
+}
+
 var sandboxReady = sandbox.Ready
+
+// reportRun prints the run block: where the transcript is, and the scope the run took.
+func reportRun(rs *Spec, printOnly bool) {
+	ui.Section(ui.SectionRun)
+	ui.Facts(logFact(rs.Log.Path(), printOnly), ui.Fact{Role: ui.RoleStore, Key: "scope", Value: rs.Workspace.ScopeLabel})
+}
+
+// endEarly prints what a failed run had not printed yet: the log row under "run", then the
+// workspace and interface items it held.
+func endEarly(rs *Spec, printOnly, runReported bool) {
+	if !runReported {
+		ui.Section(ui.SectionRun)
+		ui.Facts(logFact(rs.Log.Path(), printOnly))
+	}
+	if !rs.ItemsHanded {
+		reportUnhanded(rs, printOnly)
+	}
+}
+
+// reportUnhanded prints the workspace and interface items of a run that ended before its blocks did.
+func reportUnhanded(rs *Spec, printOnly bool) {
+	path := screenPaths(printOnly)
+	sandbox.PrintBlock(sandbox.WorkspaceHeading, nil, sandbox.WithPaths(rs.Workspace.Items, path))
+	sandbox.PrintBlock(sandbox.InterfaceHeading, append(slices.Clone(rs.InterfaceFacts), rs.Desktop), sandbox.WithPaths(rs.Interface, path))
+}
+
+// screenPaths writes the host paths inside a screen line: home-relative on a live run, absolute under --print.
+func screenPaths(printOnly bool) func(string) string {
+	if printOnly {
+		return sandbox.Absolute
+	}
+	return ui.TildeIn
+}
+
+// logFact is the run log's row: home-relative on a live run, absolute under --print.
+func logFact(path string, printOnly bool) ui.Fact {
+	if path != "" && !printOnly {
+		path = ui.Tilde(path)
+	}
+	return ui.Fact{Role: ui.RoleStore, Key: "log", Value: path}
+}
+
+// preflightImage makes the agent image local and reads the agent version it pins.
+func preflightImage(rs *Spec, p *Params, d Deps) error {
+	if !p.PrintOnly && d.PreflightImages != nil {
+		image, err := d.PreflightImages(rs.Man, p.Image)
+		if err != nil {
+			return err
+		}
+		p.Image = image
+	}
+	if v := posture.AgentVersion(p.Image); v != "" {
+		rs.Backend.AgentVersion = v
+		ui.Logf("agent: %s %s — pinned at build (`mise run build %s` moves it)", p.Target, v, p.Target)
+	}
+	return nil
+}
 
 // requireSandbox refuses a run that sbx cannot host: there is no other backend.
 func requireSandbox(p Params, d Deps) error {
@@ -101,7 +195,131 @@ func requireSandbox(p Params, d Deps) error {
 	return nil
 }
 
-func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
+// ScopeAsk is what the scope page is asked with.
+type ScopeAsk struct {
+	Target   string
+	RepoRoot string
+	Projects []workspace.Project
+	Picked   string        // the scope an earlier visit chose; "" is the repo root
+	Step     choiceui.Step // the page's place among the run's pages
+}
+
+// scopeChoice is what a monorepo run that named no scope does about it.
+type scopeChoice int
+
+const (
+	scopeSilent scopeChoice = iota // take the repo root and say nothing
+	scopeAsk                       // the operator picks
+	scopeRoot                      // the question is skipped: take the repo root and say so
+)
+
+// scopeGate decides whether a run asks for a scope: never under --print, --yes or the scheduler.
+func scopeGate(p *Params, tty, wizard, scheduled bool) scopeChoice {
+	switch {
+	case p.PrintOnly:
+		return scopeSilent
+	case p.Yes || scheduled:
+		return scopeRoot
+	case tty && wizard:
+		return scopeAsk
+	}
+	return scopeSilent
+}
+
+// chooseScope resolves the scope of a monorepo run that named none; "" is the repo root.
+func chooseScope(gate scopeChoice, ask ScopeAsk, pick func(ScopeAsk) (string, bool)) (string, error) {
+	if gate != scopeAsk {
+		return "", nil
+	}
+	scope, ok := pick(ask)
+	if !ok {
+		return "", errors.New("cancelled at the scope prompt")
+	}
+	return scope, nil
+}
+
+// errStepBack is the form reporting a step back to the page before it.
+var errStepBack = errors.New("step back")
+
+// runLeave is what Ctrl+C asks on a run's pages: nothing exists yet to leave behind.
+var runLeave = choiceui.Leave{Title: "Leave proveo run?", Body: "No sandbox has been created or resumed."}
+
+// formVisit is one visit to the run's form: its place among the pages, and the
+// form an earlier visit stepped back from.
+type formVisit struct {
+	step    choiceui.Step
+	left    *choiceui.Form
+	onEnter func() []string // what accepting the form starts, for the scope this visit has
+}
+
+// runOnEnter names what accepting the run's form starts, in order.
+// SPEC: _spec/internal/run/run-spec.puml
+func runOnEnter(p *Params, ws workspace.MountSpec) []string {
+	var out []string
+	switch on, whyOff, err := decideClone(p, ws); {
+	case err != nil:
+	case on:
+		out = append(out, "clone the repository into a private workspace — the checkout is not written")
+	case whyOff != "":
+		out = append(out, "mount the checkout — the agent edits it directly ("+whyOff+")")
+	default:
+		out = append(out, "mount the checkout — the agent edits it directly (--clone=false)")
+	}
+	return append(out, "create the sandbox, or re-attach to the one this folder left", "start "+p.Target)
+}
+
+// choosePages walks the run's pages: the scope, then the form. A step back from
+// the form returns to the scope page with the cursor where it was left.
+// SPEC: _spec/internal/run/run-spec.puml
+func choosePages(rs *Spec, p *Params, d Deps) error {
+	gate := scopeGate(p, agentio.IsStdinTTY(), agentio.WizardEnabled(), scheduled())
+	var projs []workspace.Project
+	if strings.Trim(p.Scope, "/") == "" && gate != scopeSilent && rs.Workspace.Scope.IsRepo {
+		projs = workspace.DiscoverProjects(rs.Workspace.RepoRoot)
+	}
+	return walkPages(rs, p, gate, projs, d.PickProject, func(visit *formVisit) error {
+		visit.onEnter = func() []string { return runOnEnter(p, rs.Workspace.WS) }
+		return promptChoices(rs, p, d, visit)
+	})
+}
+
+// walkPages asks for the scope when projs holds any, applies it, and runs form;
+// each step back starts over from the parameters the pages were entered with.
+func walkPages(rs *Spec, p *Params, gate scopeChoice, projs []workspace.Project,
+	pick func(ScopeAsk) (string, bool), form func(*formVisit) error) error {
+	scope := strings.Trim(p.Scope, "/")
+	base, visit := p.clone(), formVisit{}
+	for {
+		*p = base.clone()
+		if len(projs) > 0 {
+			ask := ScopeAsk{Target: p.Target, RepoRoot: rs.Workspace.RepoRoot, Projects: projs, Picked: scope}
+			if gate == scopeAsk {
+				ask.Step, visit.step = choiceui.Step{At: 1, Of: 2, Leave: runLeave}, choiceui.Step{At: 2, Of: 2, Leave: runLeave}
+			}
+			var err error
+			if scope, err = chooseScope(gate, ask, pick); err != nil {
+				return err
+			}
+		}
+		applyScope(rs, p, scope)
+		err := form(&visit)
+		if errors.Is(err, errStepBack) {
+			continue
+		}
+		switch {
+		case err != nil:
+		case scope != "":
+			rs.Workspace.ScopeLabel = scope
+		case len(projs) > 0 && gate == scopeRoot:
+			rs.Workspace.ScopeLabel = "repo root"
+		}
+		return err
+	}
+}
+
+// detectWorkspace finds, once, what the run stands on: the access settings, the
+// repository and the output directory.
+func detectWorkspace(rs *Spec, p *Params) error {
 	path, err := githubaccess.Path()
 	if err != nil {
 		return fmt.Errorf("GitHub access settings: %w", err)
@@ -126,17 +344,12 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 
-	rs.Workspace.SubScope = strings.Trim(p.Scope, "/")
-	if rs.Workspace.SubScope == "" && !p.PrintOnly && agentio.IsStdinTTY() && agentio.WizardEnabled() && rs.Workspace.Scope.IsRepo {
-		if projs := workspace.DiscoverProjects(rs.Workspace.RepoRoot); len(projs) > 0 {
-			rs.Workspace.SubScope = d.PickProject(projs)
-		}
-	}
-	if rs.Workspace.SubScope != "" {
-		ui.Section(ui.SectionScope)
-		ui.Storef("scope: %s", rs.Workspace.SubScope)
-	}
+	return nil
+}
 
+// applyScope points the run at scope: its mount, its env file, and what that file sets.
+func applyScope(rs *Spec, p *Params, scope string) {
+	rs.Workspace.SubScope = scope
 	rs.Workspace.WS = workspace.MountSpec{
 		Workspace: rs.Man.Workspace, OutputDir: p.Output,
 		MountRootDeps: mountRootDeps(os.Getenv),
@@ -180,16 +393,14 @@ func resolveWorkspace(rs *Spec, p *Params, d Deps) error {
 			p.MiseTrust = mcpOn
 		}
 	}
-
-	return nil
 }
 
-func promptChoices(rs *Spec, p *Params, d Deps) error {
+func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 	var err error
 	rs.Choices.SettingsRoot = proveohome.Root(os.Getenv)
 	rs.Choices.Settings, err = agentsettings.Load(rs.Choices.SettingsRoot)
 	if err != nil {
-		ui.Warnf("%v — continuing without cached settings", err)
+		settingsWarning("cached settings — unreadable, not used", err, p.PrintOnly)
 	}
 	rs.Choices.Promptable = cacheApplies(p.PrintOnly, agentio.IsStdinTTY())
 	if err := p.applyCapabilities(rs.Man); err != nil {
@@ -202,13 +413,17 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	}
 	rs.Choices.PortsRoot = realPathOf(scanRoot(p.Input, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot)))
 	p.discovered = devports.Discover(rs.Choices.PortsRoot)
+	var gone []sandbox.Item
 	if saved, ok := rs.Choices.Settings.PortsFor(rs.Choices.PortsRoot); ok {
-		p.Ports = rememberedPorts(saved, p.discovered)
+		p.Ports, gone = rememberedPorts(saved, p.discovered)
 	}
 	p.discoveredApps = devports.AndroidApps(rs.Choices.PortsRoot)
 	if saved, ok := rs.Choices.Settings.AppsFor(rs.Choices.PortsRoot); ok {
-		p.Apps = rememberedApps(saved, p.discoveredApps)
+		var apps []sandbox.Item
+		p.Apps, apps = rememberedApps(saved, p.discoveredApps)
+		gone = append(gone, apps...)
 	}
+	rs.Interface = gone
 	if p.Roles == nil {
 		p.Roles = provider.Roles{}
 	}
@@ -216,7 +431,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 		return err
 	}
 	if rs.Choices.Promptable && !p.Yes {
-		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot); err != nil {
+		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot, visit); err != nil {
 			return err
 		}
 	}
@@ -237,7 +452,7 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 			rs.Choices.Settings.RememberApps(rs.Choices.PortsRoot, appsToRemember(p.Apps))
 		}
 		if err := rs.Choices.Settings.Save(rs.Choices.SettingsRoot); err != nil {
-			ui.Warnf("%v", err)
+			settingsWarning("cached settings — not saved", err, p.PrintOnly)
 		}
 	}
 	if scheduled() {
@@ -247,19 +462,20 @@ func promptChoices(rs *Spec, p *Params, d Deps) error {
 	}
 	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
 	if hasAddon(p.Addons, "browser") && rs.Backend.BrowserImage != "" {
-		chosen, isLocal := posture.ResolveImageChoice(rs.Backend.BrowserImage)
+		var isLocal bool
+		p.Image, isLocal = posture.ResolveImageChoice(rs.Backend.BrowserImage)
 		if isLocal {
-			ui.Section(ui.SectionRun)
-			ui.Appf("image: %s (local build — newer than the published tag)", chosen)
+			ui.Logf("image: %s (local build — newer than the published tag)", p.Image)
 		}
-		p.Image = chosen
-		ui.Appf("variant: browser → %s", p.Image)
-	}
-	if v := posture.AgentVersion(p.Image); v != "" {
-		ui.Section(ui.SectionRun)
-		ui.Appf("agent: %s %s — pinned at build (`mise run build %s` moves it)", p.Target, v, p.Target)
+		ui.Logf("variant: browser → %s", posture.Image(p.Image))
 	}
 	return nil
+}
+
+// settingsWarning is a ⚠ item about the cached settings, with err dim under it, its host paths written for the screen.
+func settingsWarning(head string, err error, printOnly bool) {
+	ui.Warnf("%s", head)
+	ui.Detailf("%s", screenPaths(printOnly)(err.Error()))
 }
 
 // rememberedLocalModel keeps a local model in the cache only for a def whose row chooses it.
@@ -270,87 +486,176 @@ func rememberedLocalModel(man manifest.Manifest, localModel string) string {
 	return localModel
 }
 
-// startHostCDP opens or reuses the host browser for the host-CDP add-on and returns the agent's env.
-func startHostCDP(p *Params) ([]string, error) {
+// startHostCDP opens or reuses the host browser for the host-CDP add-on; it returns the agent's env,
+// the browser's interface fact and the interface items.
+func startHostCDP(p *Params) ([]string, ui.Fact, []sandbox.Item, error) {
 	if !hasAddon(p.Addons, addonHostCDP) {
-		return nil, nil
+		return nil, ui.Fact{}, nil, nil
 	}
-	ui.Section(ui.SectionInterface)
 	port, err := hostcdp.Port(os.Getenv)
 	if err != nil {
-		return nil, err
+		return nil, ui.Fact{}, nil, err
 	}
-	profile, _ := hostcdp.ProfileDir(p.Target)
+	var fact ui.Fact
 	if p.PrintOnly {
-		ui.Hostf("%s: the run opens a Chrome on %s with CDP on 127.0.0.1:%d (not started in print mode)", addonHostCDP, profile, port)
-	} else if err := hostcdp.Ensure(p.Target, port, ui.Hostf); err != nil {
-		return nil, fmt.Errorf("%s: %w", addonHostCDP, err)
+		profile, _ := hostcdp.ProfileDir(p.Target)
+		fact = ui.Fact{Role: ui.RoleHost, Key: "chrome", Value: "not started in print mode",
+			Detail: []string{fmt.Sprintf("CDP 127.0.0.1:%d · profile %s", port, profile)}}
+	} else {
+		var opened hostcdp.Opened
+		if err := startAddon(addonHostCDP, func(report func(string, ...any)) (err error) {
+			opened, err = hostcdp.Ensure(p.Target, port, report)
+			return err
+		}); err != nil {
+			return nil, ui.Fact{}, nil, fmt.Errorf("%s: %w", addonHostCDP, err)
+		}
+		fact = chromeFact(opened, port)
 	}
-	ui.Warnf("%s: the agent controls every tab and session in that browser — log into only what it should touch", addonHostCDP)
-	return []string{fmt.Sprintf("%s=%d", hostcdp.EnvPort, port)}, nil
+	items := []sandbox.Item{{Warn: true, Text: addonHostCDP + " — the agent controls every tab and session in that browser",
+		Detail: []string{"log into only what it should touch"}}}
+	return []string{fmt.Sprintf("%s=%d", hostcdp.EnvPort, port)}, fact, items, nil
 }
 
-// startHostADB reuses or boots the host emulator for the android add-on and returns the agent's env.
-func startHostADB(p *Params) ([]string, error) {
-	if !hasAddon(p.Addons, addonAndroid) {
-		return nil, nil
+// chromeFact is the host browser on CDP port: the one the run opened and its profile, or a reused one.
+func chromeFact(o hostcdp.Opened, port int) ui.Fact {
+	at := fmt.Sprintf("CDP 127.0.0.1:%d", port)
+	if o.Browser == "" {
+		return ui.Fact{Role: ui.RoleHost, Key: "chrome", Value: at + " (reused)"}
 	}
-	ui.Section(ui.SectionInterface)
+	return ui.Fact{Role: ui.RoleHost, Key: "chrome", Value: o.Browser + " · " + at, Detail: []string{"profile " + ui.Tilde(o.Profile)}}
+}
+
+// startHostADB reuses or boots the host emulator for the android add-on; it returns the agent's env,
+// the device's interface fact and the interface items.
+func startHostADB(p *Params) ([]string, ui.Fact, []sandbox.Item, error) {
+	if !hasAddon(p.Addons, addonAndroid) {
+		return nil, ui.Fact{}, nil, nil
+	}
 	port, err := hostadb.Port(os.Getenv)
 	if err != nil {
-		return nil, err
+		return nil, ui.Fact{}, nil, err
 	}
-	if p.PrintOnly {
-		ui.Hostf("%s: the run reuses or boots an emulator on the host adb server 127.0.0.1:%d (not started in print mode)", addonAndroid, port)
-	} else if err := hostadb.Ensure(os.Getenv, port, ui.Hostf); err != nil {
-		return nil, fmt.Errorf("%s: %w", addonAndroid, err)
+	var dev hostadb.Started
+	if !p.PrintOnly {
+		if err := startAddon(addonAndroid, func(report func(string, ...any)) (err error) {
+			dev, err = hostadb.Ensure(os.Getenv, port, report)
+			return err
+		}); err != nil {
+			return nil, ui.Fact{}, nil, fmt.Errorf("%s: %w", addonAndroid, err)
+		}
 	}
-	ui.Warnf("%s: the agent controls every device on that adb server, and the server dials any address it is told to from this host — outside sbx egress", addonAndroid)
-	return hostadb.GuestEnv(port), nil
+	items := []sandbox.Item{{Warn: true, Text: addonAndroid + " — the agent controls every device on that adb server",
+		Detail: []string{"the server dials any address it is told to from this host, outside sbx egress"}}}
+	return hostadb.GuestEnv(port), androidFact(dev, port), items, nil
 }
 
-func reportSandboxLogin(rs *Spec) {
-	ui.Section(ui.SectionCredentials)
-	if !credentials.NeedsSandboxLogin(rs.Man, true,
-		rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
-		return
+// androidFact is the device on the host adb server: the AVD the run booted, a device it reused, or none under --print.
+func androidFact(dev hostadb.Started, port int) ui.Fact {
+	f := ui.Fact{Role: ui.RoleHost, Key: addonAndroid, Value: "not started in print mode",
+		Detail: []string{fmt.Sprintf("adb server 127.0.0.1:%d", port)}}
+	switch {
+	case dev.AVD != "":
+		f.Value = dev.Serial + " (AVD " + dev.AVD + ")"
+	case dev.Serial != "":
+		f.Value = dev.Serial + " (reused)"
 	}
-	svc := sbx.SubscriptionService(sbx.BuiltinAgent(credentials.HarnessFamily(rs.Man.Name)))
-	ui.Hostf("the sandbox has no credential of its own — sbx keeps a subscription login only in its own store")
-	if how := sbx.SignIn(svc); how != "" {
-		ui.Notef("sign in once with %s; sbx then holds it as %s (oauth configured) for every sandbox", how, svc)
-	}
+	return f
 }
 
-func resolveCredentials(rs *Spec, p *Params, d Deps) error {
-	var err error
+// desktopFact is the Hermes Desktop app the run opens on the sandbox, and whether this run installed it.
+func desktopFact(installed bool) ui.Fact {
+	f := ui.Fact{Role: ui.RoleHost, Key: addonDesktop, Value: "Hermes Desktop"}
+	if installed {
+		f.Value += " " + hermesdesktop.Tag + " (installed now)"
+	}
+	return f
+}
+
+// startAddon runs an add-on's host start behind a live line on a terminal; each line it reports
+// goes to the run log alone.
+func startAddon(name string, ensure func(report func(string, ...any)) error) error {
+	done := func() {}
+	if ui.Fancy() {
+		done = ui.Running(func(ran time.Duration) string { return name + " — starting · " + ran.Round(time.Second).String() }, name+" — starting")
+	} else {
+		ui.Logf("%s — starting", name)
+	}
+	err := ensure(func(format string, a ...any) { ui.Logf(format, a...) })
+	done()
+	return err
+}
+
+// resolveCredentials finds the login the run uses, prompts for a required variable no
+// credential covers, and prints the credentials block.
+func resolveCredentials(rs *Spec, p *Params, d Deps) {
 	rs.Creds.FileLogin, rs.Creds.LoginNeedsRefresh = credentials.PersistedLogin(p.Target, proveohome.Root(os.Getenv))
 	rs.Creds.StoreHeld = sbxStoredAuth(rs.Man)
 	rs.Creds.LoggedIn = rs.Creds.FileLogin || len(rs.Creds.StoreHeld) > 0
+	var facts []ui.Fact
+	var items []sandbox.Item
 	if !p.PrintOnly {
-		reportSandboxLogin(rs)
+		facts, items = loginFacts(rs, p, d)
 	}
-	if rs.Creds.LoginNeedsRefresh && !p.PrintOnly {
-		ui.Hostf("the login in the proveo home needs a refresh — the agent may report " +
-			"\"Login expired\" on its first turn, and can only carry on if the renewal reaches the " +
-			"provider from where it runs")
+	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
+	withheld := credentials.WithheldProviders(rs.Man, p.Target, p.AuthVar,
+		proveohome.Root(os.Getenv), rs.Creds.Lookup, rs.Creds.Detected)
+	if len(withheld) > 0 {
+		facts = append(facts, ui.Fact{Role: ui.RoleHost, Key: "withheld", Value: strings.Join(withheld, ", "),
+			Detail: []string{fmt.Sprintf("auth %q keeps them out of sbx's secret store and the agent's environment", p.AuthVar)}})
 	}
-	if rs.Creds.FileLogin && !p.PrintOnly && strings.TrimSpace(p.AuthVar) == "" {
+	for _, msg := range slices.Concat(p.Roles.MissingKeys(rs.Creds.Detected), p.Roles.WithheldKeys(withheld, p.AuthVar), p.Roles.BillingClashes(p.AuthVar)) {
+		items = append(items, sandbox.Item{Warn: true, Text: msg})
+	}
+	items = append(items, unknownModels(rs, p)...)
+	if !p.PrintOnly && d.GitHubTokenEnv != nil {
+		_, gh := d.GitHubTokenEnv()
+		items = append(items, gh...)
+	}
+	sandbox.PrintBlock(credentialsHeading, facts, items)
+}
+
+// credentialsHeading declares the credentials heading, for sandbox.PrintBlock.
+func credentialsHeading() { ui.Section(ui.SectionCredentials) }
+
+// loginFacts are the credentials block's login rows and warnings.
+func loginFacts(rs *Spec, p *Params, d Deps) (facts []ui.Fact, items []sandbox.Item) {
+	if credentials.NeedsSandboxLogin(rs.Man, true, rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
+		svc := sbx.SubscriptionService(sbx.BuiltinAgent(credentials.HarnessFamily(rs.Man.Name)))
+		ui.Logf("the sandbox has no credential of its own — sbx keeps a subscription login only in its own store")
+		login := sandbox.Item{Warn: true, Text: "login — none found"}
+		if how := sbx.SignIn(svc); how != "" {
+			login.Detail = []string{"sign in once: " + how}
+			ui.Logf("sign in once with %s; sbx then holds it as %s (oauth configured) for every sandbox", how, svc)
+		}
+		items = append(items, login)
+	}
+	gapFacts, gapItems := credentialGaps(rs, p, d)
+	facts = append(facts, gapFacts...)
+	if rs.Creds.LoginNeedsRefresh {
+		items = append(items, sandbox.Item{Warn: true, Text: "proveo home login — needs a refresh",
+			Detail: []string{`the agent may report "Login expired" on its first turn`}})
+		ui.Logf("the login in the proveo home needs a refresh; the agent carries on only if the renewal reaches the provider from where it runs")
+	}
+	if rs.Creds.FileLogin && strings.TrimSpace(p.AuthVar) == "" {
 		if av := credentials.EffectiveAuthVar(rs.Man, p.Target, p.AuthVar, proveohome.Root(os.Getenv), rs.Creds.Lookup); av != "" && strings.TrimSpace(rs.Creds.Lookup(av)) != "" {
-			ui.Hostf("%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
+			facts = append(facts, ui.Fact{Role: ui.RoleHost, Key: "env token", Value: av + " set, not injected"})
+			ui.Logf("%s is set but not injected — the login in the proveo home is the credential, and an env token would override it", av)
 		}
 	}
-	reportCredentialGaps(rs, p, d)
+	return facts, append(items, gapItems...)
+}
 
+// planMounts plans the workspace's mounts: the worktree links, the mount plan, the proveo home and the gh config.
+func planMounts(rs *Spec, p *Params) error {
+	var err error
 	rs.Workspace.WorktreeLinks, err = rs.Workspace.WS.PrepareWorktreeLinks(proveohome.Root(os.Getenv))
 	if err != nil {
-		ui.Warnf("git worktree: %v; falling back to GIT_DIR pinning", err)
+		rs.Workspace.Items = append(rs.Workspace.Items, sandbox.Item{Warn: true, Text: "git worktree — falling back to GIT_DIR pinning",
+			Detail: []string{err.Error()}})
 	}
 	rs.Workspace.WS.WorktreeLinkDir = rs.Workspace.WorktreeLinks
 
 	rs.Workspace.Mounts, rs.Workspace.Links = rs.Workspace.WS.Plan()
-	ui.Section(ui.SectionWorkspace)
-	reportLinks(rs.Workspace.Links)
 
 	rs.Creds.HomePlan, err = proveohome.Prepare(rs.Man.Home, os.Getenv)
 	if err != nil {
@@ -358,36 +663,31 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) error {
 	}
 	if rs.Creds.HomePlan.Root != "" {
 		rs.Workspace.Mounts = append(rs.Workspace.Mounts, rs.Creds.HomePlan.Mounts...)
-		ui.Storef("%s", homeLine(rs.Creds.HomePlan.Root, rs.Man.Home))
+		if !p.PrintOnly {
+			ui.Logf("%s", homeLine(rs.Creds.HomePlan.Root, rs.Man.Home))
+		}
 	}
 
 	if m, ok := credentials.GhConfigMount(os.Getenv); ok {
 		rs.Workspace.Mounts = append(rs.Workspace.Mounts, m)
-		ui.Hostf("gh session: %s mounted read-only", m.Host)
-	}
-
-	ui.Section(ui.SectionEgress)
-	rs.Creds.Detected = credentials.FilterProviders(provider.Detect(rs.Creds.Lookup), rs.Man.Capabilities)
-	withheld := credentials.WithheldProviders(rs.Man, p.Target, p.AuthVar,
-		proveohome.Root(os.Getenv), rs.Creds.Lookup, rs.Creds.Detected)
-	if len(withheld) > 0 {
-		ui.Hostf("auth %q: %s withheld from sbx's secret store too, not just the agent's environment",
-			p.AuthVar, strings.Join(withheld, ", "))
-	}
-	for _, msg := range p.Roles.MissingKeys(rs.Creds.Detected) {
-		ui.Warnf("%s", msg)
-	}
-	for _, msg := range p.Roles.WithheldKeys(withheld, p.AuthVar) {
-		ui.Warnf("%s", msg)
-	}
-	for _, msg := range p.Roles.BillingClashes(p.AuthVar) {
-		ui.Warnf("%s", msg)
+		ui.Logf("gh config: %s not mounted — its bind targets %s, and sandbox.WorkspaceBinds drops every bind under %s/",
+			m.Host, m.Container, proveohome.ContainerHome)
 	}
 	return nil
 }
 
 // homeLine names the proveo home and the directories under it the sandbox sees, at their host paths.
 func homeLine(root string, h manifest.Home) string {
+	return fmt.Sprintf("proveo home: %s (%s)", root, homeSeen(h))
+}
+
+// homeFact is homeLine as a workspace fact.
+func homeFact(root string, h manifest.Home) ui.Fact {
+	return ui.Fact{Role: ui.RoleStore, Key: "proveo home", Value: root, Detail: []string{homeSeen(h)}}
+}
+
+// homeSeen names the directories under the proveo home the sandbox sees, at their host paths.
+func homeSeen(h manifest.Home) string {
 	var seen []string
 	for _, m := range h.Mounts {
 		if rel := strings.Trim(strings.TrimSpace(m.Host), "/"); rel != "" {
@@ -399,27 +699,31 @@ func homeLine(root string, h manifest.Home) string {
 	if len(seen) == 1 {
 		where = "at its host path"
 	}
-	return fmt.Sprintf("proveo home: %s (the sandbox sees %s %s)", root, strings.Join(seen, ", "), where)
+	return "the sandbox sees " + strings.Join(seen, ", ") + " " + where
 }
 
-// reportCredentialGaps names what satisfies a subscription harness's missing variables, or prompts
-// or warns for each required variable no credential covers.
-func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
+// askOnTerminal reports whether the run may prompt the operator on the terminal; tests replace it.
+var askOnTerminal = func() bool { return agentio.IsStdinTTY() && agentio.WizardEnabled() }
+
+// credentialGaps names what satisfies a subscription harness's missing variables, or prompts
+// for or warns about each required variable no credential covers.
+func credentialGaps(rs *Spec, p *Params, d Deps) (facts []ui.Fact, items []sandbox.Item) {
 	missing := rs.Man.MissingEnv(rs.Creds.Lookup)
 	if len(missing) == 0 || p.PrintOnly {
-		return
+		return nil, nil
 	}
 	switch {
 	case rs.Man.Subscription && rs.Creds.FileLogin:
-		ui.Hostf("%s: using the login persisted in the proveo home", rs.Man.Name)
+		facts = append(facts, ui.Fact{Role: ui.RoleStore, Key: "login", Value: "persisted in the proveo home"})
 		missing = nil
 	case rs.Man.Subscription && len(rs.Creds.StoreHeld) > 0:
 		missing = nil
 	case rs.Man.Subscription:
 		rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
-		ui.Warnf("%s is starting without a credential — run `proveo init` to persist credentials between runs",
-			rs.Man.Name)
-	case agentio.IsStdinTTY() && agentio.WizardEnabled():
+		items = append(items, sandbox.Item{Warn: true, Text: rs.Man.Name + " — starting without a credential",
+			Detail: []string{"run `proveo init` to persist credentials between runs"}})
+	case askOnTerminal():
+		credentialsHeading()
 		for name, v := range d.PromptEnv(p.Target, missing) {
 			_ = os.Setenv(name, v)
 		}
@@ -430,8 +734,9 @@ func reportCredentialGaps(rs *Spec, p *Params, d Deps) {
 		if e.Description != "" {
 			msg += " — " + e.Description
 		}
-		ui.Warnf("%s", msg)
+		items = append(items, sandbox.Item{Warn: true, Text: msg})
 	}
+	return facts, items
 }
 
 // credentialsPosture reports where the run puts the provider key.
@@ -443,6 +748,11 @@ func credentialsPosture(rs *Spec, p *Params) string {
 }
 
 func buildPosture(rs *Spec, p *Params) {
+	image := posture.Image(p.Image)
+	if !p.PrintOnly {
+		src := sbx.ResolveImageSource(p.Image, imagebuild.New("").HostBuilder)
+		rs.Backend.ImageSource, image = &src, p.Image+" ("+src.Label()+")"
+	}
 	rs.Posture = posture.Posture{
 		Target:        p.Target,
 		Credentials:   credentialsPosture(rs, p),
@@ -453,7 +763,7 @@ func buildPosture(rs *Spec, p *Params) {
 		LocalModel:    p.LocalModel,
 		Observability: posture.Observability(),
 		EnforcedBy:    posture.EnforcedBy(),
-		Image:         posture.Image(p.Image),
+		Image:         image,
 		ModelRoles:    posture.RolesLine(p.Roles),
 		RoleProviders: strings.Join(p.Roles.Providers(), ","),
 		MCPGateway:    posture.MCPGateway(p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(), sandbox.MCPGatewayVar),
@@ -513,15 +823,12 @@ func stageCloneEnv(rs *Spec, p *Params) string {
 		err = copyFile0600(path, filepath.Join(rs.RunDir, "sbx", "project-env.base"))
 	}
 	if err != nil {
-		ui.Warnf("clone: %s not staged (%v) — the agent runs without the project .env", src, err)
+		rs.Workspace.Items = append(rs.Workspace.Items, sandbox.Item{Warn: true, Text: ".env — not staged, the agent runs without it",
+			Detail: []string{ui.Tilde(src), err.Error()}})
 		return ""
 	}
 	rs.Backend.CloneEnvBase = filepath.Join(rs.RunDir, "sbx", "project-env.base")
-	rs.Backend.CloneEnvHost, rs.Backend.CloneStrip = src, strip
-	ui.Storef("clone: %s mounted read-write as the clone's .env (a copy, refreshed each run; edits merge back at teardown)", src)
-	if len(dropped) > 0 {
-		ui.Notef("clone: dropped %s from it — sbx's proxy attaches those, the agent never holds them (`--credentials forward` keeps them)", strings.Join(dropped, ", "))
-	}
+	rs.Backend.CloneEnvHost, rs.Backend.CloneStrip, rs.Backend.CloneDropped = src, strip, dropped
 	return path
 }
 
@@ -545,61 +852,41 @@ func predictClone(p *Params, ws workspace.MountSpec) bool {
 	return err == nil && on
 }
 
-// assembleEnv checks the model variables the agent reads and exports the host's GitHub token.
-func assembleEnv(rs *Spec, p *Params, d Deps) {
+// unknownModels is one ⚠ item per model variable the agent reads that names no model this build knows.
+func unknownModels(rs *Spec, p *Params) []sandbox.Item {
+	var out []sandbox.Item
 	for _, k := range credentials.ConfigVarsFor(rs.Man) {
 		if v := strings.TrimSpace(rs.Creds.Lookup(k)); v != "" {
-			warnUnknownModel(k, v, p.LocalModel)
+			out = append(out, unknownModel(k, v, p.LocalModel)...)
 		}
 	}
-	if !p.PrintOnly && d.GitHubTokenEnv != nil {
-		d.GitHubTokenEnv()
-	}
+	return out
 }
 
 // launchSandbox resolves the clone and add-ons, then runs the agent in sbx (or prints the plan).
 func launchSandbox(rs *Spec, p *Params, d Deps) error {
-	if !p.PrintOnly && d.PreflightImages != nil {
-		image, err := d.PreflightImages(rs.Man, p.Image)
-		if err != nil {
-			return err
-		}
-		p.Image = image
-	}
 	desktop := slices.Contains(p.Addons, addonDesktop)
-	var desktopLaunch []string
-	if desktop && !p.PrintOnly && d.EnsureDesktop != nil {
-		launch, err := d.EnsureDesktop()
-		if err != nil {
-			return err
-		}
-		desktopLaunch = launch
-	}
 	applyAutoLocalModel(rs, p)
 	rs.Model.HostLLM = p.LocalModel != ""
 
 	ui.Section(ui.SectionEgress)
-	sandbox.WarnBaseline(sandbox.ReachHosts(rs.Man, rs.Creds.Detected))
-	credentials.WarnMountedSecrets(rs.Workspace.WS.InputDir, rs.Creds.Lookup)
+	egress, egressItems := sandbox.Baseline(sandbox.ReachHosts(rs.Man, rs.Creds.Detected))
+	if env := credentials.MountedSecretEnv(rs.Workspace.WS.InputDir, rs.Creds.Lookup); env != "" {
+		path := ui.Tilde
+		if p.PrintOnly {
+			path = sandbox.Absolute
+		}
+		rs.Workspace.Items = append(rs.Workspace.Items, sandbox.Item{Warn: true, Text: path(env) + " — holds a provider key the agent can read"})
+	}
 
-	ui.Section(ui.SectionExecution)
-	ui.Appf("backend: docker sandboxes (sbx)")
+	ui.Logf("backend: docker sandboxes (sbx)")
 	var err error
 	rs.Backend.Clone, rs.Backend.CloneOff, err = decideClone(p, rs.Workspace.WS)
 	if err != nil {
 		return err
 	}
-	switch {
-	case rs.Backend.Clone:
-		ui.Storef("workspace: private clone — your checkout is NOT written. "+
-			"The agent's commits are fetched back at teardown under refs/proveo/%s/ (`--clone=false` edits the checkout directly)", rs.Sid)
-	case rs.Backend.CloneOff != "":
-		ui.Notef("workspace: mounted checkout — clone default does not apply here: %s", rs.Backend.CloneOff)
-	}
 	if rs.Backend.Clone && workspace.LinkedWorktree(rs.Workspace.WS.InputDir) {
 		rs.Backend.CloneSource, _ = workspace.CloneSource(rs.Workspace.WS.InputDir)
-		ui.Notef("workspace: linked worktree — sbx clones the main worktree %s and the seed checks out %s; "+
-			"uncommitted edits in %s stay on the host", rs.Backend.CloneSource.Main, rs.Backend.CloneSource.Ref, rs.Workspace.WS.InputDir)
 	}
 	if rs.Backend.Clone {
 		rs.Backend.CloneEnv = stageCloneEnv(rs, p)
@@ -613,8 +900,9 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 				"  Run from a git checkout where --clone applies, so the seed installs into a private clone, or set PROVEO_DEPS=shared to accept the rewrite",
 				dropped, why, cloneOffHint(rs.Backend.CloneOff))
 		}
-		ui.Warnf("sbx mirrors the checkout, so its %d dependency tree(s) (node_modules, target, .venv …) cross into the sandbox as the host built them (%s);\n"+
-			"  `--clone` keeps untracked trees out and installs fresh", dropped, why)
+		rs.Workspace.Items = append(rs.Workspace.Items, sandbox.Item{Warn: true,
+			Text:   fmt.Sprintf("dependency trees — %d cross into the sandbox as the host built them", dropped),
+			Detail: []string{why}})
 	}
 	browserOn := hasAddon(p.Addons, addonBrowser) && rs.Backend.BrowserImage != ""
 	cdpPort := 0
@@ -627,26 +915,35 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		servedModel = sbx.ContextTag(p.LocalModel, lm.Context)
 		if !p.PrintOnly {
 			notes := localModelNotes(lm, p.Target, servedModel)
-			if err := admitOversizedModel(sbx.EnsureHostOllama(p.LocalModel, lm.Context, os.Getenv, ui.Default), notes); err != nil {
+			pulled, err := sbx.EnsureHostOllama(p.LocalModel, lm.Context, os.Getenv, ui.Default)
+			if err := admitOversizedModel(err, notes); err != nil {
 				return fmt.Errorf("local model %s: %w", p.LocalModel, err)
 			}
 			if _, err := sbx.EnsureContextTag(p.LocalModel, lm.Context); err != nil {
 				return fmt.Errorf("local model %s: serve the %d-token context %s needs: %w", p.LocalModel, lm.Context, p.Target, err)
 			}
-			ui.Appf("local model: %s on the host's Ollama (host GPU)", servedModel)
+			model := ui.Fact{Role: ui.RoleHost, Key: "local model", Value: servedModel + " on the host's Ollama (host GPU)"}
+			if pulled > 0 {
+				model.Detail = []string{"pulled this run · " + sbx.GiB(pulled)}
+			}
+			egress = append(egress, model)
 		}
 	}
-	var agentEnv []string
-	if hostEnv, err := startHostCDP(p); err != nil {
-		return err
-	} else {
-		agentEnv = append(agentEnv, hostEnv...)
-	}
-	adbEnv, err := startHostADB(p)
+	sandbox.PrintBlock(func() { ui.Section(ui.SectionEgress) }, egress, egressItems)
+	cdpEnv, cdpFact, cdpItems, err := startHostCDP(p)
 	if err != nil {
 		return err
 	}
-	agentEnv = append(agentEnv, adbEnv...)
+	rs.InterfaceFacts = append(rs.InterfaceFacts, cdpFact)
+	rs.Interface = append(rs.Interface, cdpItems...)
+	adbEnv, adbFact, adbItems, err := startHostADB(p)
+	if err != nil {
+		return err
+	}
+	rs.InterfaceFacts = append(rs.InterfaceFacts, adbFact, rs.Desktop)
+	rs.Desktop = ui.Fact{}
+	rs.Interface = append(rs.Interface, adbItems...)
+	agentEnv := append(append([]string{}, cdpEnv...), adbEnv...)
 	agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
 	if rs.Model.HostLLM {
 		agentEnv = append(agentEnv, sbx.LocalModelEnv(servedModel)...)
@@ -657,13 +954,16 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	if err != nil {
 		return err
 	}
+	ports, unpublished := planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort)
+	rs.Interface = append(rs.Interface, unpublished...)
 	in := sandbox.Input{
 		AgentEnv: agentEnv,
 		Target:   p.Target, Image: p.Image, AuthVar: p.AuthVar,
-		Clone: rs.Backend.Clone, Extra: p.Extra,
+		AgentVersion: rs.Backend.AgentVersion,
+		Clone:        rs.Backend.Clone, CloneOff: rs.Backend.CloneOff, Extra: p.Extra,
 		RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
 		Browser: browserOn, CDPHostPort: cdpPort,
-		Ports:       planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort),
+		Ports: ports, InterfaceItems: rs.Interface, InterfaceFacts: rs.InterfaceFacts,
 		AndroidApps: androidApps(p), AndroidEnv: adbEnv,
 		Roles:        p.Roles,
 		Evidence:     p.evidenceOrDefault(),
@@ -671,10 +971,13 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		MCPGateway:   p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
 		MiseTrust:    p.miseTrustAllowed(),
 		GitTransport: p.GitTransport,
-		Desktop:      desktop, DesktopLaunch: desktopLaunch,
-		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir,
+		Desktop:      desktop, DesktopLaunch: rs.DesktopLaunch,
+		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir, ResultsDir: results.Dir(StateDir()),
 		ImageEntrypoint: sbx.ImageEntrypoint,
 		ImageSource: func(ref string) sbx.ImageSource {
+			if src := rs.Backend.ImageSource; src != nil && src.Ref == ref {
+				return *src
+			}
 			return sbx.ResolveImageSource(ref, imagebuild.New("").HostBuilder)
 		},
 		StoredAPIKeys:    sbx.APIKeyServices,
@@ -692,23 +995,35 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		CloneEnvHost:     rs.Backend.CloneEnvHost,
 		ProjectEnv:       workspace.ProjectEnvFile(rs.Workspace.WS.InputDir, rs.Workspace.WS.RepoRoot),
 		CloneEnvStrip:    rs.Backend.CloneStrip,
+		CloneEnvDropped:  rs.Backend.CloneDropped,
+		WorkspaceItems:   rs.Workspace.Items,
 		Links:            rs.Workspace.Links,
 		DataDir:          p.DataDir,
 		Memory:           sbx.MemoryLimit(),
 		CPUs:             sbx.CPULimit(),
 		HomeRoot:         rs.Creds.HomePlan.Root,
-		RunLog:           rs.Log.Path(),
 		HomeAccess:       homeAccess,
 	}
 	if p.PrintOnly {
 		cfg, w, secrets := sandbox.Spec(in)
+		rs.ItemsHanded = true
+		var home []ui.Fact
+		if rs.Creds.HomePlan.Root != "" {
+			home = append(home, homeFact(rs.Creds.HomePlan.Root, rs.Man.Home))
+		}
+		sandbox.ReportWorkspace(in, w.Report, sandbox.Absolute, home...)
+		ui.Section(ui.SectionSbx)
+		sandbox.PrintNotes(w.Report, sandbox.Absolute)
 		if _, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files); err != nil {
+			sandbox.PrintInterfacePlan(in)
 			return fmt.Errorf("write sandbox kit: %w", err)
 		}
-		ui.Storef("sandbox kit: %s (removed by `proveo clean`)", cfg.KitDir)
+		kit := []ui.Fact{{Role: ui.RoleStore, Key: "sandbox kit", Value: cfg.KitDir, Detail: []string{"`proveo clean` removes it"}}}
 		if homeAccess.FilesRoot != "" {
-			ui.Storef("home files: %s (copies the printed create line mounts; removed by `proveo clean`)", homeAccess.FilesRoot)
+			kit = append(kit, ui.Fact{Role: ui.RoleStore, Key: "home files", Value: homeAccess.FilesRoot,
+				Detail: []string{"copies the printed create line mounts", "`proveo clean` removes them"}})
 		}
+		ui.Facts(kit...)
 		if len(secrets) > 0 {
 			names := make([]string, 0, len(secrets))
 			for _, kv := range secrets {
@@ -716,6 +1031,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 			}
 			ui.Warnf("printed command needs these in sbx's secret store first: %s (`sbx secret set NAME`)", strings.Join(names, ", "))
 		}
+		sandbox.PrintInterfacePlan(in)
 		if desktop {
 			fmt.Printf("# sandbox\n%s\n# desktop\nsbx %s && Hermes Desktop → SSH gateway %s\n", sbx.CreateLine(cfg),
 				sbx.ShellJoin(sbx.SetupSSHArgs()), sandbox.DesktopGateway(cfg.Name))
@@ -730,7 +1046,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 			cmp.Or(sbx.ShellJoin(sbx.Launched(w.Entrypoint, imageCmd, cfg.Command)), "(no readable ENTRYPOINT on "+in.Image+")"))
 		return nil
 	}
-	rs.AgentLaunched = true
+	rs.AgentLaunched, rs.ItemsHanded = true, true
 	return sandbox.Run(in)
 }
 
@@ -744,18 +1060,18 @@ func realPathOf(p string) string {
 	return p
 }
 
-// rememberedPorts maps a saved answer onto this run's discovery; a port whose command is gone is dropped and reported.
-func rememberedPorts(saved []agentsettings.Port, found []devports.Candidate) []devports.Candidate {
-	var out []devports.Candidate
+// rememberedPorts maps a saved answer onto this run's discovery; gone is one ⚠ item per port whose command is gone.
+func rememberedPorts(saved []agentsettings.Port, found []devports.Candidate) (kept []devports.Candidate, gone []sandbox.Item) {
 	for _, sp := range saved {
 		i := slices.IndexFunc(found, func(c devports.Candidate) bool { return c.Port == sp.Port })
 		if i < 0 {
-			ui.Warnf("remembered port %d (%q in %s) is no longer in this workspace — not published", sp.Port, sp.Command, sp.Source)
+			gone = append(gone, sandbox.Item{Warn: true, Text: fmt.Sprintf("port %d — gone from this workspace, not published", sp.Port),
+				Detail: []string{fmt.Sprintf("remembered: `%s` in %s", sp.Command, sp.Source)}})
 			continue
 		}
-		out = append(out, found[i])
+		kept = append(kept, found[i])
 	}
-	return out
+	return kept, gone
 }
 
 // rememberedApps maps a saved answer onto this run's discovery; a module that is gone is dropped and reported.
@@ -767,17 +1083,17 @@ func androidApps(p *Params) []devports.AndroidApp {
 	return p.Apps
 }
 
-func rememberedApps(saved []agentsettings.App, found []devports.AndroidApp) []devports.AndroidApp {
-	var out []devports.AndroidApp
+func rememberedApps(saved []agentsettings.App, found []devports.AndroidApp) (kept []devports.AndroidApp, gone []sandbox.Item) {
 	for _, sa := range saved {
 		i := slices.IndexFunc(found, func(a devports.AndroidApp) bool { return a.Module == sa.Module })
 		if i < 0 {
-			ui.Warnf("remembered Android app %s (%s) is no longer in this workspace — not installed", sa.AppID, sa.Module)
+			gone = append(gone, sandbox.Item{Warn: true, Text: "android app " + sa.AppID + " — gone from this workspace, not installed",
+				Detail: []string{"remembered: module " + sa.Module}})
 			continue
 		}
-		out = append(out, found[i])
+		kept = append(kept, found[i])
 	}
-	return out
+	return kept, gone
 }
 
 func appsToRemember(chosen []devports.AndroidApp) []agentsettings.App {
@@ -796,8 +1112,8 @@ func portsToRemember(chosen []devports.Candidate) []agentsettings.Port {
 	return out
 }
 
-// planPorts keeps every guest port off relay, the browser relay's host port.
-func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay int) []sandbox.PublishedPort {
+// planPorts keeps every guest port off relay, the browser relay's host port; unpublished names each port it drops.
+func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay int) (kept []sandbox.PublishedPort, unpublished []sandbox.Item) {
 	free := sandbox.LoopbackFree
 	if printOnly {
 		free = func(int) bool { return true }
@@ -809,13 +1125,29 @@ func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay i
 	}
 	kept, dropped := sandbox.PlanPorts(out, free, relay)
 	for _, d := range dropped {
-		ui.Warnf("port %d not published — %s", d.Guest, devports.HostPortWhy(d.Guest))
+		unpublished = append(unpublished, sandbox.Item{Warn: true, Text: fmt.Sprintf("port %d — not published", d.Guest),
+			Detail: []string{devports.HostPortWhy(d.Guest)}})
 	}
-	return kept
+	return kept, unpublished
 }
 
 // recordOutcome writes the run's verdict into the transcript before Do returns
 // and the log closes.
+// exitStatus is the process status err leads to: the agent's own, 128+signal for a stop, else 1.
+func exitStatus(err error) int {
+	var ae backend.ExitError
+	var st backend.Stopped
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ae):
+		return ae.Code
+	case errors.As(err, &st):
+		return st.Code()
+	}
+	return 1
+}
+
 func recordOutcome(launched bool, err error) {
 	var ae backend.ExitError
 	switch {
@@ -824,8 +1156,7 @@ func recordOutcome(launched bool, err error) {
 	case err == nil:
 		ui.Logf("outcome: the agent exited 0")
 	case errors.As(err, &ae):
-		ui.Section(ui.SectionResults)
-		ui.Failf("the agent exited with code %d", ae.Code)
+		ui.Logf("outcome: the agent exited with code %d", ae.Code)
 	default:
 		ui.Logf("outcome: %v", err)
 	}

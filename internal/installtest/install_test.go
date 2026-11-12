@@ -13,9 +13,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/shell"
 )
 
-// cdnEnv names a pre-staged CDN dir (e.g. apps/cli/public/cli after `proveo-dev stage-cdn`).
+// cdnEnv names a pre-staged CDN dir (e.g. apps/cli/public/cli after `mise run stage-cdn`).
 const cdnEnv = "PROVEO_INSTALLTEST_CDN"
 
 const stagedVersion = "0.0.0-installtest"
@@ -76,6 +78,23 @@ func TestInstallScripts(t *testing.T) {
 
 	outputContains(t, "install.sh installs Go proveo", "proveo v"+version+" installed to:",
 		install(installHome, installRoot, cdn, true), bash, installScript)
+	rc := shell.Shell{Name: "bash"}.RCFile(runtime.GOOS, installHome)
+	pathLine := shell.Shell{Name: "bash"}.Block(filepath.Join(installRoot, "bin"))
+	fileHoldsOnce(t, "install.sh has `proveo setup` put proveo on PATH in the shell's rc", rc, pathLine)
+	outputContains(t, "a second install.sh over the first", "proveo v"+version+" installed to:",
+		install(installHome, installRoot, cdn, true), bash, installScript)
+	fileHoldsOnce(t, "a second install adds no second PATH line", rc, pathLine)
+	fileLacks(t, "setup's line stands in for install.sh's own markers", rc, "# Added by proveo install.sh")
+	outputLacks(t, "the closing text names the rc home-relative and suggests no init after init", []string{`\~`, "init --print"},
+		"source ~/"+filepath.Base(rc), install(installHome, installRoot, cdn, true), bash, installScript)
+
+	handHome, handRoot := filepath.Join(tmp, "home-hand"), filepath.Join(tmp, "install-hand")
+	mkdirs(t, handHome)
+	onPathByHand := append(install(handHome, handRoot, cdn, true), "PATH="+filepath.Join(handRoot, "bin")+":"+fakeBin+":"+path)
+	outputContains(t, "an install whose bin dir this shell has on PATH by hand", "proveo v"+version+" installed to:",
+		onPathByHand, bash, installScript)
+	handRC := shell.Shell{Name: "bash"}.RCFile(runtime.GOOS, handHome)
+	fileHoldsOnce(t, "still writes the PATH line a new shell needs", handRC, shell.Shell{Name: "bash"}.Block(filepath.Join(handRoot, "bin")))
 
 	retiredEnv := append(install(filepath.Join(tmp, "home-retired"), filepath.Join(tmp, "install-retired"), cdn, true),
 		"PROVEO_CLI_BASE_URL=file://"+filepath.Join(tmp, "missing-channel"))
@@ -267,11 +286,11 @@ func channelVersion(latest string) string {
 	return m.Version
 }
 
-// hermeticEnv drops inherited PROVEO_* so an operator's shell cannot steer the installer.
+// hermeticEnv is the environment without inherited PROVEO_*, XDG_* and STARSHIP_CONFIG, plus overrides.
 func hermeticEnv(overrides []string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "PROVEO_") {
+		if !strings.HasPrefix(kv, "PROVEO_") && !strings.HasPrefix(kv, "XDG_") && !strings.HasPrefix(kv, "STARSHIP_CONFIG=") {
 			env = append(env, kv)
 		}
 	}
@@ -321,6 +340,22 @@ func outputContains(t *testing.T, desc, expected string, env []string, name stri
 	})
 }
 
+// outputLacks runs the command and wants expected in its output and none of unexpected.
+func outputLacks(t *testing.T, desc string, unexpected []string, expected string, env []string, name string, args ...string) {
+	t.Helper()
+	t.Run(desc, func(t *testing.T) {
+		out, err := run(t, env, name, args...)
+		if err != nil || !strings.Contains(out, expected) {
+			t.Errorf("err=%v\nOutput: %s\nExpected to contain: %s", err, out, expected)
+		}
+		for _, u := range unexpected {
+			if strings.Contains(out, u) {
+				t.Errorf("Output holds %q:\n%s", u, out)
+			}
+		}
+	})
+}
+
 func fileExists(t *testing.T, desc, file string) {
 	t.Helper()
 	t.Run(desc, func(t *testing.T) {
@@ -354,6 +389,16 @@ func fileContains(t *testing.T, desc, file, expected string) {
 		b, err := os.ReadFile(file)
 		if err != nil || !strings.Contains(string(b), expected) {
 			t.Errorf("Expected %s to contain: %s\nOutput: %s (err=%v)", file, expected, clip(string(b)), err)
+		}
+	})
+}
+
+func fileHoldsOnce(t *testing.T, desc, file, expected string) {
+	t.Helper()
+	t.Run(desc, func(t *testing.T) {
+		b, err := os.ReadFile(file)
+		if n := strings.Count(string(b), expected); err != nil || n != 1 {
+			t.Errorf("Expected %s to hold once (holds %d): %q\nOutput: %s (err=%v)", file, n, expected, clip(string(b)), err)
 		}
 	})
 }

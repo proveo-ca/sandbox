@@ -57,7 +57,8 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' (Recommended)". MEASURED: stopOutcome(runErr, sig, forced) returns
 ' (teardown nil, result backend.Stopped{sig}) for a forwarded signal that is
 ' not the Ctrl+C "remove" path. A closed terminal or `kill -TERM proveo` prints
-' "stopped by SIGTERM — ending as on a normal exit", lifts clone edits and
+' "● <target> — stopped by SIGTERM" first under results (R2, the operator's
+' STOP MARK; "ending as on a normal exit" is a run-log row), lifts clone edits and
 ' commits, saves state and runs `sbx rm` (an OpenCode engine is retained), with
 ' no template-reload retry. proveo then EXITS 143 (SIGTERM) or 129 (SIGHUP)
 ' through cmd/proveo exitCode, and the transcript reads "outcome: stopped by
@@ -65,11 +66,19 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' HISTORY: before, a stop read as a failed run ("kept for diagnosis", no
 ' `sbx rm`); an earlier revision on 2026-10-17 exited 0.
 ' Teardown still keeps the sandbox when clone work could not be carried home.
+' THE THREE RECORDS A FAILURE OFFERS (note bottom of SBX) moved in R2: the
+' agent's tail goes to the run log on every run (dim under the kept ⚠ only for
+' an agent on the alternate screen), the transcript is a "transcript:" fact of
+' the results block, and the no-credential hint is one ⚠ item with each
+' variable's remedy dim. _spec/internal/backend/teardown.puml (WHAT TEARDOWN
+' PRINTS) holds the shape.
 ' Lifecycle: _spec/internal/sbx/kit-lifecycle.puml; exit status:
 ' _spec/internal/backend/exit-code.puml; the Ctrl+C path:
 ' _spec/internal/ptyproxy/pty-ownership.puml.
-' A failed run's kept-for-diagnosis hint names `sbx exec -it <name> bash`, as
-' in sbx's own exec reference (https://docs.docker.com/reference/cli/sbx/exec/).
+' A failed run's kept-for-diagnosis line keeps one dim fix on screen, `proveo
+' rm [--stop] <name>`; `sbx exec -it <name> bash`, as in sbx's own exec
+' reference (https://docs.docker.com/reference/cli/sbx/exec/), goes to the run
+' log (R2: lookInside is the kept item's Log line).
 '
 ' sandbox.Input.Workdir and run.Spec's Workspace.Workdir are deleted: nothing
 ' read them (MEASURED). The agent's working directory reaches the sandbox as
@@ -94,8 +103,8 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' a NEW sandbox through sbx's `--env-file` (sbx accepts it since v0.39.0,
 ' reported; the floor is 0.42.0): _spec/internal/credentials/
 ' credential-decisions.puml, PROJECT .env. The agent can still READ a .env in
-' the mounted tree, and credentials.WarnMountedSecrets(dir, lookup) says so when
-' it holds a provider key. The broker sentinel (apply_broker_sentinel,
+' the mounted tree, and the workspace block says so (credentials.MountedSecretEnv
+' names the file) when it holds a provider key. The broker sentinel (apply_broker_sentinel,
 ' ApplyBrokerSentinel, "proveo-brokered", PROVEO_CREDENTIAL_BROKER_KEYS) and
 ' CanonicalTiers are deleted.
 ' HISTORY (2026-10-16 → N7): the guard skipped sourcing when SANDBOX_NAME or
@@ -211,6 +220,10 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl. The walk
 ' recurses and matches the `.jsonl` suffix, so the table names only the root
 ' and never enumerates the dates. A target with no root names no transcript.
+' The walk reads the HOST copy, which only the state save writes: sbx keeps
+' ~/.claude/projects as a per-sandbox volume (state-sync.puml), so a failed
+' run's teardown looks the transcript up after stepState (teardown.puml, THE
+' TRANSCRIPT FOLLOWS THE STATE SAVE).
 '
 ' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
 ' Every other e2e drives the agent. `e2e/idle_test.go` reaches a prompt and then
@@ -845,7 +858,9 @@ note as Idle #F4F9FB
   infers a fact from one line of output.
 
   **Liveness is corroborating, so an unreadable listing reads as alive.**
-  ""sbx ls"" is consulted for the sandbox name proveo printed (""proveo-\d+-\d+"");
+  ""sbx ls"" is consulted for the sandbox name proveo printed
+  (""proveo-<target>-<hex8>"", read by ""sandboxNameIn""; the run ID
+  ""proveo-<unix>-<pid>"" in the log row is not a sandbox name);
   a listing that errors reports "running", because failing the test because
   ""sbx ls"" hiccuped would blame the agent for the tool. Listed NOWHERE is the
   failure — that is the sandbox being gone.

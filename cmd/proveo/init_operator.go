@@ -2,8 +2,10 @@
 package main
 
 import (
+	"cmp"
 	"os"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/operator"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -39,20 +41,16 @@ func applyOperatorAnswer(root, current, typed string) (string, error) {
 	return operator.Save(root, typed)
 }
 
-// operatorStage is `proveo init`'s last screen: the name agents address the operator by.
-func operatorStage(o initOptions, at choiceui.Step) (stepResult, error) {
+// operatorStage is `proveo init`'s last screen: the name agents address the operator by. The
+// name it sets, or reads when it cannot ask, becomes the operator block's fact.
+func operatorStage(o initOptions, at choiceui.Step, rep *initReport) (stepResult, error) {
 	root := proveohome.Root(os.Getenv)
 	current, err := operator.Load(root)
 	if err != nil {
-		ui.Warnf("could not read %s: %v", operator.Path(root), err)
+		rep.operatorItem(sandbox.Item{Warn: true, Text: ui.Tilde(operator.Path(root)) + " — unreadable", Detail: errLines(err)})
 	}
-	ui.Section(ui.SectionOperator)
 	if o.printOnly || o.yes || !interactiveTerminal() {
-		name := current
-		if name == "" {
-			name = operator.Default
-		}
-		ui.Notef("agents address you as %q — run `proveo init` from a shell to change it", name)
+		rep.setOperator(cmp.Or(current, operator.Default), rep.howTo("`proveo init` from a terminal changes it"))
 		return stepNone, nil
 	}
 	form := &choiceui.Form{
@@ -62,19 +60,23 @@ func operatorStage(o initOptions, at choiceui.Step) (stepResult, error) {
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
 		NoAxis: true,
 		Step:   at,
+		Skip:   "Skip",
 		Rows:   []choiceui.Row{operatorRow(current)},
 	}
 	out, err := form.RunStep()
-	if err != nil || out == choiceui.Cancelled {
-		return stepNext, err
+	switch {
+	case err != nil || out == choiceui.Cancelled || out == choiceui.Skipped:
+		return stepNext, stopAt(labelOperator, err)
+	case out == choiceui.Quit:
+		return stepQuit, nil
 	}
 	if out == choiceui.Back {
 		return stepBack, nil
 	}
 	name, err := applyOperatorAnswer(root, current, form.FieldValue("name"))
 	if err != nil {
-		return stepNext, err
+		return stepNext, stopAt(labelOperator, err)
 	}
-	ui.Okf("agents will address you as %q", name)
+	rep.setOperator(name, nil)
 	return stepNext, nil
 }

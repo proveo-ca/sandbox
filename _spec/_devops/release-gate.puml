@@ -3,15 +3,13 @@
 skinparam noteTextAlignment left
 ' purpose: what must be green before publishing images, and where each part runs
 ' covers: mise.toml
+' covers: e2e/gate_test.go
 ' covers: e2e/ladder_test.go
 ' covers: e2e/idle_test.go
 ' covers: internal/contract/base_template_test.go
-' covers: cmd/proveo-dev/ladder.go
-' covers: cmd/proveo-dev/idle.go
-' covers: cmd/proveo-dev/e2efull.go
-' covers: cmd/proveo-dev/gate.go
+' covers: internal/contract/release_gate_test.go
+' covers: internal/contract/release_targets_test.go
 ' covers: internal/contract/retirement_test.go
-' covers: cmd/proveo-dev/buildcli.go (requireRetirementLedger)
 ' Lineage and tags: image-lineage-and-publish.puml (same directory).
 '
 ' ── THE RETIREMENT LEDGER BLOCKS A CLI RELEASE (N33, DONE (wt) 2026-10-18) ──
@@ -30,10 +28,21 @@ skinparam noteTextAlignment left
 '                                              when that release already shipped
 '                                              the marker
 ' A shallow clone has no tags to read, so the last test skips with a remedy.
-' MEASURED, cmd/proveo-dev/buildcli.go:106,123: requireRetirementLedger runs the
-' test before goreleaser on `build-cli --release` and blocks the release unless
-' it PASSES — a skip blocks too. Reported: red with a marker v0.1.2 contains,
-' then green.
+' MEASURED 2026-10-18 on the release path of that day: the ledger ran before
+' goreleaser and blocked the release unless it PASSED — a skip blocked too.
+' Reported: red with a marker v0.1.2 contains, then green.
+' Since 2026-11-12 `mise run release` depends on the hidden release-ledger task:
+' PROVEO_RELEASE_GATE=1 go test of TestNoRetirementOutlivesOneRelease and
+' TestReleaseShipsATaggedHead (internal/contract/release_gate_test.go). Under
+' the gate, releaseGate(t) turns any skip of either test into a failure, and an
+' untagged HEAD fails with one line naming `git tag vX.Y.Z`, `mise run
+' deploy-cli` and `mise run dev-cli`, before goreleaser starts. Without the
+' gate both tests skip in test-go. deploy-cli depends on release, so it ships
+' tags only (_spec/internal/cdn/distribution-update.puml).
+' `mise run --skip-deps` drops depends and the depends of {task=…} run
+' entries (lab, mise 2026.10.17). So deploy-cli's own run starts with
+' PROVEO_RELEASE_GATE=1 TestStagedCDNIsTheTaggedRelease: the staged
+' latest.json must name a v* tag on HEAD before wrangler publishes.
 ' The gate turned red after v0.2.0 shipped. Removing the expired surfaces
 ' and their ledger rows made HEAD eligible for the next release.
 ' Why the split exists: _spec/_experiments/nested-sbx-kvm.puml — sbx is host-only.
@@ -47,6 +56,9 @@ skinparam noteTextAlignment left
 '
 ' IN-SANDBOX (or any host with docker):
 '   1  go build ./... && go vet ./... && go vet -tags e2e ./e2e/
+'      (`mise run lint` runs the e2e vet since 2026-11-10. A contract test,
+'      TestProveoBuildsForEveryReleaseTarget, cross-builds cmd/proveo for the
+'      eight goreleaser targets; `mise run ci` built the host platform only.)
 '   2  go test ./...                     unit + contract
 '   3  mise run build all                every image from source
 '   4  mise run test-images              every TestImage* suite, hermes included —
@@ -56,15 +68,22 @@ skinparam noteTextAlignment left
 '                                        TestOneImageTaskGatesBothReleaseGates).
 '                                        HISTORY: "11 suites across all four defs",
 '                                        and test-images-sbx skipped hermes.
+'                                        It starts with a goreleaser snapshot, so
+'                                        mise fetches goreleaser 2.17.0 (aqua,
+'                                        GitHub releases) here. Nobody has measured
+'                                        whether the sandbox's egress allows it.
 '   5  go test -tags e2e ./e2e/          the non-sbx e2e suite
 '
 ' ON THE HOST ONLY, because each needs sbx:
 '   6  the ladder, PER DEF — one climb per target, not one climb:
-'        for t in claudecode cursor opencode; do
-'          PROVEO_LADDER_TEST=1 PROVEO_LADDER_TARGET=$t \
-'            go test -tags e2e ./e2e/ -run Ladder -v
-'        done
-'      claudecode is the DEFAULT target, so a bare run measures only it. The
+'        mise run ladder-all
+'      runs `mise run --continue-on-error --jobs=1 ladder:claudecode :::
+'      ladder:codex ::: ladder:cursor ::: ladder:opencode`. Each hidden
+'      ladder:<def> task is its own 30m process with PROVEO_LADDER_TEST=1 and
+'      PROVEO_LADDER_TARGET=<def>, running
+'        go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v
+'      so a red def does not stop the next, and mise names the red ones.
+'      claudecode is the DEFAULT target, so a bare go test measures only it. The
 '      sbx fixes this suite proved for claudecode were applied to cursor by
 '      SYMMETRY rather than measurement — a contract with one data point.
 '   7  the credential control:
@@ -74,16 +93,22 @@ skinparam noteTextAlignment left
 '      It runs the SAME Kit twice, with and without credentials[], and fails if
 '      both give the same value — so it proves the declaration CAUSES the
 '      sentinel rather than merely coinciding with it.
-'   8  silent-death idle, PER DEF — `mise run test-e2e-full` is this plus 6:
-'        PROVEO_IDLE_TEST=1 PROVEO_IDLE_TARGETS=claudecode,cursor,opencode \
-'        PROVEO_IDLE_FOR=45s go test -tags e2e ./e2e/ -run TestAgentSurvivesIdleAtPrompt
+'   8  silent-death idle, PER DEF:
+'        mise run idle-all
+'      sets PROVEO_IDLE_TEST=1, PROVEO_IDLE_TARGETS=claudecode,cursor,opencode
+'      and PROVEO_IDLE_FOR (45s when unset or blank) and runs go test -run=^TestAgentSurvivesIdleAtPrompt$.
 '      The ladder holds raw `sbx run`. Idle holds `proveo run`, where a leaked
 '      DA1 becomes a prompt and the sandbox "was stopped". 45s is past sbx's
 '      30s auto-stop and the ~14s cursor death; a SKIP is not a pass.
+'   `mise run test-e2e-full` (depends test-images) runs `mise run
+'   --continue-on-error e2e-gated ::: idle-all ::: ladder-all`, ordered by
+'   wait_for: the e2e suite with PROVEO_IDLE_TEST and PROVEO_TOOLCHAIN_TEST on
+'   (PROVEO_TEST_GO_TIMEOUT, 150m when unset or blank), then 8, then 6. Every half runs;
+'   any red one fails it. Its own args reach the e2e pass alone.
 '
 ' ── THE VERDICT ITSELF IS A THING THAT CAN BE WRONG ─────────────────────────
-' `ladder-all` reads the ladder's result out of `go test` output, and it has
-' misread it twice, in OPPOSITE directions:
+' HISTORY, until 2026-11-12: `ladder-all` read the ladder's result out of
+' `go test` output, and it misread it twice, in OPPOSITE directions:
 '
 '   1  a SKIP exits 0, so an unchecked exit status reported PASS for four defs
 '      on a host with no sbx — four climbs that never happened, certified.
@@ -92,27 +117,34 @@ skinparam noteTextAlignment left
 '      rung with only its browser rung skipped was reported as not-run.
 '
 ' Go prints the top-level result flush left and indents subtests, so the anchor
-' is the whole correctness of the line. The pattern is pinned by a contract
-' test as `'^--- SKIP: TestSandboxLadder [(]'`, against the two shapes verbatim
-' from real runs:
+' was the whole correctness of the line: `'^--- SKIP: TestSandboxLadder [(]'`,
+' against the two shapes verbatim from real runs:
 '
 '   ran, one rung skipped   --- PASS: TestSandboxLadder (168.93s)
 '                               --- SKIP: TestSandboxLadder/2-proveo-browser-image (0.14s)
 '   never ran                   ladder_test.go:314: sbx not available: sbx not on PATH
 '                           --- SKIP: TestSandboxLadder (0.00s)
 '
-' ── THE GATE IS GO NOW (cmd/proveo-dev ladder | idle | e2e-full) ────────────
-' The mise bash moved to cmd/proveo-dev (P4, _spec/_refactors/host-shell-to-go.puml);
-' the column-0 anchor lives in ladder.go as a Go regexp, idle.go reads each
-' `    --- PASS|FAIL|SKIP: TestAgentSurvivesIdleAtPrompt/<def>` subtest line and
-' calls a def with none of the three MISS. A green subtest set under a red suite
-' exit is still FAIL ("suite exit N"). gate.go tees go test output to the
-' terminal while keeping the copy it reads: buffering until exit made a
-' minutes-long climb look frozen for a quarter hour, and the rung logs are how
-' an operator sees which layer is being exercised while it happens.
-' e2e-full sets PROVEO_{IDLE,TOOLCHAIN}_TEST=1 (e2eFullEnv, MEASURED) and
-' PROVEO_TEST_GO_TIMEOUT (default 150m) for the whole process, then runs the
-' e2e suite, idle and the ladder in-process; every half runs, any red fails.
+' ── THE VERDICT IS go test's EXIT CODE (2026-11-12) ─────────────────────────
+' The Go verdict parsers that replaced the mise bash in P4 are deleted with
+' their dispatcher (_spec/_refactors/host-shell-to-go.puml, then the
+' 2026-11-12 decision record). The opted-in tests now fail instead of skip:
+' e2e/gate_test.go failSkipsWhenOptedIn(t, optIn) registers a t.Cleanup that
+' fails t when t.Skipped() while the switch is on (envflag words).
+' TestSandboxLadder calls it right after its PROVEO_LADDER_TEST opt-out, so a
+' top-level skip (requireDocker, sbx) fails while a rung subtest's skip stays
+' a skip. idleAtPrompt calls it first for PROVEO_IDLE_TEST, so a def whose
+' sbx, image or credential is missing fails. go test's exit code is then the
+' verdict, and mise composes it. go test -v streams the rung logs live.
+' MEASURED 2026-11-12 with no docker or sbx on PATH: PROVEO_LADDER_TEST=1
+' TestSandboxLadder exits 1 with "docker not available" and "PROVEO_LADDER_TEST
+' is on, so this skip fails the gate"; PROVEO_IDLE_TEST=1 idle exits 1 the
+' same way; without the switch both SKIP and exit 0.
+' Pinned by TestOptedInE2EGatesFailTheirSkips, TestE2EFullIsTheSilentDeathGate
+' and TestLadderTasksClimbEveryDefInItsOwnProcess (base_template_test.go), and
+' TestOptInTurnsASkipIntoAFailure (e2e/gate_test.go).
+' e2e-gated sets PROVEO_IDLE_TEST=1 for the whole e2e pass, so inside
+' test-e2e-full the default claudecode idle check fails without sbx.
 ' PROVEO_SIGNAL_TEST=1 left the env 2026-10-16 with e2e/signal_test.go, whose
 ' subject — tearing down the docker egress sidecars on SIGINT — was deleted.
 '
@@ -159,8 +191,8 @@ node "in-sandbox · docker only" as BOX <<host>> {
 }
 
 node "host only · needs sbx" as HOST <<host>> {
-  component "idle × 3 defs\nproveo run · zero input" as IDLE <<db>>
-  component "ladder × 3 defs\nclaudecode cursor opencode" as LAD <<db>>
+  component "idle-all × 3 defs\nproveo run · zero input" as IDLE <<db>>
+  component "ladder-all × 4 defs\nclaudecode codex cursor opencode" as LAD <<db>>
   component "credential control\nsame Kit, with and without" as CRED <<db>>
 }
 
@@ -186,18 +218,17 @@ end note
 
 note right of LAD
   **One climb per def, not one climb.**
-  The target defaults to claudecode,
-  so a bare run measures a third of
-  the fleet. ""test-e2e-full"" climbs
-  all three, then idles all three.
+  The target defaults to claudecode, so
+  a bare run measures a fourth of the
+  fleet. ""ladder-all"" climbs all four,
+  one 30m process each.
 end note
 
 note bottom of LAD
-  **A skip exits 0, so the verdict is grepped.**
-  Unanchored it matched the indented SUBTEST line
-  and called a full climb not-run; unchecked it
-  called four absent climbs a pass. The pattern is
-  anchored at column 0 and pinned by a test.
+  **An opted-in skip fails the climb.** A skip
+  once exited 0 and read as a pass. Now a
+  top-level skip under PROVEO_LADDER_TEST
+  fails at cleanup; a rung skip stays a skip.
 end note
 
 note bottom of GAP

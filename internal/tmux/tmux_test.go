@@ -123,3 +123,17 @@ func TestPinnedSessionReadsAReplacementAsGone(t *testing.T) {
 		t.Error("a new session under the same name runs another pane pid: want gone")
 	}
 }
+
+func TestAFailedStartCarriesTmuxsOwnMessage(t *testing.T) {
+	t.Parallel()
+	exit := errors.New("exit status 1")
+	s := New("sess", func(...string) (string, error) { return "create window failed: fork failed\n", exit })
+	err := s.Start(200, 50, "sh")
+	if !errors.Is(err, exit) || err.Error() != "exit status 1: create window failed: fork failed" {
+		t.Errorf("Start = %v, want tmux's own words after its status", err)
+	}
+	quiet := New("sess", func(...string) (string, error) { return "", exit })
+	if err := quiet.Start(200, 50, "sh"); err == nil || err.Error() != "exit status 1" {
+		t.Errorf("Start with nothing said = %v, want the status alone", err)
+	}
+}

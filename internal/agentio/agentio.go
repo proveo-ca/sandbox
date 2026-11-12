@@ -22,10 +22,12 @@ const (
 	tailFragmentCap = 8192
 )
 
+// Stdio returns the agent's writers and the tail they feed. On a terminal stdout stays the
+// terminal itself and only stderr, where sbx writes its own error line, is teed.
 func Stdio(out, err io.Writer, tty bool) (io.Writer, io.Writer, *Tail) {
 	tail := NewTail(tailLines)
 	if tty {
-		return out, err, tail
+		return out, io.MultiWriter(err, tail), tail
 	}
 	return io.MultiWriter(out, tail), io.MultiWriter(err, tail), tail
 }

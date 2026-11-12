@@ -37,6 +37,17 @@ skinparam noteTextAlignment left
 ' progress bar — silently degrades it into a pipe, and the agent then has no
 ' window size and draws its TUI one character per line. The rule binds the
 ' WRITERS, and only the writers: there is no "tee a little" option for them.
+' AMENDED (R2 review, 2026-11-11): the rule binds STDOUT, the screen the agent
+' draws on. On a terminal Stdio now returns stdout untouched and stderr teed.
+' The pty proxy ignores both writers, so the change reaches only the mode with
+' no proxy: stdout a terminal, stdin redirected. There sbx's own "error: …"
+' line goes to stderr, and the tail was empty, so proveo printed a × beside
+' sbx's line (_spec/internal/backend/exit-code.puml, NO MODE IS BLIND).
+' [Inference] sbx sizes the agent's terminal from stdin/stdout, not stderr; a
+' stderr pipe can cost sbx's error line its colour in that one mode.
+' NOT CHOSEN: assume sbx spoke whenever the tail is empty. Pinned by
+' TestStdioHandsTheTerminalOverUnwrapped (stdout) and
+' TestStdioOnATerminalTeesStderrAloneSoSbxsErrorLineReachesTheTail.
 '
 ' ── THE RULE DOES NOT BIND THE TAIL ────────────────────────────────────────
 ' "Hands the terminal over unwrapped" and "takes no tail" were treated as ONE
@@ -59,6 +70,12 @@ skinparam noteTextAlignment left
 '   * consecutive identical lines collapse — a redrawn status line is ONE line
 '   * an unterminated fragment is flushed on read, and capped at 8 KiB so a TUI
 '     that never emits a newline cannot grow the buffer without bound
+' The tail tracks no screen modes. Whether the agent drew on the alternate
+' screen (teardown prints its last five lines dim only then, R2's AGENT TAIL)
+' is ptyproxy's fact, Proxy.EnteredAltScreen, read by the screenModes parser
+' that already follows CSI ? 1049/1047/47 on the same bytes
+' (_spec/internal/ptyproxy/pty-ownership.puml). R2 first gave Tail its own
+' detector; the review found the second grammar and moved it (2026-11-11).
 '
 ' ── THE MUTEX IS LOAD-BEARING ──────────────────────────────────────────────
 ' os/exec copies stdout and stderr on SEPARATE goroutines and both are teed into
@@ -91,7 +108,7 @@ participant "internal/ptyproxy\nterminal-report filter" as PROXY <<app>>
 RUN ARROW_MAIN STDIO : (stdout, stderr, IsWriterTTY(stdout))
 
 alt a terminal is attached
-  STDIO ARROW_MAIN AGENT : the same *os.File, unwrapped
+  STDIO ARROW_MAIN AGENT : stdout the same *os.File; stderr teed
   AGENT ARROW_MAIN PROXY : the child's own pty master
   PROXY ARROW_QUEUE TAIL : Proxy.OutTap — copied off the master, in passing
 else redirected, piped, or under tmux capture
@@ -105,25 +122,19 @@ RUN ARROW_OPTIONAL PROXY : FilterEnabled() && ptyproxy.Usable
 PROXY ARROW_OPTIONAL TRACE : tap(bytes, forwarded)
 
 note over STDIO
-  Binary by construction for the WRITERS: os/exec
-  hands over the terminal only by identity, so there
-  is no "tee a little" option. Wrapping is what costs
-  the agent its window size.
-
-  The Tail is NOT part of that trade. It is always
-  returned; on a terminal it comes back empty and the
-  pty proxy is what fills it.
+  **stdout by identity, stderr teed.** os/exec
+  hands over a terminal only by identity, so
+  stdout stays unwrapped. stderr carries sbx's
+  own error line into the Tail; the pty proxy
+  fills the rest of it.
 end note
 
 note over TAIL
-  A full-screen TUI restores the display as it
-  exits, so a failed run can leave nothing on
-  screen while every line passed through here.
-  This is the copy the failure message replays.
-
-  An interactive run reaches it by the OutTap branch
-  above — the one channel it had none of while
-  "unwrapped writers" and "no tail" were one rule.
+  **The copy a full-screen agent leaves.** It
+  restores the display as it exits. The run log
+  gets these lines on every run; a kept sandbox's
+  ⚠ shows five when the agent drew on the
+  alternate screen (R2).
 end note
 
 note over TRACE

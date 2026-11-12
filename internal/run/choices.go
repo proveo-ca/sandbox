@@ -28,8 +28,9 @@ import (
 
 func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
 
-func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string) error {
+func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string, visit *formVisit) error {
 	form := &choiceui.Form{
+		Step:     visit.step,
 		Banner:   choiceui.Banner(),
 		Title:    fmt.Sprintf("run %s — confirm or change this run", p.Target),
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
@@ -89,6 +90,10 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		form.StartOption = firstChoice(r)
 		break
 	}
+	form.Adopt(visit.left)
+	if visit.onEnter != nil {
+		form.OnEnter = func(*choiceui.Form) []string { return visit.onEnter() }
+	}
 	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f)
@@ -101,11 +106,15 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	form.OnChange(form)
 
-	ok, err := form.Run()
-	if err != nil {
+	switch out, err := form.RunStep(); {
+	case err != nil:
 		return err
-	}
-	if !ok {
+	case out == choiceui.Back:
+		visit.left = form
+		return errStepBack
+	case out == choiceui.Quit:
+		return fmt.Errorf("quit at the choice prompt")
+	case out != choiceui.Accepted:
 		return fmt.Errorf("cancelled at the choice prompt")
 	}
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true

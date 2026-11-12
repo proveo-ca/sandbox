@@ -2,6 +2,10 @@ package main
 
 import (
 	"errors"
+	"os"
+	"os/exec"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -232,6 +236,21 @@ func TestVerifyStaysSilentWhereNoProbeIsKnown(t *testing.T) {
 	}
 }
 
+// A registered reference names the source the operator wrote, not the sbx flag that carries it.
+func TestARegisteredSourceNamesTheReferenceItCameFrom(t *testing.T) {
+	calls := isolatedInitHost(t)
+	detail, warn, err := provisionSlot(credSlot{Label: "anthropic", Kind: kindKey, Store: "anthropic"}, " op://vault/anthropic/key ")
+	if err != nil || len(warn) != 0 {
+		t.Fatalf("provisionSlot = %v, %v", warn, err)
+	}
+	if want := []string{"registered from op://vault/anthropic/key; sbx resolves it on the host"}; !slices.Equal(detail, want) {
+		t.Errorf("detail = %q, want %q", detail, want)
+	}
+	if got, _ := os.ReadFile(calls); !strings.Contains(string(got), "--ref op://vault/anthropic/key") {
+		t.Errorf("the stub sbx saw %q, want the reference passed with --ref", got)
+	}
+}
+
 func slotByKind(t *testing.T, slots []credSlot, label string, k credKind) credSlot {
 	t.Helper()
 	for _, s := range slots {
@@ -304,7 +323,7 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 	} {
 		var ran []string
 		held := func(string) (bool, bool) { return true, true }
-		err := applySignIn(tc.slot, tc.choice, func(argv []string) error {
+		_, err := applySignIn(tc.slot, tc.choice, func(argv []string) error {
 			line := strings.Join(argv, " ")
 			if i := strings.Index(line, " claude "); i >= 0 {
 				if j := strings.Index(line, " -- "); j > i {
@@ -343,20 +362,21 @@ func TestSignInChoiceIsReadByPosition(t *testing.T) {
 func TestApplySignInReadsTheStoreBack(t *testing.T) {
 	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}
 	ok := func([]string) error { return nil }
-	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
+	if _, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
 		!strings.Contains(err.Error(), "no OAuth login for openai") {
 		t.Errorf("an empty store after the sign-in reported %v", err)
 	}
-	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
+	if _, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
 		t.Errorf("a stored login reported %v", err)
 	}
-	if err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil {
-		t.Errorf("an unreadable listing is unconfirmed, not a failure: %v", err)
+	if said, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil ||
+		len(said) != 1 || said[0].Text != "codex — login unconfirmed" {
+		t.Errorf("an unreadable listing is an unconfirmed login, not a failure: %v %+v", err, said)
 	}
 	claude := credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"}
 	var ran []string
 	boom := errors.New("pull failed")
-	err := applySignIn(claude, signInNow, func(argv []string) error {
+	said, err := applySignIn(claude, signInNow, func(argv []string) error {
 		ran = append(ran, argv[1])
 		if argv[1] == "run" {
 			return boom
@@ -368,6 +388,50 @@ func TestApplySignInReadsTheStoreBack(t *testing.T) {
 	}
 	if strings.Join(ran, " ") != "run rm" {
 		t.Errorf("ran %v, want the sign-in then the cleanup", ran)
+	}
+	rm := "`" + sbx.Binary + " " + strings.Join(sbx.RemoveArgs(sbx.SignInSandbox), " ") + "`"
+	if len(said) != 1 || said[0].Text != "claudecode — sign-in sandbox may be left" || !slices.ContainsFunc(said[0].Detail, func(d string) bool {
+		return strings.Contains(d, rm)
+	}) {
+		t.Errorf("a sign-in and a cleanup that both failed said %+v, want the cleanup's how-to under a ⚠", said)
+	}
+}
+
+// UNREACHED: a Ctrl+C that ends one sign-in runs no later row, and names each answered one.
+func TestACtrlCInASignInRunsNoLaterRow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGINT to a child is a unix test")
+	}
+	isolatedInitHost(t)
+	slots := []credSlot{
+		{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"},
+		{Label: "codex", Kind: kindSignIn, Store: "openai"},
+		{Label: "opencode", Kind: kindSubscription, Store: "opencode"},
+		{Label: "groq", Kind: kindKey, Store: "groq"},
+	}
+	rows := []choiceui.Row{
+		{Options: []string{notSignedIn, signInNow}, Selected: 1},
+		{Options: []string{notSignedIn, signInNow}, Selected: 1},
+		{Field: true, Value: "tok"},
+		{Field: true},
+	}
+	var ran []string
+	rec := &initRecord{}
+	_, _, err := applyCredentials(slots, rows, func(argv []string) error {
+		ran = append(ran, argv[1])
+		if argv[1] == "run" {
+			return handOff(exec.Command("sh", "-c", "kill -INT $$"))
+		}
+		return nil
+	}, func(string) (bool, bool) { return true, true }, rec)
+	if !interrupted(err) {
+		t.Fatalf("applyCredentials = %v, want the Ctrl+C", err)
+	}
+	if strings.Join(ran, " ") != "run rm" {
+		t.Errorf("ran %v, want the interrupted sign-in and its cleanup alone", ran)
+	}
+	if _, notRun := rec.lines(); !slices.Equal(notRun, []string{"codex sign-in", "opencode token"}) {
+		t.Errorf("not run = %q", notRun)
 	}
 }
 

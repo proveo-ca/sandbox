@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/maintain"
 )
 
@@ -116,10 +118,15 @@ func New(t *testing.T, image string) *Suite {
 		t.Fatal(err)
 	}
 	if !Present(image) {
-		t.Skipf("image %s not built (mise run build)", image)
+		t.Skip(notBuiltHint(image))
 	}
 	t.Logf("image: %s", image)
 	return &Suite{T: t, Image: image}
+}
+
+// notBuiltHint is New's skip line: it names the build target, the basename of image's repo.
+func notBuiltHint(image string) string {
+	return "image " + image + " not built (mise run build " + path.Base(imagebuild.RefRepo(image)) + ")"
 }
 
 // Exec runs cmd under bash in a throwaway container of the suite's image.

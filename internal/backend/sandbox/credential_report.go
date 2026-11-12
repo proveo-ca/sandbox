@@ -199,7 +199,8 @@ func consentInteractive() bool {
 func refuseUnboundCredential(in Input, name string, caps []sbx.CapabilityV3, created bool) error {
 	binds, err := sbx.LoadBindings(sbx.BindingsPath(os.Getenv))
 	if err != nil {
-		ui.Warnf("credentials.yaml unreadable (%v); sbx decides approvals on its own", err)
+		Item{Warn: true, Text: "credentials.yaml — unreadable", Detail: []string{ui.TildeIn(err.Error())}}.print()
+		ui.Logf("credentials.yaml unreadable: sbx decides approvals on its own")
 		return nil
 	}
 	states := resolveCredentials(declaredCredentials(caps), sbx.StoreEntriesFor(name), binds)
@@ -208,27 +209,29 @@ func refuseUnboundCredential(in Input, name string, caps []sbx.CapabilityV3, cre
 
 // reportCredentialInUse warns, read-only, when the agent held a credential other than sbx's; it skips a sandbox that is not running.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R10)
-func reportCredentialInUse(target, name string) {
+// credentialProbeWait bounds the guest read behind the credential check.
+const credentialProbeWait = 20 * time.Second
+
+func reportCredentialInUse(target, name string, out *Block) {
 	script, ok := inUseProbe[target]
 	if !ok || !sbx.Running(name) {
 		return
 	}
-	out, err := sbx.ExecOutput(name, script, 20*time.Second)
+	said, err := sbx.ExecOutput(name, script, credentialProbeWait)
 	if err != nil {
 		return
 	}
-	if line := credentialInUse(target, out); line != "" && !strings.Contains(line, "sbx's credential") {
-		ui.Section(ui.SectionCredentials)
-		ui.Warnf("%s", line)
+	if line := credentialInUse(target, said); line != "" && !strings.Contains(line, "sbx's credential") {
+		out.Item(Item{Warn: true, Text: line})
 	}
-	if svc, at := expiredSbxLogin(target, out, time.Now()); svc != "" {
-		ui.Section(ui.SectionCredentials)
-		ui.Warnf("%s's sbx-managed %s login expired %s; sbx's proxy answers its refresh with 401 (docker/sbx-releases#642)",
-			target, svc, at.Local().Format(time.DateTime))
+	if svc, at := expiredSbxLogin(target, said, time.Now()); svc != "" {
+		it := Item{Warn: true, Text: target + "'s " + svc + " login — expired " + at.Local().Format(time.DateTime),
+			Log: []string{"sbx's proxy answers the refresh of an expired sbx-managed login with 401 (docker/sbx-releases#642)"}}
 		if how := sbx.SignIn(svc); how != "" {
-			ui.Notef("sign in again with %s, or from `proveo init`", how)
+			it.Detail = append(it.Detail, "sign in again with "+how+", or from `proveo init`")
 		}
-		ui.Notef("then start a new sandbox — this one keeps the expired token: `%s %s`", sbx.Binary, strings.Join(sbx.RemoveArgs(name), " "))
+		it.Detail = append(it.Detail, "then "+keptFix(name, true)+": it keeps the expired token")
+		out.Item(it)
 	}
 }
 

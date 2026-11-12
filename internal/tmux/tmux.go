@@ -44,7 +44,10 @@ var sessionName = strings.NewReplacer(".", "-", ":", "-")
 // captures deterministic).
 func (s *Session) Start(w, h int, cmd ...string) error {
 	args := append([]string{"new-session", "-d", "-s", s.Name, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h)}, cmd...)
-	_, err := s.run(args...)
+	out, err := s.run(args...)
+	if said := strings.TrimSpace(out); err != nil && said != "" {
+		return fmt.Errorf("%w: %s", err, said)
+	}
 	return err
 }
 

@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -121,7 +123,7 @@ func printOnlyRunErr(t *testing.T, workdir string, extraEnv []string, target str
 	proveoBin := buildProveo(t)
 	cmd := exec.Command(proveoBin, "run", target, "--print")
 	cmd.Dir = workdir
-	cmd.Env = append(os.Environ(), extraEnv...)
+	cmd.Env = append(append(os.Environ(), "PROVEO_HOME="+t.TempDir()), extraEnv...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -130,6 +132,26 @@ var sandboxHarnesses = dockerTargets(func(manifest.Manifest) bool { return true 
 
 // daemonHarnesses are the sbx harnesses whose agent is promised a daemon.
 var daemonHarnesses = dockerTargets(manifest.Manifest.WantsDocker)
+
+// sbxHeadingLine is the run's "sbx" heading, drawn at its first start step, before `sbx create` or a re-attach.
+var sbxHeadingLine = regexp.MustCompile(`(?m)^\s*[─-]{6} sbx [─-]+\s*$`)
+
+func TestSbxHeadingLineMatchesOnlyTheHeading(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		screen string
+		want   bool
+	}{
+		{"  ────── workspace ──────\n✓ private clone\n\n  ────── sbx ──────────────────────\n● sbx create\n", true},
+		{"  ------ sbx ------\n", true},
+		{"● sbx create\n  SANDBOX\n    Name: proveo-claudecode-1a2b3c4d\n", false},
+		{"  ────── sbx-tools ──────\n", false},
+	} {
+		if got := sbxHeadingLine.MatchString(c.screen); got != c.want {
+			t.Errorf("sbxHeadingLine.MatchString(%q) = %v, want %v", c.screen, got, c.want)
+		}
+	}
+}
 
 func dockerTargets(pick func(manifest.Manifest) bool) []string {
 	wd, err := os.Getwd()
@@ -615,12 +637,12 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 
 	w := newWatcher(t, sess)
 
-	w.until("the sbx backend line", 2*time.Minute, func() bool {
+	w.until("the sbx heading", 2*time.Minute, func() bool {
 		s := w.Screen()
 		if strings.Contains(s, "docker sandbox: off") {
 			w.Fatalf("%s ran with the sandbox add-on unchecked — a remembered choice leaked into this run", target)
 		}
-		return strings.Contains(s, "backend: docker sandboxes (sbx)")
+		return sbxHeadingLine.MatchString(stripSGR(s))
 	})
 
 	k := awaitKit(t, sess, before, target, work)
@@ -662,7 +684,7 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 	var leaked []string
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		leaked = slices.DeleteFunc(newSandboxes(before), func(n string) bool { return retained && n == k.name })
+		leaked = slices.DeleteFunc(newSandboxes(t, before), func(n string) bool { return retained && n == k.name })
 		if len(leaked) == 0 || time.Now().After(deadline) {
 			break
 		}
@@ -777,20 +799,45 @@ func testTempRoots() []string {
 	return roots
 }
 
-// newSandboxes is what this run added and has not cleaned up.
-func newSandboxes(before map[string]bool) []string {
-	now, ok := sbxSandboxNames()
-	if !ok {
-		return nil
+// underRoot reports whether path sits inside root, either as given or with its symlinks resolved.
+func underRoot(path, root string) bool {
+	roots := []string{filepath.Clean(root)}
+	if r, err := filepath.EvalSymlinks(root); err == nil && r != roots[0] {
+		roots = append(roots, r)
 	}
-	var out []string
-	for n := range now {
-		if !before[n] {
-			out = append(out, n)
+	for _, r := range roots {
+		if rel, err := filepath.Rel(r, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
 		}
 	}
-	sort.Strings(out)
-	return out
+	return false
+}
+
+// newSandboxesUnder is what this run added since before whose workspace sits inside root: one
+// test's own sandboxes, never another e2e process's.
+func newSandboxesUnder(before map[string]bool, root string) []string {
+	out, err := exec.Command(sbx.Binary, "ls", "--json").Output()
+	if err != nil {
+		return nil
+	}
+	listing, err := sbxListing(out)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, sb := range listing {
+		if !before[sb.Name] && strings.HasPrefix(sb.Name, sbx.NamePrefix) && len(sb.Workspaces) > 0 && underRoot(sb.Workspaces[0], root) {
+			names = append(names, sb.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// newSandboxes is what t added since before, inside its own temp root, and has not cleaned up.
+func newSandboxes(t *testing.T, before map[string]bool) []string {
+	t.Helper()
+	return newSandboxesUnder(before, testRoot(t))
 }
 
 // removeLeakedSandboxes cleans up only what this test created — a failed run
@@ -800,7 +847,7 @@ func removeLeakedSandboxes(t *testing.T, before map[string]bool, canList bool) {
 	if !canList {
 		return
 	}
-	for _, name := range newSandboxes(before) {
+	for _, name := range newSandboxes(t, before) {
 		if out, err := removeSandbox(t, name); err != nil {
 			t.Logf("cleanup: %s rm %s: %v\n%s", sbx.Binary, name, err, out)
 		}
@@ -884,5 +931,64 @@ func TestSweepNeverClaimsAnOperatorSandbox(t *testing.T) {
 	}
 	if r, err := filepath.EvalSymlinks(tmp); err == nil && !underTestTemp(r) {
 		t.Errorf("%s — sbx reports resolved paths (/private/var/…), which must still count", r)
+	}
+}
+
+// A failed run's cleanup, and every "what did this test make" check, claim only sandboxes whose
+// workspace sits in the test's own temp root.
+func TestALeakCleanupRemovesOnlyItsOwnTestsSandboxes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stub sbx is a shell script")
+	}
+	mine := t.TempDir()
+	other, err := os.MkdirTemp("", "TestAnotherProcess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(other) })
+	listing, err := json.Marshal([]listedSandbox{{Name: sbx.NamePrefix + "mine", Workspaces: []string{mine}},
+		{Name: sbx.NamePrefix + "other", Workspaces: []string{other}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, state := t.TempDir(), t.TempDir()
+	calls, list := filepath.Join(state, "calls"), filepath.Join(state, "ls.json")
+	if err := os.WriteFile(list, listing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stub := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + strconv.Quote(calls) + "\n[ \"$1\" = ls ] && cat " + strconv.Quote(list) + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, sbx.Binary), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if got := newSandboxes(t, map[string]bool{}); !slices.Equal(got, []string{sbx.NamePrefix + "mine"}) {
+		t.Errorf("new sandboxes = %q, want this test's own alone", got)
+	}
+	removeLeakedSandboxes(t, map[string]bool{}, true)
+	b, _ := os.ReadFile(calls)
+	if strings.Contains(string(b), "other") || !strings.Contains(string(b), strings.Join(sbx.RemoveArgs(sbx.NamePrefix+"mine"), " ")) {
+		t.Errorf("the cleanup must remove this test's sandbox and leave another process's:\n%s", b)
+	}
+}
+
+// A test sweeps only sandboxes whose workspace sits in its own t.TempDir root.
+// SPEC: _spec/tests/testing-strategy.puml (sweepSandboxesAfter)
+func TestASweepClaimsOnlyItsOwnTestsTempRoot(t *testing.T) {
+	t.Parallel()
+	root := testRoot(t)
+	mine := t.TempDir()
+	other, err := os.MkdirTemp("", "TestAnotherProcess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(other) })
+	if !underRoot(mine, root) {
+		t.Errorf("%s is this test's workspace and must be swept", mine)
+	}
+	if r, err := filepath.EvalSymlinks(mine); err == nil && !underRoot(r, root) {
+		t.Errorf("%s — sbx reports resolved paths, which must still count", r)
+	}
+	if underRoot(other, root) || underRoot(filepath.Dir(root), root) {
+		t.Errorf("%s or the shared temp root counts as this test's; a concurrent e2e process's sandbox would be removed", other)
 	}
 }

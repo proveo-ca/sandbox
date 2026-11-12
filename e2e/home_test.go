@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -170,21 +171,24 @@ func TestProveoHomePersistence(t *testing.T) {
 		if err := os.WriteFile(marker, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
+		env := cleanOnlyHome(t, home)
 		cmd := exec.Command(proveoBin, "clean", "--homes", "--dry-run")
-		cmd.Env = append(os.Environ(), "PROVEO_HOME="+home)
+		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("clean --homes --dry-run: %v\n%s", err, out)
 		}
-		if !strings.Contains(string(out), home) {
-			t.Errorf("dry-run should mention proveo home path:\n%s", out)
+		if !regexp.MustCompile(`(?m)^\S*\s*home:\s+`+regexp.QuoteMeta(home)+`$`).Match(out) ||
+			!strings.Contains(string(out), "clean — nothing removed (dry run)") {
+			t.Errorf("dry-run should name the proveo home as a fact and close on nothing removed:\n%s", out)
 		}
 		if _, err := os.Stat(marker); err != nil {
 			t.Fatalf("dry-run must not delete: %v", err)
 		}
 		cmd = exec.Command(proveoBin, "clean", "--homes")
-		cmd.Env = append(os.Environ(), "PROVEO_HOME="+home)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "clean — 1 removed") ||
+			strings.Contains(string(out), "nothing to") {
 			t.Fatalf("clean --homes: %v\n%s", err, out)
 		}
 		if _, err := os.Stat(home); !os.IsNotExist(err) {
@@ -192,6 +196,29 @@ func TestProveoHomePersistence(t *testing.T) {
 		}
 	})
 
+}
+
+// cleanOnlyHome is an environment in which `proveo clean` reaches only proveoHome: HOME and the state root
+// are temp dirs, and docker and sbx are stubs that answer nothing, so no host run state, image or sandbox is
+// in reach.
+func cleanOnlyHome(t *testing.T, proveoHome string) []string {
+	t.Helper()
+	bin := t.TempDir()
+	for _, name := range []string{"docker", sbx.Binary} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if name == "HOME" || name == "PATH" || strings.HasPrefix(name, "PROVEO_") || strings.HasPrefix(name, "XDG_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "HOME="+t.TempDir(), "PATH="+bin+string(os.PathListSeparator)+"/usr/bin:/bin",
+		"PROVEO_HOME="+proveoHome, "PROVEO_STATE_ROOT="+t.TempDir())
 }
 
 func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...string) string {

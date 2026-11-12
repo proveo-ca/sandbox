@@ -5,6 +5,7 @@
 ' covers: cmd/proveo/clean.go
 ' covers: cmd/proveo/clean_legacy_test.go
 ' covers: cmd/proveo/clean_run_state_test.go
+' covers: cmd/proveo/clean_print_test.go
 '
 ' 2026-10-16: the docker+egress backend is DELETED, so nothing creates an
 ' egress session container, an egress network or broker.env any more. The
@@ -37,7 +38,67 @@
 ' (proveo-<unix>-<pid>) and probes it with os.FindProcess + Signal(0); a live
 ' one lands in Inventory.LiveSessions, and internal/clean keeps that state dir.
 ' [Inference] A pid reused by an unrelated process reads as live — the safe
-' direction: a dir kept, never a live run's dir removed.
+' direction: a dir kept. Two exceptions remove a dir something still uses:
+'   WINDOWS (verified in Go 1.26's os/exec_windows.go: Process.signal handles
+'   only Kill and returns EWINDOWS for Signal(0)) sessionAlive is false for
+'   every session, so clean removes a live run's state dir there.
+'   A KEPT SANDBOX mounts its run's state dir (MEASURED, read-only `sbx ls
+'   --json`: proveo-hermes-*, stopped, mounted runs/<sid>/sbx/project-env);
+'   liveness reads the run's pid, which is gone once the run ended. That
+'   dir was later missing and sbx reports the sandbox "workspace_missing":
+'   true. [Unverified] what removed it.
+' KNOWN, NOT FIXED (the operator, R4: "output only; record it"): --homes
+' removes PROVEO_HOME with no liveness gate, while every running sandbox
+' mounts ~/.proveo/.claude and ~/.proveo/toolchains (MEASURED, read-only `sbx
+' ls --json`); --tools holds the same toolchains back while any sandbox runs.
+'
+' WHAT CLEAN PRINTS (R4 of _spec/_plans/output-readability.puml), no heading:
+' it acts first, then prints once. While a removal runs a terminal shows one
+' live line, "clean · <kind> <name> · 3s"; plain output prints nothing until
+' the block (a docker call that hangs shows nothing in CI until it returns).
+'   ONE Facts block, error role, by kind: containers · networks · volumes ·
+'     state · images · tools · home; a value per removal that SUCCEEDED (a
+'     dry run: what would go). state is the run id (one root holds them all;
+'     `proveo clean --help` names it), tools "<~path> (<size>)", home ~path.
+'   ⚠ <kind> <name> — not removed     docker's or the filesystem's words dim
+'   ⚠ left: N that look(s) live       each one dim, as SkippedLive names it,
+'     ("sbx did not say whether a sandbox runs" when --tools found no
+'     listing), then the dim fix "`--force` removes it too and disrupts the
+'     run that holds it": clean degraded without the operator acting
+'   ONE closing line, last, in this precedence:
+'     × clean — M not removed            the --homes home stays: exit 1,
+'                                         Reported (HEAD returned its error)
+'     ⚠ clean — M not removed            another removal failed: exit 0, as
+'                                         HEAD dropped docker's and the state
+'                                         dir's errors (R4 changes no exit)
+'     ✓ clean — nothing to remove         nothing found, the home included
+'     ● clean — nothing removed (dry run)
+'     ⚠ clean — nothing removed           only what looks live was found;
+'                                         exit 0: clean kept a live run safe
+'     ✓ clean — N removed
+'   "<size> of toolchains reclaimed" (dry run: "to reclaim") sits dim under it.
+' GONE FROM THE SCREEN: "removing …" before each removal (it printed before
+' acting and discarded every error), the state dir's "(sbx kit, policy log,
+' staged clone .env)" and the home's "(sessions + seeded config)" (now in
+' --help), "they reinstall on the next run" (--tools' flag help), "✓ nothing
+' to clean" printed before --homes removed the home, and "✓ no proveo home
+' at …". NOT CHOSEN (the R4 kept design's F4): one ✓ item per removal as it
+' lands; today's lines trimmed.
+' KNOWN, NOT FIXED: --deep with no docker answer lists no image and closes
+' on "nothing to remove" (dockerLines drops the error: an sbx-only host
+' has no docker, and a warning there would be noise).
+' Pinned by cmd/proveo/clean_print_test.go (a temp HOME, proveo home and
+' state root; docker and sbx stubbed first on PATH; never the real ones):
+'   TestCleanPrintsWhatItRemovedAsOneBlockByKind
+'   TestADryRunClosesOnNothingRemoved
+'   TestCleanWithNothingToRemoveSaysSoOnce
+'   TestCleanHomesNeverSaysNothingToCleanBeforeItRemovesTheHome
+'   TestWhatCleanLeftLiveIsOneWarningWithTheForceFix
+'   TestOnlyWhatLooksLiveClosesOnNothingRemoved
+'   TestARemovalThatFailedIsAWarningAndExitsZero
+'   TestAHomeThatStaysClosesOnACrossAndExitsOne
+'   TestCleanToolsSaysWhatItReclaimedUnderTheClosingLine
+' and by e2e TestProveoHomePersistence/clean_homes (cleanOnlyHome).
 title `proveo clean` — reclaim leaked run state without killing live runs
 
 actor "Maintainer" as MT

@@ -98,29 +98,35 @@ func LaunchArgs(profile string, port int) []string {
 	}
 }
 
+// Opened is the browser Ensure leaves on the CDP port: the one it launched and its profile, or none for a reused browser.
+type Opened struct {
+	Browser string
+	Profile string
+}
+
 // Ensure reuses a CDP browser already on port, or launches one on target's dedicated profile.
-func Ensure(target string, port int, report func(string, ...any)) error {
+func Ensure(target string, port int, report func(string, ...any)) (Opened, error) {
 	if Ready(port) {
 		if report != nil {
 			report("host chrome: reusing the browser already serving CDP on 127.0.0.1:%d", port)
 		}
-		return nil
+		return Opened{}, nil
 	}
 	bin := ChromeBinary()
 	if bin == "" {
-		return fmt.Errorf("no Chrome, Chromium, Brave or Edge found on this host")
+		return Opened{}, fmt.Errorf("no Chrome, Chromium, Brave or Edge found on this host")
 	}
 	profile, err := ProfileDir(target)
 	if err != nil {
-		return err
+		return Opened{}, err
 	}
 	if err := os.MkdirAll(profile, 0o700); err != nil {
-		return err
+		return Opened{}, err
 	}
 	cmd := exec.Command(bin, LaunchArgs(profile, port)...)
 	detach(cmd)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start %s: %w", filepath.Base(bin), err)
+		return Opened{}, fmt.Errorf("start %s: %w", filepath.Base(bin), err)
 	}
 	_ = cmd.Process.Release()
 	deadline := time.Now().Add(readyWait)
@@ -129,10 +135,10 @@ func Ensure(target string, port int, report func(string, ...any)) error {
 			if report != nil {
 				report("host chrome: opened %s on profile %s (CDP 127.0.0.1:%d)", filepath.Base(bin), profile, port)
 			}
-			return nil
+			return Opened{Browser: filepath.Base(bin), Profile: profile}, nil
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	return fmt.Errorf("%s did not answer CDP on 127.0.0.1:%d within %s — another Chrome on profile %s may hold it without the debugging port",
+	return Opened{}, fmt.Errorf("%s did not answer CDP on 127.0.0.1:%d within %s — another Chrome on profile %s may hold it without the debugging port",
 		filepath.Base(bin), port, readyWait, profile)
 }

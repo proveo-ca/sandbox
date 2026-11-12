@@ -2,12 +2,13 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
-' covers: cmd/proveo/init.go (doInit, appliedPlan, runInitSteps, initStep, stepResult, decide, install, installPackage, fetch, publishedDigest, resolveBin, sbxPathDir, reportPlan, ensureSbxOnPath, finish, verify)
+' covers: cmd/proveo/init.go (doInit, appliedPlan, runInitSteps, initStep, stepResult, decide, fetch, publishedDigest, resolveBin, sbxPathDir, printPlan, ensureSbxOnPath, verify, checkItems)
+' covers: cmd/proveo/init_report.go (handOff, the sbx block)
 ' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, askDecisions, targetVersion, initRows, baselineRow)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
 ' covers: cmd/proveo/init_git.go (applyGitIdentity)
-' covers: cmd/proveo/ghtoken.go (resolve — a run only lifts; login is init's)
+' covers: cmd/proveo/ghtoken.go (lookup, ghTimeoutItem — a run only lifts; login is init's)
 ' covers: internal/sbx/install.go (Release, Host, DetectHost, PlanFor, Packaged, Provenance, Prereqs, Stage, Probe, ServerState, VersionAt)
 ' covers: internal/shell/shell.go (SbxMarker, SbxBlock)
 ' covers: apps/cli/public/cli/install.sh (run_init)
@@ -63,8 +64,13 @@ skinparam noteTextAlignment left
 '   sandboxd not running                   sbx is fine; there is no backend
 '
 ' So init is a PRE-FLIGHT that installs, not an installer that pre-flights.
-' Passing checks are printed too: an operator debugging a dead sandbox needs to
+' Passing checks are shown too: an operator debugging a dead sandbox needs to
 ' read that KVM was looked at and was fine, not merely that nothing complained.
+' Since R3 (2026-11-11) the stream says so as dim detail under the sbx block's
+' host fact ("prerequisites met: e2fsprogs"); sbx diagnose's passing rows
+' show on the checks page, and the result names only the failing ones and the
+' verdict. NOT CHOSEN: a dim "N checks passed" under the verdict (the count
+' restated its own items, and "1 checks passed" read wrong).
 '
 ' ── TWO KINDS OF UNMET PREREQUISITE, AND ONLY ONE STOPS THE INSTALL ────────
 ' Stage splits them because they are NOT the same host condition, and collapsing
@@ -160,6 +166,12 @@ skinparam noteTextAlignment left
 '                   Rows keep their labels under this heading:
 '   sign in ....... now | later   (`sbx login` — Docker Hub, after the binary)
 '   sbx setup ..... now | later   (first-run wizard; 0.42 stopped auto-opening)
+'                   The row and the start line name what the wizard offers,
+'                   from `sbx setup --help` on 0.50.0: agent secrets to
+'                   import, SSH-agent forwarding. MEASURED 2026-11-11: they
+'                   said "0.42 stopped opening it on its own", and an
+'                   operator on 0.50 read that as a version mismatch.
+'                   The history stays here, in the spec.
 '   gh ............ now | later   (verify `gh`, install via the host package
 '                   manager if missing, `gh auth login` if needed, then
 '                   `sbx secret set --force github` from that token. A run
@@ -174,10 +186,18 @@ skinparam noteTextAlignment left
 ' the operator that the flag did nothing.
 '
 ' A terminal is required at BOTH ends before anything is asked — the form draws
-' through tcell, which needs a real screen, and reads keys from stdin. Either
+' on the controlling terminal and reads its keys there (/dev/tty), and init
+' takes stdin and stderr both being terminals as the sign that one exists. Either
 ' one missing is a legitimate answer ("no terminal to ask through") and not a
-' failure, and the defaults are then printed so the operator finds out
-' afterwards what was chosen for them.
+' failure. The operator finds out afterwards what was chosen for them from the
+' stream: each "now" prints its own line under its subject, and each "no"
+' lands in the result's "later" (R3; until then one "no prompt (…) — <every
+' decision>" line printed, ~230 columns on a real home). NOT CHOSEN (the
+' second R3 review recorded it): the design's "answers: the defaults" fact
+' with "--yes" or "no terminal to ask through" dim under it. "answers" is
+' how init decided, not sbx's subject (critique c6), and "the defaults"
+' names no choice; no terminal already shows as one dim how-to under each
+' question it kept init from asking, and --yes is the operator's own act.
 '
 ' The network baseline is the one default that does nothing. It is host-wide and
 ' outlives every run, so proveo will offer to bind it and will not bind it on a
@@ -185,11 +205,14 @@ skinparam noteTextAlignment left
 ' every other default is about this install.
 '
 ' The rc block carries its OWN marker (`proveo init` — sbx on PATH) rather than
-' reusing the `proveo setup` one, and shell.AlreadyConfigured is deliberately
-' not used for it: that returns true when the rc holds proveo's own marker,
-' which it does, because the CDN installer put it there minutes earlier. Asking
-' about THIS directory is the only question with the right answer. The
-' uninstaller strips both markers.
+' reusing the `proveo setup` one. Asking about THIS directory is the only
+' question with the right answer: setup's marker sits in the rc minutes after
+' the CDN installer. Until R4 shell.AlreadyConfigured accepted that marker
+' alone, so init asked strings.Contains itself; since R4 AlreadyConfigured
+' matches the directory and init calls it (rcAdds, ensureSbxOnPath), with
+' setup's appendRC (_spec/internal/shell/setup-path.puml). `proveo uninstall`
+' strips setup's block and leaves this one, since sbx stays installed;
+' uninstall.sh's bash fallback strips both.
 ' ONLY A PREFIX THAT HOLDS SBX EARNS THE LINE (2026-10-22, MEASURED): a host
 ' whose sbx came from brew got `set -gx PATH ~/.docker/sbx/bin` in
 ' config.fish although init installed nothing there — a dead entry today, and
@@ -201,20 +224,37 @@ skinparam noteTextAlignment left
 ' init will install (none installed, --force, or --print).
 ' Pinned by TestInitAddsAPathLineOnlyForAPrefixHoldingSbx and
 ' TestInitNamesTheSbxThisHostKeeps.
+' THE APPLY'S PATH STEP FOLLOWS THE SAME RULE (R3, FOUND 1, MEASURED on every
+' capture): applyPlan named "add <prefix>/bin to PATH" whenever the prefix was
+' off PATH, its func did nothing for an sbx outside the prefix, and the result
+' said "done: add … to PATH". The step is now listed, on the setup page and in
+' the apply, only when <prefix>/bin/sbx exists or a tarball install is about
+' to put it there; a distro package or the MSI never earns it.
+' Since R3 the run header is gone: the sbx block's "sbx" fact names the version
+' and where it lives, after the steps; the asset, prefix, note and Alt lines
+' print under --print only (the setup page's header names the asset).
+' Pinned by TestThePathStepIsListedOnlyWhenThePrefixWillHoldSbx and e2e
+' TestInitAddsNoPathStepForAnSbxOutsideThePrefix.
 '
 ' ── THREE SCREENS, BACK ONE AT A TIME (DECISION 2026-11-08) ───────────────
 ' The Executor chose "Back/next across screens". runInitSteps(prompted, steps)
 ' walks [setup, credentials, operator]; prompted = !--yes && a terminal.
+' SINCE 2026-11-11 A CHECKS PAGE COMES FIRST, so the walk has four screens and
+' the labels read page 1/4 to 4/4: _spec/cmd/proveo/init-preflight-and-result.puml.
 '   prompted     each screen gets choiceui.Step{At, Of}: page 1/3, 2/3, 3/3,
-'                and shift+tab is offered on screens 2 and 3 only
+'                and the way back is offered on screens 2 and 3 only (Esc
+'                since 2026-11-11; shift+tab before, and still accepted)
 '   unprompted   --yes, or no TTY: every screen gets a zero Step, so no page
 '                label is drawn and no screen can step back
 ' A screen returns a stepResult: stepNext | stepBack | stepNone (it had
-' nothing to ask). A stepBack returns one screen; on the way back a stepNone
+' nothing to ask) | stepQuit (a confirmed Ctrl+C: the walk ends with "quit at
+' page n/3", exit 1). A stepBack returns one screen; on the way back a stepNone
 ' screen is passed over, never stopped at; a back from screen 1 is ignored; an
 ' error stops the walk. --print calls the credential and operator screens
 ' directly with a zero Step.
-'   setup        askDecisions, then install and finish run on enter. A revisit
+'   setup        askDecisions, then the apply runs on enter: one ordered
+'                list of named steps, which the page also shows under "on
+'                enter" (_spec/internal/ui/step-lines.puml). A revisit
 '                opens on WHAT IS LEFT (carried): only the PATH answer is kept;
 '                install and prefix follow the host as it is now; sbx login,
 '                the wizard, gh, git and the baseline open on "later" / "leave
@@ -232,13 +272,18 @@ skinparam noteTextAlignment left
 '                the --prefix FLAG, never for an earlier answer, so a revisit
 '                after picking /usr/local still offers the home prefix.
 '   credentials  _spec/cmd/proveo/init-credential-wireframe.puml. Typed keys
-'                and sign-in choices survive a step back and forward. Esc
-'                skips provisioning and moves on to the operator screen.
-'                --yes skips the form with a note and returns stepNone, as the
-'                operator screen does.
-'   operator     _spec/cmd/proveo/operator-name.puml. Esc ends init without
-'                changing the name.
-' Esc on setup still errors "cancelled at the init prompt".
+'                and sign-in choices survive a step back and forward. The
+'                Skip button skips provisioning and moves on to the operator
+'                screen; until 2026-11-11 Esc did.
+'                --yes and no terminal skip the form, print the store's facts
+'                and leave "credentials" for later (R3; a note said so
+'                before), and return stepNone, as the operator screen does.
+'   operator     _spec/cmd/proveo/operator-name.puml. The Skip button ends
+'                init without changing the name; until 2026-11-11 Esc did.
+' Esc on setup errored "cancelled at the init prompt" while setup was the
+' first screen. It steps back to the checks page now, and Esc there errors
+' the same way.
+' What each key means on a page: _spec/internal/choiceui/wizard-keys.puml.
 ' ADVERSARIAL REVIEW [HIGH], 2026-11-08: the first stepper carried every
 ' earlier answer, so each revisit re-ran `sbx login`, the wizard, `sbx policy
 ' init`, gh and git, and reinstalled under --force. A packaged install also
@@ -257,15 +302,107 @@ skinparam noteTextAlignment left
 ' revisit case). NO test pins `o.force = false` after the first apply: it is
 ' inline in doInit's setup closure.
 ' End to end, e2e/init_steps_test.go (build tag e2e) drives the real `proveo
-' init` on a tmux TTY against a logging stub sbx: page n/3 labels, shift+tab
-' only past page 1, a revisit opening on later/keep with `sbx login` and `sbx
-' setup` run once each, --yes never opening the credentials form, and a
-' 64-column footer keeping shift+tab back and enter accept
+' init` on a tmux TTY against a logging stub sbx: page n/3 labels, the way
+' back only past page 1, a revisit opening on later/keep with `sbx login` and
+' `sbx setup` run once each, --yes never opening the credentials form, and a
+' 64-column footer keeping the way back and enter accept
 ' (TestInitStepsBackWithoutRerunningSetup, TestInitYesNeverOpensTheCredentialsForm,
 ' TestInitNarrowFooterKeepsTheWayOut). MEASURED 2026-11-08: all four tests in
 ' the file pass 3/3 runs and all four fail against the pre-change binary
 ' 595b80af.
 ' The key line, Step and Outcome: _spec/internal/choiceui/wireframe.puml.
+'
+' ── WHAT INIT PRINTS (R3 of _spec/_plans/output-readability.puml, 2026-11-11)
+' Headings by subject, each once, each after the step that makes it true:
+'   sbx          the hand lines of the programs sbx owns, then ONE Facts block
+'                (host with the prerequisites it meets dim, sbx's version with
+'                where it lives dim, sbx's network policy) and its items
+'                (unmet prerequisites, an unverified or too-old sbx, the
+'                install ✓, the PATH item, a wizard or baseline that did not
+'                finish, "⚠ sbx — this shell's PATH finds <path>" with that
+'                sbx's version dim when PATH finds an sbx other than the
+'                prefix's, as after --force over brew's). The block prints
+'                after the install, PATH, sign-in, wizard and baseline steps.
+'                A REVISIT PRINTS ONLY WHAT CHANGED (critique of R3): its
+'                hand lines, and a fact or item no visit printed under that
+'                subject (initReport.printFresh); "sbx", "git" or "prompt"
+'                redraws only above those lines. NOT CHOSEN: the whole block
+'                again (host twice); no redraw (a hand line under git).
+'                The PATH step a visit settled (initDecisions.pathDone) runs
+'                again only to write an rc that lacks the dir; else it would
+'                print a ⚠ under the visit-1 ✓ for the same dir.
+'   prompt       the prompt kit's facts: starship, font, rc, config
+'   git          the identity, GitHub's token in sbx, sandbox Git's access
+'   credentials  what sbx's store holds after the page, printed at the end
+'   operator     the name agents use
+'   results      _spec/cmd/proveo/init-preflight-and-result.puml (THE CLOSE)
+' Gone: run, execution, starting, secrets, workspace (for git), egress (for
+' the baseline), setup (for the prompt kit).
+' HAND LINES name their program and no place (F1, the rules): "sbx login —
+' signing in to Docker", "sbx setup — running the first-run wizard", "sbx
+' policy init — binding the <b> network baseline", "sbx <v> — installing
+' into ~/.docker/sbx" ("— installing with msiexec.exe" where the MSI owns
+' placement), "distro package — installing sbx <v>" with "sudo may ask for
+' your password" dim, "gh auth login — signing in to GitHub", "<argv> —
+' installing the GitHub CLI". Live frames keep "step n/N · name · 3s".
+' A HAND-OFF THAT FAILS (rules: P9 + R2's F3): a program init handed the
+' terminal to prints its own error; init prints no "× <program> — <error>"
+' after it. The decision's four (sbx login, the release's installer, the
+' distro package, `gh auth login`) end init on "⚠ init — stopped at <row>"
+' ("sign in", "sbx install", "GitHub"), exit 1, with the rest under "not
+' run"; the others (the wizard, the baseline, gh's install, `sbx secret set
+' github`) are a ⚠ item with no restated exit status. handOff tells the two
+' apart: an exit status is the program's to explain; a program that never
+' started is proveo's to say. Until the R3 review a failed `gh auth login`
+' was a ⚠ item and init went on; the plan's decision lists it with the
+' fatal ones. Pinned by TestAFailedGhAuthLoginEndsInitOnWhereItStopped.
+' Ctrl+C DURING A HAND-OFF (decided in R3): init runs each handed program with
+' SIGINT notified, not fatal, so the Ctrl+C reaches the program alone. When
+' it then fails, or dies of SIGINT, or exits 130, init stops after it, as
+' bash does for a foreground job (wait-and-cooperative-exit): it ends the
+' line the terminal's ^C left open, prints the blocks it gathered, "not
+' run", and "⚠ init — stopped at <row>" with dim "Ctrl+C ended it", and
+' dies of SIGINT. A program that handles the Ctrl+C and exits 0 lets init go on.
+' KNOWN: a Ctrl+C during a live step (the download, verify) or proveo's own
+' git prompt still ends init at once, as before R3; the blocks not yet
+' printed are lost. NOT CHOSEN: a handler for the whole apply (a print from a
+' signal goroutine races the step that is writing the same blocks).
+' THE CALLER STOPS TOO (the second R3 review): exit 130 alone told a calling
+' shell that init handled the Ctrl+C, so install.sh's `proveo init </dev/tty
+' || init_incomplete` went on to init_incomplete and its post-install text;
+' before R3 init died of the SIGINT and the installer stopped. Init now
+' re-raises SIGINT once its result printed, and dies of it (status 130):
+' _spec/internal/backend/exit-code.puml. Windows exits 130.
+' A QUESTION INIT COULD NOT ASK (rules: no terminal, not --yes) keeps ONE dim
+' how-to under its line: git identity, credentials (under its "later" row),
+' GitHub access, the operator's name. --yes is the operator's act; its
+' how-tos are in the flag's help, the git identity's included (`git config
+' --global user.name` and `user.email`). Unasked, "access:" keeps what is
+' wrong with the host's SSH as state ("host agent unavailable or empty") and
+' drops the fix after its ";" (ssh-add, sbx setup).
+' --yes ASKS NOTHING (FOUND 3, MEASURED c7): the git step read the terminal
+' and ignored --yes, so `proveo init --yes` on a terminal asked for
+' user.name. hostGitStage now takes !d.NoPrompt && interactiveTerminal(), as
+' the prompt kit and GitHub do. Pinned by e2e TestInitYesNeverAsksForAGitIdentity.
+' THE INSTALL ✓ SAYS WHAT THE FACTS DO NOT (the second R3 review): the sbx
+' block's "sbx:" fact names the version and, dim, the bin, after the
+' install; the ✓ read "sbx 0.49.2 — installed" with the bin dim again. It is
+' "✓ sbx — installed" now, with dim "sha256 <sum>", whether the release's
+' provenance matched, and "replaced <v>" when the prefix held an sbx before
+' (--force, or a broken one): the one place the replaced version shows. An
+' sbx outside the prefix is not replaced: the tarball lands beside it, and
+' "⚠ sbx — this shell's PATH finds <path>" names it with its version dim.
+' Pinned by TestATarballInstallsTickSaysOnlyWhatTheFactsDoNot.
+' WINDOWS (Prefix and Bin empty, one msiexec step): the step reads "install
+' sbx with msiexec.exe", its hand line "sbx <v> — installing with
+' msiexec.exe", its ✓ "sbx <v> — installed" (no "sbx:" fact names the
+' version there) with the Note's first clause dim ("the MSI owns its install
+' location and puts sbx on PATH itself"), and no
+' PATH step. The MSI puts sbx on PATH for new processes, so verify in the
+' same process reads "⚠ sbx — not on this shell's PATH", dim "a new shell
+' finds it; `sbx diagnose` there gives the host's verdict", and no closing
+' verdict. [Inference] from install.go's plan; no Windows host ran it.
+' Pinned by TestAWindowsInstallNamesItsInstallerAndWhoOwnsItsPlace.
 '
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
 ' Every platform lands the same layout — <prefix>/bin/sbx beside a
@@ -432,7 +569,7 @@ component "runInitSteps\nsetup 1/3 · credentials 2/3 · operator 3/3" as STEPS 
 CDN ARROW_MAIN INIT : post-install, through /dev/tty or ""--yes""
 INIT ARROW_QUEUE ASK : when there is someone to ask
 INIT ARROW_MAIN STEPS : the three screens, in order
-STEPS ARROW_OPTIONAL ASK : shift+tab — back one screen
+STEPS ARROW_OPTIONAL ASK : esc — back one screen
 OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · gh · git · baseline
 OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
 INIT ARROW_MAIN ASSET : download by exact tag

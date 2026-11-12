@@ -96,7 +96,7 @@ func TestWriteBackCloneEnvMergesTheClonesEditsHome(t *testing.T) {
 	writeTestFile(t, in.CloneEnv, "DB=x\n")
 	writeTestFile(t, in.CloneEnvBase, "DB=x\n")
 
-	writeBackCloneEnv(in, func() ([]byte, error) { return []byte("DB=y\nNEW=1\n"), nil })
+	writeBackCloneEnv(in, func() ([]byte, error) { return []byte("DB=y\nNEW=1\n"), nil }, nil)
 	if got := readTestFile(t, host); got != "DB=y\nANTHROPIC_API_KEY=sk\nNEW=1\n" {
 		t.Errorf("host .env = %q; the clone's edits must land and the brokered key must stay", got)
 	}
@@ -119,7 +119,7 @@ func TestWriteBackCloneEnvFallsBackToTheStagedCopy(t *testing.T) {
 	writeTestFile(t, in.CloneEnvHost, "A=1\n")
 	writeTestFile(t, in.CloneEnvBase, "A=1\n")
 	writeTestFile(t, in.CloneEnv, "A=2\n")
-	writeBackCloneEnv(in, func() ([]byte, error) { return nil, errors.New("sandbox gone") })
+	writeBackCloneEnv(in, func() ([]byte, error) { return nil, errors.New("sandbox gone") }, nil)
 	if got := readTestFile(t, in.CloneEnvHost); got != "A=2\n" {
 		t.Errorf("host .env = %q; a removed sandbox still left its edit in the rw-mounted staged copy", got)
 	}
@@ -149,7 +149,7 @@ func TestWriteBackFromAWorktreeLandsInTheMonorepoEnvEveryWorktreeLinks(t *testin
 	in := Input{CloneEnv: filepath.Join(state, "project-env", ".env"), CloneEnvBase: filepath.Join(state, "base"), CloneEnvHost: host}
 	writeTestFile(t, in.CloneEnv, "DB=x\n")
 	writeTestFile(t, in.CloneEnvBase, "DB=x\n")
-	writeBackCloneEnv(in, func() ([]byte, error) { return []byte("DB=y\n"), nil })
+	writeBackCloneEnv(in, func() ([]byte, error) { return []byte("DB=y\n"), nil }, nil)
 	for _, dir := range trees {
 		link := filepath.Join(dir, ".env")
 		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -194,8 +194,7 @@ func TestLiftClonedSpecRestoresTheClonesEditsAndKeepsTheHosts(t *testing.T) {
 	writeTestFile(t, filepath.Join(repo, "_spec", "both.md"), "both.md host\n")
 
 	var rebased string
-	liftClonedSpec(Input{Sid: "s"}, repo, func() (string, string, error) { return base, head, nil },
-		func(sha string) { rebased = sha })
+	liftClonedSpec(Input{Sid: "s"}, repo, func() (string, string, error) { return base, head, nil }, func(sha string) { rebased = sha }, nil)
 
 	for f, want := range map[string]string{
 		"keep.md": "keep.md v1\n",
@@ -229,7 +228,7 @@ func TestLiftClonedSpecLeavesASymlinkedSpecAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := false
-	liftClonedSpec(Input{}, repo, func() (string, string, error) { called = true; return "", "", nil }, func(string) {})
+	liftClonedSpec(Input{}, repo, func() (string, string, error) { called = true; return "", "", nil }, func(string) {}, nil)
 	if called {
 		t.Error("a symlinked _spec is relinked live; asking the clone for a span is wasted work")
 	}
@@ -239,5 +238,28 @@ func TestCloneRebaseArgsRefusesANonCommit(t *testing.T) {
 	t.Parallel()
 	if args := sbx.CloneRebaseArgs("box", "/w", "abc; rm -rf /"); args != nil {
 		t.Errorf("a non-hex sha reached a shell script: %q", args)
+	}
+}
+
+func TestTheEnvMergeIsAFactThatNamesWhatItMergedAndIgnored(t *testing.T) {
+	dir := t.TempDir()
+	in := Input{CloneEnv: filepath.Join(dir, "staged", ".env"), CloneEnvBase: filepath.Join(dir, "base"),
+		CloneEnvHost: filepath.Join(dir, "host.env"), CloneEnvStrip: []string{"ANTHROPIC_API_KEY"}}
+	for _, c := range []struct {
+		name, edited, want string
+	}{
+		{"merged keys", "DB=y\nNEW=1\n", ".env: merged DB, NEW\n"},
+		{"only a brokered key", "DB=x\nANTHROPIC_API_KEY=sk-evil\n", ".env: nothing merged\n      ignored ANTHROPIC_API_KEY\n"},
+	} {
+		writeTestFile(t, in.CloneEnvHost, "DB=x\nANTHROPIC_API_KEY=sk\n")
+		writeTestFile(t, in.CloneEnv, "DB=x\n")
+		writeTestFile(t, in.CloneEnvBase, "DB=x\n")
+		screen, _ := captured(t)
+		out := NewBlock(ResultsHeading)
+		writeBackCloneEnv(in, func() ([]byte, error) { return []byte(c.edited), nil }, out)
+		out.Print()
+		if got := screen.String(); !strings.HasSuffix(got, c.want) || strings.Contains(got, dir) {
+			t.Errorf("%s: the .env fact:\n%s\nwant:\n%s", c.name, got, c.want)
+		}
 	}
 }

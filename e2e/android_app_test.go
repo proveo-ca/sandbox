@@ -206,7 +206,7 @@ func awaitNewSandbox(t *testing.T, sess *tmux.Session, before map[string]bool, t
 	t.Helper()
 	var name string
 	if !waitUntil(timeout, func() bool {
-		if fresh := newSandboxes(before); len(fresh) > 0 {
+		if fresh := newSandboxes(t, before); len(fresh) > 0 {
 			name = fresh[0]
 			return true
 		}

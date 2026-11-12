@@ -47,18 +47,51 @@ func diagnostics(lastScreen string) string {
 
 // runLogTail reads the log the run names in its own header.
 func runLogTail(screen string) string {
-	m := runLogPath.FindStringSubmatch(screen)
-	if m == nil {
+	path := runLogOn(screen)
+	if path == "" {
 		return ""
 	}
-	b, err := os.ReadFile(strings.TrimSpace(m[1]))
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return "(the run log " + path + " is unreadable: " + err.Error() + ")"
 	}
 	return tail(string(b), 40)
 }
 
-var runLogPath = regexp.MustCompile(`run log: (\S+\.log)`)
+// runLogOn is the run log the screen's run block names, with a leading "~/" made absolute.
+func runLogOn(screen string) string {
+	m := runLogPath.FindStringSubmatch(screen)
+	if m == nil {
+		return ""
+	}
+	path := strings.TrimSpace(m[1])
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, rest)
+		}
+	}
+	return path
+}
+
+var runLogPath = regexp.MustCompile(`\blog:\s+(\S+\.log)`)
+
+func TestRunLogOnReadsTheRunBlocksPath(t *testing.T) {
+	t.Parallel()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	for _, c := range []struct{ screen, want string }{
+		{"  ────── run ──────\n● log:   ~/.proveo/logs/proveo-1-2.log\n● scope: apps/web\n", filepath.Join(home, ".proveo/logs/proveo-1-2.log")},
+		{"● log: /tmp/h/logs/proveo-1-2.log\n", "/tmp/h/logs/proveo-1-2.log"},
+		{"● run log: /tmp/h/logs/proveo-1-2.log\n", "/tmp/h/logs/proveo-1-2.log"},
+		{"● scope: apps/web\n", ""},
+	} {
+		if got := runLogOn(c.screen); got != c.want {
+			t.Errorf("runLogOn(%q) = %q, want %q", c.screen, got, c.want)
+		}
+	}
+}
 
 // dockerPSAll lists every container including exited ones.
 func dockerPSAll() string {
@@ -192,6 +225,7 @@ func sweepSandboxesAfter(t *testing.T) {
 	if _, already := sweptTests.LoadOrStore(t.Name(), true); already {
 		return
 	}
+	root := testRoot(t)
 	before, ok := sbxSandboxNames()
 	t.Cleanup(func() {
 		sweptTests.Delete(t.Name())
@@ -199,10 +233,16 @@ func sweepSandboxesAfter(t *testing.T) {
 			t.Logf("sweep skipped: `sbx ls` failed when %s started, so nothing proves which sandboxes it made", t.Name())
 			return
 		}
-		for _, name := range newSandboxes(before) {
+		for _, name := range newSandboxesUnder(before, root) {
 			_, _ = removeSandbox(t, name)
 		}
 	})
+}
+
+// testRoot is the directory every t.TempDir of t sits in; no other test, in this process or another, shares it.
+func testRoot(t *testing.T) string {
+	t.Helper()
+	return filepath.Dir(t.TempDir())
 }
 
 var sweptTests sync.Map

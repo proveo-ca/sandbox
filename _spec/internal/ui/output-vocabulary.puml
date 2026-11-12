@@ -3,6 +3,10 @@
 ' purpose: the fixed status vocabulary proveo prints — six roles, three severities, one measured writer
 ' covers: internal/ui/**
 ' covers: e2e/stream_palette_test.go (whiteRun, proveoLines, TestWhiteRunSkipsSbxsOwnLines)
+' covers: internal/sbx/host_ollama.go (pullOllama: the first user of the live line)
+' covers: internal/sbx/host_ollama_pull_test.go
+' covers: internal/backend/sandbox/report.go (Item.Log, PrintBlock, Block)
+' covers: internal/backend/sandbox/log_moves_test.go
 '   the language this obeys ....... _spec/_conventions/tui-design-language.puml
 '   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
 '   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
@@ -37,7 +41,8 @@
 ' Swept cmd/proveo and internal for raw fmt.Print*: `ls`, `projects`,
 ' `setup --print`, the numbered target/scope pickers, the y/N and field prompts
 ' (init wizard, uninstall) and the Ollama pull now speak the Printer's verbs
-' under a Section. Askf is the one new verb: a question that waits for input
+' under a Section (R4 took the Section off `ls`, `projects`, `setup --print`
+' and uninstall's question: WHAT THE LISTINGS PRINT below). Askf is the one new verb: a question that waits for input
 ' on the SAME line — "› " brand + bold text (ascii "> "), plain the bare text.
 ' A pull's live progress line only redraws on a TTY; plain gets start + end.
 ' DELIBERATELY PLAIN, because something copies or parses them: `version`
@@ -83,6 +88,173 @@
 ' Verified by e2e/stream_palette_test.go: one real run in tmux asserting the
 ' grey, rule and bold-failure SGRs and ≤ 2 consecutive default-colour lines.
 '
+' ── FACTS AND DETAIL (2026-11-11, R0 of _spec/_plans/output-readability.puml)
+' The operator compared sbx's create block with proveo's stream and chose to
+' adopt its principles, keeping proveo's ● dots ("Keep ● dots, aligned").
+' ui.Facts prints facts about one subject as ONE block:
+'   ● checkout: ~/w/hotfix (linked worktree)
+'               cloned from ~/w/main                  ← Detail, dim
+'   ● .env:     ~/w/main/.env (copy, rw)
+'               ~/w/main/.env.local (copy, rw)        ← a row with no Key
+'   ● links:    _spec → ~/Syncd/_spec
+' Each keyed row keeps its role's dot colour; key and value print grey as a
+' role line always has, so GREY DETAIL holds: no default-colour text, and a
+' clean run stays grey. Keys are lowercase and end in ":". Values start in
+' one column per block: the widest key, its colon, one space. A row with no
+' Key stacks its Value under the row above, with no dot. Detail lines sit at
+' the value column in ColorRule #585858; under a value in a stack they sit
+' two columns further, so plain output (no shade) cannot read a detail as one
+' more value of the list (R3: "later:" stacked "prompt", "credentials" and
+' credentials' how-to in one column). A row with no Value and no Detail
+' prints nothing, so a caller passes every fact and lets the empty ones drop;
+' such a row widens no key column either (R1: the run block's empty "scope"
+' padded "log:" to three spaces).
+' PLAIN MODE drops the mark column and keeps the alignment: "log:   /x".
+' A VALUE WRAPS AT ITS OWN COLUMN on a terminal. wrapWriter.writeHang takes
+' the hanging column; multi forwards it to the terminal half alone, so the
+' log copy keeps one line per row (TestTeeDoesNotWrapTheLog's rule).
+' ui.Detailf writes a dim line two columns past the text column, under a
+' ✓ ⚠ × item. ui.Tilde writes a host path under $HOME as "~/…"; it replaced
+' schedule's private tildeHome.
+' Pinned by internal/ui/facts_test.go:
+'   TestFactsAlignValuesInOneColumnAndKeepTheRoleDot
+'   TestPlainFactsAlignWithoutMarks
+'   TestAFactValueWrapsAtItsOwnColumnAndTheLogStaysOneLine
+'   TestDetailfIndentsTwoPastTheTextColumn
+'   TestTildeAbbreviatesOnlyUnderHome
+'   TestARowThatPrintsNothingWidensNoKeyColumn
+'   TestFactsWithNothingToPrintDrawNoHeading: a block whose rows are all empty
+'     draws no pending heading either
+'   TestTildeInAbbreviatesEachHomePathInsideText: ui.TildeIn rewrites each home
+'     path that starts inside a line (an error's text, "link → target"); a
+'     path that only contains the home string mid-word stays as it was
+' Pinned without sbx by e2e/stream_palette_test.go TestWhiteRunSkipsSbxsOwnLines:
+' a fact block, a ✓ outcome with dim detail, and the interface block after
+' sbx's create block count 0 white lines.
+' THE TEE KEEPS THE SCREEN'S "~/". A Facts row reaches the run log as the
+' screen drew it, so a teed row carries "~/"; rows written with ui.Logf (the
+' create block's facts, the IDE block, the posture) stay absolute. The log's
+' header records "home: <absolute $HOME>" once, so each "~/" resolves (the
+' operator, 2026-11-11, decision C; _spec/internal/runlog/run-transcript.puml).
+' OUTCOME LINES (the operator, 2026-11-11, decision A; amends P7 of
+' _spec/_plans/output-readability.puml). A block ends on a ✓/⚠/× line only
+' when it reaches a verdict its facts do not already state:
+'   workspace    ends on ✓ "private clone — …" or ✓ "mounted checkout — …"
+'   credentials  ends on its ⚠/× items when one exists, else on its facts
+'   run, egress  facts only; no outcome line
+'   results      ends on the sandbox's fate (R2): ✓ <name> — removed, or the
+'                ⚠ kept line, which the "ide" block then follows
+' A fact block never repeats itself as a ✓ line. NOT CHOSEN: an outcome line
+' on every block; a credentials ✓ line in place of the "login" fact.
+' sandbox.PrintBlock prints facts, then items, so an item is the last line.
+' ITEM LOG LINES. sandbox.Item.Log holds the why and the how-to-change of a
+' ⚠ or ● item; Item.print writes them with ui.Logf, so they reach the run log
+' and never the screen (P6): the re-attach's "workspace block is this run's
+' plan", the buildx builder knob, the sbx secret store's how-to.
+'
+' ── THE END OF A RUN (2026-11-11, R2 of _spec/_plans/output-readability.puml)
+' sandbox.Block gathers one subject's facts and items while its steps run and
+' prints them once (PrintBlock); a row added after Print prints at once. The
+' results block of _spec/internal/backend/teardown.puml is its first user.
+' Block.Take hands what Print would print to a caller that prints it its own
+' way, and counts as Print: init's revisit drops what it printed before
+' (_spec/cmd/proveo/init-sbx-bootstrap.puml). ui.WithdrawSection withdraws
+' a heading declared and not drawn, so a subject a revisit left unchanged
+' does not lend its heading to the next live line, which Printer.Live draws
+' (TestAWithdrawnSectionDrawsNothing).
+' SectionIDE ("ide") heads a kept sandbox's attach facts; it prints only when
+' the sandbox stays, after results, so nothing redraws "results" after it.
+' Item gained Ok (✓) and Fail (×): a closing "✓ <name> — removed" is a
+' verdict no fact states (decision A), and "× sbx run — exited with code N"
+' prints only when sbx said nothing itself (P9).
+' ui.LogWriter is a writer whose every line reaches the run log alone: the
+' Hermes Desktop install.sh output goes there.
+' A WRAPPED FACT KEEPS ITS COLUMN. wrapOne used to rejoin words with one
+' space, so a wrapped row lost the gap that aligns its value ("vs code:
+' code …"), and a word wider than the line moved to its own row first,
+' leaving "toolbox:" bare. It now keeps each whitespace run between words
+' it does not break at, and a word no fresh line can hold breaks where it
+' starts (MEASURED on the kept ide block, TestStreamPaletteE2E's capture).
+' Pinned by TestAWrappedFactKeepsItsAlignedGapAndBreaksALongWordAtItsOwnColumn
+' and TestLogWriterSendsEachLineToTheRunLogAlone.
+'
+' ── WHAT INIT PRINTS (2026-11-11, R3 of _spec/_plans/output-readability.puml)
+' `proveo init` names its subjects: sbx · prompt · git · credentials · operator
+' · results, each once, each after the step that makes it true. SectionPrompt
+' ("prompt") and SectionGit ("git") are new; SectionExecution, SectionStarting
+' and SectionSecrets lost their last callers and left: eighteen sections.
+' OUTCOME LINES, init's (decision A applied): sbx, prompt, git, credentials and
+' operator are facts with their ⚠/× items; results ends on ONE closing line
+' for a verdict no fact states: "✓ host — ready to run", "× host — not ready
+' to run", "⚠ init — quit at page n/N", "⚠ init — cancelled at the checks
+' page", "⚠ init — stopped at <row>" (a program init handed the terminal to
+' failed and printed its own error, P9 and R2's F3), "× <row> — failed" (a
+' failure only proveo saw), or "× init — stopped" (an error no step names:
+' the setup page's own form error, no plan for a prefix it chose), the error
+' dim. After a verify that found the host ready, each ending but ✓ keeps "host
+' ready to run" as its last dim line. Every one but ✓ returns
+' backend.Reported, or a Stopped proveo re-raises after a Ctrl+C in a
+' hand-off, so main adds no second ×. A fact never
+' repeats as a ✓: the operator's name, the git identity and a stored key are
+' facts; "done:" left (it was false three ways).
+' Steps.Quiet and Steps.Silent: _spec/internal/ui/step-lines.puml.
+' init writes no run log, so ui.Logf is a no-op there; nothing init used to
+' print moved to Logf. Its how-tos went to `proveo init --help` (F2).
+'
+' ── WHAT THE LISTINGS PRINT (2026-11-11, R4 of _spec/_plans/output-readability.puml)
+' A one-subject command draws NO heading (the operator: rm, adopt, attach,
+' clean, ls, projects, the schedule listing, setup, update, uninstall). `proveo
+' run` with no target keeps "running" and "targets"; run and init keep theirs.
+' SectionProjects, SectionSchedule, SectionSetup and SectionUninstall lost
+' their last callers and left: fourteen sections. SectionTargets and
+' SectionRunning now head only `proveo run`'s two-block listing.
+'   ls        ONE Facts block, app role: "<target>: <image>"
+'   projects  one store-role row per member path; no tool column (P6, P9)
+'   schedule  ONE Facts block keyed by job, scheduler role; × items after it;
+'             ONE closing tick line ("✓ tick — installed", the manager dim)
+'   attach    (no terminal) ONE Facts block keyed by task, the same running
+'             value as the schedule listing, no literal "●" in the value;
+'             one dim how-to on stderr; a refusal, "⚠ attach — stopped at
+'             tmux" or "● tmux — nested read-only client" otherwise
+'   rm        a kept sandbox is a P2 item "<name> — <why>", its age dim
+'             ("19h 7m ago", ui.Span: the schedule's wait form, pinned by
+'             TestSpanWritesAWaitOrAnAgeToTheMinute); one
+'             closing line: "✓ <name> — removed | already gone", "× <name>
+'             — not removed" with its why and ONE fix dim, "⚠ <name> — no
+'             such sandbox" (exit 0, HEAD's status)
+'   durations a wait or an age reads ui.Span ("in 1d 23h", "19h 7m ago"); a
+'             budget and the clock against it read as schedule.yml writes a
+'             budget ("1h7m of 1h30m" beside "1h30m budget"). NOT CHOSEN:
+'             ui.Span for both ("of 1h 0m" beside "budget: 1h")
+'   adopt     ONE "to adopt" fact, stacked; "✓ branch <b> — created at <ref>"
+'   clean     ONE Facts block by kind, error role (red without a failure),
+'             printed after the removals; ⚠ items; one closing
+'   setup     ONE item, init's PATH item word for word: "✓ ~/.proveo/bin —
+'             added to PATH in ~/.zshrc", "⚠ … — not on this shell's PATH",
+'             "× ~/.zshrc — not written"; the line to add dim
+'   update    a live line per wait (latest.json, the download, uninstall.sh);
+'             "✓ proveo 0.3.1 → 0.4.0 — updated", "● … — available" for
+'             --check, "× latest.json — not read | not valid", the cause dim
+'   uninstall the question names each part found; ONE Facts block of what
+'             left, error role (root · path · prompt · font); ⚠ for each
+'             removal that failed and each thing that stays; "✓ proveo —
+'             uninstalled" or "⚠ proveo — uninstalled; N left"
+' (_spec/internal/results/result-store.puml, _spec/internal/clean/clean-lifecycle.puml,
+' _spec/internal/shell/setup-path.puml, _spec/internal/cdn/distribution-update.puml.)
+' Dangerf lost its last caller (uninstall's red line, P9) and left ui.go: the
+' error role prints as a Fact's Role or through Rolef, so five roles carry a
+' verb and RoleError carries none (internal/contract TestEveryRoleVerbIsWired).
+' sandbox.Item splits a detail at each newline, so an error git or sbx wrote
+' over several lines keeps the detail column (FOUND 9 of the R4 kept design,
+' read from code: Detailf wrote the later lines at column 0); blank rows drop.
+' An absence is one role line on stderr ("● nothing running") and stdout
+' stays empty. A command's refusal is ONE × item with ONE dim line, printed
+' by the command through sandbox.PrintBlock under no heading (cmd/proveo
+' reported), returning backend.Reported: main adds no second × (R3's
+' mechanism, settled). `proveo version`, the tick's launchd log and
+' `schedule run --print` stay DELIBERATELY PLAIN; the tick log names a job
+' still running once.
+'
 ' ── WHICH SCREEN LINES ARE PROVEO'S (2026-10-20) ───────────────────────────
 ' MEASURED: the newer sbx prints its own uncoloured lines into the same pane —
 ' a `── RESOLVE SETUP` block, `⚠ WARNING: template … built for the "shell"
@@ -103,14 +275,54 @@
 ' count 0, three default-colour proveo lines still count 3 in the prelude, in
 ' results, and after a heading that follows template-load output.
 
-title Output vocabulary — six roles, three severities, fifteen sections, one measured writer
+' ── ONE LIVE LINE, ON THE TERMINAL ALONE (2026-11-10) ─────────────────────
+' The Printer had no way to draw something that changes in place. The one
+' caller that needed it, the Ollama pull, wrote its frames straight to
+' Printer.W. After TeeTo that writer is the terminal AND the run log, so each
+' frame reached the log with its carriage return (probe: 3 frames, 4 CRs). W
+' also wraps to the width, so a wide frame was split into two rows and could
+' no longer be erased (_spec/_experiments/terminal-handoff-probes.puml, C2).
+' Live(role, format, …) draws one line that the next frame replaces:
+'   it writes to the terminal alone (Printer.term), never to a tee
+'   the frame is cut to the terminal's width, less one column, so it stays
+'     on one row and `CR, erase to end of line` removes it
+'   an ordinary line erases the frame, prints, and redraws the frame under
+'     it, all under the Printer's own lock
+'   a question (Askf) ends it; EndLive erases it
+'   a plain printer (a pipe, a file, NO_COLOR, TERM=dumb) draws nothing
+' The log therefore holds the lines and never a frame. pullOllama is the
+' first caller: its `!p.Plain` test and its three raw writes are gone.
+' THIS IS ONE LINE, NOT A REGION. Teardown's running step is its second
+' caller (_spec/internal/backend/teardown.puml, T6): one frame per step,
+' redrawn on a one-second clock. init's apply and a run's start followed,
+' through ui.Steps. SuspendLive takes the line off while a prompt has the
+' terminal: _spec/internal/ui/step-lines.puml.
+' ui.Fancy() tells a caller whether Default can redraw, so it can print a
+' plain start line where it cannot. ui.NewTerminal(w, cols) is a Printer that
+' treats w as a terminal of that width; tests in other packages read frames
+' off it.
+' Pinned by internal/ui/live_test.go:
+'   TestALiveFrameReachesTheTerminalAndNeverTheLog
+'   TestAnOrdinaryLineErasesTheLiveFrameAndRedrawsItBelow
+'   TestALiveFrameIsCutToTheTerminalsWidth
+'   TestAPlainPrinterDrawsNoLiveFrame
+'   TestAQuestionEndsTheLiveLine
+' and by internal/sbx/host_ollama_pull_test.go:
+'   TestAPullWritesNoProgressFrameIntoAPlainStream
+'   TestAFailedPullReturnsItsErrorAndLeavesNoFrame
+'   TestAPullsStartAndEndReachTheLogAndNotTheScreen (R2: the pull is host
+'     preparation; its start, forecast and "pulled" line go to the run log,
+'     a plain printer keeps one start line, and egress's "local model" fact
+'     gains a dim "pulled this run · 4.0 GiB")
+'
+title Output vocabulary — six roles, three severities, fourteen sections, one measured writer
 
 component "Printer{W, Plain, Tier}" as P <<app>>
-component "Hostf · Appf · Asyncf\nCloudf · Storef · Dangerf\n— role: which layer speaks" as ROLES <<app>>
+component "Hostf · Appf · Asyncf\nCloudf · Storef · Fact.Role\n— role: which layer speaks" as ROLES <<app>>
 component "Okf · Warnf · Failf\n— severity: fine · attention · broken" as SEV <<app>>
 component "Notef\ncontinuation, indented\nto the text column" as NOTE <<app>>
 component "Askf\nquestion, same line,\nawaits input" as ASK <<app>>
-component "Section(ui.Section*)\nten closed names\nheading drawn LAZILY" as SEC <<app>>
+component "Section(ui.Section*)\nfourteen closed names\nheading drawn LAZILY" as SEC <<app>>
 component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
@@ -145,10 +357,10 @@ note right of ROLES
   the colour, because a second geometric shape per role
   would be a code the reader has to learn.
 
-  ""Dangerf"" is the ""<<error>>"" role WITHOUT a failure —
-  ""proveo clean"" removing an image, a credential
-  crossing a boundary. Red because it is destructive or
-  security-sensitive, ""●"" because nothing went wrong.
+  A ""RoleError"" fact: the error role WITHOUT a
+  failure — what ""proveo clean"" or ""proveo
+  uninstall"" removed. Red for destructive,
+  ""●"" for nothing went wrong.
 end note
 
 note bottom of SEV
@@ -172,24 +384,21 @@ note bottom of SEV
 end note
 
 note right of SEC
-  **A divider names the concern, and the concern is the
-  form's.** ""egress"", ""credentials"", ""execution"" and
-  ""interface"" are the choice prompt's own rows and
-  plane dividers, so an operator answers a question and
-  then reads what happened under the same heading.
+  **A divider names a subject, in one lowercase word.**
+  A run reads ""run"", ""credentials"", ""egress"",
+  ""workspace"", ""sbx"", ""interface"", ""results"",
+  and ""ide"" when the sandbox stays, each after the
+  step that makes its lines true, and each once in
+  a run (teardown's checks print in ""results"").
 
   Drawn by the first line that FOLLOWS it, never by the
   call that declares it — a prelude is almost all
   conditional lines, and a stage with nothing to say
   must leave no heading behind. Re-declaring the current
-  heading continues its block, which is what lets
-  ""selectBackend"" add the sbx baseline warning to the
-  egress block the broker line opened.
-
-  A run's live phase carries its own four names —
-  ""starting"", ""secrets"", ""interface"", ""results"" — so
-  a second heading is a different moment rather than a
-  repeat, and every divider appears exactly once.
+  heading continues its block. A live step draws a
+  pending heading before it logs its place
+  (Steps.do → Printer.heading), so ""sbx"" sits above
+  the start steps in the run log as on screen.
 end note
 
 note bottom of SEC

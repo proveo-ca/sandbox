@@ -20,7 +20,7 @@ func withGuestSaying(t *testing.T, out string, err error) {
 func TestTeardownRecordsWhatTheGuestSaidAboutMemory(t *testing.T) {
 	withGuestSaying(t, "== meminfo ==\nMemTotal: 12157280 kB\nSwapTotal: 0 kB\n", nil)
 	dir := t.TempDir()
-	CaptureMemoryEvidence(dir, "proveo-1")
+	CaptureMemoryEvidence(dir, "proveo-1", nil)
 
 	b, err := os.ReadFile(filepath.Join(dir, "sbx", runlog.MemoryEvidenceFile))
 	if err != nil {
@@ -43,7 +43,7 @@ func TestTeardownIsSilentWhenTheGuestCannotAnswer(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			withGuestSaying(t, c.out, os.ErrNotExist)
 			dir := t.TempDir()
-			CaptureMemoryEvidence(dir, "proveo-1")
+			CaptureMemoryEvidence(dir, "proveo-1", nil)
 			if _, err := os.Stat(filepath.Join(dir, "sbx", runlog.MemoryEvidenceFile)); err == nil {
 				t.Error("an empty answer was written as evidence — a file that says nothing " +
 					"is worse than none, because it looks like it was checked")
@@ -53,7 +53,7 @@ func TestTeardownIsSilentWhenTheGuestCannotAnswer(t *testing.T) {
 	t.Run("no sandbox name", func(t *testing.T) {
 		withGuestSaying(t, "MemTotal: 1 kB", nil)
 		dir := t.TempDir()
-		CaptureMemoryEvidence(dir, "")
+		CaptureMemoryEvidence(dir, "", nil)
 		if _, err := os.Stat(filepath.Join(dir, "sbx")); err == nil {
 			t.Error("wrote a record for a sandbox with no name")
 		}
@@ -65,9 +65,35 @@ func TestTeardownIsSilentWhenTheGuestCannotAnswer(t *testing.T) {
 func TestPartialOutputIsStillRecorded(t *testing.T) {
 	withGuestSaying(t, "== meminfo ==\nMemTotal: 12157280 kB\n(docker did not answer)\n", os.ErrDeadlineExceeded)
 	dir := t.TempDir()
-	CaptureMemoryEvidence(dir, "proveo-1")
+	CaptureMemoryEvidence(dir, "proveo-1", nil)
 	if _, err := os.Stat(filepath.Join(dir, "sbx", runlog.MemoryEvidenceFile)); err != nil {
 		t.Errorf("partial output was discarded: %v — a wedged docker daemon is itself the "+
 			"finding, and dropping the record loses the meminfo with it", err)
+	}
+}
+
+func TestAnOutOfMemoryKillIsAResultsWarningAndAQuietRecordGoesToTheLog(t *testing.T) {
+	withGuestSaying(t, "[  12.3] Out of memory: Killed process 42 (node)\n", nil)
+	screen, log := captured(t)
+	out := NewBlock(ResultsHeading)
+	dir := t.TempDir()
+	CaptureMemoryEvidence(dir, "proveo-1", out)
+	out.Print()
+	path := filepath.Join(dir, "sbx", runlog.MemoryEvidenceFile)
+	want := "warn: memory — the guest killed a process (out of memory)\n" +
+		"    `PROVEO_SBX_MEMORY=16g` raises the ceiling (32g at most)\n" +
+		"    " + path + "\n"
+	if got := screen.String(); !strings.HasSuffix(got, want) {
+		t.Errorf("the OOM item:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(log.String(), "NO SWAP") {
+		t.Errorf("the why belongs to the run log:\n%s", log.String())
+	}
+
+	withGuestSaying(t, "== meminfo ==\nMemTotal: 1 kB\n", nil)
+	screen, log = captured(t)
+	CaptureMemoryEvidence(t.TempDir(), "proveo-1", nil)
+	if screen.String() != "" || !strings.Contains(log.String(), "memory logs: ") {
+		t.Errorf("a quiet record's path goes to the run log alone\nscreen:\n%s\nlog:\n%s", screen.String(), log.String())
 	}
 }

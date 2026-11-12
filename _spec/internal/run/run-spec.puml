@@ -6,7 +6,116 @@ skinparam noteTextAlignment left
 ' covers: internal/run/run.go
 ' covers: internal/run/**
 ' covers: cmd/proveo/golden_test.go
+' covers: cmd/proveo/main.go (pickProject, scopePage, scopePageAnswer)
+' covers: e2e/scope_picker_test.go
 '   why there is one backend ... _spec/internal/sbx/sandbox-backend.puml
+'
+' ── 2026-11-10: ONE GATE DECIDES WHETHER A RUN ASKS FOR A SCOPE ────────────
+' resolveWorkspace asked for a monorepo scope whenever stdin was a terminal
+' and the wizard was on. It read neither --yes nor PROVEO_SCHEDULE.
+'   `proveo run --yes` in a monorepo still opened the picker.
+'   [Inference] A scheduled run there opened it too and waited: the scheduler
+'   types into a tmux terminal. This rests on reading the gate; no scheduled
+'   run was recorded doing it.
+' scopeGate(p, tty, wizard, scheduled) now answers one of three:
+'   scopeAsk     a headed run that was not told yes: the operator picks
+'   scopeRoot    --yes or the scheduler: the repo root, and one line says so
+'                  scope: repo root
+'                (the Executor, D17: "Repo root, with a line"); since
+'                2026-11-11 that line is the "scope" fact of the run block,
+'                printed after the pages beside "log" (output-readability R1)
+'   scopeSilent  --print, no terminal, or the wizard off: the repo root, as
+'                before, with no line
+' --print stays silent because it starts nothing; the scheduler runs it first
+' and reads its output.
+' Project discovery runs only when the gate is not silent, so --print still
+' pays for none.
+' ESC IN THE PICKER CANCELS. fuzzyPickProject returned "" for three things:
+' the "<repo root>" row, a finder failure, and Esc. "" means the repo root, so
+' Esc started a run on the whole repository. pickedScope now maps the finder's
+' ErrAbort to run.ScopeCancelled; chooseScope turns that into
+'   cancelled at the scope prompt
+' and the run exits 1 before anything is created. A finder failure still falls
+' back to the repo root.
+' MEASURED on a real terminal (tmux), 2026-11-10: before the change proveo was
+' still running 30s after Esc; after it, it printed the line and exited 1.
+' WRITTEN TWICE BY CHOICE, AND NOW REPLACED: on 2026-11-11 the tree page took
+' fuzzyPickProject's place (the next section). The gate stays; the sentinel
+' went.
+' Pinned by internal/run/scope_gate_test.go:
+'   TestTheScopeGateAsksOnlyAHeadedRunThatWasNotToldYes
+'   TestASkippedScopeQuestionTakesTheRepoRootAndSaysSo
+'   TestClosingTheScopePickerCancelsTheRun
+' by cmd/proveo/main_test.go:
+'   TestAClosedScopePageCancelsAndAPageThatCannotDrawKeepsTheRepoRoot
+' and by e2e/scope_picker_test.go: TestEscInTheScopePageCancelsTheRun
+'
+' ── 2026-11-11: THE SCOPE IS PAGE 1, AND THE FORM STEPS BACK TO IT (W-d) ───
+' resolveWorkspace did two jobs: it found the repository, and it applied a
+' scope to it. The second ran once, before the form, so a scope could not be
+' revisited. It is now two functions and a loop.
+'   detectWorkspace  once: the GitHub access settings, the repository, the
+'                    output directory
+'   applyScope       per visit: the mount, the env file, and what that file
+'                    sets (evidence, MCP, mise trust)
+'   choosePages      the scope page, applyScope, the form; again after each
+'                    step back
+' The page itself: _spec/internal/choiceui/scope-tree.puml.
+' A STEP BACK STARTS OVER FROM A COPY. The form's stage changes Params before
+' it draws: the cache seed, the add-on flags, the capabilities. choosePages
+' clones Params on entry and restores the clone before each visit, so a
+' second visit sees what the first one saw. clone copies every slice and map.
+' THE FORM'S ANSWERS SURVIVE THE ROUND TRIP. The form that stepped back goes
+' to the next visit, and Form.Adopt copies its answers into every row that
+' offers the same options. A locked row, and an option the new scope greys
+' out, keep the new form's own answer. The env file depends on the scope, so
+' the auth row can differ between two visits.
+' THE SCOPE LINE PRINTS ONCE, AFTER THE PAGES. It printed before the form.
+' Inside the loop it would repeat on each step back.
+' THE PAGES ARE NUMBERED ONLY WHEN BOTH SHOW. A run that asks no scope
+' question (--scope, no project found, --yes) draws the form with no page
+' and no way back, as before.
+' NOT HOISTED: the form's own lookups (dev ports, Android apps, SSH keys)
+' run again on each visit. The plan's "a step back re-runs no detection"
+' holds for the repository and the project list only.
+' THE FORM NAMES WHAT ENTER STARTS (W-j). runOnEnter lists, for the scope the
+' visit has: the workspace (a private clone, or the mounted checkout and
+' why), "create the sandbox, or re-attach to the one this folder left", and
+' "start <target>". The key line counts them.
+' THE SANDBOX'S NAME IS NOT ON THE PAGE, though the plan asked for it. The
+' name is a hash of the first workspace mount, and the mount plan is built
+' after the form, from the form's own answers.
+' Pinned by internal/run/pages_test.go: TestTheRunFormNamesWhatEnterStarts
+' THE SENTINEL IS GONE. PickProject returns (scope, ok); a closed page is
+' ok = false. A page that cannot open the terminal keeps the repo root and
+' says so, as a finder failure did.
+' Pinned by internal/run/pages_test.go:
+'   TestAStepBackReturnsToTheScopePageWhereItWasLeft
+'   TestClosingTheScopePageEndsThePagesBeforeTheForm
+'   TestARunWithNoScopeQuestionShowsTheFormAloneAndCannotStepBack
+'   TestAFormErrorEndsThePages
+'   TestACloneSharesNoSliceOrMapWithItsOriginal
+' by internal/choiceui/choiceui_test.go:
+'   TestAdoptCarriesAnswersToRowsThatOfferTheSameOptions
+' and by e2e/scope_picker_test.go:
+'   TestTheFormStepsBackToTheScopePageWhereItWasLeft
+'
+' ── 2026-11-11 (output-readability R2): THE STAGES NOW ─────────────────────
+' MEASURED in run.go, run.Do's stages read:
+'   requireSandbox · detectWorkspace · choosePages (reportRun) ·
+'   preflightImage · ensureDesktop · resolveCredentials · planMounts ·
+'   buildPosture · launchSandbox
+' assembleEnv is GONE. Its one job, staging the host's GitHub token, moved
+' into resolveCredentials, before credentials prints its block: the lookup
+' now returns ⚠ items (Deps.GitHubTokenEnv → envVar, items), and a degraded
+' token is a credentials item (R1 carry-over e). ensureDesktop left
+' launchSandbox for a stage after preflightImage, so the Hermes Desktop
+' install question prints under "run" beside the image pull (carry-over b).
+' Both moves change the order the operator reads them in, which the rule
+' below says only a decision may do; the operator's R2 decisions are that
+' decision (_spec/_plans/output-readability.puml). buildPosture prints
+' nothing on screen: the posture is a run-log row, so nothing sits between
+' credentials and the sbx block any more.
 '
 ' ── 2026-10-16: ONE BACKEND, ONE INPUT ─────────────────────────────────────
 ' The docker+egress backend is deleted ("Retire Docker egress"; "Refuse without
@@ -68,9 +177,10 @@ skinparam noteTextAlignment left
 '   * promptChoices runs BEFORE resolveCredentials, not after. The prompt needs
 '     the env-file lookup, and the auth report needs the answers, so the real
 '     order is workspace -> lookup -> prompt -> auth.
-'   * assembleEnv is a stage of its own. The plan folds it into
+'   * assembleEnv was a stage of its own. The plan folds it into
 '     resolveCredentials, but posture is rendered BETWEEN the two; moving either
 '     across that line changes the order the operator reads them in.
+'     (2026-11-11: folded after all, as the plan said; see THE STAGES NOW.)
 '   * teardown is not a stage. It is `defer` inside execute, so a signal
 '     mid-run unwinds exactly the way a normal exit does.
 ' Stages are contiguous slices of the original statement order. Nothing was
@@ -125,14 +235,21 @@ participant "sandbox.Input" as SBX <<cloud>>
 
 CMD ARROW_MAIN DO : Params (flags) + Deps (terminal, gh, docker)
 DO ARROW_ERROR DO : requireSandbox — refuse unless sbx is ready
-DO ARROW_MAIN SPEC : resolveWorkspace · promptChoices · resolveCredentials
-DO ARROW_MAIN SPEC : buildPosture · assembleEnv
+DO ARROW_MAIN SPEC : detectWorkspace · choosePages · preflightImage
+DO ARROW_MAIN SPEC : ensureDesktop · resolveCredentials · planMounts · buildPosture
 SPEC ARROW_QUEUE SBX : launchSandbox
 
 note over CMD
   **Deps keeps this package honest.** Prompts,
   the gh session and image pulls stay in
   cmd/proveo and arrive as functions.
+end note
+
+note over SPEC
+  **One gate for the scope question.** ""--yes""
+  and the scheduler take the repo root; the run
+  block says ""scope: repo root"". Esc on the
+  page cancels the run; it no longer means root.
 end note
 
 note over DO

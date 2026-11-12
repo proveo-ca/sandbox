@@ -68,13 +68,13 @@ func TestPortsPublishE2E(t *testing.T) {
 	}
 	_ = first.SendKeys("Space")
 	_ = first.Enter()
-	assertServed(t, first, work)
+	assertServed(t, first, home, work)
 	if screen, ok := stopRun(first, 3*time.Minute); !ok {
 		t.Fatalf("first run never exited after SIGTERM\n%s", screen)
 	}
 
 	second := startRun(t, proveoBin, home, image, work, "second", "--yes")
-	assertServed(t, second, work)
+	assertServed(t, second, home, work)
 }
 
 func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...string) *tmux.Session {
@@ -89,14 +89,14 @@ func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...s
 	return sess
 }
 
-// assertServed waits for the publish report and the running sandbox, then GETs the sandbox's own server from the host.
-func assertServed(t *testing.T, sess *tmux.Session, work string) {
+// assertServed waits for the port row and the running sandbox, then GETs the sandbox's own server from the host.
+func assertServed(t *testing.T, sess *tmux.Session, home, work string) {
 	t.Helper()
-	if _, err := sess.WaitFor(fmt.Sprintf("→ sandbox :%d", guestPort), 3*time.Minute); err != nil {
+	if _, err := sess.WaitFor(fmt.Sprintf("port %d:", guestPort), 3*time.Minute); err != nil {
 		screen, _ := sess.CaptureAll()
 		t.Fatalf("publish never reported: %v\n%s", err, screen)
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d/PORTS_OK", hostPortFor(t, sess))
+	url := fmt.Sprintf("http://127.0.0.1:%d/PORTS_OK", hostPortFor(t, home))
 	awaitRunning(work, 3*time.Minute)
 	deadline := time.Now().Add(2 * time.Minute)
 	for {
@@ -122,20 +122,21 @@ func awaitRunning(work string, within time.Duration) {
 	}
 }
 
-func hostPortFor(t *testing.T, sess *tmux.Session) int {
+// hostPortFor reads the host port the newest run log names for guestPort.
+func hostPortFor(t *testing.T, home string) int {
 	t.Helper()
-	screen, _ := sess.CaptureAll()
-	for _, l := range strings.Split(screen, "\n") {
+	log := readIn(home, filepath.Join("logs", "latest.log"))
+	for _, l := range strings.Split(log, "\n") {
 		var host, guest int
-		i := strings.Index(l, "http://127.0.0.1:")
+		i := strings.Index(l, fmt.Sprintf("port %d: http://127.0.0.1:", guestPort))
 		if i < 0 {
 			continue
 		}
-		if _, err := fmt.Sscanf(l[i:], "http://127.0.0.1:%d → sandbox :%d", &host, &guest); err == nil && guest == guestPort {
+		if _, err := fmt.Sscanf(l[i:], "port %d: http://127.0.0.1:%d", &guest, &host); err == nil {
 			return host
 		}
 	}
-	t.Fatalf("no published host port for :%d on screen:\n%s", guestPort, screen)
+	t.Fatalf("no published host port for :%d in the run log:\n%s", guestPort, tail(log, 40))
 	return 0
 }
 

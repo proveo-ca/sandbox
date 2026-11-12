@@ -59,14 +59,18 @@
 '   ←→ choose | ←→ move   move, plus "space toggle", when any row is Multi
 '   pgup/pgdn scroll      PgUp/PgDn/Home/End already moved the cursor; the
 '                         line never said so
-'   shift+tab back        only when Step.At > 1
-'   enter accept · esc cancel
+'   enter accept          "enter skip" while the Skip button is focused
+'   N steps               only when Form.OnEnter names what Enter runs
+'   esc cancel | esc back back when Step.At > 1
+'   ctrl+c quit           only when Step.Of > 1
 '   N more below          when the viewport hides rows (viewport.puml)
+' Until 2026-11-11 the back key was shift+tab and Esc always read "cancel":
+' _spec/internal/choiceui/wizard-keys.puml.
 ' Each segment carries a KEEP rank. Wider than the screen, the line drops the
 ' lowest-ranked segment, again and again (a tie drops the leftmost), and only
 ' when one segment is left does it clip. Display order never changes.
-'   1 pgup/pgdn scroll   2 space toggle   3 ↑↓ row, ←→ choose | ←→ move
-'   4 page n/m, N more below   5 esc cancel   6 shift+tab back
+'   1 pgup/pgdn scroll   2 space toggle, ctrl+c quit   3 ↑↓ row, ←→ choose | ←→ move, N steps
+'   4 page n/m, N more below   5 esc cancel   6 esc back
 '   9 enter accept — never dropped
 ' "enter accept" is the e2e anchor (acceptChoicePrompt,
 ' _spec/tests/testing-strategy.puml), so the way out outlives everything else.
@@ -74,11 +78,44 @@
 ' segment and then clipped, which cut "enter accept" at ≤61 columns on page 2/3.
 ' Pinned by TestEnterAcceptSurvivesEveryWidthThatCanHoldIt (every width 12-160,
 ' every step shape, multi rows).
+' THE LINE IS PAINTED IN TWO TONES (2026-11-11, W-e). A segment is a key and
+' the word for what it does: "enter" and "accept". hintParts returns them
+' apart. hint() joins them into the plain line above, which every test and
+' e2e still reads. drawHint paints each key bold in the secondary colour, and
+' each word and the " · " between in the muted one. `page n/m` and `N more
+' below` have no key and are painted as words.
+' The paint is cut to the plain line's length, piece by piece, so a clipped
+' line ends on the same cell in both.
+' Pinned by internal/choiceui/step_test.go:
+'   TestTheKeyLinePaintsKeysBoldAndWordsGrey
+'   TestAClippedKeyLineStillEndsWhereThePlainLineEnds
+' THE FORM SAYS WHAT ENTER WILL RUN (2026-11-11, W-j). Form.OnEnter returns
+' the actions Enter runs, in order, for the answers as they stand. Two
+' places show them.
+'   the key line   "N steps" as its own segment right after "enter accept".
+'                  The literal "enter accept" is never widened: it is the e2e
+'                  anchor, and a segment of its own can be dropped while the
+'                  anchor stays.
+'   the region     "on enter", then one numbered line per action, in the rows
+'                  LEFT under every other region.
+' THE REGION TAKES NO ROW FROM ANYTHING. Its height changes with the
+' answers. Budgeted above the key line it would move that line on every
+' keystroke. Drawn last, in leftover rows, it moves nothing: with too few
+' rows it ends on "… and N more", with none it is absent and the count on
+' the key line still says how much Enter runs.
+' While the Skip button is focused Enter runs nothing, so both go.
+' WHO SETS IT: init's setup page, from the plan the apply executes
+' (_spec/internal/ui/step-lines.puml), and the run form, from the clone
+' decision (_spec/internal/run/run-spec.puml).
+' Pinned by internal/choiceui/form_model_test.go:
+'   TestTheCountOfWhatEnterRunsFollowsEnterAcceptAndNeverReplacesIt
+'   TestTheOnEnterRegionFillsOnlyTheRowsLeftAndNeverMovesTheKeyLine
 ' Form.Step{At, Of} places a form in a sequence; the zero value is a lone form.
 ' RunStep returns an Outcome, Accepted | Cancelled | Back, and Run keeps
 ' (bool, error) as RunStep == Accepted. leave() answers the keys that end a
-' form: esc and ctrl+c → Cancelled, enter → Accepted, shift+tab (tcell
-' KeyBacktab) → Back only when At > 1; on the first screen shift+tab does
+' form. On a lone form: esc and ctrl+c → Cancelled, enter → Accepted. On a
+' wizard's page esc → Back past page 1, ctrl+c → Quit after a question, and
+' shift+tab still → Back (wizard-keys.puml); on the first screen shift+tab does
 ' nothing. `q` is not in leave(): a field takes it as typing first.
 ' `proveo run` is one form, so only its footer changed. `proveo init` walks
 ' three: _spec/cmd/proveo/init-sbx-bootstrap.puml.

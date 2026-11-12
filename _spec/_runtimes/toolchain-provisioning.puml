@@ -20,6 +20,10 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' internal/contract TestMiseGoPinMatchesGoModToolchain (go_provisioning_test.go).
 ' Why both exist, and why Go was once absent from mise.toml: the T4 notes
 ' "One manager, not two" and "The two pins are checked for AGREEMENT" (N14).
+' 2026-11-10: both pins moved from 1.26.5 to 1.26.10, the newest 1.26 release
+' that day. The Executor: "Bump Go to 1.26.7+"; lipgloss v2.1.0 needs go
+' 1.26.7 (_spec/internal/choiceui/tui-stack.puml, THE PINS). The next image build
+' refetches the Go layer once.
 '
 ' ONE _java_major (N3, DONE (wt) 2026-10-17; the user: "Keep awk, delete sed
 ' (Recommended)"). entrypoint-lib.sh defined it twice, and bash kept the LATER,
@@ -196,10 +200,9 @@ note right of MISE
   under dash until the first bashism, so it fails PART WAY THROUGH:
   ""test-images"" staged eight cross-compiled binaries and then died on
   ""tests=("" with ""sh: 4: Syntax error"", which reads as a broken test
-  script rather than a wrong interpreter. Since host-shell-to-go P4 every
-  task body is one command into ""cmd/proveo-dev"", so no shell body is
-  left to misparse; ""internal/contract"" ""TestMiseTasksRunNoShellScripts""
-  keeps shebangs and multi-line run blocks out of ""mise.toml"".
+  script rather than a wrong interpreter. Every run string is plain argv
+  since 2026-11-12, so no shell body is left to misparse;
+  ""TestMiseTasksRunNoShellScripts"" keeps shebangs and shell logic out.
 end note
 
 note bottom of T4

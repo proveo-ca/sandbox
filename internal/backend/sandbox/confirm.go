@@ -3,9 +3,8 @@ package sandbox
 import (
 	"os"
 
-	"github.com/gdamore/tcell/v2"
-
 	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 )
 
 // headedConfirm reports whether this run may ask the operator a question on its terminal.
@@ -21,13 +20,9 @@ var agentTerminal = func() bool {
 	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stdout)
 }
 
-func openScreen() (tcell.Screen, error) {
-	screen, err := tcell.NewScreen()
-	if err != nil {
-		return nil, err
-	}
-	if err := screen.Init(); err != nil {
-		return nil, err
-	}
-	return screen, nil
-}
+// The dialogs this package asks; tests replace them.
+var (
+	askFetchPushed       = choiceui.AskFetchPushed
+	askSandboxUpgrade    = choiceui.AskSandboxUpgrade
+	askUnansweredRemoval = choiceui.AskUnansweredRemoval
+)

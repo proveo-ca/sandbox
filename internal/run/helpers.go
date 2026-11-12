@@ -2,10 +2,12 @@
 package run
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -14,23 +16,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
-
-func reportLinks(links []workspace.Link) {
-	for _, l := range links {
-		switch l.Action {
-		case workspace.LinkMounted:
-			ui.Storef("%s → %s (symlink leaves the workspace; target mounted)", l.Rel, l.Target)
-		case workspace.LinkRefused:
-			target := l.Target
-			if target == "" {
-				target = "(unresolved)"
-			}
-			ui.Warnf("%s → %s is not available inside the sandbox: %s", l.Rel, target, l.Reason)
-		default:
-			ui.Logf("%s: %s", l.Rel, l.Reason)
-		}
-	}
-}
 
 func CloneDefault(getenv func(string) string) bool { return envflag.Bool(getenv("PROVEO_CLONE"), true) }
 
@@ -53,14 +38,16 @@ func gitRootOrEmpty(ws workspace.Scope, repoRoot string) string {
 	return repoRoot
 }
 
-func warnUnknownModel(key, value, localModel string) {
+// unknownModel is a ⚠ item when key, a model variable, names a model this build does not know.
+func unknownModel(key, value, localModel string) []sandbox.Item {
 	if localModel != "" || !strings.HasSuffix(key, "_MODEL") {
-		return
+		return nil
 	}
 	if known, ok := provider.CheckModel(value); ok && !known {
-		ui.Warnf("%s=%q is not a model id this proveo build recognizes — if it is a typo the agent will "+
-			"fail on every call; if it is newer than this binary, ignore this.", key, value)
+		ui.Logf("%s=%q: a typo fails every call; a model newer than this binary works", key, value)
+		return []sandbox.Item{{Warn: true, Text: fmt.Sprintf("%s=%q — not a model id this proveo build knows", key, value)}}
 	}
+	return nil
 }
 
 func OrWD(p string) string {

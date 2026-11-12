@@ -1,0 +1,13 @@
+run claudecode — confirm or change this run
+
+                  ◀ riskier
+
+  › egress        (•) allow-all   ( ) balanced   ( ) deny-all
+    credentials   (•) forward   ( ) broker
+
+                                ────── execution ──────
+
+                  [ ] host   [ ] docker (s…
+    outputs       [ ] filtered   [ ] verbose
+
+↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel

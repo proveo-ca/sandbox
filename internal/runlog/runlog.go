@@ -40,6 +40,9 @@ func Open(sid string) (*Log, error) {
 
 	l := &Log{f: f, path: path}
 	l.Section("run " + sid)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		fmt.Fprintf(l.f, "home: %s\n", home)
+	}
 	return l, nil
 }
 

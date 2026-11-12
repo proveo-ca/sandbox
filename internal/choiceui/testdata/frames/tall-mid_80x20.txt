@@ -1,0 +1,16 @@
+run claudecode — confirm or change this run
+
+    egress        (•) allow-all   ( ) balanced   ( ) deny-all
+    credentials   (•) forward   ( ) broker
+    auth          (•) ANTHROPIC…   ( ) CLAUDE_CO…
+
+                                ────── execution ──────
+
+  ›               [ ] host   [ ] docker (s…
+
+                                ────── interface ──────
+
+                  [ ] tui   [ ] browser   [ ] chrome
+    outputs       [ ] filtered   [ ] verbose
+
+↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel

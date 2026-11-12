@@ -79,21 +79,26 @@ func Ensure(confirm func(string) bool) (bool, string) {
 	if install == "" {
 		return false, why // nothing to offer on this platform
 	}
-	verb := "install"
-	if sbx.Installed() {
-		verb = "upgrade"
-	}
+	verb, doing := installVerb(sbx.Installed())
 	if !confirm(fmt.Sprintf("%s the docker sandboxes CLI (%s)?", verb, install)) {
 		return false, why
 	}
-	ui.Section(ui.SectionStarting)
-	ui.Appf("%sing sbx: %s", verb, install)
+	ui.Appf("sbx — %s", doing)
+	ui.Detailf("%s", install)
 	c := exec.Command("bash", "-lc", install)
 	c.Stdout, c.Stderr = os.Stderr, os.Stderr
 	if err := c.Run(); err != nil {
 		return false, fmt.Sprintf("%s failed: %v", verb, err)
 	}
 	return sbx.Available()
+}
+
+// installVerb is what Ensure does to sbx, as the question asks it and as the line under way says it.
+func installVerb(installed bool) (verb, doing string) {
+	if installed {
+		return "upgrade", "upgrading"
+	}
+	return "install", "installing"
 }
 
 func Ready(printOnly bool, confirm func(string) bool) (bool, string) {
@@ -141,24 +146,47 @@ var (
 // guestGrace is how long a killed command may go on holding its pipes.
 const guestGrace = 2 * time.Second
 
-// guestCommand is exec.Command killed once d passes. finish releases the timer and
-// wraps context.DeadlineExceeded when the deadline ended the command.
-func guestCommand(d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
-	ctx, cancel := context.WithTimeout(context.Background(), d)
+// ctx is the context teardown's subprocesses run under.
+func (in Input) ctx() context.Context {
+	if in.Stop != nil {
+		return in.Stop
+	}
+	return context.Background()
+}
+
+// boundCommand is boundForeground in its own process group, out of reach of the terminal's Ctrl+C.
+func boundCommand(parent context.Context, d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
+	cmd, finish := boundForeground(parent, d, name, args...)
+	ownGroup(cmd)
+	return cmd, finish
+}
+
+// boundForeground is exec.Command killed once d passes or parent ends. finish releases
+// the timer and says which of the two ended the command.
+func boundForeground(parent context.Context, d time.Duration, name string, args ...string) (*exec.Cmd, func(error) error) {
+	ctx, cancel := context.WithTimeout(parent, d)
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = guestGrace
 	return cmd, func(err error) error {
 		defer cancel()
-		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		switch {
+		case err == nil:
+			return nil
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			return fmt.Errorf("%s gave no answer within %s: %w", name, d, context.DeadlineExceeded)
+		case parent.Err() != nil:
+			return fmt.Errorf("%s stopped: %w", name, parent.Err())
 		}
 		return err
 	}
 }
 
 // guestRun is SbxRun bounded by guestExecDeadline.
-func guestRun(args ...string) (string, error) {
-	cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, args...)
+func guestRun(args ...string) (string, error) { return guestRunIn(context.Background(), args...) }
+
+// guestRunIn is guestRun under ctx.
+func guestRunIn(ctx context.Context, args ...string) (string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), finish(err)
 }
@@ -170,35 +198,51 @@ func SaveState(name string, env []string, exists bool, run func(...string) (stri
 	return run(sbx.SaveStateArgs(name)...)
 }
 
-// TeardownClone carries this run's clone home: its .env edits, then its work. It
-// returns an error while work remains only in the sandbox.
-func TeardownClone(in Input, cfg sbx.RunConfig) error {
+// TeardownClone carries this run's clone home: its .env edits, then its work, each result
+// into out. It returns an error while work remains only in the sandbox.
+func TeardownClone(in Input, cfg sbx.RunConfig, out *Block) error {
 	if in.RepoRoot == "" {
 		return nil
 	}
 	if in.Clone && in.CloneKnown {
 		wd := agentWorkdir(in, cfg.Mounts)
-		writeBackCloneEnv(in, func() ([]byte, error) {
-			if wd == "" || !sbx.Exists(cfg.Name) {
-				return nil, errors.New("no sandbox to read from")
-			}
-			cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...)
-			out, err := cmd.Output()
-			return out, finish(err)
+		shownDo(stepCloneEnv, func() {
+			writeBackCloneEnv(in, func() ([]byte, error) {
+				if wd == "" || !sbx.Exists(cfg.Name) {
+					return nil, errors.New("no sandbox to read from")
+				}
+				cmd, finish := boundCommand(in.ctx(), guestExecDeadline, sbx.Binary, sbx.CloneReadArgs(cfg.Name, wd, ".env")...)
+				out, err := cmd.Output()
+				return out, finish(err)
+			}, out)
 		})
 	}
-	return PreserveClone(in, cfg)
+	return PreserveClone(in, cfg, out)
 }
 
-// PreserveClone snapshots, lifts and carries the clone's work home. It returns an
-// error while work remains only in the sandbox.
-func PreserveClone(in Input, cfg sbx.RunConfig) error {
-	if in.RepoRoot == "" || !sbx.Exists(cfg.Name) {
+// failure is a failed call's error and the output worth quoting, as one detail line.
+func failure(err error, out string) string {
+	if out = strings.TrimSpace(out); out != "" {
+		return ui.TildeIn(err.Error() + ": " + out)
+	}
+	return ui.TildeIn(err.Error())
+}
+
+// PreserveClone snapshots, lifts and carries the clone's work home, each result into out.
+// It returns an error while work remains only in the sandbox.
+func PreserveClone(in Input, cfg sbx.RunConfig, out *Block) error {
+	if in.RepoRoot == "" {
+		return nil
+	}
+	if in.ctx().Err() != nil {
+		return stoppedBefore()
+	}
+	if !sbx.Exists(cfg.Name) {
 		return nil
 	}
 	clones, err := sandboxClone(in, cfg.Name)
 	if err != nil {
-		return fmt.Errorf("cannot tell whether %s holds a clone, so its work may be only there: %w", cfg.Name, err)
+		return fmt.Errorf("cannot tell whether it holds a clone, so its work may be only there: %w", err)
 	}
 	if !clones {
 		return nil
@@ -206,72 +250,105 @@ func PreserveClone(in Input, cfg sbx.RunConfig) error {
 	in.Clone, in.CloneKnown = true, true
 	var stranded error
 	wd := agentWorkdir(in, cfg.Mounts)
+	committed := ""
 	if wd != "" {
-		if out, err := guestRun(sbx.CloneSnapshotArgs(cfg.Name, wd)...); err != nil {
-			ui.Warnf("clone: could not snapshot uncommitted work (%v): %s", err, strings.TrimSpace(out))
-			stranded = fmt.Errorf("uncommitted work is still only in %s", cfg.Name)
+		var said string
+		if err := shown(stepCloneSnapshot, func() (err error) {
+			said, err = guestRunIn(in.ctx(), sbx.CloneSnapshotArgs(cfg.Name, wd)...)
+			return err
+		}); err != nil {
+			out.Item(Item{Warn: true, Text: "uncommitted work — not committed", Detail: []string{failure(err, said)}})
+			stranded = errors.New("uncommitted work is still only in it")
+		} else {
+			committed, _ = sbx.SnapshotBranch(said)
 		}
 	}
-	liftClonedOutput(in, cfg, liftViaSbx)
-	carried, err := carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx)
-	if err != nil {
+	if in.ctx().Err() != nil {
+		return stoppedBefore()
+	}
+	var lifted error
+	shownDo(stepCloneOutput, func() { lifted = liftClonedOutput(in, cfg, liftViaSbx, out) })
+	stranded = cmp.Or(stranded, lifted)
+	if in.ctx().Err() != nil {
+		return stoppedBefore()
+	}
+	var carried bool
+	if err := shown(stepCloneCarry, func() (err error) {
+		carried, err = carryClone(in, cfg, sbx.Running(cfg.Name), fetchViaRemote, bundleViaSbx, out)
+		return err
+	}); err != nil {
 		return err
 	}
-	if !carried {
+	if !carried || in.ctx().Err() != nil {
 		return stranded
 	}
-	reportCloneRefs(in, cfg)
-	liftClonedSpec(in, wd, cloneSpanViaSbx(cfg.Name, wd), func(sha string) {
-		if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
-			_, _ = guestRun(args...)
-		}
+	reportCloneRefs(in, cfg, committed, out)
+	shownDo(stepCloneSpec, func() {
+		liftClonedSpec(in, wd, cloneSpanViaSbx(in.ctx(), cfg.Name, wd), func(sha string) {
+			if args := sbx.CloneRebaseArgs(cfg.Name, wd, sha); args != nil {
+				_, _ = guestRunIn(in.ctx(), args...)
+			}
+		}, out)
 	})
 	return stranded
 }
 
-// writeBackCloneEnv merges the clone's .env edits into the host .env it was staged from.
+// stoppedBefore is the carry's outcome once teardown's context ended before the work reached home.
+func stoppedBefore() error {
+	return fmt.Errorf("%w before the carry finished; work may still be only in it", errStepSkipped)
+}
+
+// writeBackCloneEnv merges the clone's .env edits into the host .env it was staged from, and
+// says into out what it merged and what it could not.
 // SPEC: _spec/internal/sbx/clone-workspace.puml
-func writeBackCloneEnv(in Input, read func() ([]byte, error)) {
+func writeBackCloneEnv(in Input, read func() ([]byte, error), out *Block) {
 	if in.CloneEnv == "" || in.CloneEnvBase == "" || in.CloneEnvHost == "" {
 		return
 	}
+	notMerged := func(detail ...string) {
+		out.Item(Item{Warn: true, Text: ".env — not merged home", Detail: detail})
+	}
 	base, err := os.ReadFile(in.CloneEnvBase)
 	if err != nil {
-		ui.Warnf("clone: .env not carried home — its launch copy %s is unreadable (%v)", in.CloneEnvBase, err)
+		notMerged("its launch copy is unreadable: " + ui.TildeIn(err.Error()))
 		return
 	}
 	edited, err := read()
 	if err != nil {
 		if edited, err = os.ReadFile(in.CloneEnv); err != nil {
-			ui.Warnf("clone: .env not carried home — neither the clone nor %s could be read (%v)", in.CloneEnv, err)
+			notMerged("neither the clone nor its copy could be read: " + ui.TildeIn(err.Error()))
 			return
 		}
 	} else if err := os.WriteFile(in.CloneEnv, edited, 0o600); err != nil {
-		ui.Warnf("clone: could not keep the clone's .env at %s (%v)", in.CloneEnv, err)
+		ui.Logf("clone: could not keep the clone's .env at %s (%v)", in.CloneEnv, err)
 	}
 	if bytes.Equal(base, edited) {
 		return
 	}
 	host, err := os.ReadFile(in.CloneEnvHost)
 	if err != nil {
-		ui.Warnf("clone: .env not carried home — %s is unreadable (%v); the clone's copy is %s", in.CloneEnvHost, err, in.CloneEnv)
+		notMerged(ui.TildeIn(err.Error()), "the clone's copy: "+ui.Tilde(in.CloneEnv))
 		return
 	}
 	m := credentials.MergeProjectEnv(host, base, edited, in.CloneEnvStrip)
+	fact := ui.Fact{Role: ui.RoleStore, Key: ".env"}
 	if len(m.Applied) > 0 {
 		if err := replaceFile(in.CloneEnvHost, m.Body); err != nil {
-			ui.Warnf("clone: .env not carried home — writing %s failed (%v); the clone's copy is %s", in.CloneEnvHost, err, in.CloneEnv)
+			notMerged("writing it failed: "+ui.TildeIn(err.Error()), "the clone's copy: "+ui.Tilde(in.CloneEnv))
 			return
 		}
-		ui.Storef("clone: .env edits carried home into %s — %s", in.CloneEnvHost, strings.Join(m.Applied, ", "))
-	}
-	if len(m.Conflicts) > 0 {
-		ui.Warnf("clone: kept the host's %s in %s — the host changed it during the run too; the clone's copy is %s",
-			strings.Join(m.Conflicts, ", "), in.CloneEnvHost, in.CloneEnv)
+		fact.Value = "merged " + strings.Join(m.Applied, ", ")
 	}
 	if len(m.Refused) > 0 {
-		ui.Notef("clone: ignored %s from the clone's .env — sbx's proxy holds provider keys, the host file keeps its own",
+		fact.Value = cmp.Or(fact.Value, "nothing merged")
+		fact.Detail = []string{"ignored " + strings.Join(m.Refused, ", ")}
+		ui.Logf("clone: ignored %s from the clone's .env — sbx's proxy holds provider keys, the host file keeps its own",
 			strings.Join(m.Refused, ", "))
+	}
+	out.Fact(fact)
+	if len(m.Conflicts) > 0 {
+		out.Item(Item{Warn: true, Text: ".env — kept the host's " + strings.Join(m.Conflicts, ", "),
+			Detail: []string{"the host changed it during the run too", "the clone's copy: " + ui.Tilde(in.CloneEnv)}})
 	}
 }
 
@@ -299,9 +376,9 @@ func replaceFile(path string, body []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-func cloneSpanViaSbx(name, wd string) func() (string, string, error) {
+func cloneSpanViaSbx(ctx context.Context, name, wd string) func() (string, string, error) {
 	return func() (string, string, error) {
-		cmd, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneSpanArgs(name, wd)...)
+		cmd, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, sbx.CloneSpanArgs(name, wd)...)
 		out, err := cmd.Output()
 		if err = finish(err); err != nil {
 			return "", "", err
@@ -324,25 +401,27 @@ func commitID(s string) bool {
 // liftClonedSpec restores the clone's _spec edits into the host worktree,
 // skipping every path the host changed since the clone's base.
 // SPEC: _spec/internal/sbx/clone-workspace.puml
-func liftClonedSpec(in Input, wd string, span func() (string, string, error), rebase func(string)) {
-	if wd == "" || !trackedSpec(wd) {
+func liftClonedSpec(in Input, wd string, span func() (string, string, error), rebase func(string), out *Block) {
+	if wd == "" || !trackedSpec(in.ctx(), wd) {
 		return
 	}
+	edits := "its edits: " + sbx.CloneRefs(in.Sid) + "/"
 	base, head, err := span()
 	if err != nil {
-		ui.Warnf("clone: _spec not lifted — the clone's base is unknown (%v); its edits are under %s/", err, sbx.CloneRefs(in.Sid))
+		out.Item(Item{Warn: true, Text: "_spec — not lifted", Detail: []string{"the clone's base is unknown: " + ui.TildeIn(err.Error()), edits}})
 		return
 	}
 	if base == head || !commitID(base) || !commitID(head) {
 		return
 	}
-	changed, err := gitPaths(wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, head, "--", "_spec")
+	changed, err := gitPaths(in.ctx(), wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, head, "--", "_spec")
 	if err != nil {
-		ui.Warnf("clone: _spec not lifted — %s..%s is not in this repository (%v); its edits are under %s/", base[:12], head[:12], err, sbx.CloneRefs(in.Sid))
+		out.Item(Item{Warn: true, Text: "_spec — not lifted",
+			Detail: []string{base[:12] + ".." + head[:12] + " is not in this repository: " + ui.TildeIn(err.Error()), edits}})
 		return
 	}
-	hostDiff, _ := gitPaths(wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, "--", "_spec")
-	untracked, _ := gitPaths(wd, "ls-files", "-z", "--others", "--exclude-standard", "--", "_spec")
+	hostDiff, _ := gitPaths(in.ctx(), wd, "diff", "--name-only", "-z", "--no-renames", "--relative", base, "--", "_spec")
+	untracked, _ := gitPaths(in.ctx(), wd, "ls-files", "-z", "--others", "--exclude-standard", "--", "_spec")
 	dirty := map[string]bool{}
 	for _, p := range append(hostDiff, untracked...) {
 		dirty[p] = true
@@ -356,36 +435,43 @@ func liftClonedSpec(in Input, wd string, span func() (string, string, error), re
 		take = append(take, p)
 	}
 	if len(take) > 0 {
-		cmd := exec.Command("git", "--literal-pathspecs", "-C", wd, "restore", "--source="+head, "--worktree",
+		cmd, finish := boundCommand(in.ctx(), guestExecDeadline, "git", "--literal-pathspecs", "-C", wd, "restore", "--source="+head, "--worktree",
 			"--pathspec-from-file=-", "--pathspec-file-nul")
 		cmd.Stdin = strings.NewReader(strings.Join(take, "\x00"))
-		if out, err := cmd.CombinedOutput(); err != nil {
-			ui.Warnf("clone: _spec not lifted (%v): %s — its edits are under %s/", err, strings.TrimSpace(string(out)), sbx.CloneRefs(in.Sid))
+		said, err := cmd.CombinedOutput()
+		if err = finish(err); err != nil {
+			out.Item(Item{Warn: true, Text: "_spec — not lifted", Detail: []string{failure(err, string(said)), edits}})
 			return
 		}
-		ui.Storef("clone: %d _spec file(s) lifted from the clone into %s", len(take), filepath.Join(wd, "_spec"))
+		unit := "files"
+		if len(take) == 1 {
+			unit = "file"
+		}
+		out.Fact(ui.Fact{Role: ui.RoleStore, Key: "_spec", Value: fmt.Sprintf("%d %s lifted", len(take), unit)})
+		ui.Logf("clone: %d _spec file(s) lifted from the clone into %s", len(take), filepath.Join(wd, "_spec"))
 	}
 	if len(kept) > 0 {
-		ui.Warnf("clone: kept the host's %s — the host changed them since the clone began; the clone's versions are under %s/",
-			strings.Join(kept, ", "), sbx.CloneRefs(in.Sid))
+		out.Item(Item{Warn: true, Text: "_spec — kept the host's " + strings.Join(kept, ", "),
+			Detail: []string{"the host changed them since the clone began", "the clone's versions: " + sbx.CloneRefs(in.Sid) + "/"}})
 	}
 	rebase(head)
 }
 
 // trackedSpec reports whether dir holds a real _spec directory git tracks; a
 // symlinked one is relinked live and needs no lift.
-func trackedSpec(dir string) bool {
+func trackedSpec(ctx context.Context, dir string) bool {
 	fi, err := os.Lstat(filepath.Join(dir, "_spec"))
 	if err != nil || !fi.IsDir() {
 		return false
 	}
-	paths, err := gitPaths(dir, "ls-files", "-z", "--", "_spec")
+	paths, err := gitPaths(ctx, dir, "ls-files", "-z", "--", "_spec")
 	return err == nil && len(paths) > 0
 }
 
-func gitPaths(dir string, args ...string) ([]string, error) {
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
-	if err != nil {
+func gitPaths(ctx context.Context, dir string, args ...string) ([]string, error) {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, "git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.Output()
+	if err = finish(err); err != nil {
 		return nil, err
 	}
 	var paths []string
@@ -401,29 +487,33 @@ func gitPaths(dir string, args ...string) ([]string, error) {
 // output worth quoting, and the error.
 type cloneCarry func(in Input, cfg sbx.RunConfig) (int, string, error)
 
+// noNewCommits is the branches fact when no carried ref holds a commit no local branch holds.
+var noNewCommits = ui.Fact{Role: ui.RoleStore, Key: "branches", Value: "no new commits"}
+
 // carryClone reports whether branches reached home, and an error while they remain only in the sandbox.
-func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle cloneCarry) (bool, error) {
+func carryClone(in Input, cfg sbx.RunConfig, running bool, viaRemote, viaBundle cloneCarry, out *Block) (bool, error) {
 	if running {
-		if _, out, err := viaRemote(in, cfg); err == nil {
+		if _, said, err := viaRemote(in, cfg); err == nil {
 			return true, nil
 		} else {
-			ui.Notef("clone: the sandbox's git remote did not answer (%v: %s) — carrying the branches out over `sbx exec` instead",
-				err, strings.TrimSpace(out))
+			ui.Logf("clone: the sandbox's git remote did not answer (%v: %s) — carrying the branches out over `sbx exec` instead",
+				err, strings.TrimSpace(said))
 		}
 	}
-	code, out, err := viaBundle(in, cfg)
+	code, said, err := viaBundle(in, cfg)
 	switch {
 	case err == nil:
 		return true, nil
 	case code == sbx.CloneBundleEmpty:
-		ui.Notef("clone: the agent left no commit this repository does not already have")
+		out.Fact(noNewCommits)
+		ui.Logf("clone: the agent left no commit this repository does not already have")
 		return false, nil
 	default:
-		ui.Warnf("clone: could not carry the agent's branches home (%v): %s", err, strings.TrimSpace(out))
+		out.Item(Item{Warn: true, Text: "branches — not carried home", Detail: []string{failure(err, said)}})
 		for _, l := range CloneRescueLines(cfg.Name, in.Sid, agentWorkdir(in, cfg.Mounts), in.RepoRoot) {
-			ui.Notef("%s", l)
+			ui.Logf("%s", l)
 		}
-		return false, fmt.Errorf("the agent's branches are still only in %s", cfg.Name)
+		return false, errors.New("the agent's branches are still only in it")
 	}
 }
 
@@ -442,7 +532,7 @@ func CloneRescueLines(name, refsKey, workdir, repoRoot string) []string {
 }
 
 func fetchViaRemote(in Input, cfg sbx.RunConfig) (int, string, error) {
-	cmd, finish := guestCommand(guestExecDeadline, "git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...)
+	cmd, finish := boundCommand(in.ctx(), guestExecDeadline, "git", sbx.CloneFetchArgs(in.RepoRoot, cfg.Name, in.Sid)...)
 	out, err := cmd.CombinedOutput()
 	code := exitCodeOf(err)
 	return code, string(out), finish(err)
@@ -460,7 +550,7 @@ func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
 	path := f.Name()
 	defer func() { _ = os.Remove(path) }()
 
-	src, finish := guestCommand(guestExecDeadline, sbx.Binary, sbx.CloneBundleArgs(cfg.Name, wd, hostTips(in.RepoRoot))...)
+	src, finish := boundCommand(in.ctx(), guestExecDeadline, sbx.Binary, sbx.CloneBundleArgs(cfg.Name, wd, hostTips(in.ctx(), in.RepoRoot))...)
 	var errb strings.Builder
 	src.Stdout, src.Stderr = f, &errb
 	runErr := src.Run()
@@ -472,16 +562,18 @@ func bundleViaSbx(in Input, cfg sbx.RunConfig) (int, string, error) {
 	if runErr != nil {
 		return code, errb.String(), runErr
 	}
-	out, err := exec.Command("git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, in.Sid)...).CombinedOutput()
-	if err != nil {
+	fetch, fetched := boundCommand(in.ctx(), guestExecDeadline, "git", sbx.CloneBundleFetchArgs(in.RepoRoot, path, in.Sid)...)
+	out, err := fetch.CombinedOutput()
+	if err = fetched(err); err != nil {
 		return exitCodeOf(err), errb.String() + string(out), err
 	}
 	return 0, "", nil
 }
 
-func hostTips(repoRoot string) []string {
-	out, err := exec.Command("git", sbx.CloneHostTipsArgs(repoRoot)...).Output()
-	if err != nil {
+func hostTips(ctx context.Context, repoRoot string) []string {
+	cmd, finish := boundCommand(ctx, guestExecDeadline, "git", sbx.CloneHostTipsArgs(repoRoot)...)
+	out, err := cmd.Output()
+	if err = finish(err); err != nil {
 		return nil
 	}
 	tips := strings.Fields(string(out))
@@ -512,50 +604,110 @@ func adoptLead(names []string, prefix string, ahead func(string) bool) string {
 	return names[0]
 }
 
-func reportCloneRefs(in Input, cfg sbx.RunConfig) {
-	refs, _ := exec.Command("git", "-C", in.RepoRoot, "for-each-ref",
-		"--format=%(refname:short)", sbx.CloneRefs(in.Sid)+"/").Output()
-	names := strings.Fields(string(refs))
+// reportCloneRefs names, into out, each carried ref that holds commits no local branch holds, and
+// records them; the refs that hold none, and the review and adopt commands, go to the run log.
+// committed is the branch the snapshot committed on, "" when it committed nothing.
+func reportCloneRefs(in Input, cfg sbx.RunConfig, committed string, out *Block) {
+	root := sbx.CloneRefs(in.Sid)
+	list, listed := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "for-each-ref",
+		"--format=%(refname:short) %(objectname)", root+"/")
+	refs, err := list.Output()
+	_ = listed(err)
+	var names []string
+	tips := map[string]string{}
+	for _, line := range strings.Split(string(refs), "\n") {
+		if f := strings.Fields(line); len(f) == 2 {
+			names = append(names, f[0])
+			tips[f[0]] = f[1]
+		}
+	}
 	if len(names) == 0 {
-		ui.Notef("clone: the agent left no branches to fetch")
+		out.Fact(noNewCommits)
+		ui.Logf("clone: the agent left no branches to fetch")
 		return
 	}
-	ui.Section(ui.SectionResults)
-	ui.Storef("clone: the agent's work is in your repository under %s/ — %s", sbx.CloneRefs(in.Sid), strings.Join(names, " "))
-	lead := adoptLead(names, strings.TrimPrefix(sbx.CloneRefs(in.Sid), "refs/")+"/", func(n string) bool {
-		out, err := exec.Command("git", "-C", in.RepoRoot, "rev-list", "--count", "HEAD.."+n).Output()
-		return err == nil && strings.TrimSpace(string(out)) != "0"
-	})
-	ui.Notef("review: `git log --oneline main..%s` · adopt: `git checkout -b <branch> %s`", lead, lead)
+	ui.Logf("clone: the agent's work is in your repository under %s/ — %s", root, strings.Join(names, " "))
+	leads := make(map[string]int, len(names))
+	for _, n := range names {
+		count, counted := boundCommand(in.ctx(), guestExecDeadline, "git", "-C", in.RepoRoot, "rev-list", "--count", "refs/"+n, "--not", "--branches")
+		said, err := count.Output()
+		if counted(err) == nil {
+			leads[n], _ = strconv.Atoi(strings.TrimSpace(string(said)))
+		}
+	}
+	recordCarried(in, names, leads, tips)
+	prefix := strings.TrimPrefix(root, "refs/") + "/"
+	lead := adoptLead(names, prefix, func(n string) bool { return leads[n] > 0 })
+	ui.Logf("review: `git log --oneline main..%s` · adopt: `proveo adopt %s`", lead, lead)
+	out.Fact(branchFacts(names, prefix, root, committed, leads)...)
 }
 
-func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(args []string, into string) (int, string, error)) {
+// branchFacts is the branches fact: one row per carried ref that leads every local branch, the
+// agent's branches before proveo's snapshot refs, under the refs root; no new commits when none leads.
+func branchFacts(names []string, prefix, root, committed string, leads map[string]int) []ui.Fact {
+	var rows []ui.Fact
+	for _, snapshot := range []bool{false, true} {
+		for _, n := range names {
+			branch := strings.TrimPrefix(n, prefix)
+			if strings.HasPrefix(branch, "proveo/") != snapshot {
+				continue
+			}
+			if leads[n] == 0 {
+				ui.Logf("clone: %s holds no commit a local branch lacks", n)
+				continue
+			}
+			unit := "new commits"
+			if leads[n] == 1 {
+				unit = "new commit"
+			}
+			row := ui.Fact{Role: ui.RoleStore, Value: fmt.Sprintf("%s (%d %s)", branch, leads[n], unit)}
+			if branch == committed {
+				row.Detail = []string{"includes proveo's commit of uncommitted work"}
+			}
+			rows = append(rows, row)
+		}
+	}
+	if len(rows) == 0 {
+		return []ui.Fact{noNewCommits}
+	}
+	rows[0].Key = "branches"
+	last := &rows[len(rows)-1]
+	last.Detail = append([]string{"under " + root + "/"}, last.Detail...)
+	return rows
+}
+
+// liftClonedOutput lifts the output dir out of the clone into out's "output" fact; it returns an
+// error when the output stays only in the sandbox.
+func liftClonedOutput(in Input, cfg sbx.RunConfig, lift func(ctx context.Context, args []string, into string) (int, string, error), out *Block) error {
 	rel, ok := nestedRel(in.RepoRoot, in.OutputDir)
 	wd := agentWorkdir(in, cfg.Mounts)
 	if !ok || wd == "" {
-		return
+		return nil
 	}
-	code, out, err := lift(sbx.CloneLiftArgs(cfg.Name, wd, rel), in.RepoRoot)
+	code, said, err := lift(in.ctx(), sbx.CloneLiftArgs(cfg.Name, wd, rel), in.RepoRoot)
 	switch {
 	case err == nil:
-		ui.Storef("clone: deliverables lifted from the clone's %s/ into %s", rel, in.OutputDir)
+		out.Fact(ui.Fact{Role: ui.RoleStore, Key: "output", Value: ui.Tilde(in.OutputDir)})
+		ui.Logf("clone: deliverables lifted from the clone's %s/ into %s", rel, in.OutputDir)
 	case code == sbx.CloneLiftNothing:
-		ui.Notef("clone: the agent wrote nothing under %s/", rel)
+		out.Fact(ui.Fact{Role: ui.RoleStore, Key: "output", Value: "nothing under " + rel + "/"})
 	default:
-		ui.Warnf("clone: could not lift %s/ out of the sandbox (%v): %s — while %s exists: `sbx exec -w / %s -- tar -C %s -cf - %s | tar -xf - -C %s`",
-			rel, err, strings.TrimSpace(out), cfg.Name, cfg.Name, wd, rel, in.RepoRoot)
+		out.Item(Item{Warn: true, Text: "output — not lifted", Detail: []string{failure(err, said)}})
+		ui.Logf("while %s exists: `sbx exec -w / %s -- tar -C %s -cf - %s | tar -xf - -C %s`", cfg.Name, cfg.Name, wd, rel, in.RepoRoot)
+		return errors.New("the output is only in it")
 	}
+	return nil
 }
 
-func liftViaSbx(args []string, into string) (int, string, error) {
-	src, finish := guestCommand(guestExecDeadline, sbx.Binary, args...)
+func liftViaSbx(ctx context.Context, args []string, into string) (int, string, error) {
+	src, finish := boundCommand(ctx, guestExecDeadline, sbx.Binary, args...)
 	var srcErr strings.Builder
 	src.Stderr = &srcErr
 	stdout, err := src.StdoutPipe()
 	if err != nil {
 		return -1, "", finish(err)
 	}
-	untar := exec.Command("tar", "-xf", "-", "-C", into)
+	untar := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", into)
 	untar.Stdin = stdout
 	var untarOut strings.Builder
 	untar.Stdout, untar.Stderr = &untarOut, &untarOut
@@ -584,15 +736,11 @@ func FreeLoopbackPort() int {
 	return port
 }
 
+// StartCDPViewport relays the published CDP port to the agent's Chromium while the sandbox runs.
 func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
-	if len(cfg.Publish) == 0 {
+	if !relayRuns(in, cfg) {
 		return func() {}
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d", in.CDPHostPort)
-	ui.Section(ui.SectionInterface)
-	ui.Hostf("browser viewport: %s — attach Chrome DevTools or Playwright (connectOverCDP) to the agent's Chromium", url)
-	ui.Notef("%s/json/list once the agent opens a page; nothing is exposed beyond this machine's loopback", url)
-
 	stop := make(chan struct{})
 	go func() {
 		for {
@@ -675,36 +823,8 @@ func portPublish(in Input) []string {
 // DevLog is where a published port's server writes inside the sandbox.
 func DevLog(port int) string { return fmt.Sprintf("/tmp/proveo-dev-%d.log", port) }
 
-// ReportPorts names each published port where the operator will open it.
-func ReportPorts(in Input) {
-	if len(in.Ports) == 0 {
-		return
-	}
-	ui.Section(ui.SectionInterface)
-	for _, p := range in.Ports {
-		moved := ""
-		if first := devports.HostPorts(p.Guest); len(first) > 0 && p.Host != first[0] {
-			moved = fmt.Sprintf(" — host :%d was taken", first[0])
-		}
-		ui.Hostf("port %d: http://127.0.0.1:%d → sandbox :%d (%s)%s", p.Guest, p.Host, p.Guest, p.What, moved)
-		ui.Notef("runs `%s` in %s — log %s", p.Cmd, p.Dir, DevLog(p.Guest))
-	}
-}
-
 // AndroidLog is where the seed's Android install writes inside the sandbox.
 const AndroidLog = "/tmp/proveo-android-install.log"
-
-// ReportAndroidApps names each app the run installs on the host emulator.
-func ReportAndroidApps(in Input) {
-	if len(in.AndroidApps) == 0 {
-		return
-	}
-	ui.Section(ui.SectionInterface)
-	for _, a := range in.AndroidApps {
-		ui.Hostf("android app: %s — gradle %s, then launch, once the sandbox toolchain is ready", a.AppID, a.Task())
-	}
-	ui.Notef("log %s inside the sandbox", AndroidLog)
-}
 
 // AndroidInstallScript hands the chosen modules to the seed's proveo_android_install.
 func AndroidInstallScript(workdir string, env []string, apps []devports.AndroidApp) string {
@@ -907,9 +1027,9 @@ func worktreeClone(in Input) bool { return in.Clone && in.CloneSource.Main != ""
 
 // cloneThroughMain makes the main worktree the primary workspace and drops the
 // linked worktree's own bind; the worktree-nested output dir stays for SplitNested.
-func cloneThroughMain(in Input, mounts []sbx.Mount) []sbx.Mount {
-	out := []sbx.Mount{{Host: in.CloneSource.Main}}
-	var dropped []string
+// dropped lists the binds nested in the main worktree.
+func cloneThroughMain(in Input, mounts []sbx.Mount) (kept []sbx.Mount, dropped []string) {
+	kept = []sbx.Mount{{Host: in.CloneSource.Main}}
 	for _, m := range mounts {
 		host := filepath.Clean(m.Host)
 		if host == filepath.Clean(in.RepoRoot) || host == filepath.Clean(in.CloneSource.Main) ||
@@ -920,33 +1040,9 @@ func cloneThroughMain(in Input, mounts []sbx.Mount) []sbx.Mount {
 			dropped = append(dropped, m.Host)
 			continue
 		}
-		out = append(out, m)
+		kept = append(kept, m)
 	}
-	warnUnmountable(in.CloneSource.Main, "main worktree", dropped)
-	return out
-}
-
-// warnUnmountable warns once per top-level entry of root that holds dropped mounts.
-func warnUnmountable(root, where string, hosts []string) {
-	count := map[string]int{}
-	first := map[string]string{}
-	var tops []string
-	for _, h := range hosts {
-		rel, _ := nestedRel(root, h)
-		top, _, _ := strings.Cut(rel, "/")
-		if count[top] == 0 {
-			tops = append(tops, top)
-			first[top] = h
-		}
-		count[top]++
-	}
-	for _, top := range tops {
-		what := first[top]
-		if count[top] > 1 {
-			what = fmt.Sprintf("%s (%d entries)", filepath.Join(root, top), count[top])
-		}
-		ui.Warnf("clone: %s is inside the %s and cannot be mounted into a clone — read it from the clone instead", what, where)
-	}
+	return kept, dropped
 }
 
 // sandboxKey is the workspace a sandbox name is derived from.
@@ -980,29 +1076,15 @@ func nestedRel(root, path string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
-func KeptLines(name, runLog string) []string {
-	lines := []string{fmt.Sprintf(
-		"sandbox %s kept for diagnosis (the run failed) — `sbx exec -it %s bash`, then `sbx rm --force %s`",
-		name, name, name)}
-	if strings.TrimSpace(runLog) != "" {
-		lines = append(lines,
-			fmt.Sprintf("every line this run printed, posture and warnings included: %s", runLog))
-	}
-	return lines
-}
-
-func IDEAttachLines(in Input, cfg sbx.RunConfig, live bool) []string {
+// IDEAttachLines are the run log's ways to attach an IDE to the live sandbox cfg.Name.
+func IDEAttachLines(in Input, cfg sbx.RunConfig) []string {
 	name, workdir := strings.TrimSpace(cfg.Name), agentWorkdir(in, cfg.Mounts)
 	if name == "" || workdir == "" {
 		return nil
 	}
-	when := ""
-	if live {
-		when = " (live)"
-	}
 	lines := []string{fmt.Sprintf(
-		"IDE attach%s: run `sbx %s` once, then connect to `%s` and open %s",
-		when, strings.Join(sbx.SetupSSHArgs(), " "), sbx.SSHHost(name), workdir),
+		"IDE attach (live): run `sbx %s` once, then connect to `%s` and open %s",
+		strings.Join(sbx.SetupSSHArgs(), " "), sbx.SSHHost(name), workdir),
 		fmt.Sprintf("JetBrains: File → Remote Development → SSH → host `%s`, use OpenSSH config, project %s",
 			sbx.SSHHost(name), workdir),
 		fmt.Sprintf("Toolbox (an IDE already installed in that environment): `%s`",
@@ -1018,9 +1100,7 @@ func IDEAttachLines(in Input, cfg sbx.RunConfig, live bool) []string {
 			"workdir: linked worktree of %s inside the clone; `sbx ls` lists %s as the workspace",
 			in.CloneSource.Main, in.CloneSource.Main))
 	}
-	if live {
-		lines = append(lines, "the running agent and the editor both write this tree")
-	}
+	lines = append(lines, "the running agent and the editor both write this tree")
 	if !in.Clone {
 		return append(lines,
 			"workspace: mounted checkout — IDE saves write the host tree directly")
@@ -1033,23 +1113,6 @@ func IDEAttachLines(in Input, cfg sbx.RunConfig, live bool) []string {
 	return append(lines,
 		"workspace: DISPOSABLE CLONE — commit IDE edits before removing the sandbox; they do not appear in the host checkout",
 		fmt.Sprintf("carry IDE commits home before `sbx rm`: `git %s`", fetch))
-}
-
-func PrintIDEAttach(in Input, cfg sbx.RunConfig, live bool) {
-	lines := IDEAttachLines(in, cfg, live)
-	if len(lines) == 0 {
-		return
-	}
-	if live {
-		ui.Section(ui.SectionInterface)
-	}
-	for i, l := range lines {
-		if i == 0 {
-			ui.Hostf("%s", l)
-			continue
-		}
-		ui.Notef("%s", l)
-	}
 }
 
 func WorkspaceBinds(mounts []sbx.Mount) []sbx.Mount {
@@ -1104,6 +1167,7 @@ func FirstHost(mounts []sbx.Mount) string {
 
 // Input is the resolved input to the sbx backend.
 type Input struct {
+	Stop                   context.Context // ends teardown's subprocesses when cancelled; nil never does
 	Target, Image, AuthVar string
 	MCPGateway             bool // the operator allowed sbx's MCP gateway hooks (PROVEO_SBX_MCP or the mcp row)
 	MiseTrust              bool
@@ -1111,12 +1175,15 @@ type Input struct {
 	Desktop                bool     // Hermes Desktop drives the sandbox over SSH instead of this terminal
 	DesktopLaunch          []string // opens Hermes Desktop on the host
 	Clone                  bool
+	CloneOff               string // why a clone could not apply, when the default asked for one
 	CloneKnown             bool   // Clone is the sandbox's own mode: this run created it, or teardown asked it
 	RepoRoot               string // host repository root: where a clone's commits are fetched back to
 	OutputDir              string
 	Browser                bool
 	CDPHostPort            int
 	Ports                  []PublishedPort
+	InterfaceItems         []Item    // what the run decided about the interface before Run, such as a port left unpublished
+	InterfaceFacts         []ui.Fact // one fact per host add-on the run started: the emulator, the host browser, the desktop app
 	AndroidApps            []devports.AndroidApp
 	AndroidEnv             []string // the host adb server's guest env, for the install's adb
 	Extra                  []string
@@ -1134,6 +1201,7 @@ type Input struct {
 	// AgentEnv is what the egress plan decided for the agent, as KEY=VALUE.
 	AgentEnv         []string
 	Sid, RunDir      string
+	ResultsDir       string // where what the run left behind is recorded; "" records nothing
 	Mounts           []runner.Mount
 	Lookup           func(string) string
 	Detected         []string
@@ -1147,13 +1215,15 @@ type Input struct {
 	CloneEnvHost     string                   // the host .env teardown merges the clone's edits into
 	ProjectEnv       string                   // the project .env whose values a new sandbox gets through --env-file
 	CloneEnvStrip    []string                 // brokered keys the staged copy dropped
+	CloneEnvDropped  []string                 // the brokered keys the host .env held, which the staged copy leaves out
+	WorkspaceItems   []Item                   // what the run decided about the workspace before Run: the workspace block prints them
+	AgentVersion     string                   // the agent version the image pins, for the start line
 	Links            []workspace.Link         // escaping symlinks the plan resolved; a clone recreates the mounted ones
 	WorktreeEnv      []string
 	DataDir          string
 	Memory           string
 	CPUs             int
 	HomeRoot         string
-	RunLog           string
 	HomeAccess       HomeAccess
 }
 
@@ -1166,16 +1236,18 @@ func imageEntrypoint(in Input) []string {
 	return in.ImageEntrypoint(in.Image)
 }
 
-// imageSource is where Image lives for the kit build.
-func imageSource(in Input) sbx.ImageSource {
+// imageSource is where Image lives for the kit build, and a warning when no builder reads the host store.
+func imageSource(in Input) (sbx.ImageSource, []Item) {
 	if in.ImageSource == nil {
-		return sbx.ImageSource{Ref: in.Image}
+		return sbx.ImageSource{Ref: in.Image}, nil
 	}
 	src := in.ImageSource(in.Image)
 	if src.Host && src.Builder == "" {
-		ui.Warnf("sandbox: no docker-driver buildx builder reads the host image store — the active builder (`docker buildx ls`, marked *) builds %s; set PROVEO_BUILDX_LOCAL_BUILDER to choose one", in.Image)
+		return src, []Item{{Warn: true, Text: "buildx — no docker-driver builder reads the host image store",
+			Detail: []string{"the active builder builds " + in.Image},
+			Log:    []string{"PROVEO_BUILDX_LOCAL_BUILDER names the builder that reads the host image store"}}}
 	}
-	return src
+	return src, nil
 }
 
 // Harness is the def a target belongs to. One manifest owns several targets —
@@ -1226,20 +1298,18 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		forwarded = append(forwarded, name)
 	}
 
+	var report Report
 	var secrets [][2]string
+	seenSecret := map[string]bool{}
 	addSecret := func(name string) {
 		v := in.Lookup(name)
-		if v == "" {
+		if v == "" || seenSecret[name] {
 			return
 		}
-		for _, kv := range secrets {
-			if kv[0] == name {
-				return
-			}
-		}
+		seenSecret[name] = true
 		service, kind := credentials.StoreName(name)
 		if (in.Forwards || kind == credentials.StoreUninjectable) && secretref.IsReference(v) {
-			ui.Warnf("%s holds a secret reference; only sbx resolves references, and this variable would ride the agent env — not passed", name)
+			report.Notes = append(report.Notes, Item{Warn: true, Text: name + " — a secret reference, not passed"})
 			return
 		}
 		if kind == credentials.StoreUninjectable {
@@ -1251,13 +1321,15 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 			return
 		}
 		if kind == credentials.StoreSubscription {
-			ui.Notef("sandbox secret: %s not stored — sbx holds a plan login only as %q's OAuth slot; sign in with %s",
-				name, service, cmp.Or(sbx.SignIn(service), "the agent's own login"))
+			report.Notes = append(report.Notes, Item{Text: "sandbox secret: " + name + " — not stored",
+				Log: []string{fmt.Sprintf("sbx keeps a plan login only in %q's OAuth slot, so %s stays out of its store", service, name),
+					"sign in with " + cmp.Or(sbx.SignIn(service), "the agent's own login")}})
 			return
 		}
 		if kind == credentials.StoreAPIKey && sbx.HasOAuthSlot(service) {
-			ui.Notef("sandbox secret: %s not stored — sbx's global %q entry also holds the subscription, and an API key "+
-				"there outranks it in every sandbox; to bill per token, `sbx secret set %s` yourself", name, service, service)
+			report.Notes = append(report.Notes, Item{Text: "sandbox secret: " + name + " — not stored",
+				Log: []string{fmt.Sprintf("an API key in sbx's %q entry outranks the subscription in every sandbox; `sbx secret set %s` stores %s there to bill per token",
+					service, service, name)}})
 			return
 		}
 		secrets = append(secrets, [2]string{name, v})
@@ -1366,21 +1438,24 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		mounts = append(mounts, sbx.Mount{Host: in.DataDir, Container: "/workspace/data", ReadOnly: true})
 	}
 	if worktreeClone(in) {
-		mounts = cloneThroughMain(in, mounts)
+		var dropped []string
+		mounts, dropped = cloneThroughMain(in, mounts)
+		report.NotMounted = append(report.NotMounted, dropped...)
+		report.Unmounted = append(report.Unmounted, unmountable(in.CloneSource.Main, "main worktree", dropped)...)
 	}
 	if in.Clone && in.RepoRoot != "" {
 		var nested []sbx.Mount
 		var dropped []string
 		mounts, nested = SplitNested(in.RepoRoot, mounts)
 		for _, m := range nested {
-			if _, isOutput := nestedRel(in.RepoRoot, in.OutputDir); isOutput && filepath.Clean(m.Host) == filepath.Clean(in.OutputDir) {
-				ui.Storef("clone: %s is inside the repository, so it is not mounted live — sbx clones only into an "+
-					"empty workspace; the agent writes it inside the clone and proveo lifts it back here at teardown", m.Host)
+			if rel, isOutput := nestedRel(in.RepoRoot, in.OutputDir); isOutput && filepath.Clean(m.Host) == filepath.Clean(in.OutputDir) {
+				report.OutputInClone = rel
 				continue
 			}
 			dropped = append(dropped, m.Host)
 		}
-		warnUnmountable(in.RepoRoot, "repository", dropped)
+		report.NotMounted = append(report.NotMounted, dropped...)
+		report.Unmounted = append(report.Unmounted, unmountable(in.RepoRoot, "repository", dropped)...)
 	}
 	if in.Clone && in.CloneEnv != "" {
 		mounts = append(mounts, sbx.Mount{Host: filepath.Dir(in.CloneEnv)})
@@ -1391,10 +1466,15 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	builtin := sbx.BuiltinAgent(harness)
 	up, hasUp, upErr := sbx.UpstreamKitFor(harness, sbx.UpstreamOptions{MCPGateway: in.MCPGateway})
 	if upErr != nil {
-		ui.Warnf("sandbox: the published %s kit could not be read (%v) — launching from the image alone", harness, upErr)
+		report.Notes = append(report.Notes, Item{Warn: true, Text: "published " + harness + " kit — unreadable, launching from the image alone",
+			Detail: []string{upErr.Error()}})
 		hasUp = false
 	}
-	src := imageSource(in)
+	src, srcNotes := imageSource(in)
+	report.Notes = append(report.Notes, srcNotes...)
+	if in.ImageSource != nil {
+		report.Image = &src
+	}
 	recipe := sbx.RecipeV3{From: src.From()}
 	var command []string
 	entrypoint := imageEntrypoint(in)
@@ -1405,7 +1485,8 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		flags = withLocalModelTools(builtin, in.AgentEnv, flags)
 		command = sbx.LaunchArgs(up.Launch, flags)
 	case len(entrypoint) == 0:
-		ui.Warnf("sandbox: no readable ENTRYPOINT on %s — %s launches through bash", in.Image, harness)
+		report.Notes = append(report.Notes, Item{Warn: true, Text: in.Image + " — no readable ENTRYPOINT",
+			Detail: []string{harness + " launches through bash"}})
 		recipe.Entrypoint = []string{"bash"}
 		command = sbx.ShellLaunch(harness, in.Extra)
 	default:
@@ -1424,6 +1505,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		HostEnv: src.BuildEnv(),
 		Command: command,
 	}
+	report.Unbound = unboundLinks(in.Links, cfg.Mounts)
 	if opencodeTarget(in.Target) {
 		cfg.Env = append(cfg.Env, sbx.OpenCodeHistoryGateEnv)
 	}
@@ -1458,9 +1540,10 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		caps, err = sbx.WithLifecycle(caps, sbx.LifecycleV3{Startup: startupHooks(in, !hasUp, hookEnv(in, cfg.Env))})
 	}
 	if err != nil {
-		ui.Warnf("sandbox: the workload's capabilities could not be merged (%v)", err)
+		report.Notes = append(report.Notes, Item{Warn: true, Text: "workload capabilities — not merged", Detail: []string{err.Error()}})
 	}
 	w := Workload{
+		Report: report,
 		Descriptor: sbx.WorkloadV3{
 			DisplayName:  in.Target + " (proveo)",
 			Description:  "proveo harness " + in.Target + ": image, launch, reachability and the seed step.",
@@ -1577,6 +1660,19 @@ func withMobileMCP(harness string, env, command []string) []string {
 }
 
 func Run(in Input) error {
+	wsSaid, secretsSaid, ifaceSaid := false, false, false
+	var secretFacts []ui.Fact
+	defer func() {
+		if !wsSaid {
+			PrintBlock(WorkspaceHeading, nil, WithPaths(in.WorkspaceItems, ui.TildeIn))
+		}
+		if !secretsSaid {
+			ui.Facts(secretFacts...)
+		}
+		if !ifaceSaid {
+			PrintBlock(InterfaceHeading, in.InterfaceFacts, WithPaths(in.InterfaceItems, ui.TildeIn))
+		}
+	}()
 	homeAccess := in.HomeAccess
 	if homeAccess.Root == "" && in.HomeRoot != "" {
 		var err error
@@ -1585,7 +1681,6 @@ func Run(in Input) error {
 			return err
 		}
 	}
-	noteSkippedLinks(homeAccess)
 	in.HomeAccess = homeAccess
 	keepHomeAccess := false
 	defer func() {
@@ -1594,22 +1689,42 @@ func Run(in Input) error {
 		}
 	}()
 	cfg, w, secrets := Spec(in)
+	ReportWorkspace(in, w.Report, ui.TildeIn)
+	wsSaid = true
+	ui.Section(ui.SectionSbx)
+	PrintNotes(w.Report, ui.TildeIn)
 	envValues := 0
 	if path, n, err := seedProjectEnv(in.ProjectEnv, in.RunDir, in.Forwards, cfg.Env); err != nil {
-		ui.Warnf("project .env not seeded into the sandbox: %v", err)
+		ui.Warnf("project .env — not seeded into the sandbox")
+		ui.Detailf("%s", ui.TildeIn(err.Error()))
 	} else {
 		cfg.EnvFile, envValues = path, n
 	}
-	kitDir, err := sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files)
-	if err != nil {
+	start := ui.NewSteps(startSteps)
+	var kitDir string
+	if err := start.DoAs(stepKit, stepKit, func() (err error) {
+		kitDir, err = sbx.WriteWorkloadV3(cfg.KitDir, w.Descriptor, w.Recipe, w.Files)
+		return err
+	}); err != nil {
 		return err
 	}
-	ui.Section(ui.SectionStarting)
 	receipt := receiptOf(cfg, in.Image, workloadBytes(kitDir), in.Sid, sbx.LocalImageID(in.Image))
-	if err := retireIfStale(in, cfg, receipt, sbx.Exists, sbx.Running, retireSandbox, ui.Notef, ui.Warnf); err != nil {
+	receipt.OutputDir = in.OutputDir
+	exists := sbx.Exists(cfg.Name)
+	changed := staleChanges(cfg.Name, receipt, exists)
+	staleStep := start.DoAs
+	if len(changed) > 0 {
+		staleStep = start.HandAs
+	}
+	var kept []string
+	if err := staleStep(stepStale, stepStale, func() (err error) {
+		kept, err = retireIfStale(in, cfg, changed, sbx.Running, retireSandbox, ui.Notef, warnItem)
+		return err
+	}); err != nil {
 		return err
 	}
-	launchCfg := reuseOrCreate(cfg, sbx.Exists)
+	exists = exists && (len(changed) == 0 || kept != nil)
+	launchCfg := reuseOrCreate(cfg, exists)
 	if launchCfg.KitDir != "" {
 		writeReceipt(cfg.Name, receipt)
 	}
@@ -1620,55 +1735,66 @@ func Run(in Input) error {
 			child.Add(e, in.Lookup)
 		}
 	}
-	for _, kv := range secrets {
-		ui.Section(ui.SectionSecrets)
-		name, kind := credentials.StoreName(kv[0])
-		if name == "" || kind != credentials.StoreAPIKey {
-			continue
+	if err := start.DoAs(stepSecrets, stepSecrets, func() error {
+		for _, kv := range secrets {
+			name, kind := credentials.StoreName(kv[0])
+			if name == "" || kind != credentials.StoreAPIKey {
+				continue
+			}
+			flags, stdin := secretref.SbxSource(kv[0], kv[1], os.Getenv)
+			if len(flags) == 0 && stdin == "" {
+				ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
+				continue
+			}
+			if err := sbx.SecretSetSource(name, cfg.Name, flags, stdin); err != nil {
+				return fmt.Errorf("sandbox secret %s: %w", name, err)
+			}
+			secretFacts = append(secretFacts, secretFact(kv[0], name, cfg.Name, flags, len(secretFacts) == 0))
 		}
-		flags, stdin := secretref.SbxSource(kv[0], kv[1], os.Getenv)
-		if len(flags) == 0 && stdin == "" {
-			ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
-			continue
-		}
-		how := "its value"
-		if len(flags) > 0 {
-			how = "a source sbx resolves on the host (" + flags[0] + ") — proveo never reads the value"
-		}
-		ui.Hostf("sandbox secret: %s stored as %s for %s only, from %s; it leaves with the sandbox", kv[0], name, cfg.Name, how)
-		if err := sbx.SecretSetSource(name, cfg.Name, flags, stdin); err != nil {
-			return fmt.Errorf("sandbox secret %s: %w", name, err)
-		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if err := refuseUnboundCredential(in, cfg.Name, w.Descriptor.Capabilities, created); err != nil {
 		return err
 	}
 	if opencodeTarget(in.Target) {
-		launchCfg, created, err = ensureOpenCodeEngine(in, cfg)
-		if err != nil {
+		var history ui.Fact
+		var err error
+		if launchCfg, created, history, err = openEngine(in, cfg, secretFacts); err != nil {
+			secretsSaid = true
 			return err
 		}
+		secretFacts = append(secretFacts, history)
 	}
-	PrintIDEAttach(in, cfg, true)
-	ReportPorts(in)
-	ReportAndroidApps(in)
 	defer StartDevServers(in, cfg)()
 	defer StartAndroidInstall(in, cfg)()
 	defer StartCDPViewport(in, launchCfg)()
 	in.CloneKnown = created
-	if envValues > 0 {
-		if created {
-			ui.Storef("project .env: %d value(s) seeded into %s with --env-file", envValues, cfg.Name)
-		} else {
-			ui.Notef("project .env: %s keeps the values it was created with; `sbx rm --force %s` reseeds them", cfg.Name, cfg.Name)
-		}
-	}
-	if launchCfg.KitDir != "" {
-		if err := createSandbox(launchCfg); err != nil {
+	pub := publishing{relay: relayRuns(in, launchCfg), created: created}
+	secretsSaid = true
+	switch {
+	case launchCfg.KitDir != "":
+		reportCreate(in, launchCfg, envValues, secretFacts, w.Report.Image)
+		if err := start.HandAs(stepCreate, "sbx create", func() error { return createSandbox(launchCfg) }); err != nil {
+			if left, ok := leftByCreate(cfg.Name); ok {
+				left.print()
+			}
 			return err
 		}
 		launchCfg = sbx.Reattach(launchCfg)
+	case created:
+		reportCreate(in, cfg, envValues, secretFacts, w.Report.Image)
+		start.StartAs("attach to "+cfg.Name, "attach to "+cfg.Name)
+	default:
+		listed, receipt := listedSandbox(cfg.Name), readReceipt(cfg.Name)
+		pub.hosts = keptPorts(listed, receipt)
+		reportReattach(in, keptSandbox{name: cfg.Name, listed: listed, receipt: receipt, kept: kept}, envValues, secretFacts)
+		reattachLog(cfg.Name)
+		start.StartAs("re-attach to "+cfg.Name, "re-attach to "+cfg.Name+" — left by an earlier run")
 	}
+	reportInterface(in, cfg, pub)
+	ifaceSaid = true
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
@@ -1676,15 +1802,17 @@ func Run(in Input) error {
 	terminal := ptyproxy.Usable(os.Stdin, os.Stdout)
 	filtered := terminal && agentio.FilterEnabled()
 	var forceRemove atomic.Bool
+	var removeAsked atomic.Int64
 	runCtx, stopSignals, cancelRun, signalled := forwardStop()
 	defer stopSignals()
+	var px *ptyproxy.Proxy
 	run := func() error {
 		c := exec.CommandContext(runCtx, sbx.Binary, args...)
 		c.Cancel = func() error { return c.Process.Signal(syscall.SIGTERM) }
 		c.WaitDelay = stopWait
 		c.Env = child.Apply(os.Environ())
 		if terminal {
-			px := ptyproxy.New(os.Stdin, os.Stdout)
+			px = ptyproxy.New(os.Stdin, os.Stdout)
 			px.DisableFilter = !filtered
 			px.DropReports = true
 			px.Tap = traceIn
@@ -1692,27 +1820,18 @@ func Run(in Input) error {
 				px.OutTap = func(b []byte) { _, _ = tail.Write(b) }
 			}
 			if os.Getenv("PROVEO_SCHEDULE") == "" {
-				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
-					screen, err := px.OverlayScreen(in)
-					if err != nil {
-						return ptyproxy.CtrlCStay
-					}
-					if err := screen.Init(); err != nil {
-						return ptyproxy.CtrlCStay
-					}
-					defer screen.Fini()
-					switch choiceui.ConfirmSandboxClose(screen) {
-					case choiceui.SandboxCloseRemove:
-						return ptyproxy.CtrlCRemove
-					case choiceui.SandboxClosePass:
-						return ptyproxy.CtrlCPass
-					default:
-						return ptyproxy.CtrlCStay
-					}
-				}, func() {
+				stop := func() {
 					forceRemove.Store(true)
+					removeAsked.Store(time.Now().UnixNano())
 					cancelRun()
-				})
+				}
+				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
+					closed, _ := px.OverlayProgram(in, choiceui.NewSandboxClose(stop, stopWait))
+					if choiceui.SandboxCloseAnswer(closed) == choiceui.SandboxClosePass {
+						return ptyproxy.CtrlCPass
+					}
+					return ptyproxy.CtrlCStay
+				}, nil)
 			}
 			return px.Run(c)
 		}
@@ -1722,104 +1841,116 @@ func Run(in Input) error {
 	if in.Desktop {
 		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch, imageEntrypoint(in)).run(runCtx) }
 	}
+	start.StartAs("start "+in.Target, agentStartLine(in))
 	startedAt := time.Now()
 	runErr := run()
 	endedAt := time.Now()
-	runErr, result := stopOutcome(runErr, signalled(), forceRemove.Load())
-	if _, ok := result.(backend.Stopped); ok {
-		ui.Hostf("%v — ending as on a normal exit", result)
+	recordStep(stepAgent, endedAt.Sub(startedAt), nil)
+	if at := removeAsked.Load(); at != 0 {
+		recordStep(stepStopWait, endedAt.Sub(time.Unix(0, at)), nil)
 	}
-	defer func() {
-		reportCredentialInUse(in.Target, cfg.Name)
-		if clones, err := sandboxClone(in, cfg.Name); err == nil {
-			in.Clone, in.CloneKnown = clones, true
+	runErr, result := stopOutcome(runErr, signalled(), forceRemove.Load())
+	ui.Section(ui.SectionResults)
+	status := sbxStatus(result)
+	end, said := agentEnd(in.Target, result, forceRemove.Load(), sbx.SaidError(status, tail.Lines()), tail.Lines())
+	if said {
+		end.print()
+	}
+	td := &teardown{
+		in: in, cfg: cfg, secrets: secrets,
+		failed: runErr != nil && !forceRemove.Load(), forced: forceRemove.Load(),
+		started: startedAt, ended: endedAt, status: status,
+		lastOutput: tail.Lines, altScreen: px.EnteredAltScreen, commitHome: homeAccess.Commit,
+		results: NewBlock(ResultsHeading),
+	}
+	tdCtx, endWatch := td.watch(context.Background())
+	stopSignals()
+	td.run(tdCtx)
+	endWatch()
+	keepHomeAccess = td.keepHome
+	if sig := td.leftBy(); sig != 0 {
+		return backend.Stopped{Signal: sig}
+	}
+	return runResult(result, said && end.Fail, forceRemove.Load(), tail.Lines())
+}
+
+// sbxStatus is `sbx run`'s exit status in result; 0 when result is not that exit.
+func sbxStatus(result error) int {
+	if ee, ok := result.(*exec.ExitError); ok {
+		return ee.ExitCode()
+	}
+	return 0
+}
+
+// agentEnd is how the agent's run ended, as the first line under results: a ● stop; a × for
+// sbx's exit only when sbx printed no error line of its own; a × for any other failure; no line
+// for a removal the operator chose. said is false when the screen needs no line.
+func agentEnd(target string, result error, forced, sbxSaid bool, lines []string) (end Item, said bool) {
+	var stopped backend.Stopped
+	switch {
+	case result == nil, forced:
+		return Item{}, false
+	case errors.As(result, &stopped):
+		return Item{Host: true, Text: target + " — " + stopped.Error(), Log: []string{"teardown runs as on a normal exit"}}, true
+	}
+	if ee, ok := result.(*exec.ExitError); ok {
+		if sbxSaid {
+			ui.Logf("sbx printed the run's error line: %s", lines[len(lines)-1])
+			return Item{}, false
 		}
-		reportPushedBranches(in, cfg, startedAt)
-		CapturePolicyLog(in.RunDir, cfg.Name)
-		CaptureMemoryEvidence(in.RunDir, cfg.Name)
-		if runErr != nil && !forceRemove.Load() {
-			said := false
-			if lines := tail.Lines(); len(lines) > 0 {
-				said = true
-				ui.Section(ui.SectionResults)
-				ui.Hostf("last output from the agent:")
-				for _, l := range lines {
-					ui.Notef("%s", l)
-				}
-			}
-			restarted := !sbx.Running(cfg.Name)
-			_ = TeardownClone(in, cfg)
-			_, _ = SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun)
-			if err := homeAccess.Commit(); err != nil {
-				ui.Warnf("home-root config not preserved: %v", err)
-			}
-			if t := credentials.AgentTranscript(in.Target, in.HomeRoot, startedAt, endedAt); t != "" {
-				said = true
-				ui.Storef("what the agent actually said is in %s", t)
-			} else if restarted && sbx.Exists(cfg.Name) {
-				ui.Storef("no transcript from this run — the sandbox had already stopped, " +
-					"so state was copied out after it ended and anything newer than the run is the harvest's own")
-			}
-			if !said {
-				if hint := credentials.NoCredentialHint(in.Man, in.Target, in.HomeRoot, cfg.Env, secrets,
-					sbx.StoredServices(), in.Lookup); len(hint) > 0 {
-					ui.Hostf("%s", hint[0])
-					for _, l := range hint[1:] {
-						ui.Notef("%s", l)
-					}
-				}
-			}
-			ui.Section(ui.SectionResults)
-			kept := KeptLines(cfg.Name, in.RunLog)
-			ui.Warnf("%s", kept[0])
-			for _, l := range kept[1:] {
-				ui.Notef("%s", l)
-			}
-			if sbx.Exists(cfg.Name) {
-				keepHomeAccess = true
-				PrintIDEAttach(in, cfg, false)
-			}
-			return
-		}
-		stranded := TeardownClone(in, cfg)
-		if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), SbxRun); err != nil {
-			ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
-		}
-		if err := homeAccess.Commit(); err != nil {
-			ui.Warnf("home-root config not preserved: %v", err)
-		}
-		switch normalEndOf(forceRemove.Load(), stranded, opencodeTarget(in.Target)) {
-		case endKeepStranded:
-			keepHomeAccess = true
-			if opencodeTarget(in.Target) {
-				ui.Warnf("%v — %s kept with its OpenCode history", stranded, cfg.Name)
-			} else {
-				ui.Warnf("%v — %s kept; `sbx rm --force %s` deletes it once the work is home", stranded, cfg.Name, cfg.Name)
-			}
-			PrintIDEAttach(in, cfg, false)
-			return
-		case endRetainEngine:
-			keepHomeAccess = true
-			ui.Storef("OpenCode: history lives in retained engine %s; `sbx rm --force %s` deletes it", cfg.Name, cfg.Name)
-			return
-		}
-		if forceRemove.Load() {
-			ui.Hostf("sbx rm --force %s — deleting the session", cfg.Name)
-		}
-		rmOut, rmErr := exec.Command(sbx.Binary, sbx.RemoveArgs(cfg.Name)...).CombinedOutput()
-		if rmErr != nil && !sbx.NotFound(string(rmOut)) {
-			keepHomeAccess = sbx.Exists(cfg.Name)
-			ui.Warnf("sandbox teardown failed (%v): %s", rmErr, strings.TrimSpace(string(rmOut)))
-			if keepHomeAccess {
-				PrintIDEAttach(in, cfg, false)
-			}
-		}
-	}()
-	var ee *exec.ExitError
-	if errors.As(result, &ee) {
-		return backend.ExitError{Code: sbx.RunExitCode(ee.ExitCode(), tail.Lines())}
+		return Item{Fail: true, Text: fmt.Sprintf("sbx run — exited with code %d", sbx.RunExitCode(ee.ExitCode(), lines))}, true
+	}
+	head, rest, _ := strings.Cut(ui.TildeIn(result.Error()), "\n")
+	end = Item{Fail: true, Text: head}
+	if rest = strings.TrimSpace(rest); rest != "" {
+		end.Detail = strings.Split(rest, "\n")
+	}
+	return end, true
+}
+
+// runResult is what Run returns for the agent's run: sbx's own exit as ExitError, a failure the
+// results block printed or a removal the operator chose as Reported, else result as it is.
+func runResult(result error, printed, forced bool, lines []string) error {
+	if ee, ok := result.(*exec.ExitError); ok {
+		return backend.ExitError{Code: sbx.RunExitCode(ee.ExitCode(), lines)}
+	}
+	var stopped backend.Stopped
+	if result != nil && (printed || forced) && !errors.As(result, &stopped) {
+		return backend.Reported{Err: result}
 	}
 	return result
+}
+
+// startSteps is how many steps a run shows before the agent has the terminal:
+// the kit, the stale check, the secrets, the sandbox, the agent.
+const startSteps = 5
+
+// leftByCreate is the line for a sandbox a failed `sbx create` left listed; ok is false when sbx lists none.
+func leftByCreate(name string) (Item, bool) {
+	if listedSandbox(name) == nil {
+		return Item{}, false
+	}
+	return Item{Warn: true, Text: name + " — kept: its create failed",
+		Detail: []string{"`" + sbx.Binary + " " + strings.Join(sbx.RemoveArgs(name), " ") + "` removes it"}}, true
+}
+
+// removeSandbox runs `sbx rm --force` under guestExecDeadline; a failure's error carries sbx's output.
+func removeSandbox(ctx context.Context, name string) error {
+	out, err := guestRunIn(ctx, sbx.RemoveArgs(name)...)
+	if err == nil || sbx.NotFound(out) {
+		return nil
+	}
+	if out = strings.TrimSpace(out); out != "" {
+		ui.Logf("sandbox removal failed (%v): %s", err, out)
+		return fmt.Errorf("%w: %s", err, out)
+	}
+	ui.Logf("sandbox removal failed (%v)", err)
+	return err
+}
+
+// rescueRemoval is the line that removes a sandbox whose removal hit its deadline.
+func rescueRemoval(name string) string {
+	return fmt.Sprintf("check `%s ls`, then `%s %s` once sbx answers", sbx.Binary, sbx.Binary, strings.Join(sbx.RemoveArgs(name), " "))
 }
 
 // stopWait bounds how long the sbx client may take to exit once proveo forwards a stop.
@@ -1877,21 +2008,31 @@ func normalEndOf(forced bool, stranded error, retainsEngine bool) normalEnd {
 	return endRemove
 }
 
-// WarnBaseline reports sbx's network baseline and, unless it allows every host, the command that lets hosts through.
-func WarnBaseline(hosts []string) {
-	ui.Section(ui.SectionEgress)
+// reattachLog is what a re-attach writes to the run log alone: whose sandbox it is, and how the next run builds it fresh.
+func reattachLog(name string) {
+	ui.Logf("re-attaching to %s, which an earlier run left here — its workspace is this one", name)
+	ui.Logf("`sbx rm --force %s` builds it fresh next run", name)
+}
+
+// Baseline is sbx's network baseline as the egress block's fact; a ⚠ item instead when sbx's policy
+// is unreadable. The command that lets hosts through goes to the run log.
+func Baseline(hosts []string) ([]ui.Fact, []Item) {
 	allowed, known := sbx.NetworkAllowed(unallowlistedProbe)
+	var allow []string
+	if len(hosts) > 0 {
+		allow = []string{"`sbx policy allow network " + strings.Join(hosts, ",") + "` lets the agent reach its provider"}
+	}
 	switch {
 	case known && allowed:
-		ui.Notef("sbx's global network policy allows every host; sbx decides this run's egress")
-		return
-	case !known:
-		ui.Notef("sbx network baseline: unreadable (`sbx policy check network %s`)", unallowlistedProbe)
+		return []ui.Fact{{Role: ui.RoleCloud, Key: "network", Value: "sbx's global policy allows every host"}}, nil
+	case known:
+		for _, l := range allow {
+			ui.Logf("%s", l)
+		}
+		return []ui.Fact{{Role: ui.RoleCloud, Key: "network", Value: "sbx's global policy allows listed hosts only"}}, nil
 	}
-	if len(hosts) > 0 {
-		ui.Notef("sbx's policy decides egress; if the agent cannot reach its provider, run on the host: `sbx policy allow network %s`",
-			strings.Join(hosts, ","))
-	}
+	return nil, []Item{{Warn: true, Text: "sbx network baseline — unreadable",
+		Log: append([]string{"`sbx policy check network " + unallowlistedProbe + "` reads it"}, allow...)}}
 }
 
 // ReachHosts are the sbx patterns for the harness's declared hosts and the detected providers it may use.
@@ -1936,24 +2077,23 @@ func CapturePolicyLog(runDir, name string) {
 	if err := os.WriteFile(path, out, 0o600); err != nil {
 		return
 	}
-	ui.Section(ui.SectionResults)
-	ui.Storef("egress record: %s", path)
+	ui.Logf("egress record: %s", path)
 }
 
 // CaptureMemoryEvidence writes the guest's own account of its memory beside the
-// policy log, and says so out loud when it names a kill.
+// policy log, and says so out loud, into out, when it names a kill.
 var memoryEvidence = sbx.MemoryEvidence
 
-func CaptureMemoryEvidence(runDir, name string) {
+func CaptureMemoryEvidence(runDir, name string, out *Block) {
 	restarted := !sbx.Running(name)
 	if runDir == "" || name == "" {
 		return
 	}
-	out, err := memoryEvidence(name)
-	if err != nil && len(bytes.TrimSpace(out)) == 0 {
+	said, err := memoryEvidence(name)
+	if err != nil && len(bytes.TrimSpace(said)) == 0 {
 		return
 	}
-	if len(bytes.TrimSpace(out)) == 0 {
+	if len(bytes.TrimSpace(said)) == 0 {
 		return
 	}
 	dir := filepath.Join(runDir, "sbx")
@@ -1961,27 +2101,20 @@ func CaptureMemoryEvidence(runDir, name string) {
 		return
 	}
 	path := filepath.Join(dir, runlog.MemoryEvidenceFile)
-	if err := os.WriteFile(path, out, 0o600); err != nil {
+	if err := os.WriteFile(path, said, 0o600); err != nil {
 		return
 	}
-	ui.Section(ui.SectionResults)
-	if sbx.OOMEvidence(out) {
-		// The whole reason this function exists: an OOM is otherwise a freeze
-		// with no cause, and the operator goes looking at the agent instead.
-		ui.Warnf("the guest kernel reported an out-of-memory kill — a sandbox has NO SWAP, "+
-			"so memory pressure kills rather than slows. Raise the ceiling with "+
-			"`PROVEO_SBX_MEMORY=16g` (capped at 32g) and see %s", path)
-		return
-	}
-	if restarted {
-		// `sbx exec` starts a stopped sandbox, so this reading is a FRESH boot:
-		// its dmesg is empty and its meminfo is idle. Silence here is not
-		// evidence of no kill — it is evidence the kill's boot is gone.
-		ui.Notef("memory logs: %s — the sandbox had already stopped, so this is a fresh boot; "+
+	switch {
+	case sbx.OOMEvidence(said):
+		out.Item(Item{Warn: true, Text: "memory — the guest killed a process (out of memory)",
+			Detail: []string{"`PROVEO_SBX_MEMORY=16g` raises the ceiling (32g at most)", ui.Tilde(path)},
+			Log:    []string{"a sandbox has NO SWAP, so memory pressure kills rather than slows"}})
+	case restarted:
+		ui.Logf("memory logs: %s — the sandbox had already stopped, so this is a fresh boot; "+
 			"a kill in the boot that died left no trace to read", path)
-		return
+	default:
+		ui.Logf("memory logs: %s", path)
 	}
-	ui.Storef("memory logs: %s", path)
 }
 
 var storedSecretNames = sbx.APIKeyServices
@@ -2349,11 +2482,10 @@ func workloadBytes(dir string) []byte {
 	return append(desc, recipe...)
 }
 
-func reuseOrCreate(cfg sbx.RunConfig, exists func(string) bool) sbx.RunConfig {
-	if !exists(cfg.Name) {
+// reuseOrCreate is the launch config: a name-only re-attach when the sandbox exists, else cfg.
+func reuseOrCreate(cfg sbx.RunConfig, exists bool) sbx.RunConfig {
+	if !exists {
 		return cfg
 	}
-	ui.Notef("re-attaching to %s, which an earlier run left here — its workspace is this one", cfg.Name)
-	ui.Notef("for a sandbox built fresh instead: `sbx rm --force %s`", cfg.Name)
 	return sbx.Reattach(cfg)
 }

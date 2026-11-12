@@ -1,0 +1,289 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title What the probes measured before the TUI upgrades — the stdin pump, a silent teardown, Ctrl+C after exit, and a Bubble Tea Program on the proxy
+' purpose: the measurements that decided the TUI upgrades, kept after the plan that held them was retired
+' status: measured 2026-11-10 at 0f34a714 on darwin/arm64, go1.26.5, tmux 3.7b; a record, not a contract.
+'   Every file:line below names the tree at 0f34a714. Most of that code is gone.
+'   what was built from C1 ............ _spec/internal/ptyproxy/pty-ownership.puml
+'   what was built from C2 and C3 ..... _spec/internal/backend/teardown.puml
+'   the stack the spikes chose ........ _spec/internal/choiceui/tui-stack.puml
+'   the prompt segment ................ _spec/internal/results/result-store.puml
+'   what init installs for it ......... _spec/internal/promptkit/prompt-kit.puml
+'   the order it all landed in ........ _spec/_plans/tui-upgrades-delivery.puml
+'   sbx's own TUI, observed ........... _spec/_experiments/sbx-tui-observed.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' These sections were the measured half of the responsiveness plan. Its
+' proposals shipped in W0 to W13 of the delivery plan and left with it; the
+' measurements stay here, word for word.
+'
+' EVIDENCE, read 2026-11-10:
+' https://docs.docker.com/ai/sandboxes/usage/
+' https://docs.docker.com/ai/sandboxes/release-notes/
+' https://pkg.go.dev/charm.land/bubbletea/v2
+' https://github.com/charmbracelet/bubbletea/blob/main/UPGRADE_GUIDE_V2.md
+' https://github.com/muesli/cancelreader
+' https://github.com/muesli/cancelreader/blob/main/cancelreader_bsd.go
+' https://github.com/golang/go/issues/24842
+' https://pkg.go.dev/os/signal
+' https://starship.rs/config/
+' https://starship.rs/guide/
+' https://github.com/starship/starship/releases/tag/v1.27.0
+' https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
+' https://github.com/ryanoasis/nerd-fonts/blob/master/LICENSE
+' https://github.com/LuisAlejandro/mash
+' https://github.com/gdamore/tcell/releases
+' Every measurement below ran on darwin/arm64, go1.26.5, tmux 3.7b.
+' [Unverified] Nothing here was run on Linux.
+'
+'
+' ── C1 · MEASURED: THE STDIN PUMP OUTLIVES Run AND TAKES THE NEXT KEYS ─────
+' Proxy.Run starts `go p.pumpIn()` and returns without stopping it
+' (ptyproxy.go:109). readChunks stays parked in read(0). After the pump itself
+' returned it still takes 33 chunks: 32 buffered (ptyproxy.go:188) and one held
+' in the blocked send (:195).
+' pty-ownership.puml records the first half: "The IN pump cannot be waited on".
+' It names tcell.NewScreen as the second-reader trap DURING a run.
+' Teardown builds that second reader AFTER the run: confirm.go:25 openScreen
+' calls tcell.NewScreen for the pushed-branch question (pushed.go:20-30).
+' That is the ONLY terminal read after Run in the process: internal/run and
+' cmd/proveo only print and exit.
+'
+' Throwaway probes ran through `go test -overlay`; the tree was not modified.
+'   mechanism  A pty pair stood in for the operator terminal. Ten keys were
+'              typed after Run returned, twenty rounds. A second reader
+'              received 95 of 200 keys; a re-run gave 93. Every round lost at
+'              least one. Control without Run: 200 of 200.
+'   live       The real choiceui.ConfirmFetchPushed over tcell.NewScreen,
+'              after a real Run, in tmux. The operator typed y, then Enter.
+'              Twelve rounds: accepted 0, declined 10, still open after 4s 2.
+'              A re-run gave accepted 1, declined 5, still open 6.
+'              Control without Run: accepted 12 of 12.
+' The split between "declined" and "still open" is not stable. The pin must
+' require acceptance in EVERY round.
+' So the first key after the agent exits goes to the dead pump. `y` vanishes.
+' Enter arrives alone and reads as N, or the modal waits out its 15s timer.
+' The same pump takes type-ahead meant for the shell while teardown runs.
+' [Inference] This is the reported post-exit freeze. It matches the symptom and
+' its timing. No operator session was recorded to confirm it.
+'
+' WHY GO CANNOT STOP THAT READ. os.Stdin is a blocking file. SetReadDeadline
+' is refused on it, and Close does not unblock a read in progress
+' (golang/go#24842, Ian Lance Taylor: "it won't unblock a `read`"). Flipping
+' fd 0 to non-blocking changes the open file description the shell shares; the
+' same issue calls that "both unusual and risky".
+'
+' THREE WAYS TO STOP IT, EACH PROTOTYPED (D1).
+'   (a) muesli/cancelreader, the reader sbx 0.50.0 embeds (v0.2.2, MEASURED with
+'       `go version -m`). Wrapped plainly around p.In it FAILS the repo's -race
+'       gate, 3 of 3 runs: it calls file.Fd() on every wait. It also leaves
+'       the reader alive when fd 0 is /dev/tty under the name /dev/stdin (Run
+'       took 1.004s). With a two-method File adapter (a captured Fd, and
+'       Name() = "/dev/tty") it passes everything (b) passes.
+'   (b) select(2) plus a self-pipe through golang.org/x/sys/unix: 71 new lines,
+'       no new module. The pinned test passed 20 of 20 rounds, the live modal
+'       12 of 12, the package under -race 3 of 3. It joined in 3ms.
+'   (c) keep the pump and route post-exit prompts through the hand-off channel.
+'       It crosses 4 files in 2 packages, needs a new exported method mirrored
+'       in the Windows stub, and cannot pass the pin "a second reader gets
+'       every key".
+' The 41-line change to Run and readChunks is the same for (a) and (b).
+' A live Ctrl+C overlay must END with the child first: with the join alone, an
+' overlay open at child exit never receives another key (MEASURED).
+'
+' ── C2 · TEARDOWN SAYS NOTHING WHILE IT WORKS ──────────────────────────────
+' Teardown is one deferred closure (sandbox.go:1732-1817). On a clone run, the
+' default, it starts up to 31 subprocesses: 7 `sbx ls`, 11 other sbx calls and
+' 13 host git or tar calls. A direct-mount run starts about 11.
+' A line prints when a step ENDS, with two exceptions (sandbox.go:1730, :1807).
+' internal/ui has no live line.
+' Ceilings, MEASURED by reading the calls:
+'   34s   reportCredentialInUse: a 10s `sbx ls`, a 20s exec, 2s grace on each
+'   36s   the clone-mode probe; it can run twice in one teardown
+'   10s   policy log, memory evidence, each `sbx ls` behind Running / Exists
+'   3m    EACH of: .env read, snapshot, lift, remote fetch, bundle, span, rebase
+'   none  four guest or network calls: sandboxReflog, the pushed-branch
+'         `git fetch`, SaveState and teardown's `sbx rm --force`
+'   none  nine host-local git and tar calls
+'   30s   stopWait after the Ctrl+C modal's y. The agent's screen is repainted
+'         and nothing says a stop is in flight.
+'   2s    drainGrace when a grandchild still holds the PTY slave
+' THE FIRST UNBOUNDED CALL RUNS BEFORE THE CARRY. sbx.Exists answers true when
+' `sbx ls` fails. On a wedged daemon a clone run waits 10s, then starts
+' sandboxReflog with no deadline. Teardown stops there, prints nothing, and no
+' work has reached home.
+' [Unverified] Typical durations are unknown. The run log stamps section
+' headers only, so no finished run yields per-step time. P0 adds that.
+' THE OLLAMA PULL IS A DEFECT, NOT A PRECEDENT. It writes every frame through
+' Default.W after the tee (host_ollama.go:242), so its frames reach the run
+' log with their carriage returns (probe: 3 frames, 4 CRs). ui's wrapper also
+' splits a wide frame and measures "\x1b[K" plus text as width 0. A live line
+' needs a terminal-only writer under Printer.mu.
+' kit-lifecycle.puml already decided "a 3m deadline plus a rescue recipe" for
+' SaveState and `sbx rm`, and marks both STILL OPEN.
+' sbx's own answer, v0.51.0 release notes: "Progress shows command
+' descriptions", `--no-progress`, and "Canceled sandbox and environment
+' creation exits with status 130 and a clear message".
+'
+' ── C3 · CTRL+C AFTER THE AGENT EXITS IS UNDEFINED ─────────────────────────
+' forwardStop registers SIGTERM and SIGHUP only (sandbox.go:1834). Every
+' SIGTERM and SIGHUP in teardown is swallowed, the first included: the parked
+' goroutine consumes it and cancels only runCtx, and signalled() was already
+' read at sandbox.go:1728.
+' SIGINT has no handler. Run restores cooked mode before teardown, so Ctrl+C is
+' a real SIGINT to the foreground process group. Go's default ends the process:
+' "A SIGHUP, SIGINT, or SIGTERM signal causes the program to exit" (os/signal).
+' Deferred functions do not run. That skips homeAccess.Commit and Cleanup,
+' SaveState, `sbx rm`, KeptLines, the run log's close and recordOutcome.
+' Nothing prints about what was left.
+' MEASURED with a probe in tmux: a handler alone does not protect the work. A
+' plain child died on the first Ctrl+C ("signal: interrupt"). A Setpgid child
+' survived it. The second press cancelled a context whose Cancel signalled the
+' group; the child died in 2ms and the shell read exit 130.
+' Run returns an unnamed result and evaluates it before any defer runs, so the
+' closure cannot make proveo exit 130. Teardown must become an explicit call.
+' [Inference] A silent terminal invites Ctrl+C, so C2 feeds C3.
+' sbx's dashboard, MEASURED 0.50.0 in tmux: the footer always shows "^c quit".
+' The first Ctrl+C opens "Exit — Do you want to exit?" with No selected. Esc
+' closes it. A second Ctrl+C quits with status 0. Sandboxes stay untouched.
+'
+' ── STARSHIP: WHAT IT IS, AND WHAT P4 SHIPS ────────────────────────────────
+' mash does not use starship as a TUI library. MEASURED from its repository:
+' packaging/assets.json pins starship v1.27.0, packaging/defaults/starship.toml
+' seeds the prompt, and the bash and fish rc files run `starship init`. It is
+' the SHELL PROMPT inside mash's bundled terminal.
+' starship is a Rust binary the shell calls once per prompt. Its contract is a
+' budget: scan_timeout 30 ms, command_timeout 500 ms.
+'   THE BUDGET. Every teardown step gets a named ceiling and a visible clock.
+'   THE LIFETIME ANSWER (D4). proveo exits. The shell prompt carries
+'     "1 kept · 2 to adopt" from a state store through a `[custom.proveo]`
+'     module.
+' MEASURED with starship 1.27.0 against a scratch config:
+'   `when` defaults to false: a module without `when = true` never shows
+'   `require_repo = true` hides the module outside a git repository
+'   a command that prints nothing still draws a styled space, unless the
+'     format is `[($output )]($style)`
+'   a command over the budget prints two [WARN] lines above the prompt
+'   the module costs 11 ms; proveo itself starts in 20-27 ms; `sbx ls` takes
+'     237-483 ms, so `proveo prompt` must never call sbx
+' "Refs to adopt" cannot be derived at prompt time: 51 of 57 sessions here sit
+' only in packed-refs, and 47 of 63 carried refs are already reachable from a
+' branch. The count is computed with git at teardown and stored.
+' The store lives under `<state>/results/`, one file per entry. `proveo clean`
+' removes `<state>/runs/<sid>` by pid liveness while the sandbox still exists,
+' and three live runs here share one git common dir, so one index file races.
+' Carried refs also appear at run START (a retired sandbox), so PreserveClone
+' records them, not the teardown closure.
+' A record written only at the end of teardown is lost on the SIGINT kill of
+' C3. The store needs a write-ahead entry.
+' Verbs: `proveo adopt` and `proveo rm`. Neither overlaps an existing command.
+' CloneRescueLines stays as the fallback recipe: it prints when the carry
+' FAILED, and `proveo rm` retries that carry first.
+'
+'
+' ── THE STACK, AND WHY IT IS NOT THE CAUSE ─────────────────────────────────
+' proveo: tcell v2.6.0 (upstream v3.6.0, 2026-10-11), creack/pty,
+' go-fuzzyfinder v0.9.0, and a hand-rolled ANSI stream.
+' sbx 0.50.0: bubbletea/v2 2.0.10, lipgloss/v2 2.0.6, bubbles/v2 2.2.1,
+' ultraviolet, cancelreader 0.2.2 (MEASURED).
+' C1, C2 and C3 need no framework change. D3 ports anyway.
+'
+'
+' ── THE PORT (D3): WHAT THE SPIKES MEASURED ────────────────────────────────
+' THE GATE PASSES (P5a). Two independent lanes ran a Bubble Tea v2.1.1 Program
+' on a copy of the proxy's hand-off reader in tmux. It opened no /dev/tty, saw
+' 0 of 20 withheld keys, and Run returned under 1 ms after Quit with no
+' further byte. The next key reached the session.
+' THE GATE DOES NOT NEED P1. The overlay runs while Proxy.Run is alive.
+' P1 GATES EVERYTHING AFTER Run. A default-input Program started after Run
+' received 14 of 100 keys.
+' WHAT THE PORT MUST DO THAT THIS PLAN DID NOT LIST:
+'   newlines  With non-TTY input the renderer assumes NL maps to CR NL
+'             (tea.go:1107). The proxy keeps the terminal raw, so a frame came
+'             out as "one\ntwo\nthree". An adapter is required: overlaytty.go
+'             is REWRITTEN, not deleted.
+'   halt      Halt the hand-off reader when the dialog quits. Without it a
+'             chunk typed after Run returns goes to a dead goroutine (5 of 5).
+'   signals   The library's handler acts on the first signal only; a second
+'             SIGINT killed the process. Pass tea.WithoutSignalHandler and
+'             run proveo's own loop.
+'   keys      Ctrl+C typed on a raw TTY arrives as tea.KeyPressMsg, and a child
+'             in the same group survived two presses. tea.InterruptMsg comes
+'             only from SIGINT. A Program on a hand-off reader, or with
+'             WithInput(nil), changes no termios: the headless path still needs
+'             the process-group work of C3.
+'   modes     Overlay Views set AltScreen and DisableBracketedPasteMode. With
+'             input on, the Program writes two DECRQM queries, a kitty
+'             keyboard push and query, and modifyOtherKeys 2; tcell writes
+'             none. OPTION B avoids them: WithInput(nil), proveo decodes the
+'             hand-off with ultraviolet and calls Program.Send. It costs a
+'             direct import of an untagged module. Decided inside P5a.
+'   output    tcell draws on /dev/tty; a Program defaults to stdout. Every
+'             ported surface passes the tty as output.
+'   handover  ReleaseTerminal and tea.Exec on a hand-off reader stall 500 ms and
+'             lose the first key (10 of 10). Use them only where the Program
+'             reads the real stdin, and not inside the startup probe window.
+'   headless  The library has no plain rendering: stdout to a file gave 844
+'             bytes of control sequences. proveo keeps its own non-TTY branch.
+'   Println   The doc says it prints nothing on the alt screen. The code has
+'             no such guard (tea.go:892-893).
+'   EnvMsg    Never log it. It carries the whole process environment.
+' bubbles/v2 v2.2.1 has tree, textinput, viewport, spinner, stopwatch, timer,
+' help, key, paginator and list. It has no form, radio, checkbox or button.
+' lipgloss.HasDarkBackground and tea.RequestBackgroundColor read the terminal.
+' No proveo view calls them: the proxy owns that reader.
+' THE TMUX TEST DOES NOT STAY UNCHANGED. Its helper half builds the dialog
+' through tcell (e2e/close_confirm_live_test.go:112-131). The driver half
+' (:23-92) stays.
+' bubbletea v2.1.1 and cancelreader v0.2.2 cross-build for all eight release
+' targets with CGO_ENABLED=0 under go1.26.5.
+'
+
+component "C1 · the stdin pump\noutlives Run, takes the next keys" as C1 <<error>>
+component "C2 · teardown\nup to 31 subprocesses, silent" as C2 <<error>>
+component "C3 · Ctrl+C after exit\nno handler; deferred work is skipped" as C3 <<error>>
+component "the spikes\na Bubble Tea Program on the hand-off reader" as SPIKE <<app>>
+component "starship\na budget, and 11 ms for the module" as STAR <<cloud>>
+component "what was built\nthe specs each wave wrote" as BUILT <<host>>
+
+C1 ARROW_MAIN BUILT : pty-ownership
+C2 ARROW_MAIN BUILT : teardown
+C3 ARROW_MAIN BUILT : teardown
+SPIKE ARROW_MAIN BUILT : tui-stack
+STAR ARROW_OPTIONAL BUILT : result-store · prompt-kit
+
+note bottom of C1
+  **The first key went to a dead reader.** A
+  second reader of the terminal got 95 of 200
+  keys after Run returned, and the question
+  accepted y then Enter 0 times in 12.
+end note
+
+note bottom of C2
+  **A line printed when a step ended.** Seven
+  steps could each wait three minutes, four
+  calls had no deadline, and nothing drew
+  while any of them ran.
+end note
+
+note bottom of C3
+  **Ctrl+C ended proveo on the spot.** No
+  handler existed, the terminal was back in
+  cooked mode, and no deferred call ran: no
+  carry, no state save, no removal.
+end note
+
+note bottom of SPIKE
+  **The gate passed before the port began.** A
+  Program on a copy of the hand-off reader
+  opened no terminal of its own and took none
+  of 20 withheld keys.
+end note
+
+note bottom of STAR
+  **A prompt has a budget.** starship allows a
+  command 500 ms. The module costs 11 ms and
+  ""sbx ls"" up to 483, so the segment reads a
+  stored count and never calls sbx.
+end note
+@enduml

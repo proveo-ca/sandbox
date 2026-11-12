@@ -49,6 +49,9 @@ func openCodeImportSource(home, name string) string {
 	return ""
 }
 
+// errEngineCreate marks a failed `sbx create` of an OpenCode engine.
+var errEngineCreate = errors.New("create OpenCode engine")
+
 var createOpenCodeEngine = func(cfg sbx.RunConfig) error {
 	cmd := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
 	cmd.Env = sbx.CreateEnv(os.Environ(), cfg)
@@ -60,16 +63,16 @@ var createOpenCodeEngine = func(cfg sbx.RunConfig) error {
 }
 
 // ensureOpenCodeEngine reattaches to engine cfg.Name; a new engine is created and imports one
-// host database first. created reports a new engine.
-func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, created bool, err error) {
+// host database first. created reports a new engine; history is its sbx-block fact.
+func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, created bool, history ui.Fact, err error) {
 	if sbx.Exists(cfg.Name) {
-		return sbx.Reattach(cfg), false, nil
+		return sbx.Reattach(cfg), false, ui.Fact{}, nil
 	}
 	if !slices.Contains(cfg.Env, sbx.OpenCodeHistoryGateEnv) {
 		cfg.Env = append(cfg.Env, sbx.OpenCodeHistoryGateEnv)
 	}
 	if err := createOpenCodeEngine(cfg); err != nil {
-		return cfg, false, fmt.Errorf("create OpenCode engine %s: %w", cfg.Name, err)
+		return cfg, false, ui.Fact{}, fmt.Errorf("%w %s: %w", errEngineCreate, cfg.Name, err)
 	}
 	src := openCodeImportSource(in.HomeRoot, cfg.Name)
 	var size int64
@@ -90,19 +93,36 @@ func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, cr
 	if err != nil {
 		_, _ = SbxRun(sbx.RemoveArgs(cfg.Name)...)
 		_ = os.Remove(receiptPath(cfg.Name))
-		return cfg, false, fmt.Errorf("OpenCode history preparation for %s failed: %w — the new engine was removed; source history stays; the next run retries", cfg.Name, err)
+		return cfg, false, ui.Fact{}, fmt.Errorf("OpenCode history preparation for %s failed: %w — the new engine was removed; source history stays; the next run retries", cfg.Name, err)
 	}
-	if src == "" {
-		ui.Appf("OpenCode: new engine %s starts with empty history", cfg.Name)
-		return sbx.Reattach(cfg), true, nil
-	}
-	if carried := openCodeCarry(in.HomeRoot, cfg.Name); src == carried {
+	history = ui.Fact{Role: ui.RoleApp, Key: "history", Value: "empty in new engine " + cfg.Name}
+	carried := openCodeCarry(in.HomeRoot, cfg.Name)
+	switch src {
+	case "":
+	case carried:
 		_ = os.Remove(carried)
-		ui.Appf("OpenCode: carried history (%s) into new engine %s", byteSize(size), cfg.Name)
-	} else {
-		ui.Appf("OpenCode: imported %s (%s) into new engine %s once; the host copy stays unchanged", src, byteSize(size), cfg.Name)
+		history.Value = fmt.Sprintf("carried history (%s) into new engine %s", byteSize(size), cfg.Name)
+	default:
+		history.Value = fmt.Sprintf("imported %s (%s) into new engine %s", ui.Tilde(src), byteSize(size), cfg.Name)
+		history.Detail = []string{"the host copy stays unchanged"}
 	}
-	return sbx.Reattach(cfg), true, nil
+	return sbx.Reattach(cfg), true, history, nil
+}
+
+// openEngine is ensureOpenCodeEngine for Run. On a failure it prints the sbx block's facts, then,
+// after a failed create, the line for an engine sbx still lists.
+func openEngine(in Input, cfg sbx.RunConfig, facts []ui.Fact) (launch sbx.RunConfig, created bool, history ui.Fact, err error) {
+	if launch, created, history, err = ensureOpenCodeEngine(in, cfg); err == nil {
+		return launch, created, history, nil
+	}
+	ui.Facts(facts...)
+	if !errors.Is(err, errEngineCreate) {
+		return launch, created, history, err
+	}
+	if left, ok := leftByCreate(cfg.Name); ok {
+		left.print()
+	}
+	return launch, created, history, err
 }
 
 // importOpenCodeHistory streams src and its -wal/-journal into engine name over `sbx exec -i` and
@@ -142,20 +162,30 @@ func importOpenCodeHistory(name, src string) (int64, error) {
 	return 0, fmt.Errorf("import: %w: %s", runErr, strings.TrimSpace(out.String()))
 }
 
-// carryOpenCodeHistory streams engine name's database into its carry file under home; an
-// engine without a database carries nothing.
+// carryOpenCodeHistory streams engine name's database into its carry file under home and says where it
+// went; an engine without a database carries nothing.
 func carryOpenCodeHistory(home, name string) error {
-	if home == "" {
-		return fmt.Errorf("no proveo home to carry it into")
+	dest, size, err := exportOpenCodeHistory(home, name)
+	if err == nil && dest != "" {
+		ui.Storef("OpenCode: carried %s's history (%s) to %s for the engine that replaces it", name, byteSize(size), ui.Tilde(dest))
 	}
-	dest := openCodeCarry(home, name)
+	return err
+}
+
+// exportOpenCodeHistory streams engine name's database into its carry file under home and returns
+// that file and its size; dest is "" for an engine without a database.
+func exportOpenCodeHistory(home, name string) (dest string, size int64, err error) {
+	if home == "" {
+		return "", 0, fmt.Errorf("no proveo home to carry it into")
+	}
+	dest = openCodeCarry(home, name)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-		return err
+		return "", 0, err
 	}
 	part := dest + ".partial"
 	f, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return "", 0, err
 	}
 	defer func() { _ = os.Remove(part) }()
 	cmd := exec.Command(sbx.Binary, sbx.OpenCodeExportArgs(name)...)
@@ -165,28 +195,27 @@ func carryOpenCodeHistory(home, name string) error {
 	closeErr := f.Close()
 	switch {
 	case runErr != nil && exitCodeOf(runErr) == sbx.OpenCodeExportNone:
-		return nil
+		return "", 0, nil
 	case runErr != nil:
-		return fmt.Errorf("export: %w: %s", runErr, strings.TrimSpace(errb.String()))
+		return "", 0, fmt.Errorf("export: %w: %s", runErr, strings.TrimSpace(errb.String()))
 	case closeErr != nil:
-		return closeErr
+		return "", 0, closeErr
 	}
 	header := make([]byte, len(sbx.OpenCodeDatabaseHeader))
 	r, err := os.Open(part)
 	if err != nil {
-		return err
+		return "", 0, err
 	}
 	_, readErr := io.ReadFull(r, header)
 	info, statErr := r.Stat()
 	_ = r.Close()
 	if readErr != nil || string(header) != sbx.OpenCodeDatabaseHeader || statErr != nil {
-		return fmt.Errorf("export produced no SQLite database")
+		return "", 0, fmt.Errorf("export produced no SQLite database")
 	}
 	if err := os.Rename(part, dest); err != nil {
-		return err
+		return "", 0, err
 	}
-	ui.Storef("OpenCode: carried %s's history (%s) to %s for the engine that replaces it", name, byteSize(info.Size()), dest)
-	return nil
+	return dest, info.Size(), nil
 }
 
 // byteSize renders n bytes for an operator line.

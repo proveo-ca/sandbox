@@ -123,7 +123,7 @@ func TestEnsureContextTagReportsOllamasRefusal(t *testing.T) {
 func TestTheFitCheckCountsTheHarnessContext(t *testing.T) {
 	fakeContextOllama(t, http.StatusOK, `{"status":"success"}`)
 	stubPool(t, 7740.0/1024, poolVRAM, true)
-	err := EnsureHostOllama("qwen3.8:latest", 65536, noEnv, nil)
+	_, err := EnsureHostOllama("qwen3.8:latest", 65536, noEnv, nil)
 	var nofit *NoFitError
 	if !errors.As(err, &nofit) {
 		t.Fatalf("want a NoFitError, got %v", err)

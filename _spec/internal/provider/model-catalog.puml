@@ -7,15 +7,19 @@
 ' warning that a saved config names a model that no longer exists? Until that is
 ' answered this describes machinery with no reader, which is exactly the state
 ' this repo calls a dead row elsewhere.
-' 2026-10-17 (N10, MEASURED): not quite no reader — warnUnknownModel →
-' CheckModel and posture.RolesLine → ModelProvider still read models.go. The
+' 2026-10-17 (N10, MEASURED): not quite no reader — the unknown-model check
+' → CheckModel and posture.RolesLine → ModelProvider still read models.go. The
 ' plan now holds only Q2 and Q4; the decision lives in
 ' _spec/internal/entrypoint/model-alias-bridges.puml.
+' The check today (output-readability R1, 2026-11-11): run.resolveCredentials
+' → unknownModels → unknownModel (internal/run/helpers.go) → CheckModel; each
+' unknown id is a ⚠ item of the credentials block, its reason in the run log.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: the planned model table — one canonical id, three harness dialects, three roles
 ' covers: internal/provider/models.go, internal/provider/models_test.go
 ' covers: internal/provider/roles.go, internal/provider/roles_test.go
+' covers: internal/run/helpers.go (unknownModel, the reader of CheckModel)
 ' tier 3 of resolution — planFallback, entitlement-safety, the `-free` heuristic
 ' and scripts/rank-plan-fallbacks.py — is specified in
 ' _spec/internal/credentials/credential-decisions.puml, not duplicated here

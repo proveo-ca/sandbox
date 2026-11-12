@@ -24,8 +24,22 @@ skinparam packageStyle rectangle
 '   apps/cli/public/cli/install.sh, uninstall.sh  bootstrap/remove proveo
 '                                                 before it exists; guarded by
 '                                                 installer_bash_test.go
-'   scripts/githooks/post-commit                  git needs a hook FILE; POSIX
-'                                                 sh that execs proveo-dev
+' A stale entry fails too. The tracked post-commit shim left the list on
+' 2026-11-12: the hook is mise's generated, untracked one
+' (_spec/_devops/git-hooks.puml).
+' TestMiseTasksRunNoShellScripts (2026-11-12) holds every mise.toml run string
+' and skip_if to plain argv. mise 2026.10.17 runs each under `sh -o errexit
+' -c` (MEASURED), so the rule bans the shell logic, not the hop. It is an
+' allowlist: once Tera blocks and '…' argv words are stripped, a run string
+' holds letters, digits, space and -_./=:,@+%^, with $ only at a word's end.
+' Every {{ … }} ends in `| quote`, so a Tera value lands as one argv word.
+' No non-ASCII, no leading VAR=, and the first word is no bash keyword or
+' builtin (compgen -k -b), no shell and no env. TestShellLogicScanFlagsHandRolledShell
+' pins the scan on both sides.
+' The scan reads [tasks.<name>] tables alone, so it refuses the forms it
+' cannot read: a [tasks] shorthand, a top-level tasks. key, a task sub-table
+' or array of tables, and a task key outside its list, such as run_windows,
+' file or shell (TestShellScanReadsEveryTaskShape).
 ' Trees whose shell runs in an image (bash 5) or is an agent's fixture are
 ' out of scope: defs/, packages/lib/, e2e/testdata/, e2e/samples/.
 ' Host code is Go; macOS /bin/bash 3.2 is on no host path.

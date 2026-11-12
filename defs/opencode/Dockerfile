@@ -47,7 +47,9 @@ RUN --mount=type=cache,id=proveo-opencode-npm,target=/root/.npm,sharing=locked \
       || { echo "OPENCODE_VERSION build-arg is required — 'mise run build opencode' resolves it" >&2; exit 1; } \
     && npm install -g "@opencode/cli@${OPENCODE_VERSION}" \
     && test "$(opencode --version)" = "opencode v${OPENCODE_VERSION}"
+# SPEC: _spec/packages/lib/instruction-injection.puml
 RUN test "${OPENCODE_VERSION%%.*}" = 2 \
+    && printf '%s\n' 2.0.30 "${OPENCODE_VERSION}" | sort -V -C \
     && install -d /usr/local/lib/proveo \
     && printf '%s\n' "$OPENCODE_VERSION" > /usr/local/lib/proveo/opencode.version \
     && command -v opencode > /usr/local/lib/proveo/opencode.native
@@ -61,6 +63,8 @@ RUN mkdir -p /workspace \
 COPY defs/opencode/defaults/ /opt/opencode/defaults/
 COPY defs/subagents/ /opt/proveo/subagents/
 COPY defs/opencode/sample_opencode.json /opt/opencode/sample_opencode.json
+# SPEC: _spec/packages/lib/instruction-injection.puml
+COPY defs/opencode/managed/opencode.json /etc/opencode/opencode.json
 
 COPY AGENTS.md /opt/proveo/AGENTS.md
 COPY packages/lib/entrypoint-lib.sh /entrypoint-lib.sh

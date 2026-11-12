@@ -26,7 +26,7 @@ func autoLocalModel(rs *Spec, p *Params, getenv func(string) string) string {
 	if len(fit) == 0 {
 		return ""
 	}
-	ui.Hostf("local model: no provider key — %s on the host's Ollama, the best fit for this host's GPU (%s=0 turns this off)",
+	ui.Logf("local model: no provider key — %s on the host's Ollama, the best fit for this host's GPU (%s=0 turns this off)",
 		fit[0], sbx.EnvLocalModelAuto)
 	return fit[0]
 }

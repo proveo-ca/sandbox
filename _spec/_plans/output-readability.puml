@@ -1,0 +1,1040 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Output readability — sbx's principles in proveo's own idiom, across every command
+' purpose: the delivery plan for making proveo's stream read like sbx's, without copying sbx's look
+'   the vocabulary it amends ....... _spec/internal/ui/output-vocabulary.puml
+'   the design language ............ _spec/_conventions/tui-design-language.puml
+'   the step lines ................. _spec/internal/ui/step-lines.puml
+'   the design and its critique .... scratchpad of session e2da2921 (2026-11-11), summarised here
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS MEASURED (2026-11-11) ─────────────────────────────────────────
+' One `proveo run claudecode` on a linked-worktree monorepo put 58 proveo rows
+' on screen before the agent started; the longest was 235 columns. Workspace
+' facts appeared in five places, and sbx's own create block then listed the
+' mounts again. Sections were named by phase ("execution", "starting"), so
+' "interface" printed between step 2/5 and step 4/5. Every fact carried a ●
+' and most lines carried their own reason in parentheses.
+' sbx's create block, in the same terminal, read better: sections named by
+' subject, one item per line with a short result after " — ", aligned
+' key/value blocks, detail dim on the next line, home-relative paths, and one
+' closing outcome line.
+'
+' ── WHAT THE OPERATOR DECIDED (2026-11-11) ─────────────────────────────────
+'   "adopt the principles, but don't copy the design verbatim"
+'   scope ........ every command (run, init, adopt, attach/schedule, clean,
+'                  ls/projects, rm, setup, uninstall, update)
+'   sbx overlap .. proveo says only what sbx cannot: what sbx's create block
+'                  prints (mounts, kit, image, CPU, memory, port publishing)
+'                  leaves proveo's screen and stays in the run log; a
+'                  re-attach, which has no sbx block, prints it. The image
+'                  was a wrong premise; see decision D below
+'   IDE attach ... one row on a live run; the JetBrains, Toolbox and VS Code
+'                  text goes to the run log; a kept sandbox still prints all
+'   fact rows .... keep the ● role dots and colours; align "key: value" in
+'                  one column per block; detail dim under the value
+' NOT CHOSEN: sbx's Title-case "Key:" column (the operator: not verbatim);
+' capturing sbx's block (a hidden sbx prompt would hang); keeping both voices.
+' The maintainer tooling behind mise tasks (since 2026-11-12 go test gates and
+' two internal/ mains) is out of scope unless the operator asks.
+'
+' ── THE RULES (sbx's principle → proveo's rule) ────────────────────────────
+'   P1 subject  A heading names the subject its lines describe, in one
+'               lowercase word. sbx's own block runs under "sbx".
+'   P2 item     A state is one line: mark, item, " — ", a short result.
+'   P3 facts    Facts about one subject print as ONE ui.Facts block: role
+'               dot, "key:", value; values start in one column per block;
+'               a list value stacks under the value column.
+'   P4 detail   Secondary detail goes on its own dim line, under the value
+'               (a fact) or two columns past the text (an item). Never a
+'               parenthetical sentence, never a second " — " clause.
+'   P5 paths    Host paths on screen go through ui.Tilde. Guest paths,
+'               every --print line and the log-only blocks stay absolute.
+'               Mode flags trail in parentheses: (rw), (ro), (copy).
+'   P6 what     A screen line says what a thing is or what happened. The
+'               why goes to _spec, the how-to-change to the flag's help,
+'               maintainer commands to the run log.
+'   P7 outcome  A block ends on a ✓/⚠/× line only when it reaches a verdict
+'               its facts do not already state: workspace ends on ✓ private
+'               clone or ✓ mounted checkout; credentials ends on its ⚠/×
+'               when one exists; run and egress stay facts only. Follow-ups
+'               go dim under that line. (Amended 2026-11-11, decision A; it
+'               read "a block ends on its outcome line".)
+'   P8 marks    ✓ done · ⚠ attention · × failed · ● a role-coloured fact or a
+'               running step (the operator kept the dots on facts).
+'   P9 once     Each fact is said once per run, on screen or in sbx's block;
+'               the run log keeps the full record. sbx's block names only
+'               the kit-built image tag, so proveo's image is proveo's to
+'               say (decision D).
+'
+' ── THE OPERATOR'S DECISIONS ON R1'S OPEN FORKS (2026-11-11) ──────────────
+'   A result lines  A block ends on a ✓/⚠/× line only for a verdict its
+'                   facts do not state (P7 above). NOT CHOSEN: an outcome
+'                   line on every block; a credentials ✓ line in place of
+'                   the login fact.
+'   B host add-ons  Android emulator, host Chrome over CDP, Hermes Desktop:
+'                   the "<add-on> — starting" live line leaves the screen
+'                   once the add-on is up; each add-on is then ONE aligned
+'                   fact in the interface block ("android: emulator-5554
+'                   (AVD Pixel_9)", "chrome: …", "desktop: …"); progress
+'                   lines and the Desktop install plan go to the run log;
+'                   warnings stay ⚠ interface items. NOT CHOSEN: an egress
+'                   fact; a new "host" heading.
+'   C log paths     The run log's header records "home: <absolute $HOME>"
+'                   once, so each teed "~/" resolves; rows stay as drawn.
+'                   NOT CHOSEN: "~/" unexplained; a tee that writes
+'                   absolute paths.
+'   D image row     MEASURED (R1 round-2 review, sbx v0.50.0, a sandbox made
+'                   for it): sbx's SANDBOX block reads "Image:
+'                   sbx-kit-src:proveo-claudecode-0148841a44ae", the tag its
+'                   kit build makes, and never names proveo's image. So a
+'                   create run's sbx block prints ONE fact right before "●
+'                   sbx create": "image: proveo/claudecode-browser:latest
+'                   (published)" or "… (local build)" (posture.Image: the
+'                   :local tag is the local build; since R2 carry-over d,
+'                   sbx.ImageSource.Label: an image the host engine records
+'                   building is a local build, and the run log's posture
+'                   row reads the same label). A re-attach keeps its
+'                   image fact from the receipt. NOT CHOSEN: the image only
+'                   when non-default; the image in the run log only.
+'
+' ── THE OPERATOR'S DECISIONS ON R2 (2026-11-11) ───────────────────────────
+' The design measured six real endings (clone, commits, push, crash, Ctrl+C,
+' a failed removal); its critique found 15 faults. The operator chose:
+'   F1 headings   "results" (how the agent ended, what came home, warnings,
+'                 the closing line) on every run; "ide" ONLY when the
+'                 sandbox stays, so a kept run ends on its IDE block.
+'                 Nothing redraws "results" after "ide". NOT CHOSEN: the
+'                 IDE facts as a second block under results (two subjects
+'                 under one heading); "results" + "sandbox" on every run.
+'   F2 home       what came home is ONE Facts block printed when the carry
+'                 ends; ⚠ items follow it (settled by P3 and A). NOT
+'                 CHOSEN: one ✓ per result; today's ● lines reworded.
+'   F3 exit ×     proveo prints no × when sbx printed its own error line;
+'                 × only when sbx said nothing, and it names `sbx run`,
+'                 never the agent; an operator-chosen removal prints none
+'                 (settled by P9 and the sbx overlap rule). NOT CHOSEN: ×
+'                 as the last line (said 3 times); × first on every run.
+'   F4 records    the egress-record and memory-log paths go to the run log;
+'                 the OOM ⚠ keeps its path as a dim line. NOT CHOSEN: one
+'                 "records" fact; today's two rows with ~ paths.
+'   F5 log path   no log path at the end of a run (settled by P9: the run
+'                 block names it). NOT CHOSEN: a dim log line under every
+'                 kept ⚠; a "log:" fact closing every run.
+'   F6 lift       a failed output lift KEEPS the sandbox ("kept: the output
+'                 is only in it"); the launch receipt records OutputDir, so
+'                 `proveo rm` lifts it. NOT CHOSEN: the tar recipe dim and
+'                 the sandbox kept; removal as before, the output lost.
+'   KEPT FIX      `proveo rm --stop` runs `sbx stop`, then carries and
+'                 removes. The kept ⚠'s one dim fix names --stop while the
+'                 sandbox runs, plain `proveo rm` once it is stopped;
+'                 `proveo rm` without --stop refuses a running sandbox and
+'                 names --stop. Nothing stops a sandbox implicitly. NOT
+'                 CHOSEN: "`sbx stop`, then `proveo rm`" as two steps;
+'                 teardown stopping every kept sandbox.
+'   AGENT TAIL    the agent's last output goes to the run log on every
+'                 run; its last 5 lines past sbx's own error line
+'                 print dim under the kept ⚠ only when the agent drew on
+'                 the alternate screen (?1049h). NOT CHOSEN: the log
+'                 alone; today's 17-row block on every failed run.
+'   KEPT IDE      "a kept sandbox still prints all": ONE Facts block under
+'                 "ide" (ssh, jetbrains, toolbox, vs code, project), with
+'                 DISPOSABLE CLONE, the carry-fetch recipe and the worktree
+'                 note dim under project. NOT CHOSEN: the design's trim to
+'                 the log; ssh and project only.
+'   STOP MARK     how the agent stopped is a ● host fact, first under
+'                 results ("● claudecode — stopped by SIGTERM"); "ending as
+'                 on a normal exit" goes to the log; a clean or scheduled
+'                 run stays grey. NOT CHOSEN: a ⚠ item; no screen line.
+'   AGENTS.md     OUT OF SCOPE (critique item 15): the branches fact prints
+'                 what the code measures, the seeded AGENTS.md snapshot
+'                 included. NOT CHOSEN: an info/exclude fix in R2; a
+'                 "only proveo's snapshot" row.
+' Settled by the rules, recorded: the review and adopt commands go to the
+' run log (E); "Ctrl+C again leaves now" stays on screen, an exception to E
+' recorded here: it answers the keypress with what the next one does; the
+' kept line of a failed run keeps the words "kept for diagnosis".
+'
+' ── THE OPERATOR'S DECISIONS ON R3 (2026-11-11) ───────────────────────────
+' The design measured eleven init paths through the stubbed tmux harness
+' (BEFORE: 26 rows and 8 headings on the main path, 2 drawn twice, 9 rows that
+' said again what another row said, 1 false); its critique found 15 faults.
+' The operator chose, or the rules settled:
+'   F1 numbering  (rules) lines that stay drop "step n/N": a hand line reads
+'                 "<program> — <what>" ("sbx login — signing in to Docker");
+'                 live frames keep "step n/N · name · 3s"; git, GitHub and the
+'                 prompt kit print no start line (Steps.Silent); verify leaves
+'                 no plain line (Steps.Quiet). NOT CHOSEN: "step n/N" on
+'                 every line that stays (2/4 and 3/4 with gaps); numbering only
+'                 the lines that stay (the setup page's count would differ).
+'   F2 how-tos    (operator) what leaves init's screen goes to `proveo init
+'                 --help`, the flag help and _spec; init writes NO log file. A
+'                 dynamic how-to (the prompt kit's rc, the sign-in command,
+'                 "source <rc>") stays as the dim line under the ⚠ it fixes
+'                 when the HOW-TO rule allows, or goes; never to a no-op Logf.
+'                 NOT CHOSEN: an init log (a row per init, keep=20 shared);
+'                 dim how-tos under every "later" row.
+'   F3 verdict    (operator) the readiness verdict prints LAST, in results:
+'                 "later", "not run", the ⚠/× check items with sbx's hint dim,
+'                 then ONE closing line, "✓ host — ready to run" or "× host —
+'                 not ready to run". Step order unchanged: a run blocker still
+'                 stops the credentials and operator pages. NOT CHOSEN: the
+'                 verdict under "sbx" with verify moved ahead of git (a blocker
+'                 would no longer stop the later pages); a "host" heading with
+'                 no closing verdict.
+'   UNREACHED     (operator) a separate results fact "not run" stacks the
+'                 chosen steps and pages a failure or a run blocker kept from
+'                 running; "later" lists only what was answered later. NOT
+'                 CHOSEN: joining them into "later"; no list on a failure.
+'   HAND-OFF FAILURE (rules: P9 + R2's F3) a program init hands the terminal to
+'                 that fails (sbx login, the release installer, the distro
+'                 package, gh auth login) keeps its own error; init ends on "⚠
+'                 init — stopped at <row>", exit 1, Reported. No "× <program> —
+'                 <error>". NOT CHOSEN: tee its stderr (may change how sbx and
+'                 gh see a terminal); always ×.
+'   NO TTY        (rules) a question init could not ask (no terminal, not --yes)
+'                 degrades without the operator acting: git identity,
+'                 credentials, GitHub access and the operator name each keep
+'                 ONE dim how-to. --yes is an operator act: its how-tos go to
+'                 flag help. NOT CHOSEN: every how-to to flag help; only git's.
+'   --yes GIT     (rules, a bug) --yes asks for nothing: hostGitStage reads the
+'                 terminal through !d.NoPrompt. NOT CHOSEN: a separate commit;
+'                 leaving it.
+'   QUIT          one closing line: "⚠ init — quit at page n/N", with dim "host
+'                 ready to run" when verify reached it (critique a8). NOT
+'                 CHOSEN: two closing lines; dropping the verdict.
+'   REVISIT       (rules: each subject once, critique 7; the R3 review) a
+'                 revisit prints only what it changed: its hand lines, a fact
+'                 or item no visit printed under that subject. "sbx", "git"
+'                 or "prompt" redraws only above those lines, and a subject
+'                 with nothing new withdraws its heading (ui.WithdrawSection).
+'                 NOT CHOSEN: the whole block again (host twice, the shipped
+'                 R3 draft); never redrawing (a hand line under git).
+'   Ctrl+C        (the Executor's call, the task's "decide and pin") during a
+'                 hand-off the program gets it; init stops after it like bash
+'                 (wait-and-cooperative-exit), prints its blocks and "⚠ init —
+'                 stopped at <row>", dim "Ctrl+C ended it", then re-raises
+'                 SIGINT and dies of it (status 130), so a calling shell such
+'                 as install.sh's stops too. NOT CHOSEN: a handler over the
+'                 whole apply (a print from a signal goroutine races the step
+'                 writing the same blocks); exit 130 alone (the second R3
+'                 review: a caller reads it as handled and goes on).
+'
+' ── THE OPERATOR'S DECISIONS ON R4 (2026-11-11) ───────────────────────────
+' Three designs measured the other commands (lists: ls, projects, version,
+' schedule; kept: rm, adopt, clean, attach; upkeep: setup, update,
+' uninstall); three critiques found their faults. The operator answered
+' twelve forks through the interactive prompt; the rules settled one:
+'   HEADINGS      (operator) no heading on any one-subject command: rm (list
+'                 and <name>), adopt, attach, clean, ls, projects, the
+'                 schedule listing, setup, update, uninstall. run, init and
+'                 `proveo run` with no target keep theirs. A Section constant
+'                 nothing names leaves ui.go. NOT CHOSEN: a heading only over
+'                 a Facts block (upkeep F3 a); one heading per command named
+'                 after it (F3 b).
+'   FAILURE       (rules, R3's precedent) a command prints its own × item
+'                 (sandbox.Item{Fail, Text, Detail}) through PrintBlock and
+'                 returns backend.Reported: exit 1, main prints nothing. NOT
+'                 CHOSEN: an itemErr type main prints.
+'   LIST SHAPE    (operator, "match run's end") `proveo rm` lists each kept
+'                 sandbox as a P2 item "<name> — <why>", its age dim; `proveo
+'                 adopt` one stacked "to adopt:" fact, "(N new commit[s])" as
+'                 R2's branches fact; `proveo attach` (no terminal) Facts rows
+'                 keyed by task with the running value `proveo schedule`
+'                 prints. Empty: "● no sandbox kept", "● to adopt: none", "●
+'                 nothing running" (stderr). NOT CHOSEN: one stacked fact per
+'                 list ("kept:", "tasks:"); today's rows trimmed.
+'   RM STRANDED   (operator, "keep rm; retry line only") rm still refuses to
+'                 remove while work is only in the sandbox; a failed rescue
+'                 ends on "× <name> — not removed", dim "`proveo rm <name>`
+'                 tries again", under the carried block's own ⚠ items. No
+'                 sbx command, no bundle recipe on screen. NOT CHOSEN: `sbx
+'                 rm --force` dim (it deletes the stranded work); the rescue
+'                 recipe dim.
+'   CLEAN HOMES   (operator, "output only; record it") no behaviour change;
+'                 clean-lifecycle.puml records as KNOWN that --homes removes
+'                 ~/.proveo while running sandboxes mount parts of it, with no
+'                 liveness gate (--tools has one). NOT CHOSEN: a gate now.
+'   ATTACH NESTED (operator, "item when nested") `attach -r` inside tmux
+'                 prints one host item before tmux takes the terminal: "●
+'                 tmux — nested read-only client", dim "the prefix twice, then
+'                 d, detaches". An exception to the HOW-TO rule, beside R2's
+'                 "Ctrl+C again leaves now": it names the keys that leave
+'                 while help is out of reach. NOT CHOSEN: flag help only; a
+'                 hand line on every attach.
+'   LATER RUNS    (operator, "stack each run", P3 as written) the soonest run
+'                 is the job's value; each later run stacks under it with its
+'                 "in Nd Nh"; config and last sit two columns past the last
+'                 stacked value. NOT CHOSEN: one dim "then …" line.
+'   NO SCHEDULE   (operator, "both exit 0") the listing writes "no <~path>"
+'                 to stderr and exits 0; the tick finds nothing due, logs
+'                 nothing, exits 0, so a tick ⚠ always means a real failure.
+'                 NOT CHOSEN: the listing 0 and the tick 1; both 1 (HEAD).
+'   TICK HOME     (operator, "no false ✓; record fix") the listing compares
+'                 PROVEO_HOME with the home the installed plist or unit
+'                 implies ($HOME/.proveo: it sets none) and prints "⚠ tick —
+'                 reads ~/.proveo/schedule.yml, not this home's", no how-to,
+'                 in place of ✓; the install fix (carry PROVEO_HOME) is KNOWN
+'                 in schedule.puml. NOT CHOSEN: the fix in R4; ✓ as at HEAD.
+'   INSTALLER     (operator, "fix install.sh + setup") install.sh calls
+'                 "$BIN_DIR/proveo" setup with no PATH prefix; setup's rc
+'                 check matches this bin dir, not a marker alone (FOUND 9);
+'                 R3's deferred installer lines ride along; installtest
+'                 asserts the rc line once after two installs. NOT CHOSEN:
+'                 change setup alone; leave it to the installer's owner.
+'   UNINSTALL RECORD (operator, "by what left") one Facts block keyed root ·
+'                 path · prompt · font, each valued with where it was; a fact
+'                 only for a removal that succeeded; font as init prints it.
+'                 NOT CHOSEN: by file; today's scope reshaped.
+'   LEFTOVERS     (operator, "⚠ each, with its fix") from proveo's own records
+'                 only: "⚠ schedule tick — still registered" with the dim
+'                 command that removes it; "⚠ <name> — kept, its output only
+'                 inside" with none; the closing "⚠ proveo — uninstalled; N
+'                 left". NOT CHOSEN: saying nothing; asking sbx.
+'   CONSENT       (operator, "every scope, one line") "› remove ~/.proveo, its
+'                 PATH lines and the prompt kit? [y/N]", each scope only when
+'                 present; the red Dangerf line goes (P9). NOT CHOSEN: the
+'                 root alone.
+' OUT OF SCOPE: Hermes Desktop's lines (they print inside `proveo run`), and
+' every behaviour change but INSTALLER, NO SCHEDULE and RM STRANDED's text:
+' every other exit status and argument rule stays HEAD's (the R4 review).
+'
+' ── TECHNICAL CALLS (the Executor's, from the design review) ──────────────
+'   One shared helper, ui.Facts, aligns by display width, wraps a value at
+'   its own column on the terminal only (the log copy stays unwrapped), and
+'   prints aligned plain text in plain mode.
+'   Lines that stay on screen drop "step n/N ·"; live frames and the run log
+'   keep the numbers.
+'   Each subject prints once, after the step that makes it true: the
+'   workspace block after the mount plan, the interface block after sbx
+'   create.
+'
+' ── WAVES ──────────────────────────────────────────────────────────────────
+'   R0  internal/ui: Fact, Facts, Detailf, Tilde, SectionSbx, the hanging
+'       wrap; output-vocabulary.puml; unit tests. No caller changes.
+'   R1  the start of `proveo run`, up to "● <agent> — starting"
+'       (internal/run, internal/backend/sandbox): sections by subject, fact
+'       blocks, the sbx overlap rule, the one-row IDE line, step lines.
+'   R2  the end of a run: results, teardown, kept sandboxes, adopt/review
+'       hints (teardown.go, results.go, pushed.go, sandbox.go's results),
+'       the "ide" heading for a kept sandbox, and R1's carry-overs (a)-(g).
+'   R3  `proveo init`: the apply stream, the result block, the verify step.
+'   R4  the other commands: adopt, attach and schedule, clean, ls and
+'       projects, rm, setup, uninstall, update, version.
+'   R5  stray arguments: every no-argument command refuses one with one ×.
+' Each wave: lint, both builds, the unit baseline, the named e2e tests whose
+' anchors it moves (macOS; linux/arm64 where they run), the specs it touches,
+' and this file's PROGRESS.
+'
+' ── E2E ANCHORS THAT MOVE (R1) ─────────────────────────────────────────────
+'   e2e/instrument_test.go:61 "run log: (\S+\.log)" — and it must expand "~/"
+'     (a failed read returns "" silently)
+'   e2e/browser_viewport_test.go:85 "browser viewport: (http://\S+)", now
+'     read from the run log; the screen row reads "browser: the agent's
+'     Chromium over CDP"
+'   e2e/project_env_test.go:25 "project .env: 1 value(s) seeded into"
+'   e2e/clone_output_test.go:69,72 and e2e/sbx_test.go:623 "backend: docker
+'     sandboxes (sbx)", "lifts it back here at teardown"
+'   e2e/ide_attach_test.go:76-82 the JetBrains, VS Code and "a local Open"
+'     strings, which move to the run log
+'   e2e/idle_test.go:69-89 the "agent: <target> " filter; its runIDPattern
+'     read the run ID in the log row as a sandbox name (sandboxNameIn now)
+'   e2e/sbx_egress_test.go:61 "allows every host" under --print
+'   e2e/stream_palette_test.go: whiteRun and the sbx-block boundary
+'   e2e/ports_publish_test.go:95,134 "→ sandbox :<port>" (found while moving
+'     the list above; the screen row reads "port <n>: <what it serves>", and
+'     the test reads the host port from the run log's "port <n>: http://…")
+'   e2e/opencode_engine_sbx_test.go:219,280,292 "re-attaching to <engine>,"
+'   e2e/credentials_test.go secretLineNamesAny (stale since sbx's OAuth slots
+'     kept claudecode's keys out of the "secret store first:" line)
+'   e2e/android_addon_test.go:65 "android: booting AVD" + "booted" (round 3,
+'     decision B): now read from the run log; the pane must hold the fact
+'     "android: emulator-<n> (AVD …" and not the boot progress
+'   e2e/host_adb_sbx_test.go hostadb.Ensure's new (Started, error) return
+'
+' ── E2E ANCHORS THAT MOVE (R2) ─────────────────────────────────────────────
+'   e2e/clone_output_test.go "deliverables lifted" → regexp
+'     `(?m)output:\s+\S*/reports$`: the results block's output fact
+'   e2e/clone_test.go ".env edits carried home" → "merged PROVEO_E2E_DOTENV"
+'   e2e/teardown_interrupt_test.go "kept (teardown stopped by SIGINT at remove
+'     sandbox)" → "<name> — kept: teardown stopped by SIGINT at remove sandbox"
+'     and the ide block's "ssh:       <name>.sbx"; "proveo rm <name>" leaves
+'     the screen (the operator's Ctrl+C caused the keep) and is read from the
+'     test's own PROVEO_HOME run log as "proveo rm --stop <name>"; the screen
+'     must hold no "teardown failed"; the running refusal must name --stop,
+'     and `proveo rm --stop <name>` itself removes the running sandbox (its
+'     output holds "sbx stop <name>"; the test no longer runs `sbx stop`)
+'   e2e/stream_palette_test.go TestStreamPaletteE2E: no bold proveo × after
+'     sbx's "error: agent exited with code 3" (F3); the bold-× check moved to
+'     internal/ui TestOnlyTheSeverityHeadKeepsTheTerminalColour ("fail item");
+'     runVolatile now removes the sandbox the failed run keeps
+'   e2e/stream_palette_test.go TestNoProveoExitLineWhenOnlyStdinIsRedirected
+'     (new, review): the same run with stdin from /dev/null prints no ×
+'   e2e/stream_palette_test.go TestWhiteRunSkipsSbxsOwnLines: the results()
+'     fixture is the new shape (an output fact, the kept ⚠ with its dim fix,
+'     the ide heading and two facts), still 0 white lines
+'   Checked unchanged: e2e/idle_test.go "kept for diagnosis"; e2e/seed_ready_
+'     test.go "retained engine "; e2e/opencode_engine_sbx_test.go "new engine
+'     <name>", "imported <path>", "carried history", "carried <engine>'s
+'     history"; e2e/teardown_steps_test.go step names; the live-line and
+'     post-exit dialog tests (the dialog title).
+'
+' ── E2E ANCHORS THAT MOVE (R3) ─────────────────────────────────────────────
+'   e2e/init_steps_test.go initStubSbx: a STUB_SBX_DIAGNOSE knob (the default
+'     payload unchanged), for a ready host and a run blocker
+'   :336 "--yes — nothing provisioned" → `(?m)^\s+credentials$` in the result
+'   :426-428 `step \d+/\d+ · sign in to Docker (sbx login)` and the wizard's →
+'     `(?m)^. sbx login — signing in to Docker$`, `(?m)^. sbx setup — running
+'     the first-run wizard$`, and no `step \d+/\d+` anywhere on screen
+'   :482-495 done:/later: … `proveo init`/next: → `(?m)^. later: GitHub$`, the
+'     stacked `git identity` and `credentials` rows, no `sign in`/`sbx setup`
+'     row, the last line "✓ host — ready to run", no "done:", "next:", "not
+'     ready to run" or "proveo init`", one results heading
+'   Checked unchanged: :402 "quit at page 4/4" (now "⚠ init — quit at page
+'     4/4"); :431 "· verify sbx (sbx diagnose)" absent; the checks page's
+'     strings; e2e/init_github_access_test.go "sandbox verification pending"
+'     (dim under "access: not chosen") and its form title
+'   e2e/init_test.go TestInitPrintChangesNothingOnThisHost: its strings stay;
+'     it runs under a temp HOME and a stub sbx now (not run here, by rule)
+'   New: TestInitOnAReadyHostClosesOnReady, TestInitARunBlockerClosesOnThe
+'     HostVerdict, TestInitAddsNoPathStepForAnSbxOutsideThePrefix (FOUND 1),
+'     TestInitYesNeverAsksForAGitIdentity (FOUND 3), TestInitYesInPlain
+'     OutputCarriesNoStepPlaces (the CDN installer's CI path),
+'     TestInitCtrlCInSbxsWizardEndsOnWhereItStopped, TestInitAFailedGh
+'     AuthLoginEndsOnWhereItStopped (the R3 review), and e2e/sbx_test.go
+'     TestALeakCleanupRemovesOnlyItsOwnTestsSandboxes (stub sbx)
+'   The second R3 review: TestInitCtrlCInSbxsWizardEndsOnWhereItStopped runs
+'     under installerWrapper (no INIT_INCOMPLETE, INIT_EXIT=130);
+'     TestInitYesInPlainOutputCarriesNoStepPlaces drops --skip-gh and
+'     --skip-git and reads headings sbx · git · credentials · operator ·
+'     results, once each, each over lines of its own
+'   cmd/proveo/init_apply_test.go:91 numbered lines → TestAHandedStepPrints
+'     ItsProgramAndNoPlace; :49-62 split by `hands` → TestEachStepShowsTheWay
+'     ItsKindDoes; init_preflight_test.go's count rows and done/later lines;
+'     init_tui_test.go TestDescribeDecisionsNamesEveryChoiceItMade deleted
+'
+' ── E2E ANCHORS THAT MOVE (R4) ─────────────────────────────────────────────
+'   e2e/schedule_test.go TestScheduleFailedRunIsListedAndRetried: the piped
+'     `schedule ls` still holds "proveo schedule retry <job>" (dim, no question
+'     can follow) and now `(?m)^error: <job> — failed ` and no "------ "
+'   Checked unchanged: :60 the tick's "started <job> for …" log line; `schedule
+'     run` and `retry` still exit 0 when they start the job
+'   SAFETY (first change): e2e/home_test.go clean_homes runs `proveo clean
+'     --homes` under a temp HOME and state root with docker and sbx stubbed
+'     (cleanOnlyHome); it ran against the operator's real ones
+'   kept: e2e/teardown_interrupt_test.go:213 "<name> is removed" → "<name> —
+'     removed" (plain "ok: <name> — removed"); :207 unchanged ("it is
+'     running" and the dim `proveo rm --stop <name>` fix); clean_homes now
+'     asserts the dry run's `home:` fact and "clean — nothing removed (dry
+'     run)", and the real run's "clean — 1 removed" with no "nothing to"
+'   upkeep: no e2e test runs setup, update or uninstall. internal/installtest
+'     (unit lane) asserts setup's rc block once after two real-binary installs,
+'     once for a bin dir already on PATH by hand, and the closing text's
+'     "source ~/<rc>"; apps/cli uninstall.sh:11 still
+'     finds `uninstall` in `proveo --help` (Short unchanged)
+'
+' ── PROGRESS ───────────────────────────────────────────────────────────────
+'   R0 ... done 2026-11-11: ui.Fact/Facts, Detailf, Tilde (schedule's
+'          tildeHome removed), the hanging wrap (wrapWriter.writeHang, multi
+'          forwards it to the terminal half), output-vocabulary.puml FACTS
+'          AND DETAIL. No caller prints a Facts block yet. SectionSbx moves
+'          to R1: the contract test needs a caller for every Section*.
+'   R1 ... done 2026-11-11, uncommitted, fixed after two reviews. Headings
+'          up to the agent's start, each drawn once in a run:
+'          run · credentials · egress · workspace · sbx · interface.
+'          run      the log row after the pages, the scope folded in (the
+'                   scope heading prints only in the numbered picker); a run
+'                   that fails before it still prints the log row, under
+'                   "run", before any held item (run.endEarly); the image
+'                   pull, before credentials; an sbx install or upgrade, the
+'                   one line before the log row ("sbx — installing" or "sbx —
+'                   upgrading", the command dim)
+'          credentials  ONE block (resolveCredentials → PrintBlock): login
+'                   (store role, "none found" or "persisted in the proveo
+'                   home"), "env token: <VAR> set, not injected", withheld;
+'                   then ⚠ refresh, gaps, role keys, unknown model ids
+'          egress   ONE block: sbx's baseline as a cloud-role "network" fact
+'                   and the local model, printed after the model is served;
+'                   the auto pick's reason and opt-out go to the run log
+'          workspace  sandbox.ReportWorkspace after Spec: checkout (worktree
+'                   only), .env (the clone's copy), output, links (file
+'                   targets sbx never binds are ⚠ items with no reason on
+'                   screen), ⚠ items with every home path as "~/" (TildeIn),
+'                   then the ✓ outcome; --print leads with "proveo home"
+'          sbx      Spec's notes, the live steps, the stale Hand when a stale
+'                   sandbox exists (retire lines unnumbered), then ONE Facts
+'                   block: a "secret" row per stored secret, the env-file
+'                   seed, proveo's image last; "● sbx create" and sbx's
+'                   block; a re-attach prints the secrets and the kept
+'                   sandbox's own record (image, kit dir, cpus, memory from
+'                   the receipt; mounts from sbx's row) as that block and
+'                   flags a workspace block it cannot vouch for
+'          interface  after sbx create, only when it has a row: what each
+'                   port serves (a stopped kept sandbox's host ports come
+'                   from its receipt), the browser row, one fact per host
+'                   add-on (chrome, android, desktop), the "android app"
+'                   rows, the ⚠ reach items, forgotten ports and apps, one
+'                   "ide" row
+'          start    "● <target> <version> — starting"
+'          Log-only: backend, variant, the local-build note, agent pin + mise
+'          hint, proveo home line, gh line, the create block's facts, the IDE
+'          block, port URLs and commands, the CDP how-to, the reasons the
+'          screen dropped, the host add-ons' progress, the Desktop install
+'          plan, the auto local model's reason, each Item.Log line, the
+'          home the "~/" rows resolve to. Lines that stay drop "step n/N"; the log keeps
+'          each place, under its heading (Steps.do draws it first).
+'          A failure before a block prints still prints its ⚠ items
+'          (run.reportUnhanded, sandbox.Run's deferred flush).
+'          FOUND: the gh line was false; proveo's WorkspaceBinds drops the
+'          bind (credential-boundary.puml, a bug to fix separately).
+'          FOUND (review): a symlink to a FILE was named in the links fact,
+'          but sbx binds directories only (mount-symlink-escape.puml).
+'          MEASURED (review, sbx v0.50.0, a sandbox made for it and removed):
+'          sbx's create block prints "✓ port 8080/tcp4 — published
+'          127.0.0.1:47123" (P9 holds; the browser row lost its ":9222"
+'          detail); a stopped sandbox lists no ports and gets the same host
+'          port back on `sbx run` (kit-lifecycle.puml).
+'          LOST: the measured run's log (proveo-1794413821-11931.log). keep=20
+'          pruned it while e2e runs wrote into ~/.proveo/logs. The trace ran
+'          against readability_0's BEFORE list instead; every fact lands on
+'          screen or in ui.Logf. A wave copies its measured log first.
+'          e2e: idle_test reads the sandbox name, not the run ID, from the
+'          screen (it failed at HEAD too). Passed after the review on macOS:
+'          clone_output, ide_attach, project_env, both android, browser
+'          viewport, ports publish, stream palette, idle (45s), the --print
+'          set. Skipped here: the OpenCode engine (no proveo/opencode image)
+'          and docker access (no harness credential env).
+'          RE-ATTACH, exercised by hand (a sandbox made for it, removed): a
+'          killed run left proveo-claudecode-<hash>; the next run printed
+'          image, kit, mounts under "sbx", then "● re-attach to <name> — left
+'          by an earlier run", "ide" alone under "interface". cpus and memory
+'          print only when proveo set them; sbx's own default leaves the
+'          receipt empty.
+'          DECIDED (the operator, 2026-11-11) AND BUILT IN ROUND 3: A, B, C and
+'          D above. A: P7 amended; the code already ended workspace on its ✓,
+'          credentials on its items (sandbox.PrintBlock), run and egress on
+'          facts. B: hostadb.Ensure → Started, hostcdp.Ensure → Opened,
+'          Deps.EnsureDesktop → (launch, installed, err); run.startAddon logs
+'          every report and, in plain output, its start line; Input and Spec
+'          carry InterfaceFacts. C: runlog.Open writes "home: <$HOME>".
+'          D: report.imageFact via posture.Image, last in the sbx block.
+'          ROUND 3 FIXES (the round-2 review): the auto local model's line
+'          went to the run log (one screen line: egress's fact); endEarly
+'          prints the log row under "run" before the held items, pinned
+'          through Do's own defers; the remembered port/app warnings stay
+'          after the form: MEASURED, the form draws on the alternate screen
+'          (dev-ports.puml); secrets, env seed and image are one Facts block;
+'          Item.Log carries the why and how-to (re-attach's plan note, the
+'          buildx knob, sbx secret set); "sbx — upgrading"; settings errors
+'          and the retire's lift line go through ui.TildeIn/Tilde (the lift
+'          line is teardown's too, so R2 inherits it); sbx reports no
+'          sandbox CPU or memory, so a re-attach prints them only when proveo
+'          set them (MEASURED, kit-lifecycle.puml); the stale spec text on
+'          the idle name and on unknownModel; the receipt comment's history
+'          clause; --print e2e runs under a t.TempDir() PROVEO_HOME
+'          (testing-strategy.puml; the idle test keeps the real one).
+'          KNOWN, NOT FIXED: the workspace ✓ prints before the stale step
+'          decides which sandbox runs (report.go ReportWorkspace); a ⚠ under
+'          "sbx" corrects it for a kept sandbox, as at HEAD. The OpenCode
+'          engine and docker-access e2e skip for a missing image or harness
+'          credential. The measured run's log stays LOST. An OpenCode engine
+'          created in the stale path prints its sbx facts after sbx's block
+'          (ensureOpenCodeEngine runs `sbx create` itself).
+'   R2 ... done 2026-11-11, uncommitted. The decisions above, built:
+'          sandbox.Block (report.go) gathers a subject's facts and items while
+'          its steps run and prints them once; teardown owns the results
+'          block, retire and `proveo rm` print theirs under "sbx"/"results".
+'          Item gained Ok and Fail. SectionIDE and ideFacts print a kept
+'          sandbox's attach facts as ONE block. Run declares "results" first,
+'          prints agentEnd (● stop, or a × only when sbx said nothing), and
+'          returns Reported for a printed failure. removeSandbox prints
+'          nothing; the closing line carries the error and the fix.
+'          CapturePolicyLog and the memory paths go to the run log; an OOM is
+'          a ⚠ item. The clone's parts write into the block: output, .env
+'          ("merged …", "nothing merged" + "ignored KEY"), branches (lead > 0
+'          refs; CloneSnapshotArgs prints the branch it committed on), _spec,
+'          pushed, transcript (looked up after the state save, before the
+'          block prints). A failed
+'          lift strands the sandbox; the receipt records OutputDir and
+'          keptInput reads it. `proveo rm --stop` (cmd/proveo/verbs.go,
+'          RemoveKept's stop). ptyproxy's Proxy.EnteredAltScreen gates the
+'          dim tail (agentio.Tail's own detector until the review).
+'          The first Ctrl+C's ceiling left its line (P4: the live frame and
+'          the start line carry it); SIGTERM in teardown reads "stopped by
+'          SIGTERM — leaving once <step> finishes".
+'          ui: wrapOne keeps a wrapped fact's aligned gap and breaks a long
+'          word at its own column (MEASURED: the kept ide block printed
+'          "vs code: code" and a bare "toolbox:" row); LogWriter.
+'          CARRY-OVERS: (a) the Ollama pull is host preparation: a live
+'          line, its lines in the run log, egress's fact gains "pulled this
+'          run · N GiB"; (b) EnsureDesktop runs in Do after the image pull,
+'          its question through ui.Default, install.sh behind a live line
+'          with its output in the run log; (c) Spec.Desktop carries the fact
+'          to reportUnhanded; (d) sbx.ImageSource.Label ("local build" for
+'          an image the host engine records building) for the image fact
+'          and the posture row; (e) GitHubTokenEnv returns credentials ⚠ items, the OpenCode
+'          engine's history is a "history" fact of the sbx block; (f) the
+'          credential prompt draws "credentials" above it; (g) to the run log:
+'          the re-attach's sbx rm line, Baseline's allow and check commands,
+'          the plan-token "sign in with", "read it from the clone", the keep
+'          answer's sbx rm sentence; on screen as a ⚠: "login — none found".
+'          MEASURED AFTER (real sandboxes, sbx v0.50.0, macOS, the binary
+'          built from this tree): clone with commits, output, .env and _spec
+'          (8 rows); clone with no change (6 rows: "main (1 new commit)" is
+'          the seeded AGENTS.md, item 15); mounted (2 rows); pushed (3 rows,
+'          the dialog left to its 15s, the fetch command in the log); a
+'          SIGKILLed agent (no proveo ×, kept for diagnosis, --stop fix, the
+'          ide block); a failed removal; Ctrl+C twice in the removal (no
+'          "teardown failed" row, no fix on screen, exit 130); plain mode
+'          (NO_COLOR: start lines, unmarked block, "ok: <name> — removed").
+'          `proveo rm` of the kept probes lifted the output from the receipt.
+'          e2e PASS on macOS: TestCloneModeLandsTheCloneAndLiftsTheOutputDir,
+'          TestCloneCarriesAGitignoredSymlinkedDotEnv,
+'          TestCtrlCInTeardownSaysOnceThenLeavesWith130, TestStreamPaletteE2E,
+'          TestWhiteRunSkipsSbxsOwnLines.
+'          KNOWN, NOT FIXED: a first Ctrl+C during the clone step prints its
+'          ⚠ above the facts that print after it; the retire path's carried
+'          facts are a second Facts block under "sbx" (two alignments under
+'          one heading); the fetch dialog ignored an "f"
+'          sent 1s after it drew (one try, [Unverified] why); a successful
+'          removal leaves its launch receipt (design FOUND 9); the snapshot
+'          commits the seeded AGENTS.md and carries the operator's identity
+'          (design FOUND 1, 2; item 15 out of scope).
+'          REVIEW FIXES (the R2 review's 13 findings, 2026-11-11):
+'          1 must-fix 7's third case, FIXED, no longer KNOWN: with stdout a
+'            terminal and stdin redirected, nothing fed the tail, so a ×
+'            repeated sbx's own line. sbx writes that line to stderr
+'            (MEASURED, e2e TestNoProveoExitLineWhenOnlyStdinIsRedirected:
+'            exit 3, no ×; without the tee, × and exit 1); agentio.Stdio now
+'            tees stderr on a terminal, stdout stays the terminal, and
+'            RunExitCode reads the agent's code there too. NOT CHOSEN: assume sbx
+'            spoke when the tail is blind (a silent sbx death then shows no
+'            verdict). The desktop hold never returned sbx's bare exit, so
+'            it never repeated one (exit-code.puml).
+'          2 run-spec.puml names the stages R2 left: no assembleEnv; the
+'            GitHub token inside resolveCredentials; ensureDesktop after
+'            preflightImage.
+'          3 the e2e removes the running kept sandbox with `proveo rm --stop`.
+'          4 a Ctrl+C that ends a FAILED run's teardown keeps the fix on
+'            screen: the agent's failure, not the operator, kept it (E).
+'          5 leave() asks sbx first: a sandbox gone after the stop closes on
+'            "⚠ <name> — not listed by sbx" (no ide block, no kept entry).
+'          6 a retire whose output lift fails keeps the stale sandbox and
+'            names `proveo rm [--stop]`, not `sbx rm --force` (F6 for
+'            retire; clone-workspace.puml). NOT CHOSEN: retire as at HEAD,
+'            the output lost.
+'          7 "cannot tell whether it holds a clone": the kept line names it.
+'          8 THE PLAIN AFTER in teardown.puml drawn as measured: the block
+'            sits between the clone's start lines and the later steps'.
+'          9 "pulled this run" sums every layer's total (Ollama's API doc:
+'            one event set per layer digest), not the largest.
+'          10 the alternate-screen fact moved to ptyproxy's screenModes,
+'            which already parsed ?1049/?1047/?47 (pty-ownership.puml);
+'            agentio's spec says the tail tracks no screen modes.
+'          11 CaptureMemoryEvidence's deleted reasons (why it exists; a
+'            restarted sandbox reads as a fresh boot) now live in
+'            minimum_requirements.puml.
+'          12 a failed OpenCode engine create prints leftByCreate's line
+'            after the sbx facts (openEngine; engine-local-history.puml).
+'          13 Input.RunLog deleted (nothing read it); IDEAttachLines lost
+'            its unused kept mode.
+'          SECOND REVIEW FIXES (10 verified findings, 2026-11-11):
+'          1 carry-over (d) read "no repo digest" as a local build; on the
+'            containerd store every image has one (MEASURED: RepoDigests =
+'            Id for a `docker build` and a pull alike), so the e2e's
+'            volatile-e2e tag and every :local build read "(published)".
+'            The label now reads Docker's image Identity record: any Build
+'            entry is a local build; an engine with no record falls back to
+'            the repo digest (kit-image-source.puml). NOT CHOSEN: the repo
+'            digest alone; config labels (a FROM inherits them).
+'          2 failedEnd looked the transcript up before the state save, the
+'            only step that copies ~/.claude/projects out of the sandbox's
+'            volume (state-sync.puml), so a failed run named no transcript.
+'            The order is clone → resume state → transcript → block → home
+'            config (teardown.puml). The R2 critique's a7 inference "the
+'            sandbox mounts the host home live" was false for that dir.
+'            NOT CHOSEN: a second block for the transcript (P3).
+'          3 a removal the operator chose prints no × whatever Wait
+'            returned; context.Canceled (sbx exited 0) returns Reported.
+'          4 a kept-vs-gone verdict needs a listing that names sandboxes:
+'            sbx.Gone, used by failedEnd, leave() and a failed removal; a
+'            header-only table proves nothing (auto-memory: sbx ls can
+'            return empty). NOT CHOSEN: trust an empty listing (a live
+'            sandbox lost its home access). COST: a host's only sandbox,
+'            gone, closes on a kept line.
+'          5 SaidError takes sbx's status: a line naming the agent's exit
+'            counts at any status, another "error: " line only at status 1
+'            (exit-code.puml). NOT CHOSEN: tee sbx's stderr apart in pty
+'            mode; a list of sbx's messages.
+'          6 Block.Print orders what came home by resultOrder (output ·
+'            .env · branches · _spec · pushed · transcript): the pushed
+'            step runs before the clone step.
+'          7 the retire's unsaved resume state reads "⚠ resume state — not
+'            saved", its error dim, as teardown's does.
+'          8 carry-over (f) pinned in internal/run:
+'            TestTheCredentialPromptPrintsUnderCredentials (askOnTerminal).
+'          9 the stdin-redirected e2e asserts PROVEO_EXIT=3.
+'          10 a removal that failed with no sbx output logs no dangling ": ".
+'   R3 ... done 2026-11-11, uncommitted. `proveo init` prints by subject:
+'          sbx · prompt · git · credentials · operator · results, each once,
+'          after the step that makes it true (initReport, cmd/proveo/
+'          init_report.go). sbx: the programs' hand lines, then ONE Facts
+'          block (host + prerequisites met, sbx + where, network) and its
+'          items, printed after the sbx steps; a revisit prints only what
+'          it changed (REVISIT). git: identity, github, access.
+'          credentials: the store
+'          after the page, once, at the end (rebuilt on each pass, critique
+'          3). results: later, not run, sbx's failing checks, one verdict.
+'          Gone: the run header, "already installed", describeDecisions'
+'          ~230-column line, "done:", "next:", the readiness count, "sbx X
+'          on PATH", "proveo does not manage the host", main's second × for a
+'          blocker, a quit or a cancel (Reported). Headings execution,
+'          starting, secrets left ui.go (18 sections); prompt and git came.
+'          Every critique must-fix: 1 the two doInit(--print) unit tests run
+'          under isolatedInitHost (temp HOME, PROVEO_HOME, state root, a stub
+'          sbx first on PATH), and so does the e2e --print child; 2 the sbx
+'          facts print after the sbx steps; 3 readiness and credentials are
+'          replaced, never appended; 4 Steps.Quiet; 5 "not run"; 6 no ×
+'          after a hand-off; 7 a revisit's sbx lines under "sbx"; 8 the
+'          prompt kit's Fact/Warn callbacks (uninstall keeps Report, pinned),
+'          a PATH item for an rc that adds the dir but this shell lacks it,
+'          a hint-less blocker keeps the --force fix; 9 one how-to per
+'          unasked question; 10 Windows: "installing with msiexec.exe", the
+'          MSI's note dim under its ✓, verify's "not on this shell's PATH";
+'          11 F2 routes nothing to Logf; 12 Ctrl+C in a hand-off; 13 --print
+'          prints credentials and operator; 14 row labels are the page's
+'          own, the sbx path is looked up, one closing line, no invented
+'          "missing", the download error split dim under "× sbx install —
+'          failed"; 15 applyStep keyed, the kinds tested, FOUND 1 and FOUND 3
+'          e2e, a plain-output e2e. FOUND 1 (the PATH step) and FOUND 3
+'          (--yes asked for git) fixed.
+'          R2 CARRY-OVERS, each with a test: 1 leave() waits at most
+'          leaveWait (3s) for sbx's listing; 2 endKeepStranded asks sbx.Gone;
+'          3 the kept entry records the output dir (a re-attach's too) and
+'          keptInput prefers it; 4 screen-vs-log tests for the re-attach's
+'          "builds it fresh", Baseline's allow and check commands, "sign in
+'          with"; 5 RemoveKept → PreserveClone → liftClonedOutput's tar call;
+'          6 `proveo rm --stop` prints three unnumbered lines; 7 teardown.puml
+'          says main's × lands under "interface" after a failed create; 8
+'          sandbox-backend.puml:78 and post-close-surface.puml; 9 the e2e
+'          sweep claims only its own test's temp root.
+'          MEASURED AFTER (the stubbed harness, macOS, 140 columns; captures
+'          in the session scratchpad r3impl/after; rows include headings and
+'          dim rows, BEFORE → AFTER): ready host 21 → 17 rows, 8 → 3
+'          headings; warn+fail 26 → 21, 8 → 3; run blocker 19 → 22 (it now
+'          says what never ran), 6 → 2, one × host, exit 1; --yes 38 → 27,
+'          11 → 5; no terminal 36 → 31 with four how-tos; quit 26 → 18 with
+'          "host ready to run" dim; a revisit prints one readiness set; a
+'          failed `sbx login` ends on "⚠ init — stopped at sign in"; Ctrl+C
+'          in sbx setup exits 130; 64 columns wrap at each row's own column.
+'          The widest row (113) is outsideARunNote, shared with the page.
+'          e2e PASS: the ten init tests, the six new ones.
+'          THE R3 REVIEW (10 findings, each with a test that fails without
+'          its fix): a failed `gh auth login` stops init like the other
+'          three hand-offs the decision lists ("⚠ init — stopped at
+'          GitHub", exit 1); every page that fails names the pages after
+'          it under "not run" (initRecord.pages), a credentials-page Ctrl+C
+'          also the rows answered after it, and a missing distro package
+'          fails the install step; a label under "later" never also lists
+'          as "not run"; a revisit prints only what changed (REVISIT);
+'          --yes's help carries the git identity's how-to; a sign-in whose
+'          run and cleanup both failed keeps "sign-in sandbox may be left"
+'          with the rm; unasked "access:" keeps SSH's state, not its fix;
+'          "⚠ sbx — this shell's PATH finds <path>" when PATH finds another
+'          sbx than the prefix's; two dated or why comments left source;
+'          removeLeakedSandboxes and newSandboxes read the test's own root.
+'          KNOWN, NOT FIXED: a Ctrl+C during a live step or proveo's own git
+'          prompt still ends init at once; one survey runs `sbx secret ls`
+'          three times (FOUND 10); install.sh suggests `proveo init --print`
+'          right after init and its "the lines above say which condition
+'          failed" reads oddly after a quit (FOUND 11, d10: the installer's
+'          owner or R4); the Windows AFTER is drawn from the plan, not run.
+'          THE SECOND R3 REVIEW (9 findings, each with a test that fails
+'          without its fix, mutation-checked): a row a revisit chooses "now"
+'          leaves "later", so a failure before it runs lists it under "not
+'          run"; every ending after a passed verify keeps "host ready to run"
+'          as its last dim line, not only a quit or a cancel; "× init —
+'          stopped" (an error no step names) is in THE CLOSE and pinned;
+'          init's locked-keychain warning is one ⚠ in the git block
+'          (ghAuth.resolve and its ~190-column line are gone); the install ✓
+'          reads "sbx — installed" with "replaced <v>" dim when the prefix
+'          held one, since the "sbx:" fact names version and bin; init dies
+'          of the SIGINT a hand-off was ended by, so install.sh stops;
+'          "answers: the defaults" recorded NOT CHOSEN and gh's "cannot pin
+'          a Homebrew install" why moved to github-credentials.puml; the
+'          plain e2e runs the git and GitHub steps; three why clauses left
+'          source comments.
+'   R4 ... done 2026-11-12: three groups, then one review's ten fixes.
+'          SAFETY FIRST (every test the three groups touch, audited before
+'          any ran): TestDoUninstallYes, TestRemoveInstallRootSafety and the
+'          prompt kit's uninstall test run under isolatedHost (isolatedInitHost
+'          plus stub launchctl, systemctl, crontab, tmux, docker; XDG_*,
+'          STARSHIP_CONFIG, TMUX emptied; the install root under the temp
+'          HOME): XDG_STATE_HOME or STARSHIP_CONFIG in the runner's shell sent
+'          promptkit.Undo to the operator's real record and starship config.
+'          The adopt tests' PATH holds git alone (ReconcileResults ran the real
+'          `sbx ls`). installtest's hermeticEnv drops XDG_* and
+'          STARSHIP_CONFIG (its uninstall step runs the real binary). The
+'          e2e clean_homes runs under cleanOnlyHome. The unsafe-root guard
+'          stays inside removeInstallRoot.
+'          LISTS (ls, projects, version, schedule; the shared running value):
+'          ls is one Facts block; projects prints paths only, its absence on
+'          stderr naming the root; version unchanged; the schedule listing,
+'          its × items, the question under its ×, the tick line last, and
+'          every subcommand's refusal as one × with one dim line
+'          (_spec/internal/schedule/schedule.puml). install.go takes a
+'          Runner; TickStatus reads the last exit and the log path; the tick
+'          home is compared; Uninstall says whether a tick was there; a job
+'          with no `at` lists as "manual"; tmux.Session.Start keeps tmux's
+'          words; writeRunning is one Facts block shared by attach and
+'          `proveo run`, its empty note on stderr for attach; no
+'          schedule.yml means nothing running (exit 0). SectionProjects and
+'          SectionSchedule left ui.go.
+'          MEASURED AFTER (a binary built from this tree, the designer's
+'          fixture, stub tmux and launchctl, a temp HOME; captures in the
+'          session scratchpad r4-measure/lists-after): the fixture's listing
+'          on a terminal 24 → 18 rows, 5 → 0 headings, the question under its
+'          × and the tick last; ls 11 → 10 rows; projects 4 → 3.
+'          e2e PASS on macOS, on the tree after the R4 review's fixes:
+'          TestScheduleFiresAtItsTimeAndTypesThePrompt,
+'          TestScheduleFailedRunIsListedAndRetried,
+'          TestScheduleAgentThatDiesBeforeReadyFailsFast,
+'          TestProveoHomePersistence/clean_homes (isolated).
+'          FOUND (lists): DiscoverProjects skips a "!" pattern instead of
+'          excluding its matches, so projects can list a member
+'          pnpm-workspace.yaml excludes (workspace, not output; not fixed);
+'          TestSectionsNameAConstant checks ui.Section(...) only, so a
+'          Printer.Section(<data>) escapes it (none is left in cmd/proveo or
+'          internal; the maintainer dispatcher's pr.Section(verb) was out of
+'          scope, and it is deleted since 2026-11-12); a run far
+'          past its budget stays a grey running value (the watcher's ladder
+'          stops it within minutes; no ⚠ added).
+'          KEPT (rm, adopt, attach, clean): no heading on any of them; every
+'          refusal or failure is the command's own item, Reported.
+'          rm       _spec/internal/results/result-store.puml (WHAT `proveo rm`
+'                   PRINTS): the list as P2 items, the age dim in ui.Span's
+'                   form; one closing line; a stranded carry ends on "×
+'                   <name> — not removed", dim "`proveo rm <name>` tries
+'                   again" (RM STRANDED; `sbx rm --force` left verbs.go); a
+'                   typo is "⚠ <name> — no such sandbox", exit 0 as at HEAD
+'                   (FOUND 1); RemoveKept runs before the reconcile, so a
+'                   gone sandbox with an entry reads "✓ <name> — already
+'                   gone".
+'          adopt    one "to adopt" fact; "✓ branch <b> — created at <ref>";
+'                   adopt's errors are typed (internal/adopt) and each is one
+'                   × (FOUND 4 fixed: "none", not "every ref … on a branch").
+'          attach   the lists group's writeRunning as built, plus ONE dim
+'                   how-to on stderr with no terminal (critique must-fix 6);
+'                   tmux decides and schedule.yml only words a refusal
+'                   (must-fix 1); "⚠ attach — stopped at tmux" (must-fix 5);
+'                   "× <task> — not attached" with no terminal; the nested
+'                   item (ATTACH NESTED); "⚠ attach — no task selected"
+'                   (one word for one event, critique c9). schedule.puml.
+'          clean    _spec/internal/clean/clean-lifecycle.puml (WHAT CLEAN
+'                   PRINTS): it acts, then prints one block by kind, ⚠ items
+'                   and one closing line; --homes folded into the plan with
+'                   no behaviour change (CLEAN HOMES, recorded KNOWN there).
+'          shared   sandbox.Item splits a detail at each newline (FOUND 9,
+'                   read from code); ui.Span is the one wait/age form (the
+'                   schedule's until uses it).
+'          DECIDED BY THE EXECUTOR (the critique's must-fixes, no fork left):
+'            CARRY LINE  "carrying its work home" prints only when a carry
+'                   runs (P6); R2's three --stop lines hold for a clone, two
+'                   for a mounted checkout (result-store.puml amended). The
+'                   probe runs first as its own live step (stepCloneMode;
+'                   plain gets "clone mode — up to 38s", as teardown does),
+'                   after sbx.Gone, so a sandbox gone since the listing reads
+'                   "already gone" (must-fix 3). NOT CHOSEN: the carry line
+'                   before the probe (false for a mounted checkout).
+'            ENTRY FIRST the entry is cleared before the ✓; a failed write is
+'                   the closing "⚠ <name> — removed, its entry stays"
+'                   (must-fix 10). NOT CHOSEN: ✓, then main's ×.
+'            HISTORY     an OpenCode engine's history is a "history:" fact of
+'                   the carried block, carried before it prints (must-fix 8);
+'                   the retire path keeps its own line (e2e anchor). NOT
+'                   CHOSEN: the Storef line after the block.
+'            CLEAN CLOSE one closing line: a failed removal wins ("⚠ clean —
+'                   M not removed", exit 0 as at HEAD; "×" and exit 1 when
+'                   the --homes home stays, as HEAD returned RemoveAll's
+'                   error), else nothing found ✓, a dry run ●, only live
+'                   items ⚠ (exit 0), else "✓ clean — N removed"; the
+'                   live-left ⚠ reads "left: N that look live" (must-fix 4);
+'                   state is named by run id in the block and in the ⚠
+'                   (critique c8). NOT CHOSEN: "⚠ clean — left …" and a ✓
+'                   under it (two verdicts); exit 1 on any failed removal
+'                   (must-fix 4; OUT OF SCOPE keeps HEAD's exit status).
+'            ATTACH HOW-TO on stderr, so attach's stdout keeps its rows alone
+'                   (usage.puml). NOT CHOSEN: on stdout after the block.
+'            REFUSAL WORDS attach reuses the schedule's refusal for a job
+'                   schedule.yml lacks ("no such job", "jobs: …") and for a
+'                   missing or invalid file: one wording per error type
+'                   (critique must-fix 7). NOT CHOSEN: "no such task".
+'          FOUND (kept design, settled by the critique): 6 restated as
+'          measured and 7 verified in Go's source (clean-lifecycle.puml); 9
+'          read from code (no capture held it); 14 is not proveo's: the
+'          `tmux info` call is charmbracelet/colorprofile detecting colour
+'          when TMUX is set. 8 (rm carries and removes a sandbox no run
+'          kept) and 12 (rm's Logf lines print nowhere) are recorded in
+'          result-store.puml; behaviour, not R4.
+'          KNOWN, NOT FIXED (kept): Ctrl+C during `proveo rm` ends it
+'          mid-carry with no closing line (the entry survives; data stays:
+'          `sbx rm` runs only after the carry); `proveo run`'s and the
+'          harness pickers' closing still end on main's ×; clean's plain
+'          output shows nothing while a removal runs; d13 (a pending kept
+'          entry) and d12 (--deep with no docker answer) print as before.
+'          UPKEEP (setup, update, uninstall; install.sh): no heading on any
+'          of them; every × is the command's own item, Reported.
+'          setup    _spec/internal/shell/setup-path.puml (WHAT `proveo setup`
+'                   PRINTS): ONE item, init's PATH item word for word; the rc
+'                   check matches this bin dir (INSTALLER, FOUND 9), shared
+'                   with init's rcAdds and ensureSbxOnPath (appendRC);
+'                   SectionSetup left ui.go.
+'          update   _spec/internal/cdn/distribution-update.puml: a live line
+'                   per wait (must-fix 10), one closing line, cdn's typed
+'                   errors (ManifestError, DownloadError, ChecksumMismatch).
+'          uninstall  setup-path.puml (WHAT `proveo uninstall` PRINTS): the
+'                   question (CONSENT), ONE Facts block (UNINSTALL RECORD),
+'                   ⚠ per failed removal and per leftover (LEFTOVERS), one
+'                   closing line; SectionUninstall and ui.Dangerf left ui.go
+'                   (fourteen sections; five role verbs). promptkit.Undo says
+'                   each removal through Fact and each failure through Warn;
+'                   Options.Report left (FOUND 3 fixed); Installed answers the
+'                   question with Undo's own checks.
+'          install.sh  "$BIN_DIR/proveo" setup with BIN_DIR left out of PATH
+'                   (path_without_bin_dir; must-fix 7's two cases, the R4
+'                   review); R3's deferred lines: no `proveo init --print`
+'                   after init, a plain init_incomplete, "source ~/<rc>"
+'                   without the bash 3.2 backslash (MEASURED).
+'          DECIDED BY THE EXECUTOR (the upkeep critique's must-fixes):
+'            SETUP ORDER  PATH first, then the shell (must-fix 2, fix a): a
+'                   head says "not on PATH" only after setup looked, and an
+'                   unknown shell with the dir on PATH reads "✓ already on
+'                   PATH", exit 0 (an INSTALLER change; install.sh runs setup
+'                   with the dir off PATH). NOT CHOSEN: fix b,
+'                   "× $SHELL — unknown" (Windows stays × after install.ps1).
+'            CLOSE  a removal that failed is one of the "N left"; nothing gone
+'                   reads "nothing removed" or "nothing to remove"; a root
+'                   that stays closes on × (must-fix 3: no ✓ over a ⚠). NOT
+'                   CHOSEN: "⚠ proveo — partly uninstalled", a second wording.
+'            SHADOW  a proveo PATH still finds is "⚠ <path> — still on PATH"
+'                   (must-fix 4, R3's shadowItems precedent; one LookPath,
+'                   read-only); the running binary outside the root keeps "—
+'                   not removed", dim "outside ~/.proveo". NOT CHOSEN: the
+'                   running binary alone (HEAD).
+'            STARSHIP  stacks under prompt unless the root fact covers it
+'                   (b4). NOT CHOSEN: a fifth "starship" key.
+'            NO TTY  "× proveo — not uninstalled", the how-to alone (c7).
+'                   NOT CHOSEN: "× ~/.proveo — not removed" (the question
+'                   names more than the root).
+'            STATE ROOT  stays unsaid on screen; `proveo uninstall --help`
+'                   names it with what uninstall leaves. NOT CHOSEN: a third
+'                   leftover ⚠ (the operator's list names the tick and the
+'                   kept sandboxes).
+'          MEASURED AFTER (the unit fixtures, temp HOME, rendered through an
+'          overlay test on a terminal printer and plain; captures in the
+'          session scratchpad r4upkeep/after; rows, BEFORE → AFTER): setup
+'          fresh 1 → 2 rows, 110 → 43 columns; --print 5 → 2, no heading;
+'          update success 2 → 2 (the progress line now leaves); uninstall
+'          --yes 1 → 4 (root and two PATH rcs, never said before); with the
+'          prompt kit 5 → 8; a read-only rc and ~/.config 6 → 10 with no
+'          false "removed" and no ✓; the unsafe root ends on its × after the
+'          facts that went.
+'          e2e: none of the three reaches an e2e anchor. internal/installtest
+'          gained the rc-line, second-install and closing-text assertions.
+'          KNOWN, NOT FIXED (R4 allowed no other behaviour change; each in
+'          setup-path.puml or distribution-update.puml): FOUND 5, the unsafe
+'          root refused after the strips; FOUND 10, setup with HOME unset; a
+'          typo'd install root is removed; `uninstall 2>log` waits on an
+'          unseen question; Windows keeps proveo.exe and install.ps1's PATH
+'          entry; --check fails on a platform latest.json lacks; a root-owned
+'          binary fails with no how-to; `curl … uninstall.sh | bash` asks
+'          nothing; uninstall.sh's fallback (a binary with no uninstall)
+'          strips every dir's setup block.
+'          THE R4 REVIEW (10 findings; each code fix has a test that fails
+'          without it, the install.sh and qemu ones mutation-checked):
+'            EXIT STATUS  OUT OF SCOPE allows no other behaviour change, so
+'                   each exit and argument rule is HEAD's again: clean's
+'                   failed removal exits 0 ("×" and exit 1 only for a --homes
+'                   home that stays, as HEAD returned its error); `proveo rm
+'                   <typo>` is "⚠ <name> — no such sandbox", exit 0; schedule,
+'                   ls, tick, install and uninstall ignore a stray argument.
+'                   uninstall's ⚠ closing (exit 0) and × root (exit 1) match.
+'                   One exception, under NO SCHEDULE: attach with no task and
+'                   no schedule.yml is the running listing, so it reads
+'                   "nothing running" and exits 0 like `proveo schedule` (HEAD:
+'                   main's ×, exit 1).
+'                   NOT CHOSEN: exit 1 on every failed removal (kept must-fix
+'                   4) and refusing stray arguments: behaviour, so the
+'                   operator's to choose in a later wave. The operator chose
+'                   "refuse stray args" (R5, _spec/cmd/proveo/usage.puml
+'                   STRAY ARGUMENTS); exit codes stay as here.
+'            PATH LINES  uninstall strips setup's block only when its PATH
+'                   line names this root's bin dir, since FOUND 9 makes two
+'                   blocks in one rc normal (~/go/bin's stays); findInstalled
+'                   and the question follow. setup's rc check also reads the
+'                   dir as $HOME/…, ${HOME}/… or ~/…, so install.sh running
+'                   setup with the dir off PATH repeats no hand line.
+'                   EXECUTOR PASS: that check reads only PATH lines and the
+'                   dir as a whole entry, since a comment, an alias or
+'                   ~/.proveo/binaries would leave a fresh install with no
+'                   line; install.sh's marker block follows setup's rule (a
+'                   block naming another root stays, an empty one goes).
+'            TICK HOW-TO  under another PROVEO_HOME a missing tick prints no
+'                   "`proveo schedule install`" how-to: that tick would read
+'                   ~/.proveo (TickStatus now names that home either way).
+'            DURATIONS  a budget and the clock against it read as
+'                   schedule.yml writes a budget (compact: 45m, 1h30m), so
+'                   "1h7m of 1h30m" matches "1h30m budget"; a wait or an age
+'                   reads ui.Span's spaced form ("in 1d 23h", "19h 7m ago").
+'                   NOT CHOSEN: ui.Span for the clock ("of 1h 0m" beside
+'                   "budget: 1h"); trimming Span's zero unit (moves every
+'                   wait, "in 2d 0h" pinned).
+'            TEXT   attach's --help names schedule.yml in the proveo home;
+'                   RemoveKept's comment fits three lines; the schedule.puml
+'                   KNOWN line says `proveo attach <task>` still attaches.
+'            LINUX LEG  TestJVMRowNeedsTheQemuFloorOnMacOSHosts failed in a
+'                   linux/arm64 proveo image at HEAD too: NO_QEMU=1 dropped
+'                   the stub, but /usr/bin/qemu-x86_64 stayed on the row's
+'                   PATH. Its PATH now links /usr/bin and /bin minus qemu-*;
+'                   the cross-built test binary passes in that image.
+'   R5 ... done 2026-11-12: the operator chose "refuse stray args" over
+'          keeping them, exit 1 on every failed removal, and an exit-code
+'          table first. noArgs replaces cobra.NoArgs in cmd/proveo and joins
+'          schedule, ls, tick, install and uninstall: one ×, one fix (the
+'          nearest subcommands, or --help). Behaviour in
+'          _spec/cmd/proveo/usage.puml STRAY ARGUMENTS.
+
+component "sbx's create block\nsubject sections · items · aligned facts" as SBX <<cloud>>
+component "proveo's stream, 2026-11-11\nphase sections · prose · ● on every line" as OLD <<error>>
+component "the rules P1–P9\nin proveo's idiom" as RULES <<app>>
+component "ui.Facts · Detailf · Tilde\nR0" as UI <<app>>
+component "run start · run end · init · the rest\nR1 · R2 · R3 · R4" as WAVES <<app>>
+component "the run log\nthe full record" as LOG <<data>>
+
+SBX ARROW_MAIN RULES : the principles, not the look
+OLD ARROW_ERROR RULES : what they fix
+RULES ARROW_MAIN UI
+UI ARROW_MAIN WAVES
+WAVES ARROW_OPTIONAL LOG : what leaves the screen
+
+note bottom of RULES
+  **Principles, not the look.** proveo keeps its
+  rules, its lowercase keys and its ● dots. It
+  takes sbx's subject sections, aligned facts,
+  dim detail and one-line outcomes.
+end note
+
+note bottom of LOG
+  **Nothing is lost.** What leaves a run's
+  screen stays in its run log. init writes
+  none: its how-tos went to its --help, its
+  whys to _spec (R3, F2).
+end note
+
+note bottom of WAVES
+  **One wave per stream.** Each wave moves its
+  own e2e anchors and specs in the same change,
+  so the suite never reads a stale string.
+end note
+@enduml

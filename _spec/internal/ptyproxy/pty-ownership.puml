@@ -5,17 +5,28 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/ctrlc_keys.go
 ' covers: internal/ptyproxy/ctrlc_keys_test.go
 ' covers: internal/ptyproxy/ptyproxy.go
-' covers: internal/ptyproxy/overlaytty.go
 ' covers: internal/ptyproxy/drain_test.go
 ' covers: internal/ptyproxy/ptyproxy_test.go
-' covers: internal/ptyproxy/overlaytty_test.go
 ' covers: defs/*/harness.manifest
 ' covers: e2e/close_confirm_live_test.go
 ' covers: e2e/close_confirm_test.go
 ' covers: internal/choiceui/sandbox_close.go
-' covers: internal/choiceui/modal.go
-' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
-' covers: internal/run/helpers.go
+' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New, Proxy.EnteredAltScreen)
+' covers: internal/backend/sandbox/pushed.go (confirmFetchPushed: DiscardInput)
+' covers: internal/ptyproxy/cancelin.go
+' covers: internal/ptyproxy/flush_linux.go
+' covers: internal/ptyproxy/flush_bsd.go
+' covers: internal/ptyproxy/stale_pump_test.go
+' covers: internal/ptyproxy/overlay_exit_test.go
+' covers: internal/ptyproxy/flush_test.go
+' covers: e2e/post_exit_prompt_live_test.go
+' covers: internal/ptyproxy/overlayprogram.go
+' covers: internal/ptyproxy/overlayprogram_test.go
+' covers: internal/ptyproxy/screenmodes.go
+' covers: internal/ptyproxy/screenmodes_test.go
+' covers: internal/ptyproxy/ptyproxy_windows.go
+' covers: e2e/close_confirm_modes_test.go
+' covers: e2e/close_confirm_sbx_test.go
 '   (internal/backend/dockeregress ExecAgentWithProxy was the second caller;
 '   deleted 2026-10-16 with the docker backend. "internal/ptyproxy stays: every
 '   interactive sbx run uses it" — the Executor's retirement kept it.)
@@ -30,8 +41,9 @@ skinparam noteTextAlignment left
 ' sbx is the runtime under test now and that gate is retired with the mechanism
 ' (_spec/tests/testing-strategy.puml) — but `internal/ptyproxy` is NOT retired.
 ' internal/backend/sandbox/sandbox.go builds a `ptyproxy.New` on EVERY interactive
-' sbx run, for the stdin report filter and the stdout trace, and internal/run/
-' helpers.go builds one for the bare path. So the PTY mechanics outlive the gate
+' sbx run, for the stdin report filter and the stdout trace. It is the only
+' caller outside tests (CORRECTED 2026-11-10: this sentence used to name
+' internal/run/helpers.go, which holds no ptyproxy reference). So the PTY mechanics outlive the gate
 ' that provoked them. They are kept here rather than deleted with it; the consent
 ' prompt, the unix-socket transport and the CONNECT hook are what died.
 '
@@ -141,6 +153,195 @@ skinparam noteTextAlignment left
 ' out of 6, always inside the first 40, so the loop is a fail-fast ceiling and
 ' not half a second of work.
 '
+' ── THE STDIN READER ENDS WITH THE CHILD (2026-11-10) ──────────────────────
+' THE BUG. Run started the stdin pump and returned without stopping it. Its
+' reader stayed parked in read(0) and took 33 more chunks: 32 buffered and one
+' held in a blocked send. This file said "The IN pump cannot be waited on" and
+' named tcell.NewScreen as the second-reader trap DURING a run. Teardown opened
+' exactly that reader AFTER the run, for the pushed-branch question.
+' MEASURED on darwin/arm64 under tmux 3.7b: after a real Run that question
+' accepted y + Enter 0 of 12 times, then 1 of 12 on a re-run; without Run 12
+' of 12. A second reader of a pty pair got 95, then 93, of 200 keys.
+' [Inference] That was the operator's reported post-exit freeze.
+' WHY THE READ COULD NOT JUST BE STOPPED. os.Stdin is a blocking file:
+' SetReadDeadline is refused on it and Close does not unblock a read in
+' progress (golang/go#24842). Flipping fd 0 to non-blocking changes the open
+' file description the shell shares.
+' THE FIX (the Executor, D1: "select + self-pipe"). cancelin.go waits in
+' select(2) on the terminal's descriptor and on a wake pipe, and reads only
+' when the terminal is readable. A byte on the pipe ends the wait. Bytes
+' nobody read stay in the tty queue for whoever reads next.
+' Two other shapes were prototyped and not chosen. muesli/cancelreader, used
+' plainly, failed the -race gate 3 of 3 (it calls Fd() on every wait) and
+' missed a terminal reached under the name /dev/stdin. Keeping the pump alive
+' and routing prompts through the hand-off could not pass the pin below.
+' THE ORDER IN Run, after cmd.Wait returns:
+'   1  stop the reader's sends and write the wake byte, at once, so no key
+'      typed during the drain is taken
+'   2  end a live overlay (below) and wait for the Ctrl+C server, up to 2s
+'   3  drain the child's last output, up to drainGrace
+'   4  wait for the reader goroutine, up to 1s
+'   5  restore the terminal
+' The wake pipe is closed only after step 4 confirmed the join. A reader that
+' missed the deadline would otherwise select on a reused descriptor.
+' The terminal's descriptor is the one Run captured; Fd() is not called again.
+' A descriptor at or above FD_SETSIZE, or a failed pipe, falls back to the
+' plain reader: the old behaviour, not a new failure.
+'
+' AN OVERLAY OPEN AT CHILD EXIT ENDS WITH THE CHILD. MEASURED before the fix:
+' with the join alone, a Ctrl+C dialog that was up when the agent exited never
+' received another key, because nothing fed its hand-off any more.
+' Run now shuts the overlay's reader for good: Read returns io.EOF, and
+' OverlayTty.Start's resume no longer re-arms it. tcell posts an EventError
+' for that EOF and readModal treats it as an interrupt, so the dialog returns
+' "stay" and its remove hook does not run. Overlay refuses a new dialog once
+' the child has exited.
+'
+' TYPE-AHEAD IS DISCARDED BEFORE THE POST-EXIT QUESTION (the Executor, D15:
+' "Discard it"). MEASURED before the decision: with the reader joined, a `y`
+' typed during teardown showed in the question's field. confirmFetchPushed
+' calls DiscardInput first: TCFLSH on linux, TIOCFLUSH on the BSDs, nothing on
+' windows. Keys typed after the question draws answer it.
+'
+' THE FIRST LINUX RUN, 2026-11-10, linux/arm64 in a container (go1.26.5, tmux,
+' no race detector: the image has no C compiler). The ptyproxy, choiceui and
+' backend/sandbox suites passed. The live post-exit pin passed 3 of 3.
+' MEASURED there too: TestLiveCtrlCConfirmationOnTmux fails about one run in
+' eight with "session did not resume" — 1 of 8 at the commit before this
+' change, 2 of 8 after it. It is the residual recorded above: a key that
+' lands between the dialog deciding and Fini draining is read by tcell and
+' dropped. The Bubble Tea dialog replaces that path
+' (_spec/_plans/tui-upgrades-delivery.puml, W4).
+'
+' Pinned by internal/ptyproxy: TestRunLeavesNoReaderOnTheTerminal (a second
+' reader gets every key, 20 rounds; red before the fix),
+' TestAnOverlayOpenAtChildExitEndsWithTheChild,
+' TestAShutHandOffReaderStaysShutAcrossResume,
+' TestDiscardInputDropsWhatWasTypedBeforeIt,
+' TestAnOverlayProgramEndsWhenTheHandOffIsShut (it took over from choiceui's
+' modal pin when the tcell modal went); e2e (tmux only):
+' TestLivePostExitPromptTakesTheFirstKeysOnTmux, y + Enter accepted 12 of 12
+' (red before the fix).
+'
+' ── THE OVERLAY HOSTS A BUBBLE TEA PROGRAM (2026-11-10) ────────────────────
+' The Executor: "Port everything to Bubble Tea v2". The Ctrl+C dialog is the
+' first surface to move, because it is the one that runs INSIDE the proxy.
+' Proxy.OverlayProgram(in, model) runs a model on the suspended terminal and
+' returns it as it ended. The tcell route (OverlayTty, OverlayScreen) still
+' compiles; the delivery plan deletes it one wave later (B4).
+' WHAT THE PROXY DOES THAT A PLAIN tea.NewProgram DOES NOT:
+'   the input   proveo decodes the hand-off itself (ultraviolet's
+'               TerminalReader) and calls Program.Send. The Program gets
+'               WithInput(nil). Why: the byte capture below.
+'   newlines    a Program whose input is not a terminal assumes NL becomes
+'               CR NL (bubbletea tea.go, mapNl). The proxy holds the terminal
+'               raw, so overlayOut writes a bare LF as CR LF. It keeps Fd(),
+'               so the library still reads the size and the colour profile.
+'   the modes   every frame is forced onto the alternate screen, and
+'               bracketed paste is left alone (overlayModel).
+'   quitting    the hand-off reader is halted when the QuitMsg passes, before
+'               Run returns. A key typed after that stays in the hand-off and
+'               goes back to the child, in order.
+'   the child   when the child exits, Run shuts the reader; the decoder ends
+'               and the Program is killed. The dialog reads as "stay".
+'   signals     WithoutSignalHandler. The library acts on the first signal
+'               only; proveo's own handlers keep the terminal.
+' THE BYTE CAPTURE THAT DECIDED THE INPUT (the Executor, on the overlay's
+' input option: "Decide in wave 4 on evidence"). MEASURED 2026-11-10, the same
+' model, 80x24, one key then Enter, every escape sequence written:
+'   input left to the Program (WithInput(reader)), 107 bytes:
+'     ESC[?1049h ESC[?25l ESC[H ESC[2J ESC[24;1H ESC[?25h ESC[?1049l
+'     ESC[>4;2m ESC[>4m      modifyOtherKeys set to 2, then RESET
+'     ESC[>1u ESC[<1u ESC[?u kitty keyboard push, pop and query
+'     ESC[?2026$p ESC[?2027$p two mode queries, answered on the input
+'   input decoded by proveo (WithInput(nil)), 58 bytes:
+'     ESC[?1049h ESC[?25l ESC[H ESC[2J ESC[24;1H ESC[?25h ESC[?1049l
+' modifyOtherKeys has no stack. An agent that had set it would get it back
+' RESET after every dialog. [Inference] Keys that depend on it, Shift+Enter
+' among them, would then change for the agent. The two queries are answered
+' on the input stream, after the dialog may already be gone. So the
+' overlay decodes the hand-off itself. The cost is a direct import of
+' ultraviolet, an untagged module bubbletea already depends on.
+' A test keeps the evidence: it fails the day bubbletea stops writing the two
+' modifyOtherKeys sequences, which is when the choice can be reopened.
+' THE CHILD'S SCREEN MODES ARE PUT BACK (delivery plan, B10, promoted by the
+' measurement). MEASURED in tmux with a child that had entered the alternate
+' screen, hidden the cursor and enabled bracketed paste
+' (alternate_on cursor_flag bracket_paste_flag):
+'   before the dialog          1 0 1
+'   after it, tcell            0 1 0   all three changed
+'   after it, Bubble Tea       0 1 1   paste kept, two changed
+'   after it, with screenModes 1 0 1   unchanged
+' screenModes reads CSI ? 1049 / 1047 / 47 and CSI ? 25 off the child's
+' output, whether or not the input filter is on. After draw returns and
+' before the pump resumes, Overlay writes ESC[?1049h and ESC[?25l for the
+' modes the child holds; the forced repaint then redraws the child.
+' IT ALSO REMEMBERS THE ALTERNATE SCREEN (R2 review, 2026-11-11). `entered`
+' turns true the first time the child switches to it and stays true after
+' ?1049l, because an agent leaves the alternate screen as it exits.
+' Proxy.EnteredAltScreen (false on a nil proxy and on Windows) tells teardown
+' that the agent left nothing in scrollback, so its last five lines print dim
+' under the kept ⚠ (_spec/internal/backend/teardown.puml). It replaced a
+' second detector in agentio.Tail that matched three byte strings and missed
+' a mode list such as CSI ? 25;1047 h. Pinned by
+' TestScreenModesRememberTheAlternateScreenAfterTheChildLeavesIt.
+' ON A REAL AGENT, MEASURED 2026-11-10 (macOS, sbx 0.50.0, claudecode in a real
+' sandbox, tmux): Ctrl+C opened the dialog over the agent, n left the pane's
+' flags as they were (alt=0 cursor=0 paste=1: a hidden cursor and bracketed
+' paste, both kept), y removed the sandbox.
+' ON LINUX, MEASURED 2026-11-10 (linux/arm64, tmux 3.6, go1.26.10): the
+' unchanged tmux driver passed 8 of 8. With tcell it failed about one run in
+' eight, before and after W1.
+' NOT DONE: a hand trial in a terminal that is not tmux.
+'
+' Pinned by internal/ptyproxy:
+'   TestAnOverlayProgramTakesItsKeysFromTheHandOffAndHaltsItAtQuit
+'   TestAnOverlayProgramEndsWhenTheHandOffIsShut
+'   TestAnOverlayProgramWritesNoSequenceTheChildOwns
+'   TestAProgramThatReadsItsOwnInputResetsTheChildsKeyboardMode
+'   TestOverlayOutputTurnsABareLineFeedIntoCarriageReturnLineFeed
+'   TestScreenModesFollowTheChildsAlternateScreenAndCursor
+'   TestScreenModesRememberTheAlternateScreenAfterTheChildLeavesIt
+'   TestAnOverlayGivesTheChildItsScreenModesBack
+' by internal/choiceui (three pins against the tcell twin left with it):
+'   TestEnterAloneGivesTheSafeAnswerInEveryDialog
+'   TestTheCloseDialogSaysWhatItDoesAndNamesItsKeys
+' and by e2e (tmux): TestLiveCtrlCConfirmationOnTmux (driver unchanged),
+'   TestLiveCtrlCDialogGivesTheChildItsScreenModesBack,
+'   TestCtrlCDialogOverARealAgentGivesItsScreenBackAndRemovesOnYes (real sbx)
+'
+' ── EVERY BYTE AFTER THE DECIDING KEY GOES BACK TO THE CHILD (2026-11-10) ───
+' The residual this file recorded twice — "a key that lands between the dialog
+' deciding and Fini draining is read by tcell and dropped" — survived the
+' port. MEASURED on linux/arm64 with the button dialog: the unchanged tmux
+' driver failed 1 run in 4, "session did not resume". The Program's decoder
+' sat in Read on the hand-off; the `A` typed after `n Enter` arrived before
+' the QuitMsg halted the reader, was decoded as a key for a dialog that had
+' already answered, and was lost.
+' The fix is to stop letting anything but proveo count the bytes. feedKeys
+' replaces ultraviolet's TerminalReader:
+'   one goroutine reads the hand-off into proveo's own buffer
+'   ultraviolet's EventDecoder decodes ONE event from the front of it
+'   the key is sent to the Program, and the feed WAITS for the model's
+'     Update to return and say whether it has its answer (Done())
+'   once it has, the reader is halted and every byte read and not delivered
+'     goes back to the front of the hand-off (chanReader.giveBack), where
+'     Overlay's unread hands it to the child, in order
+' An escape waits 50 ms for the rest of its sequence, as the library's
+' scanner does: a lone ESC, an ESC plus one byte, and an unfinished CSI are
+' held until more arrives or the wait passes.
+' A PASTE NEVER ANSWERS A DIALOG. Everything between the bracketed-paste
+' markers is dropped, so pasted text cannot select and accept a button.
+' MEASURED after the fix: the four tmux pins passed 12 of 12 on linux/arm64
+' and 4 of 4 on macOS.
+' THE TCELL OVERLAY IS DELETED (delivery plan, B4): overlaytty.go, its test,
+' and OverlayScreen on both platforms. The dated sections above that describe
+' OverlayTty and Drain are history; nothing in the tree implements them.
+' Pinned by internal/ptyproxy:
+'   TestEveryByteAfterTheDecidingKeyGoesBackToTheChild
+'   TestAPasteNeverAnswersADialog
+'   TestALoneEscapeIsAKeyAndASequenceIsOne
+'
 title The PTY proxy — one reader of the real terminal, and how its pumps end
 
 actor "Operator" as OP
@@ -149,14 +350,14 @@ node "proveo — internal/ptyproxy" as PX <<host>> {
   component """Proxy.Run""\nowns the PTY master" as RUN <<app>>
   component "stdin pump\nreal tty → master" as IN <<app>>
   component "stdout pump\nmaster → real tty" as OUT <<app>>
-  component """OverlayTty""\nhand-off channel · operator's tty" as OVER <<app>>
+  component """OverlayProgram""\na Bubble Tea Program on the hand-off" as PROG <<app>>
 }
 
 node "agent process" as CH <<host>> {
   component "PTY slave is its tty\n(the sbx client running the agent;\ndocker agent and --shell retired)" as CHILD <<app>>
 }
 
-component "a SECOND reader\n""tcell.NewScreen"" · a bare prompt" as SECOND <<error>>
+component "a SECOND reader\na prompt on ""/dev/tty"" during a run" as SECOND <<error>>
 component "the child's last line\nlost to ""m.Close()""" as LOST <<error>>
 
 OP ARROW_MAIN IN : keystrokes
@@ -164,40 +365,54 @@ IN ARROW_MAIN RUN
 RUN ARROW_MAIN CHILD : slave handed to the child
 CHILD ARROW_MAIN OUT
 OUT ARROW_MAIN OP : rendered frames
-IN ARROW_OPTIONAL OVER : re-routed while a modal holds the screen
-OVER ARROW_MAIN OP
+IN ARROW_OPTIONAL PROG : re-routed while a dialog holds the screen
+PROG ARROW_MAIN OP : frames, LF as CR LF
+PROG ARROW_OPTIONAL RUN : unread bytes, back to the child
 IN ARROW_ERROR SECOND : what the design exists to prevent
 OUT ARROW_ERROR LOST : without the drain
 
 note bottom of IN
-  **One reader, start to finish.** The child holds
-  the slave, so nothing else contends for stdin. A
-  goroutine already blocked in ""read()"" consumes
-  the next byte whatever a flag says, so the pump
-  re-routes rather than standing down.
+  **One reader while the child lives.** The child
+  holds the slave, so nothing else contends for
+  stdin. During a run the pump re-routes rather
+  than standing down; at exit it is cancelled.
 end note
 
-note bottom of OVER
-  **A modal is given bytes, never its own tty.**
-  ""OverlayTty"" reads the pump's hand-off channel
-  and writes the operator's terminal, which makes
-  a full-screen prompt the exclusive consumer
-  without a second reader ever existing.
+note left of PROG
+  **A dialog is given keys, never its own tty.**
+  proveo reads the hand-off, decodes one key,
+  and waits for the dialog's verdict before
+  the next. No second reader ever exists.
 end note
 
-note right of OVER
-  **Drain halts the hand-off reader.** Fini waits
-  for tcell's input loop, parked in Read, so a
-  no-op Drain hung it until the next key. Bytes no
-  Read took go back to the child, in order.
+note top of PROG
+  **Nothing typed after the answer is lost.**
+  Once the dialog has its answer the feed
+  stops, and every byte it read and did not
+  deliver goes back to the child, in order.
+end note
+
+note bottom of PROG
+  **proveo decodes the keys itself.** A Program
+  that reads its own input sets and resets the
+  agent's keyboard mode and asks the terminal
+  two questions. With the input off it writes
+  only the alternate screen and the cursor.
+end note
+
+note right of PROG
+  **The child gets its screen back.** The proxy
+  tracks the child's alternate screen and
+  hidden cursor, and writes both again once
+  the dialog has left.
 end note
 
 note bottom of SECOND
-  **""tcell.NewScreen"" is the trap.** It opens
-  ""/dev/tty"" and runs its own input loop, so the
-  modal renders correctly and then takes no
-  keystrokes — measured on a live run. Build over
-  ""NewTerminfoScreenFromTty"" instead.
+  **A second reader is the trap.** A prompt that
+  opens ""/dev/tty"" while the proxy reads it
+  draws correctly and then takes no keys:
+  measured on a live run. During a run a
+  dialog goes through ""OverlayProgram"".
 end note
 
 note right of OUT
@@ -209,19 +424,18 @@ note right of OUT
 end note
 
 note right of OUT
-  **Only the OUT pump is waited on.** The child
-  was the last holder of the slave, so the master
-  read fails when it exits — a ""WaitGroup"" there
-  costs nothing, bounded by ""drainGrace"" (2s)
-  for a grandchild still holding the slave.
+  **The OUT pump drains before Run returns.** The
+  child was the last holder of the slave, so the
+  master read fails when it exits. The wait is
+  bounded by ""drainGrace"" (2s) for a grandchild
+  still holding the slave.
 end note
 
 note right of OUT
-  **The IN pump cannot be waited on.** It blocks
-  reading the operator's stdin, which never
-  reaches EOF, so it can only notice the closed
-  master on the next keystroke. Waiting on it
-  would hang every exit.
+  **The IN reader is cancelled, then joined.** It
+  waits in ""select"" on the terminal and a wake
+  pipe. Run writes the wake byte when the child
+  exits, so no later reader shares the terminal.
 end note
 
 note bottom of LOST

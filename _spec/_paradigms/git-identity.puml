@@ -15,6 +15,16 @@
 ' the work). Seed still applies the bridge: a run whose host identity
 ' changed since init must not wait for the next init. `gh` login is not
 ' this object's — that is init_github.go / github-credentials.puml.
+' WHAT INIT PRINTS (R3, 2026-11-11): the identity is the "identity" fact of the
+' "git" block (once the GitHub step ends): "Ada <ada@…>", dim "written to
+' git's global config" when init wrote it. A missing one is "⚠ git identity —
+' not set"; with no terminal to ask through it keeps one dim how-to
+' ("`git config --global user.name` and `user.email`, or `proveo init` from a
+' terminal"); --yes keeps none. Gone: "this host has no complete git identity
+' — commits … fail with 'Please tell me who you are'" (a why; the prompts say
+' what is asked) and the identity under "workspace". --YES ASKS NOTHING: the
+' step reads the terminal through !--yes, as GitHub and the prompt kit do
+' (FOUND 3; e2e TestInitYesNeverAsksForAGitIdentity).
 '
 ' ── THE E2E CASE MEASURES THE RUN'S BRIDGING, NOT THE FUNCTION'S ───────────
 ' TestGitIsWritableInEveryHarness launches a real `proveo run <target>` through

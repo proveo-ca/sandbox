@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -148,8 +149,12 @@ func TestScheduleFailedRunIsListedAndRetried(t *testing.T) {
 	if res.Outcome != "failed" || !strings.Contains(res.Detail, "exited 3") {
 		t.Fatalf("result = %+v, want failed with exit 3", *res)
 	}
-	if ls := proveoCmd("schedule", "ls"); !strings.Contains(ls, "proveo schedule retry "+job) {
+	ls := proveoCmd("schedule", "ls")
+	if !strings.Contains(ls, "proveo schedule retry "+job) {
 		t.Errorf("listing does not offer the retry:\n%s", ls)
+	}
+	if !regexp.MustCompile(`(?m)^error: `+regexp.QuoteMeta(job)+` — failed `).MatchString(ls) || strings.Contains(ls, "------ ") {
+		t.Errorf("the failed run must be one × item after the job's facts, under no heading:\n%s", ls)
 	}
 
 	time.Sleep(time.Second) // a distinct result stamp

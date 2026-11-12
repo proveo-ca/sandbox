@@ -2,19 +2,19 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: how one subagent body reaches four harnesses that disagree on frontmatter
 ' covers: defs/subagents/**
-' covers: cmd/proveo-dev/render_subagents.go
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/agents_shared_test.go
 ' covers: internal/contract/subagent_roster_test.go
 ' covers: internal/imagetest/*_test.go
 '
-' ── HOST PREVIEW (proveo-dev render-subagents) ─────────────────────────────
-' render_subagents is bash-4 code; macOS /bin/bash is 3.2. The preview runs it
-' in the harness image's bash (docker --entrypoint bash, --network none, host
-' uid:gid) and mounts the WORKING-TREE entrypoint-lib.sh over /entrypoint-lib.sh,
-' so a lib edit previews without `mise run build`. defs/subagents and the dest dir
-' mount at their host paths, so the "composed at runtime from <src>" header is
-' byte-identical to the retired host-sourced defs/lib/render-subagents.sh.
+' ── HOST PREVIEW: DELETED 2026-11-12 ───────────────────────────────────────
+' A maintainer verb, render-subagents, once ran render_subagents (bash-4 code;
+' macOS /bin/bash is 3.2) in the harness image's bash with the working-tree
+' entrypoint-lib.sh mounted, so a lib edit previewed without a rebuild. The
+' operator deleted it with its dispatcher (operator choice 3 of the decision
+' record of that day): "in the future this will likely print out a template".
+' No host preview exists now; the image suites below are the check.
+' PROVEO_SUBAGENTS_DIR stays registered, because entrypoint-lib.sh reads it.
 '
 ' ── SUBAGENTS ARE NOT BAKED AS FILES ───────────────────────────────────────
 ' One body per agent lives in /opt/proveo/subagents, and the entrypoint

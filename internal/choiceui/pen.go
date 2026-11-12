@@ -2,9 +2,10 @@
 package choiceui
 
 import (
+	"strings"
 	"unicode"
 
-	"github.com/gdamore/tcell/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -13,44 +14,36 @@ func init() {
 	runewidth.CreateLUT()
 }
 
+// pen writes runs left to right on one row of a screen and keeps the column it reached.
 type pen struct {
-	s     tcell.Screen
+	s     *screen
 	x, y  int
-	last  int // display width of the last rune written
 	wrote bool
 }
 
-func newPen(s tcell.Screen, x, y int) *pen { return &pen{s: s, x: x, y: y} }
+func newPen(s *screen, x, y int) *pen { return &pen{s: s, x: x, y: y} }
 
 func (p *pen) col() int { return p.x }
 
-func (p *pen) write(style tcell.Style, text string) *pen {
-	for _, r := range text {
-		if zeroWidth(r) {
-			if !p.wrote {
-				continue
-			}
-			base := p.x - p.last
-			mainc, combc, st, _ := p.s.GetContent(base, p.y)
-			p.s.SetContent(base, p.y, mainc, append(append([]rune(nil), combc...), r), st)
-			continue
-		}
-		w := runeCols(r)
-		if w < 1 {
-			w = 1
-		}
-		p.s.SetContent(p.x, p.y, r, nil, style)
-		p.x += w
-		p.last = w
-		p.wrote = true
+// write puts text at the pen and moves it past; a combining rune with nothing before it is dropped.
+func (p *pen) write(style lipgloss.Style, text string) *pen {
+	if !p.wrote {
+		text = strings.TrimLeftFunc(text, zeroWidth)
 	}
+	if text == "" {
+		return p
+	}
+	p.s.put(p.x, p.y, style, text)
+	p.x += textWidth(text)
+	p.wrote = true
 	return p
 }
 
+// padTo blanks the row up to col, covering what an earlier run left there.
 func (p *pen) padTo(col int) *pen {
-	for p.x < col {
-		p.s.SetContent(p.x, p.y, ' ', nil, tcell.StyleDefault)
-		p.x++
+	if p.x < col {
+		p.s.put(p.x, p.y, lipgloss.NewStyle(), strings.Repeat(" ", col-p.x))
+		p.x = col
 	}
 	return p
 }

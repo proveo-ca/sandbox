@@ -44,6 +44,7 @@ func TestEveryDeprecatedAliasHasARetirement(t *testing.T) {
 
 func TestNoRetirementOutlivesOneRelease(t *testing.T) {
 	t.Parallel()
+	releaseGate(t)
 	root := repoRoot(t)
 	prev := previousRelease(t, root)
 	for _, r := range retirements {

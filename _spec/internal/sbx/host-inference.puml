@@ -10,7 +10,7 @@ skinparam noteTextAlignment left
 ' covers: internal/run/local_model_fit_test.go
 ' covers: internal/run/local_model_auto.go
 ' covers: internal/run/local_model_auto_test.go
-' covers: internal/choiceui/oversized_model.go (ConfirmOversizedModel)
+' covers: internal/choiceui/oversized_model.go (AskOversizedModel)
 ' covers: internal/choiceui/oversized_model_test.go
 ' covers: internal/run/model_row.go (localModels, tagFor)
 ' covers: internal/run/run.go (promptChoices, launchSandbox)
@@ -32,9 +32,20 @@ skinparam noteTextAlignment left
 '   1. GET 127.0.0.1:11434/api/tags. No answer ⇒ refuse with the install URL.
 '   2. Tag lookup: exact, or bare name ⇒ ":latest" (Ollama's rule). Missing ⇒
 '      size from registry.ollama.ai/v2/<repo>/manifests/<tag> (config + layers;
-'      muse-glimmer:30b-mlx = 17.75 GiB), a WARNING if it would not fit in memory
-'      right now (memory is transient, the download is not), then POST /api/pull
-'      with progress on stderr. PROVEO_LOCAL_MODEL_PULL=0 restores the refusal
+'      muse-glimmer:30b-mlx = 17.75 GiB), a run-log row if it would not fit in
+'      memory right now (memory is transient, the download is not), then POST
+'      /api/pull behind a live line on a terminal (one start line on plain
+'      output); the start and "pulled <model> (N GiB)" go to the run log, and
+'      egress's "local model" fact gains dim "pulled this run · N GiB" (R2 of
+'      output-readability.puml: a pull is host preparation, like the add-ons;
+'      EnsureHostOllama returns what it pulled). What it pulled is the SUM of
+'      each layer's total: /api/pull streams one "pulling <digest>" event set
+'      per layer, each with that layer's own total (ollama docs/api.md, Pull
+'      a Model, read 2026-11-11). R2 first kept the largest total, which
+'      understated a model with more than one large layer (R2 review;
+'      TestAPullsSizeAddsUpEveryLayer). The live line still shows the layer
+'      in flight. The load check that follows
+'      keeps its own ⚠. PROVEO_LOCAL_MODEL_PULL=0 restores the refusal
 '      (`ollama pull <tag>` + installed tags of the same repo). A non-library ref
 '      (hf.co/…) pulls with no size shown.
 '   3. Already in /api/ps ⇒ resident, no new memory, done.
@@ -149,8 +160,16 @@ skinparam noteTextAlignment left
 '     provider key, no subscription manifest and PROVEO_LOCAL_MODEL_AUTO not 0
 '     takes the first listed model (MODEL ROW MAPPING, this host's tag) that the
 '     host's Ollama has installed and that fits the FIT POOL — the host GPU path.
-'     It prints which. Only listed models: an arbitrary installed tag (a 0.3 GB
-'     fine-tune) is not an agent model.
+'     Only listed models: an arbitrary installed tag (a 0.3 GB fine-tune) is
+'     not an agent model.
+'     WHERE IT SAYS SO (output-readability R1, 2026-11-11): the pick, its reason
+'     ("no provider key") and the PROVEO_LOCAL_MODEL_AUTO=0 opt-out go to the
+'     run log alone (ui.Logf). The screen says it once, as the egress block's
+'     "● local model: <served tag> on the host's Ollama (host GPU)" fact,
+'     printed after the model is served. Before, the pick printed a ● line
+'     under the credentials heading as well (R1 round-2 review). Pinned by
+'     internal/run/local_model_auto_test.go
+'     TestTheAutoLocalModelsReasonReachesOnlyTheRunLog.
 '   * sbx.FittingHostModels does the install + fit filter.
 
 ' ── WHY NOT llmman (removed 2026-09-26) ────────────────────────────────────

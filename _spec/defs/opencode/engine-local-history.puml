@@ -13,7 +13,7 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/sandbox.go (Run: created → CloneKnown, the retention line)
 ' covers: internal/backend/sandbox/home_access_test.go (TestOpenCodeHomeAccessMountsConfigButNeverHistory)
 ' covers: internal/choiceui/blocked_run.go
-' covers: internal/choiceui/blocked_run_test.go
+' covers: internal/choiceui/dialog_test.go
 ' covers: packages/lib/proveo-opencode-runtime
 ' covers: packages/lib/test_opencode_runtime.py
 ' covers: packages/lib/entrypoint-lib.sh (the two .local/share/opencode sync skips)
@@ -99,7 +99,7 @@ skinparam noteTextAlignment left
 '        opencode/v2/share/opencode.db      (the V2 share)
 '        opencode/share/opencode.db         (the pre-V2 share)
 '        .local/share/opencode/opencode.db
-'      None → "OpenCode: new engine <name> starts with empty history".
+'      None → the sbx block's "history: empty in new engine <name>" (R2).
 '   3. importOpenCodeHistory stats the db and any -wal / -journal
 '      (sbx.OpenCodeImportFiles), starts `sbx exec -i -w / <engine> -- python3
 '      -I -c OpenCodeImportScript` (OpenCodeImportArgs) and writes its stdin
@@ -123,9 +123,9 @@ skinparam noteTextAlignment left
 '      .proveo-history-ready beside the database and stops the new engine.
 '      Its next boot runs credential synchronization before the agent starts.
 '      A marker or stop failure removes the new engine and preserves the source.
-'   6. A consumed carry file is deleted ("OpenCode: carried history (<size>)
-'      into new engine <name>"); a share source prints "OpenCode: imported <src>
-'      (<size>) into new engine <name> once; the host copy stays unchanged".
+'   6. A consumed carry file is deleted ("history: carried history (<size>)
+'      into new engine <name>"); a share source reads "history: imported <src>
+'      (<size>) into new engine <name>", dim "the host copy stays unchanged".
 '      The host V2 share is NEVER edited.
 '   7. Run reattaches with `sbx run --name <engine>`.
 ' D5: any failure (existing target, change, exec, incomplete, corrupt) `sbx rm`s
@@ -191,11 +191,26 @@ skinparam noteTextAlignment left
 ' adds "Its OpenCode history moves to the new sandbox."
 '
 ' ── RETENTION AND REMOVAL ──────────────────────────────────────────────────
-' A normal end keeps the engine (normalEndOf → endRetainEngine) and prints
-' "OpenCode: history lives in retained engine <name>; `sbx rm --force <name>`
-' deletes it" (sandbox.go Run) — e2e/seed_ready_test.go matches "retained
-' engine ". `sbx rm` deletes the engine and its history, and so does the
-' Ctrl+C "remove" answer; no carry runs on either.
+' A normal end keeps the engine (normalEndOf → endRetainEngine) and closes on
+' "✓ retained engine <name> — holds OpenCode's history" (R2; the `sbx rm
+' --force <name>` that deletes it is a run-log row) — e2e/seed_ready_test.go
+' matches "retained engine ". `sbx rm` deletes the engine and its history, and
+' so does the Ctrl+C "remove" answer, which closes on "✓ <name> — removed with
+' its OpenCode history"; no carry runs on either. `proveo rm --stop <name>`
+' carries the history first; the expired-login ⚠ names it as its fix.
+' A NEW ENGINE'S HISTORY IS ONE FACT of the sbx block (R2, carry-over e):
+' "history: empty in new engine <name>", "carried history (12 MB) into new
+' engine <name>" or "imported <path> (12 MB) into new engine <name>", dim "the
+' host copy stays unchanged" (ensureOpenCodeEngine returns it).
+' A FAILED ENGINE CREATE SAYS WHAT IT LEFT (R2 review, 2026-11-11). Run calls
+' openEngine, which wraps ensureOpenCodeEngine. On any failure it prints the
+' sbx block's facts first. After a failed `sbx create` (errEngineCreate) it
+' then prints the line the general create prints: "⚠ <engine> — kept: its
+' create failed", dim "`sbx rm --force <engine>` removes it" (leftByCreate),
+' when sbx still lists the engine. A fresh engine holds no history yet, so
+' `sbx rm --force` loses nothing. Before, only the general create had that
+' line, and main's "× create OpenCode engine <name>: …" was the only trace.
+' Pinned by TestAFailedEngineCreateThatLeftTheEngineListedSaysSoAfterTheSbxFacts.
 '
 ' ── THE IMAGE SIDE ─────────────────────────────────────────────────────────
 ' packages/lib/proveo-opencode-runtime is a 103-line THIN WRAPPER, keeping its
@@ -387,7 +402,7 @@ PV ARROW_MAIN SBX : sbx run --name <engine> (reattach)
 SBX ARROW_MAIN ENG : credential startup after history readiness
 SBX ARROW_MAIN OC : agent launch
 OC ARROW_MAIN ENG : native default path; --auto / --standalone
-PV ARROW_OPTIONAL PV : teardown keeps the engine:\n"history lives in retained engine <name>"
+PV ARROW_OPTIONAL PV : teardown keeps the engine:\n"retained engine <name> — holds OpenCode's history"
 
 group settings changed (retireSandbox, D1 / D7)
   PV ARROW_MAIN ENG : sbx exec python3 -I -c OpenCodeExportScript

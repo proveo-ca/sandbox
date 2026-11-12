@@ -1,0 +1,753 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the order in which the TUI and wizard upgrades reach main from branch feat-tui-upgrades — waves, slices, decisions and gates
+' status: proposed 2026-11-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   what was delivered .............. two plan diagrams, retired in W13. Their
+'                                     measurements: _spec/_experiments/terminal-handoff-probes.puml
+'                                     Their reasoning: the specs each PROGRESS entry names.
+'   the vocabulary it borrows ....... _spec/_experiments/sbx-tui-observed.puml
+'   the release gate it ends on ..... _spec/_devops/release-gate.puml
+'   how e2e suites are run .......... _spec/tests/testing-strategy.puml
+'   the spec lifecycle of a slice ... _spec/_conventions/spec-conventions.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── HOW THIS ORDER WAS REACHED ─────────────────────────────────────────────
+' 2026-11-10. Eight read-only lanes mapped the seams (61 slices before
+' de-duplication, 61 corrections to the two plans, since applied). Two of them
+' settled the Bubble Tea v2 unknowns, one by reading the library and one by
+' running it under tmux. Three planners then ordered the 50 de-duplicated
+' slices under different lenses, and three judges scored each ordering.
+' Five slices changed afterwards. The prompt kit added S9, S10 and S11. D9
+' retired B1 (the cell grid) and added B11 (golden frames). D8 added B12 (the
+' Go bump). That makes 54 ids: 52 in waves and 2 deferred.
+'   lens         dependencies   operator value   verification
+'   fix-first        22              21               19      chosen by all three
+'   risk-first       21              17               19
+'   write-once       14              15               15
+' (five criteria, 1 to 5 each.) No ordering broke a dependency edge.
+' write-once puts the fix for the reported freeze 21st of 50 to save about 20
+' lines; its own author flags that as too late.
+' This file is fix-first with the judges' grafts: the gates and the tagged
+' oracles first (write-once, risk-first), a Linux leg written as commands,
+' deletions one wave behind their proof (risk-first), the button confirms
+' directly behind the modal port (write-once).
+' Every measurement behind it ran on darwin/arm64, go1.26.5, tmux 3.7b.
+' [Unverified] Nothing has run on Linux. W1 is the first wave that does.
+'
+' ── HOW THIS FILE WAS CHECKED, AND HOW IT WAS NOT ──────────────────────────
+' [Unverified] No independent review completed. A five-reviewer round, each
+' finding challenged by a skeptic, was launched twice on 2026-11-10. The
+' first lost its connection; the second hit the account's usage limit one
+' minute in. Neither returned a finding.
+' CHECKED INLINE, the same day:
+'   order   72 dependency edges against the listed slice order, by script: 0
+'           violations. 52 slice ids in waves, each once.
+'   tests   every existing test this file names is listed by `go test -list`:
+'           the tmux pin, six TestInit pins of ten TestInit tests, the five
+'           TestClone suites, the forced-remove test.
+'   gate    the jq program, on a sample; the three tmux format variables, in
+'           `man tmux`; ci's three parts, goreleaser's 8 targets and the
+'           post-commit hook, in mise.toml, .goreleaser.yaml and hooks.go.
+'   lines   25 path:line references in the two plans opened and read.
+'   counts  the test-anchor counts the wizard plan listed, by grep.
+' That pass corrected two claims: go-fuzzyfinder has three call sites, not
+' four, and the baseline command printed full package paths against a list
+' of short ones.
+' NOT CHECKED: the Bubble Tea and teardown measurements beyond their lanes'
+' own reports; whether each wave's gate can fail for the defect it ships.
+'
+' ── THE STANDING GATE — EVERY WAVE, BEFORE ITS PR MERGES ───────────────────
+' Green means NO NEW FAILING TEST (D12, the Executor). `mise run ci` exits
+' non-zero on this host at main, so its three parts run as separate lines:
+'   1  mise run lint
+'   2  go build ./...
+'   3  mise run baseline        # one `go test -race -count=1 -skip=… ./...`;
+'      exits 1 on any failure outside mise.toml [vars] unit_baseline, a
+'      build error included (G0, landed 2026-11-10 as a maintainer Go
+'      command instead of a jq line; a go test -skip since 2026-11-12:
+'      _spec/_devops/unit-baseline.puml)
+'   4  go vet -tags=e2e ./e2e/                           # until G2 lands
+'   5  GOOS=windows GOARCH=amd64 go build ./...          # until G3 lands
+'   6  plantuml -checkonly <every .puml the wave edits>
+'   7  each tagged run uses -v, and its output holds no line matching
+'      `^--- SKIP` and no "no tests to run": a skip or an empty match is not a
+'      pass (release-gate.puml records that misread)
+'   8  mise run build-cli && proveo --version            # dev@<HEAD>, then
+'      the wave's hand trial in a host terminal tab
+' THE BASELINE, MEASURED at 0f34a714 (= main) with and without -race: 15 tests
+' in 3 of 47 packages; the names are in _spec/_devops/unit-baseline.puml. Two fail
+' on any host. TestVarsSortByScopeThenName guards envreg.go, which S1 may edit:
+' fix envreg.go:153 in the first slice that touches that file.
+' ONE PR PER WAVE. History here is squash-merged, so a wave reverts as one
+' commit. Lanes inside a wave are commits on the wave's branch.
+' e2e runs name their tests with -run. Three live sandboxes share this host; a
+' bare e2e run starts real sandboxes beside them.
+' THE LINUX LEG. From W1 on, each wave reruns its -race unit suites and its
+' tmux pins inside a Linux proveo sandbox (docker and tmux, no sbx).
+' [Unverified] That sandbox has python3: defs/base/Dockerfile names tmux only,
+' and TestLiveCtrlCConfirmationOnTmux skips without it. B3 rewrites that
+' test's helper anyway and replaces the python child with the re-executed test
+' binary, so the pin needs tmux alone.
+' THE WAY BACK for an operator whose terminal misdraws a ported surface: the
+' existing PROVEO_WIZARD=off path, which every page keeps (the headless rule).
+'
+' ── PROGRESS ───────────────────────────────────────────────────────────────
+' W0  DONE 2026-11-10, eight slices in four commits on feat-tui-upgrades.
+'     G1 0e76988c · G0, G2, G3 cc03fc71 · W-b eda7352c · T2, T1 in the next.
+'     The oracle run before any change: all seven tmux pins passed at
+'     0f34a714. After W-b the six TestInit pins passed again, no skip.
+'     T2 logs `step:` rows, not `teardown:` rows: PreserveClone also serves
+'     the retire path at run start. T1 moved the removal into removeSandbox.
+'     Reasoning: _spec/internal/backend/teardown.puml.
+'     NOT RUN in W0: the Linux leg (it starts with W1), and any real-sbx e2e.
+' W1  DONE 2026-11-10, P1a + P1b + P1c in one commit.
+'     Both pins are red at the commit before it (5f1d9236) and green after:
+'     the pty pin lost keys in round 0; the live pin answered "still open".
+'     THE FIRST LINUX LEG ran in a container from the local
+'     proveo/claudecode-browser image (linux/arm64, go1.26.5, tmux, python3;
+'     no C compiler, so no race detector): three unit suites passed and the
+'     live post-exit pin passed 3 of 3. It found one thing: the existing
+'     live Ctrl+C test fails about one run in eight on Linux, before and
+'     after this wave. _spec/internal/ptyproxy/pty-ownership.puml records it;
+'     W4 replaces the path it exercises.
+'     The new live test's first Linux run failed on its own read race (the
+'     helper's result file read between create and write); the helper now
+'     writes a temp file and renames it.
+'     NOT DONE: the hand trial in a host tab and `mise run build-cli`. That
+'     install replaces the proveo on PATH, which a live scheduled run on this
+'     host would pick up; it waits for the Executor.
+' W2  DONE 2026-11-10: T3 in 5f8b1e60, the start lines in the commit after.
+'     THE GATE RAN ON REAL SANDBOXES (macOS, sbx 0.50.0). The host held no
+'     proveo/claudecode image, so the first try SKIPPED; the published image
+'     was pulled and the run repeated.
+'     The clone-output e2e now compares the run log's `step:` rows with a
+'     fixed list. It passed at f7ff80a0 (the closure) and after T3, so the
+'     order did not change. The four other TestClone* suites passed, one at
+'     a time. TestHeadedCtrlCAsksBeforeRemoving passed for the three
+'     harnesses whose image is on this host and skipped the other seven; it
+'     runs against a fake sbx client, not a sandbox (see W4).
+'     After the start lines: three TestClone* suites and the forced-remove
+'     test passed again.
+'     A STEP CEILING IS A SUM of the bounds its calls already had. It is
+'     printed, not enforced: no new timeout exists.
+'     Linux leg: five unit suites and two tmux pins passed.
+'     Reasoning: _spec/internal/backend/teardown.puml.
+'     NOT DONE, as in W1: the hand trial and `mise run build-cli`.
+' W3  DONE 2026-11-10: T4 in 9327897f; W-a and the cancel sentinel in the
+'     commit after.
+'     T4 ON A REAL TERMINAL AND A REAL SANDBOX, with `sbx rm` slowed by a
+'     PATH shim: the first Ctrl+C printed its line and left the removal
+'     running; the second exited 130 with the sandbox still listed.
+'     T4 ALSO put sbx's own bounded calls in their own process group: the
+'     probes behind Running and Exists run inside teardown too.
+'     THE GROUP KILL REMOVED A WAIT nobody had named: a killed call's
+'     grandchild held the pipe for the 2s grace. The Linux unit suite for
+'     the package went from 24.3s to 5.7s.
+'     THE SCOPE PIN IS RED BEFORE AND GREEN AFTER: at 9327897f proveo was
+'     still running 30s after Esc; now it prints "cancelled at the scope
+'     prompt" and exits 1.
+'     [Inference] "A scheduled run in a monorepo opens the picker" stays an
+'     inference: the gate now refuses there, and no scheduled run was made
+'     to prove the old behaviour.
+'     Reasoning: _spec/internal/backend/teardown.puml (T4),
+'     _spec/internal/backend/exit-code.puml, _spec/internal/run/run-spec.puml.
+'     NOT DONE, as in W1: the hand trial and `mise run build-cli`.
+' W4  DONE 2026-11-10: B12 70ceba1a · B0 c84637cb · B2, B3 and B10 0cf6a75e ·
+'     G4, G5 and T5 in the commit after.
+'     THE GATE PASSED: the unchanged tmux driver ran 8 of 8 on macOS and 8 of
+'     8 on linux/arm64. With tcell it failed about one run in eight there.
+'     THE OVERLAY'S INPUT IS OPTION B, on the byte capture the Executor asked
+'     for: a Program reading its own input wrote 107 bytes, among them a
+'     modifyOtherKeys set and reset, a kitty push, pop and query and two mode
+'     queries; with proveo decoding the hand-off it wrote 58, all of them the
+'     alternate screen, the cursor and the frame.
+'     B10 WAS PROMOTED BY ITS OWN TRIGGER. The mode flags differed across a
+'     dialog (tcell: all three; Bubble Tea: two), so the proxy now tracks the
+'     child's alternate screen and hidden cursor and writes them again.
+'     OVER A REAL AGENT in a real sandbox (claudecode, macOS, sbx 0.50.0): n
+'     kept the pane's flags, y removed the sandbox.
+'     THE LIPGLOSS DIALOG EQUALS THE TCELL DIALOG cell for cell at five sizes.
+'     A CORRECTION TO W2 AND W3 ABOVE: TestHeadedCtrlCAsksBeforeRemoving runs
+'     the real proveo binary on a tmux terminal against a FAKE sbx client. It
+'     never ran on a real sandbox; the TestClone* suites and the two new
+'     close and interrupt tests did.
+'     go.mod's go directive is 1.26.7 (lipgloss asks for it); the toolchain
+'     is 1.26.10. bubbles is pinned ahead of its first import.
+'     Reasoning: _spec/internal/ptyproxy/pty-ownership.puml,
+'     _spec/internal/choiceui/tui-stack.puml,
+'     _spec/internal/ui/output-vocabulary.puml.
+'     NOT DONE: a hand trial of the dialog in a terminal that is not tmux,
+'     and, as before, `mise run build-cli`.
+' W5  DONE 2026-11-10: B4, B5, W-h, W-n and T7 in cd72e542; T6 in the commit
+'     after.
+'     B5 AND W-n LANDED AS ONE STEP. The four other confirms were never ported
+'     as typed dialogs: all five went straight to the button row, so the
+'     typed Bubble Tea modal of W4 was written once, for the gate, and
+'     deleted here.
+'     THE LINUX LEG FOUND THE OLD RESIDUAL AGAIN: the unchanged Ctrl+C driver
+'     failed 1 run in 4 with the button dialog. The cause was the one tcell
+'     had: a key typed right after the deciding key was consumed by the
+'     dialog's reader. proveo now decodes the hand-off itself, one key at a
+'     time, and returns every byte it did not deliver. After it: 12 of 12 on
+'     linux/arm64 for all four tmux pins.
+'     `y Enter` AND `n Enter` STILL WORK: y selects the non-safe answer, n the
+'     safe one. Two keys, as D7 asks; the tmux driver did not change.
+'     T6 IS A LIVE LINE, NOT A PROGRAM. A deviation from this plan: teardown
+'     prints through ui while it runs, keeps the terminal cooked for its
+'     signals, and hands the terminal to a dialog in the middle. One live
+'     line under the Printer's lock does it. W-k (W12) therefore builds on
+'     that line, and W-o reduces to ending the line before a step that takes
+'     the terminal.
+'     tcell's importers went from 34 files to 18.
+'     Reasoning: _spec/internal/choiceui/confirm-dialogs.puml,
+'     _spec/internal/ptyproxy/pty-ownership.puml,
+'     _spec/internal/backend/teardown.puml (T6).
+'     NOT DONE: a hand trial in a terminal that is not tmux; `mise run
+'     build-cli`.
+' W6  DONE 2026-11-10, S1 + S3 + S2 in one commit.
+'     THE GATE PASSED. `proveo prompt`, with sbx, git, docker, tmux and
+'     starship replaced by logging scripts, logged no call. A real run left
+'     by Ctrl+C in teardown wrote its kept entry (exit 130) and the prompt
+'     command printed "1 kept" in its repository.
+'     A CLONE E2E WROTE INTO THE OPERATOR'S OWN STORE: it sets no
+'     PROVEO_STATE_ROOT. The entry was removed by hand. W7's reconcile drops
+'     an entry whose repository is gone.
+'     Reasoning: _spec/internal/results/result-store.puml.
+' W7  DONE 2026-11-10, S5 + S6 + S7 + S8 in one commit.
+'     ON A REAL SANDBOX: `proveo rm` refused the kept sandbox while it ran,
+'     then carried it, removed it and cleared its entry.
+'     "TO ADOPT" NOW COUNTS COMMITS NO LOCAL BRANCH HOLDS, not commits HEAD
+'     lacks. A branch made by `proveo adopt`, or by hand, lowers it with no
+'     bookkeeping. The same real run showed one commit counted twice (carried
+'     by teardown and again by `rm`); the summary counts distinct tips.
+'     THE RECONCILE CLEARED A REAL STALE ENTRY: the one a clone e2e had left
+'     in the operator's store went on the first `proveo rm`.
+'     An empty `sbx ls` clears nothing, in `rm` and in the reconcile.
+'     Reasoning: _spec/internal/results/result-store.puml.
+' W8  DONE 2026-11-11, S9 + S10 + S4 + S11 in one commit.
+'     THE GATE PASSED on macOS with the real tools: bash -n, zsh -n and fish
+'     --no-execute accept the block proveo appends; starship 1.27.0 drew the
+'     segment in a repository and nothing outside one; an existing
+'     starship.toml gained the fenced block and came back byte for byte.
+'     On linux/arm64 only bash was there to check.
+'     THE DIGESTS ARE PINNED IN THE SOURCE, not fetched beside the archive:
+'     six for starship, one for FiraCode.zip, read from the publishers on
+'     2026-11-11. The font archive is 28,602,426 bytes and holds 18 fonts.
+'     THE E2E INIT RUNS PASS --skip-prompt. Their HOME is a temp dir, so
+'     without it each run would download the font.
+'     NOT DONE: `proveo init` with the prompt row on this host. It edits the
+'     operator's rc file and starship config.
+'     Reasoning: _spec/internal/promptkit/prompt-kit.puml.
+' W9  DONE 2026-11-11: the goldens in 6fe4a3e2, the port in e9b719df, the
+'     key line and the specs in the commit after.
+'     B11: 131 frames, written by the tcell renderer before any drawing
+'     changed. THE PORT EQUALLED ALL 131 ON ITS FIRST RUN, as plain text.
+'     A DEVIATION FOR THE EXECUTOR TO JUDGE. The plan had about 890 lines of
+'     drawing rewritten as lipgloss views and the positional tests replaced
+'     by the goldens. What landed keeps draw(), canvas and pen and swaps the
+'     sink: styled runs become lipgloss layers on a canvas. The positional
+'     tests stay, through a shim that reads a rendered frame back by cell.
+'     B6 was never dead code, so B6 and B7 are one commit.
+'     [Inference] D9 may have meant flow layout. Nobody asked.
+'     tcell HAS NO IMPORTER LEFT. go.mod keeps it until W10: go-fuzzyfinder
+'     requires it.
+'     THE GATE'S HOST-TAB CHECK RAN ON tmux INSTEAD. e2e/form_tty_test.go
+'     runs `proveo run claudecode >/dev/null`: the form draws, takes a key
+'     and leaves on Esc. No host tab was used.
+'     Also green on the port: the six TestInit pins and two dialog pins on
+'     macOS and, twice each, on linux/arm64; the scope-picker pin; the clone
+'     e2e and the Ctrl+C dialog over a real claudecode agent (macOS, real
+'     sandboxes); the 16-row baseline.
+'     THE LOCALE REWRITE WENT WITH tcell. [Unverified] No LANG=C terminal
+'     was looked at.
+'     Reasoning: _spec/internal/choiceui/tui-stack.puml (THE FORMS),
+'     _spec/internal/choiceui/wireframe.puml (the two-tone key line),
+'     _spec/internal/choiceui/topology-strip.puml (the clock is a message).
+' W10 DONE 2026-11-11, W-c, W-d, W-f, B8 and B9 in one commit.
+'     The scope page is a folder tree with the repo root first, marked
+'     default, under the cursor. It is page 1/2 of a monorepo run; the form
+'     is page 2/2 and steps back to it, onto the row it was left on.
+'     ONE COMMIT, NOT FIVE: the tree model has no caller without the page,
+'     the page has no caller without the split, and the libraries cannot
+'     leave while any picker imports them.
+'     DECIDED HERE, NOT IN THE PLAN, FOR THE EXECUTOR TO JUDGE:
+'       every folder is a scope, not only a project (`apps`, beside
+'       `apps/web`). --scope already took any path.
+'       a filter moves the cursor to its first match. Left on the root,
+'       "/web" then Enter chose the root.
+'       the form's answers survive a step back where the options match.
+'       the scope line prints after the pages, not before the form.
+'       the list matches every typed word; the finder matched a subsequence.
+'     go.mod lost six modules and go.sum 13 lines, by hand. A tidy would also
+'     drop martian, x/net, x/text and the bubbles pin.
+'     RAN: lint 0; the 16-row baseline; both builds; on macOS tmux the two
+'     scope tests, the target-list test, the form-with-stdout-redirected
+'     test, the Ctrl+C pin, an init pin, and the clone e2e on a real
+'     sandbox; on linux/arm64 the unit suites, six init pins, two dialog
+'     pins and the list test, twice each.
+'     SKIPPED ON LINUX: the two scope tests and the redirected-form test.
+'     The container has no sbx, and a run refuses before its first page.
+'     NOT RUN: the maintainer's multi-select on a terminal; a hand trial
+'     (the picker was deleted 2026-11-12).
+'     Reasoning: _spec/internal/choiceui/scope-tree.puml,
+'     _spec/internal/run/run-spec.puml (THE SCOPE IS PAGE 1).
+' W11 DONE 2026-11-11, W-i in one commit.
+'     On a wizard's page Esc steps back and closes from page 1; Ctrl+C and q
+'     ask first; Skip is a button under the rows of init's pages 2 and 3.
+'     DECIDED HERE, FOR THE EXECUTOR TO JUDGE:
+'       a lone form keeps its keys: Esc and Ctrl+C cancel at once. That
+'       covers the two GitHub-access forms inside setup, so they were not
+'       edited.
+'       a confirmed quit exits 1 and names the page. Ctrl+C on init's later
+'       pages used to end 0, as a skip.
+'       Ctrl+C a second time, inside the question, quits.
+'       shift+tab still steps back; the key line no longer names it.
+'     THE COUNTED TEST CHANGES LANDED THROUGH THE HELPERS W0 ADDED: the back
+'     key and its hint in one place, Escape-as-skip and Escape-as-finish as
+'     one key list. No init test body changed.
+'     The golden frames changed in 14 files, on the key line only.
+'     RAN: lint 0; the 16-row baseline; both builds; seven init tests, two
+'     dialog pins and the list test on macOS and, twice each, on
+'     linux/arm64; the two scope tests and the redirected-form test on
+'     macOS.
+'     NOT RUN: a hand trial.
+'     Reasoning: _spec/internal/choiceui/wizard-keys.puml.
+' W12 DONE 2026-11-11, W-j, W-k and W-o in one commit.
+'     The setup page and the run form list what Enter runs; the count
+'     follows "enter accept" as its own segment. init's apply and a run's
+'     start show numbered steps on the renderer teardown uses.
+'     W-o FOUND A DEFECT T6 SHIPPED IN W5. MEASURED on tmux: teardown's live
+'     line drew over the pushed-branch question inside 500 ms. Every prompt
+'     now takes the line off the terminal and puts it back. The new test
+'     fails on the code without that.
+'     DEVIATIONS, FOR THE EXECUTOR TO JUDGE:
+'       "step tables" are step lines. T6 is one live line, and W-k builds
+'       on T6; no table of done, running and pending rows exists.
+'       the sandbox's name is not on the run form. It is derived from the
+'       mount plan, which is built after the form.
+'       the on-enter region draws in the rows left under everything else,
+'       so it moves no other region. On a short terminal only the count
+'       shows.
+'       a run's start wraps the five steps inside sandbox.Run. Image
+'       preflight and the local-model pull before it are not steps.
+'     RAN: lint 0; the 16-row baseline; both builds; eight init tests, two
+'     dialog pins, the list test and the live-line test on macOS and, twice
+'     each, on linux/arm64; on macOS also the scope test, the clone e2e on
+'     a real sandbox with the longer step list, and the Ctrl+C dialog over
+'     a real agent and over the fake sbx.
+'     NOT RUN: an install from the network, so the download and install
+'     steps drew on no terminal; a hand trial.
+'     Reasoning: _spec/internal/ui/step-lines.puml,
+'     _spec/internal/choiceui/wireframe.puml (THE FORM SAYS WHAT ENTER WILL
+'     RUN).
+' W13 DONE 2026-11-11: W-l, W-m and the retirement. THE LAST WAVE.
+'     init has four pages. Page 1 shows every install prerequisite and, when
+'     sbx is on the host, every `sbx diagnose` row; a blocking prerequisite
+'     stops there. init ends on a result: what ran, what was left with the
+'     command that does it, and `proveo run`.
+'     DEVIATION, FOR THE EXECUTOR TO JUDGE: the result is printed in the
+'     stream, not drawn as a page. A page takes its text with it when it
+'     closes.
+'     THE TWO PLAN DIAGRAMS ARE RETIRED, in the spec-keeper's order. Their
+'     measurements moved word for word to
+'     _spec/_experiments/terminal-handoff-probes.puml. What only the wizard
+'     plan stated (what was not taken from sbx, the no-terminal rendering of
+'     each page, the alternatives D5, D6 and D10 rejected) moved to
+'     wizard-keys.puml and scope-tree.puml. Seven decision quotes moved to
+'     DECISIONS below. Every citation was repointed; a grep for either file
+'     name finds nothing. Their two note-size rows went.
+'     THE BRANCH SWEEP DID NOT RUN, AND WAITS FOR THE EXECUTOR.
+'       `mise run test-e2e` starts real sandboxes for every suite. Three
+'       sandboxes of the Executor's ran on this host throughout, and a
+'       scheduled run appeared during the work. Named tests ran instead,
+'       each wave: see the entries above.
+'       The in-sandbox half of release-gate.puml needs an sbx on Linux. The
+'       container used for the Linux leg has none.
+'     ALSO WAITING FOR THE EXECUTOR, from earlier waves:
+'       `mise run build-cli`: the proveo on PATH is still the old one.
+'       a hand trial in a host tab, and in a terminal that is not tmux.
+'       `proveo init` with the prompt row, on a real shell config.
+'       an install from the network: no test downloaded or placed sbx.
+'     RAN for W13: lint 0; the 16-row baseline; both builds; nine init
+'     tests, two dialog pins, the list test and the live-line test on macOS
+'     and, twice each, on linux/arm64.
+'     Reasoning: _spec/cmd/proveo/init-preflight-and-result.puml.
+'
+' ── THE WAVES ──────────────────────────────────────────────────────────────
+' Size: S under 150 changed lines, M under 500, L under 1500.
+'
+' W0  GREEN MEANS SOMETHING, AND THE FIRST FIX
+'   G1  commit the six spec files (this one included); ratchet rows for the
+'       two plan diagrams with notes ............................... written
+'   G0  commit the 15-name baseline list and the diff command above ..... S
+'   G2  `go vet -tags=e2e ./e2e/` joins `mise run lint` ................. S
+'   G3  a contract test cross-builds cmd/proveo for the 8 release targets S
+'   W-b e2e helpers for init page waits and keys (28 literals, 4 helpers) S
+'   --  run the tagged oracles ONCE, unchanged, before any behaviour change:
+'       go test -tags=e2e ./e2e/ -run '^(TestLiveCtrlCConfirmationOnTmux|
+'       TestInit(Steps|SignIn|YesNever|Narrow|GitHub|YesReports).*)$' -count=1 -v
+'       No lane ran them; a pin already red must not be charged to W1.
+'   T2  P0: one step helper logs name, duration, outcome to the run log . S
+'   T1  deadlines on sandboxReflog, the pushed fetch, SaveState and
+'       `sbx rm --force`; a rescue line on timeout ...................... S
+'   operator sees  a wedged sbx daemon no longer hangs teardown before the
+'                  carry; the run log gains one line per teardown step
+'   T2 merges before T1: its logged step order is the oracle W2 diffs.
+'
+' W1  ONE READER — THE POST-EXIT PROMPT TAKES KEYS          D1, D15 decided
+'   P1a Run ends a live Ctrl+C overlay with the child, and joins it ..... S
+'   P1b Run cancels the stdin read with select and a self-pipe (D1) and
+'       joins it before Restore; pin: a second reader gets every key, 20
+'       rounds. The post-exit question discards input typed before it
+'       draws (D15) ..................................................... M
+'   P1c tmux live test: real Run, real modal, y + Enter, 12 of 12 ....... S
+'   operator sees  the pushed-branch question accepts y then Enter the first
+'                  time; keys typed during teardown stop vanishing
+'   hand trial     a host-tab run that ends with a pushed branch
+'   FIRST LINUX RUN of the cancel path.
+'
+' W2  TEARDOWN IS A VALUE                                      no decision
+'   T3  the deferred closure becomes named steps, each with a context and a
+'       ceiling, called before Run computes its result. Includes a recover so
+'       a panicking step does not skip the rest, and a pin for it ....... L
+'   --  then, as its own commit: each step prints a start line with its
+'       ceiling. (Written twice by choice: T6 replaces it in W5.)
+'   gate  T2's step names before T3 equal the names after it, asserted inside
+'         the clone e2e (its PROVEO_HOME is a temp dir, so the log is gone
+'         afterwards); all five TestClone* suites, one at a time; the
+'         forced-remove test TestHeadedCtrlCAsksBeforeRemoving
+'   operator sees  the terminal says which teardown step is running
+'   T3 is the one slice that can lose work silently: a dropped or reordered
+'   step shows only in the real-sbx clone suites.
+'
+' W3  CTRL+C IN TEARDOWN: SAY ONCE, LEAVE ON TWO         D16, D17 decided
+'   T4  SIGINT state machine and Setpgid for teardown children, in ONE
+'       slice; exit 130; the kept lines print through KeptLines. SIGTERM
+'       and SIGHUP let the running step finish, skip the rest, keep the
+'       sandbox, say what stayed, and exit 128+signal (D16) ............. M
+'   W-a one scope-gate predicate: under --yes and PROVEO_SCHEDULE the run
+'       takes the repo root and prints a `scope:` line (D17) ............ S
+'   --  fuzzyPickProject returns a cancel sentinel (about 10 lines; W-f
+'       deletes the function in W10): Esc in `scope>` stops meaning "root"
+'   operator sees  the first Ctrl+C names the running step and what leaving
+'                  keeps; the second keeps the sandbox and exits 130
+'   After W3 every measured defect has a fix on main, on the current stack.
+'
+' W4  THE PORT GATE — NOTHING VISIBLE       D8, D9 decided; decides A/B
+'   B12 bump Go to the newest 1.26.x, at least 1.26.7, in go.mod and
+'       mise.toml together (one contract test pins both); re-record the
+'       baseline list under it (D8) ..................................... S
+'   B0  pin bubbletea v2.1.1, bubbles v2.2.1, lipgloss v2.1.0 with explicit
+'       versions; a contract test checks the resolved versions .......... S
+'   B2  ptyproxy hosts a Program on the hand-off reader: the newline
+'       adapter, halt-at-quit, WithoutSignalHandler, AltScreen required.
+'       A contract test fails on any formatting of tea.EnvMsg ........... M
+'   B3  THE GATE: the Ctrl+C dialog as a Bubble Tea Program, its view in
+'       lipgloss (D9). The test's helper half is rewritten; its tmux
+'       driver stays byte-identical .................................... M
+'   G4  ratchet: importers of tcell and go-fuzzyfinder only shrink. It lands
+'       after P1c, the last new importer ................................ S
+'   G5  a dead row in the glyph-ban exemption list fails ................ S
+'   T5  ui.Printer gains a terminal-only writer and a live-region hook;
+'       fixes the Ollama pull's frames in the run log ................... M
+'   gate  the tmux driver passes; `tmux display -p '#{alternate_on}
+'         #{cursor_flag} #{bracket_paste_flag}'` prints the same before
+'         Ctrl+C and after answering n in a live run; one hand trial of the
+'         dialog in a terminal that is not tmux; a pump-tap capture of the
+'         bytes option A writes, against an allow-list
+'   The tcell overlay is NOT deleted in this wave.
+'   B12 costs one refetch of the Go layer at the next image build. No view
+'   calls lipgloss.HasDarkBackground or tea.RequestBackgroundColor: both
+'   read the terminal, and the proxy owns it.
+'
+' W5  THE MODALS FINISH; TEARDOWN SPEAKS LIVE                  D7 decided
+'   B4  delete OverlayTty and OverlayScreen, the windows twin included ... S
+'   B5  port the four other confirms; delete tcell readModal, openScreen  M
+'   W-h the button-row dialog: safe answer selected, holding ↵ .......... M
+'   W-n the five typed y/N modals move to the button row. Destroying takes
+'       two keys; Enter alone never does (D7) ........................... M
+'   T7  the close dialog stays up as "stopping the agent (up to 30s)" ... M
+'   T6  the live step list for teardown: step n/N, elapsed, ceiling ..... M
+'   operator sees  one confirm vocabulary; Enter alone never removes; the
+'                  dialog says a stop is in flight; teardown shows a clock
+'   B4 merges only after W4's Linux leg passed.
+'
+' W6  THE RUN RECORDS WHAT STAYED                              no decision
+'   S1  a leaf store: one JSON file per kept sandbox and per carried
+'       session under <state>/results/ .................................. S
+'   S3  hidden `proveo prompt`: reads the store, starts no process ...... S
+'   S2  PreserveClone records carried refs and their lead; teardown records
+'       the kept sandbox; run.Do the exit status; a write-ahead entry ... M
+'   operator sees  nothing; `proveo prompt` by hand prints one line
+'   gate  a fake sbx and a fake git first on PATH log zero calls from
+'         `proveo prompt`; a run that keeps a sandbox yields an entry
+'
+' W7  THE VERBS                                                D11 decided
+'   S5  `proveo rm [sandbox]`: refuses a running sandbox, carries the clone,
+'       removes, clears the entry. A header-only `sbx ls` clears nothing  M
+'   S6  `proveo adopt [ref|sid]` creates the branch only: HEAD, the index
+'       and the files stay untouched (D11). It lists refs that predate
+'       the store too ................................................... M
+'   S7  reconcile stale entries at run start, in rm, adopt and clean .... S
+'   S8  end-of-run lines name the verbs; the `sbx exec -it` recipe stays  S
+'   The verbs land BEFORE the prompt shows counts they are needed to lower.
+'
+' W8  THE PROMPT KIT RIDES ALONG WITH sbx                   D13, D14 decided
+'   S9  init installs starship v1.27.0 when it is not on PATH: one asset per
+'       host, checked against its published .sha256 ..................... M
+'   S10 init downloads FiraCode Nerd Font when the host has NO Nerd Font:
+'       Nerd Fonts v3.5.1, FiraCode.zip, checked against SHA-256.txt
+'       (D18) ........................................................... M
+'   S4  the shell block (`starship init` for bash, zsh, fish), a marked
+'       `[custom.proveo]` block, `proveo prompt --init <shell>` ......... S
+'   S11 setup's "prompt" row; the glyph question as a button dialog (W-h);
+'       the preset it seeds; `proveo uninstall` undoes all of it ........ M
+'   operator sees  after init, the shell prompt shows what the last runs left
+'   gate  each emitted snippet passes `fish --no-execute`, `bash -n`, `zsh
+'         -n`; `STARSHIP_CONFIG=<the file> starship module custom.proveo`
+'         prints the segment in a repo and nothing outside one; an init run
+'         against an existing starship.toml changes only the marked block
+'   S10 fetches the .zip (27.3 MB) because Go's standard library unpacks
+'   it and has no xz reader (MEASURED: `go doc compress/xz` fails).
+'
+' W9  FORMS ON BUBBLE TEA, NO BEHAVIOUR CHANGE               D9 decided
+'   B11 golden frames: the CURRENT renderer's plain text for every form,
+'       page and topology state, at each size viewport.puml names. They
+'       are the oracle the rewrite is held to ........................... M
+'   B6  the form, its key line, its regions and the topology strip as
+'       lipgloss views, built beside the old drawing and not yet wired;
+'       each view's plain text equals its golden frame .................. L
+'   B7  the form's event loop on Bubble Tea, the views wired, then canvas,
+'       pen and the tcell paint tests deleted; shift+tab and Esc keep
+'       their meaning, so the e2e suite proves the port ................. L
+'   W-e the key line splits into key and word; the paint turns two-tone . S
+'   gate  the golden comparison; `proveo run <target> >/dev/null` in a host
+'         tab: the form still draws on the terminal (tcell wrote /dev/tty;
+'         a Program defaults to stdout)
+'   D9 rewrites about 890 lines of drawing and replaces, rather than keeps,
+'   the positional tests. B11 is what stands in for them. B6 is dead code
+'   until B7 wires it, so no wave ends on a half-ported form.
+'
+' W10 PICKERS ON BUBBLE TEA; tcell LEAVES                       D6 decided
+'   W-c the pure tree model: root first and default, fold, filter ....... M
+'   W-d resolveWorkspace splits; the scope page shows on every monorepo
+'       run, Enter keeps the root, and the form steps back to it (D6) ... M
+'   W-f the tree view as the scope page ................................. M
+'   B8  one filter list replaces the two other go-fuzzyfinder pickers ... M
+'   B9  tcell and go-fuzzyfinder leave go.mod; a contract test keeps them
+'       out ............................................................. S
+'   operator sees  a folder tree with the root first and marked default
+'
+' W11 ONE MEANING PER KEY                                      D10 decided
+'   W-i Esc back, close on page 1; Ctrl+C quits after a confirm; a
+'       focusable Skip button (D10); new Skipped and Quit outcomes ...... M
+'   W-i precedes W-j and W-k: all three edit Form.hint or the nested
+'   GitHub-access forms.
+'
+' W12 THE WIZARD SAYS WHAT ENTER RUNS, THEN SHOWS IT           no decision
+'   W-j the on-enter region; the count follows "enter accept" ........... M
+'   W-k step tables for init's apply and run's start, on T6's renderer .. L
+'   W-o a step that hands the terminal away ends the list's Program and
+'       starts a new one after it ....................................... S
+'
+' W13 init OPENS ON EVERY CHECK AND CLOSES ON THE RESULT       no decision
+'   W-l the preflight page: prereqs, and `sbx diagnose` rows when sbx exists M
+'   W-m the result page: ready, later with its command, next ............ M
+'   --  the branch sweep: `mise run test-e2e` on a quiet host, then the
+'       in-sandbox half of release-gate.puml on Linux
+'   --  the two plan diagrams retire: their reasoning now sits in the specs
+'       each wave rehomed, and their ratchet rows go .................. done
+'
+' DEFERRED, with the trigger that promotes each
+'   T8  stop the dev-server, Android and CDP loops before teardown. Promote
+'       if T2's log shows their `sbx ls` slowing a step.
+'   B10 re-assert the child's terminal modes after an overlay. Promote if
+'       W4's mode-flag check differs before and after the dialog.
+'
+' ── WRITTEN TWICE, BY CHOICE ───────────────────────────────────────────────
+'   T3's start lines (W2), replaced by T6's list (W5)
+'   P1a's tcell case in readModal, about 10 lines, replaced by B3
+'   P1c's five-line helper, re-pointed by B5
+'   the cancel sentinel in fuzzyPickProject (W3), deleted by W-f
+' Each buys a fix or a proof one to five waves earlier. Every view, dialog,
+' key contract and page body is written once, on Bubble Tea.
+'
+' ── DECISIONS — ALL MADE BY THE EXECUTOR, 2026-11-10 ───────────────────────
+'   before the design round:
+'     D2  "Say once, leave on two": the first Ctrl+C in teardown prints the
+'         running step and what leaving costs; the second keeps the sandbox
+'         and exits 130.
+'     D3  "Port everything to Bubble Tea v2". The recommendation was to stay
+'         on tcell while the three measured defects were fixed.
+'     D4  "proveo exits; prompt segment": no process stays alive to host a
+'         post-close surface.
+'     D5  "Adopt sbx: esc back, ^c quit". The recommendation was to keep
+'         shift+tab.
+'     D12 "let Green be 'no new failing tests'": 15 tests failed at 0f34a714,
+'         none in a TUI package.
+'     D13 "starship should be installed along" with sbx by init.
+'     D14 "Let the post-install download FiraCode Nerd Font if no nerd font is
+'         present in the host at install time".
+'   after the design round:
+'     D1  "select + self-pipe"
+'     D15 "Discard it": input typed before the post-exit question draws is
+'         dropped. MEASURED before the decision: with the join alone, a `y`
+'         typed during teardown shows in the question's field.
+'     D8  "Bump Go to 1.26.7+". The recommendation was to pin lipgloss
+'         v2.0.6 and keep go1.26.5.
+'     D9  "Rewrite the views in lipgloss". The recommendation was to keep
+'         the existing forms on a cell grid.
+'     D16 "Finish the step, then leave": on SIGTERM or SIGHUP in teardown
+'         the running step completes, the rest are skipped, the sandbox is
+'         kept and proveo exits 128+signal. Both are swallowed today.
+'     D17 "Repo root, with a line": `--yes` and scheduled runs in a monorepo
+'         take the root and print `scope: repo root`.
+'         [Unverified] That such a run opens the picker today.
+'     D7  "Buttons, two keys to destroy": Enter alone gives the safe answer.
+'     D11 "Create the branch only": `proveo adopt` leaves HEAD, the index and
+'         the files untouched.
+'     D6  "Every run, Enter keeps root": the scope page is page 1 of every
+'         monorepo run.
+'     D10 "A focusable Skip button" on init's pages.
+'     D18 "The .zip, 27 MB" for the font download.
+'   LEFT OPEN BY THE EXECUTOR ("Decide in wave 4 on evidence"), AND CLOSED IN
+'   W4: how the Ctrl+C dialog gets its keys. Option A, it reads the hand-off
+'   itself and writes terminal queries over the agent's screen. Option B,
+'   proveo decodes the hand-off and sends keys, through a direct import of an
+'   untagged module. A byte capture chose B: 58 bytes against 107, and none
+'   of the keyboard-mode sequences. The capture ran in tmux alone, not in the
+'   five terminals the plan named.
+'
+' ── WHAT A GATE STILL CANNOT SEE ───────────────────────────────────────────
+'   A terminal other than tmux 3.7b, except by the W4 hand trial.
+'   Windows and FreeBSD beyond a cross-build. [Unverified] Whether an operator
+'     reaches a choiceui form on Windows today.
+'   The three live runs on this host: they keep the old binary in memory, so
+'     their teardowns gain nothing until they end.
+'   Any operator other than this host: a wave reaches them through a PR to
+'     main and a CLI release, which this plan does not schedule.
+title PLANNED — the delivery order: fix what was measured, then port, then upgrade the wizards
+
+rectangle "fix — on the current stack" as FIX <<host>> {
+  component "W0 · gates, oracles\nT1: the hang is bounded" as W0 <<app>>
+  component "W1 · one reader\nthe post-exit prompt answers" as W1 <<app>>
+  component "W2 · teardown is a value\nit names each step" as W2 <<app>>
+  component "W3 · Ctrl+C in teardown\nsay once, leave on two" as W3 <<app>>
+}
+
+rectangle "port — Bubble Tea v2" as PORT <<host>> {
+  component "W4 · the port gate\nnothing visible" as W4 <<async>>
+  component "W5 · modals finish\nteardown speaks live" as W5 <<app>>
+  component "W9 · forms\nno behaviour change" as W9 <<app>>
+  component "W10 · pickers\ntcell leaves go.mod" as W10 <<app>>
+}
+
+rectangle "result — the prompt carries it" as RES <<host>> {
+  component "W6 · the run records\nwhat stayed" as W6 <<db>>
+  component "W7 · the verbs\nadopt · rm" as W7 <<app>>
+  component "W8 · the prompt kit\nstarship · Nerd Font" as W8 <<app>>
+}
+
+rectangle "wizards" as WIZ <<host>> {
+  component "W11 · one meaning\nper key" as W11 <<app>>
+  component "W12 · says what Enter\nruns, then shows it" as W12 <<app>>
+  component "W13 · init's first\nand last page" as W13 <<app>>
+}
+
+component "**the reported freeze**\nfixed in W1, slice 9 of 52" as FREEZE <<error>>
+component "Linux\nnever run until W1" as LINUX <<error>>
+
+W0 ARROW_MAIN W1
+W1 ARROW_MAIN W2
+W2 ARROW_MAIN W3
+W3 ARROW_MAIN W4
+W4 ARROW_MAIN W5
+W5 ARROW_MAIN W6
+W6 ARROW_MAIN W7
+W7 ARROW_MAIN W8
+W8 ARROW_MAIN W9
+W9 ARROW_MAIN W10
+W10 ARROW_MAIN W11
+W11 ARROW_MAIN W12
+W12 ARROW_MAIN W13
+W1 ARROW_OPTIONAL FREEZE
+LINUX ARROW_ERROR W1 : the first leg
+W4 ARROW_OPTIONAL W5 : deletions wait a wave
+
+note bottom of W0
+  **Oracles before changes.** No lane ran a
+  tagged e2e test. W0 runs the tmux pins once,
+  unchanged, so a pin already red is not
+  charged to the wave that follows.
+end note
+
+note bottom of W1
+  **The fix needs no library.** It lands ninth:
+  seven gate and teardown slices and its own
+  first half come before it. It waits on
+  nothing in the port.
+end note
+
+note bottom of W2
+  **The slice that can lose work silently.** A
+  dropped step shows only in real-sbx clone
+  suites. T2's logged step order, captured in
+  W0, is diffed after the refactor.
+end note
+
+note bottom of W3
+  **Every measured defect is fixed here.** Four
+  waves, thirteen slices, the current stack.
+  A failed port after this point costs no
+  fix that already shipped.
+end note
+
+note bottom of W4
+  **Alone, and invisible.** The gate passed on
+  macOS under tmux only. If it fails on Linux
+  or in another terminal, one PR reverts and
+  the tcell overlay is still there.
+end note
+
+note bottom of W8
+  **Verbs first, then the prompt.** A segment
+  that reads "2 to adopt" with no command to
+  lower it is a half-shipped surface, so the
+  kit follows the verbs by a wave.
+end note
+
+note bottom of W10
+  **Three call sites, three files.** The tree
+  replaces one picker. tcell leaves go.mod
+  only after the attach list, the maintainer's
+  multi-select and the windows stub move.
+end note
+
+note bottom of LINUX
+  **Every number so far is macOS.** The cancel
+  path, the process-group kill and the gate
+  have no Linux run. Each wave from W1 reruns
+  its pins in a Linux sandbox.
+end note
+
+legend bottom
+  **Fourteen waves, fifty-two slices, one PR per wave** — two more slices are deferred
+  ==
+  **W0-W3 · fix.** The hang before the carry, the post-exit prompt, a teardown that names its
+  steps, Ctrl+C that asks once.
+  --
+  **W4-W5 · the port's proof, then its first deletions.** The Ctrl+C dialog on Bubble Tea, the
+  modals, the live step list. Go moves to 1.26.7 or later first. One decision is left,
+  inside W4 and on evidence: how the dialog gets its keys.
+  ==
+  **W6-W8 · the result.** A store, the verbs ""adopt"" and ""rm"", then starship and the font
+  installed by ""proveo init"".
+  --
+  **W9-W10 · the rest of the port.** Forms rewritten in lipgloss against golden frames, then
+  pickers, and tcell out of go.mod.
+  ==
+  **W11-W13 · the wizards.** One meaning per key, the on-enter region, live step lists for
+  start and apply, init's first and last page.
+end legend
+@enduml

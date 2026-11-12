@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -20,8 +20,7 @@ type Frame struct {
 	HostLit   bool   // cursor is on that local model; the right-hand cells take the brand
 	Square    string // inside the box: "sbx · claudecode", or a bare target with no daemon
 	Hop       string // "sbx proxy", "mitm + squid"; empty means there is no hop
-	HopNote   string // the row under the hop label: "+ mcp" when sbx's MCP gateway is on
-	Interface string // the interface dot's label
+	Interface string // the interface dot's label: "tui + browser", ending "+ mcp" when sbx's MCP gateway is on
 	Caption   string // one sentence, the same facts as the figure; clipped, never wrapped
 	Key       KeyHome
 	Lane      LaneKind
@@ -160,11 +159,11 @@ const (
 	trafficCooldown = 1500 * time.Millisecond
 )
 
-func drawTopology(s tcell.Screen, y0 int, fr Frame, tier GlyphTier, p palette, tick int) {
+func drawTopology(s *screen, y0 int, fr Frame, tier GlyphTier, p palette, tick int) {
 	drawFigure(s, 0, y0, blockCols, fr, tier, p, tick)
 }
 
-func writeNoted(pn *pen, text string, textStyle, noteStyle tcell.Style) {
+func writeNoted(pn *pen, text string, textStyle, noteStyle lipgloss.Style) {
 	open := strings.Index(text, "(")
 	close := strings.Index(text, ")")
 	if open < 0 || close < open {
@@ -191,10 +190,10 @@ func captionHead(caption string) string {
 	return caption
 }
 
-func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p palette, tick int) {
+func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p palette, tick int) {
 	g := glyphsFor(tier)
 	dim, lit := p.body, p.brand
-	on := func(f Focus) tcell.Style {
+	on := func(f Focus) lipgloss.Style {
 		if fr.Focus == FocusNone {
 			return p.accent
 		}
@@ -209,7 +208,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	boxR := boxL + cs.boxW + 1
 	boxMid := boxL + (boxR-boxL)/2
 
-	at := func(row, col, floor int, style tcell.Style, text string) *pen {
+	at := func(row, col, floor int, style lipgloss.Style, text string) *pen {
 		x := col - textWidth(text)/2
 		if x < floor {
 			x = floor
@@ -229,7 +228,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		}
 		return text
 	}
-	inside := func(row int, dot, text, key string, dotStyle, textStyle tcell.Style) {
+	inside := func(row int, dot, text, key string, dotStyle, textStyle lipgloss.Style) {
 		pn := newPen(s, boxL, y0+row).write(on(FocusSquare), g.wallL+" ")
 		pn.write(dotStyle, dot).write(textStyle, " ")
 		pn.write(keyStyle(fr, KeyInSquare, on, p.accent), key)
@@ -283,7 +282,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 			rightStyle = p.brand
 		}
 	}
-	writePair := func(row int, left, right, join string, leftStyle tcell.Style) {
+	writePair := func(row int, left, right, join string, leftStyle lipgloss.Style) {
 		l := hostCell(left)
 		line := fit(l+join+clipRunes(right, HostSide), boxL-x0-1)
 		x := colHost - textWidth(line)/2
@@ -319,9 +318,6 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 		if key != "" {
 			p3.write(dim, " ").write(keyStyle(fr, KeyAtHop, on, p.accent), key)
 		}
-		if note := fit(fr.HopNote, colLanes-x-1); note != "" {
-			newPen(s, x, y0+4).write(on(FocusHop), note)
-		}
 	}
 
 	if table {
@@ -353,7 +349,7 @@ func drawFigure(s tcell.Screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTie
 	newPen(s, colHost, y0+6).write(p.aside, clip(caption, room))
 }
 
-func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, on func(Focus) tcell.Style, dim, keyLit tcell.Style) {
+func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, on func(Focus) lipgloss.Style, dim, keyLit lipgloss.Style) {
 	s := pn.s
 	start := pn.col()
 	wire := on(FocusSquare)
@@ -392,7 +388,7 @@ func drawDirect(pn *pen, y0, boxL, colHop, colLanes int, fr Frame, g glyphSet, o
 	newPen(s, boxL, y0+3).write(on(FocusReturn), lead+label)
 }
 
-func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell.Style, tick, runLen, from int) {
+func drawLanes(s *screen, y0, col int, fr Frame, g glyphSet, lit, dim lipgloss.Style, tick, runLen, from int) {
 	rule := g.lane(fr.Lane)
 	rows := []int{y0 + 1, y0 + 2, y0 + 3}
 	total := fr.Open + fr.Refused
@@ -421,7 +417,7 @@ func drawLanes(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell
 // then one randomly chosen lane — open ones to a cloud, refused ones into the
 // × dead-end. After the fifth, 1500ms of cooldown. The schedule is a pure
 // function of tick.
-func drawTraffic(s tcell.Screen, y0, col int, fr Frame, g glyphSet, lit, dim tcell.Style, tick, runLen, from int, rows []int) {
+func drawTraffic(s *screen, y0, col int, fr Frame, g glyphSet, lit, dim lipgloss.Style, tick, runLen, from int, rows []int) {
 	total := fr.Open + fr.Refused
 	if g.pulse == "" || tick <= 0 || total <= 0 || from <= 0 || from >= col {
 		return
@@ -522,7 +518,7 @@ func keyIf(g glyphSet, fr Frame, at KeyHome) string {
 	return g.key + " "
 }
 
-func keyStyle(fr Frame, at KeyHome, on func(Focus) tcell.Style, rest tcell.Style) tcell.Style {
+func keyStyle(fr Frame, at KeyHome, on func(Focus) lipgloss.Style, rest lipgloss.Style) lipgloss.Style {
 	if fr.Key != at {
 		return on(FocusNone)
 	}

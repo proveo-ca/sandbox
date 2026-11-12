@@ -1,0 +1,548 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Teardown — what runs after the agent exits, how long each step may take, and what the run log keeps
+' purpose: the steps proveo runs once the agent has exited, the ceiling on each, and the record each leaves in the run log
+' covers: internal/backend/sandbox/teardown.go
+' covers: internal/backend/sandbox/teardown_plan_test.go
+' covers: internal/backend/sandbox/teardown_signal_test.go
+' covers: internal/backend/sandbox/teardown_report_test.go
+' covers: internal/backend/sandbox/proc_unix.go
+' covers: internal/backend/sandbox/proc_windows.go
+' covers: internal/sbx/proc_unix.go
+' covers: internal/sbx/proc_windows.go
+' covers: internal/sbx/proc_unix_test.go
+' covers: internal/sbx/exec.go (boundedWith, boundedCombinedWith, ListWait, ExecWait)
+' covers: e2e/teardown_interrupt_test.go
+' covers: internal/backend/sandbox/teardown_steps.go
+' covers: internal/backend/sandbox/teardown_steps_test.go
+' covers: internal/backend/sandbox/sandbox.go (Run's call to teardown, boundCommand, TeardownClone, PreserveClone, removeSandbox)
+' covers: e2e/teardown_steps_test.go
+' covers: internal/backend/sandbox/pushed.go (sandboxReflog, reportPushedBranches)
+' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox's SaveState)
+' covers: internal/backend/sandbox/report.go (Block, resultOrder, ordered)
+' covers: internal/sbx/run.go (Gone), internal/sbx/sbx_test.go
+'   why this was needed ............. _spec/_experiments/terminal-handoff-probes.puml (C2, C3)
+'   the order it is delivered in .... _spec/_plans/tui-upgrades-delivery.puml
+'   the earlier deadlines ........... _spec/internal/sbx/kit-lifecycle.puml (A HUNG TEARDOWN)
+'   how a run's status is chosen .... _spec/internal/backend/exit-code.puml
+'   what the clone carry does ....... _spec/internal/sbx/clone-workspace.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' This file grows as the delivery plan's teardown slices land. Landed so far:
+' T2 (step timing), T1 (deadlines), T3 (teardown as a value), T4 (signals in
+' teardown) and T6 (the live step line), all 2026-11-10.
+'
+' ── EVERY STEP LEAVES ONE LINE IN THE RUN LOG (T2) ─────────────────────────
+' Before this, the run log stamped section headers only. A finished run could
+' not say how long any teardown step took, so "typical" silence was unknown
+' and only the ceilings were (terminal-handoff-probes.puml, C2).
+' `step(name, fn)` runs fn and records its name, duration and outcome.
+' `stepDo` is the same for a call that returns no error. The record goes to
+' the run log through ui.Logf, as
+'   step: <name> <duration> ok
+'   step: <name> <duration> failed: <first line of the error>
+' THE ROW NEVER REACHES THE TERMINAL. ui.Logf writes to the log's own printer and
+' is a no-op when no log is open, so a run whose log failed to open records
+' nothing; it does not fail.
+' THE NAMES ARE CONSTANTS in teardown_steps.go, because the step list that
+' later draws them (delivery plan, T6) reads the same names.
+'   agent              the agent's own run, start to exit
+'   stop wait          from the Ctrl+C dialog's remove answer to the sbx
+'                      client exiting (bounded by stopWait, 30s)
+'   credential check · clone mode · pushed branches · egress record ·
+'   memory evidence    the five calls that open teardown
+'   clone              the whole carry; its parts are logged under it:
+'     clone/.env · clone/snapshot · clone/output · clone/branches · clone/spec
+'   resume state · home config · remove sandbox
+' A PARENT AND ITS PARTS ARE BOTH LOGGED. `clone` is the total; the parts add
+' up to less than it, because the probes between them (`sbx ls`, the clone-mode
+' probe inside PreserveClone) belong to the parent. A clone run starts up to 31
+' subprocesses; one row per subprocess would bury the steps an operator names.
+' PreserveClone also serves the retire path at run START, so a retired
+' sandbox's carry logs the same `clone/…` rows there. That is why the prefix
+' is `step:` and not `teardown:`.
+' THE SINK IS AN ATOMIC POINTER. Tests swap it to read the steps; one test in
+' the package runs in parallel and reaches carryClone.
+'
+' ── FOUR CALLS HAD NO DEADLINE; NOW EACH HAS ONE (T1) ──────────────────────
+' kit-lifecycle.puml bounded the carry path on 2026-10-22 and left SaveState
+' and teardown's `sbx rm` STILL OPEN. Two more were found unbounded on
+' 2026-11-10: sandboxReflog and the pushed-branch `git fetch`.
+' THE REFLOG READ RAN BEFORE THE CARRY. sbx.Exists answers true when `sbx ls`
+' fails, so on a wedged daemon a clone run waited 10s for `sbx ls` and then
+' started `sbx exec … git log -g` with no deadline. Teardown stopped there,
+' printed nothing, and no work had reached home.
+' All four now run through boundCommand / guestRun under guestExecDeadline
+' (3m, the ceiling the Executor chose on 2026-10-22: "36s probe 3m others").
+'   sandboxReflog           a timeout reads as "no reflog": no pushed-branch
+'                           lines and no question
+'   the pushed `git fetch`  a timeout prints "⚠ <branch> — not fetched" with
+'                           the deadline dim under it (R2)
+'   SaveState               teardown and retire pass guestRun; a timeout
+'                           prints "⚠ resume state — not saved" (R2)
+'   `sbx rm --force`        removeSandbox; a timeout keeps the sandbox, and
+'                           the closing line's dim fix is the rescue line:
+'                           check `sbx ls`, then `sbx rm --force <name>` once
+'                           sbx answers (R2: removeSandbox prints nothing)
+' NEVER AN AUTOMATIC SHIM KILL: killing the shim made the daemon respawn it and
+' stall again (kit-lifecycle.puml).
+' A REMOVAL THAT TIMES OUT MAY BE HALF-DONE. The rescue line says to look
+' first, because the sandbox's state is unknown at that point.
+' [Unverified] Whether 3m is generous or tight for a healthy `sbx rm` or state
+' save. No finished run had per-step times before T2; the first logs with
+' `step:` rows answer it.
+' Nine host-local git and tar calls had no deadline after T1. T3 gave each
+' one (below).
+'
+' ── TEARDOWN IS A VALUE, CALLED BEFORE THE RESULT (T3) ─────────────────────
+' Until T3 teardown was a deferred closure at the end of Run. Three things
+' followed from that shape:
+'   it ran AFTER Run chose its result, so nothing teardown learned could
+'     change the exit status (T4 returns 130 when the operator leaves);
+'   it captured Run's locals, so no test could call it;
+'   a panic in one step unwound past every later step, the removal included.
+' `teardown` (teardown.go) holds what the closure captured: the Input, the
+' RunConfig, the secrets, how the run ended, its two timestamps, the agent's
+' last output and the home-access commit. Run builds it and calls
+' `td.run(ctx)` on the line before it computes the result.
+' THE PLAN IS DATA. `teardownPlan(failed)` lists an ending's top-level steps
+' in the order they run:
+'   credential check · clone mode · pushed branches · egress record ·
+'   memory evidence · clone · resume state · home config
+'   + remove sandbox, when the run did not fail
+' A failed run keeps the sandbox for diagnosis, so its plan has no removal.
+' T6's step list (W5) draws "step n of N" from the same function.
+' THE PLAN IS AN UPPER BOUND ON A NORMAL EXIT. Two endings stop before the
+' removal: work stranded in the sandbox, and an OpenCode engine that holds
+' the history. Both keep the sandbox and say so.
+' ONE CONTEXT REACHES EVERY SUBPROCESS. Input.Stop carries it, so a function
+' that already takes the Input gained no parameter. boundCommand derives each
+' call's deadline from it: a call ends at its own ceiling OR when the context
+' ends, and its error says which ("gave no answer within 3m0s", or "stopped").
+' The nine calls T1 left open run under it at guestExecDeadline: the host
+' reflog read, the spec restore, gitPaths, the remote fetch, the bundle fetch,
+' hostTips, the two calls in reportCloneRefs, and the lift's `tar`.
+' Until T4 passes a context a signal ends, Run passes context.Background().
+' A STEP THAT WOULD START AFTER THE CONTEXT ENDED IS SKIPPED, and logged as
+'   step: <name> 0s failed: skipped: teardown was stopped
+' On a normal exit a skipped carry reads as stranded work, so the sandbox
+' stays and its removal command prints. A stopped teardown never removes.
+' A PANIC IS THE STEP'S ERROR. `do` recovers it, records `failed: panic: …`
+' and returns it. The step's own warning prints and the next step runs.
+' [Unverified] No panic in teardown was ever observed. The recover exists
+' because one would leave the agent's work in a sandbox with no line saying so.
+' WHAT T3 DID NOT CHANGE: the order, the lines printed, and which ending
+' keeps the sandbox (R2 later changed the lines and kept a failed lift). The gate is the step order in a real run's log:
+' e2e TestCloneModeLandsTheCloneAndLiftsTheOutputDir reads the rows from its
+' own PROVEO_HOME and compares them with a fixed list.
+' MEASURED 2026-11-10 on macOS, sbx 0.50.0, the published proveo/claudecode
+' image: the test passed at f7ff80a0 (the closure) and on the T3 tree, against
+' the same list:
+'   agent · credential check · clone mode · pushed branches · egress record ·
+'   memory evidence · clone · resume state · home config · remove sandbox
+' The other four TestClone* suites passed, one at a time.
+' TestHeadedCtrlCAsksBeforeRemoving passed for the three harnesses whose image
+' is on the host (claudecode, claudecode-browser, hermes: 9 subtests) and
+' skipped the other seven (21 subtests).
+'
+' ── EACH STEP SAYS IT STARTED, AND ITS CEILING (the rider on T3) ───────────
+' Before this the terminal printed a line when a step ENDED, so a slow step
+' showed as silence (terminal-handoff-probes.puml, C2). Now `announce(name)`
+' prints one line before a step runs:
+'   <name> — up to <ceiling>
+' A step that starts no subprocess prints its name alone (home config).
+' WHICH STEPS PRINT: every top-level step except `clone`, and each of the
+' clone's five parts. The parent prints nothing: its parts speak for it.
+' THE CEILING IS A SUM, NOT A NEW DEADLINE. stepCeiling(name) adds up the
+' bounds the step's calls already have. Nothing new can time out.
+'   one `sbx ls`   sbx.ListWait = 10s + 2s grace = 12s
+'   one call       guestExecDeadline + guestGrace = 3m2s
+'   credential check  ls + the 20s guest read + grace .............. 34s
+'   clone mode        the 36s probe + grace ........................ 38s
+'   pushed branches   ls + the reflog read ......................... 3m14s
+'   egress record     the policy log ............................... 12s
+'   memory evidence   ls + the guest read .......................... 24s
+'   clone/.env        ls + the read ................................ 3m14s
+'   clone/snapshot    one call ..................................... 3m2s
+'   clone/output      the lift ..................................... 3m2s
+'   clone/branches    ls + remote fetch + tips, bundle, its fetch .. 12m20s
+'   clone/spec        ls-files, span, three path lists, restore,
+'                     rebase ....................................... 21m14s
+'   resume state      ls + the save ................................ 3m14s
+'   remove sandbox    one call ..................................... 3m2s
+' `pushed branches` counts the part that runs before anything is asked. The
+' question and each fetch the operator accepts print their own lines.
+' The clone's ref report (two kinds of host git call, one per carried ref)
+' sits between two parts and has no line.
+' The deadlines are variables, so the ceilings follow a shortened deadline.
+' [Unverified] The sums are upper bounds and far above a healthy run. Each
+' real-sandbox clone run of 2026-11-10 took 27s to 39s from start to exit,
+' teardown included. T2's `step:` rows are the data for tightening them.
+' THE LINES ALSO PRINT WHEN A SANDBOX IS RETIRED AT RUN START, because
+' PreserveClone serves both. The wording names the step, not "teardown".
+' WRITTEN TWICE BY CHOICE: T6 (delivery plan, W5) replaces these lines with a
+' live step list that reads the same names and the same stepCeiling.
+'
+' ── THE RUNNING STEP IS ONE LIVE LINE WITH A CLOCK (T6) ─────────────────────
+' The start lines above were written to be replaced. On a terminal a step now
+' shows as one line that redraws every second and is erased when the step
+' ends:
+'   step 6/9 · clone/snapshot · 12s of up to 3m2s
+' Its place comes from teardownPlan, its ceiling from stepCeiling, and the
+' line itself from ui.Live (_spec/internal/ui/output-vocabulary.puml), so an
+' ordinary line a step prints lands above it and the frame is redrawn below.
+' A healthy teardown leaves no step lines behind: nine frames replace each
+' other and the last one is erased.
+' OUTPUT THAT IS NOT A TERMINAL KEEPS THE START LINE (`<name> — up to
+' <ceiling>`): a pipe or a CI log cannot redraw.
+' THE RUN LOG NOW RECORDS THE START TOO:
+'   step: clone/snapshot (up to 3m2s) started
+' Before, a row was written when a step ENDED, so a step that never ended
+' left none. The start row is what names a hung step in a log.
+' The same line shows for the clone's parts when a sandbox is retired at run
+' start; outside teardown it carries no `step n/N`.
+' A DEVIATION FROM THE DELIVERY PLAN, RECORDED. The plan drew T6 as a list
+' inside a Bubble Tea Program. Teardown prints through ui while its steps
+' run, holds the terminal in cooked mode for T4's signals, and hands the
+' terminal to the pushed-branch dialog in the middle. One live line under
+' the Printer's own lock does the job without a second renderer owning the
+' terminal; a list would have needed every ui line routed through it.
+' THE LOOP MOVED TO ui ON 2026-11-11, AND THE DIALOG STOPPED SHARING THE
+' TERMINAL WITH IT. showStep calls ui.Running; init's apply and a run's
+' start use the same renderer. MEASURED then: the line drew over the
+' pushed-branch question. Every prompt now suspends it:
+' _spec/internal/ui/step-lines.puml.
+' Pinned by internal/backend/sandbox/teardown_plan_test.go:
+'   TestAStepFrameCarriesItsPlaceItsClockAndItsCeiling
+'   TestATerminalGetsALiveLinePerStepAndNoStartLines
+' and by e2e TestCloneModeLandsTheCloneAndLiftsTheOutputDir: the log holds
+' the start row and no frame.
+'
+' ── A SIGNAL IN TEARDOWN HAS ONE MEANING EACH (T4; D2, D16) ────────────────
+' Until T4 a SIGTERM or SIGHUP in teardown was swallowed: forwardStop's parked
+' goroutine consumed it and cancelled a context nothing read any more. SIGINT
+' had no handler, and the terminal is back in cooked mode by then, so Ctrl+C
+' ended proveo on the spot: no carry, no state save, no removal, no line
+' (terminal-handoff-probes.puml, C3).
+' `teardown.watch` takes SIGINT, SIGTERM and SIGHUP for the length of
+' teardown. Run starts it BEFORE it stops forwardStop, so no signal meets a
+' gap with Go's default action.
+'   SIGINT, first     prints the running step and what leaving keeps:
+'                     "⚠ teardown is at <step> — Ctrl+C again leaves now",
+'                     dim "leaving keeps sandbox <name>; …" (R2: the ceiling
+'                     is the live frame's, not a parenthetical). Nothing
+'                     stops.
+'   SIGINT, second    ends the context. The call in flight is killed, later
+'                     steps are skipped, the sandbox stays, and Run returns
+'                     Stopped{SIGINT}: exit 130. The Executor, D2: "Say once,
+'                     leave on two".
+'   SIGTERM, SIGHUP   the running top-level step finishes. Later steps are
+'                     skipped, the sandbox stays, exit 128+signal. D16:
+'                     "Finish the step, then leave". A clone in flight is one
+'                     step, so the whole carry completes.
+'   SIGINT after one  leaves at once and exits 130. The operator was already
+'   of those          told teardown is leaving, so Ctrl+C means now.
+' A STOP THAT LEAVES NOTHING UNDONE IS NOT A STOP. A SIGTERM during the last
+' step lets it finish. Every planned step ran, so the run's own result
+' stands. leftBy() names a signal only when a step was skipped or killed.
+' WHAT LEAVING PRINTS (leave; R2 below): what came home, then the closing
+' kept line and the ide block.
+'   ⚠ sb — kept: teardown stopped by SIGINT at remove sandbox
+' "not run: <steps>" prints dim when a step never started; a removal the
+' Ctrl+C killed did start, so it prints none.
+' The home access stays with the kept sandbox (keepHome), as on a failed run.
+' THE CARRY STOPS BETWEEN ITS PARTS. After a hard stop PreserveClone returns
+' before its next part. Otherwise each remaining call would start, die at
+' once, and print a warning of its own.
+'
+' ── TEARDOWN'S CHILDREN LEAVE THE TERMINAL'S PROCESS GROUP (T4) ─────────────
+' A handler alone protects nothing. The terminal sends SIGINT to the whole
+' foreground process group, so the `sbx exec` or `git` in flight died on the
+' FIRST Ctrl+C (MEASURED with a probe: terminal-handoff-probes.puml, C3).
+' ownGroup(cmd) sets Setpgid and makes the command's cancel kill the group.
+'   boundCommand          every guest and host call teardown waits on
+'   sbx.boundedWith,      the 10s probes behind Running, Exists, the policy
+'   boundedCombinedWith   log and memory evidence, and ExecOutput
+' ONE CALL STAYS IN THE FOREGROUND: the pushed-branch `git fetch`
+' (boundForeground). The operator just asked for it, and git may need the
+' terminal for a passphrase. A background group that reads the terminal is
+' stopped by SIGTTIN and would sit there until its deadline.
+' THE GROUP KILL ALSO REMOVED A WAIT. Before, a deadline killed the direct
+' child only; a grandchild holding the output pipe kept the caller for the 2s
+' grace. MEASURED on linux/arm64: the package's unit suite went from 24.3s to
+' 5.7s.
+' [Inference] sbx's bounded calls run outside teardown too. A proveo that dies
+' mid-call now leaves that call to end by itself (10s at most) instead of
+' taking it down with the terminal's signal. None of them reads the terminal.
+' Windows has no process group of this kind; ownGroup does nothing there.
+' MEASURED 2026-11-10 on a real terminal (tmux) and a real sandbox, macOS, sbx
+' 0.50.0, with `sbx rm` slowed by a PATH shim: the first Ctrl+C printed the
+' line and left the removal running; the second exited 130 with the sandbox
+' still listed. e2e TestCtrlCInTeardownSaysOnceThenLeavesWith130.
+'
+' Pinned by internal/backend/sandbox/teardown_signal_test.go:
+'   TestTheFirstInterruptSaysWhatLeavingKeepsAndTheSecondLeaves
+'   TestATerminateLetsTheRunningStepFinishAndSkipsTheRest
+'   TestATerminateDuringTheLastStepLeavesNothingUndone
+'   TestAnInterruptAfterATerminateLeavesAtOnce
+'   TestAStoppedCarryNamesTheRescueRecipe
+'   TestTeardownChildrenRunInTheirOwnProcessGroup
+'   TestThePushedFetchStaysInTheTerminalsProcessGroup
+' by internal/sbx/proc_unix_test.go:
+'   TestABoundedCallRunsInItsOwnProcessGroup
+'   TestABoundedCallThatOutlivesItsTimeoutEndsWithItsChildren
+' and by e2e/teardown_interrupt_test.go.
+'
+' Pinned by internal/backend/sandbox/teardown_plan_test.go:
+'   TestEveryPlannedStepStartsWithItsNameAndCeilingOnTheTerminal
+'   TestStepCeilingsAddUpTheBoundsOfTheCallsAStepMakes
+'   TestATeardownRunRecordsExactlyItsPlan
+'   TestTheFailedPlanIsTheNormalPlanWithoutTheRemoval
+'   TestAPanickingStepBecomesItsErrorAndTheNextStepsStillRun
+'   TestAStoppedTeardownSkipsItsStepsAndKeepsTheSandbox
+'   TestAStopEndsTheGuestCallInFlight
+' and by e2e/teardown_steps_test.go: TestStepRowNameReadsARunLogLine
+'
+' ── WHAT TEARDOWN PRINTS (R2, 2026-11-11) ──────────────────────────────────
+' _spec/_plans/output-readability.puml holds the operator's decisions; this is
+' the shape they gave teardown's screen. Two headings at most, each once:
+' "results" on every run, "ide" only when the sandbox stays.
+'   1. the agent's end, first under results (sandbox.Run, agentEnd):
+'        a forwarded SIGTERM/SIGHUP   ● claudecode — stopped by SIGTERM
+'        sbx's exit, sbx said nothing × sbx run — exited with code N
+'        any other failure            × <the error>; Run returns
+'                                     backend.Reported, so main prints
+'                                     nothing after the ide block
+'        sbx printed its own error, an operator-chosen removal, a clean
+'        exit: no line. The run log keeps the outcome either way. A removal
+'        the operator chose prints nothing whatever Wait returned: sbx's
+'        ExitError, or context.Canceled when sbx exited 0 after the
+'        SIGTERM; Run returns that one as backend.Reported (exit 1, no ×).
+'   2. live frames (a terminal) or start lines (plain output) per step.
+'   3. what came home: ONE sandbox.Block, gathered by the steps and printed
+'      when the clone step ends; a failed run's block waits for the state
+'      save, then looks up the transcript (see THE TRANSCRIPT FOLLOWS THE
+'      STATE SAVE). Block.Print orders its rows by resultOrder, whichever
+'      step found a row first (the pushed step runs before the clone's):
+'        output · .env · branches · _spec · pushed · transcript
+'      then its ⚠ items (credential, expired login, out of memory, .env,
+'      _spec, snapshot, lift, carry, fetch). Each step writes into the
+'      block, never straight to the screen.
+'   4. later steps' ⚠ items as they happen (resume state, home config).
+'   5. the closing line, the run's last proveo line unless the sandbox
+'      stays:
+'        ✓ <name> — removed
+'        ⚠ <name> — removed      dim: what did not come home went with it
+'                                (a removal the operator chose)
+'        ✓ retained engine <name> — holds OpenCode's history
+'        ⚠ <name> — kept for diagnosis      (a failed run)
+'        ⚠ <name> — kept: <why>  (a stopped teardown, stranded work, a
+'                                failed removal)
+'        ⚠ <name> — not listed by sbx   (gone after a failed run, a
+'                                failed removal, or a stop: no ide block)
+'      A kept line carries one dim fix: `proveo rm --stop <name>` while
+'      it runs, `proveo rm <name>` once stopped, the rescue line after a
+'      removal that timed out. A keep the operator's Ctrl+C alone caused
+'      logs its fix instead (decision E); a failed run keeps its fix on
+'      screen even when a Ctrl+C ends its teardown, because the agent's
+'      failure kept the sandbox. A failed run whose agent drew on the
+'      alternate screen (ptyproxy's Proxy.EnteredAltScreen) also gets its
+'      last five lines dim.
+'   EVERY KEPT LINE ASKS sbx FIRST (R2 review, 2026-11-11). failedEnd and
+'   normalEnd's failed removal checked sbx.Exists; leave() did not, so a
+'   second Ctrl+C that killed `sbx rm --force` after sbx had deleted the
+'   sandbox printed it as kept, with attach facts, and stored a kept entry.
+'   leave() now closes such a run on "⚠ <name> — not listed by sbx" with the
+'   stop's reason dim, stores no kept entry and still exits 128+signal.
+'   ONLY A LISTING THAT NAMES SANDBOXES PROVES ONE GONE (R2 review fix,
+'   2026-11-11). sbx.Exists read a header-only `sbx ls` table as "gone", and
+'   a busy daemon prints one (auto-memory: sbx ls can return empty). A
+'   second Ctrl+C during a slow removal is when the daemon is busiest; a
+'   live sandbox then lost its kept entry and homeAccess.Cleanup removed
+'   the home access it still mounts. failedEnd, leave() and a failed
+'   removal now ask sbx.Gone: the table names other sandboxes and not this
+'   one; a header-only table is read again as `sbx ls --json`; an empty
+'   listing proves nothing, so the sandbox closes as kept. The same rule
+'   as verbs.go trustedListing.
+'     NOT CHOSEN: trust an empty listing (drops a live sandbox's home);
+'     retry the table (the same busy daemon answers the same way).
+'     COST: a run whose sandbox was the host's only one and is gone closes
+'     on a kept line; ReconcileResults drops its entry once a listing
+'     names any sandbox.
+'   THE LEAVE PATH WAITS AT MOST leaveWait (3s) FOR sbx (R3, R2 carry-over
+'   1). sbx.Gone and sbx.Running are bounded `sbx ls` calls of up to ~12s
+'   each in their own process group, so a third Ctrl+C never reached them
+'   and a slow daemon held exit 130 for ~20s. leave() now asks both in one
+'   goroutine (fateWithin) and stops waiting at leaveWait: an unanswered
+'   listing proves nothing, so the sandbox closes as kept and a failed
+'   run's fix names --stop, which `proveo rm` honours for a stopped sandbox
+'   too; the run log says sbx did not answer. "Say once, leave on two"
+'   holds. NOT CHOSEN: skip the listing on SIGINT (a sandbox sbx finished
+'   removing would print as kept); cancel it on a third Ctrl+C (a third
+'   keypress to learn of).
+'     Pinned by TestASecondCtrlCLeavesWithinItsBoundWhileSbxIsSlowToList.
+'   A STRANDED SANDBOX ASKS sbx FIRST TOO (R3, R2 carry-over 2). normalEnd's
+'   endKeepStranded asks sbx.Gone like failedEnd, leave() and a failed
+'   removal: a sandbox lost during the carry closes on "⚠ <name> — not
+'   listed by sbx" with what was stranded dim, and gets no kept entry, no
+'   ide block and no kept home access.
+'     Pinned by TestAStrandedSandboxSbxNoLongerListsClosesOnTheGoneLine.
+'   THE TRANSCRIPT FOLLOWS THE STATE SAVE (R2 review fix, 2026-11-11).
+'   R2's first cut looked the transcript up before stepState so the fact
+'   could join the block printed after the clone step. The transcript is
+'   not on the host yet then: sbx mounts ~/.claude/projects as a
+'   per-sandbox volume, and SaveState is what copies it into the proveo
+'   home AgentTranscript walks (_spec/internal/sbx/state-sync.puml). So
+'   failedEnd runs clone → resume state → transcript lookup → block →
+'   home config. A normal run's block still prints after the clone step.
+'     NOT CHOSEN: a second block for the transcript (two blocks under one
+'     heading, P3); the lookup inside the clone step (nothing copied yet).
+'   6. a kept sandbox's "ide" block (ideFacts): ssh, jetbrains, toolbox,
+'      vs code, project, with the clone's cautions dim under project.
+' The run log keeps what left the screen: the agent's last output, the
+' egress-record and memory-log paths, the review and adopt commands, the
+' carry's by-hand recipe, the tar recipe, `sbx exec -it <name> bash`.
+' A FAILED LIFT STRANDS THE OUTPUT. liftClonedOutput returns "the output is
+' only in it", so normalEnd keeps the sandbox; the kept entry records this
+' run's output dir (results.Entry.Output, a re-attach's as well as a
+' create's) and the launch receipt records the creating run's; `proveo rm`
+' lifts into the entry's, else the receipt's (verbs.go keptInput). R3 fixed
+' the re-attach: its receipt predates R2 or names the creating run's dir.
+' Pinned by TestKeptInputLiftsIntoTheDirTheKeepingRunRecorded and
+' TestRemoveKeptLiftsTheOutputTheReceiptRecords (RemoveKept → PreserveClone
+' → liftClonedOutput's `tar -cf -`). A stale sandbox's retire keeps it the
+' same way (_spec/internal/sbx/clone-workspace.puml).
+' THE PLAIN AFTER (MEASURED, probe-plain, NO_COLOR): output that is not a
+' terminal prints in step order. The agent's end, then a start line per step
+' up to the clone's parts ("credential check — up to 34s" … "clone/spec — up
+' to 21m14s"), then the block without marks (".env:", "output:",
+' "branches:", "_spec:"), then the start lines of the later steps ("resume
+' state — up to 3m14s", "home config", "remove sandbox — up to 3m2s"), then
+' "ok: <name> — removed". The block prints when the carry ends (F2), so the
+' later steps' start lines follow it. A failed run's block follows the resume
+' state's start line (the transcript lookup waits for the state save).
+' A RUN THAT NEVER REACHED THE AGENT has no teardown: nothing came home, so
+' no "results" heading; main's "× <err>" lands under the last heading drawn:
+' the failed step's, except when Run's deferred interface block prints
+' first. A failed `sbx create` on a run with interface facts or items prints
+' leftByCreate's line under "sbx", then that block under "interface", then
+' main's × under "interface" (R2 review, recorded in R3: the block keeps the
+' add-ons' warnings a failed run still owes). A failed `sbx create` that left its sandbox listed says
+' so first: "⚠ <name> — kept: its create failed", dim "`sbx rm --force
+' <name>` removes it" (leftByCreate; no listing proves nothing, so none).
+' Pinned by TestAFailedCreateThatLeftASandboxSaysSoAndHowToRemoveIt.
+' Pinned by internal/backend/sandbox/teardown_report_test.go:
+'   TestACloneEndingPrintsWhatCameHomeAsOneBlockThenTheRemoval
+'   TestARefWithNoNewCommitsStaysInTheLog
+'   TestAFailedRunKeepsTheSandboxWithItsFixAndTheIDEBlock
+'   TestAnAgentOnTheAlternateScreenLeavesItsLastLinesUnderTheKeptLine
+'   TestAFailedRunNamesTheTranscriptItsStateSaveCopiedHome
+'   TestAPushedBranchPrintsAfterWhatTheCloneCarried
+'   TestABlockPrintsWhatCameHomeInOneOrderWhicheverStepFoundItFirst
+'   TestAFailedRemovalsLogLineEndsOnWhatSbxSaid
+'   TestARetiresUnsavedResumeStateReadsAsTeardownsDoes
+'   TestAFailedRunWhoseSandboxIsGoneClosesOnThatAndPrintsNoIDEBlock
+'   TestARemovalThatFailedClosesOnAKeptLineWithItsError
+'   TestARemovalThatFailedOnASandboxSbxNoLongerListsSaysSo
+'   TestAnOutputLiftThatFailsKeepsTheSandbox
+'   TestTheRetainedEngineClosesOnACheckAndPrintsNoIDEBlock
+'   TestAnOperatorChosenRemovalClosesOnTheRemovalAndLogsTheForce
+'   TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt
+'   TestTheNoCredentialHintIsOneItemWithItsRemedies
+'   TestAKeptClonesIDEBlockIsOneFactBlockWithEveryCaution
+'   TestTheFixForAKeptSandboxStopsItOnlyWhileItRuns
+'   TestABlockPrintsOnceAndARowAfterItPrintsAtOnce
+'   TestRetiringASandboxWhoseOutputDidNotLiftKeepsItAndNamesProveoRm
+'   TestACloneModeNobodyCanReadNamesTheSandboxOnceInItsKeptLine
+' by teardown_steps_test.go TestARemovalThatTimesOutClosesOnTheRescueLine,
+' and by teardown_signal_test.go:
+'   TestACtrlCThatLeavesAFailedRunKeepsTheFixOnScreen
+'   TestACtrlCThatEndsARemovalSbxFinishedClosesOnTheGoneLine
+'   TestACtrlCWhileSbxListsNoSandboxStillKeepsTheSandbox
+' and by internal/sbx/sbx_test.go TestGoneTrustsOnlyAListingThatNamesASandbox.
+'
+' Pinned by internal/backend/sandbox/teardown_steps_test.go:
+'   TestAStepIsRecordedOnceWithItsNameDurationAndOutcome
+'   TestAnUnsunkStepReachesNeitherTheTerminalNorAnUnopenedLog
+'   TestTeardownCloneRecordsItsSubStepsInOrder
+'   TestTeardownDeadlineEndsEveryGuestCallThatNeverAnswers
+'   TestAHungReflogAsksNoPushedBranchQuestion
+
+component "the agent exits" as EXIT <<app>>
+component "the ""teardown"" value\n""teardownPlan(failed)""" as PLAN <<app>>
+component "a stop\nCtrl+C twice · SIGTERM · SIGHUP" as STOP <<host>>
+component "the first Ctrl+C\nsays the step and what leaving keeps" as ONCE <<host>>
+component """step(name, fn)""\nname · duration · outcome" as STEP <<app>>
+database "the run log\n""step: clone/snapshot 1.2s ok""" as LOG <<db>>
+component "four guest or network calls\nunder ""guestExecDeadline"" (3m)" as BOUND <<app>>
+component "**a wedged sbx daemon**\nhung teardown before the carry" as HANG <<error>>
+component "the rescue line\n""sbx ls"", then ""sbx rm --force""" as RESCUE <<host>>
+component "the terminal\n""step 6/9 · clone/snapshot · 12s""" as TERM <<host>>
+
+EXIT ARROW_MAIN PLAN : before Run's result
+PLAN ARROW_MAIN STEP : each step, in plan order
+ONCE ARROW_OPTIONAL STOP : pressed again
+STOP ARROW_OPTIONAL PLAN : later steps are skipped
+STOP ARROW_OPTIONAL BOUND : the call in flight ends
+STEP ARROW_MAIN LOG : one row per step
+PLAN ARROW_OPTIONAL TERM : one live line per step
+STEP ARROW_MAIN BOUND
+HANG ARROW_ERROR BOUND : what the deadline ends
+BOUND ARROW_OPTIONAL RESCUE : a removal that timed out
+
+note top of PLAN
+  **A plan, not a closure.** The step names
+  are a list a test can compare a run against.
+  A panic in one step becomes that step's
+  error, and the next step still runs.
+end note
+
+note top of STOP
+  **A stopped teardown never removes.** The
+  sandbox stays with its ide block, the steps
+  not run are named, and proveo exits 130 for
+  Ctrl+C or 128+signal for SIGTERM and SIGHUP.
+end note
+
+note top of ONCE
+  **Say once, leave on two.** The calls in
+  flight sit in their own process group, so
+  the terminal's Ctrl+C reaches proveo alone
+  and the first press costs nothing.
+end note
+
+note bottom of TERM
+  **One line, with a clock.** The running step
+  shows its place, its elapsed time and its
+  ceiling, redrawn each second and erased when
+  it ends. A pipe gets a start line instead.
+end note
+
+note bottom of LOG
+  **The row goes to the log only.** It is for
+  the next person reading a slow run. The
+  screen gets the start line now and a live
+  step list later, from the same names.
+end note
+
+note bottom of STEP
+  **A parent and its parts.** ""clone"" is the
+  whole carry; ""clone/snapshot"" is one part.
+  Probes between parts count toward the
+  parent, so the rows stay few.
+end note
+
+note bottom of HANG
+  **It ran first, and unbounded.** The reflog
+  read sits before the carry. With no deadline
+  a wedged daemon stopped teardown silently,
+  with the agent's work still in the sandbox.
+end note
+
+note bottom of RESCUE
+  **Look before removing again.** A removal
+  that hit its deadline may be half-done. The
+  line names ""sbx ls"" first; proveo never
+  kills the shim itself.
+end note
+@enduml

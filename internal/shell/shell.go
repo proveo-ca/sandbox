@@ -2,7 +2,10 @@
 package shell
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -93,6 +96,95 @@ func (s Shell) SbxBlock(binDir string) string {
 	return "\n" + SbxMarker + "\n" + s.PathLine(binDir) + "\n"
 }
 
+// PromptMarker opens the block `proveo init` appends to turn starship on.
+const PromptMarker = "# added by `proveo init` — starship prompt"
+
+// StarshipLine is the line that starts starship in this shell; "" for a shell starship
+// does not hook through an rc line proveo knows.
+func (s Shell) StarshipLine() string {
+	switch s.Name {
+	case "bash":
+		return `eval "$(starship init bash)"`
+	case "zsh":
+		return `eval "$(starship init zsh)"`
+	case "fish":
+		return `starship init fish | source`
+	}
+	return ""
+}
+
+// PromptBlock is the snippet appended to the rc file to turn starship on.
+func (s Shell) PromptBlock() string {
+	return "\n" + PromptMarker + "\n" + s.StarshipLine() + "\n"
+}
+
+// StartsStarship reports whether an rc file already starts starship, by proveo or by hand.
+func StartsStarship(rcContent string) bool {
+	return strings.Contains(rcContent, "starship init")
+}
+
+// WithoutPromptBlock is rcContent without the block PromptBlock appended; a
+// `starship init` line the operator wrote is left alone.
+func WithoutPromptBlock(rcContent string) string {
+	lines := strings.Split(rcContent, "\n")
+	var out []string
+	for i := 0; i < len(lines); i++ {
+		if lines[i] != PromptMarker {
+			out = append(out, lines[i])
+			continue
+		}
+		if n := len(out); n > 0 && out[n-1] == "" {
+			out = out[:n-1]
+		}
+		if i+1 < len(lines) && strings.Contains(lines[i+1], "starship init") {
+			i++
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// AlreadyConfigured reports whether a PATH line of an rc file names binDir as a whole entry, absolute or as
+// $HOME/…, ${HOME}/… or ~/…; a comment, an alias, another variable or a longer path does not count.
 func AlreadyConfigured(rcContent, binDir string) bool {
-	return strings.Contains(rcContent, Marker) || strings.Contains(rcContent, binDir)
+	if binDir == "" {
+		return false
+	}
+	spellings := []string{binDir}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rest, ok := strings.CutPrefix(binDir, home+string(filepath.Separator)); ok {
+			spellings = append(spellings, "$HOME/"+rest, "${HOME}/"+rest, "~/"+rest)
+		}
+	}
+	for line := range strings.SplitSeq(rcContent, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !setsPath.MatchString(line) {
+			continue
+		}
+		if slices.ContainsFunc(spellings, func(s string) bool { return namesEntry(line, s) }) {
+			return true
+		}
+	}
+	return false
+}
+
+// setsPath matches a line that names PATH, zsh's path array or fish_add_path.
+var setsPath = regexp.MustCompile(`(^|[^\w])(PATH|path)([^\w]|$)|fish_add_path`)
+
+// namesEntry reports whether dir occurs in line as a whole PATH entry, with or without a trailing slash.
+func namesEntry(line, dir string) bool {
+	for at := 0; ; {
+		i := strings.Index(line[at:], dir)
+		if i < 0 {
+			return false
+		}
+		start, end := at+i, at+i+len(dir)
+		if end < len(line) && line[end] == '/' {
+			end++
+		}
+		if (start == 0 || strings.IndexByte(" \t\"'=:(", line[start-1]) >= 0) &&
+			(end == len(line) || strings.IndexByte(" \t\"':;)", line[end]) >= 0) {
+			return true
+		}
+		at = start + 1
+	}
 }

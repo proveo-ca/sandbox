@@ -6,6 +6,7 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 ' purpose: why the host cannot reach the sandbox's browser directly, and the two ports that fix it
 ' covers: internal/sbx/run.go
 ' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/report.go (reportInterface)
 ' covers: internal/run/run.go
 ' covers: e2e/browser_viewport_test.go
 ' covers: internal/sbx/clone_test.go
@@ -47,6 +48,20 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 ' sbx binding is a race nothing can close from here, and losing it costs the
 ' viewport, not the run.
 '
+' THE ROW PRINTS AFTER `sbx create`, AND ONLY FOR THIS RUN'S PUBLISH
+' (2026-11-11, output-readability R1). The interface block prints what the
+' port serves, "● browser: the agent's Chromium over CDP", and nothing under
+' it: sbx's create block prints "✓ port 9222/tcp4 — published 127.0.0.1:<host>"
+' (MEASURED 2026-11-11, sbx v0.50.0, a sandbox created for the check with
+' `sbx create -p 127.0.0.1:47123:8080 shell`), so a "sandbox :9222" detail
+' restated it (P9; dropped in the R1 review). The run log
+' keeps "browser viewport: http://127.0.0.1:<port> — attach Chrome DevTools
+' or Playwright (connectOverCDP) …" and the /json/list hint. The row and the
+' relay share one gate, relayRuns: the browser's own publish (cdpPublish) and
+' a launch config that publishes. A re-attached sandbox never published this
+' run's fresh port, and a run with only a dev port must not print a browser.
+' Pinned by TestTheBrowserRowNeedsThisRunsOwnPublish.
+'
 ' Every link measured 2026-09-02 against sbx (schema 1.132.0), Chromium 149.0.7827.0
 ' and agent-browser 0.36.0, on proveo/claudecode-browser.
 '
@@ -65,8 +80,8 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 '
 ' Two further choices follow one rule: assert on what the product published,
 ' never on a value the test knows by another route. The host port is read out
-' of the run's own `browser viewport: <url>` announcement — the string an
-' operator reads — rather than reconstructed from a port the test picked; and
+' of the run log's own `browser viewport: <url>` row — what the run published
+' — rather than reconstructed from a port the test picked; and
 ' the page is opened with `agent-browser` inside the session rather than by a
 ' hand-rolled Chromium, so the endpoint the host attaches to is the one the
 ' AGENT is using.
@@ -102,8 +117,8 @@ end note
 
 note over FWD
   **Read the port the run itself published.**
-  The case parses the ""browser viewport: <url>""
-  announcement an operator reads and opens the
+  The case parses the run log's ""browser
+  viewport: <url>"" row and opens the
   page through ""agent-browser"" inside the
   session, so it attaches to the agent's own.
 end note

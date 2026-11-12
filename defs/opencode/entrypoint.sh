@@ -69,21 +69,6 @@ configure_opencode_local_model() {
 }
 configure_opencode_local_model
 
-seed_project_agents_md() {
-  local src="/opt/opencode/defaults/AGENTS.md"
-  local dst="AGENTS.md"
-  [[ -f "$src" ]] || return 0
-
-  if [[ "${OPENCODE_RESEED:-0}" == "1" ]]; then
-    cp -f "$src" "$dst"
-    echo "🔁 Re-seeded AGENTS.md into workspace"
-  elif [[ ! -f "$dst" ]]; then
-    cp "$src" "$dst"
-    echo "🌱 Seeded AGENTS.md into workspace"
-  fi
-}
-seed_project_agents_md
-
 command_version() {
   command_version_opencode "$@"
 }

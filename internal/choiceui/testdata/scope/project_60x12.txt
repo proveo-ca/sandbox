@@ -1,0 +1,12 @@
+run claudecode — where the agent works           scope · 1/2
+
+  monorepo  repo root  default
+  │ ▾ apps
+  │ │ api
+› │ │ web
+  │ ▾ packages
+  │ │ ui
+
+enter starts the agent in apps/web
+
+page 1/2 · ↑↓ row · enter choose · esc cancel · 4 more below

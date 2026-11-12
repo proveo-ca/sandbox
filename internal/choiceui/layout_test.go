@@ -4,8 +4,6 @@ package choiceui
 import (
 	"strings"
 	"testing"
-
-	"github.com/gdamore/tcell/v2"
 )
 
 func budgetForm() *Form {
@@ -201,28 +199,6 @@ func TestTheBudgetMatchesThePaint(t *testing.T) {
 	if drawn == 0 {
 		t.Fatal("no height drew the block, so nothing above was actually checked")
 	}
-}
-
-// renderAt paints at an explicit size, keeping blank rows so positions are real.
-func renderAt(t *testing.T, f *Form, cursor, w, h int) []string {
-	t.Helper()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(w, h)
-	f.draw(s, cursor, 0)
-	cells, cw, ch := s.GetContents()
-	out := make([]string, ch)
-	for y := 0; y < ch; y++ {
-		var b strings.Builder
-		for x := 0; x < cw; x++ {
-			b.WriteString(string(cells[y*cw+x].Runes))
-		}
-		out[y] = strings.TrimRight(b.String(), " ")
-	}
-	return out
 }
 
 func TestNoDecorationIsBoughtWithABodyLine(t *testing.T) {

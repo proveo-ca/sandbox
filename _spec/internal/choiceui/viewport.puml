@@ -13,7 +13,7 @@
 '
 ' ── WHY WRITES ARE DROPPED, NOT CLIPPED ────────────────────────────────────
 ' canvas owns the current row plus an open window, and a write outside that
-' window is DROPPED. A half-painted row is worse than an absent one: tcell
+' window is DROPPED. A half-painted row is worse than an absent one: the screen
 ' would happily let a scrolled-off body row paint over the hint, and a foot
 ' silently painted over is the exact failure the viewport exists to end.
 ' Vertical only — horizontal clipping already exists as clip(), and the row
@@ -119,7 +119,7 @@ end note
 note top of CANVAS
   **Outside the window a write is DROPPED, not
   clipped.** A half-painted row is worse than an
-  absent one, and tcell would happily let a
+  absent one, and the screen would let a
   scrolled-off row paint over the hint — which is
   the silent failure being ended here.
 end note

@@ -93,7 +93,7 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowSignIn, rowWizard, rowGh, rowGit} {
+	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowSignIn, rowWizard, rowGh, rowGit, rowPrompt} {
 		if _, ok := byLabel[want]; !ok {
 			t.Errorf("no %q row; got %v", want, byLabel)
 		}
@@ -187,25 +187,6 @@ func TestWindowsIsNotAskedAboutAPrefix(t *testing.T) {
 		if r.Label == rowPrefix || r.Label == rowPath {
 			t.Errorf("windows was asked about %q, which the MSI decides", r.Label)
 		}
-	}
-}
-
-// The promptless path has to SAY what it chose. An installer that silently
-// picked for you and printed nothing is the shape nobody can debug.
-func TestDescribeDecisionsNamesEveryChoiceItMade(t *testing.T) {
-	t.Parallel()
-	got := describeDecisions(initDecisions{
-		Install: installTarball, Prefix: "/opt/sbx",
-		AddPath: true, Login: true, Wizard: false, Gh: true, Git: false, Baseline: sbx.BaselineDenyAll,
-	})
-	for _, want := range []string{installTarball, "/opt/sbx", "PATH: yes", "sign in: yes", "sbx setup: no", "gh: yes", "git identity: no", sbx.BaselineDenyAll, rowInstall, rowPrefix} {
-		if !strings.Contains(got, want) {
-			t.Errorf("describeDecisions() = %q, missing %q", got, want)
-		}
-	}
-	// A baseline nobody chose must not be reported as a change.
-	if got := describeDecisions(initDecisions{Install: installSkip}); strings.Contains(got, "baseline") {
-		t.Errorf("an untouched baseline was announced: %q", got)
 	}
 }
 

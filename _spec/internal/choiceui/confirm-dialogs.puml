@@ -1,0 +1,139 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Confirm dialogs — a button row, the safe answer selected, two keys to destroy
+' purpose: how proveo asks a yes-or-no question on the terminal, and why Enter alone never destroys anything
+' covers: internal/choiceui/dialog.go
+' covers: internal/choiceui/dialog_run.go
+' covers: internal/choiceui/dialog_test.go
+' covers: internal/choiceui/tty_unix.go
+' covers: internal/choiceui/tty_windows.go
+' covers: internal/choiceui/sandbox_close.go (NewSandboxClose, SandboxCloseAnswer)
+' covers: internal/choiceui/fetch_pushed.go (AskFetchPushed)
+' covers: internal/choiceui/blocked_run.go (AskSandboxUpgrade, AskUnansweredRemoval)
+' covers: internal/choiceui/oversized_model.go (AskOversizedModel)
+' covers: internal/backend/sandbox/confirm.go
+' covers: e2e/close_confirm_modes_test.go (TestLiveCloseDialogStaysUpWhileTheAgentStops)
+'   the decision, D7 ................ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W5)
+'   how the proxy hosts one ......... _spec/internal/ptyproxy/pty-ownership.puml
+'   the stack they draw with ........ _spec/internal/choiceui/tui-stack.puml
+'   sbx's own dialogs, as observed .. _spec/_experiments/sbx-tui-observed.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT IT REPLACED ───────────────────────────────────────────────────────
+' Five confirmations asked for a typed answer: a field, `y` or `yes`, then
+' Enter. The field looked like a place for a sandbox name, `y` alone did
+' nothing, and each dialog listed its keys as rows of `[y/N]`, `[esc]`.
+' The Executor, 2026-11-10, on destructive confirms (D7): "Buttons, two keys
+' to destroy". Not chosen: a mnemonic that acts at once (it would make
+' `sbx rm --force` one key), keeping the typed y/N, typing the sandbox name.
+'
+' ── THE DIALOG ─────────────────────────────────────────────────────────────
+' `dialog` (dialog.go) is one Bubble Tea model for all five: the body lines,
+' one row of buttons, and a key line.
+'    Stay ↵    Remove    Interrupt agent
+'   ←/→ move · enter accept · esc stay · ctrl+c interrupt agent
+' THE SAFE ANSWER IS THE FIRST BUTTON, AND IT IS SELECTED. It carries ↵, the
+' mark sbx puts on the answer Enter gives. Enter untouched, Esc, and a
+' dialog's timeout all give it.
+' THE OTHER ANSWER TAKES TWO KEYS. One key selects it: ←/→, Tab, its
+' mnemonic letter, or `y`. Enter then accepts. No single key gives it.
+'   `y` selects the first answer that is not the safe one; `n` selects the
+'   safe one. So `y Enter` and `n Enter` mean what they meant in the typed
+'   dialog, and the tmux driver that types them did not change.
+' A DESTRUCTIVE ANSWER SHOWS ITS MNEMONIC IN THE FAILURE COLOUR, bold, inside
+' its word (sbx's mnemonic letter). The letter selects; it never accepts.
+' THE FIVE:
+'   close this sandbox?      Stay · Remove (r, destructive) · Interrupt agent
+'                            ctrl+c gives Interrupt at once: it destroys
+'                            nothing and is what a second Ctrl+C means
+'   the agent pushed these   Leave · Fetch (f); 15s of silence leaves them
+'   created with different   Keep · Replace (r, destructive)
+'     settings
+'   <name> gave no answer    Keep · Remove (r, destructive)
+'   <model> does not fit     Stop · Load anyway (l)
+' The body copy of each is unchanged; only the answer rows went.
+'
+' ── WHERE A DIALOG RUNS ────────────────────────────────────────────────────
+' Four run while no agent holds the terminal. askDialog opens the operator's
+' terminal itself (/dev/tty), so a redirected stdout still gets the question,
+' and runs a Program on it. No terminal, or a Program that fails, answers the
+' safe way and reports that nothing was asked.
+' The close dialog runs INSIDE the proxy, over a live agent: the proxy hosts
+' it and feeds it keys one at a time (pty-ownership.puml). Done() tells the
+' proxy the dialog has its answer, so nothing typed after it is consumed.
+' Package sandbox reaches the three it asks through variables
+' (askFetchPushed, askSandboxUpgrade, askUnansweredRemoval); a test that
+' called the real ones would open a dialog on the developer's terminal.
+'
+' ── THE CLOSE DIALOG STAYS UP WHILE THE AGENT STOPS (T7) ───────────────────
+' After Remove the sbx client has up to 30s (stopWait) to exit. Before, the
+' dialog closed at once, the agent's screen came back, and nothing said a
+' stop was in flight (_spec/_experiments/terminal-handoff-probes.puml, C2).
+' NewSandboxClose(stop, stopWait) now runs `stop` itself when Remove is
+' accepted and stays up, with the buttons replaced by
+'   stopping the agent (up to 30s) — 4s
+' counting once a second. Keys are ignored. The dialog ends when the child
+' exits: Run shuts the hand-off and the Program is killed. The answer is
+' still Remove, and the proxy's own remove hook is no longer used.
+' MEASURED in tmux on macOS and linux/arm64, with a child that takes 3s to
+' stop: Enter alone handed the terminal back; `r` Enter showed the line, and
+' the removal finished after it.
+'
+' Pinned by internal/choiceui/dialog_test.go:
+'   TestEnterAloneGivesTheSafeAnswerInEveryDialog
+'   TestTheOtherAnswerTakesTwoKeys
+'   TestTheSelectionWrapsAndTheEnterMarkFollowsIt
+'   TestTheCloseDialogSaysWhatItDoesAndNamesItsKeys
+'   TestAcceptingRemoveStopsTheAgentOnceAndKeepsTheDialogUp
+'   TestSilenceLeavesThePushedBranches
+'   TestTheUpgradeDialogNamesTheConsequence
+'   TestTheUnansweredRemovalDialogListsTheMirroredRefs
+'   TestEveryDialogFitsAnEightyColumnTerminal
+'   TestADangerousAnswerDrawsItsMnemonicInTheFailureColour
+' and by e2e (tmux): TestLiveCloseDialogStaysUpWhileTheAgentStops,
+'   TestLiveCtrlCConfirmationOnTmux, TestLivePostExitPromptTakesTheFirstKeysOnTmux,
+'   TestHeadedCtrlCAsksBeforeRemoving (a fake sbx client),
+'   TestCtrlCDialogOverARealAgentGivesItsScreenBackAndRemovesOnYes (real sbx)
+
+component "the question\nbody lines, unchanged" as BODY <<app>>
+component "the safe answer\nselected · carries ↵" as SAFE <<host>>
+component "the other answer\none key selects, Enter accepts" as OTHER <<app>>
+component "**a destructive answer**\nits mnemonic in the failure colour" as DANGER <<error>>
+component "Enter · Esc · timeout" as ONE <<host>>
+component "the held line\n""stopping the agent (up to 30s) — 4s""" as HOLD <<app>>
+
+BODY ARROW_MAIN SAFE
+BODY ARROW_MAIN OTHER
+ONE ARROW_MAIN SAFE : one key
+OTHER ARROW_OPTIONAL DANGER : when it destroys
+DANGER ARROW_OPTIONAL HOLD : Remove, accepted
+
+note bottom of SAFE
+  **Enter alone never destroys.** The first
+  button is the safe one and starts selected.
+  Enter untouched, Esc and a timeout all give
+  it, in every dialog.
+end note
+
+note bottom of OTHER
+  **Two keys, never one.** An arrow, Tab, the
+  mnemonic or ""y"" selects; Enter accepts. So
+  ""y Enter"" still means yes, and a stray key
+  cannot remove a sandbox.
+end note
+
+note bottom of HOLD
+  **The stop is said while it happens.** After
+  Remove the dialog stays up and counts the
+  seconds until the agent's client exits, in
+  place of a screen that looked untouched.
+end note
+
+note bottom of DANGER
+  **The letter selects; it does not act.** A
+  mnemonic that acted at once would make
+  ""sbx rm --force"" one key. The Executor
+  chose buttons and two keys.
+end note
+@enduml

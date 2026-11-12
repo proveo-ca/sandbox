@@ -1,0 +1,265 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title init opens on every check and closes on the result
+' purpose: what `proveo init` shows before it asks anything, and what it says once it has finished
+' covers: cmd/proveo/init_preflight.go
+' covers: cmd/proveo/init_preflight_test.go
+' covers: cmd/proveo/init_report.go
+' covers: cmd/proveo/init_report_test.go
+' covers: internal/choiceui/check_page.go
+' covers: internal/choiceui/check_page_test.go
+'   the pages between the two ......... _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   what each key means on a page ..... _spec/internal/choiceui/wizard-keys.puml
+'   the apply the result reads ........ _spec/internal/ui/step-lines.puml
+'   sbx's verdict on the host ......... _spec/internal/sbx/host-readiness.puml
+'   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W13)
+'   the stream's rules (R3) ........... _spec/_plans/output-readability.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS THERE ─────────────────────────────────────────────────────────
+' init printed its install prerequisites to the stream and listed only the
+' FAILED ones in the setup form's header. sbx's own checks (`sbx diagnose`)
+' ran after the install, so an operator with sbx already installed learned
+' the host was not ready only at the end. A failed blocking prerequisite
+' ended init with one error line before any page drew.
+' init ended on whatever the last step printed. Nothing said what had been
+' answered "later", or what to type next.
+'
+' ── PAGE 1: EVERY CHECK (W-l) ──────────────────────────────────────────────
+' A prompted init has four pages now: the checks, setup, credentials,
+' operator. The checks page asks nothing. It shows:
+'   the title        "init — preparing the <os>/<arch> host"
+'   to install sbx   every prerequisite sbx.Prereqs reports, passing ones
+'                    included
+'   sbx diagnose     every row of `sbx diagnose --json`, when sbx is already
+'                    on the host
+' Each row carries a mark (passed, warning, failed, skipped), the check's
+' name and what it found: Prereq.Detail, or sbx's message. Under a row that
+' did not pass come sbx's detail lines, then the fix: Prereq.Fix, or sbx's
+' own hint. That is the order of sbx's own `sbx diagnose` table.
+' MEASURED 2026-11-11 on sbx 0.50.0: the page drew sbx's detail where the
+' message belongs, "SSH client config — ~/.ssh/config:5: Host", and dropped
+' the message that says why ("an unmanaged sandbox Host stanza can shadow
+' the managed configuration"). The operator could not tell what it meant.
+' The payload's two fields: _spec/internal/sbx/host-readiness.puml.
+' A FAILING sbx ROW A RUN DOES NOT NEED IS A WARNING here, with one more
+' line under its detail: "a run does not need this check; it affects …".
+' init's verify step says the same and lets init finish
+' (host-readiness.puml, 2026-11-11).
+' On a host with no sbx the page holds the install prerequisites alone. On
+' macOS that is one row.
+' One sentence gives the verdict: "every check passed", or "2 of 7 checks
+' need attention". Either way Enter continues to setup: a failing sbx check
+' is a reason to reinstall, which setup offers.
+' A BLOCKING PREREQUISITE STOPS HERE, ON A PAGE. The verdict reads "blocked:
+' nothing good follows an install here: <names>", Enter does nothing, and
+' the key line offers Esc alone. Closing the page returns the same error as
+' before. With --yes or no terminal the error is still immediate.
+' sbx diagnose RUNS ONCE. A step back from setup redraws the rows it got.
+' AN sbx THAT DOES NOT ANSWER IS A ROW, NOT A FAILURE: "gave no answer", with
+' `proveo init --force` as the fix. The page still continues.
+' THE STREAM CARRIES THE PREREQUISITES IN THE sbx BLOCK (R3, 2026-11-11). The
+' sbx block prints after the sbx steps (_spec/cmd/proveo/init-sbx-bootstrap.puml):
+' the "host" fact carries the passing ones dim ("prerequisites met: Apple
+' silicon"); an unmet one is an item, × when it blocks the install and ⚠
+' otherwise, "<name> — not met", with what it looked for (Prereq.Detail before
+' its " — "; the why after it stays in install.go and on the page) and its fix
+' dim. The page adds sbx's rows; verify prints those in the result. Until R3
+' reportPrereqs printed them under "execution" before the page.
+' THE PAGE IS NO FORM. Its Enter word is "continue", not "accept": the e2e
+' helpers wait for "enter accept" to find a form.
+' Esc on setup now steps back to the checks. It used to end init with
+' "cancelled at the init prompt"; that is Esc on the checks page now.
+' Golden frames: internal/choiceui/testdata/checks/, 12 files.
+'
+' ── THE CLOSE: WHAT WAITS, WHAT NEVER RAN, THE VERDICT (R3, 2026-11-11) ────
+' The W-m close ("done:" per step, "later: <action> — `<cmd>`", "next:
+' `proveo run`") is gone. MEASURED (R3 design, the stubbed tmux harness):
+' "done:" lied three ways (a PATH step that added nothing, a git step and a
+' GitHub step that ended on ⚠), and five of six closing rows were how-tos
+' for answers the operator gave. The operator decided (2026-11-11):
+'   F2  how-tos and whys that leave the screen go to `proveo init --help`,
+'       the flag help and _spec; init writes NO log file.
+'   F3  the readiness verdict prints LAST, in the result.
+'   UNREACHED  a separate "not run" fact for what a failure kept from running.
+' initRecord collects across every page and every revisit, by the setup
+' page's own row labels (sign in · sbx setup · GitHub · git identity ·
+' prompt), plus "credentials", "operator name" and "sbx diagnose":
+'   ran      each labelled step that did not fail, once
+'   later    each row answered "later"; credentials when its page was
+'            skipped, or --yes or no terminal kept it from asking
+'   not run  the chosen steps after the one that failed, and the pages a
+'            failure or a run blocker kept init from reaching
+' EVERY PAGE THAT FAILS NAMES THE PAGES AFTER IT (initRecord.pages): setup,
+' credentials or operator, through a step, a form that cannot draw, or a
+' Ctrl+C in a sign-in, whose answered rows after it list too. A quit, a
+' cancel and a blocked prerequisite are the operator's or end before the
+' result, so they list nothing. A distro package the release does not ship
+' fails the install step itself, so the steps after it list as for any step.
+' A label already "later" (the credentials page skipped, then a failure on
+' a revisit of setup) stays "later" alone: one list per label.
+' An action that ran on an earlier visit never lists as later.
+' A row a revisit chooses "now" leaves "later" (leaveUnchosen), so a failure
+' before it runs lists it under "not run" (the second R3 review: "later:
+' sign in" printed above "⚠ init — stopped at sign in").
+' "leave as is" on the network baseline is no "later": nothing waits.
+' initReport.close prints what an early end left unprinted (sbx, git,
+' credentials, operator), then ONE results block:
+'   ● later:   GitHub                 one Facts block; each list stacked
+'              git identity           under its key (P3)
+'   ● not run: credentials            only after a failure or a run blocker
+'   ⚠/× each failing sbx check, its evidence and hint dim
+'   one closing line, the verdict:
+'     ✓ host — ready to run                    verify found nothing a run needs
+'     × host — not ready to run                a run blocker; exit 1
+'     ⚠ init — quit at page n/N                a confirmed quit; exit 1; dim
+'                                              "host ready to run" when verify
+'                                              reached that verdict
+'     ⚠ init — cancelled at the checks page    or "the setup page"; exit 1
+'     ⚠ init — stopped at <row>                a program init handed the
+'                                              terminal to failed (sbx login,
+'                                              the installer, the package,
+'                                              gh auth login): its own error
+'                                              stands; exit 1; after a
+'                                              Ctrl+C, dim "Ctrl+C ended it"
+'                                              and proveo dies of SIGINT
+'                                              (status 130)
+'     × <row> — failed                         a failure proveo found itself
+'                                              (a download, a digest, a prefix
+'                                              it cannot write); the error dim
+'     × init — stopped                         an error no step names: the
+'                                              setup page's own form error, or
+'                                              no plan for a prefix it chose;
+'                                              the error dim; exit 1
+'   none when verify gave no answer: its ⚠ item is the last line.
+' THE VERDICT STAYS LAST (F3, the second R3 review): after a verify that
+' found the host ready, every ending but success keeps "host ready to run"
+' as its last dim line, under the error or "Ctrl+C ended it" when there is
+' one; until then only a quit or a cancel kept it.
+' Each ending but success returns backend.Reported (or a re-raised Stopped),
+' so main prints nothing more: one × host line, never main's "× host not
+' ready to run: <names>" under it. A blocked prerequisite ends on its × item in the
+' sbx block and prints no result. Errors before any block exists (no home
+' and no --prefix, no temp dir, no build for this host) keep main's ×.
+' THE RESULT IS PRINTED, NOT PAGED: a page takes its text with it.
+' MOVED TO `proveo init --help` (F2): what "later" rows need ("`proveo init`
+' again offers what was left for later; `sbx login` and `sbx setup` run
+' sbx's own"), "Then `proveo run` lists the harnesses this host can start",
+' "proveo does not manage the host … --force", `source <rc>`, the prompt
+' kit's "open a new shell" and its icon preset. NOT CHOSEN: an init log
+' file (F2 b); dim how-tos under every "later" row (F2 c, against the
+' HOW-TO decision).
+'
+' ── WHAT RAN ───────────────────────────────────────────────────────────────
+' macOS and linux/arm64, on tmux against the stub sbx: the checks page shows
+' both groups and no "enter accept"; Esc on setup returns to it and Enter
+' goes on without re-running sbx login or sbx setup; the result lists what
+' ran as done, what was skipped as later with its command, and the next
+' command. The eight older init tests pass through one changed helper,
+' which continues past the checks page.
+' 2026-11-11: the stub sends sbx 0.50.0's shape, one row with a warning; the
+' page shows its message, its detail and its hint (macOS, tmux).
+' 2026-11-11: the stub also fails "SSH client config". Every init test
+' finishes, and the result lists "done: verify sbx". With RunBlockers swapped
+' back to every failed row, the checks test failed on "host not ready to
+' run: SSH client config" (macOS, tmux).
+' NOT RUN: a blocked host. The blocked page is unit-tested and drawn in the
+' golden frames; no test host fails a blocking prerequisite.
+' NOT RUN: a host without sbx, so the one-row page drew in no test.
+'
+' R3 (2026-11-11, the stubbed harness, macOS): every init e2e passes with
+' the anchors the plan's E2E ANCHORS THAT MOVE (R3) lists.
+' Pinned by cmd/proveo/init_preflight_test.go:
+'   TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix
+'   TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds
+'   TestAnSbxThatDoesNotAnswerIsARowAndNotAnError
+'   TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence
+'   TestAFailingCheckARunDoesNotNeedIsAWarningThatSaysWhatItAffects
+'   TestOnlyAFailingCheckARunNeedsFailsInit
+'   TestTheResultLeavesOutAnActionThatRanOnAnEarlierVisit
+'   TestSignInLeftForLaterUsesTheSetupPagesRowNames
+'   TestAFailureNamesWhatItKeptFromRunningApartFromLater
+'   TestARowAnsweredLaterIsNeverAlsoNotRun
+'   TestAFailedPageNamesThePagesAfterIt
+'   TestARowChosenNowOnARevisitLeavesLater
+' Pinned by cmd/proveo/init_report_test.go:
+'   TestEveryEndingAfterAPassedVerifyKeepsTheVerdictLast
+'   TestAnErrorWithNoStepClosesOnInitStopped
+'   TestAFailedGhAuthLoginEndsInitOnWhereItStopped
+'   TestACredentialsPageStopNamesWhatItKeptFromRunning
+'   TestAMissingDistroPackageStopsAtTheInstallAndNamesWhatNeverRan
+'   TestTheSbxBlockNamesAnotherSbxThisShellsPathFindsFirst
+'   TestTheResultListsWhatWaitsAndClosesOnTheVerdict
+'   TestARunBlockerClosesOnOneHostVerdictAndNamesWhatNeverRan
+'   TestAQuitClosesOnOneWarningWithTheVerdictDim
+'   TestAHandOffFailureEndsOnWhereInitStopped
+'   TestACtrlCDuringAHandOffEndsInitCleanlyWith130
+'   TestAFailureProveoFoundClosesOnItsStep
+'   TestABlockedPrerequisiteEndsOnItsItem
+'   TestARevisitPrintsOneReadinessSetAndItsSbxLinesUnderSbx
+'   TestTheCredentialsBlockPrintsOnceFromTheLatestPass
+'   TestFlagHelpCarriesTheHowTosThatLeftTheScreen
+' Pinned by internal/choiceui/check_page_test.go:
+'   TestTheCheckPagesKeys
+'   TestTheCheckPageShowsEveryCheckItsMarkAndTheHintUnderOneThatFailed
+'   TestWhatACheckFoundDrawsUnderARowThatDidNotPassAboveItsHint
+'   TestABlockedCheckPageSaysWhyAndOffersNoWayOn
+'   TestAShortCheckPageScrollsAndKeepsItsVerdictAndItsKeys
+'   TestTheCheckPageMatchesItsGoldenFrames
+' Pinned by e2e/init_steps_test.go:
+'   TestInitOpensOnTheChecksAndClosesOnTheResult
+'   TestInitOnAReadyHostClosesOnReady
+'   TestInitARunBlockerClosesOnTheHostVerdict
+'   TestInitCtrlCInSbxsWizardEndsOnWhereItStopped
+
+component "install prerequisites\nsbx.Prereqs" as PRE <<data>>
+component "sbx diagnose\nwhen sbx is on the host" as DIAG <<cloud>>
+component "page 1 · the checks\nevery row, with its mark" as PAGE <<app>>
+component "**a blocking prerequisite**\nEnter does nothing" as BLOCK <<error>>
+component "setup · credentials · operator" as PAGES <<app>>
+component "initRecord\nran · later · not run" as REC <<data>>
+component "the result\nlater · not run · checks · verdict" as RESULT <<host>>
+
+PRE ARROW_MAIN PAGE
+DIAG ARROW_OPTIONAL PAGE
+PAGE ARROW_MAIN PAGES : Enter
+PAGE ARROW_ERROR BLOCK
+PAGES ARROW_MAIN REC : each step that ran, each answer "later"
+REC ARROW_MAIN RESULT
+
+note bottom of PAGE
+  **It asks nothing.** Passing checks show too,
+  and sbx's own rows join them when sbx is
+  already installed. A row that did not pass
+  carries what was found and its fix.
+end note
+
+note bottom of BLOCK
+  **Stopped on a page, not by a line.** The
+  verdict names the prerequisite and the key
+  line offers Esc alone. Without a terminal
+  the old error is still immediate.
+end note
+
+note bottom of REC
+  **A revisit cannot undo a step that ran.**
+  A revisit opens every one-shot action on
+  "later"; the record remembers the sign-in
+  that ran, so "later" never lists it.
+end note
+
+note bottom of RESULT
+  **It ends on the verdict.** What waits, what
+  a failure kept from running, the checks sbx
+  failed, then one closing line: ✓ or × host,
+  or ⚠ where init stopped.
+end note
+
+note bottom of DIAG
+  **Asked once.** The rows are kept for the
+  whole init. A sbx that gives no answer is
+  one warning row with the reinstall command,
+  and the wizard goes on.
+end note
+@enduml

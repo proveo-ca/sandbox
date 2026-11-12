@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -282,52 +283,53 @@ func signInHelp(s credSlot) string {
 	return out
 }
 
-// applySignIn runs the sbx command a sign-in row's choice asks for, then reads the store back; known is false when it could not.
-func applySignIn(s credSlot, choice string, run func(argv []string) error, held func(service string) (held, known bool)) error {
+// applySignIn runs the sbx command a sign-in row's choice asks for, then reads the store back. Its
+// start line prints at once; what it leaves to say comes back as items for the credentials block.
+func applySignIn(s credSlot, choice string, run func(argv []string) error, held func(service string) (held, known bool)) ([]sandbox.Item, error) {
 	switch choice {
 	case signOut:
-		ui.Appf("%s: signing out — `%s %s`", s.Label, sbx.Binary, strings.Join(sbx.SignOutArgs(s.Store), " "))
-		return run(append([]string{sbx.Binary}, sbx.SignOutArgs(s.Store)...))
+		ui.Asyncf("%s — signing out", s.Label)
+		return nil, run(append([]string{sbx.Binary}, sbx.SignOutArgs(s.Store)...))
 	case signInAgain, signInNow:
 	default:
-		return nil
+		return nil, nil
 	}
 	if sbx.SignInArgs(s.Store, "<dir>") == nil {
-		ui.Notef("%s: sign in with %s — sbx keeps the login as %s", s.Label, sbx.SignIn(s.Store), s.Store)
-		return nil
+		return []sandbox.Item{{Warn: true, Text: s.Label + " — not signed in", Detail: []string{"sign in with " + sbx.SignIn(s.Store) + "; sbx keeps the login as " + s.Store}}}, nil
 	}
 	dir := ""
 	if sbx.SignInRuns(sbx.SignInArgs(s.Store, "<dir>")) {
 		var err error
 		if dir, err = os.MkdirTemp("", sbx.SignInSandbox+"-"); err != nil {
-			return err
+			return nil, err
 		}
 		defer func() { _ = os.RemoveAll(dir) }()
 	}
 	argv := sbx.SignInArgs(s.Store, dir)
-	ui.Appf("%s: signing in — `%s %s`", s.Label, sbx.Binary, strings.Join(argv, " "))
+	ui.Asyncf("%s — signing in through sbx", s.Label)
+	var items []sandbox.Item
 	err := run(append([]string{sbx.Binary}, argv...))
 	if sbx.SignInRuns(argv) {
 		rm := sbx.RemoveArgs(sbx.SignInSandbox)
 		switch rmErr := run(append([]string{sbx.Binary}, rm...)); {
 		case rmErr != nil && err == nil:
-			ui.Warnf("%s: the sign-in sandbox stays (%v) — `%s %s`", s.Label, rmErr, sbx.Binary, strings.Join(rm, " "))
+			items = append(items, sandbox.Item{Warn: true, Text: s.Label + " — sign-in sandbox left",
+				Detail: append(errDetail(rmErr), "`"+sbx.Binary+" "+strings.Join(rm, " ")+"` removes it")})
 		case rmErr != nil:
-			ui.Notef("%s: if a %s sandbox remains, `%s %s` removes it", s.Label, sbx.SignInSandbox, sbx.Binary, strings.Join(rm, " "))
+			items = append(items, sandbox.Item{Warn: true, Text: s.Label + " — sign-in sandbox may be left",
+				Detail: []string{"if " + sbx.SignInSandbox + " remains, `" + sbx.Binary + " " + strings.Join(rm, " ") + "` removes it"}})
 		}
 	}
 	if err != nil {
-		return err
+		return items, err
 	}
 	switch ok, known := held(s.Store); {
 	case !known:
-		ui.Notef("%s: `%s secret ls` could not be read, so the login for %s is unconfirmed", s.Label, sbx.Binary, s.Store)
+		items = append(items, sandbox.Item{Warn: true, Text: s.Label + " — login unconfirmed", Detail: []string{"`" + sbx.Binary + " secret ls` could not be read"}})
 	case !ok:
-		return fmt.Errorf("the sign-in ended, but sbx lists no OAuth login for %s", s.Store)
-	default:
-		ui.Storef("%s: sbx holds the login as %s (oauth configured)", s.Label, s.Store)
+		return items, fmt.Errorf("the sign-in ended, but sbx lists no OAuth login for %s", s.Store)
 	}
-	return nil
+	return items, nil
 }
 
 // slotKey names a slot across visits of the credentials screen.
@@ -379,26 +381,32 @@ func firstField(rows []choiceui.Row) string {
 	return ""
 }
 
-// credentialStage is `proveo init`'s credentials screen; typed carries its answers across a step back.
-func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (stepResult, error) {
+// credentialStage is `proveo init`'s credentials screen; typed carries its answers across a step
+// back. A forward exit, and an init that cannot ask, set the credentials block from what the store
+// holds then; a step back and a quit leave it as it was.
+func credentialStage(o initOptions, at choiceui.Step, typed map[string]string, rec *initRecord, rep *initReport) (stepResult, error) {
 	// The embedded registry, not the defs/ tree: init runs on a freshly installed
 	// host where no repository exists.
 	ms, err := loadManifests()
 	if err != nil || len(ms) == 0 {
 		return stepNone, nil // nothing to provision for; the install is still good
 	}
-	slots := surveyCredentials(ms, sbx.StoreEntries(), os.Getenv)
-	reportCredentials(slots)
-	reportStaleEntries(credentials.StaleStoreEntries(sbx.StoredServices(), sbx.CustomSecrets(), defNames(ms)))
+	survey := func() []credSlot { return surveyCredentials(ms, sbx.StoreEntries(), os.Getenv) }
+	report := func(slots []credSlot, details map[string][]string, items []sandbox.Item) {
+		facts, warns := credentialFacts(slots, details)
+		warns = append(warns, staleItems(credentials.StaleStoreEntries(sbx.StoredServices(), sbx.CustomSecrets(), defNames(ms)))...)
+		rep.setCredentials(facts, append(warns, items...))
+	}
+	slots := survey()
 	if o.printOnly || len(slots) == 0 {
+		report(slots, nil, nil)
 		return stepNone, nil
 	}
-	if o.yes {
-		ui.Notef("--yes — nothing provisioned; run `proveo init` without it to provision credentials")
-		return stepNone, nil
-	}
-	if !interactiveTerminal() {
-		ui.Notef("not a terminal — run `proveo init` from a shell to provision credentials")
+	if o.yes || !interactiveTerminal() {
+		if rec != nil {
+			rec.leave(labelCredentials, rep.howTo("`proveo init` from a terminal provisions them")...)
+		}
+		report(slots, nil, nil)
 		return stepNone, nil
 	}
 
@@ -415,13 +423,25 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 		Glyphs:   posture.GlyphModeFrom(os.Getenv),
 		NoAxis:   true,
 		Step:     at,
+		Skip:     "Skip",
 		StartRow: firstField(rows),
 		Rows:     rows,
 	}
 	out, err := form.RunStep()
-	if err != nil || out == choiceui.Cancelled {
+	switch {
+	case err != nil:
 		clear(typed)
-		return stepNext, err
+		return stepNext, stopAt(labelCredentials, err)
+	case out == choiceui.Cancelled || out == choiceui.Skipped:
+		clear(typed)
+		if rec != nil {
+			rec.leave(labelCredentials)
+		}
+		report(slots, nil, nil)
+		return stepNext, nil
+	case out == choiceui.Quit:
+		clear(typed)
+		return stepQuit, nil
 	}
 	if out == choiceui.Back {
 		if typed != nil {
@@ -430,33 +450,83 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string) (
 		return stepBack, nil
 	}
 	clear(typed)
+	ui.Section(ui.SectionCredentials)
 	held := func(service string) (bool, bool) { e := sbx.StoreEntries(); return e[service].OAuth, e != nil }
+	details, items, err := applyCredentials(slots, form.Rows, runArgv, held, rec)
+	report(survey(), details, items)
+	if err != nil {
+		return stepNext, stopAt(labelCredentials, err)
+	}
+	if rec != nil {
+		rec.did(labelCredentials)
+	}
+	return stepNext, nil
+}
+
+// applyCredentials signs in and stores what each row answered, in order. A Ctrl+C that ends a
+// sign-in stops it and is its error; rec then holds the answered rows after that one as not run.
+func applyCredentials(slots []credSlot, rows []choiceui.Row, run func(argv []string) error, held func(string) (bool, bool), rec *initRecord) (map[string][]string, []sandbox.Item, error) {
+	details := map[string][]string{}
+	var items []sandbox.Item
 	for i, s := range slots {
-		value := ""
-		if i < len(form.Rows) {
-			value = strings.TrimSpace(form.Rows[i].Value)
-		}
 		if s.Kind == kindSignIn {
-			if err := applySignIn(s, signInChoice(form.Rows, i), runArgv, held); err != nil {
-				ui.Warnf("%s: %v", s.Label, err)
+			said, err := applySignIn(s, signInChoice(rows, i), run, held)
+			items = append(items, said...)
+			if interrupted(err) {
+				rec.unreached(answeredSlots(slots, rows, i+1)...)
+				return details, items, err
+			}
+			if err != nil {
+				items = append(items, sandbox.Item{Warn: true, Text: s.Label + " — not signed in", Detail: errDetail(err)})
 			}
 			continue
 		}
+		value := slotValue(s, rows, i)
 		if value == "" {
-			// An amber field left alone is the import: the key is already on this
-			// host, and asking for it again is asking someone to find it twice.
-			if len(s.EnvVars) > 0 && !s.Held {
-				value = strings.TrimSpace(os.Getenv(s.EnvVars[0]))
-			}
-			if value == "" {
-				continue
-			}
+			continue
 		}
-		if err := provisionSlot(s, value); err != nil {
-			ui.Warnf("%s: %v", s.Label, err)
+		detail, warn, err := provisionSlot(s, value)
+		if err != nil {
+			items = append(items, sandbox.Item{Warn: true, Text: s.Label + " — not stored", Detail: errLines(err)})
+			continue
+		}
+		details[slotKey(s)] = detail
+		items = append(items, warn...)
+	}
+	return details, items, nil
+}
+
+// slotValue is what row i stores for s: the typed value, else the key this host's env holds and
+// the store does not (an amber field left alone is the import); "" stores nothing.
+func slotValue(s credSlot, rows []choiceui.Row, i int) string {
+	if i < len(rows) {
+		if v := strings.TrimSpace(rows[i].Value); v != "" {
+			return v
 		}
 	}
-	return stepNext, nil
+	if len(s.EnvVars) > 0 && !s.Held {
+		return strings.TrimSpace(os.Getenv(s.EnvVars[0]))
+	}
+	return ""
+}
+
+// answeredSlots names the rows from i on that the operator answered with something to run.
+func answeredSlots(slots []credSlot, rows []choiceui.Row, from int) []string {
+	var out []string
+	for i := from; i < len(slots); i++ {
+		s, choice := slots[i], signInChoice(rows, i)
+		switch {
+		case s.Kind == kindKey && slotValue(s, rows, i) != "":
+			out = append(out, s.Label+" key")
+		case s.Kind == kindSubscription && slotValue(s, rows, i) != "":
+			out = append(out, s.Label+" token")
+		case s.Kind == kindSignIn && choice == signOut:
+			out = append(out, s.Label+" sign-out")
+		case s.Kind == kindSignIn && (choice == signInNow || choice == signInAgain):
+			out = append(out, s.Label+" sign-in")
+		}
+	}
+	return out
 }
 
 // signInChoice is row i's selected option, read by position: a sign-in row and a usage key can share a label.
@@ -467,33 +537,42 @@ func signInChoice(rows []choiceui.Row, i int) string {
 	return rows[i].Options[rows[i].Selected]
 }
 
-func reportCredentials(slots []credSlot) {
-	ui.Section(ui.SectionSecrets)
-	any := false
+// credentialFacts are what the store holds, one fact per credential with what this init did to
+// it dim, and a ⚠ for a key this host's env holds and the store does not.
+func credentialFacts(slots []credSlot, details map[string][]string) ([]ui.Fact, []sandbox.Item) {
+	var facts []ui.Fact
+	var warns []sandbox.Item
 	for _, s := range slots {
 		switch {
 		case s.Held:
-			any = true
-			ui.Storef("%s — %s", s.Label, s.hint())
+			what := "key stored as "
+			switch s.Kind {
+			case kindSignIn:
+				what = "login held by sbx as "
+			case kindSubscription:
+				what = "token stored as "
+			}
+			facts = append(facts, ui.Fact{Role: ui.RoleStore, Key: s.Label, Value: what + s.Store, Detail: details[slotKey(s)]})
 		case len(s.EnvVars) > 0:
-			any = true
-			ui.Warnf("%s — %s", s.Label, s.hint())
+			warns = append(warns, sandbox.Item{Warn: true, Text: s.Label + " — " + strings.Join(s.EnvVars, ", ") + " set here, not stored"})
 		}
 	}
-	if !any {
-		ui.Notef("nothing in the store yet — every agent will meet its own login screen")
+	if len(facts) == 0 && len(warns) == 0 {
+		facts = append(facts, ui.Fact{Role: ui.RoleStore, Key: "store", Value: "empty"})
 	}
+	return facts, warns
 }
 
-// reportStaleEntries lists the store entries sbx never reads, each with the command that removes it.
-func reportStaleEntries(argvs [][]string) {
+// staleItems is one ⚠ for the store entries sbx never reads, with the command that removes each.
+func staleItems(argvs [][]string) []sandbox.Item {
 	if len(argvs) == 0 {
-		return
+		return nil
 	}
-	ui.Warnf("%d store entries sbx never reads — older proveo wrote them under env-var or def names; remove with:", len(argvs))
+	it := sandbox.Item{Warn: true, Text: fmt.Sprintf("store — %d entries sbx never reads", len(argvs))}
 	for _, a := range argvs {
-		ui.Notef("  %s %s", sbx.Binary, strings.Join(a, " "))
+		it.Detail = append(it.Detail, "`"+sbx.Binary+" "+strings.Join(a, " ")+"`")
 	}
+	return []sandbox.Item{it}
 }
 
 func defNames(ms []manifest.Manifest) []string {
@@ -504,29 +583,27 @@ func defNames(ms []manifest.Manifest) []string {
 	return out
 }
 
-// provisionSlot writes one credential under its service id: a reference as an sbx source, a value on stdin.
+// provisionSlot writes one credential under its service id: a reference as an sbx source, a value
+// on stdin. detail is what it did, for the stored credential's fact; a key the provider refuses is a ⚠.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R2)
-func provisionSlot(s credSlot, value string) error {
+func provisionSlot(s credSlot, value string) (detail []string, warn []sandbox.Item, err error) {
 	flags, stdin := secretref.SbxSource(s.Store, value, os.Getenv)
 	if len(flags) > 0 {
 		if err := sbx.SecretSetSource(s.Store, "", flags, ""); err != nil {
-			return fmt.Errorf("register %s: %w", s.Store, err)
+			return nil, nil, fmt.Errorf("register %s: %w", s.Store, err)
 		}
-		ui.Storef("%s registered as %s from a source sbx resolves on the host (%s); proveo never reads the value", s.Label, s.Store, flags[0])
-		return nil
+		return []string{"registered from " + strings.TrimSpace(value) + "; sbx resolves it on the host"}, nil, nil
 	}
 	if err := sbx.SecretSet(s.Store, stdin); err != nil {
-		return fmt.Errorf("store as %s: %w", s.Store, err)
+		return nil, nil, fmt.Errorf("store as %s: %w", s.Store, err)
 	}
-	value = stdin
-	ui.Storef("%s stored as %s", s.Label, s.Store)
-	switch ok, detail := verifySlot(s, value); {
+	switch ok, why := verifySlot(s, stdin); {
 	case ok:
-		ui.Hostf("%s: the provider accepted it", s.Label)
-	case detail != "":
-		ui.Warnf("%s: stored, but %s — present is not spendable", s.Label, detail)
+		return []string{"stored now; the provider accepted it"}, nil, nil
+	case why != "":
+		return []string{"stored now"}, []sandbox.Item{{Warn: true, Text: s.Label + " — stored, not spendable", Detail: []string{why}}}, nil
 	}
-	return nil
+	return []string{"stored now"}, nil, nil
 }
 
 // verifyProbes is the table of authenticated probes, one per provider.

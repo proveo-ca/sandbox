@@ -41,6 +41,11 @@
 ' Printer method AND as a package-level helper or `ui.Verbf` does not compile.
 ' A role with no verb is API nobody can reach; a verb naming no role prints
 ' undecorated and says nothing about the layer it came from.
+' R4 (2026-11-11): Dangerf lost its last caller, uninstall's red "this removes
+' proveo from <root>" (P9: the question names what goes), and left ui.go, as
+' the operator decided. The error role stays reachable as a ui.Fact's Role
+' (what clean and uninstall removed) and through Rolef; the contract test pins
+' the five verbs that remain.
 '
 ' ── THE STRUCTURAL HALF OF THE BAN ────────────────────────────────────────
 ' No exported verb in internal/ui may take a caller-supplied glyph: a parameter
@@ -117,6 +122,9 @@
 ' question called "egress" and then reads what happened under a heading called
 ' "egress". A parallel vocabulary — "network", "creds" — would make the two
 ' surfaces describe one run in two languages.
+' AMENDED 2026-11-11: the shared names stay shared (credentials, egress,
+' interface). The form's "execution" divider has no narration twin any more:
+' the subjects under it (the workspace, sbx) print under their own headings.
 '
 ' THE HEADING IS LAZY, AND THAT IS THE WHOLE MECHANISM. Nearly every line in a
 ' prelude is conditional: no gh session, no symlinks, no broker, no sub-scope.
@@ -128,21 +136,78 @@
 ' previous one did — and that is what lets a later stage CONTINUE a block rather
 ' than reopen it.
 '
-' ── TWO PASSES, BECAUSE A RUN HAS TWO MOMENTS ─────────────────────────────
-' A run reports what it resolved, then starts. Three concerns appear in both
-' halves — credentials are read and then injected, execution is chosen and then
-' begun — and reusing one name would make the second heading read as a repeat
-' rather than as a different moment. So the live half has its own names:
+' ── ONE HEADING PER SUBJECT, IN THE ORDER THE RUN MAKES IT TRUE ───────────
+' SUPERSEDED 2026-11-11 (R1 of _spec/_plans/output-readability.puml): a run's
+' headings were phases — resolved "scope · run · credentials · workspace ·
+' egress · execution", live "starting · secrets · interface · results" — so
+' "interface" printed predictions between step 2/5 and step 4/5 and the
+' workspace was said in five places. A heading now names a SUBJECT, in one
+' lowercase word, and each subject prints once, after the step that makes it
+' true:
 '
-'   resolved ... scope · run · credentials · workspace · egress · execution
-'   live ....... starting · secrets · interface · results
+'   run · credentials · egress · workspace · sbx · interface · results · ide
 '
-' Every divider in a run therefore appears exactly ONCE. Getting there took one
-' reordering, in run.selectBackend: the sbx baseline warning and the .env warning
-' now print before the "backend:" line, so they land in the egress block the
-' broker line opened instead of splitting execution in two. Deciding was
-' separated from reporting to make that safe — nothing about which backend runs
-' moved, only the order of two report calls.
+'   run         the log, the scope, the image pull
+'   egress      sbx's baseline, and the local model the sandbox reaches
+'   workspace   after the mount plan (sandbox.Spec)
+'   sbx         what proveo hands sbx, the steps, one Facts block (the
+'               stored secrets, the env seed, proveo's image), sbx's own
+'               create block; not "sandbox", which would sit on top of
+'               sbx's own SANDBOX sub-block
+'   interface   after `sbx create`, so its rows are facts, not predictions:
+'               what each port serves, the browser, one fact per host add-on
+'               (chrome, android, desktop; started before behind a live
+'               line, reported here), one "ide" row
+'   results     (R2) how the agent ended, ONE block of what came home
+'               (output, .env, branches, _spec, pushed, transcript), its ⚠
+'               items, then the sandbox's fate as the closing line
+'   ide         (R2) only when the sandbox stays: one Facts block of every
+'               way an IDE attaches (ssh, jetbrains, toolbox, vs code,
+'               project); a kept run ends on it, so nothing after it may
+'               declare "results" again (sandbox.Run prints a failure as a ×
+'               under results and returns backend.Reported)
+'
+' Every divider in a run therefore appears exactly ONCE: no stage declares a
+' heading another stage owns. The stale step's retire carries a replaced
+' sandbox's refs home under "sbx" (a sandbox.Block headed "sbx"), not
+' "results". Teardown's checks (reportCredentialInUse and the rest) write into
+' the results block teardown owns; the credential check had redrawn
+' "credentials" after "results".
+' A block with nothing to print declares no heading (sandbox.PrintBlock,
+' ui.Facts), so an empty subject never lends its heading to the next line.
+' "scope" stays in the vocabulary for the numbered scope picker; in a run its
+' lines fold into run.
+' `proveo init` (R3, 2026-11-11) names its subjects the same way, each once,
+' each after the step that makes it true:
+'
+'   sbx · prompt · git · credentials · operator · results
+'
+'   sbx          the programs sbx owns (their hand lines), then one Facts
+'                block: host, sbx, network; then its items
+'   prompt       the shell-prompt kit's facts
+'   git          the sandbox git identity, GitHub's token, sandbox Git access
+'   credentials  what sbx's store holds after the credentials page
+'   operator     the name agents use
+'   results      what waits ("later"), what a failure kept from running
+'                ("not run"), sbx's failing checks, one closing verdict
+' "execution", "starting" and "secrets" left the vocabulary with init's
+' phase headings (ui.go, 18 sections).
+' The other commands (R4, 2026-11-11): a one-subject command draws NO
+' heading, since its lines name their subject and the command line names
+' the command (the operator: rm, adopt, attach, clean, ls, projects, the
+' schedule listing, setup, update, uninstall). `proveo run` with no target
+' and no terminal lists two subjects and keeps "running · targets". Job
+' names left the heading line: a job is the key of the schedule's Facts
+' block, so no call site passes data to Printer.Section any more (the
+' contract test still checks ui.Section alone). "projects", "schedule",
+' "setup" and "uninstall" left ui.go: fourteen sections.
+' A revisit of init's setup page prints only what it changed: a hand line, an
+' item or a fact never printed before. A heading redraws only above those
+' lines; a revisit that changed nothing draws none. NOT CHOSEN: reprinting
+' the block (host twice); never redrawing (its hand line lands under git).
+' THE FORM KEEPS ITS DIVIDERS. The run form groups its rows by where the agent
+' runs ("execution") and what it drives ("interface"); the narration names
+' subjects. e2e/ports_publish_test.go reads the form's "execution".
 '
 ' ── THE DIVIDER IS CHOICEUI'S, RE-ANCHORED ────────────────────────────────
 ' Same construction and same secondary colour: rules, the label spaced, rules.
@@ -260,12 +325,9 @@ note right of PRN
 end note
 
 note right of SEC
-  **Ten names, and a call site may not invent one.** Six
-  come from the form — ""egress"", ""credentials"",
-  ""execution"", ""interface"" are its rows and dividers —
-  so a run is narrated under the headings the operator
-  was asked about. The other four name the live phase,
-  which the form has no row for.
+  **Closed names; a call site may not invent one.**
+  Each names a subject (ui.go lists them); a
+  one-subject command draws none (R4).
 
   Lazy, because nearly every prelude line is
   conditional. Declaring costs nothing; the first line

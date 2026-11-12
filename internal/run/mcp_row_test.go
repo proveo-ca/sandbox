@@ -2,6 +2,7 @@
 package run
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -49,10 +50,10 @@ func TestTheEnvOutranksTheRememberedMCPAnswer(t *testing.T) {
 
 func TestAHarnessThatAlwaysTakesTheGatewayAlwaysShowsIt(t *testing.T) {
 	f := &choiceui.Form{}
-	if got := topologyWith("hermes", "broker", true)(f, -1).HopNote; got != "+ mcp" {
-		t.Errorf("hermes hop note = %q, want + mcp with no row to read", got)
+	if got := topologyWith("hermes", "broker", true)(f, -1).Interface; !strings.HasSuffix(got, " + mcp") {
+		t.Errorf("hermes interface = %q, want it to end + mcp with no row to read", got)
 	}
-	if got := topologyWith("codex", "broker", false)(f, -1).HopNote; got != "" {
-		t.Errorf("codex hop note = %q, want none", got)
+	if got := topologyWith("codex", "broker", false)(f, -1).Interface; strings.Contains(got, "mcp") {
+		t.Errorf("codex interface = %q, want no mcp", got)
 	}
 }

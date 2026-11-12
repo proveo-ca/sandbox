@@ -3,13 +3,69 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
+// isolatedInitHost points HOME, PROVEO_HOME and the state root at temp dirs and puts a stub sbx first on a
+// PATH without the host's own sbx; it returns the file the stub logs each call to.
+// SPEC: _spec/tests/testing-strategy.puml
+func isolatedInitHost(t *testing.T) (calls string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the stub sbx is a shell script")
+	}
+	home, bin := t.TempDir(), t.TempDir()
+	calls = filepath.Join(t.TempDir(), "sbx-calls")
+	stub := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + strconv.Quote(calls) + "\n" + `case "$1 $2" in
+  "version --json") echo '{"client":{"version":"0.50.0"},"server":{"state":"running"}}' ;;
+  "version "*) echo 'sbx version: v0.50.0 deadbeef' ;;
+  "diagnose --json") if [ -n "$STUB_DIAGNOSE" ]; then printf '%s\n' "$STUB_DIAGNOSE"; else echo '{"checks":[]}'; fi ;;
+  "policy check") echo "{\"allowed\":${STUB_POLICY_ALLOWED:-false}}" ;;
+  "login ") exit "${STUB_LOGIN_EXIT:-0}" ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(bin, "sbx"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PROVEO_HOME", filepath.Join(home, ".proveo"))
+	t.Setenv("PROVEO_STATE_ROOT", filepath.Join(home, "state"))
+	t.Setenv("PROVEO_DEFS_DIR", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/usr/bin:/bin:/usr/sbin:/sbin")
+	return calls
+}
+
+// isolatedHost is isolatedInitHost with failing launchctl, systemctl, crontab, tmux and docker stubs, the XDG,
+// starship and tmux variables empty and the install root under the temp HOME; it returns the stubs' call log.
+// SPEC: _spec/tests/testing-strategy.puml
+func isolatedHost(t *testing.T) (calls string) {
+	t.Helper()
+	isolatedInitHost(t)
+	home, bin := os.Getenv("HOME"), t.TempDir()
+	calls = filepath.Join(t.TempDir(), "host-calls")
+	stub := "#!/bin/sh\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> " + strconv.Quote(calls) + "\nexit 1\n"
+	for _, name := range []string{"launchctl", "systemctl", "crontab", "tmux", "docker"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, name := range []string{"XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "STARSHIP_CONFIG", "TMUX"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("PROVEO_INSTALL_ROOT", filepath.Join(home, ".proveo"))
+	return calls
+}
+
 func TestInitWritesNoEnvFileIntoTheWorkspace(t *testing.T) {
+	calls := isolatedInitHost(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 	t.Setenv("OPENAI_API_KEY", "sk-test")
@@ -39,11 +95,15 @@ func TestInitWritesNoEnvFileIntoTheWorkspace(t *testing.T) {
 			t.Fatalf("--print created the install prefix; it must change nothing")
 		}
 	}
+	if b, _ := os.ReadFile(calls); len(b) == 0 {
+		t.Errorf("--print never reached the stub sbx; the test may have asked the host's own")
+	}
 }
 
 // --print must not need a home directory, a network, or a writable prefix. It
 // is the mode an operator reaches for on a host they have not committed to yet.
 func TestInitPrintDescribesThePlanForThisHost(t *testing.T) {
+	isolatedInitHost(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
 

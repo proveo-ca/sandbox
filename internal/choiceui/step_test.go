@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gdamore/tcell/v2"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func stepForm(at, of int) *Form {
@@ -18,7 +18,7 @@ func stepForm(at, of int) *Form {
 
 func TestShiftTabStepsBackOnlyPastTheFirstScreen(t *testing.T) {
 	t.Parallel()
-	backtab := tcell.NewEventKey(tcell.KeyBacktab, 0, tcell.ModShift)
+	backtab := named("shift+tab")
 	for _, tc := range []struct {
 		step Step
 		want Outcome
@@ -35,14 +35,50 @@ func TestShiftTabStepsBackOnlyPastTheFirstScreen(t *testing.T) {
 		}
 	}
 	f := &Form{Step: Step{At: 2, Of: 3}}
-	if got, done := f.leave(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone)); got != Accepted || !done {
+	if got, done := f.leave(named("enter")); got != Accepted || !done {
 		t.Errorf("enter = (%v, %v), want Accepted", got, done)
 	}
-	if got, done := f.leave(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)); got != Cancelled || !done {
-		t.Errorf("esc = (%v, %v), want Cancelled", got, done)
-	}
-	if _, done := f.leave(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)); done {
+	if _, done := f.leave(key('q')); done {
 		t.Error("q ended the form before a field could take it as typing")
+	}
+}
+
+func TestEscStepsBackPastTheFirstPageAndCancelsOnIt(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		step Step
+		want Outcome
+	}{
+		{Step{At: 2, Of: 3}, Back},
+		{Step{At: 3, Of: 3}, Back},
+		{Step{At: 1, Of: 3}, Cancelled},
+		{Step{}, Cancelled},
+	} {
+		f := &Form{Step: tc.step}
+		if got, done := f.leave(named("esc")); got != tc.want || !done {
+			t.Errorf("step %+v: esc = (%v, %v), want %v", tc.step, got, done, tc.want)
+		}
+	}
+}
+
+func TestCtrlCAndQQuitAWizardAndCancelALoneForm(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		step Step
+		want Outcome
+	}{
+		{Step{At: 1, Of: 3}, Quit},
+		{Step{At: 3, Of: 3}, Quit},
+		{Step{}, Cancelled},
+	} {
+		f := stepForm(tc.step.At, tc.step.Of)
+		if got, done := f.leave(named("ctrl+c")); got != tc.want || !done {
+			t.Errorf("step %+v: ctrl+c = (%v, %v), want %v", tc.step, got, done, tc.want)
+		}
+		cursor := 0
+		if got, done := f.key(&cursor, key('q'), 100, 30); got != tc.want || !done {
+			t.Errorf("step %+v: q = (%v, %v), want %v", tc.step, got, done, tc.want)
+		}
 	}
 }
 
@@ -52,9 +88,9 @@ func TestHintNamesThePageTheWayBackAndTheScrollKeys(t *testing.T) {
 		at, of     int
 		want, none []string
 	}{
-		{2, 3, []string{"page 2/3", "shift+tab back", "pgup/pgdn scroll", "enter accept"}, nil},
-		{1, 3, []string{"page 1/3", "pgup/pgdn scroll", "enter accept"}, []string{"shift+tab back"}},
-		{0, 0, []string{"pgup/pgdn scroll", "enter accept"}, []string{"page ", "shift+tab back"}},
+		{2, 3, []string{"page 2/3", "esc back", "ctrl+c quit", "pgup/pgdn scroll", "enter accept"}, []string{"shift+tab", "esc cancel"}},
+		{1, 3, []string{"page 1/3", "esc cancel", "ctrl+c quit", "pgup/pgdn scroll", "enter accept"}, []string{"shift+tab", "esc back"}},
+		{0, 0, []string{"esc cancel", "pgup/pgdn scroll", "enter accept"}, []string{"page ", "shift+tab", "esc back", "ctrl+c quit"}},
 	} {
 		hint := stepForm(tc.at, tc.of).hint(200, 0)
 		for _, w := range tc.want {
@@ -79,7 +115,7 @@ func TestANarrowHintDropsTheScrollKeysBeforeTheWayOut(t *testing.T) {
 	if strings.Contains(hint, hintScroll) {
 		t.Errorf("width %d kept %q over the way out: %q", w, hintScroll, hint)
 	}
-	for _, keep := range []string{"shift+tab back", "enter accept", "esc cancel", "3 more below"} {
+	for _, keep := range []string{"esc back", "enter accept", "3 more below"} {
 		if !strings.Contains(hint, keep) {
 			t.Errorf("width %d: hint %q lost %q", w, hint, keep)
 		}
@@ -104,5 +140,51 @@ func TestTheDrawnFooterCarriesThePage(t *testing.T) {
 	t.Parallel()
 	if out := joined(t, stepForm(2, 3)); !strings.Contains(out, "page 2/3") || !strings.Contains(out, "enter accept") {
 		t.Errorf("the footer does not name the page:\n%s", out)
+	}
+}
+
+// The key line is two-tone: a key is bold and bright, the word beside it grey.
+func TestTheKeyLinePaintsKeysBoldAndWordsGrey(t *testing.T) {
+	t.Parallel()
+	f := stepForm(2, 3)
+	s := simScreen(t, 120, 30)
+	f.draw(s, 0, 0)
+	lines := screenLines(s)
+	row := -1
+	for y, l := range lines {
+		if strings.Contains(l, "enter accept") {
+			row = y
+		}
+	}
+	if row < 0 {
+		t.Fatalf("no key line on the frame:\n%s", strings.Join(lines, "\n"))
+	}
+	if got, want := lines[row], f.hint(120, 0); got != want {
+		t.Errorf("the painted key line %q is not its plain projection %q", got, want)
+	}
+	at := func(word string) int { return textWidth(lines[row][:strings.Index(lines[row], word)]) }
+	for _, key := range []string{"enter", "esc", "ctrl+c", "↑↓"} {
+		if _, _, st, _ := s.GetContent(at(key), row); !st.GetBold() || fgHex(st) != hexName(ui.ColorSecondary) {
+			t.Errorf("the key %q is not bold and bright: %q", key, st.Render("x"))
+		}
+	}
+	for _, word := range []string{"accept", "quit", "back", "row", "page 2/3"} {
+		if _, _, st, _ := s.GetContent(at(word), row); st.GetBold() || fgHex(st) != hexName(ui.ColorMuted) {
+			t.Errorf("the word %q is not grey: %q", word, st.Render("x"))
+		}
+	}
+}
+
+// A key line too long for the screen is clipped where the plain line is, whichever segment that falls in.
+func TestAClippedKeyLineStillEndsWhereThePlainLineEnds(t *testing.T) {
+	t.Parallel()
+	f := stepForm(0, 0)
+	for _, w := range []int{4, 9, 13, 20, 31} {
+		s := simScreen(t, w, 30)
+		c := newCanvas(s)
+		f.drawHint(c, styles(), w, 0)
+		if got, want := screenLines(s)[0], strings.TrimRight(f.hint(w, 0), " "); got != want {
+			t.Errorf("width %d: painted %q, plain %q", w, got, want)
+		}
 	}
 }

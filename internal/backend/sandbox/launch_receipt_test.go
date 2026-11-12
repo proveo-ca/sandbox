@@ -7,9 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gdamore/tcell/v2"
-
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func quietReport(string, ...any) {}
@@ -72,22 +71,28 @@ func TestRetireIfStaleRecreatesOnlyAStoppedChangedSandbox(t *testing.T) {
 	retired := 0
 	retire := func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }
 	quiet := func(string, ...any) {}
+	quietWarn := func(string, ...string) {}
 
-	if err := retireIfStale(Input{}, cfg, now, no, no, retire, quiet, quiet); err != nil || retired != 0 {
-		t.Errorf("no sandbox: err=%v retired=%d", err, retired)
+	if kept, err := retireIfStale(Input{}, cfg, staleChanges(cfg.Name, now, false), no, retire, quiet, quietWarn); err != nil || retired != 0 || kept != nil {
+		t.Errorf("no sandbox: err=%v retired=%d kept=%q", err, retired, kept)
 	}
 	same := receiptOf(launchCfg("s3"), launchCfg("s3").Image, []byte("k1"), "s3", "img")
-	if err := retireIfStale(Input{}, cfg, same, yes, no, retire, quiet, quiet); err != nil || retired != 0 {
-		t.Errorf("unchanged settings must re-attach: err=%v retired=%d", err, retired)
+	if kept, err := retireIfStale(Input{}, cfg, staleChanges(cfg.Name, same, true), no, retire, quiet, quietWarn); err != nil || retired != 0 || kept != nil {
+		t.Errorf("unchanged settings must re-attach: err=%v retired=%d kept=%q", err, retired, kept)
 	}
 	var warned string
-	err := retireIfStale(Input{}, cfg, now, yes, yes, retire, quiet, func(f string, a ...any) { warned = fmt.Sprintf(f, a...) })
-	if err != nil || retired != 0 || !strings.Contains(warned, "PROVEO_HOST_CDP_PORT") || !strings.Contains(warned, "NOT apply") {
-		t.Errorf("a RUNNING changed sandbox is someone's live session: warn, never remove: err=%v retired=%d warn=%q", err, retired, warned)
+	kept, err := retireIfStale(Input{}, cfg, staleChanges(cfg.Name, now, true), yes, retire, quiet,
+		func(head string, detail ...string) { warned = head + "\n" + strings.Join(detail, "\n") })
+	if err != nil || retired != 0 || !strings.Contains(warned, "not applied: ") || !strings.Contains(warned, "PROVEO_HOST_CDP_PORT") ||
+		!slices.Contains(kept, "PROVEO_HOST_CDP_PORT") {
+		t.Errorf("a RUNNING changed sandbox is someone's live session: warn, never remove: err=%v retired=%d warn=%q kept=%q", err, retired, warned, kept)
+	}
+	if head, _, _ := strings.Cut(warned, "\n"); strings.Contains(head, ". ") || strings.Count(head, " — ") != 1 {
+		t.Errorf("the warning head is one sentence with one result, got %q", head)
 	}
 	var said string
-	if err := retireIfStale(Input{}, cfg, now, yes, no, retire, func(f string, a ...any) { said += fmt.Sprintf(f, a...) + "\n" }, quiet); err != nil || retired != 1 {
-		t.Errorf("a stopped changed sandbox must be re-created: err=%v retired=%d", err, retired)
+	if kept, err := retireIfStale(Input{}, cfg, staleChanges(cfg.Name, now, true), no, retire, func(f string, a ...any) { said += fmt.Sprintf(f, a...) + "\n" }, quietWarn); err != nil || retired != 1 || kept != nil {
+		t.Errorf("a stopped changed sandbox must be re-created: err=%v retired=%d kept=%q", err, retired, kept)
 	}
 	for _, want := range []string{"replacing " + cfg.Name, "PROVEO_HOST_CDP_PORT"} {
 		if !strings.Contains(said, want) {
@@ -116,10 +121,10 @@ func TestAHeadedYesReplacesARunningSandboxForAnyHarness(t *testing.T) {
 	}
 	retired := 0
 	var said string
-	err := retireIfStale(Input{Target: "claudecode"}, cfg, now, func(string) bool { return true }, func(string) bool { return true },
+	_, err := retireIfStale(Input{Target: "claudecode"}, cfg, staleChanges(cfg.Name, now, true), func(string) bool { return true },
 		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil },
 		func(f string, a ...any) { said += fmt.Sprintf(f, a...) + "\n" },
-		func(string, ...any) {})
+		func(string, ...string) {})
 	if err != nil || retired != 1 {
 		t.Fatalf("yes must replace a running sandbox: err=%v retired=%d", err, retired)
 	}
@@ -139,10 +144,18 @@ func TestAHeadedNoKeepsAStoppedSandbox(t *testing.T) {
 	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
-	err := retireIfStale(Input{Target: "codex"}, cfg, now, func(string) bool { return true }, func(string) bool { return false },
-		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
-	if err == nil || retired != 0 || !strings.Contains(err.Error(), "reattaches") || !strings.Contains(err.Error(), "does not persist") {
-		t.Fatalf("no must keep the sandbox: err=%v retired=%d", err, retired)
+	var screen, log strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&screen)
+	restore := ui.TeeTo(&log)
+	t.Cleanup(func() { restore(); ui.Default = prev })
+	_, err := retireIfStale(Input{Target: "codex"}, cfg, staleChanges(cfg.Name, now, true), func(string) bool { return false },
+		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...string) {})
+	if err == nil || retired != 0 || !strings.Contains(err.Error(), "reattaches") || strings.Contains(err.Error(), "sbx rm") {
+		t.Fatalf("no must keep the sandbox, and its error carries no how-to: err=%v retired=%d", err, retired)
+	}
+	if !strings.Contains(log.String(), "does not persist") || strings.Contains(screen.String(), "does not persist") {
+		t.Errorf("the removal how-to belongs to the run log alone: the operator answered keep\nscreen:\n%s\nlog:\n%s", screen.String(), log.String())
 	}
 }
 
@@ -160,8 +173,8 @@ func TestAnOpenCodeEngineFollowsTheStaleSandboxRuleAndCarriesItsHistory(t *testi
 	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
-	err := retireIfStale(Input{Target: "opencode"}, cfg, now, func(string) bool { return true }, func(string) bool { return true },
-		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
+	_, err := retireIfStale(Input{Target: "opencode"}, cfg, staleChanges(cfg.Name, now, true), func(string) bool { return true },
+		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...string) {})
 	if err != nil || retired != 1 {
 		t.Fatalf("a headed yes must replace a live OpenCode engine like any sandbox: err=%v retired=%d", err, retired)
 	}
@@ -172,18 +185,18 @@ func TestAnOpenCodeEngineFollowsTheStaleSandboxRuleAndCarriesItsHistory(t *testi
 
 func TestAFailedUpgradeScreenKeepsAStoppedSandbox(t *testing.T) {
 	stubReceiptDir(t)
-	previousHeaded, previousScreen := headedConfirm, openTermScreen
+	previousHeaded, previousAsk := headedConfirm, askSandboxUpgrade
 	t.Cleanup(func() {
-		headedConfirm, openTermScreen = previousHeaded, previousScreen
+		headedConfirm, askSandboxUpgrade = previousHeaded, previousAsk
 	})
 	headedConfirm = func() bool { return true }
-	openTermScreen = func() (tcell.Screen, error) { return nil, fmt.Errorf("no screen") }
+	askSandboxUpgrade = func(string, []string, bool, bool, bool) (bool, bool) { return false, false }
 	cfg := launchCfg("s1")
 	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
-	err := retireIfStale(Input{Target: "cursor"}, cfg, now, func(string) bool { return true }, func(string) bool { return false },
-		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...any) {})
+	_, err := retireIfStale(Input{Target: "cursor"}, cfg, staleChanges(cfg.Name, now, true), func(string) bool { return false },
+		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...string) {})
 	if err == nil || retired != 0 || !strings.Contains(err.Error(), "asks again") {
 		t.Fatalf("a screen failure must count as no: err=%v retired=%d", err, retired)
 	}
@@ -199,5 +212,23 @@ func TestReceiptRoundTrips(t *testing.T) {
 	}
 	if readReceipt("missing") != nil {
 		t.Error("a missing receipt must read as nil")
+	}
+}
+
+func TestTheReceiptRecordsTheKitDirAndPublishingWithoutCountingThem(t *testing.T) {
+	stubReceiptDir(t)
+	cfg := sbx.RunConfig{Agent: "a", KitDir: "/s/runs/a/sbx/kit/proveo-a", Publish: []string{"56855:9222", "18083:8083"}}
+	writeReceipt("sb", receiptOf(cfg, "img", nil, "", ""))
+	was := readReceipt("sb")
+	if was == nil || was.KitDir != cfg.KitDir || !slices.Equal(was.Publish, cfg.Publish) {
+		t.Fatalf("receipt = %+v, want the kit dir and the publishing of its create", was)
+	}
+	next := receiptOf(sbx.RunConfig{Agent: "a", KitDir: "/s/runs/b/sbx/kit/proveo-a", Publish: []string{"18084:8083"}}, "img", nil, "", "")
+	if got := next.changes(was); got != nil {
+		t.Errorf("a new run's kit dir and port plan read as changes %q; the receipt only records them", got)
+	}
+	writeReceipt("none", receiptOf(sbx.RunConfig{Agent: "a"}, "img", nil, "", ""))
+	if r := readReceipt("none"); r == nil || r.Publish == nil {
+		t.Errorf("a create that published nothing must record an empty list, not an unknown one: %+v", r)
 	}
 }

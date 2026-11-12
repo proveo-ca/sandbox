@@ -16,6 +16,7 @@ func TestResolveImageSource(t *testing.T) {
 		ref         string
 		localID     string
 		repoDigests []string
+		identity    string // the engine's {{json .Identity}}; "" for an engine that keeps none
 		builder     string
 		want        ImageSource
 		wantFrom    string
@@ -24,7 +25,7 @@ func TestResolveImageSource(t *testing.T) {
 		{
 			name: "host image with a repo digest pins FROM and the host builder",
 			ref:  "proveo/codex:local", localID: "ed1aa77cdeb0",
-			repoDigests: []string{"proveo/codex@" + digestA}, builder: "default",
+			repoDigests: []string{"proveo/codex@" + digestA}, identity: `{"Pull":[{"Repository":"docker.io/proveo/codex"}]}`, builder: "default",
 			want:     ImageSource{Ref: "proveo/codex:local", Host: true, Digest: digestA, Builder: "default"},
 			wantFrom: "proveo/codex:local@" + digestA,
 			wantEnv:  []string{"BUILDX_BUILDER=default"},
@@ -32,7 +33,7 @@ func TestResolveImageSource(t *testing.T) {
 		{
 			name: "classic store keeps no repo digest: tag FROM, builder still pinned",
 			ref:  "proveo/codex:local", localID: "6494909f99bd", builder: "default",
-			want:     ImageSource{Ref: "proveo/codex:local", Host: true, Builder: "default"},
+			want:     ImageSource{Ref: "proveo/codex:local", Host: true, Built: true, Builder: "default"},
 			wantFrom: "proveo/codex:local",
 			wantEnv:  []string{"BUILDX_BUILDER=default"},
 		},
@@ -53,7 +54,7 @@ func TestResolveImageSource(t *testing.T) {
 			name: "a digest recorded under another repository is not this ref's",
 			ref:  "proveo-probe/fedora:local", localID: "ed1aa77cdeb0",
 			repoDigests: []string{"proveo/opencode-browser@" + digestA}, builder: "default",
-			want:     ImageSource{Ref: "proveo-probe/fedora:local", Host: true, Builder: "default"},
+			want:     ImageSource{Ref: "proveo-probe/fedora:local", Host: true, Built: true, Builder: "default"},
 			wantFrom: "proveo-probe/fedora:local",
 			wantEnv:  []string{"BUILDX_BUILDER=default"},
 		},
@@ -72,6 +73,7 @@ func TestResolveImageSource(t *testing.T) {
 			t.Cleanup(func() { sh = restore })
 			sh.LocalImageID = func(string) string { return tc.localID }
 			sh.RepoDigests = func(string) []string { return tc.repoDigests }
+			sh.ImageBuilt = func(string) (bool, bool) { return ParseImageIdentity([]byte(tc.identity)) }
 			asked := false
 			hostBuilder := func() (string, bool) { asked = true; return tc.builder, tc.builder != "" }
 
@@ -132,5 +134,34 @@ func TestCreateCarriesTheKitBuildEnvOnTheProcessNotInTheSandbox(t *testing.T) {
 	}
 	if r := Reattach(cfg); len(r.HostEnv) != 0 {
 		t.Errorf("Reattach(%+v).HostEnv = %q; a reattach builds nothing", cfg, r.HostEnv)
+	}
+}
+
+func TestTheImageLabelFollowsTheEnginesBuildRecord(t *testing.T) {
+	built := `{"Build":[{"Ref":"mifts4phvwwc5ktiok8ban929","CreatedAt":"2026-06-29T16:25:32Z"}]}`
+	builtFromPulled := `{"Pull":[{"Repository":"docker.io/proveo/hermes"}],"Build":[{"Ref":"unnxtibcg105w81n7jkpf4hjx"}]}`
+	pulled := `{"Pull":[{"Repository":"docker.io/proveo/hermes"}]}`
+	for _, c := range []struct {
+		name        string
+		localID     string
+		repoDigests []string
+		identity    string
+		want        string
+	}{
+		{"containerd store: a host-only tag docker build made", "ed1aa77cdeb0", []string{"proveo/hermes@" + digestA}, built, "local build"},
+		{"containerd store: a build FROM a pulled base", "ed1aa77cdeb0", []string{"proveo/hermes@" + digestA}, builtFromPulled, "local build"},
+		{"containerd store: a pulled image", "ed1aa77cdeb0", []string{"proveo/hermes@" + digestA}, pulled, "published"},
+		{"classic store: no record, no repo digest", "6494909f99bd", nil, "", "local build"},
+		{"classic store: no record, a repo digest", "6494909f99bd", []string{"proveo/hermes@" + digestA}, "null", "published"},
+		{"an image the host does not hold", "", nil, built, "published"},
+	} {
+		restore := sh
+		sh.LocalImageID = func(string) string { return c.localID }
+		sh.RepoDigests = func(string) []string { return c.repoDigests }
+		sh.ImageBuilt = func(string) (bool, bool) { return ParseImageIdentity([]byte(c.identity)) }
+		if got := ResolveImageSource("proveo/hermes:volatile-e2e", nil).Label(); got != c.want {
+			t.Errorf("%s: Label = %q, want %q", c.name, got, c.want)
+		}
+		sh = restore
 	}
 }

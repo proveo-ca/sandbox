@@ -242,8 +242,12 @@ func stubHostTools(t *testing.T) *hostTools {
 func TestEnsureReusesARunningDeviceOnceItsBootHolds(t *testing.T) {
 	fakeServer(t, "emulator-5554\tdevice\n")
 	h := stubHostTools(t)
-	if err := Ensure(h.env, 1, h.report); err != nil {
+	got, err := Ensure(h.env, 1, h.report)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if got != (Started{Serial: "emulator-5554"}) {
+		t.Errorf("Ensure = %+v, want the reused emulator-5554 and no AVD", got)
 	}
 	if h.starts != 0 || h.launches != 0 {
 		t.Errorf("a listed device must be reused: start-server=%d launches=%d", h.starts, h.launches)
@@ -270,7 +274,7 @@ func TestEnsureRetiresAStaleDeviceServerOnAReusedDevice(t *testing.T) {
 			fakeServer(t, "emulator-5554\tdevice\n")
 			h := stubHostTools(t)
 			h.stale = tc.stale
-			if err := Ensure(h.env, 1, h.report); err != nil {
+			if _, err := Ensure(h.env, 1, h.report); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(h.retiredOn, []string{"emulator-5554"}) {
@@ -293,7 +297,7 @@ func TestEnsureReusesARunningDeviceWithoutAdb(t *testing.T) {
 	bootProp = func(string, int, string) string { t.Fatal("no adb, no boot check"); return "" }
 
 	var said string
-	if err := Ensure(env(nil), 1, func(f string, a ...any) { said = fmt.Sprintf(f, a...) }); err != nil {
+	if _, err := Ensure(env(nil), 1, func(f string, a ...any) { said = fmt.Sprintf(f, a...) }); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(said, "reusing emulator-5554") {
@@ -304,8 +308,12 @@ func TestEnsureReusesARunningDeviceWithoutAdb(t *testing.T) {
 func TestEnsureWaitsForABootThatHoldsAfterLaunch(t *testing.T) {
 	fakeServer(t, "", "", "emulator-5554\tdevice\n", "emulator-5554\toffline\n", "emulator-5554\tdevice\n")
 	h := stubHostTools(t)
-	if err := Ensure(h.env, 1, h.report); err != nil {
+	got, err := Ensure(h.env, 1, h.report)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if got != (Started{Serial: "emulator-5554", AVD: "Pixel_9"}) {
+		t.Errorf("Ensure = %+v, want the booted emulator-5554 and its AVD", got)
 	}
 	if h.starts != 1 || h.launches != 1 {
 		t.Errorf("start-server=%d launches=%d; want one each", h.starts, h.launches)
@@ -324,7 +332,7 @@ func TestEnsureWaitsForABootThatHoldsAfterLaunch(t *testing.T) {
 func TestEnsureReconnectsAnOfflineEmulatorInsteadOfLaunchingAnother(t *testing.T) {
 	fakeServer(t, "emulator-5554\toffline\n", "emulator-5554\toffline\n", "emulator-5554\tdevice\n")
 	h := stubHostTools(t)
-	if err := Ensure(h.env, 1, h.report); err != nil {
+	if _, err := Ensure(h.env, 1, h.report); err != nil {
 		t.Fatal(err)
 	}
 	if h.launches != 0 || h.starts != 0 {
@@ -342,7 +350,7 @@ func TestEnsureReportsAnEmulatorThatExitsBeforeBoot(t *testing.T) {
 	fakeServer(t, "")
 	h := stubHostTools(t)
 	h.exit = errors.New("exit status 1")
-	err := Ensure(h.env, 1, h.report)
+	_, err := Ensure(h.env, 1, h.report)
 	if err == nil || !strings.Contains(err.Error(), "Pixel_9") || !strings.Contains(err.Error(), "exited before it booted") {
 		t.Errorf("err = %v", err)
 	}
@@ -356,7 +364,7 @@ func TestEnsureGivesUpOnABootThatNeverHolds(t *testing.T) {
 	h := stubHostTools(t)
 	readyWait = 100 * time.Millisecond
 	h.boot = func(string) string { return strconv.Itoa(h.boots % 2) }
-	err := Ensure(h.env, 1, h.report)
+	_, err := Ensure(h.env, 1, h.report)
 	if err == nil || !strings.Contains(err.Error(), "polls in a row") {
 		t.Errorf("err = %v", err)
 	}
@@ -372,7 +380,7 @@ func TestEnsureExplainsAMissingAdb(t *testing.T) {
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
 	statFile = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
 
-	err := Ensure(env(map[string]string{"ANDROID_HOME": "/none"}), 1, nil)
+	_, err := Ensure(env(map[string]string{"ANDROID_HOME": "/none"}), 1, nil)
 	if err == nil || !strings.Contains(err.Error(), "no adb found") {
 		t.Errorf("err = %v", err)
 	}

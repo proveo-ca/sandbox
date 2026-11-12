@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -98,8 +99,11 @@ func TestLiveCtrlCConfirmationHelper(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "python3", "-u", "-c", `import sys, tty
+	cmd := exec.CommandContext(ctx, "python3", "-u", "-c", `import os, signal, sys, time, tty
 tty.setraw(sys.stdin.fileno())
+if os.environ.get("PROVEO_LIVE_CLOSE_STOP") == "slow":
+    signal.signal(signal.SIGTERM, lambda *_: (time.sleep(3), os._exit(0)))
+sys.stdout.write(os.environ.get("PROVEO_LIVE_CLOSE_MODES", ""))
 print("CHILD_READY", flush=True)
 while True:
     b = sys.stdin.buffer.read(1)
@@ -109,26 +113,18 @@ while True:
 	p := ptyproxy.New(os.Stdin, os.Stdout)
 	p.DisableFilter = os.Getenv("PROVEO_LIVE_CLOSE_FILTER") == "off"
 	var removed atomic.Bool
+	stop := func() { removed.Store(true); cancel() }
+	if os.Getenv("PROVEO_LIVE_CLOSE_STOP") == "slow" {
+		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+		cmd.WaitDelay = 20 * time.Second
+	}
 	p.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
-		screen, err := p.OverlayScreen(in)
-		if err != nil {
-			t.Error(err)
-			return ptyproxy.CtrlCStay
-		}
-		if err := screen.Init(); err != nil {
-			t.Error(err)
-			return ptyproxy.CtrlCStay
-		}
-		defer screen.Fini()
-		switch choiceui.ConfirmSandboxClose(screen) {
-		case choiceui.SandboxCloseRemove:
-			return ptyproxy.CtrlCRemove
-		case choiceui.SandboxClosePass:
+		closed, _ := p.OverlayProgram(in, choiceui.NewSandboxClose(stop, 30*time.Second))
+		if choiceui.SandboxCloseAnswer(closed) == choiceui.SandboxClosePass {
 			return ptyproxy.CtrlCPass
-		default:
-			return ptyproxy.CtrlCStay
 		}
-	}, func() { removed.Store(true); cancel() })
+		return ptyproxy.CtrlCStay
+	}, nil)
 	_ = p.Run(cmd)
 	result := "removed"
 	if !removed.Load() || t.Failed() {

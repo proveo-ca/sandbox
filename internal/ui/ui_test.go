@@ -66,7 +66,7 @@ func TestPrinterVocabulary(t *testing.T) {
 		},
 		{
 			name:      "every role shares the dot; only the colour differs",
-			print:     func(p *Printer) { p.Dangerf("removing image %s", "proveo/x:local") },
+			print:     func(p *Printer) { p.Rolef(RoleError, "removing image %s", "proveo/x:local") },
 			wantNerd:  "● removing image proveo/x:local",
 			wantASCII: "o removing image proveo/x:local",
 			wantOff:   "  removing image proveo/x:local",
@@ -218,7 +218,7 @@ func TestGlyphTierFrom(t *testing.T) {
 func TestWrapBreaksOnSpacesAndHangsAtTheTextColumn(t *testing.T) {
 	t.Parallel()
 	in := "● sbx's global network policy allows every host, so this run's Kit allowlist adds reach rather than limiting it\n"
-	got := string(wrapLines([]byte(in), 60))
+	got := string(wrapLines([]byte(in), 60, textCol))
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
 	if len(lines) < 2 {
 		t.Fatalf("nothing wrapped at width 60:\n%s", got)
@@ -247,8 +247,8 @@ func TestWrapDoesNotChargeForColour(t *testing.T) {
 		t.Fatalf("colour counted: %d vs %d",
 			displayWidth([]byte(painted)), displayWidth([]byte(plain)))
 	}
-	gotPlain := strings.Count(string(wrapLines([]byte(plain+"\n"), 12)), "\n")
-	gotPainted := strings.Count(string(wrapLines([]byte(painted+"\n"), 12)), "\n")
+	gotPlain := strings.Count(string(wrapLines([]byte(plain+"\n"), 12, textCol)), "\n")
+	gotPainted := strings.Count(string(wrapLines([]byte(painted+"\n"), 12, textCol)), "\n")
 	if gotPlain != gotPainted {
 		t.Errorf("coloured line wrapped into %d rows, plain into %d", gotPainted, gotPlain)
 	}
@@ -259,7 +259,7 @@ func TestWrapCarriesTheColourOntoEachContinuation(t *testing.T) {
 	t.Parallel()
 	grey := ANSI(ColorMuted)
 	in := "  " + grey + "jetbrains://gateway/ssh/environment?h=x.sbx " + strings.Repeat("abcdefghij", 10) + ANSIReset + "\n"
-	lines := strings.Split(strings.TrimRight(string(wrapLines([]byte(in), 40)), "\n"), "\n")
+	lines := strings.Split(strings.TrimRight(string(wrapLines([]byte(in), 40, textCol)), "\n"), "\n")
 	if len(lines) < 2 {
 		t.Fatalf("nothing wrapped at width 40: %q", lines)
 	}
@@ -278,7 +278,7 @@ func TestWrapCarriesTheColourOntoEachContinuation(t *testing.T) {
 func TestWrapLeavesShortLinesAlone(t *testing.T) {
 	t.Parallel()
 	in := []byte("● image: proveo/claudecode:local\n  a continuation\n")
-	if got := wrapLines(in, 100); !bytes.Equal(in, got) {
+	if got := wrapLines(in, 100, textCol); !bytes.Equal(in, got) {
 		t.Errorf("short lines were rewritten:\nwant %q\ngot  %q", in, got)
 	}
 }
@@ -287,7 +287,7 @@ func TestWrapLeavesShortLinesAlone(t *testing.T) {
 func TestWrapBreaksAWordWiderThanTheLine(t *testing.T) {
 	t.Parallel()
 	in := "● run log:\n  /tmp/" + strings.Repeat("abcdefghij", 12) + "/logs/x.log\n"
-	got := string(wrapLines([]byte(in), 40))
+	got := string(wrapLines([]byte(in), 40, textCol))
 	for i, l := range strings.Split(strings.TrimRight(got, "\n"), "\n") {
 		if w := displayWidth([]byte(l)); w > 40 {
 			t.Errorf("wrapLines(width 40) line %d is %d columns: %q", i, w, l)
@@ -317,6 +317,7 @@ func TestOnlyTheSeverityHeadKeepsTheTerminalColour(t *testing.T) {
 		{"warn dash", func(p *Printer) { p.Warnf("sbx unavailable — falling back") }, "sbx unavailable", " — falling back", false},
 		{"warn label", func(p *Printer) { p.Warnf("policy: open") }, "policy:", " open", false},
 		{"fail", func(p *Printer) { p.Failf("the agent exited with code %d", 3) }, ANSIBold + "the agent exited with code 3", "", false},
+		{"fail item", func(p *Printer) { p.Failf("sbx run — exited with code %d", 3) }, ANSIBold + "sbx run", " — exited with code 3", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -374,6 +375,25 @@ func TestTeeDoesNotWrapTheLog(t *testing.T) {
 	}
 }
 
+func TestTeeRestoreLeavesNoLaterLogfInTheFinishedLog(t *testing.T) {
+	var log bytes.Buffer
+	saved, savedLogOnly := Default, logOnly
+	t.Cleanup(func() { Default, logOnly = saved, savedLogOnly })
+	Default, logOnly = New(&bytes.Buffer{}), nil
+	term := Default
+
+	restore := TeeTo(&log)
+	Logf("during")
+	restore()
+	Logf("after")
+	if Default != term || logOnly != nil {
+		t.Errorf("restore left Default=%p logOnly=%v, want the printer before the tee and no log-only printer", Default, logOnly)
+	}
+	if got := log.String(); !strings.Contains(got, "during") || strings.Contains(got, "after") {
+		t.Errorf("the log = %q, want only the line written while teed", got)
+	}
+}
+
 func TestNewDetectsPlain(t *testing.T) {
 	t.Run("non-file writer is plain", func(t *testing.T) {
 		if p := New(&bytes.Buffer{}); !p.Plain {
@@ -426,6 +446,22 @@ func TestSectionsAreLazy(t *testing.T) {
 	}
 	if strings.Contains(got, SectionCredentials) {
 		t.Errorf("a section nothing followed still drew a heading:\n%s", got)
+	}
+}
+
+// A heading withdrawn before anything follows it never draws, not even for a live line.
+func TestAWithdrawnSectionDrawsNothing(t *testing.T) {
+	var buf bytes.Buffer
+	asDefault(t, &Printer{W: &buf, Plain: true}, nil)
+	Section(SectionEgress)
+	Warnf("broker off")
+	Section(SectionGit)
+	WithdrawSection()
+	Default.heading()
+	Warnf("baseline is open")
+	got := buf.String()
+	if strings.Contains(got, SectionGit) || strings.Count(got, "------ "+SectionEgress) != 1 {
+		t.Errorf("a withdrawn heading drew, or the shown one drew again:\n%s", got)
 	}
 }
 
@@ -504,5 +540,25 @@ func TestTheRunLogKeepsTextAfterANonSGRSequence(t *testing.T) {
 	_, _ = multi{term: &term, log: &log}.Write([]byte("\x1b[2Khello mom\n"))
 	if log.String() != "hello mom\n" {
 		t.Errorf("run log = %q, want the line without its erase sequence", log.String())
+	}
+}
+
+func TestLogWriterSendsEachLineToTheRunLogAlone(t *testing.T) {
+	var screen, log bytes.Buffer
+	prev := Default
+	Default = New(&screen)
+	restore := TeeTo(&log)
+	t.Cleanup(func() { restore(); Default = prev })
+	w := LogWriter()
+	_, _ = w.Write([]byte("building app\r\n\nhalf a "))
+	_, _ = w.Write([]byte("line\nlast without newline"))
+	_ = w.Close()
+	if screen.String() != "" {
+		t.Errorf("the screen received %q", screen.String())
+	}
+	for _, want := range []string{"building app\n", "half a line\n", "last without newline\n"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the run log lacks %q:\n%s", want, log.String())
+		}
 	}
 }

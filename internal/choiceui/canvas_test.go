@@ -1,55 +1,55 @@
+// SPEC: _spec/internal/choiceui/viewport.puml
 package choiceui
 
 import (
 	"testing"
 
-	"github.com/gdamore/tcell/v2"
+	"charm.land/lipgloss/v2"
 )
 
-func TestPutAdvancesByDisplayWidth(t *testing.T) {
+func TestPutKeepsAWideRuneAndWhatFollowsIt(t *testing.T) {
 	t.Parallel()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(20, 2)
-
+	s := simScreen(t, 20, 2)
 	c := newCanvas(s)
-	wide := "\uff21" // fullwidth A — two columns, not an emoji
-	c.put(0, tcell.StyleDefault, wide+"x")
-	s.Show()
-
-	r0, _, _, _ := s.GetContent(0, 0)
-	if r0 != 'Ａ' {
-		t.Errorf("cell 0: %q, want the wide rune (a wipe looks like the follower)", r0)
-	}
-	r2, _, _, _ := s.GetContent(2, 0)
-	if r2 != 'x' {
-		t.Errorf("cell 2: %q, want x sitting after the wide rune", r2)
+	wide := "Ａ" // fullwidth A — two columns, not an emoji
+	c.put(0, lipgloss.NewStyle(), wide+"x")
+	c.put(3, lipgloss.NewStyle(), "|")
+	if got := screenLines(s)[0]; got != wide+"x|" {
+		t.Errorf("row = %q, want the wide rune, then x in the third column, then the bar", got)
 	}
 }
 
 func TestPutPlacesANerdGlyphInOneColumn(t *testing.T) {
 	t.Parallel()
-	s := tcell.NewSimulationScreen("UTF-8")
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer s.Fini()
-	s.SetSize(20, 2)
-
+	s := simScreen(t, 20, 2)
 	c := newCanvas(s)
 	key := glyphsFor(GlyphsNerd).key
-	c.put(0, tcell.StyleDefault, key+"x")
-	s.Show()
-
-	got, _, _, _ := s.GetContent(0, 0)
-	if string(got) != key {
-		t.Errorf("cell 0: %q, want the key glyph", got)
+	c.put(0, lipgloss.NewStyle(), key+"x")
+	c.put(2, lipgloss.NewStyle(), "|")
+	if got := screenLines(s)[0]; got != key+"x|" {
+		t.Errorf("row = %q, want the key glyph in one column: a two-column measure would have put the bar over x", got)
 	}
-	x, _, _, _ := s.GetContent(1, 0)
-	if x != 'x' {
-		t.Errorf("cell 1: %q, want x; a two-column measure of the key would have pushed it to cell 2", x)
+}
+
+func TestAWriteOutsideTheWindowIsDropped(t *testing.T) {
+	t.Parallel()
+	s := simScreen(t, 20, 6)
+	c := newCanvas(s)
+	c.clipTo(2, 4)
+	for y := 0; y < 6; y++ {
+		c.y = y
+		c.put(0, lipgloss.NewStyle(), "row")
+	}
+	lines := screenLines(s)
+	for y, want := range []string{"", "", "row", "row", "", ""} {
+		if lines[y] != want {
+			t.Errorf("row %d = %q, want %q: a write outside the window must be dropped whole", y, lines[y], want)
+		}
+	}
+	c.unclip()
+	c.y = 5
+	c.put(0, lipgloss.NewStyle(), "foot")
+	if got := screenLines(s)[5]; got != "foot" {
+		t.Errorf("after unclip row 5 = %q", got)
 	}
 }

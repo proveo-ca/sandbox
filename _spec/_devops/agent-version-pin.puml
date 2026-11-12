@@ -54,8 +54,11 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' on the image and asserted by the def tests — the fact was carried and never
 ' delivered.
 '
-' THE RUN NOW DELIVERS IT. posture.AgentVersion reads the label and run.go
-' prints one line under the `run` section. Best-effort by design: an sbx-only
+' THE RUN NOW DELIVERS IT. posture.AgentVersion reads the label of the image
+' run.preflightImage settled on. Since output-readability R1 the version rides
+' the start line ("● <target> <version> — starting"); the pin line and its
+' `mise run build <target>` hint go to the run log only, since a maintainer
+' command never prints on screen. Best-effort by design: an sbx-only
 ' host has no docker to inspect with, docker prints `<no value>` for a missing
 ' label, and in every such case the line is OMITTED rather than guessed. A gauge
 ' that lies is worse than one that is absent, and neither may fail a run.
@@ -162,7 +165,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' FK: note over LBL; words=31 syllables=59; FK 12.9
 
 actor "Maintainer" as MT
-participant "cmd/proveo-dev build\n(internal/maintain BuildPlan)" as CMD <<app>>
+participant "mise run build\n(internal/maintain/fleet → BuildPlan)" as CMD <<app>>
 participant "imagebuild.BuildTarget\ntargets.go Specs[<target>].Pins" as BUILD <<app>>
 participant "imagebuild.go\nBuilder.AgentVersion" as LIB <<app>>
 participant "upstream release source\nnpm dist-tag · cursor.com/install" as UP <<cloud>>

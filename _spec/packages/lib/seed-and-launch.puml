@@ -60,10 +60,11 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' `background`", so the shell and the first claude session started before
 ' the file existed: TestWorktreeWorkspaceIsFullyUsable failed on every run
 ' and passed after a 60s sleep (measured 2026-09-23).
-' Claude Code 2.1.277 reads AGENTS.md when a project has no CLAUDE.md, so the
-' "@AGENTS.md" CLAUDE.md bridge is gone and the default ships as AGENTS.md.
-' proveo_seed_instructions copies the default only into a workspace carrying
-' neither file. proveo_release_agent touches
+' proveo_seed_instructions gives the agent the def's default instructions
+' only while the workspace carries neither AGENTS.md nor CLAUDE.md, and in
+' VM-local context, never in the workspace; proveo_claude_reads_agents_md
+' lets Claude Code read a project's AGENTS.md under sbx
+' (_spec/packages/lib/instruction-injection.puml). proveo_release_agent touches
 ' /dev/shm/proveo-instructions-seeded (tmpfs, so every boot starts unmarked).
 '
 ' ── THE RELEASE POINT: AFTER CONFIG, BEFORE INSTALLS ───────────────────────

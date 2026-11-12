@@ -3,10 +3,48 @@
 ' purpose: what happens when a workspace reference points outside the mounted tree
 ' covers: internal/workspace/mount.go
 ' covers: internal/workspace/mount_test.go
-' covers: cmd/proveo/main.go
+' covers: internal/backend/sandbox/report.go (ReportWorkspace, linkLines, linkDirs, linkGroup, unboundLinks)
+' covers: internal/backend/sandbox/link_lines_test.go
 ' SPEC source (the logic this diagram tracks):
 '   internal/workspace/mount.go — MountSpec.Plan, linkMounts, refuseLinkTarget, escapingEnvFile
-'   cmd/proveo/main.go          — reportLinks (operator-facing record of each decision)
+'   internal/backend/sandbox/report.go — ReportWorkspace, linkLines (operator-facing record of each decision)
+'
+' ── ONE SCREEN LINE PER DIRECTORY OF LINKS (2026-11-11) ────────────────────
+' MEASURED on a monorepo: 20 lines of ".idea/<file> → <repo>/.idea/<file>
+' (symlink leaves the workspace; target mounted)" before the run started.
+' DECIDED (user: "compress this .idea/ spam into a single line"):
+'   Mounted links that share a directory and a target directory, each
+'   keeping its target's name, take ONE screen line at the first one's place:
+'     .idea/ → <repo>/.idea/ (20 symlinks leave the workspace; targets mounted)
+'   Each of them still gets its own line in the run log (ui.Logf), so the
+'   transcript keeps the full record this diagram's REPORT note asks for.
+'   A lone link, a link at the workspace root (`_spec`), a link whose name
+'   differs from its target's, and every REFUSED link keep their own lines.
+' ── THE LINKS ARE ONE FACT, AFTER THE MOUNT PLAN (2026-11-11) ──────────────
+' output-readability R1 moved the report from run.resolveCredentials into
+' sandbox.ReportWorkspace, after Spec, because Spec decides what a clone drops:
+'   ● links:    _spec → ~/Syncd/pluvo/_spec
+'               .idea/ → ~/w/main/.idea/ (20 links)
+' Each mounted link is a value of one "links" fact (targets through ui.Tilde
+' on a live run, absolute under --print). A REFUSED link is a ⚠ item:
+' "secrets → /etc — not in the sandbox", its reason dim under it.
+' A link whose TARGET a worktree clone dropped (cloneThroughMain: nested in
+' the main worktree) is no value; the "⚠ .idea/ — 20 entries inside the main
+' worktree, not mounted" item says so, and its log row reads "(symlink leaves
+' the workspace; target not mounted in a clone)" instead of claiming a mount.
+' Pinned by TestLinksIntoOneDirectoryTakeOneValueAndKeepOneLogLineEach and
+' TestALinkWhoseTargetAWorktreeCloneDroppedIsNoValueAndSaysSoInTheLog.
+' A FILE TARGET IS NOT IN THE SANDBOX. linkMounts plans a mount for any target,
+' but sbx binds directories only: WorkspaceBinds (sandbox.go) drops every host
+' path that is not a directory, so the in-sandbox link dangles. Spec records
+' Report.Unbound = unboundLinks(in.Links, cfg.Mounts): each mounted link's
+' target that no kept bind holds, equal or nested. Those links are no value;
+' they group like the rest into "⚠ .idea/ → ~/w/main/.idea/ (14 links) — not
+' in the sandbox", with no reason on screen (P6), and each log row reads
+' "(symlink leaves the workspace; target not mounted: sbx binds directories
+' only)". FOUND in R1's review, read from the code: on a --clone=false linked
+' worktree the links fact named 20 .idea links whose file targets never mount.
+' Pinned by TestLinksToFilesSbxDoesNotBindAreAWarningNotAValue.
 '   internal/wsscan/wsscan.go   — AlwaysPrune, the shared deny set the walk reuses
 title Symlinks that leave the mount — a bind mount carries the link's text, not its meaning
 
@@ -16,7 +54,7 @@ node "Host — mount planning, before the container exists" as HOST <<host>> {
   component "refuseLinkTarget(target, root)\nthe two guardrails" as GUARD <<app>>
   component "wsscan.AlwaysPrune\nshared deny set" as PRUNE <<app>>
   component "secretEnvFile → LinkEnvPolicy\n(envMounts · maskEnvMounts · escapingEnvFile gone)" as ENV <<app>>
-  component "reportLinks\n[]Link → screen + transcript" as REPORT <<app>>
+  component "ReportWorkspace · linkLines\n[]Link → the links fact + transcript" as REPORT <<app>>
 }
 
 database "Workspace tree\ndepth <= 3, pruned" as TREE <<db>>
@@ -134,9 +172,10 @@ end note
 
 note bottom of REPORT
   **A mounted link widens what the sandbox can reach**, so it is named on
-  screen rather than applied quietly: one line per link, target included,
-  teed into the run transcript. A refused link is the line the operator
-  came looking for — the answer to "why is my ""_spec"" empty" — and the
-  cap refuses out loud rather than truncating in silence.
+  screen as a value of the workspace block's links fact: links into one
+  directory share a value with their count, and the run log keeps one line
+  per link. A refused link is its own ⚠ item: the
+  answer to "why is my ""_spec"" empty". The cap refuses out loud rather
+  than truncating in silence.
 end note
 @enduml

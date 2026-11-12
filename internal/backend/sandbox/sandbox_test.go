@@ -2,7 +2,9 @@
 package sandbox
 
 import (
+	"context"
 	"errors"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
@@ -72,10 +74,11 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 
 	var gotArgs []string
 	var gotInto string
-	liftClonedOutput(in, cfg, func(args []string, into string) (int, string, error) {
+	_ = liftClonedOutput(in, cfg, func(_ context.Context, args []string, into string) (int, string, error) {
 		gotArgs, gotInto = args, into
 		return 0, "", nil
-	})
+	}, nil)
+
 	if gotInto != "/Users/op/repo" {
 		t.Errorf("unpacked under %q, want the repo root so members like reports/x land on the output dir", gotInto)
 	}
@@ -87,17 +90,20 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 	}
 
 	called := false
-	liftClonedOutput(Input{Clone: true, RepoRoot: "/Users/op/repo", OutputDir: "/Users/op/out"}, cfg,
-		func([]string, string) (int, string, error) { called = true; return 0, "", nil })
+	_ = liftClonedOutput(Input{Clone: true, RepoRoot: "/Users/op/repo", OutputDir: "/Users/op/out"}, cfg,
+		func(context.Context, []string, string) (int, string, error) { called = true; return 0, "", nil }, nil)
+
 	if called {
 		t.Error("an output dir OUTSIDE the repo was mounted live; lifting it would be a second copy")
 	}
 
 	// "Nothing there" is a note, not a failure — it must not be reported as one.
 	// The fake returns the sentinel with an error, the way exec does.
-	liftClonedOutput(in, cfg, func([]string, string) (int, string, error) {
+	if err := liftClonedOutput(in, cfg, func(context.Context, []string, string) (int, string, error) {
 		return sbx.CloneLiftNothing, "", errors.New("exit status 3")
-	})
+	}, nil); err != nil {
+		t.Errorf("an output dir the agent never wrote stranded the sandbox: %v", err)
+	}
 }
 
 func TestCDPPublishNeedsBothABrowserAndAPort(t *testing.T) {
@@ -159,7 +165,7 @@ func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 			remote := func(i Input, c sbx.RunConfig) (int, string, error) { sawRemote = true; return tc.remote(i, c) }
 			bundle := func(i Input, c sbx.RunConfig) (int, string, error) { sawBundle = true; return tc.bundle(i, c) }
 
-			got, err := carryClone(in, cfg, tc.running, remote, bundle)
+			got, err := carryClone(in, cfg, tc.running, remote, bundle, nil)
 			if got != tc.want || (err != nil) != tc.wantErr {
 				t.Errorf("carryClone = %v, %v; want %v, error %v", got, err, tc.want, tc.wantErr)
 			}
@@ -195,7 +201,7 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 	t.Parallel()
 	cfg := sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}
 
-	live := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, true), "\n")
+	live := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg), "\n")
 	for _, want := range []string{
 		"IDE attach (live):",
 		"sbx setup ssh",
@@ -221,20 +227,7 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 		}
 	}
 
-	kept := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, false), "\n")
-	for _, want := range []string{"sbx setup ssh", "proveo-1-2.sbx", "DISPOSABLE CLONE"} {
-		if !strings.Contains(kept, want) {
-			t.Errorf("kept clone attach guidance lacks %q:\n%s", want, kept)
-		}
-	}
-	if strings.Contains(kept, "(live)") {
-		t.Errorf("kept attach still claims the agent is live:\n%s", kept)
-	}
-	if strings.Contains(kept, "both write this tree") {
-		t.Errorf("kept attach still warns about a live agent:\n%s", kept)
-	}
-
-	direct := strings.Join(IDEAttachLines(Input{}, cfg, true), "\n")
+	direct := strings.Join(IDEAttachLines(Input{}, cfg), "\n")
 	if !strings.Contains(direct, "mounted checkout") || !strings.Contains(direct, "write the host tree directly") {
 		t.Errorf("direct attach guidance hides its write boundary:\n%s", direct)
 	}
@@ -254,7 +247,7 @@ func TestIDEAttachOpensTheLinkedWorktreeInAWorktreeClone(t *testing.T) {
 	in := Input{Clone: true, RepoRoot: "/host/worktrees/dev", CloneSource: workspace.WorktreeSource{Main: "/host/repo"}}
 	cfg := sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}
 
-	got := strings.Join(IDEAttachLines(in, cfg, true), "\n")
+	got := strings.Join(IDEAttachLines(in, cfg), "\n")
 	for _, want := range []string{
 		"open /host/worktrees/dev",
 		"host `proveo-1-2.sbx`, use OpenSSH config, project /host/worktrees/dev",
@@ -268,7 +261,7 @@ func TestIDEAttachOpensTheLinkedWorktreeInAWorktreeClone(t *testing.T) {
 		}
 	}
 
-	plain := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, true), "\n")
+	plain := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg), "\n")
 	if strings.Contains(plain, "linked worktree") {
 		t.Errorf("a main-checkout clone was described as a worktree:\n%s", plain)
 	}
@@ -280,27 +273,114 @@ func TestIDEAttachNeedsANamedSandboxAndWorkspace(t *testing.T) {
 		{Mounts: []sbx.Mount{{Host: "/repo"}}},
 		{Name: "sb"},
 	} {
-		if got := IDEAttachLines(Input{}, cfg, true); got != nil {
+		if got := IDEAttachLines(Input{}, cfg); got != nil {
 			t.Errorf("IDEAttachLines(%+v) = %q, want no unusable offer", cfg, got)
 		}
 	}
 }
 
-func TestPrintIDEAttachLiveOpensTheInterfaceSection(t *testing.T) {
-	var buf strings.Builder
-	prev := ui.Default
-	ui.Default = ui.New(&buf)
-	t.Cleanup(func() { ui.Default = prev })
-
-	PrintIDEAttach(Input{}, sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}, true)
-	got := buf.String()
-	for _, want := range []string{"------ interface ------", "IDE attach (live):", "proveo-1-2.sbx", "sbx setup ssh"} {
+func TestALiveRunShowsOneIDERowAndLogsTheWholeAttachBlock(t *testing.T) {
+	screen, log := captured(t)
+	in := Input{Clone: true, RepoRoot: "/host/repo", Browser: true, CDPHostPort: 56855,
+		Ports: []PublishedPort{{Host: 18083, Guest: 8083, What: "next · apps/web/package.json", Dir: "apps/web", Cmd: "pnpm run dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}, publishing{created: true, relay: true})
+	got := screen.String()
+	for _, want := range []string{"------ interface ------", "ide:", "ssh proveo-1-2.sbx", "a local Open edits the host checkout",
+		"port 8083:", "next in apps/web", "log /tmp/proveo-dev-8083.log", "browser:", "the agent's Chromium over CDP"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("live attach output lacks %q:\n%s", want, got)
+			t.Errorf("the interface block lacks %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "------ starting ------") {
-		t.Errorf("live attach drew the starting heading instead of interface:\n%s", got)
+	for _, refuse := range []string{"JetBrains", "VS Code", "Toolbox (", "DISPOSABLE", "pnpm run dev", "connectOverCDP",
+		"http://127.0.0.1:18083", "http://127.0.0.1:56855", ":9222"} {
+		if strings.Contains(got, refuse) {
+			t.Errorf("the screen carries %q, which belongs in the run log or sbx's create block:\n%s", refuse, got)
+		}
+	}
+	for _, want := range []string{"IDE attach (live):", "JetBrains: File → Remote Development", "VS Code: `code --remote ssh-remote+proveo-1-2.sbx /host/repo`",
+		"a local Open or Recent of /host/repo edits the HOST checkout", "runs `pnpm run dev` in apps/web", "connectOverCDP",
+		"port 8083: http://127.0.0.1:18083 → sandbox :8083", "browser viewport: http://127.0.0.1:56855"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the run log lacks %q:\n%s", want, log.String())
+		}
+	}
+}
+
+func TestTheBrowserRowNeedsThisRunsOwnPublish(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		in     Input
+		launch sbx.RunConfig
+		want   bool
+	}{
+		{"created with the relay published", Input{Browser: true, CDPHostPort: 56855}, sbx.RunConfig{Publish: []string{"127.0.0.1:56855:9222"}}, true},
+		{"re-attached: the sandbox never published this run's port", Input{Browser: true, CDPHostPort: 56855}, sbx.RunConfig{}, false},
+		{"a dev port published and no browser", Input{Ports: []PublishedPort{{Host: 13000, Guest: 3000}}}, sbx.RunConfig{Publish: []string{"127.0.0.1:13000:3000"}}, false},
+	} {
+		screen, _ := captured(t)
+		reportInterface(c.in, sbx.RunConfig{Name: "sb"}, publishing{created: len(c.launch.Publish) > 0, relay: relayRuns(c.in, c.launch)})
+		if got := strings.Contains(screen.String(), "browser:"); got != c.want {
+			t.Errorf("%s: browser row printed = %v, want %v:\n%s", c.name, got, c.want, screen.String())
+		}
+		if strings.Contains(screen.String(), "127.0.0.1:0") {
+			t.Errorf("%s: a row names port 0:\n%s", c.name, screen.String())
+		}
+	}
+}
+
+func TestAReattachedSandboxsPortsAnswerWhereSbxListsThem(t *testing.T) {
+	screen, log := captured(t)
+	in := Input{Ports: []PublishedPort{
+		{Host: 18083, Guest: 8083, What: "next · apps/web/package.json", Dir: "apps/web", Cmd: "pnpm run dev"},
+		{Host: 13000, Guest: 3000, What: "vite", Dir: ".", Cmd: "pnpm dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "sb"},
+		publishing{hosts: keptPorts(&sbx.Listed{Status: "running", Ports: []sbx.ListedPort{{HostPort: 28083, SandboxPort: 8083}}}, nil)})
+	got := screen.String()
+	for _, want := range []string{"port 8083: next in apps/web", "http://127.0.0.1:28083 · log /tmp/proveo-dev-8083.log",
+		"warn: port 3000 — not published by sb", "vite · log /tmp/proveo-dev-3000.log"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the re-attach interface block lacks %q:\n%s", want, got)
+		}
+	}
+	for _, refuse := range []string{"18083", "13000", "was taken"} {
+		if strings.Contains(got, refuse) {
+			t.Errorf("a re-attach printed this run's planned port %q:\n%s", refuse, got)
+		}
+	}
+	if !strings.Contains(log.String(), "port 8083: http://127.0.0.1:28083 → sandbox :8083") {
+		t.Errorf("the run log lacks the listed host port:\n%s", log.String())
+	}
+}
+
+func TestAStoppedSandboxsPortsAnswerWhereItsCreatePublishedThem(t *testing.T) {
+	stopped := &sbx.Listed{Status: "stopped"}
+	got := keptPorts(stopped, &launchReceipt{Publish: []string{"56855:9222", "28083:8083"}})
+	if want := map[int]int{9222: 56855, 8083: 28083}; !maps.Equal(got, want) {
+		t.Errorf("keptPorts(stopped, receipt) = %v, want %v: sbx publishes a restarted sandbox's create-time ports again", got, want)
+	}
+	if got := keptPorts(stopped, &launchReceipt{Publish: []string{}}); got == nil || len(got) != 0 {
+		t.Errorf("a receipt that records no publishing = %v, want a known empty map", got)
+	}
+	screen, _ := captured(t)
+	in := Input{Ports: []PublishedPort{{Host: 18083, Guest: 8083, What: "next", Dir: ".", Cmd: "pnpm dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "sb"}, publishing{hosts: keptPorts(stopped, &launchReceipt{Publish: []string{"28083:8083"}})})
+	if out := screen.String(); !strings.Contains(out, "http://127.0.0.1:28083") || strings.Contains(out, "18083") {
+		t.Errorf("a stopped kept sandbox's port must answer where its create published it:\n%s", out)
+	}
+}
+
+func TestAStoppedSandboxsUnlistedPortsAreNotCalledUnpublished(t *testing.T) {
+	if got := keptPorts(&sbx.Listed{Status: "stopped"}, &launchReceipt{}); got != nil {
+		t.Errorf("a stopped sandbox's ports with a receipt written before publishing was recorded = %v, want unknown (nil)", got)
+	}
+	screen, log := captured(t)
+	in := Input{Ports: []PublishedPort{{Host: 13000, Guest: 3000, What: "vite", Dir: ".", Cmd: "pnpm dev"}}}
+	reportInterface(in, sbx.RunConfig{Name: "sb"}, publishing{hosts: keptPorts(&sbx.Listed{Status: "stopped"}, nil)})
+	if got := screen.String(); strings.Contains(got, "not published") || strings.Contains(got, "13000") || !strings.Contains(got, "port 3000: vite") {
+		t.Errorf("the interface block for a stopped kept sandbox:\n%s", got)
+	}
+	if !strings.Contains(log.String(), "sbx listed no host port for sb") {
+		t.Errorf("the run log does not say the host port is unknown:\n%s", log.String())
 	}
 }
 

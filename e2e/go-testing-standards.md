@@ -72,11 +72,12 @@ go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 300s
 
 | Lane | How |
 |------|-----|
-| Unit + contract | `go test -race -cover -covermode=atomic ./... -args -test.gocoverdir=cov/unit` |
-| Merge / report | `go tool covdata merge -i=cov/unit -o=cov/merged` then `percent` / `textfmt` |
+| Unit + contract | `mise run test-go`: `go test -race -cover -covermode=atomic ./... -args -test.gocoverdir=<repo>/cov/unit` (`--no-race` without cgo) |
+| Report | `mise run coverage`: `go tool covdata percent -i=cov/unit` and `textfmt -i=cov/unit -o=cov/coverage.out` |
 
-Use `mise run test-go` and `mise run coverage` (see `cmd/proveo-dev/coverage.go`). Publish
-percent/HTML as CI artifacts; **no hard % gate** until a baseline exists.
+`go tool covdata` reads `cov/unit` directly; no merge step. Run both with
+`mise run -c test-go ::: coverage`. Publish percent/HTML as CI artifacts; **no hard % gate**
+until a baseline exists.
 
 ## Canonical shape
 

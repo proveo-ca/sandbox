@@ -223,8 +223,8 @@ func TestRetireReportsEachStepOnlyWhenItStarts(t *testing.T) {
 		bundle string
 		want   []string
 	}{
-		{"a failed carry stops at step 1", bundleFails, []string{"1/3"}},
-		{"a carry with nothing new runs all three", bundleEmpty, []string{"1/3", "2/3", "3/3"}},
+		{"a failed carry stops at the carry", bundleFails, []string{"carrying"}},
+		{"a carry with nothing new runs all three", bundleEmpty, []string{"carrying", "sbx", "sb"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fakeSbx(t, guestClone, 0, c.bundle)
@@ -263,7 +263,7 @@ func TestTeardownCarriesTheSandboxsOwnCloneModeNotThisRuns(t *testing.T) {
 			in := Input{Clone: c.thisRunClone, CloneKnown: c.created, RepoRoot: repo, Sid: "proveo-1-2"}
 			cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
 
-			err := TeardownClone(in, cfg)
+			err := TeardownClone(in, cfg, nil)
 			log := callsOf(t, calls)
 			if (err != nil) != c.wantErr {
 				t.Errorf("TeardownClone(%s) error = %v, want error %v", c.name, err, c.wantErr)

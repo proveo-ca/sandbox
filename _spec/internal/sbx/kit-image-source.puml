@@ -4,6 +4,9 @@ skinparam noteTextAlignment left
 ' purpose: how a workload's FROM reaches sbx's kit build — the image source decides digest and builder, not ambient host state
 ' covers: internal/sbx/image_source.go
 ' covers: internal/sbx/image_source_test.go
+' covers: internal/sbx/exec.go (CLI.ImageBuilt)
+' covers: internal/backend/sandbox/report.go (imageFact), internal/backend/sandbox/report_test.go
+' covers: internal/run/run.go (buildPosture)
 ' covers: internal/sbx/run.go (RunConfig.HostEnv, CreateLine)
 ' covers: internal/imagebuild/imagebuild.go (HostBuilder)
 ' covers: internal/backend/sandbox/sandbox.go (Spec recipe, createSandbox)
@@ -42,10 +45,13 @@ skinparam noteTextAlignment left
 ' ── DECISION (user: "ImageSource model") ────────────────────────────────────
 ' Image selection (maintain.ResolveImage: :local when newer than the published
 ' tag) picks a REFERENCE. ResolveImageSource turns it into where it lives:
-'   ImageSource{Ref, Host, Digest, Builder}
+'   ImageSource{Ref, Host, Digest, Built, Builder}
 '   Host    the host engine holds Ref (docker image inspect succeeds)
 '   Digest  Ref's repo digest in that store ("" on a classic graphdriver
 '           store, which has no manifest digest for a local build)
+'   Built   the host built Ref rather than pulled it; Label() reads
+'           "local build" or "published" from it (see WHERE AN IMAGE
+'           CAME FROM below)
 '   Builder imagebuild.HostBuilder(): PROVEO_BUILDX_LOCAL_BUILDER, else the
 '           current context when its driver is docker and running
 ' The recipe and the sbx process follow the source:
@@ -56,11 +62,42 @@ skinparam noteTextAlignment left
 '           it overrides an inherited one; never reaches the sandbox (Env does)
 ' Not on the host → Ref unchanged, no HostEnv: the builder pulls a published
 ' image as before. Host without a Builder → warn: the active builder decides.
+' The screen reads "⚠ buildx — no docker-driver builder reads the host image
+' store", dim "the active builder builds <image>"; the PROVEO_BUILDX_LOCAL_BUILDER
+' how-to goes to the run log alone (P6 of output-readability, R1 round 3;
+' report_test.go TestTheBuildxHowToReachesOnlyTheRunLog).
 ' Never `docker buildx use`: that global write is this bug's cause.
 ' --print shows the env prefix on the `# sandbox` line (CreateLine) so a
 ' pasted command builds the same way.
 ' A post-create digest check is not needed: the pinned FROM already refuses a
 ' different image at build time (M3).
+'
+' ── WHERE AN IMAGE CAME FROM (R2 review, 2026-11-11) ───────────────────────
+' The sbx block's image fact and the run log's posture row read
+' "<ref> (local build)" or "<ref> (published)" from ImageSource.Label().
+' R2's first cut read "no repo digest" as a local build. FALSE on the
+' containerd store. MEASURED (Docker 29.8.2, API 1.56, driver-type
+' io.containerd.snapshotter.v1): RepoDigests equals the image Id for a local
+' build (compose-app:latest, proveo/claudecode:seedfix-1) and for a pull
+' (postgres:16-alpine, proveo/claudecode:latest). So a `docker build -t`
+' tag (the e2e's proveo/hermes:volatile-e2e) printed "(published)".
+' The engine's own record tells them apart. MEASURED, same engine:
+'   docker image inspect <ref> --format '{{json .Identity}}'
+'     compose-app:latest            {"Build":[{"Ref":…}]}
+'     proveo/claudecode:seedfix-1   {"Pull":[…claudecode],"Build":[…]}
+'     proveo/claudecode:latest      {"Pull":[…claudecode]}
+'     postgres:16-alpine            {"Pull":[…postgres]}
+' A build FROM a pulled base carries both; any Build entry makes it a local
+' build (CLI.ImageBuilt, ParseImageIdentity). An engine that keeps no
+' identity (an older daemon errors on .Identity, or it reads null) falls
+' back to the classic store's sign: no repo digest is a local build.
+'   NOT CHOSEN: repo digest alone (false on containerd, above); image config
+'   labels (a FROM inherits its base's labels); the :local tag alone (misses
+'   a custom `docker build -t` tag, the case carry-over d targets).
+' --print resolves no source, so posture.Image keeps the :local shortcut.
+' Pinned by image_source_test.go TestTheImageLabelFollowsTheEnginesBuildRecord
+' and TestResolveImageSource, report_test.go
+' TestTheImageFactNamesAHostOnlyTagALocalBuild.
 title Kit image source — FROM follows where the image lives
 
 component "maintain.ResolveImage\n:local newer? → :local\nelse published tag" as PICK <<app>>

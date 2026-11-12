@@ -1,0 +1,370 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title proveo-dev → mise — decision record (option C, 2026-11-12)
+' purpose: the record of how the maintainer dispatcher became mise tasks, Go test gates and two producer mains
+' touched: mise.toml, .golangci.yml
+' touched: cmd/proveo-dev/** and scripts/githooks/post-commit (deleted)
+' touched: cmd/proveo/version.go, cmd/proveo/version_test.go
+' touched: internal/contract/{comment_blocks,mise_toml,mise_gates,mise_mains,cli_tasks,release_gate}_test.go (new)
+' touched: internal/contract/{git_hooks,host_bash,base_template,env_registry,retirement,spec_notes}_test.go
+' touched: internal/cdn/stage/** (new), internal/maintain/fleet.go, internal/maintain/fleet/** (new)
+' touched: internal/imagebuild/imagebuild.go, internal/imagetest/imagetest.go
+' touched: e2e/gate_test.go (new), e2e/idle_test.go, e2e/ladder_test.go
+' touched: internal/envreg/envreg.go, internal/choiceui/filter_list.go
+' session: e2da2921-e414-40e8-bb19-8b3ea51c1aad
+'
+' ── WHAT THIS FILE IS ──────────────────────────────────────────────────────
+' A decision record. It carries no `covers:` and is no source file's SPEC
+' pointer (_refactors/ is exempt from the referencing rule). The current
+' state lives in:
+'   mise tasks + the two mains ...... _spec/cmd/proveo/usage.puml
+'   lint + post-commit hook ......... _spec/_devops/git-hooks.puml
+'   unit baseline ................... _spec/_devops/unit-baseline.puml
+'   release gate · idle · ladder .... _spec/_devops/release-gate.puml
+'   release + CDN staging ........... _spec/internal/cdn/distribution-update.puml
+'   image fleet ..................... _spec/internal/maintain/image-build-deploy.puml
+'   host-shell allowlist + argv rule  _spec/tests/20-contract.puml
+' It SUPERSEDES P4 decision 2 of the frozen _spec/_refactors/host-shell-to-go.puml
+' ("maintainer tooling lives in cmd/proveo-dev, a separate binary that never
+' ships"). That file stays untouched.
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE GOAL ───────────────────────────────────────────────────────────────
+' The operator, 2026-11-12: "proveo-dev should have been completely replaced
+' by mise". Before: 29 files under cmd/proveo-dev (2,151 source lines, 900
+' test lines, the 18-line unit-baseline.txt), a cobra root reached by 17 of
+' 24 mise tasks, and a POSIX post-commit shim that exec'd it.
+'
+' ── THE OPTIONS ────────────────────────────────────────────────────────────
+' C  CHOSEN. Every thin wrapper becomes a native mise task (run arrays,
+'    depends, usage args and flags, env, per-task tools). Every gate verdict
+'    moves into the Go test it gates, so go test's exit code is the verdict.
+'    Upstream tools absorb the rest: mise generate git-pre-commit, goreleaser,
+'    go tool covdata, golangci-lint fmt, go test -skip, mise run
+'    --continue-on-error. Two producer package mains remain, both under
+'    internal/: CDN staging (internal/cdn/stage over goreleaser's dist
+'    metadata) and the image fleet (internal/maintain/fleet over
+'    internal/maintain + internal/imagebuild).
+' A  NOT CHOSEN: one internal/devtask runner keyed on MISE_TASK_NAME. It is
+'    the dispatcher under a new name.
+' B  NOT CHOSEN: one main per tool. It moves ~1,400 lines verbatim, keeps the
+'    text-parsing gates and keeps the stage-cdn defects.
+' D  NOT CHOSEN: mise-native with sh one-liners. It reintroduces host shell
+'    logic, which the 2026-09-22 rule removed.
+'
+' ── OPERATOR CHOICES ───────────────────────────────────────────────────────
+' 1 VERSION. With no -X main.version stamp, cmd/proveo reports
+'   dev@<12 hex of vcs.revision>, plus "+dirty" when vcs.modified, from Go
+'   build info (cmd/proveo/version.go). goreleaser's -X still wins. go run
+'   stamps no build info and reports dev. TestBuiltBinaryReportsItsVersion
+'   builds cmd/proveo twice and reads --version.
+' 2 DEPLOY-CLI. Tag only. An untagged HEAD refuses with one line naming the
+'   fix (TestReleaseShipsATaggedHead under PROVEO_RELEASE_GATE=1, before
+'   goreleaser runs). No snapshot deploys to the production CDN. dev-cli
+'   stays a local snapshot preview.
+' 3 RENDER-SUBAGENTS. Deleted: code, tests, references. The operator: "in the
+'   future this will likely print out a template".
+'
+' ── EXECUTOR DEFAULTS (each with what was NOT CHOSEN) ──────────────────────
+' * Four work packages: gates, cli and images rewired mise.toml and landed
+'   each replacement with the contract pins of the lines they changed; the
+'   dispatcher stayed compiled but unreached until cleanup deleted it whole
+'   (render-subagents went in images, operator choice 3). NOT CHOSEN:
+'   deleting each replaced verb file in its own package (the unused linter
+'   flags the orphaned shared helpers); deferring every contract rewrite to
+'   cleanup (the first three packages would land red).
+' * SKIP_GIT_HOOKS keeps its name through post-commit's skip_if with
+'   envflag's on-words (TestPostCommitSkipIfSpeaksTheEnvflagWords).
+'   NOT CHOSEN: MISE_TASK_SKIP=post-commit (renames the switch);
+'   skip_if = 'test -n "$SKIP_GIT_HOOKS"' (shell logic, and 0 would skip);
+'   editing the generated hook (untracked, regenerated).
+' * The race fallback is a usage flag --no-race on test-go and baseline.
+'   NOT CHOSEN: a Tera exec() race probe (it renders with the caller's PATH,
+'   not the task's tools); dropping the fallback with no flag.
+' * test-e2e-full keeps going after a red half through a nested `mise run
+'   --continue-on-error e2e-gated … ::: idle-all ::: ladder-all`, ordered by
+'   wait_for; its own args reach the e2e pass alone. NOT CHOSEN: one go test
+'   process for all halves (a timeout panic aborts the rest); depends_post
+'   ([Unverified] exit status on a red parent); a run array (stops at the
+'   first failure); raw_args (passes --help to go test).
+' * The two mains live at internal/cdn/stage and internal/maintain/fleet,
+'   where the env-registry scan already looks. NOT CHOSEN: internal/devtool/*
+'   (a namespace with no library beside it); tools/ (the scan must learn it);
+'   cmd/ (reads as a shipped binary).
+' * PROVEO_LADDER_TARGET stays singular: four hidden ladder:<def> tasks keep
+'   one 30m process per def, and ladder-all runs them with
+'   --continue-on-error --jobs=1. NOT CHOSEN:
+'   PROVEO_LADDER_TARGETS with a subtest loop in one 120m process.
+' * PROVEO_COV_DIR, PROVEO_CDN_ROOT, PROVEO_DIST_DIR and
+'   PROVEO_CDN_REQUIRE_DIST retire with the Go that read them; no tracked
+'   file sets them. PROVEO_VERSION stays, read by install.sh and install.ps1
+'   only. Every other env name stays.
+' * --print stays on build, deploy and test-defs (the fleet main), because
+'   `mise run -n` shows only the fleet line there. It goes from idle, ladder
+'   and e2e-full. Their go test lines print with `mise run -n e2e-gated`,
+'   `mise run -n idle-all` and `mise run -n ladder:<def>`; `mise run -n
+'   ladder-all` and `test-e2e-full` print only the nested `mise run` line.
+'   `mise tasks info <task>` prints the env, PROVEO_IDLE_FOR as its
+'   unrendered template; idle-all's description names the 45s default.
+'   NOT CHOSEN: --print everywhere (a Go wrapper per gate); --print nowhere
+'   (loses the wave plan).
+' * build, deploy and test-defs share one fleet main (verbs build|deploy|test).
+'   test-defs keeps all and --print and runs each distinct suite once.
+'   NOT CHOSEN: test-defs as a direct `go test -run=^TestImage<Suite>$`;
+'   three claudecode reruns under all.
+' * build, deploy and test-defs require <target>; the DNS help and the image
+'   suites' not-built skip name `mise run build <target>`. NOT CHOSEN:
+'   default="all" (a bare build would build 13 images); an optional target.
+' * mise.toml joins the env-registry scan as an envreg.Binary reader. NOT
+'   CHOSEN: a new Where bit (changes `proveo help env` for no operator gain).
+' * Contract tests read mise.toml through a small hand-written reader. NOT
+'   CHOSEN: a TOML module in go.mod; shelling out to mise in unit tests.
+' * The gofmt gate is TestEveryTrackedGoFileIsGofmted (go/format over git
+'   ls-files), first in lint. NOT CHOSEN: golangci-lint formatters alone
+'   (they miss build-constrained files); a gofmt -l run entry (needs shell).
+' * Opted-in e2e gates fail their skips through failSkipsWhenOptedIn, a
+'   t.Cleanup + t.Skipped helper (e2e/gate_test.go) installed first in
+'   TestSandboxLadder (after its opt-out) and idleAtPrompt; the release
+'   ledger uses the same pattern. NOT CHOSEN: a gateSkip helper replacing
+'   each t.Skip (misses future bare skips).
+' * The untagged-HEAD refusal is TestReleaseShipsATaggedHead inside
+'   release-ledger. NOT CHOSEN: goreleaser's own refusal (names no fix); a
+'   Tera exec() tag probe (renders with the outer PATH).
+' * confirm guards deploy-cli only. NOT CHOSEN: confirm on deploy (an empty
+'   templated confirm still prompts, so scripted deploys would need --yes).
+' * build-cli sets env GOBIN = false, so go install writes to its own
+'   GOPATH/bin. A `go env -w GOBIN=…` entry still wins over it (MEASURED);
+'   HEAD's explicit GOPATH/bin overrode that entry. NOT CHOSEN: GOBIN from
+'   get_env(GOPATH) (misses go env -w GOPATH); GOBIN from exec() (outer
+'   PATH); GOENV=off (also drops GOPRIVATE and GOPROXY); [settings]
+'   go.set_gobin (absent here).
+' * An operator env value reaches a task through `{% set v = get_env(name=…,
+'   default='') | trim %}{% if v %}…{% else %}<default>{% endif %}`, so an
+'   empty or blank value falls back like HEAD's envOr did
+'   (TestOperatorEnvTreatsEmptyAsUnset). NOT CHOSEN: get_env's own default
+'   (it applies only to an unset variable, so `-timeout` lost its value).
+' * Every {{ … }} in a run string ends in `| quote`, so a --tag, a path with a
+'   space or an env value reaches argv as one word; boolean flags render
+'   through {% if %} as bare -no-cache and -print. NOT CHOSEN: `| as_str |
+'   quote` on booleans (quote refuses a bool); quoting only free-form values
+'   (the scan cannot tell them apart).
+' * The plain-argv scan is an allowlist: outside '…' and Tera blocks a run
+'   string holds letters, digits, space and -_./=:,@+%^, a $ only at a word's
+'   end, and starts with a program, not a bash keyword, builtin or env. The scan
+'   also refuses task forms it cannot read: a [tasks] shorthand, a top-level
+'   tasks. key, a task sub-table and a key outside its list (run_windows,
+'   file, shell). NOT CHOSEN: extending the denylist (the next construct
+'   slips through); calling mise to render tasks (needs mise in unit tests).
+' * The fallback version is dev@<12 hex>[+dirty]. NOT CHOSEN: 7 or 8 hex
+'   (git's abbrev varies by repo size); an unstamped dev.
+' * internal/cdn/stage reads its platforms from .goreleaser.yaml
+'   builds[id=proveo] and checks each binary against goreleaser's checksum.
+'   NOT CHOSEN: a hard-coded 8-platform list; jq or sh one-liners.
+' * The unit baseline is one backslash-continued string in mise.toml [vars].
+'   NOT CHOSEN: a TOML array ([vars] rejects arrays); one 700-column line;
+'   keeping unit-baseline.txt (it lived in the deleted directory).
+' * ci is depends-only; test-images moves its assignment into an env table.
+'   NOT CHOSEN: keeping the non-ASCII printf (fails the plain-argv rule).
+' * choiceui FilterList.Multi is deleted in cleanup, with its one caller.
+'   NOT CHOSEN: deleting it while maintain.go still compiled against it.
+' * _spec/_plans/repo-simplification.puml keeps its dated rows under one
+'   history header line; living specs carry no literal dispatcher name; one
+'   pointer line in usage.puml names this record. NOT CHOSEN: rewriting 21
+'   dated findings; freezing the whole plan (11 rows are still OPEN).
+'
+' ── THE VERB MAP ───────────────────────────────────────────────────────────
+'   lint · commentlint · gofmt -l ... [tasks.lint]: TestEveryTrackedGoFileIsGofmted
+'                                     + TestNoCommentBlockOverThreeLines, go vet
+'                                     (default, image, e2e), golangci-lint run
+'   hooks install ................. install-git-hooks: mise generate
+'                                     git-pre-commit --hook post-commit
+'   hooks post-commit ............. hidden post-commit: {fmt}, {lint}, skip_if
+'   baseline + unit-baseline.txt .. baseline: go test -skip over [vars]
+'   coverage unit · merge · e2e ... test-go (cov/unit) · coverage (covdata) ·
+'                                     test-go-e2e / test-e2e
+'   coverage all .................. deleted; `mise run -c test-go ::: coverage`
+'   build-cli [--release] ......... build-cli (go install) · release ·
+'                                     snapshot · hidden release-ledger
+'   deploy-cli · dev-cli .......... deploy-cli (depends release, confirm,
+'                                     wrangler deploy) · dev-cli (snapshot,
+'                                     stage-cdn, wrangler dev)
+'   stage-cdn ..................... hidden stage-cdn: go run ./internal/cdn/stage
+'   build · deploy · test ......... build · deploy · test-defs: go run
+'                                     ./internal/maintain/fleet <verb> <target>
+'   e2e-full · idle · ladder ...... test-e2e-full · e2e-gated · idle-all ·
+'                                     ladder-all · ladder:<def>
+'   render-subagents .............. deleted (operator choice 3)
+'   main.go dispatcher + gate.go .. deleted; verdicts are go test exit codes
+'                                     and mise's failed-task list
+'   ci (printf) ................... ci: depends on lint, build-check, test-go
+'
+' ── MEASURED ON mise 2026.10.17 (the lab, 2026-11-12) ──────────────────────
+' * min_version = "2026.10.10" is accepted; `mise tasks validate` passes on
+'   the full planned mise.toml (34 tasks).
+' * Every run string, quoted or plain, runs under `sh -o errexit -c`: a Go
+'   probe printed SHLVL=3, equal to a manual sh -c; no direct exec was seen.
+' * An unset boolean usage flag renders "false", a passed one "true", and
+'   {% if usage.x %} is false when unset.
+' * usage refuses a bad choice, a missing required arg, an extra word and an
+'   unknown flag; --help lists choices and defaults; flags may follow the arg.
+' * Without a usage spec CLI args append to the last run entry; with one they
+'   are consumed or refused.
+' * { task = … } run entries run in order; a sub-task's tools reach it only.
+' * A variadic arg rendered through {% for %} … | quote reaches argv as one
+'   word per arg (`-run 'Test A'` arrived as two words).
+' * [vars] rejects arrays; a backslash-continued """ string yields one regex.
+' * skip_if renders Tera; the envflag word list skips on 1, true, YES, ' on ',
+'   enable, enabled and runs on '', 0, false, no, 2 or unset.
+' * `mise run --continue-on-error a ::: b ::: c` with wait_for runs in order
+'   past a red task and exits 1 naming it; --jobs=1 keeps the CLI order.
+' * Task env beats mise's GOBIN; GOBIN = false unsets it.
+' * exec() in a template runs with the caller's PATH, not the task's tools.
+' * confirm with no TTY fails ("pass --yes"); --yes and MISE_YES=1 pass; an
+'   empty rendered confirm still prompts.
+' * `mise run -n` prints rendered run lines, depends and sub-tasks, but no
+'   env; `mise tasks info` prints env templates and run lines.
+' * `mise generate git-pre-commit --write` writes a #!/bin/sh hook that execs
+'   `mise run <task>`; in a linked worktree it writes the common .git/hooks,
+'   and a worktree commit fires it.
+' * go install and go build stamp vcs.revision and vcs.modified; go run
+'   stamps neither.
+' * A goreleaser snapshot's dist/metadata.json version equals the binary's
+'   --version (0.1.6-SNAPSHOT-7a0c8cf4), and artifacts.json carries each CDN
+'   binary's sha256.
+' * covdata percent and textfmt read cov/unit directly.
+' * Before the e2e gates changed, TestSandboxLadder and the idle check SKIPPED
+'   with exit 0 on a host without docker or sbx.
+' * get_env(name=X, default=D) yields "" for X= and D only when X is unset, so
+'   `PROVEO_TEST_GO_TIMEOUT= mise run -n test-go-e2e` once printed a bare
+'   -timeout. The {% set %} … | trim form yields the fallback for unset, "" and
+'   "  ", in a run string and in an env value.
+' * `| quote` wraps a string in '…' (-tag='x;echo INJECTED' stays one argv
+'   word) and fails to render on a bool.
+' * `mise run -n` checks confirm: without a TTY it exits 1; `-n --yes` prints
+'   the plan and runs no depends and no run entry.
+' * A go env file's GOBIN beats task env GOBIN = false.
+'
+' ── THE HOST SHELL THAT REMAINS ────────────────────────────────────────────
+'   apps/cli/public/cli/install.sh, uninstall.sh   bootstrap before proveo
+'                                                   exists; guarded bash
+'   .git/hooks/post-commit                          mise's generated #!/bin/sh,
+'                                                   untracked
+'   the `sh -o errexit -c` hop                      around every plain-argv
+'                                                   run string
+' TestMiseTasksRunNoShellScripts holds the run strings to plain argv: an
+' allowlist of bytes outside '…' and Tera blocks, each Tera value one quoted
+' operand (a variable or one ( … ) group piped last through quote, since a
+' filter binds tighter than ~), no leading assignment, no bash keyword,
+' builtin or env first, no shell interpreter in any word, no non-ASCII, and
+' only [tasks.<name>] tables with keys the scan reads.
+'
+' ── WHAT A MAINTAINER NOTICES ──────────────────────────────────────────────
+' * `mise run lint` gates gofmt on every tracked .go file and lints e2e/.
+' * baseline skips its 16 listed tests by name: no "passes here" note and no
+'   per-package scope; go test flags pass after --.
+' * coverage reads cov/unit; PROVEO_COV_DIR, PROVEO_CDN_ROOT, PROVEO_DIST_DIR
+'   and PROVEO_CDN_REQUIRE_DIST are gone; PROVEO_VERSION is installer-only.
+' * `mise run release` (tagged HEAD) and `mise run snapshot` replace
+'   `build-cli -- --release`; dev-cli and test-images snapshot first (~25s).
+' * build, deploy and test-defs need a target; the TTY picker is gone, and
+'   choiceui FilterList takes one row.
+' * idle-all and ladder-all report through go test -v and mise's failed-task
+'   list instead of verdict tables.
+' * Each ladder:<def> runs -run=^TestSandboxLadder$, where HEAD ran -run Ladder.
+'   TestLadderReportNamesTheFirstFailure, TestLadderReportSendsRungZeroUpstream,
+'   TestLadderReportSaysWhenNothingBroke and
+'   TestLadderPromptIsEmptyUntilAnOperatorNamesOne leave ladder-all; they still
+'   run in test-e2e and e2e-gated.
+' * build, deploy and test-defs pass --tag and the target as one quoted word,
+'   and -no-cache and -print only when set; `mise run -n build` shows that line.
+' * `mise run -n deploy-cli` exits 1 at the confirm without a TTY; `mise run -n
+'   --yes deploy-cli` prints the plan. A "no" at the confirm comes after
+'   release ran, so dist/ and apps/cli/public/cli stay restaged
+'   (apps/cli/README.md). HEAD's deploy-cli asked nothing.
+' * deploy-cli runs TestStagedCDNIsTheTaggedRelease before wrangler, so
+'   `--skip-deps` cannot publish a snapshot stage (_spec/_devops/release-gate.puml).
+' * `mise run ci --no-race` forwards --no-race to test-go; ci runs
+'   `mise run lint ::: build-check ::: test-go`, where it held three depends.
+' * A host with `go env -w GOBIN=…` gets build-cli's binaries in that GOBIN.
+'
+' ── RISKS ──────────────────────────────────────────────────────────────────
+' * A skip inside an opted-in gate fails only because failSkipsWhenOptedIn is
+'   the first statement; TestOptedInE2EGatesFailTheirSkips pins its place.
+' * e2e-gated sets PROVEO_IDLE_TEST=1 for the whole e2e pass, so its default
+'   claudecode idle check fails without sbx instead of skipping.
+' * A stale baseline row stays silent until someone reads test-go.
+' * A host without cgo fails test-go, baseline and ci until --no-race.
+' * The usage choices copy maintain.Registry;
+'   TestImageTasksChoicesMatchTheRegistry pins them.
+' * [Unverified] mise's aqua download of goreleaser 2.17.0 was not exercised.
+'   test-images (and test-e2e, test-e2e-full) now snapshot first, so the
+'   in-sandbox step 4 of _spec/_devops/release-gate.puml needs that download
+'   through the sandbox's egress; HEAD needed only go there.
+' * [Unverified] A real build, deploy or test-defs through the fleet main
+'   (not --print) was not run.
+' * The installed .git/hooks/post-commit still execs the deleted dispatcher
+'   until the operator runs `mise run install-git-hooks` once; every commit
+'   prints a go run error until then. CONTRIBUTING.md names the step.
+
+component "mise.toml\nplain-argv tasks" as MISE <<app>>
+component "go test gates\ninternal/contract · e2e" as GATES <<app>>
+component "internal/cdn/stage\npackage main" as STAGE <<app>>
+component "internal/maintain/fleet\npackage main" as FLEET <<app>>
+component "goreleaser 2.17.0\nsnapshot · release" as GR <<app>>
+cloud "wrangler\nproveo.ca/cli" as WR <<cloud>>
+component "mise generate git-pre-commit\nuntracked .git/hooks/post-commit" as HOOK <<app>>
+component "cmd/proveo-dev\nDELETED 2026-11-12" as GONE <<error>>
+
+MISE ARROW_MAIN GATES : lint · baseline · test-go\nrelease-ledger · idle · ladder
+MISE ARROW_MAIN GR : snapshot · release
+GR ARROW_MAIN STAGE : dist/ metadata
+MISE ARROW_MAIN STAGE : stage-cdn
+MISE ARROW_MAIN FLEET : build · deploy · test-defs
+MISE ARROW_CLOUD WR : deploy-cli · dev-cli
+MISE ARROW_MAIN HOOK : install-git-hooks
+HOOK ARROW_OPTIONAL MISE : mise run post-commit
+GONE ARROW_ERROR MISE : replaced by
+
+note right of GATES
+  **The exit code is the verdict.** A gate is
+  a Go test, so mise composes it like a task.
+  An opted-in skip fails at cleanup.
+end note
+
+note bottom of STAGE
+  **It trusts goreleaser's metadata.** It reads
+  dist/artifacts.json and metadata.json and
+  checks every sha256 before it writes.
+end note
+
+note bottom of FLEET
+  **One main for three verbs.** mise checks the
+  target first; --print shows the wave plan,
+  which mise run -n cannot.
+end note
+
+note right of GR
+  **Pinned per task, not in [tools].** Only
+  snapshot and release resolve it, so fmt,
+  lint and post-commit never fetch it.
+end note
+
+note bottom of WR
+  **Only a tag reaches production.** deploy-cli
+  refuses an untagged HEAD before goreleaser;
+  dev-cli serves a local snapshot.
+end note
+
+note right of HOOK
+  **The hook is mise's, and untracked.** It
+  execs mise run post-commit, and
+  SKIP_GIT_HOOKS still skips it via skip_if.
+end note
+
+note bottom of GONE
+  **No dispatcher survives.** The cobra root,
+  its 29 files and the shim are deleted. The
+  name lives on in records like this one.
+end note
+@enduml

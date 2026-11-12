@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/gdamore/tcell/v2"
+	tea "charm.land/bubbletea/v2"
 )
 
 // ErrNotRunning is returned when an overlay is requested before Run.
@@ -39,15 +39,21 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 // Restore is a no-op on Windows.
 func (p *Proxy) Restore() {}
 
+// EnteredAltScreen is false on Windows: no child ever runs behind the proxy.
+func (p *Proxy) EnteredAltScreen() bool { return false }
+
 // Overlay returns ErrNotRunning — there is never a live PTY child on Windows.
 func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	return ErrNotRunning
 }
 
-// OverlayScreen is unavailable on Windows (no PTY / terminfo overlay path).
-func (p *Proxy) OverlayScreen(in io.Reader) (tcell.Screen, error) {
-	return nil, fmt.Errorf("ptyproxy: OverlayScreen not supported on windows")
+// OverlayProgram returns ErrNotRunning — there is never a live PTY child on Windows.
+func (p *Proxy) OverlayProgram(io.Reader, tea.Model) (tea.Model, error) {
+	return nil, ErrNotRunning
 }
+
+// DiscardInput is a no-op on Windows.
+func DiscardInput(*os.File) {}
 
 // HandleCtrlC is a no-op on Windows, which has no PTY overlay.
 func (p *Proxy) HandleCtrlC(func(io.Reader, io.Writer) CtrlCAction, func()) {}

@@ -4,10 +4,12 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -15,11 +17,14 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
+	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
@@ -44,11 +49,49 @@ func TestPickProject(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := pickProject(projs, strings.NewReader(tc.input), &strings.Builder{})
-			if got != tc.want {
+			got, ok := pickProject(run.ScopeAsk{Projects: projs}, strings.NewReader(tc.input), &strings.Builder{})
+			if got != tc.want || !ok {
 				t.Errorf("pickProject(input=%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAClosedScopePageCancelsAndAPageThatCannotDrawKeepsTheRepoRoot(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		scope string
+		out   choiceui.Outcome
+		err   error
+		want  string
+		ok    bool
+	}{
+		{"the repo root row", "", choiceui.Accepted, nil, "", true},
+		{"a project", "packages/util", choiceui.Accepted, nil, "packages/util", true},
+		{"the page closed with Esc", "", choiceui.Cancelled, nil, "", false},
+		{"no terminal to draw on", "", choiceui.Cancelled, errors.New("no terminal"), "", true},
+	} {
+		prev := ui.Default
+		ui.Default = ui.New(io.Discard)
+		got, ok := scopePageAnswer(c.scope, c.out, c.err)
+		ui.Default = prev
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: scopePageAnswer = %q, %v; want %q, %v", c.name, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestTheScopePageOpensOnTheRepoRootOrWhereAnEarlierVisitLeftIt(t *testing.T) {
+	t.Parallel()
+	projs := []workspace.Project{{Name: "web", Path: "apps/web"}, {Name: "util", Path: "packages/util"}}
+	page := scopePage(run.ScopeAsk{Target: "claudecode", RepoRoot: "/work/monorepo", Projects: projs,
+		Step: choiceui.Step{At: 1, Of: 2}})
+	if page.Tree.At() != "" || page.Root != "monorepo" || !strings.Contains(page.Title, "claudecode") {
+		t.Errorf("a first visit: cursor %q, root %q, title %q", page.Tree.At(), page.Root, page.Title)
+	}
+	page = scopePage(run.ScopeAsk{RepoRoot: "/work/monorepo", Projects: projs, Picked: "packages/util"})
+	if page.Tree.At() != "packages/util" {
+		t.Errorf("a return visit opens on %q, want packages/util", page.Tree.At())
 	}
 }
 
@@ -132,42 +175,6 @@ func TestSandboxSpecAddsTheDataDirReadOnly(t *testing.T) {
 	}
 	if !sawWorkdir {
 		t.Errorf("PROVEO_WORKDIR missing from %+v", cfg.Env)
-	}
-}
-
-// sandbox.Spec never reads p.mode, so open and allowlist build an identical Kit. The
-// row must say so rather than offering a risk axis on which nothing moves.
-func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
-	t.Parallel()
-	const name, log = "proveo-1-2", "/home/u/.proveo/logs/proveo-1-2.log"
-
-	got := sandbox.KeptLines(name, log)
-	if len(got) != 2 {
-		t.Fatalf("want the kept line plus the transcript, got %d: %q", len(got), got)
-	}
-	// The first line stays the actionable one: it is what an operator reads first.
-	for _, want := range []string{"kept for diagnosis", "sbx exec -it " + name + " bash", "sbx rm --force " + name} {
-		if !strings.Contains(got[0], want) {
-			t.Errorf("first line dropped %q: %q", want, got[0])
-		}
-	}
-	if !strings.Contains(got[1], log) {
-		t.Errorf("the transcript path must be named verbatim, got %q", got[1])
-	}
-
-	attach := sandbox.IDEAttachLines(sandbox.Input{Clone: true, RepoRoot: "/host/repo"},
-		sbx.RunConfig{Name: name, Mounts: []sbx.Mount{{Host: "/host/repo"}}}, false)
-	joined := strings.Join(attach, "\n")
-	for _, want := range []string{"sbx setup ssh", name + ".sbx", "DISPOSABLE CLONE", "refs/proveo/" + name} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("kept-sandbox attach guidance dropped %q: %q", want, joined)
-		}
-	}
-
-	// No transcript is a real state — runlog.Open failing must not print a line
-	// pointing at the empty string, which reads as a path that got lost.
-	if got := sandbox.KeptLines(name, "  "); len(got) != 1 {
-		t.Errorf("a run with no transcript gets one line, got %q", got)
 	}
 }
 
@@ -576,6 +583,33 @@ func TestSessionAliveReadsThePidFromTheSessionID(t *testing.T) {
 	}
 }
 
+// An init a Ctrl+C in a handed-off program stopped ends proveo by SIGINT once its blocks printed,
+// so a shell waiting on it, such as install.sh's, stops too.
+func TestAnInitACtrlCStoppedDiesOfSIGINT(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no signal to re-raise")
+	}
+	if os.Getenv("PROVEO_TEST_DIE_OF_SIGINT") == "1" {
+		rep := testReport(t, initOptions{})
+		rep.sbxSaid = true
+		exitWith(rep.close(&initRecord{}, stepErr{label: rowWizard, err: handoffErr{err: errors.New("signal: interrupt"), interrupted: true}}))
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$")
+	cmd.Env = append(os.Environ(), "PROVEO_TEST_DIE_OF_SIGINT=1")
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("the stopped init = %v, want it ended by a signal:\n%s", err, out)
+	}
+	if ws, ok := exit.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
+		t.Errorf("the stopped init ended with %v, want death by SIGINT:\n%s", exit, out)
+	}
+	if !strings.Contains(string(out), "init — stopped at sbx setup") {
+		t.Errorf("the stopped init died before its result printed:\n%s", out)
+	}
+}
+
 func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -586,7 +620,9 @@ func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
 		{"the agent's own code", fmt.Errorf("run: %w", backend.ExitError{Code: 137}), 137, true},
 		{"a SIGTERM stop", fmt.Errorf("run: %w", backend.Stopped{Signal: syscall.SIGTERM}), 143, true},
 		{"a SIGHUP stop", backend.Stopped{Signal: syscall.SIGHUP}, 129, true},
+		{"a teardown the operator left", backend.Stopped{Signal: syscall.SIGINT}, 130, true},
 		{"proveo's own failure", errors.New("no sbx"), 0, false},
+		{"a failure the results block already printed", backend.Reported{Err: errors.New("sbx setup ssh: exit status 1")}, 1, true},
 	} {
 		if got, ok := exitCode(c.err); got != c.want || ok != c.wantOK {
 			t.Errorf("exitCode(%s) = %d, %v; want %d, %v", c.name, got, ok, c.want, c.wantOK)

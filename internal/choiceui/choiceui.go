@@ -4,12 +4,13 @@ package choiceui
 
 import (
 	"fmt"
-	"os"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
-	"github.com/gdamore/tcell/v2"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -254,14 +255,28 @@ type Form struct {
 	StartRow    string // row label the cursor opens on; empty means first selectable
 	StartOption string // option the cursor opens on within StartRow
 	Step        Step   // place in a sequence of screens; the zero value is a lone form
-	scroll      int
+	Skip        string // label of a focusable button under the rows; Enter on it is Skipped
+	// OnEnter names what accepting the form runs, in order, for the answers as they stand.
+	// SPEC: _spec/internal/choiceui/wireframe.puml
+	OnEnter func(*Form) []string
+	scroll  int
+	onSkip  bool // the cursor is on the Skip button
 }
 
-// Step is screen At of Of; shift+tab leaves a screen past the first as Back.
-// SPEC: _spec/internal/choiceui/wireframe.puml
-type Step struct{ At, Of int }
+// Step is screen At of Of; Esc leaves a screen past the first as Back.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml
+type Step struct {
+	At, Of int
+	Leave  Leave // what Ctrl+C asks on this page; the zero value asks the generic question
+}
+
+// Leave words the question Ctrl+C asks on a wizard's page: a title, and a body with one line per "\n".
+type Leave struct{ Title, Body string }
 
 func (s Step) backable() bool { return s.At > 1 }
+
+// wizard reports whether the form is one page of several.
+func (s Step) wizard() bool { return s.Of > 1 }
 
 // Outcome is how the operator left a form.
 type Outcome int
@@ -270,6 +285,8 @@ const (
 	Cancelled Outcome = iota
 	Accepted
 	Back
+	Skipped // the Skip button: this page changes nothing, the next one follows
+	Quit    // ctrl+c, confirmed: the wizard ends here
 )
 
 func Banner() []string {
@@ -312,6 +329,52 @@ func (f *Form) Selection(label string) string {
 	return ""
 }
 
+// Adopt copies the answers of prev into every row of f that offers the same
+// options; a locked row and an option f greys out keep f's own answer.
+func (f *Form) Adopt(prev *Form) {
+	if prev == nil {
+		return
+	}
+	for i := range f.Rows {
+		r := &f.Rows[i]
+		at := slices.IndexFunc(prev.Rows, func(o Row) bool {
+			return o.Label == r.Label && o.Field == r.Field && slices.Equal(o.Options, r.Options)
+		})
+		if at < 0 || r.Locked {
+			continue
+		}
+		was := prev.Rows[at]
+		if r.Field {
+			r.Value = was.Value
+			continue
+		}
+		if !r.offAt(was.Selected) {
+			r.Selected = was.Selected
+		}
+		for j := range r.On {
+			if j < len(was.On) && !r.offAt(j) {
+				r.On[j] = was.On[j]
+			}
+		}
+		r.More.adopt(was.More)
+		for cell, m := range r.Lists {
+			m.adopt(was.Lists[cell])
+		}
+	}
+}
+
+// adopt copies the ticks of prev when both lists offer the same entries.
+func (m *More) adopt(prev *More) {
+	if m == nil || prev == nil || m.ReadOnly || !slices.Equal(m.Options, prev.Options) {
+		return
+	}
+	for i := range m.On {
+		if i < len(prev.On) && !m.offAt(i) {
+			m.On[i] = prev.On[i]
+		}
+	}
+}
+
 func (f *Form) Run() (confirmed bool, err error) {
 	out, err := f.RunStep()
 	return out == Accepted, err
@@ -319,92 +382,185 @@ func (f *Form) Run() (confirmed bool, err error) {
 
 // RunStep is Run that also reports a step back.
 func (f *Form) RunStep() (Outcome, error) {
-	preferUTF8Locale()
-	screen, err := tcell.NewScreen()
+	in, out, done, err := openTerminal()
 	if err != nil {
 		return Cancelled, fmt.Errorf("choice prompt: %w", err)
 	}
-	if err := screen.Init(); err != nil {
+	defer done()
+	final, err := tea.NewProgram(formModel{f: f, cursor: f.startCursor(), tick: 1},
+		tea.WithInput(in), tea.WithOutput(out), tea.WithoutSignalHandler()).Run()
+	if err != nil {
 		return Cancelled, fmt.Errorf("choice prompt: %w", err)
 	}
-	registerGlyphFallbacks(screen)
-	defer screen.Fini()
-	tick := newTicker(screen.PostEvent)
-	defer tick.stop()
-
-	cursor := f.startCursor()
-	for {
-		f.draw(screen, cursor, tick.frame())
-		switch ev := screen.PollEvent().(type) {
-		case *tcell.EventResize:
-			screen.Sync()
-		case *tcell.EventKey:
-			if out, done := f.leave(ev); done {
-				return out, nil
-			}
-			if !f.navigable(screen) {
-				if ev.Key() == tcell.KeyRune && ev.Rune() == 'q' {
-					return Cancelled, nil
-				}
-				continue
-			}
-			if f.typing(cursor, ev) {
-				continue
-			}
-			if f.moreKey(cursor, ev) {
-				continue
-			}
-			switch ev.Key() {
-			case tcell.KeyTab:
-				f.toggle(cursor)
-			case tcell.KeyUp:
-				cursor = f.move(cursor, -1)
-			case tcell.KeyDown:
-				cursor = f.move(cursor, +1)
-			case tcell.KeyPgUp:
-				cursor = f.page(cursor, -1)
-			case tcell.KeyPgDn:
-				cursor = f.page(cursor, +1)
-			case tcell.KeyHome:
-				cursor = f.firstSelectable()
-			case tcell.KeyEnd:
-				cursor = f.lastSelectable()
-			case tcell.KeyLeft:
-				f.cycle(cursor, -1)
-			case tcell.KeyRight:
-				f.cycle(cursor, +1)
-			case tcell.KeyRune:
-				switch ev.Rune() {
-				case 'k':
-					cursor = f.move(cursor, -1)
-				case 'j':
-					cursor = f.move(cursor, +1)
-				case 'h':
-					f.cycle(cursor, -1)
-				case 'l':
-					f.cycle(cursor, +1)
-				case ' ':
-					if cursor < len(f.Rows) && f.Rows[cursor].Multi {
-						f.toggle(cursor)
-					} else {
-						f.cycle(cursor, +1)
-					}
-				case 'q':
-					return Cancelled, nil
-				}
-			}
-		}
+	if m, ok := final.(formModel); ok {
+		return m.out, nil
 	}
+	return Cancelled, nil
 }
 
-// leave answers the keys that end a form; shift+tab only past the first screen.
-func (f *Form) leave(ev *tcell.EventKey) (Outcome, bool) {
-	switch ev.Key() {
-	case tcell.KeyEscape, tcell.KeyCtrlC:
+// press is one key as the form reads it: a named key, or typed text.
+type press struct {
+	key  string // "enter", "esc", "shift+tab", "up", …; empty for typed text
+	text string
+}
+
+// formModel runs a Form as a Bubble Tea model.
+type formModel struct {
+	f      *Form
+	cursor int
+	tick   int
+	w, h   int
+	out    Outcome
+	quit   quitGate
+}
+
+// formTick advances the figure's motion by one frame.
+type formTick struct{}
+
+func animTick() tea.Cmd {
+	return tea.Tick(animFrame, func(time.Time) tea.Msg { return formTick{} })
+}
+
+func (m formModel) Init() tea.Cmd { return animTick() }
+
+func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.w, m.h = msg.Width, msg.Height
+		if m.quit.up() {
+			m.quit, _ = m.quit.Update(msg)
+		}
+	case formTick:
+		m.tick++
+		return m, animTick()
+	case tea.KeyPressMsg:
+		if m.quit.up() {
+			var leave bool
+			if m.quit, leave = m.quit.Update(msg); leave {
+				m.out = Quit
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+		p := press{key: msg.String()}
+		if msg.Text != "" {
+			p = press{text: msg.Text}
+		}
+		out, done := m.f.key(&m.cursor, p, m.w, m.h)
+		switch {
+		case done && out == Quit && m.f.navigable(m.w, m.h):
+			m.quit = m.quit.open(m.w, m.h, m.f.Step.Leave)
+		case done:
+			m.out = out
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m formModel) View() tea.View {
+	if m.quit.up() {
+		return m.quit.view()
+	}
+	v := tea.NewView(m.f.frame(m.w, m.h, m.cursor, m.tick))
+	v.AltScreen = true
+	return v
+}
+
+// frame is the form drawn at w by h, as the string a terminal shows.
+func (f *Form) frame(w, h, cursor, tick int) string {
+	s := newScreen(w, h)
+	f.draw(s, cursor, tick)
+	return s.view()
+}
+
+// key applies one key press: it moves the cursor, changes an answer, or ends the form.
+func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
+	if out, done := f.leave(p); done {
+		return out, true
+	}
+	if !f.navigable(w, h) {
+		return f.quitKey(), p.text == "q"
+	}
+	if f.onSkip {
+		if p.key == "up" || p.key == "home" || p.key == "pgup" {
+			f.onSkip = false
+		}
+		return Cancelled, false
+	}
+	if f.typing(*cursor, p) || f.moreKey(*cursor, p) {
+		return Cancelled, false
+	}
+	switch p.key {
+	case "tab":
+		f.toggle(*cursor)
+	case "up":
+		*cursor = f.move(*cursor, -1)
+	case "down":
+		next := f.move(*cursor, +1)
+		f.onSkip = f.Skip != "" && next == *cursor
+		*cursor = next
+	case "pgup":
+		*cursor = f.page(*cursor, -1)
+	case "pgdown":
+		*cursor = f.page(*cursor, +1)
+	case "home":
+		*cursor = f.firstSelectable()
+	case "end":
+		*cursor = f.lastSelectable()
+	case "left":
+		f.cycle(*cursor, -1)
+	case "right":
+		f.cycle(*cursor, +1)
+	}
+	switch p.text {
+	case "k":
+		*cursor = f.move(*cursor, -1)
+	case "j":
+		*cursor = f.move(*cursor, +1)
+	case "h":
+		f.cycle(*cursor, -1)
+	case "l":
+		f.cycle(*cursor, +1)
+	case " ":
+		if *cursor < len(f.Rows) && f.Rows[*cursor].Multi {
+			f.toggle(*cursor)
+		} else {
+			f.cycle(*cursor, +1)
+		}
+	case "q":
+		return f.quitKey(), true
+	}
+	return Cancelled, false
+}
+
+// quitKey is what ctrl+c and q give: Quit on a wizard's page, which the model
+// confirms first, and Cancelled on a lone form.
+func (f *Form) quitKey() Outcome {
+	if f.Step.wizard() {
+		return Quit
+	}
+	return Cancelled
+}
+
+// leave answers the keys that end a form. Esc steps back past the first page and
+// cancels on it; shift+tab still steps back, unadvertised.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml
+func (f *Form) leave(p press) (Outcome, bool) {
+	switch p.key {
+	case "ctrl+c":
+		return f.quitKey(), true
+	case "esc":
+		if f.Step.backable() {
+			return Back, true
+		}
 		return Cancelled, true
-	case tcell.KeyEnter:
+	case "enter":
+		if f.onSkip {
+			return Skipped, true
+		}
 		return Accepted, true
-	case tcell.KeyBacktab:
+	case "shift+tab":
 		if f.Step.backable() {
 			return Back, true
 		}
@@ -414,23 +570,23 @@ func (f *Form) leave(ev *tcell.EventKey) (Outcome, bool) {
 
 // typing routes a keystroke into a field row, and answers true when the key
 // belonged to it.
-func (f *Form) typing(cursor int, ev *tcell.EventKey) bool {
+func (f *Form) typing(cursor int, p press) bool {
 	if cursor < 0 || cursor >= len(f.Rows) || !f.Rows[cursor].Field {
 		return false
 	}
 	r := &f.Rows[cursor]
-	switch ev.Key() {
-	case tcell.KeyRune:
-		r.Value += string(ev.Rune())
+	switch {
+	case p.text != "":
+		r.Value += p.text
 		f.changed()
 		return true
-	case tcell.KeyBackspace, tcell.KeyBackspace2:
+	case p.key == "backspace":
 		if runes := []rune(r.Value); len(runes) > 0 {
 			r.Value = string(runes[:len(runes)-1])
 			f.changed()
 		}
 		return true
-	case tcell.KeyCtrlU:
+	case p.key == "ctrl+u":
 		r.Value = ""
 		f.changed()
 		return true
@@ -539,40 +695,27 @@ func (f *Form) toggle(cursor int) {
 }
 
 // moreKey drives the open list. It answers true when the key stayed inside it.
-func (f *Form) moreKey(cursor int, ev *tcell.EventKey) bool {
+func (f *Form) moreKey(cursor int, p press) bool {
 	r, ok := f.moreRow(cursor)
 	if !ok {
 		return false
 	}
 	m := r.activeMore()
 	n := len(m.Options)
-	switch ev.Key() {
-	case tcell.KeyDown:
+	switch {
+	case p.key == "down" || p.text == "j":
 		if m.At+1 < n {
 			m.At++
 			return true
 		}
-	case tcell.KeyUp:
+	case p.key == "up" || p.text == "k":
 		if m.At > 0 {
 			m.At--
 			return true
 		}
-	case tcell.KeyRune:
-		switch ev.Rune() {
-		case 'j':
-			if m.At+1 < n {
-				m.At++
-				return true
-			}
-		case 'k':
-			if m.At > 0 {
-				m.At--
-				return true
-			}
-		case ' ':
-			f.toggleMore(r)
-			return true
-		}
+	case p.text == " ":
+		f.toggleMore(r)
+		return true
 	}
 	return false
 }
@@ -610,41 +753,42 @@ func (f *Form) changed() {
 	}
 }
 
-func hexColor(c int) tcell.Color { return tcell.NewHexColor(int32(c)) }
-
+// palette is the prompt's styles: one per role a piece of text can play.
 type palette struct {
-	brand  tcell.Style // cyan — mark, selected / checked
-	accent tcell.Style // teal — labels, first-party emphasis
-	warn   tcell.Style // lime — attention (reasons, gated)
-	body   tcell.Style // light — readable supporting / value text
-	title  tcell.Style // bold default fg — section titles
-	idle   tcell.Style // unchecked / unfocused options
-	aside  tcell.Style // italic — parenthetical descriptions
+	brand  lipgloss.Style // the cursor's row and the selected answer
+	accent lipgloss.Style // first-party emphasis: row labels, header keys
+	warn   lipgloss.Style // a locked answer, a consequence
+	body   lipgloss.Style
+	title  lipgloss.Style
+	idle   lipgloss.Style
+	aside  lipgloss.Style // italic — parenthetical descriptions
+	key    lipgloss.Style // a key on the key line: bold and bright
+	word   lipgloss.Style // the word beside it: grey
+	rule   lipgloss.Style // a tree guide outside the cursor's folder
 }
 
 func styles() palette {
-	fg := func(c int) tcell.Style {
-		return tcell.StyleDefault.Foreground(hexColor(c))
-	}
+	fg := func(c int) lipgloss.Style { return lipgloss.NewStyle().Foreground(hexOf(c)) }
 	return palette{
 		brand:  fg(ui.ColorBrand).Bold(true),
 		accent: fg(ui.ColorAccent).Bold(true),
 		warn:   fg(ui.ColorWarn),
 		body:   fg(ui.ColorSecondary),
-		title:  tcell.StyleDefault.Bold(true),
+		title:  lipgloss.NewStyle().Bold(true),
 		idle:   fg(ui.ColorSecondary),
 		aside:  fg(ui.ColorSecondary).Italic(true),
+		key:    fg(ui.ColorSecondary).Bold(true),
+		word:   fg(ui.ColorMuted),
+		rule:   fg(ui.ColorRule),
 	}
 }
 
-func (f *Form) draw(s tcell.Screen, cursor, tick int) {
-	s.Clear()
+func (f *Form) draw(s *screen, cursor, tick int) {
 	p := styles()
 	w, h := s.Size()
 	lay := f.layout(w, h)
 	if lay.tooSmall {
 		drawTooSmall(s, w, h, f.minHeight(w))
-		s.Show()
 		return
 	}
 
@@ -701,7 +845,11 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 			}
 			c.put(0, st, glyph)
 		}
-		f.drawBodyLine(c, p, ln, cursor, limit, named[ln.row])
+		mark := cursor
+		if f.onSkip {
+			mark = -1
+		}
+		f.drawBodyLine(c, p, ln, mark, limit, named[ln.row])
 	}
 	c.unclip()
 
@@ -722,14 +870,18 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 	}
 
 	c.y = bodyTop + lay.body + 1
+	if f.Skip != "" {
+		f.drawSkip(c, p)
+		c.y += skipRows
+	}
 
-	c.put(0, p.body, f.hint(w, g.hiddenRows(lines)))
+	f.drawHint(c, p, w, g.hiddenRows(lines))
 	c.y++
 
 	if lay.helpSlot > 0 {
 		c.y++ // the blank the help block opens with
 		helpTop := c.y
-		if cursor >= 0 && cursor < len(f.Rows) {
+		if cursor >= 0 && cursor < len(f.Rows) && !f.onSkip {
 			for i, line := range f.Rows[cursor].helpLines(w - 4) {
 				st := p.body
 				if line.warn {
@@ -753,46 +905,121 @@ func (f *Form) draw(s tcell.Screen, cursor, tick int) {
 			}
 		}
 	}
-	s.Show()
+	switch lay.strip {
+	case stripDigest:
+		c.y++
+	case stripBlock:
+		c.y += stripRows
+	}
+	f.drawOnEnter(c, p, w, h)
+}
+
+// onEnter is what accepting the form runs; nothing while the Skip button is focused.
+func (f *Form) onEnter() []string {
+	if f.OnEnter == nil || f.onSkip {
+		return nil
+	}
+	return f.OnEnter(f)
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// drawOnEnter lists what Enter runs in the rows left under every other region.
+// With too few rows the list ends on a count of what it left out.
+func (f *Form) drawOnEnter(c *canvas, p palette, w, h int) {
+	steps := f.onEnter()
+	room := h - c.y - 2 // a blank, then the heading
+	if len(steps) == 0 || room < 1 {
+		return
+	}
+	c.y++
+	c.put(0, p.accent, clip("on enter", w))
+	for i, text := range steps {
+		c.y++
+		if i == room-1 && len(steps) > room {
+			c.put(2, p.idle, clip(fmt.Sprintf("… and %d more", len(steps)-i), w-2))
+			return
+		}
+		c.put(2, p.idle, fmt.Sprintf("%d", i+1))
+		c.put(5, p.body, clip(text, w-5))
+	}
 }
 
 const hintScroll = "pgup/pgdn scroll"
 
-// hintPart is one key-line segment; a narrow screen drops the lowest keep first.
-type hintPart struct {
-	text string
-	keep int
+// skipRows is what the Skip button costs under the rows: the button and a blank.
+const skipRows = 2
+
+// drawSkip paints the Skip button; focused, it is filled and carries the enter mark.
+func (f *Form) drawSkip(c *canvas, p palette) {
+	if !f.onSkip {
+		c.put(2, p.idle, "[ "+f.Skip+" ]")
+		return
+	}
+	c.put(0, p.brand, "› ")
+	c.put(2, p.brand.Reverse(true), " "+f.Skip+" "+enterMark()+" ")
 }
 
-// hint is the key line, narrowed segment by segment so "enter accept" goes last.
+// hintPart is one key-line segment: a key and the word for what it does. A
+// narrow screen drops the lowest keep first.
+type hintPart struct {
+	key, word string
+	keep      int
+}
+
+// text is the segment as the plain key line spells it.
+func (p hintPart) text() string {
+	if p.key == "" || p.word == "" {
+		return p.key + p.word
+	}
+	return p.key + " " + p.word
+}
+
+const hintJoin = " · "
+
+// hintParts is the key line's segments, narrowed one by one so "enter accept" goes last.
 // SPEC: _spec/internal/choiceui/wireframe.puml
-func (f *Form) hint(w, hidden int) string {
+func (f *Form) hintParts(w, hidden int) []hintPart {
 	var parts []hintPart
 	if f.Step.Of > 1 {
-		parts = append(parts, hintPart{fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
+		parts = append(parts, hintPart{"", fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
 	}
-	parts = append(parts, hintPart{"↑↓ row", 3})
+	parts = append(parts, hintPart{"↑↓", "row", 3})
 	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
-		parts = append(parts, hintPart{"←→ move", 3}, hintPart{"space toggle", 2})
+		parts = append(parts, hintPart{"←→", "move", 3}, hintPart{"space", "toggle", 2})
 	} else {
-		parts = append(parts, hintPart{"←→ choose", 3})
+		parts = append(parts, hintPart{"←→", "choose", 3})
 	}
-	parts = append(parts, hintPart{hintScroll, 1})
+	parts = append(parts, hintPart{"pgup/pgdn", "scroll", 1})
+	enter, esc := hintPart{"enter", "accept", 9}, hintPart{"esc", "cancel", 5}
+	if f.onSkip {
+		enter.word = "skip"
+	}
 	if f.Step.backable() {
-		parts = append(parts, hintPart{"shift+tab back", 6})
+		esc = hintPart{"esc", "back", 6}
 	}
-	parts = append(parts, hintPart{"enter accept", 9}, hintPart{"esc cancel", 5})
+	parts = append(parts, enter)
+	if n := len(f.onEnter()); n > 0 {
+		parts = append(parts, hintPart{"", plural(n, "step"), 3})
+	}
+	parts = append(parts, esc)
+	if f.Step.wizard() {
+		parts = append(parts, hintPart{"ctrl+c", "quit", 2})
+	}
 	if hidden > 0 {
-		parts = append(parts, hintPart{fmt.Sprintf("%d more below", hidden), 4})
+		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
-	join := func() string {
-		texts := make([]string, len(parts))
-		for i, p := range parts {
-			texts[i] = p.text
-		}
-		return strings.Join(texts, " · ")
-	}
-	for len([]rune(join())) > w && len(parts) > 1 {
+	return narrowed(parts, w)
+}
+
+// narrowed drops the lowest-kept segment, again and again, until the line fits w or one is left.
+func narrowed(parts []hintPart, w int) []hintPart {
+	for len([]rune(joinHint(parts))) > w && len(parts) > 1 {
 		low := 0
 		for i, p := range parts {
 			if p.keep < parts[low].keep {
@@ -801,7 +1028,61 @@ func (f *Form) hint(w, hidden int) string {
 		}
 		parts = slices.Delete(parts, low, low+1)
 	}
-	return clip(join(), w)
+	return parts
+}
+
+func joinHint(parts []hintPart) string {
+	texts := make([]string, len(parts))
+	for i, p := range parts {
+		texts[i] = p.text()
+	}
+	return strings.Join(texts, hintJoin)
+}
+
+// hint is the key line as plain text, clipped to w; tests and e2e read this projection.
+func (f *Form) hint(w, hidden int) string {
+	return clip(joinHint(f.hintParts(w, hidden)), w)
+}
+
+// drawHint paints the form's key line.
+func (f *Form) drawHint(c *canvas, p palette, w, hidden int) {
+	paintHint(c, p, f.hintParts(w, hidden), w)
+}
+
+// paintHint paints a key line in two tones, cut to w: each key bold and bright, its word grey.
+func paintHint(c *canvas, p palette, parts []hintPart, w int) {
+	type piece struct {
+		st   lipgloss.Style
+		text string
+	}
+	var pieces []piece
+	for i, part := range parts {
+		if i > 0 {
+			pieces = append(pieces, piece{p.word, hintJoin})
+		}
+		if part.key != "" {
+			pieces = append(pieces, piece{p.key, part.key})
+		}
+		if part.word != "" {
+			word := part.word
+			if part.key != "" {
+				word = " " + word
+			}
+			pieces = append(pieces, piece{p.word, word})
+		}
+	}
+	left := []rune(clip(joinHint(parts), w))
+	x := 0
+	for _, pc := range pieces {
+		n := min(len([]rune(pc.text)), len(left))
+		if n == 0 {
+			break
+		}
+		shown := string(left[:n])
+		c.put(x, pc.st, shown)
+		x += textWidth(shown)
+		left = left[n:]
+	}
 }
 
 func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
@@ -944,8 +1225,7 @@ func headingsInWindow(lines []bodyLine, off, window int) map[int]bool {
 	return named
 }
 
-func (f *Form) navigable(s tcell.Screen) bool {
-	w, h := s.Size()
+func (f *Form) navigable(w, h int) bool {
 	return !f.layout(w, h).tooSmall
 }
 
@@ -954,10 +1234,13 @@ func (f *Form) minHeight(w int) int {
 	if help := f.maxHelpLines(w - 4); help > 0 {
 		need += help + 1
 	}
+	if f.Skip != "" {
+		need += skipRows
+	}
 	return need
 }
 
-func drawTooSmall(s tcell.Screen, w, h, needH int) {
+func drawTooSmall(s *screen, w, h, needH int) {
 	p := styles()
 	msg := fmt.Sprintf("terminal too small: %dx%d, need %d rows", w, h, needH)
 	c := newCanvas(s)
@@ -968,7 +1251,7 @@ func drawTooSmall(s tcell.Screen, w, h, needH int) {
 	}
 }
 
-func putHeader(put func(int, tcell.Style, string), p palette, line string) {
+func putHeader(put func(int, lipgloss.Style, string), p palette, line string) {
 	const x0 = 2
 	runes := []rune(line)
 	i := 0
@@ -987,7 +1270,7 @@ func putHeader(put func(int, tcell.Style, string), p palette, line string) {
 	putPairs(put, p, x0+indent, rest)
 }
 
-func putPairs(put func(int, tcell.Style, string), p palette, col int, s string) {
+func putPairs(put func(int, lipgloss.Style, string), p palette, col int, s string) {
 	rs := []rune(s)
 	aside, afterOn := false, false
 	for i := 0; i < len(rs); {
@@ -1139,32 +1422,4 @@ func (f *Form) drawField(c *canvas, p palette, r Row, x int, focused bool) {
 	c.put(x, p.idle, "[")
 	c.put(x+1, bodyStyle, body)
 	c.put(x+1+fieldWidth, p.idle, "]")
-}
-
-func preferUTF8Locale() {
-	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
-		v := os.Getenv(k)
-		if v == "" {
-			continue
-		}
-		if v == "C" || v == "POSIX" {
-			_ = os.Setenv("LC_ALL", "C.UTF-8")
-		}
-		return
-	}
-	_ = os.Setenv("LC_ALL", "C.UTF-8")
-}
-
-func registerGlyphFallbacks(s tcell.Screen) {
-	ascii := glyphsFor(GlyphsASCII)
-	var pairs [][2]string
-	for _, set := range []glyphSet{glyphsFor(GlyphsNerd), glyphsFor(GlyphsSafe)} {
-		pairs = append(pairs, [2]string{set.cloud, ascii.cloud}, [2]string{set.key, ascii.key},
-			[2]string{set.quiet, ascii.quiet}, [2]string{set.speaking, ascii.speaking})
-	}
-	for _, p := range pairs {
-		for _, r := range p[0] {
-			s.RegisterRuneFallback(r, p[1])
-		}
-	}
 }

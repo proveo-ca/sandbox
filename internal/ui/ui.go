@@ -137,11 +137,14 @@ type Printer struct {
 
 	mu             sync.Mutex
 	pending, shown string
+
+	term      io.Writer // the terminal alone; nil when W is not one
+	live      string    // the live line as drawn; "" when there is none
+	suspended int       // holders of SuspendLive; the live line stays off the terminal while any holds
 }
 
-// Section names the concern the following lines belong to, drawn as the
-// divider choiceui uses for a Divider row so the narration and the form name
-// the same things the same way.
+// Section names the subject the following lines describe, drawn as the divider
+// choiceui uses for a Divider row. Section("") withdraws a heading not yet drawn.
 func (p *Printer) Section(label string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -173,23 +176,20 @@ func sectionHeading(t GlyphTier, plain bool, label string, width int) string {
 }
 
 const (
-	SectionScope       = "scope"       // the sub-tree of a monorepo this run sees
-	SectionRun         = "run"         // images, the variant, the transcript path
-	SectionCredentials = "credentials" // form row: where the login rests
-	SectionWorkspace   = "workspace"   // mounts, symlinks, the proveo home
-	SectionEgress      = "egress"      // form row: the tier and its caveats
-	SectionExecution   = "execution"   // form divider: where the agent runs
-	SectionInterface   = "interface"   // form divider: what the agent can drive
-	SectionStarting    = "starting"    // live: handing the image over, retries
-	SectionSecrets     = "secrets"     // live: injection, and the store's prompt
-	SectionResults     = "results"     // after the agent: clones, transcripts
-	SectionTargets     = "targets"     // `proveo ls`: the harness images
-	SectionProjects    = "projects"    // `proveo projects`: monorepo members
-	SectionSetup       = "setup"       // `proveo setup`: the PATH change
-	SectionUninstall   = "uninstall"   // `proveo uninstall`: what is removed
-	SectionSchedule    = "schedule"    // `proveo schedule`: the tick, then one section per job
-	SectionRunning     = "running"     // `proveo attach` / `proveo run`: tasks whose session is up
-	SectionOperator    = "operator"    // `proveo init`: how agents address the operator
+	SectionScope       = "scope"       // the numbered scope picker: the sub-tree of a monorepo
+	SectionRun         = "run"         // the transcript path, the scope, the image pull
+	SectionCredentials = "credentials" // form row: where the login rests; `proveo init`: what sbx's store holds
+	SectionWorkspace   = "workspace"   // the checkout, the clone, links, what is not mounted
+	SectionEgress      = "egress"      // form row: sbx's policy and the host services the sandbox reaches
+	SectionInterface   = "interface"   // form divider: the ports, browser and IDE host the operator reaches
+	SectionSbx         = "sbx"         // what proveo hands sbx, the stale check, sbx's own create block; `proveo init`: the host and its sbx
+	SectionPrompt      = "prompt"      // `proveo init`: the shell-prompt kit
+	SectionGit         = "git"         // `proveo init`: the sandbox git identity and GitHub access
+	SectionResults     = "results"     // after the agent: how it ended, what came home, the sandbox's fate; `proveo init`: what waits and the verdict
+	SectionIDE         = "ide"         // a kept sandbox: how an IDE attaches to it
+	SectionTargets     = "targets"     // `proveo run` with no target and no terminal: the harness images, after running
+	SectionRunning     = "running"     // `proveo run` with no target and no terminal: tasks whose session is up
+	SectionOperator    = "operator"    // `proveo init`: the name agents address the operator by
 )
 
 const sectionRules = 6
@@ -201,6 +201,15 @@ func (p *Printer) width() int {
 		return w.cols()
 	}
 	return 0 // not measurable: the caller decides what to do without a width
+}
+
+// heading draws the pending section heading now.
+func (p *Printer) heading() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.eraseLive()
+	defer p.drawLive()
+	p.flushSection()
 }
 
 func (p *Printer) flushSection() {
@@ -221,17 +230,84 @@ func New(w io.Writer) *Printer {
 	fancy := isFancy(w)
 	p := &Printer{W: w, Plain: !fancy, Tier: GlyphTierFrom(os.Getenv)}
 	if fancy {
-		p.W = wrapFor(w)
+		p.W, p.term = wrapFor(w), w
 	}
 	return p
+}
+
+// NewTerminal is a Printer that draws on w as on a terminal cols wide.
+func NewTerminal(w io.Writer, cols int) *Printer {
+	return &Printer{W: &wrapWriter{w: w, width: func() int { return cols }}, Tier: GlyphTierFrom(os.Getenv), term: w}
+}
+
+// Live draws one line that the next frame replaces in place. It reaches the
+// terminal alone, never a tee; a plain printer draws nothing.
+func (p *Printer) Live(r Role, format string, a ...any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.Plain || p.term == nil {
+		return
+	}
+	p.eraseLive()
+	p.flushSection()
+	p.live = p.liveFrame(r, fmt.Sprintf(format, a...))
+	p.drawLive()
+}
+
+// EndLive erases the live line.
+func (p *Printer) EndLive() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.eraseLive()
+	p.live = ""
+}
+
+// liveFrame is one frame: the role's mark, then body cut to the terminal's width.
+func (p *Printer) liveFrame(r Role, body string) string {
+	prefix := mark(p.Tier, sevNone, r)
+	if cols := p.width(); cols > 0 {
+		body = cutToWidth(body, cols-textWidthOf(prefix)-1)
+	}
+	if c, ok := r.color(); ok {
+		prefix = ANSI(c) + prefix + ANSIReset
+	}
+	return prefix + body
+}
+
+// eraseLive clears the live line off the terminal ahead of an ordinary line.
+func (p *Printer) eraseLive() {
+	if p.live != "" && p.term != nil && p.suspended == 0 {
+		fmt.Fprint(p.term, "\r\033[K")
+	}
+}
+
+// drawLive puts the live line back as the terminal's last line.
+func (p *Printer) drawLive() {
+	if p.live != "" && p.term != nil && p.suspended == 0 {
+		fmt.Fprint(p.term, "\r"+p.live+"\033[K")
+	}
+}
+
+// cutToWidth is s shortened to at most width columns.
+func cutToWidth(s string, width int) string {
+	w := 0
+	for i, r := range s {
+		if w += runewidth.RuneWidth(r); w > width {
+			return s[:i]
+		}
+	}
+	return s
 }
 
 // Default is the process-wide status printer (stderr).
 var Default = New(os.Stderr)
 
-func TeeTo(w io.Writer) {
+// TeeTo copies every line to w as well, and Logf lines to w alone; restore puts back the printers it replaced.
+func TeeTo(w io.Writer) (restore func()) {
+	prev, prevLog := Default, logOnly
+	restore = func() { Default, logOnly = prev, prevLog }
 	if w == nil {
-		return
+		return restore
 	}
 	term := Default
 	term.mu.Lock()
@@ -243,8 +319,10 @@ func TeeTo(w io.Writer) {
 		Tier:    term.Tier,
 		pending: pending,
 		shown:   shown,
+		term:    term.term,
 	}
 	logOnly = &Printer{W: w, Plain: true, Tier: term.Tier}
+	return restore
 }
 
 var logOnly *Printer
@@ -253,6 +331,40 @@ func Logf(format string, a ...any) {
 	if logOnly != nil {
 		logOnly.Notef(format, a...)
 	}
+}
+
+// LogWriter is a writer whose every line reaches the run log alone; Close writes a last line that has no newline.
+func LogWriter() io.WriteCloser { return &logLines{} }
+
+type logLines struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (l *logLines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexByte(l.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		if line := strings.TrimRight(string(l.buf[:i]), "\r"); strings.TrimSpace(line) != "" {
+			Logf("%s", line)
+		}
+		l.buf = l.buf[i+1:]
+	}
+}
+
+func (l *logLines) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if strings.TrimSpace(string(l.buf)) != "" {
+		Logf("%s", string(l.buf))
+	}
+	l.buf = nil
+	return nil
 }
 
 type multi struct{ term, log io.Writer }
@@ -264,8 +376,17 @@ func (m multi) cols() int {
 	return 0
 }
 
-func (m multi) Write(p []byte) (int, error) {
-	n, err := m.term.Write(p)
+func (m multi) Write(p []byte) (int, error) { return m.writeHang(p, textCol) }
+
+// writeHang wraps the terminal copy at column hang; the log copy stays one line per line.
+func (m multi) writeHang(p []byte, hang int) (int, error) {
+	var n int
+	var err error
+	if hw, ok := m.term.(hangWriter); ok {
+		n, err = hw.writeHang(p, hang)
+	} else {
+		n, err = m.term.Write(p)
+	}
 	_, _ = m.log.Write([]byte(termtext.StripANSI(string(p))))
 	return n, err
 }
@@ -285,6 +406,8 @@ func isFancy(w io.Writer) bool {
 func (p *Printer) line(r Role, s sev, format string, a ...any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.eraseLive()
+	defer p.drawLive()
 	p.flushSection()
 	prefix := mark(p.Tier, s, r)
 	if p.Plain {
@@ -371,6 +494,8 @@ func (p *Printer) Notef(format string, a ...any) { p.line(RoleNone, sevNone, for
 func (p *Printer) Askf(format string, a ...any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.eraseLive()
+	p.live = ""
 	p.flushSection()
 	body := fmt.Sprintf(format, a...)
 	if p.Plain {
@@ -407,10 +532,6 @@ func (p *Printer) Cloudf(format string, a ...any) { p.line(RoleCloud, sevNone, f
 // Storef reports persistence: paths on disk, transcripts, records, clones.
 func (p *Printer) Storef(format string, a ...any) { p.line(RoleStore, sevNone, format, a...) }
 
-// Dangerf reports something destructive or security-sensitive that has NOT
-// failed — a removal, a credential crossing a boundary.
-func (p *Printer) Dangerf(format string, a ...any) { p.line(RoleError, sevNone, format, a...) }
-
 func Okf(format string, a ...any) { Default.Okf(format, a...) }
 
 func Warnf(format string, a ...any) { Default.Warnf(format, a...) }
@@ -425,6 +546,18 @@ func Rolef(r Role, format string, a ...any) { Default.Rolef(r, format, a...) }
 
 func Section(label string) { Default.Section(label) }
 
+// WithdrawSection withdraws Default's heading declared and not yet drawn.
+func WithdrawSection() { Default.Section("") }
+
+// Live draws Default's live line; see Printer.Live.
+func Live(r Role, format string, a ...any) { Default.Live(r, format, a...) }
+
+// EndLive erases Default's live line.
+func EndLive() { Default.EndLive() }
+
+// Fancy reports whether Default draws on a terminal: colour, glyphs, and a live line.
+func Fancy() bool { return !Default.Plain }
+
 func Hostf(format string, a ...any) { Default.Hostf(format, a...) }
 
 func Appf(format string, a ...any) { Default.Appf(format, a...) }
@@ -434,8 +567,6 @@ func Asyncf(format string, a ...any) { Default.Asyncf(format, a...) }
 func Cloudf(format string, a ...any) { Default.Cloudf(format, a...) }
 
 func Storef(format string, a ...any) { Default.Storef(format, a...) }
-
-func Dangerf(format string, a ...any) { Default.Dangerf(format, a...) }
 
 const fallbackWidth = 100
 
@@ -461,15 +592,23 @@ type wrapWriter struct {
 
 func (t *wrapWriter) cols() int { return t.width() }
 
-func (t *wrapWriter) Write(p []byte) (int, error) {
-	if _, err := t.w.Write(wrapLines(p, t.width())); err != nil {
+func (t *wrapWriter) Write(p []byte) (int, error) { return t.writeHang(p, textCol) }
+
+// writeHang writes p wrapped to the terminal, each continuation indented to column hang.
+func (t *wrapWriter) writeHang(p []byte, hang int) (int, error) {
+	if _, err := t.w.Write(wrapLines(p, t.width(), hang)); err != nil {
 		return 0, err
 	}
 	return len(p), nil
 }
 
-func wrapLines(p []byte, width int) []byte {
-	if width <= textCol+8 {
+// hangWriter wraps a write at a chosen column; the terminal side of a Printer implements it.
+type hangWriter interface {
+	writeHang(p []byte, hang int) (int, error)
+}
+
+func wrapLines(p []byte, width, hang int) []byte {
+	if width <= hang+8 {
 		return p // too narrow for a hanging indent to help; leave it alone
 	}
 	var out bytes.Buffer
@@ -478,27 +617,30 @@ func wrapLines(p []byte, width int) []byte {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
-		out.Write(wrapOne(ln, width))
+		out.Write(wrapOne(ln, width, hang))
 	}
 	return out.Bytes()
 }
 
-func wrapOne(ln []byte, width int) []byte {
+func wrapOne(ln []byte, width, hang int) []byte {
 	if displayWidth(ln) <= width {
 		return ln
 	}
-	pad := strings.Repeat(" ", textCol)
+	pad := strings.Repeat(" ", hang)
 	var out bytes.Buffer
 	col, wordStart, lineHasWord := 0, -1, false
+	var gap []byte
 	flushWord := func(end int) {
 		word := ln[wordStart:end]
-		w := displayWidth(word)
-		if lineHasWord && col+1+w > width {
+		w, sep := displayWidth(word), len(gap)
+		switch {
+		case !lineHasWord:
+		case col+sep+w <= width, w > width-hang && col+sep < width:
+			out.Write(gap)
+			col += sep
+		default:
 			out.WriteString("\n" + pad + activeSGR(out.Bytes()))
-			col = textCol
-		} else if lineHasWord {
-			out.WriteByte(' ')
-			col++
+			col = hang
 		}
 		if col+w > width {
 			col = breakWord(&out, word, col, width, pad)
@@ -506,18 +648,18 @@ func wrapOne(ln []byte, width int) []byte {
 			out.Write(word)
 			col += w
 		}
-		lineHasWord = true
-		wordStart = -1
+		lineHasWord, wordStart, gap = true, -1, nil
 	}
 	for i := 0; i < len(ln); i++ {
 		if ln[i] == ' ' || ln[i] == '\t' {
 			if wordStart >= 0 {
 				flushWord(i)
-				continue
 			}
 			if !lineHasWord {
 				out.WriteByte(ln[i])
 				col++
+			} else {
+				gap = append(gap, ln[i])
 			}
 			continue
 		}
@@ -551,7 +693,7 @@ func breakWord(out *bytes.Buffer, word []byte, col, width int, pad string) int {
 		rw := runewidth.RuneWidth(r)
 		if col+rw > width {
 			out.WriteString("\n" + pad + activeSGR(out.Bytes()))
-			col = textCol
+			col = len(pad)
 		}
 		out.WriteString(s[i : i+size])
 		col += rw

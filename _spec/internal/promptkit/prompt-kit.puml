@@ -1,0 +1,223 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title The prompt kit — what `proveo init` installs so the shell prompt can show what runs left
+' purpose: what the prompt row of `proveo init` installs, how each download is verified, and what `proveo uninstall` takes back
+' covers: internal/promptkit/pins.go
+' covers: internal/promptkit/fetch.go
+' covers: internal/promptkit/install.go
+' covers: internal/promptkit/segment.go
+' covers: internal/promptkit/kit.go
+' covers: internal/promptkit/promptkit_test.go
+' covers: internal/promptkit/gate_test.go
+' covers: internal/shell/shell.go (PromptMarker, StarshipLine, PromptBlock, StartsStarship, WithoutPromptBlock)
+' covers: internal/choiceui/glyphs_dialog.go
+' covers: cmd/proveo/init_prompt.go
+' covers: cmd/proveo/init_prompt_test.go
+' covers: cmd/proveo/init_tui.go (rowPrompt)
+' covers: cmd/proveo/prompt.go (--init)
+' covers: cmd/proveo/uninstall.go (promptkit.Undo)
+'   why a prompt segment at all ...... _spec/internal/results/result-store.puml (D4)
+'   what the segment prints .......... _spec/internal/results/result-store.puml
+'   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W8)
+'   the other block init writes ...... _spec/internal/shell/setup-path.puml
+'   the dialog it asks with .......... _spec/internal/choiceui/confirm-dialogs.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── WHAT WAS DECIDED ───────────────────────────────────────────────────────
+' The Executor, 2026-11-10: "There is already a post-install `proveo` script
+' that installs `sbx`. `starship` should be installed along" (D13), and "Let
+' the post-install download FiraCode Nerd Font if no nerd font is present in
+' the host at install time" (D14), from the .zip (D18: "The .zip, 27 MB").
+' So `proveo init` gains one row, "prompt", now or later, and `--skip-prompt`.
+' Its help line says the cost: starship REPLACES the shell's whole prompt.
+'
+' ── THE FOUR STEPS (promptkit.Apply) ───────────────────────────────────────
+'   starship   only when none is on PATH. The pinned v1.27.0 archive for the
+'              host lands beside proveo's own binary.
+'   the font   only when the host has NO Nerd Font. FiraCode Nerd Font
+'              (Nerd Fonts v3.5.1, FiraCode.zip) is unpacked into the
+'              per-user font directory.
+'   the shell  only when the rc file does not already start starship. One
+'              marked block is appended: bash and zsh get `eval "$(starship
+'              init <shell>)"`, fish gets `starship init fish | source`.
+'   the block  one fenced `[custom.proveo]` block in starship's config
+'              (STARSHIP_CONFIG, else ~/.config/starship.toml).
+' Each step says what it did, or that the host already had it. A second
+' Apply downloads nothing and adds nothing.
+' HOW IT SAYS SO (R3 of _spec/_plans/output-readability.puml, 2026-11-11).
+' Options.Fact and Options.Warn carry everything Apply and Undo say; R4 deleted
+' Options.Report and its sentences, since init had set it to nil and uninstall
+' now prints facts too. Undo says each removal that SUCCEEDED as a fact, "rc",
+' "config", "starship" or "font" (FontFamily, dim "<n> files in <dir>", n the
+' files it removed), and each that failed as a Warn ("<config> — proveo
+' segment not removed", the error dim); the error it returns joins those. It
+' used to say "removed the proveo segment from <config>" before it checked the
+' write (FOUND 3, MEASURED: a read-only ~/.config). Installed asks Undo's
+' own checks, so `proveo uninstall` names "the prompt kit" in its question only
+' when Undo has something to remove (_spec/internal/shell/setup-path.puml).
+' Pinned by TestUndoSaysOnlyWhatItRemoved and, in cmd/proveo,
+' TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig. init prints
+' ONE block under "prompt" from Apply's:
+'   starship  <version> + dim "installed at ~/…", or <path> + "already on PATH"
+'   font      FiraCode Nerd Font + dim "<n> files in ~/…", or "a Nerd Font"
+'             + "already installed"
+'   rc        <rc> + dim "added `<line>`" or "already starts starship"
+'   config    <config> + dim "created from starship's <preset> preset",
+'             "holds the proveo segment"
+'   ⚠ <shell> — no starship line known, dim "start starship from its
+'             startup file yourself" (a degrade the operator did not cause)
+'   ⚠ prompt kit — not finished, its error dim
+' "open a new shell to see it; `proveo uninstall` takes it out again" and
+' "to see icons, set your terminal's font …, then `starship preset …`" moved
+' to `proveo init --help` (F2). NOT CHOSEN: routing Report to ui.Logf (init
+' writes no log, so the lines would land nowhere). Pinned by internal/promptkit/promptkit_test.go
+' TestApplySaysWhatItFoundAsFactsAndAShellWithNoLineAsAWarning.
+'
+' ── EVERY DOWNLOAD IS HELD TO A DIGEST IN THE SOURCE ───────────────────────
+' The plan said "checked against its published .sha256". The digests are
+' pinned in pins.go instead, read from the publishers' own files on
+' 2026-11-11: starship's six `<asset>.sha256` files and Nerd Fonts'
+' SHA-256.txt. A release edited after that day no longer matches, where a
+' digest fetched beside the archive would follow the edit.
+' MEASURED 2026-11-11: starship-aarch64-apple-darwin.tar.gz hashed to its
+' published digest and holds one file, `starship`. FiraCode.zip is
+' 28,602,426 bytes, hashed to its published digest, and holds 18 font files,
+' a LICENSE and a README.
+' A body whose sha256 differs is refused and nothing is written. Downloads
+' are capped at 96 MB and five minutes.
+' The archive entries are written by BASE NAME into one directory: an entry
+' named `../../x.ttf` lands inside the font directory as `x.ttf`.
+' Only `.ttf` and `.otf` entries are unpacked.
+'
+' ── "HAS A NERD FONT" IS A FILE NAME ───────────────────────────────────────
+' A font file (.ttf, .otf, .ttc) whose name holds "NerdFont" or "Nerd Font",
+' at any depth of the user and system font directories:
+'   darwin   ~/Library/Fonts, /Library/Fonts, /System/Library/Fonts
+'   linux    $XDG_DATA_HOME/fonts (~/.local/share/fonts), ~/.fonts,
+'            /usr/local/share/fonts, /usr/share/fonts
+'   windows  %LOCALAPPDATA%\Microsoft\Windows\Fonts, %WINDIR%\Fonts
+' [Unverified] The Linux and Windows directories were written from their
+' conventions; only the macOS scan ran against a real font.
+' [Unverified] No font cache is refreshed on Linux (`fc-cache`).
+'
+' ── INSTALLED IS NOT ENABLED, SO INIT ASKS ─────────────────────────────────
+' This host has FiraCode Nerd Font installed and no terminal set to use it.
+' proveo cannot ask a terminal what it draws. When Apply CREATES starship's
+' config on a headed terminal, a button dialog shows two Nerd glyphs, the
+' branch U+F418 and the lock U+F033E, and asks what was drawn:
+'   Something else (the safe answer, selected)   seeds starship's
+'                  `no-nerd-font` preset and prints the font to set in the
+'                  terminal
+'   Two icons      seeds its `nerd-font-symbols` preset
+' The text counts anything but two icons as "no": a box, a question mark, a
+' line, a blank, or one icon of the two.
+' With --yes, without a terminal, or when the config already exists, nothing
+' is asked: a new config gets `no-nerd-font`.
+' MEASURED 2026-11-11: the probe drew U+E0A0, the Powerline branch. The
+' `nerd-font-symbols` preset of starship 1.27.0 holds 128 private-use glyphs
+' and U+E0A0 is not one of them; its git branch is U+F418. An operator on
+' this host saw "a line", which the old text ("an empty box or a question
+' mark") did not name.
+' [Inference] A terminal that draws Powerline glyphs itself passed the old
+' probe without a Nerd Font.
+' DECIDED 2026-11-11 (Executor: "Preset glyphs + reword"): both glyphs come
+' from the preset. U+F033E, the preset's read-only lock, sits in plane 15,
+' so the probe also covers the preset's glyphs outside the BMP.
+' AN EXISTING CONFIG GAINS THE BLOCK AND NOTHING ELSE. No preset is applied to
+' a file the operator wrote; its mode is kept.
+'
+' ── THE BLOCK ──────────────────────────────────────────────────────────────
+'   [custom.proveo]
+'   command = "proveo prompt"
+'   when = true                         a custom module defaults to never
+'   require_repo = true                 nothing outside a repository
+'   format = "[($output )]($style)"     nothing when the command prints nothing
+' It is fenced by two comment lines, so WithSegment replaces an edited block
+' in place and WithoutSegment gives the file back byte for byte.
+' MEASURED with starship 1.27.0 over this block: in a repository it drew
+' "1 kept · 2 to adopt"; outside one it drew nothing; with `proveo prompt`
+' printing nothing it drew nothing.
+' [Inference] An operator whose own `format` leaves out `$custom` will not
+' see the module; the block does not edit their format.
+'
+' ── WHAT UNINSTALL TAKES BACK ──────────────────────────────────────────────
+' Apply records what proveo itself installed in <state>/prompt-kit.json.
+' `proveo uninstall` removes the marked rc block and the fenced config block
+' always, and the starship binary and the font files ONLY when the record
+' names them. A `starship init` line the operator wrote stays; so does a
+' starship they installed and a Nerd Font they had.
+' `proveo prompt --init <shell>` prints the one line for bash, zsh or fish,
+' for an operator who would rather add it by hand.
+' NOT DONE: a real `proveo init` with the prompt row on this host. It would
+' edit the operator's rc file and starship config; that waits for them.
+' [Unverified] Windows: starship has a build, but internal/shell writes no
+' PowerShell line, so the rc step reports that and does nothing.
+'
+' Pinned by internal/promptkit/promptkit_test.go:
+'   TestThePinsNameOneAssetAndOneDigestPerHost
+'   TestInstallStarshipRefusesAnArchiveThatIsNotThePinnedOne
+'   TestANerdFontIsRecognisedByItsFileName
+'   TestInstallFontWritesOnlyFontFilesAndOnlyInsideTheDirectory
+'   TestTheSegmentIsAddedOnceAndNothingElseChanges
+'   TestApplyOnAnEmptyHostInstallsEverythingAndUndoRemovesIt
+'   TestApplyOnAHostThatHasItAllAddsOnlyTheSegment
+'   TestUndoSaysOnlyWhatItRemoved
+'   TestTheGlyphAnswerPicksThePreset
+' by internal/promptkit/gate_test.go, against the real tools when installed:
+'   TestEachShellParsesTheBlockProveoAppends (bash -n, zsh -n, fish --no-execute)
+'   TestStarshipDrawsTheSegmentInARepositoryAndNothingOutsideOne
+' by internal/shell: TestTheStarshipLineIsEachShellsOwnAndItsBlockComesOutClean
+' and by cmd/proveo/init_prompt_test.go:
+'   TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff
+' and by internal/choiceui/dialog_test.go:
+'   TestTheGlyphProbeDrawsThePresetsBranchAndLockAndCountsAnythingElseAsNo
+'   TestPromptInitPrintsEachShellsLineAndRefusesAnUnknownShell
+'   TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig
+
+component """proveo init""\nthe prompt row: now · later" as INIT <<app>>
+component "starship v1.27.0\nonly when none is on PATH" as STAR <<cloud>>
+component "FiraCode Nerd Font v3.5.1\nonly when the host has none" as FONT <<cloud>>
+component "the shell's rc file\none marked block" as RC <<host>>
+component "starship's config\none fenced ""[custom.proveo]"" block" as CFG <<host>>
+database """prompt-kit.json""\nwhat proveo itself installed" as REC <<db>>
+component "**a download that is not the pinned one**\nrefused, nothing written" as BAD <<error>>
+component """proveo uninstall""" as UN <<app>>
+
+INIT ARROW_MAIN STAR
+INIT ARROW_MAIN FONT
+INIT ARROW_MAIN RC
+INIT ARROW_MAIN CFG
+INIT ARROW_MAIN REC
+BAD ARROW_ERROR STAR : sha256 pinned in the source
+BAD ARROW_ERROR FONT
+UN ARROW_OPTIONAL REC : removes what it names, and the two blocks
+
+note bottom of STAR
+  **Held to a digest in the source.** The six
+  starship digests and the font's were read
+  from the publishers' files once and pinned.
+  A changed release no longer installs.
+end note
+
+note bottom of FONT
+  **Installed is not enabled.** A terminal may
+  not use the font it has. Init shows one
+  glyph and asks; the safe answer is the
+  preset that needs no Nerd Font.
+end note
+
+note bottom of CFG
+  **One fenced block, and nothing else.** An
+  existing config keeps every line and its
+  mode. The block comes out again byte for
+  byte.
+end note
+
+note bottom of REC
+  **Uninstall takes back what init brought.**
+  The binary and the font files go only when
+  the record names them. The operator's own
+  starship, font and init line stay.
+end note
+@enduml

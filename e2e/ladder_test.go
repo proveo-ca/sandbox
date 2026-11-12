@@ -151,6 +151,7 @@ func TestSandboxLadder(t *testing.T) {
 	if !envflag.On(os.Getenv("PROVEO_LADDER_TEST")) {
 		t.Skip("set PROVEO_LADDER_TEST=1 to climb the sandbox ladder (starts a real sandbox per rung)")
 	}
+	failSkipsWhenOptedIn(t, "PROVEO_LADDER_TEST")
 	requireDocker(t)
 	if ok, why := sbxReadyForTests(); !ok {
 		t.Skipf("sbx not available: %s", why)

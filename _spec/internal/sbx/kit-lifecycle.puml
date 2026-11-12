@@ -10,8 +10,11 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/stop_signal_test.go
 ' covers: internal/backend/sandbox/clone_carry_test.go
 ' covers: internal/backend/sandbox/teardown_end_test.go
+' covers: internal/backend/sandbox/report.go (reportReattach, keptSandbox, listedSandbox, keptPorts)
+' covers: internal/backend/sandbox/report_test.go
+' covers: internal/sbx/list.go (Listed.Ports)
 ' covers: internal/choiceui/blocked_run.go
-' covers: internal/choiceui/modal.go
+' covers: internal/choiceui/blocked_run.go
 '
 ' ── A KEPT SANDBOX MUST NOT SILENTLY OVERRIDE THIS RUN (2026-09-27) ─────────
 ' Re-attach passes the name only, so a kept sandbox runs with the Kit, image
@@ -27,17 +30,74 @@ skinparam noteTextAlignment left
 '   same receipt            → re-attach, as before
 '   changed, headed         → ask. Yes runs the three steps for every harness:
 '     carry clone and agent state home, sbx rm --force, create the same name.
-'     retireIfStale prints "replacing <name> (<changes> changed)"; retireSandbox
-'     prints each "n/3" line only as that step starts, so a hung step 1 never
-'     shows "3/3" (2026-10-22; TestRetireReportsEachStepOnlyWhenItStarts).
+'     retireIfStale prints "replacing <name> — <changes> changed"; retireSandbox
+'     prints each step's line only as that step starts, so a hung carry never
+'     shows the create line (2026-10-22; TestRetireReportsEachStepOnlyWhenItStarts).
+'     The lines stay on screen, so they carry no "n/3" (R1 review, 2026-11-11):
+'     "carrying its work home from <name>", "sbx rm --force <name> — deleting
+'     it and its session", "<name> — this run creates it anew".
 '     The session does not persist. Host proveo files stay.
 '     No keeps it. [y/N] and [esc] are each a left-aligned row. The last row
 '     records the typing and the line under it says enter submits. Enter on
 '     y or yes is the yes above. Enter on anything else, or esc, is the no.
 '     A running one is re-attached and the new settings do not apply.
-'     A stopped one stays. This run stops, and the next proveo run asks again.
+'     A stopped one stays. This run stops, and the next proveo run asks again:
+'     the error reads "sandbox <name> kept; the next proveo run reattaches and
+'     asks again", and the `sbx rm --force` sentence is a run-log row (R2: the
+'     operator answered, so no how-to on screen; decision E).
+'     A re-attach's "`sbx rm --force <name>` builds it fresh next run" is a
+'     run-log row too (R2).
 '   changed, not headed, stopped → the same three steps, no question
 '   changed, not headed, running → warn. The session stays. The new settings do not apply.
+' WHAT EACH BRANCH PRINTS (output-readability R1, 2026-11-11). A kept running
+' sandbox: "⚠ <name> — kept running without this run's changes", dim "not
+' applied: <changes>", then "the next proveo run reattaches to it" (headed no)
+' or "`sbx rm --force <name>` deletes it and its session; the next run builds
+' it fresh" (not headed). retireIfStale returns those changes (kept), and the
+' re-attach facts flag "⚠ workspace — <name> keeps the mode and mounts it was
+' created with" (whichever of clone and mounts they name), or "⚠ workspace —
+' <name>'s mode and mounts are unrecorded" for a sandbox with no receipt. The
+' reason, "the workspace block is this run's plan, not <name>'s", goes to the
+' run log alone (Item.Log, P6, R1 round 3): that block printed this run's ✓
+' outcome before the stale step (R1 review; pinned by
+' TestAReattachToAnUnrecordedSandboxFlagsTheWorkspaceBlock and
+' TestAReattachWithNoRecordClaimsNothingAndFlagsAKeptWorkspaceMode).
+' Run reads `sbx ls` ONCE for the stale step:
+' sbx.Exists before it, staleChanges(name, now, exists) off that answer, and
+' reuseOrCreate(cfg, exists) after it, exists cleared by a retire.
+' THE RE-ATTACH PRINTS THE SANDBOX'S OWN RECORD, never this run's settings,
+' which the branches above may not have applied: image, kit dir, cpus and
+' memory from the receipt (it records the kit dir, cpus, memory and the -p
+' list for this alone; changes ignores them, so none marks a sandbox stale),
+' mounts from sbx's own row (`sbx ls --json`; a ":ro" workspace prints
+' "(ro)"). A kit dir `proveo clean` removed reads dim "no longer on disk".
+' The secrets this run stored for it lead the same Facts block (P3).
+' CPUS AND MEMORY UNDER SBX'S DEFAULTS STAY UNPRINTED. MEASURED 2026-11-11,
+' sbx v0.50.0, read-only: `sbx ls --json` and `--format yaml` carry name, id,
+' agent, status, last_used_at, ports, workspaces, workspace_missing and
+' created_at, no CPU and no memory; no other verb reads a sandbox back
+' (`sbx --help`; docs.docker.com release notes name `sbx ls` JSON fields up
+' to 0.51.0, none of them resources). sbx's create block prints them once
+' ("CPU: 14", "Memory: 24 GiB" on a run that set neither), and `sbx create
+' --help` states the defaults (cpus 0 = all host CPUs; memory 50% of host,
+' 512 MiB–32 GiB). So the receipt holds cpus/memory only when proveo passed
+' --cpus/--memory (PROVEO_SBX_CPUS, PROVEO_SBX_MEMORY, PROVEO_SBX_INSTANCES),
+' and the re-attach prints them only then; proveo does not re-derive sbx's
+' defaults. A receipt written before KitDir and Publish existed prints
+' neither (left as is).
+' PORTS: a running row's own ports; a STOPPED row lists none, so keptPorts
+' reads the receipt's -p list instead. MEASURED 2026-11-11 on sbx v0.50.0 with
+' a sandbox created for the check and removed after: `sbx create -p
+' 127.0.0.1:47123:8080` → running row lists 47123→8080; `sbx stop` → the row
+' has no "ports" key and `sbx ports` says "No published ports"; `sbx run -d`
+' → the row lists 47123→8080 again. A receipt written before this field reads
+' nil (unknown), one with no ports an empty list. A missing record prints
+' nothing for it and the run log says so. The receipt stays a record here, not a source of clone
+' mode (clone-workspace.puml). The start line is "● re-attach to <name> —
+' left by an earlier run" with "`sbx rm --force <name>` builds it fresh next
+' run" dim under it; the reason a re-attach is safe (the name derives from
+' this workspace, so its workspace is this one) goes to the run log. An
+' OpenCode engine ensureOpenCodeEngine just created reads "● attach to <name>".
 ' OPENCODE ENGINES (D2, DONE (wt) 2026-10-17, MEASURED;
 ' _spec/defs/opencode/engine-local-history.puml): the opencode-only refusal is
 ' gone, so an OpenCode engine follows the same rule. After PreserveClone and
@@ -60,7 +120,8 @@ skinparam noteTextAlignment left
 '   stopOutcome(runErr, sig, forced) returns (teardown, result). For sig != 0
 '     and not forced: teardown nil, result backend.Stopped{sig}. Otherwise both
 '     are runErr. The signal is read ONCE, after the retry block.
-'   Run prints "stopped by SIGTERM — ending as on a normal exit" (or SIGHUP).
+'   Run prints "● <target> — stopped by SIGTERM" (or SIGHUP) first under
+'     results; "teardown runs as on a normal exit" is a run-log row (R2).
 '     Teardown takes the SUCCESS branch: clone edits and commits lifted, state
 '     saved, `sbx rm`; an OpenCode engine is retained.
 '   Run returns Stopped, and cmd/proveo main's exitCode maps it to 128+signal:
@@ -97,11 +158,11 @@ skinparam noteTextAlignment left
 ' retainsEngine), a pure function:
 '   forced (the operator chose Ctrl+C remove) → endRemove, always
 '   stranded != nil (work still only in the sandbox) → endKeepStranded, even
-'     for an OpenCode engine, which prints "<err> — <name> kept with its
-'     OpenCode history" instead of the `sbx rm --force` hint
-'   retainsEngine (opencodeTarget) → endRetainEngine, which prints "OpenCode:
-'     history lives in retained engine <name>; `sbx rm --force <name>` deletes
-'     it" (MEASURED, sandbox.go:1665; engine-local-history.puml)
+'     for an OpenCode engine, which closes on "⚠ <name> — kept: <err>, with
+'     its OpenCode history" and the `proveo rm` fix (R2)
+'   retainsEngine (opencodeTarget) → endRetainEngine, which closes on "✓
+'     retained engine <name> — holds OpenCode's history"; `sbx rm --force
+'     <name>` deletes it, a run-log row since R2 (engine-local-history.puml)
 '   otherwise → endRemove
 ' Pinned by TestANormalEndRemovesTheSandboxUnlessWorkOrTheEngineStaysInIt
 ' (teardown_end_test.go, untagged).
@@ -118,7 +179,7 @@ skinparam noteTextAlignment left
 '     host (POST /sandbox/<name>/start 502 after 875s; every shim stalled after
 '     "creating container task"), so the retire's clone-mode probe `sbx exec`
 '     on the stopped sandbox waited forever while all three step lines were
-'     already on screen. guestCommand (sandbox.go) now bounds every guest
+'     already on screen. boundCommand (sandbox.go) now bounds every guest
 '     call on the carry path: the probe at cloneProbeDeadline = 36s; snapshot,
 '     rebase, span, remote fetch, bundle, lift and the .env read at
 '     guestExecDeadline = 3m. A timeout reads as the error it replaces, so
@@ -132,6 +193,11 @@ skinparam noteTextAlignment left
 '     guestRun (3m); a timeout keeps this run stopped and names `sbx ls` and the
 '     rm to repeat once sbx answers.
 '     Pinned by TestAGuestThatNeverAnswersKeepsTheSandboxInsteadOfHangingTheRun.
+'     CLOSED 2026-11-10 (tui-upgrades-delivery.puml, T1): SaveState and
+'     teardown's `sbx rm` run through guestRun (3m), as do the reflog read and
+'     the pushed-branch fetch. A removal that times out prints the warning and
+'     `sbx ls`, then `sbx rm --force <name>`. _spec/internal/backend/teardown.puml.
+'     Pinned by TestTeardownDeadlineEndsEveryGuestCallThatNeverAnswers.
 '   * HISTORY: a stop during the retry's prepareOpenCodeLaunch was honoured
 '     only after it returned (its prepare and recover steps allowed up to
 '     15 min each). D2 (DONE (wt)) replaced it with ensureOpenCodeEngine's
@@ -155,6 +221,9 @@ skinparam noteTextAlignment left
 ' only in the sandbox — snapshot failed ("uncommitted work is still only in
 ' <name>"), carry failed ("the agent's branches are still only in <name>"), or
 ' the clone mode is unknown ("cannot tell whether <name> holds a clone…").
+' (R2, 2026-11-11: the stranded errors now say "it", the kept line names the
+' sandbox, and the fix reads `proveo rm [--stop] <name>` in both teardown and
+' retire; _spec/internal/sbx/clone-workspace.puml.)
 ' Normal-exit and stop teardown then skip `sbx rm`, print "<err> — <name> kept;
 ' `sbx rm --force <name>` deletes it once the work is home", keep home access
 ' and print the IDE attach. retireSandbox (the stale-sandbox upgrade,
@@ -189,7 +258,7 @@ skinparam noteTextAlignment left
 ' /run/sandbox/source, else unknown (kept). The launch RECEIPT is not a source
 ' (review #6 HIGH: it can be stale or missing); it only drives the change
 ' detection above. Run's teardown defer resolves the mode FIRST, so
-' reportPushedBranches, PrintIDEAttach and TeardownClone see the real one;
+' reportPushedBranches, ideFacts and TeardownClone see the real one;
 ' retireSandbox clears CloneKnown so the old sandbox is always asked, and
 ' carries into refs/proveo/<sid>-retired/* so this run's own teardown fetch
 ' cannot overwrite it. Detail, the failures it closes and the residuals:

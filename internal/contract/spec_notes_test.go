@@ -60,6 +60,7 @@ var specNotesEnforced = []string{
 	"_spec/_plans/host-held-provider-keys.puml",
 	"_spec/_plans/post-close-surface.puml",
 	"_spec/_refactors/host-shell-to-go.puml",
+	"_spec/_refactors/proveo-dev-to-mise.puml",
 	"_spec/_plans/tools-and-localhost-tunnels.puml",
 	"_spec/internal/sbx/ide-attach.puml",
 	"_spec/_plans/sbx-dep-tree-isolation.puml",
@@ -82,6 +83,18 @@ var specNotesEnforced = []string{
 	"_spec/defs/opencode/opencode-paradigm.puml",
 	"_spec/defs/opencode/opencode-topology.puml",
 	"_spec/_devops/agent-version-pin.puml",
+	"_spec/_plans/tui-upgrades-delivery.puml",
+	"_spec/_devops/unit-baseline.puml",
+	"_spec/internal/backend/teardown.puml",
+	"_spec/internal/choiceui/tui-stack.puml",
+	"_spec/internal/choiceui/confirm-dialogs.puml",
+	"_spec/internal/choiceui/scope-tree.puml",
+	"_spec/internal/choiceui/wizard-keys.puml",
+	"_spec/internal/ui/step-lines.puml",
+	"_spec/cmd/proveo/init-preflight-and-result.puml",
+	"_spec/_experiments/terminal-handoff-probes.puml",
+	"_spec/internal/results/result-store.puml",
+	"_spec/internal/promptkit/prompt-kit.puml",
 }
 
 const (

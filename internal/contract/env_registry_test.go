@@ -34,6 +34,8 @@ var notVariables = map[string]string{
 	"PROVEO_ANDROID_END":       "marker line in gradle.properties",
 	"PROVEO_ANDROID_START":     "marker line in gradle.properties",
 	"PROVEO_BROWSER_SKILL_SRC": "readonly shell constant",
+	"PROVEO_DEFAULTS_END":      "marker line in the managed CLAUDE.md",
+	"PROVEO_DEFAULTS_START":    "marker line in the managed CLAUDE.md",
 	"PROVEO_HOUSE_RULES_FILE":  "readonly shell constant",
 	"PROVEO_MODELS":            "log line the def entrypoints print",
 	"PROVEO_RC_END":            "marker line in ~/.bashrc",
@@ -66,7 +68,7 @@ func testCode(rel string, dir bool) bool {
 }
 
 // scannedNames maps every PROVEO_* token in non-test code to its first file: Go string literals
-// under cmd/ and internal/, and every non-Markdown file under imageAndInstallerRoots.
+// under cmd/ and internal/, the whole of mise.toml, and every non-Markdown file under imageAndInstallerRoots.
 func scannedNames(t *testing.T) map[string]string {
 	t.Helper()
 	found, _ := scan(t)
@@ -85,7 +87,7 @@ func scan(t *testing.T) (map[string]string, map[string]envreg.Where) {
 	add := func(rel string, names []string) {
 		w := envreg.Image
 		switch {
-		case strings.HasSuffix(rel, ".go"):
+		case strings.HasSuffix(rel, ".go"), rel == "mise.toml":
 			w = envreg.Binary
 		case installerScript(rel):
 			w = envreg.Installer
@@ -139,6 +141,7 @@ func scan(t *testing.T) (map[string]string, map[string]envreg.Where) {
 			return nil
 		})
 	}
+	add("mise.toml", proveoNames(readRepoFile(t, "mise.toml")))
 	for _, start := range imageAndInstallerRoots {
 		walk(start, func(p, rel string) error {
 			if strings.HasSuffix(rel, ".md") {

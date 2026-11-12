@@ -39,7 +39,10 @@ func jvmRowHome(t *testing.T, files map[string]string, java, arch string, env ..
 	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if !slicesContains(env, "NO_QEMU=1") {
+	sysPath := strings.Join(systemDirs, ":")
+	if slicesContains(env, "NO_QEMU=1") {
+		sysPath = linkedExcept(t, "qemu-", systemDirs...)
+	} else {
 		stub["qemu-x86_64"] = "exit 0"
 	}
 	for name, body := range stub {
@@ -50,7 +53,7 @@ func jvmRowHome(t *testing.T, files map[string]string, java, arch string, env ..
 			t.Fatal(err)
 		}
 	}
-	script := `export PATH="` + bin + `:/usr/bin:/bin"
+	script := `export PATH="` + bin + `:` + sysPath + `"
 source "$1/packages/lib/entrypoint-lib.sh"
 cd "$2" && ensure_jvm_toolchain . && echo "ANDROID_HOME=${ANDROID_HOME:-}"`
 	cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t), ws)
@@ -61,6 +64,32 @@ cd "$2" && ensure_jvm_toolchain . && echo "ANDROID_HOME=${ANDROID_HOME:-}"`
 	}
 	b, _ := os.ReadFile(log)
 	return string(out), string(b), home
+}
+
+// systemDirs are the host dirs a row's PATH holds after the stubs; a test prepends a fake one.
+var systemDirs = []string{"/usr/bin", "/bin"}
+
+// linkedExcept is one dir of links to every entry of dirs whose name lacks the prefix drop, the first dir's
+// entry winning as on PATH.
+func linkedExcept(t *testing.T, drop string, dirs ...string) string {
+	t.Helper()
+	out := t.TempDir()
+	for _, dir := range dirs {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			link := filepath.Join(out, e.Name())
+			if strings.HasPrefix(e.Name(), drop) {
+				continue
+			}
+			if _, err := os.Lstat(link); err == nil {
+				continue
+			}
+			if err := os.Symlink(filepath.Join(dir, e.Name()), link); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return out
 }
 
 func slicesContains(xs []string, x string) bool {
@@ -154,5 +183,19 @@ func TestJVMRowNeedsTheQemuFloorOnMacOSHosts(t *testing.T) {
 	out, calls := jvmRow(t, map[string]string{"build.gradle.kts": androidBuild}, "25.0.4", "aarch64", "PROVEO_HOST_OS=darwin", "NO_QEMU=1")
 	if strings.Contains(calls, "android-sdk") || !strings.Contains(out, "lacks the qemu aapt2 floor") {
 		t.Errorf("macOS host without qemu ⇒ out=%q calls=%q", out, calls)
+	}
+}
+
+func TestJVMRowWithoutQemuHidesAQemuTheTestHostHas(t *testing.T) {
+	fake := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fake, "qemu-x86_64"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := systemDirs
+	t.Cleanup(func() { systemDirs = prev })
+	systemDirs = append([]string{fake}, prev...)
+	out, calls := jvmRow(t, map[string]string{"build.gradle.kts": androidBuild}, "25.0.4", "aarch64", "PROVEO_HOST_OS=darwin", "NO_QEMU=1")
+	if strings.Contains(calls, "android-sdk") || !strings.Contains(out, "lacks the qemu aapt2 floor") {
+		t.Errorf("a host qemu-x86_64 (a Linux image's /usr/bin) reached the row ⇒ out=%q calls=%q", out, calls)
 	}
 }

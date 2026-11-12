@@ -122,3 +122,20 @@ func TestTheAppliedPlanFollowsWhereSbxCameFrom(t *testing.T) {
 		t.Error("appliedPlan changed the plan a revisit still needs")
 	}
 }
+
+func TestAQuitEndsInitThereAndSaysWhichPage(t *testing.T) {
+	t.Parallel()
+	var seen []string
+	steps := []initStep{
+		recorder(&seen, "setup"),
+		recorder(&seen, "creds", stepQuit),
+		recorder(&seen, "op"),
+	}
+	err := runInitSteps(true, steps)
+	if err == nil || !strings.Contains(err.Error(), "quit at page 2/3") {
+		t.Errorf("runInitSteps = %v, want a quit at page 2/3", err)
+	}
+	if got := strings.Join(seen, " "); strings.Contains(got, "op") {
+		t.Errorf("a page ran after the quit: %s", got)
+	}
+}

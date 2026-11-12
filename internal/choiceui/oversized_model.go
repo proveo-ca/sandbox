@@ -1,11 +1,7 @@
-// SPEC: _spec/internal/sbx/host-inference.puml
+// SPEC: _spec/internal/sbx/host-inference.puml, _spec/internal/choiceui/confirm-dialogs.puml
 package choiceui
 
-import (
-	"fmt"
-
-	"github.com/gdamore/tcell/v2"
-)
+import "fmt"
 
 // ModelFit is a local model the host's free memory cannot hold, in GiB; Notes set
 // expectations for the run that loads it anyway.
@@ -34,29 +30,16 @@ func OversizedModelCopy(f ModelFit) []string {
 	return append(lines, f.ForceVar+"=1 skips this question.")
 }
 
-func oversizedModelChoices() []modalChoice {
-	return []modalChoice{
-		{Key: "y/N", Text: "load it anyway"},
-		{Key: "esc", Text: "stop — free memory or pick a smaller tag"},
-	}
-}
-
-// ConfirmOversizedModel waits for permission to load a model that does not fit.
-func ConfirmOversizedModel(s tcell.Screen, f ModelFit) bool {
-	return confirmPrompt(s, OversizedModelCopy(f), oversizedModelTitle(f), oversizedModelChoices())
-}
-
-// AskOversizedModel opens the terminal and asks; asked is false when no screen opens.
+// AskOversizedModel asks on the operator's terminal whether to load a model that does not
+// fit; asked is false when no terminal opens.
 func AskOversizedModel(f ModelFit) (yes, asked bool) {
-	preferUTF8Locale()
-	screen, err := tcell.NewScreen()
-	if err != nil {
-		return false, false
-	}
-	if err := screen.Init(); err != nil {
-		return false, false
-	}
-	registerGlyphFallbacks(screen)
-	defer screen.Fini()
-	return ConfirmOversizedModel(screen, f), true
+	answer, asked := askDialog(oversizedModelDialog(f))
+	return asked && answer == 1, asked
+}
+
+func oversizedModelDialog(f ModelFit) dialog {
+	return newDialog(oversizedModelTitle(f), OversizedModelCopy(f), 0,
+		dialogButton{Label: "Stop", Key: 's'},
+		dialogButton{Label: "Load anyway", Key: 'l'},
+	)
 }

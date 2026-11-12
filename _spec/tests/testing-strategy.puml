@@ -29,21 +29,34 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' PROVEO_EGRESS_INTEGRATION=1 (internal/egress/integration_test.go). The
 ' Executor retired the docker+egress backend ("Retire Docker egress"), so its
 ' subject is deleted: internal/egress, the `mise run test-go-integration` task
-' and the `proveo-dev coverage integration` lane are gone (MEASURED). Its
+' and the `coverage integration` lane of the maintainer dispatcher are gone (MEASURED). Its
 ' diagram, _spec/tests/30-infra-integration.puml, is retired with it. The layer
 ' numbers are kept so 40-/41-/42- spec names stay stable.
 '
-' ── COVERAGE RUNNER: cmd/proveo-dev/coverage.go (`proveo-dev coverage <mode>`) ─
-' covers: cmd/proveo-dev/coverage.go
-' Replaced scripts/go-test-coverage.sh (host-shell-to-go P4).
-' Modes, MEASURED: unit · merge (alias coverage) · e2e · all.
-' * unit runs default tags only; //go:build excludes the e2e and image lanes.
-' * -race needs cgo. A throwaway `go test -race -c ./internal/runner` probes
-'   for it; a toolchain without cgo warns and runs coverage-only, never fails.
-'   (internal/runner now holds only `type Mount`; the probe still compiles it.)
-' * merge takes cov/unit alone. HISTORY: it also took cov/integration, and
-'   cov/unit carried the in-process egressproxy and broker; both are deleted,
-'   and the Stage 0b proveo-egress cover image has nothing left to cover.
+' ── COVERAGE LANES: mise tasks (2026-11-12) ─────────────────────────────────
+' covers: mise.toml
+' Replaced scripts/go-test-coverage.sh (host-shell-to-go P4), then the Go
+' coverage verb that replaced it (the 2026-11-12 decision record).
+'   test-go ......... rm -rf cov/unit, mkdir -p cov/unit, then go test [-race]
+'                     -cover -covermode=atomic ./... -args
+'                     -test.gocoverdir={{ config_root | quote }}/cov/unit
+'   coverage ........ wait_for test-go; go tool covdata percent and textfmt
+'                     -i=cov/unit -o=cov/coverage.out
+'   test-go-e2e ..... go test -tags=e2e ./e2e/ -count=1 -timeout <PROVEO_TEST_GO_TIMEOUT
+'   test-e2e          as one quoted word, or 45m when it is unset or blank>;
+'                     extra args append (no usage spec)
+' Both coverage runs: `mise run -c test-go ::: coverage`.
+' * test-go runs default tags only; //go:build excludes the e2e and image lanes.
+' * -race needs cgo. `--no-race` drops it on test-go and baseline. HISTORY:
+'   a `go test -race -c` probe once fell back to coverage-only silently; a
+'   host without cgo now fails until the flag is passed.
+' * coverage reads cov/unit directly; a missing dir fails with covdata's own
+'   "reading inputs" error. HISTORY: a merge step also took cov/integration,
+'   and cov/unit carried the in-process egressproxy and broker; both are
+'   deleted, and the Stage 0b proveo-egress cover image has nothing to cover.
+' * Pinned by internal/contract/mise_gates_test.go (TestCoverageReadsTheUnitLane,
+'   TestUnitLanesOfferNoRace, TestE2ELanesKeepTheirTimeoutDefaults,
+'   TestOperatorEnvTreatsEmptyAsUnset).
 ' * e2e has no env gate: -tags=e2e IS the opt-in, and each test skips on its own
 '   missing prerequisite (tmux, docker, harness image, credential).
 ' * The e2e binary timeout must clear the SUM of the suite's per-test budgets,
@@ -58,8 +71,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
 ' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke.
 ' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `mise run test-defs <target>`
-' (proveo-dev test) runs
+' (go run ./internal/maintain/fleet test <target>) runs
 '   go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
+' and `mise run test-defs all` runs each distinct suite once; a base has none.
 ' NO UNBOUNDED DOCKER CALL. imagetest.Resolve/Present once ran
 ' `docker image inspect` via bare exec.Command. On 2026-10-18 a wedged host
 ' daemon held TestImageOpencode's Resolve for 53m (cursor's subtests hit their
@@ -654,7 +668,19 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     ("sandbox … was stopped"). And `sbx ls` was measured returning an EMPTY
 '     table with exit 0 under that load, which made every sandbox "new". A
 '     listing that fails skips the sweep; TestSweepNeverClaimsAnOperatorSandbox
-'     pins the ownership rule;
+'     pins the ownership rule. The process temp root was still too wide: two
+'     e2e processes share it, so one test's sweep removed the other's
+'     sandboxes. Since R3 (R2 carry-over 9) a test claims only sandboxes new
+'     since it started whose workspace sits in ITS OWN temp root,
+'     filepath.Dir(t.TempDir()) with symlinks resolved (newSandboxesUnder);
+'     TestASweepClaimsOnlyItsOwnTestsTempRoot pins it. The R3 review found
+'     the other cleanup still claiming the process root: removeLeakedSandboxes
+'     and every "what did this test make" check (newSandboxes(t, before):
+'     scope_picker's "a cancelled run created", form_tty, the SIGTERM leak
+'     check, the kit and sandbox namers) now read the same root;
+'     TestALeakCleanupRemovesOnlyItsOwnTestsSandboxes pins it against a stub
+'     sbx. COST: a sandbox a
+'     subtest's workspace holds, under a parent's sweep, leaks, as before;
 '   * it is registered BEFORE the tmux session's Kill, because cleanups run LIFO
 '     and the session has to die before the VM underneath it;
 '   * its failures are IGNORED, since proveo's own teardown already removes most
@@ -662,7 +688,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     was added to prevent.
 '
 ' ── A WEDGED GUEST HANGS sbx rm ────────────────────────────────────────────
-' MEASURED 2026-10-28, sbx 0.50.0, `PROVEO_TEST_GO_TIMEOUT=150m proveo-dev coverage e2e`:
+' MEASURED 2026-10-28, sbx 0.50.0, the e2e coverage lane at PROVEO_TEST_GO_TIMEOUT=150m
+'   (today `PROVEO_TEST_GO_TIMEOUT=150m mise run test-go-e2e`):
 '   00:01:00  seed_ready/hermes creates proveo-hermes-89d1a8c6 FROM proveo/hermes:latest
 '             (57 layers; hermes:local absent, so ResolveImage fell back)
 '   00:02:01  the probe's `sbx exec` hits its 1m deadline → t.Fatalf
@@ -698,6 +725,17 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   * An isolated proveo home is also what makes driving the choice prompt
 '     deterministic. A shared one would leak into the developer's real settings
 '     AND skip the prompt on every later run.
+'   * AN E2E RUN UNDER THE REAL HOME PRUNES THE OPERATOR'S RUN LOGS. runlog
+'     keeps 20 logs in PROVEO_HOME/logs and prunes the oldest on each Open; one
+'     --print sweep wrote 21 and a measured log was lost (output-readability
+'     R1, 2026-11-11). printOnlyRunErr (every --print helper in sbx_test.go)
+'     and TestMountedWorktreeRefusesAForeignPlatformInstall run under a
+'     t.TempDir() PROVEO_HOME; an extraEnv PROVEO_HOME still wins (last value).
+'     Left on the real home: TestAgentSurvivesIdleAtPrompt (no credential env;
+'     claudecode reaches its prompt on the proveo home's persisted login),
+'     hello_world, e2e_test (opencode), hermes_local_model and ladder's
+'     proveoWorkload. [Inference] each needs the real home's login or agent
+'     state; none was re-run under a private one.
 ' ── FOUR FIXTURE FAULTS, FIXED 2026-10-20 ───────────────────────────────────
 ' Each failed a case for a reason outside its subject. The failing output is
 ' reported from the Executor's run; no sbx ran where the fixes were written.
@@ -717,7 +755,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     The prompt loop checks `exited` BEFORE reachedPromptFor. proveo's own
 '     plan line `agent: <target> <version> — pinned at build` matched a prompt
 '     marker, so a dead run read as a live prompt (reported).
-'     reachedPromptFor also drops that one line (withoutPlanLine).
+'     reachedPromptFor also drops that one line (withoutPlanLine); since
+'     2026-11-11 the plan line is the start line `<target> <version> —
+'     starting` (output-readability R1), and withoutPlanLine drops that.
 '     Markers are text only the agent's own screen shows (2026-10-26). The
 '     bare name `opencode` matched sbx's kit line
 '     `…/kit/proveo-<target> — cached`; codex had no case and fell to
@@ -787,7 +827,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     injected keys (reported). Both helpers set PROVEO_HOME to a t.TempDir().
 '     Nothing else in the --print path reads the real home (MEASURED in
 '     internal/run/run.go resolveCredentials): the Keychain read and
-'     reportSandboxLogin run only without --print, and sbx's stored-credential
+'     loginFacts run only without --print, and sbx's stored-credential
 '     probe shapes a message the --print path never prints.
 '     [Inference] PROVEO_ENV_FILE and a .env beside the invocation directory
 '     still reach the key lookup; neither empties the secret-store line.
@@ -854,7 +894,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   a live container .... ProveoHomePersistence/live_shell_roundtrip and
 '                         /live_resume_roundtrip
 '   sidecar teardown .... SIGINTTearsDownEgressSidecars (signal_test.go; its
-'                         PROVEO_SIGNAL_TEST=1 gate left `proveo-dev e2e-full`)
+'                         PROVEO_SIGNAL_TEST=1 gate left the e2e-full gate,
+'                         today `mise run test-e2e-full`)
 '   a docker home ....... TestOpenCodeTwoSessionsSurviveProveoRuns
 '                         (opencode_sessions_test.go, pinned PROVEO_SBX=0)
 '   the consent gate .... ReviewTierConsentGate
@@ -957,6 +998,55 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' at install time, so a bumped Release with a moved subject name would only fail on
 ' a host nobody is watching. Details of what init plans are in
 ' _spec/cmd/proveo/init-sbx-bootstrap.puml.
+' THE HOST, NOT ITS CONFIGURATION (R3, 2026-11-11). Both cmd/proveo tests that
+' run doInit(--print) (TestInitWritesNoEnvFileIntoTheWorkspace,
+' TestInitPrintDescribesThePlanForThisHost) and the e2e
+' TestInitPrintChangesNothingOnThisHost read the operator's real `sbx
+' version`, three `sbx secret ls` and ~/.proveo/operator.yml until R3. They now
+' run under isolatedInitHost (cmd/proveo/init_test.go) or `env`-scrubbed
+' children: a temp HOME, PROVEO_HOME and state root, and a stub sbx first on a
+' PATH without the host's own; the plan and the prerequisites stay this
+' machine's. The unit test asserts the stub answered. The stubbed tmux harness
+' (e2e/init_steps_test.go startInitWith) was already isolated this way.
+' R4 (2026-11-11) widened it: isolatedHost is isolatedInitHost plus stub
+' launchctl, systemctl, crontab, tmux and docker that fail, XDG_*,
+' STARSHIP_CONFIG and TMUX emptied, and the install root under the temp HOME.
+' The uninstall tests run under it: promptkit.Undo reads XDG_STATE_HOME's
+' record and STARSHIP_CONFIG's file, so a runner's shell that set either
+' pointed them at the operator's own. Schedule install tests also replace
+' cmd/proveo's serviceManager, and internal/schedule's set HOME to a temp dir:
+' the plist path comes from os.UserHomeDir, not the Runner. The e2e
+' clean_homes runs `proveo clean --homes` under cleanOnlyHome (a temp HOME
+' and state root, docker and sbx stubbed), and installtest's hermeticEnv
+' drops XDG_* and STARSHIP_CONFIG for the uninstall it runs.
+' The kept group (R4): cmd/proveo/clean_print_test.go runs `proveo clean`
+' under cleanHost (isolatedHost, then logging docker and sbx stubs first on
+' PATH) and fails before it runs when PROVEO_HOME is not under the test's
+' temp HOME: --homes removes it, and --deep reaches docker's images. Its
+' file carries `//go:build !windows` (shell stubs). The attach tests replace
+' tmuxHasSession and stdinTerminal and put a logging tmux first on PATH, so
+' no test reaches the operator's tmux server. The rm tests in
+' internal/backend/sandbox set PROVEO_HOME (and HOME) to temp dirs before an
+' OpenCode carry, which writes <proveo home>/opencode/carry.
+' The upkeep group (R4): setup_test.go, uninstall_test.go and update_test.go
+' run under isolatedHost (setupHost, uninstallHost, updateHost), and the
+' running binary is cmd/proveo's `executable` seam (runningAs), never the test
+' binary. updateAt takes the binary's path and no test calls doUpdate, so an
+' update replaces a file under the temp install root, from an httptest
+' channel. The leftovers test puts logging sbx, launchctl and systemctl first
+' on PATH and fails if any ran; TickFiles and the kept entries resolve under
+' the temp HOME and state root. internal/installtest's new rc assertions read
+' the temp HOME of its real-binary install.
+' THE HARNESS'S WRAPPER IS A SHELL, SO IT HEARS THE Ctrl+C (the second R3
+' review). startInitWrapped takes the `sh -c` script; initWrapper is the old
+' `"$0" init …; echo INIT_EXIT=$?`. A Ctrl+C test sends SIGINT to the pane's
+' whole process group, and since init dies of it a plain wrapper would stop
+' too (wait-and-cooperative-exit) and never print INIT_EXIT. installerWrapper
+' runs init as install.sh does, `proveo init || init_incomplete`, in an inner
+' shell, under an outer one that traps INT and prints the inner one's status:
+' "INIT_EXIT=130" and no INIT_INCOMPLETE prove the caller stopped. A
+' cmd/proveo test proves the death itself by re-running its own binary as a
+' helper process (TestAnInitACtrlCStoppedDiesOfSIGINT).
 '
 ' ── THE INVOCATIONS, AS THE SUITES THEMSELVES RECORD THEM ───────────────────
 '   go test -tags=e2e ./e2e/ -run CredentialForwardingIntegrity -v

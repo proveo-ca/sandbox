@@ -2,15 +2,18 @@
 package contract_test
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestInstructionSeedWritesAgentsMdOnlyIntoABareWorkspace(t *testing.T) {
+// SPEC: _spec/packages/lib/instruction-injection.puml
+func TestInstructionSeedPutsDefaultsInVMLocalContextAndNeverInTheWorkspace(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	lib := filepath.Join(repoRoot(t), "packages", "lib", "entrypoint-lib.sh")
@@ -18,51 +21,163 @@ func TestInstructionSeedWritesAgentsMdOnlyIntoABareWorkspace(t *testing.T) {
 	if err := os.WriteFile(defaults, []byte("proveo defaults\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	seed := func(t *testing.T, target string, carries ...string) (work, marker string) {
+	type boot struct{ work, managed, shm, marker string }
+	newBoot := func(t *testing.T) boot {
+		dir := t.TempDir()
+		b := boot{work: t.TempDir(), managed: filepath.Join(dir, "CLAUDE.md"),
+			shm: filepath.Join(dir, "proveo-default-instructions.md"), marker: filepath.Join(dir, "seeded")}
+		if err := os.WriteFile(b.managed, []byte("house rules\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	seed := func(t *testing.T, b boot, target string) {
 		t.Helper()
-		work, marker = t.TempDir(), filepath.Join(t.TempDir(), "seeded")
-		for _, f := range carries {
-			if err := os.WriteFile(filepath.Join(work, f), []byte("project\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
 		cmd := exec.Command(bash, "-c", `source "$1"; proveo_seed_instructions "$2"; proveo_release_agent "$2"`, "bash", lib, target)
-		cmd.Env = append(cmd.Environ(), "PROVEO_WORKDIR="+work,
-			"PROVEO_INSTRUCTIONS_DEFAULTS="+defaults, "PROVEO_INSTRUCTIONS_MARKER="+marker)
+		cmd.Env = append(cmd.Environ(), "PROVEO_WORKDIR="+b.work, "PROVEO_INSTRUCTIONS_DEFAULTS="+defaults,
+			"PROVEO_INSTRUCTIONS_MARKER="+b.marker, "PROVEO_CLAUDE_MANAGED_MD="+b.managed, "PROVEO_OPENCODE_INSTRUCTIONS="+b.shm)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("proveo_seed_instructions: %v\n%s", err, out)
+			t.Fatalf("proveo_seed_instructions %s: %v\n%s", target, err, out)
 		}
-		return work, marker
 	}
+	carry := func(t *testing.T, b boot, f string) {
+		if err := os.WriteFile(filepath.Join(b.work, f), []byte("project\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	untouched := func(t *testing.T, b boot, own ...string) {
+		t.Helper()
+		entries, _ := os.ReadDir(b.work)
+		if len(entries) != len(own) {
+			var names []string
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			t.Errorf("the seed wrote into the workspace: %q, want only %q", names, own)
+		}
+		if _, err := os.Stat(b.marker); err != nil {
+			t.Errorf("the seed must still mark the boot seeded: %v", err)
+		}
+	}
+	read := func(p string) string { b, _ := os.ReadFile(p); return string(b) }
 
-	work, marker := seed(t, "claudecode")
-	if b, _ := os.ReadFile(filepath.Join(work, "AGENTS.md")); string(b) != "proveo defaults\n" {
-		t.Errorf("a workspace carrying neither file must get the default AGENTS.md, got %q", b)
+	b := newBoot(t)
+	seed(t, b, "claudecode")
+	seed(t, b, "claudecode")
+	untouched(t, b)
+	if got := read(b.managed); !strings.HasPrefix(got, "house rules\n") || strings.Count(got, "proveo defaults\n") != 1 {
+		t.Errorf("a bare workspace must put the defaults once in the managed CLAUDE.md, after the house rules:\n%s", got)
 	}
-	if _, err := os.Stat(filepath.Join(work, "CLAUDE.md")); err == nil {
-		t.Error("the seed must not write CLAUDE.md: Claude Code reads AGENTS.md natively since 2.1.277")
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Errorf("the seed must mark the boot seeded: %v", err)
+	carry(t, b, "AGENTS.md")
+	seed(t, b, "claudecode")
+	untouched(t, b, "AGENTS.md")
+	if got := read(b.managed); got != "house rules\n" {
+		t.Errorf("a workspace that now carries AGENTS.md must take the defaults back out:\n%q", got)
 	}
 
 	for _, own := range []string{"AGENTS.md", "CLAUDE.md"} {
-		work, marker := seed(t, "claudecode", own)
-		if b, _ := os.ReadFile(filepath.Join(work, own)); string(b) != "project\n" {
-			t.Errorf("the project's own %s must stay untouched, got %q", own, b)
-		}
-		if own == "CLAUDE.md" {
-			if _, err := os.Stat(filepath.Join(work, "AGENTS.md")); err == nil {
-				t.Error("a project carrying CLAUDE.md must not get a default AGENTS.md")
-			}
-		}
-		if _, err := os.Stat(marker); err != nil {
-			t.Errorf("a project carrying %s must still mark the boot seeded: %v", own, err)
+		b := newBoot(t)
+		carry(t, b, own)
+		seed(t, b, "claudecode")
+		seed(t, b, "opencode")
+		untouched(t, b, own)
+		if read(b.managed) != "house rules\n" || fileExists(b.shm) {
+			t.Errorf("a project carrying %s must get no defaults", own)
 		}
 	}
 
-	if work, _ := seed(t, "codex"); fileExists(filepath.Join(work, "AGENTS.md")) {
-		t.Error("only claudecode ships default instructions; codex must leave the workspace untouched")
+	b = newBoot(t)
+	seed(t, b, "opencode")
+	untouched(t, b)
+	if read(b.shm) != "proveo defaults\n" {
+		t.Errorf("a bare opencode workspace must get the defaults in the file /etc/opencode lists, got %q", read(b.shm))
+	}
+	carry(t, b, "AGENTS.md")
+	seed(t, b, "opencode")
+	if fileExists(b.shm) {
+		t.Error("an opencode workspace that now carries AGENTS.md must lose the defaults file")
+	}
+
+	b = newBoot(t)
+	seed(t, b, "codex")
+	untouched(t, b)
+	if read(b.managed) != "house rules\n" || fileExists(b.shm) {
+		t.Error("codex ships no default instructions and must change nothing")
+	}
+}
+
+// TestTheOpencodeImageListsTheDefaultsWhereOpencodeReadsThem pins the image file the opencode seed relies on.
+func TestTheOpencodeImageListsTheDefaultsWhereOpencodeReadsThem(t *testing.T) {
+	t.Parallel()
+	oc := readRepoFile(t, "defs/opencode/managed/opencode.json")
+	if !json.Valid([]byte(oc)) {
+		t.Fatal("a system opencode.json that does not parse stops opencode from starting")
+	}
+	if strings.TrimSpace(oc) != "{\n  \"instructions\": [\"/dev/shm/proveo-default-instructions.md\"]\n}" {
+		t.Errorf("/etc/opencode/opencode.json must hold only the instructions entry; a managed scalar overrides user config:\n%s", oc)
+	}
+	if df := readRepoFile(t, "defs/opencode/Dockerfile"); !strings.Contains(df, "COPY defs/opencode/managed/opencode.json /etc/opencode/opencode.json") {
+		t.Error("the opencode image must bake /etc/opencode/opencode.json")
+	}
+	if ep := readRepoFile(t, "defs/opencode/entrypoint.sh"); strings.Contains(ep, "seed_project_agents_md") || regexp.MustCompile(`cp [^\n]*AGENTS\.md`).MatchString(ep) {
+		t.Error("the opencode entrypoint must not write AGENTS.md into the workspace")
+	}
+}
+
+// TestTheSeedSetsClaudeCodeToLoadAgentsMdBesideClaudeMd pins the user-settings key the seed merges.
+func TestTheSeedSetsClaudeCodeToLoadAgentsMdBesideClaudeMd(t *testing.T) {
+	t.Parallel()
+	settings := func(home string) map[string]any {
+		var j map[string]any
+		b, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+		_ = json.Unmarshal(b, &j)
+		return j
+	}
+	choice := func(j map[string]any) any {
+		pc, _ := j["pluginConfigs"].(map[string]any)
+		p, _ := pc["cc-plugin-agents-md@builtin"].(map[string]any)
+		o, _ := p["options"].(map[string]any)
+		return o["instructionFiles"]
+	}
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"),
+		[]byte(`{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"x"}]}]},"pluginConfigs":{"other@builtin":{"options":{"k":1}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	libRun(t, home, `proveo_claude_reads_agents_md claudecode`)
+	libRun(t, home, `proveo_claude_reads_agents_md claudecode`)
+	j := settings(home)
+	if choice(j) != "claude-md-and-agents-md" {
+		t.Errorf("claudecode settings must load AGENTS.md beside CLAUDE.md, got %v", choice(j))
+	}
+	if _, ok := j["hooks"]; !ok {
+		t.Error("the merge dropped the existing hooks")
+	}
+	if pc, _ := j["pluginConfigs"].(map[string]any); pc["other@builtin"] == nil {
+		t.Error("the merge dropped another plugin's options")
+	}
+
+	chosen := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(chosen, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(chosen, ".claude", "settings.json"),
+		[]byte(`{"pluginConfigs":{"cc-plugin-agents-md@builtin":{"options":{"instructionFiles":"managed-only"}}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	libRun(t, chosen, `proveo_claude_reads_agents_md claudecode`)
+	if got := choice(settings(chosen)); got != "managed-only" {
+		t.Errorf("an operator's own instructionFiles choice must stand, got %v", got)
+	}
+
+	other := t.TempDir()
+	libRun(t, other, `proveo_claude_reads_agents_md opencode`)
+	if fileExists(filepath.Join(other, ".claude", "settings.json")) {
+		t.Error("opencode got a Claude Code settings file")
 	}
 }
 
@@ -86,7 +201,8 @@ func TestSeedReleasesTheAgentAfterConfigAndBeforeInstalls(t *testing.T) {
 	release := at("\n proveo_release_agent \"$target\"\n", 0)
 	pos := 0
 	for _, before := range []string{"proveo_clone_checkout", "proveo_clone_env", "proveo_clone_links", "proveo_seed_instructions",
-		"render_subagents claudecode", "proveo_wire_config", "proveo_compose_house_rules", "proveo_install_claude_hooks"} {
+		"render_subagents claudecode", "proveo_wire_config", "proveo_compose_house_rules", "proveo_install_claude_hooks",
+		"proveo_claude_reads_agents_md"} {
 		pos = at(before, pos)
 		if pos > release {
 			t.Errorf("%s runs after proveo_release_agent — the agent would start without it", before)

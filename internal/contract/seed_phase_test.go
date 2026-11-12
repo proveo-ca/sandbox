@@ -30,7 +30,7 @@ var seedSteps = []string{
 	"proveo_sync_state", "proveo_sync_config", "proveo_install_git_sync_hooks", "render_subagents",
 	"accept_workspace_trust", "proveo_wire_config", "proveo_compose_house_rules",
 	"proveo_address_operator_claude", "proveo_apply_ui_defaults", "proveo_install_claude_hooks",
-	"proveo_install_claude_env_hook", "proveo_seed_browser_skills", "proveo_release_agent",
+	"proveo_install_claude_env_hook", "proveo_claude_reads_agents_md", "proveo_seed_browser_skills", "proveo_release_agent",
 	"proveo_sync_tools", "proveo_provision_toolchain", "proveo_merge_codex_defaults", "proveo_wire_hermes_mcp_gateway",
 }
 

@@ -90,7 +90,7 @@ reports/
 /proveo
 /proveo-entrypoint
 
-# Staged CDN Go binaries (mise run stage-cli; regenerated for deploy)
+# Staged CDN Go binaries (stage-cdn: dev-cli, test-images, release)
 apps/cli/public/cli/bin/proveo-*
 apps/cli/public/cli/checksums.txt
 

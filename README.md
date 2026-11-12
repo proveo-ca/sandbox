@@ -63,9 +63,11 @@ git push origin v0.1.0          # optional but good
 mise run deploy-cli
 ```
 
-On an exact tag this builds multi-arch binaries (goreleaser, no GitHub Release), stages
-`latest.json` + checksums into `apps/cli/public/cli`, and deploys to Cloudflare via Wrangler.
-Details: [`apps/cli/README.md`](apps/cli/README.md).
+`deploy-cli` ships a `v*` tag only. It checks that HEAD carries the tag and that no
+retirement outlives a release, builds the multi-arch binaries (goreleaser, no GitHub Release),
+stages `latest.json` + checksums into `apps/cli/public/cli`, asks to confirm, and deploys to
+Cloudflare via Wrangler. An untagged HEAD refuses before goreleaser runs; `mise run dev-cli`
+previews a snapshot locally instead. Details: [`apps/cli/README.md`](apps/cli/README.md).
 
 ## Quickstart — try it on the sample
 

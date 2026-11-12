@@ -345,7 +345,7 @@ func TestHomeAccessFollowsOnlyLinksTheHostListed(t *testing.T) {
 			t.Errorf("a link the guest could have planted reached %s; only %s/%s may name targets, and the guest's own copy inside a mounted dir must not count", m.Host, root, manifest.LinkedDirsFile)
 		}
 	}
-	if len(a.SkippedLinks) != 1 || !strings.Contains(a.SkippedLinks[0], wantSecret) {
+	if len(a.SkippedLinks) != 1 || a.SkippedLinks[0].Target != wantSecret {
 		t.Errorf("SkippedLinks = %v, want the unlisted ssh link named so the operator can list it", a.SkippedLinks)
 	}
 }
@@ -356,8 +356,10 @@ func TestASkippedLinkNoticeNamesTheLinkAndTheListFile(t *testing.T) {
 	ui.Default = ui.New(&buf)
 	t.Cleanup(func() { ui.Default = prev })
 
-	noteSkippedLinks(HomeAccess{Root: "/h", SkippedLinks: []string{"/h/hermes/data/skills → /x/skills"}})
-	for _, want := range []string{"/h/hermes/data/skills → /x/skills", filepath.Join("/h", manifest.LinkedDirsFile)} {
+	for _, it := range skippedLinkItems(HomeAccess{Root: "/h", SkippedLinks: []SkippedLink{{Link: "/h/hermes/data/skills", Target: "/x/skills"}}}, Absolute) {
+		it.print()
+	}
+	for _, want := range []string{"warn: home link /h/hermes/data/skills → /x/skills — not followed", filepath.Join("/h", manifest.LinkedDirsFile)} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("notice %q must name %q", buf.String(), want)
 		}

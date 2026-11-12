@@ -40,9 +40,10 @@ title OpenCode crew — automatic asks, explicit denies and visible execution
 ' direct native run without --auto rejects a non-interactive ask.
 ' Risky-operation house rules remain instructions; they do not create native prompts.
 '
-' Seeding is MISSING-ONLY unless OPENCODE_RESEED=1, and the same flag re-seeds
-' the project AGENTS.md. Everything else the seed writes goes through
-' proveo_seed (_spec/packages/lib/seed-and-launch.puml).
+' Seeding is MISSING-ONLY unless OPENCODE_RESEED=1. The default instructions
+' reach opencode through /etc/opencode/opencode.json, never the project
+' (_spec/packages/lib/instruction-injection.puml). Everything else the seed
+' writes goes through proveo_seed (_spec/packages/lib/seed-and-launch.puml).
 '
 ' ── THE LOCAL MODEL IS A PROVIDER ENTRY, NOT A MODEL STRING ────────────────
 ' The native writer uses providers.ollama/package/settings and agents.title.model.

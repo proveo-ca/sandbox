@@ -19,8 +19,10 @@ type initDecisions struct {
 	Wizard   bool
 	Gh       bool
 	Git      bool
+	Prompt   bool   // install the shell-prompt kit: starship, a Nerd Font, the segment
 	Baseline string // "" leaves the host-wide network policy alone
 	NoPrompt bool
+	pathDone string // the PATH dir an earlier visit's step settled
 }
 
 const (
@@ -35,6 +37,7 @@ const (
 	rowWizard   = "sbx setup"
 	rowGh       = "GitHub"
 	rowGit      = "git identity"
+	rowPrompt   = "prompt"
 	rowBaseline = "network baseline"
 	rowNext     = "next steps"
 
@@ -72,6 +75,7 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisi
 		Wizard:   !o.skipSetup,
 		Gh:       !o.skipGh,
 		Git:      !o.skipGit,
+		Prompt:   !o.skipPrompt,
 		Baseline: "",
 		NoPrompt: o.yes,
 	}
@@ -87,12 +91,12 @@ func carried(def initDecisions, prev *initDecisions) initDecisions {
 		return def
 	}
 	out := def
-	out.AddPath = prev.AddPath
-	out.Login, out.Wizard, out.Gh, out.Git, out.Baseline = false, false, false, false, ""
+	out.AddPath, out.pathDone = prev.AddPath, prev.pathDone
+	out.Login, out.Wizard, out.Gh, out.Git, out.Prompt, out.Baseline = false, false, false, false, false, ""
 	return out
 }
 
-func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, at choiceui.Step) (initDecisions, error) {
+func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
 	def := carried(defaultDecisions(plan, installed, o), prev)
 
 	form := &choiceui.Form{
@@ -104,15 +108,36 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		Step:   at,
 		Rows:   initRows(plan, installed, def, o),
 	}
+	form.OnEnter = func(f *choiceui.Form) []string {
+		return stepNames(applyPlan(answered(f, def), plannedCtx(plan, host, answered(f, def), viaPackage)))
+	}
 
-	ok, err := form.Run()
-	if err != nil {
+	switch out, err := form.RunStep(); {
+	case err != nil:
 		return initDecisions{}, err
+	case out == choiceui.Back:
+		return initDecisions{}, errInitBack
+	case out == choiceui.Quit:
+		return initDecisions{}, errInitQuit
+	case out != choiceui.Accepted:
+		return initDecisions{}, fmt.Errorf("%w at the setup page", errInitCancel)
 	}
-	if !ok {
-		return initDecisions{}, fmt.Errorf("cancelled at the init prompt")
-	}
+	return answered(form, def), nil
+}
 
+// plannedCtx is what an apply of d would act on, for naming its steps before any of them runs.
+func plannedCtx(plan sbx.Plan, host sbx.Host, d initDecisions, viaPackage bool) applyCtx {
+	if d.Prefix != plan.Prefix {
+		if alt, err := sbx.PlanFor(host, d.Prefix, ""); err == nil {
+			plan = alt
+		}
+	}
+	via := d.Install == installPackaged || (d.Install == installSkip && viaPackage)
+	return applyCtx{plan: plan, applied: appliedPlan(plan, via), host: host}
+}
+
+// answered is def with every answer the form holds.
+func answered(form *choiceui.Form, def initDecisions) initDecisions {
 	out := def
 	if v := form.Selection(rowInstall); v != "" {
 		out.Install = v
@@ -135,10 +160,13 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 	if v := form.Selection(rowGit); v != "" {
 		out.Git = v == "now"
 	}
+	if v := form.Selection(rowPrompt); v != "" {
+		out.Prompt = v == "now"
+	}
 	if v := form.Selection(rowBaseline); v != "" && v != baselineLeave {
 		out.Baseline = v
 	}
-	return out, nil
+	return out
 }
 
 // targetVersion is the sbx this init leaves on the host.
@@ -209,7 +237,7 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 	rows = append(rows, signIn)
 
 	rows = append(rows, nowLaterRow(rowWizard, def.Wizard, o.skipSetup, "--skip-setup was passed", map[string]string{
-		"now":   "next: `sbx setup` — the first-run wizard (SSH, daemon). 0.42 stopped opening it on its own",
+		"now":   "next: `sbx setup` — sbx's first-run wizard: agent secrets to import, SSH-agent forwarding",
 		"later": "a host nobody sets up stays half-configured, with no prompt to say so",
 	}))
 
@@ -221,6 +249,12 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 	rows = append(rows, nowLaterRow(rowGit, def.Git, o.skipGit, "--skip-git was passed", map[string]string{
 		"now":   "set `user.name` / `user.email` if this host has none — a commit inside a sandbox fails late without them",
 		"later": "the agent will hit 'Please tell me who you are' at the first commit",
+	}))
+
+	rows = append(rows, nowLaterRow(rowPrompt, def.Prompt, o.skipPrompt, "--skip-prompt was passed", map[string]string{
+		"now": "starship (if missing), a Nerd Font (if the host has none), its line in your shell rc, and a segment that " +
+			"shows what runs left — starship REPLACES this shell's prompt",
+		"later": "the shell prompt stays as it is; `proveo rm` and `proveo adopt` still list what runs left",
 	}))
 
 	// The host-wide network baseline. Offered because proveo otherwise only
@@ -322,30 +356,4 @@ func indexOf(opts []string, want string) int {
 		}
 	}
 	return 0
-}
-
-// describeDecisions is what init prints when it did NOT ask — the non-TTY path,
-// where the operator finds out afterwards what was chosen for them.
-func describeDecisions(d initDecisions) string {
-	parts := []string{rowInstall + ": " + d.Install}
-	if d.Prefix != "" {
-		parts = append(parts, rowPrefix+": "+d.Prefix)
-	}
-	parts = append(parts,
-		"PATH: "+yesNo(d.AddPath),
-		"sign in: "+yesNo(d.Login),
-		"sbx setup: "+yesNo(d.Wizard),
-		"gh: "+yesNo(d.Gh),
-		"git identity: "+yesNo(d.Git))
-	if d.Baseline != "" {
-		parts = append(parts, "baseline: "+d.Baseline)
-	}
-	return strings.Join(parts, " · ")
-}
-
-func yesNo(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
 }

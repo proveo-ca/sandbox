@@ -1,7 +1,12 @@
-// SPEC: _spec/internal/ptyproxy/pty-ownership.puml
+// SPEC: _spec/internal/ptyproxy/pty-ownership.puml, _spec/internal/choiceui/confirm-dialogs.puml
 package choiceui
 
-import "github.com/gdamore/tcell/v2"
+import (
+	"fmt"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 // SandboxClose is the operator's answer to a headed Ctrl+C.
 type SandboxClose int
@@ -12,10 +17,12 @@ const (
 	SandboxClosePass
 )
 
-// SandboxCloseCopy is the close-modal body.
+const sandboxCloseTitle = "close this sandbox?"
+
+// SandboxCloseCopy is the close-dialog body.
 func SandboxCloseCopy() []string {
 	return []string{
-		"close this sandbox?",
+		sandboxCloseTitle,
 		"",
 		"sbx rm --force will run.",
 		"That deletes the session.",
@@ -23,26 +30,30 @@ func SandboxCloseCopy() []string {
 	}
 }
 
-func sandboxCloseChoices() []modalChoice {
-	return []modalChoice{
-		{Key: "y/N", Text: "remove the sandbox"},
-		{Key: "esc", Text: "go back"},
-		{Key: "ctrl+c", Text: "interrupt the agent and keep the sandbox"},
+// NewSandboxClose is the close dialog. When stop is set, accepting Remove runs it
+// once and the dialog stays up, saying the stop is in flight, until its Program is ended.
+func NewSandboxClose(stop func(), stopWait time.Duration) tea.Model {
+	d := newDialog(sandboxCloseTitle, SandboxCloseCopy(), int(SandboxCloseStay),
+		dialogButton{Label: "Stay", Key: 's'},
+		dialogButton{Label: "Remove", Key: 'r', Danger: true},
+		dialogButton{Label: "Interrupt agent", Key: 'i'},
+	)
+	d.onCtrlC = int(SandboxClosePass)
+	if stop != nil {
+		d.holdOn = int(SandboxCloseRemove)
+		d.hold = func() string {
+			stop()
+			return fmt.Sprintf("stopping the agent (up to %s)", stopWait)
+		}
 	}
+	return d
 }
 
-// ConfirmSandboxClose draws the close modal and waits for one answer.
-func ConfirmSandboxClose(s tcell.Screen) SandboxClose {
-	input, sig := readModal(s, SandboxCloseCopy(), "close this sandbox?", sandboxCloseChoices())
-	switch sig {
-	case modalCtrlC:
-		return SandboxClosePass
-	case modalEnter:
-		if modalYes(input) {
-			return SandboxCloseRemove
-		}
-		return SandboxCloseStay
-	default:
+// SandboxCloseAnswer reads the operator's answer off a model NewSandboxClose made, once its Program ended.
+func SandboxCloseAnswer(m tea.Model) SandboxClose {
+	d, ok := dialogAnswer(m)
+	if !ok {
 		return SandboxCloseStay
 	}
+	return SandboxClose(d.answer)
 }

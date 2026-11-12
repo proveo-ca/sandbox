@@ -5,6 +5,7 @@ skinparam noteTextAlignment left
 ' covers: internal/schedule/schedule.go
 ' covers: internal/schedule/runner.go
 ' covers: internal/schedule/install.go
+' covers: internal/schedule/install_test.go
 ' covers: internal/schedule/schedule_test.go
 ' covers: internal/schedule/table.go
 ' covers: cmd/proveo/schedule.go
@@ -41,18 +42,68 @@ skinparam noteTextAlignment left
 '          at the budget type /exit, then kill after 90 s;
 '          write <stamp>.json {outcome: ended|budget|not-ready|failed} and notify
 ' One session per job: a tick that finds the session still up skips it.
-' `proveo schedule` (or `ls`) draws in ui.Printer's vocabulary, not a grid: a
-' `schedule` section with ✓/⚠ for the tick, then one section per job (soonest
-' first) — a scheduler-role ● line (target · model · mode · budget · status ·
-' last), its runs beneath, the next one in bold brand cyan with ▸, and the
-' transcripts folder as a store line.
-' A running job (tmux session up) adds a bold brand line under its ● line:
-'   ● running since <start, job tz> · <elapsed> of <budget>[, past the budget]
-'     · `proveo attach <job>`
-' start = the stamp of the newest <stamp>.log without <stamp>.exit (CurrentRun);
-' no such transcript → "● running now · `proveo attach <job>`".
-' 2026-10-04: a live muse-lineup-refine showed only the word "running" mid-line,
-' beside a "last … done" from Oct 1, and read as idle.
+'
+' ── WHAT THE LISTING PRINTS (2026-11-11, R4 of _spec/_plans/output-readability.puml)
+' `proveo schedule` (or `ls`) draws no heading: ONE ui.Facts block keyed by job,
+' scheduler role, soonest first, then a × item per failed job, then ONE closing
+' line for the tick, printed last:
+'   ● waivers: running since 20:37 EDT · 23m of 1h
+'              Tue Sep 29 20:00 EDT · in 1d 23h
+'                hermes · goal · 1h budget
+'   ● lineup:  Thu Oct 1 18:50 EDT · in 3d 21h
+'              Sun Oct 4 11:35 EDT · in 6d 14h
+'                hermes · muse-glimmer:30b-mlx · goal · 45m budget
+'   ● probe:   manual
+'              command · plain · 45m budget
+'   × lineup — failed Sun Sep 27 11:35
+'       the agent exited 4 before it was ready: …
+'       ~/.proveo/logs/schedule/lineup/20260927-113500.log
+'       `proveo schedule retry lineup` runs it again
+'   ✓ tick — installed
+'       launchd io.proveo.schedule, every 60s
+' The value is the soonest run "<Mon Jan 2 15:04 MST> · in <wait>", or the
+' running value; each later run stacks under it (P3, the operator's "stack each
+' run"); the job's target · model · mode · budget and "last <when> <outcome>
+' [· <summary>]" sit dim two columns past the last stacked value, or under the
+' value when nothing stacks. A failed job's × says its last run, so no "last"
+' line repeats it. "idle", "-", "last never", ▸, the entry column ("mon 18:50")
+' and the transcripts row are gone (P8, P9); the transcripts folder is in
+' `proveo schedule --help`.
+' A job with no `at` lists as "manual" (Rows gives it one row with a zero Next,
+' sorted last), so a schedule of `schedule run` jobs is not read as empty, its
+' failure shows, and `proveo attach` lists it while it runs.
+' THE RUNNING VALUE is one line, the same in this listing, in `proveo attach`'s
+' list and (behind a "● ") in the attach and run pickers (RunningTask.Value,
+' .Summary): "running since <start, job tz> · <elapsed> of <budget>[, past the
+' budget]", or "running now" when no transcript names the start; elapsed and
+' budget in the budget's own form ("1h7m of 1h30m", as "1h30m budget" below
+' it), while waits read ui.Span ("in 1d 23h"). start = the
+' stamp of the newest <stamp>.log without <stamp>.exit (CurrentRun). It is the
+' job's VALUE, the first thing after its name: 2026-10-04 a live
+' muse-lineup-refine showed only the word "running" mid-line, beside a "last …
+' done" from Oct 1, and read as idle; position, not a caller colour, fixes it.
+' THE TICK LINE (one state reads one way here and in `schedule install`):
+'   ✓ tick — installed            dim the manager ("launchd io.proveo.schedule,
+'                                 every 60s" / "systemd --user …, every minute")
+'   ⚠ tick — its last run exited N    dim the log `launchctl print` names
+'   ⚠ tick — reads ~/.proveo/schedule.yml, not this home's   (no how-to)
+'   ⚠ tick — not installed        dim "`proveo schedule install` registers it
+'                                 with launchd" — only when a job has a set time
+'                                 and that tick would read this home (another
+'                                 PROVEO_HOME: no how-to; Tick.Home names
+'                                 ~/.proveo installed or not)
+'   ● tick — not installed        nothing would fire: no jobs, or manual ones
+'   ⚠/● tick — no service manager on <os>   dim "run `proveo schedule tick`
+'                                 every minute yourself", not on windows (no
+'                                 tmux, no sh)
+' NOTHING TO LIST. No schedule.yml prints "● no ~/.proveo/schedule.yml" and an
+' empty one "● no jobs in <~file>"; then every line, the tick's too, goes to
+' stderr and stdout stays empty (_spec/cmd/proveo/usage.puml). Both exit 0, and
+' the tick with no schedule.yml finds nothing due, logs nothing and exits 0, so
+' a ⚠ "last run exited N" always means a real failure (the operator, "both exit
+' 0"). An invalid file is "× <~file> — not valid" with the reason dim, exit 1.
+' A stray argument to schedule, ls, tick, install or uninstall is ignored and
+' a mistyped subcommand lists, as at HEAD: R4 changes no argument rule.
 ' covers: internal/schedule/table.go, internal/schedule/table_test.go
 ' Times are wall-clock in the job's tz, so DST keeps "sun 11:35" at 11:35.
 '
@@ -65,12 +116,27 @@ skinparam noteTextAlignment left
 '            exec, so sh outlives the agent); an early end with status ≠ 0 is
 '            failed "the agent exited N before the budget", 0 stays ended
 '   watch    prompt unreadable, ready marker absent (not-ready), send-keys error
-' `proveo schedule` prints ✗ "<outcome>: <detail> — `proveo schedule retry <job>`"
-' under the job's ● line while the job is idle; a running job hides it.
-' On a TTY (stdin ∧ stdout) it then asks "retry <job> (<entry>)? [y/N]" per
-' failed job; tick and pipes never prompt.
+' `proveo schedule` prints "× <job> — <outcome> <started, job tz>" after the
+' block while the job is idle (a running job hides it), its detail's first line
+' and its transcript dim. Its retry how-to prints dim only when no question
+' can follow (a pipe; the NO TTY rule): on a TTY (stdin ∧ stdout) the question
+' "retry <job>? [y/N]" takes that line's place, and the relaunch's ✓ or ×
+' follows it, so the tick line still prints last (R3's "a closing verdict
+' prints last, once"). A refused relaunch prints its × and the next question
+' still comes; the listing then exits 1. Tick and pipes never prompt.
 ' `proveo schedule retry <job>` relaunches under the failed run's entry and
-' refuses a job that never ran or whose last run did not fail (→ `run`).
+' prints "✓ <job> — started again"; `run` prints "✓ <job> — started". Every
+' refusal is one × item with ONE dim line, printed by the command, Reported
+' (exit 1, main adds nothing; cmd/proveo/schedule.go refuse):
+'   × <job> — has not run yet           `proveo schedule run <job>` starts it now
+'   × <job> — its last run did not fail `proveo schedule run <job>` starts it again
+'   × <job> — no such job               jobs: <names>
+'   × <job> — already running           `proveo attach <job>` opens it
+'   × <job> — its tmux session did not start   tmux's own words (tmux.Session.Start)
+'   × <job> — not started               any other launch error, home paths as ~/
+'   × <~file> — not found               `proveo schedule --help` shows its format
+' The tick log names a skipped job once: "… tick: <job> (<entry>): still
+' running (tmux session proveo-sched-<job>)" (ErrRunning carries no name).
 ' No auto-retry: a failed run waits for its next `at` or an operator.
 '
 ' ── READY ≠ TAKING INPUT (2026-09-28, first real hermes run) ────────────────
@@ -211,17 +277,54 @@ skinparam noteTextAlignment left
 '   proveo attach [task] [-r|--read-only]
 '   proveo schedule attach [task] [-r|--read-only]
 '   no task, terminal    picker of jobs whose tmux session is up; the choice
-'                        attaches. Empty list prints "nothing running".
-'   no task, pipe        print the running tasks and stop
+'                        attaches. Empty list prints "● nothing running" on
+'                        stderr (stdout stays empty), and so does a host with
+'                        no schedule.yml (exit 0)
+'   no task, pipe        print the running tasks and stop: one Facts block
+'                        keyed by task, valued with THE RUNNING VALUE above,
+'                        on stdout; then ONE dim how-to on stderr, "`proveo
+'                        attach <task>` opens one" (NO TTY: the picker's
+'                        question could not be asked)
+'   picker closed        "⚠ attach — no task selected", exit 1, Reported
+'                        (R3's QUIT: the operator's choice; the run and
+'                        harness pickers still end on main's ×)
 '   named task           the rows below
-' The schedule table's live line names `proveo attach <job>`.
-'   not running          error naming the job, before tmux prints its own
+' The schedule listing names no attach command; `proveo schedule --help` does.
+' TMUX DECIDES, schedule.yml ONLY WORDS A REFUSAL (R4 critique must-fix 1): a
+' session that is up attaches though its job left schedule.yml mid-run or the
+' file is gone. A session that is not up is ONE × (R4, no heading):
+'   × <task> — not running              dim "no tmux session proveo-sched-<task>"
+'   × <task> — no such job              dim "jobs: …" (the schedule's refusal)
+'   × ~/.proveo/schedule.yml — not found  dim "`proveo schedule --help` shows
+'                                       its format"
+'   "`proveo schedule` shows its last run" moved to attach's --help.
+' Before tmux runs: `tmux attach` with no terminal on stdin is "× <task> —
+' not attached", dim "tmux needs a terminal" (switch-client needs none).
+' A hand-off tmux ends non-zero closes on "⚠ attach — stopped at tmux", exit
+' 1, under tmux's own words (R3 HAND-OFF FAILURE), from attach and from the
+' run and harness pickers alike. A clean detach prints nothing: tmux says
+' "[detached …]" itself.
 '   plain terminal       tmux attach [-r] -t proveo-sched-<job>
 '   inside tmux          switch-client -t …  (tmux refuses a nested attach)
 '   inside tmux + -r     TMUX= tmux attach -r -t …  — a nested client, detach
 '                        with prefix prefix d. `switch-client -r` TOGGLES
 '                        read-only on the operator's own client, which then
 '                        stays read-only after switching back (tmux 3.7b man).
+'                        Before tmux takes the terminal it prints ONE host
+'                        item, "● tmux — nested read-only client", dim "the
+'                        prefix twice, then d, detaches" (the operator, R4
+'                        ATTACH NESTED: an exception to the HOW-TO rule
+'                        beside R2's "Ctrl+C again leaves now")
+' KNOWN, NOT FIXED: with no tmux on PATH, has-session fails, so a named task
+' reads "not running" (true: the scheduler starts nothing without tmux).
+' Pinned by cmd/proveo/running_test.go: TestAttachPrintsRunningTasks,
+' TestAttachWithNothingRunningSaysSoOnStderr,
+' TestAttachToATaskThatIsNotRunningSaysWhichWayItIsNot,
+' TestAttachToARunningSessionScheduleYmlLacksStillAttaches,
+' TestAFailedTmuxHandOffEndsOnStoppedAndNoCross,
+' TestAttachWithoutATerminalRefusesBeforeTmux,
+' TestReadOnlyAttachInsideTmuxNamesTheKeysThatLeave,
+' TestClosingTheAttachPickerIsAWarningAndExitsOne.
 ' Sessions the launchd tick starts share the default socket
 ' (/private/tmp/tmux-<uid>/default), so attach reaches them.
 ' A writable attach sends keys to the agent; during the settle/type window
@@ -262,6 +365,32 @@ skinparam noteTextAlignment left
 ' line, echoes it. The test pins PROVEO_SCHEDULE_NOW, runs a real tick, and
 ' asserts only WHEN it fired ("due 2026-09-27T11:35:00-04:00") and WHAT it typed
 ' ("/goal <prompt>"). First run caught a nil tmux runner in Launch.
+'
+' ── INSTALL, UNINSTALL, THE TICK'S STATE (2026-11-11, R4) ──────────────────
+' Install, Uninstall and TickStatus take a schedule.Runner (launchctl and
+' systemctl's argv in, combined output back); cmd/proveo passes
+' serviceManager, schedule.ExecRunner unless a test replaced it. A Runner
+' keeps a test off the host's service manager but NOT off its files: the
+' plist and unit paths come from os.UserHomeDir, so every Install or
+' Uninstall test sets HOME to a temp dir (no t.Parallel) and checks the
+' operator's own tick files kept their state (install_test.go testsHome).
+'   install    "✓ tick — installed", the manager and "logs to <~log>" dim;
+'              "⚠ tick — reads ~/.proveo/schedule.yml, not this home's" in its
+'              place under another PROVEO_HOME; "× tick — no service manager
+'              on <os>" (ErrNoServiceManager), its manual tick dim off windows
+'   uninstall  "✓ tick — removed" when launchd or systemd let one go or a unit
+'              file was there (a job launchd held with its plist gone counts);
+'              "● tick — not installed" otherwise, every OS
+' TickStatus reads `launchctl print`: "last exit code" (0 and "(never
+' exited)" are healthy) and "stdout path", the log the tick really writes.
+' KNOWN, NOT FIXED (the operator, "no false ✓; record fix"): the plist and the
+' unit set PATH only, so the tick reads $HOME/.proveo whatever PROVEO_HOME the
+' operator set (README's PROVEO_HOME override); the listing names it as ⚠
+' instead of ✓. The fix is for the plist and the unit to carry PROVEO_HOME;
+' then Tick.Home reads it from them.
+' KNOWN: a job removed from schedule.yml while its session runs is invisible
+' to the listing and to attach's no-argument list (both iterate the
+' configured jobs); `proveo attach <task>` still opens it (tmux decides).
 '
 ' ── LIMITS ─────────────────────────────────────────────────────────────────
 ' A sleeping Mac runs nothing (waking needs `pmset`, i.e. sudo). The watcher

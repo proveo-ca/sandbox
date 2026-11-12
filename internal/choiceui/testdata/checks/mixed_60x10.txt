@@ -1,0 +1,10 @@
+init — preparing the darwin/arm64 host          checks · 1/4
+
+  to install sbx
+  ✓ Apple silicon — macOS Sonoma 14 or later on Apple silic…
+  sbx diagnose
+  ✓ virtualization — Hypervisor.framework is available
+
+2 of 5 checks need attention — enter continues to setup
+
+page 1/4 · enter continue · esc cancel · 6 more below

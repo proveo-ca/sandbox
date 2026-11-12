@@ -1,0 +1,10 @@
+credentials in this run                 ┌─────────────────┐
+                                        │[x] credential-00│
+                  ◀ riskier             │[ ] credential-01│
+                                        │[x] credential-02│
+  › credentials   [x] API keys          │[ ] credential-03│   [ ] SSH
+    egress        ( ) allow-all   (•) ba│[ ] credential-04│ll
+                                        │[ ] credential-05│
+↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel
+
+  › credential-03 — publish this port

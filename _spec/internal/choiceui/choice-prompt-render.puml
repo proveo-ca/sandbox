@@ -3,7 +3,7 @@
 skinparam noteTextAlignment left
 ' purpose: what the choice prompt draws, what may be offered, and where the cursor may rest
 ' covers: internal/choiceui/choiceui.go
-' covers: internal/choiceui/choiceui_test.go, internal/choiceui/render_test.go
+' covers: internal/choiceui/choiceui_test.go, internal/choiceui/screen_test.go
 ' covers: internal/choiceui/hover_test.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/choiceui/pane_test.go
 ' covers: cmd/proveo/main.go
@@ -14,7 +14,8 @@ skinparam noteTextAlignment left
 ' consent.go (Consent, the review tier's connection modal) and its test are
 ' DELETED (MEASURED): review was retired 2026-10-16 and nothing called it.
 ' drawBorder moved to internal/choiceui/blocked_run.go, where the blocked-run
-' prompts use it; the `rendered` test helper moved to render_test.go.
+' prompts used it; the `rendered` test helper lives in screen_test.go since
+' the Bubble Tea port (_spec/internal/choiceui/tui-stack.puml).
 ' What the answers MEAN and how they are cached: _spec/internal/agentsettings/choice-cache.puml.
 ' Resolved geometry — column alignment, the divider, how a gated element is drawn:
 ' _spec/internal/choiceui/wireframe.puml (salt). Layout prose belongs there, not here.
@@ -193,7 +194,7 @@ skinparam noteTextAlignment left
 ' declared Heading keeps the name: OS under execution, devices under
 ' interface. Every other row keeps its label, because its
 ' label is the only place its name was ever going to appear. Built once per
-' frame rather than rescanned per line: the body repaints at the ticker's rate.
+' frame rather than rescanned per line: the body repaints at the figure's rate.
 '
 ' minHeight takes the WIDTH because the help slot's height depends on it. Asking
 ' at width zero measured the help wrapped to wrap()'s 20-column floor and
@@ -205,7 +206,7 @@ node "internal/choiceui" as PKG <<host>> {
   component "Form\nBanner · Title · Header · Rows" as FORM <<app>>
   component "Row\nradio: Options + Selected\ncheckbox: Multi + On/Off" as ROW <<app>>
   component "draw(screen, cursor)\nlegend · divider · markers" as DRAW <<app>>
-  component "Run()\ntcell screen, one key per action" as RUN <<app>>
+  component "Run()\na Bubble Tea model, one key per action" as RUN <<app>>
   component "OnChange(*Form)\nre-gated after every keystroke" as CHANGE <<app>>
   component "Selection · Selections\nread back by label" as READ <<app>>
 }

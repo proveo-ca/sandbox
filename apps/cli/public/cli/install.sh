@@ -171,9 +171,21 @@ ensure_path_markers() {
   print_info "Added $BIN_DIR to PATH in $config_file"
 }
 
+# path_without_bin_dir prints PATH with each entry that names BIN_DIR left out.
+path_without_bin_dir() {
+  local entry out=""
+  local -a entries
+  IFS=: read -r -a entries <<<"$PATH"
+  for entry in ${entries[@]+"${entries[@]}"}; do
+    [[ "${entry%/}" == "${BIN_DIR%/}" ]] && continue
+    out="${out:+$out:}$entry"
+  done
+  printf '%s' "$out"
+}
+
 ensure_path() {
   if [[ -x "$BIN_DIR/proveo" ]]; then
-    if PATH="$BIN_DIR:$PATH" "$BIN_DIR/proveo" setup >/dev/null 2>&1; then
+    if PATH="$(path_without_bin_dir)" "$BIN_DIR/proveo" setup >/dev/null 2>&1; then
       return 0
     fi
   fi
@@ -237,8 +249,7 @@ run_init() {
 init_incomplete() {
   cat <<'EOF'
 
-The sbx backend is not ready yet — the lines above say which condition failed
-and how to fix it. proveo itself is installed. Once the host is fixed:
+proveo itself is installed; the sbx backend is not set up yet. To finish it:
   proveo init
 EOF
 }
@@ -251,7 +262,10 @@ print_post_install_message() {
   local reload_cmd
   local config_file
   config_file="$(shell_config_file)"
-  local pretty_config="${config_file/#$HOME/\~}"
+  local pretty_config="$config_file"
+  case "$config_file" in
+    "$HOME"/*) pretty_config="~${config_file#"$HOME"}" ;;
+  esac
 
   if [[ "$shell_name" == "fish" ]]; then
     path_cmd="set -gx PATH \"$BIN_DIR\" \$PATH"
@@ -274,7 +288,6 @@ Or reload your current configuration:
 
 Then try:
   proveo --version
-  proveo init --print
   proveo --ls
 EOF
 }

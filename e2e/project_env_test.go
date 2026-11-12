@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/proveo-ca/proveo/internal/termtext"
 )
 
 func TestProjectEnvValuesReachTheSandbox(t *testing.T) {
@@ -22,7 +24,7 @@ func TestProjectEnvValuesReachTheSandbox(t *testing.T) {
 	if !strings.Contains(out, "PROBE=from dotenv") {
 		t.Fatalf("the project .env value did not reach the sandbox unquoted through --env-file:\n%s\n%s", out, k.pane(30))
 	}
-	if !strings.Contains(k.pane(400), "project .env: 1 value(s) seeded into") {
+	if words := termtext.Words(k.pane(400)); !strings.Contains(words, "env: 1 value from ") || !strings.Contains(words, "/.env (--env-file)") {
 		t.Errorf("the run never said it seeded the project .env:\n%s", k.pane(60))
 	}
 }

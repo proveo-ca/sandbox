@@ -20,7 +20,7 @@ Each harness definition should expose, where applicable:
 - `entrypoint.sh` — runtime setup, config discovery, env bridging, and final CLI launch.
 - A row in `internal/imagebuild/targets.go` — the build recipe (parent, pins, variants); `mise run build <target>` runs it.
 - A `harness.manifest` — mounts, env and posture that `proveo run <target>` applies.
-- An image suite at `internal/imagetest/<name>_test.go` (build tag `image`, func `TestImage<Name>`) — smoke and contract checks against the built image; `mise run test-defs <name>` or `proveo test <name>` runs it.
+- An image suite at `internal/imagetest/<name>_test.go` (build tag `image`, func `TestImage<Name>`) — smoke and contract checks against the built image; `mise run test-defs <name>` runs it.
 - `README.md` — usage, image names, mounts, config behavior, and harness-specific notes.
 - Sample config files such as `sample_opencode.json` or `.env.sample`.
 
@@ -48,7 +48,7 @@ OpenCode v2 resolves and installs `@opencode/cli`.
 Its `opencode --version` output is `opencode v<version>`; the image's version label stays bare.
 
 Exporting the ARG pins a specific release or builds offline, e.g.
-`OPENCODE_VERSION=2.0.6 proveo build opencode`. To see what an image carries without
+`OPENCODE_VERSION=2.0.6 mise run build opencode`. To see what an image carries without
 running it: `docker image inspect -f '{{index .Config.Labels "proveo.agent.version"}}' proveo/opencode:local`.
 
 ## Runtime Configuration Discovery

@@ -302,12 +302,15 @@ func orTmux(run tmux.Runner) tmux.Runner {
 // ErrRunning means the job's previous run still holds its tmux session.
 var ErrRunning = errors.New("still running")
 
+// ErrSessionStart means tmux did not start the job's session.
+var ErrSessionStart = errors.New("start tmux session")
+
 // Launch starts the job's tmux session and a detached watcher; it returns once both run.
 func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 	run = orTmux(run)
 	sess := tmux.New(SessionName(name), run)
 	if sess.Alive() {
-		return fmt.Errorf("%s: %w (tmux session %s)", name, ErrRunning, sess.Name)
+		return fmt.Errorf("%w (tmux session %s)", ErrRunning, sess.Name)
 	}
 	dir := LogDir(home, name)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -321,7 +324,7 @@ func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 	}
 	cmd := sessionCommand(wd, transcript, proveo, j)
 	if err := sess.Start(200, 50, "sh", "-c", cmd); err != nil {
-		return fmt.Errorf("start tmux session: %w", err)
+		return fmt.Errorf("%w: %w", ErrSessionStart, err)
 	}
 	if _, err := run("pipe-pane", "-t", sess.Name, "-o", "cat >> "+shellQuote(transcript)); err != nil {
 		sess.Kill()

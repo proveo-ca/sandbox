@@ -1,6 +1,9 @@
 package shell
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestDetect(t *testing.T) {
 	t.Parallel()
@@ -96,13 +99,79 @@ func TestExportLine(t *testing.T) {
 func TestAlreadyConfigured(t *testing.T) {
 	t.Parallel()
 	bin := "/home/u/.local/bin"
-	if !AlreadyConfigured("\n"+Marker+"\nexport PATH=...\n", bin) {
-		t.Error("marker present should be already-configured")
+	if AlreadyConfigured("\n"+Marker+"\n"+`export PATH="/home/u/go/bin:$PATH"`+"\n", bin) {
+		t.Error("setup's marker for another directory counted as this directory's line")
+	}
+	if !AlreadyConfigured("\n"+Marker+"\n"+`export PATH="/home/u/.local/bin:$PATH"`+"\n", bin) {
+		t.Error("setup's own block for this directory should be already-configured")
 	}
 	if !AlreadyConfigured(`export PATH="/home/u/.local/bin:$PATH"`, bin) {
 		t.Error("binDir present should be already-configured")
 	}
 	if AlreadyConfigured("export PATH=/usr/bin:$PATH", bin) {
 		t.Error("unrelated rc should not be already-configured")
+	}
+}
+
+func TestAlreadyConfiguredReadsTheDirSpelledFromHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(home, ".proveo", "bin")
+	for _, rc := range []string{`export PATH="$HOME/.proveo/bin:$PATH"`, `export PATH="${HOME}/.proveo/bin:$PATH"`, `fish_add_path ~/.proveo/bin`} {
+		if !AlreadyConfigured(rc, bin) {
+			t.Errorf("%q names %s; a second line would only repeat it", rc, bin)
+		}
+	}
+	if AlreadyConfigured(`export PATH="$HOME/go/bin:$PATH"`, bin) {
+		t.Error("another dir under $HOME counted as this one")
+	}
+	for _, rc := range []string{`path=(~/.proveo/bin/ $path)`, `setenv PATH "$HOME/.proveo/bin:$PATH"`, "  export PATH=" + bin + ":$PATH; hash -r"} {
+		if !AlreadyConfigured(rc, bin) {
+			t.Errorf("%q puts %s on PATH", rc, bin)
+		}
+	}
+}
+
+func TestAMentionOutsideAPathLineIsNotConfigured(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(home, ".proveo", "bin")
+	for _, rc := range []string{
+		`alias pv=~/.proveo/bin/proveo`,
+		`# export PATH="$HOME/.proveo/bin:$PATH"`,
+		`export PATH="$HOME/.proveo/binaries:$PATH"`,
+		`export PROVEO_BIN=~/.proveo/bin`,
+		`export PATH="/opt$HOME/.proveo/bin:$PATH"`,
+	} {
+		if AlreadyConfigured(rc, bin) {
+			t.Errorf("%q puts nothing of %s on PATH; setup must still write its line", rc, bin)
+		}
+	}
+}
+
+func TestTheStarshipLineIsEachShellsOwnAndItsBlockComesOutClean(t *testing.T) {
+	for path, want := range map[string]string{
+		"/bin/bash":     `eval "$(starship init bash)"`,
+		"/bin/zsh":      `eval "$(starship init zsh)"`,
+		"/usr/bin/fish": `starship init fish | source`,
+		"/bin/ksh":      "",
+	} {
+		s, _ := Detect(path)
+		if got := s.StarshipLine(); got != want {
+			t.Errorf("%s: StarshipLine = %q, want %q", path, got, want)
+		}
+	}
+	zsh, _ := Detect("/bin/zsh")
+	const theirs = "export EDITOR=vim\n"
+	with := theirs + zsh.PromptBlock()
+	if !StartsStarship(with) || StartsStarship(theirs) {
+		t.Error("StartsStarship does not follow the init line")
+	}
+	if got := WithoutPromptBlock(with); got != theirs {
+		t.Errorf("WithoutPromptBlock = %q, want %q", got, theirs)
+	}
+	const byHand = "export EDITOR=vim\neval \"$(starship init zsh)\"\n"
+	if got := WithoutPromptBlock(byHand); got != byHand {
+		t.Errorf("WithoutPromptBlock removed a line the operator wrote: %q", got)
 	}
 }

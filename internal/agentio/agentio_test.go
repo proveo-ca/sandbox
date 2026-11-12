@@ -70,10 +70,10 @@ func TestTailIsConcurrencySafe(t *testing.T) {
 }
 
 func TestStdioHandsTheTerminalOverUnwrapped(t *testing.T) {
-	out, errw := os.Stdout, os.Stderr
-	gotOut, gotErr, tail := Stdio(out, errw, true)
-	if gotOut != io.Writer(out) || gotErr != io.Writer(errw) {
-		t.Fatalf("interactive run wrapped the terminal: stdout=%T stderr=%T", gotOut, gotErr)
+	out := os.Stdout
+	gotOut, _, tail := Stdio(out, io.Discard, true)
+	if gotOut != io.Writer(out) {
+		t.Fatalf("interactive run wrapped the terminal: stdout=%T", gotOut)
 	}
 	if tail == nil {
 		t.Fatal("an interactive run needs somewhere for the pty proxy to put the agent's last words")
@@ -84,6 +84,18 @@ func TestStdioHandsTheTerminalOverUnwrapped(t *testing.T) {
 	fmt.Fprint(tail, "Invalid API key · Please run /login\n")
 	if lines := tail.Lines(); len(lines) != 1 || lines[0] != "Invalid API key · Please run /login" {
 		t.Fatalf("the interactive tail must retain what the proxy feeds it, got %v", lines)
+	}
+}
+
+func TestStdioOnATerminalTeesStderrAloneSoSbxsErrorLineReachesTheTail(t *testing.T) {
+	var errw bytes.Buffer
+	_, gotErr, tail := Stdio(os.Stdout, &errw, true)
+	fmt.Fprintln(gotErr, "error: agent exited with code 3")
+	if errw.String() != "error: agent exited with code 3\n" {
+		t.Fatalf("the tee stopped reaching stderr: %q", errw.String())
+	}
+	if got := tail.Lines(); len(got) != 1 || got[0] != "error: agent exited with code 3" {
+		t.Fatalf("a terminal run with no pty proxy lost sbx's error line: %v", got)
 	}
 }
 
