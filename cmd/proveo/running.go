@@ -53,51 +53,60 @@ func runningOrNone() []schedule.RunningTask {
 	return tasks
 }
 
+// currentRunning lists the scheduled tasks whose tmux session is up; none when no schedule.yml exists.
 func currentRunning() ([]schedule.RunningTask, error) {
 	home, c, err := loadSchedule()
+	var none errNoSchedule
+	if errors.As(err, &none) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	return schedule.RunningTasks(c, scheduleNow(), func(job string) *schedule.Live {
+	return schedule.RunningTasks(c, scheduleNow(), liveRun(home)), nil
+}
+
+// liveRun is a job's run in progress, read from its tmux session and its newest transcript.
+func liveRun(home string) func(job string) *schedule.Live {
+	return func(job string) *schedule.Live {
 		if !tmuxHasSession(schedule.SessionName(job)) {
 			return nil
 		}
 		return &schedule.Live{Since: schedule.CurrentRun(home, job)}
-	}), nil
+	}
 }
 
-func writeRunning(w io.Writer, tasks []schedule.RunningTask) {
-	p := ui.New(w)
-	p.Section(ui.SectionRunning)
+// writeRunning prints the running tasks on rows as one Facts block keyed by task, each valued as
+// `proveo schedule` values it, or "nothing running" on none when there are none.
+func writeRunning(rows, none *ui.Printer, tasks []schedule.RunningTask) {
 	if len(tasks) == 0 {
-		p.Notef("nothing running")
+		none.Asyncf("nothing running")
 		return
 	}
-	width := 0
-	for _, t := range tasks {
-		width = max(width, len(t.Job))
+	facts := make([]ui.Fact, len(tasks))
+	for i, t := range tasks {
+		facts[i] = ui.Fact{Role: ui.RoleAsync, Key: t.Job, Value: t.Value}
 	}
-	for _, t := range tasks {
-		p.Appf("%-*s  %s", width, t.Job, t.Line)
-	}
+	rows.Facts(facts...)
 }
 
-func writeTargets(w io.Writer, targets map[string]string) {
-	p := ui.New(w)
-	p.Section(ui.SectionTargets)
+// writeTargets prints each harness target as one aligned fact valued with its image.
+func writeTargets(p *ui.Printer, targets map[string]string) {
 	names := sortedKeys(targets)
-	width := 0
-	for _, n := range names {
-		width = max(width, len(n))
+	facts := make([]ui.Fact, len(names))
+	for i, name := range names {
+		facts[i] = ui.Fact{Role: ui.RoleApp, Key: name, Value: targets[name]}
 	}
-	for _, name := range names {
-		p.Appf("%-*s  %s", width, name, targets[name])
-	}
+	p.Facts(facts...)
 }
 
+// writeRunLists prints `proveo run`'s two lists, each under its heading: the running tasks, then the targets.
 func writeRunLists(w io.Writer, tasks []schedule.RunningTask, targets map[string]string) {
-	writeRunning(w, tasks)
-	writeTargets(w, targets)
+	p := ui.New(w)
+	p.Section(ui.SectionRunning)
+	writeRunning(p, p, tasks)
+	p.Section(ui.SectionTargets)
+	writeTargets(p, targets)
 }
 
 func runChoices(tasks []schedule.RunningTask, targets map[string]string) []menuChoice {
@@ -133,16 +142,21 @@ func choiceLabels(choices []menuChoice) []string {
 	return out
 }
 
+// pickerClosed is a picker the operator closed without a choice; it reads as the caller's abort words.
+type pickerClosed struct{ abort string }
+
+func (e pickerClosed) Error() string { return e.abort }
+
 func offer(choices []menuChoice, prompt, abort string) (menuChoice, error) {
 	idx, err := pickIndex(prompt, choiceLabels(choices))
 	if errors.Is(err, choiceui.ErrListClosed) {
-		return menuChoice{}, fmt.Errorf("%s", abort)
+		return menuChoice{}, pickerClosed{abort}
 	}
 	if err != nil {
 		return menuChoice{}, err
 	}
 	if idx < 0 || idx >= len(choices) {
-		return menuChoice{}, fmt.Errorf("%s", abort)
+		return menuChoice{}, pickerClosed{abort}
 	}
 	return choices[idx], nil
 }

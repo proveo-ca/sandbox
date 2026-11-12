@@ -28,8 +28,8 @@ func TestCleanSweepsRunStateUnderRunsOnly(t *testing.T) {
 	if got, want := stateSessions(), []string{"proveo-1-1", "proveo-3-3"}; !slices.Equal(got, want) {
 		t.Errorf("stateSessions() = %v, want %v", got, want)
 	}
-	if err := runClean(clean.Plan{StateDirs: stateSessions()}, false); err != nil {
-		t.Fatal(err)
+	if res := runClean(clean.Plan{StateDirs: stateSessions()}, "", false); len(res.failed) > 0 || len(res.gone) != len(dirs) {
+		t.Fatalf("runClean removed %d, failed %v", len(res.gone), res.failed)
 	}
 	for _, d := range dirs {
 		if _, err := os.Stat(filepath.Join(state, d)); !os.IsNotExist(err) {

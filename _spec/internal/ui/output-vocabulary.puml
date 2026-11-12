@@ -41,7 +41,8 @@
 ' Swept cmd/proveo and internal for raw fmt.Print*: `ls`, `projects`,
 ' `setup --print`, the numbered target/scope pickers, the y/N and field prompts
 ' (init wizard, uninstall) and the Ollama pull now speak the Printer's verbs
-' under a Section. Askf is the one new verb: a question that waits for input
+' under a Section (R4 took the Section off `ls`, `projects`, `setup --print`
+' and uninstall's question: WHAT THE LISTINGS PRINT below). Askf is the one new verb: a question that waits for input
 ' on the SAME line — "› " brand + bold text (ascii "> "), plain the bare text.
 ' A pull's live progress line only redraws on a TTY; plain gets start + end.
 ' DELIBERATELY PLAIN, because something copies or parses them: `version`
@@ -200,6 +201,60 @@
 ' init writes no run log, so ui.Logf is a no-op there; nothing init used to
 ' print moved to Logf. Its how-tos went to `proveo init --help` (F2).
 '
+' ── WHAT THE LISTINGS PRINT (2026-11-11, R4 of _spec/_plans/output-readability.puml)
+' A one-subject command draws NO heading (the operator: rm, adopt, attach,
+' clean, ls, projects, the schedule listing, setup, update, uninstall). `proveo
+' run` with no target keeps "running" and "targets"; run and init keep theirs.
+' SectionProjects, SectionSchedule, SectionSetup and SectionUninstall lost
+' their last callers and left: fourteen sections. SectionTargets and
+' SectionRunning now head only `proveo run`'s two-block listing.
+'   ls        ONE Facts block, app role: "<target>: <image>"
+'   projects  one store-role row per member path; no tool column (P6, P9)
+'   schedule  ONE Facts block keyed by job, scheduler role; × items after it;
+'             ONE closing tick line ("✓ tick — installed", the manager dim)
+'   attach    (no terminal) ONE Facts block keyed by task, the same running
+'             value as the schedule listing, no literal "●" in the value;
+'             one dim how-to on stderr; a refusal, "⚠ attach — stopped at
+'             tmux" or "● tmux — nested read-only client" otherwise
+'   rm        a kept sandbox is a P2 item "<name> — <why>", its age dim
+'             ("19h 7m ago", ui.Span: the schedule's wait form, pinned by
+'             TestSpanWritesAWaitOrAnAgeToTheMinute); one
+'             closing line: "✓ <name> — removed | already gone", "× <name>
+'             — not removed" with its why and ONE fix dim, "⚠ <name> — no
+'             such sandbox" (exit 0, HEAD's status)
+'   durations a wait or an age reads ui.Span ("in 1d 23h", "19h 7m ago"); a
+'             budget and the clock against it read as schedule.yml writes a
+'             budget ("1h7m of 1h30m" beside "1h30m budget"). NOT CHOSEN:
+'             ui.Span for both ("of 1h 0m" beside "budget: 1h")
+'   adopt     ONE "to adopt" fact, stacked; "✓ branch <b> — created at <ref>"
+'   clean     ONE Facts block by kind, error role (red without a failure),
+'             printed after the removals; ⚠ items; one closing
+'   setup     ONE item, init's PATH item word for word: "✓ ~/.proveo/bin —
+'             added to PATH in ~/.zshrc", "⚠ … — not on this shell's PATH",
+'             "× ~/.zshrc — not written"; the line to add dim
+'   update    a live line per wait (latest.json, the download, uninstall.sh);
+'             "✓ proveo 0.3.1 → 0.4.0 — updated", "● … — available" for
+'             --check, "× latest.json — not read | not valid", the cause dim
+'   uninstall the question names each part found; ONE Facts block of what
+'             left, error role (root · path · prompt · font); ⚠ for each
+'             removal that failed and each thing that stays; "✓ proveo —
+'             uninstalled" or "⚠ proveo — uninstalled; N left"
+' (_spec/internal/results/result-store.puml, _spec/internal/clean/clean-lifecycle.puml,
+' _spec/internal/shell/setup-path.puml, _spec/internal/cdn/distribution-update.puml.)
+' Dangerf lost its last caller (uninstall's red line, P9) and left ui.go: the
+' error role prints as a Fact's Role or through Rolef, so five roles carry a
+' verb and RoleError carries none (internal/contract TestEveryRoleVerbIsWired).
+' sandbox.Item splits a detail at each newline, so an error git or sbx wrote
+' over several lines keeps the detail column (FOUND 9 of the R4 kept design,
+' read from code: Detailf wrote the later lines at column 0); blank rows drop.
+' An absence is one role line on stderr ("● nothing running") and stdout
+' stays empty. A command's refusal is ONE × item with ONE dim line, printed
+' by the command through sandbox.PrintBlock under no heading (cmd/proveo
+' reported), returning backend.Reported: main adds no second × (R3's
+' mechanism, settled). `proveo version`, the tick's launchd log and
+' `schedule run --print` stay DELIBERATELY PLAIN; the tick log names a job
+' still running once.
+'
 ' ── WHICH SCREEN LINES ARE PROVEO'S (2026-10-20) ───────────────────────────
 ' MEASURED: the newer sbx prints its own uncoloured lines into the same pane —
 ' a `── RESOLVE SETUP` block, `⚠ WARNING: template … built for the "shell"
@@ -260,14 +315,14 @@
 '     a plain printer keeps one start line, and egress's "local model" fact
 '     gains a dim "pulled this run · 4.0 GiB")
 '
-title Output vocabulary — six roles, three severities, eighteen sections, one measured writer
+title Output vocabulary — six roles, three severities, fourteen sections, one measured writer
 
 component "Printer{W, Plain, Tier}" as P <<app>>
-component "Hostf · Appf · Asyncf\nCloudf · Storef · Dangerf\n— role: which layer speaks" as ROLES <<app>>
+component "Hostf · Appf · Asyncf\nCloudf · Storef · Fact.Role\n— role: which layer speaks" as ROLES <<app>>
 component "Okf · Warnf · Failf\n— severity: fine · attention · broken" as SEV <<app>>
 component "Notef\ncontinuation, indented\nto the text column" as NOTE <<app>>
 component "Askf\nquestion, same line,\nawaits input" as ASK <<app>>
-component "Section(ui.Section*)\neighteen closed names\nheading drawn LAZILY" as SEC <<app>>
+component "Section(ui.Section*)\nfourteen closed names\nheading drawn LAZILY" as SEC <<app>>
 component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
@@ -302,10 +357,10 @@ note right of ROLES
   the colour, because a second geometric shape per role
   would be a code the reader has to learn.
 
-  ""Dangerf"" is the ""<<error>>"" role WITHOUT a failure —
-  ""proveo clean"" removing an image, a credential
-  crossing a boundary. Red because it is destructive or
-  security-sensitive, ""●"" because nothing went wrong.
+  A ""RoleError"" fact: the error role WITHOUT a
+  failure — what ""proveo clean"" or ""proveo
+  uninstall"" removed. Red for destructive,
+  ""●"" for nothing went wrong.
 end note
 
 note bottom of SEV

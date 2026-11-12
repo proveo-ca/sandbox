@@ -194,6 +194,10 @@ skinparam noteTextAlignment left
 '                              x86_64 aapt2 under qemu-user (base image, arm64
 '                              only: qemu-user + amd64-cross libc, ~13 MB)
 '   arm64 guest, other host    notice, no SDK: no measured path
+' internal/contract/jvm_toolchain_test.go runs the row with mise, java, uname
+' and sdkmanager stubbed. For "no qemu" (NO_QEMU=1) the row's PATH links
+' /usr/bin and /bin minus qemu-*, since a Linux proveo image holds a real
+' /usr/bin/qemu-x86_64 (the R4 review's Linux leg; failed there at HEAD).
 '
 ' ── TOOLS PROVISIONED AFTER LAUNCH REACH THE AGENT ─────────────────────────
 ' sbx starts the agent before the seed provisions, and Claude Code snapshots

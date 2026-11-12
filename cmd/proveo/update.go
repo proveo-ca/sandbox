@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/cdn"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -32,70 +34,112 @@ Override the channel with PROVEO_ASSET_BASE_URL (default https://proveo.ca/cli).
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "update even from a dev/local build, or reinstall the same version")
-	cmd.Flags().BoolVar(&checkOnly, "check", false, "print whether an update is available and exit")
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "print whether an update is available and exit; `proveo update` installs it")
 	return cmd
 }
 
 func doUpdate(force, checkOnly bool) error {
-	base := cdn.BaseURL()
-	man, err := cdn.FetchManifest(nil, base)
+	exe, err := executable()
 	if err != nil {
-		return err
+		return reported(sandbox.Item{Fail: true, Text: "proveo — not updated", Detail: errLines(err)}, err)
+	}
+	return updateAt(resolved(exe), force, checkOnly)
+}
+
+// updateAt reads the release channel and, unless checkOnly, replaces the binary at exe with its release,
+// printing one closing line; every failure is one × item, Reported.
+func updateAt(exe string, force, checkOnly bool) error {
+	base := cdn.BaseURL()
+	done := ui.Running(func(ran time.Duration) string { return "latest.json — reading · " + ran.Round(time.Second).String() }, "")
+	man, err := cdn.FetchManifest(nil, base)
+	done()
+	if err != nil {
+		return reported(manifestItem(err), err)
 	}
 	asset := cdn.CurrentAssetName()
 	sum, err := man.ChecksumFor(asset)
 	if err != nil {
-		return err
+		return reported(sandbox.Item{Fail: true, Text: "latest.json — no checksum for " + asset}, err)
 	}
 
 	local := strings.TrimPrefix(version, "v")
 	remote := man.Version
 	need := force || cdn.Newer(remote, local)
-	if checkOnly {
-		if need && remote != local {
-			ui.Notef("update available: %s → %s (%s)", local, remote, base)
-			return nil
-		}
-		ui.Okf("up to date (%s)", local)
+	if checkOnly && need && remote != local {
+		ui.Cloudf("proveo %s → %s — available", local, remote)
+		ui.Detailf("%s", base)
 		return nil
 	}
-	if !need {
-		ui.Okf("already on latest (%s)", local)
+	if checkOnly || !need {
+		ui.Okf("proveo %s — up to date", local)
 		return nil
 	}
 	if cdn.IsDevVersion(local) && !force {
-		return fmt.Errorf("current build is %q — refuse to replace with CDN %s without --force", local, remote)
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
+		return reported(sandbox.Item{Fail: true, Text: "proveo " + local + " — a local build, not replaced",
+			Detail: []string{"`proveo update --force` replaces it with " + remote}}, fmt.Errorf("update: %s is a local build", local))
 	}
 
 	tmpDir, err := os.MkdirTemp("", "proveo-update-*")
 	if err != nil {
-		return err
+		return reported(sandbox.Item{Fail: true, Text: "proveo — not updated", Detail: errLines(err)}, err)
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 	tmp := filepath.Join(tmpDir, asset)
-	ui.Cloudf("downloading proveo %s (%s)…", remote, asset)
-	if err := cdn.DownloadAsset(nil, man.BaseURL, asset, tmp, sum); err != nil {
-		return err
+	done = ui.Running(func(ran time.Duration) string {
+		return "proveo " + remote + " — downloading · " + ran.Round(time.Second).String()
+	}, "proveo "+remote+" — downloading")
+	err = cdn.DownloadAsset(nil, man.BaseURL, asset, tmp, sum)
+	done()
+	if err != nil {
+		return reported(downloadItem(remote, err), err)
+	}
+	if err := replaceExecutable(exe, tmp); err != nil {
+		return reported(sandbox.Item{Fail: true, Text: ui.Tilde(exe) + " — not replaced", Detail: errLines(err)}, err)
 	}
 
-	if err := replaceExecutable(exe, tmp); err != nil {
-		return err
-	}
+	var items []sandbox.Item
 	if root := installRoot(); strings.HasPrefix(exe, filepath.Join(root, "bin")) {
-		if err := refreshUninstallScript(root, man.BaseURL); err != nil {
-			ui.Warnf("could not refresh uninstall.sh: %v", err)
+		done = ui.Running(func(ran time.Duration) string {
+			return "uninstall.sh — downloading · " + ran.Round(time.Second).String()
+		}, "")
+		err := refreshUninstallScript(root, man.BaseURL)
+		done()
+		if err != nil {
+			items = append(items, sandbox.Item{Warn: true, Text: ui.Tilde(filepath.Join(root, "uninstall.sh")) + " — not refreshed", Detail: errLines(err)})
 		}
 	}
-	ui.Okf("updated proveo %s → %s", local, remote)
+	verdict := "proveo " + local + " → " + remote + " — updated"
+	if local == remote {
+		verdict = "proveo " + remote + " — reinstalled"
+	}
+	sandbox.PrintBlock(func() {}, nil, append(items, sandbox.Item{Ok: true, Text: verdict, Detail: []string{ui.Tilde(exe)}}))
 	return nil
+}
+
+// manifestItem is the × for a latest.json that gave no release: one that never arrived, or one that held none.
+func manifestItem(err error) sandbox.Item {
+	var me cdn.ManifestError
+	if !errors.As(err, &me) {
+		return sandbox.Item{Fail: true, Text: "latest.json — not read", Detail: errLines(err)}
+	}
+	if me.Fetch {
+		return sandbox.Item{Fail: true, Text: "latest.json — not read", Detail: errLines(me.Err)}
+	}
+	return sandbox.Item{Fail: true, Text: "latest.json — not valid", Detail: errLines(me.Err)}
+}
+
+// downloadItem is the × for a release that did not arrive, or whose sha256 is not latest.json's.
+func downloadItem(release string, err error) sandbox.Item {
+	var mismatch cdn.ChecksumMismatch
+	if errors.As(err, &mismatch) {
+		return sandbox.Item{Fail: true, Text: mismatch.Asset + " " + release + " — checksum mismatch",
+			Detail: []string{"expected " + mismatch.Want, "got      " + mismatch.Got}}
+	}
+	var de cdn.DownloadError
+	if errors.As(err, &de) {
+		err = de.Err
+	}
+	return sandbox.Item{Fail: true, Text: "proveo " + release + " — not downloaded", Detail: errLines(err)}
 }
 
 func replaceExecutable(dst, src string) error {

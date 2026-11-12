@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,6 +48,40 @@ func BaseURL() string {
 	return DefaultBaseURL
 }
 
+// ManifestError is a latest.json that gave no release: Fetch when it never arrived, else its body held none.
+type ManifestError struct {
+	Fetch bool
+	Err   error
+}
+
+func (e ManifestError) Error() string {
+	if e.Fetch {
+		return "fetch latest.json: " + e.Err.Error()
+	}
+	return "latest.json: " + e.Err.Error()
+}
+
+func (e ManifestError) Unwrap() error { return e.Err }
+
+// DownloadError is a release asset that did not arrive.
+type DownloadError struct {
+	Asset string
+	Err   error
+}
+
+func (e DownloadError) Error() string { return "download " + e.Asset + ": " + e.Err.Error() }
+
+func (e DownloadError) Unwrap() error { return e.Err }
+
+// ChecksumMismatch is a downloaded asset whose sha256 is not the one latest.json names; it is not kept.
+type ChecksumMismatch struct {
+	Asset, Want, Got string
+}
+
+func (e ChecksumMismatch) Error() string {
+	return fmt.Sprintf("checksum mismatch for %s (expected %s, got %s)", e.Asset, e.Want, e.Got)
+}
+
 func FetchManifest(client *http.Client, baseURL string) (Manifest, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
@@ -54,26 +89,26 @@ func FetchManifest(client *http.Client, baseURL string) (Manifest, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 	u, err := joinURL(baseURL, "latest.json")
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, ManifestError{Fetch: true, Err: err}
 	}
 	resp, err := client.Get(u)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("fetch latest.json: %w", err)
+		return Manifest{}, ManifestError{Fetch: true, Err: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Manifest{}, fmt.Errorf("fetch latest.json: HTTP %s", resp.Status)
+		return Manifest{}, ManifestError{Fetch: true, Err: fmt.Errorf("HTTP %s", resp.Status)}
 	}
 	var m Manifest
 	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
-		return Manifest{}, fmt.Errorf("parse latest.json: %w", err)
+		return Manifest{}, ManifestError{Err: fmt.Errorf("not JSON: %w", err)}
 	}
 	m.Version = strings.TrimPrefix(strings.TrimSpace(m.Version), "v")
 	if m.Version == "" {
-		return Manifest{}, fmt.Errorf("latest.json: missing version")
+		return Manifest{}, ManifestError{Err: errors.New("no version")}
 	}
 	if len(m.Checksums) == 0 {
-		return Manifest{}, fmt.Errorf("latest.json: missing checksums")
+		return Manifest{}, ManifestError{Err: errors.New("no checksums")}
 	}
 	if m.BaseURL == "" {
 		m.BaseURL = baseURL
@@ -93,11 +128,11 @@ func DownloadAsset(client *http.Client, baseURL, asset, destPath, wantHex string
 	}
 	resp, err := client.Get(u)
 	if err != nil {
-		return fmt.Errorf("download %s: %w", asset, err)
+		return DownloadError{Asset: asset, Err: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: HTTP %s", asset, resp.Status)
+		return DownloadError{Asset: asset, Err: fmt.Errorf("HTTP %s", resp.Status)}
 	}
 	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
@@ -117,7 +152,7 @@ func DownloadAsset(client *http.Client, baseURL, asset, destPath, wantHex string
 	wantHex = strings.ToLower(strings.TrimSpace(wantHex))
 	if got != wantHex {
 		_ = os.Remove(destPath)
-		return fmt.Errorf("checksum mismatch for %s (expected %s, got %s)", asset, wantHex, got)
+		return ChecksumMismatch{Asset: asset, Want: wantHex, Got: got}
 	}
 	return nil
 }

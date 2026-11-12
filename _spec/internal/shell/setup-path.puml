@@ -4,26 +4,124 @@ skinparam noteTextAlignment left
 ' purpose: how proveo puts a directory on PATH across shells, and how it takes it back off
 ' covers: internal/shell/shell.go
 ' covers: internal/shell/shell_test.go
+' covers: cmd/proveo/setup.go
+' covers: cmd/proveo/setup_test.go
 ' covers: cmd/proveo/uninstall.go
 ' covers: cmd/proveo/uninstall_test.go
 '   the OTHER directory it writes . _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   the installer that calls setup  _spec/internal/cdn/distribution-update.puml
+'   the wave that set these lines . _spec/_plans/output-readability.puml (R4)
 '
 ' ── TWO BLOCKS, TWO MARKERS ────────────────────────────────────────────────
 ' `proveo setup` writes Marker for proveo's own bin dir; `proveo init` writes
-' SbxMarker (SbxBlock) for the sbx prefix's bin dir. They are DISTINCT comments
-' although the uninstaller strips both, because a shared one would claim that a
-' line pointing at ~/.docker/sbx/bin puts "proveo on PATH".
+' SbxMarker (SbxBlock) for the sbx prefix's bin dir. They are DISTINCT comments,
+' because a shared one would claim that a line pointing at ~/.docker/sbx/bin
+' puts "proveo on PATH". `proveo uninstall` strips an install.sh block or a
+' Marker block whose PATH line names this root's bin dir, and either marker
+' with no PATH line under it; another dir's block stays (~/go/bin's: FOUND 9
+' makes two in one rc normal, the R4 review), and so does SbxMarker's, since
+' sbx (~/.docker/sbx) stays installed after proveo leaves. uninstall.sh's
+' bash fallback strips every Marker and SbxMarker block (KNOWN divergence,
+' the installer's owner: the Go uninstall is right). Pinned by
+' TestUninstallLeavesAnotherDirsSetupBlock and
+' TestUninstallLeavesAnotherRootsInstallBlock.
 '
-' Which is also why init does not reuse AlreadyConfigured: that answers "does
-' this rc hold proveo's marker", and it does — the CDN installer put it there
-' minutes earlier. The only question with the right answer is whether THIS
-' directory is already on PATH.
+' ── THE RC NAMES THE DIRECTORY, NOT A MARKER (R4, FOUND 9) ─────────────────
+' AlreadyConfigured answers "does this rc name THIS directory". It used to
+' accept setup's marker alone, so an rc holding a marker for another dir (an
+' earlier `go install` proveo in ~/go/bin) read as configured and got no line.
+' init asks the same question for the sbx prefix (rcAdds, ensureSbxOnPath),
+' so both callers share it and its file write (appendRC). A dir under HOME
+' also counts as $HOME/…, ${HOME}/… or ~/…: install.sh runs setup with the
+' dir off PATH, which would otherwise repeat such a hand line (the R4 review).
+' Only a PATH line counts (PATH, zsh's path, fish_add_path), and only with the
+' dir as a whole entry: with the dir off PATH this check is the one gate, and
+' a comment, an alias, another variable or ~/.proveo/binaries would leave a
+' fresh install with no line. Pinned by TestAMentionOutsideAPathLineIsNotConfigured,
+' TestAlreadyConfigured, TestAlreadyConfiguredReadsTheDirSpelledFromHome,
+' TestSetupWritesThisDirsLineUnderAnotherDirsMarker and
+' TestSetupReadsAnRcLineThatNamesTheDirFromHome.
+'
+' ── WHAT `proveo setup` PRINTS (R4 of _spec/_plans/output-readability.puml) ─
+' No heading; ONE item, init's PATH item word for word. The checks run PATH
+' first (critique must-fix 2: a head says "not on PATH" only after setup
+' looked), then the shell, then the rc:
+'   on PATH            ✓ ~/.proveo/bin — already on PATH          (any shell)
+'   csh, tcsh          ⚠ ~/.proveo/bin — not on PATH, dim "add to ~/.cshrc:
+'                      setenv PATH …"; exit 0, nothing written
+'   unknown $SHELL     × ~/.proveo/bin — not on PATH, dim "$SHELL is not set"
+'                      or "<name> is not a shell setup knows", dim "add it to
+'                      PATH in your shell's startup file" (Windows: "your
+'                      user PATH"); exit 1, so install.sh falls back
+'   the rc names it    ⚠ ~/.proveo/bin — not on this shell's PATH, dim
+'                      "~/.zshrc adds it; a new shell picks it up"
+'   --print            ⚠ <dir> — not on PATH, dim "add to <rc>: <line>", both
+'                      absolute (P5); the marker comment leaves the screen:
+'                      uninstall strips the bare export line too
+'   written            ✓ ~/.proveo/bin — added to PATH in ~/.zshrc, dim "a new
+'                      shell picks it up"
+'   rc not written     × ~/.zshrc — not written, the error dim, dim "add it
+'                      yourself: <line>"; exit 1
+' A × is the command's own item, Reported (exit 1, main prints nothing).
+' "source <rc>" and the csh rule moved to `proveo setup --help`.
+' Pinned by cmd/proveo/setup_test.go, one test per row.
+'
+' ── WHAT `proveo uninstall` PRINTS (R4) ────────────────────────────────────
+' No heading. The question names each part it finds, from the checks the
+' block uses: "› remove ~/.proveo, its PATH lines and the prompt kit? [y/N]"
+' ("proveo's PATH lines" with no root; none found asks nothing). Dangerf's
+' red "this removes proveo from <root>" left (P9). A "n" is "⚠ uninstall —
+' cancelled", exit 0. No terminal and no --yes: "× proveo — not uninstalled",
+' dim "`proveo uninstall --yes` uninstalls it without asking" (NO TTY);
+' PROVEO_UNINSTALL_ASSUME_YES moved to --yes's help.
+' Then ONE Facts block of what left, error role, a fact only for a removal
+' that succeeded (the operator, "by what left"):
+'   root    ~/.proveo
+'   path    each rc a PATH line left, stacked
+'   prompt  the kit's rc and starship config, and its starship binary when
+'           the root fact does not already cover it
+'   font    FiraCode Nerd Font, dim "3 files in ~/Library/Fonts" (init's)
+' Each removal that failed is a ⚠ item ("~/.bashrc — PATH line not removed",
+' "~/.config/starship.toml — proveo segment not removed", the error dim);
+' FOUND 3 and 4 printed "removed" and ✓ over them. Then what proveo's own
+' records say stays (the operator, "⚠ each, with its fix"; no sbx,
+' launchctl or systemctl call):
+'   ⚠ ~/go/bin/proveo — still on PATH        (exec.LookPath, read-only)
+'   ⚠ <exe> — not removed, dim "outside ~/.proveo"   (the running binary)
+'   ⚠ schedule tick — still registered, dim schedule.RemoveCommand:
+'     "launchctl bootout gui/<uid>/io.proveo.schedule; rm ~/Library/…plist"
+'     or "systemctl --user disable --now proveo-schedule.timer; rm …"
+'   ⚠ <name> — kept, its output only inside   (each kept entry; no command:
+'     `proveo rm` leaves with proveo, and a deleting sbx command was ruled out)
+' ONE closing line: "✓ proveo — uninstalled", or "⚠ proveo — uninstalled; N
+' left" when N ⚠ items print ("nothing removed" when a part was found and
+' none went; "nothing to remove" when none was found). A root that stays
+' closes on × and exits 1: "~ — not removed", dim "an unsafe install root",
+' or "~/.proveo — not fully removed", the RemoveAll error dim.
+' "hash -r" and the state root moved to `proveo uninstall --help`.
+' Pinned by cmd/proveo/uninstall_test.go and init_prompt_test.go
+' TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig.
+'
+' ── KNOWN, NOT FIXED (R4 allowed no other behaviour change) ────────────────
+' FOUND 5: the unsafe-root check runs after the rc strips and the prompt
+' kit's undo, so PROVEO_INSTALL_ROOT=$HOME leaves a half-uninstalled host;
+' the guard stays inside removeInstallRoot. A typo'd root (~/Documents) or a
+' relative one is removed (critique d9). FOUND 10: with HOME unset, setup
+' resolves the rc against the working directory. `proveo setup` run by hand
+' with the dir on this shell's PATH only by an `export` still answers
+' "already on PATH" and writes nothing (install.sh no longer reaches it: it
+' runs setup with the dir off PATH). The question goes to
+' stderr and IsStdinTTY alone gates it, so `proveo uninstall 2>log` waits
+' unseen (d8). Windows: uninstall cannot remove the running proveo.exe (a ×,
+' "not fully removed") and leaves install.ps1's user PATH entry.
+' [Inference] "its output only inside" overstates for a kept mounted-checkout
+' sandbox; the kept entry does not record the mode.
 title `proveo setup` — cross-shell PATH wiring
 
 actor "Consumer" as USER
 
 node "Consumer host" as HOST <<host>> {
-  component "dist/install.sh\n(hands off, else prints a note)" as INSTALL <<app>>
+  component "dist/install.sh\n(hands off, else writes its block)" as INSTALL <<app>>
   component "cmd/proveo setup" as CMD <<app>>
   component "internal/shell\nDetect · RCFile · PathLine\nExportLine · AlreadyConfigured" as SH <<app>>
   database "rc file\n.bashrc/.bash_profile · .zshrc\nconfig.fish · .profile" as RC <<db>>
@@ -35,7 +133,7 @@ INSTALL ARROW_MAIN CMD : after install
 USER ARROW_OPTIONAL CMD : " ""proveo setup"" "
 CMD ARROW_MAIN SH : " ""Detect($SHELL)"" "
 SH ARROW_MAIN SH : " ""RCFile(goos, home)"" "
-SH ARROW_OPTIONAL RC : checks ""AlreadyConfigured(content, binDir)""\nno-op when the dir is already on PATH
+SH ARROW_OPTIONAL RC : checks ""AlreadyConfigured(content, binDir)""\nno-op when the rc names the dir
 SH ARROW_MAIN RC : appends ""PathLine(binDir)""
 RC ARROW_MAIN BIN : next login shell resolves ""proveo""
 

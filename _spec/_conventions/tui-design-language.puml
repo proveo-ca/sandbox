@@ -41,6 +41,11 @@
 ' Printer method AND as a package-level helper or `ui.Verbf` does not compile.
 ' A role with no verb is API nobody can reach; a verb naming no role prints
 ' undecorated and says nothing about the layer it came from.
+' R4 (2026-11-11): Dangerf lost its last caller, uninstall's red "this removes
+' proveo from <root>" (P9: the question names what goes), and left ui.go, as
+' the operator decided. The error role stays reachable as a ui.Fact's Role
+' (what clean and uninstall removed) and through Rolef; the contract test pins
+' the five verbs that remain.
 '
 ' ── THE STRUCTURAL HALF OF THE BAN ────────────────────────────────────────
 ' No exported verb in internal/ui may take a caller-supplied glyph: a parameter
@@ -186,7 +191,16 @@
 '   results      what waits ("later"), what a failure kept from running
 '                ("not run"), sbx's failing checks, one closing verdict
 ' "execution", "starting" and "secrets" left the vocabulary with init's
-' phase headings (ui.go, 18 sections); "setup" stays `proveo setup`'s.
+' phase headings (ui.go, 18 sections).
+' The other commands (R4, 2026-11-11): a one-subject command draws NO
+' heading, since its lines name their subject and the command line names
+' the command (the operator: rm, adopt, attach, clean, ls, projects, the
+' schedule listing, setup, update, uninstall). `proveo run` with no target
+' and no terminal lists two subjects and keeps "running · targets". Job
+' names left the heading line: a job is the key of the schedule's Facts
+' block, so no call site passes data to Printer.Section any more (the
+' contract test still checks ui.Section alone). "projects", "schedule",
+' "setup" and "uninstall" left ui.go: fourteen sections.
 ' A revisit of init's setup page prints only what it changed: a hand line, an
 ' item or a fact never printed before. A heading redraws only above those
 ' lines; a revisit that changed nothing draws none. NOT CHOSEN: reprinting
@@ -311,12 +325,9 @@ note right of PRN
 end note
 
 note right of SEC
-  **Ten names, and a call site may not invent one.** Six
-  come from the form — ""egress"", ""credentials"",
-  ""execution"", ""interface"" are its rows and dividers —
-  so a run is narrated under the headings the operator
-  was asked about. The other four name the live phase,
-  which the form has no row for.
+  **Closed names; a call site may not invent one.**
+  Each names a subject (ui.go lists them); a
+  one-subject command draws none (R4).
 
   Lazy, because nearly every prelude line is
   conditional. Declaring costs nothing; the first line

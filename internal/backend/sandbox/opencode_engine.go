@@ -162,20 +162,30 @@ func importOpenCodeHistory(name, src string) (int64, error) {
 	return 0, fmt.Errorf("import: %w: %s", runErr, strings.TrimSpace(out.String()))
 }
 
-// carryOpenCodeHistory streams engine name's database into its carry file under home; an
-// engine without a database carries nothing.
+// carryOpenCodeHistory streams engine name's database into its carry file under home and says where it
+// went; an engine without a database carries nothing.
 func carryOpenCodeHistory(home, name string) error {
-	if home == "" {
-		return fmt.Errorf("no proveo home to carry it into")
+	dest, size, err := exportOpenCodeHistory(home, name)
+	if err == nil && dest != "" {
+		ui.Storef("OpenCode: carried %s's history (%s) to %s for the engine that replaces it", name, byteSize(size), ui.Tilde(dest))
 	}
-	dest := openCodeCarry(home, name)
+	return err
+}
+
+// exportOpenCodeHistory streams engine name's database into its carry file under home and returns
+// that file and its size; dest is "" for an engine without a database.
+func exportOpenCodeHistory(home, name string) (dest string, size int64, err error) {
+	if home == "" {
+		return "", 0, fmt.Errorf("no proveo home to carry it into")
+	}
+	dest = openCodeCarry(home, name)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-		return err
+		return "", 0, err
 	}
 	part := dest + ".partial"
 	f, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return "", 0, err
 	}
 	defer func() { _ = os.Remove(part) }()
 	cmd := exec.Command(sbx.Binary, sbx.OpenCodeExportArgs(name)...)
@@ -185,28 +195,27 @@ func carryOpenCodeHistory(home, name string) error {
 	closeErr := f.Close()
 	switch {
 	case runErr != nil && exitCodeOf(runErr) == sbx.OpenCodeExportNone:
-		return nil
+		return "", 0, nil
 	case runErr != nil:
-		return fmt.Errorf("export: %w: %s", runErr, strings.TrimSpace(errb.String()))
+		return "", 0, fmt.Errorf("export: %w: %s", runErr, strings.TrimSpace(errb.String()))
 	case closeErr != nil:
-		return closeErr
+		return "", 0, closeErr
 	}
 	header := make([]byte, len(sbx.OpenCodeDatabaseHeader))
 	r, err := os.Open(part)
 	if err != nil {
-		return err
+		return "", 0, err
 	}
 	_, readErr := io.ReadFull(r, header)
 	info, statErr := r.Stat()
 	_ = r.Close()
 	if readErr != nil || string(header) != sbx.OpenCodeDatabaseHeader || statErr != nil {
-		return fmt.Errorf("export produced no SQLite database")
+		return "", 0, fmt.Errorf("export produced no SQLite database")
 	}
 	if err := os.Rename(part, dest); err != nil {
-		return err
+		return "", 0, err
 	}
-	ui.Storef("OpenCode: carried %s's history (%s) to %s for the engine that replaces it", name, byteSize(info.Size()), ui.Tilde(dest))
-	return nil
+	return dest, info.Size(), nil
 }
 
 // byteSize renders n bytes for an operator line.

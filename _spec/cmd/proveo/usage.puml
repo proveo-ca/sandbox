@@ -44,6 +44,30 @@ skinparam packageStyle rectangle
 ' and its last row starts the harness. `--yes`, `--print`, `--ls`,
 ' `--resume` and `--continue` skip the picker.
 '
+' ── 2026-11-11: WHAT THE LISTINGS PRINT (R4 of _spec/_plans/output-readability.puml)
+' A one-subject command draws no heading (the operator); its stdout holds its
+' rows and nothing else:
+'   proveo ls         one ui.Facts block, app role, "<target>: <image>", one
+'                     column; plain drops the dot and keeps the colon
+'   proveo projects   one store-role row per member, its repo-relative path:
+'                     what `proveo run --scope` takes, so plain output pipes;
+'                     the workspace tool that listed it is in --help
+'   proveo attach     (no terminal) one Facts block keyed by task, valued with
+'                     the schedule listing's running value; its one dim
+'                     how-to, "`proveo attach <task>` opens one", goes to
+'                     stderr, so stdout keeps the rows alone
+'   proveo rm · adopt · clean   what they did, on stderr as before, under no
+'                     heading: _spec/internal/results/result-store.puml and
+'                     _spec/internal/clean/clean-lifecycle.puml
+'   proveo schedule   _spec/internal/schedule/schedule.puml
+' `proveo run` with no target and no terminal keeps two headings, "running"
+' then "targets", over the same rows: it lists two subjects.
+' An absence goes to stderr, stdout stays empty, exit 0: "● no monorepo
+' sub-projects under <~repo root>" (where it looked, so a worktree or a
+' sub-directory shows which repo it read), "● nothing running", and the
+' schedule's "● no <~schedule.yml>" / "● no jobs in <~schedule.yml>".
+' `proveo version` stays as it is (DELIBERATELY PLAIN, output-vocabulary.puml).
+'
 ' ── 2026-10-28: build · deploy · test LEFT cmd/proveo ───────────────────────
 ' The Executor: "proveo should not have `proveo build`; that should only be
 ' available via mise. proveo is the end consumer CLI." The three verbs moved
@@ -202,6 +226,7 @@ would print the same line twice on ""proveo --help"".
 ""proveo projects"" with nothing to list writes its note to stderr and
 leaves stdout empty, so a scripted caller counting rows sees zero rows
 instead of one line of prose it would have to recognise and discard.
+Since R4, attach and schedule do the same.
 end note
 
 note bottom of Commands

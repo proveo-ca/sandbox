@@ -852,6 +852,7 @@
       "covers": [
         "internal/cdn/**",
         "cmd/proveo/update.go",
+        "cmd/proveo/update_test.go",
         "apps/cli/public/cli/**",
         "internal/installtest/**",
         "internal/contract/installer_bash_test.go",
@@ -1008,7 +1009,8 @@
         "internal/clean/**",
         "cmd/proveo/clean.go",
         "cmd/proveo/clean_legacy_test.go",
-        "cmd/proveo/clean_run_state_test.go"
+        "cmd/proveo/clean_run_state_test.go",
+        "cmd/proveo/clean_print_test.go"
       ],
       "fingerprint": null
     },
@@ -1611,9 +1613,12 @@
         "internal/schedule/schedule.go",
         "internal/schedule/runner.go",
         "internal/schedule/install.go",
+        "internal/schedule/install_test.go",
         "internal/schedule/schedule_test.go",
         "cmd/proveo/schedule.go",
         "cmd/proveo/schedule_test.go",
+        "cmd/proveo/running.go",
+        "cmd/proveo/running_test.go",
         "e2e/schedule_test.go",
         "internal/run/choices.go",
         "internal/run/params.go",
@@ -1644,6 +1649,8 @@
       "covers": [
         "internal/shell/shell.go",
         "internal/shell/shell_test.go",
+        "cmd/proveo/setup.go",
+        "cmd/proveo/setup_test.go",
         "cmd/proveo/uninstall.go",
         "cmd/proveo/uninstall_test.go"
       ],

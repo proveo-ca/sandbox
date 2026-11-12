@@ -110,15 +110,51 @@ title The result store — what a run left behind, one file per entry, readable 
 '     OutputDir, so a sandbox a failed lift kept gives its output up (R2, F6;
 '     R3 carry-over 3: a re-attach's receipt predates R2 or names the
 '     creating run's dir)
-'   it PRINTS THREE UNNUMBERED LINES under --stop: "sbx stop <name>",
-'     "carrying its work home from <name>", "sbx rm --force <name>" (R3,
-'     R2 carry-over 6: a line that stays drops its place)
+'   it PRINTS THREE UNNUMBERED LINES under --stop for a clone: "sbx stop
+'     <name>", "carrying its work home from <name>", "sbx rm --force <name>"
+'     (R3, R2 carry-over 6: a line that stays drops its place). R4 (P6):
+'     the carry line prints only when a carry runs, so a mounted checkout
+'     prints two, and one without --stop
 '   it CARRIES BEFORE IT REMOVES. The Input the carry needs is rebuilt from
 '     `sbx ls --json` (the workspace, the agent) and the store's entry (the
-'     repository). Work that cannot come home keeps the sandbox, and the
-'     error names `sbx rm --force` as the way to delete it regardless
-'   then `sbx rm --force`, the launch receipt, and the entry
+'     repository). Before the carry line, a sandbox sbx's table no longer
+'     names (sbx.Gone) is already gone, and the clone-mode probe runs as
+'     its own live step (stepCloneMode; plain output gets its start line),
+'     since on a stopped sandbox `sbx exec` boots the VM first. Work that
+'     cannot come home keeps the sandbox (RM STRANDED, the operator)
+'   then `sbx rm --force`, the launch receipt, the entry, and the closing ✓
 '   a sandbox sbx no longer lists is already gone: only the entry is cleared
+' WHAT `proveo rm` PRINTS (R4 of _spec/_plans/output-readability.puml), no
+' heading, one closing line, last:
+'   list         "● <name> — <why>", dim "<19h 7m> ago[ · in <~repo>]" (the
+'                schedule's wait form, ui.Span); none: "● no sandbox kept"
+'   ✓ <name> — removed            the carry, the removal and the entry done
+'   ✓ <name> — already gone       sbx lists it no more; a run had kept it
+'   ⚠ <name> — no such sandbox    sbx lists none and no run kept one: exit 0,
+'                                 HEAD's status (was "✓ … is removed"); the
+'                                 R4 review: R4 changes no other exit
+'   × <name> — not removed        dim why, then one dim fix:
+'       sbx gave no listing … / `proveo rm <name>` tries again once `sbx ls` answers
+'       it is running / `proveo rm --stop <name>` carries its work home …
+'       sbx stop: <error> / `proveo rm --stop <name>` tries again
+'       sbx rm: <error> / check `sbx ls`, then `proveo rm <name>` again
+'       (stranded) `proveo rm <name>` tries again: the carried block's own ⚠
+'       items above it say what stayed. NO sbx command and no bundle recipe
+'       on screen; `sbx rm --force` would delete the stranded work.
+'   ⚠ <name> — removed, its entry stays   the entry write failed after the
+'                                 removal: the entry is cleared before the ✓
+' Every × and ⚠ closing but "no such sandbox" comes back backend.Reported
+' (exit 1, as HEAD's returned errors did); main adds none.
+' An OpenCode engine's history is a "history:" fact of the carried block
+' ("carried history (<size>) to <~carry file>"), printed before the block,
+' so the removal never follows an unprinted fact; the engine that replaces
+' it imports the file. The carry's run-log lines (the rescue recipes, "the
+' agent's work is in your repository under …", the review and adopt hints,
+' the probe's timeout note) print nowhere in rm: rm writes no log (R3 F2).
+' KNOWN, NOT FIXED: a kept entry with no repository whose workspace is not
+' a checkout leaves RepoRoot empty, so rm neither probes nor carries and
+' removes the sandbox (narrow; the entry records the repo since S5); rm of
+' a sandbox sbx lists but no run kept carries and removes it too.
 ' AN EMPTY LISTING CLEARS NOTHING. sbx prints an empty listing when its daemon
 ' is busy as well as when the host is empty, so `rm` and the reconcile refuse
 ' to conclude anything from one: "sbx gave no listing … nothing was changed".
@@ -132,6 +168,20 @@ title The result store — what a run left behind, one file per entry, readable 
 '     branch only"). `git branch <name> <ref>`: HEAD, the index and the files
 '     stay, which keeps clone mode's promise that a run does not touch the
 '     checkout. An existing branch of that name is refused, with `--as`.
+' WHAT `proveo adopt` PRINTS (R4), no heading:
+'   list     ONE fact, "● to adopt: <ref> (N new commit[s])", each later ref
+'            stacked: the words of a run's branches fact; none: "● to adopt:
+'            none" (it said "every ref … is already on a branch" when no ref
+'            existed)
+'   ✓ branch <b> — created at <ref>   "HEAD, the index and your files stay"
+'            and `git switch` moved to `proveo adopt --help`
+'   × <arg> — no carried ref matches · × <arg> — fits N carried refs (each
+'            ref dim) · × <b> — not a valid branch name (git's fatal says it
+'            again, so it goes) · × <b> — a branch of that name exists, dim
+'            "`--as <name>` names the new branch" only when the name was the
+'            ref's own · × branch <b> — not created (git's words dim) · ×
+'            adopt — not inside a git repository · × adopt — git could not
+'            list refs/proveo/. Each is adopt's typed error, Reported.
 ' WHAT "TO ADOPT" COUNTS changed with the verbs. A ref's lead is the number
 ' of its commits that NO LOCAL BRANCH holds (`git rev-list --count <ref>
 ' --not --branches`), where S2 first counted against HEAD. So creating a
@@ -172,8 +222,17 @@ title The result store — what a run left behind, one file per entry, readable 
 ' Pinned by internal/backend/sandbox/verbs_test.go:
 '   TestRemoveKeptClearsNothingOnAListingItCannotTrust
 '   TestRemoveKeptRefusesARunningSandboxAndForgetsAGoneOne
+'   TestRemoveKeptOfANameNoRunKeptWarnsAndExitsZero
+'   TestARefusedRemovalIsOneItemWithTheStopFix
 '   TestRemoveKeptCarriesThenRemovesAStoppedSandbox
-'   TestRemoveKeptKeepsASandboxWhoseWorkCannotComeHome
+'   TestRemoveKeptOfAMountedCheckoutPrintsNoCarryLine
+'   TestRemoveKeptOfASandboxThatVanishedBeforeTheProbeSaysAlreadyGone
+'   TestTheCloneProbeRunsBehindALiveStep
+'   TestAStrandedCarryClosesOnNotRemovedWithItsRetry
+'   TestAFailedRemovalNamesSbxsErrorAndTheCheck
+'   TestAStopThatFailedClosesOnNotRemoved
+'   TestRemoveKeptPrintsTheOpenCodeHistoryInsideItsBlock
+'   TestAFailedEntryWriteAfterARemovalIsTheOneClosingLine
 '   TestRemoveKeptStopsARunningSandboxOnlyWhenAsked
 '   TestKeptInputLiftsTheOutputDirTheReceiptRecords
 '   TestReconcileDropsOnlyWhatIsProvablyGone
@@ -183,12 +242,21 @@ title The result store — what a run left behind, one file per entry, readable 
 '   TestBranchCreatesTheBranchAndMovesNothingElse
 ' by cmd/proveo/verbs_test.go:
 '   TestAdoptCreatesTheBranchLeavesTheCheckoutAloneAndLowersThePromptCount
+'   TestAdoptRefusalsAreItemsAndMainAddsNoSecondCross
+'   TestAdoptWithNothingCarriedSaysNone
 '   TestAdoptOutsideARepositoryRefuses
 '   TestRmWithoutAnArgumentListsWhatWasKept
+'   TestTheKeptListWritesItsAgeOnADimLine
+'   TestRmWithNothingKeptSaysSoOnce
+'   TestRmOfASandboxSbxNoLongerListsSaysAlreadyGone
 ' by internal/sbx/list_test.go: TestListReadsBothShapesAndSaysWhenThereIsNoListing
 ' and on a real sandbox by e2e TestCtrlCInTeardownSaysOnceThenLeavesWith130:
 '   `proveo rm` refused it while it ran, naming --stop, then carried it,
-'   removed it and cleared its entry.
+'   removed it and cleared its entry; its output holds "<name> — removed"
+'   (R4; it read "<name> is removed").
+' by internal/backend/sandbox/report_test.go: TestAMultiLineDetailKeepsItsColumn
+'   (an error git or sbx wrote over several lines keeps every row dim under
+'   the item; a blank row drops)
 '
 ' Pinned by internal/results/results_test.go:
 '   TestAnEntryRoundTripsAndReplacesItsPredecessor

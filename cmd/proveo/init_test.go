@@ -42,6 +42,28 @@ exit 0
 	return calls
 }
 
+// isolatedHost is isolatedInitHost with failing launchctl, systemctl, crontab, tmux and docker stubs, the XDG,
+// starship and tmux variables empty and the install root under the temp HOME; it returns the stubs' call log.
+// SPEC: _spec/tests/testing-strategy.puml
+func isolatedHost(t *testing.T) (calls string) {
+	t.Helper()
+	isolatedInitHost(t)
+	home, bin := os.Getenv("HOME"), t.TempDir()
+	calls = filepath.Join(t.TempDir(), "host-calls")
+	stub := "#!/bin/sh\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> " + strconv.Quote(calls) + "\nexit 1\n"
+	for _, name := range []string{"launchctl", "systemctl", "crontab", "tmux", "docker"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, name := range []string{"XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "STARSHIP_CONFIG", "TMUX"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("PROVEO_INSTALL_ROOT", filepath.Join(home, ".proveo"))
+	return calls
+}
+
 func TestInitWritesNoEnvFileIntoTheWorkspace(t *testing.T) {
 	calls := isolatedInitHost(t)
 	dir := t.TempDir()

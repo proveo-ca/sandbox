@@ -75,6 +75,7 @@ func TestPromptInitPrintsEachShellsLineAndRefusesAnUnknownShell(t *testing.T) {
 }
 
 func TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig(t *testing.T) {
+	isolatedHost(t)
 	home := t.TempDir()
 	root := filepath.Join(home, ".proveo")
 	state := filepath.Join(home, "state")
@@ -117,14 +118,13 @@ func TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig(t *testing.T) 
 		t.Fatalf("the kit did not add the init line: %q", b)
 	}
 
+	runningAs(t, filepath.Join(root, "bin", "proveo"))
 	out := captureUI(t)
 	if err := doUninstall(true); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"removed the starship line from " + rc, "removed the proveo segment from " + config} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("uninstall no longer says %q (init routes the kit to facts; uninstall keeps Report):\n%s", want, out)
-		}
+	if want := "root:   ~/.proveo\nprompt: ~/.zshrc\n        ~/.config/starship.toml\nok: proveo — uninstalled\n"; out.String() != want {
+		t.Errorf("uninstall printed\n%s\nwant the kit's rc and config stacked under prompt:\n%s", out, want)
 	}
 	if b, _ := os.ReadFile(config); string(b) != theirConfig {
 		t.Errorf("uninstall left the starship config as %q, want the operator's own %q", b, theirConfig)

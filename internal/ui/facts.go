@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Fact is one row of a Facts block: a role dot, "key:", a value, and dim detail lines under the value.
@@ -111,6 +112,20 @@ func tint(rgb int, s string) string {
 	}
 	on := ANSI(rgb)
 	return on + strings.ReplaceAll(s, ANSIReset, ANSIReset+on) + ANSIReset
+}
+
+// Span writes a wait or an age to the minute: "1d 2h", "7h 3m", "45m".
+func Span(d time.Duration) string {
+	d = d.Round(time.Minute)
+	days, rest := int(d/(24*time.Hour)), d%(24*time.Hour)
+	h, m := int(rest/time.Hour), int(rest%time.Hour/time.Minute)
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd %dh", days, h)
+	case h > 0:
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
 }
 
 // Tilde writes a path under the home directory as "~/…"; any other path comes back as it was.

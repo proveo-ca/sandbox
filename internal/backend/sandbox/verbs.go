@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/adopt"
+	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // listSandboxes is sbx.List; tests replace it.
@@ -31,56 +34,117 @@ func trustedListing() ([]sbx.Listed, error) {
 	return rows, nil
 }
 
-// RemoveKept carries what the kept sandbox name still holds home, removes it, and clears its
-// entry. A running sandbox is refused unless stop asks to stop it first; nothing is cleared on
-// a listing it cannot trust.
+// RemoveKept carries home what sandbox name holds, removes it and clears its entry; a running one needs stop,
+// and an untrusted listing changes nothing. One closing line; a refusal is "× <name> — not removed", Reported.
+// SPEC: _spec/internal/results/result-store.puml (THE VERBS)
 func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool) error {
 	rows, err := trustedListing()
 	if err != nil {
-		return err
+		return notRemoved(name, err, "sbx gave no listing of its sandboxes", "`proveo rm "+name+"` tries again once `sbx ls` answers")
 	}
-	var row *sbx.Listed
-	for i := range rows {
-		if rows[i].Name == name {
-			row = &rows[i]
-		}
+	i := slices.IndexFunc(rows, func(r sbx.Listed) bool { return r.Name == name })
+	if i < 0 {
+		return forgetKept(name, resultsDir)
 	}
-	if row == nil {
-		if err := results.Remove(resultsDir, results.Kept, name); err != nil {
-			return err
-		}
-		report("%s is already gone; its entry is cleared", name)
-		return nil
-	}
+	row := rows[i]
 	if row.Running() && !stop {
-		return fmt.Errorf("%s is running; `proveo rm --stop %s` stops it, carries its work home and removes it", name, name)
+		return notRemoved(name, fmt.Errorf("%s is running; `proveo rm --stop %s` stops it, carries its work home and removes it", name, name),
+			"it is running", keptFix(name, true))
 	}
 	if row.Running() {
 		report("sbx stop %s", name)
 		if out, err := guestRun(sbx.StopArgs(name)...); err != nil {
-			return fmt.Errorf("stop %s: %w: %s — it is kept", name, err, strings.TrimSpace(out))
+			return notRemoved(name, fmt.Errorf("stop %s: %w: %s — it is kept", name, err, strings.TrimSpace(out)),
+				"sbx stop: "+failure(err, out), "`proveo rm --stop "+name+"` tries again")
 		}
 	}
-	in, cfg := keptInput(*row, resultsDir)
-	report("carrying its work home from %s", name)
-	carried := NewBlock(ResultsHeading)
-	err = PreserveClone(in, cfg, carried)
+	in, cfg := keptInput(row, resultsDir)
+	carried := NewBlock(func() {})
+	if in.RepoRoot != "" && sbx.Gone(name) {
+		return forgetKept(name, resultsDir)
+	}
+	if err := carryKept(in, cfg, report, carried); err != nil {
+		carried.Print()
+		return notRemoved(name, fmt.Errorf("%w — %s kept", err, name), "`proveo rm "+name+"` tries again")
+	}
 	carried.Print()
-	if err != nil {
-		return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it and whatever is only in it", err, name, name)
-	}
-	if opencodeTarget(in.Target) {
-		if err := carryOpenCodeHistory(in.HomeRoot, name); err != nil {
-			return fmt.Errorf("OpenCode history could not be carried out of %s (%v) — it is kept", name, err)
-		}
-	}
 	report("sbx rm --force %s", name)
 	if out, err := guestRun(sbx.RemoveArgs(name)...); err != nil && !sbx.NotFound(out) {
-		return fmt.Errorf("remove %s: %w: %s — check `sbx ls`, then run `proveo rm %s` again", name, err, strings.TrimSpace(out), name)
+		return notRemoved(name, fmt.Errorf("remove %s: %w: %s", name, err, strings.TrimSpace(out)),
+			"sbx rm: "+failure(err, out), "check `sbx ls`, then `proveo rm "+name+"` again")
 	}
 	_ = os.Remove(receiptPath(name))
 	_ = os.Remove(legacyOwnerRecord(name))
-	return results.Remove(resultsDir, results.Kept, name)
+	return settleKept(name, resultsDir, "removed")
+}
+
+// carryKept brings home what the kept sandbox holds into out: a clone's work, behind the clone-mode
+// probe's live step, and an OpenCode engine's history. It returns an error while work stays only
+// in the sandbox, with an item in out that says which.
+func carryKept(in Input, cfg sbx.RunConfig, report func(string, ...any), out *Block) error {
+	if in.RepoRoot != "" {
+		var clones bool
+		if err := shown(stepCloneMode, func() (err error) {
+			clones, err = sandboxClone(in, cfg.Name)
+			return err
+		}); err != nil {
+			out.Item(Item{Warn: true, Text: "clone mode — unknown", Detail: []string{failure(err, "")}})
+			return fmt.Errorf("cannot tell whether it holds a clone, so its work may be only there: %w", err)
+		}
+		if clones {
+			report("carrying its work home from %s", cfg.Name)
+			in.Clone, in.CloneKnown = true, true
+			if err := PreserveClone(in, cfg, out); err != nil {
+				if !slices.ContainsFunc(out.items, func(it Item) bool { return it.Warn }) {
+					out.Item(Item{Warn: true, Text: "work — not carried home", Detail: []string{failure(err, "")}})
+				}
+				return err
+			}
+		}
+	}
+	if !opencodeTarget(in.Target) {
+		return nil
+	}
+	dest, size, err := exportOpenCodeHistory(in.HomeRoot, cfg.Name)
+	switch {
+	case err != nil:
+		out.Item(Item{Warn: true, Text: "history — not carried", Detail: []string{failure(err, "")}})
+		return fmt.Errorf("OpenCode history could not be carried out of %s: %w", cfg.Name, err)
+	case dest != "":
+		out.Fact(ui.Fact{Role: ui.RoleApp, Key: "history", Value: "carried history (" + byteSize(size) + ") to " + ui.Tilde(dest)})
+	}
+	return nil
+}
+
+// forgetKept closes `proveo rm` of a sandbox sbx does not list: its entry cleared when a run kept
+// it, a ⚠ that exits 0 when none did.
+func forgetKept(name, resultsDir string) error {
+	if !slices.ContainsFunc(results.List(resultsDir), func(e results.Entry) bool { return e.Kind == results.Kept && e.Key == name }) {
+		Item{Warn: true, Text: name + " — no such sandbox", Detail: []string{"sbx lists none, and no run kept one by that name"}}.print()
+		return nil
+	}
+	return settleKept(name, resultsDir, "already gone")
+}
+
+// settleKept clears name's kept entry and closes on "✓ <name> — <done>"; an entry it cannot clear
+// closes on a ⚠ that says so.
+func settleKept(name, resultsDir, done string) error {
+	if err := results.Remove(resultsDir, results.Kept, name); err != nil {
+		return refused(Item{Warn: true, Text: name + " — " + done + ", its entry stays", Detail: []string{failure(err, "")}}, err)
+	}
+	ui.Okf("%s — %s", name, done)
+	return nil
+}
+
+// notRemoved closes `proveo rm` on "× <name> — not removed" with detail dim under it, and returns err Reported.
+func notRemoved(name string, err error, detail ...string) error {
+	return refused(Item{Fail: true, Text: name + " — not removed", Detail: detail}, err)
+}
+
+// refused prints it and returns err as one main prints nothing for.
+func refused(it Item, err error) error {
+	it.print()
+	return backend.Reported{Err: err}
 }
 
 // keptInput rebuilds what the carry needs from the sandbox's listing and its store entry.

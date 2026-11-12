@@ -3,6 +3,7 @@
 ' purpose: how a published CLI release is resolved, verified and installed over the CDN
 ' covers: internal/cdn/**
 ' covers: cmd/proveo/update.go
+' covers: cmd/proveo/update_test.go
 ' covers: apps/cli/public/cli/**
 ' covers: cmd/proveo-dev/stagecdn.go
 ' covers: cmd/proveo-dev/buildcli.go
@@ -64,6 +65,63 @@
 ' or PROVEO_SKIP_INIT in the operator's shell would otherwise steer the cases.
 ' internal/contract/installer_bash_test.go guards the same scripts statically
 ' (`/bin/bash -n`, bash-4-only syntax, unguarded "${arr[@]}" under set -u).
+'
+' ── THE INSTALLER PUTS PROVEO ON PATH (R4, 2026-11-11, FOUND 1, MEASURED) ──
+' install.sh ran `PATH="$BIN_DIR:$PATH" proveo setup`, so setup found the dir
+' on PATH, wrote nothing and exited 0, and install.sh skipped its own markers:
+' a fresh install left no rc line (since 911280ea). It now runs
+' `"$BIN_DIR/proveo" setup` with BIN_DIR left out of PATH
+' (path_without_bin_dir), and setup matches the rc against this bin dir, not a
+' marker alone (setup-path.puml, FOUND 9). The operator chose "fix install.sh
+' + setup". With this shell's PATH, a dir there only by the hand `export` the
+' closing text suggests read "already on PATH" and got no line: every CDN
+' install that ran install.sh again (the R4 review, upkeep must-fix 7). A dir
+' on PATH from a file setup does not read (~/.zprofile) now gets setup's
+' line too: a repeated PATH entry, where the old call left new shells without
+' proveo. NOT CHOSEN: change setup alone; leave it to the installer's owner;
+' this shell's PATH (the hand case above). R3's deferred installer lines rode
+' along: no `proveo init --print` suggestion right after init; init_incomplete
+' says "proveo itself is installed; the sbx backend is not set up yet" and no longer
+' "the lines above say which condition failed" after a quit; the closing text
+' wrote "source \~/.zshrc" under /bin/bash 3.2 (`${x/#$HOME/\~}` keeps the
+' backslash there, MEASURED) and now cuts the $HOME prefix with a case.
+' internal/installtest pins it on the REAL-binary install (the stub CDN's
+' proveo answers setup with exit 0): the rc holds setup's block once, still
+' once after a second install, once when the bin dir is already on PATH, no
+' install.sh marker, and the closing text holds "source ~/<rc>", no `\~`, no
+' "init --print".
+'
+' ── WHAT `proveo update` PRINTS (R4 of _spec/_plans/output-readability.puml)
+' No heading; one closing line, last; every × is the command's own item,
+' Reported (exit 1, main prints nothing):
+'   --check, newer   ● proveo 0.3.1 → 0.4.0 — available, the channel URL dim
+'                    (Cloudf: the operator asked and nothing is wrong, P8)
+'   current          ✓ proveo 0.4.0 — up to date (one wording, --check or not)
+'   updated          ✓ proveo 0.3.1 → 0.4.0 — updated, dim ~/.proveo/bin/proveo
+'                    (--force on the same release: "proveo 0.4.0 — reinstalled")
+'   uninstall.sh     ⚠ ~/.proveo/uninstall.sh — not refreshed, error dim, above ✓
+'   a local build    × proveo dev@<sha> — a local build, not replaced, dim
+'                    "`proveo update --force` replaces it with 0.4.0"
+'   latest.json      × latest.json — not read (it never arrived) or — not valid
+'                    (it held no release), the cause dim without cdn's prefix;
+'                    × latest.json — no checksum for <asset>
+'   the download     × proveo 0.4.0 — not downloaded, cause dim without
+'                    "download <asset>: "; × <asset> 0.4.0 — checksum mismatch,
+'                    dim "expected <sum>" and "got      <sum>" (critique b1:
+'                    the asset is what a report needs)
+'   the replace      × ~/.proveo/bin/proveo — not replaced, error dim
+' Three waits have a live line that leaves the screen: "latest.json —
+' reading", "proveo 0.4.0 — downloading", "uninstall.sh — downloading" (each
+' up to 60-120 s, critique must-fix 10). Plain output keeps the download's
+' start line alone. cdn types its errors for this: ManifestError{Fetch},
+' DownloadError, ChecksumMismatch; each Error() keeps a full sentence.
+' updateAt takes the binary's path; doUpdate alone asks os.Executable, so a
+' test never replaces its own binary (update_test.go serves a local channel).
+' KNOWN, NOT FIXED: --check fails at ChecksumFor for a platform latest.json
+' lacks before it checks (d5); a binary the operator cannot write (installed
+' by root) fails with no how-to; `curl … uninstall.sh | bash` runs
+' `proveo uninstall --yes` whenever stdin is not a terminal, so it asks
+' nothing (uninstall.sh:13-14, critique d7).
 
 title Distribution + self-update — install.sh and `proveo update`
 
@@ -93,7 +151,7 @@ USER ARROW_MAIN INSTALL
 INSTALL ARROW_CLOUD MANIFEST : fetch
 INSTALL ARROW_CLOUD ASSET : download
 INSTALL ARROW_MAIN BIN : install + successLabel(sha256 verified)
-INSTALL ARROW_OPTIONAL SETUP : hand off PATH wiring
+INSTALL ARROW_MAIN SETUP : hand off PATH wiring\n(PATH without BIN_DIR)
 
 USER ARROW_MAIN UPD
 UPD ARROW_MAIN CDNPKG

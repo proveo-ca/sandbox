@@ -15,8 +15,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// promptKitOptions is the kit for this host: starship lands beside proveo's own binary. Its Report
-// prints each line, which `proveo uninstall` keeps; init routes the kit to facts instead.
+// promptKitOptions is the kit for this host: starship lands beside proveo's own binary.
 func promptKitOptions(ask bool) promptkit.Options {
 	binDir := ""
 	if exe, err := os.Executable(); err == nil {
@@ -30,7 +29,6 @@ func promptKitOptions(ask bool) promptkit.Options {
 		Preset: func(starship, name string) ([]byte, error) {
 			return exec.Command(starship, "preset", name).Output()
 		},
-		Report: ui.Hostf,
 	}
 	if ask {
 		o.DrawsGlyphs = choiceui.AskDrawsGlyphs
@@ -46,7 +44,6 @@ func applyPromptKit(ask bool, rep *initReport) {
 	var facts []ui.Fact
 	var items []sandbox.Item
 	o := promptKitOptions(ask)
-	o.Report = nil
 	o.Fact = func(key, value string, detail ...string) {
 		for i := range detail {
 			detail[i] = ui.TildeIn(detail[i])

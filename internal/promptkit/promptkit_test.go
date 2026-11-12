@@ -354,8 +354,63 @@ func TestTheGlyphAnswerPicksThePreset(t *testing.T) {
 	}
 }
 
+// Undo says each removal that succeeded as a fact and each that failed as a warning: a config it could not
+// write is never "removed".
+func TestUndoSaysOnlyWhatItRemoved(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only directory")
+	}
+	fetch, _ := pinTo(t, starshipArchive(t, "#!/bin/sh\n"), fontArchive(t))
+	o := kitOptions(t, "/bin/zsh", fetch)
+	rec, err := Apply(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !Installed(o) {
+		t.Fatal("Installed is false right after Apply")
+	}
+	configDir := filepath.Join(o.Home, ".config")
+	if err := os.Chmod(configDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(configDir, 0o755) })
+	facts := map[string][]string{}
+	var warned []string
+	o.Fact = func(key, value string, detail ...string) { facts[key] = append([]string{value}, detail...) }
+	o.Warn = func(text string, detail ...string) { warned = append(warned, text+"|"+strings.Join(detail, "|")) }
+	if err := Undo(o); err == nil {
+		t.Error("Undo returned no error for a config it could not write")
+	}
+	rc := filepath.Join(o.Home, ".zshrc")
+	for key, want := range map[string][]string{
+		"rc":       {rc},
+		"starship": {rec.Starship},
+		"font":     {FontFamily, "3 files in " + filepath.Dir(rec.Fonts[0])},
+	} {
+		if got := facts[key]; strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("fact %s = %q, want %q", key, got, want)
+		}
+	}
+	if got, ok := facts["config"]; ok {
+		t.Errorf("Undo said it removed the segment from a config it could not write: %q", got)
+	}
+	config := filepath.Join(configDir, "starship.toml")
+	if len(warned) != 1 || !strings.HasPrefix(warned[0], config+" — proveo segment not removed|") || !strings.Contains(warned[0], "permission denied") {
+		t.Errorf("warned %q", warned)
+	}
+	if err := os.Chmod(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !Installed(o) {
+		t.Error("Installed is false while the segment stays in the config")
+	}
+	if err := Undo(o); err != nil || Installed(o) {
+		t.Errorf("a second Undo = %v, Installed = %v; want the segment gone", err, Installed(o))
+	}
+}
+
 // Apply says what it found as facts init prints in one block, and a shell it has no line for as a
-// warning; Report stays Undo's.
+// warning.
 func TestApplySaysWhatItFoundAsFactsAndAShellWithNoLineAsAWarning(t *testing.T) {
 	fetch, _ := pinTo(t, starshipArchive(t, "#!/bin/sh\n"), fontArchive(t))
 	o := kitOptions(t, "/bin/zsh", fetch)

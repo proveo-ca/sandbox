@@ -205,11 +205,14 @@ skinparam noteTextAlignment left
 ' every other default is about this install.
 '
 ' The rc block carries its OWN marker (`proveo init` — sbx on PATH) rather than
-' reusing the `proveo setup` one, and shell.AlreadyConfigured is deliberately
-' not used for it: that returns true when the rc holds proveo's own marker,
-' which it does, because the CDN installer put it there minutes earlier. Asking
-' about THIS directory is the only question with the right answer. The
-' uninstaller strips both markers.
+' reusing the `proveo setup` one. Asking about THIS directory is the only
+' question with the right answer: setup's marker sits in the rc minutes after
+' the CDN installer. Until R4 shell.AlreadyConfigured accepted that marker
+' alone, so init asked strings.Contains itself; since R4 AlreadyConfigured
+' matches the directory and init calls it (rcAdds, ensureSbxOnPath), with
+' setup's appendRC (_spec/internal/shell/setup-path.puml). `proveo uninstall`
+' strips setup's block and leaves this one, since sbx stays installed;
+' uninstall.sh's bash fallback strips both.
 ' ONLY A PREFIX THAT HOLDS SBX EARNS THE LINE (2026-10-22, MEASURED): a host
 ' whose sbx came from brew got `set -gx PATH ~/.docker/sbx/bin` in
 ' config.fish although init installed nothing there — a dead entry today, and

@@ -210,7 +210,7 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 		rm = []string{"rm", "--stop", k.name}
 	}
 	out, err := proveo(rm...)
-	if err != nil || !strings.Contains(out, k.name+" is removed") {
+	if err != nil || !strings.Contains(out, k.name+" — removed") {
 		t.Fatalf("proveo %s = %v\n%s", strings.Join(rm, " "), err, out)
 	}
 	if running && !strings.Contains(out, "sbx stop "+k.name) {

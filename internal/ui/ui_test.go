@@ -66,7 +66,7 @@ func TestPrinterVocabulary(t *testing.T) {
 		},
 		{
 			name:      "every role shares the dot; only the colour differs",
-			print:     func(p *Printer) { p.Dangerf("removing image %s", "proveo/x:local") },
+			print:     func(p *Printer) { p.Rolef(RoleError, "removing image %s", "proveo/x:local") },
 			wantNerd:  "● removing image proveo/x:local",
 			wantASCII: "o removing image proveo/x:local",
 			wantOff:   "  removing image proveo/x:local",

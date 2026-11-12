@@ -187,12 +187,8 @@ const (
 	SectionGit         = "git"         // `proveo init`: the sandbox git identity and GitHub access
 	SectionResults     = "results"     // after the agent: how it ended, what came home, the sandbox's fate; `proveo init`: what waits and the verdict
 	SectionIDE         = "ide"         // a kept sandbox: how an IDE attaches to it
-	SectionTargets     = "targets"     // `proveo ls`: the harness images
-	SectionProjects    = "projects"    // `proveo projects`: monorepo members
-	SectionSetup       = "setup"       // `proveo setup`: the PATH change
-	SectionUninstall   = "uninstall"   // `proveo uninstall`: what is removed
-	SectionSchedule    = "schedule"    // `proveo schedule`: the tick, then one section per job
-	SectionRunning     = "running"     // `proveo attach` / `proveo run`: tasks whose session is up
+	SectionTargets     = "targets"     // `proveo run` with no target and no terminal: the harness images, after running
+	SectionRunning     = "running"     // `proveo run` with no target and no terminal: tasks whose session is up
 	SectionOperator    = "operator"    // `proveo init`: the name agents address the operator by
 )
 
@@ -536,10 +532,6 @@ func (p *Printer) Cloudf(format string, a ...any) { p.line(RoleCloud, sevNone, f
 // Storef reports persistence: paths on disk, transcripts, records, clones.
 func (p *Printer) Storef(format string, a ...any) { p.line(RoleStore, sevNone, format, a...) }
 
-// Dangerf reports something destructive or security-sensitive that has NOT
-// failed — a removal, a credential crossing a boundary.
-func (p *Printer) Dangerf(format string, a ...any) { p.line(RoleError, sevNone, format, a...) }
-
 func Okf(format string, a ...any) { Default.Okf(format, a...) }
 
 func Warnf(format string, a ...any) { Default.Warnf(format, a...) }
@@ -575,8 +567,6 @@ func Asyncf(format string, a ...any) { Default.Asyncf(format, a...) }
 func Cloudf(format string, a ...any) { Default.Cloudf(format, a...) }
 
 func Storef(format string, a ...any) { Default.Storef(format, a...) }
-
-func Dangerf(format string, a ...any) { Default.Dangerf(format, a...) }
 
 const fallbackWidth = 100
 

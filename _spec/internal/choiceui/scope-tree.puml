@@ -115,7 +115,9 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' Under its floor the list only cancels: Enter must not choose a row nobody
 ' can see.
 ' Pick() returns ErrListClosed for Esc, so each caller words its own refusal:
-' "no target selected", "no task selected".
+' "no target selected", "no task selected". Since R4 `proveo attach` prints
+' its own "⚠ attach — no task selected" (exit 1, the operator's choice); `proveo
+' run` and the harness aliases still end on main's ×.
 ' proveo-dev's row 0 is "all": alone or among others it means every target.
 ' Golden frames: internal/choiceui/testdata/list/, 9 files.
 '

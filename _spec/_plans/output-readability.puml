@@ -221,6 +221,85 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '                 writing the same blocks); exit 130 alone (the second R3
 '                 review: a caller reads it as handled and goes on).
 '
+' ── THE OPERATOR'S DECISIONS ON R4 (2026-11-11) ───────────────────────────
+' Three designs measured the other commands (lists: ls, projects, version,
+' schedule; kept: rm, adopt, clean, attach; upkeep: setup, update,
+' uninstall); three critiques found their faults. The operator answered
+' twelve forks through the interactive prompt; the rules settled one:
+'   HEADINGS      (operator) no heading on any one-subject command: rm (list
+'                 and <name>), adopt, attach, clean, ls, projects, the
+'                 schedule listing, setup, update, uninstall. run, init and
+'                 `proveo run` with no target keep theirs. A Section constant
+'                 nothing names leaves ui.go. NOT CHOSEN: a heading only over
+'                 a Facts block (upkeep F3 a); one heading per command named
+'                 after it (F3 b).
+'   FAILURE       (rules, R3's precedent) a command prints its own × item
+'                 (sandbox.Item{Fail, Text, Detail}) through PrintBlock and
+'                 returns backend.Reported: exit 1, main prints nothing. NOT
+'                 CHOSEN: an itemErr type main prints.
+'   LIST SHAPE    (operator, "match run's end") `proveo rm` lists each kept
+'                 sandbox as a P2 item "<name> — <why>", its age dim; `proveo
+'                 adopt` one stacked "to adopt:" fact, "(N new commit[s])" as
+'                 R2's branches fact; `proveo attach` (no terminal) Facts rows
+'                 keyed by task with the running value `proveo schedule`
+'                 prints. Empty: "● no sandbox kept", "● to adopt: none", "●
+'                 nothing running" (stderr). NOT CHOSEN: one stacked fact per
+'                 list ("kept:", "tasks:"); today's rows trimmed.
+'   RM STRANDED   (operator, "keep rm; retry line only") rm still refuses to
+'                 remove while work is only in the sandbox; a failed rescue
+'                 ends on "× <name> — not removed", dim "`proveo rm <name>`
+'                 tries again", under the carried block's own ⚠ items. No
+'                 sbx command, no bundle recipe on screen. NOT CHOSEN: `sbx
+'                 rm --force` dim (it deletes the stranded work); the rescue
+'                 recipe dim.
+'   CLEAN HOMES   (operator, "output only; record it") no behaviour change;
+'                 clean-lifecycle.puml records as KNOWN that --homes removes
+'                 ~/.proveo while running sandboxes mount parts of it, with no
+'                 liveness gate (--tools has one). NOT CHOSEN: a gate now.
+'   ATTACH NESTED (operator, "item when nested") `attach -r` inside tmux
+'                 prints one host item before tmux takes the terminal: "●
+'                 tmux — nested read-only client", dim "the prefix twice, then
+'                 d, detaches". An exception to the HOW-TO rule, beside R2's
+'                 "Ctrl+C again leaves now": it names the keys that leave
+'                 while help is out of reach. NOT CHOSEN: flag help only; a
+'                 hand line on every attach.
+'   LATER RUNS    (operator, "stack each run", P3 as written) the soonest run
+'                 is the job's value; each later run stacks under it with its
+'                 "in Nd Nh"; config and last sit two columns past the last
+'                 stacked value. NOT CHOSEN: one dim "then …" line.
+'   NO SCHEDULE   (operator, "both exit 0") the listing writes "no <~path>"
+'                 to stderr and exits 0; the tick finds nothing due, logs
+'                 nothing, exits 0, so a tick ⚠ always means a real failure.
+'                 NOT CHOSEN: the listing 0 and the tick 1; both 1 (HEAD).
+'   TICK HOME     (operator, "no false ✓; record fix") the listing compares
+'                 PROVEO_HOME with the home the installed plist or unit
+'                 implies ($HOME/.proveo: it sets none) and prints "⚠ tick —
+'                 reads ~/.proveo/schedule.yml, not this home's", no how-to,
+'                 in place of ✓; the install fix (carry PROVEO_HOME) is KNOWN
+'                 in schedule.puml. NOT CHOSEN: the fix in R4; ✓ as at HEAD.
+'   INSTALLER     (operator, "fix install.sh + setup") install.sh calls
+'                 "$BIN_DIR/proveo" setup with no PATH prefix; setup's rc
+'                 check matches this bin dir, not a marker alone (FOUND 9);
+'                 R3's deferred installer lines ride along; installtest
+'                 asserts the rc line once after two installs. NOT CHOSEN:
+'                 change setup alone; leave it to the installer's owner.
+'   UNINSTALL RECORD (operator, "by what left") one Facts block keyed root ·
+'                 path · prompt · font, each valued with where it was; a fact
+'                 only for a removal that succeeded; font as init prints it.
+'                 NOT CHOSEN: by file; today's scope reshaped.
+'   LEFTOVERS     (operator, "⚠ each, with its fix") from proveo's own records
+'                 only: "⚠ schedule tick — still registered" with the dim
+'                 command that removes it; "⚠ <name> — kept, its output only
+'                 inside" with none; the closing "⚠ proveo — uninstalled; N
+'                 left". NOT CHOSEN: saying nothing; asking sbx.
+'   CONSENT       (operator, "every scope, one line") "› remove ~/.proveo, its
+'                 PATH lines and the prompt kit? [y/N]", each scope only when
+'                 present; the red Dangerf line goes (P9). NOT CHOSEN: the
+'                 root alone.
+' OUT OF SCOPE: Hermes Desktop's lines (they print inside `proveo run`), and
+' every behaviour change but INSTALLER, NO SCHEDULE and RM STRANDED's text:
+' every other exit status and argument rule stays HEAD's (the R4 review).
+'
 ' ── TECHNICAL CALLS (the Executor's, from the design review) ──────────────
 '   One shared helper, ui.Facts, aligns by display width, wraps a value at
 '   its own column on the terminal only (the log copy stays unwrapped), and
@@ -333,6 +412,26 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '     ItsProgramAndNoPlace; :49-62 split by `hands` → TestEachStepShowsTheWay
 '     ItsKindDoes; init_preflight_test.go's count rows and done/later lines;
 '     init_tui_test.go TestDescribeDecisionsNamesEveryChoiceItMade deleted
+'
+' ── E2E ANCHORS THAT MOVE (R4) ─────────────────────────────────────────────
+'   e2e/schedule_test.go TestScheduleFailedRunIsListedAndRetried: the piped
+'     `schedule ls` still holds "proveo schedule retry <job>" (dim, no question
+'     can follow) and now `(?m)^error: <job> — failed ` and no "------ "
+'   Checked unchanged: :60 the tick's "started <job> for …" log line; `schedule
+'     run` and `retry` still exit 0 when they start the job
+'   SAFETY (first change): e2e/home_test.go clean_homes runs `proveo clean
+'     --homes` under a temp HOME and state root with docker and sbx stubbed
+'     (cleanOnlyHome); it ran against the operator's real ones
+'   kept: e2e/teardown_interrupt_test.go:213 "<name> is removed" → "<name> —
+'     removed" (plain "ok: <name> — removed"); :207 unchanged ("it is
+'     running" and the dim `proveo rm --stop <name>` fix); clean_homes now
+'     asserts the dry run's `home:` fact and "clean — nothing removed (dry
+'     run)", and the real run's "clean — 1 removed" with no "nothing to"
+'   upkeep: no e2e test runs setup, update or uninstall. internal/installtest
+'     (unit lane) asserts setup's rc block once after two real-binary installs,
+'     once for a bin dir already on PATH by hand, and the closing text's
+'     "source ~/<rc>"; apps/cli uninstall.sh:11 still
+'     finds `uninstall` in `proveo --help` (Short unchanged)
 '
 ' ── PROGRESS ───────────────────────────────────────────────────────────────
 '   R0 ... done 2026-11-11: ui.Fact/Facts, Detailf, Tilde (schedule's
@@ -665,7 +764,236 @@ title Output readability — sbx's principles in proveo's own idiom, across ever
 '          a Homebrew install" why moved to github-credentials.puml; the
 '          plain e2e runs the git and GitHub steps; three why clauses left
 '          source comments.
-'   R4 ... not started
+'   R4 ... done 2026-11-12: three groups, then one review's ten fixes.
+'          SAFETY FIRST (every test the three groups touch, audited before
+'          any ran): TestDoUninstallYes, TestRemoveInstallRootSafety and the
+'          prompt kit's uninstall test run under isolatedHost (isolatedInitHost
+'          plus stub launchctl, systemctl, crontab, tmux, docker; XDG_*,
+'          STARSHIP_CONFIG, TMUX emptied; the install root under the temp
+'          HOME): XDG_STATE_HOME or STARSHIP_CONFIG in the runner's shell sent
+'          promptkit.Undo to the operator's real record and starship config.
+'          The adopt tests' PATH holds git alone (ReconcileResults ran the real
+'          `sbx ls`). installtest's hermeticEnv drops XDG_* and
+'          STARSHIP_CONFIG (its uninstall step runs the real binary). The
+'          e2e clean_homes runs under cleanOnlyHome. The unsafe-root guard
+'          stays inside removeInstallRoot.
+'          LISTS (ls, projects, version, schedule; the shared running value):
+'          ls is one Facts block; projects prints paths only, its absence on
+'          stderr naming the root; version unchanged; the schedule listing,
+'          its × items, the question under its ×, the tick line last, and
+'          every subcommand's refusal as one × with one dim line
+'          (_spec/internal/schedule/schedule.puml). install.go takes a
+'          Runner; TickStatus reads the last exit and the log path; the tick
+'          home is compared; Uninstall says whether a tick was there; a job
+'          with no `at` lists as "manual"; tmux.Session.Start keeps tmux's
+'          words; writeRunning is one Facts block shared by attach and
+'          `proveo run`, its empty note on stderr for attach; no
+'          schedule.yml means nothing running (exit 0). SectionProjects and
+'          SectionSchedule left ui.go.
+'          MEASURED AFTER (a binary built from this tree, the designer's
+'          fixture, stub tmux and launchctl, a temp HOME; captures in the
+'          session scratchpad r4-measure/lists-after): the fixture's listing
+'          on a terminal 24 → 18 rows, 5 → 0 headings, the question under its
+'          × and the tick last; ls 11 → 10 rows; projects 4 → 3.
+'          e2e PASS on macOS, on the tree after the R4 review's fixes:
+'          TestScheduleFiresAtItsTimeAndTypesThePrompt,
+'          TestScheduleFailedRunIsListedAndRetried,
+'          TestScheduleAgentThatDiesBeforeReadyFailsFast,
+'          TestProveoHomePersistence/clean_homes (isolated).
+'          FOUND (lists): DiscoverProjects skips a "!" pattern instead of
+'          excluding its matches, so projects can list a member
+'          pnpm-workspace.yaml excludes (workspace, not output; not fixed);
+'          TestSectionsNameAConstant checks ui.Section(...) only, so a
+'          Printer.Section(<data>) escapes it (none is left in cmd/proveo or
+'          internal; proveo-dev's pr.Section(verb) is out of scope); a run far
+'          past its budget stays a grey running value (the watcher's ladder
+'          stops it within minutes; no ⚠ added).
+'          KEPT (rm, adopt, attach, clean): no heading on any of them; every
+'          refusal or failure is the command's own item, Reported.
+'          rm       _spec/internal/results/result-store.puml (WHAT `proveo rm`
+'                   PRINTS): the list as P2 items, the age dim in ui.Span's
+'                   form; one closing line; a stranded carry ends on "×
+'                   <name> — not removed", dim "`proveo rm <name>` tries
+'                   again" (RM STRANDED; `sbx rm --force` left verbs.go); a
+'                   typo is "⚠ <name> — no such sandbox", exit 0 as at HEAD
+'                   (FOUND 1); RemoveKept runs before the reconcile, so a
+'                   gone sandbox with an entry reads "✓ <name> — already
+'                   gone".
+'          adopt    one "to adopt" fact; "✓ branch <b> — created at <ref>";
+'                   adopt's errors are typed (internal/adopt) and each is one
+'                   × (FOUND 4 fixed: "none", not "every ref … on a branch").
+'          attach   the lists group's writeRunning as built, plus ONE dim
+'                   how-to on stderr with no terminal (critique must-fix 6);
+'                   tmux decides and schedule.yml only words a refusal
+'                   (must-fix 1); "⚠ attach — stopped at tmux" (must-fix 5);
+'                   "× <task> — not attached" with no terminal; the nested
+'                   item (ATTACH NESTED); "⚠ attach — no task selected"
+'                   (one word for one event, critique c9). schedule.puml.
+'          clean    _spec/internal/clean/clean-lifecycle.puml (WHAT CLEAN
+'                   PRINTS): it acts, then prints one block by kind, ⚠ items
+'                   and one closing line; --homes folded into the plan with
+'                   no behaviour change (CLEAN HOMES, recorded KNOWN there).
+'          shared   sandbox.Item splits a detail at each newline (FOUND 9,
+'                   read from code); ui.Span is the one wait/age form (the
+'                   schedule's until uses it).
+'          DECIDED BY THE EXECUTOR (the critique's must-fixes, no fork left):
+'            CARRY LINE  "carrying its work home" prints only when a carry
+'                   runs (P6); R2's three --stop lines hold for a clone, two
+'                   for a mounted checkout (result-store.puml amended). The
+'                   probe runs first as its own live step (stepCloneMode;
+'                   plain gets "clone mode — up to 38s", as teardown does),
+'                   after sbx.Gone, so a sandbox gone since the listing reads
+'                   "already gone" (must-fix 3). NOT CHOSEN: the carry line
+'                   before the probe (false for a mounted checkout).
+'            ENTRY FIRST the entry is cleared before the ✓; a failed write is
+'                   the closing "⚠ <name> — removed, its entry stays"
+'                   (must-fix 10). NOT CHOSEN: ✓, then main's ×.
+'            HISTORY     an OpenCode engine's history is a "history:" fact of
+'                   the carried block, carried before it prints (must-fix 8);
+'                   the retire path keeps its own line (e2e anchor). NOT
+'                   CHOSEN: the Storef line after the block.
+'            CLEAN CLOSE one closing line: a failed removal wins ("⚠ clean —
+'                   M not removed", exit 0 as at HEAD; "×" and exit 1 when
+'                   the --homes home stays, as HEAD returned RemoveAll's
+'                   error), else nothing found ✓, a dry run ●, only live
+'                   items ⚠ (exit 0), else "✓ clean — N removed"; the
+'                   live-left ⚠ reads "left: N that look live" (must-fix 4);
+'                   state is named by run id in the block and in the ⚠
+'                   (critique c8). NOT CHOSEN: "⚠ clean — left …" and a ✓
+'                   under it (two verdicts); exit 1 on any failed removal
+'                   (must-fix 4; OUT OF SCOPE keeps HEAD's exit status).
+'            ATTACH HOW-TO on stderr, so attach's stdout keeps its rows alone
+'                   (usage.puml). NOT CHOSEN: on stdout after the block.
+'            REFUSAL WORDS attach reuses the schedule's refusal for a job
+'                   schedule.yml lacks ("no such job", "jobs: …") and for a
+'                   missing or invalid file: one wording per error type
+'                   (critique must-fix 7). NOT CHOSEN: "no such task".
+'          FOUND (kept design, settled by the critique): 6 restated as
+'          measured and 7 verified in Go's source (clean-lifecycle.puml); 9
+'          read from code (no capture held it); 14 is not proveo's: the
+'          `tmux info` call is charmbracelet/colorprofile detecting colour
+'          when TMUX is set. 8 (rm carries and removes a sandbox no run
+'          kept) and 12 (rm's Logf lines print nowhere) are recorded in
+'          result-store.puml; behaviour, not R4.
+'          KNOWN, NOT FIXED (kept): Ctrl+C during `proveo rm` ends it
+'          mid-carry with no closing line (the entry survives; data stays:
+'          `sbx rm` runs only after the carry); `proveo run`'s and the
+'          harness pickers' closing still end on main's ×; clean's plain
+'          output shows nothing while a removal runs; d13 (a pending kept
+'          entry) and d12 (--deep with no docker answer) print as before.
+'          UPKEEP (setup, update, uninstall; install.sh): no heading on any
+'          of them; every × is the command's own item, Reported.
+'          setup    _spec/internal/shell/setup-path.puml (WHAT `proveo setup`
+'                   PRINTS): ONE item, init's PATH item word for word; the rc
+'                   check matches this bin dir (INSTALLER, FOUND 9), shared
+'                   with init's rcAdds and ensureSbxOnPath (appendRC);
+'                   SectionSetup left ui.go.
+'          update   _spec/internal/cdn/distribution-update.puml: a live line
+'                   per wait (must-fix 10), one closing line, cdn's typed
+'                   errors (ManifestError, DownloadError, ChecksumMismatch).
+'          uninstall  setup-path.puml (WHAT `proveo uninstall` PRINTS): the
+'                   question (CONSENT), ONE Facts block (UNINSTALL RECORD),
+'                   ⚠ per failed removal and per leftover (LEFTOVERS), one
+'                   closing line; SectionUninstall and ui.Dangerf left ui.go
+'                   (fourteen sections; five role verbs). promptkit.Undo says
+'                   each removal through Fact and each failure through Warn;
+'                   Options.Report left (FOUND 3 fixed); Installed answers the
+'                   question with Undo's own checks.
+'          install.sh  "$BIN_DIR/proveo" setup with BIN_DIR left out of PATH
+'                   (path_without_bin_dir; must-fix 7's two cases, the R4
+'                   review); R3's deferred lines: no `proveo init --print`
+'                   after init, a plain init_incomplete, "source ~/<rc>"
+'                   without the bash 3.2 backslash (MEASURED).
+'          DECIDED BY THE EXECUTOR (the upkeep critique's must-fixes):
+'            SETUP ORDER  PATH first, then the shell (must-fix 2, fix a): a
+'                   head says "not on PATH" only after setup looked, and an
+'                   unknown shell with the dir on PATH reads "✓ already on
+'                   PATH", exit 0 (an INSTALLER change; install.sh runs setup
+'                   with the dir off PATH). NOT CHOSEN: fix b,
+'                   "× $SHELL — unknown" (Windows stays × after install.ps1).
+'            CLOSE  a removal that failed is one of the "N left"; nothing gone
+'                   reads "nothing removed" or "nothing to remove"; a root
+'                   that stays closes on × (must-fix 3: no ✓ over a ⚠). NOT
+'                   CHOSEN: "⚠ proveo — partly uninstalled", a second wording.
+'            SHADOW  a proveo PATH still finds is "⚠ <path> — still on PATH"
+'                   (must-fix 4, R3's shadowItems precedent; one LookPath,
+'                   read-only); the running binary outside the root keeps "—
+'                   not removed", dim "outside ~/.proveo". NOT CHOSEN: the
+'                   running binary alone (HEAD).
+'            STARSHIP  stacks under prompt unless the root fact covers it
+'                   (b4). NOT CHOSEN: a fifth "starship" key.
+'            NO TTY  "× proveo — not uninstalled", the how-to alone (c7).
+'                   NOT CHOSEN: "× ~/.proveo — not removed" (the question
+'                   names more than the root).
+'            STATE ROOT  stays unsaid on screen; `proveo uninstall --help`
+'                   names it with what uninstall leaves. NOT CHOSEN: a third
+'                   leftover ⚠ (the operator's list names the tick and the
+'                   kept sandboxes).
+'          MEASURED AFTER (the unit fixtures, temp HOME, rendered through an
+'          overlay test on a terminal printer and plain; captures in the
+'          session scratchpad r4upkeep/after; rows, BEFORE → AFTER): setup
+'          fresh 1 → 2 rows, 110 → 43 columns; --print 5 → 2, no heading;
+'          update success 2 → 2 (the progress line now leaves); uninstall
+'          --yes 1 → 4 (root and two PATH rcs, never said before); with the
+'          prompt kit 5 → 8; a read-only rc and ~/.config 6 → 10 with no
+'          false "removed" and no ✓; the unsafe root ends on its × after the
+'          facts that went.
+'          e2e: none of the three reaches an e2e anchor. internal/installtest
+'          gained the rc-line, second-install and closing-text assertions.
+'          KNOWN, NOT FIXED (R4 allowed no other behaviour change; each in
+'          setup-path.puml or distribution-update.puml): FOUND 5, the unsafe
+'          root refused after the strips; FOUND 10, setup with HOME unset; a
+'          typo'd install root is removed; `uninstall 2>log` waits on an
+'          unseen question; Windows keeps proveo.exe and install.ps1's PATH
+'          entry; --check fails on a platform latest.json lacks; a root-owned
+'          binary fails with no how-to; `curl … uninstall.sh | bash` asks
+'          nothing; uninstall.sh's fallback (a binary with no uninstall)
+'          strips every dir's setup block.
+'          THE R4 REVIEW (10 findings; each code fix has a test that fails
+'          without it, the install.sh and qemu ones mutation-checked):
+'            EXIT STATUS  OUT OF SCOPE allows no other behaviour change, so
+'                   each exit and argument rule is HEAD's again: clean's
+'                   failed removal exits 0 ("×" and exit 1 only for a --homes
+'                   home that stays, as HEAD returned its error); `proveo rm
+'                   <typo>` is "⚠ <name> — no such sandbox", exit 0; schedule,
+'                   ls, tick, install and uninstall ignore a stray argument.
+'                   uninstall's ⚠ closing (exit 0) and × root (exit 1) match.
+'                   One exception, under NO SCHEDULE: attach with no task and
+'                   no schedule.yml is the running listing, so it reads
+'                   "nothing running" and exits 0 like `proveo schedule` (HEAD:
+'                   main's ×, exit 1).
+'                   NOT CHOSEN: exit 1 on every failed removal (kept must-fix
+'                   4) and refusing stray arguments: behaviour, so the
+'                   operator's to choose in a later wave.
+'            PATH LINES  uninstall strips setup's block only when its PATH
+'                   line names this root's bin dir, since FOUND 9 makes two
+'                   blocks in one rc normal (~/go/bin's stays); findInstalled
+'                   and the question follow. setup's rc check also reads the
+'                   dir as $HOME/…, ${HOME}/… or ~/…, so install.sh running
+'                   setup with the dir off PATH repeats no hand line.
+'                   EXECUTOR PASS: that check reads only PATH lines and the
+'                   dir as a whole entry, since a comment, an alias or
+'                   ~/.proveo/binaries would leave a fresh install with no
+'                   line; install.sh's marker block follows setup's rule (a
+'                   block naming another root stays, an empty one goes).
+'            TICK HOW-TO  under another PROVEO_HOME a missing tick prints no
+'                   "`proveo schedule install`" how-to: that tick would read
+'                   ~/.proveo (TickStatus now names that home either way).
+'            DURATIONS  a budget and the clock against it read as
+'                   schedule.yml writes a budget (compact: 45m, 1h30m), so
+'                   "1h7m of 1h30m" matches "1h30m budget"; a wait or an age
+'                   reads ui.Span's spaced form ("in 1d 23h", "19h 7m ago").
+'                   NOT CHOSEN: ui.Span for the clock ("of 1h 0m" beside
+'                   "budget: 1h"); trimming Span's zero unit (moves every
+'                   wait, "in 2d 0h" pinned).
+'            TEXT   attach's --help names schedule.yml in the proveo home;
+'                   RemoveKept's comment fits three lines; the schedule.puml
+'                   KNOWN line says `proveo attach <task>` still attaches.
+'            LINUX LEG  TestJVMRowNeedsTheQemuFloorOnMacOSHosts failed in a
+'                   linux/arm64 proveo image at HEAD too: NO_QEMU=1 dropped
+'                   the stub, but /usr/bin/qemu-x86_64 stayed on the row's
+'                   PATH. Its PATH now links /usr/bin and /bin minus qemu-*;
+'                   the cross-built test binary passes in that image.
 
 component "sbx's create block\nsubject sections · items · aligned facts" as SBX <<cloud>>
 component "proveo's stream, 2026-11-11\nphase sections · prose · ● on every line" as OLD <<error>>

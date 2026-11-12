@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,7 +23,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/run"
-	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -86,6 +84,12 @@ type reraised struct{ backend.Stopped }
 
 func (r reraised) Unwrap() error { return r.Stopped }
 
+// reported prints it, under no heading, and returns err as one main prints nothing for.
+func reported(it sandbox.Item, err error) error {
+	sandbox.PrintBlock(func() {}, nil, []sandbox.Item{it})
+	return backend.Reported{Err: err}
+}
+
 func rootCmd() *cobra.Command {
 	var flagLS, flagInit bool
 	root := &cobra.Command{
@@ -102,7 +106,7 @@ func rootCmd() *cobra.Command {
 				return fmt.Errorf("flags --ls and --init are mutually exclusive")
 			}
 			if flagLS {
-				return doList()
+				return doList(cmd.OutOrStdout())
 			}
 			if flagInit {
 				return doInit(initOptions{})
@@ -151,16 +155,17 @@ func lsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List available harness targets (alias for --ls)",
 		Args:  cobra.NoArgs,
-		RunE:  func(*cobra.Command, []string) error { return doList() },
+		RunE:  func(cmd *cobra.Command, _ []string) error { return doList(cmd.OutOrStdout()) },
 	}
 }
 
-func doList() error {
+// doList prints each harness target and its image on w, one aligned row per target.
+func doList(w io.Writer) error {
 	targets, err := loadTargets()
 	if err != nil {
 		return err
 	}
-	writeTargets(os.Stdout, targets)
+	writeTargets(ui.New(w), targets)
 	return nil
 }
 
@@ -337,94 +342,30 @@ func projectsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "projects",
 		Short: "List monorepo sub-projects discoverable from the current repo",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		Long: `Print the repo-relative path of each monorepo sub-project, one per line: what
+` + "`proveo run --scope`" + ` takes. Members come from pnpm-workspace.yaml, else package.json
+workspaces, else apps/*, packages/*, libs/*, projects/* and services/*; a member holds
+package.json, project.json, Cargo.toml or go.mod. With none, a note on stderr names
+the repo it read, and stdout stays empty.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			root := workspace.Resolve(run.OrWD("")).Root
 			projs := workspace.DiscoverProjects(root)
 			if len(projs) == 0 {
-				ui.Notef("no monorepo sub-projects found (not a monorepo, or no workspace members)")
+				where := ui.Tilde(root)
+				if root == "" {
+					where = "the working directory"
+				}
+				ui.New(cmd.ErrOrStderr()).Storef("no monorepo sub-projects under %s", where)
 				return nil
 			}
-			out := ui.New(os.Stdout)
-			out.Section(ui.SectionProjects)
+			out := ui.New(cmd.OutOrStdout())
 			for _, p := range projs {
-				out.Storef("%-34s %s", p.Path, p.Tool)
+				out.Storef("%s", p.Path)
 			}
 			return nil
 		},
 	}
-}
-
-func setupCmd() *cobra.Command {
-	var printOnly bool
-	cmd := &cobra.Command{
-		Use:   "setup",
-		Short: "Add the proveo binary's directory to your shell PATH",
-		Args:  cobra.NoArgs,
-		RunE:  func(*cobra.Command, []string) error { return doSetup(printOnly) },
-	}
-	cmd.Flags().BoolVar(&printOnly, "print", false, "show the change without writing it")
-	return cmd
-}
-
-func doSetup(printOnly bool) error {
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
-	if !ok {
-		return fmt.Errorf("unrecognized shell %q; add the proveo dir to PATH manually", os.Getenv("SHELL"))
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	binDir := filepath.Dir(exe)
-	home, _ := os.UserHomeDir()
-	rc := sh.RCFile(runtime.GOOS, home)
-	line := sh.PathLine(binDir)
-
-	if !sh.Supported {
-		ui.Notef("%s is not auto-configured. Add this to %s manually:\n  %s", sh.Name, rc, line)
-		return nil
-	}
-	if onPath(binDir) {
-		ui.Okf("%s is already on PATH", binDir)
-		return nil
-	}
-	content, _ := os.ReadFile(rc) // missing rc is fine
-	if shell.AlreadyConfigured(string(content), binDir) {
-		ui.Okf("%s already configures PATH — restart your shell", rc)
-		return nil
-	}
-	if printOnly {
-		ui.Section(ui.SectionSetup)
-		ui.Storef("would append to %s:", rc)
-		for _, l := range strings.Split(strings.TrimRight(sh.Block(binDir), "\n"), "\n") {
-			ui.Notef("  %s", l)
-		}
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(rc), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(rc, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.WriteString(sh.Block(binDir)); err != nil {
-		return err
-	}
-	ui.Okf("added %s to PATH in %s — restart your shell or run: source %s", binDir, rc, rc)
-	return nil
-}
-
-func onPath(dir string) bool {
-	dir = filepath.Clean(dir)
-	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
-		if p != "" && filepath.Clean(p) == dir {
-			return true
-		}
-	}
-	return false
 }
 
 // pickProject asks for the run's scope; ok is false when the operator closed the page.

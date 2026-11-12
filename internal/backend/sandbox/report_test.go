@@ -366,3 +366,13 @@ func TestTheImageFactNamesAHostOnlyTagALocalBuild(t *testing.T) {
 		}
 	}
 }
+
+// An error a program wrote over several lines keeps every row under the item, at the detail column.
+func TestAMultiLineDetailKeepsItsColumn(t *testing.T) {
+	screen, _ := captured(t)
+	Item{Warn: true, Text: "branches — not carried home", Detail: []string{"exit status 128: fatal: a\n\nfatal: b  \n"}}.print()
+	want := "warn: branches — not carried home\n    exit status 128: fatal: a\n    fatal: b\n"
+	if screen.String() != want {
+		t.Errorf("the item =\n%q\nwant\n%q", screen.String(), want)
+	}
+}

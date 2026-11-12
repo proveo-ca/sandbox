@@ -39,7 +39,7 @@ func Lead(repo, name string) int {
 func Carried(repo string) ([]Ref, error) {
 	out, err := git(repo, "for-each-ref", "--format=%(refname:short)", RefRoot)
 	if err != nil {
-		return nil, fmt.Errorf("list carried refs: %s", out)
+		return nil, NotListed{Out: out}
 	}
 	var refs []Ref
 	for _, name := range strings.Fields(out) {
@@ -87,7 +87,7 @@ func Pick(refs []Ref, arg string) (Ref, error) {
 	}
 	switch len(fits) {
 	case 0:
-		return Ref{}, fmt.Errorf("no carried ref matches %q", arg)
+		return Ref{}, NoMatch{Arg: arg}
 	case 1:
 		return fits[0], nil
 	}
@@ -95,8 +95,45 @@ func Pick(refs []Ref, arg string) (Ref, error) {
 	for i, r := range fits {
 		names[i] = r.Name
 	}
-	return Ref{}, fmt.Errorf("%q fits %d carried refs; name one: %s", arg, len(fits), strings.Join(names, ", "))
+	return Ref{}, Ambiguous{Arg: arg, Refs: names}
 }
+
+// NotListed is a repository whose carried refs git could not list, with git's own words.
+type NotListed struct{ Out string }
+
+func (e NotListed) Error() string { return "list carried refs: " + e.Out }
+
+// NoMatch is a name no carried ref answers to.
+type NoMatch struct{ Arg string }
+
+func (e NoMatch) Error() string { return fmt.Sprintf("no carried ref matches %q", e.Arg) }
+
+// Ambiguous is a name that fits several carried refs.
+type Ambiguous struct {
+	Arg  string
+	Refs []string
+}
+
+func (e Ambiguous) Error() string {
+	return fmt.Sprintf("%q fits %d carried refs; name one: %s", e.Arg, len(e.Refs), strings.Join(e.Refs, ", "))
+}
+
+// BadName is a branch name git refuses, with git's own words.
+type BadName struct{ Name, Out string }
+
+func (e BadName) Error() string { return fmt.Sprintf("%q is not a branch name: %s", e.Name, e.Out) }
+
+// Exists is a branch name already taken.
+type Exists struct{ Name string }
+
+func (e Exists) Error() string {
+	return fmt.Sprintf("a branch named %s exists; pick another name with --as", e.Name)
+}
+
+// NotCreated is a branch git did not create, with git's own words.
+type NotCreated struct{ Name, Out string }
+
+func (e NotCreated) Error() string { return fmt.Sprintf("create branch %s: %s", e.Name, e.Out) }
 
 // Branch creates a branch at ref and returns its name. It moves nothing else: HEAD,
 // the index and the files stay as they are. as defaults to the ref's own branch name.
@@ -105,13 +142,13 @@ func Branch(repo string, ref Ref, as string) (string, error) {
 		as = ref.Branch
 	}
 	if out, err := git(repo, "check-ref-format", "--branch", as); err != nil {
-		return "", fmt.Errorf("%q is not a branch name: %s", as, out)
+		return "", BadName{Name: as, Out: out}
 	}
 	if _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+as); err == nil {
-		return "", fmt.Errorf("a branch named %s exists; pick another name with --as", as)
+		return "", Exists{Name: as}
 	}
 	if out, err := git(repo, "branch", "--", as, "refs/"+ref.Name); err != nil {
-		return "", fmt.Errorf("create branch %s: %s", as, out)
+		return "", NotCreated{Name: as, Out: out}
 	}
 	return as, nil
 }

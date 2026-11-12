@@ -46,12 +46,19 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' Each step says what it did, or that the host already had it. A second
 ' Apply downloads nothing and adds nothing.
 ' HOW IT SAYS SO (R3 of _spec/_plans/output-readability.puml, 2026-11-11).
-' Options.Report still receives each step's sentence; `proveo uninstall`
-' passes ui.Hostf, so Undo's "removed the starship line from <rc>", "removed
-' the proveo segment from <config>" and "removed <starship>" still print
-' (R4 owns their look; TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig
-' pins that they print). Options.Fact and Options.Warn are new: init sets
-' Report to nil and prints ONE block under "prompt" from them:
+' Options.Fact and Options.Warn carry everything Apply and Undo say; R4 deleted
+' Options.Report and its sentences, since init had set it to nil and uninstall
+' now prints facts too. Undo says each removal that SUCCEEDED as a fact, "rc",
+' "config", "starship" or "font" (FontFamily, dim "<n> files in <dir>", n the
+' files it removed), and each that failed as a Warn ("<config> — proveo
+' segment not removed", the error dim); the error it returns joins those. It
+' used to say "removed the proveo segment from <config>" before it checked the
+' write (FOUND 3, MEASURED: a read-only ~/.config). Installed asks Undo's
+' own checks, so `proveo uninstall` names "the prompt kit" in its question only
+' when Undo has something to remove (_spec/internal/shell/setup-path.puml).
+' Pinned by TestUndoSaysOnlyWhatItRemoved and, in cmd/proveo,
+' TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig. init prints
+' ONE block under "prompt" from Apply's:
 '   starship  <version> + dim "installed at ~/…", or <path> + "already on PATH"
 '   font      FiraCode Nerd Font + dim "<n> files in ~/…", or "a Nerd Font"
 '             + "already installed"
@@ -64,8 +71,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' "open a new shell to see it; `proveo uninstall` takes it out again" and
 ' "to see icons, set your terminal's font …, then `starship preset …`" moved
 ' to `proveo init --help` (F2). NOT CHOSEN: routing Report to ui.Logf (init
-' writes no log, so the lines would land nowhere, and uninstall shares the
-' options). Pinned by internal/promptkit/promptkit_test.go
+' writes no log, so the lines would land nowhere). Pinned by internal/promptkit/promptkit_test.go
 ' TestApplySaysWhatItFoundAsFactsAndAShellWithNoLineAsAWarning.
 '
 ' ── EVERY DOWNLOAD IS HELD TO A DIGEST IN THE SOURCE ───────────────────────
@@ -156,6 +162,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 '   TestTheSegmentIsAddedOnceAndNothingElseChanges
 '   TestApplyOnAnEmptyHostInstallsEverythingAndUndoRemovesIt
 '   TestApplyOnAHostThatHasItAllAddsOnlyTheSegment
+'   TestUndoSaysOnlyWhatItRemoved
 '   TestTheGlyphAnswerPicksThePreset
 ' by internal/promptkit/gate_test.go, against the real tools when installed:
 '   TestEachShellParsesTheBlockProveoAppends (bash -n, zsh -n, fish --no-execute)

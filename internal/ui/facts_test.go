@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/proveo-ca/proveo/internal/termtext"
 )
@@ -212,5 +213,19 @@ func TestAWrappedFactKeepsItsAlignedGapAndBreaksALongWordAtItsOwnColumn(t *testi
 	valCol := col(lines[0], "jetbrains")
 	if lead := len(lines[1]) - len(strings.TrimLeft(lines[1], " ")); lead != valCol {
 		t.Errorf("the link's continuation starts at column %d, want the value column %d:\n%s", lead, valCol, strings.Join(lines, "\n"))
+	}
+}
+
+// A wait and an age read alike on every screen: the two largest units, spaced.
+func TestSpanWritesAWaitOrAnAgeToTheMinute(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		45 * time.Minute:                              "45m",
+		19*time.Hour + 7*time.Minute:                  "19h 7m",
+		46*time.Hour + 10*time.Minute:                 "1d 22h",
+		19*time.Hour + 6*time.Minute + 31*time.Second: "19h 7m",
+	} {
+		if got := Span(d); got != want {
+			t.Errorf("Span(%s) = %q, want %q", d, got, want)
+		}
 	}
 }

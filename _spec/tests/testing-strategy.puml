@@ -992,6 +992,35 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' PATH without the host's own; the plan and the prerequisites stay this
 ' machine's. The unit test asserts the stub answered. The stubbed tmux harness
 ' (e2e/init_steps_test.go startInitWith) was already isolated this way.
+' R4 (2026-11-11) widened it: isolatedHost is isolatedInitHost plus stub
+' launchctl, systemctl, crontab, tmux and docker that fail, XDG_*,
+' STARSHIP_CONFIG and TMUX emptied, and the install root under the temp HOME.
+' The uninstall tests run under it: promptkit.Undo reads XDG_STATE_HOME's
+' record and STARSHIP_CONFIG's file, so a runner's shell that set either
+' pointed them at the operator's own. Schedule install tests also replace
+' cmd/proveo's serviceManager, and internal/schedule's set HOME to a temp dir:
+' the plist path comes from os.UserHomeDir, not the Runner. The e2e
+' clean_homes runs `proveo clean --homes` under cleanOnlyHome (a temp HOME
+' and state root, docker and sbx stubbed), and installtest's hermeticEnv
+' drops XDG_* and STARSHIP_CONFIG for the uninstall it runs.
+' The kept group (R4): cmd/proveo/clean_print_test.go runs `proveo clean`
+' under cleanHost (isolatedHost, then logging docker and sbx stubs first on
+' PATH) and fails before it runs when PROVEO_HOME is not under the test's
+' temp HOME: --homes removes it, and --deep reaches docker's images. Its
+' file carries `//go:build !windows` (shell stubs). The attach tests replace
+' tmuxHasSession and stdinTerminal and put a logging tmux first on PATH, so
+' no test reaches the operator's tmux server. The rm tests in
+' internal/backend/sandbox set PROVEO_HOME (and HOME) to temp dirs before an
+' OpenCode carry, which writes <proveo home>/opencode/carry.
+' The upkeep group (R4): setup_test.go, uninstall_test.go and update_test.go
+' run under isolatedHost (setupHost, uninstallHost, updateHost), and the
+' running binary is cmd/proveo's `executable` seam (runningAs), never the test
+' binary. updateAt takes the binary's path and no test calls doUpdate, so an
+' update replaces a file under the temp install root, from an httptest
+' channel. The leftovers test puts logging sbx, launchctl and systemctl first
+' on PATH and fails if any ran; TickFiles and the kept entries resolve under
+' the temp HOME and state root. internal/installtest's new rc assertions read
+' the temp HOME of its real-binary install.
 ' THE HARNESS'S WRAPPER IS A SHELL, SO IT HEARS THE Ctrl+C (the second R3
 ' review). startInitWrapped takes the `sh -c` script; initWrapper is the old
 ' `"$0" init …; echo INIT_EXIT=$?`. A Ctrl+C test sends SIGINT to the pane's

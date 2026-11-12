@@ -397,8 +397,6 @@ func sbxPathDir(plan sbx.Plan) string {
 	return filepath.Dir(plan.Bin)
 }
 
-// ensureSbxOnPath puts dir on PATH in the shell's rc when write allows it, and returns the item
-// that says what changed or what is left to do; a zero Item when dir is on PATH already.
 // settle records on d what its applied steps settled, for a revisit to carry.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (REVISIT)
 func settle(d initDecisions, steps []applyStep, applied sbx.Plan) initDecisions {
@@ -416,9 +414,11 @@ func rcAdds(dir string) bool {
 	}
 	home, _ := os.UserHomeDir()
 	content, _ := os.ReadFile(sh.RCFile(runtime.GOOS, home))
-	return strings.Contains(string(content), dir)
+	return shell.AlreadyConfigured(string(content), dir)
 }
 
+// ensureSbxOnPath puts dir on PATH in the shell's rc when write allows it, and returns the item
+// that says what changed or what is left to do; a zero Item when dir is on PATH already.
 func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 	if onPath(dir) {
 		return sandbox.Item{}
@@ -434,18 +434,10 @@ func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 		return sandbox.Item{Warn: true, Text: ui.Tilde(rc) + " — not written", Detail: append(errLines(err), "add it yourself: "+line)}
 	}
 	content, _ := os.ReadFile(rc) // a missing rc is fine; it gets created
-	if strings.Contains(string(content), dir) {
+	if shell.AlreadyConfigured(string(content), dir) {
 		return sandbox.Item{Warn: true, Text: ui.Tilde(dir) + " — not on this shell's PATH", Detail: []string{ui.Tilde(rc) + " adds it; a new shell picks it up"}}
 	}
-	if err := os.MkdirAll(filepath.Dir(rc), 0o755); err != nil {
-		return notWritten(err)
-	}
-	f, err := os.OpenFile(rc, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return notWritten(err)
-	}
-	defer func() { _ = f.Close() }()
-	if _, err := f.WriteString(sh.SbxBlock(dir)); err != nil {
+	if err := appendRC(rc, sh.SbxBlock(dir)); err != nil {
 		return notWritten(err)
 	}
 	return sandbox.Item{Ok: true, Text: ui.Tilde(dir) + " — added to PATH in " + ui.Tilde(rc), Detail: []string{"a new shell picks it up"}}

@@ -42,7 +42,11 @@ func (it Item) print() {
 		ui.Notef("%s", it.Text)
 	}
 	for _, d := range it.Detail {
-		ui.Detailf("%s", d)
+		for _, row := range strings.Split(d, "\n") {
+			if row = strings.TrimRight(row, " \t\r"); strings.TrimSpace(row) != "" {
+				ui.Detailf("%s", row)
+			}
+		}
 	}
 	for _, l := range it.Log {
 		ui.Logf("%s", l)
