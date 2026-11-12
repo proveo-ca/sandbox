@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 func TestPushedBranchesKeepsOneLinePerRefAfterSince(t *testing.T) {
@@ -109,5 +110,44 @@ func TestPushedFetchArgsDropsUnsafeNames(t *testing.T) {
 	lines := fetchPushedLines("/repo", []string{"origin/feat"})
 	if len(lines) != 1 || !strings.Contains(lines[0], "git -C /repo fetch --no-tags origin feat") {
 		t.Fatalf("lines %q", lines)
+	}
+}
+
+func TestAPushedBranchIsAFactAndTheFetchRecipeGoesToTheLog(t *testing.T) {
+	dir := t.TempDir()
+	src, remote := filepath.Join(dir, "src"), filepath.Join(dir, "remote")
+	git := func(cwd string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", cwd}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", args, err, out)
+		}
+	}
+	git(dir, "init", "-q", "-b", "main", src)
+	git(src, "commit", "-q", "--allow-empty", "-m", "init")
+	git(dir, "init", "-q", "--bare", remote)
+	git(src, "remote", "add", "origin", remote)
+	before := time.Now().Add(-time.Second)
+	git(src, "push", "-q", "-u", "origin", "HEAD:refs/heads/feat")
+	prev := confirmFetchPushed
+	t.Cleanup(func() { confirmFetchPushed = prev })
+	for _, fetch := range []bool{false, true} {
+		confirmFetchPushed = func([]string) bool { return fetch }
+		screen, log := captured(t)
+		out := NewBlock(ResultsHeading)
+		reportPushedBranches(Input{Target: "claudecode", RepoRoot: src}, sbx.RunConfig{Name: "sb"}, before, out)
+		out.Print()
+		got := screen.String()
+		want := "pushed: origin/feat\n"
+		if fetch {
+			want += "        fetched\n"
+		}
+		if !strings.HasSuffix(got, want) {
+			t.Errorf("fetch %v: the pushed fact:\n%s\nwant:\n%s", fetch, got, want)
+		}
+		if recipe := "git -C " + src + " fetch --no-tags origin feat"; strings.Contains(got, recipe) || fetch == strings.Contains(log.String(), recipe) {
+			t.Errorf("fetch %v: the fetch recipe goes to the run log only when the operator left it:\nscreen:\n%s\nlog:\n%s", fetch, got, log.String())
+		}
 	}
 }

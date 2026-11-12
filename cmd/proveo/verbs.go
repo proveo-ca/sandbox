@@ -27,7 +27,8 @@ func here() string {
 
 // rmCmd removes a sandbox a run left behind, after carrying home what it still holds.
 func rmCmd() *cobra.Command {
-	return &cobra.Command{
+	var stop bool
+	cmd := &cobra.Command{
 		Use:   "rm [sandbox]",
 		Short: "Carry a kept sandbox's work home, then remove it (no argument lists them)",
 		Args:  cobra.MaximumNArgs(1),
@@ -39,13 +40,15 @@ func rmCmd() *cobra.Command {
 				return nil
 			}
 			ui.Section(ui.SectionResults)
-			if err := sandbox.RemoveKept(args[0], dir, ui.Hostf); err != nil {
+			if err := sandbox.RemoveKept(args[0], dir, ui.Hostf, stop); err != nil {
 				return err
 			}
 			ui.Okf("%s is removed", args[0])
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&stop, "stop", false, "stop a running sandbox first (`sbx stop`), then carry its work home and remove it")
+	return cmd
 }
 
 // listKept prints the sandboxes earlier runs left, this repository's first.

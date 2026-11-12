@@ -49,6 +49,9 @@ func openCodeImportSource(home, name string) string {
 	return ""
 }
 
+// errEngineCreate marks a failed `sbx create` of an OpenCode engine.
+var errEngineCreate = errors.New("create OpenCode engine")
+
 var createOpenCodeEngine = func(cfg sbx.RunConfig) error {
 	cmd := exec.Command(sbx.Binary, sbx.CreateArgs(cfg)...)
 	cmd.Env = sbx.CreateEnv(os.Environ(), cfg)
@@ -60,16 +63,16 @@ var createOpenCodeEngine = func(cfg sbx.RunConfig) error {
 }
 
 // ensureOpenCodeEngine reattaches to engine cfg.Name; a new engine is created and imports one
-// host database first. created reports a new engine.
-func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, created bool, err error) {
+// host database first. created reports a new engine; history is its sbx-block fact.
+func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, created bool, history ui.Fact, err error) {
 	if sbx.Exists(cfg.Name) {
-		return sbx.Reattach(cfg), false, nil
+		return sbx.Reattach(cfg), false, ui.Fact{}, nil
 	}
 	if !slices.Contains(cfg.Env, sbx.OpenCodeHistoryGateEnv) {
 		cfg.Env = append(cfg.Env, sbx.OpenCodeHistoryGateEnv)
 	}
 	if err := createOpenCodeEngine(cfg); err != nil {
-		return cfg, false, fmt.Errorf("create OpenCode engine %s: %w", cfg.Name, err)
+		return cfg, false, ui.Fact{}, fmt.Errorf("%w %s: %w", errEngineCreate, cfg.Name, err)
 	}
 	src := openCodeImportSource(in.HomeRoot, cfg.Name)
 	var size int64
@@ -90,19 +93,36 @@ func ensureOpenCodeEngine(in Input, cfg sbx.RunConfig) (launch sbx.RunConfig, cr
 	if err != nil {
 		_, _ = SbxRun(sbx.RemoveArgs(cfg.Name)...)
 		_ = os.Remove(receiptPath(cfg.Name))
-		return cfg, false, fmt.Errorf("OpenCode history preparation for %s failed: %w — the new engine was removed; source history stays; the next run retries", cfg.Name, err)
+		return cfg, false, ui.Fact{}, fmt.Errorf("OpenCode history preparation for %s failed: %w — the new engine was removed; source history stays; the next run retries", cfg.Name, err)
 	}
-	if src == "" {
-		ui.Appf("OpenCode: new engine %s starts with empty history", cfg.Name)
-		return sbx.Reattach(cfg), true, nil
-	}
-	if carried := openCodeCarry(in.HomeRoot, cfg.Name); src == carried {
+	history = ui.Fact{Role: ui.RoleApp, Key: "history", Value: "empty in new engine " + cfg.Name}
+	carried := openCodeCarry(in.HomeRoot, cfg.Name)
+	switch src {
+	case "":
+	case carried:
 		_ = os.Remove(carried)
-		ui.Appf("OpenCode: carried history (%s) into new engine %s", byteSize(size), cfg.Name)
-	} else {
-		ui.Appf("OpenCode: imported %s (%s) into new engine %s once; the host copy stays unchanged", ui.Tilde(src), byteSize(size), cfg.Name)
+		history.Value = fmt.Sprintf("carried history (%s) into new engine %s", byteSize(size), cfg.Name)
+	default:
+		history.Value = fmt.Sprintf("imported %s (%s) into new engine %s", ui.Tilde(src), byteSize(size), cfg.Name)
+		history.Detail = []string{"the host copy stays unchanged"}
 	}
-	return sbx.Reattach(cfg), true, nil
+	return sbx.Reattach(cfg), true, history, nil
+}
+
+// openEngine is ensureOpenCodeEngine for Run. On a failure it prints the sbx block's facts, then,
+// after a failed create, the line for an engine sbx still lists.
+func openEngine(in Input, cfg sbx.RunConfig, facts []ui.Fact) (launch sbx.RunConfig, created bool, history ui.Fact, err error) {
+	if launch, created, history, err = ensureOpenCodeEngine(in, cfg); err == nil {
+		return launch, created, history, nil
+	}
+	ui.Facts(facts...)
+	if !errors.Is(err, errEngineCreate) {
+		return launch, created, history, err
+	}
+	if left, ok := leftByCreate(cfg.Name); ok {
+		left.print()
+	}
+	return launch, created, history, err
 }
 
 // importOpenCodeHistory streams src and its -wal/-journal into engine name over `sbx exec -i` and

@@ -39,6 +39,9 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 // Restore is a no-op on Windows.
 func (p *Proxy) Restore() {}
 
+// EnteredAltScreen is false on Windows: no child ever runs behind the proxy.
+func (p *Proxy) EnteredAltScreen() bool { return false }
+
 // Overlay returns ErrNotRunning — there is never a live PTY child on Windows.
 func (p *Proxy) Overlay(draw func(in io.Reader, out io.Writer) error) error {
 	return ErrNotRunning

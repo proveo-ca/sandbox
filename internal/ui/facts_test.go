@@ -170,3 +170,33 @@ func TestFactsWithNothingToPrintDrawNoHeading(t *testing.T) {
 		t.Errorf("the first row that prints must draw the pending heading:\n%s", buf.String())
 	}
 }
+
+func TestAWrappedFactKeepsItsAlignedGapAndBreaksALongWordAtItsOwnColumn(t *testing.T) {
+	var term bytes.Buffer
+	saved := Default
+	t.Cleanup(func() { Default = saved })
+	Default = &Printer{W: &wrapWriter{w: &term, width: func() int { return 40 }}, Tier: GlyphsSafe}
+	Facts(Fact{Role: RoleHost, Key: "toolbox", Value: "jetbrains://gateway/ssh/environment?h=sb.sbx&launchIde=true"},
+		Fact{Role: RoleHost, Key: "vs code", Value: "code --remote ssh-remote+sb.sbx /a/very/long/project/path"},
+		Fact{Role: RoleHost, Key: "jetbrains", Value: "File"})
+	lines := plainLines(term.String())
+	want := []string{"● toolbox:   jetbrains://gateway/ssh/en", "● vs code:   code --remote"}
+	for _, w := range want {
+		found := false
+		for _, l := range lines {
+			found = found || strings.HasPrefix(l, w)
+		}
+		if !found {
+			t.Errorf("no row opens %q; a wrapped row keeps its value column:\n%s", w, strings.Join(lines, "\n"))
+		}
+	}
+	for _, l := range lines {
+		if w := len([]rune(l)); w > 40 {
+			t.Errorf("a row is %d columns on a 40-column terminal: %q", w, l)
+		}
+	}
+	valCol := col(lines[0], "jetbrains")
+	if lead := len(lines[1]) - len(strings.TrimLeft(lines[1], " ")); lead != valCol {
+		t.Errorf("the link's continuation starts at column %d, want the value column %d:\n%s", lead, valCol, strings.Join(lines, "\n"))
+	}
+}

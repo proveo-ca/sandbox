@@ -29,3 +29,10 @@ func (s Stopped) Error() string {
 
 // Code is the shell's status for a process its signal ended: 128+signal.
 func (s Stopped) Code() int { return 128 + int(s.Signal) }
+
+// Reported is a run error proveo already printed under its heading; cmd/proveo exits 1 and prints nothing.
+type Reported struct{ Err error }
+
+func (r Reported) Error() string { return r.Err.Error() }
+
+func (r Reported) Unwrap() error { return r.Err }

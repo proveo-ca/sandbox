@@ -7,10 +7,84 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/main.go (main, exitCode)
 ' covers: cmd/proveo/main_test.go (TestExitCodeIsTheAgentsOrTheStoppingSignals)
 ' covers: internal/sbx/run.go (RunExitCode)
-' covers: internal/sbx/sbx_test.go (TestRunExitCodeTakesTheAgentsCodeSbxNamed)
+' covers: internal/sbx/sbx_test.go (TestRunExitCodeTakesTheAgentsCodeSbxNamed, TestSaidErrorReadsSbxsOwnLastLine)
+' covers: e2e/stream_palette_test.go (TestStreamPaletteE2E, TestNoProveoExitLineWhenOnlyStdinIsRedirected)
+' covers: internal/backend/sandbox/sandbox.go (agentEnd, sbxStatus, runResult)
+' covers: internal/backend/sandbox/teardown_report_test.go (TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt)
 '   where a stop becomes Stopped .... _spec/internal/sbx/kit-lifecycle.puml
 '   the transcript's outcome line .. _spec/internal/runlog/run-transcript.puml
 '   the tail the code is read from . _spec/internal/agentio/agent-terminal-io.puml
+'
+' ── 2026-11-11 (R2): WHO SAYS THE EXIT ON SCREEN ───────────────────────────
+' The operator, settled by P9 and the sbx overlap rule
+' (_spec/_plans/output-readability.puml, F3): proveo prints no × when sbx
+' printed its own error line; × only when sbx said nothing; never the agent's
+' name when sbx may have failed before the agent started; none for a removal
+' the operator chose at the Ctrl+C dialog.
+'   sbx.SaidError(status, lines)  the tail's LAST line starts "error: " and
+'                         is sbx's own: it names the agent's exit ("error:
+'                         agent exited with code 3"), or sbx exited 1, the
+'                         status that follows its own line ("error: stream
+'                         I/O: context canceled")
+'   sandbox.agentEnd      prints first under results: "× sbx run — exited
+'                         with code N" for a bare *exec.ExitError sbx did not
+'                         explain; "× <error>" for any other failure
+'   sandbox.runResult     *exec.ExitError → ExitError{RunExitCode(...)}; a
+'                         failure agentEnd printed, or any non-exit error of
+'                         a removal the operator chose → backend.Reported
+'   backend.Reported      main's exitCode returns 1 and main prints nothing,
+'                         so no "× <err>" lands under a kept sandbox's "ide"
+'                         block (the critique's item 8)
+'   run.recordOutcome     ExitError goes to the LOG ONLY now
+' A WRAPPED ExitError IS NOT sbx's EXIT. The Hermes Desktop hold returns
+' "sbx setup ssh: %w"; it used to unwrap into ExitError{1}, "the agent exited
+' with code 1". It is now a printed × and Reported (exit 1 either way).
+' NO MODE IS BLIND TO sbx's LINE (R2 review fix, 2026-11-11). stdout on a
+' terminal with stdin redirected has no pty proxy, so nothing fed the tail and
+' the × repeated sbx's line. sbx writes its "error: …" line to STDERR (MEASURED
+' on v0.50.0: `sbx exec <missing> 2>/dev/null` prints nothing; and with only
+' stderr teed, the e2e below read "error: agent exited with code 3" and exited
+' 3, where the binary without the tee printed "× sbx run — exited with code
+' 1" and exited 1). agentio.Stdio
+' now tees stderr on a terminal and leaves stdout the terminal itself
+' (_spec/internal/agentio/agent-terminal-io.puml), so SaidError sees the line
+' and RunExitCode reads the agent's code there too. The desktop hold never
+' returns sbx's bare exit: its errors wrap sbx's captured output, so its × says
+' what nothing else on screen said.
+'   NOT CHOSEN: assume sbx spoke whenever the tail cannot see (a missing
+'   verdict when sbx dies silent); keep the repeat as a recorded trade-off.
+' Pinned by agentio TestStdioOnATerminalTeesStderrAloneSoSbxsErrorLineReachesTheTail
+' and e2e TestNoProveoExitLineWhenOnlyStdinIsRedirected.
+' THE LAST LINE IS sbx's ONLY WHEN THE STATUS AGREES (R2 review fix,
+' 2026-11-11). In the pty and tee modes the tail mixes the agent's output with
+' sbx's. An agent whose last line is its own "error: …", under an sbx that
+' then dies without a line (a signal's -1, a Go panic's 2), read as "sbx
+' said it": no ×, and RunExitCode found no code, so nothing on screen gave
+' the exit. sbx exits 1 after its own error line (MEASURED: code 3 above;
+' [Inference] from that one series, for its other errors), so SaidError takes
+' the status: a line naming the agent's exit counts at any status; any other
+' "error: " line counts only at status 1.
+'   NOT CHOSEN: tee sbx's stderr apart in pty mode (sbx's stderr would stop
+'   being a terminal, which changes how sbx draws); match sbx's known
+'   messages (a list that drifts with every sbx release).
+'   COST: [Unverified] an sbx that exits 1 with no line after the agent's own
+'   "error: …" still reads as sbx's; no capture shows sbx doing that.
+' AN OPERATOR-CHOSEN REMOVAL NEVER PRINTS × (R2 review fix, 2026-11-11).
+' agentEnd checked "forced" inside the ExitError branch alone. When sbx
+' exits 0 after the SIGTERM, exec.Cmd.Wait returns ctx.Err() (Go: a Cancel
+' that succeeded makes a clean exit report the context), so the removal
+' printed "× context canceled". agentEnd now returns no line for any forced
+' result, and runResult returns it as backend.Reported: exit 1, silent.
+' [Inference] Whether sbx v0.50 exits 0 on SIGTERM was not measured.
+' Pinned by TestSaidErrorReadsSbxsOwnLastLine (the status rows) and the
+' "sbx exited 0" row of TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt.
+' The e2e TestNoProveoExitLineWhenOnlyStdinIsRedirected asserts PROVEO_EXIT=3.
+' MOVED: e2e/stream_palette_test.go no longer reads proveo's bold × (sbx's
+' "error: agent exited with code 3" is the verdict there); the bold head of a
+' × line is pinned by internal/ui TestOnlyTheSeverityHeadKeepsTheTerminalColour.
+' Pinned by TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt,
+' TestSaidErrorReadsSbxsOwnLastLine, and the Reported row of
+' TestExitCodeIsTheAgentsOrTheStoppingSignals.
 '
 ' ── 2026-10-20: sbx EXITS 1 AND NAMES THE AGENT'S CODE ─────────────────────
 ' MEASURED by e2e/stream_palette_test.go (fake agent exits 3): the screen read
@@ -28,6 +102,7 @@ skinparam noteTextAlignment left
 ' the pty proxy's OutTap (headed, filtered) and the MultiWriter tee
 ' (streamed, non-TTY). A TTY run with the filter off and no stdin trace hands
 ' sbx the terminal directly, so its tail is empty and the status stays sbx's.
+' (Since R2's review the stderr tee feeds that tail too; see above.)
 ' Pinned by TestRunExitCodeTakesTheAgentsCodeSbxNamed (sbx_test.go): named,
 ' no line, code 0, last line wins, last match in a line wins, negative, and
 ' status pass-through.

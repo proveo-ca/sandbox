@@ -317,6 +317,7 @@ func TestOnlyTheSeverityHeadKeepsTheTerminalColour(t *testing.T) {
 		{"warn dash", func(p *Printer) { p.Warnf("sbx unavailable — falling back") }, "sbx unavailable", " — falling back", false},
 		{"warn label", func(p *Printer) { p.Warnf("policy: open") }, "policy:", " open", false},
 		{"fail", func(p *Printer) { p.Failf("the agent exited with code %d", 3) }, ANSIBold + "the agent exited with code 3", "", false},
+		{"fail item", func(p *Printer) { p.Failf("sbx run — exited with code %d", 3) }, ANSIBold + "sbx run", " — exited with code 3", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -523,5 +524,25 @@ func TestTheRunLogKeepsTextAfterANonSGRSequence(t *testing.T) {
 	_, _ = multi{term: &term, log: &log}.Write([]byte("\x1b[2Khello mom\n"))
 	if log.String() != "hello mom\n" {
 		t.Errorf("run log = %q, want the line without its erase sequence", log.String())
+	}
+}
+
+func TestLogWriterSendsEachLineToTheRunLogAlone(t *testing.T) {
+	var screen, log bytes.Buffer
+	prev := Default
+	Default = New(&screen)
+	restore := TeeTo(&log)
+	t.Cleanup(func() { restore(); Default = prev })
+	w := LogWriter()
+	_, _ = w.Write([]byte("building app\r\n\nhalf a "))
+	_, _ = w.Write([]byte("line\nlast without newline"))
+	_ = w.Close()
+	if screen.String() != "" {
+		t.Errorf("the screen received %q", screen.String())
+	}
+	for _, want := range []string{"building app\n", "half a line\n", "last without newline\n"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("the run log lacks %q:\n%s", want, log.String())
+		}
 	}
 }

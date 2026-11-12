@@ -32,9 +32,20 @@ skinparam noteTextAlignment left
 '   1. GET 127.0.0.1:11434/api/tags. No answer ⇒ refuse with the install URL.
 '   2. Tag lookup: exact, or bare name ⇒ ":latest" (Ollama's rule). Missing ⇒
 '      size from registry.ollama.ai/v2/<repo>/manifests/<tag> (config + layers;
-'      muse-glimmer:30b-mlx = 17.75 GiB), a WARNING if it would not fit in memory
-'      right now (memory is transient, the download is not), then POST /api/pull
-'      with progress on stderr. PROVEO_LOCAL_MODEL_PULL=0 restores the refusal
+'      muse-glimmer:30b-mlx = 17.75 GiB), a run-log row if it would not fit in
+'      memory right now (memory is transient, the download is not), then POST
+'      /api/pull behind a live line on a terminal (one start line on plain
+'      output); the start and "pulled <model> (N GiB)" go to the run log, and
+'      egress's "local model" fact gains dim "pulled this run · N GiB" (R2 of
+'      output-readability.puml: a pull is host preparation, like the add-ons;
+'      EnsureHostOllama returns what it pulled). What it pulled is the SUM of
+'      each layer's total: /api/pull streams one "pulling <digest>" event set
+'      per layer, each with that layer's own total (ollama docs/api.md, Pull
+'      a Model, read 2026-11-11). R2 first kept the largest total, which
+'      understated a model with more than one large layer (R2 review;
+'      TestAPullsSizeAddsUpEveryLayer). The live line still shows the layer
+'      in flight. The load check that follows
+'      keeps its own ⚠. PROVEO_LOCAL_MODEL_PULL=0 restores the refusal
 '      (`ollama pull <tag>` + installed tags of the same repo). A non-library ref
 '      (hf.co/…) pulls with no size shown.
 '   3. Already in /api/ps ⇒ resident, no new memory, done.

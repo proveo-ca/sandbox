@@ -41,7 +41,12 @@ skinparam noteTextAlignment left
 '     records the typing and the line under it says enter submits. Enter on
 '     y or yes is the yes above. Enter on anything else, or esc, is the no.
 '     A running one is re-attached and the new settings do not apply.
-'     A stopped one stays. This run stops, and the next proveo run asks again.
+'     A stopped one stays. This run stops, and the next proveo run asks again:
+'     the error reads "sandbox <name> kept; the next proveo run reattaches and
+'     asks again", and the `sbx rm --force` sentence is a run-log row (R2: the
+'     operator answered, so no how-to on screen; decision E).
+'     A re-attach's "`sbx rm --force <name>` builds it fresh next run" is a
+'     run-log row too (R2).
 '   changed, not headed, stopped → the same three steps, no question
 '   changed, not headed, running → warn. The session stays. The new settings do not apply.
 ' WHAT EACH BRANCH PRINTS (output-readability R1, 2026-11-11). A kept running
@@ -115,7 +120,8 @@ skinparam noteTextAlignment left
 '   stopOutcome(runErr, sig, forced) returns (teardown, result). For sig != 0
 '     and not forced: teardown nil, result backend.Stopped{sig}. Otherwise both
 '     are runErr. The signal is read ONCE, after the retry block.
-'   Run prints "stopped by SIGTERM — ending as on a normal exit" (or SIGHUP).
+'   Run prints "● <target> — stopped by SIGTERM" (or SIGHUP) first under
+'     results; "teardown runs as on a normal exit" is a run-log row (R2).
 '     Teardown takes the SUCCESS branch: clone edits and commits lifted, state
 '     saved, `sbx rm`; an OpenCode engine is retained.
 '   Run returns Stopped, and cmd/proveo main's exitCode maps it to 128+signal:
@@ -152,11 +158,11 @@ skinparam noteTextAlignment left
 ' retainsEngine), a pure function:
 '   forced (the operator chose Ctrl+C remove) → endRemove, always
 '   stranded != nil (work still only in the sandbox) → endKeepStranded, even
-'     for an OpenCode engine, which prints "<err> — <name> kept with its
-'     OpenCode history" instead of the `sbx rm --force` hint
-'   retainsEngine (opencodeTarget) → endRetainEngine, which prints "OpenCode:
-'     history lives in retained engine <name>; `sbx rm --force <name>` deletes
-'     it" (MEASURED, sandbox.go:1665; engine-local-history.puml)
+'     for an OpenCode engine, which closes on "⚠ <name> — kept: <err>, with
+'     its OpenCode history" and the `proveo rm` fix (R2)
+'   retainsEngine (opencodeTarget) → endRetainEngine, which closes on "✓
+'     retained engine <name> — holds OpenCode's history"; `sbx rm --force
+'     <name>` deletes it, a run-log row since R2 (engine-local-history.puml)
 '   otherwise → endRemove
 ' Pinned by TestANormalEndRemovesTheSandboxUnlessWorkOrTheEngineStaysInIt
 ' (teardown_end_test.go, untagged).
@@ -215,6 +221,9 @@ skinparam noteTextAlignment left
 ' only in the sandbox — snapshot failed ("uncommitted work is still only in
 ' <name>"), carry failed ("the agent's branches are still only in <name>"), or
 ' the clone mode is unknown ("cannot tell whether <name> holds a clone…").
+' (R2, 2026-11-11: the stranded errors now say "it", the kept line names the
+' sandbox, and the fix reads `proveo rm [--stop] <name>` in both teardown and
+' retire; _spec/internal/sbx/clone-workspace.puml.)
 ' Normal-exit and stop teardown then skip `sbx rm`, print "<err> — <name> kept;
 ' `sbx rm --force <name>` deletes it once the work is home", keep home access
 ' and print the IDE attach. retireSandbox (the stale-sandbox upgrade,
@@ -249,7 +258,7 @@ skinparam noteTextAlignment left
 ' /run/sandbox/source, else unknown (kept). The launch RECEIPT is not a source
 ' (review #6 HIGH: it can be stale or missing); it only drives the change
 ' detection above. Run's teardown defer resolves the mode FIRST, so
-' reportPushedBranches, PrintIDEAttach and TeardownClone see the real one;
+' reportPushedBranches, ideFacts and TeardownClone see the real one;
 ' retireSandbox clears CloneKnown so the old sandbox is always asked, and
 ' carries into refs/proveo/<sid>-retired/* so this run's own teardown fetch
 ' cannot overwrite it. Detail, the failures it closes and the residuals:

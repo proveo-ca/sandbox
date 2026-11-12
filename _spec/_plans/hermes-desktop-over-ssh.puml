@@ -116,6 +116,17 @@ skinparam noteTextAlignment left
 '   Pinned by cmd/proveo/desktop_test.go
 '   TestADeclinedInstallInstallsNothingAndLogsThePlan and
 '   internal/run/host_adb_test.go TestEachHostAddOnFactNamesWhatTheRunLeftUp.
+'   2026-11-11 (output-readability R2, carry-overs b and c): run.Do calls
+'   EnsureDesktop right after the image pull, so the install sits under "run"
+'   with the other host prerequisites, and its question prints through
+'   ui.Default (printerOn), so the run log keeps it. The prerequisite install
+'   (sudo apt-get/dnf) keeps a start line and shows its output on the terminal
+'   and in the run log; install.sh runs behind the live line "hermes desktop —
+'   installing · 2m13s" with its output in the run log alone (ui.LogWriter).
+'   The fact waits in Spec.Desktop until the interface block, so a run that
+'   fails before `sbx create` still names the desktop (run.reportUnhanded).
+'   Pinned by TestTheDesktopInstallOutputReachesTheRunLog and
+'   internal/run TestARunThatFailsAfterTheDesktopInstallStillNamesTheDesktop.
 '
 ' ── DESKTOP DEFAULTED TO THE HOST (MEASURED 2026-10-30) ─────────────────────
 ' A `proveo run hermes` desktop session answered from Nous's free model, and

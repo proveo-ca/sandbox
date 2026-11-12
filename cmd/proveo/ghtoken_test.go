@@ -3,8 +3,11 @@ package main
 import (
 	"errors"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func stubAuth(env map[string]string, ghPresent bool, tok string, tokErr error, login func() error) (*ghAuth, *int) {
@@ -123,8 +126,8 @@ func TestGitHubTokenIsForwardedByBareNameOnly(t *testing.T) {
 		}
 		return base(k)
 	}
-	got := resolveGitHubTokenEnv(g)
-	if got != ghTokenEnvVar {
+	got, items := resolveGitHubTokenEnv(g)
+	if got != ghTokenEnvVar || len(items) != 0 {
 		t.Fatalf("env entry = %q, want the bare %q", got, ghTokenEnvVar)
 	}
 	if strings.Contains(got, "=") || strings.Contains(got, "s3cret") {
@@ -147,8 +150,8 @@ func TestGitHubTokenHonorsTheGhConfigOptOut(t *testing.T) {
 		token:    func() (string, error) { return "tok", nil },
 		login:    func() error { return nil },
 	}
-	if got := resolveGitHubTokenEnv(g); got != "" {
-		t.Errorf("env entry = %q, want none when PROVEO_MOUNT_GH_CONFIG=0", got)
+	if got, items := resolveGitHubTokenEnv(g); got != "" || len(items) != 0 {
+		t.Errorf("env entry = %q, %v; want none and no warning when PROVEO_MOUNT_GH_CONFIG=0", got, items)
 	}
 }
 
@@ -162,10 +165,37 @@ func TestGitHubTokenRunWarnsWithoutOpeningLogin(t *testing.T) {
 		}
 		return base(k)
 	}
-	if got := resolveGitHubTokenEnv(*g); got != "" {
+	got, items := resolveGitHubTokenEnv(*g)
+	if got != "" {
 		t.Errorf("env entry = %q, want empty", got)
 	}
 	if *logins != 0 {
 		t.Error("resolveGitHubTokenEnv must not log in")
+	}
+	if len(items) != 1 || items[0].Text != "github — no token" || !slices.Contains(items[0].Detail, "`proveo init` signs in") {
+		t.Errorf("items = %+v, want the credentials block's ⚠ github item with its fix", items)
+	}
+}
+
+func TestALockedKeychainIsACredentialsItemWithItsFix(t *testing.T) {
+	g, _ := stubAuth(nil, true, "", errCredentialStoreTimeout, nil)
+	dir := t.TempDir()
+	base := g.getenv
+	g.getenv = func(k string) string {
+		if k == "GH_CONFIG_DIR" {
+			return dir
+		}
+		return base(k)
+	}
+	var screen strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&screen)
+	t.Cleanup(func() { ui.Default = prev })
+	_, items := resolveGitHubTokenEnv(*g)
+	if len(items) != 1 || items[0].Text != "github — gh gave no token within 5s" || len(items[0].Log) == 0 {
+		t.Errorf("items = %+v, want one ⚠ item whose why goes to the run log", items)
+	}
+	if screen.String() != "" {
+		t.Errorf("the warning printed outside the credentials block: %q", screen.String())
 	}
 }

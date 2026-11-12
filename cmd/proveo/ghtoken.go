@@ -4,11 +4,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -51,6 +53,17 @@ func hostGhAuth() ghAuth {
 // opens `gh auth login` — that is `proveo init`'s. A locked keychain is its
 // own error so a run does not tell an already-logged-in operator to log in.
 func (g ghAuth) resolve() (string, error) {
+	tok, err := g.lookup()
+	if errors.Is(err, errCredentialStoreTimeout) {
+		ui.Warnf("gh did not return a token within %s — on macOS a locked login keychain "+
+			"blocks this. Unlock it or set %s; continuing with anonymous GitHub API limits.",
+			ghTokenTimeout, ghTokenEnvVar)
+	}
+	return tok, err
+}
+
+// lookup is resolve without a line of its own.
+func (g ghAuth) lookup() (string, error) {
 	for _, k := range []string{"GITHUB_TOKEN", ghTokenEnvVar} {
 		if v := strings.TrimSpace(g.getenv(k)); v != "" {
 			return v, nil
@@ -64,29 +77,29 @@ func (g ghAuth) resolve() (string, error) {
 	case err == nil && tok != "":
 		return tok, nil
 	case errors.Is(err, errCredentialStoreTimeout):
-		ui.Warnf("gh did not return a token within %s — on macOS a locked login keychain "+
-			"blocks this. Unlock it or set %s; continuing with anonymous GitHub API limits.",
-			ghTokenTimeout, ghTokenEnvVar)
 		return "", errCredentialStoreTimeout
 	}
 	return "", err
 }
 
-func resolveGitHubTokenEnv(g ghAuth) string {
+// resolveGitHubTokenEnv stages the host's GitHub token for the sandbox and names the variable;
+// items are the credentials block's warnings when the agent's GitHub calls go anonymous.
+func resolveGitHubTokenEnv(g ghAuth) (string, []sandbox.Item) {
 	if _, ok := credentials.GhConfigMount(g.getenv); !ok {
-		return ""
+		return "", nil
 	}
-	tok, err := g.resolve()
-	if tok == "" {
-		if !errors.Is(err, errCredentialStoreTimeout) {
-			ui.Warnf("no GitHub credentials found — container tooling that reads the GitHub API " +
-				"will use the anonymous 60-requests/hour limit. Run `proveo init` (or `gh auth login`) to fix.")
-		}
-		return ""
+	tok, err := g.lookup()
+	switch {
+	case errors.Is(err, errCredentialStoreTimeout):
+		return "", []sandbox.Item{{Warn: true, Text: fmt.Sprintf("github — gh gave no token within %s", ghTokenTimeout),
+			Detail: []string{"unlock the login keychain, or set " + ghTokenEnvVar},
+			Log:    []string{"on macOS a locked login keychain blocks `gh auth token`; the agent's GitHub API calls are anonymous (60 an hour)"}}}
+	case tok == "":
+		return "", []sandbox.Item{{Warn: true, Text: "github — no token",
+			Detail: []string{"the agent's GitHub API calls are anonymous: 60 an hour", "`proveo init` signs in"}}}
 	}
 	if err := os.Setenv(ghTokenEnvVar, tok); err != nil {
-		ui.Warnf("could not stage %s for the container: %v", ghTokenEnvVar, err)
-		return ""
+		return "", []sandbox.Item{{Warn: true, Text: "github — token not staged", Detail: []string{err.Error()}}}
 	}
-	return ghTokenEnvVar
+	return ghTokenEnvVar, nil
 }

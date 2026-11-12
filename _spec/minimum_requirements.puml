@@ -99,6 +99,22 @@ skinparam noteTextAlignment left
 '     cost the meminfo and dmesg lines read before it
 ' Only an actual kill raises its voice, and it names PROVEO_SBX_MEMORY when it
 ' does — a diagnosis with no lever is half a message.
+' WHY CaptureMemoryEvidence EXISTS: an OOM kill otherwise looks like a freeze
+' with no cause, and the operator goes looking at the agent instead of at the
+' sandbox's memory. That kill is the one line it puts on screen.
+' A RESTARTED SANDBOX READS AS A FRESH BOOT. `sbx exec` starts a stopped
+' sandbox, so a capture taken after the sandbox stopped reads a NEW boot: its
+' dmesg is empty and its meminfo idle. Silence there is not evidence that no
+' kill happened; it is evidence that the boot which held the kill is gone. So
+' a restarted capture says so ("the sandbox had already stopped, so this is a
+' fresh boot; a kill in the boot that died left no trace to read").
+' WHERE THE LINES GO (output-readability R2, F4, 2026-11-11): the OOM is a ⚠
+' item of the results block, "memory — the guest killed a process (out of
+' memory)", dim "`PROVEO_SBX_MEMORY=16g` raises the ceiling (32g at most)" and
+' the evidence path; "a sandbox has NO SWAP" is its run-log row. The
+' memory-log path and the fresh-boot note are run-log rows only. Pinned by
+' memory_evidence_test.go. (R2 deleted these reasons from sandbox.go's
+' comments; the review moved them here.)
 '
 ' The capture is best effort and SILENT on every failure. At teardown the
 ' sandbox may already be gone, and a run that died of memory pressure is the

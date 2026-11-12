@@ -28,7 +28,7 @@ func TestStreamPaletteE2E(t *testing.T) {
 	proveoBin := buildProveo(t)
 	out := os.Getenv("PROVEO_E2E_CAPTURE_DIR")
 
-	screen := runVolatile(t, proveoBin)
+	screen := runVolatile(t, proveoBin, "")
 	if out != "" {
 		if err := os.WriteFile(filepath.Join(out, "signal.ansi"), []byte(screen), 0o644); err != nil {
 			t.Errorf("write capture: %v", err)
@@ -43,11 +43,36 @@ func TestStreamPaletteE2E(t *testing.T) {
 			t.Errorf("run screen lacks %q:\n%s", want, screen)
 		}
 	}
-	if l := lineWith(screen, "the agent exited with code 3"); !strings.Contains(l, ui.ANSIBold) {
-		t.Errorf("exit line is not bold: %q", l)
+	if lineWith(screen, "error: agent exited with code 3") == "" {
+		t.Errorf("sbx's own exit line is missing:\n%s", screen)
+	}
+	for _, l := range strings.Split(screen, "\n") {
+		if plain := stripSGR(l); strings.HasPrefix(plain, "× ") && strings.Contains(plain, "exited with code") {
+			t.Errorf("proveo repeated the exit sbx already printed: %q", l)
+		}
 	}
 	if n := whiteRun(screen); n > 2 {
 		t.Errorf("run screen prints %d consecutive default-colour proveo lines, want ≤ 2:\n%s", n, screen)
+	}
+}
+
+// TestNoProveoExitLineWhenOnlyStdinIsRedirected runs the same failing agent with stdout on the
+// terminal and stdin from /dev/null, the mode with no pty proxy: sbx's own error line still counts.
+func TestNoProveoExitLineWhenOnlyStdinIsRedirected(t *testing.T) {
+	requireTmux(t)
+	requireSbx(t)
+	buildVolatileImage(t, harnessImage(t, "hermes"))
+	screen := runVolatile(t, buildProveo(t), " </dev/null")
+	if strings.Contains(screen, "PROVEO_EXIT=0") || lineWith(screen, "error: ") == "" {
+		t.Fatalf("want a failed run whose own error line sbx printed:\n%s", screen)
+	}
+	for _, l := range strings.Split(screen, "\n") {
+		if plain := stripSGR(l); strings.HasPrefix(plain, "× ") && strings.Contains(plain, "exited with code") {
+			t.Errorf("proveo repeated the exit sbx already printed: %q\n%s", l, screen)
+		}
+	}
+	if !strings.Contains(screen, "PROVEO_EXIT=3") {
+		t.Errorf("proveo exits with the agent's code sbx named, 3; got %q:\n%s", lineWith(screen, "PROVEO_EXIT="), screen)
 	}
 }
 
@@ -95,9 +120,15 @@ func TestWhiteRunSkipsSbxsOwnLines(t *testing.T) {
 	iface := []string{"", rule(ui.SectionInterface), host("port 8083: next in apps/web"),
 		"           " + dim("log /tmp/proveo-dev-8083.log"), host("ide:       ssh proveo-claudecode-1a2b3c4d.sbx"),
 		async("claudecode 2.1.312 — starting")}
+	warn := func(head, tail string) string {
+		return ui.ANSI(ui.ColorWarn) + "⚠ " + ui.ANSIReset + head + grey(tail)
+	}
 	results := func(extra ...string) []string {
-		lines := append([]string{"", rule(ui.SectionResults), host("last output from the agent:"), grey("  agent: fatal")}, extra...)
-		return append(lines, ui.ANSI(ui.ColorFailure)+"× "+ui.ANSIReset+ui.ANSIBold+"the agent exited with code 3"+ui.ANSIReset,
+		lines := append([]string{"", rule(ui.SectionResults), store("output: nothing under reports/")}, extra...)
+		return append(lines, warn("proveo-hermes-1a2b3c4d", " — kept for diagnosis"),
+			"    "+dim("`proveo rm --stop proveo-hermes-1a2b3c4d` carries its work home and removes it"),
+			"", rule(ui.SectionIDE), host("ssh:       proveo-hermes-1a2b3c4d.sbx"), "           "+dim("`sbx setup ssh` once"),
+			host("project:   /work/repo"), "           "+dim("IDE saves write the host checkout directly"),
 			"PROVEO_EXIT=3")
 	}
 	afterLoad := append(append(append([]string{}, templateLoad...), "", rule(ui.SectionInterface)), loud...)
@@ -143,16 +174,22 @@ func buildVolatileImage(t *testing.T, base string) {
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", volatileImage).Run() })
 }
 
-func runVolatile(t *testing.T, proveoBin string) string {
+// runVolatile runs the volatile agent in tmux, its stdin redirected by redirect ("" keeps the
+// terminal), and removes the sandbox the failed run keeps.
+func runVolatile(t *testing.T, proveoBin, redirect string) string {
 	t.Helper()
 	work := t.TempDir()
 	mustRun(t, work, "git", "init", "-q", ".")
 	mustRun(t, work, "git", "-c", "user.email=e2e@proveo.test", "-c", "user.name=proveo e2e", "commit", "-q", "--allow-empty", "-m", "seed")
 
-	sess := tmux.New(fmt.Sprintf("proveo-palette-%d", os.Getpid()), nil)
-	t.Cleanup(sess.Kill)
-	script := fmt.Sprintf("%s run hermes --image %s --credentials forward --input %s --scope . --yes; echo PROVEO_EXIT=$?; sleep 300",
-		shellQuote([]string{proveoBin}), volatileImage, shellQuote([]string{work}))
+	before, canList := sbxSandboxNames()
+	sess := tmux.New(fmt.Sprintf("proveo-palette-%d-%d", os.Getpid(), len(redirect)), nil)
+	t.Cleanup(func() {
+		sess.Kill()
+		removeLeakedSandboxes(t, before, canList)
+	})
+	script := fmt.Sprintf("%s run hermes --image %s --credentials forward --input %s --scope . --yes%s; echo PROVEO_EXIT=$?; sleep 300",
+		shellQuote([]string{proveoBin}), volatileImage, shellQuote([]string{work}), redirect)
 	if err := sess.Start(110, 60, "env", "TERM=xterm-256color", "COLORTERM=truecolor", "PROVEO_WIZARD=off",
 		"PROVEO_HOME="+t.TempDir(), "sh", "-c", script); err != nil {
 		t.Fatalf("start tmux session: %v", err)

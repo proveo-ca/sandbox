@@ -171,8 +171,10 @@ skinparam noteTextAlignment left
 ' A successful push writes "update by push" on the remote-tracking reflog.
 ' That log lives in the common git dir, so one `git log -g --all` from any
 ' worktree includes pushes made in every linked worktree. proveo keeps the
-' lines whose reflog time is at or after the run started, and prints each
-' branch once (`pushed origin/name`). A clone is queried inside the sandbox
+' lines whose reflog time is at or after the run started, and names each
+' branch once (R2: a "pushed: origin/name" row of the results block, dim
+' "fetched" under it once fetched; the fetch commands go to the run log when
+' the operator leaves them). A clone is queried inside the sandbox
 ' before it is removed. A direct checkout is queried on the host.
 ' On a TTY the question is the shared fullscreen confirm. [y/N] and [esc] are
 ' each a left-aligned row. The last row records the typing and the line under
@@ -243,8 +245,8 @@ skinparam noteTextAlignment left
 ' one per resolved link. unmountable (report.go; warnUnmountable until R1)
 ' groups the dropped hosts by their first path component under the root and
 ' Spec returns one ⚠ item per group in Workload.Report: "<top>/ — N entries
-' inside the main worktree, not mounted" (or "<top> — inside the …"), with
-' "read it from the clone" dim under it. Both drop sites (cloneThroughMain,
+' inside the main worktree, not mounted" (or "<top> — inside the …"); its
+' "read it from the clone" advice is a run-log row since R2 (decision E). Both drop sites (cloneThroughMain,
 ' which now returns what it dropped, and the SplitNested loop) feed it. Pinned
 ' by TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry.
 '
@@ -431,6 +433,11 @@ skinparam noteTextAlignment left
 '     rm hint), keep home access, and print the IDE attach.
 '   retireSandbox (the stale-sandbox upgrade, launch_receipt.go) returns the
 '     same wrapped error before SaveState and `rm`, so the upgrade stops.
+'   (R2: teardown closes on "⚠ <name> — kept: <err>" with the dim fix
+'     `proveo rm [--stop] <name>`. Since R2's review the stranded errors say
+'     "it", never the name, because the kept line names the sandbox, and the
+'     retire's error ends "— <name> kept; `proveo rm [--stop] <name>` carries
+'     its work home and removes it", no longer `sbx rm --force`.)
 '   The forced Ctrl+C remove still deletes: its modal says "Uncommitted
 '     changes can be permanently lost" (internal/choiceui/sandbox_close.go).
 '   Which way a normal end goes is the pure normalEndOf (kit-lifecycle.puml).
@@ -479,14 +486,14 @@ skinparam noteTextAlignment left
 '     3. else known = false.
 '   Run's teardown defer STARTS by resolving truth: `if clones, err :=
 '     sandboxClone(in, cfg.Name); err == nil { in.Clone, in.CloneKnown =
-'     clones, true }` (sandbox.go:1599-1601). So reportPushedBranches, PrintIDEAttach
+'     clones, true }` (sandbox.go:1599-1601). So reportPushedBranches, ideFacts
 '     (its "DISPOSABLE CLONE" vs "mounted checkout" help) and TeardownClone all
 '     see the sandbox's real mode — review #6 MEDIUM: before, only
 '     PreserveClone's local copy was corrected.
 '   TeardownClone gates on RepoRoot; it writes the clone's .env back only when
 '     in.Clone && in.CloneKnown.
 '   PreserveClone asks sandboxClone itself when the mode is still unknown:
-'     unknown → error "cannot tell whether <name> holds a clone, so its work
+'     unknown → error "cannot tell whether it holds a clone, so its work
 '       may be only there: <why>" → the sandbox is KEPT (stranded); a probe
 '       timeout wraps errNoCloneAnswer, which lets retireSandbox offer
 '       removal on a headed yes (kit-lifecycle.puml, AN UNANSWERED SANDBOX);
@@ -501,10 +508,10 @@ skinparam noteTextAlignment left
 ' "-retired", so the old clone lands in refs/proveo/<sid>-retired/*. Before,
 ' this run's own teardown force-fetched `+refs/heads/*` into the same
 ' refs/proveo/<sid>/* and overwrote it; the fixed proveo/* names made that
-' collision certain. It also sets in.Retiring, so reportCloneRefs prints the
-' old clone's refs under the stale step's "sbx" heading instead of declaring
-' "results", which teardown would then draw a second time (output-readability
-' R1; TestARetiredSandboxsRefsStayUnderTheSbxHeading).
+' collision certain. Its carry writes into a sandbox.Block headed "sbx", so the
+' old clone's facts print under the stale step's heading and never declare
+' "results", which teardown would then draw a second time (R2 replaced
+' in.Retiring with the block; TestARetiredSandboxsRefsStayUnderTheSbxHeading).
 ' THE ADOPT HINT (review #6): reportCloneRefs suggests adoptLead(names, prefix,
 ' ahead), a pure function: the first ref NOT under <prefix>proveo/ that holds
 ' commits HEAD lacks (`git rev-list --count HEAD..<ref>` != 0), else the first
@@ -534,19 +541,67 @@ skinparam noteTextAlignment left
 '     snapshot's cd fails and exits 0 as "no workdir". Stopped sandbox: retire
 '     still refuses on the bundle. Running with a remote: uncommitted work is
 '     lost.
-'   * The forced Ctrl+C remove after a failed carry prints the rescue recipe
-'     and then deletes; the modal warns about uncommitted changes, not about
-'     commits that were never carried.
+'   * The forced Ctrl+C remove after a failed carry deletes the sandbox; the
+'     modal warns about uncommitted changes, not about commits that were never
+'     carried. Since R2 the closing line says so: "⚠ <name> — removed", dim
+'     "what did not come home went with it"; the rescue recipe is a run-log row.
 '
 ' The output dir is copied out separately, as a tar stream on stdout. Untracked
 ' and usually gitignored, deliverables are exactly what the ref fetch leaves
 ' behind. The archive's members are relative to the clone root, so unpacking
 ' under the host repo root recreates the same path, and tar refuses absolute
-' members and `..` on its own. Failure is a WARNING naming the sandbox, so the
-' operator can still `sbx exec` the files out before removing it.
+' members and `..` on its own. Failure KEEPS THE SANDBOX (R2, F6): "⚠ output —
+' not lifted" with the error dim, then "⚠ <name> — kept: the output is only
+' in it". The launch receipt records OutputDir, so `proveo rm` lifts it; the
+' by-hand tar recipe is a run-log row.
+' THE RETIRE KEEPS IT TOO (R2 review, 2026-11-11). retireSandbox runs the same
+' PreserveClone, so a stale sandbox whose output does not lift is kept and the
+' new run stops with "the output is only in it — <name> kept; `proveo rm
+' [--stop] <name>` carries its work home and removes it" (--stop while it
+' runs). Until the operator acts, every run on that workspace stops there.
+' At HEAD the retire only warned and removed the sandbox, output and all, and
+' R2's first draft named `sbx rm --force`, which deletes the very output it
+' called stranded. `proveo rm` lifts the output dir from the stale sandbox's
+' receipt. A receipt written before R2 has no OutputDir (the field is new),
+' so `proveo rm` of such a sandbox carries its branches and skips the lift.
+' NOT CHOSEN: retire on a failed lift as at HEAD (the output lost).
+' Pinned by TestRetiringASandboxWhoseOutputDidNotLiftKeepsItAndNamesProveoRm.
 '
 ' Both copy-outs pass `-w /`: the container WorkingDir can stop resolving
 ' mid-run, and an exec that inherits it dies at chdir before a byte moves.
+' ── WHAT THE CARRY PRINTS (R2, 2026-11-11) ──────────────────────────────────
+' Every part writes into the results block (sandbox.Block), printed once the
+' clone step ends (_spec/internal/backend/teardown.puml, WHAT TEARDOWN
+' PRINTS):
+'   output    the host dir, home-relative; "nothing under reports/"
+'   .env      "merged A, B"; "nothing merged" with dim "ignored KEY" when
+'             only brokered keys changed (their reason goes to the run log)
+'   branches  one row per carried ref with commits no local branch holds,
+'             the agent's branches before proveo/ snapshot refs, dim "under
+'             refs/proveo/<sid>/", and dim "includes proveo's commit of
+'             uncommitted work" under the branch the snapshot committed on
+'             (CloneSnapshotArgs prints "proveo snapshot committed on <b>";
+'             sbx.SnapshotBranch reads it); "no new commits" otherwise. Refs
+'             with no new commit, and the review and adopt commands, are
+'             run-log rows.
+'   _spec     "N files lifted"
+' Failures are ⚠ items with the error dim: "uncommitted work — not
+' committed", "output — not lifted", "branches — not carried home", ".env —
+' not merged home", ".env — kept the host's KEY", "_spec — not lifted",
+' "_spec — kept the host's a, b". The remote fallback note, the by-hand
+' bundle recipe and the tar recipe go to the run log: `proveo rm` runs the
+' same carry and lift. A stranded error now says "it" ("the agent's branches
+' are still only in it"), because the kept line names the sandbox.
+' KNOWN (critique item 15, out of scope for R2): the seed's AGENTS.md is
+' committed by the snapshot when the clone lacked one, so a run whose agent
+' changed nothing reads "main (1 new commit)".
+' Pinned by TestACloneEndingPrintsWhatCameHomeAsOneBlockThenTheRemoval,
+' TestARefWithNoNewCommitsStaysInTheLog, TestAnOutputLiftThatFailsKeepsTheSandbox,
+' TestTheEnvMergeIsAFactThatNamesWhatItMergedAndIgnored,
+' TestAPushedBranchIsAFactAndTheFetchRecipeGoesToTheLog and sbx's
+' TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch ("the snapshot says which
+' branch it committed on").
+'
 title sbx clone mode — a private workspace, and the two paths home
 
 actor "operator" as OP

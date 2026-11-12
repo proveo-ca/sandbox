@@ -31,6 +31,8 @@ type launchReceipt struct {
 	Memory  string            `json:"memory,omitempty"` // a record for the re-attach facts; changes ignores it
 	KitDir  string            `json:"kitDir,omitempty"` // a record for the re-attach facts; changes ignores it
 	Publish []string          `json:"publish"`          // a record for the re-attach facts; changes ignores it; nil is unknown
+	// OutputDir is the host output dir a clone's output lifts into; `proveo rm` lifts it. changes ignores it.
+	OutputDir string `json:"outputDir,omitempty"`
 }
 
 // noReceipt is the change a sandbox with no receipt reports.
@@ -163,8 +165,9 @@ func retireIfStale(in Input, cfg sbx.RunConfig, changed []string, running func(s
 			warn(cfg.Name+" — kept running without this run's changes", notApplied, "the next proveo run reattaches to it")
 			return changed, nil
 		}
-		return nil, fmt.Errorf("sandbox %s kept. The next proveo run reattaches and asks again. sbx rm --force %s deletes the session; the next run creates a new sandbox with this same name, and this session does not persist. Settings that will not apply: %s",
-			cfg.Name, cfg.Name, strings.Join(changed, ", "))
+		ui.Logf("`sbx rm --force %s` deletes the session; the next run creates a new sandbox with this same name, and this session does not persist. Settings that will not apply: %s",
+			cfg.Name, strings.Join(changed, ", "))
+		return nil, fmt.Errorf("sandbox %s kept; the next proveo run reattaches and asks again", cfg.Name)
 	}
 	if !asked && live {
 		warn(cfg.Name+" — kept running without this run's changes", notApplied,
@@ -207,7 +210,7 @@ func sandboxClone(in Input, name string) (bool, error) {
 	out, err := cmd.Output()
 	if err = finish(err); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			ui.Warnf("clone: %s did not answer the clone-mode probe (%v)", name, err)
+			ui.Logf("clone: %s did not answer the clone-mode probe (%v)", name, err)
 			return false, fmt.Errorf("%w: %v", errNoCloneAnswer, err)
 		}
 		return false, err
@@ -227,10 +230,13 @@ func sandboxClone(in Input, name string) (bool, error) {
 func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) error {
 	report("carrying its work home from %s", cfg.Name)
 	in.Sid += "-retired"
-	in.CloneKnown, in.Retiring = false, true
-	if err := PreserveClone(in, cfg); err != nil {
+	in.CloneKnown = false
+	carried := NewBlock(SbxHeading)
+	err := PreserveClone(in, cfg, carried)
+	carried.Print()
+	if err != nil {
 		if !errors.Is(err, errNoCloneAnswer) {
-			return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it once the work is home", err, cfg.Name, cfg.Name)
+			return fmt.Errorf("%w — %s kept; %s", err, cfg.Name, keptFix(cfg.Name, sbx.Running(cfg.Name)))
 		}
 		refs := mirroredRefs(in.RepoRoot, cfg.Name)
 		if !confirmUnansweredRemoval(cfg.Name, refs, opencodeTarget(in.Target)) {
@@ -245,7 +251,7 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 		}
 	}
 	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), guestRun); err != nil {
-		ui.Warnf("resume state not preserved (%v): %s", err, strings.TrimSpace(out))
+		carried.Item(Item{Warn: true, Text: "resume state — not saved", Detail: []string{failure(err, out)}})
 	}
 	return removeRetired(cfg, report)
 }

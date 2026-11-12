@@ -11,7 +11,7 @@ skinparam noteTextAlignment left
 ' covers: e2e/close_confirm_live_test.go
 ' covers: e2e/close_confirm_test.go
 ' covers: internal/choiceui/sandbox_close.go
-' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New)
+' covers: internal/backend/sandbox/sandbox.go (ptyproxy.Usable, ptyproxy.New, Proxy.EnteredAltScreen)
 ' covers: internal/backend/sandbox/pushed.go (confirmFetchPushed: DiscardInput)
 ' covers: internal/ptyproxy/cancelin.go
 ' covers: internal/ptyproxy/flush_linux.go
@@ -276,6 +276,15 @@ skinparam noteTextAlignment left
 ' output, whether or not the input filter is on. After draw returns and
 ' before the pump resumes, Overlay writes ESC[?1049h and ESC[?25l for the
 ' modes the child holds; the forced repaint then redraws the child.
+' IT ALSO REMEMBERS THE ALTERNATE SCREEN (R2 review, 2026-11-11). `entered`
+' turns true the first time the child switches to it and stays true after
+' ?1049l, because an agent leaves the alternate screen as it exits.
+' Proxy.EnteredAltScreen (false on a nil proxy and on Windows) tells teardown
+' that the agent left nothing in scrollback, so its last five lines print dim
+' under the kept ⚠ (_spec/internal/backend/teardown.puml). It replaced a
+' second detector in agentio.Tail that matched three byte strings and missed
+' a mode list such as CSI ? 25;1047 h. Pinned by
+' TestScreenModesRememberTheAlternateScreenAfterTheChildLeavesIt.
 ' ON A REAL AGENT, MEASURED 2026-11-10 (macOS, sbx 0.50.0, claudecode in a real
 ' sandbox, tmux): Ctrl+C opened the dialog over the agent, n left the pane's
 ' flags as they were (alt=0 cursor=0 paste=1: a hidden cursor and bracketed
@@ -292,6 +301,7 @@ skinparam noteTextAlignment left
 '   TestAProgramThatReadsItsOwnInputResetsTheChildsKeyboardMode
 '   TestOverlayOutputTurnsABareLineFeedIntoCarriageReturnLineFeed
 '   TestScreenModesFollowTheChildsAlternateScreenAndCursor
+'   TestScreenModesRememberTheAlternateScreenAfterTheChildLeavesIt
 '   TestAnOverlayGivesTheChildItsScreenModesBack
 ' by internal/choiceui (three pins against the tcell twin left with it):
 '   TestEnterAloneGivesTheSafeAnswerInEveryDialog

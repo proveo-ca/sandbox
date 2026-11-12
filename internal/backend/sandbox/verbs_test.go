@@ -54,7 +54,7 @@ func TestRemoveKeptClearsNothingOnAListingItCannotTrust(t *testing.T) {
 	} {
 		dir := keptStore(t, "sb")
 		set()
-		err := RemoveKept("sb", dir, func(string, ...any) {})
+		err := RemoveKept("sb", dir, func(string, ...any) {}, false)
 		if !errors.Is(err, errNoListing) {
 			t.Errorf("%s: RemoveKept = %v, want a refusal", name, err)
 		}
@@ -72,12 +72,12 @@ func TestRemoveKeptRefusesARunningSandboxAndForgetsAGoneOne(t *testing.T) {
 	dir := keptStore(t, "sb", "gone")
 	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "running"}, sbx.Listed{Name: "other", Status: "stopped"})
 
-	err := RemoveKept("sb", dir, func(string, ...any) {})
+	err := RemoveKept("sb", dir, func(string, ...any) {}, false)
 	if err == nil || !strings.Contains(err.Error(), "is running") {
 		t.Errorf("RemoveKept of a running sandbox = %v, want a refusal", err)
 	}
 	var said []string
-	if err := RemoveKept("gone", dir, func(f string, a ...any) { said = append(said, f) }); err != nil {
+	if err := RemoveKept("gone", dir, func(f string, a ...any) { said = append(said, f) }, false); err != nil {
 		t.Errorf("RemoveKept of a sandbox sbx no longer lists = %v", err)
 	}
 	if keptNames(dir) != "sb" {
@@ -96,7 +96,7 @@ func TestRemoveKeptCarriesThenRemovesAStoppedSandbox(t *testing.T) {
 	dir := keptStore(t, "sb")
 	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "stopped", Workspaces: []string{t.TempDir()}})
 	var said []string
-	if err := RemoveKept("sb", dir, func(f string, a ...any) { said = append(said, f) }); err != nil {
+	if err := RemoveKept("sb", dir, func(f string, a ...any) { said = append(said, f) }, false); err != nil {
 		t.Fatalf("RemoveKept = %v", err)
 	}
 	if !strings.Contains(sbxCalls(t, calls), "rm --force sb") {
@@ -122,7 +122,7 @@ func TestRemoveKeptKeepsASandboxWhoseWorkCannotComeHome(t *testing.T) {
 	prev := ui.Default
 	t.Cleanup(func() { ui.Default = prev })
 	ui.Default = ui.New(&term)
-	err := RemoveKept("sb", dir, func(string, ...any) {})
+	err := RemoveKept("sb", dir, func(string, ...any) {}, false)
 	if err == nil || !strings.Contains(err.Error(), "kept") {
 		t.Fatalf("RemoveKept = %v, want a refusal that keeps the sandbox", err)
 	}
@@ -196,5 +196,43 @@ func TestReconcileDropsOnlyWhatIsProvablyGone(t *testing.T) {
 		if e.Key == "s1" {
 			t.Errorf("a session whose refs are all on a branch is still recorded: %+v", e)
 		}
+	}
+}
+
+func TestRemoveKeptStopsARunningSandboxOnlyWhenAsked(t *testing.T) {
+	calls := fakeSbx(t, guestClone, 0, bundleEmpty)
+	dir := keptStore(t, "sb")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "running", Workspaces: []string{t.TempDir()}})
+	err := RemoveKept("sb", dir, func(string, ...any) {}, false)
+	if err == nil || !strings.Contains(err.Error(), "is running") || !strings.Contains(err.Error(), "`proveo rm --stop sb`") {
+		t.Errorf("RemoveKept of a running sandbox without --stop = %v, want a refusal that names --stop", err)
+	}
+	if strings.Contains(sbxCalls(t, calls), "stop sb") {
+		t.Fatal("a sandbox was stopped without --stop")
+	}
+	var said []string
+	if err := RemoveKept("sb", dir, func(f string, a ...any) { said = append(said, f) }, true); err != nil {
+		t.Fatalf("RemoveKept --stop = %v", err)
+	}
+	got := sbxCalls(t, calls)
+	if stop, rm := strings.Index(got, "stop sb"), strings.Index(got, "rm --force sb"); stop < 0 || rm < stop {
+		t.Errorf("--stop runs `sbx stop`, then carries and removes:\n%s", got)
+	}
+	if keptNames(dir) != "" || len(said) != 3 || said[0] != "sbx stop %s" {
+		t.Errorf("entries %q, reports %q", keptNames(dir), said)
+	}
+}
+
+func TestKeptInputLiftsTheOutputDirTheReceiptRecords(t *testing.T) {
+	fakeSbx(t, guestClone, 0, bundleEmpty)
+	writeReceipt("sb", launchReceipt{OutputDir: "/w/repo/reports"})
+	in, _ := keptInput(sbx.Listed{Name: "sb", Agent: "proveo-claudecode"}, results.Dir(t.TempDir()))
+	if in.OutputDir != "/w/repo/reports" {
+		t.Errorf("keptInput OutputDir = %q, want the receipt's: `proveo rm` lifts the output a failed lift left behind", in.OutputDir)
+	}
+	was := receiptOf(sbx.RunConfig{}, "img", nil, "", "")
+	was.OutputDir = "/elsewhere"
+	if receiptOf(sbx.RunConfig{}, "img", nil, "", "").changes(&was) != nil {
+		t.Error("a different output dir marked the sandbox stale")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -123,5 +124,30 @@ func TestARunThatEndsBeforeItsBlocksStillPrintsWhatItDecided(t *testing.T) {
 	reportUnhanded(&Spec{}, false)
 	if got := term.String(); got != "" {
 		t.Errorf("a run that decided nothing printed %q", got)
+	}
+}
+
+func TestARunThatFailsAfterTheDesktopInstallStillNamesTheDesktop(t *testing.T) {
+	rs, _, term, _ := pagesFixture(t)
+	rs.Desktop = desktopFact(true)
+	reportUnhanded(rs, false)
+	got := term.String()
+	if !strings.Contains(got, "------ interface ------") || !strings.Contains(got, "desktop: Hermes Desktop") || !strings.Contains(got, "(installed now)") {
+		t.Errorf("a run that failed after the install lost the desktop fact:\n%s", got)
+	}
+}
+
+func TestANoLoginSubscriptionIsACredentialsWarningWithItsFix(t *testing.T) {
+	rs, _, _, _ := pagesFixture(t)
+	rs.Man = manifest.Manifest{Name: "claudecode", Subscription: true}
+	rs.Creds.Lookup = func(string) string { return "" }
+	facts, items := loginFacts(rs, &Params{Target: "claudecode", PrintOnly: true}, Deps{})
+	for _, f := range facts {
+		if f.Key == "login" {
+			t.Errorf("no login is a ⚠ item, not a fact: %+v", f)
+		}
+	}
+	if len(items) == 0 || items[0].Text != "login — none found" || !items[0].Warn || len(items[0].Detail) != 1 || !strings.HasPrefix(items[0].Detail[0], "sign in once: ") {
+		t.Errorf("items = %+v, want ⚠ login — none found with its one fix", items)
 	}
 }

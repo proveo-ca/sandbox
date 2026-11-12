@@ -12,7 +12,16 @@ type ImageSource struct {
 	Ref     string // the chosen reference, e.g. proveo/codex:local
 	Host    bool   // the host engine holds Ref
 	Digest  string // Ref's repo digest in the host store; "" when the store keeps none
+	Built   bool   // the host engine built Ref rather than pulled it
 	Builder string // buildx builder that reads the host store; "" leaves the active one
+}
+
+// Label is where Ref came from: "local build" when the host built it, else "published".
+func (s ImageSource) Label() string {
+	if s.Host && s.Built {
+		return "local build"
+	}
+	return "published"
 }
 
 // From is the recipe's FROM: Ref pinned to Digest when the host store has one.
@@ -39,6 +48,7 @@ func ResolveImageSource(ref string, hostBuilder func() (string, bool)) ImageSour
 	}
 	src.Host = true
 	src.Digest = RepoDigest(ref, sh.RepoDigests(ref))
+	src.Built = builtHere(ref, src.Digest)
 	if hostBuilder != nil {
 		if name, ok := hostBuilder(); ok {
 			src.Builder = name
@@ -72,6 +82,37 @@ func refRepo(ref string) string {
 func familiarRepo(repo string) string {
 	repo = strings.TrimPrefix(repo, "docker.io/")
 	return strings.TrimPrefix(repo, "library/")
+}
+
+// builtHere reports whether the host built ref: the engine's identity record when it keeps one,
+// else no repo digest.
+func builtHere(ref, digest string) bool {
+	if built, known := sh.ImageBuilt(ref); known {
+		return built
+	}
+	return digest == ""
+}
+
+// dockerImageBuilt reads the image's identity record (Docker 29+): built when it names a build;
+// known is false when the engine keeps no record of a build or a pull.
+func dockerImageBuilt(image string) (built, known bool) {
+	out, err := exec.Command("docker", "image", "inspect", image, "--format", "{{json .Identity}}").Output()
+	if err != nil {
+		return false, false
+	}
+	return ParseImageIdentity(out)
+}
+
+// ParseImageIdentity reads `docker image inspect --format '{{json .Identity}}'`.
+func ParseImageIdentity(out []byte) (built, known bool) {
+	var id struct {
+		Build []json.RawMessage
+		Pull  []json.RawMessage
+	}
+	if json.Unmarshal(out, &id) != nil {
+		return false, false
+	}
+	return len(id.Build) > 0, len(id.Build)+len(id.Pull) > 0
 }
 
 func dockerRepoDigests(image string) []string {

@@ -113,7 +113,7 @@ func TestAPanickingStepBecomesItsErrorAndTheNextStepsStillRun(t *testing.T) {
 			t.Errorf("home step error = %v, want the panic's value", s.err)
 		}
 	}
-	if !strings.Contains(term.String(), "home-root config not preserved") {
+	if !strings.Contains(term.String(), "home-root config — not preserved") {
 		t.Errorf("the operator was not told the home config was lost:\n%s", term.String())
 	}
 	if !strings.Contains(sbxCalls(t, calls), "rm --force sb") {
@@ -273,7 +273,8 @@ func TestATerminalGetsALiveLinePerStepAndNoStartLines(t *testing.T) {
 	if strings.Contains(screen, " — up to ") {
 		t.Errorf("a terminal received a start line as well as the live line:\n%q", screen)
 	}
-	if !strings.HasSuffix(screen, "\r\x1b[K") {
-		t.Errorf("teardown left its live line on the terminal: %q", screen[max(0, len(screen)-80):])
+	erased := strings.LastIndex(screen, "\r\x1b[K")
+	if erased < 0 || strings.Contains(screen[erased:], "step ") || !strings.HasSuffix(screen, "sb\x1b[38;2;138;138;138m — removed\x1b[0m\n") {
+		t.Errorf("teardown left its live line on the terminal, or did not close on the removal: %q", screen[max(0, len(screen)-120):])
 	}
 }

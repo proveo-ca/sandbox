@@ -31,9 +31,10 @@ func trustedListing() ([]sbx.Listed, error) {
 	return rows, nil
 }
 
-// RemoveKept carries what the kept sandbox name still holds home, removes it, and
-// clears its entry. It refuses a running sandbox, and it clears nothing on a listing it cannot trust.
-func RemoveKept(name, resultsDir string, report func(string, ...any)) error {
+// RemoveKept carries what the kept sandbox name still holds home, removes it, and clears its
+// entry. A running sandbox is refused unless stop asks to stop it first; nothing is cleared on
+// a listing it cannot trust.
+func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool) error {
 	rows, err := trustedListing()
 	if err != nil {
 		return err
@@ -51,12 +52,21 @@ func RemoveKept(name, resultsDir string, report func(string, ...any)) error {
 		report("%s is already gone; its entry is cleared", name)
 		return nil
 	}
+	if row.Running() && !stop {
+		return fmt.Errorf("%s is running; `proveo rm --stop %s` stops it, carries its work home and removes it", name, name)
+	}
 	if row.Running() {
-		return fmt.Errorf("%s is running; exit the session that uses it, then run `proveo rm %s` again", name, name)
+		report("sbx stop %s", name)
+		if out, err := guestRun(sbx.StopArgs(name)...); err != nil {
+			return fmt.Errorf("stop %s: %w: %s — it is kept", name, err, strings.TrimSpace(out))
+		}
 	}
 	in, cfg := keptInput(*row, resultsDir)
 	report("1/2 carrying its work home from %s", name)
-	if err := PreserveClone(in, cfg); err != nil {
+	carried := NewBlock(ResultsHeading)
+	err = PreserveClone(in, cfg, carried)
+	carried.Print()
+	if err != nil {
 		return fmt.Errorf("%w — %s kept; `sbx rm --force %s` deletes it and whatever is only in it", err, name, name)
 	}
 	if opencodeTarget(in.Target) {
@@ -90,6 +100,9 @@ func keptInput(row sbx.Listed, resultsDir string) (Input, sbx.RunConfig) {
 		if e.Kind == results.Kept && e.Key == row.Name && e.Repo != "" {
 			in.RepoRoot = e.Repo
 		}
+	}
+	if r := readReceipt(row.Name); r != nil {
+		in.OutputDir = r.OutputDir
 	}
 	return in, cfg
 }

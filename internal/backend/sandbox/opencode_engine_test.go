@@ -5,6 +5,7 @@ package sandbox
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 const ocEngine = "proveo-opencode-1a2b3c4d"
@@ -156,7 +158,7 @@ func TestAnExistingEngineKeepsItsOwnHistory(t *testing.T) {
 	home := t.TempDir()
 	writeDB(t, filepath.Join(home, "opencode", "v2", "share", "opencode.db"), "ses_share")
 
-	launch, created, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+	launch, created, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
 	if err != nil || created {
 		t.Fatalf("ensureOpenCodeEngine = created %v, %v; want a plain reattach", created, err)
 	}
@@ -202,9 +204,16 @@ func TestANewEngineImportsTheFirstHostDatabaseOnce(t *testing.T) {
 			before := snapshotTree(t, filepath.Join(home, "opencode", "v2"))
 			before1 := snapshotTree(t, filepath.Join(home, "opencode", "share"))
 
-			launch, created, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+			launch, created, history, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
 			if err != nil || !created || launch.KitDir != "" {
 				t.Fatalf("ensureOpenCodeEngine = %+v, created %v, %v; want a created engine reattached", launch, created, err)
+			}
+			wantHistory := map[bool]string{true: "carried history", false: "imported "}[c.wantCarry]
+			if c.want == "" {
+				wantHistory = "empty in"
+			}
+			if history.Key != "history" || !strings.HasPrefix(history.Value, wantHistory) || !strings.HasSuffix(history.Value, "new engine "+ocEngine) {
+				t.Errorf("the sbx block's history fact = %+v, want %q … new engine %s", history, wantHistory, ocEngine)
 			}
 			if got := sessionsIn(t, f.guestDB()); got != c.want {
 				t.Errorf("the new engine holds %q, want %q\ncalls:\n%s", got, c.want, f.log())
@@ -261,7 +270,7 @@ func TestAFailedImportRemovesTheFreshEngineAndKeepsTheSource(t *testing.T) {
 			}
 			writeReceipt(ocEngine, launchReceipt{Agent: "opencode"})
 
-			_, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+			_, _, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
 			if err == nil || !strings.Contains(err.Error(), "next") || !strings.Contains(err.Error(), c.wantErr) {
 				t.Fatalf("ensureOpenCodeEngine = %v, want an error naming %q that says the next run retries", err, c.wantErr)
 			}
@@ -342,7 +351,7 @@ func TestSkippedImportNeverConsumesCarriedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+	_, _, _, err = ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
 	if err == nil {
 		t.Error("a skipped import was reported as successful")
 	}
@@ -366,7 +375,7 @@ func TestOpenCodeCreationDefersCredentialsUntilHistoryIsReady(t *testing.T) {
 	home := t.TempDir()
 	carry := openCodeCarry(home, ocEngine)
 	writeDB(t, carry, "ses_carry")
-	_, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+	_, _, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +401,7 @@ func TestFailedCredentialRestartKeepsCarriedHistory(t *testing.T) {
 	home := t.TempDir()
 	carry := openCodeCarry(home, ocEngine)
 	writeDB(t, carry, "ses_carry")
-	_, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
+	_, _, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
 	if err == nil {
 		t.Fatal("failed stop was accepted")
 	}
@@ -401,5 +410,30 @@ func TestFailedCredentialRestartKeepsCarriedHistory(t *testing.T) {
 	}
 	if f.exists() {
 		t.Error("unfinished new engine survived")
+	}
+}
+
+func TestAFailedEngineCreateThatLeftTheEngineListedSaysSoAfterTheSbxFacts(t *testing.T) {
+	f := newFakeEngine(t, false)
+	f.set(t, "create-fails")
+	facts := []ui.Fact{{Role: ui.RoleStore, Key: "secret", Value: "anthropic"}}
+	for _, listed := range []bool{true, false} {
+		screen, _ := captured(t)
+		var rows []sbx.Listed
+		if listed {
+			rows = []sbx.Listed{{Name: ocEngine, Status: "stopped"}}
+		}
+		listing(t, true, rows...)
+		_, _, _, err := openEngine(openCodeInput(t.TempDir()), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"}, facts)
+		if !errors.Is(err, errEngineCreate) || err.Error() != "create OpenCode engine "+ocEngine+": exit status 1" {
+			t.Errorf("listed %v: openEngine = %v, want the failed create", listed, err)
+		}
+		want := "secret: anthropic\n"
+		if listed {
+			want += "warn: " + ocEngine + " — kept: its create failed\n    `sbx rm --force " + ocEngine + "` removes it\n"
+		}
+		if got := screen.String(); got != want {
+			t.Errorf("listed %v: screen:\n%s\nwant the sbx facts, then the line for an engine sbx still lists:\n%s", listed, got, want)
+		}
 	}
 }

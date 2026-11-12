@@ -18,6 +18,7 @@ import (
 	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
@@ -111,6 +112,10 @@ func exitCode(err error) (int, bool) {
 	var st backend.Stopped
 	if errors.As(err, &st) {
 		return st.Code(), true
+	}
+	var rp backend.Reported
+	if errors.As(err, &rp) {
+		return 1, true
 	}
 	return 0, false
 }
@@ -474,7 +479,7 @@ func runDeps() run.Deps {
 		PromptEnv: func(target string, missing []manifest.EnvVar) map[string]string {
 			return promptEnv(target, missing, os.Stdin, os.Stderr, termSecret)
 		},
-		GitHubTokenEnv: func() string {
+		GitHubTokenEnv: func() (string, []sandbox.Item) {
 			return resolveGitHubTokenEnv(hostGhAuth())
 		},
 		ProvisionConfirm: provisionConfirm,

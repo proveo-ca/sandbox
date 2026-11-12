@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 func quietReport(string, ...any) {}
@@ -143,10 +144,18 @@ func TestAHeadedNoKeepsAStoppedSandbox(t *testing.T) {
 	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
+	var screen, log strings.Builder
+	prev := ui.Default
+	ui.Default = ui.New(&screen)
+	restore := ui.TeeTo(&log)
+	t.Cleanup(func() { restore(); ui.Default = prev })
 	_, err := retireIfStale(Input{Target: "codex"}, cfg, staleChanges(cfg.Name, now, true), func(string) bool { return false },
 		func(Input, sbx.RunConfig, func(string, ...any)) error { retired++; return nil }, func(string, ...any) {}, func(string, ...string) {})
-	if err == nil || retired != 0 || !strings.Contains(err.Error(), "reattaches") || !strings.Contains(err.Error(), "does not persist") {
-		t.Fatalf("no must keep the sandbox: err=%v retired=%d", err, retired)
+	if err == nil || retired != 0 || !strings.Contains(err.Error(), "reattaches") || strings.Contains(err.Error(), "sbx rm") {
+		t.Fatalf("no must keep the sandbox, and its error carries no how-to: err=%v retired=%d", err, retired)
+	}
+	if !strings.Contains(log.String(), "does not persist") || strings.Contains(screen.String(), "does not persist") {
+		t.Errorf("the removal how-to belongs to the run log alone: the operator answered keep\nscreen:\n%s\nlog:\n%s", screen.String(), log.String())
 	}
 }
 

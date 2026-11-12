@@ -263,7 +263,7 @@ func TestTeardownCarriesTheSandboxsOwnCloneModeNotThisRuns(t *testing.T) {
 			in := Input{Clone: c.thisRunClone, CloneKnown: c.created, RepoRoot: repo, Sid: "proveo-1-2"}
 			cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
 
-			err := TeardownClone(in, cfg)
+			err := TeardownClone(in, cfg, nil)
 			log := callsOf(t, calls)
 			if (err != nil) != c.wantErr {
 				t.Errorf("TeardownClone(%s) error = %v, want error %v", c.name, err, c.wantErr)

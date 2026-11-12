@@ -81,7 +81,7 @@ func TestAStrandedCarryKeepsAnEntryNamingTheWork(t *testing.T) {
 	td.in.Clone, td.in.RepoRoot, td.in.Sid = true, repo, "proveo-1-2"
 	td.run(context.Background())
 	got := keptEntry(td.in.ResultsDir)
-	if got == nil || !strings.Contains(got.Why, "still only in sb") || got.Repo != results.Canonical(repo) {
+	if got == nil || !strings.Contains(got.Why, "still only in it") || got.Repo != results.Canonical(repo) {
 		t.Errorf("entry = %+v, want one that says the work is still in the sandbox", got)
 	}
 }
@@ -106,7 +106,7 @@ func TestTheCarryRecordsEachRefThatHoldsWorkHEADLacks(t *testing.T) {
 
 	_, _, _ = quietTeardown(t, false)
 	in := Input{RepoRoot: repo, Sid: sid, ResultsDir: results.Dir(t.TempDir())}
-	reportCloneRefs(in, sbx.RunConfig{Name: "sb"})
+	reportCloneRefs(in, sbx.RunConfig{Name: "sb"}, "", nil)
 	var carried *results.Entry
 	for _, e := range results.List(in.ResultsDir) {
 		if e.Kind == results.Carried && e.Key == sid {
@@ -121,7 +121,7 @@ func TestTheCarryRecordsEachRefThatHoldsWorkHEADLacks(t *testing.T) {
 	}
 
 	git("merge", "-q", "--ff-only", sbx.CloneRefs(sid)+"/feat")
-	reportCloneRefs(in, sbx.RunConfig{Name: "sb"})
+	reportCloneRefs(in, sbx.RunConfig{Name: "sb"}, "", nil)
 	if left := results.List(in.ResultsDir); len(left) != 0 {
 		t.Errorf("a session whose refs HEAD now holds is still recorded: %+v", left)
 	}

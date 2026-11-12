@@ -140,7 +140,7 @@
 ' lowercase word, and each subject prints once, after the step that makes it
 ' true:
 '
-'   run · credentials · egress · workspace · sbx · interface · results
+'   run · credentials · egress · workspace · sbx · interface · results · ide
 '
 '   run         the log, the scope, the image pull
 '   egress      sbx's baseline, and the local model the sandbox reaches
@@ -153,12 +153,21 @@
 '               what each port serves, the browser, one fact per host add-on
 '               (chrome, android, desktop; started before behind a live
 '               line, reported here), one "ide" row
+'   results     (R2) how the agent ended, ONE block of what came home
+'               (output, .env, branches, _spec, pushed, transcript), its ⚠
+'               items, then the sandbox's fate as the closing line
+'   ide         (R2) only when the sandbox stays: one Facts block of every
+'               way an IDE attaches (ssh, jetbrains, toolbox, vs code,
+'               project); a kept run ends on it, so nothing after it may
+'               declare "results" again (sandbox.Run prints a failure as a ×
+'               under results and returns backend.Reported)
 '
 ' Every divider in a run therefore appears exactly ONCE: no stage declares a
 ' heading another stage owns. The stale step's retire carries a replaced
-' sandbox's refs home under "sbx" (Input.Retiring), not "results". Teardown's
-' credential check (reportCredentialInUse) prints under "results", which
-' teardown declares first; it had redrawn "credentials" after "results".
+' sandbox's refs home under "sbx" (a sandbox.Block headed "sbx"), not
+' "results". Teardown's checks (reportCredentialInUse and the rest) write into
+' the results block teardown owns; the credential check had redrawn
+' "credentials" after "results".
 ' A block with nothing to print declares no heading (sandbox.PrintBlock,
 ' ui.Facts), so an empty subject never lends its heading to the next line.
 ' "scope" and "secrets" stay in the

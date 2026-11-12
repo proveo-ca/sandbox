@@ -46,7 +46,6 @@ func TestTheWorkspaceBlockSaysWhatSbxCannotAndEndsOnItsOutcome(t *testing.T) {
 		"          lifted back at teardown",
 		"links:    _spec → /h/sync/_spec",
 		"warn: .idea/ — 2 entries inside the main worktree, not mounted",
-		"    read it from the clone",
 		"ok: private clone — your checkout is not written",
 		"    the agent's commits come back at teardown",
 	}
@@ -93,7 +92,7 @@ func TestACreatedSandboxLeavesSbxsOwnFactsToTheRunLog(t *testing.T) {
 	in := Input{Image: "proveo/claudecode:latest", ProjectEnv: "/w/.env"}
 	cfg := sbx.RunConfig{Name: "proveo-claudecode-1a2b3c4d", KitDir: "/state/sbx/kit/proveo-claudecode", CPUs: 4, Memory: "8g",
 		Mounts: []sbx.Mount{{Host: "/w"}, {Host: "/h/.proveo/.claude", ReadOnly: true}}, Publish: []string{"18083:8083"}}
-	reportCreate(in, cfg, 1, nil)
+	reportCreate(in, cfg, 1, nil, nil)
 	if got := screen.String(); got != "env:   1 value from /w/.env (--env-file)\nimage: proveo/claudecode:latest (published)\n" {
 		t.Errorf("the screen before sbx create = %q, want the env seed, then proveo's image", got)
 	}
@@ -182,23 +181,34 @@ func TestTheReceiptRecordsCPUsAndMemoryWithoutMarkingASandboxStale(t *testing.T)
 func TestARetiredSandboxsRefsStayUnderTheSbxHeading(t *testing.T) {
 	repo := t.TempDir()
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "-q", "--allow-empty", "-m", "base"},
-		{"update-ref", sbx.CloneRefs("proveo-1-2-retired") + "/main", "HEAD"}} {
+		{"commit-tree", "-p", "HEAD", "-m", "the retired agent's work", "HEAD^{tree}"}} {
 		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.test", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.test")
-		if out, err := cmd.CombinedOutput(); err != nil {
+		out, err := cmd.CombinedOutput()
+		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
+		if args[0] == "commit-tree" {
+			if out, err := exec.Command("git", "-C", repo, "update-ref", sbx.CloneRefs("proveo-1-2-retired")+"/main", strings.TrimSpace(string(out))).CombinedOutput(); err != nil {
+				t.Fatalf("update-ref: %v\n%s", err, out)
+			}
+		}
 	}
-	screen, _ := captured(t)
+	screen, log := captured(t)
 	ui.Section(ui.SectionSbx)
-	in := Input{RepoRoot: repo, Sid: "proveo-1-2-retired", Retiring: true, ResultsDir: t.TempDir()}
-	reportCloneRefs(in, sbx.RunConfig{Name: "sb"})
+	in := Input{RepoRoot: repo, Sid: "proveo-1-2-retired", ResultsDir: t.TempDir()}
+	carried := NewBlock(SbxHeading)
+	reportCloneRefs(in, sbx.RunConfig{Name: "sb"}, "", carried)
+	carried.Print()
 	got := screen.String()
 	if !strings.Contains(got, "------ sbx ------") || strings.Contains(got, "results") {
 		t.Errorf("a retired sandbox's refs drew another heading:\n%s", got)
 	}
-	if !strings.Contains(got, sbx.CloneRefs("proveo-1-2-retired")) {
-		t.Errorf("the refs line is missing:\n%s", got)
+	if !strings.Contains(got, "branches: main (1 new commit)") || !strings.Contains(got, "under "+sbx.CloneRefs("proveo-1-2-retired")+"/") {
+		t.Errorf("the branches fact is missing:\n%s", got)
+	}
+	if strings.Contains(got, "proveo adopt") || !strings.Contains(log.String(), "adopt: `proveo adopt proveo/proveo-1-2-retired/main`") {
+		t.Errorf("the adopt hint belongs to the run log alone\nscreen:\n%s\nlog:\n%s", got, log.String())
 	}
 }
 
@@ -239,7 +249,7 @@ func TestTheSecretsTheEnvSeedAndProveosImagePrintAsOneBlockBeforeSbxCreate(t *te
 		secretFact("ANTHROPIC_API_KEY", "anthropic", "sb", nil, true),
 		secretFact("OPENAI_API_KEY", "openai", "sb", []string{"--from-op"}, false),
 	}
-	reportCreate(Input{Image: "proveo/claudecode-browser:local", ProjectEnv: "/w/.env"}, sbx.RunConfig{Name: "sb"}, 2, secrets)
+	reportCreate(Input{Image: "proveo/claudecode-browser:local", ProjectEnv: "/w/.env"}, sbx.RunConfig{Name: "sb"}, 2, secrets, nil)
 	want := "secret: ANTHROPIC_API_KEY → sbx's \"anthropic\" entry, for sb only\n" +
 		"        from its value\n" +
 		"        OPENAI_API_KEY → sbx's \"openai\" entry, for sb only\n" +
@@ -291,11 +301,11 @@ func TestARetiredClonesLiftNamesTheOutputDirHomeRelative(t *testing.T) {
 	}
 	screen, _ := captured(t)
 	repo := filepath.Join(home, "w", "repo")
-	in := Input{Clone: true, Retiring: true, RepoRoot: repo, OutputDir: filepath.Join(repo, "reports")}
-	liftClonedOutput(in, sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}},
-		func(context.Context, []string, string) (int, string, error) { return 0, "", nil })
-	if got := screen.String(); !strings.Contains(got, "into ~/w/repo/reports") || strings.Contains(got, home) {
-		t.Errorf("the lifted-output line names an absolute home path:\n%s", got)
+	in := Input{Clone: true, RepoRoot: repo, OutputDir: filepath.Join(repo, "reports")}
+	_ = liftClonedOutput(in, sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}},
+		func(context.Context, []string, string) (int, string, error) { return 0, "", nil }, nil)
+	if got := screen.String(); !strings.Contains(got, "output: ~/w/repo/reports") || strings.Contains(got, home) {
+		t.Errorf("the output fact names an absolute home path:\n%s", got)
 	}
 }
 
@@ -334,5 +344,25 @@ func TestAKeyLeftOutOfSbxsStoreSaysWhyOnlyInTheRunLog(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "`sbx secret set openai` stores OPENAI_API_KEY there to bill per token") {
 		t.Errorf("the run log lacks the how-to:\n%s", log.String())
+	}
+}
+
+func TestTheImageFactNamesAHostOnlyTagALocalBuild(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		src  *sbx.ImageSource
+		want string
+	}{
+		{"a custom tag the host built", &sbx.ImageSource{Ref: "proveo/hermes:volatile-e2e", Host: true, Digest: "sha256:ab", Built: true}, "proveo/hermes:volatile-e2e (local build)"},
+		{"a pulled image", &sbx.ImageSource{Ref: "proveo/hermes:latest", Host: true, Digest: "sha256:ab"}, "proveo/hermes:latest (published)"},
+		{"no source: the :local tag", nil, "proveo/hermes:local (local build)"},
+	} {
+		image := "proveo/hermes:local"
+		if c.src != nil {
+			image = c.src.Ref
+		}
+		if got := imageFact(image, c.src).Value; got != c.want {
+			t.Errorf("%s: image fact = %q, want %q", c.name, got, c.want)
+		}
 	}
 }

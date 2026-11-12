@@ -100,6 +100,23 @@ skinparam noteTextAlignment left
 ' and by e2e/scope_picker_test.go:
 '   TestTheFormStepsBackToTheScopePageWhereItWasLeft
 '
+' ── 2026-11-11 (output-readability R2): THE STAGES NOW ─────────────────────
+' MEASURED in run.go, run.Do's stages read:
+'   requireSandbox · detectWorkspace · choosePages (reportRun) ·
+'   preflightImage · ensureDesktop · resolveCredentials · planMounts ·
+'   buildPosture · launchSandbox
+' assembleEnv is GONE. Its one job, staging the host's GitHub token, moved
+' into resolveCredentials, before credentials prints its block: the lookup
+' now returns ⚠ items (Deps.GitHubTokenEnv → envVar, items), and a degraded
+' token is a credentials item (R1 carry-over e). ensureDesktop left
+' launchSandbox for a stage after preflightImage, so the Hermes Desktop
+' install question prints under "run" beside the image pull (carry-over b).
+' Both moves change the order the operator reads them in, which the rule
+' below says only a decision may do; the operator's R2 decisions are that
+' decision (_spec/_plans/output-readability.puml). buildPosture prints
+' nothing on screen: the posture is a run-log row, so nothing sits between
+' credentials and the sbx block any more.
+'
 ' ── 2026-10-16: ONE BACKEND, ONE INPUT ─────────────────────────────────────
 ' The docker+egress backend is deleted ("Retire Docker egress"; "Refuse without
 ' sbx"). MEASURED, run.Do's stages now read:
@@ -160,9 +177,10 @@ skinparam noteTextAlignment left
 '   * promptChoices runs BEFORE resolveCredentials, not after. The prompt needs
 '     the env-file lookup, and the auth report needs the answers, so the real
 '     order is workspace -> lookup -> prompt -> auth.
-'   * assembleEnv is a stage of its own. The plan folds it into
+'   * assembleEnv was a stage of its own. The plan folds it into
 '     resolveCredentials, but posture is rendered BETWEEN the two; moving either
 '     across that line changes the order the operator reads them in.
+'     (2026-11-11: folded after all, as the plan said; see THE STAGES NOW.)
 '   * teardown is not a stage. It is `defer` inside execute, so a signal
 '     mid-run unwinds exactly the way a normal exit does.
 ' Stages are contiguous slices of the original statement order. Nothing was
@@ -217,8 +235,8 @@ participant "sandbox.Input" as SBX <<cloud>>
 
 CMD ARROW_MAIN DO : Params (flags) + Deps (terminal, gh, docker)
 DO ARROW_ERROR DO : requireSandbox — refuse unless sbx is ready
-DO ARROW_MAIN SPEC : detectWorkspace · choosePages · resolveCredentials
-DO ARROW_MAIN SPEC : buildPosture · assembleEnv
+DO ARROW_MAIN SPEC : detectWorkspace · choosePages · preflightImage
+DO ARROW_MAIN SPEC : ensureDesktop · resolveCredentials · planMounts · buildPosture
 SPEC ARROW_QUEUE SBX : launchSandbox
 
 note over CMD

@@ -38,6 +38,32 @@ func TestScreenModesFollowTheChildsAlternateScreenAndCursor(t *testing.T) {
 	}
 }
 
+func TestScreenModesRememberTheAlternateScreenAfterTheChildLeavesIt(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		chunks []string
+		want   bool
+	}{
+		{"an inline child", []string{"hello\r\nworld\r\n"}, false},
+		{"entered, then left before the exit", []string{"\x1b[?1049h drawn", "\x1b[?1049l"}, true},
+		{"split across two reads", []string{"boot\r\n\x1b[?10", "49hdrawn\r\n"}, true},
+		{"inside a mode list", []string{"\x1b[?25;1047h"}, true},
+		{"only left, never entered", []string{"\x1b[?1049l"}, false},
+	} {
+		var s screenModes
+		for _, chunk := range c.chunks {
+			s.observe([]byte(chunk))
+		}
+		if got := s.enteredAlt(); got != c.want {
+			t.Errorf("%s: enteredAlt = %v, want %v", c.name, got, c.want)
+		}
+	}
+	var none *Proxy
+	if none.EnteredAltScreen() {
+		t.Error("a run with no proxy read as one on the alternate screen")
+	}
+}
+
 // outLog collects what the proxy writes to the operator's terminal.
 type outLog struct {
 	mu sync.Mutex

@@ -43,7 +43,7 @@ type Deps struct {
 	ManifestFor      func(target string) (manifest.Manifest, error)
 	PickProject      func(ask ScopeAsk) (scope string, ok bool)
 	PromptEnv        func(target string, missing []manifest.EnvVar) map[string]string
-	GitHubTokenEnv   func() string
+	GitHubTokenEnv   func() (envVar string, items []sandbox.Item) // stages the host's GitHub token; items say what degraded
 	ProvisionConfirm func(question string) bool
 	PreflightImages  func(man manifest.Manifest, agentImage string) (string, error)
 	EnsureDesktop    func() (launch []string, installed bool, err error) // installs Hermes Desktop when missing; installed is this run's install
@@ -104,13 +104,28 @@ func Do(p Params, d Deps) (err error) {
 	if err := preflightImage(&rs, &p, d); err != nil {
 		return err
 	}
+	if err := ensureDesktop(&rs, &p, d); err != nil {
+		return err
+	}
 	resolveCredentials(&rs, &p, d)
 	if err := planMounts(&rs, &p); err != nil {
 		return err
 	}
 	buildPosture(&rs, &p)
-	assembleEnv(&rs, &p, d)
 	return launchSandbox(&rs, &p, d)
+}
+
+// ensureDesktop makes sure Hermes Desktop is installed when the run drives it, under "run" with the image pull.
+func ensureDesktop(rs *Spec, p *Params, d Deps) error {
+	if !slices.Contains(p.Addons, addonDesktop) || p.PrintOnly || d.EnsureDesktop == nil {
+		return nil
+	}
+	launch, installed, err := d.EnsureDesktop()
+	if err != nil {
+		return err
+	}
+	rs.DesktopLaunch, rs.Desktop = launch, desktopFact(installed)
+	return nil
 }
 
 var sandboxReady = sandbox.Ready
@@ -137,7 +152,7 @@ func endEarly(rs *Spec, printOnly, runReported bool) {
 func reportUnhanded(rs *Spec, printOnly bool) {
 	path := screenPaths(printOnly)
 	sandbox.PrintBlock(sandbox.WorkspaceHeading, nil, sandbox.WithPaths(rs.Workspace.Items, path))
-	sandbox.PrintBlock(sandbox.InterfaceHeading, rs.InterfaceFacts, sandbox.WithPaths(rs.Interface, path))
+	sandbox.PrintBlock(sandbox.InterfaceHeading, append(slices.Clone(rs.InterfaceFacts), rs.Desktop), sandbox.WithPaths(rs.Interface, path))
 }
 
 // screenPaths writes the host paths inside a screen line: home-relative on a live run, absolute under --print.
@@ -592,6 +607,10 @@ func resolveCredentials(rs *Spec, p *Params, d Deps) {
 		items = append(items, sandbox.Item{Warn: true, Text: msg})
 	}
 	items = append(items, unknownModels(rs, p)...)
+	if !p.PrintOnly && d.GitHubTokenEnv != nil {
+		_, gh := d.GitHubTokenEnv()
+		items = append(items, gh...)
+	}
 	sandbox.PrintBlock(credentialsHeading, facts, items)
 }
 
@@ -603,12 +622,12 @@ func loginFacts(rs *Spec, p *Params, d Deps) (facts []ui.Fact, items []sandbox.I
 	if credentials.NeedsSandboxLogin(rs.Man, true, rs.Creds.FileLogin, rs.Creds.StoreHeld, rs.Creds.Lookup) {
 		svc := sbx.SubscriptionService(sbx.BuiltinAgent(credentials.HarnessFamily(rs.Man.Name)))
 		ui.Logf("the sandbox has no credential of its own — sbx keeps a subscription login only in its own store")
-		login := ui.Fact{Role: ui.RoleStore, Key: "login", Value: "none found"}
+		login := sandbox.Item{Warn: true, Text: "login — none found"}
 		if how := sbx.SignIn(svc); how != "" {
 			login.Detail = []string{"sign in once: " + how}
 			ui.Logf("sign in once with %s; sbx then holds it as %s (oauth configured) for every sandbox", how, svc)
 		}
-		facts = append(facts, login)
+		items = append(items, login)
 	}
 	gapFacts, gapItems := credentialGaps(rs, p, d)
 	facts = append(facts, gapFacts...)
@@ -683,6 +702,9 @@ func homeSeen(h manifest.Home) string {
 	return "the sandbox sees " + strings.Join(seen, ", ") + " " + where
 }
 
+// askOnTerminal reports whether the run may prompt the operator on the terminal; tests replace it.
+var askOnTerminal = func() bool { return agentio.IsStdinTTY() && agentio.WizardEnabled() }
+
 // credentialGaps names what satisfies a subscription harness's missing variables, or prompts
 // for or warns about each required variable no credential covers.
 func credentialGaps(rs *Spec, p *Params, d Deps) (facts []ui.Fact, items []sandbox.Item) {
@@ -700,7 +722,8 @@ func credentialGaps(rs *Spec, p *Params, d Deps) (facts []ui.Fact, items []sandb
 		rs.Creds.AuthMissingAtStart = append([]manifest.EnvVar(nil), missing...)
 		items = append(items, sandbox.Item{Warn: true, Text: rs.Man.Name + " — starting without a credential",
 			Detail: []string{"run `proveo init` to persist credentials between runs"}})
-	case agentio.IsStdinTTY() && agentio.WizardEnabled():
+	case askOnTerminal():
+		credentialsHeading()
 		for name, v := range d.PromptEnv(p.Target, missing) {
 			_ = os.Setenv(name, v)
 		}
@@ -725,6 +748,11 @@ func credentialsPosture(rs *Spec, p *Params) string {
 }
 
 func buildPosture(rs *Spec, p *Params) {
+	image := posture.Image(p.Image)
+	if !p.PrintOnly {
+		src := sbx.ResolveImageSource(p.Image, imagebuild.New("").HostBuilder)
+		rs.Backend.ImageSource, image = &src, p.Image+" ("+src.Label()+")"
+	}
 	rs.Posture = posture.Posture{
 		Target:        p.Target,
 		Credentials:   credentialsPosture(rs, p),
@@ -735,7 +763,7 @@ func buildPosture(rs *Spec, p *Params) {
 		LocalModel:    p.LocalModel,
 		Observability: posture.Observability(),
 		EnforcedBy:    posture.EnforcedBy(),
-		Image:         posture.Image(p.Image),
+		Image:         image,
 		ModelRoles:    posture.RolesLine(p.Roles),
 		RoleProviders: strings.Join(p.Roles.Providers(), ","),
 		MCPGateway:    posture.MCPGateway(p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(), sandbox.MCPGatewayVar),
@@ -835,25 +863,9 @@ func unknownModels(rs *Spec, p *Params) []sandbox.Item {
 	return out
 }
 
-// assembleEnv exports the host's GitHub token.
-func assembleEnv(rs *Spec, p *Params, d Deps) {
-	if !p.PrintOnly && d.GitHubTokenEnv != nil {
-		d.GitHubTokenEnv()
-	}
-}
-
 // launchSandbox resolves the clone and add-ons, then runs the agent in sbx (or prints the plan).
 func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	desktop := slices.Contains(p.Addons, addonDesktop)
-	var desktopLaunch []string
-	var desktopApp ui.Fact
-	if desktop && !p.PrintOnly && d.EnsureDesktop != nil {
-		launch, installed, err := d.EnsureDesktop()
-		if err != nil {
-			return err
-		}
-		desktopLaunch, desktopApp = launch, desktopFact(installed)
-	}
 	applyAutoLocalModel(rs, p)
 	rs.Model.HostLLM = p.LocalModel != ""
 
@@ -903,13 +915,18 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		servedModel = sbx.ContextTag(p.LocalModel, lm.Context)
 		if !p.PrintOnly {
 			notes := localModelNotes(lm, p.Target, servedModel)
-			if err := admitOversizedModel(sbx.EnsureHostOllama(p.LocalModel, lm.Context, os.Getenv, ui.Default), notes); err != nil {
+			pulled, err := sbx.EnsureHostOllama(p.LocalModel, lm.Context, os.Getenv, ui.Default)
+			if err := admitOversizedModel(err, notes); err != nil {
 				return fmt.Errorf("local model %s: %w", p.LocalModel, err)
 			}
 			if _, err := sbx.EnsureContextTag(p.LocalModel, lm.Context); err != nil {
 				return fmt.Errorf("local model %s: serve the %d-token context %s needs: %w", p.LocalModel, lm.Context, p.Target, err)
 			}
-			egress = append(egress, ui.Fact{Role: ui.RoleHost, Key: "local model", Value: servedModel + " on the host's Ollama (host GPU)"})
+			model := ui.Fact{Role: ui.RoleHost, Key: "local model", Value: servedModel + " on the host's Ollama (host GPU)"}
+			if pulled > 0 {
+				model.Detail = []string{"pulled this run · " + sbx.GiB(pulled)}
+			}
+			egress = append(egress, model)
 		}
 	}
 	sandbox.PrintBlock(func() { ui.Section(ui.SectionEgress) }, egress, egressItems)
@@ -923,7 +940,8 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	if err != nil {
 		return err
 	}
-	rs.InterfaceFacts = append(rs.InterfaceFacts, adbFact, desktopApp)
+	rs.InterfaceFacts = append(rs.InterfaceFacts, adbFact, rs.Desktop)
+	rs.Desktop = ui.Fact{}
 	rs.Interface = append(rs.Interface, adbItems...)
 	agentEnv := append(append([]string{}, cdpEnv...), adbEnv...)
 	agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
@@ -953,10 +971,13 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		MCPGateway:   p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(),
 		MiseTrust:    p.miseTrustAllowed(),
 		GitTransport: p.GitTransport,
-		Desktop:      desktop, DesktopLaunch: desktopLaunch,
+		Desktop:      desktop, DesktopLaunch: rs.DesktopLaunch,
 		Man: rs.Man, Sid: rs.Sid, RunDir: rs.RunDir, ResultsDir: results.Dir(StateDir()),
 		ImageEntrypoint: sbx.ImageEntrypoint,
 		ImageSource: func(ref string) sbx.ImageSource {
+			if src := rs.Backend.ImageSource; src != nil && src.Ref == ref {
+				return *src
+			}
 			return sbx.ResolveImageSource(ref, imagebuild.New("").HostBuilder)
 		},
 		StoredAPIKeys:    sbx.APIKeyServices,
@@ -981,7 +1002,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Memory:           sbx.MemoryLimit(),
 		CPUs:             sbx.CPULimit(),
 		HomeRoot:         rs.Creds.HomePlan.Root,
-		RunLog:           rs.Log.Path(),
 		HomeAccess:       homeAccess,
 	}
 	if p.PrintOnly {
@@ -1136,8 +1156,7 @@ func recordOutcome(launched bool, err error) {
 	case err == nil:
 		ui.Logf("outcome: the agent exited 0")
 	case errors.As(err, &ae):
-		ui.Section(ui.SectionResults)
-		ui.Failf("the agent exited with code %d", ae.Code)
+		ui.Logf("outcome: the agent exited with code %d", ae.Code)
 	default:
 		ui.Logf("outcome: %v", err)
 	}

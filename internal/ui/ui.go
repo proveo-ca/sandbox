@@ -186,7 +186,8 @@ const (
 	SectionStarting    = "starting"    // `proveo init`: installing and starting sbx
 	SectionSecrets     = "secrets"     // `proveo init`: the secret store and its prompt
 	SectionSbx         = "sbx"         // what proveo hands sbx, the stale check, sbx's own create block
-	SectionResults     = "results"     // after the agent: clones, transcripts
+	SectionResults     = "results"     // after the agent: how it ended, what came home, the sandbox's fate
+	SectionIDE         = "ide"         // a kept sandbox: how an IDE attaches to it
 	SectionTargets     = "targets"     // `proveo ls`: the harness images
 	SectionProjects    = "projects"    // `proveo projects`: monorepo members
 	SectionSetup       = "setup"       // `proveo setup`: the PATH change
@@ -335,6 +336,40 @@ func Logf(format string, a ...any) {
 	if logOnly != nil {
 		logOnly.Notef(format, a...)
 	}
+}
+
+// LogWriter is a writer whose every line reaches the run log alone; Close writes a last line that has no newline.
+func LogWriter() io.WriteCloser { return &logLines{} }
+
+type logLines struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (l *logLines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexByte(l.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		if line := strings.TrimRight(string(l.buf[:i]), "\r"); strings.TrimSpace(line) != "" {
+			Logf("%s", line)
+		}
+		l.buf = l.buf[i+1:]
+	}
+}
+
+func (l *logLines) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if strings.TrimSpace(string(l.buf)) != "" {
+		Logf("%s", string(l.buf))
+	}
+	l.buf = nil
+	return nil
 }
 
 type multi struct{ term, log io.Writer }
@@ -602,15 +637,18 @@ func wrapOne(ln []byte, width, hang int) []byte {
 	pad := strings.Repeat(" ", hang)
 	var out bytes.Buffer
 	col, wordStart, lineHasWord := 0, -1, false
+	var gap []byte
 	flushWord := func(end int) {
 		word := ln[wordStart:end]
-		w := displayWidth(word)
-		if lineHasWord && col+1+w > width {
+		w, sep := displayWidth(word), len(gap)
+		switch {
+		case !lineHasWord:
+		case col+sep+w <= width, w > width-hang && col+sep < width:
+			out.Write(gap)
+			col += sep
+		default:
 			out.WriteString("\n" + pad + activeSGR(out.Bytes()))
 			col = hang
-		} else if lineHasWord {
-			out.WriteByte(' ')
-			col++
 		}
 		if col+w > width {
 			col = breakWord(&out, word, col, width, pad)
@@ -618,18 +656,18 @@ func wrapOne(ln []byte, width, hang int) []byte {
 			out.Write(word)
 			col += w
 		}
-		lineHasWord = true
-		wordStart = -1
+		lineHasWord, wordStart, gap = true, -1, nil
 	}
 	for i := 0; i < len(ln); i++ {
 		if ln[i] == ' ' || ln[i] == '\t' {
 			if wordStart >= 0 {
 				flushWord(i)
-				continue
 			}
 			if !lineHasWord {
 				out.WriteByte(ln[i])
 				col++
+			} else {
+				gap = append(gap, ln[i])
 			}
 			continue
 		}

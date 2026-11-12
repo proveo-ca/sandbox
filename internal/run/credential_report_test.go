@@ -2,6 +2,7 @@
 package run
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -44,5 +45,38 @@ func TestASatisfiedSubscriptionCredentialIsNotAlsoReportedMissing(t *testing.T) 
 				t.Errorf("credentialGaps(%s) warns \"not set\" = %v, want %v — one credential, one verdict:\n%s", c.name, got, c.wantNotSet, out)
 			}
 		})
+	}
+}
+
+func TestTheCredentialPromptPrintsUnderCredentials(t *testing.T) {
+	const key = "PROVEO_TEST_PROMPTED_KEY"
+	t.Setenv(key, "")
+	var screen, log strings.Builder
+	prev, prevAsk := ui.Default, askOnTerminal
+	ui.Default = ui.New(&screen)
+	restore := ui.TeeTo(&log)
+	askOnTerminal = func() bool { return true }
+	t.Cleanup(func() { restore(); ui.Default, askOnTerminal = prev, prevAsk })
+
+	ui.Section(ui.SectionRun)
+	ui.Notef("target: codex")
+	rs := &Spec{Man: manifest.Manifest{Name: "codex", Env: []manifest.EnvVar{{Name: key, Secret: true}}},
+		Creds: CredentialSpec{Lookup: os.Getenv}}
+	prompt := func(_ string, missing []manifest.EnvVar) map[string]string {
+		ui.Notef("%s (hidden):", missing[0].Name)
+		return map[string]string{key: "sk-test"}
+	}
+	facts, items := credentialGaps(rs, &Params{Target: "codex"}, Deps{PromptEnv: prompt})
+	sandbox.PrintBlock(credentialsHeading, facts, items)
+	got := screen.String()
+	heading, question := strings.Index(got, "------ credentials ------"), strings.Index(got, key+" (hidden):")
+	if heading < 0 || question < heading {
+		t.Errorf("the prompt prints under the credentials heading, not under run:\n%s", got)
+	}
+	if !strings.Contains(log.String(), key+" (hidden):") || strings.Contains(log.String(), "sk-test") {
+		t.Errorf("the run log holds the question and never the value:\n%s", log.String())
+	}
+	if len(items) != 0 {
+		t.Errorf("a prompted value leaves nothing missing: %+v", items)
 	}
 }

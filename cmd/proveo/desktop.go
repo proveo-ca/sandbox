@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,7 +45,7 @@ func ensureDesktop() (launch []string, installed bool, err error) {
 	if !provisionConfirm("Install Hermes Desktop " + hermesdesktop.Tag + " now?") {
 		return nil, false, fmt.Errorf("hermes desktop is not installed — pick the tui instead, or rerun and accept the install (PROVEO_AUTO_PROVISION=1)")
 	}
-	if err := hermesdesktop.Install(plan, fetchHTTP, runInheriting); err != nil {
+	if err := hermesdesktop.Install(plan, fetchHTTP, desktopInstallRunner(plan.PrereqArgv)); err != nil {
 		return nil, false, err
 	}
 	if !hermesdesktop.Installed(home) {
@@ -66,8 +67,26 @@ func fetchHTTP(url string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 }
 
-func runInheriting(argv []string) error {
-	c := exec.Command(argv[0], argv[1:]...)
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stderr, os.Stderr
-	return c.Run()
+// desktopInstallRunner runs the install's commands: the prerequisites under a start line that
+// stays, their output on the terminal and in the run log; install.sh behind a live line, its
+// output in the run log alone.
+func desktopInstallRunner(prereq []string) func(argv []string) error {
+	return func(argv []string) error {
+		log := ui.LogWriter()
+		defer func() { _ = log.Close() }()
+		c := exec.Command(argv[0], argv[1:]...)
+		if slices.Equal(argv, prereq) {
+			ui.Asyncf("hermes desktop — installing prerequisites")
+			c.Stdin = os.Stdin
+			c.Stdout, c.Stderr = io.MultiWriter(os.Stderr, log), io.MultiWriter(os.Stderr, log)
+			return c.Run()
+		}
+		ui.Logf("hermes desktop — installing: %s", strings.Join(argv, " "))
+		done := ui.Running(func(ran time.Duration) string {
+			return "hermes desktop — installing · " + ran.Round(time.Second).String()
+		}, "hermes desktop — installing")
+		defer done()
+		c.Stdout, c.Stderr = log, log
+		return c.Run()
+	}
 }

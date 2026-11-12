@@ -5,7 +5,7 @@
 ' covers: e2e/stream_palette_test.go (whiteRun, proveoLines, TestWhiteRunSkipsSbxsOwnLines)
 ' covers: internal/sbx/host_ollama.go (pullOllama: the first user of the live line)
 ' covers: internal/sbx/host_ollama_pull_test.go
-' covers: internal/backend/sandbox/report.go (Item.Log, PrintBlock)
+' covers: internal/backend/sandbox/report.go (Item.Log, PrintBlock, Block)
 '   the language this obeys ....... _spec/_conventions/tui-design-language.puml
 '   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
 '   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
@@ -137,6 +137,8 @@
 '   workspace    ends on ✓ "private clone — …" or ✓ "mounted checkout — …"
 '   credentials  ends on its ⚠/× items when one exists, else on its facts
 '   run, egress  facts only; no outcome line
+'   results      ends on the sandbox's fate (R2): ✓ <name> — removed, or the
+'                ⚠ kept line, which the "ide" block then follows
 ' A fact block never repeats itself as a ✓ line. NOT CHOSEN: an outcome line
 ' on every block; a credentials ✓ line in place of the "login" fact.
 ' sandbox.PrintBlock prints facts, then items, so an item is the last line.
@@ -144,6 +146,26 @@
 ' ⚠ or ● item; Item.print writes them with ui.Logf, so they reach the run log
 ' and never the screen (P6): the re-attach's "workspace block is this run's
 ' plan", the buildx builder knob, the sbx secret store's how-to.
+'
+' ── THE END OF A RUN (2026-11-11, R2 of _spec/_plans/output-readability.puml)
+' sandbox.Block gathers one subject's facts and items while its steps run and
+' prints them once (PrintBlock); a row added after Print prints at once. The
+' results block of _spec/internal/backend/teardown.puml is its first user.
+' SectionIDE ("ide") heads a kept sandbox's attach facts; it prints only when
+' the sandbox stays, after results, so nothing redraws "results" after it.
+' Item gained Ok (✓) and Fail (×): a closing "✓ <name> — removed" is a
+' verdict no fact states (decision A), and "× sbx run — exited with code N"
+' prints only when sbx said nothing itself (P9).
+' ui.LogWriter is a writer whose every line reaches the run log alone: the
+' Hermes Desktop install.sh output goes there.
+' A WRAPPED FACT KEEPS ITS COLUMN. wrapOne used to rejoin words with one
+' space, so a wrapped row lost the gap that aligns its value ("vs code:
+' code …"), and a word wider than the line moved to its own row first,
+' leaving "toolbox:" bare. It now keeps each whitespace run between words
+' it does not break at, and a word no fresh line can hold breaks where it
+' starts (MEASURED on the kept ide block, TestStreamPaletteE2E's capture).
+' Pinned by TestAWrappedFactKeepsItsAlignedGapAndBreaksALongWordAtItsOwnColumn
+' and TestLogWriterSendsEachLineToTheRunLogAlone.
 '
 ' ── WHICH SCREEN LINES ARE PROVEO'S (2026-10-20) ───────────────────────────
 ' MEASURED: the newer sbx prints its own uncoloured lines into the same pane —
@@ -200,15 +222,19 @@
 ' and by internal/sbx/host_ollama_pull_test.go:
 '   TestAPullWritesNoProgressFrameIntoAPlainStream
 '   TestAFailedPullReturnsItsErrorAndLeavesNoFrame
+'   TestAPullsStartAndEndReachTheLogAndNotTheScreen (R2: the pull is host
+'     preparation; its start, forecast and "pulled" line go to the run log,
+'     a plain printer keeps one start line, and egress's "local model" fact
+'     gains a dim "pulled this run · 4.0 GiB")
 '
-title Output vocabulary — six roles, three severities, fifteen sections, one measured writer
+title Output vocabulary — six roles, three severities, nineteen sections, one measured writer
 
 component "Printer{W, Plain, Tier}" as P <<app>>
 component "Hostf · Appf · Asyncf\nCloudf · Storef · Dangerf\n— role: which layer speaks" as ROLES <<app>>
 component "Okf · Warnf · Failf\n— severity: fine · attention · broken" as SEV <<app>>
 component "Notef\ncontinuation, indented\nto the text column" as NOTE <<app>>
 component "Askf\nquestion, same line,\nawaits input" as ASK <<app>>
-component "Section(ui.Section*)\neighteen closed names\nheading drawn LAZILY" as SEC <<app>>
+component "Section(ui.Section*)\nnineteen closed names\nheading drawn LAZILY" as SEC <<app>>
 component "line(role, sev, format)\nthe ONE writer" as LINE <<app>>
 component "wrapTo(width)\nhanging indent at the\ntext column" as WRAP <<app>>
 component "isFancy(w)\nTTY · NO_COLOR · TERM=dumb" as FANCY <<host>>
@@ -273,9 +299,9 @@ note right of SEC
   **A divider names a subject, in one lowercase word.**
   A run reads ""run"", ""credentials"", ""egress"",
   ""workspace"", ""sbx"", ""interface"", ""results"",
-  each after the step that makes its lines true, and
-  each once in a run (teardown's credential check
-  prints under ""results"").
+  and ""ide"" when the sandbox stays, each after the
+  step that makes its lines true, and each once in
+  a run (teardown's checks print in ""results"").
 
   Drawn by the first line that FOLLOWS it, never by the
   call that declares it — a prelude is almost all

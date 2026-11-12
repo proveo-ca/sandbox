@@ -140,7 +140,9 @@ func offerPushedFetch(in Input) bool {
 	return !in.Man.IsAssistant()
 }
 
-func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
+// reportPushedBranches names, into out, each branch the agent pushed during the run, and fetches
+// them when the operator asks; the fetch commands otherwise go to the run log.
+func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time, out *Block) {
 	var reflog string
 	var err error
 	switch {
@@ -162,26 +164,45 @@ func reportPushedBranches(in Input, cfg sbx.RunConfig, since time.Time) {
 	if len(branches) == 0 {
 		return
 	}
-	ui.Section(ui.SectionResults)
-	for _, branch := range branches {
-		ui.Storef("pushed %s", branch)
-	}
+	fetched := map[string]bool{}
+	defer func() { out.Fact(pushedFacts(branches, fetched)...) }()
 	if !offerPushedFetch(in) || in.RepoRoot == "" || len(pushedFetchArgs(in.RepoRoot, branches)) == 0 {
 		return
 	}
 	if !confirmFetchPushed(branches) {
 		for _, line := range fetchPushedLines(in.RepoRoot, branches) {
-			ui.Notef("%s", line)
+			ui.Logf("%s", line)
 		}
 		return
 	}
 	for _, args := range pushedFetchArgs(in.RepoRoot, branches) {
+		remote := args[4]
 		cmd, finish := boundForeground(in.ctx(), guestExecDeadline, "git", args...)
-		out, err := cmd.CombinedOutput()
+		said, err := cmd.CombinedOutput()
 		if err = finish(err); err != nil {
-			ui.Warnf("fetch failed (%v): %s", err, strings.TrimSpace(string(out)))
+			for _, b := range args[5:] {
+				out.Item(Item{Warn: true, Text: remote + "/" + b + " — not fetched", Detail: []string{failure(err, string(said))}})
+			}
 			continue
 		}
-		ui.Storef("fetched %s", strings.Join(args[4:], " "))
+		for _, b := range args[5:] {
+			fetched[remote+"/"+b] = true
+		}
 	}
+}
+
+// pushedFacts is the pushed fact: one row per pushed branch, dim "fetched" under each one fetched.
+func pushedFacts(branches []string, fetched map[string]bool) []ui.Fact {
+	rows := make([]ui.Fact, 0, len(branches))
+	for i, b := range branches {
+		row := ui.Fact{Role: ui.RoleCloud, Value: b}
+		if i == 0 {
+			row.Key = "pushed"
+		}
+		if fetched[b] {
+			row.Detail = []string{"fetched"}
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }

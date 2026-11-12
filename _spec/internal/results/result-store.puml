@@ -102,7 +102,11 @@ title The result store — what a run left behind, one file per entry, readable 
 ' A count nobody can lower is a nag. Each number in the prompt has a command.
 ' `proveo rm [sandbox]` — the kept count.
 '   with no argument it lists the kept sandboxes, this repository's first
-'   it REFUSES A RUNNING SANDBOX: exit the session that uses it first
+'   it REFUSES A RUNNING SANDBOX unless --stop asks it to run `sbx stop`
+'     first (R2, the operator: "Do not stop sandboxes implicitly"); the
+'     refusal names `proveo rm --stop <name>`
+'   it LIFTS THE OUTPUT DIR the launch receipt records (OutputDir), so a
+'     sandbox a failed lift kept gives its output up (R2, F6)
 '   it CARRIES BEFORE IT REMOVES. The Input the carry needs is rebuilt from
 '     `sbx ls --json` (the workspace, the agent) and the store's entry (the
 '     repository). Work that cannot come home keeps the sandbox, and the
@@ -144,21 +148,28 @@ title The result store — what a run left behind, one file per entry, readable 
 ' repository in the operator's own store; `proveo rm` with no argument
 ' removed it.
 '
-' ── THE END-OF-RUN LINES NAME THE VERBS (S8) ───────────────────────────────
-'   sandbox <name> kept <why> — `sbx exec -it <name> bash` looks inside;
-'     `proveo rm <name>` carries its work home and removes it
-'   <stranded> — <name> kept; `proveo rm <name>` carries the work home and
-'     removes it
-'   review: `git log --oneline main..<ref>` · adopt: `proveo adopt <ref>`
-' The `sbx exec -it` recipe stays: it is how to look before deciding. The
-' rescue line after a removal that timed out still names sbx's own commands;
-' proveo cannot do better than sbx there.
+' ── THE END-OF-RUN LINES NAME THE VERBS (S8; reshaped by R2, 2026-11-11) ──
+'   ⚠ <name> — kept for diagnosis | kept: <why>
+'       `proveo rm --stop <name>` carries its work home and removes it
+' The dim fix names --stop while the sandbox runs (every measured kept
+' sandbox was running), plain `proveo rm <name>` once it is stopped, and it
+' goes to the run log when the operator's Ctrl+C caused the keep (decision
+' E). The review and adopt commands, and `sbx exec -it <name> bash`, are
+' run-log rows now: the branches fact names each ref with new commits, the
+' prompt segment counts them and `proveo adopt` lists them. The rescue line
+' after a removal that timed out still names sbx's own commands; proveo
+' cannot do better than sbx there.
+' WHY THE STORE RECORDS: "the run failed", "teardown stopped by SIGINT at
+' remove sandbox", "its removal failed", and a stranded carry's own words,
+' which now say "it" ("the agent's branches are still only in it").
 '
 ' Pinned by internal/backend/sandbox/verbs_test.go:
 '   TestRemoveKeptClearsNothingOnAListingItCannotTrust
 '   TestRemoveKeptRefusesARunningSandboxAndForgetsAGoneOne
 '   TestRemoveKeptCarriesThenRemovesAStoppedSandbox
 '   TestRemoveKeptKeepsASandboxWhoseWorkCannotComeHome
+'   TestRemoveKeptStopsARunningSandboxOnlyWhenAsked
+'   TestKeptInputLiftsTheOutputDirTheReceiptRecords
 '   TestReconcileDropsOnlyWhatIsProvablyGone
 ' by internal/adopt/adopt_test.go:
 '   TestCarriedListsEachRefWithTheWorkNoBranchHolds
@@ -170,8 +181,8 @@ title The result store — what a run left behind, one file per entry, readable 
 '   TestRmWithoutAnArgumentListsWhatWasKept
 ' by internal/sbx/list_test.go: TestListReadsBothShapesAndSaysWhenThereIsNoListing
 ' and on a real sandbox by e2e TestCtrlCInTeardownSaysOnceThenLeavesWith130:
-'   `proveo rm` refused it while it ran, then carried it, removed it and
-'   cleared its entry.
+'   `proveo rm` refused it while it ran, naming --stop, then carried it,
+'   removed it and cleared its entry.
 '
 ' Pinned by internal/results/results_test.go:
 '   TestAnEntryRoundTripsAndReplacesItsPredecessor

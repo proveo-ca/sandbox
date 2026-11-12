@@ -63,8 +63,9 @@ skinparam noteTextAlignment left
 ' 2026-11-11; "sbx decides this run's egress" lives in the run log's "enforced
 ' by" row). On a host that denies the probe it prints "● network: sbx's global
 ' policy allows listed hosts only"; unreadable, "⚠ sbx network baseline —
-' unreadable" with the check command dim under it. Either way the dim line
-' names the operator's own command —
+' unreadable". Since R2 (decision E) the check command and the operator's own
+' command go to the run log, not a dim line: proveo does not know the provider
+' is blocked, so neither fixes a failure on screen —
 ' `sbx policy allow network <hosts>` — built from the manifest's
 ' capabilities.hosts plus the capability-filtered detected providers' hosts,
 ' through sbx.DomainPatterns. proveo names the reach; the operator grants it.

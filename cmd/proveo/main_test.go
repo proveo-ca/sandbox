@@ -177,42 +177,6 @@ func TestSandboxSpecAddsTheDataDirReadOnly(t *testing.T) {
 	}
 }
 
-// sandbox.Spec never reads p.mode, so open and allowlist build an identical Kit. The
-// row must say so rather than offering a risk axis on which nothing moves.
-func TestKeptSandboxLinesNamesTheRunLog(t *testing.T) {
-	t.Parallel()
-	const name, log = "proveo-1-2", "/home/u/.proveo/logs/proveo-1-2.log"
-
-	got := sandbox.KeptLines(name, log)
-	if len(got) != 2 {
-		t.Fatalf("want the kept line plus the transcript, got %d: %q", len(got), got)
-	}
-	// The first line stays the actionable one: it is what an operator reads first.
-	for _, want := range []string{"kept for diagnosis", "sbx exec -it " + name + " bash", "proveo rm " + name} {
-		if !strings.Contains(got[0], want) {
-			t.Errorf("first line dropped %q: %q", want, got[0])
-		}
-	}
-	if !strings.Contains(got[1], log) {
-		t.Errorf("the transcript path must be named verbatim, got %q", got[1])
-	}
-
-	attach := sandbox.IDEAttachLines(sandbox.Input{Clone: true, RepoRoot: "/host/repo"},
-		sbx.RunConfig{Name: name, Mounts: []sbx.Mount{{Host: "/host/repo"}}}, false)
-	joined := strings.Join(attach, "\n")
-	for _, want := range []string{"sbx setup ssh", name + ".sbx", "DISPOSABLE CLONE", "refs/proveo/" + name} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("kept-sandbox attach guidance dropped %q: %q", want, joined)
-		}
-	}
-
-	// No transcript is a real state — runlog.Open failing must not print a line
-	// pointing at the empty string, which reads as a path that got lost.
-	if got := sandbox.KeptLines(name, "  "); len(got) != 1 {
-		t.Errorf("a run with no transcript gets one line, got %q", got)
-	}
-}
-
 func TestSaveSandboxStateCopiesOutWhenThereAreVolumes(t *testing.T) {
 	t.Parallel()
 	env := []string{"HOME=/home/u", sbx.StateHomeVar + "=/home/u/.proveo"}
@@ -630,6 +594,7 @@ func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
 		{"a SIGHUP stop", backend.Stopped{Signal: syscall.SIGHUP}, 129, true},
 		{"a teardown the operator left", backend.Stopped{Signal: syscall.SIGINT}, 130, true},
 		{"proveo's own failure", errors.New("no sbx"), 0, false},
+		{"a failure the results block already printed", backend.Reported{Err: errors.New("sbx setup ssh: exit status 1")}, 1, true},
 	} {
 		if got, ok := exitCode(c.err); got != c.want || ok != c.wantOK {
 			t.Errorf("exitCode(%s) = %d, %v; want %d, %v", c.name, got, ok, c.want, c.wantOK)

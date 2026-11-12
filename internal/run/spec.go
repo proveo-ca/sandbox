@@ -11,6 +11,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -41,6 +42,8 @@ type Spec struct {
 	Interface      []sandbox.Item // what the run decided about the ports, the browser and the add-ons; the interface block prints them
 	InterfaceFacts []ui.Fact      // one fact per host add-on the run started; the interface block prints them
 	ItemsHanded    bool           // the workspace and interface items went to sandbox.Run or the --print plan
+	Desktop        ui.Fact        // Hermes Desktop, once the run made sure it is installed; the interface block prints it
+	DesktopLaunch  []string       // opens Hermes Desktop on the host
 }
 
 // WorkspaceSpec is WHERE the run happens: the dirs, the repo, and the mount
@@ -91,7 +94,8 @@ type BackendSpec struct {
 	CloneStrip   []string                 // brokered keys the staged copy dropped
 	CloneDropped []string                 // the brokered keys the host .env held, which the staged copy leaves out
 	BrowserImage string
-	AgentVersion string // the agent version the image pins; "" when the image carries none
+	AgentVersion string           // the agent version the image pins; "" when the image carries none
+	ImageSource  *sbx.ImageSource // where the image came from; nil under --print
 }
 
 // ModelSpec is the local model, when --local-model asks for one.

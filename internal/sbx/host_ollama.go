@@ -108,12 +108,13 @@ func sameRepo(models []ollamaModel, want string) []string {
 	return out
 }
 
-// EnsureHostOllama checks the host Ollama serves model with a ctx-token window (0: Ollama's default), pulling it when missing,
-// and returns a *NoFitError when loading it would overflow the host's free memory.
-func EnsureHostOllama(model string, ctx int, getenv func(string) string, p *ui.Printer) error {
+// EnsureHostOllama checks the host Ollama serves model with a ctx-token window (0: Ollama's default), pulling it when
+// missing, and returns a *NoFitError when loading it would overflow the host's free memory; pulled is what it pulled.
+// A pull is a live line on p's terminal or one start line on a plain p; its start, forecast and end go to the run log.
+func EnsureHostOllama(model string, ctx int, getenv func(string) string, p *ui.Printer) (pulled uint64, err error) {
 	tags, err := listOllama("/api/tags")
 	if err != nil {
-		return fmt.Errorf("no Ollama answers on 127.0.0.1:11434 (%v) — local models on sbx run on the host's Ollama: "+
+		return 0, fmt.Errorf("no Ollama answers on 127.0.0.1:11434 (%v) — local models on sbx run on the host's Ollama: "+
 			"install it from https://ollama.com/download and start it", err)
 	}
 	m, ok := matchTag(tags, model)
@@ -123,33 +124,36 @@ func EnsureHostOllama(model string, ctx int, getenv func(string) string, p *ui.P
 			hint = "; installed: " + strings.Join(near, ", ")
 		}
 		if envflag.Off(getenv(EnvLocalModelPull)) {
-			return fmt.Errorf("the host's Ollama has no %q — `ollama pull %s`%s", model, model, hint)
+			return 0, fmt.Errorf("the host's Ollama has no %q — `ollama pull %s`%s", model, model, hint)
 		}
 		if p == nil {
 			p = ui.New(io.Discard)
 		}
+		start := model + " — pulling into the host's Ollama"
 		if size, known := registrySize(model); known {
-			p.Asyncf("%s is not in the host's Ollama — pulling %.1f GiB", model, gib(size))
+			start += fmt.Sprintf(" · %.1f GiB", gib(size))
 			if err := checkFit(ollamaModel{Name: model, Size: size}, ctx, getenv); err != nil {
-				p.Warnf("it would not fit in memory right now (%v); pulling anyway, the load check below decides", err)
+				ui.Logf("%s would not fit in memory right now (%v); pulling anyway, the load check decides", model, err)
 			}
-		} else {
-			p.Asyncf("%s is not in the host's Ollama — pulling", model)
 		}
-		if err := pullOllama(model, p); err != nil {
-			return fmt.Errorf("pull %s into the host's Ollama: %w%s", model, err, hint)
+		ui.Logf("%s", start)
+		if p.Plain {
+			p.Asyncf("%s", start)
+		}
+		if pulled, err = pullOllama(model, p); err != nil {
+			return 0, fmt.Errorf("pull %s into the host's Ollama: %w%s", model, err, hint)
 		}
 		if tags, err = listOllama("/api/tags"); err != nil {
-			return err
+			return pulled, err
 		}
 		if m, ok = matchTag(tags, model); !ok {
-			return fmt.Errorf("pulled %s but the host's Ollama does not list it", model)
+			return pulled, fmt.Errorf("pulled %s but the host's Ollama does not list it", model)
 		}
 	}
 	if resident(ContextTag(model, ctx)) {
-		return nil
+		return pulled, nil
 	}
-	return checkFit(m, ctx, getenv)
+	return pulled, checkFit(m, ctx, getenv)
 }
 
 // libraryRef splits an Ollama library tag into repo and tag; ok is false for other registries.
@@ -208,46 +212,57 @@ func registrySize(model string) (uint64, bool) {
 // pullFrameEvery is the least time between two frames of the pull's live line.
 var pullFrameEvery = time.Second
 
-// pullOllama streams the host Ollama's /api/pull; a TTY gets a live progress line, anything else the start and end.
-func pullOllama(model string, p *ui.Printer) error {
+// pullOllama streams the host Ollama's /api/pull behind a live progress line on a terminal, and
+// returns the size it pulled, the sum of each layer's total; its end goes to the run log.
+func pullOllama(model string, p *ui.Printer) (uint64, error) {
 	body, _ := json.Marshal(map[string]any{"model": model, "stream": true})
 	resp, err := http.Post(hostOllamaURL+"/api/pull", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	var last time.Time
+	var total uint64
+	layers := map[string]uint64{}
 	defer p.EndLive()
 	dec := json.NewDecoder(resp.Body)
 	for {
 		var ev struct {
 			Status    string `json:"status"`
 			Error     string `json:"error"`
+			Digest    string `json:"digest"`
 			Total     uint64 `json:"total"`
 			Completed uint64 `json:"completed"`
 		}
 		if err := dec.Decode(&ev); err == io.EOF {
 			break
 		} else if err != nil {
-			return err
+			return 0, err
+		}
+		if ev.Total > layers[ev.Digest] {
+			total += ev.Total - layers[ev.Digest]
+			layers[ev.Digest] = ev.Total
 		}
 		switch {
 		case ev.Error != "":
-			return errors.New(ev.Error)
+			return 0, errors.New(ev.Error)
 		case ev.Total > 0 && time.Since(last) > pullFrameEvery:
 			last = time.Now()
 			p.Live(ui.RoleAsync, "pulling %s: %5.1f%% of %.1f GiB", model,
 				100*float64(ev.Completed)/float64(ev.Total), gib(ev.Total))
 		case ev.Status == "success":
 			p.EndLive()
-			p.Okf("pulled %s", model)
+			ui.Logf("pulled %s (%.1f GiB)", model, gib(total))
 		}
 	}
-	return nil
+	return total, nil
 }
+
+// GiB writes b bytes in GiB with one decimal.
+func GiB(b uint64) string { return fmt.Sprintf("%.1f GiB", gib(b)) }
 
 func gib(b uint64) float64 { return float64(b) / (1 << 30) }
 

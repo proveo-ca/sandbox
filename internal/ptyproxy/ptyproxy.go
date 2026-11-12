@@ -562,6 +562,9 @@ func (p *Proxy) onChildOutput(b []byte) {
 	}
 }
 
+// EnteredAltScreen reports whether the child switched the terminal to its alternate screen during the run; false for a nil proxy.
+func (p *Proxy) EnteredAltScreen() bool { return p != nil && p.screen.enteredAlt() }
+
 // ErrNotRunning is returned when an overlay is requested before Run.
 var ErrNotRunning = errors.New("ptyproxy: no child running")
 

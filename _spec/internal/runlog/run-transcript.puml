@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' covers: internal/runlog/runlog.go
 ' covers: internal/ui/ui.go
 ' covers: internal/run/run.go (Do, recordOutcome)
-' covers: internal/backend/sandbox/sandbox.go (KeptLines, the failure path in Run)
+' covers: internal/backend/sandbox/sandbox.go (agentEnd, runResult: the failure path in Run)
 ' covers: internal/runlog/runlog_test.go
 ' covers: internal/run/outcome_test.go
 ' covers: internal/ui/ui_test.go
@@ -59,6 +59,34 @@ skinparam noteTextAlignment left
 ' control characters, so what lands in the log is greppable — the same property
 ' the status tee exists to preserve, applied to the one block that had been
 ' routed around it.
+'
+' ── R2 (2026-11-11): THE SCREEN AND THE LOG SPLIT THE END OF A RUN ─────────
+' _spec/_plans/output-readability.puml (decisions F3, F5, AGENT TAIL, STOP
+' MARK) and _spec/internal/backend/teardown.puml (WHAT TEARDOWN PRINTS).
+'   ExitError      LOG ONLY now: "outcome: the agent exited with code N".
+'                  sandbox.Run prints the screen's line first under results,
+'                  and only when sbx printed no error line of its own:
+'                  "× sbx run — exited with code N". sbx's own "error: agent
+'                  exited with code N" is the screen's verdict otherwise.
+'   Reported       a failure Run already printed as a × under results; main
+'                  exits 1 and prints nothing, so no line lands under "ide".
+'   Stopped        the screen's "● <target> — stopped by SIGTERM" is Run's
+'                  first results line; "ending as on a normal exit" is a
+'                  run-log row ("teardown runs as on a normal exit").
+'   the tail       "last output from the agent:" and its lines reach the run
+'                  log on every run, never the screen: an agent that draws
+'                  inline left its own screen above. The exception: an agent
+'                  that drew on the alternate screen (?1049h) leaves nothing
+'                  in scrollback, so its last five lines past sbx's own error
+'                  line print dim under the kept ⚠ (ptyproxy's
+'                  Proxy.EnteredAltScreen, since the review moved it out of
+'                  agentio.Tail). Since the review the tail also holds sbx's
+'                  stderr when stdin is redirected (exit-code.puml).
+'   the log path   no longer printed at the end of a run (P9): the run block
+'                  names it once, at the start, as "log: ~/…". The LOG note
+'                  below says so; until R2 it read "A failed run names this
+'                  file back", and Input.RunLog carried the path. The review
+'                  deleted that field: nothing read it after R2.
 '
 ' ── ONE ESCAPE GRAMMAR FOR THE LOG COPY (N5, DONE (wt) 2026-10-17) ─────────
 ' MEASURED: ui's run-log tee writes termtext.StripANSI(p) (internal/ui/ui.go:262),
@@ -223,22 +251,19 @@ note as Tail #F4F9FB
 end note
 
 note bottom of LOG
-  **A failed run names this file back.** The path travels into ""sandbox.Run"" on
-  ""sandbox.Input.runLog"" and is printed beside the ""kept for diagnosis"" line,
-  because the lines worth reading are the ones already gone: the resolved posture
-  and the credential warnings print in the first seconds, and an agent can die a
-  minute later. An operator who did not redirect stdout then has no route back to
-  them. Naming the transcript at startup ONLY is naming it to someone who has no
-  reason yet to look — see ""_spec/internal/sbx/sandbox-backend\.puml"" for the
-  three records that failure line now offers.
+  **The run block names this file once (R2).** The
+  ""log:"" row heads every run; P9 took the copy
+  beside the kept line away. The posture and the
+  credential warnings it holds stay one ""~/"" path
+  from the first block on screen.
 end note
 
 note bottom of OUT
-  **The verdict, written before Do returns.** An
-  ""ExitError"" goes through ui because ""main"" prints
-  nothing for it; every other error goes to the LOG
-  ONLY, because ""main"" still owns printing it and a
-  second copy would say the same sentence twice.
+  **The verdict, written before Do returns.** It
+  goes to the LOG ONLY: ""sandbox.Run"" printed an
+  ""ExitError"" or a ""Reported"" failure under results
+  (R2), and ""main"" still owns printing any other
+  error; a second copy would repeat the sentence.
 end note
 
 note bottom of OSEXIT

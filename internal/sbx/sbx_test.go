@@ -654,6 +654,31 @@ func TestRunningSeparatesAStoppedSandboxFromALiveOne(t *testing.T) {
 	}
 }
 
+func TestGoneTrustsOnlyAListingThatNamesASandbox(t *testing.T) {
+	orig, origJSON := sh.SandboxList, listJSON
+	t.Cleanup(func() { sh.SandboxList, listJSON = orig, origJSON })
+	header := "SANDBOX                   AGENT    STATUS    PORTS   WORKSPACE\n"
+	for _, c := range []struct {
+		name, table, json string
+		err               error
+		want              bool
+	}{
+		{"another sandbox listed, not sb", header + "other   claude   running   /w\n", "", nil, true},
+		{"sb listed", header + "other   claude   running   /w\nsb   claude   stopped   /w\n", "", nil, false},
+		{"a header-only table; the JSON lists another", header, `[{"name":"other"}]`, nil, true},
+		{"a header-only table; the JSON lists sb", header, `[{"name":"other"},{"name":"sb"}]`, nil, false},
+		{"a header-only table and an empty JSON listing", header, `[]`, nil, false},
+		{"a header-only table and no JSON", header, `SANDBOX AGENT STATUS`, nil, false},
+		{"sbx gave no listing", "", "", errors.New("daemon busy"), false},
+	} {
+		sh.SandboxList = func() ([]byte, error) { return []byte(c.table), c.err }
+		listJSON = func() ([]byte, error) { return []byte(c.json), nil }
+		if got := Gone("sb"); got != c.want {
+			t.Errorf("%s: Gone = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestPolicyEvidenceArgsMatchTheCLI(t *testing.T) {
 	t.Parallel()
 	if got, want := strings.Join(PolicyLogArgs("proveo-1"), " "), "policy log proveo-1 --json"; got != want {
@@ -1025,5 +1050,38 @@ func TestTheProjectEnvFileRidesCreateAndRunButNotAReattach(t *testing.T) {
 		if a == "--env-file" {
 			t.Error("a reattach passed --env-file; sbx accepts only the name for an existing sandbox")
 		}
+	}
+}
+
+func TestSaidErrorReadsSbxsOwnLastLine(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name   string
+		status int
+		lines  []string
+		want   bool
+	}{
+		{"sbx named the agent's code", 1, []string{"agent: fatal", "error: agent exited with code 3"}, true},
+		{"sbx named the agent's code and passed it through", 137, []string{"error: agent exited with code 137 (SIGKILL), indicating that the agent was killed."}, true},
+		{"sbx's stream error", 1, []string{"error: stream I/O: context canceled"}, true},
+		{"sbx's own failure before the agent started", 1, []string{"error: sandbox proveo-x not found"}, true},
+		{"the agent's own error, then sbx died silent", -1, []string{"agent: working", "error: provider returned 401"}, false},
+		{"the agent's own error, then sbx crashed", 2, []string{"error: provider returned 401"}, false},
+		{"the agent's own error earlier", 1, []string{"error: something", "agent: bye"}, false},
+		{"an empty tail", 1, nil, false},
+	} {
+		if got := SaidError(c.status, c.lines); got != c.want {
+			t.Errorf("%s: SaidError = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestSnapshotBranchReadsTheMarkAlone(t *testing.T) {
+	t.Parallel()
+	if b, ok := SnapshotBranch("noise\n" + snapshotMark + "proveo/detached-head\n"); !ok || b != "proveo/detached-head" {
+		t.Errorf("SnapshotBranch = %q, %v", b, ok)
+	}
+	if _, ok := SnapshotBranch("committed on main"); ok {
+		t.Error("a line without the mark read as a commit")
 	}
 }

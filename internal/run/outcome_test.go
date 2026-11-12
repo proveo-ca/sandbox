@@ -78,8 +78,8 @@ func TestRecordOutcomeDoesNotDoubleReportAPlainError(t *testing.T) {
 	}
 
 	recordOutcome(true, backend.ExitError{Code: 2})
-	if !strings.Contains(sb.String(), "2") {
-		t.Errorf("an exit code must reach the operator, not only the log:\n%s", sb.String())
+	if strings.Contains(sb.String(), "2") {
+		t.Errorf("an exit code reaches the screen from sandbox.Run's results block, not here:\n%s", sb.String())
 	}
 }
 

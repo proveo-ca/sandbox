@@ -171,7 +171,7 @@ func TestCloneCarriesAGitignoredSymlinkedDotEnv(t *testing.T) {
 		t.Errorf("the checkout's .env is no longer a symlink (%v) — the write-back must replace the target, "+
 			"or a monorepo .env stops cascading to its worktrees", err)
 	}
-	if !strings.Contains(screen, ".env edits carried home") {
+	if !strings.Contains(screen, "merged PROVEO_E2E_DOTENV") {
 		t.Errorf("teardown did not report the .env write-back\n%s", screen)
 	}
 }

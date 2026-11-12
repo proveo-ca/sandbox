@@ -811,7 +811,10 @@
         "cmd/proveo/main.go",
         "cmd/proveo/main_test.go",
         "internal/sbx/run.go",
-        "internal/sbx/sbx_test.go"
+        "internal/sbx/sbx_test.go",
+        "e2e/stream_palette_test.go",
+        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/teardown_report_test.go"
       ],
       "fingerprint": null
     },
@@ -833,7 +836,11 @@
         "internal/sbx/proc_unix_test.go",
         "internal/sbx/exec.go",
         "e2e/teardown_steps_test.go",
-        "e2e/teardown_interrupt_test.go"
+        "e2e/teardown_interrupt_test.go",
+        "internal/backend/sandbox/teardown_report_test.go",
+        "internal/backend/sandbox/report.go",
+        "internal/sbx/run.go",
+        "internal/sbx/sbx_test.go"
       ],
       "fingerprint": null
     },
@@ -1406,7 +1413,8 @@
         "internal/contract/config_files_test.go",
         "cmd/proveo/golden_test.go",
         "cmd/proveo/main_test.go",
-        "e2e/home_test.go"
+        "e2e/home_test.go",
+        "internal/backend/sandbox/teardown_report_test.go"
       ],
       "fingerprint": null
     },
@@ -1429,7 +1437,11 @@
         "internal/imagebuild/imagebuild.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/opencode_engine.go",
-        "e2e/kit_image_source_test.go"
+        "e2e/kit_image_source_test.go",
+        "internal/sbx/exec.go",
+        "internal/backend/sandbox/report.go",
+        "internal/backend/sandbox/report_test.go",
+        "internal/run/run.go"
       ],
       "fingerprint": null
     },

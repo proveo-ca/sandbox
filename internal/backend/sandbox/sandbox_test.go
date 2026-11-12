@@ -74,10 +74,11 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 
 	var gotArgs []string
 	var gotInto string
-	liftClonedOutput(in, cfg, func(_ context.Context, args []string, into string) (int, string, error) {
+	_ = liftClonedOutput(in, cfg, func(_ context.Context, args []string, into string) (int, string, error) {
 		gotArgs, gotInto = args, into
 		return 0, "", nil
-	})
+	}, nil)
+
 	if gotInto != "/Users/op/repo" {
 		t.Errorf("unpacked under %q, want the repo root so members like reports/x land on the output dir", gotInto)
 	}
@@ -89,17 +90,20 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 	}
 
 	called := false
-	liftClonedOutput(Input{Clone: true, RepoRoot: "/Users/op/repo", OutputDir: "/Users/op/out"}, cfg,
-		func(context.Context, []string, string) (int, string, error) { called = true; return 0, "", nil })
+	_ = liftClonedOutput(Input{Clone: true, RepoRoot: "/Users/op/repo", OutputDir: "/Users/op/out"}, cfg,
+		func(context.Context, []string, string) (int, string, error) { called = true; return 0, "", nil }, nil)
+
 	if called {
 		t.Error("an output dir OUTSIDE the repo was mounted live; lifting it would be a second copy")
 	}
 
 	// "Nothing there" is a note, not a failure — it must not be reported as one.
 	// The fake returns the sentinel with an error, the way exec does.
-	liftClonedOutput(in, cfg, func(context.Context, []string, string) (int, string, error) {
+	if err := liftClonedOutput(in, cfg, func(context.Context, []string, string) (int, string, error) {
 		return sbx.CloneLiftNothing, "", errors.New("exit status 3")
-	})
+	}, nil); err != nil {
+		t.Errorf("an output dir the agent never wrote stranded the sandbox: %v", err)
+	}
 }
 
 func TestCDPPublishNeedsBothABrowserAndAPort(t *testing.T) {
@@ -161,7 +165,7 @@ func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 			remote := func(i Input, c sbx.RunConfig) (int, string, error) { sawRemote = true; return tc.remote(i, c) }
 			bundle := func(i Input, c sbx.RunConfig) (int, string, error) { sawBundle = true; return tc.bundle(i, c) }
 
-			got, err := carryClone(in, cfg, tc.running, remote, bundle)
+			got, err := carryClone(in, cfg, tc.running, remote, bundle, nil)
 			if got != tc.want || (err != nil) != tc.wantErr {
 				t.Errorf("carryClone = %v, %v; want %v, error %v", got, err, tc.want, tc.wantErr)
 			}
@@ -197,7 +201,7 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 	t.Parallel()
 	cfg := sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}
 
-	live := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, true), "\n")
+	live := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg), "\n")
 	for _, want := range []string{
 		"IDE attach (live):",
 		"sbx setup ssh",
@@ -223,20 +227,7 @@ func TestIDEAttachOffersLiveAndNamesWhichTree(t *testing.T) {
 		}
 	}
 
-	kept := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, false), "\n")
-	for _, want := range []string{"sbx setup ssh", "proveo-1-2.sbx", "DISPOSABLE CLONE"} {
-		if !strings.Contains(kept, want) {
-			t.Errorf("kept clone attach guidance lacks %q:\n%s", want, kept)
-		}
-	}
-	if strings.Contains(kept, "(live)") {
-		t.Errorf("kept attach still claims the agent is live:\n%s", kept)
-	}
-	if strings.Contains(kept, "both write this tree") {
-		t.Errorf("kept attach still warns about a live agent:\n%s", kept)
-	}
-
-	direct := strings.Join(IDEAttachLines(Input{}, cfg, true), "\n")
+	direct := strings.Join(IDEAttachLines(Input{}, cfg), "\n")
 	if !strings.Contains(direct, "mounted checkout") || !strings.Contains(direct, "write the host tree directly") {
 		t.Errorf("direct attach guidance hides its write boundary:\n%s", direct)
 	}
@@ -256,7 +247,7 @@ func TestIDEAttachOpensTheLinkedWorktreeInAWorktreeClone(t *testing.T) {
 	in := Input{Clone: true, RepoRoot: "/host/worktrees/dev", CloneSource: workspace.WorktreeSource{Main: "/host/repo"}}
 	cfg := sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}
 
-	got := strings.Join(IDEAttachLines(in, cfg, true), "\n")
+	got := strings.Join(IDEAttachLines(in, cfg), "\n")
 	for _, want := range []string{
 		"open /host/worktrees/dev",
 		"host `proveo-1-2.sbx`, use OpenSSH config, project /host/worktrees/dev",
@@ -270,7 +261,7 @@ func TestIDEAttachOpensTheLinkedWorktreeInAWorktreeClone(t *testing.T) {
 		}
 	}
 
-	plain := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg, true), "\n")
+	plain := strings.Join(IDEAttachLines(Input{Clone: true, RepoRoot: "/host/repo"}, cfg), "\n")
 	if strings.Contains(plain, "linked worktree") {
 		t.Errorf("a main-checkout clone was described as a worktree:\n%s", plain)
 	}
@@ -282,7 +273,7 @@ func TestIDEAttachNeedsANamedSandboxAndWorkspace(t *testing.T) {
 		{Mounts: []sbx.Mount{{Host: "/repo"}}},
 		{Name: "sb"},
 	} {
-		if got := IDEAttachLines(Input{}, cfg, true); got != nil {
+		if got := IDEAttachLines(Input{}, cfg); got != nil {
 			t.Errorf("IDEAttachLines(%+v) = %q, want no unusable offer", cfg, got)
 		}
 	}

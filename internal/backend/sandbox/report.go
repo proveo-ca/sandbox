@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -18,6 +19,8 @@ import (
 
 // Item is one marked line a block prints, with its dim detail lines and the run-log lines that explain it.
 type Item struct {
+	Ok     bool // ✓ a verdict no fact states
+	Fail   bool // × a failure no other line states
 	Warn   bool
 	Host   bool // a host fact: ● in the host colour
 	Text   string
@@ -27,6 +30,10 @@ type Item struct {
 
 func (it Item) print() {
 	switch {
+	case it.Fail:
+		ui.Failf("%s", it.Text)
+	case it.Ok:
+		ui.Okf("%s", it.Text)
 	case it.Warn:
 		ui.Warnf("%s", it.Text)
 	case it.Host:
@@ -44,11 +51,12 @@ func (it Item) print() {
 
 // Report is what Spec decided that its caller prints.
 type Report struct {
-	OutputInClone string   // the output dir, repository-relative, that teardown lifts out of the clone
-	NotMounted    []string // host paths a clone cannot mount
-	Unbound       []string // mounted links' targets that no bind sbx gets holds
-	Unmounted     []Item   // one ⚠ item per top-level entry that holds NotMounted paths
-	Notes         []Item   // what the kit, the image and the secret store said
+	OutputInClone string           // the output dir, repository-relative, that teardown lifts out of the clone
+	NotMounted    []string         // host paths a clone cannot mount
+	Unbound       []string         // mounted links' targets that no bind sbx gets holds
+	Unmounted     []Item           // one ⚠ item per top-level entry that holds NotMounted paths
+	Notes         []Item           // what the kit, the image and the secret store said
+	Image         *sbx.ImageSource // where the image came from; nil when the run resolved no source
 }
 
 // Absolute leaves a path as it is: the --print form.
@@ -159,6 +167,115 @@ func WorkspaceHeading() { ui.Section(ui.SectionWorkspace) }
 
 // InterfaceHeading declares the interface heading, for PrintBlock.
 func InterfaceHeading() { ui.Section(ui.SectionInterface) }
+
+// ResultsHeading declares the results heading, for a Block.
+func ResultsHeading() { ui.Section(ui.SectionResults) }
+
+// IDEHeading declares the ide heading, for PrintBlock.
+func IDEHeading() { ui.Section(ui.SectionIDE) }
+
+// SbxHeading declares the sbx heading, for a Block.
+func SbxHeading() { ui.Section(ui.SectionSbx) }
+
+// Block is one subject's facts and items, gathered while its steps run and printed once by Print.
+// A row added after Print, or to a nil Block, prints at once.
+type Block struct {
+	heading func()
+	facts   []ui.Fact
+	items   []Item
+	printed bool
+}
+
+// NewBlock is an empty block under heading.
+func NewBlock(heading func()) *Block { return &Block{heading: heading} }
+
+// Fact adds f to the block.
+func (b *Block) Fact(f ...ui.Fact) {
+	if b == nil || b.printed {
+		ui.Facts(f...)
+		return
+	}
+	b.facts = append(b.facts, f...)
+}
+
+// Item adds it to the block.
+func (b *Block) Item(it Item) {
+	if b == nil || b.printed {
+		it.print()
+		return
+	}
+	b.items = append(b.items, it)
+}
+
+// Print prints the block's facts in resultOrder, then its items, once.
+func (b *Block) Print() {
+	if b == nil || b.printed {
+		return
+	}
+	b.printed = true
+	PrintBlock(b.heading, ordered(b.facts), b.items)
+}
+
+// resultOrder is the order what came home prints in, whichever step found it first.
+var resultOrder = []string{"output", ".env", "branches", "_spec", "pushed", "transcript"}
+
+// ordered sorts facts by resultOrder, each keyed row with the unkeyed rows under it; a key
+// outside resultOrder keeps its place after them.
+func ordered(facts []ui.Fact) []ui.Fact {
+	var groups [][]ui.Fact
+	for _, f := range facts {
+		if f.Key != "" || len(groups) == 0 {
+			groups = append(groups, nil)
+		}
+		groups[len(groups)-1] = append(groups[len(groups)-1], f)
+	}
+	rank := func(g []ui.Fact) int {
+		if i := slices.Index(resultOrder, g[0].Key); i >= 0 {
+			return i
+		}
+		return len(resultOrder)
+	}
+	slices.SortStableFunc(groups, func(a, b []ui.Fact) int { return cmp.Compare(rank(a), rank(b)) })
+	return slices.Concat(groups...)
+}
+
+// keptFix is the one line that removes a kept sandbox: `proveo rm --stop` while it runs.
+func keptFix(name string, running bool) string {
+	if running {
+		return "`proveo rm --stop " + name + "` carries its work home and removes it"
+	}
+	return "`proveo rm " + name + "` carries its work home and removes it"
+}
+
+// ideFacts are the ways an IDE attaches to a kept sandbox, as one block: the host, each IDE's
+// entry, and the project with what its edits reach. Guest paths stay absolute.
+func ideFacts(in Input, cfg sbx.RunConfig) []ui.Fact {
+	name, workdir := strings.TrimSpace(cfg.Name), agentWorkdir(in, cfg.Mounts)
+	if name == "" || workdir == "" {
+		return nil
+	}
+	host := sbx.SSHHost(name)
+	project := ui.Fact{Role: ui.RoleStore, Key: "project", Value: workdir, Detail: []string{"IDE saves write the host checkout directly"}}
+	if in.Clone {
+		refsKey := cmp.Or(strings.TrimSpace(in.Sid), name)
+		project.Detail = []string{
+			"a local Open of this path edits the host checkout, not the clone",
+			"DISPOSABLE CLONE: commit IDE edits before the sandbox goes; they never reach the host checkout",
+			"carry IDE commits home first: `git " + ui.TildeIn(strings.Join(sbx.CloneFetchArgs(in.RepoRoot, name, refsKey), " ")) + "`",
+		}
+		if worktreeClone(in) {
+			project.Detail = append(project.Detail, "a linked worktree of "+ui.Tilde(in.CloneSource.Main)+" inside the clone; `sbx ls` lists "+
+				ui.Tilde(in.CloneSource.Main)+" as the workspace")
+		}
+	}
+	return []ui.Fact{
+		{Role: ui.RoleHost, Key: "ssh", Value: host, Detail: []string{"`sbx " + strings.Join(sbx.SetupSSHArgs(), " ") + "` once"}},
+		{Role: ui.RoleHost, Key: "jetbrains", Value: "File → Remote Development → SSH → " + host, Detail: []string{"use OpenSSH config"}},
+		{Role: ui.RoleHost, Key: "toolbox", Value: sbx.GatewayLink(name, workdir), Detail: []string{"an IDE already installed in the sandbox"}},
+		{Role: ui.RoleHost, Key: "vs code", Value: sbx.ShellLine(sbx.VSCodeRemoteArgs(name, workdir))},
+		project,
+	}
+}
 
 // linkLine is one link decision: a value of the links fact, a ⚠ item, or a run-log row.
 type linkLine struct {
@@ -302,7 +419,7 @@ func unmountable(root, where string, hosts []string) []Item {
 		} else {
 			what += " — inside the " + where + ", not mounted"
 		}
-		out = append(out, Item{Warn: true, Text: what, Detail: []string{"read it from the clone"}})
+		out = append(out, Item{Warn: true, Text: what, Log: []string{"read it from the clone"}})
 	}
 	return out
 }
@@ -358,14 +475,18 @@ func secretFact(variable, service, sandbox string, flags []string, first bool) u
 	return f
 }
 
-// imageFact is proveo's image and its source, as the create run's sbx block names it.
-func imageFact(image string) ui.Fact {
-	return ui.Fact{Role: ui.RoleApp, Key: "image", Value: posture.Image(image)}
+// imageFact is proveo's image and where it came from, as the create run's sbx block names it;
+// with no source, the :local tag stands for a local build.
+func imageFact(image string, src *sbx.ImageSource) ui.Fact {
+	if src == nil {
+		return ui.Fact{Role: ui.RoleApp, Key: "image", Value: posture.Image(image)}
+	}
+	return ui.Fact{Role: ui.RoleApp, Key: "image", Value: image + " (" + src.Label() + ")"}
 }
 
 // reportCreate writes what sbx's create block prints to the run log alone, and prints one block of
 // what that block does not name: the stored secrets, the env seed, then proveo's image.
-func reportCreate(in Input, cfg sbx.RunConfig, envValues int, secrets []ui.Fact) {
+func reportCreate(in Input, cfg sbx.RunConfig, envValues int, secrets []ui.Fact, src *sbx.ImageSource) {
 	for _, l := range sandboxFacts(in, cfg) {
 		ui.Logf("%s", l)
 	}
@@ -373,7 +494,7 @@ func reportCreate(in Input, cfg sbx.RunConfig, envValues int, secrets []ui.Fact)
 	if envValues > 0 {
 		facts = append(facts, envFact(in, envValues, true))
 	}
-	ui.Facts(append(facts, imageFact(in.Image))...)
+	ui.Facts(append(facts, imageFact(in.Image, src))...)
 }
 
 // keptSandbox is what proveo knows of a sandbox it re-attaches to: sbx's own row, the
@@ -525,7 +646,7 @@ func reportInterface(in Input, cfg sbx.RunConfig, pub publishing) {
 		facts = append(facts, ui.Fact{Role: ui.RoleHost, Key: key, Value: a.AppID, Detail: []string{"gradle " + a.Task() + " · log " + AndroidLog}})
 		key = ""
 	}
-	if lines := IDEAttachLines(in, cfg, true); len(lines) > 0 {
+	if lines := IDEAttachLines(in, cfg); len(lines) > 0 {
 		detail := "JetBrains, Toolbox and VS Code links in the run log"
 		if in.Clone {
 			detail = "IDE links in the run log; a local Open edits the host checkout"

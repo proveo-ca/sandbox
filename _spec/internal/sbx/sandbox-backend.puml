@@ -57,7 +57,8 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' (Recommended)". MEASURED: stopOutcome(runErr, sig, forced) returns
 ' (teardown nil, result backend.Stopped{sig}) for a forwarded signal that is
 ' not the Ctrl+C "remove" path. A closed terminal or `kill -TERM proveo` prints
-' "stopped by SIGTERM — ending as on a normal exit", lifts clone edits and
+' "● <target> — stopped by SIGTERM" first under results (R2, the operator's
+' STOP MARK; "ending as on a normal exit" is a run-log row), lifts clone edits and
 ' commits, saves state and runs `sbx rm` (an OpenCode engine is retained), with
 ' no template-reload retry. proveo then EXITS 143 (SIGTERM) or 129 (SIGHUP)
 ' through cmd/proveo exitCode, and the transcript reads "outcome: stopped by
@@ -65,6 +66,12 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' HISTORY: before, a stop read as a failed run ("kept for diagnosis", no
 ' `sbx rm`); an earlier revision on 2026-10-17 exited 0.
 ' Teardown still keeps the sandbox when clone work could not be carried home.
+' THE THREE RECORDS A FAILURE OFFERS (note bottom of SBX) moved in R2: the
+' agent's tail goes to the run log on every run (dim under the kept ⚠ only for
+' an agent on the alternate screen), the transcript is a "transcript:" fact of
+' the results block, and the no-credential hint is one ⚠ item with each
+' variable's remedy dim. _spec/internal/backend/teardown.puml (WHAT TEARDOWN
+' PRINTS) holds the shape.
 ' Lifecycle: _spec/internal/sbx/kit-lifecycle.puml; exit status:
 ' _spec/internal/backend/exit-code.puml; the Ctrl+C path:
 ' _spec/internal/ptyproxy/pty-ownership.puml.
@@ -211,6 +218,10 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl. The walk
 ' recurses and matches the `.jsonl` suffix, so the table names only the root
 ' and never enumerates the dates. A target with no root names no transcript.
+' The walk reads the HOST copy, which only the state save writes: sbx keeps
+' ~/.claude/projects as a per-sandbox volume (state-sync.puml), so a failed
+' run's teardown looks the transcript up after stepState (teardown.puml, THE
+' TRANSCRIPT FOLLOWS THE STATE SAVE).
 '
 ' ── THE IDLE PROBE: THE ONE CASE THAT TYPES NOTHING ─────────────────────────
 ' Every other e2e drives the agent. `e2e/idle_test.go` reaches a prompt and then

@@ -23,6 +23,7 @@ type CLI struct {
 
 	LocalImageID    func(image string) string
 	RepoDigests     func(image string) []string
+	ImageBuilt      func(image string) (built, known bool)
 	ImageEntrypoint func(image string) []string
 	ImageCmd        func(image string) []string
 
@@ -86,6 +87,7 @@ func defaultCLI() CLI {
 
 		LocalImageID:    dockerImageID,
 		RepoDigests:     dockerRepoDigests,
+		ImageBuilt:      dockerImageBuilt,
 		ImageEntrypoint: func(image string) []string { return dockerImageList(image, "Entrypoint") },
 		ImageCmd:        func(image string) []string { return dockerImageList(image, "Cmd") },
 		SandboxList:     func() ([]byte, error) { return boundedCombined(Binary, "ls") },

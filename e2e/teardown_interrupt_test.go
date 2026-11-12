@@ -80,9 +80,9 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	} else {
 		cmd = append(cmd, childEnvArgs(t)...)
 	}
-	state := t.TempDir()
+	state, home := t.TempDir(), t.TempDir()
 	cmd = append(cmd,
-		"PROVEO_HOME="+t.TempDir(),
+		"PROVEO_HOME="+home,
 		"PROVEO_STATE_ROOT="+state,
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
 		"PATH="+shim+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -155,10 +155,16 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	if status != 130 {
 		t.Errorf("exit status = %d, want 130\n%s", status, tail(screen, 40))
 	}
-	for _, want := range []string{"kept (teardown stopped by SIGINT at remove sandbox)", "proveo rm " + k.name} {
+	for _, want := range []string{k.name + " — kept: teardown stopped by SIGINT at remove sandbox", "ssh:       " + k.name + ".sbx"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the leave lines miss %q\n%s", want, tail(screen, 40))
 		}
+	}
+	if strings.Contains(screen, "proveo rm") || strings.Contains(screen, "teardown failed") {
+		t.Errorf("the operator's Ctrl+C caused this keep: its fix and the killed removal's error stay off the screen\n%s", tail(screen, 40))
+	}
+	if log := readIn(home, filepath.Join("logs", "latest.log")); !strings.Contains(log, "proveo rm --stop "+k.name) {
+		t.Errorf("the run log lacks the kept sandbox's fix\n%s", tail(log, 30))
 	}
 	if now, ok := sbxSandboxNames(); ok && !now[k.name] {
 		t.Errorf("sandbox %s is gone; leaving teardown must keep it", k.name)
@@ -196,18 +202,21 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 			running = running || (r.Name == k.name && r.Running())
 		}
 	}
+	rm := []string{"rm", k.name}
 	if running {
-		if out, err := proveo("rm", k.name); err == nil || !strings.Contains(out, "is running") {
+		if out, err := proveo("rm", k.name); err == nil || !strings.Contains(out, "is running") || !strings.Contains(out, "proveo rm --stop "+k.name) {
 			t.Errorf("proveo rm of a running sandbox = %v, want a refusal\n%s", err, out)
 		}
-		if out, err := exec.Command(sbx.Binary, "stop", k.name).CombinedOutput(); err != nil {
-			t.Fatalf("sbx stop %s: %v\n%s", k.name, err, out)
-		}
+		rm = []string{"rm", "--stop", k.name}
 	}
-	out, err := proveo("rm", k.name)
+	out, err := proveo(rm...)
 	if err != nil || !strings.Contains(out, k.name+" is removed") {
-		t.Fatalf("proveo rm = %v\n%s", err, out)
+		t.Fatalf("proveo %s = %v\n%s", strings.Join(rm, " "), err, out)
 	}
+	if running && !strings.Contains(out, "sbx stop "+k.name) {
+		t.Errorf("proveo rm --stop did not stop the running sandbox first\n%s", out)
+	}
+	t.Logf("removed with `proveo %s`", strings.Join(rm, " "))
 	if now, ok := sbxSandboxNames(); ok && now[k.name] {
 		t.Errorf("proveo rm left sandbox %s in place", k.name)
 	}

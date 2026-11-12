@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' status: applied 2026-09-21; JetBrains target 2026-10-01; launch links 2026-10-02;
 '   live local attach is offered; remote attach remains unsupported.
 ' covers: internal/backend/sandbox/sandbox.go
-' covers: internal/backend/sandbox/report.go (reportInterface, skippedLinkItems)
+' covers: internal/backend/sandbox/report.go (reportInterface, skippedLinkItems, ideFacts)
 ' covers: internal/backend/sandbox/home_access.go
 ' covers: internal/sbx/sbx.go
 ' covers: internal/sbx/run.go (SSHHost, GatewayLink, VSCodeRemoteArgs, ShellLine)
@@ -13,6 +13,7 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/backend/sandbox/sandbox_test.go
 ' covers: internal/backend/sandbox/home_access_test.go
+' covers: internal/backend/sandbox/teardown_report_test.go
 ' covers: internal/contract/config_files_test.go
 ' covers: cmd/proveo/golden_test.go
 ' covers: cmd/proveo/main_test.go
@@ -31,10 +32,31 @@ skinparam noteTextAlignment left
 ' ONE ROW ON A LIVE RUN (2026-11-11, output-readability R1). The screen gets
 ' "● ide: ssh <sandbox>.sbx" and one dim line: on a clone "IDE links in the
 ' run log; a local Open edits the host checkout", else "JetBrains, Toolbox and
-' VS Code links in the run log". IDEAttachLines(live) goes whole to the run
+' VS Code links in the run log". IDEAttachLines goes whole to the run
 ' log (ui.Logf): `sbx setup ssh`, JetBrains, Toolbox, VS Code, the local-Open
-' caution, the two-writers line, DISPOSABLE CLONE and the fetch recipe. A
-' kept sandbox at teardown still prints the whole block (PrintIDEAttach).
+' caution, the two-writers line, DISPOSABLE CLONE and the fetch recipe.
+' Its kept mode (live=false) lost its last caller when R2 gave a kept sandbox
+' ideFacts; the review deleted the parameter, so IDEAttachLines is the live
+' text only (2026-11-11).
+' A KEPT SANDBOX PRINTS ALL OF IT, AS ONE BLOCK (2026-11-11, R2; the operator:
+' "a kept sandbox still prints all"). Under its own "ide" heading, after the
+' results block's kept line, ideFacts prints one Facts block:
+'   ● ssh:       <sandbox>.sbx            dim `sbx setup ssh` once
+'   ● jetbrains: File → Remote Development → SSH → <sandbox>.sbx
+'                                         dim use OpenSSH config
+'   ● toolbox:   jetbrains://gateway/…    dim an IDE already installed …
+'   ● vs code:   code --remote ssh-remote+<sandbox>.sbx <workdir>
+'   ● project:   <workdir>                dim, on a clone: the local-Open
+'                caution, DISPOSABLE CLONE, the carry-fetch recipe, and the
+'                linked-worktree note; on a mounted run: IDE saves write the
+'                host checkout directly
+' The guest path stays absolute (P5); the fetch recipe's host path goes
+' through ui.TildeIn. A removed sandbox, a retained OpenCode engine and a
+' sandbox sbx no longer lists print no ide block. NOT CHOSEN: the design's
+' trim of DISPOSABLE CLONE, the recipe and the worktree note to the run log;
+' ssh and project alone. Pinned by sandbox's
+' TestAKeptClonesIDEBlockIsOneFactBlockWithEveryCaution and
+' TestAFailedRunKeepsTheSandboxWithItsFixAndTheIDEBlock.
 '
 ' TRANSPORT STAYS UPSTREAM. proveo neither implements SSH nor branches on an
 ' SSH client's status, so MinVersion is not raised for this. `sbx setup ssh`
@@ -205,7 +227,7 @@ legend bottom
   ==
   A named sbx run prints `ide: ssh <sid>.sbx` under the interface heading so an
   editor can attach while the agent is live; the lines below go to the run log
-  on a live run and to the screen for a kept sandbox.
+  on a live run and, as one "ide" Facts block, to the screen for a kept sandbox.
   --
   A JetBrains line names Remote Development → SSH → `<sid>.sbx` with the OpenSSH
   config and project = the agent workdir; a Toolbox line carries a
@@ -223,8 +245,8 @@ legend bottom
   Two writers share the tree with no mediation. proveo names that; it does not
   withhold the host.
   --
-  A failed sbx run remains kept and reprints the same host. A successful run
-  still tears the sandbox down.
+  A failed sbx run remains kept and prints the same host under "ide". A
+  successful run still tears the sandbox down and prints no ide block.
   --
   Direct mode names host writes. Clone mode names disposal, requires a commit,
   and prints the fetch destination under `refs/proveo/<sid>`.

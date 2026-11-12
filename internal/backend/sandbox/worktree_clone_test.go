@@ -162,8 +162,8 @@ func TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry(t *testing.T) {
 	}
 	var texts []string
 	for _, it := range unmountable(in.CloneSource.Main, "main worktree", dropped) {
-		if !it.Warn || len(it.Detail) != 1 {
-			t.Errorf("an unmountable entry must be a ⚠ item with one detail line: %+v", it)
+		if !it.Warn || len(it.Detail) != 0 || len(it.Log) != 1 {
+			t.Errorf("an unmountable entry must be a ⚠ item whose advice goes to the run log: %+v", it)
 		}
 		texts = append(texts, it.Text)
 	}

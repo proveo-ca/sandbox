@@ -11,10 +11,11 @@ import (
 // screenModes follows two modes the child sets on the operator's terminal and an
 // overlay undoes: the alternate screen and a hidden cursor.
 type screenModes struct {
-	mu     sync.Mutex
-	scan   csiScanner
-	alt    bool
-	hidden bool
+	mu      sync.Mutex
+	scan    csiScanner
+	alt     bool
+	entered bool // the child switched to the alternate screen at least once
+	hidden  bool
 }
 
 // observe scans one chunk of child output for CSI ? Ps [;Ps…] h / l.
@@ -29,11 +30,19 @@ func (s *screenModes) observe(b []byte) {
 			switch string(mode) {
 			case "1049", "1047", "47":
 				s.alt = final == 'h'
+				s.entered = s.entered || s.alt
 			case "25":
 				s.hidden = final == 'l'
 			}
 		}
 	})
+}
+
+// enteredAlt reports whether the child switched to the alternate screen at least once.
+func (s *screenModes) enteredAlt() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.entered
 }
 
 // reassert is what puts the child's modes back after an overlay left the alternate screen and showed the cursor.

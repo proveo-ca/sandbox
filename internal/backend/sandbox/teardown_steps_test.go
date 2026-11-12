@@ -84,7 +84,7 @@ func TestTeardownCloneRecordsItsSubStepsInOrder(t *testing.T) {
 	repo := t.TempDir()
 	in := Input{Clone: true, CloneKnown: true, RepoRoot: repo, Sid: "proveo-1-2"}
 	cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
-	_ = TeardownClone(in, cfg)
+	_ = TeardownClone(in, cfg, nil)
 	want := []string{stepCloneEnv, stepCloneSnapshot, stepCloneOutput, stepCloneCarry}
 	if names := stepNames(*got); !slices.Equal(names, want) {
 		t.Errorf("TeardownClone recorded %v, want %v", names, want)
@@ -134,10 +134,31 @@ func TestTeardownDeadlineEndsEveryGuestCallThatNeverAnswers(t *testing.T) {
 			t.Errorf("%s error = %v, want one that wraps context.DeadlineExceeded", c.name, err)
 		}
 	}
-	for _, want := range []string{"sbx ls", "sbx rm --force sb"} {
-		if !strings.Contains(term.String(), want) {
-			t.Errorf("a removal that timed out does not name `%s`:\n%s", want, term.String())
+	if term.String() != "" {
+		t.Errorf("a guest call printed on its own; teardown's results block says what failed:\n%s", term.String())
+	}
+}
+
+func TestARemovalThatTimesOutClosesOnTheRescueLine(t *testing.T) {
+	shrinkGuestDeadlines(t, 300*time.Millisecond)
+	slowSbx(t)
+	var term bytes.Buffer
+	prev := ui.Default
+	t.Cleanup(func() { ui.Default = prev })
+	ui.Default = ui.New(&term)
+	captureSteps(t)
+	now := time.Now()
+	td := &teardown{in: Input{CloneKnown: true}, cfg: sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: "/work"}}}, started: now, ended: now,
+		lastOutput: func() []string { return nil }, commitHome: func() error { return nil }}
+	td.run(context.Background())
+	got := term.String()
+	for _, want := range []string{"warn: sb — kept: its removal failed", "check `sbx ls`, then `sbx rm --force sb` once sbx answers", "------ ide ------"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a removal that timed out does not close on %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "proveo rm") {
+		t.Errorf("a removal that may be half-done names the rescue line, not `proveo rm`:\n%s", got)
 	}
 }
 
@@ -152,7 +173,7 @@ func TestAHungReflogAsksNoPushedBranchQuestion(t *testing.T) {
 	in := Input{Clone: true, RepoRoot: repo}
 	cfg := sbx.RunConfig{Name: "sb", Mounts: []sbx.Mount{{Host: repo}}}
 	start := time.Now()
-	reportPushedBranches(in, cfg, time.Now())
+	reportPushedBranches(in, cfg, time.Now(), nil)
 	if took := time.Since(start); took > 10*time.Second {
 		t.Errorf("reportPushedBranches took %s behind a reflog that never answered", took)
 	}

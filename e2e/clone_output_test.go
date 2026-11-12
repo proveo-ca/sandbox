@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -99,7 +100,7 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 	if !strings.Contains(got, mark) {
 		t.Fatalf("reports/lift.txt did not reach the host after teardown (got %q)\n--- screen ---\n%s", got, screen)
 	}
-	if !strings.Contains(screen, "deliverables lifted") {
+	if !regexp.MustCompile(`(?m)output:\s+\S*/reports$`).MatchString(screen) {
 		t.Errorf("teardown did not report the lift — the file arrived, but the operator was not told\n%s", screen)
 	}
 	if got := loggedSteps(t, home); !slices.Equal(got, normalRunSteps) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,41 @@ func Exists(name string) bool {
 		}
 	}
 	return false
+}
+
+// Gone reports whether sbx's listing proves sandbox name gone: it lists sandboxes and none is
+// name. A header-only table is read again as JSON; a listing with no sandbox proves nothing.
+func Gone(name string) bool {
+	if name == "" {
+		return false
+	}
+	out, err := sh.SandboxList()
+	if err != nil {
+		return false
+	}
+	if rows, listed := tableRows(string(out), name); listed || rows > 0 {
+		return !listed
+	}
+	rows, ok := List()
+	return ok && len(rows) > 0 && !slices.ContainsFunc(rows, func(r Listed) bool { return r.Name == name })
+}
+
+// tableRows counts the rows under an `sbx ls` table's SANDBOX header; listed is true when one names name.
+func tableRows(out, name string) (rows int, listed bool) {
+	header := false
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		switch {
+		case len(f) == 0:
+		case !header:
+			header = f[0] == "SANDBOX"
+		case slices.Contains(f, name):
+			return rows + 1, true
+		default:
+			rows++
+		}
+	}
+	return rows, false
 }
 
 func Running(name string) bool {
@@ -215,9 +251,10 @@ func CloneSnapshotArgs(name, workdir string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
 		"cd " + bashQuote(workdir) + " 2>/dev/null || exit 0\n" +
 			"if ! git rev-parse --git-dir >/dev/null 2>&1; then [ -z \"$(ls -A)\" ] && exit 0; exit 1; fi\n" +
-			"git add -A && { git diff --cached --quiet || git -c user.name=proveo -c user.email=proveo@sandbox " +
+			"git add -A && { git diff --cached --quiet || { git -c user.name=proveo -c user.email=proveo@sandbox " +
 			"-c core.hooksPath=/dev/null -c commit.gpgsign=false " +
-			"commit -q --no-verify -m 'proveo: uncommitted work at teardown (left in the clone by the agent)'; } || exit 1\n" +
+			"commit -q --no-verify -m 'proveo: uncommitted work at teardown (left in the clone by the agent)' && " +
+			"echo \"" + snapshotMark + "$(git symbolic-ref -q --short HEAD || echo proveo/detached-head)\"; }; } || exit 1\n" +
 			"head=$(git symbolic-ref -q HEAD)\n" +
 			"for r in $(git for-each-ref --format='%(refname)' 'refs/heads/proveo/stash-*'); do " +
 			"[ \"$r\" = \"$head\" ] || git -c core.hooksPath=/dev/null update-ref -d \"$r\" || exit 1; done\n" +
@@ -227,6 +264,19 @@ func CloneSnapshotArgs(name, workdir string) []string {
 			"for s in $(git stash list --format=%H); do " +
 			"[ \"refs/heads/proveo/stash-$i\" = \"$head\" ] || " +
 			"git -c core.hooksPath=/dev/null update-ref \"refs/heads/proveo/stash-$i\" \"$s\" || exit 1; i=$((i+1)); done\n"}
+}
+
+// snapshotMark opens the line CloneSnapshotArgs prints when it committed: the mark, then the branch.
+const snapshotMark = "proveo snapshot committed on "
+
+// SnapshotBranch is the branch CloneSnapshotArgs' output says it committed on; ok is false when it committed nothing.
+func SnapshotBranch(out string) (branch string, ok bool) {
+	for _, line := range strings.Split(out, "\n") {
+		if b, found := strings.CutPrefix(strings.TrimSpace(line), snapshotMark); found && b != "" {
+			return b, true
+		}
+	}
+	return "", false
 }
 
 // CloneFetchArgs lifts the sandbox's branches onto the host.
@@ -375,6 +425,9 @@ func RemoveArgs(name string) []string {
 	return []string{"rm", "--force", name}
 }
 
+// StopArgs stops sandbox name and keeps it.
+func StopArgs(name string) []string { return []string{"stop", name} }
+
 func SetupSSHArgs() []string { return []string{"setup", "ssh"} }
 
 func SSHHost(name string) string {
@@ -420,6 +473,17 @@ func NotFound(out string) bool {
 }
 
 var agentExitLine = regexp.MustCompile(`agent exited with code (\d+)\b`)
+
+// SaidError reports whether sbx printed its own error line last: an "error: …" line that names
+// the agent's exit, or any "error: …" line when sbx exited 1, the status that follows its own.
+// SPEC: _spec/internal/backend/exit-code.puml
+func SaidError(status int, lines []string) bool {
+	if len(lines) == 0 {
+		return false
+	}
+	last := strings.TrimSpace(lines[len(lines)-1])
+	return strings.HasPrefix(last, "error: ") && (status == 1 || agentExitLine.MatchString(last))
+}
 
 // RunExitCode is the agent's own code when `sbx run` exits 1 after naming a non-zero one in lines, else status.
 // SPEC: _spec/internal/backend/exit-code.puml
