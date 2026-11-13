@@ -1,0 +1,28 @@
+{
+ "linux/amd64": {
+  "architecture": "amd64",
+  "os": "linux",
+  "created": "2026-11-12T19:54:38.305505646Z",
+  "config": {
+   "User": "claude",
+   "Labels": {
+    "proveo.agent": "@anthropic-ai/claude-code",
+    "proveo.agent.version": "2.1.322",
+    "proveo.base.template": "docker/sandbox-templates:shell-docker-0.5.0"
+   }
+  }
+ },
+ "linux/arm64": {
+  "architecture": "arm64",
+  "os": "linux",
+  "created": "2026-11-12T19:56:30.122923935Z",
+  "config": {
+   "User": "claude",
+   "Labels": {
+    "proveo.agent": "@anthropic-ai/claude-code",
+    "proveo.agent.version": "2.1.322",
+    "proveo.base.template": "docker/sandbox-templates:shell-docker-0.5.0"
+   }
+  }
+ }
+}

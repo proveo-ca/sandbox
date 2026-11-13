@@ -31,6 +31,22 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_devops/agent-update-prompt.puml",
+      "covers": [
+        "internal/agentupdate/**",
+        "internal/imagebuild/overlay.go",
+        "internal/imagebuild/overlay_test.go",
+        "internal/choiceui/agent_update.go",
+        "cmd/proveo/provision.go",
+        "internal/imagetest/overlay_test.go",
+        "internal/contract/agent_pin_test.go",
+        "internal/tmux/tmux.go",
+        "e2e/main_test.go",
+        "internal/envreg/envreg.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_devops/agent-version-pin.puml",
       "covers": [
         "internal/imagebuild/imagebuild.go",
@@ -45,7 +61,9 @@
         "internal/run/run.go",
         "defs/opencode/entrypoint.sh",
         "defs/opencode/README.md",
-        "CODING_HARNESSES.md"
+        "CODING_HARNESSES.md",
+        "defs/hermes/entrypoint.sh",
+        "internal/imagebuild/parity_test.go"
       ],
       "fingerprint": null
     },
@@ -926,6 +944,7 @@
         "internal/choiceui/fetch_pushed.go",
         "internal/choiceui/blocked_run.go",
         "internal/choiceui/oversized_model.go",
+        "internal/choiceui/agent_update.go",
         "internal/backend/sandbox/confirm.go",
         "e2e/close_confirm_modes_test.go"
       ],

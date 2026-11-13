@@ -62,6 +62,8 @@ type Var struct {
 var Vars = []Var{
 	{Name: "PROVEO_AGENT_EVIDENCE", Scope: Operator, Where: Binary | Image, Default: "verbose",
 		Doc: "Pick agent output detail: default drops the extra narration, verbose keeps it"},
+	{Name: "PROVEO_AGENT_UPDATE", Scope: Operator, Where: Binary, Default: "ask on a TTY with the wizard on, else warn",
+		Doc: "Take a newer agent without asking; 0 turns the check off"},
 	{Name: "PROVEO_ANDROID_BUILD_TOOLS", Scope: Operator, Where: Image, Default: "36.0.0",
 		Doc: "Pin the build-tools an arm64 sandbox installs to run aapt2 under qemu"},
 	{Name: "PROVEO_ANDROID_CMDLINE_TOOLS", Scope: Operator, Where: Image, Default: "20.0",

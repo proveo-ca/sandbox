@@ -1,0 +1,272 @@
+@startuml
+' purpose: how `proveo run` finds a newer agent for the image it settled on, asks once, and reaches it without a source rebuild
+' covers: internal/agentupdate/**
+' covers: internal/imagebuild/overlay.go
+' covers: internal/imagebuild/overlay_test.go
+' covers: internal/choiceui/agent_update.go
+' covers: cmd/proveo/provision.go (settleAgent, askAgentUpdate, attended)
+' covers: internal/imagetest/overlay_test.go
+' covers: internal/contract/agent_pin_test.go (overlay rows, TestEveryHarnessIsCoveredByTheAgentUpdateCheck)
+' covers: internal/tmux/tmux.go (SessionEnv)
+' covers: e2e/main_test.go
+' covers: internal/envreg/envreg.go (PROVEO_AGENT_UPDATE)
+'   the pin this check reads ........ _spec/_devops/agent-version-pin.puml
+'   where the preflight sits ........ _spec/cmd/proveo/provision-and-targets.puml
+'   the dialog it draws with ........ _spec/internal/choiceui/confirm-dialogs.puml
+'   how FROM reaches sbx's kit build  _spec/internal/sbx/kit-image-source.puml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+title Agent update prompt — pull the published image, cover the gap with one layer, ask once per release
+'
+' ── THE DEFECT THIS CLOSES (MEASURED 2026-11-12) ───────────────────────────
+' provisioner.Ensure pulls an image only when `docker image inspect` fails. A
+' consumer who pulled proveo/claudecode:latest once kept that agent forever:
+' on this host the local copy of the tag carried claude 2.1.312 (2026-10-29)
+' while the registry copy, pushed the same day this was written, carried
+' 2.1.322. `proveo update` replaces the CLI binary only. agent-version-pin.puml
+' recorded the gap as STILL OPEN: the start line said WHICH release ran, never
+' whether it was old.
+' A local `:latest` is not the registry. `docker image inspect` reads the host
+' store; `docker buildx imagetools inspect <ref> --format '{{json .Image}}'`
+' reads the registry config (labels, created) without pulling a layer, 2.4 s.
+'
+' ── HOW sbx ANSWERS THE SAME QUESTION ──────────────────────────────────────
+' sbx users never build. Since v0.51.0 (2026-11-03) a built-in agent name
+' resolves to a published kit, docker.io/sbx/<name>, tagged by agent release;
+' Docker rebuilds it as the agent ships (docker/sbx-releases#202, closed
+' 2026-11-05). MEASURED from Docker Hub tags against npm publish times, four
+' kits, 2.1.317 to 2.1.322: the kit trailed npm by 1.4 to 3.3 days, and
+' 2.1.321 never got one. The gap is covered inside a long-lived sandbox by the
+' agent's own updater (native installer under ~/.local, DISABLE_AUTOUPDATER
+' unset, downloads.claude.ai allowed). sbx never prompts. Its stale-cache bug,
+' #45, is this defect; its fix was to pull when the registry is newer.
+'
+' ── DECISIONS (the Executor, 2026-11-12) ───────────────────────────────────
+' DELIVERY: "Pull + overlay for the gap". ANSWERS: "Update / Later 24h / Skip".
+' Hermes resolves at build like the other defs (agent-version-pin.puml, HERMES).
+' MEASURED before the choice, claudecode on this host:
+'   pull after an agent-only bump   agent layer 162.5 MB compressed of 1106 MB;
+'                                   every layer above it is under 0.1 MB
+'   the same for claudecode-browser [Inference] about 380 MB: its 210.7 MB
+'                                   browser layer sits above the agent layer
+'   one-layer overlay               16.2 s, +507 MB without an npm cache mount
+' NOT CHOSEN:
+'   agent self-update, as sbx does  unpins the image; every agent's updater
+'                                   differs; a session could plant a binary
+'                                   on shared storage for later sandboxes
+'   a host binary store, mounted ro most new proveo code; no hermes; exec over
+'                                   virtiofs unmeasured
+'   rebuild from source             a binary-only install has no defs/ tree,
+'                                   and a cold cache rebuilds the whole chain
+'   RUN lines in the kit recipe     sbx's kit build would redo the install
+'                                   whenever BuildKit dropped the layer, so a
+'                                   run that worked offline could need the
+'                                   network at launch, with no question asked;
+'                                   and the base image's label would name a
+'                                   release the sandbox no longer runs
+'
+' ── WHAT COUNTS AS AN UPDATE ───────────────────────────────────────────────
+' Settle(target, ref) runs after provisioner.Ensure, on every run that is not
+' --print. It reads the image the run resolved (id, created, USER, the
+' proveo.agent.version label), then decides from three facts:
+'   carried    the release the run would launch: an overlay's when one is
+'              built on this exact image id, else the image's own label
+'   published  proveo.agent.version and `created` of PublishedRef(ref) in the
+'              registry, for the host platform. :local and :latest both read
+'              <repo>:latest; another tag reads itself; a digest pin is never
+'              checked
+'   upstream   Builder.Upstream(eco, pkg): the release source the build
+'              resolves against, without the build's override or its printing
+' PlanFor takes the shortest way to the newest release it can reach:
+'   pull       published.created is after the local image's AND its agent is
+'              newer. A republished image with the same agent is not an agent
+'              update and is not offered; a local build newer than the
+'              registry is never pulled over
+'   overlay    upstream is newer than what the (pulled) image carries and the
+'              pin has an Overlay recipe
+'   behind     upstream is newer and the pin has none (hermes: the agent is
+'              its upstream's whole image). One line per upstream release,
+'              "<target> <v> is out — <repo> carries <v> until its image is
+'              republished", and no offer
+' Nothing is offered unless the plan's target is newer than carried.
+' ORDER (imagebuild.Newer): the leading dotted number, numerically. Two
+' releases with equal numbers and different text, or with no number, count as
+' ahead: an offer the operator can Skip beats a release never mentioned. The
+' github ecosystem compares by inequality alone, because upstream hermes left
+' date tags (v2026.9.24) for v0.x and tag names stopped ordering.
+'
+' ── THE QUESTION ───────────────────────────────────────────────────────────
+'   a newer claudecode agent is available
+'   2.1.312 → 2.1.330
+'
+'   1. docker pull proveo/claudecode:latest (2.1.322)
+'   2. install 2.1.330 on top as proveo/claudecode:agent-2.1.330
+'
+'   Later asks again in 24 hours.
+'   Skip waits for a release after 2.1.330.
+'    Later ↵    Update    Skip
+' Later is the safe answer: Enter untouched, Esc and `n` give it, and it
+' silences the check (no lookup, no question) for 24 hours. Skip records the
+' plan's target; the next release asks again. Update runs the steps.
+' WHO IS ASKED: only an attended run, by the predicate sandbox.headedConfirm
+' already uses: PROVEO_SCHEDULE unset, the wizard on, stdin and stdout both
+' terminals. A scheduled run sits in a tmux session and HAS a terminal, so a
+' TTY test alone would park it on a dialog nobody sees.
+' Unattended, or when /dev/tty will not open: one warning line, "<target> <a>
+' → <b> is available — answer it in a terminal, or set PROVEO_AGENT_UPDATE=1
+' to update without asking", and the run keeps its image.
+' PROVEO_AGENT_UPDATE (envflag): ON updates without asking; OFF skips the
+' check, yet an overlay already built is still launched.
+'
+' ── WHAT UPDATE DOES, AND WHAT IT LEAVES ───────────────────────────────────
+' PULL: `docker pull <repo>:latest`. A run that resolved :local returns
+' <repo>:latest afterwards, which maintain.ResolveImage also prefers from then
+' on, since the pulled image is the newer one.
+' OVERLAY: imagebuild.Overlay writes a four-instruction recipe to a temp dir:
+'   FROM <base>  ·  USER root  ·  ARG <pin.Arg> (+ the spec's EnvArgs)
+'   RUN <pin.Overlay>  ·  USER <the base's own USER>
+'   LABEL proveo.agent.version=<v> proveo.agent.overlay.base=<base image id>
+' and builds it `--load --pull=false` on HostBuilder (the buildx builder that
+' reads the host store), tagged <repo>:agent-<version>. It exports no named
+' cache. The recipe is the Dockerfile's own install step: agent_pin_test
+' fails when a pin's Overlay stops matching its Dockerfile's install.
+'   npm (claudecode, codex, opencode)  npm install -g <pkg>@<v> through a
+'       cache mount, then the same --version check the Dockerfile makes.
+'       opencode also rewrites /usr/local/lib/proveo/opencode.version and
+'       refuses a major other than 2, as its Dockerfile does
+'   cursor   re-runs the vendor installer, which installs whatever is current;
+'       the recipe fails when that is no longer the release resolved
+'   hermes   none
+' THE OVERLAY IS AN IMAGE, NOT STATE. Each run lists <repo>:agent-* and uses
+' the one whose overlay.base label equals the resolved image's id. An overlay
+' of any other base is removed: a pull or a rebuild made it dead weight. A tag
+' under agent-* without the label is not proveo's and is left alone. A new
+' overlay is always built on the base, never on an overlay, so the image gains
+' one layer however many releases pass; the superseded overlay is removed.
+' A FAILED STEP NEVER FAILS THE RUN. A failed pull keeps the image already
+' here; a failed install keeps the pulled image. Both warn with the error.
+'
+' ── HOW OFTEN THE NETWORK IS ASKED ─────────────────────────────────────────
+' <state dir>/agent-update.json, one entry per image repo: checked, the
+' published image's created and version, upstream, later, skip, noticed.
+' One registry answer and one upstream answer serve 24 hours. Both lookups
+' run at once, bounded at 6 s and 4 s. When neither answers the run stays
+' silent and the next attempt waits one hour, not a day. An unreadable state
+' file is an empty one.
+'
+' ── KNOWN LIMITS ───────────────────────────────────────────────────────────
+'   * The registry read needs the docker buildx plugin and the overlay needs a
+'     docker-driver builder; without them the check stays silent and an
+'     accepted overlay warns and keeps the image.
+'   * `--print` skips the preflight, so it names the base image even when the
+'     run would launch an overlay.
+'   * An overlay launches an agent release nobody tested against that image's
+'     entrypoint and seeds. The recipe's own --version check is the only gate.
+'   * Freshness of the pull path is the maintainer's `mise run deploy`
+'     cadence. [Inference] The 162.5 MB delta holds only while a publish
+'     keeps the lower layers' digests; a cold builder republishes all of it.
+'   * Tests: the e2e suite turns the check off (e2e/main_test.go sets
+'     PROVEO_AGENT_UPDATE=0 and tmux.SessionEnv carries it into sessions,
+'     which otherwise inherit the tmux server's environment). A test that
+'     wants the dialog spells `env PROVEO_AGENT_UPDATE= proveo run …`.
+'
+' ── VERIFIED BY ────────────────────────────────────────────────────────────
+'   internal/agentupdate/agentupdate_test.go   PlanFor table; Settle against a
+'       fake store, registry and release source: pull, pull + overlay, overlay
+'       reuse and replacement, stale and foreign tags, Later, Skip, the 24 h
+'       cache, the 1 h offline retry, unattended, both switch values, failed
+'       steps, :local → :latest, unreadable images, the hermes notice, a
+'       corrupt state file, both docker documents
+'   internal/imagebuild/overlay_test.go         Newer, AgentSpec, OverlayRef,
+'       the recipe, the build argv, the two refusals
+'   internal/choiceui/dialog_test.go            the copy, three answers, and
+'       the rules every dialog obeys (safe first, two keys, 80 columns)
+'   cmd/proveo/provision_test.go                attended, answer mapping
+'   internal/imagetest/overlay_test.go (image)  each def's suite builds its
+'       overlay for another real release over the real image and checks the
+'       labels, USER, ENTRYPOINT and layer count
+
+actor "Operator" as OP
+participant "proveo run\npreflightImages" as PF <<app>>
+participant "agentupdate.Checker\nSettle · PlanFor" as CHK <<app>>
+database "agent-update.json\nstate dir" as ST <<db>>
+participant "docker\nhost image store" as DK <<host>>
+participant "registry\n<repo>:latest" as REG <<cloud>>
+participant "agent release source\nnpm · cursor.com · GitHub" as UP <<cloud>>
+participant "choiceui\nLater · Update · Skip" as DLG <<app>>
+participant "imagebuild.Overlay\n<repo>:agent-<version>" as OV <<app>>
+
+OP ARROW_MAIN PF : " ""proveo run <target>"" "
+PF ARROW_MAIN DK : provisioner.Ensure — pull only when absent
+PF ARROW_MAIN CHK : " ""Settle(target, ref)"" "
+CHK ARROW_MAIN DK : inspect ref · list ""<repo>:agent-*""
+DK ARROW_MAIN CHK : id · created · USER · version\n· the overlay built on this id, if any
+CHK ARROW_MAIN ST : entry for the repo
+alt later is in the future · or ""PROVEO_AGENT_UPDATE=0""
+  CHK ARROW_OPTIONAL PF : the overlay, else ref — nothing asked
+else checked over 24 h ago
+  CHK ARROW_CLOUD REG : imagetools inspect (6 s)
+  CHK ARROW_CLOUD UP : Builder.Upstream (4 s)
+  REG ARROW_CLOUD CHK : created · proveo.agent.version
+  UP ARROW_CLOUD CHK : current release
+  CHK ARROW_MAIN ST : checked · published · upstream
+else neither answered
+  CHK ARROW_ERROR ST : retry in one hour — the run stays silent
+end
+CHK ARROW_MAIN CHK : PlanFor: pull? · overlay? · target
+alt target is not newer than carried · or skipped
+  CHK ARROW_OPTIONAL PF : the overlay, else ref
+else unattended run
+  CHK ARROW_OPTIONAL OP : one warning line, the run keeps its image
+else attended
+  CHK ARROW_MAIN DLG : from → to · the steps
+  OP ARROW_MAIN DLG : Later (Enter, Esc) · Update · Skip
+  DLG ARROW_MAIN CHK : the answer
+  alt Update
+    CHK ARROW_CLOUD REG : docker pull, when planned
+    CHK ARROW_MAIN OV : install the release over the base
+    OV ARROW_MAIN DK : one layer · two labels
+    CHK ARROW_MAIN DK : remove the superseded overlay
+    CHK ARROW_MAIN PF : the image to launch
+  else Later
+    CHK ARROW_MAIN ST : later = now + 24 h
+  else Skip
+    CHK ARROW_MAIN ST : skip = the plan's target
+  end
+end
+
+note over DK
+  A present image was never pulled again, so the
+  first pull froze a consumer's agent. The check
+  compares that image with its registry copy and
+  with the agent's own release source.
+end note
+
+note over REG
+  The registry answer is the image config alone:
+  its labels and creation time, with no layer
+  downloaded. One answer serves a full day, and
+  an unreachable network leaves the run silent.
+end note
+
+note over OV
+  The overlay installs one release over the base
+  image in a single layer. A label names that
+  base, so a pull or a rebuild retires the
+  overlay instead of stacking another on it.
+end note
+
+note over DLG
+  Later is the safe answer and quiets the check
+  for a day. Skip waits for the next release.
+  Only an attended run is asked: a scheduled
+  run has a terminal and nobody watching it.
+end note
+
+note over UP
+  An agent that is its upstream's whole image
+  has no overlay. Its run names the release once
+  and waits for the published image, which the
+  pull step then delivers.
+end note
+
+@enduml

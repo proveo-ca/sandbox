@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/agentupdate"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -268,5 +270,62 @@ func TestProvisionConfirmFollowsAutoProvisionBeforeTheWizard(t *testing.T) {
 				t.Errorf("provisionConfirm = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// SPEC: _spec/_devops/agent-update-prompt.puml
+func TestAnAgentUpdateIsAskedOnlyWhereAnOperatorCanAnswer(t *testing.T) {
+	offer := agentupdate.Offer{Target: "codex", From: "0.1.0", To: "0.2.0", Steps: []string{"docker pull proveo/codex:latest (0.2.0)"}}
+	oldAttended, oldDialog := attended, askAgentUpdateDialog
+	t.Cleanup(func() { attended, askAgentUpdateDialog = oldAttended, oldDialog })
+
+	asked := 0
+	askAgentUpdateDialog = func(agent, from, to string, steps []string) (choiceui.AgentUpdateAnswer, bool) {
+		asked++
+		if agent != offer.Target || from != offer.From || to != offer.To || len(steps) != 1 {
+			t.Errorf("the dialog got %s %s→%s %q", agent, from, to, steps)
+		}
+		return choiceui.AgentUpdateNow, true
+	}
+	attended = func() bool { return false }
+	if got := askAgentUpdate(offer); got != agentupdate.Unasked || asked != 0 {
+		t.Errorf("an unattended run: answer %d, dialog opened %d times; want Unasked and no dialog", got, asked)
+	}
+	attended = func() bool { return true }
+	for answer, want := range map[choiceui.AgentUpdateAnswer]agentupdate.Answer{
+		choiceui.AgentUpdateNow: agentupdate.Update, choiceui.AgentUpdateLater: agentupdate.Later, choiceui.AgentUpdateSkip: agentupdate.Skip,
+	} {
+		askAgentUpdateDialog = func(string, string, string, []string) (choiceui.AgentUpdateAnswer, bool) { return answer, true }
+		if got := askAgentUpdate(offer); got != want {
+			t.Errorf("dialog answer %d became %d, want %d", answer, got, want)
+		}
+	}
+	askAgentUpdateDialog = func(string, string, string, []string) (choiceui.AgentUpdateAnswer, bool) {
+		return choiceui.AgentUpdateLater, false
+	}
+	if got := askAgentUpdate(offer); got != agentupdate.Unasked {
+		t.Errorf("a terminal that did not open: answer %d, want Unasked so the run warns instead of going quiet", got)
+	}
+}
+
+func TestAScheduledOrWizardlessRunIsUnattended(t *testing.T) {
+	old := onTerminal
+	t.Cleanup(func() { onTerminal = old })
+	onTerminal = func() bool { return true }
+	t.Setenv("PROVEO_SCHEDULE", "")
+	t.Setenv("PROVEO_WIZARD", "")
+	if !attended() {
+		t.Fatal("a plain run on a terminal counts as unattended; nothing would ever be asked")
+	}
+	for k, v := range map[string]string{"PROVEO_SCHEDULE": "nightly", "PROVEO_WIZARD": "off"} {
+		t.Setenv(k, v)
+		if attended() {
+			t.Errorf("%s=%s: the run counts as attended; a dialog there has nobody to answer it", k, v)
+		}
+		t.Setenv(k, "")
+	}
+	onTerminal = func() bool { return false }
+	if attended() {
+		t.Error("a run with no terminal counts as attended")
 	}
 }
