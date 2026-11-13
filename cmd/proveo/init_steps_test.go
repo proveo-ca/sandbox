@@ -91,7 +91,7 @@ func TestInitStepsIgnoreABackFromTheFirstScreenAndStopOnAnError(t *testing.T) {
 // A revisit of setup must not re-run what already ran: every one-shot action opens on later.
 func TestARevisitOpensOnWhatIsLeft(t *testing.T) {
 	plan := sbx.Plan{Prefix: "/home/u/.docker/sbx"}
-	def := defaultDecisions(plan, "0.50.0", initOptions{})
+	def := defaultDecisions(plan, "0.50.0", initOptions{}, true)
 	prev := &initDecisions{Install: installTarball, Prefix: "/usr/local", AddPath: true,
 		Login: true, Wizard: true, Gh: true, Git: true, Baseline: sbx.BaselineDenyAll}
 	got := carried(def, prev)

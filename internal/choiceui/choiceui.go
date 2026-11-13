@@ -144,7 +144,7 @@ func (m *More) anyOn() bool {
 
 func (m *More) offAt(i int) bool { return i < len(m.Off) && m.Off[i] }
 
-// columnText clips the option or its Paint label to the row's cell width.
+// columnText clips the option's name or its Paint label to the row's cell width.
 func (r Row) columnText(opt string) string {
 	limit := columnRunes
 	if r.CellRunes > 0 {
@@ -153,8 +153,12 @@ func (r Row) columnText(opt string) string {
 	if s, ok := r.Paint[opt]; ok && s != "" {
 		return clipRunes(s, limit)
 	}
-	return clipRunes(opt, limit)
+	return clipRunes(optionName(opt), limit)
 }
+
+// optionName is how an option reads on screen: a path under the home directory as "~/…".
+// SPEC: _spec/internal/choiceui/wireframe.puml (AN OPTION UNDER $HOME)
+func optionName(opt string) string { return ui.Tilde(opt) }
 
 func clipRunes(s string, n int) string {
 	r := []rune(s)
@@ -203,7 +207,7 @@ func (r *Row) helpLines(width int) []helpLine {
 		}
 	}
 	if h := r.Help[opt]; h != "" {
-		for _, l := range wrap("› "+opt+" — "+h, width, 2) {
+		for _, l := range wrap("› "+optionName(opt)+" — "+h, width, 2) {
 			out = append(out, helpLine{text: l})
 		}
 	}

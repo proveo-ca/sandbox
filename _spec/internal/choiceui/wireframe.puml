@@ -189,6 +189,12 @@
 ' MEASURED by review: help that wraps at cw-4 can take one more line than it
 ' did at the terminal's width, so at height 9 some wide terminals now report
 ' "terminal too small" where the form drew before the card.
+' AN OPTION UNDER $HOME READS "~/…" (DECIDED 2026-11-13, owner: "fix now,
+' separate commit"). optionName draws it through ui.Tilde in its cell and in
+' "› <option> — <help>"; a Paint label still wins in the cell. Selection
+' returns the option as given, so a caller's value stays absolute. Found on
+' init's "sbx location" row: _spec/cmd/proveo/init-sbx-bootstrap.puml.
+' Pinned by TestAHomePathOptionReadsAsTildeAndKeepsItsValue.
 '
 ' THE PAINT ORDER. The head and chip; the facts rows; the body text, cut at
 ' cw-2; the walls and scroll marks over it; Skip; the foot rule; the key

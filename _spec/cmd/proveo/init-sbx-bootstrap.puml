@@ -206,6 +206,8 @@ skinparam noteTextAlignment left
 ' outlives every run, so proveo will offer to bind it and will not bind it on a
 ' host whose owner was not at the keyboard. Every other default acts, because
 ' every other default is about this install.
+' AMENDED 2026-11-13: sbx's wizard is the second default that does nothing
+' when nobody is asked (THE WIZARD WAITS FOR A TERMINAL, below).
 '
 ' The rc block carries its OWN marker (`proveo init` — sbx on PATH) rather than
 ' reusing the `proveo setup` one. Asking about THIS directory is the only
@@ -387,6 +389,32 @@ skinparam noteTextAlignment left
 ' and ignored --yes, so `proveo init --yes` on a terminal asked for
 ' user.name. hostGitStage now takes !d.NoPrompt && interactiveTerminal(), as
 ' the prompt kit and GitHub do. Pinned by e2e TestInitYesNeverAsksForAGitIdentity.
+'
+' ── THE WIZARD WAITS FOR A TERMINAL (DECIDED 2026-11-13) ───────────────────
+' DECIDED 2026-11-13 (owner: "fix now, separate commit"). `proveo init --yes`,
+' and init with no terminal, still ran `sbx setup` and handed it a stdin
+' nobody answers: defaultDecisions set Wizard from --skip-setup alone.
+' `sbx setup --help` (0.50.0) lists no flag that answers the wizard, so it is
+' interactive-only. defaultDecisions(plan, installed, o, terminal) now sets
+' Wizard = !--skip-setup && !--yes && terminal. decide passes
+' interactiveTerminal(): stdin and stderr, the two ends handOff gives the
+' wizard. The setup page passes true, so when the page draws, the row's own
+' answer decides. An unrun wizard lands in the result's "later"; the --yes
+' flag help names "sbx's setup wizard" among what waits for a terminal.
+' sbx login KEEPS its default. `sbx login --help` (0.50.0) documents a
+' non-interactive path (`--username … --password-stdin`), and init runs the
+' plain browser sign-in. [Unverified] whether that sign-in completes with no
+' terminal; no run measured it.
+' THE LOCATION ROW NAMED THE HOME PREFIX ABSOLUTE (same decision): in full in
+' its help line, clipped in its cell ("/Users/pl…"). choiceui's optionName now
+' draws an option under $HOME as "~/…" (ui.Tilde); the option, and so
+' d.Prefix and the plan, stay absolute: _spec/internal/choiceui/wireframe.puml.
+' KNOWN, NOT CHANGED: a setup-page cell clips at 10 runes (columnRunes), so the
+' row reads "~/.docker…" and the help line under the cursor names it whole.
+' Pinned by cmd/proveo/init_tui_test.go TestTheWizardWaitsForATerminal,
+' internal/choiceui TestAHomePathOptionReadsAsTildeAndKeepsItsValue, and
+' e2e TestInitYesInPlainOutputCarriesNoStepPlaces (no `setup` call under
+' --yes; edited 2026-11-13, not run).
 ' THE INSTALL ✓ SAYS WHAT THE FACTS DO NOT (the second R3 review): the sbx
 ' block's "sbx:" fact names the version and, dim, the bin, after the
 ' install; the ✓ read "sbx 0.49.2 — installed" with the bin dim again. It is
@@ -594,50 +622,50 @@ end note
 
 note bottom of BLOCK
   **Two stages, not one gate.** No mkfs.ext4 stops
-  the INSTALL — install.sh exits 2 before copying a
-  file. The kvm group only stops the RUN: ""usermod""
-  needs a re-login, so refusing to install would be
-  a gate nothing init can do would satisfy.
+  the INSTALL: install.sh exits 2 before it copies
+  a file. The kvm group stops only the RUN;
+  ""usermod"" needs a re-login, so no step init
+  can take would satisfy an install gate.
 end note
 
 note bottom of ENV
-  **It authored nothing that was needed.** Keys are
-  read from the environment and a project ""\.env""
-  at run time regardless. Writing the file only
-  moved secrets onto disk — into a workspace the
+  **It authored nothing that was needed.** Keys
+  are read from the environment and a project
+  ""\.env"" at run time anyway. Writing it only
+  moved secrets onto disk, into a workspace the
   agent could read (no image sources it since N7).
 end note
 
 note bottom of PROV
-  **Verifiable on Linux only, measured not assumed.**
-  The subject digest matches the released bytes for
-  both linux arches and matches neither the darwin
+  **Verifiable on Linux only, as measured.** The
+  subject digest matches the released bytes on
+  both linux arches, and neither the darwin
   tarball nor the MSI. Matched by subject NAME:
   ""subject[0]"" would verify the wrong artifact.
 end note
 
 note bottom of SEL
-  **A denied shim looks like an instant death.** And
-  the rpm is NOT the fix: measured 2026-09-07, an
-  enforcing host still died instantly with the
-  rockylinux8 package installed. What is left is
-  ""ausearch -m avc"" and a brief ""setenforce 0"".
+  **A denied shim looks like an instant death.**
+  The rpm is NOT the fix: measured 2026-09-07, an
+  enforcing host with the rockylinux8 package
+  still died instantly. Left: ""ausearch -m avc""
+  and a brief ""setenforce 0"".
 end note
 
 note bottom of CDN
   **The install is not done without a backend.**
-  ""[[ -r /dev/tty ]]"" is true where the open still
-  fails, so the script tests the OPEN. A non-zero
-  init means the HOST is not ready, not that proveo
-  failed — caught, explained, exit 0.
+  ""[[ -r /dev/tty ]]"" is true where the open
+  still fails, so the script tests the OPEN. A
+  non-zero init means the HOST is not ready, not
+  that proveo failed — caught, explained, exit 0.
 end note
 
 note bottom of ASK
-  **Defaults are the contract; the form edits them.**
-  A post-install run may have no screen, so every
-  decision must also have an answer nobody was
-  asked for. The baseline is the only default that
-  does nothing — it is host-wide.
+  **Defaults are the contract.** A post-install
+  run may have no screen, so each decision has an
+  answer nobody was asked for, which the form
+  edits. Unasked, the baseline and sbx's wizard do
+  nothing.
 end note
 
 note left of ASK
@@ -656,11 +684,11 @@ note left of PREFIX
 end note
 
 note bottom of PREFIX
-  **Not on PATH yet, and login knows it.** install.sh
-  prints the export line itself, so init drives the
-  binary it just placed by ABSOLUTE PATH — calling
-  ""sbx"" would miss, or drive the older one this run
-  was replacing.
+  **Not on PATH yet, and login knows it.**
+  install.sh prints the export line itself, so
+  init drives the binary it just placed by
+  ABSOLUTE PATH — calling ""sbx"" would miss, or
+  drive the older one this run was replacing.
 end note
 
 note right of STEPS
@@ -681,9 +709,9 @@ end note
 
 note bottom of DAEMON
   **The only check about the backend.** Everything
-  else interrogates the CLI. A current sbx in front
-  of a daemon that never came up is exactly the
-  shape that produces a run with no output;
+  else interrogates the CLI. A current sbx in
+  front of a daemon that never came up is exactly
+  the shape that produces a run with no output;
   ""server\.state"" was added in 0.42 to say so.
 end note
 @enduml

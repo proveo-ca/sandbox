@@ -683,11 +683,15 @@ func TestInitYesInPlainOutputCarriesNoStepPlaces(t *testing.T) {
 	if strings.ContainsAny(got, "\x1b\r") || regexp.MustCompile(`step \d+/\d+`).MatchString(got) {
 		t.Errorf("plain output carries a step place or terminal control:\n%q", got)
 	}
-	for _, re := range []string{`(?m)^sbx login — signing in to Docker$`, `(?m)^sbx setup — running the first-run wizard$`,
-		`(?m)^ok: host — ready to run$`} {
+	for _, re := range []string{`(?m)^sbx login — signing in to Docker$`, `(?m)^ok: host — ready to run$`} {
 		if !regexp.MustCompile(re).MatchString(got) {
 			t.Errorf("plain output lacks %s:\n%s", re, got)
 		}
+	}
+	log, _ := os.ReadFile(filepath.Join(state, "sbx.log"))
+	if calls := strings.Split(strings.TrimSpace(string(log)), "\n"); count(calls, "setup") != 0 || count(calls, "login") != 1 ||
+		strings.Contains(got, "sbx setup — running the first-run wizard") {
+		t.Errorf("--yes must run sbx login once and leave sbx's wizard for a terminal:\n%s\n--- sbx calls ---\n%s", got, log)
 	}
 	if strings.Contains(got, "verify sbx") {
 		t.Errorf("verify left a line in plain output:\n%s", got)

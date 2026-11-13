@@ -2,6 +2,8 @@
 package choiceui
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -948,6 +950,31 @@ func TestColumnTextCapsAtTenRunes(t *testing.T) {
 	}
 	if got := r.columnText("API keys"); got != "API keys" {
 		t.Errorf("a short cell must stay whole, got %q", got)
+	}
+}
+
+// An option under the home directory draws as "~/…" in its cell and its help line; its value stays absolute.
+func TestAHomePathOptionReadsAsTildeAndKeepsItsValue(t *testing.T) {
+	t.Parallel()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == string(os.PathSeparator) {
+		t.Skipf("no home directory to write as ~: %q %v", home, err)
+	}
+	abs := filepath.Join(home, ".sbx")
+	f := &Form{Rows: []Row{{
+		Label: "sbx location", Options: []string{"/usr/local", abs}, Selected: 1,
+		Help: map[string]string{"/usr/local": "system-wide", abs: "per-user, no root"},
+	}}}
+	got := joined(t, f)
+	tilde := "~" + string(os.PathSeparator) + ".sbx"
+	if !strings.Contains(got, "(•) "+tilde) || !strings.Contains(got, "› "+tilde+" — per-user, no root") {
+		t.Errorf("the option must read %q in its cell and its help line:\n%s", tilde, got)
+	}
+	if strings.Contains(got, home) {
+		t.Errorf("the screen names the home directory:\n%s", got)
+	}
+	if v := f.Selection("sbx location"); v != abs {
+		t.Errorf("Selection = %q, want the path as given, %q", v, abs)
 	}
 }
 

@@ -66,13 +66,15 @@ func homeDir() string {
 	return h
 }
 
-func defaultDecisions(plan sbx.Plan, installed string, o initOptions) initDecisions {
+// defaultDecisions are the answers nobody gave; terminal says whether one is there to hand sbx's wizard.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE WIZARD WAITS FOR A TERMINAL)
+func defaultDecisions(plan sbx.Plan, installed string, o initOptions, terminal bool) initDecisions {
 	d := initDecisions{
 		Install:  installTarball,
 		Prefix:   plan.Prefix,
 		AddPath:  plan.Bin != "",
 		Login:    !o.skipLogin,
-		Wizard:   !o.skipSetup,
+		Wizard:   !o.skipSetup && !o.yes && terminal,
 		Gh:       !o.skipGh,
 		Git:      !o.skipGit,
 		Prompt:   !o.skipPrompt,
@@ -97,7 +99,7 @@ func carried(def initDecisions, prev *initDecisions) initDecisions {
 }
 
 func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
-	def := carried(defaultDecisions(plan, installed, o), prev)
+	def := carried(defaultDecisions(plan, installed, o, true), prev)
 
 	form := &choiceui.Form{
 		Banner: choiceui.Banner(),

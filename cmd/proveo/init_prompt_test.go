@@ -24,7 +24,7 @@ func TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff(t *testing.T) {
 		{"by default", initOptions{}, true, false},
 		{"--skip-prompt", initOptions{skipPrompt: true}, false, true},
 	} {
-		def := defaultDecisions(plan, "", c.o)
+		def := defaultDecisions(plan, "", c.o, true)
 		if def.Prompt != c.want {
 			t.Errorf("%s: Prompt = %v, want %v", c.name, def.Prompt, c.want)
 		}
@@ -45,8 +45,8 @@ func TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff(t *testing.T) {
 			t.Errorf("%s: no prompt row", c.name)
 		}
 	}
-	prev := defaultDecisions(plan, "", initOptions{})
-	if again := carried(defaultDecisions(plan, "", initOptions{}), &prev); again.Prompt {
+	prev := defaultDecisions(plan, "", initOptions{}, true)
+	if again := carried(defaultDecisions(plan, "", initOptions{}, true), &prev); again.Prompt {
 		t.Error("a revisit of the page would install the prompt kit a second time")
 	}
 }

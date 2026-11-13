@@ -62,7 +62,7 @@ func initCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&o.skipPrompt, "skip-prompt", false, "do not install starship, a Nerd Font, or the proveo prompt segment")
 	cmd.Flags().BoolVar(&o.force, "force", false, "reinstall even when this host already carries a usable sbx, or one that is broken or half-installed")
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "take the defaults without prompting (implied when there is no terminal); "+
-		"credentials, gh's install, GitHub sign-in and access, and the operator's name wait for `proveo init` on a terminal; "+
+		"sbx's setup wizard, credentials, gh's install, GitHub sign-in and access, and the operator's name wait for `proveo init` on a terminal; "+
 		"a missing git identity waits for `git config --global user.name` and `user.email`")
 	return cmd
 }
@@ -296,8 +296,8 @@ func printPlan(plan sbx.Plan) {
 }
 
 func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
-	if o.yes || !interactiveTerminal() {
-		return carried(defaultDecisions(plan, installed, o), prev), nil
+	if tty := interactiveTerminal(); o.yes || !tty {
+		return carried(defaultDecisions(plan, installed, o, tty), prev), nil
 	}
 	return askDecisions(plan, host, installed, checks, o, prev, viaPackage, at)
 }

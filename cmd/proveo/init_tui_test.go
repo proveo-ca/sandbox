@@ -3,11 +3,13 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -22,7 +24,7 @@ func linuxPlan(t *testing.T, prefix string) sbx.Plan {
 
 func TestDefaultDecisionsOnAFreshHost(t *testing.T) {
 	t.Parallel()
-	d := defaultDecisions(linuxPlan(t, "/opt/sbx"), "", initOptions{})
+	d := defaultDecisions(linuxPlan(t, "/opt/sbx"), "", initOptions{}, true)
 
 	if d.Install != installTarball {
 		t.Errorf("Install = %q, want the rootless tarball", d.Install)
@@ -42,23 +44,23 @@ func TestDefaultDecisionsKeepACurrentInstall(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, "/opt/sbx")
 
-	if d := defaultDecisions(plan, sbx.Release, initOptions{}); d.Install != installSkip {
+	if d := defaultDecisions(plan, sbx.Release, initOptions{}, true); d.Install != installSkip {
 		t.Errorf("Install = %q with %s already present, want %q", d.Install, sbx.Release, installSkip)
 	}
 	// proveo installs sbx once and then leaves it alone: an sbx already on the
 	// host is the operator's, whatever its version. Upgrading it unasked would
 	// be managing their toolchain.
-	if d := defaultDecisions(plan, "0.39.0", initOptions{}); d.Install != installSkip {
+	if d := defaultDecisions(plan, "0.39.0", initOptions{}, true); d.Install != installSkip {
 		t.Errorf("Install = %q with an older sbx present, want %q — init only fresh-installs", d.Install, installSkip)
 	}
-	if d := defaultDecisions(plan, sbx.Release, initOptions{force: true}); d.Install != installTarball {
+	if d := defaultDecisions(plan, sbx.Release, initOptions{force: true}, true); d.Install != installTarball {
 		t.Errorf("--force must reinstall, got %q", d.Install)
 	}
 }
 
 func TestFlagsSettleTheirDecisionsWithoutAsking(t *testing.T) {
 	t.Parallel()
-	d := defaultDecisions(linuxPlan(t, "/opt/sbx"), "", initOptions{skipLogin: true, skipSetup: true, skipGh: true, skipGit: true})
+	d := defaultDecisions(linuxPlan(t, "/opt/sbx"), "", initOptions{skipLogin: true, skipSetup: true, skipGh: true, skipGit: true}, true)
 	if d.Login {
 		t.Error("--skip-login must not sign in")
 	}
@@ -73,12 +75,56 @@ func TestFlagsSettleTheirDecisionsWithoutAsking(t *testing.T) {
 	}
 }
 
+// sbx setup has no unattended form: under --yes or with no terminal it waits for later, and
+// sbx login keeps its default. When the page draws, the row decides.
+func TestTheWizardWaitsForATerminal(t *testing.T) {
+	t.Parallel()
+	plan := linuxPlan(t, "/opt/sbx")
+	host := sbx.Host{OS: "linux", Arch: "amd64", Distro: "rocky", Like: "rhel"}
+	for _, c := range []struct {
+		name     string
+		o        initOptions
+		terminal bool
+		want     bool
+	}{
+		{"a terminal", initOptions{}, true, true},
+		{"--yes on a terminal", initOptions{yes: true}, true, false},
+		{"no terminal", initOptions{}, false, false},
+		{"--skip-setup", initOptions{skipSetup: true}, true, false},
+	} {
+		d := defaultDecisions(plan, "", c.o, c.terminal)
+		if d.Wizard != c.want {
+			t.Errorf("%s: Wizard = %v, want %v", c.name, d.Wizard, c.want)
+		}
+		if !d.Login {
+			t.Errorf("%s: sbx login lost its default", c.name)
+		}
+	}
+
+	d, err := decide(plan, host, "", nil, initOptions{yes: true}, nil, false, choiceui.Step{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps := stepNames(applyPlan(d, plannedCtx(plan, host, d, false))); d.Wizard || slices.Contains(steps, actWizard) {
+		t.Errorf("--yes hands sbx's wizard a stdin nobody answers: Wizard=%v steps=%q", d.Wizard, steps)
+	}
+
+	def := defaultDecisions(plan, "", initOptions{}, true)
+	for _, pick := range []string{"now", "later"} {
+		row := nowLaterRow(rowWizard, def.Wizard, false, "", nil)
+		row.Selected = indexOf(row.Options, pick)
+		if got := answered(&choiceui.Form{Rows: []choiceui.Row{row}}, def).Wizard; got != (pick == "now") {
+			t.Errorf("the row chose %q, Wizard = %v", pick, got)
+		}
+	}
+}
+
 // A row per pending decision, and a locked row where a flag already answered —
 // drawn rather than dropped, so the operator can see the flag took effect.
 func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, sbx.DefaultPrefix(homeDir()))
-	def := defaultDecisions(plan, "", initOptions{})
+	def := defaultDecisions(plan, "", initOptions{}, true)
 	rows := initRows(plan, "", def, initOptions{})
 
 	byLabel := map[string]int{}
@@ -137,7 +183,7 @@ func TestAFlagLockedRowIsDrawnWithItsReason(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, "/opt/sbx")
 	o := initOptions{skipLogin: true}
-	rows := initRows(plan, "", defaultDecisions(plan, "", o), o)
+	rows := initRows(plan, "", defaultDecisions(plan, "", o, true), o)
 
 	for _, r := range rows {
 		if r.Label != rowSignIn {
@@ -158,7 +204,7 @@ func TestSkipGhLocksTheGhRow(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, "/opt/sbx")
 	o := initOptions{skipGh: true}
-	rows := initRows(plan, "", defaultDecisions(plan, "", o), o)
+	rows := initRows(plan, "", defaultDecisions(plan, "", o, true), o)
 	for _, r := range rows {
 		if r.Label != rowGh {
 			continue
@@ -182,7 +228,7 @@ func TestWindowsIsNotAskedAboutAPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := initRows(plan, "", defaultDecisions(plan, "", initOptions{}), initOptions{})
+	rows := initRows(plan, "", defaultDecisions(plan, "", initOptions{}, true), initOptions{})
 	for _, r := range rows {
 		if r.Label == rowPrefix || r.Label == rowPath {
 			t.Errorf("windows was asked about %q, which the MSI decides", r.Label)
@@ -212,7 +258,7 @@ func TestInitRowsGateAPackagedInstallThisHostCannotRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := initRows(plan, "", defaultDecisions(plan, "", initOptions{}), initOptions{})
+	rows := initRows(plan, "", defaultDecisions(plan, "", initOptions{}, true), initOptions{})
 	byLabel := map[string]int{}
 	for i, r := range rows {
 		byLabel[r.Label] = i
