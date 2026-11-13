@@ -1021,7 +1021,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	if lay.banner {
 		drawBanner(c, p, f.Banner)
 	}
-	k.head(c, f.Title, f.headChip(w))
+	k.head(c, f.Title, f.headChip(w, cursor))
 	room := listRoom{row: -1, head: c.y}
 	if lay.header {
 		for _, row := range f.facts(w) {
@@ -1229,18 +1229,23 @@ const hintJoin = " · "
 // hintParts is the key line's segments, narrowed one by one so "enter accept" goes last.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) hintParts(w, hidden, cursor int) []hintPart {
-	parts := append(pageHint(f.Step, f.headChip(w)), hintPart{"↑↓", "row", 3})
+	return narrowed(append(pageHint(f.Step, f.headChip(w, cursor)), f.keyParts(hidden, cursor)...), keyRoom(w))
+}
+
+// keyParts is the key line's segments after the page count, before narrowing.
+func (f *Form) keyParts(hidden, cursor int) []hintPart {
+	parts := []hintPart{{"↑↓", "row", 3}}
 	list := f.openList(cursor)
 	esc := hintPart{"esc", "cancel", 5}
 	if f.Step.backable() {
 		esc = hintPart{"esc", "back", 6}
 	}
-	if list != nil && list.query != "" {
+	if list != nil && (list.query != "" || list.typing) {
 		esc.word = "clear"
 	}
 	if list != nil && list.typing {
 		parts = append(parts, hintPart{"type", "to narrow", 2}, hintPart{"enter", "close", 9}, esc)
-		return narrowed(f.hintTail(parts, hidden), keyRoom(w))
+		return f.hintTail(parts, hidden)
 	}
 	move, toggle := hintPart{"←→", "choose", 3}, hintPart{}
 	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
@@ -1263,7 +1268,7 @@ func (f *Form) hintParts(w, hidden, cursor int) []hintPart {
 		parts = append(parts, hintPart{"", plural(n, "step"), 3})
 	}
 	parts = append(parts, esc)
-	return narrowed(f.hintTail(parts, hidden), keyRoom(w))
+	return f.hintTail(parts, hidden)
 }
 
 // hintTail ends a key line: the quit key on a wizard's page, then what the body hides.
@@ -1277,9 +1282,12 @@ func (f *Form) hintTail(parts []hintPart, hidden int) []hintPart {
 	return parts
 }
 
-// headChip is the step chip the head draws on a w-column terminal, or "" when it draws none.
+// headChip is the step chip the head draws on a w-column terminal with the cursor on row cursor, or
+// "" when it draws none.
 // SPEC: _spec/internal/choiceui/wireframe.puml
-func (f *Form) headChip(w int) string { return stepChip(f.Step, "page", f.Title, w) }
+func (f *Form) headChip(w, cursor int) string {
+	return stepChip(f.Step, "page", f.Title, w, f.keyParts(0, cursor))
+}
 
 // narrowed drops the lowest-kept segment, again and again, until the line fits w or one is left.
 func narrowed(parts []hintPart, w int) []hintPart {
@@ -1355,8 +1363,11 @@ type piece struct {
 // rule and the first row under the card.
 type listRoom struct{ row, head, foot, under int }
 
-// listMin is the open list's narrowest width.
+// listMin is the open list's narrowest width where the card has room.
 const listMin = 28
+
+// listFloor is the narrowest open list that draws: its walls, the entry marker and one rune.
+const listFloor = 7
 
 // place is the open list's top row and entry rows for n entries under lead lines on an h-row
 // screen: inside the card on the side of its row with more rows when that side holds three entries
@@ -1383,9 +1394,9 @@ func (a listRoom) place(n, lead, h int) (top, rows int, ok bool) {
 	return 0, 0, false
 }
 
-// drawMore paints the open list as a small card over the page: its cell's name and count on the
-// top border, the filter line, the entries from the cell's column at x, and on the bottom border
-// how many it hides.
+// drawMore paints the open list as a small card over the page: its cell's name, how many entries
+// sit above the window and the count on the top border, the filter line, the entries from the
+// cell's column at x, and on the bottom border how many sit below the window.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom) {
 	r := &f.Rows[row]
@@ -1406,6 +1417,9 @@ func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom)
 	}
 	width := max(listMin, widest+6, textWidth(name+fmt.Sprintf("%d of %d", n, n))+11)
 	width = min(width, right-left+1)
+	if width < listFloor {
+		return
+	}
 	x = max(left, min(x-4, right-width+1))
 	lead := 0
 	if m.Filter {
@@ -1421,6 +1435,9 @@ func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom)
 	if m.query != "" {
 		count = fmt.Sprintf("%d of %d", len(shown), n)
 	}
+	cur := max(0, slices.Index(shown, m.At))
+	first := max(0, min(cur-rows+1, len(shown)-rows))
+	below := max(0, len(shown)-first-rows)
 	g := k.g
 	c.y = top
 	c.put(x, p.frame, g.frameTL+strings.Repeat(g.rule, width-2)+g.frameTR)
@@ -1428,8 +1445,13 @@ func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom)
 	c.put(x+3, p.frame, " ")
 	c.put(x+4, p.title, name)
 	c.put(x+4+textWidth(name), p.frame, " ")
+	end := x + width - 1
 	if at := x + width - 4 - textWidth(count); at > x+5+textWidth(name) {
 		c.put(at, p.word, " "+count+" ")
+		end = at
+	}
+	if above := fmt.Sprintf(" %d above ", first); first > 0 && x+6+textWidth(name)+textWidth(above) < end {
+		c.put(x+6+textWidth(name), p.word, above)
 	}
 	text := width - 6
 	inner := func(paint func()) {
@@ -1442,8 +1464,6 @@ func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom)
 	if m.Filter {
 		inner(func() { m.drawFilter(c, p, x+2, text+2) })
 	}
-	at := max(0, slices.Index(shown, m.At))
-	first := max(0, min(at-rows+1, len(shown)-rows))
 	for i := range rows {
 		inner(func() {
 			switch {
@@ -1456,8 +1476,8 @@ func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom)
 	}
 	c.y++
 	c.put(x, p.frame, g.frameBL+strings.Repeat(g.rule, width-2)+g.frameBR)
-	if hidden := len(shown) - min(rows, len(shown)-first); hidden > 0 {
-		c.put(x+3, p.word, clip(fmt.Sprintf(" %d more ", hidden), width-5))
+	if below > 0 {
+		c.put(x+3, p.word, clip(fmt.Sprintf(" %d more ", below), width-5))
 	}
 }
 

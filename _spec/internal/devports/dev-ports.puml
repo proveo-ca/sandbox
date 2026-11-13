@@ -66,6 +66,10 @@
 ' behind ...More uses More.Off (parallel to More.On) with the same Row.OffWhy:
 ' space refuses it, the dropdown paints it warn, the help adds "off: …",
 ' Selections skips it. The ...More cell itself stays on, so the list opens.
+' AMENDED 2026-11-13 (owner, O5 and O7): the dropdown draws an Off entry
+' faint and struck through (gated), not in warn. ports and apps sit under
+' "interface", after outputs. The dropdown is the form's open list, a small
+' card (_spec/internal/choiceui/wireframe.puml, THE OPEN LIST).
 ' PUBLISH: planPorts re-runs the same HostPortFor at launch, so the -p entry
 ' equals what the help showed unless the host bound H in between; then the
 ' next prefix wins and the port row says "host :<first> was taken". A ticked

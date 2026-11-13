@@ -215,10 +215,17 @@ func (cp *CheckPage) verdict() (string, bool) {
 }
 
 // chip is the head's step chip on a w-column terminal, or "".
-func (cp *CheckPage) chip(w int) string { return stepChip(cp.Step, "checks ·", cp.Title, w) }
+func (cp *CheckPage) chip(w int) string {
+	return stepChip(cp.Step, "checks ·", cp.Title, w, cp.keyParts(0))
+}
 
 func (cp *CheckPage) hintParts(w, hidden int) []hintPart {
-	parts := pageHint(cp.Step, cp.chip(w))
+	return narrowed(append(pageHint(cp.Step, cp.chip(w)), cp.keyParts(hidden)...), keyRoom(w))
+}
+
+// keyParts is the key line's segments after the page count, before narrowing.
+func (cp *CheckPage) keyParts(hidden int) []hintPart {
+	var parts []hintPart
 	if hidden > 0 || cp.top > 0 {
 		parts = append(parts, hintPart{"↑↓", "scroll", 3})
 	}
@@ -236,7 +243,7 @@ func (cp *CheckPage) hintParts(w, hidden int) []hintPart {
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
-	return narrowed(parts, keyRoom(w))
+	return parts
 }
 
 // hint is the key line a w-column terminal shows, as plain text.

@@ -72,6 +72,15 @@ title init opens on every check and closes on the result
 ' Esc on setup now steps back to the checks. It used to end init with
 ' "cancelled at the init prompt"; that is Esc on the checks page now.
 ' Golden frames: internal/choiceui/testdata/checks/, 12 files.
+' AMENDED 2026-11-13 (owner, O1; Executor, E11): the checks page is a card.
+' The banner stays above it. Inside: the title at column 2 with the chip
+' " checks · n/m " at the right, the rows at columns 2, 4 and 6 (group
+' headings stay text, at column 2), the foot rule, the verdict, the key line
+' and the bottom border. While the chip draws, "page n/m" leaves the key
+' line (owner, O6), so e2e/init_steps_test.go's checks() waits for
+' "checks · 1/4" or "page 1/4" (Executor, E16). A passing mark draws green
+' (ColorSuccess), not brand; the Executor chose it while building the card.
+' All 12 golden files were re-recorded; the count did not change.
 '
 ' ── THE CLOSE: WHAT WAITS, WHAT NEVER RAN, THE VERDICT (R3, 2026-11-11) ────
 ' The W-m close ("done:" per step, "later: <action> — `<cmd>`", "next:

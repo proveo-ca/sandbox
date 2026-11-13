@@ -231,6 +231,10 @@ skinparam noteTextAlignment left
 ' figure off — maxHelpLines already reserves for it, but nothing asserted the
 ' ordering until it did. A test pins hint < help < figure at both cursor
 ' positions, on the locked row and on a row with per-option OffWhy.
+' AMENDED 2026-11-13 (One Card): the card's bottom border sits between the
+' hint and the help, and on enter follows the figure. The form's open list
+' paints after all of them, LAST in Z order; the rows' order is unchanged
+' (wireframe.puml, THE OPEN LIST).
 '
 ' A fixture that wants a PANE has to be short. Once the block wins wherever the
 ' block fits, a tall test terminal draws the block — so the pane's own tests
@@ -376,6 +380,24 @@ skinparam noteTextAlignment left
 ' which is what scrolling is for. That ordering is also what makes the foot
 ' FOLLOW the body rather than sit at the screen's bottom edge, so a form that
 ' fits renders exactly where it always did.
+'
+' AMENDED 2026-11-13 (One Card; Executor, E1-E10; owner, O2):
+'   THE MANDATORY SET IS THE CARD: the top border and the title, the WHOLE
+'   body, the foot rule, the key line and the bottom border (cardRows = 5),
+'   the help slot, and the Skip button's two rows when the form names one.
+'   The bottom border took the help's opening blank. The body is still
+'   charged at its full height.
+'   The axis rung left with the legend. The header rung costs
+'   len(Form.facts(w)), the rows the facts flow into, so the ladder and the
+'   paint read one function.
+'   The divider no longer centres on 72. A section is a stub of at least 16
+'   columns from the card's left wall, so "72" is no longer any width's
+'   reason; stripCols keeps its own arithmetic.
+'   rightEdge and bodyRight are deleted. The body's right edge is the card's
+'   inner edge, cw-2, and the canvas clips there.
+'   THE PANE SITS BESIDE THE CARD: paneOrigin returns a column only when
+'   cw + 2 + 80 <= w, anchored right. A full 120-column card needs 202
+'   columns. The pane therefore never reaches a row, whatever its width.
 '
 ' ── THE HELP RESERVATION SPANS THE TICK, NOT JUST THE OPTION ───────────────
 ' maxHelpLines is taken over every row AND every option, and over the tick

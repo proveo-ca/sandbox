@@ -2,8 +2,11 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: the resolved layout of one screenful, and how a gated element is drawn in it
 ' covers: internal/choiceui/choiceui.go, internal/choiceui/gated_reason_test.go
+' covers: internal/choiceui/card.go, internal/choiceui/card_test.go
+' covers: internal/choiceui/env_list_test.go
 ' covers: internal/run/choices.go
 ' covers: internal/run/credential_inventory.go, internal/run/credential_inventory_test.go
+' covers: internal/run/run_form_order_test.go
 ' covers: internal/choiceui/credential_lists_test.go
 ' covers: internal/run/model_row.go
 ' covers: internal/choiceui/step_test.go
@@ -17,6 +20,10 @@
 ' they answered the same question, and named only the first group because the
 ' divider was inferred from "the first multi-select row" rather than declared.
 ' Source: internal/choiceui/choiceui.go draw(); internal/run/choices.go row builders.
+' AMENDED 2026-11-13 (owner, O7): FOUR SECTIONS, in question order: agent
+' (credentials, model), execution (OS, trust repo), reach (egress, mcp) and
+' interface (devices, outputs, ports, apps). A stub names each one, not a
+' centred divider (ONE CARD, below).
 '
 ' The execution group includes trust repo directly below OS. It defaults to
 ' off. Its current opt-in runs mise trust on workspace-root config files before
@@ -31,6 +38,8 @@
 ' expose a full read-only list. Empty cells have neither a tick nor an arrow.
 ' The host inventory never changes transport or billing selections.
 ' See _spec/cmd/proveo/github-access.puml for inventory and transport contracts.
+' AMENDED 2026-11-13 (owner, O7 and O4): credentials opens the agent section,
+' above model, and gains a fourth class, .env (THE .env CELL, below).
 '
 ' Salt possesses no conditional construct. Optionality is consequently encoded,
 ' never branched — the five encodings are demonstrated below and named in the
@@ -50,6 +59,255 @@
 '   every frame ....... _spec/internal/choiceui/topology-states.puml
 '   still unbuilt ..... _spec/internal/choiceui/figure-fidelities.puml (the side pane)
 ' This file stays the resolved layout of one screenful, at a size that holds it.
+' AMENDED 2026-11-13: the body sits inside the card, and its gutter rides the
+' card's right wall instead of two columns on the left (ONE CARD, below).
+'
+' ── 2026-10-05: EXECUTION'S ROW IS "OS"; "ports" JOINS IT ─────────────────
+' (Moved 2026-11-13 from a note that sat after @endsalt, where no renderer
+' read it; the text is unchanged.)
+' The divider still reads "execution"; its row label is "OS" (host ·
+' sandbox). The interface divider stays; its row label is "devices" (tui ·
+' browser · android · ios). Below trust repo and credentials, sbx only, a
+' multi-select "ports" row offers each discovered dev port, all unticked.
+' Past four, column 4 is "...More" and a dropdown lists the rest.
+' _spec/internal/devports/dev-ports.puml
+' AMENDED 2026-11-13 (owner, O7): ports and apps sit under interface, after
+' outputs. The dropdown is now the open list, a small card (ONE CARD).
+
+' ── ONE CARD (2026-11-13) ──────────────────────────────────────────────────
+' The owner chose the One Card look after two rounds of mocks (O1). The
+' reversal of "no sbx cards" is recorded in wizard-keys.puml. Every wizard page
+' is one rounded card: this form, init's forms, the scope page and the checks
+' page. The owner fixed what the card says (O1-O8). The Executor fixed its
+' geometry (E1-E16, F1, F2) and the choices made while building it. card.go
+' draws the frame for every page.
+'
+' WIDTH (Executor, E1). The card is cw = min(w, 120) columns, walls included
+' (cardMax). It draws its frame when w >= 40 (cardMin). Under 40 it draws no
+' walls: text starts at column 0, as before the card. The rows the frame
+' would take stay blank there, so one ladder serves both. Dialogs and the
+' open list are content-sized cards (confirm-dialogs.puml; THE OPEN LIST).
+'
+' COLUMNS INSIDE A FRAMED CARD (Executor, E3):
+'   0        the left wall; a section's stub starts here
+'   2        the title, the "›" row marker, the key line, the help
+'   4        row labels, section names, the facts
+'   18       the grid's column 0 (optOrigin)
+'   cw-2     the inner edge: every write is cut before it
+'   cw-1     the right wall; the scroll marks ride it
+' The walls paint AFTER the body text, so overflow shows as cut text and
+' never hides behind a wall. The canvas also clips body rows at cw-2.
+'
+' THE HEAD (Executor, E5). Row 0 is the top border ╭─╮. Row 1 holds the
+' title, bold, at column 2. On a wizard page a step chip sits at the right:
+' " page n/m " here, " scope · n/m " and " checks · n/m " on the other
+' pages. The chip is a fill (brand ink on ColorSurface) that ends at cw-3, so
+' column cw-2 stays blank. The banner, when the ladder buys it, sits above
+' the card.
+' THE CHIP OWNS THE PAGE COUNT (owner, O6). While the chip draws, "page n/m"
+' leaves the key line. One predicate, stepChip, decides it for draw() and for
+' the plain hint() that tests and e2e read, so the two cannot disagree.
+'   it draws       when title + 2 + chip fit in cw-4 (framed), or when
+'                  title + 1 + chip fit in w (unframed: the threshold the
+'                  title row used before the card)
+'   it also draws  when the whole title does not fit, the key line cannot
+'                  keep "page n/m" whole, and 8 title runes plus "…" still
+'                  fit; the title is then cut with … before the chip
+'   otherwise      no chip; "page n/m" stays on the key line at keep rank 5
+' THE STEP COUNT NEVER VANISHES WHERE IT SHOWED BEFORE THE CARD (Executor, F1
+' and review fix 4). Under 40 columns the chip draws flush right on the title
+' row when it fits, as before. Framed and without a chip, the page count
+' ranks 5, above "N more below" (4).
+' MEASURED by review: the checks page at 40 columns with a 22-rune title lost
+' its count in the head and in the key line. The cut-title rule fixed it:
+' "checks before the r…   checks · 1/4".
+' [Inference] "N more below" ranks below the page count, so the hidden-row
+' count never changes the chip decision; stepChip therefore reads
+' keyParts(0, …).
+'
+' THE FACTS (Executor, E6 and F2). A header line that reads "key: value"
+' (putHeader's colon test) is a fact. Facts flow on one row from column 4,
+' joined by four spaces, and wrap at a fact boundary to width cw-6. Any other
+' header line keeps its own row. An indented line (a NAME=value setting, a
+' GitHub fingerprint) starts at the facts column too: column 4 framed, 2
+' unframed. A fact too long for the row clips with …. No blank row follows
+' the facts. The ladder and the paint both call Form.facts(w), so the ladder
+' charges exactly the rows the paint uses. The header rung still drops the
+' facts as a whole.
+' THE SETTINGS-NAMES LINE IS GONE (owner, O3). The header no longer prints a
+' line naming the loaded settings whose values it hides (CODE_THEME,
+' DARK_MODE); EnvHeader skips them. "keys:" and the NAME=value model settings
+' stay. The cut is in choiceui.EnvHeader, not in run's buildHeader: the same
+' loadedSettings map also feeds the model NAME=value lines.
+'
+' SECTIONS (Executor, E7). A Divider row draws a one-line stub "├── name ──"
+' from the left wall, with the name at column 4. The stub runs max(16,
+' len(name) + 7) columns, so a name longer than nine grows it instead of
+' being cut. Only a name that would reach the inner edge clips, with ….
+' A stub costs ONE body line where the blank, centred heading and blank cost
+' three, so a divider row costs two lines (viewport.puml).
+' The cursor's section lights: its stub rule and the left-wall cells beside
+' its rows draw in the rail style (brand, not bold), and its name draws bold.
+' Other stubs, walls and names draw in the frame style (grey). Rows above the
+' first divider form a section of their own. The head, the facts, Skip and
+' the key line never light; with the cursor on Skip nothing lights.
+' Unframed, a stub "──" starts at column 1, so the gutter at column 0 never
+' covers it.
+' A row whose stub scrolled off takes its label back (headingsInWindow). E7
+' expected that code to become unreachable. It did not: rows other than the
+' cursor's still reach it (MEASURED at 80x12), so the Executor kept it.
+'
+' THE FOOT (Executor, E8). One join rule ├─┤, the key line at column 2, then
+' the bottom border ╰─╯. The Skip button, when the form names one, draws
+' inside the walls above the foot rule, and the ladder charges its two rows
+' there. cardRows = 5 (top border, title, foot rule, key line, bottom border)
+' is the card's fixed cost: the ladder's base is cardRows + body + help.
+'
+' SCROLL MARKS RIDE THE RIGHT WALL (Executor, E9). ▲ and ▼ replace the wall's
+' cell in the frame style; the ░ thumb draws in the rail style. Under the
+' ASCII and Off tiers they are ^, v and a # thumb, so the thumb differs from
+' the | wall. The left wall stays free for the section light. Unframed, the
+' gutter is column 0.
+'
+' THE GRID'S PITCH (Executor, E4). pitch = clamp((cw - 32) / last, 16, 22).
+' last is the largest pinned column on the form (3 on the run form), and 32
+' is optOrigin plus the last cell's 14 columns. With no column pinned above 0
+' the pitch stays 22 (colPitch). At 80 columns the grid sits at 18, 34, 50,
+' 66; at 120 it sits at 18, 40, 62, 84. A cell clips to min(pitch - 2, room
+' to the edge), its label first, with … before its ▾.
+' MEASURED (final check): the .env cell at column 3 is absent at 69 columns
+' and less, draws [x] .… without its ▾ from 70 to 76, [x] .e… ▾ at 77, and
+' whole from 78; its list still opens when the cursor reaches it.
+'
+' UNDER THE CARD (Executor, E10), in this order: the help (column 2, wrapping
+' at cw-4), the topology figure or its digest caption, then "on enter"
+' (heading at 2, numbers at 4, text at 7; unframed 0, 2, 5). The pane draws
+' the figure beside the card only when w >= cw + 2 + 80: 202 columns beside
+' a full card.
+' A help line that opens with "off:" or "always on:" draws that head bold and
+' the rest in the terminal's ink; lime left the help and the option cells.
+' MEASURED by review: help that wraps at cw-4 can take one more line than it
+' did at the terminal's width, so at height 9 some wide terminals now report
+' "terminal too small" where the form drew before the card.
+'
+' THE PAINT ORDER. The head and chip; the facts rows; the body text, cut at
+' cw-2; the walls and scroll marks over it; Skip; the foot rule; the key
+' line; the bottom border; the help; the figure; on enter; and the open list
+' LAST, so nothing paints over it.
+'
+' THE LEGEND IS GONE (owner, O2). No form draws "◀ riskier … safer ▶": the
+' run form and init's forms lost it, and with it Form.NoAxis, axisLabel and
+' the ladder's axis rung (Executor, E15). The owner: "remove the
+' riskier/safer tags, only leave reach". The columns keep their risk order.
+'
+' THE RUN FORM ASKS IN THIS ORDER (owner, O7; design R1 "Questions in order"):
+'   agent       credentials, model (when sourceRow draws one)
+'   execution   OS, trust repo
+'   reach       egress, mcp (each when applicableRows keeps it)
+'   interface   devices, outputs, ports (when discovered), apps (when
+'               discovered)
+' run.section(name, rows) marks the first present row of each section, and a
+' section with no rows draws no stub. Labels and options did not change.
+' run.runRows builds the rows without a terminal, so a table test checks the
+' order per harness. The first section is "agent", as O7 names it; the
+' design panel's "account" was not applied.
+' THE CURSOR OPENS ON THE TOP ROW WITH AN ANSWER TO CHANGE (owner, O8):
+' choice-prompt-render.puml (WHERE THE CURSOR MAY REST). On claudecode with
+' no key and no login that is model · API keys (MEASURED, review step 9).
+'
+' THE .env CELL (owner, O4). credentials gains a fourth class after SSH:
+' ".env", in grid column 3. Its list holds the names the run's env file sets
+' (p.HostEnvFile, so PROVEO_ENV_FILE wins when set). The list holds names
+' only, A to Z ignoring case, read-only, with no tick boxes (More.Bare). With
+' no names the cell draws "[ ] .env" with no ▾ and opens nothing. The names
+' come from credentials.EnvFileNames, which wraps the one parser:
+' _spec/internal/credentials/credential-decisions.puml (ONE PARSER).
+' THE FILTER (owner, O4). "/" opens it. Typed letters narrow the list by
+' case-insensitive subsequence; backspace deletes one rune; ctrl+u empties
+' the query. While it types, every printable key is text, q j k h l and
+' space included. ENTER CLOSES THE FILTER: typing stops, the matches stay,
+' and the form is NOT accepted. Esc while typing clears the query and stops
+' typing; Esc with a query left standing clears it; otherwise Esc is the
+' page's. Leaving the cell drops the query. The keys: wizard-keys.puml. The
+' matcher: scope-tree.puml (THREE MATCHERS).
+' Backspace on an empty query keeps the filter typing, while the scope page's
+' filter closes there. O4 named neither; the Executor kept typing on.
+'
+' THE OPEN LIST IS A SMALL CARD (Executor, E13), painted last.
+'   width     max(28, widest entry + 6, name + count + 11), shifted left so
+'             it ends at or before cw-2; under 7 columns (listFloor) it
+'             draws nothing
+'   column    an entry's tick and name start in the cell's own column
+'   top       "╭── <cell> ─ N above ── <count> ─╮": the count reads "12",
+'             or "5 of 12" while a query stands; "N above" shows when the
+'             window hides entries above it and room allows
+'   filter    a filterable list's first line: "/ filter" in grey at rest,
+'             "/ <query>_" while typing; a long query shows its tail
+'   entries   "›" on the cursor's entry, which takes the answer fill (grey
+'             on a read-only list, cyan on the ports list); matched letters
+'             bold; "nothing matches" when no entry does
+'   bottom    "╰── N more ──╯", counting only the entries below the window
+'   height    fixed when it opens, from the whole list, so narrowing never
+'             moves the box
+' PLACEMENT. Inside the card, on the side of its row with more rows between
+' the head and the foot rule, when that side holds min(3, n) entries. Else
+' under the bottom border, over the help and the figure. Else inside with
+' whatever fits. Else nowhere. It never covers the title, its own row, the
+' foot rule, the key line or the bottom border.
+' MEASURED by review before placement landed: painted last with the old
+' placement, the list covered the key line, and "enter accept" vanished at
+' 734 width x height combinations of the lists-open fixture.
+' Under the card the list can cut a help line mid-word ("publish this por").
+' E13 allows that; nobody has asked the owner whether the help should win.
+' PER-LIST HELP (Executor). More.Help answers first, then Row.Help, then
+' "publish this port". Each list carries its own map, so a .env name never
+' collides with another list's entry or a cell's help. An API keys, OAuth or
+' SSH entry reads "› <name> — configured on the host; read-only". A .env
+' entry reads "› <NAME> — set in <~/path>; this list shows names only". The
+' .env cell reads "N name(s) in <~/path>; read-only; this list shows names
+' only", or "no .env file for this run".
+' NOT "the value is never shown" (Executor, review fix 2). The header can
+' print NAME=value for a model setting the same .env sets (ARCHITECT_MODEL),
+' so that sentence was false on one screen. The list's own claim is true.
+'
+' STATE STYLES (owner, O5). Every answer draws its state, and a fill marks
+' the cursor's answer instead of an underline:
+'   focus     the cursor's answer: black on brand; bold when chosen
+'   focusOff  the cursor on a fixed or unavailable answer: black on grey,
+'             struck through when unavailable
+'   chosen    an answer in force that the operator chose: bold
+'   offered   an answer not chosen: grey (#8A8A8A)
+'   fixed     an answer in force the operator cannot change: plain ink
+'   gated     an unavailable answer: faint and struck through
+'   locked    a locked row's label: faint; the cursor's row keeps brand
+' A locked row, or an Off cell, draws its answer in force as fixed and the
+' rest as gated. A text field keeps its underline. Body text lost its fixed
+' #E5E4E4 ink, which vanished on a white terminal, and draws in the
+' terminal's own ink. Every fill is Reverse plus explicit colours, so
+' NO_COLOR keeps a visible face (tui-design-language.puml, ONE CARD).
+' The legend maps salt's encodings onto these styles: salt grey is NOT the
+' terminal's grey.
+'
+' Pinned by internal/choiceui/card_test.go: TestEveryCardRowHasAWallAtBothEdges,
+'   TestEnterAcceptSurvivesEveryWidthOnTheDrawnFrame,
+'   TestTheChipAndTheKeyLineAgreeOnThePage, TestARowWhoseStubScrolledOffNamesItself,
+'   TestTheCursorsSectionLightsItsStubAndWall, TestAStubClipsInsideTheCard,
+'   TestTheStepCountNeverVanishes, TestUnframedTheGutterNeverCoversAStub,
+'   TestUnframedFormsKeepTheirColumns, TestIndentedHeaderLinesStartAtTheFactsColumn
+' Pinned by internal/choiceui/choiceui_test.go: TestNoFormDrawsARiskLegend,
+'   TestASectionOpensOnAStubThatGrowsForALongName,
+'   TestAnEightyColumnCardDrawsTheGridAtPitchSixteen,
+'   TestAnAnswerDrawsItsStateAndTheCursorFillsIt,
+'   TestEnvHeaderNeverPrintsASecretValue
+' Pinned by internal/choiceui/env_list_test.go: the .env list, its filter, its
+'   placement (TestTheOpenListNeverCoversTheTitleItsRowOrTheFoot), its counts
+'   (TestTheListCountsWhatItHidesAboveAndBelowApart) and
+'   TestNoEnvValueReachesAFrame
+' Pinned by internal/run: TestTheRunFormAsksItsQuestionsInOrder
+'   (run_form_order_test.go), TestASectionOpensOnItsFirstPresentRow,
+'   TestCredentialsRowIsAReadOnlyInventory,
+'   TestTheEnvCellListsTheEnvFilesNamesAndNeverAValue
+' Golden frames: internal/choiceui/testdata/frames/, 137 files (tui-stack.puml).
 
 ' ── THE KEY LINE, AND A FORM THAT IS ONE SCREEN OF SEVERAL (2026-11-08) ────
 ' The Executor chose "Back/next across screens". Form.hint composes the key line
@@ -78,12 +336,38 @@
 ' segment and then clipped, which cut "enter accept" at ≤61 columns on page 2/3.
 ' Pinned by TestEnterAcceptSurvivesEveryWidthThatCanHoldIt (every width 12-160,
 ' every step shape, multi rows).
+' AMENDED 2026-11-13 (One Card). The segments and their KEEP ranks now:
+'   page n/m              5, and only while the head draws no chip (owner, O6)
+'   ↑↓ row                3
+'   ←→ choose | ←→ move   3
+'   space toggle          2; "/ filter" takes its place and rank on a
+'                         filterable cell (Executor, E14)
+'   pgup/pgdn scroll      1
+'   enter accept          9; "enter skip" on Skip; "enter close" while the
+'                         .env filter types (owner, O4)
+'   N steps               3; absent while the filter types: Enter runs nothing
+'   esc cancel | esc back 5 | 6; the word reads "clear" while the filter types
+'                         or a query stands
+'   ctrl+c quit           2
+'   N more below          4
+' A tie still drops the leftmost, so the page count drops before "esc cancel"
+' when both rank 5. While the filter types the line reads
+'   [page n/m ·] ↑↓ row · type to narrow · enter close · esc clear · ctrl+c quit
+' with "N more below" after it when rows hide.
+' The key line starts at column 2 inside the walls and narrows to cw-4
+' (keyRoom); unframed it starts at column 0 and takes the full width.
+' "enter accept" is still never dropped. The typing filter is the one state
+' without it, and no page opens in that state (wizard-keys.puml).
+' hintParts, hint and drawHint take the cursor, because the cursor's open list
+' decides the filter's segments.
 ' THE LINE IS PAINTED IN TWO TONES (2026-11-11, W-e). A segment is a key and
 ' the word for what it does: "enter" and "accept". hintParts returns them
 ' apart. hint() joins them into the plain line above, which every test and
 ' e2e still reads. drawHint paints each key bold in the secondary colour, and
 ' each word and the " · " between in the muted one. `page n/m` and `N more
 ' below` have no key and are painted as words.
+' AMENDED 2026-11-13 (owner, O5): a key draws bold in the terminal's own ink;
+' the secondary colour vanished on a white terminal.
 ' The paint is cut to the plain line's length, piece by piece, so a clipped
 ' line ends on the same cell in both.
 ' Pinned by internal/choiceui/step_test.go:
@@ -122,7 +406,8 @@
 ' Pinned by internal/choiceui/step_test.go: TestShiftTabStepsBackOnlyPastTheFirstScreen,
 ' TestHintNamesThePageTheWayBackAndTheScrollKeys,
 ' TestANarrowHintDropsTheScrollKeysBeforeTheWayOut,
-' TestEnterAcceptSurvivesEveryWidthThatCanHoldIt, TestTheDrawnFooterCarriesThePage.
+' TestEnterAcceptSurvivesEveryWidthThatCanHoldIt, TestTheDrawnHeadCarriesThePage
+' (named TestTheDrawnFooterCarriesThePage until the chip took the page count).
 
 ' ── THE DEVICES ROW PACKS; TUI AND DESKTOP ARE ONE RADIO (2026-10-24) ──────
 ' User: "has empty spaces for browser/android/ios, avoid that. Show chrome and
@@ -156,6 +441,9 @@
 '                     sidecar, but nothing routes THIS row to it, so it is drawn
 '                     and gated rather than left out. The axis is where an
 '                     operator looks to find out an option exists.
+' AMENDED 2026-11-13 (owner, O2): no legend labels a row any more. The order
+' stays: the egress and model columns still run riskier to safer, left to
+' right. What the order lost is the caption that claimed it.
 '
 ' AN UNAVAILABLE OPTION IS GATED, NEVER DROPPED. cursor's CLI has no
 ' bring-your-own-key path, so "usage credits" is off with the reason attached —
@@ -186,45 +474,57 @@
 ' the login file path when a login is what will be spent — then what choosing it
 ' withholds. It does not name a project .env: that file is not a credential
 ' surface. SPEC: _spec/internal/credentials/credential-decisions.puml
+' AMENDED 2026-11-13 (owner, O4): the credentials row's .env cell is a
+' names-only inventory of p.HostEnvFile. Its help is the one place the form
+' names that file; an auth option's hint still never does. The login path in
+' a hint and in a gate's reason is now shortened with ~ (Executor, review
+' fix 8).
 '
-title Choice prompt wireframe — resolved layout, and how a gated element is drawn
+title Choice prompt wireframe — one card, and how a gated element is drawn
 
 {
+{
+  <&terminal> proveo SOLUTIONS | proveo/sandbox: portable, safe AI coding agents
+}
 {+
   {
-    <&terminal> proveo SOLUTIONS | proveo/sandbox: portable, safe AI coding agents
+    <b>run claudecode — confirm or change this run</b> | <back:#0E3A48><color:#00BAC6> page 2/2 </color></back>
   }
-  ==run claudecode — confirm or change this run
   {
-    git: | monorepo on <color:#00BAC6>rs-295-integration-discriminator</color> <i>(uncommitted changes)</i>
-    keys: | ANTHROPIC_API_KEY
-    tooling: | node  nx  python  docker
-    subagents: | 7 definition(s)
-    hooks: | .claude/settings.json
-    llms: | <color:#00BAC6>main=claude-opus-5 (anthropic)</color>   <color:#00BAC6>small=claude-haiku-4-5 (anthropic)</color>
+    <color:#00769D>git:</color> monorepo on <color:#00BAC6>rs-295-integration-discriminator</color> <i>(uncommitted changes)</i>    <color:#00769D>keys:</color> ANTHROPIC_API_KEY
+    <color:#00769D>tooling:</color> node  nx  python  docker    <color:#00769D>subagents:</color> 7 definition(s)    <color:#00769D>hooks:</color> .claude/settings.json
+    <color:#00769D>llms:</color> <color:#00BAC6>main=claude-opus-5 (anthropic)</color>   <color:#00BAC6>small=claude-haiku-4-5 (anthropic)</color>
+    ARCHITECT_MODEL=claude-opus-5
   }
-  ~~
   {
-    . | ◀ riskier | . | . | safer ▶
-    ▸ egress | (X) allow-all | . | ( ) balanced | ( ) deny-all
-    mcp | ( ) on | (X) off | . | .
-    model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
-    . | . | ———— execution ———— | . | .
-    . | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | . | .
+    <color:#00BAC6>├── </color><b>agent</b><color:#00BAC6> ──────</color> | . | . | . | .
+    <color:#9a9a9a>credentials</color> | <color:#9a9a9a>[X] API keys ▾</color> | <color:#9a9a9a>[X] OAuth ▾</color> | <color:#9a9a9a>[X] SSH ▾</color> | <color:#9a9a9a>[X] .env ▾</color>
+    <color:#00BAC6>› model</color> | ( ) Qwen 3.8 | <back:#00BAC6><b>(X) API keys</b></back> | ( ) <color:#9a9a9a><s>plan</s></color> | ( ) Glimmer
+    ├── execution ── | . | . | . | .
+    OS | ( ) <color:#9a9a9a><s>host</s></color> | (X) <color:#9a9a9a>sandbox</color> | . | .
     trust repo | ( ) on | (X) off | . | .
-    credentials | <color:#9a9a9a>[X] API keys ▾</color> | <color:#9a9a9a>[X] OAuth ▾</color> | <color:#9a9a9a>[X] SSH ▾</color> | .
-    . | . | ———— interface ———— | . | .
-    devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
+    ├── reach ────── | . | . | . | .
+    <color:#9a9a9a>egress</color> | (X) <color:#9a9a9a>allow-all</color> | . | ( ) <color:#9a9a9a><s>balanced</s></color> | ( ) <color:#9a9a9a><s>deny-all</s></color>
+    mcp | ( ) on | (X) off | . | .
+    ├── interface ── | . | . | . | .
+    devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] <color:#9a9a9a><s>ios</s></color>
     outputs | ( ) filtered | (X) verbose | . | .
   }
   --
-  ↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel
-  ..
-  always on: Mount the current git project in a sandbox for the agent
+  <b>↑↓</b> row · <b>←→</b> move · <b>space</b> toggle · <b>pgup/pgdn</b> scroll · <b>enter</b> accept · 3 steps · <b>esc</b> back · <b>ctrl+c</b> quit
 }
 {
-{^"1 · greyed — read-only inventory"
-  credentials | <color:#9a9a9a>[X] API keys ▾</color> | <color:#9a9a9a>[X] OAuth ▾</color> | <color:#9a9a9a>[X] SSH ▾</color> | .
+  › API keys — metered by the vendor beyond the plan's included usage …
+  plan: no CLAUDE_CODE_OAUTH_TOKEN is set, and the proveo home holds no login (&#126;/.proveo/…)
+  .
+  on enter
+  1  create proveo-claudecode-1b3f
+  2  clone monorepo
+  3  start the agent
+}
+{
+{^"1 · fixed — read-only inventory, four classes"
+  credentials | <color:#9a9a9a>[X] API keys ▾</color> | <color:#9a9a9a>[X] OAuth ▾</color> | <color:#9a9a9a>[X] SSH ▾</color> | <color:#9a9a9a>[X] .env ▾</color>
   .
   Left/right opens each populated class.
   Up/down traverses its complete list.
@@ -233,6 +533,12 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   an arrow. Counts describe the host
   inventory; model and kit bindings
   determine which entries a run uses.
+  .
+  .env (2026-11-13, owner O4) lists the
+  names the run's env file sets: names
+  only, A to Z, no tick boxes, and "/"
+  filters them. A run with no env file
+  draws the cell unticked, with no arrow.
 }
 {^"2 · empty cell — option withdrawn"
   model | ( ) Qwen 3.8 | (X) API keys | . | ( ) Glimmer
@@ -244,12 +550,16 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   model-source column empty.
 }
 {^"3 · absent region — applicableRows"
-  . | ◀ riskier | . | . | safer ▶
-  model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
+  ├── reach ────── | . | . | . | .
+  mcp | ( ) on | (X) off | . | .
   .
-  An axis with nothing to determine is
-  eliminated wholesale. The legend
-  survives while one ordered row remains.
+  A row with nothing to determine is
+  eliminated wholesale. Its section's stub
+  moves to the first row that survives,
+  here mcp when egress is unreadable. A
+  section with no rows draws no stub.
+  Until 2026-11-13 a riskier/safer legend
+  sat above these rows; no form draws it.
 }
 {^"4 · one answer — a radio, not a gated pair"
   outputs | ( ) filtered | (X) verbose
@@ -278,11 +588,11 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   shows the resolved slots instead — and every slot it shows is highlighted,
   because a half-highlighted row reads as one model mattering more than another.
 }
-{^"7 · described — the cursor's option explains itself, BELOW the hint"
-  devices | [X] <color:#9a9a9a>tui</color> | [X] browser | [ ] android | [ ] ios
+{^"7 · described — the cursor's option explains itself, under the card"
+  devices | [X] <color:#9a9a9a>tui</color> | [X] browser | [ ] android | <back:#8A8A8A>[ ] <s>ios</s></back>
   ↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel | . | . | .
   <color:#00BAC6>› ios — an iOS Simulator on this host — coming soon</color> | . | . | .
-  <color:#9a9a9a>off: coming soon — not built yet</color> | . | . | .
+  <b>off:</b> coming soon — not built yet | . | . | .
   .
   The picker could only ever explain what it had taken AWAY: ""Reason"" is written
   when an option is gated off, so the add-ons that were available and ticked
@@ -300,11 +610,12 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   **Pinned LAST, under the hint, with nothing drawn after it.** Under its own row
   the block's height changed with the cursor and shoved every row beneath it up
   and down — the form moved while the operator was reading it. At the bottom it
-  can grow freely and nothing above ever shifts.
+  can grow freely and nothing above ever shifts. Since 2026-11-13 the card's
+  bottom border sits between the key line and the help.
 
   A greyed box that is TICKED reads "always on:" rather than "off:": it is not
   unavailable, it is compulsory, and the other label would say the opposite of
-  what the checkbox shows.
+  what the checkbox shows. The head draws bold; lime left the help.
 }
 {^"8 · fixed — a box that states a fact"
   execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | .
@@ -331,6 +642,8 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   drops every greyed option, which is right for the two facts above and wrong
   here: a compulsory sandbox dropped from the read-back once sent the run to
   the very backend the lock existed to remove; that backend is now deleted.
+  Since 2026-11-13 the terminal draws such an answer FIXED (plain ink) and an
+  unavailable one GATED (faint, struck); salt keeps grey for both.
 }
 {^"6 · nerd, fallback ascii — PROVEO_GLYPHS"
   The per-language devicons of the ""lsp:"" header row left with that row
@@ -340,6 +653,9 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   cannot be asked whether its font holds a codepoint — so nerd is the tier an
   operator declares with ""=nerd"", and the undeclared default falls back to
   Safe, never to a guess autodetection makes.
+  .
+  The card's frame follows the tier: rounded corners and tees on nerd and
+  safe; plus signs, hyphens and bars on ascii and off.
 }
 {^"9 · model — one row: where the model comes from (every harness)"
   model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
@@ -359,7 +675,9 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   allow-all and Qwen and host and filtered share column 1,
   model API keys and sandbox and browser and verbose share column 2,
   balanced and plan share column 3, deny-all and Glimmer share column 4.
-  The inventory uses API keys, OAuth and SSH in columns 1, 2 and 3.
+  The inventory uses API keys, OAuth, SSH and .env in columns 1, 2, 3 and 4.
+  The pitch shrinks with the card (2026-11-13): 22 columns from a 120-column
+  card down to 16 at 80, where column 4 starts at 66.
   27B and 30B live in the hint. Glimmer's hint still says Muse Glimmer.
   GGUF and MLX are the hint, not the label:
   darwin/arm64 says MLX (""qwen3.8:27b-mlx"", ""muse-glimmer:30b-mlx""), every
@@ -374,43 +692,90 @@ title Choice prompt wireframe — resolved layout, and how a gated element is dr
   forum.cursor.com/t/cursor-cli-custom-endpoint-and-api-key-support/129424).
   SPEC: _spec/defs/hermes/hermes-paradigm.puml
 }
-{^"10 · one screen of several — page n/m and the way back"
-  page 1/3 · ↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel
-  page 2/3 · ↑↓ row · ←→ choose · pgup/pgdn scroll · shift+tab back · enter accept · esc cancel
-  page 2/3 · ↑↓ row · ←→ choose · shift+tab back · enter accept · esc cancel · 3 more below
-  shift+tab back · enter accept · esc cancel
+{^"10 · one screen of several — the chip owns page n/m"
+  <b>run claudecode — confirm or change this run</b> | <back:#0E3A48><color:#00BAC6> page 2/2 </color></back>
+  ↑↓ row · ←→ move · enter accept · 3 steps · esc back · ctrl+c quit | .
   .
-  A lone form (the zero Step) draws no page
-  and no way back. shift+tab leaves as Back
-  only past the first screen, so page 1
-  advertises none. A narrow screen drops
-  whole segments by rank — scroll first,
-  then toggle, the row keys, the page, esc
-  and back — so at 50 columns page 2/3
-  keeps only the way out, and enter accept
-  is never dropped.
+  <b>checks before the r…</b> | <back:#0E3A48><color:#00BAC6> checks · 1/4 </color></back>
+  enter continue · esc cancel | .
+  .
+  <b>a title too long to leave the chip any room</b> | .
+  page 2/3 · ↑↓ row · ←→ choose · enter accept · esc back | .
+  .
+  The chip names the page, so the key line
+  drops "page n/m" while it draws. A title
+  too long for the chip is cut with … to
+  keep it when the key line could not hold
+  the count; otherwise the count stays on
+  the key line, ranked above "N more
+  below". A lone form draws neither. Esc
+  steps back past page 1 (wizard-keys).
+}
+{^"11 · the open list — a small card, painted last"
+  credentials | <color:#9a9a9a>[X] API keys ▾</color> | <color:#9a9a9a>[ ] <s>OAuth</s></color> | <color:#9a9a9a>[ ] <s>SSH</s></color> | <back:#8A8A8A>[X] .env ▾</back>
+  model | ( ) Qwen 3.8 | (X) API keys | . | ╭── <b>.env</b> ─────── 12 ─╮
+  . | . | . | . | │ <color:#8A8A8A>/ filter</color>
+  . | . | . | . | │ › <back:#8A8A8A>ARCHITECT_MODEL</back>
+  . | . | . | . | │   CODE_THEME
+  . | . | . | . | │   DARK_MODE
+  . | . | . | . | ╰── 9 more ────────────╯
+  ↑↓ row · ←→ move · / filter · enter accept · 3 steps · esc back | . | . | . | .
+  › ARCHITECT_MODEL — set in &#126;/monorepo/.env; this list shows names only | . | . | . | .
+  .
+  typing "/mod": the box keeps its height
+  . | . | . | . | ╭── <b>.env</b> ──── 5 of 12 ─╮
+  . | . | . | . | │ <b>/</b> mod_
+  . | . | . | . | │ › <back:#8A8A8A>ARCHITECT_<b>MOD</b>EL</back>
+  . | . | . | . | │   DARK_<b>MOD</b>E
+  . | . | . | . | │   EDITOR_<b>MOD</b>EL
+  . | . | . | . | │   <b>MO</b>NGO_<b>D</b>SN
+  . | . | . | . | │   S<b>M</b>ALL_M<b>OD</b>EL
+  . | . | . | . | │
+  . | . | . | . | ╰──────────────────────╯
+  ↑↓ row · type to narrow · enter close · esc clear · ctrl+c quit | . | . | . | .
+  .
+  The list opens inside the card on the
+  side of its row with more room, else
+  under the card. Its names start in the
+  cell's column. Enter closes the filter
+  and keeps the matches; it never accepts
+  the form while the filter types.
+}
+{^"12 · under 40 columns — no frame (· is a blank column)"
+  <b>run claudecode — confirm or change …</b>
+  .
+  ··git: monorepo on fix-tools
+  ··keys: ANTHROPIC_API_KEY
+  ·── reach ──────
+  ··› egress        (X) allow-all   ( )…
+  ····credentials   (X) forward   ( )…
+  ·── execution ──
+  .
+  ←→ move · enter accept · esc cancel
+  .
+  The rows the frame would take stay
+  blank, so one ladder serves both
+  widths. The title and the key line
+  start at column 0, the facts at 2.
+  Stubs start at column 1, so the
+  gutter keeps column 0.
 }
 }
 }
 
 legend bottom
-  <color:#9a9a9a>grey text</color> — offered, never selectable; the violated constraint is drawn on the row
+  <color:#9a9a9a>grey text</color> — not selectable: the terminal draws a FIXED answer in plain ink and a locked row's label faint; salt grey is not the terminal's grey
+  <color:#9a9a9a><s>grey, struck</s></color> — unavailable (gated): the terminal draws it faint and struck through
+  <s>struck</s> — cleared by a cross-row gate, or never read by this harness
+  plain text — offered and selectable: the terminal draws it grey (#8A8A8A), and bold once chosen
+  <back:#00BAC6>a cyan fill</back> — the cursor's answer, black on brand; <back:#8A8A8A>a grey fill</back> — the cursor on a fixed or unavailable answer
+  <back:#0E3A48><color:#00BAC6> chip </color></back> — the step chip, brand on the surface colour; it owns the page count
+  ├── name ── — a section's stub; the cursor's section draws its stub and its left wall in brand, its name bold
+  the box around the form — the card: ╭─╮ walls ├─┤ ╰─╯, min(w, 120) wide; ascii and off draw plus signs, hyphens and bars
   a "." cell — element absent, column position preserved for the survivors
   a titled group box — region rendered only while its title predicate holds
-  <s>struck</s> — cleared by a cross-row gate, or never read by this harness
   no frame whatsoever — no TTY, so the form is never drawn and resolved values stand
   a glyph before a label — accented marker; devicon by default, ASCII via PROVEO_GLYPHS=ascii
-  a "›" line under a row — what the option the cursor is on does, wrapped; "off:" adds why it cannot be picked
+  a "›" line under the card — what the option the cursor is on does, wrapped; "off:" adds why it cannot be picked
 end legend
-@endsaltnote as PortsRow
-  **2026-10-05: execution's row is "OS"; "ports" joins it.**
-  The divider still reads ""execution""; its row label is
-  ""OS"" (host · sandbox). The interface divider stays; its
-  row label is ""devices"" (tui · browser · android · ios).
-  Below trust repo and credentials, sbx only, a
-  multi-select ""ports"" row offers each discovered dev
-  port, all unticked. Past four, column 4 is ""...More""
-  and a dropdown lists the rest.
-  _spec/internal/devports/dev-ports.puml
-end note
-
+@endsalt

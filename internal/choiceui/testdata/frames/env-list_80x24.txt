@@ -16,7 +16,7 @@
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ ↑↓ row · ←→ move · enter accept · 3 steps · esc back · ctrl+c quit           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  › ARCHITECT_MODEL — set in ~/monorepo/.env; the value is never shown
+  › ARCHITECT_MODEL — set in ~/monorepo/.env; this list shows names only
 
   on enter
     1  create proveo-claudecode-1b3f

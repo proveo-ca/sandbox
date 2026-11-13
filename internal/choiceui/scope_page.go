@@ -213,10 +213,17 @@ func (sp *ScopePage) whereShort() string {
 }
 
 // chip is the head's step chip on a w-column terminal, or "".
-func (sp *ScopePage) chip(w int) string { return stepChip(sp.Step, "scope ·", sp.Title, w) }
+func (sp *ScopePage) chip(w int) string {
+	return stepChip(sp.Step, "scope ·", sp.Title, w, sp.keyParts(0))
+}
 
 func (sp *ScopePage) hintParts(w, hidden int) []hintPart {
-	parts := append(pageHint(sp.Step, sp.chip(w)), hintPart{"↑↓", "row", 3})
+	return narrowed(append(pageHint(sp.Step, sp.chip(w)), sp.keyParts(hidden)...), keyRoom(w))
+}
+
+// keyParts is the key line's segments after the page count, before narrowing.
+func (sp *ScopePage) keyParts(hidden int) []hintPart {
+	parts := []hintPart{{"↑↓", "row", 3}}
 	if sp.filtering {
 		parts = append(parts, hintPart{"type", "to narrow", 2}, hintPart{"enter", "choose", 9}, hintPart{"esc", "clear", 5})
 	} else {
@@ -229,7 +236,7 @@ func (sp *ScopePage) hintParts(w, hidden int) []hintPart {
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
-	return narrowed(parts, keyRoom(w))
+	return parts
 }
 
 // hint is the key line a w-column terminal shows, as plain text.

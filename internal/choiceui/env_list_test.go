@@ -20,7 +20,7 @@ var envNames = []string{"ARCHITECT_MODEL", "CODE_THEME", "DARK_MODE", "DATABASE_
 func envList(names []string) *More {
 	help := map[string]string{}
 	for _, n := range names {
-		help[n] = "set in ~/monorepo/.env; the value is never shown"
+		help[n] = "set in ~/monorepo/.env; this list shows names only"
 	}
 	return &More{Cell: 3, Options: slices.Clone(names), ReadOnly: true, Filter: true, Bare: true, Help: help}
 }
@@ -259,13 +259,39 @@ func TestTheKeyLineWhileTypingNeverOffersAccept(t *testing.T) {
 	}
 }
 
+func TestTheKeyLineWhileTypingAnEmptyQuerySaysEscClear(t *testing.T) {
+	t.Parallel()
+	want := "↑↓ row · type to narrow · enter close · esc clear · ctrl+c quit"
+	for name, keys := range map[string][]press{
+		"right after /":           {key('/')},
+		"after ctrl+u":            {key('/'), key('m'), key('o'), named("ctrl+u")},
+		"after backspace to none": {key('/'), key('m'), key('o'), named("backspace"), named("backspace")},
+	} {
+		f := envForm()
+		cursor := 0
+		for _, p := range keys {
+			f.key(&cursor, p, 120, 36)
+		}
+		if m := envOpen(f); m.query != "" || !m.typing {
+			t.Fatalf("%s: query %q typing %v, want an empty query while typing", name, m.query, m.typing)
+		}
+		if got := f.hint(120, 0, 0); got != want {
+			t.Errorf("%s: key line = %q, want %q", name, got, want)
+		}
+		frame := strings.Join(renderAt(t, f, 0, 120, 36), "\n")
+		if !strings.Contains(frame, want) || strings.Contains(frame, "esc back") {
+			t.Errorf("%s: the drawn key line must read %q:\n%s", name, want, frame)
+		}
+	}
+}
+
 func TestTheEnvHelpNamesTheEntryOnceAndTheFile(t *testing.T) {
 	t.Parallel()
 	f := envForm()
 	f.Rows[1].Help = map[string]string{"ARCHITECT_MODEL": "a row help that must not answer for the list"}
 	f.Rows[0].Help = map[string]string{"ARCHITECT_MODEL": "a cell help that must not answer for the list"}
 	lines := f.Rows[0].helpLines(116)
-	if len(lines) != 1 || lines[0].text != "› ARCHITECT_MODEL — set in ~/monorepo/.env; the value is never shown" {
+	if len(lines) != 1 || lines[0].text != "› ARCHITECT_MODEL — set in ~/monorepo/.env; this list shows names only" {
 		t.Fatalf("help = %+v", lines)
 	}
 	none := filtering("zzq")
@@ -363,6 +389,90 @@ func TestTheOpenListNeverCoversTheTitleItsRowOrTheFoot(t *testing.T) {
 			}
 			if framed(w) && top <= foot+2 && bottom >= foot {
 				t.Errorf("%s %dx%d: the list (%d..%d) spans the foot at %d:\n%s", name, w, h, top, bottom, foot, frame)
+			}
+		}
+	}
+}
+
+// listCounts is what the open list titled name shows on a drawn frame: the count on its top border
+// of entries above its window, the entries in its window, and the count on its bottom border below it.
+func listCounts(t *testing.T, lines []string, name string) (above int, entries []string, below int) {
+	t.Helper()
+	top, bottom := listBox(lines, name)
+	if top < 0 || bottom < 0 {
+		t.Fatalf("no list %q drawn:\n%s", name, strings.Join(lines, "\n"))
+	}
+	i := strings.Index(lines[top], "╭── "+name+" ")
+	left := len([]rune(lines[top][:i]))
+	right := left + len([]rune(strings.SplitN(lines[top][i:], "╮", 2)[0]))
+	span := func(y int) string {
+		r := []rune(lines[y])
+		return string(r[min(left, len(r)):min(right+1, len(r))])
+	}
+	count := func(line, word string) int {
+		f := strings.Fields(strings.ReplaceAll(line, "─", " "))
+		for j := 1; j < len(f); j++ {
+			if f[j] == word {
+				var n int
+				fmt.Sscan(f[j-1], &n)
+				return n
+			}
+		}
+		return 0
+	}
+	for y := top + 1; y < bottom; y++ {
+		text := strings.Trim(span(y), "│ ")
+		if f := strings.Fields(text); len(f) > 0 && f[0] != "/" {
+			entries = append(entries, f[len(f)-1])
+		}
+	}
+	return count(span(top), "above"), entries, count(span(bottom), "more")
+}
+
+func TestTheListCountsWhatItHidesAboveAndBelowApart(t *testing.T) {
+	t.Parallel()
+	reached := map[string]bool{}
+	for _, sz := range [][2]int{{120, 36}, {80, 24}, {80, 16}} {
+		for down := range len(envNames) {
+			f := envForm()
+			cursor := 0
+			for range down {
+				f.key(&cursor, named("down"), sz[0], sz[1])
+			}
+			lines := renderAt(t, f, cursor, sz[0], sz[1])
+			above, entries, below := listCounts(t, lines, ".env")
+			if above+len(entries)+below != len(envNames) {
+				t.Errorf("%dx%d down %d: %d above + %d shown + %d below != %d:\n%s", sz[0], sz[1], down, above, len(entries), below, len(envNames), strings.Join(lines, "\n"))
+				continue
+			}
+			if !slices.Equal(entries, envNames[above:above+len(entries)]) || !slices.Contains(entries, envNames[down]) {
+				t.Errorf("%dx%d down %d: window %q is not entries %d.. holding the cursor's %s", sz[0], sz[1], down, entries, above, envNames[down])
+			}
+			reached["above"] = reached["above"] || above > 0
+			reached["below"] = reached["below"] || below > 0
+			reached["both"] = reached["both"] || above > 0 && below > 0
+		}
+	}
+	lines := renderAt(t, listsForm(), 0, 80, 10)
+	if above, entries, below := listCounts(t, lines, "OAuth"); above != 3 || !slices.Equal(entries, []string{"credential-03"}) || below != 8 {
+		t.Errorf("lists 80x10: %d above, %q, %d below; want 3, credential-03, 8:\n%s", above, entries, below, strings.Join(lines, "\n"))
+	}
+	if !reached["above"] || !reached["below"] || !reached["both"] {
+		t.Errorf("the sweep must reach entries hidden above, below and both: %v", reached)
+	}
+}
+
+// The open list draws at every width without a panic and never past the terminal's last column.
+func TestTheOpenListDrawsAtEveryWidth(t *testing.T) {
+	t.Parallel()
+	for name, form := range map[string]func() *Form{"env": envForm, "env-mod": func() *Form { return filtering("mod") }, "lists": listsForm} {
+		for w := 1; w <= 160; w++ {
+			for _, h := range []int{12, 36} {
+				for _, l := range renderAt(t, form(), 0, w, h) {
+					if textWidth(l) > w {
+						t.Fatalf("%s %dx%d: a row runs past the last column: %q", name, w, h, l)
+					}
+				}
 			}
 		}
 	}
@@ -486,19 +596,24 @@ func TestTheEnvListDrawsFromTheCellsColumnAndTheTiersRunes(t *testing.T) {
 func TestNoEnvValueReachesAFrame(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), ".env")
-	values := []string{"xq-value-7731", "xq-value-5508", "xq-value-2264", "xq-value-9140"}
-	body := fmt.Sprintf("ANTHROPIC_API_KEY=%s\nexport DATABASE_URL=\"%s\"\n# NOTE=%s\nsmall_model='%s'\n", values[0], values[1], values[2], values[3])
+	values := []string{"xq-value-7731", "xq-value-5508", "xq-value-2264", "xq-value-9140",
+		"XQPEMBODY4417", "XQ_PEM_LINE", "xq-pem-3391", "BEGIN PRIVATE", "XQJSONKEY8812", "XQ_JSON_NAME", "xq-json-6650",
+		"private_key", "xq-open-1180", "XQ_OPEN_LINE", "xq-open-2291"}
+	body := fmt.Sprintf("ANTHROPIC_API_KEY=%s\nexport DATABASE_URL=\"%s\"\n# NOTE=%s\nsmall_model='%s'\n", values[0], values[1], values[2], values[3]) +
+		"export TLS_KEY=\"-----BEGIN PRIVATE KEY-----\nXQPEMBODY4417==\nXQ_PEM_LINE=xq-pem-3391\n-----END PRIVATE KEY-----\"\n" +
+		"export SA_JSON='{\n  \"private_key\": \"XQJSONKEY8812==\",\n  \"XQ_JSON_NAME\": \"xq-json-6650\"\n}'\n" +
+		"OPEN=\"xq-open-1180\nXQ_OPEN_LINE=xq-open-2291\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	names := credentials.EnvFileNames(path)
-	if !slices.Equal(names, []string{"ANTHROPIC_API_KEY", "DATABASE_URL", "small_model"}) {
+	if !slices.Equal(names, []string{"ANTHROPIC_API_KEY", "DATABASE_URL", "SA_JSON", "small_model", "TLS_KEY"}) {
 		t.Fatalf("names = %q", names)
 	}
 	m := envList(names)
 	f := envFormWith(m)
 	row := fmt.Sprintf("%#v %#v", f.Rows[0], *m)
-	frames := []string{row}
+	frames := []string{row, strings.Join(names, "\n")}
 	for _, sz := range [][2]int{{160, 45}, {120, 36}, {80, 24}, {80, 12}, {38, 20}} {
 		for _, keys := range [][]press{nil, {key('/')}, {key('/'), key('a')}, {key('/'), key('z'), key('q')}, {named("down"), named("down")}} {
 			f := envFormWith(envList(names))

@@ -158,7 +158,7 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 	r.Help = authHelp(man, lookup, target, homeRoot, envFile)
 	r.Off = make([]bool, len(r.Options))
 	r.OffWhy = map[string]string{}
-	why := credentials.AuthWhyUnavailable(man, target, homeRoot)
+	why := tildeIn(credentials.AuthWhyUnavailable(man, target, homeRoot))
 	var reasons []string
 	for i, opt := range r.Options {
 		if slices.Contains(available, opt) {
@@ -173,6 +173,14 @@ func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot
 		r.Selected = firstSelectableIn(&r)
 	}
 	return r, true
+}
+
+// tildeIn is texts with each path under the home directory written as "~/…".
+func tildeIn(texts map[string]string) map[string]string {
+	for k, v := range texts {
+		texts[k] = ui.TildeIn(v)
+	}
+	return texts
 }
 
 // preferSubscription puts the plan side first, so a run bills against it whenever it can.
@@ -197,8 +205,8 @@ func authAnswer(chosen string, available []string) string {
 }
 
 func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
-	backing := credentials.AuthBacking(man, lookup, target, homeRoot, envFile)
-	unavailable := credentials.AuthWhyUnavailable(man, target, homeRoot)
+	backing := tildeIn(credentials.AuthBacking(man, lookup, target, homeRoot, envFile))
+	unavailable := tildeIn(credentials.AuthWhyUnavailable(man, target, homeRoot))
 	usageIs := "metered per token at each provider, on your own keys"
 	if credentials.VendorPinnedWhy(man) != "" {
 		usageIs = "metered by the vendor beyond the plan's included usage — there is no " +

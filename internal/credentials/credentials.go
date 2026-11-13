@@ -613,6 +613,9 @@ func (c *ChildEnv) Apply(base []string) []string {
 	return append(out, c.pairs...)
 }
 
+// ParseEnvFile reads the NAME=value lines of the env file at path. A value opened by a quote that
+// its line does not close runs across lines to the closing quote, joined with newlines; when no
+// later line closes it, that line and every line after it are dropped.
 func ParseEnvFile(path string) map[string]string {
 	out := map[string]string{}
 	if path == "" {
@@ -622,8 +625,9 @@ func ParseEnvFile(path string) map[string]string {
 	if err != nil {
 		return out
 	}
-	for _, raw := range strings.Split(string(b), "\n") {
-		line := strings.TrimSpace(raw)
+	lines := strings.Split(strings.TrimPrefix(string(b), "\ufeff"), "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -636,7 +640,16 @@ func ParseEnvFile(path string) map[string]string {
 		}
 		k = strings.TrimSpace(k)
 		v = strings.TrimSpace(v)
-		if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
+		quoted := len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\''))
+		if !quoted && v != "" && (v[0] == '"' || v[0] == '\'') && closingQuote(v[1:], v[0]) < 0 {
+			value, last, closed := quotedValue(lines, i, v)
+			if closed {
+				out[k] = value
+			}
+			i = last
+			continue
+		}
+		if quoted {
 			v = v[1 : len(v)-1]
 		}
 		out[k] = v
@@ -644,12 +657,54 @@ func ParseEnvFile(path string) map[string]string {
 	return out
 }
 
-// EnvFileNames is the names ParseEnvFile reads from path, A to Z in any case, never a value.
+// quotedValue is the value that open, a quote and the rest of line i, starts: line i's text and
+// each next line up to the closing quote, joined with newlines, with the index of the closing
+// line; closed is false when no line closes it.
+func quotedValue(lines []string, i int, open string) (value string, last int, closed bool) {
+	q := open[0]
+	parts := []string{open[1:]}
+	for j := i + 1; j < len(lines); j++ {
+		line := strings.TrimSuffix(lines[j], "\r")
+		if end := closingQuote(line, q); end >= 0 {
+			return strings.Join(append(parts, line[:end]), "\n"), j, true
+		}
+		parts = append(parts, line)
+	}
+	return "", len(lines), false
+}
+
+// closingQuote is the index of the first q in s that closes a value, or -1; inside double quotes a
+// backslash escapes the next byte.
+func closingQuote(s string, q byte) int {
+	for i := 0; i < len(s); i++ {
+		switch {
+		case q == '"' && s[i] == '\\':
+			i++
+		case s[i] == q:
+			return i
+		}
+	}
+	return -1
+}
+
+// envName reports whether s is a variable name: a letter or _, then letters, digits and _.
+func envName(s string) bool {
+	for i, r := range s {
+		letter := r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
+		if !letter && (i == 0 || r < '0' || r > '9') {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// EnvFileNames is the names ParseEnvFile reads from path, A to Z in any case, never a value; a
+// line whose value is only base64 padding names nothing.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func EnvFileNames(path string) []string {
 	var names []string
-	for name := range ParseEnvFile(path) {
-		if name != "" {
+	for name, value := range ParseEnvFile(path) {
+		if envName(name) && (value == "" || strings.Trim(value, "=") != "") {
 			names = append(names, name)
 		}
 	}

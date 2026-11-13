@@ -149,6 +149,9 @@ skinparam noteTextAlignment left
 ' Asked, through the same choiceui the run picker uses — without that
 ' picker's "◀ riskier … safer ▶" legend. Init's radios are not a safety
 ' axis (NoAxis); ranking a prefix that way had no value.
+' AMENDED 2026-11-13 (owner, O2): no form draws the legend now, and
+' Form.NoAxis is deleted. Init's pages are One Card cards like the run form
+' (_spec/internal/choiceui/wireframe.puml, ONE CARD).
 '   sbx install ... rootless tarball | distro package (root, no digest) |
 '                   keep what is installed. This is sbx from GitHub, not a
 '                   second copy of proveo — proveo is already on PATH from the

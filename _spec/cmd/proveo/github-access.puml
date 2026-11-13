@@ -78,6 +78,11 @@ title GitHub access — host selection, sandbox verification
 ' Each populated cell opens its complete read-only list with the ports dropdown
 ' mechanism. Left/right changes the list; up/down moves inside it; space cannot
 ' mutate credentials. Lists scroll to the highlighted entry on short terminals.
+' AMENDED 2026-11-13 (owner, O7 and O4): credentials is the run form's first
+' row, under "agent", above model. It gains a fourth class, ".env": the
+' names the run's env file sets, names only, filterable with "/". Each list
+' is a small card; its entries carry their own help. The order and the
+' layout: _spec/internal/choiceui/wireframe.puml (ONE CARD).
 ' Topology always puts the credential marker at the broker, including local
 ' models, OAuth and disabled legacy-forward/host previews.
 

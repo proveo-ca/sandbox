@@ -112,11 +112,13 @@ func TestTheChipAndTheKeyLineAgreeOnThePage(t *testing.T) {
 				head = lines[1]
 			}
 			chip := strings.Contains(head, "page 2/3")
-			if want := f.headChip(w) != ""; chip != want {
+			if want := f.headChip(w, 0) != ""; chip != want {
 				t.Errorf("title %d, width %d: head draws the chip %v, headChip says %v: %q", len(title), w, chip, want, head)
 			}
-			if chip != chipFits(textWidth(title), textWidth(" page 2/3 "), w) {
-				t.Errorf("title %d, width %d: the chip ignores chipFits: %q", len(title), w, head)
+			keyHolds := keyRoom(w) >= textWidth("page 2/3 · enter accept · esc back")
+			cut := !keyHolds && chipFits(titleKeep+1, textWidth(" page 2/3 "), w)
+			if want := chipFits(textWidth(title), textWidth(" page 2/3 "), w) || cut; chip != want {
+				t.Errorf("title %d, width %d: chip drawn %v, want %v (whole title fits, or the key line drops the page and a cut title fits): %q", len(title), w, chip, want, head)
 			}
 			if chip && !framed(w) && (!strings.HasSuffix(head, " page 2/3") || textWidth(head) != w-1) {
 				t.Errorf("title %d, width %d: unframed, the chip ends the title row: %q", len(title), w, head)
@@ -377,9 +379,10 @@ func TestTheScopeAndCheckPagesAreCards(t *testing.T) {
 	}
 }
 
-// The step count never vanishes: under 40 columns the chip ends the title row at every width its
-// text fit there before the card (more than title + 2 columns left of it), and a key line with no
-// chip above it drops "N more below" before the page count.
+// The step count never vanishes: under 40 columns the chip ends the title row when title + 2 + chip
+// fit in w; where the key line cannot keep the page count, the head draws the chip beside the title
+// cut with … to at least titleKeep runes; the frame shows the count once at most; and a key line
+// with no chip above it drops "N more below" before the page count.
 func TestTheStepCountNeverVanishes(t *testing.T) {
 	t.Parallel()
 	type stepPage struct {
@@ -394,7 +397,7 @@ func TestTheStepCountNeverVanishes(t *testing.T) {
 		{"form", " page 2/3 ", "page 2/3",
 			func(title string, w int) ([]string, string) {
 				f := form(title)
-				return renderAt(t, f, 0, w, 30), f.headChip(w)
+				return renderAt(t, f, 0, w, 30), f.headChip(w, 0)
 			},
 			func(title string, w, hidden int) string { return form(title).hint(w, hidden, 0) }},
 		{"scope", " scope · 1/2 ", "page 1/2",
@@ -411,13 +414,37 @@ func TestTheStepCountNeverVanishes(t *testing.T) {
 			func(title string, w, hidden int) string { return check(title).hint(w, hidden) }},
 	}
 	for _, pg := range pages {
-		unframed, ranked := false, false
-		for _, title := range []string{"t", strings.Repeat("t", 100)} {
+		unframed, ranked, cut := false, false, false
+		label := strings.TrimSpace(pg.chip)
+		for _, title := range []string{"t", strings.Repeat("t", 22), strings.Repeat("t", 100)} {
 			for w := 12; w <= 160; w++ {
 				lines, chip := pg.draw(title, w)
+				out := strings.Join(lines, "\n")
+				shown := strings.Count(out, label)
+				if label != pg.count {
+					shown += strings.Count(out, pg.count)
+				}
+				if shown > 1 {
+					t.Errorf("%s title %d width %d: the step count shows %d times:\n%s", pg.name, len(title), w, shown, out)
+				}
+				if shown == 0 && chipFits(titleKeep+1, textWidth(pg.chip), w) {
+					t.Errorf("%s title %d width %d: the step count vanished where a cut title and the chip fit:\n%s", pg.name, len(title), w, out)
+				}
+				if chip != "" && !chipFits(textWidth(title), textWidth(chip), w) {
+					cut = true
+					head := ""
+					for _, l := range lines {
+						if strings.Contains(l, label) {
+							head = l
+						}
+					}
+					if dots := strings.Index(head, "…"); dots < 0 || dots > strings.Index(head, label) || !strings.Contains(head, strings.Repeat("t", titleKeep)) {
+						t.Errorf("%s title %d width %d: the head must cut the title with … to at least %d runes before the chip: %q", pg.name, len(title), w, titleKeep, head)
+					}
+				}
 				if !framed(w) && title == "t" {
-					if room := w-textWidth(strings.TrimSpace(pg.chip)) > 1+2; room != (chip == pg.chip) {
-						t.Errorf("%s width %d: the chip's text fits where it did before the card %v, chip drawn %q", pg.name, w, room, chip)
+					if room := textWidth(title)+2+textWidth(label) < w; room != (chip == pg.chip) {
+						t.Errorf("%s width %d: title + 2 + chip fit in w %v, chip drawn %q", pg.name, w, room, chip)
 					}
 					if chip != "" {
 						unframed = true
@@ -436,8 +463,8 @@ func TestTheStepCountNeverVanishes(t *testing.T) {
 				ranked = ranked || (strings.Contains(hint, pg.count) && !strings.Contains(hint, "more below"))
 			}
 		}
-		if !unframed || !ranked {
-			t.Errorf("%s: the sweep must reach both cases: unframed chip %v, page kept over more below %v", pg.name, unframed, ranked)
+		if !unframed || !ranked || !cut {
+			t.Errorf("%s: the sweep must reach every case: unframed chip %v, page kept over more below %v, chip beside a cut title %v", pg.name, unframed, ranked, cut)
 		}
 	}
 }

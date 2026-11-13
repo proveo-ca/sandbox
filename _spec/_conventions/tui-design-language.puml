@@ -3,6 +3,7 @@
 ' purpose: the one design language every proveo terminal surface renders in, and why the status stream had to join it
 ' covers: internal/ui/**, internal/posture/posture.go, internal/choiceui/topology.go
 ' covers: internal/contract/tui_vocabulary_test.go
+' covers: internal/choiceui/card.go (the frame runes, read from glyphsFor)
 '   the prompt that already obeyed it .. _spec/internal/choiceui/choice-prompt-render.puml
 '   its glyph + width rules ............ _spec/internal/choiceui/topology-strip.puml
 '   its region budget .................. _spec/internal/choiceui/viewport.puml
@@ -125,6 +126,11 @@
 ' AMENDED 2026-11-11: the shared names stay shared (credentials, egress,
 ' interface). The form's "execution" divider has no narration twin any more:
 ' the subjects under it (the workspace, sbx) print under their own headings.
+' AMENDED 2026-11-13 (owner, O2 and O7): the form's sections are agent,
+' execution, reach and interface. "reach" has no stream twin: the stream
+' says "egress", and egress is the reach section's first row. "agent" has
+' none either; credentials is its first row and stays a shared name.
+' Only "interface" names both a form section and a stream heading.
 '
 ' THE HEADING IS LAZY, AND THAT IS THE WHOLE MECHANISM. Nearly every line in a
 ' prelude is conditional: no gh session, no symlinks, no broker, no sub-scope.
@@ -208,6 +214,8 @@
 ' THE FORM KEEPS ITS DIVIDERS. The run form groups its rows by where the agent
 ' runs ("execution") and what it drives ("interface"); the narration names
 ' subjects. e2e/ports_publish_test.go reads the form's "execution".
+' AMENDED 2026-11-13 (owner, O7): four sections now, in question order:
+' agent, execution, reach, interface. Each is a stub, not a centred divider.
 '
 ' ── THE DIVIDER IS CHOICEUI'S, RE-ANCHORED ────────────────────────────────
 ' Same construction and same secondary colour: rules, the label spaced, rules.
@@ -219,6 +227,53 @@
 ' width. An unmeasurable writer — a log, a pipe, CI — gets choiceui's short form
 ' instead, because a hundred dashes per section is noise in a transcript and the
 ' width would be a constant pretending to be a measurement.
+' AMENDED 2026-11-13 (Executor, E7): choiceui no longer centres. A form
+' section is a stub "├── name ──" off the card's left wall, the name at column
+' 4, at least 16 columns long, in the frame grey (the cursor's section in
+' brand). Both speakers now anchor the label on the left. The stream's rule
+' still runs to the measured width; the form's stub stops short of the wall.
+'
+' ── ONE CARD (2026-11-13) ─────────────────────────────────────────────────
+' The owner chose the One Card look (O1): every choiceui wizard page, every
+' dialog and the form's open list draws inside a rounded card. The geometry:
+' _spec/internal/choiceui/wireframe.puml (ONE CARD). What the language gained:
+' WALLS MEAN A CARD. A pair of │ walls with rounded corners and ├ ┤ joins
+' encloses exactly one page, one dialog or one open list. The topology figure
+' keeps its square corners (┌ ┐ └ ┘, glyphSet.cornerTL…), so a figure never
+' reads as a card, and the pane tests' figureMark() still finds the figure by
+' its corner (Executor, E2).
+' THE FRAME RUNES JOIN THE ONE glyphSet, per tier (Executor, E2). New string
+' fields, so tests can still compare a glyphSet with ==:
+'   frameTL U+256D  frameTR U+256E  frameBL U+2570  frameBR U+256F
+'   joinL   U+251C  joinR   U+2524
+' ASCII and Off draw "+" for all six. Walls reuse wallL/wallR (U+2502, or
+' "|"), rules reuse rule (U+2500, or "-"). The scroll thumb is U+2591 on Nerd
+' and Safe and "#" on ASCII and Off, so it never reads as the "|" wall. No
+' rune of the card sits outside glyphSet; card.go reads glyphsFor(tier).
+' All six new codepoints sit outside every banned class above.
+' TestTheDesignLanguagesRunesStayLegal does not list them yet.
+' COLOURS ADDED to internal/ui (Executor, C2 and C3, from the identity palette):
+'   ColorSurface       0x0E3A48  a filled face: the step chip, idle buttons
+'   ColorAccentBright  0x00769D  first-party emphasis (identity MAIN_3); row
+'                                labels and header keys moved to it, and
+'                                ColorAccent keeps its hex for its other users
+'   ColorWhite         0xFAFAFA  ink on a red face (identity WHITE): the
+'                                danger mnemonic
+' choiceui's palette also gained ok (ColorSuccess) for the checks page's
+' passing mark, which drew in brand before; the Executor chose it while
+' building the checks card.
+' FILLS ARE BUILT WITH Reverse. fill(ink, face) sets Reverse(true) plus both
+' colours. Under NO_COLOR the renderer keeps SGR 7 and drops the colours, so a
+' fill stays a visible face: the cursor's answer, the step chip, every button.
+' MEASURED by the stage-1 check: colorprofile.Detect returns Ascii under
+' NO_COLOR, and the renderer then keeps attributes only.
+' THE TERMINAL'S OWN INK. Body text, asides and keys dropped the fixed
+' #E5E4E4 foreground, which vanished on a white terminal.
+' THE LOSS MARK IS A BADGE, NOT A SEVERITY. A dialog line that states a loss
+' carries "!" black on lime (choiceui's alert fill) on EVERY tier, Nerd
+' included. It is not the warn mark of the table below (U+26A0 on Nerd): it
+' marks a sentence inside a question, not a status line, and the stream's
+' severity rule does not reach it (confirm-dialogs.puml).
 '
 ' ── THE TIER IS ONE TYPE NOW ──────────────────────────────────────────────
 ' Three packages had their own idea of how decorated a terminal is:

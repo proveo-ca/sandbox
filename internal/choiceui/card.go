@@ -44,26 +44,50 @@ func factCol(w int) int { return inset(w) + 2 }
 // helpWidth is where the help under the card wraps.
 func helpWidth(w int) int { return cardWidth(w) - 4 }
 
-// chipFits reports whether a step chip fits beside a title of titleLen on a w-column terminal:
-// inside the card's walls when framed; unframed, flush right with a blank column after the title.
-func chipFits(titleLen, chipLen, w int) bool {
+// titleRoom is the title's columns on a w-column terminal beside a chip of chipLen columns, or with
+// no chip when chipLen is 0: inside the card's walls with two blanks before the chip when framed;
+// unframed, the chip flush right with a blank column after the title.
+func titleRoom(chipLen, w int) int {
+	room := w
 	if framed(w) {
-		return titleLen+2+chipLen <= cardWidth(w)-4
+		room = cardWidth(w) - 4
 	}
-	return titleLen+1+chipLen <= w
+	switch {
+	case chipLen == 0:
+		return room
+	case framed(w):
+		return room - 2 - chipLen
+	}
+	return room - 1 - chipLen
 }
 
-// stepChip is the chip " name n/m " a head draws beside title on a w-column terminal, or "" when it draws none.
+// chipFits reports whether a step chip fits beside a title of titleLen on a w-column terminal.
+func chipFits(titleLen, chipLen, w int) bool { return titleLen <= titleRoom(chipLen, w) }
+
+// titleKeep is the fewest title runes a head keeps when it cuts the title for the chip.
+const titleKeep = 8
+
+// stepChip is the chip " name n/m " a head draws beside title on a w-column terminal, or "" when it
+// draws none: beside the whole title when it fits; else, when a key line of the page count and rest
+// cannot keep the count, beside the title cut with … to at least titleKeep runes.
 // SPEC: _spec/internal/choiceui/wireframe.puml
-func stepChip(s Step, name, title string, w int) string {
+func stepChip(s Step, name, title string, w int, rest []hintPart) string {
 	if !s.wizard() {
 		return ""
 	}
 	chip := fmt.Sprintf(" %s %d/%d ", name, s.At, s.Of)
-	if !chipFits(textWidth(title), textWidth(chip), w) {
-		return ""
+	n := textWidth(chip)
+	if chipFits(textWidth(title), n, w) || (!pageKept(s, rest, w) && chipFits(titleKeep+1, n, w)) {
+		return chip
 	}
-	return chip
+	return ""
+}
+
+// pageKept reports whether a w-column key line of the page count and rest keeps the count whole.
+func pageKept(s Step, rest []hintPart, w int) bool {
+	page := pageHint(s, "")
+	parts := narrowed(append(page, rest...), keyRoom(w))
+	return len(page) == 1 && len(parts) > 0 && parts[0] == page[0] && len([]rune(joinHint(parts))) <= keyRoom(w)
 }
 
 // pageKeep is the page count's rank on a key line: above "N more below".
@@ -93,11 +117,12 @@ func newCard(w int, tier GlyphTier, p palette) card {
 	return card{w: cardWidth(w), framed: framed(w), edge: edge(w), g: glyphsFor(tier), p: p}
 }
 
-// head draws the top border and the title row with its chip; unframed, the title takes the border's
-// row and the chip ends at the last column.
+// head draws the top border and the title row with its chip, the title cut with … before the chip;
+// unframed, the title takes the border's row and the chip ends at the last column.
 func (k card) head(c *canvas, title, chip string) {
+	title = clip(title, titleRoom(textWidth(chip), k.w))
 	if !k.framed {
-		c.put(0, k.p.title, clip(title, k.w))
+		c.put(0, k.p.title, title)
 		if chip != "" {
 			c.put(k.w-textWidth(chip), k.p.chip, chip)
 		}
@@ -106,7 +131,7 @@ func (k card) head(c *canvas, title, chip string) {
 	}
 	k.border(c, k.g.frameTL, k.g.frameTR)
 	c.y++
-	c.put(2, k.p.title, clip(title, k.edge-2))
+	c.put(2, k.p.title, title)
 	if chip != "" {
 		c.put(k.edge-textWidth(chip), k.p.chip, chip)
 	}

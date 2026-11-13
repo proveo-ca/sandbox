@@ -94,7 +94,7 @@ func TestHintNamesThePageTheWayBackAndTheScrollKeys(t *testing.T) {
 		{0, 0, "", []string{"esc cancel", "pgup/pgdn scroll", "enter accept"}, []string{"page ", "shift+tab", "esc back", "ctrl+c quit"}},
 	} {
 		f := stepForm(tc.at, tc.of)
-		if got := f.headChip(200); got != tc.chip {
+		if got := f.headChip(200, 0); got != tc.chip {
 			t.Errorf("step %d/%d: the head's chip is %q, want %q", tc.at, tc.of, got, tc.chip)
 		}
 		hint := f.hint(200, 0, 0)
@@ -111,8 +111,8 @@ func TestHintNamesThePageTheWayBackAndTheScrollKeys(t *testing.T) {
 	}
 	long := stepForm(2, 3)
 	long.Title = strings.Repeat("t", 100)
-	if long.headChip(80) != "" || !strings.Contains(long.hint(80, 0, 0), "page 2/3") {
-		t.Errorf("a title that leaves the chip no room keeps the page on the key line: chip %q, hint %q", long.headChip(80), long.hint(80, 0, 0))
+	if long.headChip(80, 0) != "" || !strings.Contains(long.hint(80, 0, 0), "page 2/3") {
+		t.Errorf("a title that leaves the chip no room keeps the page on the key line: chip %q, hint %q", long.headChip(80, 0), long.hint(80, 0, 0))
 	}
 }
 

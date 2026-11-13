@@ -1,11 +1,12 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title Confirm dialogs — a button row, the safe answer selected, two keys to destroy
+title Confirm dialogs — a card with a button row, the safe answer selected, two keys to destroy
 ' purpose: how proveo asks a yes-or-no question on the terminal, and why Enter alone never destroys anything
 ' covers: internal/choiceui/dialog.go
 ' covers: internal/choiceui/dialog_run.go
 ' covers: internal/choiceui/dialog_test.go
+' covers: internal/choiceui/card.go (card: the dialog's frame)
 ' covers: internal/choiceui/tty_unix.go
 ' covers: internal/choiceui/tty_windows.go
 ' covers: internal/choiceui/sandbox_close.go (NewSandboxClose, SandboxCloseAnswer)
@@ -44,6 +45,58 @@ title Confirm dialogs — a button row, the safe answer selected, two keys to de
 '   dialog, and the tmux driver that types them did not change.
 ' A DESTRUCTIVE ANSWER SHOWS ITS MNEMONIC IN THE FAILURE COLOUR, bold, inside
 ' its word (sbx's mnemonic letter). The letter selects; it never accepts.
+' AMENDED 2026-11-13 (Executor, E12 and C3): the mnemonic is now a fill:
+' ColorWhite (#FAFAFA, the identity's WHITE) ink on a ColorFail face, bold.
+'
+' ── THE DIALOG IS A CARD (owner, O1; Executor, E12; 2026-11-13) ────────────
+' Every dialog draws as a content-sized card, centred:
+'   ╭──────────────────────────────────────────────────────────╮
+'   │ this sandbox was created with different settings         │
+'   │   image, kit                                             │
+'   │   1. carry clone commits and agent state home            │
+'   │ ! 2. sbx rm --force proveo-claudecode-abc will run.      │
+'   │ ! Uncommitted clone edits are lost unless fetched.       │
+'   ├──────────────────────────────────────────────────────────┤
+'   │   Keep ↵    Replace                                      │
+'   │                                                          │
+'   │ ←/→ move · enter accept · esc keep                       │
+'   ╰──────────────────────────────────────────────────────────╯
+'   the frame         grey (the frame style) on every dialog; its runes come
+'                     from the dialog's own tier
+'   the title         bold at column 2, only when a body line equals the
+'                     dialog's title; no title text was added
+'   the body          from column 4; trailing blank lines go, the foot rule
+'                     takes their place
+'   a loss line       bold, with a black-on-lime "!" at column 2, on every
+'                     line modalWarns matches
+'   the foot          a join rule, the button row (face at 3, label at 4),
+'                     one blank, the key line at column 2, the bottom border
+'   the held line     replaces the button row, the blank and the key line,
+'                     at column 4, still lime
+' The width comes from the content plus a 3-column right margin; the widest
+' dialog is 72 columns, so every one passes the 80-column test. Button labels,
+' body text and the key line are byte-identical to the dialogs before the card.
+' A NUMBERED LINE IS JUDGED BY ITS TEXT. modalWarns strips a leading "N. "
+' before its prefix test, so "2. sbx rm --force … will run." in the upgrade
+' dialog now carries the mark. Before the fix the number hid the prefix.
+' The drawing put the title, key line and button face at column 4. The
+' Executor followed the spec's column 2 for the title and key line; the owner
+' may want to look again.
+' BUTTON FACES ARE FILLS (owner, O5; Executor, E12):
+'   selected        black on ColorBrand, bold, plus " ↵ "
+'   idle            ColorSecondary on ColorSurface (#0E3A48)
+'   danger letter   ColorWhite on ColorFail, bold, on either face
+' Every face is built with Reverse plus explicit colours, so NO_COLOR keeps a
+' visible face: the renderer drops colours and keeps SGR 7.
+' [Inference] Under NO_COLOR the idle and selected faces are both reversed, so
+' bold and ↵ tell them apart, as before; the danger letter differs from an
+' ordinary mnemonic by bold only. MEASURED SGR, not a terminal looked at.
+' THE TIER IS THE DIALOG'S OWN. newDialog reads ui.GlyphTierFrom(os.Getenv)
+' once into dialog.glyphs; quitGate.open takes the page's tier instead. Under
+' ASCII and Off a dialog draws "<enter>", "left/right" and a + - | frame; the
+' tests check "ASCII or Off" with the predicate glyphsFor uses (plainGlyphs).
+' The loss mark is a badge, not the warn severity mark
+' (_spec/_conventions/tui-design-language.puml, ONE CARD).
 ' THE FIVE:
 '   close this sandbox?      Stay · Remove (r, destructive) · Interrupt agent
 '                            ctrl+c gives Interrupt at once: it destroys
@@ -100,6 +153,10 @@ title Confirm dialogs — a button row, the safe answer selected, two keys to de
 '   TestTheUnansweredRemovalDialogListsTheMirroredRefs
 '   TestEveryDialogFitsAnEightyColumnTerminal
 '   TestADangerousAnswerDrawsItsMnemonicInTheFailureColour
+'   TestEveryButtonFaceIsAReversedFill
+'   TestEveryDialogIsACardWithItsLossLinesMarked
+'   TestANumberedLineCountsAsALossByItsText
+'   TestOffAndASCIIDialogsDrawThePlainSet
 ' and by e2e (tmux): TestLiveCloseDialogStaysUpWhileTheAgentStops,
 '   TestLiveCtrlCConfirmationOnTmux, TestLivePostExitPromptTakesTheFirstKeysOnTmux,
 '   TestHeadedCtrlCAsksBeforeRemoving (a fake sbx client),
@@ -108,7 +165,8 @@ title Confirm dialogs — a button row, the safe answer selected, two keys to de
 component "the question\nbody lines, unchanged" as BODY <<app>>
 component "the safe answer\nselected · carries ↵" as SAFE <<host>>
 component "the other answer\none key selects, Enter accepts" as OTHER <<app>>
-component "**a destructive answer**\nits mnemonic in the failure colour" as DANGER <<error>>
+component "**a destructive answer**\nits mnemonic white on the failure colour" as DANGER <<error>>
+component "the card\ngrey frame · ! on a loss line" as CARD <<app>>
 component "Enter · Esc · timeout" as ONE <<host>>
 component "the held line\n""stopping the agent (up to 30s) — 4s""" as HOLD <<app>>
 
@@ -117,6 +175,14 @@ BODY ARROW_MAIN OTHER
 ONE ARROW_MAIN SAFE : one key
 OTHER ARROW_OPTIONAL DANGER : when it destroys
 DANGER ARROW_OPTIONAL HOLD : Remove, accepted
+CARD ARROW_MAIN BODY : frames
+
+note bottom of CARD
+  **A loss is marked on the line that states
+  it.** Every line modalWarns matches draws bold
+  beside a ""!"" badge, and a numbered line is
+  judged by its text rather than its number.
+end note
 
 note bottom of SAFE
   **Enter alone never destroys.** The first

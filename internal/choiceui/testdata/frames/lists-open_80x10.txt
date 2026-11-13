@@ -5,6 +5,6 @@
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ ↑↓ row · ←→ move · space toggle · enter accept · esc cancel                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  › credential-03 — publish this por╭── OAuth ──────────── 12 ─╮
+  › credential-03 — publish this por╭── OAuth ─ 3 above ── 12 ─╮
                                     │ › [ ] credential-03      │
-                                    ╰── 11 more ───────────────╯
+                                    ╰── 8 more ────────────────╯

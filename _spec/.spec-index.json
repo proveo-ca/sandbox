@@ -26,7 +26,8 @@
         "internal/ui/**",
         "internal/posture/posture.go",
         "internal/choiceui/topology.go",
-        "internal/contract/tui_vocabulary_test.go"
+        "internal/contract/tui_vocabulary_test.go",
+        "internal/choiceui/card.go"
       ],
       "fingerprint": null
     },
@@ -484,6 +485,23 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/cmd/proveo/github-access.puml",
+      "covers": [
+        "internal/githubaccess/access.go",
+        "internal/githubaccess/access_test.go",
+        "cmd/proveo/init_github_access.go",
+        "cmd/proveo/init_github_access_test.go",
+        "internal/run/credential_inventory.go",
+        "internal/run/choices.go",
+        "internal/run/credential_inventory_test.go",
+        "internal/backend/sandbox/github_access_test.go",
+        "internal/choiceui/credential_lists_test.go",
+        "internal/contract/github_access_test.go",
+        "e2e/init_github_access_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/cmd/proveo/github-credentials.puml",
       "covers": [
         "cmd/proveo/ghtoken.go",
@@ -514,7 +532,12 @@
       "spec": "_spec/cmd/proveo/init-sbx-bootstrap.puml",
       "covers": [
         "cmd/proveo/init.go",
+        "cmd/proveo/init_report.go",
         "cmd/proveo/init_tui.go",
+        "cmd/proveo/init_steps_test.go",
+        "cmd/proveo/init_github.go",
+        "cmd/proveo/init_git.go",
+        "cmd/proveo/ghtoken.go",
         "internal/sbx/install.go",
         "internal/shell/shell.go",
         "apps/cli/public/cli/install.sh",
@@ -522,12 +545,10 @@
         "apps/cli/public/cli/uninstall.sh",
         "cmd/proveo/init_test.go",
         "cmd/proveo/init_tui_test.go",
-        "cmd/proveo/init_steps_test.go",
         "internal/sbx/install_test.go",
         "e2e/init_test.go",
         "e2e/init_steps_test.go",
-        "internal/installtest/install_test.go",
-        "cmd/proveo/init_report.go"
+        "internal/installtest/install_test.go"
       ],
       "fingerprint": null
     },
@@ -888,7 +909,8 @@
         "cmd/proveo/main.go",
         "internal/run/choices.go",
         "internal/run/params.go",
-        "internal/run/run_test.go"
+        "internal/run/run_test.go",
+        "internal/run/run_form_order_test.go"
       ],
       "fingerprint": null
     },
@@ -921,12 +943,14 @@
         "internal/choiceui/anim.go",
         "internal/choiceui/choiceui.go",
         "internal/choiceui/pen.go",
+        "internal/choiceui/canvas.go",
         "internal/run/topology.go",
         "internal/choiceui/form_model_test.go",
         "internal/choiceui/topology_test.go",
         "internal/choiceui/layout_test.go",
         "internal/choiceui/pane_test.go",
         "internal/choiceui/pen_test.go",
+        "internal/choiceui/canvas_test.go",
         "internal/choiceui/region_order_test.go",
         "internal/run/topology_test.go"
       ],
@@ -938,6 +962,7 @@
         "internal/choiceui/dialog.go",
         "internal/choiceui/dialog_run.go",
         "internal/choiceui/dialog_test.go",
+        "internal/choiceui/card.go",
         "internal/choiceui/tty_unix.go",
         "internal/choiceui/tty_windows.go",
         "internal/choiceui/sandbox_close.go",
@@ -957,6 +982,7 @@
         "internal/choiceui/tree_test.go",
         "internal/choiceui/scope_page.go",
         "internal/choiceui/scope_page_test.go",
+        "internal/choiceui/card_test.go",
         "internal/choiceui/filter_list.go",
         "internal/choiceui/filter_list_test.go",
         "cmd/proveo/main.go",
@@ -972,6 +998,7 @@
         "internal/choiceui/choiceui.go",
         "internal/choiceui/form_model_test.go",
         "internal/choiceui/step_test.go",
+        "internal/choiceui/env_list_test.go",
         "cmd/proveo/init.go",
         "cmd/proveo/init_steps_test.go",
         "e2e/init_steps_test.go"
@@ -1009,7 +1036,14 @@
       "covers": [
         "internal/choiceui/choiceui.go",
         "internal/choiceui/gated_reason_test.go",
+        "internal/choiceui/card.go",
+        "internal/choiceui/card_test.go",
+        "internal/choiceui/env_list_test.go",
         "internal/run/choices.go",
+        "internal/run/credential_inventory.go",
+        "internal/run/credential_inventory_test.go",
+        "internal/run/run_form_order_test.go",
+        "internal/choiceui/credential_lists_test.go",
         "internal/run/model_row.go",
         "internal/choiceui/step_test.go"
       ],
@@ -1044,6 +1078,8 @@
         "internal/run/auth_row_test.go",
         "internal/run/choices.go",
         "internal/run/choices_test.go",
+        "internal/run/credential_inventory.go",
+        "internal/run/credential_inventory_test.go",
         "internal/posture/posture_test.go",
         "internal/credentials/credentials.go",
         "internal/credentials/hints.go",
@@ -2112,10 +2148,10 @@
       "covers": [
         "cmd/proveo/init_preflight.go",
         "cmd/proveo/init_preflight_test.go",
-        "internal/choiceui/check_page.go",
-        "internal/choiceui/check_page_test.go",
         "cmd/proveo/init_report.go",
-        "cmd/proveo/init_report_test.go"
+        "cmd/proveo/init_report_test.go",
+        "internal/choiceui/check_page.go",
+        "internal/choiceui/check_page_test.go"
       ],
       "fingerprint": null
     },
@@ -2162,6 +2198,10 @@
         "internal/run/ports_row_test.go",
         "internal/backend/sandbox/sandbox_test.go",
         "e2e/ports_publish_test.go",
+        "internal/devports/hostport.go",
+        "internal/devports/hostport_test.go",
+        "internal/choiceui/choiceui.go",
+        "internal/choiceui/more_off_test.go",
         "internal/contract/android_install_lib_test.go",
         "e2e/android_seed_install_test.go"
       ],

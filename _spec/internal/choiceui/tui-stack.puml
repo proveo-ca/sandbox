@@ -69,6 +69,10 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' row, placed with lipgloss.Place. A test draws the tcell dialog on a
 ' simulation screen and compares the two as plain text, cell for cell, at
 ' five sizes, three inputs and two dialogs. They are equal.
+' SINCE 2026-11-13 (One Card) no dialog draws a lipgloss border. The dialog's
+' chrome is the card helper (card.go): rounded, grey, sized to its content
+' and still placed with lipgloss.Place
+' (_spec/internal/choiceui/confirm-dialogs.puml, THE DIALOG IS A CARD).
 ' THAT COMPARISON WAS THE GATE, AND IT IS GONE WITH BOTH SIDES. One wave
 ' later the typed dialog became a button row
 ' (_spec/internal/choiceui/confirm-dialogs.puml) and the tcell modal was
@@ -88,6 +92,16 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' frame's plain text with a file: 131 under internal/choiceui/testdata/frames/.
 ' The tcell renderer wrote them, and they were committed before any drawing
 ' changed. PROVEO_UPDATE_FRAMES=1 rewrites them.
+' COUNTED 2026-11-13, after One Card re-recorded every frame:
+'   testdata/frames   137: the 131, less the 2 no-axis frames (the legend
+'                     left), plus 2 unframed frames (under 40 columns) and
+'                     6 .env list frames (open, filtered, no match; 120x36
+'                     and 80x24)
+'   testdata/scope     24, all re-recorded as cards
+'   testdata/checks    12, all re-recorded as cards
+'   testdata/list       6, unchanged: the run/attach list is not a card
+'   179 golden files in all; 4 frames still read "terminal too small".
+' The history below keeps its own numbers.
 ' THE DRAWING KEEPS ITS GEOMETRY (B6, B7, e9b719df). draw() still places text
 ' by column and row. What changed is the sink. screen (screen.go) collects
 ' styled runs; view() turns each run into one lipgloss Layer at its x and y
@@ -123,6 +137,9 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' ONE PALETTE. The dialogs carried a lipgloss palette beside the forms' tcell
 ' one. Both read styles() now. The two-tone key line it gained:
 ' _spec/internal/choiceui/wireframe.puml.
+' The palette grew state styles and fills on 2026-11-13 (One Card): the
+' table is in wireframe.puml (STATE STYLES), the colours in
+' _spec/_conventions/tui-design-language.puml (ONE CARD).
 ' Pinned by internal/choiceui/frames_test.go: TestFramesMatchTheGoldenFiles
 ' Pinned by internal/choiceui/form_model_test.go:
 '   TestTheFormsKeysMeanWhatTheyMeantOnTcell
@@ -164,7 +181,7 @@ component "lipgloss v2.1.0\nthe drawing · needs go 1.26.7" as LIP <<cloud>>
 component "bubbles v2.2.1\ntree · textinput · viewport · list" as BUB <<cloud>>
 component "a rewritten view\nlipgloss, compared with tcell's cells" as VIEW <<app>>
 component "screen\nstyled runs, one lipgloss layer each" as SCR <<app>>
-component "131 golden frames\nwritten by the tcell renderer" as GOLD <<app>>
+component "137 golden frames\n131 first written by tcell" as GOLD <<app>>
 component "tea.EnvMsg\n**the whole environment**" as ENV <<error>>
 
 MOD ARROW_MAIN TEA

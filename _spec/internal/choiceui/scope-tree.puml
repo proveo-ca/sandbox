@@ -7,6 +7,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' covers: internal/choiceui/tree_test.go
 ' covers: internal/choiceui/scope_page.go
 ' covers: internal/choiceui/scope_page_test.go
+' covers: internal/choiceui/card_test.go (TestTheScopeAndCheckPagesAreCards)
 ' covers: internal/choiceui/filter_list.go
 ' covers: internal/choiceui/filter_list_test.go
 ' covers: cmd/proveo/main.go (pickProject, scopePage, scopePageAnswer)
@@ -67,6 +68,27 @@ title The scope page and the filter list — a folder tree with the root first, 
 '   the tree              a window that follows the cursor
 '   one sentence          where Enter starts the agent
 '   the key line          two-tone, narrowed by KEEP rank like the form's
+' AMENDED 2026-11-13 (owner, O1; Executor, E11): THE PAGE IS ONE CARD.
+'   the banner            above the card, unchanged
+'   ╭───╮                 the top border
+'   the title row         the title bold at column 2; the chip " scope ·
+'                         n/m " right-aligned in the chip fill, ending at
+'                         cw-3 (column cw-2 stays blank)
+'   "/ <text>"            "/" at column 4, inside the walls
+'   the tree              "›" at column 2, guides at 4, 6, 8 (GUIDES)
+'   ├───┤                 the foot rule
+'   one sentence          at column 2; its leading "enter" bold
+'   the key line          at column 2; "page n/m" leaves it while the chip
+'                         draws (owner, O6)
+'   ╰───╯                 the bottom border
+' The card is min(w, 120) wide; under 40 columns the page draws no frame and
+' keeps the columns and rows it had before the card. The frame's border and
+' rule took the blank rows' places, so the floor below did not move. The
+' cursor's name draws in the focus fill (black on brand); "default" in the
+' chip fill. The root row's suffixes are all-or-nothing in order: "repo
+' root" draws only if it fits before cw-2, "default" only after it.
+' The chip, the page count and the key line follow the form's rules:
+' _spec/internal/choiceui/wireframe.puml (ONE CARD).
 ' A leaf's name starts in the column a sibling folder's fold mark does.
 ' MEASURED: with the name one step further right, `tools` read as a child of
 ' the folder above it.
@@ -75,6 +97,13 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' cursor's folder is brand cyan; every other guide is ColorRule grey. The
 ' cyan region is what the agent gets: on the root row every guide is cyan.
 ' Under the ASCII and Off glyph tiers a guide is |.
+' DECIDED 2026-11-13 (Executor, E11): the root's guide moves from column 2
+' to column 4, and the guides to 4, 6, 8. This reopens the column half of
+' GUIDES (2026-11-11); the cyan region rule above is unchanged. Why: the
+' card's left wall takes column 0, and column 2 holds the "›" mark, the
+' title and the key line on every card (the form's row marker sits there
+' too), so the whole tree shifted two columns right. Unframed, under 40
+' columns, the guides stay at 2, 4, 6.
 ' The window scrolls ahead to the last row the cursor's folder holds, as far
 ' as the cursor stays on screen. MEASURED by review: at 60x12, six downs left
 ' "services" on the bottom row with billing and worker, and their cyan
@@ -97,9 +126,11 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' first when the page is one of two (_spec/internal/choiceui/wizard-keys.puml).
 ' Esc means two things here on purpose: clear, then cancel.
 ' UNDER ITS FLOOR (7 rows, 8 with a filter) the page says so, names what
-' Enter keeps, and takes only Enter, Esc and Ctrl+C.
+' Enter keeps, and takes only Enter, Esc and Ctrl+C. MEASURED 2026-11-13:
+' the card keeps that floor (2 head rows and 4 foot rows around one tree
+' row); the too-small message now counts the filter row in what it needs.
 ' Golden frames: internal/choiceui/testdata/scope/, 24 files (six states at
-' four sizes).
+' four sizes). All 24 were re-recorded for the card on 2026-11-13.
 '
 ' ── THE FILTER LIST (B8) ───────────────────────────────────────────────────
 ' FilterList (filter_list.go) is the one list for the run and attach picker.
@@ -111,6 +142,21 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' matched a subsequence of letters; this is stricter.
 ' [Inference] No operator relied on subsequence matching for lists of about
 ' ten harness names. Nobody was asked.
+' THREE MATCHERS, ON PURPOSE (2026-11-13). The package now matches text three
+' ways, and each stays with its list:
+'   Tree.matches      a path holds the typed text (substring)
+'   FilterList.shown  a row holds every typed word (above)
+'   More.shown        the run form's .env list: the typed letters appear in
+'                     the name in order, case ignored (subsequence)
+' The .env list takes the subsequence match FilterList refused. The owner
+' asked for a fuzzy search there (O4), and that list holds names only: one
+' token each, no spaces, so "every word" would reduce to a substring. The
+' FilterList rule above stands for harness names.
+' [Inference] Variable names share long prefixes and suffixes (_MODEL, _KEY,
+' GITHUB_), so a few letters in order ("amod") find one faster than a
+' substring does. No operator was measured.
+' The matcher is hand-written (subsequence, choiceui.go); go-fuzzyfinder
+' stays out (THE LIBRARIES LEFT, below).
 ' Under its floor the list only cancels: Enter must not choose a row nobody
 ' can see.
 ' Pick() returns ErrListClosed for Esc, so each caller words its own refusal:
@@ -153,7 +199,13 @@ title The scope page and the filter list — a folder tree with the root first, 
 '   TestBelowItsFloorTheScopePageSaysSoAndStillLeaves
 '   TestTheGuidesInsideTheCursorsFolderAreBrandAndTheRestAreRuleGrey
 '   TestMovingDownOntoAFolderScrollsItsContentsIntoTheWindow
+'   TestTheScopePageFillsTheCursorsName
 '   TestTheScopePageMatchesItsGoldenFrames
+' Pinned by internal/choiceui/card_test.go:
+'   TestTheScopeAndCheckPagesAreCards
+'   TestTheStepCountNeverVanishes
+' Pinned by internal/choiceui/env_list_test.go:
+'   TestSubsequenceMatchesLettersInOrderInAnyCase
 ' Pinned by internal/choiceui/filter_list_test.go:
 '   TestTheFilterListsKeys
 '   TestAShortTerminalScrollsTheListAndATinyOneOnlyCancels

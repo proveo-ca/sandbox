@@ -7,6 +7,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' covers: internal/choiceui/choiceui.go (Outcome, Step, leave, quitKey, drawSkip, Form.Skip)
 ' covers: internal/choiceui/form_model_test.go
 ' covers: internal/choiceui/step_test.go
+' covers: internal/choiceui/env_list_test.go
 ' covers: cmd/proveo/init.go (runInitSteps, stepQuit)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: e2e/init_steps_test.go
@@ -31,6 +32,15 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' centred dialogs over a dimmed dashboard: proveo's pages are full-screen
 ' forms and stay so. Its per-panel key reuse (`r` removes on the left and
 ' refreshes on the right): one key keeps one meaning across a proveo wizard.
+' DECIDED 2026-11-13 (owner, O1): the "no cards" half is REVERSED. The owner
+' chose the One Card look after two rounds of mocks. Every wizard page is one
+' rounded card: the run and init forms, the scope page and the checks page.
+' Every dialog is a card, and the form's open list is a small card. The
+' standalone run/attach FilterList is not a card.
+' Still not taken: panels, a card per item, a dashboard, a dimmed underlay
+' and per-panel key reuse. A page is still full-screen; the card is its
+' frame, centred only for a dialog. The reasons above for those still hold.
+' The card's geometry: _spec/internal/choiceui/wireframe.puml (ONE CARD).
 '
 ' ── EVERY PAGE KEEPS A RENDERING WITH NO TERMINAL ──────────────────────────
 ' "A form cannot be the only rendering"
@@ -54,6 +64,33 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' "ctrl+c quit". Under a narrow screen "ctrl+c quit" drops early: after the
 ' scroll keys and, on a form with checkboxes, after "space toggle". "enter
 ' accept" still goes last.
+' SINCE 2026-11-13 (owner, O6) THE PAGE COUNT SITS IN THE HEAD. A wizard
+' page's title row carries a chip (" page n/m ", " scope · n/m ", " checks ·
+' n/m "), and "page n/m" leaves the key line while the chip draws. The rule
+' for when it does not fit: _spec/internal/choiceui/wireframe.puml (ONE CARD).
+'
+' ── THE .env FILTER TAKES Enter AND Esc FIRST (owner, O4, 2026-11-13) ──────
+' The run form's .env list filters by typing. While its filter is open:
+'   /          opens the filter; every printable key after it is text,
+'              q j k h l and space included
+'   Enter      closes the filter, keeps the matches, and NEVER accepts
+'   Esc        clears the query and closes the filter
+'   Ctrl+C     still asks first; shift+tab still steps back
+' With a query left standing, Esc clears it; the next Esc is the page's.
+' Leaving the cell (←/→, ↑ past the first entry, ↓ past the last, paging)
+' drops the query. The key line names the state: "type to narrow · enter
+' close · esc clear" while typing, "esc clear" while a query stands.
+' Precedent: the scope page's Esc already means clear, then cancel
+' (_spec/internal/choiceui/scope-tree.puml). The owner chose "Enter closes
+' the filter"; "close" is the Executor's word for it (scope says "choose",
+' Skip says "skip").
+' Pinned by internal/choiceui/env_list_test.go:
+'   TestEveryTextKeyIsTextWhileTyping
+'   TestEnterClosesTheFilterAndNeverAccepts
+'   TestEscClearsTheFilterBeforeItGoesBack
+'   TestLeavingTheCellDropsTheFilter
+'   TestTheKeyLineWhileTypingNeverOffersAccept
+'   TestTheKeyLineWhileTypingAnEmptyQuerySaysEscClear
 '
 ' ── A LONE FORM KEEPS ITS KEYS ─────────────────────────────────────────────
 ' A form with a zero Step is not a wizard: Esc, Ctrl+C and q cancel at once,
@@ -105,6 +142,13 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' floor count them.
 ' "enter accept" STAYS THE E2E ANCHOR. A page opens with the cursor on a row,
 ' so the words are there when a helper waits for them.
+' AMENDED 2026-11-13 (owner, O4): a second state drops it. While the .env
+' filter is typing the Enter segment reads "enter close", because Enter
+' there closes the filter and accepts nothing. The anchor still holds: no
+' page opens with a filter typing, and a standing query keeps "enter accept".
+' SINCE 2026-11-13 (owner, O8) the run form opens on its top row with an
+' answer to change, not on devices; e2e walks that started on devices now
+' walk Down from model (choice-prompt-render.puml, WHERE THE CURSOR MAY REST).
 '
 ' ── WHAT EACH CALLER DOES WITH THE OUTCOME ─────────────────────────────────
 '   init setup (1/3)        anything but Accepted: "cancelled at the init
@@ -138,6 +182,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   TestCtrlCAndQQuitAWizardAndCancelALoneForm
 '   TestShiftTabStepsBackOnlyPastTheFirstScreen
 '   TestHintNamesThePageTheWayBackAndTheScrollKeys
+'   TestTheDrawnHeadCarriesThePage
 ' Pinned by internal/choiceui/form_model_test.go:
 '   TestDownPastTheLastRowFocusesSkipAndEnterThereSkips
 '   TestTheSkipButtonIsDrawnAndTheKeyLineSaysWhatEnterDoesOnIt
@@ -158,8 +203,10 @@ component "Esc\nback · closes on page 1" as ESC <<host>>
 component "Ctrl+C\n**asks first**" as CC <<error>>
 component "the question\nStay ↵ · Quit" as ASK <<app>>
 component "Skip\na button under the rows" as SKIP <<app>>
+component "the .env filter\nEnter closes · Esc clears" as FILTER <<app>>
 
 PAGE ARROW_MAIN ENTER
+PAGE ARROW_OPTIONAL FILTER : the run form's .env list
 PAGE ARROW_MAIN ESC
 PAGE ARROW_ERROR CC
 CC ARROW_MAIN ASK
@@ -186,6 +233,13 @@ note bottom of SKIP
   field, and two of init's pages open on one.
   Down from the last row reaches the button;
   Enter there skips.
+end note
+
+note bottom of FILTER
+  **Enter closes the filter; it never accepts.**
+  While the filter is typing, every printable
+  key is text, so Enter and Esc end the typing
+  first and a standing query keeps "enter accept".
 end note
 
 note bottom of LONE

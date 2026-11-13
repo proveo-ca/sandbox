@@ -195,3 +195,34 @@ func TestAuthRowOpensOnUsageWhenNoPlanIsAvailable(t *testing.T) {
 		t.Errorf("authRow opened on %q, want %q — the only live side", got, credentials.AuthUsage)
 	}
 }
+
+func TestTheModelRowWritesTheLoginPathUnderHomeWithATilde(t *testing.T) {
+	t.Parallel()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory to write as ~")
+	}
+	man := manifest.Manifest{Name: "claudecode", Subscription: true,
+		Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
+	homeRoot := filepath.Join(home, ".proveo", "homes", "no-home-for-this-test")
+	auth, hasAuth := authRow(man, env(map[string]string{"ANTHROPIC_API_KEY": "sk"}), "claudecode", homeRoot, "", "")
+	r, ok := sourceRow(man, auth, hasAuth, "")
+	if !ok {
+		t.Fatal("claudecode got no model row")
+	}
+	want := filepath.Join("~", ".proveo", "homes", "no-home-for-this-test", ".claude", ".credentials.json")
+	if why := r.OffWhy[modelPlan]; !strings.Contains(why, "("+want+")") {
+		t.Errorf("the plan's gate = %q, want the login at %s", why, want)
+	}
+	texts := []string{r.Reason}
+	for _, m := range []map[string]string{r.OffWhy, r.Help} {
+		for _, v := range m {
+			texts = append(texts, v)
+		}
+	}
+	for _, s := range texts {
+		if strings.Contains(s, home+string(filepath.Separator)) {
+			t.Errorf("the model row prints the home directory's absolute path: %q", s)
+		}
+	}
+}

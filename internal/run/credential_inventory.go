@@ -84,7 +84,7 @@ func credentialsRow(items credentialInventory) choiceui.Row {
 	if env := r.Lists[3]; env != nil {
 		env.On, env.Filter, env.Bare = nil, true, true
 		for name := range env.Help {
-			env.Help[name] = "set in " + ui.Tilde(items.EnvFile) + "; the value is never shown"
+			env.Help[name] = "set in " + ui.Tilde(items.EnvFile) + "; this list shows names only"
 		}
 	}
 	return r
@@ -95,5 +95,5 @@ func envCellHelp(items credentialInventory) string {
 	if items.EnvFile == "" {
 		return "no .env file for this run"
 	}
-	return fmt.Sprintf("%d name(s) in %s; read-only, the values are never shown", len(items.Env), ui.Tilde(items.EnvFile))
+	return fmt.Sprintf("%d name(s) in %s; read-only; this list shows names only", len(items.Env), ui.Tilde(items.EnvFile))
 }

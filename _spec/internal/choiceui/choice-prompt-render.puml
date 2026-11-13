@@ -8,6 +8,7 @@ skinparam noteTextAlignment left
 ' covers: internal/choiceui/pane_test.go
 ' covers: cmd/proveo/main.go
 ' covers: internal/run/choices.go, internal/run/params.go, internal/run/run_test.go
+' covers: internal/run/run_form_order_test.go
 ' Destination diagram — prose from internal/choiceui/choiceui.go and cmd/proveo/main.go's
 ' row-gating helpers (applicableRows, comingSoon, gateAddons; gateReview went with
 ' the review tier) lands here (batches 3 and 6).
@@ -39,6 +40,12 @@ skinparam noteTextAlignment left
 ' They are greyed but keep their TRUE state: a ticked greyed box reads as
 ' compulsory, which is what it is, and the help line says "always on" rather
 ' than "off" for one.
+' AMENDED 2026-11-13 (owner, O5): "greyed" no longer names one look. An Off
+' answer in force (a fact, or a compulsory box) draws FIXED, in plain ink. An
+' Off answer not in force draws GATED, faint and struck through. Grey now
+' means OFFERED: an answer the operator can pick and has not. The logic in
+' this file is unchanged; read "greyed" below as "Off". The full style table:
+' _spec/internal/choiceui/wireframe.puml (ONE CARD, STATE STYLES).
 '
 ' Naming the ALTERNATIVE is half of what a help line is for, and the half that
 ' was missing. An unticked box is a posture too, and "docker (sandbox)" said
@@ -112,10 +119,33 @@ skinparam noteTextAlignment left
 ' on the devices row, on browser — the first option the operator can
 ' actually change — because credentials has joined egress among the locked
 ' facts above it, hoverable to read and never to rewrite.
+' DECIDED 2026-11-13 (owner, O8): REVERSED. The run form no longer names its
+' start row; choiceui derives it for every form whose caller leaves StartRow
+' empty. The cursor opens on the TOP row with an answer to change: not
+' Locked, and a Field or at least one option that is not Off. On that row it
+' opens on the current answer: a radio's Selected, a multi row's first
+' changeable cell. With no such row it falls back to the top unlocked row,
+' then row 0. Home goes to the same row. Init forms that name a StartRow keep
+' it. The reason above still holds; the rows moved under it.
+' [Inference] With the questions in order (owner, O7), a fixed
+' StartRow=devices would skip every question above it. The owner stated the
+' rule, not a reason.
+' MEASURED (run_form_order_test.go, review step 9): claudecode, hermes and
+' codex with no key and no login open on model (API keys, or plan on codex);
+' cursor, with credentials locked, every OS option Off and no model row,
+' opens on trust repo · off. The design suggested devices there; the
+' Executor followed O8 as written.
+' Form.StartsOn() reports the start row without moving the cursor, so
+' internal/run can test it. firstChoice and StartOption left the run form.
 '
 ' The UNDERLINE is the cursor mark and must survive the unavailable style, so it
 ' is applied after it — which also fixes an off option the cursor legitimately
 ' rests on in a MULTI row, where the warn style used to erase it.
+' AMENDED 2026-11-13 (owner, O5): a FILL replaces the underline on option
+' cells and open-list entries: black on brand, or black on grey when the
+' cursor rests on a fixed or unavailable answer (struck through too when
+' unavailable). answerStyle still tests the cursor first, so the mark still
+' survives the unavailable style. A text field keeps its underline.
 '
 ' ── THE REASON HAS ONE HOME, AND IT IS THE HELP BLOCK ──────────────────────
 ' It is no longer drawn on the row. Inline it trailed the options clipped
@@ -180,6 +210,8 @@ skinparam noteTextAlignment left
 ' always opened with a blank line under it. Under its own row the block shoved
 ' every row beneath it as the cursor moved; unreserved down here it shoved the
 ' figure instead, which is why the slot is reserved at its MAXIMUM height.
+' AMENDED 2026-11-13 (Executor, E8): the card's bottom border takes that
+' blank. The key line sits at y, ╰─╯ at y+1 and the help at y+2.
 '
 ' drawTopology paints through its own pen rather than the canvas, so it has no
 ' window to be dropped by. The budget already guarantees the room; the guard is
@@ -195,17 +227,22 @@ skinparam noteTextAlignment left
 ' interface. Every other row keeps its label, because its
 ' label is the only place its name was ever going to appear. Built once per
 ' frame rather than rescanned per line: the body repaints at the figure's rate.
+' AMENDED 2026-11-13: the run form's four sections all declare a Heading
+' (agent, execution, reach, interface), so credentials, OS, egress and
+' devices all keep their labels. The heading is now a stub
+' (wireframe.puml, ONE CARD). E7 expected this map to become unreachable; a
+' row other than the cursor's still reaches it, so it stays (Executor).
 '
 ' minHeight takes the WIDTH because the help slot's height depends on it. Asking
 ' at width zero measured the help wrapped to wrap()'s 20-column floor and
 ' reported a number far larger than the one layout actually tested — in the one
 ' region whose entire job is naming the right size.
-title Choice prompt render — radio axes above the divider, checkboxes below
+title Choice prompt render — one card, four sections, the cursor on the first answer to change
 
 node "internal/choiceui" as PKG <<host>> {
   component "Form\nBanner · Title · Header · Rows" as FORM <<app>>
   component "Row\nradio: Options + Selected\ncheckbox: Multi + On/Off" as ROW <<app>>
-  component "draw(screen, cursor)\nlegend · divider · markers" as DRAW <<app>>
+  component "draw(screen, cursor)\ncard · stubs · markers" as DRAW <<app>>
   component "Run()\na Bubble Tea model, one key per action" as RUN <<app>>
   component "OnChange(*Form)\nre-gated after every keystroke" as CHANGE <<app>>
   component "Selection · Selections\nread back by label" as READ <<app>>
@@ -248,31 +285,30 @@ READ ARROW_ERROR MISREAD : fall back to the resolved value instead
 note bottom of DRAW
   **""outputs"" is a toggle, not a tier.**
   Narrating more of the run costs tokens and
-  screen rather than safety, so it belongs with
-  the add-ons instead of under the legend — as a
-  RADIO row, since a level is exactly one answer.
+  screen rather than safety, so it sits under
+  interface, not with the risk-ordered rows —
+  as a RADIO row: a level is exactly one answer.
 end note
 
 note bottom of DRAW
-  **Ordering is a property of the row, not of
-  the prompt.** The radio axes run riskier →
-  safer while a checkbox set carries no such
-  direction, so a single legend cannot describe
-  both and the divider ends its authority.
+  **Order is a property of the row, not of a
+  legend.** Radio rows still run riskier to
+  safer while a checkbox set has no direction,
+  and since 2026-11-13 no caption claims either.
 end note
 
 note bottom of HDR
-  CODE_THEME and DARK_MODE are named
-  and their values stay off the prompt.
-  A model setting still prints key=value.
+  **Hidden settings are not even named.** The
+  header line that listed CODE_THEME and
+  DARK_MODE is gone, while a model setting still
+  prints NAME=value at the facts column.
 end note
 
 note left of FORM
-  **The legend is a claim.** Init's radios are
-  not a safety axis, so ""NoAxis"" keeps
-  ""◀ riskier … safer ▶"" off that screen.
-  The run form claims it only when no
-  model row is drawn; Qwen sits riskiest.
+  **No form claims a risk order.** The owner
+  removed ""◀ riskier … safer ▶"" from every form
+  on 2026-11-13, so ""NoAxis"" went with it while
+  the columns kept their order.
 end note
 
 note top of GATE
@@ -292,22 +328,23 @@ note top of GATE
 end note
 
 note bottom of GATE
-  **A greyed box means one of two opposite
-  things.** Unavailable is greyed AND unticked;
-  compulsory is greyed AND ticked, which is the
-  execution plane's sandbox — and only the
+  **An Off box means one of two opposite
+  things.** Unavailable is unticked and drawn
+  struck; compulsory is ticked and drawn fixed,
+  which is execution's sandbox — and only the
   second is read back as a selected add-on.
 end note
 
 note bottom of GATE
-  **Greyed and ticked, outside ""addonFixed"".**
-  The gate greys the sandbox on every run; an
-  unready sbx no longer unticks it — the run
-  refuses before the form (since 2026-10-16).
+  **Off and ticked, outside ""addonFixed"".**
+  The gate sets the sandbox Off on every run,
+  and an unready sbx no longer unticks it,
+  because since 2026-10-16 the run refuses
+  before the form.
 end note
 
 note bottom of READ
-  **""Selections"" drops every greyed box, so the
+  **""Selections"" drops every Off box, so the
   compulsory one is re-added deliberately.**
   Reporting the sandbox as unselected once
   routed the run to the docker backend; that
@@ -315,10 +352,10 @@ note bottom of READ
 end note
 
 note top of SOON
-  **Greyed, never hidden.** ""comingSoon""
+  **Shown, never hidden.** ""comingSoon""
   disables the option and moves the selection
-  away, yet the row still displays it with the
-  reason attached, because removing it
+  away, yet the row still draws it, struck, with
+  the reason attached, because removing it
   misrepresents a withheld option as absent.
 end note
 
@@ -370,8 +407,15 @@ note bottom of HDR
 end note
 
 note bottom of ROW
-  Checkboxes render under
-  an add-ons divider.
+  Rows sit under named stubs: agent,
+  execution, reach and interface.
+end note
+
+note bottom of RUN
+  **The cursor opens on the first question.**
+  It rests on the top row with an answer to
+  change, on that row's current answer, unless
+  the form names a StartRow of its own.
 end note
 
 note bottom of ROW

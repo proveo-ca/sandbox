@@ -57,6 +57,35 @@ func TestTheProjectEnvIsSeededAsADockerEnvFile(t *testing.T) {
 	}
 }
 
+func TestAMultiLineValueSeedsNoLineOfItself(t *testing.T) {
+	t.Parallel()
+	src := filepath.Join(t.TempDir(), ".env")
+	body := "export TLS_KEY=\"-----BEGIN PRIVATE KEY-----\n" +
+		"MIIEvQIBADANBgkqhkiG9w0BAQEFAASC==\n" +
+		"PEMBODYLINE=two\n" +
+		"-----END PRIVATE KEY-----\"\n" +
+		"A=1\n" +
+		"SA_JSON='{\n  \"private_key\": \"x==\"\n}'\n" +
+		"B=2\n" +
+		"OPEN=\"never closed\n" +
+		"DANGLING=leaks-if-parsed\n"
+	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := t.TempDir()
+	path, n, err := seedProjectEnv(src, run, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "A=1\nB=2\n"; string(b) != want || n != 2 {
+		t.Errorf("seedProjectEnv wrote %d values\n%s\nwant 2\n%s", n, b, want)
+	}
+}
+
 func TestNoProjectEnvSeedsNothing(t *testing.T) {
 	t.Parallel()
 	for _, src := range []string{"", filepath.Join(t.TempDir(), "missing.env")} {

@@ -30,8 +30,11 @@ func TestCredentialsRowIsAReadOnlyInventory(t *testing.T) {
 	if !env.Filter || !env.Bare || !slices.Equal(env.Options, []string{"ARCHITECT_MODEL", "db_url", "OPENAI_API_KEY"}) {
 		t.Fatalf(".env list = %#v, want a bare filterable list of the names", *env)
 	}
-	if got, want := env.Help["db_url"], "set in /work/.env; the value is never shown"; got != want {
+	if got, want := env.Help["db_url"], "set in /work/.env; this list shows names only"; got != want {
 		t.Errorf(".env entry help = %q, want %q", got, want)
+	}
+	if got, want := row.Help[".env"], "3 name(s) in /work/.env; read-only; this list shows names only"; got != want {
+		t.Errorf(".env cell help = %q, want %q", got, want)
 	}
 	if _, ok := row.Help["db_url"]; ok {
 		t.Errorf("a .env name wrote the row's help, where cells and other lists read theirs: %v", row.Help)

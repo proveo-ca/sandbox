@@ -17,6 +17,9 @@
 ' inline reason IN FULL. Measured on the real forms that is about 150 columns
 ' plainly, and past 200 once a locked row carries changeBaselineHint. The
 ' breakpoint is therefore DERIVED and appears nowhere as a constant.
+' SINCE 2026-11-13 (One Card) the pane's breakpoint is cw + 2 + 80, beside the
+' card, and no form draws the riskier/safer legend or a centred divider. This
+' sheet stays a record of the measurement; its frames are not current state.
 '
 ' NOTHING in this sheet is unbuilt. It is kept as the record of how the four
 ' fidelities were chosen, and of the measurements that moved the last one.
