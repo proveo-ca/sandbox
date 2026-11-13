@@ -14,7 +14,7 @@
 │   devices       [x] tui         [ ] browser     [│   MONGO_DSN              ││
 │   outputs       ( ) filtered    (•) verbose      ╰── 5 more ────────────────╯│
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ ↑↓ row · ←→ move · enter accept · 3 steps · esc back · ctrl+c quit           │
+│ ↑↓ entry · / filter · enter close · esc close · ctrl+c quit                  │
 ╰──────────────────────────────────────────────────────────────────────────────╯
   › ARCHITECT_MODEL — set in ~/monorepo/.env; this list shows names only
 

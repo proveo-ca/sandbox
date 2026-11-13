@@ -3,7 +3,7 @@
 │ › credentials   [x] API keys          [x] OAuth ▾           [ ] SSH          │
 │   egress        ( ) allow-all   (•) balanced   ( ) deny-all                  │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ ↑↓ row · ←→ move · space toggle · enter accept · esc cancel                  │
+│ ↑↓ entry · enter close · esc close                                           │
 ╰──────────────────────────────────────────────────────────────────────────────╯
   › credential-03 — publish this por╭── OAuth ─ 3 above ── 12 ─╮
                                     │ › [ ] credential-03      │

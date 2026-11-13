@@ -999,6 +999,7 @@
         "internal/choiceui/form_model_test.go",
         "internal/choiceui/step_test.go",
         "internal/choiceui/env_list_test.go",
+        "internal/choiceui/list_layer_test.go",
         "cmd/proveo/init.go",
         "cmd/proveo/init_steps_test.go",
         "e2e/init_steps_test.go"
@@ -1039,6 +1040,7 @@
         "internal/choiceui/card.go",
         "internal/choiceui/card_test.go",
         "internal/choiceui/env_list_test.go",
+        "internal/choiceui/list_layer_test.go",
         "internal/run/choices.go",
         "internal/run/credential_inventory.go",
         "internal/run/credential_inventory_test.go",

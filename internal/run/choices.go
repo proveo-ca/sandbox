@@ -600,7 +600,7 @@ func foldPorts(r choiceui.Row) choiceui.Row {
 	if r.Help == nil {
 		r.Help = map[string]string{}
 	}
-	r.Help[portsMore] = "the other ports — ↑↓ moves, space ticks"
+	r.Help[portsMore] = "the other ports; leave this cell and come back to open their list"
 	r.More = &choiceui.More{Cell: 3, Options: rest, On: restOn, Off: restOff}
 	return r
 }

@@ -4,6 +4,7 @@
 ' covers: internal/choiceui/choiceui.go, internal/choiceui/gated_reason_test.go
 ' covers: internal/choiceui/card.go, internal/choiceui/card_test.go
 ' covers: internal/choiceui/env_list_test.go
+' covers: internal/choiceui/list_layer_test.go
 ' covers: internal/run/choices.go
 ' covers: internal/run/credential_inventory.go, internal/run/credential_inventory_test.go
 ' covers: internal/run/run_form_order_test.go
@@ -246,6 +247,10 @@
 ' typing; Esc with a query left standing clears it; otherwise Esc is the
 ' page's. Leaving the cell drops the query. The keys: wizard-keys.puml. The
 ' matcher: scope-tree.puml (THREE MATCHERS).
+' AMENDED 2026-11-13 (DECIDED, wizard-keys.puml ONE LAYER PER KEY): Esc
+' with a query left standing closes the list and drops the query with it;
+' Enter there closes the list too. Only the next Enter or Esc is the
+' page's. "/" on the cell with its list closed opens the list typing.
 ' Backspace on an empty query keeps the filter typing, while the scope page's
 ' filter closes there. O4 named neither; the Executor kept typing on.
 '
@@ -265,6 +270,13 @@
 '   bottom    "╰── N more ──╯", counting only the entries below the window
 '   height    fixed when it opens, from the whole list, so narrowing never
 '             moves the box
+' OPENS AND CLOSES (DECIDED 2026-11-13, owner: "either key closes the modal
+' first"; Executor: one layer per key). The list opens by itself when the
+' cursor reaches its cell. Enter or Esc closes it and never reaches the
+' form; a closed list draws nothing and stays closed while the cursor stays
+' on its cell. It opens again when the cursor leaves the cell and returns,
+' or on "/" over a filterable cell. While it is closed the help is the
+' cell's own. The layers: wizard-keys.puml (ONE LAYER PER KEY).
 ' PLACEMENT. Inside the card, on the side of its row with more rows between
 ' the head and the foot rule, when that side holds min(3, n) entries. Else
 ' under the bottom border, over the help and the figure. Else inside with
@@ -319,6 +331,10 @@
 '   placement (TestTheOpenListNeverCoversTheTitleItsRowOrTheFoot), its counts
 '   (TestTheListCountsWhatItHidesAboveAndBelowApart) and
 '   TestNoEnvValueReachesAFrame
+' Pinned by internal/choiceui/list_layer_test.go: every list kind closes on
+'   Enter and on Esc without reaching the form, reopens on a return or "/",
+'   and names the layer on the key line
+'   (TestTheKeyLineNamesWhatEnterAndEscCloseOnAList)
 ' Pinned by internal/run: TestTheRunFormAsksItsQuestionsInOrder
 '   (run_form_order_test.go), TestASectionOpensOnItsFirstPresentRow,
 '   TestCredentialsRowIsAReadOnlyInventory,
@@ -370,10 +386,24 @@
 ' when both rank 5. While the filter types the line reads
 '   [page n/m ·] ↑↓ row · type to narrow · enter close · esc clear · ctrl+c quit
 ' with "N more below" after it when rows hide.
+' AMENDED 2026-11-13 (ONE LAYER PER KEY, wizard-keys.puml). While a list is
+' open and not typing the line reads
+'   [page n/m ·] ↑↓ entry · / filter · enter close · esc close · ctrl+c quit
+' at the usual ranks: ↑↓ entry 3, / filter 2, enter close 9, esc close 5 | 6
+' (the page's esc rank), ctrl+c quit 2, page n/m 5 while no chip draws, N
+' more below 4. A list without a filter drops "/ filter"; a list that ticks
+' (the ports fold) adds "space toggle" (2) after it. No ←→, scroll or "N
+' steps": Enter runs nothing there. A standing query no longer reads "esc
+' clear"; Esc closes the list with it. With the list closed the form's line
+' returns, "/ filter" in place of "space toggle" on a filterable cell (E14).
 ' The key line starts at column 2 inside the walls and narrows to cw-4
 ' (keyRoom); unframed it starts at column 0 and takes the full width.
 ' "enter accept" is still never dropped. The typing filter is the one state
 ' without it, and no page opens in that state (wizard-keys.puml).
+' AMENDED 2026-11-13: an open list is the second state without it, and no
+' page opens with a list open: the run form opens on model or trust repo.
+' The rule "enter accept on every form key line" now reads: on every form
+' key line where no list is open under the cursor.
 ' hintParts, hint and drawHint take the cursor, because the cursor's open list
 ' decides the filter's segments.
 ' THE LINE IS PAINTED IN TWO TONES (2026-11-11, W-e). A segment is a key and
@@ -735,7 +765,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   . | . | . | . | │   CODE_THEME
   . | . | . | . | │   DARK_MODE
   . | . | . | . | ╰── 9 more ────────────╯
-  ↑↓ row · ←→ move · / filter · enter accept · 3 steps · esc back | . | . | . | .
+  ↑↓ entry · / filter · enter close · esc close · ctrl+c quit | . | . | . | .
   › ARCHITECT_MODEL — set in &#126;/monorepo/.env; this list shows names only | . | . | . | .
   .
   typing "/mod": the box keeps its height
@@ -754,8 +784,9 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   side of its row with more room, else
   under the card. Its names start in the
   cell's column. Enter closes the filter
-  and keeps the matches; it never accepts
-  the form while the filter types.
+  and keeps the matches. Enter or Esc
+  then closes the list; only the next
+  key reaches the form (2026-11-13).
 }
 {^"12 · under 40 columns — no frame (· is a blank column)"
   <b>run claudecode — confirm or change …</b>

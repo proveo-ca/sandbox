@@ -61,9 +61,11 @@ type More struct {
 	Help     map[string]string // an entry's help line; Row.Help answers for an entry it lacks
 	query    string
 	typing   bool
+	closed   bool // Enter or Esc closed it; the cursor leaving its cell opens it again
 }
 
-func (m *More) visible(r Row) bool {
+// under reports whether the list sits under the row's cursor, open or closed.
+func (m *More) under(r Row) bool {
 	return m != nil && r.cursorAt() == m.Cell && (m.ReadOnly || !r.offAt(m.Cell)) && len(m.Options) > 0
 }
 
@@ -102,8 +104,15 @@ func (m *More) settle() {
 	}
 }
 
-// reset empties the filter and stops typing.
-func (m *More) reset() { m.query, m.typing = "", false }
+// reset empties the filter, stops typing and opens the list again.
+func (m *More) reset() { m.query, m.typing, m.closed = "", false, false }
+
+// close shuts the list and drops its filter.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml
+func (m *More) close() {
+	m.reset()
+	m.closed = true
+}
 
 // tick is an entry's tick box, or "" on a bare list.
 func (m *More) tick(i int) string {
@@ -116,11 +125,20 @@ func (m *More) tick(i int) string {
 	return "[ ] "
 }
 
+// activeMore is the list open under the row's cursor, or nil.
 func (r *Row) activeMore() *More {
-	if r.More.visible(*r) {
+	if m := r.listUnder(); m != nil && !m.closed {
+		return m
+	}
+	return nil
+}
+
+// listUnder is the list under the row's cursor, open or closed, or nil.
+func (r *Row) listUnder() *More {
+	if r.More.under(*r) {
 		return r.More
 	}
-	if m := r.Lists[r.cursorAt()]; m.visible(*r) {
+	if m := r.Lists[r.cursorAt()]; m.under(*r) {
 		return m
 	}
 	return nil
@@ -539,19 +557,21 @@ func (f *Form) frame(w, h, cursor, tick int) string {
 }
 
 // key applies one key press: it moves the cursor, changes an answer, or ends the form. A list the
-// cursor leaves drops its filter.
+// cursor leaves drops its filter and opens again when the cursor returns.
 func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
-	open := f.openList(*cursor)
+	at := f.listAt(*cursor)
 	out, done := f.apply(cursor, p, w, h)
-	if open != nil && f.openList(*cursor) != open {
-		open.reset()
+	if at != nil && f.listAt(*cursor) != at {
+		at.reset()
 	}
 	return out, done
 }
 
-// apply is key without the filter reset.
+// apply is key without the list reset. Enter and Esc close one layer, innermost first: the
+// typing filter, the open list, then the form.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml
 func (f *Form) apply(cursor *int, p press, w, h int) (Outcome, bool) {
-	if f.filterKey(*cursor, p, w, h) {
+	if f.filterKey(*cursor, p, w, h) || f.closeKey(*cursor, p, w, h) {
 		return Cancelled, false
 	}
 	if out, done := f.leave(p); done {
@@ -614,30 +634,33 @@ func (f *Form) apply(cursor *int, p press, w, h int) (Outcome, bool) {
 
 // openList is the list open under the cursor, or nil.
 func (f *Form) openList(cursor int) *More {
+	if m := f.listAt(cursor); m != nil && !m.closed {
+		return m
+	}
+	return nil
+}
+
+// listAt is the list under the cursor, open or closed, or nil.
+func (f *Form) listAt(cursor int) *More {
 	if f.onSkip || cursor < 0 || cursor >= len(f.Rows) {
 		return nil
 	}
-	return f.Rows[cursor].activeMore()
+	return f.Rows[cursor].listUnder()
 }
 
-// filterKey drives the open list's filter, and answers true when the key belonged to it: `/` starts
-// typing; while typing every text key is text, Enter stops typing and Esc clears and stops; Esc
-// clears a filter left standing.
+// filterKey drives the list's filter, and answers true when the key belonged to it: `/` opens the
+// list typing; while typing every text key is text, Enter stops typing and Esc clears and stops.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) filterKey(cursor int, p press, w, h int) bool {
-	m := f.openList(cursor)
+	m := f.listAt(cursor)
 	if m == nil || !m.Filter || !f.navigable(w, h) {
 		return false
 	}
 	if !m.typing {
-		switch {
-		case p.text == "/":
-			m.typing = true
-		case p.key == "esc" && m.query != "":
-			m.query = ""
-		default:
+		if p.text != "/" {
 			return false
 		}
+		m.closed, m.typing = false, true
 		return true
 	}
 	switch {
@@ -657,6 +680,17 @@ func (f *Form) filterKey(cursor int, p press, w, h int) bool {
 		return false
 	}
 	m.settle()
+	return true
+}
+
+// closeKey closes the open list on Enter or Esc, and answers true when it did.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml
+func (f *Form) closeKey(cursor int, p press, w, h int) bool {
+	m := f.openList(cursor)
+	if m == nil || !f.navigable(w, h) || (p.key != "enter" && p.key != "esc") {
+		return false
+	}
+	m.close()
 	return true
 }
 
@@ -855,7 +889,7 @@ func (f *Form) toggle(cursor int) {
 		return
 	}
 	r := &f.Rows[cursor]
-	if r.activeMore() != nil {
+	if r.listUnder() != nil {
 		return
 	}
 	if r.Locked || !r.Multi || r.Selected >= len(r.Options) || r.offAt(r.Selected) {
@@ -1237,26 +1271,25 @@ func (f *Form) hintParts(w, hidden, cursor int) []hintPart {
 }
 
 // keyParts is the key line's segments after the page count, before narrowing.
+// SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) keyParts(hidden, cursor int) []hintPart {
-	parts := []hintPart{{"↑↓", "row", 3}}
-	list := f.openList(cursor)
 	esc := hintPart{"esc", "cancel", 5}
 	if f.Step.backable() {
 		esc = hintPart{"esc", "back", 6}
 	}
-	if list != nil && (list.query != "" || list.typing) {
-		esc.word = "clear"
+	if list := f.openList(cursor); list != nil {
+		return f.hintTail(listParts(list, esc), hidden)
 	}
-	if list != nil && list.typing {
-		parts = append(parts, hintPart{"type", "to narrow", 2}, hintPart{"enter", "close", 9}, esc)
-		return f.hintTail(parts, hidden)
-	}
+	parts := []hintPart{{"↑↓", "row", 3}}
 	move, toggle := hintPart{"←→", "choose", 3}, hintPart{}
 	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
 		move, toggle = hintPart{"←→", "move", 3}, hintPart{"space", "toggle", 2}
 	}
-	if list != nil && list.Filter {
-		toggle = hintPart{"/", "filter", 2}
+	if list := f.listAt(cursor); list != nil {
+		toggle = hintPart{}
+		if list.Filter {
+			toggle = hintPart{"/", "filter", 2}
+		}
 	}
 	parts = append(parts, move)
 	if toggle.key != "" {
@@ -1273,6 +1306,24 @@ func (f *Form) keyParts(hidden, cursor int) []hintPart {
 	}
 	parts = append(parts, esc)
 	return f.hintTail(parts, hidden)
+}
+
+// listParts is the key line's segments while list is open, with esc at the page's rank: Enter and
+// Esc close the typing filter first, then the list.
+func listParts(list *More, esc hintPart) []hintPart {
+	if list.typing {
+		esc.word = "clear"
+		return []hintPart{{"↑↓", "row", 3}, {"type", "to narrow", 2}, {"enter", "close", 9}, esc}
+	}
+	esc.word = "close"
+	parts := []hintPart{{"↑↓", "entry", 3}}
+	if list.Filter {
+		parts = append(parts, hintPart{"/", "filter", 2})
+	}
+	if !list.ReadOnly {
+		parts = append(parts, hintPart{"space", "toggle", 2})
+	}
+	return append(parts, hintPart{"enter", "close", 9}, esc)
 }
 
 // hintTail ends a key line: the quit key on a wizard's page, then what the body hides.

@@ -155,11 +155,14 @@ func TestEnterClosesTheFilterAndNeverAccepts(t *testing.T) {
 		t.Fatalf("enter while typing ended the form with %v", out)
 	}
 	m := envOpen(f)
-	if m.typing || m.query != "mod" || len(m.shown()) != 5 {
-		t.Fatalf("enter left typing %v query %q shown %d, want typing off and the matches kept", m.typing, m.query, len(m.shown()))
+	if m.typing || m.query != "mod" || len(m.shown()) != 5 || f.openList(cursor) != m {
+		t.Fatalf("enter left typing %v query %q shown %d, want typing off, the matches kept and the list open", m.typing, m.query, len(m.shown()))
+	}
+	if out, done := f.key(&cursor, named("enter"), 120, 36); done || f.openList(cursor) != nil || m.query != "" {
+		t.Fatalf("enter on the open list = %v %v, query %q; want the list closed, its query dropped and the form kept", out, done, m.query)
 	}
 	if out, done := f.key(&cursor, named("enter"), 120, 36); !done || out != Accepted {
-		t.Fatalf("enter after the filter closed = %v %v, want Accepted", out, done)
+		t.Fatalf("enter after the list closed = %v %v, want Accepted", out, done)
 	}
 }
 
@@ -180,11 +183,11 @@ func TestEscClearsTheFilterBeforeItGoesBack(t *testing.T) {
 	if _, done := esc(); done {
 		t.Fatal("esc with a standing filter left the form")
 	}
-	if m := envOpen(f); m.query != "" || m.typing {
-		t.Fatalf("esc with a standing filter left query %q typing %v", m.query, m.typing)
+	if m := envOpen(f); m.query != "" || m.typing || f.openList(cursor) != nil {
+		t.Fatalf("esc with a standing filter left query %q typing %v open %v, want the list closed with it", m.query, m.typing, f.openList(cursor) != nil)
 	}
 	if out, done := esc(); !done || out != Back {
-		t.Fatalf("esc with no filter = %v %v, want Back", out, done)
+		t.Fatalf("esc with the list closed = %v %v, want Back", out, done)
 	}
 }
 
@@ -244,18 +247,22 @@ func TestTheKeyLineWhileTypingNeverOffersAccept(t *testing.T) {
 		}
 	}
 	rest := envForm()
+	if got, want := rest.hint(120, 0, 0), "↑↓ entry · / filter · enter close · esc close · ctrl+c quit"; got != want {
+		t.Errorf("on the open .env list the key line = %q, want %q", got, want)
+	}
+	cursor := 0
+	rest.key(&cursor, named("esc"), 120, 36)
 	hint := rest.hint(120, 0, 0)
 	if !strings.Contains(hint, "/ filter") || strings.Contains(hint, "space toggle") || !strings.Contains(hint, "enter accept") {
-		t.Errorf("on the .env cell the key line = %q, want `/ filter` in place of `space toggle` and `enter accept`", hint)
+		t.Errorf("on the .env cell with its list closed the key line = %q, want `/ filter` in place of `space toggle` and `enter accept`", hint)
 	}
 	if hint := rest.hint(120, 0, 1); strings.Contains(hint, "/ filter") || !strings.Contains(hint, "space toggle") {
 		t.Errorf("off the .env cell the key line = %q, want `space toggle`", hint)
 	}
 	standing := filtering("mod")
-	cursor := 0
 	standing.key(&cursor, named("enter"), 120, 36)
-	if hint := standing.hint(120, 0, 0); !strings.Contains(hint, "enter accept") || !strings.Contains(hint, "esc clear") {
-		t.Errorf("with a standing filter the key line = %q, want `enter accept` and `esc clear`", hint)
+	if got, want := standing.hint(120, 0, 0), "↑↓ entry · / filter · enter close · esc close · ctrl+c quit"; got != want {
+		t.Errorf("with a standing filter the key line = %q, want %q", got, want)
 	}
 }
 

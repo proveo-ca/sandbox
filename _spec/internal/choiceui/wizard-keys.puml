@@ -8,6 +8,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' covers: internal/choiceui/form_model_test.go
 ' covers: internal/choiceui/step_test.go
 ' covers: internal/choiceui/env_list_test.go
+' covers: internal/choiceui/list_layer_test.go
 ' covers: cmd/proveo/init.go (runInitSteps, stepQuit)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: e2e/init_steps_test.go
@@ -81,9 +82,14 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   Esc        clears the query and closes the filter
 '   Ctrl+C     still asks first; shift+tab still steps back
 ' With a query left standing, Esc clears it; the next Esc is the page's.
+' SUPERSEDED 2026-11-13 (ONE LAYER PER KEY, below): Esc on a standing query
+' closes the list, and the query goes with it. The next Esc is the page's.
 ' Leaving the cell (←/→, ↑ past the first entry, ↓ past the last, paging)
 ' drops the query. The key line names the state: "type to narrow · enter
 ' close · esc clear" while typing, "esc clear" while a query stands.
+' AMENDED 2026-11-13: a standing query no longer changes the line. With the
+' list open and not typing it reads "↑↓ entry · / filter · enter close · esc
+' close" (ONE LAYER PER KEY).
 ' Precedent: the scope page's Esc already means clear, then cancel
 ' (_spec/internal/choiceui/scope-tree.puml). The owner chose "Enter closes
 ' the filter"; "close" is the Executor's word for it (scope says "choose",
@@ -95,6 +101,50 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   TestLeavingTheCellDropsTheFilter
 '   TestTheKeyLineWhileTypingNeverOffersAccept
 '   TestTheKeyLineWhileTypingAnEmptyQuerySaysEscClear
+'
+' ── ONE LAYER PER KEY: ENTER AND ESC CLOSE THE INNERMOST MODAL FIRST ───────
+' DECIDED 2026-11-13. The owner: "assert the modals showing e.g. the .env
+' values take priority for esc/enter (either key closes the modal first)".
+' The Executor: Enter and Esc each close ONE layer, innermost first.
+'   1 a typing filter   Enter stops typing and keeps the matches; Esc
+'                       clears the query and stops typing (O4, unchanged)
+'   2 an open list      Enter or Esc closes it; a standing query is dropped
+'                       with it
+'   3 the form          Enter accepts (or skips on Skip); Esc steps back
+'                       past page 1, else cancels (unchanged)
+' Every list is a layer: the credentials cells' lists (API keys, OAuth,
+' SSH, .env), the ports fold behind ...More, any Row.More or Row.Lists list.
+' A list still opens by itself when the cursor reaches its cell.
+' A CLOSED LIST STAYS CLOSED while the cursor stays on its cell: ↑↓ move
+' rows, and space and tab tick nothing there. It opens again when the
+' cursor leaves the cell and comes back (←/→, ↑/↓, paging), or when "/" is
+' pressed on a filterable cell, which opens it typing.
+' Ctrl+C asks from every layer; shift+tab still steps back; q is text while
+' the filter types and asks otherwise.
+' THE KEY LINE NAMES THE LAYER. With a list open and not typing it reads
+'   [page n/m ·] ↑↓ entry · / filter · enter close · esc close · ctrl+c quit
+' "/ filter" only on a filterable list. "enter accept" never shows while a
+' list is open. Ranks: _spec/internal/choiceui/wireframe.puml (E14).
+' "space toggle" (rank 2) joins the line on a list that ticks (the ports
+' fold), where the owner's line named none; space is the only key that
+' ticks a folded port, and the line offered it before this change.
+' DIALOGS WERE ALREADY MODAL. formModel, scopeModel and checkModel hand
+' every key to the quit gate while it is up, and a confirm dialog runs as
+' its own Program. Enter answers the selected button; Esc gives the safe
+' one (Stay) and closes only the dialog; the page under it keeps its state.
+' The tests below assert that order; no code changed for it.
+' Pinned by internal/choiceui/list_layer_test.go:
+'   TestEnterClosesAnOpenListAndNeverAccepts
+'   TestEscClosesAnOpenListAndNeverGoesBack
+'   TestAClosedListOpensAgainWhenTheCursorLeavesItsCellAndReturns
+'   TestSlashOpensAClosedFilterableListTyping
+'   TestTheKeyLineNamesWhatEnterAndEscCloseOnAList
+'   TestEnterAndEscEachCloseOneLayerInnermostFirst
+'   TestCtrlCAsksFromEveryLayer
+'   TestEnterAndEscReachTheQuitGateBeforeTheFormUnderIt
+'   TestEnterAndEscReachTheQuitGateBeforeTheScopePage
+'   TestEnterAndEscReachTheQuitGateBeforeTheChecksPage
+'   TestEnterAnswersTheSelectedButtonAndEscTheSafeOneInEveryDialog
 '
 ' ── A LONE FORM KEEPS ITS KEYS ─────────────────────────────────────────────
 ' A form with a zero Step is not a wizard: Esc, Ctrl+C and q cancel at once,
@@ -150,6 +200,10 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' filter is typing the Enter segment reads "enter close", because Enter
 ' there closes the filter and accepts nothing. The anchor still holds: no
 ' page opens with a filter typing, and a standing query keeps "enter accept".
+' AMENDED 2026-11-13 (ONE LAYER PER KEY): any open list drops it too, a
+' standing query included; Enter there reads "enter close". The anchor
+' still holds: the run form opens on model, or on trust repo without one
+' (TestTheRunFormAsksItsQuestionsInOrder), and neither row carries a list.
 ' SINCE 2026-11-13 (owner, O8) the run form opens on its top row with an
 ' answer to change, not on devices; e2e walks that started on devices now
 ' walk Down from model (choice-prompt-render.puml, WHERE THE CURSOR MAY REST).
@@ -208,9 +262,11 @@ component "Ctrl+C\n**asks first**" as CC <<error>>
 component "the question\nStay ↵ · Quit" as ASK <<app>>
 component "Skip\na button under the rows" as SKIP <<app>>
 component "the .env filter\nEnter closes · Esc clears" as FILTER <<app>>
+component "an open list\nEnter or Esc closes it" as LIST <<app>>
 
 PAGE ARROW_MAIN ENTER
-PAGE ARROW_OPTIONAL FILTER : the run form's .env list
+PAGE ARROW_OPTIONAL LIST : credentials, ports
+LIST ARROW_OPTIONAL FILTER : the .env list
 PAGE ARROW_MAIN ESC
 PAGE ARROW_ERROR CC
 CC ARROW_MAIN ASK
@@ -243,7 +299,14 @@ note bottom of FILTER
   **Enter closes the filter; it never accepts.**
   While the filter is typing, every printable
   key is text, so Enter and Esc end the typing
-  first and a standing query keeps "enter accept".
+  first. The list under it stays open.
+end note
+
+note bottom of LIST
+  **One layer per key.** Enter or Esc closes
+  the open list before either reaches the form.
+  The list opens again once the cursor leaves
+  its cell and comes back, or on "/".
 end note
 
 note bottom of LONE
