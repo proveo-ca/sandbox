@@ -414,7 +414,9 @@ func listCounts(t *testing.T, lines []string, name string) (above int, entries [
 		for j := 1; j < len(f); j++ {
 			if f[j] == word {
 				var n int
-				fmt.Sscan(f[j-1], &n)
+				if _, err := fmt.Sscan(f[j-1], &n); err != nil {
+					t.Fatalf("%q before %q is not a count: %v", f[j-1], word, err)
+				}
 				return n
 			}
 		}
