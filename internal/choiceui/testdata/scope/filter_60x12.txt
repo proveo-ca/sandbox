@@ -1,11 +1,11 @@
-run claudecode — where the agent works           scope · 1/2
-
-  / bill_
-  monorepo  repo root  default
-  │ ▾ services
-› │ │ ▾ billing
-  │ │ │ worker
-
-enter starts the agent in services/billing
-
-page 1/2 · ↑↓ row · enter choose · esc clear · ctrl+c quit
+╭──────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works      scope · 1/2  │
+│   / bill_                                                │
+│   monorepo  repo root  default                           │
+│   │ ▾ services                                           │
+│ › │ │ ▾ billing                                          │
+│   │ │ │ worker                                           │
+├──────────────────────────────────────────────────────────┤
+│ enter starts the agent in services/billing               │
+│ ↑↓ row · enter choose · esc clear · ctrl+c quit          │
+╰──────────────────────────────────────────────────────────╯

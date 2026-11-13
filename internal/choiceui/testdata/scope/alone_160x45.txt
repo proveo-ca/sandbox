@@ -7,19 +7,19 @@
         └───────                         ●──────┘
   proveo/sandbox: portable, safe AI coding agents
 
-run claudecode — where the agent works
-
-› monorepo  repo root  default
-  │ ▾ apps
-  │ │ api
-  │ │ web
-  │ ▾ packages
-  │ │ ui
-  │ ▾ services
-  │ │ ▾ billing
-  │ │ │ worker
-  │ tools
-
-enter starts the agent at the repo root, with every folder below it
-
-↑↓ row · ←→ fold · / filter · enter choose · esc cancel
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                                                                               │
+│ › monorepo  repo root  default                                                                                       │
+│   │ ▾ apps                                                                                                           │
+│   │ │ api                                                                                                            │
+│   │ │ web                                                                                                            │
+│   │ ▾ packages                                                                                                       │
+│   │ │ ui                                                                                                             │
+│   │ ▾ services                                                                                                       │
+│   │ │ ▾ billing                                                                                                      │
+│   │ │ │ worker                                                                                                       │
+│   │ tools                                                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every folder below it                                                  │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

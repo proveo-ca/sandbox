@@ -387,7 +387,7 @@ func TestADangerousAnswerDrawsItsMnemonicInTheFailureColour(t *testing.T) {
 	}
 }
 
-// Every button face is a reversed fill, so a face survives NO_COLOR; a danger mnemonic's face is the failure colour.
+// Every button face is a reversed fill; a danger mnemonic's face is the failure colour.
 func TestEveryButtonFaceIsAReversedFill(t *testing.T) {
 	t.Parallel()
 	d := NewSandboxClose(nil, time.Second).(dialog)
@@ -406,6 +406,105 @@ func TestEveryButtonFaceIsAReversedFill(t *testing.T) {
 			if b.Danger && !strings.Contains(face, "7;38;2;203;32;0;") {
 				t.Errorf("%s (selected %v): the mnemonic's face is not the failure colour: %q", b.Label, selected, face)
 			}
+		}
+	}
+}
+
+// Every dialog is a card sized to its content: a grey frame, the title at column 2, the body at 4,
+// each line that states a loss marked "!" at 2, then a rule, the buttons, a blank and the key line at 2.
+func TestEveryDialogIsACardWithItsLossLinesMarked(t *testing.T) {
+	t.Parallel()
+	g := glyphsFor(GlyphsSafe)
+	for name, d := range theFiveDialogs() {
+		d.glyphs = GlyphsSafe
+		raw := d.box()
+		rows := strings.Split(plain(raw), "\n")
+		w := textWidth(rows[0])
+		last := len(rows) - 1
+		if !strings.HasPrefix(rows[0], g.frameTL) || !strings.HasSuffix(rows[0], g.frameTR) ||
+			!strings.HasPrefix(rows[last], g.frameBL) || !strings.HasSuffix(rows[last], g.frameBR) {
+			t.Fatalf("%s: no rounded frame:\n%s", name, plain(raw))
+		}
+		if !strings.Contains(raw, "\x1b[38;2;138;138;138m"+g.frameTL) {
+			t.Errorf("%s: the frame is not grey: %q", name, strings.SplitN(raw, "\n", 2)[0])
+		}
+		body := slices.Clone(d.lines)
+		for len(body) > 0 && body[len(body)-1] == "" {
+			body = body[:len(body)-1]
+		}
+		if len(rows) != len(body)+6 {
+			t.Fatalf("%s: %d rows, want the %d body lines and 6 more:\n%s", name, len(rows), len(body), plain(raw))
+		}
+		for y, row := range rows[1:last] {
+			r := []rune(row)
+			if textWidth(row) != w || (string(r[0]) != g.wallL && string(r[0]) != g.joinL) {
+				t.Errorf("%s row %d: not walled at %d columns: %q", name, y+1, w, row)
+			}
+		}
+		for i, text := range body {
+			r := []rune(rows[1+i])
+			at, mark := modalBodyX, ' '
+			switch {
+			case text == d.title:
+				at = modalTitleX
+			case modalWarns(text):
+				mark = '!'
+			}
+			if text != "" && (string(r[at:at+len([]rune(text))]) != text || r[modalTitleX] != mark && text != d.title) {
+				t.Errorf("%s: %q must sit at column %d with %q at column 2: %q", name, text, at, mark, rows[1+i])
+			}
+		}
+		foot := 1 + len(body)
+		buttons, blank, keys := []rune(rows[foot+1]), rows[foot+2], []rune(rows[foot+3])
+		if !strings.HasPrefix(rows[foot], g.joinL) || !strings.HasSuffix(rows[foot], g.joinR) {
+			t.Errorf("%s: no rule above the buttons: %q", name, rows[foot])
+		}
+		if !strings.HasPrefix(string(buttons[modalButtonX:]), " "+d.buttons[0].Label) {
+			t.Errorf("%s: the button row does not open at column %d: %q", name, modalButtonX, rows[foot+1])
+		}
+		if strings.Trim(blank, g.wallL+" ") != "" {
+			t.Errorf("%s: no blank between the buttons and the key line: %q", name, blank)
+		}
+		if got := strings.TrimRight(string(keys[modalKeyX:len(keys)-1]), " "); got != joinHint(d.keyParts()) {
+			t.Errorf("%s: key line %q at column %d, want %q", name, got, modalKeyX, joinHint(d.keyParts()))
+		}
+		if loss := slices.ContainsFunc(body, modalWarns); loss != strings.Contains(raw, "38;2;203;219;42;48;2;0;0;0;7m!") {
+			t.Errorf("%s: a loss line's \"!\" must be black on lime, and only a loss line has one", name)
+		}
+	}
+}
+
+// A list number in front of a line does not hide the loss it states.
+func TestANumberedLineCountsAsALossByItsText(t *testing.T) {
+	t.Parallel()
+	for text, want := range map[string]bool{
+		"2. sbx rm --force proveo-claudecode-abc will run.":     true,
+		"12. sbx rm --force x will run.":                        true,
+		"sbx rm --force will run.":                              true,
+		"1. carry clone commits and agent state home":           false,
+		"3. this run creates a new sandbox with this same name": false,
+		"2.sbx rm --force":                                      false,
+	} {
+		if got := modalWarns(text); got != want {
+			t.Errorf("modalWarns(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
+
+// Off draws a dialog as ASCII does: no Unicode frame, enter mark or arrows.
+func TestOffAndASCIIDialogsDrawThePlainSet(t *testing.T) {
+	t.Parallel()
+	for _, tier := range []GlyphTier{GlyphsASCII, GlyphsOff} {
+		d := NewSandboxClose(nil, time.Second).(dialog)
+		d.glyphs = tier
+		box := plain(d.box())
+		for _, want := range []string{"+---", "| ", "<enter>", "left/right move · enter accept"} {
+			if !strings.Contains(box, want) {
+				t.Errorf("tier %d lacks %q:\n%s", tier, want, box)
+			}
+		}
+		if strings.ContainsAny(box, "╭╮╰╯│─├┤↵←→") {
+			t.Errorf("tier %d draws a Unicode rune:\n%s", tier, box)
 		}
 	}
 }

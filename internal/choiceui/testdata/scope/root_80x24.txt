@@ -1,16 +1,16 @@
-run claudecode — where the agent works                               scope · 1/2
-
-› monorepo  repo root  default
-  │ ▾ apps
-  │ │ api
-  │ │ web
-  │ ▾ packages
-  │ │ ui
-  │ ▾ services
-  │ │ ▾ billing
-  │ │ │ worker
-  │ tools
-
-enter starts the agent at the repo root, with every folder below it
-
-page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                          scope · 1/2  │
+│ › monorepo  repo root  default                                               │
+│   │ ▾ apps                                                                   │
+│   │ │ api                                                                    │
+│   │ │ web                                                                    │
+│   │ ▾ packages                                                               │
+│   │ │ ui                                                                     │
+│   │ ▾ services                                                               │
+│   │ │ ▾ billing                                                              │
+│   │ │ │ worker                                                               │
+│   │ tools                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every folder below it          │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit        │
+╰──────────────────────────────────────────────────────────────────────────────╯

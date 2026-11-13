@@ -132,6 +132,22 @@ func (r *initRun) wait(t *testing.T, want string) string {
 	return screen
 }
 
+// waitAny polls the screen until it holds one of wants.
+func (r *initRun) waitAny(t *testing.T, wants ...string) string {
+	t.Helper()
+	screen := ""
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		screen, _ = r.sess.Capture()
+		for _, want := range wants {
+			if strings.Contains(screen, want) {
+				return screen
+			}
+		}
+	}
+	t.Fatalf("never saw any of %q:\n%s", wants, screen)
+	return screen
+}
+
 // waitMatch polls the screen until every pattern matches.
 func (r *initRun) waitMatch(t *testing.T, patterns ...string) string {
 	t.Helper()
@@ -167,13 +183,24 @@ const (
 // initSkipKeys focus the Skip button under a page's rows and press it.
 var initSkipKeys = []string{"End", "Down", "Enter"}
 
-// initPageLabel is the key line's label for form n: 1 setup, 2 credentials, 3 operator.
+// initPageLabel is form n's page count, on its head's chip or its key line: 1 setup, 2 credentials, 3 operator.
 func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n+1, initPages) }
 
-// checks waits for the checks page, which opens every prompted init, and returns its screen.
+// checks waits for the checks page, which opens every prompted init, and returns its screen; its
+// page count is the head's chip, or the key line's when the chip does not fit.
 func (r *initRun) checks(t *testing.T) string {
 	t.Helper()
-	return r.wait(t, fmt.Sprintf("page 1/%d", initPages))
+	return r.waitAny(t, fmt.Sprintf("checks · 1/%d", initPages), fmt.Sprintf("page 1/%d", initPages))
+}
+
+// keyLine is the screen's key line: the first line that names enter between the key line's separators.
+func keyLine(screen string) string {
+	for _, l := range strings.Split(screen, "\n") {
+		if strings.Contains(l, "enter ") && strings.Contains(l, " · ") {
+			return l
+		}
+	}
+	return ""
 }
 
 // page waits for form n and returns its screen; the first call continues past the checks page.
@@ -369,13 +396,7 @@ func TestInitNarrowFooterKeepsTheWayOut(t *testing.T) {
 	r := startInit(t, 64, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
 	r.page(t, 1)
 	r.keys(t, "Enter")
-	screen := r.page(t, 2)
-	var footer string
-	for _, l := range strings.Split(screen, "\n") {
-		if strings.Contains(l, initPageLabel(2)) {
-			footer = l
-		}
-	}
+	footer := keyLine(r.page(t, 2))
 	for _, want := range []string{initBackHint, "enter accept"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("64 columns lost %q: %q", want, footer)

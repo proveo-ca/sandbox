@@ -7,17 +7,17 @@
         └───────                         ●──────┘
   proveo/sandbox: portable, safe AI coding agents
 
-run claudecode — where the agent works                                                                                                               scope · 1/2
-
-  monorepo  repo root  default
-› | + apps  2 inside
-  | - packages
-  | | ui
-  | - services
-  | | - billing
-  | | | worker
-  | tools
-
-enter starts the agent in apps
-
-page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit
++----------------------------------------------------------------------------------------------------------------------+
+| run claudecode — where the agent works                                                                  scope · 1/2  |
+|   monorepo  repo root  default                                                                                       |
+| › | + apps  2 inside                                                                                                 |
+|   | - packages                                                                                                       |
+|   | | ui                                                                                                             |
+|   | - services                                                                                                       |
+|   | | - billing                                                                                                      |
+|   | | | worker                                                                                                       |
+|   | tools                                                                                                            |
++----------------------------------------------------------------------------------------------------------------------+
+| enter starts the agent in apps                                                                                       |
+| ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit                                                |
++----------------------------------------------------------------------------------------------------------------------+

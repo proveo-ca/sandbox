@@ -452,7 +452,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		out, done := m.f.key(&m.cursor, p, m.w, m.h)
 		switch {
 		case done && out == Quit && m.f.navigable(m.w, m.h):
-			m.quit = m.quit.open(m.w, m.h, m.f.Step.Leave)
+			m.quit = m.quit.open(m.w, m.h, m.f.Step.Leave, m.f.Glyphs)
 		case done:
 			m.out = out
 			return m, tea.Quit
@@ -767,6 +767,9 @@ type palette struct {
 	frame       lipgloss.Style // card walls and rules: grey
 	rail        lipgloss.Style // the walls beside the cursor's section: brand
 	chip        lipgloss.Style // the step chip: brand on the surface
+	ok          lipgloss.Style // a passing check's mark: green
+	fail        lipgloss.Style // a failing check's mark: bold red
+	alert       lipgloss.Style // the mark beside a line that states a loss: black on lime
 }
 
 const black = 0x000000
@@ -795,6 +798,9 @@ func styles() palette {
 		frame:       fg(ui.ColorMuted),
 		rail:        fg(ui.ColorBrand),
 		chip:        fill(ui.ColorBrand, ui.ColorSurface),
+		ok:          fg(ui.ColorSuccess),
+		fail:        fg(ui.ColorFailure).Bold(true),
+		alert:       fill(black, ui.ColorWarn),
 	}
 }
 
@@ -833,21 +839,12 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	c := newCanvas(s)
 
 	if lay.banner {
-		c.y++
-		if n := len(f.Banner); n > 0 {
-			for _, b := range f.Banner[:n-1] {
-				c.put(0, p.brand, b)
-				c.y++
-			}
-			c.put(0, p.body, f.Banner[n-1])
-			c.y++
-		}
-		c.y++
+		drawBanner(c, p, f.Banner)
 	}
 	k.head(c, f.Title, f.headChip(w))
 	if lay.header {
-		for _, row := range factRows(f.Header, k.edge-factX) {
-			x := factX
+		for _, row := range f.facts(w) {
+			x := factCol(w)
 			for _, fact := range row {
 				putHeader(c.put, p, x, fact)
 				x += textWidth(fact) + len(factJoin)
@@ -889,7 +886,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 			k.wallL(c, lit(lines[f.scroll+i].row))
 		}
 		k.wallR(c)
-		if glyph, thumb := g.glyph(i, f.Glyphs == GlyphsASCII || f.Glyphs == GlyphsOff); glyph != "" {
+		if glyph, thumb := g.glyph(i, plainGlyphs(f.Glyphs)); glyph != "" {
 			st := p.frame
 			if thumb {
 				st = p.rail
@@ -992,24 +989,26 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// drawOnEnter lists what Enter runs in the rows left under every other region.
-// With too few rows the list ends on a count of what it left out.
+// drawOnEnter lists what Enter runs in the rows left under every other region: the heading at the
+// title's column, each number two columns in, its text five. With too few rows the list ends on a
+// count of what it left out.
 func (f *Form) drawOnEnter(c *canvas, p palette, w, h int) {
 	steps := f.onEnter()
 	room := h - c.y - 2 // a blank, then the heading
 	if len(steps) == 0 || room < 1 {
 		return
 	}
+	x := inset(w)
 	c.y++
-	c.put(2, p.accent, clip("on enter", w-2))
+	c.put(x, p.accent, clip("on enter", w-x))
 	for i, text := range steps {
 		c.y++
 		if i == room-1 && len(steps) > room {
-			c.put(4, p.idle, clip(fmt.Sprintf("… and %d more", len(steps)-i), w-4))
+			c.put(x+2, p.idle, clip(fmt.Sprintf("… and %d more", len(steps)-i), w-x-2))
 			return
 		}
-		c.put(4, p.idle, fmt.Sprintf("%d", i+1))
-		c.put(7, p.body, clip(text, w-7))
+		c.put(x+2, p.idle, fmt.Sprintf("%d", i+1))
+		c.put(x+5, p.body, clip(text, w-x-5))
 	}
 }
 
@@ -1025,7 +1024,7 @@ func (f *Form) drawSkip(c *canvas, p palette) {
 		return
 	}
 	c.put(bodyIndent, p.brand, "› ")
-	c.put(bodyIndent+2, p.focus.Bold(true), " "+f.Skip+" "+enterMark()+" ")
+	c.put(bodyIndent+2, p.focus.Bold(true), " "+f.Skip+" "+enterMark(f.Glyphs)+" ")
 }
 
 // hintPart is one key-line segment: a key and the word for what it does. A
@@ -1048,11 +1047,7 @@ const hintJoin = " · "
 // hintParts is the key line's segments, narrowed one by one so "enter accept" goes last.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) hintParts(w, hidden int) []hintPart {
-	var parts []hintPart
-	if f.Step.wizard() && f.headChip(w) == "" {
-		parts = append(parts, hintPart{"", fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
-	}
-	parts = append(parts, hintPart{"↑↓", "row", 3})
+	parts := append(pageHint(f.Step, f.headChip(w)), hintPart{"↑↓", "row", 3})
 	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
 		parts = append(parts, hintPart{"←→", "move", 3}, hintPart{"space", "toggle", 2})
 	} else {
@@ -1082,16 +1077,7 @@ func (f *Form) hintParts(w, hidden int) []hintPart {
 
 // headChip is the step chip the head draws on a w-column terminal, or "" when it draws none.
 // SPEC: _spec/internal/choiceui/wireframe.puml
-func (f *Form) headChip(w int) string {
-	if !f.Step.wizard() || !framed(w) {
-		return ""
-	}
-	chip := fmt.Sprintf(" page %d/%d ", f.Step.At, f.Step.Of)
-	if !chipFits(textWidth(f.Title), textWidth(chip), cardWidth(w)) {
-		return ""
-	}
-	return chip
-}
+func (f *Form) headChip(w int) string { return stepChip(f.Step, "page", f.Title, w) }
 
 // narrowed drops the lowest-kept segment, again and again, until the line fits w or one is left.
 func narrowed(parts []hintPart, w int) []hintPart {
@@ -1127,10 +1113,6 @@ func (f *Form) drawHint(c *canvas, p palette, w, hidden int) {
 
 // paintHint paints a key line from column x0 in two tones, cut to w: each key bold, its word grey.
 func paintHint(c *canvas, p palette, parts []hintPart, x0, w int) {
-	type piece struct {
-		st   lipgloss.Style
-		text string
-	}
 	var pieces []piece
 	for i, part := range parts {
 		if i > 0 {
@@ -1159,6 +1141,12 @@ func paintHint(c *canvas, p palette, parts []hintPart, x0, w int) {
 		x += textWidth(shown)
 		left = left[n:]
 	}
+}
+
+// piece is one styled run of a line.
+type piece struct {
+	st   lipgloss.Style
+	text string
 }
 
 // drawMore paints the open list under its cell, ending before column right.
@@ -1269,7 +1257,7 @@ func (f *Form) drawBodyLine(c *canvas, p palette, k card, ln bodyLine, cursor, p
 		cell, arrow := r.columnText(opt), ""
 		if m := r.cellMore(j); m != nil && len(m.Options) > 0 {
 			arrow = " ▾"
-			if f.Glyphs == GlyphsASCII || f.Glyphs == GlyphsOff {
+			if plainGlyphs(f.Glyphs) {
 				arrow = " v"
 			}
 		}
@@ -1315,20 +1303,33 @@ func drawTooSmall(s *screen, w, h, needH int) {
 
 const factJoin = "    "
 
+// facts is the header as card rows on a w-column terminal.
+func (f *Form) facts(w int) [][]string { return factRows(f.Header, edge(w)-factCol(w)) }
+
 // factRows lays the header out as card rows of width columns: unindented `key: value` facts flow
-// joined by four spaces and wrap at a fact boundary; any other line keeps a row of its own.
+// joined by four spaces and wrap at a fact boundary; any other line keeps a row of its own. An
+// indented line starts at the facts' column, two columns further in when it continues a fact.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func factRows(header []string, width int) [][]string {
 	var rows [][]string
 	var run []string
-	used := 0
+	used, underFact := 0, false
 	flush := func() {
 		if len(run) > 0 {
 			rows, run, used = append(rows, run), nil, 0
 		}
 	}
 	for _, line := range header {
+		if text := strings.TrimLeftFunc(line, unicode.IsSpace); text != line && text != "" {
+			flush()
+			if underFact {
+				text = "  " + text
+			}
+			rows = append(rows, []string{clip(text, width)})
+			continue
+		}
 		fact, ok := asFact(line)
+		underFact = ok
 		if !ok {
 			flush()
 			rows = append(rows, []string{clip(line, width)})

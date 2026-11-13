@@ -1,8 +1,8 @@
-run claudecode — where the agent works
-
-  monorepo  repo root  default
-› | + apps  2 inside
-
-enter starts the agent in apps
-
-enter choose · esc cancel · 6 more below
++--------------------------------------+
+| run claudecode — where the agent wo… |
+|   monorepo  repo root  default       |
+| › | + apps  2 inside                 |
++--------------------------------------+
+| enter starts the agent in apps       |
+| enter choose · esc cancel            |
++--------------------------------------+

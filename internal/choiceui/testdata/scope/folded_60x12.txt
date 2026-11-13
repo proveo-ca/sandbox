@@ -1,12 +1,12 @@
-run claudecode — where the agent works           scope · 1/2
-
-  │ ▾ apps
-  │ │ api
-  │ │ web
-  │ ▾ packages
-  │ │ ui
-› │ ▸ services  1 inside
-
-enter starts the agent in services
-
-page 1/2 · ↑↓ row · enter choose · esc cancel · 1 more below
+╭──────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works      scope · 1/2  │
+│   │ ▾ apps                                               │
+│   │ │ api                                                │
+│   │ │ web                                                │
+│   │ ▾ packages                                           │
+│   │ │ ui                                                 │
+│ › │ ▸ services  1 inside                                 │
+├──────────────────────────────────────────────────────────┤
+│ enter starts the agent in services                       │
+│ ↑↓ row · enter choose · esc cancel · 1 more below        │
+╰──────────────────────────────────────────────────────────╯

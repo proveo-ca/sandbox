@@ -23,15 +23,15 @@ type quitGate struct {
 	ask *dialog
 }
 
-// open puts the question l up on a terminal of w by h.
-func (g quitGate) open(w, h int, l Leave) quitGate {
+// open puts the question l up on a terminal of w by h, drawn in the page's glyph tier.
+func (g quitGate) open(w, h int, l Leave, tier GlyphTier) quitGate {
 	if l.Title == "" {
 		l = genericLeave
 	}
 	lines := append([]string{l.Title, ""}, strings.Split(l.Body, "\n")...)
 	d := newDialog(l.Title, lines, quitStay, dialogButton{Label: "Stay", Key: 's'}, dialogButton{Label: "Quit", Key: 'q'})
 	d.onCtrlC = quitLeave
-	d.w, d.h = w, h
+	d.w, d.h, d.glyphs = w, h, tier
 	return quitGate{ask: &d}
 }
 

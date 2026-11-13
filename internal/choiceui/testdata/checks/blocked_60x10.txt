@@ -1,10 +1,10 @@
-init — preparing the darwin/arm64 host          checks · 1/4
-
-  to install sbx
-  ✓ Apple silicon — macOS Sonoma 14 or later on Apple silic…
-  sbx diagnose
-  ✓ virtualization — Hypervisor.framework is available
-
-blocked: nothing good follows an install here: KVM
-
-page 1/4 · ↑↓ scroll · esc cancel · 6 more below
+╭──────────────────────────────────────────────────────────╮
+│ init — preparing the darwin/arm64 host     checks · 1/4  │
+│ to install sbx                                           │
+│ ✓ Apple silicon — macOS Sonoma 14 or later on Apple sil… │
+│ sbx diagnose                                             │
+│ ✓ virtualization — Hypervisor.framework is available     │
+├──────────────────────────────────────────────────────────┤
+│ blocked: nothing good follows an install here: KVM       │
+│ ↑↓ scroll · esc cancel · ctrl+c quit · 6 more below      │
+╰──────────────────────────────────────────────────────────╯

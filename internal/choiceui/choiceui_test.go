@@ -493,7 +493,7 @@ func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, factX, "llms:     main=claude-opus-5 (anthropic)  small=claude-haiku-4-5 (anthropic)")
+	putHeader(put, pal, factCol(cardMax), "llms:     main=claude-opus-5 (anthropic)  small=claude-haiku-4-5 (anthropic)")
 
 	for _, want := range []string{"llms:", "main", "small"} {
 		var found bool
@@ -527,7 +527,7 @@ func TestPutHeaderAccentsGlyphsNotNames(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, factX, "tooling:   typescript  {} yaml")
+	putHeader(put, pal, factCol(cardMax), "tooling:   typescript  {} yaml")
 
 	acc := strings.Join(accented, "|")
 	for _, want := range []string{"tooling:", "", "{}"} {
@@ -566,7 +566,7 @@ func TestPutHeaderAccentsBranchAndItalicisesAside(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, factX, "git:      monorepo on rs-295-integration-discriminator (uncommitted changes)")
+	putHeader(put, pal, factCol(cardMax), "git:      monorepo on rs-295-integration-discriminator (uncommitted changes)")
 
 	acc, asi, bod := strings.Join(accented, "|"), strings.Join(aside, ""), strings.Join(body, "")
 	if !strings.Contains(acc, "rs-295-integration-discriminator") {

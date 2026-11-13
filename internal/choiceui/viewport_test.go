@@ -12,8 +12,7 @@ func scrollForm() *Form {
 	}}
 }
 
-// A divider costs two lines and a plain row one, which is exactly why the
-// viewport counts lines and not rows.
+// A divider costs two lines and a plain row one.
 func TestBodyLinesCountsDividerFurniture(t *testing.T) {
 	t.Parallel()
 	lines := scrollForm().bodyLines()

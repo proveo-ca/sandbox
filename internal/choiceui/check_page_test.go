@@ -75,11 +75,14 @@ func TestTheCheckPageShowsEveryCheckItsMarkAndTheHintUnderOneThatFailed(t *testi
 		"sbx diagnose", "✓ virtualization", "× daemon — not running", "start it with `sbx daemon start`",
 		"! disk — 12 GB free", "- kvm — not a Linux host",
 		"2 of 5 checks need attention — enter continues to setup",
-		"checks · 1/4", "page 1/4 · enter continue · esc cancel · ctrl+c quit",
+		" checks · 1/4 ", "enter continue · esc cancel · ctrl+c quit",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the page lacks %q:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "page 1/4") {
+		t.Errorf("the chip owns the page count, yet the key line repeats it:\n%s", joined)
 	}
 	if strings.Count(joined, "sbx diagnose") != 1 {
 		t.Errorf("a group's heading must draw once:\n%s", joined)

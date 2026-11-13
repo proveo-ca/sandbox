@@ -1,12 +1,12 @@
-run claudecode — where the agent works           scope · 1/2
-
-  monorepo  repo root  default
-› | + apps  2 inside
-  | - packages
-  | | ui
-  | - services
-  | | - billing
-
-enter starts the agent in apps
-
-page 1/2 · ↑↓ row · enter choose · esc cancel · 2 more below
++----------------------------------------------------------+
+| run claudecode — where the agent works      scope · 1/2  |
+|   monorepo  repo root  default                           |
+| › | + apps  2 inside                                     |
+|   | - packages                                           |
+|   | | ui                                                 |
+|   | - services                                           |
+|   | | - billing                                          |
++----------------------------------------------------------+
+| enter starts the agent in apps                           |
+| ↑↓ row · enter choose · esc cancel · 2 more below        |
++----------------------------------------------------------+

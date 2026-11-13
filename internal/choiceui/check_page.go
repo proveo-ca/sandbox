@@ -6,8 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // CheckState is how one check came out.
@@ -89,8 +87,8 @@ func (m checkModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		out, done := m.page.key(msg.String(), m.h)
 		switch {
-		case done && out == Quit && m.page.window(m.h) >= 1:
-			m.quit = m.quit.open(m.w, m.h, m.page.Step.Leave)
+		case done && out == Quit && m.page.layout(m.h).window >= 1:
+			m.quit = m.quit.open(m.w, m.h, m.page.Step.Leave, m.page.Glyphs)
 		case done:
 			m.out = out
 			return m, tea.Quit
@@ -139,16 +137,26 @@ func (cp *CheckPage) lines() []checkLine {
 	return out
 }
 
-// checkFoot is the rows under the list: a blank, the verdict, a blank, the key line.
+// checkFoot is the rows under the list: the foot rule, the verdict, the key line, the bottom border;
+// unframed, a blank, the verdict, a blank, the key line.
 const checkFoot = 4
 
-// window is how many list lines a terminal of height h holds; under 1 the page cannot draw.
-func (cp *CheckPage) window(h int) int {
-	fixed := 2 + checkFoot // the title and its blank
-	if banner := len(cp.Banner) + 2; len(cp.Banner) > 0 && h >= fixed+banner+len(cp.lines()) {
+// checkLayout is which of the page's regions a terminal of this height holds.
+type checkLayout struct {
+	banner bool
+	window int // list lines on screen; under 1 the page cannot draw
+}
+
+func (cp *CheckPage) layout(h int) checkLayout {
+	var lay checkLayout
+	n := len(cp.lines())
+	fixed := 2 + checkFoot // the top border and the title; unframed, the title and a blank
+	if banner := len(cp.Banner) + 2; len(cp.Banner) > 0 && h >= fixed+banner+n {
+		lay.banner = true
 		fixed += banner
 	}
-	return min(len(cp.lines()), h-fixed)
+	lay.window = min(n, h-fixed)
+	return lay
 }
 
 // key applies one key press: it scrolls, continues, or leaves.
@@ -167,7 +175,7 @@ func (cp *CheckPage) key(key string, h int) (Outcome, bool) {
 	case "enter":
 		return Accepted, cp.Blocked == ""
 	}
-	window := cp.window(h)
+	window := cp.layout(h).window
 	if window < 1 {
 		return Cancelled, false
 	}
@@ -206,11 +214,11 @@ func (cp *CheckPage) verdict() (string, bool) {
 	return fmt.Sprintf("%d of %s need attention — enter continues to %s", attention, plural(len(cp.Rows), "check"), cp.Next), true
 }
 
+// chip is the head's step chip on a w-column terminal, or "".
+func (cp *CheckPage) chip(w int) string { return stepChip(cp.Step, "checks ·", cp.Title, w) }
+
 func (cp *CheckPage) hintParts(w, hidden int) []hintPart {
-	var parts []hintPart
-	if cp.Step.Of > 1 {
-		parts = append(parts, hintPart{"", fmt.Sprintf("page %d/%d", cp.Step.At, cp.Step.Of), 4})
-	}
+	parts := pageHint(cp.Step, cp.chip(w))
 	if hidden > 0 || cp.top > 0 {
 		parts = append(parts, hintPart{"↑↓", "scroll", 3})
 	}
@@ -228,35 +236,40 @@ func (cp *CheckPage) hintParts(w, hidden int) []hintPart {
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
-	return narrowed(parts, w)
+	return narrowed(parts, keyRoom(w))
+}
+
+// hint is the key line a w-column terminal shows, as plain text.
+func (cp *CheckPage) hint(w, hidden int) string {
+	return clip(joinHint(cp.hintParts(w, hidden)), keyRoom(w))
 }
 
 // mark is a check's glyph and the style it is drawn in.
 func (cp *CheckPage) mark(st CheckState, p palette) (string, lipgloss.Style) {
-	ascii := cp.Glyphs == GlyphsASCII || cp.Glyphs == GlyphsOff
+	ascii := plainGlyphs(cp.Glyphs)
 	switch st {
 	case CheckWarn:
 		return "!", p.warn
 	case CheckFail:
 		if ascii {
-			return "x", lipgloss.NewStyle().Foreground(hexOf(ui.ColorFailure)).Bold(true)
+			return "x", p.fail
 		}
-		return "×", lipgloss.NewStyle().Foreground(hexOf(ui.ColorFailure)).Bold(true)
+		return "×", p.fail
 	case CheckSkip:
 		return "-", p.idle
 	}
 	if ascii {
-		return "+", p.brand
+		return "+", p.ok
 	}
-	return "✓", p.brand
+	return "✓", p.ok
 }
 
 func (cp *CheckPage) draw(s *screen) {
 	p := styles()
 	w, h := s.Size()
 	c := newCanvas(s)
-	window := cp.window(h)
-	if window < 1 {
+	lay := cp.layout(h)
+	if lay.window < 1 {
 		c.put(0, p.warn, clip(fmt.Sprintf("terminal too small: %dx%d, need %d rows", w, h, 3+checkFoot), w))
 		c.y = 1
 		verdict, _ := cp.verdict()
@@ -264,51 +277,48 @@ func (cp *CheckPage) draw(s *screen) {
 		return
 	}
 	lines := cp.lines()
-	if len(cp.Banner) > 0 && h >= 2+checkFoot+len(cp.Banner)+2+len(lines) {
-		c.y++
-		n := len(cp.Banner)
-		for _, b := range cp.Banner[:n-1] {
-			c.put(0, p.brand, b)
-			c.y++
-		}
-		c.put(0, p.body, cp.Banner[n-1])
-		c.y += 2
+	if lay.banner {
+		drawBanner(c, p, cp.Banner)
 	}
-	c.put(0, p.title, clip(cp.Title, w))
-	if cp.Step.Of > 1 {
-		chip := fmt.Sprintf("checks · %d/%d", cp.Step.At, cp.Step.Of)
-		if x := w - textWidth(chip); x > textWidth(cp.Title)+2 {
-			c.put(x, p.accent, chip)
-		}
+	k := newCard(w, cp.Glyphs, p)
+	x0 := inset(w)
+	k.head(c, cp.Title, cp.chip(w))
+	cp.top = max(0, min(cp.top, len(lines)-lay.window))
+	for i := 0; i < lay.window; i++ {
+		k.line(c, false, func() { cp.drawLine(c, p, lines[cp.top+i], k.edge) })
 	}
-	c.y += 2
-	cp.top = max(0, min(cp.top, len(lines)-window))
-	for i := 0; i < window; i++ {
-		switch ln := lines[cp.top+i]; ln.kind {
-		case 0:
-			c.put(2, p.accent, clip(ln.title, w-2))
-		case 1:
-			glyph, st := cp.mark(ln.row.State, p)
-			c.put(2, st, glyph)
-			pen := newPen(s, 4, c.y)
-			pen.write(p.title, clip(ln.row.Name, max(1, w-4)))
-			if ln.row.Detail != "" {
-				pen.write(p.body, clip(" — "+ln.row.Detail, max(1, w-pen.col())))
-			}
-		case 2:
-			c.put(6, p.aside, clip(ln.row.Hint, max(1, w-6)))
-		case 3:
-			c.put(6, p.idle, clip(ln.title, max(1, w-6)))
-		}
-		c.y++
-	}
+	k.foot(c)
 	c.y++
 	verdict, attention := cp.verdict()
 	st := p.body
 	if attention {
 		st = p.warn
 	}
-	c.put(0, st, clip(verdict, w))
-	c.y += 2
-	paintHint(c, p, cp.hintParts(w, len(lines)-cp.top-window), 0, w)
+	k.line(c, false, func() { c.put(x0, st, clip(verdict, keyRoom(w))) })
+	if !k.framed {
+		c.y++
+	}
+	k.line(c, false, func() { paintHint(c, p, cp.hintParts(w, len(lines)-cp.top-lay.window), x0, keyRoom(w)) })
+	k.bottom(c)
+}
+
+// drawLine paints one list line short of column edge: a heading at 2, a check's mark at 2 and its
+// name at 4, a line of evidence or the hint at 6.
+func (cp *CheckPage) drawLine(c *canvas, p palette, ln checkLine, edge int) {
+	switch ln.kind {
+	case 0:
+		c.put(2, p.accent, clip(ln.title, max(1, edge-2)))
+	case 1:
+		glyph, st := cp.mark(ln.row.State, p)
+		c.put(2, st, glyph)
+		name := clip(ln.row.Name, max(1, edge-4))
+		c.put(4, p.title, name)
+		if x := 4 + textWidth(name); ln.row.Detail != "" && x < edge {
+			c.put(x, p.body, clip(" — "+ln.row.Detail, edge-x))
+		}
+	case 2:
+		c.put(6, p.aside, clip(ln.row.Hint, max(1, edge-6)))
+	case 3:
+		c.put(6, p.idle, clip(ln.title, max(1, edge-6)))
+	}
 }

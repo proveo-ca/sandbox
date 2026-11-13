@@ -99,7 +99,7 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 		room = afford(cost)
 		return room
 	}
-	lay.header = step(len(f.Header) > 0, len(factRows(f.Header, edge(w)-factX)))
+	lay.header = step(len(f.Header) > 0, len(f.facts(w)))
 
 	if strip && f.Topology != nil && step(true, digestRows) {
 		lay.strip = stripDigest
@@ -124,7 +124,7 @@ const paneGutter = 2
 // paneOrigin is the pane's column beside the card, or -1 when the terminal cannot hold both.
 func (f *Form) paneOrigin(w int) int {
 	if f.Topology == nil {
-		return -1 // nothing to place, so nothing may narrow the rows
+		return -1 // nothing to place
 	}
 	if cardWidth(w)+paneGutter+paneCols.width > w {
 		return -1

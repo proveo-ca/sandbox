@@ -10,25 +10,22 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// modalPad is the blank columns between a dialog's border and its text.
-const modalPad = 2
+// A dialog card's columns: the title and the loss mark, the body, the button row, the key line; and
+// the columns right of its widest row, the wall included.
+const (
+	modalTitleX  = 2
+	modalBodyX   = 4
+	modalButtonX = 3
+	modalKeyX    = 2
+	modalRight   = 3
+)
 
 func hexOf(c int) color.Color { return lipgloss.Color(fmt.Sprintf("#%06X", c)) }
 
-// modalLineTea styles one body line: the title bold, a consequence in the warning colour.
-func modalLineTea(p palette, text, title string) lipgloss.Style {
-	switch {
-	case text == title:
-		return p.title
-	case modalWarns(text):
-		return p.warn
-	}
-	return p.body
-}
-
-// modalWarns reports whether a body line states a consequence.
+// modalWarns reports whether a body line states a consequence; a leading list number does not count.
 func modalWarns(text string) bool {
-	return strings.HasPrefix(strings.TrimSpace(text), "sbx rm --force") ||
+	text = unnumbered(strings.TrimSpace(text))
+	return strings.HasPrefix(text, "sbx rm --force") ||
 		strings.Contains(text, "are lost") ||
 		strings.Contains(text, "is lost") ||
 		strings.Contains(text, "permanently lost") ||
@@ -37,6 +34,18 @@ func modalWarns(text string) bool {
 		strings.Contains(text, "lost unless fetched") ||
 		strings.Contains(text, "not imported") ||
 		strings.Contains(text, "does not survive")
+}
+
+// unnumbered is text without a leading list number such as "2. ".
+func unnumbered(text string) string {
+	digits := strings.TrimLeft(text, "0123456789")
+	if len(digits) == len(text) {
+		return text
+	}
+	if rest, ok := strings.CutPrefix(digits, ". "); ok {
+		return strings.TrimLeft(rest, " ")
+	}
+	return text
 }
 
 // askDialog runs d on the operator's own terminal and returns the accepted button.
