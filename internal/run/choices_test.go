@@ -13,11 +13,12 @@ import (
 // SPEC: _spec/_plans/init-credential-provisioning.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/credential-resolution.puml
 func TestCredentialsRowIsAReadOnlyInventory(t *testing.T) {
 	t.Parallel()
-	row := credentialsRow(credentialInventory{APIKeys: []string{"github", "openai"}, OAuth: []string{"anthropic"}, SSH: []string{"SHA256:key (ED25519)"}})
-	if !row.Locked || !row.Multi || !slices.Equal(row.On, []bool{true, true, true}) || !slices.Equal(row.Off, []bool{true, true, true}) {
+	row := credentialsRow(credentialInventory{APIKeys: []string{"github", "openai"}, OAuth: []string{"anthropic"}, SSH: []string{"SHA256:key (ED25519)"},
+		Env: []string{"ARCHITECT_MODEL", "db_url", "OPENAI_API_KEY"}, EnvFile: "/work/.env"})
+	if !row.Locked || !row.Multi || !slices.Equal(row.On, []bool{true, true, true, true}) || !slices.Equal(row.Off, []bool{true, true, true, true}) {
 		t.Fatalf("inventory must be checked and disabled: %#v", row)
 	}
-	if !slices.Equal(row.Options, []string{"API keys", "OAuth", "SSH"}) || !slices.Equal(row.Cols, []int{0, 1, 2}) {
+	if !slices.Equal(row.Options, []string{"API keys", "OAuth", "SSH", ".env"}) || !slices.Equal(row.Cols, []int{0, 1, 2, 3}) {
 		t.Fatalf("inventory cells: %#v", row)
 	}
 	for i := range row.Options {
@@ -25,21 +26,18 @@ func TestCredentialsRowIsAReadOnlyInventory(t *testing.T) {
 			t.Fatalf("cell %d has no read-only list", i)
 		}
 	}
-}
-
-func TestFirstChoiceIsTheFirstChangeableOption(t *testing.T) {
-	t.Parallel()
-	withBrowser := &choiceui.Row{Options: []string{addonTUI, addonBrowser, addonAndroid}}
-	if got := firstChoice(withBrowser); got != addonBrowser {
-		t.Errorf("firstChoice = %q, want browser", got)
+	env := row.Lists[3]
+	if !env.Filter || !env.Bare || !slices.Equal(env.Options, []string{"ARCHITECT_MODEL", "db_url", "OPENAI_API_KEY"}) {
+		t.Fatalf(".env list = %#v, want a bare filterable list of the names", *env)
 	}
-	noBrowser := &choiceui.Row{Options: []string{addonTUI, addonAndroid}}
-	if got := firstChoice(noBrowser); got != addonAndroid {
-		t.Errorf("firstChoice without browser = %q, want the first unfixed option", got)
+	if got, want := env.Help["db_url"], "set in /work/.env; the value is never shown"; got != want {
+		t.Errorf(".env entry help = %q, want %q", got, want)
 	}
-	onlyFixed := &choiceui.Row{Options: []string{addonTUI}}
-	if got := firstChoice(onlyFixed); got != "" {
-		t.Errorf("firstChoice with only compulsory options = %q, want none", got)
+	if _, ok := row.Help["db_url"]; ok {
+		t.Errorf("a .env name wrote the row's help, where cells and other lists read theirs: %v", row.Help)
+	}
+	if got := row.Lists[0].Help["openai"]; got != "configured on the host; read-only" {
+		t.Errorf("API keys entry help = %q", got)
 	}
 }
 

@@ -4,5 +4,5 @@
 │ › │ │ web                            │
 ├──────────────────────────────────────┤
 │ enter starts the agent in apps/web   │
-│ enter choose · esc cancel            │
+│ page 1/2 · enter choose · esc cancel │
 ╰──────────────────────────────────────╯

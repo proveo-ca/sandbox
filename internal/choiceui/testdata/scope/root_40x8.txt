@@ -4,5 +4,5 @@
 │   │ ▾ apps                           │
 ├──────────────────────────────────────┤
 │ enter starts the agent at the repo … │
-│ enter choose · esc cancel            │
+│ page 1/2 · enter choose · esc cancel │
 ╰──────────────────────────────────────╯

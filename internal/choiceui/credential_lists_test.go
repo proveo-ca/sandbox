@@ -51,14 +51,19 @@ func TestCredentialListsDrawAtTheirOwnColumnAndScroll(t *testing.T) {
 	if !strings.Contains(out.String(), "item-39") || strings.Contains(out.String(), "item-00") {
 		t.Fatalf("list did not scroll to selection:\n%s", out.String())
 	}
-	anchored := false
-	for _, line := range strings.Split(out.String(), "\n") {
-		if col := slices.Index([]rune(line), '┌'); col >= 0 {
-			anchored = col == optOrigin+colPitch
+	entry, corner := -1, -1
+	for y, line := range strings.Split(out.String(), "\n") {
+		rs := []rune(line)
+		if col := slices.Index(rs, '╭'); col >= 0 && y > 0 {
+			corner = col
+		}
+		if i := strings.Index(line, "[ ] item-39"); i >= 0 {
+			entry = len([]rune(line[:i]))
 		}
 	}
-	if !anchored {
-		t.Fatalf("OAuth list did not open at its cell:\n%s", out.String())
+	if entry != optOrigin+colPitch || corner != entry-4 {
+		t.Fatalf("OAuth list did not open at its cell: entry at %d, corner at %d, want %d and %d:\n%s",
+			entry, corner, optOrigin+colPitch, optOrigin+colPitch-4, out.String())
 	}
 }
 

@@ -1,0 +1,24 @@
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — confirm or change this run                                                                page 2/2  │
+│   git: monorepo on feat-look    tooling: go  node  python                                                            │
+├── agent ──────                                                                                                       │
+│ › credentials   [x] API keys ▾        [ ] OAuth             [ ] SSH               [x] .env ▾                         │
+│   model         ( ) Qwen 3.8          (•) API keys                            ╭── .env ──────── 0 of 12 ─╮           │
+├── execution ──                                                                │ / zzq_                   │           │
+│   OS            ( ) host              (•) sandbox                             │   nothing matches        │           │
+│   trust repo    ( ) on                (•) off                                 │                          │           │
+├── reach ──────                                                                │                          │           │
+│   egress        (•) allow-all         ( ) balanced          ( ) deny-all      │                          │           │
+│   mcp           ( ) on                (•) off                                 │                          │           │
+├── interface ──                                                                │                          │           │
+│   devices       [x] tui               [ ] browser           [ ] android       │                          │           │
+│   outputs       ( ) filtered          (•) verbose                             ╰──────────────────────────╯           │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · type to narrow · enter close · esc clear · ctrl+c quit                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+  on enter
+    1  create proveo-claudecode-1b3f
+    2  clone monorepo
+    3  start the agent

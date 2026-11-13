@@ -200,8 +200,8 @@ func tickAndroid(t *testing.T, sess *tmux.Session) {
 		return strings.Contains(screen, "› devices ")
 	}
 	for i := 0; i < 12 && !onDevices(); i++ {
-		if err := sess.SendKeys("Up"); err != nil {
-			t.Fatalf("send Up: %v", err)
+		if err := sess.SendKeys("Down"); err != nil {
+			t.Fatalf("send Down: %v", err)
 		}
 		time.Sleep(150 * time.Millisecond)
 	}

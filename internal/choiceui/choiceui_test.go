@@ -886,6 +886,21 @@ func TestMoreDrawsUnderTheFourthColumn(t *testing.T) {
 	if got := at("...More") - at("3000 next"); got != 3*colPitch {
 		t.Errorf("...More is %d from the first port, want %d", got, 3*colPitch)
 	}
+	under, bottom := -1, -1
+	for y, l := range lines {
+		if strings.HasPrefix(l, "╰") {
+			bottom = y
+		}
+		if i := strings.Index(l, "[x] 4000 jekyll"); i >= 0 {
+			under = y
+			if got, want := utf8.RuneCountInString(l[:i]), at("[x] ...More"); got != want {
+				t.Errorf("the list's entries start at %d, want the cell's column %d\n%s", got, want, joined)
+			}
+		}
+	}
+	if bottom < 0 || under <= bottom {
+		t.Errorf("a one-row card has no room inside, so the list opens under the card's bottom border (row %d), got row %d\n%s", bottom, under, joined)
+	}
 	row.Selected = 0
 	closed := strings.Join(render(t, &Form{Rows: []Row{row}}), "\n")
 	if strings.Contains(closed, "4000 jekyll") {

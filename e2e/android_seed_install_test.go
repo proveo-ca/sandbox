@@ -63,7 +63,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 
 	first := seedRun(t, proveoBin, home, work, "first")
 	tickAndroid(t, first)
-	focusOption(t, first, "Up", helloApp, 8)
+	focusOption(t, first, "Down", helloApp, 8)
 	_ = first.SendKeys("Space")
 	_ = first.Enter()
 	if !waitUntil(budget, installed) {

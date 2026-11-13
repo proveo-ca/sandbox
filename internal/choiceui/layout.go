@@ -47,6 +47,7 @@ func (f *Form) maxHelpLines(width int) int {
 				for at := range m.Options {
 					probe, list := r, *m
 					list.At = at
+					list.reset()
 					probe.More, probe.Lists, probe.Selected, probe.Hover = &list, nil, j, j
 					if n := len(probe.helpLines(width)); n > most {
 						most = n

@@ -54,12 +54,66 @@ type More struct {
 	Options  []string
 	On       []bool
 	Off      []bool // greyed entries; Row.OffWhy names why
-	At       int
+	At       int    // the cursor, as an index into Options
 	ReadOnly bool
+	Filter   bool              // `/` narrows the list by typing
+	Bare     bool              // entries draw without tick boxes
+	Help     map[string]string // an entry's help line; Row.Help answers for an entry it lacks
+	query    string
+	typing   bool
 }
 
 func (m *More) visible(r Row) bool {
 	return m != nil && r.cursorAt() == m.Cell && (m.ReadOnly || !r.offAt(m.Cell)) && len(m.Options) > 0
+}
+
+// shown is the indexes of the entries the filter matches, in list order.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func (m *More) shown() []int {
+	var out []int
+	for i, opt := range m.Options {
+		if subsequence(m.query, opt) != nil {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// subsequence is the rune positions in s that spell q in order, in any case, or nil when s lacks them.
+func subsequence(q, s string) []int {
+	rs, at := []rune(s), []int{}
+	i := 0
+	for _, want := range q {
+		for i < len(rs) && unicode.ToLower(rs[i]) != unicode.ToLower(want) {
+			i++
+		}
+		if i == len(rs) {
+			return nil
+		}
+		at, i = append(at, i), i+1
+	}
+	return at
+}
+
+// settle puts the cursor on the first match when the filter hides its entry.
+func (m *More) settle() {
+	if shown := m.shown(); len(shown) > 0 && !slices.Contains(shown, m.At) {
+		m.At = shown[0]
+	}
+}
+
+// reset empties the filter and stops typing.
+func (m *More) reset() { m.query, m.typing = "", false }
+
+// tick is an entry's tick box, or "" on a bare list.
+func (m *More) tick(i int) string {
+	switch {
+	case m.Bare:
+		return ""
+	case i < len(m.On) && m.On[i]:
+		return "[x] "
+	}
+	return "[ ] "
 }
 
 func (r *Row) activeMore() *More {
@@ -172,11 +226,14 @@ func (r *Row) helpLines(width int) []helpLine {
 
 func (r *Row) moreHelp(width int) []helpLine {
 	m := r.activeMore()
-	if m.At < 0 || m.At >= len(m.Options) {
+	if m.At < 0 || m.At >= len(m.Options) || !slices.Contains(m.shown(), m.At) {
 		return nil
 	}
 	opt := m.Options[m.At]
-	h := r.Help[opt]
+	h := m.Help[opt]
+	if h == "" {
+		h = r.Help[opt]
+	}
 	if h == "" {
 		h = "publish this port"
 	}
@@ -255,7 +312,7 @@ type Form struct {
 	OnChange    func(*Form)
 	Glyphs      GlyphTier
 	Topology    func(f *Form, cursor int) *Frame
-	StartRow    string // row label the cursor opens on; empty means first selectable
+	StartRow    string // row label the cursor opens on; empty means the top row with an answer to change
 	StartOption string // option the cursor opens on within StartRow
 	Step        Step   // place in a sequence of screens; the zero value is a lone form
 	Skip        string // label of a focusable button under the rows; Enter on it is Skipped
@@ -477,8 +534,22 @@ func (f *Form) frame(w, h, cursor, tick int) string {
 	return s.view()
 }
 
-// key applies one key press: it moves the cursor, changes an answer, or ends the form.
+// key applies one key press: it moves the cursor, changes an answer, or ends the form. A list the
+// cursor leaves drops its filter.
 func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
+	open := f.openList(*cursor)
+	out, done := f.apply(cursor, p, w, h)
+	if open != nil && f.openList(*cursor) != open {
+		open.reset()
+	}
+	return out, done
+}
+
+// apply is key without the filter reset.
+func (f *Form) apply(cursor *int, p press, w, h int) (Outcome, bool) {
+	if f.filterKey(*cursor, p, w, h) {
+		return Cancelled, false
+	}
 	if out, done := f.leave(p); done {
 		return out, true
 	}
@@ -535,6 +606,54 @@ func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
 		return f.quitKey(), true
 	}
 	return Cancelled, false
+}
+
+// openList is the list open under the cursor, or nil.
+func (f *Form) openList(cursor int) *More {
+	if f.onSkip || cursor < 0 || cursor >= len(f.Rows) {
+		return nil
+	}
+	return f.Rows[cursor].activeMore()
+}
+
+// filterKey drives the open list's filter, and answers true when the key belonged to it: `/` starts
+// typing; while typing every text key is text, Enter stops typing and Esc clears and stops; Esc
+// clears a filter left standing.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func (f *Form) filterKey(cursor int, p press, w, h int) bool {
+	m := f.openList(cursor)
+	if m == nil || !m.Filter || !f.navigable(w, h) {
+		return false
+	}
+	if !m.typing {
+		switch {
+		case p.text == "/":
+			m.typing = true
+		case p.key == "esc" && m.query != "":
+			m.query = ""
+		default:
+			return false
+		}
+		return true
+	}
+	switch {
+	case p.key == "esc":
+		m.reset()
+	case p.key == "enter":
+		m.typing = false
+	case p.key == "backspace":
+		if q := []rune(m.query); len(q) > 0 {
+			m.query = string(q[:len(q)-1])
+		}
+	case p.key == "ctrl+u":
+		m.query = ""
+	case p.text != "":
+		m.query += p.text
+	default:
+		return false
+	}
+	m.settle()
+	return true
 }
 
 // quitKey is what ctrl+c and q give: Quit on a wizard's page, which the model
@@ -607,26 +726,86 @@ func (f *Form) FieldValue(label string) string {
 	return ""
 }
 
-// startCursor opens on StartRow/StartOption when the form names them.
+// startCursor opens on StartRow/StartOption when the form names them, else on the top row
+// with an answer to change, on that row's current answer.
 func (f *Form) startCursor() int {
+	row, cell := f.start()
+	if row < len(f.Rows) {
+		f.Rows[row].Selected = cell
+	}
+	return row
+}
+
+// StartsOn names the row and the option the cursor opens on.
+func (f *Form) StartsOn() (label, option string) {
+	row, cell := f.start()
+	if row >= len(f.Rows) {
+		return "", ""
+	}
+	r := f.Rows[row]
+	if cell >= 0 && cell < len(r.Options) {
+		option = r.Options[cell]
+	}
+	return r.Label, option
+}
+
+// start is the row the cursor opens on and the cell it opens on there.
+func (f *Form) start() (row, cell int) {
 	if f.StartRow != "" {
 		for i := range f.Rows {
-			if f.Rows[i].Label != f.StartRow {
+			r := f.Rows[i]
+			if r.Label != f.StartRow {
 				continue
 			}
-			for j, opt := range f.Rows[i].Options {
-				if opt == f.StartOption {
-					f.Rows[i].Selected = j
-					break
-				}
+			cell = r.Selected
+			if j := slices.Index(r.Options, f.StartOption); j >= 0 {
+				cell = j
 			}
+			return i, cell
+		}
+	}
+	row = f.firstSelectable()
+	if row >= len(f.Rows) {
+		return row, 0
+	}
+	return row, f.Rows[row].openingCell()
+}
+
+// openingCell is the cell a row opens on: a multi row's first changeable cell, else its answer.
+func (r *Row) openingCell() int {
+	if r.Multi && !r.Locked {
+		for i := range r.Options {
+			if !r.offAt(i) {
+				return i
+			}
+		}
+	}
+	return r.Selected
+}
+
+// changeable reports whether the row holds an answer the operator can change.
+func (r *Row) changeable() bool {
+	if r.Locked {
+		return false
+	}
+	if r.Field {
+		return true
+	}
+	for i := range r.Options {
+		if !r.offAt(i) {
+			return true
+		}
+	}
+	return false
+}
+
+// firstSelectable is the top row with an answer to change, else the top unlocked row.
+func (f *Form) firstSelectable() int {
+	for i := range f.Rows {
+		if f.Rows[i].changeable() {
 			return i
 		}
 	}
-	return f.firstSelectable()
-}
-
-func (f *Form) firstSelectable() int {
 	for i, r := range f.Rows {
 		if !r.Locked {
 			return i
@@ -692,16 +871,17 @@ func (f *Form) moreKey(cursor int, p press) bool {
 		return false
 	}
 	m := r.activeMore()
-	n := len(m.Options)
+	shown := m.shown()
+	at := slices.Index(shown, m.At)
 	switch {
 	case p.key == "down" || p.text == "j":
-		if m.At+1 < n {
-			m.At++
+		if at+1 < len(shown) {
+			m.At = shown[at+1]
 			return true
 		}
 	case p.key == "up" || p.text == "k":
-		if m.At > 0 {
-			m.At--
+		if at > 0 {
+			m.At = shown[at-1]
 			return true
 		}
 	case p.text == " ":
@@ -724,7 +904,7 @@ func (f *Form) moreRow(cursor int) (*Row, bool) {
 
 func (f *Form) toggleMore(r *Row) {
 	m := r.activeMore()
-	if m == nil || m.ReadOnly || r.Locked || m.offAt(m.At) {
+	if m == nil || m.ReadOnly || r.Locked || m.offAt(m.At) || !slices.Contains(m.shown(), m.At) {
 		return
 	}
 	for len(m.On) < len(m.Options) {
@@ -842,6 +1022,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 		drawBanner(c, p, f.Banner)
 	}
 	k.head(c, f.Title, f.headChip(w))
+	room := listRoom{row: -1, head: c.y}
 	if lay.header {
 		for _, row := range f.facts(w) {
 			x := factCol(w)
@@ -869,12 +1050,11 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	window := min(lay.body, len(lines)-f.scroll)
 	c.clipTo(bodyTop, bodyTop+lay.body)
 	c.right = k.edge
-	dropY := -1
 	for i := range window {
 		c.y = bodyTop + i
 		ln := lines[f.scroll+i]
-		if ln.kind == lineRow && ln.row == cursor && f.Rows[ln.row].activeMore() != nil {
-			dropY = c.y
+		if ln.kind == lineRow && ln.row == cursor && f.openList(cursor) != nil {
+			room.row = c.y
 		}
 		f.drawBodyLine(c, p, k, ln, mark, pt, lit(ln.row), named[ln.row])
 	}
@@ -911,13 +1091,15 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 		k.walls(c, false)
 		c.y++
 	}
+	room.foot = c.y
 	k.foot(c)
 	c.y++
-	f.drawHint(c, p, w, g.hiddenRows(lines))
+	f.drawHint(c, p, w, g.hiddenRows(lines), cursor)
 	k.walls(c, false)
 	c.y++
 	k.bottom(c)
 	c.y++
+	room.under = c.y
 
 	if lay.helpSlot > 0 {
 		helpTop := c.y
@@ -949,14 +1131,14 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	}
 	f.drawOnEnter(c, p, w, h)
 
-	if dropY >= 0 {
+	if room.row >= 0 {
 		r := &f.Rows[cursor]
 		cell := r.activeMore().Cell
 		col := cell
 		if cell < len(r.Cols) {
 			col = r.Cols[cell]
 		}
-		f.drawMore(c, p, cursor, optOrigin+col*pt, dropY+1, k.edge)
+		f.drawMore(c, p, k, cursor, optOrigin+col*pt, room)
 	}
 }
 
@@ -1046,33 +1228,53 @@ const hintJoin = " · "
 
 // hintParts is the key line's segments, narrowed one by one so "enter accept" goes last.
 // SPEC: _spec/internal/choiceui/wireframe.puml
-func (f *Form) hintParts(w, hidden int) []hintPart {
+func (f *Form) hintParts(w, hidden, cursor int) []hintPart {
 	parts := append(pageHint(f.Step, f.headChip(w)), hintPart{"↑↓", "row", 3})
-	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
-		parts = append(parts, hintPart{"←→", "move", 3}, hintPart{"space", "toggle", 2})
-	} else {
-		parts = append(parts, hintPart{"←→", "choose", 3})
-	}
-	parts = append(parts, hintPart{"pgup/pgdn", "scroll", 1})
-	enter, esc := hintPart{"enter", "accept", 9}, hintPart{"esc", "cancel", 5}
-	if f.onSkip {
-		enter.word = "skip"
-	}
+	list := f.openList(cursor)
+	esc := hintPart{"esc", "cancel", 5}
 	if f.Step.backable() {
 		esc = hintPart{"esc", "back", 6}
+	}
+	if list != nil && list.query != "" {
+		esc.word = "clear"
+	}
+	if list != nil && list.typing {
+		parts = append(parts, hintPart{"type", "to narrow", 2}, hintPart{"enter", "close", 9}, esc)
+		return narrowed(f.hintTail(parts, hidden), keyRoom(w))
+	}
+	move, toggle := hintPart{"←→", "choose", 3}, hintPart{}
+	if slices.ContainsFunc(f.Rows, func(r Row) bool { return r.Multi }) {
+		move, toggle = hintPart{"←→", "move", 3}, hintPart{"space", "toggle", 2}
+	}
+	if list != nil && list.Filter {
+		toggle = hintPart{"/", "filter", 2}
+	}
+	parts = append(parts, move)
+	if toggle.key != "" {
+		parts = append(parts, toggle)
+	}
+	parts = append(parts, hintPart{"pgup/pgdn", "scroll", 1})
+	enter := hintPart{"enter", "accept", 9}
+	if f.onSkip {
+		enter.word = "skip"
 	}
 	parts = append(parts, enter)
 	if n := len(f.onEnter()); n > 0 {
 		parts = append(parts, hintPart{"", plural(n, "step"), 3})
 	}
 	parts = append(parts, esc)
+	return narrowed(f.hintTail(parts, hidden), keyRoom(w))
+}
+
+// hintTail ends a key line: the quit key on a wizard's page, then what the body hides.
+func (f *Form) hintTail(parts []hintPart, hidden int) []hintPart {
 	if f.Step.wizard() {
 		parts = append(parts, hintPart{"ctrl+c", "quit", 2})
 	}
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
-	return narrowed(parts, keyRoom(w))
+	return parts
 }
 
 // headChip is the step chip the head draws on a w-column terminal, or "" when it draws none.
@@ -1102,13 +1304,13 @@ func joinHint(parts []hintPart) string {
 }
 
 // hint is the key line a w-column terminal shows, as plain text; tests and e2e read this projection.
-func (f *Form) hint(w, hidden int) string {
-	return clip(joinHint(f.hintParts(w, hidden)), keyRoom(w))
+func (f *Form) hint(w, hidden, cursor int) string {
+	return clip(joinHint(f.hintParts(w, hidden, cursor)), keyRoom(w))
 }
 
 // drawHint paints the form's key line inside the card.
-func (f *Form) drawHint(c *canvas, p palette, w, hidden int) {
-	paintHint(c, p, f.hintParts(w, hidden), inset(w), keyRoom(w))
+func (f *Form) drawHint(c *canvas, p palette, w, hidden, cursor int) {
+	paintHint(c, p, f.hintParts(w, hidden, cursor), inset(w), keyRoom(w))
 }
 
 // paintHint paints a key line from column x0 in two tones, cut to w: each key bold, its word grey.
@@ -1149,54 +1351,156 @@ type piece struct {
 	text string
 }
 
-// drawMore paints the open list under its cell, ending before column right.
-func (f *Form) drawMore(c *canvas, p palette, row, x, y, right int) {
-	m := f.Rows[row].activeMore()
-	if m == nil || len(m.Options) == 0 {
+// listRoom is where the open list may draw: its own row, the first row under the head, the foot
+// rule and the first row under the card.
+type listRoom struct{ row, head, foot, under int }
+
+// listMin is the open list's narrowest width.
+const listMin = 28
+
+// place is the open list's top row and entry rows for n entries under lead lines on an h-row
+// screen: inside the card on the side of its row with more rows when that side holds three entries
+// or every entry, else under the card, else inside with what fits; ok is false when no place holds
+// one entry.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func (a listRoom) place(n, lead, h int) (top, rows int, ok bool) {
+	frame := 2 + lead
+	above := a.row - a.head - frame
+	below := a.foot - a.row - 1 - frame
+	under := h - a.under - frame
+	inside, top := below, a.row+1
+	if above > below {
+		inside, top = above, a.row-frame-min(n, above)
+	}
+	switch {
+	case inside >= min(3, n):
+		return top, min(n, inside), true
+	case under >= 1:
+		return a.under, min(n, under), true
+	case inside >= 1:
+		return top, min(n, inside), true
+	}
+	return 0, 0, false
+}
+
+// drawMore paints the open list as a small card over the page: its cell's name and count on the
+// top border, the filter line, the entries from the cell's column at x, and on the bottom border
+// how many it hides.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom) {
+	r := &f.Rows[row]
+	m := r.activeMore()
+	if m == nil {
 		return
 	}
 	_, h := c.s.Size()
-	x = min(x, max(0, right-8))
-	inner := 0
-	labels := make([]string, len(m.Options))
+	n := len(m.Options)
+	widest := 0
 	for i, opt := range m.Options {
-		labels[i] = clipRunes(opt, max(1, right-x-6))
-		if n := textWidth("[x] " + labels[i]); n > inner {
-			inner = n
+		widest = max(widest, textWidth(m.tick(i)+opt))
+	}
+	name := r.columnText(r.Options[m.Cell])
+	left, right := 0, k.w-1
+	if k.framed {
+		left, right = 1, k.w-2
+	}
+	width := max(listMin, widest+6, textWidth(name+fmt.Sprintf("%d of %d", n, n))+11)
+	width = min(width, right-left+1)
+	x = max(left, min(x-4, right-width+1))
+	lead := 0
+	if m.Filter {
+		lead = 1
+	}
+	top, rows, ok := room.place(n, lead, h)
+	if !ok {
+		return
+	}
+
+	shown := m.shown()
+	count := fmt.Sprint(n)
+	if m.query != "" {
+		count = fmt.Sprintf("%d of %d", len(shown), n)
+	}
+	g := k.g
+	c.y = top
+	c.put(x, p.frame, g.frameTL+strings.Repeat(g.rule, width-2)+g.frameTR)
+	name = clipRunes(name, max(1, width-8))
+	c.put(x+3, p.frame, " ")
+	c.put(x+4, p.title, name)
+	c.put(x+4+textWidth(name), p.frame, " ")
+	if at := x + width - 4 - textWidth(count); at > x+5+textWidth(name) {
+		c.put(at, p.word, " "+count+" ")
+	}
+	text := width - 6
+	inner := func(paint func()) {
+		c.y++
+		c.put(x, p.frame, g.wallL)
+		c.put(x+1, p.body, strings.Repeat(" ", width-2))
+		paint()
+		c.put(x+width-1, p.frame, g.wallR)
+	}
+	if m.Filter {
+		inner(func() { m.drawFilter(c, p, x+2, text+2) })
+	}
+	at := max(0, slices.Index(shown, m.At))
+	first := max(0, min(at-rows+1, len(shown)-rows))
+	for i := range rows {
+		inner(func() {
+			switch {
+			case len(shown) == 0 && i == 0:
+				c.put(x+4, p.idle, clip("nothing matches", text))
+			case first+i < len(shown):
+				m.drawEntry(c, p, shown[first+i], x+2, text)
+			}
+		})
+	}
+	c.y++
+	c.put(x, p.frame, g.frameBL+strings.Repeat(g.rule, width-2)+g.frameBR)
+	if hidden := len(shown) - min(rows, len(shown)-first); hidden > 0 {
+		c.put(x+3, p.word, clip(fmt.Sprintf(" %d more ", hidden), width-5))
+	}
+}
+
+// drawFilter paints the list's filter line from column x, cut to room columns: `/ filter` at rest,
+// the typed text and a cursor while typing.
+func (m *More) drawFilter(c *canvas, p palette, x, room int) {
+	if m.query == "" && !m.typing {
+		c.put(x, p.word, clip("/ filter", room))
+		return
+	}
+	text := m.query
+	if m.typing {
+		text += "_"
+	}
+	if rs := []rune(text); len(rs) > room-2 {
+		text = "…" + string(rs[len(rs)-max(0, room-3):])
+	}
+	c.put(x, p.key, "/")
+	c.put(x+2, p.body, text)
+}
+
+// drawEntry paints entry i from column x: the cursor's mark, then its tick and name cut to room
+// columns, the letters the filter matched in bold.
+func (m *More) drawEntry(c *canvas, p palette, i, x, room int) {
+	on := i < len(m.On) && m.On[i]
+	gated := m.offAt(i) && !on
+	st := answerStyle(p, on, !gated && (m.ReadOnly || m.offAt(i)), gated, i == m.At)
+	if i == m.At {
+		c.put(x, p.brand, "›")
+	}
+	tick := m.tick(i)
+	name := clipRunes(m.Options[i], max(1, room-textWidth(tick)))
+	c.put(x+2, st, tick+name)
+	kept := []rune(name)
+	if name != m.Options[i] {
+		kept = kept[:len(kept)-1]
+	}
+	col := x + 2 + textWidth(tick)
+	for _, at := range subsequence(m.query, m.Options[i]) {
+		if at < len(kept) {
+			c.put(col+textWidth(string(kept[:at])), st.Bold(true), string(kept[at]))
 		}
 	}
-	visible := min(len(labels), max(1, h-4))
-	first := max(0, min(m.At-visible+1, len(labels)-visible))
-	boxH := visible + 2
-	if y+boxH > h {
-		y = y - 2 - boxH
-	}
-	if y < 0 {
-		y = 0
-	}
-	bar := strings.Repeat("─", inner)
-	c.y = y
-	c.put(x, p.body, "┌"+bar+"┐")
-	for i := first; i < first+visible; i++ {
-		label := labels[i]
-		c.y = y + 1 + i - first
-		on := i < len(m.On) && m.On[i]
-		mark := "[ ] "
-		if on {
-			mark = "[x] "
-		}
-		gated := m.offAt(i) && !on
-		st := answerStyle(p, on, !gated && (m.ReadOnly || m.offAt(i)), gated, i == m.At)
-		cell := mark + label
-		if pad := inner - textWidth(cell); pad > 0 {
-			cell += strings.Repeat(" ", pad)
-		}
-		c.put(x, p.body, "│")
-		c.put(x+1, st, cell)
-		c.put(x+1+inner, p.body, "│")
-	}
-	c.y = y + 1 + visible
-	c.put(x, p.body, "└"+bar+"┘")
 }
 
 // drawBodyLine paints one body line: a section's stub, or a row's marker, label and cells on a grid of pitch pt.
@@ -1308,12 +1612,12 @@ func (f *Form) facts(w int) [][]string { return factRows(f.Header, edge(w)-factC
 
 // factRows lays the header out as card rows of width columns: unindented `key: value` facts flow
 // joined by four spaces and wrap at a fact boundary; any other line keeps a row of its own. An
-// indented line starts at the facts' column, two columns further in when it continues a fact.
+// indented line starts at the facts' column.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func factRows(header []string, width int) [][]string {
 	var rows [][]string
 	var run []string
-	used, underFact := 0, false
+	used := 0
 	flush := func() {
 		if len(run) > 0 {
 			rows, run, used = append(rows, run), nil, 0
@@ -1322,14 +1626,10 @@ func factRows(header []string, width int) [][]string {
 	for _, line := range header {
 		if text := strings.TrimLeftFunc(line, unicode.IsSpace); text != line && text != "" {
 			flush()
-			if underFact {
-				text = "  " + text
-			}
 			rows = append(rows, []string{clip(text, width)})
 			continue
 		}
 		fact, ok := asFact(line)
-		underFact = ok
 		if !ok {
 			flush()
 			rows = append(rows, []string{clip(line, width)})

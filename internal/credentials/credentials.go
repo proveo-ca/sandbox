@@ -3,10 +3,12 @@
 package credentials
 
 import (
+	"cmp"
 	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -640,6 +642,21 @@ func ParseEnvFile(path string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// EnvFileNames is the names ParseEnvFile reads from path, A to Z in any case, never a value.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func EnvFileNames(path string) []string {
+	var names []string
+	for name := range ParseEnvFile(path) {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	slices.SortFunc(names, func(a, b string) int {
+		return cmp.Or(cmp.Compare(strings.ToLower(a), strings.ToLower(b)), cmp.Compare(a, b))
+	})
+	return names
 }
 
 // StageProjectEnv copies src to dir/.env (0600), dropping the lines that set a

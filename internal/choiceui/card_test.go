@@ -96,11 +96,12 @@ func TestEnterAcceptSurvivesEveryWidthOnTheDrawnFrame(t *testing.T) {
 	}
 }
 
-// One predicate decides the chip: the head draws it exactly when the key line drops the page,
-// and the painted key line is the plain projection tests and e2e read.
+// One predicate decides the chip: the head draws it exactly when the key line drops the page, on
+// the title row under 40 columns too; the page shows wherever the key line has room for it beside
+// enter and esc; and the painted key line is the plain projection tests and e2e read.
 func TestTheChipAndTheKeyLineAgreeOnThePage(t *testing.T) {
 	t.Parallel()
-	drew, kept := false, false
+	drew, drewUnframed, kept := false, false, false
 	for _, title := range []string{"step", strings.Repeat("t", 60), strings.Repeat("t", 100), strings.Repeat("t", 104)} {
 		for w := 12; w <= 160; w++ {
 			f := stepForm(2, 3)
@@ -114,12 +115,18 @@ func TestTheChipAndTheKeyLineAgreeOnThePage(t *testing.T) {
 			if want := f.headChip(w) != ""; chip != want {
 				t.Errorf("title %d, width %d: head draws the chip %v, headChip says %v: %q", len(title), w, chip, want, head)
 			}
-			if chip != (framed(w) && chipFits(textWidth(title), textWidth(" page 2/3 "), cardWidth(w))) {
+			if chip != chipFits(textWidth(title), textWidth(" page 2/3 "), w) {
 				t.Errorf("title %d, width %d: the chip ignores chipFits: %q", len(title), w, head)
 			}
-			hint := f.hint(w, 0)
+			if chip && !framed(w) && (!strings.HasSuffix(head, " page 2/3") || textWidth(head) != w-1) {
+				t.Errorf("title %d, width %d: unframed, the chip ends the title row: %q", len(title), w, head)
+			}
+			hint := f.hint(w, 0, 0)
 			if chip && strings.Contains(hint, "page") {
 				t.Errorf("title %d, width %d: chip and key line both name the page: %q", len(title), w, hint)
+			}
+			if keyRoom(w) >= textWidth("page 2/3 · enter accept · esc back") && !chip && !strings.Contains(hint, "page 2/3") {
+				t.Errorf("title %d, width %d: neither the head nor the key line names the page: %q", len(title), w, hint)
 			}
 			key := -1
 			for y, l := range lines {
@@ -138,11 +145,12 @@ func TestTheChipAndTheKeyLineAgreeOnThePage(t *testing.T) {
 				t.Errorf("title %d, width %d: painted key line %q, plain %q", len(title), w, got, hint)
 			}
 			drew = drew || chip
+			drewUnframed = drewUnframed || (chip && !framed(w))
 			kept = kept || (framed(w) && !chip && strings.Contains(hint, "page 2/3"))
 		}
 	}
-	if !drew || !kept {
-		t.Errorf("the sweep must reach both cases: chip drawn %v, page kept on a framed key line %v", drew, kept)
+	if !drew || !kept || !drewUnframed {
+		t.Errorf("the sweep must reach every case: chip drawn %v, unframed %v, page kept on a framed key line %v", drew, drewUnframed, kept)
 	}
 }
 
@@ -328,8 +336,14 @@ func TestTheScopeAndCheckPagesAreCards(t *testing.T) {
 					}
 				}
 				if !framed(w) {
-					if top >= 0 || chip != "" {
-						t.Errorf("%s %dx%d: under %d columns no frame and no chip draw:\n%s", pc.name, w, h, cardMin, out)
+					if top >= 0 {
+						t.Errorf("%s %dx%d: under %d columns no frame draws:\n%s", pc.name, w, h, cardMin, out)
+					}
+					if chip != "" && !strings.Contains(out, strings.TrimRight(chip, " ")) {
+						t.Errorf("%s %dx%d: the chip %q is missing from the title row:\n%s", pc.name, w, h, chip, out)
+					}
+					if chip != "" && strings.Contains(hint, "page") {
+						t.Errorf("%s %dx%d: chip and key line both name the page: %q", pc.name, w, h, hint)
 					}
 					continue
 				}
@@ -359,6 +373,71 @@ func TestTheScopeAndCheckPagesAreCards(t *testing.T) {
 		}
 		if !drew || !kept {
 			t.Errorf("%s: the sweep must reach both cases: chip drawn %v, page kept on a framed key line %v", pc.name, drew, kept)
+		}
+	}
+}
+
+// The step count never vanishes: under 40 columns the chip ends the title row at every width its
+// text fit there before the card (more than title + 2 columns left of it), and a key line with no
+// chip above it drops "N more below" before the page count.
+func TestTheStepCountNeverVanishes(t *testing.T) {
+	t.Parallel()
+	type stepPage struct {
+		name, chip, count string
+		draw              func(title string, w int) (lines []string, chip string)
+		hint              func(title string, w, hidden int) string
+	}
+	form := func(title string) *Form { f := stepForm(2, 3); f.Title = title; return f }
+	scope := func(title string) *ScopePage { sp := scopePage(); sp.Banner, sp.Title = nil, title; return sp }
+	check := func(title string) *CheckPage { cp := checkPage(); cp.Banner, cp.Title = nil, title; return cp }
+	pages := []stepPage{
+		{"form", " page 2/3 ", "page 2/3",
+			func(title string, w int) ([]string, string) {
+				f := form(title)
+				return renderAt(t, f, 0, w, 30), f.headChip(w)
+			},
+			func(title string, w, hidden int) string { return form(title).hint(w, hidden, 0) }},
+		{"scope", " scope · 1/2 ", "page 1/2",
+			func(title string, w int) ([]string, string) {
+				sp := scope(title)
+				return scopeLines(sp, w, 24), sp.chip(w)
+			},
+			func(title string, w, hidden int) string { return scope(title).hint(w, hidden) }},
+		{"checks", " checks · 1/4 ", "page 1/4",
+			func(title string, w int) ([]string, string) {
+				cp := check(title)
+				return checkLines(cp, w, 24), cp.chip(w)
+			},
+			func(title string, w, hidden int) string { return check(title).hint(w, hidden) }},
+	}
+	for _, pg := range pages {
+		unframed, ranked := false, false
+		for _, title := range []string{"t", strings.Repeat("t", 100)} {
+			for w := 12; w <= 160; w++ {
+				lines, chip := pg.draw(title, w)
+				if !framed(w) && title == "t" {
+					if room := w-textWidth(strings.TrimSpace(pg.chip)) > 1+2; room != (chip == pg.chip) {
+						t.Errorf("%s width %d: the chip's text fits where it did before the card %v, chip drawn %q", pg.name, w, room, chip)
+					}
+					if chip != "" {
+						unframed = true
+						if row := lines[0]; !strings.HasPrefix(row, "t ") || !strings.HasSuffix(row, strings.TrimRight(chip, " ")) || textWidth(row) != w-1 {
+							t.Errorf("%s width %d: the chip %q must end the title row: %q", pg.name, w, chip, row)
+						}
+					}
+				}
+				if chip != "" {
+					continue
+				}
+				hint := pg.hint(title, w, 7)
+				if strings.Contains(hint, "7 more below") && !strings.Contains(hint, pg.count) {
+					t.Errorf("%s width %d: %q kept \"7 more below\" over %q", pg.name, w, hint, pg.count)
+				}
+				ranked = ranked || (strings.Contains(hint, pg.count) && !strings.Contains(hint, "more below"))
+			}
+		}
+		if !unframed || !ranked {
+			t.Errorf("%s: the sweep must reach both cases: unframed chip %v, page kept over more below %v", pg.name, unframed, ranked)
 		}
 	}
 }
@@ -423,21 +502,24 @@ func TestUnframedFormsKeepTheirColumns(t *testing.T) {
 	}
 }
 
-// An indented header line loses its indent: it continues a fact two columns in, and otherwise
-// starts at the facts' column.
+// An indented header line loses its indent and starts at the facts' column, whether it continues a
+// fact or not: column 4 framed, column 2 unframed.
 func TestIndentedHeaderLinesStartAtTheFactsColumn(t *testing.T) {
 	t.Parallel()
 	header := []string{"git:      repo on main", "keys:     K", "          A=1", "          B=2",
 		"Host SSH agent   2 key(s)", "  SHA256:abc ed25519"}
 	got := factRows(header, 100)
-	want := [][]string{{"git: repo on main", "keys: K"}, {"  A=1"}, {"  B=2"}, {"Host SSH agent   2 key(s)"}, {"SHA256:abc ed25519"}}
+	want := [][]string{{"git: repo on main", "keys: K"}, {"A=1"}, {"B=2"}, {"Host SSH agent   2 key(s)"}, {"SHA256:abc ed25519"}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("factRows = %q, want %q", got, want)
 	}
 	for _, w := range []int{36, 120} {
 		f := &Form{Title: "t", Header: header, Rows: []Row{{Label: "a", Options: []string{"x"}}}}
 		lines := renderAt(t, f, 0, w, 20)
-		for s, want := range map[string]int{"A=1": factCol(w) + 2, "SHA256:abc": factCol(w), "Host SSH": factCol(w)} {
+		if want := map[bool]int{true: 4, false: 2}[framed(w)]; factCol(w) != want {
+			t.Errorf("width %d: the facts' column is %d, want %d", w, factCol(w), want)
+		}
+		for s, want := range map[string]int{"A=1": factCol(w), "B=2": factCol(w), "SHA256:abc": factCol(w), "Host SSH": factCol(w)} {
 			at := -1
 			for _, l := range lines {
 				if i := strings.Index(l, s); i >= 0 {

@@ -97,7 +97,7 @@ func TestHintNamesThePageTheWayBackAndTheScrollKeys(t *testing.T) {
 		if got := f.headChip(200); got != tc.chip {
 			t.Errorf("step %d/%d: the head's chip is %q, want %q", tc.at, tc.of, got, tc.chip)
 		}
-		hint := f.hint(200, 0)
+		hint := f.hint(200, 0, 0)
 		for _, w := range tc.want {
 			if !strings.Contains(hint, w) {
 				t.Errorf("step %d/%d: hint %q lacks %q", tc.at, tc.of, hint, w)
@@ -111,17 +111,17 @@ func TestHintNamesThePageTheWayBackAndTheScrollKeys(t *testing.T) {
 	}
 	long := stepForm(2, 3)
 	long.Title = strings.Repeat("t", 100)
-	if long.headChip(80) != "" || !strings.Contains(long.hint(80, 0), "page 2/3") {
-		t.Errorf("a title that leaves the chip no room keeps the page on the key line: chip %q, hint %q", long.headChip(80), long.hint(80, 0))
+	if long.headChip(80) != "" || !strings.Contains(long.hint(80, 0, 0), "page 2/3") {
+		t.Errorf("a title that leaves the chip no room keeps the page on the key line: chip %q, hint %q", long.headChip(80), long.hint(80, 0, 0))
 	}
 }
 
 func TestANarrowHintDropsTheScrollKeysBeforeTheWayOut(t *testing.T) {
 	t.Parallel()
 	f := stepForm(2, 3)
-	full := f.hint(200, 3)
+	full := f.hint(200, 3, 0)
 	w := len([]rune(full)) - 1
-	hint := f.hint(w, 3)
+	hint := f.hint(w, 3, 0)
 	if strings.Contains(hint, hintScroll) {
 		t.Errorf("width %d kept %q over the way out: %q", w, hintScroll, hint)
 	}
@@ -139,7 +139,7 @@ func TestEnterAcceptSurvivesEveryWidthThatCanHoldIt(t *testing.T) {
 	multi.Rows = append(multi.Rows, Row{Label: "m", Options: []string{"x"}, Multi: true})
 	for _, f := range []*Form{stepForm(2, 3), stepForm(1, 3), stepForm(0, 0), multi} {
 		for w := len("enter accept"); w <= 160; w++ {
-			if hint := f.hint(w, 7); !strings.Contains(hint, "enter accept") {
+			if hint := f.hint(w, 7, 0); !strings.Contains(hint, "enter accept") {
 				t.Fatalf("step %+v width %d: %q lost \"enter accept\"", f.Step, w, hint)
 			}
 		}
@@ -195,7 +195,7 @@ func TestTheKeyLinePaintsKeysBoldAndWordsGrey(t *testing.T) {
 		t.Fatalf("no key line on the frame:\n%s", strings.Join(lines, "\n"))
 	}
 	inner := strings.TrimRight(string([]rune(lines[row])[inset(120):cardWidth(120)-1]), " ")
-	if want := f.hint(120, 0); inner != want {
+	if want := f.hint(120, 0, 0); inner != want {
 		t.Errorf("the painted key line %q is not its plain projection %q", inner, want)
 	}
 	at := func(word string) int { return textWidth(lines[row][:strings.Index(lines[row], word)]) }
@@ -218,8 +218,8 @@ func TestAClippedKeyLineStillEndsWhereThePlainLineEnds(t *testing.T) {
 	for _, w := range []int{4, 9, 13, 20, 31} {
 		s := simScreen(t, w, 30)
 		c := newCanvas(s)
-		f.drawHint(c, styles(), w, 0)
-		if got, want := screenLines(s)[0], strings.TrimRight(f.hint(w, 0), " "); got != want {
+		f.drawHint(c, styles(), w, 0, 0)
+		if got, want := screenLines(s)[0], strings.TrimRight(f.hint(w, 0, 0), " "); got != want {
 			t.Errorf("width %d: painted %q, plain %q", w, got, want)
 		}
 	}

@@ -1,17 +1,21 @@
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ credentials in this run                                                                                              │
 │ › credentials   [x] API keys          [x] OAuth ▾           [ ] SSH                                                  │
-│   egress        ( ) allow-all   (•) ba┌─────────────────┐ll                                                          │
-├───────────────────────────────────────│[x] credential-00│────────────────────────────────────────────────────────────┤
-│ ↑↓ row · ←→ move · space toggle · pgup│[ ] credential-01│r accept · esc cancel                                       │
-╰───────────────────────────────────────│[x] credential-02│────────────────────────────────────────────────────────────╯
-  › credential-03 — publish this port   │[ ] credential-03│
-                                        │[ ] credential-04│
-                                        │[ ] credential-05│
-                                        │[ ] credential-06│
-                                        │[ ] credential-07│
-                                        │[ ] credential-08│
-                                        │[ ] credential-09│
-                                        │[ ] credential-10│
-                                        │[ ] credential-11│
-                                        └─────────────────┘
+│   egress        ( ) allow-all   (•) balanced   ( ) deny-all                                                          │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  › credential-03 — publish this por╭── OAuth ──────────── 12 ─╮
+                                    │   [x] credential-00      │
+                                    │   [ ] credential-01      │
+                                    │   [x] credential-02      │
+                                    │ › [ ] credential-03      │
+                                    │   [ ] credential-04      │
+                                    │   [ ] credential-05      │
+                                    │   [ ] credential-06      │
+                                    │   [ ] credential-07      │
+                                    │   [ ] credential-08      │
+                                    │   [ ] credential-09      │
+                                    │   [ ] credential-10      │
+                                    │   [ ] credential-11      │
+                                    ╰──────────────────────────╯

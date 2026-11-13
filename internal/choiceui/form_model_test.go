@@ -258,19 +258,19 @@ func TestTheCountOfWhatEnterRunsFollowsEnterAcceptAndNeverReplacesIt(t *testing.
 		{1, "enter accept · 1 step · esc cancel"},
 		{0, "enter accept · esc cancel"},
 	} {
-		if hint := enterForm(c.n).hint(200, 0); !strings.Contains(hint, c.want) {
+		if hint := enterForm(c.n).hint(200, 0, 0); !strings.Contains(hint, c.want) {
 			t.Errorf("%d actions: hint %q lacks %q", c.n, hint, c.want)
 		}
 	}
 	f := enterForm(4)
 	for w := len("enter accept"); w <= 160; w++ {
-		if hint := f.hint(w, 7); !strings.Contains(hint, "enter accept") {
+		if hint := f.hint(w, 7, 0); !strings.Contains(hint, "enter accept") {
 			t.Fatalf("width %d: %q lost \"enter accept\" to the count", w, hint)
 		}
 	}
 	skip := enterForm(2)
 	skip.Skip, skip.onSkip = "Skip", true
-	if hint := skip.hint(200, 0); strings.Contains(hint, "steps") {
+	if hint := skip.hint(200, 0, 0); strings.Contains(hint, "steps") {
 		t.Errorf("with Skip focused Enter runs nothing, yet the hint counts steps: %q", hint)
 	}
 }

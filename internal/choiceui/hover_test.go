@@ -84,6 +84,48 @@ func TestStartCursorOpensOnTheNamedRowAndOption(t *testing.T) {
 	}
 }
 
+// With no StartRow the cursor opens on the top row with an answer to change: past a locked row and
+// a row whose every option is off; on a radio row's answer, on a multi row's first changeable cell.
+func TestTheCursorOpensOnTheTopRowWithAnAnswerToChange(t *testing.T) {
+	t.Parallel()
+	locked := Row{Label: "credentials", Options: []string{"API keys", "OAuth"}, Multi: true, Locked: true}
+	allOff := Row{Label: "OS", Options: []string{"host", "sandbox"}, Multi: true, Off: []bool{true, true}, On: []bool{false, true}}
+	radio := Row{Label: "model", Options: []string{"Qwen", "API keys", "plan"}, Selected: 2, Off: []bool{true, false, false}}
+	multi := Row{Label: "devices", Options: []string{"tui", "browser", "android"}, Multi: true, Selected: 2, Off: []bool{true, false, false}}
+	field := Row{Label: "key", Field: true}
+	for _, c := range []struct {
+		name        string
+		rows        []Row
+		row, option string
+	}{
+		{"the top row", []Row{radio, multi}, "model", "plan"},
+		{"past a locked row", []Row{locked, radio}, "model", "plan"},
+		{"past a row whose every option is off", []Row{locked, allOff, radio}, "model", "plan"},
+		{"a multi row's first changeable cell", []Row{locked, allOff, multi}, "devices", "browser"},
+		{"a field row", []Row{locked, field, radio}, "key", ""},
+		{"nothing to change: the top unlocked row", []Row{locked, allOff}, "OS", "host"},
+	} {
+		f := &Form{Rows: c.rows}
+		if row, option := f.StartsOn(); row != c.row || option != c.option {
+			t.Errorf("%s: StartsOn = %q · %q, want %q · %q", c.name, row, option, c.row, c.option)
+		}
+		at := f.startCursor()
+		if f.Rows[at].Label != c.row {
+			t.Errorf("%s: startCursor = row %q, want %q", c.name, f.Rows[at].Label, c.row)
+		}
+		if c.option != "" && f.Selection(c.row) != c.option {
+			t.Errorf("%s: the cursor's cell is %q, want %q", c.name, f.Selection(c.row), c.option)
+		}
+		if got := f.firstSelectable(); got != at {
+			t.Errorf("%s: home lands on row %d, the cursor opened on %d", c.name, got, at)
+		}
+	}
+	named := &Form{StartRow: "devices", StartOption: "android", Rows: []Row{radio, multi}}
+	if row, option := named.StartsOn(); row != "devices" || option != "android" {
+		t.Errorf("a named start = %q · %q, want devices · android", row, option)
+	}
+}
+
 func TestLockedRowReasonLivesOnlyInTheHelpBlock(t *testing.T) {
 	t.Parallel()
 	f := lockedForm()

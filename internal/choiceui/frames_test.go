@@ -95,6 +95,9 @@ func frameCases() []frameCase {
 		{"step-first", func() *Form { return stepForm(1, 3) }, 0, 0, [][2]int{{80, 24}}},
 		{"step-second", func() *Form { return stepForm(2, 3) }, 1, 0, [][2]int{{80, 24}, {64, 12}}},
 		{"lists-open", listsForm, 0, 0, [][2]int{{120, 24}, {80, 24}, {80, 10}}},
+		{"env-list", envForm, 0, 0, [][2]int{{120, 36}, {80, 24}}},
+		{"env-filter", func() *Form { return filtering("mod") }, 0, 0, [][2]int{{120, 36}, {80, 24}}},
+		{"env-nomatch", func() *Form { return filtering("zzq") }, 0, 0, [][2]int{{120, 36}, {80, 24}}},
 		{"unframed-tall", tallForm, 0, 0, [][2]int{{36, 24}}},
 		{"unframed-step", func() *Form { return stepForm(2, 3) }, 1, 0, [][2]int{{36, 12}}},
 	}

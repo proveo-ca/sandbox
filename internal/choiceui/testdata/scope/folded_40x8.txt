@@ -4,5 +4,5 @@
 │ › │ ▸ services  1 inside             │
 ├──────────────────────────────────────┤
 │ enter starts the agent in services   │
-│ enter choose · esc cancel            │
+│ page 1/2 · enter choose · esc cancel │
 ╰──────────────────────────────────────╯

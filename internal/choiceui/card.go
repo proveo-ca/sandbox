@@ -44,28 +44,37 @@ func factCol(w int) int { return inset(w) + 2 }
 // helpWidth is where the help under the card wraps.
 func helpWidth(w int) int { return cardWidth(w) - 4 }
 
-// chipFits reports whether a step chip fits beside a title of titleLen inside a cw-column card.
-func chipFits(titleLen, chipLen, cw int) bool { return titleLen+2+chipLen <= cw-4 }
+// chipFits reports whether a step chip fits beside a title of titleLen on a w-column terminal:
+// inside the card's walls when framed; unframed, flush right with a blank column after the title.
+func chipFits(titleLen, chipLen, w int) bool {
+	if framed(w) {
+		return titleLen+2+chipLen <= cardWidth(w)-4
+	}
+	return titleLen+1+chipLen <= w
+}
 
 // stepChip is the chip " name n/m " a head draws beside title on a w-column terminal, or "" when it draws none.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func stepChip(s Step, name, title string, w int) string {
-	if !s.wizard() || !framed(w) {
+	if !s.wizard() {
 		return ""
 	}
 	chip := fmt.Sprintf(" %s %d/%d ", name, s.At, s.Of)
-	if !chipFits(textWidth(title), textWidth(chip), cardWidth(w)) {
+	if !chipFits(textWidth(title), textWidth(chip), w) {
 		return ""
 	}
 	return chip
 }
+
+// pageKeep is the page count's rank on a key line: above "N more below".
+const pageKeep = 5
 
 // pageHint is the key line's page count, kept only when the head draws no chip.
 func pageHint(s Step, chip string) []hintPart {
 	if !s.wizard() || chip != "" {
 		return nil
 	}
-	return []hintPart{{"", fmt.Sprintf("page %d/%d", s.At, s.Of), 4}}
+	return []hintPart{{"", fmt.Sprintf("page %d/%d", s.At, s.Of), pageKeep}}
 }
 
 // plainGlyphs reports whether tier t draws the ASCII set.
@@ -84,10 +93,14 @@ func newCard(w int, tier GlyphTier, p palette) card {
 	return card{w: cardWidth(w), framed: framed(w), edge: edge(w), g: glyphsFor(tier), p: p}
 }
 
-// head draws the top border and the title row with its chip; unframed, the title takes the border's row.
+// head draws the top border and the title row with its chip; unframed, the title takes the border's
+// row and the chip ends at the last column.
 func (k card) head(c *canvas, title, chip string) {
 	if !k.framed {
 		c.put(0, k.p.title, clip(title, k.w))
+		if chip != "" {
+			c.put(k.w-textWidth(chip), k.p.chip, chip)
+		}
 		c.y += 2
 		return
 	}

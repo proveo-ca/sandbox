@@ -59,7 +59,7 @@ func TestPortsPublishE2E(t *testing.T) {
 		}
 	}
 	for i := 0; i < 20 && !strings.Contains(screen, "› ports"); i++ {
-		_ = first.SendKeys("Up")
+		_ = first.SendKeys("Down")
 		time.Sleep(150 * time.Millisecond)
 		screen, _ = first.Capture()
 	}

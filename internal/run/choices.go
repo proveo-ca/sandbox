@@ -29,6 +29,9 @@ import (
 func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
 
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string, visit *formVisit) error {
+	ssh := githubaccess.InspectSSH(sbx.Binary, githubaccess.Output, os.Getenv)
+	inv := inventoryOf(man, lookup, sbx.StoreEntries(), ssh.Keys).withEnvFile(p.HostEnvFile)
+	rows, hasAuth := p.runRows(man, lookup, homeRoot, egressRow(), inv)
 	form := &choiceui.Form{
 		Step:     visit.step,
 		Banner:   choiceui.Banner(),
@@ -36,74 +39,13 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		Header:   buildHeader(man, lookup, p.Roles, repoRoot, p.Input, homeRoot),
 		Glyphs:   posture.GlyphModeFrom(lookup),
 		Topology: topologyWith(p.Target, p.credentialsOrDefault(), man.Capabilities.AlwaysMCPGateway()),
-		Rows:     applicableRows(egressRow(), mcpRow(p.Target, p.MCP, p.MCPSet)),
-	}
-	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
-	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
-		form.Rows = append(form.Rows, r)
-	}
-	leadReach(form.Rows)
-	found := p.discovered
-	var apps []devports.AndroidApp
-	if slices.Contains(interfaceOptions(man), addonAndroid) {
-		apps = p.discoveredApps
-	}
-	for _, label := range addonRows {
-		opts := addonOptions(man, label)
-		if len(opts) == 0 {
-			continue
-		}
-		row := choiceui.Row{
-			Label: label, Heading: addonHeading[label], Options: opts, Multi: true, Divider: true,
-			Radio: label == rowExecution,
-			On:    p.addonDefaults(opts), Help: addonHelpFor(man),
-		}
-		switch label {
-		case rowInterface:
-			row = layoutInterface(row)
-		case rowExecution:
-			row = layoutExecution(row)
-		}
-		form.Rows = append(form.Rows, applicableRows(row)...)
-		if label == rowExecution {
-			form.Rows = append(form.Rows, repoTrustRow(p.MiseTrust, p.MiseTrustSet))
-			ssh := githubaccess.InspectSSH(sbx.Binary, githubaccess.Output, os.Getenv)
-			form.Rows = append(form.Rows, credentialsRow(inventoryOf(man, lookup, sbx.StoreEntries(), ssh.Keys)))
-			if r, ok := portsRow(found, p.Ports, sandbox.LoopbackFree); ok {
-				form.Rows = append(form.Rows, r)
-				p.portsAsked = true
-			}
-			if r, ok := appsRow(apps, p.Apps); ok {
-				form.Rows = append(form.Rows, r)
-				p.appsAsked = true
-			}
-		}
-	}
-	form.Rows = append(form.Rows, evidenceRow(p.evidenceOrDefault()))
-	form.StartRow = rowInterface
-	for i := range form.Rows {
-		r := &form.Rows[i]
-		if r.Label != rowInterface {
-			continue
-		}
-		form.StartOption = firstChoice(r)
-		break
+		Rows:     rows,
 	}
 	form.Adopt(visit.left)
 	if visit.onEnter != nil {
 		form.OnEnter = func(*choiceui.Form) []string { return visit.onEnter() }
 	}
-	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
-	form.OnChange = func(f *choiceui.Form) {
-		gateAddons(f)
-		gateApps(f)
-		for i := range f.Rows {
-			if f.Rows[i].Label == rowInterface {
-				desktopWas = pairTUIDesktop(&f.Rows[i], desktopWas)
-			}
-		}
-	}
-	form.OnChange(form)
+	gateRunForm(form)
 
 	switch out, err := form.RunStep(); {
 	case err != nil:
@@ -118,10 +60,10 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	}
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
 	if p.portsAsked {
-		p.Ports = selectedPorts(form, found)
+		p.Ports = selectedPorts(form, p.discovered)
 	}
 	if p.appsAsked {
-		p.Apps = selectedApps(form, apps)
+		p.Apps = selectedApps(form, p.offeredApps(man))
 	}
 	if v := form.Selection(rowModel); v != "" {
 		p.applySource(v, hasAuth)
@@ -136,6 +78,71 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		p.MiseTrust = v
 	}
 	return nil
+}
+
+// runRows is the run form's rows in question order: agent, execution, reach, interface.
+func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, homeRoot string, egress choiceui.Row, inv credentialInventory) ([]choiceui.Row, bool) {
+	agent := []choiceui.Row{credentialsRow(inv)}
+	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
+	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
+		agent = append(agent, r)
+	}
+	execution := append(p.addonRow(man, rowExecution), repoTrustRow(p.MiseTrust, p.MiseTrustSet))
+	reach := applicableRows(egress, mcpRow(p.Target, p.MCP, p.MCPSet))
+	iface := append(p.addonRow(man, rowInterface), evidenceRow(p.evidenceOrDefault()))
+	if r, ok := portsRow(p.discovered, p.Ports, sandbox.LoopbackFree); ok {
+		iface = append(iface, r)
+		p.portsAsked = true
+	}
+	if r, ok := appsRow(p.offeredApps(man), p.Apps); ok {
+		iface = append(iface, r)
+		p.appsAsked = true
+	}
+	return slices.Concat(
+		section(sectionAgent, agent),
+		section(addonHeading[rowExecution], execution),
+		section(sectionReach, reach),
+		section(addonHeading[rowInterface], iface),
+	), hasAuth
+}
+
+// addonRow is the OS or devices row, or none when the harness offers it no option.
+func (p *Params) addonRow(man manifest.Manifest, label string) []choiceui.Row {
+	opts := addonOptions(man, label)
+	if len(opts) == 0 {
+		return nil
+	}
+	row := choiceui.Row{
+		Label: label, Options: opts, Multi: true, Radio: label == rowExecution,
+		On: p.addonDefaults(opts), Help: addonHelpFor(man),
+	}
+	if label == rowExecution {
+		return []choiceui.Row{layoutExecution(row)}
+	}
+	return []choiceui.Row{layoutInterface(row)}
+}
+
+// offeredApps is the discovered Android apps when the harness offers android, else none.
+func (p *Params) offeredApps(man manifest.Manifest) []devports.AndroidApp {
+	if slices.Contains(interfaceOptions(man), addonAndroid) {
+		return p.discoveredApps
+	}
+	return nil
+}
+
+// gateRunForm installs the run form's gates as its OnChange and applies them once.
+func gateRunForm(form *choiceui.Form) {
+	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
+	form.OnChange = func(f *choiceui.Form) {
+		gateAddons(f)
+		gateApps(f)
+		for i := range f.Rows {
+			if f.Rows[i].Label == rowInterface {
+				desktopWas = pairTUIDesktop(&f.Rows[i], desktopWas)
+			}
+		}
+	}
+	form.OnChange(form)
 }
 
 func authRow(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile, chosen string) (choiceui.Row, bool) {
@@ -336,21 +343,6 @@ func gateAddons(f *choiceui.Form) {
 	}
 }
 
-// firstChoice is the first option on a row the operator can actually change.
-func firstChoice(r *choiceui.Row) string {
-	for _, opt := range r.Options {
-		if opt == addonBrowser {
-			return opt
-		}
-	}
-	for _, opt := range r.Options {
-		if _, fixed := addonFixed[opt]; !fixed {
-			return opt
-		}
-	}
-	return ""
-}
-
 func firstSelectableIn(r *choiceui.Row) int {
 	for i := range r.Options {
 		if i >= len(r.Off) || !r.Off[i] {
@@ -535,17 +527,21 @@ const (
 
 var addonRows = []string{rowExecution, rowInterface}
 
-// addonHeading names a divider whose group is not named for its row.
+// addonHeading names the section an addon row opens.
 var addonHeading = map[string]string{rowExecution: "execution", rowInterface: "interface"}
 
-// sectionReach names the run form's first section.
-const sectionReach = "reach"
+// The run form's sections not named by an addon row.
+const (
+	sectionAgent = "agent"
+	sectionReach = "reach"
+)
 
-// leadReach opens the reach section on whichever row leads the form.
-func leadReach(rows []choiceui.Row) {
+// section opens a section named name on the first of rows; with no rows it draws no stub.
+func section(name string, rows []choiceui.Row) []choiceui.Row {
 	if len(rows) > 0 {
-		rows[0].Divider, rows[0].Heading = true, sectionReach
+		rows[0].Divider, rows[0].Heading = true, name
 	}
+	return rows
 }
 
 func scanRoot(input, repoRoot string) string {

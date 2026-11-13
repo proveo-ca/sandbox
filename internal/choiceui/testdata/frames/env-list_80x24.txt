@@ -1,0 +1,24 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — confirm or change this run                        page 2/2  │
+│   git: monorepo on feat-look    tooling: go  node  python                    │
+├── agent ──────                                                               │
+│ › credentials   [x] API keys ▾  [ ] OAuth       [ ] SSH         [x] .env ▾   │
+│   model         ( ) Qwen 3.8    (•) API keys     ╭── .env ───────────── 12 ─╮│
+├── execution ──                                   │ / filter                 ││
+│   OS            ( ) host        (•) sandbox      │ › ARCHITECT_MODEL        ││
+│   trust repo    ( ) on          (•) off          │   CODE_THEME             ││
+├── reach ──────                                   │   DARK_MODE              ││
+│   egress        (•) allow-all   ( ) balanced    (│   DATABASE_URL           ││
+│   mcp           ( ) on          (•) off          │   EDITOR_MODEL           ││
+├── interface ──                                   │   GITHUB_TOKEN           ││
+│   devices       [x] tui         [ ] browser     [│   MONGO_DSN              ││
+│   outputs       ( ) filtered    (•) verbose      ╰── 5 more ────────────────╯│
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · ←→ move · enter accept · 3 steps · esc back · ctrl+c quit           │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  › ARCHITECT_MODEL — set in ~/monorepo/.env; the value is never shown
+
+  on enter
+    1  create proveo-claudecode-1b3f
+    2  clone monorepo
+    3  start the agent

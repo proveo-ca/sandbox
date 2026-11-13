@@ -4,5 +4,5 @@
 | › | + apps  2 inside                 |
 +--------------------------------------+
 | enter starts the agent in apps       |
-| enter choose · esc cancel            |
+| page 1/2 · enter choose · esc cancel |
 +--------------------------------------+
