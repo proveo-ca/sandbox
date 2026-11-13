@@ -62,7 +62,7 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	f.draw(s, f.firstSelectable(), 0)
 
 	brand := hexName(ui.ColorBrand)
-	body := hexName(ui.ColorSecondary)
+	const ink = "" // the terminal's own foreground
 	box := strings.Split(ui.BrandBanner, "\n")
 	for x := 0; x < 80; x++ {
 		if r, _, _, _ := s.GetContent(x, 0); r != ' ' && r != 0 {
@@ -72,7 +72,7 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	for i, line := range box {
 		assertBannerLine(t, s, i+1, line, brand, true)
 	}
-	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, body, false)
+	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, ink, false)
 	for x := 0; x < 80; x++ {
 		if r, _, _, _ := s.GetContent(x, len(box)+2); r != ' ' && r != 0 {
 			t.Fatalf("row %d col %d is %q, help closes the header with a blank line", len(box)+2, x, string(r))
@@ -348,7 +348,7 @@ func TestAddonsDividerClosesTheSafetyAxis(t *testing.T) {
 	}
 }
 
-func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
+func TestSupportingTextUsesTerminalInkNotSlate(t *testing.T) {
 	t.Parallel()
 	f := &Form{
 		Title:  "run cursor",
@@ -361,23 +361,81 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 	cells, w, h := s.GetContents()
 	slate := hexName(ui.ColorCloud)
 	light := hexName(ui.ColorSecondary)
-	var sawLight, sawSlate bool
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			fg := fgHex(cells[y*w+x].Style)
-			if fg == light {
-				sawLight = true
-			}
-			if fg == slate {
-				sawSlate = true
+			switch fgHex(cells[y*w+x].Style) {
+			case light:
+				t.Errorf("row %d col %d forces the light #E5E4E4, which vanishes on a white terminal", y, x)
+			case slate:
+				t.Errorf("row %d col %d uses ColorCloud slate, too dark for text on a black background", y, x)
 			}
 		}
 	}
-	if !sawLight {
-		t.Error("header/hint body text must use ColorSecondary (light), not terminal default alone")
+	lines := screenLines(s)
+	for _, text := range []string{"sandbox on main", "CURSOR_API_KEY"} {
+		for y, l := range lines {
+			if i := strings.Index(l, text); i >= 0 {
+				if _, _, st, _ := s.GetContent(textWidth(l[:i]), y); fgHex(st) != "" {
+					t.Errorf("header text %q is %s, want the terminal's own ink", text, fgHex(st))
+				}
+			}
+		}
 	}
-	if sawSlate {
-		t.Error("ColorCloud slate is too dark for TUI body text on a black background")
+}
+
+// Each answer draws its state; the cursor's answer is a reversed fill, and nothing is underlined.
+func TestAnAnswerDrawsItsStateAndTheCursorFillsIt(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"open", "allowlist"}, Selected: 1},
+		{Label: "model", Options: []string{"cloud", "local"}, Locked: true},
+		{Label: "add-ons", Multi: true, Options: []string{"browser", "devices"}, On: []bool{false, false}, Off: []bool{false, true}},
+	}}
+	s := simScreen(t, 120, 40)
+	f.draw(s, 0, 0)
+	lines := screenLines(s)
+	at := func(text string) lipgloss.Style {
+		t.Helper()
+		for y, l := range lines {
+			if i := strings.Index(l, text); i >= 0 {
+				_, _, st, _ := s.GetContent(textWidth(l[:i]), y)
+				return st
+			}
+		}
+		t.Fatalf("%q is not on the frame:\n%s", text, strings.Join(lines, "\n"))
+		return lipgloss.Style{}
+	}
+	p := styles()
+	for _, c := range []struct {
+		text string
+		want lipgloss.Style
+		name string
+	}{
+		{"(•) allowlist", p.focus.Bold(true), "the cursor's chosen answer: filled and bold"},
+		{"( ) open", p.offered, "an answer not chosen: grey"},
+		{"(•) cloud", p.fixed, "a locked row's answer in force: plain"},
+		{"( ) local", p.gated, "a locked row's other answer: faint, struck through"},
+		{"[ ] browser", p.offered, "a box not ticked: grey"},
+		{"[ ] devices", p.gated, "a box gated off: faint, struck through"},
+		{"model", p.lockedLabel, "a locked row's label: faint"},
+	} {
+		if got := at(c.text); !sameStyle(got, c.want) {
+			t.Errorf("%s: %q drawn %q", c.name, c.text, got.Render("x"))
+		}
+	}
+	if !p.focus.GetReverse() || fgHex(p.focus) != hexName(ui.ColorBrand) || !strings.Contains(p.focus.Render("x"), "48;2;0;0;0") {
+		t.Errorf("the cursor fill must be black on brand, reversed so it survives NO_COLOR: %q", p.focus.Render("x"))
+	}
+	if !p.gated.GetFaint() || !p.gated.GetStrikethrough() {
+		t.Errorf("an unavailable answer must be faint and struck through: %q", p.gated.Render("x"))
+	}
+	cells, w, h := s.GetContents()
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if cells[y*w+x].Style.GetUnderline() {
+				t.Errorf("row %d col %d is underlined; the cursor is a fill", y, x)
+			}
+		}
 	}
 }
 

@@ -760,6 +760,7 @@ const (
 	ColorSecondary = ColorDB    // supporting text — light enough to read on dark terminals
 	ColorMuted     = 0x8A8A8A   // stream detail — grey that reads on dark and light
 	ColorRule      = ColorCloud // stream divider rules
+	ColorSurface   = 0x0E3A48   // a filled face: chips and idle buttons — dark teal
 )
 
 func ANSI(rgb int) string {

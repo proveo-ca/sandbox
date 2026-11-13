@@ -18,7 +18,7 @@ import (
 type dialogButton struct {
 	Label  string
 	Key    rune // the mnemonic: pressing it selects the button
-	Danger bool // a destructive answer: its mnemonic is drawn in the failure colour
+	Danger bool // a destructive answer: its mnemonic is drawn on the failure colour
 }
 
 // dialog is a confirmation as a Bubble Tea model: body lines over one row of
@@ -176,13 +176,13 @@ func (d dialog) buttonRow() string {
 }
 
 func (d dialog) button(b dialogButton, selected bool) string {
-	face := lipgloss.NewStyle().Foreground(hexOf(ui.ColorSecondary)).Background(hexOf(ui.ColorRule))
+	face := fill(ui.ColorSecondary, ui.ColorSurface)
 	if selected {
-		face = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(hexOf(ui.ColorBrand)).Bold(true)
+		face = fill(black, ui.ColorBrand).Bold(true)
 	}
 	key := face.Bold(true)
 	if b.Danger {
-		key = key.Foreground(hexOf(ui.ColorFail))
+		key = fill(ui.ColorSecondary, ui.ColorFail).Bold(true)
 	}
 	label := face.Render(b.Label)
 	if i := strings.IndexRune(strings.ToLower(b.Label), unicode.ToLower(b.Key)); b.Key != 0 && i >= 0 {

@@ -755,17 +755,30 @@ func (f *Form) changed() {
 
 // palette is the prompt's styles: one per role a piece of text can play.
 type palette struct {
-	brand  lipgloss.Style // the cursor's row and the selected answer
+	brand  lipgloss.Style // the cursor's row
 	accent lipgloss.Style // first-party emphasis: row labels, header keys
-	warn   lipgloss.Style // a locked answer, a consequence
-	body   lipgloss.Style
+	warn   lipgloss.Style // a consequence
+	body   lipgloss.Style // the terminal's own ink
 	title  lipgloss.Style
 	idle   lipgloss.Style
 	aside  lipgloss.Style // italic — parenthetical descriptions
-	key    lipgloss.Style // a key on the key line: bold and bright
+	key    lipgloss.Style // a key on the key line: bold
 	word   lipgloss.Style // the word beside it: grey
 	rule   lipgloss.Style // a tree guide outside the cursor's folder
+
+	focus       lipgloss.Style // the cursor's answer: black on brand
+	focusOff    lipgloss.Style // the cursor on a fixed or unavailable answer: black on grey
+	chosen      lipgloss.Style // an answer in force the operator chose: bold
+	offered     lipgloss.Style // an answer not chosen: grey
+	fixed       lipgloss.Style // an answer in force the operator cannot change: plain
+	gated       lipgloss.Style // an answer that is unavailable: faint, struck through
+	lockedLabel lipgloss.Style // a locked row's label: faint
+	frame       lipgloss.Style // card walls and rules: grey
+	rail        lipgloss.Style // the walls beside the cursor's section: brand
+	chip        lipgloss.Style // the step chip: brand on the surface
 }
+
+const black = 0x000000
 
 func styles() palette {
 	fg := func(c int) lipgloss.Style { return lipgloss.NewStyle().Foreground(hexOf(c)) }
@@ -773,14 +786,47 @@ func styles() palette {
 		brand:  fg(ui.ColorBrand).Bold(true),
 		accent: fg(ui.ColorAccent).Bold(true),
 		warn:   fg(ui.ColorWarn),
-		body:   fg(ui.ColorSecondary),
+		body:   lipgloss.NewStyle(),
 		title:  lipgloss.NewStyle().Bold(true),
 		idle:   fg(ui.ColorSecondary),
-		aside:  fg(ui.ColorSecondary).Italic(true),
-		key:    fg(ui.ColorSecondary).Bold(true),
+		aside:  lipgloss.NewStyle().Italic(true),
+		key:    lipgloss.NewStyle().Bold(true),
 		word:   fg(ui.ColorMuted),
 		rule:   fg(ui.ColorRule),
+
+		focus:       fill(black, ui.ColorBrand),
+		focusOff:    fill(black, ui.ColorMuted),
+		chosen:      lipgloss.NewStyle().Bold(true),
+		offered:     fg(ui.ColorMuted),
+		fixed:       lipgloss.NewStyle(),
+		gated:       lipgloss.NewStyle().Faint(true).Strikethrough(true),
+		lockedLabel: lipgloss.NewStyle().Faint(true),
+		frame:       fg(ui.ColorMuted),
+		rail:        fg(ui.ColorBrand),
+		chip:        fg(ui.ColorBrand).Background(hexOf(ui.ColorSurface)),
 	}
+}
+
+// fill is ink on a face, drawn reversed.
+func fill(ink, face int) lipgloss.Style {
+	return lipgloss.NewStyle().Reverse(true).Foreground(hexOf(face)).Background(hexOf(ink))
+}
+
+// answerStyle is an answer's state style; the cursor's answer is filled.
+func answerStyle(p palette, on, fixed, gated, focused bool) lipgloss.Style {
+	switch {
+	case focused && (fixed || gated):
+		return p.focusOff.Strikethrough(gated)
+	case focused:
+		return p.focus.Bold(on)
+	case gated:
+		return p.gated
+	case fixed:
+		return p.fixed
+	case on:
+		return p.chosen
+	}
+	return p.offered
 }
 
 func (f *Form) draw(s *screen, cursor, tick int) {
@@ -962,7 +1008,7 @@ func (f *Form) drawSkip(c *canvas, p palette) {
 		return
 	}
 	c.put(0, p.brand, "› ")
-	c.put(2, p.brand.Reverse(true), " "+f.Skip+" "+enterMark()+" ")
+	c.put(2, p.focus.Bold(true), " "+f.Skip+" "+enterMark()+" ")
 }
 
 // hintPart is one key-line segment: a key and the word for what it does. A
@@ -1115,17 +1161,13 @@ func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
 	for i := first; i < first+visible; i++ {
 		label := labels[i]
 		c.y = y + 1 + i - first
+		on := i < len(m.On) && m.On[i]
 		mark := "[ ] "
-		st := p.idle
-		if i < len(m.On) && m.On[i] {
-			mark, st = "[x] ", p.brand
+		if on {
+			mark = "[x] "
 		}
-		if m.ReadOnly || m.offAt(i) {
-			st = p.warn
-		}
-		if i == m.At {
-			st = st.Underline(true)
-		}
+		gated := m.offAt(i) && !on
+		st := answerStyle(p, on, !gated && (m.ReadOnly || m.offAt(i)), gated, i == m.At)
 		cell := mark + label
 		if pad := inner - textWidth(cell); pad > 0 {
 			cell += strings.Repeat(" ", pad)
@@ -1159,6 +1201,9 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 
 	marker := "  "
 	labelStyle := p.accent
+	if r.Locked {
+		labelStyle = p.lockedLabel
+	}
 	if ln.row == cursor {
 		marker = "› "
 		labelStyle = p.brand
@@ -1175,27 +1220,23 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 	}
 	for j, opt := range r.Options {
 		var glyph string
-		st := p.idle
+		on := false
 		switch {
 		case r.Multi && r.radioAt(j) && r.onAt(j):
-			glyph, st = "(•) ", p.brand
+			glyph, on = "(•) ", true
 		case r.Multi && r.radioAt(j):
 			glyph = "( ) "
 		case r.Multi && r.onAt(j):
-			glyph, st = "[x] ", p.brand
+			glyph, on = "[x] ", true
 		case r.Multi:
 			glyph = "[ ] "
 		case j == r.Selected:
-			glyph, st = "(•) ", p.brand
+			glyph, on = "(•) ", true
 		default:
 			glyph = "( ) "
 		}
-		if r.Locked || r.offAt(j) {
-			st = p.warn
-		}
-		if ln.row == cursor && j == r.cursorAt() {
-			st = st.Underline(true)
-		}
+		held := r.Locked || r.offAt(j)
+		st := answerStyle(p, on, held && on, held && !on, ln.row == cursor && j == r.cursorAt())
 		at := x
 		if j < len(r.Cols) {
 			at = optOrigin + r.Cols[j]*colPitch

@@ -3,6 +3,7 @@ package choiceui
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -383,5 +384,28 @@ func TestADangerousAnswerDrawsItsMnemonicInTheFailureColour(t *testing.T) {
 	}
 	if strings.Contains(stay, failure) {
 		t.Errorf("Stay is drawn in the failure colour: %q", stay)
+	}
+}
+
+// Every button face is a reversed fill, so a face survives NO_COLOR; a danger mnemonic's face is the failure colour.
+func TestEveryButtonFaceIsAReversedFill(t *testing.T) {
+	t.Parallel()
+	d := NewSandboxClose(nil, time.Second).(dialog)
+	for _, b := range d.buttons {
+		for _, selected := range []bool{false, true} {
+			face := d.button(b, selected)
+			for _, seq := range sgr.FindAllString(face, -1) {
+				params := strings.Split(strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b["), "m"), ";")
+				if len(params) == 1 && params[0] == "" {
+					continue
+				}
+				if fg := slices.Index(params, "38"); fg < 0 || !slices.Contains(params[:fg], "7") {
+					t.Errorf("%s (selected %v): %q is not a reversed fill", b.Label, selected, seq)
+				}
+			}
+			if b.Danger && !strings.Contains(face, "7;38;2;203;32;0;") {
+				t.Errorf("%s (selected %v): the mnemonic's face is not the failure colour: %q", b.Label, selected, face)
+			}
+		}
 	}
 }

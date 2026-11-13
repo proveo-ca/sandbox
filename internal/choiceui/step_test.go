@@ -143,7 +143,7 @@ func TestTheDrawnFooterCarriesThePage(t *testing.T) {
 	}
 }
 
-// The key line is two-tone: a key is bold and bright, the word beside it grey.
+// The key line is two-tone: a key is bold in the terminal's ink, the word beside it grey.
 func TestTheKeyLinePaintsKeysBoldAndWordsGrey(t *testing.T) {
 	t.Parallel()
 	f := stepForm(2, 3)
@@ -164,8 +164,8 @@ func TestTheKeyLinePaintsKeysBoldAndWordsGrey(t *testing.T) {
 	}
 	at := func(word string) int { return textWidth(lines[row][:strings.Index(lines[row], word)]) }
 	for _, key := range []string{"enter", "esc", "ctrl+c", "↑↓"} {
-		if _, _, st, _ := s.GetContent(at(key), row); !st.GetBold() || fgHex(st) != hexName(ui.ColorSecondary) {
-			t.Errorf("the key %q is not bold and bright: %q", key, st.Render("x"))
+		if _, _, st, _ := s.GetContent(at(key), row); !st.GetBold() || fgHex(st) != "" {
+			t.Errorf("the key %q is not bold in the terminal's ink: %q", key, st.Render("x"))
 		}
 	}
 	for _, word := range []string{"accept", "quit", "back", "row", "page 2/3"} {
