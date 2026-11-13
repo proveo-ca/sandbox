@@ -214,7 +214,7 @@ func (sp *ScopePage) whereShort() string {
 
 // chip is the head's step chip on a w-column terminal, or "".
 func (sp *ScopePage) chip(w int) string {
-	return stepChip(sp.Step, "scope ·", sp.Title, w, sp.keyParts(0))
+	return stepChip(sp.Step, sp.Title, w, sp.keyParts(0))
 }
 
 func (sp *ScopePage) hintParts(w, hidden int) []hintPart {

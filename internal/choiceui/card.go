@@ -67,15 +67,15 @@ func chipFits(titleLen, chipLen, w int) bool { return titleLen <= titleRoom(chip
 // titleKeep is the fewest title runes a head keeps when it cuts the title for the chip.
 const titleKeep = 8
 
-// stepChip is the chip " name n/m " a head draws beside title on a w-column terminal, or "" when it
+// stepChip is the chip " page n/m " a head draws beside title on a w-column terminal, or "" when it
 // draws none: beside the whole title when it fits; else, when a key line of the page count and rest
 // cannot keep the count, beside the title cut with … to at least titleKeep runes.
 // SPEC: _spec/internal/choiceui/wireframe.puml
-func stepChip(s Step, name, title string, w int, rest []hintPart) string {
+func stepChip(s Step, title string, w int, rest []hintPart) string {
 	if !s.wizard() {
 		return ""
 	}
-	chip := fmt.Sprintf(" %s %d/%d ", name, s.At, s.Of)
+	chip := fmt.Sprintf(" page %d/%d ", s.At, s.Of)
 	n := textWidth(chip)
 	if chipFits(textWidth(title), n, w) || (!pageKept(s, rest, w) && chipFits(titleKeep+1, n, w)) {
 		return chip

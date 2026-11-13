@@ -1,5 +1,5 @@
 ╭──────────────────────────────────────────────────────────╮
-│ run claudecode — where the agent works      scope · 1/2  │
+│ run claudecode — where the agent works         page 1/2  │
 │   │ ▾ apps                                               │
 │   │ │ api                                                │
 │   │ │ web                                                │

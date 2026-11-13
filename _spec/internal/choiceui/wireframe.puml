@@ -100,8 +100,8 @@
 '
 ' THE HEAD (Executor, E5). Row 0 is the top border ╭─╮. Row 1 holds the
 ' title, bold, at column 2. On a wizard page a step chip sits at the right:
-' " page n/m " here, " scope · n/m " and " checks · n/m " on the other
-' pages. The chip is a fill (brand ink on ColorSurface) that ends at cw-3, so
+' " page n/m " on every page, the form, the scope page and the checks page
+' alike. The chip is a fill (brand ink on ColorSurface) that ends at cw-3, so
 ' column cw-2 stays blank. The banner, when the ladder buys it, sits above
 ' the card.
 ' THE CHIP OWNS THE PAGE COUNT (owner, O6). While the chip draws, "page n/m"
@@ -119,11 +119,21 @@
 ' row when it fits, as before. Framed and without a chip, the page count
 ' ranks 5, above "N more below" (4).
 ' MEASURED by review: the checks page at 40 columns with a 22-rune title lost
-' its count in the head and in the key line. The cut-title rule fixed it:
-' "checks before the r…   checks · 1/4".
+' its count in the head and in the key line. The cut-title rule fixed it; in the
+' old chip wording it read "checks before the r…   checks · 1/4" (see AMENDED).
 ' [Inference] "N more below" ranks below the page count, so the hidden-row
 ' count never changes the chip decision; stepChip therefore reads
 ' keyParts(0, …).
+' AMENDED 2026-11-13 (owner: "always display page"; "Keep it pages" for
+' init): ONE NOUN. The scope page drew " scope · n/m " and the checks page
+' " checks · n/m "; both now draw " page n/m ", the form's chip. stepChip
+' takes no noun, so the chip and the key line's fallback count read the same
+' words on every page. The chip is three columns shorter on those two pages.
+' MEASURED (probe, 2026-11-13): at 40 columns the 22-rune title above now
+' fits whole beside the chip; "checks before the run starts" cuts to
+' "checks before the run s…   page 1/4". Goldens re-recorded: scope 24
+' (15 changed; the 4 lone pages and the 5 at 40x8 draw no chip), checks 12
+' (12 changed).
 '
 ' THE FACTS (Executor, E6 and F2). A header line that reads "key: value"
 ' (putHeader's colon test) is a fact. Facts flow on one row from column 4,
@@ -702,7 +712,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   <b>run claudecode — confirm or change this run</b> | <back:#0E3A48><color:#00BAC6> page 2/2 </color></back>
   ↑↓ row · ←→ move · enter accept · 3 steps · esc back · ctrl+c quit | .
   .
-  <b>checks before the r…</b> | <back:#0E3A48><color:#00BAC6> checks · 1/4 </color></back>
+  <b>checks before the run s…</b> | <back:#0E3A48><color:#00BAC6> page 1/4 </color></back>
   enter continue · esc cancel | .
   .
   <b>a title too long to leave the chip any room</b> | .

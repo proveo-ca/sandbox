@@ -68,7 +68,7 @@ func TestEscInTheScopePageCancelsTheRun(t *testing.T) {
 	sess := monorepoRun(t, "scope-esc")
 	screen := awaitScopePage(t, sess)
 	for _, want := range []string{"where the agent works", "repo root  default", "apps", "web",
-		"scope · 1/2", "enter starts the agent at the repo root"} {
+		"page 1/2", "enter starts the agent at the repo root"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the scope page shows no %q\n%s", want, tail(screen, 45))
 		}

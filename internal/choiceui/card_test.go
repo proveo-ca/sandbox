@@ -386,27 +386,27 @@ func TestTheScopeAndCheckPagesAreCards(t *testing.T) {
 func TestTheStepCountNeverVanishes(t *testing.T) {
 	t.Parallel()
 	type stepPage struct {
-		name, chip, count string
-		draw              func(title string, w int) (lines []string, chip string)
-		hint              func(title string, w, hidden int) string
+		name, chip string
+		draw       func(title string, w int) (lines []string, chip string)
+		hint       func(title string, w, hidden int) string
 	}
 	form := func(title string) *Form { f := stepForm(2, 3); f.Title = title; return f }
 	scope := func(title string) *ScopePage { sp := scopePage(); sp.Banner, sp.Title = nil, title; return sp }
 	check := func(title string) *CheckPage { cp := checkPage(); cp.Banner, cp.Title = nil, title; return cp }
 	pages := []stepPage{
-		{"form", " page 2/3 ", "page 2/3",
+		{"form", " page 2/3 ",
 			func(title string, w int) ([]string, string) {
 				f := form(title)
 				return renderAt(t, f, 0, w, 30), f.headChip(w, 0)
 			},
 			func(title string, w, hidden int) string { return form(title).hint(w, hidden, 0) }},
-		{"scope", " scope · 1/2 ", "page 1/2",
+		{"scope", " page 1/2 ",
 			func(title string, w int) ([]string, string) {
 				sp := scope(title)
 				return scopeLines(sp, w, 24), sp.chip(w)
 			},
 			func(title string, w, hidden int) string { return scope(title).hint(w, hidden) }},
-		{"checks", " checks · 1/4 ", "page 1/4",
+		{"checks", " page 1/4 ",
 			func(title string, w int) ([]string, string) {
 				cp := check(title)
 				return checkLines(cp, w, 24), cp.chip(w)
@@ -421,9 +421,6 @@ func TestTheStepCountNeverVanishes(t *testing.T) {
 				lines, chip := pg.draw(title, w)
 				out := strings.Join(lines, "\n")
 				shown := strings.Count(out, label)
-				if label != pg.count {
-					shown += strings.Count(out, pg.count)
-				}
 				if shown > 1 {
 					t.Errorf("%s title %d width %d: the step count shows %d times:\n%s", pg.name, len(title), w, shown, out)
 				}
@@ -457,10 +454,10 @@ func TestTheStepCountNeverVanishes(t *testing.T) {
 					continue
 				}
 				hint := pg.hint(title, w, 7)
-				if strings.Contains(hint, "7 more below") && !strings.Contains(hint, pg.count) {
-					t.Errorf("%s width %d: %q kept \"7 more below\" over %q", pg.name, w, hint, pg.count)
+				if strings.Contains(hint, "7 more below") && !strings.Contains(hint, label) {
+					t.Errorf("%s width %d: %q kept \"7 more below\" over %q", pg.name, w, hint, label)
 				}
-				ranked = ranked || (strings.Contains(hint, pg.count) && !strings.Contains(hint, "more below"))
+				ranked = ranked || (strings.Contains(hint, label) && !strings.Contains(hint, "more below"))
 			}
 		}
 		if !unframed || !ranked || !cut {

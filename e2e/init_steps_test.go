@@ -132,22 +132,6 @@ func (r *initRun) wait(t *testing.T, want string) string {
 	return screen
 }
 
-// waitAny polls the screen until it holds one of wants.
-func (r *initRun) waitAny(t *testing.T, wants ...string) string {
-	t.Helper()
-	screen := ""
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		screen, _ = r.sess.Capture()
-		for _, want := range wants {
-			if strings.Contains(screen, want) {
-				return screen
-			}
-		}
-	}
-	t.Fatalf("never saw any of %q:\n%s", wants, screen)
-	return screen
-}
-
 // waitMatch polls the screen until every pattern matches.
 func (r *initRun) waitMatch(t *testing.T, patterns ...string) string {
 	t.Helper()
@@ -190,7 +174,7 @@ func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n+1, initPag
 // page count is the head's chip, or the key line's when the chip does not fit.
 func (r *initRun) checks(t *testing.T) string {
 	t.Helper()
-	return r.waitAny(t, fmt.Sprintf("checks · 1/%d", initPages), fmt.Sprintf("page 1/%d", initPages))
+	return r.wait(t, fmt.Sprintf("page 1/%d", initPages))
 }
 
 // keyLine is the screen's key line: the first line that names enter between the key line's separators.

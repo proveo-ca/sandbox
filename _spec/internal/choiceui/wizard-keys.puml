@@ -65,9 +65,13 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' scroll keys and, on a form with checkboxes, after "space toggle". "enter
 ' accept" still goes last.
 ' SINCE 2026-11-13 (owner, O6) THE PAGE COUNT SITS IN THE HEAD. A wizard
-' page's title row carries a chip (" page n/m ", " scope · n/m ", " checks ·
-' n/m "), and "page n/m" leaves the key line while the chip draws. The rule
-' for when it does not fit: _spec/internal/choiceui/wireframe.puml (ONE CARD).
+' page's title row carries the chip " page n/m ", and "page n/m" leaves the
+' key line while the chip draws. The rule for when it does not fit:
+' _spec/internal/choiceui/wireframe.puml (ONE CARD).
+' AMENDED 2026-11-13 (owner: "always display page"): the scope page's
+' " scope · n/m " and the checks page's " checks · n/m " are gone. Every
+' wizard page names its count with the one word "page", in the chip and on
+' the key line.
 '
 ' ── THE .env FILTER TAKES Enter AND Esc FIRST (owner, O4, 2026-11-13) ──────
 ' The run form's .env list filters by typing. While its filter is open:

@@ -1,5 +1,5 @@
 +----------------------------------------------------------+
-| init — preparing the darwin/arm64 host     checks · 1/4  |
+| init — preparing the darwin/arm64 host         page 1/4  |
 | to install sbx                                           |
 | + Apple silicon — macOS Sonoma 14 or later on Apple sil… |
 | sbx diagnose                                             |

@@ -216,7 +216,7 @@ func (cp *CheckPage) verdict() (string, bool) {
 
 // chip is the head's step chip on a w-column terminal, or "".
 func (cp *CheckPage) chip(w int) string {
-	return stepChip(cp.Step, "checks ·", cp.Title, w, cp.keyParts(0))
+	return stepChip(cp.Step, cp.Title, w, cp.keyParts(0))
 }
 
 func (cp *CheckPage) hintParts(w, hidden int) []hintPart {

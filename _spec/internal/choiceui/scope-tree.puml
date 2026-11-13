@@ -63,7 +63,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' through the same screen, canvas and pen as the form.
 '   the banner            when the terminal holds it and the whole tree
 '   the title             "run <target> — where the agent works", and a chip
-'                         "scope · 1/2" at the right when it is one of two
+'                         "page 1/2" at the right when it is one of two
 '   "/ <text>"            only while a filter is open or set
 '   the tree              a window that follows the cursor
 '   one sentence          where Enter starts the agent
@@ -71,8 +71,8 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' AMENDED 2026-11-13 (owner, O1; Executor, E11): THE PAGE IS ONE CARD.
 '   the banner            above the card, unchanged
 '   ╭───╮                 the top border
-'   the title row         the title bold at column 2; the chip " scope ·
-'                         n/m " right-aligned in the chip fill, ending at
+'   the title row         the title bold at column 2; the chip " page n/m "
+'                         right-aligned in the chip fill, ending at
 '                         cw-3 (column cw-2 stays blank)
 '   "/ <text>"            "/" at column 4, inside the walls
 '   the tree              "›" at column 2, guides at 4, 6, 8 (GUIDES)
@@ -131,6 +131,12 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' row); the too-small message now counts the filter row in what it needs.
 ' Golden frames: internal/choiceui/testdata/scope/, 24 files (six states at
 ' four sizes). All 24 were re-recorded for the card on 2026-11-13.
+' AMENDED 2026-11-13 (owner: "In proveo run it also renames from scope 1/2
+' to page 2/2, always display page instead"): the chip read " scope · n/m "
+' and now reads " page n/m ", the form's word, through the same stepChip.
+' All 24 frames were re-recorded again: 15 changed; the 4 lone pages and the
+' 5 at 40x8, which keep "page 1/2" on the key line, did not.
+' e2e/scope_picker_test.go waits for "page 1/2".
 '
 ' ── THE FILTER LIST (B8) ───────────────────────────────────────────────────
 ' FilterList (filter_list.go) is the one list for the run and attach picker.

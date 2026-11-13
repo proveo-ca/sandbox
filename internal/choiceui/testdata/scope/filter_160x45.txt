@@ -8,7 +8,7 @@
   proveo/sandbox: portable, safe AI coding agents
 
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ run claudecode — where the agent works                                                                  scope · 1/2  │
+│ run claudecode — where the agent works                                                                     page 1/2  │
 │   / bill_                                                                                                            │
 │   monorepo  repo root  default                                                                                       │
 │   │ ▾ services                                                                                                       │

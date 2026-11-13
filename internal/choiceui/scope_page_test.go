@@ -105,15 +105,15 @@ func TestTheRootRowIsMarkedDefaultAndTheLineUnderTheTreeFollowsTheCursor(t *test
 	for _, want := range []string{
 		"› monorepo  repo root  default",
 		"enter starts the agent at the repo root",
-		" scope · 1/2 ",
+		" page 1/2 ",
 		"↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the page lacks %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "page 1/2") {
-		t.Errorf("the chip owns the page count, yet the key line repeats it:\n%s", joined)
+	if c := strings.Count(joined, "page 1/2"); c != 1 {
+		t.Errorf("the page count shows %d times, want once, in the chip:\n%s", c, joined)
 	}
 	if strings.Contains(joined, "enter accept") {
 		t.Errorf("the scope page says \"enter accept\", which e2e reads as the form:\n%s", joined)

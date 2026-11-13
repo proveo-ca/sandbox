@@ -1290,7 +1290,7 @@ func (f *Form) hintTail(parts []hintPart, hidden int) []hintPart {
 // "" when it draws none.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) headChip(w, cursor int) string {
-	return stepChip(f.Step, "page", f.Title, w, f.keyParts(0, cursor))
+	return stepChip(f.Step, f.Title, w, f.keyParts(0, cursor))
 }
 
 // narrowed drops the lowest-kept segment, again and again, until the line fits w or one is left.
