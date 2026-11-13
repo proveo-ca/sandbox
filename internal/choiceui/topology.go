@@ -81,6 +81,7 @@ type glyphSet struct {
 	pulse                                                    string // the mote that rides a lane while animating
 	node, wallL, wallR                                       string
 	cornerTL, cornerTR, cornerBL, cornerBR, tee, cross, rule string
+	frameTL, frameTR, frameBL, frameBR, joinL, joinR         string // the card's rounded corners and the rule joins on its walls
 }
 
 func glyphsFor(t GlyphTier) glyphSet {
@@ -92,6 +93,7 @@ func glyphsFor(t GlyphTier) glyphSet {
 			east: ">", west: "<", north: "^", up: "^", pulse: "*",
 			node: "o", wallL: "|", wallR: "|",
 			cornerTL: "+", cornerTR: "+", cornerBL: "+", cornerBR: "+", tee: "+", cross: "+", rule: "-",
+			frameTL: "+", frameTR: "+", frameBL: "+", frameBR: "+", joinL: "+", joinR: "+",
 		}
 	}
 	g := glyphSet{
@@ -101,6 +103,7 @@ func glyphsFor(t GlyphTier) glyphSet {
 		east: "▸", west: "◂", north: "▴", up: "↑", pulse: "•",
 		node: "●", wallL: "│", wallR: "│",
 		cornerTL: "┌", cornerTR: "┐", cornerBL: "└", cornerBR: "┘", tee: "┬", cross: "┼", rule: "─",
+		frameTL: "╭", frameTR: "╮", frameBL: "╰", frameBR: "╯", joinL: "├", joinR: "┤",
 	}
 	if t == GlyphsSafe {
 		g.cloud, g.key, g.quiet, g.speaking = "☁", "⚿", "●", "❞"

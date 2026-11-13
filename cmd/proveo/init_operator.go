@@ -58,7 +58,6 @@ func operatorStage(o initOptions, at choiceui.Step, rep *initReport) (stepResult
 		Title:  operatorQuestion,
 		Header: []string{"House rules tell every agent how to address you, in every sandbox this host runs."},
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
-		NoAxis: true,
 		Step:   at,
 		Skip:   "Skip",
 		Rows:   []choiceui.Row{operatorRow(current)},

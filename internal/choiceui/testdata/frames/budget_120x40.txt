@@ -7,27 +7,18 @@
         └───────                         ●──────┘
   proveo/sandbox: portable, safe AI coding agents
 
-run claudecode — confirm or change this run
-
-  git: r
-  keys: K
-  tooling: t
-  subagents: 7
-  hooks: h
-  llms: m
-
-                  ◀ riskier                                                         safer ▶
-
-  › egress        (•) allow-all   ( ) balanced   ( ) deny-all
-    credentials   (•) forward   ( ) broker
-
-                                ────── execution ──────
-
-                  [ ] host   [ ] docker (s…
-    outputs       [ ] filtered   [ ] verbose
-
-↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel
-
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — confirm or change this run                                                                          │
+│   git: r    keys: K    tooling: t    subagents: 7    hooks: h    llms: m                                             │
+├── reach ──────                                                                                                       │
+│ › egress        (•) allow-all   ( ) balanced   ( ) deny-all                                                          │
+│   credentials   (•) forward   ( ) broker                                                                             │
+├── execution ──                                                                                                       │
+│                 [ ] host   [ ] docker (s…                                                                            │
+│   outputs       [ ] filtered   [ ] verbose                                                                           │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 
 

@@ -285,7 +285,7 @@ func (sp *ScopePage) draw(s *screen) {
 	c.y++
 	c.put(0, p.body, clip(sp.where(), w))
 	c.y += 2
-	paintHint(c, p, sp.hintParts(w, len(rows)-sp.top-lay.window), w)
+	paintHint(c, p, sp.hintParts(w, len(rows)-sp.top-lay.window), 0, w)
 }
 
 // drawRow paints one folder: the cursor mark, a guide per folder above it, the fold

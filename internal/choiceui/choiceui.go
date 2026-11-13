@@ -127,6 +127,12 @@ type helpLine struct {
 	warn bool
 }
 
+// The heads a gated answer's help line opens with.
+const (
+	offHead      = "off: "
+	alwaysOnHead = "always on: "
+)
+
 func (r *Row) helpLines(width int) []helpLine {
 	idx := r.cursorAt()
 	if idx < 0 || idx >= len(r.Options) {
@@ -148,9 +154,9 @@ func (r *Row) helpLines(width int) []helpLine {
 		}
 	}
 	if why := r.OffWhy[opt]; why != "" {
-		label := "off: "
+		label := offHead
 		if r.onAt(idx) {
-			label = "always on: "
+			label = alwaysOnHead
 		}
 		for _, l := range wrap(label+why, width, len([]rune(label))) {
 			out = append(out, helpLine{text: l, warn: true})
@@ -179,7 +185,7 @@ func (r *Row) moreHelp(width int) []helpLine {
 		out = append(out, helpLine{text: l})
 	}
 	if why := r.OffWhy[opt]; why != "" && m.offAt(m.At) {
-		for _, l := range wrap("off: "+why, width, len("off: ")) {
+		for _, l := range wrap(offHead+why, width, len(offHead)) {
 			out = append(out, helpLine{text: l, warn: true})
 		}
 	}
@@ -242,16 +248,13 @@ func (r *Row) radioAt(i int) bool {
 }
 
 type Form struct {
-	Banner   []string
-	Title    string
-	Header   []string
-	Rows     []Row
-	OnChange func(*Form)
-	Glyphs   GlyphTier
-	Topology func(f *Form, cursor int) *Frame
-	// NoAxis hides "◀ riskier … safer ▶". The legend is a claim about policy
-	// radios (egress, credentials). Init's radios are not a safety axis.
-	NoAxis      bool
+	Banner      []string
+	Title       string
+	Header      []string
+	Rows        []Row
+	OnChange    func(*Form)
+	Glyphs      GlyphTier
+	Topology    func(f *Form, cursor int) *Frame
 	StartRow    string // row label the cursor opens on; empty means first selectable
 	StartOption string // option the cursor opens on within StartRow
 	Step        Step   // place in a sequence of screens; the zero value is a lone form
@@ -604,18 +607,6 @@ func (f *Form) FieldValue(label string) string {
 	return ""
 }
 
-func (f *Form) axisLabel() bool {
-	if f.NoAxis {
-		return false
-	}
-	for _, r := range f.Rows {
-		if !r.Multi && len(r.Options) > 1 {
-			return true
-		}
-	}
-	return false
-}
-
 // startCursor opens on StartRow/StartOption when the form names them.
 func (f *Form) startCursor() int {
 	if f.StartRow != "" {
@@ -784,11 +775,11 @@ func styles() palette {
 	fg := func(c int) lipgloss.Style { return lipgloss.NewStyle().Foreground(hexOf(c)) }
 	return palette{
 		brand:  fg(ui.ColorBrand).Bold(true),
-		accent: fg(ui.ColorAccent).Bold(true),
+		accent: fg(ui.ColorAccentBright).Bold(true),
 		warn:   fg(ui.ColorWarn),
 		body:   lipgloss.NewStyle(),
 		title:  lipgloss.NewStyle().Bold(true),
-		idle:   fg(ui.ColorSecondary),
+		idle:   fg(ui.ColorMuted),
 		aside:  lipgloss.NewStyle().Italic(true),
 		key:    lipgloss.NewStyle().Bold(true),
 		word:   fg(ui.ColorMuted),
@@ -803,7 +794,7 @@ func styles() palette {
 		lockedLabel: lipgloss.NewStyle().Faint(true),
 		frame:       fg(ui.ColorMuted),
 		rail:        fg(ui.ColorBrand),
-		chip:        fg(ui.ColorBrand).Background(hexOf(ui.ColorSurface)),
+		chip:        fill(ui.ColorBrand, ui.ColorSurface),
 	}
 }
 
@@ -838,6 +829,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 		return
 	}
 
+	k := newCard(w, f.Glyphs, p)
 	c := newCanvas(s)
 
 	if lay.banner {
@@ -852,50 +844,58 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 		}
 		c.y++
 	}
-	c.put(0, p.title, f.Title)
-	c.y += 2
+	k.head(c, f.Title, f.headChip(w))
 	if lay.header {
-		for _, hl := range f.Header {
-			putHeader(c.put, p, hl)
+		for _, row := range factRows(f.Header, k.edge-factX) {
+			x := factX
+			for _, fact := range row {
+				putHeader(c.put, p, x, fact)
+				x += textWidth(fact) + len(factJoin)
+			}
+			k.walls(c, false)
 			c.y++
 		}
-		c.y++
-	}
-	if lay.axis {
-		c.put(optOrigin, p.body, "◀ riskier")
-		c.put(optOrigin+3*colPitch, p.body, "safer ▶")
-		c.y += 2
 	}
 
 	lines := f.bodyLines()
 	f.scroll = scrollTo(f.scroll, lay.body, lines, cursor)
 	g := newGutter(f.scroll, lay.body, len(lines))
 	named := headingsInWindow(lines, f.scroll, lay.body)
-	limit := w
-	if lay.strip == stripPane {
-		limit = lay.pane - paneGutter
+	groups := f.groups()
+	mark := cursor
+	if f.onSkip {
+		mark = -1
 	}
+	lit := func(row int) bool { return mark >= 0 && mark < len(groups) && groups[row] == groups[mark] }
+	pt := pitch(k.w, f.lastCol())
 	bodyTop := c.y
+	window := min(lay.body, len(lines)-f.scroll)
 	c.clipTo(bodyTop, bodyTop+lay.body)
+	c.right = k.edge
 	dropY := -1
-	for i := 0; i < lay.body && f.scroll+i < len(lines); i++ {
+	for i := range window {
 		c.y = bodyTop + i
 		ln := lines[f.scroll+i]
 		if ln.kind == lineRow && ln.row == cursor && f.Rows[ln.row].activeMore() != nil {
 			dropY = c.y
 		}
+		f.drawBodyLine(c, p, k, ln, mark, pt, lit(ln.row), named[ln.row])
+	}
+	c.unclip()
+	c.clipTo(bodyTop, bodyTop+lay.body)
+	for i := range window {
+		c.y = bodyTop + i
+		if lines[f.scroll+i].kind == lineRow {
+			k.wallL(c, lit(lines[f.scroll+i].row))
+		}
+		k.wallR(c)
 		if glyph, thumb := g.glyph(i, f.Glyphs == GlyphsASCII || f.Glyphs == GlyphsOff); glyph != "" {
-			st := p.idle
+			st := p.frame
 			if thumb {
-				st = p.brand
+				st = p.rail
 			}
-			c.put(0, st, glyph)
+			c.put(k.gutterX(), st, glyph)
 		}
-		mark := cursor
-		if f.onSkip {
-			mark = -1
-		}
-		f.drawBodyLine(c, p, ln, mark, limit, named[ln.row])
 	}
 	c.unclip()
 
@@ -905,36 +905,29 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 			drawFigure(s, lay.pane, bodyTop, paneCols, *fr, f.Glyphs, p, tick)
 		}
 	}
-	if dropY >= 0 {
-		r := &f.Rows[cursor]
-		cell := r.activeMore().Cell
-		col := cell
-		if cell < len(r.Cols) {
-			col = r.Cols[cell]
-		}
-		f.drawMore(c, p, cursor, optOrigin+col*colPitch, dropY+1)
-	}
 
-	c.y = bodyTop + lay.body + 1
+	c.y = bodyTop + lay.body
 	if f.Skip != "" {
+		k.walls(c, false)
+		c.y++
 		f.drawSkip(c, p)
-		c.y += skipRows
+		k.walls(c, false)
+		c.y++
 	}
-
+	k.foot(c)
+	c.y++
 	f.drawHint(c, p, w, g.hiddenRows(lines))
+	k.walls(c, false)
+	c.y++
+	k.bottom(c)
 	c.y++
 
 	if lay.helpSlot > 0 {
-		c.y++ // the blank the help block opens with
 		helpTop := c.y
 		if cursor >= 0 && cursor < len(f.Rows) && !f.onSkip {
-			for i, line := range f.Rows[cursor].helpLines(w - 4) {
-				st := p.body
-				if line.warn {
-					st = p.warn
-				}
+			for i, line := range f.Rows[cursor].helpLines(helpWidth(w)) {
 				c.y = helpTop + i
-				c.put(2, st, line.text)
+				putHelp(c, p, line)
 			}
 		}
 		c.y = helpTop + lay.helpSlot
@@ -958,6 +951,30 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 		c.y += stripRows
 	}
 	f.drawOnEnter(c, p, w, h)
+
+	if dropY >= 0 {
+		r := &f.Rows[cursor]
+		cell := r.activeMore().Cell
+		col := cell
+		if cell < len(r.Cols) {
+			col = r.Cols[cell]
+		}
+		f.drawMore(c, p, cursor, optOrigin+col*pt, dropY+1, k.edge)
+	}
+}
+
+// putHelp paints one help line at column 2; a warning's head is bold.
+func putHelp(c *canvas, p palette, line helpLine) {
+	if line.warn {
+		for _, head := range []string{offHead, alwaysOnHead} {
+			if rest, ok := strings.CutPrefix(line.text, head); ok {
+				c.put(2, p.title, head)
+				c.put(2+textWidth(head), p.body, rest)
+				return
+			}
+		}
+	}
+	c.put(2, p.body, line.text)
 }
 
 // onEnter is what accepting the form runs; nothing while the Skip button is focused.
@@ -984,31 +1001,31 @@ func (f *Form) drawOnEnter(c *canvas, p palette, w, h int) {
 		return
 	}
 	c.y++
-	c.put(0, p.accent, clip("on enter", w))
+	c.put(2, p.accent, clip("on enter", w-2))
 	for i, text := range steps {
 		c.y++
 		if i == room-1 && len(steps) > room {
-			c.put(2, p.idle, clip(fmt.Sprintf("… and %d more", len(steps)-i), w-2))
+			c.put(4, p.idle, clip(fmt.Sprintf("… and %d more", len(steps)-i), w-4))
 			return
 		}
-		c.put(2, p.idle, fmt.Sprintf("%d", i+1))
-		c.put(5, p.body, clip(text, w-5))
+		c.put(4, p.idle, fmt.Sprintf("%d", i+1))
+		c.put(7, p.body, clip(text, w-7))
 	}
 }
 
 const hintScroll = "pgup/pgdn scroll"
 
-// skipRows is what the Skip button costs under the rows: the button and a blank.
+// skipRows is what the Skip button costs inside the walls under the rows: a blank and the button.
 const skipRows = 2
 
-// drawSkip paints the Skip button; focused, it is filled and carries the enter mark.
+// drawSkip paints the Skip button in the label column; focused, it is filled and carries the enter mark.
 func (f *Form) drawSkip(c *canvas, p palette) {
 	if !f.onSkip {
-		c.put(2, p.idle, "[ "+f.Skip+" ]")
+		c.put(bodyIndent+2, p.idle, "[ "+f.Skip+" ]")
 		return
 	}
-	c.put(0, p.brand, "› ")
-	c.put(2, p.focus.Bold(true), " "+f.Skip+" "+enterMark()+" ")
+	c.put(bodyIndent, p.brand, "› ")
+	c.put(bodyIndent+2, p.focus.Bold(true), " "+f.Skip+" "+enterMark()+" ")
 }
 
 // hintPart is one key-line segment: a key and the word for what it does. A
@@ -1032,7 +1049,7 @@ const hintJoin = " · "
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) hintParts(w, hidden int) []hintPart {
 	var parts []hintPart
-	if f.Step.Of > 1 {
+	if f.Step.wizard() && f.headChip(w) == "" {
 		parts = append(parts, hintPart{"", fmt.Sprintf("page %d/%d", f.Step.At, f.Step.Of), 4})
 	}
 	parts = append(parts, hintPart{"↑↓", "row", 3})
@@ -1060,7 +1077,20 @@ func (f *Form) hintParts(w, hidden int) []hintPart {
 	if hidden > 0 {
 		parts = append(parts, hintPart{"", fmt.Sprintf("%d more below", hidden), 4})
 	}
-	return narrowed(parts, w)
+	return narrowed(parts, keyRoom(w))
+}
+
+// headChip is the step chip the head draws on a w-column terminal, or "" when it draws none.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func (f *Form) headChip(w int) string {
+	if !f.Step.wizard() || !framed(w) {
+		return ""
+	}
+	chip := fmt.Sprintf(" page %d/%d ", f.Step.At, f.Step.Of)
+	if !chipFits(textWidth(f.Title), textWidth(chip), cardWidth(w)) {
+		return ""
+	}
+	return chip
 }
 
 // narrowed drops the lowest-kept segment, again and again, until the line fits w or one is left.
@@ -1085,18 +1115,18 @@ func joinHint(parts []hintPart) string {
 	return strings.Join(texts, hintJoin)
 }
 
-// hint is the key line as plain text, clipped to w; tests and e2e read this projection.
+// hint is the key line a w-column terminal shows, as plain text; tests and e2e read this projection.
 func (f *Form) hint(w, hidden int) string {
-	return clip(joinHint(f.hintParts(w, hidden)), w)
+	return clip(joinHint(f.hintParts(w, hidden)), keyRoom(w))
 }
 
-// drawHint paints the form's key line.
+// drawHint paints the form's key line inside the card.
 func (f *Form) drawHint(c *canvas, p palette, w, hidden int) {
-	paintHint(c, p, f.hintParts(w, hidden), w)
+	paintHint(c, p, f.hintParts(w, hidden), inset(w), keyRoom(w))
 }
 
-// paintHint paints a key line in two tones, cut to w: each key bold and bright, its word grey.
-func paintHint(c *canvas, p palette, parts []hintPart, w int) {
+// paintHint paints a key line from column x0 in two tones, cut to w: each key bold, its word grey.
+func paintHint(c *canvas, p palette, parts []hintPart, x0, w int) {
 	type piece struct {
 		st   lipgloss.Style
 		text string
@@ -1118,7 +1148,7 @@ func paintHint(c *canvas, p palette, parts []hintPart, w int) {
 		}
 	}
 	left := []rune(clip(joinHint(parts), w))
-	x := 0
+	x := x0
 	for _, pc := range pieces {
 		n := min(len([]rune(pc.text)), len(left))
 		if n == 0 {
@@ -1131,17 +1161,18 @@ func paintHint(c *canvas, p palette, parts []hintPart, w int) {
 	}
 }
 
-func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
+// drawMore paints the open list under its cell, ending before column right.
+func (f *Form) drawMore(c *canvas, p palette, row, x, y, right int) {
 	m := f.Rows[row].activeMore()
 	if m == nil || len(m.Options) == 0 {
 		return
 	}
-	w, h := c.s.Size()
-	x = min(x, max(0, w-8))
+	_, h := c.s.Size()
+	x = min(x, max(0, right-8))
 	inner := 0
 	labels := make([]string, len(m.Options))
 	for i, opt := range m.Options {
-		labels[i] = clipRunes(opt, max(1, w-x-6))
+		labels[i] = clipRunes(opt, max(1, right-x-6))
 		if n := textWidth("[x] " + labels[i]); n > inner {
 			inner = n
 		}
@@ -1180,22 +1211,15 @@ func (f *Form) drawMore(c *canvas, p palette, row, x, y int) {
 	c.put(x, p.body, "└"+bar+"┘")
 }
 
-func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int, named bool) {
+// drawBodyLine paints one body line: a section's stub, or a row's marker, label and cells on a grid of pitch pt.
+func (f *Form) drawBodyLine(c *canvas, p palette, k card, ln bodyLine, cursor, pt int, lit, named bool) {
 	r := f.Rows[ln.row]
-	switch ln.kind {
-	case lineBlank:
-		return
-	case lineHeading:
+	if ln.kind == lineHeading {
 		text := r.Label
 		if r.Heading != "" {
 			text = r.Heading
 		}
-		label := " " + text + " "
-		pad := (72 - len([]rune(label))) / 2
-		if pad < 0 {
-			pad = 0
-		}
-		c.put(bodyIndent+pad, p.body, strings.Repeat("─", 6)+label+strings.Repeat("─", 6))
+		k.stub(c, text, lit)
 		return
 	}
 
@@ -1237,21 +1261,21 @@ func (f *Form) drawBodyLine(c *canvas, p palette, ln bodyLine, cursor, limit int
 		}
 		held := r.Locked || r.offAt(j)
 		st := answerStyle(p, on, held && on, held && !on, ln.row == cursor && j == r.cursorAt())
-		at := x
+		at, room := x, k.edge-x
 		if j < len(r.Cols) {
-			at = optOrigin + r.Cols[j]*colPitch
+			at = optOrigin + r.Cols[j]*pt
+			room = min(pt-2, k.edge-at)
 		}
-		cell := r.columnText(opt)
+		cell, arrow := r.columnText(opt), ""
 		if m := r.cellMore(j); m != nil && len(m.Options) > 0 {
-			arrow := " ▾"
+			arrow = " ▾"
 			if f.Glyphs == GlyphsASCII || f.Glyphs == GlyphsOff {
 				arrow = " v"
 			}
-			cell += arrow
 		}
-		c.put(at, st, glyph+cell)
+		c.put(at, st, fitCell(glyph, cell, arrow, room))
 		if j >= len(r.Cols) {
-			x += textWidth(glyph+cell) + 3
+			x += textWidth(glyph+cell+arrow) + 3
 		}
 	}
 }
@@ -1271,10 +1295,7 @@ func (f *Form) navigable(w, h int) bool {
 }
 
 func (f *Form) minHeight(w int) int {
-	need := 2 + minBodyLines + 2
-	if help := f.maxHelpLines(w - 4); help > 0 {
-		need += help + 1
-	}
+	need := cardRows + minBodyLines + f.maxHelpLines(helpWidth(w))
 	if f.Skip != "" {
 		need += skipRows
 	}
@@ -1292,8 +1313,56 @@ func drawTooSmall(s *screen, w, h, needH int) {
 	}
 }
 
-func putHeader(put func(int, lipgloss.Style, string), p palette, line string) {
-	const x0 = 2
+const factJoin = "    "
+
+// factRows lays the header out as card rows of width columns: unindented `key: value` facts flow
+// joined by four spaces and wrap at a fact boundary; any other line keeps a row of its own.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func factRows(header []string, width int) [][]string {
+	var rows [][]string
+	var run []string
+	used := 0
+	flush := func() {
+		if len(run) > 0 {
+			rows, run, used = append(rows, run), nil, 0
+		}
+	}
+	for _, line := range header {
+		fact, ok := asFact(line)
+		if !ok {
+			flush()
+			rows = append(rows, []string{clip(line, width)})
+			continue
+		}
+		fact = clip(fact, width)
+		if len(run) > 0 && used+len(factJoin)+textWidth(fact) > width {
+			flush()
+		}
+		if len(run) > 0 {
+			used += len(factJoin)
+		}
+		run, used = append(run, fact), used+textWidth(fact)
+	}
+	flush()
+	return rows
+}
+
+// asFact is an unindented `key:   value` header line as `key: value`.
+func asFact(line string) (string, bool) {
+	if line == "" || unicode.IsSpace([]rune(line)[0]) {
+		return "", false
+	}
+	colon := strings.IndexByte(line, ':')
+	if colon <= 0 || strings.ContainsRune(line[:colon], ' ') {
+		return "", false
+	}
+	if value := strings.TrimSpace(line[colon+1:]); value != "" {
+		return line[:colon+1] + " " + value, true
+	}
+	return line[:colon+1], true
+}
+
+func putHeader(put func(int, lipgloss.Style, string), p palette, x0 int, line string) {
 	runes := []rune(line)
 	i := 0
 	for i < len(runes) && unicode.IsSpace(runes[i]) {
@@ -1390,23 +1459,12 @@ func EnvHeader(secretNames []string, settings map[string]string) []string {
 	if len(secretNames) > 0 {
 		out = append(out, "keys:     "+strings.Join(secretNames, "  "))
 	}
-	var names []string
-	flush := func() {
-		if len(names) == 0 {
-			return
-		}
-		out = append(out, fmt.Sprintf("%-9s %s", "", strings.Join(names, "  ")))
-		names = nil
-	}
 	for _, k := range sortedKeys(settings) {
 		if settingValueHidden(k) {
-			names = append(names, k)
 			continue
 		}
-		flush()
 		out = append(out, fmt.Sprintf("%-9s %s=%s", "", k, settings[k]))
 	}
-	flush()
 	return out
 }
 

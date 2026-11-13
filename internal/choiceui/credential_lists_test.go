@@ -79,7 +79,7 @@ func TestCredentialDropdownArrowMatchesPortsAndRespectsGlyphMode(t *testing.T) {
 				r.More = m
 			}
 			f := &Form{Glyphs: tc.glyphs, Rows: []Row{r}}
-			f.drawBodyLine(newCanvas(s), styles(), bodyLine{kind: lineRow, row: 0}, 0, 120, false)
+			f.drawBodyLine(newCanvas(s), styles(), newCard(120, f.Glyphs, styles()), bodyLine{kind: lineRow, row: 0}, 0, colPitch, false, false)
 			var line strings.Builder
 			for x := 0; x < 120; x++ {
 				ch, _, _, _ := s.GetContent(x, 0)

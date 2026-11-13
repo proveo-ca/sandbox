@@ -1,8 +1,9 @@
-run claudecode — confirm or change this run
-
-░ › egress        (•) allow-all   ( ) balanced   ( ) deny-all
-░   credentials   (•) forward   ( ) broker
-
-▼                               ────── execution ──────
-
-↑↓ row · ←→ move · enter accept · esc cancel · 1 more below
+╭──────────────────────────────────────────────────────────────╮
+│ run claudecode — confirm or change this run                  │
+├── reach ──────                                               ░
+│ › egress        (•) allow-all   ( ) balanced   ( ) deny-all  ░
+│   credentials   (•) forward   ( ) broker                     │
+├── execution ──                                               ▼
+├──────────────────────────────────────────────────────────────┤
+│ ↑↓ row · ←→ move · enter accept · esc cancel · 1 more below  │
+╰──────────────────────────────────────────────────────────────╯

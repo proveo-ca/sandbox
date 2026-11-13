@@ -157,7 +157,9 @@ func TestASCIITierIsOneColumnPerRune(t *testing.T) {
 	t.Parallel()
 	g := glyphsFor(GlyphsASCII)
 	for _, s := range []string{g.cloud, g.key, g.quiet, g.speaking, g.spine, g.screened, g.watched,
-		g.refused, g.asking, g.east, g.west, g.north, g.up} {
+		g.refused, g.asking, g.east, g.west, g.north, g.up,
+		g.cornerTL, g.cornerTR, g.cornerBL, g.cornerBR, g.rule, g.wallL, g.wallR,
+		g.frameTL, g.frameTR, g.frameBL, g.frameBR, g.joinL, g.joinR} {
 		for _, r := range s {
 			if r > 127 {
 				t.Errorf("the ASCII tier carries a non-ASCII rune %q (U+%04X)", r, r)

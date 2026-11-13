@@ -1,7 +1,8 @@
-credentials
-
-  › claudecode    ✓ [stored — type to replace              ]
-    openai          [empty — type a key                    ]
-    google        ! [env only — Enter to import            ]
-
-↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ credentials                                                                                      │
+│ › claudecode    ✓ [stored — type to replace              ]                                       │
+│   openai          [empty — type a key                    ]                                       │
+│   google        ! [env only — Enter to import            ]                                       │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

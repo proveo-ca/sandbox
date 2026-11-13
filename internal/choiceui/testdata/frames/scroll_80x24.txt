@@ -1,17 +1,12 @@
-
-
-                  ◀ riskier
-
-    egress        (•) a   ( ) b
-    credentials   (•) c   ( ) d
-
-                                ────── execution ──────
-
-  ›               [ ] e
-
-                                ────── interface ──────
-
-                  [ ] f
-    outputs       [ ] g
-
-↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel
+╭──────────────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   egress        (•) a   ( ) b                                                │
+│   credentials   (•) c   ( ) d                                                │
+├── execution ──                                                               │
+│ ›               [ ] e                                                        │
+├── interface ──                                                               │
+│                 [ ] f                                                        │
+│   outputs       [ ] g                                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · ←→ move · space toggle · enter accept · esc cancel                  │
+╰──────────────────────────────────────────────────────────────────────────────╯

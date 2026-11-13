@@ -296,7 +296,7 @@ func TestTheOnEnterRegionFillsOnlyTheRowsLeftAndNeverMovesTheKeyLine(t *testing.
 	if got := keyRow(tall); got != bare {
 		t.Errorf("the region moved the key line from row %d to %d", bare, got)
 	}
-	h := bare + 5
+	h := bare + 6
 	short := strings.Join(renderAt(t, enterForm(6), 0, 100, h), "\n")
 	if !strings.Contains(short, "1  action a") || !strings.Contains(short, "… and ") || strings.Contains(short, "action f") {
 		t.Errorf("a region with too few rows must end on a count of what it left out:\n%s", short)

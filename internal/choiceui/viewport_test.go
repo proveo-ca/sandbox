@@ -12,12 +12,12 @@ func scrollForm() *Form {
 	}}
 }
 
-// A divider costs four lines and a plain row one, which is exactly why the
+// A divider costs two lines and a plain row one, which is exactly why the
 // viewport counts lines and not rows.
 func TestBodyLinesCountsDividerFurniture(t *testing.T) {
 	t.Parallel()
 	lines := scrollForm().bodyLines()
-	if got, want := len(lines), 5+3+3; got != want {
+	if got, want := len(lines), 5+1+1; got != want {
 		t.Fatalf("%d lines, want %d (five rows, two of them dividers)", got, want)
 	}
 	// It is also the ONE description of the body's height.
@@ -25,11 +25,11 @@ func TestBodyLinesCountsDividerFurniture(t *testing.T) {
 		t.Errorf("rowsHeight = %d but the enumeration is %d; the two have drifted", got, len(lines))
 	}
 	from, to := rowSpan(lines, 2)
-	if to-from != 4 {
-		t.Errorf("a divider row spans %d lines, want 4", to-from)
+	if to-from != 2 {
+		t.Errorf("a divider row spans %d lines, want 2", to-from)
 	}
-	if lines[from].kind != lineBlank || lines[from+1].kind != lineHeading || lines[to-1].kind != lineRow {
-		t.Errorf("a divider must read blank, heading, blank, row; got %v", lines[from:to])
+	if lines[from].kind != lineHeading || lines[to-1].kind != lineRow {
+		t.Errorf("a divider must read stub, row; got %v", lines[from:to])
 	}
 	if f, to := rowSpan(lines, 99); f != 0 || to != 0 {
 		t.Errorf("an absent row spans nothing, got (%d, %d)", f, to)
@@ -155,12 +155,16 @@ func TestGutterMarksTheEndsAndSizesItsThumb(t *testing.T) {
 func TestGutterHasAnASCIITier(t *testing.T) {
 	t.Parallel()
 	g := newGutter(2, 4, 40)
+	wall := glyphsFor(GlyphsASCII).wallR
 	for i := 0; i < 4; i++ {
 		s, _ := g.glyph(i, true)
 		for _, r := range s {
 			if r > 127 {
 				t.Errorf("the ASCII gutter drew %q (U+%04X)", r, r)
 			}
+		}
+		if s == wall {
+			t.Errorf("line %d: the ASCII gutter drew %q, the wall it rides", i, s)
 		}
 	}
 }
@@ -211,9 +215,9 @@ func TestTheThumbReachesBothEnds(t *testing.T) {
 func TestHiddenIsCountedInRowsNotLines(t *testing.T) {
 	t.Parallel()
 	f := scrollForm()
-	lines := f.bodyLines() // 11 lines, 5 rows
-	g := newGutter(0, 4, len(lines))
-	if got := g.hiddenRows(lines); got >= len(lines)-4 {
+	lines := f.bodyLines() // 7 lines, 5 rows
+	g := newGutter(0, 3, len(lines))
+	if got := g.hiddenRows(lines); got >= len(lines)-3 {
 		t.Errorf("hiddenRows = %d; that is a count of lines, not of rows", got)
 	}
 	// Two, not three: the window ends inside the `execution` group, and a row

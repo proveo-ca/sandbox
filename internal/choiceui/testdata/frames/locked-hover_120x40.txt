@@ -1,12 +1,10 @@
-t
-
-                  ◀ riskier                                                         safer ▶
-
-  › egress        (•) allow-all   ( ) balanced   ( ) deny-all
-    credentials   (•) broker   ( ) forward
-
-↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel
-
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ t                                                                                                                    │
+│ › egress        (•) allow-all   ( ) balanced   ( ) deny-all                                                          │
+│   credentials   (•) broker   ( ) forward                                                                             │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
   host-wide, not per-run — to change, run on the host: `sbx policy reset && sbx policy init
     allow-all|balanced|deny-all`
   › allow-all — every destination the host baseline permits

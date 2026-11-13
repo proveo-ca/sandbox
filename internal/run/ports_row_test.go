@@ -129,6 +129,42 @@ func TestInterfaceRowIsNamedDevicesUnderTheInterfaceHeading(t *testing.T) {
 	}
 }
 
+func TestTheFirstRowOpensTheReachSectionEvenWhenEgressIsDropped(t *testing.T) {
+	t.Parallel()
+	egress := pinCols(choiceui.Row{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Locked: true}, egressColumn)
+	unreadable := choiceui.Row{Label: "egress", Options: []string{"unreadable"}, Locked: true}
+	mcp := choiceui.Row{Label: mcpLabel, Options: []string{mcpOn, mcpOff}, Selected: 1}
+	model := choiceui.Row{Label: rowModel, Options: []string{modelAPIKeys, modelPlan}}
+	for _, c := range []struct {
+		name string
+		rows []choiceui.Row
+		lead string
+	}{
+		{"egress leads", applicableRows(egress, mcp), "egress"},
+		{"egress dropped", applicableRows(unreadable, mcp), mcpLabel},
+		{"egress and mcp dropped", append(applicableRows(unreadable, choiceui.Row{}), model), rowModel},
+	} {
+		leadReach(c.rows)
+		if c.rows[0].Label != c.lead || !c.rows[0].Divider || c.rows[0].Heading != sectionReach {
+			t.Errorf("%s: first row = {Label %q Divider %v Heading %q}, want {%s true %s}",
+				c.name, c.rows[0].Label, c.rows[0].Divider, c.rows[0].Heading, c.lead, sectionReach)
+		}
+		for _, r := range c.rows[1:] {
+			if r.Divider || r.Heading != "" {
+				t.Errorf("%s: only the first row opens the section, %q does too", c.name, r.Label)
+			}
+		}
+	}
+	if sectionReach != "reach" {
+		t.Errorf("the first section is named %q, want reach", sectionReach)
+	}
+	var none []choiceui.Row
+	leadReach(none)
+	if len(none) != 0 {
+		t.Errorf("a form with no row gains none: %v", none)
+	}
+}
+
 func TestRememberedPortsFollowThisRunsDiscovery(t *testing.T) {
 	t.Parallel()
 	saved := []agentsettings.Port{

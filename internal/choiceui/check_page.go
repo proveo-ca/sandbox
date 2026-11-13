@@ -310,5 +310,5 @@ func (cp *CheckPage) draw(s *screen) {
 	}
 	c.put(0, st, clip(verdict, w))
 	c.y += 2
-	paintHint(c, p, cp.hintParts(w, len(lines)-cp.top-window), w)
+	paintHint(c, p, cp.hintParts(w, len(lines)-cp.top-window), 0, w)
 }

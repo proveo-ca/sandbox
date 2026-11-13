@@ -2,6 +2,7 @@
 package choiceui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -136,10 +137,10 @@ func TestEnvHeaderNeverPrintsASecretValue(t *testing.T) {
 		t.Error("secret keys must still be listed by name")
 	}
 	if strings.Contains(all, "one-dark") || strings.Contains(all, "DARK_MODE=true") || strings.Contains(all, "CODE_THEME=") {
-		t.Errorf("theme settings must keep the name and drop the value:\n%s", all)
+		t.Errorf("theme settings must never show their value:\n%s", all)
 	}
-	if !strings.Contains(all, "CODE_THEME") || !strings.Contains(all, "DARK_MODE") {
-		t.Errorf("theme settings must still be named:\n%s", all)
+	if strings.Contains(all, "CODE_THEME") || strings.Contains(all, "DARK_MODE") {
+		t.Errorf("the header names no theme setting:\n%s", all)
 	}
 	if !strings.Contains(all, "ARCHITECT_MODEL=claude-opus-5") {
 		t.Error("a model setting must show its value")
@@ -283,68 +284,59 @@ func TestAvailableOptionPrintsNoEmptyOffLine(t *testing.T) {
 	}
 }
 
-// Both policy axes are ordered riskier → safer; the legend says so once rather
-// than leaving the operator to infer direction from option names.
-func TestSafetyAxisLegend(t *testing.T) {
+// No form draws a riskier → safer legend; the columns keep their order without one.
+func TestNoFormDrawsARiskLegend(t *testing.T) {
 	t.Parallel()
-	f := &Form{Rows: []Row{
-		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
-		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
-	}}
-	out := joined(t, f)
-	if !strings.Contains(out, "riskier") || !strings.Contains(out, "safer") {
-		t.Errorf("no safety axis rendered:\n%s", out)
-	}
-	// A prompt with only unordered checkboxes must not claim an axis.
-	only := &Form{Rows: []Row{{Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{false}}}}
-	if o := joined(t, only); strings.Contains(o, "riskier") {
-		t.Errorf("checkbox-only prompt should have no axis legend:\n%s", o)
-	}
-	// Init's radios are not a safety axis; the legend would rank a prefix.
-	init := &Form{NoAxis: true, Rows: []Row{
-		{Label: "install", Options: []string{"rootless tarball", "distro package"}, Selected: 0},
-	}}
-	if o := joined(t, init); strings.Contains(o, "riskier") || strings.Contains(o, "safer") {
-		t.Errorf("NoAxis must suppress the legend:\n%s", o)
+	for _, f := range []*Form{
+		{Rows: []Row{
+			{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
+			{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
+		}},
+		budgetForm(),
+		tallForm(),
+	} {
+		for _, size := range [][2]int{{120, 40}, {80, 24}} {
+			out := strings.Join(renderAt(t, f, 0, size[0], size[1]), "\n")
+			for _, legend := range []string{"riskier", "safer", "◀", "▶"} {
+				if strings.Contains(out, legend) {
+					t.Errorf("%dx%d draws %q:\n%s", size[0], size[1], legend, out)
+				}
+			}
+		}
 	}
 }
 
-// The safety axis governs the POLICY rows only. A centred divider closes it so the
-// legend does not appear to order the add-on toggles, which are unordered.
-func TestAddonsDividerClosesTheSafetyAxis(t *testing.T) {
+// A section opens on a stub off the left wall: the name at column 4, the stub 16
+// columns wide, longer when the name needs it, and never repeated on its row.
+func TestASectionOpensOnAStubThatGrowsForALongName(t *testing.T) {
 	t.Parallel()
-	f := &Form{Rows: []Row{
-		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
-		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
-		{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, Divider: true, On: make([]bool, 2)},
-	}}
-	lines := render(t, f)
-	out := strings.Join(lines, "\n")
-
-	var axisRow, divRow, addonRow = -1, -1, -1
-	for i, l := range lines {
-		switch {
-		case strings.Contains(l, "riskier"):
-			axisRow = i
-		case strings.Contains(l, "─ add-ons ─"):
-			divRow = i
-		case strings.Contains(l, "[ ] browser"):
-			addonRow = i
+	for _, c := range []struct {
+		name string
+		row  Row
+		stub string
+	}{
+		{"short heading", Row{Label: "OS", Heading: "reach", Options: []string{"host"}, Multi: true, Divider: true}, "├── reach ──────"},
+		{"nine runes", Row{Label: "OS", Heading: "execution", Options: []string{"host"}, Multi: true, Divider: true}, "├── execution ──"},
+		{"long heading", Row{Label: "OS", Heading: "network baseline", Options: []string{"host"}, Multi: true, Divider: true}, "├── network baseline ──"},
+		{"label as heading", Row{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, Divider: true}, "├── add-ons ────"},
+	} {
+		f := &Form{Rows: []Row{{Label: "egress", Options: []string{"open", "allowlist"}}, c.row}}
+		lines := render(t, f)
+		stub := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "├") && !strings.HasSuffix(l, "┤") })
+		if stub < 0 || stub+1 >= len(lines) || !strings.Contains(lines[stub+1], c.row.Options[0]) {
+			t.Fatalf("%s: no stub right above its row:\n%s", c.name, strings.Join(lines, "\n"))
 		}
-	}
-	if divRow < 0 {
-		t.Fatalf("no centred add-ons divider rendered:\n%s", out)
-	}
-	if axisRow >= divRow || divRow >= addonRow {
-		t.Errorf("order = axis:%d divider:%d addons:%d, want the divider between them", axisRow, divRow, addonRow)
-	}
-	// The divider names the section, so the row must not repeat the label.
-	if strings.Contains(lines[addonRow], "add-ons") {
-		t.Errorf("add-ons label repeated on its row: %q", lines[addonRow])
-	}
-	// It should be indented, not flush left like the policy labels.
-	if i := strings.Index(lines[divRow], "─"); i < 10 {
-		t.Errorf("divider starts at column %d — not centred", i)
+		row := stub + 1
+		got := []rune(lines[stub])
+		if want := []rune(c.stub); len(got) <= len(want) || string(got[:len(want)]) != c.stub || got[len(want)] != ' ' {
+			t.Errorf("%s: stub reads %q, want %q and a blank after it", c.name, lines[stub], c.stub)
+		}
+		if c.row.Heading == "" && strings.Contains(lines[row], c.row.Label) {
+			t.Errorf("%s: the stub names the section, yet the row repeats it: %q", c.name, lines[row])
+		}
+		if c.row.Heading != "" && !strings.Contains(lines[row], c.row.Label) {
+			t.Errorf("%s: a row under a declared heading keeps its own label: %q", c.name, lines[row])
+		}
 	}
 }
 
@@ -501,7 +493,7 @@ func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, "llms:     main=claude-opus-5 (anthropic)  small=claude-haiku-4-5 (anthropic)")
+	putHeader(put, pal, factX, "llms:     main=claude-opus-5 (anthropic)  small=claude-haiku-4-5 (anthropic)")
 
 	for _, want := range []string{"llms:", "main", "small"} {
 		var found bool
@@ -535,7 +527,7 @@ func TestPutHeaderAccentsGlyphsNotNames(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, "tooling:   typescript  {} yaml")
+	putHeader(put, pal, factX, "tooling:   typescript  {} yaml")
 
 	acc := strings.Join(accented, "|")
 	for _, want := range []string{"tooling:", "", "{}"} {
@@ -574,7 +566,7 @@ func TestPutHeaderAccentsBranchAndItalicisesAside(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, "git:      monorepo on rs-295-integration-discriminator (uncommitted changes)")
+	putHeader(put, pal, factX, "git:      monorepo on rs-295-integration-discriminator (uncommitted changes)")
 
 	acc, asi, bod := strings.Join(accented, "|"), strings.Join(aside, ""), strings.Join(body, "")
 	if !strings.Contains(acc, "rs-295-integration-discriminator") {
@@ -817,9 +809,50 @@ func TestStaticColumnsDoNotSlide(t *testing.T) {
 	if tui != allow {
 		t.Errorf("tui at %d, allow-all at %d, want the same column", tui, allow)
 	}
-	legend := line("safer")
-	if got := at(legend, "safer"); got != optOrigin+3*colPitch {
-		t.Errorf("safer legend at %d, want column 4 at %d", got, optOrigin+3*colPitch)
+}
+
+// A narrower card closes the grid up to the 16-column pitch, and the fourth column ends inside the wall.
+func TestAnEightyColumnCardDrawsTheGridAtPitchSixteen(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Cols: []int{0, 2, 3}, Locked: true},
+		{Label: "model", Options: []string{"Qwen 3.8", "API keys", "plan", "Glimmer"}, Cols: []int{0, 1, 2, 3}, Selected: 1},
+	}}
+	if got := pitch(cardWidth(80), f.lastCol()); got != minPitch {
+		t.Fatalf("pitch at 80 columns = %d, want %d", got, minPitch)
+	}
+	if got := pitch(cardWidth(120), f.lastCol()); got != colPitch {
+		t.Fatalf("pitch at 120 columns = %d, want %d", got, colPitch)
+	}
+	lines := renderAt(t, f, 1, 80, 24)
+	col := func(needle string) (string, int) {
+		t.Helper()
+		for _, l := range lines {
+			if i := strings.Index(l, needle); i >= 0 {
+				return l, utf8.RuneCountInString(l[:i])
+			}
+		}
+		t.Fatalf("no line holds %q:\n%s", needle, strings.Join(lines, "\n"))
+		return "", 0
+	}
+	for _, c := range []struct {
+		cell string
+		at   int
+	}{
+		{"( ) Qwen 3.8", optOrigin},
+		{"(•) API keys", optOrigin + minPitch},
+		{"( ) plan", optOrigin + 2*minPitch},
+		{"( ) Glimmer", optOrigin + 3*minPitch},
+		{"( ) balanced", optOrigin + 2*minPitch},
+		{"( ) deny-all", optOrigin + 3*minPitch},
+	} {
+		line, at := col(c.cell)
+		if at != c.at {
+			t.Errorf("%q at column %d, want %d", c.cell, at, c.at)
+		}
+		if end := at + utf8.RuneCountInString(c.cell); end > cardWidth(80)-2 {
+			t.Errorf("%q ends at column %d, past the card's inner edge %d: %q", c.cell, end, cardWidth(80)-2, line)
+		}
 	}
 }
 

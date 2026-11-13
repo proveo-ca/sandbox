@@ -19,7 +19,6 @@ const (
 type layout struct {
 	banner   bool
 	header   bool
-	axis     bool
 	strip    stripFit
 	helpSlot int // rows held for help, at its maximum over every row and option
 	pane     int
@@ -73,14 +72,11 @@ func (f *Form) layout(w, h int) layout {
 }
 
 func (f *Form) ladder(w, h int, strip bool) layout {
-	help := f.maxHelpLines(w - 4)
+	help := f.maxHelpLines(helpWidth(w))
 	lines := f.rowsHeight()
 	lay := layout{helpSlot: help}
 
-	need := 2 + lines + 2 + help
-	if help > 0 {
-		need++ // the blank the help block opens with
-	}
+	need := cardRows + lines + help
 	if f.Skip != "" {
 		need += skipRows
 	}
@@ -103,8 +99,7 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 		room = afford(cost)
 		return room
 	}
-	lay.axis = step(f.axisLabel(), 2)
-	lay.header = step(len(f.Header) > 0, len(f.Header)+1)
+	lay.header = step(len(f.Header) > 0, len(factRows(f.Header, edge(w)-factX)))
 
 	if strip && f.Topology != nil && step(true, digestRows) {
 		lay.strip = stripDigest
@@ -126,63 +121,12 @@ func (f *Form) ladder(w, h int, strip bool) layout {
 
 const paneGutter = 2
 
-func (r *Row) rightEdge() int {
-	x := optOrigin
-	if len(r.Cols) > 0 {
-		for j, opt := range r.Options {
-			col := j
-			if j < len(r.Cols) {
-				col = r.Cols[j]
-			}
-			extra := 0
-			if m := r.cellMore(j); m != nil && len(m.Options) > 0 {
-				extra = 2
-			}
-			if end := optOrigin + col*colPitch + textWidth("( ) "+r.columnText(opt)) + extra; end > x {
-				x = end
-			}
-		}
-		return x
-	}
-	opts := optOrigin
-	for _, opt := range r.Options {
-		opts += textWidth("( ) "+r.columnText(opt)) + 3
-	}
-	if opts > x {
-		x = opts
-	}
-	return x
-}
-
-func (f *Form) bodyRight() int {
-	most := 0
-	for i := range f.Rows {
-		if e := f.Rows[i].rightEdge(); e > most {
-			most = e
-		}
-		if f.Rows[i].Divider {
-			text := f.Rows[i].Label
-			if f.Rows[i].Heading != "" {
-				text = f.Rows[i].Heading
-			}
-			label := len(" " + text + " ")
-			pad := (72 - label) / 2
-			if pad < 0 {
-				pad = 0
-			}
-			if e := bodyIndent + pad + 12 + label; e > most {
-				most = e
-			}
-		}
-	}
-	return most
-}
-
+// paneOrigin is the pane's column beside the card, or -1 when the terminal cannot hold both.
 func (f *Form) paneOrigin(w int) int {
 	if f.Topology == nil {
 		return -1 // nothing to place, so nothing may narrow the rows
 	}
-	if f.bodyRight()+paneGutter+paneCols.width > w {
+	if cardWidth(w)+paneGutter+paneCols.width > w {
 		return -1
 	}
 	return w - paneCols.width

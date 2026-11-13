@@ -86,13 +86,18 @@ func TestHintNamesThePageTheWayBackAndTheScrollKeys(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		at, of     int
+		chip       string
 		want, none []string
 	}{
-		{2, 3, []string{"page 2/3", "esc back", "ctrl+c quit", "pgup/pgdn scroll", "enter accept"}, []string{"shift+tab", "esc cancel"}},
-		{1, 3, []string{"page 1/3", "esc cancel", "ctrl+c quit", "pgup/pgdn scroll", "enter accept"}, []string{"shift+tab", "esc back"}},
-		{0, 0, []string{"esc cancel", "pgup/pgdn scroll", "enter accept"}, []string{"page ", "shift+tab", "esc back", "ctrl+c quit"}},
+		{2, 3, " page 2/3 ", []string{"esc back", "ctrl+c quit", "pgup/pgdn scroll", "enter accept"}, []string{"page ", "shift+tab", "esc cancel"}},
+		{1, 3, " page 1/3 ", []string{"esc cancel", "ctrl+c quit", "pgup/pgdn scroll", "enter accept"}, []string{"page ", "shift+tab", "esc back"}},
+		{0, 0, "", []string{"esc cancel", "pgup/pgdn scroll", "enter accept"}, []string{"page ", "shift+tab", "esc back", "ctrl+c quit"}},
 	} {
-		hint := stepForm(tc.at, tc.of).hint(200, 0)
+		f := stepForm(tc.at, tc.of)
+		if got := f.headChip(200); got != tc.chip {
+			t.Errorf("step %d/%d: the head's chip is %q, want %q", tc.at, tc.of, got, tc.chip)
+		}
+		hint := f.hint(200, 0)
 		for _, w := range tc.want {
 			if !strings.Contains(hint, w) {
 				t.Errorf("step %d/%d: hint %q lacks %q", tc.at, tc.of, hint, w)
@@ -103,6 +108,11 @@ func TestHintNamesThePageTheWayBackAndTheScrollKeys(t *testing.T) {
 				t.Errorf("step %d/%d: hint %q carries %q", tc.at, tc.of, hint, n)
 			}
 		}
+	}
+	long := stepForm(2, 3)
+	long.Title = strings.Repeat("t", 100)
+	if long.headChip(80) != "" || !strings.Contains(long.hint(80, 0), "page 2/3") {
+		t.Errorf("a title that leaves the chip no room keeps the page on the key line: chip %q, hint %q", long.headChip(80), long.hint(80, 0))
 	}
 }
 
@@ -136,10 +146,34 @@ func TestEnterAcceptSurvivesEveryWidthThatCanHoldIt(t *testing.T) {
 	}
 }
 
-func TestTheDrawnFooterCarriesThePage(t *testing.T) {
+// The head's chip carries the page; the key line below it does not repeat it.
+func TestTheDrawnHeadCarriesThePage(t *testing.T) {
 	t.Parallel()
-	if out := joined(t, stepForm(2, 3)); !strings.Contains(out, "page 2/3") || !strings.Contains(out, "enter accept") {
-		t.Errorf("the footer does not name the page:\n%s", out)
+	f := stepForm(2, 3)
+	s := simScreen(t, 120, 40)
+	f.draw(s, 0, 0)
+	lines := screenLines(s)
+	head, key := -1, -1
+	for y, l := range lines {
+		switch {
+		case strings.Contains(l, "page 2/3") && head < 0:
+			head = y
+		case strings.Contains(l, "enter accept"):
+			key = y
+		}
+	}
+	if head < 0 || key < 0 || !strings.Contains(lines[head], "step") {
+		t.Fatalf("the title row does not carry the page, or no key line (head %d, key %d):\n%s", head, key, strings.Join(lines, "\n"))
+	}
+	if strings.Contains(lines[key], "page") {
+		t.Errorf("the key line repeats the page the chip shows: %q", lines[key])
+	}
+	at := textWidth(lines[head][:strings.Index(lines[head], " page 2/3 ")])
+	if _, _, st, _ := s.GetContent(at, head); !sameStyle(st, styles().chip) {
+		t.Errorf("the chip is not drawn in the chip style: %q", st.Render("x"))
+	}
+	if end := at + textWidth(" page 2/3 "); end != cardWidth(120)-2 {
+		t.Errorf("the chip ends at column %d, want %d: one blank inside the wall", end, cardWidth(120)-2)
 	}
 }
 
@@ -147,6 +181,7 @@ func TestTheDrawnFooterCarriesThePage(t *testing.T) {
 func TestTheKeyLinePaintsKeysBoldAndWordsGrey(t *testing.T) {
 	t.Parallel()
 	f := stepForm(2, 3)
+	f.Title = strings.Repeat("t", 110)
 	s := simScreen(t, 120, 30)
 	f.draw(s, 0, 0)
 	lines := screenLines(s)
@@ -159,8 +194,9 @@ func TestTheKeyLinePaintsKeysBoldAndWordsGrey(t *testing.T) {
 	if row < 0 {
 		t.Fatalf("no key line on the frame:\n%s", strings.Join(lines, "\n"))
 	}
-	if got, want := lines[row], f.hint(120, 0); got != want {
-		t.Errorf("the painted key line %q is not its plain projection %q", got, want)
+	inner := strings.TrimRight(string([]rune(lines[row])[inset(120):cardWidth(120)-1]), " ")
+	if want := f.hint(120, 0); inner != want {
+		t.Errorf("the painted key line %q is not its plain projection %q", inner, want)
 	}
 	at := func(word string) int { return textWidth(lines[row][:strings.Index(lines[row], word)]) }
 	for _, key := range []string{"enter", "esc", "ctrl+c", "↑↓"} {

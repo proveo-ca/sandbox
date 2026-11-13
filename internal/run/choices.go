@@ -41,9 +41,8 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
 	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
 		form.Rows = append(form.Rows, r)
-	} else {
-		form.NoAxis = true
 	}
+	leadReach(form.Rows)
 	found := p.discovered
 	var apps []devports.AndroidApp
 	if slices.Contains(interfaceOptions(man), addonAndroid) {
@@ -538,6 +537,16 @@ var addonRows = []string{rowExecution, rowInterface}
 
 // addonHeading names a divider whose group is not named for its row.
 var addonHeading = map[string]string{rowExecution: "execution", rowInterface: "interface"}
+
+// sectionReach names the run form's first section.
+const sectionReach = "reach"
+
+// leadReach opens the reach section on whichever row leads the form.
+func leadReach(rows []choiceui.Row) {
+	if len(rows) > 0 {
+		rows[0].Divider, rows[0].Heading = true, sectionReach
+	}
+}
 
 func scanRoot(input, repoRoot string) string {
 	if input != "" {

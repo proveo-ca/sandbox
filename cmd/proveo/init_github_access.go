@@ -44,7 +44,7 @@ func githubAccessForm(h githubaccess.Host, current string) *choiceui.Form {
 	if why := h.SSHProblem(); why != "" {
 		header = append(header, "SSH status       "+why)
 	}
-	return &choiceui.Form{Title: "GitHub access — API login and sandbox Git", NoAxis: true,
+	return &choiceui.Form{Title: "GitHub access — API login and sandbox Git",
 		Glyphs: posture.GlyphModeFrom(os.Getenv), Header: header,
 		Rows: []choiceui.Row{{Label: "sandbox Git", Options: []string{githubSSH, githubHTTPS, "later"}, Selected: selected, CellRunes: 20,
 			Help: map[string]string{
@@ -181,7 +181,7 @@ func githubSSHRepair(h githubaccess.Host) (string, error) {
 	if h.ForwardingKnown && !h.Forwarding {
 		opts = append([]string{"enable + restart"}, opts...)
 	}
-	f := &choiceui.Form{Title: "GitHub SSH needs attention", NoAxis: true,
+	f := &choiceui.Form{Title: "GitHub SSH needs attention", Glyphs: posture.GlyphModeFrom(os.Getenv),
 		Header: []string{h.SSHProblem(), "Load a host key with ssh-add; register its public key with GitHub.",
 			"Configure a stable agent with sbx settings set ssh.agentSocketPath <socket>."},
 		Rows: []choiceui.Row{{Label: "repair", Options: opts, CellRunes: 20, Help: map[string]string{

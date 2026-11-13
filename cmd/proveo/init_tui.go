@@ -104,7 +104,6 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		Title:  fmt.Sprintf("init — ready %s for sbx %s", describeHost(host), targetVersion(installed, o.force)),
 		Header: initHeader(plan, installed, checks),
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
-		NoAxis: true,
 		Step:   at,
 		Rows:   initRows(plan, installed, def, o),
 	}

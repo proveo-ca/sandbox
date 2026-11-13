@@ -421,7 +421,6 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string, r
 			"Typing replaces what is stored. An empty field changes nothing. A sign-in row runs sbx's own sign-in after enter.",
 		},
 		Glyphs:   posture.GlyphModeFrom(os.Getenv),
-		NoAxis:   true,
 		Step:     at,
 		Skip:     "Skip",
 		StartRow: firstField(rows),

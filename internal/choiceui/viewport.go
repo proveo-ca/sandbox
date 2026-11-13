@@ -5,7 +5,9 @@ const (
 	bodyIndent   = 2
 	labelWidth   = 16                      // marker plus the row name; "› credentials" is 13
 	optOrigin    = bodyIndent + labelWidth // column 0 of the four-column grid
-	colPitch     = 22                      // one column: glyph, a 10-rune cell, a gap
+	colPitch     = 22                      // the widest column: glyph, a 10-rune cell, a gap
+	minPitch     = 16
+	lastCell     = 14 // the last column's cell: glyph and a 10-rune label
 	columnRunes  = 10
 	minBodyLines = 3
 	scrollMargin = 1
@@ -15,8 +17,7 @@ const (
 type lineKind int
 
 const (
-	lineBlank   lineKind = iota // a divider's leading and trailing blank
-	lineHeading                 // a divider's centred heading
+	lineHeading lineKind = iota // a divider's stub
 	lineRow                     // the row itself
 )
 
@@ -26,15 +27,46 @@ type bodyLine struct {
 }
 
 func (f *Form) bodyLines() []bodyLine {
-	lines := make([]bodyLine, 0, len(f.Rows)+4)
+	lines := make([]bodyLine, 0, 2*len(f.Rows))
 	for i, r := range f.Rows {
 		if r.Divider {
-			lines = append(lines,
-				bodyLine{i, lineBlank}, bodyLine{i, lineHeading}, bodyLine{i, lineBlank})
+			lines = append(lines, bodyLine{i, lineHeading})
 		}
 		lines = append(lines, bodyLine{i, lineRow})
 	}
 	return lines
+}
+
+// groups is each row's section: the index of the nearest divider at or above it, -1 before any.
+func (f *Form) groups() []int {
+	out := make([]int, len(f.Rows))
+	at := -1
+	for i, r := range f.Rows {
+		if r.Divider {
+			at = i
+		}
+		out[i] = at
+	}
+	return out
+}
+
+// lastCol is the largest grid column any row pins a cell to.
+func (f *Form) lastCol() int {
+	last := 0
+	for _, r := range f.Rows {
+		for _, c := range r.Cols {
+			last = max(last, c)
+		}
+	}
+	return last
+}
+
+// pitch is the grid's column pitch in a cw-column card whose last pinned column is last.
+func pitch(cw, last int) int {
+	if last < 1 {
+		return colPitch
+	}
+	return clampInt((cw-optOrigin-lastCell)/last, minPitch, colPitch)
 }
 
 func rowSpan(lines []bodyLine, row int) (from, to int) {
@@ -99,7 +131,7 @@ func (g gutter) glyph(i int, ascii bool) (string, bool) {
 	}
 	up, down, bar := "▲", "▼", "░"
 	if ascii {
-		up, down, bar = "^", "v", "|"
+		up, down, bar = "^", "v", "#"
 	}
 	switch {
 	case i == 0 && g.off > 0:

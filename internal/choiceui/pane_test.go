@@ -138,7 +138,7 @@ func lastPaintedCol(s *screen) []int {
 
 const paneHeight = 18
 
-func paneWidth(f *Form) int  { return f.bodyRight() + paneGutter + paneCols.width }
+func paneWidth(*Form) int    { return cardMax + paneGutter + paneCols.width }
 func blockWidth(f *Form) int { return paneWidth(f) - 1 }
 
 func TestTheRowsNeverReachIntoThePane(t *testing.T) {
@@ -148,11 +148,11 @@ func TestTheRowsNeverReachIntoThePane(t *testing.T) {
 	f.Rows[0].Locked = true
 	f.Rows[0].Reason = "change it with `sbx policy reset && sbx policy init --deny-all`"
 	w := paneWidth(f)
-	lay := f.layout(w, 30)
+	lay := f.layout(w, paneHeight)
 	if lay.strip != stripPane {
 		t.Fatalf("the fixture must draw the pane at width %d, or this proves nothing", w)
 	}
-	rows := renderAt(t, f, 0, w, 30)
+	rows := renderAt(t, f, 0, w, paneHeight)
 	for _, y := range gutterBreaches(rows, lay.pane) {
 		t.Errorf("row %d reached into the pane's gutter:\n%q", y, rows[y])
 	}
@@ -241,10 +241,10 @@ func TestThePaneIsBesideTheBodyAndOverwritesNothing(t *testing.T) {
 	t.Parallel()
 	f := tallForm()
 	w := paneWidth(f)
-	rows := renderAt(t, f, 1, w, 30)
+	rows := renderAt(t, f, 1, w, paneHeight)
 	joined := strings.Join(rows, "\n")
 
-	if f.layout(w, 30).strip != stripPane {
+	if f.layout(w, paneHeight).strip != stripPane {
 		t.Fatalf("the fixture must draw the pane at width %d, or this proves nothing", w)
 	}
 	// Every cell of every row survives. A cell is the option, capped at 10 runes.
@@ -284,20 +284,22 @@ func TestALongReasonNoLongerWidensTheRow(t *testing.T) {
 	f.Rows[0].Reason = "change it with `sbx policy reset && sbx policy init --deny-all`"
 
 	bare := tallForm()
-	if got, want := paneWidth(f), paneWidth(bare); got != want {
-		t.Errorf("the reason still influences the pane breakpoint: %d vs %d", got, want)
+	for w := 160; w <= 260; w++ {
+		if got, want := f.paneOrigin(w), bare.paneOrigin(w); got != want {
+			t.Errorf("w=%d: the reason still influences the pane breakpoint: %d vs %d", w, got, want)
+		}
 	}
 	// And it is nowhere on the row, at any width the pane appears at.
 	w := paneWidth(f)
-	if f.layout(w, 30).strip != stripPane {
+	if f.layout(w, paneHeight).strip != stripPane {
 		t.Fatalf("the fixture must draw the pane at %d", w)
 	}
-	onOtherRow := strings.Join(renderAt(t, f, 1, w, 30), "\n")
+	onOtherRow := strings.Join(renderAt(t, f, 1, w, paneHeight), "\n")
 	if strings.Contains(onOtherRow, "sbx policy reset") {
 		t.Errorf("the reason must not be drawn inline:\n%s", onOtherRow)
 	}
 	// Hovering it is what shows it, in full.
-	onRow := strings.Join(renderAt(t, f, 0, w, 30), "\n")
+	onRow := strings.Join(renderAt(t, f, 0, w, paneHeight), "\n")
 	if !strings.Contains(onRow, "sbx policy reset") {
 		t.Errorf("hovering must reveal the reason:\n%s", onRow)
 	}
@@ -320,7 +322,7 @@ func TestNoTopologyMeansNoPaneAtAnyWidth(t *testing.T) {
 }
 
 // The budget must cover everything the body PAINTS, not just its options:
-// a centred divider heading and a row label are both outside the limit.
+// a section's stub and a row label are both outside the option cells.
 func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
@@ -329,7 +331,7 @@ func TestTheBudgetCoversLabelsAndHeadings(t *testing.T) {
 	}{
 		{"a label longer than the option column", Row{
 			Label: "an extraordinarily long row label that outruns every option column here", Options: []string{"a"}}},
-		{"a heading wider than the 72 it centres on", Row{
+		{"a stub far longer than sixteen columns", Row{
 			Label:   "an extraordinarily long divider heading that runs past seventy-two columns",
 			Options: []string{"a"}, Multi: true, Divider: true}},
 	} {
