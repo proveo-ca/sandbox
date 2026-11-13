@@ -19,6 +19,8 @@ import (
 )
 
 // initStubSbx answers what `proveo init` asks of sbx, logs every call, and keeps a secret listing.
+// Docker reads signed in unless STUB_SBX_SIGNED_OUT is set and no login ran; STUB_SBX_ENV_ONLY is
+// the env keys sbx's store lacks.
 const initStubSbx = `#!/bin/sh
 printf '%s\n' "$*" >> "$STUB_SBX_LOG"
 case "$1 $2" in
@@ -26,10 +28,19 @@ case "$1 $2" in
   "version "*|"version") printf '%s\n' 'sbx version: v0.50.0 deadbeef' ;;
   "diagnose --json")
     if [ -n "$STUB_SBX_DIAGNOSE" ]; then printf '%s\n' "$STUB_SBX_DIAGNOSE"; else
-    printf '%s\n' '{"checks":[{"name":"virtualisation","status":"pass","message":"supported","detail":"stub"},{"name":"Binary version","status":"warn","message":"update available: v9.9.9","detail":"https://example.invalid/sbx/v9.9.9","hint":"Download the latest release from the link above"},{"name":"SSH client config","status":"fail","message":"an unmanaged sandbox Host stanza can shadow the managed configuration","detail":"/home/op/.ssh/config:5: Host","hint":"Remove or rename the reported Host *.sbx stanza, then run sbx setup ssh"}]}'; fi ;;
-  "secret ls") cat "$STUB_SBX_SECRETS" 2>/dev/null ;;
+    auth='{"name":"Authentication","status":"pass","message":"authenticated","detail":"","hint":""}'
+    if [ -n "$STUB_SBX_SIGNED_OUT" ] && [ ! -e "$STUB_SBX_LOG.signed-in" ]; then
+      auth='{"name":"Authentication","status":"fail","message":"not signed in","detail":"","hint":"Run: sbx login"}'
+    fi
+    printf '%s\n' '{"checks":[{"name":"virtualisation","status":"pass","message":"supported","detail":"stub"},{"name":"Binary version","status":"warn","message":"update available: v9.9.9","detail":"https://example.invalid/sbx/v9.9.9","hint":"Download the latest release from the link above"},{"name":"SSH client config","status":"fail","message":"an unmanaged sandbox Host stanza can shadow the managed configuration","detail":"/home/op/.ssh/config:5: Host","hint":"Remove or rename the reported Host *.sbx stanza, then run sbx setup ssh"},'"$auth"']}'; fi ;;
+  "login ") touch "$STUB_SBX_LOG.signed-in" ;;
+  "secret ls")
+    if [ "$3" = --json ]; then
+      printf '{"secrets":[],"custom_secrets":[],"shadowed_services":[],"env_only_count":%s}\n' "${STUB_SBX_ENV_ONLY:-0}"
+    else cat "$STUB_SBX_SECRETS" 2>/dev/null; fi ;;
   "settings get")
     case "$3" in
+      --json) printf '{"value":%s,"source":"default"}\n' "${STUB_SBX_FORWARDING:-true}" ;;
       ssh.agentForwardingEnabled) echo true ;;
       ssh.agentSocketPath) echo /tmp/proveo-test-agent.sock ;;
     esac ;;
@@ -248,10 +259,10 @@ func (r *initRun) waitExit(t *testing.T) string {
 
 // Three numbered screens; a step back keeps typed keys and never re-runs what setup already ran.
 func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
-	r := startInit(t, 140, "--skip-gh", "--skip-git")
+	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SIGNED_OUT=1"}, "--skip-gh", "--skip-git")
 	screen := r.page(t, 1)
-	if !regexp.MustCompile(`sign in\s+\(•\) now`).MatchString(screen) {
-		t.Fatalf("setup does not open with sign in on now:\n%s", screen)
+	if !regexp.MustCompile(`Docker login\s+\(•\) now`).MatchString(screen) {
+		t.Fatalf("setup does not open with Docker login on now:\n%s", screen)
 	}
 	if !strings.Contains(screen, initBackHint) {
 		t.Errorf("setup does not offer the step back to the checks page:\n%s", screen)
@@ -270,7 +281,7 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	r.keys(t, "s", "k", "-", "t", "y", "p", "e", "d")
 	r.back(t)
 	screen = r.page(t, 1)
-	for _, re := range []string{`sign in\s+\( \) now\s+\(•\) later`, `sbx setup\s+\( \) now\s+\(•\) later`, `\(•\) keep what`} {
+	for _, re := range []string{`Docker login\s+\(•\) signed in`, `sbx setup\s+\(•\) after init\s+\( \) later`, `\(•\) keep what`} {
 		if !regexp.MustCompile(re).MatchString(screen) {
 			t.Errorf("the revisit does not open on what is left (%s):\n%s", re, screen)
 		}
@@ -281,8 +292,8 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 		t.Errorf("the typed key did not survive the step back:\n%s", screen)
 	}
 	calls := r.calls(t)
-	if count(calls, "login") != 1 || count(calls, "setup") != 1 {
-		t.Errorf("sbx login ran %d times and sbx setup %d; each must run once:\n%s",
+	if count(calls, "login") != 1 || count(calls, "setup") != 0 {
+		t.Errorf("sbx login ran %d times and sbx setup %d; login once, setup only after the result:\n%s",
 			count(calls, "login"), count(calls, "setup"), strings.Join(calls, "\n"))
 	}
 
@@ -305,6 +316,9 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 		if strings.HasPrefix(c, "secret set") {
 			t.Errorf("a cleared key was still provisioned: %q", c)
 		}
+	}
+	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 0 {
+		t.Errorf("the walk re-ran sbx login, or opened sbx setup with nothing to import:\n%s", strings.Join(calls, "\n"))
 	}
 }
 
@@ -426,17 +440,20 @@ func TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton(t *testing.T) {
 	}
 }
 
-// The setup page names what Enter runs; the apply then starts each program under its own line, with no place in it.
+// The setup page names what Enter runs: the login only while sbx says Docker is signed out, never
+// sbx setup, which waits for the result; a line that stays on screen carries no place.
 func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
-	r := startInit(t, 140, "--skip-gh", "--skip-git")
+	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SIGNED_OUT=1"}, "--skip-gh", "--skip-git")
 	screen := r.page(t, 1)
-	for _, want := range []string{"on enter", "sign in to Docker (sbx login)", "run sbx's first-run wizard (sbx setup)",
-		"verify sbx (sbx diagnose)"} {
+	for _, want := range []string{"on enter", "sign in to Docker if signed out (sbx login)", "verify sbx (sbx diagnose)"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the setup page does not name %q among what Enter runs:\n%s", want, screen)
 		}
 	}
-	if !regexp.MustCompile(`enter accept · \d+ steps`).MatchString(screen) {
+	if strings.Contains(screen, "(sbx setup)") {
+		t.Errorf("sbx setup is listed among what Enter runs; it waits for the result:\n%s", screen)
+	}
+	if !regexp.MustCompile(`enter accept · \d+ steps?`).MatchString(screen) {
 		t.Errorf("the count of steps must follow \"enter accept\":\n%s", screen)
 	}
 	r.keys(t, "Enter")
@@ -445,36 +462,151 @@ func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
 	r.page(t, 3)
 	r.finish(t)
 	all := r.waitExit(t)
-	for _, want := range []string{"sbx login — signing in to Docker", "sbx setup — running the first-run wizard"} {
-		if !regexp.MustCompile(`(?m)^. ` + regexp.QuoteMeta(want) + `$`).MatchString(all) {
-			t.Errorf("the apply never announced %q:\n%s", want, all)
-		}
-	}
 	if regexp.MustCompile(`step \d+/\d+`).MatchString(all) {
 		t.Errorf("a line that stays on screen carries its place; only live frames keep it:\n%s", all)
 	}
 	if strings.Contains(all, "· verify sbx (sbx diagnose)") {
 		t.Errorf("a step that kept the terminal left its live line behind:\n%s", all)
 	}
-	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 1 {
-		t.Errorf("each listed action must run once; sbx saw:\n%s", strings.Join(calls, "\n"))
+	for _, gone := range []string{"sbx login — signing in to Docker", "sbx setup — running the first-run wizard"} {
+		if strings.Contains(all, gone) {
+			t.Errorf("the stream still announces %q:\n%s", gone, all)
+		}
+	}
+	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 0 {
+		t.Errorf("want sbx login once and no sbx setup with nothing to import; sbx saw:\n%s", strings.Join(calls, "\n"))
 	}
 }
 
-// What the operator types while sbx's own wizard runs reaches the wizard, and nothing of it reaches proveo.
-func TestInitHandsTheTerminalWhollyToSbxSetup(t *testing.T) {
-	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SETUP_READS=1"}, "--skip-gh", "--skip-git")
+// THE SBX STEPS RUN ONLY WITH WORK: a signed-in host never hands the terminal to `sbx login`; the
+// row says so.
+func TestInitSkipsSbxLoginOnASignedInHost(t *testing.T) {
+	r := startInit(t, 140, "--skip-gh", "--skip-git")
+	screen := r.page(t, 1)
+	if !regexp.MustCompile(`Docker login\s+\(•\) signed in`).MatchString(screen) || strings.Contains(screen, "(sbx login)") {
+		t.Errorf("a signed-in host offers a login:\n%s", screen)
+	}
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	all := r.waitExit(t)
+	if count(r.calls(t), "login") != 0 || strings.Contains(all, "── sbx login") {
+		t.Errorf("sbx login ran on a signed-in host; sbx saw:\n%s\n%s", strings.Join(r.calls(t), "\n"), all)
+	}
+	if results := all[strings.LastIndex(all, " results "):]; regexp.MustCompile(`(?m)^\s+Docker login$|later: Docker login`).MatchString(results) {
+		t.Errorf("a moot login is listed as later:\n%s", results)
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: a signed-out host hands `sbx login` the terminal under its
+// frame, after a blank row, and a second diagnose decides the outcome.
+func TestInitFramesSbxLoginOnASignedOutHost(t *testing.T) {
+	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SIGNED_OUT=1"}, "--skip-gh", "--skip-git")
 	r.page(t, 1)
 	r.keys(t, "Enter")
-	r.wait(t, "setup asks:")
-	r.keys(t, "typed-for-setup", "Enter")
-	screen, err := r.sess.WaitFor(initPageLabel(2), 15*time.Second)
-	if calls := r.calls(t); err != nil || !slices.Contains(calls, "setup read: typed-for-setup") {
-		t.Fatalf("sbx setup did not get the line typed for it (%v); sbx saw:\n%s\nscreen:\n%s", err, strings.Join(calls, "\n"), screen)
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	all := r.waitExit(t)
+	if !regexp.MustCompile(`(?m)^\n── sbx login ── Docker not signed in · sbx's screen · init resumes when it exits ──+$`).MatchString(all) {
+		t.Errorf("sbx login ran without its frame after a blank row:\n%s", all)
+	}
+	if !regexp.MustCompile(`(?m)^✓ Docker login — signed in$`).MatchString(all) {
+		t.Errorf("the login's outcome is missing:\n%s", all)
+	}
+	if calls := r.calls(t); count(calls, "login") != 1 {
+		t.Errorf("sbx login ran %d times, want once:\n%s", count(calls, "login"), strings.Join(calls, "\n"))
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: with nothing for sbx setup to import, it never opens, and the
+// result says why.
+func TestInitSkipsSbxSetupWithNothingToImport(t *testing.T) {
+	r := startInit(t, 140, "--skip-gh", "--skip-git")
+	r.page(t, 1)
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	all := r.waitExit(t)
+	calls := r.calls(t)
+	if count(calls, "setup") != 0 || !slices.Contains(calls, "secret ls --json") || strings.Contains(all, "── sbx setup") {
+		t.Errorf("want the probe and no sbx setup; sbx saw:\n%s\n%s", strings.Join(calls, "\n"), all)
+	}
+	if !regexp.MustCompile(`(?m)^\s+sbx setup — nothing to import$`).MatchString(all) {
+		t.Errorf("the result does not say sbx setup had nothing to import:\n%s", all)
+	}
+	if last := lastProveoLine(all); last != "✓ host — ready to run" {
+		t.Errorf("init must end on its verdict, not %q:\n%s", last, all)
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: with an env key sbx's store lacks, sbx setup opens after the
+// result's items, under its frame, and the verdict stays last.
+func TestInitOpensSbxSetupAfterTheResult(t *testing.T) {
+	r := startInitWith(t, 140, nil, []string{"STUB_SBX_ENV_ONLY=1"}, "--skip-gh", "--skip-git")
+	r.page(t, 1)
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	if calls := r.calls(t); count(calls, "setup") != 0 {
+		t.Fatalf("sbx setup ran before the result:\n%s", strings.Join(calls, "\n"))
 	}
 	r.skip(t)
 	r.page(t, 3)
 	r.finish(t)
+	all := r.waitExit(t)
+	frame := regexp.MustCompile(`(?m)^── sbx setup ── 1 env key sbx's store lacks · sbx's screen · init ends when it exits ──+$`).FindStringIndex(all)
+	results, needs := strings.LastIndex(all, " results "), strings.LastIndex(all, "SSH client config — ")
+	finished := regexp.MustCompile(`(?m)^✓ sbx setup — finished$`).FindStringIndex(all)
+	if frame == nil || finished == nil || results < 0 || needs < results || frame[0] < needs || finished[0] < frame[1] {
+		t.Errorf("want the result's items, then the frame, then the outcome:\n%s", all)
+	}
+	if last := lastProveoLine(all); last != "✓ host — ready to run" {
+		t.Errorf("the verdict must stay last, not %q:\n%s", last, all)
+	}
+	if calls := r.calls(t); count(calls, "setup") != 1 {
+		t.Errorf("sbx setup ran %d times, want once:\n%s", count(calls, "setup"), strings.Join(calls, "\n"))
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: with an SSH agent on the host and sbx's forwarding off, sbx
+// setup opens after the result, and its frame names the forwarding.
+func TestInitOpensSbxSetupWhenForwardingIsOff(t *testing.T) {
+	r := startInitWith(t, 140, nil, []string{"SSH_AUTH_SOCK=/tmp/proveo-test-agent.sock", "STUB_SBX_FORWARDING=false"}, "--skip-gh", "--skip-git")
+	r.page(t, 1)
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	all := r.waitExit(t)
+	if !regexp.MustCompile(`(?m)^── sbx setup ── SSH agent forwarding off · sbx's screen · init ends when it exits ──+$`).MatchString(all) {
+		t.Errorf("sbx setup ran without a frame that names the forwarding:\n%s", all)
+	}
+	if calls := r.calls(t); count(calls, "setup") != 1 || !slices.Contains(calls, "settings get --json ssh.agentForwardingEnabled") {
+		t.Errorf("want the forwarding probe and sbx setup once; sbx saw:\n%s", strings.Join(calls, "\n"))
+	}
+}
+
+// What the operator types while sbx's own setup runs, after the result, reaches it, and nothing of it reaches proveo.
+func TestInitHandsTheTerminalWhollyToSbxSetup(t *testing.T) {
+	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SETUP_READS=1", "STUB_SBX_ENV_ONLY=1"}, "--skip-gh", "--skip-git")
+	r.page(t, 1)
+	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
+	r.wait(t, "setup asks:")
+	r.keys(t, "typed-for-setup", "Enter")
+	screen, err := r.sess.WaitFor("INIT_EXIT=", 15*time.Second)
+	if calls := r.calls(t); err != nil || !slices.Contains(calls, "setup read: typed-for-setup") {
+		t.Fatalf("sbx setup did not get the line typed for it (%v); sbx saw:\n%s\nscreen:\n%s", err, strings.Join(calls, "\n"), screen)
+	}
 	r.waitExit(t)
 }
 
@@ -511,8 +643,8 @@ func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 			t.Errorf("the result lacks %s:\n%s", re, results)
 		}
 	}
-	if regexp.MustCompile(`(?m)^\s+(sign in|sbx setup)$`).MatchString(results) {
-		t.Errorf("an action that ran is listed as left for later:\n%s", results)
+	if regexp.MustCompile(`(?m)^\s+(Docker login|sbx setup)$|later: (Docker login|sbx setup)`).MatchString(results) {
+		t.Errorf("a step with nothing to do is listed as left for later:\n%s", results)
 	}
 	if last := lastProveoLine(all); last != "✓ host — ready to run" {
 		t.Errorf("init must end on its verdict, not %q:\n%s", last, all)
@@ -525,8 +657,8 @@ func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	if n := strings.Count(all, " results "); n != 1 {
 		t.Errorf("results drawn %d times, want once:\n%s", n, all)
 	}
-	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "setup") != 1 {
-		t.Errorf("stepping back to the checks page re-ran setup; sbx saw:\n%s", strings.Join(calls, "\n"))
+	if calls := r.calls(t); count(calls, "login") != 0 || count(calls, "setup") != 0 {
+		t.Errorf("a signed-in host with nothing to import ran sbx login or sbx setup; sbx saw:\n%s", strings.Join(calls, "\n"))
 	}
 }
 
@@ -635,47 +767,17 @@ func TestInitYesNeverAsksForAGitIdentity(t *testing.T) {
 // each subject's heading draws once, in order, above lines of its own, and verify leaves no line
 // under git, the heading before it.
 func TestInitYesInPlainOutputCarriesNoStepPlaces(t *testing.T) {
-	host := sbx.DetectHost()
-	if _, err := sbx.PlanFor(host, "/tmp/unused", "/tmp/unused"); err != nil {
-		t.Skipf("no Docker Sandboxes build for %s/%s: %v", host.OS, host.Arch, err)
-	}
-	proveoBin := buildProveo(t)
-	bin, state := t.TempDir(), t.TempDir()
-	for name, body := range map[string]string{
-		"sbx":     initStubSbx,
-		"gh":      "#!/bin/sh\ncase \"$1 $2\" in\n \"config get\") echo https ;;\n *) exit 1 ;;\nesac\n",
-		"ssh-add": "#!/bin/sh\nexit 1\n",
-	} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(state, "secrets"), []byte("(global) service openai (oauth configured)\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(proveoBin, "init", "--yes", "--skip-prompt")
-	cmd.Stdin = strings.NewReader("")
-	cmd.Env = []string{"HOME=" + t.TempDir(), "TMPDIR=" + t.TempDir(), "TERM=xterm-256color",
-		"PATH=" + bin + ":/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-		"STUB_SBX_LOG=" + filepath.Join(state, "sbx.log"), "STUB_SBX_SECRETS=" + filepath.Join(state, "secrets")}
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("proveo init --yes: %v\n%s", err, stderr.String())
-	}
-	got := stderr.String()
+	got, calls := initYesPlain(t)
 	if strings.ContainsAny(got, "\x1b\r") || regexp.MustCompile(`step \d+/\d+`).MatchString(got) {
 		t.Errorf("plain output carries a step place or terminal control:\n%q", got)
 	}
-	for _, re := range []string{`(?m)^sbx login — signing in to Docker$`, `(?m)^ok: host — ready to run$`} {
+	for _, re := range []string{`(?m)^  sbx setup — nothing to import$`, `(?m)^ok: host — ready to run$`} {
 		if !regexp.MustCompile(re).MatchString(got) {
 			t.Errorf("plain output lacks %s:\n%s", re, got)
 		}
 	}
-	log, _ := os.ReadFile(filepath.Join(state, "sbx.log"))
-	if calls := strings.Split(strings.TrimSpace(string(log)), "\n"); count(calls, "setup") != 0 || count(calls, "login") != 1 ||
-		strings.Contains(got, "sbx setup — running the first-run wizard") {
-		t.Errorf("--yes must run sbx login once and leave sbx's wizard for a terminal:\n%s\n--- sbx calls ---\n%s", got, log)
+	if count(calls, "setup") != 0 || count(calls, "login") != 0 || strings.Contains(got, "── sbx") {
+		t.Errorf("--yes must hand the terminal to neither sbx login nor sbx setup:\n%s\n--- sbx calls ---\n%s", got, strings.Join(calls, "\n"))
 	}
 	if strings.Contains(got, "verify sbx") {
 		t.Errorf("verify left a line in plain output:\n%s", got)
@@ -696,12 +798,70 @@ func TestInitYesInPlainOutputCarriesNoStepPlaces(t *testing.T) {
 	}
 }
 
-// A Ctrl+C while sbx's wizard has the terminal reaches the wizard; init then prints what it
-// gathered, ends on where it stopped, and dies of SIGINT, so a shell like install.sh's stops too.
+// THE SBX STEPS RUN ONLY WITH WORK: `init --yes` on a signed-out host runs no login, names Docker
+// login once, as the readiness warning with its fix, and exits 0.
+func TestInitYesOnASignedOutHostWarnsAndExitsZero(t *testing.T) {
+	got, calls := initYesPlain(t, "STUB_SBX_SIGNED_OUT=1")
+	if !regexp.MustCompile(`(?m)^warn: Docker login — not signed in$`).MatchString(got) || !strings.Contains(got, "sbx login --username <name> --password-stdin") {
+		t.Errorf("a signed-out host lacks the Docker login warning and its fix:\n%s", got)
+	}
+	if n := strings.Count(got, "Docker login"); n != 1 {
+		t.Errorf("the result names Docker login %d times, want once:\n%s", n, got)
+	}
+	if count(calls, "login") != 0 || strings.Contains(got, "── sbx login") {
+		t.Errorf("--yes handed the terminal to sbx login:\n%s\n--- sbx calls ---\n%s", got, strings.Join(calls, "\n"))
+	}
+	if !regexp.MustCompile(`(?m)^ok: host — ready to run$`).MatchString(got) {
+		t.Errorf("a signed-out host must not block the verdict:\n%s", got)
+	}
+}
+
+// initYesPlain runs `proveo init --yes` with stderr a pipe against initStubSbx, with env for the
+// stub; init must exit 0. It returns stderr and the stub's calls.
+func initYesPlain(t *testing.T, env ...string) (stderr string, calls []string) {
+	t.Helper()
+	host := sbx.DetectHost()
+	if _, err := sbx.PlanFor(host, "/tmp/unused", "/tmp/unused"); err != nil {
+		t.Skipf("no Docker Sandboxes build for %s/%s: %v", host.OS, host.Arch, err)
+	}
+	proveoBin := buildProveo(t)
+	bin, state := t.TempDir(), t.TempDir()
+	for name, body := range map[string]string{
+		"sbx":     initStubSbx,
+		"gh":      "#!/bin/sh\ncase \"$1 $2\" in\n \"config get\") echo https ;;\n *) exit 1 ;;\nesac\n",
+		"ssh-add": "#!/bin/sh\nexit 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(state, "secrets"), []byte("(global) service openai (oauth configured)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(proveoBin, "init", "--yes", "--skip-prompt")
+	cmd.Stdin = strings.NewReader("")
+	cmd.Env = append([]string{"HOME=" + t.TempDir(), "TMPDIR=" + t.TempDir(), "TERM=xterm-256color",
+		"PATH=" + bin + ":/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+		"STUB_SBX_LOG=" + filepath.Join(state, "sbx.log"), "STUB_SBX_SECRETS=" + filepath.Join(state, "secrets")}, env...)
+	var out strings.Builder
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("proveo init --yes: %v\n%s", err, out.String())
+	}
+	log, _ := os.ReadFile(filepath.Join(state, "sbx.log"))
+	return out.String(), strings.Split(strings.TrimSpace(string(log)), "\n")
+}
+
+// A Ctrl+C while sbx setup has the terminal, after the result, reaches it; init then says it
+// stopped, prints its verdict, and dies of SIGINT, so a shell like install.sh's stops too.
 func TestInitCtrlCInSbxsWizardEndsOnWhereItStopped(t *testing.T) {
-	r := startInitWrapped(t, 140, nil, []string{"STUB_SBX_SETUP_READS=1"}, installerWrapper, "--skip-gh", "--skip-git")
+	r := startInitWrapped(t, 140, nil, []string{"STUB_SBX_SETUP_READS=1", "STUB_SBX_ENV_ONLY=1"}, installerWrapper, "--skip-gh", "--skip-git")
 	r.page(t, 1)
 	r.keys(t, "Enter")
+	r.page(t, 2)
+	r.skip(t)
+	r.page(t, 3)
+	r.finish(t)
 	r.wait(t, "setup asks:")
 	r.keys(t, "C-c")
 	r.wait(t, "INIT_EXIT=")
@@ -712,14 +872,14 @@ func TestInitCtrlCInSbxsWizardEndsOnWhereItStopped(t *testing.T) {
 	if !strings.Contains(all, "INIT_EXIT=130") || strings.Contains(all, "INIT_INCOMPLETE") {
 		t.Errorf("a Ctrl+C in a hand-off must end init by SIGINT, so the installer's shell stops before init_incomplete:\n%s", all)
 	}
-	if !regexp.MustCompile(`(?m)^⚠ init — stopped at sbx setup\n\s+Ctrl\+C ended it\nINIT_EXIT=130`).MatchString(all) {
-		t.Errorf("init must end on where it stopped and why:\n%s", all)
+	if !regexp.MustCompile(`(?m)^⚠ sbx setup — stopped\n\s+Ctrl\+C ended it\n\n✓ host — ready to run\nINIT_EXIT=130`).MatchString(all) {
+		t.Errorf("init must say sbx setup stopped and why, then end on its verdict:\n%s", all)
 	}
-	if !regexp.MustCompile(`(?m)^. not run: sbx diagnose$`).MatchString(all) || !regexp.MustCompile(`(?m)^. host:\s+`).MatchString(all) {
-		t.Errorf("init must still print the sbx block and what never ran:\n%s", all)
+	if regexp.MustCompile(`(?m)^. not run: `).MatchString(all) || !regexp.MustCompile(`(?m)^. host:\s+`).MatchString(all) {
+		t.Errorf("init must print the sbx block and name nothing as never run:\n%s", all)
 	}
-	if n := count(r.calls(t), "diagnose --json"); n != 1 {
-		t.Errorf("sbx diagnose ran %d times; once for the checks page, and no step after the Ctrl+C:\n%s", n, strings.Join(r.calls(t), "\n"))
+	if n := count(r.calls(t), "diagnose --json"); n != 2 {
+		t.Errorf("sbx diagnose ran %d times; once for the checks page and once to verify:\n%s", n, strings.Join(r.calls(t), "\n"))
 	}
 }
 

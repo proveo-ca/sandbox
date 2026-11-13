@@ -29,7 +29,7 @@ func TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff(t *testing.T) {
 			t.Errorf("%s: Prompt = %v, want %v", c.name, def.Prompt, c.want)
 		}
 		found := false
-		for _, r := range initRows(plan, "", def, c.o) {
+		for _, r := range initRows(plan, "", sbx.AuthUnknown, def, c.o) {
 			if r.Label != rowPrompt {
 				continue
 			}

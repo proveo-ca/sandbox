@@ -548,7 +548,12 @@
         "internal/sbx/install_test.go",
         "e2e/init_test.go",
         "e2e/init_steps_test.go",
-        "internal/installtest/install_test.go"
+        "internal/installtest/install_test.go",
+        "cmd/proveo/init_apply.go",
+        "cmd/proveo/init_apply_test.go",
+        "cmd/proveo/init_report_test.go",
+        "cmd/proveo/init_preflight.go",
+        "cmd/proveo/init_preflight_test.go"
       ],
       "fingerprint": null
     },
@@ -1414,6 +1419,10 @@
         "internal/sbx/install.go",
         "internal/sbx/install_test.go",
         "cmd/proveo/init.go",
+        "cmd/proveo/init_preflight_test.go",
+        "internal/sbx/version.go",
+        "internal/sbx/version_test.go",
+        "internal/backend/sandbox/sandbox.go",
         "cmd/proveo/init_tui.go",
         "e2e/init_test.go"
       ],
@@ -1732,7 +1741,10 @@
         "cmd/proveo/init_apply_test.go",
         "internal/choiceui/tty_unix.go",
         "internal/choiceui/tty_windows.go",
-        "e2e/live_line_prompt_test.go"
+        "e2e/live_line_prompt_test.go",
+        "internal/ui/frame.go",
+        "internal/ui/frame_test.go",
+        "cmd/proveo/init_report.go"
       ],
       "fingerprint": null
     },

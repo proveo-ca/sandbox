@@ -5,7 +5,10 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -28,16 +31,15 @@ func TestTheApplyPlanListsWhatEnterRunsInTheOrderItRuns(t *testing.T) {
 		ctx  applyCtx
 		want []string
 	}{
-		{"a first install with every action now", everything, applyFixture(), []string{
+		{"a first install with every action now; sbx setup waits for the result", everything, applyFixture(), []string{
 			"download sbx " + sbx.Release, "install sbx into /opt/proveo-test-prefix",
-			"add /opt/proveo-test-prefix/bin to PATH",
-			"sign in to Docker (sbx login)", "run sbx's first-run wizard (sbx setup)",
+			"add /opt/proveo-test-prefix/bin to PATH", actLogin,
 			"bind the network baseline: balanced", "install the prompt kit", "set the sandbox git identity",
 			"connect GitHub", "verify sbx (sbx diagnose)"}},
 		{"a revisit with everything later still verifies", initDecisions{Install: installSkip}, applyFixture(),
 			[]string{"verify sbx (sbx diagnose)"}},
 		{"print-only PATH is not a step", initDecisions{Install: installSkip, AddPath: false, Login: true}, applyFixture(),
-			[]string{"sign in to Docker (sbx login)", "verify sbx (sbx diagnose)"}},
+			[]string{actLogin, "verify sbx (sbx diagnose)"}},
 		{"a package manager owns placement, so no PATH step", initDecisions{Install: installPackaged, AddPath: true},
 			applyCtx{plan: sbx.Plan{Packaged: &sbx.Packaged{Asset: "sbx.deb"}}, applied: sbx.Plan{}},
 			[]string{"download the distro package", "install the distro package", "verify sbx (sbx diagnose)"}},
@@ -94,8 +96,8 @@ func TestEachStepShowsTheWayItsKindDoes(t *testing.T) {
 	}
 	for kind, want := range map[stepKind][]string{
 		stepLive:   {"download sbx " + sbx.Release, "add /opt/proveo-test-prefix/bin to PATH"},
-		stepHand:   {"install sbx into /opt/proveo-test-prefix", actSignIn, actWizard, "bind the network baseline: balanced"},
-		stepSilent: {actPrompt, actGit, actGitHub},
+		stepHand:   {"install sbx into /opt/proveo-test-prefix", "bind the network baseline: balanced"},
+		stepSilent: {actLogin, actPrompt, actGit, actGitHub},
 		stepQuiet:  {"verify sbx (sbx diagnose)"},
 	} {
 		if !slices.Equal(kinds[kind], want) {
@@ -120,7 +122,7 @@ func TestAHandedStepPrintsItsProgramAndNoPlace(t *testing.T) {
 	err := runApply([]applyStep{
 		step("download sbx", "download sbx", rowInstall, stepLive, nil),
 		step("", "", "", stepLive, nil),
-		step("sign in to Docker", "sbx login — signing in to Docker", rowSignIn, stepHand, boom),
+		step("sign in to Docker", "sbx login — signing in to Docker", rowLogin, stepHand, boom),
 		step("install the prompt kit", "", rowPrompt, stepSilent, nil),
 		step("verify sbx", "", labelVerify, stepQuiet, nil),
 	}, func(label string) { heard = append(heard, label) })
@@ -128,7 +130,7 @@ func TestAHandedStepPrintsItsProgramAndNoPlace(t *testing.T) {
 		t.Errorf("heard %q; a step that failed must not be reported as run", got)
 	}
 	var failed stepErr
-	if !errors.Is(err, boom) || !errors.As(err, &failed) || failed.label != rowSignIn || !slices.Equal(failed.rest, []string{rowPrompt, labelVerify}) {
+	if !errors.Is(err, boom) || !errors.As(err, &failed) || failed.label != rowLogin || !slices.Equal(failed.rest, []string{rowPrompt, labelVerify}) {
 		t.Errorf("err = %#v, want the failing step's, its label and what never ran", err)
 	}
 	if got := strings.Join(ran, " "); got != "download sbx! ! sign in to Docker!" {
@@ -203,5 +205,86 @@ func TestARevisitRerunsThePathStepOnlyToWriteTheRC(t *testing.T) {
 	again.AddPath = true
 	if _, names, got = visit(again); !slices.Contains(names, pathStep) || !strings.Contains(got, "added to PATH") {
 		t.Errorf("a revisit that now asks to write the rc ran %q and said %q, want the PATH step", names, got)
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: `sbx login` takes the terminal only while sbx diagnose says
+// Docker is signed out, and a second diagnose decides its outcome.
+func TestTheLoginStepSkipsWhenSbxReportsSignedIn(t *testing.T) {
+	calls := isolatedInitHost(t)
+	t.Setenv("STUB_DIAGNOSE", `{"checks":[{"name":"Authentication","status":"pass","message":"authenticated"}]}`)
+	out := captureUI(t)
+	rep := testReport(t, initOptions{})
+	if err := runApply(applyPlan(initDecisions{Install: installSkip, Login: true},
+		applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(calls); !strings.Contains(string(b), "diagnose --json") || regexp.MustCompile(`(?m)^login`).Match(b) {
+		t.Errorf("want a diagnose and no `sbx login` on a signed-in host; sbx saw:\n%s", b)
+	}
+	if strings.Contains(out.String(), "sbx login") {
+		t.Errorf("a signed-in host printed a login:\n%s", out.String())
+	}
+
+	for _, c := range []struct {
+		name          string
+		before, after sbx.Auth
+		tty           bool
+		logins        int
+		says          string
+	}{
+		{"signed in", sbx.AuthIn, sbx.AuthIn, true, 0, ""},
+		{"diagnose gave no answer", sbx.AuthUnknown, sbx.AuthUnknown, true, 0, ""},
+		{"signed out, then in", sbx.AuthOut, sbx.AuthIn, true, 1, "ok: Docker login — signed in"},
+		{"signed out, and still", sbx.AuthOut, sbx.AuthOut, true, 1, "warn: Docker login — not signed in\n    " + loginFix},
+		{"signed out, with no terminal", sbx.AuthOut, sbx.AuthOut, false, 0, ""},
+	} {
+		out := captureUI(t)
+		rep := testReport(t, initOptions{})
+		logins := 0
+		err := applyLogin(loginStage{
+			auth:    func() sbx.Auth { return c.before },
+			confirm: func() sbx.Auth { return c.after },
+			login:   func() error { logins++; return nil },
+			tty:     c.tty,
+			rep:     rep,
+		})
+		if err != nil || logins != c.logins {
+			t.Errorf("%s: err %v, %d logins, want %d", c.name, err, logins, c.logins)
+		}
+		if got := strings.TrimSpace(strings.ReplaceAll(out.String(), "------ sbx ------", "")); got != c.says {
+			t.Errorf("%s: said %q, want %q", c.name, got, c.says)
+		}
+		if unchecked := len(rep.sbxItems) == 1 && rep.sbxItems[0].Text == "Docker login — not checked"; unchecked != (c.before == sbx.AuthUnknown) {
+			t.Errorf("%s: sbx items = %+v", c.name, rep.sbxItems)
+		}
+		if rep.loginWarned != strings.HasPrefix(c.says, "warn:") {
+			t.Errorf("%s: the report heard the login warning = %v; the result must not repeat it", c.name, rep.loginWarned)
+		}
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: a hand-off prints a blank row and its frame, the program's own
+// output, then a blank row for the step's outcome.
+func TestAHandOffIsFramed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the child is a shell")
+	}
+	out := captureUI(t)
+	c := command("sh", "-c", "echo sbx-says-hi")
+	c.Stdout, c.Stderr = out, out
+	if err := handFramed(c, "Docker not signed in", "sbx's screen", "init resumes when it exits"); err != nil {
+		t.Fatal(err)
+	}
+	want := "\n" + ui.FrameLine(0, "sh -c echo sbx-says-hi", "Docker not signed in", "sbx's screen", "init resumes when it exits") +
+		"\nsbx-says-hi\n\n"
+	if got := out.String(); got != want {
+		t.Errorf("the hand-off printed\n%q\nwant\n%q", got, want)
+	}
+	if !strings.HasPrefix(ui.FrameLine(0, "sbx login", "Docker not signed in", "sbx's screen", "init resumes when it exits"), "── sbx login ── ") {
+		t.Error("the frame names the program by its base name first")
+	}
+	if err := handFramed(exec.Command(filepath.Join(t.TempDir(), "absent"))); err == nil || interrupted(err) {
+		t.Errorf("a program that never started = %v, want proveo's own error", err)
 	}
 }

@@ -5,6 +5,9 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' purpose: how a phase that runs things shows the step it is on, and what happens to that line when something else needs the terminal
 ' covers: internal/ui/steps.go
 ' covers: internal/ui/steps_test.go
+' covers: internal/ui/frame.go (FrameLine, Printer.Frame, Printer.Blank, Frame, Blank)
+' covers: internal/ui/frame_test.go
+' covers: cmd/proveo/init_report.go (handFramed)
 ' covers: cmd/proveo/init_apply.go
 ' covers: cmd/proveo/init_apply_test.go
 ' covers: internal/choiceui/tty_unix.go (openTerminal suspends the live line)
@@ -83,8 +86,7 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 '   install sbx into <prefix> | … with msiexec.exe | install the distro package   hand
 '   add <dir> to PATH        when it will write the rc, and the
 '                            prefix holds sbx or a tarball fills it   live
-'   sign in to Docker (sbx login)                               hand
-'   run sbx's first-run wizard (sbx setup)                      hand
+'   sign in to Docker if signed out (sbx login)                 silent
 '   bind the network baseline: <name>                           hand
 '   install the prompt kit            it can ask what draws     silent
 '   set the sandbox git identity      it can ask for a name     silent
@@ -100,6 +102,32 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' stepErr{label, rest}: the row that failed and the chosen ones after it.
 ' install() and installPackage() each split in two, so the download has a
 ' clock and the installer, which writes to the terminal itself, does not.
+' AMENDED owner, 2026-11-13: the login step is silent, prints its frame
+' only when sbx diagnose says Docker is signed out, and the rows read
+' "Docker login", "prompt kit" and "network". sbx setup is no apply step: it
+' opens after the result (_spec/cmd/proveo/init-sbx-bootstrap.puml, THE SBX
+' STEPS RUN ONLY WITH WORK).
+'
+' ── THE HAND-OFF FRAME (owner, 2026-11-13) ─────────────────────────────────
+' A hand-off is framed when it runs. ui.Frame(command, parts...) prints a
+' blank row, then FrameLine; the program writes its own output from column
+' 0; ui.Blank prints the blank row under it; the step prints its outcome.
+'   ── <command> ── [<reason> · ]<whose> screen · <what resumes> ──────…
+' FrameLine(w, command, parts...) is min(w, 120) columns, 80 where nothing
+' measures a width (a pipe). Parts before the last two are the reason. At
+' least 2 "─" close it. When it does not fit it shortens, in this order:
+'   1. "when it exits" reads "on exit"
+'   2. the reason drops
+'   3. the command keeps its head before "…"
+'   4. the rest keeps its head before "…" (Executor, 2026-11-13: below ~55
+'      columns rungs 1-3 cannot fit the line, and it must never wrap)
+' A plain printer prints the same characters, no escapes; the ASCII and Off
+' glyph tiers draw "-" for "─". On a terminal the rules take the rule colour,
+' the command is bold and the parts are dim.
+' init frames `sbx login` and `sbx setup` in stage 1 of the I3 checklist
+' (handFramed); the other hand steps keep their hand lines until stage 4.
+' Pinned by TestAFrameLineShortensBeforeItWraps, TestAPlainFrameCarriesNoEscapes
+' and cmd/proveo TestAHandOffIsFramed.
 '
 ' ── A RUN'S START (W-k; R1 of output-readability, 2026-11-11) ──────────────
 ' sandbox.Run shows five steps before the agent has the terminal:
@@ -230,6 +258,13 @@ note bottom of OVER
   about pushed branches opened behind a
   ticking line. On tmux the line drew over it
   inside half a second.
+end note
+
+note top of OTHER
+  **A frame says whose screen it is.** sbx login
+  and sbx setup print one rule line first; it
+  shortens before it would wrap, and a blank row
+  closes what the program printed.
 end note
 
 note bottom of OTHER

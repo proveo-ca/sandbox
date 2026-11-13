@@ -81,21 +81,23 @@ func applyPlan(d initDecisions, c applyCtx) []applyStep {
 		sbxSteps = append(sbxSteps, s)
 	}
 	if d.Login {
-		sbxSteps = append(sbxSteps, applyStep{name: actSignIn, line: "sbx login — signing in to Docker", label: rowSignIn, kind: stepHand,
-			run: func() error { return handOff(command(bin(), sbx.LoginArgs()...)) }})
-	}
-	if d.Wizard {
-		sbxSteps = append(sbxSteps, applyStep{name: actWizard, line: "sbx setup — running the first-run wizard", label: rowWizard, kind: stepHand,
+		stale := d.Install != installSkip
+		sbxSteps = append(sbxSteps, applyStep{name: actLogin, label: rowLogin, kind: stepSilent,
 			run: func() error {
-				err := handOff(command(bin(), sbx.SetupArgs()...))
-				if interrupted(err) {
-					return err
-				}
-				if err != nil {
-					c.rep.sbxItem(sandbox.Item{Warn: true, Text: "sbx setup — did not complete",
-						Detail: append(errDetail(err), "run `"+sbx.Binary+" setup` yourself if a sandbox misbehaves")})
-				}
-				return nil
+				return applyLogin(loginStage{
+					auth: func() sbx.Auth {
+						if !stale && c.rep != nil && c.rep.diagnosed {
+							return c.rep.auth
+						}
+						return c.rep.diagnose(bin())
+					},
+					confirm: func() sbx.Auth { return c.rep.diagnose(bin()) },
+					login: func() error {
+						return handFramed(command(bin(), sbx.LoginArgs()...), "Docker not signed in", "sbx's screen", "init resumes when it exits")
+					},
+					tty: !d.NoPrompt && interactiveTerminal(),
+					rep: c.rep,
+				})
 			}})
 	}
 	if d.Baseline != "" {
@@ -108,7 +110,7 @@ func applyPlan(d initDecisions, c applyCtx) []applyStep {
 					return err
 				}
 				if err != nil {
-					c.rep.sbxItem(sandbox.Item{Warn: true, Text: "network baseline — not changed",
+					c.rep.sbxItem(sandbox.Item{Warn: true, Text: rowBaseline + " — not changed",
 						Detail: append(errDetail(err), "`"+sbx.Binary+" "+strings.Join(args, " ")+"` by hand")})
 				}
 				return nil
@@ -157,6 +159,41 @@ func applyPlan(d initDecisions, c applyCtx) []applyStep {
 	out = append(out, applyStep{name: "verify sbx (sbx diagnose)", label: labelVerify, kind: stepQuiet,
 		run: func() error { return verify(bin(), c.rep) }})
 	return out
+}
+
+// loginStage is what the Docker login step reads and runs.
+type loginStage struct {
+	auth    func() sbx.Auth // what sbx diagnose says of the sign-in before the login
+	confirm func() sbx.Auth // what it says after
+	login   func() error    // `sbx login`, framed
+	tty     bool
+	rep     *initReport
+}
+
+// applyLogin hands `sbx login` the terminal only while sbx diagnose says Docker is signed out,
+// then says what a second diagnose found.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
+func applyLogin(l loginStage) error {
+	switch l.auth() {
+	case sbx.AuthIn:
+		return nil
+	case sbx.AuthUnknown:
+		l.rep.sbxItem(sandbox.Item{Text: rowLogin + " — not checked", Detail: []string{"sbx diagnose gave no answer; `" + sbx.Binary + " login` signs in"}})
+		return nil
+	}
+	if !l.tty {
+		return nil
+	}
+	if err := l.login(); err != nil {
+		return err
+	}
+	it := sandbox.Item{Ok: true, Text: rowLogin + " — signed in"}
+	if l.confirm() != sbx.AuthIn {
+		it = sandbox.Item{Warn: true, Text: rowLogin + " — not signed in", Detail: []string{loginFix}}
+		l.rep.warnLogin()
+	}
+	sandbox.PrintBlock(sandbox.SbxHeading, nil, []sandbox.Item{it})
+	return nil
 }
 
 // installPlace says where the release lands: into its prefix, or wherever its own installer

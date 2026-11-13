@@ -3,6 +3,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,12 +28,14 @@ const spared = `{"checks":[{"name":"virtualisation","status":"pass","message":"s
 // blocker adds a failing row a run needs.
 const blocker = `{"checks":[{"name":"Daemon","status":"fail","message":"not running","detail":"no socket","hint":"Start Docker Sandboxes"}]}`
 
-// testReport is a report on a darwin host the stub sbx answers for.
+// testReport is a report on a darwin host the stub sbx answers for, whose setup probe finds nothing to import.
 func testReport(t *testing.T, o initOptions) *initReport {
 	t.Helper()
 	host := sbx.Host{OS: "darwin", Arch: "arm64"}
 	plan := sbx.Plan{Prefix: filepath.Join(t.TempDir(), "prefix")}
-	return newInitReport(o, host, []sbx.Prereq{{Name: "Apple silicon", OK: true}}, plan)
+	rep := newInitReport(o, host, []sbx.Prereq{{Name: "Apple silicon", OK: true}}, plan)
+	rep.probe = func() (sbx.SetupOffer, error) { return sbx.SetupOffer{Known: true}, nil }
+	return rep
 }
 
 // lastLine is the last non-blank line of out.
@@ -50,17 +53,20 @@ func headings(out string) map[string]int {
 	return n
 }
 
+// baselineLine is the hand line of the network baseline step, an sbx step that always hands off.
+const baselineLine = "sbx policy init — binding the balanced network baseline"
+
 // The sbx facts print once, after the sbx steps that make them true.
 func TestTheSbxBlockPrintsAfterTheSbxStepsAndNamesTheHostAndItsSbx(t *testing.T) {
 	isolatedInitHost(t)
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
-	d := initDecisions{Install: installSkip, Login: true}
+	d := initDecisions{Install: installSkip, Baseline: sbx.BaselineBalanced}
 	if err := runApply(applyPlan(d, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), nil); err != nil {
 		t.Fatal(err)
 	}
 	got := out.String()
-	login, host := strings.Index(got, "sbx login — signing in to Docker"), regexp.MustCompile(`host:\s+darwin/arm64`).FindStringIndex(got)
+	login, host := strings.Index(got, baselineLine), regexp.MustCompile(`host:\s+darwin/arm64`).FindStringIndex(got)
 	if login < 0 || host == nil || host[0] < login {
 		t.Fatalf("the sbx facts must follow the hand line of the step that makes them true:\n%s", got)
 	}
@@ -91,7 +97,7 @@ func TestARevisitPrintsOneReadinessSetAndItsSbxLinesUnderSbx(t *testing.T) {
 	rep := testReport(t, initOptions{})
 	rec := &initRecord{}
 	ctx := applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}
-	for _, d := range []initDecisions{{Install: installSkip, Login: true, Git: true}, {Install: installSkip}} {
+	for _, d := range []initDecisions{{Install: installSkip, Baseline: sbx.BaselineBalanced, Git: true}, {Install: installSkip}} {
 		if err := runApply(applyPlan(d, ctx), rec.did); err != nil {
 			t.Fatal(err)
 		}
@@ -99,7 +105,7 @@ func TestARevisitPrintsOneReadinessSetAndItsSbxLinesUnderSbx(t *testing.T) {
 	ui.Section(ui.SectionCredentials)
 	ui.Asyncf("codex — signing out")
 	t.Setenv("STUB_POLICY_ALLOWED", "true")
-	if err := runApply(applyPlan(initDecisions{Install: installSkip, Login: true, Git: true}, ctx), rec.did); err != nil {
+	if err := runApply(applyPlan(initDecisions{Install: installSkip, Baseline: sbx.BaselineBalanced, Git: true}, ctx), rec.did); err != nil {
 		t.Fatal(err)
 	}
 	if err := rep.close(rec, nil); err != nil {
@@ -109,7 +115,7 @@ func TestARevisitPrintsOneReadinessSetAndItsSbxLinesUnderSbx(t *testing.T) {
 	if n := strings.Count(got, "SSH client config — "); n != 1 {
 		t.Errorf("the readiness printed %d times, want once:\n%s", n, got)
 	}
-	signOut, again := strings.Index(got, "codex — signing out"), strings.LastIndex(got, "sbx login — signing in to Docker")
+	signOut, again := strings.Index(got, "codex — signing out"), strings.LastIndex(got, baselineLine)
 	if again < signOut || !strings.Contains(got[signOut:again], "------ sbx ------") {
 		t.Errorf("a revisit's sbx step must land under a redrawn sbx heading:\n%s", got)
 	}
@@ -155,7 +161,7 @@ func TestTheResultListsWhatWaitsAndClosesOnTheVerdict(t *testing.T) {
 	}
 	got := out.String()
 	results := got[strings.Index(got, "------ results ------"):]
-	for _, re := range []string{`(?m)^later: GitHub$`, `(?m)^\s+git identity$`, `(?m)^\s+prompt$`, `(?m)^\s+credentials$`,
+	for _, re := range []string{`(?m)^later: GitHub$`, `(?m)^\s+git identity$`, `(?m)^\s+prompt kit$`, `(?m)^\s+credentials$`,
 		`(?m)^warn: SSH client config — an unmanaged sandbox Host stanza`, `(?m)^\s+/home/op/\.ssh/config:5: Host$`,
 		`(?m)^\s+a run does not need this check; it affects IDE attach`} {
 		if !regexp.MustCompile(re).MatchString(results) {
@@ -272,7 +278,17 @@ func TestAHandOffFailureEndsOnWhereInitStopped(t *testing.T) {
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
 	rec := &initRecord{}
-	err := runApply(applyPlan(initDecisions{Install: installSkip, Login: true, Wizard: true}, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), rec.did)
+	login := applyStep{name: actLogin, label: rowLogin, kind: stepSilent, run: func() error {
+		return applyLogin(loginStage{
+			auth:    func() sbx.Auth { return sbx.AuthOut },
+			confirm: func() sbx.Auth { t.Error("a failed login was confirmed"); return sbx.AuthOut },
+			login:   func() error { return handFramed(command(sbx.Binary, sbx.LoginArgs()...), "Docker not signed in") },
+			tty:     true,
+			rep:     rep,
+		})
+	}}
+	verify := applyStep{name: "verify sbx (sbx diagnose)", label: labelVerify, kind: stepQuiet, run: func() error { return verify(sbx.Binary, rep) }}
+	err := runApply([]applyStep{login, verify}, rec.did)
 	var failed stepErr
 	if errors.As(err, &failed) {
 		rec.unreached(failed.rest...)
@@ -282,17 +298,122 @@ func TestAHandOffFailureEndsOnWhereInitStopped(t *testing.T) {
 		t.Errorf("close = %v, want Reported", ret)
 	}
 	got := out.String()
-	if last := lastLine(got); last != "warn: init — stopped at sign in" {
+	if last := lastLine(got); last != "warn: init — stopped at Docker login" {
 		t.Errorf("the last line = %q:\n%s", last, got)
 	}
 	if strings.Contains(got, "error:") || strings.Contains(got, "exit status") {
 		t.Errorf("init repeated the program's failure:\n%s", got)
 	}
-	if !regexp.MustCompile(`(?m)^not run: sbx setup\n\s+sbx diagnose$`).MatchString(got) {
+	if !strings.Contains(got, "\n── sbx login ── Docker not signed in ──") {
+		t.Errorf("the login was not framed:\n%s", got)
+	}
+	if !regexp.MustCompile(`(?m)^not run: sbx diagnose$`).MatchString(got) {
 		t.Errorf("the chosen steps the failure kept from running are not listed:\n%s", got)
 	}
 	if !regexp.MustCompile(`host:\s+darwin/arm64`).MatchString(got) {
 		t.Errorf("the sbx block an early stop left unprinted did not print:\n%s", got)
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: sbx setup opens after the needs-you items and before the
+// verdict, only on a terminal, after a walk that completed, when the page chose "after init" and
+// the probe found work; otherwise the result names it as later only when the probe found work.
+func TestSbxSetupRunsAfterTheResultOnlyWhenOffered(t *testing.T) {
+	calls := isolatedInitHost(t)
+	quit := fmt.Errorf("%w at page 3/4", errInitLeft)
+	failure := stepErr{label: labelCredentials, err: errors.New("form broke")}
+	ctrlC := stepErr{label: rowLogin, err: handoffErr{err: errors.New("signal: interrupt"), interrupted: true}}
+	for _, c := range []struct {
+		name    string
+		envOnly string
+		asked   askedHow
+		wizard  bool
+		err     error
+		runs    bool
+		later   string
+		item    string
+	}{
+		{"offered, on a terminal, after init", "1", askedOnPages, true, nil, true, "", ""},
+		{"nothing to import", "0", askedOnPages, true, nil, false, "", "sbx setup — nothing to import"},
+		{"offered, answered later", "2", askedOnPages, false, nil, false, "2 env keys sbx's store lacks · `sbx setup` on a terminal", ""},
+		{"offered, under --yes", "1", askedByFlag, false, nil, false, "1 env key sbx's store lacks · `sbx setup` on a terminal", ""},
+		{"offered, after a quit", "1", askedOnPages, true, quit, false, "1 env key sbx's store lacks · `sbx setup` on a terminal", ""},
+		{"nothing to import, after a failure", "0", askedOnPages, true, failure, false, "", ""},
+		{"offered, after a Ctrl+C", "1", askedOnPages, false, ctrlC, false, "", ""},
+	} {
+		t.Setenv("STUB_ENV_ONLY", c.envOnly)
+		if err := os.WriteFile(calls, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out := captureUI(t)
+		rep := testReport(t, initOptions{})
+		rep.probe = func() (sbx.SetupOffer, error) { return sbx.SetupOfferAt(sbx.Binary, os.Getenv) }
+		rep.sbxSaid, rep.ready, rep.asked, rep.wizard = true, true, c.asked, c.wizard
+		items, _ := checkItems([]sbx.Check{sshClientConfig})
+		rep.readiness = items
+		rec := &initRecord{}
+		rec.leaveUnchosen(initDecisions{Wizard: c.wizard, Login: true, Gh: true, Git: true, Prompt: true})
+		_ = rep.close(rec, c.err)
+		got := out.String()
+		b, _ := os.ReadFile(calls)
+		if ran := regexp.MustCompile(`(?m)^setup$`).Match(b); ran != c.runs {
+			t.Errorf("%s: sbx setup ran = %v, want %v; sbx saw:\n%s", c.name, ran, c.runs, b)
+		}
+		if c.runs {
+			frame := regexp.MustCompile(`(?m)^── sbx setup ── .+ ──+$`).FindStringIndex(got)
+			needs, finished := strings.Index(got, "warn: SSH client config"), strings.Index(got, "ok: sbx setup — finished")
+			if frame == nil || needs < 0 || frame[0] < needs || finished < frame[1] {
+				t.Errorf("%s: want the needs-you items, then the frame, then the outcome:\n%s", c.name, got)
+			}
+			if last := lastLine(got); last != "ok: host — ready to run" {
+				t.Errorf("%s: the verdict must stay last, not %q:\n%s", c.name, last, got)
+			}
+		} else if strings.Contains(got, "── sbx setup") {
+			t.Errorf("%s: a setup that does not run printed its frame:\n%s", c.name, got)
+		}
+		if later, _ := rec.lines(); slices.Contains(later, rowWizard) != (c.later != "") || c.later != "" && !slices.Equal(rec.later[rowWizard], []string{c.later}) {
+			t.Errorf("%s: later = %q (%q), want sbx setup later with %q", c.name, later, rec.later[rowWizard], c.later)
+		}
+		if c.item != "" && !regexp.MustCompile(`(?m)^\s+`+regexp.QuoteMeta(c.item)+`$`).MatchString(got) || c.item == "" && strings.Contains(got, "nothing to import") {
+			t.Errorf("%s: want the row %q:\n%s", c.name, c.item, got)
+		}
+		if probed := strings.Contains(string(b), "secret ls"); probed == interrupted(c.err) {
+			t.Errorf("%s: the setup probe ran = %v; it runs unless a Ctrl+C ended init:\n%s", c.name, probed, b)
+		}
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: the result names Docker login once. A signed-out readiness
+// item stands for "later: Docker login"; a login that left Docker signed out already said so.
+func TestTheResultNamesDockerLoginOnce(t *testing.T) {
+	signedOut, _ := checkItems([]sbx.Check{{Name: sbx.AuthenticationCheck, Status: "fail", Message: "not signed in"}})
+	for _, c := range []struct {
+		name          string
+		loginChosen   bool
+		warned        bool
+		readinessSays int
+	}{
+		{"no login ran", false, false, 1},
+		{"a login left Docker signed out", true, true, 0},
+	} {
+		out := captureUI(t)
+		rep := testReport(t, initOptions{})
+		rep.sbxSaid, rep.ready, rep.readiness, rep.loginWarned = true, true, signedOut, c.warned
+		rec := &initRecord{}
+		rec.leaveUnchosen(initDecisions{Login: c.loginChosen, Wizard: true, Gh: true, Git: true, Prompt: true})
+		if err := rep.close(rec, nil); err != nil {
+			t.Fatal(err)
+		}
+		got := out.String()
+		if later, _ := rec.lines(); slices.Contains(later, rowLogin) {
+			t.Errorf("%s: later = %q next to the readiness item", c.name, later)
+		}
+		if n := strings.Count(got, "Docker login — not signed in"); n != c.readinessSays {
+			t.Errorf("%s: the result names the signed-out login %d times, want %d:\n%s", c.name, n, c.readinessSays, got)
+		}
+		if c.readinessSays == 1 && !strings.Contains(got, loginFix) {
+			t.Errorf("%s: the readiness item lost its fix line:\n%s", c.name, got)
+		}
 	}
 }
 
@@ -422,7 +543,7 @@ func TestAMissingDistroPackageStopsAtTheInstallAndNamesWhatNeverRan(t *testing.T
 	rec.unreached(failed.rest...)
 	_ = rep.close(rec, err)
 	got := out.String()
-	for _, re := range []string{`(?m)^not run: sign in\n\s+sbx diagnose$`,
+	for _, re := range []string{`(?m)^not run: Docker login\n\s+sbx diagnose$`,
 		`(?m)^error: sbx install — failed\n\s+this release ships no distro package for linux/amd64 · rocky 9$`} {
 		if !regexp.MustCompile(re).MatchString(got) {
 			t.Errorf("the result lacks %s:\n%s", re, got)
@@ -480,11 +601,11 @@ func TestACtrlCDuringAHandOffEndsInitCleanlyWith130(t *testing.T) {
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
 	rep.sbxSaid = true
-	ret := rep.close(&initRecord{}, stepErr{label: rowSignIn, err: handOff(exec.Command("sh", "-c", "kill -INT $$"))})
+	ret := rep.close(&initRecord{}, stepErr{label: rowLogin, err: handOff(exec.Command("sh", "-c", "kill -INT $$"))})
 	if code, ok := exitCode(ret); !ok || code != 130 {
 		t.Errorf("close = %v (%d), want exit 130 with nothing printed by main", ret, code)
 	}
-	if got := out.String(); !strings.HasSuffix(strings.TrimRight(got, "\n"), "warn: init — stopped at sign in\n    Ctrl+C ended it") {
+	if got := out.String(); !strings.HasSuffix(strings.TrimRight(got, "\n"), "warn: init — stopped at Docker login\n    Ctrl+C ended it") {
 		t.Errorf("want the stop and its cause:\n%s", got)
 	}
 }
@@ -531,7 +652,7 @@ func TestEachInitHeadingIsDrawnOnce(t *testing.T) {
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
 	rec := &initRecord{}
-	d := initDecisions{Install: installSkip, Login: true, Wizard: true, Git: true}
+	d := initDecisions{Install: installSkip, Login: true, Git: true}
 	if err := runApply(applyPlan(d, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), rec.did); err != nil {
 		t.Fatal(err)
 	}

@@ -3,8 +3,13 @@
 skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
 ' covers: cmd/proveo/init.go (doInit, appliedPlan, runInitSteps, initStep, stepResult, decide, fetch, publishedDigest, resolveBin, sbxPathDir, printPlan, ensureSbxOnPath, verify, checkItems)
-' covers: cmd/proveo/init_report.go (handOff, the sbx block)
-' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, askDecisions, targetVersion, initRows, baselineRow)
+' covers: cmd/proveo/init_report.go (handOff, handFramed, planSetup, runSetup, setupTurn, the sbx block)
+' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, askDecisions, targetVersion, initRows, loginRow, setupRow, statusRow, baselineRow)
+' covers: cmd/proveo/init_apply.go (applyLogin, loginStage)
+' covers: cmd/proveo/init_apply_test.go (TestTheLoginStepSkipsWhenSbxReportsSignedIn, TestAHandOffIsFramed)
+' covers: cmd/proveo/init_report_test.go (TestSbxSetupRunsAfterTheResultOnlyWhenOffered)
+' covers: cmd/proveo/init_preflight.go (leaveUnchosen, moot)
+' covers: cmd/proveo/init_preflight_test.go (TestAMootStepIsNeverLeftForLater)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
 ' covers: cmd/proveo/init_git.go (applyGitIdentity)
@@ -169,6 +174,10 @@ skinparam noteTextAlignment left
 '                   Rows keep their labels under this heading:
 '   sign in ....... now | later   (`sbx login` — Docker Hub, after the binary)
 '   sbx setup ..... now | later   (first-run wizard; 0.42 stopped auto-opening)
+'                   AMENDED 2026-11-13 (owner): the rows are "Docker
+'                   login" and "sbx setup ... after init | later", the
+'                   prompt row is "prompt kit" and the baseline row is
+'                   "network" (THE SBX STEPS RUN ONLY WITH WORK, below).
 '                   The row and the start line name what the wizard offers,
 '                   from `sbx setup --help` on 0.50.0: agent secrets to
 '                   import, SSH-agent forwarding. MEASURED 2026-11-11: they
@@ -350,11 +359,14 @@ skinparam noteTextAlignment left
 ' placement), "distro package — installing sbx <v>" with "sudo may ask for
 ' your password" dim, "gh auth login — signing in to GitHub", "<argv> —
 ' installing the GitHub CLI". Live frames keep "step n/N · name · 3s".
+' AMENDED 2026-11-13: sbx login and sbx setup print no hand line; each prints
+' its frame instead (THE SBX STEPS RUN ONLY WITH WORK), and the wizard is no
+' longer an apply step, so its ⚠ item is the after-result outcome row.
 ' A HAND-OFF THAT FAILS (rules: P9 + R2's F3): a program init handed the
 ' terminal to prints its own error; init prints no "× <program> — <error>"
 ' after it. The decision's four (sbx login, the release's installer, the
 ' distro package, `gh auth login`) end init on "⚠ init — stopped at <row>"
-' ("sign in", "sbx install", "GitHub"), exit 1, with the rest under "not
+' ("Docker login", "sbx install", "GitHub"), exit 1, with the rest under "not
 ' run"; the others (the wizard, the baseline, gh's install, `sbx secret set
 ' github`) are a ⚠ item with no restated exit status. handOff tells the two
 ' apart: an exit status is the program's to explain; a program that never
@@ -399,9 +411,12 @@ skinparam noteTextAlignment left
 ' Wizard = !--skip-setup && !--yes && terminal. decide passes
 ' interactiveTerminal(): stdin and stderr, the two ends handOff gives the
 ' wizard. The setup page passes true, so when the page draws, the row's own
-' answer decides. An unrun wizard lands in the result's "later"; the --yes
-' flag help names "sbx's setup wizard" among what waits for a terminal.
-' sbx login KEEPS its default. `sbx login --help` (0.50.0) documents a
+' answer decides. An unrun wizard lands in the result's "later" only when the
+' setup probe finds work; the --yes flag help names `sbx login`, `sbx setup`
+' among what waits for a terminal.
+' AMENDED 2026-11-13 (owner): sbx login no longer keeps its default; it
+' waits for a terminal too (THE SBX STEPS RUN ONLY WITH WORK). History:
+' sbx login KEPT its default. `sbx login --help` (0.50.0) documents a
 ' non-interactive path (`--username … --password-stdin`), and init runs the
 ' plain browser sign-in. [Unverified] whether that sign-in completes with no
 ' terminal; no run measured it.
@@ -411,7 +426,7 @@ skinparam noteTextAlignment left
 ' d.Prefix and the plan, stay absolute: _spec/internal/choiceui/wireframe.puml.
 ' KNOWN, NOT CHANGED: a setup-page cell clips at 10 runes (columnRunes), so the
 ' row reads "~/.docker…" and the help line under the cursor names it whole.
-' Pinned by cmd/proveo/init_tui_test.go TestTheWizardWaitsForATerminal,
+' Pinned by cmd/proveo/init_tui_test.go TestYesNeverHandsTheTerminalToSbx,
 ' internal/choiceui TestAHomePathOptionReadsAsTildeAndKeepsItsValue, and
 ' e2e TestInitYesInPlainOutputCarriesNoStepPlaces (no `setup` call under
 ' --yes; edited 2026-11-13, not run).
@@ -434,6 +449,87 @@ skinparam noteTextAlignment left
 ' finds it; `sbx diagnose` there gives the host's verdict", and no closing
 ' verdict. [Inference] from install.go's plan; no Windows host ran it.
 ' Pinned by TestAWindowsInstallNamesItsInstallerAndWhoOwnsItsPlace.
+'
+' ── THE SBX STEPS RUN ONLY WITH WORK (DECIDED owner, 2026-11-13) ──────────
+' Both sbx hand-offs ran whenever their row said "now": `sbx login` on a
+' host diagnose already called signed in, and `sbx setup`, sbx's wizard,
+' with nothing to import. Each now runs only when sbx says it has work, and
+' each is framed when it runs.
+' DOCKER LOGIN. The row reads diagnose's Authentication row (DockerAuth,
+' _spec/internal/sbx/host-readiness.puml, DOCKER LOGIN) from the checks
+' page's diagnose, which doInit now keeps in its own scope:
+'   AuthIn       a locked status row "(•) signed in"; no step
+'   AuthOut      "(•) now ( ) later"
+'   AuthUnknown  a locked "(•) not checked"; no login runs (owner, 2026-11-13)
+'   no sbx yet   "(•) if signed out ( ) later" (Paint over "now")
+'   --skip-login locked on later
+' The cells are 13 runes wide so "if signed out" never clips.
+'   loginRuns = Login ∧ ¬--skip-login ∧ ¬--yes ∧ a terminal ∧ AuthOut
+' defaultDecisions sets Login = !--skip-login && !--yes && terminal. The
+' step is silent: no hand line. applyLogin reads the checks page's answer,
+' or runs `sbx diagnose` itself after an install step (the draw-time answer
+' is stale then) or when none ran. AuthIn and AuthUnknown run nothing;
+' AuthUnknown adds "Docker login — not checked" to the sbx block. AuthOut
+' hands off framed, then a second diagnose gives "✓ Docker login — signed
+' in" or "⚠ Docker login — not signed in" with the fix line. A login that
+' exits non-zero still ends init "stopped at Docker login" (exit 1).
+' Under --yes and with no terminal no login runs; a signed-out host gets
+' the readiness item instead, and exits 0 (Q1-A).
+' THE RESULT NAMES DOCKER LOGIN ONCE (Executor, 2026-11-13). close() moots
+' "later: Docker login" while the readiness holds a Docker login item: that
+' item carries the fix (--yes, no terminal, "later", --skip-login). A login
+' that left Docker signed out printed its ⚠ item under its frame
+' (initReport.loginWarned); the result drops the readiness item that
+' repeats it.
+' SBX SETUP. The wizard step left the apply. The row is "after init |
+' later"; close() runs planSetup after the needs-you items and before the
+' verdict (_spec/cmd/proveo/init-preflight-and-result.puml, THE CLOSE):
+' probe (sbx.SetupOfferAt) → gate → frame → hand-off → outcome.
+'   setupRuns = Wizard ∧ ¬--skip-setup ∧ asked on pages (¬--yes, a
+'               terminal) ∧ the walk completed (close got no error) ∧
+'               offer.Known ∧ offer.Offers()
+'   offered, not run         "later: sbx setup", dim "<reason> · `sbx
+'                            setup` on a terminal"
+'   known, nothing to offer  the result row "sbx setup — nothing to import"
+'   not known                the result row "sbx setup — not checked", dim
+'                            "`sbx setup` opens it"
+'   a quit, a failure, a stop: "later" only when the probe found work, and
+'                            no row otherwise (owner, 2026-11-13)
+'   a Ctrl+C that ended init: no probe and no row
+'   --skip-setup             no probe; "later: sbx setup" as before
+' Outcomes: exit 0 "✓ sbx setup — finished"; non-zero "⚠ sbx setup — did
+' not complete", dim "`sbx setup` by hand"; a Ctrl+C "⚠ sbx setup —
+' stopped", dim "Ctrl+C ended it", then a blank row, the verdict, and init
+' re-raises SIGINT (exit 130), so install.sh stops before init_incomplete.
+' A REVISIT KEEPS "after init" (Executor, 2026-11-13): carried() reopens the
+' apply's one-shot steps on later, but sbx setup has not run yet; it runs
+' once, after the result, so the last visit's answer stands.
+' MOOT ROWS ARE NEVER "LATER". leaveUnchosen(d, moot...) takes Docker login
+' out of "later" while the latest diagnose says signed in; close() repeats
+' that after verify (so --yes on a signed-in host lists nothing), and
+' planSetup moots sbx setup when it has nothing to offer.
+' THE FRAME (handFramed; ui.Frame, _spec/internal/ui/step-lines.puml, THE
+' HAND-OFF FRAME): a blank row, "── <cmd> ── [reason · ]<whose> screen ·
+' <what resumes> ──…", the program's own output, a blank row, the outcome.
+'   ── sbx login ── Docker not signed in · sbx's screen · init resumes when it exits ──…
+'   ── sbx setup ── 2 env keys sbx's store lacks · sbx's screen · init ends when it exits ──…
+' STAGE 1 WORDING (Executor, 2026-11-13): the I3 spec's "page n/4 returns
+' when it exits" waits for the one-Session card of its stage 4. Today the
+' setup page does not come back after `sbx login`; the apply goes on, then
+' the credentials page opens. So the frame says "init resumes".
+' --print prints both as conditional: "sbx login — only while sbx diagnose
+' says Docker is signed out", "sbx setup — after init, only while sbx's
+' store lacks an env key".
+' Pinned by cmd/proveo: TestYesNeverHandsTheTerminalToSbx,
+' TestLoginRunsOnlyWhenSbxSaysSignedOut, TestTheLoginStepSkipsWhenSbxReportsSignedIn,
+' TestAHandOffIsFramed, TestSbxSetupRunsAfterTheResultOnlyWhenOffered,
+' TestAMootStepIsNeverLeftForLater, TestAnInitACtrlCStoppedDiesOfSIGINT,
+' TestTheResultNamesDockerLoginOnce; e2e:
+' TestInitSkipsSbxLoginOnASignedInHost, TestInitFramesSbxLoginOnASignedOutHost,
+' TestInitSkipsSbxSetupWithNothingToImport, TestInitOpensSbxSetupAfterTheResult,
+' TestInitOpensSbxSetupWhenForwardingIsOff, TestInitYesOnASignedOutHostWarnsAndExitsZero,
+' TestInitHandsTheTerminalWhollyToSbxSetup, TestInitCtrlCInSbxsWizardEndsOnWhereItStopped.
+' MEASURED 2026-11-13: all e2e init tests pass against the stub sbx.
 '
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
 ' Every platform lands the same layout — <prefix>/bin/sbx beside a
@@ -569,11 +665,13 @@ skinparam noteTextAlignment left
 ' init works behind a proxy that allows github.com and nothing else, and cannot
 ' be surprised by a tag that moved.
 '
-' `sbx setup` is part of finishing an install because 0.42.0 stopped opening the
-' wizard on its own. Before that release an operator met it whether they wanted
-' to or not; after it, a host nobody sets up stays half-configured with no
-' prompt to say so. A declined wizard is not a failed init — the daemon check is
-' the verdict.
+' HISTORY (until 2026-11-13): `sbx setup` ran inside the apply, as part of
+' finishing an install, because 0.42.0 stopped opening the wizard on its own.
+' Before that release an operator met it whether they wanted to or not; after
+' it, a host nobody set up stayed half-configured with no prompt to say so.
+' Since 2026-11-13 it opens after the result, and only while the probe finds
+' work (THE SBX STEPS RUN ONLY WITH WORK). A declined wizard is still not a
+' failed init — the daemon check is the verdict.
 title proveo init — readying the host, not the repository
 
 actor "operator" as OP
@@ -606,7 +704,7 @@ OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
 INIT ARROW_MAIN ASSET : download by exact tag
 PROV ARROW_MAIN INIT : the digest, checked BEFORE unpacking
 INIT ARROW_MAIN PREFIX : the release's own installer, no root
-INIT ARROW_QUEUE DAEMON : ""sbx login"" · ""sbx setup"" · ""version --json""
+INIT ARROW_QUEUE DAEMON : ""sbx login"" only while signed out · ""sbx setup"" only with work · ""version --json""
 DAEMON ARROW_MAIN INIT : ""server.state"": running | unavailable
 BLOCK ARROW_ERROR INIT : blocks the INSTALL, or only the RUN
 SEL ARROW_ERROR INIT : warn, and say where to look

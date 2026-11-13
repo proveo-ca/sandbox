@@ -583,16 +583,19 @@ func TestSessionAliveReadsThePidFromTheSessionID(t *testing.T) {
 	}
 }
 
-// An init a Ctrl+C in a handed-off program stopped ends proveo by SIGINT once its blocks printed,
-// so a shell waiting on it, such as install.sh's, stops too.
+// A Ctrl+C in sbx setup, which runs after the result, ends proveo by SIGINT once the verdict
+// printed, so a shell waiting on it, such as install.sh's, stops too.
 func TestAnInitACtrlCStoppedDiesOfSIGINT(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no signal to re-raise")
 	}
 	if os.Getenv("PROVEO_TEST_DIE_OF_SIGINT") == "1" {
+		isolatedInitHost(t)
+		t.Setenv("STUB_SETUP_INT", "1")
 		rep := testReport(t, initOptions{})
-		rep.sbxSaid = true
-		exitWith(rep.close(&initRecord{}, stepErr{label: rowWizard, err: handoffErr{err: errors.New("signal: interrupt"), interrupted: true}}))
+		rep.sbxSaid, rep.ready, rep.asked, rep.wizard = true, true, askedOnPages, true
+		rep.probe = func() (sbx.SetupOffer, error) { return sbx.SetupOffer{EnvOnly: 1, Known: true}, nil }
+		exitWith(rep.close(&initRecord{}, nil))
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$")
@@ -605,7 +608,7 @@ func TestAnInitACtrlCStoppedDiesOfSIGINT(t *testing.T) {
 	if ws, ok := exit.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
 		t.Errorf("the stopped init ended with %v, want death by SIGINT:\n%s", exit, out)
 	}
-	if !strings.Contains(string(out), "init — stopped at sbx setup") {
+	if !regexp.MustCompile(`(?m)^warn: sbx setup — stopped\n    Ctrl\+C ended it\n\nok: host — ready to run$`).Match(out) {
 		t.Errorf("the stopped init died before its result printed:\n%s", out)
 	}
 }

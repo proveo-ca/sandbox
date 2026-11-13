@@ -94,6 +94,10 @@ func TestOnlyAFailingCheckARunNeedsFailsInit(t *testing.T) {
 			[]string{"× Daemon — not reachable", "Run: sbx daemon start"}},
 		{"a check proveo does not know", []sbx.Check{{Name: "Something new", Status: "fail", Message: "broken"}}, []string{"Something new"},
 			[]string{"× Something new — broken", "`proveo init --force` reinstalls the pinned " + sbx.Release}},
+		{"a signed-out Authentication row", []sbx.Check{pass, {Name: sbx.AuthenticationCheck, Status: "fail", Message: "not logged in"}}, nil,
+			[]string{"⚠ Docker login — not signed in", loginFix}},
+		{"an Authentication row that warns", []sbx.Check{pass, {Name: sbx.AuthenticationCheck, Status: "warn", Message: "not logged in"}}, nil,
+			[]string{"⚠ Docker login — not signed in", loginFix}},
 		{"every check passed", []sbx.Check{pass}, nil, nil},
 	} {
 		items, blockers := checkItems(c.checks)
@@ -152,7 +156,7 @@ func TestTheResultLeavesOutAnActionThatRanOnAnEarlierVisit(t *testing.T) {
 	rec := &initRecord{}
 	first := initDecisions{Login: true, Wizard: true}
 	rec.leaveUnchosen(first)
-	for _, label := range []string{rowSignIn, rowWizard, "", labelVerify, rowSignIn} {
+	for _, label := range []string{rowLogin, rowWizard, "", labelVerify, rowLogin} {
 		rec.did(label)
 	}
 	rec.leaveUnchosen(initDecisions{}) // the revisit: every one-shot action opens on later
@@ -174,7 +178,7 @@ func TestSignInLeftForLaterUsesTheSetupPagesRowNames(t *testing.T) {
 	t.Parallel()
 	rec := &initRecord{}
 	rec.leaveUnchosen(initDecisions{Git: true, Prompt: true, Gh: true})
-	if later, _ := rec.lines(); !slices.Equal(later, []string{rowSignIn, rowWizard}) {
+	if later, _ := rec.lines(); !slices.Equal(later, []string{rowLogin, rowWizard}) {
 		t.Errorf("later = %q, want the setup page's own rows", later)
 	}
 }
@@ -263,5 +267,45 @@ func TestAFailedPageNamesThePagesAfterIt(t *testing.T) {
 	_ = runInitSteps(true, rec.pages([]initPage{{run: func(choiceui.Step) (stepResult, error) { return stepQuit, nil }}, {label: labelOperator}}))
 	if _, notRun := rec.lines(); len(notRun) != 0 {
 		t.Errorf("a quit named %q as never run", notRun)
+	}
+}
+
+// A step the host left nothing to do for is never "later": Docker login on a signed-in host, sbx
+// setup with nothing to import.
+func TestAMootStepIsNeverLeftForLater(t *testing.T) {
+	t.Parallel()
+	rec := &initRecord{}
+	rec.leaveUnchosen(initDecisions{}, rowLogin)
+	if later, _ := rec.lines(); slices.Contains(later, rowLogin) || !slices.Contains(later, rowWizard) {
+		t.Errorf("later = %q, want Docker login out and sbx setup in", later)
+	}
+	rec.moot(rowWizard)
+	if later, _ := rec.lines(); slices.Contains(later, rowWizard) {
+		t.Errorf("later = %q after the probe found nothing", later)
+	}
+
+	rep := &initReport{}
+	if got := rep.mootRows(); len(got) != 0 {
+		t.Errorf("no diagnose yet, moot = %q", got)
+	}
+	rep.heard([]sbx.Check{{Name: sbx.AuthenticationCheck, Status: "pass", Message: "authenticated"}}, nil)
+	if got := rep.mootRows(); !slices.Equal(got, []string{rowLogin}) {
+		t.Errorf("signed in, moot = %q", got)
+	}
+	rep.heard([]sbx.Check{{Name: sbx.AuthenticationCheck, Status: "fail", Message: "not signed in"}}, nil)
+	if got := rep.mootRows(); len(got) != 0 {
+		t.Errorf("signed out, moot = %q", got)
+	}
+
+	rec = &initRecord{}
+	rec.leaveUnchosen(initDecisions{})
+	rep = &initReport{asked: askedByFlag, probe: func() (sbx.SetupOffer, error) { return sbx.SetupOffer{Known: true}, nil }}
+	rep.heard([]sbx.Check{{Name: sbx.AuthenticationCheck, Status: "pass"}}, nil)
+	rec.moot(rep.mootRows()...)
+	if turn := rep.planSetup(rec, nil); turn.runs || turn.item == nil || turn.item.Text != "sbx setup — nothing to import" {
+		t.Errorf("turn = %+v", turn)
+	}
+	if later, _ := rec.lines(); slices.Contains(later, rowLogin) || slices.Contains(later, rowWizard) {
+		t.Errorf("--yes on a signed-in host with nothing to import left %q for later", later)
 	}
 }

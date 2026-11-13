@@ -119,6 +119,15 @@ title init opens on every check and closes on the result
 ' before it runs lists it under "not run" (the second R3 review: "later:
 ' sign in" printed above "⚠ init — stopped at sign in").
 ' "leave as is" on the network baseline is no "later": nothing waits.
+' AMENDED owner, 2026-11-13: the labels read Docker login, sbx setup,
+' GitHub, git identity, prompt kit. A moot row is never "later": Docker login
+' while the latest diagnose says signed in, sbx setup when its probe finds
+' nothing (leaveUnchosen's moot list, initRecord.moot). After the needs-you
+' items and before the verdict, close() gives sbx setup its turn (planSetup):
+' its row ("sbx setup — nothing to import" / "— not checked"), its "later"
+' with the probe's reason, or its frame, its screen and its outcome, then a
+' blank row. A Ctrl+C there re-raises SIGINT after the verdict:
+' _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK).
 ' initReport.close prints what an early end left unprinted (sbx, git,
 ' credentials, operator), then ONE results block:
 '   ● later:   GitHub                 one Facts block; each list stacked

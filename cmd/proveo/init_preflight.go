@@ -100,8 +100,7 @@ func preflightPage(host sbx.Host, rows []choiceui.CheckRow, stop []sbx.Prereq, a
 
 // The names of the one-shot actions, as the setup page lists them on enter.
 const (
-	actSignIn = "sign in to Docker (sbx login)"
-	actWizard = "run sbx's first-run wizard (sbx setup)"
+	actLogin  = "sign in to Docker if signed out (sbx login)"
 	actGit    = "set the sandbox git identity"
 	actPrompt = "install the prompt kit"
 	actGitHub = "connect GitHub"
@@ -135,18 +134,26 @@ func (r *initRecord) leave(label string, howTo ...string) {
 	r.later[label] = howTo
 }
 
-// leaveUnchosen records every one-shot action d did not choose, and takes each one it chose out
-// of "later".
-func (r *initRecord) leaveUnchosen(d initDecisions) {
+// leaveUnchosen records every one-shot action d did not choose, and takes each one it chose,
+// and each moot one, out of "later".
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
+func (r *initRecord) leaveUnchosen(d initDecisions, moot ...string) {
 	for _, a := range []struct {
 		chosen bool
 		label  string
-	}{{d.Login, rowSignIn}, {d.Wizard, rowWizard}, {d.Gh, rowGh}, {d.Git, rowGit}, {d.Prompt, rowPrompt}} {
-		if a.chosen {
+	}{{d.Login, rowLogin}, {d.Wizard, rowWizard}, {d.Gh, rowGh}, {d.Git, rowGit}, {d.Prompt, rowPrompt}} {
+		if a.chosen || slices.Contains(moot, a.label) {
 			delete(r.later, a.label)
 		} else {
 			r.leave(a.label)
 		}
+	}
+}
+
+// moot takes each label out of "later": the host left its row nothing to do.
+func (r *initRecord) moot(labels ...string) {
+	for _, l := range labels {
+		delete(r.later, l)
 	}
 }
 
@@ -197,7 +204,7 @@ func failed(err error) bool {
 }
 
 // laterOrder is the setup page's row order, then the credentials page.
-var laterOrder = []string{rowSignIn, rowWizard, rowGh, rowGit, rowPrompt, labelCredentials}
+var laterOrder = []string{rowLogin, rowWizard, rowGh, rowGit, rowPrompt, labelCredentials}
 
 // lines are what was left for later, in the page's order, and what never ran.
 func (r *initRecord) lines() (later, notRun []string) {

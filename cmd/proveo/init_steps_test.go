@@ -98,8 +98,11 @@ func TestARevisitOpensOnWhatIsLeft(t *testing.T) {
 	if got.Install != installSkip || got.Prefix != plan.Prefix {
 		t.Errorf("install/prefix = %q/%q, want what the host has now: %q/%q", got.Install, got.Prefix, installSkip, plan.Prefix)
 	}
-	if got.Login || got.Wizard || got.Gh || got.Git || got.Baseline != "" {
-		t.Errorf("a revisit would re-run sbx login, the wizard, gh, git or the baseline: %+v", got)
+	if got.Login || got.Gh || got.Git || got.Baseline != "" {
+		t.Errorf("a revisit would re-run sbx login, gh, git or the baseline: %+v", got)
+	}
+	if !got.Wizard {
+		t.Error("a revisit dropped \"after init\": sbx setup has not run yet, it runs after the result")
 	}
 	if def.AddPath || !got.AddPath {
 		t.Errorf("the PATH answer was not kept (default %v, revisit %v)", def.AddPath, got.AddPath)

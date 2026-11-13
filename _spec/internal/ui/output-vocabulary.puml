@@ -200,6 +200,20 @@
 ' Steps.Quiet and Steps.Silent: _spec/internal/ui/step-lines.puml.
 ' init writes no run log, so ui.Logf is a no-op there; nothing init used to
 ' print moved to Logf. Its how-tos went to `proveo init --help` (F2).
+' THE FRAME HEADING (owner, 2026-11-13): when init gives the terminal to
+' `sbx login` or `sbx setup`, ui.Frame draws one rule line in the section
+' rule's colour, after the pending section heading and a blank row:
+' "── <command> ── [<reason> · ]<whose> screen · <what resumes> ──…". It is
+' no section: Section names a subject, the frame names whose screen follows.
+' ui.Blank closes the program's output with a blank row. Plain output keeps
+' "─" (a section heading draws "-" there); ASCII and Off tiers draw "-".
+' Its grammar and drop order: _spec/internal/ui/step-lines.puml (THE HAND-OFF
+' FRAME). sbx setup now prints between the needs-you items and the verdict:
+' "✓ sbx setup — finished", "⚠ sbx setup — did not complete" or "⚠ sbx
+' setup — stopped" (dim "Ctrl+C ended it"; init then re-raises SIGINT), then
+' a blank row and the verdict. When it does not run, the result says "sbx
+' setup — nothing to import" or "— not checked", or lists it as later.
+' "⚠ Docker login — not signed in" is a readiness item, dim fix and note.
 '
 ' ── WHAT THE LISTINGS PRINT (2026-11-11, R4 of _spec/_plans/output-readability.puml)
 ' A one-subject command draws NO heading (the operator: rm, adopt, attach,

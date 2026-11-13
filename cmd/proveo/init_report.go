@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -80,12 +81,53 @@ type initReport struct {
 	readiness []sandbox.Item // the latest verify's items
 	ready     bool           // the latest verify found nothing a run needs failing
 
+	auth        sbx.Auth // what the latest sbx diagnose said of the Docker sign-in
+	diagnosed   bool     // an sbx diagnose ran in this init
+	loginWarned bool     // the login step printed that Docker is still signed out
+	wizard      bool     // the setup page answered sbx setup "after init"
+	skipSetup   bool     // --skip-setup
+	probe       func() (sbx.SetupOffer, error)
+
 	said map[string]bool // each fact and item a subject printed, so a revisit prints only what changed
 }
 
 func newInitReport(o initOptions, host sbx.Host, prereqs []sbx.Prereq, plan sbx.Plan) *initReport {
-	return &initReport{host: host, prereqs: prereqs, asked: askedFrom(o), print: o.printOnly, applied: plan}
+	r := &initReport{host: host, prereqs: prereqs, asked: askedFrom(o), print: o.printOnly, applied: plan, skipSetup: o.skipSetup}
+	r.probe = func() (sbx.SetupOffer, error) { return sbx.SetupOfferAt(resolveBin(r.applied), os.Getenv) }
+	return r
 }
+
+// heard keeps what an sbx diagnose said of the Docker sign-in.
+func (r *initReport) heard(checks []sbx.Check, err error) {
+	if r != nil {
+		r.auth, r.diagnosed = sbx.DockerAuth(checks, err), true
+	}
+}
+
+// diagnose asks the sbx at bin for its verdict and keeps what it said of the Docker sign-in.
+func (r *initReport) diagnose(bin string) sbx.Auth {
+	checks, err := sbx.DiagnoseAt(bin)
+	r.heard(checks, err)
+	return sbx.DockerAuth(checks, err)
+}
+
+// mootRows are the rows the latest diagnose left nothing to do for.
+func (r *initReport) mootRows() []string {
+	if r != nil && r.auth == sbx.AuthIn {
+		return []string{rowLogin}
+	}
+	return nil
+}
+
+// warnLogin records that the login step printed Docker still signed out.
+func (r *initReport) warnLogin() {
+	if r != nil {
+		r.loginWarned = true
+	}
+}
+
+// namesLogin reports whether it is a Docker login item.
+func namesLogin(it sandbox.Item) bool { return strings.HasPrefix(it.Text, rowLogin+" — ") }
 
 // path writes a host path for the screen: home-relative, or absolute under --print.
 func (r *initReport) path(p string) string {
@@ -352,8 +394,8 @@ func (r *initReport) printCredentials() {
 }
 
 // close prints what init has not printed yet, subject by subject, then the result block: what
-// waits, what never ran, the readiness items and one closing line. It returns nil on success,
-// and otherwise an error main prints nothing for.
+// waits, what never ran, the readiness items, sbx setup when the probe found work for it, and
+// one closing line. It returns nil on success, and otherwise an error main prints nothing for.
 func (r *initReport) close(rec *initRecord, err error) error {
 	var blocked blockedErr
 	if errors.As(err, &blocked) {
@@ -367,17 +409,94 @@ func (r *initReport) close(rec *initRecord, err error) error {
 	}
 	r.printGit()
 	r.printCredentials()
-	items := slices.Clone(r.readiness)
-	closing, ret := r.ending(err)
-	if closing != nil {
-		items = append(items, *closing)
+	if rec != nil {
+		rec.moot(r.mootRows()...)
+		if slices.ContainsFunc(r.readiness, namesLogin) {
+			rec.moot(rowLogin)
+		}
 	}
+	setup := r.planSetup(rec, err)
+	items := slices.Clone(r.readiness)
+	if r.loginWarned {
+		items = slices.DeleteFunc(items, namesLogin)
+	}
+	if setup.item != nil {
+		items = append([]sandbox.Item{*setup.item}, items...)
+	}
+	closing, ret := r.ending(err)
 	var facts []ui.Fact
 	if rec != nil {
 		facts = rec.facts()
 	}
 	sandbox.PrintBlock(sandbox.ResultsHeading, facts, items)
+	if setup.runs {
+		sandbox.ResultsHeading()
+		if interrupted(r.runSetup(setup.offer, rec)) {
+			ret = reraised{backend.Stopped{Signal: syscall.SIGINT}}
+		}
+		if closing != nil {
+			ui.Blank()
+		}
+	}
+	if closing != nil {
+		sandbox.PrintBlock(sandbox.ResultsHeading, nil, []sandbox.Item{*closing})
+	}
 	return ret
+}
+
+// setupTurn is sbx setup's turn after the result: what the probe found, whether setup runs, and
+// the result's row when it neither runs nor waits.
+type setupTurn struct {
+	offer sbx.SetupOffer
+	runs  bool
+	item  *sandbox.Item
+}
+
+// planSetup probes what sbx setup would offer, unless a Ctrl+C ended init, and gives it its turn:
+// it runs only on a terminal, after a walk that completed (err nil), when the page answered
+// "after init" and the probe found work. rec lists it as later only when the probe found work.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
+func (r *initReport) planSetup(rec *initRecord, err error) setupTurn {
+	if r.skipSetup || r.print || rec == nil {
+		return setupTurn{}
+	}
+	var offer sbx.SetupOffer
+	if !interrupted(err) {
+		offer, _ = r.probe()
+	}
+	completed := err == nil
+	switch {
+	case offer.Known && offer.Offers() && completed && r.wizard && r.asked == askedOnPages:
+		rec.moot(rowWizard)
+		return setupTurn{offer: offer, runs: true}
+	case offer.Known && offer.Offers():
+		rec.leave(rowWizard, offer.Reason()+" · `"+sbx.Binary+" setup` on a terminal")
+		return setupTurn{offer: offer}
+	}
+	rec.moot(rowWizard)
+	switch {
+	case !completed:
+		return setupTurn{offer: offer}
+	case offer.Known:
+		return setupTurn{offer: offer, item: &sandbox.Item{Text: rowWizard + " — nothing to import"}}
+	}
+	return setupTurn{offer: offer, item: &sandbox.Item{Text: rowWizard + " — not checked", Detail: []string{"`" + sbx.Binary + " setup` opens it"}}}
+}
+
+// runSetup hands `sbx setup` the terminal under its frame, then prints its outcome.
+func (r *initReport) runSetup(offer sbx.SetupOffer, rec *initRecord) error {
+	err := handFramed(command(resolveBin(r.applied), sbx.SetupArgs()...), offer.Reason(), "sbx's screen", "init ends when it exits")
+	it := sandbox.Item{Ok: true, Text: rowWizard + " — finished"}
+	switch {
+	case err == nil:
+		rec.did(rowWizard)
+	case interrupted(err):
+		it = sandbox.Item{Warn: true, Text: rowWizard + " — stopped", Detail: []string{"Ctrl+C ended it"}}
+	default:
+		it = sandbox.Item{Warn: true, Text: rowWizard + " — did not complete", Detail: append(errDetail(err), "`"+sbx.Binary+" setup` by hand")}
+	}
+	sandbox.PrintBlock(sandbox.ResultsHeading, nil, []sandbox.Item{it})
+	return err
 }
 
 // ending is the result's closing line for err, and what doInit returns. Every ending but success
@@ -506,6 +625,15 @@ func endedByInterrupt(exit *exec.ExitError) bool {
 		return true
 	}
 	return exit.ExitCode() == 128+int(syscall.SIGINT)
+}
+
+// handFramed gives the terminal to c under its frame line, and leaves a blank row under what c printed.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
+func handFramed(c *exec.Cmd, parts ...string) error {
+	ui.Frame(strings.Join(append([]string{filepath.Base(c.Args[0])}, c.Args[1:]...), " "), parts...)
+	err := handOff(c)
+	ui.Blank()
+	return err
 }
 
 // command is argv with the terminal: init's stdin, and stderr for both of its outputs.

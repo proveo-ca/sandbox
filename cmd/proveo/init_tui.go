@@ -15,8 +15,8 @@ type initDecisions struct {
 	Install  string // installTarball | installPackaged | installSkip
 	Prefix   string
 	AddPath  bool
-	Login    bool
-	Wizard   bool
+	Login    bool // run `sbx login` while sbx diagnose says Docker is signed out
+	Wizard   bool // open `sbx setup` after the result, while the probe finds work
 	Gh       bool
 	Git      bool
 	Prompt   bool   // install the shell-prompt kit: starship, a Nerd Font, the segment
@@ -33,12 +33,12 @@ const (
 	rowInstall  = "sbx install"
 	rowPrefix   = "sbx location"
 	rowPath     = "PATH"
-	rowSignIn   = "sign in"
+	rowLogin    = "Docker login"
 	rowWizard   = "sbx setup"
 	rowGh       = "GitHub"
 	rowGit      = "git identity"
-	rowPrompt   = "prompt"
-	rowBaseline = "network baseline"
+	rowPrompt   = "prompt kit"
+	rowBaseline = "network"
 	rowNext     = "next steps"
 
 	baselineLeave = "leave as is"
@@ -46,6 +46,14 @@ const (
 
 	pathAddRC = "add to shell rc"
 	pathPrint = "print only"
+
+	loginNow       = "now"
+	loginIfOut     = "if signed out"
+	loginSignedIn  = "signed in"
+	loginUnchecked = "not checked"
+
+	setupAfter = "after init"
+	setupLater = "later"
 )
 
 // prefixOptions are the two the release's own installer documents. /usr/local
@@ -66,14 +74,14 @@ func homeDir() string {
 	return h
 }
 
-// defaultDecisions are the answers nobody gave; terminal says whether one is there to hand sbx's wizard.
-// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE WIZARD WAITS FOR A TERMINAL)
+// defaultDecisions are the answers nobody gave; terminal says whether one is there to hand sbx login and sbx setup.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
 func defaultDecisions(plan sbx.Plan, installed string, o initOptions, terminal bool) initDecisions {
 	d := initDecisions{
 		Install:  installTarball,
 		Prefix:   plan.Prefix,
 		AddPath:  plan.Bin != "",
-		Login:    !o.skipLogin,
+		Login:    !o.skipLogin && !o.yes && terminal,
 		Wizard:   !o.skipSetup && !o.yes && terminal,
 		Gh:       !o.skipGh,
 		Git:      !o.skipGit,
@@ -87,18 +95,19 @@ func defaultDecisions(plan sbx.Plan, installed string, o initOptions, terminal b
 	return d
 }
 
-// carried opens a revisit on what is left: the host as it is now, PATH as answered, every one-shot action later.
+// carried opens a revisit on what is left: the host as it is now, PATH and sbx setup as answered,
+// every one-shot action of the apply later.
 func carried(def initDecisions, prev *initDecisions) initDecisions {
 	if prev == nil {
 		return def
 	}
 	out := def
-	out.AddPath, out.pathDone = prev.AddPath, prev.pathDone
-	out.Login, out.Wizard, out.Gh, out.Git, out.Prompt, out.Baseline = false, false, false, false, false, ""
+	out.AddPath, out.pathDone, out.Wizard = prev.AddPath, prev.pathDone, prev.Wizard
+	out.Login, out.Gh, out.Git, out.Prompt, out.Baseline = false, false, false, false, ""
 	return out
 }
 
-func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
+func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, auth sbx.Auth, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
 	def := carried(defaultDecisions(plan, installed, o, true), prev)
 
 	form := &choiceui.Form{
@@ -107,7 +116,7 @@ func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.P
 		Header: initHeader(plan, installed, checks),
 		Glyphs: posture.GlyphModeFrom(os.Getenv),
 		Step:   at,
-		Rows:   initRows(plan, installed, def, o),
+		Rows:   initRows(plan, installed, auth, def, o),
 	}
 	form.OnEnter = func(f *choiceui.Form) []string {
 		return stepNames(applyPlan(answered(f, def), plannedCtx(plan, host, answered(f, def), viaPackage)))
@@ -149,11 +158,11 @@ func answered(form *choiceui.Form, def initDecisions) initDecisions {
 	if v := form.Selection(rowPath); v != "" {
 		out.AddPath = v == pathAddRC
 	}
-	if v := form.Selection(rowSignIn); v != "" {
-		out.Login = v == "now"
+	if v := form.Selection(rowLogin); v != "" {
+		out.Login = v == loginNow
 	}
 	if v := form.Selection(rowWizard); v != "" {
-		out.Wizard = v == "now"
+		out.Wizard = v == setupAfter
 	}
 	if v := form.Selection(rowGh); v != "" {
 		out.Gh = v == "now"
@@ -200,7 +209,7 @@ func initHeader(plan sbx.Plan, installed string, checks []sbx.Prereq) []string {
 	return out
 }
 
-func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions) []choiceui.Row {
+func initRows(plan sbx.Plan, installed string, auth sbx.Auth, def initDecisions, o initOptions) []choiceui.Row {
 	var rows []choiceui.Row
 	rows = append(rows, installRow(plan, installed, def, o))
 
@@ -230,17 +239,9 @@ func initRows(plan sbx.Plan, installed string, def initDecisions, o initOptions)
 		})
 	}
 
-	signIn := nowLaterRow(rowSignIn, def.Login, o.skipLogin, "--skip-login was passed", map[string]string{
-		"now":   "next: `sbx login` — Docker Hub OAuth so image pulls work; proveo never sees the credential",
-		"later": "skip for now; pulls inside a run fail until you have signed in",
-	})
-	signIn.Divider, signIn.Heading = true, rowNext
-	rows = append(rows, signIn)
-
-	rows = append(rows, nowLaterRow(rowWizard, def.Wizard, o.skipSetup, "--skip-setup was passed", map[string]string{
-		"now":   "next: `sbx setup` — sbx's first-run wizard: agent secrets to import, SSH-agent forwarding",
-		"later": "a host nobody sets up stays half-configured, with no prompt to say so",
-	}))
+	login := loginRow(installed != "", auth, def.Login, o.skipLogin)
+	login.Divider, login.Heading = true, rowNext
+	rows = append(rows, login, setupRow(def.Wizard, o.skipSetup))
 
 	rows = append(rows, nowLaterRow(rowGh, def.Gh, o.skipGh, "--skip-gh was passed", map[string]string{
 		"now":   "verify gh and API sign-in, then choose sandbox Git access: SSH agent, HTTPS token, or later",
@@ -271,6 +272,59 @@ func pathChoice(add bool) string {
 		return pathAddRC
 	}
 	return pathPrint
+}
+
+// loginRow is Docker login as sbx diagnose left it when the page drew: an answer only while
+// it said signed out, or while no sbx was there to ask.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
+func loginRow(installed bool, auth sbx.Auth, def, skip bool) choiceui.Row {
+	var r choiceui.Row
+	switch {
+	case skip:
+		r = nowLaterRow(rowLogin, false, true, "--skip-login was passed", loginHelp)
+	case installed && auth == sbx.AuthIn:
+		r = statusRow(rowLogin, loginSignedIn, "sbx diagnose says Docker is signed in; init runs no `sbx login`")
+	case installed && auth == sbx.AuthUnknown:
+		r = statusRow(rowLogin, loginUnchecked, "sbx diagnose gave no answer about Docker, so init runs no `sbx login`; `sbx login` signs in")
+	case installed:
+		r = nowLaterRow(rowLogin, def, false, "", loginHelp)
+	default:
+		r = nowLaterRow(rowLogin, def, false, "", map[string]string{
+			loginNow: "after the install, `sbx login` runs only if sbx diagnose says Docker is signed out",
+			"later":  loginHelp["later"],
+		})
+		r.Paint = map[string]string{loginNow: loginIfOut}
+	}
+	r.CellRunes = len(loginIfOut)
+	return r
+}
+
+var loginHelp = map[string]string{
+	loginNow: "sbx diagnose says Docker is signed out: `sbx login` takes the terminal for Docker's browser sign-in; " +
+		"proveo never sees the credential",
+	"later": "the first `sbx run` starts `sbx login` itself",
+}
+
+// statusRow is a row with nothing to answer: its one locked option names the state, and its help says why.
+func statusRow(label, state, why string) choiceui.Row {
+	return choiceui.Row{Label: label, Options: []string{state}, Locked: true, Help: map[string]string{state: why}}
+}
+
+// setupRow is sbx setup, which opens after the result and only while the probe finds work.
+func setupRow(def, skip bool) choiceui.Row {
+	opts := []string{setupAfter, setupLater}
+	r := choiceui.Row{Label: rowWizard, Options: opts, Help: map[string]string{
+		setupAfter: "sbx's own setup screen opens after the result, only while sbx's store lacks an env key " +
+			"or SSH agent forwarding is off",
+		setupLater: "`sbx setup` on a terminal imports the env keys sbx's store lacks",
+	}}
+	if !def {
+		r.Selected = 1
+	}
+	if skip {
+		r.Locked, r.Reason, r.Hover, r.Selected = true, "--skip-setup was passed", 1, 1
+	}
+	return r
 }
 
 func nowLaterRow(label string, def, locked bool, why string, help map[string]string) choiceui.Row {
@@ -315,7 +369,7 @@ func installRow(plan sbx.Plan, installed string, def initDecisions, o initOption
 	if installed != "" {
 		opts = append(opts, installSkip)
 		off = append(off, false)
-		help[installSkip] = "sbx " + installed + " stays; init still checks and signs in"
+		help[installSkip] = "sbx " + installed + " stays; init still checks it, and signs in only while Docker is signed out"
 	}
 	r := choiceui.Row{
 		Label:    rowInstall,

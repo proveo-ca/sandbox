@@ -2,9 +2,9 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: who owns the question "can this host run a sandbox", and why proveo stopped answering it itself
-' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, Check.Summary, Check.Evidence, Check.Affects, RunBlockers, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt)
-' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence, TestOnlyAFailingRowARunNeedsBlocksARun, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary)
-' covers: cmd/proveo/init.go (verify, checkItems)
+' covers: internal/sbx/install.go (Prereq, Stage, Prereqs, linuxPrereqs, Blocking, Names, Check, Check.Summary, Check.Evidence, Check.Affects, RunBlockers, ParseDiagnose, FailedChecks, CheckNames, DiagnoseArgs, DiagnoseAt, AuthenticationCheck, Auth, DockerAuth, SecretListJSONArgs, SettingJSONArgs, SetupOffer, ParseEnvOnly, ParseForwardingOff, SetupOfferFrom, SetupOfferAt)
+' covers: internal/sbx/install_test.go (TestPrereqsCoverInstallBlockersOnly, TestLinuxPrereqsPassOnAReadyHostAndWarnUnderSELinux, TestADiagnoseRowsMessageIsItsSummaryAndItsDetailIsEvidence, TestOnlyAFailingRowARunNeedsBlocksARun, TestParseDiagnoseReadsSbxsOwnVerdict, TestDiagnoseAtAgainstTheRealBinary, TestDockerAuthReadsTheAuthenticationRow, TestSetupOfferReadsEnvOnlyCount, TestSetupOfferAtRunsOnlyTheReadOnlyProbes, TestSetupOfferCountsForwardingOnlyWhenUnchosen)
+' covers: cmd/proveo/init.go (verify, checkItems, loginItem)
 ' covers: cmd/proveo/init_preflight_test.go (TestOnlyAFailingCheckARunNeedsFailsInit)
 ' covers: internal/sbx/version.go (Verified, IsVerified, UnverifiedNote, Available)
 ' covers: internal/sbx/version_test.go
@@ -259,6 +259,65 @@ skinparam noteTextAlignment left
 ' this shell's PATH" and no verdict.
 ' Pinned by cmd/proveo/init_preflight_test.go TestOnlyAFailingCheckARunNeedsFailsInit
 ' and cmd/proveo/init_report_test.go TestARunBlockerClosesOnOneHostVerdictAndNamesWhatNeverRan.
+'
+' ── DOCKER LOGIN (DECIDED owner, 2026-11-13; Q1-A below) ───────────────────
+' MEASURED 2026-11-13, sbx 0.50.0 (brew cask) on this darwin/arm64 host,
+' signed in, `sbx diagnose --json` (0.81 s, exit 1: SSH client config failed):
+'   {"name":"Authentication","status":"pass","message":"authenticated",
+'    "detail":"","hint":""}
+' The payload's top-level keys are checks, summary and version; 18 rows.
+' [Inference] Signed out: message "not signed in", hint "Run: sbx login".
+' Both strings are in the 0.50.0 and 0.49.2 binaries. The status (fail or
+' warn) is unmeasured: measuring it needs `sbx logout`, which stops live
+' sandboxes. So DockerAuth keys on the status alone:
+'   err != nil · no "Authentication" row · any other status  → AuthUnknown
+'   "pass"                                                   → AuthIn
+'   "fail" | "warn"                                          → AuthOut
+' Q1-A (owner, 2026-11-13): outsideARun gains "Authentication", affecting
+' "the first `sbx run`, which starts `sbx login` itself" (docker/sbx-releases
+' #813). A signed-out host warns and init exits 0; it never blocks the
+' verdict. checkItems reads a signed-out row, fail OR warn, as ONE item:
+' "⚠ Docker login — not signed in", its evidence, the fix line
+' "`sbx login` on a terminal; CI: echo "$DOCKER_PAT" | sbx login --username
+' <name> --password-stdin", then the outsideARun note. The raw row prints no
+' second item. A warn row used to print nothing (FailedChecks is fail only).
+' Pinned by TestDockerAuthReadsTheAuthenticationRow,
+' TestOnlyAFailingRowARunNeedsBlocksARun, cmd/proveo/init_preflight_test.go
+' TestOnlyAFailingCheckARunNeedsFailsInit (fail and warn rows) and e2e
+' TestInitYesOnASignedOutHostWarnsAndExitsZero; init's gate is
+' _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK).
+'
+' ── WHAT SBX SETUP OFFERS (DECIDED owner, 2026-11-13) ───────────────────────
+' SetupOfferAt(bin, getenv) runs two read-only probes by absolute path:
+'   `sbx secret ls --json`   env_only_count, through a *int
+'   `sbx settings get --json ssh.agentForwardingEnabled`, only when
+'                            SSH_AUTH_SOCK is set
+' MEASURED 2026-11-13, sbx 0.50.0, this host: `secret ls --json` took 0.48 s,
+' exit 0, top-level keys custom_secrets, env_only_count (a number),
+' secrets, shadowed_services; each secrets[] entry has name, scope, secret,
+' type. `settings get --json ssh.agentForwardingEnabled` took 0.21 s, keys
+' default, description, key, requires_restart, source, type, value, here
+' value true at source "default". An undefined key prints "error: setting
+' … is not defined" on stderr and exits 0, so stdout is empty and the parse
+' fails: not known. (The spec's earlier run measured env_only_count 0, 1, 2
+' for 0, 1, 2 unknown env keys, matching `secret import --dry-run`.)
+' The probe parses env_only_count alone: no other field is declared, so no
+' secret value is read, kept or printed. `secret import --dry-run` prints
+' the last 4 characters of stored values, and no probe runs it.
+'   EnvOnly       env_only_count; a missing field or an older sbx's text
+'                 table is NOT KNOWN, never 0
+'   ForwardingOff SSH_AUTH_SOCK set ∧ value false ∧ source "default": an
+'                 operator who turned forwarding off is never nagged
+'   Known         (both parsed) ∨ Offers(); with no SSH_AUTH_SOCK the
+'                 forwarding clause is false without a probe (Executor,
+'                 2026-11-13: no socket, nothing to forward)
+'   Reason        "n env key(s) sbx's store lacks", "SSH agent forwarding
+'                 off", joined with " · "
+' Never counted: the fixed endpoint, a stored key whose env value differs,
+' skills and MCP servers. [Inference] 0.50's `sbx setup --help` names
+' neither skills nor MCP servers.
+' Pinned by TestSetupOfferReadsEnvOnlyCount, TestSetupOfferAtRunsOnlyTheReadOnlyProbes
+' and TestSetupOfferCountsForwardingOnlyWhenUnchosen.
 title host readiness — sbx answers "can this host run a sandbox";\nproveo asks, renders, and installs
 
 actor "operator" as OP
@@ -358,6 +417,13 @@ note bottom of SEL
   measured 2026-09-07 the rockylinux8 package
   did not resolve an enforcing host either. So
   BlocksNothing: worth saying, blocks nobody.
+end note
+
+note top of INIT
+  **Signed out warns; it never blocks.** The
+  first ""sbx run"" starts ""sbx login"" itself,
+  so a fail OR warn Authentication row reads
+  as one "Docker login — not signed in" item.
 end note
 
 note bottom of OWNED

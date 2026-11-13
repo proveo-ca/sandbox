@@ -75,46 +75,91 @@ func TestFlagsSettleTheirDecisionsWithoutAsking(t *testing.T) {
 	}
 }
 
-// sbx setup has no unattended form: under --yes or with no terminal it waits for later, and
-// sbx login keeps its default. When the page draws, the row decides.
-func TestTheWizardWaitsForATerminal(t *testing.T) {
+// THE SBX STEPS RUN ONLY WITH WORK: neither `sbx login` nor `sbx setup` gets the terminal under
+// --yes or with no terminal. When the page draws, the rows decide.
+func TestYesNeverHandsTheTerminalToSbx(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, "/opt/sbx")
 	host := sbx.Host{OS: "linux", Arch: "amd64", Distro: "rocky", Like: "rhel"}
 	for _, c := range []struct {
-		name     string
-		o        initOptions
-		terminal bool
-		want     bool
+		name          string
+		o             initOptions
+		terminal      bool
+		wizard, login bool
 	}{
-		{"a terminal", initOptions{}, true, true},
-		{"--yes on a terminal", initOptions{yes: true}, true, false},
-		{"no terminal", initOptions{}, false, false},
-		{"--skip-setup", initOptions{skipSetup: true}, true, false},
+		{"a terminal", initOptions{}, true, true, true},
+		{"--yes on a terminal", initOptions{yes: true}, true, false, false},
+		{"no terminal", initOptions{}, false, false, false},
+		{"--skip-setup", initOptions{skipSetup: true}, true, false, true},
+		{"--skip-login", initOptions{skipLogin: true}, true, true, false},
 	} {
 		d := defaultDecisions(plan, "", c.o, c.terminal)
-		if d.Wizard != c.want {
-			t.Errorf("%s: Wizard = %v, want %v", c.name, d.Wizard, c.want)
-		}
-		if !d.Login {
-			t.Errorf("%s: sbx login lost its default", c.name)
+		if d.Wizard != c.wizard || d.Login != c.login {
+			t.Errorf("%s: Wizard = %v, Login = %v; want %v, %v", c.name, d.Wizard, d.Login, c.wizard, c.login)
 		}
 	}
 
-	d, err := decide(plan, host, "", nil, initOptions{yes: true}, nil, false, choiceui.Step{})
+	d, err := decide(plan, host, "", nil, sbx.AuthOut, initOptions{yes: true}, nil, false, choiceui.Step{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if steps := stepNames(applyPlan(d, plannedCtx(plan, host, d, false))); d.Wizard || slices.Contains(steps, actWizard) {
-		t.Errorf("--yes hands sbx's wizard a stdin nobody answers: Wizard=%v steps=%q", d.Wizard, steps)
+	if steps := stepNames(applyPlan(d, plannedCtx(plan, host, d, false))); d.Wizard || d.Login || slices.Contains(steps, actLogin) {
+		t.Errorf("--yes hands sbx a stdin nobody answers: Wizard=%v Login=%v steps=%q", d.Wizard, d.Login, steps)
 	}
 
 	def := defaultDecisions(plan, "", initOptions{}, true)
-	for _, pick := range []string{"now", "later"} {
-		row := nowLaterRow(rowWizard, def.Wizard, false, "", nil)
+	for _, pick := range []string{setupAfter, setupLater} {
+		row := setupRow(def.Wizard, false)
 		row.Selected = indexOf(row.Options, pick)
-		if got := answered(&choiceui.Form{Rows: []choiceui.Row{row}}, def).Wizard; got != (pick == "now") {
+		if got := answered(&choiceui.Form{Rows: []choiceui.Row{row}}, def).Wizard; got != (pick == setupAfter) {
 			t.Errorf("the row chose %q, Wizard = %v", pick, got)
+		}
+	}
+	if row := setupRow(true, true); !row.Locked || row.Options[row.Selected] != setupLater || !strings.Contains(row.Reason, "--skip-setup") {
+		t.Errorf("--skip-setup row = %+v, want it locked on later with the flag named", row)
+	}
+}
+
+// THE SBX STEPS RUN ONLY WITH WORK: the Docker login row is an answer only while sbx diagnose says
+// signed out, or before sbx exists.
+func TestLoginRunsOnlyWhenSbxSaysSignedOut(t *testing.T) {
+	t.Parallel()
+	def := defaultDecisions(linuxPlan(t, "/opt/sbx"), "0.50.0", initOptions{}, true)
+	for _, c := range []struct {
+		name      string
+		installed string
+		auth      sbx.Auth
+		locked    bool
+		cells     []string
+		login     bool
+	}{
+		{"signed in", "0.50.0", sbx.AuthIn, true, []string{"signed in"}, false},
+		{"signed out", "0.50.0", sbx.AuthOut, false, []string{"now", "later"}, true},
+		{"diagnose gave no answer", "0.50.0", sbx.AuthUnknown, true, []string{"not checked"}, false},
+		{"no sbx yet", "", sbx.AuthUnknown, false, []string{"if signed out", "later"}, true},
+	} {
+		row := loginRow(c.installed != "", c.auth, def.Login, false)
+		var cells []string
+		for _, o := range row.Options {
+			cell := o
+			if p, ok := row.Paint[o]; ok {
+				cell = p
+			}
+			cells = append(cells, cell)
+		}
+		if row.Locked != c.locked || !slices.Equal(cells, c.cells) {
+			t.Errorf("%s: locked %v, cells %q; want %v, %q", c.name, row.Locked, cells, c.locked, c.cells)
+		}
+		if row.CellRunes < len("if signed out") {
+			t.Errorf("%s: a cell clips at %d runes", c.name, row.CellRunes)
+		}
+		for _, o := range row.Options {
+			if row.Help[o] == "" {
+				t.Errorf("%s: %q explains nothing", c.name, o)
+			}
+		}
+		if got := answered(&choiceui.Form{Rows: []choiceui.Row{row}}, def).Login; got != c.login {
+			t.Errorf("%s: Login = %v, want %v", c.name, got, c.login)
 		}
 	}
 }
@@ -125,7 +170,7 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, sbx.DefaultPrefix(homeDir()))
 	def := defaultDecisions(plan, "", initOptions{}, true)
-	rows := initRows(plan, "", def, initOptions{})
+	rows := initRows(plan, "", sbx.AuthUnknown, def, initOptions{})
 
 	byLabel := map[string]int{}
 	for i, r := range rows {
@@ -139,7 +184,7 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowSignIn, rowWizard, rowGh, rowGit, rowPrompt} {
+	for _, want := range []string{rowInstall, rowPrefix, rowPath, rowLogin, rowWizard, rowGh, rowGit, rowPrompt} {
 		if _, ok := byLabel[want]; !ok {
 			t.Errorf("no %q row; got %v", want, byLabel)
 		}
@@ -166,7 +211,7 @@ func TestInitRowsCoverThePendingDecisions(t *testing.T) {
 		t.Errorf("PATH options mismatch (-want +got):\n%s", diff)
 	}
 
-	signIn := rows[byLabel[rowSignIn]]
+	signIn := rows[byLabel[rowLogin]]
 	if !signIn.Divider || signIn.Heading != rowNext {
 		t.Errorf("sign-in must open the %q group (so its own label stays), got Divider=%v Heading=%q",
 			rowNext, signIn.Divider, signIn.Heading)
@@ -183,10 +228,10 @@ func TestAFlagLockedRowIsDrawnWithItsReason(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, "/opt/sbx")
 	o := initOptions{skipLogin: true}
-	rows := initRows(plan, "", defaultDecisions(plan, "", o, true), o)
+	rows := initRows(plan, "", sbx.AuthUnknown, defaultDecisions(plan, "", o, true), o)
 
 	for _, r := range rows {
-		if r.Label != rowSignIn {
+		if r.Label != rowLogin {
 			continue
 		}
 		if !r.Locked {
@@ -204,7 +249,7 @@ func TestSkipGhLocksTheGhRow(t *testing.T) {
 	t.Parallel()
 	plan := linuxPlan(t, "/opt/sbx")
 	o := initOptions{skipGh: true}
-	rows := initRows(plan, "", defaultDecisions(plan, "", o, true), o)
+	rows := initRows(plan, "", sbx.AuthUnknown, defaultDecisions(plan, "", o, true), o)
 	for _, r := range rows {
 		if r.Label != rowGh {
 			continue
@@ -228,7 +273,7 @@ func TestWindowsIsNotAskedAboutAPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := initRows(plan, "", defaultDecisions(plan, "", initOptions{}, true), initOptions{})
+	rows := initRows(plan, "", sbx.AuthUnknown, defaultDecisions(plan, "", initOptions{}, true), initOptions{})
 	for _, r := range rows {
 		if r.Label == rowPrefix || r.Label == rowPath {
 			t.Errorf("windows was asked about %q, which the MSI decides", r.Label)
@@ -258,7 +303,7 @@ func TestInitRowsGateAPackagedInstallThisHostCannotRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := initRows(plan, "", defaultDecisions(plan, "", initOptions{}, true), initOptions{})
+	rows := initRows(plan, "", sbx.AuthUnknown, defaultDecisions(plan, "", initOptions{}, true), initOptions{})
 	byLabel := map[string]int{}
 	for i, r := range rows {
 		byLabel[r.Label] = i
