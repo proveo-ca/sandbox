@@ -1074,7 +1074,8 @@
         "internal/choiceui/disabled_hover_test.go",
         "internal/run/disabled_hover_test.go",
         "cmd/proveo/init_tui.go",
-        "cmd/proveo/init_hover_test.go"
+        "cmd/proveo/init_hover_test.go",
+        "internal/choiceui/bare_row_test.go"
       ],
       "fingerprint": null
     },

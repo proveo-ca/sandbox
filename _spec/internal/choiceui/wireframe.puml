@@ -18,6 +18,7 @@
 ' covers: internal/run/disabled_hover_test.go
 ' covers: cmd/proveo/init_tui.go (installRow)
 ' covers: cmd/proveo/init_hover_test.go
+' covers: internal/choiceui/bare_row_test.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows and gateAddons have already executed.
@@ -243,7 +244,7 @@
 ' ".env", in grid column 3. Its list holds the names the run's env file sets
 ' (p.HostEnvFile, so PROVEO_ENV_FILE wins when set). The list holds names
 ' only, A to Z ignoring case, read-only, with no tick boxes (More.Bare). With
-' no names the cell draws "[ ] .env (0)" with no ▾ and opens nothing. The names
+' no names the cell draws ".env (0)" with no ▾ and opens nothing. The names
 ' come from credentials.EnvFileNames, which wraps the one parser:
 ' _spec/internal/credentials/credential-decisions.puml (ONE PARSER).
 ' THE FILTER (owner, O4). "/" opens it. Typed letters narrow the list by
@@ -310,7 +311,7 @@
 ' (4)", "OAuth (2)", "SSH (1)" and ".env (20)": each count is the length of
 ' the list the cell opens.
 '   1. Every cell shows its count, (0) included.
-'   2. An empty class draws "[ ] OAuth (0)" with no ▾ and opens nothing.
+'   2. An empty class draws "OAuth (0)" with no ▾ and opens nothing.
 '   3. The count lives only in the drawn label: run.credentialsRow puts it
 '      in Row.Paint. Options, Selections and Selection keep the bare name.
 '   4. A clipped cell keeps a trailing " (N)" and " ▾" whole and cuts the
@@ -324,11 +325,12 @@
 '      "[x] SSH (… ▾" (verifier, 2026-11-14).
 '   5. The open list's top border keeps its count as it was and titles the
 '      list with the bare name (Row.listName), so "(N)" never doubles there.
-' MEASURED at 80 columns (pitch 16): a cell holds 14 columns and the .env
-' cell 12, so the words shrink hard: "[x] API… (4) ▾", "[x] OAu… (2) ▾",
-' "[x] SSH (1) ▾", "[x] … (20) ▾". The decision's example "API k… (4) ▾"
-' needs 16 columns. At 120 columns every cell fits whole up to three digits;
-' at 100 the .env cell (14 columns) cuts its words from two digits on.
+' MEASURED at 80 columns (pitch 16) while the row drew tick boxes: a cell
+' holds 14 columns and the .env cell 12, so the words shrank hard: "[x] API…
+' (4) ▾", "[x] OAu… (2) ▾", "[x] SSH (1) ▾", "[x] … (20) ▾". The decision's
+' example "API k… (4) ▾" needs 16 columns. At 120 columns every ticked cell
+' fits whole up to three digits; at 100 the ticked .env cell (14 columns)
+' cuts its words from two digits on.
 ' Pinned by internal/choiceui/card_test.go:
 '   TestSplitCountTakesOnlyATrailingNumber
 '   TestAClippedCellKeepsItsCountAndArrow
@@ -336,6 +338,35 @@
 ' Pinned by internal/run/credential_inventory_test.go:
 '   TestEachCredentialCellCountsItsListAndNoCountReachesTheSelection
 '   TestEmptyCredentialClassesStayUntickedWithoutDropdowns
+' DECIDED 2026-11-14 (owner chose "Drop the tick boxes": the count says held
+' or empty). run.credentialsRow sets Row.Bare, so its cells draw no "[x] " or
+' "[ ] " and each gives those 4 columns to its words. At 80 columns every
+' counted cell fits whole:
+'   │   credentials   API keys (4) ▾  OAuth (2) ▾     SSH (1) ▾       .env (20) ▾  │
+' An empty class reads "OAuth (0)" with no ▾: no list to open.
+' WHAT Bare CHANGES (Executor): the tick glyph alone. Row.cellGlyph returns
+' "" with the cell's state, so a cell keeps its held, gated or chosen style;
+' the cursor fill spans the cell's text and stops after its ▾; ←/→ land on
+' every cell and the help names it with its status, as wizard-keys.puml
+' (EVERY OPTION TAKES THE CURSOR) has it. The grid pitch, each cell's room,
+' the open list's column and the help slot stay as they were: the pitch is
+' the form's, shared with every row under it. A radio mark in a Bare row
+' stays. Every other checkbox row keeps its tick boxes, and an open list
+' keeps its own (More.Bare decides a list). Counts stay out of Selection.
+' MEASURED at 80 columns with Bare: API keys holds a one-digit count whole and
+' cuts its words from two ("API ke… (12) ▾"); OAuth holds four digits, SSH
+' six, .env three. At 120 the cells stand at columns 18, 40, 62 and 84, over
+' the model row's cells; the owner's sketch put SSH at 61 and .env at 82:
+'   │   credentials   API keys (4) ▾        OAuth (2) ▾           SSH (1) ▾             .env (20) ▾
+' Pinned by internal/choiceui/bare_row_test.go:
+'   TestABareRowDrawsItsCellsWithoutTickBoxes
+'   TestABareRowKeepsItsStateStylesAndCursorFill
+'   TestABareRowPacksItsCellsWithoutTickBoxes
+'   TestABareRowHoversEveryCellAndNamesItsStatus
+'   TestABareCellGivesTheTickBoxColumnsToItsWords
+' Pinned by internal/run/credential_inventory_test.go:
+'   TestTheCredentialsRowShowsEveryCountedCellWholeAt80And120
+'   TestNoOtherRunRowLostItsTickBoxes
 '
 ' STATE STYLES (owner, O5). Every answer draws its state, and a fill marks
 ' the cursor's answer instead of an underline:
@@ -776,7 +807,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   }
   {
     <color:#00BAC6>├── </color><b>agent</b><color:#00BAC6> ──────</color> | . | . | . | .
-    <color:#9a9a9a>credentials</color> | <color:#9a9a9a>[X] API keys (4) ▾</color> | <color:#9a9a9a>[X] OAuth (2) ▾</color> | <color:#9a9a9a>[X] SSH (1) ▾</color> | <color:#9a9a9a>[X] .env (20) ▾</color>
+    <color:#9a9a9a>credentials</color> | <color:#9a9a9a>API keys (4) ▾</color> | <color:#9a9a9a>OAuth (2) ▾</color> | <color:#9a9a9a>SSH (1) ▾</color> | <color:#9a9a9a>.env (20) ▾</color>
     <color:#00BAC6>› model</color> | ( ) Qwen 3.8 | <back:#00BAC6><b>(X) API keys</b></back> | ( ) <color:#9a9a9a><s>plan</s></color> | ( ) Glimmer
     ├── execution ── | . | . | . | .
     OS | ( ) <color:#9a9a9a><s>host</s></color> | (X) <color:#9a9a9a>sandbox</color> | . | .
@@ -802,13 +833,13 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
 }
 {
 {^"1 · fixed — read-only inventory, four classes"
-  credentials | <color:#9a9a9a>[X] API keys (4) ▾</color> | <color:#9a9a9a>[X] OAuth (2) ▾</color> | <color:#9a9a9a>[X] SSH (1) ▾</color> | <color:#9a9a9a>[X] .env (20) ▾</color>
+  credentials | <color:#9a9a9a>API keys (4) ▾</color> | <color:#9a9a9a>OAuth (2) ▾</color> | <color:#9a9a9a>SSH (1) ▾</color> | <color:#9a9a9a>.env (20) ▾</color>
   .
   Left/right opens each populated class.
   Up/down traverses its complete list.
   Space never changes a credential.
-  Empty classes read (0), unticked and
-  without an arrow. Counts describe the
+  Empty classes read (0) without an
+  arrow. Counts describe the
   host inventory; model and kit bindings
   determine which entries a run uses.
   .
@@ -816,11 +847,13 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   names the run's env file sets: names
   only, A to Z, no tick boxes, and "/"
   filters them. A run with no env file
-  draws "[ ] .env (0)", with no arrow.
+  draws ".env (0)", with no arrow.
   .
-  Each cell counts its list (2026-11-14,
-  owner). At 80 columns the words give
-  way first: "[x] API… (4) ▾".
+  Each cell counts its list and draws
+  no tick box: the count says held or
+  empty (2026-11-14, owner). At 80
+  columns every cell fits whole:
+  "API keys (4) ▾".
 }
 {^"2 · empty cell — option withdrawn"
   model | ( ) Qwen 3.8 | (X) API keys | . | ( ) Glimmer
@@ -994,7 +1027,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   steps back past page 1 (wizard-keys).
 }
 {^"11 · the open list — a small card, painted last"
-  credentials | <color:#9a9a9a>[X] API keys (1) ▾</color> | <color:#9a9a9a>[ ] <s>OAuth (0)</s></color> | <color:#9a9a9a>[ ] <s>SSH (0)</s></color> | <back:#8A8A8A>[X] .env (12) ▾</back>
+  credentials | <color:#9a9a9a>API keys (1) ▾</color> | <color:#9a9a9a><s>OAuth (0)</s></color> | <color:#9a9a9a><s>SSH (0)</s></color> | <back:#8A8A8A>.env (12) ▾</back>
   model | ( ) Qwen 3.8 | (X) API keys | . | ╭── <b>.env</b> ─────── 12 ─╮
   . | . | . | . | │ <color:#8A8A8A>/ filter</color>
   . | . | . | . | │ › <back:#8A8A8A>ARCHITECT_MODEL</back>

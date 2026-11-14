@@ -86,8 +86,8 @@ title GitHub access — host selection, sandbox verification
 '
 ' CREDENTIAL INVENTORY
 ' Execution order: OS, trust repo, credentials, optional ports/apps.
-' credentials: disabled [x] API keys v [x] OAuth v [x] SSH v.
-' Tick only nonempty classes; an empty class has no arrow.
+' credentials: disabled API keys (N) v, OAuth (N) v, SSH (N) v, .env (N) v; no tick boxes.
+' An empty class reads (0) with no arrow: _spec/internal/choiceui/wireframe.puml (A CELL COUNTS ITS LIST).
 ' This is host inventory, not a promise that the selected model uses each item.
 ' API/OAuth entries use service names from sbx metadata and present credential
 ' variable names, deduplicated. SSH entries show host-agent public fingerprints.

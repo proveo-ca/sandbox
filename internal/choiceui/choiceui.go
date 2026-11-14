@@ -26,6 +26,7 @@ type Row struct {
 	hoverOff bool // a radio row's cursor rests on Hover, an option it cannot choose; Selected keeps the answer
 	Reason   string
 	Multi    bool
+	Bare     bool // a checkbox row's cells draw without tick boxes
 	On       []bool
 	Off      []bool
 	Help     map[string]string
@@ -432,6 +433,27 @@ func (r *Row) onAt(i int) bool { return i < len(r.On) && r.On[i] }
 
 func (r *Row) radioAt(i int) bool {
 	return r.Radio || (i < len(r.Options) && slices.Contains(r.RadioSet, r.Options[i]))
+}
+
+// cellGlyph is the mark before option j's cell and whether j is in force; a Bare checkbox row's
+// tick boxes draw as "".
+// SPEC: _spec/internal/choiceui/wireframe.puml (A CELL COUNTS ITS LIST)
+func (r *Row) cellGlyph(j int) (glyph string, on bool) {
+	switch {
+	case r.Multi && r.radioAt(j) && r.onAt(j):
+		return "(•) ", true
+	case r.Multi && r.radioAt(j):
+		return "( ) ", false
+	case r.Multi && r.Bare:
+		return "", r.onAt(j)
+	case r.Multi && r.onAt(j):
+		return "[x] ", true
+	case r.Multi:
+		return "[ ] ", false
+	case j == r.Selected:
+		return "(•) ", true
+	}
+	return "( ) ", false
 }
 
 type Form struct {
@@ -1883,22 +1905,7 @@ func (f *Form) drawBodyLine(c *canvas, p palette, k card, ln bodyLine, cursor, p
 		return
 	}
 	for j, opt := range r.Options {
-		var glyph string
-		on := false
-		switch {
-		case r.Multi && r.radioAt(j) && r.onAt(j):
-			glyph, on = "(•) ", true
-		case r.Multi && r.radioAt(j):
-			glyph = "( ) "
-		case r.Multi && r.onAt(j):
-			glyph, on = "[x] ", true
-		case r.Multi:
-			glyph = "[ ] "
-		case j == r.Selected:
-			glyph, on = "(•) ", true
-		default:
-			glyph = "( ) "
-		}
+		glyph, on := r.cellGlyph(j)
 		held := r.Locked || r.offAt(j)
 		st := answerStyle(p, on, held && on, held && !on, ln.row == cursor && j == r.cursorAt())
 		at, room := x, k.edge-x
