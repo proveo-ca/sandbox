@@ -553,7 +553,14 @@
         "cmd/proveo/init_apply_test.go",
         "cmd/proveo/init_report_test.go",
         "cmd/proveo/init_preflight.go",
-        "cmd/proveo/init_preflight_test.go"
+        "cmd/proveo/init_preflight_test.go",
+        "cmd/proveo/init_walk.go",
+        "cmd/proveo/init_view.go",
+        "cmd/proveo/init_checklist.go",
+        "cmd/proveo/init_frames_test.go",
+        "cmd/proveo/testdata/init/**",
+        "cmd/proveo/init_credentials.go",
+        "cmd/proveo/init_credentials_test.go"
       ],
       "fingerprint": null
     },
@@ -2170,8 +2177,7 @@
         "cmd/proveo/init_preflight_test.go",
         "cmd/proveo/init_report.go",
         "cmd/proveo/init_report_test.go",
-        "internal/choiceui/check_page.go",
-        "internal/choiceui/check_page_test.go"
+        "cmd/proveo/init_checklist.go"
       ],
       "fingerprint": null
     },
@@ -2293,7 +2299,10 @@
         "internal/choiceui/choiceui.go",
         "internal/choiceui/dialog_run.go",
         "internal/ui/hold.go",
-        "internal/ui/hold_test.go"
+        "internal/ui/hold_test.go",
+        "cmd/proveo/init_view.go",
+        "internal/contract/init_writes_test.go",
+        "internal/sbx/exec.go"
       ],
       "fingerprint": null
     }

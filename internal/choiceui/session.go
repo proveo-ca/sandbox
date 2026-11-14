@@ -129,7 +129,9 @@ type (
 		d     dialog
 		reply chan<- int
 	}
-	peekMsg struct{ reply chan<- string }
+	peekMsg   struct{ reply chan<- string }
+	resumeMsg struct{ f *Form }
+	editMsg   struct{ edit func(*Form) }
 )
 
 func (askMsg) fromDriver()    {}
@@ -138,6 +140,8 @@ func (statusMsg) fromDriver() {}
 func (handMsg) fromDriver()   {}
 func (dialogMsg) fromDriver() {}
 func (peekMsg) fromDriver()   {}
+func (resumeMsg) fromDriver() {}
+func (editMsg) fromDriver()   {}
 
 // send gives the Program m, and reports false once the Program has stopped.
 func (s *Session) send(m sessionMsg) bool {
@@ -183,11 +187,19 @@ func (s *Session) Ask(f *Form) (Outcome, error) {
 // answer row turns "–" with its answer, and the key line counts "running i of m".
 func (s *Session) Plan(labels []string) { s.send(planMsg{labels: slices.Clone(labels)}) }
 
-// Status puts mark and outcome on the row labelled label. MarkRunning makes it the running row:
-// the key line names it, and after two seconds its outcome carries the time it has taken.
+// Status puts mark and outcome on the row labelled label: the running row, else the first that
+// waits in the plan, else the first. MarkRunning makes it the running row: the key line names it,
+// and after two seconds its outcome carries the time it has taken. A planned label no row carries
+// still moves the key line on.
 func (s *Session) Status(label string, m Mark, outcome string) {
 	s.send(statusMsg{label: label, mark: m, outcome: outcome})
 }
+
+// Resume puts f back up as Accepted left it, running: a page a sub-page stood over returns to its run.
+func (s *Session) Resume(f *Form) { s.send(resumeMsg{f: f}) }
+
+// Edit runs edit on the form up now, between two draws: the driver replaces rows a step redrew.
+func (s *Session) Edit(edit func(*Form)) { s.send(editMsg{edit: edit}) }
 
 // Hand gives the terminal to run: the card leaves the alternate screen, a blank row and the frame
 // line "── <command> ── <parts> ──" print, run runs, then a blank row and the running row's outcome
@@ -329,6 +341,16 @@ func (m sessionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case askMsg:
 		m.form = formModel{f: v.f, cursor: v.f.startCursor(), tick: m.tick, w: m.w, h: m.h}
 		m.asked, m.running = v.reply, runningRow{}
+	case resumeMsg:
+		m.form = formModel{f: v.f, cursor: -1, tick: m.tick, w: m.w, h: m.h, out: Accepted}
+		m.asked = nil
+		if p := v.f.Progress; p != nil && m.stopped {
+			p.Stopping = true
+		}
+	case editMsg:
+		if m.form.f != nil {
+			v.edit(m.form.f)
+		}
 	case planMsg:
 		m.plan(v.labels)
 	case statusMsg:
@@ -339,7 +361,7 @@ func (m sessionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v.reply <- m.handed(v)
 	case dialogMsg:
 		d := v.d
-		d.w, d.h, d.sel, d.answer = m.w, m.h, d.safe, -1
+		d.w, d.h, d.sel, d.answer, d.stops = m.w, m.h, d.safe, -1, true
 		if m.form.f != nil {
 			d.glyphs = m.form.f.Glyphs
 		}
@@ -384,21 +406,26 @@ func (m *sessionModel) stopRun() {
 }
 
 // plan starts the page's run: the planned rows wait as "·", every other answer row reads "–" and
-// its answer, and the key line counts the plan.
+// its answer, a row an answer opened reads its answer with no mark, and the key line counts the
+// plan. labels name rows in row order, so a label two rows share stands for the next of them.
 func (m *sessionModel) plan(labels []string) {
 	f := m.form.f
 	if f == nil {
 		return
 	}
 	f.Progress = &Progress{Plan: labels, Stopping: m.stopped}
+	next := 0
 	for i := range f.Rows {
 		r := &f.Rows[i]
 		if r.Kind != RowAnswer || (len(r.Options) == 0 && !r.Field) {
 			continue
 		}
 		r.Kind, r.Mark, r.Outcome = RowStatus, MarkLater, r.answerText()
-		if slices.Contains(labels, r.Label) {
-			r.Mark = MarkAhead
+		if r.When != nil {
+			r.Mark = MarkNone
+		}
+		if at := slices.Index(labels[next:], r.Label); at >= 0 {
+			r.Mark, next = MarkAhead, next+at+1
 		}
 	}
 }
@@ -412,10 +439,19 @@ func (r *Row) answerText() string {
 	return r.cellName(r.Options[r.Selected])
 }
 
-// status puts mark and outcome on the first row labelled label; MarkRunning makes it the running row.
+// status puts mark and outcome on the row labelled label; MarkRunning makes it the running row. A
+// label in the plan no row carries moves the key line on alone.
 func (m *sessionModel) status(label string, mark Mark, outcome string) {
 	f := m.form.f
-	if f == nil || !f.setStatus(label, mark, outcome) {
+	if f == nil {
+		return
+	}
+	if !f.setStatus(label, mark, outcome) {
+		if p := f.Progress; p != nil && mark == MarkRunning {
+			if i := slices.Index(p.Plan, label); i >= 0 {
+				p.At = i
+			}
+		}
 		return
 	}
 	switch {
@@ -431,10 +467,19 @@ func (m *sessionModel) status(label string, mark Mark, outcome string) {
 	}
 }
 
-// setStatus turns the first row labelled label into a status row with mark and outcome; it reports
-// false when no row carries label.
+// setStatus turns the row labelled label into a status row with mark and outcome: the running row
+// of that label, else the first that waits in the plan, else the first; it reports false when no
+// row carries label.
 func (f *Form) setStatus(label string, mark Mark, outcome string) bool {
-	at := slices.IndexFunc(f.Rows, func(r Row) bool { return r.Label == label })
+	at := -1
+	for _, want := range []Mark{MarkRunning, MarkAhead, -1} {
+		at = slices.IndexFunc(f.Rows, func(r Row) bool {
+			return r.Label == label && (want < 0 || r.Kind == RowStatus && r.Mark == want)
+		})
+		if at >= 0 {
+			break
+		}
+	}
 	if at < 0 {
 		return false
 	}
@@ -457,10 +502,8 @@ func (m *sessionModel) clock() {
 		return
 	}
 	for i := range f.Rows {
-		if r := &f.Rows[i]; r.Label == run.label {
-			if r.Mark == MarkRunning {
-				r.Outcome = run.outcome + " · " + took.Round(time.Second).String()
-			}
+		if r := &f.Rows[i]; r.Label == run.label && r.Kind == RowStatus && r.Mark == MarkRunning {
+			r.Outcome = run.outcome + " · " + took.Round(time.Second).String()
 			return
 		}
 	}

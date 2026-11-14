@@ -2,15 +2,22 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: what `proveo init` prepares, why it runs as the CDN installer's second half, and which host conditions fail late if nobody checks them
-' covers: cmd/proveo/init.go (doInit, appliedPlan, runInitSteps, initStep, stepResult, decide, fetch, publishedDigest, resolveBin, sbxPathDir, printPlan, ensureSbxOnPath, verify, checkItems)
+' covers: cmd/proveo/init.go (doInit, appliedPlan, runInitSteps, initStep, stepResult, fetch, publishedDigest, resolveBin, sbxPathDir, printPlan, ensureSbxOnPath, verify, verifyWith, checkItems)
+' covers: cmd/proveo/init_walk.go
+' covers: cmd/proveo/init_view.go
+' covers: cmd/proveo/init_checklist.go
+' covers: cmd/proveo/init_frames_test.go
+' covers: cmd/proveo/testdata/init/**
 ' covers: cmd/proveo/init_report.go (handOff, handFramed, planSetup, runSetup, setupTurn, the sbx block)
-' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, askDecisions, targetVersion, initRows, loginRow, setupRow, statusRow, baselineRow)
-' covers: cmd/proveo/init_apply.go (applyLogin, loginStage)
-' covers: cmd/proveo/init_apply_test.go (TestTheLoginStepSkipsWhenSbxReportsSignedIn, TestAHandOffIsFramed)
+' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, sbxForm, gitForm, loginRow, setupRow, flagRow, installRow, baselineRow, hostNetwork)
+' covers: cmd/proveo/init_apply.go (applySbx, applyGit, runApply, applyLogin, loginStage)
+' covers: cmd/proveo/init_apply_test.go
 ' covers: cmd/proveo/init_report_test.go (TestSbxSetupRunsAfterTheResultOnlyWhenOffered)
 ' covers: cmd/proveo/init_preflight.go (leaveUnchosen, moot)
 ' covers: cmd/proveo/init_preflight_test.go (TestAMootStepIsNeverLeftForLater)
 ' covers: cmd/proveo/init_steps_test.go
+' covers: cmd/proveo/init_credentials.go (applyCredentials, credentialRun, credentialsNotRun: page 3's run in place)
+' covers: cmd/proveo/init_credentials_test.go (TestACtrlCOnPageThreeStopsAfterItsRow, TestASignInFrameNamesTheSlot)
 ' covers: cmd/proveo/init_github.go (applyGitHub, ghInstallArgv)
 ' covers: cmd/proveo/init_git.go (applyGitIdentity)
 ' covers: cmd/proveo/ghtoken.go (lookup, ghTimeoutItem — a run only lifts; login is init's)
@@ -251,6 +258,10 @@ skinparam noteTextAlignment left
 ' TestInitAddsNoPathStepForAnSbxOutsideThePrefix.
 '
 ' ── THREE SCREENS, BACK ONE AT A TIME (DECISION 2026-11-08) ───────────────
+' SUPERSEDED IN SHAPE by FOUR PAGES ON ONE CARD (stage 4, below): the steps,
+' stepResult and the way back are as stated here; the screens are the card's
+' four pages, setup's rows split across pages 1 and 2, and askDecisions,
+' the "on enter" list and the checks page are gone.
 ' The Executor chose "Back/next across screens". runInitSteps(prompted, steps)
 ' walks [setup, credentials, operator]; prompted = !--yes && a terminal.
 ' SINCE 2026-11-11 A CHECKS PAGE COMES FIRST, so the walk has four screens and
@@ -325,6 +336,141 @@ skinparam noteTextAlignment left
 ' the file pass 3/3 runs and all four fail against the pre-change binary
 ' 595b80af.
 ' The key line, Step and Outcome: _spec/internal/choiceui/wireframe.puml.
+'
+' ── FOUR PAGES ON ONE CARD (I3 STAGE 4, 2026-11-13) ───────────────────────
+' The walk is [sbx, git and shell, credentials, operator]: initWalk.pages()
+' runs them through runInitSteps, each on the checklist card
+' (_spec/internal/choiceui/wireframe.puml, THE CHECKLIST CARD) with Border
+' "proveo init", the chip " page n/4 " and Step.Leave "Quit init?" /
+' "Answers on page n/4 are not saved." / "Steps that ran stay done."
+'   page 1  sbxForm, "Prepare sbx on this <os>/<arch> host": facts "found:
+'           sbx <v>    network: <policy>" (no network fact without sbx),
+'           the checks section (init-preflight-and-result.puml, PAGE 1
+'           CHECKS), then sbx install with location and PATH as sub-rows
+'           that open while it reads rootless tarball (Row.When), Docker
+'           login, network (allow-all only). Asset and digest moved from
+'           the head into the tarball's help.
+'   page 2  gitForm, "Set up git and the shell": git identity with
+'           user.name and user.email fields under "now", prefilled from
+'           gitidentity.Resolve; GitHub; prompt kit under a "shell" stub.
+'           The fields replace the bare `› git user.name:` line prompts:
+'           the git step writes what they hold, and an empty one reads
+'           "! git identity  not set · both fields needed".
+'   page 3  credentialForm, "Store agent credentials", one prose line.
+'           Skip stays (owner, Q2 → C). Rows and stubs are stage 5's.
+'   page 4  operatorForm, "Name the operator", one prose line, then the
+'           sbx setup row as the probe found it (THE SBX STEPS RUN ONLY
+'           WITH WORK): an answer only while it found work. Skip stays.
+' Each page after the first draws one done row per page before it, and
+' every page ends on the ahead rows: one per page not reached, sbx setup
+' last. The banner and every "on enter" list are gone.
+' A row a flag answered is a status row naming it ("– GitHub  later ·
+' --skip-gh"); it no longer draws as a locked answer.
+' Enter's word counts the rows Enter runs (enter run n steps | next |
+' finish): the walk builds the page's steps for the answers as they stand
+' (applySbx | applyGit, then planRows). On page 1, Docker login counts only
+' while diagnose says signed out or before sbx exists; the checks count only
+' when an install makes the draw-time diagnose stale.
+' Esc on page 1 opens "Quit init?" (D26); a confirmed quit on any page
+' ends "! init — quit at page n/4", exit 1. On a blocked page every way off
+' ends with blockedErr instead.
+' REVISIT: each page keeps its own carried decisions (prevSbx, prevGit). A
+' row whose step ran (✓, ! or ×) comes back as its status row (lockRan), so
+' Enter never runs it twice; a row left – stays an answer.
+' The --yes and no-terminal walk run the same four pages unprompted on
+' streamView: no card, ui.Steps lines as before, pages 3 and 4 stepNone.
+' --print still calls the credentials and operator stages directly.
+' Pinned by cmd/proveo/init_steps_test.go TestInitWalksFourPagesInOneSession,
+' TestAQuitAtAnyPageSaysQuitAtPageNOf4, TestARevisitOpensOnWhatIsLeft;
+' init_tui_test.go (the builders); init_git_test.go
+' TestGitIdentityFieldsReplaceTheLinePrompts; init_frames_test.go
+' TestInitPagesMatchTheirGoldenFrames, 20 frames in
+' cmd/proveo/testdata/init/ (p1-rest, p1-running, p1-rerun match the I3
+' mocks and the stage-2 goldens line for line).
+'
+' ── ONE SESSION PER WALK (I3 STAGE 4) ─────────────────────────────────────
+' A prompted init runs the sbx diagnose, then opens ONE choiceui.Session
+' (openCard) and asks every page on it (view.Ask); Close comes once, before
+' rep.close prints the result on the primary screen. The pages and steps
+' talk to a walkView:
+'   cardView    a Session: Ask, Sub (a sub-page over the running page, then
+'               Resume), Plan, Status, Edit, Hand, HandAs (a frame that
+'               names a command other than the argv), Dialog, Context. It
+'               remembers each row's last outcome for the done rows.
+'   streamView  --yes and no terminal: no questions, step lines, a Hand
+'               that frames and hands off on the primary screen.
+' Whether init asks is decided once, in doInit; the stages read
+' view.card() where they read interactiveTerminal().
+' OUTPUT HOLD (option C, owner): ui.Default is held while the card is up,
+' and the report blocks print as before into the hold, which Close replays.
+' Every child that is no hand-off runs with its output kept and attached to
+' the step's failure: the release installer steps (placeRelease),
+' `git config --global`, `sbx secret set` (internal/sbx too), `sbx
+' settings set`, `sbx daemon restart`, the sign-in sandbox's `sbx rm`.
+' internal/contract TestInitWritesTheTerminalOnlyThroughCommand bans
+' naming os.Stdout or os.Stderr in cmd/proveo/init*.go outside command()
+' and a terminal check. It also bans every fmt.Print*, log.Print*,
+' log.Fatal*, log.Panic*, print and println call, which write the same
+' streams without naming them (verifier, 2026-11-13).
+'
+' ── RUN IN PLACE (I3 STAGE 4) ─────────────────────────────────────────────
+' Enter leaves the page up. runApply Plans the rows the page's steps run,
+' Status-es every row Enter leaves as it is (idle: "kept 0.50.0", "later"),
+' then runs the steps in row order: each step's row turns ◐ with what it
+' does, then ✓ ! or × with its outcome once the row's last step ran.
+'   page 1   sbx install (download, then install), PATH, checks, Docker
+'            login, network
+'   page 2   git identity, GitHub (+ its sub-pages), prompt kit
+'   page 3   each sign-in, sign-out and key, in row order
+' A failure marks its row and every later row "– not run", then ends init
+' as before. Ctrl+C while a step runs cancels the session's context; the
+' step finishes, the rows after it read "not run", and init ends "init —
+' stopped at <label>" with Ctrl+C ended it, by SIGINT (130). The downloads
+' take the context too.
+' AFTER A STOP NOTHING NEW TAKES THE TERMINAL (verifier, 2026-11-13): the
+' running step still finishes, but cardView.Hand lends nothing and returns
+' the stop, so its row reads "! stopped · Ctrl+C ended it"; cardView.Sub
+' asks nothing and answers Cancelled, which GitHub access and SSH repair
+' read as later. Before the fix a stop during `gh auth token` still handed
+' `gh auth login` the terminal, then opened the access sub-page; sbx login,
+' brew install gh and the SSH-repair re-ask had the same gap.
+' PAGE 3 STOPS TOO: applyCredentials checks the context before each row it
+' runs and after the last. Before the fix it ran every row after a stop,
+' opened page 4 and exited 0. Now the answered rows after the stop read
+' "– not run", the result lists them under not run, and init ends "stopped
+' at credentials" with 130 before page 4.
+' HAND-OFFS yield the card through Session.Hand and print the frame of THE
+' SBX STEPS RUN ONLY WITH WORK with "page n/4 returns when it exits":
+'   sbx login, sudo <package manager> (distro package), sbx policy init
+'   (network), brew|apt|dnf|winget install gh, gh auth login, the agent
+'   sign-in ("sbx run <slot>", "<slot>'s sign-in"), sbx secret rm ("sbx
+'   asks y/N"), and the Windows installer.
+' THE SIGN-IN FRAME NAMES THE SLOT (§2.11; verifier, 2026-11-13):
+' credentialRun frames `sbx run --name proveo-signin claude <tmp> -- auth
+' login` as "── sbx run claudecode ── claudecode's sign-in · …" through
+' HandAs. The argv carried the temp dir, so the frame cut at 80 and 120.
+' THE LOGIN'S RUNNING HELP KEEPS ITS PLACE CLAUSE: "sbx login takes the
+' terminal for Docker's browser sign-in; page 1/4 returns when it exits".
+' Without the clause the help took one row, the layout gave a check's
+' evidence line back, and every row below SSH client config moved down on
+' Enter at 80x24 (§2.14: P1 running uses P1 rest's rungs). The p1-running
+' golden reads the help from loginStep, not from a literal.
+' After the child, the outcome row prints under its output and the card
+' comes back with it. A program that failed reads "! … stopped · exit
+' status n", never ×: its own error stands (HAND-OFF FAILURE). The
+' login's confirming diagnose runs inside the hand-off's outcome, so the
+' printed row says signed in or not; the check rows redraw after it.
+' The glyph question of the prompt kit is Session.Dialog over the card.
+' GitHub access and SSH repair are sub-pages of page 2/4 (github-access.puml).
+' Pinned by cmd/proveo/init_apply_test.go TestPageOneEnterRunsItsRowsInRowOrder,
+' TestPageTwoEnterRunsGitIdentityThenGitHubThenPromptKit,
+' TestEveryHandOffIsFramedAndYieldsTheCard, TestCtrlCDuringALiveStepStopsAfterIt,
+' TestAfterAStopNoProgramTakesTheTerminalAndNoSubPageOpens;
+' init_credentials_test.go TestACtrlCOnPageThreeStopsAfterItsRow,
+' TestASignInFrameNamesTheSlot;
+' e2e TestInitSaysWhatEnterRunsThenShowsEachStep,
+' TestInitFramesSbxLoginOnASignedOutHost, TestInitSignInRowsRunSbxsOwnFlows,
+' TestInitCtrlCOnPageThreeStopsAfterItsRow, TestInitCtrlCDuringGitHubHandsNothingOut.
 '
 ' ── WHAT INIT PRINTS (R3 of _spec/_plans/output-readability.puml, 2026-11-11)
 ' Headings by subject, each once, each after the step that makes it true:
@@ -401,6 +547,8 @@ skinparam noteTextAlignment left
 ' and ignored --yes, so `proveo init --yes` on a terminal asked for
 ' user.name. hostGitStage now takes !d.NoPrompt && interactiveTerminal(), as
 ' the prompt kit and GitHub do. Pinned by e2e TestInitYesNeverAsksForAGitIdentity.
+' AMENDED stage 4: every step reads view.card(), which is false under --yes
+' and with no terminal, and true only on the one Session doInit opened.
 '
 ' ── THE WIZARD WAITS FOR A TERMINAL (DECIDED 2026-11-13) ───────────────────
 ' DECIDED 2026-11-13 (owner: "fix now, separate commit"). `proveo init --yes`,
@@ -530,6 +678,10 @@ skinparam noteTextAlignment left
 ' TestInitOpensSbxSetupWhenForwardingIsOff, TestInitYesOnASignedOutHostWarnsAndExitsZero,
 ' TestInitHandsTheTerminalWhollyToSbxSetup, TestInitCtrlCInSbxsWizardEndsOnWhereItStopped.
 ' MEASURED 2026-11-13: all e2e init tests pass against the stub sbx.
+' AMENDED stage 4 (2026-11-13): on the card the frame ends "page n/4 returns
+' when it exits", because the card does come back (ONE SESSION PER WALK).
+' "init resumes when it exits" stays for the stream (--yes, no terminal),
+' where nothing comes back. sbx setup after the result keeps "init ends".
 '
 ' ── ONE PREFIX, ONE PATH ENTRY, ONE VERIFICATION ───────────────────────────
 ' Every platform lands the same layout — <prefix>/bin/sbx beside a
@@ -693,12 +845,12 @@ component "a project .env of provider keys\nwhat init used to write" as ENV <<er
 
 component "install.sh\ncurl | bash — stdin is the SCRIPT" as CDN <<script>>
 component "choiceui prompt\nlocked rows still drawn" as ASK <<app>>
-component "runInitSteps\nsetup 1/3 · credentials 2/3 · operator 3/3" as STEPS <<app>>
+component "runInitSteps on one Session\nsbx 1/4 · git, shell 2/4 · credentials 3/4 · operator 4/4" as STEPS <<app>>
 
 CDN ARROW_MAIN INIT : post-install, through /dev/tty or ""--yes""
 INIT ARROW_QUEUE ASK : when there is someone to ask
-INIT ARROW_MAIN STEPS : the three screens, in order
-STEPS ARROW_OPTIONAL ASK : esc — back one screen
+INIT ARROW_MAIN STEPS : the four pages, in order, on one card
+STEPS ARROW_OPTIONAL ASK : esc — back one page; on page 1, Quit init?
 OP ARROW_MAIN ASK : install · prefix · PATH · login · setup · gh · git · baseline
 OP ARROW_MAIN INIT : ""proveo init"" · ""--print"" changes nothing
 INIT ARROW_MAIN ASSET : download by exact tag

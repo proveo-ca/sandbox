@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -123,18 +123,27 @@ func dockerImageList(image, field string) []string {
 	return ep
 }
 
+// sbxSecretSetFrom runs `sbx secret set` with args and stdin, its output kept off the terminal.
+// SPEC: _spec/internal/choiceui/session.puml (OUTPUT HOLD)
 func sbxSecretSetFrom(args []string, stdin string) error {
 	cmd := exec.Command(Binary, args...)
 	cmd.Stdin = strings.NewReader(stdin)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return keptOutput(cmd)
 }
 
 func sbxSecretSet(name, value string) error {
-	cmd := exec.Command(Binary, SecretSetArgs(name)...)
-	cmd.Stdin = strings.NewReader(value)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return sbxSecretSetFrom(SecretSetArgs(name), value)
+}
+
+// keptOutput runs cmd with its output kept; a failure carries sbx's last words, never stdin.
+func keptOutput(cmd *exec.Cmd) error {
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	if text := strings.TrimSpace(string(out)); text != "" {
+		lines := strings.Split(text, "\n")
+		return fmt.Errorf("%w — %s", err, strings.TrimSpace(lines[len(lines)-1]))
+	}
+	return err
 }

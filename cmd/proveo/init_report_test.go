@@ -62,7 +62,7 @@ func TestTheSbxBlockPrintsAfterTheSbxStepsAndNamesTheHostAndItsSbx(t *testing.T)
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
 	d := initDecisions{Install: installSkip, Baseline: sbx.BaselineBalanced}
-	if err := runApply(applyPlan(d, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), nil); err != nil {
+	if err := runApply(streamView{}, applyPlan(d, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	got := out.String()
@@ -98,14 +98,14 @@ func TestARevisitPrintsOneReadinessSetAndItsSbxLinesUnderSbx(t *testing.T) {
 	rec := &initRecord{}
 	ctx := applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}
 	for _, d := range []initDecisions{{Install: installSkip, Baseline: sbx.BaselineBalanced, Git: true}, {Install: installSkip}} {
-		if err := runApply(applyPlan(d, ctx), rec.did); err != nil {
+		if err := runApply(streamView{}, applyPlan(d, ctx), rec.did, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	ui.Section(ui.SectionCredentials)
 	ui.Asyncf("codex — signing out")
 	t.Setenv("STUB_POLICY_ALLOWED", "true")
-	if err := runApply(applyPlan(initDecisions{Install: installSkip, Baseline: sbx.BaselineBalanced, Git: true}, ctx), rec.did); err != nil {
+	if err := runApply(streamView{}, applyPlan(initDecisions{Install: installSkip, Baseline: sbx.BaselineBalanced, Git: true}, ctx), rec.did, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := rep.close(rec, nil); err != nil {
@@ -185,7 +185,7 @@ func TestARunBlockerClosesOnOneHostVerdictAndNamesWhatNeverRan(t *testing.T) {
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
 	rec := &initRecord{}
-	err := runApply(applyPlan(initDecisions{Install: installSkip}, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), rec.did)
+	err := runApply(streamView{}, applyPlan(initDecisions{Install: installSkip}, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), rec.did, nil)
 	var failed stepErr
 	if !errors.As(err, &failed) {
 		t.Fatalf("runApply = %v, want the verify step's failure", err)
@@ -288,7 +288,7 @@ func TestAHandOffFailureEndsOnWhereInitStopped(t *testing.T) {
 		})
 	}}
 	verify := applyStep{name: "verify sbx (sbx diagnose)", label: labelVerify, kind: stepQuiet, run: func() error { return verify(sbx.Binary, rep) }}
-	err := runApply([]applyStep{login, verify}, rec.did)
+	err := runApply(streamView{}, []applyStep{login, verify}, rec.did, nil)
 	var failed stepErr
 	if errors.As(err, &failed) {
 		rec.unreached(failed.rest...)
@@ -439,7 +439,7 @@ func TestAFailedGhAuthLoginEndsInitOnWhereItStopped(t *testing.T) {
 	setup := func(choiceui.Step) (stepResult, error) {
 		rep.openGit()
 		rep.gitBlock().Fact(ui.Fact{Role: ui.RoleHost, Key: "identity", Value: "Ada <ada@ex>"})
-		err := runApply([]applyStep{
+		err := runApply(streamView{}, []applyStep{
 			{name: actGitHub, label: rowGh, kind: stepSilent, run: func() error {
 				return applyGitHub(ghStage{auth: *g, tty: true, out: rep.gitBlock(), setenv: func(string, string) error { return nil }})
 			}},
@@ -448,7 +448,8 @@ func TestAFailedGhAuthLoginEndsInitOnWhereItStopped(t *testing.T) {
 				t.Error("verify ran after a failed sign-in")
 				return nil
 			}},
-		}, rec.did)
+		}, rec.did, nil)
+
 		var failed stepErr
 		if errors.As(err, &failed) {
 			rec.unreached(failed.rest...)
@@ -499,7 +500,7 @@ func TestACredentialsPageStopNamesWhatItKeptFromRunning(t *testing.T) {
 		{Field: true, Value: "sk-ant"},
 		{Field: true},
 	}
-	ctrlC := func(argv []string) error {
+	ctrlC := func(_ credSlot, argv []string) error {
 		if argv[1] == "run" {
 			return handOff(exec.Command("sh", "-c", "kill -INT $$"))
 		}
@@ -507,7 +508,7 @@ func TestACredentialsPageStopNamesWhatItKeptFromRunning(t *testing.T) {
 	}
 	held := func(string) (bool, bool) { return true, true }
 	credentials := func(choiceui.Step) (stepResult, error) {
-		_, _, err := applyCredentials(slots, rows, ctrlC, held, rec)
+		_, _, err := applyCredentials(streamView{}, slots, rows, ctrlC, held, rec)
 		return stepNext, stopAt(labelCredentials, err)
 	}
 	err := runInitSteps(false, rec.pages([]initPage{{run: func(choiceui.Step) (stepResult, error) { return stepNext, nil }},
@@ -535,7 +536,7 @@ func TestAMissingDistroPackageStopsAtTheInstallAndNamesWhatNeverRan(t *testing.T
 	rec := &initRecord{}
 	d := initDecisions{Install: installPackaged, Login: true}
 	rec.leaveUnchosen(d)
-	err := runApply(applyPlan(d, applyCtx{applied: appliedPlan(sbx.Plan{}, true), host: host, rep: rep}), rec.did)
+	err := runApply(streamView{}, applyPlan(d, applyCtx{applied: appliedPlan(sbx.Plan{}, true), host: host, rep: rep}), rec.did, nil)
 	var failed stepErr
 	if !errors.As(err, &failed) || failed.label != rowInstall {
 		t.Fatalf("runApply = %v, want the install step's failure", err)
@@ -543,7 +544,7 @@ func TestAMissingDistroPackageStopsAtTheInstallAndNamesWhatNeverRan(t *testing.T
 	rec.unreached(failed.rest...)
 	_ = rep.close(rec, err)
 	got := out.String()
-	for _, re := range []string{`(?m)^not run: Docker login\n\s+sbx diagnose$`,
+	for _, re := range []string{`(?m)^not run: sbx diagnose\n\s+Docker login$`,
 		`(?m)^error: sbx install — failed\n\s+this release ships no distro package for linux/amd64 · rocky 9$`} {
 		if !regexp.MustCompile(re).MatchString(got) {
 			t.Errorf("the result lacks %s:\n%s", re, got)
@@ -653,7 +654,7 @@ func TestEachInitHeadingIsDrawnOnce(t *testing.T) {
 	rep := testReport(t, initOptions{})
 	rec := &initRecord{}
 	d := initDecisions{Install: installSkip, Login: true, Git: true}
-	if err := runApply(applyPlan(d, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), rec.did); err != nil {
+	if err := runApply(streamView{}, applyPlan(d, applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), rec.did, nil); err != nil {
 		t.Fatal(err)
 	}
 	rep.setCredentials([]ui.Fact{{Role: ui.RoleStore, Key: "codex", Value: "login held by sbx as openai"}}, nil)
@@ -807,7 +808,7 @@ func TestAWindowsInstallNamesItsInstallerAndWhoOwnsItsPlace(t *testing.T) {
 		t.Errorf("the MSI's hand line = %q", line)
 	}
 	rep := testReport(t, initOptions{})
-	if err := placeRelease(sbx.Plan{Note: plan.Note}, "", "abc", false, rep); err != nil {
+	if err := placeRelease(sbx.Plan{Note: plan.Note}, "", "abc", false, applyCtx{rep: rep}); err != nil {
 		t.Fatal(err)
 	}
 	if len(rep.sbxItems) != 1 || rep.sbxItems[0].Text != "sbx "+sbx.Release+" — installed" ||
@@ -840,7 +841,7 @@ func TestATarballInstallsTickSaysOnlyWhatTheFactsDoNot(t *testing.T) {
 		Argv: []string{"sh", "-c", `printf '#!/bin/sh\necho "sbx version: v%s beef"\n' "$RELEASE" > "$BIN"`},
 		Env:  []string{"RELEASE=" + sbx.Release, "BIN=" + bin}}}}
 	rep := newInitReport(initOptions{}, sbx.Host{OS: "darwin", Arch: "arm64"}, nil, plan)
-	if err := placeRelease(plan, t.TempDir(), "abc", true, rep); err != nil {
+	if err := placeRelease(plan, t.TempDir(), "abc", true, applyCtx{rep: rep}); err != nil {
 		t.Fatal(err)
 	}
 	rep.printSbx()

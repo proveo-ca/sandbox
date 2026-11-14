@@ -953,3 +953,29 @@ func TestRenderIsTheFormAtRest(t *testing.T) {
 		t.Errorf("Render differs from the p1-rest golden:\n%s", got)
 	}
 }
+
+// A checklist page with a Skip button draws it under its rows at rest: the cursor reaches it past
+// the last row, the key line then says Enter skips, and Enter leaves the page Skipped. A running
+// page draws no button.
+func TestAChecklistDrawsItsSkipButtonAtRest(t *testing.T) {
+	f := pageThree()
+	f.Skip = "Skip"
+	m, _ := formModel{f: f, cursor: f.startCursor(), tick: 0}.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	if view := plain(m.View().Content); !strings.Contains(view, "[ Skip ]") {
+		t.Fatalf("the checklist draws no Skip button:\n%s", view)
+	}
+	m, _ = pressKeys(m, teaKey(tea.KeyEnd, 0), teaKey(tea.KeyDown, 0))
+	view := plain(m.View().Content)
+	if !strings.Contains(view, "enter skip") || strings.Contains(view, "enter run") {
+		t.Errorf("the focused Skip button does not own Enter's word:\n%s", view)
+	}
+	m, _ = pressKeys(m, teaEnter)
+	if fm := m.(formModel); !fm.ended || fm.out != Skipped {
+		t.Errorf("enter on Skip = %v (ended %v), want Skipped", fm.out, fm.ended)
+	}
+	run := pageThree()
+	run.Skip, run.Progress = "Skip", &Progress{Plan: []string{"anthropic"}}
+	if lines := strings.Join(frameLines(t, run, -1, 120, 36, 0), "\n"); strings.Contains(lines, "[ Skip ]") {
+		t.Errorf("a running page drew its Skip button:\n%s", lines)
+	}
+}

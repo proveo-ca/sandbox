@@ -1,0 +1,34 @@
+╭── proveo init ───────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Store agent credentials                                                                                    page 3/4  │
+│   Secrets live in sbx's host-wide store; agents never hold them.                                                     │
+│                                                                                                                      │
+│ ! sbx           kept 0.50.0 · Docker signed in · 2 checks need you                                                   │
+│ ✓ git, shell    Ada Example <ada@example.invalid> · git's global config · GitHub later · prompt kit later            │
+│                                                                                                                      │
+├── claudecode — subscription ──                                                                                       │
+│   claudecode    (•) not signed in     ( ) sign in                                                                    │
+│                                                                                                                      │
+├── codex — subscription ──                                                                                            │
+│   codex         (•) signed in         ( ) sign in again     ( ) sign out                                             │
+│                                                                                                                      │
+├── cursor — subscription ──                                                                                           │
+│   cursor        (•) not signed in     ( ) sign in                                                                    │
+│                                                                                                                      │
+├── opencode — subscription ──                                                                                         │
+│ › opencode      ✓ [stored — type to replace              ]                                                           │
+│                                                                                                                      │
+├── usage api keys ──                                                                                                  │
+│   anthropic     ! [this host's env only — Enter to import]                                                           │
+│   openai          [empty — type a key                    ]                                                           │
+│   cursor          [empty — type a key                    ]                                                           │
+│                                                                                                                      │
+├── ahead ──────                                                                                                       │
+│ · operator      page 4/4 · the name agents address you by                                                            │
+│ · sbx setup     after init, while sbx's store lacks an env key                                                       │
+│                                                                                                                      │
+│   [ Skip ]                                                                                                           │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · type to edit · enter run 1 step · esc back · ctrl+c quit                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+  › opencode — stored as opencode

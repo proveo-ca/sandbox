@@ -17,7 +17,7 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 '   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W12)
 '   the live line it is built on ...... _spec/internal/ui/output-vocabulary.puml
 '   teardown's steps, the first user .. _spec/internal/backend/teardown.puml (T6)
-'   the page that names the steps ..... _spec/internal/choiceui/wireframe.puml (on enter)
+'   the page that names the steps ..... _spec/internal/choiceui/wireframe.puml (THE CHECKLIST CARD)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHAT WAS THERE ─────────────────────────────────────────────────────────
@@ -107,6 +107,23 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' "Docker login", "prompt kit" and "network". sbx setup is no apply step: it
 ' opens after the result (_spec/cmd/proveo/init-sbx-bootstrap.puml, THE SBX
 ' STEPS RUN ONLY WITH WORK).
+' ONE PLAN PER PAGE (I3 stage 4, 2026-11-13): applyPlan split in two, in
+' row order. applySbx is page 1's Enter: download, install, PATH, verify
+' (the "checks" row; listed only when an install makes the draw-time
+' diagnose stale, else it judges by that diagnose unlisted), Docker login
+' (listed only while sbx says signed out, or before sbx exists), the
+' baseline. applyGit is page 2's: git identity (unlisted when git already
+' holds one), GitHub, the prompt kit, after the git block. Verify moved
+' from last to page 1 (D25). The "on enter" list is gone: the card's rows
+' are the plan, and planRows names them for Session.Plan and for the
+' count Enter's word reads ("enter run n steps").
+' On the card runApply draws each step on its row (◐, then the outcome);
+' off it, runSteps keeps the numbered lines above unchanged. Each step
+' carries the card row it runs on (row, defaulting to its label), what the
+' row says while it runs (doing), the help under the card (help) and its
+' outcome. A failure marks the rows after it "not run"; stepErr is as
+' before, its rest without repeats. A Ctrl+C on the card stops after the
+' step it came on (_spec/cmd/proveo/init-sbx-bootstrap.puml, RUN IN PLACE).
 '
 ' ── THE HAND-OFF FRAME (owner, 2026-11-13) ─────────────────────────────────
 ' A hand-off is framed when it runs. ui.Frame(command, parts...) prints a
@@ -126,6 +143,9 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' the command is bold and the parts are dim.
 ' init frames `sbx login` and `sbx setup` in stage 1 of the I3 checklist
 ' (handFramed); the other hand steps keep their hand lines until stage 4.
+' SINCE STAGE 4 every hand-off frames: on the card through Session.Hand,
+' whose frame ends "page n/4 returns when it exits"; off it through
+' handFramed, "init resumes when it exits".
 ' Pinned by TestAFrameLineShortensBeforeItWraps, TestAPlainFrameCarriesNoEscapes
 ' and cmd/proveo TestAHandOffIsFramed.
 '

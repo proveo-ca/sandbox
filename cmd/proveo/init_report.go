@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -81,12 +80,17 @@ type initReport struct {
 	readiness []sandbox.Item // the latest verify's items
 	ready     bool           // the latest verify found nothing a run needs failing
 
-	auth        sbx.Auth // what the latest sbx diagnose said of the Docker sign-in
-	diagnosed   bool     // an sbx diagnose ran in this init
-	loginWarned bool     // the login step printed that Docker is still signed out
-	wizard      bool     // the setup page answered sbx setup "after init"
-	skipSetup   bool     // --skip-setup
+	auth        sbx.Auth    // what the latest sbx diagnose said of the Docker sign-in
+	diag        []sbx.Check // the latest sbx diagnose's rows
+	diagErr     error       // why the latest sbx diagnose gave no rows
+	diagnosed   bool        // an sbx diagnose ran in this init
+	stale       bool        // a step since the latest diagnose changed what sbx would say: an install, a daemon restart
+	judged      bool        // a verify set the readiness
+	loginWarned bool        // the login step printed that Docker is still signed out
+	wizard      bool        // the setup page answered sbx setup "after init"
+	skipSetup   bool        // --skip-setup
 	probe       func() (sbx.SetupOffer, error)
+	offer       *sbx.SetupOffer // what the probe found before page 4; nil until it ran
 
 	said map[string]bool // each fact and item a subject printed, so a revisit prints only what changed
 }
@@ -97,18 +101,37 @@ func newInitReport(o initOptions, host sbx.Host, prereqs []sbx.Prereq, plan sbx.
 	return r
 }
 
-// heard keeps what an sbx diagnose said of the Docker sign-in.
+// heard keeps what an sbx diagnose said: its rows, and the Docker sign-in.
 func (r *initReport) heard(checks []sbx.Check, err error) {
 	if r != nil {
-		r.auth, r.diagnosed = sbx.DockerAuth(checks, err), true
+		r.auth, r.diagnosed, r.stale = sbx.DockerAuth(checks, err), true, false
+		r.diag, r.diagErr = checks, err
 	}
 }
 
-// diagnose asks the sbx at bin for its verdict and keeps what it said of the Docker sign-in.
+// installedNow records that a step changed the sbx a diagnose would read.
+func (r *initReport) installedNow() {
+	if r != nil {
+		r.stale = true
+	}
+}
+
+// diagnose asks the sbx at bin for its verdict, keeps it, and judges the host again by it once a
+// verify judged it.
 func (r *initReport) diagnose(bin string) sbx.Auth {
 	checks, err := sbx.DiagnoseAt(bin)
 	r.heard(checks, err)
+	if r != nil && r.judged {
+		_ = verifyWith(bin, r, checks, err)
+	}
 	return sbx.DockerAuth(checks, err)
+}
+
+// probeSetup runs sbx setup's probe and keeps what it found for page 4 and the result.
+func (r *initReport) probeSetup() sbx.SetupOffer {
+	offer, _ := r.probe()
+	r.offer = &offer
+	return offer
 }
 
 // mootRows are the rows the latest diagnose left nothing to do for.
@@ -407,6 +430,9 @@ func (r *initReport) close(rec *initRecord, err error) error {
 	if r.sbxOpen || !r.sbxSaid {
 		r.printSbx()
 	}
+	if r.stale && r.judged && err == nil {
+		_ = verify(resolveBin(r.applied), r)
+	}
 	r.printGit()
 	r.printCredentials()
 	if rec != nil {
@@ -461,7 +487,10 @@ func (r *initReport) planSetup(rec *initRecord, err error) setupTurn {
 		return setupTurn{}
 	}
 	var offer sbx.SetupOffer
-	if !interrupted(err) {
+	switch {
+	case r.offer != nil:
+		offer = *r.offer
+	case !interrupted(err):
 		offer, _ = r.probe()
 	}
 	completed := err == nil
@@ -516,7 +545,7 @@ func (r *initReport) ending(err error) (*sandbox.Item, error) {
 		return nil, nil
 	case errors.As(err, &notReady):
 		return &sandbox.Item{Fail: true, Text: "host — not ready to run"}, backend.Reported{Err: err}
-	case errors.Is(err, errInitLeft), errors.Is(err, errInitCancel):
+	case errors.Is(err, errInitLeft):
 		return &sandbox.Item{Warn: true, Text: "init — " + err.Error(), Detail: ready}, backend.Reported{Err: err}
 	case errors.As(err, &step) && errors.As(err, &hand):
 		it := &sandbox.Item{Warn: true, Text: "init — stopped at " + cmpLabel(step.label), Detail: ready}
@@ -613,8 +642,8 @@ func handOff(c *exec.Cmd) error {
 		return err
 	}
 	hand := handoffErr{err: err, interrupted: len(sigs) > 0 || endedByInterrupt(exit)}
-	if hand.interrupted && agentio.IsWriterTTY(os.Stderr) {
-		_, _ = os.Stderr.WriteString("\n") // ends the line the terminal's ^C echo left open
+	if tty, ok := c.Stderr.(*os.File); ok && hand.interrupted && agentio.IsWriterTTY(tty) {
+		_, _ = tty.WriteString("\n") // ends the line the terminal's ^C echo left open
 	}
 	return hand
 }
@@ -629,8 +658,11 @@ func endedByInterrupt(exit *exec.ExitError) bool {
 
 // handFramed gives the terminal to c under its frame line, and leaves a blank row under what c printed.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
-func handFramed(c *exec.Cmd, parts ...string) error {
-	ui.Frame(strings.Join(append([]string{filepath.Base(c.Args[0])}, c.Args[1:]...), " "), parts...)
+func handFramed(c *exec.Cmd, parts ...string) error { return handFramedAs(commandLine(c), c, parts...) }
+
+// handFramedAs is handFramed under a frame line that names shown.
+func handFramedAs(shown string, c *exec.Cmd, parts ...string) error {
+	ui.Frame(shown, parts...)
 	err := handOff(c)
 	ui.Blank()
 	return err

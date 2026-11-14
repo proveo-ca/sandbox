@@ -77,7 +77,7 @@ func uninstall(yes, tty bool, in io.Reader) error {
 	if err != nil {
 		return reported(sandbox.Item{Fail: true, Text: "proveo — not uninstalled", Detail: errLines(err)}, err)
 	}
-	root, rcs, kit := installRoot(), shellRCCandidates(home), promptKitOptions(false)
+	root, rcs, kit := installRoot(), shellRCCandidates(home), promptKitOptions(nil)
 	found := findInstalled(root, rcs, kit)
 	if q := found.question(); !yes && q != "" && !confirm(q, in) {
 		ui.Warnf("uninstall — cancelled")

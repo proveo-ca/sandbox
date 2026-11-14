@@ -7,7 +7,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' covers: internal/choiceui/tree_test.go
 ' covers: internal/choiceui/scope_page.go
 ' covers: internal/choiceui/scope_page_test.go
-' covers: internal/choiceui/card_test.go (TestTheScopeAndCheckPagesAreCards)
+' covers: internal/choiceui/card_test.go (TestTheScopePageIsACard)
 ' covers: internal/choiceui/filter_list.go
 ' covers: internal/choiceui/filter_list_test.go
 ' covers: cmd/proveo/main.go (pickProject, scopePage, scopePageAnswer)
@@ -208,7 +208,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 '   TestTheScopePageFillsTheCursorsName
 '   TestTheScopePageMatchesItsGoldenFrames
 ' Pinned by internal/choiceui/card_test.go:
-'   TestTheScopeAndCheckPagesAreCards
+'   TestTheScopePageIsACard
 '   TestTheStepCountNeverVanishes
 ' Pinned by internal/choiceui/env_list_test.go:
 '   TestSubsequenceMatchesLettersInOrderInAnyCase

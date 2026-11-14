@@ -20,7 +20,7 @@ import (
 
 // initStubSbx answers what `proveo init` asks of sbx, logs every call, and keeps a secret listing.
 // Docker reads signed in unless STUB_SBX_SIGNED_OUT is set and no login ran; STUB_SBX_ENV_ONLY is
-// the env keys sbx's store lacks.
+// the env keys sbx's store lacks; STUB_SBX_SLOW_SET is the seconds a key's `secret set` takes.
 const initStubSbx = `#!/bin/sh
 printf '%s\n' "$*" >> "$STUB_SBX_LOG"
 case "$1 $2" in
@@ -45,7 +45,10 @@ case "$1 $2" in
       ssh.agentSocketPath) echo /tmp/proveo-test-agent.sock ;;
     esac ;;
   "secret set")
-    case "$*" in *--oauth*) printf '(global) service %s (oauth configured)\n' "$3" >> "$STUB_SBX_SECRETS" ;; esac ;;
+    case "$*" in
+      *--oauth*) printf '(global) service %s (oauth configured)\n' "$3" >> "$STUB_SBX_SECRETS" ;;
+      *) [ -z "$STUB_SBX_SLOW_SET" ] || sleep "$STUB_SBX_SLOW_SET" ;;
+    esac ;;
   "secret rm")
     printf 'Remove %s from every scope? [y/N] ' "$3"
     read -r answer
@@ -67,7 +70,6 @@ exit 0
 type initRun struct {
 	sess                *tmux.Session
 	home, tmp, log, sec string
-	pastChecks          bool // the checks page was continued past
 }
 
 // startInit runs the real `proveo init` on a tmux TTY against initStubSbx, in a scrubbed environment.
@@ -168,9 +170,9 @@ func (r *initRun) keys(t *testing.T, keys ...string) {
 	}
 }
 
-// init's numbered pages, and the keys and hint that move between them.
+// init's four pages on one card, and the keys and hint that move between them.
 const (
-	initPages    = 4 // the checks, then setup, credentials and operator
+	initPages    = 4 // sbx, git and shell, credentials, operator
 	initBackKey  = "Escape"
 	initBackHint = "esc back"
 )
@@ -178,15 +180,8 @@ const (
 // initSkipKeys focus the Skip button under a page's rows and press it.
 var initSkipKeys = []string{"End", "Down", "Enter"}
 
-// initPageLabel is form n's page count, on its head's chip or its key line: 1 setup, 2 credentials, 3 operator.
-func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n+1, initPages) }
-
-// checks waits for the checks page, which opens every prompted init, and returns its screen; its
-// page count is the head's chip, or the key line's when the chip does not fit.
-func (r *initRun) checks(t *testing.T) string {
-	t.Helper()
-	return r.wait(t, fmt.Sprintf("page 1/%d", initPages))
-}
+// initPageLabel is page n's chip: "page n/4".
+func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n, initPages) }
 
 // keyLine is the screen's key line: the first line that names enter between the key line's separators.
 func keyLine(screen string) string {
@@ -198,15 +193,27 @@ func keyLine(screen string) string {
 	return ""
 }
 
-// page waits for form n and returns its screen; the first call continues past the checks page.
+// page waits for page n of the card and returns its screen: its chip at the end of the title row,
+// never an ahead row's "page n/4 · …".
 func (r *initRun) page(t *testing.T, n int) string {
 	t.Helper()
-	if !r.pastChecks {
-		r.checks(t)
-		r.keys(t, "Enter")
-		r.pastChecks = true
+	chip := regexp.MustCompile(regexp.QuoteMeta(initPageLabel(n)) + ` +│`)
+	screen := ""
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if screen, _ = r.sess.Capture(); chip.MatchString(screen) {
+			return screen
+		}
 	}
-	return r.wait(t, initPageLabel(n))
+	t.Fatalf("page %d never came up:\n%s", n, screen)
+	return screen
+}
+
+// next presses Enter on page n and waits for page n+1.
+func (r *initRun) next(t *testing.T, n int) string {
+	t.Helper()
+	r.page(t, n)
+	r.keys(t, "Enter")
+	return r.page(t, n+1)
 }
 
 // back steps to the previous page.
@@ -257,21 +264,25 @@ func (r *initRun) waitExit(t *testing.T) string {
 	return all
 }
 
-// Three numbered screens; a step back keeps typed keys and never re-runs what setup already ran.
+// Four pages on one card; a step back keeps typed keys, and locks the rows that ran so nothing
+// runs twice.
 func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SIGNED_OUT=1"}, "--skip-gh", "--skip-git")
 	screen := r.page(t, 1)
 	if !regexp.MustCompile(`Docker login\s+\(•\) now`).MatchString(screen) {
-		t.Fatalf("setup does not open with Docker login on now:\n%s", screen)
+		t.Fatalf("page 1 does not open with Docker login on now:\n%s", screen)
 	}
-	if !strings.Contains(screen, initBackHint) {
-		t.Errorf("setup does not offer the step back to the checks page:\n%s", screen)
+	if strings.Contains(keyLine(screen), initBackHint) || !strings.Contains(keyLine(screen), "esc quit") {
+		t.Errorf("page 1 has nowhere to step back to; Esc there asks to quit:\n%s", screen)
 	}
-	r.keys(t, "Enter")
-	screen = r.page(t, 2)
-	for _, want := range []string{initBackHint, "enter accept", "pgup/pgdn scroll", "a sign-in per subscription"} {
+	screen = r.next(t, 1)
+	if !regexp.MustCompile(`! sbx\s+kept 0\.50\.0 · Docker signed in · 2 checks need you`).MatchString(screen) {
+		t.Errorf("page 2 does not fold page 1 into its done row:\n%s", screen)
+	}
+	screen = r.next(t, 2)
+	for _, want := range []string{initBackHint, "enter next", "Store agent credentials"} {
 		if !strings.Contains(screen, want) {
-			t.Errorf("credentials screen lacks %q:\n%s", want, screen)
+			t.Errorf("the credentials page lacks %q:\n%s", want, screen)
 		}
 	}
 	if !regexp.MustCompile(`› opencode\s+✓`).MatchString(screen) {
@@ -280,15 +291,20 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 
 	r.keys(t, "s", "k", "-", "t", "y", "p", "e", "d")
 	r.back(t)
+	r.page(t, 2)
+	r.back(t)
 	screen = r.page(t, 1)
-	for _, re := range []string{`Docker login\s+\(•\) signed in`, `sbx setup\s+\(•\) after init\s+\( \) later`, `\(•\) keep what`} {
+	for _, re := range []string{`✓ Docker login\s+signed in`, `› sbx install\s+.*\(•\) keep as is`} {
 		if !regexp.MustCompile(re).MatchString(screen) {
-			t.Errorf("the revisit does not open on what is left (%s):\n%s", re, screen)
+			t.Errorf("the revisit does not lock what ran and keep what is left (%s):\n%s", re, screen)
 		}
 	}
-	r.keys(t, "Enter")
-	screen = r.page(t, 2)
-	if !regexp.MustCompile(`› opencode\s+✓ \[•{8}\s`).MatchString(screen) {
+	if !strings.Contains(keyLine(screen), "enter next") {
+		t.Errorf("a revisit with nothing left to run must say so:\n%s", screen)
+	}
+	r.next(t, 1)
+	screen = r.next(t, 2)
+	if !regexp.MustCompile(`› opencode\s+✓ \[•{8}_?\s`).MatchString(screen) {
 		t.Errorf("the typed key did not survive the step back:\n%s", screen)
 	}
 	calls := r.calls(t)
@@ -298,11 +314,9 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	}
 
 	r.keys(t, "C-u", "Enter")
-	r.page(t, 3)
+	r.page(t, 4)
 	r.back(t)
-	r.page(t, 2)
-	r.keys(t, "Enter")
-	r.page(t, 3)
+	r.next(t, 3)
 	if err := r.sess.SendText("Ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +324,7 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	r.waitExit(t)
 	b, err := os.ReadFile(filepath.Join(r.home, ".proveo", "operator.yml"))
 	if err != nil || !strings.Contains(string(b), "Ada") {
-		t.Errorf("the operator screen did not save its answer: %v %q", err, b)
+		t.Errorf("the operator page did not save its answer: %v %q", err, b)
 	}
 	for _, c := range r.calls(t) {
 		if strings.HasPrefix(c, "secret set") {
@@ -325,15 +339,17 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 // A sign-in row runs sbx's own flow after enter, and sign out leaves the confirmation to sbx.
 func TestInitSignInRowsRunSbxsOwnFlows(t *testing.T) {
 	r := startInit(t, 140, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.keys(t, "Up", "Up", "Right", "Right", "Up", "Right")
-	r.waitMatch(t, `claudecode\s+\( \) not signe…\s+\(•\) sign in`, `codex\s+\( \) signed in\s+\( \) sign in a…\s+\(•\) sign out`)
+	r.waitMatch(t, `claudecode\s+\( \) not signed in\s+\(•\) sign in`, `codex\s+\( \) signed in\s+\( \) sign in again\s+\(•\) sign out`)
+	if line := keyLine(r.page(t, 3)); !strings.Contains(line, "enter run 2 steps") {
+		t.Errorf("the key line does not count the two rows Enter runs: %q", line)
+	}
 	r.keys(t, "Enter")
 	r.wait(t, "[y/N]")
 	r.keys(t, "y", "Enter")
-	r.page(t, 3)
+	r.page(t, 4)
 
 	calls := r.calls(t)
 	run, rm, out := -1, -1, -1
@@ -360,12 +376,18 @@ func TestInitSignInRowsRunSbxsOwnFlows(t *testing.T) {
 		t.Errorf("the sign-in workspace was left behind: %v", left)
 	}
 	r.back(t)
-	r.page(t, 2)
-	r.waitMatch(t, `claudecode\s+\(•\) signed in`, `codex\s+\(•\) not signe`)
-	r.skip(t)
 	r.page(t, 3)
+	r.waitMatch(t, `claudecode\s+\(•\) signed in`, `codex\s+\(•\) not signed in`)
+	r.skip(t)
+	r.page(t, 4)
 	r.finish(t)
-	r.waitExit(t)
+	all := r.waitExit(t)
+	for _, re := range []string{`(?m)^── sbx run claudecode ── claudecode's sign-in · page 3/4 returns when it exits ──+$`,
+		`(?m)^── sbx secret rm openai ── sbx asks y/N · page 3/4 returns when it exits ──+$`} {
+		if !regexp.MustCompile(re).MatchString(all) {
+			t.Errorf("a credential hand-off was not framed (%s):\n%s", re, all)
+		}
+	}
 }
 
 // --yes takes every default: no numbered screen and no credentials form.
@@ -389,50 +411,53 @@ func TestInitYesNeverOpensTheCredentialsForm(t *testing.T) {
 	}
 }
 
-// On a narrow terminal the key line drops the scroll keys first; the way out stays.
+// On a narrow terminal the key line drops its lowest keys first; the way out stays.
 func TestInitNarrowFooterKeepsTheWayOut(t *testing.T) {
 	r := startInit(t, 64, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	footer := keyLine(r.page(t, 2))
-	for _, want := range []string{initBackHint, "enter accept"} {
+	r.next(t, 1)
+	footer := keyLine(r.next(t, 2))
+	for _, want := range []string{initBackHint, "enter next"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("64 columns lost %q: %q", want, footer)
 		}
 	}
-	if strings.Contains(footer, "pgup/pgdn") {
-		t.Errorf("64 columns kept the scroll keys over the way out: %q", footer)
-	}
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	r.waitExit(t)
 }
 
-// Ctrl+C on a page asks before it leaves; Skip is a button the cursor reaches, not a key.
+// Esc on page 1 and Ctrl+C on any page ask before they quit; Skip is a button the cursor reaches,
+// not a key.
 func TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
 	r.page(t, 1)
+	r.keys(t, "Escape")
+	screen := r.wait(t, "Quit init?")
+	if !strings.Contains(screen, "Answers on page 1/4 are not saved.") || !strings.Contains(screen, "←→ choose · enter press · esc stay · ctrl+c quit") {
+		t.Errorf("Esc on page 1 does not ask about page 1:\n%s", screen)
+	}
 	r.keys(t, "Enter")
-	screen := r.page(t, 2)
-	for _, want := range []string{"[ Skip ]", "ctrl+c quit", initBackHint, "enter accept"} {
+	r.next(t, 1)
+	screen = r.next(t, 2)
+	for _, want := range []string{"[ Skip ]", "ctrl+c quit", initBackHint, "enter next"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the credentials page lacks %q:\n%s", want, screen)
 		}
 	}
 	r.keys(t, "C-c")
-	screen = r.wait(t, "leave the wizard?")
-	if strings.Contains(screen, "INIT_EXIT=") {
-		t.Fatalf("one Ctrl+C ended init:\n%s", screen)
+	screen = r.wait(t, "Quit init?")
+	if strings.Contains(screen, "INIT_EXIT=") || !strings.Contains(screen, "Answers on page 3/4 are not saved.") {
+		t.Fatalf("one Ctrl+C ended init, or the question does not name page 3/4:\n%s", screen)
 	}
 	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.page(t, 3)
 	r.keys(t, "End", "Down")
 	r.wait(t, "enter skip")
 	r.keys(t, "Enter")
-	r.page(t, 3)
+	r.page(t, 4)
 	r.keys(t, "C-c")
-	r.wait(t, "leave the wizard?")
+	r.wait(t, "Quit init?")
 	r.keys(t, "C-c")
 	screen = r.wait(t, "INIT_EXIT=")
 	if !strings.Contains(screen, "quit at page 4/4") || !strings.Contains(screen, "INIT_EXIT=1") {
@@ -440,35 +465,32 @@ func TestInitCtrlCAsksBeforeItQuitsAndSkipIsAButton(t *testing.T) {
 	}
 }
 
-// The setup page names what Enter runs: the login only while sbx says Docker is signed out, never
-// sbx setup, which waits for the result; a line that stays on screen carries no place.
+// RUN IN PLACE: page 1 counts what Enter runs, with no list under the card; the login yields the
+// card behind its frame, and its outcome row prints under what sbx printed.
 func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SIGNED_OUT=1"}, "--skip-gh", "--skip-git")
 	screen := r.page(t, 1)
-	for _, want := range []string{"on enter", "sign in to Docker if signed out (sbx login)", "verify sbx (sbx diagnose)"} {
-		if !strings.Contains(screen, want) {
-			t.Errorf("the setup page does not name %q among what Enter runs:\n%s", want, screen)
+	if line := keyLine(screen); !strings.Contains(line, "enter run 1 step") {
+		t.Errorf("page 1 does not count the login Enter runs: %q", line)
+	}
+	for _, gone := range []string{"on enter", "(sbx setup)", "(sbx login)"} {
+		if strings.Contains(screen, gone) {
+			t.Errorf("page 1 still lists %q under the card:\n%s", gone, screen)
 		}
 	}
-	if strings.Contains(screen, "(sbx setup)") {
-		t.Errorf("sbx setup is listed among what Enter runs; it waits for the result:\n%s", screen)
-	}
-	if !regexp.MustCompile(`enter accept · \d+ steps?`).MatchString(screen) {
-		t.Errorf("the count of steps must follow \"enter accept\":\n%s", screen)
-	}
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
 	if regexp.MustCompile(`step \d+/\d+`).MatchString(all) {
-		t.Errorf("a line that stays on screen carries its place; only live frames keep it:\n%s", all)
+		t.Errorf("a line that stays on screen carries its place:\n%s", all)
 	}
-	if strings.Contains(all, "· verify sbx (sbx diagnose)") {
-		t.Errorf("a step that kept the terminal left its live line behind:\n%s", all)
+	if !regexp.MustCompile(`(?m)^── sbx login ── Docker not signed in · sbx's screen · page 1/4 returns when it exits ──+\n(.*\n)*\n  ✓ Docker login  signed in$`).MatchString(all) {
+		t.Errorf("the login was not framed, or its outcome row is missing:\n%s", all)
 	}
-	for _, gone := range []string{"sbx login — signing in to Docker", "sbx setup — running the first-run wizard"} {
+	for _, gone := range []string{"· verify sbx (sbx diagnose)", "sbx login — signing in to Docker", "sbx setup — running the first-run wizard"} {
 		if strings.Contains(all, gone) {
 			t.Errorf("the stream still announces %q:\n%s", gone, all)
 		}
@@ -483,13 +505,13 @@ func TestInitSaysWhatEnterRunsThenShowsEachStep(t *testing.T) {
 func TestInitSkipsSbxLoginOnASignedInHost(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
 	screen := r.page(t, 1)
-	if !regexp.MustCompile(`Docker login\s+\(•\) signed in`).MatchString(screen) || strings.Contains(screen, "(sbx login)") {
+	if !regexp.MustCompile(`✓ Docker login\s+signed in`).MatchString(screen) || !strings.Contains(keyLine(screen), "enter next") {
 		t.Errorf("a signed-in host offers a login:\n%s", screen)
 	}
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
 	if count(r.calls(t), "login") != 0 || strings.Contains(all, "── sbx login") {
@@ -504,33 +526,33 @@ func TestInitSkipsSbxLoginOnASignedInHost(t *testing.T) {
 // frame, after a blank row, and a second diagnose decides the outcome.
 func TestInitFramesSbxLoginOnASignedOutHost(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SIGNED_OUT=1"}, "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
-	if !regexp.MustCompile(`(?m)^\n── sbx login ── Docker not signed in · sbx's screen · init resumes when it exits ──+$`).MatchString(all) {
+	if !regexp.MustCompile(`(?m)^\n── sbx login ── Docker not signed in · sbx's screen · page 1/4 returns when it exits ──+$`).MatchString(all) {
 		t.Errorf("sbx login ran without its frame after a blank row:\n%s", all)
 	}
-	if !regexp.MustCompile(`(?m)^✓ Docker login — signed in$`).MatchString(all) {
-		t.Errorf("the login's outcome is missing:\n%s", all)
+	if !regexp.MustCompile(`(?m)^  ✓ Docker login  signed in$`).MatchString(all) {
+		t.Errorf("the login's outcome row is missing:\n%s", all)
 	}
-	if calls := r.calls(t); count(calls, "login") != 1 {
-		t.Errorf("sbx login ran %d times, want once:\n%s", count(calls, "login"), strings.Join(calls, "\n"))
+	if calls := r.calls(t); count(calls, "login") != 1 || count(calls, "diagnose --json") != 2 {
+		t.Errorf("want sbx login once and two diagnoses, before and after it:\n%s", strings.Join(calls, "\n"))
 	}
 }
 
-// THE SBX STEPS RUN ONLY WITH WORK: with nothing for sbx setup to import, it never opens, and the
-// result says why.
+// THE SBX STEPS RUN ONLY WITH WORK: with nothing for sbx setup to import, it never opens, page 4
+// and the result say why.
 func TestInitSkipsSbxSetupWithNothingToImport(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	if screen := r.page(t, 4); !regexp.MustCompile(`– sbx setup\s+nothing to import`).MatchString(screen) {
+		t.Errorf("page 4 does not say sbx setup has nothing to import:\n%s", screen)
+	}
 	r.finish(t)
 	all := r.waitExit(t)
 	calls := r.calls(t)
@@ -545,18 +567,19 @@ func TestInitSkipsSbxSetupWithNothingToImport(t *testing.T) {
 	}
 }
 
-// THE SBX STEPS RUN ONLY WITH WORK: with an env key sbx's store lacks, sbx setup opens after the
-// result's items, under its frame, and the verdict stays last.
+// THE SBX STEPS RUN ONLY WITH WORK: with an env key sbx's store lacks, page 4 asks after init or
+// later, and sbx setup opens after the result's items, under its frame; the verdict stays last.
 func TestInitOpensSbxSetupAfterTheResult(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{"STUB_SBX_ENV_ONLY=1"}, "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	if calls := r.calls(t); count(calls, "setup") != 0 {
 		t.Fatalf("sbx setup ran before the result:\n%s", strings.Join(calls, "\n"))
 	}
 	r.skip(t)
-	r.page(t, 3)
+	if screen := r.page(t, 4); !regexp.MustCompile(`sbx setup\s+\(•\) after init\s+\( \) later`).MatchString(screen) {
+		t.Errorf("page 4 does not offer sbx setup after init:\n%s", screen)
+	}
 	r.finish(t)
 	all := r.waitExit(t)
 	frame := regexp.MustCompile(`(?m)^── sbx setup ── 1 env key sbx's store lacks · sbx's screen · init ends when it exits ──+$`).FindStringIndex(all)
@@ -577,11 +600,10 @@ func TestInitOpensSbxSetupAfterTheResult(t *testing.T) {
 // setup opens after the result, and its frame names the forwarding.
 func TestInitOpensSbxSetupWhenForwardingIsOff(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{"SSH_AUTH_SOCK=/tmp/proveo-test-agent.sock", "STUB_SBX_FORWARDING=false"}, "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
 	if !regexp.MustCompile(`(?m)^── sbx setup ── SSH agent forwarding off · sbx's screen · init ends when it exits ──+$`).MatchString(all) {
@@ -595,11 +617,10 @@ func TestInitOpensSbxSetupWhenForwardingIsOff(t *testing.T) {
 // What the operator types while sbx's own setup runs, after the result, reaches it, and nothing of it reaches proveo.
 func TestInitHandsTheTerminalWhollyToSbxSetup(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SETUP_READS=1", "STUB_SBX_ENV_ONLY=1"}, "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	r.wait(t, "setup asks:")
 	r.keys(t, "typed-for-setup", "Enter")
@@ -610,30 +631,25 @@ func TestInitHandsTheTerminalWhollyToSbxSetup(t *testing.T) {
 	r.waitExit(t)
 }
 
-// init opens on every check before it asks anything, and closes on what waits,
-// the checks sbx failed, and its verdict on the host.
+// init opens on page 1 with every check before it asks anything, and closes on what waits, the
+// checks sbx failed, and its verdict on the host.
 func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
-	screen := r.checks(t)
-	for _, want := range []string{"init — preparing the ", "to install sbx", "sbx diagnose", "enter continue", "esc cancel", "ctrl+c quit",
-		"Binary version — update available: v9.9.9", "https://example.invalid/sbx/v9.9.9", "Download the latest release from the link above",
+	screen := r.page(t, 1)
+	for _, want := range []string{"Prepare sbx on this ", "── checks ─", "── sbx ─", "esc quit", "ctrl+c quit",
+		"Binary version — update available: v9.9.9", "Download the latest release: https://example.invalid/sbx/v9.9.9",
 		"! SSH client config — an unmanaged sandbox Host stanza", "a run does not need this check; it affects IDE attach"} {
 		if !strings.Contains(screen, want) {
-			t.Errorf("the checks page lacks %q:\n%s", want, screen)
+			t.Errorf("page 1 lacks %q:\n%s", want, screen)
 		}
 	}
-	if strings.Contains(screen, "enter accept") || strings.Contains(screen, initBackHint) {
-		t.Errorf("the checks page is the first page and no form: it must not say \"enter accept\" or offer a step back:\n%s", screen)
+	if strings.Contains(screen, initBackHint) || strings.Contains(screen, "from the link above") {
+		t.Errorf("page 1 offers a step back, or a fix points at another line:\n%s", screen)
 	}
-	r.page(t, 1)
-	r.back(t)
-	r.checks(t)
-	r.keys(t, "Enter")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
 	results := all[strings.LastIndex(all, " results "):]
@@ -657,8 +673,8 @@ func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	if n := strings.Count(all, " results "); n != 1 {
 		t.Errorf("results drawn %d times, want once:\n%s", n, all)
 	}
-	if calls := r.calls(t); count(calls, "login") != 0 || count(calls, "setup") != 0 {
-		t.Errorf("a signed-in host with nothing to import ran sbx login or sbx setup; sbx saw:\n%s", strings.Join(calls, "\n"))
+	if calls := r.calls(t); count(calls, "login") != 0 || count(calls, "setup") != 0 || count(calls, "diagnose --json") != 1 {
+		t.Errorf("a signed-in host with nothing to import ran sbx login or sbx setup, or diagnosed twice; sbx saw:\n%s", strings.Join(calls, "\n"))
 	}
 }
 
@@ -673,11 +689,10 @@ func lastProveoLine(all string) string {
 func TestInitOnAReadyHostClosesOnReady(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{`STUB_SBX_DIAGNOSE={"checks":[{"name":"virtualisation","status":"pass","message":"supported"}]}`},
 		"--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
 	if last := lastProveoLine(all); last != "✓ host — ready to run" {
@@ -726,13 +741,13 @@ func TestInitARunBlockerClosesOnTheHostVerdict(t *testing.T) {
 func TestInitAddsNoPathStepForAnSbxOutsideThePrefix(t *testing.T) {
 	r := startInit(t, 140, "--skip-gh", "--skip-git")
 	screen := r.page(t, 1)
-	if strings.Contains(screen, "to PATH") {
-		t.Errorf("the setup page names a PATH step for an sbx the prefix does not hold:\n%s", screen)
+	if strings.Contains(screen, "PATH") || !strings.Contains(keyLine(screen), "enter next") {
+		t.Errorf("page 1 names a PATH step for an sbx the prefix does not hold:\n%s", screen)
 	}
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
 	if strings.Contains(all, "to PATH") || strings.Contains(all, "not on PATH") {
@@ -856,11 +871,10 @@ func initYesPlain(t *testing.T, env ...string) (stderr string, calls []string) {
 // stopped, prints its verdict, and dies of SIGINT, so a shell like install.sh's stops too.
 func TestInitCtrlCInSbxsWizardEndsOnWhereItStopped(t *testing.T) {
 	r := startInitWrapped(t, 140, nil, []string{"STUB_SBX_SETUP_READS=1", "STUB_SBX_ENV_ONLY=1"}, installerWrapper, "--skip-gh", "--skip-git")
-	r.page(t, 1)
-	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.next(t, 1)
+	r.next(t, 2)
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	r.wait(t, "setup asks:")
 	r.keys(t, "C-c")
@@ -878,8 +892,8 @@ func TestInitCtrlCInSbxsWizardEndsOnWhereItStopped(t *testing.T) {
 	if regexp.MustCompile(`(?m)^. not run: `).MatchString(all) || !regexp.MustCompile(`(?m)^. host:\s+`).MatchString(all) {
 		t.Errorf("init must print the sbx block and name nothing as never run:\n%s", all)
 	}
-	if n := count(r.calls(t), "diagnose --json"); n != 2 {
-		t.Errorf("sbx diagnose ran %d times; once for the checks page and once to verify:\n%s", n, strings.Join(r.calls(t), "\n"))
+	if n := count(r.calls(t), "diagnose --json"); n != 1 {
+		t.Errorf("sbx diagnose ran %d times; once for page 1, whose checks judge the host:\n%s", n, strings.Join(r.calls(t), "\n"))
 	}
 }
 
@@ -889,22 +903,87 @@ func TestInitAFailedGhAuthLoginEndsOnWhereItStopped(t *testing.T) {
 	r := startInitTools(t, 140, map[string]string{
 		"gh": "#!/bin/sh\ncase \"$1 $2\" in\n \"auth login\") echo 'gh: login aborted' >&2; exit 1 ;;\n *) exit 1 ;;\nesac\n",
 	}, "--skip-login", "--skip-setup", "--skip-git")
-	r.page(t, 1)
+	r.next(t, 1)
 	r.keys(t, "Enter")
 	r.wait(t, "INIT_EXIT=")
 	all, err := r.sess.CaptureAll()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^⚠ init — stopped at GitHub\nINIT_EXIT=1`).MatchString(all) {
+	if !regexp.MustCompile(`(?m)^⚠ init — stopped at GitHub\n\s+host ready to run\nINIT_EXIT=1`).MatchString(all) {
 		t.Errorf("a failed gh auth login must end init on where it stopped, exit 1:\n%s", all)
 	}
-	for _, re := range []string{`(?m)^gh: login aborted$`, `(?m)^. not run: sbx diagnose$`, `(?m)^\s+credentials$`, `(?m)^\s+operator name$`} {
+	for _, re := range []string{`(?m)^gh: login aborted$`, `(?m)^── gh auth login ── gh's screen · page 2/4 returns when it exits ──+$`,
+		`(?m)^. not run: credentials$`, `(?m)^\s+operator name$`} {
 		if !regexp.MustCompile(re).MatchString(all) {
 			t.Errorf("the screen lacks %s:\n%s", re, all)
 		}
 	}
-	if strings.Contains(all, "× ") || strings.Contains(all, "did not complete") || strings.Contains(all, initPageLabel(2)) {
+	if strings.Contains(all, "× ") || strings.Contains(all, "did not complete") || strings.Contains(all, initPageLabel(3)) {
 		t.Errorf("init restated gh's failure or went on to the credentials page:\n%s", all)
+	}
+}
+
+// waitStopped waits for init to end and returns everything it printed; a stop ends it by SIGINT.
+func (r *initRun) waitStopped(t *testing.T, at string) string {
+	t.Helper()
+	r.wait(t, "INIT_EXIT=")
+	all, err := r.sess.CaptureAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^⚠ init — stopped at `+regexp.QuoteMeta(at)+`\n\s+Ctrl\+C ended it$`).MatchString(all) || !strings.Contains(all, "INIT_EXIT=130") {
+		t.Errorf("a Ctrl+C on the running card must end init stopped at %s, by SIGINT:\n%s", at, all)
+	}
+	return all
+}
+
+// RUN IN PLACE: Ctrl+C on page 3's running card lets the row it came on finish, stores no later
+// key, and ends init stopped at credentials before page 4.
+func TestInitCtrlCOnPageThreeStopsAfterItsRow(t *testing.T) {
+	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SLOW_SET=2"}, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
+	r.next(t, 1)
+	r.next(t, 2)
+	r.waitMatch(t, `› opencode\s+✓`)
+	r.keys(t, "t", "o", "k", "Down", "k", "e", "y")
+	r.waitMatch(t, `enter run 2 steps`)
+	r.keys(t, "Enter")
+	r.wait(t, "storing in sbx")
+	r.keys(t, "C-c")
+	r.wait(t, "stopping after opencode")
+	all := r.waitStopped(t, "credentials")
+	sets := 0
+	for _, c := range r.calls(t) {
+		if strings.HasPrefix(c, "secret set") {
+			sets++
+		}
+	}
+	if sets != 1 {
+		t.Errorf("sbx stored %d secrets after the stop; want the row the Ctrl+C came on alone:\n%s", sets, strings.Join(r.calls(t), "\n"))
+	}
+	if strings.Contains(all, "Name the operator") {
+		t.Errorf("page 4 opened after the stop:\n%s", all)
+	}
+}
+
+// RUN IN PLACE: after Ctrl+C on page 2's running card, GitHub's step hands the terminal to no
+// program and opens no sub-page.
+func TestInitCtrlCDuringGitHubHandsNothingOut(t *testing.T) {
+	r := startInitTools(t, 140, map[string]string{
+		"gh": "#!/bin/sh\nprintf 'gh %s\\n' \"$*\" >> \"$STUB_SBX_LOG\"\ncase \"$1 $2\" in\n \"auth token\") sleep 3; exit 1 ;;\n *) exit 0 ;;\nesac\n",
+	}, "--skip-login", "--skip-setup", "--skip-git")
+	r.next(t, 1)
+	r.keys(t, "Enter")
+	r.waitMatch(t, `running \d of \d — GitHub`)
+	r.keys(t, "C-c")
+	r.wait(t, "stopping after GitHub")
+	all := r.waitStopped(t, "GitHub")
+	if strings.Contains(all, "── gh auth login ──") || strings.Contains(all, "Choose sandbox Git access") {
+		t.Errorf("GitHub's step handed the terminal out or opened its sub-page after the stop:\n%s", all)
+	}
+	for _, c := range r.calls(t) {
+		if strings.HasPrefix(c, "gh auth login") {
+			t.Errorf("gh auth login ran after the stop:\n%s", strings.Join(r.calls(t), "\n"))
+		}
 	}
 }

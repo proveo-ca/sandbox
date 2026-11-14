@@ -24,16 +24,16 @@ esac
 `,
 		"ssh-add": "#!/bin/sh\necho '256 SHA256:test-key test (ED25519)'\n",
 	}, "--skip-login", "--skip-setup", "--skip-git")
-	r.page(t, 1)
+	r.next(t, 1)
 	r.keys(t, "Enter")
-	screen := r.wait(t, "GitHub access — API login and sandbox Git")
-	for _, text := range []string{"SSH agent", "HTTPS token", "SHA256:test-key", "verification pending"} {
+	screen := r.wait(t, "Choose sandbox Git access")
+	for _, text := range []string{"SSH agent", "HTTPS token", "SHA256:test-key", "verification pending", initPageLabel(2), "esc later", "sbx "} {
 		if !strings.Contains(screen, text) {
 			t.Fatalf("missing %q:\n%s", text, screen)
 		}
 	}
 	r.keys(t, "Enter")
-	r.page(t, 2)
+	r.page(t, 3)
 	var saved string
 	_ = filepath.WalkDir(r.home, func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && d.Name() == "github.json" {
@@ -54,7 +54,7 @@ esac
 		}
 	}
 	r.skip(t)
-	r.page(t, 3)
+	r.page(t, 4)
 	r.finish(t)
 	r.waitExit(t)
 }

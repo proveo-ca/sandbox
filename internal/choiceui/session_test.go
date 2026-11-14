@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -156,6 +158,35 @@ func TestASessionKeepsOneProgramAcrossAsks(t *testing.T) {
 	}
 	if !d.m.View().AltScreen {
 		t.Error("the session left the alternate screen between pages")
+	}
+}
+
+// A row an answer opened belongs to that answer: once the run starts it reads its answer with no
+// mark, unless the plan runs it.
+func TestARowAnAnswerOpenedTakesNoMarkUnlessItRuns(t *testing.T) {
+	for _, c := range []struct {
+		form  *Form
+		plan  []string
+		marks map[string]Mark
+		bare  string
+	}{
+		{pageTwo(), []string{"git identity"}, map[string]Mark{"git identity": MarkAhead, "user.name": MarkNone, "user.email": MarkNone}, "user.name"},
+		{pageOne("rootless tarball"), []string{"sbx install", "PATH", "Docker login"},
+			map[string]Mark{"sbx install": MarkAhead, "location": MarkNone, "PATH": MarkAhead}, "location"},
+	} {
+		d := newDriven(t, 120, 36)
+		reply := d.ask(c.form)
+		d.press(teaEnter)
+		got(t, reply, "enter on "+c.form.Title)
+		d.send(planMsg{labels: c.plan})
+		for _, r := range c.form.Rows {
+			if want, ok := c.marks[r.Label]; ok && r.Mark != want {
+				t.Errorf("%s: %s reads mark %v, want %v", c.form.Title, r.Label, r.Mark, want)
+			}
+		}
+		if view := d.view(); !regexp.MustCompile(`│ {5}` + regexp.QuoteMeta(c.bare) + ` `).MatchString(view) {
+			t.Errorf("%s: %s does not draw bare:\n%s", c.form.Title, c.bare, view)
+		}
 	}
 }
 
@@ -368,6 +399,9 @@ func TestADialogDrawsOverTheDimmedCard(t *testing.T) {
 	if !strings.Contains(view, "what does your terminal draw here?") || !strings.Contains(view, "Prepare sbx on this") {
 		t.Errorf("the dialog does not sit over the card:\n%s", view)
 	}
+	if !strings.Contains(view, "←→ choose · enter press · esc something else · ctrl+c stop") {
+		t.Errorf("the dialog's key line does not say ctrl+c stops the run:\n%s", view)
+	}
 	d.press(typed("x")...)
 	none(t, reply, "a key that is no button")
 	d.press(teaRight, teaEnter)
@@ -476,4 +510,93 @@ func TestCtrlCFromEveryState(t *testing.T) {
 			t.Error("ctrl+c on a dialog during a run did not cancel the context")
 		}
 	})
+}
+
+// A sub-page answered over a running page hands the card back to that page's run: the page draws
+// its rows as the run left them, and ctrl+c still stops it.
+func TestResumeReturnsAPageToItsRun(t *testing.T) {
+	d := newDriven(t, 80, 24)
+	f := running(t, d)
+	sub := d.ask(pageFour())
+	d.press(teaEnter)
+	if out := got(t, sub, "enter on the sub-page"); out != Accepted {
+		t.Fatalf("enter on the sub-page = %v, want Accepted", out)
+	}
+	d.send(resumeMsg{f: f})
+	d.send(statusMsg{label: "Docker login", mark: MarkDone, outcome: "signed in"})
+	view := d.view()
+	for _, want := range []string{"Prepare sbx on this", "✓ Docker login  signed in"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the resumed page lacks %q:\n%s", want, view)
+		}
+	}
+	d.press(teaEnter, teaEsc)
+	if d.stopped() {
+		t.Fatal("a key other than ctrl+c stopped the resumed run")
+	}
+	d.press(teaCtrlC)
+	if !d.stopped() || !f.Progress.Stopping {
+		t.Error("ctrl+c on the resumed run did not stop it")
+	}
+}
+
+// Edit changes the form up now between two draws; a planned label no row carries still moves the
+// key line on.
+func TestEditRedrawsRowsAndAPlanLabelWithoutARowCounts(t *testing.T) {
+	d := newDriven(t, 80, 24)
+	f := pageOne(keepAsIs)
+	reply := d.ask(f)
+	d.press(teaEnter)
+	got(t, reply, "enter")
+	d.send(planMsg{labels: []string{"checks", "Docker login"}})
+	d.send(statusMsg{label: "checks", mark: MarkRunning, outcome: "sbx diagnose"})
+	if view := d.view(); !strings.Contains(view, "running 1 of 2 — checks") {
+		t.Errorf("a planned label with no row did not move the key line:\n%s", view)
+	}
+	d.send(editMsg{edit: func(f *Form) {
+		for i := range f.Rows {
+			if f.Rows[i].Kind == RowCheck {
+				f.Rows[i].Mark = MarkRunning
+			}
+		}
+	}})
+	n := 0
+	for _, g := range spinFancy {
+		n += strings.Count(d.view(), g+" ")
+	}
+	if n < 4 {
+		t.Errorf("the edit did not reach the check rows (%d running):\n%s", n, d.view())
+	}
+}
+
+// Two rows sharing a label take the plan's labels in row order: the second runs while the first
+// keeps its answer.
+func TestAPlanLabelTwoRowsShareStandsForTheNextOfThem(t *testing.T) {
+	d := newDriven(t, 120, 36)
+	f := pageThree()
+	reply := d.ask(f)
+	d.press(teaEnter)
+	got(t, reply, "enter")
+	d.send(planMsg{labels: []string{"cursor"}})
+	var marks []Mark
+	for _, r := range f.Rows {
+		if r.Label == "cursor" {
+			marks = append(marks, r.Mark)
+		}
+	}
+	if !slices.Equal(marks, []Mark{MarkAhead, MarkLater}) {
+		t.Errorf("cursor rows = %v, want the first planned and the second left", marks)
+	}
+	d.send(planMsg{labels: []string{"codex", "cursor"}})
+	d.send(statusMsg{label: "cursor", mark: MarkRunning, outcome: "storing"})
+	d.send(statusMsg{label: "cursor", mark: MarkDone, outcome: "stored"})
+	marks = nil
+	for _, r := range f.Rows {
+		if r.Label == "cursor" {
+			marks = append(marks, r.Mark)
+		}
+	}
+	if !slices.Equal(marks, []Mark{MarkDone, MarkLater}) {
+		t.Errorf("cursor rows after the run = %v, want the planned one done", marks)
+	}
 }

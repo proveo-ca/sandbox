@@ -131,6 +131,11 @@ title Confirm dialogs — a card with a button row, the safe answer selected, tw
 ' dialog's key line reads 56 columns, not 55, and its card 61, not 60
 ' (62 in the overlay at 80, which widens an odd gap) (S2-16).
 ' This amends "the key line is byte-identical" above.
+' UNDER A SESSION CTRL+C STOPS THE RUN (verifier, 2026-11-13): a dialog the
+' session puts over a running card (dialog.stops) ends its key line
+' "ctrl+c stop", whatever button ctrl+c presses. The glyph question reads
+'   ←→ choose · enter press · esc something else · ctrl+c stop
+' (_spec/internal/choiceui/session.puml).
 '
 ' ── THE QUIT DIALOG DRAWS OVER THE DIMMED FORM (D4; built 2026-11-13) ──────
 ' Ctrl+C on any wizard Form (and Esc on a checklist's page 1) no longer

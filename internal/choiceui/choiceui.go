@@ -379,6 +379,7 @@ type Form struct {
 	EnterWord func(*Form) string // what Enter's key-line segment says on a checklist; nil reads "next"
 	Blocked   string             // why Enter does nothing on a checklist; the help reads it
 	Progress  *Progress          // the run Enter started on a checklist; nil at rest
+	Esc       string             // what Esc's key-line segment says on a checklist; "" reads back, quit or cancel
 
 	scroll int
 	onSkip bool   // the cursor is on the Skip button

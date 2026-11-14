@@ -17,7 +17,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   the vocabulary it borrows ........ _spec/_experiments/sbx-tui-observed.puml
 '   the key line these words sit on .. _spec/internal/choiceui/wireframe.puml
 '   the dialog the question reuses ... _spec/internal/choiceui/confirm-dialogs.puml
-'   init's three pages ............... _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   init's four pages ................ _spec/cmd/proveo/init-sbx-bootstrap.puml
 '   run's two pages .................. _spec/internal/run/run-spec.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -92,6 +92,15 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' NOT BUILT IN STAGE 2: the running state's keys (only Ctrl+C, which stops)
 ' and a sub-page's "esc later". Both need the stage 3 Session; until then a
 ' Form with Progress set only draws (Executor, S2-7).
+' BUILT IN STAGE 4 (2026-11-13): init's four pages are checklists on one
+' Session. While a page runs only Ctrl+C is taken: it cancels the walk's
+' context, the step finishes, and init ends stopped there, by SIGINT. A
+' sub-page (GitHub access, SSH repair) sets Form.Esc = "later": its key
+' line reads "esc later", and Esc there is Back, which init reads as later.
+' THE SKIP BUTTON ON A CHECKLIST: pages 3 and 4 keep Skip (owner, Q2 → C),
+' so the checklist draws it under its rows at rest, counts its two rows in
+' the ladder, and the key line reads "↑↓ row · enter skip · esc …" while
+' it is focused. A running page draws no button.
 '
 ' ── THE .env FILTER TAKES Enter AND Esc FIRST (owner, O4, 2026-11-13) ──────
 ' The run form's .env list filters by typing. While its filter is open:
@@ -230,6 +239,18 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' walk Down from model (choice-prompt-render.puml, WHERE THE CURSOR MAY REST).
 '
 ' ── WHAT EACH CALLER DOES WITH THE OUTCOME ─────────────────────────────────
+' SINCE STAGE 4 (2026-11-13) init's four pages, on one Session:
+'   init sbx (1/4)          Accepted runs the page; Quit (Esc or Ctrl+C,
+'                           confirmed) ends init; on a blocked page every
+'                           way off ends with the blocker.
+'   init git, shell (2/4)   Accepted runs the page; Back; Quit.
+'   init credentials (3/4)  Back; Skipped moves on and stores nothing; Quit.
+'   init operator (4/4)     Back; Skipped ends init with the name unchanged
+'                           and keeps the sbx setup answer; Quit.
+'   init sub-page (2/4)     Accepted saves; Back is later; Quit ends init.
+'   init, on Quit           "quit at page n/4", exit 1. No later page runs.
+'                           "cancelled at the init prompt" is gone.
+' BEFORE STAGE 4:
 '   init setup (1/3)        anything but Accepted: "cancelled at the init
 '                           prompt", exit 1. Nothing ran yet.
 '   init credentials (2/3)  Back; Skipped moves on and stores nothing; Quit.

@@ -265,7 +265,7 @@ func TestAStubClipsInsideTheCard(t *testing.T) {
 	}
 }
 
-// pageCase is a scope or checks page drawn at w by h, with the chip its head should carry and the
+// pageCase is a scope page drawn at w by h, with the chip its head should carry and the
 // plain key line it should paint.
 type pageCase struct {
 	name string
@@ -280,13 +280,6 @@ func pageCases() []pageCase {
 			return lines, sp.chip(w), sp.hint(w, len(sp.Tree.Rows())-sp.top-sp.layout(h).window)
 		}
 	}
-	check := func(mk func() *CheckPage) func(w, h int) ([]string, string, string) {
-		return func(w, h int) ([]string, string, string) {
-			cp := mk()
-			lines := checkLines(cp, w, h)
-			return lines, cp.chip(w), cp.hint(w, len(cp.lines())-cp.top-cp.layout(h).window)
-		}
-	}
 	return []pageCase{
 		{"scope", scope(scopePage)},
 		{"scope-long", scope(func() *ScopePage {
@@ -298,22 +291,14 @@ func pageCases() []pageCase {
 		})},
 		{"scope-filter", scope(func() *ScopePage { sp := scopePage(); sp.filtering = true; sp.Tree.SetFilter("bill"); return sp })},
 		{"scope-ascii", scope(func() *ScopePage { sp := scopePage(); sp.Glyphs = GlyphsASCII; return sp })},
-		{"checks", check(checkPage)},
-		{"checks-long", check(func() *CheckPage {
-			cp := checkPage()
-			cp.Rows[2].Detail = strings.Repeat("d", 150)
-			cp.Rows[2].Hint = strings.Repeat("h", 150)
-			return cp
-		})},
-		{"checks-ascii", check(func() *CheckPage { cp := checkPage(); cp.Glyphs = GlyphsASCII; return cp })},
 	}
 }
 
-// The scope and checks pages are cards: every row from the top border to the bottom border is walled
+// The scope page is a card: every row from the top border to the bottom border is walled
 // at column 0 and the card's last column, text stops short of the column inside the right wall, the
 // head carries the step chip exactly when the key line drops the page, and the painted key line is
 // the plain one. Under 40 columns no frame draws.
-func TestTheScopeAndCheckPagesAreCards(t *testing.T) {
+func TestTheScopePageIsACard(t *testing.T) {
 	t.Parallel()
 	for _, pc := range pageCases() {
 		g := glyphsFor(GlyphsNerd)
@@ -392,7 +377,6 @@ func TestTheStepCountNeverVanishes(t *testing.T) {
 	}
 	form := func(title string) *Form { f := stepForm(2, 3); f.Title = title; return f }
 	scope := func(title string) *ScopePage { sp := scopePage(); sp.Banner, sp.Title = nil, title; return sp }
-	check := func(title string) *CheckPage { cp := checkPage(); cp.Banner, cp.Title = nil, title; return cp }
 	pages := []stepPage{
 		{"form", " page 2/3 ",
 			func(title string, w int) ([]string, string) {
@@ -406,12 +390,6 @@ func TestTheStepCountNeverVanishes(t *testing.T) {
 				return scopeLines(sp, w, 24), sp.chip(w)
 			},
 			func(title string, w, hidden int) string { return scope(title).hint(w, hidden) }},
-		{"checks", " page 1/4 ",
-			func(title string, w int) ([]string, string) {
-				cp := check(title)
-				return checkLines(cp, w, 24), cp.chip(w)
-			},
-			func(title string, w, hidden int) string { return check(title).hint(w, hidden) }},
 	}
 	for _, pg := range pages {
 		unframed, ranked, cut := false, false, false

@@ -1,0 +1,23 @@
+╭── proveo init ───────────────────────────────────────────────────────────────╮
+│ Store agent credentials                                            page 3/4  │
+│ ! pages 1-2     sbx · git, shell                                             ░
+├── claudecode — subscription ──                                               ░
+│   claudecode    (•) not signed in     ( ) sign in                            ░
+├── codex — subscription ──                                                    ░
+│   codex         (•) signed in         ( ) sign in again     ( ) sign out     ░
+├── cursor — subscription ──                                                   ░
+│   cursor        (•) not signed in     ( ) sign in                            ░
+├── opencode — subscription ──                                                 ░
+│ › opencode      ✓ [stored — type to replace              ]                   ░
+├── usage api keys ──                                                          ░
+│   anthropic     ! [this host's env only — Enter to import]                   ░
+│   openai          [empty — type a key                    ]                   ░
+│   cursor          [empty — type a key                    ]                   ░
+├── ahead ──────                                                               ░
+│ · operator      page 4/4 · the name agents address you by                    ▼
+│                                                                              │
+│   [ Skip ]                                                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · type to edit · pgup/pgdn scroll · enter run 1 step · esc back       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  › opencode — stored as opencode

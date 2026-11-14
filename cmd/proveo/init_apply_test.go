@@ -3,7 +3,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -33,13 +37,12 @@ func TestTheApplyPlanListsWhatEnterRunsInTheOrderItRuns(t *testing.T) {
 	}{
 		{"a first install with every action now; sbx setup waits for the result", everything, applyFixture(), []string{
 			"download sbx " + sbx.Release, "install sbx into /opt/proveo-test-prefix",
-			"add /opt/proveo-test-prefix/bin to PATH", actLogin,
-			"bind the network baseline: balanced", "install the prompt kit", "set the sandbox git identity",
-			"connect GitHub", "verify sbx (sbx diagnose)"}},
+			"add /opt/proveo-test-prefix/bin to PATH", "verify sbx (sbx diagnose)", actLogin,
+			"bind the network baseline: balanced", "set the sandbox git identity", "connect GitHub", "install the prompt kit"}},
 		{"a revisit with everything later still verifies", initDecisions{Install: installSkip}, applyFixture(),
 			[]string{"verify sbx (sbx diagnose)"}},
 		{"print-only PATH is not a step", initDecisions{Install: installSkip, AddPath: false, Login: true}, applyFixture(),
-			[]string{actLogin, "verify sbx (sbx diagnose)"}},
+			[]string{"verify sbx (sbx diagnose)", actLogin}},
 		{"a package manager owns placement, so no PATH step", initDecisions{Install: installPackaged, AddPath: true},
 			applyCtx{plan: sbx.Plan{Packaged: &sbx.Packaged{Asset: "sbx.deb"}}, applied: sbx.Plan{}},
 			[]string{"download the distro package", "install the distro package", "verify sbx (sbx diagnose)"}},
@@ -97,7 +100,7 @@ func TestEachStepShowsTheWayItsKindDoes(t *testing.T) {
 	for kind, want := range map[stepKind][]string{
 		stepLive:   {"download sbx " + sbx.Release, "add /opt/proveo-test-prefix/bin to PATH"},
 		stepHand:   {"install sbx into /opt/proveo-test-prefix", "bind the network baseline: balanced"},
-		stepSilent: {actLogin, actPrompt, actGit, actGitHub},
+		stepSilent: {actLogin, actGit, actGitHub, actPrompt},
 		stepQuiet:  {"verify sbx (sbx diagnose)"},
 	} {
 		if !slices.Equal(kinds[kind], want) {
@@ -119,13 +122,14 @@ func TestAHandedStepPrintsItsProgramAndNoPlace(t *testing.T) {
 		return applyStep{name: name, line: line, label: label, kind: kind, run: func() error { ran = append(ran, name+"!"); return err }}
 	}
 	var heard []string
-	err := runApply([]applyStep{
+	err := runApply(streamView{}, []applyStep{
 		step("download sbx", "download sbx", rowInstall, stepLive, nil),
 		step("", "", "", stepLive, nil),
 		step("sign in to Docker", "sbx login — signing in to Docker", rowLogin, stepHand, boom),
 		step("install the prompt kit", "", rowPrompt, stepSilent, nil),
 		step("verify sbx", "", labelVerify, stepQuiet, nil),
-	}, func(label string) { heard = append(heard, label) })
+	}, func(label string) { heard = append(heard, label) }, nil)
+
 	if got := strings.Join(heard, "|"); got != rowInstall+"|" {
 		t.Errorf("heard %q; a step that failed must not be reported as run", got)
 	}
@@ -154,10 +158,10 @@ func TestQuietAndSilentStepsLeaveNoPlainLine(t *testing.T) {
 	prev := ui.Default
 	t.Cleanup(func() { ui.Default = prev })
 	ui.Default = ui.New(&term)
-	if err := runApply([]applyStep{
+	if err := runApply(streamView{}, []applyStep{
 		{name: "set the sandbox git identity", label: rowGit, kind: stepSilent, run: func() error { return nil }},
 		{name: "verify sbx (sbx diagnose)", label: labelVerify, kind: stepQuiet, run: func() error { return nil }},
-	}, nil); err != nil {
+	}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if term.Len() != 0 {
@@ -184,7 +188,7 @@ func TestARevisitRerunsThePathStepOnlyToWriteTheRC(t *testing.T) {
 		rep := newInitReport(initOptions{}, sbx.Host{OS: "darwin", Arch: "arm64"}, nil, plan)
 		rep.sbxSaid = true
 		steps := applyPlan(d, applyCtx{plan: plan, applied: plan, rep: rep})
-		if err := runApply(steps, (&initRecord{}).did); err != nil {
+		if err := runApply(streamView{}, steps, (&initRecord{}).did, nil); err != nil {
 			t.Fatal(err)
 		}
 		return settle(d, steps, plan), stepNames(steps), out.String()
@@ -215,8 +219,8 @@ func TestTheLoginStepSkipsWhenSbxReportsSignedIn(t *testing.T) {
 	t.Setenv("STUB_DIAGNOSE", `{"checks":[{"name":"Authentication","status":"pass","message":"authenticated"}]}`)
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
-	if err := runApply(applyPlan(initDecisions{Install: installSkip, Login: true},
-		applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), nil); err != nil {
+	if err := runApply(streamView{}, applyPlan(initDecisions{Install: installSkip, Login: true},
+		applyCtx{plan: rep.applied, applied: rep.applied, rep: rep}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(calls); !strings.Contains(string(b), "diagnose --json") || regexp.MustCompile(`(?m)^login`).Match(b) {
@@ -239,7 +243,6 @@ func TestTheLoginStepSkipsWhenSbxReportsSignedIn(t *testing.T) {
 		{"signed out, and still", sbx.AuthOut, sbx.AuthOut, true, 1, "warn: Docker login — not signed in\n    " + loginFix},
 		{"signed out, with no terminal", sbx.AuthOut, sbx.AuthOut, false, 0, ""},
 	} {
-		out := captureUI(t)
 		rep := testReport(t, initOptions{})
 		logins := 0
 		err := applyLogin(loginStage{
@@ -252,8 +255,22 @@ func TestTheLoginStepSkipsWhenSbxReportsSignedIn(t *testing.T) {
 		if err != nil || logins != c.logins {
 			t.Errorf("%s: err %v, %d logins, want %d", c.name, err, logins, c.logins)
 		}
-		if got := strings.TrimSpace(strings.ReplaceAll(out.String(), "------ sbx ------", "")); got != c.says {
-			t.Errorf("%s: said %q, want %q", c.name, got, c.says)
+		var said []string
+		for _, it := range rep.sbxItems {
+			switch {
+			case it.Ok:
+				said = append(said, "ok: "+it.Text)
+			case it.Warn:
+				said = append(said, "warn: "+it.Text)
+			default:
+				continue
+			}
+			for _, d := range it.Detail {
+				said = append(said, "    "+d)
+			}
+		}
+		if got := strings.Join(said, "\n"); got != c.says {
+			t.Errorf("%s: said %q in the sbx block, want %q", c.name, got, c.says)
 		}
 		if unchecked := len(rep.sbxItems) == 1 && rep.sbxItems[0].Text == "Docker login — not checked"; unchecked != (c.before == sbx.AuthUnknown) {
 			t.Errorf("%s: sbx items = %+v", c.name, rep.sbxItems)
@@ -286,5 +303,239 @@ func TestAHandOffIsFramed(t *testing.T) {
 	}
 	if err := handFramed(exec.Command(filepath.Join(t.TempDir(), "absent"))); err == nil || interrupted(err) {
 		t.Errorf("a program that never started = %v, want proveo's own error", err)
+	}
+}
+
+// applyPlan is pages 1 and 2's steps for d, as one walk runs them: sbx's, then git's.
+func applyPlan(d initDecisions, c applyCtx) []applyStep {
+	return append(applySbx(d, c), applyGit(d, c, gitAnswer{})...)
+}
+
+// signedOut is sbx diagnose on a host whose Docker sign-in is gone.
+const signedOut = `{"checks":[{"name":"virtualisation","status":"pass","message":"supported"},` +
+	`{"name":"Authentication","status":"fail","message":"not signed in","hint":"Run: sbx login"}]}`
+
+// onCard is a card view over a fake session with page n up.
+func onCard(n int) (*cardView, *fakeSession) {
+	s := newFakeSession()
+	v := newCardView(s)
+	v.page = &choiceui.Form{Title: "page", Step: initStepAt(n)}
+	return v, s
+}
+
+// tarballPlan is a release served by srv whose one install step copies the stub sbx into the prefix.
+func tarballPlan(t *testing.T, srv *httptest.Server) sbx.Plan {
+	t.Helper()
+	stub, err := exec.LookPath("sbx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := filepath.Join(t.TempDir(), "prefix")
+	bin := filepath.Join(prefix, "bin", "sbx")
+	return sbx.Plan{Prefix: prefix, Bin: bin, URL: srv.URL + "/sbx.tar.gz", Asset: "sbx.tar.gz",
+		Steps: []sbx.Step{{What: "place sbx", Argv: []string{"sh", "-c", `mkdir -p "$(dirname "$BIN")" && cp "$STUB" "$BIN" && echo placed`},
+			Env: []string{"BIN=" + bin, "STUB=" + stub}}}}
+}
+
+// RUN IN PLACE: page 1's Enter runs its rows in row order on the card — sbx install, PATH, the
+// checks, Docker login — each running, then its outcome; the install's output stays off the screen.
+func TestPageOneEnterRunsItsRowsInRowOrder(t *testing.T) {
+	isolatedInitHost(t)
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("STUB_DIAGNOSE", signedOut)
+	out := captureUI(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("tarball")) }))
+	defer srv.Close()
+	plan := tarballPlan(t, srv)
+	rep := newInitReport(initOptions{}, sbx.Host{OS: "darwin", Arch: "arm64"}, nil, plan)
+	v, s := onCard(1)
+	d := initDecisions{Install: installTarball, Prefix: plan.Prefix, AddPath: true, Login: true}
+	steps := applySbx(d, applyCtx{plan: plan, applied: plan, download: t.TempDir(), host: sbx.Host{OS: "darwin", Arch: "arm64"}, rep: rep, view: v})
+	if err := runApply(v, steps, nil, nil); err != nil {
+		t.Fatalf("page 1's run = %v\n%s", err, strings.Join(s.events, "\n"))
+	}
+	if got := s.with("plan"); !slices.Equal(got, []string{"plan sbx install, PATH, checks, Docker login"}) {
+		t.Errorf("plan = %q", got)
+	}
+	var running []string
+	for _, e := range s.with("status") {
+		if strings.Contains(e, " ◐ ") {
+			running = append(running, strings.Fields(e)[1])
+		}
+	}
+	if want := []string{"sbx", "sbx", "PATH", "checks", "Docker"}; !slices.Equal(running, want) {
+		t.Errorf("rows ran in the order %q, want %q:\n%s", running, want, strings.Join(s.events, "\n"))
+	}
+	for _, want := range []string{"status sbx install ✓ installed " + sbx.Release, "status Docker login ! not signed in"} {
+		if !slices.Contains(s.events, want) {
+			t.Errorf("no %q among:\n%s", want, strings.Join(s.events, "\n"))
+		}
+	}
+	if !slices.Contains(s.events, "edit") {
+		t.Error("the check rows never redrew from the diagnose that ran after the install")
+	}
+	if strings.Contains(out.String(), "placed") {
+		t.Errorf("the install step's output reached the stream:\n%s", out.String())
+	}
+}
+
+// RUN IN PLACE: page 2's Enter runs git identity, then GitHub with its sub-page, then the prompt
+// kit; GitHub's sub-page stands over the page, and the page comes back to finish its run.
+func TestPageTwoEnterRunsGitIdentityThenGitHubThenPromptKit(t *testing.T) {
+	isolatedInitHost(t)
+	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv(ghTokenEnvVar, "")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	captureUI(t)
+	all := initDecisions{Git: true, Gh: true, Prompt: true}
+	if got := planRows(applyGit(all, applyCtx{}, gitAnswer{})); !slices.Equal(got, []string{rowGit, rowGh, rowPrompt}) {
+		t.Errorf("page 2 plans %q, want git identity, GitHub, then the prompt kit", got)
+	}
+	rep := newInitReport(initOptions{}, sbx.Host{OS: "darwin", Arch: "arm64"}, nil, sbx.Plan{})
+	v, s := onCard(2)
+	s.script = []choiceui.Outcome{choiceui.Back}
+	d := initDecisions{Git: true, Gh: true}
+	steps := applyGit(d, applyCtx{host: sbx.Host{OS: "darwin", Arch: "arm64"}, rep: rep, view: v,
+		frame: subFrame{at: initStepAt(2)}}, gitAnswer{name: "Ada", email: "ada@example.invalid"})
+	if err := runApply(v, steps, nil, nil); err != nil {
+		t.Fatalf("page 2's run = %v\n%s", err, strings.Join(s.events, "\n"))
+	}
+	var order []string
+	for _, e := range s.events {
+		switch {
+		case strings.HasPrefix(e, "status git identity ◐"):
+			order = append(order, "git")
+		case strings.HasPrefix(e, "status GitHub ◐"):
+			order = append(order, "GitHub")
+		case strings.HasPrefix(e, "ask "+titleAccess+" @2/4"):
+			order = append(order, "sub-page")
+		case strings.HasPrefix(e, "resume "):
+			order = append(order, "resume")
+		}
+	}
+	if want := []string{"git", "GitHub", "sub-page", "resume"}; !slices.Equal(order, want) {
+		t.Errorf("page 2 ran %q, want %q:\n%s", order, want, strings.Join(s.events, "\n"))
+	}
+	if !slices.Contains(s.events, "status git identity ✓ Ada <ada@example.invalid> · git's global config") {
+		t.Errorf("the identity's fields were not written:\n%s", strings.Join(s.events, "\n"))
+	}
+	if !slices.ContainsFunc(s.events, func(e string) bool {
+		return strings.HasPrefix(e, "status GitHub ") && strings.HasSuffix(e, "sandbox Git: later")
+	}) {
+		t.Errorf("Esc on the sub-page did not leave sandbox Git for later:\n%s", strings.Join(s.events, "\n"))
+	}
+}
+
+// Every hand-off on the card goes through the session: it lends the terminal under a frame that
+// names the program by its base name and the page that returns when it exits.
+func TestEveryHandOffIsFramedAndYieldsTheCard(t *testing.T) {
+	isolatedInitHost(t)
+	t.Setenv("STUB_DIAGNOSE", signedOut)
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv(ghTokenEnvVar, "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+	captureUI(t)
+	bin := t.TempDir()
+	for name, body := range map[string]string{"brew": "#!/bin/sh\nexit 0\n"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	host := sbx.Host{OS: "darwin", Arch: "arm64"}
+	rep := newInitReport(initOptions{}, host, nil, sbx.Plan{})
+
+	v1, s1 := onCard(1)
+	sbxSteps := applySbx(initDecisions{Install: installSkip, Login: true, Baseline: sbx.BaselineBalanced}, applyCtx{host: host, rep: rep, view: v1})
+	if err := runApply(v1, sbxSteps, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPackage(sbx.Packaged{Argv: []string{"sudo", "apt-get", "install", "./sbx.deb"}}, t.TempDir(), "abc", applyCtx{rep: rep, view: v1}); err != nil {
+		t.Fatal(err)
+	}
+	v2, s2 := onCard(2)
+	s2.script = []choiceui.Outcome{choiceui.Back}
+	gitSteps := applyGit(initDecisions{Gh: true}, applyCtx{host: host, rep: rep, view: v2, frame: subFrame{at: initStepAt(2)}}, gitAnswer{})
+	_ = runApply(v2, gitSteps, nil, nil)
+
+	hands := append(s1.with("hand "), s2.with("hand ")...)
+	for _, want := range []string{
+		"hand sbx login ── Docker not signed in · sbx's screen · page 1/4 returns when it exits",
+		"hand sbx policy init balanced ── sbx's screen · page 1/4 returns when it exits",
+		"hand sudo apt-get install ./sbx.deb ── apt-get's screen · page 1/4 returns when it exits",
+		"hand brew install gh ── brew's screen · page 2/4 returns when it exits",
+	} {
+		if !slices.Contains(hands, want) {
+			t.Errorf("no hand-off %q among:\n%s", want, strings.Join(hands, "\n"))
+		}
+	}
+	for _, h := range hands {
+		if strings.Contains(h, "/") && strings.Index(h, "/") < strings.Index(h, " ── ") && !strings.Contains(h, "./sbx.deb") {
+			t.Errorf("a frame names its program by a path: %q", h)
+		}
+	}
+}
+
+// RUN IN PLACE: after a stop the running step lends the terminal to no program and opens no
+// sub-page: Hand returns the stop, which ends the row stopped, and Sub answers Cancelled.
+func TestAfterAStopNoProgramTakesTheTerminalAndNoSubPageOpens(t *testing.T) {
+	v, s := onCard(2)
+	step := applyStep{name: actGitHub, label: rowGh, doing: "gh auth status", run: func() error {
+		s.cancel()
+		if out, err := v.Sub(&choiceui.Form{Title: titleAccess, Step: initStepAt(2)}); out != choiceui.Cancelled || err != nil {
+			t.Errorf("Sub after a stop = %v, %v; want Cancelled", out, err)
+		}
+		return v.Hand(command("gh", "auth", "login"), []string{"gh's screen"}, nil)
+	}}
+	err := runApply(v, []applyStep{step}, nil, nil)
+	if !interrupted(err) || !slices.Contains(s.events, "status GitHub ! stopped · Ctrl+C ended it") {
+		t.Errorf("a hand-off after a stop = %v, want the row stopped:\n%s", err, strings.Join(s.events, "\n"))
+	}
+	if reached := append(s.with("hand "), s.with("ask ")...); len(reached) > 0 {
+		t.Errorf("a stopped run still reached the card: %q", reached)
+	}
+}
+
+// RUN IN PLACE: Ctrl+C while a step runs lets that step finish, then stops the run: the rows after
+// it read not run, and init ends as stopped there, by SIGINT.
+func TestCtrlCDuringALiveStepStopsAfterIt(t *testing.T) {
+	v, s := onCard(1)
+	var ran []string
+	step := func(row string, stop bool) applyStep {
+		return applyStep{name: row, label: row, doing: "doing", run: func() error {
+			ran = append(ran, row)
+			if stop {
+				s.cancel()
+			}
+			return nil
+		}, outcome: func() (choiceui.Mark, string) { return choiceui.MarkDone, "done" }}
+	}
+	err := runApply(v, []applyStep{step(rowInstall, true), step(rowPath, false), step(rowLogin, false)}, nil, nil)
+	if !slices.Equal(ran, []string{rowInstall}) {
+		t.Errorf("ran %q after the stop, want only the row it came on", ran)
+	}
+	var failed stepErr
+	if !errors.As(err, &failed) || failed.label != rowInstall || !interrupted(err) || !slices.Equal(failed.rest, []string{rowPath, rowLogin}) {
+		t.Fatalf("err = %#v, want a stop at sbx install with the rest unreached", err)
+	}
+	for _, want := range []string{"status sbx install ✓ done", "status PATH – not run", "status Docker login – not run"} {
+		if !slices.Contains(s.events, want) {
+			t.Errorf("no %q among:\n%s", want, strings.Join(s.events, "\n"))
+		}
+	}
+	v2, s2 := onCard(1)
+	cut := applyStep{name: "download", label: rowInstall, run: func() error { s2.cancel(); return context.Canceled }}
+	if err := runApply(v2, []applyStep{cut, step(rowPath, false)}, nil, nil); !interrupted(err) || !slices.Contains(s2.events, "status sbx install ! stopped · Ctrl+C ended it") {
+		t.Errorf("a step Ctrl+C cut short = %v, want a stop:\n%s", err, strings.Join(s2.events, "\n"))
+	}
+	out := captureUI(t)
+	rep := testReport(t, initOptions{})
+	rep.sbxSaid = true
+	if code, ok := exitCode(rep.close(&initRecord{}, err)); !ok || code != 130 {
+		t.Errorf("a stopped run exits %d, want 130", code)
+	}
+	if got := out.String(); !strings.Contains(got, "warn: init — stopped at sbx install\n    Ctrl+C ended it") {
+		t.Errorf("the ending does not say where Ctrl+C stopped init:\n%s", got)
 	}
 }

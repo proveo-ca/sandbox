@@ -4,98 +4,74 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
-	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// errInitBack and errInitQuit are how the setup page reports a step back and a confirmed quit.
-var (
-	errInitBack = errors.New("step back")
-	errInitQuit = errors.New("quit")
-)
+// errInitQuit is how a sub-page reports a confirmed quit through the step that asked it.
+var errInitQuit = errors.New("quit")
 
-const (
-	checksToInstall = "to install sbx"
-	checksFromSbx   = "sbx diagnose"
-)
-
-// preflightRows are the checks page 1 shows: what installing needs, then sbx's
-// own verdict on the host when sbx is there to give one.
-func preflightRows(checks []sbx.Prereq, diag []sbx.Check, diagErr error) []choiceui.CheckRow {
-	var rows []choiceui.CheckRow
+// checkRows are page 1's checks section: what installing needs, then sbx's own verdict on the host
+// when sbx is there to give one. Each row keeps its evidence, fix and note apart; the Docker
+// sign-in draws as its own row, never among the checks.
+// SPEC: _spec/cmd/proveo/init-preflight-and-result.puml (PAGE 1 CHECKS)
+func checkRows(checks []sbx.Prereq, diag []sbx.Check, diagErr error) []choiceui.Row {
+	var rows []choiceui.Row
 	for _, c := range checks {
-		row := choiceui.CheckRow{Group: checksToInstall, State: choiceui.CheckWarn, Name: c.Name, Detail: c.Detail, Hint: c.Fix}
+		row := choiceui.Row{Kind: choiceui.RowCheck, Mark: choiceui.MarkNeeds, Label: c.Name, Outcome: c.Detail, Fix: c.Fix}
 		switch {
 		case c.OK:
-			row.State = choiceui.CheckOK
+			row.Mark, row.Fix = choiceui.MarkDone, ""
 		case c.Blocks == sbx.BlocksInstall:
-			row.State = choiceui.CheckFail
+			row.Mark = choiceui.MarkFailed
 		}
 		rows = append(rows, row)
 	}
 	if diagErr != nil {
-		rows = append(rows, choiceui.CheckRow{
-			Group: checksFromSbx, State: choiceui.CheckWarn, Name: "sbx diagnose",
-			Detail: "gave no answer: " + strings.SplitN(diagErr.Error(), "\n", 2)[0],
-			Hint:   "reinstall the pinned sbx with `proveo init --force`",
-		})
+		rows = append(rows, choiceui.Row{Kind: choiceui.RowCheck, Mark: choiceui.MarkNeeds, Label: "sbx diagnose",
+			Outcome: "gave no answer: " + strings.SplitN(diagErr.Error(), "\n", 2)[0],
+			Fix:     "reinstall the pinned sbx with `proveo init --force`"})
 	}
 	for _, c := range diag {
-		row := choiceui.CheckRow{Group: checksFromSbx, State: choiceui.CheckSkip, Name: c.Name, Detail: c.Summary(), Evidence: c.Evidence(), Hint: c.Hint}
+		if c.Name == sbx.AuthenticationCheck {
+			continue
+		}
+		row := choiceui.Row{Kind: choiceui.RowCheck, Mark: choiceui.MarkLater, Label: c.Name, Outcome: c.Summary()}
+		row.Fix, row.Evidence = standAlone(c.Hint, c.Evidence())
 		switch c.Status {
 		case "pass":
-			row.State = choiceui.CheckOK
+			row.Mark, row.Fix, row.Evidence = choiceui.MarkDone, "", nil
 		case "warn":
-			row.State = choiceui.CheckWarn
+			row.Mark = choiceui.MarkNeeds
 		case "fail":
-			row.State = choiceui.CheckFail
+			row.Mark = choiceui.MarkFailed
 			if affects := c.Affects(); affects != "" {
-				row.State = choiceui.CheckWarn
-				row.Evidence = append(row.Evidence, fmt.Sprintf(outsideARunNote, affects))
+				row.Mark, row.Note = choiceui.MarkNeeds, fmt.Sprintf(outsideARunNote, affects)
 			}
 		}
 		rows = append(rows, row)
 	}
+	if len(rows) > 0 {
+		rows[0].Divider, rows[0].Heading = true, rowChecks
+	}
 	return rows
 }
 
-// errInitCancel is how a page reports that the operator left init before it acted.
-var errInitCancel = errors.New("cancelled")
+// linkAbove is how sbx's hint points at the evidence line that holds a link.
+const linkAbove = " from the link above"
 
-// preflightPage draws page 1 and maps how it was left: on, out of the wizard, or refused. A page
-// that cannot draw becomes a warning in the sbx block.
-func preflightPage(host sbx.Host, rows []choiceui.CheckRow, stop []sbx.Prereq, at choiceui.Step, rep *initReport) (stepResult, error) {
-	page := &choiceui.CheckPage{
-		Banner: choiceui.Banner(),
-		Title:  "init — preparing the " + describeHost(host) + " host",
-		Rows:   rows,
-		Step:   at,
-		Next:   "setup",
-		Glyphs: posture.GlyphModeFrom(os.Getenv),
+// standAlone is a fix that never points at another line: a hint that names "the link above" takes
+// the link from the evidence in its place, and the evidence drops it.
+func standAlone(hint string, evidence []string) (fix string, rest []string) {
+	at := slices.IndexFunc(evidence, func(e string) bool { return strings.HasPrefix(e, "http://") || strings.HasPrefix(e, "https://") })
+	if !strings.Contains(hint, linkAbove) || at < 0 {
+		return hint, evidence
 	}
-	if len(stop) > 0 {
-		page.Blocked = blockedErr{stop}.Error()
-	}
-	out, err := page.Run()
-	switch {
-	case err != nil:
-		rep.sbxItem(sandbox.Item{Warn: true, Text: "checks page — not shown", Detail: errLines(err)})
-		return stepNone, nil
-	case out == choiceui.Accepted:
-		return stepNext, nil
-	case out == choiceui.Quit:
-		return stepQuit, nil
-	case len(stop) > 0:
-		return stepNext, blockedErr{stop}
-	}
-	return stepNext, fmt.Errorf("%w at the checks page", errInitCancel)
+	return strings.Replace(hint, linkAbove, ": "+evidence[at], 1), slices.Delete(slices.Clone(evidence), at, at+1)
 }
 
 // The names of the one-shot actions, as the setup page lists them on enter.
@@ -138,16 +114,20 @@ func (r *initRecord) leave(label string, howTo ...string) {
 // and each moot one, out of "later".
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
 func (r *initRecord) leaveUnchosen(d initDecisions, moot ...string) {
-	for _, a := range []struct {
-		chosen bool
-		label  string
-	}{{d.Login, rowLogin}, {d.Wizard, rowWizard}, {d.Gh, rowGh}, {d.Git, rowGit}, {d.Prompt, rowPrompt}} {
-		if a.chosen || slices.Contains(moot, a.label) {
-			delete(r.later, a.label)
-		} else {
-			r.leave(a.label)
-		}
+	r.chose(rowLogin, d.Login, moot...)
+	r.chose(rowWizard, d.Wizard, moot...)
+	r.chose(rowGh, d.Gh, moot...)
+	r.chose(rowGit, d.Git, moot...)
+	r.chose(rowPrompt, d.Prompt, moot...)
+}
+
+// chose records one row's answer: now, or a moot row, takes it out of "later"; anything else leaves it.
+func (r *initRecord) chose(label string, now bool, moot ...string) {
+	if now || slices.Contains(moot, label) {
+		delete(r.later, label)
+		return
 	}
+	r.leave(label)
 }
 
 // moot takes each label out of "later": the host left its row nothing to do.
@@ -170,10 +150,11 @@ func (r *initRecord) unreached(labels ...string) {
 	}
 }
 
-// initPage is one page of `proveo init`, with the label the result gives it when a failure keeps
-// init from reaching it; "" for a page the result never names.
+// initPage is one page of `proveo init`, with the labels the result gives it when a failure keeps
+// init from reaching it: rows, the steps it would run, then label; "" for a page the result never names.
 type initPage struct {
 	label string
+	rows  []string
 	run   initStep
 }
 
@@ -183,7 +164,7 @@ func (r *initRecord) pages(ps []initPage) []initStep {
 	for i, p := range ps {
 		var after []string
 		for _, q := range ps[i+1:] {
-			after = append(after, q.label)
+			after = append(append(after, q.rows...), q.label)
 		}
 		steps[i] = func(at choiceui.Step) (stepResult, error) {
 			res, err := p.run(at)
@@ -196,11 +177,11 @@ func (r *initRecord) pages(ps []initPage) []initStep {
 	return steps
 }
 
-// failed reports whether err ended init without the operator's choosing: not a quit, a cancel,
-// or a prerequisite that blocks the install.
+// failed reports whether err ended init without the operator's choosing: not a quit, or a
+// prerequisite that blocks the install.
 func failed(err error) bool {
 	var blocked blockedErr
-	return err != nil && !errors.Is(err, errInitLeft) && !errors.Is(err, errInitCancel) && !errors.As(err, &blocked)
+	return err != nil && !errors.Is(err, errInitLeft) && !errors.As(err, &blocked)
 }
 
 // laterOrder is the setup page's row order, then the credentials page.

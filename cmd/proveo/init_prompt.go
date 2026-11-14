@@ -15,8 +15,9 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-// promptKitOptions is the kit for this host: starship lands beside proveo's own binary.
-func promptKitOptions(ask bool) promptkit.Options {
+// promptKitOptions is the kit for this host: starship lands beside proveo's own binary; draws asks
+// what the terminal drew of two Nerd glyphs, and nil asks nothing.
+func promptKitOptions(draws func() (icon, asked bool)) promptkit.Options {
 	binDir := ""
 	if exe, err := os.Executable(); err == nil {
 		binDir = filepath.Dir(exe)
@@ -30,20 +31,18 @@ func promptKitOptions(ask bool) promptkit.Options {
 			return exec.Command(starship, "preset", name).Output()
 		},
 	}
-	if ask {
-		o.DrawsGlyphs = choiceui.AskDrawsGlyphs
-	}
+	o.DrawsGlyphs = draws
 	return o
 }
 
 // applyPromptKit installs the shell-prompt kit and prints its block under "prompt": starship, the
 // font, the rc line and starship's config as facts, without what an earlier visit printed; a
-// failure is a ⚠ and init goes on.
-func applyPromptKit(ask bool, rep *initReport) {
+// failure is a ⚠ and init goes on. It returns the card row's outcome.
+func applyPromptKit(draws func() (icon, asked bool), rep *initReport) (choiceui.Mark, string) {
 	ui.Section(ui.SectionPrompt)
 	var facts []ui.Fact
 	var items []sandbox.Item
-	o := promptKitOptions(ask)
+	o := promptKitOptions(draws)
 	o.Fact = func(key, value string, detail ...string) {
 		for i := range detail {
 			detail[i] = ui.TildeIn(detail[i])
@@ -57,4 +56,8 @@ func applyPromptKit(ask bool, rep *initReport) {
 		items = append(items, sandbox.Item{Warn: true, Text: "prompt kit — not finished", Detail: errLines(err)})
 	}
 	rep.printFresh(promptHeading, ui.SectionPrompt, facts, items)
+	if len(items) > 0 {
+		return choiceui.MarkNeeds, items[0].Text
+	}
+	return choiceui.MarkDone, "installed"
 }

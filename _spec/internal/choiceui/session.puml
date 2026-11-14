@@ -10,6 +10,9 @@ skinparam noteTextAlignment left
 ' covers: internal/choiceui/choiceui.go (formModel.ended; Selection and FieldValue read rows in place)
 ' covers: internal/choiceui/dialog_run.go (askDialog warns while a Session holds the terminal)
 ' covers: internal/ui/hold.go, internal/ui/hold_test.go
+' covers: cmd/proveo/init_view.go (walkView, cardView, streamView, runCaptured)
+' covers: internal/contract/init_writes_test.go
+' covers: internal/sbx/exec.go (sbxSecretSet, sbxSecretSetFrom, keptOutput)
 '   the plan this builds (§4, stage 3) .. scratchpad init-checklist-spec.md, §9.5 for what it measured
 '   the card it hosts .................. _spec/internal/choiceui/wireframe.puml (THE CHECKLIST CARD)
 '   the frame line ..................... _spec/internal/ui/step-lines.puml (THE HAND-OFF FRAME)
@@ -21,6 +24,9 @@ skinparam noteTextAlignment left
 ' BUILT, NOT USED. No caller outside the tests opens a Session yet. `proveo
 ' init` still runs one Program per page through Form.RunStep; stage 4 moves
 ' it onto one Session.
+' USED SINCE STAGE 4 (2026-11-13): `proveo init` opens one Session per
+' prompted walk (_spec/cmd/proveo/init-sbx-bootstrap.puml, ONE SESSION PER
+' WALK) through cmd/proveo's cardView. The check page is deleted.
 '
 ' ── WHY ONE PROGRAM PER WALK (D22, D29) ───────────────────────────────────
 ' A Program per page leaves the alternate screen between pages: the card
@@ -43,14 +49,24 @@ skinparam noteTextAlignment left
 '   Ask(f) (Outcome, error)             f at rest; Accepted leaves f up,
 '                                       running, until the next Ask
 '   Plan(labels)                        planned rows "·", other answers "–"
-'                                       with their answer, "running i of m"
+'                                       with their answer, "running i of m";
+'                                       a row an answer opened (Row.When)
+'                                       reads its answer with no mark
+'                                       unless it is planned
 '   Status(label, mark, outcome)        one row; MarkRunning names the row
 '                                       the key line counts, and after 2 s
 '                                       its outcome gains " · 12s"
 '   Hand(command, parts, run, outcome)  lends the terminal to run (below);
 '                                       catches SIGINT from the call until
 '                                       the card is back
-'   Dialog(d) (int, error)              d over the dimmed card
+'   Resume(f)                           f back up as Accepted left it,
+'                                       running: a page a sub-page stood
+'                                       over returns to its run (stage 4)
+'   Edit(fn)                            fn on the form up now, on the event
+'                                       loop: the driver replaces the rows
+'                                       a step redrew (stage 4: the checks)
+'   Dialog(d) (int, error)              d over the dimmed card; its key line
+'                                       ends "ctrl+c stop"
 '   Context()                           cancelled by ctrl+c while running
 '                                       or after Enter, by a SIGINT during
 '                                       Hand, by Close
@@ -66,6 +82,27 @@ skinparam noteTextAlignment left
 ' copy of the Row (range by value) would read all three written fields.
 ' Every call after the Program stopped returns ErrSessionEnded, wrapping the
 ' Program's own error when it had one.
+' TWO ROWS, ONE LABEL (stage 4): init's page 3 has a "cursor" sign-in and a
+' "cursor" key. Plan's labels name rows in row order, so a label two rows
+' share stands for the next of them; Status picks the running row of that
+' label, else the first that waits in the plan, else the first.
+' A PLANNED LABEL NO ROW CARRIES (stage 4: "checks", a section, not a row)
+' still moves the key line on: Status(label, MarkRunning, …) sets the
+' plan's place, and every other Status of it is dropped.
+' A ROW AN ANSWER OPENED TAKES NO MARK (verifier, 2026-11-13): Plan gave
+' user.name, user.email and location "–", which reads "left as is" under
+' a parent that runs ("◑ sbx install  downloading 0.49.2" over "–
+' location"). A planned one (PATH) still waits as "·".
+' A DIALOG'S CTRL+C STOPS THE RUN: the session marks each dialog it puts up
+' (dialog.stops), and its key line ends "ctrl+c stop" in place of the
+' ctrl+c button. The glyph question gave Esc and ctrl+c the same answer,
+' so its key line named no ctrl+c, though ctrl+c there ended init (130).
+' AFTER A STOP, cmd/proveo's cardView lends no terminal and asks no
+' sub-page: Hand returns the stop, Sub answers Cancelled
+' (_spec/cmd/proveo/init-sbx-bootstrap.puml, RUN IN PLACE).
+' NEVER CALL THE SESSION FROM A HAND-OFF'S outcome: it runs on the event
+' loop inside Exec, so a Send from it would wait on itself. init's login
+' confirms inside the outcome and redraws the checks after Hand returns.
 '
 ' ── CTRL+C IN EACH STATE ───────────────────────────────────────────────────
 '   before the first Ask    cancels Context
@@ -140,6 +177,19 @@ skinparam noteTextAlignment left
 ' shows rather than vanishes. Writes straight to os.Stdout or os.Stderr are
 ' not held; stage 4 captures each child that is not a hand-off.
 '
+' ── OUTPUT HOLD (option C, owner; stage 4, 2026-11-13) ─────────────────────
+' The hold stays ui.Default alone (A). Stage 4 adds the rest of C: every
+' child of init that is no hand-off runs with its output kept (cmd/proveo
+' runCaptured; internal/sbx's `sbx secret set`), and internal/contract
+' TestInitWritesTheTerminalOnlyThroughCommand bans naming os.Stdout or
+' os.Stderr in cmd/proveo/init*.go outside command() and a terminal check,
+' and every fmt.Print*, log.Print*, log.Fatal*, log.Panic*, print and
+' println call there: each writes the same streams without naming them.
+' What init's report blocks print during the walk lands in the hold and
+' replays after Close, before the result, as the stream printed it.
+' handOff writes the "\n" that ends a ^C echo to the child's own stderr,
+' which command() set to the terminal.
+'
 ' ── DECISIONS THAT DEPART FROM THE PLAN ───────────────────────────────────
 ' Hand takes the frame's command and parts, not a built line: only the
 ' Session knows the terminal's width, and FrameLine needs it.
@@ -158,6 +208,7 @@ skinparam noteTextAlignment left
 '   TestAHandOffThatCannotTakeTheTerminalSaysSo
 '   TestADialogDrawsOverTheDimmedCard
 '   TestCtrlCFromEveryState
+'   TestARowAnAnswerOpenedTakesNoMarkUnlessItRuns
 ' Pinned by internal/choiceui/session_term_test.go (not on Windows):
 '   TestAWalkOfPagesRunsOnOneSession
 '   TestCtrlCWhileRunningCancelsTheContext

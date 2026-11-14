@@ -36,6 +36,8 @@ type dialog struct {
 	hold   func() string
 	holdOn int
 
+	stops bool // ctrl+c also stops the run the dialog stands over: a Session's dialog
+
 	sel      int
 	answer   int // the accepted button; -1 while the dialog is open
 	held     string
@@ -282,7 +284,10 @@ func (d dialog) keyParts() []hintPart {
 		move = "left/right"
 	}
 	parts := []hintPart{{move, "choose", 0}, {"enter", "press", 0}, {"esc", strings.ToLower(d.buttons[d.safe].Label), 0}}
-	if d.onCtrlC != d.safe {
+	switch {
+	case d.stops:
+		parts = append(parts, hintPart{"ctrl+c", "stop", 0})
+	case d.onCtrlC != d.safe:
 		parts = append(parts, hintPart{"ctrl+c", strings.ToLower(d.buttons[d.onCtrlC].Label), 0})
 	}
 	return parts

@@ -61,7 +61,7 @@ func TestUninstallLeavesAnotherDirsSetupBlock(t *testing.T) {
 	rc := filepath.Join(home, ".zshrc")
 	writeFile(t, rc, "export B=2\n"+other)
 	writeFile(t, filepath.Join(home, ".bashrc"), "export A=1\n")
-	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(false)); f.path {
+	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(nil)); f.path {
 		t.Errorf("findInstalled = %+v; another dir's setup block is not this root's PATH line", f)
 	}
 	writeFile(t, rc, "export B=2\n"+other+mine)
@@ -83,7 +83,7 @@ func TestUninstallLeavesAnotherRootsInstallBlock(t *testing.T) {
 	rc := filepath.Join(home, ".bashrc")
 	writeFile(t, rc, "export A=1\n"+other)
 	writeFile(t, filepath.Join(home, ".zshrc"), "export B=2\n")
-	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(false)); f.path {
+	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(nil)); f.path {
 		t.Errorf("findInstalled = %+v; another root's install.sh block is not this root's PATH line", f)
 	}
 	writeFile(t, rc, "export A=1\n"+other+block(filepath.Join(root, "bin"))+installPathMarkerStart+"\n"+installPathMarkerEnd+"\n")

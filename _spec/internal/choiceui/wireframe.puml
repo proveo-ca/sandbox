@@ -435,6 +435,22 @@
 '   TestTheQuitDialogDrawsOverTheDimmedForm, TestRenderIsTheFormAtRest,
 '   TestAChecklistTooSmallNamesItsRowsAndKeys,
 '   TestALongWordInACheckKeepsItsTail
+' STAGE 4 (2026-11-13): init sets the flag on all four pages and on its two
+' sub-pages (_spec/cmd/proveo/init-sbx-bootstrap.puml, FOUR PAGES ON ONE
+' CARD). Two additions, both under the flag only:
+'   Skip       pages 3 and 4 keep their Skip button (owner, Q2 → C). The
+'              checklist draws it under the body at rest, as any form does
+'              (a blank, then "[ Skip ]"), counts its two rows in the
+'              ladder's fixed rows, and draws none while a run is up. While
+'              it is focused no row is lit, the help is empty and the key
+'              line reads "↑↓ row · enter skip · esc …".
+'   Form.Esc   the word Esc's segment says, past back/quit/cancel: init's
+'              sub-pages set "later".
+' The init pages' own goldens live in cmd/proveo/testdata/init/ (20 frames,
+' through Form.Render). p1-rest, p1-running and p1-rerun equal this
+' package's checklist goldens line for line; the others differ by init's own
+' data and by stage 5's content (page 3's stubs, page 4's help and Skip).
+' Pinned by TestAChecklistDrawsItsSkipButtonAtRest.
 
 ' ── THE KEY LINE, AND A FORM THAT IS ONE SCREEN OF SEVERAL (2026-11-08) ────
 ' The Executor chose "Back/next across screens". Form.hint composes the key line

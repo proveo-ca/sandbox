@@ -12,9 +12,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-func TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix(t *testing.T) {
+// PAGE 1 CHECKS: one checks section on page 1, what installing needs, then sbx's own rows, each a
+// check row with its mark and its fix; the Docker sign-in never draws among them.
+func TestTheCheckRowsCarryEveryCheckWithItsMarkAndItsFix(t *testing.T) {
 	t.Parallel()
-	rows := preflightRows(
+	rows := checkRows(
 		[]sbx.Prereq{
 			{Name: "Apple silicon", OK: true, Detail: "macOS 14 or later"},
 			{Name: "KVM", Blocks: sbx.BlocksInstall, Detail: "/dev/kvm is missing", Fix: "enable virtualization"},
@@ -25,33 +27,37 @@ func TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix(t *testing.T) {
 			{Name: "disk", Status: "warn", Detail: "12 GB free", Hint: "free some space"},
 			{Name: "network", Status: "fail", Detail: "no route", Hint: "check the proxy"},
 			{Name: "gpu", Status: "skip", Detail: "not checked here"},
+			{Name: sbx.AuthenticationCheck, Status: "pass", Message: "authenticated"},
 		}, nil)
 	want := []struct {
-		group, name string
-		state       choiceui.CheckState
-		hint        string
+		name string
+		mark choiceui.Mark
+		fix  string
 	}{
-		{checksToInstall, "Apple silicon", choiceui.CheckOK, ""},
-		{checksToInstall, "KVM", choiceui.CheckFail, "enable virtualization"},
-		{checksToInstall, "user in kvm group", choiceui.CheckWarn, "sudo usermod -aG kvm $USER"},
-		{checksFromSbx, "daemon", choiceui.CheckOK, ""},
-		{checksFromSbx, "disk", choiceui.CheckWarn, "free some space"},
-		{checksFromSbx, "network", choiceui.CheckFail, "check the proxy"},
-		{checksFromSbx, "gpu", choiceui.CheckSkip, ""},
+		{"Apple silicon", choiceui.MarkDone, ""},
+		{"KVM", choiceui.MarkFailed, "enable virtualization"},
+		{"user in kvm group", choiceui.MarkNeeds, "sudo usermod -aG kvm $USER"},
+		{"daemon", choiceui.MarkDone, ""},
+		{"disk", choiceui.MarkNeeds, "free some space"},
+		{"network", choiceui.MarkFailed, "check the proxy"},
+		{"gpu", choiceui.MarkLater, ""},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("%d rows, want %d: %+v", len(rows), len(want), rows)
 	}
 	for i, w := range want {
-		if r := rows[i]; r.Group != w.group || r.Name != w.name || r.State != w.state || r.Hint != w.hint {
+		if r := rows[i]; r.Kind != choiceui.RowCheck || r.Label != w.name || r.Mark != w.mark || r.Fix != w.fix {
 			t.Errorf("row %d = %+v, want %+v", i, r, w)
 		}
+	}
+	if !rows[0].Divider || rows[0].Heading != rowChecks || slices.ContainsFunc(rows[1:], func(r choiceui.Row) bool { return r.Divider }) {
+		t.Errorf("want one checks section opened by the first row: %+v", rows)
 	}
 }
 
 func TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence(t *testing.T) {
 	t.Parallel()
-	rows := preflightRows(nil, []sbx.Check{{
+	rows := checkRows(nil, []sbx.Check{{
 		Name: "Daemon", Status: "fail", Message: "not reachable",
 		Detail: "/run/sbx/sandboxd.sock: connection refused", Hint: "Run: sbx daemon start",
 	}}, nil)
@@ -59,22 +65,37 @@ func TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence(t *testing.T) {
 		t.Fatalf("rows = %+v, want one", rows)
 	}
 	r := rows[0]
-	if r.State != choiceui.CheckFail || r.Detail != "not reachable" ||
-		len(r.Evidence) != 1 || r.Evidence[0] != "/run/sbx/sandboxd.sock: connection refused" || r.Hint != "Run: sbx daemon start" {
-		t.Errorf("row = %+v, want sbx's message as the detail, its detail as evidence, its hint as the hint", r)
+	if r.Mark != choiceui.MarkFailed || r.Outcome != "not reachable" ||
+		len(r.Evidence) != 1 || r.Evidence[0] != "/run/sbx/sandboxd.sock: connection refused" || r.Fix != "Run: sbx daemon start" {
+		t.Errorf("row = %+v, want sbx's message as the outcome, its detail as evidence, its hint as the fix", r)
 	}
 }
 
+// D19: what a failing check affects is the row's note, apart from its evidence.
 func TestAFailingCheckARunDoesNotNeedIsAWarningThatSaysWhatItAffects(t *testing.T) {
 	t.Parallel()
-	rows := preflightRows(nil, []sbx.Check{sshClientConfig}, nil)
+	rows := checkRows(nil, []sbx.Check{sshClientConfig}, nil)
 	if len(rows) != 1 {
 		t.Fatalf("rows = %+v, want one", rows)
 	}
 	r := rows[0]
-	if r.State != choiceui.CheckWarn || len(r.Evidence) != 2 || r.Evidence[0] != "/home/op/.ssh/config:5: Host" ||
-		!strings.Contains(r.Evidence[1], "a run does not need this check; it affects IDE attach and Hermes Desktop") {
-		t.Errorf("row = %+v, want a warning whose evidence ends on what the check affects", r)
+	if r.Mark != choiceui.MarkNeeds || len(r.Evidence) != 1 || r.Evidence[0] != "/home/op/.ssh/config:5: Host" ||
+		!strings.Contains(r.Note, "a run does not need this check; it affects IDE attach and Hermes Desktop") {
+		t.Errorf("row = %+v, want a warning whose note says what the check affects", r)
+	}
+}
+
+// D7: a fix that points at "the link above" takes the link into itself, so it stands alone when the
+// ladder drops the evidence.
+func TestAFixStandsAloneWithoutTheLinkAbove(t *testing.T) {
+	t.Parallel()
+	rows := checkRows(nil, []sbx.Check{{Name: "Binary version", Status: "warn", Message: "update available: v9.9.9",
+		Detail: "https://example.invalid/sbx/v9.9.9", Hint: "Download the latest release from the link above"}}, nil)
+	if r := rows[0]; r.Fix != "Download the latest release: https://example.invalid/sbx/v9.9.9" || len(r.Evidence) != 0 {
+		t.Errorf("row = %+v, want the link inside the fix and no evidence line left", r)
+	}
+	if fix, ev := standAlone("Run: sbx daemon start", []string{"https://x.invalid"}); fix != "Run: sbx daemon start" || len(ev) != 1 {
+		t.Errorf("a fix that points nowhere changed: %q %q", fix, ev)
 	}
 }
 
@@ -136,17 +157,17 @@ var sshClientConfig = sbx.Check{
 
 func TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds(t *testing.T) {
 	t.Parallel()
-	rows := preflightRows([]sbx.Prereq{{Name: "Apple silicon", OK: true}}, nil, nil)
-	if len(rows) != 1 || rows[0].Group != checksToInstall {
+	rows := checkRows([]sbx.Prereq{{Name: "Apple silicon", OK: true}}, nil, nil)
+	if len(rows) != 1 || rows[0].Label != "Apple silicon" {
 		t.Errorf("rows = %+v, want the one install prerequisite", rows)
 	}
 }
 
 func TestAnSbxThatDoesNotAnswerIsARowAndNotAnError(t *testing.T) {
 	t.Parallel()
-	rows := preflightRows(nil, nil, errors.New("exec: sbx: timed out\nmore"))
-	if len(rows) != 1 || rows[0].State != choiceui.CheckWarn || !strings.Contains(rows[0].Detail, "timed out") ||
-		strings.Contains(rows[0].Detail, "more") || !strings.Contains(rows[0].Hint, "proveo init --force") {
+	rows := checkRows(nil, nil, errors.New("exec: sbx: timed out\nmore"))
+	if len(rows) != 1 || rows[0].Mark != choiceui.MarkNeeds || !strings.Contains(rows[0].Outcome, "timed out") ||
+		strings.Contains(rows[0].Outcome, "more") || !strings.Contains(rows[0].Fix, "proveo init --force") {
 		t.Errorf("rows = %+v", rows)
 	}
 }
@@ -241,21 +262,22 @@ func TestARowChosenNowOnARevisitLeavesLater(t *testing.T) {
 	}
 }
 
-// A page that fails names every page after it as never run; a quit, a cancel and a blocked host do not.
+// A page that fails names every page after it as never run, and the steps it would run; a quit and a
+// blocked host do not.
 func TestAFailedPageNamesThePagesAfterIt(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		err  error
 		want []string
 	}{
-		{errors.New("boom"), []string{labelCredentials, labelOperator}},
-		{fmt.Errorf("%w at the setup page", errInitCancel), nil},
+		{errors.New("boom"), []string{rowGit, labelCredentials, labelOperator}},
+		{fmt.Errorf("%w at page 1/3", errInitLeft), nil},
 		{blockedErr{}, nil},
 	} {
 		rec := &initRecord{}
 		steps := rec.pages([]initPage{
 			{run: func(choiceui.Step) (stepResult, error) { return stepNext, tc.err }},
-			{label: labelCredentials, run: func(choiceui.Step) (stepResult, error) { return stepNext, nil }},
+			{rows: []string{rowGit}, label: labelCredentials, run: func(choiceui.Step) (stepResult, error) { return stepNext, nil }},
 			{label: labelOperator, run: func(choiceui.Step) (stepResult, error) { return stepNext, nil }},
 		})
 		_ = runInitSteps(false, steps)

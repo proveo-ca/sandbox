@@ -7,8 +7,7 @@ title init opens on every check and closes on the result
 ' covers: cmd/proveo/init_preflight_test.go
 ' covers: cmd/proveo/init_report.go
 ' covers: cmd/proveo/init_report_test.go
-' covers: internal/choiceui/check_page.go
-' covers: internal/choiceui/check_page_test.go
+' covers: cmd/proveo/init_checklist.go (needYou, doneOf)
 '   the pages between the two ......... _spec/cmd/proveo/init-sbx-bootstrap.puml
 '   what each key means on a page ..... _spec/internal/choiceui/wizard-keys.puml
 '   the apply the result reads ........ _spec/internal/ui/step-lines.puml
@@ -71,7 +70,8 @@ title init opens on every check and closes on the result
 ' helpers wait for "enter accept" to find a form.
 ' Esc on setup now steps back to the checks. It used to end init with
 ' "cancelled at the init prompt"; that is Esc on the checks page now.
-' Golden frames: internal/choiceui/testdata/checks/, 12 files.
+' Golden frames: internal/choiceui/testdata/checks/, 12 files (deleted
+' with the page in stage 4; PAGE 1 CHECKS below).
 ' AMENDED 2026-11-13 (owner, O1; Executor, E11): the checks page is a card.
 ' The banner stays above it. Inside: the title at column 2 with the chip
 ' " page n/m " at the right, the rows at columns 2, 4 and 6 (group
@@ -87,6 +87,47 @@ title init opens on every check and closes on the result
 ' "checks · 1/4" or "page 1/4" (Executor, E16). The chip now reads
 ' " page n/m " like every wizard page, and checks() waits for "page 1/4"
 ' alone. All 12 golden files were re-recorded again; all 12 changed.
+'
+' ── PAGE 1 CHECKS (I3 STAGE 4, 2026-11-13) ─────────────────────────────────
+' The checks page is gone; its rows open page 1, "Prepare sbx on this
+' <os>/<arch> host", as the checks section of the checklist card
+' (_spec/internal/choiceui/wireframe.puml, THE CHECKLIST CARD). checkRows
+' builds them: RowCheck rows with a mark, "name — message", then evidence,
+' fix and note apart. The group headings "to install sbx" and "sbx diagnose"
+' go: one stub, "checks", opens the section.
+'   marks            pass ✓, warn !, a failing row a run needs ×, one a run
+'                    does not need ! with the "a run does not need this
+'                    check; it affects …" line as its NOTE (D19; it was the
+'                    last evidence line), skip –
+'   Authentication   never drawn as a check: page 1's Docker login row
+'                    answers it (I3 §2.1)
+'   a fix that points at "the link above" takes the link into itself and
+'                    the evidence drops it (D7, standAlone): "Download the
+'                    latest release: <url>", so the ladder can drop the
+'                    evidence and keep a fix that still makes sense
+' sbx diagnose STILL RUNS ONCE on a host with sbx: doInit runs it before the
+' card opens (draw-time diagnose), outside any page closure. The checks
+' step (row "checks") reuses it when page 1 keeps sbx, and runs it again
+' only after an install, redrawing the rows in place through Session.Edit.
+' Verify moved to page 1 with it (D25): the readiness verdict comes from the
+' checks step, and the login's confirming diagnose re-judges it. close()
+' diagnoses again only when the SSH repair restarted the daemon (stale).
+' Diagnose calls per walk, MEASURED on the stub (e2e): installed, signed
+' in: 1; installed, signed out: 2.
+' A BLOCKING PREREQUISITE stops on page 1 itself: Form.Blocked carries
+' "nothing good follows an install here: <names> — <fix>", Enter does
+' nothing, and every way off the page ends init with blockedErr, as the
+' checks page did. Not run end to end: no test host fails a blocking
+' prerequisite.
+' Done row: page 2 on draws page 1 as one row, "! sbx  kept 0.50.0 · Docker
+' signed in · 2 checks need you"; checks that need you add a ! to the
+' page's worst mark.
+' Pinned by cmd/proveo/init_preflight_test.go
+' TestTheCheckRowsCarryEveryCheckWithItsMarkAndItsFix,
+' TestAFailingCheckARunDoesNotNeedIsAWarningThatSaysWhatItAffects,
+' TestAFixStandsAloneWithoutTheLinkAbove; e2e
+' TestInitOpensOnTheChecksAndClosesOnTheResult (page 1's checks, one
+' diagnose); goldens cmd/proveo/testdata/init/p1-*.
 '
 ' ── THE CLOSE: WHAT WAITS, WHAT NEVER RAN, THE VERDICT (R3, 2026-11-11) ────
 ' The W-m close ("done:" per step, "later: <action> — `<cmd>`", "next:
@@ -195,7 +236,8 @@ title init opens on every check and closes on the result
 ' R3 (2026-11-11, the stubbed harness, macOS): every init e2e passes with
 ' the anchors the plan's E2E ANCHORS THAT MOVE (R3) lists.
 ' Pinned by cmd/proveo/init_preflight_test.go:
-'   TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix
+'   TestTheCheckRowsCarryEveryCheckWithItsMarkAndItsFix
+'   TestAFixStandsAloneWithoutTheLinkAbove
 '   TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds
 '   TestAnSbxThatDoesNotAnswerIsARowAndNotAnError
 '   TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence
@@ -224,13 +266,7 @@ title init opens on every check and closes on the result
 '   TestARevisitPrintsOneReadinessSetAndItsSbxLinesUnderSbx
 '   TestTheCredentialsBlockPrintsOnceFromTheLatestPass
 '   TestFlagHelpCarriesTheHowTosThatLeftTheScreen
-' Pinned by internal/choiceui/check_page_test.go:
-'   TestTheCheckPagesKeys
-'   TestTheCheckPageShowsEveryCheckItsMarkAndTheHintUnderOneThatFailed
-'   TestWhatACheckFoundDrawsUnderARowThatDidNotPassAboveItsHint
-'   TestABlockedCheckPageSaysWhyAndOffersNoWayOn
-'   TestAShortCheckPageScrollsAndKeepsItsVerdictAndItsKeys
-'   TestTheCheckPageMatchesItsGoldenFrames
+' check_page_test.go and its pins went with the page in stage 4.
 ' Pinned by e2e/init_steps_test.go:
 '   TestInitOpensOnTheChecksAndClosesOnTheResult
 '   TestInitOnAReadyHostClosesOnReady
@@ -239,9 +275,9 @@ title init opens on every check and closes on the result
 
 component "install prerequisites\nsbx.Prereqs" as PRE <<data>>
 component "sbx diagnose\nwhen sbx is on the host" as DIAG <<cloud>>
-component "page 1 · the checks\nevery row, with its mark" as PAGE <<app>>
+component "page 1 · the checks section\nevery row, with its mark" as PAGE <<app>>
 component "**a blocking prerequisite**\nEnter does nothing" as BLOCK <<error>>
-component "setup · credentials · operator" as PAGES <<app>>
+component "page 1's sbx rows · git, shell · credentials · operator" as PAGES <<app>>
 component "initRecord\nran · later · not run" as REC <<data>>
 component "the result\nlater · not run · checks · verdict" as RESULT <<host>>
 
@@ -253,10 +289,10 @@ PAGES ARROW_MAIN REC : each step that ran, each answer "later"
 REC ARROW_MAIN RESULT
 
 note bottom of PAGE
-  **It asks nothing.** Passing checks show too,
-  and sbx's own rows join them when sbx is
-  already installed. A row that did not pass
-  carries what was found and its fix.
+  **The section asks nothing.** Passing checks
+  show too, and sbx's own rows join them when
+  sbx is installed. A row that did not pass
+  carries its evidence, its fix and its note.
 end note
 
 note bottom of BLOCK

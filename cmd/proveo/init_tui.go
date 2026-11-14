@@ -2,12 +2,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/posture"
+	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -31,7 +30,7 @@ const (
 	installSkip     = "keep what is installed"
 
 	rowInstall  = "sbx install"
-	rowPrefix   = "sbx location"
+	rowPrefix   = "location"
 	rowPath     = "PATH"
 	rowLogin    = "Docker login"
 	rowWizard   = "sbx setup"
@@ -39,7 +38,8 @@ const (
 	rowGit      = "git identity"
 	rowPrompt   = "prompt kit"
 	rowBaseline = "network"
-	rowNext     = "next steps"
+	rowName     = "user.name"
+	rowEmail    = "user.email"
 
 	baselineLeave = "leave as is"
 	prefixSystem  = "/usr/local"
@@ -54,6 +54,9 @@ const (
 
 	setupAfter = "after init"
 	setupLater = "later"
+
+	// cellRunes is a checklist cell's width: "keep as is" and "if signed out" whole.
+	cellRunes = 20
 )
 
 // prefixOptions are the two the release's own installer documents. /usr/local
@@ -107,34 +110,6 @@ func carried(def initDecisions, prev *initDecisions) initDecisions {
 	return out
 }
 
-func askDecisions(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, auth sbx.Auth, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
-	def := carried(defaultDecisions(plan, installed, o, true), prev)
-
-	form := &choiceui.Form{
-		Banner: choiceui.Banner(),
-		Title:  fmt.Sprintf("init — ready %s for sbx %s", describeHost(host), targetVersion(installed, o.force)),
-		Header: initHeader(plan, installed, checks),
-		Glyphs: posture.GlyphModeFrom(os.Getenv),
-		Step:   at,
-		Rows:   initRows(plan, installed, auth, def, o),
-	}
-	form.OnEnter = func(f *choiceui.Form) []string {
-		return stepNames(applyPlan(answered(f, def), plannedCtx(plan, host, answered(f, def), viaPackage)))
-	}
-
-	switch out, err := form.RunStep(); {
-	case err != nil:
-		return initDecisions{}, err
-	case out == choiceui.Back:
-		return initDecisions{}, errInitBack
-	case out == choiceui.Quit:
-		return initDecisions{}, errInitQuit
-	case out != choiceui.Accepted:
-		return initDecisions{}, fmt.Errorf("%w at the setup page", errInitCancel)
-	}
-	return answered(form, def), nil
-}
-
 // plannedCtx is what an apply of d would act on, for naming its steps before any of them runs.
 func plannedCtx(plan sbx.Plan, host sbx.Host, d initDecisions, viaPackage bool) applyCtx {
 	if d.Prefix != plan.Prefix {
@@ -179,92 +154,173 @@ func answered(form *choiceui.Form, def initDecisions) initDecisions {
 	return out
 }
 
-// targetVersion is the sbx this init leaves on the host.
-func targetVersion(installed string, force bool) string {
-	if installed != "" && !force {
-		return installed
-	}
-	return sbx.Release
+// networkState is sbx's host-wide policy as page 1 shows it: the facts row's words, and whether
+// the network row asks to bind a baseline.
+type networkState struct {
+	fact     string
+	allowAll bool
 }
 
-func initHeader(plan sbx.Plan, installed string, checks []sbx.Prereq) []string {
-	out := []string{
-		"sbx     the backend proveo runs on — proveo itself is already on PATH from the CDN",
-		"asset   " + plan.Asset,
+// hostNetwork reads sbx's policy; an absent sbx has none to read.
+func hostNetwork(installed bool) networkState {
+	if !installed {
+		return networkState{}
 	}
-	if plan.Provenance != nil {
-		out = append(out, "digest  verified against the release's provenance")
-	} else {
-		out = append(out, "digest  none published for this asset — reported, not verified")
-	}
-	if installed != "" {
-		out = append(out, "found   sbx "+installed+" already on this host")
-	}
-	for _, c := range checks {
-		if c.OK {
-			continue
+	var n networkState
+	if allowed, known := sbx.NetworkAllowed(networkProbe); known {
+		n.fact = "listed hosts only"
+		if allowed {
+			n.fact = "every host"
 		}
-		out = append(out, fmt.Sprintf("%-7s %s — %s", string(c.Blocks)+"!", c.Name, c.Detail))
 	}
-	return out
+	current, known := sbx.PolicyBaseline()
+	n.allowAll = known && current == sbx.BaselineAllowAll
+	return n
 }
 
-func initRows(plan sbx.Plan, installed string, auth sbx.Auth, def initDecisions, o initOptions) []choiceui.Row {
-	var rows []choiceui.Row
-	rows = append(rows, installRow(plan, installed, def, o))
+// sbxPageIn is what page 1 draws from: the host, its plan and sbx, and what was checked.
+type sbxPageIn struct {
+	host      sbx.Host
+	plan      sbx.Plan
+	installed string
+	prereqs   []sbx.Prereq
+	diag      []sbx.Check
+	diagErr   error
+	diagnosed bool
+	auth      sbx.Auth
+	network   networkState
+	stop      []sbx.Prereq
+}
 
-	// Where it lands. Only meaningful for the prefix-based plans; the MSI owns
-	// its own location and there is nothing to choose.
-	if plan.Prefix != "" {
+// sbxForm is page 1, "Prepare sbx on this <os>/<arch> host": the checks, then sbx install with
+// location and PATH under the tarball, Docker login and the network baseline, then what lies
+// ahead. count is how many rows Enter runs for an answer; seen holds the rows that already ran.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (FOUR PAGES ON ONE CARD)
+func sbxForm(in sbxPageIn, at choiceui.Step, def initDecisions, o initOptions, seen map[string]rowState, count func(initDecisions) int) *choiceui.Form {
+	header := []string{"found: no sbx on this host"}
+	if in.installed != "" {
+		header = []string{"found: sbx " + in.installed}
+		if in.network.fact != "" {
+			header = append(header, "network: "+in.network.fact)
+		}
+	}
+	rows := checkRows(in.prereqs, in.diag, in.diagErr)
+	install := installRow(in.plan, in.installed, def, o)
+	if in.installed != "" {
+		install.Help[installSkip] = "sbx " + in.installed + " stays; Enter opens page 2/4"
+		if !o.skipLogin && (!in.diagnosed || in.auth == sbx.AuthOut) {
+			install.Help[installSkip] = "sbx " + in.installed + " stays; Enter signs in to Docker, then checks again"
+		}
+	}
+	sbxRows := []choiceui.Row{install}
+	if in.plan.Prefix != "" {
+		under := &choiceui.When{Row: rowInstall, Option: installTarball}
+		if seen[rowPath].ran() {
+			under = nil
+		}
 		popts := prefixOptions(def.Prefix, o.prefix)
 		help := map[string]string{
-			prefixSystem: "system-wide, and the install step will need to be run as root — " +
-				"choose the home prefix unless you know you want this",
+			prefixSystem:                 "system-wide; the install step runs as root",
 			sbx.DefaultPrefix(homeDir()): "per-user, no root — the safer default, and the release installer's own",
 		}
 		if strings.TrimSpace(o.prefix) != "" {
 			help[def.Prefix] = "the prefix --prefix asked for"
 		}
-		rows = append(rows, choiceui.Row{
-			Label: rowPrefix, Options: popts, Selected: indexOf(popts, def.Prefix), Help: help,
-		})
-
 		pathOpts := []string{pathAddRC, pathPrint}
-		rows = append(rows, choiceui.Row{
-			Label: rowPath, Options: pathOpts, Selected: indexOf(pathOpts, pathChoice(def.AddPath)),
-			Help: map[string]string{
-				pathAddRC: "the prefix is off PATH by design; without this, `sbx` will not resolve",
-				pathPrint: "nothing is written to your dotfiles — the export line is printed instead",
-			},
+		sbxRows = append(sbxRows,
+			choiceui.Row{Label: rowPrefix, Indent: 2, When: &choiceui.When{Row: rowInstall, Option: installTarball},
+				Options: popts, Selected: indexOf(popts, def.Prefix), Cols: cols(len(popts)), CellRunes: cellRunes, Help: help},
+			choiceui.Row{Label: rowPath, Indent: 2, When: under, Options: pathOpts, Selected: indexOf(pathOpts, pathChoice(def.AddPath)),
+				Cols: cols(len(pathOpts)), CellRunes: cellRunes, Help: map[string]string{
+					pathAddRC: "the prefix is off PATH by design; without this, `sbx` will not resolve",
+					pathPrint: "nothing is written to your dotfiles — the export line is printed instead",
+				}})
+	}
+	sbxRows = append(sbxRows, loginRow(in.installed != "" && in.diagnosed, in.auth, def.Login, o.skipLogin))
+	if in.network.allowAll {
+		sbxRows = append(sbxRows, baselineRow())
+	}
+	sbxRows[0].Divider, sbxRows[0].Heading = true, pageSbx
+	rows = append(rows, lockRan(sbxRows, seen)...)
+	rows = append(rows, aheadRows(2, setupAhead(o.skipSetup))...)
+	f := initCard(at, "Prepare sbx on this "+in.host.OS+"/"+in.host.Arch+" host", header, rows)
+	f.EnterWord = func(f *choiceui.Form) string { return runWord(count(answered(f, def))) }
+	if len(in.stop) > 0 {
+		f.Blocked = blockedErr{in.stop}.Error()
+		if fix := in.stop[0].Fix; fix != "" {
+			f.Blocked += " — " + fix
+		}
+	}
+	return f
+}
+
+// cols places n options at the grid's first n columns.
+func cols(n int) []int {
+	out := make([]int, n)
+	for i := range out {
+		out[i] = i
+	}
+	return out
+}
+
+// gitPageIn is what page 2 draws from: the identity git resolves, and whether git is there.
+type gitPageIn struct {
+	id    gitidentity.Identity
+	gitOK bool
+}
+
+// gitAnswer is the git identity page 2 sends to the git step: the two fields, and whether the host
+// held both already.
+type gitAnswer struct {
+	name, email string
+	held        bool
+}
+
+// gitForm is page 2, "Set up git and the shell": git identity with its fields under now, GitHub,
+// then the prompt kit, with page 1 as its done row. count is how many rows Enter runs.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (FOUR PAGES ON ONE CARD)
+func gitForm(in gitPageIn, at choiceui.Step, def initDecisions, o initOptions, done []choiceui.Row, seen map[string]rowState, count func(initDecisions) int) *choiceui.Form {
+	why := "git's global config on this host gets user.name and user.email; each run passes both into its sandbox"
+	var git []choiceui.Row
+	switch {
+	case o.skipGit:
+		git = []choiceui.Row{flagRow(rowGit, "--skip-git")}
+	case !in.gitOK:
+		git = []choiceui.Row{{Kind: choiceui.RowStatus, Mark: choiceui.MarkNeeds, Label: rowGit, Outcome: "git is not on PATH"}}
+	case in.id.Complete():
+		git = []choiceui.Row{{Kind: choiceui.RowStatus, Mark: choiceui.MarkDone, Label: rowGit, Outcome: in.id.Name + " <" + in.id.Email + ">"}}
+	default:
+		under := &choiceui.When{Row: rowGit, Option: "now"}
+		git = []choiceui.Row{
+			nowLaterRow(rowGit, def.Git, map[string]string{
+				"now":   "Enter writes both fields to git's global config; a commit inside a sandbox fails late without them",
+				"later": "the agent hits 'Please tell me who you are' at its first commit",
+			}),
+			{Label: rowName, Indent: 2, When: under, Field: true, Value: in.id.Name, Reason: why},
+			{Label: rowEmail, Indent: 2, When: under, Field: true, Value: in.id.Email, Reason: why},
+		}
+	}
+	gh := flagRow(rowGh, "--skip-gh")
+	if !o.skipGh {
+		gh = nowLaterRow(rowGh, def.Gh, map[string]string{
+			"now":   "gh signs in to GitHub's API, then sandbox Git access opens: SSH agent, HTTPS token, or later",
+			"later": "runs stay on anonymous GitHub API limits; `git push` to github.com needs `sbx secret set github`",
 		})
 	}
-
-	login := loginRow(installed != "", auth, def.Login, o.skipLogin)
-	login.Divider, login.Heading = true, rowNext
-	rows = append(rows, login, setupRow(def.Wizard, o.skipSetup))
-
-	rows = append(rows, nowLaterRow(rowGh, def.Gh, o.skipGh, "--skip-gh was passed", map[string]string{
-		"now":   "verify gh and API sign-in, then choose sandbox Git access: SSH agent, HTTPS token, or later",
-		"later": "runs stay on anonymous GitHub API limits; `git push` to github.com needs `sbx secret set github`",
-	}))
-
-	rows = append(rows, nowLaterRow(rowGit, def.Git, o.skipGit, "--skip-git was passed", map[string]string{
-		"now":   "set `user.name` / `user.email` if this host has none — a commit inside a sandbox fails late without them",
-		"later": "the agent will hit 'Please tell me who you are' at the first commit",
-	}))
-
-	rows = append(rows, nowLaterRow(rowPrompt, def.Prompt, o.skipPrompt, "--skip-prompt was passed", map[string]string{
-		"now": "starship (if missing), a Nerd Font (if the host has none), its line in your shell rc, and a segment that " +
-			"shows what runs left — starship REPLACES this shell's prompt",
-		"later": "the shell prompt stays as it is; `proveo rm` and `proveo adopt` still list what runs left",
-	}))
-
-	// The host-wide network baseline. Offered because proveo otherwise only
-	// NAGS about it, once per run, forever.
-	if row, ok := baselineRow(); ok {
-		rows = append(rows, row)
+	prompt := flagRow(rowPrompt, "--skip-prompt")
+	if !o.skipPrompt {
+		prompt = nowLaterRow(rowPrompt, def.Prompt, map[string]string{
+			"now":   "starship, a Nerd Font and the proveo segment install; starship replaces this shell's prompt",
+			"later": "the prompt kit (starship, a Nerd Font, the proveo segment) waits",
+		})
 	}
-	return rows
+	git[0].Divider, git[0].Heading = true, "git"
+	prompt.Divider, prompt.Heading = true, "shell"
+	rows := lockRan(append(append(git, gh), prompt), seen)
+	rows = append(append(append([]choiceui.Row(nil), done...), rows...), aheadRows(3, setupAhead(o.skipSetup))...)
+	f := initCard(at, "Set up git and the shell", nil, rows)
+	f.EnterWord = func(f *choiceui.Form) string { return runWord(count(answered(f, def))) }
+	return f
 }
 
 func pathChoice(add bool) string {
@@ -274,28 +330,27 @@ func pathChoice(add bool) string {
 	return pathPrint
 }
 
-// loginRow is Docker login as sbx diagnose left it when the page drew: an answer only while
-// it said signed out, or while no sbx was there to ask.
+// loginRow is Docker login as sbx diagnose left it when the page drew: an answer only while it said
+// signed out, or while no sbx was there to ask; checked says a diagnose of an installed sbx ran.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
-func loginRow(installed bool, auth sbx.Auth, def, skip bool) choiceui.Row {
+func loginRow(checked bool, auth sbx.Auth, def, skip bool) choiceui.Row {
 	var r choiceui.Row
 	switch {
 	case skip:
-		r = nowLaterRow(rowLogin, false, true, "--skip-login was passed", loginHelp)
-	case installed && auth == sbx.AuthIn:
-		r = statusRow(rowLogin, loginSignedIn, "sbx diagnose says Docker is signed in; init runs no `sbx login`")
-	case installed && auth == sbx.AuthUnknown:
-		r = statusRow(rowLogin, loginUnchecked, "sbx diagnose gave no answer about Docker, so init runs no `sbx login`; `sbx login` signs in")
-	case installed:
-		r = nowLaterRow(rowLogin, def, false, "", loginHelp)
+		r = flagRow(rowLogin, "--skip-login")
+	case checked && auth == sbx.AuthIn:
+		r = choiceui.Row{Kind: choiceui.RowStatus, Mark: choiceui.MarkDone, Label: rowLogin, Outcome: loginSignedIn}
+	case checked && auth == sbx.AuthUnknown:
+		r = choiceui.Row{Kind: choiceui.RowStatus, Mark: choiceui.MarkLater, Label: rowLogin, Outcome: loginUnchecked + " · `sbx login` signs in"}
+	case checked:
+		r = nowLaterRow(rowLogin, def, loginHelp)
 	default:
-		r = nowLaterRow(rowLogin, def, false, "", map[string]string{
+		r = nowLaterRow(rowLogin, def, map[string]string{
 			loginNow: "after the install, `sbx login` runs only if sbx diagnose says Docker is signed out",
 			"later":  loginHelp["later"],
 		})
 		r.Paint = map[string]string{loginNow: loginIfOut}
 	}
-	r.CellRunes = len(loginIfOut)
 	return r
 }
 
@@ -305,39 +360,40 @@ var loginHelp = map[string]string{
 	"later": "the first `sbx run` starts `sbx login` itself",
 }
 
-// statusRow is a row with nothing to answer: its one locked option names the state, and its help says why.
-func statusRow(label, state, why string) choiceui.Row {
-	return choiceui.Row{Label: label, Options: []string{state}, Locked: true, Help: map[string]string{state: why}}
+// flagRow is a row a flag answered: later, and the flag that said so.
+func flagRow(label, flag string) choiceui.Row {
+	return choiceui.Row{Kind: choiceui.RowStatus, Mark: choiceui.MarkLater, Label: label, Outcome: "later · " + flag}
 }
 
-// setupRow is sbx setup, which opens after the result and only while the probe finds work.
-func setupRow(def, skip bool) choiceui.Row {
+// setupRow is page 4's sbx setup row for what the probe found: an answer only while it found work.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
+func setupRow(offer sbx.SetupOffer, def, skip bool) choiceui.Row {
+	switch {
+	case skip:
+		return flagRow(rowWizard, "--skip-setup")
+	case !offer.Known:
+		return choiceui.Row{Kind: choiceui.RowStatus, Mark: choiceui.MarkLater, Label: rowWizard, Outcome: "not checked · `sbx setup` opens it"}
+	case !offer.Offers():
+		return choiceui.Row{Kind: choiceui.RowStatus, Mark: choiceui.MarkLater, Label: rowWizard, Outcome: "nothing to import"}
+	}
 	opts := []string{setupAfter, setupLater}
-	r := choiceui.Row{Label: rowWizard, Options: opts, Help: map[string]string{
-		setupAfter: "sbx's own setup screen opens after the result, only while sbx's store lacks an env key " +
-			"or SSH agent forwarding is off",
+	r := choiceui.Row{Label: rowWizard, Options: opts, Cols: cols(2), CellRunes: cellRunes, Help: map[string]string{
+		setupAfter: "sbx's own setup screen opens after the result: " + offer.Reason(),
 		setupLater: "`sbx setup` on a terminal imports the env keys sbx's store lacks",
 	}}
 	if !def {
 		r.Selected = 1
 	}
-	if skip {
-		r.Locked, r.Reason, r.Hover, r.Selected = true, "--skip-setup was passed", 1, 1
-	}
 	return r
 }
 
-func nowLaterRow(label string, def, locked bool, why string, help map[string]string) choiceui.Row {
+func nowLaterRow(label string, def bool, help map[string]string) choiceui.Row {
 	opts := []string{"now", "later"}
 	sel := 0
 	if !def {
 		sel = 1
 	}
-	r := choiceui.Row{Label: label, Options: opts, Selected: sel, Help: help}
-	if locked {
-		r.Locked, r.Reason, r.Hover = true, why, 1
-	}
-	return r
+	return choiceui.Row{Label: label, Options: opts, Selected: sel, Help: help, Cols: cols(2), CellRunes: cellRunes}
 }
 
 // installRow always draws the distro package so the alternative is visible,
@@ -347,9 +403,12 @@ func nowLaterRow(label string, def, locked bool, why string, help map[string]str
 // the rootless tarball, then the root package, then keep what is here.
 func installRow(plan sbx.Plan, installed string, def initDecisions, o initOptions) choiceui.Row {
 	opts := []string{installTarball, installPackaged}
+	digest := "no digest published"
+	if plan.Provenance != nil {
+		digest = "digest verified against the release's provenance"
+	}
 	help := map[string]string{
-		installTarball: "sbx from " + plan.Asset + ", into a prefix you own — no root. " +
-			"Proveo is already on PATH from the CDN; this is the backend it runs on",
+		installTarball:  plan.Asset + " · " + digest,
 		installPackaged: "sbx via the host package manager, system-wide — needs root, and no published digest covers it",
 	}
 	off := make([]bool, len(opts))
@@ -359,49 +418,48 @@ func installRow(plan sbx.Plan, installed string, def initDecisions, o initOption
 		help[installPackaged] = plan.Packaged.Why
 	case strings.TrimSpace(plan.Alt) != "":
 		off[indexOf(opts, installPackaged)] = true
-		reason = "not offered: proveo cannot pin a package-manager install — " + plan.Alt
-		help[installPackaged] = reason
+		reason = installPackaged + ": not offered — proveo cannot pin a package-manager install"
+		help[installPackaged] = reason + "; `proveo init --print` names " + plan.Alt
 	default:
 		off[indexOf(opts, installPackaged)] = true
-		reason = "no .deb/.rpm on this OS — the tarball is what the pinned release publishes here"
+		reason = installPackaged + ": not offered — no .deb/.rpm on this OS"
 		help[installPackaged] = reason
 	}
 	if installed != "" {
 		opts = append(opts, installSkip)
 		off = append(off, false)
-		help[installSkip] = "sbx " + installed + " stays; init still checks it, and signs in only while Docker is signed out"
+		help[installSkip] = "sbx " + installed + " stays; Enter checks it, and signs in only while Docker is signed out"
 	}
 	r := choiceui.Row{
-		Label:    rowInstall,
-		Options:  opts,
-		Selected: indexOf(opts, def.Install),
-		Help:     help,
-		Off:      off,
-		Reason:   reason,
+		Label:     rowInstall,
+		Options:   opts,
+		Selected:  indexOf(opts, def.Install),
+		Help:      help,
+		Off:       off,
+		Reason:    reason,
+		Cols:      cols(len(opts)),
+		CellRunes: cellRunes,
+		Paint:     map[string]string{installSkip: "keep as is"},
 	}
 	if o.force {
-		r.Locked, r.Reason = true, "--force was passed: a reinstall was asked for"
-		r.Hover = indexOf(opts, installTarball)
-		r.Selected = r.Hover
+		r.Selected = indexOf(opts, installTarball)
+		r.Kind, r.Mark, r.Outcome = choiceui.RowStatus, choiceui.MarkAhead, installTarball+" · --force"
 	}
 	return r
 }
 
-func baselineRow() (choiceui.Row, bool) {
-	current, known := sbx.PolicyBaseline()
-	if !known || current != sbx.BaselineAllowAll {
-		return choiceui.Row{}, false
-	}
+// baselineRow offers a host-wide network baseline while sbx's policy allows every host.
+func baselineRow() choiceui.Row {
 	opts := []string{baselineLeave, sbx.BaselineBalanced, sbx.BaselineDenyAll}
 	return choiceui.Row{
-		Label: rowBaseline, Options: opts, Selected: 0, Divider: true,
+		Label: rowBaseline, Options: opts, Selected: 0, Cols: cols(len(opts)), CellRunes: cellRunes,
 		Reason: "this host currently allows every host, so a run's Kit allowlist adds reach rather than limiting it",
 		Help: map[string]string{
 			baselineLeave:        "keep allow-all; proveo will say so on every run",
 			sbx.BaselineBalanced: "`sbx policy init balanced` — a curated allowlist, host-wide",
 			sbx.BaselineDenyAll:  "`sbx policy init deny-all` — nothing reaches out unless a Kit allows it",
 		},
-	}, true
+	}
 }
 
 func indexOf(opts []string, want string) int {

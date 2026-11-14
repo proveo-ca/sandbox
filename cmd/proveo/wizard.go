@@ -34,12 +34,6 @@ func printerOn(out io.Writer) *ui.Printer {
 	return ui.New(out)
 }
 
-func promptLine(question string, in io.Reader, out io.Writer) string {
-	printerOn(out).Askf("%s", question)
-	s, _ := bufio.NewReader(in).ReadString('\n')
-	return strings.TrimSpace(s)
-}
-
 func promptYesNo(question string, def bool, in io.Reader, out io.Writer) bool {
 	suffix := "[Y/n]"
 	if !def {

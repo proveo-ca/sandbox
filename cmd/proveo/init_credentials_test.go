@@ -323,7 +323,7 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 	} {
 		var ran []string
 		held := func(string) (bool, bool) { return true, true }
-		_, err := applySignIn(tc.slot, tc.choice, func(argv []string) error {
+		_, err := applySignIn(streamView{}, tc.slot, tc.choice, func(argv []string) error {
 			line := strings.Join(argv, " ")
 			if i := strings.Index(line, " claude "); i >= 0 {
 				if j := strings.Index(line, " -- "); j > i {
@@ -333,6 +333,7 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 			ran = append(ran, line)
 			return nil
 		}, held)
+
 		if err != nil {
 			t.Errorf("%s %q: %v", tc.slot.Label, tc.choice, err)
 		}
@@ -362,27 +363,28 @@ func TestSignInChoiceIsReadByPosition(t *testing.T) {
 func TestApplySignInReadsTheStoreBack(t *testing.T) {
 	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}
 	ok := func([]string) error { return nil }
-	if _, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
+	if _, err := applySignIn(streamView{}, codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
 		!strings.Contains(err.Error(), "no OAuth login for openai") {
 		t.Errorf("an empty store after the sign-in reported %v", err)
 	}
-	if _, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
+	if _, err := applySignIn(streamView{}, codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
 		t.Errorf("a stored login reported %v", err)
 	}
-	if said, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil ||
+	if said, err := applySignIn(streamView{}, codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil ||
 		len(said) != 1 || said[0].Text != "codex — login unconfirmed" {
 		t.Errorf("an unreadable listing is an unconfirmed login, not a failure: %v %+v", err, said)
 	}
 	claude := credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"}
 	var ran []string
 	boom := errors.New("pull failed")
-	said, err := applySignIn(claude, signInNow, func(argv []string) error {
+	said, err := applySignIn(streamView{}, claude, signInNow, func(argv []string) error {
 		ran = append(ran, argv[1])
 		if argv[1] == "run" {
 			return boom
 		}
 		return errors.New("no such sandbox")
 	}, func(string) (bool, bool) { return true, true })
+
 	if !errors.Is(err, boom) {
 		t.Errorf("the failed sign-in reported %v, want the run's error", err)
 	}
@@ -417,13 +419,14 @@ func TestACtrlCInASignInRunsNoLaterRow(t *testing.T) {
 	}
 	var ran []string
 	rec := &initRecord{}
-	_, _, err := applyCredentials(slots, rows, func(argv []string) error {
+	_, _, err := applyCredentials(streamView{}, slots, rows, func(_ credSlot, argv []string) error {
 		ran = append(ran, argv[1])
 		if argv[1] == "run" {
 			return handOff(exec.Command("sh", "-c", "kill -INT $$"))
 		}
 		return nil
 	}, func(string) (bool, bool) { return true, true }, rec)
+
 	if !interrupted(err) {
 		t.Fatalf("applyCredentials = %v, want the Ctrl+C", err)
 	}
@@ -432,6 +435,82 @@ func TestACtrlCInASignInRunsNoLaterRow(t *testing.T) {
 	}
 	if _, notRun := rec.lines(); !slices.Equal(notRun, []string{"codex sign-in", "opencode token"}) {
 		t.Errorf("not run = %q", notRun)
+	}
+}
+
+// RUN IN PLACE: Ctrl+C on page 3's card lets the row it came on finish, then stops the run: the
+// answered rows after it read not run, and init ends stopped at credentials, by SIGINT, before page 4.
+func TestACtrlCOnPageThreeStopsAfterItsRow(t *testing.T) {
+	slots := []credSlot{
+		{Label: "codex", Kind: kindSignIn, Store: "openai", Held: true},
+		{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"},
+		{Label: "cursor", Kind: kindSignIn, Store: "cursor"},
+		{Label: "groq", Kind: kindKey, Store: "groq"},
+	}
+	rows := []choiceui.Row{
+		{Label: "codex", Options: []string{signedIn, signInAgain, signOut}, Selected: 1},
+		{Label: "claudecode", Options: []string{notSignedIn, signInNow}, Selected: 1},
+		{Label: "cursor", Options: []string{notSignedIn, signInNow}},
+		{Label: "groq", Field: true, Value: "gsk-1"},
+	}
+	v, s := onCard(3)
+	var ran []string
+	rec := &initRecord{}
+	held := func(string) (bool, bool) { return true, true }
+	_, _, err := applyCredentials(v, slots, rows, func(_ credSlot, argv []string) error {
+		ran = append(ran, strings.Join(argv[1:], " "))
+		s.cancel()
+		return nil
+	}, held, rec)
+
+	if !interrupted(err) {
+		t.Fatalf("applyCredentials = %v, want the stop", err)
+	}
+	if !slices.Equal(ran, []string{"secret set openai --oauth"}) {
+		t.Errorf("ran %q, want only the row the Ctrl+C came on", ran)
+	}
+	for _, want := range []string{"status codex ✓ signed in", "status claudecode – not run", "status groq – not run"} {
+		if !slices.Contains(s.events, want) {
+			t.Errorf("no %q among:\n%s", want, strings.Join(s.events, "\n"))
+		}
+	}
+	if slices.Contains(s.events, "status cursor – not run") {
+		t.Error("a row left as it is reads not run")
+	}
+	if _, notRun := rec.lines(); !slices.Equal(notRun, []string{"claudecode sign-in", "groq key"}) {
+		t.Errorf("not run = %q", notRun)
+	}
+
+	last, s2 := onCard(3)
+	if _, _, err := applyCredentials(last, slots[:1], rows[:1], func(credSlot, []string) error { s2.cancel(); return nil }, held, nil); !interrupted(err) {
+		t.Errorf("a Ctrl+C on the last row = %v, want the stop, so page 4 never opens", err)
+	}
+
+	out := captureUI(t)
+	rep := testReport(t, initOptions{})
+	rep.sbxSaid = true
+	if code, ok := exitCode(rep.close(&initRecord{}, stopAt(labelCredentials, err))); !ok || code != 130 {
+		t.Errorf("a stop on page 3 exits %d, want 130", code)
+	}
+	if got := out.String(); !strings.Contains(got, "init — stopped at "+labelCredentials) {
+		t.Errorf("the ending does not say where Ctrl+C stopped init:\n%s", got)
+	}
+}
+
+// RUN IN PLACE: a sign-in's frame names the slot, not the sandbox sbx runs it in.
+func TestASignInFrameNamesTheSlot(t *testing.T) {
+	v, s := onCard(3)
+	s.handErr = errors.New("skip the child")
+	run := credentialRun(v)
+	_ = run(credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"},
+		append([]string{sbx.Binary}, sbx.SignInArgs("anthropic", "/tmp/"+sbx.SignInSandbox+"-1")...))
+	_ = run(credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}, append([]string{sbx.Binary}, sbx.SignOutArgs("openai")...))
+	want := []string{
+		"hand sbx run claudecode ── claudecode's sign-in · page 3/4 returns when it exits",
+		"hand sbx secret rm openai ── sbx asks y/N · page 3/4 returns when it exits",
+	}
+	if got := s.with("hand "); !slices.Equal(got, want) {
+		t.Errorf("hand-offs = %q, want %q", got, want)
 	}
 }
 

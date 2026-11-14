@@ -1,0 +1,21 @@
+╭── proveo init ───────────────────────────────────────────────────────────────╮
+│ Name the operator                                                  page 4/4  │
+│   Agents in every sandbox on this host address you by this name.             │
+│                                                                              │
+│ ! sbx           kept 0.50.0 · Docker signed in · 2 checks need you           │
+│ ✓ git, shell    Ada Example <ada@example.invalid> · 2 later                  │
+│ ✓ credentials   3 held · 4 not held                                          │
+│                                                                              │
+├── operator ───                                                               │
+│ › name            [Executor                              ]                   │
+│                                                                              │
+├── ahead ──────                                                               │
+│   sbx setup     (•) after init        ( ) later                              │
+│                                                                              │
+│   [ Skip ]                                                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ↑↓ row · type to edit · enter finish · esc back · ctrl+c quit                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+  › name — agents address you this way; the first 16 characters are kept,
+    empty keeps Executor

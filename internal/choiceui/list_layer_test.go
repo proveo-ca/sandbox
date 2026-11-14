@@ -296,24 +296,6 @@ func TestEnterAndEscReachTheQuitGateBeforeTheScopePage(t *testing.T) {
 	}
 }
 
-func TestEnterAndEscReachTheQuitGateBeforeTheChecksPage(t *testing.T) {
-	t.Parallel()
-	for _, k := range []tea.KeyPressMsg{teaEsc, teaEnter} {
-		cp := checkPage()
-		cp.Step = Step{At: 2, Of: 4}
-		m, cmd := pressKeys(checkAt(cp, 100, 30), teaCtrlC, k)
-		if quits(cmd) || m.(checkModel).quit.up() {
-			t.Errorf("%s: ended %v with %v, asking %v; want the question gone and the page kept", k, quits(cmd), m.(checkModel).out, m.(checkModel).quit.up())
-		}
-	}
-	cp := checkPage()
-	cp.Step = Step{At: 2, Of: 4}
-	m, cmd := pressKeys(checkAt(cp, 100, 30), teaCtrlC, teaRight, teaEnter)
-	if !quits(cmd) || m.(checkModel).out != Quit {
-		t.Errorf("ctrl+c, right, enter = ended %v with %v; want Quit", quits(cmd), m.(checkModel).out)
-	}
-}
-
 func TestEnterAnswersTheSelectedButtonAndEscTheSafeOneInEveryDialog(t *testing.T) {
 	t.Parallel()
 	for name, d := range theFiveDialogs() {

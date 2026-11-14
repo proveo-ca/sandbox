@@ -308,6 +308,9 @@ func (f *Form) checklistLadder(w, h int) layout {
 	lay := layout{helpSlot: help, header: len(facts) > 0}
 	fixed := func(c cut) int {
 		n := cardRows + len(facts) + help
+		if f.skips() {
+			n += skipRows
+		}
 		if !c.prose {
 			n += len(prose)
 		}
@@ -476,6 +479,9 @@ func (f *Form) checklistHelpSlot(width int) int {
 	return min(most, helpMost)
 }
 
+// skips reports whether a checklist draws its Skip button: at rest, when it has one.
+func (f *Form) skips() bool { return f.Skip != "" && f.Progress == nil }
+
 // enterWord is what Enter does on a checklist: "run n steps", "next", "finish".
 func (f *Form) enterWord() string {
 	if f.EnterWord != nil {
@@ -514,6 +520,9 @@ func (f *Form) checklistKeys(scrolls bool, cursor int) []hintPart {
 	case f.Step.wizard():
 		esc.word, esc.keep = "quit", 6
 	}
+	if f.Esc != "" {
+		esc.word = f.Esc
+	}
 	if list := f.openList(cursor); list != nil && f.Blocked == "" {
 		return f.checklistTail(listParts(list, esc))
 	}
@@ -539,7 +548,14 @@ func (f *Form) checklistKeys(scrolls bool, cursor int) []hintPart {
 		parts = append(parts, hintPart{"pgup/pgdn", "scroll", 4})
 	}
 	if f.Blocked == "" {
-		parts = append(parts, hintPart{"enter", f.enterWord(), 9})
+		enter := hintPart{"enter", f.enterWord(), 9}
+		if f.onSkip {
+			parts, enter.word = parts[:0], "skip"
+			if f.anyStop() {
+				parts = append(parts, hintPart{"↑↓", "row", 3})
+			}
+		}
+		parts = append(parts, enter)
 	}
 	return f.checklistTail(append(parts, esc))
 }
@@ -638,7 +654,7 @@ func (f *Form) drawChecklist(s *screen, cursor, tick int) {
 	g := newGutter(f.scroll, lay.body, len(lines))
 	groups := f.groups()
 	mark := -1
-	if f.Progress == nil && f.Blocked == "" && f.stop(cursor) {
+	if f.Progress == nil && f.Blocked == "" && !f.onSkip && f.stop(cursor) {
 		mark = cursor
 	}
 	lit := func(row int) bool { return mark >= 0 && row >= 0 && groups[row] == groups[mark] }
@@ -676,6 +692,13 @@ func (f *Form) drawChecklist(s *screen, cursor, tick int) {
 	c.unclip()
 
 	c.y = bodyTop + lay.body
+	if f.skips() {
+		k.walls(c, false)
+		c.y++
+		f.drawSkip(c, p)
+		k.walls(c, false)
+		c.y++
+	}
 	room.foot = c.y
 	k.foot(c)
 	c.y++

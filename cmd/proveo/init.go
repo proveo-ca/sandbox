@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -103,79 +104,22 @@ func doInit(o initOptions) error {
 	if o.printOnly {
 		rep.printSbx()
 		printPlan(plan)
-		if _, err := credentialStage(o, choiceui.Step{}, nil, nil, rep); err != nil { // reports where each credential rests; provisions nothing
+		if _, _, err := credentialStage(o, choiceui.Step{}, nil, nil, rep, cardPage{}); err != nil { // reports where each credential rests; provisions nothing
 			return err
 		}
-		if _, err := operatorStage(o, choiceui.Step{}, rep); err != nil {
+		if _, err := operatorStage(o, choiceui.Step{}, rep, cardPage{}, choiceui.Row{}); err != nil {
 			return err
 		}
 		rep.printCredentials()
 		return nil
 	}
-
-	var prev *initDecisions
-	viaPackage := false
-	rec := &initRecord{}
-	var rows []choiceui.CheckRow
-	var diag []sbx.Check
-	var diagErr error
-	preflight := func(at choiceui.Step) (stepResult, error) {
-		if !prompted {
-			return stepNone, nil
-		}
-		if rows == nil {
-			if installed != "" {
-				diag, diagErr = sbx.DiagnoseAt(resolveBin(plan))
-				rep.heard(diag, diagErr)
-			}
-			rows = preflightRows(checks, diag, diagErr)
-		}
-		return preflightPage(host, rows, stop, at, rep)
+	w := &initWalk{o: o, host: host, plan: plan, download: download, installed: installed, prereqs: checks, stop: stop,
+		rep: rep, rec: &initRecord{}, prompted: prompted, typed: map[string]string{}}
+	if !prompted {
+		w.view = streamView{}
+		return rep.close(w.rec, runInitSteps(false, w.pages()))
 	}
-	setup := func(at choiceui.Step) (stepResult, error) {
-		d, err := decide(plan, host, installed, checks, rep.auth, o, prev, viaPackage, at)
-		switch {
-		case errors.Is(err, errInitBack):
-			return stepBack, nil
-		case errors.Is(err, errInitQuit):
-			return stepQuit, nil
-		case err != nil:
-			return stepNext, err
-		}
-
-		// A prefix chosen at the prompt has to reach the plan, which was built
-		// around the default one.
-		if d.Prefix != plan.Prefix {
-			if plan, err = sbx.PlanFor(host, d.Prefix, download); err != nil {
-				return stepNext, err
-			}
-			installed, _ = installedVersion(plan)
-		}
-		viaPackage = d.Install == installPackaged || (d.Install == installSkip && viaPackage)
-		applied := appliedPlan(plan, viaPackage)
-		rep.applied, rep.wizard = applied, d.Wizard
-		rec.leaveUnchosen(d, rep.mootRows()...)
-		steps := applyPlan(d, applyCtx{plan: plan, applied: applied, download: download, host: host, rep: rep})
-		if err := runApply(steps, rec.did); err != nil {
-			var failed stepErr
-			if errors.As(err, &failed) {
-				rec.unreached(failed.rest...)
-			}
-			return stepNext, err
-		}
-		d = settle(d, steps, applied)
-		installed, _ = installedVersion(applied)
-		prev, o.force = &d, false
-		return stepNext, nil
-	}
-	typed := map[string]string{}
-	err = runInitSteps(!o.yes && interactiveTerminal(), rec.pages([]initPage{
-		{run: preflight},
-		{run: setup},
-		{label: labelCredentials, run: func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed, rec, rep) }},
-		{label: labelOperator, run: func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at, rep) }},
-	}))
-	return rep.close(rec, err)
+	return w.onCard()
 }
 
 // appliedPlan is the plan setup acts on; a package manager owns placement, like the MSI.
@@ -299,13 +243,6 @@ func printPlan(plan sbx.Plan) {
 	ui.Appf("git config --get user.email")
 }
 
-func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, auth sbx.Auth, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
-	if tty := interactiveTerminal(); o.yes || !tty {
-		return carried(defaultDecisions(plan, installed, o, tty), prev), nil
-	}
-	return askDecisions(plan, host, installed, checks, auth, o, prev, viaPackage, at)
-}
-
 func interactiveTerminal() bool {
 	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stderr)
 }
@@ -339,10 +276,14 @@ func prefixWritable(prefix string) error {
 	}
 }
 
-// fetch downloads url to dest and returns the hex sha256 of what arrived.
-func fetch(url, dest string) (string, error) {
+// fetch downloads url to dest and returns the hex sha256 of what arrived; ctx ends it early.
+func fetch(ctx context.Context, url, dest string) (string, error) {
 	client := &http.Client{Timeout: 20 * time.Minute}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", url, err)
 	}
@@ -367,9 +308,13 @@ func fetch(url, dest string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func publishedDigest(p sbx.Provenance) (string, error) {
+func publishedDigest(ctx context.Context, p sbx.Provenance) (string, error) {
 	client := &http.Client{Timeout: 2 * time.Minute}
-	resp, err := client.Get(p.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetch %s: %w", p.Asset, err)
 	}
@@ -450,7 +395,17 @@ func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 // verify asks sbx for its verdict on this host and keeps it as the result's readiness: the failing
 // checks as items, and whether a run can start. A failing check a run needs is its error.
 func verify(bin string, rep *initReport) error {
-	rep.readiness, rep.ready = nil, false
+	if bin == sbx.Binary && !sbx.Installed() {
+		return verifyWith(bin, rep, nil, nil)
+	}
+	checks, err := sbx.DiagnoseAt(bin)
+	rep.heard(checks, err)
+	return verifyWith(bin, rep, checks, err)
+}
+
+// verifyWith is verify on a diagnose that already ran: checks and err are what sbx said.
+func verifyWith(bin string, rep *initReport, checks []sbx.Check, err error) error {
+	rep.readiness, rep.ready, rep.judged = nil, false, true
 	if bin == sbx.Binary && !sbx.Installed() {
 		rep.readiness = []sandbox.Item{{Warn: true, Text: "sbx — not on this shell's PATH",
 			Detail: []string{"a new shell finds it; `" + sbx.Binary + " diagnose` there gives the host's verdict"}}}
@@ -459,8 +414,6 @@ func verify(bin string, rep *initReport) error {
 	if _, err := sbx.VersionAt(bin); err != nil {
 		rep.readiness = append(rep.readiness, sandbox.Item{Warn: true, Text: "sbx — reports no version", Detail: errLines(err)})
 	}
-	checks, err := sbx.DiagnoseAt(bin)
-	rep.heard(checks, err)
 	if err != nil {
 		first, _, _ := strings.Cut(err.Error(), "\n")
 		rep.readiness = append(rep.readiness, sandbox.Item{Warn: true, Text: "sbx diagnose — gave no answer",

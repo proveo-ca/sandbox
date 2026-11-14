@@ -4,10 +4,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -17,7 +19,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/secretref"
@@ -256,13 +257,13 @@ const (
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R4)
 func signInRow(s credSlot) choiceui.Row {
 	if s.Held {
-		return choiceui.Row{Label: s.Label, Options: []string{signedIn, signInAgain, signOut}, Help: map[string]string{
+		return choiceui.Row{Label: s.Label, Options: []string{signedIn, signInAgain, signOut}, Cols: cols(3), CellRunes: cellRunes, Help: map[string]string{
 			signedIn:    s.hint() + " — sbx lists it as present; that is not a check that it still refreshes",
 			signInAgain: signInHelp(s),
 			signOut:     "after enter: `" + sbx.Binary + " " + strings.Join(sbx.SignOutArgs(s.Store), " ") + "` — sbx asks before it removes the login and any api key stored as " + s.Store + ", for every sandbox",
 		}}
 	}
-	return choiceui.Row{Label: s.Label, Options: []string{notSignedIn, signInNow}, Help: map[string]string{
+	return choiceui.Row{Label: s.Label, Options: []string{notSignedIn, signInNow}, Cols: cols(2), CellRunes: cellRunes, Help: map[string]string{
 		notSignedIn: "leave it — the agent shows its own login at its next run",
 		signInNow:   signInHelp(s),
 	}}
@@ -285,10 +286,11 @@ func signInHelp(s credSlot) string {
 
 // applySignIn runs the sbx command a sign-in row's choice asks for, then reads the store back. Its
 // start line prints at once; what it leaves to say comes back as items for the credentials block.
-func applySignIn(s credSlot, choice string, run func(argv []string) error, held func(service string) (held, known bool)) ([]sandbox.Item, error) {
+func applySignIn(view walkView, s credSlot, choice string, run func(argv []string) error, held func(service string) (held, known bool)) ([]sandbox.Item, error) {
+	view = viewOr(view)
 	switch choice {
 	case signOut:
-		ui.Asyncf("%s — signing out", s.Label)
+		view.Status(s.Label, choiceui.MarkRunning, "signing out")
 		return nil, run(append([]string{sbx.Binary}, sbx.SignOutArgs(s.Store)...))
 	case signInAgain, signInNow:
 	default:
@@ -306,7 +308,7 @@ func applySignIn(s credSlot, choice string, run func(argv []string) error, held 
 		defer func() { _ = os.RemoveAll(dir) }()
 	}
 	argv := sbx.SignInArgs(s.Store, dir)
-	ui.Asyncf("%s — signing in through sbx", s.Label)
+	view.Status(s.Label, choiceui.MarkRunning, "signing in through sbx")
 	var items []sandbox.Item
 	err := run(append([]string{sbx.Binary}, argv...))
 	if sbx.SignInRuns(argv) {
@@ -381,15 +383,22 @@ func firstField(rows []choiceui.Row) string {
 	return ""
 }
 
-// credentialStage is `proveo init`'s credentials screen; typed carries its answers across a step
-// back. A forward exit, and an init that cannot ask, set the credentials block from what the store
-// holds then; a step back and a quit leave it as it was.
-func credentialStage(o initOptions, at choiceui.Step, typed map[string]string, rec *initRecord, rep *initReport) (stepResult, error) {
+// cardPage is what an init page shares with the card: where it shows, and the done rows of the
+// pages before it.
+type cardPage struct {
+	view walkView
+	done []choiceui.Row
+}
+
+// credentialStage is `proveo init`'s credentials page, page 3 of the card; typed carries its answers
+// across a step back. A forward exit, and an init that cannot ask, set the credentials block from
+// what the store holds then; a step back and a quit leave it as it was. done is the page's done row.
+func credentialStage(o initOptions, at choiceui.Step, typed map[string]string, rec *initRecord, rep *initReport, page cardPage) (stepResult, pageDone, error) {
 	// The embedded registry, not the defs/ tree: init runs on a freshly installed
 	// host where no repository exists.
 	ms, err := loadManifests()
 	if err != nil || len(ms) == 0 {
-		return stepNone, nil // nothing to provision for; the install is still good
+		return stepNone, nothingToAsk, nil // nothing to provision for; the install is still good
 	}
 	survey := func() []credSlot { return surveyCredentials(ms, sbx.StoreEntries(), os.Getenv) }
 	report := func(slots []credSlot, details map[string][]string, items []sandbox.Item) {
@@ -400,99 +409,200 @@ func credentialStage(o initOptions, at choiceui.Step, typed map[string]string, r
 	slots := survey()
 	if o.printOnly || len(slots) == 0 {
 		report(slots, nil, nil)
-		return stepNone, nil
+		return stepNone, nothingToAsk, nil
 	}
-	if o.yes || !interactiveTerminal() {
+	if o.yes || !viewOr(page.view).card() {
 		if rec != nil {
 			rec.leave(labelCredentials, rep.howTo("`proveo init` from a terminal provisions them")...)
 		}
 		report(slots, nil, nil)
-		return stepNone, nil
+		return stepNone, nothingToAsk, nil
 	}
 
 	rows := credentialRows(slots)
 	restoreAnswers(slots, rows, typed)
-	form := &choiceui.Form{
-		Banner: choiceui.Banner(),
-		Title:  "credentials — a field per key, a sign-in per subscription, checked when sbx holds it",
-		Header: []string{
-			"A stored secret is host-wide and outlives every run; the agent never holds it.",
-			"Without one an agent still launches and shows its own login — /login is the agent's, not proveo's.",
-			"Typing replaces what is stored. An empty field changes nothing. A sign-in row runs sbx's own sign-in after enter.",
-		},
-		Glyphs:   posture.GlyphModeFrom(os.Getenv),
-		Step:     at,
-		Skip:     "Skip",
-		StartRow: firstField(rows),
-		Rows:     rows,
-	}
-	out, err := form.RunStep()
+	form := credentialForm(at, rows, page.done, o.skipSetup)
+	view := viewOr(page.view)
+	own := func(f *choiceui.Form) []choiceui.Row { return f.Rows[len(page.done) : len(page.done)+len(slots)] }
+	form.EnterWord = func(f *choiceui.Form) string { return runWord(len(answeredSlots(slots, own(f), 0))) }
+	later := pageDone{mark: choiceui.MarkLater, outcome: "later"}
+	out, err := view.Ask(form)
 	switch {
 	case err != nil:
 		clear(typed)
-		return stepNext, stopAt(labelCredentials, err)
+		return stepNext, later, stopAt(labelCredentials, err)
 	case out == choiceui.Cancelled || out == choiceui.Skipped:
 		clear(typed)
 		if rec != nil {
 			rec.leave(labelCredentials)
 		}
 		report(slots, nil, nil)
-		return stepNext, nil
+		return stepNext, later, nil
 	case out == choiceui.Quit:
 		clear(typed)
-		return stepQuit, nil
+		return stepQuit, later, nil
 	}
+	answers := slices.Clone(own(form))
 	if out == choiceui.Back {
 		if typed != nil {
-			keepAnswers(slots, form.Rows, typed)
+			keepAnswers(slots, answers, typed)
 		}
-		return stepBack, nil
+		return stepBack, later, nil
 	}
 	clear(typed)
 	ui.Section(ui.SectionCredentials)
 	held := func(service string) (bool, bool) { e := sbx.StoreEntries(); return e[service].OAuth, e != nil }
-	details, items, err := applyCredentials(slots, form.Rows, runArgv, held, rec)
-	report(survey(), details, items)
+	view.Plan(actingLabels(slots, answers))
+	details, items, err := applyCredentials(view, slots, answers, credentialRun(view), held, rec)
+	after := survey()
+	report(after, details, items)
+	done := heldDone(after, items)
 	if err != nil {
-		return stepNext, stopAt(labelCredentials, err)
+		return stepNext, done, stopAt(labelCredentials, err)
 	}
 	if rec != nil {
 		rec.did(labelCredentials)
 	}
-	return stepNext, nil
+	return stepNext, done, nil
 }
 
-// applyCredentials signs in and stores what each row answered, in order. A Ctrl+C that ends a
-// sign-in stops it and is its error; rec then holds the answered rows after that one as not run.
-func applyCredentials(slots []credSlot, rows []choiceui.Row, run func(argv []string) error, held func(string) (bool, bool), rec *initRecord) (map[string][]string, []sandbox.Item, error) {
+// credentialRun runs a page-3 command for slot s: the sign-in sandbox's removal with its output
+// kept, every other one handed the terminal under a frame; a sign-in's frame names the slot.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (RUN IN PLACE)
+func credentialRun(view walkView) func(s credSlot, argv []string) error {
+	return func(s credSlot, argv []string) error {
+		if len(argv) > 1 && argv[1] == "rm" {
+			return runArgvCaptured(argv)
+		}
+		c := command(argv[0], argv[1:]...)
+		shown, why, done := commandLine(c), "sbx's screen", signedIn
+		switch {
+		case slices.Contains(argv, "secret"):
+			why, done = "sbx asks y/N", "signed out"
+		case len(argv) > 1 && argv[1] == "run":
+			shown, why = filepath.Base(argv[0])+" run "+s.Label, s.Label+"'s sign-in"
+		}
+		return view.HandAs(shown, c, []string{why}, said(choiceui.MarkDone, done))
+	}
+}
+
+// credentialForm is page 3, "Store agent credentials": the pages before it as done rows, a row per
+// sign-in and a field per key, the Skip button, then what lies ahead.
+// SPEC: _spec/cmd/proveo/init-credential-wireframe.puml
+func credentialForm(at choiceui.Step, rows, done []choiceui.Row, skipSetup bool) *choiceui.Form {
+	all := slices.Concat(done, rows, aheadRows(4, setupAhead(skipSetup)))
+	f := initCard(at, "Store agent credentials", []string{"Secrets live in sbx's host-wide store; agents never hold them."}, all)
+	f.Skip, f.StartRow = "Skip", firstField(rows)
+	return f
+}
+
+// actingLabels are the labels of the rows whose answer runs something, in row order.
+func actingLabels(slots []credSlot, rows []choiceui.Row) []string {
+	var out []string
+	for i, s := range slots {
+		if acts(s, rows, i) {
+			out = append(out, s.Label)
+		}
+	}
+	return out
+}
+
+// acts reports whether row i's answer for s runs something: a sign-in, a sign-out, a key to store.
+func acts(s credSlot, rows []choiceui.Row, i int) bool {
+	if s.Kind == kindSignIn {
+		switch signInChoice(rows, i) {
+		case signInNow, signInAgain, signOut:
+			return true
+		}
+		return false
+	}
+	return slotValue(s, rows, i) != ""
+}
+
+// heldDone is page 3's done row: what sbx holds after it, and what failed.
+func heldDone(slots []credSlot, items []sandbox.Item) pageDone {
+	held := 0
+	for _, s := range slots {
+		if s.Held {
+			held++
+		}
+	}
+	failed := 0
+	for _, it := range items {
+		if strings.HasSuffix(it.Text, " — not stored") || strings.HasSuffix(it.Text, " — not signed in") {
+			failed++
+		}
+	}
+	d := pageDone{mark: choiceui.MarkDone, outcome: fmt.Sprintf("%d held · %d not held", held, len(slots)-held)}
+	if failed > 0 {
+		d.mark, d.outcome = choiceui.MarkNeeds, d.outcome+fmt.Sprintf(" · %d failed", failed)
+	}
+	return d
+}
+
+// applyCredentials signs in and stores what each row answered, in order, each row running in place
+// on the card. A Ctrl+C that ends a sign-in, or stops the run, is its error once the row it came on
+// is done; the answered rows after that one read not run, and rec holds them as not run.
+// SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (RUN IN PLACE)
+func applyCredentials(view walkView, slots []credSlot, rows []choiceui.Row, run func(s credSlot, argv []string) error, held func(string) (bool, bool), rec *initRecord) (map[string][]string, []sandbox.Item, error) {
+	view = viewOr(view)
 	details := map[string][]string{}
 	var items []sandbox.Item
+	stop := handoffErr{err: context.Canceled, interrupted: true}
 	for i, s := range slots {
+		if !acts(s, rows, i) {
+			continue
+		}
+		if view.Context().Err() != nil {
+			credentialsNotRun(view, slots, rows, i, rec)
+			return details, items, stop
+		}
 		if s.Kind == kindSignIn {
-			said, err := applySignIn(s, signInChoice(rows, i), run, held)
+			said, err := applySignIn(view, s, signInChoice(rows, i), func(argv []string) error { return run(s, argv) }, held)
 			items = append(items, said...)
 			if interrupted(err) {
-				rec.unreached(answeredSlots(slots, rows, i+1)...)
+				view.Status(s.Label, choiceui.MarkNeeds, "stopped · Ctrl+C ended it")
+				credentialsNotRun(view, slots, rows, i+1, rec)
 				return details, items, err
 			}
 			if err != nil {
 				items = append(items, sandbox.Item{Warn: true, Text: s.Label + " — not signed in", Detail: errDetail(err)})
+				view.Status(s.Label, choiceui.MarkNeeds, "not signed in")
+				continue
 			}
+			outcome := signedIn
+			if signInChoice(rows, i) == signOut {
+				outcome = "signed out"
+			}
+			view.Status(s.Label, choiceui.MarkDone, outcome)
 			continue
 		}
-		value := slotValue(s, rows, i)
-		if value == "" {
-			continue
-		}
-		detail, warn, err := provisionSlot(s, value)
+		view.Status(s.Label, choiceui.MarkRunning, "storing in sbx")
+		detail, warn, err := provisionSlot(s, slotValue(s, rows, i))
 		if err != nil {
 			items = append(items, sandbox.Item{Warn: true, Text: s.Label + " — not stored", Detail: errLines(err)})
+			view.Status(s.Label, choiceui.MarkFailed, "not stored")
 			continue
 		}
 		details[slotKey(s)] = detail
 		items = append(items, warn...)
+		view.Status(s.Label, choiceui.MarkDone, "stored as "+s.Store)
+	}
+	if view.Context().Err() != nil {
+		return details, items, stop
 	}
 	return details, items, nil
+}
+
+// credentialsNotRun marks each row at or after from that answered something to run as not run,
+// and records it in rec.
+func credentialsNotRun(view walkView, slots []credSlot, rows []choiceui.Row, from int, rec *initRecord) {
+	for i := from; i < len(slots); i++ {
+		if acts(slots[i], rows, i) {
+			view.Status(slots[i].Label, choiceui.MarkLater, "not run")
+		}
+	}
+	rec.unreached(answeredSlots(slots, rows, from)...)
 }
 
 // slotValue is what row i stores for s: the typed value, else the key this host's env holds and
