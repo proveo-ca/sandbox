@@ -121,17 +121,20 @@ func TestAHandedStepPrintsItsProgramAndNoPlace(t *testing.T) {
 	step := func(name, line, label string, kind stepKind, err error) applyStep {
 		return applyStep{name: name, line: line, label: label, kind: kind, run: func() error { ran = append(ran, name+"!"); return err }}
 	}
-	var heard []string
+	rec := &initRecord{}
 	err := runApply(streamView{}, []applyStep{
 		step("download sbx", "download sbx", rowInstall, stepLive, nil),
 		step("", "", "", stepLive, nil),
 		step("sign in to Docker", "sbx login — signing in to Docker", rowLogin, stepHand, boom),
 		step("install the prompt kit", "", rowPrompt, stepSilent, nil),
 		step("verify sbx", "", labelVerify, stepQuiet, nil),
-	}, func(label string) { heard = append(heard, label) }, nil)
+	}, rec, nil)
 
-	if got := strings.Join(heard, "|"); got != rowInstall+"|" {
-		t.Errorf("heard %q; a step that failed must not be reported as run", got)
+	if !slices.Equal(rec.ran, []string{rowInstall}) {
+		t.Errorf("ran %q; a step that failed must not be reported as run", rec.ran)
+	}
+	if got := rec.rows[rowLogin]; got.mark != choiceui.MarkFailed || got.outcome != "exit status 1" {
+		t.Errorf("the failed row reads %+v, want × and its error", got)
 	}
 	var failed stepErr
 	if !errors.Is(err, boom) || !errors.As(err, &failed) || failed.label != rowLogin || !slices.Equal(failed.rest, []string{rowPrompt, labelVerify}) {
@@ -151,8 +154,8 @@ func TestAHandedStepPrintsItsProgramAndNoPlace(t *testing.T) {
 	}
 }
 
-// A quiet step leaves nothing in plain output, and a silent one nothing anywhere: verify's
-// result and the git block print under their own headings.
+// A quiet step leaves nothing in plain output, and a silent one nothing anywhere: the closed
+// checklist says what each came to.
 func TestQuietAndSilentStepsLeaveNoPlainLine(t *testing.T) {
 	var term bytes.Buffer
 	prev := ui.Default
@@ -184,14 +187,17 @@ func TestARevisitRerunsThePathStepOnlyToWriteTheRC(t *testing.T) {
 	}
 	plan := sbx.Plan{Prefix: prefix, Bin: bin}
 	visit := func(d initDecisions) (initDecisions, []string, string) {
-		out := captureUI(t)
+		captureUI(t)
 		rep := newInitReport(initOptions{}, sbx.Host{OS: "darwin", Arch: "arm64"}, nil, plan)
-		rep.sbxSaid = true
 		steps := applyPlan(d, applyCtx{plan: plan, applied: plan, rep: rep})
-		if err := runApply(streamView{}, steps, (&initRecord{}).did, nil); err != nil {
+		if err := runApply(streamView{}, steps, &initRecord{}, nil); err != nil {
 			t.Fatal(err)
 		}
-		return settle(d, steps, plan), stepNames(steps), out.String()
+		var said []string
+		for _, it := range rep.about[rowPath] {
+			said = append(said, it.Text)
+		}
+		return settle(d, steps, plan), stepNames(steps), strings.Join(said, "\n")
 	}
 	pathStep := "add " + filepath.Dir(bin) + " to PATH"
 
@@ -256,7 +262,7 @@ func TestTheLoginStepSkipsWhenSbxReportsSignedIn(t *testing.T) {
 			t.Errorf("%s: err %v, %d logins, want %d", c.name, err, logins, c.logins)
 		}
 		var said []string
-		for _, it := range rep.sbxItems {
+		for _, it := range rep.about[rowLogin] {
 			switch {
 			case it.Ok:
 				said = append(said, "ok: "+it.Text)
@@ -270,10 +276,10 @@ func TestTheLoginStepSkipsWhenSbxReportsSignedIn(t *testing.T) {
 			}
 		}
 		if got := strings.Join(said, "\n"); got != c.says {
-			t.Errorf("%s: said %q in the sbx block, want %q", c.name, got, c.says)
+			t.Errorf("%s: said %q of the Docker login row, want %q", c.name, got, c.says)
 		}
-		if unchecked := len(rep.sbxItems) == 1 && rep.sbxItems[0].Text == "Docker login — not checked"; unchecked != (c.before == sbx.AuthUnknown) {
-			t.Errorf("%s: sbx items = %+v", c.name, rep.sbxItems)
+		if unchecked := len(rep.about[rowLogin]) == 1 && rep.about[rowLogin][0].Text == "Docker login — not checked"; unchecked != (c.before == sbx.AuthUnknown) {
+			t.Errorf("%s: Docker login items = %+v", c.name, rep.about[rowLogin])
 		}
 		if rep.loginWarned != strings.HasPrefix(c.says, "warn:") {
 			t.Errorf("%s: the report heard the login warning = %v; the result must not repeat it", c.name, rep.loginWarned)
@@ -531,11 +537,56 @@ func TestCtrlCDuringALiveStepStopsAfterIt(t *testing.T) {
 	}
 	out := captureUI(t)
 	rep := testReport(t, initOptions{})
-	rep.sbxSaid = true
 	if code, ok := exitCode(rep.close(&initRecord{}, err)); !ok || code != 130 {
 		t.Errorf("a stopped run exits %d, want 130", code)
 	}
 	if got := out.String(); !strings.Contains(got, "warn: init — stopped at sbx install\n    Ctrl+C ended it") {
 		t.Errorf("the ending does not say where Ctrl+C stopped init:\n%s", got)
+	}
+}
+
+// ONE SESSION PER WALK: while the card is up nothing reaches the terminal; ui's hold stays empty over
+// a full walk, and the closed checklist prints once the card closes.
+func TestNothingReachesTheTerminalWhileTheCardIsUp(t *testing.T) {
+	out := captureUI(t)
+	s := newFakeSession(choiceui.Accepted, choiceui.Accepted, choiceui.Skipped, choiceui.Accepted)
+	s.edit = func(f *choiceui.Form, _ int) {
+		for i := range f.Rows {
+			switch f.Rows[i].Label {
+			case rowName:
+				f.Rows[i].Value = "Ada"
+			case rowEmail:
+				f.Rows[i].Value = "ada@example.invalid"
+			}
+		}
+	}
+	w := fakeWalk(t, s, initOptions{skipGh: true, skipPrompt: true})
+	openCard = func() (cardSession, error) {
+		s.release = ui.Hold()
+		return s, nil
+	}
+	t.Setenv("STUB_DIAGNOSE", signedOut)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(v, "")
+	}
+	if err := w.onCard(); err != nil {
+		t.Fatalf("the walk = %v\n%s\n%s", err, out, strings.Join(s.events, "\n"))
+	}
+	if s.release == nil || s.closed != 1 {
+		t.Fatalf("the walk opened no held card, or closed it %d times", s.closed)
+	}
+	if len(s.held) != 0 {
+		t.Errorf("the walk wrote to the terminal while the card was up:\n%s", s.held)
+	}
+	if !slices.Contains(s.with("hand "), "hand sbx login ── Docker not signed in · sbx's screen · page 1/4 returns when it exits") {
+		t.Errorf("the walk never reached its hand-off:\n%s", strings.Join(s.events, "\n"))
+	}
+	got := out.String()
+	for _, re := range []string{`(?m)^── proveo init ── darwin/arm64 · sbx 0\.50\.0 ──+$`, `(?m)^warn: Docker login — not signed in$`,
+		`(?m)^ok: git identity — Ada <ada@example\.invalid> · git's global config$`, `(?m)^ok: operator — Executor \(default\)$`} {
+		if !regexp.MustCompile(re).MatchString(got) {
+			t.Errorf("the closed checklist lacks %s:\n%s", re, got)
+		}
 	}
 }

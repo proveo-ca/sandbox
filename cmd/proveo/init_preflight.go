@@ -9,7 +9,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // errInitQuit is how a sub-page reports a confirmed quit through the step that asked it.
@@ -82,17 +81,29 @@ const (
 	actGitHub = "connect GitHub"
 )
 
-// initRecord is what one `proveo init` ran, left for later and never reached, by the setup
-// page's row labels; it is kept across pages and revisits.
+// initRecord is what one `proveo init` ran, left for later and never reached, by pages 1 and 2's
+// row labels; it is kept across pages and revisits.
 type initRecord struct {
 	ran    []string            // what ran, in order, once each
 	later  map[string][]string // a row answered "later", and the one how-to it keeps when no terminal asked
 	notRun []string            // what was chosen and never ran, in the order it would have
+	rows   map[string]rowState // what each row's last step, or the answer Enter left, came to
+}
+
+// row records what row label came to; a later call replaces an earlier one.
+func (r *initRecord) row(label string, m choiceui.Mark, outcome string) {
+	if r == nil || label == "" {
+		return
+	}
+	if r.rows == nil {
+		r.rows = map[string]rowState{}
+	}
+	r.rows[label] = rowState{mark: m, outcome: outcome}
 }
 
 // did records that label ran; it is no longer left for later.
 func (r *initRecord) did(label string) {
-	if label == "" || slices.Contains(r.ran, label) {
+	if r == nil || label == "" || slices.Contains(r.ran, label) {
 		return
 	}
 	r.ran = append(r.ran, label)
@@ -184,8 +195,8 @@ func failed(err error) bool {
 	return err != nil && !errors.Is(err, errInitLeft) && !errors.As(err, &blocked)
 }
 
-// laterOrder is the setup page's row order, then the credentials page.
-var laterOrder = []string{rowLogin, rowWizard, rowGh, rowGit, rowPrompt, labelCredentials}
+// laterOrder is the order of the rows that can wait for later.
+var laterOrder = []string{rowLogin, rowWizard, rowGh, rowGit, rowPrompt}
 
 // lines are what was left for later, in the page's order, and what never ran.
 func (r *initRecord) lines() (later, notRun []string) {
@@ -195,25 +206,4 @@ func (r *initRecord) lines() (later, notRun []string) {
 		}
 	}
 	return later, r.notRun
-}
-
-// facts are the result's "later" and "not run" rows, each a list stacked under its key.
-func (r *initRecord) facts() []ui.Fact {
-	var out []ui.Fact
-	stack := func(key string, labels []string) {
-		for i, l := range labels {
-			f := ui.Fact{Role: ui.RoleHost, Value: l}
-			if i == 0 {
-				f.Key = key
-			}
-			if key == "later" {
-				f.Detail = r.later[l]
-			}
-			out = append(out, f)
-		}
-	}
-	later, notRun := r.lines()
-	stack("later", later)
-	stack("not run", notRun)
-	return out
 }

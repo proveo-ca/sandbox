@@ -92,11 +92,21 @@ func cutWithEllipsis(s string, room int) string {
 
 // Frame prints a blank row, then the frame line for the program about to take the terminal.
 // Plain output carries the same characters with no escapes.
-func (p *Printer) Frame(command string, parts ...string) {
+func (p *Printer) Frame(command string, parts ...string) { p.frame(true, command, parts...) }
+
+// Lead prints the frame line that heads an output: after a blank row only when p printed a line before it.
+func (p *Printer) Lead(command string, parts ...string) { p.frame(false, command, parts...) }
+
+func (p *Printer) frame(blank bool, command string, parts ...string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.eraseLive()
 	p.flushSection()
+	lead := ""
+	if blank || p.spoke {
+		lead = "\n"
+	}
+	p.spoke = true
 	f := frameFor(p.width(), command, parts...)
 	line := f.String()
 	if p.Tier == GlyphsASCII || p.Tier == GlyphsOff {
@@ -109,7 +119,7 @@ func (p *Printer) Frame(command string, parts ...string) {
 		}
 		line += " " + tint(ColorRule, strings.Repeat(frameRule, f.fill))
 	}
-	fmt.Fprint(p.W, "\n"+line+"\n")
+	fmt.Fprint(p.W, lead+line+"\n")
 }
 
 // Blank prints one blank row: under what a framed program printed, and before a verdict that follows it.
@@ -121,6 +131,9 @@ func (p *Printer) Blank() {
 
 // Frame prints Default's frame line; see Printer.Frame.
 func Frame(command string, parts ...string) { Default.Frame(command, parts...) }
+
+// Lead prints Default's heading frame line; see Printer.Lead.
+func Lead(command string, parts ...string) { Default.Lead(command, parts...) }
 
 // Blank prints Default's blank row; see Printer.Blank.
 func Blank() { Default.Blank() }

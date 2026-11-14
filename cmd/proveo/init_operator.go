@@ -24,7 +24,7 @@ func operatorRow(current string) choiceui.Row {
 		Field:       true,
 		Held:        current != "",
 		Placeholder: shown,
-		Reason:      "agents address you this way; the first 16 characters are kept, empty keeps " + shown,
+		Reason:      "empty keeps " + shown + "; the first 16 characters are kept",
 	}
 }
 
@@ -41,7 +41,7 @@ func applyOperatorAnswer(root, current, typed string) (string, error) {
 
 // operatorStage is `proveo init`'s last page: the name agents address the operator by, then sbx
 // setup's row as the probe left it. The name it sets, or reads when it cannot ask, becomes the
-// operator block's fact; the row's answer is whether sbx setup opens after the result.
+// result's operator row; the setup row's answer is whether sbx setup opens after the result.
 func operatorStage(o initOptions, at choiceui.Step, rep *initReport, page cardPage, setup choiceui.Row) (stepResult, error) {
 	root := proveohome.Root(os.Getenv)
 	current, err := operator.Load(root)
@@ -49,7 +49,8 @@ func operatorStage(o initOptions, at choiceui.Step, rep *initReport, page cardPa
 		rep.operatorItem(sandbox.Item{Warn: true, Text: ui.Tilde(operator.Path(root)) + " — unreadable", Detail: errLines(err)})
 	}
 	if o.printOnly || o.yes || !viewOr(page.view).card() {
-		rep.setOperator(cmp.Or(current, operator.Default), rep.howTo("`proveo init` from a terminal changes it"))
+		rep.setOperator(operatorSaid{name: cmp.Or(current, operator.Default), defaulted: current == "",
+			howTo: rep.howTo("`proveo init` from a terminal changes it")})
 		return stepNone, nil
 	}
 	form := operatorForm(at, current, page.done, setup)
@@ -58,7 +59,7 @@ func operatorStage(o initOptions, at choiceui.Step, rep *initReport, page cardPa
 		rep.wizard = form.Selection(rowWizard) == setupAfter
 	}
 	switch {
-	case err != nil || out == choiceui.Cancelled || out == choiceui.Skipped:
+	case err != nil || out == choiceui.Cancelled:
 		return stepNext, stopAt(labelOperator, err)
 	case out == choiceui.Quit:
 		return stepQuit, nil
@@ -66,16 +67,17 @@ func operatorStage(o initOptions, at choiceui.Step, rep *initReport, page cardPa
 	if out == choiceui.Back {
 		return stepBack, nil
 	}
-	name, err := applyOperatorAnswer(root, current, form.FieldValue("name"))
+	typed := form.FieldValue("name")
+	name, err := applyOperatorAnswer(root, current, typed)
 	if err != nil {
 		return stepNext, stopAt(labelOperator, err)
 	}
-	rep.setOperator(name, nil)
+	rep.setOperator(operatorSaid{name: name, asked: true, defaulted: current == "" && operator.Sanitize(typed) == ""})
 	return stepNext, nil
 }
 
 // operatorForm is page 4, "Name the operator": the pages before it as done rows, the name field,
-// the Skip button, and sbx setup as the last row ahead.
+// and sbx setup as the last row ahead. Enter with the field empty keeps the name in use.
 // SPEC: _spec/cmd/proveo/operator-name.puml
 func operatorForm(at choiceui.Step, current string, done []choiceui.Row, setup choiceui.Row) *choiceui.Form {
 	name := operatorRow(current)
@@ -83,7 +85,6 @@ func operatorForm(at choiceui.Step, current string, done []choiceui.Row, setup c
 	setup.Divider, setup.Heading = true, aheadHeading
 	f := initCard(at, "Name the operator", []string{"Agents in every sandbox on this host address you by this name."},
 		slices.Concat(done, []choiceui.Row{name, setup}))
-	f.Skip = "Skip"
 	f.EnterWord = func(*choiceui.Form) string { return "finish" }
 	return f
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // gitStage is `proveo init`'s git-identity step. Seed still bridges the
@@ -36,7 +35,6 @@ func applyGitIdentity(s gitStage) (choiceui.Mark, string) {
 	}
 	id := s.resolve()
 	if id.Complete() {
-		s.out.Fact(ui.Fact{Role: ui.RoleHost, Key: "identity", Value: id.Name + " <" + id.Email + ">"})
 		return choiceui.MarkDone, id.Name + " <" + id.Email + ">"
 	}
 	if !s.tty {
@@ -62,7 +60,6 @@ func applyGitIdentity(s gitStage) (choiceui.Mark, string) {
 		s.out.Item(sandbox.Item{Warn: true, Text: "git identity — not written", Detail: errLines(err)})
 		return choiceui.MarkNeeds, "not written"
 	}
-	s.out.Fact(ui.Fact{Role: ui.RoleHost, Key: "identity", Value: name + " <" + email + ">", Detail: []string{"written to git's global config"}})
 	return choiceui.MarkDone, name + " <" + email + "> · git's global config"
 }
 

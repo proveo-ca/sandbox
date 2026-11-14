@@ -3,7 +3,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,6 +13,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -46,36 +46,34 @@ func (a askedHow) howTo(line string) []string {
 	return []string{line}
 }
 
-// Labels the result gives what has no row on the setup page.
+// Labels the result gives what has no row on pages 1 and 2.
 const (
 	labelCredentials = "credentials"
-	labelOperator    = "operator name"
+	labelOperator    = "operator"
 	labelVerify      = "sbx diagnose"
 )
 
 // networkProbe is a host no baseline allows, so sbx's answer for it is its global policy.
 const networkProbe = "proveo-egress-probe.invalid"
 
-// initReport is what `proveo init` prints, by subject. Each block prints once, after the step
-// that makes it true; close prints what an early end left unprinted, then the result.
+// initReport is what `proveo init` learns as it walks: what each step said of its row, what sbx
+// holds, the operator's name and the host's readiness. close prints it once, as the closed checklist.
 type initReport struct {
 	host    sbx.Host
 	prereqs []sbx.Prereq
 	asked   askedHow
-	print   bool // --print: host paths stay absolute
+	print   bool              // --print: host paths stay absolute
+	flags   map[string]string // the flag that left each row for later
 
-	applied  sbx.Plan       // the plan the latest visit of setup acts on
-	sbxItems []sandbox.Item // what this visit's sbx steps found
-	sbxOpen  bool           // a visit declared "sbx" and has not printed its block
-	sbxSaid  bool           // an sbx block printed in this init
+	applied    sbx.Plan                  // the plan the latest visit of page 1 acts on
+	installed  string                    // the sbx version on the host after the latest step; "" when none
+	unverified bool                      // a release this init installed had no published digest
+	about      map[string][]sandbox.Item // what each row's steps said of it, by the row's label
+	blocks     map[string]*sandbox.Block // the git identity's and GitHub's items, by the row's label
 
-	git *sandbox.Block // the identity and GitHub; nil until a git step runs
-
-	credsSet  bool           // the credentials page passed, or nothing asked: its block prints at the end
-	credFacts []ui.Fact      // what sbx's store holds after the latest pass
-	credItems []sandbox.Item // its warnings
-	operator  *ui.Fact       // the name agents use; nil until the operator page set or read it
-	opItems   []sandbox.Item
+	creds    *credsHeld     // what page 3 left; nil until it set or read the store
+	operator *operatorSaid  // the name agents use; nil until page 4 set or read it
+	opItems  []sandbox.Item // what reading or saving the name raised
 
 	readiness []sandbox.Item // the latest verify's items
 	ready     bool           // the latest verify found nothing a run needs failing
@@ -86,17 +84,26 @@ type initReport struct {
 	diagnosed   bool        // an sbx diagnose ran in this init
 	stale       bool        // a step since the latest diagnose changed what sbx would say: an install, a daemon restart
 	judged      bool        // a verify set the readiness
-	loginWarned bool        // the login step printed that Docker is still signed out
-	wizard      bool        // the setup page answered sbx setup "after init"
+	loginWarned bool        // the login step said that Docker is still signed out
+	wizard      bool        // page 4 answered sbx setup "after init"
+	handed      bool        // a hand-off on the card printed above the result
 	skipSetup   bool        // --skip-setup
 	probe       func() (sbx.SetupOffer, error)
 	offer       *sbx.SetupOffer // what the probe found before page 4; nil until it ran
-
-	said map[string]bool // each fact and item a subject printed, so a revisit prints only what changed
 }
 
 func newInitReport(o initOptions, host sbx.Host, prereqs []sbx.Prereq, plan sbx.Plan) *initReport {
-	r := &initReport{host: host, prereqs: prereqs, asked: askedFrom(o), print: o.printOnly, applied: plan, skipSetup: o.skipSetup}
+	r := &initReport{host: host, prereqs: prereqs, asked: askedFrom(o), print: o.printOnly, applied: plan, skipSetup: o.skipSetup,
+		flags: map[string]string{}}
+	for label, set := range map[string]struct {
+		on   bool
+		flag string
+	}{rowLogin: {o.skipLogin, "--skip-login"}, rowGh: {o.skipGh, "--skip-gh"}, rowGit: {o.skipGit, "--skip-git"},
+		rowPrompt: {o.skipPrompt, "--skip-prompt"}, rowWizard: {o.skipSetup, "--skip-setup"}} {
+		if set.on {
+			r.flags[label] = set.flag
+		}
+	}
 	r.probe = func() (sbx.SetupOffer, error) { return sbx.SetupOfferAt(resolveBin(r.applied), os.Getenv) }
 	return r
 }
@@ -142,7 +149,7 @@ func (r *initReport) mootRows() []string {
 	return nil
 }
 
-// warnLogin records that the login step printed Docker still signed out.
+// warnLogin records that the login step said Docker is still signed out.
 func (r *initReport) warnLogin() {
 	if r != nil {
 		r.loginWarned = true
@@ -171,74 +178,50 @@ func (r *initReport) howTo(line string) []string {
 // noTerminal reports whether init had no terminal to ask through.
 func (r *initReport) noTerminal() bool { return r != nil && r.asked == askedNoTerminal }
 
-// openSbx declares the sbx heading above a visit's sbx steps.
-func (r *initReport) openSbx() {
-	r.sbxOpen = true
-	ui.Section(ui.SectionSbx)
-}
-
-// sbxItem adds what an sbx step found to the visit's sbx block; a zero item adds nothing.
-func (r *initReport) sbxItem(it sandbox.Item) {
-	if it.Text == "" {
-		return
-	}
+// say keeps what a step found about row label; a zero item says nothing.
+func (r *initReport) say(label string, items ...sandbox.Item) {
 	if r == nil {
-		sandbox.PrintBlock(sandbox.SbxHeading, nil, []sandbox.Item{it})
 		return
 	}
-	r.sbxItems = append(r.sbxItems, it)
+	if r.about == nil {
+		r.about = map[string][]sandbox.Item{}
+	}
+	for _, it := range items {
+		if it.Text != "" {
+			r.about[label] = append(r.about[label], it)
+		}
+	}
 }
 
-// printSbx prints the sbx block: the host and the sbx it runs as facts, then the unmet
-// prerequisites, the version's warnings and what the visit's steps found. A revisit prints only
-// what changed.
+// block is row label's block, for a step that gathers facts and items; nil on a nil report.
+func (r *initReport) block(label string) *sandbox.Block {
+	if r == nil {
+		return nil
+	}
+	if r.blocks == nil {
+		r.blocks = map[string]*sandbox.Block{}
+	}
+	if r.blocks[label] == nil {
+		r.blocks[label] = sandbox.NewBlock(func() {})
+	}
+	return r.blocks[label]
+}
+
+// itemsAbout is what row label's steps said of it, its block's items included.
+func (r *initReport) itemsAbout(label string) []sandbox.Item {
+	if b := r.blocks[label]; b != nil {
+		_, its := b.Take()
+		r.say(label, its...)
+	}
+	return slices.Clone(r.about[label])
+}
+
+// printSbx prints --print's sbx block: the host and the sbx it runs as facts, then the unmet
+// prerequisites and the version's warnings.
 func (r *initReport) printSbx() {
 	version, _ := installedVersion(r.applied)
-	items := slices.Concat(prereqItems(r.prereqs), versionItems(version), r.shadowItems(), r.sbxItems)
-	r.printFresh(sandbox.SbxHeading, ui.SectionSbx, r.sbxFacts(version), items)
-	r.sbxItems, r.sbxOpen, r.sbxSaid = nil, false, true
-}
-
-// printFresh prints a subject's block without what it printed before: a keyed fact with the rows
-// stacked under it, and an item, each counts as one.
-func (r *initReport) printFresh(heading func(), subject string, facts []ui.Fact, items []sandbox.Item) {
-	if r == nil {
-		sandbox.PrintBlock(heading, facts, items)
-		return
-	}
-	if r.said == nil {
-		r.said = map[string]bool{}
-	}
-	fresh := func(v any) bool {
-		k := subject + "\x00" + fmt.Sprintf("%#v", v)
-		if r.said[k] {
-			return false
-		}
-		r.said[k] = true
-		return true
-	}
-	var fs []ui.Fact
-	for i := 0; i < len(facts); {
-		j := i + 1
-		for j < len(facts) && facts[j].Key == "" {
-			j++
-		}
-		if fresh(facts[i:j]) {
-			fs = append(fs, facts[i:j]...)
-		}
-		i = j
-	}
-	var its []sandbox.Item
-	for _, it := range items {
-		if fresh(it) {
-			its = append(its, it)
-		}
-	}
-	if len(fs) == 0 && len(its) == 0 {
-		ui.WithdrawSection()
-		return
-	}
-	sandbox.PrintBlock(heading, fs, its)
+	items := slices.Concat(prereqItems(r.prereqs), versionItems(version), r.shadowItems())
+	sandbox.PrintBlock(sandbox.SbxHeading, r.sbxFacts(version), items)
 }
 
 // sbxFacts are the host with the prerequisites it meets, the sbx it runs and where, and sbx's network policy.
@@ -349,133 +332,125 @@ func versionItems(version string) []sandbox.Item {
 	return out
 }
 
-func gitHeading() { ui.Section(ui.SectionGit) }
-
 func credentialsHeading() { ui.Section(ui.SectionCredentials) }
 
 func operatorHeading() { ui.Section(ui.SectionOperator) }
 
-func promptHeading() { ui.Section(ui.SectionPrompt) }
-
-// openGit starts the visit's git block and declares its heading above the git steps.
-func (r *initReport) openGit() {
-	r.git = sandbox.NewBlock(gitHeading)
-	ui.Section(ui.SectionGit)
-}
-
-// printGit prints the visit's git block, without what an earlier visit printed.
-func (r *initReport) printGit() {
-	facts, items := r.git.Take()
-	r.printFresh(gitHeading, ui.SectionGit, facts, items)
-}
-
-// gitBlock is the visit's git block; nil prints each row at once.
-func (r *initReport) gitBlock() *sandbox.Block {
-	if r == nil {
-		return nil
+// setCredentials keeps what page 3 left, replacing an earlier pass.
+func (r *initReport) setCredentials(c credsHeld) {
+	if r != nil {
+		r.creds = &c
 	}
-	return r.git
 }
 
-// setCredentials replaces the credentials block with what the store holds now.
-func (r *initReport) setCredentials(facts []ui.Fact, items []sandbox.Item) {
-	if r == nil {
-		return
+// operatorSaid is the name agents use, whether page 4 asked for it, and whether it is the default
+// nothing stored overrides.
+type operatorSaid struct {
+	name      string
+	asked     bool
+	defaulted bool
+	howTo     []string
+}
+
+// row is the operator's row in the result: ✓ once page 4 asked, – when the name stood as it was.
+func (o operatorSaid) row() closedRow {
+	row := closedRow{mark: choiceui.MarkLater, label: labelOperator, outcome: o.name, detail: o.howTo}
+	if o.asked {
+		row.mark = choiceui.MarkDone
 	}
-	r.credsSet, r.credFacts, r.credItems = true, facts, items
-}
-
-// setOperator records the name agents use, with the how-to an unasked init keeps.
-func (r *initReport) setOperator(name string, howTo []string) {
-	if r == nil {
-		return
+	if o.defaulted {
+		row.outcome += " (default)"
 	}
-	r.operator = &ui.Fact{Role: ui.RoleHost, Key: "name", Value: name, Detail: howTo}
+	return row
 }
 
-// operatorItem adds a warning to the operator block.
+// setOperator records the name agents use.
+func (r *initReport) setOperator(o operatorSaid) {
+	if r != nil {
+		r.operator = &o
+	}
+}
+
+// operatorItem adds what reading or saving the name raised.
 func (r *initReport) operatorItem(it sandbox.Item) {
-	if r == nil {
-		sandbox.PrintBlock(operatorHeading, nil, []sandbox.Item{it})
-		return
+	if r != nil {
+		r.opItems = append(r.opItems, it)
 	}
-	r.opItems = append(r.opItems, it)
 }
 
-// printCredentials prints the credentials block and then the operator block, once each.
+// printCredentials prints --print's credentials block, then its operator block.
 func (r *initReport) printCredentials() {
-	if r.credsSet {
-		sandbox.PrintBlock(credentialsHeading, r.credFacts, r.credItems)
-		r.credsSet = false
+	if r.creds != nil {
+		facts, _ := credentialFacts(r.creds.slots)
+		sandbox.PrintBlock(credentialsHeading, facts, r.creds.items)
 	}
 	var facts []ui.Fact
 	if r.operator != nil {
-		facts = []ui.Fact{*r.operator}
+		facts = []ui.Fact{{Role: ui.RoleHost, Key: "name", Value: r.operator.name, Detail: r.operator.howTo}}
 	}
 	sandbox.PrintBlock(operatorHeading, facts, r.opItems)
-	r.operator, r.opItems = nil, nil
 }
 
-// close prints what init has not printed yet, subject by subject, then the result block: what
-// waits, what never ran, the readiness items, sbx setup when the probe found work for it, and
-// one closing line. It returns nil on success, and otherwise an error main prints nothing for.
+// close prints the closed checklist once: its heading, a row per step in run order, the items that
+// need the operator, sbx setup when the probe found work for it, then one closing line. It returns
+// nil on success, and otherwise an error main prints nothing for.
+// SPEC: _spec/cmd/proveo/init-preflight-and-result.puml (THE CLOSED CHECKLIST)
 func (r *initReport) close(rec *initRecord, err error) error {
 	var blocked blockedErr
 	if errors.As(err, &blocked) {
-		if r.sbxOpen || !r.sbxSaid {
-			r.printSbx()
-		}
+		r.heading()
+		printNeeds(sandbox.WithPaths(prereqItems(r.prereqs), ui.TildeIn))
 		return backend.Reported{Err: err}
-	}
-	if r.sbxOpen || !r.sbxSaid {
-		r.printSbx()
 	}
 	if r.stale && r.judged && err == nil {
 		_ = verify(resolveBin(r.applied), r)
 	}
-	r.printGit()
-	r.printCredentials()
-	if rec != nil {
-		rec.moot(r.mootRows()...)
-		if slices.ContainsFunc(r.readiness, namesLogin) {
-			rec.moot(rowLogin)
-		}
+	if rec == nil {
+		rec = &initRecord{}
 	}
-	setup := r.planSetup(rec, err)
-	items := slices.Clone(r.readiness)
-	if r.loginWarned {
-		items = slices.DeleteFunc(items, namesLogin)
+	rec.moot(r.mootRows()...)
+	if slices.ContainsFunc(r.readiness, namesLogin) {
+		rec.moot(rowLogin)
 	}
-	if setup.item != nil {
-		items = append([]sandbox.Item{*setup.item}, items...)
+	turn := r.planSetup(rec, err)
+	rows, needs := r.checklist(rec, turn)
+	closing, ret := r.ending(err, rows)
+	r.heading()
+	for _, row := range rows {
+		printRow(row)
 	}
-	closing, ret := r.ending(err)
-	var facts []ui.Fact
-	if rec != nil {
-		facts = rec.facts()
-	}
-	sandbox.PrintBlock(sandbox.ResultsHeading, facts, items)
-	if setup.runs {
-		sandbox.ResultsHeading()
-		if interrupted(r.runSetup(setup.offer, rec)) {
-			ret = reraised{backend.Stopped{Signal: syscall.SIGINT}}
-		}
-		if closing != nil {
-			ui.Blank()
-		}
+	printNeeds(needs)
+	if turn.runs && interrupted(r.runSetup(turn.offer, rec)) {
+		ret = reraised{backend.Stopped{Signal: syscall.SIGINT}}
 	}
 	if closing != nil {
-		sandbox.PrintBlock(sandbox.ResultsHeading, nil, []sandbox.Item{*closing})
+		ui.Blank()
+		printEnding(*closing)
 	}
 	return ret
 }
 
+// heading is the closed checklist's first line, "── proveo init ── <os>/<arch> · sbx <v> ──…", then a
+// blank row; a blank row sits above it only under what init printed before it.
+func (r *initReport) heading() {
+	parts := []string{r.host.OS + "/" + r.host.Arch}
+	if r.installed != "" {
+		parts = append(parts, "sbx "+r.installed)
+	}
+	if r.handed {
+		ui.Frame(initBorder, parts...)
+	} else {
+		ui.Lead(initBorder, parts...)
+	}
+	ui.Blank()
+}
+
 // setupTurn is sbx setup's turn after the result: what the probe found, whether setup runs, and
-// the result's row when it neither runs nor waits.
+// the result's row when it does not.
 type setupTurn struct {
 	offer sbx.SetupOffer
 	runs  bool
-	item  *sandbox.Item
+	row   *closedRow
 }
 
 // planSetup probes what sbx setup would offer, unless a Ctrl+C ended init, and gives it its turn:
@@ -483,7 +458,13 @@ type setupTurn struct {
 // "after init" and the probe found work. rec lists it as later only when the probe found work.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
 func (r *initReport) planSetup(rec *initRecord, err error) setupTurn {
-	if r.skipSetup || r.print || rec == nil {
+	completed := err == nil
+	switch {
+	case r.print || rec == nil:
+		return setupTurn{}
+	case r.skipSetup && completed:
+		return setupTurn{row: &closedRow{mark: choiceui.MarkLater, label: rowWizard, outcome: "later · --skip-setup"}}
+	case r.skipSetup:
 		return setupTurn{}
 	}
 	var offer sbx.SetupOffer
@@ -493,71 +474,82 @@ func (r *initReport) planSetup(rec *initRecord, err error) setupTurn {
 	case !interrupted(err):
 		offer, _ = r.probe()
 	}
-	completed := err == nil
 	switch {
 	case offer.Known && offer.Offers() && completed && r.wizard && r.asked == askedOnPages:
 		rec.moot(rowWizard)
 		return setupTurn{offer: offer, runs: true}
 	case offer.Known && offer.Offers():
-		rec.leave(rowWizard, offer.Reason()+" · `"+sbx.Binary+" setup` on a terminal")
-		return setupTurn{offer: offer}
+		why := offer.Reason() + " · `" + sbx.Binary + " setup` on a terminal"
+		rec.leave(rowWizard, why)
+		return setupTurn{offer: offer, row: &closedRow{mark: choiceui.MarkLater, label: rowWizard, outcome: "later · " + why}}
 	}
 	rec.moot(rowWizard)
 	switch {
 	case !completed:
 		return setupTurn{offer: offer}
 	case offer.Known:
-		return setupTurn{offer: offer, item: &sandbox.Item{Text: rowWizard + " — nothing to import"}}
+		return setupTurn{offer: offer, row: &closedRow{mark: choiceui.MarkLater, label: rowWizard, outcome: "nothing to import"}}
 	}
-	return setupTurn{offer: offer, item: &sandbox.Item{Text: rowWizard + " — not checked", Detail: []string{"`" + sbx.Binary + " setup` opens it"}}}
+	return setupTurn{offer: offer, row: &closedRow{mark: choiceui.MarkLater, label: rowWizard, outcome: "not checked",
+		detail: []string{"`" + sbx.Binary + " setup` opens it"}}}
 }
 
-// runSetup hands `sbx setup` the terminal under its frame, then prints its outcome.
+// runSetup hands `sbx setup` the terminal under its frame, then prints its outcome row.
 func (r *initReport) runSetup(offer sbx.SetupOffer, rec *initRecord) error {
 	err := handFramed(command(resolveBin(r.applied), sbx.SetupArgs()...), offer.Reason(), "sbx's screen", "init ends when it exits")
-	it := sandbox.Item{Ok: true, Text: rowWizard + " — finished"}
+	row := closedRow{mark: choiceui.MarkDone, label: rowWizard, outcome: "finished"}
 	switch {
 	case err == nil:
 		rec.did(rowWizard)
 	case interrupted(err):
-		it = sandbox.Item{Warn: true, Text: rowWizard + " — stopped", Detail: []string{"Ctrl+C ended it"}}
+		row = closedRow{mark: choiceui.MarkNeeds, label: rowWizard, outcome: "stopped · Ctrl+C ended it"}
 	default:
-		it = sandbox.Item{Warn: true, Text: rowWizard + " — did not complete", Detail: append(errDetail(err), "`"+sbx.Binary+" setup` by hand")}
+		row = closedRow{mark: choiceui.MarkNeeds, label: rowWizard, outcome: "did not complete · `" + sbx.Binary + " setup` by hand",
+			detail: errDetail(err)}
 	}
-	sandbox.PrintBlock(sandbox.ResultsHeading, nil, []sandbox.Item{it})
+	printRow(row)
 	return err
 }
 
-// ending is the result's closing line for err, and what doInit returns. Every ending but success
-// keeps the verdict a finished verify reached as its last dim line.
-func (r *initReport) ending(err error) (*sandbox.Item, error) {
+// ending is the result's closing line for err, and what doInit returns. A failure a row of rows
+// already names keeps its error off the closing line. Every ending but success keeps the verdict a
+// finished verify reached as its last dim line.
+// SPEC: _spec/cmd/proveo/init-preflight-and-result.puml (THE CLOSED CHECKLIST)
+func (r *initReport) ending(err error, rows []closedRow) (*closedRow, error) {
 	var ready []string
 	if r.ready {
 		ready = []string{"host ready to run"}
+	}
+	named := func(label string) bool {
+		return slices.ContainsFunc(rows, func(row closedRow) bool { return row.label == label && row.mark == choiceui.MarkFailed })
 	}
 	var notReady hostNotReady
 	var hand handoffErr
 	var step stepErr
 	switch {
 	case err == nil && r.ready:
-		return &sandbox.Item{Ok: true, Text: "host — ready to run"}, nil
+		return &closedRow{mark: choiceui.MarkDone, label: "host — ready to run"}, nil
 	case err == nil:
-		return nil, nil
+		return &closedRow{mark: choiceui.MarkNeeds, label: "host — readiness not checked"}, nil
 	case errors.As(err, &notReady):
-		return &sandbox.Item{Fail: true, Text: "host — not ready to run"}, backend.Reported{Err: err}
+		return &closedRow{mark: choiceui.MarkFailed, label: "host — not ready to run"}, backend.Reported{Err: err}
 	case errors.Is(err, errInitLeft):
-		return &sandbox.Item{Warn: true, Text: "init — " + err.Error(), Detail: ready}, backend.Reported{Err: err}
+		return &closedRow{mark: choiceui.MarkNeeds, label: "init — " + err.Error(), detail: ready}, backend.Reported{Err: err}
 	case errors.As(err, &step) && errors.As(err, &hand):
-		it := &sandbox.Item{Warn: true, Text: "init — stopped at " + cmpLabel(step.label), Detail: ready}
+		it := &closedRow{mark: choiceui.MarkNeeds, label: "init — stopped at " + cmpLabel(step.label), detail: ready}
 		if hand.interrupted {
-			it.Detail = append([]string{"Ctrl+C ended it"}, ready...)
+			it.detail = append([]string{"Ctrl+C ended it"}, ready...)
 			return it, reraised{backend.Stopped{Signal: syscall.SIGINT}}
 		}
 		return it, backend.Reported{Err: err}
 	case errors.As(err, &step):
-		return &sandbox.Item{Fail: true, Text: cmpLabel(step.label) + " — failed", Detail: append(errLines(step.err), ready...)}, backend.Reported{Err: err}
+		it := &closedRow{mark: choiceui.MarkFailed, label: "init — stopped at " + cmpLabel(step.label), detail: ready}
+		if !named(step.label) {
+			it.detail = append(errLines(step.err), ready...)
+		}
+		return it, backend.Reported{Err: err}
 	}
-	return &sandbox.Item{Fail: true, Text: "init — stopped", Detail: append(errLines(err), ready...)}, backend.Reported{Err: err}
+	return &closedRow{mark: choiceui.MarkFailed, label: "init — stopped", detail: append(errLines(err), ready...)}, backend.Reported{Err: err}
 }
 
 // cmpLabel is a step's label, or what stands for an unlabelled one.

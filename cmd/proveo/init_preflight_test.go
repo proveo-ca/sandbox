@@ -181,16 +181,15 @@ func TestTheResultLeavesOutAnActionThatRanOnAnEarlierVisit(t *testing.T) {
 		rec.did(label)
 	}
 	rec.leaveUnchosen(initDecisions{}) // the revisit: every one-shot action opens on later
-	rec.leave(labelCredentials)
 	later, notRun := rec.lines()
-	if want := []string{rowGh, rowGit, rowPrompt, labelCredentials}; !slices.Equal(later, want) {
+	if want := []string{rowGh, rowGit, rowPrompt}; !slices.Equal(later, want) {
 		t.Errorf("later = %q\n want  %q", later, want)
 	}
 	if len(notRun) != 0 {
 		t.Errorf("not run = %q on an init that ran to its end", notRun)
 	}
-	rec.did(labelCredentials)
-	if later, _ = rec.lines(); slices.Contains(later, labelCredentials) {
+	rec.did(rowGh)
+	if later, _ = rec.lines(); slices.Contains(later, rowGh) {
 		t.Errorf("an action that ran after being left is still listed as later: %q", later)
 	}
 }
@@ -220,24 +219,17 @@ func TestAFailureNamesWhatItKeptFromRunningApartFromLater(t *testing.T) {
 	if want := []string{rowWizard, rowGh, labelVerify, labelCredentials, labelOperator}; !slices.Equal(notRun, want) {
 		t.Errorf("not run = %q, want %q", notRun, want)
 	}
-	var keys []string
-	for _, f := range rec.facts() {
-		keys = append(keys, f.Key)
-	}
-	if want := []string{"later", "", "not run", "", "", "", ""}; !slices.Equal(keys, want) {
-		t.Errorf("fact keys = %q, want each list stacked under its key", keys)
-	}
 }
 
-// A page answered "later" that a failure then kept init from reaching again stays "later" alone.
+// A row answered "later" that a failure then kept init from reaching stays "later" alone.
 func TestARowAnsweredLaterIsNeverAlsoNotRun(t *testing.T) {
 	t.Parallel()
 	rec := &initRecord{}
-	rec.leave(labelCredentials)
-	rec.unreached(labelCredentials, labelOperator)
+	rec.leave(rowGh)
+	rec.unreached(rowGh, labelOperator)
 	later, notRun := rec.lines()
-	if !slices.Equal(later, []string{labelCredentials}) || !slices.Equal(notRun, []string{labelOperator}) {
-		t.Errorf("later = %q, not run = %q; want credentials under later only", later, notRun)
+	if !slices.Equal(later, []string{rowGh}) || !slices.Equal(notRun, []string{labelOperator}) {
+		t.Errorf("later = %q, not run = %q; want GitHub under later only", later, notRun)
 	}
 }
 
@@ -324,7 +316,7 @@ func TestAMootStepIsNeverLeftForLater(t *testing.T) {
 	rep = &initReport{asked: askedByFlag, probe: func() (sbx.SetupOffer, error) { return sbx.SetupOffer{Known: true}, nil }}
 	rep.heard([]sbx.Check{{Name: sbx.AuthenticationCheck, Status: "pass"}}, nil)
 	rec.moot(rep.mootRows()...)
-	if turn := rep.planSetup(rec, nil); turn.runs || turn.item == nil || turn.item.Text != "sbx setup — nothing to import" {
+	if turn := rep.planSetup(rec, nil); turn.runs || turn.row == nil || turn.row.outcome != "nothing to import" {
 		t.Errorf("turn = %+v", turn)
 	}
 	if later, _ := rec.lines(); slices.Contains(later, rowLogin) || slices.Contains(later, rowWizard) {

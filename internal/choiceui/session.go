@@ -407,14 +407,15 @@ func (m *sessionModel) stopRun() {
 
 // plan starts the page's run: the planned rows wait as "·", every other answer row reads "–" and
 // its answer, a row an answer opened reads its answer with no mark, and the key line counts the
-// plan. labels name rows in row order, so a label two rows share stands for the next of them.
+// plan. labels name rows in row order: each binds the first answer row after the last one bound
+// that carries it, and a label no answer row carries binds none.
 func (m *sessionModel) plan(labels []string) {
 	f := m.form.f
 	if f == nil {
 		return
 	}
-	f.Progress = &Progress{Plan: labels, Stopping: m.stopped}
-	next := 0
+	f.Progress = &Progress{Plan: labels, Stopping: m.stopped, rest: slices.Clone(f.Rows)}
+	var answers []int
 	for i := range f.Rows {
 		r := &f.Rows[i]
 		if r.Kind != RowAnswer || (len(r.Options) == 0 && !r.Field) {
@@ -424,8 +425,12 @@ func (m *sessionModel) plan(labels []string) {
 		if r.When != nil {
 			r.Mark = MarkNone
 		}
-		if at := slices.Index(labels[next:], r.Label); at >= 0 {
-			r.Mark, next = MarkAhead, next+at+1
+		answers = append(answers, i)
+	}
+	from := 0
+	for _, label := range labels {
+		if at := slices.IndexFunc(answers[from:], func(i int) bool { return f.Rows[i].Label == label }); at >= 0 {
+			f.Rows[answers[from+at]].Mark, from = MarkAhead, from+at+1
 		}
 	}
 }

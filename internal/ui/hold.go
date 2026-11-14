@@ -21,10 +21,10 @@ func (h *heldLines) cols() int { return h.width() }
 func Hold() (release func() []byte) {
 	prev := Default
 	prev.mu.Lock()
-	pending, shown := prev.pending, prev.shown
+	pending, shown, spoke := prev.pending, prev.shown, prev.spoke
 	prev.mu.Unlock()
 	kept := &heldLines{width: prev.width}
-	held := &Printer{W: kept, Plain: prev.Plain, Tier: prev.Tier, pending: pending, shown: shown}
+	held := &Printer{W: kept, Plain: prev.Plain, Tier: prev.Tier, pending: pending, shown: shown, spoke: spoke}
 	Default = held
 	var once sync.Once
 	var out []byte
@@ -53,5 +53,6 @@ func Replay(held []byte) {
 	defer p.mu.Unlock()
 	p.eraseLive()
 	defer p.drawLive()
+	p.spoke = true
 	_, _ = p.W.Write(held)
 }

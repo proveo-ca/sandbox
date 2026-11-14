@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/operator"
 )
 
@@ -36,5 +37,19 @@ func TestOperatorAnswerKeepsDefaultsAndTruncates(t *testing.T) {
 	}
 	if stored, _ := operator.Load(root); stored != "Roberto von Scho" {
 		t.Errorf("stored = %q", stored)
+	}
+}
+
+// Page 4 has no Skip: Enter with the field empty keeps the name in use, and the help under the card
+// is the field's Reason.
+func TestTheOperatorPageHasNoSkipAndItsHelpIsTheReason(t *testing.T) {
+	f := operatorForm(initStepAt(4), "", nil, setupAhead(false))
+	if f.Skip != "" {
+		t.Errorf("page 4 draws a %q button; Enter with the field empty keeps the name", f.Skip)
+	}
+	f.Glyphs = choiceui.GlyphsNerd
+	if frame := f.Render(80, 24); !strings.Contains(frame, "› name — empty keeps "+operator.Default+"; the first 16 characters are kept") ||
+		strings.Contains(frame, "[ Skip ]") {
+		t.Errorf("page 4's help is not the field's Reason, or it draws Skip:\n%s", frame)
 	}
 }

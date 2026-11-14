@@ -569,6 +569,60 @@ func TestEditRedrawsRowsAndAPlanLabelWithoutARowCounts(t *testing.T) {
 	}
 }
 
+// Each planned label binds the first answer row past the row the label before it bound: anthropic
+// and cursor wait on the API-key rows, not on the subscription row above them, and a label no row
+// carries binds none.
+func TestAPlanLabelBindsTheFirstRowPastTheLabelBeforeIt(t *testing.T) {
+	d := newDriven(t, 120, 36)
+	f := pageThree()
+	reply := d.ask(f)
+	d.press(teaEnter)
+	got(t, reply, "enter")
+	d.send(planMsg{labels: []string{"checks", "anthropic", "cursor"}})
+	marks := func(label string) []Mark {
+		var out []Mark
+		for _, r := range f.Rows {
+			if r.Label == label {
+				out = append(out, r.Mark)
+			}
+		}
+		return out
+	}
+	if a, c := marks("anthropic"), marks("cursor"); !slices.Equal(a, []Mark{MarkAhead}) || !slices.Equal(c, []Mark{MarkLater, MarkAhead}) {
+		t.Errorf("anthropic = %v, cursor = %v; want anthropic and the cursor key planned, the cursor sign-in left", a, c)
+	}
+	d.send(statusMsg{label: "cursor", mark: MarkRunning, outcome: "storing in sbx"})
+	if c := marks("cursor"); !slices.Equal(c, []Mark{MarkLater, MarkRunning}) {
+		t.Errorf("cursor = %v, want the key row running", c)
+	}
+}
+
+// A running page draws every row where its rest drew it: Skip's rows stay inside the walls with
+// no button, and the help keeps its slot.
+func TestARunningPageWithSkipKeepsItsRowsInPlace(t *testing.T) {
+	d := newDriven(t, 80, 24)
+	f := pageThree()
+	f.Skip = "Skip"
+	reply := d.ask(f)
+	rest := d.view()
+	d.press(teaEnter)
+	got(t, reply, "enter")
+	d.send(planMsg{labels: []string{"anthropic"}})
+	d.send(statusMsg{label: "anthropic", mark: MarkRunning, outcome: "storing in sbx"})
+	run := d.view()
+	at := func(view, s string) int {
+		return slices.IndexFunc(strings.Split(view, "\n"), func(l string) bool { return strings.Contains(l, s) })
+	}
+	for _, s := range []string{"claudecode", "anthropic", "╰"} {
+		if a, b := at(rest, s), at(run, s); a < 0 || a != b {
+			t.Errorf("%q drew on row %d at rest and %d running:\nrest\n%s\nrunning\n%s", s, a, b, rest, run)
+		}
+	}
+	if strings.Contains(run, "[ Skip ]") {
+		t.Errorf("a running page drew its Skip button:\n%s", run)
+	}
+}
+
 // Two rows sharing a label take the plan's labels in row order: the second runs while the first
 // keeps its answer.
 func TestAPlanLabelTwoRowsShareStandsForTheNextOfThem(t *testing.T) {

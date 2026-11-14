@@ -58,9 +58,10 @@ func (s rowState) ran() bool {
 
 // cardView is a walk on one Session: the page up now, and every row's last outcome.
 type cardView struct {
-	s    cardSession
-	page *choiceui.Form
-	seen map[string]rowState
+	s      cardSession
+	page   *choiceui.Form
+	seen   map[string]rowState
+	handed bool // a hand-off printed on the primary screen
 }
 
 func newCardView(s cardSession) *cardView { return &cardView{s: s, seen: map[string]rowState{}} }
@@ -105,6 +106,7 @@ func (v *cardView) HandAs(shown string, c *exec.Cmd, parts []string, outcome fun
 	if err := v.s.Context().Err(); err != nil {
 		return handoffErr{err: err, interrupted: true}
 	}
+	v.handed = true
 	resumes := "init resumes when it exits"
 	if v.page != nil {
 		resumes = fmt.Sprintf("page %d/%d returns when it exits", v.page.Step.At, v.page.Step.Of)

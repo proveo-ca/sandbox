@@ -96,6 +96,7 @@ func doInit(o initOptions) error {
 	installed, _ := installedVersion(plan)
 	checks := sbx.Prereqs(host, sbx.DefaultProbe())
 	rep := newInitReport(o, host, checks, plan)
+	rep.installed = installed
 	prompted := !o.yes && !o.printOnly && interactiveTerminal()
 	stop := sbx.Blocking(checks, sbx.BlocksInstall)
 	if len(stop) > 0 && !o.printOnly && !prompted {
@@ -435,9 +436,9 @@ const outsideARunNote = "a run does not need this check; it affects %s"
 // loginFix is how a host signs in to Docker: on a terminal, or with a token in CI.
 const loginFix = "`sbx login` on a terminal; CI: echo \"$DOCKER_PAT\" | sbx login --username <name> --password-stdin"
 
-// checkItems are sbx's failing rows as items, × for a check a run needs and ⚠ for one it does not,
-// each with sbx's evidence and hint dim; blockers are the rows a run needs. A signed-out
-// Authentication row reads as the Docker login item.
+// checkItems are sbx's rows that did not pass as items: × for a failing check a run needs, ! for
+// one it does not and for a warning, each with sbx's evidence, then its fix, then what it affects;
+// blockers are the rows a run needs. A signed-out Authentication row reads as the Docker login item.
 func checkItems(checks []sbx.Check) (items []sandbox.Item, blockers []sbx.Check) {
 	for _, c := range checks {
 		if c.Name == sbx.AuthenticationCheck {
@@ -446,18 +447,20 @@ func checkItems(checks []sbx.Check) (items []sandbox.Item, blockers []sbx.Check)
 			}
 			continue
 		}
-		if !c.Failed() {
+		if !c.Failed() && c.Status != "warn" {
 			continue
 		}
 		affects := c.Affects()
-		it := sandbox.Item{Fail: affects == "", Warn: affects != "", Text: c.Name + " — " + c.Summary(), Detail: slices.Clone(c.Evidence())}
+		fix, evidence := standAlone(c.Hint, c.Evidence())
+		it := sandbox.Item{Fail: c.Failed() && affects == "", Warn: !c.Failed() || affects != "", Text: c.Name + " — " + c.Summary(),
+			Detail: slices.Clone(evidence)}
 		switch {
-		case c.Hint != "":
-			it.Detail = append(it.Detail, c.Hint)
-		case affects == "":
+		case fix != "":
+			it.Detail = append(it.Detail, fix)
+		case c.Failed() && affects == "":
 			it.Detail = append(it.Detail, "`proveo init --force` reinstalls the pinned "+sbx.Release)
 		}
-		if affects != "" {
+		if c.Failed() && affects != "" {
 			it.Detail = append(it.Detail, fmt.Sprintf(outsideARunNote, affects))
 		}
 		items = append(items, it)

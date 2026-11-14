@@ -93,3 +93,28 @@ func TestAPlainFrameCarriesNoEscapes(t *testing.T) {
 		t.Errorf("the painted frame reads %q", line)
 	}
 }
+
+// Lead heads an output: no blank row above it as the printer's first line, one under a line it
+// printed before; a live line, which the terminal loses, does not count.
+func TestALeadFrameTakesABlankRowOnlyAfterALine(t *testing.T) {
+	var out bytes.Buffer
+	p := New(&out)
+	p.Lead("proveo init", "darwin/arm64")
+	if got, want := out.String(), FrameLine(frameFallback, "proveo init", "darwin/arm64")+"\n"; got != want {
+		t.Errorf("a first Lead = %q, want %q", got, want)
+	}
+	var term bytes.Buffer
+	tp := NewTerminal(&term, 80)
+	tp.Live(RoleAsync, "step 1/2 · install sbx")
+	tp.EndLive()
+	tp.Lead("proveo init")
+	if got := termtext.StripANSI(term.String()); strings.Contains(got, "\n─") || strings.HasPrefix(got, "\n") {
+		t.Errorf("a Lead after a live line alone took a blank row: %q", got)
+	}
+	out.Reset()
+	p.Asyncf("step 1/2 · install sbx")
+	p.Lead("proveo init")
+	if got := out.String(); !strings.HasSuffix(got, "\n\n"+FrameLine(frameFallback, "proveo init")+"\n") {
+		t.Errorf("a Lead under a line took no blank row: %q", got)
+	}
+}

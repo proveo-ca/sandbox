@@ -31,6 +31,7 @@ func (p *Printer) Facts(rows ...Fact) {
 	p.eraseLive()
 	defer p.drawLive()
 	p.flushSection()
+	p.spoke = true
 	lead := textCol
 	if p.Plain {
 		lead = 0
@@ -83,6 +84,7 @@ func (p *Printer) Detailf(format string, a ...any) {
 	p.eraseLive()
 	defer p.drawLive()
 	p.flushSection()
+	p.spoke = true
 	in := strings.Repeat(" ", textCol+2)
 	body := fmt.Sprintf(format, a...)
 	if p.Plain {

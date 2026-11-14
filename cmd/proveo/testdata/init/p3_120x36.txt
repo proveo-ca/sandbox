@@ -5,19 +5,13 @@
 │ ! sbx           kept 0.50.0 · Docker signed in · 2 checks need you                                                   │
 │ ✓ git, shell    Ada Example <ada@example.invalid> · git's global config · GitHub later · prompt kit later            │
 │                                                                                                                      │
-├── claudecode — subscription ──                                                                                       │
-│   claudecode    (•) not signed in     ( ) sign in                                                                    │
-│                                                                                                                      │
-├── codex — subscription ──                                                                                            │
+├── subscriptions ──                                                                                                   │
+│ › claudecode    (•) not signed in     ( ) sign in                                                                    │
 │   codex         (•) signed in         ( ) sign in again     ( ) sign out                                             │
-│                                                                                                                      │
-├── cursor — subscription ──                                                                                           │
 │   cursor        (•) not signed in     ( ) sign in                                                                    │
+│   opencode      ✓ [stored — type to replace              ]                                                           │
 │                                                                                                                      │
-├── opencode — subscription ──                                                                                         │
-│ › opencode      ✓ [stored — type to replace              ]                                                           │
-│                                                                                                                      │
-├── usage api keys ──                                                                                                  │
+├── API keys ───                                                                                                       │
 │   anthropic     ! [this host's env only — Enter to import]                                                           │
 │   openai          [empty — type a key                    ]                                                           │
 │   cursor          [empty — type a key                    ]                                                           │
@@ -28,7 +22,7 @@
 │                                                                                                                      │
 │   [ Skip ]                                                                                                           │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ ↑↓ row · type to edit · enter run 1 step · esc back · ctrl+c quit                                                    │
+│ ↑↓ row · ←→ choose · enter run 1 step · esc back · ctrl+c quit                                                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  › opencode — stored as opencode
+  › not signed in — leave it; claudecode shows its own login at its next run, and sbx keeps what it signs in

@@ -55,6 +55,7 @@ func (w *initWalk) onCard() error {
 	if cerr := s.Close(); err == nil && cerr != nil {
 		err = cerr
 	}
+	w.rep.handed = w.card.handed
 	return w.rep.close(w.rec, err)
 }
 
@@ -139,7 +140,7 @@ func (w *initWalk) sbxPage(at choiceui.Step) (stepResult, error) {
 	w.rep.applied = applied
 	w.rec.chose(rowLogin, d.Login, w.rep.mootRows()...)
 	steps := applySbx(d, w.ctx(1, applied))
-	if err := runApply(w.view, steps, w.rec.did, idle); err != nil {
+	if err := runApply(w.view, steps, w.rec, idle); err != nil {
 		var failed stepErr
 		if errors.As(err, &failed) {
 			w.rec.unreached(failed.rest...)
@@ -148,6 +149,7 @@ func (w *initWalk) sbxPage(at choiceui.Step) (stepResult, error) {
 	}
 	d = settle(d, steps, applied)
 	w.installed, _ = installedVersion(applied)
+	w.rep.installed = w.installed
 	w.prevSbx, w.o.force = &d, false
 	w.done[0] = w.sbxDone()
 	return stepNext, nil
@@ -218,7 +220,7 @@ func (w *initWalk) gitPage(at choiceui.Step) (stepResult, error) {
 	w.rec.chose(rowGh, d.Gh)
 	w.rec.chose(rowPrompt, d.Prompt)
 	steps := applyGit(d, w.ctx(2, w.rep.applied), answer)
-	if err := runApply(w.view, steps, w.rec.did, idle); err != nil {
+	if err := runApply(w.view, steps, w.rec, idle); err != nil {
 		if errors.Is(err, errInitQuit) {
 			return stepQuit, nil
 		}

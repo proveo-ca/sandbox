@@ -195,6 +195,8 @@ type fakeSession struct {
 	cancel  context.CancelFunc
 	closed  int
 	handErr error
+	release func() []byte // a ui.Hold the session stands for; nil holds nothing
+	held    []byte        // what the hold kept, once Close released it
 }
 
 func newFakeSession(script ...choiceui.Outcome) *fakeSession {
@@ -256,6 +258,9 @@ func (s *fakeSession) Context() context.Context { return s.ctx }
 func (s *fakeSession) Close() error {
 	s.closed++
 	s.cancel()
+	if s.release != nil {
+		s.held = s.release()
+	}
 	return nil
 }
 
@@ -313,7 +318,7 @@ func TestInitWalksFourPagesInOneSession(t *testing.T) {
 	if s.closed != 1 {
 		t.Errorf("the card closed %d times, want once", s.closed)
 	}
-	if got := out.String(); !strings.Contains(got, "------ results ------") {
+	if got := out.String(); !closedHead.MatchString(got) {
 		t.Errorf("the result did not print after the card:\n%s", got)
 	}
 }

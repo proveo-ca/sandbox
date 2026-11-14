@@ -214,6 +214,30 @@
 ' a blank row and the verdict. When it does not run, the result says "sbx
 ' setup — nothing to import" or "— not checked", or lists it as later.
 ' "⚠ Docker login — not signed in" is a readiness item, dim fix and note.
+' SUPERSEDED FOR A WALK 2026-11-13 (I3 stage 5): init prints no section and
+' no subject block; it prints THE CLOSED CHECKLIST below, once, and its
+' endings use ! where they used ⚠ (D23). "⚠ init — cancelled at the checks
+' page" and "× <row> — failed" are gone. --print keeps its sbx, git,
+' credentials and operator blocks.
+'
+' ── THE CLOSED CHECKLIST (2026-11-13, I3 stage 5) ─────────────────────────
+' Printer.CheckRow(Check) prints one row: the mark at 2 in its ink, the
+' label at 4, the outcome at 18. An outcome wider than its room wraps at
+' " · " back to 18 and drops the separator at the break; a segment wider
+' than the room wraps at its spaces. Detail lines sit at 6, dim
+' (ColorMuted). Printer.CheckItem(Check, bold) prints one item: the mark at
+' 2, the text from 4 wrapping back to 6, the detail at 6; bold sets a
+' verdict. A line keeps 2 columns blank at the right, as the card keeps its
+' wall's (checkMargin). A word wider than its room keeps its head and tail
+' around "…", so a path never wraps (D8). Plain output: "<tag><label> —
+' <outcome>" (CheckRow) or "<tag><label>" (CheckItem) on one line, each
+' detail indented 4, no escape. The caller hands each mark's glyph, tag and
+' ink: init's come from choiceui's marks (_spec/internal/choiceui/
+' wireframe.puml, THE CHECKLIST CARD), so ui owns the columns and choiceui
+' the marks. Its one caller: _spec/cmd/proveo/init-preflight-and-result.puml
+' (THE CLOSED CHECKLIST).
+' Pinned by internal/ui/checklist_test.go
+' TestACheckRowLaysItsOutcomeAt18AndWrapsAtItsSeparators.
 '
 ' ── WHAT THE LISTINGS PRINT (2026-11-11, R4 of _spec/_plans/output-readability.puml)
 ' A one-subject command draws NO heading (the operator: rm, adopt, attach,

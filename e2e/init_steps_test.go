@@ -47,7 +47,8 @@ case "$1 $2" in
   "secret set")
     case "$*" in
       *--oauth*) printf '(global) service %s (oauth configured)\n' "$3" >> "$STUB_SBX_SECRETS" ;;
-      *) [ -z "$STUB_SBX_SLOW_SET" ] || sleep "$STUB_SBX_SLOW_SET" ;;
+      *) [ -z "$STUB_SBX_SLOW_SET" ] || sleep "$STUB_SBX_SLOW_SET"
+         eval "svc=\${$#}"; printf '(global) service %s (stored)\n' "$svc" >> "$STUB_SBX_SECRETS" ;;
     esac ;;
   "secret rm")
     printf 'Remove %s from every scope? [y/N] ' "$3"
@@ -222,16 +223,29 @@ func (r *initRun) back(t *testing.T) {
 	r.keys(t, initBackKey)
 }
 
-// skip leaves the credentials page without provisioning.
+// skip leaves the credentials page through its Skip button, provisioning nothing.
 func (r *initRun) skip(t *testing.T) {
 	t.Helper()
 	r.keys(t, initSkipKeys...)
 }
 
-// finish ends init from the operator page.
+// finish ends init from the operator page: Enter with the name field as it stands.
 func (r *initRun) finish(t *testing.T) {
 	t.Helper()
-	r.keys(t, initSkipKeys...)
+	r.keys(t, "Enter")
+}
+
+// closedHead is the closed checklist's heading line.
+var closedHead = regexp.MustCompile(`(?m)^── proveo init ── .+ ──+$`)
+
+// result is the closed checklist: everything from its heading on.
+func result(t *testing.T, all string) string {
+	t.Helper()
+	at := closedHead.FindAllStringIndex(all, -1)
+	if len(at) != 1 {
+		t.Fatalf("the closed checklist's heading drew %d times, want once:\n%s", len(at), all)
+	}
+	return all[at[0][0]:]
 }
 
 func (r *initRun) calls(t *testing.T) []string {
@@ -285,10 +299,12 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 			t.Errorf("the credentials page lacks %q:\n%s", want, screen)
 		}
 	}
-	if !regexp.MustCompile(`› opencode\s+✓`).MatchString(screen) {
-		t.Errorf("the cursor does not open on the first key field:\n%s", screen)
+	if !regexp.MustCompile(`› claudecode\s+\(•\) not signed in`).MatchString(screen) {
+		t.Errorf("the cursor does not open on the top row:\n%s", screen)
 	}
 
+	r.keys(t, "Down", "Down", "Down")
+	r.waitMatch(t, `› opencode\s+✓`)
 	r.keys(t, "s", "k", "-", "t", "y", "p", "e", "d")
 	r.back(t)
 	r.page(t, 2)
@@ -304,7 +320,7 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 	}
 	r.next(t, 1)
 	screen = r.next(t, 2)
-	if !regexp.MustCompile(`› opencode\s+✓ \[•{8}_?\s`).MatchString(screen) {
+	if !regexp.MustCompile(`opencode\s+✓ \[•{8}\s`).MatchString(screen) {
 		t.Errorf("the typed key did not survive the step back:\n%s", screen)
 	}
 	calls := r.calls(t)
@@ -313,6 +329,8 @@ func TestInitStepsBackWithoutRerunningSetup(t *testing.T) {
 			count(calls, "login"), count(calls, "setup"), strings.Join(calls, "\n"))
 	}
 
+	r.keys(t, "Down", "Down", "Down")
+	r.waitMatch(t, `› opencode\s+✓`)
 	r.keys(t, "C-u", "Enter")
 	r.page(t, 4)
 	r.back(t)
@@ -341,7 +359,7 @@ func TestInitSignInRowsRunSbxsOwnFlows(t *testing.T) {
 	r := startInit(t, 140, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
 	r.next(t, 1)
 	r.next(t, 2)
-	r.keys(t, "Up", "Up", "Right", "Right", "Up", "Right")
+	r.keys(t, "Right", "Down", "Right", "Right")
 	r.waitMatch(t, `claudecode\s+\( \) not signed in\s+\(•\) sign in`, `codex\s+\( \) signed in\s+\( \) sign in again\s+\(•\) sign out`)
 	if line := keyLine(r.page(t, 3)); !strings.Contains(line, "enter run 2 steps") {
 		t.Errorf("the key line does not count the two rows Enter runs: %q", line)
@@ -397,8 +415,14 @@ func TestInitYesNeverOpensTheCredentialsForm(t *testing.T) {
 	if strings.Contains(all, "page ") {
 		t.Errorf("--yes numbered a screen:\n%s", all)
 	}
-	if results := all[strings.LastIndex(all, " results "):]; !regexp.MustCompile(`(?m)^\s+credentials$`).MatchString(results) {
-		t.Errorf("--yes did not leave the credentials for later:\n%s", all)
+	closed := result(t, all)
+	for _, re := range []string{`(?m)^  ✓ codex\s+login held by sbx as openai$`, `(?m)^  ✓ opencode\s+token stored as opencode$`, `(?m)^  – not held\s+claudecode`} {
+		if !regexp.MustCompile(re).MatchString(closed) {
+			t.Errorf("--yes did not say what sbx holds (%s):\n%s", re, closed)
+		}
+	}
+	if strings.Contains(closed, "later · credentials") || strings.Contains(closed, "credentials  ") {
+		t.Errorf("--yes left the credentials for later instead of saying what sbx holds:\n%s", closed)
 	}
 	calls := r.calls(t)
 	if count(calls, "login") != 0 {
@@ -517,8 +541,8 @@ func TestInitSkipsSbxLoginOnASignedInHost(t *testing.T) {
 	if count(r.calls(t), "login") != 0 || strings.Contains(all, "── sbx login") {
 		t.Errorf("sbx login ran on a signed-in host; sbx saw:\n%s\n%s", strings.Join(r.calls(t), "\n"), all)
 	}
-	if results := all[strings.LastIndex(all, " results "):]; regexp.MustCompile(`(?m)^\s+Docker login$|later: Docker login`).MatchString(results) {
-		t.Errorf("a moot login is listed as later:\n%s", results)
+	if closed := result(t, all); !regexp.MustCompile(`(?m)^  ✓ Docker login  signed in$`).MatchString(closed) || strings.Contains(closed, "Docker login  later") {
+		t.Errorf("a moot login is not signed in, or is listed as later:\n%s", closed)
 	}
 }
 
@@ -559,7 +583,7 @@ func TestInitSkipsSbxSetupWithNothingToImport(t *testing.T) {
 	if count(calls, "setup") != 0 || !slices.Contains(calls, "secret ls --json") || strings.Contains(all, "── sbx setup") {
 		t.Errorf("want the probe and no sbx setup; sbx saw:\n%s\n%s", strings.Join(calls, "\n"), all)
 	}
-	if !regexp.MustCompile(`(?m)^\s+sbx setup — nothing to import$`).MatchString(all) {
+	if !regexp.MustCompile(`(?m)^  – sbx setup     nothing to import$`).MatchString(result(t, all)) {
 		t.Errorf("the result does not say sbx setup had nothing to import:\n%s", all)
 	}
 	if last := lastProveoLine(all); last != "✓ host — ready to run" {
@@ -583,8 +607,8 @@ func TestInitOpensSbxSetupAfterTheResult(t *testing.T) {
 	r.finish(t)
 	all := r.waitExit(t)
 	frame := regexp.MustCompile(`(?m)^── sbx setup ── 1 env key sbx's store lacks · sbx's screen · init ends when it exits ──+$`).FindStringIndex(all)
-	results, needs := strings.LastIndex(all, " results "), strings.LastIndex(all, "SSH client config — ")
-	finished := regexp.MustCompile(`(?m)^✓ sbx setup — finished$`).FindStringIndex(all)
+	results, needs := closedHead.FindStringIndex(all)[0], strings.LastIndex(all, "SSH client config — ")
+	finished := regexp.MustCompile(`(?m)^  ✓ sbx setup     finished$`).FindStringIndex(all)
 	if frame == nil || finished == nil || results < 0 || needs < results || frame[0] < needs || finished[0] < frame[1] {
 		t.Errorf("want the result's items, then the frame, then the outcome:\n%s", all)
 	}
@@ -652,26 +676,26 @@ func TestInitOpensOnTheChecksAndClosesOnTheResult(t *testing.T) {
 	r.page(t, 4)
 	r.finish(t)
 	all := r.waitExit(t)
-	results := all[strings.LastIndex(all, " results "):]
-	for _, re := range []string{`(?m)^. later: GitHub$`, `(?m)^\s+git identity$`, `(?m)^\s+credentials$`,
-		`(?m)^. SSH client config — an unmanaged sandbox Host stanza`, `(?m)^\s+a run does not need this check; it affects IDE attach`} {
+	results := result(t, all)
+	for _, re := range []string{`(?m)^  – sbx install   kept 0\.50\.0`, `(?m)^  ✓ Docker login  signed in$`,
+		`(?m)^  – git identity  later · --skip-git$`, `(?m)^  – GitHub        later · --skip-gh$`, `(?m)^  ✓ codex         login held by sbx as openai$`,
+		`(?m)^  ✓ operator      Executor \(default\)$`,
+		`(?m)^  ! Binary version — update available: v9\.9\.9\n      Download the latest release: https://example\.invalid/sbx/v9\.9\.9$`,
+		`(?m)^  ! SSH client config — an unmanaged sandbox Host stanza`, `(?m)^\s+a run does not need this check; it affects IDE attach`} {
 		if !regexp.MustCompile(re).MatchString(results) {
 			t.Errorf("the result lacks %s:\n%s", re, results)
 		}
 	}
-	if regexp.MustCompile(`(?m)^\s+(Docker login|sbx setup)$|later: (Docker login|sbx setup)`).MatchString(results) {
+	if regexp.MustCompile(`(?m)^  – (Docker login|sbx setup)\s+later`).MatchString(results) {
 		t.Errorf("a step with nothing to do is listed as left for later:\n%s", results)
 	}
 	if last := lastProveoLine(all); last != "✓ host — ready to run" {
 		t.Errorf("init must end on its verdict, not %q:\n%s", last, all)
 	}
-	for _, gone := range []string{"done:", "next:", "not ready to run", "proveo init`"} {
+	for _, gone := range []string{"done:", "next:", "later:", "not ready to run", "proveo init`", "⚠"} {
 		if strings.Contains(all, gone) {
 			t.Errorf("the stream still says %q:\n%s", gone, all)
 		}
-	}
-	if n := strings.Count(all, " results "); n != 1 {
-		t.Errorf("results drawn %d times, want once:\n%s", n, all)
 	}
 	if calls := r.calls(t); count(calls, "login") != 0 || count(calls, "setup") != 0 || count(calls, "diagnose --json") != 1 {
 		t.Errorf("a signed-in host with nothing to import ran sbx login or sbx setup, or diagnosed twice; sbx saw:\n%s", strings.Join(calls, "\n"))
@@ -698,15 +722,12 @@ func TestInitOnAReadyHostClosesOnReady(t *testing.T) {
 	if last := lastProveoLine(all); last != "✓ host — ready to run" {
 		t.Errorf("a ready host must end on its verdict, not %q:\n%s", last, all)
 	}
-	for _, h := range []string{" sbx ", " credentials ", " results "} {
-		if n := len(regexp.MustCompile(`(?m)^\s*─+`+regexp.QuoteMeta(h)+`─+$`).FindAllString(all, -1)); n != 1 {
-			t.Errorf("heading%q drawn %d times, want once:\n%s", h, n, all)
-		}
+	result(t, all)
+	if regexp.MustCompile(`(?m)^\s*─{6} \S+ ─+$`).MatchString(all) {
+		t.Errorf("init drew a section heading; the closed checklist has one heading:\n%s", all)
 	}
-	for _, gone := range []string{" run ", " execution ", " starting ", " secrets "} {
-		if regexp.MustCompile(`(?m)^\s*─+` + regexp.QuoteMeta(gone) + `─+$`).MatchString(all) {
-			t.Errorf("init drew the%qheading:\n%s", gone, all)
-		}
+	if regexp.MustCompile(`(?m)^  [!×] `).MatchString(result(t, all)) {
+		t.Errorf("a ready host's result names something that needs the operator:\n%s", all)
 	}
 }
 
@@ -728,8 +749,8 @@ func TestInitARunBlockerClosesOnTheHostVerdict(t *testing.T) {
 	if n := strings.Count(all, "× host"); n != 1 {
 		t.Errorf("%d × host lines, want one:\n%s", n, all)
 	}
-	for _, re := range []string{`(?m)^× Daemon — not running$`, `(?m)^\s+Start Docker Sandboxes, then run sbx diagnose again$`,
-		`(?m)^. not run: credentials$`, `(?m)^\s+operator name$`} {
+	for _, re := range []string{`(?m)^  × Daemon — not running$`, `(?m)^\s+Start Docker Sandboxes, then run sbx diagnose again$`,
+		`(?m)^  – credentials   not run$`, `(?m)^  – operator      not run$`} {
 		if !regexp.MustCompile(re).MatchString(all) {
 			t.Errorf("the result lacks %s:\n%s", re, all)
 		}
@@ -767,7 +788,7 @@ func TestInitYesNeverAsksForAGitIdentity(t *testing.T) {
 	if strings.Contains(all, "› git user.name") || strings.Contains(all, "git user.email") {
 		t.Errorf("--yes asked for a git identity:\n%s", all)
 	}
-	if !regexp.MustCompile(`(?m)^⚠ git identity — not set$`).MatchString(all) {
+	if !regexp.MustCompile(`(?m)^  ! git identity  not set$`).MatchString(all) {
 		t.Errorf("--yes with no identity must say it is not set:\n%s", all)
 	}
 	if strings.Contains(all, "`git config --global") {
@@ -779,17 +800,22 @@ func TestInitYesNeverAsksForAGitIdentity(t *testing.T) {
 }
 
 // The CDN installer's CI path is `init --yes` with stderr a pipe: plain lines carry no step place,
-// each subject's heading draws once, in order, above lines of its own, and verify leaves no line
-// under git, the heading before it.
+// and the plain closed checklist prints once, "<tag><label> — <outcome>" per row, under one heading,
+// ending on the verdict.
 func TestInitYesInPlainOutputCarriesNoStepPlaces(t *testing.T) {
 	got, calls := initYesPlain(t)
 	if strings.ContainsAny(got, "\x1b\r") || regexp.MustCompile(`step \d+/\d+`).MatchString(got) {
 		t.Errorf("plain output carries a step place or terminal control:\n%q", got)
 	}
-	for _, re := range []string{`(?m)^  sbx setup — nothing to import$`, `(?m)^ok: host — ready to run$`} {
+	for _, re := range []string{`(?m)^── proveo init ── \S+/\S+ · sbx 0\.50\.0 ──+$`, `(?m)^sbx install — kept 0\.50\.0 · .*sbx$`,
+		`(?m)^ok: Docker login — signed in$`, `(?m)^warn: git identity — not set$`, `(?m)^ok: codex — login held by sbx as openai$`,
+		`(?m)^operator — Executor \(default\)$`, `(?m)^sbx setup — nothing to import$`} {
 		if !regexp.MustCompile(re).MatchString(got) {
 			t.Errorf("plain output lacks %s:\n%s", re, got)
 		}
+	}
+	if last := lastLine(got); last != "ok: host — ready to run" {
+		t.Errorf("the plain closed checklist ends %q, want the verdict:\n%s", last, got)
 	}
 	if count(calls, "setup") != 0 || count(calls, "login") != 0 || strings.Contains(got, "── sbx") {
 		t.Errorf("--yes must hand the terminal to neither sbx login nor sbx setup:\n%s\n--- sbx calls ---\n%s", got, strings.Join(calls, "\n"))
@@ -797,20 +823,15 @@ func TestInitYesInPlainOutputCarriesNoStepPlaces(t *testing.T) {
 	if strings.Contains(got, "verify sbx") {
 		t.Errorf("verify left a line in plain output:\n%s", got)
 	}
-	var heads []string
-	blocks := regexp.MustCompile(`(?m)^\s*-{6} (\S+) -{6}\n`).Split(got, -1)[1:]
-	for i, m := range regexp.MustCompile(`(?m)^\s*-{6} (\S+) -{6}$`).FindAllStringSubmatch(got, -1) {
-		heads = append(heads, m[1])
-		if strings.TrimSpace(blocks[i]) == "" {
-			t.Errorf("heading %q drawn over no line of its own:\n%s", m[1], got)
-		}
+	if n := len(closedHead.FindAllString(got, -1)); n != 1 || regexp.MustCompile(`(?m)^\s*-{6} \S+ -{6}$`).MatchString(got) {
+		t.Errorf("want the closed checklist's heading once and no section heading:\n%s", got)
 	}
-	if want := []string{"sbx", "git", "credentials", "operator", "results"}; !slices.Equal(heads, want) {
-		t.Fatalf("headings = %q, want %q, each once:\n%s", heads, want, got)
-	}
-	if git := blocks[slices.Index(heads, "git")]; !regexp.MustCompile(`(?m)^warn: git identity — not set$`).MatchString(git) {
-		t.Errorf("the git block lacks the identity --yes left unset:\n%s", got)
-	}
+}
+
+// lastLine is the last non-blank line of out.
+func lastLine(out string) string {
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	return lines[len(lines)-1]
 }
 
 // THE SBX STEPS RUN ONLY WITH WORK: `init --yes` on a signed-out host runs no login, names Docker
@@ -886,11 +907,11 @@ func TestInitCtrlCInSbxsWizardEndsOnWhereItStopped(t *testing.T) {
 	if !strings.Contains(all, "INIT_EXIT=130") || strings.Contains(all, "INIT_INCOMPLETE") {
 		t.Errorf("a Ctrl+C in a hand-off must end init by SIGINT, so the installer's shell stops before init_incomplete:\n%s", all)
 	}
-	if !regexp.MustCompile(`(?m)^⚠ sbx setup — stopped\n\s+Ctrl\+C ended it\n\n✓ host — ready to run\nINIT_EXIT=130`).MatchString(all) {
+	if !regexp.MustCompile(`(?m)^  ! sbx setup     stopped · Ctrl\+C ended it\n\n  ✓ host — ready to run\nINIT_EXIT=130`).MatchString(all) {
 		t.Errorf("init must say sbx setup stopped and why, then end on its verdict:\n%s", all)
 	}
-	if regexp.MustCompile(`(?m)^. not run: `).MatchString(all) || !regexp.MustCompile(`(?m)^. host:\s+`).MatchString(all) {
-		t.Errorf("init must print the sbx block and name nothing as never run:\n%s", all)
+	if strings.Contains(result(t, all), "not run") {
+		t.Errorf("init must name nothing as never run:\n%s", all)
 	}
 	if n := count(r.calls(t), "diagnose --json"); n != 1 {
 		t.Errorf("sbx diagnose ran %d times; once for page 1, whose checks judge the host:\n%s", n, strings.Join(r.calls(t), "\n"))
@@ -910,11 +931,11 @@ func TestInitAFailedGhAuthLoginEndsOnWhereItStopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^⚠ init — stopped at GitHub\n\s+host ready to run\nINIT_EXIT=1`).MatchString(all) {
+	if !regexp.MustCompile(`(?m)^  ! init — stopped at GitHub\n\s+host ready to run\nINIT_EXIT=1`).MatchString(all) {
 		t.Errorf("a failed gh auth login must end init on where it stopped, exit 1:\n%s", all)
 	}
 	for _, re := range []string{`(?m)^gh: login aborted$`, `(?m)^── gh auth login ── gh's screen · page 2/4 returns when it exits ──+$`,
-		`(?m)^. not run: credentials$`, `(?m)^\s+operator name$`} {
+		`(?m)^  ! GitHub        stopped · exit status 1$`, `(?m)^  – credentials   not run$`, `(?m)^  – operator      not run$`} {
 		if !regexp.MustCompile(re).MatchString(all) {
 			t.Errorf("the screen lacks %s:\n%s", re, all)
 		}
@@ -932,7 +953,7 @@ func (r *initRun) waitStopped(t *testing.T, at string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^⚠ init — stopped at `+regexp.QuoteMeta(at)+`\n\s+Ctrl\+C ended it$`).MatchString(all) || !strings.Contains(all, "INIT_EXIT=130") {
+	if !regexp.MustCompile(`(?m)^  ! init — stopped at `+regexp.QuoteMeta(at)+`\n\s+Ctrl\+C ended it$`).MatchString(all) || !strings.Contains(all, "INIT_EXIT=130") {
 		t.Errorf("a Ctrl+C on the running card must end init stopped at %s, by SIGINT:\n%s", at, all)
 	}
 	return all
@@ -944,6 +965,7 @@ func TestInitCtrlCOnPageThreeStopsAfterItsRow(t *testing.T) {
 	r := startInitWith(t, 140, nil, []string{"STUB_SBX_SLOW_SET=2"}, "--skip-login", "--skip-setup", "--skip-gh", "--skip-git")
 	r.next(t, 1)
 	r.next(t, 2)
+	r.keys(t, "Down", "Down", "Down")
 	r.waitMatch(t, `› opencode\s+✓`)
 	r.keys(t, "t", "o", "k", "Down", "k", "e", "y")
 	r.waitMatch(t, `enter run 2 steps`)

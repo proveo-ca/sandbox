@@ -11,11 +11,8 @@
 │                                                                              │
 ├── ahead ──────                                                               │
 │   sbx setup     (•) after init        ( ) later                              │
-│                                                                              │
-│   [ Skip ]                                                                   │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ ↑↓ row · type to edit · enter finish · esc back · ctrl+c quit                │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
-  › name — agents address you this way; the first 16 characters are kept,
-    empty keeps Executor
+  › name — empty keeps Executor; the first 16 characters are kept

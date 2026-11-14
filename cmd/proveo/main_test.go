@@ -593,7 +593,7 @@ func TestAnInitACtrlCStoppedDiesOfSIGINT(t *testing.T) {
 		isolatedInitHost(t)
 		t.Setenv("STUB_SETUP_INT", "1")
 		rep := testReport(t, initOptions{})
-		rep.sbxSaid, rep.ready, rep.asked, rep.wizard = true, true, askedOnPages, true
+		rep.ready, rep.asked, rep.wizard = true, askedOnPages, true
 		rep.probe = func() (sbx.SetupOffer, error) { return sbx.SetupOffer{EnvOnly: 1, Known: true}, nil }
 		exitWith(rep.close(&initRecord{}, nil))
 		return
@@ -608,7 +608,7 @@ func TestAnInitACtrlCStoppedDiesOfSIGINT(t *testing.T) {
 	if ws, ok := exit.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
 		t.Errorf("the stopped init ended with %v, want death by SIGINT:\n%s", exit, out)
 	}
-	if !regexp.MustCompile(`(?m)^warn: sbx setup — stopped\n    Ctrl\+C ended it\n\nok: host — ready to run$`).Match(out) {
+	if !regexp.MustCompile(`(?m)^warn: sbx setup — stopped · Ctrl\+C ended it\n\nok: host — ready to run$`).Match(out) {
 		t.Errorf("the stopped init died before its result printed:\n%s", out)
 	}
 }

@@ -80,10 +80,10 @@ func (a accessStage) say(m choiceui.Mark, access string) {
 	a.said.text += " · sandbox Git: " + access
 }
 
-// applyGitHubAccess asks how sandbox Git reaches GitHub, as a sub-page of page 2, and saves the
-// answer, and says what it is in the git block as the "access" fact. Esc there leaves it for later;
-// a confirmed quit there is errInitQuit. Unprompted it only reports; a Ctrl+C that ended a program
-// it handed the terminal to is its error.
+// applyGitHubAccess asks how sandbox Git reaches GitHub, as a sub-page of page 2, saves the
+// answer, and adds it to the GitHub row. Esc there leaves it for later; a confirmed quit there is
+// errInitQuit. Unprompted it only reports, with the host's keys under the row; a Ctrl+C that ended
+// a program it handed the terminal to is its error.
 // SPEC: _spec/cmd/proveo/github-access.puml
 func applyGitHubAccess(a accessStage) error {
 	bin, out := a.bin, a.out
@@ -105,7 +105,9 @@ func applyGitHubAccess(a accessStage) error {
 	for {
 		h := githubaccess.Inspect(bin, githubaccess.Output, os.Getenv)
 		if !a.prompt {
-			out.Fact(unaskedAccess(h, current, a.noTerminal))
+			f := unaskedAccess(h, current, a.noTerminal)
+			a.say(choiceui.MarkLater, f.Value)
+			out.Item(sandbox.Item{Text: accessRow + " — " + f.Value, Detail: f.Detail})
 			return nil
 		}
 		bare := githubAccessForm(h, current)
@@ -117,7 +119,6 @@ func applyGitHubAccess(a accessStage) error {
 		case answer == choiceui.Quit:
 			return errInitQuit
 		case answer != choiceui.Accepted:
-			out.Fact(ui.Fact{Role: ui.RoleHost, Key: "access", Value: cmp.Or(current, "not chosen")})
 			a.say(choiceui.MarkLater, "later")
 			return nil
 		}
@@ -171,7 +172,6 @@ func applyGitHubAccess(a accessStage) error {
 			a.say(choiceui.MarkNeeds, "not saved")
 			return nil
 		}
-		out.Fact(ui.Fact{Role: ui.RoleHost, Key: "access", Value: mode, Detail: []string{ui.Tilde(path)}})
 		switch mode {
 		case githubaccess.Later:
 			a.say(choiceui.MarkLater, "later")

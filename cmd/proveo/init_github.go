@@ -10,7 +10,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 const githubService = "github"
@@ -118,7 +117,6 @@ func githubToken(s ghStage) error {
 		s.say(choiceui.MarkNeeds, "token not stored in sbx")
 		return nil
 	}
-	s.out.Fact(ui.Fact{Role: ui.RoleStore, Key: githubService, Value: "token stored in sbx"})
 	s.say(choiceui.MarkDone, "signed in")
 	return nil
 }

@@ -392,6 +392,7 @@ type Progress struct {
 	At       int      // the index in Plan of the row running now
 	Stopping bool     // ctrl+c asked the run to stop after that row
 	Help     string   // what the running row does, for the help under the card
+	rest     []Row    // the rows at rest, which size the help slot while the plan runs
 }
 
 // label is the running row's label, or "" past the plan.

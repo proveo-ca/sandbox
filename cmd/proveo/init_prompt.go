@@ -12,7 +12,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/shell"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // promptKitOptions is the kit for this host: starship lands beside proveo's own binary; draws asks
@@ -35,29 +34,21 @@ func promptKitOptions(draws func() (icon, asked bool)) promptkit.Options {
 	return o
 }
 
-// applyPromptKit installs the shell-prompt kit and prints its block under "prompt": starship, the
-// font, the rc line and starship's config as facts, without what an earlier visit printed; a
-// failure is a ⚠ and init goes on. It returns the card row's outcome.
+// applyPromptKit installs the shell-prompt kit and says on the prompt kit row what needs the
+// operator; a failure is a ! and init goes on. It returns the row's outcome.
 func applyPromptKit(draws func() (icon, asked bool), rep *initReport) (choiceui.Mark, string) {
-	ui.Section(ui.SectionPrompt)
-	var facts []ui.Fact
 	var items []sandbox.Item
 	o := promptKitOptions(draws)
-	o.Fact = func(key, value string, detail ...string) {
-		for i := range detail {
-			detail[i] = ui.TildeIn(detail[i])
-		}
-		facts = append(facts, ui.Fact{Role: ui.RoleApp, Key: key, Value: ui.TildeIn(value), Detail: detail})
-	}
+	o.Fact = func(string, string, ...string) {}
 	o.Warn = func(text string, detail ...string) {
 		items = append(items, sandbox.Item{Warn: true, Text: text, Detail: detail})
 	}
 	if _, err := promptkit.Apply(o); err != nil {
-		items = append(items, sandbox.Item{Warn: true, Text: "prompt kit — not finished", Detail: errLines(err)})
+		items = append(items, sandbox.Item{Warn: true, Text: rowPrompt + " — not finished", Detail: errLines(err)})
 	}
-	rep.printFresh(promptHeading, ui.SectionPrompt, facts, items)
+	rep.say(rowPrompt, items...)
 	if len(items) > 0 {
-		return choiceui.MarkNeeds, items[0].Text
+		return itemMark(items[0])
 	}
 	return choiceui.MarkDone, "installed"
 }

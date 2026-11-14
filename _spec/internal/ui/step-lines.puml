@@ -146,8 +146,13 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' SINCE STAGE 4 every hand-off frames: on the card through Session.Hand,
 ' whose frame ends "page n/4 returns when it exits"; off it through
 ' handFramed, "init resumes when it exits".
-' Pinned by TestAFrameLineShortensBeforeItWraps, TestAPlainFrameCarriesNoEscapes
-' and cmd/proveo TestAHandOffIsFramed.
+' LEAD (stage 5's verify, 2026-11-13): ui.Lead prints the same line as the
+' head of an output, with a blank row above it only when the printer printed
+' a lasting line before it (Printer.spoke; live lines do not count). init's
+' closed checklist opens with it, so its heading is the first line under the
+' shell prompt; Frame always opened with a blank row there.
+' Pinned by TestAFrameLineShortensBeforeItWraps, TestAPlainFrameCarriesNoEscapes,
+' TestALeadFrameTakesABlankRowOnlyAfterALine and cmd/proveo TestAHandOffIsFramed.
 '
 ' ── A RUN'S START (W-k; R1 of output-readability, 2026-11-11) ──────────────
 ' sandbox.Run shows five steps before the agent has the terminal:

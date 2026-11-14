@@ -522,6 +522,7 @@
       "covers": [
         "cmd/proveo/init_credentials.go",
         "cmd/proveo/init_credentials_test.go",
+        "cmd/proveo/testdata/init/p3_*.txt",
         "e2e/init_steps_test.go",
         "internal/choiceui/choiceui.go",
         "apps/cli/public/cli/install.sh"
@@ -2177,6 +2178,7 @@
         "cmd/proveo/init_preflight_test.go",
         "cmd/proveo/init_report.go",
         "cmd/proveo/init_report_test.go",
+        "cmd/proveo/init_result.go",
         "cmd/proveo/init_checklist.go"
       ],
       "fingerprint": null
@@ -2189,6 +2191,7 @@
         "cmd/proveo/init_operator.go",
         "cmd/proveo/init_operator_test.go",
         "cmd/proveo/init.go",
+        "cmd/proveo/init_report.go",
         "internal/run/run.go",
         "internal/ui/ui.go",
         "packages/lib/entrypoint-lib.sh",

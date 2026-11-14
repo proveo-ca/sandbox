@@ -357,10 +357,14 @@ skinparam noteTextAlignment left
 '           the git step writes what they hold, and an empty one reads
 '           "! git identity  not set · both fields needed".
 '   page 3  credentialForm, "Store agent credentials", one prose line.
-'           Skip stays (owner, Q2 → C). Rows and stubs are stage 5's.
+'           Skip stays (owner, Q2 → C). STAGE 5: two stubs, "subscriptions"
+'           and "API keys", and the cursor on the top row
+'           (_spec/cmd/proveo/init-credential-wireframe.puml).
 '   page 4  operatorForm, "Name the operator", one prose line, then the
 '           sbx setup row as the probe found it (THE SBX STEPS RUN ONLY
-'           WITH WORK): an answer only while it found work. Skip stays.
+'           WITH WORK): an answer only while it found work. STAGE 5: no
+'           Skip; the help is the field's Reason
+'           (_spec/cmd/proveo/operator-name.puml).
 ' Each page after the first draws one done row per page before it, and
 ' every page ends on the ahead rows: one per page not reached, sbx setup
 ' last. The banner and every "on enter" list are gone.
@@ -403,6 +407,10 @@ skinparam noteTextAlignment left
 ' view.card() where they read interactiveTerminal().
 ' OUTPUT HOLD (option C, owner): ui.Default is held while the card is up,
 ' and the report blocks print as before into the hold, which Close replays.
+' AMENDED IN STAGE 5 (2026-11-13): no report block prints during the walk;
+' the steps keep their items by row (initReport.say, the row blocks) and
+' close prints the closed checklist once, so the hold stays empty over a
+' full walk (TestNothingReachesTheTerminalWhileTheCardIsUp).
 ' Every child that is no hand-off runs with its output kept and attached to
 ' the step's failure: the release installer steps (placeRelease),
 ' `git config --global`, `sbx secret set` (internal/sbx too), `sbx
@@ -645,6 +653,14 @@ skinparam noteTextAlignment left
 '                            no row otherwise (owner, 2026-11-13)
 '   a Ctrl+C that ended init: no probe and no row
 '   --skip-setup             no probe; "later: sbx setup" as before
+' AMENDED IN STAGE 5 (2026-11-13): each of these reads as the sbx setup row
+' of the closed checklist (_spec/cmd/proveo/init-preflight-and-result.puml,
+' THE CLOSED CHECKLIST): "– sbx setup  later · <reason> · `sbx setup` on a
+' terminal", "– sbx setup  nothing to import", "– sbx setup  not checked"
+' with "`sbx setup` opens it" under it, and on a completed walk "– sbx setup
+' later · --skip-setup". Its outcome after the hand-off is a row too: "✓
+' sbx setup  finished", "! sbx setup  did not complete · `sbx setup` by
+' hand", "! sbx setup  stopped · Ctrl+C ended it".
 ' Outcomes: exit 0 "✓ sbx setup — finished"; non-zero "⚠ sbx setup — did
 ' not complete", dim "`sbx setup` by hand"; a Ctrl+C "⚠ sbx setup —
 ' stopped", dim "Ctrl+C ended it", then a blank row, the verdict, and init

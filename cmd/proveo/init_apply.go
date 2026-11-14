@@ -68,7 +68,7 @@ func (c applyCtx) v() walkView { return viewOr(c.view) }
 func (c applyCtx) ctx() context.Context { return c.v().Context() }
 
 // applySbx lists what page 1's Enter runs for d, in row order: sbx install, PATH, the checks,
-// Docker login, the network baseline; the sbx block prints after them.
+// Docker login, the network baseline.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (FOUR PAGES ON ONE CARD)
 func applySbx(d initDecisions, c applyCtx) []applyStep {
 	var steps []applyStep
@@ -107,7 +107,7 @@ func applySbx(d initDecisions, c applyCtx) []applyStep {
 		s := applyStep{label: rowPath, run: func() error {
 			if dir := sbxPathDir(c.applied); dir != "" {
 				said = ensureSbxOnPath(dir, d.AddPath)
-				c.rep.sbxItem(said)
+				c.rep.say(rowPath, said)
 			}
 			return nil
 		}, outcome: func() (choiceui.Mark, string) { return itemMark(said) }}
@@ -116,7 +116,6 @@ func applySbx(d initDecisions, c applyCtx) []applyStep {
 		}
 		steps = append(steps, s)
 	}
-	work := len(steps) > 0
 	steps = append(steps, checksStep(d, c, bin))
 	if d.Login && (c.rep == nil || !c.rep.diagnosed || c.rep.auth == sbx.AuthOut || d.Install != installSkip && c.rep.auth != sbx.AuthIn) {
 		steps = append(steps, loginStep(d, c, bin))
@@ -134,15 +133,11 @@ func applySbx(d initDecisions, c applyCtx) []applyStep {
 				}
 				if err != nil {
 					mark, text = choiceui.MarkNeeds, "not changed"
-					c.rep.sbxItem(sandbox.Item{Warn: true, Text: rowBaseline + " — not changed",
+					c.rep.say(rowBaseline, sandbox.Item{Warn: true, Text: rowBaseline + " — not changed",
 						Detail: append(errDetail(err), "`"+sbx.Binary+" "+strings.Join(args, " ")+"` by hand")})
 				}
 				return nil
 			}, outcome: func() (choiceui.Mark, string) { return mark, text }})
-	}
-	if c.rep != nil && (work || len(steps) > 1 || !c.rep.sbxSaid) {
-		steps = slices.Concat([]applyStep{{run: func() error { c.rep.openSbx(); return nil }}}, steps,
-			[]applyStep{{run: func() error { c.rep.printSbx(); return nil }}})
 	}
 	return steps
 }
@@ -260,6 +255,8 @@ func itemMark(it sandbox.Item) (choiceui.Mark, string) {
 func failedMark(err error) (choiceui.Mark, string) {
 	var hand handoffErr
 	switch {
+	case errors.Is(err, errInitQuit):
+		return choiceui.MarkLater, "quit"
 	case interrupted(err):
 		return choiceui.MarkNeeds, "stopped · Ctrl+C ended it"
 	case errors.As(err, &hand):
@@ -292,18 +289,15 @@ func replaceChecks(f *choiceui.Form, rows []choiceui.Row) {
 }
 
 // applyGit lists what page 2's Enter runs for d, in row order: git identity, GitHub, the prompt
-// kit; the git block prints after GitHub. A git identity the host already holds runs unlisted.
+// kit. A git identity the host already holds runs unlisted.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (FOUR PAGES ON ONE CARD)
 func applyGit(d initDecisions, c applyCtx, id gitAnswer) []applyStep {
 	var steps []applyStep
 	bin := func() string { return resolveBin(c.applied) }
-	if c.rep != nil && (d.Git || d.Gh) {
-		steps = append(steps, applyStep{run: func() error { c.rep.openGit(); return nil }})
-	}
 	if d.Git {
 		mark, text := choiceui.MarkDone, ""
 		s := applyStep{label: rowGit, kind: stepSilent, doing: "git config --global", run: func() error {
-			mark, text = applyGitIdentity(hostGitStage(c.v().card(), c.rep.gitBlock(), c.rep.noTerminal(), id))
+			mark, text = applyGitIdentity(hostGitStage(c.v().card(), c.rep.block(rowGit), c.rep.noTerminal(), id))
 			return nil
 		}, outcome: func() (choiceui.Mark, string) { return mark, text }}
 		if !id.held {
@@ -327,19 +321,16 @@ func applyGit(d initDecisions, c applyCtx, id gitAnswer) []applyStep {
 				},
 				secretSet:  func(name, value string) error { return secretSetAt(bin(), name, value) },
 				tty:        tty,
-				out:        c.rep.gitBlock(),
+				out:        c.rep.block(rowGh),
 				noTerminal: c.rep.noTerminal(),
 				view:       c.view,
 				said:       &gh,
 				access: func() error {
-					return applyGitHubAccess(accessStage{bin: bin(), prompt: tty, out: c.rep.gitBlock(), noTerminal: c.rep.noTerminal(),
+					return applyGitHubAccess(accessStage{bin: bin(), prompt: tty, out: c.rep.block(rowGh), noTerminal: c.rep.noTerminal(),
 						ask: c.sub, said: &gh, restarted: c.rep.installedNow})
 				},
 			})
 		}, outcome: func() (choiceui.Mark, string) { return gh.mark, gh.text }})
-	}
-	if c.rep != nil && (d.Git || d.Gh) {
-		steps = append(steps, applyStep{run: func() error { c.rep.printGit(); return nil }})
 	}
 	if d.Prompt {
 		mark, text := choiceui.MarkDone, "installed"
@@ -397,14 +388,14 @@ type loginStage struct {
 }
 
 // applyLogin hands `sbx login` the terminal only while sbx diagnose says Docker is signed out,
-// then says in the sbx block what a second diagnose found.
+// then says on the Docker login row what a second diagnose found.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK)
 func applyLogin(l loginStage) error {
 	switch l.auth() {
 	case sbx.AuthIn:
 		return nil
 	case sbx.AuthUnknown:
-		l.rep.sbxItem(sandbox.Item{Text: rowLogin + " — not checked", Detail: []string{"sbx diagnose gave no answer; `" + sbx.Binary + " login` signs in"}})
+		l.rep.say(rowLogin, sandbox.Item{Text: rowLogin + " — not checked", Detail: []string{"sbx diagnose gave no answer; `" + sbx.Binary + " login` signs in"}})
 		return nil
 	}
 	if !l.tty {
@@ -418,7 +409,7 @@ func applyLogin(l loginStage) error {
 		it = sandbox.Item{Warn: true, Text: rowLogin + " — not signed in", Detail: []string{loginFix}}
 		l.rep.warnLogin()
 	}
-	l.rep.sbxItem(it)
+	l.rep.say(rowLogin, it)
 	return nil
 }
 
@@ -447,20 +438,21 @@ func stepNames(plan []applyStep) []string {
 	return out
 }
 
-// runApply runs plan in order and stops at the first step that fails; ran hears the label of
-// each step that did not fail. On the card the planned rows run in place: idle names the rows
-// Enter leaves as they are, and a Ctrl+C stops the run after the row it came on. Off the card a
-// line that stays on screen carries no place: a live step keeps its line in plain output, a hand
-// step prints it before it gives the terminal away.
+// runApply runs plan in order and stops at the first step that fails; rec hears the label of each
+// step that did not fail, and what each labelled row came to. On the card the planned rows run in
+// place: idle names the rows Enter leaves as they are, and a Ctrl+C stops the run after the row it
+// came on. Off the card a line that stays on screen carries no place: a live step keeps its line in
+// plain output, a hand step prints it before it gives the terminal away.
 // SPEC: _spec/cmd/proveo/init-sbx-bootstrap.puml (RUN IN PLACE)
-func runApply(view walkView, plan []applyStep, ran func(label string), idle []labelled) error {
+func runApply(view walkView, plan []applyStep, rec *initRecord, idle []labelled) error {
 	view = viewOr(view)
 	if !view.card() {
-		return runSteps(plan, ran)
+		return runSteps(plan, rec)
 	}
 	view.Plan(planRows(plan))
 	for _, s := range idle {
 		view.Status(s.label, s.mark, s.outcome)
+		rec.row(s.label, s.mark, s.outcome)
 	}
 	started, last := map[string]bool{}, ""
 	for i, s := range plan {
@@ -484,28 +476,37 @@ func runApply(view walkView, plan []applyStep, ran func(label string), idle []la
 			if view.Context().Err() != nil && !interrupted(err) {
 				err = handoffErr{err: err, interrupted: true}
 			}
+			mark, text := failedMark(err)
 			if row != "" {
-				mark, text := failedMark(err)
 				view.Status(row, mark, text)
 			}
+			rec.row(s.label, mark, text)
 			notRun(view, plan[i+1:], row)
 			return stepErr{label: s.label, rest: labelsAfter(plan, i), err: err}
 		}
+		mark, text := s.result(plan[i+1:], rec)
 		if row != "" && !slices.ContainsFunc(plan[i+1:], func(n applyStep) bool { return n.cardRow() == row }) {
-			mark, text := choiceui.MarkDone, ""
-			if s.outcome != nil {
-				mark, text = s.outcome()
-			}
 			view.Status(row, mark, text)
 		}
-		if ran != nil {
-			ran(s.label)
-		}
+		rec.did(s.label)
 	}
 	if last != "" && view.Context().Err() != nil {
 		return stopped(view, plan, len(plan), last)
 	}
 	return nil
+}
+
+// result is what step s came to once it ran: its outcome, recorded on rec under its label when no
+// step in rest shares the label.
+func (s applyStep) result(rest []applyStep, rec *initRecord) (choiceui.Mark, string) {
+	mark, text := choiceui.MarkDone, ""
+	if s.outcome != nil {
+		mark, text = s.outcome()
+	}
+	if !slices.ContainsFunc(rest, func(n applyStep) bool { return n.label == s.label }) {
+		rec.row(s.label, mark, text)
+	}
+	return mark, text
 }
 
 // stopped ends a run Ctrl+C stopped after row at: the rows from step i on read not run.
@@ -545,7 +546,7 @@ func labelsAfter(plan []applyStep, i int) []string {
 }
 
 // runSteps is runApply off the card: each step's line as its kind shows it.
-func runSteps(plan []applyStep, ran func(label string)) error {
+func runSteps(plan []applyStep, rec *initRecord) error {
 	steps := ui.NewSteps(len(stepNames(plan)))
 	for i, s := range plan {
 		var err error
@@ -562,11 +563,12 @@ func runSteps(plan []applyStep, ran func(label string)) error {
 			err = steps.DoAs(s.name, cmp.Or(s.line, s.name), s.run)
 		}
 		if err != nil {
+			mark, text := failedMark(err)
+			rec.row(s.label, mark, text)
 			return stepErr{label: s.label, rest: labelsAfter(plan, i), err: err}
 		}
-		if ran != nil {
-			ran(s.label)
-		}
+		s.result(plan[i+1:], rec)
+		rec.did(s.label)
 	}
 	return nil
 }
@@ -582,7 +584,10 @@ func runPackage(p sbx.Packaged, download, sum string, c applyCtx) error {
 		return err
 	}
 	c.rep.installedNow()
-	c.rep.sbxItem(sandbox.Item{Ok: true, Text: "distro package — installed",
+	if c.rep != nil {
+		c.rep.unverified = true
+	}
+	c.rep.say(rowInstall, sandbox.Item{Ok: true, Text: "distro package — installed",
 		Detail: []string{"sha256 " + sum, "no published digest covers this asset"}})
 	return nil
 }
@@ -654,6 +659,9 @@ func placeRelease(plan sbx.Plan, download, sum string, verified bool, c applyCtx
 		it.Detail = append(it.Detail, "replaced "+replaced)
 	}
 	c.rep.installedNow()
-	c.rep.sbxItem(it)
+	if c.rep != nil {
+		c.rep.unverified = !verified
+	}
+	c.rep.say(rowInstall, it)
 	return nil
 }

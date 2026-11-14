@@ -101,6 +101,19 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' so the checklist draws it under its rows at rest, counts its two rows in
 ' the ladder, and the key line reads "↑↓ row · enter skip · esc …" while
 ' it is focused. A running page draws no button.
+' AMENDED after stage 5's verify (2026-11-13): the ladder counts Skip's two
+' rows whenever the form names Skip, and a running page draws them blank
+' inside its walls. Counted at rest only, Enter at 80x24 freed them: the
+' prose line and the blanks came back, rows moved down 2-3 and the card
+' grew from 22 to 24 rows. Pinned by internal/choiceui/session_test.go
+' TestARunningPageWithSkipKeepsItsRowsInPlace.
+' AMENDED IN STAGE 5 (2026-11-13): page 3 alone keeps Skip, the owner's
+' exception to O6 (Q2 → C). Page 4 lost it: Enter with the name field empty
+' keeps the name in use, so the button said nothing Enter does not. Form.Skip,
+' onSkip, drawSkip and Skipped stay in choiceui for page 3. Page 3 opens on
+' its top row with an answer, the first sign-in; StartRow and firstField left
+' init (O8). At 80x24 page 3 fits by dropping the blank under the card and
+' the prose line (rungs 2 and 3).
 '
 ' ── THE .env FILTER TAKES Enter AND Esc FIRST (owner, O4, 2026-11-13) ──────
 ' The run form's .env list filters by typing. While its filter is open:
@@ -244,9 +257,11 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '                           confirmed) ends init; on a blocked page every
 '                           way off ends with the blocker.
 '   init git, shell (2/4)   Accepted runs the page; Back; Quit.
-'   init credentials (3/4)  Back; Skipped moves on and stores nothing; Quit.
-'   init operator (4/4)     Back; Skipped ends init with the name unchanged
-'                           and keeps the sbx setup answer; Quit.
+'   init credentials (3/4)  Back; Skipped moves on, stores nothing, and the
+'                           result says what sbx holds; Quit.
+'   init operator (4/4)     Accepted saves the name, or keeps it when the
+'                           field is empty, and closes the card; Back; Quit.
+'                           Skip left it in stage 5.
 '   init sub-page (2/4)     Accepted saves; Back is later; Quit ends init.
 '   init, on Quit           "quit at page n/4", exit 1. No later page runs.
 '                           "cancelled at the init prompt" is gone.
@@ -331,10 +346,10 @@ note bottom of ASK
 end note
 
 note bottom of SKIP
-  **Not a key.** ""s"" types into the focused
-  field, and two of init's pages open on one.
-  Down from the last row reaches the button;
-  Enter there skips.
+  **Not a key.** ""s"" types into a focused
+  field. Init's credentials page keeps the
+  button; Down from the last row reaches it,
+  and Enter there skips.
 end note
 
 note bottom of FILTER

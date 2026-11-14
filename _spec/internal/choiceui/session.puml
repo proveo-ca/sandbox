@@ -86,6 +86,15 @@ skinparam noteTextAlignment left
 ' "cursor" key. Plan's labels name rows in row order, so a label two rows
 ' share stands for the next of them; Status picks the running row of that
 ' label, else the first that waits in the plan, else the first.
+' AMENDED after stage 5's verify (2026-11-13): Plan walks the labels, not
+' the rows. Each label binds the first answer row after the row the label
+' before it bound; a label no answer row carries binds none and leaves that
+' start where it was. Walking the rows let the plan [anthropic, cursor] bind
+' the "cursor" sign-in above the API keys, so anthropic never waited "·" and
+' the cursor key's progress ran on the sign-in row.
+' THE HELP SLOT WHILE A PLAN RUNS (same verify): Plan keeps the rows it
+' started from (Progress.rest), and the checklist sizes its help slot from
+' them, so the running page's help keeps the rows its rest held.
 ' A PLANNED LABEL NO ROW CARRIES (stage 4: "checks", a section, not a row)
 ' still moves the key line on: Status(label, MarkRunning, …) sets the
 ' plan's place, and every other Status of it is dropped.

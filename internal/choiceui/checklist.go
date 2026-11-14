@@ -308,7 +308,7 @@ func (f *Form) checklistLadder(w, h int) layout {
 	lay := layout{helpSlot: help, header: len(facts) > 0}
 	fixed := func(c cut) int {
 		n := cardRows + len(facts) + help
-		if f.skips() {
+		if f.Skip != "" {
 			n += skipRows
 		}
 		if !c.prose {
@@ -453,11 +453,16 @@ func (f *Form) progressHelp(width int) []helpLine {
 }
 
 // checklistHelpSlot is the rows the help holds under a checklist: the most any answer, field,
-// run or blocker needs, at most helpMost, so moving the cursor never moves a row.
+// run or blocker needs, at most helpMost, so moving the cursor never moves a row. While a plan
+// runs, the answers are the rows it started from.
 func (f *Form) checklistHelpSlot(width int) int {
+	rows := f.Rows
+	if f.Progress != nil && f.Progress.rest != nil {
+		rows = f.Progress.rest
+	}
 	most := 0
-	for i := range f.Rows {
-		r := f.Rows[i]
+	for i := range rows {
+		r := rows[i]
 		if r.Kind != RowAnswer {
 			continue
 		}
@@ -692,10 +697,12 @@ func (f *Form) drawChecklist(s *screen, cursor, tick int) {
 	c.unclip()
 
 	c.y = bodyTop + lay.body
-	if f.skips() {
+	if f.Skip != "" {
 		k.walls(c, false)
 		c.y++
-		f.drawSkip(c, p)
+		if f.skips() {
+			f.drawSkip(c, p)
+		}
 		k.walls(c, false)
 		c.y++
 	}

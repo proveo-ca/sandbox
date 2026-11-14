@@ -141,6 +141,7 @@ type Printer struct {
 	term      io.Writer // the terminal alone; nil when W is not one
 	live      string    // the live line as drawn; "" when there is none
 	suspended int       // holders of SuspendLive; the live line stays off the terminal while any holds
+	spoke     bool      // a line reached W
 }
 
 // Section names the subject the following lines describe, drawn as the divider
@@ -223,7 +224,7 @@ func (p *Printer) flushSection() {
 		head = ANSI(ColorRule) + before + ANSIReset + ANSIBold + ANSI(ColorSecondary) + spaced + ANSIReset + ANSI(ColorRule) + after + ANSIReset
 	}
 	fmt.Fprint(p.W, "\n"+head+"\n")
-	p.shown, p.pending = p.pending, ""
+	p.shown, p.pending, p.spoke = p.pending, "", true
 }
 
 func New(w io.Writer) *Printer {
@@ -409,6 +410,7 @@ func (p *Printer) line(r Role, s sev, format string, a ...any) {
 	p.eraseLive()
 	defer p.drawLive()
 	p.flushSection()
+	p.spoke = true
 	prefix := mark(p.Tier, s, r)
 	if p.Plain {
 		fmt.Fprintf(p.W, tag(s, r)+format+"\n", a...)
@@ -497,6 +499,7 @@ func (p *Printer) Askf(format string, a ...any) {
 	p.eraseLive()
 	p.live = ""
 	p.flushSection()
+	p.spoke = true
 	body := fmt.Sprintf(format, a...)
 	if p.Plain {
 		fmt.Fprint(p.W, body+" ")
