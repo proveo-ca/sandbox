@@ -55,16 +55,18 @@ func (g quitGate) Update(msg tea.Msg) (next quitGate, quit bool) {
 // view is the question, drawn over the whole screen.
 func (g quitGate) view() tea.View { return g.ask.View() }
 
-// overlay draws the question over the form already on s: the form dims, the band of rows the box
-// spans clears between the card's walls, and the box centres on the card's columns between its
-// head row and its bottom border. It answers false, drawing nothing, when the card is unframed or
-// the rows between its head and its bottom border cannot hold the box.
+// overlay draws the question over the form already on s; see overlayDialog.
+func (g quitGate) overlay(s *screen, at cardAt) bool { return overlayDialog(s, at, *g.ask) }
+
+// overlayDialog draws d over the form already on s: the form dims, the band of rows the box spans
+// clears between the card's walls, and the box centres on the card's columns between its head row
+// and its bottom border. It answers false, drawing nothing, when the card is unframed or the rows
+// between its head and its bottom border cannot hold the box.
 // SPEC: _spec/internal/choiceui/confirm-dialogs.puml
-func (g quitGate) overlay(s *screen, at cardAt) bool {
+func overlayDialog(s *screen, at cardAt, d dialog) bool {
 	if !at.framed || at.bottom <= at.head {
 		return false
 	}
-	d := *g.ask
 	box := d.card()
 	bw, bh := box.Size()
 	if (at.w-bw)%2 != 0 {

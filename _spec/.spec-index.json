@@ -2280,6 +2280,22 @@
         "defs/hermes/harness.manifest"
       ],
       "fingerprint": null
+    },
+    {
+      "spec": "_spec/internal/choiceui/session.puml",
+      "covers": [
+        "internal/choiceui/session.go",
+        "internal/choiceui/session_test.go",
+        "internal/choiceui/session_term_test.go",
+        "internal/choiceui/tty_unix.go",
+        "internal/choiceui/tty_windows.go",
+        "internal/choiceui/quit_gate.go",
+        "internal/choiceui/choiceui.go",
+        "internal/choiceui/dialog_run.go",
+        "internal/ui/hold.go",
+        "internal/ui/hold_test.go"
+      ],
+      "fingerprint": null
     }
   ],
   "unresolved": []

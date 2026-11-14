@@ -161,6 +161,9 @@ title Confirm dialogs — a card with a button row, the safe answer selected, tw
 ' terminal itself (/dev/tty), so a redirected stdout still gets the question,
 ' and runs a Program on it. No terminal, or a Program that fails, answers the
 ' safe way and reports that nothing was asked.
+' While a choiceui.Session holds the terminal, openTerminal refuses: askDialog
+' then warns "<title> — not asked: a card holds the terminal" (held until the
+' Session closes) and answers the safe way (session.puml, THE API).
 ' The close dialog runs INSIDE the proxy, over a live agent: the proxy hosts
 ' it and feeds it keys one at a time (pty-ownership.puml). Done() tells the
 ' proxy the dialog has its answer, so nothing typed after it is consumed.

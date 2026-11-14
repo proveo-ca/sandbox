@@ -465,7 +465,8 @@ func (f *Form) Selections(label string) []string {
 }
 
 func (f *Form) Selection(label string) string {
-	for _, r := range f.Rows {
+	for i := range f.Rows {
+		r := &f.Rows[i]
 		if r.Label == label && r.Selected >= 0 && r.Selected < len(r.Options) {
 			return r.Options[r.Selected]
 		}
@@ -556,6 +557,7 @@ type formModel struct {
 	w, h   int
 	out    Outcome
 	quit   quitGate
+	ended  bool // out is the form's answer; a Session reads it here instead of quitting
 }
 
 // formTick advances the figure's motion by one frame.
@@ -581,7 +583,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.quit.up() {
 			var leave bool
 			if m.quit, leave = m.quit.Update(msg); leave {
-				m.out = Quit
+				m.out, m.ended = Quit, true
 				return m, tea.Quit
 			}
 			return m, nil
@@ -595,7 +597,7 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case done && out == Quit && m.f.navigable(m.w, m.h):
 			m.quit = m.quit.open(m.w, m.h, m.f.Step.Leave, m.f.Glyphs)
 		case done:
-			m.out = out
+			m.out, m.ended = out, true
 			return m, tea.Quit
 		}
 	}
@@ -843,7 +845,8 @@ func (f *Form) typing(cursor int, p press) bool {
 
 // Value is what was typed into a field row, empty when it was left alone.
 func (f *Form) FieldValue(label string) string {
-	for _, r := range f.Rows {
+	for i := range f.Rows {
+		r := &f.Rows[i]
 		if r.Field && r.Label == label {
 			return r.Value
 		}

@@ -2,12 +2,15 @@
 package choiceui
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 // A dialog card's columns: the title and the loss mark, the body, the button row, the key line; and
@@ -50,8 +53,12 @@ func unnumbered(text string) string {
 
 // askDialog runs d on the operator's own terminal and returns the accepted button.
 // asked is false when no terminal opens or the Program fails; the answer is then the safe one.
+// Under a Session it warns with the dialog's title.
 var askDialog = func(d dialog) (answer int, asked bool) {
 	in, out, done, err := openTerminal()
+	if errors.Is(err, ErrTerminalHeld) {
+		ui.Warnf("%s — not asked: a card holds the terminal", d.title)
+	}
 	if err != nil {
 		return d.safe, false
 	}

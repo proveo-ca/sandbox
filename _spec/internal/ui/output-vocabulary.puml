@@ -329,6 +329,23 @@
 '     a plain printer keeps one start line, and egress's "local model" fact
 '     gains a dim "pulled this run · 4.0 GiB")
 '
+' ── HOLD (2026-11-13, I3 stage 3) ─────────────────────────────────────────
+' A card on the alternate screen cannot share the terminal with the stream:
+' one stray line over it corrupts the frame (D28). Hold() swaps Default for
+' a printer into memory, as TeeTo swaps it, with the same plainness, tier,
+' width and section state. A live line draws nothing while held, because
+' the held printer has no terminal. release() puts the old Default back,
+' carries the section state over, and returns the bytes; a second call
+' returns the same bytes. Replay(held) prints them through Default under
+' its lock, so the terminal wraps them and the run log takes them, as if
+' printed then.
+' THE HOLD COVERS Default ALONE. A write straight to os.Stdout or os.Stderr,
+' or a child's inherited stderr, still reaches the terminal. Its one user is
+' choiceui.Session, which holds from OpenSession to Close and replays after
+' the Program left the alternate screen
+' (_spec/internal/choiceui/session.puml, THE HOLD).
+' Pinned by internal/ui/hold_test.go: TestHeldOutputNeverReachesTheTerminal
+'
 title Output vocabulary — six roles, three severities, fourteen sections, one measured writer
 
 component "Printer{W, Plain, Tier}" as P <<app>>
