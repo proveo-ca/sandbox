@@ -24,11 +24,15 @@ type layout struct {
 	pane     int
 	tooSmall bool
 	body     int
+	cut      cut // how far a checklist went down its ladder
 }
 
 func (f *Form) rowsHeight() int { return len(f.bodyLines()) }
 
 func (f *Form) maxHelpLines(width int) int {
+	if f.Checklist {
+		return f.checklistHelpSlot(width)
+	}
 	most := 0
 	for i := range f.Rows {
 		r := f.Rows[i]
@@ -61,6 +65,9 @@ func (f *Form) maxHelpLines(width int) int {
 }
 
 func (f *Form) layout(w, h int) layout {
+	if f.Checklist {
+		return f.checklistLadder(w, h)
+	}
 	if lay := f.ladder(w, h, true); lay.strip == stripBlock {
 		return lay
 	}

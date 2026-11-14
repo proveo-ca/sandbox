@@ -976,7 +976,9 @@
         "internal/choiceui/oversized_model.go",
         "internal/choiceui/agent_update.go",
         "internal/backend/sandbox/confirm.go",
-        "e2e/close_confirm_modes_test.go"
+        "e2e/close_confirm_modes_test.go",
+        "internal/choiceui/quit_gate.go",
+        "internal/choiceui/checklist_test.go"
       ],
       "fingerprint": null
     },
@@ -1007,7 +1009,8 @@
         "internal/choiceui/list_layer_test.go",
         "cmd/proveo/init.go",
         "cmd/proveo/init_steps_test.go",
-        "e2e/init_steps_test.go"
+        "e2e/init_steps_test.go",
+        "internal/choiceui/checklist_test.go"
       ],
       "fingerprint": null
     },
@@ -1052,7 +1055,10 @@
         "internal/run/run_form_order_test.go",
         "internal/choiceui/credential_lists_test.go",
         "internal/run/model_row.go",
-        "internal/choiceui/step_test.go"
+        "internal/choiceui/step_test.go",
+        "internal/choiceui/checklist.go",
+        "internal/choiceui/checklist_test.go",
+        "internal/choiceui/marks.go"
       ],
       "fingerprint": null
     },

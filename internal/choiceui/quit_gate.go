@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // genericLeave is the question on a wizard that words none.
@@ -53,3 +54,35 @@ func (g quitGate) Update(msg tea.Msg) (next quitGate, quit bool) {
 
 // view is the question, drawn over the whole screen.
 func (g quitGate) view() tea.View { return g.ask.View() }
+
+// overlay draws the question over the form already on s: the form dims, the band of rows the box
+// spans clears between the card's walls, and the box centres on the card's columns between its
+// head row and its bottom border. It answers false, drawing nothing, when the card is unframed or
+// the rows between its head and its bottom border cannot hold the box.
+// SPEC: _spec/internal/choiceui/confirm-dialogs.puml
+func (g quitGate) overlay(s *screen, at cardAt) bool {
+	if !at.framed || at.bottom <= at.head {
+		return false
+	}
+	d := *g.ask
+	box := d.card()
+	bw, bh := box.Size()
+	if (at.w-bw)%2 != 0 {
+		d.minW = bw + 1
+		box = d.card()
+		bw, bh = box.Size()
+	}
+	if bw > at.w-2 || bh > at.bottom-at.head-1 {
+		return false
+	}
+	x0 := (at.w - bw) / 2
+	y0 := at.head + 1 + (at.bottom-at.head-1-bh)/2
+	s.dim()
+	gl, blank := glyphsFor(d.glyphs), lipgloss.NewStyle()
+	for y := y0; y < y0+bh; y++ {
+		s.put(0, y, blank.Faint(true), gl.wallL+strings.Repeat(" ", at.w-2)+gl.wallR)
+		s.put(x0, y, blank, strings.Repeat(" ", bw))
+	}
+	s.paste(box, x0, y0)
+	return true
+}

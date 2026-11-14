@@ -19,20 +19,33 @@ type lineKind int
 const (
 	lineHeading lineKind = iota // a divider's stub
 	lineRow                     // the row itself
+	lineBlank                   // a checklist's spacing blank
+	lineWrap                    // a check message's next line
+	lineDetail                  // a check's evidence, fix or note
+	lineFold                    // several checklist rows drawn as one
 )
 
+// bodyLine is one line of the body: row is the row it draws, or -1 for a blank.
 type bodyLine struct {
-	row  int
-	kind lineKind
+	row   int
+	kind  lineKind
+	text  string // a wrap, detail or fold line's text
+	label string // a fold line's label
+	mark  Mark   // a fold line's mark
+	role  detail // what a detail line says
+	drop  int    // the line's place among the blanks or detail entries the ladder drops; -1 for none
 }
 
 func (f *Form) bodyLines() []bodyLine {
 	lines := make([]bodyLine, 0, 2*len(f.Rows))
 	for i, r := range f.Rows {
-		if r.Divider {
-			lines = append(lines, bodyLine{i, lineHeading})
+		if !f.shown(i) {
+			continue
 		}
-		lines = append(lines, bodyLine{i, lineRow})
+		if r.Divider {
+			lines = append(lines, bodyLine{row: i, kind: lineHeading})
+		}
+		lines = append(lines, bodyLine{row: i, kind: lineRow})
 	}
 	return lines
 }
@@ -182,7 +195,7 @@ func clampInt(v, lo, hi int) int {
 func (f *Form) lastSelectable() int {
 	last := f.firstSelectable()
 	for i := range f.Rows {
-		if !f.Rows[i].Locked {
+		if f.answers(i) && !f.Rows[i].Locked {
 			last = i
 		}
 	}

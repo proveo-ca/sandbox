@@ -158,7 +158,7 @@ func TestTheCloseDialogSaysWhatItDoesAndNamesItsKeys(t *testing.T) {
 		"That deletes the session.",
 		"Uncommitted changes can be permanently lost.",
 		"Stay ↵", "Remove", "Interrupt agent",
-		"←/→ move · enter accept · esc stay · ctrl+c interrupt agent",
+		"←→ choose · enter press · esc stay · ctrl+c interrupt agent",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the close dialog lacks %q\n%s", want, out)
@@ -200,7 +200,7 @@ func TestAcceptingRemoveStopsTheAgentOnceAndKeepsTheDialogUp(t *testing.T) {
 	if !strings.Contains(out, "stopping the agent (up to 30s)") {
 		t.Errorf("the held dialog does not say a stop is in flight\n%s", out)
 	}
-	if strings.Contains(out, "Remove") || strings.Contains(out, "enter accept") {
+	if strings.Contains(out, "Remove") || strings.Contains(out, "enter press") {
 		t.Errorf("the held dialog still offers its buttons\n%s", out)
 	}
 	later, _ := held.Update(dialogTick{at: held.heldAt.Add(4 * time.Second)})
@@ -498,7 +498,7 @@ func TestOffAndASCIIDialogsDrawThePlainSet(t *testing.T) {
 		d := NewSandboxClose(nil, time.Second).(dialog)
 		d.glyphs = tier
 		box := plain(d.box())
-		for _, want := range []string{"+---", "| ", "<enter>", "left/right move · enter accept"} {
+		for _, want := range []string{"+---", "| ", "<enter>", "left/right choose · enter press"} {
 			if !strings.Contains(box, want) {
 				t.Errorf("tier %d lacks %q:\n%s", tier, want, box)
 			}

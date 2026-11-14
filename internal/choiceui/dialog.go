@@ -44,6 +44,7 @@ type dialog struct {
 	timedOut bool
 	w, h     int
 	glyphs   GlyphTier
+	minW     int // the narrowest the card draws
 }
 
 // newDialog is a dialog whose safe answer is selected, drawn in the glyph tier PROVEO_GLYPHS names.
@@ -148,7 +149,10 @@ func (d dialog) View() tea.View {
 
 // box is the dialog's card, sized to its content: the title, the body, a rule, then the button row,
 // a blank and the key line, or the held line.
-func (d dialog) box() string {
+func (d dialog) box() string { return d.card().view() }
+
+// card is box as a screen of its own size, at least minW wide.
+func (d dialog) card() *screen {
 	p := styles()
 	lines := d.lines
 	for len(lines) > 0 && lines[len(lines)-1] == "" {
@@ -175,6 +179,7 @@ func (d dialog) box() string {
 		grow(modalKeyX, textWidth(joinHint(d.keyParts())))
 		h += 3
 	}
+	w = max(w, d.minW)
 
 	s := newScreen(w, h)
 	c := newCanvas(s)
@@ -204,7 +209,7 @@ func (d dialog) box() string {
 		k.line(c, false, func() { paintHint(c, p, d.keyParts(), modalKeyX, k.edge-modalKeyX) })
 	}
 	k.bottom(c)
-	return s.view()
+	return s
 }
 
 // buttonRow draws the answers left to right; the selected one is filled and carries the enter mark.
@@ -268,13 +273,15 @@ func enterMark(t GlyphTier) string {
 	return "↵"
 }
 
-// keyParts are the key line's segments: how to move, what Enter does, and what Esc and ctrl+c give.
+// keyParts are the key line's segments, in the card's words: how to choose a button, that Enter
+// presses it, and what Esc and ctrl+c give.
+// SPEC: _spec/internal/choiceui/confirm-dialogs.puml
 func (d dialog) keyParts() []hintPart {
-	move := "←/→"
+	move := "←→"
 	if plainGlyphs(d.glyphs) {
 		move = "left/right"
 	}
-	parts := []hintPart{{move, "move", 0}, {"enter", "accept", 0}, {"esc", strings.ToLower(d.buttons[d.safe].Label), 0}}
+	parts := []hintPart{{move, "choose", 0}, {"enter", "press", 0}, {"esc", strings.ToLower(d.buttons[d.safe].Label), 0}}
 	if d.onCtrlC != d.safe {
 		parts = append(parts, hintPart{"ctrl+c", strings.ToLower(d.buttons[d.onCtrlC].Label), 0})
 	}

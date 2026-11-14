@@ -110,7 +110,7 @@ func headedCtrlCAsksBeforeRemoving(t *testing.T, target, filter, key string) {
 		"Stay",
 		"Remove",
 		"Interrupt agent",
-		"enter accept",
+		"enter press",
 	} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("confirm modal missing %q:\n%s", want, screen)

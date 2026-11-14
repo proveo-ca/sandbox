@@ -11,6 +11,8 @@
 ' covers: internal/choiceui/credential_lists_test.go
 ' covers: internal/run/model_row.go
 ' covers: internal/choiceui/step_test.go
+' covers: internal/choiceui/checklist.go, internal/choiceui/checklist_test.go
+' covers: internal/choiceui/marks.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows and gateAddons have already executed.
@@ -340,6 +342,99 @@
 '   TestCredentialsRowIsAReadOnlyInventory,
 '   TestTheEnvCellListsTheEnvFilesNamesAndNeverAValue
 ' Golden frames: internal/choiceui/testdata/frames/, 137 files (tui-stack.puml).
+
+' ── THE CHECKLIST CARD (owner chose I3, 2026-11-13; built stage 2) ─────────
+' Form.Checklist draws a form as one running checklist: init's four pages in
+' one card. The plan is the I3 implementation spec (§2 the card, §7 the
+' mocks); the Executor's choices while building it are tagged S2-n. Init
+' does not set the flag yet; stage 4 does. Every rule below applies only
+' under the flag, so no golden of another form moved.
+' ROW KINDS (Row.Kind; Executor S2-1, the spec named only Mark):
+'   RowAnswer   options or a field; the only kind the cursor stops on
+'   RowStatus   mark at 2, label at 4 (+Indent), Outcome at 18
+'   RowCheck    mark at 2, "name — message" from 4, wrapping at 6; then
+'               Evidence, Fix and Note at 6, in that order
+'   RowDone     a finished page: worst mark, short name, outcome
+'   RowAhead    a page not reached: ·, short name, "page n/4 · <asks>"
+' A row with When{Row, Option} draws only while that row reads Option. A
+' hidden row keeps its index; move, firstSelectable, lastSelectable, the
+' ladder and the walls skip it; Selection and FieldValue still read it, so
+' an answer survives closing and reopening. Indent 2 puts a sub-row's label
+' at 6 (location, PATH, user.name, user.email).
+' MARKS (marks.go, shared later by the stream printer):
+'   done ✓/+ ok · needs ! warn · failed ×/x fail · later –/- idle ·
+'   ahead ·/. idle · running ◐◓◑◒ or | / - \ brand, one per formTick ·
+'   cursor ›/> brand. ASCII and Off draw the second set (plainGlyphs).
+'   Tag gives the plain head: "ok: ", "warn: ", "error: ", or nothing.
+'   Worst folds marks: × over ! over ✓ over –.
+' COLUMNS: marks and › at 2; labels, facts, prose and check text at 4;
+'   sub-row labels and check details at 6; outcomes and the grid at 18;
+'   a field's ✓ or ! at 18 and its [ at 20; the chip ends at cw-3.
+' FIELDS (Executor, S2-3): the focused field draws "_" after a typed value,
+'   as §7's P2 mock does; an empty one shows its placeholder bare. Held
+'   draws MarkDone's glyph, so ASCII reads "+".
+' THE BORDER LABEL. Form.Border puts "╭── <label> ──…╮" on the top border,
+'   the label in the title style, cut with … so two rules still close it.
+' THE HEAD. The title row; the facts (header lines asFact accepts); the
+'   prose (every other header line, at 4); one blank. No blank sits
+'   between the title and its facts.
+' SPACING. One blank after the head and after the done rows. One blank
+'   before each stub, except a stub that already follows one of those.
+'   One blank after a check with details when a check follows in the same
+'   section. None after a stub, inside a section, or over the foot rule.
+'   Under the card one blank, then the help at 2.
+' THE LADDER (checklistLadder): one thing at a time, first fit wins:
+'   1 spacing blanks, bottom-up   2 the blank under the card
+'   3 the prose line              4 passed checks fold: "✓ n passed — a, b"
+'   5 detail entries past each check's kept one (the fix, else the first
+'     evidence line), bottom-up; a wrapped entry drops whole (S2-2: the
+'     cut counts entries, so P1's evidence and two-row note are 2)
+'   6 done rows fold: "<worst> pages 1-n   names"
+'   7 the head's blank            8 ahead pages fold: "· pages n-4   names"
+'   9 the body scrolls; ▲ ▼ ░ ride the right wall
+' The help never drops. Its slot is the most lines any answer, field, run
+' or blocker needs, at most 2; a longer help cuts its second line with ….
+' THE HELP. An answer names its option as its cell does (Paint wins:
+' "› keep as is — …"). A field reads "› <label> — <Reason>". A run reads
+' "<label> — <Progress.Help>". A blocker reads Form.Blocked. Under ASCII
+' the head's › draws >.
+' AN OUTCOME TOO LONG for its row draws Row.Brief, the page's count form;
+' a Brief still too long cuts its first item with … (fitOutcome). Only a
+' done row cuts its first item (S2-18): an ahead or status row cuts its
+' end, so "page n/4" stays at any width.
+' A WORD TOO LONG for its line (a URL, a path) in check text or a detail
+' line keeps its head and tail around … (clipMiddle; D8, S2-19). wrap
+' never splits a word, so nothing else reaches the wall.
+' THE KEY LINE (checklistKeys), at rest: "↑↓ row" while any row is a stop;
+' "←→ choose" while the cursor's row has options; "type to edit" on a
+' field; "pgup/pgdn scroll" (rank 4) only while the body scrolls; "enter
+' <EnterWord>" ("run n steps", "next", "finish"; nil reads "next"); "esc
+' back" past page 1, "esc quit" on it; "ctrl+c quit". No "on enter" list,
+' no "N more below" (▼ says it), no topology. Blocked: "esc quit · ctrl+c
+' quit", even over an open list; Enter does nothing. Progress: "running i
+' of m — <label> · ctrl+c stop", or "stopping after <label> …". Under
+' ASCII and Off the arrows read "up/down" and "left/right", as the dialogs
+' over the card do (S2-22).
+' TOO SMALL. A checklist that cannot hold 3 body rows past its last rung
+' prints "terminal too small: WxH, need N rows", N counting the facts
+' rows, over its key line without "↑↓ row" (S2-20).
+' ESC ON PAGE 1 ASKS (D26): wizard-keys.puml.
+' THE QUIT DIALOG DRAWS OVER THE DIMMED CARD: confirm-dialogs.puml.
+' RENDER. Form.Render(w, h) is the form at rest as plain text, the cursor
+' where it opens, trailing blanks cut: what cmd goldens will read.
+' MEASURED (stage 2 goldens): every 80x24 mock in the I3 spec's §7 and its
+' P1 120x36 mock match the drawn frames character for character.
+' Pinned by internal/choiceui/checklist_test.go: TestAChecklistGoldenFrames
+'   (testdata/checklist/, 22 files), TestAStatusRowIsNeverACursorStop,
+'   TestARowOpensItsFieldsOnlyWhileItsAnswerHolds,
+'   TestTheTopBorderCarriesItsLabel, TestTheChecklistLadderDropsInOrder,
+'   TestAnOutcomeTooLongCountsItsLaterSteps,
+'   TestTheChecklistKeyLineNamesWhatEnterDoes, TestMarksDrawPerGlyphTier,
+'   TestTheChecklistColumns, TestTheChecklistSpacing,
+'   TestEscOnPageOneAsksWhenTheFormIsAChecklist,
+'   TestTheQuitDialogDrawsOverTheDimmedForm, TestRenderIsTheFormAtRest,
+'   TestAChecklistTooSmallNamesItsRowsAndKeys,
+'   TestALongWordInACheckKeepsItsTail
 
 ' ── THE KEY LINE, AND A FORM THAT IS ONE SCREEN OF SEVERAL (2026-11-08) ────
 ' The Executor chose "Back/next across screens". Form.hint composes the key line

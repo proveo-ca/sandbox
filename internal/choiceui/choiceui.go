@@ -4,6 +4,7 @@ package choiceui
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -45,7 +46,33 @@ type Row struct {
 	Masked      bool
 	Held        bool
 	Warn        bool
+
+	// A checklist row reports a state beside, or instead of, an answer.
+	// SPEC: _spec/internal/choiceui/wireframe.puml (THE CHECKLIST CARD)
+	Kind     RowKind
+	Mark     Mark
+	Outcome  string   // a status row's text at column 18; a check's message after " — "
+	Brief    string   // the count form an Outcome too long for its row draws instead
+	Evidence []string // a check's findings
+	Fix      string   // what to do about a check
+	Note     string   // a check's aside
+	Indent   int      // columns the label sits right of column 4: 2 on a sub-row
+	When     *When    // the answer that opens this row; nil draws it always
 }
+
+// RowKind is what a checklist row draws.
+type RowKind int
+
+const (
+	RowAnswer RowKind = iota // options or a field; the only kind the cursor stops on
+	RowStatus                // mark, label, outcome
+	RowCheck                 // mark, "name — message", then its evidence, fix and note
+	RowDone                  // a finished page: mark, short name, outcome
+	RowAhead                 // a page not reached: mark, short name, what it asks
+)
+
+// When names the answer that opens a row: the row labelled Row reads Option.
+type When struct{ Row, Option string }
 
 // More is the selectable or read-only list a row cell opens.
 // SPEC: _spec/internal/devports/dev-ports.puml, _spec/cmd/proveo/github-access.puml
@@ -196,7 +223,7 @@ func (r *Row) cursorAt() int {
 	return r.Selected
 }
 
-func (r *Row) hoverable() bool { return r.Locked && len(r.Options) > 0 }
+func (r *Row) hoverable() bool { return r.Kind == RowAnswer && r.Locked && len(r.Options) > 0 }
 
 type helpLine struct {
 	text string
@@ -209,7 +236,10 @@ const (
 	alwaysOnHead = "always on: "
 )
 
-func (r *Row) helpLines(width int) []helpLine {
+func (r *Row) helpLines(width int) []helpLine { return r.helpNamed(width, optionName) }
+
+// helpNamed is helpLines with the option named by name in the "› <option> — <help>" head.
+func (r *Row) helpNamed(width int, name func(string) string) []helpLine {
 	idx := r.cursorAt()
 	if idx < 0 || idx >= len(r.Options) {
 		return nil
@@ -225,7 +255,7 @@ func (r *Row) helpLines(width int) []helpLine {
 		}
 	}
 	if h := r.Help[opt]; h != "" {
-		for _, l := range wrap("› "+optionName(opt)+" — "+h, width, 2) {
+		for _, l := range wrap("› "+name(opt)+" — "+h, width, 2) {
 			out = append(out, helpLine{text: l})
 		}
 	}
@@ -341,8 +371,40 @@ type Form struct {
 	// OnEnter names what accepting the form runs, in order, for the answers as they stand.
 	// SPEC: _spec/internal/choiceui/wireframe.puml
 	OnEnter func(*Form) []string
-	scroll  int
-	onSkip  bool // the cursor is on the Skip button
+
+	// The checklist card: its rows, spacing, ladder and key line.
+	// SPEC: _spec/internal/choiceui/wireframe.puml (THE CHECKLIST CARD)
+	Border    string             // the label the top border carries
+	Checklist bool               // draw and key the form as a checklist card
+	EnterWord func(*Form) string // what Enter's key-line segment says on a checklist; nil reads "next"
+	Blocked   string             // why Enter does nothing on a checklist; the help reads it
+	Progress  *Progress          // the run Enter started on a checklist; nil at rest
+
+	scroll int
+	onSkip bool   // the cursor is on the Skip button
+	at     cardAt // where the last draw put the card
+}
+
+// Progress is a checklist's run after Enter: the rows it runs, in order, and how far it got.
+type Progress struct {
+	Plan     []string // the labels of the rows Enter runs
+	At       int      // the index in Plan of the row running now
+	Stopping bool     // ctrl+c asked the run to stop after that row
+	Help     string   // what the running row does, for the help under the card
+}
+
+// label is the running row's label, or "" past the plan.
+func (p *Progress) label() string {
+	if p.At < 0 || p.At >= len(p.Plan) {
+		return ""
+	}
+	return p.Plan[p.At]
+}
+
+// cardAt is where a draw put the card: its head row, its bottom border's row and its width.
+type cardAt struct {
+	head, bottom, w int
+	framed          bool
 }
 
 // Step is screen At of Of; Esc leaves a screen past the first as Back.
@@ -541,10 +603,12 @@ func (m formModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m formModel) View() tea.View {
-	if m.quit.up() {
+	s := newScreen(m.w, m.h)
+	m.f.draw(s, m.cursor, m.tick)
+	if m.quit.up() && !m.quit.overlay(s, m.f.at) {
 		return m.quit.view()
 	}
-	v := tea.NewView(m.f.frame(m.w, m.h, m.cursor, m.tick))
+	v := tea.NewView(s.view())
 	v.AltScreen = true
 	return v
 }
@@ -554,6 +618,22 @@ func (f *Form) frame(w, h, cursor, tick int) string {
 	s := newScreen(w, h)
 	f.draw(s, cursor, tick)
 	return s.view()
+}
+
+// sgrRun is one SGR escape sequence.
+var sgrRun = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
+
+// Render is the form at rest on a w-by-h terminal as plain text, the cursor where it opens: one
+// line per row, trailing blanks and trailing blank rows cut.
+func (f *Form) Render(w, h int) string {
+	lines := strings.Split(sgrRun.ReplaceAllString(f.frame(w, h, f.startCursor(), 0), ""), "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // key applies one key press: it moves the cursor, changes an answer, or ends the form. A list the
@@ -568,16 +648,17 @@ func (f *Form) key(cursor *int, p press, w, h int) (Outcome, bool) {
 }
 
 // apply is key without the list reset. Enter and Esc close one layer, innermost first: the
-// typing filter, the open list, then the form.
+// typing filter, the open list, then the form. A blocked checklist takes only the keys that leave.
 // SPEC: _spec/internal/choiceui/wizard-keys.puml
 func (f *Form) apply(cursor *int, p press, w, h int) (Outcome, bool) {
-	if f.filterKey(*cursor, p, w, h) || f.closeKey(*cursor, p, w, h) {
+	blocked := f.Checklist && f.Blocked != ""
+	if !blocked && (f.filterKey(*cursor, p, w, h) || f.closeKey(*cursor, p, w, h)) {
 		return Cancelled, false
 	}
 	if out, done := f.leave(p); done {
 		return out, true
 	}
-	if !f.navigable(w, h) {
+	if blocked || !f.navigable(w, h) {
 		return f.quitKey(), p.text == "q"
 	}
 	if f.onSkip {
@@ -711,13 +792,19 @@ func (f *Form) leave(p press) (Outcome, bool) {
 	case "ctrl+c":
 		return f.quitKey(), true
 	case "esc":
-		if f.Step.backable() {
+		switch {
+		case f.Step.backable():
 			return Back, true
+		case f.Checklist && f.Step.wizard():
+			return Quit, true
 		}
 		return Cancelled, true
 	case "enter":
-		if f.onSkip {
+		switch {
+		case f.onSkip:
 			return Skipped, true
+		case f.Checklist && f.Blocked != "":
+			return Cancelled, false
 		}
 		return Accepted, true
 	case "shift+tab":
@@ -837,24 +924,49 @@ func (r *Row) changeable() bool {
 	return false
 }
 
-// firstSelectable is the top row with an answer to change, else the top unlocked row.
+// firstSelectable is the top row with an answer to change, else the top unlocked row. A checklist
+// with no cursor stop answers one past its last row.
 func (f *Form) firstSelectable() int {
 	for i := range f.Rows {
-		if f.Rows[i].changeable() {
+		if f.stop(i) && f.Rows[i].changeable() {
 			return i
 		}
 	}
 	for i, r := range f.Rows {
-		if !r.Locked {
+		if f.answers(i) && !r.Locked {
 			return i
 		}
 	}
-	return 0
+	if !f.Checklist {
+		return 0
+	}
+	for i := range f.Rows {
+		if f.stop(i) {
+			return i
+		}
+	}
+	return len(f.Rows)
+}
+
+// answers reports whether row i draws as an answer: shown, and neither a status nor a check.
+func (f *Form) answers(i int) bool {
+	return i >= 0 && i < len(f.Rows) && f.Rows[i].Kind == RowAnswer && f.shown(i)
+}
+
+// stop reports whether row i can hold the cursor: an answer row, unlocked or hoverable.
+func (f *Form) stop(i int) bool {
+	return f.answers(i) && (!f.Rows[i].Locked || f.Rows[i].hoverable())
+}
+
+// shown reports whether row i draws: its When answer holds, or it names none.
+func (f *Form) shown(i int) bool {
+	w := f.Rows[i].When
+	return w == nil || f.Selection(w.Row) == w.Option
 }
 
 func (f *Form) move(cursor, delta int) int {
 	for i := cursor + delta; i >= 0 && i < len(f.Rows); i += delta {
-		if !f.Rows[i].Locked || f.Rows[i].hoverable() {
+		if f.stop(i) {
 			return i
 		}
 	}
@@ -1045,21 +1157,28 @@ func answerStyle(p palette, on, fixed, gated, focused bool) lipgloss.Style {
 }
 
 func (f *Form) draw(s *screen, cursor, tick int) {
+	f.at = cardAt{}
+	if f.Checklist {
+		f.drawChecklist(s, cursor, tick)
+		return
+	}
 	p := styles()
 	w, h := s.Size()
 	lay := f.layout(w, h)
 	if lay.tooSmall {
-		drawTooSmall(s, w, h, f.minHeight(w))
+		drawTooSmall(s, w, h, f.minHeight(w), "enter accepts the resolved values · esc cancels")
 		return
 	}
 
 	k := newCard(w, f.Glyphs, p)
+	k.label = f.Border
 	c := newCanvas(s)
 
 	if lay.banner {
 		drawBanner(c, p, f.Banner)
 	}
 	k.head(c, f.Title, f.headChip(w, cursor))
+	f.at = cardAt{head: c.y - 1, w: k.w, framed: k.framed}
 	room := listRoom{row: -1, head: c.y}
 	if lay.header {
 		for _, row := range f.facts(w) {
@@ -1136,6 +1255,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	k.walls(c, false)
 	c.y++
 	k.bottom(c)
+	f.at.bottom = c.y
 	c.y++
 	room.under = c.y
 
@@ -1273,6 +1393,9 @@ func (f *Form) hintParts(w, hidden, cursor int) []hintPart {
 // keyParts is the key line's segments after the page count, before narrowing.
 // SPEC: _spec/internal/choiceui/wireframe.puml
 func (f *Form) keyParts(hidden, cursor int) []hintPart {
+	if f.Checklist {
+		return f.checklistKeys(hidden > 0, cursor)
+	}
 	esc := hintPart{"esc", "cancel", 5}
 	if f.Step.backable() {
 		esc = hintPart{"esc", "back", 6}
@@ -1597,13 +1720,17 @@ func (f *Form) drawBodyLine(c *canvas, p palette, k card, ln bodyLine, cursor, p
 	}
 	if ln.row == cursor {
 		marker = "› "
+		if f.Checklist {
+			marker = cursorGlyph(f.Glyphs) + " "
+		}
 		labelStyle = p.brand
 	}
 	rowLabel := r.Label
 	if r.Divider && named && r.Heading == "" {
 		rowLabel = "" // the heading above it is on screen and already says this
 	}
-	c.put(bodyIndent, labelStyle, marker+clipRunes(rowLabel, labelWidth-textWidth(marker)))
+	pad := strings.Repeat(" ", max(0, r.Indent))
+	c.put(bodyIndent, labelStyle, marker+pad+clipRunes(rowLabel, labelWidth-textWidth(marker)-len(pad)))
 	x := optOrigin
 	if r.Field {
 		f.drawField(c, p, r, x, ln.row == cursor)
@@ -1666,17 +1793,22 @@ func (f *Form) minHeight(w int) int {
 	if f.Skip != "" {
 		need += skipRows
 	}
+	if f.Checklist {
+		facts, _ := f.headRows(w)
+		need += len(facts)
+	}
 	return need
 }
 
-func drawTooSmall(s *screen, w, h, needH int) {
+// drawTooSmall paints the rows a w by h terminal lacks, then keys, the keys the form still takes.
+func drawTooSmall(s *screen, w, h, needH int, keys string) {
 	p := styles()
 	msg := fmt.Sprintf("terminal too small: %dx%d, need %d rows", w, h, needH)
 	c := newCanvas(s)
 	c.put(0, p.warn, clip(msg, w))
 	if h > 1 {
 		c.y = 1
-		c.put(0, p.body, clip("enter accepts the resolved values · esc cancels", w))
+		c.put(0, p.body, clip(keys, w))
 	}
 }
 
@@ -1873,6 +2005,8 @@ func (f *Form) drawField(c *canvas, p palette, r Row, x int, focused bool) {
 	switch {
 	case r.Warn:
 		glyph, st = "! ", p.warn
+	case r.Held && f.Checklist:
+		glyph, st = MarkDone.Glyph(f.Glyphs, 0)+" ", p.brand
 	case r.Held:
 		glyph, st = "\u2713 ", p.brand
 	}
@@ -1884,6 +2018,9 @@ func (f *Form) drawField(c *canvas, p palette, r Row, x int, focused bool) {
 		body, bodyStyle = r.Value, p.body
 		if r.Masked {
 			body = strings.Repeat("\u2022", len([]rune(r.Value)))
+		}
+		if focused && f.Checklist {
+			body += "_"
 		}
 	}
 	if w := len([]rune(body)); w > fieldWidth {

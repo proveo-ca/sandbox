@@ -111,6 +111,7 @@ type card struct {
 	edge   int
 	g      glyphSet
 	p      palette
+	label  string // what the top border carries after "╭── "
 }
 
 func newCard(w int, tier GlyphTier, p palette) card {
@@ -130,6 +131,7 @@ func (k card) head(c *canvas, title, chip string) {
 		return
 	}
 	k.border(c, k.g.frameTL, k.g.frameTR)
+	k.borderLabel(c)
 	c.y++
 	c.put(2, k.p.title, title)
 	if chip != "" {
@@ -154,6 +156,21 @@ func (k card) foot(c *canvas) { k.border(c, k.g.joinL, k.g.joinR) }
 
 // bottom draws the bottom border.
 func (k card) bottom(c *canvas) { k.border(c, k.g.frameBL, k.g.frameBR) }
+
+// borderLabel writes the label into the top border as "╭── <label> ──…╮", cut with … so at least
+// two rules close it.
+func (k card) borderLabel(c *canvas) {
+	if k.label == "" {
+		return
+	}
+	label := clipRunes(k.label, k.w-8)
+	if label == "" {
+		return
+	}
+	c.put(3, k.p.frame, " ")
+	c.put(4, k.p.title, label)
+	c.put(4+textWidth(label), k.p.frame, " ")
+}
 
 func (k card) border(c *canvas, left, right string) {
 	if k.framed {

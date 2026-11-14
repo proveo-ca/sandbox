@@ -135,7 +135,7 @@ func TestLiveCloseDialogStaysUpWhileTheAgentStops(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the dialog did not say a stop is in flight: %v\n%s", err, screen)
 	}
-	if strings.Contains(screen, "enter accept") {
+	if strings.Contains(screen, "enter press") {
 		t.Errorf("the waiting dialog still offers its buttons\n%s", screen)
 	}
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {

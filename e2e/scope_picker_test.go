@@ -140,6 +140,9 @@ func TestTheFormStepsBackToTheScopePageWhereItWasLeft(t *testing.T) {
 	if !strings.Contains(screen, "No sandbox has been created or resumed.") || strings.Contains(screen, "leave the wizard?") {
 		t.Errorf("the run's quit question must say what quitting leaves behind:\n%s", tail(screen, 45))
 	}
+	if !strings.Contains(screen, "←→ choose · enter press · esc stay · ctrl+c quit") {
+		t.Errorf("the quit question must name its keys in the card's words:\n%s", tail(screen, 45))
+	}
 	if err := sess.SendKeys("C-c"); err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' covers: internal/choiceui/step_test.go
 ' covers: internal/choiceui/env_list_test.go
 ' covers: internal/choiceui/list_layer_test.go
+' covers: internal/choiceui/checklist_test.go (TestEscOnPageOneAsksWhenTheFormIsAChecklist)
 ' covers: cmd/proveo/init.go (runInitSteps, stepQuit)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: e2e/init_steps_test.go
@@ -42,6 +43,9 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' and per-panel key reuse. A page is still full-screen; the card is its
 ' frame, centred only for a dialog. The reasons above for those still hold.
 ' The card's geometry: _spec/internal/choiceui/wireframe.puml (ONE CARD).
+' AMENDED 2026-11-13 (I3, D4): the quit question now draws over the dimmed
+' page, so "a dimmed underlay" is taken for that one dialog. The other
+' dialogs run with no page under them and keep the whole screen.
 '
 ' ── EVERY PAGE KEEPS A RENDERING WITH NO TERMINAL ──────────────────────────
 ' "A form cannot be the only rendering"
@@ -73,6 +77,21 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' " scope · n/m " and the checks page's " checks · n/m " are gone. Every
 ' wizard page names its count with the one word "page", in the chip and on
 ' the key line.
+' ON A CHECKLIST (Form.Checklist; built 2026-11-13, stage 2, unused by init
+' until stage 4):
+'   Esc        page 1 asks the quit question, as Ctrl+C does (D26); past
+'              page 1 it is Back. A list open under the cursor still takes
+'              Esc first (ONE LAYER PER KEY). A lone checklist cancels.
+'   Enter      Accepted, unless Form.Blocked names a blocker: then nothing.
+'   Blocked    a page Form.Blocked names takes Esc, Ctrl+C and q only. The
+'              arrows, Tab, Space, typing, "/" and a list's Enter or Esc do
+'              nothing: no cursor draws and the key line names none (S2-21).
+' The key line says what Enter does: "enter run n steps", "enter next" or
+' "enter finish", from Form.EnterWord; Esc reads "esc quit" on page 1. The
+' full key line per state: wireframe.puml (THE CHECKLIST CARD).
+' NOT BUILT IN STAGE 2: the running state's keys (only Ctrl+C, which stops)
+' and a sub-page's "esc later". Both need the stage 3 Session; until then a
+' Form with Progress set only draws (Executor, S2-7).
 '
 ' ── THE .env FILTER TAKES Enter AND Esc FIRST (owner, O4, 2026-11-13) ──────
 ' The run form's .env list filters by typing. While its filter is open:
@@ -179,6 +198,8 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' init?"); nobody asked, so it keeps the generic one.
 ' The dialog's own tea.Quit command is dropped: the gate reads the answer and
 ' the page decides.
+' SINCE 2026-11-13 the question draws over the dimmed page, not in place of
+' it: confirm-dialogs.puml (THE QUIT DIALOG DRAWS OVER THE DIMMED FORM).
 ' ON A TERMINAL TOO SMALL TO DRAW THE PAGE, Ctrl+C quits at once. A question
 ' nobody can read would trap the operator.
 ' The gate's method is named Update because a contract test lets a Bubble Tea
