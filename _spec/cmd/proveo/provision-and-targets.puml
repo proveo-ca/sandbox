@@ -45,9 +45,16 @@
 '
 ' PREFLIGHT, MEASURED: Deps.PreflightImages(man, agentImage) ensures the agent
 ' image only; run.preflightImage calls it right after the pages and the run
-' block (output-readability R1), before credentials, only off `--print` and
-' only when sbx holds no template for the image (!sbx.HasTemplate). Its lines
-' land under the run heading. No sidecar images remain.
+' block (output-readability R1), before credentials, only off `--print`. Its
+' lines land under the run heading. No sidecar images remain.
+' (2026-11-12: the "only when sbx holds no template (!sbx.HasTemplate)" clause
+' is gone with HasTemplate itself — MEASURED, no such symbol in cmd/ or
+' internal/ — so the preflight runs on every run that is not `--print`.)
+' AGENT UPDATE (2026-11-12): once Ensure has the image, preflightImages hands
+' it to settleAgent, which returns the image the run launches: the same ref,
+' the overlay built on it, or what an accepted update produced. Ensure still
+' pulls only an ABSENT image; comparing a present one with its registry copy
+' is the check's job. _spec/_devops/agent-update-prompt.puml.
 title Preflight provisioning, the maintainer registry, and the missing-env wizard
 
 node "Consumer path — before any container exists" as PRE <<host>> {
@@ -57,6 +64,7 @@ node "Consumer path — before any container exists" as PRE <<host>> {
   component "sourceDefsDir\nPROVEO_DEFS_DIR · else the checkout" as SRC <<app>>
   component "buildTarget(defs, manifest, image)\nimagebuild.Specs by image name, else manifest name" as BSH <<app>>
   component "imagebuild.BuildTarget(target, buildTag(image))\nasked :latest → builds :local" as IB <<app>>
+  component "settleAgent(manifest name, image)\nagentupdate.Checker.Settle\n→ the image the run launches" as UPD <<app>>
 }
 
 node "Maintainer path — source tree required" as MAINT <<host>> {
@@ -83,7 +91,9 @@ SRC ARROW_MAIN BSH
 BSH ARROW_MAIN IB : in-process, no host bash
 IB ARROW_MAIN PF : agent image → the :local ref
 LMR ARROW_MAIN REG : same registry, in-process
-ENS ARROW_MAIN READY
+ENS ARROW_MAIN UPD : the image is present
+UPD ARROW_CLOUD HUB : registry config, once a day\npull on an accepted update
+UPD ARROW_MAIN READY
 PF ARROW_ERROR LATE : what running the preflight first prevents
 WEN ARROW_MAIN PENV
 PENV ARROW_MAIN SEC

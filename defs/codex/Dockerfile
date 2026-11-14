@@ -41,13 +41,13 @@ RUN groupadd -f docker \
  && usermod -aG docker agent
 LABEL com.docker.sandboxes.start-docker="true"
 
-# Install the Codex CLI. The npm distribution ships the same native binary as the
-# install script and is the pinnable one — a bare `curl | sh` resolves whatever
-# release is current, which is not a thing an image can reproduce.
-ARG CODEX_VERSION=latest
+# SPEC: _spec/_devops/agent-version-pin.puml
+ARG CODEX_VERSION
 RUN --mount=type=cache,id=proveo-codex-npm,target=/root/.npm,sharing=locked \
-    npm install -g "@openai/codex@${CODEX_VERSION}" \
-    && codex --version
+    test -n "${CODEX_VERSION}" \
+      || { echo "CODEX_VERSION build-arg is required — 'mise run build codex' resolves it" >&2; exit 1; } \
+    && npm install -g "@openai/codex@${CODEX_VERSION}" \
+    && codex --version | grep -qF "${CODEX_VERSION}"
 
 # Secure workspace. The workspace root is /app, the same as every other def;
 # /workspace/data survives because --data-dir mounts there for EVERY harness.
@@ -92,7 +92,9 @@ ENV YAMA_PTRACE_SCOPE=1 \
 
 LABEL security.non-root=true \
       security.hardened=true \
-      security.version="1.0"
+      security.version="1.0" \
+      proveo.agent="@openai/codex" \
+      proveo.agent.version="${CODEX_VERSION}"
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD codex --version >/dev/null 2>&1 || exit 1

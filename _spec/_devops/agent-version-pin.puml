@@ -13,6 +13,8 @@
 ' covers: defs/opencode/entrypoint.sh
 ' covers: defs/opencode/README.md
 ' covers: CODING_HARNESSES.md
+' covers: defs/hermes/entrypoint.sh
+' covers: internal/imagebuild/parity_test.go
 ' Approved native runtime integration: _spec/defs/opencode/native-v2-integration.puml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Agent version pin — the image carries the release imagebuild resolved, and says so
@@ -45,6 +47,9 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '                       HasTemplate compares the local docker image ID against a
 '                       receipt and reloads on mismatch, so a rebuild does reach
 '                       the sandbox without PROVEO_SBX_RELOAD.
+'                       (MEASURED 2026-11-12: no HasTemplate remains in cmd/ or
+'                       internal/. The image is the FROM of the v3 kit recipe
+'                       now: _spec/internal/sbx/kit-image-source.puml.)
 '   store → container   a fresh sandbox per run. Nothing stale can survive here.
 '
 ' SO THE ONLY SLACK IS THE TOP RUNG, and before this line existed it was silent:
@@ -63,23 +68,33 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' label, and in every such case the line is OMITTED rather than guessed. A gauge
 ' that lies is worse than one that is absent, and neither may fail a run.
 '
-' STILL OPEN: nothing compares the pinned version against what upstream now
-' publishes, so the line says WHICH version, never whether it is old. That check
-' needs a network call proveo does not otherwise make at run time.
+' CLOSED 2026-11-12 (was STILL OPEN: "nothing compares the pinned version
+' against what upstream now publishes"). The run now makes that network call,
+' at most once a day per image, and offers the newer agent:
+' _spec/_devops/agent-update-prompt.puml. The top rung has a second motor too:
+' a present image used to be pulled never again, and is now compared with its
+' registry copy. A human still turns the first one (`mise run deploy`).
 '
 ' ── TWO PINNING SHAPES, AND WHEN EACH IS USED ──────────────────────────────
 ' A. RESOLVED AT BUILD TIME, bare ARG, no default — the AGENT itself, whose
 '    release moves constantly and whose version the image LABELs:
-'    OPENCODE_VERSION, CLAUDE_CODE_VERSION, CURSOR_AGENT_VERSION. Each is a `Pin` on its target's Specs row
+'    OPENCODE_VERSION, CLAUDE_CODE_VERSION, CURSOR_AGENT_VERSION, CODEX_VERSION,
+'    HERMES_AGENT_VERSION. Each is a `Pin` on its target's Specs row
 '    (internal/imagebuild/targets.go); BuildTarget calls Builder.AgentVersion
 '    and passes the result in; the Dockerfile guards with `test -n` and
 '    verifies with the tool's own --version.
 '    (proveo_agent_version in defs/lib/docker-build.sh until 2026-09-22.)
 '
-'    FINDING: codex is NOT pinned. Its row carries CODEX_VERSION as an EnvArg
-'    defaulting to `latest`, not a Pin — the shell build.sh did the same, and
-'    the P2 port kept parity. agent_pin_test does not cover codex, so nothing
-'    fails when the codex image bakes whatever is newest.
+'    FIXED 2026-11-12 (was FINDING: "codex is NOT pinned" — CODEX_VERSION was
+'    an EnvArg defaulting to `latest`, parity with the shell build.sh).
+'    MEASURED: codex is a Pin on npm @openai/codex; the Dockerfile declares the
+'    ARG bare, guards it, installs @openai/codex@${CODEX_VERSION}, checks
+'    `codex --version` against it and LABELs it; agent_pin_test has its row and
+'    TestImageCodex matches "codex-cli <label>". The npm distribution is the
+'    pinnable one: it ships the same native binary as the install script, and
+'    a bare `curl | sh` resolves whatever release is current.
+'    agent_pin_test now also refuses a pinned ARG that keeps a default or
+'    rides along as an EnvArg, and requires a row for every harness manifest.
 ' B. PINNED IN THE DOCKERFILE as an ARG WITH a default — supporting toolchains
 '    that move on their own cadence and are not the image's headline agent:
 '      PLANTUML_VERSION=1.2026.6      NODE_MAJOR=22       pnpm@10.33.0
@@ -93,8 +108,8 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '    when something ABOVE it changes, and a warm cache keeps last year's linter
 '    with nothing in the build saying so.
 '
-' Still unpinned, and known to be (see _spec/_devops/image-size-reduction.puml
-' item (c) for the full list): the codex agent (CODEX_VERSION=latest, above).
+' No agent is unpinned since 2026-11-12 (codex and hermes, above and HERMES
+' below). _spec/_devops/image-size-reduction.puml item (c) lists the rest.
 ' The six unpinned LSP servers, the lsp-builder go installs and plantuml-lsp
 ' left the images 2026-10-30 (_spec/defs/harness-image-layers.puml, LSP REMOVED).
 '
@@ -130,6 +145,45 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '           argument, so that script is the only place the version is stated.
 '           An image without the label predates the pin — rebuild rather than
 '           trust it.
+'   github  `tag_name` of api.github.com/repos/<owner>/<repo>/releases/latest,
+'           the release GitHub marks Latest. Tag NAMES do not order (HERMES).
+' Builder.Upstream(eco, pkg) is that lookup alone: no override, nothing
+' printed. AgentVersion wraps it for the build; the run-time check
+' (agent-update-prompt.puml) calls it directly with a 4 s fetch.
+'
+' ── HERMES: THE PIN IS A BASE-IMAGE TAG, AND ITS CONFIG IS COPIED BY HAND ───
+' The Executor, 2026-11-12: "why is hermes hand-pinned? Let it resolve like
+' the other defs". Nothing recorded a reason. The pin arrived with the first
+' hermes commit (40c4150f, 2026-09-27) as an EnvArg defaulting to v2026.9.24,
+' "the same way codex pins CODEX_VERSION" — the shape FINDING above called
+' unpinned. [Inference] The resolver had no ecosystem for a Docker Hub tag.
+' MEASURED the same day: upstream stopped date tags at v2026.9.24 and
+' releases v0.x since (v0.23.1, 2026-11-10, sixteen releases on). GitHub's
+' tags API sorts names, so v2026.9.24 sorts above every v0.x tag: compare by
+' the Latest flag or by release date, never by name.
+' WHAT THE HAND PIN WAS HIDING. hermes-flat is `FROM scratch` + `COPY / /`
+' (one layer, sandbox-template-rebase.puml FLAT BASE), which drops the
+' upstream image's config, so the stage re-declares ENV, USER, WORKDIR,
+' ENTRYPOINT and VOLUME by hand. That copy is right for exactly one upstream
+' release: v0.23.1 moved PLAYWRIGHT_BROWSERS_PATH to /opt/hermes/tools, added
+' CC, CXX, HERMES_PYTHON and HERMES_RUNTIME_DIR, and dropped the two
+' LAZY_INSTALL variables and npm_config_install_links.
+' THE GUARD THAT LETS THE TAG FLOAT. A stage on the upstream image records
+' `env | sort`; the final stage bind-mounts that file and diffs it against its
+' own `env | sort` (minus its own ARGs and HERMES_UID) before anything else,
+' in the RUN that already installs dumb-init, so it costs no layer. HOME and
+' PWD ride in `env`, so USER and WORKDIR are compared too. A mismatch fails
+' the build with the diff. ENTRYPOINT and VOLUME are not compared: the final
+' stage replaces the first, and the second is one path.
+' CONSEQUENCES, MEASURED: `mise run build hermes` resolved v0.23.1 and built
+' in 2m19s with the guard green; the image suite then failed on two browser
+' checks only (hermes-paradigm.puml, THE BROWSER IS UPSTREAM'S MARKER) and is
+' green since. HERMES_AGENT_VERSION=<older tag> now refuses to build until the
+' ENV block is edited back — before, it built and shipped the wrong ENV
+' silently. BuildKit prints InvalidDefaultArgInFrom for the bare pre-FROM
+' ARG; that warning states the pin's intent and is left on.
+' [Unverified] hermes v0.23.1 inside a sandbox, and Hermes Desktop over SSH:
+' the image suite ran, no sbx e2e did.
 '
 ' An exported override wins outright (OPENCODE_VERSION=2.0.6 mise run build
 ' opencode): that is how a maintainer rebuilds an older agent, or builds
@@ -162,13 +216,13 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' FK: note over LIB; words=29 syllables=55; FK 12.4
 ' FK: note over LIB (N_REFUSE); words=29 syllables=56; FK 12.9
 ' FK: note over BK (N_UPDATE); words=32 syllables=58; FK 12.0
-' FK: note over LBL; words=31 syllables=59; FK 12.9
+' FK: note over LBL; words=34 syllables=58; FK 11.2
 
 actor "Maintainer" as MT
 participant "mise run build\n(internal/maintain/fleet → BuildPlan)" as CMD <<app>>
 participant "imagebuild.BuildTarget\ntargets.go Specs[<target>].Pins" as BUILD <<app>>
 participant "imagebuild.go\nBuilder.AgentVersion" as LIB <<app>>
-participant "upstream release source\nnpm dist-tag · cursor.com/install" as UP <<cloud>>
+participant "upstream release source\nnpm dist-tag · cursor.com/install\n· GitHub latest release" as UP <<cloud>>
 participant "BuildKit\ndefs/<harness>/Dockerfile" as BK <<host>>
 database "image labels\nproveo.agent · proveo.agent.version" as LBL <<db>>
 participant "internal/contract\nagent_pin_test.go" as CT <<app>>
@@ -179,7 +233,7 @@ BUILD ARROW_MAIN LIB : " ""AgentVersion(<ARG>, <eco>, <pkg>)"" "
 alt <ARG> exported by the maintainer
   LIB ARROW_OPTIONAL BUILD : that version, upstream not asked
 else resolve
-  LIB ARROW_CLOUD UP : npm registry JSON · read the installer
+  LIB ARROW_CLOUD UP : npm registry JSON · read the installer\n· GitHub release JSON
   UP ARROW_CLOUD LIB : current release
   LIB ARROW_MAIN BUILD : version
 else unreachable
@@ -237,10 +291,10 @@ end note
 
 note over LBL
   The version label reports what the image
-  carries, not whether upstream has published
-  something newer. Runtime reporting omits
-  unavailable labels rather than guessing, and
-  an image rebuild remains an operator action.
+  carries, and the run compares it with newer
+  releases. Runtime reporting omits a missing
+  label rather than guessing, and the operator
+  decides whether an update is taken.
 end note
 
 @enduml

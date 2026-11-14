@@ -1,5 +1,5 @@
-# SPEC: _spec/defs/hermes/hermes-topology.puml, _spec/defs/hermes/hermes-paradigm.puml
-ARG HERMES_AGENT_VERSION=v2026.9.24
+# SPEC: _spec/defs/hermes/hermes-topology.puml, _spec/defs/hermes/hermes-paradigm.puml, _spec/_devops/agent-version-pin.puml
+ARG HERMES_AGENT_VERSION
 
 FROM golang:1.26-trixie AS proveo-entrypoint-builder
 WORKDIR /src
@@ -14,6 +14,10 @@ RUN --mount=type=cache,id=proveo-hermes-gomod,target=/go/pkg/mod,sharing=locked 
 
 FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION} AS hermes-upstream
 
+# Upstream's own build environment, for the final stage to compare its copy against.
+FROM hermes-upstream AS hermes-upstream-env
+RUN env | sort > /upstream.env
+
 # One layer, so the image stays under sbx 0.49.2's 44-layer boot limit.
 # SPEC: _spec/_devops/sandbox-template-rebase.puml (FLAT BASE)
 FROM scratch AS hermes-flat
@@ -21,14 +25,15 @@ COPY --from=hermes-upstream / /
 ENV PATH=/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright \
-    npm_config_install_links=false \
+    CC=gcc \
+    CXX=g++ \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/tools \
     HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist \
     HERMES_TUI_DIR=/opt/hermes/ui-tui \
     HERMES_HOME=/opt/data \
     HERMES_WRITE_SAFE_ROOT=/opt/data \
-    HERMES_DISABLE_LAZY_INSTALLS=1 \
-    HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages \
+    HERMES_PYTHON=/opt/hermes/.venv/bin/python \
+    HERMES_RUNTIME_DIR=/opt/hermes/tools \
     XDG_RUNTIME_DIR=/tmp/hermes-runtime
 VOLUME ["/opt/data"]
 USER root
@@ -48,9 +53,15 @@ ARG HERMES_AGENT_VERSION
 # Matches the build-time uid below, so stage2-hook.sh's root-start remap is a no-op.
 ENV HERMES_UID=1000
 
+# SPEC: _spec/_devops/agent-version-pin.puml (HERMES)
 RUN --mount=type=cache,id=proveo-hermes-apt-cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,id=proveo-hermes-apt-lists,target=/var/lib/apt,sharing=locked \
-    apt-get update -o APT::Update::Error-Mode=any \
+    --mount=type=bind,from=hermes-upstream-env,source=/upstream.env,target=/tmp/upstream.env \
+    test -n "${HERMES_AGENT_VERSION}" \
+      || { echo "HERMES_AGENT_VERSION build-arg is required — 'mise run build hermes' resolves it" >&2; exit 1; } \
+    && env | grep -vE '^(DEBIAN_FRONTEND|HERMES_AGENT_VERSION|HERMES_UID)=' | sort | diff /tmp/upstream.env - \
+      || { echo "the ENV/USER/WORKDIR copied into hermes-flat no longer match nousresearch/hermes-agent:${HERMES_AGENT_VERSION} (diff above: < upstream, > this file)" >&2; exit 1; } \
+    && apt-get update -o APT::Update::Error-Mode=any \
     && apt-get install -y --no-install-recommends dumb-init
 
 # proveo launches the agent as uid 1000, and stage2-hook.sh refuses any non-root

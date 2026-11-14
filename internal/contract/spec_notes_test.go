@@ -83,6 +83,7 @@ var specNotesEnforced = []string{
 	"_spec/defs/opencode/opencode-paradigm.puml",
 	"_spec/defs/opencode/opencode-topology.puml",
 	"_spec/_devops/agent-version-pin.puml",
+	"_spec/_devops/agent-update-prompt.puml",
 	"_spec/_plans/tui-upgrades-delivery.puml",
 	"_spec/_devops/unit-baseline.puml",
 	"_spec/internal/backend/teardown.puml",

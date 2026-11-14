@@ -51,14 +51,6 @@ fi
 HERMES_WRITE_SAFE_ROOT="${HERMES_WRITE_SAFE_ROOT:+${HERMES_WRITE_SAFE_ROOT}:}${PWD}${HERMES_HOME:+:${HERMES_HOME}}"
 export HERMES_WRITE_SAFE_ROOT
 
-# The hook would hand the browser path to s6's environment, which this launch
-# never reads; exporting it here also makes the hook skip its /run/s6 write.
-if [[ -z "${AGENT_BROWSER_EXECUTABLE_PATH:-}" && -d "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then
-  AGENT_BROWSER_EXECUTABLE_PATH="$(find "$PLAYWRIGHT_BROWSERS_PATH" -type f -executable \
-    \( -name chrome-headless-shell -o -name headless_shell \) 2>/dev/null | head -1)"
-  [[ -n "$AGENT_BROWSER_EXECUTABLE_PATH" ]] && export AGENT_BROWSER_EXECUTABLE_PATH
-fi
-
 # Host Chrome over CDP, dialled by IP and bypassing the proxy.
 # SPEC: _spec/internal/sbx/host-browser-cdp.puml
 if [[ -n "${PROVEO_HOST_CDP_PORT:-}" ]]; then

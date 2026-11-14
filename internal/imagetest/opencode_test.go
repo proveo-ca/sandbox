@@ -197,6 +197,7 @@ func TestImageOpencode(t *testing.T) {
 	ocMCP(s)
 	ocCredentialImport(s)
 	ocLLM(s)
+	overlaySwap(s, "opencode", image)
 }
 
 func ocBuild(s *imagetest.Suite) {

@@ -262,6 +262,10 @@ func TestAgentVersionResolverIsUniformAcrossEcosystems(t *testing.T) {
 			override: "CURSOR_AGENT_VERSION", eco: "cursor", pkg: "https://cursor.com/install",
 			wantURL: "https://cursor.com/install", want: "2026.08.31-4057e58",
 			note: "@2026.08.31-4057e58 (resolved upstream; override with CURSOR_AGENT_VERSION=<version>)"},
+		{name: "github reads the release GitHub marks latest", body: `{"tag_name":"v0.23.1","name":"Hermes Agent v0.23.1"}`,
+			override: "HERMES_AGENT_VERSION", eco: "github", pkg: "NousResearch/hermes-agent",
+			wantURL: "https://api.github.com/repos/NousResearch/hermes-agent/releases/latest", want: "v0.23.1",
+			note: "pin: NousResearch/hermes-agent@v0.23.1 (resolved upstream; override with HERMES_AGENT_VERSION=<version>)"},
 		{name: "an exported override wins without asking upstream",
 			env:      map[string]string{"OPENCODE_VERSION": "2.0.6"},
 			override: "OPENCODE_VERSION", eco: "npm", pkg: "@opencode/cli",
@@ -335,6 +339,8 @@ func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ override, eco, pkg string }{
 		{"OPENCODE_VERSION", "npm", "@opencode/cli"},
+		{"CURSOR_AGENT_VERSION", "cursor", "https://cursor.com/install"},
+		{"HERMES_AGENT_VERSION", "github", "NousResearch/hermes-agent"},
 	} {
 		b, errb := newTest(t, &fakeDocker{}, nil)
 		got, err := b.AgentVersion(c.override, c.eco, c.pkg)
@@ -350,6 +356,25 @@ func TestAgentVersionResolverRefusesRatherThanGuessing(t *testing.T) {
 	b, errb := newTest(t, &fakeDocker{}, nil)
 	if _, err := b.AgentVersion("X_VERSION", "cargo", "x"); err == nil || !strings.Contains(errb.String(), "unknown ecosystem") {
 		t.Errorf("unknown ecosystem accepted (err=%v):\n%s", err, errb)
+	}
+}
+
+func TestUpstreamAnswersQuietlyForARunTimeCheck(t *testing.T) {
+	t.Parallel()
+	b, errb := newTest(t, &fakeDocker{}, map[string]string{"CODEX_VERSION": "0.1.0"})
+	b.Fetch = func(string) ([]byte, error) { return []byte(`{"version":"0.167.2"}`), nil }
+	if got, err := b.Upstream("npm", "@openai/codex"); err != nil || got != "0.167.2" {
+		t.Errorf("Upstream = %q, %v; want the registry's release, not the build override", got, err)
+	}
+	b.Fetch = func(string) ([]byte, error) { return nil, errors.New("offline") }
+	if got, err := b.Upstream("npm", "@openai/codex"); err == nil || got != "" {
+		t.Errorf("Upstream offline = %q, %v; want no release and the fetch error", got, err)
+	}
+	if _, err := b.Upstream("cargo", "x"); !errors.Is(err, ErrUnknownEcosystem) {
+		t.Errorf("Upstream(cargo) = %v, want ErrUnknownEcosystem", err)
+	}
+	if errb.Len() != 0 {
+		t.Errorf("Upstream printed, and a run must stay silent:\n%s", errb)
 	}
 }
 

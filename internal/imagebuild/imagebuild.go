@@ -62,22 +62,27 @@ func New(repoRoot string) *Builder {
 	}
 }
 
-func httpFetch(url string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+func httpFetch(url string) ([]byte, error) { return FetchWithin(20 * time.Second)(url) }
+
+// FetchWithin is an HTTP GET that gives up after timeout.
+func FetchWithin(timeout time.Duration) func(url string) ([]byte, error) {
+	return func(url string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode/100 != 2 {
+			return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
+		}
+		return io.ReadAll(resp.Body)
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
-	return io.ReadAll(resp.Body)
 }
 
 func (b *Builder) env(k string) string {
@@ -91,33 +96,46 @@ func (b *Builder) env(k string) string {
 
 var cursorVersion = regexp.MustCompile(`/versions/([0-9][0-9.]*-[0-9a-f]+)/`)
 
-// AgentVersion resolves the release an image pins its agent to.
-func (b *Builder) AgentVersion(overrideVar, eco, pkg string) (string, error) {
-	if v := strings.TrimSpace(b.env(overrideVar)); v != "" {
-		b.UI.Notef("pin: %s@%s (from %s)", pkg, v, overrideVar)
-		return v, nil
-	}
+// ErrUnknownEcosystem is Upstream's error for an ecosystem it has no lookup for.
+var ErrUnknownEcosystem = errors.New("unknown ecosystem")
+
+// Upstream is the current release of pkg in eco, read from its release source; "" when the source named none.
+func (b *Builder) Upstream(eco, pkg string) (string, error) {
 	var v string
-	var lastErr error
+	var err error
 	switch eco {
 	case "npm":
 		registry := strings.TrimRight(b.env("NPM_CONFIG_REGISTRY"), "/")
 		if registry == "" {
 			registry = "https://registry.npmjs.org"
 		}
-		v, lastErr = b.jsonField(registry+"/"+pkg+"/latest", "version")
+		v, err = b.jsonField(registry+"/"+pkg+"/latest", "version")
 	case "cursor":
 		var body []byte
-		if body, lastErr = b.Fetch(pkg); lastErr == nil {
+		if body, err = b.Fetch(pkg); err == nil {
 			if m := cursorVersion.FindSubmatch(body); m != nil {
 				v = string(m[1])
 			}
 		}
+	case "github":
+		v, err = b.jsonField("https://api.github.com/repos/"+pkg+"/releases/latest", "tag_name")
 	default:
-		b.UI.Failf("agent version: unknown ecosystem '%s' (want npm|cursor)", eco)
+		return "", fmt.Errorf("%w %q", ErrUnknownEcosystem, eco)
+	}
+	return strings.Join(strings.Fields(v), ""), err
+}
+
+// AgentVersion resolves the release an image pins its agent to.
+func (b *Builder) AgentVersion(overrideVar, eco, pkg string) (string, error) {
+	if v := strings.TrimSpace(b.env(overrideVar)); v != "" {
+		b.UI.Notef("pin: %s@%s (from %s)", pkg, v, overrideVar)
+		return v, nil
+	}
+	v, lastErr := b.Upstream(eco, pkg)
+	if errors.Is(lastErr, ErrUnknownEcosystem) {
+		b.UI.Failf("agent version: unknown ecosystem '%s' (want npm|cursor|github)", eco)
 		return "", fmt.Errorf("unknown ecosystem %q", eco)
 	}
-	v = strings.Join(strings.Fields(v), "")
 	if v == "" {
 		last := ""
 		if lastErr != nil {

@@ -60,8 +60,12 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' on top of one already baked in — duplicates a large, fast-moving build this
 ' repo does not own, for no benefit over pinning the upstream tag directly.
 ' So `hermes`'s Spec in targets.go has no Parent/ParentOverride at all: it is
-' `FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}`, pinned by a plain
-' EnvArg the same way codex pins `CODEX_VERSION`.
+' `FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}`. Since 2026-11-12
+' that tag is a Pin resolved at build from GitHub's latest release, like every
+' other agent (it was a plain EnvArg defaulting to v2026.9.24, the same way
+' codex "pinned" CODEX_VERSION). The flat stage's hand-copied config is
+' diffed against upstream's at build: _spec/_devops/agent-version-pin.puml
+' (HERMES).
 '
 ' ── WHY THE ENTRYPOINT OVERRIDES s6-overlay ─────────────────────────────────
 ' Upstream's own ENTRYPOINT runs s6-overlay's /init as PID 1, supervising a
@@ -117,10 +121,11 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' Every imagetest used to run as root, which is how a launch-breaking refusal
 ' shipped; the suite now boots the entrypoint as uid 1000.
 '
-' The hook would publish AGENT_BROWSER_EXECUTABLE_PATH through s6's container
-' environment, which a launch without /init never reads — the browser tool
-' would find no Chrome. entrypoint.sh finds the headless-shell binary and
-' exports it, which also makes the hook skip its /run/s6 write (root-only).
+' HISTORY, until v2026.9.24: the hook published AGENT_BROWSER_EXECUTABLE_PATH
+' through s6's container environment, which a launch without /init never
+' reads, so entrypoint.sh found the headless-shell binary and exported it
+' (that also made the hook skip its root-only /run/s6 write). REMOVED
+' 2026-11-12 with the move to v0.23.1: see THE BROWSER IS UPSTREAM'S MARKER.
 ' HERMES_HOME follows the manifest's durable mount — on sbx at its host path,
 ' $PROVEO_STATE_HOME/hermes/data (the /proveo-home/data rendering went with the
 ' docker backend, 2026-10-16) — so config and sessions outlive the sandbox
@@ -158,13 +163,25 @@ title hermes paradigm — general-purpose assistant, not a coding harness
 ' non-interactive `chat -q` tool-invocation flags are unconfirmed, so a plain
 ' text round-trip is the reliable sign that each model is reachable and
 ' answering.
-' THE BROWSER IS FOUND BY GLOB. The browser tool is native to hermes, so unlike
-' every other def this image always carries a browser and has no -browser
-' variant. Upstream's non-desktop build (v2026.9.24) stages Playwright's
-' headless-shell Chromium, not the full Chromium the -desktop tag ships, at a
-' version- and arch-suffixed path. The image suite globs for it, because a
-' fixed path breaks on the next pin and the /etc/hermes marker file is written
-' by the desktop build alone.
+' THE BROWSER IS UPSTREAM'S MARKER (2026-11-12, v0.23.1; it WAS found by
+' glob). The browser tool is native to hermes, so unlike every other def this
+' image always carries a browser and has no -browser variant. MEASURED in
+' nousresearch/hermes-agent:v0.23.1: upstream's package manager provisions
+' full Chromium (145.0.7632.0) under $HERMES_RUNTIME_DIR, /opt/hermes/tools/
+' chromium-1208/chrome-linux/chrome, and bakes that path into
+' /etc/hermes/chromium-executable-path. stage2-hook.sh says so in a comment:
+' hermes reads the file itself (hermes_cli/browser_runtime.py), "so nothing is
+' exported here"; the hook only warns when the path names no runnable binary.
+' So entrypoint.sh exports nothing either, and the image suite asserts the
+' marker names an executable that answers --version.
+' HISTORY: v2026.9.24's non-desktop build staged Playwright's headless-shell
+' Chromium under /opt/hermes/.playwright at a version- and arch-suffixed path,
+' and only the -desktop build wrote the marker; the suite globbed for the
+' binary and entrypoint.sh exported what the glob found. Under v0.23.1 that
+' glob matched nothing and both browser checks failed — the two failures the
+' first v0.23.1 suite run reported.
+' [Unverified] the browser tool end to end on v0.23.1: no check here launches
+' a page.
 ' THE PRIVILEGE DROP IS JUDGED BY THE SHIM'S OWN CONTRACT. The exec shim drops
 ' root to "hermes" via /command/s6-setuidgid before it execs the binary, so
 ' `id -un` after the call reports the CALLER's uid; the shim's process image

@@ -20,6 +20,7 @@ import (
 
 var pinned = map[string]string{
 	"CLAUDE_CODE_VERSION": "9.9.1", "OPENCODE_VERSION": "9.9.2", "CURSOR_AGENT_VERSION": "9.9.5",
+	"CODEX_VERSION": "9.9.3", "HERMES_AGENT_VERSION": "v9.9.4",
 }
 
 type recorder struct {

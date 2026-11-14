@@ -35,7 +35,7 @@ layer and nothing in the build says so. Every def follows one shape
 (`_spec/_devops/agent-version-pin.puml`, enforced by `internal/contract/agent_pin_test.go`):
 
 - The target's `Pins` in `internal/imagebuild/targets.go` resolve the current release
-  (`Builder.AgentVersion`, npm / cursor), print a `pin: <pkg>@<version>` line, and
+  (`Builder.AgentVersion`, npm / cursor / github), print a `pin: <pkg>@<version>` line, and
   pass it as `--build-arg <ARG>=…`. Resolution failure is a refusal that names the override, never a
   silent fallback to `latest`.
 - The `Dockerfile` declares the ARG **bare** (no default), guards it with `test -n`, installs
@@ -43,6 +43,10 @@ layer and nothing in the build says so. Every def follows one shape
   `proveo.agent` and `proveo.agent.version`. A bare `docker build` without the arg fails on
   purpose.
 - The def's runtime suite checks the label against the agent's own `--version`.
+- A pin whose agent installs over a built image carries an `Overlay` recipe: the Dockerfile's
+  own install step, which `proveo run` uses to reach a release newer than the published image
+  (`_spec/_devops/agent-update-prompt.puml`). A def whose agent is its upstream's whole image
+  (hermes) leaves it empty.
 
 OpenCode v2 resolves and installs `@opencode/cli`.
 Its `opencode --version` output is `opencode v<version>`; the image's version label stays bare.

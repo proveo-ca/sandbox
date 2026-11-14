@@ -224,6 +224,8 @@ func TestImageCursor(t *testing.T) {
       [ "$out" = "{\"permission\":\"allow\"}" ] && echo HOOK_OK
   `)
 
+	overlaySwap(s, "cursor", image)
+
 	// Phase 6: Direct LLM API
 	key := os.Getenv("CURSOR_API_KEY")
 	if key == "" {

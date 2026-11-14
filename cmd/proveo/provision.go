@@ -1,4 +1,4 @@
-// SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml
+// SPEC: _spec/cmd/proveo/provision-and-targets.puml, _spec/_devops/image-lineage-and-publish.puml, _spec/_devops/agent-update-prompt.puml
 package main
 
 import (
@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentupdate"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
@@ -141,10 +143,43 @@ func preflightImages(man manifest.Manifest, agentImage string) (string, error) {
 		return agentImage, err
 	}
 	if ref, ok := built[agentImage]; ok {
-		return ref, nil
+		agentImage = ref
 	}
-	return agentImage, nil
+	return settleAgent(man.Name, agentImage), nil
 }
+
+// settleAgent is the image the run launches after the agent-update check.
+var settleAgent = func(target, image string) string {
+	c := agentupdate.New(filepath.Join(run.StateDir(), "agent-update.json"))
+	c.Ask = askAgentUpdate
+	return c.Settle(target, image)
+}
+
+var onTerminal = func() bool { return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stdout) }
+
+// attended reports whether an operator is at this run's terminal to answer a question.
+var attended = func() bool {
+	return os.Getenv("PROVEO_SCHEDULE") == "" && agentio.WizardEnabled() && onTerminal()
+}
+
+// askAgentUpdate puts an offer to the operator's terminal; Unasked when nobody is there to answer.
+func askAgentUpdate(o agentupdate.Offer) agentupdate.Answer {
+	if !attended() {
+		return agentupdate.Unasked
+	}
+	answer, asked := askAgentUpdateDialog(o.Target, o.From, o.To, o.Steps)
+	switch {
+	case !asked:
+		return agentupdate.Unasked
+	case answer == choiceui.AgentUpdateNow:
+		return agentupdate.Update
+	case answer == choiceui.AgentUpdateSkip:
+		return agentupdate.Skip
+	}
+	return agentupdate.Later
+}
+
+var askAgentUpdateDialog = choiceui.AskAgentUpdate
 
 func provisionConfirm(question string) bool {
 	switch v := os.Getenv("PROVEO_AUTO_PROVISION"); {

@@ -72,7 +72,13 @@ func theFiveDialogs() map[string]dialog {
 		"unanswered": unansweredRemovalDialog("proveo-claudecode-abc", mirror, []string{mirror + "/main"}, false),
 		"oversized":  oversizedModelDialog(qwenOnVRAM),
 		"glyphs":     drawsGlyphsDialog(),
+		"update":     agentUpdateDialog("claudecode", "2.1.312", "2.1.330", updateSteps),
 	}
+}
+
+var updateSteps = []string{
+	"docker pull proveo/claudecode-browser:latest (2.1.322)",
+	"install 2.1.330 on top as registry.example:5000/team/claudecode-browser:agent-2.1.330",
 }
 
 func TestEnterAloneGivesTheSafeAnswerInEveryDialog(t *testing.T) {
@@ -259,6 +265,48 @@ func TestTheUpgradeDialogNamesTheConsequence(t *testing.T) {
 		if !strings.Contains(engine, want) {
 			t.Errorf("the OpenCode upgrade dialog lacks %q\n%s", want, engine)
 		}
+	}
+}
+
+// SPEC: _spec/_devops/agent-update-prompt.puml
+func TestTheUpdateDialogNamesItsStepsAndTakesThreeAnswers(t *testing.T) {
+	t.Parallel()
+	d := agentUpdateDialog("claudecode", "2.1.312", "2.1.330", updateSteps)
+	box := plain(d.box())
+	for _, want := range []string{
+		"a newer claudecode agent is available",
+		"2.1.312 → 2.1.330",
+		"1. docker pull proveo/claudecode-browser:latest (2.1.322)",
+		"2. install 2.1.330 on top as",
+		"   registry.example:5000/team/claudecode-browser:agent-2.1.330",
+		"Later asks again in 24 hours.",
+		"Skip waits for a release after 2.1.330.",
+		"Later ↵", "Update", "Skip", "esc later",
+	} {
+		if !strings.Contains(box, want) {
+			t.Errorf("the update dialog lacks %q\n%s", want, box)
+		}
+	}
+	for keys, want := range map[string]AgentUpdateAnswer{"": AgentUpdateLater, "u": AgentUpdateNow, "y": AgentUpdateNow, "s": AgentUpdateSkip, "l": AgentUpdateLater} {
+		if got, ended := answered(t, d, append(typed(keys), teaEnter)...); !ended || AgentUpdateAnswer(got) != want {
+			t.Errorf("%q then enter: answer %d (ended %v), want %d", keys, got, ended, want)
+		}
+	}
+	if got, ended := answered(t, d, teaEsc); !ended || AgentUpdateAnswer(got) != AgentUpdateLater {
+		t.Errorf("esc: answer %d (ended %v), want Later", got, ended)
+	}
+}
+
+func TestAskAgentUpdateSaysWhenNoTerminalTookTheQuestion(t *testing.T) {
+	old := askDialog
+	t.Cleanup(func() { askDialog = old })
+	askDialog = func(d dialog) (int, bool) { return d.safe, false }
+	if got, asked := AskAgentUpdate("codex", "0.1.0", "0.2.0", nil); asked || got != AgentUpdateLater {
+		t.Errorf("no terminal: %d, asked %v; want Later and not asked", got, asked)
+	}
+	askDialog = func(dialog) (int, bool) { return int(AgentUpdateSkip), true }
+	if got, asked := AskAgentUpdate("codex", "0.1.0", "0.2.0", nil); !asked || got != AgentUpdateSkip {
+		t.Errorf("answered Skip: %d, asked %v", got, asked)
 	}
 }
 

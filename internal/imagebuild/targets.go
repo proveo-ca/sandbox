@@ -11,6 +11,7 @@ import (
 type Pin struct {
 	Arg, Eco, Pkg string
 	PkgEnv        string // env var that, when set, replaces Pkg
+	Overlay       string // RUN body that installs ${Arg} over a built image; "" when the agent is the whole image
 }
 
 // EnvArg is a build arg read from the environment with a default.
@@ -60,6 +61,8 @@ const (
 
 const browserLayer = "defs/base-node-browser"
 
+const overlayNpmCache = "--mount=type=cache,id=proveo-agent-overlay-npm,target=/root/.npm,sharing=locked \\\n    "
+
 func browserOf(parent, user string) Spec {
 	return Spec{
 		Repo: "proveo/" + parent + "-browser", Override: envName(parent + "-browser"),
@@ -100,34 +103,53 @@ var Specs = map[string]Spec{
 	"claudecode": {Repo: "proveo/claudecode",
 		Dockerfile: "defs/claudecode/mcp/Dockerfile", Context: ".",
 		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
-		Pins: []Pin{{Arg: "CLAUDE_CODE_VERSION", Eco: "npm", Pkg: "@anthropic-ai/claude-code"}}},
+		Pins: []Pin{{Arg: "CLAUDE_CODE_VERSION", Eco: "npm", Pkg: "@anthropic-ai/claude-code",
+			Overlay: overlayNpmCache + `npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && claude --version | grep -qF "${CLAUDE_CODE_VERSION}"`}}},
 	"claudecode-solidity": {Repo: "proveo/claudecode-solidity",
 		Dockerfile: "defs/claudecode/solidity/Dockerfile", Context: ".",
 		Needs: "claudecode"},
 	"codex": {Repo: "proveo/codex", Override: "PROVEO_CODEX_IMAGE",
 		Dockerfile: "defs/codex/Dockerfile", Context: ".",
 		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
-		EnvArgs: []EnvArg{{Arg: "CODEX_VERSION", Default: "latest"}}},
+		Pins: []Pin{{Arg: "CODEX_VERSION", Eco: "npm", Pkg: "@openai/codex",
+			Overlay: overlayNpmCache + `npm install -g "@openai/codex@${CODEX_VERSION}" \
+    && codex --version | grep -qF "${CODEX_VERSION}"`}}},
 	"cursor": {Repo: "proveo/cursor", Override: "PROVEO_CURSOR_IMAGE",
 		Dockerfile: "defs/cursor/Dockerfile", Context: ".",
 		Parent: "base", ParentOverride: "PROVEO_BASE_IMAGE",
 		EnvArgs: []EnvArg{{Arg: "CURSOR_INSTALL_URL", Default: "https://cursor.com/install"}},
-		Pins:    []Pin{{Arg: "CURSOR_AGENT_VERSION", Eco: "cursor", Pkg: "https://cursor.com/install", PkgEnv: "CURSOR_INSTALL_URL"}}},
+		Pins: []Pin{{Arg: "CURSOR_AGENT_VERSION", Eco: "cursor", Pkg: "https://cursor.com/install", PkgEnv: "CURSOR_INSTALL_URL",
+			Overlay: `HOME=/opt/cursor-dist bash -c 'curl -fsS "$1" | bash' cursor-install "$CURSOR_INSTALL_URL" \
+    && test -d "/opt/cursor-dist/.local/share/cursor-agent/versions/${CURSOR_AGENT_VERSION}" \
+    && agent --version`}}},
 	"opencode": {Repo: "proveo/opencode", Override: "PROVEO_OPENCODE_IMAGE",
 		Dockerfile: "defs/opencode/Dockerfile", Context: ".",
 		Parent: "base-node", ParentOverride: "PROVEO_BASE_NODE_IMAGE",
-		Pins: []Pin{{Arg: "OPENCODE_VERSION", Eco: "npm", Pkg: "@opencode/cli"}}},
+		Pins: []Pin{{Arg: "OPENCODE_VERSION", Eco: "npm", Pkg: "@opencode/cli",
+			Overlay: overlayNpmCache + `npm install -g "@opencode/cli@${OPENCODE_VERSION}" \
+    && test "$(opencode --version)" = "opencode v${OPENCODE_VERSION}" \
+    && test "${OPENCODE_VERSION%%.*}" = 2 \
+    && printf '%s\n' "$OPENCODE_VERSION" > /usr/local/lib/proveo/opencode.version`}}},
 	// hermes has no Parent, deliberately: it builds FROM nousresearch/hermes-agent
 	// directly rather than proveo's own base chain, which would duplicate what
 	// upstream's image already bakes. SPEC: _spec/defs/hermes/hermes-paradigm.puml
 	"hermes": {Repo: "proveo/hermes", Override: "PROVEO_HERMES_IMAGE",
 		Dockerfile: "defs/hermes/Dockerfile", Context: ".",
-		EnvArgs: []EnvArg{{Arg: "HERMES_AGENT_VERSION", Default: "v2026.9.24"}}},
+		Pins: []Pin{{Arg: "HERMES_AGENT_VERSION", Eco: "github", Pkg: "NousResearch/hermes-agent"}}},
 
 	"claudecode-browser": func() Spec { s := browserOf("claudecode", "claude"); s.Override, s.NeedsOverride = "", ""; return s }(),
 	"codex-browser":      browserOf("codex", "codex"),
 	"cursor-browser":     browserOf("cursor", "cursor"),
 	"opencode-browser":   browserOf("opencode", "opencode"),
+}
+
+// PinPkg is the release source p resolves against: PkgEnv's value when set, else Pkg.
+func (b *Builder) PinPkg(p Pin) string {
+	if v := b.env(p.PkgEnv); p.PkgEnv != "" && v != "" {
+		return v
+	}
+	return p.Pkg
 }
 
 // SpecNames is every target in Specs, sorted.
@@ -220,11 +242,7 @@ func (b *Builder) buildRef(name, ref string, o Options) error {
 		args = append(args, "--build-arg", e.Arg+"="+v)
 	}
 	for _, p := range s.Pins {
-		pkg := p.Pkg
-		if v := b.env(p.PkgEnv); p.PkgEnv != "" && v != "" {
-			pkg = v
-		}
-		v, err := b.AgentVersion(p.Arg, p.Eco, pkg)
+		v, err := b.AgentVersion(p.Arg, p.Eco, b.PinPkg(p))
 		if err != nil {
 			return err
 		}

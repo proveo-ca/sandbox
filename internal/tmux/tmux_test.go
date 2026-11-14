@@ -137,3 +137,18 @@ func TestAFailedStartCarriesTmuxsOwnMessage(t *testing.T) {
 		t.Errorf("Start with nothing said = %v, want the status alone", err)
 	}
 }
+
+// SPEC: _spec/_devops/agent-update-prompt.puml
+func TestSessionEnvReachesEverySessionAheadOfTheCommand(t *testing.T) {
+	old := SessionEnv
+	t.Cleanup(func() { SessionEnv = old })
+	SessionEnv = []string{"PROVEO_AGENT_UPDATE=0"}
+	rec := &recorder{}
+	if err := New("sess", rec.run).Start(80, 24, "proveo", "run"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"new-session", "-d", "-s", "sess", "-x", "80", "-y", "24", "-e", "PROVEO_AGENT_UPDATE=0", "proveo", "run"}}
+	if diff := cmp.Diff(want, rec.calls); diff != "" {
+		t.Errorf("tmux command args mismatch (-want +got):\n%s", diff)
+	}
+}
