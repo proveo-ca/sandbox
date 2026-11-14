@@ -10,6 +10,9 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' covers: internal/choiceui/env_list_test.go
 ' covers: internal/choiceui/list_layer_test.go
 ' covers: internal/choiceui/checklist_test.go (TestEscOnPageOneAsksWhenTheFormIsAChecklist)
+' covers: internal/choiceui/disabled_hover_test.go
+' covers: internal/run/disabled_hover_test.go
+' covers: cmd/proveo/init_hover_test.go
 ' covers: cmd/proveo/init.go (runInitSteps, stepQuit)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: e2e/init_steps_test.go
@@ -186,6 +189,73 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   TestEnterAndEscReachTheQuitGateBeforeTheScopePage
 '   TestEnterAndEscReachTheQuitGateBeforeTheChecksPage
 '   TestEnterAnswersTheSelectedButtonAndEscTheSafeOneInEveryDialog
+'
+' ── EVERY OPTION TAKES THE CURSOR (DECIDED 2026-11-14) ─────────────────────
+' The owner, on `proveo run claudecode`: "let the users hover over API Keys,
+' and in the hint say it's not supported. Always let disabled options to be
+' hoverable; the hint should explain its status."
+' WHAT WAS WRONG. cycle() skipped an Off option on a radio row that was not
+' Locked: `if r.Multi || !r.offAt(next)`. The model row's API keys was off
+' there, so its OffWhy was text nothing displayed. Checkbox rows and locked
+' rows already let the cursor land on any cell.
+' THE EXECUTOR'S RULES:
+'   1 On every row kind, ←/→, h/l and space (where space moves cells: a
+'     radio or locked row) land on every option, a disabled one included.
+'     Tab moves no cell; on a checkbox row space ticks, as before.
+'   2 On a radio row the cursor is Row.Hover. Landing on an available
+'     option chooses it: Selected follows and OnChange fires, as before.
+'     Landing on a disabled one sets Row.hoverOff, leaves Selected where it
+'     was and fires nothing. Enter accepts the form with the chosen answer,
+'     never the hovered one.
+'   3 The help names the hovered option and its status; the cells draw the
+'     hover in focusOff: wireframe.puml (A DISABLED OPTION TAKES THE CURSOR).
+'   4 Selection never returns a disabled option, so the run's decisions do
+'     not change. The cursor still opens on the chosen answer: startCursor
+'     drops a hover an earlier visit left, and a StartOption that names a
+'     disabled option hovers it without choosing it.
+'   5 Scope: the run form and init's checklist pages, radio rows included
+'     (sbx install's distro package is the one disabled init option today).
+'     The scope page and the standalone run> list are out of scope.
+' cursorAt reads Hover only while hoverOff holds and Hover is still off. An
+' OnChange that frees the hovered option puts the cursor back on the answer,
+' and Form.changed then drops hoverOff on that row, so a later OnChange that
+' disables the option again leaves the cursor on the answer (verifier pass,
+' 2026-11-14; before, the cursor jumped back onto the old hover). No OnChange
+' changes a radio row's Off today, and init sets none.
+' Leaving the row and coming back keeps the hover, as a checkbox or locked
+' row keeps its cursor.
+' The key line did not change: "←→ choose" on a form of radio rows, "←→
+' move" beside checkbox rows.
+' Form.Walk(label, keys...) and Form.RenderOn(label, w, h) are the two
+' projections tests outside choiceui read: what each press leaves under the
+' cursor (option, help, status lines apart), and the frame with the cursor on
+' that row. Form.Render still opens on the answer.
+' GOLDENS: the start state is unchanged (MEASURED 2026-11-14:
+' internal/choiceui/testdata, cmd/proveo/testdata/init). The verifier pass
+' moved six .env fixture frames for the help the locked row gained:
+' wireframe.puml (AN OPEN LIST ON A LOCKED ROW, COST).
+' Pinned by internal/choiceui/disabled_hover_test.go:
+'   TestEveryMoveKeyLandsOnEveryOptionOfEveryRowKind
+'   TestARadioRowHoversADisabledOptionAndEnterKeepsTheAnswer
+'   TestTheCursorOpensOnTheAnswerAndNeverChoosesADisabledStart
+'   TestHoveringADisabledOptionChangesNoAnswer
+'   TestAHoverFreedByOnChangeStaysOnTheAnswer
+' Pinned by internal/run/disabled_hover_test.go:
+'   TestEveryDisabledRunOptionTakesTheCursorAndStatesItsStatus: claudecode,
+'   codex, cursor, hermes and opencode; no key, a provider key, the plan key
+'   and both; egress readable and not (40 forms). Each form's credentials row
+'   holds the inventory promptChoices builds (inventoryOf over those keys, an
+'   SSH key, a two-name .env), so its cells open their lists; the test fails
+'   when no hover lands on a list entry. Every disabled hover must name
+'   itself or its list entry ("› …") and state a status. Until the verifier
+'   pass it read an empty inventory and never opened a list.
+'   TestClaudecodeHoversAPIKeysWithNoProviderKey
+' Pinned by cmd/proveo/init_hover_test.go:
+'   TestEveryDisabledInitOptionTakesTheCursorAndStatesItsStatus (the ten
+'   golden pages, plus page 1 on linux/amd64 and linux/arm64)
+'   TestHoveringDistroPackageSaysWhyItIsOff
+' Updated by internal/choiceui/choiceui_test.go: TestGatedOptionRendersItsReason
+' asserted the skip; it now asserts the hover.
 '
 ' ── A LONE FORM KEEPS ITS KEYS ─────────────────────────────────────────────
 ' A form with a zero Step is not a wizard: Esc, Ctrl+C and q cancel at once,

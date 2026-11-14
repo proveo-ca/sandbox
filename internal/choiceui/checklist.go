@@ -391,8 +391,7 @@ func (r *Row) cellName(opt string) string {
 }
 
 // checklistHelp is the help under a checklist for the cursor on row cursor: the running row's
-// line, the blocker, a field's reason, or the answer's help; at most helpMost lines, the last cut
-// with … when more were left.
+// line, the blocker, a field's reason, or the answer's help; at most helpMost lines (cutHelp).
 func (f *Form) checklistHelp(cursor, width int) []helpLine {
 	var out []helpLine
 	switch {
@@ -408,11 +407,31 @@ func (f *Form) checklistHelp(cursor, width int) []helpLine {
 		out = f.rowHelp(&f.Rows[cursor], width)
 	}
 	if len(out) > helpMost {
-		out = out[:helpMost]
-		last := &out[helpMost-1]
-		last.text = clip(last.text+"…", width)
+		out = cutHelp(out, width)
 	}
 	return out
+}
+
+// cutHelp is help cut to helpMost lines: its first lines, the first status line in place of the
+// last when the cut would drop it, and … closing each kept line whose next line it dropped.
+// SPEC: _spec/internal/choiceui/wireframe.puml (A DISABLED OPTION TAKES THE CURSOR)
+func cutHelp(out []helpLine, width int) []helpLine {
+	keep := make([]int, helpMost)
+	for i := range keep {
+		keep[i] = i
+	}
+	if s := slices.IndexFunc(out, func(l helpLine) bool { return l.warn }); s >= helpMost {
+		keep[helpMost-1] = s
+	}
+	cut := make([]helpLine, 0, helpMost)
+	for n, i := range keep {
+		l := out[i]
+		if i+1 < len(out) && (n+1 == len(keep) || keep[n+1] != i+1) {
+			l.text = clip(l.text+"…", width)
+		}
+		cut = append(cut, l)
+	}
+	return cut
 }
 
 // rowHelp is an answer row's help on a checklist: a field's "› label — reason", else the
@@ -473,7 +492,7 @@ func (f *Form) checklistHelpSlot(width int) int {
 		for j := range r.Options {
 			probe := r
 			probe.More, probe.Lists = nil, nil
-			probe.Selected, probe.Hover = j, j
+			probe.point(j)
 			most = max(most, len(f.rowHelp(&probe, width)))
 		}
 	}

@@ -233,8 +233,7 @@ func TestOnChangeFiresSoConstraintsStayLive(t *testing.T) {
 	}
 }
 
-// A gated option is unreachable by design — cycle() will not land on it — so the
-// row MUST say why, or the operator sees an unresponsive checkbox with no cause.
+// A gated option says why, or the operator sees an unresponsive checkbox with no cause.
 func TestGatedOptionRendersItsReason(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{{
@@ -260,14 +259,18 @@ func TestGatedOptionRendersItsReason(t *testing.T) {
 		t.Errorf("a gated option must never be reported as selected, got %v", got)
 	}
 
-	// A SINGLE-select row's Selected IS the choice, so it must still skip one.
+	// A SINGLE-select row's cursor rests on its gated option too, and its answer stays put.
 	single := &Form{Rows: []Row{{
 		Label: "egress", Options: []string{"open", "allowlist", "review"},
 		Off: []bool{false, false, true}, Selected: 1,
 	}}}
 	single.cycle(0, +1)
-	if single.Rows[0].Selected != 0 {
-		t.Errorf("a single-select row must skip its gated option, landed on %d", single.Rows[0].Selected)
+	if r := single.Rows[0]; r.cursorAt() != 2 || r.Selected != 1 {
+		t.Errorf("a single-select row hovers its gated option and keeps its answer: cursor %d, Selected %d", r.cursorAt(), r.Selected)
+	}
+	single.cycle(0, +1)
+	if r := single.Rows[0]; r.cursorAt() != 0 || single.Selection("egress") != "open" {
+		t.Errorf("past the gated option the cursor chooses again: cursor %d, answer %q", r.cursorAt(), single.Selection("egress"))
 	}
 }
 

@@ -17,6 +17,7 @@
 │ ↑↓ entry · / filter · enter close · esc close · ctrl+c quit                                                          │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
   › ARCHITECT_MODEL — set in ~/monorepo/.env; this list shows names only
+  host credential inventory; read-only
 
   on enter
     1  create proveo-claudecode-1b3f

@@ -206,7 +206,6 @@ func authAnswer(chosen string, available []string) string {
 
 func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoot, envFile string) map[string]string {
 	backing := tildeIn(credentials.AuthBacking(man, lookup, target, homeRoot, envFile))
-	unavailable := tildeIn(credentials.AuthWhyUnavailable(man, target, homeRoot))
 	usageIs := "metered per token at each provider, on your own keys"
 	if credentials.VendorPinnedWhy(man) != "" {
 		usageIs = "metered by the vendor beyond the plan's included usage — there is no " +
@@ -230,7 +229,7 @@ func authHelp(man manifest.Manifest, lookup func(string) string, target, homeRoo
 			}
 			continue
 		}
-		help[opt] = text + " · " + unavailable[opt]
+		help[opt], _, _ = strings.Cut(text, " — ")
 	}
 	if caveat := credentials.BillingCaveat(man, lookup); caveat != "" {
 		for _, opt := range []string{credentials.AuthUsage, credentials.AuthSubscription} {

@@ -13,6 +13,11 @@
 ' covers: internal/choiceui/step_test.go
 ' covers: internal/choiceui/checklist.go, internal/choiceui/checklist_test.go
 ' covers: internal/choiceui/marks.go
+' covers: internal/choiceui/layout.go (maxHelpLines)
+' covers: internal/choiceui/disabled_hover_test.go
+' covers: internal/run/disabled_hover_test.go
+' covers: cmd/proveo/init_tui.go (installRow)
+' covers: cmd/proveo/init_hover_test.go
 ' Sibling of choice-prompt-render.puml, which owns the gating logic and the prose.
 ' This file owns only the resolved layout: what the operator confronts once
 ' applicableRows and gateAddons have already executed.
@@ -657,6 +662,90 @@
 ' A Multi row is not affected and keeps its old behaviour: cycle() moves onto
 ' gated options there and toggle() refuses, so its OffWhy is reachable and
 ' repeating Reason beside it would double the add-on rows up.
+' SUPERSEDED 2026-11-14 (A DISABLED OPTION TAKES THE CURSOR, below): cycle()
+' lands on the gated option of a radio row too. Its OffWhy is the status line
+' under it; the row's Reason still shows under the options the row can choose.
+'
+' ── A DISABLED OPTION TAKES THE CURSOR (DECIDED 2026-11-14) ────────────────
+' The owner: "always let disabled options be hoverable; the hint should
+' explain its status". The keys and the answer: wizard-keys.puml (EVERY
+' OPTION TAKES THE CURSOR). This section owns how the hover draws and what
+' the help under the card says.
+' THE CELLS. The chosen answer keeps (•) and bold (chosen). The hovered
+' disabled option draws ( ) in focusOff: black on grey, struck through. No
+' other cell changes. Group 13 below draws it.
+' THE HELP for a hovered disabled option (Row.unavailable: off, not in
+' force, on an unlocked row):
+'   › <option> — <Help>     the head; "› <option>" alone without Help
+'   off: <OffWhy>           the status (Row.status)
+' Without an OffWhy the status is the row's Reason; with neither it reads
+' "off: not supported on this run" (offUnnamed). An open list's off entry
+' without an OffWhy reads the same. A ticked off option keeps "always on:
+' <OffWhy>". A locked row keeps its Reason first; that Reason is its status,
+' so it adds no "off:" line.
+' A LOCKED ROW (verifier pass, 2026-11-14). Every cell of a locked row counts
+' as disabled, so each one names itself and states a status:
+'   Reason                  first, the status
+'   › <option> — <Help>     the head; "› <option>" alone without Help
+' Before, a locked row without Help (egress) showed its Reason alone and never
+' named the hovered baseline. A locked row without a Reason reads "off: not
+' supported on this run" under each option not in force (Row.inForce); the
+' answer in force adds no "off:" line, since it is not off. No run row is
+' locked without a Reason today.
+' AN OPEN LIST ON A LOCKED ROW (verifier pass, 2026-11-14). The hovered
+' element is the list's entry. The help names the entry (moreHelp), then
+' adds the row's Reason as its status:
+'   › anthropic — configured on the host; read-only
+'   host credential inventory; configure with proveo init or the run's .env; …
+' Before, moreHelp returned alone and the credentials cell showed no status
+' whenever its list held an entry. A list that shows no entry adds nothing.
+' COST, MEASURED 2026-11-14. The real run form's help slot already held three
+' lines (the credentials Reason wraps to two at 76 columns, plus the head), so
+' no run or init golden moved and the run form still needs 13 rows at 80
+' columns. The choiceui .env fixture (env_list_test.go envForm) has a
+' one-line Reason and no cell Help; its slot grew from one line to two, and
+' env-list, env-filter and env-nomatch moved at 80x24 and 120x36. At 80x12
+' that fixture leaves no row for its open list (listRoom.place needs four:
+' two borders, the filter line, one entry), so
+' TestTheOpenListNeverCoversTheTitleItsRowOrTheFoot samples 80x13 where it
+' sampled 80x12.
+' THE ROW'S REASON (gatesAnOption, until 2026-11-14 unreachableGate). It still
+' shows under every option a gated radio row can choose: the glance signal at
+' rest. Under the hovered disabled option it shows only when that option has
+' no OffWhy, so the status never doubles.
+' THE HELP SLOT counts the hover: maxHelpLines and checklistHelpSlot probe
+' each option through Row.point, the state ←/→ leave.
+' ON A CHECKLIST the help holds two lines (helpMost). cutHelp keeps the first
+' help line and puts the first status line second when the cut would drop
+' it; a kept line whose next line was dropped ends with ….
+' MEASURED 2026-11-14 at 80x24, init page 1, distro package hovered:
+'   › distro package — sbx via the host package manager, system-wide — needs…
+'   off: not offered — proveo cannot pin a package-manager install; `proveo ini…
+' THE DATA, so no status repeats its help:
+'   run    authHelp gives an option nothing backs only the head clause of what
+'          it is ("metered by the vendor beyond the plan's included usage");
+'          the reason moved out of its help and lives in OffWhy
+'          (credentials.AuthWhyUnavailable). Before, the help appended it.
+'   init   installRow puts distro package's reason in OffWhy, with the
+'          command --print names, and keeps its help on what the option is.
+'          Reason keeps "distro package: not offered — …" for the glance.
+' MEASURED 2026-11-14, claudecode with CLAUDE_CODE_OAUTH_TOKEN set and no
+' provider key, 120x40, API keys hovered and plan the answer:
+'   › API keys — metered by the vendor beyond the plan's included usage
+'   off: all inference transits anthropic — this CLI has no bring-your-own-key
+'        path, so a provider key here authenticates nothing
+' claudecode declares one provider (anthropic), so its API keys OffWhy is
+' credentials.VendorPinnedWhy. "no provider key is set — export one …" is
+' the OffWhy of a harness with no single provider, opencode among them.
+' Pinned by internal/choiceui/disabled_hover_test.go:
+'   TestAHoveredDisabledOptionTakesTheGreyFillAndTheAnswerStaysBold
+'   TestTheHelpNamesAHoveredDisabledOptionAndItsStatus
+'   TestADisabledOptionWithoutAnOffWhyStillStatesItsStatus (locked rows too)
+'   TestAChecklistKeepsAHoveredDisabledOptionsStatusInItsTwoLines
+' Pinned by internal/choiceui/env_list_test.go:
+'   TestTheEnvHelpNamesTheEntryOnceAndTheFile (the entry, then the Reason)
+' Pinned by internal/run/disabled_hover_test.go and cmd/proveo/init_hover_test.go
+' (wizard-keys.puml lists them).
 '
 ' THE HINT IS THE HALF THAT MAKES THE NOUNS MEAN SOMETHING. Under each option:
 ' what it is, then what it is made of on THIS host — host env variable names and
@@ -953,6 +1042,19 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   start at column 0, the facts at 2.
   Stubs start at column 1, so the
   gutter keeps column 0.
+}
+{^"13 · a disabled option takes the cursor (2026-11-14)"
+  <color:#00BAC6>› model</color> | ( ) Qwen 3.8 | <back:#8A8A8A>( ) <s>API keys</s></back> | <b>(X) plan</b> | ( ) Glimmer
+  › API keys — metered by the vendor beyond the plan's included usage | . | . | . | .
+  <b>off:</b> all inference transits anthropic — no bring-your-own-key path | . | . | . | .
+  .
+  ← from plan rests on API keys: the grey
+  fill, struck through. plan stays the
+  answer, bold, and Enter accepts plan.
+  The next ← chooses Qwen 3.8. Every row
+  kind lets the cursor land on every
+  option; a run never answers a disabled
+  one (owner, 2026-11-14).
 }
 }
 }

@@ -412,18 +412,19 @@ func installRow(plan sbx.Plan, installed string, def initDecisions, o initOption
 		installPackaged: "sbx via the host package manager, system-wide — needs root, and no published digest covers it",
 	}
 	off := make([]bool, len(opts))
+	offWhy := map[string]string{}
 	var reason string
 	switch {
 	case plan.Packaged != nil:
 		help[installPackaged] = plan.Packaged.Why
 	case strings.TrimSpace(plan.Alt) != "":
 		off[indexOf(opts, installPackaged)] = true
+		offWhy[installPackaged] = "not offered — proveo cannot pin a package-manager install; `proveo init --print` names " + plan.Alt
 		reason = installPackaged + ": not offered — proveo cannot pin a package-manager install"
-		help[installPackaged] = reason + "; `proveo init --print` names " + plan.Alt
 	default:
 		off[indexOf(opts, installPackaged)] = true
-		reason = installPackaged + ": not offered — no .deb/.rpm on this OS"
-		help[installPackaged] = reason
+		offWhy[installPackaged] = "not offered — no .deb/.rpm on this OS"
+		reason = installPackaged + ": " + offWhy[installPackaged]
 	}
 	if installed != "" {
 		opts = append(opts, installSkip)
@@ -436,6 +437,7 @@ func installRow(plan sbx.Plan, installed string, def initDecisions, o initOption
 		Selected:  indexOf(opts, def.Install),
 		Help:      help,
 		Off:       off,
+		OffWhy:    offWhy,
 		Reason:    reason,
 		Cols:      cols(len(opts)),
 		CellRunes: cellRunes,

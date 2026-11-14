@@ -1018,7 +1018,10 @@
         "cmd/proveo/init.go",
         "cmd/proveo/init_steps_test.go",
         "e2e/init_steps_test.go",
-        "internal/choiceui/checklist_test.go"
+        "internal/choiceui/checklist_test.go",
+        "internal/choiceui/disabled_hover_test.go",
+        "internal/run/disabled_hover_test.go",
+        "cmd/proveo/init_hover_test.go"
       ],
       "fingerprint": null
     },
@@ -1066,7 +1069,12 @@
         "internal/choiceui/step_test.go",
         "internal/choiceui/checklist.go",
         "internal/choiceui/checklist_test.go",
-        "internal/choiceui/marks.go"
+        "internal/choiceui/marks.go",
+        "internal/choiceui/layout.go",
+        "internal/choiceui/disabled_hover_test.go",
+        "internal/run/disabled_hover_test.go",
+        "cmd/proveo/init_tui.go",
+        "cmd/proveo/init_hover_test.go"
       ],
       "fingerprint": null
     },

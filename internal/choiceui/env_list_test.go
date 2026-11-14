@@ -311,8 +311,12 @@ func TestTheEnvHelpNamesTheEntryOnceAndTheFile(t *testing.T) {
 	f.Rows[1].Help = map[string]string{"ARCHITECT_MODEL": "a row help that must not answer for the list"}
 	f.Rows[0].Help = map[string]string{"ARCHITECT_MODEL": "a cell help that must not answer for the list"}
 	lines := f.Rows[0].helpLines(116)
-	if len(lines) != 1 || lines[0].text != "› ARCHITECT_MODEL — set in ~/monorepo/.env; this list shows names only" {
-		t.Fatalf("help = %+v", lines)
+	want := []helpLine{
+		{text: "› ARCHITECT_MODEL — set in ~/monorepo/.env; this list shows names only"},
+		{text: "host credential inventory; read-only", warn: true},
+	}
+	if !slices.Equal(lines, want) {
+		t.Fatalf("help = %+v, want %+v", lines, want)
 	}
 	none := filtering("zzq")
 	if lines := none.Rows[0].helpLines(116); len(lines) != 0 {
@@ -370,7 +374,7 @@ func TestTheOpenListNeverCoversTheTitleItsRowOrTheFoot(t *testing.T) {
 		},
 	}
 	for name, form := range forms {
-		for _, sz := range [][2]int{{160, 45}, {120, 36}, {120, 24}, {100, 30}, {80, 24}, {80, 16}, {80, 12}, {64, 14}, {38, 24}} {
+		for _, sz := range [][2]int{{160, 45}, {120, 36}, {120, 24}, {100, 30}, {80, 24}, {80, 16}, {80, 13}, {64, 14}, {38, 24}} {
 			f := form()
 			w, h := sz[0], sz[1]
 			if !f.navigable(w, h) {

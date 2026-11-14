@@ -40,8 +40,7 @@ func (f *Form) maxHelpLines(width int) int {
 			for _, on := range []bool{false, true} {
 				probe := r
 				probe.More, probe.Lists = nil, nil
-				probe.Selected = j
-				probe.Hover = j
+				probe.point(j)
 				probe.On = append(append([]bool(nil), r.On...), make([]bool, len(r.Options))...)[:len(r.Options)]
 				probe.On[j] = on
 				if n := len(probe.helpLines(width)); n > most {

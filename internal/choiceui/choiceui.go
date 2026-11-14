@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -22,6 +23,7 @@ type Row struct {
 	Selected int
 	Locked   bool
 	Hover    int
+	hoverOff bool // a radio row's cursor rests on Hover, an option it cannot choose; Selected keeps the answer
 	Reason   string
 	Multi    bool
 	On       []bool
@@ -234,12 +236,38 @@ func clipRunes(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
+// cursorAt is the cell the row's cursor is on: Hover on a locked row or over an option a radio row
+// cannot choose, else Selected.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml (EVERY OPTION TAKES THE CURSOR)
 func (r *Row) cursorAt() int {
-	if r.Locked {
+	if r.Locked || (r.hoverOff && r.offAt(r.Hover)) {
 		return r.Hover
 	}
 	return r.Selected
 }
+
+// point puts the row's cursor on option j as ←/→ would: a locked row hovers it, a checkbox row
+// moves to it, a radio row chooses it or, when j is off, rests on it and keeps its answer.
+func (r *Row) point(j int) {
+	switch {
+	case r.Locked:
+		r.Hover = j
+	case r.Multi:
+		r.Selected = j
+	default:
+		r.Hover, r.hoverOff = j, r.offAt(j)
+		if !r.hoverOff {
+			r.Selected = j
+		}
+	}
+}
+
+// unavailable reports whether option i on an unlocked row is off and not in force: the cursor
+// rests on it, and nothing chooses it.
+func (r *Row) unavailable(i int) bool { return !r.Locked && r.offAt(i) && !r.inForce(i) }
+
+// inForce reports whether option i is ticked on a checkbox row or the answer on a radio row.
+func (r *Row) inForce(i int) bool { return r.onAt(i) || (!r.Multi && i == r.Selected) }
 
 func (r *Row) hoverable() bool { return r.Kind == RowAnswer && r.Locked && len(r.Options) > 0 }
 
@@ -248,10 +276,11 @@ type helpLine struct {
 	warn bool
 }
 
-// The heads a gated answer's help line opens with.
+// The heads a gated answer's help line opens with, and what an option off without an OffWhy reads.
 const (
 	offHead      = "off: "
 	alwaysOnHead = "always on: "
+	offUnnamed   = "not supported on this run"
 )
 
 func (r *Row) helpLines(width int) []helpLine { return r.helpNamed(width, optionName) }
@@ -263,7 +292,13 @@ func (r *Row) helpNamed(width int, name func(string) string) []helpLine {
 		return nil
 	}
 	if r.activeMore() != nil {
-		return r.moreHelp(width)
+		out := r.moreHelp(width)
+		if len(out) > 0 && r.Locked && r.Reason != "" {
+			for _, l := range wrap(r.Reason, width, 2) {
+				out = append(out, helpLine{text: l, warn: true})
+			}
+		}
+		return out
 	}
 	opt := r.Options[idx]
 	var out []helpLine
@@ -272,26 +307,45 @@ func (r *Row) helpNamed(width int, name func(string) string) []helpLine {
 			out = append(out, helpLine{text: l, warn: true})
 		}
 	}
-	if h := r.Help[opt]; h != "" {
-		for _, l := range wrap("› "+name(opt)+" — "+h, width, 2) {
+	unavailable := r.unavailable(idx)
+	if h := r.Help[opt]; h != "" || unavailable || r.Locked {
+		head := "› " + name(opt)
+		if h != "" {
+			head += " — " + h
+		}
+		for _, l := range wrap(head, width, 2) {
 			out = append(out, helpLine{text: l})
 		}
 	}
-	if why := r.OffWhy[opt]; why != "" {
-		label := offHead
-		if r.onAt(idx) {
-			label = alwaysOnHead
-		}
+	if label, why := r.status(idx); why != "" {
 		for _, l := range wrap(label+why, width, len([]rune(label))) {
 			out = append(out, helpLine{text: l, warn: true})
 		}
 	}
-	if r.Reason != "" && (len(out) == 0 || r.unreachableGate()) {
+	bare := unavailable && r.OffWhy[opt] == ""
+	if r.Reason != "" && (len(out) == 0 || bare || (r.gatesAnOption() && !unavailable)) {
 		for _, l := range wrap(r.Reason, width, 2) {
 			out = append(out, helpLine{text: l, warn: true})
 		}
 	}
 	return out
+}
+
+// status is option i's status line, its head and its text: "always on: " or "off: " and the
+// option's OffWhy; "off: not supported on this run" for an unavailable option, or a locked row's
+// option not in force, on a row with neither an OffWhy for it nor a Reason; else nothing.
+// SPEC: _spec/internal/choiceui/wireframe.puml (A DISABLED OPTION TAKES THE CURSOR)
+func (r *Row) status(i int) (head, why string) {
+	why = r.OffWhy[r.Options[i]]
+	switch {
+	case why == "" && r.Reason == "" && (r.unavailable(i) || (r.Locked && !r.inForce(i))):
+		return offHead, offUnnamed
+	case why == "":
+		return "", ""
+	case r.onAt(i):
+		return alwaysOnHead, why
+	}
+	return offHead, why
 }
 
 func (r *Row) moreHelp(width int) []helpLine {
@@ -311,7 +365,11 @@ func (r *Row) moreHelp(width int) []helpLine {
 	for _, l := range wrap("› "+opt+" — "+h, width, 2) {
 		out = append(out, helpLine{text: l})
 	}
-	if why := r.OffWhy[opt]; why != "" && m.offAt(m.At) {
+	why := r.OffWhy[opt]
+	if why == "" && (m.At >= len(m.On) || !m.On[m.At]) {
+		why = offUnnamed
+	}
+	if why != "" && m.offAt(m.At) {
 		for _, l := range wrap(offHead+why, width, len(offHead)) {
 			out = append(out, helpLine{text: l, warn: true})
 		}
@@ -319,7 +377,9 @@ func (r *Row) moreHelp(width int) []helpLine {
 	return out
 }
 
-func (r *Row) unreachableGate() bool {
+// gatesAnOption reports whether an unlocked radio row holds an option it cannot choose; its Reason
+// then shows under every option it can.
+func (r *Row) gatesAnOption() bool {
 	if r.Multi || r.Locked {
 		return false
 	}
@@ -647,8 +707,64 @@ var sgrRun = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
 
 // Render is the form at rest on a w-by-h terminal as plain text, the cursor where it opens: one
 // line per row, trailing blanks and trailing blank rows cut.
-func (f *Form) Render(w, h int) string {
-	lines := strings.Split(sgrRun.ReplaceAllString(f.frame(w, h, f.startCursor(), 0), ""), "\n")
+func (f *Form) Render(w, h int) string { return f.plainFrame(w, h, f.startCursor()) }
+
+// RenderOn is Render with the cursor on the row labelled label, where that row's cursor stands.
+func (f *Form) RenderOn(label string, w, h int) string {
+	return f.plainFrame(w, h, slices.IndexFunc(f.Rows, func(r Row) bool { return r.Label == label }))
+}
+
+// Hover is where a key leaves the cursor on a row: the option under it, the help under the card,
+// and apart from that help the status lines that say why the option or its row cannot change.
+type Hover struct {
+	Option string
+	Help   []string
+	Status []string
+}
+
+// Walk presses each key on the row labelled label, from where that row's cursor stands, on a
+// cardMax-wide terminal, and reports where each press leaves the cursor; nil when the cursor
+// cannot rest on that row.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml (EVERY OPTION TAKES THE CURSOR)
+func (f *Form) Walk(label string, keys ...string) []Hover {
+	row := slices.IndexFunc(f.Rows, func(r Row) bool { return r.Label == label })
+	if row < 0 || !f.stop(row) {
+		return nil
+	}
+	const tall = 200
+	var out []Hover
+	for _, k := range keys {
+		cursor, p := row, press{key: k}
+		if utf8.RuneCountInString(k) == 1 {
+			p = press{text: k}
+		}
+		f.key(&cursor, p, cardMax, tall)
+		r := &f.Rows[row]
+		at := r.cursorAt()
+		if at < 0 || at >= len(r.Options) {
+			out = append(out, Hover{})
+			continue
+		}
+		lines := r.helpLines(helpWidth(cardMax))
+		if f.Checklist {
+			lines = f.checklistHelp(row, helpWidth(cardMax))
+		}
+		hv := Hover{Option: r.Options[at]}
+		for _, l := range lines {
+			if l.warn {
+				hv.Status = append(hv.Status, l.text)
+			} else {
+				hv.Help = append(hv.Help, l.text)
+			}
+		}
+		out = append(out, hv)
+	}
+	return out
+}
+
+// plainFrame is the form drawn on a w-by-h terminal with the cursor on row cursor, as plain text.
+func (f *Form) plainFrame(w, h, cursor int) string {
+	lines := strings.Split(sgrRun.ReplaceAllString(f.frame(w, h, cursor, 0), ""), "\n")
 	for i := range lines {
 		lines[i] = strings.TrimRight(lines[i], " ")
 	}
@@ -879,7 +995,13 @@ func (f *Form) FieldValue(label string) string {
 func (f *Form) startCursor() int {
 	row, cell := f.start()
 	if row < len(f.Rows) {
-		f.Rows[row].Selected = cell
+		r := &f.Rows[row]
+		r.hoverOff = false
+		if r.Multi || r.Locked || !r.offAt(cell) {
+			r.Selected = cell
+		} else {
+			r.point(cell)
+		}
 	}
 	return row
 }
@@ -1005,16 +1127,9 @@ func (f *Form) cycle(cursor, delta int) {
 		return
 	}
 	n := len(r.Options)
-	if r.Locked {
-		r.Hover = ((r.Hover+delta)%n + n) % n
+	r.point(((r.cursorAt()+delta)%n + n) % n)
+	if r.Locked || r.hoverOff {
 		return
-	}
-	for step := 1; step <= n; step++ {
-		next := ((r.Selected+delta*step)%n + n) % n
-		if r.Multi || !r.offAt(next) {
-			r.Selected = next
-			break
-		}
 	}
 	f.changed()
 }
@@ -1091,9 +1206,17 @@ func (f *Form) toggleMore(r *Row) {
 	f.changed()
 }
 
+// changed runs OnChange, then drops each radio row's hover over an option OnChange freed.
+// SPEC: _spec/internal/choiceui/wizard-keys.puml (EVERY OPTION TAKES THE CURSOR)
 func (f *Form) changed() {
-	if f.OnChange != nil {
-		f.OnChange(f)
+	if f.OnChange == nil {
+		return
+	}
+	f.OnChange(f)
+	for i := range f.Rows {
+		if r := &f.Rows[i]; r.hoverOff && !r.offAt(r.Hover) {
+			r.hoverOff = false
+		}
 	}
 }
 

@@ -18,7 +18,7 @@
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 
+
   on enter
     1  create proveo-claudecode-1b3f
-    2  clone monorepo
-    3  start the agent
+    … and 2 more

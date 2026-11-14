@@ -334,8 +334,8 @@ func TestInitRowsGateAPackagedInstallThisHostCannotRun(t *testing.T) {
 	if install.Reason != "distro package: not offered — proveo cannot pin a package-manager install" {
 		t.Errorf("the gated reason = %q, want one line with no command", install.Reason)
 	}
-	if plan.Alt != "" && !strings.Contains(install.Help[installPackaged], "--print") {
-		t.Errorf("the gated help must say where the command went, got %q", install.Help[installPackaged])
+	if plan.Alt != "" && !strings.Contains(install.OffWhy[installPackaged], "--print") {
+		t.Errorf("the gated status must say where the command went, got %q", install.OffWhy[installPackaged])
 	}
 	if install.Selected != indexOf(install.Options, installTarball) {
 		t.Errorf("Selected = %d (%q), want the tarball", install.Selected, install.Options[install.Selected])
