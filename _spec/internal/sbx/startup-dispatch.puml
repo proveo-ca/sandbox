@@ -166,7 +166,7 @@ skinparam noteTextAlignment left
 '
 ' ── THE PROBE, ON v3 (2026-10-24, the "Full v3 port" of e2e) ────────────────
 ' A workload's create runs its install and startup hooks and returns after the
-' FOREGROUND ones (P5, sbx-kit-v3-migration.puml); proveo launches right after
+' FOREGROUND ones (P5, _spec/internal/sbx/sbx-kit-v3.puml); proveo launches right after
 ' create. TestWorkloadCreateWaitsForForegroundStartupHooksOnly creates a
 ' workload FROM the stock template docker/sandbox-templates:shell-docker with
 ' a foreground hook (sleeps PROVEO_DISPATCH_STEP, default 20s) and a background

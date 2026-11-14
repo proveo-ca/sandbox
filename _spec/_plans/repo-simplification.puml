@@ -9,7 +9,7 @@
 ' would touch: internal/agentio/agentio.go, internal/ui/ui.go, e2e/{idle,opencode_cache_sbx}_test.go
 ' would touch: mise.toml, .goreleaser.yaml, internal/contract/release_gate_test.go
 ' status: PLANNED — a findings record. _spec/_plans/ is exempt from the SPEC-reference rule.
-' history: rows dated before 2026-11-12 name cmd/proveo-dev as it stood then; _spec/_refactors/proveo-dev-to-mise.puml retired it
+' history: rows dated before 2026-11-12 name cmd/proveo-dev as it stood then; mise tasks replaced it (_spec/cmd/proveo/usage.puml)
 ' Referenced from: _spec/packages/lib/steps.puml (attach_rtk removal) and the D1 rehoming
 '   targets below. D1's decisions live in the living specs:
 '     backend selection, refusal, .env guard ... _spec/internal/sbx/sandbox-backend.puml
@@ -381,8 +381,8 @@
 ' N10 · Landed plans under _plans/ — DONE (wt), option 1. The coordinator ran the two git mv's;
 '   the spec half is this pass.
 '   _spec/_devops/image-size-reduction.puml — retitled a measurement record; covers unchanged.
-'   _spec/_refactors/host-shell-to-go.puml — a FROZEN SNAPSHOT: header says so, title is not
-'     PLANNED, no `covers:` (index covers []), and it lists the current-state owners. Rehomed: the
+'   the host-shell refactor plan — a FROZEN SNAPSHOT under _spec/_refactors/ (retired
+'     2026-11-14), no `covers:`, listing the current-state owners. Rehomed: the
 '     host-shell allowlist into _spec/tests/20-contract.puml; lint.go/lint_test.go coverage into
 '     _spec/_devops/git-hooks.puml.
 '   _spec/_plans/retire-model-bridging.puml — trimmed to Q2 (local model) and Q4 (catalog). The
@@ -1253,15 +1253,15 @@
 '
 ' N10 · Landed plans still sit under _plans/ — DONE (wt) 2026-10-17, option 1 (see DONE, third
 '     batch; the source SPEC: repoint is the main agent's). Paths below are the pre-move ones.
-'   Evidence: MEASURED. host-shell-to-go.puml:20 "P1–P4 LANDED — plan complete".
 '   Evidence: MEASURED. image-size-reduction.puml:11 "BACKLOG LANDED"; title :601 "landed".
 '   Evidence: MEASURED. retire-model-bridging.puml:12 "APPLIED 2026-09-09, except Q2".
-'   Evidence: MEASURED. harness-credential-storage-audit.puml:16 "source audit complete".
+'   Evidence: MEASURED. The harness credential-storage audit plan's status line read "source
+'     audit complete"; its OpenCode half lives in _spec/defs/opencode/engine-local-history.puml.
 '   Evidence: MEASURED. spec-conventions.puml:100-104 says a _plans diagram moves out once it ships.
 '   Evidence: MEASURED. 54 source files cite those first three plans in SPEC: lines.
 '   Options:
 '     1. [rec] Graduate: image-size-reduction to _spec/_devops/ as a measurement record;
-'        host-shell-to-go to _spec/_refactors/ as a frozen snapshot; trim retire-model-bridging to
+'        the host-shell refactor plan to _spec/_refactors/ as a frozen snapshot; trim retire-model-bridging to
 '        Q2/Q4. The main agent repoints the source SPEC: lines.
 '     2. Retitle each LANDED in place; leave the SPEC: lines.
 '     3. Delete them; repoint SPEC: lines at current-state diagrams.

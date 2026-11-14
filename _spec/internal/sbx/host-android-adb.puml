@@ -31,7 +31,7 @@ skinparam noteTextAlignment left
 ' covers: e2e/testdata/android-hello/**
 '   why this shape, measured ............ _spec/_experiments/mobile-device-reach.puml
 '   the pattern it copies ............... _spec/internal/sbx/host-browser-cdp.puml
-'   why the box has no emulator ......... _spec/_experiments/nested-sbx-kvm.puml
+'   why the box has no emulator ......... _spec/_paradigms/capability-ladder.puml (THE LADDER IS A HOST MEASUREMENT)
 '
 ' ── WHY ────────────────────────────────────────────────────────────────────
 ' The box has no /dev/kvm, so the emulator lives on the host. The host adb
@@ -284,11 +284,13 @@ skinparam noteTextAlignment left
 ' The Kit's localhost:<port> allow governs only the sandbox→server hop.
 ' Accepted with a run-time warning (startHostADB, every run with the add-on),
 ' in the interface block after `sbx create` since 2026-11-11
-' (output-readability R1):
+' (_spec/internal/ui/output-vocabulary.puml):
 '   "⚠ android — the agent controls every device on that adb server", dim under
 '   it "the server dials any address it is told to from this host, outside sbx
 '   egress"
-' ONE FACT PER ADD-ON (the operator, 2026-11-11, decision B of R1). The boot
+' ONE FACT PER ADD-ON (DECIDED 2026-11-11, the operator; it holds for every
+' host add-on: android, host Chrome over CDP, Hermes Desktop). NOT CHOSEN: an
+' egress fact for a host add-on; a new "host" heading. The boot
 ' runs behind the live line "android — starting", which leaves the screen once
 ' the device is up. Ensure returns hostadb.Started{Serial, AVD}; the interface
 ' block's Facts then carry one row, the adb server dim under it:

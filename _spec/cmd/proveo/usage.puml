@@ -14,7 +14,6 @@ skinparam packageStyle rectangle
 ' covers: cmd/proveo/running.go
 ' covers: cmd/proveo/running_test.go
 '   the variable registry `help env` renders ... _spec/internal/envreg/env-registry.puml
-'   why maintainer tooling is mise tasks ....... _spec/_refactors/proveo-dev-to-mise.puml
 '
 ' ── 2026-10-18: `build` VISIBLE, `targets` GONE, `help env` ADDED ──────────
 ' MEASURED, cmd/proveo/main.go rootCmd(): the root registers version, ls, run,
@@ -46,7 +45,7 @@ skinparam packageStyle rectangle
 ' and its last row starts the harness. `--yes`, `--print`, `--ls`,
 ' `--resume` and `--continue` skip the picker.
 '
-' ── 2026-11-11: WHAT THE LISTINGS PRINT (R4 of _spec/_plans/output-readability.puml)
+' ── 2026-11-11: WHAT THE LISTINGS PRINT (R4; _spec/internal/ui/output-vocabulary.puml)
 ' A one-subject command draws no heading (the operator); its stdout holds its
 ' rows and nothing else:
 '   proveo ls         one ui.Facts block, app role, "<target>: <image>", one
@@ -97,10 +96,20 @@ skinparam packageStyle rectangle
 ' consumer has no checkout. TestRootHelpHidesMaintainerCommands fails if the
 ' consumer root registers build, deploy or test.
 '
-' ── 2026-11-12: MAINTAINER TOOLING IS mise TASKS (the decision record above) ─
+' ── 2026-11-12: MAINTAINER TOOLING IS mise TASKS ───────────────────────────
 ' The operator asked for the maintainer dispatcher to be replaced by mise
 ' completely; it is deleted. mise.toml is the maintainer
 ' interface; every run string is plain argv (_spec/tests/20-contract.puml).
+' OPTIONS CONSIDERED (2026-11-12). CHOSEN, C: every thin wrapper becomes a
+' native mise task, every gate verdict moves into the Go test it gates, the
+' upstream tools absorb the rest, and two producer mains stay. NOT CHOSEN:
+' A, one internal/devtask runner keyed on MISE_TASK_NAME (the dispatcher
+' under a new name); B, one main per tool (it moves ~1,400 lines verbatim and
+' keeps the text-parsing gates and the stage-cdn defects); D, mise-native sh
+' one-liners (host shell logic returns).
+' THE MAINS LIVE UNDER internal/, where the env-registry scan already reads.
+' NOT CHOSEN: internal/devtool/* (a namespace with no library beside it);
+' tools/ (the scan would have to learn it); cmd/ (reads as a shipped binary).
 '   gates ........ go test is the verdict: lint, baseline, test-go, ci,
 '                  release-ledger, idle-all, ladder:<def> (git-hooks.puml,
 '                  unit-baseline.puml, release-gate.puml)
@@ -114,7 +123,9 @@ skinparam packageStyle rectangle
 ' and cmd/ holds no other directory.
 ' VERSION: with no -X stamp, cmd/proveo/version.go reports dev@<12 hex of
 ' vcs.revision>, plus "+dirty" when vcs.modified, from Go build info; a -X
-' stamp wins (TestVersionFallsBackToBuildInfo). MEASURED: go build printed
+' stamp wins (TestVersionFallsBackToBuildInfo). 12 hex, because git's own
+' abbreviation length varies with repo size; NOT CHOSEN: 7 or 8 hex; an
+' unstamped dev. MEASURED: go build printed
 ' `proveo version dev@7a0c8cf4d982+dirty`, -X printed `9.9.9`, go run `dev`.
 ' TestBuiltBinaryReportsItsVersion repeats both builds and pins init()'s
 ' wiring; it skips where go build stamps no revision (-buildvcs=false, no git).
@@ -237,7 +248,7 @@ built a docker-run argv and ""internal/egress"" a docker
 topology; both are deleted.) That logic was previously triplicated
 across the consumer CLI, ""lib/runners\.sh"" and every
 per-def ""run\.sh"" — three copies that drifted. The last
-""run\.sh"" shims went in host-shell-to-go P4.
+""run\.sh"" shims went on 2026-09-22.
 
 Shipped as a single checksummed static binary
 (""\.goreleaser\.yaml"", ""dist/install\.sh""), which is what

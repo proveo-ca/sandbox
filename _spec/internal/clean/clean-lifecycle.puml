@@ -52,7 +52,8 @@
 ' mounts ~/.proveo/.claude and ~/.proveo/toolchains (MEASURED, read-only `sbx
 ' ls --json`); --tools holds the same toolchains back while any sandbox runs.
 '
-' WHAT CLEAN PRINTS (R4 of _spec/_plans/output-readability.puml), no heading:
+' WHAT CLEAN PRINTS (R4; the rules: _spec/internal/ui/output-vocabulary.puml),
+' no heading:
 ' it acts first, then prints once. While a removal runs a terminal shows one
 ' live line, "clean · <kind> <name> · 3s"; plain output prints nothing until
 ' the block (a docker call that hangs shows nothing in CI until it returns).
@@ -77,6 +78,9 @@
 '                                         exit 0: clean kept a live run safe
 '     ✓ clean — N removed
 '   "<size> of toolchains reclaimed" (dry run: "to reclaim") sits dim under it.
+'   NOT CHOSEN: "⚠ clean — left …" with a ✓ under it (two verdicts); exit 1
+'   on any failed removal (R4 kept HEAD's exit status, and R5 did not choose
+'   it: _spec/cmd/proveo/usage.puml, STRAY ARGUMENTS).
 ' GONE FROM THE SCREEN: "removing …" before each removal (it printed before
 ' acting and discarded every error), the state dir's "(sbx kit, policy log,
 ' staged clone .env)" and the home's "(sessions + seeded config)" (now in

@@ -480,7 +480,7 @@ skinparam noteTextAlignment left
 ' TestInitFramesSbxLoginOnASignedOutHost, TestInitSignInRowsRunSbxsOwnFlows,
 ' TestInitCtrlCOnPageThreeStopsAfterItsRow, TestInitCtrlCDuringGitHubHandsNothingOut.
 '
-' ── WHAT INIT PRINTS (R3 of _spec/_plans/output-readability.puml, 2026-11-11)
+' ── WHAT INIT PRINTS (R3, 2026-11-11; _spec/internal/ui/output-vocabulary.puml)
 ' Headings by subject, each once, each after the step that makes it true:
 '   sbx          the hand lines of the programs sbx owns, then ONE Facts block
 '                (host with the prerequisites it meets dim, sbx's version with
@@ -525,8 +525,10 @@ skinparam noteTextAlignment left
 ' github`) are a ⚠ item with no restated exit status. handOff tells the two
 ' apart: an exit status is the program's to explain; a program that never
 ' started is proveo's to say. Until the R3 review a failed `gh auth login`
-' was a ⚠ item and init went on; the plan's decision lists it with the
-' fatal ones. Pinned by TestAFailedGhAuthLoginEndsInitOnWhereItStopped.
+' was a ⚠ item and init went on; the operator's R3 decision lists it with
+' the fatal ones. Pinned by TestAFailedGhAuthLoginEndsInitOnWhereItStopped.
+' NOT CHOSEN: teeing the program's stderr (it may change how sbx and gh see
+' a terminal); a × after every failed hand-off.
 ' Ctrl+C DURING A HAND-OFF (decided in R3): init runs each handed program with
 ' SIGINT notified, not fatal, so the Ctrl+C reaches the program alone. When
 ' it then fails, or dies of SIGINT, or exits 130, init stops after it, as
@@ -550,7 +552,8 @@ skinparam noteTextAlignment left
 ' how-tos are in the flag's help, the git identity's included (`git config
 ' --global user.name` and `user.email`). Unasked, "access:" keeps what is
 ' wrong with the host's SSH as state ("host agent unavailable or empty") and
-' drops the fix after its ";" (ssh-add, sbx setup).
+' drops the fix after its ";" (ssh-add, sbx setup). NOT CHOSEN: every how-to
+' to the flag help; a how-to for the git identity alone.
 ' --yes ASKS NOTHING (FOUND 3, MEASURED c7): the git step read the terminal
 ' and ignored --yes, so `proveo init --yes` on a terminal asked for
 ' user.name. hostGitStage now takes !d.NoPrompt && interactiveTerminal(), as

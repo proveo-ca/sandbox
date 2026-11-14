@@ -4,6 +4,7 @@ title cursor paradigm — policy-gated autonomous loop (layered enforcement)
 
 ' covers: defs/cursor/entrypoint.sh
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/cursor/harness.manifest
 '
 ' ── NO PROVEO DENY LIST (2026-10-24, user: "Keep upstream, lose the deny list")
 ' The sbx cursor kit seeds ~/.cursor/cli-config.json as
@@ -14,6 +15,15 @@ title cursor paradigm — policy-gated autonomous loop (layered enforcement)
 ' the root-owned hooks and readonly subagents; an operator's own deny entries
 ' in cli-config.json or a project .cursor/cli.json still apply. Pinned by
 ' TestCursorShipsNoDenyListDefault (internal/contract/defaults_test.go).
+'
+' ── THE HOME MOUNT'S deny: [auth.json] STAYS ───────────────────────────────
+' A different deny from the one above: defs/cursor/harness.manifest puts
+' `deny: [auth.json]` on the .cursor home mount, and it is cursor's active
+' credential boundary. proveohome.Prepare deletes .cursor/auth.json from the
+' host copy before every run (scrubDeny; PROVEO_KEEP_AGENT_LOGINS=1 keeps it),
+' and the config sync skips it (skipList), so no login file persists through
+' proveo. [Inference] sbx intercepts cursor's auth/poll token endpoint, so an
+' in-sandbox login is sbx's (_spec/internal/sbx/vendored-kit-deltas.puml).
 '
 ' ── THREE ENTRYPOINT DETAILS WORTH KEEPING ─────────────────────────────────
 ' PROXY COMPATIBILITY is two changes, not one. Beside the nested
@@ -89,9 +99,9 @@ end note
 note bottom of L2
   Cursor's own OS sandbox (Landlock/seccomp) is disabled
   on purpose — unprivileged userns fail in this container.
-  Docker is the FS/process boundary today; network
-  containment is deferred to the free-tier ""sbx"" experiment
-  (_spec/_experiments/docker-sandbox.puml), not Landlock.
+  sbx is the boundary instead: its microVM for files and
+  processes, its policy and host-side proxy for the network
+  (_spec/internal/sbx/policy-baseline.puml), not Landlock.
 end note
 
 note bottom of VENDOR
@@ -200,10 +210,9 @@ end note
 note bottom of SBX
   **Cursor's own Landlock sandbox is disabled deliberately.** Landlock
   needs an unprivileged user namespace, which a cap-dropped container
-  cannot provide, so enabling it would fail rather than confine. Docker is
-  the filesystem and process boundary here; network containment is the
-  egress tier. Overridable with ""PROVEO_CURSOR_SANDBOX"" — see
-  ""_spec/_experiments/docker-sandbox\.puml"".
+  cannot provide, so enabling it would fail rather than confine. sbx's
+  microVM is the filesystem and process boundary; sbx's policy is the
+  network one. Overridable with ""PROVEO_CURSOR_SANDBOX"".
 end note
 
 

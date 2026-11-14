@@ -20,7 +20,7 @@ skinparam noteTextAlignment left
 ' covers: e2e/home_test.go
 ' covers: e2e/ide_attach_test.go
 '   clone return path ........ _spec/internal/sbx/clone-workspace.puml
-'   wider post-close UI ...... _spec/_plans/post-close-surface.puml
+'   wider post-close UI ...... _spec/internal/results/result-store.puml (D4)
 '   workspace boundary ....... _spec/_paradigms/workspace-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -29,7 +29,7 @@ skinparam noteTextAlignment left
 ' share the tree; that is named, not refused. A successful run still tears its
 ' sandbox down. A failed run reprints the same host so the editor can stay
 ' after the agent has gone. A remote attach is not established.
-' ONE ROW ON A LIVE RUN (2026-11-11, output-readability R1). The screen gets
+' ONE ROW ON A LIVE RUN (2026-11-11, _spec/internal/ui/output-vocabulary.puml). The screen gets
 ' "● ide: ssh <sandbox>.sbx" and one dim line: on a clone "IDE links in the
 ' run log; a local Open edits the host checkout", else "JetBrains, Toolbox and
 ' VS Code links in the run log". IDEAttachLines goes whole to the run

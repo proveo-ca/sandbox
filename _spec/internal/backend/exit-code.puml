@@ -18,11 +18,13 @@ skinparam noteTextAlignment left
 '   the tail the code is read from . _spec/internal/agentio/agent-terminal-io.puml
 '
 ' ── 2026-11-11 (R2): WHO SAYS THE EXIT ON SCREEN ───────────────────────────
-' The operator, settled by P9 and the sbx overlap rule
-' (_spec/_plans/output-readability.puml, F3): proveo prints no × when sbx
-' printed its own error line; × only when sbx said nothing; never the agent's
-' name when sbx may have failed before the agent started; none for a removal
-' the operator chose at the Ctrl+C dialog.
+' The operator, settled by P9 and the sbx overlap rule (F3;
+' _spec/internal/ui/output-vocabulary.puml, THE STREAM'S RULES): proveo
+' prints no × when sbx printed its own error line; × only when sbx said
+' nothing; never the agent's name when sbx may have failed before the agent
+' started; none for a removal the operator chose at the Ctrl+C dialog.
+' NOT CHOSEN: × as the last line (the failure said three times); × first on
+' every run.
 '   sbx.SaidError(status, lines)  the tail's LAST line starts "error: " and
 '                         is sbx's own: it names the agent's exit ("error:
 '                         agent exited with code 3"), or sbx exited 1, the

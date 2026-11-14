@@ -28,12 +28,22 @@
 '   build-cli ..... go install proveo and proveo-entrypoint into GOPATH/bin
 '                   (env GOBIN = false; a `go env -w GOBIN` entry still
 '                   wins), version dev@<sha> from build info
+' CONFIRM GUARDS deploy-cli ALONE. An empty templated confirm still prompts,
+' so a confirm on deploy would force --yes on every scripted deploy. Without
+' a TTY `mise run -n deploy-cli` exits 1 at the confirm; `-n --yes` prints
+' the plan. A "no" comes after release ran, so dist/ and apps/cli/public/cli
+' stay restaged.
+' GOBIN = false lets go install write to its own GOPATH/bin. NOT CHOSEN:
+' GOBIN from get_env(GOPATH) (misses `go env -w GOPATH`); GOBIN from exec()
+' (a template renders with the caller's PATH); GOENV=off (also drops
+' GOPRIVATE and GOPROXY).
 ' goreleaser 2.17.0 is pinned on snapshot and release alone, never in [tools],
 ' so fmt, lint and post-commit never resolve it. goreleaser lists its binaries
 ' explicitly, and no maintainer program is among them.
 ' * stage reads the platforms from .goreleaser.yaml builds[id=proveo], the
 '   version from dist/metadata.json, and the cdn-proveo Binary entries from
-'   dist/artifacts.json. It checks each binary's sha256 against goreleaser's
+'   dist/artifacts.json (NOT CHOSEN: a hard-coded 8-platform list; jq or sh
+'   one-liners). It checks each binary's sha256 against goreleaser's
 '   extra.Checksum BEFORE it touches the tree, so a refused stage leaves bin/,
 '   checksums.txt and latest.json as they were. Then it removes stale
 '   bin/proveo-* files, copies each binary 0755, and writes checksums.txt and
@@ -112,7 +122,7 @@
 ' install.sh marker, and the closing text holds "source ~/<rc>", no `\~`, no
 ' "init --print".
 '
-' ── WHAT `proveo update` PRINTS (R4 of _spec/_plans/output-readability.puml)
+' ── WHAT `proveo update` PRINTS (R4; _spec/internal/ui/output-vocabulary.puml)
 ' No heading; one closing line, last; every × is the command's own item,
 ' Reported (exit 1, main prints nothing):
 '   --check, newer   ● proveo 0.3.1 → 0.4.0 — available, the channel URL dim

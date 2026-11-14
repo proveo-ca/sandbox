@@ -143,7 +143,7 @@
 ' than reopen it.
 '
 ' ── ONE HEADING PER SUBJECT, IN THE ORDER THE RUN MAKES IT TRUE ───────────
-' SUPERSEDED 2026-11-11 (R1 of _spec/_plans/output-readability.puml): a run's
+' SUPERSEDED 2026-11-11 (R1; P1 of _spec/internal/ui/output-vocabulary.puml): a run's
 ' headings were phases — resolved "scope · run · credentials · workspace ·
 ' egress · execution", live "starting · secrets · interface · results" — so
 ' "interface" printed predictions between step 2/5 and step 4/5 and the
@@ -176,7 +176,8 @@
 ' Every divider in a run therefore appears exactly ONCE: no stage declares a
 ' heading another stage owns. The stale step's retire carries a replaced
 ' sandbox's refs home under "sbx" (a sandbox.Block headed "sbx"), not
-' "results". Teardown's checks (reportCredentialInUse and the rest) write into
+' "results". KNOWN (R2): those carried facts are a second Facts block under
+' "sbx", so one heading holds two alignments. Teardown's checks (reportCredentialInUse and the rest) write into
 ' the results block teardown owns; the credential check had redrawn
 ' "credentials" after "results".
 ' A block with nothing to print declares no heading (sandbox.PrintBlock,
@@ -274,6 +275,28 @@
 ' included. It is not the warn mark of the table below (U+26A0 on Nerd): it
 ' marks a sentence inside a question, not a status line, and the stream's
 ' severity rule does not reach it (confirm-dialogs.puml).
+'
+' ── sbx's OWN TUI, OBSERVED (v0.50.0, 2026-11-10) ─────────────────────────
+' The reference proveo borrows words from, not a contract. `sbx tui` ran in
+' a detached tmux pane at 150x50 with TERM=xterm-256color, COLORTERM=
+' truecolor and TMUX unset; inside tmux it drops to the 256-colour palette.
+' Captures stay uncommitted: they hold host names and paths of live
+' sandboxes. Not pressed: s, r, Enter, x (live sessions ran) and a, b, t
+' (policy, a saved setting). [Unverified] whether s and r ask first.
+'   #808080  every description: footer words, inactive tabs, stats, dates
+'   #e5f2fc  bold: the app name, the active tab, a footer key, a mnemonic
+'   #7aa2f7  the focused border, the cursor ▸, the step chip; as a fill
+'            with #000000 bold text, the selected button
+'   #e0af68  attention ("stop", a stopped card)
+'   #f7768e  destructive or blocked ("remove", "block")
+'   #9ece6a  healthy ("● 39 allowed")
+'   #282d42  the fill of a badge, the step chip, an unselected button
+' THE FOOTER IS CONTEXTUAL: a key bold, its word grey, and the pairs change
+' with the focused panel, so `r` removes a sandbox on the left and refreshes
+' on the right, and `s` stops a sandbox or opens a filter. proveo took the
+' key and word styling and rejected the reuse: one key keeps one meaning
+' across a wizard (_spec/internal/choiceui/wizard-keys.puml). The dialogs'
+' mnemonic letter: confirm-dialogs.puml.
 '
 ' ── THE TIER IS ONE TYPE NOW ──────────────────────────────────────────────
 ' Three packages had their own idea of how decorated a terminal is:

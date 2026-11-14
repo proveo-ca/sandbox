@@ -57,7 +57,8 @@
 ' Tests (internal/contract/comment_blocks_test.go): TestCommentMarkerCoversEverySourceKind,
 ' TestLongCommentBlocksAreFlagged, TestCommentLintNamesEachOffendingBlock.
 ' The helpers moved byte-identical on 2026-11-12 from the maintainer
-' dispatcher, which the decision record of that day deleted.
+' dispatcher, deleted that day (_spec/cmd/proveo/usage.puml, MAINTAINER
+' TOOLING IS mise TASKS).
 ' The migration before the gate: 89 blocks moved into _spec/ by three
 ' spec-keepers and 85 stanzas stripped (reported). Three blocks were HELD, so
 ' the 2026-10-17 lint was RED on exactly them until a live sbx re-measure (the
@@ -100,7 +101,7 @@ note top of R1
   ""_spec/defs/<name>/"", ""_spec/packages/lib/"". A folder
   that does **not** correspond to a live source folder is
   prefixed with an underscore: ""_assets"", ""_paradigms"",
-  ""_conventions"", ""_experiments"", ""_refactors"",
+  ""_conventions"", ""_experiments"", ""_plans"",
   ""_devops"" (build · publish pipeline), ""_runtimes""
   (toolchains available inside a harness).
 end note
@@ -135,9 +136,8 @@ note bottom of R6
     reimplemented on new tech → mark it OUTDATED instead
   * refactor moves logic → move the comment, update the
     diagram if the architecture actually changed
-  * ""_spec/_refactors/"" (frozen snapshots) and
-    ""_spec/_plans/"" (designs with no code yet) are exempt
-    from the referencing rule — nothing exists to link them
+  * ""_spec/_plans/"" (designs with no code yet) is exempt
+    from the referencing rule — nothing exists to link it
     from. A ""_plans"" diagram is titled PLANNED and moves
     out (or is deleted) once it ships.
 

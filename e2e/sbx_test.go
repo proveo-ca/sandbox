@@ -698,7 +698,7 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 
 const probeMount = "SBX_MOUNT.txt"
 
-// SPEC: _spec/_experiments/docker-sandbox.puml
+// SPEC: _spec/_paradigms/retire-dind.puml
 func probeReport(pane string) string {
 	var keep []string
 	for _, line := range strings.Split(pane, "\n") {

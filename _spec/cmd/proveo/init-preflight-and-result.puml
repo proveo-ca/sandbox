@@ -14,7 +14,7 @@ title init opens on every check and closes on the closed checklist
 '   the apply the result reads ........ _spec/internal/ui/step-lines.puml
 '   sbx's verdict on the host ......... _spec/internal/sbx/host-readiness.puml
 '   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W13)
-'   the stream's rules (R3) ........... _spec/_plans/output-readability.puml
+'   the stream's rules (R3) ........... _spec/internal/ui/output-vocabulary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHAT WAS THERE ─────────────────────────────────────────────────────────
@@ -230,8 +230,14 @@ title init opens on every check and closes on the closed checklist
 ' for answers the operator gave. The operator decided (2026-11-11):
 '   F2  how-tos and whys that leave the screen go to `proveo init --help`,
 '       the flag help and _spec; init writes NO log file.
-'   F3  the readiness verdict prints LAST, in the result.
+'   F3  the readiness verdict prints LAST, in the result. NOT CHOSEN: the
+'       verdict under "sbx" with verify ahead of git (a blocker would no
+'       longer stop the later pages); a "host" heading with no closing
+'       verdict.
 '   UNREACHED  a separate "not run" fact for what a failure kept from running.
+'       NOT CHOSEN: joining it into "later"; no list on a failure.
+'   QUIT  one closing line, with the verdict dim. NOT CHOSEN: two closing
+'       lines; dropping the verdict.
 ' initRecord collects across every page and every revisit, by the setup
 ' page's own row labels (sign in · sbx setup · GitHub · git identity ·
 ' prompt), plus "credentials", "operator name" and "sbx diagnose":
@@ -307,7 +313,7 @@ title init opens on every check and closes on the closed checklist
 ' "proveo does not manage the host … --force", `source <rc>`, the prompt
 ' kit's "open a new shell" and its icon preset. NOT CHOSEN: an init log
 ' file (F2 b); dim how-tos under every "later" row (F2 c, against the
-' HOW-TO decision).
+' HOW-TO rule of _spec/internal/ui/output-vocabulary.puml).
 '
 ' ── WHAT RAN ───────────────────────────────────────────────────────────────
 ' macOS and linux/arm64, on tmux against the stub sbx: the checks page shows
@@ -327,7 +333,7 @@ title init opens on every check and closes on the closed checklist
 ' NOT RUN: a host without sbx, so the one-row page drew in no test.
 '
 ' R3 (2026-11-11, the stubbed harness, macOS): every init e2e passes with
-' the anchors the plan's E2E ANCHORS THAT MOVE (R3) lists.
+' the anchors R3 moved.
 ' Pinned by cmd/proveo/init_preflight_test.go:
 '   TestTheCheckRowsCarryEveryCheckWithItsMarkAndItsFix
 '   TestAFixStandsAloneWithoutTheLinkAbove

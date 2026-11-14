@@ -2,6 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: the release ordering — ship what exists, then reach and polish, with the isolation substrate on the horizon
 ' status: proposed, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
+'   the isolation substrate as shipped  _spec/internal/sbx/sandbox-backend.puml
 title PLANNED — ship the built work, then reach
 
 component "**Now — ship what exists**" as NOW <<app>>
@@ -46,9 +47,6 @@ note bottom of HZ
   ""sbx policy"" — not AI Governance). claudecode's
   container story landed as the per-sandbox daemon, which
   then replaced DinD outright.
-  Open questions (platform gating, the DLP content-scan
-  gap, pre-GA status, and whether adoption reframes proveo
-  as Kits on ""sbx"") are mapped in
-  _spec/_experiments/docker-sandbox.puml
+  The adoption landed in full: ""sbx"" is the only backend.
 end note
 @enduml

@@ -1,4 +1,4 @@
-// SPEC: _spec/cmd/proveo/init-preflight-and-result.puml, _spec/_plans/output-readability.puml
+// SPEC: _spec/cmd/proveo/init-preflight-and-result.puml
 package main
 
 import (

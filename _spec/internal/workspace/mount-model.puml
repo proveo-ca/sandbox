@@ -32,6 +32,10 @@ title Mount model — two layouts, one scope resolver, secrets decided by egress
 ' envMountSource and findEnvFileResolved (_spec/internal/credentials/
 ' credential-decisions.puml, PROJECT .env).
 ' The ENV component and the masking notes below are HISTORY of the docker tiers.
+'
+' KNOWN, NOT FIXED (found 2026-11-12): DiscoverProjects (discover.go) skips a
+' "!" workspace pattern instead of excluding its matches, so `proveo projects`
+' can list a member that pnpm-workspace.yaml excludes.
 
 node "Scope resolution" as SCOPE <<host>> {
   component "workspace.Resolve(dir)\nScope{Root, Prefix, IsRepo}" as RES <<app>>

@@ -37,7 +37,7 @@
 ' unknownModels → unknownModel (internal/run/helpers.go) → provider.CheckModel,
 ' a ⚠ "<VAR>=\"<id>\" — not a model id this proveo build knows" in the
 ' credentials block; the run log keeps "a typo fails every call; a model
-' newer than this binary works" (output-readability R1 review, P6).
+' newer than this binary works" (P6, _spec/internal/ui/output-vocabulary.puml).
 '
 ' A SEED NAMES NO MODEL. opencode substitutes an UNSET {env:VAR} with "", so
 ' the old seed's "model": "{env:OPENCODE_MODEL}" pinned the model to NOTHING

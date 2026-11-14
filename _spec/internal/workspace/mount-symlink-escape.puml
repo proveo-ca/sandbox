@@ -21,8 +21,8 @@
 '   A lone link, a link at the workspace root (`_spec`), a link whose name
 '   differs from its target's, and every REFUSED link keep their own lines.
 ' ── THE LINKS ARE ONE FACT, AFTER THE MOUNT PLAN (2026-11-11) ──────────────
-' output-readability R1 moved the report from run.resolveCredentials into
-' sandbox.ReportWorkspace, after Spec, because Spec decides what a clone drops:
+' The report lives in sandbox.ReportWorkspace, after Spec, not in
+' run.resolveCredentials, because Spec decides what a clone drops:
 '   ● links:    _spec → ~/Syncd/pluvo/_spec
 '               .idea/ → ~/w/main/.idea/ (20 links)
 ' Each mounted link is a value of one "links" fact (targets through ui.Tilde

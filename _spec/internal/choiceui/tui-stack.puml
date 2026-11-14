@@ -10,11 +10,10 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' covers: internal/choiceui/screen.go, internal/choiceui/screen_test.go
 ' covers: internal/choiceui/frames_test.go, internal/choiceui/form_model_test.go
 ' covers: e2e/form_tty_test.go
-'   what the spikes measured ......... _spec/_experiments/terminal-handoff-probes.puml (THE PORT)
 '   the decisions, D3 D8 D9 .......... _spec/_plans/tui-upgrades-delivery.puml (DECISIONS)
 '   the order the port lands in ...... _spec/_plans/tui-upgrades-delivery.puml (W4, W5, W9, W10)
 '   who owns the terminal ............ _spec/internal/ptyproxy/pty-ownership.puml
-'   what sbx's own TUI looks like .... _spec/_experiments/sbx-tui-observed.puml
+'   what sbx's own TUI looks like .... _spec/_conventions/tui-design-language.puml (sbx's OWN TUI)
 '   one Program for a walk ........... _spec/internal/choiceui/session.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' This file grows as the port lands. Landed so far, all 2026-11-10: B0 (the
@@ -32,6 +31,35 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' bubbletea v2.0.10, bubbles v2.2.1 and lipgloss v2.0.6.
 ' No proveo file imports tcell since the forms moved (W9). Both libraries
 ' left go.mod on 2026-11-11 (W10, B9): _spec/internal/choiceui/scope-tree.puml.
+'
+' ── WHAT THE SPIKES MEASURED BEFORE THE PORT (D3, 2026-11-10) ─────────────
+' MEASURED on darwin/arm64, go1.26.5, tmux 3.7b, bubbletea v2.1.1; nothing
+' here ran on Linux.
+'   the gate     a Program on a copy of the proxy's hand-off reader opened no
+'                /dev/tty, took 0 of 20 withheld keys, and returned under
+'                1 ms after Quit; the next key reached the session
+'   after Run    a default-input Program started after Proxy.Run got 14 of
+'                100 keys, so the stdin pump fix gates every surface after
+'                Run (pty-ownership.puml)
+'   headless     a Program has no plain rendering: stdout to a file got 844
+'                bytes of control sequences, so proveo keeps its own non-TTY
+'                branch
+'   handover     ReleaseTerminal and tea.Exec on a hand-off reader stall
+'                500 ms and lose the first key (10 of 10). Use them only
+'                where the Program reads the real stdin, never inside the
+'                startup probe window. The real-tty case: session.puml (THE
+'                YIELD)
+'   Println      the doc says tea.Println prints nothing on the alt screen;
+'                the code has no such guard (tea.go:892-893)
+'   keys         Ctrl+C typed on a raw TTY arrives as tea.KeyPressMsg;
+'                tea.InterruptMsg comes from SIGINT alone. A Program on a
+'                hand-off reader, or with WithInput(nil), changes no termios,
+'                so the headless path still needs teardown's process groups
+'   background   lipgloss.HasDarkBackground and tea.RequestBackgroundColor
+'                read the terminal; no proveo view calls them, since the
+'                proxy owns that reader
+'   targets      bubbletea v2.1.1 and cancelreader v0.2.2 cross-build for all
+'                eight release targets with CGO_ENABLED=0
 '
 ' ── THE PINS (B0) ──────────────────────────────────────────────────────────
 '   charm.land/bubbletea/v2  v2.1.1

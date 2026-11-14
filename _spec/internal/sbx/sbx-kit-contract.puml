@@ -5,8 +5,8 @@
 ' the eye reads down. Scoped to notes: the legend and labels keep the theme's choice.
 skinparam noteTextAlignment left
 ' SUPERSEDED 2026-10-24 by _spec/internal/sbx/sbx-kit-v3.puml for the KIT (v2 Kit,
-' WriteKit, spec.yaml, kind mixin|sandbox are deleted; plan: sbx-kit-v3-migration.puml,
-' STEP 8 DELETIONS). Session, exit code and handoff notes below still describe sbx.
+' WriteKit, spec.yaml, kind mixin|sandbox are deleted). Session, exit code and
+' handoff notes below still describe sbx.
 ' purpose: the sbx Kit contract proveo writes against — schema, handoff, session, exit
 ' covers: internal/sbx/**
 ' covers: cmd/proveo/main.go
@@ -80,8 +80,10 @@ skinparam noteTextAlignment left
 
 ' ── AGENT IDENTITY: proveo names none ───────────────────────────────────────
 ' CORRECTED 2026-09-06 — read the amendment below before trusting this section.
-' What follows is true of `kind: mixin`, which is what proveo writes, and FALSE
-' as a statement about Kits in general. See _spec/_experiments/sbx-kit-capabilities.puml.
+' What follows is true of `kind: mixin`, which is what proveo wrote, and FALSE
+' as a statement about Kits in general: a `kind: sandbox` v2 Kit was a complete
+' agent that registered a new name (MEASURED 2026-09-07, proveo-<target>), and
+' a v3 workload registers its directory name (_spec/internal/sbx/sbx-kit-v3.puml).
 '
 ' `sbx run --help` prints a CLOSED list — claude, codex, copilot, cursor,
 ' docker-agent, droid, gemini, kiro, opencode, shell. A Kit cannot add to it,

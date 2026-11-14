@@ -10,7 +10,8 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/uninstall_test.go
 '   the OTHER directory it writes . _spec/cmd/proveo/init-sbx-bootstrap.puml
 '   the installer that calls setup  _spec/internal/cdn/distribution-update.puml
-'   the wave that set these lines . _spec/_plans/output-readability.puml (R4)
+'   the vocabulary of these lines . _spec/internal/ui/output-vocabulary.puml
+'   NO TTY (A QUESTION INIT COULD NOT ASK) _spec/cmd/proveo/init-sbx-bootstrap.puml
 '
 ' ── TWO BLOCKS, TWO MARKERS ────────────────────────────────────────────────
 ' `proveo setup` writes Marker for proveo's own bin dir; `proveo init` writes
@@ -37,15 +38,20 @@ skinparam noteTextAlignment left
 ' Only a PATH line counts (PATH, zsh's path, fish_add_path), and only with the
 ' dir as a whole entry: with the dir off PATH this check is the one gate, and
 ' a comment, an alias, another variable or ~/.proveo/binaries would leave a
-' fresh install with no line. Pinned by TestAMentionOutsideAPathLineIsNotConfigured,
+' fresh install with no line. The operator chose "fix install.sh + setup":
+' install.sh runs "$BIN_DIR/proveo" setup with no PATH prefix, and setup's
+' check names the dir. NOT CHOSEN: change setup alone; leave it to the
+' installer's owner.
+' Pinned by TestAMentionOutsideAPathLineIsNotConfigured,
 ' TestAlreadyConfigured, TestAlreadyConfiguredReadsTheDirSpelledFromHome,
 ' TestSetupWritesThisDirsLineUnderAnotherDirsMarker and
 ' TestSetupReadsAnRcLineThatNamesTheDirFromHome.
 '
-' ── WHAT `proveo setup` PRINTS (R4 of _spec/_plans/output-readability.puml) ─
+' ── WHAT `proveo setup` PRINTS (R4) ────────────────────────────────────────
 ' No heading; ONE item, init's PATH item word for word. The checks run PATH
 ' first (critique must-fix 2: a head says "not on PATH" only after setup
-' looked), then the shell, then the rc:
+' looked), then the shell, then the rc. NOT CHOSEN: "× $SHELL — unknown"
+' for an unknown shell (Windows would stay × after install.ps1):
 '   on PATH            ✓ ~/.proveo/bin — already on PATH          (any shell)
 '   csh, tcsh          ⚠ ~/.proveo/bin — not on PATH, dim "add to ~/.cshrc:
 '                      setenv PATH …"; exit 0, nothing written
@@ -70,24 +76,30 @@ skinparam noteTextAlignment left
 ' No heading. The question names each part it finds, from the checks the
 ' block uses: "› remove ~/.proveo, its PATH lines and the prompt kit? [y/N]"
 ' ("proveo's PATH lines" with no root; none found asks nothing). Dangerf's
-' red "this removes proveo from <root>" left (P9). A "n" is "⚠ uninstall —
+' red "this removes proveo from <root>" left (P9). The operator: "every
+' scope, one line". NOT CHOSEN: a question naming the root alone.
+' A "n" is "⚠ uninstall —
 ' cancelled", exit 0. No terminal and no --yes: "× proveo — not uninstalled",
 ' dim "`proveo uninstall --yes` uninstalls it without asking" (NO TTY);
-' PROVEO_UNINSTALL_ASSUME_YES moved to --yes's help.
+' PROVEO_UNINSTALL_ASSUME_YES moved to --yes's help. NOT CHOSEN: "×
+' ~/.proveo — not removed", since the question names more than the root.
 ' Then ONE Facts block of what left, error role, a fact only for a removal
-' that succeeded (the operator, "by what left"):
+' that succeeded (the operator, "by what left"; NOT CHOSEN: one fact per
+' file):
 '   root    ~/.proveo
 '   path    each rc a PATH line left, stacked
 '   prompt  the kit's rc and starship config, and its starship binary when
-'           the root fact does not already cover it
+'           the root fact does not already cover it (NOT CHOSEN: a fifth
+'           "starship" key)
 '   font    FiraCode Nerd Font, dim "3 files in ~/Library/Fonts" (init's)
 ' Each removal that failed is a ⚠ item ("~/.bashrc — PATH line not removed",
 ' "~/.config/starship.toml — proveo segment not removed", the error dim);
 ' FOUND 3 and 4 printed "removed" and ✓ over them. Then what proveo's own
 ' records say stays (the operator, "⚠ each, with its fix"; no sbx,
-' launchctl or systemctl call):
+' launchctl or systemctl call; NOT CHOSEN: saying nothing; asking sbx):
 '   ⚠ ~/go/bin/proveo — still on PATH        (exec.LookPath, read-only)
 '   ⚠ <exe> — not removed, dim "outside ~/.proveo"   (the running binary)
+'   NOT CHOSEN for the two above: a ⚠ for the running binary alone
 '   ⚠ schedule tick — still registered, dim schedule.RemoveCommand:
 '     "launchctl bootout gui/<uid>/io.proveo.schedule; rm ~/Library/…plist"
 '     or "systemctl --user disable --now proveo-schedule.timer; rm …"
@@ -97,8 +109,12 @@ skinparam noteTextAlignment left
 ' left" when N ⚠ items print ("nothing removed" when a part was found and
 ' none went; "nothing to remove" when none was found). A root that stays
 ' closes on × and exits 1: "~ — not removed", dim "an unsafe install root",
-' or "~/.proveo — not fully removed", the RemoveAll error dim.
-' "hash -r" and the state root moved to `proveo uninstall --help`.
+' or "~/.proveo — not fully removed", the RemoveAll error dim. A failed
+' removal counts among the "N left", so no ✓ prints over a ⚠. NOT CHOSEN:
+' "⚠ proveo — partly uninstalled", a second wording.
+' "hash -r" and the state root moved to `proveo uninstall --help`. NOT
+' CHOSEN: a third leftover ⚠ for the state root; the operator's list names
+' the tick and the kept sandboxes.
 ' Pinned by cmd/proveo/uninstall_test.go and init_prompt_test.go
 ' TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig.
 '

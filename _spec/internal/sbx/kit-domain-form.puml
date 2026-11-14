@@ -65,8 +65,8 @@ skinparam noteTextAlignment left
 '     cannot subtract (policy-baseline.puml), so a malformed allowlist costs
 '     nothing an operator would notice. e2e/sbx_egress_test.go SKIPS its
 '     confinement assertion on such a host for exactly this reason.
-'   THE PROBE THAT LOOKED AT IT ASKED THE WRONG QUESTION. sbx-kit-capabilities
-'     .puml records "The SUFFIX-PATTERN domain is accepted" — measured with
+'   THE PROBE THAT LOOKED AT IT ASKED THE WRONG QUESTION. A 2026-09-07 probe
+'     recorded "The SUFFIX-PATTERN domain is accepted" — measured with
 '     `sbx run credprobe-own`, which proves the kit PARSES. Parsing is not
 '     matching. A pattern that matches nothing still parses.
 '

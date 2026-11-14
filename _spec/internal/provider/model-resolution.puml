@@ -11,7 +11,7 @@
 ' → CheckModel and posture.RolesLine → ModelProvider still read models.go. The
 ' plan now holds only Q2 and Q4; the decision lives in
 ' _spec/internal/entrypoint/model-alias-bridges.puml.
-' The check today (output-readability R1, 2026-11-11): run.resolveCredentials
+' The check today (2026-11-11, _spec/internal/ui/output-vocabulary.puml): run.resolveCredentials
 ' → unknownModels → unknownModel (internal/run/helpers.go) → CheckModel; each
 ' unknown id is a ⚠ item of the credentials block, its reason in the run log.
 '

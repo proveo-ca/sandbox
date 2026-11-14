@@ -17,7 +17,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: e2e/init_steps_test.go
 '   the decisions, D5 and D10 ........ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W11)
-'   the vocabulary it borrows ........ _spec/_experiments/sbx-tui-observed.puml
+'   sbx's palette and footer ......... _spec/_conventions/tui-design-language.puml (sbx's OWN TUI)
 '   the key line these words sit on .. _spec/internal/choiceui/wireframe.puml
 '   the dialog the question reuses ... _spec/internal/choiceui/confirm-dialogs.puml
 '   init's four pages ................ _spec/cmd/proveo/init-sbx-bootstrap.puml
@@ -31,6 +31,13 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' The Executor, D5: "Adopt sbx: esc back, ^c quit". The recommendation was to
 ' keep shift+tab. D10: "A focusable Skip button". Not chosen: a control-key
 ' chord; no skip.
+' THE sbx PRECEDENTS, OBSERVED on sbx v0.50.0 (`sbx tui`, 2026-11-10):
+'   Ctrl+C    opens "Exit — Do you want to exit?" with "No ↵" selected; ←/→
+'             move the selection and ↵ follows it; Esc closes it; a second
+'             Ctrl+C quits with status 0 and leaves every sandbox untouched
+'   create    a stepped wizard: Esc steps back one page and closes only from
+'             page 1; its step chip counts pages from the answers given
+'             (1/2 becomes 2/3 once "Local" is chosen)
 '
 ' ── WHAT THE WIZARDS DID NOT TAKE FROM sbx ─────────────────────────────────
 ' sbx's panels, cards and dashboard: proveo has no long-lived screen. Its

@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' status: measured 2026-09-29/30; built as _spec/internal/sbx/host-android-adb.puml
 '   what was built ................... _spec/internal/sbx/host-android-adb.puml
 '   the pattern it copies ............ _spec/internal/sbx/host-browser-cdp.puml
-'   why the box has no /dev/kvm ...... _spec/_experiments/nested-sbx-kvm.puml
+'   why the box has no /dev/kvm ...... _spec/_paradigms/capability-ladder.puml (THE LADDER IS A HOST MEASUREMENT)
 '   the host-side egress bypass ...... _spec/_experiments/cdp-shared-browser.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -17,7 +17,7 @@ skinparam noteTextAlignment left
 '   emulator on arm64: https://gist.github.com/atyachin/2f7c6054c4cd6945397165a23623987d
 '
 ' ── Q1: CAN THE EMULATOR LIVE INSIDE sbx? NO ────────────────────────────────
-'   emulator (hvf/kvm)  needs /dev/kvm; the box has none (nested-sbx-kvm.puml)
+'   emulator (hvf/kvm)  needs /dev/kvm; the box has none (capability-ladder.puml)
 '   redroid             needs binder + CAP_SYS_ADMIN; CapEff is 0x0
 '   cuttlefish          needs /dev/kvm
 '   pure TCG            [Speculation] boots, at >10x the 52 s hvf boot
@@ -159,8 +159,8 @@ end note
 note bottom of INBOX
   **The floor is the runtime again.** No
   /dev/kvm, zero caps, no binder: emulator,
-  redroid and cuttlefish all stop at the same
-  gate nested-sbx-kvm.puml already measured.
+  redroid and cuttlefish all stop at the
+  gate that keeps sbx on the host.
 end note
 
 note bottom of NOSIM

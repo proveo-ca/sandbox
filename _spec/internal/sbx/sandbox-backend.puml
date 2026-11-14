@@ -125,8 +125,10 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' inject/broker.env IS NO LONGER WRITTEN. assembleEnv writes no file; no proxy
 ' of proveo's needs a key. secret-custody (d) is closed, not moved.
 '
-' IMAGE PREFLIGHT LIVES IN launchSandbox. MEASURED: it runs only when
-' !p.PrintOnly && d.PreflightImages != nil && !sbx.HasTemplate(p.Image), and
+' IMAGE PREFLIGHT IS run.preflightImage (internal/run/run.go). MEASURED: it
+' runs on every run with !p.PrintOnly && d.PreflightImages != nil: no sbx
+' template store is asked, since the workload recipe's FROM resolves from the
+' host engine (_spec/internal/sbx/sbx-kit-v3.puml, kit-image-source.puml).
 ' Deps.PreflightImages(man, agentImage) ensures the agent image alone — there
 ' are no sidecar images, and the egress-proxy image inspect and its "egress
 ' proxy: … (local build …)" header are deleted.
@@ -378,7 +380,9 @@ note bottom of CLI
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
   this backend and asserts what the sandbox promises (the ""docker: sbx"" key is
   gone with F10; ""WantsDocker"" reads ""daemon:""): the sbx line was printed,
-  the workspace mount carries writes back to the host, and the
+  the sandbox stands on the workspace's commit (under the clone default the
+  run's own git daemon served it; a host-side file is awaited only when the
+  run prints no "private clone", e2e/sbx_test.go), a daemon answers inside, and the
   sandbox is gone afterwards. It drives the harness's own kit launch and probes
   through ""sbx exec"" (""launchKit"", e2e/kit_probe_test.go), so it asks the agent
   nothing; it used ""--shell"" until that flag was retired 2026-10-17.
@@ -467,26 +471,16 @@ note bottom of CLI
   ""_spec/internal/proveohome/proveo-home-lifecycle\.puml"" and
   ""_spec/internal/sbx/state-sync\.puml"".
 
-  **The image store is crossed locally, per user, and identity is what matters.**
-  ""docker save -o <tar>"" then ""template load <tar>"" — it takes a FILE, not stdin,
-  so the obvious pipe fails before a byte moves. The tar stages under
-  ""os.UserCacheDir()/proveo/sbx-staging"" unless ""$TMPDIR"" is set: a model variant's
-  tar is multi-GB and a Linux ""/tmp"" (tmpfs or per-user quota) failed it with
-  //disk quota exceeded// (2026-09-26, ""hermes-muse-glimmer""). ""sandbox.disk.dockerVolume""
-  sizes the VM's disk, not this host-side write. Not ""~/.proveo"": that is mounted
-  into live sandboxes at ""/proveo-home"", so a concurrent agent would see the tar.
-  Presence alone is not enough: a
-  REBUILT "":latest"" matches by reference and would never reload, which is exactly
-  how a sandbox came up with no ""/app"" after the workspace layout was
-  standardised and the images rebuilt.
-
-  **Identity comes from a RECEIPT proveo writes, not from the store's IMAGE ID
-  column**, because ""sbx create"" re-bakes the template and rewrites that column:
-  one create turns ""2ca281d785dc"" into ""5fcb2266417f"" under the same reference.
-  Comparing against it mismatches forever after the first run and re-loads a
-  multi-GB tar every launch. Full measurements, and the repair that the removed
-  reload used to provide by accident, are in
-  ""_spec/_experiments/docker-sandbox\.puml"".
+  **HISTORY — the image store crossing, sbx v0.39 to 2026-10-24.** proveo
+  ran ""docker save"" then ""sbx template load"" and wrote a RECEIPT of the
+  loaded image, because ""sbx create"" re-baked the template and rewrote the
+  store's IMAGE ID column (""2ca281d785dc"" → ""5fcb2266417f"" under one
+  reference), so the column could not prove identity. internal/sbx/template.go
+  (EnsureTemplate, ReloadTemplate, HasTemplate, the receipts) and
+  ""PROVEO_SBX_RELOAD"" are deleted: since kit v3 the image reaches sbx as the
+  workload recipe's ""FROM"", resolved from the host engine at a pinned digest
+  (""_spec/internal/sbx/kit-image-source\.puml"",
+  ""_spec/internal/sbx/sbx-kit-v3\.puml"").
 
   **A workspace must be a DIRECTORY** — "workspace path exists but is not a
   directory". File binds are dropped; since F9 (2026-10-17) the mount plan no

@@ -35,8 +35,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' ── COVERAGE LANES: mise tasks (2026-11-12) ─────────────────────────────────
 ' covers: mise.toml
-' Replaced scripts/go-test-coverage.sh (host-shell-to-go P4), then the Go
-' coverage verb that replaced it (the 2026-11-12 decision record).
+' Replaced scripts/go-test-coverage.sh (2026-09-22), then the Go coverage
+' verb that replaced it (2026-11-12; maintainer tooling is mise tasks:
+' _spec/cmd/proveo/usage.puml).
 '   test-go ......... rm -rf cov/unit, mkdir -p cov/unit, then go test [-race]
 '                     -cover -covermode=atomic ./... -args
 '                     -test.gocoverdir={{ config_root | quote }}/cov/unit
@@ -49,7 +50,15 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' * test-go runs default tags only; //go:build excludes the e2e and image lanes.
 ' * -race needs cgo. `--no-race` drops it on test-go and baseline. HISTORY:
 '   a `go test -race -c` probe once fell back to coverage-only silently; a
-'   host without cgo now fails until the flag is passed.
+'   host without cgo now fails until the flag is passed. NOT CHOSEN: a Tera
+'   exec() race probe (_spec/tests/20-contract.puml, no exec()); dropping the
+'   fallback with no flag.
+' * An operator env value reaches a task through `{% set v = get_env(name=…,
+'   default='') | trim %}{% if v %}…{% else %}<default>{% endif %}`, so an
+'   empty or blank value falls back like an unset one. NOT CHOSEN: get_env's
+'   own default. MEASURED on mise 2026.10.17: it applies only to an unset
+'   variable, so `PROVEO_TEST_GO_TIMEOUT= mise run -n test-go-e2e` printed a
+'   bare -timeout.
 ' * coverage reads cov/unit directly; a missing dir fails with covdata's own
 '   "reading inputs" error. HISTORY: a merge step also took cov/integration,
 '   and cov/unit carried the in-process egressproxy and broker; both are
@@ -67,7 +76,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   worse than a slow lane. Hence 45m by default; PROVEO_TEST_GO_TIMEOUT lowers
 '   it for a single -run selection (test-e2e-full raises it to 150m).
 '
-' ── THE def SUITES ARE GO SINCE 2026-09-22 (host-shell-to-go P3) ────────────
+' ── THE def SUITES ARE GO SINCE 2026-09-22 ─────────────────────────────────
 ' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
 ' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke.
 ' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `mise run test-defs <target>`
@@ -84,7 +93,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' untagged, fake sleeping docker on PATH).
 '
 ' The five failure modes below were found in the BASH suites that preceded
-' them (defs/*/test.sh, defs/*/tests/*.sh, deleted in P3). They are kept
+' them (defs/*/test.sh, defs/*/tests/*.sh, deleted 2026-09-22). They are kept
 ' because each is a shape a Go suite can reproduce, not a bash quirk alone.
 '
 ' ONE CHECK, ONE SUBTEST. imagetest.Suite.Check runs every assertion as its own
@@ -360,6 +369,28 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' replica in miniature: the real entrypoint had already run all three before
 ' the prompt appeared, so the manual call proved only that the function could
 ' be invoked, never that the run invokes it.
+'
+' A PROBE THAT CANNOT RUN MUST FAIL, NEVER PASS (2026-09-07). The first
+' credential probe passed on sbx's own error text: it read the variable with
+' `sbx exec` after the session ended, sbx had removed the sandbox, and an
+' assertion whose default branch was success took "no sandbox named …" as the
+' value. So TestSandboxWorkloadProxyManagesTheCredential (e2e/ladder_test.go)
+' reads the value IN THE AGENT PROCESS, the only place it means anything, and
+' DELIMITS it as PROVEO_CRED_VALUE[...]: plain() collapses every whitespace
+' run, and an empty value must differ from a missing one. A CONTROL run
+' without the feature must yield a different value, or the test passes with
+' the feature deleted (_spec/_paradigms/capability-ladder.puml).
+' AN E2E PROBE NEVER WRITES THE OPERATOR'S sbx STORE. `sbx secret set` is
+' host-wide and outlives the run, so a stored dummy would overwrite a real
+' credential. The probe reads `sbx secret ls` (sbxKnownServices), declares
+' only services sbx already holds, and skips with a reason otherwise.
+'
+' WHY `sbx exec` AND NOT `sbx ssh`. exec needs no `sbx setup ssh`, no ssh
+' client config and no second auth path. A sandbox claim splits two ways, so
+' none needs a held agent session or a tmux-driven shell: what the sandbox
+' holds (the workspace, the docker daemon) is read through `sbx exec`; what
+' proveo did (the backend it chose, the VM it removed) is read from the run's
+' output and `sbx ls` (TestEveryHarnessGetsTheDockerAccessItPromises).
 '
 ' ONE KIT LAUNCH AND `sbx exec` CARRY IT (e2e/kit_probe_test.go, 2026-10-17).
 ' The user retired `--shell` ("is that `proveo` or `sbx`? if `proveo` retire
@@ -727,8 +758,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     AND skip the prompt on every later run.
 '   * AN E2E RUN UNDER THE REAL HOME PRUNES THE OPERATOR'S RUN LOGS. runlog
 '     keeps 20 logs in PROVEO_HOME/logs and prunes the oldest on each Open; one
-'     --print sweep wrote 21 and a measured log was lost (output-readability
-'     R1, 2026-11-11). printOnlyRunErr (every --print helper in sbx_test.go)
+'     --print sweep wrote 21 and a measured log was lost (2026-11-11; the run
+'     log: _spec/internal/runlog/run-transcript.puml). printOnlyRunErr (every --print helper in sbx_test.go)
 '     and TestMountedWorktreeRefusesAForeignPlatformInstall run under a
 '     t.TempDir() PROVEO_HOME; an extraEnv PROVEO_HOME still wins (last value).
 '     Left on the real home: TestAgentSurvivesIdleAtPrompt (no credential env;
@@ -757,7 +788,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     marker, so a dead run read as a live prompt (reported).
 '     reachedPromptFor also drops that one line (withoutPlanLine); since
 '     2026-11-11 the plan line is the start line `<target> <version> —
-'     starting` (output-readability R1), and withoutPlanLine drops that.
+'     starting` (_spec/internal/ui/step-lines.puml), and withoutPlanLine drops that.
 '     Markers are text only the agent's own screen shows (2026-10-26). The
 '     bare name `opencode` matched sbx's kit line
 '     `…/kit/proveo-<target> — cached`; codex had no case and fell to

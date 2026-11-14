@@ -13,10 +13,9 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' covers: internal/choiceui/tty_unix.go (openTerminal suspends the live line)
 ' covers: internal/choiceui/tty_windows.go
 ' covers: e2e/live_line_prompt_test.go
-'   what a silent phase cost .......... _spec/_experiments/terminal-handoff-probes.puml (C2)
 '   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W12)
 '   the live line it is built on ...... _spec/internal/ui/output-vocabulary.puml
-'   teardown's steps, the first user .. _spec/internal/backend/teardown.puml (T6)
+'   teardown's steps, the first user .. _spec/internal/backend/teardown.puml (T6; a silent phase: T2)
 '   the page that names the steps ..... _spec/internal/choiceui/wireframe.puml (THE CHECKLIST CARD)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -154,7 +153,7 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' Pinned by TestAFrameLineShortensBeforeItWraps, TestAPlainFrameCarriesNoEscapes,
 ' TestALeadFrameTakesABlankRowOnlyAfterALine and cmd/proveo TestAHandOffIsFramed.
 '
-' ── A RUN'S START (W-k; R1 of output-readability, 2026-11-11) ──────────────
+' ── A RUN'S START (W-k; R1, 2026-11-11) ────────────────────────────────────
 ' sandbox.Run shows five steps before the agent has the terminal:
 '   workload kit           live
 '   stale sandbox check    live; hand only when a stale sandbox exists, since

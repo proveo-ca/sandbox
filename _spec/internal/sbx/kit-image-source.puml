@@ -64,7 +64,7 @@ skinparam noteTextAlignment left
 ' image as before. Host without a Builder → warn: the active builder decides.
 ' The screen reads "⚠ buildx — no docker-driver builder reads the host image
 ' store", dim "the active builder builds <image>"; the PROVEO_BUILDX_LOCAL_BUILDER
-' how-to goes to the run log alone (P6 of output-readability, R1 round 3;
+' how-to goes to the run log alone (P6, _spec/internal/ui/output-vocabulary.puml;
 ' report_test.go TestTheBuildxHowToReachesOnlyTheRunLog).
 ' Never `docker buildx use`: that global write is this bug's cause.
 ' --print shows the env prefix on the `# sandbox` line (CreateLine) so a
@@ -75,6 +75,13 @@ skinparam noteTextAlignment left
 ' ── WHERE AN IMAGE CAME FROM (R2 review, 2026-11-11) ───────────────────────
 ' The sbx block's image fact and the run log's posture row read
 ' "<ref> (local build)" or "<ref> (published)" from ImageSource.Label().
+' WHY THE FACT IS ON SCREEN (DECIDED 2026-11-11, the operator). MEASURED (sbx
+' v0.50.0, a sandbox made for the check): sbx's SANDBOX block reads "Image:
+' sbx-kit-src:proveo-claudecode-0148841a44ae", the tag its kit build makes,
+' and never names proveo's image. So a create run prints ONE image fact, last
+' in the sbx block, right before "● sbx create"; a re-attach prints the image
+' from its receipt (kit-lifecycle.puml). NOT CHOSEN: the image only when
+' non-default; the image in the run log only.
 ' R2's first cut read "no repo digest" as a local build. FALSE on the
 ' containerd store. MEASURED (Docker 29.8.2, API 1.56, driver-type
 ' io.containerd.snapshotter.v1): RepoDigests equals the image Id for a local

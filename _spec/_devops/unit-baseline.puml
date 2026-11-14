@@ -29,7 +29,8 @@ title The unit baseline — green means no new failing test
 ' `mise run baseline` is one mise run string:
 '   go test [-race] -count=1 -skip='^(<[vars] unit_baseline>)$' [go_test_args]
 ' The list lives in mise.toml [vars] unit_baseline: one backslash-continued
-' string, one name per line, joined by |. -skip drops exactly those top-level
+' string, one name per line, joined by |. NOT CHOSEN: a TOML array ([vars]
+' rejects arrays, MEASURED on mise 2026.10.17); one 700-column line. -skip drops exactly those top-level
 ' tests; every other failure, a build error or a panic outside a test fails
 ' go test, and go test's exit code is the verdict.
 '   --no-race ........... drops -race, for a toolchain without cgo

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/_experiments/docker-sandbox.puml, _spec/packages/lib/github-ssh-hosts.puml
+# SPEC: _spec/defs/cursor/cursor-topology.puml, _spec/defs/cursor/cursor-paradigm.puml, _spec/packages/lib/github-ssh-hosts.puml
 set -e
 
 if [[ -f /entrypoint-lib.sh ]]; then

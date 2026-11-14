@@ -78,7 +78,7 @@
 ' dim under it, in the interface block. PlanPorts
 ' also keeps two guests off one host port.
 ' Each kept port becomes `sbx run -p H:G` after the CDP relay's entry.
-' THE ROW (2026-11-11, output-readability R1): after `sbx create`, the
+' THE ROW (2026-11-11, _spec/internal/ui/output-vocabulary.puml): after `sbx create`, the
 ' interface block prints what the port serves, "● port G: <tool> in <dir>",
 ' with "log /tmp/proveo-dev-G.log" dim under it. sbx's create block names the
 ' host side, so a run that creates its sandbox leaves the URL to it; the run

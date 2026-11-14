@@ -34,9 +34,10 @@ skinparam noteTextAlignment left
 '   the proxy REPLACES the header. `Authorization: Bearer xai-junk` sent from
 '     inside the sandbox came back with the stored account's own error, so the
 '     substitution is real and not merely declared.
-'   a stored API-key secret injects a WORKING value. sbx-kit-capabilities.puml
-'     lists that as unproven; for an api-key service it is now proven. An
-'     OAuth-backed service is still untested.
+'   a stored API-key secret injects a WORKING value. The 2026-09-07 kit probe
+'     left that unproven; for an api-key service it is now proven. An
+'     OAuth-backed service is still untested: the sentinel appears either
+'     way, so only a real API call settles it.
 ' So the mechanism the proposal wants is shipped. The gap is custody, not
 ' capability.
 '

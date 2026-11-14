@@ -84,7 +84,7 @@ type RecipeV3 struct {
 }
 
 // LaunchArgs is the trailing command that adds flags to launch; a leading flag appends, anything else replaces launch[1:].
-// SPEC: _spec/_plans/sbx-kit-v3-migration.puml (P7 launch)
+// SPEC: _spec/internal/sbx/sbx-kit-v3.puml (THE TRAILING COMMAND APPENDS OR REPLACES)
 func LaunchArgs(launch, flags []string) []string {
 	if len(flags) == 0 || len(launch) == 0 {
 		return nil
@@ -100,7 +100,7 @@ func LaunchArgs(launch, flags []string) []string {
 }
 
 // Launched is the argv `sbx run` starts: ENTRYPOINT + CMD, plus a trailing command that opens with a flag; else ENTRYPOINT[0] plus it.
-// SPEC: _spec/_plans/sbx-kit-v3-migration.puml (P7 launch)
+// SPEC: _spec/internal/sbx/sbx-kit-v3.puml (THE TRAILING COMMAND APPENDS OR REPLACES)
 func Launched(entrypoint, cmd, command []string) []string {
 	if len(entrypoint) == 0 {
 		return nil

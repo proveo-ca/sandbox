@@ -34,7 +34,7 @@
 ' PROVEO_AUTO_PROVISION goes through envflag (_spec/internal/envflag/
 ' env-switches.puml): ON builds, OFF declines, anything else asks on a TTY
 ' with the wizard on.
-' HISTORY: the maintainer `debug` verb (host-shell-to-go P4) read the registry
+' HISTORY: the maintainer `debug` verb read the registry
 ' in-process via manifest.Load + maintain.Registry and launched `proveo run
 ' <target> --shell`. RETIRED 2026-10-17 (the user: "Retire debug too"): its
 ' source, its test and `mise run debug` are deleted (MEASURED), and `--shell`
@@ -45,7 +45,7 @@
 '
 ' PREFLIGHT, MEASURED: Deps.PreflightImages(man, agentImage) ensures the agent
 ' image only; run.preflightImage calls it right after the pages and the run
-' block (output-readability R1), before credentials, only off `--print`. Its
+' block (since R1, 2026-11-11), before credentials, only off `--print`. Its
 ' lines land under the run heading. No sidecar images remain.
 ' (2026-11-12: the "only when sbx holds no template (!sbx.HasTemplate)" clause
 ' is gone with HasTemplate itself — MEASURED, no such symbol in cmd/ or
@@ -103,7 +103,7 @@ note bottom of REG
   ""manifest.Load"" + ""maintain.Registry"" on ""PROVEO_DEFS_DIR"" (else
   ""<repo>/defs"") is the one registry; build, deploy and test-defs read it
   through ""maintain.Fleet"". It replaced ""lib/registry.sh"", which parsed a TSV
-  into parallel bash arrays (host-shell-to-go P4). ""proveo targets"", which
+  into parallel bash arrays (deleted 2026-09-22). ""proveo targets"", which
   printed that TSV, had no caller and went 2026-10-18 (N9).
 
   //HISTORY: the maintainer ""debug"" verb read the same registry and ran the first//
@@ -143,7 +143,7 @@ note bottom of IB
   ""preflightImages"" hands the run the ref it actually built, which
   ""ResolveImage"" also prefers. A SIDECAR built this way fails the run with
   "re-run so the egress plan picks it up", because the plan already named
-  the image it could not pull (_spec/_refactors/host-shell-to-go.puml, P2).
+  the image it could not pull.
 end note
 
 note bottom of WEN

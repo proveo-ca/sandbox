@@ -10,7 +10,6 @@ title Launch environment — what the agent must already hold when sbx starts it
 ' GIT_CONFIG_COUNT. SSH and deferred access add no URL rewrite.
 ' Transport selection: _spec/cmd/proveo/github-access.puml.
 ' covers: internal/backend/sandbox/launch_config_test.go
-' covers: internal/backend/sandbox/own_agent_test.go
 ' covers: internal/sbx/kit.go (SeedEntrypointCommand)
 ' covers: cmd/proveo/testdata/plan/sbx-claudecode-broker.golden
 ' covers: cmd/proveo/testdata/plan/sbx-claudecode-clone-datadir.golden

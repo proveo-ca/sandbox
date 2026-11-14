@@ -193,6 +193,6 @@ stricter: `PROVEO_SKIP_INIT` skips on any value, and `PROVEO_UNINSTALL_ASSUME_YE
 
 ## Specs
 
-Architecture, the sbx network-policy baseline, testing strategy, and the
-[Docker-Sandbox experiment](_spec/_experiments/docker-sandbox.puml) live in [`_spec/`](_spec)
-as PlantUML diagrams + notes. Conventions: [`CONVENTIONS.md`](CONVENTIONS.md).
+Architecture, the [sbx backend](_spec/internal/sbx/sandbox-backend.puml) and its network-policy
+baseline, and the testing strategy live in [`_spec/`](_spec) as PlantUML diagrams + notes.
+Conventions: [`CONVENTIONS.md`](CONVENTIONS.md).

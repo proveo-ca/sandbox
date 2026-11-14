@@ -1,6 +1,6 @@
 //go:build !windows
 
-// SPEC: _spec/internal/backend/teardown.puml, _spec/_plans/output-readability.puml
+// SPEC: _spec/internal/backend/teardown.puml
 package sandbox
 
 import (

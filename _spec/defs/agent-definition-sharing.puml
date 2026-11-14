@@ -11,8 +11,9 @@
 ' A maintainer verb, render-subagents, once ran render_subagents (bash-4 code;
 ' macOS /bin/bash is 3.2) in the harness image's bash with the working-tree
 ' entrypoint-lib.sh mounted, so a lib edit previewed without a rebuild. The
-' operator deleted it with its dispatcher (operator choice 3 of the decision
-' record of that day): "in the future this will likely print out a template".
+' operator deleted it with its dispatcher (DECIDED 2026-11-12;
+' _spec/cmd/proveo/usage.puml): "in the future this will likely print out a
+' template".
 ' No host preview exists now; the image suites below are the check.
 ' PROVEO_SUBAGENTS_DIR stays registered, because entrypoint-lib.sh reads it.
 '

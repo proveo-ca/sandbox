@@ -186,7 +186,7 @@ skinparam noteTextAlignment left
 ' compatibility upgrade. Drop support for sbx versions that aren't v3"):
 '   * MinVersion = 0.45.0, the first sbx with v3 workloads; older refuses.
 '   * Verified = {0.49}: only series measured on the v3 path (hermes and
-'     claudecode live runs, sbx-kit-v3-migration.puml). 0.45–0.48 run and
+'     claudecode live runs, 2026-10-24). 0.45–0.48 run and
 '     WARN until measured (0.47/0.48 each need their own `sbx login`).
 '   * Release = 0.49.2; its asset names match 0.42.0's (MEASURED with
 '     `gh release view`).

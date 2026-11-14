@@ -16,9 +16,20 @@ skinparam packageStyle rectangle
 ' covers: internal/backend/sandbox/*_test.go
 ' covers: internal/imagetest/**
 '
+'   the image suites ................ _spec/tests/testing-strategy.puml
+'   maintainer tooling as mise tasks  _spec/cmd/proveo/usage.puml
+'
+' ── WHY HOST CODE IS GO (the operator's choice, 2026-09-22) ───────────────
+' Host build, def tests, lib/ and scripts/ ran on macOS /bin/bash 3.2, and
+' end users met it too: provision.go ran `bash build.sh` for a missing image.
+' NOT CHOSEN: fish, which has no errexit and is non-POSIX at every Kit, sbx,
+' Dockerfile and installer boundary; a mise-pinned bash 5, which never reaches
+' an end user's stock 3.2. In-image bash STAYS: it only meets Debian bash 5,
+' and sbx hooks, `sbx exec … bash -c` and Dockerfile RUN speak it, so moving
+' it would add a boundary instead of removing one.
+'
 ' ── HOST SHELL ALLOWLIST (internal/contract/host_bash_test.go) ─────────────
-' Rehomed 2026-10-17 from the frozen _spec/_refactors/host-shell-to-go.puml
-' (repo-simplification N10). MEASURED, host_bash_test.go:15-23:
+' MEASURED, host_bash_test.go:15-23:
 ' TestNoHostShellOutsideTheAllowlist walks `git ls-files` and refuses any
 ' shell-shebang file the operator's Mac could execute, except
 '   apps/cli/public/cli/install.sh, uninstall.sh  bootstrap/remove proveo
@@ -32,7 +43,10 @@ skinparam packageStyle rectangle
 ' -c` (MEASURED), so the rule bans the shell logic, not the hop. It is an
 ' allowlist: once Tera blocks and '…' argv words are stripped, a run string
 ' holds letters, digits, space and -_./=:,@+%^, with $ only at a word's end.
-' Every {{ … }} ends in `| quote`, so a Tera value lands as one argv word.
+' Every {{ … }} ends in `| quote`, so a Tera value lands as one argv word;
+' a boolean flag renders through {% if %} as a bare word. NOT CHOSEN: `|
+' as_str | quote` on booleans (quote refuses a bool); quoting only free-form
+' values (the scan cannot tell them apart).
 ' No non-ASCII, no leading VAR=, and the first word is no bash keyword or
 ' builtin (compgen -k -b), no shell and no env. TestShellLogicScanFlagsHandRolledShell
 ' pins the scan on both sides.
@@ -40,6 +54,14 @@ skinparam packageStyle rectangle
 ' cannot read: a [tasks] shorthand, a top-level tasks. key, a task sub-table
 ' or array of tables, and a task key outside its list, such as run_windows,
 ' file or shell (TestShellScanReadsEveryTaskShape).
+' AN ALLOWLIST, NOT A DENYLIST (2026-11-12): extending a denylist lets the
+' next construct slip through. The contract tests read mise.toml with a
+' small hand-written reader. NOT CHOSEN: a TOML module in go.mod; shelling
+' out to mise from unit tests.
+' NO TASK PROBES WITH exec(). Tera's exec() renders with the caller's PATH,
+' not the task's tools (MEASURED, mise 2026.10.17). So the race fallback is
+' a --no-race flag, the untagged-HEAD check is a Go test
+' (_spec/_devops/release-gate.puml), and GOBIN is a task env value.
 ' Trees whose shell runs in an image (bash 5) or is an agent's fixture are
 ' out of scope: defs/, packages/lib/, e2e/testdata/, e2e/samples/.
 ' Host code is Go; macOS /bin/bash 3.2 is on no host path.
@@ -79,9 +101,9 @@ when the broker was proveo's). Deterministic; no Docker.
 end note
 
 note right of Bash
-Image and live-LLM checks are Go since 2026-09-22
-(host-shell-to-go P3). They need a built image, so
-default go test never compiles them; the shell
-contract wrapper is deleted.
+Image and live-LLM checks are Go since 2026-09-22.
+They need a built image, so default go test never
+compiles them; the shell contract wrapper is
+deleted.
 end note
 @enduml

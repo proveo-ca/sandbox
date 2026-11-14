@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/kit-domain-form.puml, _spec/internal/sbx/ide-attach.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/minimum_requirements.puml, _spec/internal/sbx/launch-env.puml
+// SPEC: _spec/internal/sbx/sandbox-backend.puml, _spec/internal/sbx/clone-workspace.puml, _spec/internal/sbx/kit-domain-form.puml, _spec/internal/sbx/ide-attach.puml, _spec/packages/lib/config-seeding-and-persistence.puml, _spec/_paradigms/capability-ladder.puml, _spec/minimum_requirements.puml, _spec/internal/sbx/launch-env.puml
 // Package sandbox is the sbx backend:
 package sandbox
 

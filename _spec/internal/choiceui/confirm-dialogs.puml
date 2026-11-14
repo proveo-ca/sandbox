@@ -21,7 +21,6 @@ title Confirm dialogs — a card with a button row, the safe answer selected, tw
 '   the decision, D7 ................ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W5)
 '   how the proxy hosts one ......... _spec/internal/ptyproxy/pty-ownership.puml
 '   the stack they draw with ........ _spec/internal/choiceui/tui-stack.puml
-'   sbx's own dialogs, as observed .. _spec/_experiments/sbx-tui-observed.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHAT IT REPLACED ───────────────────────────────────────────────────────
@@ -47,6 +46,12 @@ title Confirm dialogs — a card with a button row, the safe answer selected, tw
 '   dialog, and the tmux driver that types them did not change.
 ' A DESTRUCTIVE ANSWER SHOWS ITS MNEMONIC IN THE FAILURE COLOUR, bold, inside
 ' its word (sbx's mnemonic letter). The letter selects; it never accepts.
+' sbx's device, OBSERVED on v0.50.0 (`sbx tui`, 2026-11-10): on the selected
+' card one letter per action word is bold and bright, and the rest of the
+' word is the same hue dimmed ("stop exec remove info": s, x, r, i); every
+' other card draws its row in one dim colour with no key, so only the card
+' that would act shows keys. Tabs never use it. A filled #7aa2f7 button with
+' #000000 bold text, ↵ on it, marks the answer Enter gives.
 ' AMENDED 2026-11-13 (Executor, E12 and C3): the mnemonic is now a fill:
 ' ColorWhite (#FAFAFA, the identity's WHITE) ink on a ColorFail face, bold.
 '
@@ -104,6 +109,8 @@ title Confirm dialogs — a card with a button row, the safe answer selected, tw
 '                            ctrl+c gives Interrupt at once: it destroys
 '                            nothing and is what a second Ctrl+C means
 '   the agent pushed these   Leave · Fetch (f); 15s of silence leaves them
+'                            KNOWN, NOT FIXED: in one try it ignored an "f"
+'                            sent 1s after it drew; the cause is unknown
 '   created with different   Keep · Replace (r, destructive)
 '     settings
 '   <name> gave no answer    Keep · Remove (r, destructive)
@@ -179,7 +186,7 @@ title Confirm dialogs — a card with a button row, the safe answer selected, tw
 ' ── THE CLOSE DIALOG STAYS UP WHILE THE AGENT STOPS (T7) ───────────────────
 ' After Remove the sbx client has up to 30s (stopWait) to exit. Before, the
 ' dialog closed at once, the agent's screen came back, and nothing said a
-' stop was in flight (_spec/_experiments/terminal-handoff-probes.puml, C2).
+' stop was in flight.
 ' NewSandboxClose(stop, stopWait) now runs `stop` itself when Remove is
 ' accepted and stays up, with the buttons replaced by
 '   stopping the agent (up to 30s) — 4s

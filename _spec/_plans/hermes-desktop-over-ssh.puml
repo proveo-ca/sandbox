@@ -108,7 +108,8 @@ skinparam noteTextAlignment left
 '     agent`.
 '   STILL OPEN: H2–H5 need the app on a host (the first `proveo run hermes`
 '   with desktop installs it on this Mac after a yes).
-'   2026-11-11 (output-readability R1, decision B): the pinned plan goes to
+'   2026-11-11 (decision B: each host add-on is one interface fact, as
+'   _spec/internal/sbx/host-android-adb.puml draws it): the pinned plan goes to
 '   the run log (ui.Logf), not the screen; the question reads "Install Hermes
 '   Desktop <tag> now?". EnsureDesktop returns (launch, installed, err), and
 '   the interface block after `sbx create` carries one fact: "● desktop:
@@ -116,7 +117,7 @@ skinparam noteTextAlignment left
 '   Pinned by cmd/proveo/desktop_test.go
 '   TestADeclinedInstallInstallsNothingAndLogsThePlan and
 '   internal/run/host_adb_test.go TestEachHostAddOnFactNamesWhatTheRunLeftUp.
-'   2026-11-11 (output-readability R2, carry-overs b and c): run.Do calls
+'   2026-11-11 (carry-overs b and c; stage order: _spec/internal/run/run-spec.puml): run.Do calls
 '   EnsureDesktop right after the image pull, so the install sits under "run"
 '   with the other host prerequisites, and its question prints through
 '   ui.Default (printerOn), so the run log keeps it. The prerequisite install

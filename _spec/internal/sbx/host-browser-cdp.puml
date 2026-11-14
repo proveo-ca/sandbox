@@ -52,9 +52,10 @@ skinparam noteTextAlignment left
 ' ── WHAT THE AGENT CAN DO ──────────────────────────────────────────────────
 ' CDP is full control of that browser: every tab, every cookie in the profile.
 ' The run warns so; the boundary is "log into only what the agent should touch".
-' Since output-readability R1 (2026-11-11) the browser opens before the sandbox,
+' Since 2026-11-11 the browser opens before the sandbox,
 ' behind the live line "host-cdp — starting", which leaves the screen once CDP
-' answers. ONE FACT PER ADD-ON (the operator, 2026-11-11, decision B): Ensure
+' answers. ONE FACT PER ADD-ON (DECIDED 2026-11-11, the operator; the rejected
+' alternatives: host-android-adb.puml): Ensure
 ' returns hostcdp.Opened{Browser, Profile}, and the interface block's Facts
 ' carry one row after `sbx create`:
 '   ● chrome: Google Chrome · CDP 127.0.0.1:9333    profile ~/… dim under it

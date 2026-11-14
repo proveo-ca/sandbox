@@ -30,7 +30,8 @@ skinparam noteTextAlignment left
 '            String() names each for the help headings
 '   Where    bits for who reads it: Binary (proveo's Go: the binaries, and the
 '            Go tests a mise.toml task drives; the scan reads mise.toml as
-'            Binary) · Image (shell, node or python inside
+'            Binary; NOT CHOSEN: a new Where bit for mise.toml, which would
+'            change `proveo help env` for no operator gain) · Image (shell, node or python inside
 '            an agent image) · Installer (install.sh, install.ps1, uninstall.sh)
 '   Var      {Name, Scope, Where, Default, Doc, AliasOf}: Default says what
 '            happens when it is unset, Doc what setting it does, AliasOf the

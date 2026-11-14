@@ -49,7 +49,7 @@ skinparam noteTextAlignment left
 '     run-log row too (R2).
 '   changed, not headed, stopped → the same three steps, no question
 '   changed, not headed, running → warn. The session stays. The new settings do not apply.
-' WHAT EACH BRANCH PRINTS (output-readability R1, 2026-11-11). A kept running
+' WHAT EACH BRANCH PRINTS (2026-11-11, _spec/internal/ui/output-vocabulary.puml). A kept running
 ' sandbox: "⚠ <name> — kept running without this run's changes", dim "not
 ' applied: <changes>", then "the next proveo run reattaches to it" (headed no)
 ' or "`sbx rm --force <name>` deletes it and its session; the next run builds
@@ -58,10 +58,14 @@ skinparam noteTextAlignment left
 ' created with" (whichever of clone and mounts they name), or "⚠ workspace —
 ' <name>'s mode and mounts are unrecorded" for a sandbox with no receipt. The
 ' reason, "the workspace block is this run's plan, not <name>'s", goes to the
-' run log alone (Item.Log, P6, R1 round 3): that block printed this run's ✓
-' outcome before the stale step (R1 review; pinned by
+' run log alone (Item.Log, P6). KNOWN, NOT FIXED: the workspace block
+' (report.go ReportWorkspace) prints this run's ✓ outcome before the stale
+' step decides which sandbox runs, so for a kept sandbox the ⚠ under "sbx" is
+' the correction (pinned by
 ' TestAReattachToAnUnrecordedSandboxFlagsTheWorkspaceBlock and
 ' TestAReattachWithNoRecordClaimsNothingAndFlagsAKeptWorkspaceMode).
+' KNOWN, NOT FIXED: the retire's carried facts (retireSandbox's own Block) are
+' a second Facts block under "sbx", so one heading holds two alignments.
 ' Run reads `sbx ls` ONCE for the stale step:
 ' sbx.Exists before it, staleChanges(name, now, exists) off that answer, and
 ' reuseOrCreate(cfg, exists) after it, exists cleared by a retire.
@@ -106,6 +110,9 @@ skinparam noteTextAlignment left
 ' moves to the new sandbox." An export failure keeps the engine; a legacy
 ' keeper engine (D7) carries nothing, the new engine imports from the V2
 ' share, and retire deletes its legacy owner record after the rm.
+' KNOWN, NOT FIXED: an OpenCode engine created in the stale path prints its
+' sbx facts after sbx's create block, because ensureOpenCodeEngine runs
+' `sbx create` itself.
 ' HISTORY (keeper design): a headed yes removed a running sandbox except an
 ' OpenCode engine with active, unpublished, or unattested state, which had to
 ' be recovered before replacement.
@@ -185,7 +192,8 @@ skinparam noteTextAlignment left
 '     guestExecDeadline = 3m. A timeout reads as the error it replaces, so
 '     an unanswered probe leaves the mode unknown and the sandbox kept
 '     (STRANDED), never removed. The receipt stays out of it (review #6).
-'     STILL OPEN: SaveState and teardown's `sbx rm`. sbx's own rm on a clone
+'     OPEN UNTIL 2026-11-10 (CLOSED below, teardown.puml T1): SaveState and
+'     teardown's `sbx rm`. sbx's own rm on a clone
 '     sandbox starts the container first, and hung the same way; the decided
 '     next step is a 3m deadline plus a rescue recipe, never an automatic shim
 '     kill (killing the shim made the daemon respawn it and stall again).
@@ -213,6 +221,9 @@ skinparam noteTextAlignment left
 '   * The forced Ctrl+C remove after a failed carry prints the rescue recipe,
 '     then deletes; the modal warns about uncommitted changes, not about
 '     commits that were never carried (review #5, reported).
+'   * A teardown that removes its sandbox leaves its launch receipt:
+'     removeSandbox deletes none, while removeRetired, `proveo rm` (verbs.go)
+'     and a failed fresh OpenCode engine do. KNOWN, NOT FIXED.
 ' The kept-for-diagnosis hint names `sbx exec -it <name> bash` (MEASURED),
 ' matching https://docs.docker.com/reference/cli/sbx/exec/.
 '

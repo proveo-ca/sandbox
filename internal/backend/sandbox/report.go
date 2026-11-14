@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/output-readability.puml, _spec/internal/ui/output-vocabulary.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/internal/sbx/ide-attach.puml
+// SPEC: _spec/internal/ui/output-vocabulary.puml, _spec/internal/workspace/mount-symlink-escape.puml, _spec/internal/sbx/ide-attach.puml
 package sandbox
 
 import (

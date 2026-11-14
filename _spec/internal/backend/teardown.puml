@@ -22,7 +22,6 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' covers: internal/backend/sandbox/launch_receipt.go (retireSandbox's SaveState)
 ' covers: internal/backend/sandbox/report.go (Block, resultOrder, ordered)
 ' covers: internal/sbx/run.go (Gone), internal/sbx/sbx_test.go
-'   why this was needed ............. _spec/_experiments/terminal-handoff-probes.puml (C2, C3)
 '   the order it is delivered in .... _spec/_plans/tui-upgrades-delivery.puml
 '   the earlier deadlines ........... _spec/internal/sbx/kit-lifecycle.puml (A HUNG TEARDOWN)
 '   how a run's status is chosen .... _spec/internal/backend/exit-code.puml
@@ -35,7 +34,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' ── EVERY STEP LEAVES ONE LINE IN THE RUN LOG (T2) ─────────────────────────
 ' Before this, the run log stamped section headers only. A finished run could
 ' not say how long any teardown step took, so "typical" silence was unknown
-' and only the ceilings were (terminal-handoff-probes.puml, C2).
+' and only the ceilings were.
 ' `step(name, fn)` runs fn and records its name, duration and outcome.
 ' `stepDo` is the same for a call that returns no error. The record goes to
 ' the run log through ui.Logf, as
@@ -147,8 +146,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '
 ' ── EACH STEP SAYS IT STARTED, AND ITS CEILING (the rider on T3) ───────────
 ' Before this the terminal printed a line when a step ENDED, so a slow step
-' showed as silence (terminal-handoff-probes.puml, C2). Now `announce(name)`
-' prints one line before a step runs:
+' showed as silence. Now `announce(name)` prints one line before a step runs:
 '   <name> — up to <ceiling>
 ' A step that starts no subprocess prints its name alone (home config).
 ' WHICH STEPS PRINT: every top-level step except `clone`, and each of the
@@ -222,8 +220,7 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' Until T4 a SIGTERM or SIGHUP in teardown was swallowed: forwardStop's parked
 ' goroutine consumed it and cancelled a context nothing read any more. SIGINT
 ' had no handler, and the terminal is back in cooked mode by then, so Ctrl+C
-' ended proveo on the spot: no carry, no state save, no removal, no line
-' (terminal-handoff-probes.puml, C3).
+' ended proveo on the spot: no carry, no state save, no removal, no line.
 ' `teardown.watch` takes SIGINT, SIGTERM and SIGHUP for the length of
 ' teardown. Run starts it BEFORE it stops forwardStop, so no signal meets a
 ' gap with Go's default action.
@@ -231,7 +228,9 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '                     "⚠ teardown is at <step> — Ctrl+C again leaves now",
 '                     dim "leaving keeps sandbox <name>; …" (R2: the ceiling
 '                     is the live frame's, not a parenthetical). Nothing
-'                     stops.
+'                     stops. "Ctrl+C again leaves now" is an exception to
+'                     the HOW-TO rule (output-vocabulary.puml): it answers
+'                     the keypress with what the next one does.
 '   SIGINT, second    ends the context. The call in flight is killed, later
 '                     steps are skipped, the sandbox stays, and Run returns
 '                     Stopped{SIGINT}: exit 130. The Executor, D2: "Say once,
@@ -258,7 +257,10 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' ── TEARDOWN'S CHILDREN LEAVE THE TERMINAL'S PROCESS GROUP (T4) ─────────────
 ' A handler alone protects nothing. The terminal sends SIGINT to the whole
 ' foreground process group, so the `sbx exec` or `git` in flight died on the
-' FIRST Ctrl+C (MEASURED with a probe: terminal-handoff-probes.puml, C3).
+' FIRST Ctrl+C. MEASURED with a probe in tmux (2026-11-10, darwin/arm64): a
+' plain child died on the first Ctrl+C ("signal: interrupt"); a Setpgid child
+' survived it; the second press cancelled a context whose Cancel signalled the
+' group, the child died in 2 ms and the shell read exit 130.
 ' ownGroup(cmd) sets Setpgid and makes the command's cancel kill the group.
 '   boundCommand          every guest and host call teardown waits on
 '   sbx.boundedWith,      the 10s probes behind Running, Exists, the policy
@@ -304,9 +306,11 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' and by e2e/teardown_steps_test.go: TestStepRowNameReadsARunLogLine
 '
 ' ── WHAT TEARDOWN PRINTS (R2, 2026-11-11) ──────────────────────────────────
-' _spec/_plans/output-readability.puml holds the operator's decisions; this is
-' the shape they gave teardown's screen. Two headings at most, each once:
-' "results" on every run, "ide" only when the sandbox stays.
+' The operator's R2 decisions gave teardown's screen this shape; what they
+' rejected closes this section, and the rules they apply are
+' _spec/internal/ui/output-vocabulary.puml (THE STREAM'S RULES). Two
+' headings at most, each once: "results" on every run, "ide" only when the
+' sandbox stays.
 '   1. the agent's end, first under results (sandbox.Run, agentEnd):
 '        a forwarded SIGTERM/SIGHUP   ● claudecode — stopped by SIGTERM
 '        sbx's exit, sbx said nothing × sbx run — exited with code N
@@ -343,7 +347,8 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '      A kept line carries one dim fix: `proveo rm --stop <name>` while
 '      it runs, `proveo rm <name>` once stopped, the rescue line after a
 '      removal that timed out. A keep the operator's Ctrl+C alone caused
-'      logs its fix instead (decision E); a failed run keeps its fix on
+'      logs its fix instead (decision E, the HOW-TO rule of
+'      output-vocabulary.puml); a failed run keeps its fix on
 '      screen even when a Ctrl+C ends its teardown, because the agent's
 '      failure kept the sandbox. A failed run whose agent drew on the
 '      alternate screen (ptyproxy's Proxy.EnteredAltScreen) also gets its
@@ -431,6 +436,27 @@ title Teardown — what runs after the agent exits, how long each step may take,
 ' so first: "⚠ <name> — kept: its create failed", dim "`sbx rm --force
 ' <name>` removes it" (leftByCreate; no listing proves nothing, so none).
 ' Pinned by TestAFailedCreateThatLeftASandboxSaysSoAndHowToRemoveIt.
+' NOT CHOSEN, the operator's R2 forks:
+'   headings (F1)       the ide facts as a second block under results (two
+'                       subjects under one heading); "results" + "sandbox"
+'                       on every run
+'   what came home (F2) one ✓ per result
+'   records (F4)        one "records" fact; two rows with ~ paths. The
+'                       egress-record and memory-log paths go to the run log;
+'                       an OOM ⚠ keeps its path dim
+'   log path (F5)       a dim log line under every kept ⚠; a "log:" fact
+'                       closing every run. The run block names the log once
+'   a failed lift (F6)  the tar recipe dim with the sandbox kept; the
+'                       removal as before, the output lost
+'   KEPT FIX            "`sbx stop`, then `proveo rm`" as two steps; teardown
+'                       stopping every kept sandbox. Nothing stops a sandbox
+'                       implicitly
+'   AGENT TAIL          the log alone; the 17-row tail block on every failed
+'                       run
+'   KEPT IDE            the ide block trimmed to the log; ssh and project only
+'   STOP MARK           a ⚠ item; no screen line
+' KNOWN: the launch receipt a removal leaves behind is recorded in
+' _spec/internal/sbx/kit-lifecycle.puml, RESIDUALS.
 ' Pinned by internal/backend/sandbox/teardown_report_test.go:
 '   TestACloneEndingPrintsWhatCameHomeAsOneBlockThenTheRemoval
 '   TestARefWithNoNewCommitsStaysInTheLog

@@ -253,7 +253,7 @@ skinparam noteTextAlignment left
 ' by TestMountsDroppedFromAWorktreeCloneWarnOncePerTopLevelEntry.
 '
 ' ── WHAT THE OPERATOR READS: THE WORKSPACE BLOCK (2026-11-11) ──────────────
-' output-readability R1. One block, after Spec, says what sbx's create block
+' (_spec/internal/ui/output-vocabulary.puml) One block, after Spec, says what sbx's create block
 ' cannot: the worktree link, the clone's .env, the lifted output dir, where
 ' links point, what was not mounted; then the outcome closes it:
 '   ● checkout: ~/w/hotfix (linked worktree)      worktree clones only
@@ -346,6 +346,26 @@ skinparam noteTextAlignment left
 ' overwrite the work the last one left on the host — the one thing this whole
 ' path exists to preserve. CloneFetchArgs therefore takes both: the sandbox
 ' names the remote, the session names the destination.
+'
+' ── A CLONE LIVES FOR ONE RUN (DECIDED 2026-11-14, the owner) ──────────────
+' A clone lives for one run, on purpose. Runs of one harness in one workspace
+' read as one session to the operator because their state (session logs,
+' history) carries across runs, not because the clone survives. The owner:
+' "as long as the end user perceives them as one and the same (session logs
+' remain, etc) it does the expected job."
+' The sandbox name is proveo-<target>-<workspace hash> (sbx.SandboxName), so
+' a sandbox an earlier run KEPT (failed, stranded, a failed rm) is re-attached
+' by name; a successful run removes it. OpenCode is the exception: its engine
+' is kept for its SQLite history (_spec/defs/opencode/engine-local-history.puml),
+' so its clone outlives the run.
+' NOT CHOSEN: a durable clone keyed by (repository, target). It goes stale
+' under a moving host checkout (refresh unasked and uncommitted work can go;
+' never refresh and the clone is a silent fork); two concurrent runs collide on
+' one key; it is state with no lifecycle under `proveo clean`; and `sbx env`
+' already owns named, reused sandboxes one layer down.
+' OPEN: [Unverified, from docs] sbx's branch mode gives each run its own
+' worktree under .sbx/. It likely overlaps clone mode; nobody has compared them.
+' How that state carries is under review: _spec/internal/sbx/state-sync.puml.
 '
 ' ── EITHER DELIVERY ROUTE IS ARRIVAL, AND A TEST MUST ACCEPT BOTH ──────────
 ' The two renderings put the agent's commit in different places, so a probe
@@ -594,9 +614,13 @@ skinparam noteTextAlignment left
 ' bundle recipe and the tar recipe go to the run log: `proveo rm` runs the
 ' same carry and lift. A stranded error now says "it" ("the agent's branches
 ' are still only in it"), because the kept line names the sandbox.
-' KNOWN (critique item 15, out of scope for R2): the seed's AGENTS.md is
-' committed by the snapshot when the clone lacked one, so a run whose agent
-' changed nothing reads "main (1 new commit)".
+' KNOWN, left out of scope by the operator (2026-11-11): the seed's AGENTS.md
+' is committed by the snapshot when the clone lacked one, so a run whose agent
+' changed nothing reads "main (1 new commit)". The branches fact prints what
+' git measures, the seeded snapshot included. NOT CHOSEN: an info/exclude
+' fix; a row that counts only proveo's snapshot.
+' KNOWN, NOT FIXED: a first Ctrl+C during the clone step prints its ⚠ at
+' once, above the facts the results block prints after it.
 ' Pinned by TestACloneEndingPrintsWhatCameHomeAsOneBlockThenTheRemoval,
 ' TestARefWithNoNewCommitsStaysInTheLog, TestAnOutputLiftThatFailsKeepsTheSandbox,
 ' TestTheEnvMergeIsAFactThatNamesWhatItMergedAndIgnored,

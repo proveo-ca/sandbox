@@ -160,7 +160,7 @@ note right of M
   The docker CLIENT is no longer asserted up front on either
   side: its survival is an sbx implementation detail that
   differs between our own two images
-  (""_spec/_experiments/docker-sandbox\.puml""), so pinning it
+  (""_spec/_paradigms/retire-dind\.puml""), so pinning it
   would encode that detail as a proveo contract. A missing one
   is still named when it bites, because
   ""assertDockerServerReachable"" separates "command not found"

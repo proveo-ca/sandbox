@@ -39,7 +39,7 @@ skinparam noteTextAlignment left
 '
 ' ── DELTA 2: opencode import activates sbx's record (2026-10-28, P4) ────────
 ' The Executor chose C7 "the agent cannot outrank sbx"
-' (_spec/_plans/sbx-native-credential-storage.puml). Upstream's reconcile step
+' (_spec/internal/sbx/credential-resolution.puml, FORKS AND C7). Upstream's reconcile step
 ' switches to the imported `sbx-openai` record only when the ACTIVE record is
 ' already sbx-managed, so an agent-owned login (opencode's own "Sign in with
 ' ChatGPT", methodID chatgpt-token-sharing, a real token) stays active and its

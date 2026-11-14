@@ -10,12 +10,13 @@ skinparam noteTextAlignment left
 '   docker copy/stage machinery are DELETED; the host keeps detection only (DepCopies names the
 '   trees, run.go counts them). "Isolated on docker" below is HISTORY. A Kit volumes field would
 '   now start from the detected tree list, with nothing staged to strip.
-'   the schema field this needs .... _spec/_experiments/sbx-kit-capabilities.puml (volumes[])
+'   the schema field this needs .... _spec/internal/sbx/sbx-kit-v3.puml (v3 volume@1; SPEC-v2 volumes[])
 '   why sbx cannot mask a subpath .. _spec/_paradigms/workspace-boundary.puml
 '   why a clone sidesteps it ....... _spec/internal/sbx/clone-workspace.puml
 '   why a tmpfs is not free ........ _spec/minimum_requirements.puml (no swap)
-'   the OTHER answer to the same problem _spec/_experiments/reusable-clone.puml
-'     — a reused clone keeps a NATIVE tree instead of shadowing a foreign one
+'   the OTHER answer, not taken .... _spec/internal/sbx/clone-workspace.puml
+'     — a reused clone would keep a NATIVE tree instead of shadowing a foreign
+'     one; DECIDED 2026-11-14: a clone lives for one run
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 '   THE CLASS THIS IS AN INSTANCE OF: _spec/_paradigms/workspace-boundary.puml
@@ -65,11 +66,14 @@ skinparam noteTextAlignment left
 ' takes DIRECTORY workspaces at their own host paths, so there has been nothing
 ' to hang a per-subdirectory overlay on.
 '
-' EXCEPT THE KIT SCHEMA LISTS ONE. sbx-kit-capabilities.puml, reading SPEC-v2,
-' records `volumes[]  block or tmpfs, path + size` among what a Kit may declare.
-' And `sbx.Kit` has NO Volumes field — proveo does not model it. So the
-' capability may have been there the whole time and the isolation was ruled out
-' by an assumption rather than by a probe.
+' EXCEPT THE KIT SCHEMA LISTS ONE. SPEC-v2 listed `volumes[]  block or tmpfs,
+' path + size` among what a Kit may declare; v3 carries it as
+' com.docker.sandbox/volume@1 (_spec/internal/sbx/sbx-kit-v3.puml), which
+' proveo passes through from upstream kits and never generates (MEASURED
+' 2026-11-14: internal/sbx/kitv3.go declares CapVolume and proveo never
+' generates one; e2e/resume_test.go only copies upstream's). So the capability
+' may have been there the whole time and the isolation was ruled out by an
+' assumption rather than by a probe.
 '
 ' ── THE PROBE, AND IT IS ONE KIT ───────────────────────────────────────────
 ' Declare a `volumes[]` entry — tmpfs, sized — at `<workspace>/node_modules` in

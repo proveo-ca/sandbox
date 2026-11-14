@@ -49,7 +49,7 @@ title Browser viewport — watching the agent's Chromium from the host, across t
 ' viewport, not the run.
 '
 ' THE ROW PRINTS AFTER `sbx create`, AND ONLY FOR THIS RUN'S PUBLISH
-' (2026-11-11, output-readability R1). The interface block prints what the
+' (2026-11-11, _spec/internal/ui/output-vocabulary.puml). The interface block prints what the
 ' port serves, "● browser: the agent's Chromium over CDP", and nothing under
 ' it: sbx's create block prints "✓ port 9222/tcp4 — published 127.0.0.1:<host>"
 ' (MEASURED 2026-11-11, sbx v0.50.0, a sandbox created for the check with

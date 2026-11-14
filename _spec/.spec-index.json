@@ -166,23 +166,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_experiments/docker-sandbox.puml",
-      "covers": [
-        "internal/sbx/sbx.go",
-        "cmd/proveo/main.go",
-        "e2e/sbx_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/nested-sbx-kvm.puml",
-      "covers": [
-        "defs/claudecode/mcp/Dockerfile",
-        "defs/base/Dockerfile"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_experiments/operator-fingerprint.puml",
       "covers": [],
       "fingerprint": null
@@ -193,36 +176,15 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_experiments/reusable-clone.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/sbx-driving-a-session.puml",
-      "covers": [
-        "e2e/sbx_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/sbx-kit-capabilities.puml",
-      "covers": [
-        "internal/sbx/kit.go",
-        "internal/sbx/agents.go",
-        "internal/backend/sandbox/**",
-        "internal/provider/provider.go",
-        "e2e/ladder_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_paradigms/capability-ladder.puml",
       "covers": [
         "e2e/ladder_test.go",
         "internal/sbx/**",
         "internal/backend/sandbox/sandbox.go",
         "internal/contract/agent_launch_guard_test.go",
-        "defs/**/entrypoint.sh"
+        "defs/**/entrypoint.sh",
+        "defs/claudecode/mcp/Dockerfile",
+        "defs/base/Dockerfile"
       ],
       "fingerprint": null
     },
@@ -274,20 +236,6 @@
         "internal/backend/sandbox/sandbox.go",
         "internal/sbx/secret.go",
         "e2e/opencode_auth_test.go"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/harness-credential-storage-audit.puml",
-      "covers": [
-        "defs/opencode/entrypoint.sh",
-        "defs/opencode/harness.manifest",
-        "defs/cursor/harness.manifest",
-        "defs/codex/harness.manifest",
-        "defs/claudecode/harness.manifest",
-        "defs/hermes/harness.manifest",
-        "internal/credentials/credentials.go",
-        "packages/lib/proveo-opencode-runtime"
       ],
       "fingerprint": null
     },
@@ -375,22 +323,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_plans/plugin-class-beyond-claudecode.puml",
-      "covers": [
-        "packages/lib/entrypoint-lib.sh"
-      ],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/post-close-surface.puml",
-      "covers": [
-        "internal/backend/sandbox/sandbox.go",
-        "internal/runlog/runlog.go",
-        "internal/ui/ui.go"
-      ],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/_plans/retire-model-bridging.puml",
       "covers": [
         "internal/sbx/host_ollama.go",
@@ -430,11 +362,6 @@
     },
     {
       "spec": "_spec/_plans/tui-upgrades-delivery.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_plans/output-readability.puml",
       "covers": [],
       "fingerprint": null
     },
@@ -683,7 +610,8 @@
       "spec": "_spec/defs/cursor/cursor-paradigm.puml",
       "covers": [
         "defs/cursor/entrypoint.sh",
-        "packages/lib/entrypoint-lib.sh"
+        "packages/lib/entrypoint-lib.sh",
+        "defs/cursor/harness.manifest"
       ],
       "fingerprint": null
     },
@@ -1552,7 +1480,6 @@
       "covers": [
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/launch_config_test.go",
-        "internal/backend/sandbox/own_agent_test.go",
         "internal/sbx/kit.go",
         "cmd/proveo/testdata/plan/sbx-claudecode-broker.golden",
         "cmd/proveo/testdata/plan/sbx-claudecode-clone-datadir.golden",
@@ -1619,6 +1546,19 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/internal/sbx/sbx-kit-v3.puml",
+      "covers": [
+        "internal/sbx/kitv3.go",
+        "internal/sbx/kitv3_test.go",
+        "internal/sbx/sbx.go",
+        "internal/sbx/upstream.go",
+        "internal/sbx/upstream_test.go",
+        "internal/sbx/third_party/**",
+        "internal/contract/contract_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/internal/sbx/seed-node-version-abort.puml",
       "covers": [
         "packages/lib/entrypoint-lib.sh",
@@ -1632,8 +1572,7 @@
         "internal/sbx/agents.go",
         "internal/sbx/shell_launch_test.go",
         "internal/sbx/run.go",
-        "internal/backend/sandbox/sandbox.go",
-        "internal/backend/sandbox/own_agent_test.go"
+        "internal/backend/sandbox/sandbox.go"
       ],
       "fingerprint": null
     },
@@ -1751,7 +1690,8 @@
         "internal/sbx/host_ollama.go",
         "internal/sbx/host_ollama_pull_test.go",
         "internal/backend/sandbox/report.go",
-        "internal/backend/sandbox/log_moves_test.go"
+        "internal/backend/sandbox/log_moves_test.go",
+        "internal/backend/sandbox/report_test.go"
       ],
       "fingerprint": null
     },
@@ -2118,11 +2058,6 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/_refactors/host-shell-to-go.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
       "spec": "_spec/tests/44-git-sync-turn-e2e.puml",
       "covers": [
         "e2e/git_sync_turn_test.go",
@@ -2167,16 +2102,6 @@
     },
     {
       "spec": "_spec/_experiments/mobile-device-reach.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/sbx-tui-observed.puml",
-      "covers": [],
-      "fingerprint": null
-    },
-    {
-      "spec": "_spec/_experiments/terminal-handoff-probes.puml",
       "covers": [],
       "fingerprint": null
     },

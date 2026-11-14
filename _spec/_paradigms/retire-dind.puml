@@ -131,11 +131,13 @@
 '
 ' ── THE CLIENT INSIDE THE SANDBOX IS NOT proveo'S TO PROMISE ──────────────
 ' `docker: sbx` promises a DAEMON. Whether a docker CLIENT is on PATH inside the
-' sandbox is neither stable nor ours: cursor's sandbox has one and claudecode's
-' does not, from images that both install it, because `sbx create` re-bakes the
-' template (_spec/_experiments/docker-sandbox.puml) and the claude-flavoured
-' bake drops it. Pinning it either way would encode an sbx implementation
-' detail as a proveo contract.
+' sandbox is neither stable nor ours. MEASURED on sbx v0.39, from images that
+' both install it: cursor's sandbox kept one and claudecode's did not, because
+' that version's `sbx create` re-baked the template and the claude-flavoured
+' bake replaced it (with sbx-clipboard, wl-paste, xclip and xdg-open). Pinning
+' it either way would encode an sbx implementation detail as a proveo
+' contract, and the first diagnosis ("sbx strips the docker client") would
+' have failed cursor, whose sandbox had one.
 '
 ' It is still NAMED when it bites. assertDockerServerReachable separates
 ' "command not found" from "cannot connect to the docker daemon", because the
@@ -153,7 +155,6 @@
 ' it closed when the backend went.
 '
 '   what dind WAS ............... deleted with the package; the record is here
-'                                 and in _spec/_experiments/docker-sandbox.puml
 '   the backend it moves to ..... _spec/internal/sbx/sandbox-backend.puml
 '   what governs egress there ... _spec/internal/sbx/policy-baseline.puml
 '   the tiers this does NOT decide _spec/internal/sbx/policy-baseline.puml

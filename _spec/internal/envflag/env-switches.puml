@@ -37,8 +37,6 @@ skinparam noteTextAlignment left
 ' switch at its default. MEASURED call sites (default in brackets):
 '   PROVEO_CLONE [on], PROVEO_MOUNT_ROOT_DEPS [on] ...... internal/run/helpers.go
 '   PROVEO_STDIN_FILTER [on], PROVEO_WIZARD [on] ........ internal/agentio/agentio.go
-'   PROVEO_SBX_AGENT_KIT [on] ........................... internal/sbx/agents.go
-'   PROVEO_SBX_RELOAD [off] ............................. internal/sbx/template.go
 '   PROVEO_LOCAL_MODEL_PULL [on], _FORCE [off] .......... internal/sbx/host_ollama.go
 '   PROVEO_MOUNT_GH_CONFIG [on] ......................... internal/credentials/credentials.go
 '   PROVEO_BUILDKIT_CACHE [on], PROVEO_DOCKER_PUSH [off]  internal/imagebuild/imagebuild.go

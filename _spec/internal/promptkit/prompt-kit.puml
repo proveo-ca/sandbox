@@ -17,7 +17,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' covers: cmd/proveo/init_tui.go (rowPrompt)
 ' covers: cmd/proveo/prompt.go (--init)
 ' covers: cmd/proveo/uninstall.go (promptkit.Undo)
-'   why a prompt segment at all ...... _spec/internal/results/result-store.puml (D4)
+'   why a prompt segment ............. _spec/internal/results/result-store.puml (D4)
 '   what the segment prints .......... _spec/internal/results/result-store.puml
 '   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W8)
 '   the other block init writes ...... _spec/internal/shell/setup-path.puml
@@ -45,7 +45,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 '              (STARSHIP_CONFIG, else ~/.config/starship.toml).
 ' Each step says what it did, or that the host already had it. A second
 ' Apply downloads nothing and adds nothing.
-' HOW IT SAYS SO (R3 of _spec/_plans/output-readability.puml, 2026-11-11).
+' HOW IT SAYS SO (R3, 2026-11-11; _spec/internal/ui/output-vocabulary.puml).
 ' Options.Fact and Options.Warn carry everything Apply and Undo say; R4 deleted
 ' Options.Report and its sentences, since init had set it to nil and uninstall
 ' now prints facts too. Undo says each removal that SUCCEEDED as a fact, "rc",

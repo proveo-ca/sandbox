@@ -1,4 +1,4 @@
-// SPEC: _spec/_plans/output-readability.puml, _spec/internal/sbx/clone-workspace.puml
+// SPEC: _spec/internal/ui/output-vocabulary.puml, _spec/internal/sbx/clone-workspace.puml
 package sandbox
 
 import (

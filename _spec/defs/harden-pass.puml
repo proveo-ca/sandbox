@@ -59,6 +59,14 @@ title The harden pass — one script, re-run by every layer that installs
 ' in each Dockerfile — drifts: ten copies of a security sweep diverge silently,
 ' and the one that matters is always the one nobody updated.
 '
+' ── ON sbx IT IS DEFENCE IN DEPTH, NOT THE BOUNDARY ────────────────────────
+' [Inference] sbx runs every sandbox under its own kernel (the hypervisor
+' boundary of Docker's sandboxes architecture docs), so the pass narrows what
+' a process can do inside the guest; it is not what keeps the agent off the
+' host. MEASURED 2026-09-06 inside a live sandbox: the agent container's
+' CapEff is 0 (_spec/_paradigms/capability-ladder.puml). The engine half of
+' the boundary: _spec/internal/engine/container-engine.puml.
+'
 ' ── WHERE THE GUARANTEE IS OVERSTATED (both real, neither fixed here) ───────
 ' (a) `LABEL security.hardened=true` is asserted by proveo/base, proveo/base-node,
 '     proveo/base-node-browser, cursor, opencode, codex and
