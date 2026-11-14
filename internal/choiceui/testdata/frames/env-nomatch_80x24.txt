@@ -2,7 +2,7 @@
 │ run claudecode — confirm or change this run                        page 2/2  │
 │   git: monorepo on feat-look    tooling: go  node  python                    │
 ├── agent ──────                                                               │
-│ › credentials   [x] API keys ▾  [ ] OAuth       [ ] SSH         [x] .env ▾   │
+│ › credentials   [x] API… (1) ▾  [ ] OAuth (0)   [ ] SSH (0)     [x] … (12) ▾ │
 │   model         ( ) Qwen 3.8    (•) API keys     ╭── .env ──────── 0 of 12 ─╮│
 ├── execution ──                                   │ / zzq_                   ││
 │   OS            ( ) host        (•) sandbox      │   nothing matches        ││

@@ -56,9 +56,10 @@ func listsForm() *Form {
 		items[i] = fmt.Sprintf("credential-%02d", i)
 	}
 	m := &More{Cell: 1, Options: items, On: []bool{true, false, true}, ReadOnly: true, At: 3}
+	keys := &More{Cell: 0, Options: []string{"anthropic"}, On: []bool{true}, ReadOnly: true}
 	return &Form{Title: "credentials in this run", Rows: []Row{
-		{Label: "credentials", Multi: true, Locked: true, Hover: 1, Options: []string{"API keys", "OAuth", "SSH"},
-			On: []bool{true, true, false}, Cols: []int{0, 1, 2}, Lists: map[int]*More{1: m}},
+		counted(Row{Label: "credentials", Multi: true, Locked: true, Hover: 1, Options: []string{"API keys", "OAuth", "SSH"},
+			On: []bool{true, true, false}, Cols: []int{0, 1, 2}, Lists: map[int]*More{0: keys, 1: m}}),
 		{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Selected: 1},
 	}}
 }

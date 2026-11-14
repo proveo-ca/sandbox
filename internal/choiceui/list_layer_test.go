@@ -64,9 +64,9 @@ func (c listCase) open(t *testing.T) (*Form, *More) {
 	return f, m
 }
 
-// cellName is the open list's title: the name of the cell it hangs from.
+// cellName is the open list's title: the name of the cell it hangs from, without its count.
 func cellName(f *Form, row int, m *More) string {
-	return f.Rows[row].columnText(f.Rows[row].Options[m.Cell])
+	return f.Rows[row].listName(m.Cell)
 }
 
 func TestEnterClosesAnOpenListAndNeverAccepts(t *testing.T) {

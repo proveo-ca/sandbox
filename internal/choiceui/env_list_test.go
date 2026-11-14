@@ -25,6 +25,19 @@ func envList(names []string) *More {
 	return &More{Cell: 3, Options: slices.Clone(names), ReadOnly: true, Filter: true, Bare: true, Help: help}
 }
 
+// counted is r with each cell's label carrying its list's length, as the run form paints it.
+func counted(r Row) Row {
+	r.Paint = map[string]string{}
+	for i, opt := range r.Options {
+		n := 0
+		if m := r.Lists[i]; m != nil {
+			n = len(m.Options)
+		}
+		r.Paint[opt] = fmt.Sprintf("%s (%d)", opt, n)
+	}
+	return r
+}
+
 // envForm is the run form with the cursor on the credentials row's .env cell and its list open.
 func envForm() *Form {
 	return envFormWith(envList(envNames))
@@ -44,10 +57,10 @@ func envFormWith(env *More) *Form {
 			return []string{"create proveo-claudecode-1b3f", "clone monorepo", "start the agent"}
 		},
 		Rows: []Row{
-			{Label: "credentials", Divider: true, Heading: "agent", Multi: true, Locked: true, Hover: 3,
+			counted(Row{Label: "credentials", Divider: true, Heading: "agent", Multi: true, Locked: true, Hover: 3,
 				Options: []string{"API keys", "OAuth", "SSH", ".env"}, Cols: []int{0, 1, 2, 3},
 				On: on, Off: []bool{true, true, true, true}, Lists: lists,
-				Reason: "host credential inventory; read-only"},
+				Reason: "host credential inventory; read-only"}),
 			{Label: "model", Options: []string{"Qwen 3.8", "API keys"}, Selected: 1, Cols: []int{0, 1}},
 			{Label: "OS", Divider: true, Heading: "execution", Multi: true, Radio: true,
 				Options: []string{"host", "sandbox"}, On: []bool{false, true}, Cols: []int{0, 1}},
@@ -317,8 +330,8 @@ func TestTheEnvCellWithoutAFileOpensNothing(t *testing.T) {
 			row = l
 		}
 	}
-	if !strings.Contains(row, "[ ] .env") || strings.Contains(row, ".env ▾") {
-		t.Fatalf("the .env cell with no file = %q, want `[ ] .env` with no arrow", row)
+	if !strings.Contains(row, "[ ] .env (0)") || strings.Contains(row, ".env (0) ▾") {
+		t.Fatalf("the .env cell with no file = %q, want `[ ] .env (0)` with no arrow", row)
 	}
 	if f.openList(0) != nil || strings.Contains(strings.Join(lines[1:], "\n"), "╭") {
 		t.Fatalf("a .env cell with no file opened a list:\n%s", strings.Join(lines, "\n"))
@@ -369,7 +382,7 @@ func TestTheOpenListNeverCoversTheTitleItsRowOrTheFoot(t *testing.T) {
 			if !strings.Contains(lines[0]+lines[1], strings.TrimSuffix(title, "…")) {
 				t.Errorf("%s %dx%d: the title is covered:\n%s", name, w, h, frame)
 			}
-			cell := f.Rows[0].Options[f.Rows[0].cursorAt()]
+			list := f.Rows[0].listName(f.Rows[0].cursorAt())
 			own, foot := -1, -1
 			for y, l := range lines {
 				if strings.Contains(l, "› credentials") {
@@ -386,7 +399,7 @@ func TestTheOpenListNeverCoversTheTitleItsRowOrTheFoot(t *testing.T) {
 			if framed(w) && (foot < 0 || !strings.HasPrefix(lines[foot+2], "╰") || strings.ContainsAny(lines[foot+1][len("│"):], "╭╮╰╯")) {
 				t.Errorf("%s %dx%d: the list covers the foot:\n%s", name, w, h, frame)
 			}
-			top, bottom := listBox(lines, f.Rows[0].columnText(cell))
+			top, bottom := listBox(lines, list)
 			if top < 0 || bottom < 0 {
 				t.Errorf("%s %dx%d: no list drawn:\n%s", name, w, h, frame)
 				continue

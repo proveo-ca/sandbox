@@ -58,17 +58,18 @@ func (inv credentialInventory) withEnvFile(path string) credentialInventory {
 }
 
 // credentialsRow is the read-only credentials row: API keys, OAuth, SSH and .env, each cell
-// opening the list of what it holds.
-// SPEC: _spec/internal/choiceui/wireframe.puml
+// drawn with its count and opening the list of what it holds.
+// SPEC: _spec/internal/choiceui/wireframe.puml (A CELL COUNTS ITS LIST)
 func credentialsRow(items credentialInventory) choiceui.Row {
 	r := choiceui.Row{Label: "credentials", Multi: true, Locked: true,
 		Options: []string{"API keys", "OAuth", "SSH", ".env"}, Cols: []int{0, 1, 2, 3},
-		Help: map[string]string{}, Lists: map[int]*choiceui.More{},
+		Help: map[string]string{}, Lists: map[int]*choiceui.More{}, Paint: map[string]string{},
 		Reason: "host credential inventory; configure with proveo init or the run's .env; the selected model and kit bindings determine use",
 	}
 	for i, list := range [][]string{items.APIKeys, items.OAuth, items.SSH, items.Env} {
 		r.On = append(r.On, len(list) > 0)
 		r.Off = append(r.Off, true)
+		r.Paint[r.Options[i]] = fmt.Sprintf("%s (%d)", r.Options[i], len(list))
 		r.Help[r.Options[i]] = fmt.Sprintf("%d configured item(s); read-only", len(list))
 		if len(list) == 0 {
 			continue

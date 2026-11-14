@@ -227,10 +227,21 @@ func (k card) stub(c *canvas, name string, lit bool) {
 	c.put(5+textWidth(name), rule, strings.Repeat(k.g.rule, tail))
 }
 
-// fitCell is a cell cut to room columns; the label gives way first, with … before the arrow.
+// fitCell is a cell cut to room columns; the label's words give way first, with … before its
+// count and the arrow.
+// SPEC: _spec/internal/choiceui/wireframe.puml (A CELL COUNTS ITS LIST)
 func fitCell(glyph, cell, arrow string, room int) string {
 	if whole := glyph + cell + arrow; textWidth(whole) <= room {
 		return whole
+	}
+	if words, count := splitCount(cell); count != "" {
+		if n := room - textWidth(glyph+count+arrow); n >= 1 {
+			return glyph + clipRunes(words, n) + count + arrow
+		}
+		if bare := "…" + count[1:]; textWidth(glyph+bare+arrow) <= room {
+			return glyph + bare + arrow
+		}
+		cell = words + " …"
 	}
 	if n := room - textWidth(glyph+arrow); n >= 1 {
 		return glyph + clipRunes(cell, n) + arrow

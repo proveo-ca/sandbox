@@ -1,6 +1,6 @@
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │ credentials in this run                                                      │
-│ › credentials   [x] API keys          [x] OAuth ▾           [ ] SSH          │
+│ › credentials   [x] API keys (1) ▾    [x] OAuth (12) ▾      [ ] SSH (0)      │
 │   egress        ( ) allow-all   (•) balanced   ( ) deny-all                  │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ ↑↓ entry · enter close · esc close                                           │

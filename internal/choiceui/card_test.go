@@ -3,6 +3,7 @@ package choiceui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -530,6 +531,116 @@ func TestIndentedHeaderLinesStartAtTheFactsColumn(t *testing.T) {
 			}
 			if at != want {
 				t.Errorf("width %d: %q at column %d, want %d:\n%s", w, s, at, want, strings.Join(lines, "\n"))
+			}
+		}
+	}
+}
+
+func TestSplitCountTakesOnlyATrailingNumber(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ label, words, count string }{
+		{"API keys (4)", "API keys", " (4)"},
+		{".env (20)", ".env", " (20)"},
+		{"SSH (123)", "SSH", " (123)"},
+		{"OAuth (0)", "OAuth", " (0)"},
+		{"docker (sandbox)", "docker (sandbox)", ""},
+		{"API keys ()", "API keys ()", ""},
+		{"(4)", "(4)", ""},
+		{"API keys (4) ▾", "API keys (4) ▾", ""},
+		{"API keys", "API keys", ""},
+	} {
+		if words, count := splitCount(tc.label); words != tc.words || count != tc.count {
+			t.Errorf("splitCount(%q) = %q, %q; want %q, %q", tc.label, words, count, tc.words, tc.count)
+		}
+	}
+}
+
+// countedForm is the run form's credentials row with n entries behind every cell, above a model
+// row the cursor rests on.
+func countedForm(n int) *Form {
+	lists := map[int]*More{}
+	for i := range 4 {
+		names := make([]string, n)
+		for j := range names {
+			names[j] = fmt.Sprintf("entry-%03d", j)
+		}
+		lists[i] = &More{Cell: i, Options: names, ReadOnly: true}
+	}
+	return &Form{Title: "run claudecode", Rows: []Row{
+		counted(Row{Label: "credentials", Multi: true, Locked: true, Options: []string{"API keys", "OAuth", "SSH", ".env"},
+			Cols: []int{0, 1, 2, 3}, On: []bool{true, true, true, true}, Off: []bool{true, true, true, true}, Lists: lists}),
+		{Label: "model", Options: []string{"Qwen 3.8", "API keys"}, Selected: 1, Cols: []int{0, 1}},
+	}}
+}
+
+// A clipped cell cuts its label's words with … and keeps its count and its arrow, at 80, 100 and
+// 120 columns and for counts of one, two and three digits.
+func TestAClippedCellKeepsItsCountAndArrow(t *testing.T) {
+	t.Parallel()
+	pinned := map[string]string{
+		"120/123/API keys": "[x] API keys (123) ▾",
+		"100/20/.env":      "[x] .e… (20) ▾",
+		"100/123/.env":     "[x] .… (123) ▾",
+		"80/1/API keys":    "[x] API… (1) ▾",
+		"80/20/OAuth":      "[x] OA… (20) ▾",
+		"80/1/.env":        "[x] .… (1) ▾",
+		"80/20/.env":       "[x] … (20) ▾",
+		"80/123/.env":      "[x] …(123) ▾",
+	}
+	for _, w := range []int{80, 100, 120} {
+		for _, n := range []int{1, 20, 123} {
+			f := countedForm(n)
+			lines := renderAt(t, f, 1, w, 24)
+			row := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "credentials") })
+			if row < 0 {
+				t.Fatalf("%d columns, %d entries: no credentials row:\n%s", w, n, strings.Join(lines, "\n"))
+			}
+			rs := []rune(lines[row])
+			pt := pitch(cardWidth(w), f.lastCol())
+			for j, opt := range f.Rows[0].Options {
+				at := optOrigin + j*pt
+				room := min(pt-2, edge(w)-at)
+				got := strings.TrimRight(string(rs[at:min(at+room, len(rs))]), " ")
+				whole, tail := fmt.Sprintf("[x] %s (%d) ▾", opt, n), fmt.Sprintf("(%d) ▾", n)
+				switch {
+				case textWidth(whole) <= room && got != whole:
+					t.Errorf("%d columns: cell %q = %q, want it whole in %d columns", w, opt, got, room)
+				case !strings.HasPrefix(got, "[x] ") || !strings.HasSuffix(got, " "+tail) && !strings.HasSuffix(got, "…"+tail):
+					t.Errorf("%d columns: cell %q = %q, want its glyph, its count and its arrow", w, opt, got)
+				case got != whole && !strings.Contains(got, "…"):
+					t.Errorf("%d columns: cell %q = %q cut its words without …", w, opt, got)
+				case at+room < len(rs) && rs[at+room] != ' ' && rs[at+room] != '│':
+					t.Errorf("%d columns: cell %q runs past its %d columns: %q", w, opt, room, lines[row])
+				}
+				if want, ok := pinned[fmt.Sprintf("%d/%d/%s", w, n, opt)]; ok && got != want {
+					t.Errorf("%d columns, %d entries: cell %q = %q, want %q", w, n, opt, got, want)
+				}
+			}
+		}
+	}
+}
+
+// A count with no room to stay whole leaves the cell as one " …", never as a cut "(N".
+func TestACountWithoutRoomGoesWhole(t *testing.T) {
+	t.Parallel()
+	pinned := map[string]string{
+		"SSH (1234)/12":   "[x] SSH … ▾",
+		".env (12345)/10": "[x] .en… ▾",
+		"SSH (1234)/13":   "[x] …(1234) ▾",
+		".env (12345)/14": "[x] …(12345) ▾",
+	}
+	for _, cell := range []string{"SSH (1234)", ".env (12345)"} {
+		_, count := splitCount(cell)
+		for room := 1; room <= 20; room++ {
+			got := fitCell("[x] ", cell, " ▾", room)
+			if textWidth(got) > room {
+				t.Errorf("fitCell(%q, %d) = %q, wider than its room", cell, room, got)
+			}
+			if strings.Contains(got, "(") && !strings.Contains(got, count[1:]) {
+				t.Errorf("fitCell(%q, %d) = %q cut its count", cell, room, got)
+			}
+			if want, ok := pinned[fmt.Sprintf("%s/%d", cell, room)]; ok && got != want {
+				t.Errorf("fitCell(%q, %d) = %q, want %q", cell, room, got, want)
 			}
 		}
 	}

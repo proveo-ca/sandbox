@@ -37,7 +37,7 @@ type Row struct {
 	Field       bool
 	Heading     string            // the divider's text, when the group is not named for this row
 	Cols        []int             // 0-based column of each option; nil packs left to right
-	Paint       map[string]string // option → cell text, when the cell is shorter than the option
+	Paint       map[string]string // option → cell text: a shorter name, or the name with a " (N)" count
 	More        *More             // multi-select list opened from More.Cell
 	Lists       map[int]*More
 	CellRunes   int
@@ -189,16 +189,34 @@ func (m *More) anyOn() bool {
 
 func (m *More) offAt(i int) bool { return i < len(m.Off) && m.Off[i] }
 
-// columnText clips the option's name or its Paint label to the row's cell width.
+// columnText clips the option's name or its Paint label to the row's cell width; a trailing count
+// rides past the width.
 func (r Row) columnText(opt string) string {
 	limit := columnRunes
 	if r.CellRunes > 0 {
 		limit = r.CellRunes
 	}
-	if s, ok := r.Paint[opt]; ok && s != "" {
-		return clipRunes(s, limit)
+	words, count := splitCount(r.cellName(opt))
+	return clipRunes(words, limit) + count
+}
+
+// listName is the open list's title for cell i: the cell's text without its count.
+func (r Row) listName(i int) string {
+	words, _ := splitCount(r.columnText(r.Options[i]))
+	return words
+}
+
+// splitCount is a label cut before a trailing " (N)": its words and that count, or the label and "".
+// SPEC: _spec/internal/choiceui/wireframe.puml (A CELL COUNTS ITS LIST)
+func splitCount(label string) (words, count string) {
+	open := strings.LastIndex(label, " (")
+	if open < 1 || !strings.HasSuffix(label, ")") {
+		return label, ""
 	}
-	return clipRunes(optionName(opt), limit)
+	if digits := label[open+2 : len(label)-1]; digits == "" || strings.Trim(digits, "0123456789") != "" {
+		return label, ""
+	}
+	return label[:open], label[open:]
 }
 
 // optionName is how an option reads on screen: a path under the home directory as "~/…".
@@ -1593,7 +1611,7 @@ func (f *Form) drawMore(c *canvas, p palette, k card, row, x int, room listRoom)
 	for i, opt := range m.Options {
 		widest = max(widest, textWidth(m.tick(i)+opt))
 	}
-	name := r.columnText(r.Options[m.Cell])
+	name := r.listName(m.Cell)
 	left, right := 0, k.w-1
 	if k.framed {
 		left, right = 1, k.w-2
