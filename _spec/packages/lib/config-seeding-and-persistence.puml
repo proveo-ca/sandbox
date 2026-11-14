@@ -39,7 +39,7 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 '                                   proveo_sync_tools) · internal/sbx/run.go (SaveStateArgs)
 '   step 3 · the named set ........ internal/proveohome/configset.go (ConfigSet)
 '   step 3 · the carry ............ packages/lib/entrypoint-lib.sh (proveo_sync_config,
-'                                   _proveo_config_tree, _proveo_volume_mounts)
+'                                   _proveo_config_tree, _proveo_config_skips)
 '   step 3b · home-root files ..... internal/manifest (Home.Files) ·
 '                                   internal/proveohome (ConfigFiles) ·
 '                                   packages/lib/entrypoint-lib.sh (_proveo_config_file)
@@ -98,13 +98,17 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 '            in"). Correct fix, and the cost was never priced: with no
 '            redirect, _proveo_agent_home resolves to the image home inside
 '            the VM. mise installs there. Wired configs land there. `sbx rm`
-'            removes "VM + images + volumes" and takes all of it.
+'            removes the VM and takes all of it. (CORRECTED 2026-11-14: kit
+'            volumes outlive `sbx rm` since sbx v0.50, and proveo's kits
+'            declare none since then; _spec/internal/sbx/state-sync.puml.)
 '
-' proveo_sync_state is not the answer to this. It copies dirs discovered from
+' proveo_sync_state is not the answer to this. It copied dirs discovered from
 ' /proc/mounts — "a block device under $HOME is by definition sandbox-local" —
-' which finds sbx's own per-agent session volumes and nothing else. A config
-' file the seed writes into a plain directory of the image home is not a block
-' device, is never discovered, and is never copied out.
+' which found sbx's own per-agent session volumes and nothing else. Since
+' 2026-11-14 it copies only the dirs a manifest's state: list names
+' (claudecode: projects/, todos/), still never a config file. An env with no
+' PROVEO_STATE_DIRS, a sandbox an older CLI created, falls back to those
+' volumes minus sessions, statsig and shell-snapshots (state-sync.puml, row C).
 '
 ' Net (before step 2): every sbx run re-walked the workspace, re-downloaded
 ' every toolchain through the GitHub API (60 requests/hour unauthenticated,
@@ -245,11 +249,13 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 ' replacement still goes through a temp name and a rename, so a reader never
 ' sees a half-written config.
 '
-' _proveo_config_skips is what makes the prune list: every sbx volume inside the
-' declared root (state, owned by proveo_sync_state) plus every name the manifest
-' DENIES. That second half is a credential boundary, not tidiness — a secret
-' must never ride out on a config copy, and these are the same names
-' proveohome.scrubDeny strips on the host.
+' _proveo_config_skips is what makes the prune list: every PROVEO_STATE_DIRS
+' entry inside the declared root (state, owned by proveo_sync_state; in an
+' env with no PROVEO_STATE_DIRS, every sbx volume /proc/mounts lists there,
+' as before 2026-11-14) plus every name the
+' manifest DENIES or marks TRANSIENT. The deny half is a credential boundary,
+' not tidiness — a secret must never ride out on a config copy, and these
+' are the same names proveohome.scrubDeny strips on the host.
 '
 ' _proveo_config_file is separate from the tree walk because a home-root file
 ' has no subtree to prune and no deny list to apply: the manifest names the file
@@ -274,8 +280,12 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 '
 ' ── TRANSIENT IS A SYNC SKIP; DENY IS A CREDENTIAL BOUNDARY ───────────────
 ' home.mounts[].transient names find -path globs the config sync prunes in
-' BOTH directions; claudecode declares jobs/*/tmp, where one job's scratch was
-' 7,093 of the 12,873 files measured. ConfigSet appends transient paths to the
+' BOTH directions; claudecode declared jobs/*/tmp, where one job's scratch was
+' 7,093 of the 12,873 files measured. DECIDED 2026-11-14 (the owner's
+' VM-local set, _spec/internal/sbx/state-sync.puml decision 2): claudecode
+' declares sessions, statsig, shell-snapshots, daemon.lock,
+' daemon.status.json, daemon.log, daemon and the whole jobs. ConfigSet
+' appends transient paths to the
 ' same prune field deny uses, but proveohome.scrubDeny never reads them: deny
 ' DELETES from the host, transient only declines to copy. Spelling scratch as
 ' deny would have wiped ~/.proveo/.claude/jobs on every run. The host keeps its
@@ -379,9 +389,9 @@ end note
 
 note right of CFGS
   **Not movable.** The agent opens each one by
-  an absolute name. Copy by a NAMED set: mount
-  discovery finds only sbx's own block-device
-  volumes, never a config file.
+  an absolute name. Copy by a NAMED set; the
+  state dirs have their own named set,
+  PROVEO_STATE_DIRS, which this copy skips.
 end note
 
 note top of NET
@@ -427,11 +437,13 @@ legend bottom
   proveo home cannot be expressed.
   --
   **3b. And the two syncs must not both move the same bytes.** Config prunes every
-  sbx VOLUME inside a declared subtree, discovered from ""/proc/mounts"" rather than
-  named — a volume is state by definition, ""proveo_sync_state"" owns it, and a
-  config sync that descended into one would copy transcripts twice and drag
-  ""statsig"" and ""shell-snapshots"" into the operator's home, which the state sync
-  deliberately skips.
+  STATE dir inside a declared subtree: ""home\.mounts[]\.state"", handed in as
+  ""PROVEO_STATE_DIRS"" (2026-11-14). Until then it pruned every sbx VOLUME,
+  discovered from ""/proc/mounts"", and the owner's drop of the vendored kit's
+  ""volume@1"" moved the list into the manifest. An env without the variable, which an
+  older CLI created, still prunes every volume. A config sync that descended into
+  one would copy transcripts twice; ""statsig"", ""shell-snapshots"" and ""sessions""
+  are ""transient"", so neither sync carries them.
   --
   **3b. Home-ROOT config files needed declaring too.** — LANDED.
   A set derived from ""home\.mounts"" is DIRECTORY-shaped, and claudecode keeps a

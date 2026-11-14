@@ -165,8 +165,8 @@ func TestRemoveKeptCarriesThenRemovesAStoppedSandbox(t *testing.T) {
 	if len(said) != 2 || !strings.Contains(said[0], "carrying") || !strings.Contains(said[1], "sbx rm --force") {
 		t.Errorf("reports = %q, want the carry, then the removal", said)
 	}
-	if !strings.HasSuffix(screen.String(), "branches: no new commits\nok: sb — removed\n") {
-		t.Errorf("the screen does not close on the removal after what came home:\n%s", screen)
+	if !strings.HasSuffix(screen.String(), "branches: no new commits\n"+startLine(stepState)+"\nok: sb — removed\n") {
+		t.Errorf("the screen does not close on the removal after what came home and the state save:\n%s", screen)
 	}
 }
 
@@ -260,6 +260,67 @@ func TestAStrandedCarryClosesOnNotRemovedWithItsRetry(t *testing.T) {
 	}
 }
 
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestRemoveKeptSavesResumeStateBeforeItRemoves(t *testing.T) {
+	calls := endingSbx(t, ending{row: "sb claude stopped"})
+	dir := keptStore(t, "sb")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "stopped"})
+	captured(t)
+	if err := RemoveKept("sb", dir, func(string, ...any) {}, false); err != nil {
+		t.Fatalf("RemoveKept = %v", err)
+	}
+	log := callsOf(t, calls)
+	save, rm := strings.Index(log, "exec -w / sb -- bash -c . /entrypoint-lib.sh"), strings.Index(log, "rm --force sb")
+	if save < 0 || rm < 0 || save > rm || !strings.Contains(log, "proveo_sync_state save") {
+		t.Errorf("want the resume state saved, then the sandbox removed:\n%s", log)
+	}
+	if !strings.Contains(log, strings.Join(sbx.GuardedSaveStateArgs("sb"), " ")) {
+		t.Errorf("`proveo rm` ran a save an older image runs unguarded:\n%s", log)
+	}
+}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestRemoveKeptSkipsTheSaveOfAnImageOlderThanTheGuard(t *testing.T) {
+	calls := endingSbx(t, ending{row: "sb claude stopped", save: "exit 3"})
+	dir := keptStore(t, "sb")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "stopped"})
+	screen, _ := captured(t)
+	if err := RemoveKept("sb", dir, func(string, ...any) {}, false); err != nil {
+		t.Fatalf("RemoveKept = %v, want the sandbox removed unsaved", err)
+	}
+	want := startLine(stepState) + "\nwarn: resume state — not saved\n" +
+		"    its image predates the save that waits for the restore, so `proveo rm` skips it\nok: sb — removed\n"
+	if got := screen.String(); got != want {
+		t.Errorf("the screen =\n%s\nwant\n%s", got, want)
+	}
+	if !strings.Contains(callsOf(t, calls), "rm --force sb") {
+		t.Error("an image older than the guard kept its sandbox")
+	}
+}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestRemoveKeptKeepsASandboxWhoseResumeStateDidNotSave(t *testing.T) {
+	calls := endingSbx(t, ending{row: "sb claude stopped", save: "echo 'proveo: state save refused' >&2; exit 1"})
+	dir := keptStore(t, "sb")
+	listing(t, true, sbx.Listed{Name: "sb", Agent: "proveo-claudecode", Status: "stopped"})
+	screen, _ := captured(t)
+	err := RemoveKept("sb", dir, func(string, ...any) {}, false)
+	if err == nil || !strings.Contains(err.Error(), "its resume state did not reach the host — sb kept") || !isReported(err) {
+		t.Fatalf("RemoveKept = %v, want a printed refusal that keeps the sandbox", err)
+	}
+	want := startLine(stepState) + "\nwarn: resume state — not saved\n    exit status 1: proveo: state save refused\n" +
+		"error: sb — not removed\n    `proveo rm sb` tries again; `sbx rm --force sb` deletes it with the state only in it\n"
+	if got := screen.String(); got != want {
+		t.Errorf("the screen =\n%s\nwant\n%s", got, want)
+	}
+	if strings.Contains(callsOf(t, calls), "rm --force") {
+		t.Error("a sandbox whose resume state did not reach the host was removed")
+	}
+	if keptNames(dir) != "sb" {
+		t.Error("the entry of a kept sandbox was cleared")
+	}
+}
+
 func TestAFailedRemovalNamesSbxsErrorAndTheCheck(t *testing.T) {
 	endingSbx(t, ending{row: "sb claude stopped", rm: "echo 'ERROR: context deadline exceeded' >&2; exit 1"})
 	dir := keptStore(t, "sb")
@@ -268,7 +329,7 @@ func TestAFailedRemovalNamesSbxsErrorAndTheCheck(t *testing.T) {
 	if err := RemoveKept("sb", dir, func(string, ...any) {}, false); !isReported(err) {
 		t.Errorf("RemoveKept = %v, want a printed failure", err)
 	}
-	want := "error: sb — not removed\n    sbx rm: exit status 1: ERROR: context deadline exceeded\n    check `sbx ls`, then `proveo rm sb` again\n"
+	want := startLine(stepState) + "\nerror: sb — not removed\n    sbx rm: exit status 1: ERROR: context deadline exceeded\n    check `sbx ls`, then `proveo rm sb` again\n"
 	if screen.String() != want {
 		t.Errorf("the screen =\n%s\nwant\n%s", screen, want)
 	}
@@ -309,8 +370,8 @@ func TestRemoveKeptPrintsTheOpenCodeHistoryInsideItsBlock(t *testing.T) {
 	}
 	carry := "~/.proveo/opencode/carry/" + ocEngine + ".db"
 	lines := strings.Split(strings.TrimSpace(screen.String()), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "history: carried history (") || !strings.HasSuffix(lines[0], ") to "+carry) ||
-		lines[1] != "ok: "+ocEngine+" — removed" {
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "history: carried history (") || !strings.HasSuffix(lines[0], ") to "+carry) ||
+		lines[1] != startLine(stepState) || lines[2] != "ok: "+ocEngine+" — removed" {
 		t.Errorf("the history is one fact of the block, before the closing line:\n%s", screen)
 	}
 	if strings.Contains(screen.String(), "for the engine that replaces it") {
@@ -334,7 +395,7 @@ func TestAFailedEntryWriteAfterARemovalIsTheOneClosingLine(t *testing.T) {
 		t.Errorf("RemoveKept = %v, want the ⚠ it printed, Reported", err)
 	}
 	got := screen.String()
-	if !strings.HasPrefix(got, "warn: sb — removed, its entry stays\n    ") || strings.Contains(got, "ok: ") {
+	if !strings.HasPrefix(got, startLine(stepState)+"\nwarn: sb — removed, its entry stays\n    ") || strings.Contains(got, "ok: ") {
 		t.Errorf("one closing line says the sandbox went and its entry stayed, and no ✓ prints:\n%s", got)
 	}
 }

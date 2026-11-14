@@ -31,22 +31,29 @@ func TestAForwardedStopTearsDownLikeANormalExitAndReportsTheSignal(t *testing.T)
 	}
 }
 
-func TestANormalEndRemovesTheSandboxUnlessWorkOrTheEngineStaysInIt(t *testing.T) {
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestANormalEndRemovesTheSandboxUnlessWorkStateOrTheEngineStaysInIt(t *testing.T) {
 	stranded := errors.New("the agent's branches are still only in sb")
+	unsaved := errors.New("exit status 1: proveo: state save refused")
 	for _, c := range []struct {
 		name          string
 		forced        bool
 		stranded      error
+		unsaved       error
 		retainsEngine bool
 		want          normalEnd
 	}{
-		{"a clean exit", false, nil, false, endRemove},
-		{"work still only in the sandbox", false, stranded, false, endKeepStranded},
-		{"the OpenCode engine", false, nil, true, endRetainEngine},
-		{"stranded work in the OpenCode engine", false, stranded, true, endKeepStranded},
-		{"the operator chose remove", true, stranded, true, endRemove},
+		{"a clean exit", false, nil, nil, false, endRemove},
+		{"work still only in the sandbox", false, stranded, nil, false, endKeepStranded},
+		{"resume state that did not reach the host", false, nil, unsaved, false, endKeepUnsaved},
+		{"stranded work and unsaved state", false, stranded, unsaved, false, endKeepStranded},
+		{"the OpenCode engine", false, nil, nil, true, endRetainEngine},
+		{"unsaved state in the OpenCode engine", false, nil, unsaved, true, endKeepUnsaved},
+		{"stranded work in the OpenCode engine", false, stranded, nil, true, endKeepStranded},
+		{"the operator chose remove", true, stranded, nil, true, endRemove},
+		{"the operator chose remove over unsaved state", true, nil, unsaved, false, endRemove},
 	} {
-		if got := normalEndOf(c.forced, c.stranded, c.retainsEngine); got != c.want {
+		if got := normalEndOf(c.forced, c.stranded, c.unsaved, c.retainsEngine); got != c.want {
 			t.Errorf("normalEndOf(%s) = %v, want %v", c.name, got, c.want)
 		}
 	}

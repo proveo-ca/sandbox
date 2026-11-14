@@ -122,6 +122,13 @@ title The result store — what a run left behind, one file per entry, readable 
 '     its own live step (stepCloneMode; plain output gets its start line),
 '     since on a stopped sandbox `sbx exec` boots the VM first. Work that
 '     cannot come home keeps the sandbox (RM STRANDED, the operator)
+'   then SAVES ITS RESUME STATE (DECIDED 2026-11-14, F6,
+'     _spec/internal/sbx/state-sync.puml): sbx.GuardedSaveStateArgs behind
+'     its own live step (stepState), after the carried block prints. A failed
+'     save prints "⚠ resume state — not saved" with sbx's words and closes on
+'     "× <name> — not removed" / `proveo rm <name>` tries again; `sbx rm
+'     --force <name>` deletes it with the state only in it. An image older
+'     than the guard skips the save with a ⚠ and is removed (D6)
 '   then `sbx rm --force`, the launch receipt, the entry, and the closing ✓
 '   a sandbox sbx no longer lists is already gone: only the entry is cleared
 ' WHAT `proveo rm` PRINTS (R4 of _spec/_plans/output-readability.puml), no
@@ -229,6 +236,9 @@ title The result store — what a run left behind, one file per entry, readable 
 '   TestRemoveKeptOfASandboxThatVanishedBeforeTheProbeSaysAlreadyGone
 '   TestTheCloneProbeRunsBehindALiveStep
 '   TestAStrandedCarryClosesOnNotRemovedWithItsRetry
+'   TestRemoveKeptSavesResumeStateBeforeItRemoves
+'   TestRemoveKeptKeepsASandboxWhoseResumeStateDidNotSave
+'   TestRemoveKeptSkipsTheSaveOfAnImageOlderThanTheGuard
 '   TestAFailedRemovalNamesSbxsErrorAndTheCheck
 '   TestAStopThatFailedClosesOnNotRemoved
 '   TestRemoveKeptPrintsTheOpenCodeHistoryInsideItsBlock

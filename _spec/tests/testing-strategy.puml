@@ -787,6 +787,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     _proveo_volume_state_dirs found no /dev mount and restore/save were
 '     no-ops; resumeWorkload adds the published claude kit's volume@1 and
 '     lifecycle@1 (its chown re-owns the root-owned ext4 roots).
+'     SUPERSEDED 2026-11-14 (vendored-kit-deltas.puml DELTA 3): the kit has
+'     no volume@1, so resumeWorkload copies lifecycle@1 alone and resumeEnv
+'     hands the probe the manifest's PROVEO_STATE_DIRS and PROVEO_CONFIG_DIRS.
 '     close_confirm_test.go faked `sbx template ls` for an image the v2 store
 '     held; fb80d65 moved the preflight to `docker image inspect`, so the
 '     test now tags the claudecode harness image as proveo/close-confirm:e2e.

@@ -238,39 +238,6 @@ capabilities:
       # a schemaVersion "2" credential: a no-op kept only to minimize a diff
       # against the built-in spec. Nothing observable changes.
 
-  # Volumes persist across container recreation. With deterministic volume
-  # naming, the same sandbox name reattaches to the same volumes on recreate —
-  # so Claude Code's session state survives `sbx kit add` and other
-  # recreate-shaped operations. Subdirectories are mounted rather than all of
-  # ~/.claude/, so kit-managed files like settings.json and .credentials.json
-  # keep coming from the image and the OAuth hook on every create.
-  #
-  # Every volume must set a size. Block volumes are sparse ext4 images, but the
-  # kernel zeroes ext4's inode tables shortly after first mount, so an unsized
-  # volume inheriting the block driver's 50 GiB default costs ~800 MiB of host
-  # space while empty.
-  #
-  # 512m is the floor worth using, not a generous rounding: mke2fs picks
-  # inode_ratio from the volume size, and below 512 MiB it switches to the
-  # "small" profile at one inode per 4 KiB instead of one per 16 KiB. A 512m
-  # volume therefore has the same 8 MiB of inode tables as a 128m one, and half
-  # that of a 256m one.
-  - type: com.docker.sandbox/volume@1
-    description: Conversation transcripts; grows without bound, so it gets the headroom
-    config: {path: /home/agent/.claude/projects, size: 2g}
-  - type: com.docker.sandbox/volume@1
-    description: Per-session state JSON; load-bearing for `claude -c`
-    config: {path: /home/agent/.claude/sessions, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: TodoWrite state
-    config: {path: /home/agent/.claude/todos, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: Bash state across sessions — one snapshot per shell session
-    config: {path: /home/agent/.claude/shell-snapshots, size: 512m}
-  - type: com.docker.sandbox/volume@1
-    description: Local feature-flag cache; the telemetry switch suppresses event reporting, not these gate lookups
-    config: {path: /home/agent/.claude/statsig, size: 512m}
-
   # MIGRATION NOTE: v2's `setup.install` / `setup.startup` become one
   # lifecycle@1 entry. Hook bodies, users and descriptions carry over verbatim;
   # what is new is `env:`, because a v3 hook's environment is deny-by-default —
@@ -392,23 +359,6 @@ capabilities:
           env: [MCP_GATEWAY_URL, MCP_SENTINEL_TOKEN_NAME]
           description: Register the sandbox MCP gateway with claude (install-time, race-free)
       startup:
-        # Re-own the kit-declared session-state volume mount roots to the agent
-        # user. Block volumes (~/.claude/projects, sessions, todos,
-        # shell-snapshots, statsig) mount with a root-owned root because they
-        # are formatted as ext4 — the image's directory ownership is shadowed
-        # by the mount, and the image's own USER is `agent`, so any chown it
-        # could run would be a no-op. Running this as user:"0" here (after the
-        # volumes are mounted, before any agent activity) is what makes
-        # ~/.claude writable for the agent user, including in the swap
-        # container produced by `sbx kit add`.
-        #
-        # Enumerated, not recursive over ~/.claude: the parent holds
-        # runtime-managed content this kit does not own, and the five paths
-        # below are exactly the ones it declares as volumes.
-        - command: ["sh", "-c", "chown -R agent:agent /home/agent/.claude/projects /home/agent/.claude/sessions /home/agent/.claude/todos /home/agent/.claude/shell-snapshots /home/agent/.claude/statsig 2>/dev/null || true"]
-          user: "0"
-          description: Re-own claude session-state volume mount roots to agent (block-volume mkfs trap)
-
         # MIGRATION NOTE: v2 backgrounded this with a trailing `&` and had to
         # explain why the redirects sat on the outer group — a backgrounded job
         # inheriting the exec's pipe write ends keeps it from reaching EOF, and

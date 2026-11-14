@@ -1384,6 +1384,9 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	if files := proveohome.ConfigFiles(in.Man.Home); files != "" {
 		env = append(env, proveohome.ConfigFilesVar+"="+files)
 	}
+	if set := proveohome.StateSet(in.Man.Home); set != "" {
+		env = append(env, proveohome.StateSetVar+"="+set)
+	}
 	env = append(env, in.Man.AgentEnvPairs(in.Lookup)...)
 	env = append(env, in.GitEnv...)
 	env = append(env, in.HomeEnv...)
@@ -1991,21 +1994,53 @@ type normalEnd int
 const (
 	endRemove normalEnd = iota
 	endKeepStranded
+	endKeepUnsaved
 	endRetainEngine
 )
 
 // normalEndOf removes the sandbox when the operator chose remove, keeps it while work is
-// stranded in it, retains the OpenCode engine, and otherwise removes it.
-func normalEndOf(forced bool, stranded error, retainsEngine bool) normalEnd {
+// stranded in it or its resume state did not reach the host, retains the OpenCode engine,
+// and otherwise removes it.
+// SPEC: _spec/internal/sbx/state-sync.puml
+func normalEndOf(forced bool, stranded, unsaved error, retainsEngine bool) normalEnd {
 	switch {
 	case forced:
 		return endRemove
 	case stranded != nil:
 		return endKeepStranded
+	case unsaved != nil:
+		return endKeepUnsaved
 	case retainsEngine:
 		return endRetainEngine
 	}
 	return endRemove
+}
+
+// keptUnsaved is why a sandbox whose resume state save failed outlives the run.
+const keptUnsaved = "its resume state did not reach the host"
+
+// unsavedFix is the fix line for a sandbox kept because its resume state did not reach the host.
+func unsavedFix(name string, running bool) string {
+	return "the next run re-attaches and saves it again; " + unsavedRemovals(name, running)
+}
+
+// retireUnsavedFix is unsavedFix for a stale sandbox a retire kept, which the next run retires again.
+func retireUnsavedFix(name string, running bool) string {
+	return "the next run retries the save; " + unsavedRemovals(name, running)
+}
+
+// unsavedRemovals names the removal that saves first and the one that deletes the unsaved state.
+func unsavedRemovals(name string, running bool) string {
+	rm := "`proveo rm " + name + "`"
+	if running {
+		rm = "`proveo rm --stop " + name + "`"
+	}
+	return rm + " saves it, then removes it; " + unsavedDelete(name)
+}
+
+// unsavedDelete is the way out when the save keeps failing.
+func unsavedDelete(name string) string {
+	return "`sbx rm --force " + name + "` deletes it with the state only in it"
 }
 
 // reattachLog is what a re-attach writes to the run log alone: whose sandbox it is, and how the next run builds it fresh.

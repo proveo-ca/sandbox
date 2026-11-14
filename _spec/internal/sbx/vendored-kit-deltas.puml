@@ -3,7 +3,9 @@
 skinparam noteTextAlignment left
 ' purpose: every byte proveo's vendored sbx kits differ from UpstreamKitsRef, and when each delta can go
 ' covers: internal/sbx/third_party/opencode.yaml
-' covers: internal/sbx/upstream_test.go (TestVendoredKitJqFiltersCompile)
+' covers: internal/sbx/third_party/claude.yaml
+' covers: internal/sbx/upstream_test.go (TestVendoredKitJqFiltersCompile, TestNoVendoredKitDeclaresAVolume)
+' covers: cmd/proveo/testdata/plan/sbx-claudecode-*.golden
 ' covers: internal/imagetest/opencode_test.go (ocCredentialImport)
 ' covers: internal/imagetest/imagetest.go (AsHookUser, HookFinds)
 ' covers: defs/opencode/Dockerfile, defs/claudecode/mcp/Dockerfile (/usr/local/bin link)
@@ -66,6 +68,37 @@ skinparam noteTextAlignment left
 ' Upstream report: drafted with DELTA 1, not filed.
 ' Drop when: UpstreamKitsRef carries an equivalent rule.
 '
+' ── DELTA 3: claude drops its five volume@1 and their re-own hook (2026-11-14)
+' DECIDED by the owner 2026-11-14: "stop the volume leak in the stopgap: drop
+' the 5 volume@1 from the vendored claude kit (upstream sbx/claude dropped
+' them in 2.1.317)". _spec/internal/sbx/state-sync.puml holds the leak's
+' cause and evidence (1,710 stranded records, one name with 75 volumes over
+' 15 kit identities).
+' Removed from third_party/claude.yaml, which otherwise still mirrors the
+' descriptor at UpstreamKitsRef:
+'   - five com.docker.sandbox/volume@1 entries, ~/.claude/{projects 2g,
+'     sessions, todos, shell-snapshots, statsig 512m}, and the comment block
+'     above them (reattach on recreate, sizing, "load-bearing for claude -c")
+'   - the startup hook "Re-own claude session-state volume mount roots to
+'     agent (block-volume mkfs trap)", a root `chown -R` of those five paths,
+'     and its comment. It existed only because an ext4 volume mounts with a
+'     root-owned root.
+' Upstream: MEASURED in the Docker Hub descriptors (2026-11-14): sbx/claude
+' 2.1.267 declares the five volumes and the re-own hook; 2.1.317 (created
+' 2026-11-04) and :latest (2.1.325) declare neither. 2.1.317 also differs
+' from the vendored copy elsewhere (hasSeenAutoDefaultNudge, an install-time
+' `mkdir -p ~/.claude && chown`); this delta takes none of that.
+' Left as vendored: third_party/claude.dockerfile still mkdirs the five
+' paths and names the chown in a comment; proveo reads only its ENTRYPOINT
+' and ENV (upstreamRecipe), so neither reaches a proveo image or kit.
+' The plan goldens lose the five volumes and the hook.
+' TestNoVendoredKitDeclaresAVolume fails when any vendored descriptor names
+' volume@1, when a copied kit carries one, or when a copied hook still names
+' ~/.claude/sessions.
+' Upstream report: none needed; upstream already made the change.
+' Drop when: a re-vendored claude descriptor declares no volume@1, as the
+' published sbx/claude does from 2.1.317.
+'
 ' ── HOOK PATH: a `user: agent` hook runs under su's login PATH (2026-10-28) ─
 ' Not a kit delta: proveo's images carry it. sbx renders each `user: agent`
 ' hook as /etc/durable-startup.d/<n>/<k>-cmd.sh = `exec su -s /bin/sh -c '<cmd>' agent`.
@@ -97,10 +130,14 @@ title Vendored kit deltas
 
 file "docker/sbx-kits-contrib\n@UpstreamKitsRef" as UP <<cloud>>
 file "internal/sbx/third_party/opencode.yaml\n+ `}` (delta 1)\nactivate sbx record (delta 2)" as VEN <<app>>
+file "internal/sbx/third_party/claude.yaml\n− 5 volume@1, − re-own hook (delta 3)" as VCL <<app>>
+component "TestNoVendoredKitDeclaresAVolume\nno descriptor, kit or hook" as TV <<app>>
 component "TestVendoredKitJqFiltersCompile\njq -n per hook filter" as T <<app>>
 component "sandbox start\nImport sandbox OAuth → opencode auth import" as HOOK <<cloud>>
 
 UP --> VEN : vendor + deltas
 VEN --> T : every jq filter compiles
 VEN --> HOOK : lifecycle@1 copied by UpstreamKitFor
+UP --> VCL : vendor − delta 3
+VCL --> TV : no volume@1 survives
 @enduml

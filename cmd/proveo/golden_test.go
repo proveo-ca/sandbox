@@ -128,8 +128,9 @@ func TestSandboxPlanGolden(t *testing.T) {
 		},
 		Home: manifest.Home{
 			Enabled: true,
-			Mounts:  []manifest.HomeMount{{Host: ".claude", Container: "/proveo-home/.claude", Mode: "rw"}},
-			Files:   []string{".claude.json"},
+			Mounts: []manifest.HomeMount{{Host: ".claude", Container: "/proveo-home/.claude", Mode: "rw",
+				Transient: []string{"sessions", "jobs"}, State: []string{"projects", "todos"}}},
+			Files: []string{".claude.json"},
 		},
 	}
 	cursor := manifest.Manifest{
