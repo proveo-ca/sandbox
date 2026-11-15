@@ -1,0 +1,686 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a. _spec/_plans/ is exempt from the SPEC-reference rule.
+' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
+'   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
+'   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
+'   setups that enable fixtures to be compressed into 1 file, and when running/consumed, have the
+'   extraction be gitginored 4. Any other strategies to research that I have missed. Make a branch of
+'   its' own on top of all current work"
+' would touch: internal/backend/sandbox/{sandbox,confirm}.go, internal/run/{run,spec,choices}.go
+' would touch: internal/choiceui/{choiceui,checklist,layout}.go, internal/sbx/{host_*,install,version}.go
+' would touch: internal/{runner,hostcdp,hostadb,adopt,secretref,operator,wsscan,gitidentity,githubaccess,shell,tmux}/**
+' would touch: internal/testx/** (new), internal/choiceui/testdata/**, cmd/proveo/testdata/**, e2e/testdata/**, internal/devports/testdata/**
+' would touch: go.mod, go.sum, .gitattributes (new), .gitignore, e2e/go-testing-standards.md, mise.toml
+' would touch: internal/credentials/credentials.go, internal/imagebuild/imagebuild.go, internal/provider/models.go, internal/runlog/runlog.go, internal/ui/{steps,ui}.go, internal/manifest/manifest.go
+' would touch: _spec/internal/credentials/credential-decisions.puml, _spec/packages/lib/seed-and-launch.puml, the 14 covers lines in §5
+' would touch (§6): package.json, pnpm-workspace.yaml, pnpm-lock.yaml, pulse.json, .gitsample, scripts/*.py, defs/subagents/_frontmatter/**,
+'   e2e/{init,close_confirm,opencode,kit,android,hermes}_*_test.go, internal/contract/lsp_wiring_retirement_test.go
+' sources: the job's scratch output under /private/tmp/claude-501/compress/out/ (not tracked; re-run the
+'   tools named in §3 to regenerate): dead/report.md, dead/verdict.md, dead/findings.verified.json
+'   (206 rows — the table in §3 cites it), chart/chart.md, chart/chart.json, chart/patterns.md,
+'   fixtures/report.md, verdict-plan.md. other/ holds raw tool output (pkg-lines.txt, spec-lines.txt,
+'   lib-fn-refs.txt, gofix-*.diff, gofix-by-fixer.txt, golangci-extra.json, golangci-dupl50.json); the
+'   directive-4 report (other.md) reached this file as text on 2026-11-15 — §6 carries its ranked table.
+' prior decisions this plan builds on, all in _spec/_plans/repo-simplification.puml:
+'   N15  the five largest files mix concerns — PROPOSED; its [rec] was "wait for D1, D2 and N1".
+'        All three are DONE, so N15 is unblocked and P1, P4, P5 below are its execution.
+'   N5   termtext exists because agentio imports ui — DONE; a termtext → ui merge reverses it.
+'   N6, N8  envflag and envreg split on purpose — DONE; an envflag + envreg merge reverses them.
+'   N9   maintainer commands left the operator binary — DONE; P9(c) finishes that intent.
+'   N16  internal/backend stays the home of run errors — DECIDED; kept here.
+'   N18  exported API kept alive only by its own tests — DONE; §3 is the residue after it.
+'   sbx-kit-v3.puml UPSTREAM KITS (DECIDED 2026-10-22) vendors the kits and marks "compose FROM docker/sbx-kit-claude
+'        + a proveo mixin" NOT CHOSEN; F9 option 3 would reverse it.
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' Labels: MEASURED = re-run or read in the verification pass (verdict-plan.md, dead/verdict.md).
+'   DECIDED = a quoted decision. [Inference] = arithmetic on cited ranges, no diff applied.
+'   [Unverified] = not re-run. A fork row marks one option [rec].
+'   [E] = [Estimate], other.md's own mark, kept in §6; a bare §6 number is the measured size of the thing removed.
+'
+' ══ 1 · BASELINE (MEASURED 2026-11-15 @ 7ce8c83a, `git ls-files | xargs wc -l`) ═══════════════
+'   tracked files 1,178 · tracked lines 195,957 · directories holding tracked files 172
+'   ext        lines  files      ext          lines  files
+'   .go      126,046    594      Dockerfile     894     11
+'   .puml     46,729    176      .py            798      7
+'   .txt       4,615    210      .golden        711      5
+'   .sh        4,331     15      .dockerfile    632      4
+'   .md        2,991     34      (no ext)       519     14
+'   .yaml      2,791     24      .mjs           436      2
+'   .json      2,658     25      .toml          366     12
+'   Go module: 53 packages measured (52 in `go list ./...`; e2e under -tags e2e; imagetest code under
+'     -tags image). Code 44,123 lines / 192 files · test 81,708 / 389 · test:code 1.85.
+'     Tracked _test.go: 390 files / 81,727 lines (one livesbx-tagged file sits outside go list).
+'     133 internal import edges, a DAG of depth 7; 52 test-only edges; 0 cycles.
+'   testdata: 260 files / 6,117 lines / 594,718 bytes; 209 of the files are golden frames.
+'   _spec: 179 files / 49,672 lines; 176 .puml = 46,729 lines; repo-simplification.puml alone 1,772.
+'   named interfaces in non-test code 5 · package-level func seams 33 · global printer call sites 196.
+'   gocyclo (fzipp v0.6.0): Spec 80 · Run 42 · (Manifest).Validate 40 · (*Form).draw 40 ·
+'     launchSandbox 33 · classifyTerminalReport 32 · (*Form).apply 32 · clean.BuildPlan 31; mean 4.13.
+'
+' ══ 2 · CHART (MEASURED by a go/ast tool over `go list -json`; chart/chart.json) ═══════════════
+'   files = code + test files · in/out = internal fan-in / fan-out · L = longest path from a leaf
+'   package                      code   test files  in/out L
+'   cmd/proveo                   8607   8708    68   0/32  7
+'   internal/choiceui            6677   9765    57   3/1   2
+'   internal/backend/sandbox     5768   7102    51   2/24  5
+'   internal/sbx                 3889   4705    42   5/2   2
+'   internal/run                 3209   3825    32   1/25  6
+'   internal/ptyproxy            1804   2053    17   1/0   0
+'   internal/ui                  1525   1406    13  13/2   1
+'   internal/schedule            1425   1151     8   1/3   3
+'   internal/credentials         1125   1737    14   3/7   3
+'   internal/imagebuild           874    798     6   5/2   2
+'   internal/workspace            840   1128    12   3/4   1
+'   internal/promptkit            617    546     7   1/1   1
+'   internal/maintain             597    597     4   4/3   3
+'   internal/provider             574    436     8   5/0   0
+'   internal/devports             538    249     6   2/0   0
+'   internal/agentupdate          454    464     3   1/3   3
+'   internal/manifest             439    511     2   9/0   0
+'   internal/hostadb              428    439     3   2/0   0
+'   internal/envreg               370    135     2   1/0   0
+'   internal/proveohome           288    364     4   5/3   1
+'   internal/engine               253    255     2   2/0   0
+'   internal/posture              247    172     2   3/6   4
+'   internal/imagetest            242   2363    13   0/2   4 [image]
+'   internal/cdn                  236     85     2   2/0   0
+'   internal/cdn/stage            224    370     2   0/2   2
+'   internal/hermesdesktop        216    189     4   3/1   3
+'   internal/results              205    162     2   3/0   0
+'   internal/adbmirror            195    235     2   1/0   0
+'   internal/shell                190    177     2   2/0   0
+'   internal/agentsettings        173    200     2   1/1   1
+'   internal/agentio              172    184     2   4/3   2
+'   internal/wsscan               162    118     2   2/0   0
+'   internal/hostcdp              155    122     3   2/0   0
+'   internal/adopt                154    131     2   2/0   0
+'   internal/verify               151     74     2   1/0   0
+'   internal/githubaccess         149     78     2   3/0   0
+'   internal/runlog               146     54     2   3/1   2
+'   internal/clean                133    221     3   1/0   0
+'   internal/tmux                 131    154     2   1/0   0
+'   cmd/proveo-entrypoint          98      0     1   0/3   1
+'   internal/operator              91     60     2   2/0   0
+'   internal/secretref             73     75     2   2/0   0
+'   internal/gitidentity           71     69     2   2/0   0
+'   internal/maintain/fleet        57     57     2   0/2   4
+'   internal/backend               38     45     2   3/0   0
+'   internal/entrypoint            37      0     1   2/0   0
+'   internal/envflag               34     34     2  11/0   0
+'   internal/termtext              20     30     2   2/0   0
+'   (root) embed.go                10      0     1   0/0   0
+'   internal/runner                 9      0     1   5/0   0
+'   internal/installtest            3    465     2   0/0   0
+'   internal/contract               0  15194    82   0/0   0
+'   e2e                             0  14216    67   0/0   0 [e2e]
+'
+'   Layers (longest import path from a leaf). (!) = an edge against the stated direction.
+'     L7 entry        cmd/proveo 8,607c out=32                cmd/proveo-entrypoint (L1) → entrypoint · verify · adbmirror
+'     L6 orchestrate  internal/run 3,209c out=25 in=1         Deps: 7 func fields (run.go:42-49)
+'     L5 backend      internal/backend/sandbox 5,768c out=24  ──(!)──► choiceui (confirm.go:25-27, sandbox.go:1832)
+'     L4              posture ──(!)──► maintain · imagetest[image] · maintain/fleet (main)
+'     L3              credentials ──(!)──► sbx · hermesdesktop ► sbx · maintain ► imagebuild,manifest,ui
+'                     schedule ► agentio,tmux,ui · agentupdate ► imagebuild,ui
+'     L2              sbx 3,889c ──(!)──► ui · choiceui 6,677c ► ui · imagebuild ► ui · agentio ► ui
+'                     runlog ► proveohome · cdn/stage (main) ► cdn,ui
+'     L1              ui 1,525c in=13 ► envflag,termtext · workspace ► manifest,runner,wsscan,envflag
+'                     proveohome ► manifest,runner,envflag · agentsettings ► manifest · promptkit ► shell
+'     L0 leaves (30)  envflag in=11 · manifest in=9 · provider in=5 · runner in=5 (9 lines) · backend in=3
+'                     results · githubaccess · adopt · devports · engine · entrypoint · gitidentity · hostadb
+'                     hostcdp · operator · secretref · shell · termtext · wsscan · tmux · cdn · clean · verify
+'                     adbmirror · ptyproxy · envreg · (root) embed.go
+'     test-only       internal/contract 15,194t (82 files) · e2e 14,216t (67 files) · installtest 465t
+'   Hubs (fan-in > 8): ui 13 (196 global printer call sites) · envflag 11 (34 lines) · manifest 9.
+'   Leaves with one importer: adbmirror, verify (entrypoint binary); agentsettings, tmux→schedule;
+'     agentupdate, clean, envreg, promptkit, run, schedule → cmd/proveo; ptyproxy → backend/sandbox.
+'   Wrong-way edges, as _spec/overview.puml states the direction ("every prompt is decided" on the host;
+'     "the backend is a rendering of host-side decisions"):
+'     V1 backend/sandbox → choiceui   confirm.go:25-27 seams + sandbox.go:1832   the rendering layer asks questions
+'     V2 sbx → ui                     host_ollama.go:114 takes *ui.Printer        the adapter prints policy
+'     V3 credentials → sbx            storename.go:62-75, hints.go:132            domain depends on argv shapes
+'     V4 posture → maintain           posture.go:22,24,41                         the run path links maintainer tooling
+'     V5 six packages → ui            imagebuild, agentupdate, maintain, cdn/stage, agentio, posture print in place
+'     V6 imagebuild_test ⇄ maintain   parity_test.go:16                           test-only cycle, wrong side
+'
+' ══ 3 · DEAD CODE (Directive 1 — report, not delete) ═══════════════════════════════════════════
+'   Tools researched and run (versions MEASURED by `go version -m`; Go go1.26.10):
+'     deadcode x/tools v0.52.0   RTA over whole programs; `-test`; one GOOS×tags set per run → 15 compiling
+'                                 sets of 18 (windows+e2e does not build: syscall.Kill, hermes_desktop_test.go:263)
+'     staticcheck 2026.2.2 U1000 per package; skips exported names → 0 hits in 4 tag sets
+'     golangci-lint 2.12.2       `mise run lint` config → 0 issues; the extra 17-linter run → 2,286 issues, 1,435 goconst
+'     unparam (2026-11-02)       42 signatures with tests + tags; 41 hold (installedVersion refuted)
+'     dupl v1.1.0 -t 80          14 clone groups / 29 fragments; 185 lines upper bound; 12 of 14 groups are tests
+'     goconst v1.11.0            618 literals repeated at 2,298 sites; 0 lines
+'     modernize x/tools v0.52.0  183 diagnostics / 93 files; `-fix -diff` −317/+225 = net −92; 3 fixes skipped
+'     go fix (Go 1.26)           net −62 (−73 with tags) with a larger `inline` churn in sandbox.go
+'     go mod tidy -diff          4 requires + go.sum −60/+6; one require refuted (below)
+'     not run: gopls unusedfunc (gopls-internal), bep/punused, 715d/unusedfunc — the types-aware pass over
+'       exported consts, vars, types and methods is the one gap left; the verifier's token scan stood in.
+'   Totals (verified: 200 of 202 findings confirmed, 2 refuted, 4 found by the verifier):
+'     high      113 lines removed, 6 added by tidy → net −107 · 1 file
+'     medium    109 lines
+'     low       395 lines (389 of them are spec diagrams that need triage, not deletion)
+'     any       617 removed / 611 net · 8 whole files
+'     dupl      185 upper bound; 152 after the overlap with the fixtures helper (20) and the hostdev merge (13)
+'     modernize net −92 (independent of every dead span: 0 overlapping hunks); go fix −62 is the current figure (§6 row 1)
+'   Removable, per package — high set at symbol level; the source of this table is
+'   dead/findings.verified.json (206 rows, each with evidence and verdict):
+'   package / file                     symbol (kind)                       line    lines  gate before deletion
+'   internal/credentials               LoginBlanked (func)                 :408       19  credential-decisions.puml:205 prose repoint
+'   internal/imagebuild                Builder.BrowserVariant (method)     :446       10  TestBrowserVariants* name the behaviour, not this method
+'   internal/imagetest [image]         Suite.Exec (method)                 :133        2  ExecIn is the live sibling, 7 callers
+'   internal/provider                  IsFreeTier (func)                   :141        4  credential-decisions.puml:448 prose repoint
+'   internal/runlog                    Log.Printf (method)                  :66        7  no interface in the tree declares Printf
+'   internal/ui                        Steps.Start (method)                :145        6  StartAs is the live sibling; [Unverified] step-lines.puml names it
+'   internal/ui                        ANSIDim (const)                     :779        1  verifier find; ANSIBold/ANSIReset read at help.go:39,44,57
+'   internal/manifest                  Capabilities.HasHostBrowser (method):128        2  verifier find; the HostBrowser field stays live (run/choices.go:726)
+'   go.mod                             martian/v3 · x/text · x/net      :17,23,41       3  `go mod why -m` → not needed; bubbles/v2 :28 STAYS (tui_stack_pins_test.go)
+'   go.sum                             stale checksum lines                  —     −58/+6  tidy; 2 of the 60 hashes belong to the bubbles pin
+'   _spec/packages/lib/seed-and-launch.puml  covers: sbx_passthrough_test.go :16        1  the file left in 92eae333; repoint or drop the line
+'   e2e/testdata/cursor-empty-store.db binary fixture (1 file, 20,480 B)     —          0  last reader removed in b35a4f0d
+'   ── high: 113 removed, net −107, −1 file ──
+'   internal/provider                  DetectVars (func)                   :151       13  live under -tags e2e only (hello_world_test.go:325)
+'   internal/tmux                      Available (func)                     :20        4  two e2e callers (preconditions_test.go:22, init_steps_test.go:103)
+'   packages/lib/entrypoint-lib.sh     _proveo_durable_home (shell fn)     :233        5  only tool_home_test.go:63,70 call it; that test goes with it
+'   packages/lib/entrypoint-lib.sh     proveo_retire_lsp_wiring (sh fn)   :1501       51  live until the next tag; TestNoRetirementOutlivesOneRelease then trips
+'   defs/tests/echo-agent              Dockerfile + entrypoint.sh (2 files)  —         35  no builder, test or mise target; 3 _spec/tests lines describe it
+'   _spec/_plans/retire-model-bridging.puml  covers: .claude/skills/sync-models :7       1  path left in 4aec1f40; the plan is PLANNED work
+'   ── medium: 109 ──
+'   mise.toml                          test-all · wrangler-version    :152, :220        6  aliases an operator may type by hand
+'   _spec (5 orphan diagrams)          resource_management 165 · clipboard-bridge 65 · what-a-contract-test-is 55 ·
+'                                      10-unit 55 · driving-a-tty 49                389  spec-keeper triage: cite or retire; two sit in the notes ratchet
+'   ── low: 395 ── any: 617 removed / 611 net ──
+'   refuted (2): go.mod:28 bubbles/v2 — TestGoModNamesTheTUIStackVersionsExplicitly requires the line;
+'     cmd/proveo/init.go:187 installedVersion — `why` is read by init_test.go:194.
+'   zero-line findings: unparam 41 signatures · goconst 618 literals · unsure 1 (screen_test.go:19 SetSize).
+'   Reading: `go mod tidy` is not a liveness oracle when a contract test reads go.mod; U1000 and golangci
+'     `unused` cannot see an exported dead function, deadcode can; nothing else in the toolkit sees an
+'     exported dead const or method, which is where the verifier's two finds came from.
+'
+' ══ 4 · LEXICON-MAPPED SIMPLIFICATIONS (Directive 2; deltas corrected in verdict-plan.md §3) ════
+'   Every quoted phrase was fetched and checked VERBATIM on 2026-11-15; two attributions were wrong and
+'   are marked. "describes" = the pattern the code has; "shrinks" = the move the lexicon argues for.
+'   Lexicon root: https://softwarepatternslexicon.com/go/
+'
+' P1 · split sandbox.go by region — describes Facade; shrinks "File Names Are Not Package Names"
+'   https://softwarepatternslexicon.com/go/idiomatic-go-design-patterns/package-organization-patterns/
+'   files: internal/backend/sandbox/sandbox.go → sandbox.go + clone.go + addons.go + launchenv.go
+'   lines: 2,526 → ≈1,390 / 535 / 232 / 372, 0 net · files 17 → 20 in the package · risk low
+'   MEASURED regions :194-728, :729-960, :2155-2526. N15 proposes this split with older cut lines.
+' P2 · stage Spec into six functions on one specBuild value — describes Builder; shrinks "Long Functions"
+'   https://softwarepatternslexicon.com/go/creational-patterns-in-go/builder-pattern/
+'   https://softwarepatternslexicon.com/go/behavioral-patterns-in-go/template-method-pattern/
+'   files: sandbox.go (Spec :1262-1564); 14 test files call Spec( at 49 sites, so the signature stays
+'   lines: 303 → ≈330 (+27) [Inference] · cyclo 80 → ≤20 per stage · files 0 · risk low-medium (stage order)
+' P3 · group Input (53 fields) into Clone / Workspace / Home sub-structs run.Spec already has — DTO;
+'   shrinks "Large Structs With Low Cohesion" + "Introduce a Type"
+'   https://softwarepatternslexicon.com/go/structural-patterns-in-go/data-transfer-object-pattern/
+'   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/code-smells-and-refactoring/
+'   files: sandbox.go (Input :1173-1232), internal/run/spec.go, run.go:959-1006 (41 assignments)
+'   lines: ≈ −25 [Inference] · files 0 · risk medium: renames via gopls, never regex (memory rule)
+' P4 · split choiceui.go into row / form / draw / header; then the 13 f.Checklist forks behind one page
+'   value — describes Mediator; shrinks State ("the switch appears in many methods")
+'   https://softwarepatternslexicon.com/go/behavioral-patterns-in-go/mediator-pattern/
+'   https://softwarepatternslexicon.com/go/behavioral-patterns-in-go/state-pattern/
+'   files: internal/choiceui/{choiceui,checklist,layout}.go
+'   lines: split 0; State move ≈ −10 [Inference] · files 25 → 28 · risk low / medium: 137 frames pin every pixel
+'   attribution fix: "a simple switch is clearer" lives on the State page, not the interface page.
+' P5 · split launchSandbox into hostAddons / buildInput / printPlan; move the 33 `var x = pkg.Func` seams
+'   into run.Deps / Input func fields — describes Template Method + "Function Types for Tiny Seams";
+'   shrinks "Avoid globals for replaceable dependencies"
+'   https://softwarepatternslexicon.com/go/modern-design-patterns-in-go/dependency-injection/
+'   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/testability-patterns/
+'   files: internal/run/run.go:867-1051, 20 files holding seams, 7 test files that assign them
+'   lines: 0 (−33 var lines, +33 fields) · files 0 · risk low / medium (7 tests build a Deps instead)
+' P6 · move cmd/proveo/init_*.go to internal/initwalk — describes Command + Strategy; shrinks "Use cmd for
+'   Executables" — DEFER: needs a DECIDED row
+'   https://softwarepatternslexicon.com/go/behavioral-patterns-in-go/command-pattern/
+'   files: 27 files / 8,850 lines MEASURED (patterns.md said 28 / 9,101); 11 specs under _spec/cmd/proveo/ cover them
+'   lines: move 0; −150 for merging the two credential inventories stays [Unverified] · +1 dir · risk medium
+' P7 · split sbx: host_*.go (692 code + 682 test) → internal/hostllm; install.go + version.go (826) →
+'   internal/sbxinstall; unexport 24 funcs / 6 types — describes Adapter; shrinks "An adapter should
+'   translate. It should not become a second implementation of the dependency."
+'   https://softwarepatternslexicon.com/go/structural-patterns-in-go/adapter-pattern/
+'   files: internal/sbx/{host_ollama,host_memory,host_context,install,version}.go + tests; importers run, cmd/proveo
+'   lines: 0 net; sbx 3,889 → 2,371 · +2 dirs · risk low-medium · removes V2
+'   blocker MEASURED: host_* under internal/run is an import cycle (sandbox → sbx.HostModelRef; run → sandbox);
+'   internal/hostllm works since sandbox and run both import it — fork F8.
+' P8 · shrink the ui hub: imagebuild, agentupdate, cdn/stage, agentio, sbx take a *ui.Printer / io.Writer or
+'   return []ui.Fact instead of calling ui.Default — describes Singleton; shrinks "Keep Pure Logic Separate
+'   from I/O" — https://softwarepatternslexicon.com/go/creational-patterns-in-go/singleton-pattern/
+'   files: ≈12 symbols in 5 packages and their tests · lines 0 · ui fan-in 13 → ≈8 · risk medium:
+'   internal/contract/tui_vocabulary_test.go and the e2e stream tests pin wording and order
+'   attribution fix: the Decorator page never calls an io.Writer tee a decorator; that reading was the report's.
+' P9 · fix the wrong-way edges: (a) V1 via Input.Ask func fields filled by run; (b) V3 move StaleStoreEntries
+'   toward its one caller cmd/proveo/init_credentials.go:401, pass the sign-in hint as func(string) string;
+'   (c) V4 move RefTag/LocalTag/ResolveImage (maintain.go:254,238,162) to imagebuild; (d) V6 move
+'   parity_test.go to maintain — DIP; "Move an Interface Toward the Consumer"
+'   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/solid-principles/
+'   files: confirm.go, sandbox.go, run.go, storename.go, hints.go, posture.go, maintain/*.go, parity_test.go
+'   lines: ≈ +5 · files 0 · risk low; (a) touches the 7 seam-mutating tests of P5
+' P10 · DRY the micro-duplicates: realPath/realPathOf, copyFile/copyFile0600, exists; the two detach_unix.go
+'   twins (11 lines, one comment word differs); runner.Mount ≡ sbx.Mount converted field by field —
+'   "DRY: Repeat Less Knowledge, Not Fewer Characters"
+'   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/dry-and-kiss/
+'   files: sandbox.go:968-973,2456-2464, run.go:835-841,1053-1061, hostadb+hostcdp detach_unix.go, runner.go
+'   lines: ≈ −35 MEASURED spans (patterns.md said −45) · files −2, dirs −1 · risk low
+'   blocker: "use sbx.Mount" adds edges workspace → sbx and proveohome → sbx; pick workspace.Mount — fork F7
+' P11 · merge the micro-packages — "Merge Premature Packages": "Tiny packages with no independent purpose are
+'   noise." — https://softwarepatternslexicon.com/go/idiomatic-go-design-patterns/package-organization-patterns/
+'   uncontested (8): hostcdp + hostadb → hostdev (1 gate edit: host_devices_test.go) · adopt → results ·
+'     secretref → credentials · operator → proveohome · wsscan → workspace · gitidentity + githubaccess →
+'     gitaccess · shell → promptkit · tmux → schedule
+'   contested (7): termtext → ui (reverses N5) · envflag + envreg → env (reverses N6, N8; 6 contract files
+'     name the paths; 11 importers of a 34-line leaf would compile a 370-line registry) · entrypoint +
+'     verify + adbmirror (credentials imports entrypoint, so the host binary would link guest code) ·
+'     agentsettings → proveohome (weakest fit) · installtest → contract (P14) · runner (P10, F7)
+'   lines: −90…−120 for all 15, ≈ −60…−80 for the 8 [Inference: ≈7 lines per folded file] · dirs −8 / −15 ·
+'   files −4 mandatory (runner.go, installtest/doc.go, one detach_unix.go, one detach_windows.go), −22 only
+'   if every pair folds into the host's x.go / x_test.go · risk low per merge with gopls; 47 covers lines
+'   and 8 enforced spec files under _spec/internal/<pkg>/ move with them (spec-keeper triggers 2 and 4)
+' P12 · table-driven (Manifest).Validate (104 lines, cyclo 40) — "Complex Conditionals" — DEFER
+'   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/code-smells-and-refactoring/
+'   files: internal/manifest/manifest.go:182-330 · lines 0…−20 [Inference] (patterns.md said −34) · risk low
+'   attribution fix: the page says "If the rules become data-driven, a table can be clearer"; it does not
+'   recommend a table for this shape. manifest_test.go (511 lines) covers each rule either way.
+' P13 · fixtures → §5 (Directive 3 supersedes the P13 count of 209 → 5 files; the real figure is 260 → 18).
+' P14 · fold internal/installtest into internal/contract — REJECT: mise.toml:140-150 runs installtest under
+'   test-images with PROVEO_INSTALLTEST_CDN; env_registry_test.go:62 exempts it by path; the merge would
+'   put a Docker-dependent test into the fast gate for −3 lines.
+'   The lexicon argues against: extracting for its own sake ("five tiny functions"), interfaces by reflex
+'   ("Start concrete"), builders for Input ("a struct literal is clear enough"), a common package.
+'   The proposals add zero exported interfaces.
+'
+' ══ 5 · FIXTURES (Directive 3 — single file, gitignored extraction) ═══════════════════════════════
+'   Winner: txtar (golang.org/x/tools/txtar v0.52.0). Runners-up and why not:
+'     rogpeppe/go-internal testscript v1.16.0  a command language no proveo fixture consumer needs; pulls go-internal
+'     embed + archive/zip                      bytes shrink, but goldens turn into binary blobs in review
+'     go-snaps v0.5.25                         entry names come from test names and call order, not <case>_<w>x<h>
+'     gotest.tools golden · goldie · cupaloy   one file per golden; no tree win
+'   Rule: one archive per golden-producing test function (close() prunes unseen entries, so two functions on
+'     one archive would prune each other); one archive per file-tree fixture; 7 files stay on disk.
+'   Archives (11): internal/choiceui/testdata/{frames,checklist,scope,list}.txtar · cmd/proveo/testdata/
+'     {init,plan,posture}.txtar · internal/devports/testdata/mono.txtar · e2e/testdata/{polyglot22,
+'     android-hello,git-sync-turn}.txtar. Kept (7): imagebuild build_argv.golden, agentupdate
+'     imagetools_index.json, contract opencode_git_sync_plugin.mjs, e2e opencode_presentation.{json,mjs,py}
+'     (bind-mounted by repo path), e2e cursor-empty-store.db (dead; 6 kept once it goes).
+'   Loader internal/testx (draft 124 lines, 3 tests pass; 5 fault tests under -race drove the fixes):
+'     Open(t, name) *Goldens      parses testdata/<name>.txtar once; registers close() via t.Cleanup
+'     (g).Assert(name, got)       compare, or record under -update; mutex, so subtests may run parallel
+'     (g).Want(name) string       read-only accessor that never registers close() — checklist_test.go:948,
+'                                 git_sync_turn_test.go:55 open an archive another function owns
+'     Extract(t, path) string     txtar.FS → t.TempDir(); takes a path, so devports android_test.go:42 can
+'                                 reach ../../e2e/testdata/android-hello.txtar; chmod 0755 for install.sh
+'     guards                      a package-level registry Fatals on a second Open of one archive in one
+'                                 binary; Assert rejects a value without a trailing newline (txtar.Format
+'                                 appends one, so -update would go permanently red) and a marker-shaped line
+'                                 (x/tools txtar has no Quote); 0 of 260 fixtures trip either today
+'   Update flag: `go test ./internal/choiceui -update` per package; `-run` narrows it. The root form
+'     `go test ./... -update` fails every package that does not import testx ("flag provided but not
+'     defined"), so the written standard names the per-package form. Replaces PROVEO_UPDATE_FRAMES=1 at 5
+'     sites + tui-stack.puml:123 and the local flag at cmd/proveo/golden_test.go:22 (two -update definitions
+'     in one binary panic at init). imagebuild/parity_test.go:138 keeps its flag unless it imports testx.
+'   Hygiene lines:
+'     .gitignore      **/testdata/out/      (documents intent; `.gitignore:31 out/` already matches)
+'     .gitattributes  *.txtar text eol=lf diff=txtar  ·  *.golden text eol=lf        (new file)
+'     per clone       git config diff.txtar.xfuncname '^-- .* --$'  — hunk headers then name the entry;
+'                     one quoted operand passes the host-shell gate, so a mise task may run it
+'     e2e/go-testing-standards.md:29 gains the txtar sentence (the written golden standard changes)
+'   Spike (re-run from the worktree, 10 of 10 groups extract byte-identical; MEASURED):
+'     group                 files  lines before → after   bytes before → after
+'     choiceui/frames        137   3,193 → 3,330          333,868 → 338,101
+'     choiceui/checklist      22     532 → 554             66,829 → 67,345
+'     choiceui/scope          24     374 → 398             38,294 → 38,834
+'     choiceui/list            6      34 → 40               1,168 → 1,304
+'     cmd/proveo/init         20     480 → 500             61,199 → 61,689
+'     cmd/proveo/plan          4     609 → 613             22,561 → 22,691
+'     devports/mono            8      21 → 29                 522 → 698
+'     e2e/polyglot22          22      38 → 60                 940 → 1,276
+'     e2e/android-hello        8      75 → 83               1,924 → 2,155
+'     e2e/git-sync-turn        2       5 → 7                  171 → 218
+'   Deltas: files 260 → 18 (17 once the dead .db goes); tracked files 1,178 → ≈935; directories −20.
+'     Lines: fixtures +253 (one marker per packed file); Go ≈ −94 for the seven golden blocks, helper
+'     ≈ +160 → net ≈ +190…+200. Bytes +1.1 %. go.mod +1 direct require, go.sum +2 lines (stdlib-only
+'     imports; run `go mod tidy` in the same change so the dead report's −52 lands with it).
+'   Covers lines that move (14): _spec/cmd/proveo/init-credential-wireframe.puml:8, init-sbx-bootstrap.puml:10,
+'     _spec/tests/43-toolchain-e2e.puml:6, 44-git-sync-turn-e2e.puml:7, _spec/internal/sbx/vendored-kit-deltas.puml:8,
+'     launch-env.puml:14-16, host-android-adb.puml:31, _spec/packages/lib/git-sync-turn.puml:16; the four
+'     _spec/defs/opencode/*.puml globs for opencode_presentation.* stay valid.
+'   Churn (180 days): frames 8 commits / 296 file-touches, plan 17 / 68, scope 4 / 68; a conflict inside an
+'     archive resolves by taking either side and running -update, never by hand.
+'
+' ══ 6 · OTHER LEVERS, RANKED (Directive 4 — other.md's ranked table, deduped against §3, §4 and §5) ══════
+'   lines / files = savings against §1. A bare number is MEASURED (wc -l on 2026-11-15 @ 7ce8c83a, or the tool's own
+'   diff); [E] = [Estimate]; a…b = a range. Effort S < 1 day · M 1–3 days · L > 3 days. "counted" names the one §7
+'   line a row lands on, so no row is summed twice; "high" = measured and landable now, "all" = the range only.
+'   #  lever                                                lines           files   effort  risk    tool / gate                                counted
+'   ── measured ──────────────────────────────────────────────────────────────────────────────────────────────────────
+'   1  go fix ./... (Go 1.26 made it the modernizers' home;  −62             0       S       low     go fix -diff: 75 files +1,757/−1,819;     §7 other · high
+'      the current tool)                                                                            gofmt gate, test-go, e2e go vet
+'      modernize -fix (x/tools v0.52.0, 183 diagnostics / 93 files) measured −92 on the same tree; go fix supersedes it, so
+'      −62 is the figure the totals carry; −11 more under -tags e2e (25 files), 0 under -tags image. Per fixer: slicescontains
+'      −46 · minmax −21 · mapsloop −2 · waitgroup −2 · stringsbuilder +2; rangeint / stringscut / stringsseq are 1:1 churn
+'      (±301 / ±460 / ±78). Two fixes skip as conflicts (maintain, sbx), so run it twice.
+'   2  go mod tidy (3 requires; go.sum −58/+6)              −52 net         0       S       low     go1.26 tidy -diff; keep bubbles/v2        §3 dead · high
+'      other.md's 62 counts the refuted bubbles/v2 line; runewidth → x/ansi (already indirect, go.mod:21) is −1 require [E], 0 lines
+'   3  pnpm workspace with 0 members → mise `npm:wrangler`  −884 net        −3      S       low     mise npm backend; [Unverified] wrangler's  §7 other · high
+'      package.json 8 + pnpm-workspace.yaml 9 + pnpm-lock.yaml 869 = 886 removed, +2 mise lines;    install hooks: `mise x -- wrangler --version`
+'      `find apps packages -name package.json` → empty; mise.toml:43,49,222,259,265 name pnpm
+'   4  stale root files: pulse.json 31 · .gitsample 1 ·      −252            −7      S       low     grep -rl → 0 refs; repoint the 3 spec     §7 other · high
+'      3 .gitkeep in non-empty dirs · scripts/*.py 217                                              lines naming scripts/*.py first
+'      (other.md: 260, pulse.json at 40); pulse.json cites TODO.md and internal/tmux/e2e_test.go, neither exists
+'   5  defs/subagents/_frontmatter: 22 files in 4 harness    0               −18     S       low     render_subagents; −4 dirs [Inference]     §7 other · high
+'      dirs (claudecode 5, codex 5, cursor 2, opencode 10) → 4 per-harness files
+'   6  e2e split families → one file each: close_confirm 4, 0               −12     S       low     go vet -tags=e2e; test names unchanged    §7 other · high
+'      opencode 5, kit 3, android 3, hermes 2 (17 files → 5)
+'   7  retirement ledger: lsp_wiring_retirement_test.go     −150            −1      0       none    TestNoRetirementOutlivesOneRelease        §7 other · all (next tag)
+'      goes with proveo_retire_lsp_wiring :1501-1550 (51 lines, in the dead medium set) at the next tag; [Inference]
+'      model_bridging_retired_test.go (191 lines, 10 tests) has no ledger entry and is the shape the ledger exists to expire
+'   8  dupl -t 80, one copy per clone group                  ≤ −152          0       M       low     dupl v1.1.0; 185 − 20 (fixtures helper)   §7 other · all
+'                                                                                                   − 13 (hostdev merge); 12 of 14 are tests
+'   9  echo-agent def (35) + the dead .db                    −35             −3      S       low     grep; 3 _spec/tests lines repoint         §3 dead · medium, high
+'   10 _spec orphan triage (5 diagrams)                      0…−389          0…−5    M       medium  spec-keeper.md:200-201: cite or retire    §3 dead · low
+'      other.md adds 18 shipped-area specs (≈2,250 lines) with no inbound SPEC: pointer — triage rows, 0 counted
+'   11 tiny packages (runner 9, termtext 20, envflag 34,     −50 [E]         −10 [E] S       low     —                                         §4 P11 owns it
+'      entrypoint 37, backend 38) into their consumers
+'   ── estimates (the all-levers range only) ─────────────────────────────────────────────────────────────────────────
+'   12 _spec: retire the 88 DONE entries of                  −1,337          0       M       medium  spec-keeper retire order: confirm →       F5 option 2
+'      repo-simplification.puml (105 entries; DONE spans                                            rehome → repoint → delete; plantuml
+'      1,337 of 1,772 lines, PROPOSED 284, other 116)                                               -checkonly; reasoning loss unless rehomed
+'   13 _spec: retire plans whose subject shipped (retire-    −2,500 [E]      −8…−10  L       medium  TestSpecNotesFitTheBox; git grep SPEC:   F5 options 3, 4
+'      model-bridging 81, init-github-access 120, ship-and-reach 52, ci-pipeline 80 to confirm) ≈ −1,000; compact the
+'      HISTORY / MEASURED / dated blocks (1,409 dated lines in 158 files; MEASURED on 735) into 2-line notes ≈ −1,500
+'   14 e2e init_* suite (3 files, 1,279 lines, 29 tests)     −90…−1,279 [E]  0…−3    M       medium  name-token matcher: 9 of 29 share ≥ 40 %  F10
+'      runs on initStubSbx, a shell shim (init_steps_test.go:24);                                   of tokens with a cmd/proveo test, 2 are
+'      cmd/proveo holds 127 init tests (4,326 lines) on the same shim kind                          near-identical; loses the tmux TTY path
+'   15 test scaffolding → one helper package: dupl@50 41     −700 [E]        +1      M       low     dupl, unparam, thelper; lexicon caution   F12 · −550 beyond row 8
+'      pairs (783 lines both sides, 70 in tests), same-name helpers (env ×5, writeFile ×4, repoRoot ×4, 11 names ×2),
+'      45 files writing a #!/bin/sh PATH shim, 17 bash runners over entrypoint-lib.sh, t.Setenv("HOME") at 18 sites
+'   16 docs: fold _spec/_paradigms/primer.md (251) and       −420 [E]        −2      S       low     grep; README.md:197 → CONVENTIONS.md and   §7 other · all
+'      e2e/go-testing-standards.md (109) into their specs;                                          _spec/_assets/run-lifecycle.png are dead
+'      dedupe the 3 security sections; fix 2 dead links                                             links
+'   17 defs/*/README.md (1,181 lines, 9 files, 14 repeated    −400 [E]        0…−7    M       low     grep -h '^## '; CODING_HARNESSES.md       §7 other · all
+'      headings; ## Contract Status ×4 = 82) → one table + per-harness deltas                       "Definition Contract" is a third copy
+'   18 defs/*/entrypoint.sh ×5 (714 lines): 32 lines          −120 [E]        0       M       medium  comm; the image suites                    §7 other · all
+'      identical in ≥ 4, 7 shared lib entry points → one generic entrypoint + per-harness hook      (image behaviour)
+'   19 harness Dockerfiles ×5: UID block ×4 (≈25 lines),      −100…−140 [E]   0       M       medium  dockerfile_correctness_test.go;           §7 other · all
+'      hooks COPY / LABEL / HEALTHCHECK ×5 → a shared stage in defs/base/Dockerfile                layers_test.go: ≤ 44 layers
+'   20 packages/lib/test_opencode_{runtime 280, startup 116}  −300 [E]        −2      M       medium  opencode_{presentation,credentials,       §7 other · all
+'      .py, driven by Go contract tests: two test layers on one subject                             seed_progress}_test.go
+'   ── zero-line, fork-gated, and outside the sums ───────────────────────────────────────────────────────────────────
+'   21 golangci --fix set (unparam 29 of 41, revive 35 + 17,  ≈ 0             0       S       low     golangci-lint run --fix; gofmt -s -l      0
+'      errorlint 15, intrange 45, perfsprint 36)                                                    lists 0 files
+'   22 extra linters without autofix: goconst 1,435 (1,106   0               0       L       medium  golangci-extra.yml: 2,286 issues over 17  0
+'      in tests) · thelper 115 (76 in imagetest) · gocyclo 65 · prealloc 74                        linters; style, not size
+'   23 vendored sbx kits internal/sbx/third_party/ (4 .yaml   −2,619          −10     M       high    go generate + patch, or sbx's own         F9 options 2, 3 only
+'      1,746 · 4 .dockerfile 632 · LICENSE 191 · claude-context.md 50)                              published kits; reverses a DECIDED spec;
+'                                                                                                   offline builds; −1 dir
+'   24 26 red tests in mise.toml:8-33 [vars] unit_baseline    0…−837          0       M       high if mise run baseline                         F11 option 2 only
+'      (11 in state_sync_test.go ≈ 430, 7 in config_sync_test.go,                                  deleted
+'      TestSandboxLadder 77, TestOpenCodeCredentialHookWaitsForHistory 65)
+'   25 fewer recorded frame sizes per case (frames: 137       ≈ −2,300 [E]    0       M       high    —; drops a tested width                   outside (risk high)
+'      files at 18 distinct sizes; choiceui goldens 189 files / 4,133 lines)
+'   26 entrypoint-lib.sh (2,743 lines, 150 functions, 0 dead; grows           —       L       high    host-shell gate covers host scripts only  F6 · 0
+'      17 helpers with one caller) to Go — [Inference] a safety lever, not compression              (host_bash_test.go:16-24)
+'   27 git: pack 14.36 MiB; a deleted 5.1 MB proveo-dev blob; 0               0       —       high    not recommended (rewrite)                 0
+'      no large binary at HEAD beyond _spec/_assets/hero.gif
+'   Subtotal of the rows counted "§7 other" — lines · files · dirs:
+'     high  (MEASURED, landable now)          rows 1 3 4 5 6                                              −1,198 · −40 · −5 (scripts/ −1; _frontmatter −4)
+'     all lo ([rec] options, lower bounds)    high + rows 7 8 15–20 (row 19 lo), F10(3) lo                −3,480 · −44 · −5 (F12(3) adds no dir)
+'     all hi (widest option, upper bounds)    lo + go fix −11 (tags), rows 17 19 hi, 12, 13, F10(2) hi    −8,557 · −64 · −5
+'     outside both sums: rows 23 and 24 (count under F9(2)(3) / F11(2) only), 25 (risk high), 26, 27.
+'
+' ══ 7 · TOTALS (recomputed with §6 — one line per source, so no row is summed twice) ═══════════════
+'   high = MEASURED rows landable now under each fork's [rec] · all = those + [E] rows + rows gated on a tag + wider
+'   fork options, as lo … hi: lo takes the [rec] option at its lower bound, hi the widest option at its upper bound.
+'   Cells read lines · files · dirs. Rows gated on a deleting option (F9, F11) and the risk-high rows sit outside both.
+'   source              high (MEASURED, [rec])       all lo … hi                                what moves between lo and hi
+'   dead code §3        −107 · −1 · 0                −222 … −611 · −3 … −8 · 0                  medium 109 + mise 6 in both; orphans 0 … −389
+'                       113 removed, +6 tidy                                                    and their 5 files
+'   lexicon folds §4    0 · 0 · 0                    −98 … −153 · 0 … −12 · −7 … −14            P10+P11 −105 (8 merges) … −140 (15); P2 P3 P9
+'                       P10's −35 waits on F3, F7                                               P12 +7 … −13; splits +6 files; runner −1, P7 +2 dirs
+'   fixtures §5         +195 · −243 · −20            +195 · −243 · −20                          +253 markers, Go −94, helper +35; F4 option 3
+'                                                                                               would read −94 · 0 · 0
+'   other levers §6     −1,198 · −40 · −5            −3,480 … −8,557 · −44 … −64 · −5           rows 7 8 15–20 and F10(3) at lo; F5(2)(3)(4),
+'                       go fix, pnpm, root files;                                                F10(2), go fix under tags, rows 17 19 hi at hi
+'                       _frontmatter, e2e families
+'   net                 −1,110 · −284 · −25          −3,605 … −9,126 · −290 … −327 · −32 … −39
+'   of the §1 baseline  −0.6 % · −24 % · −15 %       −1.8 … −4.7 % · −25 … −28 % · −19 … −23 %
+'   tracked after       194,847 · 894 · 147          192,352 … 186,831 · 888 … 851 · 140 … 133
+'   Go packages         53                           45 (8 merges) … 38 (15); +2 with P7; +1 with F12 option 2
+'   outside both sums   F9(2)(3) −2,619 · −10 · −1 (option 3 also −≈300 Go lines) · F11(2) −837 · 0 · 0 · row 25 ≈ −2,300 [E]
+'   Overlap check (verdict-plan.md §7): 0 lines between the dead spans, the §4 spans and the go fix / modernize hunks;
+'     dupl's 185 drops 20 (the golden loop the fixtures helper deletes) and 13 (hostdev_test twins) → 152; tidy sits in
+'     dead code only; the tiny-package row sits in P11 only; the LSP shell function sits in dead medium, its test file in
+'     §6 row 7; row 15 counts −550 beyond dupl's 152; rows 12–14 carry one fork option per column end, never both.
+'   Reading: the line goal is served by §6 rows 3 and 4 and go fix first, then dead code, P10 and P11; the tree goal by
+'     the fixtures, P11 and §6 rows 5 and 6. The fixture markers still eat the dead and lexicon savings, so the two goals
+'     stay listed apart and F4 keeps the no-archive option. The hi end is 2.5× the lo end; 3,837 of the 5,521 spread is
+'     one fork (F5) over 46,729 lines of spec prose.
+'
+' ══ 8 · DECISION FORKS (each ≥ 3 options, one [rec]; the owner answers before step 1) ═══════════
+' F1 · Delete dead code now, or keep a ledger
+'   1. [rec] Delete the high set now (net −107, −1 file) with the spec repoints in the same change; the
+'      medium set follows per its own gate (e2e-only API stays until a design row; LSP retirement after
+'      the next tag; echo-agent after the 3 _spec/tests lines repoint).
+'   2. Ledger only: one PROPOSED row per finding in repo-simplification.puml, deletions batched per release.
+'   3. Guard without removal: add `deadcode -test` per tag set to `mise run lint`, delete nothing.
+' F2 · Where the rows live once work starts
+'   1. [rec] This file carries the record; repo-simplification.puml gains one pointer row under N15.
+'   2. Append PROPOSED rows to repo-simplification.puml and delete this file when the pointer lands.
+'   3. Split: dead code here, structural rows there — two records for one directive.
+' F3 · Merge micro-packages, or keep the boundaries
+'   1. [rec] The 8 uncontested merges: −8 dirs, no reversed decision, 1 gate edit.
+'   2. All 15: needs DECIDED rows reversing N5, N6, N8 and a fix for credentials → entrypoint.
+'   3. None: keep the 53-package tree, take P10 only.
+' F4 · Fixture archives per test function, per package, or none
+'   1. [rec] Per test function: 11 archives; -update prunes safely; x/tools txtar + the four guards.
+'   2. Per package: one choiceui.txtar (189 entries); needs a merge-on-close helper instead of prune.
+'   3. No archive: fold the five 40-line golden loops into one helper (Go ≈ −94, 0 file change, no new
+'      dependency); the tree keeps 260 fixture files.
+'   4. go-internal txtar v1.16.0 for Quote/NeedsQuote/Write — removes the marker guard, pulls go-internal.
+' F5 · _spec compaction scope (46,729 puml lines, 176 files; 61.9 % comment prose, 21.8 % notes — §6 rows 10, 12, 13)
+'   1. [rec] Hygiene only: triage the 5 orphans (cite or retire), repoint the 2 dead covers lines and the
+'      14 fixture globs, keep the DONE rows — _spec carries reasoning by rule (AGENTS.md). 0 … −389.
+'   2. Also retire the 88 DONE entries of repo-simplification.puml (1,337 of its 1,772 lines) after rehoming
+'      each quoted decision as one line in the living spec its header :12-19 names; the plan keeps PROPOSED
+'      and DECIDED only. −1,337 MEASURED; spec-keeper's retire order permits it ("only the migration story
+'      dies with the plan"); the reasoning-loss risk sits in the rehome step.
+'   3. Also retire plans whose subject shipped — retire-model-bridging 81, init-github-access 120,
+'      ship-and-reach 52, ci-pipeline 80 are the candidates, each confirmed from code first (spec-keeper
+'      step 1): −≈1,000 [E], −4 … −6 files.
+'   4. Also compact the HISTORY / MEASURED / dated blocks tree-wide (1,409 dated lines in 158 files) into
+'      2-line notes: −≈1,500 [E] more; the highest reasoning-loss risk; file by file on a trigger, as the
+'      notes ratchet asks.
+'   5. Also merge _spec/internal/<pkg>/ directories alongside P11 (33 → ≈22); optional, since specs are
+'      per concern, not per package (spec-keeper.md:203-205).
+'   6. No compaction; measure drift with the notes ratchet only.
+' F6 · Shell to Go
+'   1. [rec] Delete the two dead shell items only (_proveo_durable_home now, the LSP retirement after the
+'      next tag); port nothing.
+'   2. Split entrypoint-lib.sh into sourced fragments per N15 (0 lines, +5 files).
+'   3. Port guest-side fragments into cmd/proveo-entrypoint — [Unverified] size and gate impact; the
+'      host-shell contract covers host scripts, not the guest lib.
+' F7 · runner.Mount destination (P10)
+'   1. [rec] workspace.Mount; credentials, proveohome, run, sandbox import workspace (L1) — no upward edge.
+'   2. sbx.Mount — adds workspace → sbx and proveohome → sbx, contradicts P9(b).
+'   3. Keep internal/runner (9 lines, fan-in 5) and drop −9 from P10.
+' F8 · sbx host_*.go destination (P7)
+'   1. [rec] internal/hostllm, imported by run and sandbox.
+'   2. Under internal/run — import cycle through sandbox; infeasible.
+'   3. Leave them in sbx; replace *ui.Printer at host_ollama.go:114 with io.Writer — fixes V2, keeps 3,889 lines.
+' F9 · vendored sbx kits — internal/sbx/third_party/, 2,619 lines, 10 files (§6 row 23)
+'   1. [rec] Keep them vendored: 0 saved; the two deltas stay greppable (vendored-kit-deltas.puml:14-17);
+'      offline builds work; sbx-kit-v3.puml UPSTREAM KITS (DECIDED 2026-10-22) chose this form and marked
+'      "compose FROM docker/sbx-kit-claude + a proveo mixin" NOT CHOSEN (the Claude Code pin moves to Docker;
+'      mixin layers count toward the 44-layer limit).
+'   2. `go generate` fetches UpstreamKitsRef (upstream.go:20) into a gitignored third_party/, a checked-in
+'      patch carries the two deltas, `mise run build-cli` runs it first: −2,619, −10 files, −1 dir; a fresh
+'      clone cannot build offline, since go:embed (upstream.go:16) needs the files at build time.
+'   3. Drop UpstreamKitFor (upstream.go:57) and use sbx's own published kits (sbx ≥ 0.51 rebuilds built-in
+'      agents per release): −2,619, −10 files, −≈300 Go lines; reverses the DECIDED row and moves the Claude
+'      Code pin to Docker.
+' F10 · the e2e init_* suite runs on a stub sbx — 3 files, 1,279 lines, 29 tests (§6 row 14)
+'   1. Keep: 0; the tmux TTY path stays covered for 29 cases.
+'   2. Move the 29 tests into cmd/proveo beside the 127 init tests, share the shim helpers, drop the 9
+'      near-duplicates: −≈700 … −1,279 [E], −3 files; loses the TTY path.
+'   3. [rec] Delete only the pairs whose assertions match (2 confirmed today, 9 candidates by name token):
+'      −≈90 … −400 [E], 0 files; the TTY path stays. TestInitCtrlCOnPageThreeStopsAfterItsRow ≡
+'      TestACtrlCOnPageThreeStopsAfterItsRow; TestInitAFailedGhAuthLoginEndsOnWhereItStopped ≡
+'      TestAFailedGhAuthLoginEndsInitOnWhereItStopped.
+' F11 · 26 red tests parked in mise.toml:8-33 [vars] unit_baseline — 837 lines (§6 row 24)
+'   1. [rec] Fix them: 0 lines; the list and the debt go; `mise run baseline` then equals test-go.
+'   2. Delete them: −837; drops the behaviour they pin (11 state-sync, 7 config-sync, the ladder, the
+'      OpenCode credential hook).
+'   3. Quarantine under `//go:build red`: −26 lines of mise config, 0 Go lines; compiled only on demand.
+' F12 · the home of shared test scaffolding (§6 row 15; §4 cites the lexicon against a common package)
+'   1. No shared package: fold each dupl group inside its own package (row 8, ≤ −152); the 45 PATH shims
+'      and 17 bash runners stay as they are.
+'   2. New internal/testkit (repoRoot, stubBin, tempHome, libRun, captureUI) + table-driving the 41 dupl@50
+'      pairs: −≈700 [E], +1 package, +1 dir; the lexicon's "common package" caution applies.
+'   3. [rec] Extend internal/testx (the fixtures loader F4 adds) with the five helpers: one test-support
+'      package instead of two; −≈700 [E], 0 new dirs; lands after step 3 so the package exists. If F4 takes
+'      option 3, this collapses into option 2.
+'
+' ══ 9 · ORDER OF WORK (after the forks close; every step records its reasoning here before source moves) ═
+'   0  spec-keeper: pointer row under N15; one DECIDED row per reversed decision if F3 widens    gate: TestSpecNotesFitTheBox
+'   1  dead high set per F1; `go mod tidy`; delete the .db; repoint seed-and-launch.puml:16 and   gate: deadcode, U1000, mise run lint, test-go
+'      the two credential-decisions.puml prose lines                                                       −107 lines, −1 file
+'   2  `go fix ./...` twice (2 conflicting fixes skip on the first pass); modernize −92 is superseded   gate: gofmt, test-go, e2e go vet · −62 (−73 with tags)
+'   3  fixtures: internal/testx with the guards; 11 archives; drop PROVEO_UPDATE_FRAMES and the     gate: per-package -update round trip is a no-op
+'      golden_test.go flag; .gitattributes; standards line; 14 covers lines                          diff; test-go; go vet -tags=e2e · −243 files
+'   4  N15 / P1, P4 split, P5 split, P9(a)(c)(d)                                                   gate: 137 + 20 frames, 7 goldens unchanged · +6 files
+'   5  P10 with F7's answer; P9(b)                                                                 gate: go build ./...; chart edges re-run · −35
+'   6  the merges F3 allows, hostdev first (dupl group 4 falls with it)                            gate: host_devices_test.go path; covers repoints · −8 dirs
+'   7  P2 staging, P3 grouping, P5 seams → fields                                                  gate: 14 Spec test files; 7 seam-mutating tests
+'   8  P7 per F8 + internal/sbxinstall; unexport 24 funcs / 6 types; P8 printer injection            gate: tui_vocabulary_test.go; e2e stream tests
+'   9  §6 measured rows 3–6: pnpm → mise npm:wrangler, stale root files, _frontmatter, e2e families;   gate: mise x -- wrangler --version; render_subagents;
+'      rows 16–20 per their gates; F9–F12 answered first                                                 go vet -tags=e2e; image suites · −1,136, −40 files
+'   defer: P6, P12, termtext and agentsettings merges · reject: P14, envflag+envreg, entrypoint trio as stated, host_* under run
+title PLANNED — codebase compression: dead code reported, the chart and the lexicon folds,\none-file fixtures, and the forks the owner decides first
+
+node "baseline · 1,178 files · 195,957 lines\n594 ""\.go"" = 126,046 · 53 packages · 260 fixtures" as BASE <<host>>
+component "D1 · dead code, verified\n−107 high · −611 all · 8 files" as DEAD <<error>>
+component """go fix"" (Go 1.26)\n−62 lines across 75 files · modernize −92" as MOD <<app>>
+database "D3 · txtar fixtures\n260 → 18 files · +195 lines" as FIX <<db>>
+component "N15 splits · P1 P4 P5\n0 lines · +6 files" as SPLIT <<app>>
+component "P10 DRY + 8 merges\n−35 · −60…−80 lines · −9 dirs" as DRY <<app>>
+component "P2 P3 P7 P8 P9\nshape, not size" as SHAPE <<app>>
+queue "deferred · P6 P12\n""termtext"" · ""agentsettings""" as DEFER <<async>>
+component "rejected · P14 · envflag+envreg\nentrypoint trio · ""host_*"" under ""run""" as REJECT <<error>>
+database "_spec · 46,729 puml lines\n5 orphans · 16 covers repoints" as SPEC <<db>>
+node "forks F1–F12\nthe owner decides" as FORKS <<host>>
+component "§6 other levers · 27 rows\n−1,198 high · −3,480…−8,557 all" as OTHER <<app>>
+
+BASE ARROW_MAIN DEAD : step 1
+DEAD ARROW_MAIN MOD : step 2
+MOD ARROW_MAIN FIX : step 3
+FIX ARROW_MAIN SPLIT : step 4
+SPLIT ARROW_MAIN DRY : steps 5–6
+DRY ARROW_MAIN SHAPE : steps 7–8
+DEAD ARROW_ERROR SPEC : repoint before delete
+FIX ARROW_QUEUE SPEC : 14 covers globs
+SHAPE ARROW_OPTIONAL DEFER : needs a DECIDED row
+SHAPE ARROW_ERROR REJECT : evidence in §4
+FORKS ARROW_OPTIONAL DEAD : F1 F2
+FORKS ARROW_OPTIONAL FIX : F4
+FORKS ARROW_OPTIONAL DRY : F3 F7
+FORKS ARROW_OPTIONAL SHAPE : F8
+FORKS ARROW_OPTIONAL SPEC : F5 F6
+SHAPE ARROW_MAIN OTHER : step 9
+FORKS ARROW_OPTIONAL OTHER : F9 F10 F11 F12
+OTHER ARROW_OPTIONAL SPEC : rows 12–13 via F5
+
+note bottom of BASE
+  **Tests are 65 % of the Go lines.** 81,727 of
+  126,046 tracked Go lines sit in ""_test\.go"",
+  so a code-only lever moves a third of the tree.
+end note
+
+note bottom of DEAD
+  **Six functions are dead in 15 of 15 builds.**
+  ""deadcode -test"" across GOOS × tags; U1000 saw
+  none of them, since it skips exported names.
+end note
+
+note right of MOD
+  **A rewrite, not a removal.** ""go fix"" nets
+  −62 over 75 files, −73 with tags; the older
+  ""modernize -fix"" run read −92, and Go 1.26
+  made ""go fix"" the modernizers' home.
+end note
+
+note bottom of FIX
+  **txtar folds files, not lines.** Each packed
+  file adds one marker line; 260 files become 18
+  and the tree loses 20 directories.
+end note
+
+note bottom of SPLIT
+  **N15 was waiting on D1, D2 and N1.** All three
+  are DONE, so the splits are unblocked; 137
+  frames and 20 init frames pin the output.
+end note
+
+note bottom of DRY
+  **Eight merges reverse no decision.** The other
+  seven touch N5, N6, N8 or make an import cycle,
+  so each waits on a DECIDED row.
+end note
+
+note bottom of SHAPE
+  **Shape, not size.** Staging ""Spec"" adds 27
+  lines and cuts cyclo 80 to ≤20; grouping
+  ""Input"" drops 25; the edge fixes add 5.
+end note
+
+note bottom of DEFER
+  **Deferred until a DECIDED row exists.** P6
+  exports 27 files of ""package main""; P12's
+  table rule is not on the lexicon page.
+end note
+
+note bottom of REJECT
+  **Rejected on evidence.** P14 crosses two mise
+  gates; envflag+envreg reverses N6 and N8;
+  ""host_*"" under ""run"" is an import cycle.
+end note
+
+note bottom of SPEC
+  **Spec repoints land before deletions.** Two
+  dead functions are still described in prose;
+  14 covers globs name fixture paths.
+end note
+
+note bottom of FORKS
+  **Nothing moves until the forks close.** Each
+  fork lists three or more options and one [rec];
+  the owner picks, and the rows turn DECIDED.
+end note
+
+note bottom of OTHER
+  **Five measured rows carry the lines.** pnpm
+  −884, stale root files −252 and ""go fix"" −62
+  land now; 18 frontmatter and 12 e2e files fold
+  at 0 lines; the rest is [E] behind F5 and F10.
+end note
+
+legend bottom
+  **Totals, high confidence / all lo…hi** (§7; one line per source)
+  ==
+  **Lines**: −1,110 / −3,605…−9,126 of 195,957 tracked. Dead code −107 / −222…−611, lexicon folds
+  0 / −98…−153, fixtures +195 in both, other levers −1,198 / −3,480…−8,557 (go fix −62, pnpm −884,
+  stale root files −252 land now; [E] rows and F5, F10 options fill the range).
+  --
+  **Files**: −284 / −290…−327 of 1,178. **Directories**: −25 / −32…−39 of 172.
+  **Packages**: 53 / 45 (8 merges) … 38 (15), +2 with P7, +1 with F12 option 2.
+  --
+  **Outside both sums**: F9(2)(3) −2,619 · −10 files; F11(2) −837; frame widths ≈ −2,300 [E].
+  ==
+  **The two goals pull apart.** Lines fall through §6 rows 3–4, go fix, dead code, P10 and P11;
+  the tree shrinks through the fixtures, P11 and §6 rows 5–6. Fork F4 keeps the no-archive option.
+end legend
+@enduml
