@@ -580,7 +580,7 @@ skinparam noteTextAlignment left
 ' plain browser sign-in. [Unverified] whether that sign-in completes with no
 ' terminal; no run measured it.
 ' THE LOCATION ROW NAMED THE HOME PREFIX ABSOLUTE (same decision): in full in
-' its help line, clipped in its cell ("/Users/pl…"). choiceui's optionName now
+' its help line, clipped in its cell ("/Users/de…"). choiceui's optionName now
 ' draws an option under $HOME as "~/…" (ui.Tilde); the option, and so
 ' d.Prefix and the plan, stay absolute: _spec/internal/choiceui/wireframe.puml.
 ' KNOWN, NOT CHANGED: a setup-page cell clips at 10 runes (columnRunes), so the
