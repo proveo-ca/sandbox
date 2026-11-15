@@ -4,6 +4,7 @@ package contract_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,14 +71,56 @@ func TestEveryTransientPathReachesTheConfigSet(t *testing.T) {
 				if !strings.Contains(set, p) {
 					t.Errorf("%s: transient %q is not in the config set %q", m.Name, p, set)
 				}
-				if m.Name == "claudecode" && p == "jobs/*/tmp" {
+				if m.Name == "claudecode" && p == "jobs" {
 					sawJobs = true
 				}
 			}
 		}
 	}
 	if !sawJobs {
-		t.Error("claudecode no longer marks jobs/*/tmp transient — one job's scratch cost 32s of every boot (measured 2026-10-13)")
+		t.Error("claudecode no longer marks jobs transient — one job's scratch cost 32s of every boot")
+	}
+}
+
+// claudeHome is the claudecode manifest's home, as the embedded defs declare it.
+func claudeHome(t *testing.T) manifest.Home {
+	t.Helper()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.Name == "claudecode" {
+			return m.Home
+		}
+	}
+	t.Fatal("no claudecode manifest")
+	return manifest.Home{}
+}
+
+// claudeVMLocal are the ~/.claude paths that stay in their VM.
+var claudeVMLocal = []string{"sessions", "statsig", "shell-snapshots", "daemon.lock", "daemon.status.json", "daemon.log", "daemon", "jobs"}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestClaudeCodeDeclaresItsStateDirsAndItsVMLocalPaths(t *testing.T) {
+	t.Parallel()
+	home := claudeHome(t)
+	if got, want := proveohome.StateSet(home), ".claude/projects|.claude/projects;.claude/todos|.claude/todos"; got != want {
+		t.Errorf("claudecode state set = %q, want %q", got, want)
+	}
+	set := proveohome.ConfigSet(home)
+	skip := strings.Split(set[strings.LastIndex(set, "|")+1:], ",")
+	for _, p := range claudeVMLocal {
+		if !slices.Contains(skip, p) {
+			t.Errorf("claudecode does not keep %s in its VM: config set %q", p, set)
+		}
+	}
+	for _, mt := range home.Mounts {
+		for _, p := range slices.Concat(claudeVMLocal, []string{"projects", "todos"}) {
+			if slices.Contains(mt.Deny, p) {
+				t.Errorf("claudecode denies %s: deny deletes the host copy, which transient keeps", p)
+			}
+		}
 	}
 }
 

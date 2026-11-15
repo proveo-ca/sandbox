@@ -225,8 +225,9 @@ func sandboxClone(in Input, name string) (bool, error) {
 	}
 }
 
-// retireSandbox fetches the clone and agent state home, then removes the sandbox.
-// It reports each step as that step starts.
+// retireSandbox fetches the clone and agent state home, then removes the sandbox; it keeps
+// the sandbox while either stays only in it. It reports each step as that step starts.
+// SPEC: _spec/internal/sbx/state-sync.puml
 func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) error {
 	report("carrying its work home from %s", cfg.Name)
 	in.Sid += "-retired"
@@ -250,8 +251,9 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 			return fmt.Errorf("OpenCode history could not be carried out of %s (%v) — it is kept; `sbx rm --force %s` deletes it with its history", cfg.Name, err, cfg.Name)
 		}
 	}
-	if out, err := SaveState(cfg.Name, cfg.Env, sbx.Exists(cfg.Name), guestRun); err != nil {
+	if out, err := SaveState(cfg.Name, cfg.Env, !sbx.Gone(cfg.Name), guestRun); err != nil {
 		carried.Item(Item{Warn: true, Text: "resume state — not saved", Detail: []string{failure(err, out)}})
+		return fmt.Errorf("%s — %s kept; %s", keptUnsaved, cfg.Name, retireUnsavedFix(cfg.Name, sbx.Running(cfg.Name)))
 	}
 	return removeRetired(cfg, report)
 }

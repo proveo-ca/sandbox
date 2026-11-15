@@ -23,7 +23,10 @@ home:
     - host: .claude
       container: /proveo-home/.claude
       mode: rw
-      transient: [jobs/*/tmp]
+      # VM-local: never leaves the sandbox, never comes back. SPEC: _spec/internal/sbx/state-sync.puml
+      transient: [sessions, statsig, shell-snapshots, daemon.lock, daemon.status.json, daemon.log, daemon, jobs]
+      # Carried newer-wins by the state sync, which scopes projects/ to this workspace.
+      state: [projects, todos]
   # Claude Code keeps this at the home ROOT, not under .claude: accepted workspace
   # trust and whatever MCP servers the operator registered.
   # docker persists it with the whole-home bind; sbx has to be told.

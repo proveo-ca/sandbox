@@ -32,6 +32,7 @@ type ending struct {
 	reflog   string // the sandbox reflog's shell body
 	rm       string // the removal's shell body; {gone} names the file that takes sb off the listing
 	alone    bool   // sb is the only sandbox listed, so its removal leaves a header-only table
+	json     string // `sbx ls --json`'s output; "" answers it with the table
 }
 
 // endingSbx puts an sbx on PATH that answers e and logs every call; it returns the log's path.
@@ -53,9 +54,13 @@ func endingSbx(t *testing.T, e ending) string {
 		}
 		return strings.ReplaceAll(body, "{gone}", "'"+gone+"'")
 	}
+	json := ""
+	if e.json != "" {
+		json = "  'ls --json') printf '%s\\n' '" + e.json + "' ;;\n"
+	}
 	script := "#!/bin/sh\n" +
 		"echo \"$*\" >> '" + calls + "'\n" +
-		"case \"$*\" in\n" +
+		"case \"$*\" in\n" + json +
 		"  ls*) printf 'SANDBOX AGENT STATUS\\n'; " + row + ";;\n" +
 		"  */run/sandbox/source*) " + or(e.probe, "echo clone") + " ;;\n" +
 		"  *'git add -A'*) " + or(e.snapshot, "exit 0") + " ;;\n" +
@@ -386,17 +391,131 @@ func TestRetiringASandboxWhoseOutputDidNotLiftKeepsItAndNamesProveoRm(t *testing
 	}
 }
 
-func TestARetiresUnsavedResumeStateReadsAsTeardownsDoes(t *testing.T) {
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestARetireWhoseResumeStateDidNotSaveKeepsTheSandbox(t *testing.T) {
 	home := t.TempDir()
-	endingSbx(t, ending{row: "sb claude stopped", save: "echo 'vm asleep' >&2; exit 2"})
+	calls := endingSbx(t, ending{row: "sb claude stopped", save: "echo 'vm asleep' >&2; exit 2"})
 	screen, _ := captured(t)
 	cfg := sbx.RunConfig{Name: "sb", Env: []string{sbx.StateHomeVar + "=" + home}}
-	if err := retireSandbox(Input{}, cfg, quietReport); err != nil {
-		t.Fatalf("retire = %v", err)
+	err := retireSandbox(Input{}, cfg, quietReport)
+	wantErr := "its resume state did not reach the host — sb kept; the next run retries the save; " +
+		"`proveo rm sb` saves it, then removes it; `sbx rm --force sb` deletes it with the state only in it"
+	if err == nil || err.Error() != wantErr {
+		t.Errorf("retire = %v\nwant %s", err, wantErr)
 	}
 	want := "warn: resume state — not saved\n    exit status 2: vm asleep\n"
 	if got := screen.String(); !strings.Contains(got, want) || strings.Contains(got, "not preserved") {
 		t.Errorf("the retire's unsaved state:\n%s\nwant teardown's item:\n%s", got, want)
+	}
+	if log := callsOf(t, calls); strings.Contains(log, "rm --force sb") {
+		t.Errorf("the retire removed a sandbox whose resume state is only in it:\n%s", log)
+	}
+}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestARetireWhoseResumeStateSavedRemovesTheSandbox(t *testing.T) {
+	calls := endingSbx(t, ending{row: "sb claude stopped"})
+	captured(t)
+	cfg := sbx.RunConfig{Name: "sb", Env: []string{sbx.StateHomeVar + "=" + t.TempDir()}}
+	if err := retireSandbox(Input{}, cfg, quietReport); err != nil {
+		t.Fatalf("retire = %v", err)
+	}
+	log := callsOf(t, calls)
+	save, rm := strings.Index(log, "proveo_sync_state save"), strings.Index(log, "rm --force sb")
+	if save < 0 || rm < 0 || save > rm {
+		t.Errorf("want the state saved, then the sandbox removed:\n%s", log)
+	}
+}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestAnEmptySbxTableNeitherSkipsTheSaveNorRemovesTheSandbox(t *testing.T) {
+	stopped := `[{"name":"sb","agent":"claude","status":"stopped"}]`
+	refused := "echo 'proveo: state save refused' >&2; exit 1"
+	calls := endingSbx(t, ending{alone: true, json: stopped, save: refused})
+	captureSteps(t)
+	screen, _ := captured(t)
+	td := endingTeardown(Input{}, false)
+	td.cfg.Env = []string{sbx.StateHomeVar + "=" + t.TempDir()}
+	td.run(context.Background())
+	if log := callsOf(t, calls); !strings.Contains(log, "proveo_sync_state save") || strings.Contains(log, "rm --force sb") {
+		t.Errorf("a teardown read a header-only `sbx ls` as no sandbox:\n%s", log)
+	}
+	if got := screen.String(); !strings.Contains(got, "warn: sb — kept: its resume state did not reach the host\n") {
+		t.Errorf("a teardown whose save failed behind a header-only `sbx ls`:\n%s", got)
+	}
+
+	calls = endingSbx(t, ending{alone: true, json: stopped, save: refused})
+	cfg := sbx.RunConfig{Name: "sb", Env: []string{sbx.StateHomeVar + "=" + t.TempDir()}}
+	if err := retireSandbox(Input{}, cfg, quietReport); err == nil || !strings.Contains(err.Error(), "sb kept") {
+		t.Errorf("retire = %v, want sb kept", err)
+	}
+	if log := callsOf(t, calls); !strings.Contains(log, "proveo_sync_state save") || strings.Contains(log, "rm --force sb") {
+		t.Errorf("a retire read a header-only `sbx ls` as no sandbox:\n%s", log)
+	}
+}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestAResumeStateThatDidNotSaveKeepsTheSandboxWithItsFix(t *testing.T) {
+	way := "; `sbx rm --force sb` deletes it with the state only in it"
+	for _, c := range []struct{ row, fix string }{
+		{"sb claude stopped", "`proveo rm sb` saves it, then removes it" + way},
+		{"sb claude running", "`proveo rm --stop sb` saves it, then removes it" + way},
+	} {
+		calls := endingSbx(t, ending{row: c.row, save: "echo 'proveo: state save refused' >&2; exit 1"})
+		captureSteps(t)
+		screen, _ := captured(t)
+		td := endingTeardown(Input{}, false)
+		td.cfg.Env = []string{sbx.StateHomeVar + "=" + t.TempDir()}
+		td.run(context.Background())
+		got := screen.String()
+		for _, want := range []string{
+			"warn: resume state — not saved\n    exit status 1: proveo: state save refused\n",
+			"warn: sb — kept: its resume state did not reach the host\n" +
+				"    the next run re-attaches and saves it again; " + c.fix + "\n",
+			"------ ide ------",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: a save that failed:\n%s\nwant:\n%s", c.row, got, want)
+			}
+		}
+		if strings.Contains(callsOf(t, calls), "rm --force sb") || strings.Contains(got, "sb — removed") {
+			t.Errorf("%s: a sandbox whose resume state is only in it was removed:\n%s", c.row, callsOf(t, calls))
+		}
+		if !td.keepHome || td.kept != "its resume state did not reach the host" {
+			t.Errorf("%s: keepHome %v, kept %q", c.row, td.keepHome, td.kept)
+		}
+	}
+}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestAnOperatorChosenRemovalStillRemovesASandboxWhoseStateDidNotSave(t *testing.T) {
+	calls := endingSbx(t, ending{row: "sb claude stopped", save: "exit 1"})
+	captureSteps(t)
+	screen, _ := captured(t)
+	td := endingTeardown(Input{}, false)
+	td.cfg.Env = []string{sbx.StateHomeVar + "=" + t.TempDir()}
+	td.forced = true
+	td.run(context.Background())
+	if got := screen.String(); !strings.HasSuffix(got, "ok: sb — removed\n") {
+		t.Errorf("a removal the operator chose:\n%s", got)
+	}
+	if !strings.Contains(callsOf(t, calls), "rm --force sb") {
+		t.Errorf("the forced removal did not run:\n%s", callsOf(t, calls))
+	}
+}
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestStrandedWorkAndUnsavedStateSayBothOnTheKeptLine(t *testing.T) {
+	endingSbx(t, ending{row: "sb claude stopped", probe: "echo 'notice: sbx update available'", save: "exit 1"})
+	captureSteps(t)
+	screen, _ := captured(t)
+	td := endingTeardown(Input{RepoRoot: t.TempDir()}, false)
+	td.in.CloneKnown = false
+	td.cfg.Env = []string{sbx.StateHomeVar + "=" + t.TempDir()}
+	td.run(context.Background())
+	want := "    its resume state did not reach the host either\n    `proveo rm sb` carries its work home and removes it\n"
+	if got := screen.String(); !strings.Contains(got, "warn: sb — kept: cannot tell") || !strings.Contains(got, want) {
+		t.Errorf("the stranded kept line:\n%s\nwant:\n%s", got, want)
 	}
 }
 

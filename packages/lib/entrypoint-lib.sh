@@ -1654,21 +1654,28 @@ _proveo_agent_home() { printf '%s' "${PROVEO_HOME:-${HOME:-}}"; }
 
 _proveo_scan_root() { printf '%s' "${1:-${PROVEO_WORKDIR:-$PWD}}"; }
 
-_proveo_volume_mounts() {
+# SPEC: _spec/internal/sbx/state-sync.puml
+# The block-device mounts under the agent home, relative to it: a kit's volume@1 dirs.
+_proveo_volume_dirs() {
  local home; home="$(_proveo_agent_home)"
  [[ -n "$home" && -r /proc/mounts ]] || return 0
- awk -v h="$home/" 'index($2, h) == 1 && index($1, "/dev/") == 1 { print $2 }' /proc/mounts
+ awk -v h="$home/" 'index($2, h) == 1 && index($1, "/dev/") == 1 { print substr($2, length(h) + 1) }' /proc/mounts
 }
 
-_proveo_volume_state_dirs() {
+# The state dirs, one "hostrel|agentrel" per line: PROVEO_STATE_DIRS, or without it the volume
+# dirs minus the VM-local ones.
+_proveo_state_entries() {
  local d
- while read -r d; do
-  [[ -n "$d" ]] || continue
+ if [[ -n "${PROVEO_STATE_DIRS:-}" ]]; then
+  printf '%s\n' "$PROVEO_STATE_DIRS" | tr ';' '\n'
+  return 0
+ fi
+ while IFS= read -r d; do
   case "${d##*/}" in
-  statsig | shell-snapshots) continue ;;
+  sessions | statsig | shell-snapshots) ;;
+  *) printf '%s|%s\n' "$d" "$d" ;;
   esac
-  printf '%s\n' "$d"
- done < <(_proveo_volume_mounts)
+ done < <(_proveo_volume_dirs)
 }
 
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
@@ -1683,14 +1690,13 @@ _proveo_config_file_names() {
 }
 
 _proveo_config_skips() {
- local arel="$1" deny="$2" home vol d
- home="$(_proveo_agent_home)"
- while read -r vol; do
-  [[ -n "$vol" ]] || continue
-  case "$vol" in
-  "$home/$arel/"*) printf '%s\n' "${vol#"$home/$arel/"}" ;;
+ local arel="$1" deny="$2" entry state d
+ while IFS= read -r entry; do
+  state="${entry#*|}"
+  case "$state" in
+  "$arel/"?*) printf '%s\n' "${state#"$arel/"}" ;;
   esac
- done < <(_proveo_volume_mounts)
+ done < <(if [[ -n "${PROVEO_STATE_DIRS:-}" ]]; then _proveo_state_entries; else _proveo_volume_dirs; fi)
  local -a items=()
  IFS=',' read -r -a items <<< "$deny"
  for d in ${items[@]+"${items[@]}"}; do
@@ -1698,6 +1704,17 @@ _proveo_config_skips() {
   [[ -n "$d" ]] && printf '%s\n' "$d"
  done
 }
+
+# awk: newer(a, b) is true when find's %T@ stamp a is later than b, to the nanosecond.
+_PROVEO_AWK_NEWER='
+  function newer(a, b,   p, ai, af, bi, bf) {
+   p = index(a, "."); ai = p ? substr(a, 1, p - 1) : a; af = p ? substr(a, p + 1) : ""
+   p = index(b, "."); bi = p ? substr(b, 1, p - 1) : b; bf = p ? substr(b, p + 1) : ""
+   if (ai + 0 != bi + 0) return ai + 0 > bi + 0
+   while (length(af) < length(bf)) af = af "0"
+   while (length(bf) < length(af)) bf = bf "0"
+   return af > bf
+  }'
 
 # One line per entry to move: "D<TAB>rel" a directory dst lacks, "N<TAB>rel" a
 # file dst lacks, "U<TAB>rel" a file src holds with a newer mtime.
@@ -1708,15 +1725,7 @@ _proveo_config_plan() {
   (cd "$src" 2>/dev/null && find . "$@" \( -type f -printf 'S\tf\t%T@\t%P\n' \
    -o -type d -printf 'S\td\t%T@\t%P\n' \) 2>/dev/null)
   (cd "$dst" 2>/dev/null && find . "$@" \( -type f -o -type d -o -type l \) -printf 'D\t%y\t%T@\t%P\n' 2>/dev/null)
- } | awk -F'\t' '
-  function newer(a, b,   p, ai, af, bi, bf) {
-   p = index(a, "."); ai = p ? substr(a, 1, p - 1) : a; af = p ? substr(a, p + 1) : ""
-   p = index(b, "."); bi = p ? substr(b, 1, p - 1) : b; bf = p ? substr(b, p + 1) : ""
-   if (ai + 0 != bi + 0) return ai + 0 > bi + 0
-   while (length(af) < length(bf)) af = af "0"
-   while (length(bf) < length(af)) bf = bf "0"
-   return af > bf
-  }
+ } | awk -F'\t' "$_PROVEO_AWK_NEWER"'
   {
    name = $4
    for (i = 5; i <= NF; i++) name = name "\t" $i
@@ -1874,9 +1883,173 @@ _proveo_sync_tree() {
  return "$failed"
 }
 
+# SPEC: _spec/internal/sbx/state-sync.puml
+# One line per entry: "D<TAB>rel" a directory dst lacks, "N<TAB>size<TAB>rel" a file or link dst
+# lacks, "U<TAB>rel" a file src holds newer; on save also one src wrote in the last 5s.
+_proveo_state_plan() {
+ local src="$1" dst="$2" mode="$3" cutoff
+ cutoff=$(($(date +%s) - 5))
+ {
+  (cd "$src" 2>/dev/null && find . -mindepth 1 -name '*.proveo-sync.*' -prune -o \
+   \( -type f -o -type l -o -type d \) -printf 'S\t%y\t%s\t%T@\t%P\n' 2>/dev/null)
+  (cd "$dst" 2>/dev/null && find . -mindepth 1 -name '*.proveo-sync.*' -prune -o \
+   -printf 'D\t%y\t%s\t%T@\t%P\n' 2>/dev/null)
+ } | awk -F'\t' -v mode="$mode" -v cutoff="$cutoff" "$_PROVEO_AWK_NEWER"'
+  {
+   name = $5
+   for (i = 6; i <= NF; i++) name = name "\t" $i
+   if (name == "") next
+   if ($1 == "S") { order[++n] = name; kind[name] = $2; size[name] = $3; at[name] = $4 }
+   else { have[name] = $4; hkind[name] = $2 }
+  }
+  END {
+   for (i = 1; i <= n; i++) {
+    k = order[i]
+    if (kind[k] == "d") { if (!(k in have)) print "D\t" k; continue }
+    if (!(k in have)) { print "N\t" size[k] "\t" k; continue }
+    if (kind[k] != "f" || hkind[k] != "f") continue
+    if (newer(at[k], have[k])) print "U\t" k
+    else if (mode == "save" && at[k] + 0 >= cutoff && !newer(have[k], at[k])) print "U\t" k
+   }
+  }'
+}
+
+# Renames staged new files into dst, batched per directory through xargs; after a failed copy
+# only those whose staged size equals the planned size.
+_proveo_state_place() {
+ local plan="$1" stage="$2" dst="$3" whole="$4" rel d dir="" failed=0
+ local -a batch=()
+ while IFS= read -r rel; do
+  d="${rel%/*}"
+  [[ "$d" == "$rel" ]] && d=.
+  if [[ "$d" != "$dir" ]] && ((${#batch[@]})); then
+   (cd "$stage/$dir" && printf '%s\0' "${batch[@]}" | xargs -0 -r mv -u -t "$dst/$dir" --) 2>/dev/null || failed=1
+   batch=()
+  fi
+  dir="$d"
+  batch+=("${rel##*/}")
+ done < <({
+  sed -n 's/^N\t//p' "$plan"
+  (cd "$stage" && find . ! -type d -printf 'S\t%s\t%P\n' 2>/dev/null)
+ } | awk -F'\t' -v whole="$whole" '
+  function rest(from,   s, i) { s = $from; for (i = from + 1; i <= NF; i++) s = s "\t" $i; return s }
+  $1 == "S" { got[rest(3)] = $2; next }
+  { k = rest(2); want[k] = $1; order[++n] = k }
+  END { for (i = 1; i <= n; i++) { k = order[i]; if ((k in got) && (whole || got[k] == want[k])) print k } }' |
+  LC_ALL=C sort)
+ if ((${#batch[@]})); then
+  (cd "$stage/$dir" && printf '%s\0' "${batch[@]}" | xargs -0 -r mv -u -t "$dst/$dir" --) 2>/dev/null || failed=1
+ fi
+ return "$failed"
+}
+
+# Copies src into dst without ever writing a destination name in place: new files through a
+# staging dir and rename, newer files through a temp name and rename. Never deletes.
+_proveo_state_tree() {
+ local src="$1" dst="$2" mode="$3" plan stage rel tmp whole=1 failed=0
+ [[ -d "$src" ]] || return 0
+ mkdir -p "$dst" 2>/dev/null || return 1
+ plan="$(mktemp)" || return 1
+ _proveo_state_plan "$src" "$dst" "$mode" > "$plan"
+ (cd "$dst" && sed -n 's/^D\t//p' "$plan" | xargs -r -d '\n' mkdir -p --) 2>/dev/null || failed=1
+ if grep -q '^N' "$plan"; then
+  if stage="$(mktemp -d "$dst/.proveo-sync.$$.XXXXXX" 2>/dev/null)"; then
+   (cd "$src" && sed -n 's/^N\t[0-9]*\t//p' "$plan" | xargs -r -d '\n' cp -a --parents -t "$stage" --) 2>/dev/null ||
+    whole=0
+   _proveo_state_place "$plan" "$stage" "$dst" "$whole" || failed=1
+   ((whole)) || failed=1
+   rm -rf "$stage" 2>/dev/null
+  else
+   failed=1
+  fi
+ fi
+ while IFS= read -r rel; do
+  tmp="$dst/$rel.proveo-sync.$$.$RANDOM"
+  if cp -a "$src/$rel" "$tmp" 2>/dev/null && mv -fT "$tmp" "$dst/$rel" 2>/dev/null; then
+   continue
+  fi
+  rm -f "$tmp" 2>/dev/null
+  failed=1
+ done < <(sed -n 's/^U\t//p' "$plan")
+ rm -f "$plan" 2>/dev/null
+ return "$failed"
+}
+
+# Claude Code's projects/ directory name for path: each UTF-16 unit outside [A-Za-z0-9] becomes '-'.
+_proveo_claude_project_key() (
+ path="$1"
+ export LC_ALL=C
+ case "$path" in
+ *[![:print:]]*) ;;
+ *)
+  printf '%s' "${path//[^A-Za-z0-9]/-}"
+  exit 0
+  ;;
+ esac
+ export LC_ALL=C.UTF-8 2>/dev/null
+ out=""
+ for ((i = 0; i < ${#path}; i++)); do
+  c="${path:i:1}"
+  case "$c" in
+  [ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]) out+="$c" ;;
+  *)
+   printf -v n '%d' "'$c"
+   if ((n > 65535)); then out+="--"; else out+="-"; fi
+   ;;
+  esac
+ done
+ printf '%s' "$out"
+)
+
+# The paths Claude Code keys this run's projects/ entries by: the agent's workdir, its physical
+# path, every worktree of its repository, and the repository root its memory lives under.
+_proveo_claude_project_roots() {
+ local wd="${PROVEO_WORKDIR:-}" common
+ [[ -n "$wd" ]] || return 0
+ printf '%s\n' "$wd"
+ (cd "$wd" 2>/dev/null && pwd -P)
+ git -C "$wd" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p'
+ common="$(git -C "$wd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+ case "$common" in
+ */.git) printf '%s\n' "${common%/.git}" ;;
+ *) git -C "$wd" rev-parse --show-toplevel 2>/dev/null ;;
+ esac
+ return 0
+}
+
+# The entries of store (a projects/ dir) that belong to this run; a key over 200 units ends in a hash.
+_proveo_claude_project_dirs() {
+ local store="$1" root key d
+ while IFS= read -r root; do
+  [[ -n "$root" ]] || continue
+  key="$(_proveo_claude_project_key "$root")"
+  if ((${#key} <= 200)); then
+   [[ -d "$store/$key" ]] && printf '%s\n' "$key"
+  else
+   for d in "$store/${key:0:200}-"*; do
+    [[ -d "$d" ]] && printf '%s\n' "${d##*/}"
+   done
+  fi
+ done < <(_proveo_claude_project_roots) | LC_ALL=C sort -u
+}
+
+PROVEO_STATE_RESTORED="${PROVEO_STATE_RESTORED:-/dev/shm/proveo-state-restored}"
+
+# Waits up to 60s for this boot's seed to pass its state restore; true when the restore completed.
+_proveo_await_restore() {
+ local waited=0
+ until [[ -e "$PROVEO_STATE_RESTORED" || -e "$PROVEO_INSTRUCTIONS_MARKER" ||
+  -e "$PROVEO_SEED_REFUSED" || -e "$PROVEO_SEED_HALTED" ]]; do
+  ((waited++ < 600)) || return 1
+  sleep 0.1
+ done
+ [[ -e "$PROVEO_STATE_RESTORED" ]]
+}
+
 # SPEC: _spec/internal/sbx/state-sync.puml, _spec/defs/opencode/engine-local-history.puml
 proveo_sync_state() {
- local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home dir rel src dst lock rc=0
+ local mode="${1:-}" host="${PROVEO_STATE_HOME:-}" home entry hrel arel src dst lock key rc=0
+ local -a dirs=()
  [[ -n "$host" && -d "$host" ]] || return 0
  case "$mode" in
  restore | save) ;;
@@ -1884,25 +2057,44 @@ proveo_sync_state() {
  esac
  home="$(_proveo_agent_home)"
  [[ -n "$home" ]] || return 0
+ [[ "$mode" == restore ]] && rm -f "$PROVEO_STATE_RESTORED" 2>/dev/null
+ while IFS= read -r entry; do
+  hrel="${entry%%|*}" arel="${entry#*|}"
+  [[ -n "$hrel" && -n "$arel" && "$arel" != "$entry" ]] || continue
+  [[ "$arel" == .local/share/opencode || "$arel" == .local/share/opencode/* ]] && continue
+  src="$home/$arel"
+  [[ "$mode" == restore ]] && src="$host/$hrel"
+  [[ -d "$src" && -n "$(ls -A "$src" 2>/dev/null)" ]] && dirs+=("$entry")
+ done < <(_proveo_state_entries)
+ if [[ "$mode" == save ]] && ((${#dirs[@]})) && ! _proveo_await_restore; then
+  printf 'proveo: state save refused — this boot did not complete its state restore; the host keeps its copy\n' >&2
+  return 1
+ fi
  lock="$home/.proveo-sync.lock"
  if ! _proveo_sync_lock "$lock"; then
   printf 'proveo: state %s skipped — another sync still holds the lock\n' "$mode" >&2
   return 1
  fi
- while read -r dir; do
-  [[ -n "$dir" ]] || continue
-  rel="${dir#"$home"/}"
-  [[ "$rel" == .local/share/opencode || "$rel" == .local/share/opencode/* ]] && continue
+ for entry in ${dirs[@]+"${dirs[@]}"}; do
+  hrel="${entry%%|*}" arel="${entry#*|}"
   case "$mode" in
-  restore) src="$host/$rel" dst="$dir" ;;
-  save) src="$dir" dst="$host/$rel" ;;
+  restore) src="$host/$hrel" dst="$home/$arel" ;;
+  save) src="$home/$arel" dst="$host/$hrel" ;;
   esac
-  [[ -d "$src" ]] || continue
-  [[ -n "$(ls -A "$src" 2>/dev/null)" ]] || continue
-  _proveo_sync_tree "$src" "$dst" || rc=1
- done < <(_proveo_volume_state_dirs)
+  if [[ "$mode" == restore && "$arel" == .claude/projects ]]; then
+   while IFS= read -r key; do
+    _proveo_state_tree "$src/$key" "$dst/$key" restore || rc=1
+   done < <(_proveo_claude_project_dirs "$src")
+  else
+   _proveo_state_tree "$src" "$dst" "$mode" || rc=1
+  fi
+ done
  rm -rf "$lock" 2>/dev/null
- ((rc == 0)) || printf 'proveo: state %s completed with copy errors\n' "$mode" >&2
+ if ((rc != 0)); then
+  printf 'proveo: state %s completed with copy errors\n' "$mode" >&2
+ elif [[ "$mode" == restore ]]; then
+  : > "$PROVEO_STATE_RESTORED" 2>/dev/null
+ fi
  return "$rc"
 }
 

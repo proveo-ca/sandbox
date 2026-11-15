@@ -60,7 +60,7 @@ skinparam noteTextAlignment left
 ' Typed configs cover what proveo generates: lifecycle@1 (install/startup
 ' hooks with user and the env names each reads — "a hook sees only what it
 ' declares"), network-policy@1 runtime allow/deny, port@1. Capabilities
-' copied from a published kit (credential@1, volume@1, …) pass through
+' copied from a published kit (credential@1, …) pass through
 ' CapabilityV3.Config as decoded YAML.
 '
 ' ── LAUNCH = CREATE, THEN RUN (DECIDED 2026-10-22; MEASURED P5) ─────────────
@@ -121,7 +121,8 @@ skinparam noteTextAlignment left
 ' a published kit's capabilities (author/base-images/), so proveo COPIES them:
 ' UpstreamKitFor(target, opts) returns
 '   * every capability except sbx@1 (proveo declares its own): credential@1,
-'     network-policy, volume@1, agent-context, agent-skills, lifecycle@1;
+'     network-policy, agent-context, agent-skills, lifecycle@1; no vendored
+'     kit declares volume@1 since 2026-11-14 (vendored-kit-deltas.puml DELTA 3);
 '   * the recipe's ENTRYPOINT with argv0 reduced to its PATH name, so the
 '     image's /opt/proveo/shims/<agent> → proveo-await-seed still runs first;
 '   * the recipe's ENV minus upstreamLayoutEnv (PATH, CODEX_INSTALL_DIR: the

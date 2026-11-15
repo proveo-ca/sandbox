@@ -471,3 +471,41 @@ func TestHermesDeclaresTheContextItRefusesToolUseWithout(t *testing.T) {
 		t.Errorf("hermes localModel.context = %d; hermes's MINIMUM_CONTEXT_LENGTH is 64,000", c)
 	}
 }
+
+func TestStatePathsAreLiteralDirsInsideASyncedMount(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"projects", true},
+		{"a/b", true},
+		{"jobs/*/tmp", false},
+		{"p?", false},
+		{"[ab]", false},
+		{"../projects", false},
+		{"", false},
+	} {
+		if got := ValidState(tc.path); got != tc.want {
+			t.Errorf("ValidState(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+	valid := func(mt HomeMount) error {
+		return Manifest{Name: "x", Images: map[string]string{"x": "proveo/x:latest"},
+			Home: Home{Enabled: true, Mounts: []HomeMount{mt}}}.Validate()
+	}
+	if err := valid(HomeMount{Host: ".x", Container: "/proveo-home/.x", State: []string{"projects"}, Transient: []string{"jobs"}}); err != nil {
+		t.Errorf("Validate() rejected state beside transient: %v", err)
+	}
+	for name, mt := range map[string]HomeMount{
+		"a glob":            {Host: ".x", Container: "/proveo-home/.x", State: []string{"jobs/*"}},
+		"no container path": {Host: ".x", State: []string{"projects"}},
+		"also transient":    {Host: ".x", Container: "/proveo-home/.x", State: []string{"sessions"}, Transient: []string{"sessions"}},
+		"also denied":       {Host: ".x", Container: "/proveo-home/.x", State: []string{"auth.json"}, Deny: []string{"auth.json"}},
+		"outside the mount": {Host: ".x", Container: "/proveo-home/.x", State: []string{"../y"}},
+	} {
+		if err := valid(mt); err == nil {
+			t.Errorf("Validate() accepted state with %s", name)
+		}
+	}
+}

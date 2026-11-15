@@ -45,6 +45,9 @@ type HomeMount struct {
 	// never copies, in either direction; unlike Deny, the host keeps them.
 	// SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 	Transient []string `yaml:"transient"`
+	// State names relative directories the sbx state sync carries in place of the config sync.
+	// SPEC: _spec/internal/sbx/state-sync.puml
+	State []string `yaml:"state"`
 }
 
 // LinkedDirsFile, at the proveo home root, lists the absolute targets a home dir's links may reach.
@@ -199,6 +202,9 @@ func (m Manifest) Validate() error {
 			if !ValidTransient(p) {
 				return fmt.Errorf("manifest %q: home mount %q transient %q must be a relative path inside the mount", m.Name, mt.Host, p)
 			}
+		}
+		if err := mt.validateState(m.Name); err != nil {
+			return err
 		}
 	}
 	switch m.Kind {
@@ -395,6 +401,27 @@ func Targets(ms []Manifest) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// validateState refuses a state path that is not a literal in-mount directory, one on a mount the
+// sync cannot express, and one the mount also marks transient or denies.
+func (mt HomeMount) validateState(name string) error {
+	for _, p := range mt.State {
+		switch {
+		case !ValidState(p):
+			return fmt.Errorf("manifest %q: home mount %q state %q must be a literal relative path inside the mount", name, mt.Host, p)
+		case strings.TrimSpace(mt.Container) == "":
+			return fmt.Errorf("manifest %q: home mount %q declares state %q but no container path, so nothing syncs it", name, mt.Host, p)
+		case slices.Contains(mt.Transient, p) || slices.Contains(mt.Deny, p):
+			return fmt.Errorf("manifest %q: home mount %q state %q is also transient or denied", name, mt.Host, p)
+		}
+	}
+	return nil
+}
+
+// ValidState reports whether p is a path ValidTransient accepts that names one directory, with no glob.
+func ValidState(p string) bool {
+	return ValidTransient(p) && !strings.ContainsAny(p, "*?[")
 }
 
 // ValidTransient reports whether p is a relative, in-mount path the shell sync

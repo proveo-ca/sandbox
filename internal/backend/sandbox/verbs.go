@@ -34,7 +34,7 @@ func trustedListing() ([]sbx.Listed, error) {
 	return rows, nil
 }
 
-// RemoveKept carries home what sandbox name holds, removes it and clears its entry; a running one needs stop,
+// RemoveKept carries home what sandbox name holds, saves its resume state, removes it and clears its entry; a running one needs stop,
 // and an untrusted listing changes nothing. One closing line; a refusal is "× <name> — not removed", Reported.
 // SPEC: _spec/internal/results/result-store.puml (THE VERBS)
 func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool) error {
@@ -68,6 +68,9 @@ func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool)
 		return notRemoved(name, fmt.Errorf("%w — %s kept", err, name), "`proveo rm "+name+"` tries again")
 	}
 	carried.Print()
+	if err := saveKept(name, carried); err != nil {
+		return notRemoved(name, fmt.Errorf("%w — %s kept", err, name), "`proveo rm "+name+"` tries again; "+unsavedDelete(name))
+	}
 	report("sbx rm --force %s", name)
 	if out, err := guestRun(sbx.RemoveArgs(name)...); err != nil && !sbx.NotFound(out) {
 		return notRemoved(name, fmt.Errorf("remove %s: %w: %s", name, err, strings.TrimSpace(out)),
@@ -76,6 +79,26 @@ func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool)
 	_ = os.Remove(receiptPath(name))
 	_ = os.Remove(legacyOwnerRecord(name))
 	return settleKept(name, resultsDir, "removed")
+}
+
+// saveKept saves the kept sandbox's resume state behind its live step; a failure is a ⚠ item in out
+// and an error, so the sandbox stays. An image older than the guarded save is skipped with a ⚠.
+// SPEC: _spec/internal/sbx/state-sync.puml
+func saveKept(name string, out *Block) error {
+	var said string
+	err := shown(stepState, func() (err error) {
+		said, err = guestRun(sbx.GuardedSaveStateArgs(name)...)
+		return err
+	})
+	switch {
+	case err == nil:
+		return nil
+	case exitCodeOf(err) == sbx.SaveStateUnguarded:
+		out.Item(Item{Warn: true, Text: "resume state — not saved", Detail: []string{"its image predates the save that waits for the restore, so `proveo rm` skips it"}})
+		return nil
+	}
+	out.Item(Item{Warn: true, Text: "resume state — not saved", Detail: []string{failure(err, said)}})
+	return errors.New(keptUnsaved)
 }
 
 // carryKept brings home what the kept sandbox holds into out: a clone's work, behind the clone-mode

@@ -3,6 +3,7 @@
 ' covers: internal/manifest/**
 ' covers: defs/*/harness.manifest
 ' covers: embed.go
+' covers: internal/proveohome/configset.go (StateSet)
 '
 ' ── F10 (DONE (wt) 2026-10-17): NO `docker:` KEY; `daemon:` IS THE ONE KNOB ─
 ' Part of the user's "apply fixes for SEC2, SEC3, N1, F18, F10, …"
@@ -45,6 +46,28 @@
 ' host path; container duplicates are checked only when one is set
 ' (manifest.go:273-288; TestAHomeMountMayOmitItsContainerPath, manifest_test.go:366;
 ' _spec/defs/hermes/hermes-persistence.puml).
+' ── home.mounts[].state: THE STATE SYNC'S OWN LIST (DECIDED 2026-11-14) ────
+' `state:` names literal relative directories inside a synced mount that
+' proveo_sync_state carries newer-wins (staged, renamed, scoped). The sync
+' found them from /proc/mounts block devices until the owner dropped the
+' vendored claude kit's volume@1 (_spec/internal/sbx/state-sync.puml,
+' decisions 2 and 3); the manifest declares them now, beside `transient:`.
+' An env with no PROVEO_STATE_DIRS, a sandbox an older CLI created, still
+' falls back to the block devices (state-sync.puml, row C).
+' proveohome.StateSet encodes them as PROVEO_STATE_DIRS, one
+' "hostrel/dir|agentrel/dir" entry per dir, joined by ";". They travel in
+' their own variable and not in PROVEO_CONFIG_DIRS's skip field, so a lib
+' that predates the variable still carries them through its config sync.
+' Validate refuses a state path that is not ValidState (ValidTransient with
+' no glob: `*?[`), one on a mount with no container path (nothing would sync
+' it), and one the mount also marks transient or denies.
+' TestStatePathsAreLiteralDirsInsideASyncedMount (manifest_test.go),
+' TestStateSetEncodesEachSyncedMountsStateDirs (configset_test.go).
+' claudecode: state [projects, todos]; transient [sessions, statsig,
+' shell-snapshots, daemon.lock, daemon.status.json, daemon.log, daemon,
+' jobs], the owner's VM-local set plus the daemon's two per-VM files
+' (TestClaudeCodeDeclaresItsStateDirsAndItsVMLocalPaths).
+'
 ' ── agentEnv IS A THIRD KIND OF VARIABLE, AND THE DISTINCTION MATTERS ──────
 ' NAME: value pairs handed to the agent on EVERY backend unless the operator
 ' sets NAME themselves. It is neither `env` — variables the OPERATOR supplies,
@@ -91,6 +114,8 @@ class "HomeMount\nhome.mounts[]" as HM <<db>> {
   container : string  (absolute; optional — absent = a direct bind)
   mode : rw | ro
   deny : []string  (basenames scrubbed each run)
+  transient : []string  (find -path globs the config sync never copies)
+  state : []string  (dirs the state sync carries; config sync skips)
 }
 
 class "EnvVar\nenv[]" as E <<error>> {

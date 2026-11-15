@@ -1,0 +1,527 @@
+@startuml SessionContinuity
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: one session across runs the way sbx intends it — one named sandbox per (harness, workspace), kept and re-attached, its history on a live host directory — so the per-file state sync, volume@1 and the retained-engine special case can go
+' status: PLANNED. DECIDED 2026-11-14 by the owner (S1–S3). P0 is built in the stopgap branch, uncommitted; P1–P4 are not implemented. _spec/_plans/ is exempt from the SPEC-reference rule.
+' would touch: internal/sbx/third_party/claude.yaml (the five volume@1: P0)
+' would touch: defs/claudecode/harness.manifest (the VM-local dirs: P0)
+' would touch: packages/lib/entrypoint-lib.sh (proveo_sync_state: scoped in P0, deleted in P2)
+' would touch: internal/backend/sandbox/sandbox.go (KitDir, normalEndOf: P1)
+' would touch: internal/backend/sandbox/teardown.go, launch_receipt.go, verbs.go (keep and retire: P1)
+' would touch: internal/sbx/run.go (SaveStateArgs and the history mount: P2; the clone refresh: P3)
+' would touch: internal/backend/sandbox/home_access.go (history dirs, mode 0700: P2)
+' would touch: internal/backend/sandbox/agent_home.go (hermes: P4)
+' would touch: internal/backend/sandbox/opencode_engine.go, internal/sbx/opencode_history.go (P4)
+' would touch: cmd/proveo/clean.go (kept sandboxes and history dirs: Q2)
+'   the copy this plan retires ........ _spec/internal/sbx/state-sync.puml
+'   per-run clones, decided first ..... _spec/internal/sbx/clone-workspace.puml
+'                                       (A CLONE LIVES FOR ONE RUN, commit 3a86212b)
+'   exception 1, the retained engine .. _spec/defs/opencode/engine-local-history.puml
+'   exception 2, the live bind ........ _spec/defs/hermes/hermes-persistence.puml
+'   keep, retire, re-attach ........... _spec/internal/sbx/kit-lifecycle.puml
+'   a reused clone, the experiment .... _spec/_experiments/reusable-clone.puml
+'   Kit storage for dependency trees .. _spec/_plans/sbx-dep-tree-isolation.puml
+'   host-mount@1 for package caches ... _spec/_experiments/package-caches.puml
+'   evidence, all 2026-11-14: the sbx-intent research and its adversarial
+'   check (A1–A12, C1–C8, D1–D5 there), the claude sessions/ study, the state
+'   round-trip revision (F1–F19) and its check (R1–R11), and the stopgap's
+'   check (D1–D8, the ids state-sync.puml uses).
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── DECIDED 2026-11-14 (the owner) ─────────────────────────────────────────
+'   S1 DIRECTION: sbx's model. One named sandbox per (harness, workspace),
+'      kept and re-attached. History on a live host directory per (harness,
+'      workspace). Delete the per-file state sync, volume@1 and the
+'      retained-engine special case: OpenCode's retained engine and hermes's
+'      live bind become the rule. The owner: "Note the hermes and opencode
+'      exceptions in _plans/ to look for standardization" (THE TWO EXCEPTIONS
+'      below).
+'   S2 claude's sessions/ is VM-local: never carried between VMs. daemon.lock,
+'      daemon/ and jobs/ likewise.
+'   S3 Stop the volume leak in the stopgap. Drop the five volume@1 from the
+'      vendored claude kit; upstream sbx/claude dropped them in 2.1.317. Carry
+'      projects/<workspace keys> and todos/ through the stopgap's scoped
+'      newer-wins copy. The stranded volumes (1,710 records) and the host's
+'      ~/.proveo/.claude/sessions stay untouched, for the owner. [Inference]
+'      The stranded volumes allocate about 91 GiB.
+'
+' ── RECONCILED: clone-workspace.puml "A CLONE LIVES FOR ONE RUN" ───────────
+' Earlier the same day the owner accepted per-run clones: "as long as the end
+' user perceives them as one and the same (session logs remain, etc) it does
+' the expected job." That section (commit 3a86212b) names the stopgap's copy
+' as the carrier and lists a durable clone as NOT CHOSEN. The sbx-intent
+' research then showed that sbx means sandboxes to be kept and re-attached,
+' and the owner chose that model (S1). The goal stands: the operator sees one
+' session. The mechanism moves: the sandbox and its clone outlive the run (P1),
+' and the history lives on the host (P2). That section stays current-state
+' truth until P1 ships, and is rewritten then. Its NOT CHOSEN reasons become
+' this plan's work:
+'   a clone gone stale under a moving host checkout ...... P3
+'   two concurrent runs on one key ........................ Q1
+'   state with no lifecycle under `proveo clean` .......... Q2
+' state-sync.puml calls this plan "a separate plan" and carries S2 itself:
+' todos/ keeps the whole-store scope, and sessions/ no longer travels.
+'
+' ── WHAT sbx INTENDS (read 2026-11-14) ─────────────────────────────────────
+' LIFECYCLE: long-lived, named, re-attached.
+'   https://docs.docker.com/ai/sandboxes/usage/ : "Sandboxes persist after the
+'     agent exits." "Running the same workspace path again reconnects to the
+'     existing sandbox rather than creating another sandbox".
+'   https://docs.docker.com/ai/sandboxes/architecture/ : "Sandboxes persist
+'     until explicitly removed."
+'   `sbx run --help` (v0.50.0): "To re-attach to an existing sandbox by name,
+'     use --name". `sbx stop --help`: "Stopped sandboxes retain their state".
+'   https://docs.docker.com/ai/sandboxes/workflows/git/ : in clone mode,
+'     "Dispatch each independent task to a separate background session", and
+'     "A single clone-mode sandbox can hold multiple branches and worktrees
+'     for parallel tasks." Its "keep one sandbox per project and reuse it
+'     across tasks" sits under the mountless-sandbox section, not clone mode.
+'   https://docs.docker.com/ai/sandboxes/agents/claude-code/ : the parallel
+'     form is `sbx run --clone claude . -- agents`, many sessions in one VM.
+'   https://docs.docker.com/ai/sandboxes/workflows/automation/ : disposable
+'     sandboxes (`sbx create --name ci-task …`, `sbx rm --force`) are the CI
+'     pattern, not the interactive one.
+'   https://github.com/docker/sbx-releases/issues/775, a Docker member: "You
+'     can run agents in parallel within the same sandbox, any reason to not do
+'     it…?"
+' STORAGE: live, found again by identity; never one archive.
+'   https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/capabilities/com.docker.sandbox/volume@1.md
+'     "Deleting a sandbox MUST NOT delete its block-volume storage by default".
+'   https://github.com/docker/sandbox-kit-spec/issues/207, fixed by d50ad9f5
+'     (2026-11-06): "The point of `volume@1` is that a sandbox that is deleted
+'     and created again gets its own data back." The spec now says a runtime
+'     "MUST let the operator list retained block storage" and "MUST NOT
+'     silently expire" it.
+'   https://docs.docker.com/ai/sandboxes/customize/author/patterns/ : sbx
+'     "reattaches a volume when the sandbox name, kit source, and volume path
+'     match"; "for local sources, the source directory must stay the same".
+'   https://github.com/docker/sandbox-kit-spec/blob/main/docs/spec/capabilities/com.docker.sandbox/host-mount@1.md
+'     "MUST keep the directory's contents independently of any sandbox";
+'     "MUST key the directory on the declaring Kit's identity and the cleaned
+'     `path`"; "the grant promises no locking". `sbx create --mount HOST:PATH`
+'     (v0.50.0) binds a host directory to a declared host-mount@1 path, at
+'     create only.
+'   https://docs.docker.com/ai/sandboxes/customize/use-kits/ : "A different
+'     sandbox name or kit source gets separate storage".
+'   https://docs.docker.com/ai/sandboxes/customize/author/capabilities/ :
+'     agent-sessions@1 only declares commands; "Docker Sandboxes does not
+'     execute the declared session commands."
+'   The only one-archive models: cloud volumes, where "the last sandbox to
+'     exit overwrites the stored snapshot"
+'     (https://docs.docker.com/ai/sandboxes/cloud/usage/), and `sbx template
+'     save` / `sbx move`, whole-filesystem images that leave mounted storage
+'     out.
+' PUBLISHED KITS (registry descriptors, 2026-11-14):
+'   sbx/claude 2.1.267 declared five volume@1: projects 2g; sessions, todos,
+'     shell-snapshots and statsig 512m each. 2.1.317 (2026-11-04) and :latest
+'     2.1.325 declare no volume@1 and no host-mount@1; neither do sbx/codex
+'     and sbx/opencode. History then lives in the long-lived sandbox itself.
+'   sbx/claude-sessions, codex-sessions, cursor-sessions: opt-in mixins. Each
+'     declares one host-mount@1 at /home/agent/<agent>-history, and an install
+'     hook symlinks the session dirs into it. 1.0.0 shared one dir across
+'     sandboxes. 1.1.0 (Hub tag 2026-11-13) links into
+'     claude-history/<sandbox name>: "Each sandbox uses a subdirectory named
+'     after that sandbox, so simultaneous sandboxes do not share one writable
+'     session store." https://hub.docker.com/r/sbx/claude-sessions
+'   https://github.com/docker/sandbox-kit-spec/commit/f168691c (2026-11-02):
+'     "Add the same opt-in host storage for Claude and remove its private
+'     session volumes". It also deleted a postCreate hook that ran `sbx mount`
+'     for a live bind. Neither is a per-file copy: proveo's copy has no
+'     upstream counterpart. [Inference] Tying that examples/ commit to the
+'     published kit is inference.
+' RELEASES (https://github.com/docker/sbx-releases/releases):
+'   v0.42.0 (2026-09-07): a new sandbox reusing a deleted name "no longer
+'     inherits its … agent session history."
+'   v0.50.0 (2026-10-26) reversed it: "Persistent kit volumes retain data
+'     across kit updates and sandbox removal and recreation with the same
+'     name."
+'   v0.51.0 (2026-11-03): "Built-in agent names now resolve to published kits
+'     at `docker.io/sbx/<name>:latest`"; "Additional workspaces accept
+'     `PATH:TARGET[:ro]`".
+'   v0.53.0 (2026-11-11): "`sbx df` reports … managed-volume disk usage".
+' OPEN UPSTREAM:
+'   https://github.com/docker/sbx-releases/issues/842 "No supported way to
+'     delete local persistent kit volumes (volume commands are cloud-only)".
+'   sbx#775 "Locks don't cross VMs": several sandboxes writing one
+'     host-mount@1 file lost 93–97% of their writes.
+'   https://github.com/docker/sandbox-kit-spec/issues/171 asks to define
+'     host-mount locking limits and read-only access.
+' SPEC VS CLI: the volume@1 spec at main says kit references "do not determine
+'   volume identity"; v0.50.0's `sbx rm --help` still says the same name "with
+'   the same kit" reattaches. [Inference] A conforming sbx would reattach by
+'   name alone.
+'
+' ── THE LEAK S3 STOPS (measured 2026-11-14, read-only) ─────────────────────
+' The vendored claude kit declares the five volume@1 of sbx/claude 2.1.267
+' (internal/sbx/third_party/claude.yaml). proveo writes each run's kit to a
+' new directory (sandbox.go: KitDir under RunDir), so the kit source changes
+' every run and sbx v0.50 reattaches none of them. The sbx datastore held
+' 1,710 records labelled persistent-volume: 1,360 from per-run kit dirs, 350
+' from test and probe temp dirs. One stable name held 75 volumes across 15 kit
+' identities, five per create. Each fresh projects volume also received the
+' whole host store (1.3 GB) until the stopgap scoped the restore (F7).
+'
+' ── THE TWO EXCEPTIONS TO STANDARDIZE (S1) ─────────────────────────────────
+' EXCEPTION 1, OpenCode's retained engine (engine-local-history.puml).
+'   What it is: normalEndOf returns endRetainEngine for an OpenCode target, so
+'   a clean end keeps the named sandbox. The next run re-attaches, and OpenCode
+'   opens its own SQLite on the engine's disk. A replacement (image, kit or
+'   mount change) exports the database over `sbx exec` stdout to
+'   opencode/carry/<engine>.db, and a new engine imports it once over `sbx
+'   exec -i`.
+'   What it teaches:
+'     * It is sbx's model already: continuity with no copy on the common path.
+'     * SQLite stays on the VM's own disk. WAL coordinates writers through
+'       -shm, which works only within one host. [Unverified] A database shared
+'       across VMs through a mount was never measured; sbx#775 says locks do
+'       not cross VMs.
+'     * A replacement still needs a carry, and the carry needs a
+'       commit-or-nothing protocol (its D5: a failed import removes the fresh
+'       engine and keeps the source).
+'     * `sbx rm`, the Ctrl+C remove and name reuse lose the history unless a
+'       carry ran first. Engines in different workspaces diverge from one
+'       share snapshot, and nothing merges them.
+' EXCEPTION 2, hermes's live bind (hermes-persistence.puml).
+'   What it is: agent_home.go puts HERMES_HOME=<state home>/hermes/data in the
+'   workload env. That is the host path of the proveo-home bind every VM
+'   already gets (sandbox.go Home, PROVEO_STATE_HOME). No copy runs; the agent,
+'   `sbx exec` and SSH sessions all write the host directly.
+'   What it teaches:
+'     * A live host directory needs no new sbx capability on v0.50.0: the bind
+'       exists in every VM (P2, way a).
+'     * Everything survives `sbx rm`, even a sandbox that never tore down
+'       cleanly. Nothing waits at teardown.
+'     * It is one directory for every workspace (920M, 247k files), so two
+'       hermes sandboxes share one state.db. [Unverified] SQLite over the bind
+'       across VMs was never measured; sbx#775 measured lost writes for the
+'       class.
+'     * A live bind inherits the bind's failure modes: a host-side inode
+'       replacement cuts the guest's view
+'       (_spec/internal/sbx/virtiofs-cwd-invalidation.puml).
+' THE RULE THEY SUGGEST. [Inference] Keep the sandbox (exception 1's half).
+' Put append-only history on a live host dir (exception 2's half). Keep a
+' SQLite store on the VM's disk and carry it only at a replacement, as OpenCode
+' does, until sbx#775 or kit-spec#171 says a cross-VM writer is safe (Q3).
+'
+' ── P0 THE STOPGAP (this branch; built, uncommitted) ───────────────────────
+' Built; state-sync.puml carries the detail and every pin:
+'   F2  A failed save keeps the sandbox: normalEndOf → endKeepUnsaved, retire
+'       keeps it too, and the Ctrl+C forced remove still removes.
+'   F3  No destination name is written in place (stage + rename, temp +
+'       rename). A clean restore writes PROVEO_STATE_RESTORED in /dev/shm;
+'       save waits up to 60s for it, then refuses.
+'   F4  _proveo_state_plan copies by direction, newer wins; a 5s same-tick
+'       window applies to save only.
+'   F5  The restore of projects/ copies only this run's keys: the workdir, its
+'       physical path, every `git worktree list` path, the git common root.
+'   F6  `proveo rm <kept>` saves first (GuardedSaveStateArgs; exit 3 skips an
+'       image older than the guard).
+'   D1  Teardown and retire skip the save only when sbx.Gone proves the
+'       sandbox gone.
+'   D2  SaveStateArgs fails when the config save or the state save fails.
+'   D3  Every kept or not-removed fix line names `sbx rm --force <name>`; a
+'       directory past the exec argument limit lands through `xargs -0`.
+'   D4  Retire has its own fix line. D5: sibling worktrees are restored. D7:
+'       clock skew is an accepted limit. D8: neutral homes, pinned by
+'       TestNoTrackedFileNamesARealHome.
+' Built in pass 2 (S2, S3), uncommitted beside the rest of P0:
+'   * internal/sbx/third_party/claude.yaml declares no volume@1, as upstream
+'     after 2.1.267; TestNoVendoredKitDeclaresAVolume pins every vendored kit.
+'   * The manifest names the copied dirs: state: [projects, todos] on the
+'     .claude mount, sent as PROVEO_STATE_DIRS (proveohome.StateSet).
+'     proveo_sync_state carries those, projects/ scoped to this run's keys,
+'     and _proveo_config_skips keeps the config sync off them.
+'   * An env with no PROVEO_STATE_DIRS (a sandbox an older CLI created on this
+'     image) falls back to the volume dirs /proc/mounts lists, minus
+'     sessions, statsig and shell-snapshots, and the config sync prunes
+'     every volume (state-sync.puml, row C).
+'   * S2: sessions/, statsig/, shell-snapshots/, daemon.lock,
+'     daemon.status.json, daemon.log, daemon/ and jobs/ stay VM-local through
+'     transient: in defs/claudecode/harness.manifest, never deny: deny runs
+'     scrubDeny (proveohome.go, os.RemoveAll), which would delete
+'     ~/.proveo/.claude/sessions, against S3.
+'   * Sandboxes an older image created still hold volumes, and the state
+'     clause of SaveStateArgs stays: a retire saves them; `proveo rm` skips
+'     their save (D6, exit 3) and removes them.
+'   * Not touched: the 1,710 stranded records and ~/.proveo/.claude/sessions
+'     (78 records, one torn mid-write), for the owner.
+' WHY sessions/ NEVER CROSSES (the sessions study, Claude Code 2.1.323):
+'   sessions/<pid>.json registers a live process for concurrent-session and
+'   crash detection; /resume and `claude -c` read projects/
+'   (https://code.claude.com/docs/en/claude-directory). Inside a VM no record
+'   is ever swept, because IS_SANDBOX turns the sweep off. Every VM boots with
+'   the same pidDomain, so a carried record from a dead VM can count as live:
+'   `claude -c` then skips a transcript or stops ("registered from another
+'   machine or container"), and the concurrent-session tip miscounts.
+'   daemon.lock carries no pidDomain.
+'
+' ── P1 KEEP THE NAMED SANDBOX, FOR EVERY HARNESS ───────────────────────────
+' 1. A stable kit source per (harness, workspace). Today KitDir is
+'    <RunDir>/sbx/kit (sandbox.go), new every run. Move it to one dir per
+'    sandbox name under the proveo state dir, rewritten in place. sbx then
+'    finds any kit storage again by the identity it keys on: a volume@1
+'    reattach, the host-mount@1 key of P2 way c, package-caches.puml's cache
+'    mount. [Unverified] Whether sbx keys a local kit on the dir path or on its
+'    content (sync check R11). The receipt already ignores the kit dir path,
+'    so moving it marks no sandbox stale (kit-lifecycle.puml).
+' 2. Keep on a clean end. normalEndOf's retainsEngine becomes true for every
+'    harness: endRetainEngine generalises to one endRetain, whose closing line
+'    names the re-attach. Forced, stranded and unsaved keep their precedence
+'    above it. The OpenCode branch stops being a case. [Inference] sbx stops a
+'    local sandbox about 30 s after its last session disconnects
+'    (engine-local-history.puml, REHOMED), so a kept sandbox costs disk, not
+'    memory.
+' 3. Retire still carries state. A kit, image, mount or env change still
+'    retires the sandbox: receipt mismatch → carry the clone home → `sbx rm`
+'    → create the same name. Until P2, retire runs the stopgap's save; after
+'    P2 the history is already on the host, and retire carries the clone only.
+'    [Inference] Every `mise run build <harness>` changes the image, so most
+'    retires follow a rebuild; one name already showed 11 kit identities.
+' 4. The reboot restore is safe now. The revision rated "retain everything"
+'    as F4 on every run. P0's newer-wins restore keeps a newer guest turn, so a
+'    re-attach that boots a stopped VM reverts nothing, barring clock skew
+'    (D7) and pre-P0 images.
+' P1 alone keeps history between runs; P2 keeps it across a retire and `sbx
+' rm`, and makes it readable on the host.
+' Tests: the normalEndOf table (every harness keeps), a teardown report that
+' keeps on success, and an e2e that runs twice and re-attaches by name.
+'
+' ── P2 HISTORY ON A LIVE HOST DIRECTORY PER (harness, workspace) ───────────
+' Layout, after claude-sessions 1.1.0 (per name, never one shared dir):
+'   ~/.proveo/history/<harness>/<sandbox name>/{projects,todos,…}
+'   The sandbox name already encodes (target, workspace):
+'   proveo-<target>-<sha256(workspace)[:4]> (sbx.SandboxName). A worktree
+'   clone keys on its repository root (sandboxKey), so sibling worktrees share
+'   one dir, which `claude --resume` across worktrees (D5) needs.
+'   Unlike the mixin, sessions/ is never linked (S2).
+'   [Inference] A 4-byte hash collides rarely; a marker file holding the
+'   workspace path would detect it.
+' Three ways to put that dir in the VM, cheapest first:
+'   a. The existing ~/.proveo bind. Every VM already mounts the proveo home at
+'      its host path and exports PROVEO_STATE_HOME; hermes runs on it today.
+'      The seed symlinks ~/.claude/projects and todos into it, as the mixin's
+'      install hook does. Works on v0.50.0. [Inference] Every VM can read
+'      every workspace's history, as today.
+'   b. v0.51 additional workspaces, PATH:TARGET[:ro]: the per-name dir mounted
+'      at its target with no symlink, and the VM sees only its own workspace.
+'      Needs sbx v0.51.0 or later (Q5). [Unverified] That a TARGET may sit
+'      under the agent's HOME.
+'   c. host-mount@1 in proveo's kit plus `sbx create --mount HOST:PATH`,
+'      upstream's exact shape. Needs P1's stable kit source or `--mount` on
+'      every create. Without either, each run gets a new runtime-owned host dir
+'      that `sbx rm` keeps: the leak S3 stops, in a new place (intent check C3).
+' Delete with it: proveo_sync_state, _proveo_state_entries,
+' _proveo_volume_dirs, _proveo_state_tree, _proveo_state_plan,
+' _proveo_state_place, _proveo_await_restore with the restore marker
+' (PROVEO_STATE_RESTORED), the seed's restore call, the state clause of
+' _proveo_config_skips, the manifest's state: field (HomeMount.State,
+' ValidState), proveohome.StateSet with PROVEO_STATE_DIRS, and the state
+' clause of SaveStateArgs. Once the migration below has run, the key
+' functions go too: _proveo_claude_project_key, _proveo_claude_project_roots
+' and _proveo_claude_project_dirs. The SaveStateArgs clause stays one release
+' behind `declare -F proveo_sync_state`, for sandboxes older images created
+' (sync check R4).
+' The clock-skew limit (D7) and F3's truncation class leave with the copy.
+' Migration: the first run per name copies this workspace's keys from
+' ~/.proveo/.claude/projects into the per-name dir; the stopgap's key function
+' names them. The old tree stays read-only, for the owner to remove.
+' codex and cursor: their history travels by config sync today (codex
+' sessions/**.jsonl, history.jsonl, state_5.sqlite with -wal and -shm; cursor
+' chats/ and projects/). Upstream ships codex-sessions and cursor-sessions
+' mixins of the claude shape. The jsonl dirs move to the per-name dir;
+' state_5.sqlite follows OpenCode's rule (on the VM's disk, carried at a
+' retire) until Q3 is answered. [Unverified] Cursor's on-disk chat format.
+' Harness-wide files (claude's and codex's history.jsonl, settings) stay on
+' config sync: they are not per workspace, and F8–F11 still apply to them.
+' Tests: TestNoVendoredKitDeclaresAVolume stays; a contract test that the
+' seed links projects/ and todos/ to the per-name dir. e2e: `claude -c`
+' resumes across two runs; two concurrent workspaces keep their turns; a
+' retire keeps the history with no save.
+'
+' ── P3 REFRESH THE CLONE ON RE-ATTACH ──────────────────────────────────────
+' sbx fixes clone mode at create, so a re-attached sandbox keeps the clone of
+' the run that created it. When the host's HEAD has moved since:
+'   never refresh   the agent works on a silent fork of an old base, and the
+'                   operator reconciles it on the host
+'   reset to HEAD   discards the clone's uncommitted work and moves the agent
+'                   off its own branch
+' Proposed. Teardown already commits a snapshot of uncommitted work and lifts
+' the clone's commits to refs/proveo/<sid>/* (clone-workspace.puml), so at a
+' re-attach the clone's work is already mirrored on the host. Then:
+'   1. Fetch the host's refs into the clone from /run/sandbox/source, which
+'      the git docs call "available at `/run/sandbox/source`, but only with
+'      read access". [Inference] That mount is live, so it shows today's refs.
+'   2. Fast-forward the base branch only when the clone's tree is clean and
+'      the fast-forward is clean. Never rewrite the agent's own branch.
+'   3. Say what moved, e.g. "host main moved N commits; <branch> is based on
+'      the old main", and leave the rebase to the agent or the operator.
+' The agent's own branch stays checked out across runs, so the operator sees
+' one branch growing, not N ref namespaces.
+' reusable-clone.puml lists the touch points (decideClone, CloneFetchArgs,
+' PreserveClone, liftClonedOutput) and its measure-first rule.
+' [Inference] Direct mode (--clone=false) has no clone and nothing to refresh:
+' the guest reads the host tree live.
+'
+' ── P4 RETIRE THE SPECIAL CASES ────────────────────────────────────────────
+' OpenCode: P1 makes its retention the rule, so endRetainEngine and the
+' OpenCode-only branch go. Its carry stays the one SQLite carry until Q3
+' answers whether a cross-VM SQLite writer is safe. Then either:
+'   * the carry generalises to every SQLite store at a retire (codex
+'     state_5.sqlite, hermes state.db), or
+'   * the database moves to the per-name host dir and the carry is deleted.
+' hermes: HERMES_HOME is one dir for every workspace, the opposite of S1's
+' per-(harness, workspace) rule. Options for the owner:
+'   * per name: HERMES_HOME=<history>/hermes/<sandbox name>; memories, skills
+'     and the vault stop crossing workspaces unless they are split out;
+'   * shared, one writer: keep one dir and refuse a second live hermes
+'     sandbox, with a host-side lock, since guest locks do not cross VMs;
+'   * shared as today, with sbx#775's lost-write risk recorded.
+' [Inference] Hermes is a personal agent whose memory is meant to cross
+' workspaces, so the per-name split costs it the most.
+'
+' ── OPEN QUESTIONS ─────────────────────────────────────────────────────────
+' Q1 TWO RUNS ON ONE WORKSPACE. One name per (harness, workspace), so a second
+'    run re-attaches to the first's live sandbox. The launch path has no
+'    liveness guard and no run lock (sync check). [Unverified] Today the
+'    first teardown may remove the VM the second still uses (F13). sbx's
+'    pattern is parallel sessions in one sandbox (the git and claude-code
+'    docs, sbx#775). P1 removes the `sbx rm` on a clean end. Still open: a
+'    teardown must not stop or retire a sandbox another session holds. S2
+'    makes sessions/ VM-local, which is what parallel sessions in one VM need.
+' Q2 proveo clean AND DISK. Kept sandboxes accumulate, one per (harness,
+'    workspace), and `proveo clean` lists none of them. `proveo clean
+'    --homes` removes ~/.proveo without checking for running sandboxes (F15);
+'    after P2 that deletes live history. v0.53.0's `sbx df` reports
+'    managed-volume use. A host ENOSPC flips kept guests read-only, with no
+'    in-place fix.
+' Q3 LOCKS ACROSS VMs (sbx#775, kit-spec#171). Neither flock nor fcntl crosses
+'    VMs. Exposed: hermes's state.db over the bind; claude's
+'    projects/<root key>/memory/*.md when two VMs share a repository; codex's
+'    SQLite if it moves out. Per-name dirs (P2) confine sharing to one
+'    workspace, and Q1's one-sandbox answer confines it to one VM.
+' Q4 CLOCK SKEW. P0's newer-wins trusts the VM and host clocks (D7). P1 makes
+'    restores rare, and P2 deletes them. [Inference] The VM clock follows the
+'    host's, so skew needs a host clock step.
+' Q5 THE sbx VERSION FLOOR. The host runs v0.50.0. v0.53.0 (2026-11-11) is the
+'    latest release, and v0.54.0-rc7 (2026-11-13) is out. P2 way b needs
+'    v0.51.0, which also resolves built-in agent names to published kits.
+'    proveo names no minimum sbx version today.
+' Q6 THE STRANDED VOLUMES. 1,710 records wait for sbx#842: v0.50.0 has no
+'    local `sbx volume rm`, and `sbx reset` deletes everything. S3 leaves them,
+'    and ~/.proveo/.claude/sessions, for the owner. [Inference] A sbx that
+'    follows the volume@1 spec at main would reattach them by name, sessions
+'    volume included; P0's drop of volume@1 keeps new sandboxes out of that.
+title PLANNED — session continuity the sbx way: one kept sandbox\nper (harness, workspace), its history live on the host
+
+actor "operator" as OP
+
+node "host: proveo run <harness>\nin one workspace" as PV <<host>>
+component "host: stable kit source\none dir per sandbox name (P1)" as KIT <<app>>
+database "host: <home>/.proveo/history/\n<harness>/<sandbox name>/\nprojects/ · todos/ · jsonl (P2)" as HIST <<db>>
+database "host: refs/proveo/<sid>/*\nthe clone's work, lifted each run" as REFS <<db>>
+
+component "sandbox proveo-<harness>-<workspace hash>\nkept between runs (P1)\nagent: claude · codex · cursor · opencode · hermes" as AG <<app>>
+database "sandbox: the clone\nfixed at create\nrefreshed on re-attach (P3)" as CLONE <<db>>
+database "sandbox: VM-local only (S2)\nsessions/ · daemon.lock\ndaemon/ · jobs/\nSQLite until Q3" as LOCAL <<db>>
+
+component "retire on a kit, image\nor mount change:\nthe same name anew" as RETIRE <<async>>
+component "exception 1\nOpenCode retained engine" as OCE <<app>>
+component "exception 2\nhermes live HERMES_HOME bind" as HB <<app>>
+component "deleted: per-file state sync,\nvendored volume@1,\nretained-engine case" as GONE <<error>>
+component "1,710 stranded volume@1\nrecords, waiting for sbx#842" as STRAND <<error>>
+
+OP ARROW_MAIN PV
+PV ARROW_MAIN AG : sbx run --name (re-attach)
+PV ARROW_OPTIONAL KIT : sbx create only
+AG ARROW_MAIN HIST : live dir
+AG ARROW_MAIN LOCAL : never carried
+CLONE ARROW_QUEUE REFS : teardown lift
+REFS ARROW_OPTIONAL CLONE : re-attach refresh
+PV ARROW_OPTIONAL RETIRE : receipt changed
+RETIRE ARROW_MAIN CLONE : same name, new clone
+OCE ARROW_OPTIONAL AG : retention becomes the rule
+HB ARROW_OPTIONAL HIST : the live dir becomes the rule
+GONE ARROW_ERROR STRAND : P0 stops the growth
+
+note right of AG
+  **One sandbox per (harness, workspace).** A
+  clean end keeps it, and the next run
+  re-attaches by name, as OpenCode's engine
+  does today.
+end note
+
+note bottom of HIST
+  **History lives on the host, per name.** The
+  agent writes it live, so a retire or sbx rm
+  loses nothing and no teardown copy runs.
+end note
+
+note bottom of LOCAL
+  **VM-local, never carried (S2).** sessions/
+  registers live PIDs, and every VM boots with
+  the same pidDomain, so a carried record lies.
+end note
+
+note left of CLONE
+  **The clone outlives the run (P3).** Re-attach
+  fetches the host's refs, fast-forwards a clean
+  base and never rewrites the agent's branch.
+end note
+
+note bottom of RETIRE
+  **A changed kit or image still retires.** The
+  same name is created anew. After P2 only the
+  clone is carried: the history is on the host.
+end note
+
+note bottom of OCE
+  **Exception 1 teaches retention.** SQLite
+  stays on the VM's disk and crosses only at a
+  replacement, through a commit-or-nothing carry.
+end note
+
+note bottom of HB
+  **Exception 2 teaches the live dir.** No copy
+  and no new sbx capability, but one HERMES_HOME
+  for every workspace, shared across VMs.
+end note
+
+note bottom of GONE
+  **Deleted in P2 and P4.** The per-file state
+  sync, the vendored volume@1 and the retained-
+  engine case go. Config sync stays.
+end note
+
+note bottom of STRAND
+  **Left for the owner (S3).** No local command
+  removes a kept kit volume on v0.50.0, so the
+  records wait for sbx#842.
+end note
+
+note left of KIT
+  **A stable kit source (P1).** One dir per
+  sandbox name, so sbx finds kit storage again
+  by the identity it keys on.
+end note
+
+legend bottom
+  **Phases** — S1–S3 decided by the owner, 2026-11-14
+  ==
+  **P0 stopgap** (built, uncommitted): no failed save removes a sandbox; newer-wins, staged copies;
+  projects/ scoped to this workspace's keys; ""proveo rm"" saves first; no vendored ""volume@1"";
+  the manifest names the copied dirs; sessions/ and the daemon files stay VM-local.
+  --
+  **P1 keep**: a stable kit source per name; every harness keeps its sandbox on a clean end; retire
+  on a kit or image change still carries state.
+  --
+  **P2 live history**: a per-name host dir (the proveo-home bind, v0.51 ""PATH:TARGET"", or
+  ""host-mount@1"" + ""--mount""); delete ""proveo_sync_state"" and its helpers.
+  --
+  **P3 refresh**: fetch host refs on re-attach, fast-forward a clean base, keep the agent's branch.
+  --
+  **P4 standardize**: OpenCode's retention is the rule; its carry and hermes's shared home await Q3.
+  ==
+  **Open**: Q1 two runs, one workspace · Q2 clean and disk · Q3 locks across VMs · Q4 clock skew ·
+  Q5 sbx version floor · Q6 stranded volumes
+end legend
+@enduml

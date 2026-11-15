@@ -413,12 +413,26 @@ func bashQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func SaveStateArgs(name string) []string {
+// SaveStateArgs saves the sandbox's configuration, toolchains and resume state; it fails when
+// the configuration or the resume state did not reach the host.
+// SPEC: _spec/internal/sbx/state-sync.puml
+func SaveStateArgs(name string) []string { return saveStateArgs(name, "") }
+
+// SaveStateUnguarded is the exit status GuardedSaveStateArgs reserves for an image whose lib
+// predates the save that waits for this boot's restore; it saves nothing.
+const SaveStateUnguarded = 3
+
+// GuardedSaveStateArgs is SaveStateArgs that exits SaveStateUnguarded on an image whose lib predates the restore wait.
+func GuardedSaveStateArgs(name string) []string {
+	return saveStateArgs(name, "; declare -F _proveo_await_restore >/dev/null || exit "+strconv.Itoa(SaveStateUnguarded))
+}
+
+func saveStateArgs(name, guard string) []string {
 	return []string{"exec", "-w", "/", name, "--", "bash", "-c",
-		". /entrypoint-lib.sh" +
-			"; { proveo_sync_config save || true; }" +
+		". /entrypoint-lib.sh" + guard +
+			"; rc=0; proveo_sync_config save || rc=1" +
 			"; { proveo_sync_tools save || true; }" +
-			"; proveo_sync_state save"}
+			"; proveo_sync_state save || rc=1; exit $rc"}
 }
 
 func RemoveArgs(name string) []string {

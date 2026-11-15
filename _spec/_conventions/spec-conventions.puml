@@ -4,6 +4,8 @@
 ' covers: internal/contract/spec_notes_test.go
 ' covers: internal/ui/ui.go
 ' covers: internal/contract/comment_blocks_test.go
+' covers: internal/contract/operator_home_test.go
+' covers: internal/contract/lexicon_test.go
 ' Deliberately NOT `_spec/**` — a glob over the tree this file describes would
 ' report drift on every diagram edit, which is noise rather than signal.
 ' The palette these roles print in: _spec/_conventions/tui-design-language.puml.
@@ -67,6 +69,24 @@
 ' opencode plain-secret 401 (repo-simplification.puml N14). MEASURED
 ' 2026-11-12: `mise run lint` is green, so none of the three is over three
 ' lines today.
+'
+' ── NO REAL HOME IN A TRACKED FILE (2026-11-14) ───────────────────────────
+' A spec, test or source line that quotes a macOS path uses a neutral home
+' (/Users/dev, /Users/op, ...), never an operator's own: the tree is shared,
+' and a home or worktree name carries a person, a client and a ticket. The
+' Claude Code projects/ key form (-Users-<name>-...) counts too. The state
+' sync stopgap quoted one in a test and a spec (state-sync.puml D8).
+' Pinned: internal/contract/operator_home_test.go
+' TestNoTrackedFileNamesARealHome, which reads every tracked file against a
+' table of neutral names; like the comment lint it reads `git ls-files`.
+'
+' ── A BANNED PHRASE, AS A RATCHET (2026-11-14) ─────────────────────────────
+' The org lexicon bans "at all": drop it or name a concrete quantifier. The
+' tree held 89 older uses that day, so the rule binds the files listed in
+' lexiconEnforced, and a file joins once it is clean, as specNotesEnforced
+' grows. The session-continuity plan carried one in a pass a check caught.
+' Pinned: internal/contract/lexicon_test.go
+' TestEnforcedFilesAvoidTheBannedPhrase.
 title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle
 
 component "<<app>>  first-party app / runtime service" as R1 <<app>>
