@@ -1,8 +1,0 @@
-╭──────────────────────────────────────╮
-│ run claudecode — where the agent wo… │
-│ › monorepo  repo root  default       │
-│   │ ▾ apps                           │
-├──────────────────────────────────────┤
-│ enter starts the agent at the repo … │
-│ page 1/2 · enter choose · esc cancel │
-╰──────────────────────────────────────╯

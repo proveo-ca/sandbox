@@ -107,7 +107,7 @@ skinparam noteTextAlignment left
 ' ── WHAT IS MEASURED HERE AND WHAT IS NOT ───────────────────────────────────
 ' MEASURED: the enforced pattern table (quoted above), the MITM/tunnel split
 ' (curl through the sandbox proxy), and that the emitted allowlist carried the
-' leading-dot form (cmd/proveo/testdata/plan/sbx-cursor-forward.golden).
+' leading-dot form (sbx-cursor-forward.golden, a cmd/proveo plan golden of that day).
 '
 ' NOT MEASURED, and deliberately named rather than assumed: whether `*.x.ai` is
 ' accepted in `inject[].domain` specifically. The reference documents ONE domain

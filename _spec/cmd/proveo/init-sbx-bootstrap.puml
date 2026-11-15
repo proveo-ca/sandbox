@@ -7,7 +7,7 @@ skinparam noteTextAlignment left
 ' covers: cmd/proveo/init_view.go
 ' covers: cmd/proveo/init_checklist.go
 ' covers: cmd/proveo/init_frames_test.go
-' covers: cmd/proveo/testdata/init/**
+' covers: cmd/proveo/testdata/init.txtar
 ' covers: cmd/proveo/init_report.go (handOff, handFramed, planSetup, runSetup, setupTurn, the sbx block)
 ' covers: cmd/proveo/init_tui.go (initDecisions, defaultDecisions, carried, prefixOptions, sbxForm, gitForm, loginRow, setupRow, flagRow, installRow, baselineRow, hostNetwork)
 ' covers: cmd/proveo/init_apply.go (applySbx, applyGit, runApply, applyLogin, loginStage)
@@ -389,7 +389,7 @@ skinparam noteTextAlignment left
 ' init_tui_test.go (the builders); init_git_test.go
 ' TestGitIdentityFieldsReplaceTheLinePrompts; init_frames_test.go
 ' TestInitPagesMatchTheirGoldenFrames, 20 frames in
-' cmd/proveo/testdata/init/ (p1-rest, p1-running, p1-rerun match the I3
+' cmd/proveo/testdata/init.txtar (p1-rest, p1-running, p1-rerun match the I3
 ' mocks and the stage-2 goldens line for line).
 '
 ' ── ONE SESSION PER WALK (I3 STAGE 4) ─────────────────────────────────────

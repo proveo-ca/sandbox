@@ -90,6 +90,7 @@ var specNotesEnforced = []string{
 	"_spec/cmd/proveo/init-sbx-bootstrap.puml",
 	"_spec/internal/choiceui/session.puml",
 	"_spec/internal/sbx/state-sync.puml",
+	"_spec/tests/00-test-fixtures.puml",
 }
 
 const (

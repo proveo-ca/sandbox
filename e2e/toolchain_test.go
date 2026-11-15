@@ -15,16 +15,8 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/envflag"
+	"github.com/proveo-ca/proveo/internal/testx"
 )
-
-func fixtureDir(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Join(wd, "testdata", "polyglot22")
-}
 
 func repoRootDir(t *testing.T) string {
 	t.Helper()
@@ -54,24 +46,11 @@ type runOpts struct {
 	timeout time.Duration
 }
 
-// fixtureWorkspace copies the polyglot fixture into a git repo of its own, which
+// fixtureWorkspace extracts the polyglot fixture into a git repo of its own, which
 // is what an operator hands proveo and what the sandbox clones.
 func fixtureWorkspace(t *testing.T) string {
 	t.Helper()
-	work := t.TempDir()
-	entries, err := os.ReadDir(fixtureDir(t))
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
-	}
-	for _, e := range entries {
-		b, err := os.ReadFile(filepath.Join(fixtureDir(t), e.Name()))
-		if err != nil {
-			t.Fatalf("read fixture file: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(work, e.Name()), b, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	work := testx.Extract(t, "polyglot22")
 	mustRun(t, work, "git", "init", "-q", ".")
 	mustRun(t, work, "git", "config", "user.email", "e2e@proveo.test")
 	mustRun(t, work, "git", "config", "user.name", "proveo e2e")

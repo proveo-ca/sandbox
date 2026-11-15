@@ -62,7 +62,7 @@ title GitHub access — host selection, sandbox verification
 ' close() diagnoses once more (D25).
 ' Pinned by e2e TestInitGitHubSSHChoicePersistsWithoutChangingHostProtocol,
 ' cmd/proveo TestPageTwoEnterRunsGitIdentityThenGitHubThenPromptKit and the
-' github-access golden frames in cmd/proveo/testdata/init/.
+' github-access golden frames in cmd/proveo/testdata/init.txtar.
 ' The choice persists atomically as transport only, in the host user-config
 ' directory's proveo/github.json. Unknown or malformed choices fail a run.
 '

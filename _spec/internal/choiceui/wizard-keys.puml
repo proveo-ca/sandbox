@@ -238,7 +238,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' cursor (option, help, status lines apart), and the frame with the cursor on
 ' that row. Form.Render still opens on the answer.
 ' GOLDENS: the start state is unchanged (MEASURED 2026-11-14:
-' internal/choiceui/testdata, cmd/proveo/testdata/init). The verifier pass
+' internal/choiceui/testdata, cmd/proveo/testdata/init.txtar). The verifier pass
 ' moved six .env fixture frames for the help the locked row gained:
 ' wireframe.puml (AN OPEN LIST ON A LOCKED ROW, COST).
 ' Pinned by internal/choiceui/disabled_hover_test.go:

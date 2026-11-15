@@ -17,6 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/hostadb"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/testx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -53,9 +54,9 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	t.Cleanup(func() { hostADB("uninstall", helloPackage) })
 	hostADB("uninstall", helloPackage)
 
-	work := t.TempDir()
-	if out, err := exec.Command("cp", "-R", filepath.Join(repoRoot(t), "e2e", "testdata", "android-hello")+"/.", work).CombinedOutput(); err != nil {
-		t.Fatalf("copy fixture: %v\n%s", err, out)
+	work := testx.Extract(t, "android-hello")
+	if err := os.Chmod(filepath.Join(work, "install.sh"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	home := t.TempDir()
 	t.Cleanup(func() { removeLeakedSandboxes(t, before, canList) }) // before home's RemoveAll: a live sandbox still writes its toolchains

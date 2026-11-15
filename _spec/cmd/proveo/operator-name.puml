@@ -53,7 +53,7 @@ skinparam noteTextAlignment left
 '            init_operator_test.go TestTheOperatorPageHasNoSkipAndItsHelpIsTheReason,
 '            init_report_test.go TestTheClosedChecklistPrintsOnceInRunOrder and
 '            TestTheOperatorsNameIsAFact (--print); goldens
-'            cmd/proveo/testdata/init/p4_*.
+'            p4_* in cmd/proveo/testdata/init.txtar.
 
 ' ── CARRY (proveo run) ─────────────────────────────────────────────────────
 '   sbx      agent env PROVEO_OPERATOR_NAME=<name>

@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
-' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 step 1 DONE 2026-11-15. _spec/_plans/ is exempt from the SPEC-reference rule.
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1 and 3 DONE 2026-11-15. _spec/_plans/ is exempt from the SPEC-reference rule.
 ' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
 '   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
 '   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
@@ -355,6 +355,19 @@ skinparam noteTextAlignment left
 '     _spec/defs/opencode/*.puml globs for opencode_presentation.* stay valid.
 '   Churn (180 days): frames 8 commits / 296 file-touches, plan 17 / 68, scope 4 / 68; a conflict inside an
 '     archive resolves by taking either side and running -update, never by hand.
+'   ── DONE 2026-11-15, commit "test: one txtar archive per fixture family" on refactor-compress-codebase; the design,
+'      its DECIDED row (F4, option 1) and the four guards live in _spec/tests/00-test-fixtures.puml ──
+'      MEASURED on the staged diff before this block: tracked files 1,178 → 940 (−238: 253 fixture files out, 11 archives +
+'      testx.go, testx_test.go, .gitattributes, 00-test-fixtures.puml in); directories holding tracked files 172 → 158 (−14:
+'      the 18 fixture directories went, internal/testx and the three testdata/ dirs that now hold archives directly came).
+'      `git diff --numstat` +6,327 / −5,672 over 305 paths (posture-sbx.golden → posture.txtar reads as a 97 % rename).
+'      Fixtures −5,346 lines → 5,599 (+253, one marker per packed file; bytes 526,647 → 534,311, +1.5 %). Go: the 13 readers
+'      −272 / +59, testx.go 222 + testx_test.go 221 → net +230 (the estimate's +160 counted no tests for the helper); specs
+'      and the standards +204 / −59. go.mod: x/tools v0.52.0 direct; MVS lifted x/sys 0.47 → 0.49 and x/sync 0.22 → 0.24;
+'      `go mod tidy` dropped bubbles/v2, restored with `go get` (TestGoModNamesTheTUIStackVersionsExplicitly). Round trip:
+'      11 of 11 archives extract byte-identical (diff -r, 253 files); -update twice left the 7 golden archives' md5 unchanged.
+'      Not built as drafted: Want is a function (Want(t, archive, entry)), not a method, since a reader owns no Goldens;
+'      ExtractTo has no caller yet (kept for a fixture another process must reach by path; **/testdata/out/ is gitignored).
 '
 ' ══ 6 · OTHER LEVERS, RANKED (Directive 4 — other.md's ranked table, deduped against §3, §4 and §5) ══════
 '   lines / files = savings against §1. A bare number is MEASURED (wc -l on 2026-11-15 @ 7ce8c83a, or the tool's own
@@ -480,7 +493,8 @@ skinparam noteTextAlignment left
 '   1. [rec] The 8 uncontested merges: −8 dirs, no reversed decision, 1 gate edit.
 '   2. All 15: needs DECIDED rows reversing N5, N6, N8 and a fix for credentials → entrypoint.
 '   3. None: keep the 53-package tree, take P10 only.
-' F4 · Fixture archives per test function, per package, or none
+' F4 · Fixture archives per test function, per package, or none — DECIDED 2026-11-15 by the owner: option 1,
+'      quoted "one archive per test function"; landed as §9 step 3; the design lives in _spec/tests/00-test-fixtures.puml
 '   1. [rec] Per test function: 11 archives; -update prunes safely; x/tools txtar + the four guards.
 '   2. Per package: one choiceui.txtar (189 entries); needs a merge-on-close helper instead of prune.
 '   3. No archive: fold the five 40-line golden loops into one helper (Go ≈ −94, 0 file change, no new
@@ -554,8 +568,8 @@ skinparam noteTextAlignment left
 '   1  DONE 2026-11-15 — dead high set per F1; `go mod tidy`; delete the .db; repoint seed-and-launch.puml:16,   gate: gofmt, build, vet ×3, lint,
 '      the two credential-decisions.puml prose lines, step-lines.puml:36 and sandbox-backend.puml:123       baseline, contract · −114 net, −1 file
 '   2  `go fix ./...` twice (2 conflicting fixes skip on the first pass); modernize −92 is superseded   gate: gofmt, test-go, e2e go vet · −62 (−73 with tags)
-'   3  fixtures: internal/testx with the guards; 11 archives; drop PROVEO_UPDATE_FRAMES and the     gate: per-package -update round trip is a no-op
-'      golden_test.go flag; .gitattributes; standards line; 14 covers lines                          diff; test-go; go vet -tags=e2e · −243 files
+'   3  DONE 2026-11-15 — fixtures: internal/testx with the guards; 11 archives; PROVEO_UPDATE_FRAMES   gate: per-package -update round trip is a no-op
+'      and the golden_test.go flag dropped; .gitattributes; standards line; covers lines (§5 DONE)    diff; test-go; go vet -tags=e2e · −243 files
 '   4  N15 / P1, P4 split, P5 split, P9(a)(c)(d)                                                   gate: 137 + 20 frames, 7 goldens unchanged · +6 files
 '   5  P10 with F7's answer; P9(b)                                                                 gate: go build ./...; chart edges re-run · −35
 '   6  the merges F3 allows, hostdev first (dupl group 4 falls with it)                            gate: host_devices_test.go path; covers repoints · −8 dirs

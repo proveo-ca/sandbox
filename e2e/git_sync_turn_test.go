@@ -19,6 +19,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/termtext"
+	"github.com/proveo-ca/proveo/internal/testx"
 	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
@@ -52,10 +53,7 @@ func TestGitSyncTurnEventuallyPersistsTheTurn(t *testing.T) {
 		t.Skip("sandbox backend unavailable")
 	}
 	proveoBin := buildProveo(t)
-	probe, err := os.ReadFile(filepath.Join("testdata", "git-sync-turn", hookProbeFile))
-	if err != nil {
-		t.Fatal(err)
-	}
+	probe := []byte(testx.Want(t, "git-sync-turn", hookProbeFile))
 	for _, h := range gitSyncHarnesses {
 		t.Run(h.target, func(t *testing.T) {
 			requireHarness(t, h.target)
@@ -155,14 +153,10 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	assertGitSyncTurn(t, h, state, probe)
 }
 
-// gitSyncWorkspace copies the fixture's committed base into a fresh repo.
+// gitSyncWorkspace extracts the fixture's committed base into a fresh repo.
 func gitSyncWorkspace(t *testing.T) string {
 	t.Helper()
-	work := t.TempDir()
-	src := filepath.Join("testdata", "git-sync-turn", "workspace")
-	if out, err := exec.Command("cp", "-a", src+"/.", work).CombinedOutput(); err != nil {
-		t.Fatalf("copy git-sync-turn fixture: %v\n%s", err, out)
-	}
+	work := filepath.Join(testx.Extract(t, "git-sync-turn"), "workspace")
 	gitInit(t, work)
 	return work
 }

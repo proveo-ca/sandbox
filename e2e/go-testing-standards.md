@@ -25,8 +25,12 @@ Go 1.26 (this module's toolchain).
 7. **Use the testing lifecycle helpers:** `t.TempDir()` (auto-cleaned), `t.Setenv()` (auto-restored,
    serial), `t.Cleanup()`, `t.Chdir()` (Go 1.24+). Don't hand-roll teardown.
 8. **Mark helpers with `t.Helper()`** so failures point at the call site.
-9. **Golden files** for large/structured output (e.g. generated config): compare against a
-   `testdata/*.golden`, refreshable with a `-update` flag. Annotate the diff direction.
+9. **Golden files** for large/structured output (e.g. generated config): one txtar archive per
+   golden-producing test function, `testdata/<name>.txtar`, read through `internal/testx`
+   (`g := testx.Open(t, name)`, `g.Assert(entry, got)`); a file-tree fixture lands in
+   `testx.Extract(t, name)`. Refresh per package with `go test ./<pkg> -update` (`-run` narrows it
+   to a test function); the root form `go test ./... -update` fails every package without the flag.
+   Annotate the diff direction.
 10. **Test error identity, not error strings.** Use `errors.Is`/`errors.As`, not substring matching.
 11. **Run with `-race`** in CI; keep tests deterministic (no `Date.now()`-style nondeterminism).
 

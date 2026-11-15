@@ -129,7 +129,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' Enter keeps, and takes only Enter, Esc and Ctrl+C. MEASURED 2026-11-13:
 ' the card keeps that floor (2 head rows and 4 foot rows around one tree
 ' row); the too-small message now counts the filter row in what it needs.
-' Golden frames: internal/choiceui/testdata/scope/, 24 files (six states at
+' Golden frames: internal/choiceui/testdata/scope.txtar, 24 entries (six states at
 ' four sizes). All 24 were re-recorded for the card on 2026-11-13.
 ' AMENDED 2026-11-13 (owner: "In proveo run it also renames from scope 1/2
 ' to page 2/2, always display page instead"): the chip read " scope · n/m "
@@ -169,7 +169,7 @@ title The scope page and the filter list — a folder tree with the root first, 
 ' "no target selected", "no task selected". Since R4 `proveo attach` prints
 ' its own "⚠ attach — no task selected" (exit 1, the operator's choice); `proveo
 ' run` and the harness aliases still end on main's ×.
-' Golden frames: internal/choiceui/testdata/list/, 6 files (open and
+' Golden frames: internal/choiceui/testdata/list.txtar, 6 entries (open and
 ' narrowed at three sizes; the three multi frames went with Multi).
 '
 ' ── THE LIBRARIES LEFT (B9) ────────────────────────────────────────────────

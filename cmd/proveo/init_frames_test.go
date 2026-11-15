@@ -3,14 +3,13 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/githubaccess"
 	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 // The recorded host the frames draw: darwin/arm64 with sbx 0.50.0, two passed checks and two that
@@ -160,49 +159,17 @@ func initFrameCases(t *testing.T) []struct {
 }
 
 // TestInitPagesMatchTheirGoldenFrames holds each init page, as the walk builds it, to frames
-// recorded from the renderer at 80x24 and 120x36. PROVEO_UPDATE_FRAMES=1 records them.
+// recorded from the renderer at 80x24 and 120x36 in testdata/init.txtar; -update records them.
 func TestInitPagesMatchTheirGoldenFrames(t *testing.T) {
 	t.Setenv("HOME", "/home/op")
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("PROVEO_GLYPHS", "")
-	dir := filepath.Join("testdata", "init")
-	update := os.Getenv("PROVEO_UPDATE_FRAMES") != ""
-	if update {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	seen := map[string]bool{}
+	g := testx.Open(t, "init")
 	for _, c := range initFrameCases(t) {
 		for _, size := range [][2]int{{80, 24}, {120, 36}} {
-			name := fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1])
-			seen[name] = true
 			f := c.form()
 			f.Glyphs = choiceui.GlyphsNerd
-			got := f.Render(size[0], size[1])
-			path := filepath.Join(dir, name)
-			if update {
-				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				continue
-			}
-			want, err := os.ReadFile(path)
-			if err != nil {
-				t.Errorf("%s: no golden frame (%v); record it with PROVEO_UPDATE_FRAMES=1", name, err)
-				continue
-			}
-			if got != string(want) {
-				t.Errorf("%s differs from its golden frame:\n--- got ---\n%s--- want ---\n%s", name, got, want)
-			}
-		}
-	}
-	if !update {
-		files, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
-		for _, f := range files {
-			if !seen[filepath.Base(f)] {
-				t.Errorf("%s is a golden frame no case draws; delete it", f)
-			}
+			g.Assert(fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1]), f.Render(size[0], size[1]))
 		}
 	}
 }

@@ -2,7 +2,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,38 +16,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/testx"
 )
-
-var updateGolden = flag.Bool("update", false, "rewrite the plan goldens from what the code produces now")
-
-const goldenDir = "testdata/plan"
-
-func goldenPath(name string) string { return filepath.Join(goldenDir, name+".golden") }
-
-func assertGolden(t *testing.T, name, got string) {
-	t.Helper()
-	path := goldenPath(name)
-	if *updateGolden {
-		if err := os.MkdirAll(goldenDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("wrote %s", path)
-		return
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("%v\nrun `go test ./cmd/proveo -run Golden -update` to create it, then read the diff before committing", err)
-	}
-	if string(want) == got {
-		return
-	}
-	t.Errorf("%s changed.\n--- want ---\n%s\n--- got ---\n%s\n"+
-		"If the change is intended, re-run with -update and review the diff as part of the change.",
-		path, want, got)
-}
 
 func section(b *strings.Builder, title string) { fmt.Fprintf(b, "== %s ==\n", title) }
 
@@ -106,7 +75,9 @@ func assertNoSecretValues(t *testing.T, rendered string, values ...string) {
 	}
 }
 
+// TestSandboxPlanGolden holds each plan to testdata/plan.txtar; `go test ./cmd/proveo -update` records it.
 func TestSandboxPlanGolden(t *testing.T) {
+	g := testx.Open(t, "plan")
 	const oauthValue = "oauth-secret-value"
 	const keyValue = "sk-secret-value"
 	const cursorValue = "cursor-secret-value"
@@ -225,7 +196,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 			got = scrub(got, map[string]string{work: "<WORK>", data: "<DATA>", home: "<HOME>", runDir: "<RUN>"})
 			got = sandboxNameHash.ReplaceAllString(got, "proveo-$1-<WORKHASH>")
 			got = hostOSValue.ReplaceAllString(got, "${1}<HOSTOS>")
-			assertGolden(t, "sbx-"+tc.name, got)
+			g.Assert("sbx-"+tc.name+".golden", got)
 
 			again, _, _ := sandbox.Spec(tc.in(work, data, home))
 			if cfg.Name != again.Name {

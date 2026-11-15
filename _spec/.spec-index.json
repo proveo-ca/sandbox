@@ -451,7 +451,7 @@
       "covers": [
         "cmd/proveo/init_credentials.go",
         "cmd/proveo/init_credentials_test.go",
-        "cmd/proveo/testdata/init/p3_*.txt",
+        "cmd/proveo/testdata/init.txtar",
         "e2e/init_steps_test.go",
         "internal/choiceui/choiceui.go",
         "apps/cli/public/cli/install.sh"
@@ -488,7 +488,7 @@
         "cmd/proveo/init_view.go",
         "cmd/proveo/init_checklist.go",
         "cmd/proveo/init_frames_test.go",
-        "cmd/proveo/testdata/init/**",
+        "cmd/proveo/testdata/init.txtar",
         "cmd/proveo/init_credentials.go",
         "cmd/proveo/init_credentials_test.go"
       ],
@@ -1484,9 +1484,7 @@
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/launch_config_test.go",
         "internal/sbx/kit.go",
-        "cmd/proveo/testdata/plan/sbx-claudecode-broker.golden",
-        "cmd/proveo/testdata/plan/sbx-claudecode-clone-datadir.golden",
-        "cmd/proveo/testdata/plan/sbx-cursor-key.golden"
+        "cmd/proveo/testdata/plan.txtar"
       ],
       "fingerprint": null
     },
@@ -2057,7 +2055,7 @@
       "covers": [
         "e2e/toolchain_test.go",
         "internal/contract/toolchain_test.go",
-        "e2e/testdata/polyglot22"
+        "e2e/testdata/polyglot22.txtar"
       ],
       "fingerprint": null
     },
@@ -2082,9 +2080,23 @@
       "spec": "_spec/tests/44-git-sync-turn-e2e.puml",
       "covers": [
         "e2e/git_sync_turn_test.go",
-        "e2e/testdata/git-sync-turn/**",
+        "e2e/testdata/git-sync-turn.txtar",
         "packages/lib/hooks/git-sync-turn.sh",
         "internal/contract/git_sync_turn_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/tests/00-test-fixtures.puml",
+      "covers": [
+        "internal/testx/testx.go",
+        "internal/testx/testx_test.go",
+        "internal/choiceui/testdata/*.txtar",
+        "cmd/proveo/testdata/*.txtar",
+        "internal/devports/testdata/mono.txtar",
+        "e2e/testdata/*.txtar",
+        ".gitattributes",
+        "e2e/go-testing-standards.md"
       ],
       "fingerprint": null
     },
@@ -2117,7 +2129,7 @@
         "e2e/host_adb_sbx_test.go",
         "e2e/android_addon_test.go",
         "e2e/android_app_test.go",
-        "e2e/testdata/android-hello/**"
+        "e2e/testdata/android-hello.txtar"
       ],
       "fingerprint": null
     },
@@ -2214,7 +2226,7 @@
         "internal/sbx/upstream_test.go",
         "internal/imagetest/opencode_test.go",
         "internal/sbx/third_party/claude.yaml",
-        "cmd/proveo/testdata/plan/sbx-claudecode-*.golden"
+        "cmd/proveo/testdata/plan.txtar"
       ],
       "fingerprint": null
     },

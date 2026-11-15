@@ -1,0 +1,398 @@
+-- alone_160x45.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                                                                               │
+│ › monorepo  repo root  default                                                                                       │
+│   │ ▾ apps                                                                                                           │
+│   │ │ api                                                                                                            │
+│   │ │ web                                                                                                            │
+│   │ ▾ packages                                                                                                       │
+│   │ │ ui                                                                                                             │
+│   │ ▾ services                                                                                                       │
+│   │ │ ▾ billing                                                                                                      │
+│   │ │ │ worker                                                                                                       │
+│   │ tools                                                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every folder below it                                                  │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+-- alone_40x8.txt --
+╭──────────────────────────────────────╮
+│ run claudecode — where the agent wo… │
+│ › monorepo  repo root  default       │
+│   │ ▾ apps                           │
+├──────────────────────────────────────┤
+│ enter starts the agent at the repo … │
+│ enter choose · esc cancel            │
+╰──────────────────────────────────────╯
+-- alone_60x12.txt --
+╭──────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                   │
+│ › monorepo  repo root  default                           │
+│   │ ▾ apps                                               │
+│   │ │ api                                                │
+│   │ │ web                                                │
+│   │ ▾ packages                                           │
+│   │ │ ui                                                 │
+├──────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every fol… │
+│ ↑↓ row · enter choose · esc cancel · 4 more below        │
+╰──────────────────────────────────────────────────────────╯
+-- alone_80x24.txt --
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                                       │
+│ › monorepo  repo root  default                                               │
+│   │ ▾ apps                                                                   │
+│   │ │ api                                                                    │
+│   │ │ web                                                                    │
+│   │ ▾ packages                                                               │
+│   │ │ ui                                                                     │
+│   │ ▾ services                                                               │
+│   │ │ ▾ billing                                                              │
+│   │ │ │ worker                                                               │
+│   │ tools                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every folder below it          │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+-- ascii_160x45.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
++----------------------------------------------------------------------------------------------------------------------+
+| run claudecode — where the agent works                                                                     page 1/2  |
+|   monorepo  repo root  default                                                                                       |
+| › | + apps  2 inside                                                                                                 |
+|   | - packages                                                                                                       |
+|   | | ui                                                                                                             |
+|   | - services                                                                                                       |
+|   | | - billing                                                                                                      |
+|   | | | worker                                                                                                       |
+|   | tools                                                                                                            |
++----------------------------------------------------------------------------------------------------------------------+
+| enter starts the agent in apps                                                                                       |
+| ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit                                                |
++----------------------------------------------------------------------------------------------------------------------+
+-- ascii_40x8.txt --
++--------------------------------------+
+| run claudecode — where the agent wo… |
+|   monorepo  repo root  default       |
+| › | + apps  2 inside                 |
++--------------------------------------+
+| enter starts the agent in apps       |
+| page 1/2 · enter choose · esc cancel |
++--------------------------------------+
+-- ascii_60x12.txt --
++----------------------------------------------------------+
+| run claudecode — where the agent works         page 1/2  |
+|   monorepo  repo root  default                           |
+| › | + apps  2 inside                                     |
+|   | - packages                                           |
+|   | | ui                                                 |
+|   | - services                                           |
+|   | | - billing                                          |
++----------------------------------------------------------+
+| enter starts the agent in apps                           |
+| ↑↓ row · enter choose · esc cancel · 2 more below        |
++----------------------------------------------------------+
+-- ascii_80x24.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
++------------------------------------------------------------------------------+
+| run claudecode — where the agent works                             page 1/2  |
+|   monorepo  repo root  default                                               |
+| › | + apps  2 inside                                                         |
+|   | - packages                                                               |
+|   | | ui                                                                     |
+|   | - services                                                               |
+|   | | - billing                                                              |
+|   | | | worker                                                               |
+|   | tools                                                                    |
++------------------------------------------------------------------------------+
+| enter starts the agent in apps                                               |
+| ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit        |
++------------------------------------------------------------------------------+
+-- filter_160x45.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                                                                     page 1/2  │
+│   / bill_                                                                                                            │
+│   monorepo  repo root  default                                                                                       │
+│   │ ▾ services                                                                                                       │
+│ › │ │ ▾ billing                                                                                                      │
+│   │ │ │ worker                                                                                                       │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent in services/billing                                                                           │
+│ ↑↓ row · type to narrow · enter choose · esc clear · ctrl+c quit                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+-- filter_40x8.txt --
+╭──────────────────────────────────────╮
+│ run claudecode — where the agent wo… │
+│   / bill_                            │
+│ › │ │ ▾ billing                      │
+├──────────────────────────────────────┤
+│ enter starts the agent in services/… │
+│ page 1/2 · enter choose · esc clear  │
+╰──────────────────────────────────────╯
+-- filter_60x12.txt --
+╭──────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works         page 1/2  │
+│   / bill_                                                │
+│   monorepo  repo root  default                           │
+│   │ ▾ services                                           │
+│ › │ │ ▾ billing                                          │
+│   │ │ │ worker                                           │
+├──────────────────────────────────────────────────────────┤
+│ enter starts the agent in services/billing               │
+│ ↑↓ row · enter choose · esc clear · ctrl+c quit          │
+╰──────────────────────────────────────────────────────────╯
+-- filter_80x24.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                             page 1/2  │
+│   / bill_                                                                    │
+│   monorepo  repo root  default                                               │
+│   │ ▾ services                                                               │
+│ › │ │ ▾ billing                                                              │
+│   │ │ │ worker                                                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent in services/billing                                   │
+│ ↑↓ row · type to narrow · enter choose · esc clear · ctrl+c quit             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+-- folded_160x45.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                                                                     page 1/2  │
+│   monorepo  repo root  default                                                                                       │
+│   │ ▾ apps                                                                                                           │
+│   │ │ api                                                                                                            │
+│   │ │ web                                                                                                            │
+│   │ ▾ packages                                                                                                       │
+│   │ │ ui                                                                                                             │
+│ › │ ▸ services  1 inside                                                                                             │
+│   │ tools                                                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent in services                                                                                   │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+-- folded_40x8.txt --
+╭──────────────────────────────────────╮
+│ run claudecode — where the agent wo… │
+│   │ │ ui                             │
+│ › │ ▸ services  1 inside             │
+├──────────────────────────────────────┤
+│ enter starts the agent in services   │
+│ page 1/2 · enter choose · esc cancel │
+╰──────────────────────────────────────╯
+-- folded_60x12.txt --
+╭──────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works         page 1/2  │
+│   │ ▾ apps                                               │
+│   │ │ api                                                │
+│   │ │ web                                                │
+│   │ ▾ packages                                           │
+│   │ │ ui                                                 │
+│ › │ ▸ services  1 inside                                 │
+├──────────────────────────────────────────────────────────┤
+│ enter starts the agent in services                       │
+│ ↑↓ row · enter choose · esc cancel · 1 more below        │
+╰──────────────────────────────────────────────────────────╯
+-- folded_80x24.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                             page 1/2  │
+│   monorepo  repo root  default                                               │
+│   │ ▾ apps                                                                   │
+│   │ │ api                                                                    │
+│   │ │ web                                                                    │
+│   │ ▾ packages                                                               │
+│   │ │ ui                                                                     │
+│ › │ ▸ services  1 inside                                                     │
+│   │ tools                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent in services                                           │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+-- project_160x45.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                                                                     page 1/2  │
+│   monorepo  repo root  default                                                                                       │
+│   │ ▾ apps                                                                                                           │
+│   │ │ api                                                                                                            │
+│ › │ │ web                                                                                                            │
+│   │ ▾ packages                                                                                                       │
+│   │ │ ui                                                                                                             │
+│   │ ▾ services                                                                                                       │
+│   │ │ ▾ billing                                                                                                      │
+│   │ │ │ worker                                                                                                       │
+│   │ tools                                                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent in apps/web                                                                                   │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+-- project_40x8.txt --
+╭──────────────────────────────────────╮
+│ run claudecode — where the agent wo… │
+│   │ │ api                            │
+│ › │ │ web                            │
+├──────────────────────────────────────┤
+│ enter starts the agent in apps/web   │
+│ page 1/2 · enter choose · esc cancel │
+╰──────────────────────────────────────╯
+-- project_60x12.txt --
+╭──────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works         page 1/2  │
+│   monorepo  repo root  default                           │
+│   │ ▾ apps                                               │
+│   │ │ api                                                │
+│ › │ │ web                                                │
+│   │ ▾ packages                                           │
+│   │ │ ui                                                 │
+├──────────────────────────────────────────────────────────┤
+│ enter starts the agent in apps/web                       │
+│ ↑↓ row · enter choose · esc cancel · 4 more below        │
+╰──────────────────────────────────────────────────────────╯
+-- project_80x24.txt --
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                             page 1/2  │
+│   monorepo  repo root  default                                               │
+│   │ ▾ apps                                                                   │
+│   │ │ api                                                                    │
+│ › │ │ web                                                                    │
+│   │ ▾ packages                                                               │
+│   │ │ ui                                                                     │
+│   │ ▾ services                                                               │
+│   │ │ ▾ billing                                                              │
+│   │ │ │ worker                                                               │
+│   │ tools                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent in apps/web                                           │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+-- root_160x45.txt --
+
+        ┌───────●                        ───────┐
+        │                                       │
+        │      pr●veo                           │
+        │                S O L U T I O N S      │
+        │                                       │
+        └───────                         ●──────┘
+  proveo/sandbox: portable, safe AI coding agents
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                                                                     page 1/2  │
+│ › monorepo  repo root  default                                                                                       │
+│   │ ▾ apps                                                                                                           │
+│   │ │ api                                                                                                            │
+│   │ │ web                                                                                                            │
+│   │ ▾ packages                                                                                                       │
+│   │ │ ui                                                                                                             │
+│   │ ▾ services                                                                                                       │
+│   │ │ ▾ billing                                                                                                      │
+│   │ │ │ worker                                                                                                       │
+│   │ tools                                                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every folder below it                                                  │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+-- root_40x8.txt --
+╭──────────────────────────────────────╮
+│ run claudecode — where the agent wo… │
+│ › monorepo  repo root  default       │
+│   │ ▾ apps                           │
+├──────────────────────────────────────┤
+│ enter starts the agent at the repo … │
+│ page 1/2 · enter choose · esc cancel │
+╰──────────────────────────────────────╯
+-- root_60x12.txt --
+╭──────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works         page 1/2  │
+│ › monorepo  repo root  default                           │
+│   │ ▾ apps                                               │
+│   │ │ api                                                │
+│   │ │ web                                                │
+│   │ ▾ packages                                           │
+│   │ │ ui                                                 │
+├──────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every fol… │
+│ ↑↓ row · enter choose · esc cancel · 4 more below        │
+╰──────────────────────────────────────────────────────────╯
+-- root_80x24.txt --
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ run claudecode — where the agent works                             page 1/2  │
+│ › monorepo  repo root  default                                               │
+│   │ ▾ apps                                                                   │
+│   │ │ api                                                                    │
+│   │ │ web                                                                    │
+│   │ ▾ packages                                                               │
+│   │ │ ui                                                                     │
+│   │ ▾ services                                                               │
+│   │ │ ▾ billing                                                              │
+│   │ │ │ worker                                                               │
+│   │ tools                                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ enter starts the agent at the repo root, with every folder below it          │
+│ ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit        │
+╰──────────────────────────────────────────────────────────────────────────────╯

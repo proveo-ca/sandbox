@@ -1,0 +1,145 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: why every fixture family is one txtar archive, which test owns it, and what -update may rewrite
+' covers: internal/testx/testx.go
+' covers: internal/testx/testx_test.go
+' covers: internal/choiceui/testdata/*.txtar
+' covers: cmd/proveo/testdata/*.txtar
+' covers: internal/devports/testdata/mono.txtar
+' covers: e2e/testdata/*.txtar
+' covers: .gitattributes
+' covers: e2e/go-testing-standards.md
+'   the plan that measured the tree and set the fork ... _spec/_plans/codebase-compression.puml (§5, F4)
+'   the frames the choiceui archives hold ............. _spec/internal/choiceui/tui-stack.puml
+'
+' ── DECIDED 2026-11-15 by the owner (fork F4): "one archive per test function" ──────────────
+' 11 archives; -update prunes safely; golang.org/x/tools/txtar v0.52.0 plus the four guards below.
+' NOT CHOSEN: one archive per package (189 choiceui entries would need a merge-on-close instead of a
+' prune); no archive (a shared golden loop, the tree keeps 260 fixture files); go-internal's txtar for
+' Quote/NeedsQuote (pulls go-internal for a case no fixture has: 0 of 253 files hold a marker line).
+'
+' ── THE FORMAT ─────────────────────────────────────────────────────────────────────────────
+' A txtar archive is a comment, then entries that open with `-- name --`; names are slash paths and
+' entry data runs to the next marker. txtar.Format appends a newline to data that lacks one, and
+' txtar.FS mounts an archive as an fs.FS, so every name must be an fs.ValidPath (no `..`, no root).
+' Each packed file costs one marker line and nothing else: 253 files became 253 marker lines.
+'
+' ── THE ARCHIVES (11) AND THEIR OWNERS ─────────────────────────────────────────────────────
+'   internal/choiceui/testdata/frames.txtar     137  TestFramesMatchTheGoldenFiles (frames_test.go)
+'   internal/choiceui/testdata/checklist.txtar   22  TestAChecklistGoldenFrames; TestRenderIsTheFormAtRest reads one entry with Want
+'   internal/choiceui/testdata/scope.txtar       24  TestTheScopePageMatchesItsGoldenFrames
+'   internal/choiceui/testdata/list.txtar         6  TestTheFilterListMatchesItsGoldenFrames
+'   cmd/proveo/testdata/init.txtar               20  TestInitPagesMatchTheirGoldenFrames
+'   cmd/proveo/testdata/plan.txtar                3  TestSandboxPlanGolden (sbx-*.golden)
+'   cmd/proveo/testdata/posture.txtar             1  TestPostureGolden — split from plan: two owners of one archive prune each other
+'   internal/devports/testdata/mono.txtar         8  Extract: TestDiscoverMonorepo, TestLaunchStartsTheServerOnEveryInterface
+'   e2e/testdata/polyglot22.txtar                22  Extract: fixtureWorkspace (toolchain_test.go)
+'   e2e/testdata/android-hello.txtar              8  Extract: android_app_test.go, android_seed_install_test.go (chmod 0755 install.sh);
+'                                                    internal/devports/android_test.go extracts it by path (../../e2e/testdata/android-hello.txtar)
+'   e2e/testdata/git-sync-turn.txtar              2  Want: HOOK_PROBE.txt; Extract: gitSyncWorkspace uses its workspace/ entry
+' Entry names are the old file names (budget_80x24.txt, sbx-cursor-key.golden, apps/web/package.json).
+' Kept on disk (6): imagebuild build_argv.golden (its own -update flag), agentupdate imagetools_index.json,
+' contract opencode_git_sync_plugin.mjs, e2e opencode_presentation.{json,mjs,py} (bind-mounted by repo path).
+'
+' ── THE LOADER, internal/testx ─────────────────────────────────────────────────────────────
+'   Update                     the one -update flag; `go test ./internal/choiceui -update` rewrites what that
+'                              package's owners draw; `-run` narrows it to a test FUNCTION. The root form
+'                              `go test ./... -update` fails every package that does not import testx
+'                              ("flag provided but not defined"). Replaced the env switch that recorded
+'                              frames (5 sites; _spec/_plans/codebase-compression.puml §5 names it) and the
+'                              local flag of cmd/proveo/golden_test.go (two -update flags in one binary
+'                              panic at init). imagebuild/parity_test.go keeps its own flag.
+'   Open(t, name)              parses testdata/<name>.txtar once per test binary (a registry keyed by the
+'                              absolute path, under a mutex) and makes t the owner; close runs at t's end
+'   (g).Assert(entry, got)     compares, or records under -update; a mutex lets subtests call it in parallel
+'   close                      without -update: an Error per entry no case drew (the old Glob orphan scan).
+'                              Under -update: writes the seen entries sorted by name, the comment kept —
+'                              unseen entries are pruned — unless the owner already failed (guard 4)
+'   Want(t, archive, entry)    one entry for a test that owns nothing; it never registers close
+'   Extract(t, name)           txtar.FS → fs.WalkDir → t.TempDir(); files 0644, directories 0755; name may be
+'                              a path ending in .txtar for a reader in another package
+'   ExtractTo(t, name)         the same under testdata/out/<name>, emptied first, for a fixture another process
+'                              must reach by a stable path; gitignored (**/testdata/out/); no reader needs it today
+' A -run narrowed to one SUBTEST under -update prunes the sibling entries: the diff shows them as removed
+' hunks, and a second -update over the whole function restores them.
+'
+' ── THE FOUR GUARDS (the faults the first draft had, each pinned in testx_test.go) ──────────
+'   1  a second Open of one archive in one binary Fatals, naming the owner. Two owners under -update left
+'      the archive holding only the last owner's entries; a second reader reported every other entry as an
+'      orphan. The same owner may re-Open after its close (-count=N) — TestASecondOwnerOfAnArchiveFails
+'   2  Assert refuses a value without a trailing newline: txtar.Format appends one, so the stored golden
+'      never matches again and -update never settles — TestAssertRejectsAGoldenTxtarCannotHold
+'   3  Assert refuses a marker-shaped line (`-- x --`): x/tools txtar has no Quote, and the entry would split
+'      into two on the next parse — the same test
+'   4  under -update, close writes nothing once the owner has failed, so a tripped guard or a failed case
+'      never prunes an archive — the same test; TestUpdateWritesTheOwnersEntriesSortedAndSettles proves a
+'      second -update run leaves the bytes unchanged
+'
+' ── MEASURED 2026-11-15 on refactor-compress-codebase ──────────────────────────────────────
+' Round trip before the directories went: each archive was packed from the files on disk, sorted by entry
+' name, then extracted with testx.Extract into a temp dir and `diff -r` against its source directory —
+' 11 of 11 exit 0, 253 files (137+22+24+6+20+3+1+8+22+8+2). frames.txtar equals the spike's output byte
+' for byte. -update twice over choiceui and cmd/proveo: the 7 golden archives' md5 sums unchanged after
+' each run; the packages pass under -race. go.mod gains golang.org/x/tools v0.52.0, and MVS lifts
+' x/sys v0.47.0 → v0.49.0 and x/sync v0.22.0 → v0.24.0 with it (go.sum −6/+6).
+' Tracked testdata files 259 → 17; the tree lost 20 directories.
+'
+' ── HYGIENE ────────────────────────────────────────────────────────────────────────────────
+' .gitattributes (new): `*.txtar text eol=lf diff=txtar` and `*.golden text eol=lf`. The hunk header
+' names the entry once a clone sets `git config diff.txtar.xfuncname '^-- .* --$'` — config is per clone
+' and never in the repo. A conflict inside an archive resolves by taking either side and running
+' -update, never by hand. e2e/go-testing-standards.md rule 9 names the archive form.
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+title Test fixtures — one txtar archive per fixture family, owned by one test function
+
+component "owning test\nTestFramesMatchTheGoldenFiles" as T <<app>>
+component "internal/testx\nOpen · Assert · close · Want · Extract" as X <<app>>
+database "testdata/<name>.txtar\none entry per old file" as A <<db>>
+node "go test ./<pkg> -update" as U <<host>>
+component "a reader that owns nothing\nWant · Extract" as R <<app>>
+component "a second Open\nFatal: owned by …" as G <<error>>
+node "t.TempDir()\nExtract" as D <<host>>
+
+T ARROW_MAIN X : Open(t, name) · Assert(entry, got)
+X ARROW_MAIN A : parse once per binary
+U ARROW_OPTIONAL X : close writes the seen entries, sorted
+X ARROW_ERROR G : one owner per archive
+R ARROW_OPTIONAL X : Want(t, archive, entry)
+X ARROW_MAIN D : txtar.FS → files 0644
+
+note bottom of A
+  **One file per family, one marker per entry.**
+  txtar keeps every fixture line and adds one
+  ""-- name --"" line per file, so the tree loses
+  253 files and 20 directories, not lines.
+end note
+
+note right of U
+  **-update prunes what the owner never drew.**
+  Two owners of one archive would prune each
+  other, so a second Open of an archive Fatals
+  and a test that owns nothing reads with Want.
+end note
+
+note bottom of X
+  **Two guards keep -update settling.** A golden
+  without a trailing newline never matches after
+  txtar.Format adds one, and a ""-- x --"" line
+  would split its entry on the next parse.
+end note
+
+note bottom of T
+  **A failed owner writes nothing.** Under -update
+  close skips the write once a guard or a case has
+  failed, so a bad run never prunes an archive the
+  next good run would have to re-record.
+end note
+
+note bottom of D
+  **Extract goes through txtar.FS.** Every entry
+  name is checked as an fs.ValidPath, so a packed
+  tree can never write outside the directory it
+  lands in; install.sh regains 0755 in its test.
+end note
+@enduml

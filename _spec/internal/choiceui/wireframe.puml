@@ -409,7 +409,7 @@
 '   (run_form_order_test.go), TestASectionOpensOnItsFirstPresentRow,
 '   TestCredentialsRowIsAReadOnlyInventory,
 '   TestTheEnvCellListsTheEnvFilesNamesAndNeverAValue
-' Golden frames: internal/choiceui/testdata/frames/, 137 files (tui-stack.puml).
+' Golden frames: internal/choiceui/testdata/frames.txtar, 137 entries (tui-stack.puml).
 
 ' ── THE CHECKLIST CARD (owner chose I3, 2026-11-13; built stage 2) ─────────
 ' Form.Checklist draws a form as one running checklist: init's four pages in
@@ -493,7 +493,7 @@
 ' MEASURED (stage 2 goldens): every 80x24 mock in the I3 spec's §7 and its
 ' P1 120x36 mock match the drawn frames character for character.
 ' Pinned by internal/choiceui/checklist_test.go: TestAChecklistGoldenFrames
-'   (testdata/checklist/, 22 files), TestAStatusRowIsNeverACursorStop,
+'   (testdata/checklist.txtar, 22 entries), TestAStatusRowIsNeverACursorStop,
 '   TestARowOpensItsFieldsOnlyWhileItsAnswerHolds,
 '   TestTheTopBorderCarriesItsLabel, TestTheChecklistLadderDropsInOrder,
 '   TestAnOutcomeTooLongCountsItsLaterSteps,
@@ -514,7 +514,7 @@
 '              line reads "↑↓ row · enter skip · esc …".
 '   Form.Esc   the word Esc's segment says, past back/quit/cancel: init's
 '              sub-pages set "later".
-' The init pages' own goldens live in cmd/proveo/testdata/init/ (20 frames,
+' The init pages' own goldens live in cmd/proveo/testdata/init.txtar (20 frames,
 ' through Form.Render). p1-rest, p1-running and p1-rerun equal this
 ' package's checklist goldens line for line; the others differ by init's own
 ' data and by stage 5's content (page 3's stubs, page 4's help and Skip).

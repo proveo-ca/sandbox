@@ -25,7 +25,7 @@ skinparam noteTextAlignment left
 ' old ui grammar caused is in _spec/internal/runlog/run-transcript.puml.
 '
 ' Move 1 of _spec/internal/run/run-spec.puml: lifted out of cmd/proveo/main.go
-' with no behaviour change, proven by cmd/proveo/testdata/plan/*.golden. One thing
+' with no behaviour change, proven by the cmd/proveo plan goldens (plan.txtar today). One thing
 ' the lift did NOT carry across unchanged: the move was cut before the interactive
 ' tail landed on main, so Stdio arrived here still returning nil on a terminal. It
 ' is restored below rather than back in main.go — the rule it belongs to is this

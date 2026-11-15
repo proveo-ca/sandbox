@@ -28,7 +28,7 @@ skinparam noteTextAlignment left
 ' covers: e2e/host_adb_sbx_test.go
 ' covers: e2e/android_addon_test.go
 ' covers: e2e/android_app_test.go
-' covers: e2e/testdata/android-hello/**
+' covers: e2e/testdata/android-hello.txtar
 '   why this shape, measured ............ _spec/_experiments/mobile-device-reach.puml
 '   the pattern it copies ............... _spec/internal/sbx/host-browser-cdp.puml
 '   why the box has no emulator ......... _spec/_paradigms/capability-ladder.puml (THE LADDER IS A HOST MEASUREMENT)
@@ -170,7 +170,7 @@ skinparam noteTextAlignment left
 '                    its adb lists emulator-5554; left unticked, no device
 '                    appears, no "android:" line, the env stays unset
 '
-' ── AN ANDROID APP IN THE WORKSPACE (e2e/testdata/android-hello) ───────────
+' ── AN ANDROID APP IN THE WORKSPACE (e2e/testdata/android-hello.txtar) ─────
 ' A stock Gradle project: AGP 9.4.1, compileSdk/targetSdk 36, one Activity,
 ' no dependencies, no mise.toml. install.sh runs `gradle assembleDebug`, then
 ' `adb install -r` through ADB_SERVER_SOCKET.

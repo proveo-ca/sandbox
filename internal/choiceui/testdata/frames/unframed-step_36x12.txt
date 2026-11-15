@@ -1,6 +1,0 @@
-step                       page 2/3
-
-    a             (•) x   ( ) y
-  › b             (•) x   ( ) y
-
-←→ choose · enter accept · esc back

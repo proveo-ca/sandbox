@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/third_party/opencode.yaml
 ' covers: internal/sbx/third_party/claude.yaml
 ' covers: internal/sbx/upstream_test.go (TestVendoredKitJqFiltersCompile, TestNoVendoredKitDeclaresAVolume)
-' covers: cmd/proveo/testdata/plan/sbx-claudecode-*.golden
+' covers: cmd/proveo/testdata/plan.txtar (sbx-claudecode-*.golden)
 ' covers: internal/imagetest/opencode_test.go (ocCredentialImport)
 ' covers: internal/imagetest/imagetest.go (AsHookUser, HookFinds)
 ' covers: defs/opencode/Dockerfile, defs/claudecode/mcp/Dockerfile (/usr/local/bin link)
