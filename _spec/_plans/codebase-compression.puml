@@ -182,8 +182,8 @@ skinparam noteTextAlignment left
 '   _spec/packages/lib/seed-and-launch.puml  covers: sbx_passthrough_test.go :16        1  the file left in 92eae333; repoint or drop the line
 '   e2e/testdata/cursor-empty-store.db binary fixture (1 file, 20,480 B)     —          0  last reader removed in b35a4f0d
 '   ── high: DONE 2026-11-15, commit "chore: delete the dead code whole-program reachability found" on refactor-compress-codebase ──
-'      MEASURED by `git diff --numstat`: 133 removed / 19 added = net −114, −1 file. Go −61/+1 (the 8 symbols with their doc
-'      and blank lines), go.mod −3, go.sum −58/+6, 4 specs 12/11: the covers line repointed to await_seed_sbx_test.go (the
+'      MEASURED by `git diff --numstat`: 135 removed / 21 added = net −114, −1 file. Go −61/+1 (the 8 symbols with their doc
+'      and blank lines), go.mod −3, go.sum −58/+6, 4 specs −13/+14: the covers line repointed to await_seed_sbx_test.go (the
 '      index already named it; sandbox-backend.puml:123 pinned the same gone file), LoginBlanked → loginUsableBytes,
 '      IsFreeTier → the rank script's `-free` test, step-lines.puml:36 lost Start(name). bubbles/v2 came back via `go get`.
 '   internal/provider                  DetectVars (func)                   :151       13  live under -tags e2e only (hello_world_test.go:325)
