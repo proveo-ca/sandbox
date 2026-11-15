@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
-' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a. _spec/_plans/ is exempt from the SPEC-reference rule.
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 step 1 DONE 2026-11-15. _spec/_plans/ is exempt from the SPEC-reference rule.
 ' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
 '   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
 '   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
@@ -181,7 +181,11 @@ skinparam noteTextAlignment left
 '   go.sum                             stale checksum lines                  —     −58/+6  tidy; 2 of the 60 hashes belong to the bubbles pin
 '   _spec/packages/lib/seed-and-launch.puml  covers: sbx_passthrough_test.go :16        1  the file left in 92eae333; repoint or drop the line
 '   e2e/testdata/cursor-empty-store.db binary fixture (1 file, 20,480 B)     —          0  last reader removed in b35a4f0d
-'   ── high: 113 removed, net −107, −1 file ──
+'   ── high: DONE 2026-11-15, commit "chore: delete the dead code whole-program reachability found" on refactor-compress-codebase ──
+'      MEASURED by `git diff --numstat`: 133 removed / 19 added = net −114, −1 file. Go −61/+1 (the 8 symbols with their doc
+'      and blank lines), go.mod −3, go.sum −58/+6, 4 specs 12/11: the covers line repointed to await_seed_sbx_test.go (the
+'      index already named it; sandbox-backend.puml:123 pinned the same gone file), LoginBlanked → loginUsableBytes,
+'      IsFreeTier → the rank script's `-free` test, step-lines.puml:36 lost Start(name). bubbles/v2 came back via `go get`.
 '   internal/provider                  DetectVars (func)                   :151       13  live under -tags e2e only (hello_world_test.go:325)
 '   internal/tmux                      Available (func)                     :20        4  two e2e callers (preconditions_test.go:22, init_steps_test.go:103)
 '   packages/lib/entrypoint-lib.sh     _proveo_durable_home (shell fn)     :233        5  only tool_home_test.go:63,70 call it; that test goes with it
@@ -462,7 +466,7 @@ skinparam noteTextAlignment left
 '     one fork (F5) over 46,729 lines of spec prose.
 '
 ' ══ 8 · DECISION FORKS (each ≥ 3 options, one [rec]; the owner answers before step 1) ═══════════
-' F1 · Delete dead code now, or keep a ledger
+' F1 · Delete dead code now, or keep a ledger — DECIDED 2026-11-15 by the owner: option 1; the high set landed (§3, §9 step 1)
 '   1. [rec] Delete the high set now (net −107, −1 file) with the spec repoints in the same change; the
 '      medium set follows per its own gate (e2e-only API stays until a design row; LSP retirement after
 '      the next tag; echo-agent after the 3 _spec/tests lines repoint).
@@ -547,8 +551,8 @@ skinparam noteTextAlignment left
 '
 ' ══ 9 · ORDER OF WORK (after the forks close; every step records its reasoning here before source moves) ═
 '   0  spec-keeper: pointer row under N15; one DECIDED row per reversed decision if F3 widens    gate: TestSpecNotesFitTheBox
-'   1  dead high set per F1; `go mod tidy`; delete the .db; repoint seed-and-launch.puml:16 and   gate: deadcode, U1000, mise run lint, test-go
-'      the two credential-decisions.puml prose lines                                                       −107 lines, −1 file
+'   1  DONE 2026-11-15 — dead high set per F1; `go mod tidy`; delete the .db; repoint seed-and-launch.puml:16,   gate: gofmt, build, vet ×3, lint,
+'      the two credential-decisions.puml prose lines, step-lines.puml:36 and sandbox-backend.puml:123       baseline, contract · −114 net, −1 file
 '   2  `go fix ./...` twice (2 conflicting fixes skip on the first pass); modernize −92 is superseded   gate: gofmt, test-go, e2e go vet · −62 (−73 with tags)
 '   3  fixtures: internal/testx with the guards; 11 archives; drop PROVEO_UPDATE_FRAMES and the     gate: per-package -update round trip is a no-op
 '      golden_test.go flag; .gitattributes; standards line; 14 covers lines                          diff; test-go; go vet -tags=e2e · −243 files

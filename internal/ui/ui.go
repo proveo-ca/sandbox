@@ -774,10 +774,7 @@ func ANSI(rgb int) string {
 
 const ANSIReset = "\033[0m"
 
-const (
-	ANSIBold = "\033[1m"
-	ANSIDim  = "\033[2m"
-)
+const ANSIBold = "\033[1m"
 
 // BrandBanner is the Proveo Solutions box art from the legacy bash help.sh.
 const BrandBanner = `        ┌───────●                        ───────┐

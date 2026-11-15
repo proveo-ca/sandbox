@@ -405,26 +405,6 @@ func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	return false, false
 }
 
-func LoginBlanked(target, homeRoot string) bool {
-	if homeRoot == "" {
-		return false
-	}
-	for _, rel := range subscriptionLoginFiles[target] {
-		b, err := os.ReadFile(filepath.Join(homeRoot, rel))
-		if err != nil || len(b) == 0 {
-			continue
-		}
-		var c oauthCredential
-		if json.Unmarshal(b, &c) != nil {
-			continue
-		}
-		if tokenCleared(c.ClaudeAIOauth.AccessToken) {
-			return true
-		}
-	}
-	return false
-}
-
 func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string, lookup func(string) string) func(string) bool {
 	chosen = strings.TrimSpace(chosen)
 	usableLogin, staleLogin := PersistedLogin(target, homeRoot)

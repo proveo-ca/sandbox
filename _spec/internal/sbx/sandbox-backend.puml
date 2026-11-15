@@ -119,8 +119,8 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' packages/lib/proveo-await-seed (:12-13, used by the seed wait and the refusal
 ' check). sbx v0.39.0 documents SANDBOX_NAME and SANDBOX_ID as a sandbox's
 ' identity (reported); whether SANDBOX_VM_ID is deprecated is [Unverified], so it
-' stays the last fallback. Pinned by TestBothSbxSitesDetectSbxByAnyIdentityVariable
-' (internal/contract/sbx_passthrough_test.go).
+' stays the last fallback. Pinned by TestAwaitSeedDetectsSbxByAnyIdentityVariable
+' (internal/contract/await_seed_sbx_test.go).
 '
 ' inject/broker.env IS NO LONGER WRITTEN. assembleEnv writes no file; no proxy
 ' of proveo's needs a key. secret-custody (d) is closed, not moved.

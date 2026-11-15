@@ -141,13 +141,6 @@ func (s *Steps) hand(name, line string, fn func() error) error {
 	return logged(name, func() {}, fn)
 }
 
-// Start prints the next step's start line; the caller runs the step and records it.
-func (s *Steps) Start(name string) {
-	if s != nil {
-		Asyncf("%s", s.label(name))
-	}
-}
-
 // StartAs counts the next step and prints line, with no place in it; the caller runs the step and records it.
 func (s *Steps) StartAs(name, line string) {
 	if s != nil {

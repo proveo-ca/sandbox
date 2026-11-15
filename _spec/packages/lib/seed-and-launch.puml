@@ -13,7 +13,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: internal/contract/seed_command_shipped_test.go
 ' covers: internal/contract/agent_launch_guard_test.go
 ' covers: internal/contract/spec_notes_test.go
-' covers: internal/contract/sbx_passthrough_test.go
+' covers: internal/contract/await_seed_sbx_test.go
 ' covers: packages/lib/proveo-await-seed
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/instructions_seed_test.go
