@@ -28,8 +28,10 @@ Go 1.26 (this module's toolchain).
 9. **Golden files** for large/structured output (e.g. generated config): one txtar archive per
    golden-producing test function, `testdata/<name>.txtar`, read through `internal/testx`
    (`g := testx.Open(t, name)`, `g.Assert(entry, got)`); a file-tree fixture lands in
-   `testx.Extract(t, name)`. Refresh per package with `go test ./<pkg> -update` (`-run` narrows it
-   to a test function); the root form `go test ./... -update` fails every package without the flag.
+   `testx.Extract(t, name)`. Refresh per package with `go test ./<pkg> -update` (`-run` narrows
+   it; a `-run` or `-skip` naming a subtest records what it draws and prunes nothing); the root
+   form `go test ./... -update` fails every package without the flag. A command a test builds
+   gets `SetArgs` before `Execute`, or cobra reads the test binary's own flags.
    Annotate the diff direction.
 10. **Test error identity, not error strings.** Use `errors.Is`/`errors.As`, not substring matching.
 11. **Run with `-race`** in CI; keep tests deterministic (no `Date.now()`-style nondeterminism).

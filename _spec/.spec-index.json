@@ -2091,6 +2091,7 @@
       "covers": [
         "internal/testx/testx.go",
         "internal/testx/testx_test.go",
+        "internal/contract/cobra_test_args_test.go",
         "internal/choiceui/testdata/*.txtar",
         "cmd/proveo/testdata/*.txtar",
         "internal/devports/testdata/mono.txtar",

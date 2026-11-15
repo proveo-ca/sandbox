@@ -33,8 +33,6 @@ out/
 *.tar
 *.img
 /reports/
-# txtar fixture extractions (testx.ExtractTo)
-**/testdata/out/
 
 # --- System Files & OS-specific ---
 .DS_Store

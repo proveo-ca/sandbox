@@ -4,6 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: why every fixture family is one txtar archive, which test owns it, and what -update may rewrite
 ' covers: internal/testx/testx.go
 ' covers: internal/testx/testx_test.go
+' covers: internal/contract/cobra_test_args_test.go
 ' covers: internal/choiceui/testdata/*.txtar
 ' covers: cmd/proveo/testdata/*.txtar
 ' covers: internal/devports/testdata/mono.txtar
@@ -46,7 +47,10 @@ skinparam noteTextAlignment left
 '   Update                     the one -update flag; `go test ./internal/choiceui -update` rewrites what that
 '                              package's owners draw; `-run` narrows it to a test FUNCTION. The root form
 '                              `go test ./... -update` fails every package that does not import testx
-'                              ("flag provided but not defined"). Replaced the env switch that recorded
+'                              ("flag provided but not defined"). A command a test builds and runs with
+'                              Execute but no SetArgs reads os.Args too, so -update reaches cobra as `-u`
+'                              (pflag skips only `-test.*`): internal/contract/cobra_test_args_test.go
+'                              pins SetArgs before Execute. Replaced the env switch that recorded
 '                              frames (5 sites; _spec/_plans/codebase-compression.puml §5 names it) and the
 '                              local flag of cmd/proveo/golden_test.go (two -update flags in one binary
 '                              panic at init). imagebuild/parity_test.go keeps its own flag.
@@ -55,14 +59,19 @@ skinparam noteTextAlignment left
 '   (g).Assert(entry, got)     compares, or records under -update; a mutex lets subtests call it in parallel
 '   close                      without -update: an Error per entry no case drew (the old Glob orphan scan).
 '                              Under -update: writes the seen entries sorted by name, the comment kept —
-'                              unseen entries are pruned — unless the owner already failed (guard 4)
-'   Want(t, archive, entry)    one entry for a test that owns nothing; it never registers close
+'                              unseen entries are pruned — unless the owner already failed (guard 4).
+'                              narrowed(): a `/` in -run or -skip names a subtest, so the owner drew part
+'                              of its archive; close then neither scans for orphans nor prunes, and a
+'                              narrowed -update merges the drawn entries over the kept ones
+'   Want(t, archive, entry)    one entry for a test that owns nothing; it never registers close; a missing
+'                              archive Fatals naming the file (Open alone tolerates one, under -update)
 '   Extract(t, name)           txtar.FS → fs.WalkDir → t.TempDir(); files 0644, directories 0755; name may be
 '                              a path ending in .txtar for a reader in another package
 '   ExtractTo(t, name)         the same under testdata/out/<name>, emptied first, for a fixture another process
-'                              must reach by a stable path; gitignored (**/testdata/out/); no reader needs it today
-' A -run narrowed to one SUBTEST under -update prunes the sibling entries: the diff shows them as removed
-' hunks, and a second -update over the whole function restores them.
+'                              must reach by a stable path; .gitignore's `out/` ignores it at any depth; no
+'                              reader needs it today
+' A -run narrowed to one SUBTEST once pruned the sibling entries under -update and reported them as orphans
+' without it; TestARunNarrowedToASubtestNeitherReportsNorPrunesTheSiblings pins the merge that replaced it.
 '
 ' ── THE FOUR GUARDS (the faults the first draft had, each pinned in testx_test.go) ──────────
 '   1  a second Open of one archive in one binary Fatals, naming the owner. Two owners under -update left
@@ -75,6 +84,15 @@ skinparam noteTextAlignment left
 '   4  under -update, close writes nothing once the owner has failed, so a tripped guard or a failed case
 '      never prunes an archive — the same test; TestUpdateWritesTheOwnersEntriesSortedAndSettles proves a
 '      second -update run leaves the bytes unchanged
+'
+' ── FOUND BY THE STAGE-2 VERIFIER 2026-11-15, fixed in the same stage ─────────────────────
+'   D1  `go test ./cmd/proveo -update` failed three tests that ran attachCmd()/projectsCmd() with no
+'       SetArgs: cobra fell back to os.Args and read -update as -u. Fix: SetArgs([]string{}) at the four
+'       sites; the contract test above refuses the shape in every _test.go under cmd/, internal/, e2e/.
+'   D2  `-run 'TestSandboxPlanGolden/cursor-key$'` failed on a clean tree: the orphan scan saw the two
+'       entries the narrowed run never drew. Fix: narrowed() (a `/` in -run or -skip) — see close.
+'   nits  the testdata/out ignore line left .gitignore (`out/` already matches any depth); load tolerates a missing
+'       archive only for Open under -update, so Want and Extract of a deleted archive name the file.
 '
 ' ── MEASURED 2026-11-15 on refactor-compress-codebase ──────────────────────────────────────
 ' Round trip before the directories went: each archive was packed from the files on disk, sorted by entry

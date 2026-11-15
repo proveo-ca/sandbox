@@ -328,7 +328,7 @@ skinparam noteTextAlignment left
 '     sites + tui-stack.puml:123 and the local flag at cmd/proveo/golden_test.go:22 (two -update definitions
 '     in one binary panic at init). imagebuild/parity_test.go:138 keeps its flag unless it imports testx.
 '   Hygiene lines:
-'     .gitignore      **/testdata/out/      (documents intent; `.gitignore:31 out/` already matches)
+'     .gitignore      no new line: `.gitignore:31 out/` already ignores testdata/out/ at any depth
 '     .gitattributes  *.txtar text eol=lf diff=txtar  ·  *.golden text eol=lf        (new file)
 '     per clone       git config diff.txtar.xfuncname '^-- .* --$'  — hunk headers then name the entry;
 '                     one quoted operand passes the host-shell gate, so a mise task may run it
@@ -367,7 +367,11 @@ skinparam noteTextAlignment left
 '      `go mod tidy` dropped bubbles/v2, restored with `go get` (TestGoModNamesTheTUIStackVersionsExplicitly). Round trip:
 '      11 of 11 archives extract byte-identical (diff -r, 253 files); -update twice left the 7 golden archives' md5 unchanged.
 '      Not built as drafted: Want is a function (Want(t, archive, entry)), not a method, since a reader owns no Goldens;
-'      ExtractTo has no caller yet (kept for a fixture another process must reach by path; **/testdata/out/ is gitignored).
+'      ExtractTo has no caller yet (kept for a fixture another process must reach by path; `out/` in .gitignore covers it).
+'      Stage-2 verification (2026-11-15) found two defects, fixed in the follow-up commit: three cmd/proveo tests ran a
+'      command with no SetArgs, so -update reached cobra as -u (internal/contract/cobra_test_args_test.go now refuses the
+'      shape); a -run naming a subtest tripped the orphan scan (close skips the scan and the prune when -run/-skip holds a
+'      `/`). Nits: the redundant **/testdata/out/ line left .gitignore; load tolerates a missing archive only for Open.
 '
 ' ══ 6 · OTHER LEVERS, RANKED (Directive 4 — other.md's ranked table, deduped against §3, §4 and §5) ══════
 '   lines / files = savings against §1. A bare number is MEASURED (wc -l on 2026-11-15 @ 7ce8c83a, or the tool's own

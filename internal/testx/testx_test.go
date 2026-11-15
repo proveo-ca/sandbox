@@ -3,6 +3,7 @@ package testx
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"maps"
 	"os"
@@ -217,5 +218,62 @@ func TestExtractRoundTripsATree(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); err == nil {
 		t.Error("ExtractTo kept a stale file from the last extraction")
+	}
+}
+
+// narrow sets one of the test binary's own flags for the test's duration.
+func narrow(t *testing.T, name, value string) {
+	t.Helper()
+	was := flag.Lookup(name).Value.String()
+	if err := flag.Set(name, value); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = flag.Set(name, was) })
+}
+
+func TestARunNarrowedToASubtestNeitherReportsNorPrunesTheSiblings(t *testing.T) {
+	for _, name := range []string{"test.run", "test.skip"} {
+		t.Run(name, func(t *testing.T) {
+			setUpdate(t, false)
+			path := stage(t, "plan", map[string]string{"a.golden": "a\n", "b.golden": "b\n"})
+			narrow(t, name, "TestOwner/a$")
+			rec := &recTB{TB: t, name: "TestOwner"}
+			Open(rec, "plan").Assert("a.golden", "a\n")
+			rec.end()
+			if len(rec.errors) != 0 {
+				t.Errorf("the narrowed run reported %q; b.golden is no orphan", rec.errors)
+			}
+			setUpdate(t, true)
+			rec = &recTB{TB: t, name: "TestOwner"}
+			Open(rec, "plan").Assert("a.golden", "new\n")
+			rec.end()
+			after, _ := os.ReadFile(path)
+			if want := "-- a.golden --\nnew\n-- b.golden --\nb\n"; string(after) != want || len(rec.errors) != 0 {
+				t.Errorf("the narrowed -update wrote:\n%s\nerrors %q; want a.golden recorded and b.golden kept", after, rec.errors)
+			}
+		})
+	}
+}
+
+func TestAMissingArchiveIsFatalUnlessAnOwnerRecordsIt(t *testing.T) {
+	setUpdate(t, true)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.Mkdir(filepath.Join(dir, "testdata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reader := &recTB{TB: t, name: "TestReader"}
+	if msg := fatally(reader, func() { Want(reader, "gone", "a.txt") }); !strings.Contains(msg, "gone.txtar") {
+		t.Errorf("Want of a missing archive under -update reported %q, want the file named", msg)
+	}
+	if msg := fatally(reader, func() { Extract(reader, "gone") }); !strings.Contains(msg, "gone.txtar") {
+		t.Errorf("Extract of a missing archive under -update reported %q, want the file named", msg)
+	}
+	owner := &recTB{TB: t, name: "TestOwner"}
+	Open(owner, "gone").Assert("a.txt", "a\n")
+	owner.end()
+	written, err := os.ReadFile(filepath.Join(dir, "testdata", "gone.txtar"))
+	if err != nil || string(written) != "-- a.txt --\na\n" || len(owner.errors) != 0 {
+		t.Errorf("an owner under -update recorded %q, %v, errors %q; want the archive born", written, err, owner.errors)
 	}
 }

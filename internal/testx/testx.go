@@ -45,8 +45,8 @@ func archivePath(name string) string {
 	return filepath.Join("testdata", name+".txtar")
 }
 
-// load parses an archive once per test binary.
-func load(t testing.TB, name string) *Goldens {
+// load parses an archive once per test binary; missingOK lets an absent file read as empty.
+func load(t testing.TB, name string, missingOK bool) *Goldens {
 	t.Helper()
 	path, err := filepath.Abs(archivePath(name))
 	if err != nil {
@@ -58,7 +58,7 @@ func load(t testing.TB, name string) *Goldens {
 		return g
 	}
 	data, err := os.ReadFile(path)
-	if err != nil && (!*Update || !os.IsNotExist(err)) {
+	if err != nil && (!missingOK || !os.IsNotExist(err)) {
 		t.Fatalf("%v; `go test -update` records it", err)
 	}
 	ar := txtar.Parse(data)
@@ -73,7 +73,7 @@ func load(t testing.TB, name string) *Goldens {
 // Open owns testdata/<name>.txtar for t: Assert names its entries, and close runs when t ends.
 func Open(t testing.TB, name string) *Goldens {
 	t.Helper()
-	g := load(t, name)
+	g := load(t, name, *Update)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.owner != "" && (g.owner != t.Name() || !g.closed) {
@@ -126,13 +126,27 @@ func markerShaped(got string) bool {
 	return false
 }
 
-// close writes the entries the owner drew, sorted, under -update; otherwise it reports the entries no case drew.
+// narrowed reports whether -run or -skip names a subtest.
+func narrowed() bool {
+	for _, n := range []string{"test.run", "test.skip"} {
+		if f := flag.Lookup(n); f != nil && strings.Contains(f.Value.String(), "/") {
+			return true
+		}
+	}
+	return false
+}
+
+// close writes the entries the owner drew, sorted, under -update; otherwise it reports the entries no case drew; a narrowed run leaves the undrawn entries alone.
 func (g *Goldens) close() {
 	g.t.Helper()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.closed = true
+	keep := narrowed()
 	if !*Update {
+		if keep {
+			return
+		}
 		for _, name := range slices.Sorted(maps.Keys(g.want)) {
 			if !g.seen[name] {
 				g.t.Errorf("%s in %s is a golden no case draws; delete it with -update", name, g.path)
@@ -145,7 +159,7 @@ func (g *Goldens) close() {
 	}
 	ar := &txtar.Archive{Comment: g.comment}
 	for _, name := range slices.Sorted(maps.Keys(g.want)) {
-		if !g.seen[name] {
+		if !g.seen[name] && !keep {
 			delete(g.want, name)
 			continue
 		}
@@ -159,7 +173,7 @@ func (g *Goldens) close() {
 // Want is one entry of testdata/<archive>.txtar, read by a test that owns none of it.
 func Want(t testing.TB, archive, entry string) string {
 	t.Helper()
-	g := load(t, archive)
+	g := load(t, archive, false)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	want, ok := g.want[entry]
@@ -191,7 +205,7 @@ func ExtractTo(t testing.TB, name string) string {
 // extract mounts the archive with txtar.FS, so every entry name is a valid path under dir.
 func extract(t testing.TB, name, dir string) {
 	t.Helper()
-	g := load(t, name)
+	g := load(t, name, false)
 	g.mu.Lock()
 	ar := &txtar.Archive{}
 	for _, n := range slices.Sorted(maps.Keys(g.want)) {
