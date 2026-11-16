@@ -14,7 +14,48 @@ title Toolchain provisioning — what is baked into the floor vs installed on de
 ' covers: internal/contract/toolchain_test.go
 ' covers: e2e/toolchain_test.go
 ' covers: internal/contract/java_major_test.go
+' covers: internal/contract/mise_floor_test.go
 ' How the shared layers are assembled: _spec/defs/base-image-layers.puml.
+'
+' ── THE MISE FLOOR (2026-11-15) ─────────────────────────────────────────────
+' The workspace's hard min_version beats the mise the image bakes, as go.mod's
+' toolchain line beats the image's Go.
+' MEASURED on a Linux host: proveo/base baked mise 2026.9.1, this repo's
+' mise.toml declares min_version = "2026.10.17", and `proveo run codex` and
+' `proveo run opencode` both ended "mise version 2026.10.17 is required, but
+' you are using 2026.9.1" → "agent exited with code 1". A host `mise
+' self-update` changed nothing: the guest runs its own binary.
+' MEASURED in proveo/codex:local: a shim the baked mise made (jq) prints that
+' error verbatim when run inside the workspace, rc=1. With the floor, the same
+' shim points at the installed 2026.10.17 and runs.
+' [Inference] The agent died, not only the seed: codex and opencode start
+' through node, and a node shim restored from ~/.proveo/toolchains runs the
+' baked mise against the workspace's mise.toml.
+' _mise_required_version reads the hard minimum from _proveo_mise_configs, the
+' list `mise trust` reads: the string form, `{ hard = … }` inline, the
+' [min_version] table and the min_version.hard dotted key. A soft-only minimum
+' warns in mise and requires nothing here. The highest value across configs
+' wins.
+' _proveo_ensure_mise_floor installs exactly that version through mise.run
+' (MISE_VERSION; the installer verifies the checksum; npm @jdx/mise is the
+' fallback) into the tool home's .local/bin, which _proveo_tool_path puts
+' ahead of /usr/local/bin. Shims are symlinks to the mise that made them
+' (mise.jdx.dev/dev-tools/shims.html), so the new mise runs `reshim --force`.
+' It runs after each toolchain restore: before `mise trust` (pre-release,
+' PROVEO_MISE_TRUST=on) and at the top of _proveo_seed_provision. A failed
+' install names the version the workspace needs and never blocks the seed;
+' PROVEO_AUTO_INSTALL_TOOLS=off names the gap and installs nothing.
+' The base pin moved to v2026.11.8 the same day, so this repo pays no
+' seed-time download. TestBaseImageMiseSatisfiesTheRepoMinVersion fails when
+' mise.toml's min_version outgrows ARG MISE_VERSION.
+' The user chose "Seed honours min_version (Recommended)" over a base bump
+' alone, an init-time download and a refusal with a named fix.
+' Tests (internal/contract/mise_floor_test.go):
+' TestMiseRequiredVersionReadsEveryMinVersionForm,
+' TestMiseFloorInstallsTheRequiredMiseAndRetargetsTheShims,
+' TestMiseTrustRunsOnTheFloorsMise (red without the floor: `image-mise trust`),
+' TestMiseFloorLeavesASatisfyingMiseAlone, TestMiseFloorNamesTheGapWhenItCannotInstall.
+' e2e TestToolchainLibIsCurrentInEveryHarness lists _proveo_ensure_mise_floor.
 '
 ' mise.toml's Go pin and go.mod's `toolchain` line stay byte-equal, enforced by
 ' internal/contract TestMiseGoPinMatchesGoModToolchain (go_provisioning_test.go).
@@ -132,6 +173,7 @@ node "proveo/base-node — the TypeScript floor" as TSFLOOR <<host>> {
 ' npm fetches here are bounded the same way as everything else on this path:
 ' --fetch-timeout=60000 --fetch-retries=1.
 node "Container startup — proveo_provision_toolchain" as BOOT <<host>> {
+  component "0. mise floor — min_version" as T0 <<app>>
   component "1. nx — nx.json" as T1 <<app>>
   component "2. turbo — turbo.json" as T2 <<app>>
   component "3. mise — mise.toml · .tool-versions" as T3 <<app>>
@@ -151,6 +193,15 @@ T1 ARROW_CLOUD NPM
 T2 ARROW_CLOUD NPM
 T3 ARROW_CLOUD NPM
 T4 ARROW_MAIN T3 : ""mise use -g go@<version>"" — the only Go path
+T0 ARROW_MAIN T3 : a mise that parses the config
+T0 ARROW_CLOUD NPM : ""MISE_VERSION=<min> mise.run""
+
+note bottom of T0
+  **The project's floor beats the image's.**
+  An older mise refuses the whole config,
+  so every shim dies with it. The seed
+  installs the hard min_version first.
+end note
 T3 ARROW_CLOUD GODL
 BOOT ARROW_ERROR BLOCK : bounded timeouts · ""PROVEO_AUTO_INSTALL_TOOLS=false""
 CORE ARROW_ERROR APT : ""APT::Update::Error-Mode=any"" — fail at the fetch, not 15 layers later

@@ -388,7 +388,8 @@
         "internal/contract/bun_toolchain_test.go",
         "internal/contract/toolchain_test.go",
         "e2e/toolchain_test.go",
-        "internal/contract/java_major_test.go"
+        "internal/contract/java_major_test.go",
+        "internal/contract/mise_floor_test.go"
       ],
       "fingerprint": null
     },

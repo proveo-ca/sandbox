@@ -302,6 +302,7 @@ func TestToolchainLibIsCurrentInEveryHarness(t *testing.T) {
 		"proveo_apply_ui_defaults",      // §7g sandbox theme + syntax highlighting
 		"proveo_install_claude_hooks",   // §7h the cwd guard that names a vanished working directory
 		"proveo_install_git_sync_hooks", // turn-end commit+push before idle/Stop
+		"_proveo_ensure_mise_floor",     // the workspace min_version beats the image mise
 	}
 	for _, name := range toolchainHarnesses {
 		t.Run(name, func(t *testing.T) {
