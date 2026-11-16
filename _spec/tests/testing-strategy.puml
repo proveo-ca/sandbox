@@ -476,7 +476,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     stop tears down like a normal exit (clone and state lifted, `sbx rm`) and
 '     proveo exits 143 (_spec/internal/sbx/kit-lifecycle.puml). stopRun is also
 '     the cleanup in close_confirm and ports_publish, and the step that ends
-'     the first run in ports_publish and android_seed_install (MEASURED).
+'     the first run in ports_publish and TestAndroidAppInstallsFromTheSeed
+'     (MEASURED).
 '     RESIDUAL (reported): stopRun's SIGKILL after its timeout aborts proveo's
 '     own `sbx rm`; the sweepSandboxesAfter that harnessImage registers removes
 '     the sandbox at test end. ports_publish sweeps through harnessImage
@@ -763,7 +764,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     t.TempDir() PROVEO_HOME; an extraEnv PROVEO_HOME still wins (last value).
 '     Left on the real home: TestAgentSurvivesIdleAtPrompt (no credential env;
 '     claudecode reaches its prompt on the proveo home's persisted login),
-'     hello_world, e2e_test (opencode), hermes_local_model and ladder's
+'     hello_world, e2e_test (opencode), TestHermesLocalModelE2E and ladder's
 '     proveoWorkload. [Inference] each needs the real home's login or agent
 '     state; none was re-run under a private one.
 ' ── FOUR FIXTURE FAULTS, FIXED 2026-10-20 ───────────────────────────────────

@@ -463,6 +463,11 @@ skinparam noteTextAlignment left
 '      partial reseed; diff -r over 22 definitions + 5 logs is empty. The contract package there: 356 pass, 17 skip, the
 '      same 5 fail on both trees (no jq in the image; pre-existing). Left: codex.toml [spec-keeper] still carries its
 '      3-line comment, rendered verbatim, so the banned phrase and a why-comment stay until a fork decides the bytes.
+'      Verifier fix pass, own commit "test(contract): fail on a subagent role with no body": a role with no body
+'      composed no file and passed every test (render_subagents only warns). composeSubagents now fails on the
+'      "subagent body missing" warning; TestRenderSubagentsReportsARoleWithNoBody pins that warning on a fixture
+'      tree. A ghost role per harness fails 6 tests; host and golang:1.26.7 pass. agent-definition-sharing.puml
+'      drops its yaml.v3 claim. MEASURED by `git diff --numstat` (this plan aside): 2 files +39 / −8 = +31.
 '   6  e2e split families → one file each: close_confirm 4, 0               −12     S       low     go vet -tags=e2e; test names unchanged    §7 other · high
 '      opencode 5, kit 3, android 3, hermes 2 (17 files → 5)
 '      ── DONE 2026-11-15, commit "test(e2e): one file per test family" ──
@@ -475,6 +480,9 @@ skinparam noteTextAlignment left
 '      `go test -tags e2e -list .` 167 names, sorted, identical; go vet -tags e2e passes on darwin and linux; GOOS=windows
 '      the same 4 syscall.Kill errors, now hermes_test.go:264-273; every non-blank line outside headers and imports
 '      survives as a multiset, +6 SPEC lines. Covers lines, prose paths and 20 index entries repointed.
+'      Verifier fix pass, same commit as row 5's: credential-boundary.puml rejoins its split e2e/opencode_test.go
+'      pointer; testing-strategy.puml names TestAndroidAppInstallsFromTheSeed and TestHermesLocalModelE2E, not the
+'      old file stems. MEASURED by `git diff --numstat`: 2 files +5 / −4 = +1.
 '   7  retirement ledger: lsp_wiring_retirement_test.go     −150            −1      0       none    TestNoRetirementOutlivesOneRelease        §7 other · all (next tag)
 '      goes with proveo_retire_lsp_wiring :1501-1550 (51 lines, in the dead medium set) at the next tag; [Inference]
 '      model_bridging_retired_test.go (191 lines, 10 tests) has no ledger entry and is the shape the ledger exists to expire

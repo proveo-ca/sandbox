@@ -40,8 +40,10 @@
 ' or TOML parser: a header line opens a role, the indent comes off, trailing
 ' newlines drop as $(cat) dropped them. Every composed definition stayed
 ' byte-identical (diff -r over 22 files, a Linux container, old tree vs new).
-' The contract test reads the roles through yaml.v3 and the TOML table headers;
-' the image suites assert the composed files, not the source layout.
+' The contract test reads the roles from what render_subagents writes and
+' fails on its "subagent body missing" warning, since a role with no body
+' composes no file; the image suites assert the composed files, not the
+' source layout.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Subagent definition sharing — composed at container start, never duplicated
 
