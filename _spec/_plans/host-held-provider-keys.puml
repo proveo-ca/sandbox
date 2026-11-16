@@ -12,7 +12,7 @@ skinparam noteTextAlignment left
 '   the code .... internal/backend/sandbox/sandbox.go (agentCredentials, Spec)
 '   the code .... internal/sbx/secret.go (SecretSetArgs), internal/sbx/run.go (StoredSecretNames)
 '   the code .... internal/backend/sandbox/project_env.go (seedProjectEnv) — since N7, 2026-10-17;
-'                 load_env and ShouldSkipEnvLoad, named here before, are deleted (repo-simplification.puml N7)
+'                 load_env and ShouldSkipEnvLoad, named here before, are deleted (N7, credential-decisions.puml)
 '   the code .... internal/credentials/secretref.go (ParseSecretRef, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
 '   the reference mechanism ........ _spec/internal/credentials/secret-references.puml
 '   the surface that provisions it . _spec/_plans/init-credential-provisioning.puml
@@ -337,7 +337,7 @@ skinparam noteTextAlignment left
 '     the per-entry injectability trap above. If it can, this shrinks to two
 '     cases and vertex is the only hard one.
 '
-' UPDATE 2026-10-17 — SUPERSEDED BY N7 (repo-simplification.puml; the user:
+' UPDATE 2026-10-17 — SUPERSEDED BY N7 (credential-decisions.puml; the user:
 ' "Keep 1+1, seed --env-file (Recommended)"). MEASURED: no image sources the
 ' workspace .env any more (load_env and ShouldSkipEnvLoad are deleted), which
 ' answers this section's first step and "WHETHER `load_env` SHOULD SOURCE

@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
-' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open). _spec/_plans/ is exempt from the SPEC-reference rule.
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open); F5 option 3 DONE 2026-11-15 (§6 rows 12-13). _spec/_plans/ is exempt from the SPEC-reference rule.
 ' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
 '   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
 '   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
@@ -24,14 +24,16 @@ skinparam noteTextAlignment left
 '   fixtures/report.md, verdict-plan.md. other/ holds raw tool output (pkg-lines.txt, spec-lines.txt,
 '   lib-fn-refs.txt, gofix-*.diff, gofix-by-fixer.txt, golangci-extra.json, golangci-dupl50.json); the
 '   directive-4 report (other.md) reached this file as text on 2026-11-15 — §6 carries its ranked table.
-' prior decisions this plan builds on, all in _spec/_plans/repo-simplification.puml:
+' prior decisions this plan builds on, repo-simplification.puml findings; since 2026-11-15 (F5 option 3) a
+'   DONE one lives in its owner spec, named after each row, and that plan's header maps every retired ID:
 '   N15  the five largest files mix concerns — PROPOSED; its [rec] was "wait for D1, D2 and N1".
-'        All three are DONE, so N15 is unblocked and P1, P4, P5 below are its execution.
-'   N5   termtext exists because agentio imports ui — DONE; a termtext → ui merge reverses it.
-'   N6, N8  envflag and envreg split on purpose — DONE; an envflag + envreg merge reverses them.
-'   N9   maintainer commands left the operator binary — DONE; P9(c) finishes that intent.
-'   N16  internal/backend stays the home of run errors — DECIDED; kept here.
-'   N18  exported API kept alive only by its own tests — DONE; §3 is the residue after it.
+'        All three are DONE, so N15 is unblocked and P1, P4, P5 below are its execution (repo-simplification.puml).
+'   N5   termtext exists because agentio imports ui — DONE; a termtext → ui merge reverses it (agent-terminal-io.puml).
+'   N6, N8  envflag and envreg split on purpose — DONE; an envflag + envreg merge reverses them
+'        (env-switches.puml, env-registry.puml).
+'   N9   maintainer commands left the operator binary — DONE; P9(c) finishes that intent (usage.puml).
+'   N16  internal/backend stays the home of run errors — DECIDED; kept here (exit-code.puml).
+'   N18  exported API kept alive only by its own tests — DONE; §3 is the residue after it (credential-decisions.puml).
 '   sbx-kit-v3.puml UPSTREAM KITS (DECIDED 2026-10-22) vendors the kits and marks "compose FROM docker/sbx-kit-claude
 '        + a proveo mixin" NOT CHOSEN; F9 option 3 would reverse it.
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
@@ -192,6 +194,7 @@ skinparam noteTextAlignment left
 '   packages/lib/entrypoint-lib.sh     proveo_retire_lsp_wiring (sh fn)   :1501       51  live until the next tag; TestNoRetirementOutlivesOneRelease then trips
 '   defs/tests/echo-agent              Dockerfile + entrypoint.sh (2 files)  —         35  no builder, test or mise target; 3 _spec/tests lines describe it
 '   _spec/_plans/retire-model-bridging.puml  covers: .claude/skills/sync-models :7       1  path left in 4aec1f40; the plan is PLANNED work
+'      ── DONE 2026-11-15 with F5 (§6 row 13): the covers line and its index glob left; the plan stays PLANNED ──
 '   ── medium: 109 ──
 '   mise.toml                          test-all · wrangler-version    :152, :220        6  aliases an operator may type by hand
 '   _spec (5 orphan diagrams)          resource_management 165 · clipboard-bridge 65 · what-a-contract-test-is 55 ·
@@ -434,9 +437,23 @@ skinparam noteTextAlignment left
 '   12 _spec: retire the 88 DONE entries of                  −1,337          0       M       medium  spec-keeper retire order: confirm →       F5 option 2
 '      repo-simplification.puml (105 entries; DONE spans                                            rehome → repoint → delete; plantuml
 '      1,337 of 1,772 lines, PROPOSED 284, other 116)                                               -checkonly; reasoning loss unless rehomed
+'      ── DONE 2026-11-15 (F5 option 3), commit "docs(spec): retire the DONE findings record and the shipped plans" ──
+'      MEASURED by `git diff --numstat`: repo-simplification.puml 1,773 → 338 lines (+94 / −1,529). 60 DONE IDs under
+'      105 entry headers (the estimate counted 88) retired; the 9 PROPOSED kept (T1, N11, N15, N19, N34-N38); a 50-line
+'      header section maps each ID to its owner spec and keeps the four batch quotes. 27 other files +77 / −57: a
+'      DECIDED line where the owner lacked the decision or its ID (S1, S2, F13, F12b, F14 with F16 and N21, F17, N30,
+'      N6, N8, N27, N32, D1 and its parts), and 33 of 38 citations of the plan repointed to the owner; the 5 left name
+'      open rows. Stage net −1,415 lines, 0 files (this plan's own text aside).
 '   13 _spec: retire plans whose subject shipped (retire-    −2,500 [E]      −8…−10  L       medium  TestSpecNotesFitTheBox; git grep SPEC:   F5 options 3, 4
 '      model-bridging 81, init-github-access 120, ship-and-reach 52, ci-pipeline 80 to confirm) ≈ −1,000; compact the
 '      HISTORY / MEASURED / dated blocks (1,409 dated lines in 158 files; MEASURED on 735) into 2-line notes ≈ −1,500
+'      ── DONE 2026-11-15 for the retire half (F5 option 3): 0 of 4 retired, 0 lines, 0 files; each has an open deliverable ──
+'      MEASURED against the code that day, re-checking the 2026-11-14 audit's open items. retire-model-bridging: Q2 open
+'      (sbx.LocalModelEnv still writes ARCHITECT_MODEL, EDITOR_MODEL, SMALL_MODEL), Q4 open; its dead covers line for
+'      .claude/skills/sync-models (gone in 4aec1f40) and the index glob left (+4 / −3, −1 index line). init-github-access:
+'      proveo_verify_github_ssh skips a host SSH alias silently and git-sync-turn.sh tells no branch-policy rejection from
+'      an auth failure. ship-and-reach: the live hero gif is unrecorded (hero.gif unchanged since 2026-09-03); browser
+'      variant publication [Unverified]. ci-pipeline: no .github/workflows. The compaction half is option 4, not taken.
 '   14 e2e init_* suite (3 files, 1,279 lines, 29 tests)     −90…−1,279 [E]  0…−3    M       medium  name-token matcher: 9 of 29 share ≥ 40 %  F10
 '      runs on initStubSbx, a shell shim (init_steps_test.go:24);                                   of tokens with a cmd/proveo test, 2 are
 '      cmd/proveo holds 127 init tests (4,326 lines) on the same shim kind                          near-identical; loses the tmux TTY path
@@ -529,6 +546,9 @@ skinparam noteTextAlignment left
 '      dependency); the tree keeps 260 fixture files.
 '   4. go-internal txtar v1.16.0 for Quote/NeedsQuote/Write — removes the marker guard, pulls go-internal.
 ' F5 · _spec compaction scope (46,729 puml lines, 176 files; 61.9 % comment prose, 21.8 % notes — §6 rows 10, 12, 13)
+'      — DECIDED 2026-11-15 by the owner: option 3, "also retire shipped plans"; landed as §6 rows 12-13 (DONE). Of
+'      option 1's hygiene, the dead covers lines are done (seed-and-launch in §9 step 1, retire-model-bridging here) and
+'      the 14 fixture globs landed with §5; the 5-orphan triage (§6 row 10) stays open.
 '   1. [rec] Hygiene only: triage the 5 orphans (cite or retire), repoint the 2 dead covers lines and the
 '      14 fixture globs, keep the DONE rows — _spec carries reasoning by rule (AGENTS.md). 0 … −389.
 '   2. Also retire the 88 DONE entries of repo-simplification.puml (1,337 of its 1,772 lines) after rehoming
@@ -594,6 +614,7 @@ skinparam noteTextAlignment left
 '
 ' ══ 9 · ORDER OF WORK (after the forks close; every step records its reasoning here before source moves) ═
 '   0  spec-keeper: pointer row under N15; one DECIDED row per reversed decision if F3 widens    gate: TestSpecNotesFitTheBox
+'      DONE 2026-11-15 for the N15 pointer (repo-simplification.puml N15 UPDATE, with F5); F3 did not widen
 '   1  DONE 2026-11-15 — dead high set per F1; `go mod tidy`; delete the .db; repoint seed-and-launch.puml:16,   gate: gofmt, build, vet ×3, lint,
 '      the two credential-decisions.puml prose lines, step-lines.puml:36 and sandbox-backend.puml:123       baseline, contract · −114 net, −1 file
 '   2  `go fix ./...` twice (2 conflicting fixes skip on the first pass); modernize −92 is superseded   gate: gofmt, test-go, e2e go vet · −62 (−73 with tags)

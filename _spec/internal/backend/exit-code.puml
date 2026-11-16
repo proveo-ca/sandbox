@@ -173,7 +173,7 @@ skinparam noteTextAlignment left
 ' ExitError besides cmd/proveo, and run.selectBackend became launchSandbox. The
 ' dependency-direction argument below weakens with one backend: placing
 ' ExitError inside internal/backend/sandbox no longer forces a sibling import.
-' DECIDED 2026-10-18 (repo-simplification.puml N16, option 2): the user's
+' DECIDED 2026-10-18 (N16, option 2): the user's
 ' "Apply N16" took the [rec], "Keep the package as the home of run errors;
 ' nothing else to do". No source changed. MEASURED: three packages import it —
 ' internal/backend/sandbox builds both types, internal/run matches ExitError in

@@ -14,8 +14,8 @@
 ' covers: defs/claudecode/mcp/entrypoint.sh
 '
 ' ── §2 · THE IMAGE READS NO .env; IT ONLY BRIDGES KEY ALIASES (N7, 2026-10-17) ─
-' The user: "Keep 1+1, seed --env-file (Recommended)" (repo-simplification.puml
-' N7). MEASURED: find_env_file is deleted, and load_env lost its sbx guard and
+' The user: "Keep 1+1, seed --env-file (Recommended)" (N7; the decision lives in
+' credential-decisions.puml). MEASURED: find_env_file is deleted, and load_env lost its sbx guard and
 ' its `set -a` sourcing of the workspace .env and is renamed bridge_google_keys
 ' (entrypoint-lib.sh:36-40 since N2, five lines); every def entrypoint, hermes
 ' included, calls bridge_google_keys in the shell BEFORE `proveo-entrypoint prep`
@@ -68,8 +68,8 @@
 ' the job-control notices go to /dev/null.
 '
 ' ── §4 · A STEP THAT DEGRADES RATHER THAN FAILS ───────────────────────────
-' attach_rtk (opt-in clone of rtk-ai/rtk into the workspace) was removed
-' 2026-10-16 (Executor: "Remove rtk from proveo run"); _spec/_plans/repo-simplification.puml.
+' DECIDED 2026-10-16 (S1, Executor: "Remove rtk from proveo run"): attach_rtk,
+' the opt-in clone of rtk-ai/rtk into the workspace, is removed.
 '
 ' run_smoke_test, under PROVEO_SMOKE_TEST=1, prints
 ' "PROVEO_SMOKE_READY <PROVEO_SMOKE_TARGET|target>" and then

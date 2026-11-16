@@ -35,7 +35,7 @@
 ' (cmd/proveo-entrypoint/main.go:57-88), and internal/entrypoint prints no
 ' PROVEO_SMOKE_READY any more — the marker comes from the shell's
 ' run_smoke_test. The test's exemption for internal/entrypoint/entrypoint.go
-' (tui_vocabulary_test.go:18) is therefore stale (repo-simplification.puml N22).
+' (tui_vocabulary_test.go:18) is therefore stale (N22, prep-process-boundary.puml).
 '
 ' Three things make it a bad first customer. It runs INSIDE the image, so a
 ' source edit is inert until `mise run build <harness>` — the loop is a rebuild

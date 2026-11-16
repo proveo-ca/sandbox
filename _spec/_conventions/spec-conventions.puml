@@ -66,7 +66,7 @@
 ' the 2026-10-17 lint was RED on exactly them until a live sbx re-measure (the
 ' user: "Re-measure first"): internal/backend/sandbox/sandbox.go:1917 (:1922
 ' before N6), internal/sbx/secret.go:13, internal/sbx/secret_test.go:8 — the
-' opencode plain-secret 401 (repo-simplification.puml N14). MEASURED
+' opencode plain-secret 401 (N14, DECIDED 2026-10-17, option 1). MEASURED
 ' 2026-11-12: `mise run lint` is green, so none of the three is over three
 ' lines today.
 '

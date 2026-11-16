@@ -1,7 +1,9 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Sandbox backend — the only backend: sbx runs the agent, or the run refuses
-' ── DECIDED 2026-10-16 (Executor): sbx OR REFUSE ───────────────────────────
+' ── DECIDED 2026-10-16 (Executor, D1): sbx OR REFUSE ───────────────────────
+' D1's parts, gone the same day: F1 proveo/mitmproxy · F2 defs/egress-dashboard · F3 its topology
+' spec · F4 inject/broker.env · F5 the egress-proxy header · F6 the .env guard · F8 proxy banners · F12a firehol.
 ' The Executor chose, in order: "Retire Docker egress"; "Refuse without sbx";
 ' "Retire review, map the rest"; on the tier mapping: "Nothing, `sbx` handles
 ' this. Drop that param". The docker+egress backend (internal/backend/
@@ -32,7 +34,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' (:1446, :1461, :1615-1616) all write under it. The e2e globs read
 ' <state>/runs/*/sbx/... (e2e/sbx_test.go:443, sbx_egress_test.go:136).
 '
-' ── NO RETIREMENT STUBS (DECIDED 2026-10-17) ───────────────────────────────
+' ── NO RETIREMENT STUBS (DECIDED 2026-10-17, S3) ───────────────────────────
 ' The user, on the CLI and env stubs: "Drop all four" (--egress-mode, --shell,
 ' PROVEO_SBX off values, PROVEO_DIND). MEASURED: sandbox.Disabled, the
 ' PROVEO_SBX off-value refusal and TestRetiredSbxOffValuesRefuseTheRun are
@@ -42,7 +44,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' HISTORY: from 2026-10-16 to this decision, PROVEO_SBX off values hard-failed
 ' ("PROVEO_SBX=<v> is retired: …") and PROVEO_DIND warned and no-opped.
 '
-' ── `--shell` IS RETIRED: SHELL ACCESS IS sbx's (DECIDED 2026-10-17) ───────
+' ── `--shell` IS RETIRED: SHELL ACCESS IS sbx's (DECIDED 2026-10-17, S3) ───
 ' The user: "Why do we support this? Does any other harness support that
 ' --shell flag? is that `proveo` or `sbx`? if `proveo` retire it." It was
 ' proveo's, so it is gone with no stub: Params.Shell, sandbox.Input.Shell and
@@ -97,7 +99,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' git-context report, and the shell prelude runs before it —
 ' _spec/cmd/proveo-entrypoint/prep-sequence.puml). So no image sources the workspace .env, inside
 ' sbx or out, and there is no guard left to key on SANDBOX_NAME / SANDBOX_VM_ID
-' (repo-simplification.puml F7, resolved by N7). Pinned by
+' (F7, resolved by N7 on 2026-10-17; no F7 option was picked). Pinned by
 ' internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
 ' and TestBashPreludeBridgesTheGoogleKeyAliases. The project .env's values reach
 ' a NEW sandbox through sbx's `--env-file` (sbx accepts it since v0.39.0,
@@ -162,7 +164,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' the policy and terminates TLS itself, so a CA bundle or proxy URL that does
 ' not name sbx's own proxy would black-hole every request. INSPECT_PROXY,
 ' ENFORCEMENT_PROXY and PROVEO_EGRESS_CA_CERT left the list 2026-10-16: their
-' only producer, the docker egress plan, is deleted (repo-simplification.puml F8).
+' only producer, the docker egress plan, is deleted (F8, part of D1).
 '
 ' HISTORY: the mode handed to BuildPlan here was best-effort, because `p.Mode`
 ' could hold an sbx baseline. BuildPlan and `p.Mode` are both gone.

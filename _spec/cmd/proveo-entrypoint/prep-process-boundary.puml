@@ -37,9 +37,9 @@
 ' (contract_test.go:104 — no shell twins, hermes ships proveo-entrypoint).
 ' [Unverified] image builds for this change were still running when recorded.
 '
-' ── N1 (DONE (wt) 2026-10-17): prep KEEPS ONLY WHAT CROSSES THE BOUNDARY ───
-' Part of the user's "apply fixes for SEC2, SEC3, N1, F18, …" (repo-simplification.puml
-' N1, option 1). MEASURED then: `proveo-entrypoint prep [target]` ran EnsureRuntimeUser
+' ── N1 (DECIDED 2026-10-17): prep KEEPS ONLY WHAT CROSSES THE BOUNDARY ─────
+' Part of the user's "apply fixes for SEC2, SEC3, N1, F18, …" (N1, option 1).
+' MEASURED then: `proveo-entrypoint prep [target]` ran EnsureRuntimeUser
 ' (the passwd entry), the git-context report and the smoke sentinel, nothing else;
 ' internal/entrypoint held only EnsureRuntimeUser, SmokeReady and firstNonEmpty
 ' (N22 has since removed the smoke half). The exec mode

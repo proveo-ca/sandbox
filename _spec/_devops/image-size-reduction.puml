@@ -10,7 +10,8 @@
 ' session: 20535342-1c45-4a27-aaf4-ef8df3d9b6c3
 ' MEASUREMENT RECORD, not a plan. Cuts 1-12 landed 2026-09-05; the inversion
 ' and cut 13 landed after. Moved from _spec/_plans/ on 2026-10-17
-' (repo-simplification.puml N10): a shipped plan leaves _plans. Read "this
+' (N10, DECIDED 2026-10-17, option 1: graduate landed plans — this one to
+' _devops/, retire-model-bridging trimmed to Q2/Q4): a shipped plan leaves _plans. Read "this
 ' plan" below as the plan this record grew from. The Dockerfile SPEC pointers
 ' cite it as the record of why each cut is shaped the way it is.
 ' Wall-clock lives in _spec/internal/maintain/build-schedule.puml.

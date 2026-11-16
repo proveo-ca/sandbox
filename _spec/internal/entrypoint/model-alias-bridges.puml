@@ -2,7 +2,7 @@
 ' ── CURRENT STATE: PROVEO CHOOSES NO AGENT MODEL BY ENVIRONMENT ───────────
 ' Rehomed 2026-10-17 from _spec/_plans/retire-model-bridging.puml, which now
 ' holds only its two open questions, Q2 (local model) and Q4 (the catalog)
-' (repo-simplification.puml N10). This block is the live design; the diagram
+' (N10; _spec/_devops/image-size-reduction.puml). This block is the live design; the diagram
 ' below it is the RETIRED mechanism, kept for the one fact noted after it.
 '
 ' THE DECISION (operator, 2026-09-09; not re-argued). An agent's model comes

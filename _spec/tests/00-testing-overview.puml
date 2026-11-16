@@ -38,6 +38,8 @@ skinparam packageStyle rectangle
 ' register them; CONTRIBUTING.md and the def READMEs document the family.
 ' Open (N37): the claudecode suite now runs the mcp and standalone checks twice,
 ' because one pin now serves both.
+' DECIDED 2026-10-18 (N30, option 1): test env names from retired designs became live or neutral ones —
+'   PROVEO_DETACHED_SMOKE_TIMEOUT/_KEEP_FAILED among them; the deliberate tombstones stay.
 '
 ' The Layer-4 floor lives in e2e/preconditions_test.go and is one rule: the
 ' `//go:build e2e` tag IS the opt-in, so the only reason to skip is a missing

@@ -10,12 +10,12 @@ skinparam noteTextAlignment left
 '   the variables themselves .......... _spec/internal/envreg/env-registry.puml
 '   PROVEO_DOCKER_PUSH / _PULL ......... _spec/_devops/buildx-driver-selection.puml
 '   PROVEO_DEPS, host and image ....... _spec/packages/lib/dependency-trees.puml
-'   the decision record ............... _spec/_plans/repo-simplification.puml (N6)
-'   the shell twin .................... _spec/_plans/repo-simplification.puml (N32)
 '   installer switches, still apart ... _spec/_plans/repo-simplification.puml (N36)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' DECIDED 2026-10-18 (N6, "Apply N6, N8, N9, N16, N25, N26"): one helper, envflag.On/Off/Bool, one vocabulary.
+' DECIDED 2026-10-18 (N32, option 1): the shell twin, proveo_env_on/off/enabled in packages/lib, takes the same words.
 '
-' ── WHAT IT REPLACED (N6, DONE (wt) 2026-10-18) ────────────────────────────
+' ── WHAT IT REPLACED (N6, DONE 2026-10-18) ─────────────────────────────────
 ' Before N6 each switch parsed its own value. The first read counted about
 ' twenty-two hand-rolled parsers in six vocabularies; the scan below flagged 24
 ' sites when it first ran (reported). PROVEO_WIZARD was parsed twice. A word

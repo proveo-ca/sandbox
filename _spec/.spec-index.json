@@ -328,8 +328,7 @@
       "spec": "_spec/_plans/retire-model-bridging.puml",
       "covers": [
         "internal/sbx/host_ollama.go",
-        "internal/provider/models.go",
-        ".claude/skills/sync-models/SKILL.md"
+        "internal/provider/models.go"
       ],
       "fingerprint": null
     },

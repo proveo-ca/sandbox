@@ -10,7 +10,7 @@ title Mount model — two layouts, one scope resolver, secrets decided by egress
 ' Plan() returns (mounts []Mount, links []Link) since 2026-10-17 (MEASURED,
 ' mount.go:56). Its workdir return — the constant "/app" (reported) — was dropped
 ' with the three `wd != "/app"` test assertions (the user: "Drop the workdir return
-' (Recommended)", repo-simplification.puml F20); sbx computes the agent's workdir
+' (Recommended)", F20, 2026-10-17); sbx computes the agent's workdir
 ' from the binds (_spec/internal/sbx/sandbox-backend.puml).
 '
 ' ── MOUNT AND THE PATH HELPERS (DECIDED 2026-11-15) ────────────────────────
@@ -21,6 +21,7 @@ title Mount model — two layouts, one scope resolver, secrets decided by egress
 ' so no edge points up. RealPath and Exists are exported here once and
 ' replace sandbox's twins; run's realPathOf adds only Abs. CopyFile(src, dst,
 ' perm) in internal/backend/sandbox replaces run's 0600 copy.
+' DECIDED 2026-10-16 (F12b, part of D1): runner had shrunk to type Mount once DockerRunArgs, Hardening and pids.go went.
 '
 ' ── F9 + N7 (DONE (wt) 2026-10-17): THE PLAN BINDS NO .env, STAGES NO TREE ──
 ' F9 (the user: "Keep detection only (Recommended)"). MEASURED: isolateEnv,

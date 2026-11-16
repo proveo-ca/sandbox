@@ -5,7 +5,7 @@
 ' covers: defs/*/entrypoint.sh
 ' covers: defs/claudecode/mcp/entrypoint.sh
 '
-' 2026-10-17, N1 (DONE (wt); repo-simplification.puml): the order is REVERSED.
+' 2026-10-17, N1 (DECIDED; prep-process-boundary.puml): the order is REVERSED.
 ' MEASURED (e.g. defs/codex/entrypoint.sh:6-16): source the lib, then
 ' proveo_sbx_passthrough, then the in-shell prelude — set_working_directory,
 ' bridge_google_keys, bridge_git_identity — and only then `proveo-entrypoint prep`,
