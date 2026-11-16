@@ -17,6 +17,9 @@ import (
 // InputsLabel names the image label holding the InputsDigest a build ran against.
 const InputsLabel = "proveo.inputs"
 
+// InputsFormat is the `docker image inspect --format` that prints InputsLabel.
+const InputsFormat = `{{index .Config.Labels "` + InputsLabel + `"}}`
+
 // InputPaths are the repo-relative trees whose content an image bakes.
 var InputPaths = []string{"defs", "packages"}
 

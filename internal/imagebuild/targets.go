@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Pin is a build arg resolved to an upstream release.
@@ -212,6 +213,17 @@ func (b *Builder) present(ref string) bool {
 	return err == nil
 }
 
+// fresh reports whether ref carries this checkout's InputsDigest; with no digest to compare, it is fresh.
+// SPEC: _spec/tests/stale-local-image.puml
+func (b *Builder) fresh(ref string) bool {
+	want, err := InputsDigest(b.RepoRoot)
+	if err != nil {
+		return true
+	}
+	got, err := b.Docker.Output("image", "inspect", ref, "--format", InputsFormat)
+	return err != nil || strings.TrimSpace(got) == want
+}
+
 func (b *Builder) refFor(target, override, tag string) string {
 	return b.ImageRef(override, Specs[target].Repo, tag)
 }
@@ -233,7 +245,7 @@ func (b *Builder) buildRef(name, ref string, o Options) error {
 			if err := b.RequirePublished(from, tag); err != nil {
 				return err
 			}
-		} else if !b.present(from) {
+		} else if !b.present(from) || !b.fresh(from) {
 			if err := b.BuildTarget(s.Needs, tag, Options{NoCache: o.NoCache}); err != nil {
 				return err
 			}
@@ -286,6 +298,10 @@ func (b *Builder) ensure(name, ref string, push bool) error {
 		return b.RequirePublished(ref, RefTag(ref))
 	}
 	if b.present(ref) {
+		if !b.fresh(ref) {
+			b.UI.Warnf("%s was built from other defs/ and packages/ content — rebuilding", ref)
+			return b.buildRef(name, ref, Options{})
+		}
 		if s.Floor == "" || b.floor(ref, s.Floor) {
 			return nil
 		}

@@ -146,7 +146,7 @@ func Stale(image string) string {
 	if err != nil {
 		return ""
 	}
-	r := Docker(ProbeTimeout, nil, "image", "inspect", image, "--format", `{{index .Config.Labels "`+imagebuild.InputsLabel+`"}}`)
+	r := Docker(ProbeTimeout, nil, "image", "inspect", image, "--format", imagebuild.InputsFormat)
 	if !r.OK() {
 		return ""
 	}

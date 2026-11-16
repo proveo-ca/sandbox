@@ -39,6 +39,18 @@
 ' checkout. A missing checkout or a failed inspect passes too, so the check
 ' never reports staleness it did not measure.
 '
+' ── A STAMP COVERS ITS PARENTS ───────────────────────────────────────────────
+' MEASURED 2026-11-15: the first `mise run build codex` after the stamp landed
+' took 4.6s. ensure() kept the present proveo/base-node:local (mise 2026.9.1),
+' and the new codex image carried a fresh stamp over that stale parent.
+' ensure() and the Needs path now treat a present :local parent whose
+' proveo.inputs differs as missing and rebuild it first, so the chain runs
+' base → base-node → codex. BuildKit's cache keeps an unchanged parent cheap.
+' Builder.fresh passes a parent when no digest can be computed (no git
+' checkout) or the inspect fails; push builds still require the published
+' parent. TestAStaleParentIsRebuiltBeforeItsChild pins both orders; it goes
+' red with the check removed (built only proveo/codex:local).
+'
 ' ── COARSE BY DESIGN ─────────────────────────────────────────────────────────
 ' One digest covers both trees for every image, so an edit under defs/hermes
 ' marks a codex :local stale too. The option the user chose said so: "any

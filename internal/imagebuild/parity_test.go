@@ -25,9 +25,10 @@ var pinned = map[string]string{
 }
 
 type recorder struct {
-	calls []string
-	cold  bool
-	have  map[string]bool
+	calls  []string
+	cold   bool
+	have   map[string]bool
+	inputs string
 }
 
 func (r *recorder) Output(args ...string) (string, error) {
@@ -35,6 +36,8 @@ func (r *recorder) Output(args ...string) (string, error) {
 	switch {
 	case r.cold && len(args) >= 3 && args[0] == "image" && args[1] == "inspect" && !r.have[args[2]]:
 		return "", errors.New("no such image")
+	case len(args) == 5 && args[0] == "image" && args[1] == "inspect" && args[4] == imagebuild.InputsFormat:
+		return r.inputs, nil
 	case r.cold && len(args) >= 1 && args[0] == "pull":
 		return "", errors.New("pull denied")
 	case len(args) >= 2 && args[0] == "context":
@@ -111,7 +114,11 @@ func goBuilds(t *testing.T, root, name, tag string, push bool, cacheDir string, 
 	t.Helper()
 	env := map[string]string{"PROVEO_BUILDKIT_CACHE_DIR": cacheDir}
 	maps.Copy(env, pinned)
-	r := &recorder{cold: cold, have: map[string]bool{}}
+	inputs, err := imagebuild.InputsDigest(root)
+	if err != nil {
+		t.Fatalf("InputsDigest: %v", err)
+	}
+	r := &recorder{cold: cold, have: map[string]bool{}, inputs: inputs}
 	b := &imagebuild.Builder{
 		RepoRoot: root, Docker: r, Getenv: func(k string) string { return env[k] },
 		Out: io.Discard, UI: ui.New(io.Discard), Arch: "arm64",

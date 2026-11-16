@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/imagebuild"
@@ -121,5 +122,52 @@ func TestPinArgsResolveEveryPinTheFleetBuildPasses(t *testing.T) {
 	}
 	if _, err := b.PinArgs("no-such-target"); err == nil {
 		t.Error("PinArgs of an unknown target must fail")
+	}
+}
+
+// A child stamped over a stale parent would claim content it does not carry.
+func TestAStaleParentIsRebuiltBeforeItsChild(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, parents string
+		want          []string
+	}{
+		{"stale parents", "built-from-older-defs", []string{"proveo/base:local", "proveo/base-node:local", "proveo/codex:local"}},
+		{"fresh parents", "", []string{"proveo/codex:local"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root := repoRoot(t)
+			r := &recorder{have: map[string]bool{}, inputs: c.parents}
+			if r.inputs == "" {
+				r.inputs = digest(t, root)
+			}
+			env := map[string]string{"PROVEO_BUILDKIT_CACHE_DIR": t.TempDir()}
+			b := &imagebuild.Builder{
+				RepoRoot: root, Docker: r, Getenv: func(k string) string {
+					if v, ok := pinned[k]; ok {
+						return v
+					}
+					return env[k]
+				},
+				Out: io.Discard, UI: ui.New(io.Discard), Arch: "arm64",
+				Fetch:    func(string) ([]byte, error) { t.Fatal("pinned builds must not reach the network"); return nil, nil },
+				MkdirAll: os.MkdirAll,
+			}
+			if err := b.BuildTarget("codex", "local", imagebuild.Options{}); err != nil {
+				t.Fatalf("BuildTarget(codex): %v", err)
+			}
+			var built []string
+			for _, call := range r.calls {
+				if rest, ok := strings.CutPrefix(call, "buildx build "); ok {
+					if ref, ok := imagebuild.ArgRef(strings.Fields(rest)); ok {
+						built = append(built, ref)
+					}
+				}
+			}
+			if !slices.Equal(built, c.want) {
+				t.Errorf("built %q, want %q", built, c.want)
+			}
+		})
 	}
 }
