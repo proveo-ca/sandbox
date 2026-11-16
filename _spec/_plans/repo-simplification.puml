@@ -27,6 +27,8 @@
 '   the rows: `git show 35494546:_spec/_plans/repo-simplification.puml` holds them.
 ' The IDs are this file's; an owner spec cites them bare. engine-local-history.puml's own
 '   D1-D9 are that spec's sub-decisions, not these.
+' Pinned: internal/contract/spec_notes_test.go TestRetiredFindingsMapNamesLivingOwners. Every
+'   path in the map below exists, and each row's spec cites every ID on its row.
 ' The user's batch decisions; each finding took its [rec] unless its owner line says otherwise:
 '   2026-10-17  "apply fixes for SEC2, SEC3, N1, F18, F10, F17, research how to properly mount home
 '               data in hermes + sbx for F19, N12 and N18"
@@ -40,6 +42,8 @@
 '     (Layer 3), internal/sbx/host-inference.puml (local model),
 '     _plans/host-execution-fallback.puml (the host fallback, DEFERRED)
 '   _paradigms/credential-boundary.puml .............. F17, and D1's boundary half
+'   _paradigms/retire-dind.puml ...................... S3 (manifest "Drop all four")
+'   defs/cursor/cursor-paradigm.puml ................. D1 ("Drop the pins")
 '   defs/opencode/engine-local-history.puml .......... D2 (the whole spec) · S2 · F13
 '   internal/credentials/credential-decisions.puml ... C1 · N7 · N18
 '   internal/workspace/mount-model.puml .............. F9 · F12b · F20
@@ -50,7 +54,7 @@
 '   internal/clean/clean-lifecycle.puml .............. F11
 '   internal/proveohome/proveo-home-components.puml .. F15
 '   internal/sbx/ide-attach.puml ..................... SEC2 · SEC4
-'   tests/testing-strategy.puml ...................... SEC3
+'   tests/testing-strategy.puml ...................... SEC3 · S3 ("Convert all now")
 '   defs/harness-image-layers.puml ................... SEC1 · N26
 '   cmd/proveo-entrypoint/prep-process-boundary.puml . N1 · N22 · N24
 '   internal/manifest/harness-manifest-schema.puml ... F10 · N20
@@ -66,7 +70,7 @@
 '   internal/envreg/env-registry.puml ................ N8 · N27 · N32 (the registry half)
 '   internal/cdn/distribution-update.puml ............ N28
 '   tests/00-testing-overview.puml ................... N30 · N31
-'   cmd/proveo/usage.puml ............................ N9
+'   cmd/proveo/usage.puml ............................ N9 · S3 ("Retire debug too.")
 '   internal/backend/exit-code.puml .................. N16
 '   defs/claudecode/claudecode-paradigm.puml ......... F14 · F16 · N21
 '

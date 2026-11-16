@@ -392,7 +392,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' proveo did (the backend it chose, the VM it removed) is read from the run's
 ' output and `sbx ls` (TestEveryHarnessGetsTheDockerAccessItPromises).
 '
-' ONE KIT LAUNCH AND `sbx exec` CARRY IT (e2e/kit_probe_test.go, 2026-10-17).
+' ONE KIT LAUNCH AND `sbx exec` CARRY IT (e2e/kit_probe_test.go, 2026-10-17, S3).
 ' The user retired `--shell` ("is that `proveo` or `sbx`? if `proveo` retire
 ' it") and, on the e2e, "Convert all now". MEASURED:
 '   launchKit — one `proveo run <target>` through its own kit under tmux, pinned

@@ -444,6 +444,8 @@ skinparam noteTextAlignment left
 '      DECIDED line where the owner lacked the decision or its ID (S1, S2, F13, F12b, F14 with F16 and N21, F17, N30,
 '      N6, N8, N27, N32, D1 and its parts), and 33 of 38 citations of the plan repointed to the owner; the 5 left name
 '      open rows. Stage net −1,415 lines, 0 files (this plan's own text aside).
+'      The verifier's fix pass: S3 and D1 gained 4 owner rows, and TestRetiredFindingsMapNamesLivingOwners pins
+'      the map (each path exists, each row's spec cites its IDs).
 '   13 _spec: retire plans whose subject shipped (retire-    −2,500 [E]      −8…−10  L       medium  TestSpecNotesFitTheBox; git grep SPEC:   F5 options 3, 4
 '      model-bridging 81, init-github-access 120, ship-and-reach 52, ci-pipeline 80 to confirm) ≈ −1,000; compact the
 '      HISTORY / MEASURED / dated blocks (1,409 dated lines in 158 files; MEASURED on 735) into 2-line notes ≈ −1,500
@@ -452,8 +454,9 @@ skinparam noteTextAlignment left
 '      (sbx.LocalModelEnv still writes ARCHITECT_MODEL, EDITOR_MODEL, SMALL_MODEL), Q4 open; its dead covers line for
 '      .claude/skills/sync-models (gone in 4aec1f40) and the index glob left (+4 / −3, −1 index line). init-github-access:
 '      proveo_verify_github_ssh skips a host SSH alias silently and git-sync-turn.sh tells no branch-policy rejection from
-'      an auth failure. ship-and-reach: the live hero gif is unrecorded (hero.gif unchanged since 2026-09-03); browser
-'      variant publication [Unverified]. ci-pipeline: no .github/workflows. The compaction half is option 4, not taken.
+'      an auth failure. ship-and-reach: the live hero gif is unrecorded (hero.gif unchanged since 2026-07-31
+'      (88cefc47), older than hero.tape (2026-10-27)); browser variant publication [Unverified]. ci-pipeline: no
+'      .github/workflows. The compaction half is option 4, not taken.
 '   14 e2e init_* suite (3 files, 1,279 lines, 29 tests)     −90…−1,279 [E]  0…−3    M       medium  name-token matcher: 9 of 29 share ≥ 40 %  F10
 '      runs on initStubSbx, a shell shim (init_steps_test.go:24);                                   of tokens with a cmd/proveo test, 2 are
 '      cmd/proveo holds 127 init tests (4,326 lines) on the same shim kind                          near-identical; loses the tmux TTY path

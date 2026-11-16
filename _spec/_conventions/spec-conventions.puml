@@ -62,7 +62,9 @@
 ' dispatcher, deleted that day (_spec/cmd/proveo/usage.puml, MAINTAINER
 ' TOOLING IS mise TASKS).
 ' The migration before the gate: 89 blocks moved into _spec/ by three
-' spec-keepers and 85 stanzas stripped (reported). Three blocks were HELD, so
+' spec-keepers and 85 stanzas stripped (reported). The user, on the refused
+' Chrome env-token scope block: "Record as open, strip (Recommended)" (moot
+' since F14 removed the bridge, 2026-10-24). Three blocks were HELD, so
 ' the 2026-10-17 lint was RED on exactly them until a live sbx re-measure (the
 ' user: "Re-measure first"): internal/backend/sandbox/sandbox.go:1917 (:1922
 ' before N6), internal/sbx/secret.go:13, internal/sbx/secret_test.go:8 — the

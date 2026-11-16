@@ -35,20 +35,20 @@ skinparam noteTextAlignment left
 ' still selects a model, per harness — or does local inference move into the
 ' agent's own saved config like every other model choice?
 '
-' ── Q4. WHAT HAPPENS TO THE CATALOG AND ITS SKILL? — NEVER ASKED ───────────
-' internal/provider/models.go (knownModels, ModelProvider, CheckModel) and
-' .claude/skills/sync-models keep a model-id table current. Since 2026-09-09
+' ── Q4. WHAT HAPPENS TO THE CATALOG? — NEVER ASKED ─────────────────────────
+' internal/provider/models.go (knownModels, ModelProvider, CheckModel) keeps a
+' model-id table; its sync-models updater is gone (4aec1f40). Since 2026-09-09
 ' nothing RESOLVES an id. MEASURED 2026-10-17, the catalog still has readers:
 '   run.assembleEnv → warnUnknownModel → provider.CheckModel
 '     (internal/run/run.go:586-591, helpers.go:66-74) warns when a harness's
 '     own *_MODEL value is no known id — validation of the operator's env;
 '   posture.RolesLine → provider.ModelProvider (posture.go:226).
-' The skill's own text ("This catalog has no reader today", SKILL.md:128) is
+' The skill's own text ("This catalog has no reader today", SKILL.md:128) was
 ' therefore stale.
 ' MEASURED 2026-11-15: the skill is gone (4aec1f40, 2026-10-21, no recorded
 ' decision), so its covers line left; the catalog and its readers stay.
-' THE QUESTION, narrowed by that measurement: retire the catalog and the skill,
-' or keep them as VALIDATION — and if so, does validation extend from the
+' THE QUESTION, narrowed by that measurement: retire the catalog, or keep it
+' as VALIDATION — and if so, does validation extend from the
 ' operator's env to a saved config that names a model that no longer exists?
 ' Open against: _spec/internal/provider/model-catalog.puml and
 ' _spec/internal/provider/model-resolution.puml.

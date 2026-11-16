@@ -149,7 +149,7 @@ skinparam packageStyle rectangle
 ' paint, and draws rules in "-", as does PROVEO_GLYPHS=ascii|off.
 ' cobra's own "help" command is not listed; the hint names --help instead.
 '
-' ── 2026-10-16/17: `--egress-mode`, `--shell` AND `debug` ARE GONE ─────────
+' ── 2026-10-16/17 (S3): `--egress-mode`, `--shell` AND `debug` ARE GONE ────
 ' The Executor: "Nothing, `sbx` handles this. Drop that param"; on stubs:
 ' "Drop all four" (--egress-mode, --shell, PROVEO_SBX off values, PROVEO_DIND);
 ' on --shell: "is that `proveo` or `sbx`? if `proveo` retire it"; on the

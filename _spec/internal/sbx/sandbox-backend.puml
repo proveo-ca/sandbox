@@ -3,7 +3,8 @@
 title Sandbox backend — the only backend: sbx runs the agent, or the run refuses
 ' ── DECIDED 2026-10-16 (Executor, D1): sbx OR REFUSE ───────────────────────
 ' D1's parts, gone the same day: F1 proveo/mitmproxy · F2 defs/egress-dashboard · F3 its topology
-' spec · F4 inject/broker.env · F5 the egress-proxy header · F6 the .env guard · F8 proxy banners · F12a firehol.
+' spec · F4 inject/broker.env · F5 the egress-proxy header · F6 the .env guard rekey (the guard went
+' with N7, 2026-10-17) · F8 proxy banners · F12a firehol.
 ' The Executor chose, in order: "Retire Docker egress"; "Refuse without sbx";
 ' "Retire review, map the rest"; on the tier mapping: "Nothing, `sbx` handles
 ' this. Drop that param". The docker+egress backend (internal/backend/

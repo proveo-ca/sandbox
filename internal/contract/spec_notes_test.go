@@ -201,6 +201,53 @@ func TestUnwrappableExemptsLinksAndNothingElse(t *testing.T) {
 	}
 }
 
+var (
+	ownerRow  = regexp.MustCompile(`^'\s+(\S+\.puml) \.+ (.+)$`)
+	specPath  = regexp.MustCompile(`[\w./-]+\.puml`)
+	findingID = regexp.MustCompile(`\b(?:SEC|[CDFNST])\d+[a-z]?\b`)
+)
+
+// The retired findings record maps each finding ID to the living spec that now carries its decision.
+func TestRetiredFindingsMapNamesLivingOwners(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	const plan = "_spec/_plans/repo-simplification.puml"
+	b, err := os.ReadFile(filepath.Join(root, plan))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, block, ok := strings.Cut(string(b), "' The owner specs, paths under _spec/:\n")
+	if !ok {
+		t.Fatalf("%s: no owner map header", plan)
+	}
+	block, _, _ = strings.Cut(block, "'\n")
+	rows := 0
+	for _, line := range strings.Split(block, "\n") {
+		for _, p := range specPath.FindAllString(line, -1) {
+			if _, err := os.Stat(filepath.Join(root, "_spec", p)); err != nil {
+				t.Errorf("%s owner map names _spec/%s, which does not exist", plan, p)
+			}
+		}
+		m := ownerRow.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		rows++
+		owner, err := os.ReadFile(filepath.Join(root, "_spec", m[1]))
+		if err != nil {
+			continue
+		}
+		for _, id := range findingID.FindAllString(m[2], -1) {
+			if !regexp.MustCompile(`\b` + id + `\b`).Match(owner) {
+				t.Errorf("%s maps %s to _spec/%s, which never cites %s", plan, id, m[1], id)
+			}
+		}
+	}
+	if rows == 0 {
+		t.Fatalf("%s: owner map has no rows", plan)
+	}
+}
+
 // renamedIdents maps each name gopls renamed to its replacements, scoped to the files whose prose named it.
 var renamedIdents = []struct {
 	files   []string

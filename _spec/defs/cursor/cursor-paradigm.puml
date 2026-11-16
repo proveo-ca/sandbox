@@ -161,7 +161,7 @@ note bottom of VENDOR
   **HISTORY — the posture was declared, not defaulted per-flag.**
   cursor's manifest declared ""capabilities: egress:[open] ·
   credentials:[forward] · providers:[cursor]"" for the docker
-  backend. DECIDED 2026-10-16 ("Drop the pins"): the
+  backend. DECIDED 2026-10-16 (D1, "Drop the pins"): the
   ""egress"" and ""credentials"" pins are gone, and so is the
   top-level ""provider: cursor"" key (MEASURED: only
   ""capabilities.providers: [cursor]"" pins the vendor now), and
