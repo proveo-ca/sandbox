@@ -425,6 +425,14 @@ skinparam noteTextAlignment left
 '   3  pnpm workspace with 0 members → mise `npm:wrangler`  −884 net        −3      S       low     mise npm backend; [Unverified] wrangler's  §7 other · high
 '      package.json 8 + pnpm-workspace.yaml 9 + pnpm-lock.yaml 869 = 886 removed, +2 mise lines;    install hooks: `mise x -- wrangler --version`
 '      `find apps packages -name package.json` → empty; mise.toml:43,49,222,259,265 name pnpm
+'      ── DONE 2026-11-15, commit "build: pin wrangler through mise, drop the empty pnpm workspace" ──
+'      MEASURED by `git diff --numstat`: 9 files +24 / −905 = −881, −3 files; outside _spec 7 files +10 / −900 = −890.
+'      [tools] pnpm = "10" → "npm:wrangler" = { version = "4.100.0", allow_builds = [esbuild, sharp, workerd] } (the
+'      lock's version; the workspace's allowBuilds); [tasks.install] gone; wrangler-version, deploy-cli and dev-cli run
+'      bare `wrangler`. The [Unverified] cleared: mise 2026.10.17 installs it through its embedded aube (116 packages,
+'      5.3 s), `mise x -- wrangler --version` and `mise run wrangler-version` print 4.100.0, and the build-script
+'      binaries run (workerd 2026-06-11, esbuild 0.27.3). cli_tasks_test.go and host_bash_test.go strings moved by
+'      `gofmt -r`; distribution-update.puml carries the decision; components.puml drops the workspace node.
 '   4  stale root files: pulse.json 31 · .gitsample 1 ·      −252            −7      S       low     grep -rl → 0 refs; repoint the 3 spec     §7 other · high
 '      3 .gitkeep in non-empty dirs · scripts/*.py 217                                              lines naming scripts/*.py first
 '      (other.md: 260, pulse.json at 40); pulse.json cites TODO.md and internal/tmux/e2e_test.go, neither exists (P11 repointed the second to e2e/e2e_test.go)
@@ -639,6 +647,7 @@ skinparam noteTextAlignment left
 '   8  P7 per F8 + internal/sbxinstall; unexport 24 funcs / 6 types; P8 printer injection            gate: tui_vocabulary_test.go; e2e stream tests
 '   9  §6 measured rows 3–6: pnpm → mise npm:wrangler, stale root files, _frontmatter, e2e families;   gate: mise x -- wrangler --version; render_subagents;
 '      rows 16–20 per their gates; F9–F12 answered first                                                 go vet -tags=e2e; image suites · −1,136, −40 files
+'      DONE 2026-11-15 for row 3 (−881, −3 files)
 '   defer: P6, P12, termtext and agentsettings merges · reject: P14, envflag+envreg, entrypoint trio as stated, host_* under run
 title PLANNED — codebase compression: dead code reported, the chart and the lexicon folds,\none-file fixtures, and the forks the owner decides first
 

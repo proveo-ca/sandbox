@@ -106,7 +106,7 @@ func TestDeployCLIShipsOnlyATaggedRelease(t *testing.T) {
 		t.Error("deploy-cli declares no confirm; a deploy asks before wrangler publishes")
 	}
 	stagedCheck := "go test -count=1 '-run=^TestStagedCDNIsTheTaggedRelease$' ./internal/contract/"
-	if got, want := runs(deploy), []string{stagedCheck, "pnpm exec wrangler deploy --cwd apps/cli"}; !slices.Equal(got, want) {
+	if got, want := runs(deploy), []string{stagedCheck, "wrangler deploy --cwd apps/cli"}; !slices.Equal(got, want) {
 		t.Errorf("deploy-cli runs %q, want %q: the staged check sits in its own run so --skip-deps keeps it", got, want)
 	}
 	if v := deploy.fields["env"].table["PROVEO_RELEASE_GATE"]; !v.isStr || v.str != "1" {
@@ -167,7 +167,7 @@ func TestCDNStagingFollowsAFreshSnapshot(t *testing.T) {
 	}
 	fresh := []string{subtask("snapshot"), subtask("stage-cdn")}
 	dev := runs(cfg.task(t, "dev-cli"))
-	if want := append(slices.Clone(fresh), "pnpm exec wrangler dev --cwd apps/cli"); !slices.Equal(dev, want) {
+	if want := append(slices.Clone(fresh), "wrangler dev --cwd apps/cli"); !slices.Equal(dev, want) {
 		t.Errorf("dev-cli runs %q, want %q", dev, want)
 	}
 	images := cfg.task(t, "test-images")

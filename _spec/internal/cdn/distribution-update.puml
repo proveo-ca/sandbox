@@ -19,10 +19,9 @@
 '                   ledger, _spec/_devops/release-gate.puml), then goreleaser
 '                   release --clean --skip=publish, then stage-cdn
 '   stage-cdn ..... hidden; go run ./internal/cdn/stage
-'   deploy-cli .... depends release, asks to confirm, then pnpm exec wrangler
-'                   deploy --cwd apps/cli; scripted: `mise run --yes deploy-cli`
-'   dev-cli ....... snapshot, stage-cdn, then pnpm exec wrangler dev; it
-'                   never deploys
+'   deploy-cli .... depends release, asks to confirm, then wrangler deploy
+'                   --cwd apps/cli; scripted: `mise run --yes deploy-cli`
+'   dev-cli ....... snapshot, stage-cdn, then wrangler dev; it never deploys
 '   test-images ... snapshot and stage-cdn first, then the installer suite
 '                   against that tree (PROVEO_INSTALLTEST_CDN)
 '   build-cli ..... go install proveo and proveo-entrypoint into GOPATH/bin
@@ -40,6 +39,17 @@
 ' goreleaser 2.17.0 is pinned on snapshot and release alone, never in [tools],
 ' so fmt, lint and post-commit never resolve it. goreleaser lists its binaries
 ' explicitly, and no maintainer program is among them.
+' wrangler 4.100.0 is the [tools] entry npm:wrangler. mise installs it with its
+' embedded aube (no Node or pnpm needed to install; node 24 runs it) and runs
+' only the build scripts allow_builds names: esbuild, sharp, workerd. DECIDED
+' 2026-11-15: it replaced a pnpm workspace with 0 members whose 869-line lock
+' held this one CLI. wrangler pins its 8 direct dependencies exactly; deeper
+' ones resolve at install. MEASURED 2026-11-15: esbuild 0.27.3, miniflare
+' 4.20260611.0, sharp 0.34.5, workerd 1.20260611.1 match the dropped lock;
+' 116 packages, 51 MiB, 5.3 s; `mise x -- wrangler --version` reads 4.100.0.
+' Unlike goreleaser it sits in [tools], so a clone's first mise run resolves
+' it. NOT CHOSEN: a tools pin on wrangler-version, deploy-cli and dev-cli
+' (three copies of one pin, and `mise x` would not see it).
 ' * stage reads the platforms from .goreleaser.yaml builds[id=proveo], the
 '   version from dist/metadata.json, and the cdn-proveo Binary entries from
 '   dist/artifacts.json (NOT CHOSEN: a hard-coded 8-platform list; jq or sh
