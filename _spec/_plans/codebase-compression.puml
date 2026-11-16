@@ -322,10 +322,12 @@ skinparam noteTextAlignment left
 '      DECIDED 2026-11-15 (owner: "Also fold agentio"): internal/agentio (2 files, 356 lines) folds into
 '      internal/agentsettings as terminal.go and terminal_test.go; agent-terminal-io.puml moved beside choice-cache.puml.
 '      Cycle check first (go list -deps): envflag, termtext, ui and manifest import none of cmd/proveo, sandbox, run,
-'      schedule. Names kept; 13 importer files repointed by gofmt -r plus the astutil import pass (runner.go's
-'      import group fixed by hand); 4 ledger names. MEASURED: `go list ./...` 43 → 42; edges 113 → 112 (agentio's
-'      8 became agentsettings' 7: run already imported it); agentsettings L1 → L2, below schedule L3, sandbox L5,
-'      run L6, cmd/proveo L7, so every new edge points down; depth 7, 0 cycles. Directories 138 → 136.
+'      schedule. Names kept; 13 importer files repointed by gofmt -r plus the astutil import pass (runner.go's and
+'      sandbox.go's import groups fixed by hand; gofmt splits cacheApplies, 99 → 105 columns, onto 3 lines);
+'      9 ledger names, one per moved export, held by TestRenamedIdentsMapEveryFoldedExport. MEASURED:
+'      `go list ./...` 43 → 42; edges 113 → 112 (agentio's 7 became agentsettings' 6: run already imported it);
+'      agentsettings L1 → L2, below schedule L3, sandbox L5, run L6, cmd/proveo L7, so every new edge points
+'      down; depth 7, 0 cycles. Directories 138 → 136.
 '      Both folds: packages 44 → 42, edges 116 → 112, tracked files 900 → 900, directories 139 → 136.
 ' P12 · table-driven (Manifest).Validate (104 lines, cyclo 40) — "Complex Conditionals" — DEFER
 '   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/code-smells-and-refactoring/

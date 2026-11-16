@@ -2,6 +2,8 @@
 package contract_test
 
 import (
+	"go/ast"
+	"go/parser"
 	"go/scanner"
 	"go/token"
 	"os"
@@ -311,7 +313,14 @@ var renamedIdents = []struct {
 		"_spec/internal/envflag/env-switches.puml", "_spec/internal/ptyproxy/pty-ownership.puml", "_spec/internal/runlog/run-transcript.puml",
 		"internal/agentsettings/terminal.go", "internal/backend/sandbox/sandbox.go", "internal/run/run.go", "internal/contract/init_writes_test.go"},
 		map[string][]string{"agentio.Stdio": {"agentsettings.Stdio"}, "agentio.Tail": {"Tail"}, "agentio.WizardEnabled": {"agentsettings.WizardEnabled"},
-			"agentio.IsWriterTTY": {"agentsettings.IsWriterTTY"}}},
+			"agentio.IsWriterTTY": {"agentsettings.IsWriterTTY"}, "agentio.IsReaderTTY": {"IsReaderTTY"}, "agentio.IsStdinTTY": {"agentsettings.IsStdinTTY"},
+			"agentio.NewTail": {"NewTail"}, "agentio.Tracer": {"agentsettings.Tracer"}, "agentio.FilterEnabled": {"agentsettings.FilterEnabled"}}},
+}
+
+// foldedFiles maps each file a package fold moved to the qualifier its importers used before the fold.
+var foldedFiles = map[string]string{
+	"internal/backend/sandbox/exit.go":   "backend",
+	"internal/agentsettings/terminal.go": "agentio",
 }
 
 type proseLine struct {
@@ -382,6 +391,57 @@ func TestProseNamesTheRenamedIdentifier(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestRenamedIdentsMapEveryFoldedExport(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	ledger := map[string]bool{}
+	for _, r := range renamedIdents {
+		for old := range r.renamed {
+			ledger[old] = true
+		}
+	}
+	for rel, qualifier := range foldedFiles {
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, rel), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range topLevelExports(f) {
+			if !ledger[qualifier+"."+name] {
+				t.Errorf("%s exports %s, but renamedIdents maps no %s.%s", rel, name, qualifier, name)
+			}
+		}
+	}
+}
+
+// topLevelExports returns the exported package-level names a file declares, methods excluded.
+func topLevelExports(f *ast.File) []string {
+	var out []string
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Recv == nil && d.Name.IsExported() {
+				out = append(out, d.Name.Name)
+			}
+		case *ast.GenDecl:
+			for _, s := range d.Specs {
+				switch s := s.(type) {
+				case *ast.TypeSpec:
+					if s.Name.IsExported() {
+						out = append(out, s.Name.Name)
+					}
+				case *ast.ValueSpec:
+					for _, n := range s.Names {
+						if n.IsExported() {
+							out = append(out, n.Name)
+						}
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 func TestNamesStaleSparesOnlyTheRenameRecord(t *testing.T) {

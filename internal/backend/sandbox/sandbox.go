@@ -25,11 +25,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/hostdev"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"

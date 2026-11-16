@@ -104,7 +104,9 @@
 ' TestProseNamesTheRenamedIdentifier, TestNamesStaleSparesOnlyTheRenameRecord;
 ' a later rename adds its row there. A package fold renames the qualifier
 ' alone (backend.Reported became sandbox.Reported), so its row maps the
-' qualified name.
+' qualified name. The agentio row first mapped 4 of the 9 names its file
+' moved with. TestRenamedIdentsMapEveryFoldedExport reads the exports of
+' each file in foldedFiles and fails one the ledger does not map.
 ' components.puml's <<doc>> nodes name root files by basename, "/" between
 ' two. TestComponentMapNamesLivingRootDocs fails a name no root file carries:
 ' README / CONVENTIONS outlived CONVENTIONS.md (now CONTRIBUTING.md).
