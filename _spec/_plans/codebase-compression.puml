@@ -479,6 +479,10 @@ skinparam noteTextAlignment left
 '      partial reseed; diff -r over 22 definitions + 5 logs is empty. The contract package there: 356 pass, 17 skip, the
 '      same 5 fail on both trees (no jq in the image; pre-existing). Left: codex.toml [spec-keeper] still carries its
 '      3-line comment, rendered verbatim, so the banned phrase and a why-comment stay until a fork decides the bytes.
+'      Closed 2026-11-15 by the owner, commit "chore(defs): move the codex frontmatter reason into its spec": the
+'      reason sits in agent-definition-sharing.puml (CODEX HAS ONE WRITABLE ROLE); codex.toml keeps a one-line label.
+'      MEASURED in golang:1.26.7: the 8 render_subagents tests pass; diff -r of composed codex output, HEAD vs new,
+'      differs in spec-keeper.toml's 3 comment lines → 1, beside header lines that name the two mount paths.
 '      Verifier fix pass, own commit "test(contract): fail on a subagent role with no body": a role with no body
 '      composed no file and passed every test (render_subagents only warns). composeSubagents now fails on the
 '      "subagent body missing" warning; TestRenderSubagentsReportsARoleWithNoBody pins that warning on a fixture

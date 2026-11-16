@@ -44,6 +44,15 @@
 ' fails on its "subagent body missing" warning, since a role with no body
 ' composes no file; the image suites assert the composed files, not the
 ' source layout.
+'
+' ── CODEX HAS ONE WRITABLE ROLE (2026-11-15) ───────────────────────────────
+' In codex.toml every role declares sandbox_mode = "read-only" except
+' spec-keeper, the single writer, which declares "workspace-write". codex
+' has no per-tool permission list, so the sandbox mode is the only control.
+' The spec-keeper prompt limits its writes to _spec/, PLAN.md and AGENTS.md
+' (RULES_PATHS in _vars/codex.env). Under read-only, codex would refuse every
+' write the role exists to make. TestComposedCodexSubagents pins both modes.
+' Moved here from a comment in codex.toml; the file keeps a one-line label.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Subagent definition sharing — composed at container start, never duplicated
 
