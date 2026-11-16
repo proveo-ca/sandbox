@@ -21,11 +21,11 @@ skinparam noteTextAlignment left
 ' Line wrapping is the second reason — a pane wraps, a transcript does not.
 '
 ' ── INJECTABLE RUNNER ──────────────────────────────────────────────────────
-' Runner is a one-method interface declared here because here is where it is
+' TmuxRunner is a func type declared here because here is where it is
 ' consumed, and the package's own tests use a recorder that scripts stdout per
 ' call. So the argv construction and the wait-for-text loop are unit-testable
-' without tmux installed, while Available() keeps the e2e suite honest about
-' skipping on a host that lacks it.
+' without tmux installed, while TmuxAvailable() keeps the e2e suite honest
+' about skipping on a host that lacks it.
 title internal/schedule tmux.go — a real terminal, and a transcript rather than a pane
 
 participant "e2e test" as T <<app>>

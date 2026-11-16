@@ -305,6 +305,9 @@ skinparam noteTextAlignment left
 '      Tracked files 941 → 938. DECIDED rows: host-android-adb, result-store, secret-references, operator-name,
 '      workspace-scan (its notes now fit the box; it joined specNotesEnforced), authorship, prompt-kit, schedule;
 '      mount-model for P10 / F7. The seven contested merges stay open.
+'      Verifier follow-up, own commit: 15 prose lines in 8 files still named a renamed identifier (Resolve, Detect,
+'      Marker, Ensure, Ready, Runner, Available, Sanitize + Save, MaxDepth); fixed, and spec_notes_test.go now holds
+'      the per-file rename ledger (TestProseNamesTheRenamedIdentifier; reasoning in spec-conventions.puml).
 ' P12 · table-driven (Manifest).Validate (104 lines, cyclo 40) — "Complex Conditionals" — DEFER
 '   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/code-smells-and-refactoring/
 '   files: internal/manifest/manifest.go:182-330 · lines 0…−20 [Inference] (patterns.md said −34) · risk low

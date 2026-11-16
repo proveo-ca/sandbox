@@ -56,7 +56,7 @@ skinparam noteTextAlignment left
 ' Since 2026-11-11 the browser opens before the sandbox,
 ' behind the live line "host-cdp — starting", which leaves the screen once CDP
 ' answers. ONE FACT PER ADD-ON (DECIDED 2026-11-11, the operator; the rejected
-' alternatives: host-android-adb.puml): Ensure
+' alternatives: host-android-adb.puml): EnsureCDP
 ' returns hostdev.Opened{Browser, Profile}, and the interface block's Facts
 ' carry one row after `sbx create`:
 '   ● chrome: Google Chrome · CDP 127.0.0.1:9333    profile ~/… dim under it

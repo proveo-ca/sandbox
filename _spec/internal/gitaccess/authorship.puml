@@ -19,8 +19,8 @@ skinparam noteTextAlignment left
 ' task with nothing recorded, which is the worst possible time to discover a
 ' missing two-line config.
 '
-' Resolve therefore runs host-side, before launch, and its result travels as env
-' pairs the container cannot be missing.
+' ResolveIdentity therefore runs host-side, before launch, and its result
+' travels as env pairs the container cannot be missing.
 '
 ' ── PRECEDENCE, AND WHY COMMITTER FALLS BACK ───────────────────────────────
 ' Environment first, then git config. Both are passed IN (getenv, gitConfig), so
@@ -34,7 +34,7 @@ title internal/gitaccess — resolve before launch, not at the commit
 
 participant "host env" as ENV <<data>>
 participant "git config" as CFG <<data>>
-participant "Resolve" as R <<app>>
+participant "ResolveIdentity" as R <<app>>
 participant "container" as C <<cloud>>
 
 ENV ARROW_MAIN R : GIT_AUTHOR_* / GIT_COMMITTER_*

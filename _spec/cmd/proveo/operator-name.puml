@@ -94,7 +94,7 @@ node "sandbox" as VM {
 }
 
 OP --> INIT : "Name the operator"
-INIT --> FILE : Sanitize + Save
+INIT --> FILE : SanitizeOperator + SaveOperator
 RUN --> FILE : proveohome.OperatorEnv
 RUN --> SEED : PROVEO_OPERATOR_NAME
 SEED --> RULES : codex/opencode block,\nclaudecode managed CLAUDE.md

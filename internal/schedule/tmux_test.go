@@ -8,7 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// recorder is a fake Runner: it records the args of each call and returns
+// recorder is a fake TmuxRunner: it records the args of each call and returns
 // scripted stdout (one entry per call, last repeats).
 type recorder struct {
 	calls   [][]string

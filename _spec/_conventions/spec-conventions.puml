@@ -87,6 +87,20 @@
 ' grows. The session-continuity plan carried one in a pass a check caught.
 ' Pinned: internal/contract/lexicon_test.go
 ' TestEnforcedFilesAvoidTheBannedPhrase.
+'
+' ── A RENAME REACHES THE CODE, NOT THE PROSE (2026-11-15) ──────────────────
+' gopls renames every reference the type checker sees and nothing else, so a
+' spec line, a Go comment and a test message keep the old name. The package
+' merges (codebase-compression.puml P11) left 15 such lines in 8 files; one
+' bare Runner in driving-a-tty.puml then named internal/schedule's
+' service-manager Runner instead of TmuxRunner. A bare renamed name (Ready,
+' Save, Marker) is an English word too, so a tree-wide grep cannot find it:
+' the ledger scopes each rename to the files whose prose named it, and reads
+' only comments and string literals of a Go file. A line keeps an old name
+' only as the "<old> became <new>" record of the rename.
+' Pinned: internal/contract/spec_notes_test.go renamedIdents,
+' TestProseNamesTheRenamedIdentifier, TestNamesStaleSparesOnlyTheRenameRecord;
+' a later rename adds its row there.
 title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle
 
 component "<<app>>  first-party app / runtime service" as R1 <<app>>

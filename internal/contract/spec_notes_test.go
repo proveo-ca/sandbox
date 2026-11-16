@@ -2,6 +2,8 @@
 package contract_test
 
 import (
+	"go/scanner"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -195,6 +197,120 @@ func TestUnwrappableExemptsLinksAndNothingElse(t *testing.T) {
 	} {
 		if got := unwrappable(c.line); got != c.want {
 			t.Errorf("unwrappable(%q) = %v, want %v — %s", c.line, got, c.want, c.why)
+		}
+	}
+}
+
+// renamedIdents maps each name gopls renamed to its replacements, scoped to the files whose prose named it.
+var renamedIdents = []struct {
+	files   []string
+	renamed map[string][]string
+}{
+	{[]string{"_spec/internal/gitaccess/authorship.puml", "internal/gitaccess/identity.go", "internal/gitaccess/identity_test.go"},
+		map[string][]string{"Resolve": {"ResolveIdentity"}}},
+	{[]string{"_spec/internal/promptkit/setup-path.puml", "_spec/internal/promptkit/prompt-kit.puml",
+		"internal/promptkit/shell.go", "internal/promptkit/shell_test.go"},
+		map[string][]string{"Detect": {"DetectShell"}, "Marker": {"PathMarker"}}},
+	{[]string{"_spec/internal/sbx/host-android-adb.puml", "_spec/internal/sbx/host-browser-cdp.puml",
+		"internal/hostdev/hostadb.go", "internal/hostdev/hostadb_test.go", "internal/hostdev/hostcdp.go", "internal/hostdev/hostcdp_test.go"},
+		map[string][]string{"Ensure": {"EnsureADB", "EnsureCDP"}, "Ready": {"ADBReady", "CDPReady"}, "Port": {"ADBPort", "CDPPort"},
+			"Addon": {"AddonAndroid", "AddonChrome"}, "LaunchArgs": {"EmulatorArgs", "ChromeArgs"}}},
+	{[]string{"_spec/internal/schedule/driving-a-tty.puml", "internal/schedule/tmux.go", "internal/schedule/tmux_test.go"},
+		map[string][]string{"Runner": {"TmuxRunner"}, "Available": {"TmuxAvailable"}, "Session": {"TmuxSession"},
+			"New": {"NewTmux"}, "SessionEnv": {"TmuxEnv"}}},
+	{[]string{"_spec/cmd/proveo/operator-name.puml", "internal/proveohome/operator.go", "internal/proveohome/operator_test.go"},
+		map[string][]string{"Sanitize": {"SanitizeOperator"}, "Save": {"SaveOperator"}, "Load": {"LoadOperator"}}},
+	{[]string{"_spec/internal/credentials/secret-references.puml", "internal/credentials/secretref.go", "internal/credentials/secretref_test.go"},
+		map[string][]string{"Parse": {"ParseSecretRef"}, "IsReference": {"IsSecretRef"}}},
+	{[]string{"_spec/internal/workspace/workspace-scan.puml", "internal/workspace/scan.go", "internal/workspace/scan_test.go"},
+		map[string][]string{"MaxDepth": {"ScanMaxDepth"}, "DefaultBudget": {"DefaultScanBudget"}, "Result": {"ScanResult"}}},
+}
+
+type proseLine struct {
+	line int
+	text string
+}
+
+// proseOf returns every line of a spec, and only the comments and string literals of a Go file.
+func proseOf(rel, src string) []proseLine {
+	var out []proseLine
+	if !strings.HasSuffix(rel, ".go") {
+		for i, l := range strings.Split(src, "\n") {
+			out = append(out, proseLine{i + 1, l})
+		}
+		return out
+	}
+	fset := token.NewFileSet()
+	var s scanner.Scanner
+	s.Init(fset.AddFile(rel, -1, len(src)), []byte(src), nil, scanner.ScanComments)
+	for {
+		pos, tok, lit := s.Scan()
+		if tok == token.EOF {
+			return out
+		}
+		if tok == token.COMMENT || tok == token.STRING {
+			out = append(out, proseLine{fset.Position(pos).Line, lit})
+		}
+	}
+}
+
+// namesStale reports a whole-word old that is not the "<old> became <new>" record of the rename.
+func namesStale(old, text string) bool {
+	for _, m := range regexp.MustCompile(`\b`+regexp.QuoteMeta(old)+`\b`).FindAllStringIndex(text, -1) {
+		if !strings.HasPrefix(text[m[1]:], " became") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestProseNamesTheRenamedIdentifier(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	for _, r := range renamedIdents {
+		var code strings.Builder
+		for _, rel := range r.files {
+			b, err := os.ReadFile(filepath.Join(root, rel))
+			if err != nil {
+				t.Errorf("%s: %v", rel, err)
+				continue
+			}
+			if strings.HasSuffix(rel, ".go") {
+				code.Write(b)
+			}
+			for _, p := range proseOf(rel, string(b)) {
+				for old, now := range r.renamed {
+					if namesStale(old, p.text) {
+						t.Errorf("%s:%d names %s; gopls renamed it to %s", rel, p.line, old, strings.Join(now, " / "))
+					}
+				}
+			}
+		}
+		for _, now := range r.renamed {
+			for _, n := range now {
+				if !regexp.MustCompile(`\b` + n + `\b`).MatchString(code.String()) {
+					t.Errorf("no Go file in %v names %s: update its renamedIdents row", r.files, n)
+				}
+			}
+		}
+	}
+}
+
+func TestNamesStaleSparesOnlyTheRenameRecord(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		old, text string
+		want      bool
+	}{
+		{"Resolve", `' Resolve therefore runs host-side`, true},
+		{"Detect", `CMD ARROW_MAIN SH : " ""Detect($SHELL)"" "`, true},
+		{"MaxDepth", `"a marker below MaxDepth=%d must not be found"`, true},
+		{"Resolve", `' internal/gitaccess, and this file moved with it. Resolve became`, false},
+		{"Resolve", `' ResolveIdentity therefore runs host-side`, false},
+		{"Resolve", `' Resolve became ResolveIdentity; Resolve stays in the diagram`, true},
+	} {
+		if got := namesStale(c.old, c.text); got != c.want {
+			t.Errorf("namesStale(%s, %q) = %v, want %v", c.old, c.text, got, c.want)
 		}
 	}
 }

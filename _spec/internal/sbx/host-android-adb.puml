@@ -81,13 +81,13 @@ skinparam noteTextAlignment left
 ' ── A BOOT THAT HOLDS (hostdev.awaitBoot, 2026-10-20) ──────────────────────
 ' TestHostADBReachesTheHostEmulatorFromTheSandbox logged "android:
 ' emulator-5554 booted", then the sandbox's host:devices read
-' `emulator-5554 offline`. Ensure had declared the boot after ONE poll of
+' `emulator-5554 offline`. EnsureADB had declared the boot after ONE poll of
 ' "device" + sys.boot_completed=1.
 ' [Inference] `-avd` alone quick-boots from the AVD's snapshot, and adbd's
 ' transport drops to offline while adb reconnects after the restore.
 ' Three more gaps sat beside it:
 '   Devices kept "device" rows only, so an offline emulator was invisible;
-'   Ensure then booted the same AVD a second time; the launch was
+'   EnsureADB then booted the same AVD a second time; the launch was
 '   Process.Release()d, so its exit was never read.
 ' Now:
 '   wait     one serial reads "device" + sys.boot_completed=1 on StablePolls
@@ -101,7 +101,7 @@ skinparam noteTextAlignment left
 '            some SDK builds' `emulator` hands off to a child and exits 0, so
 '            exit 0 keeps waiting.
 '   list     AllDevices returns every row with its state (Device.Emulator for
-'            emulator-* serials); Devices and Ready keep the "device" rows.
+'            emulator-* serials); Devices and ADBReady keep the "device" rows.
 ' The e2e side:
 '   stopEmulators         `adb -s <serial> emu kill` on every emulator-* row,
 '                         offline included, until none is listed

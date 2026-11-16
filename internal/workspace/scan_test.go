@@ -81,7 +81,7 @@ func TestDepthIsBounded(t *testing.T) {
 	}
 	touch(t, filepath.Join(deep, "go.mod"))
 	if got := Scan(root, root, markers, 0); got.Has("go") {
-		t.Errorf("a marker below MaxDepth=%d must not be found", ScanMaxDepth)
+		t.Errorf("a marker below ScanMaxDepth=%d must not be found", ScanMaxDepth)
 	}
 }
 

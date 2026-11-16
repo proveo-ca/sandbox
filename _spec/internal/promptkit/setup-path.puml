@@ -14,15 +14,15 @@ skinparam noteTextAlignment left
 '   NO TTY (A QUESTION INIT COULD NOT ASK) _spec/cmd/proveo/init-sbx-bootstrap.puml
 '
 ' ── TWO BLOCKS, TWO MARKERS ────────────────────────────────────────────────
-' `proveo setup` writes Marker for proveo's own bin dir; `proveo init` writes
+' `proveo setup` writes PathMarker for proveo's own bin dir; `proveo init` writes
 ' SbxMarker (SbxBlock) for the sbx prefix's bin dir. They are DISTINCT comments,
 ' because a shared one would claim that a line pointing at ~/.docker/sbx/bin
 ' puts "proveo on PATH". `proveo uninstall` strips an install.sh block or a
-' Marker block whose PATH line names this root's bin dir, and either marker
+' PathMarker block whose PATH line names this root's bin dir, and either marker
 ' with no PATH line under it; another dir's block stays (~/go/bin's: FOUND 9
 ' makes two in one rc normal, the R4 review), and so does SbxMarker's, since
 ' sbx (~/.docker/sbx) stays installed after proveo leaves. uninstall.sh's
-' bash fallback strips every Marker and SbxMarker block (KNOWN divergence,
+' bash fallback strips every PathMarker and SbxMarker block (KNOWN divergence,
 ' the installer's owner: the Go uninstall is right). Pinned by
 ' TestUninstallLeavesAnotherDirsSetupBlock and
 ' TestUninstallLeavesAnotherRootsInstallBlock.
@@ -147,7 +147,7 @@ node "Consumer host" as HOST <<host>> {
 USER ARROW_MAIN INSTALL
 INSTALL ARROW_MAIN CMD : after install
 USER ARROW_OPTIONAL CMD : " ""proveo setup"" "
-CMD ARROW_MAIN SH : " ""Detect($SHELL)"" "
+CMD ARROW_MAIN SH : " ""DetectShell($SHELL)"" "
 SH ARROW_MAIN SH : " ""RCFile(goos, home)"" "
 SH ARROW_OPTIONAL RC : checks ""AlreadyConfigured(content, binDir)""\nno-op when the rc names the dir
 SH ARROW_MAIN RC : appends ""PathLine(binDir)""
