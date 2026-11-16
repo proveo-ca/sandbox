@@ -126,7 +126,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' build shadowed an image pulled a minute ago while the run read as coverage of
 ' the newer one. A second opinion about which image is current is worse than
 ' none, so TestNoAdHocLocalOverLatestResolvers refuses that loop in any .sh
-' under defs/, e2e/ and scripts/.
+' under defs/ and e2e/ (scripts/ left the tree on 2026-11-15).
 ' Since 2026-09-22 the image suites (_spec/tests/testing-strategy.puml) hold
 ' ONE implementation: each names
 ' a target and a repository, and imagetest.Resolve honours that target's pin or

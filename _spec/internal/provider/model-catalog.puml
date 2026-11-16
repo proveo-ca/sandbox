@@ -21,7 +21,7 @@
 ' covers: internal/provider/roles.go, internal/provider/roles_test.go
 ' covers: internal/run/helpers.go (unknownModel, the reader of CheckModel)
 ' tier 3 of resolution — planFallback, entitlement-safety, the `-free` heuristic
-' and scripts/rank-plan-fallbacks.py — is specified in
+' and the models.dev ranking behind the list — is specified in
 ' _spec/internal/credentials/credential-decisions.puml, not duplicated here
 title PLAN — model catalog: one canonical id, three harness dialects, three roles
 

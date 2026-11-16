@@ -40,7 +40,7 @@ func TestNoAdHocLocalOverLatestResolvers(t *testing.T) {
 	root := repoRoot(t)
 	adHoc := regexp.MustCompile(`for\s+\w+\s+in\s+` + maintain.LocalTag + `\s+` + maintain.PublishTag)
 
-	for _, sub := range []string{"defs", "e2e", "scripts"} {
+	for _, sub := range []string{"defs", "e2e"} {
 		err := filepath.Walk(filepath.Join(root, sub), func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".sh") {
 				return err

@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
-' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 2, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open); F5 option 3 DONE 2026-11-15 (§6 rows 12-13). _spec/_plans/ is exempt from the SPEC-reference rule.
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 2, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open); step 9 DONE for §6 rows 3-4; F5 option 3 DONE 2026-11-15 (§6 rows 12-13). _spec/_plans/ is exempt from the SPEC-reference rule.
 ' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
 '   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
 '   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
@@ -436,6 +436,17 @@ skinparam noteTextAlignment left
 '   4  stale root files: pulse.json 31 · .gitsample 1 ·      −252            −7      S       low     grep -rl → 0 refs; repoint the 3 spec     §7 other · high
 '      3 .gitkeep in non-empty dirs · scripts/*.py 217                                              lines naming scripts/*.py first
 '      (other.md: 260, pulse.json at 40); pulse.json cites TODO.md and internal/tmux/e2e_test.go, neither exists (P11 repointed the second to e2e/e2e_test.go)
+'      ── DONE 2026-11-15, commit "chore: drop stale root files and dead links" ──
+'      MEASURED by `git diff --numstat`: 15 files +20 / −266 = −246, −7 files, −1 dir (scripts/). `git grep` re-run first:
+'      pulse.json, .gitsample and the 3 .gitkeep had 0 refs, each .gitkeep beside other tracked files. The scripts' facts
+'      moved before they left: credential-decisions.puml states the ranking method (models.dev, opencode-go refused,
+'      zero-cost only, the provisional-name filter, newest first, the dropped list); startup-dispatch.puml states what
+'      the jitter probe sampled and drops its covers line (and the index row); model-catalog.puml repoints its pointer.
+'      Found on the way: TestNoAdHocLocalOverLatestResolvers walked scripts/ and failed on its absence; `gofmt -r`
+'      dropped that root and image-lineage-and-publish.puml says defs/ and e2e/. Also README.md's 2 dead links
+'      (CONVENTIONS.md → CONTRIBUTING.md + _spec/_conventions/; run-lifecycle.png → overview.puml + kit-lifecycle.puml)
+'      and .gitignore's /reports/ (reports/ already covers it). Left: defs/cursor/README.md:186 and
+'      defs/opencode/README.md:341 link ../CONVENTIONS.md, also dead.
 '   5  defs/subagents/_frontmatter: 22 files in 4 harness    0               −18     S       low     render_subagents; −4 dirs [Inference]     §7 other · high
 '      dirs (claudecode 5, codex 5, cursor 2, opencode 10) → 4 per-harness files
 '   6  e2e split families → one file each: close_confirm 4, 0               −12     S       low     go vet -tags=e2e; test names unchanged    §7 other · high
@@ -647,7 +658,7 @@ skinparam noteTextAlignment left
 '   8  P7 per F8 + internal/sbxinstall; unexport 24 funcs / 6 types; P8 printer injection            gate: tui_vocabulary_test.go; e2e stream tests
 '   9  §6 measured rows 3–6: pnpm → mise npm:wrangler, stale root files, _frontmatter, e2e families;   gate: mise x -- wrangler --version; render_subagents;
 '      rows 16–20 per their gates; F9–F12 answered first                                                 go vet -tags=e2e; image suites · −1,136, −40 files
-'      DONE 2026-11-15 for row 3 (−881, −3 files)
+'      DONE 2026-11-15 for row 3 (−881, −3 files) and row 4 (−246, −7 files, −1 dir); rows 5–6 open
 '   defer: P6, P12, termtext and agentsettings merges · reject: P14, envflag+envreg, entrypoint trio as stated, host_* under run
 title PLANNED — codebase compression: dead code reported, the chart and the lexicon folds,\none-file fixtures, and the forks the owner decides first
 

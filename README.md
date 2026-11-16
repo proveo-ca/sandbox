@@ -124,7 +124,8 @@ lets the agent handle login; after the sandbox exits it prints shell-specific se
 Every run is a host-orchestrated, ephemeral sandbox: detect provider auth → mount the repo →
 write the sbx Kit → boot the agent → record + tear down.
 
-![proveo run lifecycle](_spec/_assets/run-lifecycle.png)
+Diagrams: [`_spec/overview.puml`](_spec/overview.puml) for the whole run, and
+[`_spec/internal/sbx/kit-lifecycle.puml`](_spec/internal/sbx/kit-lifecycle.puml) for the sandbox it creates and removes.
 
 ## Security — egress & credentials
 
@@ -195,4 +196,4 @@ stricter: `PROVEO_SKIP_INIT` skips on any value, and `PROVEO_UNINSTALL_ASSUME_YE
 
 Architecture, the [sbx backend](_spec/internal/sbx/sandbox-backend.puml) and its network-policy
 baseline, and the testing strategy live in [`_spec/`](_spec) as PlantUML diagrams + notes.
-Conventions: [`CONVENTIONS.md`](CONVENTIONS.md).
+Conventions: [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`_spec/_conventions/`](_spec/_conventions).
