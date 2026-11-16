@@ -2,8 +2,8 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how an sbx agent drives a Chrome on the host over CDP — dedicated profile, dialled by IP, one allowed port
-' covers: internal/hostcdp/hostcdp.go
-' covers: internal/hostcdp/hostcdp_test.go
+' covers: internal/hostdev/hostcdp.go
+' covers: internal/hostdev/hostcdp_test.go
 ' covers: internal/run/choices.go (addonHostCDP, interfaceOptions, gateAddons)
 ' covers: internal/run/run.go (startHostCDP)
 ' covers: internal/run/host_adb_test.go (TestEachHostAddOnFactNamesWhatTheRunLeftUp)
@@ -12,6 +12,7 @@ skinparam noteTextAlignment left
 ' covers: defs/hermes/entrypoint.sh (PROVEO_HOST_CDP_PORT block)
 ' covers: defs/hermes/harness.manifest (capabilities.hostBrowser: cdp)
 '   the in-sandbox browser viewport ............ _spec/internal/sbx/browser-viewport.puml
+'   the package it shares with adb ............. _spec/internal/sbx/host-android-adb.puml
 '
 ' ── WHY (2026-09-27) ───────────────────────────────────────────────────────
 ' The operator's hermes task is a logged-in site (Yahoo Fantasy): a login with 2FA
@@ -56,7 +57,7 @@ skinparam noteTextAlignment left
 ' behind the live line "host-cdp — starting", which leaves the screen once CDP
 ' answers. ONE FACT PER ADD-ON (DECIDED 2026-11-11, the operator; the rejected
 ' alternatives: host-android-adb.puml): Ensure
-' returns hostcdp.Opened{Browser, Profile}, and the interface block's Facts
+' returns hostdev.Opened{Browser, Profile}, and the interface block's Facts
 ' carry one row after `sbx create`:
 '   ● chrome: Google Chrome · CDP 127.0.0.1:9333    profile ~/… dim under it
 '   ● chrome: CDP 127.0.0.1:9333 (reused)           a browser already there

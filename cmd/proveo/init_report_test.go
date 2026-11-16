@@ -16,7 +16,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/termtext"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -810,7 +810,7 @@ func TestOnlyAnInitWithNoTerminalKeepsAHowToUnderWhatItCouldNotAsk(t *testing.T)
 		rep := testReport(t, initOptions{yes: !noTerminal})
 		rep.asked = asked
 		mark, text := applyGitIdentity(gitStage{
-			resolve:  func() gitidentity.Identity { return gitidentity.Identity{} },
+			resolve:  func() gitaccess.Identity { return gitaccess.Identity{} },
 			lookPath: func(string) (string, error) { return "/usr/bin/git", nil },
 			setGlobal: func(string, string) error {
 				t.Error("an unasked identity was written")

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/hostadb"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/testx"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 const (
@@ -72,7 +72,7 @@ func TestAndroidAppInWorkspaceInstallsOnTheHostEmulator(t *testing.T) {
 		t.Skip("sandbox backend unavailable")
 	}
 	requireTmux(t)
-	if hostadb.EmulatorBinary(os.Getenv) == "" || hostadb.AdbBinary(os.Getenv) == "" {
+	if hostdev.EmulatorBinary(os.Getenv) == "" || hostdev.AdbBinary(os.Getenv) == "" {
 		t.Skip("no Android SDK emulator/adb on this host")
 	}
 	if tags, err := ollamaTags(); err != nil || !containsString(tags, glimmer) {
@@ -81,11 +81,11 @@ func TestAndroidAppInWorkspaceInstallsOnTheHostEmulator(t *testing.T) {
 	if err := sbx.LocalModelFits(glimmer, 0, os.Getenv); err != nil {
 		t.Skipf("local model %s does not fit this host right now: %v", glimmer, err)
 	}
-	port, err := hostadb.Port(os.Getenv)
+	port, err := hostdev.ADBPort(os.Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hostadb.Ready(port) {
+	if !hostdev.ADBReady(port) {
 		t.Cleanup(func() { stopEmulators(t, port) })
 	}
 	proveoBin := buildProveo(t)
@@ -101,7 +101,7 @@ func TestAndroidAppInWorkspaceInstallsOnTheHostEmulator(t *testing.T) {
 func androidAppRow(t *testing.T, proveoBin string, port int, h androidHarness) {
 	t.Helper()
 	hostADB := func(args ...string) string {
-		out, _ := exec.Command(hostadb.AdbBinary(os.Getenv), append([]string{"-P", strconv.Itoa(port)}, args...)...).CombinedOutput()
+		out, _ := exec.Command(hostdev.AdbBinary(os.Getenv), append([]string{"-P", strconv.Itoa(port)}, args...)...).CombinedOutput()
 		return string(out)
 	}
 	t.Cleanup(func() { hostADB("uninstall", helloPackage) })
@@ -112,7 +112,7 @@ func androidAppRow(t *testing.T, proveoBin string, port int, h androidHarness) {
 	}
 	before, _ := sbxSandboxNames()
 
-	sess := tmux.New(fmt.Sprintf("proveo-android-%s-%d", h.target, time.Now().UnixNano()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-android-%s-%d", h.target, time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + t.TempDir(), "PROVEO_MOUNT_GH_CONFIG=0",
 		proveoBin, "run", h.target, "--local-model", glimmer, "--input", work}
@@ -203,7 +203,7 @@ func waitUntil(timeout time.Duration, cond func() bool) bool {
 }
 
 // awaitNewSandbox returns the sandbox this run created.
-func awaitNewSandbox(t *testing.T, sess *tmux.Session, before map[string]bool, timeout time.Duration) string {
+func awaitNewSandbox(t *testing.T, sess *schedule.TmuxSession, before map[string]bool, timeout time.Duration) string {
 	t.Helper()
 	var name string
 	if !waitUntil(timeout, func() bool {
@@ -235,7 +235,7 @@ func awaitGuestSeed(t *testing.T, guest func(string) string, target string, time
 }
 
 // awaitQuietScreen waits until the pane stops changing, the cue that the TUI takes input.
-func awaitQuietScreen(sess *tmux.Session, timeout time.Duration) {
+func awaitQuietScreen(sess *schedule.TmuxSession, timeout time.Duration) {
 	var last string
 	stable := 0
 	waitUntil(timeout, func() bool {
@@ -250,7 +250,7 @@ func awaitQuietScreen(sess *tmux.Session, timeout time.Duration) {
 }
 
 // answerDialogs answers every listed first-run question that is on screen.
-func answerDialogs(t *testing.T, sess *tmux.Session, dialogs []tuiDialog) {
+func answerDialogs(t *testing.T, sess *schedule.TmuxSession, dialogs []tuiDialog) {
 	t.Helper()
 	for _, d := range dialogs {
 		screen, _ := sess.Capture()
@@ -276,7 +276,7 @@ func answerDialogs(t *testing.T, sess *tmux.Session, dialogs []tuiDialog) {
 }
 
 // typeLine types line, confirms the TUI shows it in the prompt (a leading `!` may become a mode), then submits it.
-func typeLine(t *testing.T, sess *tmux.Session, line string) {
+func typeLine(t *testing.T, sess *schedule.TmuxSession, line string) {
 	t.Helper()
 	if err := sess.SendText(line); err != nil {
 		t.Fatalf("type %q: %v", line, err)

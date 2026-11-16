@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestCtrlCDialogOverARealAgentGivesItsScreenBackAndRemovesOnYes opens the close dialog over
@@ -30,7 +30,7 @@ func TestCtrlCDialogOverARealAgentGivesItsScreenBackAndRemovesOnYes(t *testing.T
 	gitInit(t, work)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-closesbx-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-closesbx-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

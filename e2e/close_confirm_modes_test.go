@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // screenFlags reads the pane's alternate-screen and cursor flags, and its
 // bracketed-paste flag where this tmux reports one.
-func screenFlags(t *testing.T, sess *tmux.Session) string {
+func screenFlags(t *testing.T, sess *schedule.TmuxSession) string {
 	t.Helper()
 	out, err := exec.Command("tmux", "display-message", "-p", "-t", sess.Name,
 		"alt=#{alternate_on} cursor=#{cursor_flag} paste=#{bracket_paste_flag}").Output()
@@ -45,7 +45,7 @@ func TestLiveCtrlCDialogGivesTheChildItsScreenModesBack(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			done := filepath.Join(t.TempDir(), "done")
-			sess := tmux.New(fmt.Sprintf("proveo-live-modes-%d-%d", os.Getpid(), i), nil)
+			sess := schedule.NewTmux(fmt.Sprintf("proveo-live-modes-%d-%d", os.Getpid(), i), nil)
 			t.Cleanup(sess.Kill)
 			if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_CLOSE_HELPER="+done,
 				"PROVEO_LIVE_CLOSE_FILTER=on", "PROVEO_LIVE_CLOSE_MODES="+tc.modes,
@@ -93,7 +93,7 @@ func TestLiveCloseDialogStaysUpWhileTheAgentStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := filepath.Join(t.TempDir(), "done")
-	sess := tmux.New(fmt.Sprintf("proveo-live-stopping-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-live-stopping-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 	if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_CLOSE_HELPER="+done,
 		"PROVEO_LIVE_CLOSE_FILTER=on", "PROVEO_LIVE_CLOSE_STOP=slow",

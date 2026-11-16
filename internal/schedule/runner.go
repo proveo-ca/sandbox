@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 const (
@@ -102,7 +101,7 @@ func (j Job) Clock(stop time.Time, budget time.Duration) string {
 func wrapUpLead(budget time.Duration) time.Duration { return min(wrapUpBefore, budget/4) }
 
 // wrapUp steers the agent to write its report; false when the target has no steer or the budget no room.
-func (j Job) wrapUp(sess *tmux.Session, stop time.Time, budget time.Duration) bool {
+func (j Job) wrapUp(sess *TmuxSession, stop time.Time, budget time.Duration) bool {
 	prefix, ok := steerPrefix[j.Target]
 	if !ok || len(j.Command) > 0 || wrapUpLead(budget) < wrapUpMin || !sess.Alive() {
 		return false
@@ -141,7 +140,7 @@ func (j Job) acceptedMarker(prompt string) string {
 }
 
 // awaitText polls the pane for text; errGone when the session ends first.
-func awaitText(sess *tmux.Session, text string, timeout time.Duration) (bool, error) {
+func awaitText(sess *TmuxSession, text string, timeout time.Duration) (bool, error) {
 	deadline := time.Now().Add(timeout)
 	for {
 		if !sess.Alive() {
@@ -158,7 +157,7 @@ func awaitText(sess *tmux.Session, text string, timeout time.Duration) (bool, er
 }
 
 // awaitReady waits for the ready marker, then for the pane to hold still for settleQuiet.
-func awaitReady(sess *tmux.Session, marker string, timeout time.Duration) (string, error) {
+func awaitReady(sess *TmuxSession, marker string, timeout time.Duration) (string, error) {
 	seen, err := awaitText(sess, marker, timeout)
 	if err != nil {
 		return "", err
@@ -171,7 +170,7 @@ func awaitReady(sess *tmux.Session, marker string, timeout time.Duration) (strin
 }
 
 // awaitQuiet waits until the pane holds still for quietFor, or max passes.
-func awaitQuiet(sess *tmux.Session, pane string, quietFor, max time.Duration) (string, error) {
+func awaitQuiet(sess *TmuxSession, pane string, quietFor, max time.Duration) (string, error) {
 	quiet, end := time.Now(), time.Now().Add(max)
 	for time.Since(quiet) < quietFor && time.Now().Before(end) {
 		time.Sleep(pollEvery)
@@ -292,7 +291,7 @@ func tmuxRun(args ...string) (string, error) {
 	return string(out), err
 }
 
-func orTmux(run tmux.Runner) tmux.Runner {
+func orTmux(run TmuxRunner) TmuxRunner {
 	if run == nil {
 		return tmuxRun
 	}
@@ -306,9 +305,9 @@ var ErrRunning = errors.New("still running")
 var ErrSessionStart = errors.New("start tmux session")
 
 // Launch starts the job's tmux session and a detached watcher; it returns once both run.
-func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
+func Launch(home, proveo, name, entry string, j Job, run TmuxRunner) error {
 	run = orTmux(run)
-	sess := tmux.New(SessionName(name), run)
+	sess := NewTmux(SessionName(name), run)
 	if sess.Alive() {
 		return fmt.Errorf("%w (tmux session %s)", ErrRunning, sess.Name)
 	}
@@ -342,16 +341,16 @@ func Launch(home, proveo, name, entry string, j Job, run tmux.Runner) error {
 }
 
 // Watch types the instruction once the agent is ready, then ends the session at the budget.
-func Watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify func(title, body string)) Result {
+func Watch(home, name, entry, transcript string, j Job, run TmuxRunner, notify func(title, body string)) Result {
 	return watch(home, name, entry, transcript, j, run, notify, false)
 }
 
 // Rewatch takes over a run whose instruction was already typed: it only waits for the report or the budget.
-func Rewatch(home, name, entry, transcript string, j Job, run tmux.Runner, notify func(title, body string)) Result {
+func Rewatch(home, name, entry, transcript string, j Job, run TmuxRunner, notify func(title, body string)) Result {
 	return watch(home, name, entry, transcript, j, run, notify, true)
 }
 
-func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify func(title, body string), typed bool) Result {
+func watch(home, name, entry, transcript string, j Job, run TmuxRunner, notify func(title, body string), typed bool) Result {
 	res := Result{Job: name, Entry: entry, Started: time.Now(), Transcript: transcript}
 	report := filepath.Join(j.WorkDir(home, name), ReportFile)
 	if !typed {
@@ -374,7 +373,7 @@ func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 	defer stopAwake()
 
 	run = orTmux(run)
-	sess := tmux.New(SessionName(name), run)
+	sess := NewTmux(SessionName(name), run)
 	sess.Pin()
 	budget, _ := j.BudgetDuration()
 	prompt, err := os.ReadFile(j.PromptFile)
@@ -442,7 +441,7 @@ func watch(home, name, entry, transcript string, j Job, run tmux.Runner, notify 
 
 // stopAgent ends a run at its budget, gentlest first: interrupt the turn and /exit, then
 // SIGTERM the pane's command so `proveo run` tears its sandbox down, then kill the session.
-func stopAgent(sess *tmux.Session, why string) string {
+func stopAgent(sess *TmuxSession, why string) string {
 	if !sess.Alive() {
 		return why + "; the agent had already exited"
 	}
@@ -464,7 +463,7 @@ func stopAgent(sess *tmux.Session, why string) string {
 	return why + "; neither /exit nor SIGTERM ended it, session killed"
 }
 
-func awaitGone(sess *tmux.Session, timeout time.Duration) bool {
+func awaitGone(sess *TmuxSession, timeout time.Duration) bool {
 	for end := time.Now().Add(timeout); time.Now().Before(end); time.Sleep(exitPoll) {
 		if !sess.Alive() {
 			return true
@@ -473,7 +472,7 @@ func awaitGone(sess *tmux.Session, timeout time.Duration) bool {
 	return !sess.Alive()
 }
 
-func panePID(sess *tmux.Session) (int, error) {
+func panePID(sess *TmuxSession) (int, error) {
 	out, err := sess.PanePID()
 	if err != nil {
 		return 0, err

@@ -336,7 +336,7 @@
 '             removal that failed and each thing that stays; "✓ proveo —
 '             uninstalled" or "⚠ proveo — uninstalled; N left"
 ' (_spec/internal/results/result-store.puml, _spec/internal/clean/clean-lifecycle.puml,
-' _spec/internal/shell/setup-path.puml, _spec/internal/cdn/distribution-update.puml.)
+' _spec/internal/promptkit/setup-path.puml, _spec/internal/cdn/distribution-update.puml.)
 ' Dangerf lost its last caller (uninstall's red line, P9) and left ui.go: the
 ' error role prints as a Fact's Role or through Rolef, so five roles carry a
 ' verb and RoleError carries none (internal/contract TestEveryRoleVerbIsWired).

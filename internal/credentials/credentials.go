@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/provider/provider-registry.puml, _spec/internal/secretref/secret-references.puml
+// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/provider/provider-registry.puml, _spec/internal/credentials/secret-references.puml
 // Package credentials
 package credentials
 
@@ -17,7 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func FilterProviders(detected []string, c manifest.Capabilities) []string {
@@ -256,22 +256,22 @@ func AuthWhyUnavailable(man manifest.Manifest, target, homeRoot string) map[stri
 	return why
 }
 
-func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
+func GhConfigMount(getenv func(string) string) (workspace.Mount, bool) {
 	if envflag.Off(getenv("PROVEO_MOUNT_GH_CONFIG")) {
-		return runner.Mount{}, false
+		return workspace.Mount{}, false
 	}
 	dir := strings.TrimSpace(getenv("GH_CONFIG_DIR"))
 	if dir == "" {
 		home := getenv("HOME")
 		if home == "" {
-			return runner.Mount{}, false
+			return workspace.Mount{}, false
 		}
 		dir = filepath.Join(home, ".config", "gh")
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return runner.Mount{}, false
+		return workspace.Mount{}, false
 	}
-	return runner.Mount{
+	return workspace.Mount{
 		Host:      dir,
 		Container: proveohome.ContainerHome + "/.config/gh",
 		ReadOnly:  true,

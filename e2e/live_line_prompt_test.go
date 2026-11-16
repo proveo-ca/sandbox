@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -27,7 +27,7 @@ func TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := filepath.Join(t.TempDir(), "done")
-	sess := tmux.New(fmt.Sprintf("proveo-live-step-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-live-step-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 	if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_STEP_HELPER="+done,
 		binary, "-test.run=^TestLiveStepLineHelper$", "-test.timeout=60s"); err != nil {

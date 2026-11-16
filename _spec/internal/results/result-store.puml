@@ -13,8 +13,8 @@ title The result store — what a run left behind, one file per entry, readable 
 ' covers: cmd/proveo/prompt.go
 ' covers: cmd/proveo/prompt_test.go
 ' covers: e2e/prompt_test.go
-' covers: internal/adopt/adopt.go
-' covers: internal/adopt/adopt_test.go
+' covers: internal/results/adopt.go
+' covers: internal/results/adopt_test.go
 ' covers: internal/backend/sandbox/verbs.go
 ' covers: internal/backend/sandbox/verbs_test.go
 ' covers: internal/sbx/list.go
@@ -30,6 +30,13 @@ title The result store — what a run left behind, one file per entry, readable 
 ' Landed, all 2026-11-10: S1 (the store), S3 (`proveo prompt`), S2 (the write
 ' points), then S5 (`proveo rm`), S6 (`proveo adopt`), S7 (the reconcile) and
 ' S8 (the end-of-run lines name the verbs).
+'
+' ── ADOPT LIVES WITH THE STORE (DECIDED 2026-11-15) ────────────────────────
+' DECIDED 2026-11-15 (owner: "the 8 uncontested"; codebase-compression.puml
+' P11, F3 option 1): adopt.go, a leaf package with two importers, folds into
+' internal/results beside the store it reconciles. Its git listing renamed
+' to keep the store's names: ListCarried (the Carried kind stays) and
+' CarriedRef (the stored Ref stays).
 '
 ' ── WHY A STORE ────────────────────────────────────────────────────────────
 ' The Executor, 2026-11-10, on what stays after the agent exits: "proveo
@@ -268,7 +275,7 @@ title The result store — what a run left behind, one file per entry, readable 
 '   TestRemoveKeptStopsARunningSandboxOnlyWhenAsked
 '   TestKeptInputLiftsTheOutputDirTheReceiptRecords
 '   TestReconcileDropsOnlyWhatIsProvablyGone
-' by internal/adopt/adopt_test.go:
+' by internal/results/adopt_test.go:
 '   TestCarriedListsEachRefWithTheWorkNoBranchHolds
 '   TestPickTakesARefASessionOrAnUnambiguousBranch
 '   TestBranchCreatesTheBranchAndMovesNothingElse

@@ -1,0 +1,154 @@
+package schedule
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+)
+
+// recorder is a fake Runner: it records the args of each call and returns
+// scripted stdout (one entry per call, last repeats).
+type recorder struct {
+	calls   [][]string
+	outputs []string
+	n       int
+}
+
+func (r *recorder) run(args ...string) (string, error) {
+	r.calls = append(r.calls, args)
+	if len(r.outputs) == 0 {
+		return "", nil
+	}
+	i := r.n
+	if i >= len(r.outputs) {
+		i = len(r.outputs) - 1
+	}
+	r.n++
+	return r.outputs[i], nil
+}
+
+func TestCommandArgs(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	s := NewTmux("sess", rec.run)
+	if err := s.Start(200, 50, "docker", "run", "-it", "img"); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SendText("hello world")
+	_ = s.Enter()
+	_ = s.SendKeys("C-c")
+	_, _ = s.Capture()
+	s.Kill()
+
+	want := [][]string{
+		{"new-session", "-d", "-s", "sess", "-x", "200", "-y", "50", "docker", "run", "-it", "img"},
+		{"send-keys", "-t", "sess", "-l", "hello world"},
+		{"send-keys", "-t", "sess", "Enter"},
+		{"send-keys", "-t", "sess", "C-c"},
+		{"capture-pane", "-p", "-t", "sess"},
+		{"kill-session", "-t", "sess"},
+	}
+	if diff := cmp.Diff(want, rec.calls); diff != "" {
+		t.Errorf("tmux command args mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestWaitForFindsText(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{outputs: []string{"booting...", "booting...", "READY >"}}
+	s := NewTmux("sess", rec.run)
+	got, err := s.WaitFor("READY", 5*time.Second)
+	if err != nil {
+		t.Fatalf("WaitFor: %v", err)
+	}
+	if got != "READY >" {
+		t.Errorf("WaitFor returned %q, want the matching capture", got)
+	}
+}
+
+func TestWaitForTimeout(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{outputs: []string{"still working"}}
+	s := NewTmux("sess", rec.run)
+	if _, err := s.WaitFor("DONE", 10*time.Millisecond); err == nil {
+		t.Fatal("WaitFor should time out when the substring never appears")
+	}
+}
+
+func TestWaitForToleratesCaptureError(t *testing.T) {
+	t.Parallel()
+	// A capture error should not abort the poll (transient during startup).
+	errThenText := &flakyRunner{errs: 1, out: "READY"}
+	s := NewTmux("sess", errThenText.run)
+	if _, err := s.WaitFor("READY", 5*time.Second); err != nil {
+		t.Fatalf("WaitFor should recover after a transient capture error: %v", err)
+	}
+}
+
+type flakyRunner struct {
+	errs int
+	out  string
+	n    int
+}
+
+func (f *flakyRunner) run(...string) (string, error) {
+	f.n++
+	if f.n <= f.errs {
+		return "", errors.New("no server running")
+	}
+	return f.out, nil
+}
+
+func TestNewNamesASessionTmuxCanTarget(t *testing.T) {
+	t.Parallel()
+	if got := NewTmux("proveo-e2e-hermes-qwen3.8-42", nil).Name; got != "proveo-e2e-hermes-qwen3-8-42" {
+		t.Errorf("Name = %q — tmux reads '.' as window.pane, so capture-pane answered \"can't find pane\"", got)
+	}
+	if got := NewTmux("a:b", nil).Name; got != "a-b" {
+		t.Errorf("Name = %q — ':' separates session from window", got)
+	}
+}
+
+func TestPinnedSessionReadsAReplacementAsGone(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{outputs: []string{"100\n", "", "100\n", "", "200\n"}}
+	s := NewTmux("proveo-sched-job", rec.run)
+	s.Pin()
+	if !s.Alive() {
+		t.Fatal("the pinned session itself must read as alive")
+	}
+	if s.Alive() {
+		t.Error("a new session under the same name runs another pane pid: want gone")
+	}
+}
+
+func TestAFailedStartCarriesTmuxsOwnMessage(t *testing.T) {
+	t.Parallel()
+	exit := errors.New("exit status 1")
+	s := NewTmux("sess", func(...string) (string, error) { return "create window failed: fork failed\n", exit })
+	err := s.Start(200, 50, "sh")
+	if !errors.Is(err, exit) || err.Error() != "exit status 1: create window failed: fork failed" {
+		t.Errorf("Start = %v, want tmux's own words after its status", err)
+	}
+	quiet := NewTmux("sess", func(...string) (string, error) { return "", exit })
+	if err := quiet.Start(200, 50, "sh"); err == nil || err.Error() != "exit status 1" {
+		t.Errorf("Start with nothing said = %v, want the status alone", err)
+	}
+}
+
+// SPEC: _spec/_devops/agent-update-prompt.puml
+func TestSessionEnvReachesEverySessionAheadOfTheCommand(t *testing.T) {
+	old := TmuxEnv
+	t.Cleanup(func() { TmuxEnv = old })
+	TmuxEnv = []string{"PROVEO_AGENT_UPDATE=0"}
+	rec := &recorder{}
+	if err := NewTmux("sess", rec.run).Start(80, 24, "proveo", "run"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"new-session", "-d", "-s", "sess", "-x", "80", "-y", "24", "-e", "PROVEO_AGENT_UPDATE=0", "proveo", "run"}}
+	if diff := cmp.Diff(want, rec.calls); diff != "" {
+		t.Errorf("tmux command args mismatch (-want +got):\n%s", diff)
+	}
+}

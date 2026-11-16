@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -183,7 +183,7 @@ func runVolatile(t *testing.T, proveoBin, redirect string) string {
 	mustRun(t, work, "git", "-c", "user.email=e2e@proveo.test", "-c", "user.name=proveo e2e", "commit", "-q", "--allow-empty", "-m", "seed")
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-palette-%d-%d", os.Getpid(), len(redirect)), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-palette-%d-%d", os.Getpid(), len(redirect)), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

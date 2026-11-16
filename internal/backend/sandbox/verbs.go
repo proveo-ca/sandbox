@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/adopt"
 	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/results"
@@ -239,7 +238,7 @@ func ReconcileResults(resultsDir, repo string) {
 			}
 			var ahead []results.Ref
 			for _, r := range e.Refs {
-				if n := adopt.Lead(repo, r.Name); n > 0 {
+				if n := results.Lead(repo, r.Name); n > 0 {
 					ahead = append(ahead, results.Ref{Name: r.Name, Lead: n, Tip: r.Tip})
 				}
 			}

@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/shell/setup-path.puml
+// SPEC: _spec/internal/promptkit/setup-path.puml
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/backend"
-	"github.com/proveo-ca/proveo/internal/shell"
+	"github.com/proveo-ca/proveo/internal/promptkit"
 )
 
 // setupHost is isolatedHost with the running proveo in ~/.proveo/bin, off PATH, under shell sh; it returns
@@ -41,7 +41,7 @@ func TestSetupAddsTheDirAndSaysANewShellPicksItUp(t *testing.T) {
 	if want := "ok: ~/.proveo/bin — added to PATH in ~/.zshrc\n    a new shell picks it up\n"; err != nil || stderr != want {
 		t.Errorf("setup = %q, %v; want %q", stderr, err, want)
 	}
-	if b, _ := os.ReadFile(rc); string(b) != (shell.Shell{Name: "zsh"}).Block(dir) {
+	if b, _ := os.ReadFile(rc); string(b) != (promptkit.Shell{Name: "zsh"}).Block(dir) {
 		t.Errorf("the rc holds %q", b)
 	}
 
@@ -49,20 +49,20 @@ func TestSetupAddsTheDirAndSaysANewShellPicksItUp(t *testing.T) {
 	if want := "warn: ~/.proveo/bin — not on this shell's PATH\n    ~/.zshrc adds it; a new shell picks it up\n"; err != nil || stderr != want {
 		t.Errorf("a second setup = %q, %v; want %q", stderr, err, want)
 	}
-	if b, _ := os.ReadFile(rc); strings.Count(string(b), shell.Marker) != 1 {
+	if b, _ := os.ReadFile(rc); strings.Count(string(b), promptkit.PathMarker) != 1 {
 		t.Errorf("a second setup wrote a second line: %q", b)
 	}
 }
 
 func TestSetupWritesThisDirsLineUnderAnotherDirsMarker(t *testing.T) {
 	dir, home := setupHost(t, "/bin/bash")
-	rc := shell.Shell{Name: "bash"}.RCFile(runtime.GOOS, home)
-	other := shell.Shell{Name: "bash"}.Block(filepath.Join(home, "go", "bin"))
+	rc := promptkit.Shell{Name: "bash"}.RCFile(runtime.GOOS, home)
+	other := promptkit.Shell{Name: "bash"}.Block(filepath.Join(home, "go", "bin"))
 	writeFile(t, rc, other)
 	if stderr, err := setup(t); err != nil || !strings.HasPrefix(stderr, "ok: ~/.proveo/bin — added to PATH in ") {
 		t.Errorf("setup over another dir's marker = %q, %v", stderr, err)
 	}
-	if b, _ := os.ReadFile(rc); string(b) != other+(shell.Shell{Name: "bash"}).Block(dir) {
+	if b, _ := os.ReadFile(rc); string(b) != other+(promptkit.Shell{Name: "bash"}).Block(dir) {
 		t.Errorf("the rc holds %q, want the other dir's block, then this dir's", b)
 	}
 }

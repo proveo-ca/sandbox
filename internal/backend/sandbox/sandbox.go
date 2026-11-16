@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/devports"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/backend"
@@ -33,17 +35,12 @@ import (
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
 	"github.com/proveo-ca/proveo/internal/envflag"
-	"github.com/proveo-ca/proveo/internal/githubaccess"
-	"github.com/proveo-ca/proveo/internal/hostadb"
-	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
 	"github.com/proveo-ca/proveo/internal/runlog"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -959,17 +956,9 @@ const CloneMainVar = "PROVEO_CLONE_MAIN"
 // worktree clone, else the primary workspace.
 func agentWorkdir(in Input, mounts []sbx.Mount) string {
 	if worktreeClone(in) {
-		return realPath(in.RepoRoot)
+		return workspace.RealPath(in.RepoRoot)
 	}
 	return FirstHost(mounts)
-}
-
-// realPath is a host path as sbx mounts it inside the VM: symlinks resolved.
-func realPath(p string) string {
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
-	}
-	return p
 }
 
 // CloneLinksVar carries rel=target pairs, '|'-separated, the seed recreates in a clone.
@@ -1202,7 +1191,7 @@ type Input struct {
 	AgentEnv         []string
 	Sid, RunDir      string
 	ResultsDir       string // where what the run left behind is recorded; "" records nothing
-	Mounts           []runner.Mount
+	Mounts           []workspace.Mount
 	Lookup           func(string) string
 	Detected         []string
 	GitEnv           []string
@@ -1270,12 +1259,12 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	if sbx.HostModelRef(envValue(in.AgentEnv, "OLLAMA_API_BASE")) {
 		hosts[sbx.HostOllamaPolicyHost] = true
 	}
-	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostcdp.EnvPort)); err == nil {
-		hosts[hostcdp.PolicyHost(port)] = true
+	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostdev.EnvCDPPort)); err == nil {
+		hosts[hostdev.PolicyHost(port)] = true
 	}
-	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostadb.EnvPort)); err == nil {
-		hosts[hostadb.PolicyHost(port)] = true
-		for _, h := range hostadb.InstallHosts {
+	if port, err := strconv.Atoi(envValue(in.AgentEnv, hostdev.EnvADBPort)); err == nil {
+		hosts[hostdev.PolicyHost(port)] = true
+		for _, h := range hostdev.InstallHosts {
 			addHost(h)
 		}
 	}
@@ -1308,7 +1297,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		}
 		seenSecret[name] = true
 		service, kind := credentials.StoreName(name)
-		if (in.Forwards || kind == credentials.StoreUninjectable) && secretref.IsReference(v) {
+		if (in.Forwards || kind == credentials.StoreUninjectable) && credentials.IsSecretRef(v) {
 			report.Notes = append(report.Notes, Item{Warn: true, Text: name + " — a secret reference, not passed"})
 			return
 		}
@@ -1376,7 +1365,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		env = append(env, "PROVEO_MISE_TRUST=off")
 	}
 	if in.GitTransport != "" {
-		env = append(env, githubaccess.Env+"="+in.GitTransport)
+		env = append(env, gitaccess.Env+"="+in.GitTransport)
 	}
 	if set := proveohome.ConfigSet(in.Man.Home); set != "" {
 		env = append(env, proveohome.ConfigSetVar+"="+set)
@@ -1407,7 +1396,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		env = append(env, in.WorktreeEnv...)
 	}
 	if worktreeClone(in) {
-		env = append(env, CloneRefVar+"="+in.CloneSource.Ref, CloneMainVar+"="+realPath(in.CloneSource.Main))
+		env = append(env, CloneRefVar+"="+in.CloneSource.Ref, CloneMainVar+"="+workspace.RealPath(in.CloneSource.Main))
 	}
 	if in.Clone {
 		env = append(env, CloneVar+"=1")
@@ -1521,7 +1510,7 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		caps = append(caps, backAPIKeys(up.Capabilities, storedAPIKeys(in))...)
 	}
 	creds, secrets := agentCredentials(in, secrets)
-	if in.GitTransport == githubaccess.SSH {
+	if in.GitTransport == gitaccess.SSH {
 		caps = append(caps, sbx.CapabilityV3{Type: sbx.CapSSHAgent, Config: map[string]any{"phase": "runtime"}})
 	}
 	owned := upstreamServices(caps)
@@ -1593,7 +1582,7 @@ func envNames(env []string) []string {
 // hookEnv is what proveo's seed hooks declare: every -e name, plus the gateway's when it is allowed.
 func hookEnv(in Input, env []string) []string {
 	names := envNames(env)
-	if in.GitTransport == githubaccess.SSH {
+	if in.GitTransport == gitaccess.SSH {
 		names = append(names, "SSH_AUTH_SOCK")
 	}
 	if in.MCPGateway {
@@ -1650,8 +1639,8 @@ func withLocalModelTools(agent string, env, command []string) []string {
 
 // withMobileMCP prepends the harness's per-launch mobile-server flags when the android add-on is on.
 func withMobileMCP(harness string, env, command []string) []string {
-	flags := hostadb.Launches[harness].Flags
-	if len(flags) == 0 || envValue(env, hostadb.EnvPort) == "" {
+	flags := hostdev.Launches[harness].Flags
+	if len(flags) == 0 || envValue(env, hostdev.EnvADBPort) == "" {
 		return command
 	}
 	for _, a := range command {
@@ -1744,7 +1733,7 @@ func Run(in Input) error {
 			if name == "" || kind != credentials.StoreAPIKey {
 				continue
 			}
-			flags, stdin := secretref.SbxSource(kv[0], kv[1], os.Getenv)
+			flags, stdin := credentials.SbxSource(kv[0], kv[1], os.Getenv)
 			if len(flags) == 0 && stdin == "" {
 				ui.Warnf("sandbox secret: %s points at an empty variable — nothing stored", kv[0])
 				continue
@@ -2297,7 +2286,7 @@ func gitConfigEnv(repoRoot, transport string) []string {
 		}
 		entries = append(entries, [2]string{"safe.directory", root})
 	}
-	if transport == githubaccess.HTTPS {
+	if transport == gitaccess.HTTPS {
 		entries = append(entries,
 			[2]string{"url.https://github.com/.insteadOf", "git@github.com:"},
 			[2]string{"url.https://github.com/.insteadOf", "ssh://git@github.com/"})
@@ -2318,7 +2307,7 @@ func launchConfigEnv(agent string, agentEnv []string) []string {
 		return nil
 	}
 	model, base := envValue(agentEnv, "PROVEO_LOCAL_MODEL"), envValue(agentEnv, "OLLAMA_API_BASE")
-	mcp := envValue(agentEnv, hostadb.EnvPort) != ""
+	mcp := envValue(agentEnv, hostdev.EnvADBPort) != ""
 	if model == "" && !mcp {
 		return nil
 	}
@@ -2345,7 +2334,7 @@ func launchConfigEnv(agent string, agentEnv []string) []string {
 		out = append(out, "OPENCODE_MODEL=ollama/"+model, "OPENCODE_SMALL_MODEL=ollama/"+model)
 	}
 	if mcp {
-		cfg["mcp"] = hostadb.Launches["opencode"].Opencode
+		cfg["mcp"] = hostdev.Launches["opencode"].Opencode
 	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
@@ -2382,7 +2371,7 @@ func scopedIndexDir(in Input) string {
 	return filepath.Join(home, "git-index")
 }
 
-func homeBinds(mounts []runner.Mount) []sbx.Mount {
+func homeBinds(mounts []workspace.Mount) []sbx.Mount {
 	var out []sbx.Mount
 	for _, m := range mounts {
 		out = append(out, sbx.Mount{Host: m.Host, Container: m.Container})
@@ -2393,14 +2382,14 @@ func homeBinds(mounts []runner.Mount) []sbx.Mount {
 func scopedGitIndexEnv(in Input, binds []sbx.Mount) []string {
 	dir := scopedIndexDir(in)
 	src := filepath.Join(in.RepoRoot, ".git", "index")
-	if dir == "" || !exists(src) {
+	if dir == "" || !workspace.Exists(src) {
 		return nil
 	}
 	dst := filepath.Join(dir, in.Sid)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return nil
 	}
-	if err := copyFile(src, dst); err != nil {
+	if err := CopyFile(src, dst, 0o644); err != nil {
 		return nil
 	}
 	var hidden []string
@@ -2453,15 +2442,14 @@ func mountedHost(path string, binds []sbx.Mount) bool {
 	return false
 }
 
-func copyFile(src, dst string) error {
+// CopyFile writes src's bytes to dst with perm.
+func CopyFile(src, dst string, perm os.FileMode) error {
 	b, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, b, 0o644)
+	return os.WriteFile(dst, b, perm)
 }
-
-func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // launchEnv is everything the agent must already hold when sbx starts it: the
 // plan's decision, the workdir, git's reach across the mount boundary and the

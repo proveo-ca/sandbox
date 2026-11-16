@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
-' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1 and 3 DONE 2026-11-15. _spec/_plans/ is exempt from the SPEC-reference rule.
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open). _spec/_plans/ is exempt from the SPEC-reference rule.
 ' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
 '   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
 '   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
@@ -272,6 +272,12 @@ skinparam noteTextAlignment left
 '   files: sandbox.go:968-973,2456-2464, run.go:835-841,1053-1061, hostadb+hostcdp detach_unix.go, runner.go
 '   lines: ≈ −35 MEASURED spans (patterns.md said −45) · files −2, dirs −1 · risk low
 '   blocker: "use sbx.Mount" adds edges workspace → sbx and proveohome → sbx; pick workspace.Mount — fork F7
+'   ── DONE 2026-11-15 (F7 option 1), commit "refactor: fold eight single-use packages into their owners" ──
+'      workspace exports RealPath (its old resolved, ≡ sandbox's realPath) and Exists (≡ sandbox's exists); sandbox's
+'      twins went, run's realPathOf keeps only its Abs step over RealPath (run's --input may be relative);
+'      sandbox.CopyFile(src, dst, perm) replaced copyFile and run's copyFile0600; one detach_unix.go / detach_windows.go
+'      pair fell with the hostdev merge; runner.Mount is workspace.Mount and internal/runner is gone. Not taken (outside
+'      the named set): cmd/proveo/update.go copyFileMode is a third CopyFile; cmd/proveo/uninstall.go keeps its exists.
 ' P11 · merge the micro-packages — "Merge Premature Packages": "Tiny packages with no independent purpose are
 '   noise." — https://softwarepatternslexicon.com/go/idiomatic-go-design-patterns/package-organization-patterns/
 '   uncontested (8): hostcdp + hostadb → hostdev (1 gate edit: host_devices_test.go) · adopt → results ·
@@ -285,6 +291,20 @@ skinparam noteTextAlignment left
 '   files −4 mandatory (runner.go, installtest/doc.go, one detach_unix.go, one detach_windows.go), −22 only
 '   if every pair folds into the host's x.go / x_test.go · risk low per merge with gopls; 47 covers lines
 '   and 8 enforced spec files under _spec/internal/<pkg>/ move with them (spec-keeper triggers 2 and 4)
+'   ── DONE 2026-11-15 for the 8 uncontested (F3 option 1), same commit as P10 ──
+'      hostcdp + hostadb → internal/hostdev · adopt → results · secretref → credentials · operator → proveohome ·
+'      wsscan → workspace (scan.go) · gitidentity + githubaccess → internal/gitaccess (identity.go, access.go) ·
+'      shell → promptkit · tmux → schedule; runner → workspace rode along as P10. Clashing or bare names were renamed
+'      with gopls first (EnsureADB / EnsureCDP, ADBPort / CDPPort, ListCarried / CarriedRef, ParseSecretRef,
+'      LoadOperator, ScanResult, ResolveIdentity, DetectShell, NewTmux / TmuxSession / TmuxRunner); files moved with
+'      git mv; importers repointed by gofmt -r plus an astutil import pass; identical PolicyHost, test env/touch
+'      helpers and one PolicyHost test dropped. MEASURED: `go list ./...` 53 → 44 packages; internal non-test import
+'      edges 132 → 115, depth 7, 0 cycles; new edges posture → workspace, credentials → workspace, proveohome →
+'      workspace all point down (proveohome L1 → L2, runlog L2 → L3). Directories holding tracked files 158 → 145
+'      (−9 Go packages; −4 under _spec/internal: five concern specs moved beside their destination, gitaccess added).
+'      Tracked files 941 → 938. DECIDED rows: host-android-adb, result-store, secret-references, operator-name,
+'      workspace-scan (its notes now fit the box; it joined specNotesEnforced), authorship, prompt-kit, schedule;
+'      mount-model for P10 / F7. The seven contested merges stay open.
 ' P12 · table-driven (Manifest).Validate (104 lines, cyclo 40) — "Complex Conditionals" — DEFER
 '   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/code-smells-and-refactoring/
 '   files: internal/manifest/manifest.go:182-330 · lines 0…−20 [Inference] (patterns.md said −34) · risk low
@@ -392,7 +412,7 @@ skinparam noteTextAlignment left
 '      `find apps packages -name package.json` → empty; mise.toml:43,49,222,259,265 name pnpm
 '   4  stale root files: pulse.json 31 · .gitsample 1 ·      −252            −7      S       low     grep -rl → 0 refs; repoint the 3 spec     §7 other · high
 '      3 .gitkeep in non-empty dirs · scripts/*.py 217                                              lines naming scripts/*.py first
-'      (other.md: 260, pulse.json at 40); pulse.json cites TODO.md and internal/tmux/e2e_test.go, neither exists
+'      (other.md: 260, pulse.json at 40); pulse.json cites TODO.md and internal/tmux/e2e_test.go, neither exists (P11 repointed the second to e2e/e2e_test.go)
 '   5  defs/subagents/_frontmatter: 22 files in 4 harness    0               −18     S       low     render_subagents; −4 dirs [Inference]     §7 other · high
 '      dirs (claudecode 5, codex 5, cursor 2, opencode 10) → 4 per-harness files
 '   6  e2e split families → one file each: close_confirm 4, 0               −12     S       low     go vet -tags=e2e; test names unchanged    §7 other · high
@@ -493,7 +513,8 @@ skinparam noteTextAlignment left
 '   1. [rec] This file carries the record; repo-simplification.puml gains one pointer row under N15.
 '   2. Append PROPOSED rows to repo-simplification.puml and delete this file when the pointer lands.
 '   3. Split: dead code here, structural rows there — two records for one directive.
-' F3 · Merge micro-packages, or keep the boundaries
+' F3 · Merge micro-packages, or keep the boundaries — DECIDED 2026-11-15 by the owner: option 1, quoted
+'      "the 8 uncontested"; landed as §9 step 6 (§4 P11 DONE)
 '   1. [rec] The 8 uncontested merges: −8 dirs, no reversed decision, 1 gate edit.
 '   2. All 15: needs DECIDED rows reversing N5, N6, N8 and a fix for credentials → entrypoint.
 '   3. None: keep the 53-package tree, take P10 only.
@@ -526,7 +547,8 @@ skinparam noteTextAlignment left
 '   2. Split entrypoint-lib.sh into sourced fragments per N15 (0 lines, +5 files).
 '   3. Port guest-side fragments into cmd/proveo-entrypoint — [Unverified] size and gate impact; the
 '      host-shell contract covers host scripts, not the guest lib.
-' F7 · runner.Mount destination (P10)
+' F7 · runner.Mount destination (P10) — DECIDED 2026-11-15: option 1 [rec], set by the stage-3 directive;
+'      landed with §9 step 5 (§4 P10 DONE)
 '   1. [rec] workspace.Mount; credentials, proveohome, run, sandbox import workspace (L1) — no upward edge.
 '   2. sbx.Mount — adds workspace → sbx and proveohome → sbx, contradicts P9(b).
 '   3. Keep internal/runner (9 lines, fan-in 5) and drop −9 from P10.
@@ -575,8 +597,8 @@ skinparam noteTextAlignment left
 '   3  DONE 2026-11-15 — fixtures: internal/testx with the guards; 11 archives; PROVEO_UPDATE_FRAMES   gate: per-package -update round trip is a no-op
 '      and the golden_test.go flag dropped; .gitattributes; standards line; covers lines (§5 DONE)    diff; test-go; go vet -tags=e2e · −243 files
 '   4  N15 / P1, P4 split, P5 split, P9(a)(c)(d)                                                   gate: 137 + 20 frames, 7 goldens unchanged · +6 files
-'   5  P10 with F7's answer; P9(b)                                                                 gate: go build ./...; chart edges re-run · −35
-'   6  the merges F3 allows, hostdev first (dupl group 4 falls with it)                            gate: host_devices_test.go path; covers repoints · −8 dirs
+'   5  DONE 2026-11-15 for P10 (F7: 1); P9(b) open                                                 gate: go build ./...; chart edges re-run · −35
+'   6  DONE 2026-11-15 — the 8 merges F3 allows, hostdev first (dupl group 4 fell)                 gate: host_devices_test.go path; covers repoints · −8 dirs
 '   7  P2 staging, P3 grouping, P5 seams → fields                                                  gate: 14 Spec test files; 7 seam-mutating tests
 '   8  P7 per F8 + internal/sbxinstall; unexport 24 funcs / 6 types; P8 printer injection            gate: tui_vocabulary_test.go; e2e stream tests
 '   9  §6 measured rows 3–6: pnpm → mise npm:wrangler, stale root files, _frontmatter, e2e families;   gate: mise x -- wrangler --version; render_subagents;
@@ -589,7 +611,7 @@ component "D1 · dead code, verified\n−107 high · −611 all · 8 files" as D
 component """go fix"" (Go 1.26)\n−62 lines across 75 files · modernize −92" as MOD <<app>>
 database "D3 · txtar fixtures\n260 → 18 files · +195 lines" as FIX <<db>>
 component "N15 splits · P1 P4 P5\n0 lines · +6 files" as SPLIT <<app>>
-component "P10 DRY + 8 merges\n−35 · −60…−80 lines · −9 dirs" as DRY <<app>>
+component "DONE · P10 DRY + 8 merges\n53 → 44 packages · −9 Go dirs" as DRY <<app>>
 component "P2 P3 P7 P8 P9\nshape, not size" as SHAPE <<app>>
 queue "deferred · P6 P12\n""termtext"" · ""agentsettings""" as DEFER <<async>>
 component "rejected · P14 · envflag+envreg\nentrypoint trio · ""host_*"" under ""run""" as REJECT <<error>>

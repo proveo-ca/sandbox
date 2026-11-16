@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/shell/setup-path.puml, _spec/internal/promptkit/prompt-kit.puml
+// SPEC: _spec/internal/promptkit/setup-path.puml, _spec/internal/promptkit/prompt-kit.puml
 package main
 
 import (
@@ -22,7 +22,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/schedule"
-	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -392,7 +391,7 @@ func withoutSetupPathBlock(content, binDir string) (string, bool) {
 	var out []string
 	changed := false
 	for i := 0; i < len(lines); i++ {
-		if lines[i] != shell.Marker {
+		if lines[i] != promptkit.PathMarker {
 			out = append(out, lines[i])
 			continue
 		}
@@ -415,7 +414,7 @@ func withoutSetupPathBlock(content, binDir string) (string, bool) {
 // setsPathTo reports whether line is the PATH line `proveo setup` writes for binDir, in any shell's syntax.
 func setsPathTo(line, binDir string) bool {
 	return slices.ContainsFunc([]string{"zsh", "fish", "csh"}, func(name string) bool {
-		return line == shell.Shell{Name: name}.PathLine(binDir)
+		return line == promptkit.Shell{Name: name}.PathLine(binDir)
 	})
 }
 

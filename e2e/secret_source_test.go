@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/secretref"
 )
 
 const refProbeService = "proveo-e2e-ref"
@@ -33,7 +33,7 @@ func TestAReferenceReachesTheSandboxAsAScopedSbxSource(t *testing.T) {
 	name := fmt.Sprintf("proveo-e2e-ref-%d", time.Now().UnixNano())
 	const want = "e2e-ref-value"
 
-	flags, stdin := secretref.SbxSource("E2E_REF_KEY", "cmd:printf "+want, os.Getenv)
+	flags, stdin := credentials.SbxSource("E2E_REF_KEY", "cmd:printf "+want, os.Getenv)
 	if err := sbx.SecretSetSource(refProbeService, name, flags, stdin); err != nil {
 		t.Fatalf("sbx secret set %s --sandbox %s %v: %v", refProbeService, name, flags, err)
 	}

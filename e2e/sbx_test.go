@@ -22,7 +22,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // sbxAvailable reports whether the host can run the sandbox backend.
@@ -614,7 +614,7 @@ func sandboxBoundaryProbe(t *testing.T, target string) {
 		t.Logf("`%s ls` unavailable on this CLI — claim 4 (teardown) will not be checked", sbx.Binary)
 	}
 
-	sess := tmux.New(fmt.Sprintf("proveo-sbx-%s-%d", target, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-sbx-%s-%d", target, os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

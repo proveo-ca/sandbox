@@ -13,7 +13,7 @@
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/launch_config_test.go
 ' covers: internal/backend/sandbox/host_adb_test.go
-' covers: internal/hostadb/**
+' covers: internal/hostdev/**
 ' covers: internal/proveohome/**
 ' covers: internal/sbx/run.go
 ' covers: internal/contract/**
@@ -201,7 +201,7 @@ component "packages/lib/entrypoint-lib.sh\nrender_subagents · seed · persisten
 component "opencode session\nsession.permissions: autoaccept\nexplicit denies remain denied" as POLICY <<app>>
 component "OPENCODE_CLI_CONFIG_CONTENT\nnative session/tabs/mini preferences\noverrides global cli.json without rewriting it" as PREFS <<app>>
 component "internal/backend/sandbox/sandbox.go\nlaunchConfigEnv\nOPENCODE_CONFIG_CONTENT" as GO <<app>>
-component "internal/hostadb/hostadb.go\nmcp.servers.mobile\ndisabled: false" as ADB <<app>>
+component "internal/hostdev/hostadb.go\nmcp.servers.mobile\ndisabled: false" as ADB <<app>>
 component "opencode\nroot logger: --log-level debug\nheadless run: --auto independent of evidence\nverbose run: --thinking --print-logs\nroot TUI: no stderr log streaming" as CLI <<app>>
 component "packages/lib/hooks/proveo-git-sync-turn.js\ndefault {id, setup(ctx)}\nctx.event.subscribe · event.data" as PLUGIN <<async>>
 component "packages/lib/hooks/git-sync-turn.sh\nbest-effort idle dialect\nsubject helper: opencode run --standalone" as HOOK <<app>>

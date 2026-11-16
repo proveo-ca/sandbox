@@ -12,7 +12,7 @@ skinparam packageStyle rectangle
 ' covers: e2e/e2e_test.go
 ' covers: e2e/instrument_test.go
 ' covers: e2e/agent_settings_test.go
-' covers: internal/tmux/**
+' covers: internal/schedule/tmux*.go
 ' covers: e2e/samples/**
 '
 ' Skip discipline, image-tag resolution and the shared instrumentation rules are

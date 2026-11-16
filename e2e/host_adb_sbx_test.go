@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/hostadb"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/imagetest"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -29,20 +29,20 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 	if ok, why := sbx.Available(); !ok {
 		t.Skipf("sbx unavailable: %s", why)
 	}
-	if hostadb.EmulatorBinary(os.Getenv) == "" || hostadb.AdbBinary(os.Getenv) == "" {
+	if hostdev.EmulatorBinary(os.Getenv) == "" || hostdev.AdbBinary(os.Getenv) == "" {
 		t.Skip("no Android SDK emulator/adb on this host")
 	}
 	image := imagetest.PinnedRef("claudecode", "proveo/claudecode:local")
 	if !dockerImagePresent(t, image) {
 		t.Skipf("image %s not built (mise run build claudecode)", image)
 	}
-	port, err := hostadb.Port(os.Getenv)
+	port, err := hostdev.ADBPort(os.Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	booted := !hostadb.Ready(port)
-	if _, err := hostadb.Ensure(os.Getenv, port, t.Logf); err != nil {
+	booted := !hostdev.ADBReady(port)
+	if _, err := hostdev.EnsureADB(os.Getenv, port, t.Logf); err != nil {
 		t.Skipf("host emulator: %v", err)
 	}
 	if booted {
@@ -53,7 +53,7 @@ func TestHostADBReachesTheHostEmulatorFromTheSandbox(t *testing.T) {
 	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: probeWorkload(t, "proveo-adbsbx", sbx.RecipeV3{From: image}),
 		Mounts: mountsOf(t.TempDir())})
 	if out, err := exec.Command(sbx.Binary, "policy", "allow", "network", "--sandbox", name,
-		hostadb.PolicyHost(port)).CombinedOutput(); err != nil {
+		hostdev.PolicyHost(port)).CombinedOutput(); err != nil {
 		t.Fatalf("policy allow: %v\n%s", err, out)
 	}
 
@@ -98,7 +98,7 @@ print("tries=%%d" %% tries)
 print("status=" + status)
 print("devices=" + body.replace("\n", ";"))
 PY
-`, hostadb.EnvPort, port, int(guestDeviceWait/time.Second))
+`, hostdev.EnvADBPort, port, int(guestDeviceWait/time.Second))
 	ob, err := exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", probe).CombinedOutput()
 	out := string(ob)
 	if err != nil {
@@ -141,7 +141,7 @@ tool(6, "mobile_take_screenshot", {"device": dev})
 tool(7, "mobile_press_button", {"device": dev, "button": "HOME"})
 p.terminate()
 PY
-`, hostadb.EnvPort, port)
+`, hostdev.EnvADBPort, port)
 	ob, err = exec.Command(sbx.Binary, "exec", "-w", "/", name, "--", "bash", "-c", session).CombinedOutput()
 	out = string(ob)
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 func TestLiveCtrlCConfirmationOnTmux(t *testing.T) {
@@ -37,7 +37,7 @@ func TestLiveCtrlCConfirmationOnTmux(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			done := filepath.Join(t.TempDir(), "done")
-			sess := tmux.New(fmt.Sprintf("proveo-live-close-%d-%d", os.Getpid(), i), nil)
+			sess := schedule.NewTmux(fmt.Sprintf("proveo-live-close-%d-%d", os.Getpid(), i), nil)
 			t.Cleanup(sess.Kill)
 			if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_CLOSE_HELPER="+done, "PROVEO_LIVE_CLOSE_FILTER="+tc.filter, binary, "-test.run=^TestLiveCtrlCConfirmationHelper$", "-test.timeout=45s"); err != nil {
 				t.Fatal(err)

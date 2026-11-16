@@ -7,7 +7,7 @@ skinparam shadowing false
 
 ' purpose: the promptful Layer-4 flow over time — drive, prompt, model, side effect
 ' covers: e2e/e2e_test.go
-' covers: internal/tmux/**
+' covers: internal/schedule/tmux*.go
 '
 ' The topology, the posture flags and the workspace .env rule are in
 ' 40-agent-e2e-components.puml; the shared instrumentation and skip rules are in
@@ -51,7 +51,7 @@ skinparam shadowing false
 title Layer 4 · Agent E2E — promptful flow (-tags=e2e; assert the side effect)
 
 actor "E2E test / CI" as Test
-participant "tmux (internal/tmux)" as Tmux
+participant "tmux (internal/schedule)" as Tmux
 participant "harness TUI (docker run -it)" as Harness
 participant "Ollama sidecar" as Ollama
 database "output mount" as FS

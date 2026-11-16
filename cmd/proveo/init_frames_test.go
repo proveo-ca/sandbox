@@ -6,8 +6,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/githubaccess"
-	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/testx"
 )
@@ -149,7 +148,7 @@ func initFrameCases(t *testing.T) []struct {
 			return operatorForm(initStepAt(4), "", framesDone(4), setupRow(sbx.SetupOffer{EnvOnly: 2, Known: true}, true, false))
 		}},
 		{"github-access", func() *choiceui.Form {
-			h := githubaccess.Host{Login: "ada", Protocol: githubaccess.SSH, Keys: []string{"SHA256:Kx2f…Qm (ED25519)"}, Forwarding: true, ForwardingKnown: true}
+			h := gitaccess.Host{Login: "ada", Protocol: gitaccess.SSH, Keys: []string{"SHA256:Kx2f…Qm (ED25519)"}, Forwarding: true, ForwardingKnown: true}
 			bare := githubAccessForm(h, "")
 			f := subPage(initStepAt(2), bare.Title, bare.Header, bare.Rows, framesDone(2), aheadRows(3, setupAhead(false)))
 			f.EnterWord = func(*choiceui.Form) string { return runWord(1) }
@@ -175,6 +174,6 @@ func TestInitPagesMatchTheirGoldenFrames(t *testing.T) {
 }
 
 // identity is a git identity git resolves on the recorded host.
-func identity(name, email string) gitidentity.Identity {
-	return gitidentity.Identity{Name: name, Email: email}
+func identity(name, email string) gitaccess.Identity {
+	return gitaccess.Identity{Name: name, Email: email}
 }

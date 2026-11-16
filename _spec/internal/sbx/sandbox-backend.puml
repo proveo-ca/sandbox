@@ -85,7 +85,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' PROVEO_WORKDIR, computed from the binds by agentWorkdir (see the CLI note
 ' below). MountSpec.Plan() no longer returns a workdir at all: since 2026-10-17
 ' (F20, the user: "Drop the workdir return (Recommended)") it returns
-' (mounts []runner.Mount, links []Link) (MEASURED, internal/workspace/mount.go:56;
+' (mounts []Mount, links []Link) (MEASURED, internal/workspace/mount.go:56;
 ' internal/run/run.go:395). The dropped value was the constant "/app" (reported).
 '
 ' THE IMAGE READS NO WORKSPACE .env; THE HOST SEEDS ITS VALUES (N7, DONE (wt)
@@ -138,7 +138,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' environment (the local-model set, PROVEO_EGRESS_MODE) into cfg.Env, because
 ' the sandbox path had dropped it and `--local-model` did nothing under sbx.
 ' internal/egress is deleted. MEASURED now: run.launchSandbox builds
-' `sandbox.Input.AgentEnv` itself — host CDP and adb add-on env, operator.Env,
+' `sandbox.Input.AgentEnv` itself — host CDP and adb add-on env, proveohome.OperatorEnv,
 ' and sbx.LocalModelEnv(model) plus SBX_CRED_*_MODE=none for a host Ollama run
 ' (_spec/internal/sbx/host-inference.puml). No tier variable crosses.
 '

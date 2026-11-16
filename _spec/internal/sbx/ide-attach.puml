@@ -81,7 +81,7 @@ skinparam noteTextAlignment left
 ' ONLY LISTED TARGETS (SEC2, DONE (wt) 2026-10-17; repo-simplification.puml
 ' SEC2, option 2). A declared dir is mounted read-WRITE, so the guest could
 ' plant `~/.proveo/<dir>/x -> ~/.ssh` and read it on the next run. MEASURED
-' now: a link is followed only when its resolved (realPath) target is listed in
+' now: a link is followed only when its resolved (workspace.RealPath) target is listed in
 ' <proveo home>/linked-dirs (manifest.LinkedDirsFile, manifest.go:50-51) — absolute
 ' paths, one per line, `#` comments, read by listedLinkTargets. The proveo home
 ' ROOT is never mounted by a shipped def, so the guest cannot add an entry; a

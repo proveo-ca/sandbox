@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/operator"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 )
 
 func TestOperatorRowShowsTheNameInUse(t *testing.T) {
-	if r := operatorRow(""); r.Placeholder != operator.Default || r.Held || !r.Field {
-		t.Errorf("nothing stored ⇒ %+v; want a field showing %s", r, operator.Default)
+	if r := operatorRow(""); r.Placeholder != proveohome.DefaultOperator || r.Held || !r.Field {
+		t.Errorf("nothing stored ⇒ %+v; want a field showing %s", r, proveohome.DefaultOperator)
 	}
 	if r := operatorRow("Roberto"); r.Placeholder != "Roberto" || !r.Held {
 		t.Errorf("stored ⇒ %+v; want the stored name, held", r)
@@ -23,10 +23,10 @@ func TestOperatorRowShowsTheNameInUse(t *testing.T) {
 
 func TestOperatorAnswerKeepsDefaultsAndTruncates(t *testing.T) {
 	root := t.TempDir()
-	if got, err := applyOperatorAnswer(root, "", "   "); err != nil || got != operator.Default {
-		t.Errorf("first run, empty ⇒ %q, %v; want %s", got, err, operator.Default)
+	if got, err := applyOperatorAnswer(root, "", "   "); err != nil || got != proveohome.DefaultOperator {
+		t.Errorf("first run, empty ⇒ %q, %v; want %s", got, err, proveohome.DefaultOperator)
 	}
-	if stored, _ := operator.Load(root); stored != "" {
+	if stored, _ := proveohome.LoadOperator(root); stored != "" {
 		t.Errorf("an empty first answer stored %q", stored)
 	}
 	if got, err := applyOperatorAnswer(root, "", "Roberto von Schoettler"); err != nil || got != "Roberto von Scho" {
@@ -35,7 +35,7 @@ func TestOperatorAnswerKeepsDefaultsAndTruncates(t *testing.T) {
 	if got, err := applyOperatorAnswer(root, "Roberto von Scho", ""); err != nil || got != "Roberto von Scho" {
 		t.Errorf("re-run, empty ⇒ %q, %v; want the stored name kept", got, err)
 	}
-	if stored, _ := operator.Load(root); stored != "Roberto von Scho" {
+	if stored, _ := proveohome.LoadOperator(root); stored != "Roberto von Scho" {
 		t.Errorf("stored = %q", stored)
 	}
 }
@@ -48,7 +48,7 @@ func TestTheOperatorPageHasNoSkipAndItsHelpIsTheReason(t *testing.T) {
 		t.Errorf("page 4 draws a %q button; Enter with the field empty keeps the name", f.Skip)
 	}
 	f.Glyphs = choiceui.GlyphsNerd
-	if frame := f.Render(80, 24); !strings.Contains(frame, "› name — empty keeps "+operator.Default+"; the first 16 characters are kept") ||
+	if frame := f.Render(80, 24); !strings.Contains(frame, "› name — empty keeps "+proveohome.DefaultOperator+"; the first 16 characters are kept") ||
 		strings.Contains(frame, "[ Skip ]") {
 		t.Errorf("page 4's help is not the field's Reason, or it draws Skip:\n%s", frame)
 	}

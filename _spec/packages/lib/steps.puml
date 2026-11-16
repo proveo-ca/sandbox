@@ -148,7 +148,7 @@ partition "4 · Install defaults / dynamic  «agent: sbx startup / entrypoint.sh
   :**config wiring** — ""proveo_wire_config"": the formatter class\n(opencode) · LSP wiring removed 2026-10-30;
   note left
     **The workspace walk prunes package stores.**
-    ""_proveo_walk"" mirrors ""wsscan.AlwaysPrune"";
+    ""_proveo_walk"" mirrors ""workspace.AlwaysPrune"";
     ""\.pnpm-store"" alone was 110k of a monorepo's
     123k files, none of them ever a match.
   end note

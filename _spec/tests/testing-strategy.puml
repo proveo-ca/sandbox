@@ -6,7 +6,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '          have actually exhibited — every one of them a test that passed
 ' covers: internal/contract/**
 ' covers: e2e/**
-' covers: internal/tmux/**
+' covers: internal/schedule/tmux*.go
 ' covers: defs/tests/**
 ' covers: internal/imagetest/**
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
@@ -1093,7 +1093,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 component "**1. Unit**\ninternal/*/*_test.go — no build tags\nGo only · deterministic\n//always//" as L1 <<app>>
 component "**2. Contract**\nGo builders + goldens\nsandbox.Spec · Detect · sbx goldens\n//always, no Docker//" as L2 <<app>>
 component "**3. Infra integration — RETIRED 2026-10-16**\nthe docker egress topology it stood up is deleted" as L3 <<error>>
-component "**4. Agent E2E (promptful)**\ne2e ""//go:build e2e//"" via internal/tmux\nnon-deterministic — asserts side effects\n//-tags=e2e · skips per missing prerequisite//" as L4 <<async>>
+component "**4. Agent E2E (promptful)**\ne2e ""//go:build e2e//"" via internal/schedule's tmux driver\nnon-deterministic — asserts side effects\n//-tags=e2e · skips per missing prerequisite//" as L4 <<async>>
 
 database "cov/unit\ngo tool covdata merge → percent" as COV <<db>>
 
@@ -1106,7 +1106,7 @@ L2 ARROW_QUEUE COV
 note right of L1
   Host orchestration under test is **Go**
   (""cmd/proveo"", ""internal/{workspace,run,
-  sbx,gitidentity,manifest}""). Fat bash runners and the
+  sbx,gitaccess,manifest}""). Fat bash runners and the
   ""defs/lib/egress.sh"" lifecycle are retired.
 end note
 

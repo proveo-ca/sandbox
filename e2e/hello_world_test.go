@@ -17,7 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestHelloWorldE2E drives each harness against a COPY of e2e/samples on a
@@ -94,7 +94,7 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 			"When the file exists, reply with exactly %s and stop.",
 		h.promptPath, line, reply)
 
-	sess := tmux.New(fmt.Sprintf("proveo-hello-%s-%d", h.target, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-hello-%s-%d", h.target, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
 	cmd := []string{"env"}
@@ -266,7 +266,7 @@ func assertCleanBoot(t *testing.T, screen string) {
 	}
 }
 
-func waitSessionExit(sess *tmux.Session, timeout time.Duration) (string, bool) {
+func waitSessionExit(sess *schedule.TmuxSession, timeout time.Duration) (string, bool) {
 	deadline := time.Now().Add(timeout)
 	last := ""
 	for time.Now().Before(deadline) {

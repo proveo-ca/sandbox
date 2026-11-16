@@ -14,8 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/proveo-ca/proveo/internal/shell"
 )
 
 func digest(b []byte) string {
@@ -210,7 +208,7 @@ func TestTheSegmentIsAddedOnceAndNothingElseChanges(t *testing.T) {
 func kitOptions(t *testing.T, s string, fetch Fetch) Options {
 	t.Helper()
 	home := t.TempDir()
-	sh, _ := shell.Detect(s)
+	sh, _ := DetectShell(s)
 	return Options{
 		GOOS: "linux", GOARCH: "amd64", Home: home, BinDir: filepath.Join(home, "bin"), StateDir: filepath.Join(home, "state"),
 		Shell: sh, Getenv: func(string) string { return "" }, Fetch: fetch,
@@ -230,7 +228,7 @@ func TestApplyOnAnEmptyHostInstallsEverythingAndUndoRemovesIt(t *testing.T) {
 	if rec.Starship != filepath.Join(o.BinDir, "starship") || len(rec.Fonts) != 3 || rec.RC != rc || rec.Config != config || !rec.ConfigCreated {
 		t.Errorf("record = %+v", rec)
 	}
-	if body, _ := os.ReadFile(rc); !strings.Contains(string(body), shell.PromptMarker+"\n"+`eval "$(starship init zsh)"`) {
+	if body, _ := os.ReadFile(rc); !strings.Contains(string(body), PromptMarker+"\n"+`eval "$(starship init zsh)"`) {
 		t.Errorf("rc = %q", body)
 	}
 	body, _ := os.ReadFile(config)

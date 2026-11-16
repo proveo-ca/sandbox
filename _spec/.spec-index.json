@@ -43,7 +43,7 @@
         "cmd/proveo/provision.go",
         "internal/imagetest/overlay_test.go",
         "internal/contract/agent_pin_test.go",
-        "internal/tmux/tmux.go",
+        "internal/schedule/tmux.go",
         "e2e/main_test.go",
         "internal/envreg/envreg.go"
       ],
@@ -212,7 +212,7 @@
     {
       "spec": "_spec/_paradigms/git-identity.puml",
       "covers": [
-        "internal/gitidentity/**",
+        "internal/gitaccess/identity*.go",
         "packages/lib/entrypoint-lib.sh",
         "cmd/proveo/main.go",
         "e2e/git_access_test.go"
@@ -225,7 +225,7 @@
         "defs/**/entrypoint.sh",
         "internal/entrypoint/**",
         "cmd/proveo-entrypoint/**",
-        "internal/gitidentity/gitidentity.go"
+        "internal/gitaccess/identity.go"
       ],
       "fingerprint": null
     },
@@ -416,8 +416,8 @@
     {
       "spec": "_spec/cmd/proveo/github-access.puml",
       "covers": [
-        "internal/githubaccess/access.go",
-        "internal/githubaccess/access_test.go",
+        "internal/gitaccess/access.go",
+        "internal/gitaccess/access_test.go",
         "cmd/proveo/init_github_access.go",
         "cmd/proveo/init_github_access_test.go",
         "internal/run/credential_inventory.go",
@@ -469,7 +469,7 @@
         "cmd/proveo/init_git.go",
         "cmd/proveo/ghtoken.go",
         "internal/sbx/install.go",
-        "internal/shell/shell.go",
+        "internal/promptkit/shell.go",
         "apps/cli/public/cli/install.sh",
         "apps/cli/public/cli/install.ps1",
         "apps/cli/public/cli/uninstall.sh",
@@ -718,7 +718,7 @@
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/launch_config_test.go",
         "internal/backend/sandbox/host_adb_test.go",
-        "internal/hostadb/**",
+        "internal/hostdev/**",
         "internal/proveohome/**",
         "internal/sbx/run.go",
         "internal/contract/**",
@@ -775,7 +775,7 @@
       "covers": [
         "internal/agentsettings/**",
         "internal/choiceui/**",
-        "internal/wsscan/**",
+        "internal/workspace/scan*.go",
         "e2e/agent_settings_test.go"
       ],
       "fingerprint": null
@@ -1099,10 +1099,10 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/gitidentity/authorship.puml",
+      "spec": "_spec/internal/gitaccess/authorship.puml",
       "covers": [
-        "internal/gitidentity/gitidentity.go",
-        "internal/gitidentity/**"
+        "internal/gitaccess/identity.go",
+        "internal/gitaccess/identity*.go"
       ],
       "fingerprint": null
     },
@@ -1258,7 +1258,7 @@
         "internal/promptkit/kit.go",
         "internal/promptkit/promptkit_test.go",
         "internal/promptkit/gate_test.go",
-        "internal/shell/shell.go",
+        "internal/promptkit/shell.go",
         "internal/choiceui/glyphs_dialog.go",
         "cmd/proveo/init_prompt.go",
         "cmd/proveo/init_prompt_test.go",
@@ -1281,8 +1281,8 @@
         "cmd/proveo/prompt.go",
         "cmd/proveo/prompt_test.go",
         "e2e/prompt_test.go",
-        "internal/adopt/adopt.go",
-        "internal/adopt/adopt_test.go",
+        "internal/results/adopt.go",
+        "internal/results/adopt_test.go",
         "internal/backend/sandbox/verbs.go",
         "internal/backend/sandbox/verbs_test.go",
         "internal/sbx/list.go",
@@ -1407,8 +1407,8 @@
         "internal/backend/sandbox/credential_report_test.go",
         "internal/backend/sandbox/opencode_engine.go",
         "internal/credentials/login_test.go",
-        "internal/secretref/secretref.go",
-        "internal/secretref/secretref_test.go",
+        "internal/credentials/secretref.go",
+        "internal/credentials/secretref_test.go",
         "e2e/secret_source_test.go",
         "internal/backend/sandbox/report.go",
         "internal/backend/sandbox/report_test.go"
@@ -1662,31 +1662,31 @@
         "internal/run/params.go",
         "internal/schedule/table.go",
         "internal/schedule/table_test.go",
-        "internal/tmux/tmux.go",
+        "internal/schedule/tmux.go",
         "internal/backend/sandbox/stop_signal_test.go"
       ],
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/secretref/secret-references.puml",
+      "spec": "_spec/internal/credentials/secret-references.puml",
       "covers": [
-        "internal/secretref/**",
+        "internal/credentials/secretref*.go",
         "internal/credentials/login.go",
         "internal/credentials/credentials.go",
-        "internal/runner/runner.go",
+        "internal/workspace/mount.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/credentials/login_test.go",
         "e2e/secret_source_test.go",
-        "internal/secretref/secretref.go",
-        "internal/secretref/secretref_test.go"
+        "internal/credentials/secretref.go",
+        "internal/credentials/secretref_test.go"
       ],
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/shell/setup-path.puml",
+      "spec": "_spec/internal/promptkit/setup-path.puml",
       "covers": [
-        "internal/shell/shell.go",
-        "internal/shell/shell_test.go",
+        "internal/promptkit/shell.go",
+        "internal/promptkit/shell_test.go",
         "cmd/proveo/setup.go",
         "cmd/proveo/setup_test.go",
         "cmd/proveo/uninstall.go",
@@ -1695,9 +1695,9 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/tmux/driving-a-tty.puml",
+      "spec": "_spec/internal/schedule/driving-a-tty.puml",
       "covers": [
-        "internal/tmux/tmux.go"
+        "internal/schedule/tmux.go"
       ],
       "fingerprint": null
     },
@@ -1797,9 +1797,9 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/wsscan/workspace-scan.puml",
+      "spec": "_spec/internal/workspace/workspace-scan.puml",
       "covers": [
-        "internal/wsscan/**"
+        "internal/workspace/scan*.go"
       ],
       "fingerprint": null
     },
@@ -2027,7 +2027,7 @@
         "e2e/e2e_test.go",
         "e2e/instrument_test.go",
         "e2e/agent_settings_test.go",
-        "internal/tmux/**",
+        "internal/schedule/tmux*.go",
         "e2e/samples/**"
       ],
       "fingerprint": null
@@ -2036,7 +2036,7 @@
       "spec": "_spec/tests/41-agent-e2e-sequence.puml",
       "covers": [
         "e2e/e2e_test.go",
-        "internal/tmux/**"
+        "internal/schedule/tmux*.go"
       ],
       "fingerprint": null
     },
@@ -2064,7 +2064,7 @@
       "covers": [
         "internal/contract/**",
         "e2e/**",
-        "internal/tmux/**",
+        "internal/schedule/tmux*.go",
         "defs/tests/**",
         "internal/imagetest/**",
         "e2e/preconditions_test.go",
@@ -2104,8 +2104,10 @@
     {
       "spec": "_spec/internal/sbx/host-android-adb.puml",
       "covers": [
-        "internal/hostadb/hostadb.go",
-        "internal/hostadb/hostadb_test.go",
+        "internal/hostdev/hostadb.go",
+        "internal/hostdev/hostadb_test.go",
+        "internal/hostdev/detach_unix.go",
+        "internal/hostdev/detach_windows.go",
         "internal/adbmirror/adbmirror.go",
         "internal/adbmirror/adbmirror_test.go",
         "cmd/proveo-entrypoint/main.go",
@@ -2154,8 +2156,8 @@
     {
       "spec": "_spec/cmd/proveo/operator-name.puml",
       "covers": [
-        "internal/operator/operator.go",
-        "internal/operator/operator_test.go",
+        "internal/proveohome/operator.go",
+        "internal/proveohome/operator_test.go",
         "cmd/proveo/init_operator.go",
         "cmd/proveo/init_operator_test.go",
         "cmd/proveo/init.go",
@@ -2248,8 +2250,8 @@
     {
       "spec": "_spec/internal/sbx/host-browser-cdp.puml",
       "covers": [
-        "internal/hostcdp/hostcdp.go",
-        "internal/hostcdp/hostcdp_test.go",
+        "internal/hostdev/hostcdp.go",
+        "internal/hostdev/hostcdp_test.go",
         "internal/run/choices.go",
         "internal/run/run.go",
         "internal/run/host_adb_test.go",

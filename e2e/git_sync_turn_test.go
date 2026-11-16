@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/termtext"
 	"github.com/proveo-ca/proveo/internal/testx"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 const hookProbeFile = "HOOK_PROBE.txt"
@@ -75,7 +75,7 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	work := gitSyncWorkspace(t)
 	before, canList := sbxSandboxNames()
 
-	sess := tmux.New(fmt.Sprintf("proveo-gitsync-%s-%d", h.target, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-gitsync-%s-%d", h.target, os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

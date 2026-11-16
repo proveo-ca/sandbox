@@ -18,15 +18,15 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/termtext"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 // kitRun is one `proveo run <target>` through its kit under tmux, and the
 // sandbox it runs in.
 type kitRun struct {
 	t      *testing.T
-	sess   *tmux.Session
+	sess   *schedule.TmuxSession
 	name   string
 	dir    string
 	last   string
@@ -45,7 +45,7 @@ func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra 
 	}
 	sweepSandboxesAfter(t)
 	before, _ := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-kit-%s-%d", target, time.Now().UnixNano()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-kit-%s-%d", target, time.Now().UnixNano()), nil)
 	cmd := append([]string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0"}, env...)
 	cmd = append(cmd, proveoBin, "run", target, "--credentials", "forward", "--input", dir)
 	if err := sess.Start(220, 50, append(cmd, extra...)...); err != nil {
@@ -57,7 +57,7 @@ func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra 
 // awaitKit names the sandbox the `proveo run <target> --input dir` in sess
 // created since before, waits for its seed, and at cleanup ends the run and
 // removes the sandbox before any directory it mounts.
-func awaitKit(t *testing.T, sess *tmux.Session, before map[string]bool, target, dir string) *kitRun {
+func awaitKit(t *testing.T, sess *schedule.TmuxSession, before map[string]bool, target, dir string) *kitRun {
 	t.Helper()
 	pid, _ := sess.PanePID()
 	k := &kitRun{t: t, sess: sess, dir: dir, target: target}
@@ -102,7 +102,7 @@ func (k *kitRun) end() (string, bool) {
 
 // stopRun sends SIGTERM to the proveo in sess and returns its last screen and
 // whether it exited within timeout; past timeout it SIGKILLs proveo and kills the session.
-func stopRun(sess *tmux.Session, timeout time.Duration) (string, bool) {
+func stopRun(sess *schedule.TmuxSession, timeout time.Duration) (string, bool) {
 	pid, _ := sess.PanePID()
 	var proc *os.Process
 	if n, err := strconv.Atoi(strings.TrimSpace(pid)); err == nil && n > 0 {

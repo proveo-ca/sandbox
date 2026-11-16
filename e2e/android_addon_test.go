@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/hostadb"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/hostdev"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 var deviceLineRE = regexp.MustCompile(`emulator-\d+\s+device\b`)
@@ -32,14 +32,14 @@ func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 	requireTmux(t)
 	harnessImage(t, target)
 	sweepSandboxesAfter(t)
-	if hostadb.EmulatorBinary(os.Getenv) == "" || hostadb.AdbBinary(os.Getenv) == "" {
+	if hostdev.EmulatorBinary(os.Getenv) == "" || hostdev.AdbBinary(os.Getenv) == "" {
 		t.Skip("no Android SDK emulator/adb on this host")
 	}
-	port, err := hostadb.Port(os.Getenv)
+	port, err := hostdev.ADBPort(os.Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hostadb.Ready(port) {
+	if hostdev.ADBReady(port) {
 		t.Skipf("a device is already on 127.0.0.1:%d — stop it so the run has to open one", port)
 	}
 	t.Cleanup(func() { stopEmulators(t, port) })
@@ -47,7 +47,7 @@ func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 	proveoBin := buildProveo(t)
 	home, work := t.TempDir(), t.TempDir()
 	before, _ := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-android-%d", time.Now().UnixNano()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-android-%d", time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + home, "PROVEO_MOUNT_GH_CONFIG=0",
 		proveoBin, "run", target, "--input", work}
@@ -76,7 +76,7 @@ func TestAndroidTickedInTheChoiceFormOpensTheHostEmulator(t *testing.T) {
 	if !strings.Contains(log, "the agent controls every device on that adb server") {
 		t.Errorf("the run did not warn about adb's reach:\n%s", log)
 	}
-	if !hostadb.Ready(port) {
+	if !hostdev.ADBReady(port) {
 		t.Fatalf("no usable device on the host adb server 127.0.0.1:%d after the run opened one", port)
 	}
 
@@ -88,7 +88,7 @@ ADB_SERVER_SOCKET="tcp:${ip}:${PROVEO_HOST_ADB_PORT}" adb devices`
 		t.Fatalf("sandbox probe exited %d:\n%s", status, out)
 	}
 	if !strings.Contains(out, fmt.Sprintf("PORT=%d", port)) {
-		t.Errorf("the sandbox did not receive %s=%d:\n%s", hostadb.EnvPort, port, out)
+		t.Errorf("the sandbox did not receive %s=%d:\n%s", hostdev.EnvADBPort, port, out)
 	}
 	if !deviceLineRE.MatchString(out) {
 		t.Errorf("the sandbox's adb does not see the emulator the run opened:\n%s", out)
@@ -106,28 +106,28 @@ func TestAndroidLeftUntickedOpensNoEmulator(t *testing.T) {
 	requireTmux(t)
 	harnessImage(t, target)
 	sweepSandboxesAfter(t)
-	if hostadb.AdbBinary(os.Getenv) == "" {
+	if hostdev.AdbBinary(os.Getenv) == "" {
 		t.Skip("no Android SDK adb on this host")
 	}
-	port, err := hostadb.Port(os.Getenv)
+	port, err := hostdev.ADBPort(os.Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hostadb.Ready(port) {
+	if hostdev.ADBReady(port) {
 		t.Skipf("a device is already on 127.0.0.1:%d — the control needs none", port)
 	}
 
 	proveoBin := buildProveo(t)
 	home, work := t.TempDir(), t.TempDir()
 	before, _ := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-android-off-%d", time.Now().UnixNano()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-android-off-%d", time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := []string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + home, "PROVEO_MOUNT_GH_CONFIG=0",
 		proveoBin, "run", target, "--input", work}
 	if err := sess.Start(220, 60, cmd...); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
-	if _, err := sess.WaitFor("[ ] "+hostadb.Addon, 90*time.Second); err != nil {
+	if _, err := sess.WaitFor("[ ] "+hostdev.AddonAndroid, 90*time.Second); err != nil {
 		screen, _ := sess.Capture()
 		t.Fatalf("the form does not offer an unticked android box:\n%s", screen)
 	}
@@ -138,22 +138,22 @@ func TestAndroidLeftUntickedOpensNoEmulator(t *testing.T) {
 	if strings.Contains(log, "android:") {
 		t.Errorf("an unticked android box still reached the host side:\n%s", log)
 	}
-	if hostadb.Ready(port) {
+	if hostdev.ADBReady(port) {
 		t.Errorf("a device appeared on 127.0.0.1:%d although android was never ticked", port)
 	}
 	out, _ := k.exec(`echo "PORT=${PROVEO_HOST_ADB_PORT:-unset}"`, 30*time.Second)
 	if !strings.Contains(out, "PORT=unset") {
-		t.Errorf("the sandbox received %s without the add-on:\n%s", hostadb.EnvPort, out)
+		t.Errorf("the sandbox received %s without the add-on:\n%s", hostdev.EnvADBPort, out)
 	}
 }
 
 // stopEmulators kills every emulator on the server, offline ones included, and waits until none is listed.
 func stopEmulators(t *testing.T, port int) {
 	t.Helper()
-	adb := hostadb.AdbBinary(os.Getenv)
+	adb := hostdev.AdbBinary(os.Getenv)
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		all, err := hostadb.AllDevices(port)
+		all, err := hostdev.AllDevices(port)
 		if err != nil {
 			return
 		}
@@ -174,7 +174,7 @@ func stopEmulators(t *testing.T, port int) {
 
 // tickAndroid walks the form the way an operator does: onto the devices row,
 // right onto the android box, space to tick it.
-func tickAndroid(t *testing.T, sess *tmux.Session) {
+func tickAndroid(t *testing.T, sess *schedule.TmuxSession) {
 	t.Helper()
 	if _, err := sess.WaitFor("enter accept", 90*time.Second); err != nil {
 		t.Fatalf("choice prompt never appeared: %v", err)
@@ -205,13 +205,13 @@ func tickAndroid(t *testing.T, sess *tmux.Session) {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	step("Right", hostadb.Addon, 6)
+	step("Right", hostdev.AddonAndroid, 6)
 	if err := sess.SendKeys("Space"); err != nil {
 		t.Fatalf("send Space: %v", err)
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if screen, _ := sess.Capture(); strings.Contains(screen, "[x] "+hostadb.Addon) {
+		if screen, _ := sess.Capture(); strings.Contains(screen, "[x] "+hostdev.AddonAndroid) {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)

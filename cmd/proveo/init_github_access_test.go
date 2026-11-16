@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/githubaccess"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 )
 
 // NO TTY: unasked, the access fact keeps SSH's state; a how-to only when no terminal could ask, and one.
 func TestAnUnaskedAccessKeepsSSHsStateAndAHowToOnlyWithoutATerminal(t *testing.T) {
 	t.Parallel()
-	h := githubaccess.Host{ForwardingKnown: true, Forwarding: true,
+	h := gitaccess.Host{ForwardingKnown: true, Forwarding: true,
 		AgentError: "host agent unavailable or empty; load a GitHub authentication key with ssh-add"}
 	for _, noTerminal := range []bool{false, true} {
 		f := unaskedAccess(h, "", noTerminal)
@@ -27,11 +27,11 @@ func TestAnUnaskedAccessKeepsSSHsStateAndAHowToOnlyWithoutATerminal(t *testing.T
 
 func TestGitHubPanelFollowsHostTransportWithoutClaimingSandboxVerification(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []string{githubaccess.SSH, githubaccess.HTTPS} {
-		h := githubaccess.Host{Protocol: mode, Login: "executor", Keys: []string{"SHA256:one"}, Forwarding: true, ForwardingKnown: true}
+	for _, mode := range []string{gitaccess.SSH, gitaccess.HTTPS} {
+		h := gitaccess.Host{Protocol: mode, Login: "executor", Keys: []string{"SHA256:one"}, Forwarding: true, ForwardingKnown: true}
 		f := githubAccessForm(h, "")
 		want := githubHTTPS
-		if mode == githubaccess.SSH {
+		if mode == gitaccess.SSH {
 			want = githubSSH
 		}
 		if f.Selection("sandbox Git") != want {
@@ -40,7 +40,7 @@ func TestGitHubPanelFollowsHostTransportWithoutClaimingSandboxVerification(t *te
 		if !strings.Contains(strings.Join(f.Header, "\n"), "verification pending") {
 			t.Fatal("host check claimed sandbox verification")
 		}
-		if githubAccessForm(h, githubaccess.Later).Selection("sandbox Git") != "later" {
+		if githubAccessForm(h, gitaccess.Later).Selection("sandbox Git") != "later" {
 			t.Fatal("ignored persisted deferral")
 		}
 	}

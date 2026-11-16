@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/run"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 const opencodeKeyVar = "OPENCODE_API_KEY"
@@ -71,7 +71,7 @@ func probeOpenCodeBoundary(t *testing.T, c opencodeAuthCase, proveoBin, creds st
 
 	work := t.TempDir()
 	before, _ := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-ocauth-%s-%s-%d", c.name, creds, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-ocauth-%s-%s-%d", c.name, creds, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
 	cmd := []string{"env"}

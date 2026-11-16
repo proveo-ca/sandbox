@@ -13,8 +13,8 @@ skinparam noteTextAlignment left
 '   the code .... internal/sbx/secret.go (SecretSetArgs), internal/sbx/run.go (StoredSecretNames)
 '   the code .... internal/backend/sandbox/project_env.go (seedProjectEnv) — since N7, 2026-10-17;
 '                 load_env and ShouldSkipEnvLoad, named here before, are deleted (repo-simplification.puml N7)
-'   the code .... internal/secretref/secretref.go (Parse, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
-'   the reference mechanism ........ _spec/internal/secretref/secret-references.puml
+'   the code .... internal/credentials/secretref.go (ParseSecretRef, Resolve), internal/credentials/credentials.go (ProviderLookupWith)
+'   the reference mechanism ........ _spec/internal/credentials/secret-references.puml
 '   the surface that provisions it . _spec/_plans/init-credential-provisioning.puml
 '   the registry entries B4 turns on internal/provider/provider.go (Hosts, Auth)
 '   how the open blocker gets answered _spec/_experiments/operator-fingerprint.puml
@@ -217,7 +217,7 @@ skinparam noteTextAlignment left
 '
 ' AND ONE ADJACENT GAIN. Docker Agent resolves `op://` references natively —
 ' "if the value starts with op://, Docker Agent resolves it by invoking the
-' 1Password CLI (op read <reference>)". proveo's secretref.Parse accepts
+' 1Password CLI (op read <reference>)". proveo's credentials.ParseSecretRef accepts
 ' keychain:, cmd:, env: and pass: and NOT op://, so an operator whose team
 ' already uses 1Password gets nothing from the reference posture that the
 ' sibling tool gives them for free. One scheme, and it aligns the two tools.

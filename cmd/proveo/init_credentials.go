@@ -21,7 +21,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/secretref"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -770,7 +769,7 @@ func defNames(ms []manifest.Manifest) []string {
 // on stdin. detail is what it did, for the stored credential's fact; a key the provider refuses is a ⚠.
 // SPEC: _spec/internal/sbx/credential-resolution.puml (R2)
 func provisionSlot(s credSlot, value string) (detail []string, warn []sandbox.Item, err error) {
-	flags, stdin := secretref.SbxSource(s.Store, value, os.Getenv)
+	flags, stdin := credentials.SbxSource(s.Store, value, os.Getenv)
 	if len(flags) > 0 {
 		if err := sbx.SecretSetSource(s.Store, "", flags, ""); err != nil {
 			return nil, nil, fmt.Errorf("register %s: %w", s.Store, err)

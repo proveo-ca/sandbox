@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestPromptfulE2E runs a real harness image with a LOCAL model, drives the
@@ -50,7 +50,7 @@ func TestPromptfulE2E(t *testing.T) {
 	task := "Use your bash tool to run exactly this one command and then stop: " +
 		"curl -sS https://example.com -o SCRAPED.html && head -1 README.md > FROM_SAMPLE.txt && printf %s " + marker + " > DONE.txt"
 
-	sess := tmux.New(fmt.Sprintf("proveo-e2e-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-e2e-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
 	if err := sess.Start(200, 50, "env", "PROVEO_WIZARD=off", proveoBin, "run", target,

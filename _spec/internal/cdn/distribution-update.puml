@@ -173,7 +173,7 @@ node "Consumer host" as CH <<host>> {
   component "cmd/proveo update\n--check | --force" as UPD <<app>>
   component "internal/cdn\nBaseURL · FetchManifest\nCurrentAssetName · Newer\nDownloadAsset · IsDevVersion" as CDNPKG <<app>>
   component "proveo binary on PATH" as BIN <<app>>
-  component "cmd/proveo setup\nPATH via internal/shell" as SETUP <<app>>
+  component "cmd/proveo setup\nPATH via internal/promptkit" as SETUP <<app>>
 }
 
 GR ARROW_MAIN STAGE

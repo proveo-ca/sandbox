@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 // HomeAccess is the narrow host-state view an sbx run receives. The whole
@@ -20,7 +20,7 @@ import (
 type HomeAccess struct {
 	Root         string
 	FilesRoot    string
-	Mounts       []runner.Mount
+	Mounts       []workspace.Mount
 	SkippedLinks []SkippedLink
 	files        []string
 }
@@ -43,7 +43,7 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 			return err
 		}
 		seen[path] = true
-		a.Mounts = append(a.Mounts, runner.Mount{Host: path})
+		a.Mounts = append(a.Mounts, workspace.Mount{Host: path})
 		return nil
 	}
 	for _, m := range h.Mounts {
@@ -102,7 +102,7 @@ func listedLinkTargets(root string) map[string]bool {
 		if line == "" || strings.HasPrefix(line, "#") || !filepath.IsAbs(line) {
 			continue
 		}
-		set[realPath(filepath.Clean(line))] = true
+		set[workspace.RealPath(filepath.Clean(line))] = true
 	}
 	return set
 }
@@ -110,12 +110,12 @@ func listedLinkTargets(root string) map[string]bool {
 // linkedDirs mounts read-only the targets of dir's first-level symlinks that
 // leave the proveo home and appear in listed, and returns the links it skipped.
 // SPEC: _spec/internal/sbx/ide-attach.puml (LINKED DIRS FOLLOW, READ-ONLY)
-func linkedDirs(root, dir string, listed map[string]bool) (out []runner.Mount, skipped []SkippedLink) {
+func linkedDirs(root, dir string, listed map[string]bool) (out []workspace.Mount, skipped []SkippedLink) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, nil
 	}
-	home := realPath(root)
+	home := workspace.RealPath(root)
 	for _, e := range entries {
 		if e.Type()&fs.ModeSymlink == 0 {
 			continue
@@ -134,7 +134,7 @@ func linkedDirs(root, dir string, listed map[string]bool) (out []runner.Mount, s
 			skipped = append(skipped, SkippedLink{Link: filepath.Join(dir, e.Name()), Target: target})
 			continue
 		}
-		out = append(out, runner.Mount{Host: target, ReadOnly: true})
+		out = append(out, workspace.Mount{Host: target, ReadOnly: true})
 	}
 	return out, skipped
 }

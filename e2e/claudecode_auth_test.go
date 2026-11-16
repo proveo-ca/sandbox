@@ -16,7 +16,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/run"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestClaudeCodeAuth asserts the CREDENTIAL BOUNDARY rather than the model:
@@ -97,7 +97,7 @@ func probeCredentialBoundary(t *testing.T, c claudecodeAuthCase, proveoBin, cred
 	}
 
 	before, _ := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-auth-%s-%s-%d", c.name, creds, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-auth-%s-%s-%d", c.name, creds, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
 	cmd := []string{"env"}

@@ -15,7 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 type agentSettingsDoc struct {
@@ -49,7 +49,7 @@ func TestAgentSettingsPersistAcrossRuns(t *testing.T) {
 	bin := buildProveo(t)
 
 	run := func(label string, extra ...string) string {
-		sess := tmux.New(fmt.Sprintf("proveo-settings-%s-%d", label, os.Getpid()), nil)
+		sess := schedule.NewTmux(fmt.Sprintf("proveo-settings-%s-%d", label, os.Getpid()), nil)
 		t.Cleanup(sess.Kill)
 
 		cmd := []string{"env"}

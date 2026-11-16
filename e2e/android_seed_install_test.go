@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/hostadb"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/testx"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 const helloApp = ":app " + helloPackage
@@ -30,14 +30,14 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 		t.Skip("sandbox backend unavailable")
 	}
 	requireTmux(t)
-	if hostadb.EmulatorBinary(os.Getenv) == "" || hostadb.AdbBinary(os.Getenv) == "" {
+	if hostdev.EmulatorBinary(os.Getenv) == "" || hostdev.AdbBinary(os.Getenv) == "" {
 		t.Skip("no Android SDK emulator/adb on this host")
 	}
-	port, err := hostadb.Port(os.Getenv)
+	port, err := hostdev.ADBPort(os.Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hostadb.Ready(port) {
+	if !hostdev.ADBReady(port) {
 		t.Cleanup(func() { stopEmulators(t, port) })
 	}
 	harnessImage(t, "opencode")
@@ -45,7 +45,7 @@ func TestAndroidAppInstallsFromTheSeed(t *testing.T) {
 	before, canList := sbxSandboxNames()
 	proveoBin := buildProveo(t)
 	hostADB := func(args ...string) string {
-		out, _ := exec.Command(hostadb.AdbBinary(os.Getenv), append([]string{"-P", strconv.Itoa(port)}, args...)...).CombinedOutput()
+		out, _ := exec.Command(hostdev.AdbBinary(os.Getenv), append([]string{"-P", strconv.Itoa(port)}, args...)...).CombinedOutput()
 		return string(out)
 	}
 	installed := func() bool {
@@ -102,9 +102,9 @@ func installEvidence(t *testing.T, before map[string]bool, hostADB func(...strin
 	return b.String()
 }
 
-func seedRun(t *testing.T, proveoBin, home, work, tag string, extra ...string) *tmux.Session {
+func seedRun(t *testing.T, proveoBin, home, work, tag string, extra ...string) *schedule.TmuxSession {
 	t.Helper()
-	sess := tmux.New(fmt.Sprintf("proveo-android-seed-%s-%d", tag, time.Now().UnixNano()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-android-seed-%s-%d", tag, time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := append([]string{"env", "PROVEO_WIZARD=on", "PROVEO_HOME=" + home, "PROVEO_MOUNT_GH_CONFIG=0",
 		proveoBin, "run", "opencode", "--input", work}, extra...)
@@ -114,7 +114,7 @@ func seedRun(t *testing.T, proveoBin, home, work, tag string, extra ...string) *
 	return sess
 }
 
-func focusOption(t *testing.T, sess *tmux.Session, key, opt string, max int) {
+func focusOption(t *testing.T, sess *schedule.TmuxSession, key, opt string, max int) {
 	t.Helper()
 	for i := 0; i < max; i++ {
 		if screen, _ := sess.Capture(); strings.Contains(screen, "› "+opt+" —") {

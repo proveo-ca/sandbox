@@ -110,8 +110,9 @@
 '     SSL_CERT_FILE and GIT_SSL_CAINFO; INSPECT_PROXY, ENFORCEMENT_PROXY and
 '     PROVEO_EGRESS_CA_CERT are gone. The cmd/proveo maintainer help no longer says
 '     "harness/sidecar" (reported by the coordinator).
-' F12b · internal/runner shrinks to `type Mount` — DONE (wt).
-'   Evidence: MEASURED. internal/runner/runner.go is 9 lines: `type Mount`; pids.go is gone.
+' F12b · the runner package shrinks to `type Mount` — DONE (wt); folded into internal/workspace
+'   2026-11-15 (codebase-compression.puml P10, F7).
+'   Evidence: MEASURED. runner.go was 9 lines: `type Mount`; pids.go is gone.
 '
 ' ── DONE 2026-10-17 (all (wt); each entry below keeps its first-read evidence) ──
 ' D2 · OpenCode engine-local history — DONE (wt). Record: _spec/defs/opencode/engine-local-history.puml.
@@ -138,7 +139,7 @@
 '     Spec: _spec/internal/credentials/credential-decisions.puml.
 ' F20 · MountSpec.Plan() returned a workdir nobody read — DONE (wt). The user: "Drop the workdir
 '   return (Recommended)".
-'   Evidence: MEASURED. Plan() returns (mounts []runner.Mount, links []Link)
+'   Evidence: MEASURED. Plan() returns (mounts []Mount, links []Link)
 '     (internal/workspace/mount.go:56); run.go:395 and every internal/workspace test call take two
 '     values. Reported: three `wd != "/app"` assertions were deleted.
 ' N3 · _java_major defined twice — DONE (wt). The user: "Keep awk, delete sed (Recommended)".
@@ -1369,7 +1370,7 @@
 '     second batch).
 '   Evidence: MEASURED. credentials.HasUsableAuth (credentials.go:75): callers only in
 '     auth_choice_test.go:276-283.
-'   Evidence: MEASURED. entrypoint.NormalizeModel (N2), runner.DockerRunArgs/Hardening (F12b),
+'   Evidence: MEASURED. entrypoint.NormalizeModel (N2), the runner package's DockerRunArgs/Hardening (F12b),
 '     workspace.MaterializeDeps/DepCopyPolicy (F9) share the pattern.
 '   UPDATE 2026-10-17 (MEASURED): MaterializeDeps and DepCopyPolicy are gone with F9, and
 '     DockerRunArgs/Hardening with F12b. Still open: credentials.HasUsableAuth,

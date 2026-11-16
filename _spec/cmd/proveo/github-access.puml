@@ -3,7 +3,7 @@
 skinparam noteTextAlignment left
 title GitHub access — host selection, sandbox verification
 ' purpose: init chooses Git transport independently of API login; run reports credential inventory
-' covers: internal/githubaccess/access.go, internal/githubaccess/access_test.go
+' covers: internal/gitaccess/access.go, internal/gitaccess/access_test.go
 ' covers: cmd/proveo/init_github_access.go, cmd/proveo/init_github_access_test.go
 ' covers: internal/run/credential_inventory.go, internal/run/choices.go
 ' covers: internal/run/credential_inventory_test.go

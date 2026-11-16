@@ -23,7 +23,8 @@ skinparam ranksep 80
 ' internal/egress, internal/egressproxy, internal/egresspolicy, internal/broker,
 ' internal/reviewgate, defs/sidecars (egress-proxy, squid-proxy, mitmproxy),
 ' defs/egress-dashboard. embed.go embeds the manifests only; goreleaser builds
-' proveo only; internal/runner holds only `type Mount`. The docker emitter and
+' proveo only; the runner package's last type, Mount, moved into internal/workspace
+' on 2026-11-15. The docker emitter and
 ' the Sidecars package left this map with them.
 
 title Proveo Project Component Map
@@ -58,7 +59,7 @@ package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
  component "workspace\nscope + mount plan" as Workspace <<app>>
  component "backend/sandbox · sbx\nKit · sbx argv · secret store" as EgressPkg <<app>>
  component "provider · credentials\nregistry · detection · store names" as CredPkg <<app>>
- component "gitidentity\nGIT_* forwarding" as GitId <<app>>
+ component "gitaccess\nGIT_* forwarding · GitHub access" as GitId <<app>>
  component "entrypoint\n.env guard (sbx env) · bridges" as EPPkg <<app>>
  component "proveohome\n~/.proveo mounts + deny scrub" as HomePkg <<app>>
  component "cdn\nlatest.json · checksum update" as CdnPkg <<app>>
@@ -66,8 +67,8 @@ package "Go CLI + packages\ncmd/ + internal/" as GoSurface {
  component "imagebuild\nSpecs table · buildx · agent pin" as ImageBuildPkg <<app>>
  component "verify\nverification-command discovery" as VerifyPkg <<app>>
  component "clean\nreclaim plan (liveness-safe)" as CleanPkg <<app>>
- component "shell\ncross-shell PATH setup" as ShellPkg <<app>>
- component "tmux · ui · contract\ntest driver · output · gates" as SupportPkg <<app>>
+ component "promptkit\nstarship kit · cross-shell PATH" as ShellPkg <<app>>
+ component "schedule · ui · contract\ntmux driver · output · gates" as SupportPkg <<app>>
  }
 }
 

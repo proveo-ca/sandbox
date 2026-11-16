@@ -2,13 +2,13 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how `proveo init` asks the operator's name once and every agent's house rules address them by it, with "Executor" as the default
-' covers: internal/operator/operator.go
-' covers: internal/operator/operator_test.go
+' covers: internal/proveohome/operator.go
+' covers: internal/proveohome/operator_test.go
 ' covers: cmd/proveo/init_operator.go
 ' covers: cmd/proveo/init_operator_test.go
 ' covers: cmd/proveo/init.go (operatorStage after credentialStage)
 ' covers: cmd/proveo/init_report.go (operatorSaid)
-' covers: internal/run/run.go (operator.Env on both backends)
+' covers: internal/run/run.go (proveohome.OperatorEnv on both backends)
 ' covers: internal/ui/ui.go (SectionOperator)
 ' covers: packages/lib/entrypoint-lib.sh (_proveo_operator_name, _proveo_address_operator, proveo_compose_house_rules, proveo_address_operator_claude)
 ' covers: internal/contract/operator_name_test.go
@@ -16,6 +16,13 @@ skinparam noteTextAlignment left
 ' covers: defs/claudecode/mcp/Dockerfile (/etc/claude-code/CLAUDE.md owned by the agent user)
 '   the plan item this delivers ......... _spec/_plans/white-label-brand-manifest.puml (D)
 '   the init stages around it ........... _spec/cmd/proveo/init-credential-entry.puml
+'
+' ── THE FILE LIVES IN PROVEOHOME (DECIDED 2026-11-15) ──────────────────────
+' DECIDED 2026-11-15 (owner: "the 8 uncontested"; codebase-compression.puml
+' P11, F3 option 1): operator.go folds into internal/proveohome, since
+' operator.yml sits under the proveo home root. The names carry the
+' concept: DefaultOperator, EnvOperatorName, OperatorMaxRunes, OperatorPath,
+' SanitizeOperator, LoadOperator, SaveOperator, OperatorEnv.
 '
 ' ── WHY ────────────────────────────────────────────────────────────────────
 ' The images bake this repository's AGENTS.md as proveo's house rules
@@ -36,7 +43,7 @@ skinparam noteTextAlignment left
 '   no Skip  (I3 stage 5, O6) Enter with the field empty keeps the name in
 '            use, so a Skip button said nothing Enter does not. Until stage 5
 '            Skip left the name as it was and printed nothing.
-'   keep     operator.Sanitize: first 16 runes, trimmed, no quotes, backslashes,
+'   keep     proveohome.SanitizeOperator: first 16 runes, trimmed, no quotes, backslashes,
 '            backticks or control characters
 '   empty    keeps the stored name; with none stored, Executor and no file
 '   unasked  --print, --yes or no terminal: reports the name in use
@@ -88,7 +95,7 @@ node "sandbox" as VM {
 
 OP --> INIT : "Name the operator"
 INIT --> FILE : Sanitize + Save
-RUN --> FILE : operator.Env
+RUN --> FILE : proveohome.OperatorEnv
 RUN --> SEED : PROVEO_OPERATOR_NAME
 SEED --> RULES : codex/opencode block,\nclaudecode managed CLAUDE.md
 

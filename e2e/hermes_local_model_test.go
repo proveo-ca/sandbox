@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestHermesLocalModelE2E drives a real `proveo run hermes --local-model ...`
@@ -52,7 +52,7 @@ func TestHermesLocalModelE2E(t *testing.T) {
 			work := t.TempDir()
 
 			before, canList := sbxSandboxNames()
-			sess := tmux.New(fmt.Sprintf("proveo-e2e-hermes-%s-%d", m.label, os.Getpid()), nil)
+			sess := schedule.NewTmux(fmt.Sprintf("proveo-e2e-hermes-%s-%d", m.label, os.Getpid()), nil)
 			t.Cleanup(func() {
 				sess.Kill()
 				removeLeakedSandboxes(t, before, canList)

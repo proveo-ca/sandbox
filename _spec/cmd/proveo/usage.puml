@@ -243,7 +243,7 @@ No installed bash lib/*.sh runners.
 composition is the point: ""internal/run"" resolves the
 run, ""internal/backend/sandbox"" renders the Kit and the
 sbx argv, ""internal/provider"" detects which vendor a
-run is talking to. (Until 2026-10-16 ""internal/runner""
+run is talking to. (Until 2026-10-16 the runner package
 built a docker-run argv and ""internal/egress"" a docker
 topology; both are deleted.) That logic was previously triplicated
 across the consumer CLI, ""lib/runners\.sh"" and every

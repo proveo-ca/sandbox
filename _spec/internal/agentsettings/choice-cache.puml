@@ -3,7 +3,7 @@
 ' purpose: how a harness run's capability choices are prompted, remembered and invalidated
 ' covers: internal/agentsettings/**
 ' covers: internal/choiceui/**
-' covers: internal/wsscan/**
+' covers: internal/workspace/scan*.go
 ' covers: e2e/agent_settings_test.go
 '
 ' ── WHAT AN E2E RUN HAS TO DO TO OBSERVE ANY OF THIS ────────────────────────

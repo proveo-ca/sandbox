@@ -14,9 +14,9 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/run"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/testx"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func section(b *strings.Builder, title string) { fmt.Fprintf(b, "== %s ==\n", title) }
@@ -131,7 +131,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 					Man:      claudecode, Sid: "proveo-sid", Lookup: lookup, Detected: detected("anthropic"),
 					GitEnv:  []string{"GIT_AUTHOR_NAME=Executor", "GIT_AUTHOR_EMAIL=executor@proveo.test"},
 					HomeEnv: []string{"HOME=/proveo-home", "PROVEO_HOME=/proveo-home"},
-					Mounts: []runner.Mount{
+					Mounts: []workspace.Mount{
 						{Host: work, Container: "/app"},
 						{Host: home, Container: "/proveo-home"},
 					},
@@ -149,7 +149,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 					Man:      cursor, Sid: "proveo-sid", Lookup: lookup, Detected: detected("cursor"),
 					GitEnv:  []string{"GIT_AUTHOR_NAME=Executor"},
 					HomeEnv: []string{"HOME=/proveo-home", "PROVEO_HOME=/proveo-home"},
-					Mounts:  []runner.Mount{{Host: work, Container: "/app"}},
+					Mounts:  []workspace.Mount{{Host: work, Container: "/app"}},
 					RunDir:  "/st", Memory: "8192m", HomeRoot: home,
 				}
 			},
@@ -166,7 +166,7 @@ func TestSandboxPlanGolden(t *testing.T) {
 					Man:      claudecode, Sid: "proveo-sid", Lookup: lookup, Detected: detected("anthropic"),
 					GitEnv:  []string{"GIT_AUTHOR_NAME=Executor"},
 					HomeEnv: []string{"HOME=/proveo-home", "PROVEO_HOME=/proveo-home"},
-					Mounts: []runner.Mount{
+					Mounts: []workspace.Mount{
 						{Host: work, Container: "/app"},
 						{Host: home, Container: "/proveo-home"},
 					},
