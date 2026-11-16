@@ -429,10 +429,15 @@ skinparam noteTextAlignment left
 '      MEASURED by `git diff --numstat`: 9 files +24 / −905 = −881, −3 files; outside _spec 7 files +10 / −900 = −890.
 '      [tools] pnpm = "10" → "npm:wrangler" = { version = "4.100.0", allow_builds = [esbuild, sharp, workerd] } (the
 '      lock's version; the workspace's allowBuilds); [tasks.install] gone; wrangler-version, deploy-cli and dev-cli run
-'      bare `wrangler`. The [Unverified] cleared: mise 2026.10.17 installs it through its embedded aube (116 packages,
-'      5.3 s), `mise x -- wrangler --version` and `mise run wrangler-version` print 4.100.0, and the build-script
-'      binaries run (workerd 2026-06-11, esbuild 0.27.3). cli_tasks_test.go and host_bash_test.go strings moved by
-'      `gofmt -r`; distribution-update.puml carries the decision; components.puml drops the workspace node.
+'      bare `wrangler`. The [Unverified] cleared: mise 2026.10.17 installs it through its embedded aube (89 lock
+'      entries, 183 MiB on disk, 5.3 s), `mise x -- wrangler --version` and `mise run wrangler-version` print 4.100.0,
+'      and the build-script binaries run (workerd 2026-06-11, esbuild 0.27.3). cli_tasks_test.go and host_bash_test.go
+'      strings moved by `gofmt -r`; distribution-update.puml carries the decision; components.puml drops the workspace node.
+'      Verifier follow-up, own commit: node in [tools] is needed to install (esbuild's postinstall runs node), and a
+'      list allow_builds runs only its list from mise 2026.10.17, so min_version rose from 2026.10.10;
+'      TestWranglerInstallsThroughMise pins both. Also fixed: the provisional-name filter's -free rule
+'      (credential-decisions.puml), the probe's ≥80%-of-a-tick busy test (startup-dispatch.puml), and the component
+'      map's README / CONTRIBUTING node, pinned by TestComponentMapNamesLivingRootDocs.
 '   4  stale root files: pulse.json 31 · .gitsample 1 ·      −252            −7      S       low     grep -rl → 0 refs; repoint the 3 spec     §7 other · high
 '      3 .gitkeep in non-empty dirs · scripts/*.py 217                                              lines naming scripts/*.py first
 '      (other.md: 260, pulse.json at 40); pulse.json cites TODO.md and internal/tmux/e2e_test.go, neither exists (P11 repointed the second to e2e/e2e_test.go)

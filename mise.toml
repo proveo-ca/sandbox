@@ -1,5 +1,5 @@
-# skip_if (post-commit) needs mise 2026.10.10.
-min_version = "2026.10.10"
+# allow_builds (npm:wrangler) runs only its list from mise 2026.10.17.
+min_version = "2026.10.17"
 
 # Top-level tests `mise run baseline` skips; reasons live in the SPEC.
 # SPEC: _spec/_devops/unit-baseline.puml

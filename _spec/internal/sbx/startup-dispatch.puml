@@ -197,9 +197,9 @@ skinparam noteTextAlignment left
 ' max <= 1s (PROVEO_TEST_ECHO_P90 / _ECHO_MAX / _READY_AFTER_RELEASE override).
 ' Early-input jitter, reported 2026-10-13, is the regression it guards. An
 ' in-VM probe, typed as a fresh session's first input, measured it: per 5s
-' since boot, at 50ms ticks, how often the agent's main thread burned a whole
-' tick, how late each sleep woke, a TCP connect to gateway.docker.internal:3128,
-' and every process over 25% CPU. This test is the standing check; the probe
+' since boot, at 50ms ticks, how often the agent's main thread burned ≥80% of
+' a tick (and the longest such run), how late each sleep woke, a TCP connect
+' to gateway.docker.internal:3128, and every process over 25% CPU. This test is the standing check; the probe
 ' left the tree on 2026-11-15.
 ' [Unverified] opencode's ready-gap row: under the keeper design the host
 ' re-ran its seed through `sbx exec` after preparing history, not as a Kit

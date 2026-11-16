@@ -103,6 +103,9 @@
 ' Pinned: internal/contract/spec_notes_test.go renamedIdents,
 ' TestProseNamesTheRenamedIdentifier, TestNamesStaleSparesOnlyTheRenameRecord;
 ' a later rename adds its row there.
+' components.puml's <<doc>> nodes name root files by basename, "/" between
+' two. TestComponentMapNamesLivingRootDocs fails a name no root file carries:
+' README / CONVENTIONS outlived CONVENTIONS.md (now CONTRIBUTING.md).
 title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle
 
 component "<<app>>  first-party app / runtime service" as R1 <<app>>

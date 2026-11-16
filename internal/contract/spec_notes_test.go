@@ -248,6 +248,36 @@ func TestRetiredFindingsMapNamesLivingOwners(t *testing.T) {
 	}
 }
 
+var docComponent = regexp.MustCompile(`^\s*component\s+"([^"]+)"\s+as\s+\S+\s+<<doc>>`)
+
+// The component map's <<doc>> nodes name root documents by basename, "/" between two.
+func TestComponentMapNamesLivingRootDocs(t *testing.T) {
+	t.Parallel()
+	root := repoRoot(t)
+	const spec = "_spec/components.puml"
+	b, err := os.ReadFile(filepath.Join(root, spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs := 0
+	for line := range strings.SplitSeq(string(b), "\n") {
+		m := docComponent.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		docs++
+		for name := range strings.SplitSeq(m[1], "/") {
+			name = strings.TrimSpace(name)
+			if found, _ := filepath.Glob(filepath.Join(root, name+".*")); len(found) == 0 {
+				t.Errorf("%s <<doc>> %q names %s; no root file is %s.*", spec, m[1], name, name)
+			}
+		}
+	}
+	if docs == 0 {
+		t.Fatalf("%s: no <<doc>> component", spec)
+	}
+}
+
 // renamedIdents maps each name gopls renamed to its replacements, scoped to the files whose prose named it.
 var renamedIdents = []struct {
 	files   []string

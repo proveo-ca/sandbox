@@ -40,16 +40,21 @@
 ' so fmt, lint and post-commit never resolve it. goreleaser lists its binaries
 ' explicitly, and no maintainer program is among them.
 ' wrangler 4.100.0 is the [tools] entry npm:wrangler. mise installs it with its
-' embedded aube (no Node or pnpm needed to install; node 24 runs it) and runs
-' only the build scripts allow_builds names: esbuild, sharp, workerd. DECIDED
-' 2026-11-15: it replaced a pnpm workspace with 0 members whose 869-line lock
-' held this one CLI. wrangler pins its 8 direct dependencies exactly; deeper
+' embedded aube (no pnpm needed; node 24 from [tools] runs esbuild's
+' postinstall `node install.js`, and wrangler) and runs only the build scripts
+' allow_builds names: esbuild, sharp, workerd. That holds from mise 2026.10.17
+' (its release notes); before it a list also ran every package on aube's
+' bundled trusted-dependencies list. So min_version is 2026.10.17, which also
+' covers post-commit's skip_if (2026.10.10). DECIDED 2026-11-15: it replaced a
+' pnpm workspace with 0 members whose 869-line lock held this one CLI. wrangler pins its 8 direct dependencies exactly; deeper
 ' ones resolve at install. MEASURED 2026-11-15: esbuild 0.27.3, miniflare
 ' 4.20260611.0, sharp 0.34.5, workerd 1.20260611.1 match the dropped lock;
-' 116 packages, 51 MiB, 5.3 s; `mise x -- wrangler --version` reads 4.100.0.
+' 89 lock entries, 183 MiB on disk (darwin-arm64), 5.3 s; `mise x -- wrangler
+' --version` reads 4.100.0. Without node in [tools] the install fails at
+' esbuild's postinstall (`sh: node: command not found`, exit 127).
 ' Unlike goreleaser it sits in [tools], so a clone's first mise run resolves
-' it. NOT CHOSEN: a tools pin on wrangler-version, deploy-cli and dev-cli
-' (three copies of one pin, and `mise x` would not see it).
+' it, about 183 MiB. NOT CHOSEN: a tools pin on wrangler-version, deploy-cli
+' and dev-cli (three copies of one pin, and `mise x` would not see it).
 ' * stage reads the platforms from .goreleaser.yaml builds[id=proveo], the
 '   version from dist/metadata.json, and the cdn-proveo Binary entries from
 '   dist/artifacts.json (NOT CHOSEN: a hard-coded 8-platform list; jq or sh
@@ -70,8 +75,8 @@
 '   release` on a tag).
 ' * Pinned by internal/cdn/stage/main_test.go and
 '   internal/contract/cli_tasks_test.go (TestBuildCLIInstallsOnlyTheShippedBinaries,
-'   TestGoreleaserIsPinnedPerTask, TestDeployCLIShipsOnlyATaggedRelease,
-'   TestCDNStagingFollowsAFreshSnapshot).
+'   TestGoreleaserIsPinnedPerTask, TestWranglerInstallsThroughMise,
+'   TestDeployCLIShipsOnlyATaggedRelease, TestCDNStagingFollowsAFreshSnapshot).
 ' * .goreleaser.yaml emits the multi-arch static binaries AND a sha256
 '   checksums.txt, so the installer can verify what it downloads. It replaced an
 '   unverified `curl | bash` pipeline (moved from its header, N14).
