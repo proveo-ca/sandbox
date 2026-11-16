@@ -9,7 +9,20 @@ import (
 	"time"
 )
 
+// syncEngines are the two tree copies the lib keeps: the toolchain sync's, where the source
+// wins on any difference, and the state sync's, where the newer side wins.
+var syncEngines = []struct{ name, call string }{
+	{"tools", `_proveo_sync_tree "$src" "$dst"`},
+	{"state", `_proveo_state_tree "$src" "$dst" save`},
+}
+
 func TestSyncTreeNeverExposesAPartialFile(t *testing.T) {
+	for _, e := range syncEngines {
+		t.Run(e.name, func(t *testing.T) { neverExposesAPartialFile(t, e.call) })
+	}
+}
+
+func neverExposesAPartialFile(t *testing.T, call string) {
 	out, err := runLib(t, runOpts{timeout: 4 * time.Minute}, `
 set -u
 src=$(mktemp -d) dst=$(mktemp -d)
@@ -17,10 +30,11 @@ src=$(mktemp -d) dst=$(mktemp -d)
 # enough that the copy is still running when the sampler looks.
 head -c 40000000 /dev/urandom > "$src/big.jsonl"
 head -c  4000000 /dev/urandom > "$dst/big.jsonl"
+touch -d '1 hour ago' "$dst/big.jsonl"
 want_new=$(stat -c %s "$src/big.jsonl")
 want_old=$(stat -c %s "$dst/big.jsonl")
 
-_proveo_sync_tree "$src" "$dst" &
+`+call+` &
 copier=$!
 bad=0 samples=0
 while kill -0 "$copier" 2>/dev/null; do
@@ -67,6 +81,12 @@ printf 'temps=%s\n' "$(find "$dst" -name '*.proveo-sync.*' | wc -l | tr -d ' ')"
 }
 
 func TestSyncTreePlacesNewFilesAndLeavesTheDestinationsOwnAlone(t *testing.T) {
+	for _, e := range syncEngines {
+		t.Run(e.name, func(t *testing.T) { placesNewFilesAndLeavesTheDestinationsOwnAlone(t, e.call) })
+	}
+}
+
+func placesNewFilesAndLeavesTheDestinationsOwnAlone(t *testing.T, call string) {
 	out, err := runLib(t, runOpts{timeout: 4 * time.Minute}, `
 set -u
 src=$(mktemp -d) dst=$(mktemp -d)
@@ -75,10 +95,11 @@ printf 'from-source\n'      > "$src/projects/-a/new.jsonl"
 printf 'only-the-host-has\n' > "$dst/projects/-b/theirs.jsonl"
 printf 'stale\n'            > "$dst/projects/-a/shared.jsonl"
 printf 'fresh\n'            > "$src/projects/-a/shared.jsonl"
+touch -d '1 hour ago' "$dst/projects/-a/shared.jsonl"
 # Identical on both sides, mtime included: cp -a preserves mtime, so this is what an
 # already-copied file looks like and it must not be touched. Back-dated out of the
 # grace window, because a stamp is only trusted as an identity once it has stopped
-# being "now" — see _proveo_changed_files.
+# being "now".
 printf 'identical\n' > "$src/projects/-a/same.jsonl"
 cp -a "$src/projects/-a/same.jsonl" "$dst/projects/-a/same.jsonl"
 touch -d '2 hours ago' "$src/projects/-a/same.jsonl" "$dst/projects/-a/same.jsonl"
@@ -90,7 +111,7 @@ printf 'AAAAA\n' > "$dst/projects/-a/hot.jsonl"
 printf 'BBBBB\n' > "$src/projects/-a/hot.jsonl"
 touch -r "$dst/projects/-a/hot.jsonl" "$src/projects/-a/hot.jsonl"
 
-_proveo_sync_tree "$src" "$dst"; printf 'rc=%s\n' "$?"
+`+call+`; printf 'rc=%s\n' "$?"
 printf 'new=%s\n'    "$(cat "$dst/projects/-a/new.jsonl")"
 printf 'shared=%s\n' "$(cat "$dst/projects/-a/shared.jsonl")"
 printf 'theirs=%s\n' "$(cat "$dst/projects/-b/theirs.jsonl")"
@@ -102,7 +123,7 @@ printf 'hot=%s\n' "$(cat "$dst/projects/-a/hot.jsonl")"
 	}
 	for _, want := range []string{
 		"rc=0",
-		"new=from-source",          // placed by the no-clobber pass
+		"new=from-source",          // placed without clobbering
 		"shared=fresh",             // replaced by rename
 		"theirs=only-the-host-has", // a sync has never deleted
 		"untouched=yes",            // a settled, already-copied file is skipped, inode and all

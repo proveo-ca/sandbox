@@ -241,3 +241,34 @@ func TestVendoredKitJqFiltersCompile(t *testing.T) {
 		}
 	}
 }
+
+// SPEC: _spec/internal/sbx/vendored-kit-deltas.puml (DELTA 3)
+func TestNoVendoredKitDeclaresAVolume(t *testing.T) {
+	t.Parallel()
+	paths, err := fs.Glob(upstreamFS, "third_party/*.yaml")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no vendored kit descriptors (%v)", err)
+	}
+	for _, p := range paths {
+		b, err := upstreamFS.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), CapVolume) {
+			t.Errorf("%s declares %s: each run's kit dir is new, so sbx strands every such volume", p, CapVolume)
+		}
+	}
+	for target := range upstreamAgent {
+		k := upstreamKit(t, target, UpstreamOptions{MCPGateway: true})
+		for _, c := range k.Capabilities {
+			if c.Type == CapVolume {
+				t.Errorf("%s: the copied kit declares %s", target, CapVolume)
+			}
+		}
+		for _, h := range hooksOf(k) {
+			if b, _ := yaml.Marshal(h); strings.Contains(string(b), "/home/agent/.claude/sessions") {
+				t.Errorf("%s: a copied hook still names the dropped sessions volume:\n%s", target, b)
+			}
+		}
+	}
+}

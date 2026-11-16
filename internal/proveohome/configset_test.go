@@ -93,3 +93,24 @@ func TestConfigSetCarriesTransientPathsTheScrubNeverTouches(t *testing.T) {
 		t.Errorf("Prepare() removed transient scratch %s: %v — transient is a sync skip, never a host delete", scratch, err)
 	}
 }
+
+// SPEC: _spec/internal/sbx/state-sync.puml
+func TestStateSetEncodesEachSyncedMountsStateDirs(t *testing.T) {
+	t.Parallel()
+	home := manifest.Home{Enabled: true, Mounts: []manifest.HomeMount{
+		{Host: ".claude", Container: "/proveo-home/.claude", State: []string{"projects", "todos", "jobs/*", "../x"},
+			Transient: []string{"sessions"}},
+		{Host: "opencode/v2/config", Container: "/proveo-home/.config/opencode", State: []string{"db"}},
+		{Host: "hermes/data", State: []string{"sessions"}},
+	}}
+	want := ".claude/projects|.claude/projects;.claude/todos|.claude/todos;opencode/v2/config/db|.config/opencode/db"
+	if got := StateSet(home); got != want {
+		t.Errorf("StateSet() =\n  %q\nwant\n  %q", got, want)
+	}
+	if got, want := ConfigSet(home), ".claude|.claude|sessions;opencode/v2/config|.config/opencode|"; got != want {
+		t.Errorf("ConfigSet() = %q, want %q: the state dirs travel in their own variable", got, want)
+	}
+	if got := StateSet(manifest.Home{Mounts: home.Mounts}); got != "" {
+		t.Errorf("StateSet() = %q for an inactive home, want empty", got)
+	}
+}

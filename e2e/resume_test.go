@@ -11,10 +11,13 @@ import (
 	"testing"
 	"time"
 
+	proveo "github.com/proveo-ca/proveo"
+	"github.com/proveo-ca/proveo/internal/manifest"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-// resumeWorkload is a probe workload carrying the published claude kit's state volumes and the startup hook that re-owns them.
+// resumeWorkload is a probe workload carrying the published claude kit's lifecycle hooks; the kit declares no volume.
 func resumeWorkload(t *testing.T, img string) string {
 	t.Helper()
 	k, ok, err := sbx.UpstreamKitFor("claudecode", sbx.UpstreamOptions{})
@@ -23,11 +26,32 @@ func resumeWorkload(t *testing.T, img string) string {
 	}
 	var caps []sbx.CapabilityV3
 	for _, c := range k.Capabilities {
-		if c.Type == sbx.CapVolume || c.Type == sbx.CapLifecycle {
+		if c.Type == sbx.CapVolume {
+			t.Fatalf("the vendored claude kit declares %s again", sbx.CapVolume)
+		}
+		if c.Type == sbx.CapLifecycle {
 			caps = append(caps, c)
 		}
 	}
 	return probeWorkload(t, "proveo-resume", sbx.RecipeV3{From: img}, caps...)
+}
+
+// resumeEnv is the sync env proveo hands a claudecode sandbox whose proveo home is home.
+func resumeEnv(t *testing.T, home string) []string {
+	t.Helper()
+	ms, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.Name == "claudecode" {
+			return []string{sbx.StateHomeVar + "=" + home,
+				proveohome.ConfigSetVar + "=" + proveohome.ConfigSet(m.Home),
+				proveohome.StateSetVar + "=" + proveohome.StateSet(m.Home)}
+		}
+	}
+	t.Fatal("no claudecode manifest")
+	return nil
 }
 
 // TestResumeStateSurvivesSandboxTeardown is the sbx-side half of
@@ -47,28 +71,32 @@ func TestResumeStateSurvivesSandboxTeardown(t *testing.T) {
 	if err := os.WriteFile(prior, []byte(`{"session":"prior"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	other := filepath.Join(home, ".claude", "projects", "-work-other", "other.jsonl")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte(`{"session":"other"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	name := "resume-guard-" + filepath.Base(home)
 	// -e PROVEO_STATE_HOME is how proveo publishes the host path; the save step
 	// reads it from the sandbox environment rather than being handed it again.
 	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
-		Env: []string{sbx.StateHomeVar + "=" + home}, Mounts: mountsOf(home)})
+		Env: resumeEnv(t, home), Mounts: mountsOf(home)})
 
 	// The seed's half: yesterday's transcripts must be in place before the agent
-	// looks for them, and the volume must be the thing they land in.
-	restore := sbxExec(t, name, `. /entrypoint-lib.sh && proveo_sync_state restore
-printf 'volumes=%s\n' "$(_proveo_volume_state_dirs | tr '\n' ',')"
+	// looks for them, in the image home's plain directory.
+	restore := sbxExec(t, name, `. /entrypoint-lib.sh && PROVEO_WORKDIR=/work/prior proveo_sync_state restore
 printf 'restored=%s\n' "$(find "$HOME/.claude/projects" -name '*.jsonl' | wc -l | tr -d ' ')"`)
-	if !strings.Contains(restore, "/.claude/projects") {
-		t.Errorf("the projects volume was not discovered, so nothing would be saved:\n%s", restore)
-	}
 	if !strings.Contains(restore, "restored=1") {
-		t.Errorf("the earlier session did not reach the sandbox:\n%s", restore)
+		t.Errorf("want the workdir's earlier session in the sandbox and no other workspace's:\n%s", restore)
 	}
 
-	// Stand in for the run itself producing a new transcript.
-	sbxExec(t, name, `mkdir -p "$HOME/.claude/projects/-work-live" &&
-echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
+	// Stand in for the run itself producing a new transcript and its VM-local session record.
+	sbxExec(t, name, `mkdir -p "$HOME/.claude/projects/-work-live" "$HOME/.claude/sessions" &&
+echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl" &&
+echo '{"pid":1}' > "$HOME/.claude/sessions/1.json"`)
 
 	// The teardown's half, through the exact argv proveo uses.
 	save := exec.Command("sbx", sbx.SaveStateArgs(name)...)
@@ -80,7 +108,10 @@ echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 		t.Fatalf("teardown: %v\n%s", err, out)
 	}
 
-	// The property: the volumes are gone, and the transcripts are not.
+	// The property: the sandbox is gone, and the transcripts are not.
+	if _, err := os.Stat(filepath.Join(home, ".claude", "sessions")); err == nil {
+		t.Error("the save carried the VM-local sessions/ to the host")
+	}
 	live := filepath.Join(home, ".claude", "projects", "-work-live", "live.jsonl")
 	if _, err := os.Stat(live); err != nil {
 		t.Errorf("the session written during the run did not survive teardown, so "+
@@ -91,25 +122,36 @@ echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 	}
 }
 
-// TestSaveStateSkipsTelemetryVolumes keeps the copy to state worth resuming.
-func TestSaveStateSkipsTelemetryVolumes(t *testing.T) {
+// TestSaveStateKeepsVMLocalPathsInTheSandbox carries only state worth resuming.
+func TestSaveStateKeepsVMLocalPathsInTheSandbox(t *testing.T) {
 	if !sbxAvailable() {
 		t.Skip("sandbox backend unavailable")
 	}
 	img := harnessImage(t, "claudecode")
 
-	name := "resume-skip-" + filepath.Base(t.TempDir())
+	home := t.TempDir()
+	name := "resume-skip-" + filepath.Base(home)
 	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
-		Mounts: mountsOf(t.TempDir())})
+		Env: resumeEnv(t, home), Mounts: mountsOf(home)})
 
-	got := sbxExec(t, name, `. /entrypoint-lib.sh && _proveo_volume_state_dirs`)
-	for _, skip := range []string{"statsig", "shell-snapshots"} {
-		if strings.Contains(got, skip) {
-			t.Errorf("%s is telemetry/scratch and must not be copied home:\n%s", skip, got)
-		}
+	vmLocal := []string{"sessions/1.json", "statsig/cache", "shell-snapshots/s.sh", "daemon.lock", "daemon.status.json",
+		"daemon.log", "daemon/roster.json", "jobs/j1/state.json"}
+	write := `. /entrypoint-lib.sh && proveo_sync_state restore && mkdir -p "$HOME/.claude/projects/-work-live" &&
+echo turn > "$HOME/.claude/projects/-work-live/live.jsonl"`
+	for _, rel := range vmLocal {
+		write += ` && mkdir -p "$(dirname "$HOME/.claude/` + rel + `")" && echo x > "$HOME/.claude/` + rel + `"`
 	}
-	if !strings.Contains(got, "projects") {
-		t.Errorf("the projects volume must still be listed:\n%s", got)
+	sbxExec(t, name, write)
+	if out, err := exec.Command("sbx", sbx.SaveStateArgs(name)...).CombinedOutput(); err != nil {
+		t.Fatalf("save state: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "projects", "-work-live", "live.jsonl")); err != nil {
+		t.Errorf("the transcript did not reach the host: %v", err)
+	}
+	for _, rel := range vmLocal {
+		if _, err := os.Lstat(filepath.Join(home, ".claude", rel)); err == nil {
+			t.Errorf(".claude/%s is VM-local and reached the host", rel)
+		}
 	}
 }
 
@@ -129,10 +171,10 @@ func TestSaveStateSurvivesAnInvalidatedWorkspaceCwd(t *testing.T) {
 	}
 	name := "resume-cwd-" + filepath.Base(parent)
 	createWorkloadSandbox(t, sbx.RunConfig{Name: name, KitDir: resumeWorkload(t, img),
-		Env: []string{sbx.StateHomeVar + "=" + home}, Mounts: mountsOf(ws, home)})
+		Env: resumeEnv(t, home), Mounts: mountsOf(ws, home)})
 
-	// The run's transcript, written while the workspace is still healthy.
-	sbxExec(t, name, `mkdir -p "$HOME/.claude/projects/-work-live" &&
+	// The seed's restore, then the run's transcript, written while the workspace is still healthy.
+	sbxExec(t, name, `. /entrypoint-lib.sh && proveo_sync_state restore && mkdir -p "$HOME/.claude/projects/-work-live" &&
 echo '{"session":"live"}' > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 
 	// Invalidate the guest's cwd from the host, under the running sandbox.

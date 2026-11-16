@@ -1,11 +1,435 @@
 @startuml StateSync
-' purpose: how resume state moves between the operator's home and a sandbox-local volume without ever leaving a partial file
+' purpose: how resume state moves between the operator's home and the sandbox's own disk without leaving a partial file, reverting a newer turn, removing a sandbox whose state did not reach the host, or carrying a VM-local path
 ' covers: packages/lib/entrypoint-lib.sh
+' covers: defs/claudecode/harness.manifest
+' covers: internal/manifest/manifest.go
+' covers: internal/proveohome/configset.go
+' covers: internal/proveohome/configset_test.go
+' covers: internal/sbx/third_party/claude.yaml
+' covers: internal/sbx/upstream_test.go (TestNoVendoredKitDeclaresAVolume)
+' covers: internal/contract/config_set_test.go
+' covers: cmd/proveo/golden_test.go
 ' covers: internal/sbx/run.go
 ' covers: internal/sbx/sbx.go
+' covers: internal/backend/sandbox/teardown.go
+' covers: internal/backend/sandbox/sandbox.go
+' covers: internal/backend/sandbox/launch_receipt.go
+' covers: internal/backend/sandbox/verbs.go
+' covers: internal/backend/sandbox/teardown_end_test.go
+' covers: internal/backend/sandbox/teardown_report_test.go
+' covers: internal/backend/sandbox/verbs_test.go
+' covers: internal/sbx/save_state_test.go
 ' covers: e2e/sync_state_test.go
+' covers: e2e/resume_test.go
 ' covers: internal/contract/config_sync_test.go
 ' covers: internal/contract/tool_sync_test.go
+' covers: internal/contract/state_sync_test.go
+' see: _spec/_plans/session-continuity.puml (decision 1, the direction)
+' see: _spec/internal/sbx/vendored-kit-deltas.puml (DELTA 3)
+'
+' ── DECIDED 2026-11-14: CONTINUITY FOLLOWS SBX; THE STOPGAP ENDS THE LEAK ─
+' The owner's three decisions, taken after the stopgap below was built:
+'   1. DIRECTION (DECIDED): sbx's model. One named sandbox per (harness,
+'      workspace), kept and re-attached; history on a live host directory
+'      per (harness, workspace). The per-file state sync, volume@1 and the
+'      retained-engine special case go: hermes's live bind and OpenCode's
+'      retained engine become the rule. The owner: "Note the hermes and
+'      opencode exceptions in _plans/ to look for standardization". That
+'      plan is _spec/_plans/session-continuity.puml; nothing here builds it.
+'   2. VM-LOCAL (DECIDED): claude's sessions/ is VM-local, never carried
+'      between VMs; daemon.lock, daemon/ and jobs/ likewise. statsig/ and
+'      shell-snapshots/ stay VM-local, as the volume-era skip had them.
+'   3. THE LEAK (DECIDED): the stopgap drops the five volume@1 from the
+'      vendored claude kit (upstream sbx/claude dropped them in 2.1.317) and
+'      carries projects/<workspace keys> and todos/ through its scoped
+'      newer-wins copy. The stranded volumes and the host's
+'      ~/.proveo/.claude/sessions stay untouched for the owner.
+' NOW, on the claudecode manifest's .claude mount (harness-manifest-schema):
+'   state:     [projects, todos]
+'              → PROVEO_STATE_DIRS=".claude/projects|.claude/projects;
+'                .claude/todos|.claude/todos" (proveohome.StateSet)
+'   transient: [sessions, statsig, shell-snapshots, daemon.lock,
+'              daemon.status.json, daemon.log, daemon, jobs]
+'              → the skip field of PROVEO_CONFIG_DIRS; jobs replaces jobs/*/tmp
+' proveo_sync_state acts on PROVEO_STATE_DIRS, and _proveo_config_skips
+' prunes each of its entries under the synced root, then the deny and
+' transient names. Pass 1's rules are unchanged: newer wins by direction,
+' staging + rename, the restore marker, the save refusal, the projects/ keys.
+' An env with no PROVEO_STATE_DIRS falls back to pass 1's discovery (row C
+' below: a sandbox an older CLI created on this image, its kit still
+' mounting the five volumes). _proveo_volume_dirs lists the /dev/* mounts
+' under $HOME from /proc/mounts; the state sync takes them minus sessions,
+' statsig and shell-snapshots, and _proveo_config_skips prunes every one.
+' _proveo_volume_state_dirs is deleted. A sandbox this CLI creates mounts no
+' volume, so the fallback finds nothing in it.
+' The state dirs travel in their own variable, not in the shared skip field,
+' so a lib that predates PROVEO_STATE_DIRS still carries projects/ and todos/
+' through its config sync (row B below) rather than through neither sync.
+' daemon.status.json (supervisorPid, supervisorProcStart) and daemon.log
+' joined the VM-local set after a check of pass 2 measured both crossing;
+' they are the daemon's per-VM files beside daemon.lock. [Inference] The
+' crossing cost little, since Claude Code 2.1.323 checks that pid with
+' kill(pid,0) and its start time.
+' Pinned: TestProjectsAndTodosRoundTripOnPlainDirectories,
+' TestVMLocalPathsNeverCrossEitherSync, TestAConfigSaveNoLongerCarriesProjects,
+' TestConfigSyncLeavesTheStateDirsToTheStateSync,
+' TestWithoutStateDirsTheKitVolumesTravelAsState (row C),
+' TestClaudeCodeDeclaresItsStateDirsAndItsVMLocalPaths,
+' TestStateSetEncodesEachSyncedMountsStateDirs,
+' TestStatePathsAreLiteralDirsInsideASyncedMount. MEASURED in golang:1.26.7
+' against origin/main's lib: the round-trip, config-save and config-skip
+' tests fail. The VM-local test passes on any lib once the manifest lists
+' the paths, and fails on every assertion with the old [jobs/*/tmp] list;
+' with pass 2's list it fails on daemon.status.json and daemon.log alone.
+' The row C test fails on pass 2's lib, which read no /proc/mounts: the cut
+' copy took its name, the save cut the host from 376000 to 4096 bytes with
+' rc 0, and sessions/ crossed both ways.
+'
+' ── WHY sessions/ IS VM-LOCAL (decision 2's evidence) ─────────────────────
+' MEASURED 2026-11-14 in the Claude Code 2.1.323 bundle and the host store:
+' sessions/ holds one <pid>.json per RUNNING session plus a <pid>.<hash>.key
+' peer token; --resume and `claude -c` list projects/, not sessions/. In a
+' VM no record is pruned (IS_SANDBOX=1 declines the registry sweep), and the
+' record's pidDomain, linux::pid:[<ns inode>] with an empty machine-id, is
+' the same in every proveo VM (one value covered 21 records over 9 days). A
+' shared store therefore fills every VM with dead records, and a record from
+' an older image's domain counts as held elsewhere: `claude -c` skips or
+' refuses that transcript ("registered from another machine or container").
+' The host store held 78 records, one cut mid-write, and 81 keys.
+' daemon.lock carries a pid with no pidDomain; daemon.status.json,
+' daemon.log, daemon/ (roster, control key) and jobs/ (14 entries) are the
+' same daemon's per-VM state.
+'
+' ── THE VOLUME LEAK: CAUSE AND EVIDENCE (decision 3) ──────────────────────
+' MEASURED 2026-11-14 on the owner's host, read-only: the sbx datastore held
+' 1,710 records labelled com.docker.sandbox.persistent-volume=true. 1,360
+' name a kit identity under ~/.local/state/proveo/runs/<sid>/sbx/kit/, and
+' 350 come from test temp dirs. They span 275 sandbox names; one stable name
+' held 75 volumes over 15 kit identities (5 x 15). [Inference] About 91 GiB:
+' du counted 95,245,344 KB of sandbox-volume-<id>.img; not re-measured here.
+' Cause: the vendored claude kit declared five volume@1, and sandbox.go
+' builds KitDir under each run's RunDir, so every run is a new kit identity.
+' sbx v0.50 keeps volumes on rm and reattaches one only when the sandbox
+' name AND the kit source match, and no local command removes them
+' (docker/sbx-releases#842). Each claudecode create stranded five more.
+' Upstream: sbx/claude:2.1.267 declared the five; 2.1.317 (2026-11-04) and
+' :latest declare none, and dropped the startup chown that re-owned them.
+' NOW: the vendored kit declares no volume@1 and no re-own hook (DELTA 3),
+' so a run strands nothing. Pinned: TestNoVendoredKitDeclaresAVolume.
+'
+' ── WHAT STAYS ON THE HOST, UNTOUCHED, FOR THE OWNER ──────────────────────
+' Nothing in this change deletes or rewrites:
+'   the 1,710 stranded volume records and their images in sbx's datastore;
+'   ~/.proveo/.claude/sessions, daemon.lock, daemon/ and jobs/: transient,
+'     unlike deny, never scrubs the host's copy;
+'   ~/.proveo/.claude/statsig and shell-snapshots, where a past copy left them.
+' A sandbox an older image runs still writes its sessions/ there (row A).
+'
+' ── OLD SANDBOXES UNDER THIS CLI (MEASURED, compat.sh in debian:13-slim) ──
+' A sandbox keeps the image, kit and create-time env it was made with; this
+' CLI picks only the argv. The lib that saves is the sandbox's own.
+'   row  lib          kit, env             argv                  host gets, rc
+'   A    origin/main  volumes, old env     SaveStateArgs         projects todos sessions, 0
+'   A'   origin/main  volumes, old env     GuardedSaveStateArgs  nothing, 3
+'   B    origin/main  no volume, new env   SaveStateArgs         projects todos (config), 0
+'   C    this lib     volumes, old env     SaveStateArgs         projects todos, 0
+'   D    this lib     no volume, new env   SaveStateArgs         projects todos, 0
+' A is a kept sandbox an older CLI made. Its kit and env differ from this
+' CLI's. A non-interactive run retires a stopped one (the retire saves
+' first, and F2 keeps it on a failed save) and lets a live one run on
+' unchanged, whose teardown then saves with its own lib, sessions/ included,
+' as that image always did. A headed run asks about both, Keep first: Keep
+' on a live one runs on as above, Keep on a stopped one ends the run with
+' nothing saved, and Replace retires it. A retire's `sbx exec` boots a
+' stopped sandbox, and that image's seed restore runs beside the save under
+' the shared lock; when the restore goes first it reverts guest files newer
+' than the host's (F4, which xws.sh measured on that lib). compat.sh did not
+' model that boot. [Inference] Only turns written after the sandbox's last
+' teardown save are at risk. A' is `proveo rm` on
+' the same sandbox: D6 skips an image that predates the restore wait, says
+' so, and removes. [Inference] A pass-1 image passes the guard and saves
+' through its volume discovery. B is a stale local image under this CLI:
+' its state sync finds no block device, and its config sync, which ignores
+' PROVEO_STATE_DIRS, carries projects/ and todos/ whole-store while still
+' skipping the transient names. C is an older CLI with this image: no
+' PROVEO_STATE_DIRS, so the lib falls back to the volume dirs (NOW above).
+' The state sync carries projects/ (scoped) and todos/, and the config sync
+' prunes all five volumes, so sessions/, statsig/ and shell-snapshots/ stay
+' in the VM. C's old env marks only jobs/*/tmp transient, so daemon.lock,
+' daemon.status.json, daemon.log, daemon/ and jobs/ still cross by config
+' sync, as on origin/main. MEASURED (rowc-mounts.sh, docker volumes at the
+' five paths in debian:13-slim): the restore brought this workspace's key,
+' todos/ and settings.json and no sessions/; the save carried the turn and
+' no sessions/ or statsig/. Before the fallback, MEASURED by the check's
+' rowc.sh on a 2 MiB volume: the config restore stopped at 2,093,056 bytes,
+' the save cut the host file from 4,000,001 to 2,093,056 bytes with rc 0,
+' and the host's sessions/1200.json entered the VM. [Inference] B's
+' whole-store config restore can outrun the agent's 30s gate on a large
+' store. Both rows end once CLI and image carry this change.
+'
+' ── DECIDED 2026-11-14: THE STOPGAP (the owner: "Stopgap now") ────────────
+' The owner chose to keep the per-file copy and fix it in place, shipped as
+' its own PR from main. The long-term direction (claude's session dirs on a
+' live host bind instead of volumes) is a separate plan. Evidence: the state
+' round-trip revision (findings F2-F6, option A) and its adversarial check
+' (corrections R1-R11, the corrected stopgap), both 2026-11-14, with
+' reproductions that source this lib in debian:13-slim (enospc.sh, sim.sh,
+' xws.sh). A second adversarial check of the stopgap (defects D1-D8, same
+' day) found two paths that still lost history and two fix lines that sent
+' the operator nowhere; each D below names its fix and its pin.
+'
+'   F2  A FAILED SAVE REMOVED THE SANDBOX ANYWAY. MEASURED in code: teardown
+'       printed "⚠ resume state — not saved" and went on to `sbx rm`, and
+'       retireSandbox did the same. The 2026-09-01 loss of a four-day session
+'       (proveo-1787956302-22788, the -w / section below) had this shape.
+'       NOW: normalEndOf(forced, stranded, unsaved, retainsEngine) returns
+'       endKeepUnsaved, which closes on "⚠ <name> — kept: its resume state
+'       did not reach the host" and the fix "the next run re-attaches and
+'       saves it again; `proveo rm [--stop] <name>` saves it, then removes
+'       it; `sbx rm --force <name>` deletes it with the state only in it".
+'       Stranded work outranks it and adds "its resume state did not reach
+'       the host either". retireSandbox returns the same reason as an error
+'       and runs no `rm`, as a stranded clone does; its fix starts "the next
+'       run retries the save", since the next run retires a stale sandbox
+'       again rather than re-attaching it (D4). A forced remove chosen in
+'       the Ctrl+C dialog still removes.
+'       D1: SaveState skipped the save, as a success, whenever sbx.Exists
+'       said no, and `sbx ls` can exit 0 with a header-only table under
+'       load, so the sandbox was then removed with its state. Teardown and retire now skip only when sbx.Gone proves it
+'       gone, which reads a header-only table again as `sbx ls --json`; a
+'       listing that proves nothing runs the save, and a failed save keeps.
+'       D2: the save swallowed the configuration save's failure, and codex
+'       and cursor history, and Claude's ~/.claude files outside the volumes
+'       (history.jsonl, file-history, plans), travel only by config sync.
+'       SaveStateArgs now fails when the config or the state save fails;
+'       only the toolchain save stays `|| true`. It calls only functions
+'       every older lib defines.
+'       Pinned: TestANormalEndRemovesTheSandboxUnlessWorkStateOrTheEngineStaysInIt,
+'       TestAResumeStateThatDidNotSaveKeepsTheSandboxWithItsFix,
+'       TestAnOperatorChosenRemovalStillRemovesASandboxWhoseStateDidNotSave,
+'       TestStrandedWorkAndUnsavedStateSayBothOnTheKeptLine,
+'       TestARetireWhoseResumeStateDidNotSaveKeepsTheSandbox,
+'       TestARetireWhoseResumeStateSavedRemovesTheSandbox,
+'       TestAnEmptySbxTableNeitherSkipsTheSaveNorRemovesTheSandbox (D1),
+'       TestTheSaveFailsWhenConfigOrStateDidNotReachTheHost (D2).
+'   F3  A RESTORE INTO A FULL VOLUME TRUNCATED THE HOST AT THE NEXT SAVE.
+'       MEASURED (enospc.sh, a 2 MiB tmpfs): restore rc=1 with 2,097,152
+'       bytes in the volume, then the save cut the host file from 4,000,001
+'       to 2,097,152 bytes. Phase 1's `cp -an` wrote new files in place, the
+'       presence check counted the partial file, and the seed ignored the rc.
+'       Host projects/ is 1.3G against a 2g volume cap.
+'       NOW: no destination name is written in place (the stage section
+'       below), and a restore that completes writes PROVEO_STATE_RESTORED in
+'       /dev/shm, so the marker lives one boot. Save refuses, rc 1 and said
+'       on stderr, while there is something to save and this boot's restore
+'       did not complete.
+'       Pinned: TestARestoreThatFailsMidFileNeverTruncatesTheHost, where a cp
+'       shim cuts each copy it creates in the volume to 4096 bytes and exits
+'       1; MEASURED on origin/main 6de1d77e the same test sees the host cut
+'       from 376000 to 4096 bytes. TestStateSaveRefusesWithoutThisBootsRestore.
+'       D3: A RESTORE THAT FAILS FOR A LASTING REASON REFUSES EVERY LATER
+'       SAVE. MEASURED (rc 1, no marker, every later save refused): a host
+'       directory where the guest holds a file, a host file with mode 0000,
+'       a newline in a file name (the plan is line-based), and 40,000 files
+'       in one directory. A kept sandbox that stays running never re-runs
+'       its seed, and a stopped one fails the same restore on each boot, so
+'       "the next run saves it again" and "`proveo rm` tries again" never
+'       succeed. Every such fix line now also names `sbx rm --force <name>`,
+'       which deletes it with the state only in it. The 40,000-file case is
+'       fixed: one mv got every name of a directory and exceeded the exec
+'       argument limit (0 of 40,000 landed); the names now go through
+'       `xargs -0`. The other three stay lasting failures, and the save's
+'       refusal keeps the host copy whole. Pinned:
+'       TestARestorePastTheArgumentLimitPlacesEveryFile (4,000 names under
+'       a 512 KiB stack, whose argument limit is the 128 KiB floor;
+'       MEASURED before the fix: 0 of 4,000 placed).
+'   F4  RESTORE OVERWROTE NEWER GUEST DATA. _proveo_changed_files copied on
+'       any size or mtime difference and never asked which side is newer.
+'       MEASURED (xws.sh): a kept volume went from a0|a2-unsaved to a0 on a
+'       boot restore. Every boot of a kept sandbox restores, and a teardown,
+'       retire or rm exec on a stopped sandbox is such a boot.
+'       NOW: _proveo_state_plan decides by direction. A restore replaces a
+'       file only when the host's mtime is strictly newer; a save replaces
+'       one when the guest's is newer, or when the guest wrote it in the last
+'       5s and the host's is not newer (the same-tick section below).
+'       Pinned: TestStateRestoreNeverRevertsANewerGuestTurn.
+'   F5  TWO SANDBOXES IN DIFFERENT WORKSPACES REVERTED EACH OTHER. Restore
+'       copied the whole store, and save copied any file that differed.
+'       MEASURED (xws.sh): wsA=a0|a1-turn-by-A became wsA=a0 after B's save.
+'       NOW: restore of .claude/projects copies only this run's entries (the
+'       key section below), and save is newer-wins, so a stale copy a volume
+'       still holds reverts nothing.
+'       Pinned: TestTwoWorkspacesSharingOneStoreKeepEachOthersTurns.
+'   F6  `proveo rm <kept>` NEVER SAVED RESUME STATE (carryKept had no save).
+'       NOW: RemoveKept prints the carried block, then runs
+'       sbx.GuardedSaveStateArgs behind its own live step (stepState); a
+'       failed save prints "⚠ resume state — not saved" and closes on "×
+'       <name> — not removed" with "`proveo rm <name>` tries again; `sbx rm
+'       --force <name>` deletes it with the state only in it".
+'       D6: `proveo rm` runs the save the sandbox's own image carries, and
+'       RemoveKept stops a running sandbox first, so that save always boots
+'       the VM. An image built before the stopgap copies on any difference
+'       and never waits for the restore: its save races its seed's restore,
+'       the collision below. The guard `declare -F _proveo_await_restore ||
+'       exit 3` (sbx.SaveStateUnguarded) makes such an image save nothing;
+'       RemoveKept then prints "⚠ resume state — not saved / its image
+'       predates the save that waits for the restore, so `proveo rm` skips
+'       it" and removes, as `proveo rm` did before F6. Teardown and retire
+'       keep the unguarded save, which older images ran before the stopgap.
+'       Pinned: TestRemoveKeptSavesResumeStateBeforeItRemoves,
+'       TestRemoveKeptKeepsASandboxWhoseResumeStateDidNotSave,
+'       TestRemoveKeptSkipsTheSaveOfAnImageOlderThanTheGuard,
+'       TestTheGuardedSaveSkipsAnImageOlderThanTheRestoreWait.
+'   F7  GROWTH ONLY. Every create gets fresh volumes, and each used to receive
+'       the whole store (about 1.3 GB). The projects scope cuts that to this
+'       workspace's entries (351 MB for the largest key measured). Decision 3
+'       then closed the leak itself: the kit declares no volume.
+' The new rules live in the image's lib: they reach a sandbox only through
+' `mise run build <harness>`, and a sandbox an older image created keeps the
+' older save for as long as it lives.
+'
+' ── THE PROJECTS/ KEY (F5) ────────────────────────────────────────────────
+' MEASURED in the Claude Code 2.1.323 bundle: transcripts live in
+' projects/<nH(cwd)>, where nH(p) is p.replace(/[^a-zA-Z0-9]/g,"-") and, past
+' 200 units, the first 200 plus "-" plus Math.abs(hash(p)).toString(36). The
+' auto-memory dir keys on the canonical git root (a linked worktree's main
+' worktree), not on the cwd. Host store names have that shape, e.g.
+' -Users-dev-Projects-app--claude-worktrees-feat-x for a linked worktree.
+' D8: this example and the test rows use a neutral home; the first draft
+' quoted the operator's own (spec-conventions.puml pins the rule).
+' _proveo_claude_project_dirs restores the entries named for PROVEO_WORKDIR
+' (agentWorkdir, the agent's cwd), its physical path, every path `git
+' worktree list --porcelain` prints for its repository, and the root `git
+' rev-parse --git-common-dir` names. A key over 200 units matches on its
+' 200-unit prefix, since the hash is not reproduced. A non-ASCII path encodes
+' per UTF-16 unit: é is one '-', an astral character two.
+' Restoring the memory key matters: save is newer-wins, so a MEMORY.md the
+' agent wrote fresh beside an unrestored one would replace the host's.
+' D5, MEASURED in the 2.1.323 bundle: `claude --resume` lists and resumes
+' the sessions of every worktree of the repository. The bundle runs `git
+' worktree list --porcelain` and loads each worktree's sessions, and a resume
+' by id logs tengu_resume_worktree_fallback. Hence the worktree paths above:
+' without them a --clone=false run, whose guest reads the host's .git, lost
+' its sibling worktrees' sessions from --resume. [Inference] In clone mode
+' the guest lists only the main checkout and this worktree, which the
+' restore covered already.
+' todos/ keeps the whole-store scope (owner, 2026-11-14); sessions/ no
+' longer travels (decision 2).
+' Pinned: TestClaudeProjectKeyMatchesClaudeCode,
+' TestStateRestoreCopiesOnlyThisWorkspacesProjects.
+'
+' ── SAVE WAITS FOR THIS BOOT'S RESTORE (F3) ───────────────────────────────
+' A teardown, retire or rm exec on a stopped sandbox boots it, and the seed's
+' restore then runs beside the exec's save (the collision section below).
+' Save waits up to 60s, holding no lock, until the restore marker, the seed's
+' release marker (PROVEO_INSTRUCTIONS_MARKER, written after the restore), or
+' its refused or halted marker exists; then it requires the restore marker. A
+' sandbox whose state dirs hold nothing to save never waits, which is every
+' codex, cursor, opencode and hermes sandbox: their manifests declare no
+' state: dirs.
+' Pinned: TestStateSaveRefusesWithoutThisBootsRestore (a marker that appears
+' while the save waits), TestSeedRestoresStateBeforeItReleasesTheAgent (the
+' order the wait relies on).
+' [Unverified] That an `sbx exec` sees the /dev/shm the seed wrote its marker
+' in; if it does not, every claudecode save refuses. [Inference] They share
+' it, since `sbx exec` reads the agent's /proc; an e2e run confirms it.
+'
+' ── NO DESTINATION NAME IS WRITTEN IN PLACE (F3) ──────────────────────────
+' `cp` opens its destination with O_TRUNC and streams into it, so an
+' interrupted, concurrent or out-of-space copy leaves the destination cut at
+' a buffer boundary, and the cut file then looks newest (cp sets the source
+' mtime only after the data). _proveo_state_tree therefore:
+'   1. new files and links: one bulk `cp -a --parents` into a staging dir
+'      inside the destination (.proveo-sync.<pid>.XXXXXX, same filesystem),
+'      then `mv -u -t` per directory, its names fed through `xargs -0` so a
+'      directory past the exec argument limit still lands (D3). After a
+'      failed copy, only a staged file whose size equals the planned size is
+'      placed. Batching per directory keeps the restore off a fork per file:
+'      measured 5000 shared files cost 4.6s through a fork-per-file copy
+'      against 0.067s for one bulk cp, and the restore races the agent's 30s
+'      gate.
+'   2. replaced files: copied to <name>.proveo-sync.<pid>.<random> beside the
+'      target and renamed over it; rename(2) is atomic.
+' Files only the destination has stay. A sync has never deleted: the
+' operator's home holds sessions this sandbox was never given. The plan
+' prunes *.proveo-sync.* names, so debris a killed sync left never crosses.
+'
+' ── THE SAME-TICK WINDOW, NOW SAVE-ONLY (F4) ──────────────────────────────
+' cp -a preserves size and mtime, so equal stamps normally mean the copy
+' already happened. Not always: on the sandbox's overlay two files written in
+' one clock tick report the same nanosecond mtime (measured, both sides
+' 1787846280.6672317090, same size, different content). A save therefore
+' copies a file the guest wrote in the last 5s unless the host's is newer;
+' those are the transcripts the agent just wrote. A restore takes no window:
+' on a tie the guest keeps its copy, and keeping a copy never reverts a turn.
+'
+' ── ACCEPTED LIMIT: CLOCK SKEW (D7) ───────────────────────────────────────
+' Newer-wins trusts the two clocks. MEASURED: with the host copy stamped 10
+' minutes ahead, guest turns written 30s and 0s before the save never reach
+' the host, and the save still returns 0, so teardown removes the sandbox.
+' The same skew lets a restore replace a kept guest's unsaved turn. Equal
+' stamps with different sizes behave alike: a save skips a guest file last
+' written more than 5s before it. origin/main copied on any difference and
+' had none of this; it had F4 and F5 instead. The revision named skew as
+' option A's risk, and the stopgap accepts it. [Inference] The VM's clock
+' follows the host's, so skew needs a host clock step or a store another
+' host wrote. [Inference] The separate plan's live host bind retires the
+' copy, and this limit with it.
+'
+' ── TWO COPY ENGINES ──────────────────────────────────────────────────────
+' _proveo_sync_tree with _proveo_changed_files stays the toolchain sync's
+' engine, where the source wins on any size or mtime difference: npm writes
+' every package file with one fixed mtime, so two versions of a file can tie
+' and a newer-wins rule would keep the stale one. The state sync runs on
+' _proveo_state_tree. e2e/sync_state_test.go runs its tree probes on both.
+'
+' ── CORRECTED 2026-11-14: `sbx rm` KEEPS KIT VOLUMES SINCE v0.50 ──────────
+' This diagram said `sbx rm --force` removes "VM + images + volumes". That
+' held before sbx v0.50.0. Its release notes: "Persistent kit volumes retain
+' data across kit updates and sandbox removal and recreation with the same
+' name", for sandboxes created with that version; `sbx rm --help` (v0.50.0)
+' says creating the same sandbox name with the same kit reattaches. proveo
+' writes each run's kit to a new dir (sandbox.go, KitDir under RunDir), so the
+' volumes stay behind and no later run reattaches them (F7): the host copy is
+' still the only one a later run sees, which is why the copy-out exists.
+' Other specs still carry the old sentence (F17, not in this change):
+' proveohome/proveo-home-lifecycle.puml, _experiments/docker-sandbox.puml.
+' SUPERSEDED by decision 3: the dirs were discovered from /proc/mounts ("a
+' block device under $HOME is sandbox-local by definition"), with statsig
+' and shell-snapshots skipped. The kit mounts none now; the manifest's
+' state: list names the dirs, and transient: keeps the scratch in the VM.
+' The discovery survives only as row C's fallback, which skips sessions too.
+'
+' ── THE COLLISION, MEASURED (2026-09) ─────────────────────────────────────
+' The failure handler copied state out before it looked for a transcript, and
+' on a stopped sandbox `sbx exec` started the VM to do it, so the kit's
+' startup seed was still inside restore when the exec's save began: two
+' copies, opposite directions, same files. Mounts re-evaluated 15:12:13.030;
+' the colliding writes landed 15:12:13.62-.69. Seven transcripts were
+' rewritten short in that second (7340032, 786432, 786432, 524288, 262144,
+' 262144 and 262144 bytes, every size a 256 KiB multiple, each cut mid-JSON),
+' and the short copy then propagated, so no intact copy remained. Nothing
+' reported it: the copy sent stderr to /dev/null and ended in `|| true`. The
+' lock serialises the two since; the restore marker makes the save wait.
+'
+' ── THE LOCK IS mkdir, NOT flock ──────────────────────────────────────────
+' mkdir is atomic on every filesystem in play and needs no util-linux in the
+' image. Both callers live in one PID namespace, so the pid recorded in the
+' lock settles whether a holder is alive: a seed killed mid-copy leaves
+' debris, and debris that blocked every later run forever would be worse than
+' the failure it fixes. Waiting caps at 60s, an order of magnitude over any
+' measured sync.
+'
+' ── AN HONEST STATUS AND A TOLERANT SEED ──────────────────────────────────
+' e2e/sync_state_test.go reads the destination's SIZE while a copy runs. With
+' a rename into place only two sizes can show, the old and the new; with a
+' streaming overwrite the samples land in between. It also asserts the copy
+' happened, since a no-op leaves no partial file either. proveo_sync_state
+' returns a real status, so save's caller and the tests see a partial copy,
+' while the seed calls it as `proveo_sync_state restore || true`: proveo-seed
+' runs under set -euo pipefail, and one failed file copy once aborted the
+' kit's startup command ("failed to run sandbox container"). The failure is
+' still said on stderr (TestSeedSurvivesAFailedStateSync).
 '
 ' ── WHY THE TEARDOWN EXEC PINS `-w /` ─────────────────────────────────────
 ' Without it the exec inherits the container's WorkingDir — the first workspace
@@ -46,142 +470,96 @@
 ' only debris. Pinned by TestToolSaveSkipsATreeStillBeingProvisioned.
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
-title State sync — moving resume state between the operator's home and a\nsandbox-local volume without ever leaving a partial file
+title State sync — resume state between the operator's home and the\nsandbox's own disk: no partial file, no reverted turn, no lost sandbox, no VM-local path
 
 node "host" as HOST <<host>> {
-  database "PROVEO_HOME/.claude\nprojects · sessions · todos\nthe operator's ONLY copy" as MOUNT <<db>>
+  database "PROVEO_HOME/.claude\nprojects · todos\nthe copy every later run sees" as MOUNT <<db>>
+  database "PROVEO_HOME/.claude\nsessions · daemon · jobs …\nleft as they are" as LEFT <<db>>
 }
+
+component "harness.manifest\nstate: [projects, todos]\ntransient: [sessions, …]" as MAN <<app>>
 
 node "sandbox" as BOX <<app>> {
   component "proveo_seed\nkit setup.startup" as SEED <<app>>
-  component "proveo_sync_state restore\nhost → volume" as RESTORE <<app>>
-  component "proveo_sync_state save\nvolume → host" as SAVE <<async>>
+  component "proveo_sync_state restore\nhost → VM disk\nprojects/: this run's keys" as RESTORE <<app>>
+  component "proveo_sync_state save\nVM disk → host\nafter this boot's restore" as SAVE <<async>>
+  database "/dev/shm\nproveo-state-restored" as MARK <<db>>
   component "_proveo_sync_lock\nmkdir, pid-checked" as LOCK <<app>>
-  component "_proveo_sync_tree\n1. cp -an  (new files, no clobber)\n2. temp + rename  (differing files)" as TREE <<app>>
-  database "sandbox-local volume\n$HOME/.claude/*\ndies with `sbx rm`" as VOL <<db>>
+  component "_proveo_state_tree\n1. new: stage + rename\n2. newer: temp + rename" as TREE <<app>>
+  database "image home, plain dirs\n$HOME/.claude/projects · todos\nno volume@1" as VOL <<db>>
+  database "VM-local\n$HOME/.claude/sessions · statsig\nshell-snapshots · daemon* · jobs" as LOCAL <<db>>
 }
 
-component "proveo teardown + failure path\nSaveState → sbx exec -w /" as FAIL <<error>>
+component "teardown · retire · proveo rm\nSaveState → sbx exec -w /" as FAIL <<error>>
+component "⚠ kept: its resume state\ndid not reach the host" as KEEP <<error>>
 
-SEED ARROW_MAIN RESTORE : before the agent looks for transcripts
-FAIL ARROW_ERROR SAVE : on a STOPPED sandbox this STARTS the VM…
-FAIL ARROW_ERROR SEED : …which re-runs the seed
+SEED ARROW_MAIN RESTORE : before the release
+RESTORE ARROW_MAIN MARK : only a clean restore
+SAVE ARROW_OPTIONAL MARK : absent → refuse
+FAIL ARROW_ERROR SAVE : a stopped sandbox boots…
+FAIL ARROW_ERROR SEED : …and its seed restores
+FAIL ARROW_ERROR KEEP : save failed, not forced
 RESTORE ARROW_MAIN LOCK
 SAVE ARROW_MAIN LOCK
 LOCK ARROW_MAIN TREE : one direction at a time
-TREE ARROW_MAIN VOL : restore
-TREE ARROW_QUEUE MOUNT : save
+TREE ARROW_MAIN VOL : restore: host newer
+TREE ARROW_QUEUE MOUNT : save: guest newer
 MOUNT ARROW_OPTIONAL RESTORE : yesterday's sessions
+MAN ARROW_MAIN RESTORE : PROVEO_STATE_DIRS
+MAN ARROW_OPTIONAL LOCAL : config sync skips both ways
+LOCAL ARROW_ERROR LEFT : never copied
 
-note right of FAIL
-  **The collision, measured.** The failure handler copies state out before it
-  looks for a transcript, and on a stopped sandbox ""sbx exec"" starts the VM to
-  do it — so the kit's startup seed is still inside ""restore"" when the exec's
-  own ""save"" begins. Two copies, opposite directions, same files.
+note right of KEEP
+  **F2: a failed save keeps the sandbox.** The
+  next run saves again; ""proveo rm"" saves,
+  then removes; ""sbx rm --force"" deletes it
+  unsaved. The Ctrl+C dialog's forced remove
+  still deletes past a failed save.
+end note
 
-  Mounts re-evaluated **15:12:13.030**; the colliding writes landed
-  **15:12:13.62–.69**. Seven of the operator's transcripts were rewritten short
-  in that one second — 7340032, 786432, 786432, 524288, 262144, 262144 and
-  262144 bytes, //every size an exact 256 KiB multiple//, each cut mid-JSON —
-  and the short copy was then propagated to the other side, so no intact copy
-  remained. Nothing reported it: the copy sent stderr to ""/dev/null"" and ended
-  in ""|| true"".
+note right of RESTORE
+  **F4/F5: restore takes only what the host
+  holds newer**, and in projects/ only this
+  run's keys: the workdir's and the repository
+  root's, where Claude Code keeps its memory.
 end note
 
 note left of SAVE
-  **""-w /"", or the save never runs.** ""sbx exec"" starts in the container's
-  WorkingDir — the first workspace — and on this backend that directory can
-  stop resolving while the sandbox lives on (virtiofs-cwd-invalidation.puml).
-  The runtime then dies at chdir, ""OCI runtime exec failed: getcwd: Operation
-  not permitted"", exit 127, before the sync runs a line; teardown reported
-  "resume state not preserved" and carried on to ""sbx rm"". Four days of
-  transcripts on proveo-1787956302-22788 went with the volumes.
-
-  The sync reads nothing from the cwd: the lib is sourced by absolute path and
-  every directory it moves comes from ""$HOME"" and ""PROVEO_STATE_HOME"", so ""/""
-  costs nothing and is the one directory every container has.
+  **F3: save needs this boot's restore.** It
+  waits up to 60s for the seed, then refuses,
+  non-zero and on stderr, with no marker. A
+  state dir with nothing to save never waits.
 end note
 
 note bottom of TREE
-  **Why two phases and not one ""cp -a"".** ""cp"" opens its destination with
-  ""O_TRUNC"" and streams into it, so an interrupted or concurrent copy leaves the
-  destination cut at a read-buffer boundary. Atomicity is only needed where there
-  is something to destroy, so the work splits:
-
-  * **phase 1** — one ""cp -an"" places every file the destination does NOT have.
-    No existing file is opened for writing, so this phase cannot truncate.
-    Its exit status is NOT the verdict: BSD ""cp -n"" (and GNU coreutils 9.2)
-    exit 1 for every file it skips, which is every file a delta save finds in
-    place. A copy error is instead a source path still absent afterwards.
-  * **phase 2** — files present on BOTH sides and differing are copied to a temp
-    name in the destination directory and //renamed// over the target.
-    ""rename(2)"" is atomic: a reader sees the old file or the new one, never a
-    short one, and an interruption leaves debris instead of damage.
-
-  Files only the destination has are left alone. A sync has never deleted, and
-  the operator's home holds sessions this sandbox was never given.
+  **F3: no name is written in place.** New
+  files stage inside the destination and are
+  renamed in; a replaced file goes through a
+  temp name. A cut copy never takes a name.
 end note
 
 note bottom of LOCK
-  **""mkdir"", not ""flock"".** Atomic on every filesystem in play and needs no
-  util-linux in the image. Both callers live in one PID namespace, so the pid
-  recorded in the lock settles whether a holder is alive — a seed killed
-  mid-copy leaves debris, and debris that blocked every later run forever would
-  be a worse failure than the one being fixed. Waiting caps at 60s, an order of
-  magnitude over any measured sync.
-end note
-
-note as Stamps #F4F9FB
-  **The skip, and the one case where a stamp lies.**
-
-  Phase 2 must not fork per file for a tree that has not changed: measured in
-  the sandbox image, 5000 shared files cost **4.6s** through a fork-per-file
-  copy against **0.067s** for one bulk ""cp -a"", and ""restore"" is already racing
-  the agent's own start. ""cp -a"" preserves size and mtime, so equal size plus
-  equal mtime is normally the copy having already happened.
-
-  //Normally is not always.// On the sandbox's overlay filesystem two files
-  written in the same clock tick report the SAME nanosecond mtime — measured,
-  both sides ""1787846280.6672317090"", same size, different content. A stamp is
-  therefore trusted as an identity only once it has stopped being "now":
-  anything modified inside a 5s grace window is copied whatever its stamps say.
-
-  That is exactly the set that matters. On a ""save"" those are the transcripts
-  the agent just wrote; on a ""restore"" there are none.
-end note
-
-note as Proof #F4F9FB
-  **The assertion is a PROPERTY, sampled mid-copy — not a description of the
-  new implementation.** ""e2e/sync_state_test\.go"" reads the destination's SIZE
-  while a copy is running. With a rename into place there are only two possible
-  sizes, the old and the new; with a streaming overwrite the samples land in
-  between. Stated that way it fails against the ""cp -a"" this replaced, which is
-  the only reason it is evidence. It also asserts the copy HAPPENED — a no-op
-  leaves no partial file either, and would otherwise pass.
-
-  **An honest exit status and a tolerant seed are two different requirements,
-  and satisfying the first broke the second.** The old copy ended in ""|| true""
-  and could report nothing. Giving ""proveo_sync_state"" a real status — needed so
-  ""save""'s caller and these tests can see a partial copy — put that status inside
-  ""proveo_seed"", which ""proveo-seed"" runs under ""set -euo pipefail"". ONE failed
-  file copy then aborted the Kit's startup command and sbx answered "failed to
-  run sandbox container": no sandbox, for the sake of a transcript that
-  did not copy. So the STATUS stays honest and the SEED stays tolerant, and a
-  test pins that seam — the sync is replaced with one that fails, everything
-  after it is stubbed, and the seed still has to return 0 having gone past it.
-
-  The failure is still SAID on stderr. Silence is what let a copy that destroyed
-  seven files look like a copy that worked.
+  **""mkdir"", not ""flock"".** Atomic on every
+  filesystem in play, and the recorded pid
+  breaks a dead holder's lock. Waits cap at 60s.
 end note
 
 note right of VOL
-  **Why any of this exists.** sbx mounts ""$HOME/.claude/projects"", ""sessions"",
-  ""todos"" and friends as PER-SANDBOX volumes, and ""sbx rm --force"" removes
-  "VM + images + volumes" — so without a copy-out, ""--resume"" loses every
-  session the moment the run ends. The dirs are discovered from ""/proc/mounts""
-  rather than tabulated per agent: a block device under ""$HOME"" is by
-  definition sandbox-local, and a hand-written table goes stale the moment sbx
-  adds one. ""statsig"" and ""shell-snapshots"" are skipped — telemetry and
-  scratch, never read back.
+  **No volume since decision 3.** The vendored
+  kit stranded five per run (1,710 records);
+  the manifest's state: list names the dirs.
+end note
+
+note right of LOCAL
+  **Decision 2: VM-local.** sessions/ holds
+  per-VM pids no VM can tell apart; transient
+  keeps these in, and the host's copy as is.
+end note
+
+note right of FAIL
+  **The collision, measured:** an exec booted
+  a stopped VM, and restore and save hit the
+  same files; seven transcripts were cut short.
+  Save now waits for the restore marker.
 end note
 @enduml

@@ -5,13 +5,17 @@ min_version = "2026.10.10"
 # SPEC: _spec/_devops/unit-baseline.puml
 [vars]
 unit_baseline = """\
+  TestAConfigSaveNoLongerCarriesProjects|\
+  TestARestorePastTheArgumentLimitPlacesEveryFile|\
+  TestARestoreThatFailsMidFileNeverTruncatesTheHost|\
   TestAdbMirrorStartsWithTheSocketAddress|\
+  TestClaudeProjectKeyMatchesClaudeCode|\
   TestCodexDaemonStateNeverCrossesTheSandbox|\
   TestConfigSyncComparesSubSecondMtimes|\
   TestConfigSyncCopiesInBulk|\
+  TestConfigSyncLeavesTheStateDirsToTheStateSync|\
   TestConfigSyncNeverCarriesADeniedFileOut|\
   TestConfigSyncNeverGlobsTheSkipListAgainstTheCwd|\
-  TestConfigSyncPrunesTheVolumesStateOwns|\
   TestConfigSyncRoundTripsTheHarnessConfiguration|\
   TestConfigSyncSkipsTransientPathsBothWays|\
   TestGitHubSSHVerificationRequiresAnAgentAndAcceptsGitHubExitOne|\
@@ -20,7 +24,14 @@ unit_baseline = """\
   TestOpenCodeNativeGitSyncPluginLifecycle|\
   TestOpenCodeSeedProgressFixtures|\
   TestOpencodeV2SeedOwnership|\
-  TestVarsSortByScopeThenName\
+  TestProjectsAndTodosRoundTripOnPlainDirectories|\
+  TestStateRestoreCopiesOnlyThisWorkspacesProjects|\
+  TestStateRestoreNeverRevertsANewerGuestTurn|\
+  TestStateSaveRefusesWithoutThisBootsRestore|\
+  TestTwoWorkspacesSharingOneStoreKeepEachOthersTurns|\
+  TestVMLocalPathsNeverCrossEitherSync|\
+  TestVarsSortByScopeThenName|\
+  TestWithoutStateDirsTheKitVolumesTravelAsState\
   """
 
 # Go is pinned here and in go.mod (`toolchain go1.26.10`); keep the two byte-equal.

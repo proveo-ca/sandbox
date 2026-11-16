@@ -19,7 +19,7 @@ proveo_sync_config ` + mode + `
 echo "rc=$?"`
 	cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t))
 	cmd.Env = append(os.Environ(),
-		"PROVEO_HOME=", "PROVEO_STATE_HOME=", "PROVEO_CONFIG_DIRS=", "PROVEO_CONFIG_SYNC=")
+		"PROVEO_HOME=", "PROVEO_STATE_HOME=", "PROVEO_CONFIG_DIRS=", "PROVEO_CONFIG_SYNC=", "PROVEO_STATE_DIRS=")
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -85,38 +85,46 @@ func TestConfigSyncNeverCarriesADeniedFileOut(t *testing.T) {
 	}
 }
 
-func TestConfigSyncPrunesTheVolumesStateOwns(t *testing.T) {
+// The state dirs PROVEO_STATE_DIRS names are plain directories now; the config sync leaves them
+// to the state sync in both directions, and a lib that does not read the variable still carries them.
+func TestConfigSyncLeavesTheStateDirsToTheStateSync(t *testing.T) {
 	t.Parallel()
 	bash := bashOrSkip(t)
 	agent, state := t.TempDir(), t.TempDir()
+	env := map[string]string{"HOME": agent, "PROVEO_STATE_HOME": state, "PROVEO_CONFIG_DIRS": cfgSet,
+		"PROVEO_STATE_DIRS": ".claude/projects|.claude/projects;.claude/todos|.claude/todos"}
 
 	seedFile(t, filepath.Join(agent, ".claude", "settings.json"), "{}")
-	seedFile(t, filepath.Join(agent, ".claude", "projects", "big.jsonl"), "transcript")
-	seedFile(t, filepath.Join(agent, ".claude", "statsig", "telemetry"), "noise")
-
-	// _proveo_volume_mounts reads /proc/mounts; stub it to declare the two dirs
-	// sbx would have mounted as per-sandbox volumes.
-	script := `source "$1/packages/lib/entrypoint-lib.sh"
-_proveo_volume_mounts() { printf '%s\n' "$HOME/.claude/projects" "$HOME/.claude/statsig"; }
-proveo_sync_config save
-echo "rc=$?"`
-	cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t), agent)
-	cmd.Env = append(os.Environ(), "PROVEO_CONFIG_SYNC=",
-		"HOME="+agent, "PROVEO_HOME=", "PROVEO_STATE_HOME="+state, "PROVEO_CONFIG_DIRS="+cfgSet)
-	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "rc=0") {
-		t.Fatalf("save failed: %v\n%s", err, out)
-	}
-
+	seedFile(t, filepath.Join(agent, ".claude", "projects", "-work", "big.jsonl"), "transcript")
+	seedFile(t, filepath.Join(agent, ".claude", "todos", "t.json"), "[]")
+	seedFile(t, filepath.Join(agent, ".claude", "projects-notes.md"), "a sibling name")
+	runConfigSync(t, bash, env, "save")
 	if _, err := os.Stat(filepath.Join(state, ".claude", "settings.json")); err != nil {
 		t.Errorf("settings.json did not persist: %v", err)
 	}
-	for _, rel := range []string{
-		filepath.Join(".claude", "projects", "big.jsonl"),
-		filepath.Join(".claude", "statsig", "telemetry"),
-	} {
-		if _, err := os.Stat(filepath.Join(state, rel)); err == nil {
-			t.Errorf("%s was copied by the config sync — that is a volume, and state owns it", rel)
+	if _, err := os.Stat(filepath.Join(state, ".claude", "projects-notes.md")); err != nil {
+		t.Errorf("the prune took a sibling whose name starts with a state dir's: %v", err)
+	}
+	for _, rel := range []string{"projects", "todos"} {
+		if _, err := os.Stat(filepath.Join(state, ".claude", rel)); err == nil {
+			t.Errorf("config save carried .claude/%s, which the state sync owns", rel)
 		}
+	}
+
+	agent2 := t.TempDir()
+	seedFile(t, filepath.Join(state, ".claude", "projects", "-other", "x.jsonl"), "another workspace")
+	env["HOME"] = agent2
+	runConfigSync(t, bash, env, "restore")
+	if _, err := os.Stat(filepath.Join(agent2, ".claude", "projects")); err == nil {
+		t.Error("config restore carried .claude/projects, which the state sync restores scoped to this workspace")
+	}
+
+	delete(env, "PROVEO_STATE_DIRS")
+	agent3 := t.TempDir()
+	env["HOME"] = agent3
+	runConfigSync(t, bash, env, "restore")
+	if _, err := os.Stat(filepath.Join(agent3, ".claude", "projects", "-other", "x.jsonl")); err != nil {
+		t.Errorf("without PROVEO_STATE_DIRS the config sync no longer carries projects/: %v", err)
 	}
 }
 

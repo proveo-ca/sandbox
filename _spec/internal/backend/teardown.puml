@@ -79,7 +79,10 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   the pushed `git fetch`  a timeout prints "⚠ <branch> — not fetched" with
 '                           the deadline dim under it (R2)
 '   SaveState               teardown and retire pass guestRun; a timeout
-'                           prints "⚠ resume state — not saved" (R2)
+'                           prints "⚠ resume state — not saved" (R2) and,
+'                           since 2026-11-14, keeps the sandbox: a failed
+'                           save never reaches `sbx rm` (F2,
+'                           _spec/internal/sbx/state-sync.puml)
 '   `sbx rm --force`        removeSandbox; a timeout keeps the sandbox, and
 '                           the closing line's dim fix is the rescue line:
 '                           check `sbx ls`, then `sbx rm --force <name>` once
@@ -363,7 +366,9 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   removal now ask sbx.Gone: the table names other sandboxes and not this
 '   one; a header-only table is read again as `sbx ls --json`; an empty
 '   listing proves nothing, so the sandbox closes as kept. The same rule
-'   as verbs.go trustedListing.
+'   as verbs.go trustedListing. SaveState in teardown and retire asks it too
+'   since 2026-11-14 (D1, state-sync.puml): an empty table no longer skips
+'   the save as a success and then removes the sandbox.
 '     NOT CHOSEN: trust an empty listing (drops a live sandbox's home);
 '     retry the table (the same busy daemon answers the same way).
 '     COST: a run whose sandbox was the host's only one and is gone closes
@@ -390,9 +395,10 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   THE TRANSCRIPT FOLLOWS THE STATE SAVE (R2 review fix, 2026-11-11).
 '   R2's first cut looked the transcript up before stepState so the fact
 '   could join the block printed after the clone step. The transcript is
-'   not on the host yet then: sbx mounts ~/.claude/projects as a
-'   per-sandbox volume, and SaveState is what copies it into the proveo
-'   home AgentTranscript walks (_spec/internal/sbx/state-sync.puml). So
+'   not on the host yet then: ~/.claude/projects lives on the VM's own
+'   disk (a per-sandbox volume until 2026-11-14), and SaveState is what
+'   copies it into the proveo home AgentTranscript walks
+'   (_spec/internal/sbx/state-sync.puml). So
 '   failedEnd runs clone → resume state → transcript lookup → block →
 '   home config. A normal run's block still prints after the clone step.
 '     NOT CHOSEN: a second block for the transcript (two blocks under one
@@ -440,7 +446,12 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '   TestAPushedBranchPrintsAfterWhatTheCloneCarried
 '   TestABlockPrintsWhatCameHomeInOneOrderWhicheverStepFoundItFirst
 '   TestAFailedRemovalsLogLineEndsOnWhatSbxSaid
-'   TestARetiresUnsavedResumeStateReadsAsTeardownsDoes
+'   TestARetireWhoseResumeStateDidNotSaveKeepsTheSandbox
+'   TestARetireWhoseResumeStateSavedRemovesTheSandbox
+'   TestAResumeStateThatDidNotSaveKeepsTheSandboxWithItsFix
+'   TestAnOperatorChosenRemovalStillRemovesASandboxWhoseStateDidNotSave
+'   TestStrandedWorkAndUnsavedStateSayBothOnTheKeptLine
+'   TestAnEmptySbxTableNeitherSkipsTheSaveNorRemovesTheSandbox
 '   TestAFailedRunWhoseSandboxIsGoneClosesOnThatAndPrintsNoIDEBlock
 '   TestARemovalThatFailedClosesOnAKeptLineWithItsError
 '   TestARemovalThatFailedOnASandboxSbxNoLongerListsSaysSo

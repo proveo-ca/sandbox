@@ -289,7 +289,7 @@ func gone(name string, detail ...string) Item {
 
 // saveState is SaveState under ctx.
 func (t *teardown) saveState(ctx context.Context) (string, error) {
-	return SaveState(t.cfg.Name, t.cfg.Env, sbx.Exists(t.cfg.Name), func(args ...string) (string, error) {
+	return SaveState(t.cfg.Name, t.cfg.Env, !sbx.Gone(t.cfg.Name), func(args ...string) (string, error) {
 		return guestRunIn(ctx, args...)
 	})
 }
@@ -359,25 +359,30 @@ func (t *teardown) homeStep(ctx context.Context) {
 }
 
 // normalEnd carries the work home, prints what came home, then removes the sandbox unless
-// work or history stays in it; its last line is the sandbox's fate.
+// work, unsaved resume state or history stays in it; its last line is the sandbox's fate.
+// SPEC: _spec/internal/sbx/state-sync.puml
 func (t *teardown) normalEnd(ctx context.Context) {
 	in, cfg := t.in, t.cfg
 	stranded := t.do(ctx, stepClone, func() error { return TeardownClone(in, cfg, t.results) })
 	t.carry = stranded
 	t.results.Print()
 	var saved string
-	if err := t.do(ctx, stepState, func() (err error) {
+	unsaved := t.do(ctx, stepState, func() (err error) {
 		saved, err = t.saveState(ctx)
 		return err
-	}); err != nil && !errors.Is(err, errStepSkipped) {
-		Item{Warn: true, Text: "resume state — not saved", Detail: []string{failure(err, saved)}}.print()
+	})
+	if errors.Is(unsaved, errStepSkipped) {
+		unsaved = nil
+	}
+	if unsaved != nil {
+		Item{Warn: true, Text: "resume state — not saved", Detail: []string{failure(unsaved, saved)}}.print()
 	}
 	t.homeStep(ctx)
 	if t.mustLeave(ctx) {
 		t.leave()
 		return
 	}
-	switch normalEndOf(t.forced, stranded, opencodeTarget(in.Target)) {
+	switch normalEndOf(t.forced, stranded, unsaved, opencodeTarget(in.Target)) {
 	case endKeepStranded:
 		if sbx.Gone(cfg.Name) {
 			gone(cfg.Name, stranded.Error()).print()
@@ -388,8 +393,21 @@ func (t *teardown) normalEnd(ctx context.Context) {
 		if opencodeTarget(in.Target) {
 			why += ", with its OpenCode history"
 		}
+		detail := []string{keptFix(cfg.Name, sbx.Running(cfg.Name))}
+		if unsaved != nil {
+			detail = append([]string{keptUnsaved + " either"}, detail...)
+		}
 		t.closeKept(Item{Warn: true, Text: cfg.Name + " — kept: " + why,
-			Detail: []string{keptFix(cfg.Name, sbx.Running(cfg.Name))}, Log: []string{lookInside(cfg.Name)}})
+			Detail: detail, Log: []string{lookInside(cfg.Name)}})
+		return
+	case endKeepUnsaved:
+		if sbx.Gone(cfg.Name) {
+			gone(cfg.Name, keptUnsaved).print()
+			return
+		}
+		t.keepHome, t.kept = true, keptUnsaved
+		t.closeKept(Item{Warn: true, Text: cfg.Name + " — kept: " + keptUnsaved,
+			Detail: []string{unsavedFix(cfg.Name, sbx.Running(cfg.Name))}, Log: []string{lookInside(cfg.Name)}})
 		return
 	case endRetainEngine:
 		t.keepHome = true

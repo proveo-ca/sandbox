@@ -96,6 +96,7 @@ var specNotesEnforced = []string{
 	"_spec/_experiments/terminal-handoff-probes.puml",
 	"_spec/internal/results/result-store.puml",
 	"_spec/internal/promptkit/prompt-kit.puml",
+	"_spec/internal/sbx/state-sync.puml",
 }
 
 const (

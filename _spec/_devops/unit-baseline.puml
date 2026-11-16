@@ -61,6 +61,17 @@ title The unit baseline — green means no new failing test
 ' RE-RECORDED UNDER go1.26.10, 2026-11-10 (delivery plan, B12). The full run
 ' failed the same 15 tests; the flake row passed in that run. The list did
 ' not change.
+' RENAMED 2026-11-14 (_spec/internal/sbx/state-sync.puml, decision 3): the row
+' TestConfigSyncPrunesTheVolumesStateOwns became
+' TestConfigSyncLeavesTheStateDirsToTheStateSync, the same config-sync check
+' on PROVEO_STATE_DIRS instead of /proc/mounts; it fails on this macOS host
+' for the same reason (bash 3.2, no GNU find -printf). The eleven lib tests
+' the stopgap added in internal/contract/state_sync_test.go fail here for
+' that reason too, and each has a row. MEASURED 2026-11-14 on this host:
+' with the old list the contract package failed ten of them (the eleventh,
+' TestWithoutStateDirsTheKitVolumesTravelAsState, came later and fails
+' alone), and with the rows `mise run baseline ./internal/contract/` passes.
+' The list holds 27 rows: 26 failures and the flake.
 '
 ' Pinned by internal/contract/mise_gates_test.go:
 '   TestUnitBaselineRowsNameRealTests       sorted, unique, one test each, and
@@ -70,7 +81,7 @@ title The unit baseline — green means no new failing test
 '   TestUnitLanesOfferNoRace                -race only behind --no-race
 
 component """go test -race -count=1\n-skip='^(<list>)$' ./...""" as RUN <<app>>
-database """[vars] unit_baseline""\nmise.toml · 15 failures · 1 flake" as LIST <<db>>
+database """[vars] unit_baseline""\nmise.toml · 26 failures · 1 flake" as LIST <<db>>
 component "any failure, build error\nor panic · exit 1" as NEW <<error>>
 component "the 'passes here' note\nand per-package scope\nLOST 2026-11-12" as FIXED <<error>>
 component """mise run ci""\nred on this host at main" as CI <<error>>
@@ -82,7 +93,7 @@ CI ARROW_ERROR RUN : cannot tell old red from new
 
 note bottom of LIST
   **Host-shaped, so it only shrinks by hand.**
-  Thirteen rows are macOS tooling failures.
+  24 rows are macOS tooling failures.
   A row leaves when its test passes on both
   host types, not when one host says so.
 end note

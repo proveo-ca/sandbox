@@ -208,7 +208,11 @@ func TestOpenCodeEngineKeepsHistoryAndImportsOnce(t *testing.T) {
 	if got := sessionID(first); got != hostID {
 		t.Fatalf("the new engine read session %q, want the imported host session %q:\n%s", got, hostID, terminalText(first))
 	}
-	created := run(image, "api", "POST", "/api/session", "--data", `{"title":"engine-history","location":{"directory":`+strconv.Quote(work)+`}}`)
+	guestWork, err := filepath.EvalSymlinks(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := run(image, "api", "POST", "/api/session", "--data", `{"title":"engine-history","location":{"directory":`+strconv.Quote(guestWork)+`}}`)
 	id := sessionID(created)
 	if id == "" {
 		t.Fatalf("no session was created in the engine:\n%s", terminalText(created))

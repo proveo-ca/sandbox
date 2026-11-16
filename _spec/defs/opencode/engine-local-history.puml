@@ -284,11 +284,22 @@ skinparam noteTextAlignment left
 '     TestOpenCodeImageShipsOnlyTheThinRuntime, TestOpenCodeDocumentsEngineLocalLogins;
 '     e2e/opencode_credentials_test.go TestOpenCodeRuntimeInImage.
 '   e2e/opencode_engine_sbx_test.go TestOpenCodeEngineKeepsHistoryAndImportsOnce:
-'     the first run prints "imported <share>/opencode.db"; api POST; reattach
-'     GET; `sbx stop` then GET; the host share stays byte-identical; then a
-'     `docker tag` retag of the image forces a replacement whose run prints
-'     "carried <engine>'s history" and "carried history" and reads the same
-'     session. [Unverified]: not run — no sbx on the verifying VM.
+'     the first run prints "imported <share>/opencode.db"; api POST; the
+'     workspace `session list` holds it; reattach GET; `sbx stop` then GET;
+'     the host share stays byte-identical; then a `docker tag` retag of the
+'     image forces a replacement whose run prints "carried <engine>'s history"
+'     and "carried history", reads the same session and lists it.
+'     MEASURED 2026-11-14 green on sbx 0.50.0, macOS host, OpenCode 2.3.0.
+' THE SESSION'S DIRECTORY IS THE GUEST'S PATH (MEASURED 2026-11-14, OpenCode
+' 2.3.0 in proveo/opencode): `session list` shows only the current project's
+' sessions. A git directory's project is its root commit, so any path of one
+' repository lists the same sessions. A directory outside git is keyed on
+' its real path: a symlink and its target share a project; a path that does
+' not exist gets a project of its own. The guest mounts only the physical
+' path (/private/var/folders/…, never /var/folders/…), so the test creates
+' its session at filepath.EvalSymlinks(work). With the host's /var/folders
+' path the session landed in a project no workspace matches and the list
+' read [] (both runs before this fix).
 '
 ' ── REHOMED FROM THE DELETED PLAN (D9) ─────────────────────────────────────
 ' SBX PERSISTENCE AND REMOVAL (docs read 2026-10-14, quoted then):

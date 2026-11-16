@@ -15,6 +15,30 @@ const (
 	ConfigFilesRootVar = "PROVEO_CONFIG_FILES_ROOT"
 )
 
+// StateSetVar is the variable proveo_sync_state reads and proveo_sync_config skips.
+// SPEC: _spec/internal/sbx/state-sync.puml
+const StateSetVar = "PROVEO_STATE_DIRS"
+
+// StateSet encodes every synced mount's state dirs as "hostrel|agentrel" entries joined by ";".
+func StateSet(h manifest.Home) string {
+	if !h.Active() {
+		return ""
+	}
+	var entries []string
+	for _, m := range h.Mounts {
+		hostRel, agentRel := strings.Trim(strings.TrimSpace(m.Host), "/"), agentRel(m.Container)
+		if hostRel == "" || agentRel == "" || strings.ContainsAny(hostRel+agentRel, "|;") {
+			continue
+		}
+		for _, p := range m.State {
+			if manifest.ValidState(p) {
+				entries = append(entries, hostRel+"/"+p+"|"+agentRel+"/"+p)
+			}
+		}
+	}
+	return strings.Join(entries, ";")
+}
+
 func ConfigFiles(h manifest.Home) string {
 	if !h.Active() {
 		return ""
