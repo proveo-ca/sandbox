@@ -74,7 +74,7 @@ skinparam packageStyle rectangle
 ' exited 0, so a typo read as success. Every command that takes no argument
 ' (the root, clean, init, setup, update, uninstall, prompt, schedule and its
 ' ls · tick · install · uninstall) now refuses one through noArgs: one ×, one
-' dim fix, exit 1 (backend.Reported, so main adds nothing):
+' dim fix, exit 1 (sandbox.Reported, so main adds nothing):
 '   × proveo schedule — no command "retyr"      a command with subcommands
 '       nearest: `proveo schedule retry`        (cobra's suggestions, distance 2)
 '   × proveo clean — takes no argument "extra"  a command without

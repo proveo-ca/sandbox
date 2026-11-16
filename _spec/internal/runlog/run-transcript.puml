@@ -47,7 +47,7 @@ skinparam noteTextAlignment left
 '   nil            through ui.Logf. "the agent exited 0" is worth having in a
 '                  transcript being diffed against a broken run, and worth
 '                  nothing on a terminal that just watched it happen.
-'   backend.Stopped  (since 2026-10-17) the default branch, ui.Logf: "outcome:
+'   sandbox.Stopped  (since 2026-10-17) the default branch, ui.Logf: "outcome:
 '                  stopped by SIGTERM" (or SIGHUP), LOG ONLY. `main` maps it to
 '                  128+signal via exitCode and prints nothing, like ExitError;
 '                  the terminal already showed Run's "stopped by SIGTERM —

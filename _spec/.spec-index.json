@@ -781,8 +781,8 @@
     {
       "spec": "_spec/internal/backend/exit-code.puml",
       "covers": [
-        "internal/backend/backend.go",
-        "internal/backend/backend_test.go",
+        "internal/backend/sandbox/exit.go",
+        "internal/backend/sandbox/exit_test.go",
         "cmd/proveo/main.go",
         "cmd/proveo/main_test.go",
         "cmd/proveo/die_unix.go",

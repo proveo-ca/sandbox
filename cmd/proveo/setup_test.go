@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/promptkit"
 )
 
@@ -120,7 +120,7 @@ func TestSetupWithAnUnknownShellFailsOnceAndNamesTheDir(t *testing.T) {
 	for sh, why := range map[string]string{"": "$SHELL is not set", "/usr/bin/nu": "nu is not a shell setup knows"} {
 		setupHost(t, sh)
 		stderr, err := setup(t)
-		var rep backend.Reported
+		var rep sandbox.Reported
 		want := "error: ~/.proveo/bin — not on PATH\n    " + why + "\n    add it to PATH in your shell's startup file\n"
 		if !errors.As(err, &rep) || stderr != want {
 			t.Errorf("SHELL=%q: setup = %q, %v; want %q, Reported", sh, stderr, err, want)
@@ -134,7 +134,7 @@ func TestSetupThatCannotWriteTheRcFailsWithTheLineToAdd(t *testing.T) {
 		t.Fatal(err)
 	}
 	stderr, err := setup(t)
-	var rep backend.Reported
+	var rep sandbox.Reported
 	want := "error: ~/.zshrc — not written\n    open ~/.zshrc: is a directory\n    add it yourself: export PATH=\"" + dir + ":$PATH\"\n"
 	if !errors.As(err, &rep) || stderr != want {
 		t.Errorf("setup = %q, %v; want %q, Reported", stderr, err, want)

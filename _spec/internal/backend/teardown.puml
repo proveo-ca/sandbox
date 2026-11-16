@@ -318,13 +318,13 @@ title Teardown — what runs after the agent exits, how long each step may take,
 '        a forwarded SIGTERM/SIGHUP   ● claudecode — stopped by SIGTERM
 '        sbx's exit, sbx said nothing × sbx run — exited with code N
 '        any other failure            × <the error>; Run returns
-'                                     backend.Reported, so main prints
+'                                     sandbox.Reported, so main prints
 '                                     nothing after the ide block
 '        sbx printed its own error, an operator-chosen removal, a clean
 '        exit: no line. The run log keeps the outcome either way. A removal
 '        the operator chose prints nothing whatever Wait returned: sbx's
 '        ExitError, or context.Canceled when sbx exited 0 after the
-'        SIGTERM; Run returns that one as backend.Reported (exit 1, no ×).
+'        SIGTERM; Run returns that one as sandbox.Reported (exit 1, no ×).
 '   2. live frames (a terminal) or start lines (plain output) per step.
 '   3. what came home: ONE sandbox.Block, gathered by the steps and printed
 '      when the clone step ends; a failed run's block waits for the state

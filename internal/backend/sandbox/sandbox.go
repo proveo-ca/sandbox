@@ -30,7 +30,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/hostdev"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
@@ -1855,7 +1854,7 @@ func Run(in Input) error {
 	endWatch()
 	keepHomeAccess = td.keepHome
 	if sig := td.leftBy(); sig != 0 {
-		return backend.Stopped{Signal: sig}
+		return Stopped{Signal: sig}
 	}
 	return runResult(result, said && end.Fail, forceRemove.Load(), tail.Lines())
 }
@@ -1872,7 +1871,7 @@ func sbxStatus(result error) int {
 // sbx's exit only when sbx printed no error line of its own; a × for any other failure; no line
 // for a removal the operator chose. said is false when the screen needs no line.
 func agentEnd(target string, result error, forced, sbxSaid bool, lines []string) (end Item, said bool) {
-	var stopped backend.Stopped
+	var stopped Stopped
 	switch {
 	case result == nil, forced:
 		return Item{}, false
@@ -1898,11 +1897,11 @@ func agentEnd(target string, result error, forced, sbxSaid bool, lines []string)
 // results block printed or a removal the operator chose as Reported, else result as it is.
 func runResult(result error, printed, forced bool, lines []string) error {
 	if ee, ok := result.(*exec.ExitError); ok {
-		return backend.ExitError{Code: sbx.RunExitCode(ee.ExitCode(), lines)}
+		return ExitError{Code: sbx.RunExitCode(ee.ExitCode(), lines)}
 	}
-	var stopped backend.Stopped
+	var stopped Stopped
 	if result != nil && (printed || forced) && !errors.As(result, &stopped) {
-		return backend.Reported{Err: result}
+		return Reported{Err: result}
 	}
 	return result
 }
@@ -1963,10 +1962,10 @@ func forwardStop() (ctx context.Context, stop func(), cancel context.CancelFunc,
 }
 
 // stopOutcome splits how a run ended into what teardown reads and what Run returns: a
-// forwarded stop tears down like a normal exit and returns backend.Stopped.
+// forwarded stop tears down like a normal exit and returns Stopped.
 func stopOutcome(runErr error, sig syscall.Signal, forced bool) (teardown, result error) {
 	if sig != 0 && !forced {
-		return nil, backend.Stopped{Signal: sig}
+		return nil, Stopped{Signal: sig}
 	}
 	return runErr, runErr
 }

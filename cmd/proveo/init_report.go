@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -400,7 +399,7 @@ func (r *initReport) close(rec *initRecord, err error) error {
 	if errors.As(err, &blocked) {
 		r.heading()
 		printNeeds(sandbox.WithPaths(prereqItems(r.prereqs), ui.TildeIn))
-		return backend.Reported{Err: err}
+		return sandbox.Reported{Err: err}
 	}
 	if r.stale && r.judged && err == nil {
 		_ = verify(resolveBin(r.applied), r)
@@ -421,7 +420,7 @@ func (r *initReport) close(rec *initRecord, err error) error {
 	}
 	printNeeds(needs)
 	if turn.runs && interrupted(r.runSetup(turn.offer, rec)) {
-		ret = reraised{backend.Stopped{Signal: syscall.SIGINT}}
+		ret = reraised{sandbox.Stopped{Signal: syscall.SIGINT}}
 	}
 	if closing != nil {
 		ui.Blank()
@@ -532,24 +531,24 @@ func (r *initReport) ending(err error, rows []closedRow) (*closedRow, error) {
 	case err == nil:
 		return &closedRow{mark: choiceui.MarkNeeds, label: "host — readiness not checked"}, nil
 	case errors.As(err, &notReady):
-		return &closedRow{mark: choiceui.MarkFailed, label: "host — not ready to run"}, backend.Reported{Err: err}
+		return &closedRow{mark: choiceui.MarkFailed, label: "host — not ready to run"}, sandbox.Reported{Err: err}
 	case errors.Is(err, errInitLeft):
-		return &closedRow{mark: choiceui.MarkNeeds, label: "init — " + err.Error(), detail: ready}, backend.Reported{Err: err}
+		return &closedRow{mark: choiceui.MarkNeeds, label: "init — " + err.Error(), detail: ready}, sandbox.Reported{Err: err}
 	case errors.As(err, &step) && errors.As(err, &hand):
 		it := &closedRow{mark: choiceui.MarkNeeds, label: "init — stopped at " + cmpLabel(step.label), detail: ready}
 		if hand.interrupted {
 			it.detail = append([]string{"Ctrl+C ended it"}, ready...)
-			return it, reraised{backend.Stopped{Signal: syscall.SIGINT}}
+			return it, reraised{sandbox.Stopped{Signal: syscall.SIGINT}}
 		}
-		return it, backend.Reported{Err: err}
+		return it, sandbox.Reported{Err: err}
 	case errors.As(err, &step):
 		it := &closedRow{mark: choiceui.MarkFailed, label: "init — stopped at " + cmpLabel(step.label), detail: ready}
 		if !named(step.label) {
 			it.detail = append(errLines(step.err), ready...)
 		}
-		return it, backend.Reported{Err: err}
+		return it, sandbox.Reported{Err: err}
 	}
-	return &closedRow{mark: choiceui.MarkFailed, label: "init — stopped", detail: append(errLines(err), ready...)}, backend.Reported{Err: err}
+	return &closedRow{mark: choiceui.MarkFailed, label: "init — stopped", detail: append(errLines(err), ready...)}, sandbox.Reported{Err: err}
 }
 
 // cmpLabel is a step's label, or what stands for an unlabelled one.

@@ -278,7 +278,7 @@ func TestComponentMapNamesLivingRootDocs(t *testing.T) {
 	}
 }
 
-// renamedIdents maps each name gopls renamed to its replacements, scoped to the files whose prose named it.
+// renamedIdents maps each renamed or re-qualified name to its replacements, scoped to the files whose prose named it.
 var renamedIdents = []struct {
 	files   []string
 	renamed map[string][]string
@@ -301,6 +301,12 @@ var renamedIdents = []struct {
 		map[string][]string{"Parse": {"ParseSecretRef"}, "IsReference": {"IsSecretRef"}}},
 	{[]string{"_spec/internal/workspace/workspace-scan.puml", "internal/workspace/scan.go", "internal/workspace/scan_test.go"},
 		map[string][]string{"MaxDepth": {"ScanMaxDepth"}, "DefaultBudget": {"DefaultScanBudget"}, "Result": {"ScanResult"}}},
+	{[]string{"_spec/internal/backend/exit-code.puml", "_spec/internal/backend/teardown.puml", "_spec/_conventions/tui-design-language.puml",
+		"_spec/_plans/hermes-desktop-over-ssh.puml", "_spec/cmd/proveo/init-preflight-and-result.puml", "_spec/cmd/proveo/usage.puml",
+		"_spec/internal/results/result-store.puml", "_spec/internal/runlog/run-transcript.puml", "_spec/internal/sbx/host-readiness.puml",
+		"_spec/internal/sbx/kit-lifecycle.puml", "_spec/internal/sbx/sandbox-backend.puml", "_spec/internal/ui/output-vocabulary.puml",
+		"internal/backend/sandbox/exit.go", "internal/backend/sandbox/sandbox.go", "cmd/proveo/main.go", "cmd/proveo/main_test.go"},
+		map[string][]string{"backend.ExitError": {"sandbox.ExitError"}, "backend.Stopped": {"sandbox.Stopped"}, "backend.Reported": {"sandbox.Reported"}}},
 }
 
 type proseLine struct {

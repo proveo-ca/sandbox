@@ -301,7 +301,7 @@ title init opens on every check and closes on the closed checklist
 ' found the host ready, every ending but success keeps "host ready to run"
 ' as its last dim line, under the error or "Ctrl+C ended it" when there is
 ' one; until then only a quit or a cancel kept it.
-' Each ending but success returns backend.Reported (or a re-raised Stopped),
+' Each ending but success returns sandbox.Reported (or a re-raised Stopped),
 ' so main prints nothing more: one × host line, never main's "× host not
 ' ready to run: <names>" under it. A blocked prerequisite ends on its × item in the
 ' sbx block and prints no result. Errors before any block exists (no home

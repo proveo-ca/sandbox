@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
@@ -100,10 +99,10 @@ func TestTheScopePageOpensOnTheRepoRootOrWhereAnEarlierVisitLeftIt(t *testing.T)
 
 func TestAgentExitDiscrimination(t *testing.T) {
 	t.Parallel()
-	var ae backend.ExitError
+	var ae sandbox.ExitError
 
-	if !errors.As(error(backend.ExitError{Code: 42}), &ae) || ae.Code != 42 {
-		t.Errorf("backend.ExitError must match itself and carry the code, got %+v", ae)
+	if !errors.As(error(sandbox.ExitError{Code: 42}), &ae) || ae.Code != 42 {
+		t.Errorf("sandbox.ExitError must match itself and carry the code, got %+v", ae)
 	}
 
 	// A real wrapped ExitError, as a failed `docker pull` produces.
@@ -620,12 +619,12 @@ func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
 		want   int
 		wantOK bool
 	}{
-		{"the agent's own code", fmt.Errorf("run: %w", backend.ExitError{Code: 137}), 137, true},
-		{"a SIGTERM stop", fmt.Errorf("run: %w", backend.Stopped{Signal: syscall.SIGTERM}), 143, true},
-		{"a SIGHUP stop", backend.Stopped{Signal: syscall.SIGHUP}, 129, true},
-		{"a teardown the operator left", backend.Stopped{Signal: syscall.SIGINT}, 130, true},
+		{"the agent's own code", fmt.Errorf("run: %w", sandbox.ExitError{Code: 137}), 137, true},
+		{"a SIGTERM stop", fmt.Errorf("run: %w", sandbox.Stopped{Signal: syscall.SIGTERM}), 143, true},
+		{"a SIGHUP stop", sandbox.Stopped{Signal: syscall.SIGHUP}, 129, true},
+		{"a teardown the operator left", sandbox.Stopped{Signal: syscall.SIGINT}, 130, true},
 		{"proveo's own failure", errors.New("no sbx"), 0, false},
-		{"a failure the results block already printed", backend.Reported{Err: errors.New("sbx setup ssh: exit status 1")}, 1, true},
+		{"a failure the results block already printed", sandbox.Reported{Err: errors.New("sbx setup ssh: exit status 1")}, 1, true},
 	} {
 		if got, ok := exitCode(c.err); got != c.want || ok != c.wantOK {
 			t.Errorf("exitCode(%s) = %d, %v; want %d, %v", c.name, got, ok, c.want, c.wantOK)

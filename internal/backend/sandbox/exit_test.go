@@ -1,18 +1,17 @@
-package backend_test
+// SPEC: _spec/internal/backend/exit-code.puml
+package sandbox
 
 import (
 	"errors"
 	"fmt"
 	"syscall"
 	"testing"
-
-	"github.com/proveo-ca/proveo/internal/backend"
 )
 
 func TestExitErrorSurvivesWrapping(t *testing.T) {
-	wrapped := fmt.Errorf("sandbox teardown: %w", backend.ExitError{Code: 137})
+	wrapped := fmt.Errorf("sandbox teardown: %w", ExitError{Code: 137})
 
-	var ae backend.ExitError
+	var ae ExitError
 	if !errors.As(wrapped, &ae) {
 		t.Fatalf("ExitError must be recoverable through a wrap chain, got %v", wrapped)
 	}
@@ -34,8 +33,8 @@ func TestAStopExitsWith128PlusTheSignal(t *testing.T) {
 		{syscall.SIGHUP, 129, "stopped by SIGHUP"},
 		{syscall.SIGINT, 130, "stopped by SIGINT"},
 	} {
-		var st backend.Stopped
-		if !errors.As(fmt.Errorf("sandbox teardown: %w", backend.Stopped{Signal: c.sig}), &st) {
+		var st Stopped
+		if !errors.As(fmt.Errorf("sandbox teardown: %w", Stopped{Signal: c.sig}), &st) {
 			t.Fatalf("Stopped{%v} must be recoverable through a wrap chain", c.sig)
 		}
 		if st.Code() != c.code || st.Error() != c.msg {

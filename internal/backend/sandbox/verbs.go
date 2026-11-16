@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -166,7 +165,7 @@ func notRemoved(name string, err error, detail ...string) error {
 // refused prints it and returns err as one main prints nothing for.
 func refused(it Item, err error) error {
 	it.print()
-	return backend.Reported{Err: err}
+	return Reported{Err: err}
 }
 
 // keptInput rebuilds what the carry needs from the sandbox's listing and its store entry.

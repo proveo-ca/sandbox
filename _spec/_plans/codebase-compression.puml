@@ -32,7 +32,7 @@ skinparam noteTextAlignment left
 '   N6, N8  envflag and envreg split on purpose — DONE; an envflag + envreg merge reverses them
 '        (env-switches.puml, env-registry.puml).
 '   N9   maintainer commands left the operator binary — DONE; P9(c) finishes that intent (usage.puml).
-'   N16  internal/backend stays the home of run errors — DECIDED; kept here (exit-code.puml).
+'   N16  internal/backend stays the home of run errors — DECIDED; reversed 2026-11-15 by §4 P11 (exit-code.puml).
 '   N18  exported API kept alive only by its own tests — DONE; §3 is the residue after it (credential-decisions.puml).
 '   sbx-kit-v3.puml UPSTREAM KITS (DECIDED 2026-10-22) vendors the kits and marks "compose FROM docker/sbx-kit-claude
 '        + a proveo mixin" NOT CHOSEN; F9 option 3 would reverse it.
@@ -311,6 +311,14 @@ skinparam noteTextAlignment left
 '      Verifier follow-up, own commit: 15 prose lines in 8 files still named a renamed identifier (Resolve, Detect,
 '      Marker, Ensure, Ready, Runner, Available, Sanitize + Save, MaxDepth); fixed, and spec_notes_test.go now holds
 '      the per-file rename ledger (TestProseNamesTheRenamedIdentifier; reasoning in spec-conventions.puml).
+'   ── DONE 2026-11-15, two folds the owner added outside the 15, one commit each ──
+'      DECIDED 2026-11-15 (owner: "Into backend/sandbox"): internal/backend (2 files, 83 lines; sbx its only
+'      implementation) folds into internal/backend/sandbox as exit.go and exit_test.go. ExitError, Stopped and
+'      Reported keep their names; 18 importer files repointed by gofmt -r plus the astutil import pass; 13 prose
+'      lines in 11 other specs, 1 Go comment and 1 test message read sandbox.X now, and the ledger maps the qualified
+'      names. Reverses N16. internal/backend stays as sandbox's parent; exit-code.puml and teardown.puml stay.
+'      MEASURED: `go list ./...` 44 → 43; internal non-test edges 116 → 113 (−3: cmd/proveo, run and sandbox →
+'      backend; no edge added); depth 7, sandbox L5. Tracked files 900 → 900; directories with tracked files 139 → 138.
 ' P12 · table-driven (Manifest).Validate (104 lines, cyclo 40) — "Complex Conditionals" — DEFER
 '   https://softwarepatternslexicon.com/go/design-principles-and-best-practices/code-smells-and-refactoring/
 '   files: internal/manifest/manifest.go:182-330 · lines 0…−20 [Inference] (patterns.md said −34) · risk low

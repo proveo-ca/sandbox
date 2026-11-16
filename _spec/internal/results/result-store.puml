@@ -176,7 +176,7 @@ title The result store — what a run left behind, one file per entry, readable 
 '   ⚠ <name> — removed, its entry stays   the entry write failed after the
 '                                 removal: the entry is cleared before the ✓.
 '                                 NOT CHOSEN: ✓, then main's ×
-' Every × and ⚠ closing but "no such sandbox" comes back backend.Reported
+' Every × and ⚠ closing but "no such sandbox" comes back sandbox.Reported
 ' (exit 1, as HEAD's returned errors did); main adds none.
 ' An OpenCode engine's history is a "history:" fact of the carried block
 ' ("carried history (<size>) to <~carry file>"), printed before the block,

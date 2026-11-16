@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -154,7 +153,7 @@ func (t *teardown) signalled(sig syscall.Signal, leaveNow context.CancelFunc) {
 	case sig != syscall.SIGINT:
 		if t.asked.CompareAndSwap(0, int32(sig)) {
 			t.askedAt.Store(&at)
-			ui.Warnf("%v — leaving once %s finishes", backend.Stopped{Signal: sig}, at)
+			ui.Warnf("%v — leaving once %s finishes", Stopped{Signal: sig}, at)
 		}
 	case t.interrupts.Add(1) == 1 && t.asked.Load() == 0:
 		ui.Warnf("teardown is at %s — Ctrl+C again leaves now", at)
@@ -204,7 +203,7 @@ func (t *teardown) leave() {
 	sig := syscall.Signal(t.asked.Load())
 	reason := "teardown was stopped"
 	if sig != 0 {
-		reason = "teardown " + backend.Stopped{Signal: sig}.Error()
+		reason = "teardown " + Stopped{Signal: sig}.Error()
 	}
 	if at := t.askedAt.Load(); at != nil {
 		reason += " at " + *at

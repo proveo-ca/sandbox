@@ -125,7 +125,7 @@ skinparam noteTextAlignment left
 '   forwardStop returns (ctx, stop, cancel, signalled func() syscall.Signal);
 '     signalled is 0 when proveo cancelled the run itself (Ctrl+C remove).
 '   stopOutcome(runErr, sig, forced) returns (teardown, result). For sig != 0
-'     and not forced: teardown nil, result backend.Stopped{sig}. Otherwise both
+'     and not forced: teardown nil, result sandbox.Stopped{sig}. Otherwise both
 '     are runErr. The signal is read ONCE, after the retry block.
 '   Run prints "● <target> — stopped by SIGTERM" (or SIGHUP) first under
 '     results; "teardown runs as on a normal exit" is a run-log row (R2).

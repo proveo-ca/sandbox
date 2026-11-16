@@ -124,7 +124,7 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/tool_sync_test.go` | 4 | 1 | Pins tool state sync declarations; new state can remain unsynchronized. |
 | `internal/contract/toolchain_test.go` | 4 | 1 | Guards shipped toolchain declarations; static inventory does not prove tools execute. |
 | `internal/agentsettings/agentsettings_test.go` | 4 | 2 | Guards settings discovery and merge rules; malformed vendor files remain risky. |
-| `internal/backend/backend_test.go` | 4 | 2 | Pins backend interface behavior; mocks can conceal lifecycle asymmetry. |
+| `internal/backend/sandbox/exit_test.go` | 4 | 2 | Pins exit-status types through a wrap chain; a status the agent never chose stays untested. |
 | `internal/clean/sandbox_liveness_test.go` | 4 | 2 | Prevents deletion of live sandbox state; process-name evidence can be stale. |
 | `internal/contract/agent_launch_guard_test.go` | 4 | 2 | Ensures entrypoints use the launch disambiguator; static parsing can miss indirect bypasses. |
 | `internal/contract/agents_shared_test.go` | 4 | 2 | Guards shared agent definitions; equality can preserve a shared mistake. |
@@ -143,7 +143,7 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/model_bridging_retired_test.go` | 4 | 2 | Prevents retired model rewriting from returning; static scans may miss equivalent behavior. |
 | `internal/contract/seed_abort_test.go` | 4 | 2 | Guards nonfatal seed failures; shell probes cover only known abort shapes. |
 | `internal/agentsettings/agentsettings.go` | 4 | 3 | Discovers and merges harness settings; vendor schema changes can corrupt intent. |
-| `internal/backend/backend.go` | 4 | 3 | Defines backend lifecycle abstractions; a thin interface can hide unequal guarantees. |
+| `internal/backend/sandbox/exit.go` | 4 | 3 | Defines the run's exit-status types; a lost errors.As match turns the agent's code into exit 1. |
 | `internal/engine/engine_test.go` | 4 | 3 | Pins command execution sequencing; fakes omit OS process edge cases. |
 | `internal/entrypoint/entrypoint_test.go` | 4 | 3 | Exercises seed and launch decisions; test shells differ from image entrypoints. |
 | `internal/entrypoint/parity_test.go` | 4 | 3 | Cross-checks Go and shell entrypoint behavior; parity can preserve a mutual defect. |

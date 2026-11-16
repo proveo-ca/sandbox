@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/schedule"
@@ -317,7 +317,7 @@ func TestUninstallWithoutATerminalOrYesFailsWithOneHowTo(t *testing.T) {
 	_, root := uninstallHost(t)
 	out := captureUI(t)
 	err := uninstall(false, false, nil)
-	var rep backend.Reported
+	var rep sandbox.Reported
 	if !errors.As(err, &rep) {
 		t.Fatalf("err = %v, want Reported", err)
 	}
@@ -357,7 +357,7 @@ func TestUninstallClosesOnTheRootItCouldNotRemove(t *testing.T) {
 	t.Setenv("PROVEO_INSTALL_ROOT", home)
 	out := captureUI(t)
 	err := uninstall(true, false, nil)
-	var rep backend.Reported
+	var rep sandbox.Reported
 	if !errors.As(err, &rep) || !strings.HasSuffix(out.String(), "error: ~ — not removed\n    an unsafe install root\n") {
 		t.Errorf("an unsafe root ended on %v:\n%s", err, out)
 	}

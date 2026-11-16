@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/promptkit"
@@ -99,7 +98,7 @@ func uninstall(yes, tty bool, in io.Reader) error {
 	facts := gone.facts()
 	if rootErr != nil {
 		sandbox.PrintBlock(func() {}, facts, append(items, rootItem(root, rootErr)))
-		return backend.Reported{Err: rootErr}
+		return sandbox.Reported{Err: rootErr}
 	}
 	verb := "uninstalled"
 	switch {

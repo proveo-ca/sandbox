@@ -242,7 +242,7 @@ skinparam noteTextAlignment left
 ' a run needs it, ⚠ when it is spared, "<name> — <summary>", then the
 ' evidence, sbx's hint and, for a spared row, "a run does not need this
 ' check; it affects …", dim. Then one closing line: "✓ host — ready to run"
-' or "× host — not ready to run", which returns backend.Reported so main
+' or "× host — not ready to run", which returns sandbox.Reported so main
 ' adds no "× host not ready to run: <names>" (MEASURED c3: the blocker was
 ' said twice).
 ' LEFT THE SCREEN: the count ("sbx reports N of M host checks failing", "…

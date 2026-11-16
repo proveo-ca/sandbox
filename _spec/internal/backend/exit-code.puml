@@ -1,9 +1,9 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-' purpose: why a package exists for its exit-status types, how main turns them into proveo's exit code, and why the interface it was created for is never written
-' covers: internal/backend/backend.go
-' covers: internal/backend/backend_test.go
+' purpose: where proveo's exit-status types live, how main turns them into proveo's exit code, and why the backend interface is never written
+' covers: internal/backend/sandbox/exit.go
+' covers: internal/backend/sandbox/exit_test.go
 ' covers: cmd/proveo/main.go (main, exitWith, reraised, exitCode)
 ' covers: cmd/proveo/main_test.go (TestExitCodeIsTheAgentsOrTheStoppingSignals, TestAnInitACtrlCStoppedDiesOfSIGINT)
 ' covers: cmd/proveo/die_unix.go
@@ -16,6 +16,16 @@ skinparam noteTextAlignment left
 '   where a stop becomes Stopped .... _spec/internal/sbx/kit-lifecycle.puml
 '   the transcript's outcome line .. _spec/internal/runlog/run-transcript.puml
 '   the tail the code is read from . _spec/internal/agentio/agent-terminal-io.puml
+'
+' ── THE EXIT TYPES LIVE IN SANDBOX (DECIDED 2026-11-15) ────────────────────
+' DECIDED 2026-11-15 (owner: "Into backend/sandbox"; codebase-compression.puml
+' P11): backend.go folds into internal/backend/sandbox as exit.go, its test
+' beside it as exit_test.go. sbx is the only backend; sandbox already
+' imported the package; run and cmd/proveo import both, so no cycle forms.
+' ExitError, Stopped and Reported keep their names, and callers write
+' sandbox.ExitError. The internal/backend directory stays as sandbox's
+' parent. This reverses N16 (2026-10-18): WHY THE PACKAGE STAYED below is
+' HISTORY, since its sibling-import argument needed two backends.
 '
 ' ── 2026-11-11 (R2): WHO SAYS THE EXIT ON SCREEN ───────────────────────────
 ' The operator, settled by P9 and the sbx overlap rule (F3;
@@ -35,8 +45,8 @@ skinparam noteTextAlignment left
 '                         explain; "× <error>" for any other failure
 '   sandbox.runResult     *exec.ExitError → ExitError{RunExitCode(...)}; a
 '                         failure agentEnd printed, or any non-exit error of
-'                         a removal the operator chose → backend.Reported
-'   backend.Reported      main's exitCode returns 1 and main prints nothing,
+'                         a removal the operator chose → sandbox.Reported
+'   sandbox.Reported      main's exitCode returns 1 and main prints nothing,
 '                         so no "× <err>" lands under a kept sandbox's "ide"
 '                         block (the critique's item 8)
 '   run.recordOutcome     ExitError goes to the LOG ONLY now
@@ -78,7 +88,7 @@ skinparam noteTextAlignment left
 ' exits 0 after the SIGTERM, exec.Cmd.Wait returns ctx.Err() (Go: a Cancel
 ' that succeeded makes a clean exit report the context), so the removal
 ' printed "× context canceled". agentEnd now returns no line for any forced
-' result, and runResult returns it as backend.Reported: exit 1, silent.
+' result, and runResult returns it as sandbox.Reported: exit 1, silent.
 ' [Inference] Whether sbx v0.50 exits 0 on SIGTERM was not measured.
 ' Pinned by TestSaidErrorReadsSbxsOwnLastLine (the status rows) and the
 ' "sbx exited 0" row of TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt.
@@ -145,7 +155,7 @@ skinparam noteTextAlignment left
 '
 ' ── 2026-10-17: A SECOND TYPE, Stopped ─────────────────────────────────────
 ' The user, on a stopped run's exit status: "Exit 128+sig, 'stopped'
-' (Recommended)". MEASURED, internal/backend/backend.go:
+' (Recommended)". MEASURED, internal/backend/sandbox/exit.go (since P11):
 '   type Stopped struct{ Signal syscall.Signal }
 '   Error() "stopped by SIGTERM" | "stopped by SIGHUP" | "stopped by signal N"
 '   Code()  128 + signal → 143 for SIGTERM, 129 for SIGHUP
@@ -157,7 +167,7 @@ skinparam noteTextAlignment left
 ' the scheduler's `echo $? > <run>.exit` reads 143 for a stop, the status a
 ' shell reports for a process SIGTERM ended. A stop is neither success (0) nor
 ' proveo's own failure (1).
-' Pinned by TestAStopExitsWith128PlusTheSignal (backend_test.go, through a %w
+' Pinned by TestAStopExitsWith128PlusTheSignal (exit_test.go, through a %w
 ' wrap) and TestExitCodeIsTheAgentsOrTheStoppingSignals (main_test.go).
 ' COVERAGE CHOICE: cmd/proveo/main.go and main_test.go are covered here because
 ' main and exitCode turn the command's error into proveo's process status; a
@@ -178,6 +188,7 @@ skinparam noteTextAlignment left
 ' nothing else to do". No source changed. MEASURED: three packages import it —
 ' internal/backend/sandbox builds both types, internal/run matches ExitError in
 ' recordOutcome, and cmd/proveo maps both to a status in exitCode.
+' Superseded 2026-11-15: the types moved into sandbox (DECIDED row at top).
 ' Everything below that names dockeregress or "both backends" is HISTORY.
 '
 ' ── NO INTERFACE, AND THAT IS THE FINISHED STATE ───────────────────────────
@@ -195,7 +206,7 @@ skinparam noteTextAlignment left
 ' it guesses a shape, which is the abstraction Go's own advice says to declare at
 ' the CONSUMER once a consumer exists.
 '
-' ── WHY THE PACKAGE STAYS ANYWAY ───────────────────────────────────────────
+' ── WHY THE PACKAGE STAYED (HISTORY UNTIL 2026-11-15) ──────────────────────
 ' Not for abstraction — for dependency direction. ExitError is needed by
 ' cmd/proveo and by BOTH backends. Put it in either backend and the other has to
 ' import its sibling; put it in cmd/proveo and internal/ imports cmd/. A leaf
@@ -208,11 +219,11 @@ skinparam noteTextAlignment left
 ' TestExitErrorSurvivesWrapping pins that, because a type that stopped matching
 ' through a %w chain would silently turn every agent failure into exit 1 and no
 ' test of the happy path would notice.
-title internal/backend — a package for dependency direction, not abstraction
+title Exit status — the agent's code or the stopping signal, never proveo's
 
 participant "sandbox" as SBX <<cloud>>
-participant "backend.ExitError" as EE <<data>>
-participant "backend.Stopped" as ST <<data>>
+participant "sandbox.ExitError" as EE <<data>>
+participant "sandbox.Stopped" as ST <<data>>
 participant "cmd/proveo main\nexitCode" as MAIN <<app>>
 
 SBX ARROW_ERROR EE : agent exited 137

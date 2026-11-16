@@ -58,7 +58,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' The user, on how SIGTERM/SIGHUP should end a run: "Stop runs normal
 ' teardown"; then, on its exit status: "Exit 128+sig, 'stopped'
 ' (Recommended)". MEASURED: stopOutcome(runErr, sig, forced) returns
-' (teardown nil, result backend.Stopped{sig}) for a forwarded signal that is
+' (teardown nil, result sandbox.Stopped{sig}) for a forwarded signal that is
 ' not the Ctrl+C "remove" path. A closed terminal or `kill -TERM proveo` prints
 ' "● <target> — stopped by SIGTERM" first under results (R2, the operator's
 ' STOP MARK; "ending as on a normal exit" is a run-log row), lifts clone edits and

@@ -171,7 +171,7 @@
 '               way an IDE attaches (ssh, jetbrains, toolbox, vs code,
 '               project); a kept run ends on it, so nothing after it may
 '               declare "results" again (sandbox.Run prints a failure as a ×
-'               under results and returns backend.Reported)
+'               under results and returns sandbox.Reported)
 '
 ' Every divider in a run therefore appears exactly ONCE: no stage declares a
 ' heading another stage owns. The stale step's retire carries a replaced

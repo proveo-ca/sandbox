@@ -18,7 +18,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
@@ -1122,8 +1121,8 @@ func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay i
 // and the log closes.
 // exitStatus is the process status err leads to: the agent's own, 128+signal for a stop, else 1.
 func exitStatus(err error) int {
-	var ae backend.ExitError
-	var st backend.Stopped
+	var ae sandbox.ExitError
+	var st sandbox.Stopped
 	switch {
 	case err == nil:
 		return 0
@@ -1136,7 +1135,7 @@ func exitStatus(err error) int {
 }
 
 func recordOutcome(launched bool, err error) {
-	var ae backend.ExitError
+	var ae sandbox.ExitError
 	switch {
 	case err == nil && !launched:
 		ui.Logf("outcome: no agent was launched")
