@@ -112,7 +112,7 @@ func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 		evidenceRow(EvidenceDefault),
 	}}
 	seen := map[string]bool{}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		seen[evidenceOf(f.Selection(evidenceLabel))] = true
 		f.Rows[1].Selected = (f.Rows[1].Selected + 1) % len(f.Rows[1].Options)
 	}

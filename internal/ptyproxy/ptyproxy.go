@@ -105,11 +105,9 @@ func (p *Proxy) Run(cmd *exec.Cmd) error {
 	_ = pty.InheritSize(p.In, m)
 
 	var drained sync.WaitGroup
-	drained.Add(1)
-	go func() {
-		defer drained.Done()
+	drained.Go(func() {
 		p.pumpOutFrom(m)
-	}()
+	})
 	in := newCancelIn(p.In, p.fd())
 	stopIn := make(chan struct{})
 	chunks, readerDone := readChunks(in.r, stopIn)

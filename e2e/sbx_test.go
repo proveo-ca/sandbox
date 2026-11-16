@@ -408,7 +408,7 @@ func retryable(line string) bool {
 }
 
 func sbxError(screen string) string {
-	for _, line := range strings.Split(screen, "\n") {
+	for line := range strings.SplitSeq(screen, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "ERROR:") {
 			return line
@@ -553,12 +553,7 @@ func TestEveryHarnessGetsTheDockerAccessItPromises(t *testing.T) {
 }
 
 func contains(ss []string, want string) bool {
-	for _, s := range ss {
-		if s == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ss, want)
 }
 
 func assertDockerServerReachable(t *testing.T, target, how, got string) {
@@ -701,7 +696,7 @@ const probeMount = "SBX_MOUNT.txt"
 // SPEC: _spec/_paradigms/retire-dind.puml
 func probeReport(pane string) string {
 	var keep []string
-	for _, line := range strings.Split(pane, "\n") {
+	for line := range strings.SplitSeq(pane, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case line == "HAS-SOCKET", line == "NO-SOCKET":
@@ -714,7 +709,7 @@ func probeReport(pane string) string {
 }
 
 func paneValue(pane, key string) string {
-	for _, line := range strings.Split(pane, "\n") {
+	for line := range strings.SplitSeq(pane, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, key) || strings.Contains(line, "rev-parse") {
 			continue

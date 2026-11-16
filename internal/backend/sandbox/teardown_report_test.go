@@ -175,7 +175,7 @@ func TestABlockPrintsWhatCameHomeInOneOrderWhicheverStepFoundItFirst(t *testing.
 	b.Fact(ui.Fact{Key: "output", Value: "~/w/reports"})
 	b.Print()
 	var keys []string
-	for _, l := range strings.Split(screen.String(), "\n") {
+	for l := range strings.SplitSeq(screen.String(), "\n") {
 		if k, _, ok := strings.Cut(l, ":"); ok && !strings.HasPrefix(l, " ") {
 			keys = append(keys, k)
 		} else if strings.Contains(l, "origin/b") || strings.Contains(l, "feat/x") {

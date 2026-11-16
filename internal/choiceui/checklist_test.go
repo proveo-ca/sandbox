@@ -301,11 +301,11 @@ func TestAChecklistGoldenFrames(t *testing.T) {
 
 // col is the column of the first rune of want in line, or -1.
 func col(line, want string) int {
-	at := strings.Index(line, want)
-	if at < 0 {
+	before, _, ok := strings.Cut(line, want)
+	if !ok {
 		return -1
 	}
-	return len([]rune(line[:at]))
+	return len([]rune(before))
 }
 
 // lineWith is the first line holding want, or "".

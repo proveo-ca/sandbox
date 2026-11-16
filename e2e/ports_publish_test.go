@@ -126,7 +126,7 @@ func awaitRunning(work string, within time.Duration) {
 func hostPortFor(t *testing.T, home string) int {
 	t.Helper()
 	log := readIn(home, filepath.Join("logs", "latest.log"))
-	for _, l := range strings.Split(log, "\n") {
+	for l := range strings.SplitSeq(log, "\n") {
 		var host, guest int
 		i := strings.Index(l, fmt.Sprintf("port %d: http://127.0.0.1:", guestPort))
 		if i < 0 {

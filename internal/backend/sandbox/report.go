@@ -42,7 +42,7 @@ func (it Item) print() {
 		ui.Notef("%s", it.Text)
 	}
 	for _, d := range it.Detail {
-		for _, row := range strings.Split(d, "\n") {
+		for row := range strings.SplitSeq(d, "\n") {
 			if row = strings.TrimRight(row, " \t\r"); strings.TrimSpace(row) != "" {
 				ui.Detailf("%s", row)
 			}

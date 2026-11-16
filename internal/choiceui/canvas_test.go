@@ -36,7 +36,7 @@ func TestAWriteOutsideTheWindowIsDropped(t *testing.T) {
 	s := simScreen(t, 20, 6)
 	c := newCanvas(s)
 	c.clipTo(2, 4)
-	for y := 0; y < 6; y++ {
+	for y := range 6 {
 		c.y = y
 		c.put(0, lipgloss.NewStyle(), "row")
 	}

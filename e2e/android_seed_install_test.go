@@ -116,7 +116,7 @@ func seedRun(t *testing.T, proveoBin, home, work, tag string, extra ...string) *
 
 func focusOption(t *testing.T, sess *schedule.TmuxSession, key, opt string, max int) {
 	t.Helper()
-	for i := 0; i < max; i++ {
+	for range max {
 		if screen, _ := sess.Capture(); strings.Contains(screen, "› "+opt+" —") {
 			return
 		}

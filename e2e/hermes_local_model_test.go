@@ -85,7 +85,7 @@ func TestHermesLocalModelE2E(t *testing.T) {
 // ("Respond with only the word PONG.") carries the word too, so a whole-screen
 // match passed before the model said anything.
 func answeredPong(screen string) bool {
-	for _, line := range strings.Split(screen, "\n") {
+	for line := range strings.SplitSeq(screen, "\n") {
 		w := strings.Trim(strings.ToUpper(strings.TrimSpace(line)), ".!│ ")
 		if w == "PONG" {
 			return true

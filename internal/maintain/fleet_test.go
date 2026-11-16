@@ -132,7 +132,7 @@ func TestTestVerbRunsEachSuiteOnceAndSkipsBases(t *testing.T) {
 		t.Fatal(err)
 	}
 	var runs []string
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if strings.Contains(line, "go test ") {
 			runs = append(runs, line)
 		}

@@ -39,11 +39,12 @@ func TestCredentialInventoryDeduplicatesMetadataWithoutRenderingSecretValues(t *
 
 // rowText is the row and every list it opens, as Go syntax.
 func rowText(row choiceui.Row) string {
-	text := fmt.Sprintf("%#v", row)
+	var text strings.Builder
+	fmt.Fprintf(&text, "%#v", row)
 	for _, m := range row.Lists {
-		text += fmt.Sprintf(" %#v", *m)
+		fmt.Fprintf(&text, " %#v", *m)
 	}
-	return text
+	return text.String()
 }
 
 func TestTheEnvCellListsTheEnvFilesNamesAndNeverAValue(t *testing.T) {

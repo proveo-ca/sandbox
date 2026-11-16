@@ -811,12 +811,7 @@ func normalizeAddons(addons []string) []string {
 }
 
 func hasAddon(addons []string, name string) bool {
-	for _, a := range addons {
-		if a == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(addons, name)
 }
 
 func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, repoRoot, inputDir, homeRoot string) []string {

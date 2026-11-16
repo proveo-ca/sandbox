@@ -191,7 +191,7 @@ u=$(git remote get-url origin 2>/dev/null); [ -d "$u" ] && [ ! -w "$u" ] && echo
 		return nil
 	}
 	state := map[string]string{}
-	for _, l := range strings.Split(string(out), "\n") {
+	for l := range strings.SplitSeq(string(out), "\n") {
 		if k, v, ok := strings.Cut(strings.TrimRight(l, "\r"), "="); ok {
 			state[k] = strings.TrimSpace(v)
 		}
@@ -213,7 +213,7 @@ func assertGitSyncTurn(t *testing.T, h gitSyncHarness, state map[string]string, 
 		t.Fatalf("decode trace %q: %v", state["TRACE"], err)
 	}
 	var traces []gitSyncTrace
-	for _, l := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
 		var r gitSyncTrace
 		if err := json.Unmarshal([]byte(l), &r); err != nil {
 			t.Errorf("trace line %q is not JSON: %v", l, err)

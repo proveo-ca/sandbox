@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -183,12 +184,7 @@ func androidAppRow(t *testing.T, proveoBin string, port int, h androidHarness) {
 }
 
 func containsString(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(xs, x)
 }
 
 func waitUntil(timeout time.Duration, cond func() bool) bool {

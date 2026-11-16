@@ -136,12 +136,13 @@ func TestSaveStateKeepsVMLocalPathsInTheSandbox(t *testing.T) {
 
 	vmLocal := []string{"sessions/1.json", "statsig/cache", "shell-snapshots/s.sh", "daemon.lock", "daemon.status.json",
 		"daemon.log", "daemon/roster.json", "jobs/j1/state.json"}
-	write := `. /entrypoint-lib.sh && proveo_sync_state restore && mkdir -p "$HOME/.claude/projects/-work-live" &&
-echo turn > "$HOME/.claude/projects/-work-live/live.jsonl"`
+	var write strings.Builder
+	write.WriteString(`. /entrypoint-lib.sh && proveo_sync_state restore && mkdir -p "$HOME/.claude/projects/-work-live" &&
+echo turn > "$HOME/.claude/projects/-work-live/live.jsonl"`)
 	for _, rel := range vmLocal {
-		write += ` && mkdir -p "$(dirname "$HOME/.claude/` + rel + `")" && echo x > "$HOME/.claude/` + rel + `"`
+		write.WriteString(` && mkdir -p "$(dirname "$HOME/.claude/` + rel + `")" && echo x > "$HOME/.claude/` + rel + `"`)
 	}
-	sbxExec(t, name, write)
+	sbxExec(t, name, write.String())
 	if out, err := exec.Command("sbx", sbx.SaveStateArgs(name)...).CombinedOutput(); err != nil {
 		t.Fatalf("save state: %v\n%s", err, out)
 	}

@@ -427,7 +427,7 @@ func ValidTransient(p string) bool {
 	if p == "" || p != strings.TrimSpace(p) || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "|;,\\ \t\n") {
 		return false
 	}
-	for _, seg := range strings.Split(p, "/") {
+	for seg := range strings.SplitSeq(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
 			return false
 		}

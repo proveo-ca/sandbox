@@ -658,7 +658,7 @@ func ocImportHook(t *testing.T) string {
 func ocActive(t *testing.T, out string) map[string]bool {
 	t.Helper()
 	got := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		id, active, ok := strings.Cut(line, " ")
 		if ok && (active == "true" || active == "false") {
 			got[id] = active == "true"

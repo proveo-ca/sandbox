@@ -156,7 +156,7 @@ func TestBrowserVariantsAreDocumentedAsALayerOnTheirHarness(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, line := range strings.Split(string(b), "\n") {
+			for line := range strings.SplitSeq(string(b), "\n") {
 				if strings.Contains(line, "`proveo/"+name+"`") && strings.Contains(line, "`proveo/base-node-browser`") {
 					t.Errorf("%s says %s builds from proveo/base-node-browser; it is the browser layer on proveo/%s:\n%s",
 						filepath.Base(filepath.Dir(path))+"/README.md", name, s.Needs, line)

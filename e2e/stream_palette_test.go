@@ -46,7 +46,7 @@ func TestStreamPaletteE2E(t *testing.T) {
 	if lineWith(screen, "error: agent exited with code 3") == "" {
 		t.Errorf("sbx's own exit line is missing:\n%s", screen)
 	}
-	for _, l := range strings.Split(screen, "\n") {
+	for l := range strings.SplitSeq(screen, "\n") {
 		if plain := stripSGR(l); strings.HasPrefix(plain, "× ") && strings.Contains(plain, "exited with code") {
 			t.Errorf("proveo repeated the exit sbx already printed: %q", l)
 		}
@@ -66,7 +66,7 @@ func TestNoProveoExitLineWhenOnlyStdinIsRedirected(t *testing.T) {
 	if strings.Contains(screen, "PROVEO_EXIT=0") || lineWith(screen, "error: ") == "" {
 		t.Fatalf("want a failed run whose own error line sbx printed:\n%s", screen)
 	}
-	for _, l := range strings.Split(screen, "\n") {
+	for l := range strings.SplitSeq(screen, "\n") {
 		if plain := stripSGR(l); strings.HasPrefix(plain, "× ") && strings.Contains(plain, "exited with code") {
 			t.Errorf("proveo repeated the exit sbx already printed: %q\n%s", l, screen)
 		}
@@ -206,7 +206,7 @@ func runVolatile(t *testing.T, proveoBin, redirect string) string {
 }
 
 func lineWith(screen, sub string) string {
-	for _, l := range strings.Split(screen, "\n") {
+	for l := range strings.SplitSeq(screen, "\n") {
 		if strings.Contains(stripSGR(l), sub) {
 			return l
 		}
@@ -260,7 +260,7 @@ func colourOpenAfter(l string, open bool) bool {
 func proveoLines(screen string) []string {
 	var out []string
 	open := true
-	for _, l := range strings.Split(screen, "\n") {
+	for l := range strings.SplitSeq(screen, "\n") {
 		plain := stripSGR(l)
 		switch {
 		case proveoHeading.MatchString(plain):

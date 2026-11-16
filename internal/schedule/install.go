@@ -225,7 +225,7 @@ func TickStatus(run Runner) Tick {
 // parseLaunchdPrint reads `launchctl print`'s job: the last exit status when it was not 0, and the
 // file the job writes its output to.
 func parseLaunchdPrint(out string) (exit, log string) {
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		l = strings.TrimSpace(l)
 		if v, ok := strings.CutPrefix(l, "last exit code = "); ok && exit == "" {
 			if v = strings.TrimSpace(v); v != "0" && !strings.HasPrefix(v, "(") {

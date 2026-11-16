@@ -80,7 +80,7 @@ func parseVer(s string) ([3]int, bool) {
 		return [3]int{}, false
 	}
 	var out [3]int
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		n, err := strconv.Atoi(m[i+1])
 		if err != nil {
 			return [3]int{}, false

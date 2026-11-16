@@ -563,8 +563,8 @@ func cmpLabel(label string) string {
 // errLines is err as dim detail: each line, split at " — ", with home paths as "~/".
 func errLines(err error) []string {
 	var out []string
-	for _, line := range strings.Split(strings.TrimSpace(err.Error()), "\n") {
-		for _, part := range strings.Split(line, " — ") {
+	for line := range strings.SplitSeq(strings.TrimSpace(err.Error()), "\n") {
+		for part := range strings.SplitSeq(line, " — ") {
 			if p := strings.TrimSpace(part); p != "" {
 				out = append(out, ui.TildeIn(p))
 			}

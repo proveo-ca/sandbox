@@ -41,7 +41,7 @@ func ListCarried(repo string) ([]CarriedRef, error) {
 		return nil, NotListed{Out: out}
 	}
 	var refs []CarriedRef
-	for _, name := range strings.Fields(out) {
+	for name := range strings.FieldsSeq(out) {
 		session, branch, ok := strings.Cut(strings.TrimPrefix(name, "proveo/"), "/")
 		if !ok || !strings.HasPrefix(name, "proveo/") {
 			continue

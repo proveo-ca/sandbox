@@ -224,7 +224,7 @@ func hermesExec(t *testing.T, name, script string, timeout time.Duration) (strin
 func configSection(yaml, key string) string {
 	var b strings.Builder
 	in := false
-	for _, line := range strings.Split(yaml, "\n") {
+	for line := range strings.SplitSeq(yaml, "\n") {
 		switch {
 		case strings.HasPrefix(line, key+":"):
 			in = true

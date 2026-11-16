@@ -47,11 +47,11 @@ func TestTailIsConcurrencySafe(t *testing.T) {
 	t.Parallel()
 	w := NewTail(8)
 	var wg sync.WaitGroup
-	for g := 0; g < 8; g++ {
+	for g := range 8 {
 		wg.Add(1)
 		go func(g int) {
 			defer wg.Done()
-			for i := 0; i < 200; i++ {
+			for i := range 200 {
 				fmt.Fprintf(w, "g%d line %d\n\x1b[Kpartial %d", g, i, i)
 			}
 		}(g)

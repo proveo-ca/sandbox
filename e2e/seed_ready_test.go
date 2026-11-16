@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -435,7 +434,7 @@ func assertEchoes(t *testing.T, sess *schedule.TmuxSession, target string, seedi
 	_ = sess.SendKeys(slices.Repeat([]string{"BSpace"}, len(typed))...)
 
 	sorted := append([]time.Duration(nil), lat...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 	p90, worst := sorted[len(sorted)*9/10], sorted[len(sorted)-1]
 	t.Logf("%s echo p90=%s max=%s (background seed still installing: %v)", target, p90.Round(time.Millisecond), worst.Round(time.Millisecond), seeding)
 	if p90 > p90Max {

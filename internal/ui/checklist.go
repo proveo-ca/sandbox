@@ -125,7 +125,7 @@ func wrapSegments(outcome string, room int) []string {
 	}
 	var lines []string
 	cur := ""
-	for _, seg := range strings.Split(outcome, " · ") {
+	for seg := range strings.SplitSeq(outcome, " · ") {
 		switch {
 		case cur == "":
 		case textWidthOf(cur+" · "+seg) <= room:
@@ -149,7 +149,7 @@ func wrapWords(s string, first, rest int) []string {
 	}
 	var lines []string
 	cur, room := "", first
-	for _, word := range strings.Fields(s) {
+	for word := range strings.FieldsSeq(s) {
 		switch {
 		case cur == "":
 		case textWidthOf(cur+" "+word) <= room:

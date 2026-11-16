@@ -4,6 +4,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -115,10 +116,8 @@ func walk(dir string, depth int, markers []Marker, prune map[string]bool, res *S
 }
 
 func matches(name string, m Marker) bool {
-	for _, n := range m.Names {
-		if name == n {
-			return true
-		}
+	if slices.Contains(m.Names, name) {
+		return true
 	}
 	for _, s := range m.Suffixes {
 		if strings.HasSuffix(name, s) {
@@ -146,7 +145,7 @@ func gitignoreNames(dir string) map[string]bool {
 	if err != nil {
 		return out
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
 			continue

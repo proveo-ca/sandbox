@@ -126,7 +126,7 @@ func InspectSSH(bin string, command Command, getenv func(string) string) Host {
 		h.AgentError = "host agent unavailable or empty; load a GitHub authentication key with ssh-add"
 		return h
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) > 1 && strings.HasPrefix(fields[1], "SHA256:") {
 			h.Keys = append(h.Keys, strings.Join(fields[1:], " "))

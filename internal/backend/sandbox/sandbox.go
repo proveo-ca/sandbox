@@ -472,7 +472,7 @@ func gitPaths(ctx context.Context, dir string, args ...string) ([]string, error)
 		return nil, err
 	}
 	var paths []string
-	for _, p := range strings.Split(string(out), "\x00") {
+	for p := range strings.SplitSeq(string(out), "\x00") {
 		if p != "" {
 			paths = append(paths, p)
 		}
@@ -612,7 +612,7 @@ func reportCloneRefs(in Input, cfg sbx.RunConfig, committed string, out *Block) 
 	_ = listed(err)
 	var names []string
 	tips := map[string]string{}
-	for _, line := range strings.Split(string(refs), "\n") {
+	for line := range strings.SplitSeq(string(refs), "\n") {
 		if f := strings.Fields(line); len(f) == 2 {
 			names = append(names, f[0])
 			tips[f[0]] = f[1]
@@ -1279,10 +1279,8 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 		if in.Lookup(name) == "" {
 			return
 		}
-		for _, n := range forwarded {
-			if n == name {
-				return
-			}
+		if slices.Contains(forwarded, name) {
+			return
 		}
 		forwarded = append(forwarded, name)
 	}
@@ -1629,10 +1627,8 @@ func withLocalModelTools(agent string, env, command []string) []string {
 	if agent != sbx.BuiltinAgent("claudecode") || envValue(env, "PROVEO_LOCAL_MODEL") == "" {
 		return command
 	}
-	for _, a := range command {
-		if a == "--tools" {
-			return command
-		}
+	if slices.Contains(command, "--tools") {
+		return command
 	}
 	return append([]string{"--tools", LocalModelTools}, command...)
 }
@@ -1643,10 +1639,8 @@ func withMobileMCP(harness string, env, command []string) []string {
 	if len(flags) == 0 || envValue(env, hostdev.EnvADBPort) == "" {
 		return command
 	}
-	for _, a := range command {
-		if a == flags[0] {
-			return command
-		}
+	if slices.Contains(command, flags[0]) {
+		return command
 	}
 	return append(append([]string{}, flags...), command...)
 }
@@ -2423,7 +2417,7 @@ func trackedFiles(repoRoot string) []string {
 		return nil
 	}
 	var files []string
-	for _, f := range strings.Split(string(out), "\x00") {
+	for f := range strings.SplitSeq(string(out), "\x00") {
 		if f != "" {
 			files = append(files, f)
 		}

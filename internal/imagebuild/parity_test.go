@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -106,9 +107,7 @@ func registry(t *testing.T, root string) []maintain.Target {
 func goBuilds(t *testing.T, root, name, tag string, push bool, cacheDir string, cold bool) []string {
 	t.Helper()
 	env := map[string]string{"PROVEO_BUILDKIT_CACHE_DIR": cacheDir}
-	for k, v := range pinned {
-		env[k] = v
-	}
+	maps.Copy(env, pinned)
 	r := &recorder{cold: cold, have: map[string]bool{}}
 	b := &imagebuild.Builder{
 		RepoRoot: root, Docker: r, Getenv: func(k string) string { return env[k] },

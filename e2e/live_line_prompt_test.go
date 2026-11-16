@@ -39,7 +39,7 @@ func TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt(t *testing.T) {
 	if screen, err := sess.WaitFor("the agent pushed these branches", 10*time.Second); err != nil {
 		t.Fatalf("the question never drew: %v\n%s", err, screen)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		time.Sleep(50 * time.Millisecond)
 		if screen, _ := sess.Capture(); strings.Contains(screen, liveStepFrame) {
 			t.Fatalf("the step line drew over the question:\n%s", screen)

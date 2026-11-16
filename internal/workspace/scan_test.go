@@ -88,7 +88,7 @@ func TestDepthIsBounded(t *testing.T) {
 func TestBudgetExhaustionReportsTruncated(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		touch(t, filepath.Join(root, "f", string(rune('a'+i%26))+"x", "noise.txt"))
 	}
 	got := Scan(root, root, markers, 3)

@@ -33,7 +33,7 @@ func TestLockedRowIsHoverableButNeverChangeable(t *testing.T) {
 		t.Fatalf("move onto a locked row = %d, want 0", got)
 	}
 	// Arrows read; they do not choose.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		f.cycle(0, 1)
 	}
 	if f.Rows[0].Selected != 0 {

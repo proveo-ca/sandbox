@@ -653,7 +653,7 @@ func wrapOne(ln []byte, width, hang int) []byte {
 		}
 		lineHasWord, wordStart, gap = true, -1, nil
 	}
-	for i := 0; i < len(ln); i++ {
+	for i := range ln {
 		if ln[i] == ' ' || ln[i] == '\t' {
 			if wordStart >= 0 {
 				flushWord(i)

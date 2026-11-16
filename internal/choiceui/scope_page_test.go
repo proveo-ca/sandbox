@@ -174,11 +174,11 @@ func TestTheScopePageFillsTheCursorsName(t *testing.T) {
 	lines := screenLines(s)
 	p := styles()
 	for y, line := range lines {
-		x := strings.Index(line, "› ")
-		if x < 0 || !strings.Contains(line, "apps") {
+		before, _, ok := strings.Cut(line, "› ")
+		if !ok || !strings.Contains(line, "apps") {
 			continue
 		}
-		col := textWidth(line[:x])
+		col := textWidth(before)
 		if col != inset(100) {
 			t.Errorf("the cursor mark sits at column %d, want %d: %q", col, inset(100), line)
 		}

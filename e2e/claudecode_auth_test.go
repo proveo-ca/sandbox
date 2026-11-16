@@ -153,7 +153,7 @@ func credentialProbeLine(c claudecodeAuthCase, creds string) string {
 var probeStatusRE = regexp.MustCompile(`^PROBE=(\d{3})$`)
 
 func probeStatus(screen string) string {
-	for _, line := range strings.Split(screen, "\n") {
+	for line := range strings.SplitSeq(screen, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.Contains(line, "%{") || strings.Contains(line, "curl") {
 			continue

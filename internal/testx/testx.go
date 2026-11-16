@@ -117,7 +117,7 @@ func (g *Goldens) Assert(name, got string) {
 
 // markerShaped reports whether a line of got would parse as a txtar file marker.
 func markerShaped(got string) bool {
-	for _, line := range strings.Split(got, "\n") {
+	for line := range strings.SplitSeq(got, "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		if len(line) >= 6 && strings.HasPrefix(line, "-- ") && strings.HasSuffix(line, " --") {
 			return true

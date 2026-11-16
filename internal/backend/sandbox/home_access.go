@@ -97,7 +97,7 @@ func listedLinkTargets(root string) map[string]bool {
 		return nil
 	}
 	set := map[string]bool{}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || !filepath.IsAbs(line) {
 			continue

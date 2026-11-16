@@ -186,7 +186,7 @@ func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n, initPages
 
 // keyLine is the screen's key line: the first line that names enter between the key line's separators.
 func keyLine(screen string) string {
-	for _, l := range strings.Split(screen, "\n") {
+	for l := range strings.SplitSeq(screen, "\n") {
 		if strings.Contains(l, "enter ") && strings.Contains(l, " · ") {
 			return l
 		}

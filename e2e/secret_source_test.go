@@ -75,7 +75,7 @@ func TestAReferenceReachesTheSandboxAsAScopedSbxSource(t *testing.T) {
 		t.Fatalf("sbx rm %s: %v", name, err)
 	}
 	ls, _ := exec.Command(sbx.Binary, "secret", "ls").CombinedOutput()
-	for _, line := range strings.Split(string(ls), "\n") {
+	for line := range strings.SplitSeq(string(ls), "\n") {
 		if strings.HasPrefix(line, name+" ") {
 			t.Errorf("a secret scoped to %s outlived the sandbox (P0 M5 measured it leaves with it): %s", name, line)
 		}

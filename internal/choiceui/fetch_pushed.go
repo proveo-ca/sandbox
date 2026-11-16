@@ -19,10 +19,7 @@ func FetchPushedCopy(branches []string, wait time.Duration) []string {
 	if extra != "" {
 		lines = append(lines, extra)
 	}
-	secs := int(wait.Round(time.Second) / time.Second)
-	if secs < 1 {
-		secs = 1
-	}
+	secs := max(int(wait.Round(time.Second)/time.Second), 1)
 	lines = append(lines, "", fmt.Sprintf("%ds with no answer leaves them", secs))
 	return lines
 }

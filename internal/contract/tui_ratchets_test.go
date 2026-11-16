@@ -37,7 +37,7 @@ func TestTheRetiredTUILibrariesStayOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(string(mod), "\n") {
+	for line := range strings.SplitSeq(string(mod), "\n") {
 		for _, lib := range retiredTUILibraries {
 			if strings.Contains(line, lib) {
 				t.Errorf("go.mod requires %s again: %s", lib, strings.TrimSpace(line))

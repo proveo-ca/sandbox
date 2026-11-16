@@ -2,6 +2,7 @@
 package run
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -77,9 +78,7 @@ func runFormCases(t *testing.T) []runFormCase {
 func mergedEnv(a, b map[string]string) map[string]string {
 	out := map[string]string{}
 	for _, m := range []map[string]string{a, b} {
-		for k, v := range m {
-			out[k] = v
-		}
+		maps.Copy(out, m)
 	}
 	return out
 }

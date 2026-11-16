@@ -212,10 +212,7 @@ func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p 
 	boxMid := boxL + (boxR-boxL)/2
 
 	at := func(row, col, floor int, style lipgloss.Style, text string) *pen {
-		x := col - textWidth(text)/2
-		if x < floor {
-			x = floor
-		}
+		x := max(col-textWidth(text)/2, floor)
 		return newPen(s, x, y0+row).write(style, text)
 	}
 	fit := func(text string, room int) string {
@@ -288,10 +285,7 @@ func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p 
 	writePair := func(row int, left, right, join string, leftStyle lipgloss.Style) {
 		l := hostCell(left)
 		line := fit(l+join+clipRunes(right, HostSide), boxL-x0-1)
-		x := colHost - textWidth(line)/2
-		if x < x0 {
-			x = x0
-		}
+		x := max(colHost-textWidth(line)/2, x0)
 		pn := newPen(s, x, y0+row)
 		head := []rune(l + join)
 		all := []rune(line)
@@ -313,10 +307,7 @@ func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p 
 		if key != "" {
 			unitW += textWidth(" " + key)
 		}
-		x := colHop - unitW/2
-		if x < boxR+2 {
-			x = boxR + 2
-		}
+		x := max(colHop-unitW/2, boxR+2)
 		p3 := newPen(s, x, y0+3).write(on(FocusHop), label)
 		if key != "" {
 			p3.write(dim, " ").write(keyStyle(fr, KeyAtHop, on, p.accent), key)

@@ -243,7 +243,7 @@ func TestEverySectionConstantIsUsed(t *testing.T) {
 		t.Fatalf("read internal/ui/ui.go: %v", err)
 	}
 	var declared []string
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "Section") || !strings.Contains(line, "=") {
 			continue

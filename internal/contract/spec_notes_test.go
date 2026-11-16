@@ -222,7 +222,7 @@ func TestRetiredFindingsMapNamesLivingOwners(t *testing.T) {
 	}
 	block, _, _ = strings.Cut(block, "'\n")
 	rows := 0
-	for _, line := range strings.Split(block, "\n") {
+	for line := range strings.SplitSeq(block, "\n") {
 		for _, p := range specPath.FindAllString(line, -1) {
 			if _, err := os.Stat(filepath.Join(root, "_spec", p)); err != nil {
 				t.Errorf("%s owner map names _spec/%s, which does not exist", plan, p)

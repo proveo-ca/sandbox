@@ -450,7 +450,7 @@ func TestRemediationHintsRunInEveryShell(t *testing.T) {
 	// A quoted hint that assigns an env var immediately before a command word,
 	// with no `env` in front of it.
 	bad := regexp.MustCompile(`[^a-zA-Z_](HOME|PATH|ANTHROPIC_[A-Z_]+|CLAUDE_[A-Z_]+)=%?[^ "]* +(claude|cursor|opencode|proveo|sbx)\b`)
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		if !strings.Contains(line, `"`) {
 			continue // only user-facing string literals matter
 		}

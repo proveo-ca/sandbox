@@ -140,7 +140,7 @@ func TestGutterMarksTheEndsAndSizesItsThumb(t *testing.T) {
 		t.Errorf("nothing is hidden at the end of travel, got %d", bottom.hiddenRows(lines))
 	}
 	thumb := 0
-	for i := 0; i < window; i++ {
+	for i := range window {
 		if _, isThumb := top.glyph(i, false); isThumb {
 			thumb++
 		}
@@ -155,7 +155,7 @@ func TestGutterHasAnASCIITier(t *testing.T) {
 	t.Parallel()
 	g := newGutter(2, 4, 40)
 	wall := glyphsFor(GlyphsASCII).wallR
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s, _ := g.glyph(i, true)
 		for _, r := range s {
 			if r > 127 {

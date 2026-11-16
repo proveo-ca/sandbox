@@ -458,12 +458,7 @@ func LosesToChosenAuth(k, chosen string) bool {
 	if prov == "" || ProviderOfKeyVar(k) != prov {
 		return false
 	}
-	for _, alt := range provider.AuthVars(prov) {
-		if alt == k {
-			return true // same provider, different auth: the operator chose the other
-		}
-	}
-	return false
+	return slices.Contains(provider.AuthVars(prov), k)
 }
 
 func LoadedSecretNames(man manifest.Manifest, lookup func(string) string) []string {
@@ -611,8 +606,8 @@ func ParseEnvFile(path string) map[string]string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		if after, ok := strings.CutPrefix(line, "export "); ok {
+			line = strings.TrimSpace(after)
 		}
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {

@@ -324,7 +324,7 @@ func TestScheduleHelpExampleLoads(t *testing.T) {
 		t.Fatalf("no schedule.yml example in:\n%s", long)
 	}
 	var yml strings.Builder
-	for _, l := range strings.Split(long[start:start+end], "\n") {
+	for l := range strings.SplitSeq(long[start:start+end], "\n") {
 		yml.WriteString(strings.TrimPrefix(l, "  ") + "\n")
 	}
 	home := t.TempDir()

@@ -137,7 +137,7 @@ func TestDockerignoreNeverHidesSomethingADockerfileCopies(t *testing.T) {
 func dockerignoreEntries(t *testing.T, file string) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
-	for _, line := range strings.Split(readRepoFile(t, file), "\n") {
+	for line := range strings.SplitSeq(readRepoFile(t, file), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -264,7 +264,7 @@ func TestPythonDepFailureNamesTheMissingToolchain(t *testing.T) {
 
 func instructionsOnly(df string) string {
 	var out []string
-	for _, line := range strings.Split(df, "\n") {
+	for line := range strings.SplitSeq(df, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}

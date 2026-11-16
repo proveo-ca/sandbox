@@ -410,7 +410,7 @@ func dockerLines(args ...string) []string {
 		return nil
 	}
 	var lines []string
-	for _, l := range strings.Split(string(out), "\n") {
+	for l := range strings.SplitSeq(string(out), "\n") {
 		if l = strings.TrimRight(l, "\r"); strings.TrimSpace(l) != "" {
 			lines = append(lines, l)
 		}

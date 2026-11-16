@@ -100,10 +100,7 @@ func rowSpan(lines []bodyLine, row int) (from, to int) {
 }
 
 func scrollTo(prev, window int, lines []bodyLine, cursor int) int {
-	limit := len(lines) - window
-	if limit < 0 {
-		limit = 0
-	}
+	limit := max(len(lines)-window, 0)
 	off := clampInt(prev, 0, limit)
 	from, to := rowSpan(lines, cursor)
 	if to == 0 {
@@ -203,7 +200,7 @@ func (f *Form) lastSelectable() int {
 }
 
 func (f *Form) page(cursor, delta int) int {
-	for n := 0; n < pageRows; n++ {
+	for range pageRows {
 		next := f.move(cursor, delta)
 		if next == cursor {
 			break

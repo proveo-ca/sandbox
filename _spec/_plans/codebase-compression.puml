@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
-' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open); F5 option 3 DONE 2026-11-15 (§6 rows 12-13). _spec/_plans/ is exempt from the SPEC-reference rule.
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 2, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open); F5 option 3 DONE 2026-11-15 (§6 rows 12-13). _spec/_plans/ is exempt from the SPEC-reference rule.
 ' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
 '   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
 '   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
@@ -411,6 +411,15 @@ skinparam noteTextAlignment left
 '      −62 is the figure the totals carry; −11 more under -tags e2e (25 files), 0 under -tags image. Per fixer: slicescontains
 '      −46 · minmax −21 · mapsloop −2 · waitgroup −2 · stringsbuilder +2; rangeint / stringscut / stringsseq are 1:1 churn
 '      (±301 / ±460 / ±78). Two fixes skip as conflicts (maintain, sbx), so run it twice.
+'      ── DONE 2026-11-15, commit "refactor: apply go fix modernizers" (go1.26.10) ──
+'      MEASURED by `git diff --numstat`: 113 files +267 / −345 = −78; default tags 87 files −67, -tags e2e 25 files −11,
+'      -tags image 1 file 0. A skipped conflict drops every write in its package although go fix prints "N files
+'      updated", so a second plain pass left maintain and sbx untouched; `go fix -stringsseq=false` then a plain pass
+'      applied them (sbx/run.go:26 carries slicescontains and stringsseq on one loop). 0 hunks reverted: no folded loop
+'      had a side effect and no Seq result is ranged twice or indexed. Beyond the nine listed fixers, forvar (2) and
+'      slicessort (1) landed, both behaviour-preserving at go 1.26. Tool follow-ups: `gopls imports` merged the two
+'      import decls go fix left in sbx/secret.go; `gofmt -r` turned one stringsbuilder hunk's WriteString(Sprintf) into
+'      fmt.Fprintf (staticcheck QF1012).
 '   2  go mod tidy (3 requires; go.sum −58/+6)              −52 net         0       S       low     go1.26 tidy -diff; keep bubbles/v2        §3 dead · high
 '      other.md's 62 counts the refuted bubbles/v2 line; runewidth → x/ansi (already indirect, go.mod:21) is −1 require [E], 0 lines
 '   3  pnpm workspace with 0 members → mise `npm:wrangler`  −884 net        −3      S       low     mise npm backend; [Unverified] wrangler's  §7 other · high
@@ -620,7 +629,7 @@ skinparam noteTextAlignment left
 '      DONE 2026-11-15 for the N15 pointer (repo-simplification.puml N15 UPDATE, with F5); F3 did not widen
 '   1  DONE 2026-11-15 — dead high set per F1; `go mod tidy`; delete the .db; repoint seed-and-launch.puml:16,   gate: gofmt, build, vet ×3, lint,
 '      the two credential-decisions.puml prose lines, step-lines.puml:36 and sandbox-backend.puml:123       baseline, contract · −114 net, −1 file
-'   2  `go fix ./...` twice (2 conflicting fixes skip on the first pass); modernize −92 is superseded   gate: gofmt, test-go, e2e go vet · −62 (−73 with tags)
+'   2  DONE 2026-11-15 — `go fix` ×3 tag sets; maintain + sbx needed -stringsseq=false first (§6 row 1) gate: gofmt, test-go, e2e go vet · −78 (113 files)
 '   3  DONE 2026-11-15 — fixtures: internal/testx with the guards; 11 archives; PROVEO_UPDATE_FRAMES   gate: per-package -update round trip is a no-op
 '      and the golden_test.go flag dropped; .gitattributes; standards line; covers lines (§5 DONE)    diff; test-go; go vet -tags=e2e · −243 files
 '   4  N15 / P1, P4 split, P5 split, P9(a)(c)(d)                                                   gate: 137 + 20 frames, 7 goldens unchanged · +6 files
@@ -635,7 +644,7 @@ title PLANNED — codebase compression: dead code reported, the chart and the le
 
 node "baseline · 1,178 files · 195,957 lines\n594 ""\.go"" = 126,046 · 53 packages · 260 fixtures" as BASE <<host>>
 component "D1 · dead code, verified\n−107 high · −611 all · 8 files" as DEAD <<error>>
-component """go fix"" (Go 1.26)\n−62 lines across 75 files · modernize −92" as MOD <<app>>
+component "DONE · ""go fix"" (Go 1.26)\n−78 lines across 113 files" as MOD <<app>>
 database "D3 · txtar fixtures\n260 → 18 files · +195 lines" as FIX <<db>>
 component "N15 splits · P1 P4 P5\n0 lines · +6 files" as SPLIT <<app>>
 component "DONE · P10 DRY + 8 merges\n53 → 44 packages · −9 Go dirs" as DRY <<app>>
@@ -678,10 +687,10 @@ note bottom of DEAD
 end note
 
 note right of MOD
-  **A rewrite, not a removal.** ""go fix"" nets
-  −62 over 75 files, −73 with tags; the older
-  ""modernize -fix"" run read −92, and Go 1.26
-  made ""go fix"" the modernizers' home.
+  **A rewrite, not a removal.** ""go fix"" netted
+  −78 over 113 files across three tag sets; a
+  conflict in a package blocks all its writes,
+  so two packages took a pass per fixer.
 end note
 
 note bottom of FIX

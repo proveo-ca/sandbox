@@ -44,7 +44,7 @@ func loggedSteps(t *testing.T, home string) []string {
 		t.Fatalf("read the run log: %v", err)
 	}
 	var names []string
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if name, ok := stepRowName(line); ok && !strings.Contains(name, "/") {
 			names = append(names, name)
 		}

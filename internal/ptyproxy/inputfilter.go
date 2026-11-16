@@ -491,7 +491,7 @@ func isTerminatedAPC(b []byte) bool {
 }
 
 func (t *mouseTracker) apply(params []byte, set bool) {
-	for _, p := range bytes.Split(params, []byte(";")) {
+	for p := range bytes.SplitSeq(params, []byte(";")) {
 		n, err := strconv.Atoi(string(p))
 		if err != nil {
 			continue
@@ -612,7 +612,7 @@ func isOrphanReportStart(b []byte) bool {
 // csiParamsEnd walks CSI parameters and intermediates to the final byte
 // (0x40..0x7e). b is the bytes AFTER the introducer (after ESC [ or 0x9b).
 func csiParamsEnd(b []byte) (int, bool) {
-	for i := 0; i < len(b); i++ {
+	for i := range b {
 		if b[i] >= 0x40 && b[i] <= 0x7e {
 			return i + 1, true
 		}

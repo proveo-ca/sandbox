@@ -155,7 +155,7 @@ func TestTheClosedChecklistPrintsOnceInRunOrder(t *testing.T) {
 	if n := len(closedHead.FindAllString(got, -1)); n != 1 || len(headings(got)) != 0 {
 		t.Errorf("headings: %d closed, %v sections; want the closed checklist's alone, once", n, headings(got))
 	}
-	for _, l := range strings.Split(got, "\n") {
+	for l := range strings.SplitSeq(got, "\n") {
 		if w := len([]rune(l)); w > 80 {
 			t.Errorf("a line is %d columns wide at 80: %q", w, l)
 		}

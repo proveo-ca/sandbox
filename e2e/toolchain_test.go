@@ -82,7 +82,7 @@ func seedInstalls(t *testing.T, k *kitRun) int {
 		`printf 'INSTALLS %s\n' "$(grep -cE 'Dynamically installing|Installing ' /var/log/sbx-kit-startup.log 2>/dev/null || echo 0)"`,
 		60*time.Second)
 	n := -1
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) != 2 || fields[0] != "INSTALLS" {
 			continue
@@ -98,7 +98,7 @@ func seedInstalls(t *testing.T, k *kitRun) int {
 }
 
 func seedCounts(pane string) (started, done int) {
-	for _, line := range strings.Split(pane, "\n") {
+	for line := range strings.SplitSeq(pane, "\n") {
 		line = strings.TrimSpace(line)
 		fields := strings.Fields(line)
 		// the echoed command spells SEED too, but never followed by two numbers
