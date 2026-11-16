@@ -37,6 +37,14 @@ skinparam noteTextAlignment left
 '     TestEveryLocalImageStaysUnderTheSbxLayerCap (≤40, margin 4) and
 '     TestAFlatStageKeepsTheConfigOfTheLayersItReplaces (config parity)
 '     under the `image` tag.
+'   * The config-parity test builds each Dockerfile with the --build-arg pairs
+'     imagebuild.Builder.PinArgs resolves, the same call buildRef makes. #79
+'     made HERMES_AGENT_VERSION required, and the test built without it:
+'     "failed to parse stage name nousresearch/hermes-agent:" (2026-11-15).
+'     HERMES_AGENT_VERSION=<v> pins it offline, as for `mise run build hermes`.
+'     Once it built, it failed on Env ORDER alone: upstream reordered the same
+'     14 variables. The test compares Env sorted, as the Dockerfile's own
+'     `env | sort | diff` guard does; config order carries no meaning.
 '   * The v3 kit build adds at least one layer on top of its FROM image
 '     (MEASURED 2026-10-22, sbx 0.49.2: a 44-layer FROM image built, then hung
 '     at boot). So an image's budget is ≤43, not 44, and that kit layer is why

@@ -190,6 +190,23 @@ func (b *Builder) BuildTarget(name, tag string, o Options) error {
 	return b.buildRef(name, ref, o)
 }
 
+// PinArgs is the --build-arg pair for each of target's Pins, resolved the way a fleet build resolves them.
+func (b *Builder) PinArgs(target string) ([]string, error) {
+	s, ok := Specs[target]
+	if !ok {
+		return nil, fmt.Errorf("no build spec for target %q", target)
+	}
+	var args []string
+	for _, p := range s.Pins {
+		v, err := b.AgentVersion(p.Arg, p.Eco, b.PinPkg(p))
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "--build-arg", p.Arg+"="+v)
+	}
+	return args, nil
+}
+
 func (b *Builder) present(ref string) bool {
 	_, err := b.Docker.Output("image", "inspect", ref)
 	return err == nil
@@ -241,13 +258,11 @@ func (b *Builder) buildRef(name, ref string, o Options) error {
 		}
 		args = append(args, "--build-arg", e.Arg+"="+v)
 	}
-	for _, p := range s.Pins {
-		v, err := b.AgentVersion(p.Arg, p.Eco, b.PinPkg(p))
-		if err != nil {
-			return err
-		}
-		args = append(args, "--build-arg", p.Arg+"="+v)
+	pins, err := b.PinArgs(name)
+	if err != nil {
+		return err
 	}
+	args = append(append(args, pins...), InputsArgs(b.RepoRoot)...)
 	if s.Dockerfile != "" {
 		args = append(args, "-f", filepath.Join(b.RepoRoot, s.Dockerfile))
 	}

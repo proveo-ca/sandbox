@@ -1,0 +1,75 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how an image suite refuses a :local image built from other defs/ and packages/ content
+' covers: internal/imagebuild/inputs.go
+' covers: internal/imagebuild/inputs_test.go
+' covers: internal/imagebuild/targets.go
+' covers: internal/imagebuild/parity_test.go
+' covers: internal/imagetest/imagetest.go
+' covers: internal/imagetest/imagetest_test.go
+'
+' ── WHY (2026-11-15) ─────────────────────────────────────────────────────────
+' `mise run test-images` failed TestImageClaudecode and TestImageCodex on
+' `test -f /opt/proveo/subagents/_frontmatter/<harness>.<ext>`. The :local
+' images dated 2026-11-14; 9ab626af moved the frontmatter to one file per
+' harness on 2026-11-15 (_spec/defs/agent-definition-sharing.puml).
+' test-images never builds, so the suites checked HEAD's layout against the
+' previous day's image and reported it as a product failure.
+' The user chose "Stamp + fail fast (Recommended)" over building inside
+' test-images and over a spec-only note.
+'
+' ── THE STAMP ────────────────────────────────────────────────────────────────
+' Every fleet build (imagebuild.buildRef) passes
+' `--label proveo.inputs=<InputsDigest>`.
+' InputsDigest hashes the working-tree content of every git-visible file under
+' defs/ and packages/: tracked and untracked, minus .gitignore, counting the
+' exec bit and symlink targets. A deleted tracked file drops out of the hash.
+' The offered design compared a HEAD sha through `git diff X HEAD`. The digest
+' replaces it: a sha misses an uncommitted edit (the edit-lib-then-test loop),
+' and it flags a dirty-tree build as stale once that tree is committed.
+' A build outside a git checkout stamps nothing (InputsArgs returns nil).
+' testdata/build_argv.golden normalises the value to proveo.inputs=<inputs>,
+' so content edits never churn the golden.
+'
+' ── THE CHECK ────────────────────────────────────────────────────────────────
+' imagetest.New fails the suite when Stale(image) returns a reason: a :local
+' image without the label, or with a digest other than the checkout's. The
+' reason ends in `mise run build <target>`.
+' Published tags pass untouched: they answer to their registry, not to this
+' checkout. A missing checkout or a failed inspect passes too, so the check
+' never reports staleness it did not measure.
+'
+' ── COARSE BY DESIGN ─────────────────────────────────────────────────────────
+' One digest covers both trees for every image, so an edit under defs/hermes
+' marks a codex :local stale too. The option the user chose said so: "any
+' defs/packages change marks the image stale".
+' cmd/ and internal/ stay out, although proveo-entrypoint compiles from them:
+' including them would demand a fleet rebuild after every Go edit.
+' Every image built before this stamp fails once, by design.
+'
+' Tests: TestInputsDigestFollowsTheWorkingTreeUnderDefsAndPackages,
+' TestInputsArgsStampOnlyAGitCheckout (internal/imagebuild/inputs_test.go);
+' TestStaleReasonNamesTheRebuild, TestStaleLeavesPublishedImagesAlone
+' (internal/imagetest/imagetest_test.go); TestGoBuildMatchesGolden.
+title Stale :local image — stamp at build, refuse at test
+
+component "InputsDigest\ndefs/ + packages/ working tree" as DIGEST <<app>>
+component "mise run build <t>\nimagebuild.buildRef" as BUILD <<app>>
+component "proveo/<t>:local\nLABEL proveo.inputs" as IMG <<host>>
+component "imagetest.New → Stale" as NEW <<app>>
+component "suite fails:\nmise run build <t>" as FAIL <<error>>
+component "suite runs" as RUN <<app>>
+
+DIGEST ARROW_MAIN BUILD : ""--label""
+BUILD ARROW_MAIN IMG
+IMG ARROW_MAIN NEW : ""docker image inspect""
+DIGEST ARROW_MAIN NEW : this checkout
+NEW ARROW_ERROR FAIL : missing or other digest
+NEW ARROW_MAIN RUN : equal, or not :local
+
+note bottom of FAIL
+  A stale image fails as stale,
+  never as a missing file the
+  current source already ships.
+end note
+@enduml

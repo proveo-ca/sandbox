@@ -65,7 +65,7 @@ func repoRoot(t *testing.T) string {
 // normBuilds reduces each `buildx build` to a sorted flag multiset with
 // cleaned paths, so argument order and `a/../b` spellings do not count.
 func normBuilds(lines []string) []string {
-	valued := map[string]bool{"--builder": true, "--platform": true, "--build-arg": true, "-f": true, "-t": true, "--tag": true}
+	valued := map[string]bool{"--builder": true, "--platform": true, "--build-arg": true, "--label": true, "-f": true, "-t": true, "--tag": true}
 	var out []string
 	for _, l := range lines {
 		rest, ok := strings.CutPrefix(l, "buildx build ")
@@ -78,8 +78,11 @@ func normBuilds(lines []string) []string {
 			switch {
 			case valued[f[i]] && i+1 < len(f):
 				v := f[i+1]
-				if f[i] == "-f" {
+				switch {
+				case f[i] == "-f":
 					v = filepath.Clean(v)
+				case f[i] == "--label" && strings.HasPrefix(v, imagebuild.InputsLabel+"="):
+					v = imagebuild.InputsLabel + "=<inputs>"
 				}
 				parts = append(parts, f[i]+" "+v)
 				i++

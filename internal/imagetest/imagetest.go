@@ -120,6 +120,9 @@ func New(t *testing.T, image string) *Suite {
 	if !Present(image) {
 		t.Skip(notBuiltHint(image))
 	}
+	if why := Stale(image); why != "" {
+		t.Fatal(why)
+	}
 	t.Logf("image: %s", image)
 	return &Suite{T: t, Image: image}
 }
@@ -127,6 +130,42 @@ func New(t *testing.T, image string) *Suite {
 // notBuiltHint is New's skip line: it names the build target, the basename of image's repo.
 func notBuiltHint(image string) string {
 	return "image " + image + " not built (mise run build " + path.Base(imagebuild.RefRepo(image)) + ")"
+}
+
+// Stale names why a :local image no longer matches this checkout's defs/ and packages/, or "" when it does or cannot tell.
+// SPEC: _spec/tests/stale-local-image.puml
+func Stale(image string) string {
+	if imagebuild.RefTag(image) != "local" {
+		return ""
+	}
+	top, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	want, err := imagebuild.InputsDigest(strings.TrimSpace(string(top)))
+	if err != nil {
+		return ""
+	}
+	r := Docker(ProbeTimeout, nil, "image", "inspect", image, "--format", `{{index .Config.Labels "`+imagebuild.InputsLabel+`"}}`)
+	if !r.OK() {
+		return ""
+	}
+	return staleReason(image, strings.TrimSpace(r.Out), want)
+}
+
+func staleReason(image, got, want string) string {
+	if got == "<no value>" {
+		got = ""
+	}
+	rebuild := "mise run build " + path.Base(imagebuild.RefRepo(image))
+	switch got {
+	case want:
+		return ""
+	case "":
+		return "image " + image + " carries no " + imagebuild.InputsLabel + " stamp, so its defs/ and packages/ are unknown (" + rebuild + ")"
+	default:
+		return "image " + image + " was built from other defs/ and packages/ content than this checkout (" + rebuild + ")"
+	}
 }
 
 // ExecIn runs cmd under bash in a throwaway container of image.
