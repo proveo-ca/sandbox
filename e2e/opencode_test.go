@@ -5,13 +5,21 @@
 package e2e
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
+
+	"github.com/proveo-ca/proveo/internal/imagetest"
 	"github.com/proveo-ca/proveo/internal/run"
 	"github.com/proveo-ca/proveo/internal/schedule"
 )
@@ -145,4 +153,137 @@ func opencodeCompletionStatus(c opencodeAuthCase, token string) int {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode
+}
+
+// SPEC: _spec/defs/opencode/engine-local-history.puml
+
+func opencodeImageVersion(t *testing.T, image string) string {
+	t.Helper()
+	out, err := exec.Command("docker", "image", "inspect", "-f", `{{index .Config.Labels "proveo.agent.version"}}`, image).Output()
+	if err != nil {
+		t.Fatalf("inspect OpenCode image version: %v", err)
+	}
+	version := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(version, "2.") {
+		t.Fatalf("OpenCode image %s must pin v2, got %q", image, version)
+	}
+	return version
+}
+
+func TestOpenCodeRuntimeInImage(t *testing.T) {
+	image := imagetest.PinnedRef("opencode", "proveo/opencode:local")
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker is unavailable")
+	}
+	if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
+		t.Skipf("OpenCode image %s is unavailable", image)
+	}
+	opencodeImageVersion(t, image)
+	cmd := exec.Command("docker", "run", "--rm", "--network", "none", "--entrypoint", "python3",
+		"--mount", "type=bind,source="+repoRootDir(t)+",target=/fixture,readonly", image,
+		"-B", "/fixture/packages/lib/test_opencode_runtime.py", "-v")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("OpenCode runtime image regression failed: %v\n%s", err, out)
+	}
+}
+
+// SPEC: _spec/defs/opencode/native-v2-integration.puml
+
+func TestOpenCodePresentationAndAutoacceptInImage(t *testing.T) {
+	image := imagetest.PinnedRef("opencode", "proveo/opencode:local")
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker is unavailable")
+	}
+	if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
+		t.Skipf("OpenCode image %s is unavailable", image)
+	}
+	version := opencodeImageVersion(t, image)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--pull=never", "--network", "none",
+		"--entrypoint", "python3", "--mount", "type=bind,source="+repoRootDir(t)+",target=/fixture,readonly",
+		"-e", "PROVEO_TEST_OPENCODE_NATIVE=/usr/local/share/npm-global/bin/opencode",
+		"-e", "PROVEO_TEST_OPENCODE_VERSION="+version, image,
+		"-B", "/fixture/e2e/testdata/opencode_presentation.py", "-v")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("offline native presentation/YOLO verification: %v\n%s", err, out)
+	} else {
+		t.Logf("%s", out)
+	}
+}
+
+// SPEC: _spec/packages/lib/opencode-seed-progress.puml
+
+func TestOpenCodeSeedProgressTerminalHandoff(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash unavailable")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	root := repoRoot(t)
+	home := t.TempDir()
+	marker := filepath.Join(home, "released")
+	status := filepath.Join(home, "status")
+	env := []string{
+		"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=xterm-256color",
+		"SANDBOX_VM_ID=synthetic-opencode", "PROVEO_WORKDIR=" + home,
+		"PROVEO_SEED_PROGRESS=1", "PROVEO_SEED_STATUS_FILE=" + status,
+		"PROVEO_INSTRUCTIONS_MARKER=" + marker,
+		"PROVEO_SEED_REFUSED=" + filepath.Join(home, "refused"), "PROVEO_INSTRUCTIONS_WAIT=5",
+	}
+	producer := exec.CommandContext(ctx, bash, "-c", `source "$1/packages/lib/entrypoint-lib.sh"
+proveo_seed_step credentials "preparing GitHub trust" opencode
+sleep 0.8
+proveo_seed_step workspace "preparing shared folders" opencode
+sleep 0.8
+proveo_seed_step setup "rendering agents" opencode
+sleep 0.8
+: > "$PROVEO_INSTRUCTIONS_MARKER"`, "bash", root)
+	producer.Env = env
+	var log bytes.Buffer
+	producer.Stderr = &log
+	if err := producer.Start(); err != nil {
+		t.Fatal(err)
+	}
+	consumer := exec.CommandContext(ctx, "sh", filepath.Join(root, "packages/lib/proveo-await-seed"),
+		"sh", "-c", `printf 'NATIVE_READY\n'`)
+	consumer.Env = env
+	terminal, err := pty.StartWithSize(consumer, &pty.Winsize{Rows: 24, Cols: 140})
+	if err != nil {
+		_ = producer.Wait()
+		t.Fatal(err)
+	}
+	defer terminal.Close()
+	drained := make(chan string, 1)
+	go func() {
+		var output bytes.Buffer
+		_, _ = io.Copy(&output, terminal)
+		drained <- output.String()
+	}()
+	if err := producer.Wait(); err != nil {
+		t.Fatalf("seed producer: %v\n%s", err, log.String())
+	}
+	if err := consumer.Wait(); err != nil {
+		t.Fatalf("seed consumer: %v", err)
+	}
+	var output string
+	select {
+	case output = <-drained:
+	case <-ctx.Done():
+		t.Fatal("terminal output did not close")
+	}
+	for _, label := range []string{"credentials: preparing GitHub trust", "workspace: preparing shared folders", "setup: rendering agents"} {
+		if !strings.Contains(output, label) || !strings.Contains(log.String(), label) {
+			t.Errorf("spinner and seed log must both carry %q:\n%s\n%s", label, output, log.String())
+		}
+	}
+	for _, frame := range []string{"(0s) |", "(0s) /", "(0s) -", "(0s) \\"} {
+		if !strings.Contains(output, frame) {
+			t.Errorf("missing animated frame %q:\n%s", frame, output)
+		}
+	}
+	if !strings.Contains(output, "\r\x1b[2KNATIVE_READY") {
+		t.Errorf("spinner did not clear before native handoff:\n%s", output)
+	}
 }

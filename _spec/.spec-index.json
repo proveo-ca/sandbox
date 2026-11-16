@@ -202,7 +202,7 @@
         "internal/run/helpers.go",
         "internal/run/env_names_test.go",
         "e2e/claudecode_auth_test.go",
-        "e2e/opencode_auth_test.go",
+        "e2e/opencode_test.go",
         "e2e/credentials_test.go",
         "internal/backend/sandbox/provider_gate_test.go",
         "e2e/sbx_test.go"
@@ -237,7 +237,7 @@
         "packages/lib/proveo-opencode-runtime",
         "internal/backend/sandbox/sandbox.go",
         "internal/sbx/secret.go",
-        "e2e/opencode_auth_test.go"
+        "e2e/opencode_test.go"
       ],
       "fingerprint": null
     },
@@ -656,7 +656,7 @@
       "covers": [
         "defs/hermes/Dockerfile",
         "defs/hermes/entrypoint.sh",
-        "e2e/hermes_local_model_test.go",
+        "e2e/hermes_test.go",
         "internal/imagetest/hermes_test.go",
         "defs/hermes/harness.manifest",
         "internal/contract/hermes_providers_test.go"
@@ -695,7 +695,7 @@
         "internal/imagetest/opencode_test.go",
         "internal/contract/opencode_credentials_test.go",
         "e2e/opencode_engine_sbx_test.go",
-        "e2e/opencode_credentials_test.go",
+        "e2e/opencode_test.go",
         "e2e/testdata/opencode_presentation.py",
         "e2e/seed_ready_test.go"
       ],
@@ -724,7 +724,7 @@
         "internal/contract/opencode_presentation_test.go",
         "internal/imagetest/opencode_test.go",
         "e2e/**",
-        "e2e/opencode_presentation*",
+        "e2e/opencode_test.go",
         "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
@@ -741,9 +741,8 @@
         "defs/subagents/_frontmatter/opencode.yaml",
         "packages/lib/entrypoint-lib.sh",
         "packages/lib/proveo-opencode-runtime",
-        "e2e/opencode_auth_test.go",
+        "e2e/opencode_test.go",
         "internal/contract/opencode_presentation_test.go",
-        "e2e/opencode_presentation*",
         "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
@@ -755,7 +754,7 @@
         "defs/subagents/_frontmatter/opencode.yaml",
         "packages/lib/entrypoint-lib.sh",
         "internal/contract/opencode_presentation_test.go",
-        "e2e/opencode_presentation*",
+        "e2e/opencode_test.go",
         "e2e/testdata/opencode_presentation.*"
       ],
       "fingerprint": null
@@ -913,7 +912,7 @@
         "internal/choiceui/oversized_model.go",
         "internal/choiceui/agent_update.go",
         "internal/backend/sandbox/confirm.go",
-        "e2e/close_confirm_modes_test.go",
+        "e2e/close_confirm_live_test.go",
         "internal/choiceui/quit_gate.go",
         "internal/choiceui/checklist_test.go"
       ],
@@ -1219,9 +1218,7 @@
         "internal/ptyproxy/overlayprogram_test.go",
         "internal/ptyproxy/screenmodes.go",
         "internal/ptyproxy/screenmodes_test.go",
-        "internal/ptyproxy/ptyproxy_windows.go",
-        "e2e/close_confirm_modes_test.go",
-        "e2e/close_confirm_sbx_test.go"
+        "internal/ptyproxy/ptyproxy_windows.go"
       ],
       "fingerprint": null
     },
@@ -1452,7 +1449,7 @@
         "internal/imagebuild/imagebuild.go",
         "internal/backend/sandbox/sandbox.go",
         "internal/backend/sandbox/opencode_engine.go",
-        "e2e/kit_image_source_test.go",
+        "e2e/kit_test.go",
         "internal/sbx/exec.go",
         "internal/backend/sandbox/report.go",
         "internal/backend/sandbox/report_test.go",
@@ -1934,7 +1931,7 @@
         "packages/lib/entrypoint-lib.sh",
         "packages/lib/test_opencode_startup.py",
         "internal/contract/opencode_seed_progress_test.go",
-        "e2e/opencode_seed_progress_test.go"
+        "e2e/opencode_test.go"
       ],
       "fingerprint": null
     },
@@ -1943,7 +1940,7 @@
       "covers": [
         "packages/lib/proveo-await-seed",
         "packages/lib/test_opencode_startup.py",
-        "e2e/opencode_seed_progress_test.go"
+        "e2e/opencode_test.go"
       ],
       "fingerprint": null
     },
@@ -2066,8 +2063,7 @@
         "defs/tests/**",
         "internal/imagetest/**",
         "e2e/preconditions_test.go",
-        "e2e/kit_probe_test.go",
-        "e2e/kit_sandbox_test.go",
+        "e2e/kit_test.go",
         "internal/sbx/clone_test.go",
         "internal/backend/sandbox/clone_carry_test.go",
         "mise.toml"
@@ -2128,8 +2124,7 @@
         "internal/contract/host_adb_lib_test.go",
         "defs/claudecode/harness.manifest",
         "e2e/host_adb_sbx_test.go",
-        "e2e/android_addon_test.go",
-        "e2e/android_app_test.go",
+        "e2e/android_test.go",
         "e2e/testdata/android-hello.txtar"
       ],
       "fingerprint": null
@@ -2200,7 +2195,7 @@
         "internal/choiceui/choiceui.go",
         "internal/choiceui/more_off_test.go",
         "internal/contract/android_install_lib_test.go",
-        "e2e/android_seed_install_test.go"
+        "e2e/android_test.go"
       ],
       "fingerprint": null
     },
@@ -2237,7 +2232,7 @@
         "defs/hermes/**",
         "internal/hermesdesktop/gateway.go",
         "internal/hermesdesktop/gateway_test.go",
-        "e2e/hermes_desktop_test.go",
+        "e2e/hermes_test.go",
         "internal/backend/sandbox/**",
         "internal/run/**",
         "cmd/proveo/desktop.go",

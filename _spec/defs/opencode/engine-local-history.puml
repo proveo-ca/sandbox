@@ -22,7 +22,7 @@ skinparam noteTextAlignment left
 ' covers: internal/imagetest/opencode_test.go
 ' covers: internal/contract/opencode_credentials_test.go
 ' covers: e2e/opencode_engine_sbx_test.go
-' covers: e2e/opencode_credentials_test.go
+' covers: e2e/opencode_test.go
 ' covers: e2e/testdata/opencode_presentation.py
 ' covers: e2e/seed_ready_test.go
 '   the receipt and retire rules ...... _spec/internal/sbx/kit-lifecycle.puml
@@ -286,7 +286,7 @@ skinparam noteTextAlignment left
 '     proveo/opencode (not built on that VM).
 '   internal/contract/opencode_credentials_test.go TestOpenCodeRuntimeFixtures,
 '     TestOpenCodeImageShipsOnlyTheThinRuntime, TestOpenCodeDocumentsEngineLocalLogins;
-'     e2e/opencode_credentials_test.go TestOpenCodeRuntimeInImage.
+'     e2e/opencode_test.go TestOpenCodeRuntimeInImage.
 '   e2e/opencode_engine_sbx_test.go TestOpenCodeEngineKeepsHistoryAndImportsOnce:
 '     the first run prints "imported <share>/opencode.db"; api POST; the
 '     workspace `session list` holds it; reattach GET; `sbx stop` then GET;

@@ -387,7 +387,7 @@ note bottom of CLI
   run's own git daemon served it; a host-side file is awaited only when the
   run prints no "private clone", e2e/sbx_test.go), a daemon answers inside, and the
   sandbox is gone afterwards. It drives the harness's own kit launch and probes
-  through ""sbx exec"" (""launchKit"", e2e/kit_probe_test.go), so it asks the agent
+  through ""sbx exec"" (""launchKit"", e2e/kit_test.go), so it asks the agent
   nothing; it used ""--shell"" until that flag was retired 2026-10-17.
 
   **That test alone was not enough, and the gap is instructive.** Every adapter

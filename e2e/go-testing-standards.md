@@ -58,7 +58,7 @@ E2E suites follow Testcontainers *practices* without adopting the library.
 6. **Isolation.** Unique session IDs and `t.TempDir()` state dirs per test.
 7. **sbx is the only backend.** No test can pin another rendering; assert the behaviour sbx
    produces. Live tests start `proveo run <target>` through its kit (`launchKit` /
-   `awaitKit` in `e2e/kit_probe_test.go`) and probe with `sbx exec`, never a shell in the pane.
+   `awaitKit` in `e2e/kit_test.go`) and probe with `sbx exec`, never a shell in the pane.
 8. **Derive image references; never restate a tag.** `mise run build` tags a local build
    `:local` and only a publish moves `:latest`, so a hardcoded `proveo/x:latest` skips the
    suite on a machine that just built `x` — and on one that has also pulled, silently tests

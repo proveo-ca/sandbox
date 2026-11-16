@@ -36,7 +36,7 @@ skinparam noteTextAlignment left
 '   cmd/proveo/testdata/posture.txtar             1  TestPostureGolden — split from plan: two owners of one archive prune each other
 '   internal/devports/testdata/mono.txtar         8  Extract: TestDiscoverMonorepo, TestLaunchStartsTheServerOnEveryInterface
 '   e2e/testdata/polyglot22.txtar                22  Extract: fixtureWorkspace (toolchain_test.go)
-'   e2e/testdata/android-hello.txtar              8  Extract: android_app_test.go, android_seed_install_test.go (chmod 0755 install.sh);
+'   e2e/testdata/android-hello.txtar              8  Extract: android_test.go, 2 sites (chmod 0755 install.sh);
 '                                                    internal/devports/android_test.go extracts it by path (../../e2e/testdata/android-hello.txtar)
 '   e2e/testdata/git-sync-turn.txtar              2  Want: HOOK_PROBE.txt; Extract: gitSyncWorkspace uses its workspace/ entry
 ' Entry names are the old file names (budget_80x24.txt, sbx-cursor-key.golden, apps/web/package.json).

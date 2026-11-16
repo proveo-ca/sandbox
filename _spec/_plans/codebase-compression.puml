@@ -2,7 +2,7 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: the measured shape of the tree, what in it is dead, what the Go patterns lexicon says to fold, the one-file fixture design, and the forks the owner decides before any source moves
-' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 2, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open); step 9 DONE for §6 rows 3-5; F5 option 3 DONE 2026-11-15 (§6 rows 12-13). _spec/_plans/ is exempt from the SPEC-reference rule.
+' status: PLANNED 2026-11-15 — a findings record on refactor-compress-codebase @ 7ce8c83a; §9 steps 1, 2, 3 and 6 DONE 2026-11-15; step 5 DONE for P10 (P9(b) open); step 9 DONE for §6 rows 3-6; F5 option 3 DONE 2026-11-15 (§6 rows 12-13). _spec/_plans/ is exempt from the SPEC-reference rule.
 ' owner directive, quoted: "compress file-tree structure + lines of code in the project. Directives:
 '   1. find dead code, report it. Start by researching Go tools that facilitate this. 2. Chart the
 '   codebase and aim to simplify with https://softwarepatternslexicon.com/go/ 3. Research for Go test
@@ -465,6 +465,16 @@ skinparam noteTextAlignment left
 '      3-line comment, rendered verbatim, so the banned phrase and a why-comment stay until a fork decides the bytes.
 '   6  e2e split families → one file each: close_confirm 4, 0               −12     S       low     go vet -tags=e2e; test names unchanged    §7 other · high
 '      opencode 5, kit 3, android 3, hermes 2 (17 files → 5)
+'      ── DONE 2026-11-15, commit "test(e2e): one file per test family" ──
+'      MEASURED by `git diff --numstat` (this plan aside): 39 files +1,296 / −1,446 = −150; 17 files → 7 (−10, not −12):
+'      close_confirm_test.go (e2e) and opencode_engine_sbx_test.go (e2e && !windows) carry another //go:build line than
+'      their family, so they stay and close_confirm 4 → 2, opencode 5 → 2. The e2e Go −140 (import blocks and headers),
+'      _spec −10 (covers lines that now name one file collapse). A go/parser tool moved each declaration as its verbatim
+'      byte range, unioned the imports from the AST, kept each source's header SPEC line (above its block when it differs)
+'      and refused a mixed build line; 0 helpers deduped, since one package already forbids a second definition. Proof:
+'      `go test -tags e2e -list .` 167 names, sorted, identical; go vet -tags e2e passes on darwin and linux; GOOS=windows
+'      the same 4 syscall.Kill errors, now hermes_test.go:264-273; every non-blank line outside headers and imports
+'      survives as a multiset, +6 SPEC lines. Covers lines, prose paths and 20 index entries repointed.
 '   7  retirement ledger: lsp_wiring_retirement_test.go     −150            −1      0       none    TestNoRetirementOutlivesOneRelease        §7 other · all (next tag)
 '      goes with proveo_retire_lsp_wiring :1501-1550 (51 lines, in the dead medium set) at the next tag; [Inference]
 '      model_bridging_retired_test.go (191 lines, 10 tests) has no ledger entry and is the shape the ledger exists to expire
@@ -672,7 +682,7 @@ skinparam noteTextAlignment left
 '   8  P7 per F8 + internal/sbxinstall; unexport 24 funcs / 6 types; P8 printer injection            gate: tui_vocabulary_test.go; e2e stream tests
 '   9  §6 measured rows 3–6: pnpm → mise npm:wrangler, stale root files, _frontmatter, e2e families;   gate: mise x -- wrangler --version; render_subagents;
 '      rows 16–20 per their gates; F9–F12 answered first                                                 go vet -tags=e2e; image suites · −1,136, −40 files
-'      DONE 2026-11-15 for row 3 (−881, −3 files), row 4 (−246, −7 files, −1 dir), row 5 (+43, −18 files, −4 dirs); row 6 open
+'      DONE 2026-11-15 for row 3 (−881, −3 files), row 4 (−246, −7 files, −1 dir), row 5 (+43, −18 files, −4 dirs), row 6 (−150, −10 files)
 '   defer: P6, P12, termtext and agentsettings merges · reject: P14, envflag+envreg, entrypoint trio as stated, host_* under run
 title PLANNED — codebase compression: dead code reported, the chart and the lexicon folds,\none-file fixtures, and the forks the owner decides first
 

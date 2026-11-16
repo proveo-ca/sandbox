@@ -161,7 +161,7 @@ skinparam noteTextAlignment left
 '                    2026-10-17 (the user: "is that `proveo` or `sbx`? if
 '                    `proveo` retire it"). A shell is sbx's own `sbx exec -it
 '                    <sandbox> bash`, and the e2e probes run beside the agent
-'                    through `sbx exec` (e2e/kit_probe_test.go), so
+'                    through `sbx exec` (e2e/kit_test.go), so
 '                    sbxShellHoldsInADetachedPane and its skip are deleted.
 '
 ' ── AMENDMENT 2026-09-16: "SURVIVES" IS NOT "IN TIME" ──────────────────────

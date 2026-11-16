@@ -20,7 +20,7 @@
 ' covers: internal/contract/opencode_presentation_test.go
 ' covers: internal/imagetest/opencode_test.go
 ' covers: e2e/**
-' covers: e2e/opencode_presentation*
+' covers: e2e/opencode_test.go
 ' covers: e2e/testdata/opencode_presentation.*
 '
 ' ── HISTORY IS ENGINE-LOCAL (D2, DONE (wt) 2026-10-17) ────────────────────

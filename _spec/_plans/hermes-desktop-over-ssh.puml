@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' covers: defs/hermes/**
 ' covers: internal/hermesdesktop/gateway.go
 ' covers: internal/hermesdesktop/gateway_test.go
-' covers: e2e/hermes_desktop_test.go
+' covers: e2e/hermes_test.go
 ' covers: internal/backend/sandbox/**
 ' covers: internal/run/**
 ' covers: cmd/proveo/desktop.go
@@ -172,7 +172,7 @@ skinparam noteTextAlignment left
 ' entrypoint runs as uid 1000.
 '
 ' ── LIVE RUN 1 (MEASURED 2026-10-30, sbx 0.50.0, macOS, Desktop bf0203a7) ────
-' e2e/hermes_desktop_test.go: gateway PASS; guest FAIL; attach FAIL (5 min).
+' e2e/hermes_test.go: gateway PASS; guest FAIL; attach FAIL (5 min).
 '   * desktop.log: control master established, remote Linux/aarch64, then
 '     "Hermes is not installed on the remote host". Desktop's probe is
 '     `bash -lc 'command -v hermes'`; a login shell resets PATH and drops
