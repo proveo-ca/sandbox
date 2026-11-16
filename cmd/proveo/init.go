@@ -18,7 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/promptkit"
@@ -245,7 +245,7 @@ func printPlan(plan sbx.Plan) {
 }
 
 func interactiveTerminal() bool {
-	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stderr)
+	return agentsettings.IsReaderTTY(os.Stdin) && agentsettings.IsWriterTTY(os.Stderr)
 }
 
 func prefixWritable(prefix string) error {

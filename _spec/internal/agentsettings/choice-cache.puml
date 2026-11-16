@@ -1,10 +1,16 @@
 @startuml AgentSettingsChoiceCache
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 ' purpose: how a harness run's capability choices are prompted, remembered and invalidated
-' covers: internal/agentsettings/**
+' covers: internal/agentsettings/agentsettings*.go
 ' covers: internal/choiceui/**
 ' covers: internal/workspace/scan*.go
 ' covers: e2e/agent_settings_test.go
+'
+' ── THE PACKAGE ALSO HOLDS TERMINAL I/O (DECIDED 2026-11-15) ───────────────
+' DECIDED 2026-11-15 (owner: "Also fold agentio"; codebase-compression.puml
+' P11): terminal.go and terminal_test.go joined this package beside the
+' store; agent-terminal-io.puml (this directory) holds their reasoning and
+' the cycle check. This file covers agentsettings*.go only.
 '
 ' ── WHAT AN E2E RUN HAS TO DO TO OBSERVE ANY OF THIS ────────────────────────
 ' The form is the cache's only door in BOTH directions — it is where a remembered

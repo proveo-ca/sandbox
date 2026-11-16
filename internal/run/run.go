@@ -16,7 +16,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/hostdev"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
@@ -268,7 +267,7 @@ func runOnEnter(p *Params, ws workspace.MountSpec) []string {
 // the form returns to the scope page with the cursor where it was left.
 // SPEC: _spec/internal/run/run-spec.puml
 func choosePages(rs *Spec, p *Params, d Deps) error {
-	gate := scopeGate(p, agentio.IsStdinTTY(), agentio.WizardEnabled(), scheduled())
+	gate := scopeGate(p, agentsettings.IsStdinTTY(), agentsettings.WizardEnabled(), scheduled())
 	var projs []workspace.Project
 	if strings.Trim(p.Scope, "/") == "" && gate != scopeSilent && rs.Workspace.Scope.IsRepo {
 		projs = workspace.DiscoverProjects(rs.Workspace.RepoRoot)
@@ -398,11 +397,11 @@ func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 	if err != nil {
 		settingsWarning("cached settings — unreadable, not used", err, p.PrintOnly)
 	}
-	rs.Choices.Promptable = cacheApplies(p.PrintOnly, agentio.IsStdinTTY())
+	rs.Choices.Promptable = cacheApplies(p.PrintOnly, agentsettings.IsStdinTTY())
 	if err := p.applyCapabilities(rs.Man); err != nil {
 		return err
 	}
-	if rs.Choices.Promptable || (p.PrintOnly && scheduled() && agentio.WizardEnabled()) {
+	if rs.Choices.Promptable || (p.PrintOnly && scheduled() && agentsettings.WizardEnabled()) {
 		if cached, ok := rs.Choices.Settings.Lookup(p.Target, rs.Man.Capabilities); ok {
 			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
@@ -699,7 +698,7 @@ func homeSeen(h manifest.Home) string {
 }
 
 // askOnTerminal reports whether the run may prompt the operator on the terminal; tests replace it.
-var askOnTerminal = func() bool { return agentio.IsStdinTTY() && agentio.WizardEnabled() }
+var askOnTerminal = func() bool { return agentsettings.IsStdinTTY() && agentsettings.WizardEnabled() }
 
 // credentialGaps names what satisfies a subscription harness's missing variables, or prompts
 // for or warns about each required variable no credential covers.

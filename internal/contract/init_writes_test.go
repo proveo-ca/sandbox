@@ -101,7 +101,7 @@ func TestInitWritesTheTerminalOnlyThroughCommand(t *testing.T) {
 		writes    int
 	}{
 		{"command", "package main\nimport \"os\"\nfunc command() { _ = os.Stderr }", 0},
-		{"a tty check", "package main\nimport \"os\"\nfunc tty() bool { return agentio.IsWriterTTY(os.Stderr) }", 0},
+		{"a tty check", "package main\nimport \"os\"\nfunc tty() bool { return agentsettings.IsWriterTTY(os.Stderr) }", 0},
 		{"a write", "package main\nimport \"os\"\nfunc say() { os.Stderr.WriteString(\"x\") }", 1},
 		{"a child's stream", "package main\nimport \"os\"\nfunc run(c *exec.Cmd) { c.Stdout = os.Stdout }", 1},
 		{"a renamed os", "package main\nimport sys \"os\"\nfunc say() { fmt.Fprintln(sys.Stderr) }", 1},

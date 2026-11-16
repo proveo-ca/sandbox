@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 )
 
 const (
@@ -199,7 +199,7 @@ func exitedDetail(transcript, when string) string {
 		d = fmt.Sprintf("the agent exited %d %s", code, when)
 	}
 	if b, err := os.ReadFile(transcript); err == nil {
-		t := agentio.NewTail(3)
+		t := agentsettings.NewTail(3)
 		_, _ = t.Write(b)
 		if lines := t.Lines(); len(lines) > 0 {
 			d += ": " + strings.Join(lines, " | ")

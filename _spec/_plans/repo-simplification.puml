@@ -62,7 +62,7 @@
 '   _devops/release-gate.puml ........................ N12 · N33
 '   internal/run/run-spec.puml ....................... N13
 '   internal/runlog/run-transcript.puml .............. N25
-'   internal/agentio/agent-terminal-io.puml .......... N5
+'   internal/agentsettings/agent-terminal-io.puml .... N5
 '   _devops/image-size-reduction.puml ................ N10
 '   internal/entrypoint/model-alias-bridges.puml ..... N2 · N23
 '   _conventions/spec-conventions.puml ............... N14

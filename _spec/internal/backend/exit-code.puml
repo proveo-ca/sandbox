@@ -15,7 +15,7 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/teardown_report_test.go (TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt)
 '   where a stop becomes Stopped .... _spec/internal/sbx/kit-lifecycle.puml
 '   the transcript's outcome line .. _spec/internal/runlog/run-transcript.puml
-'   the tail the code is read from . _spec/internal/agentio/agent-terminal-io.puml
+'   the tail the code is read from . _spec/internal/agentsettings/agent-terminal-io.puml
 '
 ' ── THE EXIT TYPES LIVE IN SANDBOX (DECIDED 2026-11-15) ────────────────────
 ' DECIDED 2026-11-15 (owner: "Into backend/sandbox"; codebase-compression.puml
@@ -23,8 +23,8 @@ skinparam noteTextAlignment left
 ' beside it as exit_test.go. sbx is the only backend; sandbox already
 ' imported the package; run and cmd/proveo import both, so no cycle forms.
 ' ExitError, Stopped and Reported keep their names, and callers write
-' sandbox.ExitError. The internal/backend directory stays as sandbox's
-' parent. This reverses N16 (2026-10-18): WHY THE PACKAGE STAYED below is
+' sandbox.ExitError. The backend directory stays, as sandbox's parent.
+' This reverses N16 (2026-10-18): WHY THE PACKAGE STAYED below is
 ' HISTORY, since its sibling-import argument needed two backends.
 '
 ' ── 2026-11-11 (R2): WHO SAYS THE EXIT ON SCREEN ───────────────────────────
@@ -59,15 +59,15 @@ skinparam noteTextAlignment left
 ' on v0.50.0: `sbx exec <missing> 2>/dev/null` prints nothing; and with only
 ' stderr teed, the e2e below read "error: agent exited with code 3" and exited
 ' 3, where the binary without the tee printed "× sbx run — exited with code
-' 1" and exited 1). agentio.Stdio
+' 1" and exited 1). agentsettings.Stdio
 ' now tees stderr on a terminal and leaves stdout the terminal itself
-' (_spec/internal/agentio/agent-terminal-io.puml), so SaidError sees the line
+' (_spec/internal/agentsettings/agent-terminal-io.puml), so SaidError sees the line
 ' and RunExitCode reads the agent's code there too. The desktop hold never
 ' returns sbx's bare exit: its errors wrap sbx's captured output, so its × says
 ' what nothing else on screen said.
 '   NOT CHOSEN: assume sbx spoke whenever the tail cannot see (a missing
 '   verdict when sbx dies silent); keep the repeat as a recorded trade-off.
-' Pinned by agentio TestStdioOnATerminalTeesStderrAloneSoSbxsErrorLineReachesTheTail
+' Pinned by agentsettings TestStdioOnATerminalTeesStderrAloneSoSbxsErrorLineReachesTheTail
 ' and e2e TestNoProveoExitLineWhenOnlyStdinIsRedirected.
 ' THE LAST LINE IS sbx's ONLY WHEN THE STATUS AGREES (R2 review fix,
 ' 2026-11-11). In the pty and tee modes the tail mixes the agent's output with

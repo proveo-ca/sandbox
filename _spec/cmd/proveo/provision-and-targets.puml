@@ -73,7 +73,7 @@ node "Maintainer path — source tree required" as MAINT <<host>> {
 }
 
 node "Missing declared env" as WIZ <<host>> {
-  component "agentio.WizardEnabled · IsStdinTTY" as WEN <<app>>
+  component "agentsettings.WizardEnabled · IsStdinTTY" as WEN <<app>>
   component "promptEnv(target, missing)\nEnter skips" as PENV <<app>>
   component "termSecret\nread with echo off" as SEC <<app>>
 }

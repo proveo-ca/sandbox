@@ -2,21 +2,33 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how a run hands its terminal to the agent, and what it keeps alongside
-' covers: internal/agentio/**
+' covers: internal/agentsettings/terminal*.go
 ' covers: internal/termtext/**
 ' covers: cmd/proveo/main.go
+'
+' ── TERMINAL I/O LIVES IN AGENTSETTINGS (DECIDED 2026-11-15) ───────────────
+' DECIDED 2026-11-15 (owner: "Also fold agentio"; codebase-compression.puml
+' P11): agentio.go folds into internal/agentsettings as terminal.go, its test
+' beside it as terminal_test.go, and this file moved with it.
+' agentio.Stdio became agentsettings.Stdio; Tail, NewTail, Tracer,
+' FilterEnabled, WizardEnabled and the three TTY checks moved the same way.
+' MEASURED before the move (go list -deps): envflag, termtext, ui and
+' manifest import none of the four importers, so no cycle forms.
+' agentsettings rises from L1 to L2, below schedule L3, sandbox L5, run L6
+' and cmd/proveo L7: every new edge points down. choice-cache.puml (this
+' directory) keeps the settings store.
 '
 ' ── ONE GRAMMAR FOR TERMINAL TEXT: internal/termtext (N5, DONE (wt) 2026-10-17)
 ' Four strippers with four grammars (ui's run-log tee, this package's tail, e2e
 ' plain() and e2e terminalText) became one leaf package. It is its own package,
-' not an export of this one, because MEASURED: internal/agentio imports
-' internal/ui, so ui could not import agentio (the [rec] option was infeasible;
+' not an export of this one, because MEASURED: this package imports
+' internal/ui, so ui could not import it (the [rec] option was infeasible;
 ' option 2 landed). termtext.go:
 '   StripANSI(s)  removes CSI sequences, OSC/DCS/SOS/PM/APC strings (BEL- or
 '                 ST-terminated) and every other ESC sequence; text is kept
 '   Words(s)      reads each sequence and each whitespace run as ONE space —
 '                 what an e2e assertion wants from a redrawn screen
-' Readers: ui's run-log tee (ui.go:262), Tail.push (agentio.go:61), e2e
+' Readers: ui's run-log tee (ui.go:262), Tail.push (terminal.go:64), e2e
 ' termtext.Words (19 sites, MEASURED; the brief said 20) and e2e terminalText
 ' (opencode_engine_sbx_test.go:57-58). Tests: termtext_test.go
 ' TestStripANSIRemovesEverySequenceAndKeepsTheText (SGR, a non-SGR sequence
@@ -99,9 +111,9 @@ skinparam noteTextAlignment left
 title Agent terminal I/O — hand the terminal over AND keep the last words
 
 participant "proveo run" as RUN <<app>>
-participant "agentio.Stdio" as STDIO <<app>>
+participant "agentsettings.Stdio" as STDIO <<app>>
 participant "agent process\n(docker run / sbx run)" as AGENT <<app>>
-database "agentio.Tail\nlast 24 lines, de-escaped" as TAIL <<db>>
+database "agentsettings.Tail\nlast 24 lines, de-escaped" as TAIL <<db>>
 database "PROVEO_TRACE_STDIN file\nevery byte, sent or DROPPED" as TRACE <<db>>
 participant "internal/ptyproxy\nterminal-report filter" as PROXY <<app>>
 

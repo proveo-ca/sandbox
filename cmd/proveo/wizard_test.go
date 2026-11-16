@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -98,7 +98,7 @@ func TestWizardEnabled(t *testing.T) {
 	for _, tc := range tests {
 		t.Run("PROVEO_WIZARD="+tc.val, func(t *testing.T) {
 			t.Setenv("PROVEO_WIZARD", tc.val)
-			if got := agentio.WizardEnabled(); got != tc.want {
+			if got := agentsettings.WizardEnabled(); got != tc.want {
 				t.Errorf("wizardEnabled() with PROVEO_WIZARD=%q = %v, want %v", tc.val, got, tc.want)
 			}
 		})

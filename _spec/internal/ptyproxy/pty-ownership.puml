@@ -280,7 +280,7 @@ skinparam noteTextAlignment left
 ' Proxy.EnteredAltScreen (false on a nil proxy and on Windows) tells teardown
 ' that the agent left nothing in scrollback, so its last five lines print dim
 ' under the kept ⚠ (_spec/internal/backend/teardown.puml). It replaced a
-' second detector in agentio.Tail that matched three byte strings and missed
+' second detector in agentsettings.Tail that matched three byte strings and missed
 ' a mode list such as CSI ? 25;1047 h. Pinned by
 ' TestScreenModesRememberTheAlternateScreenAfterTheChildLeavesIt.
 ' ON A REAL AGENT, MEASURED 2026-11-10 (macOS, sbx 0.50.0, claudecode in a real

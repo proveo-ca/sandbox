@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/promptkit"
@@ -61,7 +61,7 @@ install root including homes that live there.`,
 }
 
 func doUninstall(yes bool) error {
-	return uninstall(yes || envflag.On(os.Getenv("PROVEO_UNINSTALL_ASSUME_YES")), agentio.IsStdinTTY(), os.Stdin)
+	return uninstall(yes || envflag.On(os.Getenv("PROVEO_UNINSTALL_ASSUME_YES")), agentsettings.IsStdinTTY(), os.Stdin)
 }
 
 // uninstall asks on a terminal unless yes, removes the PATH lines, the prompt kit and the install root, then

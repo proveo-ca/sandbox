@@ -10,7 +10,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -633,7 +633,7 @@ func handOff(c *exec.Cmd) error {
 		return err
 	}
 	hand := handoffErr{err: err, interrupted: len(sigs) > 0 || endedByInterrupt(exit)}
-	if tty, ok := c.Stderr.(*os.File); ok && hand.interrupted && agentio.IsWriterTTY(tty) {
+	if tty, ok := c.Stderr.(*os.File); ok && hand.interrupted && agentsettings.IsWriterTTY(tty) {
 		_, _ = tty.WriteString("\n") // ends the line the terminal's ^C echo left open
 	}
 	return hand

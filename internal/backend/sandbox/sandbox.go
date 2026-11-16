@@ -25,11 +25,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/hostdev"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/engine"
@@ -1781,11 +1781,11 @@ func Run(in Input) error {
 	reportInterface(in, cfg, pub)
 	ifaceSaid = true
 	args := sbx.RunArgs(launchCfg)
-	stdout, stderr, tail := agentio.Stdio(os.Stdout, os.Stderr, agentio.IsWriterTTY(os.Stdout))
-	traceIn, stopTrace := agentio.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
+	stdout, stderr, tail := agentsettings.Stdio(os.Stdout, os.Stderr, agentsettings.IsWriterTTY(os.Stdout))
+	traceIn, stopTrace := agentsettings.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
 	defer stopTrace()
 	terminal := ptyproxy.Usable(os.Stdin, os.Stdout)
-	filtered := terminal && agentio.FilterEnabled()
+	filtered := terminal && agentsettings.FilterEnabled()
 	var forceRemove atomic.Bool
 	var removeAsked atomic.Int64
 	runCtx, stopSignals, cancelRun, signalled := forwardStop()

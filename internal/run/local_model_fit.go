@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -45,7 +45,7 @@ func localModelNotes(lm manifest.LocalModel, harness, served string) []string {
 
 // confirmOversizedModel asks on a headed terminal; a run nobody can answer proceeds.
 var confirmOversizedModel = func(e *sbx.NoFitError, notes []string) bool {
-	if scheduled() || !agentio.WizardEnabled() || !agentio.IsStdinTTY() || !agentio.IsWriterTTY(os.Stdout) {
+	if scheduled() || !agentsettings.WizardEnabled() || !agentsettings.IsStdinTTY() || !agentsettings.IsWriterTTY(os.Stdout) {
 		return true
 	}
 	const gb = 1 << 30

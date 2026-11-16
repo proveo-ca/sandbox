@@ -77,7 +77,8 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 '   added     ultraviolet (an untagged pseudo-version), colorprofile,
 '             x/ansi, x/term, x/termios, x/windows, displaywidth, uax29,
 '             cancelreader v0.2.2, xo/terminfo
-' The unit suites of ui, choiceui, ptyproxy, agentio and cmd/proveo passed
+' The unit suites of ui, choiceui, ptyproxy, agentio (now in agentsettings)
+' and cmd/proveo passed
 ' under the upgraded width library, and all eight release targets still build.
 ' [Inference] No visible width changed. The suites compare rendered text; no
 ' terminal was looked at for this.

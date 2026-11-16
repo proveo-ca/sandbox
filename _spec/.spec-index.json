@@ -760,9 +760,9 @@
       "fingerprint": null
     },
     {
-      "spec": "_spec/internal/agentio/agent-terminal-io.puml",
+      "spec": "_spec/internal/agentsettings/agent-terminal-io.puml",
       "covers": [
-        "internal/agentio/**",
+        "internal/agentsettings/terminal*.go",
         "internal/termtext/**",
         "cmd/proveo/main.go"
       ],
@@ -771,7 +771,7 @@
     {
       "spec": "_spec/internal/agentsettings/choice-cache.puml",
       "covers": [
-        "internal/agentsettings/**",
+        "internal/agentsettings/agentsettings*.go",
         "internal/choiceui/**",
         "internal/workspace/scan*.go",
         "e2e/agent_settings_test.go"

@@ -80,7 +80,7 @@ skinparam noteTextAlignment left
 '                  in scrollback, so its last five lines past sbx's own error
 '                  line print dim under the kept ⚠ (ptyproxy's
 '                  Proxy.EnteredAltScreen, since the review moved it out of
-'                  agentio.Tail). Since the review the tail also holds sbx's
+'                  agentsettings.Tail). Since the review the tail also holds sbx's
 '                  stderr when stdin is redirected (exit-code.puml).
 '   the log path   no longer printed at the end of a run (P9): the run block
 '                  names it once, at the start, as "log: ~/…". The LOG note
@@ -90,8 +90,8 @@ skinparam noteTextAlignment left
 '
 ' ── ONE ESCAPE GRAMMAR FOR THE LOG COPY (N5, DONE (wt) 2026-10-17) ─────────
 ' MEASURED: ui's run-log tee writes termtext.StripANSI(p) (internal/ui/ui.go:262),
-' and Tail.push strips through the same function (internal/agentio/agentio.go:61)
-' — one grammar, _spec/internal/agentio/agent-terminal-io.puml. The deleted
+' and Tail.push strips through the same function (internal/agentsettings/terminal.go:64)
+' — one grammar, _spec/internal/agentsettings/agent-terminal-io.puml. The deleted
 ' ui.stripANSI skipped from ESC to the next 'm', so a NON-SGR sequence ate the
 ' text after it up to the next 'm': "\x1b[2Khello mom" was logged as "om"
 ' (measured by the coordinator before the fix). Test: TestTheRunLogKeepsTextAfterANonSGRSequence (ui_test.go:478).

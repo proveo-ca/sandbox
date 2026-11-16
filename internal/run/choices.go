@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
@@ -25,7 +25,9 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
+func cacheApplies(printOnly, tty bool) bool {
+	return !printOnly && agentsettings.WizardEnabled() && tty
+}
 
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string, visit *formVisit) error {
 	ssh := gitaccess.InspectSSH(sbx.Binary, gitaccess.Output, os.Getenv)

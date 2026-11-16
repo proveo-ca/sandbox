@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	proveo "github.com/proveo-ca/proveo"
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -390,7 +390,7 @@ the repo it read, and stdout stays empty.`,
 
 // pickProject asks for the run's scope; ok is false when the operator closed the page.
 func pickProject(ask run.ScopeAsk, in io.Reader, out io.Writer) (scope string, ok bool) {
-	if agentio.IsReaderTTY(in) {
+	if agentsettings.IsReaderTTY(in) {
 		return scopePageAnswer(scopePage(ask).Run())
 	}
 	return pickProjectNumbered(ask.Projects, in, out), true

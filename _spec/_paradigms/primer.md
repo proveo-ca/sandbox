@@ -165,7 +165,7 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/workspace/platform.go` | 4 | 4 | Translates host paths across platforms; path normalization can weaken containment checks. |
 | `internal/workspace/workspace.go` | 4 | 4 | Defines workspace modes and scope; abstractions may imply guarantees only mounts enforce. |
 | `internal/workspace/scan.go` | 4 | 4 | Scans workspaces for risky inputs; heuristic detection is advisory, never prevention. |
-| `internal/agentio/agentio_test.go` | 3 | 1 | Pins TTY detection seams; tests cannot reproduce every pipe/console arrangement. |
+| `internal/agentsettings/terminal_test.go` | 3 | 1 | Pins TTY detection seams; tests cannot reproduce every pipe/console arrangement. |
 | `internal/choiceui/anim_test.go` | 3 | 1 | Pins animation timing behavior; timing tests can be platform-fragile. |
 | `internal/choiceui/consent_test.go` | 3 | 1 | **Deleted with the review tier's consent modal.** Guarded consent selection basics; it could not prove informed consent. |
 | `internal/choiceui/gated_reason_test.go` | 3 | 1 | Pins disabled-choice explanations; wording can conceal policy causes. |
@@ -198,7 +198,7 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/promptkit/shell.go` | 3 | 3 | Edits PATH configuration per shell; rc-file mutation is broad and hard to roll back perfectly. |
 | `internal/schedule/tmux.go` | 3 | 3 | Drives detached session interaction; parsing terminal output is inherently fragile. |
 | `internal/ui/ui.go` | 3 | 3 | Centralizes operator messaging; consistent styling cannot cure misleading claims. |
-| `internal/agentio/agentio.go` | 3 | 4 | Mediates agent TTY input/output; terminal ownership and cancellation have race surfaces. |
+| `internal/agentsettings/terminal.go` | 3 | 4 | Mediates agent TTY input/output; terminal ownership and cancellation have race surfaces. |
 | `internal/runlog/runlog.go` | 3 | 4 | Persists run evidence and transcripts; shared writable proveo-home permits cross-run tampering. |
 | `internal/egress/testdata/allowlist.golden` | 2 | 1 | Snapshots legacy allowlist topology; proves text, not enforcement. |
 | `internal/egress/testdata/allowlist_inject.golden` | 2 | 1 | Snapshots legacy injected-secret topology; stale output can normalize obsolete custody. |

@@ -1,5 +1,5 @@
-// SPEC: _spec/internal/agentio/agent-terminal-io.puml
-package agentio
+// SPEC: _spec/internal/agentsettings/agent-terminal-io.puml
+package agentsettings
 
 import (
 	"bytes"

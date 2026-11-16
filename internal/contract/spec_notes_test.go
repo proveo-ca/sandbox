@@ -307,6 +307,11 @@ var renamedIdents = []struct {
 		"_spec/internal/sbx/kit-lifecycle.puml", "_spec/internal/sbx/sandbox-backend.puml", "_spec/internal/ui/output-vocabulary.puml",
 		"internal/backend/sandbox/exit.go", "internal/backend/sandbox/sandbox.go", "cmd/proveo/main.go", "cmd/proveo/main_test.go"},
 		map[string][]string{"backend.ExitError": {"sandbox.ExitError"}, "backend.Stopped": {"sandbox.Stopped"}, "backend.Reported": {"sandbox.Reported"}}},
+	{[]string{"_spec/internal/agentsettings/agent-terminal-io.puml", "_spec/internal/backend/exit-code.puml", "_spec/cmd/proveo/provision-and-targets.puml",
+		"_spec/internal/envflag/env-switches.puml", "_spec/internal/ptyproxy/pty-ownership.puml", "_spec/internal/runlog/run-transcript.puml",
+		"internal/agentsettings/terminal.go", "internal/backend/sandbox/sandbox.go", "internal/run/run.go", "internal/contract/init_writes_test.go"},
+		map[string][]string{"agentio.Stdio": {"agentsettings.Stdio"}, "agentio.Tail": {"Tail"}, "agentio.WizardEnabled": {"agentsettings.WizardEnabled"},
+			"agentio.IsWriterTTY": {"agentsettings.IsWriterTTY"}}},
 }
 
 type proseLine struct {
