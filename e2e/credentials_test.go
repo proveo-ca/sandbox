@@ -25,11 +25,10 @@ func TestCredentialForwardingIntegrity(t *testing.T) {
 	if len(keys) == 0 {
 		t.Fatal("provider.KeyVars() is empty")
 	}
-	agents := strings.Fields(env("PROVEO_TEST_AGENTS", "opencode claudecode"))
+	agents := strings.FieldsSeq(env("PROVEO_TEST_AGENTS", "opencode claudecode"))
 
 	// Isolation — deterministic, one subtest per agent (parallel: pure --print).
-	for _, agent := range agents {
-		agent := agent
+	for agent := range agents {
 		t.Run(agent+"_isolation", func(t *testing.T) {
 			t.Parallel()
 			assertPlanIsolation(t, proveoBin, agent, keys)
@@ -107,7 +106,7 @@ func runPrint(t *testing.T, proveoBin, target string, extra ...string) string {
 
 // secretLineNamesAny reports whether the plan names any of keys on its "secret store first:" line or on a "sandbox secret: NAME" note.
 func secretLineNamesAny(plan string, keys []string) bool {
-	for _, line := range strings.Split(plan, "\n") {
+	for line := range strings.SplitSeq(plan, "\n") {
 		_, names, ok := strings.Cut(line, "secret store first:")
 		if !ok {
 			_, names, ok = strings.Cut(line, "sandbox secret:")
@@ -166,7 +165,7 @@ func launchPlan(t *testing.T, out string) string {
 
 // envValInCmd finds `-e KEY=VALUE` in printed sbx command lines and returns VALUE.
 func envValInCmd(cmd, key string) (string, bool) {
-	for _, line := range strings.Split(cmd, "\n") {
+	for line := range strings.SplitSeq(cmd, "\n") {
 		for _, tok := range shellWords(line) {
 			if v, ok := strings.CutPrefix(tok, key+"="); ok {
 				return v, true

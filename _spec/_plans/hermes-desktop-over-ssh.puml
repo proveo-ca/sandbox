@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' covers: defs/hermes/**
 ' covers: internal/hermesdesktop/gateway.go
 ' covers: internal/hermesdesktop/gateway_test.go
-' covers: e2e/hermes_desktop_test.go
+' covers: e2e/hermes_test.go
 ' covers: internal/backend/sandbox/**
 ' covers: internal/run/**
 ' covers: cmd/proveo/desktop.go
@@ -103,7 +103,7 @@ skinparam noteTextAlignment left
 '     run stops with how to proceed and nothing is written.
 '   * backend: Input.Desktop swaps the TUI attach for holdForDesktop: `sbx
 '     setup ssh`, print `hermes@<name>.sbx`, open the app detached, wait for
-'     the stop; Ctrl+C is backend.Stopped, so teardown is the normal one.
+'     the stop; Ctrl+C is sandbox.Stopped, so teardown is the normal one.
 '   * --print shows `# desktop` with the setup and the gateway instead of `#
 '     agent`.
 '   STILL OPEN: H2–H5 need the app on a host (the first `proveo run hermes`
@@ -172,7 +172,7 @@ skinparam noteTextAlignment left
 ' entrypoint runs as uid 1000.
 '
 ' ── LIVE RUN 1 (MEASURED 2026-10-30, sbx 0.50.0, macOS, Desktop bf0203a7) ────
-' e2e/hermes_desktop_test.go: gateway PASS; guest FAIL; attach FAIL (5 min).
+' e2e/hermes_test.go: gateway PASS; guest FAIL; attach FAIL (5 min).
 '   * desktop.log: control master established, remote Linux/aarch64, then
 '     "Hermes is not installed on the remote host". Desktop's probe is
 '     `bash -lc 'command -v hermes'`; a login shell resets PATH and drops

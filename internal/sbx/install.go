@@ -61,7 +61,7 @@ func DetectHost() Host {
 
 func parseOSRelease(s string) map[string]string {
 	out := map[string]string{}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok || strings.HasPrefix(k, "#") {
 			continue

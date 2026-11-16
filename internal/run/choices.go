@@ -11,14 +11,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/devports"
-	"github.com/proveo-ca/proveo/internal/githubaccess"
-	"github.com/proveo-ca/proveo/internal/hostadb"
-	"github.com/proveo-ca/proveo/internal/hostcdp"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -26,10 +25,12 @@ import (
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-func cacheApplies(printOnly, tty bool) bool { return !printOnly && agentio.WizardEnabled() && tty }
+func cacheApplies(printOnly, tty bool) bool {
+	return !printOnly && agentsettings.WizardEnabled() && tty
+}
 
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string, visit *formVisit) error {
-	ssh := githubaccess.InspectSSH(sbx.Binary, githubaccess.Output, os.Getenv)
+	ssh := gitaccess.InspectSSH(sbx.Binary, gitaccess.Output, os.Getenv)
 	inv := inventoryOf(man, lookup, sbx.StoreEntries(), ssh.Keys).withEnvFile(p.HostEnvFile)
 	rows, hasAuth := p.runRows(man, lookup, homeRoot, egressRow(), inv)
 	form := &choiceui.Form{
@@ -342,8 +343,8 @@ func gateAddons(f *choiceui.Form) {
 			case addonIOS:
 				r.Off[j] = true
 				r.On[j] = false
-				reasons = append(reasons, addonIOS+": "+hostadb.IOSWhy)
-				r.OffWhy[opt] = hostadb.IOSWhy
+				reasons = append(reasons, addonIOS+": "+hostdev.IOSWhy)
+				r.OffWhy[opt] = hostdev.IOSWhy
 			}
 		}
 		r.Reason = strings.Join(reasons, " · ")
@@ -526,9 +527,9 @@ const (
 	addonTUI     = "tui"
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
-	addonHostCDP = hostcdp.Addon
-	addonAndroid = hostadb.Addon
-	addonIOS     = hostadb.AddonIOS
+	addonHostCDP = hostdev.AddonChrome
+	addonAndroid = hostdev.AddonAndroid
+	addonIOS     = hostdev.AddonIOS
 	addonDesktop = "desktop"
 )
 
@@ -812,12 +813,7 @@ func normalizeAddons(addons []string) []string {
 }
 
 func hasAddon(addons []string, name string) bool {
-	for _, a := range addons {
-		if a == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(addons, name)
 }
 
 func buildHeader(man manifest.Manifest, lookup func(string) string, roles provider.Roles, repoRoot, inputDir, homeRoot string) []string {
@@ -885,7 +881,7 @@ func (p *Params) resolveAddonFlags(man manifest.Manifest) error {
 			return fmt.Errorf("--addon %q is not offered by %s (offered: %s)", a, p.Target, strings.Join(offered, ", "))
 		}
 		if name == addonIOS {
-			return fmt.Errorf("--addon %q: %s", a, hostadb.IOSWhy)
+			return fmt.Errorf("--addon %q: %s", a, hostdev.IOSWhy)
 		}
 		if !slices.Contains(out, name) {
 			out = append(out, name)

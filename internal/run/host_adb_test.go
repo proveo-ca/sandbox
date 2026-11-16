@@ -12,8 +12,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/hermesdesktop"
-	"github.com/proveo-ca/proveo/internal/hostadb"
-	"github.com/proveo-ca/proveo/internal/hostcdp"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -105,13 +104,13 @@ func TestEachHostAddOnFactNamesWhatTheRunLeftUp(t *testing.T) {
 		got  ui.Fact
 		want ui.Fact
 	}{
-		{"a booted AVD", androidFact(hostadb.Started{Serial: "emulator-5554", AVD: "Pixel_9"}, 5037),
+		{"a booted AVD", androidFact(hostdev.Started{Serial: "emulator-5554", AVD: "Pixel_9"}, 5037),
 			ui.Fact{Role: ui.RoleHost, Key: "android", Value: "emulator-5554 (AVD Pixel_9)", Detail: []string{"adb server 127.0.0.1:5037"}}},
-		{"a reused device", androidFact(hostadb.Started{Serial: "emulator-5556"}, 5037),
+		{"a reused device", androidFact(hostdev.Started{Serial: "emulator-5556"}, 5037),
 			ui.Fact{Role: ui.RoleHost, Key: "android", Value: "emulator-5556 (reused)", Detail: []string{"adb server 127.0.0.1:5037"}}},
-		{"an opened browser", chromeFact(hostcdp.Opened{Browser: "Google Chrome", Profile: filepath.Join(home, "p", "claudecode")}, 9333),
+		{"an opened browser", chromeFact(hostdev.Opened{Browser: "Google Chrome", Profile: filepath.Join(home, "p", "claudecode")}, 9333),
 			ui.Fact{Role: ui.RoleHost, Key: "chrome", Value: "Google Chrome · CDP 127.0.0.1:9333", Detail: []string{"profile ~/p/claudecode"}}},
-		{"a reused browser", chromeFact(hostcdp.Opened{}, 9333),
+		{"a reused browser", chromeFact(hostdev.Opened{}, 9333),
 			ui.Fact{Role: ui.RoleHost, Key: "chrome", Value: "CDP 127.0.0.1:9333 (reused)"}},
 		{"an installed desktop", desktopFact(false), ui.Fact{Role: ui.RoleHost, Key: "desktop", Value: "Hermes Desktop"}},
 		{"a desktop this run installed", desktopFact(true),

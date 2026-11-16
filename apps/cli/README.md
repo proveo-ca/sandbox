@@ -59,7 +59,7 @@ Publish pieces separately:
 
 ```bash
 mise run release                         # tagged HEAD: goreleaser + stage CDN assets
-pnpm exec wrangler deploy --cwd apps/cli
+mise x -- wrangler deploy --cwd apps/cli
 ```
 
 Preview without a tag:

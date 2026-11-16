@@ -48,10 +48,10 @@ skinparam noteTextAlignment left
 '   Ubuntu adb 34.0.5 via ADB_SERVER_SOCKET  devices + shell OK, no local
 '                                            server, host server pid unchanged
 ' Unlike Chrome, ADB ignores Host, so the hostname works too; the IP stays
-' canonical for parity with hostcdp.
+' canonical for parity with hostcdp.go.
 '
-' ── LIFECYCLE: THE hostcdp SHAPE, ONE FOR ONE ──────────────────────────────
-'   hostcdp (hermes)                      hostadb (android)
+' ── LIFECYCLE: THE hostcdp.go SHAPE, ONE FOR ONE ───────────────────────────
+'   hostcdp.go (hermes)                   hostadb.go (android)
 '   Ready: GET :9222/json/version         Ready: host:devices lists a serial
 '   reuse whatever answers                reuse any running emulator
 '   launch Chrome --user-data-dir=        launch emulator -avd <avd>
@@ -66,7 +66,7 @@ skinparam noteTextAlignment left
 '   raw      ADB_SERVER_SOCKET=tcp:<gateway ip>:5037  key on host · host dials  ← chosen
 '   relay    same, via a host relay that drops connect/kill/reverse  (deferred)
 '   in-VM    VM adb server -> <gateway ip>:5555  host adbkey copied into VM ✗
-' Raw mirrors hostcdp: dial the gateway by IP, one Kit allow, env only, and a
+' Raw mirrors hostcdp.go: dial the gateway by IP, one Kit allow, env only, and a
 ' run-time warning carries the risk, as it does for host Chrome.
 '
 ' ── THE HOLE RAW 5037 OPENS, ACCEPTED BY WARNING ───────────────────────────

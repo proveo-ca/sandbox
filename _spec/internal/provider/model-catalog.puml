@@ -21,7 +21,7 @@
 ' covers: internal/provider/roles.go, internal/provider/roles_test.go
 ' covers: internal/run/helpers.go (unknownModel, the reader of CheckModel)
 ' tier 3 of resolution — planFallback, entitlement-safety, the `-free` heuristic
-' and scripts/rank-plan-fallbacks.py — is specified in
+' and the models.dev ranking behind the list — is specified in
 ' _spec/internal/credentials/credential-decisions.puml, not duplicated here
 title PLAN — model catalog: one canonical id, three harness dialects, three roles
 
@@ -37,14 +37,14 @@ folder "harness dialects — same model, three spellings" as DIA <<host>> {
   component "cursor\nvendor-pinned names\n--model, no override" as CUR <<error>>
 }
 
-component "sync-models skill\nfetch, never recall" as SYNC <<cloud>>
+component "sync-models skill\n(gone, 4aec1f40)" as SYNC <<error>>
 
 CANON ARROW_MAIN CAT
 CAT ARROW_MAIN ROLES
 ROLES ARROW_MAIN OC
 ROLES ARROW_MAIN CC
 ROLES ARROW_ERROR CUR : cannot be retargeted
-SYNC ARROW_CLOUD CAT : periodic, reviewed diff
+SYNC ARROW_OPTIONAL CAT : was: periodic, reviewed diff
 
 note right of ROLES
   **Reuse the vocabulary that already exists.** ""ARCHITECT_MODEL"",
@@ -105,14 +105,17 @@ note as Divergence #F4F9FB
 
   **Deliberately no ids in this diagram.** They are data, they are fetched,
   and a spec that recalls them from memory is how a wrong id becomes
-  authoritative. The skill fetches; review gates the diff.
+  authoritative. A skill fetched them until 4aec1f40 deleted it;
+  review gated the diff.
 end note
 
 note right of SYNC
-  **Mirrors the provider skill.** ""\.claude/skills/sync-providers"" already
-  encodes fetch-don't-recall, the narrowest host, and what NOT to add.
-  A sibling skill does the same for model ids: read each harness's own
-  published catalog, diff against the table, propose additions only.
+  **HISTORY — gone 2026-10-21 (4aec1f40), with its sibling
+  ""\.claude/skills/sync-providers"", no recorded decision.** Q4 of
+  retire-model-bridging decides the catalog. It mirrored the provider
+  skill: fetch-don't-recall, the narrowest host, what NOT to add; it read
+  each harness's own published catalog, diffed against the table, and
+  proposed additions only.
 
   Long-tail models stay out — reachable via openrouter, as agreed for
   providers. The catalog covers what an operator would plausibly set as

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // monorepoRun starts `proveo run claudecode` in a two-project monorepo on a tmux terminal.
-func monorepoRun(t *testing.T, name string) *tmux.Session {
+func monorepoRun(t *testing.T, name string) *schedule.TmuxSession {
 	t.Helper()
 	const target = "claudecode"
 	requireHarness(t, target)
@@ -31,7 +31,7 @@ func monorepoRun(t *testing.T, name string) *tmux.Session {
 	gitInit(t, work)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-%s-%d", name, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-%s-%d", name, os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)
@@ -54,7 +54,7 @@ func monorepoRun(t *testing.T, name string) *tmux.Session {
 }
 
 // awaitScopePage waits for the scope page and returns the screen.
-func awaitScopePage(t *testing.T, sess *tmux.Session) string {
+func awaitScopePage(t *testing.T, sess *schedule.TmuxSession) string {
 	t.Helper()
 	screen, err := sess.WaitFor("enter choose", durationEnv(t, "PROVEO_TEST_TIMEOUT", 2*time.Minute))
 	if err != nil {

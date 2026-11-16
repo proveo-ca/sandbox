@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -58,7 +57,7 @@ func gitRepo(t *testing.T) string {
 
 // isReported reports whether err is one a printed line already said, so main prints nothing for it.
 func isReported(err error) bool {
-	var r backend.Reported
+	var r Reported
 	return errors.As(err, &r)
 }
 

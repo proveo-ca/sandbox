@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected runs `proveo run … >/dev/null`
@@ -27,7 +27,7 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 	gitInit(t, work)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-form-tty-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-form-tty-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

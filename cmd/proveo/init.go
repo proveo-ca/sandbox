@@ -18,11 +18,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -245,7 +245,7 @@ func printPlan(plan sbx.Plan) {
 }
 
 func interactiveTerminal() bool {
-	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stderr)
+	return agentsettings.IsReaderTTY(os.Stdin) && agentsettings.IsWriterTTY(os.Stderr)
 }
 
 func prefixWritable(prefix string) error {
@@ -358,13 +358,13 @@ func settle(d initDecisions, steps []applyStep, applied sbx.Plan) initDecisions 
 
 // rcAdds reports whether the shell's rc file already names dir.
 func rcAdds(dir string) bool {
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
+	sh, ok := promptkit.DetectShell(os.Getenv("SHELL"))
 	if !ok {
 		return false
 	}
 	home, _ := os.UserHomeDir()
 	content, _ := os.ReadFile(sh.RCFile(runtime.GOOS, home))
-	return shell.AlreadyConfigured(string(content), dir)
+	return promptkit.AlreadyConfigured(string(content), dir)
 }
 
 // ensureSbxOnPath puts dir on PATH in the shell's rc when write allows it, and returns the item
@@ -373,7 +373,7 @@ func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 	if onPath(dir) {
 		return sandbox.Item{}
 	}
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
+	sh, ok := promptkit.DetectShell(os.Getenv("SHELL"))
 	home, _ := os.UserHomeDir()
 	rc := sh.RCFile(runtime.GOOS, home)
 	line := sh.PathLine(dir)
@@ -384,7 +384,7 @@ func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 		return sandbox.Item{Warn: true, Text: ui.Tilde(rc) + " — not written", Detail: append(errLines(err), "add it yourself: "+line)}
 	}
 	content, _ := os.ReadFile(rc) // a missing rc is fine; it gets created
-	if shell.AlreadyConfigured(string(content), dir) {
+	if promptkit.AlreadyConfigured(string(content), dir) {
 		return sandbox.Item{Warn: true, Text: ui.Tilde(dir) + " — not on this shell's PATH", Detail: []string{ui.Tilde(rc) + " adds it; a new shell picks it up"}}
 	}
 	if err := appendRC(rc, sh.SbxBlock(dir)); err != nil {

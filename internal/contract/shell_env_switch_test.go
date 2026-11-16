@@ -72,7 +72,7 @@ printf 'REPLY %s\n' "$REPLY"`
 	}
 	got := map[string]string{}
 	reply := ""
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		switch {
 		case len(f) == 3 && f[0] == "RESULT":
@@ -275,7 +275,7 @@ func shellCaseArmHits(lines []string, head int, rest string) []int {
 				depth++
 			}
 		}
-		for _, piece := range strings.Split(text, ";;") {
+		for piece := range strings.SplitSeq(text, ";;") {
 			if depth != 1 {
 				break
 			}
@@ -283,7 +283,7 @@ func shellCaseArmHits(lines []string, head int, rest string) []int {
 			if m == nil {
 				continue
 			}
-			for _, alt := range strings.Split(m[1], "|") {
+			for alt := range strings.SplitSeq(m[1], "|") {
 				if envSwitchWords[shellUnquote(alt)] {
 					out = append(out, n)
 					break

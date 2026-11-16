@@ -343,7 +343,7 @@ func TestTheUnansweredRemovalDialogListsTheMirroredRefs(t *testing.T) {
 func TestEveryDialogFitsAnEightyColumnTerminal(t *testing.T) {
 	t.Parallel()
 	for name, d := range theFiveDialogs() {
-		for _, row := range strings.Split(plain(d.box()), "\n") {
+		for row := range strings.SplitSeq(plain(d.box()), "\n") {
 			if w := textWidth(row); w > 80 {
 				t.Errorf("%s: a row is %d columns wide: %q", name, w, row)
 			}

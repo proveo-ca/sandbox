@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -192,7 +192,7 @@ func (w *initWalk) sbxDone() pageDone {
 func (w *initWalk) gitPage(at choiceui.Step) (stepResult, error) {
 	def := carried(defaultDecisions(w.plan, w.installed, w.o, w.prompted), w.prevGit)
 	d := def
-	id := gitidentity.Resolve(os.Getenv, nil)
+	id := gitaccess.ResolveIdentity(os.Getenv, nil)
 	_, lookErr := exec.LookPath("git")
 	answer := gitAnswer{name: id.Name, email: id.Email, held: id.Complete() || lookErr != nil}
 	var idle []labelled

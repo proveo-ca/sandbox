@@ -10,12 +10,12 @@ skinparam noteTextAlignment left
 '   the variables themselves .......... _spec/internal/envreg/env-registry.puml
 '   PROVEO_DOCKER_PUSH / _PULL ......... _spec/_devops/buildx-driver-selection.puml
 '   PROVEO_DEPS, host and image ....... _spec/packages/lib/dependency-trees.puml
-'   the decision record ............... _spec/_plans/repo-simplification.puml (N6)
-'   the shell twin .................... _spec/_plans/repo-simplification.puml (N32)
 '   installer switches, still apart ... _spec/_plans/repo-simplification.puml (N36)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' DECIDED 2026-10-18 (N6, "Apply N6, N8, N9, N16, N25, N26"): one helper, envflag.On/Off/Bool, one vocabulary.
+' DECIDED 2026-10-18 (N32, option 1): the shell twin, proveo_env_on/off/enabled in packages/lib, takes the same words.
 '
-' ── WHAT IT REPLACED (N6, DONE (wt) 2026-10-18) ────────────────────────────
+' ── WHAT IT REPLACED (N6, DONE 2026-10-18) ─────────────────────────────────
 ' Before N6 each switch parsed its own value. The first read counted about
 ' twenty-two hand-rolled parsers in six vocabularies; the scan below flagged 24
 ' sites when it first ran (reported). PROVEO_WIZARD was parsed twice. A word
@@ -36,7 +36,7 @@ skinparam noteTextAlignment left
 ' default-off switch asks On(v). Either way an unrecognised value leaves the
 ' switch at its default. MEASURED call sites (default in brackets):
 '   PROVEO_CLONE [on], PROVEO_MOUNT_ROOT_DEPS [on] ...... internal/run/helpers.go
-'   PROVEO_STDIN_FILTER [on], PROVEO_WIZARD [on] ........ internal/agentio/agentio.go
+'   PROVEO_STDIN_FILTER [on], PROVEO_WIZARD [on] ........ internal/agentsettings/terminal.go
 '   PROVEO_LOCAL_MODEL_PULL [on], _FORCE [off] .......... internal/sbx/host_ollama.go
 '   PROVEO_MOUNT_GH_CONFIG [on] ......................... internal/credentials/credentials.go
 '   PROVEO_BUILDKIT_CACHE [on], PROVEO_DOCKER_PUSH [off]  internal/imagebuild/imagebuild.go
@@ -49,13 +49,14 @@ skinparam noteTextAlignment left
 '                                                         SkipIfSpeaksTheEnvflagWords)
 ' PROVEO_CDN_REQUIRE_DIST left 2026-11-12 with the stager that read it.
 '
-' PROVEO_WIZARD has ONE reader with ONE name, agentio.WizardEnabled(). MEASURED:
-' run.WizardEnabled is deleted; internal/run (run.go twice, choices.go
+' PROVEO_WIZARD has ONE reader with ONE name, agentsettings.WizardEnabled().
+' MEASURED: run.WizardEnabled is deleted; internal/run (run.go twice, choices.go
 ' cacheApplies), internal/backend/sandbox/confirm.go and cmd/proveo/provision.go
-' call agentio.WizardEnabled directly, as does cmd/proveo/wizard_test.go.
+' call agentsettings.WizardEnabled directly, as does cmd/proveo/wizard_test.go.
 ' MEASURED: internal/run imports internal/backend/sandbox (run.go
 ' sandbox.PlanPorts), so a reader in internal/run would close an import cycle
-' for the sandbox package; agentio is a leaf both can import.
+' for the sandbox package; agentsettings sits below both (L2, since agentio
+' folded into it 2026-11-15).
 '
 ' ── ENUMS: THEIR OWN WORDS FIRST, THEN envflag ─────────────────────────────
 ' MEASURED:

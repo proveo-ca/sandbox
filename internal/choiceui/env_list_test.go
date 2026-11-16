@@ -596,8 +596,8 @@ func TestTheEnvListDrawsFromTheCellsColumnAndTheTiersRunes(t *testing.T) {
 		top := g.frameTL + g.rule + g.rule + " .env "
 		entry, corner, right := -1, -1, -1
 		for _, l := range lines[1:] {
-			if i := strings.Index(l, "› ARCHITECT_MODEL"); i >= 0 && !strings.Contains(l, "—") {
-				entry = textWidth(l[:i]) + 2
+			if before, _, ok := strings.Cut(l, "› ARCHITECT_MODEL"); ok && !strings.Contains(l, "—") {
+				entry = textWidth(before) + 2
 			}
 			if i := strings.Index(l, top); i >= 0 {
 				corner = textWidth(l[:i])

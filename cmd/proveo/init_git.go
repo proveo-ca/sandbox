@@ -8,13 +8,13 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 )
 
 // gitStage is `proveo init`'s git-identity step. Seed still bridges the
 // resolved pair into GIT_CONFIG_KEY_n; init is the one place that can ASK.
 type gitStage struct {
-	resolve    func() gitidentity.Identity
+	resolve    func() gitaccess.Identity
 	lookPath   func(string) (string, error)
 	setGlobal  func(name, email string) error
 	typed      func() (name, email string) // page 2's user.name and user.email fields; nil asked nothing
@@ -80,7 +80,7 @@ func setGitConfigGlobal(name, email string) error {
 // away, and id is what page 2's fields answered.
 func hostGitStage(tty bool, out *sandbox.Block, noTerminal bool, id gitAnswer) gitStage {
 	return gitStage{
-		resolve:    func() gitidentity.Identity { return gitidentity.Resolve(os.Getenv, nil) },
+		resolve:    func() gitaccess.Identity { return gitaccess.ResolveIdentity(os.Getenv, nil) },
 		lookPath:   exec.LookPath,
 		setGlobal:  setGitConfigGlobal,
 		typed:      func() (string, string) { return id.name, id.email },

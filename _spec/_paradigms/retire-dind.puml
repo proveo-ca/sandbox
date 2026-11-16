@@ -19,7 +19,7 @@
 ' (_spec/internal/sbx/sandbox-backend.puml). Every "still stands" and "left
 ' open" below is therefore HISTORY, answered as marked.
 '
-' ── 2026-10-17: THE STUBS THIS FILE ARGUED FOR ARE GONE TOO ────────────────
+' ── 2026-10-17 (S3): THE STUBS THIS FILE ARGUED FOR ARE GONE TOO ───────────
 ' The user, on the CLI and env stubs: "Drop all four" (--egress-mode, --shell,
 ' PROVEO_SBX off values, PROVEO_DIND); on the manifest's retired fields: "Drop
 ' all four" (dind, sandbox_docker, egress, provider). MEASURED: warnDindRetired,

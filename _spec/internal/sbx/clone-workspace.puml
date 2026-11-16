@@ -16,7 +16,7 @@ skinparam noteTextAlignment left
 ' covers: e2e/clone_output_test.go
 ' covers: e2e/git_access_test.go (hostCarriesCommit, hostRefLog)
 ' covers: internal/workspace/mount.go (CloneSource, WorktreeSource)
-' covers: internal/backend/sandbox/sandbox.go (cloneThroughMain, sandboxKey, agentWorkdir, realPath, startupCommands, CloneRefVar, CloneMainVar)
+' covers: internal/backend/sandbox/sandbox.go (cloneThroughMain, sandboxKey, agentWorkdir, startupCommands, CloneRefVar, CloneMainVar)
 ' covers: internal/sbx/kit.go (WorktreeDirCommand)
 ' covers: packages/lib/proveo-await-seed
 ' covers: packages/lib/entrypoint-lib.sh (proveo_clone_checkout)
@@ -95,7 +95,7 @@ skinparam noteTextAlignment left
 '     with no sudo, so a ROOT kit startup command (WorktreeDirCommand) creates
 '     the worktree directory owned by 1000; the seed then waits up to 10s for it
 '     to be writable, since startup order is not documented;
-'   paths are passed RESOLVED (realPath): sbx mounts /private/var/…, and an
+'   paths are passed RESOLVED (workspace.RealPath): sbx mounts /private/var/…, and an
 '     unresolved /var/… names the VM's own /var — measured in the e2e;
 '   sbx starts the agent in the primary workspace, so proveo-await-seed (the
 '     claude/opencode/hermes shims exec it; bash.bashrc cds to its --cwd) moves

@@ -74,7 +74,7 @@ func readNvidiaFreeVRAM() (uint64, bool) {
 func parseNvidiaFree(out string) (uint64, bool) {
 	var mib uint64
 	seen := false
-	for _, f := range strings.Fields(out) {
+	for f := range strings.FieldsSeq(out) {
 		n, err := strconv.ParseUint(f, 10, 64)
 		if err != nil {
 			return 0, false

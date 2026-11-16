@@ -20,13 +20,20 @@ skinparam noteTextAlignment left
 '   R3 HAND-OFF FAILURE ........................ _spec/cmd/proveo/init-sbx-bootstrap.puml
 '   R3's QUIT .................................. _spec/cmd/proveo/init-preflight-and-result.puml
 '
+' ── THE TMUX DRIVER LIVES HERE (DECIDED 2026-11-15) ────────────────────────
+' DECIDED 2026-11-15 (owner: "the 8 uncontested"; codebase-compression.puml
+' P11, F3 option 1): tmux.go, imported by this package and the e2e suite,
+' folds into internal/schedule. Its names say tmux: NewTmux, TmuxSession,
+' TmuxRunner (the service-manager Runner stays), TmuxAvailable, TmuxEnv.
+' driving-a-tty.puml (this directory) keeps why e2e drives a real TTY.
+'
 ' ── WHY NOT A PLAIN CRON (2026-09-27) ──────────────────────────────────────
 ' Every harness is a TUI. cron/launchd give no TTY, so proveo's choice form,
 ' hermes's TUI and `/goal` are unreachable. Measured: `hermes chat -q "/goal …"`
 ' on a TTY QUEUES the text as a user message; on a non-TTY it is --oneshot, one
 ' turn and exit, and hermes runs goal loops in -q only for kanban workers. So
 ' the goal has to be TYPED into the running TUI — which needs a terminal proveo
-' owns. internal/tmux already drives TUIs for the e2e suite.
+' owns. tmux.go (this package) already drives TUIs for the e2e suite.
 '
 ' ── SHAPE ──────────────────────────────────────────────────────────────────
 '   launchd (macOS) / systemd --user timer (Linux) → `proveo schedule tick` every 60 s
@@ -140,7 +147,7 @@ skinparam noteTextAlignment left
 '   × <job> — its last run did not fail `proveo schedule run <job>` starts it again
 '   × <job> — no such job               jobs: <names>
 '   × <job> — already running           `proveo attach <job>` opens it
-'   × <job> — its tmux session did not start   tmux's own words (tmux.Session.Start)
+'   × <job> — its tmux session did not start   tmux's own words (TmuxSession.Start)
 '   × <job> — not started               any other launch error, home paths as ~/
 '   × <~file> — not found               `proveo schedule --help` shows its format
 ' The tick log names a skipped job once: "… tick: <job> (<entry>): still
@@ -279,7 +286,7 @@ skinparam noteTextAlignment left
 '   stopAgent returns "<why>; the agent had already exited" when the pinned
 '             session is gone before the first key, and sends nothing
 ' So a watcher only ever reads, types into or kills the session it launched with.
-' covers: internal/tmux/tmux.go (Pin, Alive)
+' covers: internal/schedule/tmux.go (Pin, Alive)
 '
 ' ── ATTACH ─────────────────────────────────────────────────────────────────
 '   proveo attach [task] [-r|--read-only]

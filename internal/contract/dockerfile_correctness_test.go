@@ -51,7 +51,7 @@ func TestHealthchecksDoNotDependOnTheUserName(t *testing.T) {
 	t.Parallel()
 	for _, rel := range append([]string{}, aptDockerfiles...) {
 		df := readRepoFile(t, rel)
-		for _, line := range strings.Split(df, "\n") {
+		for line := range strings.SplitSeq(df, "\n") {
 			if !strings.Contains(line, "test -f /home/") && !strings.Contains(line, "CMD test -f") {
 				continue
 			}
@@ -105,7 +105,7 @@ func TestDockerfileStringsQuoteNoBackticks(t *testing.T) {
 	if err != nil {
 		t.Skipf("git ls-files: %v", err)
 	}
-	for _, rel := range strings.Fields(string(out)) {
+	for rel := range strings.FieldsSeq(string(out)) {
 		for i, line := range strings.Split(instructionsOnly(readRepoFile(t, rel)), "\n") {
 			if m := backtickInDoubleQuotes.FindString(line); m != "" {
 				t.Errorf("%s:%d double-quoted string runs a command substitution: %s", rel, i+1, m)
@@ -121,7 +121,7 @@ func TestEveryAptInstallNamesAPackage(t *testing.T) {
 	if err != nil {
 		t.Skipf("git ls-files: %v", err)
 	}
-	for _, rel := range strings.Fields(string(out)) {
+	for rel := range strings.FieldsSeq(string(out)) {
 		joined := strings.ReplaceAll(instructionsOnly(readRepoFile(t, rel)), "\\\n", " ")
 		for _, tail := range strings.Split(joined, "apt-get install")[1:] {
 			line, _, _ := strings.Cut(tail, "\n")
@@ -134,7 +134,7 @@ func TestEveryAptInstallNamesAPackage(t *testing.T) {
 
 // firstPackage is the first non-flag word of an apt-get install tail, or "".
 func firstPackage(tail string) string {
-	for _, f := range strings.Fields(tail) {
+	for f := range strings.FieldsSeq(tail) {
 		switch {
 		case strings.HasPrefix(f, "-"):
 			continue

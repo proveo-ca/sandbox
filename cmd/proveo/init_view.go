@@ -198,7 +198,7 @@ func runArgvCaptured(argv []string) error {
 // lastLines is text's last n non-blank lines joined by " — ".
 func lastLines(text string, n int) string {
 	var lines []string
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			lines = append(lines, l)
 		}

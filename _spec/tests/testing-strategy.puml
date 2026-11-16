@@ -6,12 +6,11 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '          have actually exhibited — every one of them a test that passed
 ' covers: internal/contract/**
 ' covers: e2e/**
-' covers: internal/tmux/**
+' covers: internal/schedule/tmux*.go
 ' covers: defs/tests/**
 ' covers: internal/imagetest/**
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
-' covers: e2e/kit_probe_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, pickKitSandbox, kitDirs, testOwned)
-' covers: e2e/kit_sandbox_test.go
+' covers: e2e/kit_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, pickKitSandbox, kitDirs, testOwned)
 ' covers: internal/sbx/clone_test.go (TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch, isolatedGitEnv)
 ' covers: internal/backend/sandbox/clone_carry_test.go (gitEnv)
 '   the suite's own standards doc ... e2e/go-testing-standards.md
@@ -194,7 +193,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' So the roster is READ FROM THE IMAGE. A list copied into a test drifts silently
 ' the moment the roster changes.
 ' `tools:` and `readonly: true` moved with them, into the per-harness FRONTMATTER
-' (_frontmatter/<harness>/<agent>.yaml) that render_subagents applies to the
+' (_frontmatter/<harness>.yaml, keyed by agent) that render_subagents applies to the
 ' shared body — the bodies never carried either, so they are asserted there.
 ' See _spec/defs/agent-definition-sharing.puml.
 '
@@ -392,7 +391,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' proveo did (the backend it chose, the VM it removed) is read from the run's
 ' output and `sbx ls` (TestEveryHarnessGetsTheDockerAccessItPromises).
 '
-' ONE KIT LAUNCH AND `sbx exec` CARRY IT (e2e/kit_probe_test.go, 2026-10-17).
+' ONE KIT LAUNCH AND `sbx exec` CARRY IT (e2e/kit_test.go, 2026-10-17, S3).
 ' The user retired `--shell` ("is that `proveo` or `sbx`? if `proveo` retire
 ' it") and, on the e2e, "Convert all now". MEASURED:
 '   launchKit — one `proveo run <target>` through its own kit under tmux, pinned
@@ -435,12 +434,12 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     HISTORY: an "every workspace under temp" rule never matched claudecode —
 '     home.files adds <StateDir>/runs/<sid>/sbx/home-files and a
 '     clone with .env adds sbx/project-env, both outside temp.
-'     Pinned offline (e2e build tag, no sbx needed) by e2e/kit_sandbox_test.go:
+'     Pinned offline (e2e build tag, no sbx needed) by e2e/kit_test.go:
 '     TestKitSandboxNamesOnlyTheRunsOwnSandbox, 10 pickKitSandbox cases
 '     (MEASURED; the brief said 9) with fixed /operator/... paths — $HOME can
 '     sit under TMPDIR in CI — including a scoped --input and the dropped
 '     fallback; TestKitDirsAddsOnlyALinkedWorktreesMain on a real git
-'     worktree; TestASbxConsentPromptNamesItsServices (kit_sandbox_test.go:124).
+'     worktree; TestASbxConsentPromptNamesItsServices (kit_test.go:457).
 '   tend — NEVER APPROVES a credential binding (SEC3, DONE (wt) 2026-10-17; the
 '     user: "Never approve; fail fast (Recommended)"). Approval persists in the
 '     operator's ~/.config/sbx/credentials.yaml and outlives the test, and the
@@ -477,7 +476,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     stop tears down like a normal exit (clone and state lifted, `sbx rm`) and
 '     proveo exits 143 (_spec/internal/sbx/kit-lifecycle.puml). stopRun is also
 '     the cleanup in close_confirm and ports_publish, and the step that ends
-'     the first run in ports_publish and android_seed_install (MEASURED).
+'     the first run in ports_publish and TestAndroidAppInstallsFromTheSeed
+'     (MEASURED).
 '     RESIDUAL (reported): stopRun's SIGKILL after its timeout aborts proveo's
 '     own `sbx rm`; the sweepSandboxesAfter that harnessImage registers removes
 '     the sandbox at test end. ports_publish sweeps through harnessImage
@@ -512,7 +512,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     the fixture (review #6).
 ' MEASURED helpers: internal/sbx/clone_test.go isolatedGitEnv,
 ' internal/backend/sandbox/clone_carry_test.go gitEnv and the inline env in
-' e2e/kit_sandbox_test.go TestKitDirsAddsOnlyALinkedWorktreesMain; all three
+' e2e/kit_test.go TestKitDirsAddsOnlyALinkedWorktreesMain; all three
 ' also drop XDG_CONFIG_HOME.
 ' So a script that fails to cd can find no repository at all, and no operator
 ' config can change what a fixture commits.
@@ -764,7 +764,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     t.TempDir() PROVEO_HOME; an extraEnv PROVEO_HOME still wins (last value).
 '     Left on the real home: TestAgentSurvivesIdleAtPrompt (no credential env;
 '     claudecode reaches its prompt on the proveo home's persisted login),
-'     hello_world, e2e_test (opencode), hermes_local_model and ladder's
+'     hello_world, e2e_test (opencode), TestHermesLocalModelE2E and ladder's
 '     proveoWorkload. [Inference] each needs the real home's login or agent
 '     state; none was re-run under a private one.
 ' ── FOUR FIXTURE FAULTS, FIXED 2026-10-20 ───────────────────────────────────
@@ -875,7 +875,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     [Unverified] `sbx exec -u <name|uid>[:<group|gid>]` comes from a search
 '     excerpt of docs.docker.com/reference/cli/sbx/exec; the Sandboxes API's
 '     ExecRequest schema carries `user` (fetched). No sbx ran it here.
-'     kitRun.try (e2e/kit_probe_test.go) still runs without -u; it reads only
+'     kitRun.try (e2e/kit_test.go) still runs without -u; it reads only
 '     /dev/shm markers and the kit startup log.
 '     The cleanup's `sbx rm` counts sbx.NotFound as success: proveo's own
 '     teardown removes the sandbox first, and a removed sandbox is no leak.
@@ -1093,7 +1093,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 component "**1. Unit**\ninternal/*/*_test.go — no build tags\nGo only · deterministic\n//always//" as L1 <<app>>
 component "**2. Contract**\nGo builders + goldens\nsandbox.Spec · Detect · sbx goldens\n//always, no Docker//" as L2 <<app>>
 component "**3. Infra integration — RETIRED 2026-10-16**\nthe docker egress topology it stood up is deleted" as L3 <<error>>
-component "**4. Agent E2E (promptful)**\ne2e ""//go:build e2e//"" via internal/tmux\nnon-deterministic — asserts side effects\n//-tags=e2e · skips per missing prerequisite//" as L4 <<async>>
+component "**4. Agent E2E (promptful)**\ne2e ""//go:build e2e//"" via internal/schedule's tmux driver\nnon-deterministic — asserts side effects\n//-tags=e2e · skips per missing prerequisite//" as L4 <<async>>
 
 database "cov/unit\ngo tool covdata merge → percent" as COV <<db>>
 
@@ -1106,7 +1106,7 @@ L2 ARROW_QUEUE COV
 note right of L1
   Host orchestration under test is **Go**
   (""cmd/proveo"", ""internal/{workspace,run,
-  sbx,gitidentity,manifest}""). Fat bash runners and the
+  sbx,gitaccess,manifest}""). Fat bash runners and the
   ""defs/lib/egress.sh"" lifecycle are retired.
 end note
 

@@ -1,5 +1,5 @@
-# skip_if (post-commit) needs mise 2026.10.10.
-min_version = "2026.10.10"
+# allow_builds (npm:wrangler) runs only its list from mise 2026.10.17.
+min_version = "2026.10.17"
 
 # Top-level tests `mise run baseline` skips; reasons live in the SPEC.
 # SPEC: _spec/_devops/unit-baseline.puml
@@ -40,13 +40,9 @@ unit_baseline = """\
 [tools]
 go = "1.26.10"
 node = "24"
-pnpm = "10"
+"npm:wrangler" = { version = "4.100.0", allow_builds = ["esbuild", "sharp", "workerd"] }
 tmux = "3.7b"
 golangci-lint = "2.12.2"
-
-[tasks.install]
-description = "Install root workspace dependencies"
-run = "pnpm install"
 
 # ── Go format / lint (golangci-lint v2) ─────────────────────
 
@@ -219,7 +215,7 @@ run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -
 
 [tasks.wrangler-version]
 description = "Show the local wrangler version"
-run = "pnpm exec wrangler --version"
+run = "wrangler --version"
 
 # SPEC: _spec/internal/cdn/distribution-update.puml
 [tasks.snapshot]
@@ -256,13 +252,13 @@ confirm = "Deploy apps/cli to Cloudflare?"
 env = { PROVEO_RELEASE_GATE = "1" }
 run = [
   "go test -count=1 '-run=^TestStagedCDNIsTheTaggedRelease$' ./internal/contract/",
-  "pnpm exec wrangler deploy --cwd apps/cli",
+  "wrangler deploy --cwd apps/cli",
 ]
 
 [tasks.dev-cli]
 description = "Snapshot HEAD, stage the CDN tree, serve apps/cli locally with wrangler dev (never deploys)"
 dir = "{{config_root}}"
-run = [{ task = "snapshot" }, { task = "stage-cdn" }, "pnpm exec wrangler dev --cwd apps/cli"]
+run = [{ task = "snapshot" }, { task = "stage-cdn" }, "wrangler dev --cwd apps/cli"]
 
 # ── Harness images (maintainer) ─────────────────────────────
 

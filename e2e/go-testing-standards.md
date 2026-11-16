@@ -25,8 +25,14 @@ Go 1.26 (this module's toolchain).
 7. **Use the testing lifecycle helpers:** `t.TempDir()` (auto-cleaned), `t.Setenv()` (auto-restored,
    serial), `t.Cleanup()`, `t.Chdir()` (Go 1.24+). Don't hand-roll teardown.
 8. **Mark helpers with `t.Helper()`** so failures point at the call site.
-9. **Golden files** for large/structured output (e.g. generated config): compare against a
-   `testdata/*.golden`, refreshable with a `-update` flag. Annotate the diff direction.
+9. **Golden files** for large/structured output (e.g. generated config): one txtar archive per
+   golden-producing test function, `testdata/<name>.txtar`, read through `internal/testx`
+   (`g := testx.Open(t, name)`, `g.Assert(entry, got)`); a file-tree fixture lands in
+   `testx.Extract(t, name)`. Refresh per package with `go test ./<pkg> -update` (`-run` narrows
+   it; a `-run` or `-skip` naming a subtest records what it draws and prunes nothing); the root
+   form `go test ./... -update` fails every package without the flag. A command a test builds
+   gets `SetArgs` before `Execute`, or cobra reads the test binary's own flags.
+   Annotate the diff direction.
 10. **Test error identity, not error strings.** Use `errors.Is`/`errors.As`, not substring matching.
 11. **Run with `-race`** in CI; keep tests deterministic (no `Date.now()`-style nondeterminism).
 
@@ -52,7 +58,7 @@ E2E suites follow Testcontainers *practices* without adopting the library.
 6. **Isolation.** Unique session IDs and `t.TempDir()` state dirs per test.
 7. **sbx is the only backend.** No test can pin another rendering; assert the behaviour sbx
    produces. Live tests start `proveo run <target>` through its kit (`launchKit` /
-   `awaitKit` in `e2e/kit_probe_test.go`) and probe with `sbx exec`, never a shell in the pane.
+   `awaitKit` in `e2e/kit_test.go`) and probe with `sbx exec`, never a shell in the pane.
 8. **Derive image references; never restate a tag.** `mise run build` tags a local build
    `:local` and only a publish moves `:latest`, so a hardcoded `proveo/x:latest` skips the
    suite on a machine that just built `x` — and on one that has also pulled, silently tests

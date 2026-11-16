@@ -11,7 +11,7 @@ skinparam noteTextAlignment left
 ' covers: internal/imagebuild/imagebuild.go (HostBuilder)
 ' covers: internal/backend/sandbox/sandbox.go (Spec recipe, createSandbox)
 ' covers: internal/backend/sandbox/opencode_engine.go (createOpenCodeEngine)
-' covers: e2e/kit_image_source_test.go
+' covers: e2e/kit_test.go
 ' see: _spec/internal/sbx/sbx-kit-v3.puml (the recipe), _spec/internal/maintain/ (local vs published choice)
 '
 ' ── FAILURE (MEASURED 2026-10-27, Fedora 44, docker-ce 29.9.2, sbx 0.50.0) ──
@@ -37,7 +37,7 @@ skinparam noteTextAlignment left
 '      Docker image store" — M1 is behaviour, not contract.
 '   M5 every supportable series (2026-10-27, macOS, one signed build each, sbx
 '      state restored from an APFS clone between runs): 0.45.1, 0.46.0, 0.47.0,
-'      0.48.0, 0.49.2, 0.50.0 all pass e2e/kit_image_source_test.go (both legs)
+'      0.48.0, 0.49.2, 0.50.0 all pass e2e/kit_test.go TestAHostOnlyImageBuildsWhileAContainerBuilderIsActive (both legs)
 '      and TestOpenCodeEngineKeepsHistoryAndImportsOnce under
 '      BUILDX_BUILDER=proveo-multiarch; sbx-kit-builder stays "not created".
 '      ≤0.47 wraps `sbx ls --json` in {"sandboxes": [...]}; proveo reads the table.

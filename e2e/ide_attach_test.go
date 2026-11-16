@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestIDEAttachSSHLandsOnTheCloneNotTheHostTree drives a real clone run, then
@@ -41,7 +41,7 @@ func TestIDEAttachSSHLandsOnTheCloneNotTheHostTree(t *testing.T) {
 	gitInit(t, work)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-ideattach-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-ideattach-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

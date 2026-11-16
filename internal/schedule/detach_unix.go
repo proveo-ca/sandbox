@@ -20,7 +20,7 @@ func terminateChildren(pid int) error {
 		return err
 	}
 	var sent int
-	for _, f := range strings.Fields(string(out)) {
+	for f := range strings.FieldsSeq(string(out)) {
 		if child, err := strconv.Atoi(f); err == nil && syscall.Kill(child, syscall.SIGTERM) == nil {
 			sent++
 		}

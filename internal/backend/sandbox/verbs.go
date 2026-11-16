@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/adopt"
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -167,7 +165,7 @@ func notRemoved(name string, err error, detail ...string) error {
 // refused prints it and returns err as one main prints nothing for.
 func refused(it Item, err error) error {
 	it.print()
-	return backend.Reported{Err: err}
+	return Reported{Err: err}
 }
 
 // keptInput rebuilds what the carry needs from the sandbox's listing and its store entry.
@@ -239,7 +237,7 @@ func ReconcileResults(resultsDir, repo string) {
 			}
 			var ahead []results.Ref
 			for _, r := range e.Refs {
-				if n := adopt.Lead(repo, r.Name); n > 0 {
+				if n := results.Lead(repo, r.Name); n > 0 {
 					ahead = append(ahead, results.Ref{Name: r.Name, Lead: n, Tip: r.Tip})
 				}
 			}

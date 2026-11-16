@@ -49,7 +49,7 @@ Every harness runs as a non-root user, never root
  reintroduce gosu, sudo, or per-image uid branching.
 
 Also from that commit, and equally required: bake `git` and `gh` into every harness image,
-forward the developer's identity via `internal/gitidentity` in `proveo run`, and bridge it
+forward the developer's identity via `internal/gitaccess` in `proveo run`, and bridge it
 file-free with `bridge_git_identity` (`packages/lib/entrypoint-lib.sh`) in the entrypoint.
 
 ## Secrets and `.env` mounts (required)

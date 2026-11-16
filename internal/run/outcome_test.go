@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -23,10 +23,10 @@ func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 		err      error
 		want     string
 	}{
-		{"an agent that exited non-zero", true, backend.ExitError{Code: 137}, "137"},
+		{"an agent that exited non-zero", true, sandbox.ExitError{Code: 137}, "137"},
 		{"a plain failure", true, errors.New("cursor has no --local-model path"), "cursor has no --local-model path"},
 		{"success", true, nil, "exited 0"},
-		{"a forwarded stop", true, backend.Stopped{Signal: syscall.SIGTERM}, "outcome: stopped by SIGTERM"},
+		{"a forwarded stop", true, sandbox.Stopped{Signal: syscall.SIGTERM}, "outcome: stopped by SIGTERM"},
 		// `--print` and the not-ready paths return nil without ever starting an
 		// agent; recording "exited 0" there made the transcript unable to tell
 		// a successful run from one that never launched.
@@ -77,7 +77,7 @@ func TestRecordOutcomeDoesNotDoubleReportAPlainError(t *testing.T) {
 		t.Errorf("a plain error was printed here as well as by main:\n%s", sb.String())
 	}
 
-	recordOutcome(true, backend.ExitError{Code: 2})
+	recordOutcome(true, sandbox.ExitError{Code: 2})
 	if strings.Contains(sb.String(), "2") {
 		t.Errorf("an exit code reaches the screen from sandbox.Run's results block, not here:\n%s", sb.String())
 	}
@@ -87,7 +87,7 @@ func TestRecordOutcomeDoesNotDoubleReportAPlainError(t *testing.T) {
 // TeeTo has run, which is exactly the state after runlog.Open failed.
 func TestRecordOutcomeSurvivesAnUnopenedLog(t *testing.T) {
 	recordOutcome(false, nil)
-	recordOutcome(true, backend.ExitError{Code: 1})
+	recordOutcome(true, sandbox.ExitError{Code: 1})
 }
 
 func TestDoRecordsAnEarlyFailureInTheTranscript(t *testing.T) {

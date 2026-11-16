@@ -13,13 +13,13 @@ import (
 	"github.com/proveo-ca/proveo/internal/imagetest"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // requireTmux skips unless the PTY driver every harness run needs is installed.
 func requireTmux(t *testing.T) {
 	t.Helper()
-	if !tmux.Available() {
+	if !schedule.TmuxAvailable() {
 		t.Skip("tmux not installed (brew install tmux)")
 	}
 }

@@ -8,22 +8,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/githubaccess"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func TestSSHGrantAndSocketReachTheSeedOnlyWhenChosen(t *testing.T) {
-	for _, mode := range []string{githubaccess.SSH, githubaccess.HTTPS, githubaccess.Later, ""} {
+	for _, mode := range []string{gitaccess.SSH, gitaccess.HTTPS, gitaccess.Later, ""} {
 		in := Input{Target: "codex", GitTransport: mode, Lookup: func(string) string { return "" }}
 		cfg, w, _ := Spec(in)
 		granted := slices.ContainsFunc(w.Descriptor.Capabilities, func(c sbx.CapabilityV3) bool { return c.Type == sbx.CapSSHAgent })
-		if granted != (mode == githubaccess.SSH) {
+		if granted != (mode == gitaccess.SSH) {
 			t.Fatalf("%s SSH grant=%v", mode, granted)
 		}
-		if slices.Contains(hookEnv(in, cfg.Env), "SSH_AUTH_SOCK") != (mode == githubaccess.SSH) {
+		if slices.Contains(hookEnv(in, cfg.Env), "SSH_AUTH_SOCK") != (mode == gitaccess.SSH) {
 			t.Fatalf("%s seed socket visibility incorrect", mode)
 		}
-		if slices.Contains(cfg.Env, "GIT_CONFIG_COUNT=2") != (mode == githubaccess.HTTPS) {
+		if slices.Contains(cfg.Env, "GIT_CONFIG_COUNT=2") != (mode == gitaccess.HTTPS) {
 			t.Fatalf("%s HTTPS rewriting incorrect", mode)
 		}
 	}
@@ -31,8 +32,8 @@ func TestSSHGrantAndSocketReachTheSeedOnlyWhenChosen(t *testing.T) {
 
 func TestHTTPSRewritesCoexistWithRepositorySafetyInTheActualGitEnvironment(t *testing.T) {
 	t.Parallel()
-	root := realPath(t.TempDir())
-	for _, mode := range []string{githubaccess.HTTPS, githubaccess.SSH, githubaccess.Later} {
+	root := workspace.RealPath(t.TempDir())
+	for _, mode := range []string{gitaccess.HTTPS, gitaccess.SSH, gitaccess.Later} {
 		cfg, _, _ := Spec(Input{Target: "codex", RepoRoot: root, GitTransport: mode, Lookup: func(string) string { return "" }})
 		for _, source := range []string{"git@github.com:owner/repo.git", "ssh://git@github.com/owner/repo.git"} {
 			cmd := exec.Command("git", "ls-remote", "--get-url", source)
@@ -42,7 +43,7 @@ func TestHTTPSRewritesCoexistWithRepositorySafetyInTheActualGitEnvironment(t *te
 				t.Fatalf("Git URL resolution: %v %s", err, out)
 			}
 			want := source
-			if mode == githubaccess.HTTPS {
+			if mode == gitaccess.HTTPS {
 				want = "https://github.com/owner/repo.git"
 			}
 			if strings.TrimSpace(string(out)) != want {

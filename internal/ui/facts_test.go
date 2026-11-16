@@ -13,11 +13,11 @@ import (
 
 // col is the display column where needle starts in line, or -1.
 func col(line, needle string) int {
-	i := strings.Index(line, needle)
-	if i < 0 {
+	before, _, ok := strings.Cut(line, needle)
+	if !ok {
 		return -1
 	}
-	return textWidthOf(line[:i])
+	return textWidthOf(before)
 }
 
 func plainLines(s string) []string {

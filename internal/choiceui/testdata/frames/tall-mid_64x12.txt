@@ -1,9 +1,0 @@
-╭──────────────────────────────────────────────────────────────╮
-│ run claudecode — confirm or change this run                  │
-│   auth          (•) ANTHROPIC…   ( ) CLAUDE_CO…              ▲
-├── execution ──                                               ░
-│ ›               [ ] host   [ ] docker (s…                    │
-├── interface ──                                               ▼
-├──────────────────────────────────────────────────────────────┤
-│ ↑↓ row · ←→ move · enter accept · esc cancel · 1 more below  │
-╰──────────────────────────────────────────────────────────────╯

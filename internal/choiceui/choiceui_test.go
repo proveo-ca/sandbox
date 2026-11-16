@@ -21,9 +21,9 @@ func render(t *testing.T, f *Form) []string {
 
 	cells, w, h := s.GetContents()
 	lines := make([]string, 0, h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		var b strings.Builder
-		for x := 0; x < w; x++ {
+		for x := range w {
 			b.WriteString(string(cells[y*w+x].Runes))
 		}
 		if line := strings.TrimRight(b.String(), " "); line != "" {
@@ -67,7 +67,7 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	brand := hexName(ui.ColorBrand)
 	const ink = "" // the terminal's own foreground
 	box := strings.Split(ui.BrandBanner, "\n")
-	for x := 0; x < 80; x++ {
+	for x := range 80 {
 		if r, _, _, _ := s.GetContent(x, 0); r != ' ' && r != 0 {
 			t.Fatalf("row 0 col %d is %q, help opens with a blank line", x, string(r))
 		}
@@ -76,7 +76,7 @@ func assertHelpHeader(t *testing.T, f *Form) {
 		assertBannerLine(t, s, i+1, line, brand, true)
 	}
 	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, ink, false)
-	for x := 0; x < 80; x++ {
+	for x := range 80 {
 		if r, _, _, _ := s.GetContent(x, len(box)+2); r != ' ' && r != 0 {
 			t.Fatalf("row %d col %d is %q, help closes the header with a blank line", len(box)+2, x, string(r))
 		}
@@ -101,10 +101,7 @@ func assertBannerLine(t *testing.T, s *screen, y int, line string, fg string, bo
 		if gotBold := style.GetBold(); gotBold != bold {
 			t.Errorf("row %d col %d bold=%v, want %v", y, x, gotBold, bold)
 		}
-		w := runeCols(r)
-		if w < 1 {
-			w = 1
-		}
+		w := max(runeCols(r), 1)
 		x += w
 	}
 }
@@ -358,8 +355,8 @@ func TestSupportingTextUsesTerminalInkNotSlate(t *testing.T) {
 	cells, w, h := s.GetContents()
 	slate := hexName(ui.ColorCloud)
 	light := hexName(ui.ColorSecondary)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			switch fgHex(cells[y*w+x].Style) {
 			case light:
 				t.Errorf("row %d col %d forces the light #E5E4E4, which vanishes on a white terminal", y, x)
@@ -371,8 +368,8 @@ func TestSupportingTextUsesTerminalInkNotSlate(t *testing.T) {
 	lines := screenLines(s)
 	for _, text := range []string{"sandbox on main", "CURSOR_API_KEY"} {
 		for y, l := range lines {
-			if i := strings.Index(l, text); i >= 0 {
-				if _, _, st, _ := s.GetContent(textWidth(l[:i]), y); fgHex(st) != "" {
+			if before, _, ok := strings.Cut(l, text); ok {
+				if _, _, st, _ := s.GetContent(textWidth(before), y); fgHex(st) != "" {
 					t.Errorf("header text %q is %s, want the terminal's own ink", text, fgHex(st))
 				}
 			}
@@ -394,8 +391,8 @@ func TestAnAnswerDrawsItsStateAndTheCursorFillsIt(t *testing.T) {
 	at := func(text string) lipgloss.Style {
 		t.Helper()
 		for y, l := range lines {
-			if i := strings.Index(l, text); i >= 0 {
-				_, _, st, _ := s.GetContent(textWidth(l[:i]), y)
+			if before, _, ok := strings.Cut(l, text); ok {
+				_, _, st, _ := s.GetContent(textWidth(before), y)
 				return st
 			}
 		}
@@ -427,8 +424,8 @@ func TestAnAnswerDrawsItsStateAndTheCursorFillsIt(t *testing.T) {
 		t.Errorf("an unavailable answer must be faint and struck through: %q", p.gated.Render("x"))
 	}
 	cells, w, h := s.GetContents()
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			if cells[y*w+x].Style.GetUnderline() {
 				t.Errorf("row %d col %d is underlined; the cursor is a fill", y, x)
 			}
@@ -833,8 +830,8 @@ func TestAnEightyColumnCardDrawsTheGridAtPitchSixteen(t *testing.T) {
 	col := func(needle string) (string, int) {
 		t.Helper()
 		for _, l := range lines {
-			if i := strings.Index(l, needle); i >= 0 {
-				return l, utf8.RuneCountInString(l[:i])
+			if before, _, ok := strings.Cut(l, needle); ok {
+				return l, utf8.RuneCountInString(before)
 			}
 		}
 		t.Fatalf("no line holds %q:\n%s", needle, strings.Join(lines, "\n"))
@@ -896,9 +893,9 @@ func TestMoreDrawsUnderTheFourthColumn(t *testing.T) {
 		if strings.HasPrefix(l, "╰") {
 			bottom = y
 		}
-		if i := strings.Index(l, "[x] 4000 jekyll"); i >= 0 {
+		if before, _, ok := strings.Cut(l, "[x] 4000 jekyll"); ok {
 			under = y
-			if got, want := utf8.RuneCountInString(l[:i]), at("[x] ...More"); got != want {
+			if got, want := utf8.RuneCountInString(before), at("[x] ...More"); got != want {
 				t.Errorf("the list's entries start at %d, want the cell's column %d\n%s", got, want, joined)
 			}
 		}

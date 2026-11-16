@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/workspace"
 )
@@ -29,7 +28,7 @@ func TestSpecClonesALinkedWorktreeThroughItsMainWorktree(t *testing.T) {
 		Clone: true, RepoRoot: wt, OutputDir: filepath.Join(wt, "reports"),
 		CloneSource:      workspace.WorktreeSource{Main: main, Ref: "feat"},
 		WorktreeFallback: true, WorktreeEnv: []string{"GIT_DIR=/proveo-git/worktrees/wt", "GIT_WORK_TREE=/app"},
-		Mounts: []runner.Mount{
+		Mounts: []workspace.Mount{
 			{Host: wt, Container: "/app"},
 			{Host: filepath.Join(main, ".git"), Container: workspace.ContainerGitCommonDir},
 			{Host: filepath.Join(wt, "reports"), Container: "/app/reports"},
@@ -75,7 +74,7 @@ func TestSpecMountsTheStagedEnvReadWriteOnlyForAClone(t *testing.T) {
 		Target: "claudecode", Man: manifest.Manifest{Name: "claudecode"},
 		Sid: "proveo-1-2", RunDir: t.TempDir(), Lookup: func(string) string { return "" },
 		RepoRoot: repo, CloneEnv: staged,
-		Mounts: []runner.Mount{{Host: repo, Container: "/app"}},
+		Mounts: []workspace.Mount{{Host: repo, Container: "/app"}},
 	}
 	clone := base
 	clone.Clone = true

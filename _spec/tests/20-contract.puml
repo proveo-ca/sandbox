@@ -1,7 +1,7 @@
 @startuml TestingLayer2Contract
 ' SPEC source: cmd/proveo/main_test.go, cmd/proveo/golden_test.go, internal/contract/**
 ' Layer 2 — Go contract tests on real builders (replacing bash grep). No Docker.
-' 2026-10-16: internal/runner's DockerRunArgs golden, internal/egress BuildPlan
+' 2026-10-16: the runner package's DockerRunArgs golden, internal/egress BuildPlan
 ' goldens and writeBrokerEnv/sentinel cases are DELETED with the docker+egress
 ' backend; the sbx builders (sandbox.Spec, TestSandboxPlanGolden) carry the lane.
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/githubaccess"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 )
 
 func TestInitGitHubSSHChoicePersistsWithoutChangingHostProtocol(t *testing.T) {
@@ -44,8 +44,8 @@ esac
 	if saved == "" {
 		t.Fatal("GitHub access selection was not saved")
 	}
-	cfg, err := githubaccess.Load(saved)
-	if err != nil || cfg.Transport != githubaccess.SSH {
+	cfg, err := gitaccess.Load(saved)
+	if err != nil || cfg.Transport != gitaccess.SSH {
 		t.Fatalf("saved transport %v %v", cfg, err)
 	}
 	for _, call := range r.calls(t) {

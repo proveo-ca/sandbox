@@ -3,13 +3,13 @@ package choiceui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 // runWord is what Enter does when n rows of the page will run.
@@ -289,55 +289,23 @@ func checklistFrame(t *testing.T, c checklistCase, w, h int) []string {
 }
 
 // TestAChecklistGoldenFrames holds the checklist card to frames recorded from the renderer, one per
-// moment the spec draws at 80x24 and 120x36. PROVEO_UPDATE_FRAMES=1 records them.
+// moment the spec draws at 80x24 and 120x36, in testdata/checklist.txtar; -update records them.
 func TestAChecklistGoldenFrames(t *testing.T) {
-	dir := filepath.Join("testdata", "checklist")
-	update := os.Getenv("PROVEO_UPDATE_FRAMES") != ""
-	if update {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	seen := map[string]bool{}
+	g := testx.Open(t, "checklist")
 	for _, c := range checklistCases() {
 		for _, size := range c.sizes {
-			name := fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1])
-			seen[name] = true
-			got := frameText(checklistFrame(t, c, size[0], size[1]))
-			path := filepath.Join(dir, name)
-			if update {
-				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				continue
-			}
-			want, err := os.ReadFile(path)
-			if err != nil {
-				t.Errorf("%s: no golden frame (%v); record it with PROVEO_UPDATE_FRAMES=1", name, err)
-				continue
-			}
-			if got != string(want) {
-				t.Errorf("%s differs from its golden frame:\n--- got ---\n%s--- want ---\n%s", name, got, want)
-			}
-		}
-	}
-	if !update {
-		files, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
-		for _, f := range files {
-			if !seen[filepath.Base(f)] {
-				t.Errorf("%s is a golden frame no case draws; delete it", f)
-			}
+			g.Assert(fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1]), frameText(checklistFrame(t, c, size[0], size[1])))
 		}
 	}
 }
 
 // col is the column of the first rune of want in line, or -1.
 func col(line, want string) int {
-	at := strings.Index(line, want)
-	if at < 0 {
+	before, _, ok := strings.Cut(line, want)
+	if !ok {
 		return -1
 	}
-	return len([]rune(line[:at]))
+	return len([]rune(before))
 }
 
 // lineWith is the first line holding want, or "".
@@ -945,11 +913,8 @@ func TestALongWordInACheckKeepsItsTail(t *testing.T) {
 // Render draws the form at rest, the cursor where it opens, as the plain text cmd goldens read.
 func TestRenderIsTheFormAtRest(t *testing.T) {
 	t.Parallel()
-	want, err := os.ReadFile(filepath.Join("testdata", "checklist", "p1-rest_80x24.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := pageOne(keepAsIs).Render(80, 24); got != string(want) {
+	want := testx.Want(t, "checklist", "p1-rest_80x24.txt")
+	if got := pageOne(keepAsIs).Render(80, 24); got != want {
 		t.Errorf("Render differs from the p1-rest golden:\n%s", got)
 	}
 }

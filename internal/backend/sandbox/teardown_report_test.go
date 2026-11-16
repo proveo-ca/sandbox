@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -175,7 +174,7 @@ func TestABlockPrintsWhatCameHomeInOneOrderWhicheverStepFoundItFirst(t *testing.
 	b.Fact(ui.Fact{Key: "output", Value: "~/w/reports"})
 	b.Print()
 	var keys []string
-	for _, l := range strings.Split(screen.String(), "\n") {
+	for l := range strings.SplitSeq(screen.String(), "\n") {
 		if k, _, ok := strings.Cut(l, ":"); ok && !strings.HasPrefix(l, " ") {
 			keys = append(keys, k)
 		} else if strings.Contains(l, "origin/b") || strings.Contains(l, "feat/x") {
@@ -571,7 +570,7 @@ func TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt(t *testing.T)
 		}
 		return ee
 	}
-	stopped := backend.Stopped{Signal: syscall.SIGTERM}
+	stopped := Stopped{Signal: syscall.SIGTERM}
 	desktop := errors.New("sbx setup ssh: exit status 1: no ssh")
 	for _, c := range []struct {
 		name     string
@@ -601,12 +600,12 @@ func TestTheAgentsEndIsTheFirstResultLineOnlyWhenNothingElseSaidIt(t *testing.T)
 		if c.name == "a forwarded stop is a ● host fact" && (len(end.Log) != 1 || !strings.Contains(end.Log[0], "normal exit")) {
 			t.Errorf("%s: the run log keeps that teardown runs as on a normal exit: %+v", c.name, end)
 		}
-		var rp backend.Reported
+		var rp Reported
 		if got := runResult(c.result, said && end.Fail, c.forced, lines); errors.As(got, &rp) != c.reported {
 			t.Errorf("%s: runResult = %v; Reported %v, want %v", c.name, got, !c.reported, c.reported)
 		}
 	}
-	var ae backend.ExitError
+	var ae ExitError
 	if got := runResult(exitErr(1), false, false, []string{"error: agent exited with code 3"}); !errors.As(got, &ae) || ae.Code != 3 {
 		t.Errorf("sbx's own exit stays the agent's code: %v", got)
 	}

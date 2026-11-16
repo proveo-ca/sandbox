@@ -491,8 +491,8 @@ func TestUnframedFormsKeepTheirColumns(t *testing.T) {
 		lines := renderAt(t, f, 0, w, 30)
 		col := func(s string) int {
 			for _, l := range lines {
-				if i := strings.Index(l, s); i >= 0 {
-					return textWidth(l[:i])
+				if before, _, ok := strings.Cut(l, s); ok {
+					return textWidth(before)
 				}
 			}
 			return -1
@@ -525,8 +525,8 @@ func TestIndentedHeaderLinesStartAtTheFactsColumn(t *testing.T) {
 		for s, want := range map[string]int{"A=1": factCol(w), "B=2": factCol(w), "SHA256:abc": factCol(w), "Host SSH": factCol(w)} {
 			at := -1
 			for _, l := range lines {
-				if i := strings.Index(l, s); i >= 0 {
-					at = textWidth(l[:i])
+				if before, _, ok := strings.Cut(l, s); ok {
+					at = textWidth(before)
 				}
 			}
 			if at != want {

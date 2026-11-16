@@ -10,7 +10,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/runlog"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 	"github.com/proveo-ca/proveo/internal/workspace"
@@ -55,7 +54,7 @@ type WorkspaceSpec struct {
 	ScopeLabel    string         // the scope the run block names: the sub-scope, "repo root", or "" to name none
 	Items         []sandbox.Item // what the run decided about the workspace; the workspace block prints them
 	WS            workspace.MountSpec
-	Mounts        []runner.Mount
+	Mounts        []workspace.Mount
 	Links         []workspace.Link
 	WorktreeLinks string // container-correct pointer dir, or "" to fall back to GIT_DIR
 }

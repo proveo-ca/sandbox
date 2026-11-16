@@ -4,7 +4,7 @@ skinparam noteTextAlignment left
 title git-sync-turn e2e — the turn-end hook runs clean in every hooked def
 ' purpose: why the hook e2e drives a live TUI and reads a trace, not the host refs
 ' covers: e2e/git_sync_turn_test.go
-' covers: e2e/testdata/git-sync-turn/**
+' covers: e2e/testdata/git-sync-turn.txtar
 ' covers: packages/lib/hooks/git-sync-turn.sh
 ' covers: internal/contract/git_sync_turn_test.go
 '   the hook's own contract ....... _spec/packages/lib/git-sync-turn.puml

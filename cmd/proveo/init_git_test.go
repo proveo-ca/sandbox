@@ -5,15 +5,15 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 )
 
 func TestInitGitIdentityOkWhenComplete(t *testing.T) {
 	t.Parallel()
 	var wrote bool
 	applyGitIdentity(gitStage{
-		resolve: func() gitidentity.Identity {
-			return gitidentity.Identity{Name: "Ada", Email: "ada@ex"}
+		resolve: func() gitaccess.Identity {
+			return gitaccess.Identity{Name: "Ada", Email: "ada@ex"}
 		},
 		lookPath: func(string) (string, error) { return "/usr/bin/git", nil },
 		setGlobal: func(string, string) error {
@@ -30,7 +30,7 @@ func TestInitGitIdentityOkWhenComplete(t *testing.T) {
 func TestInitGitIdentityHeadlessDoesNotWrite(t *testing.T) {
 	t.Parallel()
 	mark, text := applyGitIdentity(gitStage{
-		resolve:  func() gitidentity.Identity { return gitidentity.Identity{} },
+		resolve:  func() gitaccess.Identity { return gitaccess.Identity{} },
 		lookPath: func(string) (string, error) { return "/usr/bin/git", nil },
 		setGlobal: func(string, string) error {
 			t.Error("must not write git config without a terminal")
@@ -51,7 +51,7 @@ func TestInitGitIdentityHeadlessDoesNotWrite(t *testing.T) {
 // empty one writes nothing and says both are needed.
 func TestGitIdentityFieldsReplaceTheLinePrompts(t *testing.T) {
 	t.Parallel()
-	partial := gitidentity.Identity{Name: "Ada"}
+	partial := gitaccess.Identity{Name: "Ada"}
 	f := gitForm(gitPageIn{id: partial, gitOK: true}, initStepAt(2), initDecisions{Git: true}, initOptions{skipPrompt: true}, nil, nil,
 		func(initDecisions) int { return 1 })
 	var name, email *choiceui.Row
@@ -80,7 +80,7 @@ func TestGitIdentityFieldsReplaceTheLinePrompts(t *testing.T) {
 	} {
 		var wrote []string
 		mark, text := applyGitIdentity(gitStage{
-			resolve:   func() gitidentity.Identity { return partial },
+			resolve:   func() gitaccess.Identity { return partial },
 			lookPath:  func(string) (string, error) { return "/usr/bin/git", nil },
 			typed:     func() (string, string) { return c.name, c.email },
 			setGlobal: func(n, e string) error { wrote = append(wrote, n, e); return nil },
@@ -95,7 +95,7 @@ func TestGitIdentityFieldsReplaceTheLinePrompts(t *testing.T) {
 func TestInitGitIdentityMissingGit(t *testing.T) {
 	t.Parallel()
 	applyGitIdentity(gitStage{
-		resolve:  func() gitidentity.Identity { return gitidentity.Identity{Name: "Ada", Email: "ada@ex"} },
+		resolve:  func() gitaccess.Identity { return gitaccess.Identity{Name: "Ada", Email: "ada@ex"} },
 		lookPath: func(string) (string, error) { return "", exec.ErrNotFound },
 		setGlobal: func(string, string) error {
 			t.Error("must not write config when git is absent")

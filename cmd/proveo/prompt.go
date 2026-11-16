@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/run"
-	"github.com/proveo-ca/proveo/internal/shell"
 )
 
 // promptCmd prints the shell-prompt segment: what earlier runs left in this repository.
@@ -46,7 +46,7 @@ func promptCmd() *cobra.Command {
 
 // starshipInit is the rc line that starts starship in the named shell.
 func starshipInit(name string) (string, error) {
-	sh, _ := shell.Detect(name)
+	sh, _ := promptkit.DetectShell(name)
 	if line := sh.StarshipLine(); line != "" {
 		return line, nil
 	}

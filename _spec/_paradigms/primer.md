@@ -29,7 +29,7 @@
 
 Count: **219 files**, including Go source, tests, and six testdata goldens.
 
-> **Snapshot, superseded in part (2026-10-16).** The docker+egress backend was deleted that day ("Retire Docker egress"; "Refuse without sbx"). Every row below for `internal/egress/**`, `internal/egresspolicy/**`, `internal/egressproxy/**`, `internal/broker/**`, `internal/reviewgate/**`, `internal/backend/dockeregress/**` `internal/runner/{pids,pids_test,runner_test}.go`, `internal/run/params_test.go` and `internal/choiceui/consent{,_test}.go` names a file that no longer exists; `internal/runner/runner.go` now holds only `type Mount`. The rows are kept as the record of how that code was valued. The current boundary is `_spec/internal/sbx/sandbox-backend.puml` and `_spec/internal/sbx/policy-baseline.puml`.
+> **Snapshot, superseded in part (2026-10-16).** The docker+egress backend was deleted that day ("Retire Docker egress"; "Refuse without sbx"). Every row below for `internal/egress/**`, `internal/egresspolicy/**`, `internal/egressproxy/**`, `internal/broker/**`, `internal/reviewgate/**`, `internal/backend/dockeregress/**`, `internal/run/params_test.go` and `internal/choiceui/consent{,_test}.go` names a file that no longer exists. The runner package's four rows left on 2026-11-15, when its last type, `Mount`, moved into `internal/workspace/mount.go`. The rows are kept as the record of how that code was valued. The current boundary is `_spec/internal/sbx/sandbox-backend.puml` and `_spec/internal/sbx/policy-baseline.puml`.
 
 > **LSP removed (2026-10-30).** proveo no longer ships, provisions or wires language servers; the rows for `internal/contract/claude_lsp_plugins_test.go` and `internal/contract/lsp_config_parity_test.go` left with them. Why: `_spec/defs/harness-image-layers.puml`, section LSP REMOVED.
 
@@ -85,8 +85,8 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/sbx/policy.go` | 5 | 3 | Builds baseline and domain policy commands; host allow-all weakens stated egress. |
 | `internal/sbx/secret.go` | 5 | 3 | Stores built-in/custom sbx secrets; custom setup still places values on argv. |
 | `internal/sbx/template.go` | 5 | 3 | Tracks image-to-template receipts; cache identity can go stale across builders. |
-| `internal/secretref/secretref.go` | 5 | 3 | Resolves file/keychain secret references; fallback paths can broaden custody. |
-| `internal/secretref/secretref_test.go` | 5 | 3 | Pins reference safety and no-shell behavior; platform keychains remain lightly exercised. |
+| `internal/credentials/secretref.go` | 5 | 3 | Resolves file/keychain secret references; fallback paths can broaden custody. |
+| `internal/credentials/secretref_test.go` | 5 | 3 | Pins reference safety and no-shell behavior; platform keychains remain lightly exercised. |
 | `internal/backend/sandbox/own_agent_test.go` | 5 | 4 | Guards complete custom sandbox Kits; tests still rely on inferred sbx semantics. |
 | `internal/backend/sandbox/sandbox_stale_test.go` | 5 | 4 | Exercises stale sandbox recovery; races with real daemon state remain possible. |
 | `internal/backend/sandbox/sandbox_test.go` | 5 | 4 | Covers adapter assembly and teardown; command capture is not end-to-end isolation proof. |
@@ -124,7 +124,7 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/tool_sync_test.go` | 4 | 1 | Pins tool state sync declarations; new state can remain unsynchronized. |
 | `internal/contract/toolchain_test.go` | 4 | 1 | Guards shipped toolchain declarations; static inventory does not prove tools execute. |
 | `internal/agentsettings/agentsettings_test.go` | 4 | 2 | Guards settings discovery and merge rules; malformed vendor files remain risky. |
-| `internal/backend/backend_test.go` | 4 | 2 | Pins backend interface behavior; mocks can conceal lifecycle asymmetry. |
+| `internal/backend/sandbox/exit_test.go` | 4 | 2 | Pins exit-status types through a wrap chain; a status the agent never chose stays untested. |
 | `internal/clean/sandbox_liveness_test.go` | 4 | 2 | Prevents deletion of live sandbox state; process-name evidence can be stale. |
 | `internal/contract/agent_launch_guard_test.go` | 4 | 2 | Ensures entrypoints use the launch disambiguator; static parsing can miss indirect bypasses. |
 | `internal/contract/agents_shared_test.go` | 4 | 2 | Guards shared agent definitions; equality can preserve a shared mistake. |
@@ -143,33 +143,29 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/contract/model_bridging_retired_test.go` | 4 | 2 | Prevents retired model rewriting from returning; static scans may miss equivalent behavior. |
 | `internal/contract/seed_abort_test.go` | 4 | 2 | Guards nonfatal seed failures; shell probes cover only known abort shapes. |
 | `internal/agentsettings/agentsettings.go` | 4 | 3 | Discovers and merges harness settings; vendor schema changes can corrupt intent. |
-| `internal/backend/backend.go` | 4 | 3 | Defines backend lifecycle abstractions; a thin interface can hide unequal guarantees. |
+| `internal/backend/sandbox/exit.go` | 4 | 3 | Defines the run's exit-status types; a lost errors.As match turns the agent's code into exit 1. |
 | `internal/engine/engine_test.go` | 4 | 3 | Pins command execution sequencing; fakes omit OS process edge cases. |
 | `internal/entrypoint/entrypoint_test.go` | 4 | 3 | Exercises seed and launch decisions; test shells differ from image entrypoints. |
 | `internal/entrypoint/parity_test.go` | 4 | 3 | Cross-checks Go and shell entrypoint behavior; parity can preserve a mutual defect. |
-| `internal/gitidentity/gitidentity_test.go` | 4 | 3 | Guards identity precedence without host config mounts; signing and worktree cases remain. |
+| `internal/gitaccess/identity_test.go` | 4 | 3 | Guards identity precedence without host config mounts; signing and worktree cases remain. |
 | `internal/manifest/manifest_test.go` | 4 | 3 | Pins schema validation and capabilities; permissive defaults can still overgrant. |
-| `internal/runner/pids_test.go` | 4 | 3 | Guards process ownership tracking; PID reuse and abrupt host death remain. |
-| `internal/runner/runner_test.go` | 4 | 3 | Exercises container argv and cleanup; it cannot prove kernel confinement. |
 | `internal/verify/verify_test.go` | 4 | 3 | Pins static verification commands; green commands can omit meaningful checks. |
 | `internal/workspace/deps_test.go` | 4 | 3 | Guards dependency isolation plans; language ecosystems add unmodeled trees. |
 | `internal/workspace/discover_test.go` | 4 | 3 | Pins repository and scope discovery; nested repos and worktrees remain tricky. |
 | `internal/workspace/platform_test.go` | 4 | 3 | Guards platform path conversion; CI coverage may omit native Windows semantics. |
 | `internal/workspace/workspace_test.go` | 4 | 3 | Pins workspace classification; classification does not itself enforce mounts. |
-| `internal/wsscan/wsscan_test.go` | 4 | 3 | Guards early workspace risk findings; scanners inevitably miss semantic secrets. |
+| `internal/workspace/scan_test.go` | 4 | 3 | Guards early workspace risk findings; scanners inevitably miss semantic secrets. |
 | `internal/engine/engine.go` | 4 | 4 | Sequences execution and cleanup; partial failure ordering can leak resources. |
 | `internal/entrypoint/entrypoint.go` | 4 | 4 | Implements shared seed/prep/launch behavior; subprocess environment boundaries are easy to misstate. |
-| `internal/gitidentity/gitidentity.go` | 4 | 4 | Resolves commit identity without mounting gitconfig; sbx and Docker renderings can diverge. |
+| `internal/gitaccess/identity.go` | 4 | 4 | Resolves commit identity without mounting gitconfig; sbx and Docker renderings can diverge. |
 | `internal/manifest/manifest.go` | 4 | 4 | Defines capabilities and validates defs; empty/default semantics can become broad authority. |
-| `internal/runner/pids.go` | 4 | 4 | Persists process ownership for cleanup; stale records can target reused PIDs. |
-| `internal/runner/runner.go` | 4 | 4 | Constructs hardened Docker execution; it is fallback infrastructure, not the sbx boundary. |
 | `internal/verify/verify.go` | 4 | 4 | Runs configured static verification; command trust and timeout coverage are limited. |
 | `internal/workspace/deps.go` | 4 | 4 | Models foreign dependency-tree isolation; direct mode can still rewrite operator state. |
 | `internal/workspace/discover.go` | 4 | 4 | Resolves repository, app, and scope roots; symlink and nested-repo ambiguity can choose wrong trees. |
 | `internal/workspace/platform.go` | 4 | 4 | Translates host paths across platforms; path normalization can weaken containment checks. |
 | `internal/workspace/workspace.go` | 4 | 4 | Defines workspace modes and scope; abstractions may imply guarantees only mounts enforce. |
-| `internal/wsscan/wsscan.go` | 4 | 4 | Scans workspaces for risky inputs; heuristic detection is advisory, never prevention. |
-| `internal/agentio/agentio_test.go` | 3 | 1 | Pins TTY detection seams; tests cannot reproduce every pipe/console arrangement. |
+| `internal/workspace/scan.go` | 4 | 4 | Scans workspaces for risky inputs; heuristic detection is advisory, never prevention. |
+| `internal/agentsettings/terminal_test.go` | 3 | 1 | Pins TTY detection seams; tests cannot reproduce every pipe/console arrangement. |
 | `internal/choiceui/anim_test.go` | 3 | 1 | Pins animation timing behavior; timing tests can be platform-fragile. |
 | `internal/choiceui/consent_test.go` | 3 | 1 | **Deleted with the review tier's consent modal.** Guarded consent selection basics; it could not prove informed consent. |
 | `internal/choiceui/gated_reason_test.go` | 3 | 1 | Pins disabled-choice explanations; wording can conceal policy causes. |
@@ -181,8 +177,8 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/choiceui/topology_test.go` | 3 | 1 | Pins topology view composition; displayed topology may lag runtime. |
 | `internal/choiceui/viewport_render_test.go` | 3 | 1 | Guards viewport output; golden-like assertions are terminal-specific. |
 | `internal/choiceui/viewport_test.go` | 3 | 1 | Pins scrolling state; resize races remain unmodeled. |
-| `internal/shell/shell_test.go` | 3 | 1 | Guards shell rc syntax; sourcing behavior varies by invocation mode. |
-| `internal/tmux/tmux_test.go` | 3 | 1 | Pins tmux command construction; live server/session behavior is not exercised. |
+| `internal/promptkit/shell_test.go` | 3 | 1 | Guards shell rc syntax; sourcing behavior varies by invocation mode. |
+| `internal/schedule/tmux_test.go` | 3 | 1 | Pins tmux command construction; live server/session behavior is not exercised. |
 | `internal/ui/ui_test.go` | 3 | 1 | Guards plain and styled messages; text correctness can outpace factual correctness. |
 | `internal/choiceui/anim.go` | 3 | 2 | Drives UI animation; cosmetic state can complicate deterministic automation. |
 | `internal/choiceui/canvas.go` | 3 | 2 | Provides terminal drawing primitives; width assumptions can corrupt output. |
@@ -199,10 +195,10 @@ Value measures product leverage, not effort: **5** is core sbx-Kit, isolation, c
 | `internal/choiceui/layout.go` | 3 | 3 | Computes responsive terminal layout; complex width rules are brittle. |
 | `internal/clean/clean.go` | 3 | 3 | Removes proveo resources and stale state; ownership heuristics risk over- or under-cleaning. |
 | `internal/maintain/maintain.go` | 3 | 3 | Resolves and refreshes harness images; mutable tags weaken reproducibility. |
-| `internal/shell/shell.go` | 3 | 3 | Edits PATH configuration per shell; rc-file mutation is broad and hard to roll back perfectly. |
-| `internal/tmux/tmux.go` | 3 | 3 | Drives detached session interaction; parsing terminal output is inherently fragile. |
+| `internal/promptkit/shell.go` | 3 | 3 | Edits PATH configuration per shell; rc-file mutation is broad and hard to roll back perfectly. |
+| `internal/schedule/tmux.go` | 3 | 3 | Drives detached session interaction; parsing terminal output is inherently fragile. |
 | `internal/ui/ui.go` | 3 | 3 | Centralizes operator messaging; consistent styling cannot cure misleading claims. |
-| `internal/agentio/agentio.go` | 3 | 4 | Mediates agent TTY input/output; terminal ownership and cancellation have race surfaces. |
+| `internal/agentsettings/terminal.go` | 3 | 4 | Mediates agent TTY input/output; terminal ownership and cancellation have race surfaces. |
 | `internal/runlog/runlog.go` | 3 | 4 | Persists run evidence and transcripts; shared writable proveo-home permits cross-run tampering. |
 | `internal/egress/testdata/allowlist.golden` | 2 | 1 | Snapshots legacy allowlist topology; proves text, not enforcement. |
 | `internal/egress/testdata/allowlist_inject.golden` | 2 | 1 | Snapshots legacy injected-secret topology; stale output can normalize obsolete custody. |

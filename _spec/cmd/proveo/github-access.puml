@@ -3,7 +3,7 @@
 skinparam noteTextAlignment left
 title GitHub access — host selection, sandbox verification
 ' purpose: init chooses Git transport independently of API login; run reports credential inventory
-' covers: internal/githubaccess/access.go, internal/githubaccess/access_test.go
+' covers: internal/gitaccess/access.go, internal/gitaccess/access_test.go
 ' covers: cmd/proveo/init_github_access.go, cmd/proveo/init_github_access_test.go
 ' covers: internal/run/credential_inventory.go, internal/run/choices.go
 ' covers: internal/run/credential_inventory_test.go
@@ -62,7 +62,7 @@ title GitHub access — host selection, sandbox verification
 ' close() diagnoses once more (D25).
 ' Pinned by e2e TestInitGitHubSSHChoicePersistsWithoutChangingHostProtocol,
 ' cmd/proveo TestPageTwoEnterRunsGitIdentityThenGitHubThenPromptKit and the
-' github-access golden frames in cmd/proveo/testdata/init/.
+' github-access golden frames in cmd/proveo/testdata/init.txtar.
 ' The choice persists atomically as transport only, in the host user-config
 ' directory's proveo/github.json. Unknown or malformed choices fail a run.
 '

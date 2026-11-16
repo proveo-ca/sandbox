@@ -222,8 +222,8 @@ func (t Target) TestPlan(exists func(string) bool) []Command {
 }
 
 func stripTag(image string) string {
-	if i := strings.IndexByte(image, ':'); i >= 0 {
-		return image[:i]
+	if before, _, ok := strings.Cut(image, ":"); ok {
+		return before
 	}
 	return image
 }
@@ -259,8 +259,8 @@ func RefTag(ref string) string {
 	if strings.Contains(last, "@") {
 		return ""
 	}
-	if i := strings.IndexByte(last, ':'); i >= 0 {
-		return last[i+1:]
+	if _, after, ok := strings.Cut(last, ":"); ok {
+		return after
 	}
 	return PublishTag
 }

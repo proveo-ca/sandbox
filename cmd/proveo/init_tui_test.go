@@ -382,12 +382,7 @@ func TestInitHeaderSaysThisInstallsSbxNotProveo(t *testing.T) {
 }
 
 func hasOption(opts []string, want string) bool {
-	for _, o := range opts {
-		if o == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(opts, want)
 }
 
 func TestInitAddsAPathLineOnlyForAPrefixHoldingSbx(t *testing.T) {

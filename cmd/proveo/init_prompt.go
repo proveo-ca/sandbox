@@ -11,7 +11,6 @@ import (
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/run"
-	"github.com/proveo-ca/proveo/internal/shell"
 )
 
 // promptKitOptions is the kit for this host: starship lands beside proveo's own binary; draws asks
@@ -21,7 +20,7 @@ func promptKitOptions(draws func() (icon, asked bool)) promptkit.Options {
 	if exe, err := os.Executable(); err == nil {
 		binDir = filepath.Dir(exe)
 	}
-	sh, _ := shell.Detect(os.Getenv("SHELL"))
+	sh, _ := promptkit.DetectShell(os.Getenv("SHELL"))
 	o := promptkit.Options{
 		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 		Home: homeDir(), BinDir: binDir, StateDir: run.StateDir(),

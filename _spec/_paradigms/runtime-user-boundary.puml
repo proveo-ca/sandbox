@@ -15,8 +15,8 @@ title Runtime user boundary — never root, any host uid
 ' ── 2026-10-16: THE HOST-UID LAUNCH IS GONE ────────────────────────────────
 ' The `docker run --user $(id -u):$(id -g) --cap-drop=ALL
 ' --security-opt=no-new-privileges --pids-limit` argv came from
-' internal/runner DockerRunArgs/Hardening and the docker+egress backend; both
-' are DELETED, and internal/runner now holds only `type Mount` (MEASURED).
+' the runner package's DockerRunArgs/Hardening and the docker+egress backend;
+' both are DELETED, and its last type, Mount, lives in internal/workspace.
 ' On sbx, the only backend, the agent runs as the image's own user (uid 1000)
 ' inside the VM (_spec/internal/sbx/sandbox-backend.puml). The runtime-user step
 ' stays: it still guards any uid the image has no passwd entry for. The

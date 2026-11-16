@@ -42,7 +42,8 @@ skinparam noteTextAlignment left
 ' The docker tiers, the "mitm + squid" hop, the hop-less
 ' open+forward frame and review's LaneAsked are no longer produced.
 ' internal/choiceui still draws LaneAsked and its tests still exercise it:
-' geometry with no producer left (repo-simplification.puml N18 shape).
+' geometry with no producer left (the N18 shape: API only its own tests call;
+' credential-decisions.puml).
 '
 ' ── THE MOTES TRAVEL THE WIRE, THEY DO NOT BLINK BETWEEN LANES ────────────
 ' drawLanes used to inject the pulse glyph into the middle of ONE lane's 3-char

@@ -78,10 +78,10 @@ skinparam noteTextAlignment left
 ' Use: hermes/data/skills-muse → ~/Projects/proveo/skills/yahoo-ff (git), edited
 ' and committed on the host only. (HISTORY: the deleted docker backend bound the
 ' whole home at /proveo-home, where an absolute link dangled.)
-' ONLY LISTED TARGETS (SEC2, DONE (wt) 2026-10-17; repo-simplification.puml
-' SEC2, option 2). A declared dir is mounted read-WRITE, so the guest could
+' ONLY LISTED TARGETS (SEC2, DECIDED 2026-10-17, option 2: follow a link only
+' when a host-side file lists its target). A declared dir is mounted read-WRITE, so the guest could
 ' plant `~/.proveo/<dir>/x -> ~/.ssh` and read it on the next run. MEASURED
-' now: a link is followed only when its resolved (realPath) target is listed in
+' now: a link is followed only when its resolved (workspace.RealPath) target is listed in
 ' <proveo home>/linked-dirs (manifest.LinkedDirsFile, manifest.go:50-51) — absolute
 ' paths, one per line, `#` comments, read by listedLinkTargets. The proveo home
 ' ROOT is never mounted by a shipped def, so the guest cannot add an entry; a
@@ -98,7 +98,7 @@ skinparam noteTextAlignment left
 ' TestHomeAccessMountsALinkedDirReadOnly and
 ' TestHomeAccessRefusesLinksThatWidenTheView updated (reported). The README's
 ' "Proveo home" section documents linked-dirs (reported; docs are not mine).
-' SEC4 (DONE (wt) 2026-10-17, repo-simplification.puml): no manifest can hand
+' SEC4 (DECIDED 2026-10-17, option 1): no manifest can hand
 ' the guest the list. A custom def's home mount `host: .` would have mounted
 ' the home ROOT read-write and let the guest write linked-dirs itself, and
 ' `files: [linked-dirs]` would have round-tripped through Commit. MEASURED:

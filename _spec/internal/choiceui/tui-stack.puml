@@ -77,7 +77,8 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 '   added     ultraviolet (an untagged pseudo-version), colorprofile,
 '             x/ansi, x/term, x/termios, x/windows, displaywidth, uax29,
 '             cancelreader v0.2.2, xo/terminfo
-' The unit suites of ui, choiceui, ptyproxy, agentio and cmd/proveo passed
+' The unit suites of ui, choiceui, ptyproxy, agentio (now in agentsettings)
+' and cmd/proveo passed
 ' under the upgraded width library, and all eight release targets still build.
 ' [Inference] No visible width changed. The suites compare rendered text; no
 ' terminal was looked at for this.
@@ -118,17 +119,21 @@ title The TUI stack — Bubble Tea v2, the versions proveo builds against, and w
 ' ── THE FORMS (B11, B6, B7, W-e) — 2026-11-11 ──────────────────────────────
 ' THE ORACLE CAME FIRST (B11, 6fe4a3e2). frames_test.go draws every form,
 ' page and topology state at the sizes viewport.puml names and compares each
-' frame's plain text with a file: 131 under internal/choiceui/testdata/frames/.
+' frame's plain text with a golden: 131 at first, under a frames/ directory.
 ' The tcell renderer wrote them, and they were committed before any drawing
-' changed. PROVEO_UPDATE_FRAMES=1 rewrites them.
+' changed. `go test ./internal/choiceui -update` rewrites them.
+' Since 2026-11-15 the four directories are the archives testdata/{frames,
+' checklist, scope, list}.txtar, one entry per old file, and the per-package
+' -update flag replaced the env switch that recorded them
+' (_spec/tests/00-test-fixtures.puml; codebase-compression.puml §5 names it).
 ' COUNTED 2026-11-13, after One Card re-recorded every frame:
-'   testdata/frames   137: the 131, less the 2 no-axis frames (the legend
+'   frames.txtar      137: the 131, less the 2 no-axis frames (the legend
 '                     left), plus 2 unframed frames (under 40 columns) and
 '                     6 .env list frames (open, filtered, no match; 120x36
 '                     and 80x24)
-'   testdata/scope     24, all re-recorded as cards
+'   scope.txtar        24, all re-recorded as cards
 '   testdata/checks    12, all re-recorded as cards
-'   testdata/list       6, unchanged: the run/attach list is not a card
+'   list.txtar          6, unchanged: the run/attach list is not a card
 '   179 golden files in all; 4 frames still read "terminal too small".
 ' The history below keeps its own numbers.
 ' THE DRAWING KEEPS ITS GEOMETRY (B6, B7, e9b719df). draw() still places text

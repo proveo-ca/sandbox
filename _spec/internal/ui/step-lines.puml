@@ -33,8 +33,9 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' ui.Steps is a plan of N steps over it:
 '   Do(name, fn)     a live line: "step 2/5 · download sbx 0.49.2 · 12s"
 '   Hand(name, fn)   a start line only: "step 3/5 · sign in to Docker"
-'   Start(name)      the start line; the caller runs and records the step
-'   DoAs · HandAs · StartAs   the same, with the line that stays unnumbered
+'   StartAs(name, line)  the start line alone, unnumbered; the caller runs
+'                    and records the step
+'   DoAs · HandAs    the same, with the line that stays unnumbered
 '   Quiet(name, fn)  the live frame alone: plain output gets no line, because
 '                    the caller prints what the step found (R3: init's verify)
 '   Silent(name, fn) counts and logs the step, prints nothing: its own

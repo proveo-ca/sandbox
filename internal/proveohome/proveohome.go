@@ -9,7 +9,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 // ContainerHome is the fixed HOME inside the agent when proveo home mounts are
@@ -46,7 +46,7 @@ func UserHome(getenv func(string) string) string {
 // Plan is the resolved bind of PROVEO_HOME plus env to inject.
 type Plan struct {
 	Root   string
-	Mounts []runner.Mount
+	Mounts []workspace.Mount
 	Env    []string // HOME=/proveo-home
 }
 
@@ -71,7 +71,7 @@ func Prepare(h manifest.Home, getenv func(string) string) (Plan, error) {
 	}
 	return Plan{
 		Root: root,
-		Mounts: []runner.Mount{{
+		Mounts: []workspace.Mount{{
 			Host:      root,
 			Container: ContainerHome,
 			ReadOnly:  false,

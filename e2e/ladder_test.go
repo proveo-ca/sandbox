@@ -854,16 +854,16 @@ func TestCreditExhaustionIsAnAuthFailureNotAnEgressDenial(t *testing.T) {
 // The bool is the point: absence must fail the test, not fall through it.
 func credValueFrom(out string) (string, bool) {
 	flat := termtext.Words(out)
-	i := strings.Index(flat, credOpen)
-	if i < 0 {
+	_, after, ok := strings.Cut(flat, credOpen)
+	if !ok {
 		return "", false
 	}
-	rest := flat[i+len(credOpen):]
-	j := strings.Index(rest, credClose)
-	if j < 0 {
+	rest := after
+	before, _, ok := strings.Cut(rest, credClose)
+	if !ok {
 		return "", false // truncated output: a half-seen marker proves nothing
 	}
-	return strings.TrimSpace(rest[:j]), true
+	return strings.TrimSpace(before), true
 }
 
 func TestCredValueFromFailsWhenTheMarkerIsAbsent(t *testing.T) {
@@ -900,7 +900,7 @@ func sbxKnownServices(t *testing.T) map[string]bool {
 		t.Skipf("cannot read the sbx secret store: %v\n%s", err, out)
 	}
 	known := map[string]bool{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		// SCOPE TYPE NAME SECRET — the name is the third column.
 		if len(f) >= 3 && f[1] == "service" {
@@ -919,7 +919,7 @@ func TestSbxSecretLsParsesServiceNames(t *testing.T) {
 (global)   env       SOME_ENV                  (stored)
 `
 	known := map[string]bool{}
-	for _, line := range strings.Split(sample, "\n") {
+	for line := range strings.SplitSeq(sample, "\n") {
 		f := strings.Fields(line)
 		if len(f) >= 3 && f[1] == "service" {
 			known[f[2]] = true

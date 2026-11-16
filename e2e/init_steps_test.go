@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // initStubSbx answers what `proveo init` asks of sbx, logs every call, and keeps a secret listing.
@@ -69,7 +69,7 @@ exit 0
 `
 
 type initRun struct {
-	sess                *tmux.Session
+	sess                *schedule.TmuxSession
 	home, tmp, log, sec string
 }
 
@@ -100,7 +100,7 @@ func startInitWith(t *testing.T, width int, bins map[string]string, env []string
 // arguments are init's flags.
 func startInitWrapped(t *testing.T, width int, bins map[string]string, env []string, wrapper string, args ...string) *initRun {
 	t.Helper()
-	if !tmux.Available() {
+	if !schedule.TmuxAvailable() {
 		t.Skip("tmux unavailable")
 	}
 	host := sbx.DetectHost()
@@ -123,7 +123,7 @@ func startInitWrapped(t *testing.T, width int, bins map[string]string, env []str
 	if err := os.WriteFile(r.sec, []byte("(global) service openai (oauth configured)\n(global) service opencode (stored)\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r.sess = tmux.New(fmt.Sprintf("proveo-init-%s-%d", strings.ToLower(regexp.MustCompile(`\W`).ReplaceAllString(t.Name(), "")), os.Getpid()), nil)
+	r.sess = schedule.NewTmux(fmt.Sprintf("proveo-init-%s-%d", strings.ToLower(regexp.MustCompile(`\W`).ReplaceAllString(t.Name(), "")), os.Getpid()), nil)
 	t.Cleanup(r.sess.Kill)
 	argv := append([]string{"env", "-i",
 		"HOME=" + r.home, "TMPDIR=" + r.tmp, "TERM=xterm-256color",
@@ -186,7 +186,7 @@ func initPageLabel(n int) string { return fmt.Sprintf("page %d/%d", n, initPages
 
 // keyLine is the screen's key line: the first line that names enter between the key line's separators.
 func keyLine(screen string) string {
-	for _, l := range strings.Split(screen, "\n") {
+	for l := range strings.SplitSeq(screen, "\n") {
 		if strings.Contains(l, "enter ") && strings.Contains(l, " · ") {
 			return l
 		}

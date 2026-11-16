@@ -1,8 +1,0 @@
-╭──────────────────────────────────────╮
-│ run claudecode — where the agent wo… │
-│   │ │ ui                             │
-│ › │ ▸ services  1 inside             │
-├──────────────────────────────────────┤
-│ enter starts the agent in services   │
-│ page 1/2 · enter choose · esc cancel │
-╰──────────────────────────────────────╯

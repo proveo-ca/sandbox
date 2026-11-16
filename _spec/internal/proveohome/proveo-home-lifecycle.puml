@@ -10,7 +10,7 @@ participant "cmd/proveo\nrun" as RUN <<app>>
 participant "internal/manifest\nHome{enabled,mounts}" as MAN <<app>>
 participant "internal/proveohome" as PH <<app>>
 database "~/.proveo\n(host)" as ROOT <<db>>
-participant "internal/runner\nDockerRunArgs" as ARGV <<app>>
+participant "docker argv\n(deleted 2026-10-16)" as ARGV <<app>>
 participant "agent container" as CTR <<host>>
 
 == resolve ==

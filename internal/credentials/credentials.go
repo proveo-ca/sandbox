@@ -1,4 +1,4 @@
-// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/provider/provider-registry.puml, _spec/internal/secretref/secret-references.puml
+// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/provider/provider-registry.puml, _spec/internal/credentials/secret-references.puml
 // Package credentials
 package credentials
 
@@ -17,7 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func FilterProviders(detected []string, c manifest.Capabilities) []string {
@@ -256,22 +256,22 @@ func AuthWhyUnavailable(man manifest.Manifest, target, homeRoot string) map[stri
 	return why
 }
 
-func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
+func GhConfigMount(getenv func(string) string) (workspace.Mount, bool) {
 	if envflag.Off(getenv("PROVEO_MOUNT_GH_CONFIG")) {
-		return runner.Mount{}, false
+		return workspace.Mount{}, false
 	}
 	dir := strings.TrimSpace(getenv("GH_CONFIG_DIR"))
 	if dir == "" {
 		home := getenv("HOME")
 		if home == "" {
-			return runner.Mount{}, false
+			return workspace.Mount{}, false
 		}
 		dir = filepath.Join(home, ".config", "gh")
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return runner.Mount{}, false
+		return workspace.Mount{}, false
 	}
-	return runner.Mount{
+	return workspace.Mount{
 		Host:      dir,
 		Container: proveohome.ContainerHome + "/.config/gh",
 		ReadOnly:  true,
@@ -405,26 +405,6 @@ func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	return false, false
 }
 
-func LoginBlanked(target, homeRoot string) bool {
-	if homeRoot == "" {
-		return false
-	}
-	for _, rel := range subscriptionLoginFiles[target] {
-		b, err := os.ReadFile(filepath.Join(homeRoot, rel))
-		if err != nil || len(b) == 0 {
-			continue
-		}
-		var c oauthCredential
-		if json.Unmarshal(b, &c) != nil {
-			continue
-		}
-		if tokenCleared(c.ClaudeAIOauth.AccessToken) {
-			return true
-		}
-	}
-	return false
-}
-
 func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string, lookup func(string) string) func(string) bool {
 	chosen = strings.TrimSpace(chosen)
 	usableLogin, staleLogin := PersistedLogin(target, homeRoot)
@@ -478,12 +458,7 @@ func LosesToChosenAuth(k, chosen string) bool {
 	if prov == "" || ProviderOfKeyVar(k) != prov {
 		return false
 	}
-	for _, alt := range provider.AuthVars(prov) {
-		if alt == k {
-			return true // same provider, different auth: the operator chose the other
-		}
-	}
-	return false
+	return slices.Contains(provider.AuthVars(prov), k)
 }
 
 func LoadedSecretNames(man manifest.Manifest, lookup func(string) string) []string {
@@ -631,8 +606,8 @@ func ParseEnvFile(path string) map[string]string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		if after, ok := strings.CutPrefix(line, "export "); ok {
+			line = strings.TrimSpace(after)
 		}
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {

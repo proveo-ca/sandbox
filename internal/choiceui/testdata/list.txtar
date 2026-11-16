@@ -1,0 +1,40 @@
+-- narrowed_120x24.txt --
+attach> hermes_
+› attach  proveo-hermes-f8781ef6      muse · stopped
+  run     hermes                      a new sandbox
+
+↑↓ row · type to narrow · enter choose · esc cancel
+-- narrowed_30x5.txt --
+attach> hermes_
+› attach  proveo-hermes-f8781…
+  run     hermes             …
+
+enter choose · esc cancel
+-- narrowed_60x8.txt --
+attach> hermes_
+› attach  proveo-hermes-f8781ef6      muse · stopped
+  run     hermes                      a new sandbox
+
+↑↓ row · type to narrow · enter choose · esc cancel
+-- open_120x24.txt --
+attach> _
+› attach  proveo-claudecode-1b3fcb7f  monorepo · running 2h
+  attach  proveo-hermes-f8781ef6      muse · stopped
+  run     claudecode                  a new sandbox
+  run     hermes                      a new sandbox
+
+↑↓ row · type to narrow · enter choose · esc cancel
+-- open_30x5.txt --
+attach> _
+› attach  proveo-claudecode-1…
+  attach  proveo-hermes-f8781…
+
+enter choose · esc cancel
+-- open_60x8.txt --
+attach> _
+› attach  proveo-claudecode-1b3fcb7f  monorepo · running 2h
+  attach  proveo-hermes-f8781ef6      muse · stopped
+  run     claudecode                  a new sandbox
+  run     hermes                      a new sandbox
+
+↑↓ row · type to narrow · enter choose · esc cancel

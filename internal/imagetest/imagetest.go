@@ -129,9 +129,6 @@ func notBuiltHint(image string) string {
 	return "image " + image + " not built (mise run build " + path.Base(imagebuild.RefRepo(image)) + ")"
 }
 
-// Exec runs cmd under bash in a throwaway container of the suite's image.
-func (s *Suite) Exec(cmd string) Result { return ExecIn(s.Image, cmd) }
-
 // ExecIn runs cmd under bash in a throwaway container of image.
 func ExecIn(image, cmd string) Result {
 	return Docker(DefaultTimeout, nil, "run", "--rm", "--entrypoint", "bash", image, "-c", cmd)

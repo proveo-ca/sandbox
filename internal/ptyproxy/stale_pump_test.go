@@ -6,6 +6,7 @@ package ptyproxy
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -51,9 +52,9 @@ func TestRunLeavesNoReaderOnTheTerminal(t *testing.T) {
 			}
 		}()
 		time.Sleep(30 * time.Millisecond)
-		want := ""
+		var want strings.Builder
 		for i := range keys {
-			want += string(rune('a' + i))
+			want.WriteString(string(rune('a' + i)))
 			_, _ = opMaster.Write([]byte{byte('a' + i)})
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -71,8 +72,8 @@ func TestRunLeavesNoReaderOnTheTerminal(t *testing.T) {
 		_ = opMaster.Close()
 		_ = opSlave.Close()
 		_ = in.Close()
-		if have != want {
-			t.Fatalf("round %d: a reader opened after Run got %q of %q; the proxy's stdin reader outlived Run and took the rest", r, have, want)
+		if have != want.String() {
+			t.Fatalf("round %d: a reader opened after Run got %q of %q; the proxy's stdin reader outlived Run and took the rest", r, have, want.String())
 		}
 	}
 }

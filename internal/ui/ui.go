@@ -653,7 +653,7 @@ func wrapOne(ln []byte, width, hang int) []byte {
 		}
 		lineHasWord, wordStart, gap = true, -1, nil
 	}
-	for i := 0; i < len(ln); i++ {
+	for i := range ln {
 		if ln[i] == ' ' || ln[i] == '\t' {
 			if wordStart >= 0 {
 				flushWord(i)
@@ -774,10 +774,7 @@ func ANSI(rgb int) string {
 
 const ANSIReset = "\033[0m"
 
-const (
-	ANSIBold = "\033[1m"
-	ANSIDim  = "\033[2m"
-)
+const ANSIBold = "\033[1m"
 
 // BrandBanner is the Proveo Solutions box art from the legacy bash help.sh.
 const BrandBanner = `        ┌───────●                        ───────┐

@@ -1,2 +1,0 @@
-terminal too small: 60x9, need 11 rows
-enter accepts the resolved values · esc cancels

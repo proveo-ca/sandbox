@@ -1,0 +1,2 @@
+*.txtar text eol=lf diff=txtar
+*.golden text eol=lf

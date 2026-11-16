@@ -81,7 +81,7 @@ func StoredServices() []string {
 
 func parseStoreEntries(listing, sandbox string) map[string]StoreEntry {
 	out := map[string]StoreEntry{}
-	for _, line := range strings.Split(listing, "\n") {
+	for line := range strings.SplitSeq(listing, "\n") {
 		if strings.TrimSpace(line) == "CUSTOM SECRETS" {
 			break
 		}
@@ -178,7 +178,7 @@ func CustomSecrets() []CustomSecret {
 func parseCustomSecrets(listing string) []CustomSecret {
 	var out []CustomSecret
 	custom := false
-	for _, line := range strings.Split(listing, "\n") {
+	for line := range strings.SplitSeq(listing, "\n") {
 		if strings.TrimSpace(line) == "CUSTOM SECRETS" {
 			custom = true
 			continue

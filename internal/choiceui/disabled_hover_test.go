@@ -99,8 +99,8 @@ func TestAHoveredDisabledOptionTakesTheGreyFillAndTheAnswerStaysBold(t *testing.
 	at := func(text string) lipgloss.Style {
 		t.Helper()
 		for y, l := range lines {
-			if i := strings.Index(l, text); i >= 0 {
-				_, _, st, _ := s.GetContent(textWidth(l[:i]), y)
+			if before, _, ok := strings.Cut(l, text); ok {
+				_, _, st, _ := s.GetContent(textWidth(before), y)
 				return st
 			}
 		}

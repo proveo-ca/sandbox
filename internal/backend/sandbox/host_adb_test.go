@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/hostadb"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
 func TestHostADBAddsTheServerPortToTheKit(t *testing.T) {
 	in := specInput("claudecode")
-	in.AgentEnv = []string{hostadb.EnvPort + "=5037"}
+	in.AgentEnv = []string{hostdev.EnvADBPort + "=5037"}
 	_, kit, _ := Spec(in)
 	for _, want := range []string{"localhost:5037", "registry.npmjs.org"} {
 		if !has(kit.Allow(), want) {
@@ -28,9 +28,9 @@ func TestHostADBAddsTheServerPortToTheKit(t *testing.T) {
 }
 
 func TestWithMobileMCPHandsClaudeTheServer(t *testing.T) {
-	on := hostadb.GuestEnv(5037)
+	on := hostdev.GuestEnv(5037)
 	got := withMobileMCP("claudecode", on, []string{"-p", "hi"})
-	if len(got) != 4 || got[0] != "--mcp-config" || got[1] != hostadb.MCPConfig || got[2] != "-p" {
+	if len(got) != 4 || got[0] != "--mcp-config" || got[1] != hostdev.MCPConfig || got[2] != "-p" {
 		t.Errorf("android on ⇒ %q; want --mcp-config <json> before the caller's args", got)
 	}
 	if got := withMobileMCP("claudecode", nil, []string{"-p", "hi"}); strings.Join(got, " ") != "-p hi" {
@@ -48,7 +48,7 @@ func TestWithMobileMCPHandsClaudeTheServer(t *testing.T) {
 func TestOpencodeConfigCarriesTheMobileServer(t *testing.T) {
 	for _, model := range []string{"", "muse-glimmer:30b-mlx"} {
 		t.Run("local model="+model, func(t *testing.T) {
-			input := append(hostadb.GuestEnv(5037), "PROVEO_LOCAL_MODEL="+model, "OLLAMA_API_BASE=http://host.docker.internal:11434/v1/")
+			input := append(hostdev.GuestEnv(5037), "PROVEO_LOCAL_MODEL="+model, "OLLAMA_API_BASE=http://host.docker.internal:11434/v1/")
 			env := launchConfigEnv("opencode", input)
 			cfg := opencodeConfigFromEnv(t, env)
 			if cfg.MCP == nil || len(cfg.MCP.Servers) != 1 {
@@ -83,7 +83,7 @@ func TestOpencodeConfigCarriesTheMobileServer(t *testing.T) {
 
 func TestHostADBEnvReachesTheKit(t *testing.T) {
 	in := specInput("claudecode")
-	in.AgentEnv = hostadb.GuestEnv(5037)
+	in.AgentEnv = hostdev.GuestEnv(5037)
 	cfg, _, _ := Spec(in)
 	env := strings.Join(cfg.Env, "\n")
 	if !strings.Contains(env, "ADB_SERVER_SOCKET=tcp:host.docker.internal:5037") {

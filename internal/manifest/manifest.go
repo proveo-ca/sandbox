@@ -125,9 +125,6 @@ const (
 // HasHostDevice reports whether the harness declares the host device kind.
 func (c Capabilities) HasHostDevice(kind string) bool { return slices.Contains(c.HostDevices, kind) }
 
-// HasHostBrowser reports whether the harness can drive the operator's browser.
-func (c Capabilities) HasHostBrowser() bool { return c.HostBrowser != "" }
-
 func (c Capabilities) AllowsCredentials(mode string) bool { return listAllows(c.Credentials, mode) }
 
 func (c Capabilities) AllowsProvider(name string) bool { return listAllows(c.Providers, name) }
@@ -430,7 +427,7 @@ func ValidTransient(p string) bool {
 	if p == "" || p != strings.TrimSpace(p) || strings.HasPrefix(p, "/") || strings.ContainsAny(p, "|;,\\ \t\n") {
 		return false
 	}
-	for _, seg := range strings.Split(p, "/") {
+	for seg := range strings.SplitSeq(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
 			return false
 		}

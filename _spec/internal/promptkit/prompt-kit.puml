@@ -10,7 +10,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' covers: internal/promptkit/kit.go
 ' covers: internal/promptkit/promptkit_test.go
 ' covers: internal/promptkit/gate_test.go
-' covers: internal/shell/shell.go (PromptMarker, StarshipLine, PromptBlock, StartsStarship, WithoutPromptBlock)
+' covers: internal/promptkit/shell.go (PromptMarker, StarshipLine, PromptBlock, StartsStarship, WithoutPromptBlock)
 ' covers: internal/choiceui/glyphs_dialog.go
 ' covers: cmd/proveo/init_prompt.go
 ' covers: cmd/proveo/init_prompt_test.go
@@ -20,9 +20,16 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 '   why a prompt segment ............. _spec/internal/results/result-store.puml (D4)
 '   what the segment prints .......... _spec/internal/results/result-store.puml
 '   the order it landed in ........... _spec/_plans/tui-upgrades-delivery.puml (W8)
-'   the other block init writes ...... _spec/internal/shell/setup-path.puml
+'   the other block init writes ...... _spec/internal/promptkit/setup-path.puml
 '   the dialog it asks with .......... _spec/internal/choiceui/confirm-dialogs.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE RC WRITER LIVES HERE (DECIDED 2026-11-15) ──────────────────────────
+' DECIDED 2026-11-15 (owner: "the 8 uncontested"; codebase-compression.puml
+' P11, F3 option 1): shell.go, the cross-shell rc writer this kit already
+' imported, folds into internal/promptkit. Detect became DetectShell and
+' Marker became PathMarker; setup-path.puml (this directory) keeps its
+' reasoning.
 '
 ' ── WHAT WAS DECIDED ───────────────────────────────────────────────────────
 ' The Executor, 2026-11-10: "There is already a post-install `proveo` script
@@ -55,7 +62,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' used to say "removed the proveo segment from <config>" before it checked the
 ' write (FOUND 3, MEASURED: a read-only ~/.config). Installed asks Undo's
 ' own checks, so `proveo uninstall` names "the prompt kit" in its question only
-' when Undo has something to remove (_spec/internal/shell/setup-path.puml).
+' when Undo has something to remove (_spec/internal/promptkit/setup-path.puml).
 ' Pinned by TestUndoSaysOnlyWhatItRemoved and, in cmd/proveo,
 ' TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig. init prints
 ' ONE block under "prompt" from Apply's:
@@ -151,7 +158,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' for an operator who would rather add it by hand.
 ' NOT DONE: a real `proveo init` with the prompt row on this host. It would
 ' edit the operator's rc file and starship config; that waits for them.
-' [Unverified] Windows: starship has a build, but internal/shell writes no
+' [Unverified] Windows: starship has a build, but shell.go writes no
 ' PowerShell line, so the rc step reports that and does nothing.
 '
 ' Pinned by internal/promptkit/promptkit_test.go:
@@ -167,7 +174,7 @@ title The prompt kit — what `proveo init` installs so the shell prompt can sho
 ' by internal/promptkit/gate_test.go, against the real tools when installed:
 '   TestEachShellParsesTheBlockProveoAppends (bash -n, zsh -n, fish --no-execute)
 '   TestStarshipDrawsTheSegmentInARepositoryAndNothingOutsideOne
-' by internal/shell: TestTheStarshipLineIsEachShellsOwnAndItsBlockComesOutClean
+' by internal/promptkit/shell_test.go: TestTheStarshipLineIsEachShellsOwnAndItsBlockComesOutClean
 ' and by cmd/proveo/init_prompt_test.go:
 '   TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff
 ' and by internal/choiceui/dialog_test.go:

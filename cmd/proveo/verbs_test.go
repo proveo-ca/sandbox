@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -106,7 +106,7 @@ func TestAdoptCreatesTheBranchLeavesTheCheckoutAloneAndLowersThePromptCount(t *t
 	out.Reset()
 	again := adoptCmd()
 	err := again.RunE(again, []string{"proveo-1-2"})
-	if err == nil || !strings.Contains(err.Error(), "--as") || !errors.As(err, new(backend.Reported)) {
+	if err == nil || !strings.Contains(err.Error(), "--as") || !errors.As(err, new(sandbox.Reported)) {
 		t.Errorf("a second adopt = %v, want the printed refusal that names --as", err)
 	}
 	if want := "error: feat — a branch of that name exists\n    `--as <name>` names the new branch\n"; out.String() != want {
@@ -164,7 +164,7 @@ func TestAdoptOutsideARepositoryRefuses(t *testing.T) {
 	out := captureUI(t)
 	cmd := adoptCmd()
 	err := cmd.RunE(cmd, nil)
-	if !errors.As(err, new(backend.Reported)) || out.String() != "error: adopt — not inside a git repository\n" {
+	if !errors.As(err, new(sandbox.Reported)) || out.String() != "error: adopt — not inside a git repository\n" {
 		t.Errorf("adopt outside a repository = %v\n%s", err, out.String())
 	}
 }

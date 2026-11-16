@@ -20,9 +20,9 @@ func paint(t *testing.T, fr Frame, tier GlyphTier, tick int) []string {
 
 	cells, w, h := s.GetContents()
 	out := make([]string, 0, h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		var b strings.Builder
-		for x := 0; x < w; x++ {
+		for x := range w {
 			b.WriteString(string(cells[y*w+x].Runes))
 		}
 		out = append(out, strings.TrimRight(b.String(), " "))
@@ -83,7 +83,7 @@ func TestKeyAppearsAtExactlyOneHome(t *testing.T) {
 			t.Errorf("home %v: key drawn %d times, want exactly 1", c.home, n)
 		}
 		line := ""
-		for _, l := range strings.Split(joined, "\n") {
+		for l := range strings.SplitSeq(joined, "\n") {
 			if strings.Contains(l, g.key) {
 				line = l
 			}
@@ -244,12 +244,12 @@ func TestTheFigureDoesNotJumpWhenTheHelpChangesHeight(t *testing.T) {
 		s := simScreen(t, 120, 40)
 		f.draw(s, cursor, 0)
 		cells, w, h := s.GetContents()
-		for y := 0; y < h; y++ {
-			row := ""
-			for x := 0; x < w; x++ {
-				row += string(cells[y*w+x].Runes)
+		for y := range h {
+			var row strings.Builder
+			for x := range w {
+				row.WriteString(string(cells[y*w+x].Runes))
 			}
-			if strings.Contains(row, figureMark()) {
+			if strings.Contains(row.String(), figureMark()) {
 				return y
 			}
 		}
@@ -448,7 +448,7 @@ func TestTrafficBurstSchedule(t *testing.T) {
 	}
 	var spawn time.Duration
 	seenLane := [3]bool{}
-	for n := 0; n < 40; n++ {
+	for n := range 40 {
 		if n > 0 {
 			gap := trafficStep(n - 1)
 			if n%trafficBurst == 0 {
@@ -646,17 +646,17 @@ func styleOf(t *testing.T, fr Frame, word string) lipgloss.Style {
 	drawTopology(s, 0, fr, GlyphsASCII, styles(), 0)
 	s.Show()
 	cells, w, h := s.GetContents()
-	for y := 0; y < h; y++ {
+	for y := range h {
 		var b strings.Builder
-		for x := 0; x < w; x++ {
+		for x := range w {
 			b.WriteString(string(cells[y*w+x].Runes))
 		}
 		line := b.String()
-		i := strings.Index(line, word)
-		if i < 0 {
+		before, _, ok := strings.Cut(line, word)
+		if !ok {
 			continue
 		}
-		return cells[y*w+utf8.RuneCountInString(line[:i])].Style
+		return cells[y*w+utf8.RuneCountInString(before)].Style
 	}
 	t.Fatalf("%q is not on the figure", word)
 	return lipgloss.NewStyle()

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestCloneModeLandsTheCloneAndLiftsTheOutputDir drives `proveo run` itself,
@@ -40,7 +40,7 @@ func TestCloneModeLandsTheCloneAndLiftsTheOutputDir(t *testing.T) {
 
 	home := t.TempDir()
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-cloneout-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-cloneout-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

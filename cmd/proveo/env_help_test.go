@@ -12,7 +12,7 @@ import (
 func envHelpRows(out string) map[string]string {
 	rows := map[string]string{}
 	name := ""
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		switch {
 		case strings.HasPrefix(l, "  PROVEO_"):
 			f := strings.Fields(l)

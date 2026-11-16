@@ -10,7 +10,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/githubaccess"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -21,7 +21,7 @@ const (
 
 // githubAccessForm is the sandbox Git question as a bare form: what the host has as facts, and
 // one row with the transport current or the host's own Git protocol picks.
-func githubAccessForm(h githubaccess.Host, current string) *choiceui.Form {
+func githubAccessForm(h gitaccess.Host, current string) *choiceui.Form {
 	login := h.Login
 	if login == "" {
 		login = "unavailable; API sign-in is independent of SSH"
@@ -31,10 +31,10 @@ func githubAccessForm(h githubaccess.Host, current string) *choiceui.Form {
 		protocol = "unconfigured"
 	}
 	selected := 1
-	if current == githubaccess.SSH || (current == "" && h.Protocol == githubaccess.SSH) {
+	if current == gitaccess.SSH || (current == "" && h.Protocol == gitaccess.SSH) {
 		selected = 0
 	}
-	if current == githubaccess.Later {
+	if current == gitaccess.Later {
 		selected = 2
 	}
 	header := []string{"api: " + login, "git: " + protocol, fmt.Sprintf("agent: %d key(s)", len(h.Keys)),
@@ -87,14 +87,14 @@ func (a accessStage) say(m choiceui.Mark, access string) {
 // SPEC: _spec/cmd/proveo/github-access.puml
 func applyGitHubAccess(a accessStage) error {
 	bin, out := a.bin, a.out
-	path, err := githubaccess.Path()
+	path, err := gitaccess.Path()
 	if err != nil {
 		out.Item(sandbox.Item{Warn: true, Text: "GitHub access — settings unreadable", Detail: errLines(err)})
 		return nil
 	}
 	current := ""
 	if _, err := os.Stat(path); err == nil {
-		cfg, err := githubaccess.Load(path)
+		cfg, err := gitaccess.Load(path)
 		if err != nil {
 			out.Item(sandbox.Item{Warn: true, Text: "GitHub access — settings unreadable", Detail: errLines(err)})
 			return nil
@@ -103,7 +103,7 @@ func applyGitHubAccess(a accessStage) error {
 	}
 	saveWord := func(*choiceui.Form) string { return runWord(1) }
 	for {
-		h := githubaccess.Inspect(bin, githubaccess.Output, os.Getenv)
+		h := gitaccess.Inspect(bin, gitaccess.Output, os.Getenv)
 		if !a.prompt {
 			f := unaskedAccess(h, current, a.noTerminal)
 			a.say(choiceui.MarkLater, f.Value)
@@ -122,8 +122,8 @@ func applyGitHubAccess(a accessStage) error {
 			a.say(choiceui.MarkLater, "later")
 			return nil
 		}
-		mode := map[string]string{githubSSH: githubaccess.SSH, githubHTTPS: githubaccess.HTTPS, "later": githubaccess.Later}[form.Selection(accessRow)]
-		if mode == githubaccess.SSH && h.SSHProblem() != "" {
+		mode := map[string]string{githubSSH: gitaccess.SSH, githubHTTPS: gitaccess.HTTPS, "later": gitaccess.Later}[form.Selection(accessRow)]
+		if mode == gitaccess.SSH && h.SSHProblem() != "" {
 			action, err := githubSSHRepair(h, a.ask)
 			if err != nil {
 				if errors.Is(err, errInitQuit) {
@@ -146,36 +146,36 @@ func applyGitHubAccess(a accessStage) error {
 					out.Item(sandbox.Item{Warn: true, Text: "sbx daemon — not restarted", Detail: errDetail(err)})
 					continue
 				}
-				current = githubaccess.SSH
+				current = gitaccess.SSH
 				continue
 			case "retry":
-				current = githubaccess.SSH
+				current = gitaccess.SSH
 				continue
 			case githubHTTPS:
-				mode = githubaccess.HTTPS
+				mode = gitaccess.HTTPS
 			case "later":
-				mode = githubaccess.Later
+				mode = gitaccess.Later
 			default:
 				a.say(choiceui.MarkLater, "later")
 				return nil
 			}
 		}
-		if mode == githubaccess.HTTPS {
+		if mode == gitaccess.HTTPS {
 			if it, missing := httpsTokenMissing(hostGhAuth()); missing {
 				out.Item(it)
-				current = githubaccess.HTTPS
+				current = gitaccess.HTTPS
 				continue
 			}
 		}
-		if err := githubaccess.Save(path, mode); err != nil {
+		if err := gitaccess.Save(path, mode); err != nil {
 			out.Item(sandbox.Item{Warn: true, Text: "GitHub access — not saved", Detail: errLines(err)})
 			a.say(choiceui.MarkNeeds, "not saved")
 			return nil
 		}
 		switch mode {
-		case githubaccess.Later:
+		case gitaccess.Later:
 			a.say(choiceui.MarkLater, "later")
-		case githubaccess.SSH:
+		case gitaccess.SSH:
 			a.say(choiceui.MarkDone, githubSSH)
 		default:
 			a.say(choiceui.MarkDone, githubHTTPS)
@@ -199,7 +199,7 @@ func httpsTokenMissing(g ghAuth) (it sandbox.Item, missing bool) {
 
 // unaskedAccess is the "access" fact when init did not ask: the transport, the host's keys and
 // what is wrong with its SSH, with one how-to only when no terminal could ask.
-func unaskedAccess(h githubaccess.Host, current string, noTerminal bool) ui.Fact {
+func unaskedAccess(h gitaccess.Host, current string, noTerminal bool) ui.Fact {
 	access := ui.Fact{Role: ui.RoleHost, Key: "access", Value: cmp.Or(current, "not chosen"),
 		Detail: []string{hostKeys(len(h.Keys)) + "; sandbox verification pending"}}
 	if state, _, _ := strings.Cut(h.SSHProblem(), ";"); state != "" {
@@ -220,7 +220,7 @@ func hostKeys(n int) string {
 }
 
 // githubSSHRepair asks, as a sub-page, what to do about an SSH agent sandboxes cannot use; "" is later.
-func githubSSHRepair(h githubaccess.Host, ask func(string, []string, []choiceui.Row, func(*choiceui.Form) string) (*choiceui.Form, choiceui.Outcome, error)) (string, error) {
+func githubSSHRepair(h gitaccess.Host, ask func(string, []string, []choiceui.Row, func(*choiceui.Form) string) (*choiceui.Form, choiceui.Outcome, error)) (string, error) {
 	opts := []string{"retry", githubHTTPS, "later"}
 	if h.ForwardingKnown && !h.Forwarding {
 		opts = append([]string{"enable + restart"}, opts...)

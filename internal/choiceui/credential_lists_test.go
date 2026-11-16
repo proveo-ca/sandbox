@@ -41,8 +41,8 @@ func TestCredentialListsDrawAtTheirOwnColumnAndScroll(t *testing.T) {
 	f := &Form{Title: "test", Rows: []Row{{Label: "credentials", Multi: true, Locked: true, Hover: 1, Options: []string{"API keys", "OAuth", "SSH"}, Cols: []int{0, 1, 2}, Lists: map[int]*More{1: m}}}}
 	f.draw(s, 0, 0)
 	var out strings.Builder
-	for y := 0; y < 24; y++ {
-		for x := 0; x < 120; x++ {
+	for y := range 24 {
+		for x := range 120 {
 			r, _, _, _ := s.GetContent(x, y)
 			out.WriteRune(r)
 		}
@@ -57,8 +57,8 @@ func TestCredentialListsDrawAtTheirOwnColumnAndScroll(t *testing.T) {
 		if col := slices.Index(rs, '╭'); col >= 0 && y > 0 {
 			corner = col
 		}
-		if i := strings.Index(line, "[ ] item-39"); i >= 0 {
-			entry = len([]rune(line[:i]))
+		if before, _, ok := strings.Cut(line, "[ ] item-39"); ok {
+			entry = len([]rune(before))
 		}
 	}
 	if entry != optOrigin+colPitch || corner != entry-4 {
@@ -86,7 +86,7 @@ func TestCredentialDropdownArrowMatchesPortsAndRespectsGlyphMode(t *testing.T) {
 			f := &Form{Glyphs: tc.glyphs, Rows: []Row{r}}
 			f.drawBodyLine(newCanvas(s), styles(), newCard(120, f.Glyphs, styles()), bodyLine{kind: lineRow, row: 0}, 0, colPitch, false, false)
 			var line strings.Builder
-			for x := 0; x < 120; x++ {
+			for x := range 120 {
 				ch, _, _, _ := s.GetContent(x, 0)
 				line.WriteRune(ch)
 			}

@@ -12,10 +12,10 @@
 '   the other speaker ............. _spec/internal/choiceui/choice-prompt-render.puml
 '   where the plain copy lands ..... _spec/internal/runlog/run-transcript.puml
 '   the glyph tier's other consumer  _spec/internal/posture/one-value-two-renderings.puml
-'   the strip grammar .............. _spec/internal/agentio/agent-terminal-io.puml (termtext)
+'   the strip grammar .............. _spec/internal/agentsettings/agent-terminal-io.puml (termtext)
 '
 ' N5 (DONE (wt) 2026-10-17): the tee's stripper is termtext.StripANSI
-' (internal/ui/ui.go:262), shared with agentio's tail and the e2e readers;
+' (internal/ui/ui.go:262), shared with agentsettings' tail and the e2e readers;
 ' ui's own stripANSI is deleted. It skipped from ESC to the next 'm', so a
 ' non-SGR sequence cost the log the text up to the next 'm' —
 ' "\x1b[2Khello mom" logged as "om" (measured by the coordinator before the
@@ -245,7 +245,7 @@
 ' the setup page's own form error, no plan for a prefix it chose), the error
 ' dim. After a verify that found the host ready, each ending but ✓ keeps "host
 ' ready to run" as its last dim line. Every one but ✓ returns
-' backend.Reported, or a Stopped proveo re-raises after a Ctrl+C in a
+' sandbox.Reported, or a Stopped proveo re-raises after a Ctrl+C in a
 ' hand-off, so main adds no second ×. A fact never
 ' repeats as a ✓: the operator's name, the git identity and a stored key are
 ' facts; "done:" left (it was false three ways).
@@ -336,7 +336,7 @@
 '             removal that failed and each thing that stays; "✓ proveo —
 '             uninstalled" or "⚠ proveo — uninstalled; N left"
 ' (_spec/internal/results/result-store.puml, _spec/internal/clean/clean-lifecycle.puml,
-' _spec/internal/shell/setup-path.puml, _spec/internal/cdn/distribution-update.puml.)
+' _spec/internal/promptkit/setup-path.puml, _spec/internal/cdn/distribution-update.puml.)
 ' Dangerf lost its last caller (uninstall's red line, P9) and left ui.go: the
 ' error role prints as a Fact's Role or through Rolef, so five roles carry a
 ' verb and RoleError carries none (internal/contract TestEveryRoleVerbIsWired).
@@ -346,7 +346,7 @@
 ' An absence is one role line on stderr ("● nothing running") and stdout
 ' stays empty. A command's refusal is ONE × item with ONE dim line, printed
 ' by the command through sandbox.PrintBlock under no heading (cmd/proveo
-' reported), returning backend.Reported: main adds no second × (R3's
+' reported), returning sandbox.Reported: main adds no second × (R3's
 ' mechanism, settled). NOT CHOSEN: an itemErr type main prints. KNOWN: a
 ' closed `proveo run` or harness picker still ends on main's × (offer
 ' returns pickerClosed as an error). `proveo version`, the tick's launchd log and

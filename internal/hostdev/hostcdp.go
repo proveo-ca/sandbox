@@ -1,0 +1,144 @@
+// SPEC: _spec/internal/sbx/host-browser-cdp.puml
+package hostdev
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	AddonChrome    = "chrome"
+	EnvCDPPort     = "PROVEO_HOST_CDP_PORT"
+	DefaultCDPPort = 9222
+)
+
+var (
+	hostURL      = func(port int) string { return fmt.Sprintf("http://127.0.0.1:%d", port) }
+	cdpReadyWait = 20 * time.Second
+	configDir    = os.UserConfigDir
+	lookPath     = exec.LookPath
+	statFile     = os.Stat
+)
+
+// CDPPort is the host CDP port: PROVEO_HOST_CDP_PORT, else 9222.
+func CDPPort(getenv func(string) string) (int, error) {
+	v := strings.TrimSpace(getenv(EnvCDPPort))
+	if v == "" {
+		return DefaultCDPPort, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 65535 {
+		return 0, fmt.Errorf("%s=%q is not a TCP port", EnvCDPPort, v)
+	}
+	return n, nil
+}
+
+// PolicyHost is the sbx allow rule for a host port: the CDP browser or the adb server.
+func PolicyHost(port int) string { return fmt.Sprintf("localhost:%d", port) }
+
+// ProfileDir is the dedicated Chrome profile for target, outside the mounted proveo home.
+func ProfileDir(target string) (string, error) {
+	base, err := configDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "proveo", "host-chrome", target), nil
+}
+
+// CDPReady reports whether a browser answers CDP discovery on the host port.
+func CDPReady(port int) bool {
+	c := http.Client{Timeout: 2 * time.Second}
+	resp, err := c.Get(hostURL(port) + "/json/version")
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// ChromeBinary finds a Chromium-family browser on the host.
+func ChromeBinary() string {
+	if runtime.GOOS == "darwin" {
+		for _, app := range []string{
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+		} {
+			if fi, err := statFile(app); err == nil && !fi.IsDir() {
+				return app
+			}
+		}
+		return ""
+	}
+	for _, name := range []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "brave-browser", "microsoft-edge"} {
+		if p, err := lookPath(name); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// ChromeArgs opens a CDP-enabled window on the dedicated profile.
+func ChromeArgs(profile string, port int) []string {
+	return []string{
+		"--user-data-dir=" + profile,
+		"--remote-debugging-port=" + strconv.Itoa(port),
+		"--no-first-run",
+		"--no-default-browser-check",
+	}
+}
+
+// Opened is the browser EnsureCDP leaves on the CDP port: the one it launched and its profile, or none for a reused browser.
+type Opened struct {
+	Browser string
+	Profile string
+}
+
+// EnsureCDP reuses a CDP browser already on port, or launches one on target's dedicated profile.
+func EnsureCDP(target string, port int, report func(string, ...any)) (Opened, error) {
+	if CDPReady(port) {
+		if report != nil {
+			report("host chrome: reusing the browser already serving CDP on 127.0.0.1:%d", port)
+		}
+		return Opened{}, nil
+	}
+	bin := ChromeBinary()
+	if bin == "" {
+		return Opened{}, fmt.Errorf("no Chrome, Chromium, Brave or Edge found on this host")
+	}
+	profile, err := ProfileDir(target)
+	if err != nil {
+		return Opened{}, err
+	}
+	if err := os.MkdirAll(profile, 0o700); err != nil {
+		return Opened{}, err
+	}
+	cmd := exec.Command(bin, ChromeArgs(profile, port)...)
+	detach(cmd)
+	if err := cmd.Start(); err != nil {
+		return Opened{}, fmt.Errorf("start %s: %w", filepath.Base(bin), err)
+	}
+	_ = cmd.Process.Release()
+	deadline := time.Now().Add(cdpReadyWait)
+	for time.Now().Before(deadline) {
+		if CDPReady(port) {
+			if report != nil {
+				report("host chrome: opened %s on profile %s (CDP 127.0.0.1:%d)", filepath.Base(bin), profile, port)
+			}
+			return Opened{Browser: filepath.Base(bin), Profile: profile}, nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return Opened{}, fmt.Errorf("%s did not answer CDP on 127.0.0.1:%d within %s — another Chrome on profile %s may hold it without the debugging port",
+		filepath.Base(bin), port, cdpReadyWait, profile)
+}

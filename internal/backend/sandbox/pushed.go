@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,7 +41,7 @@ func safeBranch(branch string) bool {
 	if branch == "" || strings.Contains(branch, "..") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
 		return false
 	}
-	for _, part := range strings.Split(branch, "/") {
+	for part := range strings.SplitSeq(branch, "/") {
 		if !fetchName.MatchString(part) {
 			return false
 		}
@@ -59,13 +60,7 @@ func pushedFetchArgs(repo string, branches []string) [][]string {
 		if _, seen := grouped[remote]; !seen {
 			remotes = append(remotes, remote)
 		}
-		dup := false
-		for _, have := range grouped[remote] {
-			if have == branch {
-				dup = true
-				break
-			}
-		}
+		dup := slices.Contains(grouped[remote], branch)
 		if !dup {
 			grouped[remote] = append(grouped[remote], branch)
 		}
@@ -97,7 +92,7 @@ func pushedBranches(reflog string, since time.Time) []string {
 	cutoff := since.Unix()
 	seen := map[string]struct{}{}
 	var out []string
-	for _, line := range strings.Split(reflog, "\n") {
+	for line := range strings.SplitSeq(reflog, "\n") {
 		ref, msg, ok := strings.Cut(strings.TrimRight(line, "\r"), "\t")
 		if !ok || msg != "update by push" {
 			continue

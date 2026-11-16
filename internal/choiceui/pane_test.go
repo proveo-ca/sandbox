@@ -124,9 +124,9 @@ func TestCaptionHeadKeepsTheFactsAndDropsTheGloss(t *testing.T) {
 func lastPaintedCol(s *screen) []int {
 	cells, w, h := s.GetContents()
 	out := make([]int, h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		last := -1
-		for x := 0; x < w; x++ {
+		for x := range w {
 			if r := cells[y*w+x].Runes; len(r) > 0 && r[0] != ' ' && r[0] != 0 {
 				last = x
 			}

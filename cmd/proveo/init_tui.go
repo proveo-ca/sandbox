@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/gitidentity"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -265,7 +265,7 @@ func cols(n int) []int {
 
 // gitPageIn is what page 2 draws from: the identity git resolves, and whether git is there.
 type gitPageIn struct {
-	id    gitidentity.Identity
+	id    gitaccess.Identity
 	gitOK bool
 }
 

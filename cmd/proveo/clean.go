@@ -17,7 +17,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/clean"
 	"github.com/proveo-ca/proveo/internal/proveohome"
@@ -386,7 +385,7 @@ func cleanClosing(res cleanResult, left int, dryRun bool) error {
 	case res.homeFailed:
 		ui.Failf("clean — %d not removed", len(res.failed))
 		reclaimed("reclaimed")
-		return backend.Reported{Err: fmt.Errorf("clean: %d not removed", len(res.failed))}
+		return sandbox.Reported{Err: fmt.Errorf("clean: %d not removed", len(res.failed))}
 	case len(res.failed) > 0:
 		ui.Warnf("clean — %d not removed", len(res.failed))
 		reclaimed("reclaimed")
@@ -410,7 +409,7 @@ func dockerLines(args ...string) []string {
 		return nil
 	}
 	var lines []string
-	for _, l := range strings.Split(string(out), "\n") {
+	for l := range strings.SplitSeq(string(out), "\n") {
 		if l = strings.TrimRight(l, "\r"); strings.TrimSpace(l) != "" {
 			lines = append(lines, l)
 		}

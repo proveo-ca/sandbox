@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 const guestPort = 4310
@@ -77,9 +77,9 @@ func TestPortsPublishE2E(t *testing.T) {
 	assertServed(t, second, home, work)
 }
 
-func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...string) *tmux.Session {
+func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...string) *schedule.TmuxSession {
 	t.Helper()
-	sess := tmux.New(fmt.Sprintf("proveo-ports-%s-%d", tag, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-ports-%s-%d", tag, os.Getpid()), nil)
 	t.Cleanup(func() { stopRun(sess, 3*time.Minute) })
 	args := append([]string{"env", "PROVEO_HOME=" + home, proveoBin, "run", "claudecode",
 		"--image", image, "--input", work, "--scope", "."}, extra...)
@@ -90,7 +90,7 @@ func startRun(t *testing.T, proveoBin, home, image, work, tag string, extra ...s
 }
 
 // assertServed waits for the port row and the running sandbox, then GETs the sandbox's own server from the host.
-func assertServed(t *testing.T, sess *tmux.Session, home, work string) {
+func assertServed(t *testing.T, sess *schedule.TmuxSession, home, work string) {
 	t.Helper()
 	if _, err := sess.WaitFor(fmt.Sprintf("port %d:", guestPort), 3*time.Minute); err != nil {
 		screen, _ := sess.CaptureAll()
@@ -126,7 +126,7 @@ func awaitRunning(work string, within time.Duration) {
 func hostPortFor(t *testing.T, home string) int {
 	t.Helper()
 	log := readIn(home, filepath.Join("logs", "latest.log"))
-	for _, l := range strings.Split(log, "\n") {
+	for l := range strings.SplitSeq(log, "\n") {
 		var host, guest int
 		i := strings.Index(l, fmt.Sprintf("port %d: http://127.0.0.1:", guestPort))
 		if i < 0 {

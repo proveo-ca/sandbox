@@ -31,12 +31,34 @@
 ' they must EQUAL the roster: nothing missing, nothing stray. The REGISTRY is
 ' the harness's: it merges its own built-ins with ours, so it must CONTAIN the
 ' roster, and equality would fail on every release that adds a built-in.
+'
+' ── ONE FRONTMATTER FILE PER HARNESS (2026-11-15) ──────────────────────────
+' _frontmatter/ held one file per harness × role (22 files, 4 dirs); it holds
+' four now: claudecode.yaml, cursor.yaml and opencode.yaml map each role to its
+' block, indented two spaces; codex.toml keeps TOML, one [role] table each.
+' render_subagents splits the file in bash alone, since the images ship no YAML
+' or TOML parser: a header line opens a role, the indent comes off, trailing
+' newlines drop as $(cat) dropped them. Every composed definition stayed
+' byte-identical (diff -r over 22 files, a Linux container, old tree vs new).
+' The contract test reads the roles from what render_subagents writes and
+' fails on its "subagent body missing" warning, since a role with no body
+' composes no file; the image suites assert the composed files, not the
+' source layout.
+'
+' ── CODEX HAS ONE WRITABLE ROLE (2026-11-15) ───────────────────────────────
+' In codex.toml every role declares sandbox_mode = "read-only" except
+' spec-keeper, the single writer, which declares "workspace-write". codex
+' has no per-tool permission list, so the sandbox mode is the only control.
+' The spec-keeper prompt limits its writes to _spec/, PLAN.md and AGENTS.md
+' (RULES_PATHS in _vars/codex.env). Under read-only, codex would refuse every
+' write the role exists to make. TestComposedCodexSubagents pins both modes.
+' Moved here from a comment in codex.toml; the file keeps a one-line label.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 title Subagent definition sharing — composed at container start, never duplicated
 
 node "defs/subagents — the single source" as SRC <<host>> {
   component "<name>.md\nshared body, {{TOKEN}} placeholders" as BODY <<app>>
-  component "_frontmatter/<harness>/<name>.yaml\nper-harness schema, verbatim" as FM <<app>>
+  component "_frontmatter/<harness>.yaml | .toml\none block per role, verbatim" as FM <<app>>
   component "_vars/<harness>.env\ntoken values" as VARS <<app>>
 }
 

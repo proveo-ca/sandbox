@@ -441,14 +441,3 @@ func (b *Builder) Build(push bool, args []string) error {
 	}
 	return err
 }
-
-// BrowserVariant layers the browser def onto parent as dest.
-func (b *Builder) BrowserVariant(push bool, parent, dest, userName, layerDir string, extra ...string) error {
-	args := append(append([]string{}, extra...),
-		"--build-arg", "BASE_IMAGE="+parent,
-		"--build-arg", "USER_NAME="+userName,
-		"-f", filepath.Join(layerDir, "Dockerfile"),
-		"-t", dest,
-		layerDir)
-	return b.Build(push, args)
-}

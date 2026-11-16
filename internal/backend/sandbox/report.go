@@ -42,7 +42,7 @@ func (it Item) print() {
 		ui.Notef("%s", it.Text)
 	}
 	for _, d := range it.Detail {
-		for _, row := range strings.Split(d, "\n") {
+		for row := range strings.SplitSeq(d, "\n") {
 			if row = strings.TrimRight(row, " \t\r"); strings.TrimSpace(row) != "" {
 				ui.Detailf("%s", row)
 			}
@@ -566,7 +566,7 @@ func reportReattach(in Input, k keptSandbox, envValues int, secrets []ui.Fact) {
 	}
 	if k.receipt != nil && k.receipt.KitDir != "" {
 		kit := ui.Fact{Role: ui.RoleStore, Key: "kit", Value: ui.Tilde(k.receipt.KitDir)}
-		if !exists(k.receipt.KitDir) {
+		if !workspace.Exists(k.receipt.KitDir) {
 			kit.Detail = []string{"no longer on disk"}
 		}
 		facts = append(facts, kit)

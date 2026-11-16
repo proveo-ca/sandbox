@@ -8,7 +8,6 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/operator"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -17,7 +16,7 @@ import (
 func operatorRow(current string) choiceui.Row {
 	shown := current
 	if shown == "" {
-		shown = operator.Default
+		shown = proveohome.DefaultOperator
 	}
 	return choiceui.Row{
 		Label:       "name",
@@ -30,13 +29,13 @@ func operatorRow(current string) choiceui.Row {
 
 // applyOperatorAnswer stores a typed answer; an empty one keeps what is stored, else the default.
 func applyOperatorAnswer(root, current, typed string) (string, error) {
-	if operator.Sanitize(typed) == "" {
+	if proveohome.SanitizeOperator(typed) == "" {
 		if current != "" {
 			return current, nil
 		}
-		return operator.Default, nil
+		return proveohome.DefaultOperator, nil
 	}
-	return operator.Save(root, typed)
+	return proveohome.SaveOperator(root, typed)
 }
 
 // operatorStage is `proveo init`'s last page: the name agents address the operator by, then sbx
@@ -44,12 +43,12 @@ func applyOperatorAnswer(root, current, typed string) (string, error) {
 // result's operator row; the setup row's answer is whether sbx setup opens after the result.
 func operatorStage(o initOptions, at choiceui.Step, rep *initReport, page cardPage, setup choiceui.Row) (stepResult, error) {
 	root := proveohome.Root(os.Getenv)
-	current, err := operator.Load(root)
+	current, err := proveohome.LoadOperator(root)
 	if err != nil {
-		rep.operatorItem(sandbox.Item{Warn: true, Text: ui.Tilde(operator.Path(root)) + " — unreadable", Detail: errLines(err)})
+		rep.operatorItem(sandbox.Item{Warn: true, Text: ui.Tilde(proveohome.OperatorPath(root)) + " — unreadable", Detail: errLines(err)})
 	}
 	if o.printOnly || o.yes || !viewOr(page.view).card() {
-		rep.setOperator(operatorSaid{name: cmp.Or(current, operator.Default), defaulted: current == "",
+		rep.setOperator(operatorSaid{name: cmp.Or(current, proveohome.DefaultOperator), defaulted: current == "",
 			howTo: rep.howTo("`proveo init` from a terminal changes it")})
 		return stepNone, nil
 	}
@@ -72,7 +71,7 @@ func operatorStage(o initOptions, at choiceui.Step, rep *initReport, page cardPa
 	if err != nil {
 		return stepNext, stopAt(labelOperator, err)
 	}
-	rep.setOperator(operatorSaid{name: name, asked: true, defaulted: current == "" && operator.Sanitize(typed) == ""})
+	rep.setOperator(operatorSaid{name: name, asked: true, defaulted: current == "" && proveohome.SanitizeOperator(typed) == ""})
 	return stepNext, nil
 }
 

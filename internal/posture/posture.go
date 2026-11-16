@@ -15,7 +15,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/ui"
-	"github.com/proveo-ca/proveo/internal/wsscan"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func Image(ref string) string {
@@ -59,7 +59,7 @@ var dockerImageLabel = func(ref, label string) string {
 // AgentVersion names the release the image carries, or "" when it cannot be read.
 func AgentVersion(ref string) string { return dockerImageLabel(ref, AgentVersionLabel) }
 
-var toolingMarkers = []wsscan.Marker{
+var toolingMarkers = []workspace.Marker{
 	{Label: "go", Names: []string{"go.mod", "go.work"}, Suffixes: []string{".go"}},
 	{Label: "node", Names: []string{"package.json"}},
 	{Label: "nx", Names: []string{"nx.json"}},
@@ -87,7 +87,7 @@ func WorkspaceHeader(man manifest.Manifest, inputDir, repoRoot, homeRoot string)
 		return nil
 	}
 	var out []string
-	tools := wsscan.Scan(inputDir, repoRoot, toolingMarkers, 0)
+	tools := workspace.Scan(inputDir, repoRoot, toolingMarkers, 0)
 	if labels := tools.Labels(toolingMarkers); len(labels) > 0 {
 		out = append(out, "tooling:  "+strings.Join(labels, "  "))
 	}

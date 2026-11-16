@@ -3,13 +3,13 @@ package choiceui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 func runList() *FilterList {
@@ -114,16 +114,10 @@ func TestAShortTerminalScrollsTheListAndATinyOneOnlyCancels(t *testing.T) {
 	}
 }
 
-// TestTheFilterListMatchesItsGoldenFrames holds the list to recorded frames.
-// PROVEO_UPDATE_FRAMES=1 records them.
+// TestTheFilterListMatchesItsGoldenFrames holds the list to the frames recorded in
+// testdata/list.txtar; -update records them.
 func TestTheFilterListMatchesItsGoldenFrames(t *testing.T) {
-	dir := filepath.Join("testdata", "list")
-	update := os.Getenv("PROVEO_UPDATE_FRAMES") != ""
-	if update {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
+	g := testx.Open(t, "list")
 	cases := []struct {
 		name string
 		list func() *FilterList
@@ -131,35 +125,9 @@ func TestTheFilterListMatchesItsGoldenFrames(t *testing.T) {
 		{"open", runList},
 		{"narrowed", func() *FilterList { l := runList(); l.key(press{text: "hermes"}, 24); return l }},
 	}
-	seen := map[string]bool{}
 	for _, c := range cases {
 		for _, size := range [][2]int{{120, 24}, {60, 8}, {30, 5}} {
-			name := fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1])
-			seen[name] = true
-			got := frameText(listLines(c.list(), size[0], size[1]))
-			path := filepath.Join(dir, name)
-			if update {
-				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				continue
-			}
-			want, err := os.ReadFile(path)
-			if err != nil {
-				t.Errorf("%s: no golden frame (%v); record it with PROVEO_UPDATE_FRAMES=1", name, err)
-				continue
-			}
-			if got != string(want) {
-				t.Errorf("%s differs from its golden frame:\n--- got ---\n%s--- want ---\n%s", name, got, want)
-			}
-		}
-	}
-	if !update {
-		files, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
-		for _, f := range files {
-			if !seen[filepath.Base(f)] {
-				t.Errorf("%s is a golden frame no case draws; delete it", f)
-			}
+			g.Assert(fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1]), frameText(listLines(c.list(), size[0], size[1])))
 		}
 	}
 }

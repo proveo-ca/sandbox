@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,46 @@ func TestGoreleaserIsPinnedPerTask(t *testing.T) {
 	}
 }
 
+// allowBuildsFloor is the first mise whose allow_builds list runs only the scripts it names.
+const allowBuildsFloor = "2026.10.17"
+
+// calver splits a mise version such as 2026.10.17 into its numbers.
+func calver(t *testing.T, v string) []int {
+	t.Helper()
+	var out []int
+	for part := range strings.SplitSeq(v, ".") {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			t.Fatalf("mise version %q: %v", v, err)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+func TestWranglerInstallsThroughMise(t *testing.T) {
+	t.Parallel()
+	cfg := readMise(t)
+	tools := cfg.tables["tools"].fields
+	wrangler := tools["npm:wrangler"].table
+	if wrangler == nil {
+		t.Fatal(`[tools] pins no "npm:wrangler" table; deploy-cli and dev-cli run bare wrangler`)
+	}
+	var builds []string
+	for _, item := range wrangler["allow_builds"].items {
+		builds = append(builds, item.text())
+	}
+	if want := []string{"esbuild", "sharp", "workerd"}; !slices.Equal(builds, want) {
+		t.Errorf("npm:wrangler allow_builds = %q, want the list %q", builds, want)
+	}
+	if _, ok := tools["node"]; !ok {
+		t.Error("[tools] pins no node; esbuild's postinstall runs `node install.js`, so wrangler fails to install")
+	}
+	if got := cfg.top["min_version"].text(); slices.Compare(calver(t, got), calver(t, allowBuildsFloor)) < 0 {
+		t.Errorf("min_version = %q, want >= %s: an older mise also runs aube's trusted-dependencies scripts", got, allowBuildsFloor)
+	}
+}
+
 var runFlag = regexp.MustCompile(`'-run=([^']*)'`)
 
 // contractTests lists the top-level Test functions internal/contract defines.
@@ -106,7 +147,7 @@ func TestDeployCLIShipsOnlyATaggedRelease(t *testing.T) {
 		t.Error("deploy-cli declares no confirm; a deploy asks before wrangler publishes")
 	}
 	stagedCheck := "go test -count=1 '-run=^TestStagedCDNIsTheTaggedRelease$' ./internal/contract/"
-	if got, want := runs(deploy), []string{stagedCheck, "pnpm exec wrangler deploy --cwd apps/cli"}; !slices.Equal(got, want) {
+	if got, want := runs(deploy), []string{stagedCheck, "wrangler deploy --cwd apps/cli"}; !slices.Equal(got, want) {
 		t.Errorf("deploy-cli runs %q, want %q: the staged check sits in its own run so --skip-deps keeps it", got, want)
 	}
 	if v := deploy.fields["env"].table["PROVEO_RELEASE_GATE"]; !v.isStr || v.str != "1" {
@@ -167,7 +208,7 @@ func TestCDNStagingFollowsAFreshSnapshot(t *testing.T) {
 	}
 	fresh := []string{subtask("snapshot"), subtask("stage-cdn")}
 	dev := runs(cfg.task(t, "dev-cli"))
-	if want := append(slices.Clone(fresh), "pnpm exec wrangler dev --cwd apps/cli"); !slices.Equal(dev, want) {
+	if want := append(slices.Clone(fresh), "wrangler dev --cwd apps/cli"); !slices.Equal(dev, want) {
 		t.Errorf("dev-cli runs %q, want %q", dev, want)
 	}
 	images := cfg.task(t, "test-images")
