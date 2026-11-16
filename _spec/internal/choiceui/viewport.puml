@@ -28,6 +28,10 @@
 ' its row on screen together. `row` is valid on every line, furniture included:
 ' the blank and the heading above a row belong to that row, which is what lets a
 ' group's name arrive on screen along with the group.
+' AMENDED 2026-11-13 (Executor, E7): a divider row costs TWO lines, its stub
+' and itself; the blank, centred heading and blank became one stub
+' (wireframe.puml, ONE CARD). lineBlank is gone. The reason holds at two: an
+' offset in rows would still travel two lines at a time.
 '
 ' bodyLines is the ONE description of the body's height — rowsHeight is its
 ' length and the painter walks it, so the budget cannot disagree with the paint.
@@ -48,6 +52,18 @@
 ' rather than over the total: scaling over the total floors the thumb short of
 ' the last line, so at the very end of travel the gutter still said there was
 ' somewhere further to go.
+'
+' ── INSIDE THE CARD (2026-11-13) ───────────────────────────────────────────
+' The three regions now sit in the One Card frame (Executor, E3-E10):
+'   head   banner (above the card) · top border · title and chip · facts
+'   body   the rows, cut at cw-2 by the canvas's right clip
+'   foot   foot rule · key line · bottom border · help · figure · on enter
+' The gutter's marks ride the card's RIGHT wall (▲ ▼ ░, or ^ v # on ASCII and
+' Off); they no longer take two columns at the left, which the cursor's
+' section lights. Under 40 columns there are no walls: the gutter is column 0
+' and a stub starts at column 1. canvas gained `right`, a hard right clip
+' that newCanvas sets to the screen width and that the form narrows to the
+' card's inner edge for the body.
 title Choice-prompt viewport — a droppable head, a scrolling body, a foot that follows
 
 node "internal/choiceui" as PKG <<host>> {
@@ -58,9 +74,9 @@ node "internal/choiceui" as PKG <<host>> {
   component "layout(w, h)\nthe ladder, now yielding a body height" as LAYOUT <<app>>
 }
 
-component "head — banner · title · header · axis\ndroppable, never scrolled" as HEAD <<app>>
+component "head — banner · border · title + chip · facts\ndroppable, never scrolled" as HEAD <<app>>
 component "body — the rows\nthe only region that scrolls" as BODY <<app>>
-component "foot — hint · help slot · strip\nfollows the body, never painted over" as FOOT <<app>>
+component "foot — rule · key line · border · help · strip\nfollows the body, never painted over" as FOOT <<app>>
 component "Operator terminal\nw x h, resized at will" as TTY <<host>>
 component "A form that loses its last rows in silence" as LOST <<error>>
 
@@ -78,10 +94,10 @@ LOST ARROW_ERROR FOOT : what this replaces
 
 note top of LINES
   **The body scrolls by LINE, never by row.** A
-  divider costs four lines and a plain row one,
-  so an offset counted in rows would travel four
-  at a time and could never put a heading and
-  its own row on screen together.
+  divider row costs two lines (its stub and
+  itself), so an offset counted in rows would
+  travel two at a time and could not place a
+  stub and its own row on screen together.
 end note
 
 note bottom of LINES
@@ -163,10 +179,9 @@ note bottom of LOST
 end note
 
 note bottom of TTY
-  **No new minimum width.** The gutter costs two
-  columns, the options run to about seventy, and
-  a row's inline reason was already clipped — so
-  the strip's own 72 stays the only width floor
-  the prompt has.
+  **No new minimum width.** The gutter rides
+  the card's right wall and a terminal under 40
+  columns drops the walls instead of refusing,
+  so the strip's 72 stays the only width floor.
 end note
 @enduml

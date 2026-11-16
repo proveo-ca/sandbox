@@ -252,7 +252,7 @@ func TestMouseMotionIsNeverDeduplicated(t *testing.T) {
 	now := time.Unix(0, 0)
 	f := newInputFilter()
 	f.now = func() time.Time { return now }
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !f.keep(mouseSGRMotion) {
 			t.Fatalf("identical motion report %d was dropped as a duplicate; a mouse held still still reports", i)
 		}
@@ -614,11 +614,11 @@ func TestASplitCursorQueryIsStillSeen(t *testing.T) {
 func TestOutstandingCursorQueriesAreBounded(t *testing.T) {
 	f := newInputFilter()
 	f.dropReplies = true
-	for i := 0; i < maxOutstandingCPR*4; i++ {
+	for range maxOutstandingCPR * 4 {
 		f.cpr.observe([]byte("\x1b[6n"))
 	}
 	kept := 0
-	for i := 0; i < maxOutstandingCPR*4; i++ {
+	for range maxOutstandingCPR * 4 {
 		if f.keep([]byte("\x1b[1;1R")) {
 			kept++
 		}

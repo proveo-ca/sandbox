@@ -12,9 +12,14 @@ import (
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/runner"
-	"github.com/proveo-ca/proveo/internal/wsscan"
 )
+
+// Mount is a bind mount.
+type Mount struct {
+	Host      string
+	Container string
+	ReadOnly  bool
+}
 
 var rootFiles = []string{
 	"AGENTS.md", "CONVENTIONS.md", "CLAUDE.md", ".cursorrules",
@@ -50,51 +55,52 @@ func (w MountSpec) ScopeRel() string {
 
 // Plan returns the bind mounts and the escaping symlinks it resolved (see Link)
 // for the spec, reproducing the per-harness wrapper mount models.
-func (w MountSpec) Plan() (mounts []runner.Mount, links []Link) {
+func (w MountSpec) Plan() (mounts []Mount, links []Link) {
 	ro := w.Mode == "ro"
 	gitRO := w.GitMode == "ro"
-	w.InputDir, w.RepoRoot = resolved(w.InputDir), resolved(w.RepoRoot)
+	w.InputDir, w.RepoRoot = RealPath(w.InputDir), RealPath(w.RepoRoot)
 	scopeHost, scopeContainer := w.InputDir, "/app"
 	switch {
 	case w.RepoRoot != "" && sameDir(w.InputDir, w.RepoRoot):
-		mounts = append(mounts, runner.Mount{Host: w.RepoRoot, Container: "/app", ReadOnly: ro})
+		mounts = append(mounts, Mount{Host: w.RepoRoot, Container: "/app", ReadOnly: ro})
 		mounts = append(mounts, w.gitOverride(w.RepoRoot, "/app", ro)...)
 		scopeHost = w.RepoRoot
 	case w.RepoRoot != "" && underDir(w.InputDir, w.RepoRoot):
 		rel := relSlash(w.RepoRoot, w.InputDir)
 		mounts = append(mounts,
-			runner.Mount{Host: w.InputDir, Container: "/app/" + rel, ReadOnly: ro},
-			runner.Mount{Host: filepath.Join(w.RepoRoot, ".git"), Container: "/app/.git", ReadOnly: gitRO},
+			Mount{Host: w.InputDir, Container: "/app/" + rel, ReadOnly: ro},
+			Mount{Host: filepath.Join(w.RepoRoot, ".git"), Container: "/app/.git", ReadOnly: gitRO},
 		)
 		for _, f := range rootFiles {
-			if exists(filepath.Join(w.RepoRoot, f)) && !exists(filepath.Join(w.InputDir, f)) {
-				mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, f), Container: "/app/" + f, ReadOnly: true})
+			if Exists(filepath.Join(w.RepoRoot, f)) && !Exists(filepath.Join(w.InputDir, f)) {
+				mounts = append(mounts, Mount{Host: filepath.Join(w.RepoRoot, f), Container: "/app/" + f, ReadOnly: true})
 			}
 		}
 		dirs := rootDirs
 		for _, d := range dirs {
 			host := filepath.Join(w.RepoRoot, d)
-			if !isDir(host) || exists(filepath.Join(w.InputDir, d)) {
+			if !isDir(host) || Exists(filepath.Join(w.InputDir, d)) {
 				continue
 			}
-			mounts = append(mounts, runner.Mount{Host: host, Container: "/app/" + d})
+			mounts = append(mounts, Mount{Host: host, Container: "/app/" + d})
 		}
-		if w.ConfigDir != "" && exists(filepath.Join(w.RepoRoot, w.ConfigDir)) && !exists(filepath.Join(w.InputDir, w.ConfigDir)) {
-			mounts = append(mounts, runner.Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
+		if w.ConfigDir != "" && Exists(filepath.Join(w.RepoRoot, w.ConfigDir)) && !Exists(filepath.Join(w.InputDir, w.ConfigDir)) {
+			mounts = append(mounts, Mount{Host: filepath.Join(w.RepoRoot, w.ConfigDir), Container: "/app/" + w.ConfigDir, ReadOnly: true})
 		}
 		scopeContainer = "/app/" + rel
 	default: // not a repo
-		mounts = append(mounts, runner.Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
+		mounts = append(mounts, Mount{Host: w.InputDir, Container: "/app", ReadOnly: ro})
 	}
 	mounts = append(mounts, w.worktreeMounts()...)
 	if w.Output && w.OutputDir != "" {
-		mounts = append(mounts, runner.Mount{Host: w.OutputDir, Container: "/app/output"})
+		mounts = append(mounts, Mount{Host: w.OutputDir, Container: "/app/output"})
 	}
 	linkMounts, links := w.linkMounts(scopeHost, scopeContainer, ro)
 	return append(mounts, linkMounts...), links
 }
 
-func resolved(p string) string {
+// RealPath is p with symlinks resolved, as sbx mounts it inside the VM; p when it does not resolve.
+func RealPath(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
 	}
@@ -105,14 +111,14 @@ func sameDir(a, b string) bool {
 	if filepath.Clean(a) == filepath.Clean(b) {
 		return true
 	}
-	return filepath.Clean(resolved(a)) == filepath.Clean(resolved(b))
+	return filepath.Clean(RealPath(a)) == filepath.Clean(RealPath(b))
 }
 
 func underDir(path, root string) bool {
 	if hasPrefixDir(filepath.Clean(path), filepath.Clean(root)) {
 		return true
 	}
-	return hasPrefixDir(filepath.Clean(resolved(path)), filepath.Clean(resolved(root)))
+	return hasPrefixDir(filepath.Clean(RealPath(path)), filepath.Clean(RealPath(root)))
 }
 
 func hasPrefixDir(path, root string) bool {
@@ -123,13 +129,14 @@ func relSlash(root, path string) string {
 	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
 		return filepath.ToSlash(rel)
 	}
-	if rel, err := filepath.Rel(resolved(root), resolved(path)); err == nil && !strings.HasPrefix(rel, "..") {
+	if rel, err := filepath.Rel(RealPath(root), RealPath(path)); err == nil && !strings.HasPrefix(rel, "..") {
 		return filepath.ToSlash(rel)
 	}
 	return filepath.Base(path)
 }
 
-func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+// Exists reports whether p stats.
+func Exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func isDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
 
@@ -239,24 +246,24 @@ func (w MountSpec) WorktreeEnv() []string {
 
 func (w MountSpec) containerRoot() string { return "/app" }
 
-func (w MountSpec) worktreeMounts() []runner.Mount {
+func (w MountSpec) worktreeMounts() []Mount {
 	wt, ok := readGitWorktree(w.InputDir)
 	if !ok {
 		return nil
 	}
-	mounts := []runner.Mount{{
+	mounts := []Mount{{
 		Host: wt.CommonDir, Container: ContainerGitCommonDir, ReadOnly: w.GitMode == "ro",
 	}}
 	if w.WorktreeLinkDir == "" {
 		return mounts
 	}
 	return append(mounts,
-		runner.Mount{
+		Mount{
 			Host:      filepath.Join(w.WorktreeLinkDir, worktreeDotGitFile),
 			Container: w.containerRoot() + "/.git",
 			ReadOnly:  true,
 		},
-		runner.Mount{
+		Mount{
 			Host:      filepath.Join(w.WorktreeLinkDir, worktreeGitDirFile),
 			Container: ContainerGitCommonDir + "/worktrees/" + wt.Name + "/gitdir",
 			ReadOnly:  true,
@@ -295,7 +302,7 @@ func (w MountSpec) PrepareWorktreeLinks(root string) (string, error) {
 	return dir, nil
 }
 
-func (w MountSpec) gitOverride(hostTree, containerBase string, parentRO bool) []runner.Mount {
+func (w MountSpec) gitOverride(hostTree, containerBase string, parentRO bool) []Mount {
 	gitRO := w.GitMode == "ro"
 	if gitRO == parentRO {
 		return nil
@@ -304,7 +311,7 @@ func (w MountSpec) gitOverride(hostTree, containerBase string, parentRO bool) []
 	if !isDir(host) {
 		return nil
 	}
-	return []runner.Mount{{Host: host, Container: containerBase + "/.git", ReadOnly: gitRO}}
+	return []Mount{{Host: host, Container: containerBase + "/.git", ReadOnly: gitRO}}
 }
 
 type LinkAction string
@@ -327,12 +334,12 @@ const (
 	linkMountCap  = 32
 )
 
-func (w MountSpec) linkMounts(hostDir, containerBase string, ro bool) ([]runner.Mount, []Link) {
+func (w MountSpec) linkMounts(hostDir, containerBase string, ro bool) ([]Mount, []Link) {
 	if hostDir == "" {
 		return nil, nil
 	}
 	root := filepath.Clean(hostDir)
-	var mounts []runner.Mount
+	var mounts []Mount
 	var links []Link
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || p == root {
@@ -344,7 +351,7 @@ func (w MountSpec) linkMounts(hostDir, containerBase string, ro bool) ([]runner.
 		}
 		depth := len(strings.Split(filepath.ToSlash(rel), "/"))
 		if d.IsDir() {
-			if wsscan.AlwaysPrune(d.Name()) || depth >= linkScanDepth {
+			if AlwaysPrune(d.Name()) || depth >= linkScanDepth {
 				return fs.SkipDir
 			}
 			return nil
@@ -374,7 +381,7 @@ func (w MountSpec) linkMounts(hostDir, containerBase string, ro bool) ([]runner.
 		case len(mounts) >= linkMountCap:
 			link.Action, link.Reason = LinkRefused, fmt.Sprintf("more than %d escaping symlinks in this tree", linkMountCap)
 		default:
-			mounts = append(mounts, runner.Mount{
+			mounts = append(mounts, Mount{
 				Host: target, Container: containerBase + "/" + filepath.ToSlash(rel), ReadOnly: ro,
 			})
 			link.Action = LinkMounted

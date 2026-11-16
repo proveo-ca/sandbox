@@ -23,7 +23,7 @@ func repoFile(t *testing.T, rel string) string {
 func shellCode(t *testing.T, rel string) string {
 	t.Helper()
 	var keep []string
-	for _, line := range strings.Split(repoFile(t, rel), "\n") {
+	for line := range strings.SplitSeq(repoFile(t, rel), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}

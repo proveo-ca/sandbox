@@ -21,7 +21,7 @@ func entrypointLib(t *testing.T) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	var kept []string
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(l), "#") {
 			continue
 		}
@@ -38,11 +38,11 @@ func caseBody(t *testing.T, src, name string) string {
 		t.Fatalf("%s not found in entrypoint-lib.sh — did the detector move?", name)
 	}
 	rest := src[start+len(head):]
-	end := strings.Index(rest, "esac; }")
-	if end < 0 {
+	before, _, ok := strings.Cut(rest, "esac; }")
+	if !ok {
 		t.Fatalf("%s has no closing `esac; }`", name)
 	}
-	return rest[:end]
+	return before
 }
 
 var quotedEchoRe = regexp.MustCompile(`(?m)^\s*([a-z]+)\)\s+echo\s+"([^"]+)"`)
@@ -114,14 +114,14 @@ func baseOf(body string) string {
 func installedPackages(body string) map[string]bool {
 	logical := strings.ReplaceAll(body, "\\\n", " ")
 	pkgs := map[string]bool{}
-	for _, line := range strings.Split(logical, "\n") {
-		for _, seg := range strings.Split(line, "&&") {
+	for line := range strings.SplitSeq(logical, "\n") {
+		for seg := range strings.SplitSeq(line, "&&") {
 			for _, marker := range []string{"apt-get install", "npm install -g"} {
-				i := strings.Index(seg, marker)
-				if i < 0 {
+				_, after, ok := strings.Cut(seg, marker)
+				if !ok {
 					continue
 				}
-				collectPackages(pkgs, seg[i+len(marker):])
+				collectPackages(pkgs, after)
 			}
 		}
 	}
@@ -129,7 +129,7 @@ func installedPackages(body string) map[string]bool {
 }
 
 func collectPackages(into map[string]bool, s string) {
-	for _, tok := range strings.Fields(s) {
+	for tok := range strings.FieldsSeq(s) {
 		tok = strings.Trim(tok, `"'`)
 		if tok == "" || strings.HasPrefix(tok, "-") || strings.ContainsAny(tok, "|;$(){}") {
 			continue

@@ -2,6 +2,9 @@
 package choiceui
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -18,9 +21,9 @@ func render(t *testing.T, f *Form) []string {
 
 	cells, w, h := s.GetContents()
 	lines := make([]string, 0, h)
-	for y := 0; y < h; y++ {
+	for y := range h {
 		var b strings.Builder
-		for x := 0; x < w; x++ {
+		for x := range w {
 			b.WriteString(string(cells[y*w+x].Runes))
 		}
 		if line := strings.TrimRight(b.String(), " "); line != "" {
@@ -62,9 +65,9 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	f.draw(s, f.firstSelectable(), 0)
 
 	brand := hexName(ui.ColorBrand)
-	body := hexName(ui.ColorSecondary)
+	const ink = "" // the terminal's own foreground
 	box := strings.Split(ui.BrandBanner, "\n")
-	for x := 0; x < 80; x++ {
+	for x := range 80 {
 		if r, _, _, _ := s.GetContent(x, 0); r != ' ' && r != 0 {
 			t.Fatalf("row 0 col %d is %q, help opens with a blank line", x, string(r))
 		}
@@ -72,8 +75,8 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	for i, line := range box {
 		assertBannerLine(t, s, i+1, line, brand, true)
 	}
-	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, body, false)
-	for x := 0; x < 80; x++ {
+	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, ink, false)
+	for x := range 80 {
 		if r, _, _, _ := s.GetContent(x, len(box)+2); r != ' ' && r != 0 {
 			t.Fatalf("row %d col %d is %q, help closes the header with a blank line", len(box)+2, x, string(r))
 		}
@@ -98,10 +101,7 @@ func assertBannerLine(t *testing.T, s *screen, y int, line string, fg string, bo
 		if gotBold := style.GetBold(); gotBold != bold {
 			t.Errorf("row %d col %d bold=%v, want %v", y, x, gotBold, bold)
 		}
-		w := runeCols(r)
-		if w < 1 {
-			w = 1
-		}
+		w := max(runeCols(r), 1)
 		x += w
 	}
 }
@@ -136,10 +136,10 @@ func TestEnvHeaderNeverPrintsASecretValue(t *testing.T) {
 		t.Error("secret keys must still be listed by name")
 	}
 	if strings.Contains(all, "one-dark") || strings.Contains(all, "DARK_MODE=true") || strings.Contains(all, "CODE_THEME=") {
-		t.Errorf("theme settings must keep the name and drop the value:\n%s", all)
+		t.Errorf("theme settings must never show their value:\n%s", all)
 	}
-	if !strings.Contains(all, "CODE_THEME") || !strings.Contains(all, "DARK_MODE") {
-		t.Errorf("theme settings must still be named:\n%s", all)
+	if strings.Contains(all, "CODE_THEME") || strings.Contains(all, "DARK_MODE") {
+		t.Errorf("the header names no theme setting:\n%s", all)
 	}
 	if !strings.Contains(all, "ARCHITECT_MODEL=claude-opus-5") {
 		t.Error("a model setting must show its value")
@@ -230,8 +230,7 @@ func TestOnChangeFiresSoConstraintsStayLive(t *testing.T) {
 	}
 }
 
-// A gated option is unreachable by design — cycle() will not land on it — so the
-// row MUST say why, or the operator sees an unresponsive checkbox with no cause.
+// A gated option says why, or the operator sees an unresponsive checkbox with no cause.
 func TestGatedOptionRendersItsReason(t *testing.T) {
 	t.Parallel()
 	f := &Form{Rows: []Row{{
@@ -257,14 +256,18 @@ func TestGatedOptionRendersItsReason(t *testing.T) {
 		t.Errorf("a gated option must never be reported as selected, got %v", got)
 	}
 
-	// A SINGLE-select row's Selected IS the choice, so it must still skip one.
+	// A SINGLE-select row's cursor rests on its gated option too, and its answer stays put.
 	single := &Form{Rows: []Row{{
 		Label: "egress", Options: []string{"open", "allowlist", "review"},
 		Off: []bool{false, false, true}, Selected: 1,
 	}}}
 	single.cycle(0, +1)
-	if single.Rows[0].Selected != 0 {
-		t.Errorf("a single-select row must skip its gated option, landed on %d", single.Rows[0].Selected)
+	if r := single.Rows[0]; r.cursorAt() != 2 || r.Selected != 1 {
+		t.Errorf("a single-select row hovers its gated option and keeps its answer: cursor %d, Selected %d", r.cursorAt(), r.Selected)
+	}
+	single.cycle(0, +1)
+	if r := single.Rows[0]; r.cursorAt() != 0 || single.Selection("egress") != "open" {
+		t.Errorf("past the gated option the cursor chooses again: cursor %d, answer %q", r.cursorAt(), single.Selection("egress"))
 	}
 }
 
@@ -283,72 +286,63 @@ func TestAvailableOptionPrintsNoEmptyOffLine(t *testing.T) {
 	}
 }
 
-// Both policy axes are ordered riskier → safer; the legend says so once rather
-// than leaving the operator to infer direction from option names.
-func TestSafetyAxisLegend(t *testing.T) {
+// No form draws a riskier → safer legend; the columns keep their order without one.
+func TestNoFormDrawsARiskLegend(t *testing.T) {
 	t.Parallel()
-	f := &Form{Rows: []Row{
-		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
-		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
-	}}
-	out := joined(t, f)
-	if !strings.Contains(out, "riskier") || !strings.Contains(out, "safer") {
-		t.Errorf("no safety axis rendered:\n%s", out)
-	}
-	// A prompt with only unordered checkboxes must not claim an axis.
-	only := &Form{Rows: []Row{{Label: "add-ons", Options: []string{"browser"}, Multi: true, On: []bool{false}}}}
-	if o := joined(t, only); strings.Contains(o, "riskier") {
-		t.Errorf("checkbox-only prompt should have no axis legend:\n%s", o)
-	}
-	// Init's radios are not a safety axis; the legend would rank a prefix.
-	init := &Form{NoAxis: true, Rows: []Row{
-		{Label: "install", Options: []string{"rootless tarball", "distro package"}, Selected: 0},
-	}}
-	if o := joined(t, init); strings.Contains(o, "riskier") || strings.Contains(o, "safer") {
-		t.Errorf("NoAxis must suppress the legend:\n%s", o)
-	}
-}
-
-// The safety axis governs the POLICY rows only. A centred divider closes it so the
-// legend does not appear to order the add-on toggles, which are unordered.
-func TestAddonsDividerClosesTheSafetyAxis(t *testing.T) {
-	t.Parallel()
-	f := &Form{Rows: []Row{
-		{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
-		{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
-		{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, Divider: true, On: make([]bool, 2)},
-	}}
-	lines := render(t, f)
-	out := strings.Join(lines, "\n")
-
-	var axisRow, divRow, addonRow = -1, -1, -1
-	for i, l := range lines {
-		switch {
-		case strings.Contains(l, "riskier"):
-			axisRow = i
-		case strings.Contains(l, "─ add-ons ─"):
-			divRow = i
-		case strings.Contains(l, "[ ] browser"):
-			addonRow = i
+	for _, f := range []*Form{
+		{Rows: []Row{
+			{Label: "egress", Options: []string{"open", "allowlist", "review"}, Selected: 1},
+			{Label: "credentials", Options: []string{"forward", "broker"}, Selected: 1},
+		}},
+		budgetForm(),
+		tallForm(),
+	} {
+		for _, size := range [][2]int{{120, 40}, {80, 24}} {
+			out := strings.Join(renderAt(t, f, 0, size[0], size[1]), "\n")
+			for _, legend := range []string{"riskier", "safer", "◀", "▶"} {
+				if strings.Contains(out, legend) {
+					t.Errorf("%dx%d draws %q:\n%s", size[0], size[1], legend, out)
+				}
+			}
 		}
 	}
-	if divRow < 0 {
-		t.Fatalf("no centred add-ons divider rendered:\n%s", out)
-	}
-	if axisRow >= divRow || divRow >= addonRow {
-		t.Errorf("order = axis:%d divider:%d addons:%d, want the divider between them", axisRow, divRow, addonRow)
-	}
-	// The divider names the section, so the row must not repeat the label.
-	if strings.Contains(lines[addonRow], "add-ons") {
-		t.Errorf("add-ons label repeated on its row: %q", lines[addonRow])
-	}
-	// It should be indented, not flush left like the policy labels.
-	if i := strings.Index(lines[divRow], "─"); i < 10 {
-		t.Errorf("divider starts at column %d — not centred", i)
+}
+
+// A section opens on a stub off the left wall: the name at column 4, the stub 16
+// columns wide, longer when the name needs it, and never repeated on its row.
+func TestASectionOpensOnAStubThatGrowsForALongName(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		row  Row
+		stub string
+	}{
+		{"short heading", Row{Label: "OS", Heading: "reach", Options: []string{"host"}, Multi: true, Divider: true}, "├── reach ──────"},
+		{"nine runes", Row{Label: "OS", Heading: "execution", Options: []string{"host"}, Multi: true, Divider: true}, "├── execution ──"},
+		{"long heading", Row{Label: "OS", Heading: "network baseline", Options: []string{"host"}, Multi: true, Divider: true}, "├── network baseline ──"},
+		{"label as heading", Row{Label: "add-ons", Options: []string{"browser", "sandbox"}, Multi: true, Divider: true}, "├── add-ons ────"},
+	} {
+		f := &Form{Rows: []Row{{Label: "egress", Options: []string{"open", "allowlist"}}, c.row}}
+		lines := render(t, f)
+		stub := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "├") && !strings.HasSuffix(l, "┤") })
+		if stub < 0 || stub+1 >= len(lines) || !strings.Contains(lines[stub+1], c.row.Options[0]) {
+			t.Fatalf("%s: no stub right above its row:\n%s", c.name, strings.Join(lines, "\n"))
+		}
+		row := stub + 1
+		got := []rune(lines[stub])
+		if want := []rune(c.stub); len(got) <= len(want) || string(got[:len(want)]) != c.stub || got[len(want)] != ' ' {
+			t.Errorf("%s: stub reads %q, want %q and a blank after it", c.name, lines[stub], c.stub)
+		}
+		if c.row.Heading == "" && strings.Contains(lines[row], c.row.Label) {
+			t.Errorf("%s: the stub names the section, yet the row repeats it: %q", c.name, lines[row])
+		}
+		if c.row.Heading != "" && !strings.Contains(lines[row], c.row.Label) {
+			t.Errorf("%s: a row under a declared heading keeps its own label: %q", c.name, lines[row])
+		}
 	}
 }
 
-func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
+func TestSupportingTextUsesTerminalInkNotSlate(t *testing.T) {
 	t.Parallel()
 	f := &Form{
 		Title:  "run cursor",
@@ -361,23 +355,81 @@ func TestSupportingTextUsesLightPaletteNotSlate(t *testing.T) {
 	cells, w, h := s.GetContents()
 	slate := hexName(ui.ColorCloud)
 	light := hexName(ui.ColorSecondary)
-	var sawLight, sawSlate bool
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			fg := fgHex(cells[y*w+x].Style)
-			if fg == light {
-				sawLight = true
-			}
-			if fg == slate {
-				sawSlate = true
+	for y := range h {
+		for x := range w {
+			switch fgHex(cells[y*w+x].Style) {
+			case light:
+				t.Errorf("row %d col %d forces the light #E5E4E4, which vanishes on a white terminal", y, x)
+			case slate:
+				t.Errorf("row %d col %d uses ColorCloud slate, too dark for text on a black background", y, x)
 			}
 		}
 	}
-	if !sawLight {
-		t.Error("header/hint body text must use ColorSecondary (light), not terminal default alone")
+	lines := screenLines(s)
+	for _, text := range []string{"sandbox on main", "CURSOR_API_KEY"} {
+		for y, l := range lines {
+			if before, _, ok := strings.Cut(l, text); ok {
+				if _, _, st, _ := s.GetContent(textWidth(before), y); fgHex(st) != "" {
+					t.Errorf("header text %q is %s, want the terminal's own ink", text, fgHex(st))
+				}
+			}
+		}
 	}
-	if sawSlate {
-		t.Error("ColorCloud slate is too dark for TUI body text on a black background")
+}
+
+// Each answer draws its state; the cursor's answer is a reversed fill, and nothing is underlined.
+func TestAnAnswerDrawsItsStateAndTheCursorFillsIt(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"open", "allowlist"}, Selected: 1},
+		{Label: "model", Options: []string{"cloud", "local"}, Locked: true},
+		{Label: "add-ons", Multi: true, Options: []string{"browser", "devices"}, On: []bool{false, false}, Off: []bool{false, true}},
+	}}
+	s := simScreen(t, 120, 40)
+	f.draw(s, 0, 0)
+	lines := screenLines(s)
+	at := func(text string) lipgloss.Style {
+		t.Helper()
+		for y, l := range lines {
+			if before, _, ok := strings.Cut(l, text); ok {
+				_, _, st, _ := s.GetContent(textWidth(before), y)
+				return st
+			}
+		}
+		t.Fatalf("%q is not on the frame:\n%s", text, strings.Join(lines, "\n"))
+		return lipgloss.Style{}
+	}
+	p := styles()
+	for _, c := range []struct {
+		text string
+		want lipgloss.Style
+		name string
+	}{
+		{"(•) allowlist", p.focus.Bold(true), "the cursor's chosen answer: filled and bold"},
+		{"( ) open", p.offered, "an answer not chosen: grey"},
+		{"(•) cloud", p.fixed, "a locked row's answer in force: plain"},
+		{"( ) local", p.gated, "a locked row's other answer: faint, struck through"},
+		{"[ ] browser", p.offered, "a box not ticked: grey"},
+		{"[ ] devices", p.gated, "a box gated off: faint, struck through"},
+		{"model", p.lockedLabel, "a locked row's label: faint"},
+	} {
+		if got := at(c.text); !sameStyle(got, c.want) {
+			t.Errorf("%s: %q drawn %q", c.name, c.text, got.Render("x"))
+		}
+	}
+	if !p.focus.GetReverse() || fgHex(p.focus) != hexName(ui.ColorBrand) || !strings.Contains(p.focus.Render("x"), "48;2;0;0;0") {
+		t.Errorf("the cursor fill must be black on brand, reversed so it survives NO_COLOR: %q", p.focus.Render("x"))
+	}
+	if !p.gated.GetFaint() || !p.gated.GetStrikethrough() {
+		t.Errorf("an unavailable answer must be faint and struck through: %q", p.gated.Render("x"))
+	}
+	cells, w, h := s.GetContents()
+	for y := range h {
+		for x := range w {
+			if cells[y*w+x].Style.GetUnderline() {
+				t.Errorf("row %d col %d is underlined; the cursor is a fill", y, x)
+			}
+		}
 	}
 }
 
@@ -443,7 +495,7 @@ func TestPutHeaderAccentsLabelAndEveryPair(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, "llms:     main=claude-opus-5 (anthropic)  small=claude-haiku-4-5 (anthropic)")
+	putHeader(put, pal, factCol(cardMax), "llms:     main=claude-opus-5 (anthropic)  small=claude-haiku-4-5 (anthropic)")
 
 	for _, want := range []string{"llms:", "main", "small"} {
 		var found bool
@@ -477,7 +529,7 @@ func TestPutHeaderAccentsGlyphsNotNames(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, "tooling:   typescript  {} yaml")
+	putHeader(put, pal, factCol(cardMax), "tooling:   typescript  {} yaml")
 
 	acc := strings.Join(accented, "|")
 	for _, want := range []string{"tooling:", "", "{}"} {
@@ -516,7 +568,7 @@ func TestPutHeaderAccentsBranchAndItalicisesAside(t *testing.T) {
 			body = append(body, s)
 		}
 	}
-	putHeader(put, pal, "git:      monorepo on rs-295-integration-discriminator (uncommitted changes)")
+	putHeader(put, pal, factCol(cardMax), "git:      monorepo on rs-295-integration-discriminator (uncommitted changes)")
 
 	acc, asi, bod := strings.Join(accented, "|"), strings.Join(aside, ""), strings.Join(body, "")
 	if !strings.Contains(acc, "rs-295-integration-discriminator") {
@@ -759,9 +811,50 @@ func TestStaticColumnsDoNotSlide(t *testing.T) {
 	if tui != allow {
 		t.Errorf("tui at %d, allow-all at %d, want the same column", tui, allow)
 	}
-	legend := line("safer")
-	if got := at(legend, "safer"); got != optOrigin+3*colPitch {
-		t.Errorf("safer legend at %d, want column 4 at %d", got, optOrigin+3*colPitch)
+}
+
+// A narrower card closes the grid up to the 16-column pitch, and the fourth column ends inside the wall.
+func TestAnEightyColumnCardDrawsTheGridAtPitchSixteen(t *testing.T) {
+	t.Parallel()
+	f := &Form{Rows: []Row{
+		{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Cols: []int{0, 2, 3}, Locked: true},
+		{Label: "model", Options: []string{"Qwen 3.8", "API keys", "plan", "Glimmer"}, Cols: []int{0, 1, 2, 3}, Selected: 1},
+	}}
+	if got := pitch(cardWidth(80), f.lastCol()); got != minPitch {
+		t.Fatalf("pitch at 80 columns = %d, want %d", got, minPitch)
+	}
+	if got := pitch(cardWidth(120), f.lastCol()); got != colPitch {
+		t.Fatalf("pitch at 120 columns = %d, want %d", got, colPitch)
+	}
+	lines := renderAt(t, f, 1, 80, 24)
+	col := func(needle string) (string, int) {
+		t.Helper()
+		for _, l := range lines {
+			if before, _, ok := strings.Cut(l, needle); ok {
+				return l, utf8.RuneCountInString(before)
+			}
+		}
+		t.Fatalf("no line holds %q:\n%s", needle, strings.Join(lines, "\n"))
+		return "", 0
+	}
+	for _, c := range []struct {
+		cell string
+		at   int
+	}{
+		{"( ) Qwen 3.8", optOrigin},
+		{"(•) API keys", optOrigin + minPitch},
+		{"( ) plan", optOrigin + 2*minPitch},
+		{"( ) Glimmer", optOrigin + 3*minPitch},
+		{"( ) balanced", optOrigin + 2*minPitch},
+		{"( ) deny-all", optOrigin + 3*minPitch},
+	} {
+		line, at := col(c.cell)
+		if at != c.at {
+			t.Errorf("%q at column %d, want %d", c.cell, at, c.at)
+		}
+		if end := at + utf8.RuneCountInString(c.cell); end > cardWidth(80)-2 {
+			t.Errorf("%q ends at column %d, past the card's inner edge %d: %q", c.cell, end, cardWidth(80)-2, line)
+		}
 	}
 }
 
@@ -794,6 +887,21 @@ func TestMoreDrawsUnderTheFourthColumn(t *testing.T) {
 	}
 	if got := at("...More") - at("3000 next"); got != 3*colPitch {
 		t.Errorf("...More is %d from the first port, want %d", got, 3*colPitch)
+	}
+	under, bottom := -1, -1
+	for y, l := range lines {
+		if strings.HasPrefix(l, "╰") {
+			bottom = y
+		}
+		if before, _, ok := strings.Cut(l, "[x] 4000 jekyll"); ok {
+			under = y
+			if got, want := utf8.RuneCountInString(before), at("[x] ...More"); got != want {
+				t.Errorf("the list's entries start at %d, want the cell's column %d\n%s", got, want, joined)
+			}
+		}
+	}
+	if bottom < 0 || under <= bottom {
+		t.Errorf("a one-row card has no room inside, so the list opens under the card's bottom border (row %d), got row %d\n%s", bottom, under, joined)
 	}
 	row.Selected = 0
 	closed := strings.Join(render(t, &Form{Rows: []Row{row}}), "\n")
@@ -842,6 +950,31 @@ func TestColumnTextCapsAtTenRunes(t *testing.T) {
 	}
 	if got := r.columnText("API keys"); got != "API keys" {
 		t.Errorf("a short cell must stay whole, got %q", got)
+	}
+}
+
+// An option under the home directory draws as "~/…" in its cell and its help line; its value stays absolute.
+func TestAHomePathOptionReadsAsTildeAndKeepsItsValue(t *testing.T) {
+	t.Parallel()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == string(os.PathSeparator) {
+		t.Skipf("no home directory to write as ~: %q %v", home, err)
+	}
+	abs := filepath.Join(home, ".sbx")
+	f := &Form{Rows: []Row{{
+		Label: "sbx location", Options: []string{"/usr/local", abs}, Selected: 1,
+		Help: map[string]string{"/usr/local": "system-wide", abs: "per-user, no root"},
+	}}}
+	got := joined(t, f)
+	tilde := "~" + string(os.PathSeparator) + ".sbx"
+	if !strings.Contains(got, "(•) "+tilde) || !strings.Contains(got, "› "+tilde+" — per-user, no root") {
+		t.Errorf("the option must read %q in its cell and its help line:\n%s", tilde, got)
+	}
+	if strings.Contains(got, home) {
+		t.Errorf("the screen names the home directory:\n%s", got)
+	}
+	if v := f.Selection("sbx location"); v != abs {
+		t.Errorf("Selection = %q, want the path as given, %q", v, abs)
 	}
 }
 

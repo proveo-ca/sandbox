@@ -6,12 +6,11 @@
 ' covers: defs/opencode/README.md
 ' covers: defs/opencode/defaults/**
 ' covers: defs/opencode/sample_opencode.json
-' covers: defs/subagents/_frontmatter/opencode/**
+' covers: defs/subagents/_frontmatter/opencode.yaml
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: packages/lib/proveo-opencode-runtime
-' covers: e2e/opencode_auth_test.go
+' covers: e2e/opencode_test.go
 ' covers: internal/contract/opencode_presentation_test.go
-' covers: e2e/opencode_presentation*
 ' covers: e2e/testdata/opencode_presentation.*
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title OpenCode crew — automatic asks, explicit denies and visible execution

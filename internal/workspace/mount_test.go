@@ -9,7 +9,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/runner"
 )
 
 func tempDir(t *testing.T) string {
@@ -36,7 +35,7 @@ func TestMountPlanAppWholeRepo(t *testing.T) {
 	root := tempDir(t)
 	touch(t, filepath.Join(root, ".env"))
 	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app"}, RepoRoot: root, InputDir: root}.Plan()
-	want := []runner.Mount{{Host: root, Container: "/app"}}
+	want := []Mount{{Host: root, Container: "/app"}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("app whole-repo mounts mismatch (-want +got):\n%s", diff)
 	}
@@ -58,7 +57,7 @@ func TestMountPlanAppSubdir(t *testing.T) {
 	}.Plan()
 
 	// Index the produced mounts by container path for order-independent assertions.
-	byContainer := map[string]runner.Mount{}
+	byContainer := map[string]Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
 	}
@@ -95,7 +94,7 @@ func TestMountPlanAppGitROAndOutput(t *testing.T) {
 		Workspace: manifest.Workspace{Layout: "app", GitMode: "ro", Output: true},
 		RepoRoot:  root, InputDir: scope, OutputDir: "/out",
 	}.Plan()
-	byContainer := map[string]runner.Mount{}
+	byContainer := map[string]Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
 	}
@@ -111,7 +110,7 @@ func TestMountPlanAppNonRepoReadOnly(t *testing.T) {
 	t.Parallel()
 	// Mode:"ro" (now wired via manifest.Workspace, D6) makes the /app mount read-only.
 	got, _ := MountSpec{Workspace: manifest.Workspace{Layout: "app", Mode: "ro"}, InputDir: "/somedir"}.Plan()
-	want := []runner.Mount{{Host: "/somedir", Container: "/app", ReadOnly: true}}
+	want := []Mount{{Host: "/somedir", Container: "/app", ReadOnly: true}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("app non-repo ro mounts mismatch (-want +got):\n%s", diff)
 	}
@@ -171,7 +170,7 @@ func TestPlanSubdirPreservesRootDirs(t *testing.T) {
 		MountRootDeps: true,
 	}.Plan()
 
-	byContainer := map[string]runner.Mount{}
+	byContainer := map[string]Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
 	}
@@ -202,7 +201,7 @@ func TestPlanSubdirRootDepsAreOptional(t *testing.T) {
 		MountRootDeps: false,
 	}.Plan()
 
-	byContainer := map[string]runner.Mount{}
+	byContainer := map[string]Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
 	}
@@ -257,7 +256,7 @@ func TestPlanSubdirIgnoresRootDirNamedFile(t *testing.T) {
 
 func TestPlanRootScopeHonorsGitModeRO(t *testing.T) {
 	t.Parallel()
-	root := resolved(t.TempDir())
+	root := RealPath(t.TempDir())
 	touch(t, filepath.Join(root, ".git", "HEAD"))
 	touch(t, filepath.Join(root, "main.go"))
 
@@ -266,7 +265,7 @@ func TestPlanRootScopeHonorsGitModeRO(t *testing.T) {
 		RepoRoot:  root, InputDir: root,
 	}.Plan()
 
-	byContainer := map[string]runner.Mount{}
+	byContainer := map[string]Mount{}
 	for _, m := range got {
 		byContainer[m.Container] = m
 	}
@@ -341,7 +340,7 @@ func TestMountPlanMountsEscapingSymlink(t *testing.T) {
 	}.Plan()
 
 	// Order follows Plan(): scope → worktree → envOverlay → output → LINK mounts.
-	want := []runner.Mount{
+	want := []Mount{
 		{Host: root, Container: "/app"},
 		{Host: filepath.Join(base, "out"), Container: "/app/output"},
 		{Host: outside, Container: "/app/_spec"},
@@ -368,7 +367,7 @@ func TestMountPlanEscapingSymlinkFollowsWorkspaceMode(t *testing.T) {
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 	}.Plan()
 
-	want := runner.Mount{Host: outside, Container: "/app/_spec", ReadOnly: true}
+	want := Mount{Host: outside, Container: "/app/_spec", ReadOnly: true}
 	if diff := cmp.Diff(want, got[len(got)-1]); diff != "" {
 		t.Errorf("Plan() mode=ro link mount mismatch (-want +got):\n%s", diff)
 	}
@@ -451,7 +450,7 @@ func TestMountPlanBindsNoDotenvFile(t *testing.T) {
 		Workspace: manifest.Workspace{Output: true},
 		InputDir:  root, OutputDir: filepath.Join(base, "out"),
 	}.Plan()
-	want := []runner.Mount{
+	want := []Mount{
 		{Host: root, Container: "/app"},
 		{Host: filepath.Join(base, "out"), Container: "/app/output"},
 	}
@@ -624,7 +623,7 @@ func TestMountPlanWorktreeOverlaysBothPointerFiles(t *testing.T) {
 		WorktreeLinkDir: links,
 	}.Plan()
 
-	want := []runner.Mount{
+	want := []Mount{
 		{Host: tree, Container: "/app"},
 		{Host: common, Container: ContainerGitCommonDir},
 		{Host: filepath.Join(links, "dotgit"), Container: "/app/.git", ReadOnly: true},
@@ -646,7 +645,7 @@ func TestMountPlanWorktreeWithoutLinkDirBindsCommonDirOnly(t *testing.T) {
 		InputDir:  tree, OutputDir: filepath.Join(base, "out"),
 	}.Plan()
 
-	want := []runner.Mount{
+	want := []Mount{
 		{Host: tree, Container: "/app"},
 		{Host: common, Container: ContainerGitCommonDir},
 		{Host: filepath.Join(base, "out"), Container: "/app/output"},

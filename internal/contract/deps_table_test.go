@@ -31,7 +31,7 @@ func depClasses(t *testing.T, src string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	for _, m := range classArmRe.FindAllStringSubmatch(caseBody(t, src, "_dep_lang_class"), -1) {
-		for _, lang := range strings.Split(m[1], "|") {
+		for lang := range strings.SplitSeq(m[1], "|") {
 			out[lang] = m[2]
 		}
 	}

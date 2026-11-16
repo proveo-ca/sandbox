@@ -113,7 +113,7 @@ func printedLine(t *testing.T, out, marker string) string {
 // printedKitDir is the workload directory --print reports writing.
 func printedKitDir(t *testing.T, out string) string {
 	t.Helper()
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if _, rest, ok := strings.Cut(l, "sandbox kit: "); ok {
 			return strings.Fields(rest)[0]
 		}

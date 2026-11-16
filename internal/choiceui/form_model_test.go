@@ -258,19 +258,19 @@ func TestTheCountOfWhatEnterRunsFollowsEnterAcceptAndNeverReplacesIt(t *testing.
 		{1, "enter accept · 1 step · esc cancel"},
 		{0, "enter accept · esc cancel"},
 	} {
-		if hint := enterForm(c.n).hint(200, 0); !strings.Contains(hint, c.want) {
+		if hint := enterForm(c.n).hint(200, 0, 0); !strings.Contains(hint, c.want) {
 			t.Errorf("%d actions: hint %q lacks %q", c.n, hint, c.want)
 		}
 	}
 	f := enterForm(4)
 	for w := len("enter accept"); w <= 160; w++ {
-		if hint := f.hint(w, 7); !strings.Contains(hint, "enter accept") {
+		if hint := f.hint(w, 7, 0); !strings.Contains(hint, "enter accept") {
 			t.Fatalf("width %d: %q lost \"enter accept\" to the count", w, hint)
 		}
 	}
 	skip := enterForm(2)
 	skip.Skip, skip.onSkip = "Skip", true
-	if hint := skip.hint(200, 0); strings.Contains(hint, "steps") {
+	if hint := skip.hint(200, 0, 0); strings.Contains(hint, "steps") {
 		t.Errorf("with Skip focused Enter runs nothing, yet the hint counts steps: %q", hint)
 	}
 }
@@ -296,7 +296,7 @@ func TestTheOnEnterRegionFillsOnlyTheRowsLeftAndNeverMovesTheKeyLine(t *testing.
 	if got := keyRow(tall); got != bare {
 		t.Errorf("the region moved the key line from row %d to %d", bare, got)
 	}
-	h := bare + 5
+	h := bare + 6
 	short := strings.Join(renderAt(t, enterForm(6), 0, 100, h), "\n")
 	if !strings.Contains(short, "1  action a") || !strings.Contains(short, "… and ") || strings.Contains(short, "action f") {
 		t.Errorf("a region with too few rows must end on a count of what it left out:\n%s", short)

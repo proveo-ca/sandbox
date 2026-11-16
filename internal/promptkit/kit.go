@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/proveo-ca/proveo/internal/shell"
 )
 
 // Options says where one host's prompt kit goes and how its steps reach the outside.
@@ -20,7 +18,7 @@ type Options struct {
 	Home         string
 	BinDir       string // where a starship proveo installs lands; it must be on PATH
 	StateDir     string // where the record of what proveo installed is kept
-	Shell        shell.Shell
+	Shell        Shell
 	Getenv       func(string) string
 	Fetch        Fetch
 	LookPath     func(string) (string, error)
@@ -112,7 +110,7 @@ func Apply(o Options) (Record, error) {
 	} else {
 		rc := o.Shell.RCFile(o.GOOS, o.Home)
 		body, _ := os.ReadFile(rc)
-		if shell.StartsStarship(string(body)) {
+		if StartsStarship(string(body)) {
 			o.fact("rc", rc, "already starts starship")
 		} else {
 			if err := writeFile(rc, append(body, o.Shell.PromptBlock()...), modeOf(rc, 0o644)); err != nil {
@@ -172,7 +170,7 @@ func saveRecord(state string, r Record) error {
 // starship's config, or a binary or font file the record says proveo installed.
 func Installed(o Options) bool {
 	rec := ReadRecord(o.StateDir)
-	if body, err := os.ReadFile(rec.RC); rec.RC != "" && err == nil && shell.WithoutPromptBlock(string(body)) != string(body) {
+	if body, err := os.ReadFile(rec.RC); rec.RC != "" && err == nil && WithoutPromptBlock(string(body)) != string(body) {
 		return true
 	}
 	if body, err := os.ReadFile(cmp.Or(rec.Config, ConfigPath(o.Home, o.getenv))); err == nil && strings.Contains(string(body), segmentOpen) {
@@ -196,7 +194,7 @@ func Undo(o Options) error {
 	}
 	if rec.RC != "" {
 		if body, err := os.ReadFile(rec.RC); err == nil {
-			if stripped := shell.WithoutPromptBlock(string(body)); stripped != string(body) {
+			if stripped := WithoutPromptBlock(string(body)); stripped != string(body) {
 				if err := writeFile(rec.RC, []byte(stripped), modeOf(rec.RC, 0o644)); err != nil {
 					failed(rec.RC+" — starship line not removed", err)
 				} else {

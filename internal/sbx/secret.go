@@ -1,6 +1,9 @@
 package sbx
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 func SecretSetArgs(name string) []string {
 	return []string{"secret", "set", "--force", name}
@@ -30,12 +33,7 @@ func SecretSetSource(service, sandbox string, source []string, stdin string) err
 var OAuthServices = []string{"anthropic", "openai"}
 
 func HasOAuthSlot(service string) bool {
-	for _, s := range OAuthServices {
-		if s == service {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(OAuthServices, service)
 }
 
 // APIKeyServices are the service-secret names `sbx secret ls` lists as "(stored)": API keys, not OAuth slots.
@@ -46,7 +44,7 @@ func APIKeyServices() []string {
 		return nil
 	}
 	var names []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if strings.TrimSpace(line) == "CUSTOM SECRETS" {
 			break
 		}

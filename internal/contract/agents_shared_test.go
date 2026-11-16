@@ -34,21 +34,50 @@ var codexSubagentRoster = map[string]bool{
 // itself while disagreeing with the image.
 func composeSubagents(t *testing.T, harness string) string {
 	t.Helper()
+	dest, out := renderSubagents(t, filepath.Join(repoRoot(t), "defs/subagents"), harness)
+	if strings.Contains(out, subagentBodyMissing) {
+		t.Errorf("render_subagents %s: %s", harness, out)
+	}
+	return dest
+}
+
+const subagentBodyMissing = "subagent body missing"
+
+// renderSubagents runs render_subagents over src and returns the composed dir and its output.
+func renderSubagents(t *testing.T, src, harness string) (string, string) {
+	t.Helper()
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skipf("bash unavailable: %v", err)
 	}
-	root := repoRoot(t)
 	dest := t.TempDir()
 	script := `set -e
 source "$1/packages/lib/entrypoint-lib.sh"
-export PROVEO_SUBAGENTS_DIR="$1/defs/subagents"
-render_subagents "$2" "$3" 1`
-	cmd := exec.Command(bash, "-c", script, "bash", root, harness, dest)
-	if out, err := cmd.CombinedOutput(); err != nil {
+export PROVEO_SUBAGENTS_DIR="$2"
+render_subagents "$3" "$4" 1`
+	out, err := exec.Command(bash, "-c", script, "bash", repoRoot(t), src, harness, dest).CombinedOutput()
+	if err != nil {
 		t.Fatalf("render_subagents %s: %v\n%s", harness, err, out)
 	}
-	return dest
+	return dest, string(out)
+}
+
+func TestRenderSubagentsReportsARoleWithNoBody(t *testing.T) {
+	t.Parallel()
+	src := t.TempDir()
+	if err := os.Mkdir(filepath.Join(src, "_frontmatter"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "_frontmatter", "claudecode.yaml"), []byte("ghost:\n  name: ghost\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest, out := renderSubagents(t, src, "claudecode")
+	if !strings.Contains(out, subagentBodyMissing) {
+		t.Errorf("a role with no body must report %q; got %q", subagentBodyMissing, out)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "ghost.md")); err == nil {
+		t.Error("a role with no body must compose no definition")
+	}
 }
 
 func composedFiles(t *testing.T, dir string) map[string]string {
@@ -138,19 +167,12 @@ func TestSharedAgentBodiesAllReferenced(t *testing.T) {
 		harnesses = append(harnesses, harness)
 	}
 	for _, harness := range harnesses {
-		entries, err := os.ReadDir(filepath.Join(root, "defs/subagents/_frontmatter", harness))
+		composed, err := os.ReadDir(composeSubagents(t, harness))
 		if err != nil {
-			t.Fatalf("roster for %s: %v", harness, err)
+			t.Fatal(err)
 		}
-		for _, e := range entries {
-			name := strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".yaml"), ".toml")
-			if name == e.Name() {
-				continue
-			}
-			used[name] = true
-			if _, err := os.Stat(filepath.Join(root, "defs/subagents", name+".md")); err != nil {
-				t.Errorf("%s/%s names a body that does not exist", harness, e.Name())
-			}
+		for _, e := range composed {
+			used[strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".md"), ".toml")] = true
 		}
 		if _, err := os.Stat(filepath.Join(root, "defs/subagents/_vars", harness+".env")); err != nil {
 			t.Errorf("%s has no token values: %v", harness, err)

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 func TestMatch(t *testing.T) {
@@ -47,7 +49,7 @@ func TestMatch(t *testing.T) {
 
 func TestDiscoverMonorepo(t *testing.T) {
 	t.Parallel()
-	got := Discover("testdata/mono")
+	got := Discover(testx.Extract(t, "mono"))
 	want := []Candidate{
 		{Port: 1313, Command: "dev", Tool: "hugo", Source: "Makefile", Line: "hugo server"},
 		{Port: 3000, Command: "dev", Tool: "next", Source: "apps/web/package.json", Line: "next dev"},
@@ -60,7 +62,7 @@ func TestDiscoverMonorepo(t *testing.T) {
 		{Port: 8080, Command: "go run", Tool: "go", Source: "apps/api/main.go", Explicit: true},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("Discover(testdata/mono) mismatch (-want +got):\n%s", diff)
+		t.Errorf("Discover(mono) mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -90,7 +92,7 @@ func TestDiscoverSkipsDependencyTrees(t *testing.T) {
 
 func TestLaunchStartsTheServerOnEveryInterface(t *testing.T) {
 	t.Parallel()
-	root := "testdata/mono"
+	root := testx.Extract(t, "mono")
 	byPort := map[int]Candidate{}
 	for _, c := range Discover(root) {
 		byPort[c.Port] = c

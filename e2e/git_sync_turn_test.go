@@ -18,8 +18,9 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/termtext"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 const hookProbeFile = "HOOK_PROBE.txt"
@@ -52,10 +53,7 @@ func TestGitSyncTurnEventuallyPersistsTheTurn(t *testing.T) {
 		t.Skip("sandbox backend unavailable")
 	}
 	proveoBin := buildProveo(t)
-	probe, err := os.ReadFile(filepath.Join("testdata", "git-sync-turn", hookProbeFile))
-	if err != nil {
-		t.Fatal(err)
-	}
+	probe := []byte(testx.Want(t, "git-sync-turn", hookProbeFile))
 	for _, h := range gitSyncHarnesses {
 		t.Run(h.target, func(t *testing.T) {
 			requireHarness(t, h.target)
@@ -77,7 +75,7 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	work := gitSyncWorkspace(t)
 	before, canList := sbxSandboxNames()
 
-	sess := tmux.New(fmt.Sprintf("proveo-gitsync-%s-%d", h.target, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-gitsync-%s-%d", h.target, os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)
@@ -155,14 +153,10 @@ func runGitSyncTurn(t *testing.T, h gitSyncHarness, proveoBin string, probe []by
 	assertGitSyncTurn(t, h, state, probe)
 }
 
-// gitSyncWorkspace copies the fixture's committed base into a fresh repo.
+// gitSyncWorkspace extracts the fixture's committed base into a fresh repo.
 func gitSyncWorkspace(t *testing.T) string {
 	t.Helper()
-	work := t.TempDir()
-	src := filepath.Join("testdata", "git-sync-turn", "workspace")
-	if out, err := exec.Command("cp", "-a", src+"/.", work).CombinedOutput(); err != nil {
-		t.Fatalf("copy git-sync-turn fixture: %v\n%s", err, out)
-	}
+	work := filepath.Join(testx.Extract(t, "git-sync-turn"), "workspace")
 	gitInit(t, work)
 	return work
 }
@@ -197,7 +191,7 @@ u=$(git remote get-url origin 2>/dev/null); [ -d "$u" ] && [ ! -w "$u" ] && echo
 		return nil
 	}
 	state := map[string]string{}
-	for _, l := range strings.Split(string(out), "\n") {
+	for l := range strings.SplitSeq(string(out), "\n") {
 		if k, v, ok := strings.Cut(strings.TrimRight(l, "\r"), "="); ok {
 			state[k] = strings.TrimSpace(v)
 		}
@@ -219,7 +213,7 @@ func assertGitSyncTurn(t *testing.T, h gitSyncHarness, state map[string]string, 
 		t.Fatalf("decode trace %q: %v", state["TRACE"], err)
 	}
 	var traces []gitSyncTrace
-	for _, l := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
 		var r gitSyncTrace
 		if err := json.Unmarshal([]byte(l), &r); err != nil {
 			t.Errorf("trace line %q is not JSON: %v", l, err)

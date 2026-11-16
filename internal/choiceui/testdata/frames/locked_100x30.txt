@@ -1,8 +1,0 @@
-t
-
-                  ◀ riskier                                                         safer ▶
-
-    egress        (•) allow-all   ( ) balanced   ( ) deny-all
-  › credentials   (•) broker   ( ) forward
-
-↑↓ row · ←→ choose · pgup/pgdn scroll · enter accept · esc cancel

@@ -3,10 +3,10 @@ package choiceui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 // frameCase is one form in one state; it is drawn at each of its sizes.
@@ -56,9 +56,10 @@ func listsForm() *Form {
 		items[i] = fmt.Sprintf("credential-%02d", i)
 	}
 	m := &More{Cell: 1, Options: items, On: []bool{true, false, true}, ReadOnly: true, At: 3}
+	keys := &More{Cell: 0, Options: []string{"anthropic"}, On: []bool{true}, ReadOnly: true}
 	return &Form{Title: "credentials in this run", Rows: []Row{
-		{Label: "credentials", Multi: true, Locked: true, Hover: 1, Options: []string{"API keys", "OAuth", "SSH"},
-			On: []bool{true, true, false}, Cols: []int{0, 1, 2}, Lists: map[int]*More{1: m}},
+		counted(Row{Label: "credentials", Multi: true, Locked: true, Hover: 1, Options: []string{"API keys", "OAuth", "SSH"},
+			On: []bool{true, true, false}, Cols: []int{0, 1, 2}, Lists: map[int]*More{0: keys, 1: m}}),
 		{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Selected: 1},
 	}}
 }
@@ -95,7 +96,11 @@ func frameCases() []frameCase {
 		{"step-first", func() *Form { return stepForm(1, 3) }, 0, 0, [][2]int{{80, 24}}},
 		{"step-second", func() *Form { return stepForm(2, 3) }, 1, 0, [][2]int{{80, 24}, {64, 12}}},
 		{"lists-open", listsForm, 0, 0, [][2]int{{120, 24}, {80, 24}, {80, 10}}},
-		{"no-axis", func() *Form { f := budgetForm(); f.NoAxis = true; return f }, 0, 0, [][2]int{{120, 40}, {80, 24}}},
+		{"env-list", envForm, 0, 0, [][2]int{{120, 36}, {80, 24}}},
+		{"env-filter", func() *Form { return filtering("mod") }, 0, 0, [][2]int{{120, 36}, {80, 24}}},
+		{"env-nomatch", func() *Form { return filtering("zzq") }, 0, 0, [][2]int{{120, 36}, {80, 24}}},
+		{"unframed-tall", tallForm, 0, 0, [][2]int{{36, 24}}},
+		{"unframed-step", func() *Form { return stepForm(2, 3) }, 1, 0, [][2]int{{36, 12}}},
 	}
 	for name, fr := range map[string]Frame{"pane": paneFrame(), "hopless": hopless, "direct": direct, "local-model": local} {
 		for _, tier := range []GlyphTier{GlyphsNerd, GlyphsSafe, GlyphsASCII} {
@@ -151,47 +156,13 @@ func frameText(lines []string) string {
 }
 
 // TestFramesMatchTheGoldenFiles holds the renderer to frames recorded from the
-// tcell renderer. PROVEO_UPDATE_FRAMES=1 records them.
+// tcell renderer in testdata/frames.txtar. `go test ./internal/choiceui -update` records them.
 func TestFramesMatchTheGoldenFiles(t *testing.T) {
-	dir := filepath.Join("testdata", "frames")
-	update := os.Getenv("PROVEO_UPDATE_FRAMES") != ""
-	if update {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	seen := map[string]bool{}
+	g := testx.Open(t, "frames")
 	for _, c := range frameCases() {
 		for _, size := range c.sizes {
-			name := fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1])
-			if seen[name] {
-				t.Fatalf("two cases write %s", name)
-			}
-			seen[name] = true
 			got := frameText(frameLines(t, c.form(), c.cursor, size[0], size[1], c.tick))
-			path := filepath.Join(dir, name)
-			if update {
-				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				continue
-			}
-			want, err := os.ReadFile(path)
-			if err != nil {
-				t.Errorf("%s: no golden frame (%v); record it with PROVEO_UPDATE_FRAMES=1", name, err)
-				continue
-			}
-			if got != string(want) {
-				t.Errorf("%s differs from its golden frame:\n--- got ---\n%s--- want ---\n%s", name, got, want)
-			}
-		}
-	}
-	if !update {
-		files, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
-		for _, f := range files {
-			if !seen[filepath.Base(f)] {
-				t.Errorf("%s is a golden frame no case draws; delete it", f)
-			}
+			g.Assert(fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1]), got)
 		}
 	}
 }

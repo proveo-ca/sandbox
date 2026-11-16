@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/shell/setup-path.puml
+// SPEC: _spec/internal/promptkit/setup-path.puml
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
-	"github.com/proveo-ca/proveo/internal/shell"
+	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -57,7 +57,7 @@ func setupPath(dir, shellPath string, printOnly bool) sandbox.Item {
 	if onPath(dir) {
 		return sandbox.Item{Ok: true, Text: path(dir) + " — already on PATH"}
 	}
-	sh, ok := shell.Detect(shellPath)
+	sh, ok := promptkit.DetectShell(shellPath)
 	if !ok {
 		why := filepath.Base(shellPath) + " is not a shell setup knows"
 		if shellPath == "" {
@@ -77,7 +77,7 @@ func setupPath(dir, shellPath string, printOnly bool) sandbox.Item {
 		return toAdd
 	}
 	content, _ := os.ReadFile(rc) // a missing rc is fine; it gets created
-	if shell.AlreadyConfigured(string(content), dir) {
+	if promptkit.AlreadyConfigured(string(content), dir) {
 		return sandbox.Item{Warn: true, Text: path(dir) + " — not on this shell's PATH", Detail: []string{path(rc) + " adds it; a new shell picks it up"}}
 	}
 	if printOnly {

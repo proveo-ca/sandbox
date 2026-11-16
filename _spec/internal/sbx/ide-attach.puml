@@ -20,7 +20,7 @@ skinparam noteTextAlignment left
 ' covers: e2e/home_test.go
 ' covers: e2e/ide_attach_test.go
 '   clone return path ........ _spec/internal/sbx/clone-workspace.puml
-'   wider post-close UI ...... _spec/_plans/post-close-surface.puml
+'   wider post-close UI ...... _spec/internal/results/result-store.puml (D4)
 '   workspace boundary ....... _spec/_paradigms/workspace-boundary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -29,7 +29,7 @@ skinparam noteTextAlignment left
 ' share the tree; that is named, not refused. A successful run still tears its
 ' sandbox down. A failed run reprints the same host so the editor can stay
 ' after the agent has gone. A remote attach is not established.
-' ONE ROW ON A LIVE RUN (2026-11-11, output-readability R1). The screen gets
+' ONE ROW ON A LIVE RUN (2026-11-11, _spec/internal/ui/output-vocabulary.puml). The screen gets
 ' "● ide: ssh <sandbox>.sbx" and one dim line: on a clone "IDE links in the
 ' run log; a local Open edits the host checkout", else "JetBrains, Toolbox and
 ' VS Code links in the run log". IDEAttachLines goes whole to the run
@@ -78,10 +78,10 @@ skinparam noteTextAlignment left
 ' Use: hermes/data/skills-muse → ~/Projects/proveo/skills/yahoo-ff (git), edited
 ' and committed on the host only. (HISTORY: the deleted docker backend bound the
 ' whole home at /proveo-home, where an absolute link dangled.)
-' ONLY LISTED TARGETS (SEC2, DONE (wt) 2026-10-17; repo-simplification.puml
-' SEC2, option 2). A declared dir is mounted read-WRITE, so the guest could
+' ONLY LISTED TARGETS (SEC2, DECIDED 2026-10-17, option 2: follow a link only
+' when a host-side file lists its target). A declared dir is mounted read-WRITE, so the guest could
 ' plant `~/.proveo/<dir>/x -> ~/.ssh` and read it on the next run. MEASURED
-' now: a link is followed only when its resolved (realPath) target is listed in
+' now: a link is followed only when its resolved (workspace.RealPath) target is listed in
 ' <proveo home>/linked-dirs (manifest.LinkedDirsFile, manifest.go:50-51) — absolute
 ' paths, one per line, `#` comments, read by listedLinkTargets. The proveo home
 ' ROOT is never mounted by a shipped def, so the guest cannot add an entry; a
@@ -98,7 +98,7 @@ skinparam noteTextAlignment left
 ' TestHomeAccessMountsALinkedDirReadOnly and
 ' TestHomeAccessRefusesLinksThatWidenTheView updated (reported). The README's
 ' "Proveo home" section documents linked-dirs (reported; docs are not mine).
-' SEC4 (DONE (wt) 2026-10-17, repo-simplification.puml): no manifest can hand
+' SEC4 (DECIDED 2026-10-17, option 1): no manifest can hand
 ' the guest the list. A custom def's home mount `host: .` would have mounted
 ' the home ROOT read-write and let the guest write linked-dirs itself, and
 ' `files: [linked-dirs]` would have round-tripped through Commit. MEASURED:

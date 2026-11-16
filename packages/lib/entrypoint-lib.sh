@@ -1587,9 +1587,10 @@ report_agent_evidence() {
 render_subagents() {
  local harness="$1" dst="$2" reseed="${3:-0}"
  local src="${PROVEO_SUBAGENTS_DIR:-/opt/proveo/subagents}"
- local fmdir="$src/_frontmatter/$harness" varfile="$src/_vars/$harness.env"
+ local fmfile="$src/_frontmatter/$harness.yaml" varfile="$src/_vars/$harness.env"
 
- [[ -d "$fmdir" ]] || return 0
+ [[ -f "$fmfile" ]] || fmfile="${fmfile%.yaml}.toml"
+ [[ -f "$fmfile" ]] || return 0
  mkdir -p "$dst" 2>/dev/null || { echo "⚠️  Could not seed subagents into $dst; continuing" >&2; return 0; }
 
  local keys=() vals=() k v
@@ -1600,11 +1601,22 @@ render_subagents() {
   done < "$varfile"
  fi
 
- local seeded=() fm name ext body text line out i dest
- for fm in "$fmdir"/*.yaml "$fmdir"/*.toml; do
-  [[ -e "$fm" ]] || continue
-  ext="${fm##*.}"
-  name="$(basename "$fm" ".$ext")"
+ # One section per role: a `role:` key with its block indented two spaces (YAML), or a `[role]` table (TOML).
+ local ext="${fmfile##*.}" head='^([A-Za-z0-9_-]+):$' indent='  ' line
+ [[ "$ext" == toml ]] && head='^\[([A-Za-z0-9_-]+)\]$' indent=''
+ local names=() fms=() n=-1
+ while IFS= read -r line || [[ -n "$line" ]]; do
+  if [[ "$line" =~ $head ]]; then
+   n=$((n + 1)); names[n]="${BASH_REMATCH[1]}"; fms[n]=""
+  elif (( n >= 0 )); then
+   fms[n]+="${line#"$indent"}"$'\n'
+  fi
+ done < "$fmfile"
+
+ local seeded=() fm name body text out i j dest
+ for j in "${!names[@]}"; do
+  name="${names[$j]}" fm="${fms[$j]}"
+  while [[ "$fm" == *$'\n' ]]; do fm="${fm%$'\n'}"; done
   body="$src/$name.md"
   [[ -f "$body" ]] || { echo "⚠️  subagent body missing for $name; skipping" >&2; continue; }
 
@@ -1623,7 +1635,7 @@ render_subagents() {
    dest="$dst/$name.md"
    [[ "$reseed" == "1" || ! -f "$dest" ]] || continue
    out="---"$'\n'"# composed at runtime from $src/$name.md"$'\n'
-   out+="$(cat "$fm")"$'\n'"---"$'\n'$'\n'"$text"
+   out+="$fm"$'\n'"---"$'\n'$'\n'"$text"
    ;;
   toml)
    # The body is a TOML multi-line LITERAL string ('''), which processes no escapes.
@@ -1634,10 +1646,9 @@ render_subagents() {
     continue
    fi
    out="# composed at runtime from $src/$name.md"$'\n'
-   out+="$(cat "$fm")"$'\n'$'\n'
+   out+="$fm"$'\n'$'\n'
    out+="developer_instructions = '''"$'\n'"$text'''"$'\n'
    ;;
-  *) continue ;;
   esac
 
   if printf '%s' "$out" > "$dest" 2>/dev/null; then

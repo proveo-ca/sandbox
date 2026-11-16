@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/sbx/sbx-kit-contract.puml, _spec/components.puml, _spec/_paradigms/capability-ladder.puml, _spec/_experiments/sbx-kit-capabilities.puml
+// SPEC: _spec/internal/sbx/sbx-kit-contract.puml, _spec/components.puml, _spec/_paradigms/capability-ladder.puml
 package sbx
 
 import (

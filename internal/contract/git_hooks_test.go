@@ -53,7 +53,7 @@ func TestPostCommitSkipIfSpeaksTheEnvflagWords(t *testing.T) {
 		t.Fatalf("post-commit's skip_if %q tests no `in [...]` word list", expr)
 	}
 	var got []string
-	for _, w := range strings.Split(m[1], ",") {
+	for w := range strings.SplitSeq(m[1], ",") {
 		got = append(got, strings.Trim(strings.TrimSpace(w), `'"`))
 	}
 	slices.Sort(got)

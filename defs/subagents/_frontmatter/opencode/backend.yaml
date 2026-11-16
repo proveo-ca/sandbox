@@ -1,9 +1,0 @@
-description: Backend specialist (APIs, DBs, services). Advisory; does not edit.
-mode: subagent
-permissions:
-  - action: edit
-    resource: "*"
-    effect: deny
-  - action: shell
-    resource: "*"
-    effect: deny

@@ -17,6 +17,9 @@ title git post-commit — format, then lint
 '   3 golangci-lint run, with build-tags [image, e2e] in .golangci.yml
 ' So a post-commit hook also reports comment blocks over three lines and
 ' unformatted e2e files, after the fact like every other lint finding.
+' The gofmt gate is a Go test over `git ls-files`. NOT CHOSEN: golangci-lint
+' formatters alone (they miss build-constrained files); a `gofmt -l` run entry
+' (it needs shell logic, _spec/tests/20-contract.puml).
 ' The two contract tests also run in test-go, baseline and ci.
 '
 ' ── THE HOOK (2026-11-12) ──────────────────────────────────────────────────
@@ -28,6 +31,9 @@ title git post-commit — format, then lint
 ' The hidden [tasks.post-commit] runs [{ task = "fmt" }, { task = "lint" }].
 ' Its skip_if reads SKIP_GIT_HOOKS through `get_env | trim | lower in [...]`
 ' with envflag.On's words, so 1, true, yes, on, enable and enabled skip it.
+' NOT CHOSEN: MISE_TASK_SKIP=post-commit (it renames the switch); skip_if =
+' 'test -n "$SKIP_GIT_HOOKS"' (shell logic, and "0" would skip); editing the
+' generated hook (untracked and regenerated).
 ' Pinned by internal/contract/git_hooks_test.go:
 '   TestPostCommitRunsFormatThenLint
 '   TestPostCommitSkipIfSpeaksTheEnvflagWords

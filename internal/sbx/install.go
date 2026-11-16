@@ -61,7 +61,7 @@ func DetectHost() Host {
 
 func parseOSRelease(s string) map[string]string {
 	out := map[string]string{}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok || strings.HasPrefix(k, "#") {
 			continue
@@ -408,7 +408,7 @@ func Names(in []Prereq) []string {
 	return out
 }
 
-// LoginArgs and SetupArgs are the two commands that finish an install.
+// LoginArgs and SetupArgs are the two commands that finish an install, each only when it has work.
 func LoginArgs() []string { return []string{"login"} }
 func SetupArgs() []string { return []string{"setup"} }
 
@@ -499,8 +499,43 @@ func ParseDiagnose(b []byte) ([]Check, error) {
 }
 
 // outsideARun maps a diagnose row a terminal run does not need to what it does affect.
+// SPEC: _spec/internal/sbx/host-readiness.puml (DOCKER LOGIN)
 var outsideARun = map[string]string{
 	"SSH client config": "IDE attach and Hermes Desktop, which connect with `ssh <name>.sbx`",
+	AuthenticationCheck: "the first `sbx run`, which starts `sbx login` itself",
+}
+
+// AuthenticationCheck is the diagnose row that says whether Docker is signed in.
+const AuthenticationCheck = "Authentication"
+
+// Auth is what sbx diagnose says of the Docker sign-in.
+type Auth int
+
+const (
+	AuthUnknown Auth = iota // no answer, no row, or a status that says neither
+	AuthIn
+	AuthOut
+)
+
+// DockerAuth reads diagnose's Authentication row.
+// SPEC: _spec/internal/sbx/host-readiness.puml (DOCKER LOGIN)
+func DockerAuth(checks []Check, err error) Auth {
+	if err != nil {
+		return AuthUnknown
+	}
+	for _, c := range checks {
+		if c.Name != AuthenticationCheck {
+			continue
+		}
+		switch c.Status {
+		case "pass":
+			return AuthIn
+		case "fail", "warn":
+			return AuthOut
+		}
+		return AuthUnknown
+	}
+	return AuthUnknown
 }
 
 // Affects names what a row breaks when a terminal run does not need it; "" when a run does.
@@ -543,6 +578,101 @@ func DiagnoseAt(bin string) ([]Check, error) {
 		return nil, err
 	}
 	return nil, perr
+}
+
+// SecretListJSONArgs lists sbx's store as JSON, its env_only_count included.
+func SecretListJSONArgs() []string { return []string{"secret", "ls", "--json"} }
+
+// SettingJSONArgs reads one sbx setting as JSON: its value and where the value came from.
+func SettingJSONArgs(key string) []string { return []string{"settings", "get", "--json", key} }
+
+// ForwardingSetting is the sbx setting that turns SSH-agent forwarding on.
+const ForwardingSetting = "ssh.agentForwardingEnabled"
+
+// SetupOffer is what `sbx setup` would have to offer on this host.
+// SPEC: _spec/internal/sbx/host-readiness.puml (WHAT SBX SETUP OFFERS)
+type SetupOffer struct {
+	EnvOnly       int  // sbx's env_only_count: env keys whose service sbx's store lacks
+	ForwardingOff bool // SSH_AUTH_SOCK set ∧ ssh.agentForwardingEnabled false at its default source
+	Known         bool
+}
+
+// Offers reports whether sbx setup has something to do.
+func (o SetupOffer) Offers() bool { return o.EnvOnly > 0 || o.ForwardingOff }
+
+// Reason names what sbx setup would do: "2 env keys sbx's store lacks", "SSH agent forwarding off", or both.
+func (o SetupOffer) Reason() string {
+	var out []string
+	switch {
+	case o.EnvOnly == 1:
+		out = append(out, "1 env key sbx's store lacks")
+	case o.EnvOnly > 1:
+		out = append(out, strconv.Itoa(o.EnvOnly)+" env keys sbx's store lacks")
+	}
+	if o.ForwardingOff {
+		out = append(out, "SSH agent forwarding off")
+	}
+	return strings.Join(out, " · ")
+}
+
+// ParseEnvOnly reads env_only_count out of a `sbx secret ls --json` payload; known is false for a
+// missing field or the text table an older sbx prints.
+func ParseEnvOnly(b []byte) (n int, known bool) {
+	var v struct {
+		EnvOnly *int `json:"env_only_count"`
+	}
+	if json.Unmarshal(b, &v) != nil || v.EnvOnly == nil {
+		return 0, false
+	}
+	return *v.EnvOnly, true
+}
+
+// ParseForwardingOff reads a `sbx settings get --json` payload: off only for false at its default source.
+func ParseForwardingOff(b []byte) (off, known bool) {
+	var v struct {
+		Value  *bool  `json:"value"`
+		Source string `json:"source"`
+	}
+	if json.Unmarshal(b, &v) != nil || v.Value == nil {
+		return false, false
+	}
+	return !*v.Value && v.Source == "default", true
+}
+
+// SetupOfferFrom is the offer two probe payloads describe; sock is SSH_AUTH_SOCK, and the
+// setting is not read without one.
+func SetupOfferFrom(secrets, setting []byte, sock string) SetupOffer {
+	var o SetupOffer
+	n, envKnown := ParseEnvOnly(secrets)
+	o.EnvOnly = n
+	fwdKnown := true
+	if strings.TrimSpace(sock) != "" {
+		o.ForwardingOff, fwdKnown = ParseForwardingOff(setting)
+	}
+	o.Known = (envKnown && fwdKnown) || o.Offers()
+	return o
+}
+
+// SetupOfferAt runs both probes against ONE sbx binary, named by path; it never reads, keeps or
+// prints a secret value.
+func SetupOfferAt(bin string, getenv func(string) string) (SetupOffer, error) {
+	secrets, serr := bounded(bin, SecretListJSONArgs()...)
+	sock := getenv("SSH_AUTH_SOCK")
+	var setting []byte
+	var gerr error
+	if strings.TrimSpace(sock) != "" {
+		setting, gerr = bounded(bin, SettingJSONArgs(ForwardingSetting)...)
+	}
+	o := SetupOfferFrom(secrets, setting, sock)
+	switch {
+	case o.Known:
+		return o, nil
+	case serr != nil:
+		return o, fmt.Errorf("sbx %s: %w", strings.Join(SecretListJSONArgs(), " "), serr)
+	case gerr != nil:
+		return o, fmt.Errorf("sbx %s: %w", strings.Join(SettingJSONArgs(ForwardingSetting), " "), gerr)
+	}
+	return o, fmt.Errorf("sbx gave no env_only_count or %s this proveo can read", ForwardingSetting)
 }
 
 // VersionAt reads the version of ONE sbx binary, named by path.

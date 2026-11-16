@@ -1,10 +1,10 @@
 @startuml OpenCodeTopology
 ' purpose: the OpenCode native crew layout and approved automatic session policy
 ' covers: defs/opencode/**
-' covers: defs/subagents/_frontmatter/opencode/**
+' covers: defs/subagents/_frontmatter/opencode.yaml
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/opencode_presentation_test.go
-' covers: e2e/opencode_presentation*
+' covers: e2e/opencode_test.go
 ' covers: e2e/testdata/opencode_presentation.*
 ' Native migration and pending acceptance: _spec/defs/opencode/native-v2-integration.puml
 ' Crew/auth decisions: _spec/defs/opencode/opencode-paradigm.puml

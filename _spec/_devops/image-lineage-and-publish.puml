@@ -16,7 +16,15 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' One row per registry target in internal/imagebuild/targets.go `Specs`; one
 ' entry point, Builder.BuildTarget(name, tag, Options{Push, NoCache}). The
 ' per-def build.sh/ensure.sh pairs and defs/lib/docker-build.sh held this shape
-' until 2026-09-22 (_spec/_refactors/host-shell-to-go.puml, P2).
+' until 2026-09-22.
+' A GO TABLE, NOT A MANIFEST BLOCK. The recipes are targets.go `Specs`, not a
+' harness.manifest `build:` block, because the base images have no manifest
+' to hold one; TestEverySpecIsARegistryTarget pins the table to
+' maintain.Registry. testdata/build_argv.golden (parity_test.go
+' TestGoBuildMatchesGolden) was written while the deleted build.sh and
+' BuildTarget rendered identical buildx argv for every target under --load,
+' --push and a cold host. So a diff in it is a change in build behaviour,
+' never a fixture refresh.
 '   ref = TargetRef(name, tag)   Spec.Repo, or RefRepo($PROVEO_<X>_IMAGE)
 '                                the override names the REPO; --tag sets the tag
 '   tag ""                       -> latest (and Build refuses latest for --load)
@@ -82,7 +90,7 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' time for maintain.ResolveImage, the way posture's dockerImageCreated does for
 ' the runtime. docker reports RFC3339Nano ("2026-08-31T00:37:15.008872627Z"),
 ' which time.Parse accepts whole. Its shell predecessor, proveo_image_created in
-' defs/lib/test-image.sh (deleted 2026-09-22, host-shell-to-go P3), had to trim
+' defs/lib/test-image.sh (deleted 2026-09-22), had to trim
 ' the fraction and try GNU `date -u -d` then BSD `date -u -j -f`, because
 ' neither `date` accepts nanoseconds and the suites ran on Linux and macOS.
 ' `created` reports false when the host has no such image, which is what lets
@@ -118,8 +126,9 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' build shadowed an image pulled a minute ago while the run read as coverage of
 ' the newer one. A second opinion about which image is current is worse than
 ' none, so TestNoAdHocLocalOverLatestResolvers refuses that loop in any .sh
-' under defs/, e2e/ and scripts/.
-' Since host-shell-to-go P3 the image suites hold ONE implementation: each names
+' under defs/ and e2e/ (scripts/ left the tree on 2026-11-15).
+' Since 2026-09-22 the image suites (_spec/tests/testing-strategy.puml) hold
+' ONE implementation: each names
 ' a target and a repository, and imagetest.Resolve honours that target's pin or
 ' calls maintain.ResolveImage per run (TestImageDetachedSmoke's smokeTargets
 ' carry no tag, and the detached smoke honours pins too). The shell resolver and

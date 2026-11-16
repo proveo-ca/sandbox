@@ -1,7 +1,10 @@
 @startuml SandboxBackend
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title Sandbox backend — the only backend: sbx runs the agent, or the run refuses
-' ── DECIDED 2026-10-16 (Executor): sbx OR REFUSE ───────────────────────────
+' ── DECIDED 2026-10-16 (Executor, D1): sbx OR REFUSE ───────────────────────
+' D1's parts, gone the same day: F1 proveo/mitmproxy · F2 defs/egress-dashboard · F3 its topology
+' spec · F4 inject/broker.env · F5 the egress-proxy header · F6 the .env guard rekey (the guard went
+' with N7, 2026-10-17) · F8 proxy banners · F12a firehol.
 ' The Executor chose, in order: "Retire Docker egress"; "Refuse without sbx";
 ' "Retire review, map the rest"; on the tier mapping: "Nothing, `sbx` handles
 ' this. Drop that param". The docker+egress backend (internal/backend/
@@ -32,7 +35,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' (:1446, :1461, :1615-1616) all write under it. The e2e globs read
 ' <state>/runs/*/sbx/... (e2e/sbx_test.go:443, sbx_egress_test.go:136).
 '
-' ── NO RETIREMENT STUBS (DECIDED 2026-10-17) ───────────────────────────────
+' ── NO RETIREMENT STUBS (DECIDED 2026-10-17, S3) ───────────────────────────
 ' The user, on the CLI and env stubs: "Drop all four" (--egress-mode, --shell,
 ' PROVEO_SBX off values, PROVEO_DIND). MEASURED: sandbox.Disabled, the
 ' PROVEO_SBX off-value refusal and TestRetiredSbxOffValuesRefuseTheRun are
@@ -42,7 +45,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' HISTORY: from 2026-10-16 to this decision, PROVEO_SBX off values hard-failed
 ' ("PROVEO_SBX=<v> is retired: …") and PROVEO_DIND warned and no-opped.
 '
-' ── `--shell` IS RETIRED: SHELL ACCESS IS sbx's (DECIDED 2026-10-17) ───────
+' ── `--shell` IS RETIRED: SHELL ACCESS IS sbx's (DECIDED 2026-10-17, S3) ───
 ' The user: "Why do we support this? Does any other harness support that
 ' --shell flag? is that `proveo` or `sbx`? if `proveo` retire it." It was
 ' proveo's, so it is gone with no stub: Params.Shell, sandbox.Input.Shell and
@@ -55,7 +58,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' The user, on how SIGTERM/SIGHUP should end a run: "Stop runs normal
 ' teardown"; then, on its exit status: "Exit 128+sig, 'stopped'
 ' (Recommended)". MEASURED: stopOutcome(runErr, sig, forced) returns
-' (teardown nil, result backend.Stopped{sig}) for a forwarded signal that is
+' (teardown nil, result sandbox.Stopped{sig}) for a forwarded signal that is
 ' not the Ctrl+C "remove" path. A closed terminal or `kill -TERM proveo` prints
 ' "● <target> — stopped by SIGTERM" first under results (R2, the operator's
 ' STOP MARK; "ending as on a normal exit" is a run-log row), lifts clone edits and
@@ -85,7 +88,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' PROVEO_WORKDIR, computed from the binds by agentWorkdir (see the CLI note
 ' below). MountSpec.Plan() no longer returns a workdir at all: since 2026-10-17
 ' (F20, the user: "Drop the workdir return (Recommended)") it returns
-' (mounts []runner.Mount, links []Link) (MEASURED, internal/workspace/mount.go:56;
+' (mounts []Mount, links []Link) (MEASURED, internal/workspace/mount.go:56;
 ' internal/run/run.go:395). The dropped value was the constant "/app" (reported).
 '
 ' THE IMAGE READS NO WORKSPACE .env; THE HOST SEEDS ITS VALUES (N7, DONE (wt)
@@ -97,7 +100,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' git-context report, and the shell prelude runs before it —
 ' _spec/cmd/proveo-entrypoint/prep-sequence.puml). So no image sources the workspace .env, inside
 ' sbx or out, and there is no guard left to key on SANDBOX_NAME / SANDBOX_VM_ID
-' (repo-simplification.puml F7, resolved by N7). Pinned by
+' (F7, resolved by N7 on 2026-10-17; no F7 option was picked). Pinned by
 ' internal/contract/env_prelude_test.go TestNeitherPreludeReadsTheWorkspaceEnv
 ' and TestBashPreludeBridgesTheGoogleKeyAliases. The project .env's values reach
 ' a NEW sandbox through sbx's `--env-file` (sbx accepts it since v0.39.0,
@@ -119,14 +122,16 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' packages/lib/proveo-await-seed (:12-13, used by the seed wait and the refusal
 ' check). sbx v0.39.0 documents SANDBOX_NAME and SANDBOX_ID as a sandbox's
 ' identity (reported); whether SANDBOX_VM_ID is deprecated is [Unverified], so it
-' stays the last fallback. Pinned by TestBothSbxSitesDetectSbxByAnyIdentityVariable
-' (internal/contract/sbx_passthrough_test.go).
+' stays the last fallback. Pinned by TestAwaitSeedDetectsSbxByAnyIdentityVariable
+' (internal/contract/await_seed_sbx_test.go).
 '
 ' inject/broker.env IS NO LONGER WRITTEN. assembleEnv writes no file; no proxy
 ' of proveo's needs a key. secret-custody (d) is closed, not moved.
 '
-' IMAGE PREFLIGHT LIVES IN launchSandbox. MEASURED: it runs only when
-' !p.PrintOnly && d.PreflightImages != nil && !sbx.HasTemplate(p.Image), and
+' IMAGE PREFLIGHT IS run.preflightImage (internal/run/run.go). MEASURED: it
+' runs on every run with !p.PrintOnly && d.PreflightImages != nil: no sbx
+' template store is asked, since the workload recipe's FROM resolves from the
+' host engine (_spec/internal/sbx/sbx-kit-v3.puml, kit-image-source.puml).
 ' Deps.PreflightImages(man, agentImage) ensures the agent image alone — there
 ' are no sidecar images, and the egress-proxy image inspect and its "egress
 ' proxy: … (local build …)" header are deleted.
@@ -136,7 +141,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' environment (the local-model set, PROVEO_EGRESS_MODE) into cfg.Env, because
 ' the sandbox path had dropped it and `--local-model` did nothing under sbx.
 ' internal/egress is deleted. MEASURED now: run.launchSandbox builds
-' `sandbox.Input.AgentEnv` itself — host CDP and adb add-on env, operator.Env,
+' `sandbox.Input.AgentEnv` itself — host CDP and adb add-on env, proveohome.OperatorEnv,
 ' and sbx.LocalModelEnv(model) plus SBX_CRED_*_MODE=none for a host Ollama run
 ' (_spec/internal/sbx/host-inference.puml). No tier variable crosses.
 '
@@ -160,7 +165,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' the policy and terminates TLS itself, so a CA bundle or proxy URL that does
 ' not name sbx's own proxy would black-hole every request. INSPECT_PROXY,
 ' ENFORCEMENT_PROXY and PROVEO_EGRESS_CA_CERT left the list 2026-10-16: their
-' only producer, the docker egress plan, is deleted (repo-simplification.puml F8).
+' only producer, the docker egress plan, is deleted (F8, part of D1).
 '
 ' HISTORY: the mode handed to BuildPlan here was best-effort, because `p.Mode`
 ' could hold an sbx baseline. BuildPlan and `p.Mode` are both gone.
@@ -378,9 +383,11 @@ note bottom of CLI
   ""TestEveryHarnessGetsTheDockerAccessItPromises"" runs the harness for real on
   this backend and asserts what the sandbox promises (the ""docker: sbx"" key is
   gone with F10; ""WantsDocker"" reads ""daemon:""): the sbx line was printed,
-  the workspace mount carries writes back to the host, and the
+  the sandbox stands on the workspace's commit (under the clone default the
+  run's own git daemon served it; a host-side file is awaited only when the
+  run prints no "private clone", e2e/sbx_test.go), a daemon answers inside, and the
   sandbox is gone afterwards. It drives the harness's own kit launch and probes
-  through ""sbx exec"" (""launchKit"", e2e/kit_probe_test.go), so it asks the agent
+  through ""sbx exec"" (""launchKit"", e2e/kit_test.go), so it asks the agent
   nothing; it used ""--shell"" until that flag was retired 2026-10-17.
 
   **That test alone was not enough, and the gap is instructive.** Every adapter
@@ -467,26 +474,16 @@ note bottom of CLI
   ""_spec/internal/proveohome/proveo-home-lifecycle\.puml"" and
   ""_spec/internal/sbx/state-sync\.puml"".
 
-  **The image store is crossed locally, per user, and identity is what matters.**
-  ""docker save -o <tar>"" then ""template load <tar>"" — it takes a FILE, not stdin,
-  so the obvious pipe fails before a byte moves. The tar stages under
-  ""os.UserCacheDir()/proveo/sbx-staging"" unless ""$TMPDIR"" is set: a model variant's
-  tar is multi-GB and a Linux ""/tmp"" (tmpfs or per-user quota) failed it with
-  //disk quota exceeded// (2026-09-26, ""hermes-muse-glimmer""). ""sandbox.disk.dockerVolume""
-  sizes the VM's disk, not this host-side write. Not ""~/.proveo"": that is mounted
-  into live sandboxes at ""/proveo-home"", so a concurrent agent would see the tar.
-  Presence alone is not enough: a
-  REBUILT "":latest"" matches by reference and would never reload, which is exactly
-  how a sandbox came up with no ""/app"" after the workspace layout was
-  standardised and the images rebuilt.
-
-  **Identity comes from a RECEIPT proveo writes, not from the store's IMAGE ID
-  column**, because ""sbx create"" re-bakes the template and rewrites that column:
-  one create turns ""2ca281d785dc"" into ""5fcb2266417f"" under the same reference.
-  Comparing against it mismatches forever after the first run and re-loads a
-  multi-GB tar every launch. Full measurements, and the repair that the removed
-  reload used to provide by accident, are in
-  ""_spec/_experiments/docker-sandbox\.puml"".
+  **HISTORY — the image store crossing, sbx v0.39 to 2026-10-24.** proveo
+  ran ""docker save"" then ""sbx template load"" and wrote a RECEIPT of the
+  loaded image, because ""sbx create"" re-baked the template and rewrote the
+  store's IMAGE ID column (""2ca281d785dc"" → ""5fcb2266417f"" under one
+  reference), so the column could not prove identity. internal/sbx/template.go
+  (EnsureTemplate, ReloadTemplate, HasTemplate, the receipts) and
+  ""PROVEO_SBX_RELOAD"" are deleted: since kit v3 the image reaches sbx as the
+  workload recipe's ""FROM"", resolved from the host engine at a pinned digest
+  (""_spec/internal/sbx/kit-image-source\.puml"",
+  ""_spec/internal/sbx/sbx-kit-v3\.puml"").
 
   **A workspace must be a DIRECTORY** — "workspace path exists but is not a
   directory". File binds are dropped; since F9 (2026-10-17) the mount plan no

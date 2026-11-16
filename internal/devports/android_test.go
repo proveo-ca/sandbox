@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 func TestAndroidAppsFindsApplicationModulesOnly(t *testing.T) {
@@ -39,7 +41,7 @@ func TestAndroidAppsFindsApplicationModulesOnly(t *testing.T) {
 
 func TestAndroidAppsReadsTheE2EFixture(t *testing.T) {
 	t.Parallel()
-	got := AndroidApps("../../e2e/testdata/android-hello")
+	got := AndroidApps(testx.Extract(t, "../../e2e/testdata/android-hello.txtar"))
 	want := []AndroidApp{{Module: ":app", AppID: "ca.proveo.hello", Source: "app/build.gradle.kts"}}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("AndroidApps(android-hello) mismatch (-want +got):\n%s", diff)

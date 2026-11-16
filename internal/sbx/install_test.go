@@ -3,6 +3,7 @@ package sbx
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"slices"
@@ -430,12 +431,139 @@ func TestOnlyAFailingRowARunNeedsBlocksARun(t *testing.T) {
 		{Name: "Something new", Status: "fail"},
 		{Name: "Binary version", Status: "warn"},
 		{Name: "Socket", Status: "pass"},
+		{Name: AuthenticationCheck, Status: "fail", Message: "not signed in", Hint: "Run: sbx login"},
 	}
 	if got := CheckNames(RunBlockers(in)); !slices.Equal(got, []string{"Daemon", "Something new"}) {
 		t.Errorf("RunBlockers = %v, want [Daemon Something new]: a row proveo does not know still blocks", got)
 	}
 	if !strings.Contains(in[0].Affects(), "ssh <name>.sbx") || in[1].Affects() != "" || in[2].Affects() != "" {
 		t.Errorf("Affects() = %q, %q, %q", in[0].Affects(), in[1].Affects(), in[2].Affects())
+	}
+	if !strings.Contains(in[5].Affects(), "starts `sbx login` itself") {
+		t.Errorf("a signed-out host must warn, not block (Q1-A): Affects() = %q", in[5].Affects())
+	}
+}
+
+// DOCKER LOGIN: the predicate keys on the Authentication row's status alone.
+func TestDockerAuthReadsTheAuthenticationRow(t *testing.T) {
+	t.Parallel()
+	measured, err := ParseDiagnose([]byte(`{"checks":[{"name":"Daemon","status":"pass","message":"healthy"},` +
+		`{"name":"Authentication","status":"pass","message":"authenticated","detail":"","hint":""}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := func(status string) []Check {
+		return []Check{{Name: AuthenticationCheck, Status: status, Message: "not signed in", Hint: "Run: sbx login"}}
+	}
+	for _, c := range []struct {
+		name   string
+		checks []Check
+		err    error
+		want   Auth
+	}{
+		{"the measured 0.50.0 pass row", measured, nil, AuthIn},
+		{"fail", out("fail"), nil, AuthOut},
+		{"warn", out("warn"), nil, AuthOut},
+		{"skip", out("skip"), nil, AuthUnknown},
+		{"no Authentication row", []Check{{Name: "Daemon", Status: "pass"}}, nil, AuthUnknown},
+		{"diagnose gave no answer", measured, errors.New("exec: sbx: timed out"), AuthUnknown},
+	} {
+		if got := DockerAuth(c.checks, c.err); got != c.want {
+			t.Errorf("%s: DockerAuth = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// WHAT SBX SETUP OFFERS: sbx's own env_only_count, read through a pointer so "absent" never reads as 0.
+func TestSetupOfferReadsEnvOnlyCount(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name    string
+		secrets string
+		known   bool
+		offers  bool
+		reason  string
+	}{
+		{"nothing to import", `{"secrets":[],"custom_secrets":[],"shadowed_services":[],"env_only_count":0}`, true, false, ""},
+		{"two env keys", `{"secrets":[],"env_only_count":2}`, true, true, "2 env keys sbx's store lacks"},
+		{"one env key", `{"env_only_count":1}`, true, true, "1 env key sbx's store lacks"},
+		{"no env_only_count field", `{"secrets":[]}`, false, false, ""},
+		{"an older sbx's text table", "SCOPE     TYPE      NAME   SECRET\n(global)  service   openai (stored)\n", false, false, ""},
+	} {
+		o := SetupOfferFrom([]byte(c.secrets), nil, "")
+		if o.Known != c.known || o.Offers() != c.offers || o.Reason() != c.reason {
+			t.Errorf("%s: offer = %+v (offers %v, reason %q), want known %v, offers %v, reason %q",
+				c.name, o, o.Offers(), o.Reason(), c.known, c.offers, c.reason)
+		}
+	}
+}
+
+// The probe runs the two read-only commands and nothing else; the secret listing's values never leave it.
+func TestSetupOfferAtRunsOnlyTheReadOnlyProbes(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("the stub sbx is a shell script")
+	}
+	dir := t.TempDir()
+	calls := dir + "/calls"
+	stub := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + calls + `
+case "$1 $2" in
+  "secret ls") echo '{"secrets":[{"name":"openai","scope":"global","secret":"sk-proveo-test-value","type":"service"}],"env_only_count":2}' ;;
+  "settings get") echo '{"key":"ssh.agentForwardingEnabled","value":true,"source":"default"}' ;;
+esac
+`
+	bin := dir + "/sbx"
+	if err := os.WriteFile(bin, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o, err := SetupOfferAt(bin, func(k string) string {
+		if k == "SSH_AUTH_SOCK" {
+			return "/tmp/agent.sock"
+		}
+		return ""
+	})
+	if err != nil || !o.Known || o.EnvOnly != 2 || o.ForwardingOff {
+		t.Errorf("SetupOfferAt = %+v, %v; want 2 env keys and forwarding on", o, err)
+	}
+	b, _ := os.ReadFile(calls)
+	want := strings.Join(SecretListJSONArgs(), " ") + "\n" + strings.Join(SettingJSONArgs(ForwardingSetting), " ") + "\n"
+	if string(b) != want {
+		t.Errorf("the probe ran %q, want only %q", b, want)
+	}
+	if strings.Contains(fmt.Sprintf("%+v %v", o, err), "sk-proveo-test-value") {
+		t.Error("a secret value reached the offer")
+	}
+	if _, err := SetupOfferAt(dir+"/absent", func(string) string { return "" }); err == nil {
+		t.Error("an sbx that cannot run must be an error, never an offer of nothing")
+	}
+}
+
+// Forwarding counts only while sbx's own default left it off and an agent socket exists to forward.
+func TestSetupOfferCountsForwardingOnlyWhenUnchosen(t *testing.T) {
+	t.Parallel()
+	none := []byte(`{"env_only_count":0}`)
+	for _, c := range []struct {
+		name    string
+		setting string
+		sock    string
+		offers  bool
+		known   bool
+	}{
+		{"off at its default, with a socket", `{"value":false,"source":"default"}`, "/tmp/agent.sock", true, true},
+		{"off because the operator set it", `{"value":false,"source":"user"}`, "/tmp/agent.sock", false, true},
+		{"on", `{"value":true,"source":"default"}`, "/tmp/agent.sock", false, true},
+		{"no socket to forward", `{"value":false,"source":"default"}`, "", false, true},
+		{"an unreadable setting", `error: setting is not defined`, "/tmp/agent.sock", false, false},
+	} {
+		o := SetupOfferFrom(none, []byte(c.setting), c.sock)
+		if o.Offers() != c.offers || o.Known != c.known {
+			t.Errorf("%s: offer = %+v, want offers %v, known %v", c.name, o, c.offers, c.known)
+		}
+		if c.offers && o.Reason() != "SSH agent forwarding off" {
+			t.Errorf("%s: reason = %q", c.name, o.Reason())
+		}
+	}
+	if got := (SetupOffer{EnvOnly: 2, ForwardingOff: true, Known: true}).Reason(); got != "2 env keys sbx's store lacks · SSH agent forwarding off" {
+		t.Errorf("both reasons = %q", got)
 	}
 }
 

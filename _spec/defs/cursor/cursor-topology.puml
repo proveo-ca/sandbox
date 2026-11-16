@@ -38,7 +38,7 @@ package "Execution Loop" as Loop {
 }
 
 package "Container Sandbox" as Sandbox {
- component "agent --force --sandbox disabled\n(Docker is the sandbox)" as Force <<flag>>
+ component "agent --force --sandbox disabled\n(sbx is the sandbox)" as Force <<flag>>
  component "/app workspace mount\nruns as host uid (non-root)" as Mounts <<storage>>
  component "network egress layer\nopen|allowlist|review" as Net <<security>>
 }
@@ -100,11 +100,11 @@ note as CursorSandbox #FFF3F0
   ""PROVEO_CURSOR_SANDBOX""). Landlock/seccomp needs unprivileged
   userns; this cap-dropped container returns EPERM, so Cursor's nested
   sandbox is a dead end here — not a recoverable egress boundary.
-  Docker remains the FS/process boundary only.
+  sbx's microVM is the FS/process boundary.
 
-  Free-tier Docker Sandboxes (""sbx"" + local ""sbx policy"") is the
-  experiment candidate for host-side domain allowlisting — see
-  _spec/_experiments/docker-sandbox.puml. Read "cursor runs under
+  sbx's own policy, enforced by its host-side proxy, is the network
+  boundary (_spec/internal/sbx/policy-baseline.puml): it allowlists
+  domains and inspects no body. Read "cursor runs under
   proveo" as isolation of the workspace, never as audited egress. The
   e2e suite's cursor contract is now ""TestCursorBrokersThroughTheSbxStore""
   (was ""TestCursorEgressException"", whose forward-only exception is gone).

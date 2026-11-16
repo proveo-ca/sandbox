@@ -7,14 +7,20 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' covers: internal/choiceui/choiceui.go (Outcome, Step, leave, quitKey, drawSkip, Form.Skip)
 ' covers: internal/choiceui/form_model_test.go
 ' covers: internal/choiceui/step_test.go
+' covers: internal/choiceui/env_list_test.go
+' covers: internal/choiceui/list_layer_test.go
+' covers: internal/choiceui/checklist_test.go (TestEscOnPageOneAsksWhenTheFormIsAChecklist)
+' covers: internal/choiceui/disabled_hover_test.go
+' covers: internal/run/disabled_hover_test.go
+' covers: cmd/proveo/init_hover_test.go
 ' covers: cmd/proveo/init.go (runInitSteps, stepQuit)
 ' covers: cmd/proveo/init_steps_test.go
 ' covers: e2e/init_steps_test.go
 '   the decisions, D5 and D10 ........ _spec/_plans/tui-upgrades-delivery.puml (DECISIONS, W11)
-'   the vocabulary it borrows ........ _spec/_experiments/sbx-tui-observed.puml
+'   sbx's palette and footer ......... _spec/_conventions/tui-design-language.puml (sbx's OWN TUI)
 '   the key line these words sit on .. _spec/internal/choiceui/wireframe.puml
 '   the dialog the question reuses ... _spec/internal/choiceui/confirm-dialogs.puml
-'   init's three pages ............... _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   init's four pages ................ _spec/cmd/proveo/init-sbx-bootstrap.puml
 '   run's two pages .................. _spec/internal/run/run-spec.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
@@ -25,12 +31,31 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' The Executor, D5: "Adopt sbx: esc back, ^c quit". The recommendation was to
 ' keep shift+tab. D10: "A focusable Skip button". Not chosen: a control-key
 ' chord; no skip.
+' THE sbx PRECEDENTS, OBSERVED on sbx v0.50.0 (`sbx tui`, 2026-11-10):
+'   Ctrl+C    opens "Exit — Do you want to exit?" with "No ↵" selected; ←/→
+'             move the selection and ↵ follows it; Esc closes it; a second
+'             Ctrl+C quits with status 0 and leaves every sandbox untouched
+'   create    a stepped wizard: Esc steps back one page and closes only from
+'             page 1; its step chip counts pages from the answers given
+'             (1/2 becomes 2/3 once "Local" is chosen)
 '
 ' ── WHAT THE WIZARDS DID NOT TAKE FROM sbx ─────────────────────────────────
 ' sbx's panels, cards and dashboard: proveo has no long-lived screen. Its
 ' centred dialogs over a dimmed dashboard: proveo's pages are full-screen
 ' forms and stay so. Its per-panel key reuse (`r` removes on the left and
 ' refreshes on the right): one key keeps one meaning across a proveo wizard.
+' DECIDED 2026-11-13 (owner, O1): the "no cards" half is REVERSED. The owner
+' chose the One Card look after two rounds of mocks. Every wizard page is one
+' rounded card: the run and init forms, the scope page and the checks page.
+' Every dialog is a card, and the form's open list is a small card. The
+' standalone run/attach FilterList is not a card.
+' Still not taken: panels, a card per item, a dashboard, a dimmed underlay
+' and per-panel key reuse. A page is still full-screen; the card is its
+' frame, centred only for a dialog. The reasons above for those still hold.
+' The card's geometry: _spec/internal/choiceui/wireframe.puml (ONE CARD).
+' AMENDED 2026-11-13 (I3, D4): the quit question now draws over the dimmed
+' page, so "a dimmed underlay" is taken for that one dialog. The other
+' dialogs run with no page under them and keep the whole screen.
 '
 ' ── EVERY PAGE KEEPS A RENDERING WITH NO TERMINAL ──────────────────────────
 ' "A form cannot be the only rendering"
@@ -54,6 +79,190 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' "ctrl+c quit". Under a narrow screen "ctrl+c quit" drops early: after the
 ' scroll keys and, on a form with checkboxes, after "space toggle". "enter
 ' accept" still goes last.
+' SINCE 2026-11-13 (owner, O6) THE PAGE COUNT SITS IN THE HEAD. A wizard
+' page's title row carries the chip " page n/m ", and "page n/m" leaves the
+' key line while the chip draws. The rule for when it does not fit:
+' _spec/internal/choiceui/wireframe.puml (ONE CARD).
+' AMENDED 2026-11-13 (owner: "always display page"): the scope page's
+' " scope · n/m " and the checks page's " checks · n/m " are gone. Every
+' wizard page names its count with the one word "page", in the chip and on
+' the key line.
+' ON A CHECKLIST (Form.Checklist; built 2026-11-13, stage 2, unused by init
+' until stage 4):
+'   Esc        page 1 asks the quit question, as Ctrl+C does (D26); past
+'              page 1 it is Back. A list open under the cursor still takes
+'              Esc first (ONE LAYER PER KEY). A lone checklist cancels.
+'   Enter      Accepted, unless Form.Blocked names a blocker: then nothing.
+'   Blocked    a page Form.Blocked names takes Esc, Ctrl+C and q only. The
+'              arrows, Tab, Space, typing, "/" and a list's Enter or Esc do
+'              nothing: no cursor draws and the key line names none (S2-21).
+' The key line says what Enter does: "enter run n steps", "enter next" or
+' "enter finish", from Form.EnterWord; Esc reads "esc quit" on page 1. The
+' full key line per state: wireframe.puml (THE CHECKLIST CARD).
+' NOT BUILT IN STAGE 2: the running state's keys (only Ctrl+C, which stops)
+' and a sub-page's "esc later". Both need the stage 3 Session; until then a
+' Form with Progress set only draws (Executor, S2-7).
+' BUILT IN STAGE 4 (2026-11-13): init's four pages are checklists on one
+' Session. While a page runs only Ctrl+C is taken: it cancels the walk's
+' context, the step finishes, and init ends stopped there, by SIGINT. A
+' sub-page (GitHub access, SSH repair) sets Form.Esc = "later": its key
+' line reads "esc later", and Esc there is Back, which init reads as later.
+' THE SKIP BUTTON ON A CHECKLIST: pages 3 and 4 keep Skip (owner, Q2 → C),
+' so the checklist draws it under its rows at rest, counts its two rows in
+' the ladder, and the key line reads "↑↓ row · enter skip · esc …" while
+' it is focused. A running page draws no button.
+' AMENDED after stage 5's verify (2026-11-13): the ladder counts Skip's two
+' rows whenever the form names Skip, and a running page draws them blank
+' inside its walls. Counted at rest only, Enter at 80x24 freed them: the
+' prose line and the blanks came back, rows moved down 2-3 and the card
+' grew from 22 to 24 rows. Pinned by internal/choiceui/session_test.go
+' TestARunningPageWithSkipKeepsItsRowsInPlace.
+' AMENDED IN STAGE 5 (2026-11-13): page 3 alone keeps Skip, the owner's
+' exception to O6 (Q2 → C). Page 4 lost it: Enter with the name field empty
+' keeps the name in use, so the button said nothing Enter does not. Form.Skip,
+' onSkip, drawSkip and Skipped stay in choiceui for page 3. Page 3 opens on
+' its top row with an answer, the first sign-in; StartRow and firstField left
+' init (O8). At 80x24 page 3 fits by dropping the blank under the card and
+' the prose line (rungs 2 and 3).
+'
+' ── THE .env FILTER TAKES Enter AND Esc FIRST (owner, O4, 2026-11-13) ──────
+' The run form's .env list filters by typing. While its filter is open:
+'   /          opens the filter; every printable key after it is text,
+'              q j k h l and space included
+'   Enter      closes the filter, keeps the matches, and NEVER accepts
+'   Esc        clears the query and closes the filter
+'   Ctrl+C     still asks first; shift+tab still steps back
+' With a query left standing, Esc clears it; the next Esc is the page's.
+' SUPERSEDED 2026-11-13 (ONE LAYER PER KEY, below): Esc on a standing query
+' closes the list, and the query goes with it. The next Esc is the page's.
+' Leaving the cell (←/→, ↑ past the first entry, ↓ past the last, paging)
+' drops the query. The key line names the state: "type to narrow · enter
+' close · esc clear" while typing, "esc clear" while a query stands.
+' AMENDED 2026-11-13: a standing query no longer changes the line. With the
+' list open and not typing it reads "↑↓ entry · / filter · enter close · esc
+' close" (ONE LAYER PER KEY).
+' Precedent: the scope page's Esc already means clear, then cancel
+' (_spec/internal/choiceui/scope-tree.puml). The owner chose "Enter closes
+' the filter"; "close" is the Executor's word for it (scope says "choose",
+' Skip says "skip").
+' Pinned by internal/choiceui/env_list_test.go:
+'   TestEveryTextKeyIsTextWhileTyping
+'   TestEnterClosesTheFilterAndNeverAccepts
+'   TestEscClearsTheFilterBeforeItGoesBack
+'   TestLeavingTheCellDropsTheFilter
+'   TestTheKeyLineWhileTypingNeverOffersAccept
+'   TestTheKeyLineWhileTypingAnEmptyQuerySaysEscClear
+'
+' ── ONE LAYER PER KEY: ENTER AND ESC CLOSE THE INNERMOST MODAL FIRST ───────
+' DECIDED 2026-11-13. The owner: "assert the modals showing e.g. the .env
+' values take priority for esc/enter (either key closes the modal first)".
+' The Executor: Enter and Esc each close ONE layer, innermost first.
+'   1 a typing filter   Enter stops typing and keeps the matches; Esc
+'                       clears the query and stops typing (O4, unchanged)
+'   2 an open list      Enter or Esc closes it; a standing query is dropped
+'                       with it
+'   3 the form          Enter accepts (or skips on Skip); Esc steps back
+'                       past page 1, else cancels (unchanged)
+' Every list is a layer: the credentials cells' lists (API keys, OAuth,
+' SSH, .env), the ports fold behind ...More, any Row.More or Row.Lists list.
+' A list still opens by itself when the cursor reaches its cell.
+' A CLOSED LIST STAYS CLOSED while the cursor stays on its cell: ↑↓ move
+' rows, and space and tab tick nothing there. It opens again when the
+' cursor leaves the cell and comes back (←/→, ↑/↓, paging), or when "/" is
+' pressed on a filterable cell, which opens it typing.
+' Ctrl+C asks from every layer; shift+tab still steps back; q is text while
+' the filter types and asks otherwise.
+' THE KEY LINE NAMES THE LAYER. With a list open and not typing it reads
+'   [page n/m ·] ↑↓ entry · / filter · enter close · esc close · ctrl+c quit
+' "/ filter" only on a filterable list. "enter accept" never shows while a
+' list is open. Ranks: _spec/internal/choiceui/wireframe.puml (E14).
+' "space toggle" (rank 2) joins the line on a list that ticks (the ports
+' fold), where the owner's line named none; space is the only key that
+' ticks a folded port, and the line offered it before this change.
+' DIALOGS WERE ALREADY MODAL. formModel, scopeModel and checkModel hand
+' every key to the quit gate while it is up, and a confirm dialog runs as
+' its own Program. Enter answers the selected button; Esc gives the safe
+' one (Stay) and closes only the dialog; the page under it keeps its state.
+' The tests below assert that order; no code changed for it.
+' Pinned by internal/choiceui/list_layer_test.go:
+'   TestEnterClosesAnOpenListAndNeverAccepts
+'   TestEscClosesAnOpenListAndNeverGoesBack
+'   TestAClosedListOpensAgainWhenTheCursorLeavesItsCellAndReturns
+'   TestSlashOpensAClosedFilterableListTyping
+'   TestTheKeyLineNamesWhatEnterAndEscCloseOnAList
+'   TestEnterAndEscEachCloseOneLayerInnermostFirst
+'   TestCtrlCAsksFromEveryLayer
+'   TestEnterAndEscReachTheQuitGateBeforeTheFormUnderIt
+'   TestEnterAndEscReachTheQuitGateBeforeTheScopePage
+'   TestEnterAndEscReachTheQuitGateBeforeTheChecksPage
+'   TestEnterAnswersTheSelectedButtonAndEscTheSafeOneInEveryDialog
+'
+' ── EVERY OPTION TAKES THE CURSOR (DECIDED 2026-11-14) ─────────────────────
+' The owner, on `proveo run claudecode`: "let the users hover over API Keys,
+' and in the hint say it's not supported. Always let disabled options to be
+' hoverable; the hint should explain its status."
+' WHAT WAS WRONG. cycle() skipped an Off option on a radio row that was not
+' Locked: `if r.Multi || !r.offAt(next)`. The model row's API keys was off
+' there, so its OffWhy was text nothing displayed. Checkbox rows and locked
+' rows already let the cursor land on any cell.
+' THE EXECUTOR'S RULES:
+'   1 On every row kind, ←/→, h/l and space (where space moves cells: a
+'     radio or locked row) land on every option, a disabled one included.
+'     Tab moves no cell; on a checkbox row space ticks, as before.
+'   2 On a radio row the cursor is Row.Hover. Landing on an available
+'     option chooses it: Selected follows and OnChange fires, as before.
+'     Landing on a disabled one sets Row.hoverOff, leaves Selected where it
+'     was and fires nothing. Enter accepts the form with the chosen answer,
+'     never the hovered one.
+'   3 The help names the hovered option and its status; the cells draw the
+'     hover in focusOff: wireframe.puml (A DISABLED OPTION TAKES THE CURSOR).
+'   4 Selection never returns a disabled option, so the run's decisions do
+'     not change. The cursor still opens on the chosen answer: startCursor
+'     drops a hover an earlier visit left, and a StartOption that names a
+'     disabled option hovers it without choosing it.
+'   5 Scope: the run form and init's checklist pages, radio rows included
+'     (sbx install's distro package is the one disabled init option today).
+'     The scope page and the standalone run> list are out of scope.
+' cursorAt reads Hover only while hoverOff holds and Hover is still off. An
+' OnChange that frees the hovered option puts the cursor back on the answer,
+' and Form.changed then drops hoverOff on that row, so a later OnChange that
+' disables the option again leaves the cursor on the answer (verifier pass,
+' 2026-11-14; before, the cursor jumped back onto the old hover). No OnChange
+' changes a radio row's Off today, and init sets none.
+' Leaving the row and coming back keeps the hover, as a checkbox or locked
+' row keeps its cursor.
+' The key line did not change: "←→ choose" on a form of radio rows, "←→
+' move" beside checkbox rows.
+' Form.Walk(label, keys...) and Form.RenderOn(label, w, h) are the two
+' projections tests outside choiceui read: what each press leaves under the
+' cursor (option, help, status lines apart), and the frame with the cursor on
+' that row. Form.Render still opens on the answer.
+' GOLDENS: the start state is unchanged (MEASURED 2026-11-14:
+' internal/choiceui/testdata, cmd/proveo/testdata/init.txtar). The verifier pass
+' moved six .env fixture frames for the help the locked row gained:
+' wireframe.puml (AN OPEN LIST ON A LOCKED ROW, COST).
+' Pinned by internal/choiceui/disabled_hover_test.go:
+'   TestEveryMoveKeyLandsOnEveryOptionOfEveryRowKind
+'   TestARadioRowHoversADisabledOptionAndEnterKeepsTheAnswer
+'   TestTheCursorOpensOnTheAnswerAndNeverChoosesADisabledStart
+'   TestHoveringADisabledOptionChangesNoAnswer
+'   TestAHoverFreedByOnChangeStaysOnTheAnswer
+' Pinned by internal/run/disabled_hover_test.go:
+'   TestEveryDisabledRunOptionTakesTheCursorAndStatesItsStatus: claudecode,
+'   codex, cursor, hermes and opencode; no key, a provider key, the plan key
+'   and both; egress readable and not (40 forms). Each form's credentials row
+'   holds the inventory promptChoices builds (inventoryOf over those keys, an
+'   SSH key, a two-name .env), so its cells open their lists; the test fails
+'   when no hover lands on a list entry. Every disabled hover must name
+'   itself or its list entry ("› …") and state a status. Until the verifier
+'   pass it read an empty inventory and never opened a list.
+'   TestClaudecodeHoversAPIKeysWithNoProviderKey
+' Pinned by cmd/proveo/init_hover_test.go:
+'   TestEveryDisabledInitOptionTakesTheCursorAndStatesItsStatus (the ten
+'   golden pages, plus page 1 on linux/amd64 and linux/arm64)
+'   TestHoveringDistroPackageSaysWhyItIsOff
+' Updated by internal/choiceui/choiceui_test.go: TestGatedOptionRendersItsReason
+' asserted the skip; it now asserts the hover.
 '
 ' ── A LONE FORM KEEPS ITS KEYS ─────────────────────────────────────────────
 ' A form with a zero Step is not a wizard: Esc, Ctrl+C and q cancel at once,
@@ -88,6 +297,8 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' init?"); nobody asked, so it keeps the generic one.
 ' The dialog's own tea.Quit command is dropped: the gate reads the answer and
 ' the page decides.
+' SINCE 2026-11-13 the question draws over the dimmed page, not in place of
+' it: confirm-dialogs.puml (THE QUIT DIALOG DRAWS OVER THE DIMMED FORM).
 ' ON A TERMINAL TOO SMALL TO DRAW THE PAGE, Ctrl+C quits at once. A question
 ' nobody can read would trap the operator.
 ' The gate's method is named Update because a contract test lets a Bubble Tea
@@ -105,8 +316,33 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 ' floor count them.
 ' "enter accept" STAYS THE E2E ANCHOR. A page opens with the cursor on a row,
 ' so the words are there when a helper waits for them.
+' AMENDED 2026-11-13 (owner, O4): a second state drops it. While the .env
+' filter is typing the Enter segment reads "enter close", because Enter
+' there closes the filter and accepts nothing. The anchor still holds: no
+' page opens with a filter typing, and a standing query keeps "enter accept".
+' AMENDED 2026-11-13 (ONE LAYER PER KEY): any open list drops it too, a
+' standing query included; Enter there reads "enter close". The anchor
+' still holds: the run form opens on model, or on trust repo without one
+' (TestTheRunFormAsksItsQuestionsInOrder), and neither row carries a list.
+' SINCE 2026-11-13 (owner, O8) the run form opens on its top row with an
+' answer to change, not on devices; e2e walks that started on devices now
+' walk Down from model (choice-prompt-render.puml, WHERE THE CURSOR MAY REST).
 '
 ' ── WHAT EACH CALLER DOES WITH THE OUTCOME ─────────────────────────────────
+' SINCE STAGE 4 (2026-11-13) init's four pages, on one Session:
+'   init sbx (1/4)          Accepted runs the page; Quit (Esc or Ctrl+C,
+'                           confirmed) ends init; on a blocked page every
+'                           way off ends with the blocker.
+'   init git, shell (2/4)   Accepted runs the page; Back; Quit.
+'   init credentials (3/4)  Back; Skipped moves on, stores nothing, and the
+'                           result says what sbx holds; Quit.
+'   init operator (4/4)     Accepted saves the name, or keeps it when the
+'                           field is empty, and closes the card; Back; Quit.
+'                           Skip left it in stage 5.
+'   init sub-page (2/4)     Accepted saves; Back is later; Quit ends init.
+'   init, on Quit           "quit at page n/4", exit 1. No later page runs.
+'                           "cancelled at the init prompt" is gone.
+' BEFORE STAGE 4:
 '   init setup (1/3)        anything but Accepted: "cancelled at the init
 '                           prompt", exit 1. Nothing ran yet.
 '   init credentials (2/3)  Back; Skipped moves on and stores nothing; Quit.
@@ -138,6 +374,7 @@ title Wizard keys — Esc steps back, Ctrl+C asks before it quits, Skip is a but
 '   TestCtrlCAndQQuitAWizardAndCancelALoneForm
 '   TestShiftTabStepsBackOnlyPastTheFirstScreen
 '   TestHintNamesThePageTheWayBackAndTheScrollKeys
+'   TestTheDrawnHeadCarriesThePage
 ' Pinned by internal/choiceui/form_model_test.go:
 '   TestDownPastTheLastRowFocusesSkipAndEnterThereSkips
 '   TestTheSkipButtonIsDrawnAndTheKeyLineSaysWhatEnterDoesOnIt
@@ -158,8 +395,12 @@ component "Esc\nback · closes on page 1" as ESC <<host>>
 component "Ctrl+C\n**asks first**" as CC <<error>>
 component "the question\nStay ↵ · Quit" as ASK <<app>>
 component "Skip\na button under the rows" as SKIP <<app>>
+component "the .env filter\nEnter closes · Esc clears" as FILTER <<app>>
+component "an open list\nEnter or Esc closes it" as LIST <<app>>
 
 PAGE ARROW_MAIN ENTER
+PAGE ARROW_OPTIONAL LIST : credentials, ports
+LIST ARROW_OPTIONAL FILTER : the .env list
 PAGE ARROW_MAIN ESC
 PAGE ARROW_ERROR CC
 CC ARROW_MAIN ASK
@@ -182,10 +423,24 @@ note bottom of ASK
 end note
 
 note bottom of SKIP
-  **Not a key.** ""s"" types into the focused
-  field, and two of init's pages open on one.
-  Down from the last row reaches the button;
-  Enter there skips.
+  **Not a key.** ""s"" types into a focused
+  field. Init's credentials page keeps the
+  button; Down from the last row reaches it,
+  and Enter there skips.
+end note
+
+note bottom of FILTER
+  **Enter closes the filter; it never accepts.**
+  While the filter is typing, every printable
+  key is text, so Enter and Esc end the typing
+  first. The list under it stays open.
+end note
+
+note bottom of LIST
+  **One layer per key.** Enter or Esc closes
+  the open list before either reaches the form.
+  The list opens again once the cursor leaves
+  its cell and comes back, or on "/".
 end note
 
 note bottom of LONE

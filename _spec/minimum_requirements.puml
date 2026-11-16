@@ -108,7 +108,8 @@ skinparam noteTextAlignment left
 ' kill happened; it is evidence that the boot which held the kill is gone. So
 ' a restarted capture says so ("the sandbox had already stopped, so this is a
 ' fresh boot; a kill in the boot that died left no trace to read").
-' WHERE THE LINES GO (output-readability R2, F4, 2026-11-11): the OOM is a ⚠
+' WHERE THE LINES GO (2026-11-11; the results block is
+' _spec/internal/backend/teardown.puml's): the OOM is a ⚠
 ' item of the results block, "memory — the guest killed a process (out of
 ' memory)", dim "`PROVEO_SBX_MEMORY=16g` raises the ceiling (32g at most)" and
 ' the evidence path; "a sandbox has NO SWAP" is its run-log row. The

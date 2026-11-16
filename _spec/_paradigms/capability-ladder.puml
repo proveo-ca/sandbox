@@ -7,6 +7,8 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/contract/agent_launch_guard_test.go
 ' covers: defs/**/entrypoint.sh
+' covers: defs/claudecode/mcp/Dockerfile
+' covers: defs/base/Dockerfile
 ' What a launch must not drop: _spec/packages/lib/seed-and-launch.puml.
 '
 ' ── THE RUNGS ON v3 (2026-10-24, user: "Full v3 port") ──────────────────────
@@ -32,6 +34,34 @@ skinparam noteTextAlignment left
 ' argument has been lost repeatedly. Three wrong root causes preceded the ladder
 ' for one failure, and the sequence of a debugging session is a poor instrument —
 ' the thing you changed last is not the thing that broke.
+'
+' ── THE LADDER IS A HOST MEASUREMENT (MEASURED 2026-09-06) ─────────────────
+' It cannot be climbed inside a proveo sandbox, and no image change fixes that.
+' A sandbox is a container inside a microVM, and four blocks stand in order:
+'   no device      /dev is a runtime tmpfs of 15 nodes with no kvm; an image
+'                  layer cannot ship a device node
+'   no capability  the agent container's CapEff is 0, so even root cannot
+'                  mknod the node or insert a module
+'   no module      the guest kernel's /lib/modules is empty: no kvm_arm64
+'   no CLI         sbx is a host tool, and no proveo image ships it
+' Docker's install requirements: inside a VM, "the environment must support
+' NESTED VIRTUALIZATION". Reaching it takes Apple Silicon M3 or later on
+' macOS 15+, plus sbx features `sbx run` does not publish (--device,
+' --privileged, --cap-add): an upstream request, not a packaging task.
+' A host qualifies on two commands: `sysctl -n machdep.cpu.brand_string`
+' (M3 or later), then `sw_vers -productVersion` (15 or later).
+'   sbx install requirements  https://docs.docker.com/ai/sandboxes/install/
+'   Apple nested virt         https://developer.apple.com/documentation/virtualization
+' DECIDED: do not build it; the host answers the same question in minutes.
+' _spec/internal/sbx/host-android-adb.puml (the emulator lives on the host)
+' and _spec/_devops/release-gate.puml (the gate's two halves) rest on this.
+'
+' ── THE CREDENTIAL-FREE CHILD ENV RESTS ON env(1)'S PARSE ORDER ────────────
+' childEnvArgsNoCredential (e2e/hello_world_test.go) builds
+' `env -u K1 -u K2 … K=v <bin> …`. env parses options before assignments, so
+' `env -u X X=v` SETS X, while an assignment before `-u` makes env run `-u`
+' as the command. childEnvArgs and proveoWorkload (e2e/ladder_test.go) append
+' after it. No test pins the order now; an inverted list fails at exec.
 '
 ' ── THE RUNGS ──────────────────────────────────────────────────────────────
 '   0  bare sbx agent      stock sbx agent, stock image, no proveo whatsoever

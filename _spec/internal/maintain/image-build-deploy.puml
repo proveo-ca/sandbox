@@ -39,6 +39,15 @@
 ' runTimed, RunFleet. Pinned by internal/maintain/fleet_test.go,
 ' internal/maintain/fleet/main_test.go and base_template_test.go
 ' (TestImageTasksRunTheFleetMain, TestImageTasksChoicesMatchTheRegistry).
+' build, deploy and test-defs REQUIRE <target> (a name or `all`). NOT CHOSEN:
+' default="all", since a bare build would build every image; an optional
+' target. test-defs shares the fleet main and runs each distinct suite once
+' under `all`. NOT CHOSEN: a direct `go test -run=^TestImage<Suite>$` task;
+' three claudecode reruns under `all` (claudecode, -browser and -solidity
+' share one def dir, so one suite).
+' --print stays on the three fleet verbs only (the gates that take none:
+' _spec/_devops/release-gate.puml). NOT CHOSEN: --print everywhere (a Go
+' wrapper per gate); --print nowhere (loses the wave plan).
 title Maintainer image pipeline — mise run build / test-defs / deploy
 
 actor "Maintainer" as MT

@@ -29,7 +29,8 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 ' every module-cache file the toolchain writes stays deletable. Files a store
 ' already holds from before keep their old modes until they are rewritten.
 ' APPLIED 2026-09-17. Numbered steps 1-5 landed. Closed out of _plans.
-'   plugin beyond claudecode ... _spec/_plans/plugin-class-beyond-claudecode.puml
+'   plugin row ................. removed 2026-10-30 (_spec/defs/harness-image-layers.puml)
+'   a new class row ............ below, A NEW CLASS ROW NEEDS ITS OWN CACHE
 '   re-wire policy ............. formatter skips if declared — the policy, not a gap
 '   hook formatters ............ standing note; not this chain
 '   step 1 · the accessor ......... packages/lib/entrypoint-lib.sh (_proveo_durable_home)
@@ -59,7 +60,6 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 '                                   Q1 is the agent's own default, not a seed.
 '                                   This file carries the saved config that
 '                                   plan named; it no longer blocks that one.
-'   plugin beyond claudecode ..... _spec/_plans/plugin-class-beyond-claudecode.puml
 '
 ' ── ONE CONFIG CLASS, WIRED WHERE THE SURFACE IS A YES/NO ─────────────────
 ' The table had three rows — plugins, LSP, formatters — until 2026-10-30. The
@@ -73,6 +73,16 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 '
 ' Hook-shaped formatters (claudecode, cursor) stay unwired: a hook asks
 ' proveo to pick a command per project, and guessing rewrites source.
+'
+' ── A NEW CLASS ROW NEEDS ITS OWN CACHE (DECIDED 2026-09-17) ──────────────
+' A class arm (e.g. plugin:<target>) is added only when that harness ships a
+' seedable cache of its own: files the image can bake, records the seed step
+' can merge, and a binary-present ⇔ class-on rule that is not an install
+' prompt. Then the arm, a probe and an internal/contract test that pins it
+' land together. A missing arm is the decision: no no-op arm makes the table look
+' complete. One vendor's cache is never generalised: the removed plugin row
+' seeded anthropics/claude-plugins-official, Claude Code's own marketplace,
+' not a proveo plugin format that cursor, opencode or codex speak.
 '
 ' For the formatter row the answer turned out to be neither: opencode ships 24
 ' built-in formatters and DISABLES them unless the config says otherwise, so the
@@ -507,7 +517,8 @@ legend bottom
   --
   **Plugin beyond claudecode** — moot since 2026-10-30: the only plugin
   seed held Claude Code's LSP plugins and left with the LSP removal
-  (_spec/_plans/plugin-class-beyond-claudecode.puml).
+  (_spec/defs/harness-image-layers.puml). A new row's rule: A NEW CLASS ROW
+  NEEDS ITS OWN CACHE, above.
   --
   **Re-wire is the policy.** The formatter skips when the operator's key
   already exists. No fingerprint, no first-open gate. Codified, not deferred.

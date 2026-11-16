@@ -69,7 +69,7 @@ printf 'temps=%s\n' "$(find "$dst" -name '*.proveo-sync.*' | wc -l | tr -d ' ')"
 	}
 	// The copy still has to have HAPPENED — a no-op leaves no partial file either.
 	fields := map[string]string{}
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if k, v, ok := strings.Cut(strings.TrimSpace(l), "="); ok {
 			fields[k] = v
 		}

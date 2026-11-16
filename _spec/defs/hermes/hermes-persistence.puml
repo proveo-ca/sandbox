@@ -18,12 +18,12 @@ skinparam noteTextAlignment left
 ' state.db on the sandbox volume, the proveo home empty; gone with the sandbox.
 ' Now internal/backend/sandbox/agent_home.go puts HERMES_HOME=<state home>/hermes/data
 ' in the WORKLOAD env (table agentHomes), which every session inherits.
-' e2e/hermes_desktop_test.go "session survives the sandbox": a chat in run 1, the
+' e2e/hermes_test.go "session survives the sandbox": a chat in run 1, the
 ' sandbox removed, run 2 with the same proveo home exports the marker.
 
-' ── F19 (DONE (wt) 2026-10-17): THE DURABLE HOME IS A DIRECT HOST BIND ─────
+' ── F19 (DECIDED 2026-10-17): THE DURABLE HOME IS A DIRECT HOST BIND ───────
 ' The user asked to "research how to properly mount home data in hermes + sbx
-' for F19" (repo-simplification.puml F19). Findings (reported by the
+' for F19" (F19). Findings (reported by the
 ' coordinator): sbx mounts workspaces path-preserving; an image VOLUME is
 ' per-sandbox and dies at `sbx rm` (as MEASURED below, 2026-09-27); and
 ' [Unverified] sbx's -v/--volume is experimental and cloud-only. So the durable

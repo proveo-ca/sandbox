@@ -141,6 +141,7 @@ type Printer struct {
 	term      io.Writer // the terminal alone; nil when W is not one
 	live      string    // the live line as drawn; "" when there is none
 	suspended int       // holders of SuspendLive; the live line stays off the terminal while any holds
+	spoke     bool      // a line reached W
 }
 
 // Section names the subject the following lines describe, drawn as the divider
@@ -223,7 +224,7 @@ func (p *Printer) flushSection() {
 		head = ANSI(ColorRule) + before + ANSIReset + ANSIBold + ANSI(ColorSecondary) + spaced + ANSIReset + ANSI(ColorRule) + after + ANSIReset
 	}
 	fmt.Fprint(p.W, "\n"+head+"\n")
-	p.shown, p.pending = p.pending, ""
+	p.shown, p.pending, p.spoke = p.pending, "", true
 }
 
 func New(w io.Writer) *Printer {
@@ -409,6 +410,7 @@ func (p *Printer) line(r Role, s sev, format string, a ...any) {
 	p.eraseLive()
 	defer p.drawLive()
 	p.flushSection()
+	p.spoke = true
 	prefix := mark(p.Tier, s, r)
 	if p.Plain {
 		fmt.Fprintf(p.W, tag(s, r)+format+"\n", a...)
@@ -497,6 +499,7 @@ func (p *Printer) Askf(format string, a ...any) {
 	p.eraseLive()
 	p.live = ""
 	p.flushSection()
+	p.spoke = true
 	body := fmt.Sprintf(format, a...)
 	if p.Plain {
 		fmt.Fprint(p.W, body+" ")
@@ -650,7 +653,7 @@ func wrapOne(ln []byte, width, hang int) []byte {
 		}
 		lineHasWord, wordStart, gap = true, -1, nil
 	}
-	for i := 0; i < len(ln); i++ {
+	for i := range ln {
 		if ln[i] == ' ' || ln[i] == '\t' {
 			if wordStart >= 0 {
 				flushWord(i)
@@ -753,13 +756,16 @@ const (
 )
 
 const (
-	ColorBrand     = ColorHost  // the mark and any selected/active element
-	ColorAccent    = ColorApp   // first-party emphasis
-	ColorWarn      = ColorAsync // attention, not yet a failure
-	ColorFail      = ColorError
-	ColorSecondary = ColorDB    // supporting text — light enough to read on dark terminals
-	ColorMuted     = 0x8A8A8A   // stream detail — grey that reads on dark and light
-	ColorRule      = ColorCloud // stream divider rules
+	ColorBrand        = ColorHost  // the mark and any selected/active element
+	ColorAccent       = ColorApp   // first-party emphasis
+	ColorWarn         = ColorAsync // attention, not yet a failure
+	ColorFail         = ColorError
+	ColorSecondary    = ColorDB    // supporting text — light enough to read on dark terminals
+	ColorMuted        = 0x8A8A8A   // stream detail — grey that reads on dark and light
+	ColorRule         = ColorCloud // stream divider rules
+	ColorSurface      = 0x0E3A48   // a filled face: chips and idle buttons — dark teal
+	ColorAccentBright = 0x00769D   // first-party emphasis — identity MAIN_3
+	ColorWhite        = 0xFAFAFA   // ink on a red face — identity WHITE
 )
 
 func ANSI(rgb int) string {
@@ -768,10 +774,7 @@ func ANSI(rgb int) string {
 
 const ANSIReset = "\033[0m"
 
-const (
-	ANSIBold = "\033[1m"
-	ANSIDim  = "\033[2m"
-)
+const ANSIBold = "\033[1m"
 
 // BrandBanner is the Proveo Solutions box art from the legacy bash help.sh.
 const BrandBanner = `        ┌───────●                        ───────┐

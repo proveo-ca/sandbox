@@ -19,21 +19,46 @@
 '                   ledger, _spec/_devops/release-gate.puml), then goreleaser
 '                   release --clean --skip=publish, then stage-cdn
 '   stage-cdn ..... hidden; go run ./internal/cdn/stage
-'   deploy-cli .... depends release, asks to confirm, then pnpm exec wrangler
-'                   deploy --cwd apps/cli; scripted: `mise run --yes deploy-cli`
-'   dev-cli ....... snapshot, stage-cdn, then pnpm exec wrangler dev; it
-'                   never deploys
+'   deploy-cli .... depends release, asks to confirm, then wrangler deploy
+'                   --cwd apps/cli; scripted: `mise run --yes deploy-cli`
+'   dev-cli ....... snapshot, stage-cdn, then wrangler dev; it never deploys
 '   test-images ... snapshot and stage-cdn first, then the installer suite
 '                   against that tree (PROVEO_INSTALLTEST_CDN)
 '   build-cli ..... go install proveo and proveo-entrypoint into GOPATH/bin
 '                   (env GOBIN = false; a `go env -w GOBIN` entry still
 '                   wins), version dev@<sha> from build info
+' CONFIRM GUARDS deploy-cli ALONE. An empty templated confirm still prompts,
+' so a confirm on deploy would force --yes on every scripted deploy. Without
+' a TTY `mise run -n deploy-cli` exits 1 at the confirm; `-n --yes` prints
+' the plan. A "no" comes after release ran, so dist/ and apps/cli/public/cli
+' stay restaged.
+' GOBIN = false lets go install write to its own GOPATH/bin. NOT CHOSEN:
+' GOBIN from get_env(GOPATH) (misses `go env -w GOPATH`); GOBIN from exec()
+' (a template renders with the caller's PATH); GOENV=off (also drops
+' GOPRIVATE and GOPROXY).
 ' goreleaser 2.17.0 is pinned on snapshot and release alone, never in [tools],
 ' so fmt, lint and post-commit never resolve it. goreleaser lists its binaries
 ' explicitly, and no maintainer program is among them.
+' wrangler 4.100.0 is the [tools] entry npm:wrangler. mise installs it with its
+' embedded aube (no pnpm needed; node 24 from [tools] runs esbuild's
+' postinstall `node install.js`, and wrangler) and runs only the build scripts
+' allow_builds names: esbuild, sharp, workerd. That holds from mise 2026.10.17
+' (its release notes); before it a list also ran every package on aube's
+' bundled trusted-dependencies list. So min_version is 2026.10.17, which also
+' covers post-commit's skip_if (2026.10.10). DECIDED 2026-11-15: it replaced a
+' pnpm workspace with 0 members whose 869-line lock held this one CLI. wrangler pins its 8 direct dependencies exactly; deeper
+' ones resolve at install. MEASURED 2026-11-15: esbuild 0.27.3, miniflare
+' 4.20260611.0, sharp 0.34.5, workerd 1.20260611.1 match the dropped lock;
+' 89 lock entries, 183 MiB on disk (darwin-arm64), 5.3 s; `mise x -- wrangler
+' --version` reads 4.100.0. Without node in [tools] the install fails at
+' esbuild's postinstall (`sh: node: command not found`, exit 127).
+' Unlike goreleaser it sits in [tools], so a clone's first mise run resolves
+' it, about 183 MiB. NOT CHOSEN: a tools pin on wrangler-version, deploy-cli
+' and dev-cli (three copies of one pin, and `mise x` would not see it).
 ' * stage reads the platforms from .goreleaser.yaml builds[id=proveo], the
 '   version from dist/metadata.json, and the cdn-proveo Binary entries from
-'   dist/artifacts.json. It checks each binary's sha256 against goreleaser's
+'   dist/artifacts.json (NOT CHOSEN: a hard-coded 8-platform list; jq or sh
+'   one-liners). It checks each binary's sha256 against goreleaser's
 '   extra.Checksum BEFORE it touches the tree, so a refused stage leaves bin/,
 '   checksums.txt and latest.json as they were. Then it removes stale
 '   bin/proveo-* files, copies each binary 0755, and writes checksums.txt and
@@ -50,8 +75,8 @@
 '   release` on a tag).
 ' * Pinned by internal/cdn/stage/main_test.go and
 '   internal/contract/cli_tasks_test.go (TestBuildCLIInstallsOnlyTheShippedBinaries,
-'   TestGoreleaserIsPinnedPerTask, TestDeployCLIShipsOnlyATaggedRelease,
-'   TestCDNStagingFollowsAFreshSnapshot).
+'   TestGoreleaserIsPinnedPerTask, TestWranglerInstallsThroughMise,
+'   TestDeployCLIShipsOnlyATaggedRelease, TestCDNStagingFollowsAFreshSnapshot).
 ' * .goreleaser.yaml emits the multi-arch static binaries AND a sha256
 '   checksums.txt, so the installer can verify what it downloads. It replaced an
 '   unverified `curl | bash` pipeline (moved from its header, N14).
@@ -112,7 +137,7 @@
 ' install.sh marker, and the closing text holds "source ~/<rc>", no `\~`, no
 ' "init --print".
 '
-' ── WHAT `proveo update` PRINTS (R4 of _spec/_plans/output-readability.puml)
+' ── WHAT `proveo update` PRINTS (R4; _spec/internal/ui/output-vocabulary.puml)
 ' No heading; one closing line, last; every × is the command's own item,
 ' Reported (exit 1, main prints nothing):
 '   --check, newer   ● proveo 0.3.1 → 0.4.0 — available, the channel URL dim
@@ -163,7 +188,7 @@ node "Consumer host" as CH <<host>> {
   component "cmd/proveo update\n--check | --force" as UPD <<app>>
   component "internal/cdn\nBaseURL · FetchManifest\nCurrentAssetName · Newer\nDownloadAsset · IsDevVersion" as CDNPKG <<app>>
   component "proveo binary on PATH" as BIN <<app>>
-  component "cmd/proveo setup\nPATH via internal/shell" as SETUP <<app>>
+  component "cmd/proveo setup\nPATH via internal/promptkit" as SETUP <<app>>
 }
 
 GR ARROW_MAIN STAGE

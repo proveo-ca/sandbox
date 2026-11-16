@@ -3,14 +3,13 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 const githubService = "github"
@@ -30,7 +29,25 @@ type ghStage struct {
 	access     func() error
 	out        *sandbox.Block // the git block; nil prints each row at once
 	noTerminal bool
+	view       walkView // where the running row shows; nil is the step lines
+	said       *ghSaid  // the GitHub row's outcome as the step goes; nil keeps none
 }
+
+// ghSaid is the GitHub row's outcome on the card.
+type ghSaid struct {
+	mark choiceui.Mark
+	text string
+}
+
+// say sets the GitHub row's outcome.
+func (s ghStage) say(m choiceui.Mark, text string) {
+	if s.said != nil {
+		s.said.mark, s.said.text = m, text
+	}
+}
+
+// running names what the GitHub row runs now.
+func (s ghStage) running(doing string) { viewOr(s.view).Status(rowGh, choiceui.MarkRunning, doing) }
 
 // applyGitHub readies the GitHub token, then sandbox Git access. A `gh auth login` that failed, and
 // a Ctrl+C that ended another program it handed the terminal to, are its error; everything else it
@@ -59,20 +76,23 @@ func githubToken(s ghStage) error {
 		if tok == "" && !errors.Is(err, errCredentialStoreTimeout) {
 			if !s.tty {
 				s.out.Item(sandbox.Item{Warn: true, Text: "GitHub — not signed in"})
+				s.say(choiceui.MarkNeeds, "not signed in")
 				return nil
 			}
-			ui.Asyncf("gh auth login — signing in to GitHub")
+			s.running("gh auth login — signing in to GitHub")
 			if err := s.auth.login(); err != nil {
 				return err
 			}
 			if tok, err = s.auth.lookup(); tok == "" && !errors.Is(err, errCredentialStoreTimeout) {
 				s.out.Item(sandbox.Item{Warn: true, Text: "GitHub — no token after gh auth login"})
+				s.say(choiceui.MarkNeeds, "no token after gh auth login")
 				return nil
 			}
 		}
 	}
 	if errors.Is(err, errCredentialStoreTimeout) {
 		s.out.Item(ghTimeoutItem(githubService))
+		s.say(choiceui.MarkNeeds, "gh gave no token in time")
 		return nil
 	}
 	if tok == "" {
@@ -94,9 +114,10 @@ func githubToken(s ghStage) error {
 		}
 		s.out.Item(sandbox.Item{Warn: true, Text: githubService + " — not stored in sbx",
 			Detail: append(errDetail(err), "`"+sbx.Binary+" secret set "+githubService+"` stores it")})
+		s.say(choiceui.MarkNeeds, "token not stored in sbx")
 		return nil
 	}
-	s.out.Fact(ui.Fact{Role: ui.RoleStore, Key: githubService, Value: "token stored in sbx"})
+	s.say(choiceui.MarkDone, "signed in")
 	return nil
 }
 
@@ -106,25 +127,29 @@ func installGh(s ghStage) (ok bool, err error) {
 	argv, why := ghInstallArgv(s.host, s.auth.lookPath)
 	if len(argv) == 0 {
 		s.out.Item(sandbox.Item{Warn: true, Text: "gh — not on PATH", Detail: []string{why}})
+		s.say(choiceui.MarkNeeds, "gh is not on PATH")
 		return false, nil
 	}
 	if !s.tty {
 		s.out.Item(sandbox.Item{Warn: true, Text: "gh — not on PATH"})
+		s.say(choiceui.MarkNeeds, "gh is not on PATH")
 		return false, nil
 	}
 	if s.run == nil {
 		return false, nil
 	}
-	ui.Asyncf("%s — installing the GitHub CLI", strings.Join(argv, " "))
+	s.running(strings.Join(argv, " ") + " — installing the GitHub CLI")
 	if err := s.run(argv); err != nil {
 		if interrupted(err) {
 			return false, err
 		}
 		s.out.Item(sandbox.Item{Warn: true, Text: "gh — not installed", Detail: append(errDetail(err), "install it from "+ghInstallDocs)})
+		s.say(choiceui.MarkNeeds, "gh not installed")
 		return false, nil
 	}
 	if _, err := s.auth.lookPath("gh"); err != nil {
 		s.out.Item(sandbox.Item{Warn: true, Text: "gh — not on PATH after its install", Detail: []string{"a new shell may find it; see " + ghInstallDocs}})
+		s.say(choiceui.MarkNeeds, "gh is not on PATH after its install")
 		return false, nil
 	}
 	return true, nil
@@ -181,17 +206,9 @@ func rhelLike(h sbx.Host) bool {
 	return strings.Contains(h.Like, "rhel") || strings.Contains(h.Like, "fedora")
 }
 
-// runArgv runs argv with the terminal, as a hand-off.
-func runArgv(argv []string) error {
-	if len(argv) == 0 {
-		return fmt.Errorf("no command")
-	}
-	return handOff(command(argv[0], argv[1:]...))
-}
-
-// secretSetAt stores value as sbx's name secret, through bin.
+// secretSetAt stores value as sbx's name secret, through bin, with sbx's output kept.
 func secretSetAt(bin, name, value string) error {
-	c := command(bin, sbx.SecretSetArgs(name)...)
+	c := exec.Command(bin, sbx.SecretSetArgs(name)...)
 	c.Stdin = strings.NewReader(value)
-	return handOff(c)
+	return runCaptured(c)
 }

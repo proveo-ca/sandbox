@@ -1,0 +1,281 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: one Bubble Tea Program holds the terminal for a whole walk of forms — asks, a run's rows, hand-offs that lend the terminal out and dialogs over the card — with ui.Default held and every other program refused
+' covers: internal/choiceui/session.go
+' covers: internal/choiceui/session_test.go
+' covers: internal/choiceui/session_term_test.go
+' covers: internal/choiceui/tty_unix.go, internal/choiceui/tty_windows.go (openTerminal's guard, ttyFiles)
+' covers: internal/choiceui/quit_gate.go (overlayDialog: the quit gate and Session.Dialog share it)
+' covers: internal/choiceui/choiceui.go (formModel.ended; Selection and FieldValue read rows in place)
+' covers: internal/choiceui/dialog_run.go (askDialog warns while a Session holds the terminal)
+' covers: internal/ui/hold.go, internal/ui/hold_test.go
+' covers: cmd/proveo/init_view.go (walkView, cardView, streamView, runCaptured)
+' covers: internal/contract/init_writes_test.go
+' covers: internal/sbx/exec.go (sbxSecretSet, sbxSecretSetFrom, keptOutput)
+'   the plan this builds (§4, stage 3) .. scratchpad init-checklist-spec.md, §9.5 for what it measured
+'   the card it hosts .................. _spec/internal/choiceui/wireframe.puml (THE CHECKLIST CARD)
+'   the frame line ..................... _spec/internal/ui/step-lines.puml (THE HAND-OFF FRAME)
+'   the quit gate and dialog overlay ... _spec/internal/choiceui/confirm-dialogs.puml
+'   the library and its pins ........... _spec/internal/choiceui/tui-stack.puml
+'   what the hold swaps ................ _spec/internal/ui/output-vocabulary.puml (HOLD)
+'
+' ── STATUS (2026-11-13, stage 3) ───────────────────────────────────────────
+' BUILT, NOT USED. No caller outside the tests opens a Session yet. `proveo
+' init` still runs one Program per page through Form.RunStep; stage 4 moves
+' it onto one Session.
+' USED SINCE STAGE 4 (2026-11-13): `proveo init` opens one Session per
+' prompted walk (_spec/cmd/proveo/init-sbx-bootstrap.puml, ONE SESSION PER
+' WALK) through cmd/proveo's cardView. The check page is deleted.
+'
+' ── WHY ONE PROGRAM PER WALK (D22, D29) ───────────────────────────────────
+' A Program per page leaves the alternate screen between pages: the card
+' flickers, and whatever printed between two Programs stays on the primary
+' screen. One Program per walk leaves it only for a hand-off, so the
+' scrollback holds frame lines and child output, nothing else.
+' A second Program on the same terminal would race the walk for /dev/tty.
+' openTerminal therefore refuses with ErrTerminalHeld while a Session is
+' open, and so does a second OpenSession. RunStep, askDialog, the scope
+' page, the check page and the filter list all go through openTerminal, so
+' each fails loudly instead of racing. askDialog answers the safe way
+' (asked=false) and warns "<dialog title> — not asked: a card holds the
+' terminal"; the hold keeps that line until Close replays it. A driver on a
+' Session asks through Session.Dialog instead (stage 4 moves init's glyph
+' question there).
+'
+' ── THE API ────────────────────────────────────────────────────────────────
+'   OpenSession() (*Session, error)     claims the terminal, opens /dev/tty,
+'                                       holds ui.Default, starts the Program
+'   Ask(f) (Outcome, error)             f at rest; Accepted leaves f up,
+'                                       running, until the next Ask
+'   Plan(labels)                        planned rows "·", other answers "–"
+'                                       with their answer, "running i of m";
+'                                       a row an answer opened (Row.When)
+'                                       reads its answer with no mark
+'                                       unless it is planned
+'   Status(label, mark, outcome)        one row; MarkRunning names the row
+'                                       the key line counts, and after 2 s
+'                                       its outcome gains " · 12s"
+'   Hand(command, parts, run, outcome)  lends the terminal to run (below);
+'                                       catches SIGINT from the call until
+'                                       the card is back
+'   Resume(f)                           f back up as Accepted left it,
+'                                       running: a page a sub-page stood
+'                                       over returns to its run (stage 4)
+'   Edit(fn)                            fn on the form up now, on the event
+'                                       loop: the driver replaces the rows
+'                                       a step redrew (stage 4: the checks)
+'   Dialog(d) (int, error)              d over the dimmed card; its key line
+'                                       ends "ctrl+c stop"
+'   Context()                           cancelled by ctrl+c while running
+'                                       or after Enter, by a SIGINT during
+'                                       Hand, by Close
+'   Close() error                       Quit, wait, cancel, release the
+'                                       hold, Replay it, close the tty,
+'                                       free the claim
+' A form Ask was given belongs to the Session until the next Ask. The model
+' writes its rows (Plan, Status, the clock, a hand-off's outcome) on the
+' event loop, so the driver reads answers from it and never writes them.
+' The model writes only Kind, Mark and Outcome. Selection and FieldValue
+' read each row in place (&f.Rows[i]) and touch only Label, Field,
+' Selected, Options and Value, so a driver's read never races a write. A
+' copy of the Row (range by value) would read all three written fields.
+' Every call after the Program stopped returns ErrSessionEnded, wrapping the
+' Program's own error when it had one.
+' TWO ROWS, ONE LABEL (stage 4): init's page 3 has a "cursor" sign-in and a
+' "cursor" key. Plan's labels name rows in row order, so a label two rows
+' share stands for the next of them; Status picks the running row of that
+' label, else the first that waits in the plan, else the first.
+' AMENDED after stage 5's verify (2026-11-13): Plan walks the labels, not
+' the rows. Each label binds the first answer row after the row the label
+' before it bound; a label no answer row carries binds none and leaves that
+' start where it was. Walking the rows let the plan [anthropic, cursor] bind
+' the "cursor" sign-in above the API keys, so anthropic never waited "·" and
+' the cursor key's progress ran on the sign-in row.
+' THE HELP SLOT WHILE A PLAN RUNS (same verify): Plan keeps the rows it
+' started from (Progress.rest), and the checklist sizes its help slot from
+' them, so the running page's help keeps the rows its rest held.
+' A PLANNED LABEL NO ROW CARRIES (stage 4: "checks", a section, not a row)
+' still moves the key line on: Status(label, MarkRunning, …) sets the
+' plan's place, and every other Status of it is dropped.
+' A ROW AN ANSWER OPENED TAKES NO MARK (verifier, 2026-11-13): Plan gave
+' user.name, user.email and location "–", which reads "left as is" under
+' a parent that runs ("◑ sbx install  downloading 0.49.2" over "–
+' location"). A planned one (PATH) still waits as "·".
+' A DIALOG'S CTRL+C STOPS THE RUN: the session marks each dialog it puts up
+' (dialog.stops), and its key line ends "ctrl+c stop" in place of the
+' ctrl+c button. The glyph question gave Esc and ctrl+c the same answer,
+' so its key line named no ctrl+c, though ctrl+c there ended init (130).
+' AFTER A STOP, cmd/proveo's cardView lends no terminal and asks no
+' sub-page: Hand returns the stop, Sub answers Cancelled
+' (_spec/cmd/proveo/init-sbx-bootstrap.puml, RUN IN PLACE).
+' NEVER CALL THE SESSION FROM A HAND-OFF'S outcome: it runs on the event
+' loop inside Exec, so a Send from it would wait on itself. init's login
+' confirms inside the outcome and redraws the checks after Hand returns.
+'
+' ── CTRL+C IN EACH STATE ───────────────────────────────────────────────────
+'   before the first Ask    cancels Context
+'   a wizard page at rest   the form's quit gate; a second ctrl+c is Quit;
+'                           Context stays live, the driver ends the walk
+'   a lone form at rest     Cancelled
+'   running (after Enter)   cancels Context; the key line reads "stopping
+'                           after <row> …"; every other key is ignored
+'   after Enter, before     cancels Context; the Plan that follows starts
+'   the Plan                in "stopping after <row> …" (sessionModel.stopped)
+'   after Back or Quit,     ignored: the page still shows its rest keys, and
+'   before the next Ask     the driver puts the next page up or ends the walk
+'   a Dialog                presses the dialog's ctrl+c button, and cancels
+'                           Context (the run stops after its row)
+'   a hand-off              cooked mode: SIGINT reaches proveo and the child.
+'                           Hand catches it (signal.Notify), cancels Context
+'                           and returns run's error as run gave it
+' Hand calls signal.Notify before it sends the hand-off and signal.Stop
+' after the reply. releaseTerminal puts the tty in cooked mode before the
+' frame prints, and RestoreTerminal sets raw mode after run returns, so a
+' Notify around run alone would leave both gaps open: a second Ctrl+C just
+' after the child exits would kill proveo with the hold unreplayed. Raw
+' mode turns Ctrl+C into a key, so a SIGINT from the tty arrives only while
+' the hand-off has the terminal; handed reads the caught flag on handDone.
+' Pinned by session_test.go: TestCtrlCFromEveryState,
+' TestARunningFormTakesOnlyCtrlC; session_term_test.go:
+' TestCtrlCWhileRunningCancelsTheContext,
+' TestACtrlCDuringAHandOffStopsTheWalkAfterIt,
+' TestACtrlCAsTheChildExitsStillStopsTheWalk.
+'
+' ── THE YIELD (§4.2), READ AND MEASURED ON bubbletea v2.1.1 ───────────────
+' READ (exec.go, tea.go, cursed_renderer.go): tea.Exec runs on the event
+' loop and blocks it. releaseTerminal cancels the input reader, waits up to
+' 500 ms for its loop, stops the renderer (a last flush, then close: cursor
+' to the bottom row, ESC[?1049l, cursor shown, bracketed paste off) and
+' puts the tty's saved termios back (TIOCSETA / TCSETS: no input flush).
+' RestoreTerminal sets raw mode again, starts a new reader, re-enters the
+' alternate screen with a full repaint (enterAltScreen erases; `starting`
+' defeats the no-change skip) and checks the size.
+' handExec's Set* methods do nothing: run brings its own streams, as
+' cmd/proveo's command() pins os.Stdin and os.Stderr.
+' tea.Exec runs handExec.Run on the event loop, and handDone reaches the
+' model only through `go p.Send` after RestoreTerminal. Run therefore puts
+' the outcome on the card's row itself, so the first repaint shows it; the
+' clock writes only a row still marked running, so a tick between the
+' restore and handDone neither restores the running text nor counts the
+' hand-off's time. handed writes the same outcome again and clears the
+' running row.
+' The frame and the outcome row draw plain (no colour) whenever ui.Default
+' is plain: NO_COLOR, TERM=dumb, or no terminal on stderr, as handOff did
+' through ui.Default before the Session.
+' MEASURED 2026-11-13, darwin/arm64, a creack/pty slave at 80x24,
+' TestAHandOffRunsARealChildAndReturnsToTheCard -count=30, 30/30 passed:
+'   order on the pty: ESC[?1049l < frame < the child's echo and output <
+'   the outcome row < ESC[?1049h
+'   the frame showed 11-17 ms after Hand (kqueue cancelled the reader; the
+'   500 ms fallback never ran)
+'   two Asks and one hand-off: ESC[?1049h twice and ESC[?1049l twice
+' MEASURED, a throwaway probe (10 runs per delay): keys typed 0 ms after
+' Hand reached the card's reader in 10/10, so the child never saw them.
+' At 1 ms, 3/10 reached the tty queue while it was still raw: the bytes
+' survived, but a raw CR does not end a cooked line. From 3 ms on, 10/10
+' reached the child whole.
+' [Inference] Production opens /dev/tty, for which cancelreader uses
+' select(2), not kqueue. The pty measured the kqueue path only.
+'
+' ── THE HOLD (D28) ─────────────────────────────────────────────────────────
+' OpenSession calls ui.Hold() after the tty opens: ui.Default becomes a
+' printer into memory with the same tier, plainness and section state. A
+' live line draws nowhere while held. Close calls ui.Replay with what was
+' held, after the Program left the alternate screen, so a missed capture
+' shows rather than vanishes. Writes straight to os.Stdout or os.Stderr are
+' not held; stage 4 captures each child that is not a hand-off.
+'
+' ── OUTPUT HOLD (option C, owner; stage 4, 2026-11-13) ─────────────────────
+' The hold stays ui.Default alone (A). Stage 4 adds the rest of C: every
+' child of init that is no hand-off runs with its output kept (cmd/proveo
+' runCaptured; internal/sbx's `sbx secret set`), and internal/contract
+' TestInitWritesTheTerminalOnlyThroughCommand bans naming os.Stdout or
+' os.Stderr in cmd/proveo/init*.go outside command() and a terminal check,
+' and every fmt.Print*, log.Print*, log.Fatal*, log.Panic*, print and
+' println call there: each writes the same streams without naming them.
+' What init's report blocks print during the walk lands in the hold and
+' replays after Close, before the result, as the stream printed it.
+' handOff writes the "\n" that ends a ^C echo to the child's own stderr,
+' which command() set to the terminal.
+'
+' ── DECISIONS THAT DEPART FROM THE PLAN ───────────────────────────────────
+' Hand takes the frame's command and parts, not a built line: only the
+' Session knows the terminal's width, and FrameLine needs it.
+' The outcome row reads the running row's label; Hand has no label of its
+' own, because a hand-off is always a step of the plan.
+' Dialog is opaque (Dialog{d dialog}); DrawsGlyphsDialog is the one stage 4
+' needs. The dialog internals stay unexported.
+'
+' Pinned by internal/choiceui/session_test.go:
+'   TestASessionKeepsOneProgramAcrossAsks
+'   TestARunningFormTakesOnlyCtrlC
+'   TestStepsUpdateTheirRowsWhileTheyRun
+'   TestHandReleasesPrintsTheFrameAndRestores
+'   TestTheCardComesBackWithTheHandOffsOutcome
+'   TestAHandOffIsPlainWhenTheStreamIsPlain
+'   TestAHandOffThatCannotTakeTheTerminalSaysSo
+'   TestADialogDrawsOverTheDimmedCard
+'   TestCtrlCFromEveryState
+'   TestARowAnAnswerOpenedTakesNoMarkUnlessItRuns
+' Pinned by internal/choiceui/session_term_test.go (not on Windows):
+'   TestAWalkOfPagesRunsOnOneSession
+'   TestCtrlCWhileRunningCancelsTheContext
+'   TestTheDriverReadsAnswersWhileTheRowsRun (-race)
+'   TestANestedProgramIsRefusedWhileASessionHoldsTheTerminal
+'   TestHeldLinesReplayAfterTheCard
+'   TestACtrlCDuringAHandOffStopsTheWalkAfterIt
+'   TestACtrlCAsTheChildExitsStillStopsTheWalk
+'   TestAHandOffRunsARealChildAndReturnsToTheCard
+' Pinned by internal/ui/hold_test.go: TestHeldOutputNeverReachesTheTerminal
+title choiceui.Session — one Program per walk, and the hand-off that lends the terminal out
+
+participant "the driver\n(init's walk, stage 4)" as DRV <<app>>
+participant "Session" as SES <<app>>
+participant "sessionModel\nthe event loop" as MOD <<app>>
+participant "bubbletea\nexec / Restore" as TEA <<cloud>>
+participant "handExec.Run" as HX <<app>>
+participant "the terminal" as TTY <<host>>
+
+DRV ARROW_MAIN SES : Ask(page) → Accepted
+DRV ARROW_MAIN SES : Plan(rows), Status(row, ◐, what runs)
+DRV ARROW_MAIN SES : Hand(command, parts, run, outcome)
+SES ARROW_MAIN SES : signal.Notify(SIGINT)
+SES ARROW_MAIN MOD : handMsg
+MOD ARROW_MAIN TEA : tea.Exec(handExec, callback)
+TEA ARROW_MAIN TTY : cancel reader, ESC[?1049l, cooked mode
+TEA ARROW_MAIN HX : Run()
+HX ARROW_MAIN TTY : blank row, "── command ── parts ──"
+HX ARROW_MAIN TTY : run() — the child owns the terminal
+HX ARROW_MAIN MOD : the row takes the outcome
+HX ARROW_MAIN TTY : blank row, "  ✓ label  outcome"
+TEA ARROW_MAIN TTY : raw mode, new reader, ESC[?1049h, repaint
+TEA ARROW_MAIN MOD : handDone
+MOD ARROW_MAIN SES : run's error; a caught SIGINT cancels Context
+SES ARROW_MAIN SES : signal.Stop
+SES ARROW_MAIN DRV : Hand returns run's error
+
+note over MOD
+  **Rows change on the event loop only.**
+  Plan, Status and the clock write the form
+  the View reads, so no write races a draw.
+end note
+
+note over HX
+  **The frame and the row print on the primary**
+  **screen.** The scrollback keeps what the child
+  did between the two, after the card leaves.
+end note
+
+note over TEA
+  **Keys typed in the first millisecond go to**
+  **the card.** The reader read them before its
+  cancel; from 3 ms on they reach the child.
+end note
+
+note over SES
+  **One claim on the terminal.** openTerminal
+  and a second Session refuse while it holds,
+  so no program races the walk for /dev/tty.
+end note
+@enduml

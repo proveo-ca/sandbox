@@ -1,4 +1,4 @@
-// SPEC: _spec/_experiments/sbx-kit-capabilities.puml
+// SPEC: _spec/internal/sbx/startup-dispatch.puml
 package sbx
 
 import (

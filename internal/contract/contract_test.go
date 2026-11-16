@@ -1,4 +1,4 @@
-// SPEC: _spec/tests/20-contract.puml, _spec/_experiments/sbx-kit-capabilities.puml, _spec/_paradigms/retire-dind.puml
+// SPEC: _spec/tests/20-contract.puml, _spec/internal/sbx/sbx-kit-v3.puml, _spec/_paradigms/retire-dind.puml
 package contract_test
 
 import (

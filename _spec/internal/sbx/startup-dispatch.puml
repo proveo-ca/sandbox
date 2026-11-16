@@ -19,7 +19,6 @@ skinparam noteTextAlignment left
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: internal/contract/seed_phase_test.go
 ' covers: e2e/startup_dispatch_test.go
-' covers: scripts/proveo-jitter-probe.py
 ' covers: e2e/seed_ready_test.go
 ' covers: internal/sbx/agents.go
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
@@ -166,7 +165,7 @@ skinparam noteTextAlignment left
 '
 ' ── THE PROBE, ON v3 (2026-10-24, the "Full v3 port" of e2e) ────────────────
 ' A workload's create runs its install and startup hooks and returns after the
-' FOREGROUND ones (P5, sbx-kit-v3-migration.puml); proveo launches right after
+' FOREGROUND ones (P5, _spec/internal/sbx/sbx-kit-v3.puml); proveo launches right after
 ' create. TestWorkloadCreateWaitsForForegroundStartupHooksOnly creates a
 ' workload FROM the stock template docker/sandbox-templates:shell-docker with
 ' a foreground hook (sleeps PROVEO_DISPATCH_STEP, default 20s) and a background
@@ -196,7 +195,12 @@ skinparam noteTextAlignment left
 ' That subtraction assumes the host and guest clocks agree. It then types into
 ' the prompt while the background step may still install: echo p90 <= 250ms,
 ' max <= 1s (PROVEO_TEST_ECHO_P90 / _ECHO_MAX / _READY_AFTER_RELEASE override).
-' Early-input jitter, reported 2026-10-13, is the regression it guards.
+' Early-input jitter, reported 2026-10-13, is the regression it guards. An
+' in-VM probe, typed as a fresh session's first input, measured it: per 5s
+' since boot, at 50ms ticks, how often the agent's main thread burned ≥80% of
+' a tick (and the longest such run), how late each sleep woke, a TCP connect
+' to gateway.docker.internal:3128, and every process over 25% CPU. This test is the standing check; the probe
+' left the tree on 2026-11-15.
 ' [Unverified] opencode's ready-gap row: under the keeper design the host
 ' re-ran its seed through `sbx exec` after preparing history, not as a Kit
 ' startup step, so the gap may not have applied the same way; this pass did

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
@@ -24,20 +25,25 @@ func TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff(t *testing.T) {
 		{"by default", initOptions{}, true, false},
 		{"--skip-prompt", initOptions{skipPrompt: true}, false, true},
 	} {
-		def := defaultDecisions(plan, "", c.o)
+		def := defaultDecisions(plan, "", c.o, true)
 		if def.Prompt != c.want {
 			t.Errorf("%s: Prompt = %v, want %v", c.name, def.Prompt, c.want)
 		}
 		found := false
-		for _, r := range initRows(plan, "", def, c.o) {
+		f := gitForm(gitPageIn{gitOK: true}, initStepAt(2), def, c.o, nil, nil, func(initDecisions) int { return 0 })
+		for _, r := range f.Rows {
 			if r.Label != rowPrompt {
 				continue
 			}
 			found = true
-			if r.Locked != c.locked || (r.Options[r.Selected] == "now") != c.want {
+			locked := r.Kind == choiceui.RowStatus
+			if locked != c.locked || (!locked && (r.Options[r.Selected] == "now") != c.want) {
 				t.Errorf("%s: row = %+v", c.name, r)
 			}
-			if !strings.Contains(r.Help["now"], "REPLACES this shell's prompt") {
+			if locked && r.Outcome != "later · --skip-prompt" {
+				t.Errorf("%s: the locked row does not name its flag: %q", c.name, r.Outcome)
+			}
+			if !locked && !strings.Contains(r.Help["now"], "starship replaces this shell's prompt") {
 				t.Errorf("the row does not say starship replaces the prompt: %q", r.Help["now"])
 			}
 		}
@@ -45,8 +51,8 @@ func TestThePromptRowDefaultsToNowAndSkipPromptLocksItOff(t *testing.T) {
 			t.Errorf("%s: no prompt row", c.name)
 		}
 	}
-	prev := defaultDecisions(plan, "", initOptions{})
-	if again := carried(defaultDecisions(plan, "", initOptions{}), &prev); again.Prompt {
+	prev := defaultDecisions(plan, "", initOptions{}, true)
+	if again := carried(defaultDecisions(plan, "", initOptions{}, true), &prev); again.Prompt {
 		t.Error("a revisit of the page would install the prompt kit a second time")
 	}
 }
@@ -100,7 +106,7 @@ func TestUninstallTakesThePromptKitOutAndLeavesTheOperatorsConfig(t *testing.T) 
 	if err := os.WriteFile(rc, []byte("export EDITOR=vim\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	o := promptKitOptions(false)
+	o := promptKitOptions(nil)
 	o.LookPath = func(string) (string, error) { return "/usr/local/bin/starship", nil }
 	o.Fetch = func(string) ([]byte, error) { t.Fatal("the test reached the network"); return nil, nil }
 	fonts := filepath.Join(home, "Library", "Fonts")

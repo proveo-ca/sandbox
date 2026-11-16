@@ -704,7 +704,7 @@ func TestGitSyncScriptNeverForcePushesOrSkipsHooks(t *testing.T) {
 	// (a headless-trust flag, unrelated to git) legitimately appears on the
 	// commit-subject generator's cursor-agent invocation line.
 	banned := []string{"--force", "--no-verify", "--amend", "git config "}
-	for _, line := range strings.Split(src, "\n") {
+	for line := range strings.SplitSeq(src, "\n") {
 		if !strings.Contains(line, "git ") {
 			continue
 		}
@@ -1056,7 +1056,7 @@ func readGitSyncTrace(t *testing.T, path string) []gitSyncTraceLine {
 		t.Fatalf("read trace %s: %v", path, err)
 	}
 	var out []gitSyncTraceLine
-	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
 		var r gitSyncTraceLine
 		if err := json.Unmarshal([]byte(l), &r); err != nil {
 			t.Fatalf("trace line %q is not JSON: %v", l, err)

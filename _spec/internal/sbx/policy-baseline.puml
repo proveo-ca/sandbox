@@ -63,7 +63,8 @@ skinparam noteTextAlignment left
 ' 2026-11-11; "sbx decides this run's egress" lives in the run log's "enforced
 ' by" row). On a host that denies the probe it prints "● network: sbx's global
 ' policy allows listed hosts only"; unreadable, "⚠ sbx network baseline —
-' unreadable". Since R2 (decision E) the check command and the operator's own
+' unreadable". Since R2 (decision E, THE HOW-TO RULE of
+' _spec/internal/ui/output-vocabulary.puml) the check command and the operator's own
 ' command go to the run log, not a dim line: proveo does not know the provider
 ' is blocked, so neither fixes a failure on screen —
 ' `sbx policy allow network <hosts>` — built from the manifest's
@@ -121,6 +122,15 @@ skinparam noteTextAlignment left
 ' 2026-10-16 the Kit adds only add-on ports and own-agent credential domains,
 ' so on a balanced or deny-all host those are the only reach proveo contributes;
 ' the rest is the `sbx policy allow network` hint described above.
+'
+' ── NOT GOVERNED HERE, ON PURPOSE ──────────────────────────────────────────
+' Docker AI Governance (org-central policy and audit logs, a separate paid
+' subscription) is an explicit non-goal: local `sbx policy` plus the Kit allow
+' is the whole egress control. sbx's proxy allowlists domains and injects
+' headers; it does not inspect bodies, so a payload sent to an ALLOWED host has
+' no content scan. Since the docker tiers and their DLP scanner went
+' (2026-10-16), nothing proveo runs scans what leaves
+' (_spec/_paradigms/credential-boundary.puml).
 '
 ' ── DISPLAY ONLY, AND THAT IS THE POINT ────────────────────────────────────
 ' The row is LOCKED. proveo reports the baseline and never sets it:

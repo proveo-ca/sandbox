@@ -21,12 +21,12 @@ func TestInternalPackagesDoNotImportRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		pkg, imports, ok := strings.Cut(line, " ")
 		if !ok {
 			continue
 		}
-		for _, imp := range strings.Fields(imports) {
+		for imp := range strings.FieldsSeq(imports) {
 			if imp == rootPkg {
 				t.Errorf("%s imports %s; internal packages must take an fs.FS instead, "+
 					"or images that copy only cmd/ and internal/ stop building", pkg, rootPkg)
@@ -49,7 +49,7 @@ func TestEntrypointBinaryBuildsFromPartialContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list -deps: %v", err)
 	}
-	for _, dep := range strings.Fields(string(out)) {
+	for dep := range strings.FieldsSeq(string(out)) {
 		if dep == rootPkg {
 			t.Fatalf("cmd/proveo-entrypoint depends on %s, which its Dockerfile context does not copy", rootPkg)
 		}

@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/proveo-ca/proveo/internal/adopt"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/run"
@@ -119,20 +118,20 @@ the index and your files stay as they are. ` + "`git switch <branch>`" + ` when 
 					errors.New("proveo adopt works inside the repository a run carried its work into"))
 			}
 			dir := results.Dir(run.StateDir())
-			refs, err := adopt.Carried(repo)
+			refs, err := results.ListCarried(repo)
 			if err != nil {
 				return reported(adoptRefusal(err, as), err)
 			}
 			if len(args) == 0 {
-				listWaiting(adopt.Waiting(refs))
+				listWaiting(results.Waiting(refs))
 				sandbox.ReconcileResults(dir, repo)
 				return nil
 			}
-			ref, err := adopt.Pick(refs, args[0])
+			ref, err := results.Pick(refs, args[0])
 			if err != nil {
 				return reported(adoptRefusal(err, as), err)
 			}
-			name, err := adopt.Branch(repo, ref, as)
+			name, err := results.Branch(repo, ref, as)
 			if err != nil {
 				return reported(adoptRefusal(err, as), err)
 			}
@@ -149,17 +148,17 @@ the index and your files stay as they are. ` + "`git switch <branch>`" + ` when 
 // ref's own branch name.
 func adoptRefusal(err error, as string) sandbox.Item {
 	var (
-		notListed  adopt.NotListed
-		noMatch    adopt.NoMatch
-		ambiguous  adopt.Ambiguous
-		badName    adopt.BadName
-		exists     adopt.Exists
-		notCreated adopt.NotCreated
+		notListed  results.NotListed
+		noMatch    results.NoMatch
+		ambiguous  results.Ambiguous
+		badName    results.BadName
+		exists     results.Exists
+		notCreated results.NotCreated
 	)
 	it := sandbox.Item{Fail: true}
 	switch {
 	case errors.As(err, &notListed):
-		it.Text, it.Detail = "adopt — git could not list "+adopt.RefRoot, errLines(errors.New(notListed.Out))
+		it.Text, it.Detail = "adopt — git could not list "+results.RefRoot, errLines(errors.New(notListed.Out))
 	case errors.As(err, &noMatch):
 		it.Text = noMatch.Arg + " — no carried ref matches"
 	case errors.As(err, &ambiguous):
@@ -181,7 +180,7 @@ func adoptRefusal(err error, as string) sandbox.Item {
 
 // listWaiting prints the refs that hold work no branch has as one "to adopt" fact, each with its count
 // in the words of a run's branches fact.
-func listWaiting(refs []adopt.Ref) {
+func listWaiting(refs []results.CarriedRef) {
 	if len(refs) == 0 {
 		ui.Facts(ui.Fact{Role: ui.RoleStore, Key: "to adopt", Value: "none"})
 		return

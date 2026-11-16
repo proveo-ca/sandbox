@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 var machO = []byte{0xcf, 0xfa, 0xed, 0xfe, 0x0c}
@@ -42,7 +42,7 @@ func TestCloneLeavesTheHostTreeAlone(t *testing.T) {
 	gitInit(t, work)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-cloneguard-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-cloneguard-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)
@@ -113,7 +113,7 @@ func TestCloneCarriesAGitignoredSymlinkedDotEnv(t *testing.T) {
 	}
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-clonedotenv-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-clonedotenv-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)
@@ -194,7 +194,7 @@ func TestCloneLiftsTrackedSpecEdits(t *testing.T) {
 	gitInit(t, work)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-clonespec-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-clonespec-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)
@@ -273,7 +273,7 @@ func TestCloneOfALinkedWorktreeLeavesItsHostTreeAlone(t *testing.T) {
 	writeFile(t, dep, machO)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-wtclone-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-wtclone-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

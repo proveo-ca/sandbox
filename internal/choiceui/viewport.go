@@ -5,7 +5,9 @@ const (
 	bodyIndent   = 2
 	labelWidth   = 16                      // marker plus the row name; "› credentials" is 13
 	optOrigin    = bodyIndent + labelWidth // column 0 of the four-column grid
-	colPitch     = 22                      // one column: glyph, a 10-rune cell, a gap
+	colPitch     = 22                      // the widest column: glyph, a 10-rune cell, a gap
+	minPitch     = 16
+	lastCell     = 14 // the last column's cell: glyph and a 10-rune label
 	columnRunes  = 10
 	minBodyLines = 3
 	scrollMargin = 1
@@ -15,26 +17,69 @@ const (
 type lineKind int
 
 const (
-	lineBlank   lineKind = iota // a divider's leading and trailing blank
-	lineHeading                 // a divider's centred heading
+	lineHeading lineKind = iota // a divider's stub
 	lineRow                     // the row itself
+	lineBlank                   // a checklist's spacing blank
+	lineWrap                    // a check message's next line
+	lineDetail                  // a check's evidence, fix or note
+	lineFold                    // several checklist rows drawn as one
 )
 
+// bodyLine is one line of the body: row is the row it draws, or -1 for a blank.
 type bodyLine struct {
-	row  int
-	kind lineKind
+	row   int
+	kind  lineKind
+	text  string // a wrap, detail or fold line's text
+	label string // a fold line's label
+	mark  Mark   // a fold line's mark
+	role  detail // what a detail line says
+	drop  int    // the line's place among the blanks or detail entries the ladder drops; -1 for none
 }
 
 func (f *Form) bodyLines() []bodyLine {
-	lines := make([]bodyLine, 0, len(f.Rows)+4)
+	lines := make([]bodyLine, 0, 2*len(f.Rows))
 	for i, r := range f.Rows {
-		if r.Divider {
-			lines = append(lines,
-				bodyLine{i, lineBlank}, bodyLine{i, lineHeading}, bodyLine{i, lineBlank})
+		if !f.shown(i) {
+			continue
 		}
-		lines = append(lines, bodyLine{i, lineRow})
+		if r.Divider {
+			lines = append(lines, bodyLine{row: i, kind: lineHeading})
+		}
+		lines = append(lines, bodyLine{row: i, kind: lineRow})
 	}
 	return lines
+}
+
+// groups is each row's section: the index of the nearest divider at or above it, -1 before any.
+func (f *Form) groups() []int {
+	out := make([]int, len(f.Rows))
+	at := -1
+	for i, r := range f.Rows {
+		if r.Divider {
+			at = i
+		}
+		out[i] = at
+	}
+	return out
+}
+
+// lastCol is the largest grid column any row pins a cell to.
+func (f *Form) lastCol() int {
+	last := 0
+	for _, r := range f.Rows {
+		for _, c := range r.Cols {
+			last = max(last, c)
+		}
+	}
+	return last
+}
+
+// pitch is the grid's column pitch in a cw-column card whose last pinned column is last.
+func pitch(cw, last int) int {
+	if last < 1 {
+		return colPitch
+	}
+	return clampInt((cw-optOrigin-lastCell)/last, minPitch, colPitch)
 }
 
 func rowSpan(lines []bodyLine, row int) (from, to int) {
@@ -55,10 +100,7 @@ func rowSpan(lines []bodyLine, row int) (from, to int) {
 }
 
 func scrollTo(prev, window int, lines []bodyLine, cursor int) int {
-	limit := len(lines) - window
-	if limit < 0 {
-		limit = 0
-	}
+	limit := max(len(lines)-window, 0)
 	off := clampInt(prev, 0, limit)
 	from, to := rowSpan(lines, cursor)
 	if to == 0 {
@@ -99,7 +141,7 @@ func (g gutter) glyph(i int, ascii bool) (string, bool) {
 	}
 	up, down, bar := "▲", "▼", "░"
 	if ascii {
-		up, down, bar = "^", "v", "|"
+		up, down, bar = "^", "v", "#"
 	}
 	switch {
 	case i == 0 && g.off > 0:
@@ -150,7 +192,7 @@ func clampInt(v, lo, hi int) int {
 func (f *Form) lastSelectable() int {
 	last := f.firstSelectable()
 	for i := range f.Rows {
-		if !f.Rows[i].Locked {
+		if f.answers(i) && !f.Rows[i].Locked {
 			last = i
 		}
 	}
@@ -158,7 +200,7 @@ func (f *Form) lastSelectable() int {
 }
 
 func (f *Form) page(cursor, delta int) int {
-	for n := 0; n < pageRows; n++ {
+	for range pageRows {
 		next := f.move(cursor, delta)
 		if next == cursor {
 			break

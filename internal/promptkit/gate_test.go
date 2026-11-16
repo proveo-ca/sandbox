@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/proveo-ca/proveo/internal/shell"
 )
 
 // TestEachShellParsesTheBlockProveoAppends runs every shell that is installed over its own snippet.
@@ -25,7 +23,7 @@ func TestEachShellParsesTheBlockProveoAppends(t *testing.T) {
 			t.Logf("%s is not installed here; its snippet is not checked", name)
 			continue
 		}
-		sh, _ := shell.Detect(bin)
+		sh, _ := DetectShell(bin)
 		rc := filepath.Join(t.TempDir(), "rc")
 		if err := os.WriteFile(rc, []byte("# the operator's own lines\n"+sh.PromptBlock()), 0o644); err != nil {
 			t.Fatal(err)

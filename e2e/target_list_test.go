@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestABareRunListsItsTargetsNarrowsOnTypingAndCancelsOnEsc drives the list a
 // bare `proveo run` opens, on a real terminal. It starts no sandbox.
 func TestABareRunListsItsTargetsNarrowsOnTypingAndCancelsOnEsc(t *testing.T) {
 	proveoBin := buildProveo(t)
-	sess := tmux.New(fmt.Sprintf("proveo-target-list-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-target-list-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 	cmd := append([]string{"env"}, childEnvArgsNoCredential(t)...)
 	cmd = append(cmd,

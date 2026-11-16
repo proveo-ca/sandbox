@@ -3,6 +3,7 @@ package provider
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -166,12 +167,7 @@ func (r Roles) Sorted() [][2]string {
 }
 
 func knownRole(v string) bool {
-	for _, r := range RoleNames {
-		if r == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(RoleNames, v)
 }
 
 func normalizeIntent(model string) string {

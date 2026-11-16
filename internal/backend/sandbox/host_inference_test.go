@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/hostcdp"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -35,12 +35,12 @@ func TestPlanNoProxyNeverOverridesSbxs(t *testing.T) {
 
 func TestHostCDPAddsItsPortToTheKit(t *testing.T) {
 	in := specInput("hermes")
-	in.AgentEnv = []string{hostcdp.EnvPort + "=9333"}
+	in.AgentEnv = []string{hostdev.EnvCDPPort + "=9333"}
 	_, kit, _ := Spec(in)
 	if !has(kit.Allow(), "localhost:9333") {
 		t.Errorf("network.allow = %v, missing localhost:9333", kit.Allow())
 	}
-	in.AgentEnv = []string{hostcdp.EnvPort + "=nope"}
+	in.AgentEnv = []string{hostdev.EnvCDPPort + "=nope"}
 	_, kit, _ = Spec(in)
 	for _, h := range kit.Allow() {
 		if strings.HasPrefix(h, "localhost:") {

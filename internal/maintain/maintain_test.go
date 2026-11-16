@@ -2,6 +2,7 @@ package maintain
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -179,10 +180,8 @@ func TestScheduleBrowserVariantsFollowTheirHarness(t *testing.T) {
 	}
 	lineOf := func(name string) int {
 		for i, line := range lines {
-			for _, field := range strings.Fields(line) {
-				if field == name {
-					return i
-				}
+			if slices.Contains(strings.Fields(line), name) {
+				return i
 			}
 		}
 		return -1
@@ -332,7 +331,7 @@ func TestScheduleFleetPrintPutsConcurrentAfterBases(t *testing.T) {
 	if idxConc < 0 {
 		t.Fatalf("build-all print lacks concurrent groups:\n%s", got)
 	}
-	for _, line := range strings.Split(got[:idxConc], "\n") {
+	for line := range strings.SplitSeq(got[:idxConc], "\n") {
 		if strings.HasPrefix(line, "# concurrent ") {
 			t.Fatalf("concurrent group before bases:\n%s", got)
 		}

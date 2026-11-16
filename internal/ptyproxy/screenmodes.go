@@ -26,7 +26,7 @@ func (s *screenModes) observe(b []byte) {
 		if (final != 'h' && final != 'l') || len(params) == 0 || params[0] != '?' {
 			return
 		}
-		for _, mode := range bytes.Split(params[1:], []byte{';'}) {
+		for mode := range bytes.SplitSeq(params[1:], []byte{';'}) {
 			switch string(mode) {
 			case "1049", "1047", "47":
 				s.alt = final == 'h'

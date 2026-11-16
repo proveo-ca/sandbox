@@ -50,10 +50,10 @@ skinparam noteTextAlignment left
 ' Executor chose refusal and why this file stays a separate, deferred question.
 '
 ' ── WHAT IS TRUE TODAY — MEASURED 2026-10-16 ───────────────────────────────
-' 1. THERE IS NO HOST BACKEND. `internal/backend` holds `sandbox` and the
-'    10-line ExitError type, nothing else. Nothing in this tree runs an agent
-'    outside a VM. Everything below is therefore about a mode that would have
-'    to be BUILT, not one that would be exposed.
+' 1. THERE IS NO HOST BACKEND. `internal/backend/sandbox` is the only one;
+'    since 2026-11-15 it holds the exit types too. Nothing in this tree runs
+'    an agent outside a VM. Everything below is therefore about a mode that
+'    would have to be BUILT, not one that would be exposed.
 '
 ' 2. THE VARIABLE'S OLD MEANING IS GONE, QUIETLY. PROVEO_SBX is unread since
 '    2026-10-17 (no stub); the choice form's sandbox box reads "every harness
@@ -180,10 +180,10 @@ end note
 
 note bottom of AFTER
   **MEASURED — no host backend exists.**
-  ""internal/backend"" holds ""sandbox"" and the
-  ExitError type. This mode would have to be
-  BUILT, not exposed. That is why every line
-  below is a question.
+  ""internal/backend/sandbox"" is the only one.
+  This mode would have to be BUILT, not
+  exposed. That is why every line below is a
+  question.
 end note
 
 note bottom of LOST

@@ -206,5 +206,5 @@ func (l *FilterList) draw(s *screen) {
 		row.write(st, clip(l.Items[item], max(1, w-row.col())))
 	}
 	c.y += min(window, max(1, len(shown))) + 1
-	paintHint(c, p, l.hintParts(w, len(shown)-l.top-window), w)
+	paintHint(c, p, l.hintParts(w, len(shown)-l.top-window), 0, w)
 }

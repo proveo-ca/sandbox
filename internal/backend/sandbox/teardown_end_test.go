@@ -5,13 +5,11 @@ import (
 	"errors"
 	"syscall"
 	"testing"
-
-	"github.com/proveo-ca/proveo/internal/backend"
 )
 
 func TestAForwardedStopTearsDownLikeANormalExitAndReportsTheSignal(t *testing.T) {
 	failed := errors.New("context canceled")
-	stopped := backend.Stopped{Signal: syscall.SIGTERM}
+	stopped := Stopped{Signal: syscall.SIGTERM}
 	for _, c := range []struct {
 		name         string
 		sig          syscall.Signal

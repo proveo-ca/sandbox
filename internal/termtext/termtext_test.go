@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/agentio/agent-terminal-io.puml
+// SPEC: _spec/internal/agentsettings/agent-terminal-io.puml
 package termtext
 
 import "testing"

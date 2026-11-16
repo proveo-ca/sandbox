@@ -13,11 +13,14 @@ skinparam noteTextAlignment left
 '   the on/off vocabulary, Go and shell  _spec/internal/envflag/env-switches.puml
 '   where `help env` is listed ........ _spec/cmd/proveo/usage.puml
 '   the alias retirement gate ......... _spec/_devops/release-gate.puml
-'   the decision records .............. _spec/_plans/repo-simplification.puml (N8, N32)
 '   open PROVEO_* findings ............ _spec/_plans/repo-simplification.puml (N34-N38)
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+' DECIDED 2026-10-18 (N8, "Apply N6, N8, N9, N16, N25, N26"): one registry; `proveo help env` renders it.
+' DECIDED 2026-10-18 (N32, option 1): the registry gains Where bits and AliasOf; the scan reads shell too.
+' DECIDED 2026-10-18 (N27-N33, "Apply all, then table all existing PROVEO_ variables"): N27 drops the
+'   PROVEO_TARGET fallback; PROVEO_SEED_DONE_MARKER stays a registered test seam.
 '
-' ── WHAT IT REPLACED (N8, then N32 — DONE (wt) 2026-10-18) ─────────────────
+' ── WHAT IT REPLACED (N8, then N32 — DONE 2026-10-18) ──────────────────────
 ' The first read found about 85 distinct "PROVEO_*" literals in non-test Go,
 ' and the operator docs named eight of them. N8 registered the Go side. The env
 ' audit then counted 232 distinct tokens outside _spec/, about 96 of them
@@ -30,7 +33,8 @@ skinparam noteTextAlignment left
 '            String() names each for the help headings
 '   Where    bits for who reads it: Binary (proveo's Go: the binaries, and the
 '            Go tests a mise.toml task drives; the scan reads mise.toml as
-'            Binary) · Image (shell, node or python inside
+'            Binary; NOT CHOSEN: a new Where bit for mise.toml, which would
+'            change `proveo help env` for no operator gain) · Image (shell, node or python inside
 '            an agent image) · Installer (install.sh, install.ps1, uninstall.sh)
 '   Var      {Name, Scope, Where, Default, Doc, AliasOf}: Default says what
 '            happens when it is unset, Doc what setting it does, AliasOf the

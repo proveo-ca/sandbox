@@ -1,9 +1,0 @@
-description: Threat-model and OWASP-style security review of the current diff. Read-only.
-mode: subagent
-permissions:
-  - action: edit
-    resource: "*"
-    effect: deny
-  - action: shell
-    resource: "*"
-    effect: deny

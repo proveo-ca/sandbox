@@ -1,8 +1,0 @@
-run claudecode — where the agent works
-
-  / bill_
-› │ │ ▾ billing
-
-enter starts the agent in services/bill…
-
-enter choose · esc clear · 1 more below

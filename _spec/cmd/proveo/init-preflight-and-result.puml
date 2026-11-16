@@ -1,20 +1,20 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title init opens on every check and closes on the result
+title init opens on every check and closes on the closed checklist
 ' purpose: what `proveo init` shows before it asks anything, and what it says once it has finished
 ' covers: cmd/proveo/init_preflight.go
 ' covers: cmd/proveo/init_preflight_test.go
 ' covers: cmd/proveo/init_report.go
 ' covers: cmd/proveo/init_report_test.go
-' covers: internal/choiceui/check_page.go
-' covers: internal/choiceui/check_page_test.go
+' covers: cmd/proveo/init_result.go
+' covers: cmd/proveo/init_checklist.go (needYou, doneOf)
 '   the pages between the two ......... _spec/cmd/proveo/init-sbx-bootstrap.puml
 '   what each key means on a page ..... _spec/internal/choiceui/wizard-keys.puml
 '   the apply the result reads ........ _spec/internal/ui/step-lines.puml
 '   sbx's verdict on the host ......... _spec/internal/sbx/host-readiness.puml
 '   the order it landed in ............ _spec/_plans/tui-upgrades-delivery.puml (W13)
-'   the stream's rules (R3) ........... _spec/_plans/output-readability.puml
+'   the stream's rules (R3) ........... _spec/internal/ui/output-vocabulary.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── WHAT WAS THERE ─────────────────────────────────────────────────────────
@@ -71,9 +71,158 @@ title init opens on every check and closes on the result
 ' helpers wait for "enter accept" to find a form.
 ' Esc on setup now steps back to the checks. It used to end init with
 ' "cancelled at the init prompt"; that is Esc on the checks page now.
-' Golden frames: internal/choiceui/testdata/checks/, 12 files.
+' Golden frames: internal/choiceui/testdata/checks/, 12 files (deleted
+' with the page in stage 4; PAGE 1 CHECKS below).
+' AMENDED 2026-11-13 (owner, O1; Executor, E11): the checks page is a card.
+' The banner stays above it. Inside: the title at column 2 with the chip
+' " page n/m " at the right, the rows at columns 2, 4 and 6 (group
+' headings stay text, at column 2), the foot rule, the verdict, the key line
+' and the bottom border. While the chip draws, "page n/m" leaves the key
+' line (owner, O6), so e2e/init_steps_test.go's checks() waits for
+' "page 1/4", which the chip and the key line both read. A passing mark
+' draws green (ColorSuccess), not brand; the Executor chose it while
+' building the card. All 12 golden files were re-recorded; the count did
+' not change.
+' AMENDED 2026-11-13 (owner: "Keep it pages" for init, then "always display
+' page"): the chip read " checks · n/m ", and checks() waited for
+' "checks · 1/4" or "page 1/4" (Executor, E16). The chip now reads
+' " page n/m " like every wizard page, and checks() waits for "page 1/4"
+' alone. All 12 golden files were re-recorded again; all 12 changed.
+'
+' ── PAGE 1 CHECKS (I3 STAGE 4, 2026-11-13) ─────────────────────────────────
+' The checks page is gone; its rows open page 1, "Prepare sbx on this
+' <os>/<arch> host", as the checks section of the checklist card
+' (_spec/internal/choiceui/wireframe.puml, THE CHECKLIST CARD). checkRows
+' builds them: RowCheck rows with a mark, "name — message", then evidence,
+' fix and note apart. The group headings "to install sbx" and "sbx diagnose"
+' go: one stub, "checks", opens the section.
+'   marks            pass ✓, warn !, a failing row a run needs ×, one a run
+'                    does not need ! with the "a run does not need this
+'                    check; it affects …" line as its NOTE (D19; it was the
+'                    last evidence line), skip –
+'   Authentication   never drawn as a check: page 1's Docker login row
+'                    answers it (I3 §2.1)
+'   a fix that points at "the link above" takes the link into itself and
+'                    the evidence drops it (D7, standAlone): "Download the
+'                    latest release: <url>", so the ladder can drop the
+'                    evidence and keep a fix that still makes sense
+' sbx diagnose STILL RUNS ONCE on a host with sbx: doInit runs it before the
+' card opens (draw-time diagnose), outside any page closure. The checks
+' step (row "checks") reuses it when page 1 keeps sbx, and runs it again
+' only after an install, redrawing the rows in place through Session.Edit.
+' Verify moved to page 1 with it (D25): the readiness verdict comes from the
+' checks step, and the login's confirming diagnose re-judges it. close()
+' diagnoses again only when the SSH repair restarted the daemon (stale).
+' Diagnose calls per walk, MEASURED on the stub (e2e): installed, signed
+' in: 1; installed, signed out: 2.
+' A BLOCKING PREREQUISITE stops on page 1 itself: Form.Blocked carries
+' "nothing good follows an install here: <names> — <fix>", Enter does
+' nothing, and every way off the page ends init with blockedErr, as the
+' checks page did. Not run end to end: no test host fails a blocking
+' prerequisite.
+' Done row: page 2 on draws page 1 as one row, "! sbx  kept 0.50.0 · Docker
+' signed in · 2 checks need you"; checks that need you add a ! to the
+' page's worst mark.
+' Pinned by cmd/proveo/init_preflight_test.go
+' TestTheCheckRowsCarryEveryCheckWithItsMarkAndItsFix,
+' TestAFailingCheckARunDoesNotNeedIsAWarningThatSaysWhatItAffects,
+' TestAFixStandsAloneWithoutTheLinkAbove; e2e
+' TestInitOpensOnTheChecksAndClosesOnTheResult (page 1's checks, one
+' diagnose); goldens p1-* in cmd/proveo/testdata/init.txtar.
+'
+' ── THE CLOSED CHECKLIST (I3 STAGE 5, 2026-11-13) ─────────────────────────
+' SUPERSEDES THE CLOSE below for every walk; --print keeps its blocks. When
+' the card closes, initReport.close prints once, on the primary screen, through
+' ui.Printer.CheckRow and CheckItem (_spec/internal/ui/output-vocabulary.puml,
+' THE CLOSED CHECKLIST):
+'   heading  "── proveo init ── <os>/<arch> · sbx <v> ──…" (ui.Lead, min(w,120)
+'            wide), then a blank row; a blank row above it only under a line
+'            init printed before it (ui.Lead) or a hand-off the card lent the
+'            terminal to (initReport.handed, ui.Frame)
+'   rows     one per step in run order, mark at 2, label at 4, outcome at 18:
+'            sbx install, PATH, Docker login, network, git identity, GitHub,
+'            prompt kit (stepRows), then a row per credential held, stored,
+'            imported or failed and one "– not held" row, then operator, then
+'            sbx setup when it does not run
+'   needs    a blank row before each item that needs the operator: unmet
+'            prerequisites, the checks still ! (warnings included, evidence →
+'            fix → note at 6), the version's and PATH's warnings, then what a
+'            step said that no row restates
+'   setup    when sbx setup runs: its frame, its screen, a blank row, its row
+'   verdict  a blank row, then "✓ host — ready to run" in bold, or the ending
+' WHERE A ROW'S WORDS COME FROM. runApply and runSteps record, by step label,
+' what each row's last step came to (initRecord.rows): its outcome on
+' success, failedMark on a failure; on the card the idle rows Enter left
+' record their cell's words ("kept 0.50.0", "later · --skip-gh"). A row with
+' no record reads "not run" (initRecord.notRun), "later" plus its flag
+' (initRecord.later), "kept <v>" for sbx install, or the latest diagnose's
+' Docker sign-in; a row the walk never showed prints nothing. sbx install adds
+' where sbx lives (through ui.Tilde) and, after an install no published digest
+' covered, "no published digest". Credentials come from page 3's survey after
+' its last forward exit (credsHeld.rows); operator from page 4 (operatorSaid).
+' WHAT A STEP SAID JOINS ITS ROW OR STANDS ALONE (Executor). Each step keeps
+' its items by row label (initReport.say, and the git identity's and GitHub's
+' blocks). An item whose subject is the row's label, or whose words after " —
+' " are part of the row's outcome, restates the row: its detail lines join the
+' row, under it at 6. Any other item is a needs-you item. A ✓ item says
+' nothing a row does not, and drops. A readiness item whose subject is a row's
+' label joins that row the same way, so "Docker login" prints once: under
+' --yes on a signed-out host the row reads "! Docker login  not signed in"
+' with the fix line under it (Q1-A).
+' PLAIN FORM (ui.Printer.Plain: a pipe, or no terminal): "<tag><label> —
+' <outcome>" on one line, the detail indented 4, tags from choiceui's marks
+' ("ok: ", "warn: ", "error: ", none for –), the same heading characters, no
+' escapes. --yes on a terminal prints the card form after its step lines.
+' ENDINGS use ! (D23): "! init — quit at page n/4", "! init — stopped at
+' <label>" (a hand-off failed, or Ctrl+C: dim "Ctrl+C ended it", then SIGINT,
+' 130), "× init — stopped at <label>" (a failure proveo found; its error stays
+' dim under it only when no row names it), "× init — stopped" (an error no
+' step names), "× host — not ready to run". A passed verify keeps dim "host
+' ready to run" last, as before. A blocked prerequisite prints the heading and
+' its × item. "<row> — failed" and the "later:"/"not run:" stacks are gone:
+' the rows say both. "credentials" is never "later": Skip, --yes and no
+' terminal leave the rows of what sbx holds, the not-held row carrying the
+' how-to when no terminal asked.
+' AMENDED after stage 5's verify (2026-11-13):
+'   readiness  a walk that ends before any verify judged the host (a quit on
+'            page 1) lists the ! checks of page 1's own diagnose
+'            (checkItems(r.diag)), as a quit on pages 2-4 lists the verify's.
+'   verdict  a walk that completes with no verdict from sbx (sbx diagnose
+'            gave no answer, or only a new shell finds sbx) closes on
+'            "! host — readiness not checked", exit 0, so a closing line is
+'            always last.
+'   creds    an item whose subject is a credential row's label joins the
+'            first row of that label: the row takes the worse mark, the
+'            item's words after " — " and its detail. "codex — sign-in
+'            sandbox left" joins codex's row when one shows, and stands alone
+'            otherwise.
+'   heading  the first line of an output takes no blank row above it.
+' NOTHING PRINTS WHILE THE CARD IS UP: the subject blocks (sbx, git, prompt,
+' credentials, operator) and their headings are gone from the walk, so ui's
+' hold stays empty. Before stage 5 they printed into the hold and replayed
+' after the card, above the result.
+' Pinned by cmd/proveo/init_report_test.go
+' TestTheClosedChecklistPrintsOnceInRunOrder (the 80-column drawing, line for
+' line), TestThePlainChecklistCarriesNoEscapes,
+' TestAnOutcomeWrapsAtItsSeparatorsBackToColumn18,
+' TestAStepsItemsJoinItsRowOrStandAlone,
+' TestARevisitPrintsOneReadinessSetAndEachRowOnce,
+' TestTheCredentialsRowsComeFromTheLatestPass,
+' TestTheResultSaysWhatWaitsAndClosesOnTheVerdict,
+' TestATarballInstallsRowNamesItsVersionAndPlace,
+' TestTheResultNamesDockerLoginOnce, TestAQuitOnPageOneListsTheChecksItShowed,
+' TestAWalkSbxGaveNoVerdictClosesOnReadinessNotChecked,
+' TestACredentialItemJoinsTheRowItNames,
+' TestTheHeadingTakesABlankRowOnlyUnderEarlierLines; init_apply_test.go
+' TestNothingReachesTheTerminalWhileTheCardIsUp; internal/ui/checklist_test.go
+' TestACheckRowLaysItsOutcomeAt18AndWrapsAtItsSeparators; e2e
+' TestInitOpensOnTheChecksAndClosesOnTheResult,
+' TestInitYesInPlainOutputCarriesNoStepPlaces,
+' TestInitYesReportsSSHWithoutPromptingOrGrantingAccess (GitHub's row keeps
+' "sandbox verification pending" under it).
 '
 ' ── THE CLOSE: WHAT WAITS, WHAT NEVER RAN, THE VERDICT (R3, 2026-11-11) ────
+' SUPERSEDED 2026-11-13 by THE CLOSED CHECKLIST above; kept for the reasoning.
 ' The W-m close ("done:" per step, "later: <action> — `<cmd>`", "next:
 ' `proveo run`") is gone. MEASURED (R3 design, the stubbed tmux harness):
 ' "done:" lied three ways (a PATH step that added nothing, a git step and a
@@ -81,8 +230,14 @@ title init opens on every check and closes on the result
 ' for answers the operator gave. The operator decided (2026-11-11):
 '   F2  how-tos and whys that leave the screen go to `proveo init --help`,
 '       the flag help and _spec; init writes NO log file.
-'   F3  the readiness verdict prints LAST, in the result.
+'   F3  the readiness verdict prints LAST, in the result. NOT CHOSEN: the
+'       verdict under "sbx" with verify ahead of git (a blocker would no
+'       longer stop the later pages); a "host" heading with no closing
+'       verdict.
 '   UNREACHED  a separate "not run" fact for what a failure kept from running.
+'       NOT CHOSEN: joining it into "later"; no list on a failure.
+'   QUIT  one closing line, with the verdict dim. NOT CHOSEN: two closing
+'       lines; dropping the verdict.
 ' initRecord collects across every page and every revisit, by the setup
 ' page's own row labels (sign in · sbx setup · GitHub · git identity ·
 ' prompt), plus "credentials", "operator name" and "sbx diagnose":
@@ -104,6 +259,15 @@ title init opens on every check and closes on the result
 ' before it runs lists it under "not run" (the second R3 review: "later:
 ' sign in" printed above "⚠ init — stopped at sign in").
 ' "leave as is" on the network baseline is no "later": nothing waits.
+' AMENDED owner, 2026-11-13: the labels read Docker login, sbx setup,
+' GitHub, git identity, prompt kit. A moot row is never "later": Docker login
+' while the latest diagnose says signed in, sbx setup when its probe finds
+' nothing (leaveUnchosen's moot list, initRecord.moot). After the needs-you
+' items and before the verdict, close() gives sbx setup its turn (planSetup):
+' its row ("sbx setup — nothing to import" / "— not checked"), its "later"
+' with the probe's reason, or its frame, its screen and its outcome, then a
+' blank row. A Ctrl+C there re-raises SIGINT after the verdict:
+' _spec/cmd/proveo/init-sbx-bootstrap.puml (THE SBX STEPS RUN ONLY WITH WORK).
 ' initReport.close prints what an early end left unprinted (sbx, git,
 ' credentials, operator), then ONE results block:
 '   ● later:   GitHub                 one Facts block; each list stacked
@@ -137,7 +301,7 @@ title init opens on every check and closes on the result
 ' found the host ready, every ending but success keeps "host ready to run"
 ' as its last dim line, under the error or "Ctrl+C ended it" when there is
 ' one; until then only a quit or a cancel kept it.
-' Each ending but success returns backend.Reported (or a re-raised Stopped),
+' Each ending but success returns sandbox.Reported (or a re-raised Stopped),
 ' so main prints nothing more: one × host line, never main's "× host not
 ' ready to run: <names>" under it. A blocked prerequisite ends on its × item in the
 ' sbx block and prints no result. Errors before any block exists (no home
@@ -149,7 +313,7 @@ title init opens on every check and closes on the result
 ' "proveo does not manage the host … --force", `source <rc>`, the prompt
 ' kit's "open a new shell" and its icon preset. NOT CHOSEN: an init log
 ' file (F2 b); dim how-tos under every "later" row (F2 c, against the
-' HOW-TO decision).
+' HOW-TO rule of _spec/internal/ui/output-vocabulary.puml).
 '
 ' ── WHAT RAN ───────────────────────────────────────────────────────────────
 ' macOS and linux/arm64, on tmux against the stub sbx: the checks page shows
@@ -169,9 +333,10 @@ title init opens on every check and closes on the result
 ' NOT RUN: a host without sbx, so the one-row page drew in no test.
 '
 ' R3 (2026-11-11, the stubbed harness, macOS): every init e2e passes with
-' the anchors the plan's E2E ANCHORS THAT MOVE (R3) lists.
+' the anchors R3 moved.
 ' Pinned by cmd/proveo/init_preflight_test.go:
-'   TestThePreflightRowsCarryEveryCheckWithItsStateAndItsFix
+'   TestTheCheckRowsCarryEveryCheckWithItsMarkAndItsFix
+'   TestAFixStandsAloneWithoutTheLinkAbove
 '   TestAHostWithoutSbxShowsOnlyWhatInstallingNeeds
 '   TestAnSbxThatDoesNotAnswerIsARowAndNotAnError
 '   TestAnSbxRowShowsItsMessageAndKeepsItsDetailAsEvidence
@@ -200,13 +365,7 @@ title init opens on every check and closes on the result
 '   TestARevisitPrintsOneReadinessSetAndItsSbxLinesUnderSbx
 '   TestTheCredentialsBlockPrintsOnceFromTheLatestPass
 '   TestFlagHelpCarriesTheHowTosThatLeftTheScreen
-' Pinned by internal/choiceui/check_page_test.go:
-'   TestTheCheckPagesKeys
-'   TestTheCheckPageShowsEveryCheckItsMarkAndTheHintUnderOneThatFailed
-'   TestWhatACheckFoundDrawsUnderARowThatDidNotPassAboveItsHint
-'   TestABlockedCheckPageSaysWhyAndOffersNoWayOn
-'   TestAShortCheckPageScrollsAndKeepsItsVerdictAndItsKeys
-'   TestTheCheckPageMatchesItsGoldenFrames
+' check_page_test.go and its pins went with the page in stage 4.
 ' Pinned by e2e/init_steps_test.go:
 '   TestInitOpensOnTheChecksAndClosesOnTheResult
 '   TestInitOnAReadyHostClosesOnReady
@@ -215,11 +374,11 @@ title init opens on every check and closes on the result
 
 component "install prerequisites\nsbx.Prereqs" as PRE <<data>>
 component "sbx diagnose\nwhen sbx is on the host" as DIAG <<cloud>>
-component "page 1 · the checks\nevery row, with its mark" as PAGE <<app>>
+component "page 1 · the checks section\nevery row, with its mark" as PAGE <<app>>
 component "**a blocking prerequisite**\nEnter does nothing" as BLOCK <<error>>
-component "setup · credentials · operator" as PAGES <<app>>
+component "page 1's sbx rows · git, shell · credentials · operator" as PAGES <<app>>
 component "initRecord\nran · later · not run" as REC <<data>>
-component "the result\nlater · not run · checks · verdict" as RESULT <<host>>
+component "the closed checklist\nrows · needs-you items · verdict" as RESULT <<host>>
 
 PRE ARROW_MAIN PAGE
 DIAG ARROW_OPTIONAL PAGE
@@ -229,10 +388,10 @@ PAGES ARROW_MAIN REC : each step that ran, each answer "later"
 REC ARROW_MAIN RESULT
 
 note bottom of PAGE
-  **It asks nothing.** Passing checks show too,
-  and sbx's own rows join them when sbx is
-  already installed. A row that did not pass
-  carries what was found and its fix.
+  **The section asks nothing.** Passing checks
+  show too, and sbx's own rows join them when
+  sbx is installed. A row that did not pass
+  carries its evidence, its fix and its note.
 end note
 
 note bottom of BLOCK
@@ -250,10 +409,10 @@ note bottom of REC
 end note
 
 note bottom of RESULT
-  **It ends on the verdict.** What waits, what
-  a failure kept from running, the checks sbx
-  failed, then one closing line: ✓ or × host,
-  or ⚠ where init stopped.
+  **It ends on the verdict.** A row per step,
+  in run order; the checks still !; then one
+  closing line: ✓ or × host, or ! where init
+  stopped.
 end note
 
 note bottom of DIAG

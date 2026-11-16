@@ -72,7 +72,7 @@ func reachedPromptFor(raw, target string) bool {
 func withoutPlanLine(raw, target string) string {
 	plan := regexp.MustCompile(`(^|\s)` + regexp.QuoteMeta(target) + `( \S+)? — starting\b`)
 	var keep []string
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		if w := termtext.Words(line); w != "" && !plan.MatchString(w) {
 			keep = append(keep, w)
 		}
@@ -134,7 +134,7 @@ func idleTargets() []string {
 		return []string{"claudecode"}
 	}
 	var out []string
-	for _, t := range strings.Split(raw, ",") {
+	for t := range strings.SplitSeq(raw, ",") {
 		if t = strings.TrimSpace(t); t != "" {
 			out = append(out, t)
 		}
@@ -290,7 +290,7 @@ func sandboxRunning(name string) bool {
 	if err != nil {
 		return true
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), name) {
 			return strings.Contains(line, "running")
 		}

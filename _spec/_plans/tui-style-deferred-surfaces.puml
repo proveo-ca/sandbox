@@ -35,7 +35,7 @@
 ' (cmd/proveo-entrypoint/main.go:57-88), and internal/entrypoint prints no
 ' PROVEO_SMOKE_READY any more — the marker comes from the shell's
 ' run_smoke_test. The test's exemption for internal/entrypoint/entrypoint.go
-' (tui_vocabulary_test.go:18) is therefore stale (repo-simplification.puml N22).
+' (tui_vocabulary_test.go:18) is therefore stale (N22, prep-process-boundary.puml).
 '
 ' Three things make it a bad first customer. It runs INSIDE the image, so a
 ' source edit is inert until `mise run build <harness>` — the loop is a rebuild
@@ -63,10 +63,11 @@
 ' this surface entirely.
 '
 ' Host-side, build time: nothing left. defs/lib/docker-build.sh and every
-' defs/*/build.sh and ensure.sh left this list on 2026-09-22 (host-shell-to-go
-' P2 deleted them, and internal/imagebuild prints through internal/ui:
-' Notef/Warnf/Failf); defs/lib/egress.sh and defs/tests/run_contract_tests.sh
-' followed the same day in P3. Until then those scripts printed where an
+' defs/*/build.sh and ensure.sh left this list on 2026-09-22 (the Go build
+' table replaced them, _spec/_devops/image-lineage-and-publish.puml, and
+' internal/imagebuild prints through internal/ui: Notef/Warnf/Failf);
+' defs/lib/egress.sh and defs/tests/run_contract_tests.sh followed the same
+' day. Until then those scripts printed where an
 ' operator reads during `proveo build`, so they were squarely in scope by
 ' locality — and deferred, because shell cannot import internal/ui. Doing them
 ' properly would have meant a sourced defs/lib/ui.sh carrying the same six
@@ -119,7 +120,7 @@ package "deferred — surface B" as B <<cloud>> {
 
 package "deferred — surface C" as C <<cloud>> {
   component "4 harness entrypoint.sh\n(the 2 sidecar scripts went 2026-10-16)\nin-container" as SHIN <<error>>
-  component "egress.sh · run_contract_tests.sh\nhost build time\n(deleted: host-shell-to-go P2, P3)" as SHOUT <<error>>
+  component "egress.sh · run_contract_tests.sh\nhost build time\n(deleted 2026-09-22)" as SHOUT <<error>>
   component "defs/lib/ui.sh\nsix roles · three tiers\nDOES NOT EXIST" as SHUI <<async>>
 }
 

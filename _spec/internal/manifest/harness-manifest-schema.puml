@@ -5,9 +5,9 @@
 ' covers: embed.go
 ' covers: internal/proveohome/configset.go (StateSet)
 '
-' ── F10 (DONE (wt) 2026-10-17): NO `docker:` KEY; `daemon:` IS THE ONE KNOB ─
+' ── F10 (DECIDED 2026-10-17): NO `docker:` KEY; `daemon:` IS THE ONE KNOB ───
 ' Part of the user's "apply fixes for SEC2, SEC3, N1, F18, F10, …"
-' (repo-simplification.puml F10, option 1). MEASURED: Manifest.Docker,
+' (F10, option 1: the `docker`+`daemon` fold and KnownFields). MEASURED: Manifest.Docker,
 ' DockerMode, its constants and IsSbx are deleted, and no defs/*/harness.manifest
 ' declares `docker:`. Every harness runs in sbx, so the key said nothing.
 ' `daemon:` (Daemon *bool, manifest.go:72) is the only daemon knob:
@@ -20,7 +20,7 @@
 ' review). TestAStaleManifestKeyFailsLoading (manifest_test.go) pins `docker:
 ' sbx` with that hint, `egress: true` and `provider: cursor`;
 ' TestDaemonIsTheOneDaemonKnob pins the three daemon cases.
-' N20 (DONE (wt) 2026-10-17, repo-simplification.puml, option 1): the picker
+' N20 (DECIDED 2026-10-17, option 1): the picker
 ' now reads `daemon:`. internal/run/choices.go addonHelpFor(man) (:512-518)
 ' clones addonHelp and, when !man.WantsDocker(), says the sandbox is "a microVM
 ' (sbx) with no Docker daemon for the agent — the boundary every run on this
@@ -185,7 +185,7 @@ note right of M
   The docker CLIENT is no longer asserted up front on either
   side: its survival is an sbx implementation detail that
   differs between our own two images
-  (""_spec/_experiments/docker-sandbox\.puml""), so pinning it
+  (""_spec/_paradigms/retire-dind\.puml""), so pinning it
   would encode that detail as a proveo contract. A missing one
   is still named when it bites, because
   ""assertDockerServerReachable"" separates "command not found"
@@ -307,7 +307,7 @@ note bottom of CAP
   defeated interception. On sbx the proxy brokers cursor natively. The
   top-level ""egress: true"" and ""provider: cursor"" keys and their fields
   (Manifest.Egress, Manifest.Provider) are deleted too; ""providers"" is the
-  one vendor pin left (MEASURED; repo-simplification.puml F10).
+  one vendor pin left (MEASURED; F10).
 
   ""providers"" is not cosmetic. Provider detection is filtered through
   it, so a key the harness could never use never enters sbx's store.

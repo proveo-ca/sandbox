@@ -7,7 +7,7 @@
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: packages/lib/test_opencode_startup.py
 ' covers: internal/contract/opencode_seed_progress_test.go
-' covers: e2e/opencode_seed_progress_test.go
+' covers: e2e/opencode_test.go
 ' (2026-10-17: the covers on packages/lib/test_opencode_runtime.py is dropped. Its RuntimeTests
 ' class is deleted — the user: "Delete RuntimeTests only (Recommended)" — and what remains,
 ' NativeCommandAutoTests, tests --auto injection, which this spec does not describe.)

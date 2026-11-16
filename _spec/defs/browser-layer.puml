@@ -50,8 +50,8 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' The browser layer installs no bun. cursor-browser applies it onto the bun-free
 ' cursor image (browserOf in targets.go), so it has none; opencode-browser has
 ' bun because opencode's lineage runs through proveo/base-node. cursor's "[browser] bun … runs
-' TypeScript" check was therefore dropped in host-shell-to-go P3, and
-' opencode's twin stays.
+' TypeScript" check was therefore dropped from its image suite (2026-09-22,
+' the operator), and opencode's twin stays.
 '
 ' The floor probe is the layer's contract restated as a runnable check: node
 ' and playwright on PATH, a `chromium-*` directory

@@ -8,7 +8,27 @@ skinparam noteTextAlignment left
 ' covers: internal/sbx/upstream.go
 ' covers: internal/sbx/upstream_test.go
 ' covers: internal/sbx/third_party/ (vendored, Apache-2.0, LICENSE beside it)
-' plan: _spec/_plans/sbx-kit-v3-migration.puml (decisions Q1–Q3, launch, probes P0–P5)
+' covers: internal/contract/contract_test.go (TestOwnAgentDefsDeclareAnImageEntrypoint)
+' P0–P7 below label the probes of 2026-10-22, sbx 0.49.2, macOS arm64.
+'
+' ── WHY v3 (DECIDED 2026-10-22; MEASURED P1, P2, P4) ────────────────────────
+' Docker recommends v3 kits; v2 stays supported. A built-in agent name
+' (claude, codex, cursor, opencode) selects v2, so the v2 split (built-in
+' agent + `kind: mixin` + `-t` image) could never take a v3 mixin.
+' The flavor warning ("built for the shell agent but you are using …") comes
+' from `-t`, not from v2: P1 gave a v3 workload `-t` and the warning returned.
+' A workload with no `-t` shows none (P2, P4).
+' ROLLOUT: a hard switch, with no v2 fallback and no flag. The version floor
+' it set: _spec/internal/sbx/host-readiness.puml.
+'
+' ── THE FLAVOR LABEL STAYS sbx's (DECIDED 2026-09-07, reaffirmed 2026-10-22) ─
+' sbx reads com.docker.sandboxes.flavor as the image's agent identity and warns
+' when it disagrees with SBX_AGENT. A v3 workload passes no `-t`, so the
+' warning no longer shows. proveo never rewrites a label in sbx's namespace:
+' a new value would assert an identity sbx never issued, and its other readers
+' are unknown. The flat base keeps flavor=shell-docker on purpose
+' (defs/base/Dockerfile; _spec/_devops/sandbox-template-rebase.puml).
+' The user, 2026-10-22: "Ask upstream, then decide".
 '
 ' ── FILES AND NAMES (MEASURED P0, P4) ───────────────────────────────────────
 ' A local workload is a DIRECTORY; sbx registers its base name as the agent
@@ -20,6 +40,13 @@ skinparam noteTextAlignment left
 '     follows `sbx run --help` on 0.49.2, which added devin.
 '   * the stem `spec` — sbx parses spec.yaml as v2 (docker/sbx-releases #738).
 '   * a recipe without FROM — a workload "MUST have content" (SPEC-v3).
+' The workload name never reaches auth: BuiltinAgent (internal/sbx/agents.go)
+' still maps a target to sbx's agent identity (claudecode → claude) for the
+' subscription service, the seed split and the local-model tools.
+' A def with no published kit (hermes) launches its image ENTRYPOINT + CMD, so
+' its Dockerfile declares an exec-form ENTRYPOINT
+' (TestOwnAgentDefsDeclareAnImageEntrypoint). [Unverified, from the test's
+' message] With none, sbx opens a shell.
 '
 ' ── FIELDS ──────────────────────────────────────────────────────────────────
 ' "Any unrecognized field anywhere in the document is an error" (SPEC-v3
@@ -36,10 +63,59 @@ skinparam noteTextAlignment left
 ' copied from a published kit (credential@1, …) pass through
 ' CapabilityV3.Config as decoded YAML.
 '
-' ── UPSTREAM KITS (Q3: "prefer using upstream") ─────────────────────────────
+' ── LAUNCH = CREATE, THEN RUN (DECIDED 2026-10-22; MEASURED P5) ─────────────
+' `sbx create` runs the install hooks (root), then the startup hooks (agent
+' user), one after the other, and returns only after both (P5, guest clock
+' from create: install +10.7→+14.7 s, startup +15.5→+19.5 s, create ≈ +20 s).
+' `sbx run --name` on the created sandbox does not rerun startup. So
+' create-then-run gates the agent on both hook phases, and proveo-await-seed
+' is a safety net, not the gate. _spec/internal/sbx/startup-dispatch.puml
+' pins the foreground half.
+' [Inference] A one-shot `sbx run <kit>` still starts the agent beside its
+' startup hooks (Docker's docs; not tested).
+'
+' ── THE TRAILING COMMAND APPENDS OR REPLACES (MEASURED P7, 2026-10-26) ──────
+' Under sbx@1, PID 1 is sbx's keepalive, never the image ENTRYPOINT.
+' `sbx run --name X` with no args runs ENTRYPOINT + CMD. With a trailing
+' command, its first word decides (ENTRYPOINT ["/bin/echo","EP0","EP1"],
+' CMD ["C1"]):
+'   `-- A B`       → `A B`                  any other word REPLACES all
+'   `-- /x A`      → `/x A`                 after ENTRYPOINT[0]
+'   `-- -x A`      → `EP0 EP1 C1 -x A`      a leading '-' word APPENDS
+'   `-- -- A B`    → `EP0 EP1 C1 -- A B`    to ENTRYPOINT + CMD; so does `--`
+' Every proveo ENTRYPOINT is `dumb-init -- /entrypoint.sh`, so a launch[1:]
+' that opened on `--` was appended, and hermes exited 2 ("'/entrypoint.sh' is
+' not a hermes command") on every scheduled run from 2026-10-22 to the fix.
+' LaunchArgs sends the flags alone when they lead (append), else launch[1:]
+' without dumb-init's `--` (replace); Launched models both cases. Pinned by
+' TestLaunchArgsFollowSbxsAppendAndReplaceRule, TestLaunchedIsWhatSbxRunStarts.
+'
+' ── PER-RUN VALUES RIDE ON `sbx create -e` (DECIDED 2026-10-22: "Keep -e") ──
+' Host-resolved per-run values (paths, the session id, clone links) go in as
+' `sbx create -e K=V`. MEASURED: the agent env sees them, and so does a hook
+' that lists the name in `env:` (probe PROVEO_PROBE_VAR); a hook sees only what
+' it declares. NOT CHOSEN: kit args (`--kit-arg`); kit.env (sbx 0.48); a
+' run-time file the startup hook reads.
+'
+' ── HOOK AND BUILD FACTS (MEASURED P0, P6) ──────────────────────────────────
+' An install hook that exits non-zero aborts `sbx create` ("failed to apply
+' kit to sandbox"), so no proveo hook may fail the create. Hooks run as
+' `docker run --rm -u <user> <kit image> sh -c 'env -i <allowlist> sh -c …'`
+' under dash, so bash-only code needs `bash -c`. The kit build pulls the
+' docker.io/docker/sandbox-kit:3 frontend, so building a workload needs Docker
+' Hub. A host engine present builds the kit (kit-image-source.puml), so a hung
+' host engine hangs `sbx create` at "building…". `sbx kit validate --offline`
+' refuses a v3 source kit ("no kit builder configured"): validation needs the
+' daemon's builder. Probe hazard: `sbx run` under `script` (a pty) stalls at
+' "building…" on an unanswered OSC 11 query.
+'
+' ── UPSTREAM KITS (DECIDED 2026-10-22, the user: "prefer using upstream") ───
 ' internal/sbx/third_party/ vendors claude, codex, cursor and opencode — each
 ' <agent>.yaml + <agent>.dockerfile — from UpstreamKitsRef (docker/sbx-kits-
 ' contrib@8b0844a, Apache-2.0; LICENSE kept beside them).
+' NOT CHOSEN: compose a kit set FROM docker/sbx-kit-claude + a proveo mixin.
+' It keeps Docker's credential code, but the Claude Code pin moves to Docker's
+' kit, and the mixin image layers count toward the 44-layer limit.
 ' Local edits to those files are deltas, each listed with its upstream report in
 ' _spec/internal/sbx/vendored-kit-deltas.puml. A FROM never carries
 ' a published kit's capabilities (author/base-images/), so proveo COPIES them:
@@ -56,7 +132,7 @@ skinparam noteTextAlignment left
 '   defs/base sets CLAUDE_ENV_FILE=/etc/sandbox-persistent.sh (= BASH_ENV) in
 '   base-full and the flat stage (user: "Set CLAUDE_ENV_FILE in the base");
 '   TestTheBasePointsClaudeAtTheFileSbxPersistsEnvIn pins it.
-' Hooks it drops, each a recorded decision (plan: Q3 EXCEPTIONS):
+' Hooks it drops, each a recorded decision (the user, 2026-10-22, after P6):
 '   * "Seed Claude bypass/trust flags" — `> ~/.claude.json` wiped the
 '     persisted host copy in P6; accept_workspace_trust merges instead. A test
 '     fails if a re-vendor renames it, so P6 gets re-checked. The merge sets

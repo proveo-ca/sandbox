@@ -42,7 +42,7 @@ func hostMemory(t *testing.T) (free, swapUsed int64, ok bool) {
 		return 0, 0, false
 	}
 	var pagesFree int64
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		name, val, found := strings.Cut(line, ":")
 		if !found {
 			continue

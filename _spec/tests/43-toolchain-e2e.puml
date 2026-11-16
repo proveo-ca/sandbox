@@ -3,7 +3,7 @@
 title Toolchain e2e — proving toolchain provisioning is true as BEHAVIOUR
 
 ' covers: e2e/toolchain_test.go, internal/contract/toolchain_test.go,
-' covers: e2e/testdata/polyglot22
+' covers: e2e/testdata/polyglot22.txtar
 '
 ' REMOVED 2026-10-30 with the LSP feature (_spec/defs/harness-image-layers.puml):
 ' the language matrix, the fixture-coverage check, the LSP opt-outs
@@ -65,7 +65,7 @@ node "Layer 4 — e2e (real images)" as L4 <<host>> {
   component "baked lib is CURRENT" as E5 <<app>>
 }
 
-database "testdata/polyglot22\none file per language" as FIX <<db>>
+database "testdata/polyglot22.txtar\none entry per language" as FIX <<db>>
 component "working-tree lib\nbind-mounted over the baked one" as LIVE <<app>>
 component "stale image\nsource fixed, behaviour unchanged" as STALE <<error>>
 

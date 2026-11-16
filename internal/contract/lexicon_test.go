@@ -13,6 +13,9 @@ import (
 var lexiconEnforced = []string{
 	"_spec/_plans/session-continuity.puml",
 	"_spec/internal/sbx/state-sync.puml",
+	"_spec/tests/00-test-fixtures.puml",
+	"internal/testx/testx.go",
+	"internal/testx/testx_test.go",
 }
 
 // bannedPhrase matches the banned phrase in any case, across a comment-line break too.

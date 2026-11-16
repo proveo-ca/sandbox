@@ -13,7 +13,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' covers: internal/contract/seed_command_shipped_test.go
 ' covers: internal/contract/agent_launch_guard_test.go
 ' covers: internal/contract/spec_notes_test.go
-' covers: internal/contract/sbx_passthrough_test.go
+' covers: internal/contract/await_seed_sbx_test.go
 ' covers: packages/lib/proveo-await-seed
 ' covers: defs/claudecode/mcp/Dockerfile
 ' covers: internal/contract/instructions_seed_test.go
@@ -25,7 +25,7 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' ── ON sbx THE IMAGE ENTRYPOINT WAS PID 1 (v2 / -t TEMPLATES ONLY) ──────────
 ' SUPERSEDED 2026-10-24: a v3 workload declares sbx@1, so PID 1 is sbx's
 ' keepalive (probe P7) and proveo_sbx_passthrough, _proveo_in_sbx and their six
-' entrypoint calls are deleted (_spec/_plans/sbx-kit-v3-migration.puml, STEP 8).
+' entrypoint calls are deleted (_spec/internal/sbx/sbx-kit-v3.puml, P7).
 ' HISTORY:
 ' MEASURED 2026-09-23, sbx v0.42.1: sbx keeps a template's ENTRYPOINT and hands
 ' it its keepalive as the command. The stock template's ENTRYPOINT is
@@ -194,7 +194,6 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' Sibling specs, so this one stays about the ORDER and the HAND-OFF:
 '   what each step does ....... _spec/packages/lib/steps.puml
 '   the class table ........... _spec/packages/lib/config-seeding-and-persistence.puml
-'   plugin beyond claudecode .. _spec/_plans/plugin-class-beyond-claudecode.puml
 '   the Kit's three work kinds  _spec/internal/sbx/sbx-kit-contract.puml
 '   what the syncs move ....... _spec/internal/sbx/state-sync.puml
 '

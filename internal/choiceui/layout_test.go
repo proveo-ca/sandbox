@@ -12,7 +12,7 @@ func budgetForm() *Form {
 		Title:  "run claudecode — confirm or change this run",
 		Header: []string{"git: r", "keys: K", "tooling: t", "subagents: 7", "hooks: h", "llms: m"},
 		Rows: []Row{
-			{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}},
+			{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Divider: true, Heading: "reach"},
 			{Label: "credentials", Options: []string{"forward", "broker"}},
 			{Label: "execution", Options: []string{"host", "docker (sandbox)"}, Multi: true, Divider: true,
 				Help: map[string]string{"docker (sandbox)": "a microVM with its own Docker daemon, and a good deal more text so this option wraps to several lines of help"}},
@@ -35,9 +35,6 @@ func TestLayoutObeysTheDropLadder(t *testing.T) {
 		if lay.strip != stripNone && !lay.header {
 			t.Errorf("h=%d: the figure is dropped before the header, so it cannot outlive it", h)
 		}
-		if lay.header && !lay.axis {
-			t.Errorf("h=%d: the header is dropped before the axis legend", h)
-		}
 	}
 }
 
@@ -54,7 +51,6 @@ func TestLayoutIsMonotonicInHeight(t *testing.T) {
 		}{
 			{"banner", prev.banner, lay.banner},
 			{"header", prev.header, lay.header},
-			{"axis", prev.axis, lay.axis},
 		} {
 			if c.was && !c.isNow {
 				t.Errorf("h=%d: %s disappeared when the terminal GREW", h, c.name)
@@ -80,10 +76,7 @@ func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 		}
 		// The body's FLOOR, not its full height: the rows scroll now, so what the
 		// budget guarantees is a navigable window rather than all of them.
-		floor := 2 + lay.body + 2 + lay.helpSlot
-		if lay.helpSlot > 0 {
-			floor++
-		}
+		floor := cardRows + lay.body + lay.helpSlot
 		cost := digestRows
 		switch lay.strip {
 		case stripBlock:
@@ -102,8 +95,8 @@ func TestTheStripNeverEvictsTheHintOrHelp(t *testing.T) {
 		if a.helpSlot != b.helpSlot {
 			t.Errorf("h=%d: the strip changed the reserved help slot, %d vs %d", h, a.helpSlot, b.helpSlot)
 		}
-		if a.header != b.header || a.axis != b.axis {
-			t.Errorf("h=%d: the figure evicted the header or the axis legend", h)
+		if a.header != b.header {
+			t.Errorf("h=%d: the figure evicted the header", h)
 		}
 	}
 }
@@ -212,7 +205,7 @@ func TestNoDecorationIsBoughtWithABodyLine(t *testing.T) {
 		}
 		// stripPane is not "bought" — it spends no height at all, so it cannot be
 		// the thing that took a line from the body.
-		bought := lay.banner || lay.header || lay.axis ||
+		bought := lay.banner || lay.header ||
 			(lay.strip != stripNone && lay.strip != stripPane)
 		if bought && lay.body < full {
 			t.Errorf("h=%d: the body scrolls (%d of %d) while a decoration was still afforded",

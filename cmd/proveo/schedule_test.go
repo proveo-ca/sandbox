@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -134,7 +134,7 @@ func TestARefusalPrintsOneFixAndIsReported(t *testing.T) {
 		{[]string{"schedule", "run", "nosuch"}, "error: nosuch — no such job\n    jobs: lineup, probe\n"},
 	} {
 		_, stderr, err := proveoOut(t, c.args...)
-		var reported backend.Reported
+		var reported sandbox.Reported
 		if !errors.As(err, &reported) || stderr != c.want {
 			t.Errorf("proveo %s = %v\n%s\nwant one × and one dim fix, Reported:\n%s", strings.Join(c.args, " "), err, stderr, c.want)
 		}
@@ -159,7 +159,7 @@ func TestARefusalNamesItsJobAndWritesHomePathsWithATilde(t *testing.T) {
 			"error: waivers — not started\n    mkdir ~/.proveo/logs: permission denied\n"},
 	} {
 		out := captureUI(t)
-		if err := refuse("waivers", c.err); !errors.As(err, new(backend.Reported)) || out.String() != c.want {
+		if err := refuse("waivers", c.err); !errors.As(err, new(sandbox.Reported)) || out.String() != c.want {
 			t.Errorf("refuse(%v) = %v\n%s\nwant\n%s", c.err, err, out, c.want)
 		}
 	}
@@ -180,7 +180,7 @@ func TestAStrayScheduleArgumentIsRefusedWithOneFix(t *testing.T) {
 		{[]string{"schedule", "uninstall", "extra"}, "error: proveo schedule uninstall — takes no argument \"extra\"\n    `proveo schedule uninstall --help` says what it takes\n"},
 	} {
 		stdout, stderr, err := proveoOut(t, c.args...)
-		if !errors.As(err, new(backend.Reported)) || stdout != "" || stderr != c.want {
+		if !errors.As(err, new(sandbox.Reported)) || stdout != "" || stderr != c.want {
 			t.Errorf("proveo %s = %v\nstdout %q\nstderr %q\nwant stderr %q", strings.Join(c.args, " "), err, stdout, stderr, c.want)
 		}
 	}
@@ -204,7 +204,7 @@ func TestTheScheduleListingWithNoFileSaysSoAndExitsZero(t *testing.T) {
 	if stdout, stderr, err := proveoOut(t, "schedule", "tick"); err != nil || stdout+stderr != "" {
 		t.Errorf("the tick with no schedule.yml = %v, %q; want nothing due, nothing logged", err, stdout+stderr)
 	}
-	if _, stderr, err := proveoOut(t, "schedule", "run", "lineup"); !errors.As(err, new(backend.Reported)) ||
+	if _, stderr, err := proveoOut(t, "schedule", "run", "lineup"); !errors.As(err, new(sandbox.Reported)) ||
 		stderr != "error: ~/.proveo/schedule.yml — not found\n    `proveo schedule --help` shows its format\n" {
 		t.Errorf("schedule run with no schedule.yml = %v\n%s", err, stderr)
 	}
@@ -221,7 +221,7 @@ func TestAnEmptyScheduleSaysNoJobsOnStderr(t *testing.T) {
 func TestAnInvalidScheduleIsOneCrossWithItsReasonDim(t *testing.T) {
 	scheduleHome(t, "jobs:\n  x:\n    target: hermes\n", schedule.Tick{})
 	_, stderr, err := proveoOut(t, "schedule")
-	if !errors.As(err, new(backend.Reported)) || stderr != "error: ~/.proveo/schedule.yml — not valid\n    job \"x\": prompt_file is required\n" {
+	if !errors.As(err, new(sandbox.Reported)) || stderr != "error: ~/.proveo/schedule.yml — not valid\n    job \"x\": prompt_file is required\n" {
 		t.Errorf("an invalid schedule = %v\n%s", err, stderr)
 	}
 }
@@ -324,7 +324,7 @@ func TestScheduleHelpExampleLoads(t *testing.T) {
 		t.Fatalf("no schedule.yml example in:\n%s", long)
 	}
 	var yml strings.Builder
-	for _, l := range strings.Split(long[start:start+end], "\n") {
+	for l := range strings.SplitSeq(long[start:start+end], "\n") {
 		yml.WriteString(strings.TrimPrefix(l, "  ") + "\n")
 	}
 	home := t.TempDir()

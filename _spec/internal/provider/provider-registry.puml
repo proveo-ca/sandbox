@@ -4,6 +4,13 @@
 ' covers: internal/provider/**
 ' covers: internal/credentials/credentials.go
 ' covers: internal/credentials/auth_choice_test.go
+'
+' ── THE AUTH SCHEME IS ITS OWN FIELD ───────────────────────────────────────
+' AuthOption and Resolved carry `Bearer bool` beside Value. credential@1
+' declares injection as a FORMAT STRING ("Bearer %s" or "%s") and never sees
+' the value, so the scheme survives on its own and is never sniffed back out
+' of a prefixed Value (agentCredentials, internal/backend/sandbox/sandbox.go;
+' _spec/internal/sbx/credential-resolution.puml R6).
 title Provider registry — one entry, four obligations, three invariants
 
 node "internal/provider" as PKG <<host>> {

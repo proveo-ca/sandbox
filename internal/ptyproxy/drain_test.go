@@ -14,7 +14,7 @@ import (
 // RUN MUST NOT RETURN BEFORE THE CHILD'S LAST OUTPUT HAS BEEN DRAINED.
 func TestRunDrainsTheChildsOutputBeforeReturning(t *testing.T) {
 	const want = "LAST_WORDS"
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		outR, outW, err := os.Pipe()
 		if err != nil {
 			t.Fatal(err)

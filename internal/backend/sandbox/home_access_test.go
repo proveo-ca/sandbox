@@ -12,9 +12,9 @@ import (
 
 	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/runner"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func TestHomeAccessExposesOnlyThisHarnessState(t *testing.T) {
@@ -134,13 +134,13 @@ func TestOpenCodeHomeAccessMountsConfigButNeverHistory(t *testing.T) {
 		t.Fatalf("OpenCode's home plan = %+v, want only its config and the toolchain store", a.Mounts)
 	}
 	for _, host := range want {
-		if !slices.Contains(a.Mounts, runner.Mount{Host: host}) {
+		if !slices.Contains(a.Mounts, workspace.Mount{Host: host}) {
 			t.Errorf("OpenCode's home plan omits %s: %+v", host, a.Mounts)
 		}
 	}
 	cfg, _, _ := Spec(Input{Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h}, Sid: "proveo-fixture",
 		RunDir: runDir, HomeRoot: root, HomeAccess: a, Lookup: func(string) string { return "" },
-		Mounts: []runner.Mount{{Host: root, Container: "/proveo-home"}},
+		Mounts: []workspace.Mount{{Host: root, Container: "/proveo-home"}},
 	})
 	for _, m := range cfg.Mounts {
 		if rel, err := filepath.Rel(root, m.Host); err == nil && !strings.HasPrefix(rel, "..") &&
@@ -169,7 +169,7 @@ func TestSpecReplacesTheWholeProveoHomeWithNarrowBinds(t *testing.T) {
 		Man:    manifest.Manifest{Name: "cursor", Home: h},
 		Sid:    "proveo-1-2",
 		RunDir: runDir,
-		Mounts: []runner.Mount{
+		Mounts: []workspace.Mount{
 			{Host: repo, Container: "/app"},
 			{Host: root, Container: "/proveo-home"},
 		},
@@ -224,7 +224,7 @@ func TestSpecCarriesTheScopedIndexThroughANarrowedHome(t *testing.T) {
 		Target: "opencode", Man: manifest.Manifest{Name: "opencode", Home: h},
 		Sid: "proveo-1-2", RunDir: runDir, Lookup: func(string) string { return "" },
 		RepoRoot: repo, ScopeRel: "apps/web",
-		Mounts: []runner.Mount{
+		Mounts: []workspace.Mount{
 			{Host: filepath.Join(repo, "apps", "web"), Container: "/app/apps/web"},
 			{Host: root, Container: "/proveo-home"},
 		},
@@ -263,7 +263,7 @@ func TestHomeAccessMountsALinkedDirReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	want, _ := filepath.EvalSymlinks(repo)
-	if !slices.Contains(a.Mounts, runner.Mount{Host: want, ReadOnly: true}) {
+	if !slices.Contains(a.Mounts, workspace.Mount{Host: want, ReadOnly: true}) {
 		t.Errorf("mounts %+v: a declared dir's link out of the home view must mount its target read-only at its host path", a.Mounts)
 	}
 }
@@ -337,7 +337,7 @@ func TestHomeAccessFollowsOnlyLinksTheHostListed(t *testing.T) {
 	}
 	wantListed, _ := filepath.EvalSymlinks(listed)
 	wantSecret, _ := filepath.EvalSymlinks(secret)
-	if !slices.Contains(a.Mounts, runner.Mount{Host: wantListed, ReadOnly: true}) {
+	if !slices.Contains(a.Mounts, workspace.Mount{Host: wantListed, ReadOnly: true}) {
 		t.Errorf("mounts %+v: a link to a target the host lists must mount read-only", a.Mounts)
 	}
 	for _, m := range a.Mounts {

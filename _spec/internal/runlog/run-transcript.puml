@@ -47,7 +47,7 @@ skinparam noteTextAlignment left
 '   nil            through ui.Logf. "the agent exited 0" is worth having in a
 '                  transcript being diffed against a broken run, and worth
 '                  nothing on a terminal that just watched it happen.
-'   backend.Stopped  (since 2026-10-17) the default branch, ui.Logf: "outcome:
+'   sandbox.Stopped  (since 2026-10-17) the default branch, ui.Logf: "outcome:
 '                  stopped by SIGTERM" (or SIGHUP), LOG ONLY. `main` maps it to
 '                  128+signal via exitCode and prints nothing, like ExitError;
 '                  the terminal already showed Run's "stopped by SIGTERM —
@@ -61,8 +61,8 @@ skinparam noteTextAlignment left
 ' routed around it.
 '
 ' ── R2 (2026-11-11): THE SCREEN AND THE LOG SPLIT THE END OF A RUN ─────────
-' _spec/_plans/output-readability.puml (decisions F3, F5, AGENT TAIL, STOP
-' MARK) and _spec/internal/backend/teardown.puml (WHAT TEARDOWN PRINTS).
+' The operator's decisions F3, F5, AGENT TAIL and STOP MARK, and what each
+' rejected: _spec/internal/backend/teardown.puml (WHAT TEARDOWN PRINTS).
 '   ExitError      LOG ONLY now: "outcome: the agent exited with code N".
 '                  sandbox.Run prints the screen's line first under results,
 '                  and only when sbx printed no error line of its own:
@@ -80,7 +80,7 @@ skinparam noteTextAlignment left
 '                  in scrollback, so its last five lines past sbx's own error
 '                  line print dim under the kept ⚠ (ptyproxy's
 '                  Proxy.EnteredAltScreen, since the review moved it out of
-'                  agentio.Tail). Since the review the tail also holds sbx's
+'                  agentsettings.Tail). Since the review the tail also holds sbx's
 '                  stderr when stdin is redirected (exit-code.puml).
 '   the log path   no longer printed at the end of a run (P9): the run block
 '                  names it once, at the start, as "log: ~/…". The LOG note
@@ -90,8 +90,8 @@ skinparam noteTextAlignment left
 '
 ' ── ONE ESCAPE GRAMMAR FOR THE LOG COPY (N5, DONE (wt) 2026-10-17) ─────────
 ' MEASURED: ui's run-log tee writes termtext.StripANSI(p) (internal/ui/ui.go:262),
-' and Tail.push strips through the same function (internal/agentio/agentio.go:61)
-' — one grammar, _spec/internal/agentio/agent-terminal-io.puml. The deleted
+' and Tail.push strips through the same function (internal/agentsettings/terminal.go:64)
+' — one grammar, _spec/internal/agentsettings/agent-terminal-io.puml. The deleted
 ' ui.stripANSI skipped from ESC to the next 'm', so a NON-SGR sequence ate the
 ' text after it up to the next 'm': "\x1b[2Khello mom" was logged as "om"
 ' (measured by the coordinator before the fix). Test: TestTheRunLogKeepsTextAfterANonSGRSequence (ui_test.go:478).
@@ -111,7 +111,7 @@ skinparam noteTextAlignment left
 ' TestDoRecordsAnEarlyFailureInTheTranscript (internal/run/outcome_test.go)
 ' leaves ui's package-level logOnly (set by TeeTo) pointing at a log Do has
 ' already closed. [Inference] A later ui.Logf in the same test binary writes
-' to a closed file and is lost. Since output-readability R1, TeeTo returns a
+' to a closed file and is lost. Since R1 (2026-11-11), TeeTo returns a
 ' restore func that puts back Default and logOnly; every test that tees itself
 ' calls it (TestTeeRestoreLeavesNoLaterLogfInTheFinishedLog). Do does not
 ' call it, so the limit above stands.
@@ -124,8 +124,9 @@ skinparam noteTextAlignment left
 ' "interface" and "run" never drew (R1 round-2 review). Pinned through Do's
 ' real defers by TestARunThatFailsAtItsPagesNamesItsLogUnderRunBeforeTheItemsItHeld
 ' (internal/run/outcome_test.go: a refused --addon after a forgotten port).
-' THE HEADER RECORDS THE HOME (the operator, 2026-11-11, decision C of
-' output-readability R1). The tee copies screen rows as drawn, so a fact row
+' THE HEADER RECORDS THE HOME (the operator, 2026-11-11, decision C of R1;
+' the stream's rules: output-vocabulary.puml). The tee copies screen rows as
+' drawn, so a fact row
 ' reaches the log with "~/" (output-vocabulary.puml, THE TEE KEEPS THE
 ' SCREEN'S "~/"). runlog.Open writes, right under "=== run <sid> ===", one
 ' line "home: <absolute $HOME>" (os.UserHomeDir, the same source ui.Tilde

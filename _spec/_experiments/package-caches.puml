@@ -6,8 +6,8 @@ skinparam noteTextAlignment left
 ' would touch: packages/lib/entrypoint-lib.sh (GOPATH under _proveo_tool_home, _dep_lang_* table)
 ' would touch: internal/sbx/kit.go (no host-mount field today), internal/workspace/deps.go (DepLangs)
 '   the persistence this rides today .. _spec/packages/lib/config-seeding-and-persistence.puml
-'   the measure-first rule ............ _spec/_experiments/reusable-clone.puml
-'   the Kit schema it would extend ..... _spec/_experiments/sbx-kit-capabilities.puml
+'   why a clone lives for one run ...... _spec/internal/sbx/clone-workspace.puml (DECIDED 2026-11-14)
+'   the Kit schema it would extend ..... _spec/internal/sbx/sbx-kit-v3.puml (v3 capabilities)
 '   the trees it must stay apart from .. _spec/packages/lib/dependency-trees.puml
 '   upstream, pinned to PR #101's merge commit 129be2f:
 '     docker/sandbox-kit-spec docs/spec/capabilities/com.docker.sandbox/host-mount@1.md

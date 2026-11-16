@@ -92,7 +92,7 @@ func TestOpencodeV2RenderedSubagents(t *testing.T) {
 		t.Fatalf("rendered %d OpenCode subagents, want 10", len(files))
 	}
 	var replacements []string
-	for _, line := range strings.Split(string(opencodeV2Read(t, filepath.Join(root, "defs/subagents/_vars/opencode.env"))), "\n") {
+	for line := range strings.SplitSeq(string(opencodeV2Read(t, filepath.Join(root, "defs/subagents/_vars/opencode.env"))), "\n") {
 		key, value, ok := strings.Cut(line, "=")
 		if ok {
 			replacements = append(replacements, "{{"+key+"}}", value)

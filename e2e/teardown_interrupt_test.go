@@ -17,11 +17,11 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // paneExit reports whether sess's pane process ended and, if so, its exit status.
-func paneExit(sess *tmux.Session) (dead bool, status int) {
+func paneExit(sess *schedule.TmuxSession) (dead bool, status int) {
 	out, err := exec.Command("tmux", "display-message", "-p", "-t", sess.Name, "#{pane_dead} #{pane_dead_status}").Output()
 	f := strings.Fields(string(out))
 	if err != nil || len(f) == 0 || f[0] != "1" {
@@ -69,7 +69,7 @@ func TestCtrlCInTeardownSaysOnceThenLeavesWith130(t *testing.T) {
 	gitInit(t, work)
 
 	before, canList := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-tdint-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-tdint-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

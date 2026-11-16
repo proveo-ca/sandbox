@@ -41,8 +41,8 @@ func TestCredentialListsDrawAtTheirOwnColumnAndScroll(t *testing.T) {
 	f := &Form{Title: "test", Rows: []Row{{Label: "credentials", Multi: true, Locked: true, Hover: 1, Options: []string{"API keys", "OAuth", "SSH"}, Cols: []int{0, 1, 2}, Lists: map[int]*More{1: m}}}}
 	f.draw(s, 0, 0)
 	var out strings.Builder
-	for y := 0; y < 24; y++ {
-		for x := 0; x < 120; x++ {
+	for y := range 24 {
+		for x := range 120 {
 			r, _, _, _ := s.GetContent(x, y)
 			out.WriteRune(r)
 		}
@@ -51,14 +51,19 @@ func TestCredentialListsDrawAtTheirOwnColumnAndScroll(t *testing.T) {
 	if !strings.Contains(out.String(), "item-39") || strings.Contains(out.String(), "item-00") {
 		t.Fatalf("list did not scroll to selection:\n%s", out.String())
 	}
-	anchored := false
-	for _, line := range strings.Split(out.String(), "\n") {
-		if col := slices.Index([]rune(line), '┌'); col >= 0 {
-			anchored = col == optOrigin+colPitch
+	entry, corner := -1, -1
+	for y, line := range strings.Split(out.String(), "\n") {
+		rs := []rune(line)
+		if col := slices.Index(rs, '╭'); col >= 0 && y > 0 {
+			corner = col
+		}
+		if before, _, ok := strings.Cut(line, "[ ] item-39"); ok {
+			entry = len([]rune(before))
 		}
 	}
-	if !anchored {
-		t.Fatalf("OAuth list did not open at its cell:\n%s", out.String())
+	if entry != optOrigin+colPitch || corner != entry-4 {
+		t.Fatalf("OAuth list did not open at its cell: entry at %d, corner at %d, want %d and %d:\n%s",
+			entry, corner, optOrigin+colPitch, optOrigin+colPitch-4, out.String())
 	}
 }
 
@@ -79,9 +84,9 @@ func TestCredentialDropdownArrowMatchesPortsAndRespectsGlyphMode(t *testing.T) {
 				r.More = m
 			}
 			f := &Form{Glyphs: tc.glyphs, Rows: []Row{r}}
-			f.drawBodyLine(newCanvas(s), styles(), bodyLine{kind: lineRow, row: 0}, 0, 120, false)
+			f.drawBodyLine(newCanvas(s), styles(), newCard(120, f.Glyphs, styles()), bodyLine{kind: lineRow, row: 0}, 0, colPitch, false, false)
 			var line strings.Builder
-			for x := 0; x < 120; x++ {
+			for x := range 120 {
 				ch, _, _, _ := s.GetContent(x, 0)
 				line.WriteRune(ch)
 			}
