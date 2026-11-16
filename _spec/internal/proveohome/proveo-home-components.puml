@@ -26,7 +26,7 @@ node "Host" as HOST <<host>> {
   folder "PROVEO_HOME\n~/.proveo (0700)" as ROOT <<host>>
   database "cursor/.cursor\nclaudecode/.claude\nopencode/{config,share}" as STATE <<db>>
   component "internal/proveohome\nRoot · Prepare · ResumeArgs" as PH <<app>>
-  component "internal/runner\ndocker argv" as RUN <<app>>
+  component "docker argv\n(deleted 2026-10-16)" as RUN <<app>>
   folder "Host IDE homes\n~/.cursor · ~/.claude" as IDE <<error>>
 }
 

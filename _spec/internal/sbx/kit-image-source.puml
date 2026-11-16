@@ -11,7 +11,7 @@ skinparam noteTextAlignment left
 ' covers: internal/imagebuild/imagebuild.go (HostBuilder)
 ' covers: internal/backend/sandbox/sandbox.go (Spec recipe, createSandbox)
 ' covers: internal/backend/sandbox/opencode_engine.go (createOpenCodeEngine)
-' covers: e2e/kit_image_source_test.go
+' covers: e2e/kit_test.go
 ' see: _spec/internal/sbx/sbx-kit-v3.puml (the recipe), _spec/internal/maintain/ (local vs published choice)
 '
 ' ── FAILURE (MEASURED 2026-10-27, Fedora 44, docker-ce 29.9.2, sbx 0.50.0) ──
@@ -37,7 +37,7 @@ skinparam noteTextAlignment left
 '      Docker image store" — M1 is behaviour, not contract.
 '   M5 every supportable series (2026-10-27, macOS, one signed build each, sbx
 '      state restored from an APFS clone between runs): 0.45.1, 0.46.0, 0.47.0,
-'      0.48.0, 0.49.2, 0.50.0 all pass e2e/kit_image_source_test.go (both legs)
+'      0.48.0, 0.49.2, 0.50.0 all pass e2e/kit_test.go TestAHostOnlyImageBuildsWhileAContainerBuilderIsActive (both legs)
 '      and TestOpenCodeEngineKeepsHistoryAndImportsOnce under
 '      BUILDX_BUILDER=proveo-multiarch; sbx-kit-builder stays "not created".
 '      ≤0.47 wraps `sbx ls --json` in {"sandboxes": [...]}; proveo reads the table.
@@ -64,7 +64,7 @@ skinparam noteTextAlignment left
 ' image as before. Host without a Builder → warn: the active builder decides.
 ' The screen reads "⚠ buildx — no docker-driver builder reads the host image
 ' store", dim "the active builder builds <image>"; the PROVEO_BUILDX_LOCAL_BUILDER
-' how-to goes to the run log alone (P6 of output-readability, R1 round 3;
+' how-to goes to the run log alone (P6, _spec/internal/ui/output-vocabulary.puml;
 ' report_test.go TestTheBuildxHowToReachesOnlyTheRunLog).
 ' Never `docker buildx use`: that global write is this bug's cause.
 ' --print shows the env prefix on the `# sandbox` line (CreateLine) so a
@@ -75,6 +75,13 @@ skinparam noteTextAlignment left
 ' ── WHERE AN IMAGE CAME FROM (R2 review, 2026-11-11) ───────────────────────
 ' The sbx block's image fact and the run log's posture row read
 ' "<ref> (local build)" or "<ref> (published)" from ImageSource.Label().
+' WHY THE FACT IS ON SCREEN (DECIDED 2026-11-11, the operator). MEASURED (sbx
+' v0.50.0, a sandbox made for the check): sbx's SANDBOX block reads "Image:
+' sbx-kit-src:proveo-claudecode-0148841a44ae", the tag its kit build makes,
+' and never names proveo's image. So a create run prints ONE image fact, last
+' in the sbx block, right before "● sbx create"; a re-attach prints the image
+' from its receipt (kit-lifecycle.puml). NOT CHOSEN: the image only when
+' non-default; the image in the run log only.
 ' R2's first cut read "no repo digest" as a local build. FALSE on the
 ' containerd store. MEASURED (Docker 29.8.2, API 1.56, driver-type
 ' io.containerd.snapshotter.v1): RepoDigests equals the image Id for a local

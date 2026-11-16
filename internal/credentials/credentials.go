@@ -1,12 +1,14 @@
-// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/provider/provider-registry.puml, _spec/internal/secretref/secret-references.puml
+// SPEC: _spec/_paradigms/credential-boundary.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/agentsettings/choice-cache.puml, _spec/internal/provider/provider-registry.puml, _spec/internal/credentials/secret-references.puml
 // Package credentials
 package credentials
 
 import (
+	"cmp"
 	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,7 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
-	"github.com/proveo-ca/proveo/internal/runner"
+	"github.com/proveo-ca/proveo/internal/workspace"
 )
 
 func FilterProviders(detected []string, c manifest.Capabilities) []string {
@@ -254,22 +256,22 @@ func AuthWhyUnavailable(man manifest.Manifest, target, homeRoot string) map[stri
 	return why
 }
 
-func GhConfigMount(getenv func(string) string) (runner.Mount, bool) {
+func GhConfigMount(getenv func(string) string) (workspace.Mount, bool) {
 	if envflag.Off(getenv("PROVEO_MOUNT_GH_CONFIG")) {
-		return runner.Mount{}, false
+		return workspace.Mount{}, false
 	}
 	dir := strings.TrimSpace(getenv("GH_CONFIG_DIR"))
 	if dir == "" {
 		home := getenv("HOME")
 		if home == "" {
-			return runner.Mount{}, false
+			return workspace.Mount{}, false
 		}
 		dir = filepath.Join(home, ".config", "gh")
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return runner.Mount{}, false
+		return workspace.Mount{}, false
 	}
-	return runner.Mount{
+	return workspace.Mount{
 		Host:      dir,
 		Container: proveohome.ContainerHome + "/.config/gh",
 		ReadOnly:  true,
@@ -403,26 +405,6 @@ func loginUsableBytes(b []byte, now time.Time) (usable, needsRefresh bool) {
 	return false, false
 }
 
-func LoginBlanked(target, homeRoot string) bool {
-	if homeRoot == "" {
-		return false
-	}
-	for _, rel := range subscriptionLoginFiles[target] {
-		b, err := os.ReadFile(filepath.Join(homeRoot, rel))
-		if err != nil || len(b) == 0 {
-			continue
-		}
-		var c oauthCredential
-		if json.Unmarshal(b, &c) != nil {
-			continue
-		}
-		if tokenCleared(c.ClaudeAIOauth.AccessToken) {
-			return true
-		}
-	}
-	return false
-}
-
 func AuthSuppressor(man manifest.Manifest, target, chosen, homeRoot string, lookup func(string) string) func(string) bool {
 	chosen = strings.TrimSpace(chosen)
 	usableLogin, staleLogin := PersistedLogin(target, homeRoot)
@@ -476,12 +458,7 @@ func LosesToChosenAuth(k, chosen string) bool {
 	if prov == "" || ProviderOfKeyVar(k) != prov {
 		return false
 	}
-	for _, alt := range provider.AuthVars(prov) {
-		if alt == k {
-			return true // same provider, different auth: the operator chose the other
-		}
-	}
-	return false
+	return slices.Contains(provider.AuthVars(prov), k)
 }
 
 func LoadedSecretNames(man manifest.Manifest, lookup func(string) string) []string {
@@ -611,6 +588,9 @@ func (c *ChildEnv) Apply(base []string) []string {
 	return append(out, c.pairs...)
 }
 
+// ParseEnvFile reads the NAME=value lines of the env file at path. A value opened by a quote that
+// its line does not close runs across lines to the closing quote, joined with newlines; when no
+// later line closes it, that line and every line after it are dropped.
 func ParseEnvFile(path string) map[string]string {
 	out := map[string]string{}
 	if path == "" {
@@ -620,13 +600,14 @@ func ParseEnvFile(path string) map[string]string {
 	if err != nil {
 		return out
 	}
-	for _, raw := range strings.Split(string(b), "\n") {
-		line := strings.TrimSpace(raw)
+	lines := strings.Split(strings.TrimPrefix(string(b), "\ufeff"), "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		if after, ok := strings.CutPrefix(line, "export "); ok {
+			line = strings.TrimSpace(after)
 		}
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {
@@ -634,12 +615,78 @@ func ParseEnvFile(path string) map[string]string {
 		}
 		k = strings.TrimSpace(k)
 		v = strings.TrimSpace(v)
-		if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
+		quoted := len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\''))
+		if !quoted && v != "" && (v[0] == '"' || v[0] == '\'') && closingQuote(v[1:], v[0]) < 0 {
+			value, last, closed := quotedValue(lines, i, v)
+			if closed {
+				out[k] = value
+			}
+			i = last
+			continue
+		}
+		if quoted {
 			v = v[1 : len(v)-1]
 		}
 		out[k] = v
 	}
 	return out
+}
+
+// quotedValue is the value that open, a quote and the rest of line i, starts: line i's text and
+// each next line up to the closing quote, joined with newlines, with the index of the closing
+// line; closed is false when no line closes it.
+func quotedValue(lines []string, i int, open string) (value string, last int, closed bool) {
+	q := open[0]
+	parts := []string{open[1:]}
+	for j := i + 1; j < len(lines); j++ {
+		line := strings.TrimSuffix(lines[j], "\r")
+		if end := closingQuote(line, q); end >= 0 {
+			return strings.Join(append(parts, line[:end]), "\n"), j, true
+		}
+		parts = append(parts, line)
+	}
+	return "", len(lines), false
+}
+
+// closingQuote is the index of the first q in s that closes a value, or -1; inside double quotes a
+// backslash escapes the next byte.
+func closingQuote(s string, q byte) int {
+	for i := 0; i < len(s); i++ {
+		switch {
+		case q == '"' && s[i] == '\\':
+			i++
+		case s[i] == q:
+			return i
+		}
+	}
+	return -1
+}
+
+// envName reports whether s is a variable name: a letter or _, then letters, digits and _.
+func envName(s string) bool {
+	for i, r := range s {
+		letter := r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
+		if !letter && (i == 0 || r < '0' || r > '9') {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// EnvFileNames is the names ParseEnvFile reads from path, A to Z in any case, never a value; a
+// line whose value is only base64 padding names nothing.
+// SPEC: _spec/internal/choiceui/wireframe.puml
+func EnvFileNames(path string) []string {
+	var names []string
+	for name, value := range ParseEnvFile(path) {
+		if envName(name) && (value == "" || strings.Trim(value, "=") != "") {
+			names = append(names, name)
+		}
+	}
+	slices.SortFunc(names, func(a, b string) int {
+		return cmp.Or(cmp.Compare(strings.ToLower(a), strings.ToLower(b)), cmp.Compare(a, b))
+	})
+	return names
 }
 
 // StageProjectEnv copies src to dir/.env (0600), dropping the lines that set a

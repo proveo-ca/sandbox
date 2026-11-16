@@ -13,7 +13,7 @@ func tallForm() *Form {
 		Title:  "run claudecode — confirm or change this run",
 		Header: []string{"git:  monorepo on fix-tools", "keys: ANTHROPIC_API_KEY", "llms: main=claude-opus-5"},
 		Rows: []Row{
-			{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}},
+			{Label: "egress", Options: []string{"allow-all", "balanced", "deny-all"}, Divider: true, Heading: "reach"},
 			{Label: "credentials", Options: []string{"forward", "broker"}},
 			{Label: "auth", Options: []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}},
 			{Label: "execution", Options: []string{"host", "docker (sandbox)"}, Multi: true, Divider: true,
@@ -120,11 +120,16 @@ func TestAFittingBodyScrollsNothingAndDrawsNoGutter(t *testing.T) {
 	if f.scroll != 0 {
 		t.Errorf("a body that fits must sit at offset 0, got %d", f.scroll)
 	}
-	for _, line := range rows {
+	wall := glyphsFor(f.Glyphs)
+	for y, line := range rows {
+		r := []rune(line)
 		for _, g := range []string{"▲", "▼", "░"} {
-			if strings.HasPrefix(line, g) {
+			if strings.Contains(line, g) {
 				t.Errorf("a body that fits must draw no gutter, found %q in %q", g, line)
 			}
+		}
+		if len(r) == cardWidth(80) && string(r[0]) == wall.wallL && string(r[len(r)-1]) != wall.wallR {
+			t.Errorf("row %d: the right wall %q is not whole: %q", y, wall.wallR, line)
 		}
 	}
 }
@@ -143,12 +148,12 @@ func TestAScrollingBodyMarksItsTravel(t *testing.T) {
 	}
 	gut := false
 	for _, line := range rows {
-		if strings.HasPrefix(line, "▼") || strings.HasPrefix(line, "░") {
+		if r := []rune(line); len(r) == cardWidth(80) && (r[len(r)-1] == '▼' || r[len(r)-1] == '░') {
 			gut = true
 		}
 	}
 	if !gut {
-		t.Errorf("a scrolling body must draw its gutter:\n%s", joined)
+		t.Errorf("a scrolling body must draw its marks on the right wall:\n%s", joined)
 	}
 	// At the far end there is nothing below, and the hint stops claiming there is.
 	end := tallForm()
@@ -184,39 +189,6 @@ func TestASecondPaintDoesNotInheritAStaleOffset(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(rows, "\n"), "› egress") {
 		t.Error("the cursor's row is missing after the resize")
-	}
-}
-
-// A group's checkboxes with no name at all is worse than the duplication the
-// divider exists to avoid, so the label returns when its heading scrolls away.
-func TestADividerRowRegainsItsLabelWhenTheHeadingScrollsOff(t *testing.T) {
-	t.Parallel()
-	f := tallForm()
-	lines := f.bodyLines()
-	from, to := rowSpan(lines, 3)
-	var joined string
-	for h := 40; h >= 8; h-- {
-		lay := f.layout(80, h)
-		if lay.tooSmall || lay.body >= to-from {
-			continue // the window can still hold the whole group
-		}
-		probe := tallForm()
-		joined = strings.Join(renderAt(t, probe, 3, 80, h), "\n")
-		if !strings.Contains(joined, "────── execution ──────") {
-			break
-		}
-		joined = ""
-	}
-	if joined == "" {
-		t.Fatal("never reached a height with the heading off screen; the test proves nothing")
-	}
-	if !strings.Contains(joined, "› execution") {
-		t.Errorf("with its heading off screen the row must name itself:\n%s", joined)
-	}
-	// ...and it does not say it twice when the heading IS visible.
-	tall := strings.Join(renderAt(t, tallForm(), 3, 80, 60), "\n")
-	if strings.Contains(tall, "────── execution ──────") && strings.Contains(tall, "› execution ") {
-		t.Errorf("the name must not appear both on the heading and the row:\n%s", tall)
 	}
 }
 

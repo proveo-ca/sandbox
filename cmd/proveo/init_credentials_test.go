@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -171,58 +172,32 @@ func TestStateFollowsWhereTheCredentialRests(t *testing.T) {
 	}
 }
 
-func TestEveryFieldIsMaskedAndGroupedByDef(t *testing.T) {
+// Page 3 draws two sections: every sign-in and subscription token under "subscriptions", then every
+// usage key under "API keys", one stub each and no stub per def.
+func TestEveryFieldIsMaskedUnderItsSection(t *testing.T) {
 	rows := credentialRows(surveyCredentials(defs(t), nil, envOf(nil)))
-	headings := 0
-	var keyHeading string
+	var heads []string
+	sawKey := false
 	for _, r := range rows {
+		if r.Divider {
+			heads = append(heads, r.Heading)
+		}
+		isKey := r.Field && r.Placeholder == "empty — type a key"
+		switch {
+		case isKey:
+			sawKey = true
+		case sawKey:
+			t.Errorf("%q follows the API keys; the keys are one trailing section", r.Label)
+		}
 		if len(r.Options) > 0 && (r.Options[0] == signedIn || r.Options[0] == notSignedIn) {
 			continue // a sign-in row: sbx's OAuth slot takes options, never typing (R4)
 		}
-		if !r.Field {
-			t.Fatalf("%q is not a field — every credential takes typing, not an option", r.Label)
-		}
-		if !r.Masked {
-			t.Errorf("%q is unmasked; typing a key into it would put the key on the screen", r.Label)
-		}
-		if r.Placeholder == "" {
-			t.Errorf("%q has no placeholder", r.Label)
-		}
-		if r.Divider {
-			headings++
-			if r.Heading == "" {
-				t.Errorf("%q opens a group with no heading", r.Label)
-			}
-			if strings.Contains(r.Heading, "opencode") && strings.Contains(r.Heading, "api") {
-				t.Errorf("usage keys headed %q — they are not opencode's; any agent can spend them", r.Heading)
-			}
-			if r.Heading == "usage api keys" {
-				keyHeading = r.Heading
-			}
+		if !r.Field || !r.Masked || r.Placeholder == "" {
+			t.Errorf("%q = %+v; every credential that takes typing is a masked field with a placeholder", r.Label, r)
 		}
 	}
-	if headings < 2 {
-		t.Errorf("%d group headings — subscription and api keys are different questions and say so", headings)
-	}
-	if keyHeading != "usage api keys" {
-		t.Errorf("key group heading = %q, want usage api keys", keyHeading)
-	}
-	// Keys come last, as one block: a key heading between two subscriptions
-	// would mean they were still attributed to whichever def listed them.
-	sawKey := false
-	nKey := 0
-	for _, r := range rows {
-		if r.Heading == "usage api keys" {
-			nKey++
-			sawKey = true
-			continue
-		}
-		if sawKey && r.Divider && strings.Contains(r.Heading, "subscription") {
-			t.Errorf("subscription %q follows usage keys — the keys must be one trailing block", r.Heading)
-		}
-	}
-	if nKey != 1 {
-		t.Errorf("%d usage-key headings, want one shared group", nKey)
+	if !slices.Equal(heads, []string{headSubscriptions, headKeys}) {
+		t.Errorf("section stubs = %q, want subscriptions then API keys", heads)
 	}
 }
 
@@ -323,7 +298,7 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 	} {
 		var ran []string
 		held := func(string) (bool, bool) { return true, true }
-		_, err := applySignIn(tc.slot, tc.choice, func(argv []string) error {
+		_, err := applySignIn(streamView{}, tc.slot, tc.choice, func(argv []string) error {
 			line := strings.Join(argv, " ")
 			if i := strings.Index(line, " claude "); i >= 0 {
 				if j := strings.Index(line, " -- "); j > i {
@@ -333,6 +308,7 @@ func TestApplySignInRunsOnlySbxCommands(t *testing.T) {
 			ran = append(ran, line)
 			return nil
 		}, held)
+
 		if err != nil {
 			t.Errorf("%s %q: %v", tc.slot.Label, tc.choice, err)
 		}
@@ -362,27 +338,28 @@ func TestSignInChoiceIsReadByPosition(t *testing.T) {
 func TestApplySignInReadsTheStoreBack(t *testing.T) {
 	codex := credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}
 	ok := func([]string) error { return nil }
-	if _, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
+	if _, err := applySignIn(streamView{}, codex, signInNow, ok, func(string) (bool, bool) { return false, true }); err == nil ||
 		!strings.Contains(err.Error(), "no OAuth login for openai") {
 		t.Errorf("an empty store after the sign-in reported %v", err)
 	}
-	if _, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
+	if _, err := applySignIn(streamView{}, codex, signInNow, ok, func(string) (bool, bool) { return true, true }); err != nil {
 		t.Errorf("a stored login reported %v", err)
 	}
-	if said, err := applySignIn(codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil ||
+	if said, err := applySignIn(streamView{}, codex, signInNow, ok, func(string) (bool, bool) { return false, false }); err != nil ||
 		len(said) != 1 || said[0].Text != "codex — login unconfirmed" {
 		t.Errorf("an unreadable listing is an unconfirmed login, not a failure: %v %+v", err, said)
 	}
 	claude := credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"}
 	var ran []string
 	boom := errors.New("pull failed")
-	said, err := applySignIn(claude, signInNow, func(argv []string) error {
+	said, err := applySignIn(streamView{}, claude, signInNow, func(argv []string) error {
 		ran = append(ran, argv[1])
 		if argv[1] == "run" {
 			return boom
 		}
 		return errors.New("no such sandbox")
 	}, func(string) (bool, bool) { return true, true })
+
 	if !errors.Is(err, boom) {
 		t.Errorf("the failed sign-in reported %v, want the run's error", err)
 	}
@@ -417,13 +394,14 @@ func TestACtrlCInASignInRunsNoLaterRow(t *testing.T) {
 	}
 	var ran []string
 	rec := &initRecord{}
-	_, _, err := applyCredentials(slots, rows, func(argv []string) error {
+	_, _, err := applyCredentials(streamView{}, slots, rows, func(_ credSlot, argv []string) error {
 		ran = append(ran, argv[1])
 		if argv[1] == "run" {
 			return handOff(exec.Command("sh", "-c", "kill -INT $$"))
 		}
 		return nil
 	}, func(string) (bool, bool) { return true, true }, rec)
+
 	if !interrupted(err) {
 		t.Fatalf("applyCredentials = %v, want the Ctrl+C", err)
 	}
@@ -432,6 +410,81 @@ func TestACtrlCInASignInRunsNoLaterRow(t *testing.T) {
 	}
 	if _, notRun := rec.lines(); !slices.Equal(notRun, []string{"codex sign-in", "opencode token"}) {
 		t.Errorf("not run = %q", notRun)
+	}
+}
+
+// RUN IN PLACE: Ctrl+C on page 3's card lets the row it came on finish, then stops the run: the
+// answered rows after it read not run, and init ends stopped at credentials, by SIGINT, before page 4.
+func TestACtrlCOnPageThreeStopsAfterItsRow(t *testing.T) {
+	slots := []credSlot{
+		{Label: "codex", Kind: kindSignIn, Store: "openai", Held: true},
+		{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"},
+		{Label: "cursor", Kind: kindSignIn, Store: "cursor"},
+		{Label: "groq", Kind: kindKey, Store: "groq"},
+	}
+	rows := []choiceui.Row{
+		{Label: "codex", Options: []string{signedIn, signInAgain, signOut}, Selected: 1},
+		{Label: "claudecode", Options: []string{notSignedIn, signInNow}, Selected: 1},
+		{Label: "cursor", Options: []string{notSignedIn, signInNow}},
+		{Label: "groq", Field: true, Value: "gsk-1"},
+	}
+	v, s := onCard(3)
+	var ran []string
+	rec := &initRecord{}
+	held := func(string) (bool, bool) { return true, true }
+	_, _, err := applyCredentials(v, slots, rows, func(_ credSlot, argv []string) error {
+		ran = append(ran, strings.Join(argv[1:], " "))
+		s.cancel()
+		return nil
+	}, held, rec)
+
+	if !interrupted(err) {
+		t.Fatalf("applyCredentials = %v, want the stop", err)
+	}
+	if !slices.Equal(ran, []string{"secret set openai --oauth"}) {
+		t.Errorf("ran %q, want only the row the Ctrl+C came on", ran)
+	}
+	for _, want := range []string{"status codex ✓ signed in", "status claudecode – not run", "status groq – not run"} {
+		if !slices.Contains(s.events, want) {
+			t.Errorf("no %q among:\n%s", want, strings.Join(s.events, "\n"))
+		}
+	}
+	if slices.Contains(s.events, "status cursor – not run") {
+		t.Error("a row left as it is reads not run")
+	}
+	if _, notRun := rec.lines(); !slices.Equal(notRun, []string{"claudecode sign-in", "groq key"}) {
+		t.Errorf("not run = %q", notRun)
+	}
+
+	last, s2 := onCard(3)
+	if _, _, err := applyCredentials(last, slots[:1], rows[:1], func(credSlot, []string) error { s2.cancel(); return nil }, held, nil); !interrupted(err) {
+		t.Errorf("a Ctrl+C on the last row = %v, want the stop, so page 4 never opens", err)
+	}
+
+	out := captureUI(t)
+	rep := testReport(t, initOptions{})
+	if code, ok := exitCode(rep.close(&initRecord{}, stopAt(labelCredentials, err))); !ok || code != 130 {
+		t.Errorf("a stop on page 3 exits %d, want 130", code)
+	}
+	if got := out.String(); !strings.Contains(got, "init — stopped at "+labelCredentials) {
+		t.Errorf("the ending does not say where Ctrl+C stopped init:\n%s", got)
+	}
+}
+
+// RUN IN PLACE: a sign-in's frame names the slot, not the sandbox sbx runs it in.
+func TestASignInFrameNamesTheSlot(t *testing.T) {
+	v, s := onCard(3)
+	s.handErr = errors.New("skip the child")
+	run := credentialRun(v)
+	_ = run(credSlot{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"},
+		append([]string{sbx.Binary}, sbx.SignInArgs("anthropic", "/tmp/"+sbx.SignInSandbox+"-1")...))
+	_ = run(credSlot{Label: "codex", Kind: kindSignIn, Store: "openai"}, append([]string{sbx.Binary}, sbx.SignOutArgs("openai")...))
+	want := []string{
+		"hand sbx run claudecode ── claudecode's sign-in · page 3/4 returns when it exits",
+		"hand sbx secret rm openai ── sbx asks y/N · page 3/4 returns when it exits",
+	}
+	if got := s.with("hand "); !slices.Equal(got, want) {
+		t.Errorf("hand-offs = %q, want %q", got, want)
 	}
 }
 
@@ -484,23 +537,85 @@ func TestAnswersSurviveAStepBack(t *testing.T) {
 	}
 }
 
-// The screen opens on a field, so a pasted key never lands on a sign-in row's options.
-func TestTheScreenOpensOnTheFirstField(t *testing.T) {
-	rows := credentialRows(surveyCredentials(defs(t), nil, envOf(nil)))
-	label := firstField(rows)
-	if label == "" {
-		t.Fatal("no field to open on")
+// Q2-C: Enter counts and imports a key only this host's env holds; Skip leaves the page and stores
+// nothing, and the done row still says what sbx holds.
+func TestAnEnvOnlyKeyCountsAndSkipStoresNothing(t *testing.T) {
+	calls := isolatedInitHost(t)
+	t.Setenv("CURSOR_API_KEY", "crsr-env")
+	slots := []credSlot{
+		{Label: "claudecode", Kind: kindSignIn, Store: "anthropic"},
+		{Label: "cursor", Kind: kindKey, Store: "cursor", EnvVars: []string{"CURSOR_API_KEY"}},
+		{Label: "groq", Kind: kindKey, Store: "groq"},
 	}
-	for _, r := range rows {
-		if r.Label == label {
-			if !r.Field {
-				t.Errorf("%q opens on a sign-in row, not a field", label)
-			}
-			break
-		}
+	rows := credentialRows(slots)
+	if got := answeredSlots(slots, rows, 0); !slices.Equal(got, []string{"cursor key"}) {
+		t.Errorf("Enter runs %q, want the env-only import alone", got)
 	}
-	shared := []choiceui.Row{{Label: "cursor", Options: []string{notSignedIn}}, {Label: "cursor", Field: true}, {Label: "groq", Field: true}}
-	if got := firstField(shared); got != "groq" {
-		t.Errorf("firstField = %q, want groq: StartRow matches the first row with a label, so cursor would land on the sign-in row", got)
+	if r := rows[1]; !r.Warn || r.Placeholder != "this host's env only — Enter to import" {
+		t.Errorf("the env-only row = %+v, want ! and its import placeholder", r)
+	}
+	did, _, err := applyCredentials(streamView{}, slots, rows, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := did[slotKey(slots[1])]; d.mark != choiceui.MarkDone || d.outcome != "key imported from this host's env" {
+		t.Errorf("the import reads %+v", d)
+	}
+	if b, _ := os.ReadFile(calls); !strings.Contains(string(b), "secret set --force cursor") {
+		t.Errorf("Enter did not store the env key; sbx saw:\n%s", b)
+	}
+
+	if err := os.WriteFile(calls, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep := testReport(t, initOptions{})
+	s := newFakeSession(choiceui.Skipped)
+	v := newCardView(s)
+	res, done, err := credentialStage(initOptions{}, initStepAt(3), map[string]string{}, &initRecord{}, rep, cardPage{view: v})
+	if err != nil || res != stepNext {
+		t.Fatalf("Skip = %v, %v", res, err)
+	}
+	if f := s.asked[0]; f.Skip != "Skip" {
+		t.Errorf("page 3 lost its Skip button: %q", f.Skip)
+	}
+	if b, _ := os.ReadFile(calls); strings.Contains(string(b), "secret set") || strings.Contains(string(b), "run ") {
+		t.Errorf("Skip stored or signed in; sbx saw:\n%s", b)
+	}
+	if done.mark != choiceui.MarkLater || !strings.HasSuffix(done.outcome, " not held") || rep.creds == nil {
+		t.Errorf("Skip's done row = %+v (creds %v), want – with what sbx holds", done, rep.creds)
+	}
+}
+
+// The cursor opens on page 3's top row with an answer, the first sign-in, not on the first field.
+func TestTheCursorOpensOnTheTopRowWithAnAnswer(t *testing.T) {
+	slots := surveyCredentials(defs(t), nil, envOf(nil))
+	f := credentialForm(initStepAt(3), credentialRows(slots), framesDone(3), false)
+	if f.StartRow != "" {
+		t.Errorf("page 3 opens on %q; it opens on its top row", f.StartRow)
+	}
+	f.Glyphs = choiceui.GlyphsNerd
+	frame := f.Render(120, 40)
+	if !regexp.MustCompile(`(?m)^│ › ` + regexp.QuoteMeta(slots[0].Label) + `\s+\(•\) not signed in`).MatchString(frame) {
+		t.Errorf("the cursor does not open on %s, the top row:\n%s", slots[0].Label, frame)
+	}
+}
+
+// A sign-in sbx cannot run from init (cursor's) reads not signed in on its row, with how to sign in
+// under it, never signed in.
+func TestASignInInitCannotRunReadsNotSignedIn(t *testing.T) {
+	slots := []credSlot{{Label: "cursor", Kind: kindSignIn, Store: "cursor"}}
+	rows := []choiceui.Row{{Label: "cursor", Options: []string{notSignedIn, signInNow}, Selected: 1}}
+	did, items, err := applyCredentials(streamView{}, slots, rows, func(credSlot, []string) error {
+		t.Error("init ran a sign-in sbx has no command for")
+		return nil
+	}, func(string) (bool, bool) { return false, true }, nil)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("applyCredentials = %v, items %+v", err, items)
+	}
+	if d := did[slotKey(slots[0])]; d.mark != choiceui.MarkNeeds || d.outcome != notSignedIn || len(d.detail) != 1 || !strings.HasPrefix(d.detail[0], "sign in with ") {
+		t.Errorf("the row reads %+v, want ! not signed in with how to sign in under it", d)
+	}
+	if d := heldDone(slots, did); d.mark != choiceui.MarkDone || d.outcome != "0 held · 1 not held" {
+		t.Errorf("page 3's done row = %+v, want no failure counted for a row that did not fail", d)
 	}
 }

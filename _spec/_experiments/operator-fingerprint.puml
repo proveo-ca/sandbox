@@ -3,14 +3,14 @@
 skinparam noteTextAlignment left
 ' purpose: EXPERIMENT — ssh-sk for the HUMAN operator, verified by proveo; the agent and cascade halves are deferred
 ' status: proposed 2026-09-09, not implemented; nothing in src depends on this file
-' would touch: internal/gitidentity/** (Identity, Resolve — a CLAIM today)
+' would touch: internal/gitaccess/identity*.go (Identity, ResolveIdentity — a CLAIM today)
 ' would touch: internal/sbx/secret.go (SecretSetArgs), internal/backend/sandbox/sandbox.go (agentCredentials)
-' would touch: internal/credentials/keychain.go, internal/secretref/secretref.go
+' would touch: internal/credentials/keychain.go, internal/credentials/secretref.go
 '   the blocker this answers ..... _spec/_plans/host-held-provider-keys.puml (provenance)
 '   why the store cannot answer it _spec/internal/sbx/kit-sandbox-credential-gap.puml
 '   what the agent may hold ...... _spec/_paradigms/credential-boundary.puml
-'   the claim it would attest .... _spec/internal/gitidentity/authorship.puml
-'   where a secret rests ......... _spec/internal/secretref/secret-references.puml
+'   the claim it would attest .... _spec/internal/gitaccess/authorship.puml
+'   where a secret rests ......... _spec/internal/credentials/secret-references.puml
 '   the custody ledger ........... _spec/_plans/secret-custody.puml
 '   the transcript this would bind _spec/internal/sbx/sandbox-backend.puml (runlog)
 ' would touch: internal/runlog/runlog.go, internal/run/helpers.go (StateDir)
@@ -326,7 +326,7 @@ skinparam noteTextAlignment left
 ' ── WHAT THIS REPO ALREADY CLAIMS AND CANNOT PROVE ──────────────────────────
 ' Every commit in this tree carries `Co-Authored-By: Claude Opus 5
 ' <noreply@anthropic.com>`. That is an assertion of agent authorship, written by
-' the agent, in a trailer anyone can type. And `gitidentity.Resolve` produces a
+' the agent, in a trailer anyone can type. And `gitaccess.ResolveIdentity` produces a
 ' name and email by precedence over the environment and git config: a CLAIM,
 ' resolved, never attested.
 '

@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
@@ -100,10 +99,10 @@ func TestTheScopePageOpensOnTheRepoRootOrWhereAnEarlierVisitLeftIt(t *testing.T)
 
 func TestAgentExitDiscrimination(t *testing.T) {
 	t.Parallel()
-	var ae backend.ExitError
+	var ae sandbox.ExitError
 
-	if !errors.As(error(backend.ExitError{Code: 42}), &ae) || ae.Code != 42 {
-		t.Errorf("backend.ExitError must match itself and carry the code, got %+v", ae)
+	if !errors.As(error(sandbox.ExitError{Code: 42}), &ae) || ae.Code != 42 {
+		t.Errorf("sandbox.ExitError must match itself and carry the code, got %+v", ae)
 	}
 
 	// A real wrapped ExitError, as a failed `docker pull` produces.
@@ -450,7 +449,7 @@ func TestRemediationHintsRunInEveryShell(t *testing.T) {
 	// A quoted hint that assigns an env var immediately before a command word,
 	// with no `env` in front of it.
 	bad := regexp.MustCompile(`[^a-zA-Z_](HOME|PATH|ANTHROPIC_[A-Z_]+|CLAUDE_[A-Z_]+)=%?[^ "]* +(claude|cursor|opencode|proveo|sbx)\b`)
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		if !strings.Contains(line, `"`) {
 			continue // only user-facing string literals matter
 		}
@@ -583,16 +582,19 @@ func TestSessionAliveReadsThePidFromTheSessionID(t *testing.T) {
 	}
 }
 
-// An init a Ctrl+C in a handed-off program stopped ends proveo by SIGINT once its blocks printed,
-// so a shell waiting on it, such as install.sh's, stops too.
+// A Ctrl+C in sbx setup, which runs after the result, ends proveo by SIGINT once the verdict
+// printed, so a shell waiting on it, such as install.sh's, stops too.
 func TestAnInitACtrlCStoppedDiesOfSIGINT(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no signal to re-raise")
 	}
 	if os.Getenv("PROVEO_TEST_DIE_OF_SIGINT") == "1" {
+		isolatedInitHost(t)
+		t.Setenv("STUB_SETUP_INT", "1")
 		rep := testReport(t, initOptions{})
-		rep.sbxSaid = true
-		exitWith(rep.close(&initRecord{}, stepErr{label: rowWizard, err: handoffErr{err: errors.New("signal: interrupt"), interrupted: true}}))
+		rep.ready, rep.asked, rep.wizard = true, askedOnPages, true
+		rep.probe = func() (sbx.SetupOffer, error) { return sbx.SetupOffer{EnvOnly: 1, Known: true}, nil }
+		exitWith(rep.close(&initRecord{}, nil))
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$")
@@ -605,7 +607,7 @@ func TestAnInitACtrlCStoppedDiesOfSIGINT(t *testing.T) {
 	if ws, ok := exit.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
 		t.Errorf("the stopped init ended with %v, want death by SIGINT:\n%s", exit, out)
 	}
-	if !strings.Contains(string(out), "init — stopped at sbx setup") {
+	if !regexp.MustCompile(`(?m)^warn: sbx setup — stopped · Ctrl\+C ended it\n\nok: host — ready to run$`).Match(out) {
 		t.Errorf("the stopped init died before its result printed:\n%s", out)
 	}
 }
@@ -617,12 +619,12 @@ func TestExitCodeIsTheAgentsOrTheStoppingSignals(t *testing.T) {
 		want   int
 		wantOK bool
 	}{
-		{"the agent's own code", fmt.Errorf("run: %w", backend.ExitError{Code: 137}), 137, true},
-		{"a SIGTERM stop", fmt.Errorf("run: %w", backend.Stopped{Signal: syscall.SIGTERM}), 143, true},
-		{"a SIGHUP stop", backend.Stopped{Signal: syscall.SIGHUP}, 129, true},
-		{"a teardown the operator left", backend.Stopped{Signal: syscall.SIGINT}, 130, true},
+		{"the agent's own code", fmt.Errorf("run: %w", sandbox.ExitError{Code: 137}), 137, true},
+		{"a SIGTERM stop", fmt.Errorf("run: %w", sandbox.Stopped{Signal: syscall.SIGTERM}), 143, true},
+		{"a SIGHUP stop", sandbox.Stopped{Signal: syscall.SIGHUP}, 129, true},
+		{"a teardown the operator left", sandbox.Stopped{Signal: syscall.SIGINT}, 130, true},
 		{"proveo's own failure", errors.New("no sbx"), 0, false},
-		{"a failure the results block already printed", backend.Reported{Err: errors.New("sbx setup ssh: exit status 1")}, 1, true},
+		{"a failure the results block already printed", sandbox.Reported{Err: errors.New("sbx setup ssh: exit status 1")}, 1, true},
 	} {
 		if got, ok := exitCode(c.err); got != c.want || ok != c.wantOK {
 			t.Errorf("exitCode(%s) = %d, %v; want %d, %v", c.name, got, ok, c.want, c.wantOK)

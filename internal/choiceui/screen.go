@@ -32,6 +32,21 @@ func (s *screen) put(x, y int, st lipgloss.Style, text string) {
 	s.runs = append(s.runs, run{x, y, st, text})
 }
 
+// dim redraws every run put so far in the faint style.
+func (s *screen) dim() {
+	faint := lipgloss.NewStyle().Faint(true)
+	for i := range s.runs {
+		s.runs[i].st = faint
+	}
+}
+
+// paste puts every run of src with its top-left corner at column x0 of row y0.
+func (s *screen) paste(src *screen, x0, y0 int) {
+	for _, r := range src.runs {
+		s.put(r.x+x0, r.y+y0, r.st, r.text)
+	}
+}
+
 // view composes the runs, in the order they were put, into the frame's string.
 func (s *screen) view() string {
 	layers := make([]*lipgloss.Layer, len(s.runs))

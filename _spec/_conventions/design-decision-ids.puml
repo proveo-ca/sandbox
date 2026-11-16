@@ -13,8 +13,9 @@
 ' three were DELETED 2026-10-16 with the docker+egress backend ("Retire Docker
 ' egress"). D1, D3, F1, F2, C1, C2, C4 and C7 therefore have no live citing
 ' code: their entries stay so an old citation, a commit message or a
-' reviewer's memory still resolves. D4's subject, internal/runner's argv
-' formatter, is deleted too; the package holds only `type Mount`.
+' reviewer's memory still resolves. D4's subject, the runner package's argv
+' formatter, is deleted too; its last type, Mount, moved into internal/workspace
+' on 2026-11-15 (_spec/_plans/codebase-compression.puml P10, F7).
 title Design decision ids — recovered from the source that cites them
 
 node "D-series — structural decisions\nwhere a thing lives and how it is extended" as DS <<host>> {
@@ -132,7 +133,7 @@ note right of D3
 end note
 
 note right of D4
-  **""internal/runner"" stays a pure argv formatter.** Mount planning lives
+  **The runner package stayed an argv formatter.** Mount planning lives
   in ""internal/workspace"", beside the git-scope resolver that decides what
   to mount — not in the package that renders flags. Execution is the
   caller's concern, which is what keeps the argv golden-testable.

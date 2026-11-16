@@ -39,7 +39,7 @@
 ' a pass-through one beside its stub CLI.
 '   seed step order ............... _spec/packages/lib/seed-and-launch.puml
 '   live e2e per def .............. _spec/tests/44-git-sync-turn-e2e.puml
-'   git identity .................. _spec/internal/gitidentity/authorship.puml
+'   git identity .................. _spec/internal/gitaccess/authorship.puml
 ' Notes are capped at 5 lines x 50 columns; one idea per anchor.
 ' Register: manual normalized word/syllable counts; two sentences per rewritten note.
 ' FK: note right of HOOK; words=30 syllables=55; FK 11.9

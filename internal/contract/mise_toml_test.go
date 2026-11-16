@@ -83,7 +83,7 @@ func (m *miseTable) str(key string) string { return m.fields[key].text() }
 // code is the table's source text minus its description line.
 func (m *miseTable) code() string {
 	var keep []string
-	for _, line := range strings.Split(m.body, "\n") {
+	for line := range strings.SplitSeq(m.body, "\n") {
 		if !strings.HasPrefix(line, "description =") {
 			keep = append(keep, line)
 		}
@@ -144,7 +144,7 @@ var usageQuoted = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
 
 // choices lists the words of the usage spec's choices line.
 func (m *miseTable) choices() []string {
-	for _, line := range strings.Split(m.str("usage"), "\n") {
+	for line := range strings.SplitSeq(m.str("usage"), "\n") {
 		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "choices ")
 		if !ok {
 			continue
@@ -196,7 +196,7 @@ func trackedFilesIn(root string, env []string) ([]string, error) {
 		return nil, err
 	}
 	var files []string
-	for _, rel := range strings.Split(string(out), "\x00") {
+	for rel := range strings.SplitSeq(string(out), "\x00") {
 		if rel == "" {
 			continue
 		}

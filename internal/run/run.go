@@ -13,21 +13,16 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/envflag"
+	"github.com/proveo-ca/proveo/internal/gitaccess"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
 	"github.com/proveo-ca/proveo/internal/agentsettings"
-	"github.com/proveo-ca/proveo/internal/backend"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
-	"github.com/proveo-ca/proveo/internal/githubaccess"
-	"github.com/proveo-ca/proveo/internal/gitidentity"
 	"github.com/proveo-ca/proveo/internal/hermesdesktop"
-	"github.com/proveo-ca/proveo/internal/hostadb"
-	"github.com/proveo-ca/proveo/internal/hostcdp"
 	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/operator"
 	"github.com/proveo-ca/proveo/internal/posture"
 	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/provider"
@@ -272,7 +267,7 @@ func runOnEnter(p *Params, ws workspace.MountSpec) []string {
 // the form returns to the scope page with the cursor where it was left.
 // SPEC: _spec/internal/run/run-spec.puml
 func choosePages(rs *Spec, p *Params, d Deps) error {
-	gate := scopeGate(p, agentio.IsStdinTTY(), agentio.WizardEnabled(), scheduled())
+	gate := scopeGate(p, agentsettings.IsStdinTTY(), agentsettings.WizardEnabled(), scheduled())
 	var projs []workspace.Project
 	if strings.Trim(p.Scope, "/") == "" && gate != scopeSilent && rs.Workspace.Scope.IsRepo {
 		projs = workspace.DiscoverProjects(rs.Workspace.RepoRoot)
@@ -320,11 +315,11 @@ func walkPages(rs *Spec, p *Params, gate scopeChoice, projs []workspace.Project,
 // detectWorkspace finds, once, what the run stands on: the access settings, the
 // repository and the output directory.
 func detectWorkspace(rs *Spec, p *Params) error {
-	path, err := githubaccess.Path()
+	path, err := gitaccess.Path()
 	if err != nil {
 		return fmt.Errorf("GitHub access settings: %w", err)
 	}
-	access, err := githubaccess.Load(path)
+	access, err := gitaccess.Load(path)
 	if err != nil {
 		return fmt.Errorf("GitHub access settings: %w", err)
 	}
@@ -402,11 +397,11 @@ func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 	if err != nil {
 		settingsWarning("cached settings — unreadable, not used", err, p.PrintOnly)
 	}
-	rs.Choices.Promptable = cacheApplies(p.PrintOnly, agentio.IsStdinTTY())
+	rs.Choices.Promptable = cacheApplies(p.PrintOnly, agentsettings.IsStdinTTY())
 	if err := p.applyCapabilities(rs.Man); err != nil {
 		return err
 	}
-	if rs.Choices.Promptable || (p.PrintOnly && scheduled() && agentio.WizardEnabled()) {
+	if rs.Choices.Promptable || (p.PrintOnly && scheduled() && agentsettings.WizardEnabled()) {
 		if cached, ok := rs.Choices.Settings.Lookup(p.Target, rs.Man.Capabilities); ok {
 			p.seedFromCache(cached, rs.Creds.Lookup, rs.Choices.EvidenceSet)
 		}
@@ -492,19 +487,19 @@ func startHostCDP(p *Params) ([]string, ui.Fact, []sandbox.Item, error) {
 	if !hasAddon(p.Addons, addonHostCDP) {
 		return nil, ui.Fact{}, nil, nil
 	}
-	port, err := hostcdp.Port(os.Getenv)
+	port, err := hostdev.CDPPort(os.Getenv)
 	if err != nil {
 		return nil, ui.Fact{}, nil, err
 	}
 	var fact ui.Fact
 	if p.PrintOnly {
-		profile, _ := hostcdp.ProfileDir(p.Target)
+		profile, _ := hostdev.ProfileDir(p.Target)
 		fact = ui.Fact{Role: ui.RoleHost, Key: "chrome", Value: "not started in print mode",
 			Detail: []string{fmt.Sprintf("CDP 127.0.0.1:%d · profile %s", port, profile)}}
 	} else {
-		var opened hostcdp.Opened
+		var opened hostdev.Opened
 		if err := startAddon(addonHostCDP, func(report func(string, ...any)) (err error) {
-			opened, err = hostcdp.Ensure(p.Target, port, report)
+			opened, err = hostdev.EnsureCDP(p.Target, port, report)
 			return err
 		}); err != nil {
 			return nil, ui.Fact{}, nil, fmt.Errorf("%s: %w", addonHostCDP, err)
@@ -513,11 +508,11 @@ func startHostCDP(p *Params) ([]string, ui.Fact, []sandbox.Item, error) {
 	}
 	items := []sandbox.Item{{Warn: true, Text: addonHostCDP + " — the agent controls every tab and session in that browser",
 		Detail: []string{"log into only what it should touch"}}}
-	return []string{fmt.Sprintf("%s=%d", hostcdp.EnvPort, port)}, fact, items, nil
+	return []string{fmt.Sprintf("%s=%d", hostdev.EnvCDPPort, port)}, fact, items, nil
 }
 
 // chromeFact is the host browser on CDP port: the one the run opened and its profile, or a reused one.
-func chromeFact(o hostcdp.Opened, port int) ui.Fact {
+func chromeFact(o hostdev.Opened, port int) ui.Fact {
 	at := fmt.Sprintf("CDP 127.0.0.1:%d", port)
 	if o.Browser == "" {
 		return ui.Fact{Role: ui.RoleHost, Key: "chrome", Value: at + " (reused)"}
@@ -531,14 +526,14 @@ func startHostADB(p *Params) ([]string, ui.Fact, []sandbox.Item, error) {
 	if !hasAddon(p.Addons, addonAndroid) {
 		return nil, ui.Fact{}, nil, nil
 	}
-	port, err := hostadb.Port(os.Getenv)
+	port, err := hostdev.ADBPort(os.Getenv)
 	if err != nil {
 		return nil, ui.Fact{}, nil, err
 	}
-	var dev hostadb.Started
+	var dev hostdev.Started
 	if !p.PrintOnly {
 		if err := startAddon(addonAndroid, func(report func(string, ...any)) (err error) {
-			dev, err = hostadb.Ensure(os.Getenv, port, report)
+			dev, err = hostdev.EnsureADB(os.Getenv, port, report)
 			return err
 		}); err != nil {
 			return nil, ui.Fact{}, nil, fmt.Errorf("%s: %w", addonAndroid, err)
@@ -546,11 +541,11 @@ func startHostADB(p *Params) ([]string, ui.Fact, []sandbox.Item, error) {
 	}
 	items := []sandbox.Item{{Warn: true, Text: addonAndroid + " — the agent controls every device on that adb server",
 		Detail: []string{"the server dials any address it is told to from this host, outside sbx egress"}}}
-	return hostadb.GuestEnv(port), androidFact(dev, port), items, nil
+	return hostdev.GuestEnv(port), androidFact(dev, port), items, nil
 }
 
 // androidFact is the device on the host adb server: the AVD the run booted, a device it reused, or none under --print.
-func androidFact(dev hostadb.Started, port int) ui.Fact {
+func androidFact(dev hostdev.Started, port int) ui.Fact {
 	f := ui.Fact{Role: ui.RoleHost, Key: addonAndroid, Value: "not started in print mode",
 		Detail: []string{fmt.Sprintf("adb server 127.0.0.1:%d", port)}}
 	switch {
@@ -703,7 +698,7 @@ func homeSeen(h manifest.Home) string {
 }
 
 // askOnTerminal reports whether the run may prompt the operator on the terminal; tests replace it.
-var askOnTerminal = func() bool { return agentio.IsStdinTTY() && agentio.WizardEnabled() }
+var askOnTerminal = func() bool { return agentsettings.IsStdinTTY() && agentsettings.WizardEnabled() }
 
 // credentialGaps names what satisfies a subscription harness's missing variables, or prompts
 // for or warns about each required variable no credential covers.
@@ -820,7 +815,7 @@ func stageCloneEnv(rs *Spec, p *Params) string {
 	}
 	path, dropped, err := credentials.StageProjectEnv(src, dir, strip)
 	if err == nil {
-		err = copyFile0600(path, filepath.Join(rs.RunDir, "sbx", "project-env.base"))
+		err = sandbox.CopyFile(path, filepath.Join(rs.RunDir, "sbx", "project-env.base"), 0o600)
 	}
 	if err != nil {
 		rs.Workspace.Items = append(rs.Workspace.Items, sandbox.Item{Warn: true, Text: ".env — not staged, the agent runs without it",
@@ -830,14 +825,6 @@ func stageCloneEnv(rs *Spec, p *Params) string {
 	rs.Backend.CloneEnvBase = filepath.Join(rs.RunDir, "sbx", "project-env.base")
 	rs.Backend.CloneEnvHost, rs.Backend.CloneStrip, rs.Backend.CloneDropped = src, strip, dropped
 	return path
-}
-
-func copyFile0600(src, dst string) error {
-	b, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, b, 0o600)
 }
 
 func cloneOffHint(whyOff string) string {
@@ -944,7 +931,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 	rs.Desktop = ui.Fact{}
 	rs.Interface = append(rs.Interface, adbItems...)
 	agentEnv := append(append([]string{}, cdpEnv...), adbEnv...)
-	agentEnv = append(agentEnv, operator.Env(proveohome.Root(os.Getenv))...)
+	agentEnv = append(agentEnv, proveohome.OperatorEnv(proveohome.Root(os.Getenv))...)
 	if rs.Model.HostLLM {
 		agentEnv = append(agentEnv, sbx.LocalModelEnv(servedModel)...)
 		agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
@@ -984,7 +971,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Mounts:           rs.Workspace.Mounts,
 		Lookup:           rs.Creds.Lookup,
 		Detected:         rs.Creds.Detected,
-		GitEnv:           gitidentity.Resolve(os.Getenv, nil).EnvPairs(),
+		GitEnv:           gitaccess.ResolveIdentity(os.Getenv, nil).EnvPairs(),
 		HomeEnv:          rs.Creds.HomePlan.Env,
 		ScopeRel:         rs.Workspace.WS.ScopeRel(),
 		WorktreeFallback: rs.Workspace.WS.WorktreeLinkDir == "",
@@ -1051,9 +1038,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 }
 
 func realPathOf(p string) string {
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		p = r
-	}
+	p = workspace.RealPath(p)
 	if a, err := filepath.Abs(p); err == nil {
 		return a
 	}
@@ -1135,8 +1120,8 @@ func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay i
 // and the log closes.
 // exitStatus is the process status err leads to: the agent's own, 128+signal for a stop, else 1.
 func exitStatus(err error) int {
-	var ae backend.ExitError
-	var st backend.Stopped
+	var ae sandbox.ExitError
+	var st sandbox.Stopped
 	switch {
 	case err == nil:
 		return 0
@@ -1149,7 +1134,7 @@ func exitStatus(err error) int {
 }
 
 func recordOutcome(launched bool, err error) {
-	var ae backend.ExitError
+	var ae sandbox.ExitError
 	switch {
 	case err == nil && !launched:
 		ui.Logf("outcome: no agent was launched")

@@ -15,8 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	proveo "github.com/proveo-ca/proveo"
-	"github.com/proveo-ca/proveo/internal/agentio"
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -80,14 +79,14 @@ func exitWith(err error) {
 }
 
 // reraised is a stop proveo ends by its own signal once it printed its blocks.
-type reraised struct{ backend.Stopped }
+type reraised struct{ sandbox.Stopped }
 
 func (r reraised) Unwrap() error { return r.Stopped }
 
 // reported prints it, under no heading, and returns err as one main prints nothing for.
 func reported(it sandbox.Item, err error) error {
 	sandbox.PrintBlock(func() {}, nil, []sandbox.Item{it})
-	return backend.Reported{Err: err}
+	return sandbox.Reported{Err: err}
 }
 
 // noArgs refuses an argument with one ×, naming the nearest subcommand or the command's help.
@@ -147,15 +146,15 @@ func rootCmd() *cobra.Command {
 
 // exitCode is the status err carries: the agent's own, or 128+signal for a stopped run.
 func exitCode(err error) (int, bool) {
-	var ae backend.ExitError
+	var ae sandbox.ExitError
 	if errors.As(err, &ae) {
 		return ae.Code, true
 	}
-	var st backend.Stopped
+	var st sandbox.Stopped
 	if errors.As(err, &st) {
 		return st.Code(), true
 	}
-	var rp backend.Reported
+	var rp sandbox.Reported
 	if errors.As(err, &rp) {
 		return 1, true
 	}
@@ -391,7 +390,7 @@ the repo it read, and stdout stays empty.`,
 
 // pickProject asks for the run's scope; ok is false when the operator closed the page.
 func pickProject(ask run.ScopeAsk, in io.Reader, out io.Writer) (scope string, ok bool) {
-	if agentio.IsReaderTTY(in) {
+	if agentsettings.IsReaderTTY(in) {
 		return scopePageAnswer(scopePage(ask).Run())
 	}
 	return pickProjectNumbered(ask.Projects, in, out), true

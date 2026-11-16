@@ -33,7 +33,6 @@ func TestProveoHomePersistence(t *testing.T) {
 			{"codex", ".codex"},
 		}
 		for _, a := range agents {
-			a := a
 			t.Run(a.target, func(t *testing.T) {
 				t.Parallel()
 				home := t.TempDir()
@@ -241,7 +240,7 @@ func runPrintWithHome(t *testing.T, proveoBin, home, target string, extra ...str
 }
 
 func hasSbxWorkspace(argv, host string) bool {
-	for _, f := range strings.Fields(argv) {
+	for f := range strings.FieldsSeq(argv) {
 		path, _, _ := strings.Cut(f, ":")
 		if path == host {
 			return true
@@ -252,7 +251,7 @@ func hasSbxWorkspace(argv, host string) bool {
 
 // mountsOver reports whether any absolute workspace path in argv is path or a parent of it.
 func mountsOver(argv, path string) bool {
-	for _, f := range strings.Fields(argv) {
+	for f := range strings.FieldsSeq(argv) {
 		ws, _, _ := strings.Cut(f, ":")
 		if filepath.IsAbs(ws) && pathWithin(path, ws) {
 			return true

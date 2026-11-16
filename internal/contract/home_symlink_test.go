@@ -10,7 +10,7 @@ import (
 // tripping the guard that enforces it.
 func commentFree(body string) string {
 	var kept []string
-	for _, l := range strings.Split(body, "\n") {
+	for l := range strings.SplitSeq(body, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(l), "#") {
 			continue
 		}
@@ -27,8 +27,8 @@ var aliasPaths = map[string]bool{
 func chownTargets(body string) map[string][]string {
 	out := map[string][]string{}
 	joined := strings.ReplaceAll(body, "\\\n", " ")
-	for _, line := range strings.Split(joined, "\n") {
-		for _, seg := range strings.Split(line, "&&") {
+	for line := range strings.SplitSeq(joined, "\n") {
+		for seg := range strings.SplitSeq(line, "&&") {
 			fields := strings.Fields(seg)
 			// Skip the RUN/COPY keyword so `RUN chown …` is seen.
 			if len(fields) > 0 && (fields[0] == "RUN" || fields[0] == "COPY") {

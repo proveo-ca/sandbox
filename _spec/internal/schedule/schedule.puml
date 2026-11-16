@@ -15,7 +15,17 @@ skinparam noteTextAlignment left
 ' covers: e2e/schedule_test.go
 ' covers: internal/run/choices.go (resolveAddonFlags), internal/run/params.go (AddonsSet, Yes)
 ' covers: internal/backend/sandbox/stop_signal_test.go
-'   the Glimmer early stop this works around ... _spec/_experiments/sbx-host-inference.puml
+'   the screen vocabulary these lines use ...... _spec/internal/ui/output-vocabulary.puml
+'   NO TTY (A QUESTION INIT COULD NOT ASK) ..... _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   R3 HAND-OFF FAILURE ........................ _spec/cmd/proveo/init-sbx-bootstrap.puml
+'   R3's QUIT .................................. _spec/cmd/proveo/init-preflight-and-result.puml
+'
+' ── THE TMUX DRIVER LIVES HERE (DECIDED 2026-11-15) ────────────────────────
+' DECIDED 2026-11-15 (owner: "the 8 uncontested"; codebase-compression.puml
+' P11, F3 option 1): tmux.go, imported by this package and the e2e suite,
+' folds into internal/schedule. Its names say tmux: NewTmux, TmuxSession,
+' TmuxRunner (the service-manager Runner stays), TmuxAvailable, TmuxEnv.
+' driving-a-tty.puml (this directory) keeps why e2e drives a real TTY.
 '
 ' ── WHY NOT A PLAIN CRON (2026-09-27) ──────────────────────────────────────
 ' Every harness is a TUI. cron/launchd give no TTY, so proveo's choice form,
@@ -23,7 +33,7 @@ skinparam noteTextAlignment left
 ' on a TTY QUEUES the text as a user message; on a non-TTY it is --oneshot, one
 ' turn and exit, and hermes runs goal loops in -q only for kanban workers. So
 ' the goal has to be TYPED into the running TUI — which needs a terminal proveo
-' owns. internal/tmux already drives TUIs for the e2e suite.
+' owns. tmux.go (this package) already drives TUIs for the e2e suite.
 '
 ' ── SHAPE ──────────────────────────────────────────────────────────────────
 '   launchd (macOS) / systemd --user timer (Linux) → `proveo schedule tick` every 60 s
@@ -43,7 +53,7 @@ skinparam noteTextAlignment left
 '          write <stamp>.json {outcome: ended|budget|not-ready|failed} and notify
 ' One session per job: a tick that finds the session still up skips it.
 '
-' ── WHAT THE LISTING PRINTS (2026-11-11, R4 of _spec/_plans/output-readability.puml)
+' ── WHAT THE LISTING PRINTS (2026-11-11, R4) ───────────────────────────────
 ' `proveo schedule` (or `ls`) draws no heading: ONE ui.Facts block keyed by job,
 ' scheduler role, soonest first, then a × item per failed job, then ONE closing
 ' line for the tick, printed last:
@@ -65,7 +75,8 @@ skinparam noteTextAlignment left
 ' running value; each later run stacks under it (P3, the operator's "stack each
 ' run"); the job's target · model · mode · budget and "last <when> <outcome>
 ' [· <summary>]" sit dim two columns past the last stacked value, or under the
-' value when nothing stacks. A failed job's × says its last run, so no "last"
+' value when nothing stacks. NOT CHOSEN: one dim "then …" line for the later
+' runs. A failed job's × says its last run, so no "last"
 ' line repeats it. "idle", "-", "last never", ▸, the entry column ("mon 18:50")
 ' and the transcripts row are gone (P8, P9); the transcripts folder is in
 ' `proveo schedule --help`.
@@ -82,6 +93,8 @@ skinparam noteTextAlignment left
 ' job's VALUE, the first thing after its name: 2026-10-04 a live
 ' muse-lineup-refine showed only the word "running" mid-line, beside a "last …
 ' done" from Oct 1, and read as idle; position, not a caller colour, fixes it.
+' KNOWN: a run far past its budget stays a grey running value. The watcher's
+' budget-stop ladder ends it within minutes, so no ⚠ was added.
 ' THE TICK LINE (one state reads one way here and in `schedule install`):
 '   ✓ tick — installed            dim the manager ("launchd io.proveo.schedule,
 '                                 every 60s" / "systemd --user …, every minute")
@@ -101,7 +114,9 @@ skinparam noteTextAlignment left
 ' stderr and stdout stays empty (_spec/cmd/proveo/usage.puml). Both exit 0, and
 ' the tick with no schedule.yml finds nothing due, logs nothing and exits 0, so
 ' a ⚠ "last run exited N" always means a real failure (the operator, "both exit
-' 0"). An invalid file is "× <~file> — not valid" with the reason dim, exit 1.
+' 0"). NOT CHOSEN: the listing exits 0 and the tick 1; both exit 1, as
+' before R4.
+' An invalid file is "× <~file> — not valid" with the reason dim, exit 1.
 ' A stray argument to schedule, ls, tick, install or uninstall is ignored and
 ' a mistyped subcommand lists, as at HEAD: R4 changes no argument rule.
 ' covers: internal/schedule/table.go, internal/schedule/table_test.go
@@ -132,7 +147,7 @@ skinparam noteTextAlignment left
 '   × <job> — its last run did not fail `proveo schedule run <job>` starts it again
 '   × <job> — no such job               jobs: <names>
 '   × <job> — already running           `proveo attach <job>` opens it
-'   × <job> — its tmux session did not start   tmux's own words (tmux.Session.Start)
+'   × <job> — its tmux session did not start   tmux's own words (TmuxSession.Start)
 '   × <job> — not started               any other launch error, home paths as ~/
 '   × <~file> — not found               `proveo schedule --help` shows its format
 ' The tick log names a skipped job once: "… tick: <job> (<entry>): still
@@ -271,7 +286,7 @@ skinparam noteTextAlignment left
 '   stopAgent returns "<why>; the agent had already exited" when the pinned
 '             session is gone before the first key, and sends nothing
 ' So a watcher only ever reads, types into or kills the session it launched with.
-' covers: internal/tmux/tmux.go (Pin, Alive)
+' covers: internal/schedule/tmux.go (Pin, Alive)
 '
 ' ── ATTACH ─────────────────────────────────────────────────────────────────
 '   proveo attach [task] [-r|--read-only]
@@ -284,7 +299,9 @@ skinparam noteTextAlignment left
 '                        keyed by task, valued with THE RUNNING VALUE above,
 '                        on stdout; then ONE dim how-to on stderr, "`proveo
 '                        attach <task>` opens one" (NO TTY: the picker's
-'                        question could not be asked)
+'                        question could not be asked). stderr keeps attach's
+'                        stdout to its rows alone. NOT CHOSEN: the how-to on
+'                        stdout after the block
 '   picker closed        "⚠ attach — no task selected", exit 1, Reported
 '                        (R3's QUIT: the operator's choice; the run and
 '                        harness pickers still end on main's ×)
@@ -297,6 +314,9 @@ skinparam noteTextAlignment left
 '   × <task> — no such job              dim "jobs: …" (the schedule's refusal)
 '   × ~/.proveo/schedule.yml — not found  dim "`proveo schedule --help` shows
 '                                       its format"
+'   attach reuses the schedule's refusal for a job schedule.yml lacks and for
+'   a missing or invalid file: one wording per error type. NOT CHOSEN: "no
+'   such task".
 '   "`proveo schedule` shows its last run" moved to attach's --help.
 ' Before tmux runs: `tmux attach` with no terminal on stdin is "× <task> —
 ' not attached", dim "tmux needs a terminal" (switch-client needs none).
@@ -314,7 +334,9 @@ skinparam noteTextAlignment left
 '                        item, "● tmux — nested read-only client", dim "the
 '                        prefix twice, then d, detaches" (the operator, R4
 '                        ATTACH NESTED: an exception to the HOW-TO rule
-'                        beside R2's "Ctrl+C again leaves now")
+'                        beside R2's "Ctrl+C again leaves now": it names the
+'                        keys that leave while help is out of reach). NOT
+'                        CHOSEN: flag help only; a hand line on every attach
 ' KNOWN, NOT FIXED: with no tmux on PATH, has-session fails, so a named task
 ' reads "not running" (true: the scheduler starts nothing without tmux).
 ' Pinned by cmd/proveo/running_test.go: TestAttachPrintsRunningTasks,
@@ -354,7 +376,7 @@ skinparam noteTextAlignment left
 '   # sandbox      `proveo run --print <target> …` in the job's workdir with
 '   # agent        PROVEO_SCHEDULE=1: sbx create, sbx run
 '   # in-sandbox   sbx.Launched: ENTRYPOINT[0] + trailing command, else
-'                  ENTRYPOINT + CMD (MEASURED P7, sbx-kit-v3-migration.puml);
+'                  ENTRYPOINT + CMD (MEASURED, _spec/internal/sbx/sbx-kit-v3.puml);
 '                  the def entrypoint then execs its agent with its launch args
 '   # typed        Instruction + Clock as if the agent were ready now
 ' Print mode skips the choice cache, but a scheduled run applies it (pty), so
@@ -387,7 +409,7 @@ skinparam noteTextAlignment left
 ' unit set PATH only, so the tick reads $HOME/.proveo whatever PROVEO_HOME the
 ' operator set (README's PROVEO_HOME override); the listing names it as ⚠
 ' instead of ✓. The fix is for the plist and the unit to carry PROVEO_HOME;
-' then Tick.Home reads it from them.
+' then Tick.Home reads it from them. NOT CHOSEN: the ✓ printed before R4.
 ' KNOWN: a job removed from schedule.yml while its session runs is invisible
 ' to the listing and to attach's no-argument list (both iterate the
 ' configured jobs); `proveo attach <task>` still opens it (tmux decides).

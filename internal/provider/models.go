@@ -136,8 +136,3 @@ var vendorPlanProviders = map[string]bool{"cursor": true, "opencode": true}
 func SplitsBilling(name string) bool {
 	return vendorPlanProviders[strings.ToLower(strings.TrimSpace(name))]
 }
-
-// IsFreeTier reports a gateway model served at no cost.
-func IsFreeTier(model string) bool {
-	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(model)), "-free")
-}

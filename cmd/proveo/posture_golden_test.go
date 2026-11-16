@@ -6,9 +6,12 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/posture"
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
+// TestPostureGolden holds the rendering to testdata/posture.txtar; -update records it.
 func TestPostureGolden(t *testing.T) {
+	g := testx.Open(t, "posture")
 	for _, tc := range []struct {
 		name string
 		p    posture.Posture
@@ -29,7 +32,7 @@ func TestPostureGolden(t *testing.T) {
 			var b strings.Builder
 			section(&b, "resolved posture")
 			b.WriteString(tc.p.Render())
-			assertGolden(t, tc.name, b.String())
+			g.Assert(tc.name+".golden", b.String())
 		})
 	}
 }

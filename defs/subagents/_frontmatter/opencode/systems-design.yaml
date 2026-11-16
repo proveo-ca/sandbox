@@ -1,9 +1,0 @@
-description: Distributed systems and scaling review. Capacity, failure modes, consistency.
-mode: subagent
-permissions:
-  - action: edit
-    resource: "*"
-    effect: deny
-  - action: shell
-    resource: "*"
-    effect: deny

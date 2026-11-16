@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/schedule"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 // TestScheduleFiresAtItsTimeAndTypesThePrompt drives the real tick → tmux → watcher chain with no
@@ -31,7 +30,7 @@ func TestScheduleFiresAtItsTimeAndTypesThePrompt(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	job := fmt.Sprintf("e2e-%d", os.Getpid())
-	t.Cleanup(func() { tmux.New(schedule.SessionName(job), nil).Kill() })
+	t.Cleanup(func() { schedule.NewTmux(schedule.SessionName(job), nil).Kill() })
 
 	prompt := filepath.Join(home, "prompt.md")
 	if err := os.WriteFile(prompt, []byte("Set the best lineup for Muse de Parchita.\nBench anyone tagged Out.\n"), 0o600); err != nil {
@@ -100,7 +99,7 @@ func TestScheduleFailedRunIsListedAndRetried(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	job := fmt.Sprintf("e2e-fail-%d", os.Getpid())
-	t.Cleanup(func() { tmux.New(schedule.SessionName(job), nil).Kill() })
+	t.Cleanup(func() { schedule.NewTmux(schedule.SessionName(job), nil).Kill() })
 
 	prompt := filepath.Join(home, "prompt.md")
 	if err := os.WriteFile(prompt, []byte("Set the lineup.\n"), 0o600); err != nil {
@@ -177,7 +176,7 @@ func TestScheduleAgentThatDiesBeforeReadyFailsFast(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	job := fmt.Sprintf("e2e-dies-%d", os.Getpid())
-	t.Cleanup(func() { tmux.New(schedule.SessionName(job), nil).Kill() })
+	t.Cleanup(func() { schedule.NewTmux(schedule.SessionName(job), nil).Kill() })
 
 	prompt := filepath.Join(home, "prompt.md")
 	if err := os.WriteFile(prompt, []byte("Set the lineup.\n"), 0o600); err != nil {

@@ -32,7 +32,6 @@ out/
 .cache/
 *.tar
 *.img
-/reports/
 
 # --- System Files & OS-specific ---
 .DS_Store

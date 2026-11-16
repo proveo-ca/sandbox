@@ -1,0 +1,10 @@
+adversarial-reviewer:
+  name: adversarial-reviewer
+  description: Ruthless senior-engineer review of a diff or change set. Finds every problem, never fixes. Use proactively as the final gate before declaring any task complete.
+  model: inherit
+  readonly: true
+security-reviewer:
+  name: security-reviewer
+  description: Security-focused review with CWE-tagged findings. Use proactively when auth, secrets, network, dependencies, permissions, payments, user data, or serialization are touched.
+  model: inherit
+  readonly: true

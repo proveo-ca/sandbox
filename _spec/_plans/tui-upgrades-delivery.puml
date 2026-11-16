@@ -4,9 +4,9 @@ skinparam noteTextAlignment left
 ' purpose: the order in which the TUI and wizard upgrades reach main from branch feat-tui-upgrades — waves, slices, decisions and gates
 ' status: proposed 2026-11-10, not implemented; _spec/_plans/ is exempt from the SPEC-reference rule.
 '   what was delivered .............. two plan diagrams, retired in W13. Their
-'                                     measurements: _spec/_experiments/terminal-handoff-probes.puml
-'                                     Their reasoning: the specs each PROGRESS entry names.
-'   the vocabulary it borrows ....... _spec/_experiments/sbx-tui-observed.puml
+'                                     measurements and reasoning: the specs
+'                                     each PROGRESS entry names.
+'   the vocabulary it borrows ....... _spec/internal/choiceui/wizard-keys.puml
 '   the release gate it ends on ..... _spec/_devops/release-gate.puml
 '   how e2e suites are run .......... _spec/tests/testing-strategy.puml
 '   the spec lifecycle of a slice ... _spec/_conventions/spec-conventions.puml
@@ -350,8 +350,7 @@ skinparam noteTextAlignment left
 '     stream, not drawn as a page. A page takes its text with it when it
 '     closes.
 '     THE TWO PLAN DIAGRAMS ARE RETIRED, in the spec-keeper's order. Their
-'     measurements moved word for word to
-'     _spec/_experiments/terminal-handoff-probes.puml. What only the wizard
+'     measurements moved to the specs that use them. What only the wizard
 '     plan stated (what was not taken from sbx, the no-terminal rendering of
 '     each page, the alternatives D5, D6 and D10 rejected) moved to
 '     wizard-keys.puml and scope-tree.puml. Seven decision quotes moved to

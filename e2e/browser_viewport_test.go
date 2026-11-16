@@ -17,7 +17,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/manifest"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestBrowserViewportReachesTheAgentsChromium proves the whole chain the
@@ -37,7 +37,7 @@ func TestBrowserViewportReachesTheAgentsChromium(t *testing.T) {
 
 	work := t.TempDir()
 	before, _ := sbxSandboxNames()
-	sess := tmux.New(fmt.Sprintf("proveo-viewport-%d", time.Now().UnixNano()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-viewport-%d", time.Now().UnixNano()), nil)
 	t.Cleanup(sess.Kill)
 
 	cmd := []string{"env", "PROVEO_HOME=" + home,

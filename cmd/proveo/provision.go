@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/agentupdate"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/engine"
@@ -155,11 +155,11 @@ var settleAgent = func(target, image string) string {
 	return c.Settle(target, image)
 }
 
-var onTerminal = func() bool { return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stdout) }
+var onTerminal = func() bool { return agentsettings.IsReaderTTY(os.Stdin) && agentsettings.IsWriterTTY(os.Stdout) }
 
 // attended reports whether an operator is at this run's terminal to answer a question.
 var attended = func() bool {
-	return os.Getenv("PROVEO_SCHEDULE") == "" && agentio.WizardEnabled() && onTerminal()
+	return os.Getenv("PROVEO_SCHEDULE") == "" && agentsettings.WizardEnabled() && onTerminal()
 }
 
 // askAgentUpdate puts an offer to the operator's terminal; Unasked when nobody is there to answer.
@@ -188,7 +188,7 @@ func provisionConfirm(question string) bool {
 	case envflag.Off(v):
 		return false
 	}
-	if !agentio.IsStdinTTY() || !agentio.WizardEnabled() {
+	if !agentsettings.IsStdinTTY() || !agentsettings.WizardEnabled() {
 		return false
 	}
 	return promptYesNo(question, true, os.Stdin, os.Stderr)

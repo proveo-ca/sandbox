@@ -2,16 +2,12 @@
 package sandbox
 
 import (
+	"slices"
 	"testing"
 )
 
 func has(list []string, want string) bool {
-	for _, v := range list {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, want)
 }
 
 // sbx's own policy decides egress: the Kit carries no provider or harness hosts.

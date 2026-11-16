@@ -105,7 +105,7 @@ var noLocalModel = map[string]bool{"cursor": true}
 // acceptsLocalModel reports whether target can run on --local-model.
 func acceptsLocalModel(target string) bool { return !noLocalModel[target] }
 
-// modelRiskRank orders the model row riskier to safer, matching the axis legend.
+// modelRiskRank orders the model row riskier to safer.
 func modelRiskRank(opt string) int {
 	switch {
 	case len(localModels) > 0 && opt == localModels[0].label():

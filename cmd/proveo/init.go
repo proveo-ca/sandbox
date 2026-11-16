@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,11 +18,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
+	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/shell"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -44,7 +45,8 @@ func initCmd() *cobra.Command {
 		Short: "Install and sign in to the sbx backend proveo runs on (alias for --init)",
 		Long: "Detect this host, install the pinned Docker Sandboxes release (v" + sbx.Release +
 			"), check every prerequisite a run depends on, sign in, and ready git/gh.\n\n" +
-			"`proveo init` again offers what was left for later; `sbx login` and `sbx setup` run sbx's own.\n" +
+			"`proveo init` again offers what was left for later. `sbx login` runs only while `sbx diagnose` says Docker is\n" +
+			"signed out; `sbx setup` opens after the result, only while sbx's store lacks an env key or SSH agent forwarding is off.\n" +
 			"Then `proveo run` lists the harnesses this host can start.\n\n" +
 			"proveo does not manage the host: fix what sbx diagnose reports, or reinstall sbx with --force.\n" +
 			"A PATH line init adds reaches a new shell; `source <rc>` brings it into this one.\n" +
@@ -55,14 +57,16 @@ func initCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&o.printOnly, "print", false, "show the plan and the host's verdict without changing anything")
 	cmd.Flags().StringVar(&o.prefix, "prefix", "", "where to install sbx (default ~/.docker/sbx)")
-	cmd.Flags().BoolVar(&o.skipLogin, "skip-login", false, "install and check, but do not run `sbx login`")
-	cmd.Flags().BoolVar(&o.skipSetup, "skip-setup", false, "do not run `sbx setup`, the first-run wizard")
+	cmd.Flags().BoolVar(&o.skipLogin, "skip-login", false, "install and check, but do not run `sbx login`, "+
+		"which otherwise runs only while `sbx diagnose` says Docker is signed out")
+	cmd.Flags().BoolVar(&o.skipSetup, "skip-setup", false, "do not open `sbx setup`, which otherwise opens after the result "+
+		"only while sbx's store lacks an env key or SSH agent forwarding is off")
 	cmd.Flags().BoolVar(&o.skipGh, "skip-gh", false, "do not verify, install, or log in via `gh`")
 	cmd.Flags().BoolVar(&o.skipGit, "skip-git", false, "do not check or set git user.name / user.email")
 	cmd.Flags().BoolVar(&o.skipPrompt, "skip-prompt", false, "do not install starship, a Nerd Font, or the proveo prompt segment")
 	cmd.Flags().BoolVar(&o.force, "force", false, "reinstall even when this host already carries a usable sbx, or one that is broken or half-installed")
 	cmd.Flags().BoolVar(&o.yes, "yes", false, "take the defaults without prompting (implied when there is no terminal); "+
-		"credentials, gh's install, GitHub sign-in and access, and the operator's name wait for `proveo init` on a terminal; "+
+		"`sbx login`, `sbx setup`, credentials, gh's install, GitHub sign-in and access, and the operator's name wait for `proveo init` on a terminal; "+
 		"a missing git identity waits for `git config --global user.name` and `user.email`")
 	return cmd
 }
@@ -92,6 +96,7 @@ func doInit(o initOptions) error {
 	installed, _ := installedVersion(plan)
 	checks := sbx.Prereqs(host, sbx.DefaultProbe())
 	rep := newInitReport(o, host, checks, plan)
+	rep.installed = installed
 	prompted := !o.yes && !o.printOnly && interactiveTerminal()
 	stop := sbx.Blocking(checks, sbx.BlocksInstall)
 	if len(stop) > 0 && !o.printOnly && !prompted {
@@ -100,78 +105,22 @@ func doInit(o initOptions) error {
 	if o.printOnly {
 		rep.printSbx()
 		printPlan(plan)
-		if _, err := credentialStage(o, choiceui.Step{}, nil, nil, rep); err != nil { // reports where each credential rests; provisions nothing
+		if _, _, err := credentialStage(o, choiceui.Step{}, nil, nil, rep, cardPage{}); err != nil { // reports where each credential rests; provisions nothing
 			return err
 		}
-		if _, err := operatorStage(o, choiceui.Step{}, rep); err != nil {
+		if _, err := operatorStage(o, choiceui.Step{}, rep, cardPage{}, choiceui.Row{}); err != nil {
 			return err
 		}
 		rep.printCredentials()
 		return nil
 	}
-
-	var prev *initDecisions
-	viaPackage := false
-	rec := &initRecord{}
-	var rows []choiceui.CheckRow
-	preflight := func(at choiceui.Step) (stepResult, error) {
-		if !prompted {
-			return stepNone, nil
-		}
-		if rows == nil {
-			var diag []sbx.Check
-			var diagErr error
-			if installed != "" {
-				diag, diagErr = sbx.DiagnoseAt(resolveBin(plan))
-			}
-			rows = preflightRows(checks, diag, diagErr)
-		}
-		return preflightPage(host, rows, stop, at, rep)
+	w := &initWalk{o: o, host: host, plan: plan, download: download, installed: installed, prereqs: checks, stop: stop,
+		rep: rep, rec: &initRecord{}, prompted: prompted, typed: map[string]string{}}
+	if !prompted {
+		w.view = streamView{}
+		return rep.close(w.rec, runInitSteps(false, w.pages()))
 	}
-	setup := func(at choiceui.Step) (stepResult, error) {
-		d, err := decide(plan, host, installed, checks, o, prev, viaPackage, at)
-		switch {
-		case errors.Is(err, errInitBack):
-			return stepBack, nil
-		case errors.Is(err, errInitQuit):
-			return stepQuit, nil
-		case err != nil:
-			return stepNext, err
-		}
-
-		// A prefix chosen at the prompt has to reach the plan, which was built
-		// around the default one.
-		if d.Prefix != plan.Prefix {
-			if plan, err = sbx.PlanFor(host, d.Prefix, download); err != nil {
-				return stepNext, err
-			}
-			installed, _ = installedVersion(plan)
-		}
-		viaPackage = d.Install == installPackaged || (d.Install == installSkip && viaPackage)
-		applied := appliedPlan(plan, viaPackage)
-		rep.applied = applied
-		rec.leaveUnchosen(d)
-		steps := applyPlan(d, applyCtx{plan: plan, applied: applied, download: download, host: host, rep: rep})
-		if err := runApply(steps, rec.did); err != nil {
-			var failed stepErr
-			if errors.As(err, &failed) {
-				rec.unreached(failed.rest...)
-			}
-			return stepNext, err
-		}
-		d = settle(d, steps, applied)
-		installed, _ = installedVersion(applied)
-		prev, o.force = &d, false
-		return stepNext, nil
-	}
-	typed := map[string]string{}
-	err = runInitSteps(!o.yes && interactiveTerminal(), rec.pages([]initPage{
-		{run: preflight},
-		{run: setup},
-		{label: labelCredentials, run: func(at choiceui.Step) (stepResult, error) { return credentialStage(o, at, typed, rec, rep) }},
-		{label: labelOperator, run: func(at choiceui.Step) (stepResult, error) { return operatorStage(o, at, rep) }},
-	}))
-	return rep.close(rec, err)
+	return w.onCard()
 }
 
 // appliedPlan is the plan setup acts on; a package manager owns placement, like the MSI.
@@ -284,8 +233,8 @@ func printPlan(plan sbx.Plan) {
 	if plan.Packaged != nil {
 		ui.Notef("or, at the prompt: %s (%s)", strings.Join(plan.Packaged.Argv, " "), plan.Packaged.Asset)
 	}
-	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.LoginArgs(), " "))
-	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.SetupArgs(), " "))
+	ui.Appf("%s %s — only while sbx diagnose says Docker is signed out", sbx.Binary, strings.Join(sbx.LoginArgs(), " "))
+	ui.Appf("%s %s — after init, only while sbx's store lacks an env key", sbx.Binary, strings.Join(sbx.SetupArgs(), " "))
 	ui.Appf("%s %s", sbx.Binary, strings.Join(sbx.VersionJSONArgs(), " "))
 	ui.Section(ui.SectionGit)
 	ui.Appf("gh auth status")
@@ -295,15 +244,8 @@ func printPlan(plan sbx.Plan) {
 	ui.Appf("git config --get user.email")
 }
 
-func decide(plan sbx.Plan, host sbx.Host, installed string, checks []sbx.Prereq, o initOptions, prev *initDecisions, viaPackage bool, at choiceui.Step) (initDecisions, error) {
-	if o.yes || !interactiveTerminal() {
-		return carried(defaultDecisions(plan, installed, o), prev), nil
-	}
-	return askDecisions(plan, host, installed, checks, o, prev, viaPackage, at)
-}
-
 func interactiveTerminal() bool {
-	return agentio.IsReaderTTY(os.Stdin) && agentio.IsWriterTTY(os.Stderr)
+	return agentsettings.IsReaderTTY(os.Stdin) && agentsettings.IsWriterTTY(os.Stderr)
 }
 
 func prefixWritable(prefix string) error {
@@ -335,10 +277,14 @@ func prefixWritable(prefix string) error {
 	}
 }
 
-// fetch downloads url to dest and returns the hex sha256 of what arrived.
-func fetch(url, dest string) (string, error) {
+// fetch downloads url to dest and returns the hex sha256 of what arrived; ctx ends it early.
+func fetch(ctx context.Context, url, dest string) (string, error) {
 	client := &http.Client{Timeout: 20 * time.Minute}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", url, err)
 	}
@@ -363,9 +309,13 @@ func fetch(url, dest string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func publishedDigest(p sbx.Provenance) (string, error) {
+func publishedDigest(ctx context.Context, p sbx.Provenance) (string, error) {
 	client := &http.Client{Timeout: 2 * time.Minute}
-	resp, err := client.Get(p.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetch %s: %w", p.Asset, err)
 	}
@@ -408,13 +358,13 @@ func settle(d initDecisions, steps []applyStep, applied sbx.Plan) initDecisions 
 
 // rcAdds reports whether the shell's rc file already names dir.
 func rcAdds(dir string) bool {
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
+	sh, ok := promptkit.DetectShell(os.Getenv("SHELL"))
 	if !ok {
 		return false
 	}
 	home, _ := os.UserHomeDir()
 	content, _ := os.ReadFile(sh.RCFile(runtime.GOOS, home))
-	return shell.AlreadyConfigured(string(content), dir)
+	return promptkit.AlreadyConfigured(string(content), dir)
 }
 
 // ensureSbxOnPath puts dir on PATH in the shell's rc when write allows it, and returns the item
@@ -423,7 +373,7 @@ func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 	if onPath(dir) {
 		return sandbox.Item{}
 	}
-	sh, ok := shell.Detect(os.Getenv("SHELL"))
+	sh, ok := promptkit.DetectShell(os.Getenv("SHELL"))
 	home, _ := os.UserHomeDir()
 	rc := sh.RCFile(runtime.GOOS, home)
 	line := sh.PathLine(dir)
@@ -434,7 +384,7 @@ func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 		return sandbox.Item{Warn: true, Text: ui.Tilde(rc) + " — not written", Detail: append(errLines(err), "add it yourself: "+line)}
 	}
 	content, _ := os.ReadFile(rc) // a missing rc is fine; it gets created
-	if shell.AlreadyConfigured(string(content), dir) {
+	if promptkit.AlreadyConfigured(string(content), dir) {
 		return sandbox.Item{Warn: true, Text: ui.Tilde(dir) + " — not on this shell's PATH", Detail: []string{ui.Tilde(rc) + " adds it; a new shell picks it up"}}
 	}
 	if err := appendRC(rc, sh.SbxBlock(dir)); err != nil {
@@ -446,7 +396,17 @@ func ensureSbxOnPath(dir string, write bool) sandbox.Item {
 // verify asks sbx for its verdict on this host and keeps it as the result's readiness: the failing
 // checks as items, and whether a run can start. A failing check a run needs is its error.
 func verify(bin string, rep *initReport) error {
-	rep.readiness, rep.ready = nil, false
+	if bin == sbx.Binary && !sbx.Installed() {
+		return verifyWith(bin, rep, nil, nil)
+	}
+	checks, err := sbx.DiagnoseAt(bin)
+	rep.heard(checks, err)
+	return verifyWith(bin, rep, checks, err)
+}
+
+// verifyWith is verify on a diagnose that already ran: checks and err are what sbx said.
+func verifyWith(bin string, rep *initReport, checks []sbx.Check, err error) error {
+	rep.readiness, rep.ready, rep.judged = nil, false, true
 	if bin == sbx.Binary && !sbx.Installed() {
 		rep.readiness = []sandbox.Item{{Warn: true, Text: "sbx — not on this shell's PATH",
 			Detail: []string{"a new shell finds it; `" + sbx.Binary + " diagnose` there gives the host's verdict"}}}
@@ -455,7 +415,6 @@ func verify(bin string, rep *initReport) error {
 	if _, err := sbx.VersionAt(bin); err != nil {
 		rep.readiness = append(rep.readiness, sandbox.Item{Warn: true, Text: "sbx — reports no version", Detail: errLines(err)})
 	}
-	checks, err := sbx.DiagnoseAt(bin)
 	if err != nil {
 		first, _, _ := strings.Cut(err.Error(), "\n")
 		rep.readiness = append(rep.readiness, sandbox.Item{Warn: true, Text: "sbx diagnose — gave no answer",
@@ -474,22 +433,46 @@ func verify(bin string, rep *initReport) error {
 // outsideARunNote follows a failing row a run does not need.
 const outsideARunNote = "a run does not need this check; it affects %s"
 
-// checkItems are sbx's failing rows as items, × for a check a run needs and ⚠ for one it does not,
-// each with sbx's evidence and hint dim; blockers are the rows a run needs.
+// loginFix is how a host signs in to Docker: on a terminal, or with a token in CI.
+const loginFix = "`sbx login` on a terminal; CI: echo \"$DOCKER_PAT\" | sbx login --username <name> --password-stdin"
+
+// checkItems are sbx's rows that did not pass as items: × for a failing check a run needs, ! for
+// one it does not and for a warning, each with sbx's evidence, then its fix, then what it affects;
+// blockers are the rows a run needs. A signed-out Authentication row reads as the Docker login item.
 func checkItems(checks []sbx.Check) (items []sandbox.Item, blockers []sbx.Check) {
-	for _, c := range sbx.FailedChecks(checks) {
+	for _, c := range checks {
+		if c.Name == sbx.AuthenticationCheck {
+			if sbx.DockerAuth([]sbx.Check{c}, nil) == sbx.AuthOut {
+				items = append(items, loginItem(c))
+			}
+			continue
+		}
+		if !c.Failed() && c.Status != "warn" {
+			continue
+		}
 		affects := c.Affects()
-		it := sandbox.Item{Fail: affects == "", Warn: affects != "", Text: c.Name + " — " + c.Summary(), Detail: slices.Clone(c.Evidence())}
+		fix, evidence := standAlone(c.Hint, c.Evidence())
+		it := sandbox.Item{Fail: c.Failed() && affects == "", Warn: !c.Failed() || affects != "", Text: c.Name + " — " + c.Summary(),
+			Detail: slices.Clone(evidence)}
 		switch {
-		case c.Hint != "":
-			it.Detail = append(it.Detail, c.Hint)
-		case affects == "":
+		case fix != "":
+			it.Detail = append(it.Detail, fix)
+		case c.Failed() && affects == "":
 			it.Detail = append(it.Detail, "`proveo init --force` reinstalls the pinned "+sbx.Release)
 		}
-		if affects != "" {
+		if c.Failed() && affects != "" {
 			it.Detail = append(it.Detail, fmt.Sprintf(outsideARunNote, affects))
 		}
 		items = append(items, it)
 	}
 	return sandbox.WithPaths(items, ui.TildeIn), sbx.RunBlockers(checks)
+}
+
+// loginItem is a signed-out Authentication row: its evidence, the way to sign in, and why a run goes on.
+func loginItem(c sbx.Check) sandbox.Item {
+	detail := append(slices.Clone(c.Evidence()), loginFix)
+	if affects := c.Affects(); affects != "" {
+		detail = append(detail, fmt.Sprintf(outsideARunNote, affects))
+	}
+	return sandbox.Item{Warn: true, Text: rowLogin + " — not signed in", Detail: detail}
 }

@@ -65,8 +65,8 @@ skinparam noteTextAlignment left
 '     cannot subtract (policy-baseline.puml), so a malformed allowlist costs
 '     nothing an operator would notice. e2e/sbx_egress_test.go SKIPS its
 '     confinement assertion on such a host for exactly this reason.
-'   THE PROBE THAT LOOKED AT IT ASKED THE WRONG QUESTION. sbx-kit-capabilities
-'     .puml records "The SUFFIX-PATTERN domain is accepted" — measured with
+'   THE PROBE THAT LOOKED AT IT ASKED THE WRONG QUESTION. A 2026-09-07 probe
+'     recorded "The SUFFIX-PATTERN domain is accepted" — measured with
 '     `sbx run credprobe-own`, which proves the kit PARSES. Parsing is not
 '     matching. A pattern that matches nothing still parses.
 '
@@ -107,7 +107,7 @@ skinparam noteTextAlignment left
 ' ── WHAT IS MEASURED HERE AND WHAT IS NOT ───────────────────────────────────
 ' MEASURED: the enforced pattern table (quoted above), the MITM/tunnel split
 ' (curl through the sandbox proxy), and that the emitted allowlist carried the
-' leading-dot form (cmd/proveo/testdata/plan/sbx-cursor-forward.golden).
+' leading-dot form (sbx-cursor-forward.golden, a cmd/proveo plan golden of that day).
 '
 ' NOT MEASURED, and deliberately named rather than assumed: whether `*.x.ai` is
 ' accepted in `inject[].domain` specifically. The reference documents ONE domain

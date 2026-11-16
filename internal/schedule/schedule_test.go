@@ -12,8 +12,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 func ny(t *testing.T) *time.Location {
@@ -425,7 +423,7 @@ func TestReportSummaryPrefersTheResultLine(t *testing.T) {
 func TestBudgetStopInterruptsThenExits(t *testing.T) {
 	fastWatch(t)
 	f := &fakeTmux{alive: true, endOn: "/exit"}
-	got := stopAgent(tmux.New("s", f.run), "stopped at 1m")
+	got := stopAgent(NewTmux("s", f.run), "stopped at 1m")
 	if got != "stopped at 1m with /exit" {
 		t.Errorf("stop = %q", got)
 	}
@@ -438,7 +436,7 @@ func TestBudgetStopInterruptsThenExits(t *testing.T) {
 
 	f = &fakeTmux{alive: true}
 	f.gone = func() bool { return strings.Count(strings.Join(f.keys, " "), "Enter") >= 2 }
-	if got := stopAgent(tmux.New("s", f.run), "stopped at 1m"); got != "stopped at 1m with /exit" {
+	if got := stopAgent(NewTmux("s", f.run), "stopped at 1m"); got != "stopped at 1m with /exit" {
 		t.Errorf("stop = %q, keys %q: a slash-command menu takes the first Enter, so a second must submit /exit", got, f.keys)
 	}
 }
@@ -462,13 +460,13 @@ func TestBudgetStopSignalsTheRunBeforeKilling(t *testing.T) {
 		}
 	}
 	f := &fakeTmux{alive: true, pid: strconv.Itoa(pane.Process.Pid), gone: ended}
-	got := stopAgent(tmux.New("s", f.run), "stopped at 1m")
+	got := stopAgent(NewTmux("s", f.run), "stopped at 1m")
 	if !strings.Contains(got, "SIGTERM did") || f.killed {
 		t.Errorf("stop = %q, killed %v; want SIGTERM to end the pane's command without a kill", got, f.killed)
 	}
 
 	f = &fakeTmux{alive: true}
-	if got := stopAgent(tmux.New("s", f.run), "stopped at 1m"); !strings.Contains(got, "session killed") || !f.killed {
+	if got := stopAgent(NewTmux("s", f.run), "stopped at 1m"); !strings.Contains(got, "session killed") || !f.killed {
 		t.Errorf("stop = %q, killed %v; want the kill as the last resort", got, f.killed)
 	}
 }
@@ -613,7 +611,7 @@ func TestWatchSteersAWrapUpBeforeTheBudget(t *testing.T) {
 func TestBudgetStopLeavesAReplacedSessionAlone(t *testing.T) {
 	fastWatch(t)
 	f := &fakeTmux{alive: true, pid: "100"}
-	sess := tmux.New("proveo-sched-job", f.run)
+	sess := NewTmux("proveo-sched-job", f.run)
 	sess.Pin()
 	f.pid = "200"
 	got := stopAgent(sess, "stopped at 1h")

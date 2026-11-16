@@ -5,7 +5,7 @@ skinparam noteTextAlignment left
 ' covers: defs/hermes/**
 ' covers: internal/hermesdesktop/gateway.go
 ' covers: internal/hermesdesktop/gateway_test.go
-' covers: e2e/hermes_desktop_test.go
+' covers: e2e/hermes_test.go
 ' covers: internal/backend/sandbox/**
 ' covers: internal/run/**
 ' covers: cmd/proveo/desktop.go
@@ -103,12 +103,13 @@ skinparam noteTextAlignment left
 '     run stops with how to proceed and nothing is written.
 '   * backend: Input.Desktop swaps the TUI attach for holdForDesktop: `sbx
 '     setup ssh`, print `hermes@<name>.sbx`, open the app detached, wait for
-'     the stop; Ctrl+C is backend.Stopped, so teardown is the normal one.
+'     the stop; Ctrl+C is sandbox.Stopped, so teardown is the normal one.
 '   * --print shows `# desktop` with the setup and the gateway instead of `#
 '     agent`.
 '   STILL OPEN: H2–H5 need the app on a host (the first `proveo run hermes`
 '   with desktop installs it on this Mac after a yes).
-'   2026-11-11 (output-readability R1, decision B): the pinned plan goes to
+'   2026-11-11 (decision B: each host add-on is one interface fact, as
+'   _spec/internal/sbx/host-android-adb.puml draws it): the pinned plan goes to
 '   the run log (ui.Logf), not the screen; the question reads "Install Hermes
 '   Desktop <tag> now?". EnsureDesktop returns (launch, installed, err), and
 '   the interface block after `sbx create` carries one fact: "● desktop:
@@ -116,7 +117,7 @@ skinparam noteTextAlignment left
 '   Pinned by cmd/proveo/desktop_test.go
 '   TestADeclinedInstallInstallsNothingAndLogsThePlan and
 '   internal/run/host_adb_test.go TestEachHostAddOnFactNamesWhatTheRunLeftUp.
-'   2026-11-11 (output-readability R2, carry-overs b and c): run.Do calls
+'   2026-11-11 (carry-overs b and c; stage order: _spec/internal/run/run-spec.puml): run.Do calls
 '   EnsureDesktop right after the image pull, so the install sits under "run"
 '   with the other host prerequisites, and its question prints through
 '   ui.Default (printerOn), so the run log keeps it. The prerequisite install
@@ -171,7 +172,7 @@ skinparam noteTextAlignment left
 ' entrypoint runs as uid 1000.
 '
 ' ── LIVE RUN 1 (MEASURED 2026-10-30, sbx 0.50.0, macOS, Desktop bf0203a7) ────
-' e2e/hermes_desktop_test.go: gateway PASS; guest FAIL; attach FAIL (5 min).
+' e2e/hermes_test.go: gateway PASS; guest FAIL; attach FAIL (5 min).
 '   * desktop.log: control master established, remote Linux/aarch64, then
 '     "Hermes is not installed on the remote host". Desktop's probe is
 '     `bash -lc 'command -v hermes'`; a login shell resets PATH and drops

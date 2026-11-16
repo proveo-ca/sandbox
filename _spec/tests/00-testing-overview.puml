@@ -38,6 +38,8 @@ skinparam packageStyle rectangle
 ' register them; CONTRIBUTING.md and the def READMEs document the family.
 ' Open (N37): the claudecode suite now runs the mcp and standalone checks twice,
 ' because one pin now serves both.
+' DECIDED 2026-10-18 (N30, option 1): test env names from retired designs became live or neutral ones —
+'   PROVEO_DETACHED_SMOKE_TIMEOUT/_KEEP_FAILED among them; the deliberate tombstones stay.
 '
 ' The Layer-4 floor lives in e2e/preconditions_test.go and is one rule: the
 ' `//go:build e2e` tag IS the opt-in, so the only reason to skip is a missing
@@ -49,7 +51,7 @@ skinparam packageStyle rectangle
 '
 ' The contract lane runs as `go test ./internal/contract/` (inside `mise run
 ' test-go` / `mise run ci`); its shell wrapper, defs/tests/run_contract_tests.sh,
-' was deleted 2026-09-22 (_spec/_refactors/host-shell-to-go.puml, P3). Image suites
+' was deleted 2026-09-22 (_spec/tests/testing-strategy.puml). Image suites
 ' are Go under `-tags=image` (internal/imagetest), opted into like Layer 4.
 '
 ' LAYER 3 IS RETIRED (2026-10-16). It stood up the docker egress topology
@@ -73,7 +75,7 @@ package "Layer 3 · Infra — RETIRED 2026-10-16" as L3 {
   component "docker egress topology\n(deleted with internal/egress)" as Infra <<error>>
 }
 package "Layer 4 · Agent E2E — -tags=e2e (self-skipping preconditions)" as L4 {
-  component "internal/tmux + echo-agent\nreal agent · local model\nasserts side-effects" as E2E <<container>>
+  component "internal/schedule tmux + echo-agent\nreal agent · local model\nasserts side-effects" as E2E <<container>>
 }
 package "Coverage · mise run coverage" as Cov {
   component "go tool covdata percent · textfmt\n-i=cov/unit" as Merge <<app>>

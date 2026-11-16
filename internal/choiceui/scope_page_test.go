@@ -3,12 +3,12 @@ package choiceui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/proveo-ca/proveo/internal/testx"
 )
 
 func scopePage() *ScopePage {
@@ -105,12 +105,15 @@ func TestTheRootRowIsMarkedDefaultAndTheLineUnderTheTreeFollowsTheCursor(t *test
 	for _, want := range []string{
 		"› monorepo  repo root  default",
 		"enter starts the agent at the repo root",
-		"scope · 1/2",
-		"page 1/2 · ↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit",
+		" page 1/2 ",
+		"↑↓ row · ←→ fold · / filter · enter choose · esc cancel · ctrl+c quit",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the page lacks %q:\n%s", want, joined)
 		}
+	}
+	if c := strings.Count(joined, "page 1/2"); c != 1 {
+		t.Errorf("the page count shows %d times, want once, in the chip:\n%s", c, joined)
 	}
 	if strings.Contains(joined, "enter accept") {
 		t.Errorf("the scope page says \"enter accept\", which e2e reads as the form:\n%s", joined)
@@ -162,7 +165,7 @@ func TestBelowItsFloorTheScopePageSaysSoAndStillLeaves(t *testing.T) {
 	}
 }
 
-func TestTheScopePagePaintsTheCursorsRowInTheBrandColour(t *testing.T) {
+func TestTheScopePageFillsTheCursorsName(t *testing.T) {
 	t.Parallel()
 	sp := scopePage()
 	sp.Tree.Place("apps")
@@ -171,17 +174,33 @@ func TestTheScopePagePaintsTheCursorsRowInTheBrandColour(t *testing.T) {
 	lines := screenLines(s)
 	p := styles()
 	for y, line := range lines {
-		x := strings.Index(line, "apps")
-		if x < 0 || !strings.HasPrefix(line, "› ") {
+		before, _, ok := strings.Cut(line, "› ")
+		if !ok || !strings.Contains(line, "apps") {
 			continue
 		}
-		col := textWidth(line[:x])
+		col := textWidth(before)
+		if col != inset(100) {
+			t.Errorf("the cursor mark sits at column %d, want %d: %q", col, inset(100), line)
+		}
+		name := textWidth(line[:strings.Index(line, "apps")])
+		if _, _, st, _ := s.GetContent(name, y); !sameStyle(st, p.focus) {
+			t.Errorf("the cursor's name is not in the focus fill: %q", st.Render("x"))
+		}
 		if _, _, st, _ := s.GetContent(col, y); !sameStyle(st, p.brand) {
-			t.Errorf("the cursor's row is not in the brand style")
+			t.Errorf("the cursor mark is not in the brand style: %q", st.Render("x"))
 		}
 		return
 	}
 	t.Fatalf("no cursor row on apps:\n%s", strings.Join(lines, "\n"))
+}
+
+// inner is a card row between its walls, trailing blanks dropped.
+func inner(line string, w int) string {
+	r := []rune(line)
+	if framed(w) && len(r) >= cardWidth(w) {
+		r = r[1 : cardWidth(w)-1]
+	}
+	return strings.TrimRight(string(r), " ")
 }
 
 // guides is each guide on the row that ends in name, left to right: "c" for a
@@ -192,11 +211,11 @@ func guides(t *testing.T, sp *ScopePage, name string) string {
 	sp.draw(s)
 	p := styles()
 	for y, line := range screenLines(s) {
-		if !strings.HasSuffix(strings.TrimRight(line, " "), " "+name) {
+		if !strings.HasSuffix(inner(line, 100), " "+name) {
 			continue
 		}
 		var out string
-		for x := 2; x < 100; x += 2 {
+		for x := inset(100) + 2; x < cardWidth(100)-1; x += 2 {
 			r, _, st, _ := s.GetContent(x, y)
 			if r != '│' && r != '|' {
 				return out
@@ -257,31 +276,25 @@ func TestMovingDownOntoAFolderScrollsItsContentsIntoTheWindow(t *testing.T) {
 	lines := screenLines(s)
 	cursor, worker := -1, -1
 	for y, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "› ") && strings.HasSuffix(strings.TrimRight(line, " "), " services"):
+		switch row := inner(line, 60); {
+		case strings.HasPrefix(row, " › ") && strings.HasSuffix(row, " services"):
 			cursor = y
-		case strings.HasSuffix(strings.TrimRight(line, " "), " worker"):
+		case strings.HasSuffix(row, " worker"):
 			worker = y
 		}
 	}
 	if cursor < 0 || worker < 0 {
 		t.Fatalf("the cursor's folder or its last row is off the window:\n%s", strings.Join(lines, "\n"))
 	}
-	if _, _, st, _ := s.GetContent(4, worker); !sameStyle(st, styles().brand) {
+	if _, _, st, _ := s.GetContent(inset(60)+4, worker); !sameStyle(st, styles().brand) {
 		t.Errorf("the guide beside worker is not brand:\n%s", strings.Join(lines, "\n"))
 	}
 }
 
-// TestTheScopePageMatchesItsGoldenFrames holds the page to recorded frames.
-// PROVEO_UPDATE_FRAMES=1 records them.
+// TestTheScopePageMatchesItsGoldenFrames holds the page to the frames recorded in
+// testdata/scope.txtar; -update records them.
 func TestTheScopePageMatchesItsGoldenFrames(t *testing.T) {
-	dir := filepath.Join("testdata", "scope")
-	update := os.Getenv("PROVEO_UPDATE_FRAMES") != ""
-	if update {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
+	g := testx.Open(t, "scope")
 	cases := []struct {
 		name string
 		page func() *ScopePage
@@ -304,35 +317,9 @@ func TestTheScopePageMatchesItsGoldenFrames(t *testing.T) {
 			return sp
 		}},
 	}
-	seen := map[string]bool{}
 	for _, c := range cases {
 		for _, size := range [][2]int{{160, 45}, {80, 24}, {60, 12}, {40, 8}} {
-			name := fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1])
-			seen[name] = true
-			got := frameText(scopeLines(c.page(), size[0], size[1]))
-			path := filepath.Join(dir, name)
-			if update {
-				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				continue
-			}
-			want, err := os.ReadFile(path)
-			if err != nil {
-				t.Errorf("%s: no golden frame (%v); record it with PROVEO_UPDATE_FRAMES=1", name, err)
-				continue
-			}
-			if got != string(want) {
-				t.Errorf("%s differs from its golden frame:\n--- got ---\n%s--- want ---\n%s", name, got, want)
-			}
-		}
-	}
-	if !update {
-		files, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
-		for _, f := range files {
-			if !seen[filepath.Base(f)] {
-				t.Errorf("%s is a golden frame no case draws; delete it", f)
-			}
+			g.Assert(fmt.Sprintf("%s_%dx%d.txt", c.name, size[0], size[1]), frameText(scopeLines(c.page(), size[0], size[1])))
 		}
 	}
 }

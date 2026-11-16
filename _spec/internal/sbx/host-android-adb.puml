@@ -2,8 +2,10 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: how an sbx agent drives an Android emulator on the host — host adb server dialled by IP, adb forwards mirrored into the VM, mobile-mcp tools on the harness's own model
-' covers: internal/hostadb/hostadb.go
-' covers: internal/hostadb/hostadb_test.go
+' covers: internal/hostdev/hostadb.go
+' covers: internal/hostdev/hostadb_test.go
+' covers: internal/hostdev/detach_unix.go
+' covers: internal/hostdev/detach_windows.go
 ' covers: internal/adbmirror/adbmirror.go
 ' covers: internal/adbmirror/adbmirror_test.go
 ' covers: cmd/proveo-entrypoint/main.go (adb-mirror)
@@ -26,12 +28,20 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/host_adb_lib_test.go
 ' covers: defs/claudecode/harness.manifest (capabilities.hostDevices)
 ' covers: e2e/host_adb_sbx_test.go
-' covers: e2e/android_addon_test.go
-' covers: e2e/android_app_test.go
-' covers: e2e/testdata/android-hello/**
+' covers: e2e/android_test.go
+' covers: e2e/testdata/android-hello.txtar
 '   why this shape, measured ............ _spec/_experiments/mobile-device-reach.puml
 '   the pattern it copies ............... _spec/internal/sbx/host-browser-cdp.puml
-'   why the box has no emulator ......... _spec/_experiments/nested-sbx-kvm.puml
+'   why the box has no emulator ......... _spec/_paradigms/capability-ladder.puml (THE LADDER IS A HOST MEASUREMENT)
+'
+' ── ONE PACKAGE FOR HOST DEVICES (DECIDED 2026-11-15) ──────────────────────
+' DECIDED 2026-11-15 (owner: "the 8 uncontested"; codebase-compression.puml
+' P11, F3 option 1): hostadb.go and hostcdp.go, two leaf packages with one
+' shape, share internal/hostdev. The clashing names carry their side:
+' EnsureADB / EnsureCDP, ADBPort / CDPPort, ADBReady / CDPReady, EnvADBPort /
+' EnvCDPPort, DefaultADBPort / DefaultCDPPort, AddonAndroid / AddonChrome,
+' EmulatorArgs / ChromeArgs. PolicyHost, the lookPath and statFile seams and
+' detach (detach_unix.go, detach_windows.go) exist once.
 '
 ' ── WHY ────────────────────────────────────────────────────────────────────
 ' The box has no /dev/kvm, so the emulator lives on the host. The host adb
@@ -47,7 +57,7 @@ skinparam noteTextAlignment left
 '                           Simulators also need a macOS host with Xcode)
 ' `--addon android` resolves; `--addon ios` is refused with the same reason.
 '
-' ── HOST SIDE (internal/hostadb) ───────────────────────────────────────────
+' ── HOST SIDE (internal/hostdev) ───────────────────────────────────────────
 '   port    PROVEO_HOST_ADB_PORT, default 5037.
 '   reuse   a serial in state "device", or an emulator-* row in "offline",
 '           is waited on (A BOOT THAT HOLDS), never launched a second time.
@@ -67,16 +77,16 @@ skinparam noteTextAlignment left
 '   host os PROVEO_HOST_OS=<runtime.GOOS> into every sandbox (EnvHostOS),
 '           for fixes measured on one host OS only.
 '
-' ── A BOOT THAT HOLDS (hostadb.awaitBoot, 2026-10-20) ──────────────────────
+' ── A BOOT THAT HOLDS (hostdev.awaitBoot, 2026-10-20) ──────────────────────
 ' TestHostADBReachesTheHostEmulatorFromTheSandbox logged "android:
 ' emulator-5554 booted", then the sandbox's host:devices read
-' `emulator-5554 offline`. Ensure had declared the boot after ONE poll of
+' `emulator-5554 offline`. EnsureADB had declared the boot after ONE poll of
 ' "device" + sys.boot_completed=1.
 ' [Inference] `-avd` alone quick-boots from the AVD's snapshot, and adbd's
 ' transport drops to offline while adb reconnects after the restore.
 ' Three more gaps sat beside it:
 '   Devices kept "device" rows only, so an offline emulator was invisible;
-'   Ensure then booted the same AVD a second time; the launch was
+'   EnsureADB then booted the same AVD a second time; the launch was
 '   Process.Release()d, so its exit was never read.
 ' Now:
 '   wait     one serial reads "device" + sys.boot_completed=1 on StablePolls
@@ -90,18 +100,18 @@ skinparam noteTextAlignment left
 '            some SDK builds' `emulator` hands off to a child and exits 0, so
 '            exit 0 keeps waiting.
 '   list     AllDevices returns every row with its state (Device.Emulator for
-'            emulator-* serials); Devices and Ready keep the "device" rows.
+'            emulator-* serials); Devices and ADBReady keep the "device" rows.
 ' The e2e side:
 '   stopEmulators         `adb -s <serial> emu kill` on every emulator-* row,
 '                         offline included, until none is listed
 '   host_adb_sbx probe    re-reads host:devices from the guest every 2 s for
 '                         up to 60 s (guestDeviceWait) until a row reads
 '                         "device"; prints tries=, status=, devices=
-' Unit coverage (internal/hostadb/hostadb_test.go): a fake adb server answers
+' Unit coverage (internal/hostdev/hostadb_test.go): a fake adb server answers
 ' a scripted host:devices sequence; listAVDs, startAdb, reconnect, bootProp
 ' and startEmulator are package vars the tests swap and count.
 '
-' ── STALE DEVICESERVER (hostadb.retireStale, 2026-10-27) ───────────────────
+' ── STALE DEVICESERVER (hostdev.retireStale, 2026-10-27) ───────────────────
 ' MEASURED: on a reused emulator, mobile-mcp's tap and press_button failed with
 '   "agent error -32603: Internal error: android.os.DeadSystemException" while
 '   list/launch/screenshot (plain adb) worked. com.mobilenext.mobilecli.DeviceServer
@@ -111,11 +121,11 @@ skinparam noteTextAlignment left
 '   each DeviceServer whose /proc/<pid>/stat starttime precedes system_server's
 '   is killed, and proveo names the pids. A fresh one is left alone.
 '
-' ── ONE ROW PER HARNESS (hostadb.Launches) ─────────────────────────────────
+' ── ONE ROW PER HARNESS (hostdev.Launches) ─────────────────────────────────
 ' A harness gets android only with a per-launch way to take the mobile server;
 ' a contract test fails a manifest that declares android without one, and an
 ' sbx harness with no row at all.
-'   claudecode  --mcp-config <hostadb.MCPConfig>, prepended host-side by
+'   claudecode  --mcp-config <hostdev.MCPConfig>, prepended host-side by
 '               withMobileMCP (sbx runs claude as its own agent, so the
 '               image's entrypoint never launches it)
 '   opencode    "mcp": {"mobile": {"type": "local", ...}} merged into the
@@ -170,7 +180,7 @@ skinparam noteTextAlignment left
 '                    its adb lists emulator-5554; left unticked, no device
 '                    appears, no "android:" line, the env stays unset
 '
-' ── AN ANDROID APP IN THE WORKSPACE (e2e/testdata/android-hello) ───────────
+' ── AN ANDROID APP IN THE WORKSPACE (e2e/testdata/android-hello.txtar) ─────
 ' A stock Gradle project: AGP 9.4.1, compileSdk/targetSdk 36, one Activity,
 ' no dependencies, no mise.toml. install.sh runs `gradle assembleDebug`, then
 ' `adb install -r` through ADB_SERVER_SOCKET.
@@ -246,12 +256,12 @@ skinparam noteTextAlignment left
 ' default 495 s, trimmed 245 s, hooks and CLAUDE.md kept. CLAUDE_CODE_SIMPLE
 ' was 90 s but drops hooks and CLAUDE.md, so it is not used.
 '
-' ── THE USER-STYLE E2E (e2e/android_app_test.go) ───────────────────────────
+' ── THE USER-STYLE E2E (e2e/android_test.go) ───────────────────────────────
 ' One subtest per harness row (opencode, claudecode), local model
 ' muse-glimmer:30b-mlx, no hosted inference. It skips when the host's Ollama
 ' lacks the tag, or when sbx.LocalModelFits refuses it for the host's free
 ' memory (a run failed with "needs ~21.0 GiB … host has 14.4 GiB available";
-' the same host precondition e2e/hermes_local_model_test.go skips on):
+' the same host precondition TestHermesLocalModelE2E skips on):
 '   form       `proveo run <h>` → [x] android by keystroke → Enter
 '   sandbox    reaches the host emulator; the seed log shows the Android build
 '   TUI        first-run dialogs answered as a user would; `!./install.sh`
@@ -284,13 +294,15 @@ skinparam noteTextAlignment left
 ' The Kit's localhost:<port> allow governs only the sandbox→server hop.
 ' Accepted with a run-time warning (startHostADB, every run with the add-on),
 ' in the interface block after `sbx create` since 2026-11-11
-' (output-readability R1):
+' (_spec/internal/ui/output-vocabulary.puml):
 '   "⚠ android — the agent controls every device on that adb server", dim under
 '   it "the server dials any address it is told to from this host, outside sbx
 '   egress"
-' ONE FACT PER ADD-ON (the operator, 2026-11-11, decision B of R1). The boot
+' ONE FACT PER ADD-ON (DECIDED 2026-11-11, the operator; it holds for every
+' host add-on: android, host Chrome over CDP, Hermes Desktop). NOT CHOSEN: an
+' egress fact for a host add-on; a new "host" heading. The boot
 ' runs behind the live line "android — starting", which leaves the screen once
-' the device is up. Ensure returns hostadb.Started{Serial, AVD}; the interface
+' the device is up. EnsureADB returns hostdev.Started{Serial, AVD}; the interface
 ' block's Facts then carry one row, the adb server dim under it:
 '   ● android: emulator-5554 (AVD Pixel_9)      a boot by this run
 '   ● android: emulator-5556 (reused)           a device the server listed

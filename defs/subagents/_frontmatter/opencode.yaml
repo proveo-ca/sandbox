@@ -1,0 +1,100 @@
+adversarial-reviewer:
+  description: Ruthless senior-engineer reviewer. Finds problems; never suggests fixes on first pass.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+architect:
+  description: Designs structure before code. Produces layered specs, contracts, file plans.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+backend:
+  description: Backend specialist (APIs, DBs, services). Advisory; does not edit.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+devops:
+  description: DevOps / build & CI reviewer. Covers Dockerfiles, CI pipelines, IaC.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+frontend:
+  description: Frontend specialist (React/Next/Vite/TS). Advisory; does not edit.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+monorepo-coordinator:
+  description: Owns cross-project concerns in a monorepo. Workspace structure, shared deps, build graph.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+security-reviewer:
+  description: Threat-model and OWASP-style security review of the current diff. Read-only.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+spec-keeper:
+  description: Owns _spec/*.puml, the spec↔source coverage index, and planning docs. Decides when a PLAN, diff, or drift report warrants a spec update; never edits source code.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: allow
+    - action: shell
+      resource: "*"
+      effect: deny
+sre:
+  description: SRE / reliability reviewer. Focuses on prod operability of the change.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny
+systems-design:
+  description: Distributed systems and scaling review. Capacity, failure modes, consistency.
+  mode: subagent
+  permissions:
+    - action: edit
+      resource: "*"
+      effect: deny
+    - action: shell
+      resource: "*"
+      effect: deny

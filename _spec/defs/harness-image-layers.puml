@@ -65,7 +65,7 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' at container creation and `docker version` answers "Cannot connect to the
 ' Docker daemon" beside Compose files the agent can plainly read.
 '
-' SEC1 (DECIDED 2026-10-17 — the [rec], no code change; repo-simplification.puml):
+' SEC1 (DECIDED 2026-10-17 — the [rec], no code change):
 ' the agent uid in the `docker` group is ACCEPTED. The daemon runs as root from
 ' init and its socket is root:docker (defs/base/Dockerfile:133-141), so the
 ' group is [Inference] root-equivalent INSIDE the VM. The sbx template ships

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/shell"
+	"github.com/proveo-ca/proveo/internal/promptkit"
 )
 
 // cdnEnv names a pre-staged CDN dir (e.g. apps/cli/public/cli after `mise run stage-cdn`).
@@ -78,8 +78,8 @@ func TestInstallScripts(t *testing.T) {
 
 	outputContains(t, "install.sh installs Go proveo", "proveo v"+version+" installed to:",
 		install(installHome, installRoot, cdn, true), bash, installScript)
-	rc := shell.Shell{Name: "bash"}.RCFile(runtime.GOOS, installHome)
-	pathLine := shell.Shell{Name: "bash"}.Block(filepath.Join(installRoot, "bin"))
+	rc := promptkit.Shell{Name: "bash"}.RCFile(runtime.GOOS, installHome)
+	pathLine := promptkit.Shell{Name: "bash"}.Block(filepath.Join(installRoot, "bin"))
 	fileHoldsOnce(t, "install.sh has `proveo setup` put proveo on PATH in the shell's rc", rc, pathLine)
 	outputContains(t, "a second install.sh over the first", "proveo v"+version+" installed to:",
 		install(installHome, installRoot, cdn, true), bash, installScript)
@@ -93,8 +93,8 @@ func TestInstallScripts(t *testing.T) {
 	onPathByHand := append(install(handHome, handRoot, cdn, true), "PATH="+filepath.Join(handRoot, "bin")+":"+fakeBin+":"+path)
 	outputContains(t, "an install whose bin dir this shell has on PATH by hand", "proveo v"+version+" installed to:",
 		onPathByHand, bash, installScript)
-	handRC := shell.Shell{Name: "bash"}.RCFile(runtime.GOOS, handHome)
-	fileHoldsOnce(t, "still writes the PATH line a new shell needs", handRC, shell.Shell{Name: "bash"}.Block(filepath.Join(handRoot, "bin")))
+	handRC := promptkit.Shell{Name: "bash"}.RCFile(runtime.GOOS, handHome)
+	fileHoldsOnce(t, "still writes the PATH line a new shell needs", handRC, promptkit.Shell{Name: "bash"}.Block(filepath.Join(handRoot, "bin")))
 
 	retiredEnv := append(install(filepath.Join(tmp, "home-retired"), filepath.Join(tmp, "install-retired"), cdn, true),
 		"PROVEO_CLI_BASE_URL=file://"+filepath.Join(tmp, "missing-channel"))

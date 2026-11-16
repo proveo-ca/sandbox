@@ -23,7 +23,7 @@ skinparam noteTextAlignment left
 '                  scope: repo root
 '                (the Executor, D17: "Repo root, with a line"); since
 '                2026-11-11 that line is the "scope" fact of the run block,
-'                printed after the pages beside "log" (output-readability R1)
+'                printed after the pages beside "log" (R1)
 '   scopeSilent  --print, no terminal, or the wizard off: the repo root, as
 '                before, with no line
 ' --print stays silent because it starts nothing; the scheduler runs it first
@@ -100,7 +100,7 @@ skinparam noteTextAlignment left
 ' and by e2e/scope_picker_test.go:
 '   TestTheFormStepsBackToTheScopePageWhereItWasLeft
 '
-' ── 2026-11-11 (output-readability R2): THE STAGES NOW ─────────────────────
+' ── 2026-11-11 (R2): THE STAGES NOW ───────────────────────────────────────
 ' MEASURED in run.go, run.Do's stages read:
 '   requireSandbox · detectWorkspace · choosePages (reportRun) ·
 '   preflightImage · ensureDesktop · resolveCredentials · planMounts ·
@@ -113,7 +113,7 @@ skinparam noteTextAlignment left
 ' install question prints under "run" beside the image pull (carry-over b).
 ' Both moves change the order the operator reads them in, which the rule
 ' below says only a decision may do; the operator's R2 decisions are that
-' decision (_spec/_plans/output-readability.puml). buildPosture prints
+' decision (P1 and P3: _spec/internal/ui/output-vocabulary.puml). buildPosture prints
 ' nothing on screen: the posture is a run-log row, so nothing sits between
 ' credentials and the sbx block any more.
 '

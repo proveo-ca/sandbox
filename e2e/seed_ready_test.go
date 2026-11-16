@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,7 +20,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // readySpec is what one harness must hold when the seed releases its agent.
@@ -225,7 +224,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 			_ = os.Remove(filepath.Join(cache, "proveo", "sbx-sandboxes", engine+".json"))
 		}
 	})
-	sess := tmux.New(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-ready-%s-%d", target, time.Now().UnixNano()), nil)
 	cmd := []string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0", "PROVEO_ENV_FILE=/dev/null",
 		"PROVEO_HOME=" + home, proveoBin, "run", target, "--input", work}
 	if err := sess.Start(220, 50, cmd...); err != nil {
@@ -289,7 +288,7 @@ func launchReadyKit(t *testing.T, proveoBin, target, work, ready string) readyPr
 }
 
 // skipOnProviderSetup skips when the agent opened its own provider setup: no provider key reached it.
-func skipOnProviderSetup(t *testing.T, sess *tmux.Session, target string) {
+func skipOnProviderSetup(t *testing.T, sess *schedule.TmuxSession, target string) {
 	t.Helper()
 	if pane, _ := sess.Capture(); strings.Contains(pane, "No inference provider is configured") {
 		t.Skipf("%s opened its provider setup, not a prompt — no provider key reached it (proveo reads env and the proveo home; a key held only in sbx's store is unreadable):\n%s", target, tail(pane, 5))
@@ -321,7 +320,7 @@ func assertPromptSoonAfterRelease(t *testing.T, run readyProbe, target string, p
 
 // killAndAwait ends the tmux session, then waits up to timeout for the
 // process that ran in its pane to finish its own teardown.
-func killAndAwait(t *testing.T, sess *tmux.Session, pid string, timeout time.Duration) {
+func killAndAwait(t *testing.T, sess *schedule.TmuxSession, pid string, timeout time.Duration) {
 	t.Helper()
 	sess.Kill()
 	n, err := strconv.Atoi(strings.TrimSpace(pid))
@@ -405,7 +404,7 @@ echo "go=$(bash -lic 'command -v go' >/dev/null 2>&1 && echo yes || echo no)"
 // assertEchoes types into the session while the background seed may still be
 // installing and asserts every keystroke echoes promptly through proveo's PTY
 // proxy and sbx, then erases what it typed.
-func assertEchoes(t *testing.T, sess *tmux.Session, target string, seeding bool) {
+func assertEchoes(t *testing.T, sess *schedule.TmuxSession, target string, seeding bool) {
 	t.Helper()
 	p90Max := durationEnv(t, "PROVEO_TEST_ECHO_P90", 250*time.Millisecond)
 	echoMax := durationEnv(t, "PROVEO_TEST_ECHO_MAX", time.Second)
@@ -435,7 +434,7 @@ func assertEchoes(t *testing.T, sess *tmux.Session, target string, seeding bool)
 	_ = sess.SendKeys(slices.Repeat([]string{"BSpace"}, len(typed))...)
 
 	sorted := append([]time.Duration(nil), lat...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 	p90, worst := sorted[len(sorted)*9/10], sorted[len(sorted)-1]
 	t.Logf("%s echo p90=%s max=%s (background seed still installing: %v)", target, p90.Round(time.Millisecond), worst.Round(time.Millisecond), seeding)
 	if p90 > p90Max {
@@ -447,7 +446,7 @@ func assertEchoes(t *testing.T, sess *tmux.Session, target string, seeding bool)
 }
 
 // paneShows polls the visible pane every 10ms until it contains s.
-func paneShows(sess *tmux.Session, s string, timeout time.Duration) bool {
+func paneShows(sess *schedule.TmuxSession, s string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if screen, err := sess.Capture(); err == nil && strings.Contains(screen, s) {

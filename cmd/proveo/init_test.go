@@ -27,6 +27,9 @@ func isolatedInitHost(t *testing.T) (calls string) {
   "diagnose --json") if [ -n "$STUB_DIAGNOSE" ]; then printf '%s\n' "$STUB_DIAGNOSE"; else echo '{"checks":[]}'; fi ;;
   "policy check") echo "{\"allowed\":${STUB_POLICY_ALLOWED:-false}}" ;;
   "login ") exit "${STUB_LOGIN_EXIT:-0}" ;;
+  "secret ls") [ "$3" = --json ] && echo "{\"env_only_count\":${STUB_ENV_ONLY:-0}}" ;;
+  "settings get") echo '{"value":true,"source":"default"}' ;;
+  "setup ") [ -n "$STUB_SETUP_INT" ] && kill -INT $$; exit "${STUB_SETUP_EXIT:-0}" ;;
 esac
 exit 0
 `

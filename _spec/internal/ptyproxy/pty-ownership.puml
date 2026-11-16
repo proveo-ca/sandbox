@@ -25,8 +25,6 @@ skinparam noteTextAlignment left
 ' covers: internal/ptyproxy/screenmodes.go
 ' covers: internal/ptyproxy/screenmodes_test.go
 ' covers: internal/ptyproxy/ptyproxy_windows.go
-' covers: e2e/close_confirm_modes_test.go
-' covers: e2e/close_confirm_sbx_test.go
 '   (internal/backend/dockeregress ExecAgentWithProxy was the second caller;
 '   deleted 2026-10-16 with the docker backend. "internal/ptyproxy stays: every
 '   interactive sbx run uses it" — the Executor's retirement kept it.)
@@ -282,7 +280,7 @@ skinparam noteTextAlignment left
 ' Proxy.EnteredAltScreen (false on a nil proxy and on Windows) tells teardown
 ' that the agent left nothing in scrollback, so its last five lines print dim
 ' under the kept ⚠ (_spec/internal/backend/teardown.puml). It replaced a
-' second detector in agentio.Tail that matched three byte strings and missed
+' second detector in agentsettings.Tail that matched three byte strings and missed
 ' a mode list such as CSI ? 25;1047 h. Pinned by
 ' TestScreenModesRememberTheAlternateScreenAfterTheChildLeavesIt.
 ' ON A REAL AGENT, MEASURED 2026-11-10 (macOS, sbx 0.50.0, claudecode in a real

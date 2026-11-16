@@ -3,7 +3,7 @@
 skinparam noteTextAlignment left
 title GitHub access — host selection, sandbox verification
 ' purpose: init chooses Git transport independently of API login; run reports credential inventory
-' covers: internal/githubaccess/access.go, internal/githubaccess/access_test.go
+' covers: internal/gitaccess/access.go, internal/gitaccess/access_test.go
 ' covers: cmd/proveo/init_github_access.go, cmd/proveo/init_github_access_test.go
 ' covers: internal/run/credential_inventory.go, internal/run/choices.go
 ' covers: internal/run/credential_inventory_test.go
@@ -17,7 +17,8 @@ title GitHub access — host selection, sandbox verification
 ' Upstream regression: https://github.com/docker/sbx-releases/issues/835
 '
 ' INIT
-' Setup retains three numbered pages. GitHub now runs the existing API-token
+' Setup retains three numbered pages (four on one card since stage 4; see
+' SUB-PAGES ON PAGE 2/4 below). GitHub now runs the existing API-token
 ' stage and then a contextual access panel. API failure does not prevent the
 ' operator choosing SSH. gh owns login; proveo does not change gh's protocol.
 ' The panel shows host API identity, protocol, exposed SSH fingerprints and
@@ -46,6 +47,22 @@ title GitHub access — host selection, sandbox verification
 ' does), "run proveo init from a terminal to choose access" under --yes.
 ' Failures are ⚠ items in the same block; a Ctrl+C that ends `sbx settings
 ' set` or `sbx daemon restart` stops init.
+' SUB-PAGES ON PAGE 2/4 (I3 stage 4, 2026-11-13, D13): GitHub access and SSH
+' repair are no lone cards now. They draw as sub-pages of page 2 on the
+' walk's one Session: chip " page 2/4 ", page 1's done row, the ahead rows,
+' titles "Choose sandbox Git access" and "Fix GitHub SSH for sandboxes",
+' facts "api: <login>    git: <protocol>    agent: n key(s)    key: <fp>",
+' and Esc reading "esc later" (Form.Esc). Esc leaves sandbox Git for later
+' and the run goes on; a confirmed Quit there is errInitQuit, which ends
+' init "quit at page 2/4". The page comes back running after each sub-page
+' (Session.Resume), and the GitHub row's outcome adds "sandbox Git: <mode>".
+' `gh auth login` and gh's install are framed hand-offs ("gh's screen",
+' "brew's screen"); `sbx settings set` and `sbx daemon restart` run with
+' their output kept, and a restart marks the latest diagnose stale, so
+' close() diagnoses once more (D25).
+' Pinned by e2e TestInitGitHubSSHChoicePersistsWithoutChangingHostProtocol,
+' cmd/proveo TestPageTwoEnterRunsGitIdentityThenGitHubThenPromptKit and the
+' github-access golden frames in cmd/proveo/testdata/init.txtar.
 ' The choice persists atomically as transport only, in the host user-config
 ' directory's proveo/github.json. Unknown or malformed choices fail a run.
 '
@@ -69,8 +86,8 @@ title GitHub access — host selection, sandbox verification
 '
 ' CREDENTIAL INVENTORY
 ' Execution order: OS, trust repo, credentials, optional ports/apps.
-' credentials: disabled [x] API keys v [x] OAuth v [x] SSH v.
-' Tick only nonempty classes; an empty class has no arrow.
+' credentials: disabled API keys (N) v, OAuth (N) v, SSH (N) v, .env (N) v; no tick boxes.
+' An empty class reads (0) with no arrow: _spec/internal/choiceui/wireframe.puml (A CELL COUNTS ITS LIST).
 ' This is host inventory, not a promise that the selected model uses each item.
 ' API/OAuth entries use service names from sbx metadata and present credential
 ' variable names, deduplicated. SSH entries show host-agent public fingerprints.
@@ -78,6 +95,11 @@ title GitHub access — host selection, sandbox verification
 ' Each populated cell opens its complete read-only list with the ports dropdown
 ' mechanism. Left/right changes the list; up/down moves inside it; space cannot
 ' mutate credentials. Lists scroll to the highlighted entry on short terminals.
+' AMENDED 2026-11-13 (owner, O7 and O4): credentials is the run form's first
+' row, under "agent", above model. It gains a fourth class, ".env": the
+' names the run's env file sets, names only, filterable with "/". Each list
+' is a small card; its entries carry their own help. The order and the
+' layout: _spec/internal/choiceui/wireframe.puml (ONE CARD).
 ' Topology always puts the credential marker at the broker, including local
 ' models, OAuth and disabled legacy-forward/host previews.
 

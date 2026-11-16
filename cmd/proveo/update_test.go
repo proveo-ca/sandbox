@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/cdn"
 )
 
@@ -135,7 +135,7 @@ func failsWith(t *testing.T, exe string, force bool, want string) {
 	t.Helper()
 	out := captureUI(t)
 	err := updateAt(exe, force, false)
-	var rep backend.Reported
+	var rep sandbox.Reported
 	if !errors.As(err, &rep) || out.String() != want {
 		t.Errorf("update = %v, printed %q; want Reported and %q", err, out, want)
 	}

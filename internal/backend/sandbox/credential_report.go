@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/proveo-ca/proveo/internal/agentio"
+	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/credentials"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
@@ -191,7 +191,7 @@ func credentialInUse(target, out string) string {
 
 // consentInteractive reports whether `sbx create` may ask for credential approval on this terminal.
 func consentInteractive() bool {
-	return agentio.IsStdinTTY() && os.Getenv("PROVEO_SCHEDULE") == ""
+	return agentsettings.IsStdinTTY() && os.Getenv("PROVEO_SCHEDULE") == ""
 }
 
 // refuseUnboundCredential refuses an unattended create that would withhold the run's own credential; sbx reports the rest.

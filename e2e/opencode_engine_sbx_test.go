@@ -66,7 +66,7 @@ func terminalWords(out string) string {
 // sessionID is the last native session id the output printed.
 func sessionID(out string) string {
 	id := ""
-	for _, line := range strings.Split(terminalText(out), "\n") {
+	for line := range strings.SplitSeq(terminalText(out), "\n") {
 		var response struct {
 			Data struct {
 				ID string `json:"id"`

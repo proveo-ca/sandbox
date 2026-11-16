@@ -106,7 +106,7 @@ func frontmatterField(src, key string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	for _, line := range strings.Split(fm, "\n") {
+	for line := range strings.SplitSeq(fm, "\n") {
 		if v, ok := strings.CutPrefix(line, key+":"); ok {
 			return strings.TrimSpace(v), true
 		}

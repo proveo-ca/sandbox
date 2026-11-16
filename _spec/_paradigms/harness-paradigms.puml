@@ -4,7 +4,7 @@
 ' covers: defs/**/entrypoint.sh
 ' covers: internal/entrypoint/**
 ' covers: cmd/proveo-entrypoint/**
-' covers: internal/gitidentity/gitidentity.go
+' covers: internal/gitaccess/identity.go
 ' Prose for humans: CODING_HARNESSES.md, CONTRIBUTING.md.
 title The three harness paradigms — intended working mode per def
 

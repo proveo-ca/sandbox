@@ -22,11 +22,9 @@ func Exists(name string) bool {
 	if err != nil {
 		return true
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		for _, f := range strings.Fields(line) {
-			if f == name {
-				return true
-			}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if slices.Contains(strings.Fields(line), name) {
+			return true
 		}
 	}
 	return false
@@ -52,7 +50,7 @@ func Gone(name string) bool {
 // tableRows counts the rows under an `sbx ls` table's SANDBOX header; listed is true when one names name.
 func tableRows(out, name string) (rows int, listed bool) {
 	header := false
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Fields(line)
 		switch {
 		case len(f) == 0:
@@ -79,7 +77,7 @@ func Running(name string) bool {
 }
 
 func statusOf(out, name string) string {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if f := strings.Fields(line); len(f) >= 3 && f[0] == name {
 			return rowStatus(f)
 		}
@@ -110,7 +108,7 @@ func RunningNames() (names []string, ok bool) {
 	if err != nil {
 		return nil, false
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 3 || !strings.HasPrefix(f[0], NamePrefix) {
 			continue
@@ -271,7 +269,7 @@ const snapshotMark = "proveo snapshot committed on "
 
 // SnapshotBranch is the branch CloneSnapshotArgs' output says it committed on; ok is false when it committed nothing.
 func SnapshotBranch(out string) (branch string, ok bool) {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if b, found := strings.CutPrefix(strings.TrimSpace(line), snapshotMark); found && b != "" {
 			return b, true
 		}

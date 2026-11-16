@@ -1,0 +1,139 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+' purpose: how the workspace is scanned for projects, and what bounds the walk
+' covers: internal/workspace/scan*.go
+'   the symlink walk that reuses the deny set .. _spec/internal/workspace/mount-symlink-escape.puml
+'   the dind gate this scan once fed ........... _spec/_paradigms/retire-dind.puml
+' Notes are capped at 5 lines x 50 columns; one idea per anchor.
+'
+' ── THE SCAN LIVES IN WORKSPACE (DECIDED 2026-11-15) ───────────────────────
+' DECIDED 2026-11-15 (owner: "the 8 uncontested"; codebase-compression.puml
+' P11, F3 option 1): the scan, a leaf package imported by workspace and
+' posture, is internal/workspace's scan.go, and this file moved with it.
+' posture now imports workspace (L4 → L1, no edge points up). Renamed:
+' ScanResult, ScanMaxDepth, DefaultScanBudget; the test helper that
+' duplicated mount_test.go's touch is gone.
+title Workspace scan — one walker, monorepo-aware, dependency trees pruned
+
+node "internal/workspace scan.go" as PKG <<host>> {
+  component "Scan(scopeDir, repoRoot,\nmarkers, budget) ScanResult" as SCAN <<app>>
+  component "alwaysPrune\nhardcoded deny set" as HARD <<app>>
+  component "gitignoreNames(dir)\nplain basenames only" as GI <<app>>
+}
+
+folder "Consumers" as USE <<host>> {
+  component "choice prompt header\ntooling row" as HDR <<app>>
+}
+
+database "workspace tree\ndepth <= ScanMaxDepth (7)" as TREE <<db>>
+component "unpruned dependency tree\n→ a dependency's files read as the project's" as BAD <<error>>
+
+SCAN ARROW_MAIN HARD : always applied
+SCAN ARROW_OPTIONAL GI : scope AND repo root, additive
+SCAN ARROW_MAIN TREE : walk, budgeted
+HDR ARROW_MAIN SCAN
+GI ARROW_ERROR BAD : gitignore alone is not enough
+
+note right of GI
+  **.gitignore alone was unsafe.** Lookup
+  stopped at the first ""\.gitignore"" walking
+  up, so a monorepo scope with its own file
+  never saw the repo root's ""node_modules"".
+end note
+
+note right of GI
+  **The bug this replaced.** A scope of
+  ""apps/web"" whose ""\.gitignore"" listed only
+  ""\.next/"" walked straight into
+  ""apps/web/node_modules"" to depth 7.
+end note
+
+note left of GI
+  **Two more holes.** A pattern holding / * ? [
+  cannot prune a basename, so
+  ""**/node_modules"" never matched, and a repo
+  on ""core.excludesFile"" supplied nothing.
+end note
+
+note bottom of GI
+  **So the derived names are additive only.**
+  They come from the scope //and// the repo
+  root, on top of a set that always applies.
+end note
+
+note bottom of BAD
+  **Wrong, not merely wasteful.** npm packages
+  ship Dockerfiles, so a repo with none of its
+  own was once offered a ""--privileged""
+  sidecar through ""dind.ScopeHasDockerfiles"".
+end note
+
+note right of BAD
+  **The deny set stays hardcoded.** That gate
+  left with the sidecar and the walker only
+  labels a prompt now, but a scan that reports
+  a dependency's files as the project's is
+  wrong whatever reads it.
+end note
+
+note bottom of TREE
+  **Bounded three ways.** Depth stops at
+  ""ScanMaxDepth"" (7, as in the walker this
+  replaced), and ""DefaultScanBudget"" caps the
+  entries examined.
+end note
+
+note right of TREE
+  **A pathological tree must degrade.** The
+  scan runs before the container exists, in
+  front of an operator at a prompt, so it may
+  not stall.
+end note
+
+note left of TREE
+  **The walk stops early.** It exits once every
+  marker is found, which is shallow in practice:
+  files at each level are read before descending.
+end note
+
+note top of TREE
+  **Truncation is logged, never shown.** A
+  bounded scan sets ""ScanResult.Truncated"";
+  the prompt header stays about the workspace,
+  and the run log tells whoever needs to know.
+end note
+
+note left of HARD
+  **One deny set, three walks.** This scan, the
+  mount planner's symlink walk and the
+  in-container ""_proveo_walk"" ask one question,
+  so ""AlwaysPrune"" is exported: three private
+  copies drift the moment one is corrected.
+end note
+
+note bottom of HARD
+  **Package stores earn their place.**
+  ""\.pnpm-store"" held 110k of the 123k files
+  the in-container walk crossed on one monorepo,
+  and a content-addressed store object with no
+  extension is never workspace source.
+end note
+
+note top of HARD
+  **The store names arrived late.** This scan's
+  budget usually stops before it reaches a
+  store, which is why.
+end note
+
+note right of SCAN
+  **Markers, not globs.** ""Names"" match a
+  basename exactly and ""Suffixes"" match its
+  end (""\.go""); either satisfies the marker.
+end note
+
+note bottom of SCAN
+  **Labels are facts.** Tooling labels are
+  reported as found; the ""lsp:"" prediction
+  row left with the LSP removal (2026-10-30).
+end note
+@enduml

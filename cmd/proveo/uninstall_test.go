@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/shell/setup-path.puml
+// SPEC: _spec/internal/promptkit/setup-path.puml
 package main
 
 import (
@@ -10,11 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/proveo-ca/proveo/internal/backend"
+	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/promptkit"
 	"github.com/proveo-ca/proveo/internal/results"
 	"github.com/proveo-ca/proveo/internal/schedule"
-	"github.com/proveo-ca/proveo/internal/shell"
 )
 
 func TestStripInstallAndSetupPathBlocks(t *testing.T) {
@@ -26,7 +25,7 @@ func TestStripInstallAndSetupPathBlocks(t *testing.T) {
 		installPathMarkerStart,
 		`export PATH="` + bin + `:$PATH"`,
 		installPathMarkerEnd,
-		shell.Marker,
+		promptkit.PathMarker,
 		`export PATH="` + bin + `:$PATH"`,
 		"export BAR=2",
 		"",
@@ -39,7 +38,7 @@ func TestStripInstallAndSetupPathBlocks(t *testing.T) {
 	}
 	got, _ := os.ReadFile(rc)
 	s := string(got)
-	if strings.Contains(s, installPathMarkerStart) || strings.Contains(s, shell.Marker) || strings.Contains(s, bin) {
+	if strings.Contains(s, installPathMarkerStart) || strings.Contains(s, promptkit.PathMarker) || strings.Contains(s, bin) {
 		t.Fatalf("markers/path not stripped:\n%s", s)
 	}
 	if !strings.Contains(s, "export FOO=1") || !strings.Contains(s, "export BAR=2") {
@@ -56,12 +55,12 @@ func TestStripInstallAndSetupPathBlocks(t *testing.T) {
 func TestUninstallLeavesAnotherDirsSetupBlock(t *testing.T) {
 	home, root := uninstallHost(t)
 	captureUI(t)
-	other := shell.Shell{Name: "zsh"}.Block(filepath.Join(home, "go", "bin"))
-	mine := shell.Shell{Name: "zsh"}.Block(filepath.Join(root, "bin"))
+	other := promptkit.Shell{Name: "zsh"}.Block(filepath.Join(home, "go", "bin"))
+	mine := promptkit.Shell{Name: "zsh"}.Block(filepath.Join(root, "bin"))
 	rc := filepath.Join(home, ".zshrc")
 	writeFile(t, rc, "export B=2\n"+other)
 	writeFile(t, filepath.Join(home, ".bashrc"), "export A=1\n")
-	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(false)); f.path {
+	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(nil)); f.path {
 		t.Errorf("findInstalled = %+v; another dir's setup block is not this root's PATH line", f)
 	}
 	writeFile(t, rc, "export B=2\n"+other+mine)
@@ -83,7 +82,7 @@ func TestUninstallLeavesAnotherRootsInstallBlock(t *testing.T) {
 	rc := filepath.Join(home, ".bashrc")
 	writeFile(t, rc, "export A=1\n"+other)
 	writeFile(t, filepath.Join(home, ".zshrc"), "export B=2\n")
-	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(false)); f.path {
+	if f := findInstalled(root, shellRCCandidates(home), promptKitOptions(nil)); f.path {
 		t.Errorf("findInstalled = %+v; another root's install.sh block is not this root's PATH line", f)
 	}
 	writeFile(t, rc, "export A=1\n"+other+block(filepath.Join(root, "bin"))+installPathMarkerStart+"\n"+installPathMarkerEnd+"\n")
@@ -144,7 +143,7 @@ func uninstallHost(t *testing.T) (home, root string) {
 	writeFile(t, filepath.Join(bin, "proveo"), "x")
 	runningAs(t, filepath.Join(bin, "proveo"))
 	writeFile(t, filepath.Join(home, ".bashrc"), "export A=1\n"+installPathMarkerStart+"\nexport PATH=\""+bin+":$PATH\"\n"+installPathMarkerEnd+"\n")
-	writeFile(t, filepath.Join(home, ".zshrc"), "export B=2\n"+shell.Shell{Name: "zsh"}.Block(bin))
+	writeFile(t, filepath.Join(home, ".zshrc"), "export B=2\n"+promptkit.Shell{Name: "zsh"}.Block(bin))
 	return home, root
 }
 
@@ -318,7 +317,7 @@ func TestUninstallWithoutATerminalOrYesFailsWithOneHowTo(t *testing.T) {
 	_, root := uninstallHost(t)
 	out := captureUI(t)
 	err := uninstall(false, false, nil)
-	var rep backend.Reported
+	var rep sandbox.Reported
 	if !errors.As(err, &rep) {
 		t.Fatalf("err = %v, want Reported", err)
 	}
@@ -358,7 +357,7 @@ func TestUninstallClosesOnTheRootItCouldNotRemove(t *testing.T) {
 	t.Setenv("PROVEO_INSTALL_ROOT", home)
 	out := captureUI(t)
 	err := uninstall(true, false, nil)
-	var rep backend.Reported
+	var rep sandbox.Reported
 	if !errors.As(err, &rep) || !strings.HasSuffix(out.String(), "error: ~ — not removed\n    an unsafe install root\n") {
 		t.Errorf("an unsafe root ended on %v:\n%s", err, out)
 	}

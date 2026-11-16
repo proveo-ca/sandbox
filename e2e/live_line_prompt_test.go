@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
@@ -27,7 +27,7 @@ func TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := filepath.Join(t.TempDir(), "done")
-	sess := tmux.New(fmt.Sprintf("proveo-live-step-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-live-step-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 	if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_STEP_HELPER="+done,
 		binary, "-test.run=^TestLiveStepLineHelper$", "-test.timeout=60s"); err != nil {
@@ -39,7 +39,7 @@ func TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt(t *testing.T) {
 	if screen, err := sess.WaitFor("the agent pushed these branches", 10*time.Second); err != nil {
 		t.Fatalf("the question never drew: %v\n%s", err, screen)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		time.Sleep(50 * time.Millisecond)
 		if screen, _ := sess.Capture(); strings.Contains(screen, liveStepFrame) {
 			t.Fatalf("the step line drew over the question:\n%s", screen)

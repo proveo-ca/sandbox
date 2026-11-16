@@ -16,7 +16,6 @@ skinparam noteTextAlignment left
 ' covers: internal/run/run.go (promptChoices, launchSandbox)
 ' covers: internal/backend/sandbox/sandbox.go (Spec allow, proxyOnlyVar)
 ' covers: internal/backend/sandbox/host_inference_test.go
-'   the measurements and rejected options ... _spec/_experiments/sbx-host-inference.puml
 '   the model row ............................ _spec/defs/hermes/hermes-paradigm.puml
 '
 ' ── RULE ────────────────────────────────────────────────────────────────────
@@ -27,6 +26,21 @@ skinparam noteTextAlignment left
 ' tunes Ollama (2026-09-27: pulling added — refusing with `ollama pull` only
 ' made the operator retype what proveo already knew).
 '
+' ── NOT CHOSEN: GPU PASSTHROUGH INTO THE VM (2026-09-26, sbx v0.42.1) ───────
+' `sbx run --gpu` needs x86_64 Linux with NVIDIA, IOMMU with vfio_pci, and a
+' GPU unbound from the host driver (a dedicated card); a hand-built
+' nerdbox-nvidia-bundle.erofs, rebuilt on every sbx upgrade; and the
+' platform.allowExperimentalFeatures and feature.sandbox-gpu gates. It had an
+' open boot failure (docker/sbx-releases#587) and has no macOS path.
+' A model baked into the image ran on the VM's CPU (~2 prompt tok/s for 30B),
+' so the baked-model images went; one HTTP port to the host's server stayed.
+'
+' ── NOT CHOSEN: `sbx run --model` ──────────────────────────────────────────
+' That mixin only sets *_BASE_URL to host.docker.internal:<port>, dummy API
+' keys, SBX_CRED_*_MODE=none, and a network allow for localhost:<port> (read
+' from the v0.42.1 binary's embedded template). proveo's own workload carries
+' the same env and allow rule (steps 5 and 6 below), so it passes no --model.
+'
 ' ── SEQUENCE (launchSandbox, before the sandbox exists) ─────────────────────
 ' (selectBackend's sbx branch until 2026-10-16; sbx is now the only backend.)
 '   1. GET 127.0.0.1:11434/api/tags. No answer ⇒ refuse with the install URL.
@@ -36,8 +50,8 @@ skinparam noteTextAlignment left
 '      memory right now (memory is transient, the download is not), then POST
 '      /api/pull behind a live line on a terminal (one start line on plain
 '      output); the start and "pulled <model> (N GiB)" go to the run log, and
-'      egress's "local model" fact gains dim "pulled this run · N GiB" (R2 of
-'      output-readability.puml: a pull is host preparation, like the add-ons;
+'      egress's "local model" fact gains dim "pulled this run · N GiB" (a
+'      pull is host preparation, like the add-ons;
 '      EnsureHostOllama returns what it pulled). What it pulled is the SUM of
 '      each layer's total: /api/pull streams one "pulling <digest>" event set
 '      per layer, each with that layer's own total (ollama docs/api.md, Pull
@@ -162,7 +176,7 @@ skinparam noteTextAlignment left
 '     host's Ollama has installed and that fits the FIT POOL — the host GPU path.
 '     Only listed models: an arbitrary installed tag (a 0.3 GB fine-tune) is
 '     not an agent model.
-'     WHERE IT SAYS SO (output-readability R1, 2026-11-11): the pick, its reason
+'     WHERE IT SAYS SO (2026-11-11, _spec/internal/ui/output-vocabulary.puml): the pick, its reason
 '     ("no provider key") and the PROVEO_LOCAL_MODEL_AUTO=0 opt-out go to the
 '     run log alone (ui.Logf). The screen says it once, as the egress block's
 '     "● local model: <served tag> on the host's Ollama (host GPU)" fact,

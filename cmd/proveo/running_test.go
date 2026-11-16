@@ -79,6 +79,7 @@ func TestAttachPrintsRunningTasks(t *testing.T) {
 	tmuxHasSession = func(name string) bool { return name == schedule.SessionName("sample-task") }
 
 	cmd := attachCmd()
+	cmd.SetArgs([]string{})
 	var out, errOut strings.Builder
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -218,6 +219,7 @@ func TestAttachWithNothingRunningSaysSoOnStderr(t *testing.T) {
 		orig := tmuxHasSession
 		tmuxHasSession = func(string) bool { return false }
 		cmd := attachCmd()
+		cmd.SetArgs([]string{})
 		var out, errOut strings.Builder
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
@@ -276,6 +278,7 @@ func TestProjectsPrintsOnlyThePathsAScopeTakes(t *testing.T) {
 	}
 	t.Chdir(repo)
 	cmd := projectsCmd()
+	cmd.SetArgs([]string{})
 	var out, errOut strings.Builder
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -289,6 +292,7 @@ func TestProjectsPrintsOnlyThePathsAScopeTakes(t *testing.T) {
 	empty := t.TempDir()
 	t.Chdir(empty)
 	cmd = projectsCmd()
+	cmd.SetArgs([]string{})
 	out.Reset()
 	errOut.Reset()
 	cmd.SetOut(&out)

@@ -17,7 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/entrypoint"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestHelloWorldE2E drives each harness against a COPY of e2e/samples on a
@@ -94,7 +94,7 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 			"When the file exists, reply with exactly %s and stop.",
 		h.promptPath, line, reply)
 
-	sess := tmux.New(fmt.Sprintf("proveo-hello-%s-%d", h.target, os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-hello-%s-%d", h.target, os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
 
 	cmd := []string{"env"}
@@ -192,7 +192,7 @@ func runHelloWorld(t *testing.T, h helloHarness, proveoBin, model string) {
 // delivers it.
 func deliveredThroughRefs(t *testing.T, work string, paths []string) (name, body string) {
 	t.Helper()
-	for _, ref := range strings.Fields(hostProveoRefs(t, work)) {
+	for ref := range strings.FieldsSeq(hostProveoRefs(t, work)) {
 		for _, p := range paths {
 			out, err := exec.Command("git", "-C", work, "show", ref+":"+p).Output()
 			if err == nil {
@@ -266,7 +266,7 @@ func assertCleanBoot(t *testing.T, screen string) {
 	}
 }
 
-func waitSessionExit(sess *tmux.Session, timeout time.Duration) (string, bool) {
+func waitSessionExit(sess *schedule.TmuxSession, timeout time.Duration) (string, bool) {
 	deadline := time.Now().Add(timeout)
 	last := ""
 	for time.Now().Before(deadline) {
@@ -282,7 +282,7 @@ func waitSessionExit(sess *tmux.Session, timeout time.Duration) (string, bool) {
 
 func linesMatching(screen, sub string, max int) string {
 	var hits []string
-	for _, l := range strings.Split(screen, "\n") {
+	for l := range strings.SplitSeq(screen, "\n") {
 		if strings.Contains(l, sub) {
 			hits = append(hits, strings.TrimSpace(l))
 			if len(hits) == max {
@@ -383,7 +383,7 @@ func repoEnv(t *testing.T) map[string]string {
 	if err != nil {
 		return repoEnvCache
 	}
-	for _, raw := range strings.Split(string(b), "\n") {
+	for raw := range strings.SplitSeq(string(b), "\n") {
 		l := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "export "))
 		if l == "" || strings.HasPrefix(l, "#") {
 			continue
@@ -462,7 +462,7 @@ func sandboxModelsLine(t *testing.T, transcript string) string {
 func hostProveoRefTrees(t *testing.T, work string) string {
 	t.Helper()
 	var b strings.Builder
-	for _, ref := range strings.Fields(hostProveoRefs(t, work)) {
+	for ref := range strings.FieldsSeq(hostProveoRefs(t, work)) {
 		out, _ := exec.Command("git", "-C", work, "ls-tree", "-r", "--name-only", ref).Output()
 		fmt.Fprintf(&b, "%s\n%s", ref, out)
 	}

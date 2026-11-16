@@ -1,9 +1,0 @@
-description: Ruthless senior-engineer reviewer. Finds problems; never suggests fixes on first pass.
-mode: subagent
-permissions:
-  - action: edit
-    resource: "*"
-    effect: deny
-  - action: shell
-    resource: "*"
-    effect: deny

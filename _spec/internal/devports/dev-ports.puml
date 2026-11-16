@@ -7,7 +7,7 @@
 ' covers: internal/run/ports_row_test.go, internal/backend/sandbox/sandbox_test.go, e2e/ports_publish_test.go
 ' covers: internal/devports/hostport.go (HostPorts, HostPortFor, HostPortWhy), internal/devports/hostport_test.go
 ' covers: internal/choiceui/choiceui.go (More.Off, toggleMore, moreHelp, drawMore, Selections), internal/choiceui/more_off_test.go
-' covers: internal/contract/android_install_lib_test.go, e2e/android_seed_install_test.go
+' covers: internal/contract/android_install_lib_test.go, e2e/android_test.go
 '   the form this row joins ......... _spec/internal/choiceui/wireframe.puml
 '   the publish half it generalises . _spec/_plans/tools-and-localhost-tunnels.puml (cdpPublish was the only caller)
 '   the stream that reports it ...... _spec/internal/ui/output-vocabulary.puml
@@ -66,6 +66,10 @@
 ' behind ...More uses More.Off (parallel to More.On) with the same Row.OffWhy:
 ' space refuses it, the dropdown paints it warn, the help adds "off: …",
 ' Selections skips it. The ...More cell itself stays on, so the list opens.
+' AMENDED 2026-11-13 (owner, O5 and O7): the dropdown draws an Off entry
+' faint and struck through (gated), not in warn. ports and apps sit under
+' "interface", after outputs. The dropdown is the form's open list, a small
+' card (_spec/internal/choiceui/wireframe.puml, THE OPEN LIST).
 ' PUBLISH: planPorts re-runs the same HostPortFor at launch, so the -p entry
 ' equals what the help showed unless the host bound H in between; then the
 ' next prefix wins and the port row says "host :<first> was taken". A ticked
@@ -74,7 +78,7 @@
 ' dim under it, in the interface block. PlanPorts
 ' also keeps two guests off one host port.
 ' Each kept port becomes `sbx run -p H:G` after the CDP relay's entry.
-' THE ROW (2026-11-11, output-readability R1): after `sbx create`, the
+' THE ROW (2026-11-11, _spec/internal/ui/output-vocabulary.puml): after `sbx create`, the
 ' interface block prints what the port serves, "● port G: <tool> in <dir>",
 ' with "log /tmp/proveo-dev-G.log" dim under it. sbx's create block names the
 ' host side, so a run that creates its sandbox leaves the URL to it; the run

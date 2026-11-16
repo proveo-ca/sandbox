@@ -7,7 +7,7 @@
 ' covers: cmd/proveo/provision.go (settleAgent, askAgentUpdate, attended)
 ' covers: internal/imagetest/overlay_test.go
 ' covers: internal/contract/agent_pin_test.go (overlay rows, TestEveryHarnessIsCoveredByTheAgentUpdateCheck)
-' covers: internal/tmux/tmux.go (SessionEnv)
+' covers: internal/schedule/tmux.go (TmuxEnv)
 ' covers: e2e/main_test.go
 ' covers: internal/envreg/envreg.go (PROVEO_AGENT_UPDATE)
 '   the pin this check reads ........ _spec/_devops/agent-version-pin.puml
@@ -165,7 +165,7 @@ title Agent update prompt — pull the published image, cover the gap with one l
 '     cadence. [Inference] The 162.5 MB delta holds only while a publish
 '     keeps the lower layers' digests; a cold builder republishes all of it.
 '   * Tests: the e2e suite turns the check off (e2e/main_test.go sets
-'     PROVEO_AGENT_UPDATE=0 and tmux.SessionEnv carries it into sessions,
+'     PROVEO_AGENT_UPDATE=0 and schedule.TmuxEnv carries it into sessions,
 '     which otherwise inherit the tmux server's environment). A test that
 '     wants the dialog spells `env PROVEO_AGENT_UPDATE= proveo run …`.
 '

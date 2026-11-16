@@ -57,6 +57,9 @@
 ' The only browser is agent-browser in the -browser variant
 ' (_spec/defs/browser-layer.puml); the Claude in Chrome bridge and its --chrome
 ' launch flag were removed on 2026-10-24.
+' DECIDED 2026-10-24 (F14, closing N21 and F16, whose "Rename to blocked" of 2026-10-17 went with the
+'   bridge): "Remove the claude-in-chrome option for claude, cleanup everything related to it in _spec,
+'   leave it only agent-browser".
 '
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 title claudecode paradigm — ML blackbox algorithm (spec → plan → implement → verify → loop)

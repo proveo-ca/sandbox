@@ -71,7 +71,7 @@ func previousRelease(t *testing.T, root string) string {
 	}
 	head, _ := exec.Command("git", "-C", root, "tag", "--points-at", "HEAD").Output()
 	at := strings.Fields(string(head))
-	for _, tag := range strings.Fields(string(merged)) {
+	for tag := range strings.FieldsSeq(string(merged)) {
 		if !slices.Contains(at, tag) {
 			return tag
 		}

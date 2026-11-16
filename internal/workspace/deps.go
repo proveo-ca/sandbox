@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/proveo-ca/proveo/internal/wsscan"
 )
 
 // DepLang is one row of the dependency-tree table: which files root a project
@@ -84,7 +82,7 @@ func depTreesUnder(root string) []depTree {
 			return fs.SkipAll
 		}
 		if p != root {
-			if wsscan.AlwaysPrune(d.Name()) {
+			if AlwaysPrune(d.Name()) {
 				return fs.SkipDir
 			}
 			rel, rerr := filepath.Rel(root, p)
@@ -136,7 +134,7 @@ func (w MountSpec) DepCopies() []DepCopy {
 			for _, l := range projectLangs(entries) {
 				for _, dir := range l.Dirs {
 					host := filepath.Join(w.RepoRoot, dir)
-					if !isDir(host) || exists(filepath.Join(w.InputDir, dir)) {
+					if !isDir(host) || Exists(filepath.Join(w.InputDir, dir)) {
 						continue
 					}
 					add(host, "/app/"+dir, l.Lang, dir)

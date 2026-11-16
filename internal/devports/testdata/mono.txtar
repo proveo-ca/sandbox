@@ -1,0 +1,29 @@
+-- Makefile --
+dev:
+	hugo server
+
+build:
+	hugo
+-- Procfile --
+web: gunicorn app:wsgi --bind 0.0.0.0:5050
+worker: celery worker
+-- apps/api/main.go --
+package main
+
+import "net/http"
+
+func main() { _ = http.ListenAndServe(":8080", nil) }
+-- apps/docs/package.json --
+{"scripts":{"dev":"vite --port 3001","preview":"vite preview","storybook":"storybook dev -p 6006"}}
+-- apps/web/package.json --
+{"scripts":{"dev":"next dev","build":"next build","start":"next start"}}
+-- mise.toml --
+[tasks.serve]
+run = "uvicorn app:api --port 8001"
+
+[tasks.lint]
+run = "eslint ."
+-- package.json --
+{"scripts":{"dev":"turbo run dev","build":"turbo run build"}}
+-- services/admin/manage.py --
+#!/usr/bin/env python

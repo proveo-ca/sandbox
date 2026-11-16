@@ -1,0 +1,83 @@
+-- .gitignore --
+.gradle/
+build/
+app/build/
+local.properties
+-- app/build.gradle.kts --
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace = "ca.proveo.hello"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "ca.proveo.hello"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
+    }
+}
+-- app/src/main/AndroidManifest.xml --
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Hello proveo">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+-- app/src/main/java/ca/proveo/hello/MainActivity.java --
+package ca.proveo.hello;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.widget.TextView;
+
+public class MainActivity extends Activity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        TextView text = new TextView(this);
+        text.setText("Hello from proveo");
+        setContentView(text);
+    }
+}
+-- build.gradle.kts --
+plugins {
+    id("com.android.application") version "9.4.1" apply false
+}
+-- gradle.properties --
+org.gradle.jvmargs=-Xmx2g
+android.useAndroidX=false
+-- install.sh --
+#!/usr/bin/env bash
+# Build the debug APK and install it on the device adb reports.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+gradle --no-daemon -q :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell pm list packages ca.proveo.hello
+-- settings.gradle.kts --
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "android-hello"
+include(":app")

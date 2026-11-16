@@ -43,14 +43,11 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 '                       mechanism — but it turns only when a human runs
 '                       `mise run build <target>`. There is no CI in this repo and
 '                       no scheduled rebuild.
-'   image → sbx store   SELF-INVALIDATING, and this was the surprise: sbx.
-'                       HasTemplate compares the local docker image ID against a
-'                       receipt and reloads on mismatch, so a rebuild does reach
-'                       the sandbox without PROVEO_SBX_RELOAD.
-'                       (MEASURED 2026-11-12: no HasTemplate remains in cmd/ or
-'                       internal/. The image is the FROM of the v3 kit recipe
-'                       now: _spec/internal/sbx/kit-image-source.puml.)
-'   store → container   a fresh sandbox per run. Nothing stale can survive here.
+'   image → kit         no stored template to go stale: each run resolves the
+'                       image's digest, and the v3 kit recipe FROMs it
+'                       (_spec/internal/sbx/kit-image-source.puml).
+'                       [Inference] So a rebuild reaches the next sandbox.
+'   kit → container     a fresh sandbox per run. Nothing stale can survive here.
 '
 ' SO THE ONLY SLACK IS THE TOP RUNG, and before this line existed it was silent:
 ' the failing updater was never updating anything, but it did announce once per
@@ -60,8 +57,9 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' delivered.
 '
 ' THE RUN NOW DELIVERS IT. posture.AgentVersion reads the label of the image
-' run.preflightImage settled on. Since output-readability R1 the version rides
-' the start line ("● <target> <version> — starting"); the pin line and its
+' run.preflightImage settled on. Since 2026-11-11 the version rides the start
+' line ("● <target> <version> — starting", _spec/internal/ui/step-lines.puml);
+' the pin line and its
 ' `mise run build <target>` hint go to the run log only, since a maintainer
 ' command never prints on screen. Best-effort by design: an sbx-only
 ' host has no docker to inspect with, docker prints `<no value>` for a missing

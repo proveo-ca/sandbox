@@ -89,8 +89,8 @@ skinparam noteTextAlignment left
 ' THE OTHER SKIP, RETIRED 2026-10-17: `sbxShellHoldsInADetachedPane` gated two
 ' e2e tests, one of them the only check that a Kit allowlist CONFINES. With
 ' `--shell` retired and every probe running through `sbx exec` beside the
-' agent (e2e/kit_probe_test.go), the helper and its skip are deleted
-' (_spec/_experiments/sbx-driving-a-session.puml holds the record).
+' agent (e2e/kit_test.go), the helper and its skip are deleted
+' (why exec and not ssh: _spec/tests/testing-strategy.puml).
 '
 ' ── WHAT THIS SHEET NO LONGER TRACKS, AND WHERE IT WENT ────────────────────
 ' The blockers this file was opened for have closed, and keeping their

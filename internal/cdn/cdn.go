@@ -198,11 +198,8 @@ func Newer(remote, local string) bool {
 func compareSemver(a, b string) int {
 	ap := semverParts(a)
 	bp := semverParts(b)
-	n := len(ap)
-	if len(bp) > n {
-		n = len(bp)
-	}
-	for i := 0; i < n; i++ {
+	n := max(len(bp), len(ap))
+	for i := range n {
 		var av, bv int
 		if i < len(ap) {
 			av = ap[i]

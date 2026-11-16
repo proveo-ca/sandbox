@@ -62,14 +62,6 @@ func (l *Log) Writer() *os.File {
 	return l.f
 }
 
-// Printf appends one timestamped line.
-func (l *Log) Printf(format string, a ...any) {
-	if l == nil || l.f == nil {
-		return
-	}
-	fmt.Fprintf(l.f, "%s %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, a...))
-}
-
 // Section starts a labelled block, so a transcript can be skimmed.
 func (l *Log) Section(name string) {
 	if l == nil || l.f == nil {

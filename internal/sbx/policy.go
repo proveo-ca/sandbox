@@ -59,7 +59,7 @@ func PolicyBaseline() (name string, known bool) {
 	}
 	var allowAll, sawNetwork bool
 	allows := 0
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 3 || f[2] != "network" {
 			continue

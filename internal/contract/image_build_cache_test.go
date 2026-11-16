@@ -17,7 +17,7 @@ func dockerfileRuns(df string) []string {
 	var runs []string
 	var cur strings.Builder
 	in := false
-	for _, line := range strings.Split(df, "\n") {
+	for line := range strings.SplitSeq(df, "\n") {
 		trim := strings.TrimSpace(line)
 		if !in {
 			if strings.HasPrefix(trim, "#") || trim == "" {

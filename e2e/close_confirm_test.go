@@ -15,7 +15,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // TestHeadedCtrlCAsksBeforeRemoving drives a real proveo run on a tmux TTY and
@@ -74,7 +74,7 @@ func headedCtrlCAsksBeforeRemoving(t *testing.T, target, filter, key string) {
 	}
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", image).Run() })
 
-	sess := tmux.New(fmt.Sprintf("proveo-closecfm-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-closecfm-%d", os.Getpid()), nil)
 	t.Cleanup(func() { stopRun(sess, time.Minute) })
 	if err := sess.Start(120, 40, "env",
 		"TERM=xterm-256color",
@@ -110,7 +110,7 @@ func headedCtrlCAsksBeforeRemoving(t *testing.T, target, filter, key string) {
 		"Stay",
 		"Remove",
 		"Interrupt agent",
-		"enter accept",
+		"enter press",
 	} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("confirm modal missing %q:\n%s", want, screen)

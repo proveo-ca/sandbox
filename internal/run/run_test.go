@@ -12,7 +12,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/agentsettings"
 	"github.com/proveo-ca/proveo/internal/backend/sandbox"
 	"github.com/proveo-ca/proveo/internal/choiceui"
-	"github.com/proveo-ca/proveo/internal/hostadb"
+	"github.com/proveo-ca/proveo/internal/hostdev"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 	"github.com/proveo-ca/proveo/internal/sbx"
@@ -112,7 +112,7 @@ func TestEvidenceIsOneAnswerNotTwoBoxes(t *testing.T) {
 		evidenceRow(EvidenceDefault),
 	}}
 	seen := map[string]bool{}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		seen[evidenceOf(f.Selection(evidenceLabel))] = true
 		f.Rows[1].Selected = (f.Rows[1].Selected + 1) % len(f.Rows[1].Options)
 	}
@@ -424,7 +424,7 @@ func TestGateAddonsIsStableOnTheFirstPass(t *testing.T) {
 		if sb := tc.f.Rows[0]; !sb.Off[0] || !sb.On[0] {
 			t.Errorf("%s: the sandbox must be greyed and ticked, got off=%v on=%v", tc.name, sb.Off, sb.On)
 		}
-		if c := tc.f.Rows[1]; !c.Off[0] || c.On[0] || c.OffWhy[addonIOS] != hostadb.IOSWhy {
+		if c := tc.f.Rows[1]; !c.Off[0] || c.On[0] || c.OffWhy[addonIOS] != hostdev.IOSWhy {
 			t.Errorf("%s: ios must stay greyed with its reason, got off=%v on=%v why=%q",
 				tc.name, c.Off, c.On, c.OffWhy[addonIOS])
 		}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -93,12 +94,7 @@ func linkedExcept(t *testing.T, drop string, dirs ...string) string {
 }
 
 func slicesContains(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(xs, x)
 }
 
 const androidBuild = `plugins { id("com.android.application") version "9.4.1" apply false }`

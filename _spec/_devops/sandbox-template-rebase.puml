@@ -37,6 +37,10 @@ skinparam noteTextAlignment left
 '     TestEveryLocalImageStaysUnderTheSbxLayerCap (≤40, margin 4) and
 '     TestAFlatStageKeepsTheConfigOfTheLayersItReplaces (config parity)
 '     under the `image` tag.
+'   * The v3 kit build adds at least one layer on top of its FROM image
+'     (MEASURED 2026-10-22, sbx 0.49.2: a 44-layer FROM image built, then hung
+'     at boot). So an image's budget is ≤43, not 44, and that kit layer is why
+'     the cap keeps a margin (_spec/internal/sbx/sbx-kit-v3.puml).
 ' Upstream: per-layer virtio disks hit a limit before (#361, fixed v0.37.0).
 '
 ' Lineage and tagging: image-lineage-and-publish.puml (same directory).
@@ -64,6 +68,12 @@ skinparam noteTextAlignment left
 ' proveo/base descended from debian:trixie-slim instead, so it inherited none of
 ' what a sandbox is assumed to carry. Everything below was then re-derived by
 ' hand, and the docker half was re-derived WRONG — see Cut 4.
+' NOT CHOSEN (read from docs, never probed): per-agent templates
+' (claude-code-docker, cursor-agent-docker, opencode-docker) under claudecode,
+' cursor and opencode. Each inherits the vendor's agent wiring, but its
+' preinstalled agent moves on the template's schedule, and
+' _spec/_devops/agent-version-pin.puml pins and asserts exact versions. So
+' proveo/base extends shell-docker.
 '
 ' ── MEASURED FROM THE REGISTRY, 2026-09-06 ──────────────────────────────────
 ' docker/sandbox-templates:shell-docker-0.5.0, linux/arm64, config blob read

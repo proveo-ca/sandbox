@@ -1,4 +1,4 @@
-// SPEC: _spec/internal/provider/provider-registry.puml, _spec/_experiments/sbx-kit-capabilities.puml
+// SPEC: _spec/internal/provider/provider-registry.puml
 package provider
 
 import "strings"

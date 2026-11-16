@@ -22,7 +22,7 @@ skinparam noteTextAlignment left
 ' covers: internal/imagetest/opencode_test.go
 ' covers: internal/contract/opencode_credentials_test.go
 ' covers: e2e/opencode_engine_sbx_test.go
-' covers: e2e/opencode_credentials_test.go
+' covers: e2e/opencode_test.go
 ' covers: e2e/testdata/opencode_presentation.py
 ' covers: e2e/seed_ready_test.go
 '   the receipt and retire rules ...... _spec/internal/sbx/kit-lifecycle.puml
@@ -37,8 +37,8 @@ skinparam noteTextAlignment left
 '
 ' ── STATUS (2026-10-17): DONE (wt) ─────────────────────────────────────────
 ' DECIDED by the user on 2026-10-16 (TUI; D1–D9 below); this spec was written
-' first as the goal, and the code has landed in the working tree
-' (repo-simplification.puml D2 → DONE (wt)). Everything below is MEASURED by
+' first as the goal, and the code has landed (this whole spec is the repo
+' simplification finding D2, not the D2 below). Everything below is MEASURED by
 ' reading the tree unless marked. The coordinator reports, measured on this
 ' VM: unit tests green except the known TestJVMRowNeedsTheQemuFloorOnMacOSHosts;
 ' vet clean for every tag plus darwin and windows; golangci unused 0;
@@ -48,6 +48,9 @@ skinparam noteTextAlignment left
 ' legs — no sbx on that VM.
 ' 2026-10-20: the import streams the database over `sbx exec -i` stdin; it no
 ' longer stages through `sbx cp` (WHY STDIN, NOT `sbx cp` below).
+' DECIDED 2026-10-16 (S2): OpenCode's --proveo-prepare / --proveo-recover maintenance flags are removed.
+' DECIDED 2026-10-17 (F13): the runtime's `--prepare --source` control, called only by tests, went with the keeper.
+' DECIDED 2026-10-17 (the Python suites): "Fix seed, delete Python now", then "Delete RuntimeTests only (Recommended)".
 '
 ' ── THE DECISIONS (the user, 2026-10-16; verbatim TUI labels where given) ───
 ' The architect's brief recommended an option for each; where the user chose
@@ -242,8 +245,9 @@ skinparam noteTextAlignment left
 ' reset/prepare/recovery prompts left internal/choiceui. headedConfirm,
 ' agentTerminal and openScreen moved unchanged to internal/backend/sandbox/
 ' confirm.go. load_credentials and the Keeper went with opencode_cache.py, so
-' the os.environ / Keeper-env split recorded before (repo-simplification.puml
-' D2) is gone with them. test_opencode_startup.py is trimmed, not deleted.
+' the os.environ / Keeper-env split (load_credentials read os.environ, not the
+' env the Keeper was handed, so both Python suites failed outside the image)
+' is gone with them. test_opencode_startup.py is trimmed, not deleted.
 '
 ' ── TESTS (MEASURED to exist; pass/fail as reported above) ─────────────────
 '   internal/sbx/opencode_history_test.go — 6, each feeding the script the
@@ -282,7 +286,7 @@ skinparam noteTextAlignment left
 '     proveo/opencode (not built on that VM).
 '   internal/contract/opencode_credentials_test.go TestOpenCodeRuntimeFixtures,
 '     TestOpenCodeImageShipsOnlyTheThinRuntime, TestOpenCodeDocumentsEngineLocalLogins;
-'     e2e/opencode_credentials_test.go TestOpenCodeRuntimeInImage.
+'     e2e/opencode_test.go TestOpenCodeRuntimeInImage.
 '   e2e/opencode_engine_sbx_test.go TestOpenCodeEngineKeepsHistoryAndImportsOnce:
 '     the first run prints "imported <share>/opencode.db"; api POST; the
 '     workspace `session list` holds it; reattach GET; `sbx stop` then GET;
@@ -362,7 +366,7 @@ skinparam noteTextAlignment left
 '   * The Dockerfile still copies defs/opencode/harness.manifest to
 '     /usr/local/lib/proveo/opencode.harness.manifest (Dockerfile:80), and
 '     nothing in the image reads it now (reported; a simplification candidate,
-'     repo-simplification.puml).
+'     repo-simplification.puml N19).
 '   * [Inference] The old preflight ENTRYPOINT waited up to 300 s for the
 '     seed-done marker; that wait is gone with it.
 '   * RESOLVED 2026-10-20 (was "[Unverified] `sbx cp` file ownership"): the

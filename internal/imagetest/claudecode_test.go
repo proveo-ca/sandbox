@@ -255,12 +255,12 @@ func ccConfig(s *imagetest.Suite, img ccImages) {
      test -f "/opt/proveo/subagents/$a.md" || { echo "missing /opt/proveo/subagents/$a.md"; exit 1; }
    done`)
 
-	const fm = "/opt/proveo/subagents/_frontmatter/claudecode"
+	const composed = `export HOME=/tmp/fmhome && mkdir -p $HOME && source /entrypoint-lib.sh && render_subagents claudecode "$HOME/.claude/agents" >/dev/null && cd $HOME/.claude/agents && `
 	s.Success("[standalone] claudecode subagent frontmatter is present", image,
-		"ls "+fm+"/*.yaml >/dev/null 2>&1 && grep -lq '^tools:' "+fm+"/*.yaml")
-	s.Failure("[standalone] no subagent grants Bash", image, "grep -lE '^tools:.*Bash' "+fm+"/*.yaml | grep -q .")
-	s.Failure("[standalone] only spec-keeper may write", image,
-		"grep -lE '^tools:.*(Edit|Write)' "+fm+"/*.yaml | grep -v spec-keeper.yaml | grep -q .")
+		"test -f /opt/proveo/subagents/_frontmatter/claudecode.yaml && "+composed+"grep -lq '^tools:' *.md")
+	s.Success("[standalone] no subagent grants Bash", image, composed+"! grep -qE '^tools:.*Bash' *.md")
+	s.Success("[standalone] only spec-keeper may write", image,
+		composed+"! grep -lE '^tools:.*(Edit|Write)' *.md | grep -v spec-keeper.md | grep -q .")
 	s.Contains("[standalone] render_subagents seeds the roster into $HOME/.claude/agents", image,
 		`export HOME=/tmp/seedhome && mkdir -p $HOME && source /entrypoint-lib.sh && render_subagents claudecode "$HOME/.claude/agents" >/dev/null && ls $HOME/.claude/agents | tr '\n' ' '`,
 		"adversarial-reviewer.md architect.md monorepo-coordinator.md security-reviewer.md spec-keeper.md")

@@ -14,7 +14,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/ptyproxy"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 const postExitRounds = 12
@@ -27,7 +27,7 @@ func TestLivePostExitPromptTakesTheFirstKeysOnTmux(t *testing.T) {
 	}
 	for r := range postExitRounds {
 		done := filepath.Join(t.TempDir(), "done")
-		sess := tmux.New(fmt.Sprintf("proveo-live-postexit-%d-%d", os.Getpid(), r), nil)
+		sess := schedule.NewTmux(fmt.Sprintf("proveo-live-postexit-%d-%d", os.Getpid(), r), nil)
 		t.Cleanup(sess.Kill)
 		if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_POSTEXIT_HELPER="+done,
 			binary, "-test.run=^TestLivePostExitPromptHelper$", "-test.timeout=60s"); err != nil {

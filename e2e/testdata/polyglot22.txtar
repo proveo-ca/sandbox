@@ -1,0 +1,60 @@
+-- App.java --
+public class App { }
+-- App.kt --
+fun main() { println("hi") }
+-- Dockerfile --
+FROM debian:bookworm-slim
+CMD ["true"]
+-- README.md --
+# Polyglot 22 — one file per supported language
+
+Fixture for `e2e/toolchain_test.go`. One trigger per workspace language the seed
+classifies (`_dep_lang_class` in `packages/lib/entrypoint-lib.sh`). This file is
+also the **markdown** trigger, which is why 22 languages need 22 files.
+
+Rationale lives in `_spec/tests/43-toolchain-e2e.puml`.
+-- app.py --
+def greet(n):
+    return f"hi {n}"
+-- app.rb --
+puts "hi"
+-- app.ts --
+export const greet = (n: string) => `hi ${n}`
+-- compose-ish.yml --
+service:
+  name: sample
+-- data.json --
+{ "name": "sample" }
+-- flake.nix --
+{ description = "sample"; }
+-- flow.mmd --
+graph TD
+  A --> B
+-- init.lua --
+return { greet = function() return "hi" end }
+-- main.cpp --
+int main() { return 0; }
+-- main.go --
+package main
+
+func main() {}
+-- main.rs --
+fn main() { println!("hi"); }
+-- main.tf --
+resource "null_resource" "a" {}
+-- main.zig --
+pub fn main() void {}
+-- page.html --
+<!doctype html><title>s</title>
+-- run.sh --
+#!/usr/bin/env bash
+echo hi
+-- seq.puml --
+@startuml
+Alice -> Bob: hi
+@enduml
+-- settings.toml --
+[package]
+name = "sample"
+-- style.css --
+body { color: red; }

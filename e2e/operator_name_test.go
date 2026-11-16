@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proveo-ca/proveo/internal/operator"
+	"github.com/proveo-ca/proveo/internal/proveohome"
 )
 
 // TestOperatorNameReachesTheHouseRules stores a name the way `proveo init` does
@@ -29,7 +29,7 @@ func TestOperatorNameReachesTheHouseRules(t *testing.T) {
 			harnessImage(t, target)
 			sweepSandboxesAfter(t)
 			home := t.TempDir()
-			if _, err := operator.Save(home, "Roberto von Schoettler"); err != nil {
+			if _, err := proveohome.SaveOperator(home, "Roberto von Schoettler"); err != nil {
 				t.Fatal(err)
 			}
 			k := launchKit(t, proveoBin, target, t.TempDir(), []string{"PROVEO_HOME=" + home})

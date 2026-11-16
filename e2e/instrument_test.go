@@ -18,7 +18,7 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/sbx"
-	"github.com/proveo-ca/proveo/internal/tmux"
+	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
 // deadAfter is how many consecutive empty captures mean the pane is really gone.
@@ -106,12 +106,12 @@ func dockerPSAll() string {
 // failure can explain itself. Use it instead of a bare loop plus Capture().
 type watcher struct {
 	t          *testing.T
-	sess       *tmux.Session
+	sess       *schedule.TmuxSession
 	lastScreen string
 	misses     int
 }
 
-func newWatcher(t *testing.T, sess *tmux.Session) *watcher {
+func newWatcher(t *testing.T, sess *schedule.TmuxSession) *watcher {
 	t.Helper()
 	return &watcher{t: t, sess: sess}
 }
@@ -207,7 +207,7 @@ func (w *watcher) until(what string, timeout time.Duration, cond func() bool) {
 	}
 }
 
-func acceptChoicePrompt(t *testing.T, sess *tmux.Session, target string) {
+func acceptChoicePrompt(t *testing.T, sess *schedule.TmuxSession, target string) {
 	t.Helper()
 	w := newWatcher(t, sess)
 	if _, err := sess.WaitFor("enter accept", 90*time.Second); err != nil {

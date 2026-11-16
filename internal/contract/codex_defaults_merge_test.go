@@ -60,7 +60,7 @@ func TestCodexDefaultsMergeAboveTheKitsFirstTable(t *testing.T) {
 			t.Errorf("%q at %d, table at %d; a key below a table header belongs to that table\n%s", want, at, table, got)
 		}
 	}
-	for _, line := range strings.Split(upstreamCodexConfig, "\n") {
+	for line := range strings.SplitSeq(upstreamCodexConfig, "\n") {
 		if !strings.Contains(got, line) {
 			t.Errorf("the merge dropped the kit's %q\n%s", line, got)
 		}

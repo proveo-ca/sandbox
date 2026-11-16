@@ -21,8 +21,8 @@
 '   A lone link, a link at the workspace root (`_spec`), a link whose name
 '   differs from its target's, and every REFUSED link keep their own lines.
 ' ── THE LINKS ARE ONE FACT, AFTER THE MOUNT PLAN (2026-11-11) ──────────────
-' output-readability R1 moved the report from run.resolveCredentials into
-' sandbox.ReportWorkspace, after Spec, because Spec decides what a clone drops:
+' The report lives in sandbox.ReportWorkspace, after Spec, not in
+' run.resolveCredentials, because Spec decides what a clone drops:
 '   ● links:    _spec → ~/Syncd/pluvo/_spec
 '               .idea/ → ~/w/main/.idea/ (20 links)
 ' Each mounted link is a value of one "links" fact (targets through ui.Tilde
@@ -45,14 +45,14 @@
 ' only)". FOUND in R1's review, read from the code: on a --clone=false linked
 ' worktree the links fact named 20 .idea links whose file targets never mount.
 ' Pinned by TestLinksToFilesSbxDoesNotBindAreAWarningNotAValue.
-'   internal/wsscan/wsscan.go   — AlwaysPrune, the shared deny set the walk reuses
+'   internal/workspace/scan.go   — AlwaysPrune, the shared deny set the walk reuses
 title Symlinks that leave the mount — a bind mount carries the link's text, not its meaning
 
 node "Host — mount planning, before the container exists" as HOST <<host>> {
   component "MountSpec.Plan()\nper-layout mount model" as PLAN <<app>>
   component "linkMounts(hostDir,\ncontainerBase, ro)" as WALK <<app>>
   component "refuseLinkTarget(target, root)\nthe two guardrails" as GUARD <<app>>
-  component "wsscan.AlwaysPrune\nshared deny set" as PRUNE <<app>>
+  component "AlwaysPrune (scan.go)\nshared deny set" as PRUNE <<app>>
   component "secretEnvFile → LinkEnvPolicy\n(envMounts · maskEnvMounts · escapingEnvFile gone)" as ENV <<app>>
   component "ReportWorkspace · linkLines\n[]Link → the links fact + transcript" as REPORT <<app>>
 }

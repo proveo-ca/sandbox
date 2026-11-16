@@ -15,8 +15,8 @@ import (
 
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/sbx"
+	"github.com/proveo-ca/proveo/internal/schedule"
 	"github.com/proveo-ca/proveo/internal/termtext"
-	"github.com/proveo-ca/proveo/internal/tmux"
 )
 
 const egressProbeHost = "proveo-egress-probe.invalid"
@@ -89,7 +89,7 @@ func TestSandboxEgressIsConfinedToTheKitAllowlist(t *testing.T) {
 	state := t.TempDir()
 	before, canList := sbxSandboxNames()
 
-	sess := tmux.New(fmt.Sprintf("proveo-sbx-egress-%d", os.Getpid()), nil)
+	sess := schedule.NewTmux(fmt.Sprintf("proveo-sbx-egress-%d", os.Getpid()), nil)
 	t.Cleanup(func() {
 		sess.Kill()
 		removeLeakedSandboxes(t, before, canList)

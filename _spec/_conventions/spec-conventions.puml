@@ -59,13 +59,16 @@
 ' Tests (internal/contract/comment_blocks_test.go): TestCommentMarkerCoversEverySourceKind,
 ' TestLongCommentBlocksAreFlagged, TestCommentLintNamesEachOffendingBlock.
 ' The helpers moved byte-identical on 2026-11-12 from the maintainer
-' dispatcher, which the decision record of that day deleted.
+' dispatcher, deleted that day (_spec/cmd/proveo/usage.puml, MAINTAINER
+' TOOLING IS mise TASKS).
 ' The migration before the gate: 89 blocks moved into _spec/ by three
-' spec-keepers and 85 stanzas stripped (reported). Three blocks were HELD, so
+' spec-keepers and 85 stanzas stripped (reported). The user, on the refused
+' Chrome env-token scope block: "Record as open, strip (Recommended)" (moot
+' since F14 removed the bridge, 2026-10-24). Three blocks were HELD, so
 ' the 2026-10-17 lint was RED on exactly them until a live sbx re-measure (the
 ' user: "Re-measure first"): internal/backend/sandbox/sandbox.go:1917 (:1922
 ' before N6), internal/sbx/secret.go:13, internal/sbx/secret_test.go:8 — the
-' opencode plain-secret 401 (repo-simplification.puml N14). MEASURED
+' opencode plain-secret 401 (N14, DECIDED 2026-10-17, option 1). MEASURED
 ' 2026-11-12: `mise run lint` is green, so none of the three is over three
 ' lines today.
 '
@@ -86,6 +89,27 @@
 ' grows. The session-continuity plan carried one in a pass a check caught.
 ' Pinned: internal/contract/lexicon_test.go
 ' TestEnforcedFilesAvoidTheBannedPhrase.
+'
+' ── A RENAME REACHES THE CODE, NOT THE PROSE (2026-11-15) ──────────────────
+' gopls renames every reference the type checker sees and nothing else, so a
+' spec line, a Go comment and a test message keep the old name. The package
+' merges (codebase-compression.puml P11) left 15 such lines in 8 files; one
+' bare Runner in driving-a-tty.puml then named internal/schedule's
+' service-manager Runner instead of TmuxRunner. A bare renamed name (Ready,
+' Save, Marker) is an English word too, so a tree-wide grep cannot find it:
+' the ledger scopes each rename to the files whose prose named it, and reads
+' only comments and string literals of a Go file. A line keeps an old name
+' only as the "<old> became <new>" record of the rename.
+' Pinned: internal/contract/spec_notes_test.go renamedIdents,
+' TestProseNamesTheRenamedIdentifier, TestNamesStaleSparesOnlyTheRenameRecord;
+' a later rename adds its row there. A package fold renames the qualifier
+' alone (backend.Reported became sandbox.Reported), so its row maps the
+' qualified name. The agentio row first mapped 4 of the 9 names its file
+' moved with. TestRenamedIdentsMapEveryFoldedExport reads the exports of
+' each file in foldedFiles and fails one the ledger does not map.
+' components.puml's <<doc>> nodes name root files by basename, "/" between
+' two. TestComponentMapNamesLivingRootDocs fails a name no root file carries:
+' README / CONVENTIONS outlived CONVENTIONS.md (now CONTRIBUTING.md).
 title Spec conventions — roles, arrow intent, and the SPEC reference lifecycle
 
 component "<<app>>  first-party app / runtime service" as R1 <<app>>
@@ -120,7 +144,7 @@ note top of R1
   ""_spec/defs/<name>/"", ""_spec/packages/lib/"". A folder
   that does **not** correspond to a live source folder is
   prefixed with an underscore: ""_assets"", ""_paradigms"",
-  ""_conventions"", ""_experiments"", ""_refactors"",
+  ""_conventions"", ""_experiments"", ""_plans"",
   ""_devops"" (build · publish pipeline), ""_runtimes""
   (toolchains available inside a harness).
 end note
@@ -155,9 +179,8 @@ note bottom of R6
     reimplemented on new tech → mark it OUTDATED instead
   * refactor moves logic → move the comment, update the
     diagram if the architecture actually changed
-  * ""_spec/_refactors/"" (frozen snapshots) and
-    ""_spec/_plans/"" (designs with no code yet) are exempt
-    from the referencing rule — nothing exists to link them
+  * ""_spec/_plans/"" (designs with no code yet) is exempt
+    from the referencing rule — nothing exists to link it
     from. A ""_plans"" diagram is titled PLANNED and moves
     out (or is deleted) once it ships.
 

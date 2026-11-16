@@ -181,9 +181,11 @@ func TestImageCursor(t *testing.T) {
 	s.Success("baked subagents: every agent in the cursor roster has a body and is readonly", image, `set -eu
    roster="$(jq -r ".cursor[]" /opt/proveo/subagents/_roster.json)"
    [ -n "$roster" ] || { echo "cursor roster is empty"; exit 1; }
+   composed="$(mktemp -d)"
+   (source /entrypoint-lib.sh && render_subagents cursor "$composed" >/dev/null)
    for a in $roster; do
      test -f "/opt/proveo/subagents/$a.md" || { echo "missing /opt/proveo/subagents/$a.md"; exit 1; }
-     grep -qx "readonly: true" "/opt/proveo/subagents/_frontmatter/cursor/$a.yaml" \
+     grep -qx "readonly: true" "$composed/$a.md" \
        || { echo "$a frontmatter is not readonly: true"; exit 1; }
    done
    echo "roster: $(echo $roster | tr "\n" " ")"`)
