@@ -194,7 +194,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' So the roster is READ FROM THE IMAGE. A list copied into a test drifts silently
 ' the moment the roster changes.
 ' `tools:` and `readonly: true` moved with them, into the per-harness FRONTMATTER
-' (_frontmatter/<harness>/<agent>.yaml) that render_subagents applies to the
+' (_frontmatter/<harness>.yaml, keyed by agent) that render_subagents applies to the
 ' shared body — the bodies never carried either, so they are asserted there.
 ' See _spec/defs/agent-definition-sharing.puml.
 '

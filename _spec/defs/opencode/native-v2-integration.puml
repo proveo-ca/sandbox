@@ -9,7 +9,7 @@
 ' covers: packages/lib/entrypoint-lib.sh
 ' covers: packages/lib/hooks/**
 ' covers: packages/lib/*opencode*
-' covers: defs/subagents/_frontmatter/opencode/**
+' covers: defs/subagents/_frontmatter/opencode.yaml
 ' covers: internal/backend/sandbox/sandbox.go
 ' covers: internal/backend/sandbox/launch_config_test.go
 ' covers: internal/backend/sandbox/host_adb_test.go
@@ -196,7 +196,7 @@ package "defs/opencode" {
   component "opencode.json\nagents + ordered permissions\nupdate: disable · compaction.auto: true\nno default model selection" as CONFIG <<app>>
 }
 
-component "defs/subagents/_frontmatter/opencode\nnative permissions; no old temperature key" as FM <<app>>
+component "defs/subagents/_frontmatter/opencode.yaml\nnative permissions; no old temperature key" as FM <<app>>
 component "packages/lib/entrypoint-lib.sh\nrender_subagents · seed · persistence" as LIB <<app>>
 component "opencode session\nsession.permissions: autoaccept\nexplicit denies remain denied" as POLICY <<app>>
 component "OPENCODE_CLI_CONFIG_CONTENT\nnative session/tabs/mini preferences\noverrides global cli.json without rewriting it" as PREFS <<app>>

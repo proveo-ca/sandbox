@@ -112,7 +112,7 @@ func TestImageCodex(t *testing.T) {
 	s.Success("node is installed", image, "node --version")
 	s.Success("docker client is installed (docker via the sbx sandbox backend)", image, "docker --version")
 	s.Success("proveo-entrypoint (verification commands) is baked", image, `command -v proveo-entrypoint >/dev/null`)
-	s.Success("shared subagent frontmatter is baked", image, "test -d /opt/proveo/subagents/_frontmatter/codex")
+	s.Success("shared subagent frontmatter is baked", image, "test -f /opt/proveo/subagents/_frontmatter/codex.toml")
 
 	// Phase 3: Security Hardening
 	s.Contains("container runs as the codex user", image, "whoami", "codex")

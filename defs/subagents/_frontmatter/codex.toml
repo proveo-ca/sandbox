@@ -1,0 +1,30 @@
+[adversarial-reviewer]
+name = "adversarial-reviewer"
+description = "Ruthless senior-engineer review of a diff or change set. Finds every problem, never fixes. Use proactively as the final gate before declaring any task complete."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+
+[architect]
+name = "architect"
+description = "Designs structure before code — layered specs, contracts, ordered file plans. Use proactively before implementing any non-trivial change, and never for edits."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+
+[monorepo-coordinator]
+name = "monorepo-coordinator"
+description = "Owns cross-project concerns in a monorepo — workspace structure, shared deps, build graph, cross-language contracts. Use proactively when a change spans more than one project or touches shared packages. Advisory; does not edit."
+sandbox_mode = "read-only"
+
+[security-reviewer]
+name = "security-reviewer"
+description = "Threat-model and OWASP-style security review of the current diff, with CWE-tagged findings. Use proactively when auth, secrets, network, dependencies, sandbox posture, permissions, payments, user data, or serialization are touched."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+
+[spec-keeper]
+name = "spec-keeper"
+description = "Owns _spec/*.puml, the spec↔source coverage index, and planning docs. Decides when a PLAN, diff, or drift report warrants a spec update; never edits source code. Use proactively when _spec/, planning docs, architecture boundaries, or harness contracts change."
+# The single writer, and the only agent here that is not read-only. Its prompt
+# scopes it to _spec/, PLAN.md and AGENTS.md; workspace-write is what lets it
+# act on that scope at all.
+sandbox_mode = "workspace-write"

@@ -138,19 +138,12 @@ func TestSharedAgentBodiesAllReferenced(t *testing.T) {
 		harnesses = append(harnesses, harness)
 	}
 	for _, harness := range harnesses {
-		entries, err := os.ReadDir(filepath.Join(root, "defs/subagents/_frontmatter", harness))
+		composed, err := os.ReadDir(composeSubagents(t, harness))
 		if err != nil {
-			t.Fatalf("roster for %s: %v", harness, err)
+			t.Fatal(err)
 		}
-		for _, e := range entries {
-			name := strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".yaml"), ".toml")
-			if name == e.Name() {
-				continue
-			}
-			used[name] = true
-			if _, err := os.Stat(filepath.Join(root, "defs/subagents", name+".md")); err != nil {
-				t.Errorf("%s/%s names a body that does not exist", harness, e.Name())
-			}
+		for _, e := range composed {
+			used[strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".md"), ".toml")] = true
 		}
 		if _, err := os.Stat(filepath.Join(root, "defs/subagents/_vars", harness+".env")); err != nil {
 			t.Errorf("%s has no token values: %v", harness, err)

@@ -1,0 +1,25 @@
+adversarial-reviewer:
+  name: adversarial-reviewer
+  description: Ruthless senior-engineer review of a diff or change set. Finds every problem, never fixes. Use proactively as the final gate before declaring any task complete.
+  tools: Read, Grep, Glob
+  model: inherit
+architect:
+  name: architect
+  description: Designs structure before code — layered specs, contracts, ordered file plans. Use proactively before implementing any non-trivial change, and never for edits.
+  tools: Read, Grep, Glob
+  model: inherit
+monorepo-coordinator:
+  name: monorepo-coordinator
+  description: Owns cross-project concerns in a monorepo — workspace structure, shared deps, build graph, cross-language contracts. Use proactively when a change spans more than one project or touches shared packages. Advisory; does not edit.
+  tools: Read, Grep, Glob
+  model: inherit
+security-reviewer:
+  name: security-reviewer
+  description: Threat-model and OWASP-style security review of the current diff, with CWE-tagged findings. Use proactively when auth, secrets, network, dependencies, sandbox posture, permissions, payments, user data, or serialization are touched.
+  tools: Read, Grep, Glob
+  model: inherit
+spec-keeper:
+  name: spec-keeper
+  description: Owns _spec/*.puml, the spec↔source coverage index, and planning docs. Decides when a PLAN, diff, or drift report warrants a spec update; never edits source code. Use proactively when _spec/, planning docs, architecture boundaries, or harness contracts change.
+  tools: Read, Grep, Glob, Edit, Write
+  model: inherit
