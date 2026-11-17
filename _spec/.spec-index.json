@@ -1840,9 +1840,7 @@
         "internal/contract/formatter_class_test.go",
         "cmd/proveo/clean_tool_roots_test.go",
         "cmd/proveo/golden_test.go",
-        "e2e/codex_daemon_sync_test.go",
-        "internal/contract/lsp_wiring_retirement_test.go",
-        "internal/contract/retirement_test.go"
+        "e2e/codex_daemon_sync_test.go"
       ],
       "fingerprint": null
     },

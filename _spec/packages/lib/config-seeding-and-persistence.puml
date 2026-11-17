@@ -15,7 +15,6 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 ' covers: e2e/codex_daemon_sync_test.go
 ' covers: internal/contract/config_files_test.go
 ' covers: internal/contract/formatter_class_test.go
-' covers: internal/contract/lsp_wiring_retirement_test.go, internal/contract/retirement_test.go
 ' covers: cmd/proveo/clean_tool_roots_test.go, cmd/proveo/golden_test.go
 '
 ' ── THE GO MODULE CACHE IS WRITTEN WRITABLE ────────────────────────────────
@@ -50,8 +49,6 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 '   pinned by ..................... internal/contract/tool_home_test.go · cmd/proveo/clean_tool_roots_test.go
 '                                   internal/proveohome/proveohome_test.go
 '   where it is wired .............. packages/lib/entrypoint-lib.sh (proveo_seed)
-'   the one-release LSP strip ...... packages/lib/entrypoint-lib.sh (proveo_retire_lsp_wiring)
-'                                   · internal/contract/lsp_wiring_retirement_test.go
 '   the durable home ............... internal/proveohome/proveohome.go · cmd/proveo/clean.go (toolSubdirs)
 '   the home that is NOT durable ... internal/backend/sandbox/sandbox.go (Home)
 '   the copy that stands in for it . packages/lib/entrypoint-lib.sh (proveo_sync_state)
@@ -125,21 +122,22 @@ title APPLIED — one config-class chain (formatters; LSP and plugin rows remove
 ' shared per source IP), re-rendered every config, and threw the result away at
 ' teardown.
 '
-' ── THE ONE-RELEASE LSP STRIP ─────────────────────────────────────────────
+' ── THE ONE-RELEASE LSP STRIP: RETIRED 2026-11-17 ─────────────────────────
 ' Config sync carries the agent's config out to the host and back, so LSP
-' wiring an earlier release wrote outlives the code that wrote it. A persisted
-' opencode `"lsp": true` alone would start opencode's built-in servers again.
-' proveo_wire_config therefore first runs proveo_retire_lsp_wiring <target>,
-' which removes only what proveo wrote:
+' wiring an earlier release wrote outlives the code that wrote it. v0.3.0
+' shipped proveo_retire_lsp_wiring <target>, run first by proveo_wire_config,
+' which removed only what proveo wrote:
 '   codex       the `# >>> proveo lsp` … `# <<< proveo lsp <<<` block in config.toml
 '   cursor      mcp.json mcpServers entries whose command is mcp-language-server
 '   opencode    the `lsp` key of opencode.json, unless it is false
 '   claudecode  ~/.claude/skills/proveo-lsp; installed_plugins.json records and
 '               the known_marketplaces.json entry under /opt/proveo/claude-plugins;
 '               the enabledPlugins keys of the records it dropped
-' The retirement ledger (internal/contract/retirement_test.go) bounds it to one
-' release: TestNoRetirementOutlivesOneRelease fails once the marker
-' `proveo_retire_lsp_wiring` ships in a tagged release.
+' The retirement ledger (_spec/_devops/release-gate.puml) bounded it to one
+' release. The release after v0.3.0 tripped TestNoRetirementOutlivesOneRelease,
+' so the function, its call, its ledger row and lsp_wiring_retirement_test.go
+' left together. A config persisted by a release before v0.3.0 that skips
+' v0.3.0 keeps its LSP wiring; the operator deletes it by hand.
 '
 ' ── WHAT CLONE MODE MOVES, AND WHAT IT CANNOT ─────────────────────────────
 ' sbx runs default to --clone precisely to keep the WORKSPACE off virtiofs: the
@@ -353,7 +351,6 @@ node "sbx backend" as SBX <<host>> {
 
 component "**tools** — move them\n""MISE_DATA_DIR"" → durable" as TOOLS <<app>>
 component "**configs** — copy them\nnamed set, restore + save" as CFGS <<async>>
-component "**retire** — ""proveo_retire_lsp_wiring""\nstrips persisted LSP wiring, one release" as RETIRE <<app>>
 cloud "mise registry · ubi → GitHub API\n60 req/h unauthenticated" as NET <<cloud>>
 
 SEED ARROW_MAIN CHAIN : per class, per target
@@ -368,15 +365,6 @@ CHAIN ARROW_ERROR SHOME : discarded today
 TOOLS ARROW_MAIN STATE : relocate
 CFGS ARROW_QUEUE STATE : copy, both directions
 SHOME ARROW_OPTIONAL CFGS : the agent still reads HERE
-CFGS ARROW_MAIN RETIRE : restored config, then the strip
-RETIRE ARROW_MAIN WIRE
-
-note right of RETIRE
-  **Synced config outlives the code.** A saved
-  ""lsp"": true restarts opencode's servers, so
-  the strip removes what proveo wrote, for one
-  release only.
-end note
 
 note bottom of SHOME
   **The deletion of HOME was correct.** sbx's

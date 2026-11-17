@@ -47,6 +47,8 @@ skinparam noteTextAlignment left
 ' latest.json must name a v* tag on HEAD before wrangler publishes.
 ' The gate turned red after v0.2.0 shipped. Removing the expired surfaces
 ' and their ledger rows made HEAD eligible for the next release.
+' MEASURED 2026-11-17: red again after v0.3.0 shipped proveo_retire_lsp_wiring;
+' deleting it with its ledger row left the ledger empty.
 ' Notes here are capped at 5 lines x 50 columns; one idea per anchor.
 '
 ' ── THE GATE IS IN TWO HALVES, AND THAT IS NOT A CHOICE ─────────────────────
