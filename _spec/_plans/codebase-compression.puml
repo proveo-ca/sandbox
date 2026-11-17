@@ -192,6 +192,7 @@ skinparam noteTextAlignment left
 '   internal/tmux                      Available (func)                     :20        4  two e2e callers (preconditions_test.go:22, init_steps_test.go:103)
 '   packages/lib/entrypoint-lib.sh     _proveo_durable_home (shell fn)     :233        5  only tool_home_test.go:63,70 call it; that test goes with it
 '   packages/lib/entrypoint-lib.sh     proveo_retire_lsp_wiring (sh fn)   :1501       51  live until the next tag; TestNoRetirementOutlivesOneRelease then trips
+'      ── DONE 2026-11-17 with §6 row 7: the release after v0.3.0 tripped the ledger; the function and its call left ──
 '   defs/tests/echo-agent              Dockerfile + entrypoint.sh (2 files)  —         35  no builder, test or mise target; 3 _spec/tests lines describe it
 '   _spec/_plans/retire-model-bridging.puml  covers: .claude/skills/sync-models :7       1  path left in 4aec1f40; the plan is PLANNED work
 '      ── DONE 2026-11-15 with F5 (§6 row 13): the covers line and its index glob left; the plan stays PLANNED ──
@@ -507,6 +508,7 @@ skinparam noteTextAlignment left
 '      old file stems. MEASURED by `git diff --numstat`: 2 files +5 / −4 = +1.
 '   7  retirement ledger: lsp_wiring_retirement_test.go     −150            −1      0       none    TestNoRetirementOutlivesOneRelease        §7 other · all (next tag)
 '      goes with proveo_retire_lsp_wiring :1501-1550 (51 lines, in the dead medium set) at the next tag; [Inference]
+'      ── DONE 2026-11-17: test file −150, entrypoint-lib.sh −52, ledger row −3; the ledger is empty again ──
 '      model_bridging_retired_test.go (191 lines, 10 tests) has no ledger entry and is the shape the ledger exists to expire
 '   8  dupl -t 80, one copy per clone group                  ≤ −152          0       M       low     dupl v1.1.0; 185 − 20 (fixtures helper)   §7 other · all
 '                                                                                                   − 13 (hostdev merge); 12 of 14 are tests

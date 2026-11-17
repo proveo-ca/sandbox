@@ -16,10 +16,7 @@ type retirement struct {
 	what, file, marker string
 }
 
-var retirements = []retirement{
-	{what: "proveo_retire_lsp_wiring, the strip of LSP wiring an earlier release persisted",
-		file: "packages/lib/entrypoint-lib.sh", marker: "proveo_retire_lsp_wiring"},
-}
+var retirements = []retirement{}
 
 func TestEveryRetirementMarkerIsStillInTheTree(t *testing.T) {
 	t.Parallel()

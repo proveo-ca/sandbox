@@ -1573,57 +1573,6 @@ configure_opencode_formatter() {
   fi
 }
 
-# Strips the LSP wiring an earlier release persisted into the synced config.
-# SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
-proveo_retire_lsp_wiring() {
-  local home tmp f
-  home="$(_proveo_agent_home)"
-  [[ -n "$home" ]] || return 0
-  command -v jq >/dev/null 2>&1 || return 0
-  case "${1:-}" in
-  claudecode)
-    rm -rf "$home/.claude/skills/proveo-lsp" 2>/dev/null
-    local seed=/opt/proveo/claude-plugins gone='[]'
-    f="$home/.claude/plugins/installed_plugins.json"
-    if [[ -f "$f" ]] && tmp="$(mktemp)"; then
-      gone="$(jq -c --arg s "$seed" '[(.plugins // {}) | to_entries[]
-        | select((.value | length) > 0 and all(.value[]; (.installPath // "") | startswith($s))) | .key]' "$f" 2>/dev/null)" || gone='[]'
-      if jq --arg s "$seed" '.plugins |= ((. // {}) | with_entries(.value |= map(select((.installPath // "") | startswith($s) | not)))
-          | with_entries(select(.value | length > 0)))' "$f" > "$tmp" 2>/dev/null; then mv "$tmp" "$f"; else rm -f "$tmp"; fi
-    fi
-    f="$home/.claude/plugins/known_marketplaces.json"
-    if [[ -f "$f" ]] && tmp="$(mktemp)"; then
-      if jq --arg s "$seed" 'with_entries(select((.value.installLocation // "") | startswith($s) | not))' "$f" > "$tmp" 2>/dev/null
-      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
-    fi
-    f="$home/.claude/settings.json"
-    if [[ "$gone" != '[]' && -f "$f" ]] && tmp="$(mktemp)"; then
-      if jq --argjson g "${gone:-[]}" 'if (.enabledPlugins | type) == "object"
-          then .enabledPlugins |= with_entries(select(.key as $k | $g | index($k) | not)) else . end' "$f" > "$tmp" 2>/dev/null
-      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
-    fi ;;
-  codex)
-    f="${CODEX_HOME:-$home/.codex}/config.toml"
-    if [[ -f "$f" ]] && grep -qF '# >>> proveo lsp ' "$f" && tmp="$(mktemp)"; then
-      if awk 'index($0, "# >>> proveo lsp ") == 1 { skip = 1 } !skip { print } $0 == "# <<< proveo lsp <<<" { skip = 0 }' "$f" > "$tmp"
-      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
-    fi ;;
-  cursor)
-    f="${CURSOR_CONFIG_DIR:-$home/.cursor}/mcp.json"
-    if [[ -f "$f" ]] && tmp="$(mktemp)"; then
-      if jq 'if (.mcpServers | type) == "object"
-          then .mcpServers |= with_entries(select(.value.command != "mcp-language-server")) else . end' "$f" > "$tmp" 2>/dev/null
-      then mv "$tmp" "$f"; else rm -f "$tmp"; fi
-    fi ;;
-  opencode)
-    f="${HOME}/.config/opencode/opencode.json"
-    if [[ -f "$f" ]] && jq -e 'type == "object" and has("lsp") and .lsp != false' "$f" >/dev/null 2>&1 && tmp="$(mktemp)"; then
-      if jq 'del(.lsp)' "$f" > "$tmp" 2>/dev/null; then mv "$tmp" "$f"; else rm -f "$tmp"; fi
-    fi ;;
-  esac
-  return 0
-}
-
 # SPEC: _spec/packages/lib/config-seeding-and-persistence.puml
 _proveo_config_classes() { echo "formatter"; }
 
@@ -1636,7 +1585,6 @@ _proveo_class_wire() {
 proveo_wire_config() {
   local target="${1:-}" scan class fn
   [[ -n "$target" ]] || return 0
-  proveo_retire_lsp_wiring "$target"
   scan="$(_proveo_scan_root "${2:-}")"
   for class in $(_proveo_config_classes); do
     fn="$(_proveo_class_wire "$class" "$target")"

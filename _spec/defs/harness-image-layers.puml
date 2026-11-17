@@ -37,8 +37,8 @@ title Harness image layers — venvs, what each image refuses to ship, and PATH 
 ' installer and every per-harness LSP writer, and their env switches. codex,
 ' opencode, claudecode and base-node-browser now build FROM proveo/base-node.
 ' Agents navigate with rg and the repo's own type-check and test scripts.
-' proveo_retire_lsp_wiring strips the wiring earlier releases persisted, for one
-' release.
+' v0.3.0 shipped proveo_retire_lsp_wiring to strip the wiring earlier releases
+' persisted; it left before the next release (config-seeding-and-persistence.puml).
 '
 ' ── PYTHON: A BYTECODE PREFIX INSTEAD OF A SWITCH ───────────────────────────
 ' PYTHONPYCACHEPREFIX=/tmp/proveo-pycache, NOT PYTHONDONTWRITEBYTECODE=1. The

@@ -131,8 +131,8 @@
 '
 ' ── LSP OVER MCP: REMOVED 2026-10-30 ─────────────────────────────────────────
 ' The image no longer bakes mcp-language-server, and the seed writes no
-' `[mcp_servers.lsp_*]` block. proveo_retire_lsp_wiring strips a block an
-' earlier release persisted (_spec/packages/lib/config-seeding-and-persistence.puml).
+' `[mcp_servers.lsp_*]` block. v0.3.0 alone stripped a block an earlier release
+' persisted (_spec/packages/lib/config-seeding-and-persistence.puml, RETIRED).
 ' Why: _spec/defs/harness-image-layers.puml, LSP REMOVED.
 skinparam linetype ortho
 skinparam ranksep 120
