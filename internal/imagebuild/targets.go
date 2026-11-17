@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Pin is a build arg resolved to an upstream release.
@@ -190,9 +191,37 @@ func (b *Builder) BuildTarget(name, tag string, o Options) error {
 	return b.buildRef(name, ref, o)
 }
 
+// PinArgs is the --build-arg pair for each of target's Pins, resolved the way a fleet build resolves them.
+func (b *Builder) PinArgs(target string) ([]string, error) {
+	s, ok := Specs[target]
+	if !ok {
+		return nil, fmt.Errorf("no build spec for target %q", target)
+	}
+	var args []string
+	for _, p := range s.Pins {
+		v, err := b.AgentVersion(p.Arg, p.Eco, b.PinPkg(p))
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "--build-arg", p.Arg+"="+v)
+	}
+	return args, nil
+}
+
 func (b *Builder) present(ref string) bool {
 	_, err := b.Docker.Output("image", "inspect", ref)
 	return err == nil
+}
+
+// fresh reports whether ref carries this checkout's InputsDigest; with no digest to compare, it is fresh.
+// SPEC: _spec/tests/stale-local-image.puml
+func (b *Builder) fresh(ref string) bool {
+	want, err := InputsDigest(b.RepoRoot)
+	if err != nil {
+		return true
+	}
+	got, err := b.Docker.Output("image", "inspect", ref, "--format", InputsFormat)
+	return err != nil || strings.TrimSpace(got) == want
 }
 
 func (b *Builder) refFor(target, override, tag string) string {
@@ -216,7 +245,7 @@ func (b *Builder) buildRef(name, ref string, o Options) error {
 			if err := b.RequirePublished(from, tag); err != nil {
 				return err
 			}
-		} else if !b.present(from) {
+		} else if !b.present(from) || !b.fresh(from) {
 			if err := b.BuildTarget(s.Needs, tag, Options{NoCache: o.NoCache}); err != nil {
 				return err
 			}
@@ -241,13 +270,11 @@ func (b *Builder) buildRef(name, ref string, o Options) error {
 		}
 		args = append(args, "--build-arg", e.Arg+"="+v)
 	}
-	for _, p := range s.Pins {
-		v, err := b.AgentVersion(p.Arg, p.Eco, b.PinPkg(p))
-		if err != nil {
-			return err
-		}
-		args = append(args, "--build-arg", p.Arg+"="+v)
+	pins, err := b.PinArgs(name)
+	if err != nil {
+		return err
 	}
+	args = append(append(args, pins...), InputsArgs(b.RepoRoot)...)
 	if s.Dockerfile != "" {
 		args = append(args, "-f", filepath.Join(b.RepoRoot, s.Dockerfile))
 	}
@@ -271,6 +298,10 @@ func (b *Builder) ensure(name, ref string, push bool) error {
 		return b.RequirePublished(ref, RefTag(ref))
 	}
 	if b.present(ref) {
+		if !b.fresh(ref) {
+			b.UI.Warnf("%s was built from other defs/ and packages/ content — rebuilding", ref)
+			return b.buildRef(name, ref, Options{})
+		}
 		if s.Floor == "" || b.floor(ref, s.Floor) {
 			return nil
 		}

@@ -441,6 +441,90 @@ _proveo_lock_installs() {
 
 _proveo_unlock_installs() { exec 9>&-; }
 
+# The workspace mise configs, in the order mise trust and the mise floor read them.
+_proveo_mise_configs=(mise.toml mise.local.toml .mise.toml .mise.local.toml mise/config.toml .mise/config.toml)
+
+# True when version $1 is at least version $2.
+_version_at_least() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n 1)" == "$2" ]]; }
+
+# Prints the highest hard min_version the mise configs in $1 declare, or nothing.
+# SPEC: _spec/_runtimes/toolchain-provisioning.puml (THE MISE FLOOR)
+_mise_required_version() {
+ local scan="$1" config
+ for config in "${_proveo_mise_configs[@]}"; do
+  [[ -f "$scan/$config" ]] || continue
+  awk -v q="'" '
+   function quoted(s) {
+    if (match(s, "\"[^\"]*\"") || match(s, q "[^" q "]*" q)) return substr(s, RSTART + 1, RLENGTH - 2)
+    return ""
+   }
+   BEGIN { top = 1 }
+   /^[ \t]*\[/ { top = 0; mv = ($0 ~ /^[ \t]*\[[ \t]*min_version[ \t]*\][ \t]*(#.*)?$/); next }
+   top && /^[ \t]*min_version[ \t]*\.[ \t]*hard[ \t]*=/ { print quoted($0); next }
+   top && /^[ \t]*min_version[ \t]*=/ {
+    rhs = $0; sub(/^[^=]*=[ \t]*/, "", rhs)
+    if (rhs !~ /^\{/) { print quoted(rhs); next }
+    if (match(rhs, "hard[ \t]*=[ \t]*[\"" q "][^\"" q "]*[\"" q "]")) print quoted(substr(rhs, RSTART, RLENGTH))
+   }
+   mv && /^[ \t]*hard[ \t]*=/ { print quoted($0) }
+  ' "$scan/$config" 2>/dev/null
+ done | sed 's/^v//' | awk '/^[0-9]/' | sort -V | tail -n 1
+ return 0
+}
+
+# Prints the version of the mise first on PATH, or nothing.
+_mise_running_version() {
+ command -v mise >/dev/null 2>&1 || return 0
+ (cd / && mise --version 2>/dev/null) | awk 'NR == 1 { sub(/^v/, "", $1); print $1 }'
+ return 0
+}
+
+# Installs mise $1, or the latest when $1 is empty, at the tool home's .local/bin/mise.
+_proveo_install_mise() {
+ local version="${1:-}" tool_home installer rc=1
+ tool_home="$(_proveo_tool_home)"
+ installer="$(mktemp)" || return 1
+ if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$installer"; then
+  MISE_VERSION="$version" MISE_INSTALL_PATH="${tool_home}/.local/bin/mise" MISE_INSTALL_HELP=0 \
+   _proveo_bounded "${PROVEO_MISE_INSTALL_TIMEOUT:-180}" sh "$installer" && rc=0
+ fi
+ rm -f "$installer"
+ if ((rc != 0)) && command -v npm >/dev/null 2>&1; then
+  npm install -g --fetch-timeout=60000 --fetch-retries=1 --prefix "${tool_home}/.local" "@jdx/mise@${version:-latest}" && rc=0
+ fi
+ hash -r
+ return "$rc"
+}
+
+# Puts a mise that satisfies the workspace's min_version first on PATH and retargets the shims at it.
+# SPEC: _spec/_runtimes/toolchain-provisioning.puml (THE MISE FLOOR)
+_proveo_ensure_mise_floor() {
+ local scan want have
+ scan="$(_proveo_scan_root "${1:-}")"
+ [[ -d "$scan" ]] || return 0
+ want="$(_mise_required_version "$scan")"
+ [[ -n "$want" ]] || return 0
+ _proveo_tool_path
+ have="$(_mise_running_version)"
+ if [[ -n "$have" ]] && _version_at_least "$have" "$want"; then return 0; fi
+ if ! _proveo_auto_install_enabled; then
+  echo "⚠️  mise ${have:-none} is older than the workspace's min_version ${want}; PROVEO_AUTO_INSTALL_TOOLS is off, so mise refuses its config"
+  return 0
+ fi
+ _proveo_lock_installs || return 0
+ echo "📦 mise ${have:-none} is older than the workspace's min_version ${want}; installing mise ${want}..."
+ _proveo_install_mise "$want" || true
+ have="$(_mise_running_version)"
+ if [[ -n "$have" ]] && _version_at_least "$have" "$want"; then
+  (cd / && MISE_YES=1 _proveo_bounded 60 mise reshim --force >/dev/null 2>&1) || true
+  echo "📦 mise: ${have} (min_version ${want})"
+ else
+  echo "⚠️  mise ${want} did not install; mise refuses this workspace's config until 'mise run build base' ships ${want} or newer"
+ fi
+ _proveo_unlock_installs
+ return 0
+}
+
 ensure_project_tools() {
  _proveo_tool_path
  _proveo_auto_install_enabled || return 0
@@ -466,14 +550,7 @@ ensure_project_tools() {
  if [[ -f mise.toml || -f mise.local.toml || -f .mise.toml || -f .mise.local.toml || -d mise || -d .mise || -f .tool-versions ]]; then
  if ! command -v mise >/dev/null 2>&1; then
  echo "📦 Detected mise config or .tool-versions. Dynamically installing mise..."
- local mise_installer
- mise_installer="$(mktemp)"
- if curl -fsSL --connect-timeout 5 --max-time 120 https://mise.run -o "$mise_installer"; then
- MISE_INSTALL_PATH="${tool_home}/.local/bin/mise" sh "$mise_installer" || echo "⚠️ mise install script failed"
- else
- npm install -g "${npm_net[@]}" --prefix "${tool_home}/.local" @jdx/mise@latest || echo "⚠️ Failed to dynamically install mise"
- fi
- rm -f "$mise_installer"
+ _proveo_install_mise "" || echo "⚠️ Failed to dynamically install mise"
  fi
  fi
 
@@ -2468,8 +2545,9 @@ proveo_trust_workspace_mise() {
  scan="$(_proveo_scan_root)"
  [[ -d "$scan" ]] || return 0
  _proveo_tool_path
+ _proveo_ensure_mise_floor "$scan"
  command -v mise >/dev/null 2>&1 || { echo "proveo: mise trust requested but mise is unavailable" >&2; return 1; }
- for config in mise.toml mise.local.toml .mise.toml .mise.local.toml mise/config.toml .mise/config.toml; do
+ for config in "${_proveo_mise_configs[@]}"; do
   [[ -f "$scan/$config" ]] || continue
   found=1
   mise trust --yes "$scan/$config" || return 1
@@ -2604,6 +2682,7 @@ _proveo_seed_provision() {
    proveo_sync_tools restore || true
   fi
   _proveo_tool_path
+  _proveo_ensure_mise_floor
   _proveo_persist_tool_env
   proveo_seed_step setup "installing toolchains and dependencies" "$target"
   proveo_provision_toolchain

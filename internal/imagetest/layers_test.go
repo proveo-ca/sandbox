@@ -6,15 +6,19 @@ package imagetest_test
 import (
 	"cmp"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/imagetest"
+	"github.com/proveo-ca/proveo/internal/ui"
 )
 
 const sbxLayerCap = 40
@@ -73,6 +77,7 @@ func inspectConfig(t *testing.T, ref string) imageConfig {
 	if len(c.Labels) == 0 {
 		c.Labels = nil
 	}
+	slices.Sort(c.Env)
 	return c
 }
 
@@ -84,18 +89,24 @@ func TestAFlatStageKeepsTheConfigOfTheLayersItReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ dockerfile, layered, flat string }{
-		{"defs/base/Dockerfile", "base-full", ""},
-		{"defs/hermes/Dockerfile", "hermes-upstream", "hermes-flat"},
+	for _, c := range []struct{ spec, dockerfile, layered, flat string }{
+		{"base", "defs/base/Dockerfile", "base-full", ""},
+		{"hermes", "defs/hermes/Dockerfile", "hermes-upstream", "hermes-flat"},
 	} {
 		t.Run(c.dockerfile, func(t *testing.T) {
 			df := filepath.Join(root, c.dockerfile)
 			if _, err := os.Stat(df); err != nil {
 				t.Skip("no proveo checkout above this package")
 			}
+			b := imagebuild.New(root)
+			b.Out, b.UI = io.Discard, ui.New(io.Discard)
+			pins, err := b.PinArgs(c.spec)
+			if err != nil {
+				t.Fatalf("resolve %s pins the way `mise run build %s` does: %v", c.spec, c.spec, err)
+			}
 			build := func(target string) string {
 				ref := "proveo-test/flat-" + filepath.Base(filepath.Dir(df)) + "-" + cmp.Or(target, "final") + ":local"
-				args := []string{"build", "-q", "-f", df, "-t", ref}
+				args := append([]string{"build", "-q", "-f", df, "-t", ref}, pins...)
 				if target != "" {
 					args = append(args, "--target", target)
 				}
