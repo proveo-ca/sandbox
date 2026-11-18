@@ -164,6 +164,9 @@ skinparam noteTextAlignment left
 '     chrome and android all ticked the line clips, and "+ mcp" goes first.
 '   * the answer reaches the backend as sandbox.Input.MCPGateway; Spec and
 '     DeclineMCPGateway read that, never the env (posture reads it too).
+'   * Claude Code also uses the answer at launch. Off passes --strict-mcp-config
+'     and omits the Android MCP config. On uses Claude Code's normal MCP discovery.
+'     _spec/_plans/claudecode-mcp-toggle.puml describes reuse and config refresh.
 '   Pinned by internal/run/mcp_row_test.go, TestOnlyKitsWithGatewayHooksOfferTheGateway
 '   and TestTheGatewayHooksFollowTheOperatorsChoice.
 '

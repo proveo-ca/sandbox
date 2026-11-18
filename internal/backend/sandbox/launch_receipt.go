@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -160,6 +161,9 @@ func retireIfStale(in Input, cfg sbx.RunConfig, changed []string, running func(s
 	live := running(cfg.Name)
 	replace, asked := confirmStaleSandbox(cfg.Name, changed, live, cfg.Clone, opencodeTarget(in.Target))
 	notApplied := "not applied: " + strings.Join(changed, ", ")
+	if live && !replace && Harness(in) == "claudecode" {
+		return nil, claudeMCPRestartError(cfg.Name)
+	}
 	if asked && !replace {
 		if live {
 			warn(cfg.Name+" — kept running without this run's changes", notApplied, "the next proveo run reattaches to it")
@@ -254,6 +258,20 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 	if out, err := SaveState(cfg.Name, cfg.Env, !sbx.Gone(cfg.Name), guestRun); err != nil {
 		carried.Item(Item{Warn: true, Text: "resume state — not saved", Detail: []string{failure(err, out)}})
 		return fmt.Errorf("%s — %s kept; %s", keptUnsaved, cfg.Name, retireUnsavedFix(cfg.Name, sbx.Running(cfg.Name)))
+	}
+	stateHome := StateHome(cfg.Env)
+	if was := readReceipt(cfg.Name); Harness(in) == "claudecode" && was != nil &&
+		stateHome != "" && was.Env[sbx.StateHomeVar] == digest(stateHome) && was.Env[proveohome.ConfigFilesRootVar] != "" {
+		oldHome, err := in.HomeAccess.keptClaudeFiles(was)
+		if err == nil {
+			err = oldHome.Commit()
+		}
+		if err == nil {
+			err = in.HomeAccess.refreshFiles()
+		}
+		if err != nil {
+			return fmt.Errorf("preserve Claude Code config before replacing %s: %w", cfg.Name, err)
+		}
 	}
 	return removeRetired(cfg, report)
 }

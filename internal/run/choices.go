@@ -261,6 +261,10 @@ func mcpRow(target, current string, fromEnv bool) choiceui.Row {
 		mcpOff: "the published kit's MCP gateway hooks are left out",
 		mcpOn:  "the kit registers sbx's MCP gateway into the agent's config (user scope, in the proveo home)",
 	}}
+	if target == "claudecode" {
+		r.Help[mcpOff] = "Claude Code starts with MCP disabled, including Android's mobile MCP server"
+		r.Help[mcpOn] = "Claude Code loads its saved MCP config and the kit registers sbx's gateway"
+	}
 	if current == mcpOn {
 		r.Selected = 0
 	}

@@ -748,6 +748,10 @@ func buildPosture(rs *Spec, p *Params) {
 		src := sbx.ResolveImageSource(p.Image, imagebuild.New("").HostBuilder)
 		rs.Backend.ImageSource, image = &src, p.Image+" ("+src.Label()+")"
 	}
+	gateway := posture.MCPGateway(p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(), sandbox.MCPGatewayVar)
+	if rs.Man.Name == "claudecode" && !p.mcpAllowed() {
+		gateway = "declined (Claude Code starts with MCP disabled)"
+	}
 	rs.Posture = posture.Posture{
 		Target:        p.Target,
 		Credentials:   credentialsPosture(rs, p),
@@ -761,7 +765,7 @@ func buildPosture(rs *Spec, p *Params) {
 		Image:         image,
 		ModelRoles:    posture.RolesLine(p.Roles),
 		RoleProviders: strings.Join(p.Roles.Providers(), ","),
-		MCPGateway:    posture.MCPGateway(p.mcpAllowed() || rs.Man.Capabilities.AlwaysMCPGateway(), sandbox.MCPGatewayVar),
+		MCPGateway:    gateway,
 		Workspace:     posture.Workspace(predictClone(p, rs.Workspace.WS)),
 	}
 	rs.Log.Fields("resolved posture", rs.Posture.Fields())
@@ -936,11 +940,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		agentEnv = append(agentEnv, sbx.LocalModelEnv(servedModel)...)
 		agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
 	}
-	homeAccess, err := sandbox.PrepareHomeAccess(
-		rs.Creds.HomePlan.Root, rs.RunDir, rs.Man.Home)
-	if err != nil {
-		return err
-	}
 	ports, unpublished := planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort)
 	rs.Interface = append(rs.Interface, unpublished...)
 	in := sandbox.Input{
@@ -989,8 +988,15 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		Memory:           sbx.MemoryLimit(),
 		CPUs:             sbx.CPULimit(),
 		HomeRoot:         rs.Creds.HomePlan.Root,
-		HomeAccess:       homeAccess,
 	}
+	if err := in.ValidateLaunch(); err != nil {
+		return err
+	}
+	homeAccess, err := sandbox.PrepareHomeAccess(in.HomeRoot, in.RunDir, in.Man.Home)
+	if err != nil {
+		return err
+	}
+	in.HomeAccess = homeAccess
 	if p.PrintOnly {
 		cfg, w, secrets := sandbox.Spec(in)
 		rs.ItemsHanded = true

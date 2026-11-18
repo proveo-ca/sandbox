@@ -248,7 +248,7 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 	if strings.Contains(cfg.Name, "proveo-1-2") {
 		t.Errorf("sandbox name %q carries the session id — every run would build its own", cfg.Name)
 	}
-	if want := []string{"--verbose"}; !slices.Equal(cfg.Command, want) {
+	if want := []string{"--strict-mcp-config", "--verbose"}; !slices.Equal(cfg.Command, want) {
 		t.Errorf("command = %v, want %v: a leading flag appends to the kit's launch (P7)", cfg.Command, want)
 	}
 }

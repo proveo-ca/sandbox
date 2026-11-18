@@ -83,11 +83,20 @@ func PrepareHomeAccess(root, runDir string, h manifest.Home) (HomeAccess, error)
 			continue
 		}
 		a.files = append(a.files, name)
-		if err := copyNewerFile(filepath.Join(root, name), filepath.Join(a.FilesRoot, name)); err != nil {
-			return HomeAccess{}, fmt.Errorf("sandbox home file %s: %w", name, err)
-		}
+	}
+	if err := a.refreshFiles(); err != nil {
+		return HomeAccess{}, err
 	}
 	return a, nil
+}
+
+func (a HomeAccess) refreshFiles() error {
+	for _, name := range a.files {
+		if err := copyNewerFile(filepath.Join(a.Root, name), filepath.Join(a.FilesRoot, name)); err != nil {
+			return fmt.Errorf("sandbox home file %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // listedLinkTargets is the resolved set of absolute targets root's manifest.LinkedDirsFile names.

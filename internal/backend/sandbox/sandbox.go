@@ -1467,19 +1467,18 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	recipe := sbx.RecipeV3{From: src.From()}
 	var command []string
 	entrypoint := imageEntrypoint(in)
+	flags := launchFlags(in)
 	switch {
 	case hasUp:
 		recipe.Entrypoint, recipe.Env = up.Launch, up.Env
-		flags := withMobileMCP(harness, in.AgentEnv, append([]string{}, in.Extra...))
-		flags = withLocalModelTools(builtin, in.AgentEnv, flags)
-		command = sbx.LaunchArgs(up.Launch, flags)
+		command = sbx.LaunchArgs(up.Launch, withLocalModelTools(builtin, in.AgentEnv, flags))
 	case len(entrypoint) == 0:
 		report.Notes = append(report.Notes, Item{Warn: true, Text: in.Image + " — no readable ENTRYPOINT",
 			Detail: []string{harness + " launches through bash"}})
 		recipe.Entrypoint = []string{"bash"}
-		command = sbx.ShellLaunch(harness, in.Extra)
+		command = sbx.ShellLaunch(harness, flags)
 	default:
-		command = sbx.LaunchArgs(entrypoint, withMobileMCP(harness, in.AgentEnv, append([]string{}, in.Extra...)))
+		command = sbx.LaunchArgs(entrypoint, flags)
 	}
 	cfg := sbx.RunConfig{
 		Name:    sbx.SandboxName(in.Target, sandboxKey(in, mounts)),
@@ -1645,6 +1644,9 @@ func withMobileMCP(harness string, env, command []string) []string {
 }
 
 func Run(in Input) error {
+	if err := in.ValidateLaunch(); err != nil {
+		return err
+	}
 	wsSaid, secretsSaid, ifaceSaid := false, false, false
 	var secretFacts []ui.Fact
 	defer func() {
@@ -1667,8 +1669,12 @@ func Run(in Input) error {
 		}
 	}
 	in.HomeAccess = homeAccess
+	stagedHome := homeAccess
 	keepHomeAccess := false
 	defer func() {
+		if stagedHome.FilesRoot != homeAccess.FilesRoot {
+			stagedHome.Cleanup()
+		}
 		if !keepHomeAccess {
 			homeAccess.Cleanup()
 		}
@@ -1696,6 +1702,17 @@ func Run(in Input) error {
 	receipt := receiptOf(cfg, in.Image, workloadBytes(kitDir), in.Sid, sbx.LocalImageID(in.Image))
 	receipt.OutputDir = in.OutputDir
 	exists := sbx.Exists(cfg.Name)
+	running := sbx.Running
+	var listedClaude *sbx.Listed
+	if exists && Harness(in) == "claudecode" {
+		listedClaude = listedSandbox(cfg.Name)
+		if listedClaude == nil || !listedClaude.Running() {
+			if err := stoppedForClaudeLaunch(cfg.Name, listedClaude); err != nil {
+				return err
+			}
+		}
+		running = func(string) bool { return listedClaude.Running() }
+	}
 	changed := staleChanges(cfg.Name, receipt, exists)
 	staleStep := start.DoAs
 	if len(changed) > 0 {
@@ -1703,12 +1720,23 @@ func Run(in Input) error {
 	}
 	var kept []string
 	if err := staleStep(stepStale, stepStale, func() (err error) {
-		kept, err = retireIfStale(in, cfg, changed, sbx.Running, retireSandbox, ui.Notef, warnItem)
+		kept, err = retireIfStale(in, cfg, changed, running, retireSandbox, ui.Notef, warnItem)
 		return err
 	}); err != nil {
 		return err
 	}
 	exists = exists && (len(changed) == 0 || kept != nil)
+	if exists && listedClaude != nil {
+		if err := stoppedForClaudeLaunch(cfg.Name, listedClaude); err != nil {
+			return err
+		}
+		reusedHome, err := prepareKeptClaude(in, cfg.Name, readReceipt(cfg.Name))
+		if err != nil {
+			return err
+		}
+		homeAccess = reusedHome
+		keepHomeAccess = true
+	}
 	launchCfg := reuseOrCreate(cfg, exists)
 	if launchCfg.KitDir != "" {
 		writeReceipt(cfg.Name, receipt)
