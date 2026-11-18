@@ -113,6 +113,12 @@
 ' alike. The chip is a fill (brand ink on ColorSurface) that ends at cw-3, so
 ' column cw-2 stays blank. The banner, when the ladder buys it, sits above
 ' the card.
+' THE BANNER CARRIES THE TAGLINE (DECIDED 2026-11-17). The box reads pr●veo
+' over "Zen autonomy" (ui.BrandTagline), right-aligned where S O L U T I O N S
+' stood, and no tagline row follows. HISTORY: until the repo became
+' proveo-ca/cli a "proveo/sandbox: portable, safe AI coding agents" row sat
+' under the box; dropping it makes the banner a row shorter, so the ladder
+' buys it at 80x24 where it did not before.
 ' THE CHIP OWNS THE PAGE COUNT (owner, O6). While the chip draws, "page n/m"
 ' leaves the key line. One predicate, stepChip, decides it for draw() and for
 ' the plain hint() that tests and e2e read, so the two cannot disagree.
@@ -793,7 +799,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
 
 {
 {
-  <&terminal> proveo SOLUTIONS | proveo/sandbox: portable, safe AI coding agents
+  <&terminal> proveo · Zen autonomy
 }
 {+
   {

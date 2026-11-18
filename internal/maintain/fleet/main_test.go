@@ -15,7 +15,8 @@ func noEnv(string) string { return "" }
 
 func TestFleetMainRefusesAMissingVerbOrTarget(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{nil, {"build"}, {"ship", "all"}, {"-print=true", "build", "all", "extra"}} {
+	for _, args := range [][]string{nil, {"build"}, {"deploy"}, {"ship", "all"}, {"-print=true", "build", "all", "extra"},
+		{"-cli", "test", "all"}, {"-cli", "test"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 2 {
 			t.Errorf("run(%q) = %d, want 2", args, code)
@@ -53,5 +54,72 @@ func TestFleetMainTakesTheArgvMiseRenders(t *testing.T) {
 	want := "# serial claudecode\nimagebuild claudecode --tag rc1 --no-cache\ndocker image inspect proveo/claudecode:rc1\n"
 	if stdout.String() != want {
 		t.Errorf("run(%q) printed\n%s\nwant\n%s", args, stdout.String(), want)
+	}
+}
+
+func TestFleetMainPutsTheCLIFirstWhenAsked(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		args  []string
+		first string
+		has   []string
+	}{
+		{[]string{"-print", "-cli", "build"}, "# cli\ngo install -trimpath -ldflags=-s -w ./cmd/proveo ./cmd/proveo-entrypoint\n", nil},
+		{[]string{"-print", "-cli", "build", "claudecode"}, "# cli\ngo install ", []string{"# serial claudecode\nimagebuild claudecode --tag local\n"}},
+		{[]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy"}, "# cli\n", []string{"git tag v0.3.2\n", "wrangler deploy --cwd apps/cli\n"}},
+		{[]string{"-print", "-cli", "deploy", "claudecode"}, "# cli\n", []string{"git tag <patch>\n", "# serial claudecode\n", "# after every wave\n"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(c.args, noEnv, repoRoot, &stdout, &stderr); code != 0 {
+			t.Fatalf("run(%q) = %d, want 0; stderr:\n%s", c.args, code, stderr.String())
+		}
+		got := stdout.String()
+		if !strings.HasPrefix(got, c.first) {
+			t.Errorf("run(%q) printed\n%s\nwant it to start with %q", c.args, got, c.first)
+		}
+		for _, want := range c.has {
+			if !strings.Contains(got, want) {
+				t.Errorf("run(%q) printed\n%s\nwant it to hold %q", c.args, got, want)
+			}
+		}
+		if len(c.has) == 0 && strings.Contains(got, "# serial") {
+			t.Errorf("run(%q) printed an image wave without a target:\n%s", c.args, got)
+		}
+	}
+}
+
+func TestFleetMainTestWithoutATargetIsTheImageGate(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"-print", "test"}, {"-print", "test", "all"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 0 {
+			t.Fatalf("run(%q) = %d; stderr:\n%s", args, code, stderr.String())
+		}
+		if !strings.HasPrefix(stdout.String(), "# image gate\ngoreleaser release --snapshot --clean\n") {
+			t.Errorf("run(%q) printed\n%s\nwant the image gate", args, stdout.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"-print", "test", "codex"}, noEnv, repoRoot, &stdout, &stderr); code != 0 ||
+		!strings.Contains(stdout.String(), "-run ^TestImageCodex$ ./internal/imagetest/") || strings.Contains(stdout.String(), "goreleaser") {
+		t.Errorf("run(test codex) = %d, printed\n%s\nwant the codex suite alone", code, stdout.String())
+	}
+}
+
+func TestFleetMainRefusesACLIVersionThatIsATarget(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"-print", "-cli", "-cli-version=all", "deploy"}, {"-print", "-cli", "-cli-version=0.3.2", "deploy", "codex"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
+			t.Errorf("run(%q) = %d with stdout %q, want 2 before any plan", args, code, stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "name the target before --cli") {
+			t.Errorf("run(%q) stderr = %q, want the fix: the target goes before --cli", args, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy", "all"}, noEnv, repoRoot, &stdout, &stderr); code != 0 ||
+		!strings.Contains(stdout.String(), "git tag v0.3.2\n") {
+		t.Errorf("run(deploy all --cli v0.3.2) = %d, printed\n%s", code, stdout.String())
 	}
 }

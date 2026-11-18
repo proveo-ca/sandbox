@@ -9,6 +9,10 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' covers: internal/schedule/tmux*.go
 ' covers: defs/tests/**
 ' covers: internal/imagetest/**
+' covers: internal/maintain/e2e.go
+' covers: internal/maintain/e2e_test.go
+' covers: internal/maintain/e2e/main.go
+' covers: internal/maintain/e2e/main_test.go
 ' covers: e2e/preconditions_test.go (requireSbx, requireTmux, requireDocker, harnessImage)
 ' covers: e2e/kit_test.go (launchKit, awaitKit, kitRun, stopRun, kitSandbox, pickKitSandbox, kitDirs, testOwned)
 ' covers: internal/sbx/clone_test.go (TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch, isolatedGitEnv)
@@ -32,39 +36,53 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' diagram, _spec/tests/30-infra-integration.puml, is retired with it. The layer
 ' numbers are kept so 40-/41-/42- spec names stay stable.
 '
-' ── COVERAGE LANES: mise tasks (2026-11-12) ─────────────────────────────────
+' ── COVERAGE LANES: mise tasks (2026-11-12; folded 2026-11-17) ──────────────
 ' covers: mise.toml
 ' Replaced scripts/go-test-coverage.sh (2026-09-22), then the Go coverage
 ' verb that replaced it (2026-11-12; maintainer tooling is mise tasks:
 ' _spec/cmd/proveo/usage.puml).
-'   test-go ......... rm -rf cov/unit, mkdir -p cov/unit, then go test [-race]
-'                     -cover -covermode=atomic ./... -args
-'                     -test.gocoverdir={{ config_root | quote }}/cov/unit
-'   coverage ........ wait_for test-go; go tool covdata percent and textfmt
+'   test ............ rm -rf cov/unit, mkdir -p cov/unit, go test [-race]
+'                     [--baseline's -skip] -cover -covermode=atomic
+'                     [go_test_args, default ./...] -args
+'                     -test.gocoverdir={{ config_root | quote }}/cov/unit,
+'                     then go tool covdata percent and textfmt
 '                     -i=cov/unit -o=cov/coverage.out
-'   test-go-e2e ..... go test -tags=e2e ./e2e/ -count=1 -timeout <PROVEO_TEST_GO_TIMEOUT
-'   test-e2e          as one quoted word, or 45m when it is unset or blank>;
-'                     extra args append (no usage spec)
-' Both coverage runs: `mise run -c test-go ::: coverage`.
-' * test-go runs default tags only; //go:build excludes the e2e and image lanes.
-' * -race needs cgo. `--no-race` drops it on test-go and baseline. HISTORY:
+'   e2e ............. go run ./internal/maintain/e2e: the image gate unless
+'                     --no-images, then go test -tags=e2e ./e2e/ -count=1
+'                     -timeout <PROVEO_TEST_GO_TIMEOUT trimmed, or 45m when it
+'                     is unset or blank; 150m with --full> [-run <--run>];
+'                     --idle, --ladder, --toolchain and --full add or swap the
+'                     passes (_spec/_devops/release-gate.puml)
+' HISTORY, 2026-11-12 to 2026-11-17: test-go wrote cov/unit, a coverage task
+' waited for it (`mise run -c test-go ::: coverage`), and test-go-e2e ran the
+' e2e line without test-images. DECIDED 2026-11-17: one test task owns the
+' unit lane and its report. The same day test-e2e, test-e2e-full, test-idle
+' and test-ladder became one `e2e` task with flags; `e2e --no-images` replaces
+' test-go-e2e and `--skip-deps`.
+' * test runs default tags only; //go:build excludes the e2e and image lanes.
+' * -race needs cgo. `--no-race` drops it on test (ci passes it through). HISTORY:
 '   a `go test -race -c` probe once fell back to coverage-only silently; a
 '   host without cgo now fails until the flag is passed. NOT CHOSEN: a Tera
 '   exec() race probe (_spec/tests/20-contract.puml, no exec()); dropping the
 '   fallback with no flag.
-' * An operator env value reaches a task through `{% set v = get_env(name=…,
-'   default='') | trim %}{% if v %}…{% else %}<default>{% endif %}`, so an
-'   empty or blank value falls back like an unset one. NOT CHOSEN: get_env's
-'   own default. MEASURED on mise 2026.10.17: it applies only to an unset
-'   variable, so `PROVEO_TEST_GO_TIMEOUT= mise run -n test-go-e2e` printed a
-'   bare -timeout.
+' * An operator env value that a mise task reads goes through `{% set v =
+'   get_env(name=…, default='') | trim %}{% if v %}…{% else %}<default>{% endif %}`,
+'   so an empty or blank value falls back like an unset one. NOT CHOSEN:
+'   get_env's own default. MEASURED on mise 2026.10.17: it applies only to an
+'   unset variable, so `PROVEO_TEST_GO_TIMEOUT= mise run -n test-go-e2e`
+'   printed a bare -timeout. Since 2026-11-17 the e2e main reads
+'   PROVEO_TEST_GO_TIMEOUT and PROVEO_IDLE_FOR itself and trims them the same
+'   way (TestE2EPlanTreatsAnEmptyOperatorValueAsUnset).
 ' * coverage reads cov/unit directly; a missing dir fails with covdata's own
 '   "reading inputs" error. HISTORY: a merge step also took cov/integration,
 '   and cov/unit carried the in-process egressproxy and broker; both are
 '   deleted, and the Stage 0b proveo-egress cover image has nothing to cover.
 ' * Pinned by internal/contract/mise_gates_test.go (TestCoverageReadsTheUnitLane,
-'   TestUnitLanesOfferNoRace, TestE2ELanesKeepTheirTimeoutDefaults,
-'   TestOperatorEnvTreatsEmptyAsUnset).
+'   TestUnitLanesOfferNoRace, TestOperatorEnvTreatsEmptyAsUnset) and
+'   internal/maintain/e2e_test.go (TestE2EPlanRunsTheSuiteAloneByDefault,
+'   TestE2EPlanTreatsAnEmptyOperatorValueAsUnset). HISTORY:
+'   TestE2ELanesKeepTheirTimeoutDefaults pinned the mise run line until
+'   2026-11-17.
 ' * e2e has no env gate: -tags=e2e IS the opt-in, and each test skips on its own
 '   missing prerequisite (tmux, docker, harness image, credential).
 ' * The e2e binary timeout must clear the SUM of the suite's per-test budgets,
@@ -73,15 +91,18 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   harnesses. Under a shorter cap the go runtime panics mid-suite and loses
 '   every result, the passes and the failure diagnostics included — strictly
 '   worse than a slow lane. Hence 45m by default; PROVEO_TEST_GO_TIMEOUT lowers
-'   it for a single -run selection (test-e2e-full raises it to 150m).
+'   it for a single -run selection (`e2e --full` raises it to 150m).
 '
 ' ── THE def SUITES ARE GO SINCE 2026-09-22 ─────────────────────────────────
 ' Every def's image suite is `internal/imagetest/<def>_test.go`, build tag
 ' `image`, one func `TestImage<Def>`; the detached smoke is TestImageDetachedSmoke.
-' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `mise run test-defs <target>`
+' (TestImageMitmproxy went with the mitmproxy image, 2026-10-16.) `mise run test-images <target>`
 ' (go run ./internal/maintain/fleet test <target>) runs
 '   go test -tags=image -count=1 -v -run '^TestImage<Def>$' ./internal/imagetest/
-' and `mise run test-defs all` runs each distinct suite once; a base has none.
+' and a base has none. `mise run test-images` with no target, or `all`, runs
+' the whole image gate (maintain.ImageGatePlan). HISTORY: this was the
+' test-defs task until 2026-11-17, and `test-defs all` ran each distinct
+' suite once.
 ' NO UNBOUNDED DOCKER CALL. imagetest.Resolve/Present once ran
 ' `docker image inspect` via bare exec.Command. On 2026-10-18 a wedged host
 ' daemon held TestImageOpencode's Resolve for 53m (cursor's subtests hit their
@@ -720,7 +741,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' ── A WEDGED GUEST HANGS sbx rm ────────────────────────────────────────────
 ' MEASURED 2026-10-28, sbx 0.50.0, the e2e coverage lane at PROVEO_TEST_GO_TIMEOUT=150m
-'   (today `PROVEO_TEST_GO_TIMEOUT=150m mise run test-go-e2e`):
+'   (today `PROVEO_TEST_GO_TIMEOUT=150m mise run e2e --no-images`):
 '   00:01:00  seed_ready/hermes creates proveo-hermes-89d1a8c6 FROM proveo/hermes:latest
 '             (57 layers; hermes:local absent, so ResolveImage fell back)
 '   00:02:01  the probe's `sbx exec` hits its 1m deadline → t.Fatalf
@@ -801,7 +822,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '     docker/sbx-releases v0.48.0 dropped the {"sandboxes": [...]} wrapper.
 '     sbxSandboxNames and pickKitSandbox still unwrapped it, so on 0.49.2 every
 '     launchKit waited 8m for "no claudecode sandbox appeared" and every sweep
-'     logged "`sbx ls` failed" while leaking its sandboxes (test-e2e, MEASURED).
+'     logged "`sbx ls` failed" while leaking its sandboxes (the e2e suite, MEASURED).
 '     sbxListing (e2e/sbx_test.go) reads both shapes; MinVersion 0.45 still
 '     admits the wrapper. Tests: TestSbxListingReadsTheInstalledSbx (live),
 '     TestKitSandboxNamesOnlyTheRunsOwnSandbox (both shapes).
@@ -929,7 +950,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '                         /live_resume_roundtrip
 '   sidecar teardown .... SIGINTTearsDownEgressSidecars (signal_test.go; its
 '                         PROVEO_SIGNAL_TEST=1 gate left the e2e-full gate,
-'                         today `mise run test-e2e-full`)
+'                         today `mise run e2e --full`)
 '   a docker home ....... TestOpenCodeTwoSessionsSurviveProveoRuns
 '                         (opencode_sessions_test.go, pinned PROVEO_SBX=0)
 '   the consent gate .... ReviewTierConsentGate
@@ -959,9 +980,9 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' The sweep narrows with it: TestImageMitmproxy and the Layer-3 task
 ' (`test-go-integration`) are deleted. Since N12 (2026-10-17, MEASURED) ONE
-' `test-images` task runs every TestImage* suite — hermes included — and both
-' `test-e2e` and `test-e2e-full` depend on it (mise.toml:79,97,103;
-' TestOneImageTaskGatesBothReleaseGates). HISTORY: test-images-sbx ran a regex
+' image gate runs every TestImage* suite — hermes included. `mise run
+' test-images` and `mise run e2e` (unless --no-images) both run it
+' (maintain.ImageGatePlan; TestOneImageTaskGatesBothReleaseGates). HISTORY: test-images-sbx ran a regex
 ' of five suites, which skipped TestImageHermes and TestImageDetachedSmoke.
 '
 ' ── AND SO PROVEO_SBX=off MEANS NOTHING ─────────────────────────────────────

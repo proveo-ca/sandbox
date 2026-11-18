@@ -20,7 +20,7 @@ Each harness definition should expose, where applicable:
 - `entrypoint.sh` — runtime setup, config discovery, env bridging, and final CLI launch.
 - A row in `internal/imagebuild/targets.go` — the build recipe (parent, pins, variants); `mise run build <target>` runs it.
 - A `harness.manifest` — mounts, env and posture that `proveo run <target>` applies.
-- An image suite at `internal/imagetest/<name>_test.go` (build tag `image`, func `TestImage<Name>`) — smoke and contract checks against the built image; `mise run test-defs <name>` runs it.
+- An image suite at `internal/imagetest/<name>_test.go` (build tag `image`, func `TestImage<Name>`) — smoke and contract checks against the built image; `mise run test-images <name>` runs it.
 - `README.md` — usage, image names, mounts, config behavior, and harness-specific notes.
 - Sample config files such as `sample_opencode.json` or `.env.sample`.
 
@@ -212,7 +212,7 @@ Harness images should:
   sbx config sync never copies it; unlike `deny:`, the host copy is kept;
 - avoid logging secret values while still reporting whether required keys were detected.
 
-**Credential isolation** (see [`README.md`](README.md#security--egress--credentials) and
+**Credential isolation** (see [`_spec/internal/sbx/policy-baseline.puml`](_spec/internal/sbx/policy-baseline.puml) and
 [`_spec/_paradigms/credential-boundary.puml`](_spec/_paradigms/credential-boundary.puml)):
 
 | `--credentials` | Secret confinement |

@@ -129,7 +129,7 @@ var deathMarkers = []string{
 func idleTargets() []string {
 	raw := strings.TrimSpace(os.Getenv("PROVEO_IDLE_TARGETS"))
 	if raw == "" {
-		// The long 5-minute wait stays one def. idle-all sets claudecode, cursor
+		// The long 5-minute wait stays one def. `mise run e2e --idle` sets claudecode, cursor
 		// and opencode at 45s — the silent-death gate.
 		return []string{"claudecode"}
 	}

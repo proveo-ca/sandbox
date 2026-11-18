@@ -28,8 +28,8 @@
 ' lists it. TestRootHelpHidesMaintainerCommands is the pin.
 ' 2026-10-28: the verbs moved to the maintainer dispatcher (`mise run build` →
 ' a `go run` of it); the consumer CLI registers none of them.
-' 2026-11-12: the dispatcher is deleted. mise.toml build, deploy and test-defs
-' run `go run ./internal/maintain/fleet -tag='…' [-no-cache] [-print] <verb>
+' 2026-11-12: the dispatcher is deleted. mise.toml build, deploy and (since
+' 2026-11-17) test-images run `go run ./internal/maintain/fleet -tag='…' [-no-cache] [-print] <verb>
 ' '<target>'`; --tag and the target arrive quoted, and the two booleans only
 ' when set. internal/maintain/fleet/main.go parses the flags (exit 2 on a
 ' wrong verb or argument count), maintain.DefsDir finds the defs, and
@@ -39,21 +39,59 @@
 ' runTimed, RunFleet. Pinned by internal/maintain/fleet_test.go,
 ' internal/maintain/fleet/main_test.go and base_template_test.go
 ' (TestImageTasksRunTheFleetMain, TestImageTasksChoicesMatchTheRegistry).
-' build, deploy and test-defs REQUIRE <target> (a name or `all`). NOT CHOSEN:
-' default="all", since a bare build would build every image; an optional
-' target. test-defs shares the fleet main and runs each distinct suite once
-' under `all`. NOT CHOSEN: a direct `go test -run=^TestImage<Suite>$` task;
-' three claudecode reruns under `all` (claudecode, -browser and -solidity
-' share one def dir, so one suite).
-' --print stays on the three fleet verbs only (the gates that take none:
-' _spec/_devops/release-gate.puml). NOT CHOSEN: --print everywhere (a Go
-' wrapper per gate); --print nowhere (loses the wave plan).
-title Maintainer image pipeline — mise run build / test-defs / deploy
+' build and deploy REQUIRE <target> (a name or `all`) unless --cli names the
+' CLI alone; the fleet main exits 2 on neither. NOT CHOSEN: default="all",
+' since a bare build would build every image. `test` takes an optional
+' target: none, or `all`, runs the whole image gate (maintain.RunImageGate:
+' snapshot, stage, installer suite, every image suite in one process); a
+' target runs that def's suite. HISTORY: until 2026-11-17 test-defs required
+' <target>, and test-images was a separate task with its own run array.
+' ── THE CLI RIDES THE SAME VERBS (DECIDED 2026-11-17) ───────────────────────
+' The operator flattened the CLI tasks into flags on build and deploy.
+'   build --cli ... maintain.CLIBuildPlan before any wave: go install
+'                   -trimpath -ldflags=-s -w ./cmd/proveo
+'                   ./cmd/proveo-entrypoint, GOBIN dropped from the
+'                   environment, CGO_ENABLED=0 (was the build-cli task)
+'   deploy --cli .. internal/cdn/release.Deploy before any wave, with
+'                   -cli-version (patch) and -yes; it cuts, publishes and
+'                   pushes the CLI release (was release + deploy-cli,
+'                   _spec/internal/cdn/distribution-update.puml)
+'   --cli [version] (DECIDED 2026-11-17): one mise flag carries the version,
+'                   value_optional with default_missing "patch"; it replaced
+'                   --cli plus --cli-version. mise 2026.10.17 binds a detached
+'                   value, so `--cli all` swallows the target: the fleet main
+'                   refuses any value outside patch|minor|major|vX.Y.Z with
+'                   exit 2 and "name the target before --cli".
+' --print prints a "# cli" block first: the go install line, or release.Plan.
+' The CLI goes first so a red release ships no image.
+' ── DEPLOY UNTAGS :local AFTER THE RUN (DECIDED 2026-11-17) ─────────────────
+' DeployPlan still requires :local, retags it as the publish tag and pushes.
+' After every wave succeeds, maintain.Fleet runs UntagLocalPlan: one quiet
+' `docker image rm <image>:local` per target. The promoted tag holds the same
+' image ID, so the rm only untags. A red wave keeps every :local, so
+' rerunning `mise run deploy all` still finds each one. NOT CHOSEN: untag per
+' target as its push lands (a rerun after a red wave would need the leftover
+' targets named); untag then `docker pull :latest` (a multi-GB pull per
+' target for registry-exact bits). `deploy --tag local` now refuses: the rm
+' would delete the only tag. Pinned by maintain_test.go TestDeployAndTestPlan
+' and fleet_test.go TestFleetPrintsTheBuildAndDeployPlans.
+' `test-images <target>` runs one def's suite through the fleet main.
+' NOT CHOSEN: a direct `go test -run=^TestImage<Suite>$` task. The per-suite
+' sweep (maintain.Fleet "test" over `all`, each distinct suite once, so
+' claudecode, -browser and -solidity share one run) stays in the library;
+' the fleet main routes `all` to the image gate instead.
+' DECIDED 2026-11-17: test-defs folded into test-images [target]
+' (TestFleetMainTestWithoutATargetIsTheImageGate).
+' --print sits on the three fleet verbs and, since 2026-11-17, on e2e, whose
+' Go main plans every pass (_spec/_devops/release-gate.puml); lint, test and
+' ci take none. NOT CHOSEN: --print everywhere (a Go wrapper per gate);
+' --print nowhere (loses the wave plan).
+title Maintainer image pipeline — mise run build / test-images / deploy
 
 actor "Maintainer" as MT
 
 node "Maintainer host" as HOST <<host>> {
-  component "mise tasks\nbuild · test-defs · deploy" as MISE <<app>>
+  component "mise tasks\nbuild [--cli] · test-images [target] · deploy [--cli]" as MISE <<app>>
   component "internal/maintain/fleet build|test|deploy\n(maintain.Fleet)" as CMD <<app>>
   component "internal/manifest\nharness.manifest set" as MAN <<app>>
   component "Registry(ms, defsDir) → []Target\nname · kind · image · defDir\nrepoRoot · suite" as REG <<app>>
@@ -75,8 +113,8 @@ CMD ARROW_MAIN MAN : enumerate defs
 MAN ARROW_MAIN REG
 REG ARROW_MAIN KINDS : one Target per buildable image
 REG ARROW_MAIN BUILD : local → buildx ""--load"" (host arch)
-REG ARROW_OPTIONAL TEST : ""mise run test-defs <target>""
-BUILD ARROW_CLOUD REGISTRY : deploy → buildx ""--push""\n""PROVEO_PLATFORMS"" (default linux/amd64,linux/arm64)
+REG ARROW_OPTIONAL TEST : ""mise run test-images [target]""
+BUILD ARROW_CLOUD REGISTRY : deploy → buildx ""--push""\n""PROVEO_PLATFORMS"" (default linux/amd64,linux/arm64)\nthen ""docker image rm <image>:local"" after every wave
 
 note right of REG
   **Derived, never hardcoded.** The buildable set comes

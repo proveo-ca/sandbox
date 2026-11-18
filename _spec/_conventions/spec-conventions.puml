@@ -38,7 +38,7 @@
 ' lines to 134), so it is now a lint, not a sweep. MEASURED, since 2026-11-12
 ' internal/contract/comment_blocks_test.go TestNoCommentBlockOverThreeLines:
 ' `mise run lint` runs it with TestEveryTrackedGoFileIsGofmted as its first
-' gate, and test-go, baseline and ci run it as a contract test. It fails on
+' gate, and test (with or without --baseline) and ci run it as a contract test. It fails on
 ' every comment block over maxCommentLines = 3 COUNTED lines, naming each as
 ' path:line with "move the reasoning to _spec/, keep SPEC: pointers and
 ' one-line labels".

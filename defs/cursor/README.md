@@ -171,8 +171,8 @@ Gate them with `Mcp(server:tool)` permission rules. See <https://cursor.com/docs
 ## Tests
 
 ```bash
-mise run test-defs cursor
-PROVEO_TEST_CURSOR_IMAGE=proveo/cursor:local mise run test-defs cursor   # pin the image under test
+mise run test-images cursor
+PROVEO_TEST_CURSOR_IMAGE=proveo/cursor:local mise run test-images cursor   # pin the image under test
 ```
 
 The suite (`internal/imagetest/cursor_test.go`) covers image availability/labels, tool presence, security hardening (no setuid, no

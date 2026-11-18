@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/manifest"
@@ -244,64 +243,51 @@ func TestOptedInE2EGatesFailTheirSkips(t *testing.T) {
 	}
 	if len(ladder) < 2 || !isGateCall(ladder[1], "PROVEO_LADDER_TEST") {
 		t.Error(`TestSandboxLadder's second statement is not failSkipsWhenOptedIn(t, "PROVEO_LADDER_TEST"); ` +
-			"ladder-all would pass a ladder that skipped on a missing docker or sbx")
+			"test-ladder would pass a ladder that skipped on a missing docker or sbx")
 	}
 
 	idle := topFunc(t, "e2e/idle_test.go", "idleAtPrompt").Body.List
 	if len(idle) == 0 || !isGateCall(idle[0], "PROVEO_IDLE_TEST") {
 		t.Error(`idleAtPrompt's first statement is not failSkipsWhenOptedIn(t, "PROVEO_IDLE_TEST"); ` +
-			"idle-all would pass a def whose sbx, image or credential was missing")
+			"test-idle would pass a def whose sbx, image or credential was missing")
 	}
 }
 
-var idleForDefault = regexp.MustCompile(`^\{% set idle = get_env\(name='PROVEO_IDLE_FOR', default=''\) \| trim %\}` +
-	`\{% if idle %\}\{\{ idle \}\}\{% else %\}([^{}]+)\{% endif %\}$`)
+// e2eRun is the e2e task's run line: every flag reaches the e2e main, and each agent is one quoted word.
+const e2eRun = "go run ./internal/maintain/e2e {% if usage.print %}-print {% endif %}{% if usage.idle %}-idle {% endif %}" +
+	"{% if usage.ladder %}-ladder {% endif %}{% if usage.toolchain %}-toolchain {% endif %}{% if usage.full %}-full {% endif %}" +
+	"{% if usage.no_images %}-no-images {% endif %}{% if usage.run %}-run={{ usage.run | quote }}{% endif %}" +
+	"{% for a in usage.agent %} {{ a | quote }}{% endfor %}"
 
-func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
+func TestE2EIsTheOneE2ETask(t *testing.T) {
 	t.Parallel()
 	cfg := readMise(t)
-	full := cfg.task(t, "test-e2e-full")
-	if !slices.Contains(full.list("depends"), "test-images") {
-		t.Error("test-e2e-full must depend on test-images")
+	e2e := cfg.task(t, "e2e")
+	if got := e2e.cmds(); len(e2e.run()) != 1 || len(got) != 1 || got[0] != e2eRun {
+		t.Errorf("e2e runs %q, want %q", got, e2eRun)
 	}
-	if runs := full.cmds(); len(full.run()) != 1 || len(runs) != 1 ||
-		!strings.HasPrefix(runs[0], "mise run --continue-on-error e2e-gated") ||
-		!strings.HasSuffix(runs[0], " ::: idle-all ::: ladder-all") {
-		t.Errorf("test-e2e-full runs %q, want `mise run --continue-on-error e2e-gated … ::: idle-all ::: ladder-all`: "+
-			"a red half must not stop the next", runs)
-	}
-
-	gated := cfg.task(t, "e2e-gated")
-	for _, k := range []string{"PROVEO_IDLE_TEST", "PROVEO_TOOLCHAIN_TEST"} {
-		if v := gated.env()[k]; v != "1" {
-			t.Errorf("e2e-gated sets %s=%q, want 1", k, v)
+	usage := e2e.str("usage")
+	for _, line := range []string{`arg "[agent]..." var=#true`, `flag "--idle"`, `flag "--ladder"`, `flag "--toolchain"`,
+		`flag "--full"`, `flag "--no-images"`, `flag "--run <regex>"`, `flag "--print"`} {
+		if !strings.Contains(usage, line) {
+			t.Errorf("e2e's usage lacks %s", line)
 		}
 	}
-	wantGated := "go test -tags=e2e ./e2e/ -count=1 -timeout " + timeoutArg("150m")
-	if got := gated.cmds(); len(gated.run()) != 1 || len(got) != 1 || got[0] != wantGated {
-		t.Errorf("e2e-gated runs %q, want %q", got, wantGated)
+	if got, want := e2e.choices(), append([]string{"all"}, maintain.E2EAgents...); !slices.Equal(got, want) {
+		t.Errorf("e2e offers the agents %q, want %q (all, then maintain.E2EAgents)", got, want)
 	}
-
-	idleAll := cfg.task(t, "idle-all")
-	if !slices.Contains(idleAll.list("wait_for"), "e2e-gated") {
-		t.Error("idle-all must wait for e2e-gated")
+	if pin := e2e.fields["tools"].table["goreleaser"]; !pin.isStr || pin.str != goreleaserPin {
+		t.Errorf("e2e pins tools.goreleaser = %q, want %q: its image gate snapshots the CLI", pin.text(), goreleaserPin)
 	}
-	env := idleAll.env()
-	if env["PROVEO_IDLE_TEST"] != "1" || env["PROVEO_IDLE_TARGETS"] != "claudecode,cursor,opencode" {
-		t.Errorf("idle-all env = %q, want PROVEO_IDLE_TEST=1 and PROVEO_IDLE_TARGETS=claudecode,cursor,opencode — "+
-			"a per-def death would not run", env)
-	}
-	if m := idleForDefault.FindStringSubmatch(env["PROVEO_IDLE_FOR"]); m == nil {
-		t.Errorf("idle-all PROVEO_IDLE_FOR = %q, want the operator's value, or a fallback when it is unset or blank", env["PROVEO_IDLE_FOR"])
-	} else if d, err := time.ParseDuration(m[1]); err != nil || d <= 30*time.Second {
-		t.Errorf("idle-all idles %q by default, want over 30s: the silent death lands past 30s", m[1])
-	}
-	if runs := idleAll.cmds(); len(runs) != 1 || !strings.Contains(runs[0], " -run=^TestAgentSurvivesIdleAtPrompt$ ") ||
-		!strings.HasPrefix(runs[0], "go test -tags=e2e ") {
-		t.Errorf("idle-all runs %q, want go test -tags=e2e … -run=^TestAgentSurvivesIdleAtPrompt$", runs)
-	}
-	if !slices.Contains(cfg.task(t, "ladder-all").list("wait_for"), "idle-all") {
-		t.Error("ladder-all must wait for idle-all")
+	for name, task := range cfg.tasks {
+		for _, cmd := range task.cmds() {
+			if strings.HasPrefix(cmd, "go test ") && (strings.Contains(cmd, "./e2e/") || strings.Contains(cmd, "./internal/imagetest/")) {
+				t.Errorf("%s runs %q; the e2e and image suites start from the e2e and fleet mains alone", name, cmd)
+			}
+		}
+		if strings.HasPrefix(name, "ladder:") || name == "e2e-gated" {
+			t.Errorf("mise.toml declares %s; mise run e2e --ladder and --full plan those passes in Go", name)
+		}
 	}
 
 	idle := readRepoFile(t, "e2e/idle_test.go")
@@ -318,44 +304,14 @@ func TestE2EFullIsTheSilentDeathGate(t *testing.T) {
 	}
 }
 
-func TestLadderTasksClimbEveryDefInItsOwnProcess(t *testing.T) {
-	t.Parallel()
-	cfg := readMise(t)
-	defs := []string{"claudecode", "codex", "cursor", "opencode"}
-	want := "mise run --continue-on-error --jobs=1 ladder:claudecode ::: ladder:codex ::: ladder:cursor ::: ladder:opencode"
-	all := cfg.task(t, "ladder-all")
-	if got := all.cmds(); len(all.run()) != 1 || len(got) != 1 || got[0] != want {
-		t.Errorf("ladder-all runs %q, want %q: one def at a time, in order, past a red one", got, want)
-	}
-	var declared []string
-	for name := range cfg.tasks {
-		if def, ok := strings.CutPrefix(name, "ladder:"); ok {
-			declared = append(declared, def)
-		}
-	}
-	slices.Sort(declared)
-	if !slices.Equal(declared, defs) {
-		t.Errorf("mise.toml declares ladder tasks for %q, want %q", declared, defs)
-	}
-	climb := "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
-	for _, def := range defs {
-		task := cfg.task(t, "ladder:"+def)
-		if env := task.env(); env["PROVEO_LADDER_TEST"] != "1" || env["PROVEO_LADDER_TARGET"] != def || len(env) != 2 {
-			t.Errorf("ladder:%s env = %q, want PROVEO_LADDER_TEST=1 and PROVEO_LADDER_TARGET=%s", def, env, def)
-		}
-		if got := task.cmds(); len(task.run()) != 1 || len(got) != 1 || got[0] != climb {
-			t.Errorf("ladder:%s runs %q, want %q: its own 30m process", def, got, climb)
-		}
-	}
-}
-
 // imageTasks are the tasks that reach the fleet main, each with its exact run line.
 var imageTasks = map[string]string{
 	"build": "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.no_cache %}-no-cache {% endif %}" +
-		"{% if usage.print %}-print {% endif %}build {{ usage.target | quote }}",
+		"{% if usage.print %}-print {% endif %}{% if usage.cli %}-cli {% endif %}build{% if usage.target %} {{ usage.target | quote }}{% endif %}",
 	"deploy": "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.print %}-print {% endif %}" +
-		"deploy {{ usage.target | quote }}",
-	"test-defs": "go run ./internal/maintain/fleet {% if usage.print %}-print {% endif %}test {{ usage.target | quote }}",
+		"{% if usage.cli %}-cli -cli-version={{ usage.cli | quote }} {% endif %}{% if usage.yes %}-yes {% endif %}" +
+		"deploy{% if usage.target %} {{ usage.target | quote }}{% endif %}",
+	"test-images": "go run ./internal/maintain/fleet {% if usage.print %}-print {% endif %}test{% if usage.target %} {{ usage.target | quote }}{% endif %}",
 }
 
 func TestImageTasksChoicesMatchTheRegistry(t *testing.T) {
@@ -388,18 +344,19 @@ func TestImageTasksRunTheFleetMain(t *testing.T) {
 		if got := task.cmds(); len(task.run()) != 1 || len(got) != 1 || got[0] != want {
 			t.Errorf("%s runs %q, want %q", name, got, want)
 		}
-		for _, line := range []string{`arg "<target>"`, `flag "--print"`} {
+		if !declares(name, `flag "--print"`) {
+			t.Errorf(`%s's usage lacks flag "--print"`, name)
+		}
+	}
+	for name, lines := range map[string][]string{
+		"build":       {`arg "[target]"`, `flag "--cli"`, `flag "--tag <tag>" default="local"`},
+		"deploy":      {`arg "[target]"`, `flag "--cli [version]" value_optional=#true default_missing="patch"`, `flag "--yes"`, `flag "--tag <tag>" default="latest"`},
+		"test-images": {`arg "[target]"`},
+	} {
+		for _, line := range lines {
 			if !declares(name, line) {
 				t.Errorf("%s's usage lacks %s", name, line)
 			}
-		}
-	}
-	for name, line := range map[string]string{
-		"build":  `flag "--tag <tag>" default="local"`,
-		"deploy": `flag "--tag <tag>" default="latest"`,
-	} {
-		if !declares(name, line) {
-			t.Errorf("%s's usage lacks %s", name, line)
 		}
 	}
 	if !declares("build", `flag "--no-cache"`) {
@@ -415,26 +372,21 @@ var narrowsTests = regexp.MustCompile(`(^|\s)'?-(test\.)?run\b`)
 
 func TestOneImageTaskGatesBothReleaseGates(t *testing.T) {
 	t.Parallel()
-	cfg := readMise(t)
-	var image, entries []string
-	for name, task := range cfg.tasks {
-		for _, cmd := range task.cmds() {
-			if strings.HasPrefix(cmd, "go test ") && strings.Contains(cmd, "./internal/imagetest/") {
-				image = append(image, name)
-				entries = append(entries, cmd)
-			}
+	var image []string
+	for _, c := range maintain.ImageGatePlan() {
+		if cmd := strings.Join(c.Argv, " "); strings.HasPrefix(cmd, "go test ") && strings.Contains(cmd, "./internal/imagetest/") {
+			image = append(image, cmd)
 		}
 	}
-	if len(image) != 1 || image[0] != "test-images" {
-		t.Fatalf("mise.toml runs the image suites from tasks %v, want test-images alone", image)
+	if len(image) != 1 {
+		t.Fatalf("the image gate runs the image suites %d times (%q), want once", len(image), image)
 	}
-	if narrowsTests.MatchString(entries[0]) {
-		t.Errorf("test-images narrows the image suites with -run (%q); every TestImage* must run, hermes included", entries[0])
+	if narrowsTests.MatchString(image[0]) {
+		t.Errorf("the image gate narrows the image suites with -run (%q); every TestImage* must run, hermes included", image[0])
 	}
-	for _, gate := range []string{"test-e2e", "test-e2e-full"} {
-		if !slices.Contains(cfg.task(t, gate).list("depends"), "test-images") {
-			t.Errorf("%s must depend on test-images", gate)
-		}
+	main := readRepoFile(t, "internal/maintain/e2e/main.go")
+	if !strings.Contains(main, "if !*noImages {") || !strings.Contains(main, "maintain.RunImageGate(") {
+		t.Error("the e2e main no longer runs the image gate unless -no-images")
 	}
 }
 

@@ -15,7 +15,7 @@ import (
 )
 
 // producerMains are the package mains mise tasks may `go run`; every other maintainer step is a Go test or an upstream tool.
-var producerMains = []string{"./internal/cdn/stage", "./internal/maintain/fleet"}
+var producerMains = []string{"./internal/maintain/e2e", "./internal/maintain/fleet"}
 
 var cmdPackage = regexp.MustCompile(`cmd/[A-Za-z0-9_.-]+`)
 

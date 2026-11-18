@@ -25,20 +25,26 @@ title The unit baseline — green means no new failing test
 ' The Executor, 2026-11-10: "Since the failures are not TUI related, let Green
 ' be 'no new failing tests'".
 '
-' ── WHAT THE GATE DOES (2026-11-12) ───────────────────────────────────────
-' `mise run baseline` is one mise run string:
+' ── WHAT THE GATE DOES (2026-11-17) ───────────────────────────────────────
+' `mise run test --baseline` adds one Tera-toggled flag to the unit line:
+'   go test [-race] [-skip='^(<[vars] unit_baseline>)$'] -cover
+'     -covermode=atomic [go_test_args] -args -test.gocoverdir=<repo>/cov/unit
+' HISTORY, 2026-11-12 to 2026-11-17: a separate baseline task ran
 '   go test [-race] -count=1 -skip='^(<[vars] unit_baseline>)$' [go_test_args]
+' DECIDED 2026-11-17: the flattening folded it into test as --baseline, so
+' one task owns the unit lane and its coverage data.
 ' The list lives in mise.toml [vars] unit_baseline: one backslash-continued
 ' string, one name per line, joined by |. NOT CHOSEN: a TOML array ([vars]
 ' rejects arrays, MEASURED on mise 2026.10.17); one 700-column line. -skip drops exactly those top-level
 ' tests; every other failure, a build error or a panic outside a test fails
 ' go test, and go test's exit code is the verdict.
 '   --no-race ........... drops -race, for a toolchain without cgo
+'   --baseline .......... adds the anchored -skip
 '   [go_test_args]... ... packages replace ./...; go test flags pass after --
 ' LOST ON 2026-11-12, BY DESIGN: a listed test never runs here, so the gate
 ' prints no "passes here" note, and a row is a bare test name with no package
 ' scope (-skip is unscoped). A stale row stays silent until someone reads
-' test-go, which runs every test. TestUnitBaselineRowsNameRealTests keeps each
+' `mise run test` without --baseline, which runs every test. TestUnitBaselineRowsNameRealTests keeps each
 ' row a top-level test defined in exactly one tracked _test.go, so a row
 ' cannot skip a second test of the same name.
 ' HISTORY, 2026-11-10 to 2026-11-12: the gate was a Go program over
@@ -71,17 +77,19 @@ title The unit baseline — green means no new failing test
 ' that reason too, and each has a row. MEASURED 2026-11-14 on this host:
 ' with the old list the contract package failed ten of them (the eleventh,
 ' TestWithoutStateDirsTheKitVolumesTravelAsState, came later and fails
-' alone), and with the rows `mise run baseline ./internal/contract/` passes.
+' alone), and with the rows `mise run baseline ./internal/contract/` (today
+' `mise run test --baseline ./internal/contract/`) passes.
 ' The list holds 27 rows: 26 failures and the flake.
 '
 ' Pinned by internal/contract/mise_gates_test.go:
 '   TestUnitBaselineRowsNameRealTests       sorted, unique, one test each, and
 '                                           the anchored pattern matches each
 '                                           name alone
-'   TestBaselineSkipsExactlyTheListedTests  the exact run string and usage
+'   TestBaselineSkipsExactlyTheListedTests  the exact go test line and the
+'                                           --no-race, --baseline and args usage
 '   TestUnitLanesOfferNoRace                -race only behind --no-race
 
-component """go test -race -count=1\n-skip='^(<list>)$' ./...""" as RUN <<app>>
+component """mise run test --baseline\ngo test -race -skip='^(<list>)$' ./...""" as RUN <<app>>
 database """[vars] unit_baseline""\nmise.toml · 26 failures · 1 flake" as LIST <<db>>
 component "any failure, build error\nor panic · exit 1" as NEW <<error>>
 component "the 'passes here' note\nand per-package scope\nLOST 2026-11-12" as FIXED <<error>>
@@ -109,7 +117,7 @@ end note
 note bottom of FIXED
   **A stale row stays silent.** The gate
   skips a listed test instead of running it,
-  so only test-go shows a row that passes.
+  so only plain test shows a row that passes.
 end note
 
 note bottom of CI

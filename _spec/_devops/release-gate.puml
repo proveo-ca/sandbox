@@ -10,6 +10,11 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/release_gate_test.go
 ' covers: internal/contract/release_targets_test.go
 ' covers: internal/contract/retirement_test.go
+' covers: internal/cdn/release/release.go
+' covers: internal/maintain/e2e.go
+' covers: internal/maintain/e2e_test.go
+' covers: internal/maintain/e2e/main.go
+' covers: internal/maintain/e2e/main_test.go
 ' Lineage and tags: image-lineage-and-publish.puml (same directory).
 '
 ' ── THE RETIREMENT LEDGER BLOCKS A CLI RELEASE (N33, DONE (wt) 2026-10-18) ──
@@ -31,20 +36,20 @@ skinparam noteTextAlignment left
 ' MEASURED 2026-10-18 on the release path of that day: the ledger ran before
 ' goreleaser and blocked the release unless it PASSED — a skip blocked too.
 ' Reported: red with a marker v0.1.2 contains, then green.
-' Since 2026-11-12 `mise run release` depends on the hidden release-ledger task:
-' PROVEO_RELEASE_GATE=1 go test of TestNoRetirementOutlivesOneRelease and
-' TestReleaseShipsATaggedHead (internal/contract/release_gate_test.go). Under
-' the gate, releaseGate(t) turns any skip of either test into a failure, and an
-' untagged HEAD fails with one line naming `git tag vX.Y.Z`, `mise run
-' deploy-cli` and `mise run dev-cli`, before goreleaser starts. Without the
-' gate both tests skip in test-go. deploy-cli depends on release, so it ships
-' tags only (_spec/internal/cdn/distribution-update.puml). NOT CHOSEN for the
-' untagged-HEAD refusal: goreleaser's own (it names no fix); a Tera exec()
-' tag probe (it renders with the outer PATH, _spec/tests/20-contract.puml).
-' `mise run --skip-deps` drops depends and the depends of {task=…} run
-' entries (lab, mise 2026.10.17). So deploy-cli's own run starts with
-' PROVEO_RELEASE_GATE=1 TestStagedCDNIsTheTaggedRelease: the staged
-' latest.json must name a v* tag on HEAD before wrangler publishes.
+' Since 2026-11-17 `mise run deploy --cli` runs the ledger first, from Go
+' (internal/cdn/release DefaultSteps): PROVEO_RELEASE_GATE=1 go test of
+' TestNoRetirementOutlivesOneRelease. Under the gate, releaseGate(t) turns a
+' skip into a failure. Without the gate the test skips in `mise run test`.
+' The ledger runs before the question and before any git write, so a red
+' ledger leaves HEAD, the tags and dist/ as they were. deploy --cli then cuts
+' the tag itself and checks the staged latest.json against it before wrangler
+' publishes (_spec/internal/cdn/distribution-update.puml).
+' HISTORY, 2026-11-12 to 2026-11-17: `mise run release` depended on a hidden
+' release-ledger task that also ran TestReleaseShipsATaggedHead, so an
+' untagged HEAD refused with `git tag vX.Y.Z`; deploy-cli's own run started
+' with TestStagedCDNIsTheTaggedRelease because `mise run --skip-deps` drops
+' depends (lab, mise 2026.10.17). A Go step has no depends to skip, and the
+' tag check moved into release.StagedRefusal.
 ' The gate turned red after v0.2.0 shipped. Removing the expired surfaces
 ' and their ledger rows made HEAD eligible for the next release.
 ' MEASURED 2026-11-17: red again after v0.3.0 shipped proveo_retire_lsp_wiring;
@@ -67,9 +72,9 @@ skinparam noteTextAlignment left
 '   2  go test ./...                     unit + contract
 '   3  mise run build all                every image from source
 '   4  mise run test-images              every TestImage* suite, hermes included —
-'                                        the ONE image task; test-e2e and
-'                                        test-e2e-full depend on it (N12, 2026-10-17,
-'                                        MEASURED mise.toml:79,97,103;
+'                                        the ONE image gate, maintain.ImageGatePlan;
+'                                        mise run e2e runs it first unless
+'                                        --no-images (N12, 2026-10-17;
 '                                        TestOneImageTaskGatesBothReleaseGates).
 '                                        HISTORY: "11 suites across all four defs",
 '                                        and test-images-sbx skipped hermes.
@@ -81,13 +86,11 @@ skinparam noteTextAlignment left
 '
 ' ON THE HOST ONLY, because each needs sbx:
 '   6  the ladder, PER DEF — one climb per target, not one climb:
-'        mise run ladder-all
-'      runs `mise run --continue-on-error --jobs=1 ladder:claudecode :::
-'      ladder:codex ::: ladder:cursor ::: ladder:opencode`. Each hidden
-'      ladder:<def> task is its own 30m process with PROVEO_LADDER_TEST=1 and
-'      PROVEO_LADDER_TARGET=<def>, running
+'        mise run e2e --ladder [agent]...
+'      maintain.E2EPlan plans one pass per picked agent: its own 30m process
+'      with PROVEO_LADDER_TEST=1 and PROVEO_LADDER_TARGET=<agent>, running
 '        go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v
-'      so a red def does not stop the next, and mise names the red ones.
+'      maintain.RunE2E runs past a red pass and fails naming the red ones.
 '      PROVEO_LADDER_TARGET stays singular. NOT CHOSEN: PROVEO_LADDER_TARGETS
 '      with a subtest loop in one 120m process.
 '      claudecode is the DEFAULT target, so a bare go test measures only it. The
@@ -101,26 +104,34 @@ skinparam noteTextAlignment left
 '      both give the same value — so it proves the declaration CAUSES the
 '      sentinel rather than merely coinciding with it.
 '   8  silent-death idle, PER DEF:
-'        mise run idle-all
-'      sets PROVEO_IDLE_TEST=1, PROVEO_IDLE_TARGETS=claudecode,cursor,opencode
-'      and PROVEO_IDLE_FOR (45s when unset or blank) and runs go test -run=^TestAgentSurvivesIdleAtPrompt$.
+'        mise run e2e --idle [agent]...
+'      sets PROVEO_IDLE_TEST=1, PROVEO_IDLE_TARGETS=<picked ∩ claudecode,cursor,
+'      opencode> and PROVEO_IDLE_FOR (45s when unset or blank) and runs
+'      go test -run=^TestAgentSurvivesIdleAtPrompt$.
 '      The ladder holds raw `sbx run`. Idle holds `proveo run`, where a leaked
 '      DA1 becomes a prompt and the sandbox "was stopped". 45s is past sbx's
 '      30s auto-stop and the ~14s cursor death; a SKIP is not a pass.
-'   `mise run test-e2e-full` (depends test-images) runs `mise run
-'   --continue-on-error e2e-gated ::: idle-all ::: ladder-all`, ordered by
-'   wait_for: the e2e suite with PROVEO_IDLE_TEST and PROVEO_TOOLCHAIN_TEST on
-'   (PROVEO_TEST_GO_TIMEOUT, 150m when unset or blank), then 8, then 6. Every half runs;
-'   any red one fails it. Its own args reach the e2e pass alone. NOT CHOSEN:
-'   one go test process for all halves (a timeout panic aborts the rest);
-'   depends_post ([Unverified] its exit status on a red parent); a run array
-'   (it stops at the first failure); raw_args (it passes --help to go test).
-'   idle, ladder and e2e-full take no --print: `mise run -n e2e-gated`, `-n
-'   idle-all` and `-n ladder:<def>` print their go test lines; `-n ladder-all`
-'   and `-n test-e2e-full` print only the nested `mise run` line.
+'   `mise run e2e --full` runs the image gate (red stops it), then the e2e
+'   suite with PROVEO_IDLE_TEST and PROVEO_TOOLCHAIN_TEST on
+'   (PROVEO_TEST_GO_TIMEOUT, 150m when unset or blank), then 8, then 6.
+'   Every pass is its own go test process and runs past a red one; any red
+'   pass fails the run ("red e2e passes: …"). --run reaches the suite alone.
+'   NOT CHOSEN: one go test process for all passes (a timeout panic aborts
+'   the rest). `mise run e2e --print` prints every pass's env and argv.
+'   An agent named on the command line narrows idle and ladder; with none
+'   named, an agent pass on a terminal opens a choiceui checklist with every
+'   agent ticked, and a run without a terminal takes them all.
+'   DECIDED 2026-11-17: one `e2e` task (the operator named it against the
+'   test-* prefix) with --idle, --ladder, --toolchain, --full, --no-images,
+'   --run and --print, planned by maintain.E2EPlan in internal/maintain/e2e.go.
+'   HISTORY, until 2026-11-17: test-e2e-full ran `mise run --continue-on-error
+'   e2e-gated ::: idle-all ::: ladder-all` (later test-idle and test-ladder),
+'   and ladder-all ran hidden ladder:<def> tasks with --jobs=1. NOT CHOSEN
+'   then: depends_post, a run array (it stops at the first failure) and
+'   raw_args; the Go orchestrator replaced the whole composition.
 '
 ' ── THE VERDICT ITSELF IS A THING THAT CAN BE WRONG ─────────────────────────
-' HISTORY, until 2026-11-12: `ladder-all` read the ladder's result out of
+' HISTORY, until 2026-11-12: `ladder-all` (now `e2e --ladder`) read the ladder's result out of
 ' `go test` output, and it misread it twice, in OPPOSITE directions:
 '
 '   1  a SKIP exits 0, so an unchecked exit status reported PASS for four defs
@@ -149,16 +160,18 @@ skinparam noteTextAlignment left
 ' top-level skip (requireDocker, sbx) fails while a rung subtest's skip stays
 ' a skip. idleAtPrompt calls it first for PROVEO_IDLE_TEST, so a def whose
 ' sbx, image or credential is missing fails. go test's exit code is then the
-' verdict, and mise composes it. go test -v streams the rung logs live.
+' verdict, and maintain.RunE2E composes it per pass. go test -v streams the
+' rung logs live.
 ' MEASURED 2026-11-12 with no docker or sbx on PATH: PROVEO_LADDER_TEST=1
 ' TestSandboxLadder exits 1 with "docker not available" and "PROVEO_LADDER_TEST
 ' is on, so this skip fails the gate"; PROVEO_IDLE_TEST=1 idle exits 1 the
 ' same way; without the switch both SKIP and exit 0.
-' Pinned by TestOptedInE2EGatesFailTheirSkips, TestE2EFullIsTheSilentDeathGate
-' and TestLadderTasksClimbEveryDefInItsOwnProcess (base_template_test.go), and
-' TestOptInTurnsASkipIntoAFailure (e2e/gate_test.go).
-' e2e-gated sets PROVEO_IDLE_TEST=1 for the whole e2e pass, so inside
-' test-e2e-full the default claudecode idle check fails without sbx.
+' Pinned by TestOptedInE2EGatesFailTheirSkips and TestE2EIsTheOneE2ETask
+' (base_template_test.go), TestE2EPlanFullIsTheSilentDeathGate
+' (internal/maintain/e2e_test.go), and TestOptInTurnsASkipIntoAFailure
+' (e2e/gate_test.go).
+' --full sets PROVEO_IDLE_TEST=1 for the whole suite pass, so inside
+' `e2e --full` the default claudecode idle check fails without sbx.
 ' PROVEO_SIGNAL_TEST=1 left the env 2026-10-16 with e2e/signal_test.go, whose
 ' subject — tearing down the docker egress sidecars on SIGINT — was deleted.
 '
@@ -205,12 +218,12 @@ node "in-sandbox · docker only" as BOX <<host>> {
 }
 
 node "host only · needs sbx" as HOST <<host>> {
-  component "idle-all × 3 defs\nproveo run · zero input" as IDLE <<db>>
-  component "ladder-all × 4 defs\nclaudecode codex cursor opencode" as LAD <<db>>
+  component "e2e --idle × 3 agents\nproveo run · zero input" as IDLE <<db>>
+  component "e2e --ladder × 4 agents\nclaudecode codex cursor opencode" as LAD <<db>>
   component "credential control\nsame Kit, with and without" as CRED <<db>>
 }
 
-component "deploy all\namd64 + arm64 --push" as PUB <<cloud>>
+component "deploy all\namd64 + arm64 --push\nthen untag :local" as PUB <<cloud>>
 component "not covered\namd64 · consent prompt\n(the e2e never approves: SEC3)" as GAP <<error>>
 
 GO ARROW_MAIN BUILD
@@ -226,15 +239,15 @@ note bottom of HOST
   **Idle is the other host half.** The
   ladder holds raw ""sbx run""; idle
   holds ""proveo run"", where the DA1
-  leak lives. ""test-e2e-full"" runs
-  both, per def. A SKIP is not a pass.
+  leak lives. ""e2e --full"" runs
+  both, per agent. A SKIP is not a pass.
 end note
 
 note right of LAD
   **One climb per def, not one climb.**
   The target defaults to claudecode, so
   a bare run measures a fourth of the
-  fleet. ""ladder-all"" climbs all four,
+  fleet. ""e2e --ladder"" climbs all four,
   one 30m process each.
 end note
 

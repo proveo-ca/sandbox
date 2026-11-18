@@ -222,7 +222,7 @@ skinparam noteTextAlignment left
 ' ── A MEASURED DEVIATION SKIPS, AN UNMEASURED ONE FAILS (2026-10-14) ───────
 ' foregroundGateVersions in e2e/startup_dispatch_test.go lists the sbx
 ' releases measured to gate on a foreground step: v0.46.0. On a listed release
-' the foreground row skips and logs the same report, so `mise run test-e2e`
+' the foreground row skips and logs the same report, so `mise run e2e`
 ' stays green on a deviation already measured and reported. On any other
 ' release a gating foreground step fails the row, so a new sbx is measured
 ' before it joins the list. The background row has no list: the split relies

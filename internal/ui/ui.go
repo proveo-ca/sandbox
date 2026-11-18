@@ -776,16 +776,17 @@ const ANSIReset = "\033[0m"
 
 const ANSIBold = "\033[1m"
 
-// BrandBanner is the Proveo Solutions box art from the legacy bash help.sh.
+// BrandBanner is the proveo box art: the mark and BrandTagline.
+// SPEC: _spec/internal/choiceui/wireframe.puml
 const BrandBanner = `        ┌───────●                        ───────┐
         │                                       │
         │      pr●veo                           │
-        │                S O L U T I O N S      │
+        │                     Zen autonomy      │
         │                                       │
         └───────                         ●──────┘`
 
-// BrandTagline is the one-line product blurb under the banner.
-const BrandTagline = "proveo/sandbox: portable, safe AI coding agents"
+// BrandTagline is the shortest tagline; BrandBanner draws it inside the box.
+const BrandTagline = "Zen autonomy"
 
 func WriteBrandBanner(w io.Writer) {
 	p := New(w)
@@ -797,9 +798,5 @@ func WriteBrandBanner(w io.Writer) {
 	if !p.Plain {
 		fmt.Fprint(w, ANSIReset)
 	}
-	if p.Plain {
-		fmt.Fprintf(w, "  %s\n\n", BrandTagline)
-	} else {
-		fmt.Fprintf(w, "  "+ANSI(ColorSecondary)+"%s"+ANSIReset+"\n\n", BrandTagline)
-	}
+	fmt.Fprintln(w)
 }

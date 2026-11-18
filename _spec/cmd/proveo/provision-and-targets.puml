@@ -19,8 +19,8 @@
 ' maintainer dispatcher; maintainerDefsDir = PROVEO_DEFS_DIR, else the
 ' dispatcher's repo root/defs. The declined-preflight error names
 ' PROVEO_AUTO_PROVISION=1; the agent-pin line names `mise run build <target>`.
-' 2026-11-12: the dispatcher is deleted. `mise run build|deploy|test-defs
-' <target>` run go run ./internal/maintain/fleet; maintain.DefsDir(getenv, cwd)
+' 2026-11-12: the dispatcher is deleted. `mise run build|deploy|test-images
+' <target>` (test-defs until 2026-11-17) run go run ./internal/maintain/fleet; maintain.DefsDir(getenv, cwd)
 ' = PROVEO_DEFS_DIR, else <cwd>/defs (mise runs tasks in the config root), and
 ' maintain.Fleet loads the registry and Selects the target or all. mise's
 ' usage choices refuse an unknown target first; the TTY picker is gone.
@@ -68,7 +68,7 @@ node "Consumer path — before any container exists" as PRE <<host>> {
 }
 
 node "Maintainer path — source tree required" as MAINT <<host>> {
-  component "maintain.Fleet\nmise run build · deploy · test-defs\n(go run ./internal/maintain/fleet)" as LMR <<app>>
+  component "maintain.Fleet\nmise run build · deploy · test-images\n(go run ./internal/maintain/fleet)" as LMR <<app>>
   component "maintain.Registry\nmanifest.Load (the debug verb read it\nuntil 2026-10-17)" as REG <<app>>
 }
 
@@ -101,7 +101,7 @@ WEN ARROW_ERROR HEADLESS
 note bottom of REG
   **Maintainer tooling owns no copy of what targets exist.**
   ""manifest.Load"" + ""maintain.Registry"" on ""PROVEO_DEFS_DIR"" (else
-  ""<repo>/defs"") is the one registry; build, deploy and test-defs read it
+  ""<repo>/defs"") is the one registry; build, deploy and test-images read it
   through ""maintain.Fleet"". It replaced ""lib/registry.sh"", which parsed a TSV
   into parallel bash arrays (deleted 2026-09-22). ""proveo targets"", which
   printed that TSV, had no caller and went 2026-10-18 (N9).

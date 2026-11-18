@@ -277,6 +277,9 @@ func Fleet(verb, arg, tag string, noCache, printOnly bool, defsDir string, out i
 		tag = normTag(tag, LocalTag)
 	case "deploy":
 		tag = normTag(tag, PublishTag)
+		if tag == LocalTag {
+			return fmt.Errorf("deploy --tag %s: :%s is the unpublished build, never a publish tag", tag, LocalTag)
+		}
 	case "test":
 	default:
 		return fmt.Errorf("unknown verb %q; want build, deploy or test", verb)
@@ -295,9 +298,21 @@ func Fleet(verb, arg, tag string, noCache, printOnly bool, defsDir string, out i
 			func(t Target) { ui.Appf("building %s (%s:%s)", t.Name, t.Image, tag) },
 			func(t Target, pio PlanIO) error { return RunPlan(t.BuildPlan(tag, noCache), pio) })
 	case "deploy":
-		return RunFleet(verb, ts, printOnly, out,
+		if err := RunFleet(verb, ts, printOnly, out,
 			func(t Target) { ui.Cloudf("deploying %s:%s", t.Image, tag) },
-			func(t Target, pio PlanIO) error { return RunPlan(t.DeployPlan(tag), pio) })
+			func(t Target, pio PlanIO) error { return RunPlan(t.DeployPlan(tag), pio) }); err != nil {
+			return err
+		}
+		if printOnly {
+			fmt.Fprintln(out, "# after every wave")
+		}
+		if err := RunPlan(UntagLocalPlan(ts), PlanIO{PrintOnly: printOnly, Out: out}); err != nil {
+			return err
+		}
+		if !printOnly {
+			ui.Okf("untagged :%s on %d image(s); :%s holds each", LocalTag, len(ts), tag)
+		}
+		return nil
 	}
 	return testSuites(ts, printOnly, out)
 }

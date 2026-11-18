@@ -536,7 +536,7 @@ const (
 )
 
 func Banner() []string {
-	return append(strings.Split(ui.BrandBanner, "\n"), "  "+ui.BrandTagline)
+	return strings.Split(ui.BrandBanner, "\n")
 }
 
 func (f *Form) Selections(label string) []string {

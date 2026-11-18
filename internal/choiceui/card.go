@@ -252,12 +252,8 @@ func fitCell(glyph, cell, arrow string, room int) string {
 // drawBanner paints the banner above a card: a blank, the art in brand, the tagline, a blank.
 func drawBanner(c *canvas, p palette, banner []string) {
 	c.y++
-	if n := len(banner); n > 0 {
-		for _, b := range banner[:n-1] {
-			c.put(0, p.brand, b)
-			c.y++
-		}
-		c.put(0, p.body, banner[n-1])
+	for _, b := range banner {
+		c.put(0, p.brand, b)
 		c.y++
 	}
 	c.y++

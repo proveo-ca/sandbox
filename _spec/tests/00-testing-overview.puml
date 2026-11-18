@@ -1,7 +1,7 @@
 @startuml TestingOverview
-' SPEC source: internal/contract/**, internal/imagetest/**, mise.toml (test-go, coverage)
+' SPEC source: internal/contract/**, internal/imagetest/**, mise.toml (test)
 ' The four testing layers: fast + keyless at the base, gated + high-fidelity above.
-' Coverage: test-go writes GOCOVERDIR data to cov/unit; coverage reads it with go tool covdata.
+' Coverage: test writes GOCOVERDIR data to cov/unit, then reads it with go tool covdata.
 !includeurl https://raw.githubusercontent.com/proveo-ca/identity/refs/heads/main/proveo.iuml
 skinparam componentStyle rectangle
 skinparam shadowing false
@@ -50,7 +50,7 @@ skinparam packageStyle rectangle
 ' _spec/tests/testing-strategy.puml.
 '
 ' The contract lane runs as `go test ./internal/contract/` (inside `mise run
-' test-go` / `mise run ci`); its shell wrapper, defs/tests/run_contract_tests.sh,
+' test` / `mise run ci`); its shell wrapper, defs/tests/run_contract_tests.sh,
 ' was deleted 2026-09-22 (_spec/tests/testing-strategy.puml). Image suites
 ' are Go under `-tags=image` (internal/imagetest), opted into like Layer 4.
 '
@@ -77,7 +77,7 @@ package "Layer 3 · Infra — RETIRED 2026-10-16" as L3 {
 package "Layer 4 · Agent E2E — -tags=e2e (self-skipping preconditions)" as L4 {
   component "internal/schedule tmux + echo-agent\nreal agent · local model\nasserts side-effects" as E2E <<container>>
 }
-package "Coverage · mise run coverage" as Cov {
+package "Coverage · the tail of mise run test" as Cov {
   component "go tool covdata percent · textfmt\n-i=cov/unit" as Merge <<app>>
 }
 
@@ -97,6 +97,8 @@ Default **go test ./...** never compiles Layer 4 or the image suites (build tags
 Coverage reads cov/unit alone; the in-process egressproxy/broker profiles and
 the Stage 0b proveo/egress-proxy:cover image went with Layer 3 (2026-10-16).
 No hard % gate until a baseline exists.
+Until 2026-11-17 a separate coverage task
+read it; test now prints it after go test.
 end note
 
 note bottom of L4

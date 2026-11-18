@@ -110,13 +110,24 @@ skinparam packageStyle rectangle
 ' THE MAINS LIVE UNDER internal/, where the env-registry scan already reads.
 ' NOT CHOSEN: internal/devtool/* (a namespace with no library beside it);
 ' tools/ (the scan would have to learn it); cmd/ (reads as a shipped binary).
-'   gates ........ go test is the verdict: lint, baseline, test-go, ci,
-'                  release-ledger, idle-all, ladder:<def> (git-hooks.puml,
-'                  unit-baseline.puml, release-gate.puml)
-'   upstream ..... mise generate git-pre-commit, goreleaser (snapshot,
-'                  release), go tool covdata, golangci-lint, wrangler
-'   two mains .... go run ./internal/cdn/stage (stage-cdn) and
-'                  go run ./internal/maintain/fleet (build, deploy, test-defs)
+'   gates ........ go test is the verdict: lint, test [--baseline], ci, every
+'                  e2e pass, and the retirement ledger deploy --cli runs
+'                  (git-hooks.puml, unit-baseline.puml, release-gate.puml)
+'   upstream ..... mise generate git-pre-commit, goreleaser (the snapshot in
+'                  the image gate; the release from deploy --cli), go tool
+'                  covdata, golangci-lint, wrangler
+'   two mains .... go run ./internal/maintain/fleet (build, deploy,
+'                  test-images; build --cli and deploy --cli reach the CLI
+'                  through it) and go run ./internal/maintain/e2e (e2e).
+'                  internal/cdn/stage runs only from Go: the image gate and
+'                  deploy --cli exec it.
+'   HISTORY: until 2026-11-17 stage-cdn, snapshot, release, release-ledger,
+'   deploy-cli, build-cli, baseline, test-go, coverage, idle-all and
+'   ladder-all were tasks of their own; 33 tasks became 20. The same day
+'   dev-cli, test-defs, test-e2e, test-e2e-full, test-idle, test-ladder,
+'   e2e-gated and ladder:<def> folded into test-images [target] and e2e
+'   flags; 20 tasks became 10, and ./internal/maintain/e2e replaced
+'   ./internal/cdn/stage among the two mains.
 ' TestOnlyTwoProducerMainsRunFromMise (internal/contract/mise_mains_test.go)
 ' pins it: the `go run` targets of mise.toml are exactly those two package
 ' mains, every cmd/<dir> mise.toml names is a binary .goreleaser.yaml builds,
@@ -133,7 +144,7 @@ skinparam packageStyle rectangle
 ' ── HELP SPEAKS THE CHOICE PROMPT'S VOCABULARY (2026-09-28) ────────────────
 ' renderHelp replaces cobra's template on every command with the layout of
 ' _spec/internal/choiceui/wireframe.puml, printed rather than painted:
-'   banner + tagline       root only; the tagline IS the root's title
+'   banner                 root only; its box carries the tagline and IS the root's title
 '   title                  bold "<path> — <Short>" on subcommands
 '   header                 "usage:" / "aliases:" — label accent, value body
 '   Long                   verbatim at the 2-col gutter; an indented block that
@@ -184,11 +195,11 @@ package "Installer" as Install {
 }
 
 package "Maintainer\nmise.toml tasks (plain argv)" as Maint {
- component "mise run lint · baseline · test-go · coverage\nrelease · snapshot · dev-cli · deploy-cli\nidle-all · ladder-all · test-e2e-full" as Mise <<internal>>
+ component "mise run lint · ci · test [--baseline]\nbuild [--cli] · deploy [--cli]\ntest-images [target] · e2e [agent]... [--full]" as Mise <<internal>>
  component "go run ./internal/maintain/fleet\nbuild · deploy → internal/imagebuild" as MaintLib <<internal>>
  component "go run ./internal/maintain/fleet test\ngo test -tags=image ./internal/imagetest" as BuildTest <<internal>>
  component "go run ./internal/cdn/stage\ndist/ → apps/cli/public/cli" as Stage <<internal>>
- component "go test gates\ne2e · ladder · idle" as RunShim <<internal>>
+ component "go run ./internal/maintain/e2e\nsuite · idle · ladder passes" as RunShim <<internal>>
 }
 
 package "Registration" as Reg {
@@ -216,7 +227,7 @@ Consumer --> Proveo : day-to-day
 Maintainer --> Proveo : run / --print / list
 Maintainer --> Mise : image lifecycle · release · gates
 Mise ..> RunShim : go test exit code is the verdict
-Mise ..> Stage : stage-cdn
+Mise ..> Stage : test-images · e2e · deploy --cli (from Go)
 
 Proveo --> Commands
 Commands --> RunFlags
@@ -260,7 +271,7 @@ note bottom of Artifacts
 The variable's literal in ""main\.go"" is ""dev"". goreleaser stamps the semver
 tag through the linker (""-ldflags -X main\.version=<v>""), and that stamp wins.
 Without it, ""version\.go"" reads ""vcs\.revision"" from Go build info: a dev
-install (""mise run build-cli"", go build, go install) reports
+install (""mise run build --cli"", go build, go install) reports
 ""dev@<12-hex sha>"", plus ""+dirty"" for a modified tree, so a bug report names
 the commit it came from. ""go run"" carries no build info and honestly reports
 ""dev"" rather than claiming a release it is not.
@@ -268,8 +279,8 @@ end note
 
 note bottom of Commands
 **The tagline is printed once, which is why cobra's ""Short"" is left empty
-on the root command.** ""ui\.WriteBrandBanner"" already renders it dimmed
-under the banner from the root help hook, so filling ""Short"" in as well
+on the root command.** ""ui\.WriteBrandBanner"" already draws it inside
+the banner box from the root help hook, so filling ""Short"" in as well
 would print the same line twice on ""proveo --help"".
 
 **A message about the absence of results is not a result.**

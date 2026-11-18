@@ -9,39 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/proveo-ca/proveo/internal/cdn/release"
+	"github.com/proveo-ca/proveo/internal/maintain"
 )
 
 const goreleaserPin = "2.17.0"
-
-// runs renders each run entry of task: the command, or "{ task = name }".
-func runs(task *miseTable) []string {
-	var out []string
-	for _, r := range task.run() {
-		out = append(out, r.String())
-	}
-	return out
-}
-
-func subtask(name string) string { return miseRun{task: name}.String() }
-
-func TestBuildCLIInstallsOnlyTheShippedBinaries(t *testing.T) {
-	t.Parallel()
-	task := readMise(t).task(t, "build-cli")
-	want := []string{"go install -trimpath '-ldflags=-s -w' ./cmd/proveo ./cmd/proveo-entrypoint"}
-	if got := runs(task); !slices.Equal(got, want) {
-		t.Errorf("build-cli runs %q, want %q", got, want)
-	}
-	env := task.fields["env"].table
-	if v := env["CGO_ENABLED"]; !v.isStr || v.str != "0" {
-		t.Errorf("build-cli env CGO_ENABLED = %q, want the string \"0\"", v.text())
-	}
-	if v := env["GOBIN"]; v.isStr || v.bare != "false" {
-		t.Errorf("build-cli env GOBIN = %q, want the bare false that unsets mise's GOBIN", v.text())
-	}
-	if strings.Contains(task.body, "-X") {
-		t.Errorf("build-cli carries an -X stamp; cmd/proveo reads its version from Go build info:\n%s", task.body)
-	}
-}
 
 func TestGoreleaserIsPinnedPerTask(t *testing.T) {
 	t.Parallel()
@@ -49,27 +22,30 @@ func TestGoreleaserIsPinnedPerTask(t *testing.T) {
 	if _, ok := cfg.tables["tools"].fields["goreleaser"]; ok {
 		t.Error("[tools] pins goreleaser; pin it on the tasks that run it, so fmt, lint and post-commit never fetch it")
 	}
-	var runners, snapshots []string
+	var runners, pinned []string
 	for name, task := range cfg.tasks {
-		for _, cmd := range task.cmds() {
-			if strings.Contains(cmd, "--snapshot") {
-				snapshots = append(snapshots, name)
+		if _, ok := task.fields["tools"].table["goreleaser"]; ok {
+			pinned = append(pinned, name)
+			if pin := task.fields["tools"].table["goreleaser"]; !pin.isStr || pin.str != goreleaserPin {
+				t.Errorf("%s pins tools.goreleaser = %q, want %q", name, pin.text(), goreleaserPin)
 			}
+		}
+		for _, cmd := range task.cmds() {
 			if !strings.HasPrefix(cmd, "goreleaser ") {
 				continue
 			}
 			runners = append(runners, name)
-			if pin := task.fields["tools"].table["goreleaser"]; !pin.isStr || pin.str != goreleaserPin {
-				t.Errorf("%s runs %q with tools.goreleaser = %q, want %q", name, cmd, pin.text(), goreleaserPin)
+			if cmd != "goreleaser release --snapshot --clean" {
+				t.Errorf("%s runs %q; a mise run string only snapshots, deploy --cli builds the release", name, cmd)
 			}
 		}
 	}
-	slices.Sort(runners)
-	if want := []string{"release", "snapshot"}; !slices.Equal(runners, want) {
-		t.Errorf("goreleaser runs in tasks %v, want %v", runners, want)
+	slices.Sort(pinned)
+	if len(runners) > 0 {
+		t.Errorf("goreleaser runs from the mise run strings of %v; the release and the image gate run it from Go", runners)
 	}
-	if !slices.Equal(snapshots, []string{"snapshot"}) {
-		t.Errorf("--snapshot appears in tasks %v, want snapshot alone", snapshots)
+	if want := []string{"deploy", "e2e", "test-images"}; !slices.Equal(pinned, want) {
+		t.Errorf("tools.goreleaser is pinned on %v, want %v: deploy --cli and the image gate run it from Go", pinned, want)
 	}
 }
 
@@ -96,7 +72,7 @@ func TestWranglerInstallsThroughMise(t *testing.T) {
 	tools := cfg.tables["tools"].fields
 	wrangler := tools["npm:wrangler"].table
 	if wrangler == nil {
-		t.Fatal(`[tools] pins no "npm:wrangler" table; deploy-cli and dev-cli run bare wrangler`)
+		t.Fatal(`[tools] pins no "npm:wrangler" table; deploy --cli runs bare wrangler`)
 	}
 	var builds []string
 	for _, item := range wrangler["allow_builds"].items {
@@ -112,8 +88,6 @@ func TestWranglerInstallsThroughMise(t *testing.T) {
 		t.Errorf("min_version = %q, want >= %s: an older mise also runs aube's trusted-dependencies scripts", got, allowBuildsFloor)
 	}
 }
-
-var runFlag = regexp.MustCompile(`'-run=([^']*)'`)
 
 // contractTests lists the top-level Test functions internal/contract defines.
 func contractTests(t *testing.T) []string {
@@ -136,90 +110,44 @@ func contractTests(t *testing.T) []string {
 	return out
 }
 
-func TestDeployCLIShipsOnlyATaggedRelease(t *testing.T) {
+func TestTheCLIReleaseRunsInsideDeploy(t *testing.T) {
 	t.Parallel()
 	cfg := readMise(t)
-	deploy := cfg.task(t, "deploy-cli")
-	if got := deploy.list("depends"); !slices.Equal(got, []string{"release"}) {
-		t.Errorf("deploy-cli depends on %q, want [release]", got)
-	}
-	if strings.TrimSpace(deploy.str("confirm")) == "" {
-		t.Error("deploy-cli declares no confirm; a deploy asks before wrangler publishes")
-	}
-	stagedCheck := "go test -count=1 '-run=^TestStagedCDNIsTheTaggedRelease$' ./internal/contract/"
-	if got, want := runs(deploy), []string{stagedCheck, "wrangler deploy --cwd apps/cli"}; !slices.Equal(got, want) {
-		t.Errorf("deploy-cli runs %q, want %q: the staged check sits in its own run so --skip-deps keeps it", got, want)
-	}
-	if v := deploy.fields["env"].table["PROVEO_RELEASE_GATE"]; !v.isStr || v.str != "1" {
-		t.Errorf("deploy-cli env PROVEO_RELEASE_GATE = %q, want \"1\": without it the staged check skips", v.text())
-	}
-	if !slices.Contains(contractTests(t), "TestStagedCDNIsTheTaggedRelease") {
-		t.Error("internal/contract defines no TestStagedCDNIsTheTaggedRelease; deploy-cli's -run would match nothing and pass")
-	}
-
-	release := cfg.task(t, "release")
-	if got := release.list("depends"); !slices.Equal(got, []string{"release-ledger"}) {
-		t.Errorf("release depends on %q, want [release-ledger]", got)
-	}
-	if got, want := runs(release), []string{"goreleaser release --clean --skip=publish", subtask("stage-cdn")}; !slices.Equal(got, want) {
-		t.Errorf("release runs %q, want %q", got, want)
-	}
-
-	ledger := cfg.task(t, "release-ledger")
-	if v := ledger.fields["env"].table["PROVEO_RELEASE_GATE"]; !v.isStr || v.str != "1" {
-		t.Errorf("release-ledger env PROVEO_RELEASE_GATE = %q, want \"1\": without it a skip passes", v.text())
-	}
-	cmds := ledger.cmds()
-	if len(cmds) != 1 || len(ledger.run()) != 1 || !strings.HasPrefix(cmds[0], "go test ") || !strings.HasSuffix(cmds[0], " ./internal/contract/") {
-		t.Fatalf("release-ledger runs %q, want one go test of ./internal/contract/", cmds)
-	}
-	m := runFlag.FindStringSubmatch(cmds[0])
-	if m == nil {
-		t.Fatalf("release-ledger runs %q with no quoted -run=", cmds[0])
-	}
-	re, err := regexp.Compile(m[1])
-	if err != nil {
-		t.Fatalf("release-ledger's -run %q does not compile: %v", m[1], err)
-	}
-	defined := contractTests(t)
-	for _, name := range []string{"TestNoRetirementOutlivesOneRelease", "TestReleaseShipsATaggedHead"} {
-		if !re.MatchString(name) {
-			t.Errorf("release-ledger's -run %q skips %s", m[1], name)
-		}
-		if !slices.Contains(defined, name) {
-			t.Errorf("internal/contract defines no %s; release-ledger's -run would match nothing and pass", name)
+	for _, gone := range []string{"release", "release-ledger", "deploy-cli", "build-cli", "snapshot", "stage-cdn", "dev-cli"} {
+		if _, ok := cfg.tasks[gone]; ok {
+			t.Errorf("mise.toml declares %s; build --cli and deploy --cli replace it", gone)
 		}
 	}
-
+	if c := strings.TrimSpace(cfg.task(t, "deploy").str("confirm")); c != "" {
+		t.Errorf("deploy declares confirm %q; it would ask on every image deploy, and deploy --cli asks on its own", c)
+	}
 	for name, task := range cfg.tasks {
 		for _, cmd := range task.cmds() {
-			if strings.Contains(cmd, "wrangler deploy") && name != "deploy-cli" {
-				t.Errorf("%s runs %q; deploy-cli alone publishes, after release-ledger", name, cmd)
+			if strings.Contains(cmd, "wrangler ") || strings.Contains(cmd, "git push") || strings.Contains(cmd, "git tag") {
+				t.Errorf("%s runs %q; deploy --cli alone publishes, tags and pushes, after the retirement ledger", name, cmd)
 			}
 		}
+	}
+	ledger := release.Plan("patch")[0]
+	if !strings.HasPrefix(ledger, "PROVEO_RELEASE_GATE=1 go test ") || !strings.Contains(ledger, "-run=^TestNoRetirementOutlivesOneRelease$") {
+		t.Errorf("deploy --cli starts with %q, want the gated retirement ledger", ledger)
+	}
+	if !slices.Contains(contractTests(t), "TestNoRetirementOutlivesOneRelease") {
+		t.Error("internal/contract defines no TestNoRetirementOutlivesOneRelease; the ledger's -run would match nothing and pass")
 	}
 }
 
 func TestCDNStagingFollowsAFreshSnapshot(t *testing.T) {
 	t.Parallel()
-	cfg := readMise(t)
-	if got, want := runs(cfg.task(t, "snapshot")), []string{"goreleaser release --snapshot --clean"}; !slices.Equal(got, want) {
-		t.Errorf("snapshot runs %q, want %q", got, want)
+	var gate []string
+	for _, c := range maintain.ImageGatePlan() {
+		gate = append(gate, strings.Join(c.Argv, " "))
 	}
-	fresh := []string{subtask("snapshot"), subtask("stage-cdn")}
-	dev := runs(cfg.task(t, "dev-cli"))
-	if want := append(slices.Clone(fresh), "wrangler dev --cwd apps/cli"); !slices.Equal(dev, want) {
-		t.Errorf("dev-cli runs %q, want %q", dev, want)
+	if fresh := []string{"goreleaser release --snapshot --clean", "go run ./internal/cdn/stage"}; len(gate) < 2 || !slices.Equal(gate[:2], fresh) {
+		t.Errorf("the image gate runs %q, want it to start with %q", gate, fresh)
 	}
-	images := cfg.task(t, "test-images")
-	if got := runs(images); len(got) < 2 || !slices.Equal(got[:2], fresh) {
-		t.Errorf("test-images runs %q, want it to start with %q", got, fresh)
-	}
-	if v := images.fields["env"].table["PROVEO_INSTALLTEST_CDN"]; !v.isStr || v.str == "" {
-		t.Error("test-images' env table sets no PROVEO_INSTALLTEST_CDN; the installer suite would stage its own CDN")
-	}
-	if got, want := runs(cfg.task(t, "stage-cdn")), []string{"go run ./internal/cdn/stage"}; !slices.Equal(got, want) {
-		t.Errorf("stage-cdn runs %q, want %q", got, want)
+	if !slices.Contains(maintain.ImageGateEnv, "PROVEO_INSTALLTEST_CDN=apps/cli/public/cli") {
+		t.Error("the image gate sets no PROVEO_INSTALLTEST_CDN; the installer suite would stage its own CDN")
 	}
 	if src := readRepoFile(t, "internal/cdn/stage/main.go"); !strings.Contains(src, "\npackage main\n") {
 		t.Error("internal/cdn/stage/main.go is not a package main; go run cannot start it")

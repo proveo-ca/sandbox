@@ -83,7 +83,7 @@ package "Definitions\ndefs/" as Defs {
 }
 
 package "Maintainer tools" as Maint {
- component "mise tasks\nbuild · test-defs · deploy · lint · release" as Mise <<internal>>
+ component "mise tasks\nbuild · deploy · test-images · e2e · lint · test" as Mise <<internal>>
  component "internal/cdn/stage · internal/maintain/fleet\n(go run, not shipped) + go test gates" as MaintLib <<app>>
 }
 

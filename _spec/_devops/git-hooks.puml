@@ -20,7 +20,7 @@ title git post-commit — format, then lint
 ' The gofmt gate is a Go test over `git ls-files`. NOT CHOSEN: golangci-lint
 ' formatters alone (they miss build-constrained files); a `gofmt -l` run entry
 ' (it needs shell logic, _spec/tests/20-contract.puml).
-' The two contract tests also run in test-go, baseline and ci.
+' The two contract tests also run in test (with or without --baseline) and ci.
 '
 ' ── THE HOOK (2026-11-12) ──────────────────────────────────────────────────
 ' `mise run install-git-hooks` runs `mise generate git-pre-commit --hook

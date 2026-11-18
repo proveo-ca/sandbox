@@ -17,7 +17,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/promptkit"
 )
 
-// cdnEnv names a pre-staged CDN dir (e.g. apps/cli/public/cli after `mise run stage-cdn`).
+// cdnEnv names a pre-staged CDN dir (e.g. apps/cli/public/cli, which `mise run test-images` stages).
 const cdnEnv = "PROVEO_INSTALLTEST_CDN"
 
 const stagedVersion = "0.0.0-installtest"

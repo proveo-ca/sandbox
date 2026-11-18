@@ -184,9 +184,14 @@ func TestFleetPrintsTheBuildAndDeployPlans(t *testing.T) {
 	want = "# serial claudecode\n" +
 		"docker image inspect proveo/claudecode:local\n" +
 		"docker tag proveo/claudecode:local proveo/claudecode:latest\n" +
-		"imagebuild claudecode --tag latest --push\n"
+		"imagebuild claudecode --tag latest --push\n" +
+		"# after every wave\n" +
+		"docker image rm proveo/claudecode:local\n"
 	if out.String() != want {
 		t.Errorf("deploy claudecode prints\n%s\nwant\n%s", out.String(), want)
+	}
+	if err := Fleet("deploy", "claudecode", LocalTag, false, true, repoDefs, &out); err == nil {
+		t.Error("Fleet deployed --tag local; :local is the unpublished build")
 	}
 	if !strings.Contains(status.String(), "deploying proveo/claudecode:latest") {
 		t.Errorf("deploy lacks its start line on the default tag:\n%s", status.String())
