@@ -67,7 +67,7 @@ writes (`--yes` answers for a script). It requires `main` level with `origin/mai
 tree. It builds the multi-arch binaries at the next version (goreleaser, no GitHub Release),
 stages `latest.json` + checksums into `apps/cli/public/cli`, commits `latest.json` and tags that
 commit. Then it deploys to Cloudflare via Wrangler and pushes `main` and the tag.
-`mise run dev-cli` previews a snapshot locally instead. Details: [`apps/cli/README.md`](apps/cli/README.md).
+`mise run test-images` stages a snapshot tree instead, and `mise x -- wrangler dev --cwd apps/cli` serves it locally. Details: [`apps/cli/README.md`](apps/cli/README.md).
 
 ## Quickstart — try it on the sample
 

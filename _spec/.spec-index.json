@@ -132,7 +132,11 @@
         "internal/contract/release_gate_test.go",
         "internal/contract/release_targets_test.go",
         "internal/contract/retirement_test.go",
-        "internal/cdn/release/release.go"
+        "internal/cdn/release/release.go",
+        "internal/maintain/e2e.go",
+        "internal/maintain/e2e_test.go",
+        "internal/maintain/e2e/main.go",
+        "internal/maintain/e2e/main_test.go"
       ],
       "fingerprint": null
     },
@@ -2070,7 +2074,11 @@
         "e2e/kit_test.go",
         "internal/sbx/clone_test.go",
         "internal/backend/sandbox/clone_carry_test.go",
-        "mise.toml"
+        "mise.toml",
+        "internal/maintain/e2e.go",
+        "internal/maintain/e2e_test.go",
+        "internal/maintain/e2e/main.go",
+        "internal/maintain/e2e/main_test.go"
       ],
       "fingerprint": null
     },

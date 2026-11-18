@@ -60,7 +60,8 @@ The binaries come from the commit before the tagged one; `proveo --version` stil
 Preview without a release:
 
 ```bash
-mise run dev-cli    # goreleaser --snapshot, stage, then wrangler dev — never deploys
+mise run test-images                     # goreleaser --snapshot, stage, installer + image suites
+mise x -- wrangler dev --cwd apps/cli    # serve the staged tree locally — never deploys
 ```
 
 Run the CDN install test suite:

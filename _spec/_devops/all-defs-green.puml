@@ -78,7 +78,7 @@ skinparam noteTextAlignment left
 ' ── R5 · A SKIP MUST SAY WHICH KIND OF SKIP IT IS ──────────────────────────
 ' "Absent by design" and "we forgot" are INDISTINGUISHABLE in test output, and
 ' this has cost real accuracy twice already — release-gate.puml records
-' `ladder-all` (test-ladder since 2026-11-17) misreading the ladder verdict in
+' `ladder-all` (`e2e --ladder` since 2026-11-17) misreading the ladder verdict in
 ' both directions, once certifying four climbs that never happened and once
 ' reporting a def that passed every rung as not-run.
 '

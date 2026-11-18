@@ -84,7 +84,7 @@ keeps the key-in-agent behavior with the existing honest warnings (see
 
 The boundary is asserted in Go (`go test ./internal/contract/ ./internal/verify/ …`, part of
 `mise run ci`) and exercised live in each definition's image suite, `internal/imagetest/<name>_test.go`
-(`mise run test-defs <name>`).
+(`mise run test-images <name>`).
 `PROVEO_TEST_<TARGET>_IMAGE` pins the image the image suites and the e2e suite run against for one
 build target, upper-snake-cased (`claudecode-browser` → `PROVEO_TEST_CLAUDECODE_BROWSER_IMAGE`).
 Unset, each suite keeps its own default.

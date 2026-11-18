@@ -61,4 +61,4 @@ opt in explicitly if you need it, since it copies real credentials into the sand
 ## Testing
 
 `internal/imagetest/hermes_test.go` (build tag `image`) — `go test -tags=image -run
-'^TestImageHermes$' ./internal/imagetest/`, or `mise run test-defs hermes`.
+'^TestImageHermes$' ./internal/imagetest/`, or `mise run test-images hermes`.

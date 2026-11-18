@@ -110,19 +110,24 @@ skinparam packageStyle rectangle
 ' THE MAINS LIVE UNDER internal/, where the env-registry scan already reads.
 ' NOT CHOSEN: internal/devtool/* (a namespace with no library beside it);
 ' tools/ (the scan would have to learn it); cmd/ (reads as a shipped binary).
-'   gates ........ go test is the verdict: lint, test [--baseline], ci,
-'                  test-idle, ladder:<def>, and the retirement ledger
-'                  deploy --cli runs (git-hooks.puml, unit-baseline.puml,
-'                  release-gate.puml)
-'   upstream ..... mise generate git-pre-commit, goreleaser (snapshot in
-'                  dev-cli and test-images; the release from deploy --cli),
-'                  go tool covdata, golangci-lint, wrangler
-'   two mains .... go run ./internal/cdn/stage (dev-cli, test-images) and
-'                  go run ./internal/maintain/fleet (build, deploy, test-defs;
-'                  build --cli and deploy --cli reach the CLI through it)
+'   gates ........ go test is the verdict: lint, test [--baseline], ci, every
+'                  e2e pass, and the retirement ledger deploy --cli runs
+'                  (git-hooks.puml, unit-baseline.puml, release-gate.puml)
+'   upstream ..... mise generate git-pre-commit, goreleaser (the snapshot in
+'                  the image gate; the release from deploy --cli), go tool
+'                  covdata, golangci-lint, wrangler
+'   two mains .... go run ./internal/maintain/fleet (build, deploy,
+'                  test-images; build --cli and deploy --cli reach the CLI
+'                  through it) and go run ./internal/maintain/e2e (e2e).
+'                  internal/cdn/stage runs only from Go: the image gate and
+'                  deploy --cli exec it.
 '   HISTORY: until 2026-11-17 stage-cdn, snapshot, release, release-ledger,
 '   deploy-cli, build-cli, baseline, test-go, coverage, idle-all and
-'   ladder-all were tasks of their own; 33 tasks became 20.
+'   ladder-all were tasks of their own; 33 tasks became 20. The same day
+'   dev-cli, test-defs, test-e2e, test-e2e-full, test-idle, test-ladder,
+'   e2e-gated and ladder:<def> folded into test-images [target] and e2e
+'   flags; 20 tasks became 10, and ./internal/maintain/e2e replaced
+'   ./internal/cdn/stage among the two mains.
 ' TestOnlyTwoProducerMainsRunFromMise (internal/contract/mise_mains_test.go)
 ' pins it: the `go run` targets of mise.toml are exactly those two package
 ' mains, every cmd/<dir> mise.toml names is a binary .goreleaser.yaml builds,
@@ -190,11 +195,11 @@ package "Installer" as Install {
 }
 
 package "Maintainer\nmise.toml tasks (plain argv)" as Maint {
- component "mise run lint · ci · test [--baseline]\nbuild [--cli] · dev-cli · deploy [--cli]\ntest-idle · test-ladder · test-e2e-full" as Mise <<internal>>
+ component "mise run lint · ci · test [--baseline]\nbuild [--cli] · deploy [--cli]\ntest-images [target] · e2e [agent]... [--full]" as Mise <<internal>>
  component "go run ./internal/maintain/fleet\nbuild · deploy → internal/imagebuild" as MaintLib <<internal>>
  component "go run ./internal/maintain/fleet test\ngo test -tags=image ./internal/imagetest" as BuildTest <<internal>>
  component "go run ./internal/cdn/stage\ndist/ → apps/cli/public/cli" as Stage <<internal>>
- component "go test gates\ne2e · ladder · idle" as RunShim <<internal>>
+ component "go run ./internal/maintain/e2e\nsuite · idle · ladder passes" as RunShim <<internal>>
 }
 
 package "Registration" as Reg {
@@ -222,7 +227,7 @@ Consumer --> Proveo : day-to-day
 Maintainer --> Proveo : run / --print / list
 Maintainer --> Mise : image lifecycle · release · gates
 Mise ..> RunShim : go test exit code is the verdict
-Mise ..> Stage : dev-cli · test-images · deploy --cli
+Mise ..> Stage : test-images · e2e · deploy --cli (from Go)
 
 Proveo --> Commands
 Commands --> RunFlags

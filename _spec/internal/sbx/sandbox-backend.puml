@@ -280,7 +280,7 @@ title Sandbox backend — the only backend: sbx runs the agent, or the run refus
 ' harness at a time, and a per-harness answer is what separates "this agent
 ' exits" from "sbx stops sessions". The ladder holds a raw `sbx run`; idle
 ' holds `proveo run`, which is the ptyproxy hop a leaked DA1 becomes a prompt
-' on. `mise run test-e2e-full` is the gate that sweeps all four defs at 45s
+' on. `mise run e2e --full` (or `e2e --idle`) sweeps claudecode, cursor and opencode at 45s
 ' (past sbx's 30s auto-stop and the ~14s cursor death). A 5-minute wait is
 ' still the thorough "operator stepped away" check. Cursor 2026.09.15 is the
 ' open case that died at a healthy TUI — see

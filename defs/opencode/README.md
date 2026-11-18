@@ -328,7 +328,7 @@ The repository remote stays unchanged; non-GitHub remotes keep their existing tr
 ## Tests
 
 ```bash
-mise run test-defs opencode
+mise run test-images opencode
 ```
 
 The suite (`internal/imagetest/opencode_test.go`) covers build, tool presence, security hardening, baked-in default seeding

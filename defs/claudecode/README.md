@@ -13,7 +13,7 @@ Candidate coding harness definition. This definition exposes:
 
 Its image suite is `internal/imagetest/claudecode_test.go` (`TestImageClaudecode`).
 
-Each variant owns its image-local `entrypoint.sh`. Run a variant with `proveo run claudecode` or `proveo run claudecode-solidity`; builds are `mise run build claudecode[-solidity|-browser]`, tests are `mise run test-defs claudecode`.
+Each variant owns its image-local `entrypoint.sh`. Run a variant with `proveo run claudecode` or `proveo run claudecode-solidity`; builds are `mise run build claudecode[-solidity|-browser]`, tests are `mise run test-images claudecode`.
 
 https://github.com/user-attachments/assets/81c731d9-caeb-48cf-aa3e-65a48c55519e
 
@@ -100,7 +100,7 @@ Variant runners mount:
 Run tests:
 
 ```bash
-mise run test-defs claudecode
+mise run test-images claudecode
 ```
 
 Open a shell in a running variant's sandbox with sbx:

@@ -109,6 +109,6 @@ func TestDetect(t *testing.T) {
 }
 ```
 
-**Two sweeps.** `mise run test-e2e` is everything up to tier 3 on the sbx runtime — the image and consumer-CLI suites, then the Go agent suite with its opt-in gates off (~45 minutes). `mise run test-e2e-full` adds tier 4: the idle-survival and toolchain gates on, and the sbx ladder for every def. `mise run --skip-deps test-e2e` alone is only the Go suite; extra args reach `go test`. A release claim cites `test-e2e-full`; a branch check cites `test-e2e`.
+**Two sweeps.** `mise run e2e` is everything up to tier 3 on the sbx runtime — the image gate (image and consumer-CLI suites), then the Go agent suite with its opt-in gates off (~45 minutes). `mise run e2e --full` adds tier 4: the suite with the idle-survival and toolchain gates on, the idle pass, and the sbx ladder for every agent, each its own `go test` process past a red one. `mise run e2e --no-images` skips the image gate; `--run <regex>` reaches the suite's `go test -run`. A release claim cites `e2e --full`; a branch check cites `e2e`.
 
 **sbx is the runtime under test.** proveo has no other backend, so both sweeps assert only what an operator gets from sbx.
