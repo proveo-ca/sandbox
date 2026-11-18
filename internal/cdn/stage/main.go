@@ -22,12 +22,12 @@ import (
 const (
 	cdnTree    = "apps/cli/public/cli"
 	cdnArchive = "cdn-proveo"
-	rebuild    = "rebuild dist/ with `mise run snapshot` (`mise run release` on a tag)"
+	rebuild    = "rebuild dist/: `mise run dev-cli` snapshots it, `mise run deploy --cli` releases it"
 )
 
 func main() {
 	if err := stage(".", os.Stdout); err != nil {
-		ui.Failf("stage-cdn: %v", err)
+		ui.Failf("cdn stage: %v", err)
 		os.Exit(1)
 	}
 }

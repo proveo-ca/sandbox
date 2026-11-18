@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -180,6 +181,36 @@ func (t Target) DeployPlan(tag string) []Command {
 		{Argv: []string{"docker", "tag", local, t.Image + ":" + tag}, Quiet: true},
 		t.imageBuild(tag, imagebuild.Options{Push: true}),
 	}
+}
+
+// UntagLocalPlan drops each target's :local tag; the tag DeployPlan promoted keeps the image.
+func UntagLocalPlan(ts []Target) []Command {
+	out := make([]Command, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, Command{Argv: []string{"docker", "image", "rm", t.Image + ":" + LocalTag}, Quiet: true})
+	}
+	return out
+}
+
+// CLIBuildPlan installs proveo and proveo-entrypoint into GOPATH/bin without cgo, GOBIN or an -X stamp.
+func CLIBuildPlan(root string) []Command {
+	argv := []string{"go", "install", "-trimpath", "-ldflags=-s -w", "./cmd/proveo", "./cmd/proveo-entrypoint"}
+	return []Command{{Argv: argv, Run: func(stdout, stderr io.Writer, env []string) error {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir, cmd.Stdout, cmd.Stderr = root, stdout, stderr
+		cmd.Env = append(withoutGOBIN(append(os.Environ(), env...)), "CGO_ENABLED=0")
+		return cmd.Run()
+	}}}
+}
+
+func withoutGOBIN(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "GOBIN=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 func (t Target) imageBuild(tag string, o imagebuild.Options) Command {

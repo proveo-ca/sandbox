@@ -21,7 +21,7 @@ func TestUnitBaselineRowsNameRealTests(t *testing.T) {
 	t.Parallel()
 	list, ok := readMise(t).vars["unit_baseline"]
 	if !ok || list == "" {
-		t.Fatal("mise.toml [vars] has no unit_baseline; delete the baseline task instead of emptying the list")
+		t.Fatal("mise.toml [vars] has no unit_baseline; drop test --baseline instead of emptying the list")
 	}
 	names := strings.Split(list, "|")
 	if !slices.IsSorted(names) {
@@ -79,21 +79,26 @@ func TestUnitBaselineRowsNameRealTests(t *testing.T) {
 	}
 }
 
+// unitRun is the test task's go test line, with each flag's Tera toggle in place.
+const unitRun = "go test " + raceToggle + baselineToggle + "-cover -covermode=atomic" +
+	"{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %} -args -test.gocoverdir={{ config_root | quote }}/cov/unit"
+
+const baselineToggle = "{% if usage.baseline %}-skip={{ ('^(' ~ vars.unit_baseline ~ ')$') | quote }} {% endif %}"
+
 func TestBaselineSkipsExactlyTheListedTests(t *testing.T) {
 	t.Parallel()
-	task := readMise(t).task(t, "baseline")
-	want := []string{"go test " + raceToggle + "-count=1 -skip={{ ('^(' ~ vars.unit_baseline ~ ')$') | quote }}" +
-		"{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %}"}
-	if got := task.cmds(); !slices.Equal(got, want) || len(task.run()) != 1 {
-		t.Errorf("baseline runs %q, want %q: -skip anchors the [vars] list as one quoted word and every arg is quoted", got, want)
+	task := readMise(t).task(t, "test")
+	if cmds := task.cmds(); !slices.Contains(cmds, unitRun) {
+		t.Errorf("test runs %q, want the line %q: --baseline anchors the [vars] list as one quoted word and every arg is quoted", cmds, unitRun)
 	}
 	usage := task.str("usage")
 	for _, line := range []string{
 		`flag "--no-race" `,
+		`flag "--baseline" `,
 		`arg "[go_test_args]..." var=#true default="./..." `,
 	} {
 		if !strings.Contains(usage, line) {
-			t.Errorf("baseline's usage lacks %q: packages default to ./... and go test flags pass after --", line)
+			t.Errorf("test's usage lacks %q: packages default to ./... and go test flags pass after --", line)
 		}
 	}
 }
@@ -101,31 +106,29 @@ func TestBaselineSkipsExactlyTheListedTests(t *testing.T) {
 func TestUnitLanesOfferNoRace(t *testing.T) {
 	t.Parallel()
 	cfg := readMise(t)
-	for _, name := range []string{"test-go", "baseline"} {
-		task := cfg.task(t, name)
-		if !strings.Contains(task.str("usage"), `flag "--no-race" `) {
-			t.Errorf("%s declares no --no-race flag; a toolchain without cgo cannot build -race", name)
+	task := cfg.task(t, "test")
+	toggled := 0
+	for _, cmd := range task.cmds() {
+		if strings.HasPrefix(cmd, "go test ") {
+			toggled += strings.Count(cmd, raceToggle)
+			cmd = strings.ReplaceAll(cmd, raceToggle, "")
 		}
-		toggled := 0
-		for _, cmd := range task.cmds() {
-			if strings.HasPrefix(cmd, "go test ") {
-				toggled += strings.Count(cmd, raceToggle)
-				cmd = strings.ReplaceAll(cmd, raceToggle, "")
-			}
-			if strings.Contains(cmd, "-race") {
-				t.Errorf("%s runs -race outside %q: %q", name, raceToggle, cmd)
-			}
+		if strings.Contains(cmd, "-race") {
+			t.Errorf("test runs -race outside %q: %q", raceToggle, cmd)
 		}
-		if toggled != 1 {
-			t.Errorf("%s puts -race inside %q %d times, want once", name, raceToggle, toggled)
-		}
+	}
+	if toggled != 1 {
+		t.Errorf("test puts -race inside %q %d times, want once", raceToggle, toggled)
 	}
 	ci := cfg.task(t, "ci")
 	if !strings.Contains(ci.str("usage"), `flag "--no-race" `) {
-		t.Error("ci declares no --no-race flag; a toolchain without cgo has no route to test-go --no-race")
+		t.Error("ci declares no --no-race flag; a toolchain without cgo has no route to test --no-race")
 	}
-	if got, want := ci.cmds(), []string{"mise run lint ::: build-check ::: test-go{% if usage.no_race %} --no-race{% endif %}"}; !slices.Equal(got, want) {
+	if got, want := ci.cmds(), []string{"mise run lint ::: test{% if usage.no_race %} --no-race{% endif %}"}; !slices.Equal(got, want) {
 		t.Errorf("ci runs %q, want %q", got, want)
+	}
+	if !slices.Contains(cfg.task(t, "lint").cmds(), "go build ./...") {
+		t.Error("lint does not run go build ./...; ci would no longer link every main package")
 	}
 	if strings.Contains(readRepoFile(t, "mise.toml"), "exec(") {
 		t.Error("mise.toml calls exec(): a render-time probe runs with the caller's PATH, not the task's tools")
@@ -134,24 +137,11 @@ func TestUnitLanesOfferNoRace(t *testing.T) {
 
 func TestCoverageReadsTheUnitLane(t *testing.T) {
 	t.Parallel()
-	cfg := readMise(t)
-	unit := cfg.task(t, "test-go")
-	var got []string
-	for _, cmd := range unit.cmds() {
-		got = append(got, strings.Replace(cmd, raceToggle, "", 1))
-	}
-	want := []string{"rm -rf cov/unit", "mkdir -p cov/unit",
-		"go test -cover -covermode=atomic ./... -args -test.gocoverdir={{ config_root | quote }}/cov/unit"}
-	if !slices.Equal(got, want) || len(unit.run()) != len(want) {
-		t.Errorf("test-go runs %q (race toggle dropped), want %q", got, want)
-	}
-	coverage := cfg.task(t, "coverage")
-	if !slices.Contains(coverage.list("wait_for"), "test-go") {
-		t.Error("coverage must wait_for test-go, so `mise run test-go ::: coverage` reads finished data")
-	}
-	want = []string{"go tool covdata percent -i=cov/unit", "go tool covdata textfmt -i=cov/unit -o=cov/coverage.out"}
-	if got := coverage.cmds(); !slices.Equal(got, want) || len(coverage.run()) != len(want) {
-		t.Errorf("coverage runs %q, want %q", got, want)
+	unit := readMise(t).task(t, "test")
+	want := []string{"rm -rf cov/unit", "mkdir -p cov/unit", unitRun,
+		"go tool covdata percent -i=cov/unit", "go tool covdata textfmt -i=cov/unit -o=cov/coverage.out"}
+	if got := unit.cmds(); !slices.Equal(got, want) || len(unit.run()) != len(want) {
+		t.Errorf("test runs %q, want %q: coverage reads the data the same run wrote", got, want)
 	}
 }
 
@@ -181,18 +171,15 @@ func TestOperatorEnvTreatsEmptyAsUnset(t *testing.T) {
 
 func TestE2ELanesKeepTheirTimeoutDefaults(t *testing.T) {
 	t.Parallel()
-	cfg := readMise(t)
+	task := readMise(t).task(t, "test-e2e")
 	want := []string{"go test -tags=e2e ./e2e/ -count=1 -timeout " + timeoutArg("45m")}
-	for _, name := range []string{"test-go-e2e", "test-e2e"} {
-		task := cfg.task(t, name)
-		if got := task.cmds(); !slices.Equal(got, want) || len(task.run()) != 1 {
-			t.Errorf("%s runs %q, want %q", name, got, want)
-		}
-		if _, ok := task.fields["usage"]; ok {
-			t.Errorf("%s declares a usage spec; without one, extra args append to its go test line", name)
-		}
+	if got := task.cmds(); !slices.Equal(got, want) || len(task.run()) != 1 {
+		t.Errorf("test-e2e runs %q, want %q", got, want)
 	}
-	if !slices.Contains(cfg.task(t, "test-e2e").list("depends"), "test-images") {
+	if _, ok := task.fields["usage"]; ok {
+		t.Error("test-e2e declares a usage spec; without one, extra args append to its go test line")
+	}
+	if !slices.Contains(task.list("depends"), "test-images") {
 		t.Error("test-e2e must depend on test-images")
 	}
 }

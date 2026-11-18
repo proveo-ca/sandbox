@@ -235,7 +235,7 @@ var Vars = []Var{
 		Doc: "Test seam: set the OpenCode git-sync plugin the seed installs"},
 	{Name: "PROVEO_HOOKS_MARKER", Scope: Maintainer, Where: Image, Default: "/dev/shm/proveo-hooks-seeded",
 		Doc: "Test seam: set the file the seed touches once the agent's hooks are installed"},
-	{Name: "PROVEO_IDLE_FOR", Scope: Maintainer, Where: Binary, Default: "45s under mise run idle-all; 5m in the test",
+	{Name: "PROVEO_IDLE_FOR", Scope: Maintainer, Where: Binary, Default: "45s under mise run test-idle; 5m in the test",
 		Doc: "Set how long the e2e idle test leaves the agent idle"},
 	{Name: "PROVEO_IDLE_TARGETS", Scope: Maintainer, Where: Binary, Default: "claudecode",
 		Doc: "List the defs the e2e idle test runs, comma-separated"},

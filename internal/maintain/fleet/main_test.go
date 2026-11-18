@@ -15,7 +15,8 @@ func noEnv(string) string { return "" }
 
 func TestFleetMainRefusesAMissingVerbOrTarget(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{nil, {"build"}, {"ship", "all"}, {"-print=true", "build", "all", "extra"}} {
+	for _, args := range [][]string{nil, {"build"}, {"deploy"}, {"ship", "all"}, {"-print=true", "build", "all", "extra"},
+		{"-cli", "test", "all"}, {"-cli", "test"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 2 {
 			t.Errorf("run(%q) = %d, want 2", args, code)
@@ -53,5 +54,36 @@ func TestFleetMainTakesTheArgvMiseRenders(t *testing.T) {
 	want := "# serial claudecode\nimagebuild claudecode --tag rc1 --no-cache\ndocker image inspect proveo/claudecode:rc1\n"
 	if stdout.String() != want {
 		t.Errorf("run(%q) printed\n%s\nwant\n%s", args, stdout.String(), want)
+	}
+}
+
+func TestFleetMainPutsTheCLIFirstWhenAsked(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		args  []string
+		first string
+		has   []string
+	}{
+		{[]string{"-print", "-cli", "build"}, "# cli\ngo install -trimpath -ldflags=-s -w ./cmd/proveo ./cmd/proveo-entrypoint\n", nil},
+		{[]string{"-print", "-cli", "build", "claudecode"}, "# cli\ngo install ", []string{"# serial claudecode\nimagebuild claudecode --tag local\n"}},
+		{[]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy"}, "# cli\n", []string{"git tag v0.3.2\n", "wrangler deploy --cwd apps/cli\n"}},
+		{[]string{"-print", "-cli", "deploy", "claudecode"}, "# cli\n", []string{"git tag <patch>\n", "# serial claudecode\n", "# after every wave\n"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(c.args, noEnv, repoRoot, &stdout, &stderr); code != 0 {
+			t.Fatalf("run(%q) = %d, want 0; stderr:\n%s", c.args, code, stderr.String())
+		}
+		got := stdout.String()
+		if !strings.HasPrefix(got, c.first) {
+			t.Errorf("run(%q) printed\n%s\nwant it to start with %q", c.args, got, c.first)
+		}
+		for _, want := range c.has {
+			if !strings.Contains(got, want) {
+				t.Errorf("run(%q) printed\n%s\nwant it to hold %q", c.args, got, want)
+			}
+		}
+		if len(c.has) == 0 && strings.Contains(got, "# serial") {
+			t.Errorf("run(%q) printed an image wave without a target:\n%s", c.args, got)
+		}
 	}
 }

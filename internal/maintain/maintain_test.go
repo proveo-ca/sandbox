@@ -146,6 +146,18 @@ func TestDeployAndTestPlan(t *testing.T) {
 			t.Errorf("DeployPlan step %d (%v) should be Quiet", i, c.Argv)
 		}
 	}
+	untag := UntagLocalPlan([]Target{cur, cc})
+	if got, want := argvs(untag), []string{
+		"docker image rm proveo/cursor:local",
+		"docker image rm proveo/claudecode:local",
+	}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("UntagLocalPlan = %v, want %v", got, want)
+	}
+	for _, c := range untag {
+		if !c.Quiet || c.Run != nil {
+			t.Errorf("UntagLocalPlan step %v should be a Quiet docker argv", c.Argv)
+		}
+	}
 
 	// TestPlan runs the def's Go image suite when its file exists, else skips (nil).
 	var asked string
@@ -371,6 +383,25 @@ func TestParentOfMirrorsBuildSpecs(t *testing.T) {
 		}
 		if got := parentOf(name); got != want {
 			t.Errorf("parentOf(%q) = %q, want %q (from imagebuild.Specs)", name, got, want)
+		}
+	}
+}
+
+func TestCLIBuildPlanInstallsOnlyTheShippedBinaries(t *testing.T) {
+	t.Parallel()
+	plan := CLIBuildPlan("/r")
+	if got, want := argvs(plan), []string{"go install -trimpath -ldflags=-s -w ./cmd/proveo ./cmd/proveo-entrypoint"}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("CLIBuildPlan = %v, want %v", got, want)
+	}
+	if len(plan) != 1 || plan[0].Run == nil {
+		t.Fatal("CLIBuildPlan is not one in-process step; it must drop GOBIN from the environment it passes go install")
+	}
+	if got := withoutGOBIN([]string{"A=1", "GOBIN=/mise/bin", "GOBINX=2"}); strings.Join(got, "|") != "A=1|GOBINX=2" {
+		t.Errorf("withoutGOBIN = %q, want GOBIN alone dropped", got)
+	}
+	for _, a := range plan[0].Argv {
+		if strings.HasPrefix(a, "-ldflags") && strings.Contains(a, "-X") {
+			t.Errorf("CLIBuildPlan stamps %q; cmd/proveo reads its version from Go build info", a)
 		}
 	}
 }

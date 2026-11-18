@@ -296,7 +296,7 @@ var glyphCIRun = `printf '\n` + ciGlyph + ` ci succeeded.\n'`
 // shellTasksFixture holds a ci task that prints ciGlyph and a test-images task with a leading assignment.
 var shellTasksFixture = strings.ReplaceAll(`[tasks.ci]
 description = "Local CI gate: lint + go build + unit/contract tests (no Docker)"
-depends = ["lint", "build-check", "test-go"]
+depends = ["lint", "test"]
 run = "printf '\\nCHECK ci succeeded.\\n'"
 
 [tasks.test-images]
@@ -374,31 +374,24 @@ func TestShellLogicScanFlagsHandRolledShell(t *testing.T) {
 		"{% if get_env(name='SKIP_GIT_HOOKS', default='') | trim | lower in ['1', 'true', 'yes', 'on', 'enable', 'enabled'] %}true{% else %}false{% endif %}",
 		"mise generate git-pre-commit --hook post-commit --task post-commit --write",
 		"go build ./...",
-		"go test {% if not usage.no_race %}-race {% endif %}-count=1 -skip={{ ('^(' ~ vars.unit_baseline ~ ')$') | quote }}{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %}",
-		"go install -trimpath '-ldflags=-s -w' ./cmd/proveo ./cmd/proveo-entrypoint",
 		"rm -rf cov/unit",
+		unitRun,
 		"mkdir -p cov/unit",
-		"go test {% if not usage.no_race %}-race {% endif %}-cover -covermode=atomic ./... -args -test.gocoverdir={{ config_root | quote }}/cov/unit",
 		"go test -tags=e2e ./e2e/ -count=1 -timeout " + timeoutArg("45m"),
 		"go tool covdata percent -i=cov/unit",
 		"go tool covdata textfmt -i=cov/unit -o=cov/coverage.out",
 		"go test -count=1 ./internal/installtest/",
 		"go test -tags=image -count=1 -timeout 60m ./internal/imagetest/",
-		"mise run --continue-on-error e2e-gated{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %} ::: idle-all ::: ladder-all",
+		"mise run --continue-on-error e2e-gated{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %} ::: test-idle ::: test-ladder",
 		"go test -tags=e2e ./e2e/ -count=1 -timeout " + timeoutArg("150m"),
 		"go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestAgentSurvivesIdleAtPrompt$ -v",
 		"mise run --continue-on-error --jobs=1 ladder:claudecode ::: ladder:codex ::: ladder:cursor ::: ladder:opencode",
 		"go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v",
-		"wrangler --version",
 		"goreleaser release --snapshot --clean",
-		"go test -count=1 '-run=^(TestNoRetirementOutlivesOneRelease|TestReleaseShipsATaggedHead)$' ./internal/contract/",
-		"goreleaser release --clean --skip=publish",
 		"go run ./internal/cdn/stage",
-		"wrangler deploy --cwd apps/cli",
 		"wrangler dev --cwd apps/cli",
 		"go test {{- a | quote -}}",
-		"mise run lint ::: build-check ::: test-go{% if usage.no_race %} --no-race{% endif %}",
-		"go test -count=1 '-run=^TestStagedCDNIsTheTaggedRelease$' ./internal/contract/",
+		"mise run lint ::: test{% if usage.no_race %} --no-race{% endif %}",
 		"go test {{ (a | trim) | quote }}",
 	}
 	for _, line := range imageTasks {
