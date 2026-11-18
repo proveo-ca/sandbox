@@ -2297,6 +2297,15 @@
         "internal/imagetest/imagetest_test.go"
       ],
       "fingerprint": null
+    },
+    {
+      "spec": "_spec/_assets/readme-topology.puml",
+      "covers": [
+        "README.md",
+        "_spec/_assets/hero.gif",
+        "_spec/_assets/readme-topology.svg"
+      ],
+      "fingerprint": null
     }
   ],
   "unresolved": []

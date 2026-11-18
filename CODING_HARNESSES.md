@@ -212,7 +212,7 @@ Harness images should:
   sbx config sync never copies it; unlike `deny:`, the host copy is kept;
 - avoid logging secret values while still reporting whether required keys were detected.
 
-**Credential isolation** (see [`README.md`](README.md#security--egress--credentials) and
+**Credential isolation** (see [`_spec/internal/sbx/policy-baseline.puml`](_spec/internal/sbx/policy-baseline.puml) and
 [`_spec/_paradigms/credential-boundary.puml`](_spec/_paradigms/credential-boundary.puml)):
 
 | `--credentials` | Secret confinement |
