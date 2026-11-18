@@ -43,9 +43,13 @@ const (
 	baseFloor = `command -v git >/dev/null \
       && command -v gh >/dev/null \
       && command -v jq >/dev/null \
+      && command -v proveo-host-cdp >/dev/null \
+      && agent-browser --version >/dev/null \
       && test -x /usr/local/bin/proveo-entrypoint`
 	nodeFloor = `command -v git >/dev/null \
       && command -v jq >/dev/null \
+      && command -v proveo-host-cdp >/dev/null \
+      && agent-browser --version >/dev/null \
       && command -v node >/dev/null \
       && command -v pnpm >/dev/null \
       && command -v bun >/dev/null \
@@ -55,6 +59,7 @@ const (
       && command -v playwright >/dev/null \
       && ls "${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}"/chromium-* >/dev/null 2>&1 \
       && command -v agent-browser >/dev/null \
+      && command -v proveo-host-cdp >/dev/null \
       && test -x "${AGENT_BROWSER_EXECUTABLE_PATH:-/opt/proveo/chromium/chrome}" \
       && test -f "${AGENT_BROWSER_SKILLS_DIR:-/opt/agent-browser/skill-data}/core/SKILL.md" \
       && test -f /opt/proveo/skills/agent-browser/SKILL.md`

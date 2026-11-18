@@ -3,9 +3,12 @@ package run
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
@@ -15,6 +18,38 @@ import (
 	"github.com/proveo-ca/proveo/internal/runlog"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
+
+func TestHostChromeIsReadyBeforeImagePreflight(t *testing.T) {
+	var discovered atomic.Bool
+	chrome := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		discovered.Store(r.URL.Path == "/json/version")
+		_, _ = w.Write([]byte(`{"webSocketDebuggerUrl":"ws://127.0.0.1/devtools/browser/fixture"}`))
+	}))
+	defer chrome.Close()
+	t.Setenv("PROVEO_HOST_CDP_PORT", chrome.URL[strings.LastIndex(chrome.URL, ":")+1:])
+	t.Setenv("PROVEO_HOME", t.TempDir())
+	t.Setenv("PROVEO_STATE_ROOT", t.TempDir())
+	t.Setenv("PROVEO_WIZARD", "off")
+	previous := sandboxReady
+	t.Cleanup(func() { sandboxReady = previous })
+	sandboxReady = func(bool, func(string) bool) (bool, string) { return true, "" }
+
+	stop := errors.New("stop after image preflight")
+	err := Do(Params{Target: "codex", Input: t.TempDir(), AddonsSet: true, Addons: []string{addonHostCDP}}, Deps{
+		ManifestFor: func(string) (manifest.Manifest, error) {
+			return manifest.Manifest{Name: "codex", Capabilities: manifest.Capabilities{HostBrowser: manifest.HostBrowserCDP}}, nil
+		},
+		PreflightImages: func(manifest.Manifest, string) (string, error) {
+			if !discovered.Load() {
+				t.Error("image preflight ran before the host Chrome readiness check")
+			}
+			return "", stop
+		},
+	})
+	if !errors.Is(err, stop) {
+		t.Fatalf("Do = %v, want %v", err, stop)
+	}
+}
 
 func TestRecordOutcomeWritesTheVerdictIntoTheTranscript(t *testing.T) {
 	cases := []struct {

@@ -5,10 +5,27 @@ import (
 	"strings"
 	"testing"
 
+	proveo "github.com/proveo-ca/proveo"
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/provider"
 )
+
+func TestEveryHarnessOffersHostChrome(t *testing.T) {
+	t.Parallel()
+	manifests, err := manifest.LoadFS(proveo.Manifests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, man := range manifests {
+		for target := range man.Images {
+			p := Params{Target: target, AddonsSet: true, Addons: []string{"chrome"}}
+			if err := p.resolveAddonFlags(man); err != nil || !slices.Equal(p.Addons, []string{addonHostCDP}) {
+				t.Errorf("%s: chrome = %v, %v", target, p.Addons, err)
+			}
+		}
+	}
+}
 
 // SPEC: _spec/_plans/init-credential-provisioning.puml, _spec/internal/choiceui/wireframe.puml, _spec/internal/credentials/credential-decisions.puml, _spec/internal/sbx/credential-resolution.puml
 func TestCredentialsRowIsAReadOnlyInventory(t *testing.T) {
@@ -68,7 +85,7 @@ func TestTheDevicesRowPacksItsOptionsWithoutGaps(t *testing.T) {
 		Label: rowInterface, Multi: true,
 		Options: []string{addonHostCDP, addonIOS, addonTUI, addonBrowser, addonAndroid},
 	})
-	want := []string{addonTUI, addonBrowser, addonAndroid, addonIOS, addonHostCDP}
+	want := []string{addonTUI, addonBrowser, addonHostCDP, addonAndroid, addonIOS}
 	if !slices.Equal(full.Options, want) || !slices.Equal(full.Cols, []int{0, 1, 2, 3, 4}) {
 		t.Errorf("full = %v cols %v, want %v", full.Options, full.Cols, want)
 	}

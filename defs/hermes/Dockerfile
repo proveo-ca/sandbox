@@ -62,7 +62,7 @@ RUN --mount=type=cache,id=proveo-hermes-apt-cache,target=/var/cache/apt,sharing=
     && env | grep -vE '^(DEBIAN_FRONTEND|HERMES_AGENT_VERSION|HERMES_UID)=' | sort | diff /tmp/upstream.env - \
       || { echo "the ENV/USER/WORKDIR copied into hermes-flat no longer match nousresearch/hermes-agent:${HERMES_AGENT_VERSION} (diff above: < upstream, > this file)" >&2; exit 1; } \
     && apt-get update -o APT::Update::Error-Mode=any \
-    && apt-get install -y --no-install-recommends dumb-init
+    && apt-get install -y --no-install-recommends dumb-init curl jq
 
 # proveo launches the agent as uid 1000, and stage2-hook.sh refuses any non-root
 # uid other than hermes's own — so hermes IS uid/gid 1000 in this image.
@@ -87,6 +87,7 @@ COPY --chmod=0755 packages/lib/proveo-seed /usr/local/bin/proveo-seed
 COPY --chmod=0755 packages/lib/hooks/git-sync-turn.sh /opt/proveo/hooks/git-sync-turn.sh
 COPY packages/lib/hooks/proveo-git-sync-turn.js /opt/proveo/hooks/proveo-git-sync-turn.js
 COPY --chmod=0755 packages/lib/proveo-await-seed /usr/local/bin/proveo-await-seed
+COPY --chmod=0755 packages/lib/proveo-host-cdp /usr/local/bin/proveo-host-cdp
 COPY --chmod=0755 defs/hermes/entrypoint.sh /entrypoint.sh
 
 # Wraps upstream's exec shim, which already drops root to the hermes user (s6-setuidgid).

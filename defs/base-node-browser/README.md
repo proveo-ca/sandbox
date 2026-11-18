@@ -1,7 +1,10 @@
 # base-node-browser
 
-`proveo/base-node-browser` = `proveo/base-node` + one headless Chromium and the two
-clients that drive it:
+`proveo/base-node-browser` = `proveo/base-node` + Playwright and one headless Chromium. It inherits the pinned
+`agent-browser` client from `proveo/base`.
+
+`proveo run <agent> --addon chrome` starts or reuses the dedicated Chrome profile on the host
+and connects the sandbox client to it at launch. Choose `--addon browser` for Chromium inside sbx.
 
 | client | what it is for | how it finds the browser |
 | --- | --- | --- |
@@ -23,12 +26,14 @@ serves the guide matching the installed binary.
 
 ## How agents learn it is there
 
-The image bakes a discovery stub at `/opt/proveo/skills/agent-browser/SKILL.md`. At seed time
+The base image bakes a discovery stub at `/opt/proveo/skills/agent-browser/SKILL.md`. At seed time
 (`proveo_seed` → `proveo_seed_browser_skills`, both backends) it is copied into the
-harness's **user-level** skills directory — `~/.claude/skills`, `~/.cursor/skills`,
-`~/.config/opencode/skills` — never the workspace. The stub tells the agent to run
+harness's **user-level** skills directory. Codex uses `~/.agents/skills`, Claude Code
+uses `~/.claude/skills`, Cursor uses `~/.cursor/skills`, and OpenCode uses
+`~/.config/opencode/skills`. The stub tells the agent to run
 `agent-browser skills get core` and not to install anything. Opt out with
-`PROVEO_BROWSER_SKILL=off`. Gated on the binary: a non-browser image seeds nothing.
+`PROVEO_BROWSER_SKILL=off`. The seed copies the skill when the run selects host
+Chrome or the image provides sandbox Chromium.
 
 ## Pins
 

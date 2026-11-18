@@ -54,13 +54,12 @@ export HERMES_WRITE_SAFE_ROOT
 # Host Chrome over CDP, dialled by IP and bypassing the proxy.
 # SPEC: _spec/internal/sbx/host-browser-cdp.puml
 if [[ -n "${PROVEO_HOST_CDP_PORT:-}" ]]; then
-  host_ip="$(getent ahostsv4 host.docker.internal 2>/dev/null | awk 'NR==1{print $1}')"
-  if [[ -n "$host_ip" ]]; then
+  if host_ip="$(proveo-host-cdp ip)"; then
     export BROWSER_CDP_URL="http://${host_ip}:${PROVEO_HOST_CDP_PORT}"
     export NO_PROXY="${NO_PROXY:+${NO_PROXY},}${host_ip}" no_proxy="${no_proxy:+${no_proxy},}${host_ip}"
     echo "🌐 hermes drives the host Chrome at ${BROWSER_CDP_URL}"
   else
-    echo "⚠️  host Chrome: host.docker.internal does not resolve — the browser tool stays in-sandbox" >&2
+    exit 1
   fi
 fi
 

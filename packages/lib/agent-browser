@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPEC: _spec/internal/sbx/host-browser-cdp.puml
+client=/opt/agent-browser/bin/agent-browser
+case "${1:-}" in
+    --help|-h|--version|-V|help|skills) exec "$client" "$@" ;;
+esac
+if [ -n "${PROVEO_HOST_CDP_PORT:-}" ]; then
+    exec proveo-host-cdp exec "$client" "$@"
+fi
+exec "$client" "$@"

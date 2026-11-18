@@ -415,12 +415,14 @@ func interfaceColumn(name string) int {
 		return 1
 	case addonBrowser:
 		return 2
-	case addonAndroid:
+	case addonHostCDP:
 		return 3
-	case addonIOS:
+	case addonAndroid:
 		return 4
-	default:
+	case addonIOS:
 		return 5
+	default:
+		return 6
 	}
 }
 

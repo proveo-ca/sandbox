@@ -2,9 +2,11 @@
 package hostdev
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,9 +62,15 @@ func CDPReady(port int) bool {
 	if err != nil {
 		return false
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	defer resp.Body.Close()
+	var version struct {
+		WebSocket string `json:"webSocketDebuggerUrl"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 16384)).Decode(&version) != nil {
+		return false
+	}
+	ws, err := url.Parse(version.WebSocket)
+	return err == nil && ws.Scheme == "ws" && ws.Host != "" && strings.HasPrefix(ws.Path, "/devtools/browser/")
 }
 
 // ChromeBinary finds a Chromium-family browser on the host.

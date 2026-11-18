@@ -103,6 +103,32 @@ RUN curl -fsSL -o /opt/plantuml.jar \
     && rm -rf /tmp/* /var/tmp/* /root/.cache \
     && /usr/local/sbin/proveo-harden /usr /opt
 
+# SPEC: _spec/defs/browser-layer.puml
+ARG AGENT_BROWSER_VERSION=0.36.0
+ARG AGENT_BROWSER_SHA256=858a753760034d73c6bc17dd895f91141ef03c3fcca978348b378e26d2d617e4
+RUN set -e; \
+    case "$(uname -m)" in \
+      x86_64|amd64) ab_arch=linux-x64 ;; \
+      aarch64|arm64) ab_arch=linux-arm64 ;; \
+      *) echo "unsupported architecture for agent-browser: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/agent-browser.tgz \
+         "https://registry.npmjs.org/agent-browser/-/agent-browser-${AGENT_BROWSER_VERSION}.tgz" \
+    && echo "${AGENT_BROWSER_SHA256}  /tmp/agent-browser.tgz" | sha256sum -c - \
+    && mkdir -p /opt/agent-browser \
+    && tar -xzf /tmp/agent-browser.tgz -C /opt/agent-browser --strip-components=1 \
+         "package/bin/agent-browser-${ab_arch}" package/skill-data package/LICENSE package/README.md \
+    && install -m 0755 "/opt/agent-browser/bin/agent-browser-${ab_arch}" /opt/agent-browser/bin/agent-browser \
+    && rm -f "/opt/agent-browser/bin/agent-browser-${ab_arch}" \
+    && /opt/agent-browser/bin/agent-browser --version \
+    && test -f /opt/agent-browser/skill-data/core/SKILL.md \
+    && chmod -R a+rX /opt/agent-browser \
+    && rm -f /tmp/agent-browser.tgz \
+    && /usr/local/sbin/proveo-harden /usr /opt
+
+COPY --chmod=0755 packages/lib/agent-browser packages/lib/proveo-host-cdp /usr/local/bin/
+COPY defs/base-node-browser/skills/ /opt/proveo/skills/
+
 # Build-time proof: template docker client, Engine and group present, and no setuid file left.
 # SPEC: _spec/_devops/sandbox-template-rebase.puml
 RUN set -e; \
@@ -136,6 +162,7 @@ ENV PATH=/opt/jre/bin:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/us
     NO_PROXY=localhost,127.0.0.1,::1,172.17.0.0/16 \
     no_proxy=localhost,127.0.0.1,::1,172.17.0.0/16 \
     BASH_ENV=/etc/sandbox-persistent.sh \
+    AGENT_BROWSER_SKILLS_DIR=/opt/agent-browser/skill-data \
     JAVA_HOME=/opt/jre \
     NPM_CONFIG_AUDIT=false \
     NPM_CONFIG_FUND=false \

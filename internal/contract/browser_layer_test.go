@@ -23,17 +23,20 @@ func readRepoFile(t *testing.T, rel string) string {
 func TestBrowserLayerPinsAgentBrowserAndReusesPlaywrightsChromium(t *testing.T) {
 	t.Parallel()
 	df := readRepoFile(t, "defs/base-node-browser/Dockerfile")
+	client := readRepoFile(t, "defs/base/Dockerfile")
 	for _, want := range []*regexp.Regexp{
 		regexp.MustCompile(`(?m)^ARG AGENT_BROWSER_VERSION=\d+\.\d+\.\d+$`),
 		regexp.MustCompile(`(?m)^ARG AGENT_BROWSER_SHA256=[0-9a-f]{64}$`),
 		regexp.MustCompile(`sha256sum -c`),
-		regexp.MustCompile(`AGENT_BROWSER_EXECUTABLE_PATH=/opt/proveo/chromium/chrome`),
 		regexp.MustCompile(`AGENT_BROWSER_SKILLS_DIR=/opt/agent-browser/skill-data`),
-		regexp.MustCompile(`COPY skills/ /opt/proveo/skills/`),
+		regexp.MustCompile(`COPY defs/base-node-browser/skills/ /opt/proveo/skills/`),
 	} {
-		if !want.MatchString(df) {
-			t.Errorf("defs/base-node-browser/Dockerfile lacks %s", want)
+		if !want.MatchString(client) {
+			t.Errorf("defs/base/Dockerfile lacks %s", want)
 		}
+	}
+	if !strings.Contains(df, "AGENT_BROWSER_EXECUTABLE_PATH=/opt/proveo/chromium/chrome") {
+		t.Error("browser layer must point the client at Playwright's Chromium")
 	}
 	if strings.Contains(df, "agent-browser install") && !strings.Contains(df, "would download a SECOND Chromium") {
 		t.Error("the Dockerfile must not run `agent-browser install`; Playwright's Chromium is the browser")
@@ -93,6 +96,7 @@ func TestBrowserSkillSeedNamesEveryHarnessSkillsDir(t *testing.T) {
 	arms := dashedEchoArms(t, lib, "_browser_skill_dir")
 	want := map[string]string{
 		"claudecode": ".claude/skills",
+		"codex":      ".agents/skills",
 		"cursor":     ".cursor/skills",
 		"opencode":   ".config/opencode/skills",
 	}

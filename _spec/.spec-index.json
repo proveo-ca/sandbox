@@ -572,6 +572,7 @@
       "spec": "_spec/defs/browser-layer.puml",
       "covers": [
         "defs/base-node-browser/**",
+        "defs/base/Dockerfile",
         "defs/base-node-browser/skills/agent-browser/SKILL.md",
         "internal/imagebuild/targets.go",
         "packages/lib/entrypoint-lib.sh",
@@ -2268,11 +2269,16 @@
         "internal/hostdev/hostcdp_test.go",
         "internal/run/choices.go",
         "internal/run/run.go",
+        "internal/run/outcome_test.go",
         "internal/run/host_adb_test.go",
         "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/host_cdp.go",
         "internal/backend/sandbox/host_inference_test.go",
+        "packages/lib/proveo-host-cdp",
+        "packages/lib/agent-browser",
+        "e2e/host_chrome_test.go",
         "defs/hermes/entrypoint.sh",
-        "defs/hermes/harness.manifest"
+        "defs/*/harness.manifest"
       ],
       "fingerprint": null
     },

@@ -96,6 +96,12 @@ func Do(p Params, d Deps) (err error) {
 	}
 	reportRun(&rs, p.PrintOnly)
 	runReported = true
+	cdpEnv, cdpFact, cdpItems, err := startHostCDP(&p)
+	if err != nil {
+		return err
+	}
+	rs.InterfaceFacts = append(rs.InterfaceFacts, cdpFact)
+	rs.Interface = append(rs.Interface, cdpItems...)
 	if err := preflightImage(&rs, &p, d); err != nil {
 		return err
 	}
@@ -107,7 +113,7 @@ func Do(p Params, d Deps) (err error) {
 		return err
 	}
 	buildPosture(&rs, &p)
-	return launchSandbox(&rs, &p, d)
+	return launchSandbox(&rs, &p, d, cdpEnv)
 }
 
 // ensureDesktop makes sure Hermes Desktop is installed when the run drives it, under "run" with the image pull.
@@ -855,7 +861,7 @@ func unknownModels(rs *Spec, p *Params) []sandbox.Item {
 }
 
 // launchSandbox resolves the clone and add-ons, then runs the agent in sbx (or prints the plan).
-func launchSandbox(rs *Spec, p *Params, d Deps) error {
+func launchSandbox(rs *Spec, p *Params, d Deps, cdpEnv []string) error {
 	desktop := slices.Contains(p.Addons, addonDesktop)
 	applyAutoLocalModel(rs, p)
 	rs.Model.HostLLM = p.LocalModel != ""
@@ -921,12 +927,6 @@ func launchSandbox(rs *Spec, p *Params, d Deps) error {
 		}
 	}
 	sandbox.PrintBlock(func() { ui.Section(ui.SectionEgress) }, egress, egressItems)
-	cdpEnv, cdpFact, cdpItems, err := startHostCDP(p)
-	if err != nil {
-		return err
-	}
-	rs.InterfaceFacts = append(rs.InterfaceFacts, cdpFact)
-	rs.Interface = append(rs.Interface, cdpItems...)
 	adbEnv, adbFact, adbItems, err := startHostADB(p)
 	if err != nil {
 		return err

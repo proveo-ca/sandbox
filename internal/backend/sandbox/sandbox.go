@@ -1725,6 +1725,9 @@ func Run(in Input) error {
 	}); err != nil {
 		return err
 	}
+	if slices.Contains(kept, hostdev.EnvCDPPort) {
+		return fmt.Errorf("host Chrome settings differ in kept sandbox %s. Stop or recreate the sandbox to apply them", cfg.Name)
+	}
 	exists = exists && (len(changed) == 0 || kept != nil)
 	if exists && listedClaude != nil {
 		if err := stoppedForClaudeLaunch(cfg.Name, listedClaude); err != nil {
@@ -1808,6 +1811,11 @@ func Run(in Input) error {
 	}
 	reportInterface(in, cfg, pub)
 	ifaceSaid = true
+	if port := envValue(in.AgentEnv, hostdev.EnvCDPPort); port != "" {
+		if err := checkGuestCDP(in.ctx(), cfg.Name, port); err != nil {
+			return err
+		}
+	}
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentsettings.Stdio(os.Stdout, os.Stderr, agentsettings.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentsettings.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))

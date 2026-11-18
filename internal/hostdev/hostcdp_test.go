@@ -53,24 +53,23 @@ func TestLaunchArgsUseADedicatedProfileAndPort(t *testing.T) {
 	}
 }
 
-func serveCDP(t *testing.T) int {
+func serveCDP(t *testing.T, response string) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/json/version" {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(`{"Browser":"Chrome/153"}`))
+		_, _ = w.Write([]byte(response))
 	}))
 	t.Cleanup(srv.Close)
 	orig := hostURL
 	t.Cleanup(func() { hostURL = orig })
 	hostURL = func(int) string { return srv.URL }
-	return 1
 }
 
 func TestEnsureReusesARunningBrowser(t *testing.T) {
-	serveCDP(t)
+	serveCDP(t, chromeDiscovery)
 	origStat, origLook := statFile, lookPath
 	t.Cleanup(func() { statFile, lookPath = origStat, origLook })
 	statFile = func(string) (os.FileInfo, error) { t.Fatal("must not look for a browser to launch"); return nil, nil }
@@ -105,13 +104,22 @@ func TestEnsureNamesTheMissingBrowser(t *testing.T) {
 }
 
 func TestReadyNeedsDiscovery(t *testing.T) {
-	serveCDP(t)
+	serveCDP(t, chromeDiscovery)
 	if !CDPReady(9333) {
 		t.Error("200 on /json/version must count as ready")
 	}
 	hostURL = func(p int) string { return "http://127.0.0.1:" + strconv.Itoa(1) }
 	if CDPReady(9333) {
 		t.Error("nothing listening must not count as ready")
+	}
+}
+
+const chromeDiscovery = `{"Browser":"Chrome/153","webSocketDebuggerUrl":"ws://127.0.0.1:9333/devtools/browser/example"}`
+
+func TestReadyRejectsAnUnrelatedHTTPServer(t *testing.T) {
+	serveCDP(t, `{"status":"ok"}`)
+	if CDPReady(9333) {
+		t.Error("an HTTP 200 with no browser WebSocket must not count as ready")
 	}
 }
 

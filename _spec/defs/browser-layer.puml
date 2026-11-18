@@ -4,6 +4,7 @@ skinparam noteTextAlignment left
 title Browser layer — Playwright and agent-browser share one Chromium, and every harness is told
 
 ' covers: defs/base-node-browser/**
+' covers: defs/base/Dockerfile
 ' covers: defs/base-node-browser/skills/agent-browser/SKILL.md
 ' covers: internal/imagebuild/targets.go
 ' covers: packages/lib/entrypoint-lib.sh
@@ -34,9 +35,9 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' TestBrowserLayerInstallsOneChromiumNotTwo.
 '
 ' ── WHAT THE BUILD CAN AND CANNOT VERIFY ────────────────────────────────────
-' The install RUN asserts everything reachable from a buildkit step:
-' `agent-browser --version`, `test -x "$AGENT_BROWSER_EXECUTABLE_PATH"`,
-' `test -f "$AGENT_BROWSER_SKILLS_DIR/core/SKILL.md"`. Verified 2026-09-01 on the
+' proveo/base verifies the pinned agent-browser client and its skill bundle.
+' The browser layer verifies the executable path to Playwright's Chromium.
+' Verified 2026-09-01 on the
 ' darwin build of 0.36.0: with the executable path set it launches headless and
 ' never asks for `install`.
 '
@@ -70,11 +71,9 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' The tarball ships every platform's binary (~40 MB); only this arch's is kept.
 '
 ' ── WHY A DISCOVERY STUB RATHER THAN A COPIED GUIDE ────────────────────────
-' The layer pins agent-browser the way it pins Playwright: by VERSION and by
-' DIGEST of the tarball it unpacks, and it points the binary at the Chromium
-' Playwright already installed rather than letting `agent-browser install` fetch
-' a second one. A layer that drifts on any of these rebuilds into something the
-' floor probe and the seed no longer describe.
+' The base image pins agent-browser by version and tarball digest. The browser
+' layer points that client at Playwright's Chromium. The host Chrome add-on
+' uses the same client over CDP. See _spec/internal/sbx/host-browser-cdp.puml.
 '
 ' Knob: PROVEO_BROWSER_SKILL=off.
 '
@@ -109,16 +108,17 @@ title Browser layer — Playwright and agent-browser share one Chromium, and eve
 ' INSTALLED version, so nothing here goes stale when the binary moves.
 '
 '   claudecode  ~/.claude/skills/<name>/SKILL.md
+'   codex       ~/.agents/skills/<name>/SKILL.md
 '   cursor      ~/.cursor/skills/<name>/SKILL.md  (also reads ~/.agents/skills)
 '   opencode    ~/.config/opencode/skills/<name>/SKILL.md
 '               (also reads ~/.claude/skills)
 '
-' Gated on the BINARY, not the image name: a non-browser image has no
-' agent-browser and gets no skill, so the agent is never handed a tool it lacks.
+' The seed copies the skill when the client is present and the run configured
+' host Chrome or has the sandbox Chromium executable path.
 
 cloud "registry.npmjs.org\n""agent-browser-<v>.tgz""" as NPM <<cloud>>
 
-node "Image build — defs/base-node-browser/Dockerfile" as BUILD <<host>> {
+node "Image build — base client and optional Chromium layer" as BUILD <<host>> {
   component "Playwright ""<v>""\n""playwright install --no-shell chromium""" as PW <<app>>
   database "browser store\n""/opt/ms-playwright/chromium-<rev>/chrome-linux/chrome""" as STORE <<db>>
   component "agent-browser (native Rust)\n""/usr/local/bin/agent-browser""" as AB <<app>>
@@ -132,6 +132,7 @@ node "Seed — ""proveo_seed <target>"" (both backends)" as SEED <<host>> {
 }
 
 node "Agent home (user level)" as HOME <<host>> {
+  component "codex ""~/.agents/skills/""" as H4 <<app>>
   component "claudecode ""~/.claude/skills/""" as H1 <<app>>
   component "cursor ""~/.cursor/skills/""" as H2 <<app>>
   component "opencode ""~/.config/opencode/skills/""" as H3 <<app>>
@@ -153,9 +154,11 @@ STUB  ARROW_MAIN SEEDFN
 SEEDFN ARROW_MAIN H1
 SEEDFN ARROW_MAIN H2
 SEEDFN ARROW_MAIN H3
+SEEDFN ARROW_MAIN H4
 H1    ARROW_MAIN AGENT
 H2    ARROW_MAIN AGENT
 H3    ARROW_MAIN AGENT
+H4    ARROW_MAIN AGENT
 AGENT ARROW_MAIN AB
 AB    ARROW_MAIN CHROME : ""--no-sandbox"" auto in containers,\nany run-as uid, HOME writable
 AB    ARROW_ERROR DUP : never — the executable\npath is already set
@@ -212,8 +215,8 @@ note bottom of SEED
   **Discoverability is the seed's job.** A
   binary on PATH is invisible to an agent;
   the stub in the user skills dir is what it
-  reads. It says only ""skills get core"", so
-  the guide always matches the binary.
+  reads. It describes the selected CDP path.
+  ""skills get core"" supplies the versioned guide.
 end note
 
 note right of HOME

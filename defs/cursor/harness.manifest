@@ -23,4 +23,5 @@ env:
     secret: true
 
 capabilities:
+  hostBrowser: cdp
   providers: [cursor]
