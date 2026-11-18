@@ -349,6 +349,15 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/sbx-over-ssh.puml",
+      "covers": [
+        "internal/run/choices.go",
+        "internal/run/topology.go",
+        "internal/choiceui/topology.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/secret-custody.puml",
       "covers": [],
       "fingerprint": null

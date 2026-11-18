@@ -1,72 +1,91 @@
 @startuml
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title PLANNED — Operate sbx on a cloud host over SSH
+' purpose: keep one Proveo host while running sbx locally or on a cloud worker
+' covers: internal/run/choices.go
+' covers: internal/run/topology.go
+' covers: internal/choiceui/topology.go
+title PLANNED — One Proveo host for local and cloud sandboxes
 
-node "Operator workstation" {
-  component "Proveo UI\nOpenSSH client" as CLIENT
+node "Operator's machine\nProveo host" {
+  component "Proveo\nlaunch, observe, clean up" as CLIENT
+  database "Workspaces, run receipts,\nlogs and recovered artifacts" as STATE
+  node "Local sbx daemon\nand microVMs" as LOCAL
 }
-node "Operator-controlled Ubuntu cloud host" {
-  component "Proveo runner\nsbx CLI and daemon" as RUNNER
-  database "Remote Git checkout\nor staged worktree" as WORK
-  database "Remote sbx credential store\nand egress policy" as STATE
-  node "sbx microVM\ncoding agent and tools" as VM
+node "Ubuntu cloud instance\nexecution worker" {
+  component "SSH endpoint\nand local sbx daemon" as RUNNER
+  folder "Staged workspace\nand run-scoped files" as WORK
+  node "sbx microVM\nagent and tools" as VM
 }
-cloud "Git remote and\nmodel providers" as NET
 
-CLIENT ARROW_MAIN RUNNER : SSH and terminal I/O
+CLIENT ARROW_MAIN STATE : record ownership and results
+CLIENT ARROW_MAIN LOCAL : local run and cleanup
+CLIENT ARROW_MAIN RUNNER : SSH lifecycle commands and terminal I/O
+STATE ARROW_MAIN WORK : stage inputs and return results
 RUNNER ARROW_MAIN VM : create, attach, stop, remove
-WORK ARROW_MAIN VM : remote-host workspace or clone
-STATE ARROW_MAIN VM : brokered access
-VM ARROW_MAIN NET : remote-host egress policy
+WORK ARROW_MAIN VM : mount or clone on the worker
 
 note bottom of CLIENT
-  The OS picker previews this path when the cursor
-  rests on the disabled cloud option. The grid fits
-  the short name. Its hint says coming soon.
+  **Desired behavior**
+  The operator's machine is always the Proveo host.
+  It owns launch, receipts, status, artifact recovery
+  and cleanup for local and cloud sandboxes. The
+  operator cleans up from this one machine, including
+  after a mixed local and cloud session. Proveo reaches
+  each cloud worker over SSH to remove that run's
+  sandbox, staged files and run-scoped access.
+end note
+
+note bottom of STATE
+  Record the backend, worker identity and sandbox
+  identity so restart and cleanup use the same target.
+  Recover the requested refs and artifacts before
+  removing the workspace. If SSH drops during cleanup,
+  retain the receipt and show cleanup as pending.
+  Retry uses the same identities.
 end note
 
 note bottom of RUNNER
-  First validate one supported Ubuntu host with
-  working KVM and the installed Proveo/sbx versions.
-  A cloud bare-metal host is the initial candidate.
-  A nested-KVM VM is a second candidate once
-  sbx diagnose and a real create/run pass there.
-  Run the whole Proveo backend on that host first.
-  Reuse its config, receipt and cleanup behavior.
+  The cloud OS supplies KVM and runs sbx. Its daemon
+  applies the egress policy and credential grants for
+  the run. The workstation selects and scopes those
+  grants. Remote sbx sees paths on the worker, so the
+  workstation stages the intended Git revision or
+  worktree before launch. Start by proving the flow on
+  Ubuntu bare metal with working KVM. Test nested KVM
+  on a candidate instance with sbx diagnose and a real run.
 end note
 
 legend bottom
-  **Initial use case**
-  Run a long build or coding session from a laptop while compute, checkout, artifacts
-  and the policy/credential store stay on an operator-controlled machine. Start with
-  an existing remote Git checkout and an interactive SSH PTY. Return results through
-  Git or explicit artifact transfer. Keep credential enrollment on the remote host.
-  A later local picker can target a configured OpenSSH host and hand execution to a
-  version-matched remote Proveo. Decide how to stage local dirty files before exposing
-  the mode. Evaluate local-device forwarding independently of the initial remote run.
+  **Current preview**
+  The disabled cloud option in the OS row previews the SSH hop. The grid fits the short
+  name and the hint says coming soon. Local sbx is the active execution path.
 
-  **Verification before enabling the option**
-  Run sbx diagnose and create a Proveo kit sandbox on the target host. Verify workspace
-  scope, policy, agent launch via PTY, reconnect, no loss of uncommitted work on cleanup,
-  and return of Git refs and an artifact. Measure nested KVM separately if using it.
-  For editor access, try the remote host's sbx SSH proxy after the core run is proven.
-
-  **Evidence**
-  * Docker local install and KVM requirements
-    https://docs.docker.com/ai/sandboxes/install/
-  * Local workspace paths and host-side networking
+  **Research refreshed 2026-11-18**
+  * Self-hosted SSH worker. Docker documents sbx workspace paths and the daemon's host-side
+    proxy. Its local SSH integration relays through the daemon socket. The community report
+    demonstrates invoking that proxy over SSH from another machine. The lifecycle of a
+    workstation-owned Proveo run over this path still needs a live trial.
     https://docs.docker.com/ai/sandboxes/architecture/
-  * Docker-managed sbx --cloud uses its own API, store and workspace model
-    https://docs.docker.com/ai/sandboxes/cloud/local-vs-cloud/
-  * Built-in sbx SSH uses a daemon socket on the machine that runs sbx
     https://docs.docker.com/ai/sandboxes/integrations/#how-ssh-connections-work
-  * Community report using SSH to run the remote host's sbx SSH proxy
-    https://github.com/docker/sbx-releases/issues/523
-  * Open nested-KVM request on Docker's issue tracker
+    https://github.com/docker/sbx-releases/issues/523#issuecomment-5456158079
+  * Docker-managed cloud. The workstation can issue lifecycle commands through the
+    sbx --cloud API and use the documented cloud SSH endpoint for interactive access.
+    This uses a separate state and credential store. Workspaces use clone or file transfer.
+    Evaluate it separately against the same workstation-owned lifecycle.
+    https://docs.docker.com/ai/sandboxes/cloud/local-vs-cloud/
+    https://docs.docker.com/ai/sandboxes/cloud/usage/
+  * KVM on a self-hosted worker. Docker documents the KVM requirement. Its nested-KVM
+    request remains open. AWS and Compute Engine document nested KVM on supported instances.
+    https://docs.docker.com/ai/sandboxes/install/
     https://github.com/docker/sbx-releases/issues/425
-  * EC2 and Compute Engine document nested virtualization on supported instances
     https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html
     https://cloud.google.com/compute/docs/instances/nested-virtualization/overview
+
+  **Verification before enabling Cloud**
+  From one workstation, launch a local sandbox and a cloud sandbox. Reconnect to the
+  cloud session over SSH. Recover a Git ref and an artifact. Disconnect SSH during
+  cleanup, confirm the pending run remains visible, then reconnect and finish both
+  cleanups from the workstation. Verify scoped cleanup preserves other runs on the worker.
 endlegend
 @enduml
