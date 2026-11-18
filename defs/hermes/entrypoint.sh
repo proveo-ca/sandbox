@@ -51,18 +51,6 @@ fi
 HERMES_WRITE_SAFE_ROOT="${HERMES_WRITE_SAFE_ROOT:+${HERMES_WRITE_SAFE_ROOT}:}${PWD}${HERMES_HOME:+:${HERMES_HOME}}"
 export HERMES_WRITE_SAFE_ROOT
 
-# Host Chrome over CDP, dialled by IP and bypassing the proxy.
-# SPEC: _spec/internal/sbx/host-browser-cdp.puml
-if [[ -n "${PROVEO_HOST_CDP_PORT:-}" ]]; then
-  if host_ip="$(proveo-host-cdp ip)"; then
-    export BROWSER_CDP_URL="http://${host_ip}:${PROVEO_HOST_CDP_PORT}"
-    export NO_PROXY="${NO_PROXY:+${NO_PROXY},}${host_ip}" no_proxy="${no_proxy:+${no_proxy},}${host_ip}"
-    echo "🌐 hermes drives the host Chrome at ${BROWSER_CDP_URL}"
-  else
-    exit 1
-  fi
-fi
-
 # /command holds s6's tools (s6-setuidgid); s6's own /init puts it on PATH, and
 # this entrypoint replaces /init, so the hook needs it supplied here.
 if [[ -x /opt/hermes/docker/stage2-hook.sh ]]; then
@@ -70,6 +58,64 @@ if [[ -x /opt/hermes/docker/stage2-hook.sh ]]; then
 fi
 
 proveo_seed hermes || true
+
+# SPEC: _spec/_plans/isolated-browser-profiles.puml
+configure_browser() {
+  local root=/var/lib/proveo/browser mode="${PROVEO_BROWSER_MODE:-}" url="" ip=""
+  if [[ -z "$mode" && -n "${PROVEO_HOST_CDP_PORT:-}" ]]; then
+    mode=host-chrome
+  fi
+  case "$mode" in
+    isolated)
+      ip=127.0.0.1
+      url=http://127.0.0.1:9224
+      ;;
+    host-chrome)
+      ip="$(proveo-host-cdp ip)" || return 1
+      url="http://${ip}:${PROVEO_HOST_CDP_PORT}"
+      ;;
+    none) ;;
+    *) return 0 ;;
+  esac
+  local managed="$root/hermes-$mode" upstream="${HERMES_MANAGED_DIR:-/etc/hermes}" file
+  umask 077
+  mkdir -p "$managed"
+  if [[ "$managed" != "$upstream" ]]; then
+    for file in config.yaml .env; do
+      rm -f "$managed/$file"
+      if [[ -f "$upstream/$file" ]]; then
+        cp "$upstream/$file" "$managed/$file"
+      fi
+    done
+  fi
+  if [[ "$mode" == none ]]; then
+    /opt/hermes/.venv/bin/python - "$managed/config.yaml" "${HERMES_HOME:-/opt/data}/config.yaml" <<'PYTHON'
+import pathlib
+import sys
+from ruamel.yaml import YAML
+
+yaml = YAML(typ="safe")
+destination, config = map(pathlib.Path, sys.argv[1:])
+saved = (yaml.load(config) or {}) if config.exists() else {}
+managed = (yaml.load(destination) or {}) if destination.exists() else {}
+agent = managed.setdefault("agent", {})
+disabled = agent.get("disabled_toolsets", (saved.get("agent") or {}).get("disabled_toolsets")) or []
+if isinstance(disabled, str):
+    disabled = [disabled]
+agent["disabled_toolsets"] = list(dict.fromkeys([*disabled, "browser"]))
+yaml.dump(managed, destination)
+PYTHON
+  else
+    printf '\nBROWSER_CDP_URL=%s\nBU_CDP_URL=%s\nBU_CDP_WS=\n' "$url" "$url" >>"$managed/.env"
+    printf '%s\n' "$ip" >"$managed/host"
+  fi
+  printf '%s\n' "$mode" >"$root/hermes-mode"
+  if [[ "$(id -u)" == 0 ]]; then
+    chown -R 1000:1000 "$managed"
+    chown 1000:1000 "$root/hermes-mode"
+  fi
+}
+(configure_browser)
 
 # Nous guest tier off; hermes's own llama.cpp off (no GPU in the VM — local models run on the host's Ollama).
 # SPEC: _spec/_plans/hermes-desktop-over-ssh.puml (NOUS GUEST), _spec/internal/sbx/host-inference.puml (BEST HOST MODEL)

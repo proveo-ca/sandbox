@@ -224,37 +224,6 @@ func TestCloneSnapshotLeavesEveryPieceOfWorkOnABranch(t *testing.T) {
 	})
 }
 
-func TestBrowserViewportPinsChromiumsPortAndRelaysFromAnother(t *testing.T) {
-	t.Parallel()
-	if CDPRelayPort == CDPBrowserPort {
-		t.Fatal("the relay cannot bind the port Chromium is already listening on")
-	}
-	if got := BrowserCDPArgs(""); got != "--no-sandbox,--remote-debugging-port=9223" {
-		t.Errorf("BrowserCDPArgs(\"\") = %q", got)
-	}
-	if got := BrowserCDPArgs("--disable-gpu"); got != "--disable-gpu,--remote-debugging-port=9223" {
-		t.Errorf("an operator's own args must survive: %q", got)
-	}
-	// An operator who pinned their own port keeps it: proveo would otherwise hand
-	// Chromium two --remote-debugging-port flags and pick the loser.
-	if got := BrowserCDPArgs("--remote-debugging-port=7000"); got != "--remote-debugging-port=7000" {
-		t.Errorf("an explicit port must win: %q", got)
-	}
-
-	args := CDPRelayArgs("sb")
-	joined := strings.Join(args, " ")
-	if args[0] != "exec" || args[1] != "-w" || args[2] != "/" {
-		t.Errorf("the relay must exec with -w / — the container WorkingDir can stop resolving: %q", joined)
-	}
-	for _, want := range []string{"python3", "9222", "9223", `bind(("0.0.0.0",L))`, `create_connection(("127.0.0.1",T))`} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("relay argv lacks %q", want)
-		}
-	}
-}
-
-// -p is a creation-time flag, so it belongs with the other flags, ahead of the
-// agent name and the positional workspaces.
 func TestRunArgsEmitsPublishBeforeThePositionals(t *testing.T) {
 	t.Parallel()
 	args := RunArgs(RunConfig{Name: "sb", Agent: "claude", Publish: []string{"49999:9222"},

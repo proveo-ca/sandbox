@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proveo Browser</title>
+<style>
+:root { color-scheme: dark; font: 15px Inter, system-ui, sans-serif; background: #101215; color: #eef0f3; }
+body { margin: 0 auto; padding: 16px; max-width: 1320px; }
+header, form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+button, select, input { font: inherit; padding: 6px 9px; }
+select { min-width: 12rem; max-width: 100%; }
+input { flex: 1; min-width: 12rem; }
+#screen { display: block; width: 100%; height: auto; touch-action: none; }
+#screen[hidden] { display: none; }
+#screen:focus-visible { outline: 2px solid #91a9ff; }
+#status { min-height: 1.5em; margin: 0; }
+</style>
+<script src="viewport.js" defer></script>
+</head>
+<body>
+<header>
+<label for="tabs">Tab</label>
+<select id="tabs"></select>
+<button id="take">Take control</button>
+<button id="return" disabled>Return control</button>
+</header>
+<form id="nav">
+<input id="address" type="url" aria-label="Browser address" placeholder="https://">
+<button id="go" disabled>Go</button>
+<button id="new" type="button" disabled>New tab</button>
+</form>
+<p id="status" role="status">Starting Chromium…</p>
+<img id="screen" alt="Sandbox browser viewport" tabindex="0" draggable="false" hidden>
+</body>
+</html>

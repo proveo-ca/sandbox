@@ -13,7 +13,7 @@ snapshots with compact `@eN` element refs.
 
 - Use `agent-browser` directly. When `PROVEO_HOST_CDP_PORT` is set, the launcher connects
   to the operator's dedicated Chrome window over CDP. Use the configured connection.
-- The sandbox browser add-on provides headless Chromium at `$AGENT_BROWSER_EXECUTABLE_PATH`.
+- The isolated browser choice attaches to Chromium inside the sandbox. The operator can take control temporarily. Retry browser commands after control returns.
 - Use the preinstalled binary and browser. Skip installation commands.
 - Bundled skills are served from `$AGENT_BROWSER_SKILLS_DIR`, version-matched to the binary.
 

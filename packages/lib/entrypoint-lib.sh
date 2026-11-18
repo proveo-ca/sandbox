@@ -1514,6 +1514,7 @@ readonly PROVEO_BROWSER_SKILL_SRC=/opt/proveo/skills/agent-browser/SKILL.md
 proveo_seed_browser_skills() {
   local target="${1:-}" home dir dst ver
   proveo_env_enabled PROVEO_BROWSER_SKILL on || return 0
+  [[ "${PROVEO_BROWSER_MODE:-}" != none ]] || return 0
   [[ -n "${PROVEO_HOST_CDP_PORT:-}" || -n "${AGENT_BROWSER_EXECUTABLE_PATH:-}" ]] || return 0
   command -v agent-browser >/dev/null 2>&1 || return 0
   [[ -s "$PROVEO_BROWSER_SKILL_SRC" ]] || return 0

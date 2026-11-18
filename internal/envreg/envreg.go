@@ -304,6 +304,8 @@ var Vars = []Var{
 		Doc: "Hand a node child the agent home whose JSON config it edits"},
 	{Name: "PROVEO_AGENT_KIND", Scope: Internal, Where: Image, Default: "a coding agent",
 		Doc: "Mark an assistant def so the seed skips toolchain and dependency provisioning"},
+	{Name: "PROVEO_BROWSER_MODE", Scope: Internal, Where: Binary | Image, Default: "ordinary image browser tools",
+		Doc: "Apply the run's browser choice: none, isolated or host-chrome"},
 	{Name: "PROVEO_CLONE_ENV", Scope: Internal, Where: Image, Default: "no .env linked",
 		Doc: "Name the staged host .env the seed links into a clone workspace"},
 	{Name: "PROVEO_CLONE_LINKS", Scope: Internal, Where: Image, Default: "no links recreated",

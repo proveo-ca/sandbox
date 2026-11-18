@@ -154,7 +154,11 @@ func humanBytes(n int64) string {
 func gatherCleanInventory(deep bool) (clean.Inventory, error) {
 	inv := gatherLegacyDocker()
 
+	pinned := sandbox.BrowserProfileRuns()
 	for _, sid := range stateSessions() {
+		if pinned[sid] {
+			continue
+		}
 		inv.StateDirs = append(inv.StateDirs, sid)
 		if sessionAlive(sid) {
 			inv.LiveSessions = append(inv.LiveSessions, sid)

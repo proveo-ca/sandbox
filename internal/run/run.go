@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/envflag"
 	"github.com/proveo-ca/proveo/internal/gitaccess"
+	"github.com/proveo-ca/proveo/internal/guestbrowser"
 	"github.com/proveo-ca/proveo/internal/hostdev"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -180,6 +182,13 @@ func preflightImage(rs *Spec, p *Params, d Deps) error {
 			return err
 		}
 		p.Image = image
+	}
+	if !p.PrintOnly && d.PreflightImages != nil && hasAddon(p.Addons, addonBrowser) {
+		cmd := exec.Command("docker", "run", "--rm", "--network", "none",
+			"--entrypoint", "/usr/local/bin/proveo-entrypoint", p.Image, "browser", "check")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%s does not provide the isolated browser launcher and Chromium. Rebuild the browser-capable image: %s", p.Image, strings.TrimSpace(string(out)))
+		}
 	}
 	if v := posture.AgentVersion(p.Image); v != "" {
 		rs.Backend.AgentVersion = v
@@ -431,6 +440,9 @@ func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 	if err := p.resolveAddonFlags(rs.Man); err != nil {
 		return err
 	}
+	if err := p.resolveBrowser(rs.Man); err != nil {
+		return err
+	}
 	if rs.Choices.Promptable && !p.Yes {
 		if err := p.promptChoices(rs.Man, rs.Creds.Lookup, gitRootOrEmpty(rs.Workspace.Scope, rs.Workspace.RepoRoot), rs.Choices.SettingsRoot, visit); err != nil {
 			return err
@@ -439,10 +451,14 @@ func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 	if err := p.applyCapabilities(rs.Man); err != nil {
 		return err
 	}
+	if err := p.resolveBrowser(rs.Man); err != nil {
+		return err
+	}
 	if rs.Choices.Promptable {
 		rs.Choices.Settings.Remember(p.Target, rs.Man.Capabilities, agentsettings.Choice{
 			Credentials: p.credentialsOrDefault(), Addons: p.Addons, AuthVar: p.AuthVar,
-			Evidence: p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
+			BrowserProfile: p.BrowserProfile,
+			Evidence:       p.evidenceOrDefault(), LocalModel: rememberedLocalModel(rs.Man, p.LocalModel),
 			MCP:       p.MCP,
 			MiseTrust: p.MiseTrust,
 		})
@@ -461,10 +477,9 @@ func promptChoices(rs *Spec, p *Params, d Deps, visit *formVisit) error {
 			return err
 		}
 	}
-	rs.Backend.BrowserImage = rs.Man.Images[p.Target+"-browser"] // the -browser variant, if this harness has one
-	if hasAddon(p.Addons, "browser") && rs.Backend.BrowserImage != "" {
+	if image := p.isolatedImage(rs.Man); image != "" {
 		var isLocal bool
-		p.Image, isLocal = posture.ResolveImageChoice(rs.Backend.BrowserImage)
+		p.Image, isLocal = posture.ResolveImageChoice(image)
 		if isLocal {
 			ui.Logf("image: %s (local build — newer than the published tag)", p.Image)
 		}
@@ -901,11 +916,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps, cdpEnv []string) error {
 			Text:   fmt.Sprintf("dependency trees — %d cross into the sandbox as the host built them", dropped),
 			Detail: []string{why}})
 	}
-	browserOn := hasAddon(p.Addons, addonBrowser) && rs.Backend.BrowserImage != ""
-	cdpPort := 0
-	if browserOn && !p.PrintOnly {
-		cdpPort = sandbox.FreeLoopbackPort()
-	}
+	browserOn := hasAddon(p.Addons, addonBrowser)
 	servedModel := p.LocalModel
 	if rs.Model.HostLLM {
 		lm := rs.Man.Capabilities.LocalModel
@@ -940,7 +951,17 @@ func launchSandbox(rs *Spec, p *Params, d Deps, cdpEnv []string) error {
 		agentEnv = append(agentEnv, sbx.LocalModelEnv(servedModel)...)
 		agentEnv = append(agentEnv, "SBX_CRED_ANTHROPIC_MODE=none", "SBX_CRED_OPENAI_MODE=none")
 	}
-	ports, unpublished := planPorts(p.Ports, rs.Choices.PortsRoot, p.PrintOnly, cdpPort)
+	plans := p.Ports
+	if browserOn {
+		plans = slices.DeleteFunc(slices.Clone(plans), func(port devports.Candidate) bool {
+			if port.Port != guestbrowser.ViewportPort && port.Port != guestbrowser.AgentPort {
+				return false
+			}
+			rs.Interface = append(rs.Interface, sandbox.Item{Warn: true, Text: fmt.Sprintf("port %d — reserved by the isolated browser", port.Port)})
+			return true
+		})
+	}
+	ports, unpublished := planPorts(plans, rs.Choices.PortsRoot, p.PrintOnly)
 	rs.Interface = append(rs.Interface, unpublished...)
 	in := sandbox.Input{
 		AgentEnv: agentEnv,
@@ -948,7 +969,7 @@ func launchSandbox(rs *Spec, p *Params, d Deps, cdpEnv []string) error {
 		AgentVersion: rs.Backend.AgentVersion,
 		Clone:        rs.Backend.Clone, CloneOff: rs.Backend.CloneOff, Extra: p.Extra,
 		RepoRoot: rs.Workspace.WS.RepoRoot, OutputDir: p.Output,
-		Browser: browserOn, CDPHostPort: cdpPort,
+		Browser: browserOn, BrowserProfile: p.BrowserProfile,
 		Ports: ports, InterfaceItems: rs.Interface, InterfaceFacts: rs.InterfaceFacts,
 		AndroidApps: androidApps(p), AndroidEnv: adbEnv,
 		Roles:        p.Roles,
@@ -1103,8 +1124,8 @@ func portsToRemember(chosen []devports.Candidate) []agentsettings.Port {
 	return out
 }
 
-// planPorts keeps every guest port off relay, the browser relay's host port; unpublished names each port it drops.
-func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay int) (kept []sandbox.PublishedPort, unpublished []sandbox.Item) {
+// planPorts maps each selected port to a free host port.
+func planPorts(chosen []devports.Candidate, root string, printOnly bool) (kept []sandbox.PublishedPort, unpublished []sandbox.Item) {
 	free := sandbox.LoopbackFree
 	if printOnly {
 		free = func(int) bool { return true }
@@ -1114,7 +1135,7 @@ func planPorts(chosen []devports.Candidate, root string, printOnly bool, relay i
 		dir, cmd := devports.Launch(c, root)
 		out = append(out, sandbox.PublishedPort{Guest: c.Port, What: c.Tool + " · " + c.Source, Dir: dir, Cmd: cmd})
 	}
-	kept, dropped := sandbox.PlanPorts(out, free, relay)
+	kept, dropped := sandbox.PlanPorts(out, free)
 	for _, d := range dropped {
 		unpublished = append(unpublished, sandbox.Item{Warn: true, Text: fmt.Sprintf("port %d — not published", d.Guest),
 			Detail: []string{devports.HostPortWhy(d.Guest)}})

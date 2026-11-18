@@ -2,13 +2,21 @@
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
 ' purpose: one browser choice across all defs with guest-owned profiles and an operator viewport
-' status: proposed
+' status: implemented; native sbx verification pending
 ' informed by: _spec/internal/sbx/browser-viewport.puml, _spec/internal/sbx/host-browser-cdp.puml
 ' informed by: _spec/internal/sbx/kit-lifecycle.puml, _spec/_plans/session-continuity.puml
-' would touch: internal/run/choices.go, internal/run/run.go, internal/backend/sandbox/**, internal/sbx/run.go
-' would touch: packages/lib/agent-browser, defs/hermes/entrypoint.sh, internal/imagebuild/targets.go
-' would touch: e2e/browser_viewport_test.go
-title PLANNED — Isolated browser profiles across all harnesses
+' covers: cmd/proveo-entrypoint/browser.go
+' covers: internal/backend/sandbox/browser.go
+' covers: internal/backend/sandbox/browser_test.go
+' covers: internal/guestbrowser/**
+' covers: internal/run/choices.go
+' covers: internal/run/run.go
+' covers: packages/lib/agent-browser
+' covers: defs/hermes/browser-launch
+' covers: defs/hermes/entrypoint.sh
+' covers: e2e/browser_viewport_test.go
+' covers: e2e/hermes_test.go
+title Isolated browser profiles across all harnesses
 
 actor "Operator" as OP
 node "Operator's machine" {
@@ -17,7 +25,7 @@ node "Operator's machine" {
   database "Run receipt\nprofile name, sandbox ID, lease owner" as RECEIPT
 }
 node "sbx sandbox" {
-  component "Run-scoped CDP relay" as RELAY
+  component "Token-protected viewport relay" as RELAY
   component "Browser launcher\nagent-browser or Hermes attaches" as LAUNCH
   component "Chromium\nlocal CDP and sbx egress" as BROWSER
   database "Guest-private profile\ncookies and browser state" as PROFILE
@@ -70,32 +78,33 @@ legend bottom
   | Hermes TUI and Desktop | Reuse Hermes's bundled Chromium and set its native browser client to the same guest-local endpoint. |
   * Keep explicit image and variant tools available. Select a compatible browser layer or
     report a missing browser capability before launch.
-  * Start one Chromium per sandbox profile using a guest-private user data directory.
+  * Start one Chromium per run using a guest-private user data directory.
     Keep browser traffic under sbx egress. Exclude the profile directory from workspace
     mounts and config sync.
 
   **3. Let the operator watch and sign in**
-  * Reuse the host-to-sandbox relay and add a viewport action to the run's interface.
-    Show tabs and popups and support pointer and keyboard input in operator control mode.
+  * Publish a token-protected HTTP endpoint through sbx port@1. Show tabs, popups and
+    screenshots in the host viewport, with pointer and keyboard input in control mode.
   * Support signing in before first agent use. For mid-run handoff, wait for in-flight browser
-    actions and pause supported agent browser input until the operator returns control.
-    The viewport's monitor mode suppresses input. The local CDP endpoint gives full control.
+    commands to reply and refuse new proxied commands until the operator returns control.
+    The viewport's monitor mode suppresses input. The guest CDP endpoint gives full control.
   * Publish the viewport on the workstation's loopback interface. Use the port sbx actually
-    reports for a kept sandbox. Verify a WebSocket connection to the same browser from the
-    guest and the host before reporting readiness. Close the relay when the run detaches or ends.
+    reports. Authenticate the launcher before normal agent launch. It verifies Chromium's
+    WebSocket when a client first uses it. Close the host viewport when the run ends.
 
   **4. Keep named logins in sbx**
   * Stop the browser and delete fresh profile data during run cleanup, including when a
     harness retains an engine. A named profile survives by keeping its owning sandbox
     stopped. The host stores identity and lease metadata. Profile files stay in the guest.
-  * Associate a named profile with its sandbox ID and resume it in that sandbox.
-    Independent concurrent runs use distinct sandbox identities. Reattach joins its
-    existing run and viewport.
+  * Key a named profile on the workspace, harness target and profile name. Record sbx's
+    sandbox ID and verify it when resuming. Give each fresh profile a run-specific sandbox name.
+    Reattach to an active terminal joins its existing run and viewport.
   * Acquire one active lease per named profile. An existing lease gives the operator the
-    choice to view the owning run or start with a different profile. Check the owner before
-    releasing a stale lease. Confirm profile deletion when replacing or removing its sandbox.
+    choice to view the owning run or start with a different profile. The OS releases
+    the lock when the owner exits. Preserve the owning run's staged files during clean.
+    Require proveo rm --delete-browser-profile before replacing the sandbox.
 
-  **5. Verify before delivery**
+  **5. Verification**
   * Drive the normal proveo entry point for all five defs and the Hermes Desktop path.
     Check lazy launch, host and guest seeing the same page, operator input, and resumed
     agent input. Use a controlled login fixture with a tab or popup transition.

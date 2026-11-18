@@ -92,9 +92,8 @@ type BackendSpec struct {
 	CloneEnvHost string                   // the host .env the staged copy came from
 	CloneStrip   []string                 // brokered keys the staged copy dropped
 	CloneDropped []string                 // the brokered keys the host .env held, which the staged copy leaves out
-	BrowserImage string
-	AgentVersion string           // the agent version the image pins; "" when the image carries none
-	ImageSource  *sbx.ImageSource // where the image came from; nil under --print
+	AgentVersion string                   // the agent version the image pins; "" when the image carries none
+	ImageSource  *sbx.ImageSource         // where the image came from; nil under --print
 }
 
 // ModelSpec is the local model, when --local-model asks for one.

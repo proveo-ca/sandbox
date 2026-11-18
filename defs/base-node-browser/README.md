@@ -5,6 +5,8 @@
 
 `proveo run <agent> --addon chrome` starts or reuses the dedicated Chrome profile on the host
 and connects the sandbox client to it at launch. Choose `--addon browser` for Chromium inside sbx.
+The run's host viewport and guest agent-browser attach to the same Chromium process. Use
+`--browser-profile <name>` to retain its profile inside the owning sandbox.
 
 | client | what it is for | how it finds the browser |
 | --- | --- | --- |

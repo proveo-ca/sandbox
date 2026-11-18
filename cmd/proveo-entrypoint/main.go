@@ -14,12 +14,20 @@ import (
 	"github.com/proveo-ca/proveo/internal/verify"
 )
 
-const usage = "usage: proveo-entrypoint prep | proveo-entrypoint verify [dir] | proveo-entrypoint adb-mirror"
+const usage = "usage: proveo-entrypoint prep | proveo-entrypoint verify [dir] | proveo-entrypoint adb-mirror | proveo-entrypoint browser"
 
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
+	}
+
+	if os.Args[1] == "browser" {
+		if err := runBrowser(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "proveo-entrypoint browser:", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	if os.Args[1] == "verify" {

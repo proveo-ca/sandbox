@@ -76,7 +76,8 @@ RUN usermod -u 1000 hermes && groupmod -g 1000 hermes \
 # SPEC: _spec/defs/hermes/hermes-paradigm.puml
 RUN groupadd -o -g 1000 agent \
     && useradd -o -u 1000 -g 1000 -M -d /home/agent -s /bin/bash agent \
-    && install -d -o 1000 -g 1000 /home/agent
+    && install -d -o 1000 -g 1000 /home/agent \
+    && install -d -m 0700 -o 1000 -g 1000 /var/lib/proveo/browser
 
 RUN mkdir -p /opt/proveo/subagents /opt/proveo/hooks /opt/proveo/shims
 COPY defs/subagents/ /opt/proveo/subagents/
@@ -90,9 +91,7 @@ COPY --chmod=0755 packages/lib/proveo-await-seed /usr/local/bin/proveo-await-see
 COPY --chmod=0755 packages/lib/proveo-host-cdp /usr/local/bin/proveo-host-cdp
 COPY --chmod=0755 defs/hermes/entrypoint.sh /entrypoint.sh
 
-# Wraps upstream's exec shim, which already drops root to the hermes user (s6-setuidgid).
-RUN printf '#!/bin/sh\nexec /usr/local/bin/proveo-await-seed /opt/hermes/bin/hermes "$@"\n' > /opt/proveo/shims/hermes \
-    && chmod 0755 /opt/proveo/shims/hermes
+COPY --chmod=0755 defs/hermes/browser-launch /opt/proveo/shims/hermes
 
 WORKDIR /app
 ENV PATH="/opt/proveo/shims:${PATH}"

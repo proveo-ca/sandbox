@@ -33,7 +33,10 @@ type launchReceipt struct {
 	KitDir  string            `json:"kitDir,omitempty"` // a record for the re-attach facts; changes ignores it
 	Publish []string          `json:"publish"`          // a record for the re-attach facts; changes ignores it; nil is unknown
 	// OutputDir is the host output dir a clone's output lifts into; `proveo rm` lifts it. changes ignores it.
-	OutputDir string `json:"outputDir,omitempty"`
+	OutputDir        string `json:"outputDir,omitempty"`
+	BrowserProfile   string `json:"browserProfile,omitempty"`
+	BrowserSandboxID string `json:"browserSandboxId,omitempty"`
+	BrowserRun       string `json:"browserRun,omitempty"`
 }
 
 // noReceipt is the change a sandbox with no receipt reports.
@@ -139,14 +142,19 @@ func readReceipt(name string) *launchReceipt {
 	return &r
 }
 
-func writeReceipt(name string, r launchReceipt) {
+func writeReceipt(name string, r launchReceipt) error {
 	p := receiptPath(name)
-	if p == "" || os.MkdirAll(filepath.Dir(p), 0o700) != nil {
-		return
+	if p == "" {
+		return fmt.Errorf("missing sandbox receipt path")
 	}
-	if b, err := json.Marshal(r); err == nil {
-		_ = os.WriteFile(p, b, 0o600)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
 	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	return writePrivateRecord(p, b)
 }
 
 // retireIfStale replaces a kept sandbox whose stored settings differ from this run (changed).

@@ -197,3 +197,26 @@ func TestEmptyCredentialsHaveNoTicksOrDropdowns(t *testing.T) {
 		t.Fatalf("empty inventory = %#v", r)
 	}
 }
+
+func TestIsolatedBrowserKeepsTheSelectedImageAndVariant(t *testing.T) {
+	man := manifest.Manifest{
+		Name: "claudecode",
+		Images: map[string]string{
+			"claudecode":          "base",
+			"claudecode-browser":  "browser",
+			"claudecode-solidity": "solidity",
+		},
+	}
+	p := Params{Target: man.Name, Addons: []string{addonBrowser}}
+	if got := p.isolatedImage(man); got != "browser" {
+		t.Fatalf("normal harness image selection = %q", got)
+	}
+	p.ImageSet = true
+	if got := p.isolatedImage(man); got != "" {
+		t.Fatalf("explicit image was replaced by %q", got)
+	}
+	p.Target, p.ImageSet = "claudecode-solidity", false
+	if got := p.isolatedImage(man); got != "" {
+		t.Fatalf("Solidity variant was replaced by %q", got)
+	}
+}

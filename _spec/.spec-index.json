@@ -332,7 +332,19 @@
     },
     {
       "spec": "_spec/_plans/isolated-browser-profiles.puml",
-      "covers": [],
+      "covers": [
+        "cmd/proveo-entrypoint/browser.go",
+        "internal/backend/sandbox/browser.go",
+        "internal/backend/sandbox/browser_test.go",
+        "internal/guestbrowser/**",
+        "internal/run/choices.go",
+        "internal/run/run.go",
+        "packages/lib/agent-browser",
+        "defs/hermes/browser-launch",
+        "defs/hermes/entrypoint.sh",
+        "e2e/browser_viewport_test.go",
+        "e2e/hermes_test.go"
+      ],
       "fingerprint": null
     },
     {
@@ -1344,12 +1356,11 @@
     {
       "spec": "_spec/internal/sbx/browser-viewport.puml",
       "covers": [
-        "internal/sbx/run.go",
-        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/browser.go",
         "internal/backend/sandbox/report.go",
-        "internal/run/run.go",
-        "e2e/browser_viewport_test.go",
-        "internal/sbx/clone_test.go"
+        "internal/guestbrowser/**",
+        "cmd/proveo-entrypoint/browser.go",
+        "e2e/browser_viewport_test.go"
       ],
       "fingerprint": null
     },

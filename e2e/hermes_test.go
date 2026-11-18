@@ -45,7 +45,7 @@ func TestHermesDesktopOpensOnTheSandboxGateway(t *testing.T) {
 	runEnv := []string{"PROVEO_HOME=" + proveoHome}
 	durable := filepath.Join(proveoHome, "hermes", "data")
 
-	k := launchKit(t, proveoBin, "hermes", work, runEnv, "--addon", "desktop", "--local-model", model)
+	k := launchKit(t, proveoBin, "hermes", work, runEnv, "--addon", "desktop", "--addon", "browser", "--local-model", model)
 
 	t.Run("gateway", func(t *testing.T) {
 		registry := filepath.Join(userData, "connections.json")
@@ -109,6 +109,13 @@ func TestHermesDesktopOpensOnTheSandboxGateway(t *testing.T) {
 		if screen := k.pane(200); strings.Contains(screen, "runs on this HOST") {
 			t.Errorf("proveo warned the session ran on the host:\n%s", tail(screen, 40))
 		}
+	})
+
+	t.Run("isolated browser", func(t *testing.T) {
+		view := awaitBrowserViewport(t, proveoHome)
+		const title = "proveo-desktop-browser"
+		openHermesViewportTab(t, k.name, "data:text/html,<title>"+title+"</title>")
+		awaitViewportTab(t, view, title)
 	})
 
 	marker := fmt.Sprintf("proveo-e2e-%d", time.Now().UnixNano())
@@ -202,6 +209,16 @@ func ollamaServedContext(name string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func openHermesViewportTab(t *testing.T, name, page string) {
+	t.Helper()
+	script := `cd /opt/hermes && HERMES_MANAGED_DIR=/var/lib/proveo/browser/hermes-isolated /opt/hermes/.venv/bin/python -c '` +
+		`from hermes_cli.env_loader import load_hermes_dotenv; load_hermes_dotenv(); ` +
+		`from tools.browser_use_cli import browser_exec; print(browser_exec("new_tab(\"` + page + `\"); print(page_info())"))'`
+	if out, rc := hermesExec(t, name, script, time.Minute); rc != 0 {
+		t.Fatalf("Hermes browser tool exited %d: %s", rc, out)
+	}
 }
 
 // hermesExec runs script as the agent user, the account Desktop's SSH session uses.

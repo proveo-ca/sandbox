@@ -191,9 +191,9 @@ func doList(w io.Writer) error {
 
 // runFlags are the flags shared by `proveo run` and each harness alias.
 type runFlags struct {
-	credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID string
-	printOnly, contSession, listSessions, cloneMode, yes                            bool
-	addons                                                                          []string
+	credentials, localModel, input, output, scope, dataDir, imageOverride, resumeID, browserProfile string
+	printOnly, contSession, listSessions, cloneMode, yes                                            bool
+	addons                                                                                          []string
 }
 
 func (f *runFlags) bind(cmd *cobra.Command) {
@@ -213,6 +213,7 @@ func (f *runFlags) bind(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&f.contSession, "continue", false, "continue the most recent session for this workspace")
 	cmd.Flags().BoolVar(&f.listSessions, "ls", false, "list resumable sessions (cursor/claude/codex) and exit into the tool picker")
 	cmd.Flags().BoolVar(&f.printOnly, "print", false, "write the sbx kit and print the sbx command instead of executing")
+	cmd.Flags().StringVar(&f.browserProfile, "browser-profile", "", "use this named isolated browser profile in the sandbox")
 	cmd.Flags().StringArrayVar(&f.addons, "addon", nil, "interface add-on to enable without the choice form (repeatable): browser, chrome, desktop, android")
 	cmd.Flags().BoolVar(&f.yes, "yes", false, "accept the remembered and flagged choices without drawing the choice form (unattended runs)")
 }
@@ -251,8 +252,9 @@ func (f *runFlags) execute(cmd *cobra.Command, target string, extra []string) er
 		extra = append(append([]string{}, resumeArgs...), extra...)
 	}
 	return run.Do(run.Params{
-		Target: target, Image: image, Credentials: f.credentials,
-		CredsSet: credsSet, LocalModel: f.localModel,
+		Target: target, Image: image, ImageSet: f.imageOverride != "", Credentials: f.credentials,
+		BrowserProfile: f.browserProfile,
+		CredsSet:       credsSet, LocalModel: f.localModel,
 		Input: f.input, Output: f.output, Scope: f.scope, DataDir: f.dataDir,
 		PrintOnly: f.printOnly, Extra: extra,
 		Clone: f.cloneMode, CloneSet: cmd.Flags().Changed("clone"),

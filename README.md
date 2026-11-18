@@ -29,6 +29,11 @@ proveo claudecode
 
 Choose from `claudecode`, `codex`, `cursor`, `opencode`, and `hermes`.
 
+Select **Browser → isolated fresh** or pass `--addon browser` to browse inside the sandbox.
+Open the viewport URL from the run's interface to monitor the agent or take control and sign in.
+Use `--browser-profile work` to keep that workspace's logins in a named sandbox between runs.
+Use `--addon chrome` for sign-in flows that require Chrome on the host.
+
 - `proveo init` sets up sbx and checks your machine.
 - `proveo schedule` runs agents unattended from `~/.proveo/schedule.yml`.
 - `proveo clean` reclaims resources left by interrupted runs.

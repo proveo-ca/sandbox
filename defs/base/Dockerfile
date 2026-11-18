@@ -126,6 +126,7 @@ RUN set -e; \
     && rm -f /tmp/agent-browser.tgz \
     && /usr/local/sbin/proveo-harden /usr /opt
 
+RUN install -d -m 0700 -o 1000 -g 1000 /var/lib/proveo/browser
 COPY --chmod=0755 packages/lib/agent-browser packages/lib/proveo-host-cdp /usr/local/bin/
 COPY defs/base-node-browser/skills/ /opt/proveo/skills/
 
