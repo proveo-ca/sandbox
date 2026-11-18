@@ -11,18 +11,10 @@ import (
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/cdn/release"
+	"github.com/proveo-ca/proveo/internal/maintain"
 )
 
 const goreleaserPin = "2.17.0"
-
-// runs renders each run entry of task: the command, or "{ task = name }".
-func runs(task *miseTable) []string {
-	var out []string
-	for _, r := range task.run() {
-		out = append(out, r.String())
-	}
-	return out
-}
 
 func TestGoreleaserIsPinnedPerTask(t *testing.T) {
 	t.Parallel()
@@ -48,13 +40,12 @@ func TestGoreleaserIsPinnedPerTask(t *testing.T) {
 			}
 		}
 	}
-	slices.Sort(runners)
 	slices.Sort(pinned)
-	if want := []string{"dev-cli", "test-images"}; !slices.Equal(runners, want) {
-		t.Errorf("goreleaser runs in tasks %v, want %v", runners, want)
+	if len(runners) > 0 {
+		t.Errorf("goreleaser runs from the mise run strings of %v; the release and the image gate run it from Go", runners)
 	}
-	if want := []string{"deploy", "dev-cli", "test-images"}; !slices.Equal(pinned, want) {
-		t.Errorf("tools.goreleaser is pinned on %v, want %v: deploy --cli runs it from internal/cdn/release", pinned, want)
+	if want := []string{"deploy", "e2e", "test-images"}; !slices.Equal(pinned, want) {
+		t.Errorf("tools.goreleaser is pinned on %v, want %v: deploy --cli and the image gate run it from Go", pinned, want)
 	}
 }
 
@@ -81,7 +72,7 @@ func TestWranglerInstallsThroughMise(t *testing.T) {
 	tools := cfg.tables["tools"].fields
 	wrangler := tools["npm:wrangler"].table
 	if wrangler == nil {
-		t.Fatal(`[tools] pins no "npm:wrangler" table; deploy --cli and dev-cli run bare wrangler`)
+		t.Fatal(`[tools] pins no "npm:wrangler" table; deploy --cli runs bare wrangler`)
 	}
 	var builds []string
 	for _, item := range wrangler["allow_builds"].items {
@@ -122,7 +113,7 @@ func contractTests(t *testing.T) []string {
 func TestTheCLIReleaseRunsInsideDeploy(t *testing.T) {
 	t.Parallel()
 	cfg := readMise(t)
-	for _, gone := range []string{"release", "release-ledger", "deploy-cli", "build-cli", "snapshot", "stage-cdn"} {
+	for _, gone := range []string{"release", "release-ledger", "deploy-cli", "build-cli", "snapshot", "stage-cdn", "dev-cli"} {
 		if _, ok := cfg.tasks[gone]; ok {
 			t.Errorf("mise.toml declares %s; build --cli and deploy --cli replace it", gone)
 		}
@@ -132,7 +123,7 @@ func TestTheCLIReleaseRunsInsideDeploy(t *testing.T) {
 	}
 	for name, task := range cfg.tasks {
 		for _, cmd := range task.cmds() {
-			if strings.Contains(cmd, "wrangler deploy") || strings.Contains(cmd, "git push") || strings.Contains(cmd, "git tag") {
+			if strings.Contains(cmd, "wrangler ") || strings.Contains(cmd, "git push") || strings.Contains(cmd, "git tag") {
 				t.Errorf("%s runs %q; deploy --cli alone publishes, tags and pushes, after the retirement ledger", name, cmd)
 			}
 		}
@@ -148,18 +139,15 @@ func TestTheCLIReleaseRunsInsideDeploy(t *testing.T) {
 
 func TestCDNStagingFollowsAFreshSnapshot(t *testing.T) {
 	t.Parallel()
-	cfg := readMise(t)
-	fresh := []string{"goreleaser release --snapshot --clean", "go run ./internal/cdn/stage"}
-	dev := runs(cfg.task(t, "dev-cli"))
-	if want := append(slices.Clone(fresh), "wrangler dev --cwd apps/cli"); !slices.Equal(dev, want) {
-		t.Errorf("dev-cli runs %q, want %q", dev, want)
+	var gate []string
+	for _, c := range maintain.ImageGatePlan() {
+		gate = append(gate, strings.Join(c.Argv, " "))
 	}
-	images := cfg.task(t, "test-images")
-	if got := runs(images); len(got) < 2 || !slices.Equal(got[:2], fresh) {
-		t.Errorf("test-images runs %q, want it to start with %q", got, fresh)
+	if fresh := []string{"goreleaser release --snapshot --clean", "go run ./internal/cdn/stage"}; len(gate) < 2 || !slices.Equal(gate[:2], fresh) {
+		t.Errorf("the image gate runs %q, want it to start with %q", gate, fresh)
 	}
-	if v := images.fields["env"].table["PROVEO_INSTALLTEST_CDN"]; !v.isStr || v.str == "" {
-		t.Error("test-images' env table sets no PROVEO_INSTALLTEST_CDN; the installer suite would stage its own CDN")
+	if !slices.Contains(maintain.ImageGateEnv, "PROVEO_INSTALLTEST_CDN=apps/cli/public/cli") {
+		t.Error("the image gate sets no PROVEO_INSTALLTEST_CDN; the installer suite would stage its own CDN")
 	}
 	if src := readRepoFile(t, "internal/cdn/stage/main.go"); !strings.Contains(src, "\npackage main\n") {
 		t.Error("internal/cdn/stage/main.go is not a package main; go run cannot start it")

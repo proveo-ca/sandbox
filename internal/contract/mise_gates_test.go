@@ -168,18 +168,3 @@ func TestOperatorEnvTreatsEmptyAsUnset(t *testing.T) {
 		}
 	}
 }
-
-func TestE2ELanesKeepTheirTimeoutDefaults(t *testing.T) {
-	t.Parallel()
-	task := readMise(t).task(t, "test-e2e")
-	want := []string{"go test -tags=e2e ./e2e/ -count=1 -timeout " + timeoutArg("45m")}
-	if got := task.cmds(); !slices.Equal(got, want) || len(task.run()) != 1 {
-		t.Errorf("test-e2e runs %q, want %q", got, want)
-	}
-	if _, ok := task.fields["usage"]; ok {
-		t.Error("test-e2e declares a usage spec; without one, extra args append to its go test line")
-	}
-	if !slices.Contains(task.list("depends"), "test-images") {
-		t.Error("test-e2e must depend on test-images")
-	}
-}

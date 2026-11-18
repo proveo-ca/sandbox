@@ -87,3 +87,21 @@ func TestFleetMainPutsTheCLIFirstWhenAsked(t *testing.T) {
 		}
 	}
 }
+
+func TestFleetMainTestWithoutATargetIsTheImageGate(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"-print", "test"}, {"-print", "test", "all"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 0 {
+			t.Fatalf("run(%q) = %d; stderr:\n%s", args, code, stderr.String())
+		}
+		if !strings.HasPrefix(stdout.String(), "# image gate\ngoreleaser release --snapshot --clean\n") {
+			t.Errorf("run(%q) printed\n%s\nwant the image gate", args, stdout.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"-print", "test", "codex"}, noEnv, repoRoot, &stdout, &stderr); code != 0 ||
+		!strings.Contains(stdout.String(), "-run ^TestImageCodex$ ./internal/imagetest/") || strings.Contains(stdout.String(), "goreleaser") {
+		t.Errorf("run(test codex) = %d, printed\n%s\nwant the codex suite alone", code, stdout.String())
+	}
+}

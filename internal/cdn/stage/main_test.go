@@ -316,7 +316,7 @@ func TestStageRefusesADistMissingAPlatform(t *testing.T) {
 	t.Parallel()
 	root, arts := newDist(t, allGoos, allGoarch)
 	writeArtifacts(t, root, without(arts, "proveo-darwin-arm64"))
-	refuses(t, root, "proveo-darwin-arm64", "mise run dev-cli", "mise run deploy --cli")
+	refuses(t, root, "proveo-darwin-arm64", "mise run test-images", "mise run deploy --cli")
 	if _, err := os.Stat(treePath(root, "bin")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a refused stage created bin/ (stat: %v)", err)
 	}
@@ -354,7 +354,7 @@ func TestStageRefusesADistWithoutMetadata(t *testing.T) {
 		} else {
 			writeFile(t, path, meta)
 		}
-		t.Run(name, func(t *testing.T) { refuses(t, root, "mise run dev-cli") })
+		t.Run(name, func(t *testing.T) { refuses(t, root, "mise run test-images") })
 	}
 }
 

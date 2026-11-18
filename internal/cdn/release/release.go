@@ -431,8 +431,7 @@ func StagedRefusal(r Repo) string {
 	}
 	if tag == "" {
 		sha, _ := r.git("rev-parse", "--short", "HEAD")
-		return "HEAD " + sha + " carries no vX.Y.Z tag; `mise run deploy --cli` cuts and tags one " +
-			"(mise run dev-cli previews a snapshot)"
+		return "HEAD " + sha + " carries no vX.Y.Z tag; `mise run deploy --cli` cuts and tags one"
 	}
 	m, err := readManifest(filepath.Join(r.Root, filepath.FromSlash(LatestJSON)))
 	if err != nil {

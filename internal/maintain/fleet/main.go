@@ -1,5 +1,5 @@
 // SPEC: _spec/internal/maintain/image-build-deploy.puml
-// Command fleet builds, deploys or tests harness images and, with -cli, the CLI; mise run build, deploy and test-defs call it.
+// Command fleet builds, deploys or tests harness images and, with -cli, the CLI; mise run build, deploy and test-images call it.
 package main
 
 import (
@@ -44,11 +44,18 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	}
 	rest := fs.Args()
 	if len(rest) == 0 || len(rest) > 2 || (rest[0] != "build" && rest[0] != "deploy" && rest[0] != "test") ||
-		(len(rest) == 1 && !*cli) || (*cli && rest[0] == "test") {
+		(len(rest) == 1 && !*cli && rest[0] != "test") || (*cli && rest[0] == "test") {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	pr := ui.New(stderr)
+	if rest[0] == "test" && (len(rest) == 1 || rest[1] == "all") {
+		if err := maintain.RunImageGate(*printOnly, stdout); err != nil {
+			pr.Failf("%v", err)
+			return 1
+		}
+		return 0
+	}
 	if *cli {
 		if err := cliVerb(rest[0], *cliVersion, *yes, *printOnly, cwd, stdout, pr); err != nil {
 			pr.Failf("%v", err)

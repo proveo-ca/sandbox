@@ -17,7 +17,7 @@ func TestRootHelpHidesMaintainerCommands(t *testing.T) {
 			t.Errorf("root help lists %q:\n%s", strings.TrimSpace(hidden), out)
 		}
 	}
-	miseTask := map[string]string{"build": "build", "deploy": "deploy", "test": "test-defs"}
+	miseTask := map[string]string{"build": "build", "deploy": "deploy", "test": "test-images"}
 	var sawCursor bool
 	for _, c := range root.Commands() {
 		switch c.Name() {

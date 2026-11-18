@@ -22,7 +22,7 @@ import (
 const (
 	cdnTree    = "apps/cli/public/cli"
 	cdnArchive = "cdn-proveo"
-	rebuild    = "rebuild dist/: `mise run dev-cli` snapshots it, `mise run deploy --cli` releases it"
+	rebuild    = "rebuild dist/: `mise run test-images` snapshots it, `mise run deploy --cli` releases it"
 )
 
 func main() {

@@ -100,93 +100,39 @@ run = [
   "go tool covdata textfmt -i=cov/unit -o=cov/coverage.out",
 ]
 
-# SPEC: _spec/internal/cdn/distribution-update.puml
+# SPEC: _spec/internal/cdn/distribution-update.puml, _spec/internal/maintain/image-build-deploy.puml
 [tasks.test-images]
-description = "Every image suite (TestImage*) + the installer suite against a fresh snapshot CDN stage (needs Docker; slow)"
+description = "Image gate: snapshot CDN stage, the installer suite, then every image suite (TestImage*); a target runs only that def's suite (needs Docker; slow)"
 dir = "{{config_root}}"
 tools = { goreleaser = "2.17.0" }
-env = { PROVEO_INSTALLTEST_CDN = "apps/cli/public/cli" }
-run = [
-  "goreleaser release --snapshot --clean",
-  "go run ./internal/cdn/stage",
-  "go test -count=1 ./internal/installtest/",
-  "go test -tags=image -count=1 -timeout 60m ./internal/imagetest/",
-]
-
-[tasks.test-defs]
-description = "Run the image suite of a def, or of all (each suite once; bases have none)"
-dir = "{{config_root}}"
 usage = '''
-arg "<target>" help="a registry target, or all" {
+arg "[target]" help="one def's image suite; none or all runs the whole gate" {
   choices "all" "base" "base-node" "base-node-browser" "claudecode" "claudecode-browser" "claudecode-solidity" "codex" "codex-browser" "cursor" "cursor-browser" "hermes" "opencode" "opencode-browser"
 }
-flag "--print" help="print the go test lines instead of running them"
+flag "--print" help="print the plan instead of running it"
 '''
-run = "go run ./internal/maintain/fleet {% if usage.print %}-print {% endif %}test {{ usage.target | quote }}"
+run = "go run ./internal/maintain/fleet {% if usage.print %}-print {% endif %}test{% if usage.target %} {{ usage.target | quote }}{% endif %}"
 
-[tasks.test-e2e]
-description = "Everything e2e up to tier 3, on the sbx runtime: image + consumer suites, then the Go agent suite (opt-in gates off; ~45m); extra args reach go test, --skip-deps skips the image suites"
+# SPEC: _spec/tests/testing-strategy.puml, _spec/_devops/release-gate.puml
+[tasks.e2e]
+description = "E2E on the sbx runtime: the image gate, then the e2e suite; --idle, --ladder, --toolchain and --full add the opt-in passes, each its own go test process, past a red one"
 dir = "{{config_root}}"
-depends = ["test-images"]
-run = "go test -tags=e2e ./e2e/ -count=1 -timeout {% set timeout = get_env(name='PROVEO_TEST_GO_TIMEOUT', default='') | trim %}{% if timeout %}{{ timeout | quote }}{% else %}45m{% endif %}"
+tools = { goreleaser = "2.17.0" }
+usage = '''
+arg "[agent]..." var=#true help="agents for --idle and --ladder (default: all; a terminal with none named opens a checklist)" {
+  choices "all" "claudecode" "codex" "cursor" "opencode"
+}
+flag "--idle" help="idle-survival pass for claudecode, cursor and opencode (PROVEO_IDLE_FOR, default 45s)"
+flag "--ladder" help="the sbx ladder, one go test process per agent"
+flag "--toolchain" help="run the suite with PROVEO_TOOLCHAIN_TEST on"
+flag "--full" help="--toolchain, --idle and --ladder, with the suite's idle gate on (150m); PROVEO_CAPACITY_TEST stays off: it exhausts the host by design"
+flag "--no-images" help="skip the image gate"
+flag "--run <regex>" help="go test -run for the suite pass"
+flag "--print" help="print the passes instead of running them"
+'''
+run = "go run ./internal/maintain/e2e {% if usage.print %}-print {% endif %}{% if usage.idle %}-idle {% endif %}{% if usage.ladder %}-ladder {% endif %}{% if usage.toolchain %}-toolchain {% endif %}{% if usage.full %}-full {% endif %}{% if usage.no_images %}-no-images {% endif %}{% if usage.run %}-run={{ usage.run | quote }}{% endif %}{% for a in usage.agent %} {{ a | quote }}{% endfor %}"
 
-# SPEC: _spec/_devops/release-gate.puml
-[tasks.test-e2e-full]
-description = "test-e2e plus tier 4: the e2e suite with idle/toolchain gates on, test-idle, then test-ladder; every half runs, and a skip inside an opted-in gate fails. PROVEO_CAPACITY_TEST stays off: it exhausts the host by design."
-dir = "{{config_root}}"
-depends = ["test-images"]
-usage = 'arg "[go_test_args]..." var=#true help="go test arguments for the e2e pass; test-idle and test-ladder take none"'
-run = "mise run --continue-on-error e2e-gated{% for a in usage.go_test_args %} {{ a | quote }}{% endfor %} ::: test-idle ::: test-ladder"
-
-[tasks.e2e-gated]
-description = "test-e2e-full's first half: the e2e suite with PROVEO_IDLE_TEST and PROVEO_TOOLCHAIN_TEST on"
-hide = true
-dir = "{{config_root}}"
-env = { PROVEO_IDLE_TEST = "1", PROVEO_TOOLCHAIN_TEST = "1" }
-run = "go test -tags=e2e ./e2e/ -count=1 -timeout {% set timeout = get_env(name='PROVEO_TEST_GO_TIMEOUT', default='') | trim %}{% if timeout %}{{ timeout | quote }}{% else %}150m{% endif %}"
-
-[tasks.test-idle]
-description = "Idle-survival sweep for claudecode, cursor and opencode, idling PROVEO_IDLE_FOR (default 45s) (host only: needs sbx; a skip fails it)"
-dir = "{{config_root}}"
-wait_for = ["e2e-gated"]
-env = { PROVEO_IDLE_TEST = "1", PROVEO_IDLE_TARGETS = "claudecode,cursor,opencode", PROVEO_IDLE_FOR = "{% set idle = get_env(name='PROVEO_IDLE_FOR', default='') | trim %}{% if idle %}{{ idle }}{% else %}45s{% endif %}" }
-run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestAgentSurvivesIdleAtPrompt$ -v"
-
-[tasks.test-ladder]
-description = "Climb the sbx ladder for every def, one go test process each, past a red def (host only: needs sbx)"
-dir = "{{config_root}}"
-wait_for = ["test-idle"]
-run = "mise run --continue-on-error --jobs=1 ladder:claudecode ::: ladder:codex ::: ladder:cursor ::: ladder:opencode"
-
-[tasks."ladder:claudecode"]
-description = "Climb the sbx ladder for claudecode (a skip fails it)"
-hide = true
-dir = "{{config_root}}"
-env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "claudecode" }
-run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
-
-[tasks."ladder:codex"]
-description = "Climb the sbx ladder for codex (a skip fails it)"
-hide = true
-dir = "{{config_root}}"
-env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "codex" }
-run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
-
-[tasks."ladder:cursor"]
-description = "Climb the sbx ladder for cursor (a skip fails it)"
-hide = true
-dir = "{{config_root}}"
-env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "cursor" }
-run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
-
-[tasks."ladder:opencode"]
-description = "Climb the sbx ladder for opencode (a skip fails it)"
-hide = true
-dir = "{{config_root}}"
-env = { PROVEO_LADDER_TEST = "1", PROVEO_LADDER_TARGET = "opencode" }
-run = "go test -tags=e2e -count=1 -timeout 30m ./e2e/ -run=^TestSandboxLadder$ -v"
-
-# ── Maintainer: build, preview, deploy ──────────────────────
+# ── Maintainer: build, deploy ───────────────────────────────
 
 # SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/cmd/proveo/usage.puml
 [tasks.build]
@@ -202,17 +148,6 @@ flag "--no-cache" help="pass --no-cache to docker buildx build"
 flag "--print" help="print the wave plan instead of running it"
 '''
 run = "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.no_cache %}-no-cache {% endif %}{% if usage.print %}-print {% endif %}{% if usage.cli %}-cli {% endif %}build{% if usage.target %} {{ usage.target | quote }}{% endif %}"
-
-# SPEC: _spec/internal/cdn/distribution-update.puml
-[tasks.dev-cli]
-description = "Snapshot HEAD, stage the CDN tree, serve apps/cli locally with wrangler dev (never deploys)"
-dir = "{{config_root}}"
-tools = { goreleaser = "2.17.0" }
-run = [
-  "goreleaser release --snapshot --clean",
-  "go run ./internal/cdn/stage",
-  "wrangler dev --cwd apps/cli",
-]
 
 # SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/internal/cdn/distribution-update.puml
 [tasks.deploy]

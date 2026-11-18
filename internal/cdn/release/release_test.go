@@ -284,7 +284,7 @@ func TestStagedRefusalNamesTheFixInOneLine(t *testing.T) {
 	t.Parallel()
 	work, _ := newRepo(t)
 	untagged := StagedRefusal(work)
-	for _, want := range []string{"carries no vX.Y.Z tag", "mise run deploy --cli", "mise run dev-cli"} {
+	for _, want := range []string{"carries no vX.Y.Z tag", "mise run deploy --cli"} {
 		if !strings.Contains(untagged, want) {
 			t.Errorf("an untagged HEAD refuses with %q, want it to name %q", untagged, want)
 		}
