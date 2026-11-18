@@ -32,22 +32,28 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' diagram, _spec/tests/30-infra-integration.puml, is retired with it. The layer
 ' numbers are kept so 40-/41-/42- spec names stay stable.
 '
-' ── COVERAGE LANES: mise tasks (2026-11-12) ─────────────────────────────────
+' ── COVERAGE LANES: mise tasks (2026-11-12; folded 2026-11-17) ──────────────
 ' covers: mise.toml
 ' Replaced scripts/go-test-coverage.sh (2026-09-22), then the Go coverage
 ' verb that replaced it (2026-11-12; maintainer tooling is mise tasks:
 ' _spec/cmd/proveo/usage.puml).
-'   test-go ......... rm -rf cov/unit, mkdir -p cov/unit, then go test [-race]
-'                     -cover -covermode=atomic ./... -args
-'                     -test.gocoverdir={{ config_root | quote }}/cov/unit
-'   coverage ........ wait_for test-go; go tool covdata percent and textfmt
+'   test ............ rm -rf cov/unit, mkdir -p cov/unit, go test [-race]
+'                     [--baseline's -skip] -cover -covermode=atomic
+'                     [go_test_args, default ./...] -args
+'                     -test.gocoverdir={{ config_root | quote }}/cov/unit,
+'                     then go tool covdata percent and textfmt
 '                     -i=cov/unit -o=cov/coverage.out
-'   test-go-e2e ..... go test -tags=e2e ./e2e/ -count=1 -timeout <PROVEO_TEST_GO_TIMEOUT
-'   test-e2e          as one quoted word, or 45m when it is unset or blank>;
-'                     extra args append (no usage spec)
-' Both coverage runs: `mise run -c test-go ::: coverage`.
-' * test-go runs default tags only; //go:build excludes the e2e and image lanes.
-' * -race needs cgo. `--no-race` drops it on test-go and baseline. HISTORY:
+'   test-e2e ........ depends test-images, then go test -tags=e2e ./e2e/
+'                     -count=1 -timeout <PROVEO_TEST_GO_TIMEOUT as one quoted
+'                     word, or 45m when it is unset or blank>; extra args
+'                     append (no usage spec); `mise run --skip-deps test-e2e`
+'                     runs the Go suite alone
+' HISTORY, 2026-11-12 to 2026-11-17: test-go wrote cov/unit, a coverage task
+' waited for it (`mise run -c test-go ::: coverage`), and test-go-e2e ran the
+' e2e line without test-images. DECIDED 2026-11-17: one test task owns the
+' unit lane and its report; --skip-deps replaces test-go-e2e.
+' * test runs default tags only; //go:build excludes the e2e and image lanes.
+' * -race needs cgo. `--no-race` drops it on test (ci passes it through). HISTORY:
 '   a `go test -race -c` probe once fell back to coverage-only silently; a
 '   host without cgo now fails until the flag is passed. NOT CHOSEN: a Tera
 '   exec() race probe (_spec/tests/20-contract.puml, no exec()); dropping the
@@ -56,7 +62,8 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '   default='') | trim %}{% if v %}…{% else %}<default>{% endif %}`, so an
 '   empty or blank value falls back like an unset one. NOT CHOSEN: get_env's
 '   own default. MEASURED on mise 2026.10.17: it applies only to an unset
-'   variable, so `PROVEO_TEST_GO_TIMEOUT= mise run -n test-go-e2e` printed a
+'   variable, so `PROVEO_TEST_GO_TIMEOUT= mise run -n test-go-e2e` (today
+'   `mise run -n --skip-deps test-e2e`) printed a
 '   bare -timeout.
 ' * coverage reads cov/unit directly; a missing dir fails with covdata's own
 '   "reading inputs" error. HISTORY: a merge step also took cov/integration,
@@ -720,7 +727,7 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 '
 ' ── A WEDGED GUEST HANGS sbx rm ────────────────────────────────────────────
 ' MEASURED 2026-10-28, sbx 0.50.0, the e2e coverage lane at PROVEO_TEST_GO_TIMEOUT=150m
-'   (today `PROVEO_TEST_GO_TIMEOUT=150m mise run test-go-e2e`):
+'   (today `PROVEO_TEST_GO_TIMEOUT=150m mise run --skip-deps test-e2e`):
 '   00:01:00  seed_ready/hermes creates proveo-hermes-89d1a8c6 FROM proveo/hermes:latest
 '             (57 layers; hermes:local absent, so ResolveImage fell back)
 '   00:02:01  the probe's `sbx exec` hits its 1m deadline → t.Fatalf

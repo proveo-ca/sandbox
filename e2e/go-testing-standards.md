@@ -78,12 +78,11 @@ go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 300s
 
 | Lane | How |
 |------|-----|
-| Unit + contract | `mise run test-go`: `go test -race -cover -covermode=atomic ./... -args -test.gocoverdir=<repo>/cov/unit` (`--no-race` without cgo) |
-| Report | `mise run coverage`: `go tool covdata percent -i=cov/unit` and `textfmt -i=cov/unit -o=cov/coverage.out` |
+| Unit + contract | `mise run test`: `go test -race -cover -covermode=atomic ./... -args -test.gocoverdir=<repo>/cov/unit` (`--no-race` without cgo, `--baseline` skips the known-red list) |
+| Report | the same `mise run test`, after a green go test: `go tool covdata percent -i=cov/unit` and `textfmt -i=cov/unit -o=cov/coverage.out` |
 
-`go tool covdata` reads `cov/unit` directly; no merge step. Run both with
-`mise run -c test-go ::: coverage`. Publish percent/HTML as CI artifacts; **no hard % gate**
-until a baseline exists.
+`go tool covdata` reads `cov/unit` directly; no merge step. Publish percent/HTML as CI
+artifacts; **no hard % gate** until a baseline exists.
 
 ## Canonical shape
 
@@ -110,6 +109,6 @@ func TestDetect(t *testing.T) {
 }
 ```
 
-**Two sweeps.** `mise run test-e2e` is everything up to tier 3 on the sbx runtime — the image and consumer-CLI suites, then the Go agent suite with its opt-in gates off (~45 minutes). `mise run test-e2e-full` adds tier 4: the idle-survival and toolchain gates on, and the sbx ladder for every def. `test-go-e2e` alone is only the Go suite. A release claim cites `test-e2e-full`; a branch check cites `test-e2e`.
+**Two sweeps.** `mise run test-e2e` is everything up to tier 3 on the sbx runtime — the image and consumer-CLI suites, then the Go agent suite with its opt-in gates off (~45 minutes). `mise run test-e2e-full` adds tier 4: the idle-survival and toolchain gates on, and the sbx ladder for every def. `mise run --skip-deps test-e2e` alone is only the Go suite; extra args reach `go test`. A release claim cites `test-e2e-full`; a branch check cites `test-e2e`.
 
 **sbx is the runtime under test.** proveo has no other backend, so both sweeps assert only what an operator gets from sbx.

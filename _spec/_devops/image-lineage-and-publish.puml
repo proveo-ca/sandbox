@@ -137,6 +137,14 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' disagree with itself. TestImageSuitesResolveRatherThanPinThePublishTag now
 ' fails any line in internal/imagetest/*_test.go that names :latest outside
 ' imagetest.Resolve.
+'
+' ── A DEPLOY LEAVES NO :local BEHIND (DECIDED 2026-11-17) ───────────────────
+' `mise run deploy` untags each deployed target's :local once every wave
+' succeeds (maintain.UntagLocalPlan; _spec/internal/maintain/image-build-deploy.puml).
+' The local store then holds the promoted tag alone, so ResolveImage has one
+' candidate and posture labels the run "(published)". A newer local build
+' writes :local again and wins by recency as before. HISTORY: until 2026-11-17
+' :local and :latest both stayed, on one image ID with one build time.
 
 node "internal/imagebuild" as HOST <<host>> {
   component "ImageRef · TargetRef\n<override> <repo> <tag>" as REF <<app>>
@@ -156,7 +164,7 @@ folder "Lineage" as CHAIN <<host>> {
 
 node "Tag policy" as TAGS <<host>> {
   component "mise run build\n--load → :local (never :latest)" as BUILD <<app>>
-  component "mise run deploy\nrequire :local → retag → --push" as DEPLOY <<app>>
+  component "mise run deploy\nrequire :local → retag → --push\n→ untag :local after every wave" as DEPLOY <<app>>
   component "maintain.ResolveImage\nnewer of :local / :latest" as RESOLVE <<app>>
   component "imagetest.Resolve(target, ref)\na PROVEO_TEST_<TARGET>_IMAGE pin as given\nelse ResolveImage" as SHRESOLVE <<app>>
 }

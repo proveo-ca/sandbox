@@ -78,9 +78,9 @@ skinparam noteTextAlignment left
 ' ── R5 · A SKIP MUST SAY WHICH KIND OF SKIP IT IS ──────────────────────────
 ' "Absent by design" and "we forgot" are INDISTINGUISHABLE in test output, and
 ' this has cost real accuracy twice already — release-gate.puml records
-' `ladder-all` misreading the ladder verdict in both directions, once certifying
-' four climbs that never happened and once reporting a def that passed every
-' rung as not-run.
+' `ladder-all` (test-ladder since 2026-11-17) misreading the ladder verdict in
+' both directions, once certifying four climbs that never happened and once
+' reporting a def that passed every rung as not-run.
 '
 ' So a skip is only acceptable when the reason is recorded where the reader
 ' lands: in the def's manifest or in this sheet, not in the silence of a green
@@ -150,7 +150,7 @@ end note
 
 note bottom of R5
   **This has cost accuracy twice.** release-gate
-  records ""ladder-all"" misreading the verdict
+  records the ladder task misreading the verdict
   both ways — certifying four climbs that never
   ran, then calling a def that passed every rung
   not-run. A silent skip is not a result.

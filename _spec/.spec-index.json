@@ -131,7 +131,8 @@
         "internal/contract/base_template_test.go",
         "internal/contract/release_gate_test.go",
         "internal/contract/release_targets_test.go",
-        "internal/contract/retirement_test.go"
+        "internal/contract/retirement_test.go",
+        "internal/cdn/release/release.go"
       ],
       "fingerprint": null
     },
@@ -832,6 +833,9 @@
         "apps/cli/public/cli/**",
         "internal/cdn/stage/main.go",
         "internal/cdn/stage/main_test.go",
+        "internal/cdn/release/release.go",
+        "internal/cdn/release/release_test.go",
+        "internal/maintain/fleet/main.go",
         "internal/contract/cli_tasks_test.go",
         "mise.toml",
         ".goreleaser.yaml",

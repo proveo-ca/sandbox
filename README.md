@@ -58,16 +58,16 @@ offering.
 ### Publish a CLI release
 
 ```bash
-git tag -a v0.1.0 -m "…"
-git push origin v0.1.0          # optional but good
-mise run deploy-cli
+mise run deploy --cli                          # next patch; --cli-version minor|major|vX.Y.Z
+mise run deploy all --cli                      # the CLI release first, then every image
 ```
 
-`deploy-cli` ships a `v*` tag only. It checks that HEAD carries the tag and that no
-retirement outlives a release, builds the multi-arch binaries (goreleaser, no GitHub Release),
-stages `latest.json` + checksums into `apps/cli/public/cli`, asks to confirm, and deploys to
-Cloudflare via Wrangler. An untagged HEAD refuses before goreleaser runs; `mise run dev-cli`
-previews a snapshot locally instead. Details: [`apps/cli/README.md`](apps/cli/README.md).
+`deploy --cli` owns the tag. It checks that no retirement outlives a release and asks before it
+writes (`--yes` answers for a script). It requires `main` level with `origin/main` and a clean
+tree. It builds the multi-arch binaries at the next version (goreleaser, no GitHub Release),
+stages `latest.json` + checksums into `apps/cli/public/cli`, commits `latest.json` and tags that
+commit. Then it deploys to Cloudflare via Wrangler and pushes `main` and the tag.
+`mise run dev-cli` previews a snapshot locally instead. Details: [`apps/cli/README.md`](apps/cli/README.md).
 
 ## Quickstart — try it on the sample
 

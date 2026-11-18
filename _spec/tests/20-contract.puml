@@ -68,7 +68,7 @@ skinparam packageStyle rectangle
 
 title Layer 2 · Contract — Go builders + goldens (no Docker)
 
-actor "go test ./cmd/... ./internal/...\n(mise test-go)" as Runner <<actor>>
+actor "go test ./cmd/... ./internal/...\n(mise run test)" as Runner <<actor>>
 
 package "Contract suites (Go)" as Suites {
   component "cmd/proveo\nproviderLookup · sbx plan goldens\nposture golden" as CLI <<app>>

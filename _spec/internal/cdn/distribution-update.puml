@@ -7,38 +7,62 @@
 ' covers: apps/cli/public/cli/**
 ' covers: internal/cdn/stage/main.go
 ' covers: internal/cdn/stage/main_test.go
+' covers: internal/cdn/release/release.go
+' covers: internal/cdn/release/release_test.go
+' covers: internal/maintain/fleet/main.go
 ' covers: internal/contract/cli_tasks_test.go
 ' covers: mise.toml
 ' covers: .goreleaser.yaml
 '
-' ── MAINTAINER RELEASE PATH: mise tasks + goreleaser (2026-11-12) ──────────
-' mise.toml owns the path; the one Go program on it is internal/cdn/stage.
-'   snapshot ...... goreleaser release --snapshot --clean into dist/
-'                   (version X-SNAPSHOT-<sha>)
-'   release ....... depends release-ledger (a tagged HEAD and the retirement
-'                   ledger, _spec/_devops/release-gate.puml), then goreleaser
-'                   release --clean --skip=publish, then stage-cdn
-'   stage-cdn ..... hidden; go run ./internal/cdn/stage
-'   deploy-cli .... depends release, asks to confirm, then wrangler deploy
-'                   --cwd apps/cli; scripted: `mise run --yes deploy-cli`
-'   dev-cli ....... snapshot, stage-cdn, then wrangler dev; it never deploys
-'   test-images ... snapshot and stage-cdn first, then the installer suite
-'                   against that tree (PROVEO_INSTALLTEST_CDN)
-'   build-cli ..... go install proveo and proveo-entrypoint into GOPATH/bin
-'                   (env GOBIN = false; a `go env -w GOBIN` entry still
-'                   wins), version dev@<sha> from build info
-' CONFIRM GUARDS deploy-cli ALONE. An empty templated confirm still prompts,
-' so a confirm on deploy would force --yes on every scripted deploy. Without
-' a TTY `mise run -n deploy-cli` exits 1 at the confirm; `-n --yes` prints
-' the plan. A "no" comes after release ran, so dist/ and apps/cli/public/cli
-' stay restaged.
-' GOBIN = false lets go install write to its own GOPATH/bin. NOT CHOSEN:
-' GOBIN from get_env(GOPATH) (misses `go env -w GOPATH`); GOBIN from exec()
-' (a template renders with the caller's PATH); GOENV=off (also drops
-' GOPRIVATE and GOPROXY).
-' goreleaser 2.17.0 is pinned on snapshot and release alone, never in [tools],
-' so fmt, lint and post-commit never resolve it. goreleaser lists its binaries
-' explicitly, and no maintainer program is among them.
+' ── MAINTAINER RELEASE PATH: mise run deploy --cli (2026-11-17) ───────────
+' mise.toml holds three CLI entry points; Go owns every git write.
+'   build --cli ... the fleet main runs maintain.CLIBuildPlan: go install
+'                   proveo and proveo-entrypoint into GOPATH/bin, GOBIN dropped
+'                   from the environment and CGO_ENABLED=0, version dev@<sha>
+'                   from build info; a target is optional with --cli
+'   dev-cli ....... goreleaser release --snapshot --clean, go run
+'                   ./internal/cdn/stage, then wrangler dev; it never deploys
+'   test-images ... the same snapshot and stage first, then the installer
+'                   suite against that tree (PROVEO_INSTALLTEST_CDN)
+'   deploy --cli .. internal/cdn/release.Deploy, before any image wave:
+'     1 ledger .... PROVEO_RELEASE_GATE=1 go test of
+'                   TestNoRetirementOutlivesOneRelease (release-gate.puml)
+'     2 ask ....... one y/N question on a TTY, or --yes; nothing is written
+'                   before it, so a "no" leaves dist/ and the tree untouched
+'     3 cut ....... HEAD on main; git fetch --tags origin main; HEAD equal to
+'                   origin/main; a clean tree except latest.json, restored
+'                   from HEAD; the tag is --cli-version (patch by default,
+'                   minor, major, or an explicit vX.Y.Z above the newest v*
+'                   tag merged into HEAD); GORELEASER_CURRENT_TAG=<tag>
+'                   goreleaser release --clean --skip=publish,validate; the
+'                   stage; a commit of latest.json alone ("release: <tag>",
+'                   SKIP_GIT_HOOKS=1); git tag <tag> on that commit
+'     4 check ..... StagedRefusal: latest.json names the vX.Y.Z tag on HEAD
+'     5 publish ... wrangler deploy --cwd apps/cli
+'     6 push ...... git push --atomic origin HEAD:refs/heads/main
+'                   refs/tags/<tag>
+'   A HEAD the cut already made resumes at step 4: tagged, its commit touches
+'   latest.json alone, the tree is clean, and bin/ holds the binaries
+'   latest.json names. Any other v* tag on HEAD refuses with `git tag -d`.
+'   `mise run deploy --print --cli` prints the plan (release.Plan).
+' MEASURED 2026-11-17: goreleaser 2.17.0 builds a version whose tag does not
+' exist yet under GORELEASER_CURRENT_TAG and --skip=validate; the built
+' binary printed `proveo version 9.9.9`. The binaries therefore come from the
+' commit before the tagged one, and --version still reports the tag.
+' The question lives in Go, not in a mise confirm: deploy also ships images,
+' and a confirm would ask on every image deploy.
+' HISTORY, 2026-11-12 to 2026-11-17: a hand-made `git tag vX.Y.Z` came first.
+' Then deploy-cli depended on release, which depended on release-ledger
+' (TestReleaseShipsATaggedHead and the ledger), ran goreleaser release
+' --clean --skip=publish and the hidden stage-cdn task, asked through a mise
+' confirm, ran TestStagedCDNIsTheTaggedRelease and wrangler deploy. latest.json
+' stayed uncommitted, and the tag pointed at a commit that never held it.
+' snapshot, stage-cdn and build-cli were tasks of their own.
+' DECIDED 2026-11-17: the operator wanted the deploy to own the tag, commit
+' latest.json before tagging, and push after Cloudflare took the release.
+' goreleaser 2.17.0 is pinned on deploy, dev-cli and test-images, never in
+' [tools], so fmt, lint and post-commit never resolve it. goreleaser lists its
+' binaries explicitly, and no maintainer program is among them.
 ' wrangler 4.100.0 is the [tools] entry npm:wrangler. mise installs it with its
 ' embedded aube (no pnpm needed; node 24 from [tools] runs esbuild's
 ' postinstall `node install.js`, and wrangler) and runs only the build scripts
@@ -53,8 +77,8 @@
 ' --version` reads 4.100.0. Without node in [tools] the install fails at
 ' esbuild's postinstall (`sh: node: command not found`, exit 127).
 ' Unlike goreleaser it sits in [tools], so a clone's first mise run resolves
-' it, about 183 MiB. NOT CHOSEN: a tools pin on wrangler-version, deploy-cli
-' and dev-cli (three copies of one pin, and `mise x` would not see it).
+' it, about 183 MiB. NOT CHOSEN: a tools pin on deploy and dev-cli (two copies
+' of one pin, and `mise x` would not see it).
 ' * stage reads the platforms from .goreleaser.yaml builds[id=proveo], the
 '   version from dist/metadata.json, and the cdn-proveo Binary entries from
 '   dist/artifacts.json (NOT CHOSEN: a hard-coded 8-platform list; jq or sh
@@ -71,12 +95,19 @@
 '   tar.gz/zip/flat/raw extraction, the legacy-asset reset, the git-describe
 '   version chain, PROVEO_CDN_ROOT, PROVEO_DIST_DIR, PROVEO_CDN_REQUIRE_DIST
 '   and PROVEO_VERSION's stamp role. A dist/ missing a platform, its metadata
-'   or a matching checksum now fails, naming `mise run snapshot` (or `mise run
-'   release` on a tag).
-' * Pinned by internal/cdn/stage/main_test.go and
-'   internal/contract/cli_tasks_test.go (TestBuildCLIInstallsOnlyTheShippedBinaries,
-'   TestGoreleaserIsPinnedPerTask, TestWranglerInstallsThroughMise,
-'   TestDeployCLIShipsOnlyATaggedRelease, TestCDNStagingFollowsAFreshSnapshot).
+'   or a matching checksum now fails, naming `mise run dev-cli` (a snapshot) or
+'   `mise run deploy --cli` (a release).
+' * Pinned by internal/cdn/stage/main_test.go, internal/cdn/release/release_test.go
+'   (TestNextTagBumpsOrTakesAnExplicitVersion, TestDeployCutsTagsPublishesThenPushes,
+'   TestDeployWritesNothingUntilTheLedgerPassesAndSomeoneConfirms,
+'   TestCutRefusesWhatItCannotRelease, TestCutRestoresASnapshotLatestJSONBeforeBuilding,
+'   TestCutResumesAHeadItAlreadyCut, TestStagedRefusalNamesTheFixInOneLine,
+'   TestPushRefusesAnUntaggedHead, TestPlanNamesEveryStepInOrder),
+'   internal/maintain (TestCLIBuildPlanInstallsOnlyTheShippedBinaries),
+'   internal/maintain/fleet (TestFleetMainPutsTheCLIFirstWhenAsked) and
+'   internal/contract/cli_tasks_test.go (TestGoreleaserIsPinnedPerTask,
+'   TestWranglerInstallsThroughMise, TestTheCLIReleaseRunsInsideDeploy,
+'   TestCDNStagingFollowsAFreshSnapshot).
 ' * .goreleaser.yaml emits the multi-arch static binaries AND a sha256
 '   checksums.txt, so the installer can verify what it downloads. It replaced an
 '   unverified `curl | bash` pipeline (moved from its header, N14).
@@ -174,8 +205,10 @@ title Distribution + self-update — install.sh and `proveo update`
 actor "Consumer" as USER
 
 node "Maintainer host" as MH <<host>> {
+  component "mise run deploy --cli\ninternal/cdn/release: ask · cut · push" as REL <<app>>
   component "goreleaser\nmulti-arch static binaries" as GR <<app>>
-  component "mise run stage-cdn\ninternal/cdn/stage → apps/cli/public/cli" as STAGE <<app>>
+  component "internal/cdn/stage → apps/cli/public/cli" as STAGE <<app>>
+  database "git: release: <tag> commit\n+ tag, pushed to origin/main" as GIT <<db>>
 }
 
 cloud "Cloudflare — proveo.ca/cli" as CDN <<cloud>> {
@@ -191,8 +224,11 @@ node "Consumer host" as CH <<host>> {
   component "cmd/proveo setup\nPATH via internal/promptkit" as SETUP <<app>>
 }
 
+REL ARROW_MAIN GR : GORELEASER_CURRENT_TAG
 GR ARROW_MAIN STAGE
+STAGE ARROW_MAIN GIT : commit latest.json, tag
 STAGE ARROW_CLOUD CDN : wrangler deploy
+REL ARROW_MAIN GIT : push after the deploy
 USER ARROW_MAIN INSTALL
 INSTALL ARROW_CLOUD MANIFEST : fetch
 INSTALL ARROW_CLOUD ASSET : download
@@ -225,8 +261,9 @@ end note
 
 note bottom of CDN
   Release assets only — no application code runs here.
-  Publishing: an exact git tag builds semver artifacts
-  (no GitHub Release); otherwise ""--snapshot"".
+  ""deploy --cli"" picks the tag, builds it, commits
+  ""latest.json"", tags that commit (no GitHub Release);
+  ""dev-cli"" and ""test-images"" use ""--snapshot"".
 end note
 note bottom of MANIFEST
   **One published channel, so a pinned version is not a time machine.** The
