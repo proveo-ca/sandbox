@@ -6,7 +6,9 @@ curl -fsSL https://proveo.ca/cli/install.sh | bash
 
 <sub>Linux · macOS · FreeBSD. Windows: `irm https://proveo.ca/cli/install.ps1 | iex`. The installer ends with `proveo init`, which installs and signs in to [Docker Sandboxes](https://github.com/docker/sbx-releases) (sbx).</sub>
 
-![proveo run claudecode: pick where the agent works, confirm the run, tick the browser](_spec/_assets/hero.gif)
+![proveo claudecode: pick a workspace, confirm the run, and reach the Claude Code prompt](_spec/_assets/hero.gif)
+
+<sub>Claude Code startup captured in Docker Engine using the published image.</sub>
 
 ## How it works
 
@@ -19,26 +21,17 @@ its egress. At teardown the agent's commits come home under `refs/proveo/<sid>`,
 
 ## Usage
 
+Start an agent on the current repo with `proveo run <agent>` or the shorthand `proveo <agent>`.
+
 ```sh
-proveo --help                      # every command, harness alias and help topic
+proveo claudecode
 ```
 
-| command | what it does |
-| --- | --- |
-| `proveo run [agent]` | Start an agent on the current repo; `proveo <agent>` does the same. `--scope <dir>` picks a sub-project, `--addon browser\|chrome\|desktop\|android` adds an interface, `--local-model <tag>` serves the model from the host's Ollama, `--credentials broker\|forward` decides who holds the key, `--resume <id>` · `--continue` · `--ls` pick a session, `--print` shows the sbx command, `--yes` skips the form. |
-| `proveo ls` | List the harness targets: claudecode, codex, cursor, opencode, hermes and their variants. |
-| `proveo init` | Install and sign in to sbx, check this host, ready git and gh. `--print` shows the plan; `--yes` takes the defaults. |
-| `proveo projects` | List the monorepo sub-projects `--scope` takes. |
-| `proveo adopt [ref]` | Create a branch from the commits a run carried home; with no argument, list them. |
-| `proveo rm [sandbox]` | Carry a kept sandbox's work home, then remove it; with no argument, list them. `--stop` stops a running one first. |
-| `proveo attach [task]` | Open a running scheduled task's terminal; `-r` watches without typing. |
-| `proveo schedule` | Run agents unattended at set times from `~/.proveo/schedule.yml`: `ls`, `run`, `retry`, `attach`, `install`, `uninstall`. |
-| `proveo clean` | Reclaim what crashed runs left. `--deep` adds images, `--tools` toolchains, `--homes` `~/.proveo`; `--dry-run` previews. |
-| `proveo setup` | Add proveo's directory to your shell's PATH. |
-| `proveo update` | Install the latest release from the CDN; `--check` only reports. |
-| `proveo uninstall` | Remove proveo, its PATH lines and its prompt kit; `--yes` skips the question. |
-| `proveo version` | Print the version. |
-| `proveo help env` | List every `PROVEO_*` variable with its default and effect. |
+Choose from `claudecode`, `codex`, `cursor`, `opencode`, and `hermes`.
+
+- `proveo init` sets up sbx and checks your machine.
+- `proveo schedule` runs agents unattended from `~/.proveo/schedule.yml`.
+- `proveo clean` reclaims resources left by interrupted runs.
 
 ## Contributing
 
