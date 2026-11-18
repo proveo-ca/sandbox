@@ -109,8 +109,8 @@ func TestTUIAndDesktopAreOneRadioChoice(t *testing.T) {
 func TestExecutionOutputsAndPortsUseTheColumnGrid(t *testing.T) {
 	t.Parallel()
 	exec := layoutExecution(choiceui.Row{Options: executionOptions()})
-	if !slices.Equal(exec.Cols, []int{0, 1}) || exec.Paint[addonSandbox] != "sandbox" {
-		t.Errorf("execution cols %v paint %v, want host at 0, sandbox at 1", exec.Cols, exec.Paint)
+	if !slices.Equal(exec.Cols, []int{0, 1, 2}) || exec.Paint[addonSandbox] != "sandbox" {
+		t.Errorf("execution cols %v paint %v, want host at 0, sandbox at 1, cloud at 2", exec.Cols, exec.Paint)
 	}
 	out := evidenceRow("")
 	if !slices.Equal(out.Cols, []int{0, 1}) {

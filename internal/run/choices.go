@@ -384,10 +384,14 @@ func egressColumn(name string) int {
 }
 
 func executionColumn(name string) int {
-	if name == addonSandbox {
+	switch name {
+	case addonSandbox:
 		return 1
+	case addonCloud:
+		return 2
+	default:
+		return 0
 	}
-	return 0
 }
 
 func layoutExecution(r choiceui.Row) choiceui.Row {
@@ -528,6 +532,7 @@ const (
 	rowApps      = "apps"
 
 	addonHost    = "host"
+	addonCloud   = "cloud"
 	addonTUI     = "tui"
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
@@ -693,12 +698,14 @@ var addonFixed = map[string]struct {
 	on  bool
 	why string
 }{
-	addonHost: {why: "the agent can't touch your whole machine"},
-	addonTUI:  {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
+	addonHost:  {why: "the agent can't touch your whole machine"},
+	addonCloud: {why: "coming soon"},
+	addonTUI:   {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
 }
 
 var addonHelp = map[string]string{
 	addonHost:    "your own machine, with your files and your credentials — not a place proveo recommends for an agent",
+	addonCloud:   "run sbx on a cloud instance over SSH",
 	addonTUI:     "this session — this terminal, the agent's transcript and your prompts, for the whole run",
 	addonDesktop: "Hermes Desktop on this host drives the agent in the sandbox over sbx's SSH; this terminal only holds the run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
@@ -717,7 +724,7 @@ func addonHelpFor(man manifest.Manifest) map[string]string {
 }
 
 func executionOptions() []string {
-	return []string{addonHost, addonSandbox}
+	return []string{addonHost, addonSandbox, addonCloud}
 }
 
 func interfaceOptions(man manifest.Manifest) []string {

@@ -16,6 +16,26 @@ func paneFrame() Frame {
 	}
 }
 
+func TestCloudPreviewDrawsBetweenTheHostAndSandbox(t *testing.T) {
+	t.Parallel()
+	fr := paneFrame()
+	fr.Cloud = true
+	for _, cols := range []topoCols{blockCols, paneCols} {
+		for _, tier := range []GlyphTier{GlyphsSafe, GlyphsNerd, GlyphsASCII, GlyphsOff} {
+			g := glyphsFor(tier)
+			s := simScreen(t, 140, 8)
+			drawFigure(s, 0, 0, cols, fr, tier, styles(), 0)
+			row := screenLines(s)[2]
+			s.Fini()
+			host, icon, box := strings.Index(row, g.node), strings.Index(row, " "+g.cloud+" "), strings.Index(row, g.wallL)
+			if host < 0 || icon <= host || box <= icon || !strings.Contains(row[host:icon], g.rule) ||
+				!strings.Contains(row[icon:box], g.rule) {
+				t.Errorf("tier %v box col %d: cloud does not connect host to sandbox: %s", tier, cols.box, row)
+			}
+		}
+	}
+}
+
 // The pane is a fidelity of the figure, not a fourth drawing: it may drop the
 // connector runs and the caption's explanatory clause, but every FACT survives.
 func TestPaneKeepsEveryFact(t *testing.T) {

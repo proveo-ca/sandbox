@@ -28,6 +28,7 @@ type Frame struct {
 	Refused   int // lanes drawn as refused
 	Speaking  bool
 	Direct    bool // no box and no hop; a rule runs from the host node to the lanes
+	Cloud     bool // SSH preview between the host node and box
 	Focus     Focus
 }
 
@@ -260,7 +261,14 @@ func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p 
 	if fr.Direct {
 		drawDirect(pn, y0, boxL, colHop, colLanes, fr, g, on, dim, p.brand)
 	} else {
-		pn.padTo(boxL)
+		if fr.Cloud {
+			room := boxL - pn.col() - textWidth(g.cloud) - 2
+			pn.write(dim, strings.Repeat(g.rule, room/2)+" ").
+				write(on(FocusSquare), g.cloud).
+				write(dim, " "+strings.Repeat(g.rule, room-room/2))
+		} else {
+			pn.padTo(boxL)
+		}
 		inside(2, say, fr.Square, keyIf(g, fr, KeyInSquare), on(FocusSay), on(FocusSquare))
 		spine := newPen(s, boxR+1, y0+2)
 		if fr.Hop == "" {

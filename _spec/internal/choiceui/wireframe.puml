@@ -815,7 +815,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
     <color:#9a9a9a>credentials</color> | <color:#9a9a9a>API keys (4) ▾</color> | <color:#9a9a9a>OAuth (2) ▾</color> | <color:#9a9a9a>SSH (1) ▾</color> | <color:#9a9a9a>.env (20) ▾</color>
     <color:#00BAC6>› model</color> | <back:#00BAC6><b>(X) API keys</b></back> | ( ) <color:#9a9a9a><s>plan</s></color> | ( ) Glimmer | ( ) Qwen 3.8
     ├── execution ── | . | . | . | .
-    OS | ( ) <color:#9a9a9a><s>host</s></color> | (X) <color:#9a9a9a>sandbox</color> | . | .
+    OS | ( ) <color:#9a9a9a><s>host</s></color> | (X) <color:#9a9a9a>sandbox</color> | ( ) <color:#9a9a9a><s>cloud</s></color> | .
     trust repo | ( ) on | (X) off | . | .
     ├── reach ────── | . | . | . | .
     <color:#9a9a9a>egress</color> | (X) <color:#9a9a9a>allow-all</color> | . | ( ) <color:#9a9a9a><s>balanced</s></color> | ( ) <color:#9a9a9a><s>deny-all</s></color>

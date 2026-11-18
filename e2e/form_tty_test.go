@@ -58,6 +58,9 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 	if !modelLayout.MatchString(screen) {
 		t.Errorf("expected the model choices and their group labels below credentials\n%s", tail(screen, 45))
 	}
+	if !regexp.MustCompile(`\bOS\b[^\n]*host[^\n]*sandbox[^\n]*cloud`).MatchString(screen) {
+		t.Errorf("expected the cloud option after sandbox in the OS row\n%s", tail(screen, 45))
+	}
 	if err := sess.SendKeys("Down"); err != nil {
 		t.Fatal(err)
 	}

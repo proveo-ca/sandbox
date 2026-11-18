@@ -2,11 +2,13 @@
 package run
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/proveo-ca/proveo/internal/choiceui"
 	"github.com/proveo-ca/proveo/internal/credentials"
+	"github.com/proveo-ca/proveo/internal/manifest"
 	"github.com/proveo-ca/proveo/internal/posture"
 )
 
@@ -207,6 +209,30 @@ func TestHoveringTheHostDropsTheSandbox(t *testing.T) {
 	away := topologyOf("opencode", "broker")(f, 1)
 	if away.Direct || away.Hop != "sbx proxy" || away.Key != choiceui.KeyAtHop || !strings.Contains(away.Square, "sbx") {
 		t.Errorf("cursor elsewhere: direct=%v square=%q hop=%q key=%v", away.Direct, away.Square, away.Hop, away.Key)
+	}
+}
+
+func TestHoveringCloudPreviewsSSHWithoutChangingExecution(t *testing.T) {
+	t.Parallel()
+	p := Params{Target: "claudecode"}
+	f := &choiceui.Form{Rows: p.addonRow(manifest.Manifest{}, rowExecution)}
+	gateRunForm(f)
+	hover := f.Walk(rowExecution, "right", "right", " ")
+	if len(hover) != 3 || hover[2].Option != addonCloud ||
+		!strings.Contains(strings.Join(hover[2].Help, " "), "over SSH") ||
+		!strings.Contains(strings.Join(hover[2].Status, " "), "coming soon") {
+		t.Fatalf("cloud hover = %+v", hover)
+	}
+	if got := selectedAddons(f); !slices.Equal(got, []string{addonSandbox}) {
+		t.Errorf("cloud preview changed execution to %v", got)
+	}
+	topology := topologyOf(p.Target, "broker")
+	if fr := topology(f, 0); !fr.Cloud || fr.Direct || fr.Square != "sbx · claudecode" ||
+		!strings.Contains(fr.Caption, "coming soon") {
+		t.Errorf("cloud preview = %+v", fr)
+	}
+	if fr := topology(f, -1); fr.Cloud || fr.Square != squareOf(p.Target) {
+		t.Errorf("cloud preview persisted away from the OS row: %+v", fr)
 	}
 }
 
