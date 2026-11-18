@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,7 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 	cmd := append([]string{"env"}, childEnvArgsNoCredential(t)...)
 	cmd = append(cmd,
 		"PROVEO_WIZARD=on",
+		"CLAUDE_CODE_OAUTH_TOKEN=fixture-plan-token",
 		"PROVEO_HOME="+t.TempDir(),
 		"PROVEO_STATE_ROOT="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=false",
@@ -51,6 +53,10 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 		if !strings.Contains(screen, want) {
 			t.Errorf("the form lacks %q\n%s", want, tail(screen, 45))
 		}
+	}
+	modelLayout := regexp.MustCompile(`credentials[^\n]*API keys[^\n]*OAuth[^\n]*\n[^\n]*model[^\n]*API keys[^\n]*plan[^\n]*Glimmer[^\n]*Qwen[^\n]*\n[^\n]*cloud[^\n]*local`)
+	if !modelLayout.MatchString(screen) {
+		t.Errorf("expected the model choices and their group labels below credentials\n%s", tail(screen, 45))
 	}
 	if err := sess.SendKeys("Down"); err != nil {
 		t.Fatal(err)

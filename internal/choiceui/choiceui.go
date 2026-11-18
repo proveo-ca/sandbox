@@ -35,6 +35,8 @@ type Row struct {
 	RadioSet []string // options drawn as one radio group inside a checkbox row
 	Divider  bool
 
+	ColumnGroups []ColumnGroup
+
 	// A field row takes typing instead of options.
 	// SPEC: _spec/cmd/proveo/init-credential-wireframe.puml
 	Field       bool
@@ -61,6 +63,12 @@ type Row struct {
 	Note     string   // a check's aside
 	Indent   int      // columns the label sits right of column 4: 2 on a sub-row
 	When     *When    // the answer that opens this row; nil draws it always
+}
+
+// ColumnGroup labels an inclusive span of grid columns.
+type ColumnGroup struct {
+	Label       string
+	First, Last int
 }
 
 // RowKind is what a checklist row draws.
@@ -1387,7 +1395,7 @@ func (f *Form) draw(s *screen, cursor, tick int) {
 	c.clipTo(bodyTop, bodyTop+lay.body)
 	for i := range window {
 		c.y = bodyTop + i
-		if lines[f.scroll+i].kind == lineRow {
+		if lines[f.scroll+i].kind != lineHeading {
 			k.wallL(c, lit(lines[f.scroll+i].row))
 		}
 		k.wallR(c)
@@ -1878,6 +1886,21 @@ func (f *Form) drawBodyLine(c *canvas, p palette, k card, ln bodyLine, cursor, p
 			text = r.Heading
 		}
 		k.stub(c, text, lit)
+		return
+	}
+
+	if ln.kind == lineColumnGroups {
+		rule := k.g.rule
+		for _, group := range r.ColumnGroups {
+			start := optOrigin + group.First*pt
+			end := min(optOrigin+(group.Last+1)*pt-2, k.edge)
+			label := " " + group.Label + " "
+			space := end - start - textWidth(label)
+			if space < 0 {
+				continue
+			}
+			c.put(start, p.word, strings.Repeat(rule, space/2)+label+strings.Repeat(rule, space-space/2))
+		}
 		return
 	}
 

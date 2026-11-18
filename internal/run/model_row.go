@@ -105,16 +105,16 @@ var noLocalModel = map[string]bool{"cursor": true}
 // acceptsLocalModel reports whether target can run on --local-model.
 func acceptsLocalModel(target string) bool { return !noLocalModel[target] }
 
-// modelRiskRank orders the model row riskier to safer.
-func modelRiskRank(opt string) int {
+// modelColumn maps options to the shared grid.
+func modelColumn(opt string) int {
 	switch {
-	case len(localModels) > 0 && opt == localModels[0].label():
-		return 0
 	case opt == modelAPIKeys:
-		return 1
+		return 0
 	case opt == credentials.AuthSubscription || opt == modelPlan:
+		return 1
+	case opt == localModels[1].label():
 		return 2
-	case len(localModels) > 1 && opt == localModels[1].label():
+	case opt == localModels[0].label():
 		return 3
 	}
 	return 4
@@ -122,7 +122,7 @@ func modelRiskRank(opt string) int {
 
 func sortModelOptions(opts []string) {
 	slices.SortStableFunc(opts, func(a, b string) int {
-		return cmp.Compare(modelRiskRank(a), modelRiskRank(b))
+		return cmp.Compare(modelColumn(a), modelColumn(b))
 	})
 }
 
@@ -238,7 +238,7 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 	return r, true
 }
 
-// sortModelRow orders options riskier to safer, carrying each option's gate with it.
+// sortModelRow orders options by column, carrying each option's gate with it.
 func sortModelRow(r *choiceui.Row) {
 	chosen := ""
 	if r.Selected >= 0 && r.Selected < len(r.Options) {
@@ -253,7 +253,7 @@ func sortModelRow(r *choiceui.Row) {
 		items[i] = item{opt, i < len(r.Off) && r.Off[i]}
 	}
 	slices.SortStableFunc(items, func(a, b item) int {
-		return cmp.Compare(modelRiskRank(a.opt), modelRiskRank(b.opt))
+		return cmp.Compare(modelColumn(a.opt), modelColumn(b.opt))
 	})
 	for i, it := range items {
 		r.Options[i] = it.opt
@@ -270,7 +270,17 @@ func sortModelRow(r *choiceui.Row) {
 func pinModelCols(r *choiceui.Row) {
 	r.Cols = make([]int, len(r.Options))
 	for i, opt := range r.Options {
-		r.Cols[i] = modelRiskRank(opt)
+		r.Cols[i] = modelColumn(opt)
+	}
+	if len(r.Cols) == 0 {
+		return
+	}
+	first, last := r.Cols[0], r.Cols[len(r.Cols)-1]
+	if first < 2 {
+		r.ColumnGroups = append(r.ColumnGroups, choiceui.ColumnGroup{Label: "cloud", First: first, Last: min(last, 1)})
+	}
+	if last >= 2 {
+		r.ColumnGroups = append(r.ColumnGroups, choiceui.ColumnGroup{Label: "local", First: max(first, 2), Last: last})
 	}
 }
 

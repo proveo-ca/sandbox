@@ -645,3 +645,38 @@ func TestACountWithoutRoomGoesWhole(t *testing.T) {
 		}
 	}
 }
+
+func TestColumnGroupsFollowTheOptionGrid(t *testing.T) {
+	f := &Form{Rows: []Row{
+		{Label: "credentials", Locked: true, Multi: true, Options: []string{"API keys", "OAuth", "SSH", ".env"}, Cols: []int{0, 1, 2, 3}, Bare: true},
+		{Label: "model", Options: []string{"API keys", "plan", "Glimmer", "Qwen 3.8"}, Cols: []int{0, 1, 2, 3},
+			ColumnGroups: []ColumnGroup{{Label: "cloud", First: 0, Last: 1}, {Label: "local", First: 2, Last: 3}}},
+	}}
+	for _, w := range []int{80, 120} {
+		lines := frameLines(t, f, 1, w, 24, 0)
+		found := false
+		for i, line := range lines {
+			if !strings.Contains(line, "credentials") {
+				continue
+			}
+			found = true
+			model, groups := lines[i+1], lines[i+2]
+			for j, opt := range []string{"API keys", "plan", "Glimmer", "Qwen 3.8"} {
+				at := optOrigin + j*pitch(w, 3)
+				if !strings.HasPrefix(string([]rune(model)[at+4:]), opt) {
+					t.Errorf("width %d: want %q in column %d: %s", w, opt, j, model)
+				}
+			}
+			runes := []rune(groups)
+			split := optOrigin + 2*pitch(w, 3)
+			if !strings.Contains(string(runes[optOrigin:split]), " cloud ") ||
+				!strings.Contains(string(runes[split:]), " local ") {
+				t.Errorf("width %d: group labels miss their columns: %s", w, groups)
+			}
+			break
+		}
+		if !found {
+			t.Errorf("width %d: credentials row missing", w)
+		}
+	}
+}

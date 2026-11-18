@@ -37,7 +37,7 @@ func TestModelRowOrderRunsRiskierToSafer(t *testing.T) {
 	if !ok {
 		t.Fatal("no model row for hermes")
 	}
-	if want := []string{qwen.label(), modelAPIKeys, glimmer.label()}; !slices.Equal(r.Options, want) {
+	if want := []string{modelAPIKeys, glimmer.label(), qwen.label()}; !slices.Equal(r.Options, want) {
 		t.Errorf("options = %v, want %v", r.Options, want)
 	}
 	if r.Multi || r.Options[r.Selected] != modelAPIKeys {
@@ -168,7 +168,7 @@ func TestModelBuildLivesInTheHint(t *testing.T) {
 			t.Errorf("option %q is %d runes, want at most 10", opt, n)
 		}
 	}
-	if cols := []int{0, 1, 3}; !slices.Equal(r.Cols, cols) {
+	if cols := []int{0, 2, 3}; !slices.Equal(r.Cols, cols) {
 		t.Errorf("cols = %v, want %v (plan's column stays empty)", r.Cols, cols)
 	}
 	h := r.Help[qwen.label()]
@@ -194,12 +194,12 @@ func TestSourceRowMergesThePlanAndTheLocalModels(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode got no source row")
 	}
-	want := []string{qwen.label(), modelAPIKeys, modelPlan, glimmer.label()}
+	want := []string{modelAPIKeys, modelPlan, glimmer.label(), qwen.label()}
 	if r.Label != rowModel || !slices.Equal(r.Options, want) {
 		t.Errorf("row %q = %v, want %q = %v", r.Label, r.Options, rowModel, want)
 	}
 	if !slices.Equal(r.Cols, []int{0, 1, 2, 3}) {
-		t.Errorf("model cols = %v, want one option per risk column", r.Cols)
+		t.Errorf("model cols = %v, want one option per column", r.Cols)
 	}
 	if len(r.Off) != len(r.Options) || r.Help[qwen.label()] == "" || r.Help[modelAPIKeys] == "" {
 		t.Errorf("merged row lost its gates or help: off=%v help=%v", r.Off, r.Help)
@@ -230,7 +230,7 @@ func TestSourceRowKeepsCursorOffLocalModels(t *testing.T) {
 func TestSourceRowWithoutAPlanIsTheModelRow(t *testing.T) {
 	t.Parallel()
 	r, ok := sourceFor(t, hermesImagesMan(), nil, "")
-	if want := []string{qwen.label(), modelAPIKeys, glimmer.label()}; !ok || !slices.Equal(r.Options, want) {
+	if want := []string{modelAPIKeys, glimmer.label(), qwen.label()}; !ok || !slices.Equal(r.Options, want) {
 		t.Errorf("hermes row = %v (%v), want %v", r.Options, ok, want)
 	}
 }

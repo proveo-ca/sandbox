@@ -17,12 +17,13 @@ const (
 type lineKind int
 
 const (
-	lineHeading lineKind = iota // a divider's stub
-	lineRow                     // the row itself
-	lineBlank                   // a checklist's spacing blank
-	lineWrap                    // a check message's next line
-	lineDetail                  // a check's evidence, fix or note
-	lineFold                    // several checklist rows drawn as one
+	lineHeading      lineKind = iota // a divider's stub
+	lineRow                          // the row itself
+	lineColumnGroups                 // labels below the option grid
+	lineBlank                        // a checklist's spacing blank
+	lineWrap                         // a check message's next line
+	lineDetail                       // a check's evidence, fix or note
+	lineFold                         // several checklist rows drawn as one
 )
 
 // bodyLine is one line of the body: row is the row it draws, or -1 for a blank.
@@ -46,6 +47,9 @@ func (f *Form) bodyLines() []bodyLine {
 			lines = append(lines, bodyLine{row: i, kind: lineHeading})
 		}
 		lines = append(lines, bodyLine{row: i, kind: lineRow})
+		if len(r.ColumnGroups) > 0 {
+			lines = append(lines, bodyLine{row: i, kind: lineColumnGroups})
+		}
 	}
 	return lines
 }

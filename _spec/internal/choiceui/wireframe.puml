@@ -672,9 +672,8 @@
 '                     sidecar, but nothing routes THIS row to it, so it is drawn
 '                     and gated rather than left out. The axis is where an
 '                     operator looks to find out an option exists.
-' AMENDED 2026-11-13 (owner, O2): no legend labels a row any more. The order
-' stays: the egress and model columns still run riskier to safer, left to
-' right. What the order lost is the caption that claimed it.
+' Egress columns run riskier to safer. Model columns follow the credential
+' inventory for cloud choices, then show local choices.
 '
 ' AN UNAVAILABLE OPTION IS GATED, NEVER DROPPED. cursor's CLI has no
 ' bring-your-own-key path, so "usage credits" is off with the reason attached —
@@ -814,7 +813,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   {
     <color:#00BAC6>├── </color><b>agent</b><color:#00BAC6> ──────</color> | . | . | . | .
     <color:#9a9a9a>credentials</color> | <color:#9a9a9a>API keys (4) ▾</color> | <color:#9a9a9a>OAuth (2) ▾</color> | <color:#9a9a9a>SSH (1) ▾</color> | <color:#9a9a9a>.env (20) ▾</color>
-    <color:#00BAC6>› model</color> | ( ) Qwen 3.8 | <back:#00BAC6><b>(X) API keys</b></back> | ( ) <color:#9a9a9a><s>plan</s></color> | ( ) Glimmer
+    <color:#00BAC6>› model</color> | <back:#00BAC6><b>(X) API keys</b></back> | ( ) <color:#9a9a9a><s>plan</s></color> | ( ) Glimmer | ( ) Qwen 3.8
     ├── execution ── | . | . | . | .
     OS | ( ) <color:#9a9a9a><s>host</s></color> | (X) <color:#9a9a9a>sandbox</color> | . | .
     trust repo | ( ) on | (X) off | . | .
@@ -862,7 +861,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   "API keys (4) ▾".
 }
 {^"2 · empty cell — option withdrawn"
-  model | ( ) Qwen 3.8 | (X) API keys | . | ( ) Glimmer
+  model | (X) API keys | . | ( ) Glimmer | ( ) Qwen 3.8
   .
   The slot persists, so surviving options
   retain the column they occupied while
@@ -979,23 +978,26 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   safe; plus signs, hyphens and bars on ascii and off.
 }
 {^"9 · model — one row: where the model comes from (every harness)"
-  model | ( ) Qwen 3.8 | (X) API keys | ( ) plan | ( ) Glimmer
+  model | (X) API keys | ( ) plan | ( ) Glimmer | ( ) Qwen 3.8
+  . | ───── cloud ───── | ───── | ───── local ───── | ─────
   <color:#00BAC6>› Qwen 3.8 — 27B, MLX, same as --local-model qwen3.8:27b-mlx on darwin/arm64</color> | . | . | . | .
   .
   ONE row picks the model source (2026-09-27). It merges what used to be two:
   the auth row (""usage credits"" · ""subscription"", drawn for a harness with a
   plan) and the local-model row. ""usage credits"" is drawn as ""API keys"" and
   ""subscription"" as ""plan"", so every harness reads the same cells. A harness
-  with no plan (hermes) draws ""Qwen 3.8 | API keys | . | Glimmer"" —
+  with no plan (hermes) draws ""API keys | . | Glimmer | Qwen 3.8"" —
   the plan column stays empty.
   The row name occupies 16 columns, marker included. credentials is the
   longest name; 12 would put its last letter on the first option.
   Every option row pins to the same four columns. OS, outputs, ports and apps
   included: a missing value leaves its column blank. A cell is at most 10 runes,
   plus a trailing "" (N)"" count (2026-11-14). ""docker (sandbox)"" paints ""sandbox"".
-  allow-all and Qwen and host and filtered share column 1,
-  model API keys and sandbox and browser and verbose share column 2,
-  balanced and plan share column 3, deny-all and Glimmer share column 4.
+  Model API keys aligns with credential API keys in column 1.
+  Plan aligns with OAuth in column 2. Glimmer and Qwen take columns 3 and 4.
+  A rule below the choices labels the occupied cloud and local column spans.
+  The label shares the model row's scrolling span and takes no cursor stop.
+  A custom local model follows Qwen and extends the local rule.
   The inventory uses API keys, OAuth, SSH and .env in columns 1, 2, 3 and 4.
   The pitch shrinks with the card (2026-11-13): 22 columns from a 120-column
   card down to 16 at 80, where column 4 starts at 66.
@@ -1034,8 +1036,8 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
 }
 {^"11 · the open list — a small card, painted last"
   credentials | <color:#9a9a9a>API keys (1) ▾</color> | <color:#9a9a9a><s>OAuth (0)</s></color> | <color:#9a9a9a><s>SSH (0)</s></color> | <back:#8A8A8A>.env (12) ▾</back>
-  model | ( ) Qwen 3.8 | (X) API keys | . | ╭── <b>.env</b> ─────── 12 ─╮
-  . | . | . | . | │ <color:#8A8A8A>/ filter</color>
+  model | (X) API keys | . | ( ) Glimmer | ╭── <b>.env</b> ─────── 12 ─╮
+  . | ── cloud ── | . | ── local ── | │ <color:#8A8A8A>/ filter</color>
   . | . | . | . | │ › <back:#8A8A8A>ARCHITECT_MODEL</back>
   . | . | . | . | │   CODE_THEME
   . | . | . | . | │   DARK_MODE
@@ -1083,7 +1085,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   gutter keeps column 0.
 }
 {^"13 · a disabled option takes the cursor (2026-11-14)"
-  <color:#00BAC6>› model</color> | ( ) Qwen 3.8 | <back:#8A8A8A>( ) <s>API keys</s></back> | <b>(X) plan</b> | ( ) Glimmer
+  <color:#00BAC6>› model</color> | <back:#8A8A8A>( ) <s>API keys</s></back> | <b>(X) plan</b> | ( ) Glimmer | ( ) Qwen 3.8
   › API keys — metered by the vendor beyond the plan's included usage | . | . | . | .
   <b>off:</b> all inference transits anthropic — no bring-your-own-key path | . | . | . | .
   .
