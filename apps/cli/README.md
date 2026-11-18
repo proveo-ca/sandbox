@@ -37,7 +37,7 @@ need to publish a GitHub Release for the consumer channel.
 
 ```bash
 mise run deploy --cli                          # next patch after the newest v* tag
-mise run deploy --cli --cli-version v0.4.0     # or minor | major | an explicit vX.Y.Z
+mise run deploy --cli v0.4.0                   # or minor | major | an explicit vX.Y.Z
 mise run deploy all --cli --yes                # unattended: the CLI first, then every image
 ```
 

@@ -369,6 +369,15 @@ func Push(r Repo, pr *ui.Printer) error {
 	return nil
 }
 
+// ValidVersion reports whether version is patch, minor, major or an explicit vX.Y.Z.
+func ValidVersion(version string) error {
+	switch {
+	case version == "patch", version == "minor", version == "major", semverTag.MatchString(version):
+		return nil
+	}
+	return fmt.Errorf("version %q: want patch, minor, major or vX.Y.Z", version)
+}
+
 // NextTag is version when it is an explicit vX.Y.Z above newest, else newest bumped by patch, minor or major.
 func NextTag(version, newest string) (string, error) {
 	cur := parts(newest)
@@ -380,8 +389,8 @@ func NextTag(version, newest string) (string, error) {
 	case "major":
 		cur = [3]int{cur[0] + 1, 0, 0}
 	default:
-		if !semverTag.MatchString(version) {
-			return "", fmt.Errorf("version %q: want patch, minor, major or vX.Y.Z", version)
+		if err := ValidVersion(version); err != nil {
+			return "", err
 		}
 		if newest != "" && compare(parts(version), cur) <= 0 {
 			return "", fmt.Errorf("%s does not follow %s", version, newest)

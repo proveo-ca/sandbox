@@ -158,10 +158,9 @@ usage = '''
 arg "[target]" help="a registry target, or all; optional with --cli" {
   choices "all" "base" "base-node" "base-node-browser" "claudecode" "claudecode-browser" "claudecode-solidity" "codex" "codex-browser" "cursor" "cursor-browser" "hermes" "opencode" "opencode-browser"
 }
-flag "--cli" help="first cut a CLI release (goreleaser, CDN stage, commit latest.json, tag it), wrangler deploy apps/cli, then push main and the tag"
-flag "--cli-version <version>" default="patch" help="--cli: patch, minor, major, or an explicit vX.Y.Z"
+flag "--cli [version]" value_optional=#true default_missing="patch" help="first cut a CLI release at version (patch when bare; minor, major or vX.Y.Z), wrangler deploy apps/cli, then push main and the tag; name a target before it"
 flag "--yes" help="--cli: answer its question before publishing (unattended runs)"
 flag "--tag <tag>" default="latest" help="image tag to publish (promoted from the :local build)"
 flag "--print" help="print the plan instead of running it"
 '''
-run = "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.print %}-print {% endif %}{% if usage.cli %}-cli -cli-version={{ usage.cli_version | quote }} {% endif %}{% if usage.yes %}-yes {% endif %}deploy{% if usage.target %} {{ usage.target | quote }}{% endif %}"
+run = "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.print %}-print {% endif %}{% if usage.cli %}-cli -cli-version={{ usage.cli | quote }} {% endif %}{% if usage.yes %}-yes {% endif %}deploy{% if usage.target %} {{ usage.target | quote }}{% endif %}"

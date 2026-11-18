@@ -34,7 +34,7 @@
 '                   before it, so a "no" leaves dist/ and the tree untouched
 '     3 cut ....... HEAD on main; git fetch --tags origin main; HEAD equal to
 '                   origin/main; a clean tree except latest.json, restored
-'                   from HEAD; the tag is --cli-version (patch by default,
+'                   from HEAD; the tag is --cli's value (patch when bare,
 '                   minor, major, or an explicit vX.Y.Z above the newest v*
 '                   tag merged into HEAD); GORELEASER_CURRENT_TAG=<tag>
 '                   goreleaser release --clean --skip=publish,validate; the

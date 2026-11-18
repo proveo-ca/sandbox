@@ -143,6 +143,16 @@ func TestNextTagBumpsOrTakesAnExplicitVersion(t *testing.T) {
 	}
 }
 
+func TestValidVersionTakesABumpOrAnExplicitTag(t *testing.T) {
+	t.Parallel()
+	for v, ok := range map[string]bool{"patch": true, "minor": true, "major": true, "v0.3.2": true,
+		"all": false, "codex": false, "0.3.2": false, "": false, "v0.3": false} {
+		if err := ValidVersion(v); (err == nil) != ok {
+			t.Errorf("ValidVersion(%q) = %v, want ok=%v", v, err, ok)
+		}
+	}
+}
+
 func TestDeployCutsTagsPublishesThenPushes(t *testing.T) {
 	t.Parallel()
 	work, origin := newRepo(t)

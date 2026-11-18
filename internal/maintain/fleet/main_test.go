@@ -105,3 +105,21 @@ func TestFleetMainTestWithoutATargetIsTheImageGate(t *testing.T) {
 		t.Errorf("run(test codex) = %d, printed\n%s\nwant the codex suite alone", code, stdout.String())
 	}
 }
+
+func TestFleetMainRefusesACLIVersionThatIsATarget(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{{"-print", "-cli", "-cli-version=all", "deploy"}, {"-print", "-cli", "-cli-version=0.3.2", "deploy", "codex"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
+			t.Errorf("run(%q) = %d with stdout %q, want 2 before any plan", args, code, stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "name the target before --cli") {
+			t.Errorf("run(%q) stderr = %q, want the fix: the target goes before --cli", args, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy", "all"}, noEnv, repoRoot, &stdout, &stderr); code != 0 ||
+		!strings.Contains(stdout.String(), "git tag v0.3.2\n") {
+		t.Errorf("run(deploy all --cli v0.3.2) = %d, printed\n%s", code, stdout.String())
+	}
+}

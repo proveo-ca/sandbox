@@ -309,7 +309,7 @@ var imageTasks = map[string]string{
 	"build": "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.no_cache %}-no-cache {% endif %}" +
 		"{% if usage.print %}-print {% endif %}{% if usage.cli %}-cli {% endif %}build{% if usage.target %} {{ usage.target | quote }}{% endif %}",
 	"deploy": "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage.print %}-print {% endif %}" +
-		"{% if usage.cli %}-cli -cli-version={{ usage.cli_version | quote }} {% endif %}{% if usage.yes %}-yes {% endif %}" +
+		"{% if usage.cli %}-cli -cli-version={{ usage.cli | quote }} {% endif %}{% if usage.yes %}-yes {% endif %}" +
 		"deploy{% if usage.target %} {{ usage.target | quote }}{% endif %}",
 	"test-images": "go run ./internal/maintain/fleet {% if usage.print %}-print {% endif %}test{% if usage.target %} {{ usage.target | quote }}{% endif %}",
 }
@@ -350,7 +350,7 @@ func TestImageTasksRunTheFleetMain(t *testing.T) {
 	}
 	for name, lines := range map[string][]string{
 		"build":       {`arg "[target]"`, `flag "--cli"`, `flag "--tag <tag>" default="local"`},
-		"deploy":      {`arg "[target]"`, `flag "--cli"`, `flag "--cli-version <version>" default="patch"`, `flag "--yes"`, `flag "--tag <tag>" default="latest"`},
+		"deploy":      {`arg "[target]"`, `flag "--cli [version]" value_optional=#true default_missing="patch"`, `flag "--yes"`, `flag "--tag <tag>" default="latest"`},
 		"test-images": {`arg "[target]"`},
 	} {
 		for _, line := range lines {

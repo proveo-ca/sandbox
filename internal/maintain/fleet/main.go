@@ -49,6 +49,12 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 		return 2
 	}
 	pr := ui.New(stderr)
+	if *cli && rest[0] == "deploy" {
+		if err := release.ValidVersion(*cliVersion); err != nil {
+			pr.Failf("--cli took %q as its version (%v); name the target before --cli: mise run deploy <target> --cli [version]", *cliVersion, err)
+			return 2
+		}
+	}
 	if rest[0] == "test" && (len(rest) == 1 || rest[1] == "all") {
 		if err := maintain.RunImageGate(*printOnly, stdout); err != nil {
 			pr.Failf("%v", err)

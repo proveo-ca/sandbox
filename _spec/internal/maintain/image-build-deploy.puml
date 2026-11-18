@@ -56,6 +56,12 @@
 '                   -cli-version (patch) and -yes; it cuts, publishes and
 '                   pushes the CLI release (was release + deploy-cli,
 '                   _spec/internal/cdn/distribution-update.puml)
+'   --cli [version] (DECIDED 2026-11-17): one mise flag carries the version,
+'                   value_optional with default_missing "patch"; it replaced
+'                   --cli plus --cli-version. mise 2026.10.17 binds a detached
+'                   value, so `--cli all` swallows the target: the fleet main
+'                   refuses any value outside patch|minor|major|vX.Y.Z with
+'                   exit 2 and "name the target before --cli".
 ' --print prints a "# cli" block first: the go install line, or release.Plan.
 ' The CLI goes first so a red release ships no image.
 ' ── DEPLOY UNTAGS :local AFTER THE RUN (DECIDED 2026-11-17) ─────────────────
