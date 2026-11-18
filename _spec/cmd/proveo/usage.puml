@@ -144,7 +144,7 @@ skinparam packageStyle rectangle
 ' ── HELP SPEAKS THE CHOICE PROMPT'S VOCABULARY (2026-09-28) ────────────────
 ' renderHelp replaces cobra's template on every command with the layout of
 ' _spec/internal/choiceui/wireframe.puml, printed rather than painted:
-'   banner + tagline       root only; the tagline IS the root's title
+'   banner                 root only; its box carries the tagline and IS the root's title
 '   title                  bold "<path> — <Short>" on subcommands
 '   header                 "usage:" / "aliases:" — label accent, value body
 '   Long                   verbatim at the 2-col gutter; an indented block that
@@ -279,8 +279,8 @@ end note
 
 note bottom of Commands
 **The tagline is printed once, which is why cobra's ""Short"" is left empty
-on the root command.** ""ui\.WriteBrandBanner"" already renders it dimmed
-under the banner from the root help hook, so filling ""Short"" in as well
+on the root command.** ""ui\.WriteBrandBanner"" already draws it inside
+the banner box from the root help hook, so filling ""Short"" in as well
 would print the same line twice on ""proveo --help"".
 
 **A message about the absence of results is not a result.**

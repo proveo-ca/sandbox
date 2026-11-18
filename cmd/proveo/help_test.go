@@ -46,7 +46,7 @@ func TestHelpDrawsTheChoicePromptLayout(t *testing.T) {
 			t.Errorf("help missing %q:\n%s", want, out)
 		}
 	}
-	for _, gone := range []string{"tick", "secret", "(default goal: typed as /goal) (default", "S O L U T I O N S"} {
+	for _, gone := range []string{"tick", "secret", "(default goal: typed as /goal) (default", "pr●veo"} {
 		if strings.Contains(out, gone) {
 			t.Errorf("help shows %q:\n%s", gone, out)
 		}
@@ -64,7 +64,7 @@ func TestHelpRootKeepsTheBannerAndDropsTheTitle(t *testing.T) {
 	var b strings.Builder
 	renderHelp(&b, root)
 	out := b.String()
-	if !strings.Contains(out, "S O L U T I O N S") || !strings.Contains(out, ui.BrandTagline) {
+	if !strings.Contains(out, "pr●veo") || !strings.Contains(out, ui.BrandTagline) || strings.Contains(out, "S O L U T I O N S") {
 		t.Errorf("root help lost the banner:\n%s", out)
 	}
 	if strings.Contains(out, "proveo —") {

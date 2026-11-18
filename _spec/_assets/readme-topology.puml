@@ -29,7 +29,8 @@
 '      for ⚿); a tab moves to the next 8-column stop.
 '   4. ffmpeg concat (per-frame durations) → demo.mp4 (libx264 yuv444p crf 10)
 '      → fps=12 palettegen/paletteuse (128 colours, no dither) → gifsicle -O3
-'      --lossy=20. 107 frames, 1026×674, 22 s, 215 KiB.
+'      --lossy=20. 102 frames, 1026×674, 22 s, 238 KiB (re-recorded 2026-11-17 for the
+'      Zen autonomy banner).
 ' Two edits, both host noise: the GIF ends before Esc (the exit line prints a
 ' log path under the recording machine's home), and the ~1 s hand-off frame
 ' between the pages is dropped, since it showed this host's "sbx 0.54.0 is not a

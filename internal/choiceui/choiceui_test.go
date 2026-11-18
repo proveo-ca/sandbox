@@ -47,11 +47,8 @@ func TestBannerRendersOnTop(t *testing.T) {
 		t.Errorf("first line = %q, want ui.BrandBanner's first line %q", lines[0], want)
 	}
 	got := joined(t, f)
-	if !strings.Contains(got, "S O L U T I O N S") || !strings.Contains(got, "pr●veo") {
-		t.Error("the solutions banner must render with the form")
-	}
-	if !strings.Contains(got, ui.BrandTagline) {
-		t.Error("the brand tagline must render with the banner")
+	if !strings.Contains(got, ui.BrandTagline) || !strings.Contains(got, "pr●veo") {
+		t.Error("the banner, with Zen autonomy inside the box, must render with the form")
 	}
 	assertHelpHeader(t, f)
 	if !strings.Contains(joined(t, f), "run opencode") {
@@ -65,7 +62,6 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	f.draw(s, f.firstSelectable(), 0)
 
 	brand := hexName(ui.ColorBrand)
-	const ink = "" // the terminal's own foreground
 	box := strings.Split(ui.BrandBanner, "\n")
 	for x := range 80 {
 		if r, _, _, _ := s.GetContent(x, 0); r != ' ' && r != 0 {
@@ -75,10 +71,9 @@ func assertHelpHeader(t *testing.T, f *Form) {
 	for i, line := range box {
 		assertBannerLine(t, s, i+1, line, brand, true)
 	}
-	assertBannerLine(t, s, len(box)+1, "  "+ui.BrandTagline, ink, false)
 	for x := range 80 {
-		if r, _, _, _ := s.GetContent(x, len(box)+2); r != ' ' && r != 0 {
-			t.Fatalf("row %d col %d is %q, help closes the header with a blank line", len(box)+2, x, string(r))
+		if r, _, _, _ := s.GetContent(x, len(box)+1); r != ' ' && r != 0 {
+			t.Fatalf("row %d col %d is %q, help closes the header with a blank line", len(box)+1, x, string(r))
 		}
 	}
 }

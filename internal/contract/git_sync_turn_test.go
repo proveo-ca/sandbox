@@ -459,11 +459,11 @@ func TestGitSyncUsesGhForGitHubSSHRemotesWithoutChangingOrigin(t *testing.T) {
 		pushURL   string
 		transport string
 	}{
-		{remoteURL: "git@github.com:proveo-ca/sandbox.git"},
-		{remoteURL: "ssh://git@github.com/proveo-ca/sandbox.git"},
-		{remoteURL: "https://github.com/proveo-ca/sandbox.git", pushURL: "git@github.com:proveo-ca/sandbox.git"},
-		{remoteURL: "git@github.com:proveo-ca/sandbox.git", transport: "ssh"},
-		{remoteURL: "ssh://git@github.com/proveo-ca/sandbox.git", transport: "ssh"},
+		{remoteURL: "git@github.com:proveo-ca/cli.git"},
+		{remoteURL: "ssh://git@github.com/proveo-ca/cli.git"},
+		{remoteURL: "https://github.com/proveo-ca/cli.git", pushURL: "git@github.com:proveo-ca/cli.git"},
+		{remoteURL: "git@github.com:proveo-ca/cli.git", transport: "ssh"},
+		{remoteURL: "ssh://git@github.com/proveo-ca/cli.git", transport: "ssh"},
 	} {
 		t.Run(tc.remoteURL+tc.pushURL+tc.transport, func(t *testing.T) {
 			dir := initRepo(t)
@@ -524,7 +524,7 @@ exec "$REAL_GIT" "$@"
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := strings.TrimSpace(string(resolved)); got != "https://github.com/proveo-ca/sandbox.git" {
+			if got := strings.TrimSpace(string(resolved)); got != "https://github.com/proveo-ca/cli.git" {
 				t.Errorf("rewritten origin = %q", got)
 			}
 			if got := strings.TrimSpace(gitCmd(t, dir, nil, "remote", "get-url", "origin")); got != tc.remoteURL {

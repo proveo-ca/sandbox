@@ -420,11 +420,14 @@ func TestWriteBrandBanner(t *testing.T) {
 	if !bytes.Contains(buf.Bytes(), []byte("pr●veo")) {
 		t.Fatalf("banner missing pr●veo mark:\n%s", got)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("S O L U T I O N S")) {
-		t.Fatalf("banner missing SOLUTIONS:\n%s", got)
+	if BrandTagline != "Zen autonomy" || !strings.Contains(BrandBanner, "│                     "+BrandTagline+"      │") {
+		t.Fatalf("BrandBanner does not draw %q inside the box, where SOLUTIONS was:\n%s", BrandTagline, BrandBanner)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(BrandTagline)) {
-		t.Fatalf("banner missing tagline:\n%s", got)
+	if bytes.Contains(buf.Bytes(), []byte("SOLUTIONS")) || bytes.Contains(buf.Bytes(), []byte("S O L U T I O N S")) || bytes.Contains(buf.Bytes(), []byte("proveo/")) {
+		t.Fatalf("banner keeps SOLUTIONS or a repo line:\n%s", got)
+	}
+	if !strings.HasSuffix(got, "●──────┘\n\n") {
+		t.Fatalf("banner does not close the box with one blank line:\n%q", got)
 	}
 }
 
