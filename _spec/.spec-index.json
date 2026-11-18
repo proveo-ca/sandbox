@@ -331,6 +331,11 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/isolated-browser-profiles.puml",
+      "covers": [],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/retire-model-bridging.puml",
       "covers": [
         "internal/sbx/host_ollama.go",
