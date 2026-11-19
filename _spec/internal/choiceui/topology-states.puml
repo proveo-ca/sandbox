@@ -152,11 +152,12 @@ title The topology strip in every selectable state (sbx; the docker frames are h
 }
 ..
 {^"Hovering OS · cloud — preview SSH to a cloud host"
-  () host | ─── <:cloud:> ─── | [ sbx · claudecode ] | ─── | () sbx proxy | ───▸ <:cloud:>
+  () host | . | [ sbx · claudecode ] | ─── | () sbx proxy | ───▸ <:cloud:>
+  └────────── <:cloud:> ──────────┘ | . | .
   cloud over SSH · coming soon
   .
   The OS cell is disabled and struck through. Its hint names SSH and says coming soon.
-  The figure uses the terminal's cloud glyph, or (~) in ASCII.
+  The existing lower host-to-sbx connector carries the terminal's cloud glyph, or (~) in ASCII.
   Moving away restores the selected local sbx topology.
 }
 ..

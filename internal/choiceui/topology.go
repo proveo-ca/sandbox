@@ -261,14 +261,6 @@ func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p 
 	if fr.Direct {
 		drawDirect(pn, y0, boxL, colHop, colLanes, fr, g, on, dim, p.brand)
 	} else {
-		if fr.Cloud {
-			room := boxL - pn.col() - textWidth(g.cloud) - 2
-			pn.write(dim, strings.Repeat(g.rule, room/2)+" ").
-				write(on(FocusSquare), g.cloud).
-				write(dim, " "+strings.Repeat(g.rule, room-room/2))
-		} else {
-			pn.padTo(boxL)
-		}
 		inside(2, say, fr.Square, keyIf(g, fr, KeyInSquare), on(FocusSay), on(FocusSquare))
 		spine := newPen(s, boxR+1, y0+2)
 		if fr.Hop == "" {
@@ -331,8 +323,18 @@ func drawFigure(s *screen, x0, y0 int, cs topoCols, fr Frame, tier GlyphTier, p 
 		floor := newPen(s, boxL, y0+4).write(on(FocusSquare), g.cornerBL)
 		floor.write(on(FocusSquare), strings.Repeat(g.rule, boxMid-boxL-1)+g.tee)
 		floor.write(on(FocusSquare), strings.Repeat(g.rule, boxR-boxMid-1)+g.cornerBR)
-		newPen(s, colHost, y0+5).write(on(FocusReturn),
-			g.cornerBL+strings.Repeat(g.rule, boxMid-colHost-1)+g.cornerBR)
+		wire := on(FocusReturn)
+		connector := newPen(s, colHost, y0+5).write(wire, g.cornerBL)
+		room := boxMid - connector.col()
+		if fr.Cloud {
+			room -= textWidth(g.cloud) + 2
+			left := room / 2
+			connector.write(wire, strings.Repeat(g.rule, left)+" ").
+				write(on(FocusSquare), g.cloud).
+				write(wire, " ")
+			room -= left
+		}
+		connector.write(wire, strings.Repeat(g.rule, room)+g.cornerBR)
 	}
 
 	trafficFrom := boxR + 1
