@@ -21,12 +21,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/proveo-ca/proveo/internal/devports"
 	"github.com/proveo-ca/proveo/internal/gitaccess"
+	"github.com/proveo-ca/proveo/internal/guestbrowser"
 	"github.com/proveo-ca/proveo/internal/hostdev"
 
 	"github.com/proveo-ca/proveo/internal/agentsettings"
@@ -722,55 +724,6 @@ func liftViaSbx(ctx context.Context, args []string, into string) (int, string, e
 	return 0, "", nil
 }
 
-func FreeLoopbackPort() int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
-	return port
-}
-
-// StartCDPViewport relays the published CDP port to the agent's Chromium while the sandbox runs.
-func StartCDPViewport(in Input, cfg sbx.RunConfig) func() {
-	if !relayRuns(in, cfg) {
-		return func() {}
-	}
-	stop := make(chan struct{})
-	go func() {
-		for {
-			if !sbx.Running(cfg.Name) {
-				select {
-				case <-stop:
-					return
-				case <-time.After(3 * time.Second):
-				}
-				continue
-			}
-			c := exec.Command(sbx.Binary, sbx.CDPRelayArgs(cfg.Name)...)
-			c.Stdout, c.Stderr = io.Discard, io.Discard
-			if err := c.Start(); err != nil {
-				select {
-				case <-stop:
-					return
-				case <-time.After(3 * time.Second):
-				}
-				continue
-			}
-			done := make(chan struct{})
-			go func() { _ = c.Wait(); close(done) }()
-			select {
-			case <-stop:
-				_ = c.Process.Kill()
-				return
-			case <-done:
-			}
-		}
-	}()
-	return func() { close(stop) }
-}
-
 // PublishedPort is one dev server the run starts in the sandbox and publishes to the host's loopback.
 type PublishedPort struct {
 	Host, Guest int
@@ -936,13 +889,6 @@ func StartDevServers(in Input, cfg sbx.RunConfig) func() {
 		}()
 	}
 	return func() { close(stop) }
-}
-
-func cdpPublish(in Input) []string {
-	if !in.Browser || in.CDPHostPort <= 0 {
-		return nil
-	}
-	return []string{fmt.Sprintf("%d:%d", in.CDPHostPort, sbx.CDPRelayPort)}
 }
 
 // CloneRefVar names the ref the seed checks out in a worktree's clone.
@@ -1168,7 +1114,7 @@ type Input struct {
 	RepoRoot               string // host repository root: where a clone's commits are fetched back to
 	OutputDir              string
 	Browser                bool
-	CDPHostPort            int
+	BrowserProfile         string
 	Ports                  []PublishedPort
 	InterfaceItems         []Item    // what the run decided about the interface before Run, such as a port left unpublished
 	InterfaceFacts         []ui.Fact // one fact per host add-on the run started: the emulator, the host browser, the desktop app
@@ -1376,13 +1322,14 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	env = append(env, in.Man.AgentEnvPairs(in.Lookup)...)
 	env = append(env, in.GitEnv...)
 	env = append(env, in.HomeEnv...)
-	if in.Browser && in.CDPHostPort > 0 {
-		existing := ""
-		if in.Lookup != nil {
-			existing = in.Lookup("AGENT_BROWSER_ARGS")
-		}
-		env = append(env, "AGENT_BROWSER_ARGS="+sbx.BrowserCDPArgs(existing))
+	browserMode := guestbrowser.Off
+	switch {
+	case in.Browser:
+		browserMode = guestbrowser.Isolated
+	case envValue(in.AgentEnv, hostdev.EnvCDPPort) != "":
+		browserMode = guestbrowser.HostChrome
 	}
+	env = append(env, guestbrowser.ModeEnv+"="+browserMode)
 	if in.ScopeRel != "" {
 		env = append(env, "PROVEO_SCOPE_REL="+in.ScopeRel)
 	}
@@ -1467,27 +1414,26 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	recipe := sbx.RecipeV3{From: src.From()}
 	var command []string
 	entrypoint := imageEntrypoint(in)
+	flags := launchFlags(in)
 	switch {
 	case hasUp:
 		recipe.Entrypoint, recipe.Env = up.Launch, up.Env
-		flags := withMobileMCP(harness, in.AgentEnv, append([]string{}, in.Extra...))
-		flags = withLocalModelTools(builtin, in.AgentEnv, flags)
-		command = sbx.LaunchArgs(up.Launch, flags)
+		command = sbx.LaunchArgs(up.Launch, withLocalModelTools(builtin, in.AgentEnv, flags))
 	case len(entrypoint) == 0:
 		report.Notes = append(report.Notes, Item{Warn: true, Text: in.Image + " — no readable ENTRYPOINT",
 			Detail: []string{harness + " launches through bash"}})
 		recipe.Entrypoint = []string{"bash"}
-		command = sbx.ShellLaunch(harness, in.Extra)
+		command = sbx.ShellLaunch(harness, flags)
 	default:
-		command = sbx.LaunchArgs(entrypoint, withMobileMCP(harness, in.AgentEnv, append([]string{}, in.Extra...)))
+		command = sbx.LaunchArgs(entrypoint, flags)
 	}
 	cfg := sbx.RunConfig{
-		Name:    sbx.SandboxName(in.Target, sandboxKey(in, mounts)),
+		Name:    browserSandboxName(in, sandboxKey(in, mounts)),
 		KitDir:  sbx.KitDirV3(filepath.Join(in.RunDir, "sbx", "kit"), agent),
 		Memory:  in.Memory,
 		CPUs:    in.CPUs,
 		Clone:   in.Clone,
-		Publish: append(cdpPublish(in), portPublish(in)...),
+		Publish: portPublish(in),
 		Agent:   agent,
 		Mounts:  WorkspaceBinds(mounts),
 		Env:     DeclineMCPGateway(in.MCPGateway, durableAgentHome(in.Target, Home(launchEnv(in, cmp.Or(builtin, agent), env, mounts), homeSourceMounts))),
@@ -1503,6 +1449,11 @@ func Spec(in Input) (sbx.RunConfig, Workload, [][2]string) {
 	}
 
 	caps := []sbx.CapabilityV3{{Type: sbx.CapSbx}}
+	if in.Browser {
+		caps = append(caps, sbx.CapabilityV3{Type: sbx.CapPort, Config: sbx.PortV3{
+			Name: "browser-viewport", Container: guestbrowser.ViewportPort,
+		}})
+	}
 	if hasUp {
 		caps = append(caps, backAPIKeys(up.Capabilities, storedAPIKeys(in))...)
 	}
@@ -1644,7 +1595,10 @@ func withMobileMCP(harness string, env, command []string) []string {
 	return append(append([]string{}, flags...), command...)
 }
 
-func Run(in Input) error {
+func Run(in Input) (runResultErr error) {
+	if err := in.ValidateLaunch(); err != nil {
+		return err
+	}
 	wsSaid, secretsSaid, ifaceSaid := false, false, false
 	var secretFacts []ui.Fact
 	defer func() {
@@ -1667,13 +1621,25 @@ func Run(in Input) error {
 		}
 	}
 	in.HomeAccess = homeAccess
+	stagedHome := homeAccess
 	keepHomeAccess := false
 	defer func() {
+		if stagedHome.FilesRoot != homeAccess.FilesRoot {
+			stagedHome.Cleanup()
+		}
 		if !keepHomeAccess {
 			homeAccess.Cleanup()
 		}
 	}()
 	cfg, w, secrets := Spec(in)
+	named := in.Browser && in.BrowserProfile != ""
+	if named {
+		release, err := profileLease(cfg.Name)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	ReportWorkspace(in, w.Report, ui.TildeIn)
 	wsSaid = true
 	ui.Section(ui.SectionSbx)
@@ -1695,25 +1661,80 @@ func Run(in Input) error {
 	}
 	receipt := receiptOf(cfg, in.Image, workloadBytes(kitDir), in.Sid, sbx.LocalImageID(in.Image))
 	receipt.OutputDir = in.OutputDir
-	exists := sbx.Exists(cfg.Name)
+	if named {
+		receipt.BrowserProfile = in.BrowserProfile
+		receipt.BrowserRun = in.Sid
+	}
+	var exists bool
+	var profileRow *sbx.Listed
+	if named {
+		var err error
+		profileRow, err = namedProfileSandbox(cfg.Name, readReceipt(cfg.Name))
+		if err != nil {
+			return err
+		}
+		exists = profileRow != nil
+	} else {
+		exists = sbx.Exists(cfg.Name)
+	}
+	running := sbx.Running
+	var listedClaude *sbx.Listed
+	if exists && Harness(in) == "claudecode" {
+		listedClaude = profileRow
+		if listedClaude == nil {
+			listedClaude = listedSandbox(cfg.Name)
+		}
+		if listedClaude == nil || !listedClaude.Running() {
+			if err := stoppedForClaudeLaunch(cfg.Name, listedClaude); err != nil {
+				return err
+			}
+		}
+		running = func(string) bool { return listedClaude.Running() }
+	}
 	changed := staleChanges(cfg.Name, receipt, exists)
+	if named && len(changed) > 0 {
+		return fmt.Errorf("sandbox %s holds browser profile %q and its settings changed (%s). Run with its original settings, choose another profile, or use %s to delete it",
+			cfg.Name, in.BrowserProfile, strings.Join(changed, ", "), profileDeletion(cfg.Name))
+	}
 	staleStep := start.DoAs
 	if len(changed) > 0 {
 		staleStep = start.HandAs
 	}
 	var kept []string
 	if err := staleStep(stepStale, stepStale, func() (err error) {
-		kept, err = retireIfStale(in, cfg, changed, sbx.Running, retireSandbox, ui.Notef, warnItem)
+		kept, err = retireIfStale(in, cfg, changed, running, retireSandbox, ui.Notef, warnItem)
 		return err
 	}); err != nil {
 		return err
 	}
+	if slices.Contains(kept, hostdev.EnvCDPPort) {
+		return fmt.Errorf("host Chrome settings differ in kept sandbox %s. Stop or recreate the sandbox to apply them", cfg.Name)
+	}
 	exists = exists && (len(changed) == 0 || kept != nil)
+	if exists && listedClaude != nil {
+		if err := stoppedForClaudeLaunch(cfg.Name, listedClaude); err != nil {
+			return err
+		}
+		reusedHome, err := prepareKeptClaude(in, cfg.Name, readReceipt(cfg.Name))
+		if err != nil {
+			return err
+		}
+		homeAccess = reusedHome
+		keepHomeAccess = true
+	}
 	launchCfg := reuseOrCreate(cfg, exists)
 	if launchCfg.KitDir != "" {
-		writeReceipt(cfg.Name, receipt)
+		if err := writeReceipt(cfg.Name, receipt); err != nil && named {
+			return fmt.Errorf("record browser profile ownership: %w", err)
+		}
 	}
 	created := launchCfg.KitDir != ""
+	if named && exists {
+		keepHomeAccess = true
+		if err := refreshProfileCloneEnv(in, readReceipt(cfg.Name)); err != nil {
+			return err
+		}
+	}
 	var child credentials.ChildEnv
 	for _, e := range cfg.Env {
 		if !strings.Contains(e, "=") {
@@ -1754,14 +1775,14 @@ func Run(in Input) error {
 	}
 	defer StartDevServers(in, cfg)()
 	defer StartAndroidInstall(in, cfg)()
-	defer StartCDPViewport(in, launchCfg)()
 	in.CloneKnown = created
-	pub := publishing{relay: relayRuns(in, launchCfg), created: created}
+	pub := publishing{created: created}
 	secretsSaid = true
 	switch {
 	case launchCfg.KitDir != "":
 		reportCreate(in, launchCfg, envValues, secretFacts, w.Report.Image)
 		if err := start.HandAs(stepCreate, "sbx create", func() error { return createSandbox(launchCfg) }); err != nil {
+			keepHomeAccess = named && sbx.Exists(cfg.Name)
 			if left, ok := leftByCreate(cfg.Name); ok {
 				left.print()
 			}
@@ -1778,8 +1799,36 @@ func Run(in Input) error {
 		reattachLog(cfg.Name)
 		start.StartAs("re-attach to "+cfg.Name, "re-attach to "+cfg.Name+" — left by an earlier run")
 	}
+	if named {
+		keepHomeAccess = true
+		defer func() {
+			if sbx.Running(cfg.Name) {
+				if out, err := guestRun(sbx.StopArgs(cfg.Name)...); err != nil {
+					runResultErr = errors.Join(runResultErr, fmt.Errorf("stop browser profile sandbox %s: %s", cfg.Name, failure(err, out)))
+				}
+			}
+		}()
+	}
+	viewport, err := startBrowserViewport(in.ctx(), in, cfg)
+	if err != nil {
+		return err
+	}
+	stopViewport := sync.OnceValue(viewport.stop)
+	defer func() { _ = stopViewport() }()
+	if named && created {
+		receipt.BrowserSandboxID = viewport.sandboxID
+		if err := writeReceipt(cfg.Name, receipt); err != nil {
+			return fmt.Errorf("record browser profile sandbox ID: %w", err)
+		}
+	}
+	pub.viewport = viewport.url
 	reportInterface(in, cfg, pub)
 	ifaceSaid = true
+	if port := envValue(in.AgentEnv, hostdev.EnvCDPPort); port != "" {
+		if err := checkGuestCDP(in.ctx(), cfg.Name, port); err != nil {
+			return err
+		}
+	}
 	args := sbx.RunArgs(launchCfg)
 	stdout, stderr, tail := agentsettings.Stdio(os.Stdout, os.Stderr, agentsettings.IsWriterTTY(os.Stdout))
 	traceIn, stopTrace := agentsettings.Tracer(os.Getenv("PROVEO_TRACE_STDIN"))
@@ -1806,12 +1855,16 @@ func Run(in Input) error {
 			}
 			if os.Getenv("PROVEO_SCHEDULE") == "" {
 				stop := func() {
-					forceRemove.Store(true)
+					forceRemove.Store(!named)
 					removeAsked.Store(time.Now().UnixNano())
 					cancelRun()
 				}
 				px.HandleCtrlC(func(in io.Reader, _ io.Writer) ptyproxy.CtrlCAction {
-					closed, _ := px.OverlayProgram(in, choiceui.NewSandboxClose(stop, stopWait))
+					closeDialog := choiceui.NewSandboxClose
+					if named {
+						closeDialog = choiceui.NewSandboxStop
+					}
+					closed, _ := px.OverlayProgram(in, closeDialog(stop, stopWait))
 					if choiceui.SandboxCloseAnswer(closed) == choiceui.SandboxClosePass {
 						return ptyproxy.CtrlCPass
 					}
@@ -1824,17 +1877,26 @@ func Run(in Input) error {
 		return c.Run()
 	}
 	if in.Desktop {
-		run = func() error { return newDesktopHold(cfg.Name, in.DesktopLaunch, imageEntrypoint(in)).run(runCtx) }
+		hold := newDesktopHold(cfg.Name, in.DesktopLaunch, imageEntrypoint(in))
+		hold.requirePrepare = in.Browser
+		run = func() error { return hold.run(runCtx) }
 	}
 	start.StartAs("start "+in.Target, agentStartLine(in))
 	startedAt := time.Now()
 	runErr := run()
+	browserErr := stopViewport()
+	if browserErr != nil {
+		ui.Warnf("browser cleanup in %s — %s", cfg.Name, browserErr)
+	}
 	endedAt := time.Now()
 	recordStep(stepAgent, endedAt.Sub(startedAt), nil)
 	if at := removeAsked.Load(); at != 0 {
 		recordStep(stepStopWait, endedAt.Sub(time.Unix(0, at)), nil)
 	}
 	runErr, result := stopOutcome(runErr, signalled(), forceRemove.Load())
+	if named && removeAsked.Load() != 0 {
+		runErr, result = nil, nil
+	}
 	ui.Section(ui.SectionResults)
 	status := sbxStatus(result)
 	end, said := agentEnd(in.Target, result, forceRemove.Load(), sbx.SaidError(status, tail.Lines()), tail.Lines())
@@ -1852,11 +1914,14 @@ func Run(in Input) error {
 	stopSignals()
 	td.run(tdCtx)
 	endWatch()
-	keepHomeAccess = td.keepHome
+	keepHomeAccess = td.keepHome || named
 	if sig := td.leftBy(); sig != 0 {
 		return Stopped{Signal: sig}
 	}
-	return runResult(result, said && end.Fail, forceRemove.Load(), tail.Lines())
+	if err := runResult(result, said && end.Fail, forceRemove.Load(), tail.Lines()); err != nil {
+		return err
+	}
+	return browserErr
 }
 
 // sbxStatus is `sbx run`'s exit status in result; 0 when result is not that exit.

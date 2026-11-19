@@ -32,7 +32,8 @@ seed_progress_update() {
   fi
   last_label="$label"
 }
-if _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
+proveo_launch() { _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ]; }
+if proveo_launch && [ ! -e "$marker" ]; then
   case "$(printf '%s' "${PROVEO_SEED_PROGRESS:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
     1 | true | yes | on | enable | enabled) progress_on=1 ;;
     *) progress_on=0 ;;
@@ -61,11 +62,11 @@ if _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ] && [ ! -e "$marker" ]; then
     fi
   fi
 fi
-if _proveo_in_sbx && [ -s "$refused" ]; then
+if proveo_launch && [ -s "$refused" ]; then
   echo "proveo: the seed did not release the agent — $(cat "$refused")" >&2
   [ "${1:-}" = "--cwd" ] || exit 1
 fi
-if _proveo_in_sbx && [ -n "${PROVEO_WORKDIR:-}" ] && [ "${PROVEO_GITHUB_TRANSPORT:-}" = ssh ] && [ ! -e "$marker" ] && [ "${1:-}" != --cwd ]; then
+if proveo_launch && [ "${PROVEO_GITHUB_TRANSPORT:-}" = ssh ] && [ ! -e "$marker" ] && [ "${1:-}" != --cwd ]; then
   echo "proveo: SSH verification or workspace setup has not completed; agent not released" >&2
   exit 1
 fi

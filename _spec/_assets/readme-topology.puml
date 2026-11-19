@@ -13,30 +13,19 @@
 ' The shape follows the run form's topology strip
 ' (_spec/internal/choiceui/topology-strip.puml): host → sbx microVM → sbx proxy → cloud.
 '
-' ── THE HERO GIF (MEASURED 2026-11-17) ──────────────────────────────────────
-' hero.gif is `proveo run claudecode` on a git copy of e2e/samples named acme:
-' the scope page, page 2, then devices → browser ticked; it loops there.
-' Tools, all through mise, none in [tools]: tmux 3.7b (mise.toml), uv 0.13.8
-' (Python with pillow + fonttools), ffmpeg 9.0.2 (conda), gifsicle 1.98 (conda).
-'   1. a detached tmux, 110×32, runs bash with PS1='$ ' and env TERM=xterm-256color
-'      COLORTERM=truecolor PROVEO_WIZARD=on PROVEO_AGENT_UPDATE=0, a fresh
-'      PROVEO_HOME and PROVEO_STATE_ROOT, USER=LOGNAME=you (the strip's host
-'      label) and OLLAMA_HOST at a closed port; send-keys types and navigates.
-'   2. every 50 ms: `tmux capture-pane -e -p` plus #{cursor_x} #{cursor_y}
-'      #{cursor_flag}; only changed frames are kept, with their timestamps.
-'   3. a renderer draws each frame at Menlo 15 px on #1e1e2e (box drawing
-'      drawn as lines; fallbacks Apple Symbols, Arial Unicode, STIX Two Math
-'      for ⚿); a tab moves to the next 8-column stop.
-'   4. ffmpeg concat (per-frame durations) → demo.mp4 (libx264 yuv444p crf 10)
-'      → fps=12 palettegen/paletteuse (128 colours, no dither) → gifsicle -O3
-'      --lossy=20. 102 frames, 1026×674, 22 s, 238 KiB (re-recorded 2026-11-17 for the
-'      Zen autonomy banner).
-' Two edits, both host noise: the GIF ends before Esc (the exit line prints a
-' log path under the recording machine's home), and the ~1 s hand-off frame
-' between the pages is dropped, since it showed this host's "sbx 0.54.0 is not a
-' version proveo has verified" note. A verified sbx prints no such note.
-' The recorder was a throwaway script; this note is the way to redo it.
-' HISTORY: until 2026-11-17 the GIF came from a vhs tape (hero.tape), deleted.
+' ── THE HERO GIF (RECORDED 2026-11-18) ──────────────────────────────────────
+' A detached tmux at 112×34 types `proveo claudecode` in a Git copy of e2e/samples
+' named acme. It selects apps/api in the scope picker, confirms the run, and
+' holds the live Claude Code input prompt for about five seconds before looping.
+' Use PS1='$ ', TERM=xterm-256color, COLORTERM=truecolor, PROVEO_WIZARD=on,
+' PROVEO_AGENT_UPDATE=0, PROVEO_GLYPHS=safe and fresh Proveo home and state dirs.
+' The recording host lacked KVM. A recording-only adapter passes the launch
+' arguments to Claude Code 2.1.322 in proveo/claudecode:latest using Docker.
+' The container has networking disabled and uses a fixture config and credential.
+' Capture changed frames with `tmux capture-pane -e -p`, cursor position and time.
+' Render ANSI cells with pyte and Pillow using DejaVu Sans Mono and Noto Sans
+' Symbols 2. Export the frames with ffmpeg at 12 fps and a 256-color palette.
+' HISTORY: the earlier recording ended in the devices picker.
 
 left to right direction
 skinparam nodesep 40

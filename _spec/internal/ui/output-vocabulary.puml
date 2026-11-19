@@ -232,9 +232,8 @@
 '
 ' ── WHAT INIT PRINTS (2026-11-11, R3) ──────────────────────────────────────
 ' `proveo init` names its subjects: sbx · prompt · git · credentials · operator
-' · results, each once, each after the step that makes it true. SectionPrompt
-' ("prompt") and SectionGit ("git") are new; SectionExecution, SectionStarting
-' and SectionSecrets lost their last callers and left: eighteen sections.
+' · results, each once, each after the step that makes it true. Later init
+' moved prompt setup to its card row and retired SectionPrompt.
 ' OUTCOME LINES, init's (decision A applied): sbx, prompt, git, credentials and
 ' operator are facts with their ⚠/× items; results ends on ONE closing line
 ' for a verdict no fact states: "✓ host — ready to run", "× host — not ready

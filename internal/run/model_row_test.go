@@ -24,7 +24,7 @@ func hermesImagesMan() manifest.Manifest {
 
 func selected(t *testing.T, localModel string) string {
 	t.Helper()
-	r, ok := modelRow(hermesImagesMan(), localModel)
+	r, ok := modelRow(hermesImagesMan(), localModel, modelTier24)
 	if !ok {
 		t.Fatal("no model row for hermes")
 	}
@@ -33,15 +33,88 @@ func selected(t *testing.T, localModel string) string {
 
 func TestModelRowOrderRunsRiskierToSafer(t *testing.T) {
 	t.Parallel()
-	r, ok := modelRow(hermesImagesMan(), "")
+	r, ok := modelRow(hermesImagesMan(), "", modelTier24)
 	if !ok {
 		t.Fatal("no model row for hermes")
 	}
-	if want := []string{qwen.label(), modelAPIKeys, glimmer.label()}; !slices.Equal(r.Options, want) {
+	if want := []string{modelAPIKeys, glimmer.label(), qwen.label()}; !slices.Equal(r.Options, want) {
 		t.Errorf("options = %v, want %v", r.Options, want)
 	}
 	if r.Multi || r.Options[r.Selected] != modelAPIKeys {
 		t.Errorf("want a single-select row defaulting to API keys, got multi=%v selected=%q", r.Multi, r.Options[r.Selected])
+	}
+}
+
+func TestModelRowSwitchesPresetsAtTheHostCapacityCutoffs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		memory uint64
+		local  []string
+	}{
+		{0, nil},
+		{(24 << 30) - 1, nil},
+		{24 << 30, []string{"Glimmer", "Qwen 3.8"}},
+		{(96 << 30) - 1, []string{"Glimmer", "Qwen 3.8"}},
+		{96 << 30, []string{"Nemotron", "Flash Next"}},
+		{128 << 30, []string{"Nemotron", "Flash Next"}},
+	} {
+		keys := env(map[string]string{"OPENCODE_API_KEY": "zen"})
+		man := opencodeMan()
+		auth, hasAuth := authRow(man, keys, man.Name, "", "", "")
+		r, ok := sourceRow(man, auth, hasAuth, "", modelTier(tc.memory))
+		want := append([]string{modelAPIKeys, modelPlan}, tc.local...)
+		if !ok || !slices.Equal(r.Options, want) {
+			t.Errorf("%d bytes: options = %v (%v), want %v", tc.memory, r.Options, ok, want)
+		}
+		wantCols := []int{0, 1, 2, 3}[:len(want)]
+		if !slices.Equal(r.Cols, wantCols) {
+			t.Errorf("%d bytes: cols = %v, want %v", tc.memory, r.Cols, wantCols)
+		}
+	}
+}
+
+func TestAnExplicitModelCanCrossTheTierBoundary(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		tag, option string
+		tier        int
+	}{
+		{"qwen3.8:latest", "Qwen 3.8", modelTier96},
+		{"nemotron-3.5-super:120b-a12b-nvfp4", "Nemotron", modelTier24},
+		{"qwen3.8-flash-next:125b-a6b-q4_K_M", "Flash Next", 0},
+	} {
+		r, _ := modelRow(hermesImagesMan(), c.tag, c.tier)
+		if got := r.Options[r.Selected]; got != c.option {
+			t.Fatalf("tag %q selected %q, want %q", c.tag, got, c.option)
+		}
+		p := Params{LocalModel: c.tag}
+		p.applySource(c.option, true)
+		if p.LocalModel != c.tag || p.AuthVar != credentials.AuthLocal {
+			t.Errorf("explicit tag became model %q and auth %q", p.LocalModel, p.AuthVar)
+		}
+	}
+}
+
+func TestLargePresetTagsUseLocalOllamaBuilds(t *testing.T) {
+	t.Parallel()
+	for _, m := range localModels {
+		switch m.repo {
+		case "nemotron-3.5-super":
+			if got := m.tagFor("linux/amd64"); got != "nemotron-3.5-super:120b-a12b-q4_K_M" {
+				t.Errorf("Nemotron Linux tag = %q", got)
+			}
+		case "qwen3.8-flash-next":
+			if got := m.tagFor("linux/amd64"); got != "qwen3.8-flash-next:125b-a6b-q4_K_M" {
+				t.Errorf("Flash-Next Linux tag = %q", got)
+			}
+			if got := m.tagFor("darwin/arm64"); got != "qwen3.8-flash-next:125b-mlx" {
+				t.Errorf("Flash-Next Apple silicon tag = %q", got)
+			}
+		}
+	}
+	const custom = "nemotron-3.5-super:120b-a12b-nvfp4"
+	if got := hostTagFor(custom); got != custom {
+		t.Errorf("remembered custom Nemotron build = %q, want %q", got, custom)
 	}
 }
 
@@ -58,7 +131,7 @@ func TestModelRowRecognisesAManualLocalModel(t *testing.T) {
 	if got := modelLabelFor("qwen3.8:latest"); got != qwen.label() {
 		t.Errorf("an untouched row must map back to the same option, so the flag's exact tag is kept; got %q", got)
 	}
-	r, _ := modelRow(hermesImagesMan(), "gemma4:12b")
+	r, _ := modelRow(hermesImagesMan(), "gemma4:12b", modelTier24)
 	if got := r.Options[r.Selected]; got != "gemma4:12b" || r.Help["gemma4:12b"] == "" {
 		t.Errorf("an unlisted --local-model must appear as its own selected option with help, got %q in %v", got, r.Options)
 	}
@@ -81,12 +154,12 @@ func TestModelRowOptionIsExactlyTheLocalModelFlag(t *testing.T) {
 func TestModelRowIsDrawnForEveryHarnessThatAcceptsLocalModel(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{"hermes", "opencode", "codex", "claudecode"} {
-		if _, ok := modelRow(manifest.Manifest{Name: name}, ""); !ok {
+		if _, ok := modelRow(manifest.Manifest{Name: name}, "", modelTier24); !ok {
 			t.Errorf("%s accepts --local-model but got no model row", name)
 		}
 	}
 	cursor := manifest.Manifest{Name: "cursor"}
-	if _, ok := modelRow(cursor, ""); ok {
+	if _, ok := modelRow(cursor, "", modelTier24); ok {
 		t.Error("cursor's inference is vendor-pinned; it must get no model row")
 	}
 	if got := rememberedLocalModel(cursor, "qwen3.8:latest"); got != "" {
@@ -156,7 +229,7 @@ func TestLocalModelFollowsTheHostPlatform(t *testing.T) {
 
 func TestModelBuildLivesInTheHint(t *testing.T) {
 	t.Parallel()
-	r, ok := modelRow(hermesImagesMan(), "")
+	r, ok := modelRow(hermesImagesMan(), "", modelTier24)
 	if !ok {
 		t.Fatal("no model row")
 	}
@@ -168,7 +241,7 @@ func TestModelBuildLivesInTheHint(t *testing.T) {
 			t.Errorf("option %q is %d runes, want at most 10", opt, n)
 		}
 	}
-	if cols := []int{0, 1, 3}; !slices.Equal(r.Cols, cols) {
+	if cols := []int{0, 2, 3}; !slices.Equal(r.Cols, cols) {
 		t.Errorf("cols = %v, want %v (plan's column stays empty)", r.Cols, cols)
 	}
 	h := r.Help[qwen.label()]
@@ -184,7 +257,7 @@ func TestModelBuildLivesInTheHint(t *testing.T) {
 func sourceFor(t *testing.T, man manifest.Manifest, lookup map[string]string, localModel string) (choiceui.Row, bool) {
 	t.Helper()
 	auth, hasAuth := authRow(man, env(lookup), man.Name, "", "", "")
-	return sourceRow(man, auth, hasAuth, localModel)
+	return sourceRow(man, auth, hasAuth, localModel, modelTier24)
 }
 
 func TestSourceRowMergesThePlanAndTheLocalModels(t *testing.T) {
@@ -194,12 +267,12 @@ func TestSourceRowMergesThePlanAndTheLocalModels(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode got no source row")
 	}
-	want := []string{qwen.label(), modelAPIKeys, modelPlan, glimmer.label()}
+	want := []string{modelAPIKeys, modelPlan, glimmer.label(), qwen.label()}
 	if r.Label != rowModel || !slices.Equal(r.Options, want) {
 		t.Errorf("row %q = %v, want %q = %v", r.Label, r.Options, rowModel, want)
 	}
 	if !slices.Equal(r.Cols, []int{0, 1, 2, 3}) {
-		t.Errorf("model cols = %v, want one option per risk column", r.Cols)
+		t.Errorf("model cols = %v, want one option per column", r.Cols)
 	}
 	if len(r.Off) != len(r.Options) || r.Help[qwen.label()] == "" || r.Help[modelAPIKeys] == "" {
 		t.Errorf("merged row lost its gates or help: off=%v help=%v", r.Off, r.Help)
@@ -230,7 +303,7 @@ func TestSourceRowKeepsCursorOffLocalModels(t *testing.T) {
 func TestSourceRowWithoutAPlanIsTheModelRow(t *testing.T) {
 	t.Parallel()
 	r, ok := sourceFor(t, hermesImagesMan(), nil, "")
-	if want := []string{qwen.label(), modelAPIKeys, glimmer.label()}; !ok || !slices.Equal(r.Options, want) {
+	if want := []string{modelAPIKeys, glimmer.label(), qwen.label()}; !ok || !slices.Equal(r.Options, want) {
 		t.Errorf("hermes row = %v (%v), want %v", r.Options, ok, want)
 	}
 }

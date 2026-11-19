@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPEC: _spec/internal/sbx/host-browser-cdp.puml
+client=/opt/agent-browser/bin/agent-browser
+case "${1:-}" in
+    --help|-h|--version|-V|help|skills) exec "$client" "$@" ;;
+esac
+case "${PROVEO_BROWSER_MODE:-}" in
+    isolated)
+        unset AGENT_BROWSER_PROFILE AGENT_BROWSER_ARGS AGENT_BROWSER_AUTO_CONNECT
+        export AGENT_BROWSER_CDP=9224
+        exec "$client" "$@"
+        ;;
+    none)
+        printf '%s\n' 'Browser integration is off. Select an isolated browser or Host Chrome in proveo run.' >&2
+        exit 1
+        ;;
+esac
+if [ -n "${PROVEO_HOST_CDP_PORT:-}" ]; then
+    exec proveo-host-cdp exec "$client" "$@"
+fi
+exec "$client" "$@"

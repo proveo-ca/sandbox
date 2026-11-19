@@ -158,16 +158,10 @@ export PROVEO_OPENCODE_DEFAULTS_DIR="$1/defs/opencode/defaults"
 export PROVEO_SUBAGENTS_DIR="$1/defs/subagents"
 `+script, "bash", repoRoot(t))
 	cmd.Dir = t.TempDir()
-	cmd.Env = append(os.Environ(), "HOME="+home, "PROVEO_HOME=", "PROVEO_STATE_HOME=",
+	cmd.Env = append(seedFixtureEnv(t), "HOME="+home,
 		"OPENCODE_RESEED=", "OPENCODE_CONFIG_DIR=", "XDG_CONFIG_HOME=",
-		"PROVEO_LOCAL_MODEL=", "OLLAMA_API_BASE=", "OPENCODE_MODEL=", "OPENCODE_SMALL_MODEL=",
-		"PROVEO_CONFIG_DIRS=", "PROVEO_CONFIG_FILES=", "PROVEO_CONFIG_FILES_ROOT=", "PROVEO_CONFIG_SYNC=",
-		"PROVEO_OPENCODE_FORMATTER=", "PROVEO_WORKDIR=", "PROVEO_SHARES=",
-		"PROVEO_CLONE_WORKSPACE=", "PROVEO_CLONE_ENV=", "PROVEO_CLONE_LINKS=",
-		"PROVEO_CLONE_REF=", "PROVEO_CLONE_MAIN=", "PROVEO_AGENT_KIND=assistant",
-		"PROVEO_HOUSE_RULES=off", "PROVEO_TOOLCHAIN_READY="+filepath.Join(home, "toolchain-ready"),
-		"PROVEO_HOOKS_MARKER="+filepath.Join(home, "hooks-ready"),
-		"PROVEO_SEED_REFUSED="+filepath.Join(home, "seed-refused"))
+		"OLLAMA_API_BASE=", "OPENCODE_MODEL=", "OPENCODE_SMALL_MODEL=",
+		"PROVEO_AGENT_KIND=assistant", "PROVEO_HOUSE_RULES=off")
 	cmd.Env = append(cmd.Env, env...)
 	return cmd
 }

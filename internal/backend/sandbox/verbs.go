@@ -35,16 +35,30 @@ func trustedListing() ([]sbx.Listed, error) {
 // RemoveKept carries home what sandbox name holds, saves its resume state, removes it and clears its entry; a running one needs stop,
 // and an untrusted listing changes nothing. One closing line; a refusal is "× <name> — not removed", Reported.
 // SPEC: _spec/internal/results/result-store.puml (THE VERBS)
-func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool) error {
+func RemoveKept(name, resultsDir string, report func(string, ...any), stop bool, deleteProfile ...bool) error {
+	named := profileSandbox.MatchString(name)
+	if named {
+		release, err := profileLease(name)
+		if err != nil {
+			return notRemoved(name, err, err.Error())
+		}
+		defer release()
+	}
 	rows, err := trustedListing()
 	if err != nil {
 		return notRemoved(name, err, "sbx gave no listing of its sandboxes", "`proveo rm "+name+"` tries again once `sbx ls` answers")
 	}
 	i := slices.IndexFunc(rows, func(r sbx.Listed) bool { return r.Name == name })
 	if i < 0 {
+		if named {
+			_ = os.Remove(receiptPath(name))
+		}
 		return forgetKept(name, resultsDir)
 	}
 	row := rows[i]
+	if named && !slices.Contains(deleteProfile, true) {
+		return notRemoved(name, fmt.Errorf("%s holds a named browser profile", name), "`"+profileDeletion(name)+"` deletes the sandbox and its profile")
+	}
 	if row.Running() && !stop {
 		return notRemoved(name, fmt.Errorf("%s is running; `proveo rm --stop %s` stops it, carries its work home and removes it", name, name),
 			"it is running", keptFix(name, true))

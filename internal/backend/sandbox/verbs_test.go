@@ -496,7 +496,7 @@ func TestRemoveKeptStopsARunningSandboxOnlyWhenAsked(t *testing.T) {
 
 func TestKeptInputLiftsTheOutputDirTheReceiptRecords(t *testing.T) {
 	fakeSbx(t, guestClone, 0, bundleEmpty)
-	writeReceipt("sb", launchReceipt{OutputDir: "/w/repo/reports"})
+	writeTestReceipt(t, "sb", launchReceipt{OutputDir: "/w/repo/reports"})
 	in, _ := keptInput(sbx.Listed{Name: "sb", Agent: "proveo-claudecode"}, results.Dir(t.TempDir()))
 	if in.OutputDir != "/w/repo/reports" {
 		t.Errorf("keptInput OutputDir = %q, want the receipt's: `proveo rm` lifts the output a failed lift left behind", in.OutputDir)
@@ -512,7 +512,7 @@ func TestKeptInputLiftsTheOutputDirTheReceiptRecords(t *testing.T) {
 // re-attach as well as a create, so `proveo rm` lifts into it even when the receipt predates it.
 func TestKeptInputLiftsIntoTheDirTheKeepingRunRecorded(t *testing.T) {
 	fakeSbx(t, guestClone, 0, bundleEmpty)
-	writeReceipt("sb", launchReceipt{})
+	writeTestReceipt(t, "sb", launchReceipt{})
 	dir := results.Dir(t.TempDir())
 	recordKept(Input{ResultsDir: dir, RepoRoot: "/w/repo", OutputDir: "/w/repo/out"}, "sb", "the output is only in it", false)
 	in, _ := keptInput(sbx.Listed{Name: "sb", Agent: "proveo-claudecode"}, dir)
@@ -530,7 +530,7 @@ func TestRemoveKeptLiftsTheOutputTheReceiptRecords(t *testing.T) {
 	}
 	gitIn(t, repo, "init", "-q", "-b", "main", ".")
 	calls := endingSbx(t, ending{row: "sb claude stopped", lift: "tar -cf - -T /dev/null"})
-	writeReceipt("sb", launchReceipt{OutputDir: filepath.Join(repo, "reports")})
+	writeTestReceipt(t, "sb", launchReceipt{OutputDir: filepath.Join(repo, "reports")})
 	captureSteps(t)
 	captured(t)
 	dir := keptStore(t, "sb")

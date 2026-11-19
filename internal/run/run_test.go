@@ -18,11 +18,11 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
-func TestExecutionRowOffersTheHostAndTheSandbox(t *testing.T) {
+func TestExecutionRowOffersHostSandboxAndCloud(t *testing.T) {
 	t.Parallel()
 	opts := addonOptions(manifest.Manifest{Name: "h", Images: map[string]string{"h": "proveo/h:latest"}}, rowExecution)
-	if !slices.Equal(opts, []string{addonHost, addonSandbox}) {
-		t.Errorf("execution row = %v, want the host and %q", opts, addonSandbox)
+	if !slices.Equal(opts, []string{addonHost, addonSandbox, addonCloud}) {
+		t.Errorf("execution row = %v, want host, sandbox and cloud", opts)
 	}
 }
 
@@ -34,8 +34,8 @@ func TestEachPlaneOffersOnlyItsOwnKindOfChoice(t *testing.T) {
 	}
 	exec := addonOptions(man, rowExecution)
 	iface := addonOptions(man, rowInterface)
-	if !slices.Equal(exec, []string{addonHost, addonSandbox}) {
-		t.Errorf("execution = %v, want the excluded host then the declared daemon", exec)
+	if !slices.Equal(exec, []string{addonHost, addonSandbox, addonCloud}) {
+		t.Errorf("execution = %v, want host, sandbox and cloud", exec)
 	}
 	if !slices.Equal(iface, []string{addonTUI, addonBrowser, addonHostCDP}) {
 		t.Errorf("interface = %v, want the tui then each browser it can drive", iface)
@@ -248,7 +248,7 @@ func TestSandboxSpecSeparatesSecretsFromEnv(t *testing.T) {
 	if strings.Contains(cfg.Name, "proveo-1-2") {
 		t.Errorf("sandbox name %q carries the session id — every run would build its own", cfg.Name)
 	}
-	if want := []string{"--verbose"}; !slices.Equal(cfg.Command, want) {
+	if want := []string{"--strict-mcp-config", "--verbose"}; !slices.Equal(cfg.Command, want) {
 		t.Errorf("command = %v, want %v: a leading flag appends to the kit's launch (P7)", cfg.Command, want)
 	}
 }

@@ -14,6 +14,7 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4
 	github.com/creack/pty v1.1.24
 	github.com/google/go-cmp v0.7.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-runewidth v0.0.30
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9

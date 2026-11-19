@@ -108,17 +108,30 @@ type kitRun struct {
 // the proveo process; extra follows the run flags.
 func launchKit(t *testing.T, proveoBin, target, dir string, env []string, extra ...string) *kitRun {
 	t.Helper()
+	return launchKitWithExisting(t, proveoBin, target, dir, env, "", extra...)
+}
+
+func launchKitWithExisting(t *testing.T, proveoBin, target, dir string, env []string, existing string, extra ...string) *kitRun {
+	t.Helper()
 	requireSbx(t)
 	if !slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "PROVEO_HOME=") }) {
 		env = append(env, "PROVEO_HOME="+t.TempDir())
 	}
 	sweepSandboxesAfter(t)
 	before, _ := sbxSandboxNames()
+	delete(before, existing)
 	sess := schedule.NewTmux(fmt.Sprintf("proveo-kit-%s-%d", target, time.Now().UnixNano()), nil)
 	cmd := append([]string{"env", "PROVEO_WIZARD=off", "PROVEO_MOUNT_GH_CONFIG=0"}, env...)
 	cmd = append(cmd, proveoBin, "run", target, "--credentials", "forward", "--input", dir)
 	if err := sess.Start(220, 50, append(cmd, extra...)...); err != nil {
 		t.Fatalf("start proveo run %s: %v", target, err)
+	}
+	if existing != "" {
+		t.Cleanup(sess.Kill)
+		if !waitUntil(durationEnv(t, "PROVEO_TEST_TIMEOUT", 8*time.Minute), func() bool { return sbx.Running(existing) }) {
+			screen, _ := sess.CaptureAll()
+			t.Fatalf("sandbox %s did not resume:\n%s", existing, tail(screen, 40))
+		}
 	}
 	return awaitKit(t, sess, before, target, dir)
 }

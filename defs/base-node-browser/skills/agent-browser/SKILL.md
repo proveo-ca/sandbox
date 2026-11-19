@@ -1,6 +1,6 @@
 ---
 name: agent-browser
-description: Browser automation CLI for AI agents, preinstalled in this sandbox with a headless Chromium. Use when the task needs a web page — navigating, filling forms, clicking, taking screenshots, extracting data, testing a local web app, logging into a site, exploratory QA — or any programmatic browser interaction. Prefer agent-browser over ad-hoc Playwright scripts for interactive browsing; keep Playwright for the project's own test suites.
+description: Browse with the preinstalled agent-browser CLI. Use for browser interaction, screenshots, data extraction, web-app testing, and exploratory QA.
 allowed-tools: Bash(agent-browser:*)
 ---
 
@@ -11,11 +11,10 @@ snapshots with compact `@eN` element refs.
 
 ## This sandbox is already provisioned
 
-- `agent-browser` is on PATH and Chromium is preinstalled at `$AGENT_BROWSER_EXECUTABLE_PATH`
-  (Playwright's build, shared with the `playwright` CLI). **Do not run `npm i -g agent-browser`
-  or `agent-browser install`** — there is no network path for a second browser download and
-  nothing to install.
-- Runs headless. There is no display in the sandbox; `--headed` has nothing to draw on.
+- Use `agent-browser` directly. When `PROVEO_HOST_CDP_PORT` is set, the launcher connects
+  to the operator's dedicated Chrome window over CDP. Use the configured connection.
+- The isolated browser choice attaches to Chromium inside the sandbox. The operator can take control temporarily. Retry browser commands after control returns.
+- Use the preinstalled binary and browser. Skip installation commands.
 - Bundled skills are served from `$AGENT_BROWSER_SKILLS_DIR`, version-matched to the binary.
 
 ## Start here

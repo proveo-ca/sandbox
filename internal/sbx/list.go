@@ -8,6 +8,7 @@ import (
 
 // Listed is one sandbox as `sbx ls --json` reports it.
 type Listed struct {
+	ID         string       `json:"id"`
 	Name       string       `json:"name"`
 	Agent      string       `json:"agent"`
 	Status     string       `json:"status"`

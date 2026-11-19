@@ -1,175 +1,61 @@
-@startuml
+@startuml BrowserViewport
 !include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
 skinparam noteTextAlignment left
-title Browser viewport — watching the agent's Chromium from the host, across the sandbox boundary
-
-' purpose: why the host cannot reach the sandbox's browser directly, and the two ports that fix it
-' covers: internal/sbx/run.go
-' covers: internal/backend/sandbox/sandbox.go
-' covers: internal/backend/sandbox/report.go (reportInterface)
-' covers: internal/run/run.go
+' purpose: trace browser requests between the operator, the agent and guest Chromium
+' covers: internal/backend/sandbox/browser.go
+' covers: internal/guestbrowser/**
+' covers: cmd/proveo-entrypoint/browser.go
 ' covers: e2e/browser_viewport_test.go
-' covers: internal/sbx/clone_test.go
-'
-' ── TWO PORTS, BECAUSE ONE CANNOT DO BOTH JOBS ─────────────────────────────
-' Chromium's DevTools endpoint refuses every peer that is not loopback: bound
-' with --remote-debugging-address 0.0.0.0 and asked from the sandbox's OWN
-' address it answers nothing (measured 2026-09-02 — loopback 200, sandbox IP
-' reset), which is exactly how sbx's port forwarder arrives. So Chromium stays
-' on loopback and a RELAY owns the published port, connecting onward as a
-' loopback client.
-'
-' BrowserCDPArgs is the AGENT_BROWSER_ARGS value that makes the agent's own
-' Chromium expose CDP, preserving whatever the operator already set.
-' agent-browser launches Chromium itself and picks its own endpoint, so there
-' was nothing to attach to; --args is its documented way to pass browser flags
-' through, and a fixed port there is what turns the agent's browser into one the
-' host can find. Measured against agent-browser 0.36.0.
-'
-' The relay runs in the FOREGROUND so the run owns its lifetime: when proveo
-' stops waiting the relay goes with it, rather than outliving the session as an
-' orphan holding a published port. It passes `-w /` for the reason the state
-' sync does — the container WorkingDir can stop resolving mid-run, and an exec
-' that inherits it dies at chdir.
-'
-' ── WHY THE HOST STARTS IT, AND WHY IT CHECKS Running ──────────────────────
-' Started from the host rather than seeded into the image for two reasons: the
-' exec's lifetime is the run's, so the relay cannot outlive the session; and an
-' already-built -browser image gains the viewport without a rebuild.
-'
-' Guarded on Running, never merely on Exists: `sbx exec` RESTARTS a stopped
-' sandbox, so a retry loop that did not check would resurrect the VM after the
-' agent had finished with it.
-'
-' The host port is reserved by binding it and letting it go, so the URL can be
-' printed BEFORE the sandbox exists. Impure by nature, which is why it is the
-' caller's job and not Spec's: a plan rendered by --print must not depend on
-' which ports this machine happens to have free. The gap between releasing and
-' sbx binding is a race nothing can close from here, and losing it costs the
-' viewport, not the run.
-'
-' THE ROW PRINTS AFTER `sbx create`, AND ONLY FOR THIS RUN'S PUBLISH
-' (2026-11-11, _spec/internal/ui/output-vocabulary.puml). The interface block prints what the
-' port serves, "● browser: the agent's Chromium over CDP", and nothing under
-' it: sbx's create block prints "✓ port 9222/tcp4 — published 127.0.0.1:<host>"
-' (MEASURED 2026-11-11, sbx v0.50.0, a sandbox created for the check with
-' `sbx create -p 127.0.0.1:47123:8080 shell`), so a "sandbox :9222" detail
-' restated it (P9; dropped in the R1 review). The run log
-' keeps "browser viewport: http://127.0.0.1:<port> — attach Chrome DevTools
-' or Playwright (connectOverCDP) …" and the /json/list hint. The row and the
-' relay share one gate, relayRuns: the browser's own publish (cdpPublish) and
-' a launch config that publishes. A re-attached sandbox never published this
-' run's fresh port, and a run with only a dev port must not print a browser.
-' Pinned by TestTheBrowserRowNeedsThisRunsOwnPublish.
-'
-' Every link measured 2026-09-02 against sbx (schema 1.132.0), Chromium 149.0.7827.0
-' and agent-browser 0.36.0, on proveo/claudecode-browser.
-'
-' ── THE E2E CASE NAMES THE TARGET, NOT THE BROWSER IMAGE ───────────────────
-' TestBrowserViewportReachesTheAgentsChromium drives a real `proveo run
-' claudecode` through its kit (awaitKit; `--shell` until that flag was retired
-' 2026-10-17) with the "browser" add-on pre-selected, in place of the
-' three pieces it used to hand-assemble: a `sbx create -p <hostPort>:9222`, a
-' manually started relay, and a manual `sbx exec … agent-browser open`.
-'
-' The target stays "claudecode". run.go's `rs.Backend.BrowserImage` lookup keys
-' on `target+"-browser"`, so passing the browser image name directly as the
-' target would bypass the very wiring the case exists to prove — it is the
-' ADD-ON, not a separate "claudecode-browser" target, that swaps the image in
-' and starts the relay.
-'
-' Two further choices follow one rule: assert on what the product published,
-' never on a value the test knows by another route. The host port is read out
-' of the run log's own `browser viewport: <url>` row — what the run published
-' — rather than reconstructed from a port the test picked; and
-' the page is opened with `agent-browser` inside the session rather than by a
-' hand-rolled Chromium, so the endpoint the host attaches to is the one the
-' AGENT is using.
-'   the harness this rides on ...... _spec/tests/testing-strategy.puml
+' profile lifecycle and verification: _spec/_plans/isolated-browser-profiles.puml
+' explicit host browser: _spec/internal/sbx/host-browser-cdp.puml
+title Isolated browser viewport
 
-actor "Operator" as OP
-participant "proveo run\n(browser add-on ticked)" as RUN <<app>>
-participant "sbx port forwarder\n-p <hostPort>:9222" as FWD <<cloud>>
-box "sandbox microVM" #F4F9FB
-  participant "relay\n0.0.0.0:9222 → 127.0.0.1:9223" as RELAY <<app>>
-  participant "Chromium DevTools\n127.0.0.1:9223" as CDP <<app>>
-  participant "agent-browser\n(the agent's own tool)" as AB <<app>>
+actor Operator as OP
+participant "proveo\n127.0.0.1:<ephemeral>" as HOST
+participant "sbx port@1\nlocalhost:<reported port>" as FWD
+box "sbx guest" #F4F9FB
+  participant "viewport\n:9222 · token required" as VIEW
+  participant "agent CDP proxy\n127.0.0.1:9224" as CDP
+  participant "Chromium\nloopback · kernel-selected port" as CHROME
+  participant "agent-browser / Hermes" as AGENT
 end box
 
-RUN ARROW_MAIN RUN : pick a free host port BEFORE launch,\nso the URL is printed ahead of the TUI
-RUN ARROW_MAIN FWD : " ""sbx run -p <hostPort>:9222"" (creation-time) "
-RUN ARROW_MAIN AB : " ""-e AGENT_BROWSER_ARGS=…,--remote-debugging-port=9223"" "
-AB ARROW_MAIN CDP : launches Chromium on the PINNED port
-RUN ARROW_QUEUE RELAY : " ""sbx exec -w / <sid> -- python3 -c <relay>"" \nheld open for the run's life "
-OP ARROW_MAIN FWD : DevTools · Playwright ""connectOverCDP""\nhttp://127.0.0.1:<hostPort>
-FWD ARROW_MAIN RELAY : forwarded connection\n(arrives from a NON-loopback peer)
-RELAY ARROW_MAIN CDP : re-dialled as a loopback client
-CDP ARROW_MAIN OP : target list · page WS URLs · a page it can drive
-FWD ARROW_ERROR CDP : publishing 9223 directly — reset, always
+HOST -> VIEW : verify this run's token via FWD
+HOST --> OP : print a private loopback URL
+OP -> HOST : open viewport
+HOST -> FWD : authenticate viewport request
+FWD -> VIEW : GET tabs
+VIEW -> CHROME : start on first use and list CDP targets
+AGENT -> CDP : discover and attach
+CDP -> CHROME : start if needed and relay CDP
+OP -> VIEW : take control via HOST and FWD
+VIEW -> CDP : close admission and wait for pending replies
+VIEW -> CHROME : capture tabs and dispatch operator input
+OP -> VIEW : return control
+VIEW -> CDP : admit new agent commands
+HOST -> VIEW : close run's exec input
+VIEW -> CHROME : Browser.close and wait for profile flush
 
-note over RUN
-  **The add-on swaps the image; the target never
-  changes.** BrowserImage is resolved as
-  ""<target>-browser"", so an e2e case naming the
-  browser image directly would bypass exactly the
-  wiring it was written to demonstrate.
+note over HOST, FWD
+  The viewport uses sbx's actual running publication. A randomly
+  generated bearer authenticates the relay. The host proxy holds it
+  and serves a run-scoped path with a loopback Host and Origin check.
+  Before first use, the authenticated readiness probe checks only
+  the launcher. The first viewport or agent request connects to CDP.
 end note
 
-note over FWD
-  **Read the port the run itself published.**
-  The case parses the run log's ""browser
-  viewport: <url>"" row and opens the
-  page through ""agent-browser"" inside the
-  session, so it attaches to the agent's own.
+note over VIEW, CDP
+  The operator chooses a tab, including popups, and monitors its
+  screenshot. Input needs an active control lease, which expires
+  when its viewport stops checking in. Agent CDP commands get a
+  retriable error during the operator lease. The boundary covers
+  proxied CDP commands. Page scripts and network requests can
+  continue after Chromium has acknowledged the initiating command.
 end note
 
-note over CDP
-  **Chromium's DevTools endpoint refuses every peer that is not loopback**, and
-  that is the whole reason a relay exists. Measured from inside the sandbox, one
-  process bound with ""--remote-debugging-address=0.0.0.0"":
-  loopback answered **200**, its own address answered **nothing** (reset). sbx's
-  forwarder arrives exactly the second way, so ""-p <host>:9223"" could never work
-  no matter what the ""Host"" header said — an explicit ""Host: 127.0.0.1:9223"" was
-  reset too. A plain HTTP server on the same sandbox, published the same way, was
-  reachable throughout: the forwarder was never the problem.
+note over CHROME
+  Chromium listens on guest loopback and uses the sandbox's egress.
+  Browser profiles stay outside workspace and home synchronization.
+  The guest has full CDP authority over its own browser.
 end note
-
-note over AB
-  **agent-browser launches Chromium itself and picks its own endpoint**, so there
-  was nothing to attach to. ""--args"" / ""AGENT_BROWSER_ARGS"" is its documented
-  passthrough for browser flags, and a fixed ""--remote-debugging-port"" there is
-  what turns the agent's browser into one the host can find. An operator who
-  already pinned a port keeps theirs — two such flags and Chromium picks the
-  loser.
-
-  The env var travels as RUN environment, not as an image default: sbx launches
-  the agent through its own kit and never runs the entrypoint, so an export
-  there would reach the docker backend alone.
-end note
-
-note over RELAY
-  **The relay is started from the HOST, not seeded into the image.** Its exec's
-  lifetime is the run's, so it cannot outlive the session holding a published
-  port; and an already-built ""-browser"" image gains the viewport with no rebuild.
-  It is python3 stdlib passed as ""-c"", which the base image already carries.
-
-  Restarts are guarded on ""Running"", never on ""Exists"": ""sbx exec"" RESTARTS a
-  stopped sandbox, so a retry loop that only checked existence would resurrect
-  the VM after the agent had finished with it.
-
-  ""-w /"" for the reason ""SaveStateArgs"" pins it — the container WorkingDir can
-  stop resolving mid-run (virtiofs-cwd-invalidation.puml) and an exec that
-  inherits it dies at chdir.
-end note
-
-note over OP, RUN
-  **The operator watches the agent's own browser.** Published ports run
-  host→sandbox, which is the direction this needs.
-
-  Nothing leaves this machine: sbx binds published ports on loopback (127.0.0.1
-  and ::1) only. The exposure is a CDP endpoint with full control of that
-  browser, which is why it is scoped to the run and to the add-on that asked
-  for it.
-end note
-
 @enduml

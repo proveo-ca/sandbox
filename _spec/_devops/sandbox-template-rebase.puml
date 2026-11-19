@@ -27,6 +27,7 @@ skinparam noteTextAlignment left
 '     re-declares Env, the com.docker.sandboxes.* labels sbx reads to treat it
 '     as a template, USER root, WORKDIR /, ENTRYPOINT tini, CMD bash. The
 '     template's org.opencontainers.* labels (Ubuntu's metadata) are dropped.
+'     Both stages export AGENT_BROWSER_SKILLS_DIR for the bundled client.
 '   * hermes flattens nousresearch/hermes-agent the same way (hermes-flat),
 '     since it does not build on proveo's base chain. It re-declares upstream's
 '     Env, VOLUME /opt/data, USER root, WORKDIR, ENTRYPOINT and CMD; the first

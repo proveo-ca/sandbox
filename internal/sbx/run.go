@@ -4,7 +4,6 @@ package sbx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
@@ -325,53 +324,6 @@ func CloneHostTipsArgs(repoRoot string) []string {
 
 // CloneHostTipsCap bounds that list.
 const CloneHostTipsCap = 64
-
-const (
-	CDPRelayPort   = 9222 // the relay listens here, on every interface; this is what is published
-	CDPBrowserPort = 9223 // Chromium's own DevTools port, loopback only
-)
-
-func BrowserCDPArgs(existing string) string {
-	flag := fmt.Sprintf("--remote-debugging-port=%d", CDPBrowserPort)
-	existing = strings.TrimSpace(existing)
-	switch {
-	case existing == "":
-		return "--no-sandbox," + flag
-	case strings.Contains(existing, "--remote-debugging-port="):
-		return existing // the operator pinned their own; theirs wins
-	}
-	return existing + "," + flag
-}
-
-const cdpRelay = `
-import socket,sys,threading
-L,T=int(sys.argv[1]),int(sys.argv[2])
-def pipe(a,b):
-    try:
-        while True:
-            d=a.recv(65536)
-            if not d: break
-            b.sendall(d)
-    except Exception: pass
-    finally:
-        for s in (a,b):
-            try: s.close()
-            except Exception: pass
-s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-s.bind(("0.0.0.0",L)); s.listen(64)
-while True:
-    c,_=s.accept()
-    try: u=socket.create_connection(("127.0.0.1",T))
-    except Exception:
-        c.close(); continue
-    for a,b in ((c,u),(u,c)):
-        threading.Thread(target=pipe,args=(a,b),daemon=True).start()
-`
-
-func CDPRelayArgs(name string) []string {
-	return []string{"exec", "-w", "/", name, "--", "python3", "-c", cdpRelay,
-		strconv.Itoa(CDPRelayPort), strconv.Itoa(CDPBrowserPort)}
-}
 
 // CloneLiftNothing is the exit status CloneLiftArgs reserves for "the agent
 // wrote nothing there": the directory does not exist in the clone, so there is

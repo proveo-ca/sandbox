@@ -41,9 +41,13 @@ silicon, RAM otherwise), proveo warns and asks y/N; a scheduled or tty-less run 
 (`PROVEO_LOCAL_MODEL_FORCE=1` skips the question). The baked-model images (`hermes-muse-glimmer`,
 `hermes-qwen3.8`) are retired. See `_spec/internal/sbx/host-inference.puml`.
 
-## Host Chrome (logged-in sites)
+## Browser
 
-Tick **chrome** in the interface row (sbx only). proveo opens Chrome on a dedicated
+Select **Browser → isolated fresh** or pass `--addon browser` to use the Chromium bundled
+with Hermes. The TUI and Desktop gateway use the same sandbox browser as the operator's
+viewport. Pass `--browser-profile work` to keep logins in the sandbox between runs.
+
+Select **host Chrome** or pass `--addon chrome` for host sign-in flows. Proveo opens Chrome on a dedicated
 profile (`~/Library/Application Support/proveo/host-chrome/hermes` on macOS) with CDP on
 `127.0.0.1:9222` (`PROVEO_HOST_CDP_PORT` overrides), or reuses a browser already serving CDP there.
 Log into the site in that window once; the profile keeps the session across runs. hermes attaches by

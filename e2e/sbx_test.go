@@ -507,6 +507,9 @@ func printedMounts(create []string) []string {
 }
 
 func TestEveryMountThePrintedCreateLineNamesExists(t *testing.T) {
+	if ok, why := sbx.Available(); !ok {
+		t.Skipf("sbx not available on this host: %s", why)
+	}
 	for _, target := range dockerTargets(func(m manifest.Manifest) bool { return len(m.Home.Files) > 0 }) {
 		t.Run(target, func(t *testing.T) {
 			_, out := renderWorkload(t, target)

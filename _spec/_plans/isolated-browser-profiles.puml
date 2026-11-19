@@ -1,0 +1,119 @@
+@startuml IsolatedBrowserProfiles
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+' purpose: one browser choice across all defs with guest-owned profiles and an operator viewport
+' status: implemented; native sbx verification pending
+' informed by: _spec/internal/sbx/browser-viewport.puml, _spec/internal/sbx/host-browser-cdp.puml
+' informed by: _spec/internal/sbx/kit-lifecycle.puml, _spec/_plans/session-continuity.puml
+' covers: cmd/proveo-entrypoint/browser.go
+' covers: internal/backend/sandbox/browser.go
+' covers: internal/backend/sandbox/browser_test.go
+' covers: internal/guestbrowser/**
+' covers: internal/imagetest/browser_test.go
+' covers: internal/run/choices.go
+' covers: internal/run/run.go
+' covers: packages/lib/agent-browser
+' covers: defs/hermes/browser-launch
+' covers: defs/hermes/entrypoint.sh
+' covers: e2e/browser_viewport_test.go
+' covers: e2e/hermes_test.go
+title Isolated browser profiles across all harnesses
+
+actor "Operator" as OP
+node "Operator's machine" {
+  component "Proveo\nBrowser choice and run controls" as RUN
+  component "Viewport\nmonitor, take control, return control" as VIEW
+  database "Run receipt\nprofile name, sandbox ID, lease owner" as RECEIPT
+}
+node "sbx sandbox" {
+  component "Token-protected viewport relay" as RELAY
+  component "Browser launcher\nagent-browser or Hermes attaches" as LAUNCH
+  component "Chromium\nlocal CDP and sbx egress" as BROWSER
+  database "Guest-private profile\ncookies and browser state" as PROFILE
+}
+
+OP ARROW_MAIN RUN : choose Browser
+OP ARROW_MAIN VIEW : watch or sign in
+RUN ARROW_MAIN RECEIPT : record profile and acquire lease
+RUN ARROW_MAIN LAUNCH : resolve image, mode and ownership
+VIEW ARROW_MAIN RELAY : per-run host loopback endpoint
+RELAY ARROW_MAIN BROWSER : observe and interact with the same tabs
+LAUNCH ARROW_MAIN BROWSER : start on first use and attach
+BROWSER ARROW_MAIN PROFILE : read and write inside the sandbox
+
+note bottom of RUN
+  Offer one Browser choice across Claude Code,
+  Codex, Cursor, OpenCode and Hermes. Off is the
+  default for a new run. Isolated can use a fresh
+  profile or a named profile. Host Chrome remains
+  an advanced explicit option.
+end note
+
+note bottom of RECEIPT
+  A named profile belongs to a specific sandbox.
+  Keep its sandbox stopped between runs so the
+  profile remains available. The workstation
+  stores identity and lease metadata.
+  Removing the sandbox removes the profile.
+end note
+
+note bottom of VIEW
+  Monitoring and operator input use the same
+  browser the agent sees. The operator can start
+  the browser and sign in before giving control
+  to the agent. Prevent both clients from driving
+  the browser during an operator handoff.
+end note
+
+legend bottom
+  **1. Resolve one browser choice**
+  * Move the current browser and chrome controls into one choice. Preserve the existing CLI
+    spellings and map remembered browser choices to Isolated. Keep existing explicit Host
+    Chrome choices on the advanced path.
+  * Offer fresh and named profiles under Isolated. Start the browser when the agent first
+    needs it or the operator opens the viewport. Keep image selection behind the picker.
+    Report the effective mode and retained profile in the run output.
+
+  **2. Provision the same guest browser for every def**
+  | Claude Code, Codex, Cursor, OpenCode | Use the pinned Chromium layer and attach agent-browser to the launcher's guest-local endpoint. |
+  | Hermes TUI and Desktop | Reuse Hermes's bundled Chromium and set its native browser client to the same guest-local endpoint. |
+  * Keep explicit image and variant tools available. Select a compatible browser layer or
+    report a missing browser capability before launch.
+  * Start one Chromium per run using a guest-private user data directory.
+    Keep browser traffic under sbx egress. Exclude the profile directory from workspace
+    mounts and config sync.
+
+  **3. Let the operator watch and sign in**
+  * Publish a token-protected HTTP endpoint through sbx port@1. Show tabs, popups and
+    screenshots in the host viewport, with pointer and keyboard input in control mode.
+  * Support signing in before first agent use. For mid-run handoff, wait for in-flight browser
+    commands to reply and refuse new proxied commands until the operator returns control.
+    The viewport's monitor mode suppresses input. The guest CDP endpoint gives full control.
+  * Publish the viewport on the workstation's loopback interface. Use the port sbx actually
+    reports. Authenticate the launcher before normal agent launch. It verifies Chromium's
+    WebSocket when a client first uses it. Close the host viewport when the run ends.
+
+  **4. Keep named logins in sbx**
+  * Stop the browser and delete fresh profile data during run cleanup, including when a
+    harness retains an engine. A named profile survives by keeping its owning sandbox
+    stopped. The host stores identity and lease metadata. Profile files stay in the guest.
+  * Key a named profile on the workspace, harness target and profile name. Record sbx's
+    sandbox ID and verify it when resuming. Give each fresh profile a run-specific sandbox name.
+    Reattach to an active terminal joins its existing run and viewport.
+  * Acquire one active lease per named profile. An existing lease gives the operator the
+    choice to view the owning run or start with a different profile. The OS releases
+    the lock when the owner exits. Preserve the owning run's staged files during clean.
+    Require proveo rm --delete-browser-profile before replacing the sandbox.
+
+  **5. Verification**
+  * The Docker fixture runs real Chromium and the current guest launcher on loopback without
+    sbx, KVM, model calls or egress. It checks lazy start, rendered viewport controls, input
+    and handoff, popup visibility, cookie isolation, persistence and cleanup on launcher stdin EOF.
+  * Run the harness-client probes against locally available browser-capable images. Verify the
+    installed coding or Hermes client opens a tab in the same Chromium served by the viewport.
+  * The native e2e suite drives proveo run for all five defs and starts Hermes Desktop over SSH.
+    Verify the sbx viewport port binds only to host loopback and the agent CDP port stays private.
+    Check sandbox retention, resume in the same sbx ID, lease refusal and deletion confirmation.
+  * Native sbx is also required for policy enforcement, real port allocation and Host Chrome access.
+endlegend
+@enduml

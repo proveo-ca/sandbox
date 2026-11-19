@@ -29,16 +29,17 @@ func DesktopGateway(name string) string { return DesktopSSHUser + "@" + sbx.SSHH
 
 // desktopHold is one Hermes Desktop session driving sandbox name over sbx's SSH.
 type desktopHold struct {
-	name     string
-	launch   []string
-	prepare  []string // configures hermes in the sandbox without launching it
-	userData string   // proveo-owned Desktop userData; "" leaves the app's own
-	setup    func(...string) (string, error)
-	exec     func(name, user string, argv []string) (string, error)
-	start    func(argv, env []string) error
-	attached func(name string) bool
-	poll     time.Duration
-	deadline time.Duration
+	name           string
+	launch         []string
+	requirePrepare bool
+	prepare        []string // configures hermes in the sandbox without launching it
+	userData       string   // proveo-owned Desktop userData; "" leaves the app's own
+	setup          func(...string) (string, error)
+	exec           func(name, user string, argv []string) (string, error)
+	start          func(argv, env []string) error
+	attached       func(name string) bool
+	poll           time.Duration
+	deadline       time.Duration
 }
 
 var proveohomeRoot = func() string { return proveohome.Root(os.Getenv) }
@@ -63,6 +64,9 @@ func (h desktopHold) run(ctx context.Context) error {
 	}
 	if len(h.prepare) > 0 {
 		if out, err := h.exec(h.name, DesktopSSHUser, h.prepare); err != nil {
+			if h.requirePrepare {
+				return fmt.Errorf("configure Hermes Desktop's isolated browser in %s: %s", h.name, failure(err, out))
+			}
 			ui.Warnf("desktop: hermes in %s was not configured (%v) — Desktop may offer Nous or a CPU-only local model\n%s",
 				h.name, err, lastLines(out, 6))
 		} else {

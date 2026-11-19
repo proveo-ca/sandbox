@@ -130,7 +130,7 @@ exit 1
 			t.Fatal(err)
 		}
 	}
-	f.env = append(os.Environ(), "GITHUB_TOKEN=", "GH_TOKEN=", "PROVEO_TEST_CALLS="+f.log,
+	f.env = append(seedFixtureEnv(t), "GITHUB_TOKEN=", "GH_TOKEN=", "PROVEO_TEST_CALLS="+f.log,
 		"PROVEO_TEST_INSTALLER="+installer, "_PROVEO_TOOL_HOME="+f.tool, "HOME="+t.TempDir(),
 		"PROVEO_AUTO_INSTALL_TOOLS=", "PROVEO_MISE_TRUST=")
 	return f

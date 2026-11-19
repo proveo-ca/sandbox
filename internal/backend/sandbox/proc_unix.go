@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // ownGroup starts cmd in its own process group; cancelling cmd then kills the whole group.
@@ -20,4 +22,9 @@ func ownGroup(cmd *exec.Cmd) {
 		}
 		return err
 	}
+}
+
+func tryProfileLock(f *os.File) (busy bool, err error) {
+	err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+	return errors.Is(err, unix.EWOULDBLOCK), err
 }

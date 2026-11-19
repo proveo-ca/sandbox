@@ -160,7 +160,7 @@ func TestTheStaleStepHandsOverOnlyWhenAStaleSandboxExists(t *testing.T) {
 	if got := staleChanges("sb", now, true); len(got) == 0 {
 		t.Error("a sandbox with no receipt must count as stale, so the step can ask")
 	}
-	writeReceipt("sb", now)
+	writeTestReceipt(t, "sb", now)
 	if got := staleChanges("sb", now, true); got != nil {
 		t.Errorf("a sandbox created with these settings, changes = %q; want none", got)
 	}

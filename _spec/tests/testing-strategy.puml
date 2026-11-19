@@ -26,6 +26,11 @@ title Testing strategy — layers 1, 2 and 4, speed traded for fidelity (layer 3
 ' under test is PROVEO_TEST_<TARGET>_IMAGE (N31, internal/imagetest/pin.go);
 ' _spec/tests/00-testing-overview.puml lists what it folded.
 '
+' Seed contract fixtures isolate sandbox env, SSH credentials and boot markers
+' from the invoking session. Tests set the launch choices each case needs.
+' Init's flow fixtures provide a private Git identity and a controlled gh PATH.
+' Syntax checks probe the optional shell before giving it the prompt snippet.
+'
 ' ── LAYER 3 IS RETIRED (DECIDED 2026-10-16) ────────────────────────────────
 ' Layer 3 was the live egress topology — real containers, the MITM, Squid and
 ' broker.env, no model — under `-tags=integration` and

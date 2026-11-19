@@ -33,9 +33,19 @@ func SandboxCloseCopy() []string {
 // NewSandboxClose is the close dialog. When stop is set, accepting Remove runs it
 // once and the dialog stays up, saying the stop is in flight, until its Program is ended.
 func NewSandboxClose(stop func(), stopWait time.Duration) tea.Model {
-	d := newDialog(sandboxCloseTitle, SandboxCloseCopy(), int(SandboxCloseStay),
+	return sandboxCloseDialog(sandboxCloseTitle, SandboxCloseCopy(), dialogButton{Label: "Remove", Key: 'r', Danger: true}, stop, stopWait)
+}
+
+func NewSandboxStop(stop func(), stopWait time.Duration) tea.Model {
+	const title = "stop this sandbox?"
+	return sandboxCloseDialog(title, []string{title, "", "The sandbox keeps its named browser profile."},
+		dialogButton{Label: "Stop", Key: 't'}, stop, stopWait)
+}
+
+func sandboxCloseDialog(title string, copy []string, action dialogButton, stop func(), stopWait time.Duration) tea.Model {
+	d := newDialog(title, copy, int(SandboxCloseStay),
 		dialogButton{Label: "Stay", Key: 's'},
-		dialogButton{Label: "Remove", Key: 'r', Danger: true},
+		action,
 		dialogButton{Label: "Interrupt agent", Key: 'i'},
 	)
 	d.onCtrlC = int(SandboxClosePass)

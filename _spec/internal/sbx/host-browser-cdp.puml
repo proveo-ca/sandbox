@@ -6,11 +6,16 @@ skinparam noteTextAlignment left
 ' covers: internal/hostdev/hostcdp_test.go
 ' covers: internal/run/choices.go (addonHostCDP, interfaceOptions, gateAddons)
 ' covers: internal/run/run.go (startHostCDP)
+' covers: internal/run/outcome_test.go
 ' covers: internal/run/host_adb_test.go (TestEachHostAddOnFactNamesWhatTheRunLeftUp)
 ' covers: internal/backend/sandbox/sandbox.go (Spec allow)
+' covers: internal/backend/sandbox/host_cdp.go
 ' covers: internal/backend/sandbox/host_inference_test.go
+' covers: packages/lib/proveo-host-cdp
+' covers: packages/lib/agent-browser
+' covers: e2e/host_chrome_test.go
 ' covers: defs/hermes/entrypoint.sh (PROVEO_HOST_CDP_PORT block)
-' covers: defs/hermes/harness.manifest (capabilities.hostBrowser: cdp)
+' covers: defs/*/harness.manifest
 '   the in-sandbox browser viewport ............ _spec/internal/sbx/browser-viewport.puml
 '   the package it shares with adb ............. _spec/internal/sbx/host-android-adb.puml
 '
@@ -20,10 +25,31 @@ skinparam noteTextAlignment left
 ' no display, and use_real_profile cannot decrypt a macOS Chrome profile (Keychain)
 ' from a Linux VM. A host Chrome on a DEDICATED profile gives all three.
 '
-' ── capabilities.hostBrowser SELECTS THE MECHANISM ─────────────────────────
-'   cdp → addonHostCDP (this file; hermes) — the only mechanism since the
-'   Claude-in-Chrome bridge was removed (2026-10-24)
-' The add-on greys out without sbx: it rides sbx's host gateway.
+' ── SHARED BY ALL DEFS ──────────────────────────────────────────────────────
+' Every manifest declares capabilities.hostBrowser: cdp. The chrome add-on
+' selects host Chrome. The browser add-on still selects in-sandbox Chromium.
+' After the run accepts its choices, it starts or reuses host Chrome before
+' image preflight or sandbox creation. --print opens no window.
+' The Kit records the CDP port and allows localhost:<port>. After creation or
+' reuse, the run checks that the guest has that port and upgrades the actual
+' browser WebSocket. A kept sandbox must apply the selected Chrome setting.
+' Fail before the agent launches if guest discovery or the handshake fails.
+'
+' proveo-host-cdp resolves the gateway in the guest. The application can dial
+' the numeric address directly and keep sbx's normal proxy settings for other
+' traffic. The wrapper supplies the discovered WebSocket in AGENT_BROWSER_CDP
+' for agent-browser. Hermes uses the same gateway IP in BROWSER_CDP_URL.
+' Neither client stores a run's endpoint in its persistent configuration.
+' The lightweight agent-browser client lives in proveo/base. Codex gets its
+' discovery skill at ~/.agents/skills. Hermes keeps its native browser client.
+'
+' Chrome DevTools MCP documents manual CDP attachment for sandboxed clients.
+' https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md#connecting-to-a-running-chrome-instance
+' Docker documents host-service policy as localhost:<port>.
+' https://docs.docker.com/ai/sandboxes/workflows/development/#accessing-host-services-from-a-sandbox
+' The 0.36.0 agent-browser wrapper listed a Chrome fixture tab from a separate
+' Docker container with HTTP_PROXY and HTTPS_PROXY set to an unusable address.
+' TestCodexUsesHostChromeFromSbx covers the same workflow on the sbx runtime.
 '
 ' ── MEASURED FROM A GUEST (sbx v0.42.1, Chrome 153, host.docker.internal = 169.254.1.1) ─
 '   via proxy  host.docker.internal:P/json/version   200, ws URL = ws://localhost:P/…  ✗ unusable in the VM
@@ -41,7 +67,9 @@ skinparam noteTextAlignment left
 '
 ' ── HOST SIDE ──────────────────────────────────────────────────────────────
 '   port    PROVEO_HOST_CDP_PORT, default 9222; Kit allow += localhost:<port>.
-'   reuse   anything answering 127.0.0.1:<port>/json/version is reused as is.
+'   reuse   reuse a browser at the chosen port when /json/version advertises
+'           a browser WebSocket. All harnesses reuse the same live endpoint
+'           when their selected port matches it.
 '           Chrome ≥136 refuses --remote-debugging-port on the default profile,
 '           so a CDP-serving Chrome is never the everyday one.
 '   launch  else Chrome/Chromium/Brave/Edge with --user-data-dir=
@@ -52,6 +80,7 @@ skinparam noteTextAlignment left
 '
 ' ── WHAT THE AGENT CAN DO ──────────────────────────────────────────────────
 ' CDP is full control of that browser: every tab, every cookie in the profile.
+' Page requests leave from host Chrome. The Kit's allow rule covers the CDP hop.
 ' The run warns so; the boundary is "log into only what the agent should touch".
 ' Since 2026-11-11 the browser opens before the sandbox,
 ' behind the live line "host-cdp — starting", which leaves the screen once CDP
@@ -78,12 +107,14 @@ node "host" as HOST {
   component "Chrome\ndedicated profile\n127.0.0.1:<port>" as CH
 }
 node "sbx microVM" as VM {
-  component "hermes\nBROWSER_CDP_URL=http://169.254.1.1:<port>" as AG
+  component "proveo-host-cdp\nguest discovery and WebSocket probe" as CDP
+  component "agent-browser or Hermes\nrun-scoped CDP endpoint" as AG
 }
 
 OP --> CH : logs in once (2FA)
 RUN --> CH : reuse or launch
-RUN --> VM : Kit allow localhost:<port>\nenv PROVEO_HOST_CDP_PORT
+RUN --> CDP : Kit allow localhost:<port>\nverify from the guest
+CDP --> AG : supply the reachable endpoint
 AG --> CH : CDP by IP, NO_PROXY
 
 note right of CH

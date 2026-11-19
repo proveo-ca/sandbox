@@ -4,7 +4,7 @@ skinparam noteTextAlignment left
 ' purpose: how a local model reaches an sbx agent — the host's Ollama on the host GPU, one port across the VM boundary
 ' covers: internal/sbx/host_ollama.go (LocalModelEnv, EnsureHostOllama, HostOllamaPolicyHost)
 ' covers: internal/sbx/host_ollama_test.go
-' covers: internal/sbx/host_memory.go (memoryFor, amdFreeVRAM, parseNvidiaFree)
+' covers: internal/sbx/host_memory.go (HostAcceleratorCapacity, memoryFor, amdVRAM)
 ' covers: internal/sbx/host_memory_test.go
 ' covers: internal/run/local_model_fit.go (admitOversizedModel)
 ' covers: internal/run/local_model_fit_test.go
@@ -172,8 +172,8 @@ skinparam noteTextAlignment left
 '   * entrypoint.sh sets local_runtime.enabled false in the sandbox.
 '   * internal/run/local_model_auto.go: a run with no --local-model, no detected
 '     provider key, no subscription manifest and PROVEO_LOCAL_MODEL_AUTO not 0
-'     takes the first listed model (MODEL ROW MAPPING, this host's tag) that the
-'     host's Ollama has installed and that fits the FIT POOL — the host GPU path.
+'     takes the first preset in the host's capacity tier that Ollama has
+'     installed and that fits the FIT POOL. Below 24 GiB it takes no preset.
 '     Only listed models: an arbitrary installed tag (a 0.3 GB fine-tune) is
 '     not an agent model.
 '     WHERE IT SAYS SO (2026-11-11, _spec/internal/ui/output-vocabulary.puml): the pick, its reason
@@ -198,6 +198,29 @@ skinparam noteTextAlignment left
 '                      darwin/arm64            linux/amd64 (and any other host)
 '   Qwen 3.8 27B     → qwen3.8:27b-mlx         qwen3.8:latest       (27b-q4_K_M)
 '   Muse Glimmer 30B → muse-glimmer:30b-mlx    muse-glimmer:latest  (30b-q4_K_M)
+'   Nemotron 3.5 Super → nemotron-3.5-super:120b-a12b-q4_K_M on both
+'   Qwen3.8-Flash-Next → qwen3.8-flash-next:125b-mlx on Apple silicon
+'                        qwen3.8-flash-next:125b-a6b-q4_K_M elsewhere
+'
+' The form offers the first pair at 24 ≤ capacity < 96 GiB. At capacity ≥
+' 96 GiB it offers the second pair. Capacity is installed VRAM, summed
+' across detected cards, or installed unified memory on Apple silicon.
+' NVIDIA total rounds to the nearest GiB for driver-reserved memory.
+' CPU-only and unknown capacity show no presets. An explicit --local-model
+' remains available at every capacity and retains its exact tag.
+' The cache preserves a large model's custom quantization. The registered
+' GGUF and MLX presets still map to the current host's build.
+'
+' Ollama registry manifests (2026-11-18): Nemotron Q4_K_M 90.15 GB, Flash-Next
+' MLX 104.85 GB, Flash-Next Q4_K_M 120.06 GB. The fallback weights + 1/8 +
+' 1 GiB estimate gives 95.5, 110.9 and 126.8 GiB respectively. Flash-Next's
+' hint recommends the 128 GB hardware class. The 96 GB menu threshold
+' determines availability. Launch still sizes the chosen tag and context
+' against memory free at the time of launch.
+' https://ollama.com/library/nemotron-3.5-super/tags
+' https://ollama.com/library/qwen3.8-flash-next/tags
+' https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+' https://huggingface.co/Qwen/Qwen3.8-Flash-Next
 ' The row sets p.LocalModel and nothing else (2026-09-27), so picking an option
 ' and passing the flag are the same run on either backend.
 ' MLX on Apple Silicon, measured 2026-09-27 on an M4 Pro 48 GB, Ollama 0.34.4,

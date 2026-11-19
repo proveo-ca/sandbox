@@ -151,6 +151,15 @@ title The topology strip in every selectable state (sbx; the docker frames are h
   the square and the proxy are gone; one dash runs from the host to the lanes
 }
 ..
+{^"Hovering OS · cloud — preview SSH to a cloud host"
+  () host | ─── <:cloud:> ─── | [ sbx · claudecode ] | ─── | () sbx proxy | ───▸ <:cloud:>
+  cloud over SSH · coming soon
+  .
+  The OS cell is disabled and struck through. Its hint names SSH and says coming soon.
+  The figure uses the terminal's cloud glyph, or (~) in ASCII.
+  Moving away restores the selected local sbx topology.
+}
+..
 {^"HISTORY — Variant D · the docker backend (deleted 2026-10-16) — proveo's tiers, and proveo's mitmproxy"
 {
 {^"open · broker"

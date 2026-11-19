@@ -196,11 +196,9 @@ proveo run claudecode -- --debug --mcp-debug
 
 ## Browser: agent-browser in the sandbox
 
-The `browser` add-on in the `proveo run` picker:
-
-| add-on | what the agent drives | image | backend |
-| --- | --- | --- | --- |
-| `browser` | a headless Chromium **inside the sandbox** — Playwright's, shared by the `playwright` CLI and [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) (`open` · `snapshot` · `click` · `fill` · `screenshot` over CDP) | `proveo/claudecode-browser` (the `defs/base-node-browser` layer on `proveo/claudecode`) | sbx |
+Select **Browser → isolated fresh** or pass `--addon browser`. Proveo selects
+`proveo/claudecode-browser` and starts guest Chromium on demand. Open the run's
+viewport to monitor or take control of the tabs [agent-browser](https://github.com/vercel-labs/agent-browser) drives.
 
 ## Mobile: an Android emulator on the host, driven by mobile-mcp
 

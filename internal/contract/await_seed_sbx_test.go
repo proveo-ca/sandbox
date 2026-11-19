@@ -24,6 +24,22 @@ func outsideSbx(env []string) []string {
 	return out
 }
 
+func seedFixtureEnv(t *testing.T) []string {
+	t.Helper()
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		key, _, _ := strings.Cut(kv, "=")
+		return strings.HasPrefix(key, "PROVEO_") || strings.HasPrefix(key, "SANDBOX_") ||
+			strings.HasPrefix(key, "MISE_") || key == "BASH_ENV" || key == "SSH_AUTH_SOCK"
+	})
+	state := t.TempDir()
+	for _, key := range []string{"PROVEO_SEED_REFUSED", "PROVEO_SEED_HALTED", "PROVEO_INSTRUCTIONS_MARKER",
+		"PROVEO_HOOKS_MARKER", "PROVEO_STATE_RESTORED", "PROVEO_SEED_STATUS_FILE", "PROVEO_OPENCODE_INSTRUCTIONS",
+		"PROVEO_RELEASE_SNAPSHOT", "PROVEO_PROVISIONING", "PROVEO_TOOLCHAIN_READY"} {
+		env = append(env, key+"="+filepath.Join(state, key))
+	}
+	return env
+}
+
 func TestAwaitSeedDetectsSbxByAnyIdentityVariable(t *testing.T) {
 	t.Parallel()
 	sh, err := exec.LookPath("sh")

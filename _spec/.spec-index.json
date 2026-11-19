@@ -331,6 +331,24 @@
       "fingerprint": null
     },
     {
+      "spec": "_spec/_plans/isolated-browser-profiles.puml",
+      "covers": [
+        "cmd/proveo-entrypoint/browser.go",
+        "internal/backend/sandbox/browser.go",
+        "internal/backend/sandbox/browser_test.go",
+        "internal/guestbrowser/**",
+        "internal/imagetest/browser_test.go",
+        "internal/run/choices.go",
+        "internal/run/run.go",
+        "packages/lib/agent-browser",
+        "defs/hermes/browser-launch",
+        "defs/hermes/entrypoint.sh",
+        "e2e/browser_viewport_test.go",
+        "e2e/hermes_test.go"
+      ],
+      "fingerprint": null
+    },
+    {
       "spec": "_spec/_plans/retire-model-bridging.puml",
       "covers": [
         "internal/sbx/host_ollama.go",
@@ -345,6 +363,15 @@
         "internal/run/run.go",
         "internal/workspace/deps.go",
         "packages/lib/entrypoint-lib.sh"
+      ],
+      "fingerprint": null
+    },
+    {
+      "spec": "_spec/_plans/sbx-over-ssh.puml",
+      "covers": [
+        "internal/run/choices.go",
+        "internal/run/topology.go",
+        "internal/choiceui/topology.go"
       ],
       "fingerprint": null
     },
@@ -563,6 +590,7 @@
       "spec": "_spec/defs/browser-layer.puml",
       "covers": [
         "defs/base-node-browser/**",
+        "defs/base/Dockerfile",
         "defs/base-node-browser/skills/agent-browser/SKILL.md",
         "internal/imagebuild/targets.go",
         "packages/lib/entrypoint-lib.sh",
@@ -1329,12 +1357,11 @@
     {
       "spec": "_spec/internal/sbx/browser-viewport.puml",
       "covers": [
-        "internal/sbx/run.go",
-        "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/browser.go",
         "internal/backend/sandbox/report.go",
-        "internal/run/run.go",
-        "e2e/browser_viewport_test.go",
-        "internal/sbx/clone_test.go"
+        "internal/guestbrowser/**",
+        "cmd/proveo-entrypoint/browser.go",
+        "e2e/browser_viewport_test.go"
       ],
       "fingerprint": null
     },
@@ -2259,11 +2286,16 @@
         "internal/hostdev/hostcdp_test.go",
         "internal/run/choices.go",
         "internal/run/run.go",
+        "internal/run/outcome_test.go",
         "internal/run/host_adb_test.go",
         "internal/backend/sandbox/sandbox.go",
+        "internal/backend/sandbox/host_cdp.go",
         "internal/backend/sandbox/host_inference_test.go",
+        "packages/lib/proveo-host-cdp",
+        "packages/lib/agent-browser",
+        "e2e/host_chrome_test.go",
         "defs/hermes/entrypoint.sh",
-        "defs/hermes/harness.manifest"
+        "defs/*/harness.manifest"
       ],
       "fingerprint": null
     },

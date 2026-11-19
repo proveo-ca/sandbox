@@ -106,29 +106,6 @@ func TestLiftClonedOutputTargetsTheRepoRootWithTheCloneRelativePath(t *testing.T
 	}
 }
 
-func TestCDPPublishNeedsBothABrowserAndAPort(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name string
-		in   Input
-		want []string
-	}{
-		{"browser and port", Input{Browser: true, CDPHostPort: 49999}, []string{"49999:9222"}},
-		{"no browser add-on", Input{CDPHostPort: 49999}, nil},
-		{"no port (print mode)", Input{Browser: true}, nil},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if diff := cmp.Diff(c.want, cdpPublish(c.in)); diff != "" {
-				t.Errorf("cdpPublish mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-	if p := FreeLoopbackPort(); p <= 0 {
-		t.Errorf("FreeLoopbackPort returned %d — the viewport needs a port before the sandbox exists", p)
-	}
-}
-
 func TestCarryClonePicksTheTransportThatCanWork(t *testing.T) {
 	t.Parallel()
 	in := Input{Clone: true, RepoRoot: "/repo"}
@@ -281,24 +258,24 @@ func TestIDEAttachNeedsANamedSandboxAndWorkspace(t *testing.T) {
 
 func TestALiveRunShowsOneIDERowAndLogsTheWholeAttachBlock(t *testing.T) {
 	screen, log := captured(t)
-	in := Input{Clone: true, RepoRoot: "/host/repo", Browser: true, CDPHostPort: 56855,
+	in := Input{Clone: true, RepoRoot: "/host/repo", Browser: true,
 		Ports: []PublishedPort{{Host: 18083, Guest: 8083, What: "next · apps/web/package.json", Dir: "apps/web", Cmd: "pnpm run dev"}}}
-	reportInterface(in, sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}, publishing{created: true, relay: true})
+	reportInterface(in, sbx.RunConfig{Name: "proveo-1-2", Mounts: []sbx.Mount{{Host: "/host/repo"}}}, publishing{created: true, viewport: "http://127.0.0.1:56855/viewport/"})
 	got := screen.String()
 	for _, want := range []string{"------ interface ------", "ide:", "ssh proveo-1-2.sbx", "a local Open edits the host checkout",
-		"port 8083:", "next in apps/web", "log /tmp/proveo-dev-8083.log", "browser:", "the agent's Chromium over CDP"} {
+		"port 8083:", "next in apps/web", "log /tmp/proveo-dev-8083.log", "browser:", "isolated Chromium"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the interface block lacks %q:\n%s", want, got)
 		}
 	}
 	for _, refuse := range []string{"JetBrains", "VS Code", "Toolbox (", "DISPOSABLE", "pnpm run dev", "connectOverCDP",
-		"http://127.0.0.1:18083", "http://127.0.0.1:56855", ":9222"} {
+		"http://127.0.0.1:18083", ":9222"} {
 		if strings.Contains(got, refuse) {
 			t.Errorf("the screen carries %q, which belongs in the run log or sbx's create block:\n%s", refuse, got)
 		}
 	}
 	for _, want := range []string{"IDE attach (live):", "JetBrains: File → Remote Development", "VS Code: `code --remote ssh-remote+proveo-1-2.sbx /host/repo`",
-		"a local Open or Recent of /host/repo edits the HOST checkout", "runs `pnpm run dev` in apps/web", "connectOverCDP",
+		"a local Open or Recent of /host/repo edits the HOST checkout", "runs `pnpm run dev` in apps/web",
 		"port 8083: http://127.0.0.1:18083 → sandbox :8083", "browser viewport: http://127.0.0.1:56855"} {
 		if !strings.Contains(log.String(), want) {
 			t.Errorf("the run log lacks %q:\n%s", want, log.String())
@@ -306,25 +283,12 @@ func TestALiveRunShowsOneIDERowAndLogsTheWholeAttachBlock(t *testing.T) {
 	}
 }
 
-func TestTheBrowserRowNeedsThisRunsOwnPublish(t *testing.T) {
-	for _, c := range []struct {
-		name   string
-		in     Input
-		launch sbx.RunConfig
-		want   bool
-	}{
-		{"created with the relay published", Input{Browser: true, CDPHostPort: 56855}, sbx.RunConfig{Publish: []string{"127.0.0.1:56855:9222"}}, true},
-		{"re-attached: the sandbox never published this run's port", Input{Browser: true, CDPHostPort: 56855}, sbx.RunConfig{}, false},
-		{"a dev port published and no browser", Input{Ports: []PublishedPort{{Host: 13000, Guest: 3000}}}, sbx.RunConfig{Publish: []string{"127.0.0.1:13000:3000"}}, false},
-	} {
-		screen, _ := captured(t)
-		reportInterface(c.in, sbx.RunConfig{Name: "sb"}, publishing{created: len(c.launch.Publish) > 0, relay: relayRuns(c.in, c.launch)})
-		if got := strings.Contains(screen.String(), "browser:"); got != c.want {
-			t.Errorf("%s: browser row printed = %v, want %v:\n%s", c.name, got, c.want, screen.String())
-		}
-		if strings.Contains(screen.String(), "127.0.0.1:0") {
-			t.Errorf("%s: a row names port 0:\n%s", c.name, screen.String())
-		}
+func TestBrowserRowReportsVerifiedViewportOnReattach(t *testing.T) {
+	screen, _ := captured(t)
+	in := Input{Browser: true, BrowserProfile: "work"}
+	reportInterface(in, sbx.RunConfig{Name: "sb"}, publishing{viewport: "http://127.0.0.1:56855/viewport/"})
+	if got := screen.String(); !strings.Contains(got, "profile work") || !strings.Contains(got, "http://127.0.0.1:56855/viewport/") {
+		t.Fatal(got)
 	}
 }
 
@@ -532,16 +496,6 @@ func TestDevServerScriptCloneGateRunsOnlyOnceTheCloneLands(t *testing.T) {
 	}
 	if out, err := run(repo); err != nil || out != "ready" {
 		t.Errorf("a landed clone failed the gate: %q, %v", out, err)
-	}
-}
-
-func TestPortPublishAppendsAfterTheCDPRelay(t *testing.T) {
-	t.Parallel()
-	in := Input{Browser: true, CDPHostPort: 51000, Ports: []PublishedPort{{Host: 3000, Guest: 3000}, {Host: 51001, Guest: 6006}}}
-	got := append(cdpPublish(in), portPublish(in)...)
-	want := []string{"51000:9222", "3000:3000", "51001:6006"}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("publish args mismatch (-want +got):\n%s", diff)
 	}
 }
 

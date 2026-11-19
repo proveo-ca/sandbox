@@ -32,7 +32,11 @@ func cacheApplies(printOnly, tty bool) bool {
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string, visit *formVisit) error {
 	ssh := gitaccess.InspectSSH(sbx.Binary, gitaccess.Output, os.Getenv)
 	inv := inventoryOf(man, lookup, sbx.StoreEntries(), ssh.Keys).withEnvFile(p.HostEnvFile)
-	rows, hasAuth := p.runRows(man, lookup, homeRoot, egressRow(), inv)
+	tier := 0
+	if acceptsLocalModel(man.Name) {
+		tier = modelTier(sbx.HostAcceleratorCapacity())
+	}
+	rows, hasAuth := p.runRows(man, lookup, homeRoot, egressRow(), inv, tier)
 	form := &choiceui.Form{
 		Step:     visit.step,
 		Banner:   choiceui.Banner(),
@@ -60,6 +64,14 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 		return fmt.Errorf("cancelled at the choice prompt")
 	}
 	p.Addons, p.AddonsAnswered = selectedAddons(form), true
+	if form.Selection(rowBrowser) == browserNamed {
+		p.BrowserProfile = strings.TrimSpace(form.FieldValue(rowBrowserProfile))
+		if p.BrowserProfile == "" {
+			return fmt.Errorf("enter a name for the isolated browser profile")
+		}
+	} else {
+		p.BrowserProfile = ""
+	}
 	if p.portsAsked {
 		p.Ports = selectedPorts(form, p.discovered)
 	}
@@ -82,15 +94,16 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 }
 
 // runRows is the run form's rows in question order: agent, execution, reach, interface.
-func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, homeRoot string, egress choiceui.Row, inv credentialInventory) ([]choiceui.Row, bool) {
+func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, homeRoot string, egress choiceui.Row, inv credentialInventory, tier int) ([]choiceui.Row, bool) {
 	agent := []choiceui.Row{credentialsRow(inv)}
 	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
-	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
+	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel, tier); ok {
 		agent = append(agent, r)
 	}
 	execution := append(p.addonRow(man, rowExecution), repoTrustRow(p.MiseTrust, p.MiseTrustSet))
 	reach := applicableRows(egress, mcpRow(p.Target, p.MCP, p.MCPSet))
-	iface := append(p.addonRow(man, rowInterface), evidenceRow(p.evidenceOrDefault()))
+	iface := append(p.addonRow(man, rowInterface), p.browserRows(man)...)
+	iface = append(iface, evidenceRow(p.evidenceOrDefault()))
 	if r, ok := portsRow(p.discovered, p.Ports, sandbox.LoopbackFree); ok {
 		iface = append(iface, r)
 		p.portsAsked = true
@@ -110,6 +123,9 @@ func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, home
 // addonRow is the OS or devices row, or none when the harness offers it no option.
 func (p *Params) addonRow(man manifest.Manifest, label string) []choiceui.Row {
 	opts := addonOptions(man, label)
+	if label == rowInterface {
+		opts = slices.DeleteFunc(opts, func(opt string) bool { return opt == addonBrowser || opt == addonHostCDP })
+	}
 	if len(opts) == 0 {
 		return nil
 	}
@@ -261,6 +277,10 @@ func mcpRow(target, current string, fromEnv bool) choiceui.Row {
 		mcpOff: "the published kit's MCP gateway hooks are left out",
 		mcpOn:  "the kit registers sbx's MCP gateway into the agent's config (user scope, in the proveo home)",
 	}}
+	if target == "claudecode" {
+		r.Help[mcpOff] = "Claude Code starts with MCP disabled, including Android's mobile MCP server"
+		r.Help[mcpOn] = "Claude Code loads its saved MCP config and the kit registers sbx's gateway"
+	}
 	if current == mcpOn {
 		r.Selected = 0
 	}
@@ -380,10 +400,14 @@ func egressColumn(name string) int {
 }
 
 func executionColumn(name string) int {
-	if name == addonSandbox {
+	switch name {
+	case addonSandbox:
 		return 1
+	case addonCloud:
+		return 2
+	default:
+		return 0
 	}
-	return 0
 }
 
 func layoutExecution(r choiceui.Row) choiceui.Row {
@@ -407,12 +431,14 @@ func interfaceColumn(name string) int {
 		return 1
 	case addonBrowser:
 		return 2
-	case addonAndroid:
+	case addonHostCDP:
 		return 3
-	case addonIOS:
+	case addonAndroid:
 		return 4
-	default:
+	case addonIOS:
 		return 5
+	default:
+		return 6
 	}
 }
 
@@ -517,13 +543,19 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 }
 
 const (
-	rowExecution = "OS"
-	rowInterface = "devices"
-	rowPorts     = "ports"
-	portsMore    = "...More"
-	rowApps      = "apps"
+	rowExecution      = "OS"
+	rowInterface      = "devices"
+	rowBrowser        = "browser"
+	rowBrowserProfile = "profile name"
+	browserOff        = "off"
+	browserFresh      = "isolated fresh"
+	browserNamed      = "isolated named"
+	rowPorts          = "ports"
+	portsMore         = "...More"
+	rowApps           = "apps"
 
 	addonHost    = "host"
+	addonCloud   = "cloud"
 	addonTUI     = "tui"
 	addonBrowser = "browser"
 	addonSandbox = "docker (sandbox)"
@@ -689,12 +721,14 @@ var addonFixed = map[string]struct {
 	on  bool
 	why string
 }{
-	addonHost: {why: "the agent can't touch your whole machine"},
-	addonTUI:  {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
+	addonHost:  {why: "the agent can't touch your whole machine"},
+	addonCloud: {why: "coming soon"},
+	addonTUI:   {on: true, why: "there is no headless mode to pick instead — the boxes beside it ADD to this terminal"},
 }
 
 var addonHelp = map[string]string{
 	addonHost:    "your own machine, with your files and your credentials — not a place proveo recommends for an agent",
+	addonCloud:   "run sbx on a cloud instance over SSH",
 	addonTUI:     "this session — this terminal, the agent's transcript and your prompts, for the whole run",
 	addonDesktop: "Hermes Desktop on this host drives the agent in the sandbox over sbx's SSH; this terminal only holds the run",
 	addonBrowser: "Chromium inside the sandbox (Playwright + agent-browser) — the agent's own browser",
@@ -713,16 +747,13 @@ func addonHelpFor(man manifest.Manifest) map[string]string {
 }
 
 func executionOptions() []string {
-	return []string{addonHost, addonSandbox}
+	return []string{addonHost, addonSandbox, addonCloud}
 }
 
 func interfaceOptions(man manifest.Manifest) []string {
 	opts := []string{addonTUI}
-	for target := range man.Images {
-		if strings.HasSuffix(target, "-browser") {
-			opts = append(opts, addonBrowser)
-			break
-		}
+	if browserImage(man) != "" || man.Name == "hermes" {
+		opts = append(opts, addonBrowser)
 	}
 	switch man.Capabilities.HostBrowser {
 	case manifest.HostBrowserCDP:
@@ -740,6 +771,80 @@ func interfaceOptions(man manifest.Manifest) []string {
 	return opts
 }
 
+func browserImage(man manifest.Manifest) string {
+	if ref := man.Images[man.Name+"-browser"]; ref != "" {
+		return ref
+	}
+	for _, target := range slices.Sorted(maps.Keys(man.Images)) {
+		if strings.HasSuffix(target, "-browser") {
+			return man.Images[target]
+		}
+	}
+	return ""
+}
+
+func (p Params) isolatedImage(man manifest.Manifest) string {
+	if !hasAddon(p.Addons, addonBrowser) || p.ImageSet || strings.HasSuffix(p.Target, "-browser") {
+		return ""
+	}
+	if p.Target == man.Name {
+		return browserImage(man)
+	}
+	return man.Images[p.Target+"-browser"]
+}
+
+func (p *Params) browserRows(man manifest.Manifest) []choiceui.Row {
+	offered := interfaceOptions(man)
+	opts := []string{browserOff}
+	answer := browserOff
+	if slices.Contains(offered, addonBrowser) {
+		opts = append(opts, browserFresh, browserNamed)
+		if hasAddon(p.Addons, addonBrowser) {
+			answer = browserFresh
+			if p.BrowserProfile != "" {
+				answer = browserNamed
+			}
+		}
+	}
+	if slices.Contains(offered, addonHostCDP) {
+		opts = append(opts, addonHostCDP)
+		if hasAddon(p.Addons, addonHostCDP) {
+			answer = addonHostCDP
+		}
+	}
+	row := axisRow(rowBrowser, opts, nil, answer)
+	row.Paint = map[string]string{addonHostCDP: "host Chrome"}
+	row.Help = map[string]string{
+		browserOff:   "leave this run's browser integration off",
+		browserFresh: "open Chromium in the sandbox and discard its profile after the run",
+		browserNamed: "keep Chromium's logins in this workspace's sandbox between runs",
+		addonHostCDP: addonHelp[addonHostCDP],
+	}
+	return []choiceui.Row{row, {Label: rowBrowserProfile, Field: true, Value: p.BrowserProfile,
+		Placeholder: "work", When: &choiceui.When{Row: rowBrowser, Option: browserNamed}}}
+}
+
+func (p *Params) resolveBrowser(man manifest.Manifest) error {
+	if hasAddon(p.Addons, addonHostCDP) && hasAddon(p.Addons, addonBrowser) {
+		if p.AddonsSet {
+			return fmt.Errorf("choose one browser mode: --addon browser or --addon chrome")
+		}
+		p.Addons = slices.DeleteFunc(slices.Clone(p.Addons), func(a string) bool { return a == addonBrowser })
+	}
+	if p.BrowserProfile != "" {
+		if err := sandbox.ValidateBrowserProfile(p.BrowserProfile); err != nil {
+			return err
+		}
+		if !slices.Contains(interfaceOptions(man), addonBrowser) || hasAddon(p.Addons, addonHostCDP) {
+			return fmt.Errorf("--browser-profile requires an isolated browser")
+		}
+		if !hasAddon(p.Addons, addonBrowser) {
+			p.Addons = append(p.Addons, addonBrowser)
+		}
+	}
+	return nil
+}
+
 func addonOptions(man manifest.Manifest, label string) []string {
 	if label == rowExecution {
 		return executionOptions()
@@ -752,6 +857,12 @@ func selectedAddons(f *choiceui.Form) []string {
 	for _, label := range addonRows {
 		out = append(out, f.Selections(label)...)
 		out = append(out, compulsory(f, label)...)
+	}
+	switch f.Selection(rowBrowser) {
+	case browserFresh, browserNamed:
+		out = append(out, addonBrowser)
+	case addonHostCDP:
+		out = append(out, addonHostCDP)
 	}
 	return slices.DeleteFunc(out, func(a string) bool { return a == addonTUI })
 }

@@ -21,6 +21,13 @@ func stubReceiptDir(t *testing.T) {
 	receiptDir = func() string { return dir }
 }
 
+func writeTestReceipt(t *testing.T, name string, receipt launchReceipt) {
+	t.Helper()
+	if err := writeReceipt(name, receipt); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func launchCfg(sid string, env ...string) sbx.RunConfig {
 	return sbx.RunConfig{
 		Name: "proveo-hermes-abc", Image: "proveo/hermes:local", Clone: true,
@@ -63,7 +70,7 @@ func TestRetireIfStaleRecreatesOnlyAStoppedChangedSandbox(t *testing.T) {
 	stubReceiptDir(t)
 	cfg := launchCfg("s1")
 	old := receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img")
-	writeReceipt(cfg.Name, old)
+	writeTestReceipt(t, cfg.Name, old)
 	now := receiptOf(launchCfg("s2", "PROVEO_HOST_CDP_PORT=9222"), launchCfg("s2", "PROVEO_HOST_CDP_PORT=9222").Image, []byte("k2"), "s2", "img")
 
 	yes := func(string) bool { return true }
@@ -107,7 +114,7 @@ func TestAHeadedYesReplacesARunningSandboxForAnyHarness(t *testing.T) {
 	t.Cleanup(func() { confirmStaleSandbox = previous })
 	cfg := launchCfg("s1")
 	cfg.Name = "proveo-claudecode-abc"
-	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	writeTestReceipt(t, cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img2")
 	now.Image = cfg.Image
 	var asked []string
@@ -141,7 +148,7 @@ func TestAHeadedNoKeepsAStoppedSandbox(t *testing.T) {
 	t.Cleanup(func() { confirmStaleSandbox = previous })
 	confirmStaleSandbox = func(string, []string, bool, bool, bool) (bool, bool) { return false, true }
 	cfg := launchCfg("s1")
-	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	writeTestReceipt(t, cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
 	var screen, log strings.Builder
@@ -170,7 +177,7 @@ func TestAnOpenCodeEngineFollowsTheStaleSandboxRuleAndCarriesItsHistory(t *testi
 	}
 	cfg := launchCfg("s1")
 	cfg.Name = "proveo-opencode-11c4aed0"
-	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	writeTestReceipt(t, cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
 	_, err := retireIfStale(Input{Target: "opencode"}, cfg, staleChanges(cfg.Name, now, true), func(string) bool { return true },
@@ -192,7 +199,7 @@ func TestAFailedUpgradeScreenKeepsAStoppedSandbox(t *testing.T) {
 	headedConfirm = func() bool { return true }
 	askSandboxUpgrade = func(string, []string, bool, bool, bool) (bool, bool) { return false, false }
 	cfg := launchCfg("s1")
-	writeReceipt(cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
+	writeTestReceipt(t, cfg.Name, receiptOf(cfg, cfg.Image, []byte("k1"), "s1", "img"))
 	now := receiptOf(cfg, cfg.Image, []byte("k2"), "s1", "img")
 	retired := 0
 	_, err := retireIfStale(Input{Target: "cursor"}, cfg, staleChanges(cfg.Name, now, true), func(string) bool { return false },
@@ -205,7 +212,7 @@ func TestAFailedUpgradeScreenKeepsAStoppedSandbox(t *testing.T) {
 func TestReceiptRoundTrips(t *testing.T) {
 	stubReceiptDir(t)
 	r := receiptOf(launchCfg("s1", "A=1"), launchCfg("s1", "A=1").Image, []byte("k"), "s1", "img")
-	writeReceipt("n", r)
+	writeTestReceipt(t, "n", r)
 	got := readReceipt("n")
 	if got == nil || r.changes(got) != nil {
 		t.Errorf("round trip lost data: %+v", got)
@@ -218,7 +225,7 @@ func TestReceiptRoundTrips(t *testing.T) {
 func TestTheReceiptRecordsTheKitDirAndPublishingWithoutCountingThem(t *testing.T) {
 	stubReceiptDir(t)
 	cfg := sbx.RunConfig{Agent: "a", KitDir: "/s/runs/a/sbx/kit/proveo-a", Publish: []string{"56855:9222", "18083:8083"}}
-	writeReceipt("sb", receiptOf(cfg, "img", nil, "", ""))
+	writeTestReceipt(t, "sb", receiptOf(cfg, "img", nil, "", ""))
 	was := readReceipt("sb")
 	if was == nil || was.KitDir != cfg.KitDir || !slices.Equal(was.Publish, cfg.Publish) {
 		t.Fatalf("receipt = %+v, want the kit dir and the publishing of its create", was)
@@ -227,7 +234,7 @@ func TestTheReceiptRecordsTheKitDirAndPublishingWithoutCountingThem(t *testing.T
 	if got := next.changes(was); got != nil {
 		t.Errorf("a new run's kit dir and port plan read as changes %q; the receipt only records them", got)
 	}
-	writeReceipt("none", receiptOf(sbx.RunConfig{Agent: "a"}, "img", nil, "", ""))
+	writeTestReceipt(t, "none", receiptOf(sbx.RunConfig{Agent: "a"}, "img", nil, "", ""))
 	if r := readReceipt("none"); r == nil || r.Publish == nil {
 		t.Errorf("a create that published nothing must record an empty list, not an unknown one: %+v", r)
 	}

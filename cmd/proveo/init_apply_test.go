@@ -392,7 +392,19 @@ func TestPageTwoEnterRunsGitIdentityThenGitHubThenPromptKit(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv(ghTokenEnvVar, "")
+	t.Chdir(t.TempDir())
+	for _, k := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_CONFIG_PARAMETERS"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("GIT_CONFIG_COUNT", "0")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	captureUI(t)
 	all := initDecisions{Git: true, Gh: true, Prompt: true}
 	if got := planRows(applyGit(all, applyCtx{}, gitAnswer{})); !slices.Equal(got, []string{rowGit, rowGh, rowPrompt}) {
@@ -412,15 +424,17 @@ func TestPageTwoEnterRunsGitIdentityThenGitHubThenPromptKit(t *testing.T) {
 		switch {
 		case strings.HasPrefix(e, "status git identity ◐"):
 			order = append(order, "git")
-		case strings.HasPrefix(e, "status GitHub ◐"):
+		case e == "status GitHub ◐ gh auth status":
 			order = append(order, "GitHub")
+		case strings.HasPrefix(e, "status GitHub ◐ gh auth login"):
+			order = append(order, "login")
 		case strings.HasPrefix(e, "ask "+titleAccess+" @2/4"):
 			order = append(order, "sub-page")
 		case strings.HasPrefix(e, "resume "):
 			order = append(order, "resume")
 		}
 	}
-	if want := []string{"git", "GitHub", "sub-page", "resume"}; !slices.Equal(order, want) {
+	if want := []string{"git", "GitHub", "login", "sub-page", "resume"}; !slices.Equal(order, want) {
 		t.Errorf("page 2 ran %q, want %q:\n%s", order, want, strings.Join(s.events, "\n"))
 	}
 	if !slices.Contains(s.events, "status git identity ✓ Ada <ada@example.invalid> · git's global config") {
@@ -443,12 +457,11 @@ func TestEveryHandOffIsFramedAndYieldsTheCard(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 	captureUI(t)
 	bin := t.TempDir()
-	for name, body := range map[string]string{"brew": "#!/bin/sh\nexit 0\n"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	stubBin, _, _ := strings.Cut(os.Getenv("PATH"), string(os.PathListSeparator))
+	if err := os.WriteFile(filepath.Join(bin, "brew"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+stubBin)
 	host := sbx.Host{OS: "darwin", Arch: "arm64"}
 	rep := newInitReport(initOptions{}, host, nil, sbx.Plan{})
 

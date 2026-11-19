@@ -164,7 +164,13 @@ func PrintBlock(heading func(), facts []ui.Fact, items []Item) {
 }
 
 // PrintInterfacePlan prints, for a --print run, the interface facts and items the run decided before Spec.
-func PrintInterfacePlan(in Input) { PrintBlock(InterfaceHeading, in.InterfaceFacts, in.InterfaceItems) }
+func PrintInterfacePlan(in Input) {
+	facts := in.InterfaceFacts
+	if in.Browser {
+		facts = append(slices.Clone(facts), browserFact(in, "viewport available in a live proveo run"))
+	}
+	PrintBlock(InterfaceHeading, facts, in.InterfaceItems)
+}
 
 // WorkspaceHeading declares the workspace heading, for PrintBlock.
 func WorkspaceHeading() { ui.Section(ui.SectionWorkspace) }
@@ -611,16 +617,19 @@ func reportReattach(in Input, k keptSandbox, envValues int, secrets []ui.Fact) {
 	}
 }
 
-// relayRuns reports whether this run publishes and runs the browser relay: the browser is on and launch carries its -p.
-func relayRuns(in Input, launch sbx.RunConfig) bool {
-	return len(cdpPublish(in)) > 0 && len(launch.Publish) > 0
+func browserFact(in Input, detail string) ui.Fact {
+	profile := "fresh profile"
+	if in.BrowserProfile != "" {
+		profile = "profile " + in.BrowserProfile
+	}
+	return ui.Fact{Role: ui.RoleApp, Key: "browser", Value: "isolated Chromium · " + profile, Detail: []string{detail}}
 }
 
 // publishing is where the sandbox's ports answer on the host.
 type publishing struct {
-	created bool        // this run created the sandbox: sbx's create block names each host port
-	relay   bool        // this run published the browser relay and runs it
-	hosts   map[int]int // a kept sandbox's guest ports to host ports (keptPorts); nil when unknown
+	created  bool // this run created the sandbox: sbx's create block names each host port
+	viewport string
+	hosts    map[int]int // a kept sandbox's guest ports to host ports (keptPorts); nil when unknown
 }
 
 // reportInterface prints what the operator reaches once the sandbox runs: what each
@@ -646,12 +655,9 @@ func reportInterface(in Input, cfg sbx.RunConfig, pub publishing) {
 		}
 		facts = append(facts, fact)
 	}
-	if pub.relay {
-		url := fmt.Sprintf("http://127.0.0.1:%d", in.CDPHostPort)
-		facts = append(facts, ui.Fact{Role: ui.RoleHost, Key: "browser", Value: "the agent's Chromium over CDP"})
-		logged = append(logged,
-			"browser viewport: "+url+" — attach Chrome DevTools or Playwright (connectOverCDP) to the agent's Chromium",
-			url+"/json/list once the agent opens a page; nothing is exposed beyond this machine's loopback")
+	if pub.viewport != "" {
+		facts = append(facts, browserFact(in, pub.viewport))
+		logged = append(logged, "browser viewport: "+pub.viewport)
 	}
 	facts = append(facts, in.InterfaceFacts...)
 	key := "android app"

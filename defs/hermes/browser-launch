@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPEC: _spec/_plans/isolated-browser-profiles.puml
+set -eu
+
+root=/var/lib/proveo/browser
+mode=${PROVEO_BROWSER_MODE:-}
+if [ -z "$mode" ] && [ -r "$root/hermes-mode" ]; then
+    read -r mode <"$root/hermes-mode"
+fi
+
+case "$mode" in
+    isolated|host-chrome|none)
+        export HERMES_MANAGED_DIR="$root/hermes-$mode"
+        if [ -r "$HERMES_MANAGED_DIR/host" ]; then
+            read -r browser_ip <"$HERMES_MANAGED_DIR/host"
+            export NO_PROXY="${NO_PROXY:+$NO_PROXY,}$browser_ip" no_proxy="${no_proxy:+$no_proxy,}$browser_ip"
+        fi
+        ;;
+esac
+
+exec /usr/local/bin/proveo-await-seed /opt/hermes/bin/hermes "$@"

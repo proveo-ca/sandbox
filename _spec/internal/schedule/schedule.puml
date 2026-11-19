@@ -167,6 +167,8 @@ skinparam noteTextAlignment left
 ' The same run's first attempt also exposed WaitFor polling a dead pane for
 ' 10 m: every wait now checks has-session and ends with
 ' "the agent exited N before it was ready: <last 3 transcript lines>".
+' The scheduled command waits on a per-run tmux channel. Launch signals it
+' after connecting pipe-pane so the transcript includes the first output.
 '
 ' ── REPORT (2026-09-28) ────────────────────────────────────────────────────
 ' An outcome says how the run ENDED, never what it DID: the first real run

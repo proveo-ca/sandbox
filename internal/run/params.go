@@ -16,6 +16,8 @@ import (
 
 type Params struct {
 	Target, Image, Credentials, LocalModel, Input, Output, Scope, DataDir string
+	ImageSet                                                              bool
+	BrowserProfile                                                        string
 	CredsSet                                                              bool
 	Addons                                                                []string
 	AddonsAnswered                                                        bool // a cached or prompted answer exists; default-on add-ons stop defaulting
@@ -117,6 +119,11 @@ func (p *Params) seedFromCache(cached agentsettings.Choice, lookup func(string) 
 	}
 	if !p.AddonsSet {
 		p.Addons = normalizeAddons(cached.Addons)
+		if p.BrowserProfile == "" {
+			p.BrowserProfile = cached.BrowserProfile
+		} else {
+			p.Addons = slices.DeleteFunc(p.Addons, func(a string) bool { return a == addonHostCDP })
+		}
 	}
 	p.AddonsAnswered = true
 	if p.AuthVar == "" {

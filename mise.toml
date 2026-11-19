@@ -19,7 +19,6 @@ unit_baseline = """\
   TestConfigSyncRoundTripsTheHarnessConfiguration|\
   TestConfigSyncSkipsTransientPathsBothWays|\
   TestGitHubSSHVerificationRequiresAnAgentAndAcceptsGitHubExitOne|\
-  TestImageSuitesResolveRatherThanPinThePublishTag|\
   TestOpenCodeCredentialHookWaitsForHistory|\
   TestOpenCodeNativeGitSyncPluginLifecycle|\
   TestOpenCodeSeedProgressFixtures|\
@@ -30,7 +29,6 @@ unit_baseline = """\
   TestStateSaveRefusesWithoutThisBootsRestore|\
   TestTwoWorkspacesSharingOneStoreKeepEachOthersTurns|\
   TestVMLocalPathsNeverCrossEitherSync|\
-  TestVarsSortByScopeThenName|\
   TestWithoutStateDirsTheKitVolumesTravelAsState\
   """
 

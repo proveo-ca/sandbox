@@ -49,8 +49,7 @@ proveo_seed_step() { :; }
 proveo_seed "$@"
 echo "rc=$?"`
 	cmd := exec.Command(bash, append([]string{"-c", script, "bash", repoRoot(t)}, args...)...)
-	cmd.Env = append(os.Environ(), "HOME="+home, "PROVEO_HOME=", "PROVEO_SEED_PHASE=", "PROVEO_AGENT_KIND=",
-		"BASH_ENV=",
+	cmd.Env = append(seedFixtureEnv(t), "HOME="+home,
 		"PROVEO_TOOLCHAIN_READY="+marker, "PROVEO_HOOKS_MARKER="+filepath.Join(home, "hooks"),
 		"PROVEO_PROVISIONING="+filepath.Join(home, "provisioning"))
 	cmd.Env = append(cmd.Env, env...)

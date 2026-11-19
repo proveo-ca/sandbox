@@ -27,7 +27,7 @@ func here() string {
 
 // rmCmd removes a sandbox a run left behind, after carrying home what it still holds.
 func rmCmd() *cobra.Command {
-	var stop bool
+	var stop, deleteProfile bool
 	cmd := &cobra.Command{
 		Use:   "rm [sandbox]",
 		Short: "Carry a kept sandbox's work home, then remove it (no argument lists them)",
@@ -46,12 +46,13 @@ run ` + "`proveo rm <sandbox>`" + ` again once the cause is gone.`,
 				listKept(dir)
 				return nil
 			}
-			err := sandbox.RemoveKept(args[0], dir, ui.Hostf, stop)
+			err := sandbox.RemoveKept(args[0], dir, ui.Hostf, stop, deleteProfile)
 			sandbox.ReconcileResults(dir, here())
 			return err
 		},
 	}
 	cmd.Flags().BoolVar(&stop, "stop", false, "stop a running sandbox first (`sbx stop`), then carry its work home and remove it")
+	cmd.Flags().BoolVar(&deleteProfile, "delete-browser-profile", false, "confirm deletion of the sandbox's named browser profile")
 	return cmd
 }
 

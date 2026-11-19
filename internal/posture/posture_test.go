@@ -4,7 +4,6 @@ package posture
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -50,34 +49,6 @@ func TestWorkspaceHeaderIsEmptyWithoutAWorkspace(t *testing.T) {
 	t.Parallel()
 	if got := WorkspaceHeader(manifest.Manifest{}, "", "", ""); got != nil {
 		t.Errorf("no input dir must yield no header, got %v", got)
-	}
-}
-
-func TestReadmePillsMatchToolingRegistry(t *testing.T) {
-	t.Parallel()
-	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	readme := string(data)
-
-	pill := regexp.MustCompile(`!\[([a-z0-9.+-]+)\]\(https://img\.shields\.io/badge/`)
-	inReadme := map[string]bool{}
-	for _, m := range pill.FindAllStringSubmatch(readme, -1) {
-		inReadme[m[1]] = true
-	}
-	if len(inReadme) == 0 {
-		t.Fatal("no tooling pills found in README.md — the supported-tooling section is missing")
-	}
-
-	for _, label := range ToolingLabels() {
-		if !inReadme[label] {
-			t.Errorf("toolingMarkers has %q but README.md has no pill for it", label)
-		}
-		delete(inReadme, label)
-	}
-	for stale := range inReadme {
-		t.Errorf("README.md has a pill for %q which is not in toolingMarkers", stale)
 	}
 }
 

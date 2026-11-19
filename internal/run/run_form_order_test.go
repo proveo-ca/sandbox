@@ -46,32 +46,32 @@ func TestTheRunFormAsksItsQuestionsInOrder(t *testing.T) {
 	}{
 		{"claudecode", "claudecode", readable, nil, nil,
 			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, evidenceLabel}, rowModel},
+			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"hermes", "hermes", readable, nil, nil,
 			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", rowInterface, evidenceLabel}, rowModel},
+			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"codex", "codex", readable, nil, nil,
 			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, evidenceLabel}, rowModel},
+			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"cursor with no key and no login", "cursor", readable, nil, nil,
 			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowExecution, repoTrustLabel, "egress", rowInterface, evidenceLabel}, repoTrustLabel},
+			[]string{creds, rowExecution, repoTrustLabel, "egress", rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, repoTrustLabel},
 		{"unreadable egress", "claudecode", unreadable, nil, nil,
 			[]string{agent, execution, sectionReach + " " + mcpLabel, interfaceSec},
-			[]string{creds, rowModel, rowExecution, repoTrustLabel, mcpLabel, rowInterface, evidenceLabel}, rowModel},
+			[]string{creds, rowModel, rowExecution, repoTrustLabel, mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"unreadable egress and no gateway", "cursor", unreadable, nil, nil,
 			[]string{agent, execution, interfaceSec},
-			[]string{creds, rowExecution, repoTrustLabel, rowInterface, evidenceLabel}, repoTrustLabel},
+			[]string{creds, rowExecution, repoTrustLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, repoTrustLabel},
 		{"discovered ports and apps", "claudecode", readable, ports, apps,
 			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, evidenceLabel, rowPorts, rowApps}, rowModel},
+			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel, rowPorts, rowApps}, rowModel},
 	} {
 		man, ok := byName[c.target]
 		if !ok {
 			t.Fatalf("%s: no %s manifest", c.name, c.target)
 		}
 		p := &Params{Target: c.target, discovered: c.ports, discoveredApps: c.apps}
-		rows, _ := p.runRows(man, env(nil), t.TempDir(), c.egress, credentialInventory{})
+		rows, _ := p.runRows(man, env(nil), t.TempDir(), c.egress, credentialInventory{}, modelTier24)
 		f := &choiceui.Form{Rows: rows}
 		gateRunForm(f)
 		var sections, labels []string

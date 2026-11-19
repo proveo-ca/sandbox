@@ -21,8 +21,7 @@ Paradigm: **policy-gated autonomous loop** — see
 `snapshot` · `click` · `fill` · `screenshot`, accessibility-tree refs over CDP). The seed drops
 agent-browser's discovery stub into `~/.cursor/skills/agent-browser/SKILL.md`, which points
 the agent at `agent-browser skills get core` (the guide matching the installed binary) and
-tells it not to run `agent-browser install`. Pick the `browser` add-on in the `proveo run`
-picker to use this image; `PROVEO_BROWSER_SKILL=off` skips the skill. Details in
+tells it not to run `agent-browser install`. Select **Browser → isolated fresh** or pass `--addon browser` to use this image; `PROVEO_BROWSER_SKILL=off` skips the skill. Details in
 `defs/base-node-browser/README.md`.
 
 ## Contract Status

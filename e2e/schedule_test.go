@@ -184,7 +184,7 @@ func TestScheduleAgentThatDiesBeforeReadyFailsFast(t *testing.T) {
 	}
 	cfg := fmt.Sprintf(`jobs:
   %s:
-    command: ["sh", "-c", "echo 'x local model: needs 21 GiB'; sleep 1; exit 4"]
+    command: ["sh", "-c", "echo 'x local model: needs 21 GiB'; exit 4"]
     ready: "FAKE-READY>"
     prompt_file: %s
     tz: America/New_York

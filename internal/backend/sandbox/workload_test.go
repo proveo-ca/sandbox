@@ -145,14 +145,17 @@ func TestTheRecipeAndTheCreateProcessFollowTheImageSource(t *testing.T) {
 }
 
 func TestAHarnessWithAPublishedKitLaunchesThroughItAndKeepsItsFlags(t *testing.T) {
-	cfg, w := specFor(t, "claudecode")
+	in := specInput("claudecode")
+	in.MCPGateway = true
+	cfg, w, _ := Spec(in)
 	if want := []string{"claude", "--dangerously-skip-permissions"}; !slices.Equal(w.Recipe.Entrypoint, want) {
 		t.Errorf("recipe ENTRYPOINT = %q, want the published kit's %q", w.Recipe.Entrypoint, want)
 	}
 	if cfg.Command != nil {
 		t.Errorf("no extras ⇒ no trailing command (ENTRYPOINT + CMD run as is), got %q", cfg.Command)
 	}
-	cfg, _ = specFor(t, "claudecode", "-p", "hi")
+	in.Extra = []string{"-p", "hi"}
+	cfg, _, _ = Spec(in)
 	if want := []string{"-p", "hi"}; !slices.Equal(cfg.Command, want) {
 		t.Errorf("command = %q, want %q — a leading flag appends to the kit's launch (P7)", cfg.Command, want)
 	}

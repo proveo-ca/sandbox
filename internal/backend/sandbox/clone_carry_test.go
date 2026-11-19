@@ -91,7 +91,7 @@ func TestRetiringASandboxKeepsItWhenTheCloneCouldNotBeCarriedHome(t *testing.T) 
 		t.Run(c.name, func(t *testing.T) {
 			calls := fakeSbx(t, c.guest, c.snapshot, c.bundle)
 			if c.receipt != nil {
-				writeReceipt("sb", *c.receipt)
+				writeTestReceipt(t, "sb", *c.receipt)
 			}
 			repo := t.TempDir()
 			in := Input{Clone: c.thisRunClone, RepoRoot: repo, Sid: "proveo-1-2"}

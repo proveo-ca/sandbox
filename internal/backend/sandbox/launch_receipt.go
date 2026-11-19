@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/proveo-ca/proveo/internal/proveohome"
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -32,7 +33,10 @@ type launchReceipt struct {
 	KitDir  string            `json:"kitDir,omitempty"` // a record for the re-attach facts; changes ignores it
 	Publish []string          `json:"publish"`          // a record for the re-attach facts; changes ignores it; nil is unknown
 	// OutputDir is the host output dir a clone's output lifts into; `proveo rm` lifts it. changes ignores it.
-	OutputDir string `json:"outputDir,omitempty"`
+	OutputDir        string `json:"outputDir,omitempty"`
+	BrowserProfile   string `json:"browserProfile,omitempty"`
+	BrowserSandboxID string `json:"browserSandboxId,omitempty"`
+	BrowserRun       string `json:"browserRun,omitempty"`
 }
 
 // noReceipt is the change a sandbox with no receipt reports.
@@ -138,14 +142,19 @@ func readReceipt(name string) *launchReceipt {
 	return &r
 }
 
-func writeReceipt(name string, r launchReceipt) {
+func writeReceipt(name string, r launchReceipt) error {
 	p := receiptPath(name)
-	if p == "" || os.MkdirAll(filepath.Dir(p), 0o700) != nil {
-		return
+	if p == "" {
+		return fmt.Errorf("missing sandbox receipt path")
 	}
-	if b, err := json.Marshal(r); err == nil {
-		_ = os.WriteFile(p, b, 0o600)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
 	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	return writePrivateRecord(p, b)
 }
 
 // retireIfStale replaces a kept sandbox whose stored settings differ from this run (changed).
@@ -160,6 +169,9 @@ func retireIfStale(in Input, cfg sbx.RunConfig, changed []string, running func(s
 	live := running(cfg.Name)
 	replace, asked := confirmStaleSandbox(cfg.Name, changed, live, cfg.Clone, opencodeTarget(in.Target))
 	notApplied := "not applied: " + strings.Join(changed, ", ")
+	if live && !replace && Harness(in) == "claudecode" {
+		return nil, claudeMCPRestartError(cfg.Name)
+	}
 	if asked && !replace {
 		if live {
 			warn(cfg.Name+" — kept running without this run's changes", notApplied, "the next proveo run reattaches to it")
@@ -254,6 +266,20 @@ func retireSandbox(in Input, cfg sbx.RunConfig, report func(string, ...any)) err
 	if out, err := SaveState(cfg.Name, cfg.Env, !sbx.Gone(cfg.Name), guestRun); err != nil {
 		carried.Item(Item{Warn: true, Text: "resume state — not saved", Detail: []string{failure(err, out)}})
 		return fmt.Errorf("%s — %s kept; %s", keptUnsaved, cfg.Name, retireUnsavedFix(cfg.Name, sbx.Running(cfg.Name)))
+	}
+	stateHome := StateHome(cfg.Env)
+	if was := readReceipt(cfg.Name); Harness(in) == "claudecode" && was != nil &&
+		stateHome != "" && was.Env[sbx.StateHomeVar] == digest(stateHome) && was.Env[proveohome.ConfigFilesRootVar] != "" {
+		oldHome, err := in.HomeAccess.keptClaudeFiles(was)
+		if err == nil {
+			err = oldHome.Commit()
+		}
+		if err == nil {
+			err = in.HomeAccess.refreshFiles()
+		}
+		if err != nil {
+			return fmt.Errorf("preserve Claude Code config before replacing %s: %w", cfg.Name, err)
+		}
 	}
 	return removeRetired(cfg, report)
 }

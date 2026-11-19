@@ -2,6 +2,7 @@
 package sandbox
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,14 +35,21 @@ func TestPlanNoProxyNeverOverridesSbxs(t *testing.T) {
 }
 
 func TestHostCDPAddsItsPortToTheKit(t *testing.T) {
-	in := specInput("hermes")
-	in.AgentEnv = []string{hostdev.EnvCDPPort + "=9333"}
-	_, kit, _ := Spec(in)
-	if !has(kit.Allow(), "localhost:9333") {
-		t.Errorf("network.allow = %v, missing localhost:9333", kit.Allow())
+	for _, target := range []string{"hermes", "claudecode", "codex", "cursor", "opencode"} {
+		in := specInput(target)
+		env := hostdev.EnvCDPPort + "=9333"
+		in.AgentEnv = []string{env}
+		cfg, kit, _ := Spec(in)
+		if !has(kit.Allow(), "localhost:9333") || !slices.Contains(cfg.Env, env) {
+			t.Errorf("%s: allow %v, env %v; want Chrome port in both", target, kit.Allow(), cfg.Env)
+		}
+		if len(cfg.Publish) != 0 {
+			t.Errorf("%s: host Chrome added a guest port publication: %v", target, cfg.Publish)
+		}
 	}
+	in := specInput("hermes")
 	in.AgentEnv = []string{hostdev.EnvCDPPort + "=nope"}
-	_, kit, _ = Spec(in)
+	_, kit, _ := Spec(in)
 	for _, h := range kit.Allow() {
 		if strings.HasPrefix(h, "localhost:") {
 			t.Errorf("an unparsable port must add nothing, got %q", h)

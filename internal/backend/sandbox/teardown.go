@@ -381,6 +381,16 @@ func (t *teardown) normalEnd(ctx context.Context) {
 		t.leave()
 		return
 	}
+	if in.BrowserProfile != "" {
+		if sbx.Gone(cfg.Name) {
+			gone(cfg.Name).print()
+			return
+		}
+		t.keepHome, t.kept = true, "browser profile "+in.BrowserProfile
+		t.closeKept(Item{Ok: true, Text: cfg.Name + " — retained browser profile " + in.BrowserProfile,
+			Detail: []string{"`" + profileDeletion(cfg.Name) + "` deletes it"}, Log: []string{lookInside(cfg.Name)}})
+		return
+	}
 	switch normalEndOf(t.forced, stranded, unsaved, opencodeTarget(in.Target)) {
 	case endKeepStranded:
 		if sbx.Gone(cfg.Name) {

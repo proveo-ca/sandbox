@@ -160,7 +160,8 @@ title Seed and launch — the one startup step both backends run, and how the ag
 ' has no proveo kit, so no seed will ever mark the boot. It gives up after
 ' PROVEO_INSTRUCTIONS_WAIT (30s) with a warning, and never hangs a launch. (The
 ' deleted docker backend seeded in the entrypoint before exec, so it never waited.)
-' A share refusal still stops the launch (PROVEO_SEED_REFUSED).
+' PROVEO_SEED_REFUSED stops a managed launch with PROVEO_WORKDIR set.
+' A bare sbx launch ignores that marker. --cwd still answers on a refusal.
 ' D2 (DONE (wt) 2026-10-17; _spec/defs/opencode/engine-local-history.puml)
 ' deleted the OpenCode-specific await-seed paths: the "OpenCode credential
 ' preflight refused release" note, the "OpenCode history is not prepared in

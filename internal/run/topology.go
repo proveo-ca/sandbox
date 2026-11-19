@@ -24,8 +24,12 @@ func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Fo
 		model := modelShort(option)
 		host, hostRight, hostModel := hostAccount(), "", ""
 		hostOS := hostOSArch()
-		direct := hoveringHost(f, cursor)
+		execution := hoveredExecution(f, cursor)
+		direct, cloud := execution == addonHost, execution == addonCloud
 		square := squareOf(target)
+		if cloud {
+			square = "sbx · " + target
+		}
 		hostLit := false
 		if direct {
 			square = target
@@ -56,6 +60,7 @@ func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Fo
 			Square:    square,
 			Hop:       hop,
 			Direct:    direct,
+			Cloud:     cloud,
 			Interface: iface,
 			Key:       key,
 			Lane:      lane,
@@ -64,7 +69,11 @@ func topologyWith(target, credsDefault string, alwaysMCP bool) func(*choiceui.Fo
 			Speaking:  f.Selection(evidenceLabel) == EvidenceVerbose,
 			Focus:     focusOf(f, cursor),
 		}
-		fr.Caption = captionOf(fr, tier, creds)
+		if cloud {
+			fr.Caption = "cloud over SSH · coming soon"
+		} else {
+			fr.Caption = captionOf(fr, tier, creds)
+		}
 		return &fr
 	}
 }
@@ -102,19 +111,22 @@ func lanesOf(baseline string) (choiceui.LaneKind, int, int) {
 	}
 }
 
-func hoveringHost(f *choiceui.Form, cursor int) bool {
+func hoveredExecution(f *choiceui.Form, cursor int) string {
 	if f == nil || cursor < 0 || cursor >= len(f.Rows) {
-		return false
+		return ""
 	}
 	r := &f.Rows[cursor]
 	if r.Label != rowExecution {
-		return false
+		return ""
 	}
 	idx := r.Selected
 	if r.Locked {
 		idx = r.Hover
 	}
-	return idx >= 0 && idx < len(r.Options) && r.Options[idx] == addonHost
+	if idx >= 0 && idx < len(r.Options) {
+		return r.Options[idx]
+	}
+	return ""
 }
 
 func hostAccount() string {

@@ -1,0 +1,71 @@
+@startuml
+!include https://raw.githubusercontent.com/proveo-ca/identity/main/proveo.puml
+skinparam noteTextAlignment left
+title Claude Code MCP launch toggle
+
+start
+:Resolve MCP mode;
+if (Can this run start Claude Code
+with the requested mode?) then (yes)
+  if (MCP mode?) then (on)
+    :Finish normal config restore;
+    :Load Claude Code's current config
+and add Android MCP if requested;
+  else (off)
+    :Pass --strict-mcp-config
+and omit Android MCP arguments;
+  endif
+  :Start Claude Code with the requested mode;
+else (no)
+  :Explain which existing session or sandbox
+prevents the mode from taking effect;
+  stop
+endif
+stop
+
+legend bottom
+  **Scope and contract**
+  * Claude Code on sbx. Honor the environment setting, then the saved choice, then off.
+  * The choice takes effect at process launch. An attached process keeps its launch settings.
+  * Off skips sbx gateway setup and disables MCP in the Claude process, including the
+    Android mobile server. The toggle leaves saved registrations and Android's ADB bridge intact.
+  * On uses the usual Claude Code configuration discovery and reads the changes that config
+    sync and the workspace bring into the sandbox before launch.
+  * Gateway provisioning still uses sbx's kit lifecycle. A kept sandbox created without gateway
+    hooks may need the existing carry-and-recreate flow to enable the gateway on a later run.
+
+  **1. Claude Code flag**
+  * Claude Code 2.1.322 from the published image loads zero servers with
+    --strict-mcp-config alone with user, project and plugin servers. The flag changes launch only.
+  * An enterprise-managed MCP config makes Claude Code reject the strict launch.
+    Proveo leaves that policy in force and propagates the launch failure.
+
+  **2. Apply the mode to the launch**
+  * Build Claude Code's effective arguments once before sbx wraps them. Cover the published kit,
+    image entrypoint fallback and shell fallback. Check the final argv on create and reuse.
+  * Reject caller-supplied MCP arguments that conflict with off. Report the conflicting flag.
+    Under on, preserve normal caller arguments and the existing Android injection behavior.
+  * Keep the sbx create-time gateway gate. A running sandbox gives Proveo no verified launch
+    mode for its current Claude Code process. Refuse reuse and explain the restart required.
+    Use the existing confirmation flow before any replacement that would end a kept session.
+
+  **3. Restore current config before an on launch**
+  * Fresh sandboxes stage the declared home-root files and restore config before launch.
+  * Reused sandboxes keep the mounts they were created with. Refresh the declared files in
+    the home-files directory the sandbox actually uses, then restore via the existing sync
+    path before starting Claude. Reuse the existing locking and newer-wins rules.
+  * Before replacing a kept sandbox, commit its staged config and refresh the next run's stage.
+  * If the recorded mount cannot be refreshed safely, use the existing sandbox replacement
+    flow or report the failure. Respect PROVEO_CONFIG_SYNC and the declared config paths.
+
+  **4. Verify the round trip**
+  |= Area |= Acceptance check |
+  | Run and posture | Defaults, remembered choice and env override. Explain MCP versus the sbx gateway. |
+  | Backend and sbx | Off argv survives launch wrappers and reattach. Android MCP and conflicting CLI options cannot bypass it. ADB remains available. |
+  | Config sync | Existing entries survive off. Reuse an on sandbox after a host edit that adds one server and removes another. Verify both changes reach Claude Code. |
+  | Docker and tmux | Use Proveo's argv with the published image. Start on and wait for the user, project and plugin servers to show connected in /mcp. Launch off and assert zero servers. Edit the saved config and verify the new server connects on the next launch. Verify an enterprise MCP policy rejects off. |
+  | Live sbx | Repeat with sbx gateway provisioning and Android selected. Verify the actual kept mount refresh and direct ADB access. |
+  | Kept sessions | A running on process cannot be reattached and reported as off. Apply the change after explicit restart. |
+  | Static checks | Run go vet on touched packages and validate this diagram. |
+endlegend
+@enduml

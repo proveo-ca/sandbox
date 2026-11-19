@@ -237,11 +237,3 @@ func (p Posture) Render() string {
 	}
 	return b.String()
 }
-
-func ToolingLabels() []string {
-	out := make([]string, 0, len(toolingMarkers))
-	for _, m := range toolingMarkers {
-		out = append(out, m.Label)
-	}
-	return out
-}

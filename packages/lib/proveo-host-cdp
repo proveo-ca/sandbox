@@ -1,0 +1,45 @@
+#!/bin/sh
+# SPEC: _spec/internal/sbx/host-browser-cdp.puml
+set -eu
+
+fail() {
+    printf 'host Chrome: %s\n' "$*" >&2
+    exit 1
+}
+
+host_ip=$(getent ahostsv4 host.docker.internal | awk 'NR == 1 { print $1 }')
+[ -n "$host_ip" ] || fail 'host.docker.internal has no IPv4 address'
+if [ "${1:-}" = ip ]; then
+    printf '%s\n' "$host_ip"
+    exit
+fi
+
+port=${PROVEO_HOST_CDP_PORT:-}
+case "$port" in
+    ''|*[!0-9]*) fail 'PROVEO_HOST_CDP_PORT must be a TCP port' ;;
+esac
+[ "$port" -ge 1 ] && [ "$port" -le 65535 ] || fail 'PROVEO_HOST_CDP_PORT must be a TCP port'
+export NO_PROXY="${NO_PROXY:+$NO_PROXY,}$host_ip" no_proxy="${no_proxy:+$no_proxy,}$host_ip"
+url="http://$host_ip:$port"
+version=$(curl --noproxy "$host_ip" -fsS --max-time 5 "$url/json/version") ||
+    fail "CDP discovery at $url failed"
+path=$(printf '%s' "$version" | jq -er '.webSocketDebuggerUrl | capture("^ws://[^/]+(?<path>/devtools/browser/[a-zA-Z0-9_-]+)$").path') ||
+    fail "no browser WebSocket in $url/json/version"
+
+case "${1:-}" in
+    probe)
+        status=$(curl --noproxy "$host_ip" -s --http1.1 --max-time 2 -o /dev/null -w '%{http_code}' \
+            -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+            -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+            "$url$path") || true
+        [ "$status" = 101 ] || fail "browser WebSocket at $url did not upgrade (HTTP ${status:-unknown})"
+        ;;
+    exec)
+        shift
+        export AGENT_BROWSER_CDP="ws://$host_ip:$port$path"
+        exec "$@"
+        ;;
+    *)
+        fail 'expected ip, probe or exec'
+        ;;
+esac
