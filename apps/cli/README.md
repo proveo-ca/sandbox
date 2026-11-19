@@ -30,32 +30,31 @@ public/
 `proveo update` fetches `latest.json`, verifies the platform asset checksum, and
 atomically replaces the running binary.
 
-### Publish a version (Cloudflare CDN, tag included)
-
-Distribution is **Wrangler-only** — goreleaser builds multi-arch binaries; it does **not**
-need to publish a GitHub Release for the consumer channel.
+### Build locally and publish a release
 
 ```bash
-mise run deploy --cli                          # next patch after the newest v* tag
-mise run deploy --cli v0.4.0                   # or minor | major | an explicit vX.Y.Z
-mise run deploy all --cli --yes                # unattended: the CLI first, then every image
+mise run build --cli                           # install into GOPATH/bin
+mise run deploy --print --cli                   # preview the release plan
+mise run deploy --cli                          # prepare the next patch release
+mise run deploy --cli v0.4.0                    # choose an explicit version, minor, or major
 ```
 
-`deploy --cli` (internal/cdn/release) runs, in order:
+Start the release on a clean `main` synced with `origin/main`, with GitHub CLI
+access to the repository. If `origin` still uses the old repository name, update it
+with `git remote set-url origin git@github.com:proveo-ca/cli.git`.
 
-1. the retirement ledger (`TestNoRetirementOutlivesOneRelease` under `PROVEO_RELEASE_GATE=1`);
-2. one question, answered on a TTY or by `--yes`; nothing is written before it;
-3. the cut: HEAD on `main` and equal to `origin/main` after a fetch, a clean tree except
-   `latest.json` (restored from HEAD), `GORELEASER_CURRENT_TAG=<tag> goreleaser release --clean
-   --skip=publish,validate`, the CDN stage, a commit of `latest.json` alone (`release: <tag>`),
-   and `git tag <tag>` on that commit;
-4. the staged check: `latest.json` names the tag on HEAD;
-5. `wrangler deploy --cwd apps/cli`;
-6. `git push --atomic origin HEAD:refs/heads/main refs/tags/<tag>`.
+1. The release checks the retirement ledger and asks for confirmation. `--yes`
+   answers the local prompt.
+2. GoReleaser builds the binaries and the stage writes the CDN assets. The
+   task commits `latest.json` on `release/<tag>`, pushes that branch, and
+   opens a PR into `main`.
+3. Merge the PR on GitHub. Keep the local release branch and staged assets.
+4. Rerun the same deploy command from `release/<tag>`. The task checks the
+   merged tree and the staged binaries, publishes to Cloudflare, and pushes the
+   tag for the commit on `main`.
 
-A HEAD it already cut resumes at step 4 when the tree is clean and `bin/` still holds the
-binaries `latest.json` names. `mise run deploy --print --cli` prints the plan and runs none of it.
-The binaries come from the commit before the tagged one; `proveo --version` still reports the tag.
+`mise run deploy all --cli --yes` continues to the image deploy after the CLI
+release completes. GitHub merge requirements apply in both runs.
 
 Preview without a release:
 

@@ -34,9 +34,9 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	tag := fs.String("tag", "", "image tag (build: local, deploy: latest)")
 	noCache := fs.Bool("no-cache", false, "pass --no-cache to docker buildx build")
 	printOnly := fs.Bool("print", false, "print the plan instead of running it")
-	cli := fs.Bool("cli", false, "build: go install the CLI; deploy: cut, publish and push a CLI release")
+	cli := fs.Bool("cli", false, "build: go install the CLI; deploy: prepare or publish a CLI release")
 	cliVersion := fs.String("cli-version", "patch", "deploy -cli: patch, minor, major or vX.Y.Z")
-	yes := fs.Bool("yes", false, "deploy -cli: answer the question before publishing")
+	yes := fs.Bool("yes", false, "deploy -cli: answer the release confirmation")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -68,9 +68,13 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 		return 0
 	}
 	if *cli {
-		if err := cliVerb(rest[0], *cliVersion, *yes, *printOnly, cwd, stdout, pr); err != nil {
+		ready, err := cliVerb(rest[0], *cliVersion, *yes, *printOnly, cwd, stdout, pr)
+		if err != nil {
 			pr.Failf("%v", err)
 			return 1
+		}
+		if !ready {
+			return 0
 		}
 	}
 	if len(rest) == 1 {
@@ -88,25 +92,25 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	return 0
 }
 
-// cliVerb installs the CLI (build) or cuts, publishes and pushes a CLI release (deploy) from the checkout at root.
-func cliVerb(verb, version string, yes, printOnly bool, root string, stdout io.Writer, pr *ui.Printer) error {
+// cliVerb returns whether the CLI work permits the image steps to run.
+func cliVerb(verb, version string, yes, printOnly bool, root string, stdout io.Writer, pr *ui.Printer) (bool, error) {
 	if printOnly {
 		fmt.Fprintln(stdout, "# cli")
 	}
 	if verb == "build" {
 		if err := maintain.RunPlan(maintain.CLIBuildPlan(root), maintain.PlanIO{PrintOnly: printOnly, Out: stdout}); err != nil {
-			return err
+			return false, err
 		}
 		if !printOnly {
 			pr.Okf("installed proveo and proveo-entrypoint into GOPATH/bin; proveo --version reads dev@<sha>")
 		}
-		return nil
+		return true, nil
 	}
 	if printOnly {
 		for _, line := range release.Plan(version) {
 			fmt.Fprintln(stdout, line)
 		}
-		return nil
+		return true, nil
 	}
 	return release.Deploy(release.Repo{Root: root}, version, release.DefaultSteps(root, yes, pr), pr)
 }

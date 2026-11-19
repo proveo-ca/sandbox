@@ -4,7 +4,9 @@ package release
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -153,34 +155,161 @@ func TestValidVersionTakesABumpOrAnExplicitTag(t *testing.T) {
 	}
 }
 
-func TestDeployCutsTagsPublishesThenPushes(t *testing.T) {
+func TestDeployUsesAReleasePRAndTagsTheMergedCommit(t *testing.T) {
 	t.Parallel()
-	work, origin := newRepo(t)
-	f := &fakes{}
-	if err := Deploy(work, "patch", f.steps(t, work), quiet); err != nil {
+	for _, method := range []string{"merge", "squash", "legacy-squash"} {
+		t.Run(method, func(t *testing.T) {
+			work, origin := newRepo(t)
+			base := run(t, work, "rev-parse", "main")
+			tag, branch := "v0.3.1", "release/v0.3.1"
+			f := &fakes{}
+			st := f.steps(t, work)
+			if method == "legacy-squash" {
+				if _, err := cut(work, "patch", st, quiet); err != nil {
+					t.Fatal(err)
+				}
+				run(t, work, "checkout", "-B", "main")
+				run(t, work, "branch", "-D", branch)
+				run(t, work, "tag", tag)
+			}
+			protectMain(t, origin)
+			pull := &pullRequest{}
+			st.GitHub = fakeGitHub(t, origin, branch, pull)
+			for range 2 {
+				if ready, err := Deploy(work, "patch", st, quiet); ready || err != nil {
+					t.Fatalf("waiting Deploy = %v, %v", ready, err)
+				}
+			}
+			candidate := run(t, work, "rev-parse", "HEAD")
+			if len(f.built) != 1 || f.built[0] != tag || f.published != 0 {
+				t.Fatalf("built %q and published %d times while waiting", f.built, f.published)
+			}
+			if got := run(t, work, "diff-tree", "--no-commit-id", "--name-only", "-r", candidate); got != LatestJSON {
+				t.Errorf("release commit changes %q, want %s alone", got, LatestJSON)
+			}
+			if method != "legacy-squash" && run(t, work, "rev-parse", "main") != base {
+				t.Error("local main moved while preparing the PR")
+			}
+			if run(t, origin, "rev-parse", "main") != base || run(t, origin, "tag", "--list", tag) != "" {
+				t.Fatal("remote main moved or the tag leaked before the PR merge")
+			}
+
+			head := run(t, origin, "rev-parse", "refs/heads/"+branch)
+			pull.State = "MERGED"
+			pull.MergeCommit.OID = mergeOnGitHub(t, origin, base, head, method == "merge")
+			run(t, origin, "update-ref", "-d", "refs/heads/"+branch)
+			publish := st.Publish
+			st.Publish = func() error { return errors.New("upload failed") }
+			if ready, err := Deploy(work, tag, st, quiet); ready || err == nil || err.Error() != "upload failed" {
+				t.Fatalf("failed publish Deploy = %v, %v", ready, err)
+			}
+			if run(t, origin, "tag", "--list", tag) != "" {
+				t.Fatal("remote tag exists after failed publication")
+			}
+			st.Publish = publish
+			for range 2 {
+				if ready, err := Deploy(work, tag, st, quiet); !ready || err != nil {
+					t.Fatalf("merged Deploy = %v, %v", ready, err)
+				}
+			}
+			if len(f.built) != 1 || f.published != 1 {
+				t.Errorf("built %q and published %d times, want once", f.built, f.published)
+			}
+			for _, repo := range []Repo{work, origin} {
+				if got := run(t, repo, "rev-parse", "refs/tags/"+tag); got != pull.MergeCommit.OID {
+					t.Errorf("tag points to %s, want merge %s", got, pull.MergeCommit.OID)
+				}
+			}
+		})
+	}
+}
+
+func TestDeployRejectsUnpublishableMerges(t *testing.T) {
+	t.Parallel()
+	for _, failure := range []string{"differs from the built tree", "not on origin/main", "proveo-linux-amd64 is missing", "already points", "different CLI manifest"} {
+		t.Run(failure, func(t *testing.T) {
+			work, origin := newRepo(t)
+			protectMain(t, origin)
+			f := &fakes{}
+			st := f.steps(t, work)
+			pull := &pullRequest{}
+			branch := "release/v0.3.1"
+			st.GitHub = fakeGitHub(t, origin, branch, pull)
+			if ready, err := Deploy(work, "patch", st, quiet); ready || err != nil {
+				t.Fatalf("prepare Deploy = %v, %v", ready, err)
+			}
+			base := run(t, origin, "rev-parse", "main")
+			head := pull.HeadRefOID
+			pull.State = "MERGED"
+			pull.MergeCommit.OID = mergeOnGitHub(t, origin, base, head, false)
+			switch failure {
+			case "differs from the built tree":
+				run(t, origin, "update-ref", "refs/heads/main", run(t, origin, "commit-tree", "-p", base, "-m", "wrong tree", base+"^{tree}"))
+				pull.MergeCommit.OID = run(t, origin, "rev-parse", "main")
+			case "not on origin/main":
+				pull.MergeCommit.OID = head
+				run(t, origin, "update-ref", "refs/heads/main", base)
+			case "proveo-linux-amd64 is missing":
+				if err := os.Remove(filepath.Join(work.Root, binDir, asset)); err != nil {
+					t.Fatal(err)
+				}
+			case "already points":
+				run(t, origin, "tag", "v0.3.1", base)
+			case "different CLI manifest":
+				run(t, origin, "update-ref", "refs/heads/main", run(t, origin, "commit-tree", "-p", pull.MergeCommit.OID, "-m", "new manifest", base+"^{tree}"))
+			}
+			ready, err := Deploy(work, "patch", st, quiet)
+			if ready || err == nil || !strings.Contains(err.Error(), failure) || f.published != 0 {
+				t.Fatalf("Deploy = %v, %v, published %d times; want %q before publish", ready, err, f.published, failure)
+			}
+		})
+	}
+}
+
+func protectMain(t *testing.T, origin Repo) {
+	t.Helper()
+	write(t, filepath.Join(origin.Root, "hooks", "pre-receive"), "#!/bin/sh\nwhile read old new ref; do\n  [ \"$ref\" != refs/heads/main ] || exit 1\ndone\n")
+	if err := os.Chmod(filepath.Join(origin.Root, "hooks", "pre-receive"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.built) != 1 || f.built[0] != "v0.3.1" || f.published != 1 {
-		t.Errorf("built %q and published %d times, want v0.3.1 once", f.built, f.published)
+}
+
+func mergeOnGitHub(t *testing.T, origin Repo, base, head string, merge bool) string {
+	t.Helper()
+	args := []string{"commit-tree", "-p", base, "-m", "merge release", head + "^{tree}"}
+	if merge {
+		args = append(args, "-p", head)
 	}
-	if got := run(t, work, "log", "-1", "--format=%s"); got != "release: v0.3.1" {
-		t.Errorf("HEAD's subject = %q, want release: v0.3.1", got)
-	}
-	if got := run(t, work, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"); got != LatestJSON {
-		t.Errorf("the release commit changes %q, want %s alone", got, LatestJSON)
-	}
-	head := run(t, work, "rev-parse", "HEAD")
-	if got := run(t, work, "rev-parse", "v0.3.1^{commit}"); got != head {
-		t.Errorf("v0.3.1 points at %s, want the release commit %s", got, head)
-	}
-	if got := run(t, origin, "rev-parse", Branch); got != head {
-		t.Errorf("origin's %s is %s, want the release commit %s", Branch, got, head)
-	}
-	if got := run(t, origin, "rev-parse", "v0.3.1^{commit}"); got != head {
-		t.Errorf("origin's v0.3.1 is %s, want %s", got, head)
-	}
-	if why := StagedRefusal(work); why != "" {
-		t.Errorf("after a cut, StagedRefusal = %q, want none", why)
+	merged := run(t, origin, args...)
+	run(t, origin, "update-ref", "refs/heads/main", merged, base)
+	return merged
+}
+
+func fakeGitHub(t *testing.T, origin Repo, branch string, pull *pullRequest) func(...string) (string, error) {
+	t.Helper()
+	return func(args ...string) (string, error) {
+		switch strings.Join(args[:2], " ") {
+		case "repo view":
+			return "proveo-ca/cli\n", nil
+		case "pr list":
+			if !strings.Contains(strings.Join(args, " "), "--repo proveo-ca/cli --base main --head "+branch) {
+				t.Fatalf("list PR args: %q", args)
+			}
+			if pull.State == "" {
+				return "[]", nil
+			}
+			data, err := json.Marshal([]pullRequest{*pull})
+			return string(data), err
+		case "pr create":
+			if pull.State != "" || !strings.Contains(strings.Join(args, " "), "--repo proveo-ca/cli --base main --head "+branch) {
+				return "", fmt.Errorf("unexpected PR creation: %q", args)
+			}
+			pull.State = "OPEN"
+			pull.URL = "https://github.com/proveo-ca/cli/pull/1"
+			pull.HeadRefOID = run(t, origin, "rev-parse", "refs/heads/"+branch)
+			return pull.URL + "\n", nil
+		}
+		return "", fmt.Errorf("unexpected gh command: %q", args)
 	}
 }
 
@@ -202,7 +331,7 @@ func TestDeployWritesNothingUntilTheLedgerPassesAndSomeoneConfirms(t *testing.T)
 		st := f.steps(t, work)
 		st.Ledger = func() error { return c.ledger }
 		st.Confirm = func(string) bool { f.confirmed++; return c.confirm }
-		err := Deploy(work, "patch", st, quiet)
+		_, err := Deploy(work, "patch", st, quiet)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: Deploy = %v, want an error naming %q", c.name, err, c.want)
 		}
@@ -223,7 +352,7 @@ func TestCutRefusesWhatItCannotRelease(t *testing.T) {
 		arrange func(t *testing.T, r Repo)
 		want    string
 	}{
-		{"off main", "patch", func(t *testing.T, r Repo) { run(t, r, "checkout", "-qb", "feature") }, "cuts main"},
+		{"off main", "patch", func(t *testing.T, r Repo) { run(t, r, "checkout", "-qb", "feature") }, "start a release on main"},
 		{"ahead of origin", "patch", func(t *testing.T, r Repo) {
 			write(t, filepath.Join(r.Root, "b.go"), "package a\n")
 			run(t, r, "add", "-A")
@@ -232,13 +361,13 @@ func TestCutRefusesWhatItCannotRelease(t *testing.T) {
 		{"dirty tree", "patch", func(t *testing.T, r Repo) {
 			write(t, filepath.Join(r.Root, "scratch.txt"), "x")
 		}, "changes outside " + LatestJSON},
-		{"hand tag on HEAD", "patch", func(t *testing.T, r Repo) { run(t, r, "tag", "v0.3.2") }, "is no release commit"},
+		{"tag collision", "v0.3.2", func(t *testing.T, r Repo) { run(t, r, "tag", "v0.3.2", "HEAD~1") }, "does not follow v0.3.2"},
 		{"explicit version not above", "v0.2.9", func(*testing.T, Repo) {}, "does not follow v0.3.0"},
 	} {
 		work, _ := newRepo(t)
 		c.arrange(t, work)
 		f := &fakes{}
-		_, err := Cut(work, c.version, f.steps(t, work), quiet)
+		_, err := cut(work, c.version, f.steps(t, work), quiet)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: Cut = %v, want an error naming %q", c.name, err, c.want)
 		}
@@ -253,7 +382,7 @@ func TestCutRestoresASnapshotLatestJSONBeforeBuilding(t *testing.T) {
 	work, _ := newRepo(t)
 	write(t, filepath.Join(work.Root, LatestJSON), manifestJSON("0.1.6-SNAPSHOT-9ab626af", "11"))
 	f := &fakes{}
-	tag, err := Cut(work, "v0.3.2", f.steps(t, work), quiet)
+	tag, err := cut(work, "v0.3.2", f.steps(t, work), quiet)
 	if err != nil || tag != "v0.3.2" {
 		t.Fatalf("Cut = %q, %v; want v0.3.2", tag, err)
 	}
@@ -266,12 +395,12 @@ func TestCutResumesAHeadItAlreadyCut(t *testing.T) {
 	t.Parallel()
 	work, _ := newRepo(t)
 	f := &fakes{}
-	if _, err := Cut(work, "patch", f.steps(t, work), quiet); err != nil {
+	if _, err := cut(work, "patch", f.steps(t, work), quiet); err != nil {
 		t.Fatal(err)
 	}
 	head := run(t, work, "rev-parse", "HEAD")
 	for _, version := range []string{"patch", "v0.3.1"} {
-		tag, err := Cut(work, version, f.steps(t, work), quiet)
+		tag, err := cut(work, version, f.steps(t, work), quiet)
 		if err != nil || tag != "v0.3.1" {
 			t.Errorf("Cut(%s) on a cut HEAD = %q, %v; want the resume of v0.3.1", version, tag, err)
 		}
@@ -279,57 +408,8 @@ func TestCutResumesAHeadItAlreadyCut(t *testing.T) {
 	if len(f.built) != 1 || run(t, work, "rev-parse", "HEAD") != head {
 		t.Errorf("a resume rebuilt (%q) or moved HEAD", f.built)
 	}
-	if _, err := Cut(work, "v0.4.0", f.steps(t, work), quiet); err == nil || !strings.Contains(err.Error(), "cut as v0.3.1, not v0.4.0") {
+	if _, err := cut(work, "v0.4.0", f.steps(t, work), quiet); err == nil || !strings.Contains(err.Error(), "for v0.3.1, requested v0.4.0") {
 		t.Errorf("Cut(v0.4.0) on a HEAD cut as v0.3.1 = %v, want a refusal naming both", err)
-	}
-	if err := os.Remove(filepath.Join(work.Root, binDir, asset)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Cut(work, "patch", f.steps(t, work), quiet); err == nil || !strings.Contains(err.Error(), asset+" is missing") {
-		t.Errorf("Cut on a cut HEAD without its binary = %v, want a refusal naming %s", err, asset)
-	}
-}
-
-func TestStagedRefusalNamesTheFixInOneLine(t *testing.T) {
-	t.Parallel()
-	work, _ := newRepo(t)
-	untagged := StagedRefusal(work)
-	for _, want := range []string{"carries no vX.Y.Z tag", "mise run deploy --cli"} {
-		if !strings.Contains(untagged, want) {
-			t.Errorf("an untagged HEAD refuses with %q, want it to name %q", untagged, want)
-		}
-	}
-	run(t, work, "tag", "nightly")
-	if StagedRefusal(work) == "" {
-		t.Error("a HEAD tagged nightly passed; only a vX.Y.Z tag ships")
-	}
-	run(t, work, "tag", "v0.3.1")
-	for _, version := range []string{"0.3.1-SNAPSHOT-abc1234", "dev@abc1234", "0.3.2"} {
-		write(t, filepath.Join(work.Root, LatestJSON), manifestJSON(version, "00"))
-		if got := StagedRefusal(work); !strings.Contains(got, version) || !strings.Contains(got, "git checkout") {
-			t.Errorf("a staged %s under v0.3.1 refuses with %q, want one naming it and the restore", version, got)
-		}
-	}
-	write(t, filepath.Join(work.Root, LatestJSON), manifestJSON("0.3.1", "00"))
-	if got := StagedRefusal(work); got != "" {
-		t.Errorf("a staged 0.3.1 under v0.3.1 refuses with %q, want none", got)
-	}
-	for _, got := range []string{untagged, StagedRefusal(work)} {
-		if strings.Contains(got, "\n") {
-			t.Errorf("the refusal spans lines: %q", got)
-		}
-	}
-}
-
-func TestPushRefusesAnUntaggedHead(t *testing.T) {
-	t.Parallel()
-	work, origin := newRepo(t)
-	before := run(t, origin, "rev-parse", Branch)
-	if err := Push(work, quiet); err == nil || !strings.Contains(err.Error(), "mise run deploy --cli") {
-		t.Errorf("Push on an untagged HEAD = %v, want a refusal naming mise run deploy --cli", err)
-	}
-	if got := run(t, origin, "rev-parse", Branch); got != before {
-		t.Errorf("origin's %s moved to %s", Branch, got)
 	}
 }
 
@@ -337,16 +417,16 @@ func TestPlanNamesEveryStepInOrder(t *testing.T) {
 	t.Parallel()
 	plan := strings.Join(Plan("v0.3.2"), "\n")
 	order := []string{"TestNoRetirementOutlivesOneRelease", "ask:", "git fetch", "GORELEASER_CURRENT_TAG=v0.3.2 goreleaser",
-		"go run ./internal/cdn/stage", "git commit", "git tag v0.3.2", "wrangler deploy", "git push --atomic"}
+		"go run ./internal/cdn/stage", "git commit", "git push origin HEAD:refs/heads/release/v0.3.2", "gh pr create", "wait for the PR", "wrangler deploy", "git push origin <merged-commit>:refs/tags/v0.3.2"}
 	at := 0
 	for _, step := range order {
 		i := strings.Index(plan[at:], step)
 		if i < 0 {
 			t.Fatalf("the plan lacks %q after byte %d:\n%s", step, at, plan)
 		}
-		at += i
+		at += i + len(step)
 	}
-	if !strings.Contains(strings.Join(Plan("patch"), "\n"), "git tag <patch>") {
+	if !strings.Contains(strings.Join(Plan("patch"), "\n"), "refs/tags/<patch>") {
 		t.Error("a bump plan does not name its tag as a placeholder")
 	}
 }

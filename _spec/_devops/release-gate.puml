@@ -42,14 +42,16 @@ skinparam noteTextAlignment left
 ' skip into a failure. Without the gate the test skips in `mise run test`.
 ' The ledger runs before the question and before any git write, so a red
 ' ledger leaves HEAD, the tags and dist/ as they were. deploy --cli then cuts
-' the tag itself and checks the staged latest.json against it before wrangler
-' publishes (_spec/internal/cdn/distribution-update.puml).
+' the release on its PR branch. After GitHub merges the PR, deploy verifies
+' the staged assets, publishes and tags the merged commit
+' (_spec/internal/cdn/distribution-update.puml).
 ' HISTORY, 2026-11-12 to 2026-11-17: `mise run release` depended on a hidden
 ' release-ledger task that also ran TestReleaseShipsATaggedHead, so an
 ' untagged HEAD refused with `git tag vX.Y.Z`; deploy-cli's own run started
 ' with TestStagedCDNIsTheTaggedRelease because `mise run --skip-deps` drops
 ' depends (lab, mise 2026.10.17). A Go step has no depends to skip, and the
-' tag check moved into release.StagedRefusal.
+' tag check moved into release.StagedRefusal. GitHub's PR requirement later
+' moved that release check to the merged manifest and its staged binaries.
 ' The gate turned red after v0.2.0 shipped. Removing the expired surfaces
 ' and their ledger rows made HEAD eligible for the next release.
 ' MEASURED 2026-11-17: red again after v0.3.0 shipped proveo_retire_lsp_wiring;

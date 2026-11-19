@@ -53,9 +53,9 @@
 '                   ./cmd/proveo-entrypoint, GOBIN dropped from the
 '                   environment, CGO_ENABLED=0 (was the build-cli task)
 '   deploy --cli .. internal/cdn/release.Deploy before any wave, with
-'                   -cli-version (patch) and -yes; it cuts, publishes and
-'                   pushes the CLI release (was release + deploy-cli,
-'                   _spec/internal/cdn/distribution-update.puml)
+'                   -cli-version (patch) and -yes. The first run submits
+'                   a release PR. A rerun after merge publishes and tags
+'                   the release (_spec/internal/cdn/distribution-update.puml)
 '   --cli [version] (DECIDED 2026-11-17): one mise flag carries the version,
 '                   value_optional with default_missing "patch"; it replaced
 '                   --cli plus --cli-version. When mise binds the only target
@@ -63,7 +63,7 @@
 '                   all and keeps the default patch version. Explicit versions
 '                   are patch|minor|major|vX.Y.Z.
 ' --print prints a "# cli" block first: the go install line, or release.Plan.
-' The CLI goes first so a red release ships no image.
+' An incomplete or failed CLI release stops the run before the image wave.
 ' ── DEPLOY UNTAGS :local AFTER THE RUN (DECIDED 2026-11-17) ─────────────────
 ' DeployPlan still requires :local, retags it as the publish tag and pushes.
 ' After every wave succeeds, maintain.Fleet runs UntagLocalPlan: one quiet

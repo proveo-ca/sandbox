@@ -66,8 +66,8 @@ func TestFleetMainPutsTheCLIFirstWhenAsked(t *testing.T) {
 	}{
 		{[]string{"-print", "-cli", "build"}, "# cli\ngo install -trimpath -ldflags=-s -w ./cmd/proveo ./cmd/proveo-entrypoint\n", nil},
 		{[]string{"-print", "-cli", "build", "claudecode"}, "# cli\ngo install ", []string{"# serial claudecode\nimagebuild claudecode --tag local\n"}},
-		{[]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy"}, "# cli\n", []string{"git tag v0.3.2\n", "wrangler deploy --cwd apps/cli\n"}},
-		{[]string{"-print", "-cli", "deploy", "claudecode"}, "# cli\n", []string{"git tag <patch>\n", "# serial claudecode\n", "# after every wave\n"}},
+		{[]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy"}, "# cli\n", []string{"<merged-commit>:refs/tags/v0.3.2\n", "wrangler deploy --cwd apps/cli\n"}},
+		{[]string{"-print", "-cli", "deploy", "claudecode"}, "# cli\n", []string{"<merged-commit>:refs/tags/<patch>\n", "# serial claudecode\n", "# after every wave\n"}},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := run(c.args, noEnv, repoRoot, &stdout, &stderr); code != 0 {
@@ -130,7 +130,7 @@ func TestFleetMainDeployCLIOptionalVersion(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy", "all"}, noEnv, repoRoot, &stdout, &stderr); code != 0 ||
-		!strings.Contains(stdout.String(), "git tag v0.3.2\n") {
+		!strings.Contains(stdout.String(), "<merged-commit>:refs/tags/v0.3.2\n") {
 		t.Errorf("run(deploy all --cli v0.3.2) = %d, printed\n%s", code, stdout.String())
 	}
 }
