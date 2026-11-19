@@ -10,12 +10,11 @@ import (
 	"os"
 
 	"github.com/proveo-ca/proveo/internal/cdn/release"
-	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-const usage = "usage: fleet [-tag=<tag>] [-no-cache] [-print] [-cli [-cli-version=<v>] [-yes]] build|deploy|test [<target>|all]"
+const usage = "usage: fleet [-tag=<tag>] [-no-cache] [-print] [-cli [-cli-version=<vX.Y.Z>] [-yes]] build|deploy|test [<target>|all]"
 
 func main() {
 	cwd, err := os.Getwd()
@@ -34,8 +33,8 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	tag := fs.String("tag", "", "image tag (build: local, deploy: latest)")
 	noCache := fs.Bool("no-cache", false, "pass --no-cache to docker buildx build")
 	printOnly := fs.Bool("print", false, "print the plan instead of running it")
-	cli := fs.Bool("cli", false, "build: go install the CLI; deploy: prepare or publish a CLI release")
-	cliVersion := fs.String("cli-version", "patch", "deploy -cli: patch, minor, major or vX.Y.Z")
+	cli := fs.Bool("cli", false, "build: go install the CLI; deploy: publish and tag from an approved commit")
+	cliVersion := fs.String("cli-version", "", "deploy -cli: explicit vX.Y.Z")
 	yes := fs.Bool("yes", false, "deploy -cli: answer the release confirmation")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -51,12 +50,8 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	}
 	pr := ui.New(stderr)
 	if *cli && rest[0] == "deploy" {
-		if _, target := imagebuild.Specs[*cliVersion]; len(rest) == 1 && (target || *cliVersion == "all") {
-			rest = append(rest, *cliVersion)
-			*cliVersion = "patch"
-		}
 		if err := release.ValidVersion(*cliVersion); err != nil {
-			pr.Failf("--cli took %q as its version (%v); name the target before --cli: mise run deploy <target> --cli [version]", *cliVersion, err)
+			pr.Failf("%v; use mise run deploy [<target>] --cli vX.Y.Z", err)
 			return 2
 		}
 	}
@@ -68,13 +63,9 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 		return 0
 	}
 	if *cli {
-		ready, err := cliVerb(rest[0], *cliVersion, *yes, *printOnly, cwd, stdout, pr)
-		if err != nil {
+		if err := cliVerb(rest[0], *cliVersion, *yes, *printOnly, cwd, stdout, pr); err != nil {
 			pr.Failf("%v", err)
 			return 1
-		}
-		if !ready {
-			return 0
 		}
 	}
 	if len(rest) == 1 {
@@ -92,25 +83,25 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	return 0
 }
 
-// cliVerb returns whether the CLI work permits the image steps to run.
-func cliVerb(verb, version string, yes, printOnly bool, root string, stdout io.Writer, pr *ui.Printer) (bool, error) {
+// cliVerb runs or previews the requested CLI operation.
+func cliVerb(verb, version string, yes, printOnly bool, root string, stdout io.Writer, pr *ui.Printer) error {
 	if printOnly {
 		fmt.Fprintln(stdout, "# cli")
 	}
 	if verb == "build" {
 		if err := maintain.RunPlan(maintain.CLIBuildPlan(root), maintain.PlanIO{PrintOnly: printOnly, Out: stdout}); err != nil {
-			return false, err
+			return err
 		}
 		if !printOnly {
 			pr.Okf("installed proveo and proveo-entrypoint into GOPATH/bin; proveo --version reads dev@<sha>")
 		}
-		return true, nil
+		return nil
 	}
 	if printOnly {
 		for _, line := range release.Plan(version) {
 			fmt.Fprintln(stdout, line)
 		}
-		return true, nil
+		return nil
 	}
 	return release.Deploy(release.Repo{Root: root}, version, release.DefaultSteps(root, yes, pr), pr)
 }

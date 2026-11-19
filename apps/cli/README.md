@@ -33,28 +33,52 @@ atomically replaces the running binary.
 ### Build locally and publish a release
 
 ```bash
-mise run build --cli                           # install into GOPATH/bin
-mise run deploy --print --cli                   # preview the release plan
-mise run deploy --cli                          # prepare the next patch release
-mise run deploy --cli v0.4.0                    # choose an explicit version, minor, or major
+mise run build --cli                               # install into GOPATH/bin
+mise run deploy --print --cli v0.3.2                 # preview the release plan
 ```
 
-Start the release on a clean `main` synced with `origin/main`, with GitHub CLI
-access to the repository. If `origin` still uses the old repository name, update it
-with `git remote set-url origin git@github.com:proveo-ca/cli.git`.
+Merge and verify the source changes through the usual PR to `main`. From a
+clean checkout on your host, pin the approved commit and run the release.
 
-1. The release checks the retirement ledger and asks for confirmation. `--yes`
-   answers the local prompt.
-2. GoReleaser builds the binaries and the stage writes the CDN assets. The
-   task commits `latest.json` on `release/<tag>`, pushes that branch, and
-   opens a PR into `main`.
-3. Merge the PR on GitHub. Keep the local release branch and staged assets.
-4. Rerun the same deploy command from `release/<tag>`. The task checks the
-   merged tree and the staged binaries, publishes to Cloudflare, and pushes the
-   tag for the commit on `main`.
+```bash
+git fetch --tags origin main
+git switch --detach origin/main
+mise run deploy --cli v0.3.2 --yes
+```
 
-`mise run deploy all --cli --yes` continues to the image deploy after the CLI
-release completes. GitHub merge requirements apply in both runs.
+Use an explicit version. The release command checks that `HEAD` is on
+`origin/main` and runs the retirement ledger. It acquires the shared Git lock,
+builds and stages from the pinned SHA, publishes to Cloudflare, verifies the
+live manifest, and pushes a tag for that SHA. Use `--yes` to skip the local
+confirmation. Local publishing requires Wrangler credentials and permission to
+create and delete `cli-deploy-lock` and create release tags on the canonical
+`origin`. For a checkout using the old repository name, run
+`git remote set-url origin git@github.com:proveo-ca/cli.git`.
+
+GitHub Actions runs the same command. Configure the `cli-production`
+environment for `main` and supply its `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` secrets. Dispatch the workflow from GitHub or from
+your host.
+
+```bash
+gh workflow run cli-release.yml --ref main -f version=v0.3.2
+```
+
+Retry with the same SHA and version. Local runs keep the artifact in
+`.cache/cli-release/<version>/<sha>`. CI reruns restore it from the workflow
+cache when available. If the exact manifest is already live, the retry finishes
+by pushing the tag. A different manifest for the same version requires the
+original artifact or a fresh version.
+
+An interrupted process can leave `refs/heads/cli-deploy-lock` on `origin`.
+After confirming the owning release has stopped, inspect the ref and remove it
+using the displayed object ID as the lease. The lease protects a lock that
+changes after inspection.
+
+```bash
+git ls-remote --refs origin refs/heads/cli-deploy-lock
+git push --force-with-lease=refs/heads/cli-deploy-lock:<object-id> origin :refs/heads/cli-deploy-lock
+```
 
 Preview without a release:
 

@@ -1,0 +1,54 @@
+# SPEC: _spec/internal/cdn/distribution-update.puml
+name: CLI release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Explicit CLI version (vX.Y.Z)
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: cli-production
+    permissions:
+      contents: write
+    concurrency:
+      group: cli-production
+      cancel-in-progress: false
+    steps:
+      - name: Require main
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "Dispatch the CLI release from main."
+            exit 1
+          fi
+      - name: Check out the requested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - name: Restore the staged release
+        id: artifact
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .cache/cli-release
+          key: cli-release-${{ github.sha }}-${{ inputs.version }}
+      - name: Publish CLI
+        env:
+          CLI_VERSION: ${{ inputs.version }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: mise run deploy --cli "$CLI_VERSION" --yes
+      - name: Save the staged release for retry
+        if: always() && steps.artifact.outputs.cache-hit != 'true' && hashFiles('.cache/cli-release/**/cli/latest.json') != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .cache/cli-release
+          key: ${{ steps.artifact.outputs.cache-primary-key }}

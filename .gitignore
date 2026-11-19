@@ -89,9 +89,10 @@ reports/
 /proveo
 /proveo-entrypoint
 
-# Staged CDN Go binaries (stage-cdn: dev-cli, test-images, release)
+# Staged CDN assets
 apps/cli/public/cli/bin/proveo-*
 apps/cli/public/cli/checksums.txt
+apps/cli/public/cli/latest.json
 
 # Go coverage data dirs (go tool covdata)
 cov/

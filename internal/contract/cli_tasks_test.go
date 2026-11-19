@@ -128,7 +128,7 @@ func TestTheCLIReleaseRunsInsideDeploy(t *testing.T) {
 			}
 		}
 	}
-	ledger := release.Plan("patch")[0]
+	ledger := release.Plan("v0.3.2")[0]
 	if !strings.HasPrefix(ledger, "PROVEO_RELEASE_GATE=1 go test ") || !strings.Contains(ledger, "-run=^TestNoRetirementOutlivesOneRelease$") {
 		t.Errorf("deploy --cli starts with %q, want the gated retirement ledger", ledger)
 	}

@@ -26,7 +26,14 @@ const (
 )
 
 func main() {
-	if err := stage(".", os.Stdout); err != nil {
+	tree := cdnTree
+	if len(os.Args) == 2 {
+		tree = os.Args[1]
+	} else if len(os.Args) > 2 {
+		ui.Failf("usage: go run ./internal/cdn/stage [output-directory]")
+		os.Exit(2)
+	}
+	if err := stage(".", tree, os.Stdout); err != nil {
 		ui.Failf("cdn stage: %v", err)
 		os.Exit(1)
 	}
@@ -44,7 +51,7 @@ type artifact struct {
 }
 
 // stage copies goreleaser's cdn-proveo binaries from root/dist into the CDN tree, then writes checksums.txt and latest.json.
-func stage(root string, out io.Writer) error {
+func stage(root, tree string, out io.Writer) error {
 	required, err := requiredAssets(root)
 	if err != nil {
 		return err
@@ -75,7 +82,6 @@ func stage(root string, out io.Writer) error {
 		sums[asset] = got
 	}
 
-	tree := filepath.Join(root, filepath.FromSlash(cdnTree))
 	bin := filepath.Join(tree, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		return err
@@ -106,7 +112,7 @@ func stage(root string, out io.Writer) error {
 	if err := os.WriteFile(filepath.Join(tree, "latest.json"), append(manifest, '\n'), 0o644); err != nil {
 		return err
 	}
-	ui.New(out).Storef("%s: %d proveo binaries, checksums.txt and latest.json (version %s)", cdnTree, len(required), version)
+	ui.New(out).Storef("%s: %d proveo binaries, checksums.txt and latest.json (version %s)", tree, len(required), version)
 	return nil
 }
 

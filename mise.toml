@@ -149,14 +149,14 @@ run = "go run ./internal/maintain/fleet -tag={{ usage.tag | quote }} {% if usage
 
 # SPEC: _spec/internal/maintain/image-build-deploy.puml, _spec/internal/cdn/distribution-update.puml
 [tasks.deploy]
-description = "Promote :local to the tag and buildx --push amd64+arm64 (bases serially, then harness waves concurrently), then untag :local; --cli first prepares or publishes a CLI release"
+description = "Promote :local to the tag and buildx --push amd64+arm64 (bases serially, then harness waves concurrently), then untag :local; --cli first publishes and tags a CLI release"
 dir = "{{config_root}}"
 tools = { goreleaser = "2.17.0" }
 usage = '''
 arg "[target]" help="a registry target, or all; optional with --cli" {
   choices "all" "base" "base-node" "base-node-browser" "claudecode" "claudecode-browser" "claudecode-solidity" "codex" "codex-browser" "cursor" "cursor-browser" "hermes" "opencode" "opencode-browser"
 }
-flag "--cli [version]" value_optional=#true default_missing="patch" help="prepare a release PR at version (patch when bare; minor, major or vX.Y.Z), then rerun after merge to deploy apps/cli and push the tag"
+flag "--cli <version>" help="publish and tag an explicit vX.Y.Z from an approved origin/main commit"
 flag "--yes" help="--cli: skip the local release confirmation"
 flag "--tag <tag>" default="latest" help="image tag to publish (promoted from the :local build)"
 flag "--print" help="print the plan instead of running it"

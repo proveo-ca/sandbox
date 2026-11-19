@@ -5,20 +5,17 @@ package release
 import (
 	"bufio"
 	"bytes"
-	"cmp"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"maps"
+	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -27,12 +24,11 @@ import (
 )
 
 const (
-	LatestJSON = "apps/cli/public/cli/latest.json"
-	binDir     = "apps/cli/public/cli/bin"
-	Branch     = "main"
-	Remote     = "origin"
-	ledgerRun  = "-run=^TestNoRetirementOutlivesOneRelease$"
-	question   = "Prepare a CLI release PR, or publish and tag the release if its PR has merged?"
+	Branch = "main"
+	Remote = "origin"
+
+	mainRef   = "refs/remotes/" + Remote + "/" + Branch
+	ledgerRun = "-run=^TestNoRetirementOutlivesOneRelease$"
 )
 
 var semverTag = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
@@ -59,18 +55,14 @@ func (r Repo) git(args ...string) (string, error) {
 
 // raw is git's stdout untrimmed, for output whose leading spaces carry meaning.
 func (r Repo) raw(args ...string) (string, error) {
-	return r.output("git", args...)
-}
-
-func (r Repo) output(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command("git", args...)
 	cmd.Dir = r.Root
 	cmd.Env = r.Env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out), nil
 }
@@ -80,9 +72,10 @@ type Steps struct {
 	Ledger  func() error
 	Confirm func(question string) bool
 	Build   func(tag string) error
-	Stage   func() error
-	Publish func() error
-	GitHub  func(args ...string) (string, error)
+	Stage   func(path string) error
+	Publish func(path string) error
+	Live    func() (cdn.Manifest, error)
+	Verify  func(cdn.Manifest) error
 }
 
 // DefaultSteps runs the release commands from root.
@@ -95,11 +88,12 @@ func DefaultSteps(root string, yes bool, pr *ui.Printer) Steps {
 		Build: func(tag string) error {
 			return command(root, []string{"GORELEASER_CURRENT_TAG=" + tag}, "goreleaser", "release", "--clean", "--skip=publish,validate")
 		},
-		Stage:   func() error { return command(root, nil, "go", "run", "./internal/cdn/stage") },
-		Publish: func() error { return command(root, nil, "wrangler", "deploy", "--cwd", "apps/cli") },
-		GitHub: func(args ...string) (string, error) {
-			return (Repo{Root: root}).output("gh", args...)
+		Stage: func(path string) error { return command(root, nil, "go", "run", "./internal/cdn/stage", path) },
+		Publish: func(path string) error {
+			return command(root, nil, "wrangler", "deploy", "--cwd", "apps/cli", "--assets", path)
 		},
+		Live:   liveManifest,
+		Verify: verifyLive,
 	}
 }
 
@@ -131,319 +125,160 @@ func askYes(q string, in *os.File, pr *ui.Printer) bool {
 
 // Plan returns the CLI release steps for --print.
 func Plan(version string) []string {
-	tag := "<" + version + ">"
-	if semverTag.MatchString(version) {
-		tag = version
-	}
-	branch := releaseBranch + tag
 	return []string{
 		"PROVEO_RELEASE_GATE=1 go test -count=1 " + ledgerRun + " ./internal/contract/",
-		"ask: " + question,
-		"git fetch --quiet --tags " + Remote + " " + Branch,
-		"GORELEASER_CURRENT_TAG=" + tag + " goreleaser release --clean --skip=publish,validate",
-		"go run ./internal/cdn/stage",
-		"git switch -c " + branch,
-		"git commit -m 'release: " + tag + "' -- " + LatestJSON,
-		"git push " + Remote + " HEAD:refs/heads/" + branch,
-		"gh pr create --base " + Branch + " --head " + branch + " (reuse an existing release PR)",
-		"wait for the PR to merge, then rerun the deploy",
-		"verify the merged commit on " + Remote + "/" + Branch + " and the staged assets",
-		"wrangler deploy --cwd apps/cli",
-		"git push " + Remote + " <merged-commit>:refs/tags/" + tag,
+		"git fetch --tags " + Remote + " " + Branch + " and verify the pinned HEAD is on " + Remote + "/" + Branch,
+		"confirm " + version + " for the pinned commit (unless --yes)",
+		"acquire the shared Git lock " + lockRef,
+		"check the remote tags and live CLI version",
+		"reuse the staged artifact or run GORELEASER_CURRENT_TAG=" + version + " goreleaser release --clean --skip=publish,validate",
+		"go run ./internal/cdn/stage <artifact>/cli",
+		"wrangler deploy --cwd apps/cli --assets <artifact> (unless the exact manifest is already live)",
+		"verify the live manifest version and checksums",
+		"git push " + Remote + " <commit>:refs/tags/" + version,
+		"release the shared Git lock",
 	}
 }
 
-// Deploy returns true once the CLI release is published and tagged.
-func Deploy(r Repo, version string, st Steps, pr *ui.Printer) (bool, error) {
+// Deploy publishes the CLI built from the pinned commit.
+func Deploy(r Repo, tag string, st Steps, pr *ui.Printer) (err error) {
+	if err := ValidVersion(tag); err != nil {
+		return err
+	}
 	if err := st.Ledger(); err != nil {
-		return false, fmt.Errorf("retirement ledger: %w", err)
+		return fmt.Errorf("retirement ledger: %w", err)
 	}
-	if !st.Confirm(question) {
-		return false, errors.New("release not confirmed (--yes answers the question)")
-	}
-	tag, err := cut(r, version, st, pr)
+	head, err := r.sourceCommit()
 	if err != nil {
-		return false, err
+		return err
 	}
-	return submit(r, tag, st, pr)
+	if !st.Confirm(fmt.Sprintf("Publish %s from %.12s to Cloudflare and tag that commit?", tag, head)) {
+		return errors.New("release not confirmed (--yes answers the question)")
+	}
+	unlock, err := r.lock(tag, head)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	return deployLocked(r, tag, head, st, pr)
 }
 
-func cut(r Repo, version string, st Steps, pr *ui.Printer) (string, error) {
-	branch, err := r.git("symbolic-ref", "--quiet", "--short", "HEAD")
-	pending, isRelease := strings.CutPrefix(branch, releaseBranch)
-	if err != nil || (branch != Branch && (!isRelease || !semverTag.MatchString(pending))) {
-		return "", fmt.Errorf("start a release on %s or resume on %s<tag>; HEAD is on %q", Branch, releaseBranch, branch)
+func (r Repo) sourceCommit() (string, error) {
+	dirty, err := r.git("status", "--porcelain=v1", "--untracked-files=all")
+	if err != nil {
+		return "", err
 	}
-	if _, err := r.git("fetch", "--quiet", "--no-tags", Remote, Branch); err != nil {
+	if dirty != "" {
+		return "", fmt.Errorf("a CLI release needs a clean checkout:\n%s", dirty)
+	}
+	if _, err := r.git("fetch", "--quiet", "--tags", Remote, "refs/heads/"+Branch+":"+mainRef); err != nil {
 		return "", err
 	}
 	head, err := r.git("rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	upstream, err := r.git("rev-parse", "refs/remotes/"+Remote+"/"+Branch)
-	if err != nil {
-		return "", err
+	if _, err := r.git("merge-base", "--is-ancestor", head, mainRef); err != nil {
+		return "", fmt.Errorf("HEAD %.12s is outside %s/%s; check out the approved commit from %s/%s", head, Remote, Branch, Remote, Branch)
 	}
-	if isRelease {
-		m, err := r.manifestAt(head)
-		if err != nil {
-			return "", err
-		}
-		if head != upstream || "v"+m.Version == pending {
-			return pending, r.checkCut(pending, version)
-		}
-	}
-	if branch == Branch && head != upstream {
-		tag, err := r.headTag()
-		if err != nil {
-			return "", err
-		}
-		if tag == "" {
-			return "", fmt.Errorf("HEAD %.12s is not %s/%s %.12s; sync %s through a pull request or fast-forward it",
-				head, Remote, Branch, upstream, Branch)
-		}
-		if err := r.checkCut(tag, version); err != nil {
-			return "", err
-		}
-		branch := releaseBranch + tag
-		_, err = r.git("switch", "-c", branch)
-		return tag, err
-	}
-	if _, err := r.git("fetch", "--quiet", "--tags", Remote, Branch); err != nil {
-		return "", err
-	}
-	if err := r.restoreLatest(pr); err != nil {
-		return "", err
-	}
-	newest, err := r.newestTag()
-	if err != nil {
-		return "", err
-	}
-	tag, err := NextTag(version, newest)
-	if err != nil {
-		return "", err
-	}
-	if isRelease && pending != tag {
-		return "", fmt.Errorf("branch %s is for %s; requested %s", branch, pending, tag)
-	}
-	if _, err := r.git("rev-parse", "--quiet", "--verify", "refs/tags/"+tag); err == nil {
-		return "", fmt.Errorf("%s already exists; pass a newer version", tag)
-	}
-	if !isRelease {
-		if _, err := r.git("show-ref", "--verify", "--quiet", "refs/heads/"+releaseBranch+tag); err == nil {
-			return "", fmt.Errorf("switch to %s%s to resume this release", releaseBranch, tag)
-		}
-	}
-	pr.Appf("cutting %s (previous: %s)", tag, cmp.Or(newest, "none"))
-	if err := st.Build(tag); err != nil {
-		return "", err
-	}
-	if err := st.Stage(); err != nil {
-		return "", err
-	}
-	m, err := readManifest(filepath.Join(r.Root, filepath.FromSlash(LatestJSON)))
-	if err != nil {
-		return "", err
-	}
-	if "v"+m.Version != tag {
-		return "", fmt.Errorf("the stage wrote %s version %q, want %s", LatestJSON, m.Version, tag)
-	}
-	if err := stagedMatches(r.Root, m); err != nil {
-		return "", err
-	}
-	if !isRelease {
-		if _, err := r.git("switch", "-c", releaseBranch+tag); err != nil {
-			return "", err
-		}
-	}
-	quiet := r.with("SKIP_GIT_HOOKS=1")
-	if _, err := quiet.git("commit", "--quiet", "-m", "release: "+tag, "--", LatestJSON); err != nil {
-		return "", err
-	}
-	pr.Okf("cut %s on %s", tag, releaseBranch+tag)
-	return tag, nil
+	return head, nil
 }
 
-func (r Repo) checkCut(tag, version string) error {
-	if semverTag.MatchString(version) && version != tag {
-		return fmt.Errorf("this release branch is for %s, requested %s", tag, version)
-	}
-	m, err := r.manifestAt("HEAD")
-	changed, derr := r.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
-	title, terr := r.git("log", "-1", "--format=%s")
-	if err != nil || derr != nil || terr != nil || "v"+m.Version != tag || changed != LatestJSON || title != "release: "+tag {
-		return fmt.Errorf("HEAD is not the release commit for %s", tag)
-	}
-	if dirty, err := r.dirty(); err != nil {
-		return err
-	} else if len(dirty) > 0 {
-		return fmt.Errorf("the %s release tree has changes: %s", tag, strings.Join(dirty, ", "))
-	}
-	return nil
-}
-
-// restoreLatest refuses a dirty tree, except latest.json, which a snapshot stage rewrites.
-func (r Repo) restoreLatest(pr *ui.Printer) error {
-	dirty, err := r.dirty()
+func deployLocked(r Repo, tag, head string, st Steps, pr *ui.Printer) error {
+	tags, err := r.remoteTags()
 	if err != nil {
 		return err
 	}
-	others := slices.DeleteFunc(slices.Clone(dirty), func(p string) bool { return p == LatestJSON })
-	if len(others) > 0 {
-		return fmt.Errorf("the tree has changes outside %s: %s; commit or stash them first", LatestJSON, strings.Join(others, ", "))
-	}
-	if len(dirty) == 0 {
+	if commit := tags[tag]; commit != "" {
+		if commit != head {
+			return fmt.Errorf("%s already points to %.12s on %s, requested %.12s", tag, commit, Remote, head)
+		}
+		pr.Okf("%s already tagged at %.12s on %s", tag, head, Remote)
 		return nil
 	}
-	if _, err := r.git("checkout", "HEAD", "--", LatestJSON); err != nil {
+	if err := r.checkPreviousRelease(tags, tag, head); err != nil {
 		return err
 	}
-	pr.Notef("restored %s from HEAD; the stage rewrites it", LatestJSON)
-	return nil
-}
 
-func (r Repo) dirty() ([]string, error) {
-	out, err := r.raw("status", "--porcelain=v1", "-z", "--untracked-files=all")
+	live, err := st.Live()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("read the live release before publishing: %w", err)
 	}
-	var paths []string
-	entries := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
-	for i := 0; i < len(entries); i++ {
-		e := entries[i]
-		if len(e) < 4 {
-			continue
+	if liveTag := "v" + live.Version; semverTag.MatchString(liveTag) && compare(liveTag, tag) > 0 {
+		return fmt.Errorf("%s is already live; choose a version newer than %s", liveTag, liveTag)
+	}
+	assets, manifest, err := r.artifact(tag, head, st, pr)
+	if err != nil {
+		return err
+	}
+	if live.Version == manifest.Version {
+		if !sameManifest(live, manifest) {
+			return fmt.Errorf("%s is already live with different checksums; restore the original artifact or choose a new version", tag)
 		}
-		paths = append(paths, e[3:])
-		if e[0] == 'R' || e[0] == 'C' {
-			i++
-		}
-	}
-	return paths, nil
-}
-
-// headTag is the highest vX.Y.Z tag on HEAD, or "".
-func (r Repo) headTag() (string, error) {
-	out, err := r.git("tag", "--points-at", "HEAD", "--list", "v*")
-	if err != nil {
-		return "", err
-	}
-	return highest(strings.Fields(out)), nil
-}
-
-// newestTag is the highest vX.Y.Z tag merged into HEAD, or "".
-func (r Repo) newestTag() (string, error) {
-	out, err := r.git("tag", "--merged", "HEAD", "--list", "v*")
-	if err != nil {
-		return "", err
-	}
-	return highest(strings.Fields(out)), nil
-}
-
-func (r Repo) manifestAt(rev string) (cdn.Manifest, error) {
-	out, err := r.git("show", rev+":"+LatestJSON)
-	if err != nil {
-		return cdn.Manifest{}, err
-	}
-	var m cdn.Manifest
-	if err := json.Unmarshal([]byte(out), &m); err != nil {
-		return cdn.Manifest{}, fmt.Errorf("%s at %s: %w", LatestJSON, rev, err)
-	}
-	return m, nil
-}
-
-func readManifest(path string) (cdn.Manifest, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return cdn.Manifest{}, err
-	}
-	var m cdn.Manifest
-	if err := json.Unmarshal(b, &m); err != nil {
-		return cdn.Manifest{}, fmt.Errorf("%s: %w", path, err)
-	}
-	return m, nil
-}
-
-// stagedMatches reports the first staged binary whose sha256 is not the one m records.
-func stagedMatches(root string, m cdn.Manifest) error {
-	if len(m.Checksums) == 0 {
-		return errors.New("latest.json lists no binaries")
-	}
-	for asset, want := range m.Checksums {
-		f, err := os.Open(filepath.Join(root, filepath.FromSlash(binDir), asset))
+		pr.Notef("%s is already live with the staged checksums", tag)
+	} else {
+		current, err := r.git("rev-parse", "HEAD")
 		if err != nil {
-			return fmt.Errorf("%s/%s is missing", binDir, asset)
+			return err
 		}
-		h := sha256.New()
-		_, err = io.Copy(h, f)
-		f.Close()
-		if err != nil || hex.EncodeToString(h.Sum(nil)) != want {
-			return fmt.Errorf("%s/%s is not the binary latest.json names", binDir, asset)
+		if current != head {
+			return fmt.Errorf("HEAD moved during the release; retry from %.12s", head)
+		}
+		pr.Cloudf("deploying apps/cli as %s", tag)
+		if err := st.Publish(assets); err != nil {
+			return err
+		}
+		if err := st.Verify(manifest); err != nil {
+			return err
 		}
 	}
+	if _, err := r.git("push", "--quiet", "--no-follow-tags", Remote, head+":refs/tags/"+tag); err != nil {
+		return err
+	}
+	pr.Okf("published %s and tagged %.12s on %s", tag, head, Remote)
 	return nil
 }
 
-// ValidVersion reports whether version is patch, minor, major or an explicit vX.Y.Z.
+func sameManifest(a, b cdn.Manifest) bool {
+	return a.Version == b.Version && maps.Equal(a.Checksums, b.Checksums)
+}
+
+func liveManifest() (cdn.Manifest, error) {
+	url := cdn.DefaultBaseURL + "?release-check=" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	return cdn.FetchManifest(&http.Client{Timeout: 5 * time.Second}, url)
+}
+
+func verifyLive(want cdn.Manifest) error {
+	var err error
+	for attempt := range 6 {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
+		var live cdn.Manifest
+		live, err = liveManifest()
+		if err == nil {
+			if sameManifest(live, want) {
+				return nil
+			}
+			err = fmt.Errorf("live version %s or its checksums differ from the staged manifest", live.Version)
+		}
+	}
+	return fmt.Errorf("verify published v%s: %w", want.Version, err)
+}
+
+// ValidVersion accepts an explicit vX.Y.Z.
 func ValidVersion(version string) error {
-	switch {
-	case version == "patch", version == "minor", version == "major", semverTag.MatchString(version):
-		return nil
+	if !semverTag.MatchString(version) {
+		return fmt.Errorf("version %q: pass an explicit vX.Y.Z", version)
 	}
-	return fmt.Errorf("version %q: want patch, minor, major or vX.Y.Z", version)
+	return nil
 }
 
-// NextTag is version when it is an explicit vX.Y.Z above newest, else newest bumped by patch, minor or major.
-func NextTag(version, newest string) (string, error) {
-	cur := parts(newest)
-	switch version {
-	case "patch":
-		cur[2]++
-	case "minor":
-		cur = [3]int{cur[0], cur[1] + 1, 0}
-	case "major":
-		cur = [3]int{cur[0] + 1, 0, 0}
-	default:
-		if err := ValidVersion(version); err != nil {
-			return "", err
+func compare(a, b string) int {
+	return slices.CompareFunc(strings.Split(a, "."), strings.Split(b, "."), func(x, y string) int {
+		if len(x) != len(y) {
+			return len(x) - len(y)
 		}
-		if newest != "" && compare(parts(version), cur) <= 0 {
-			return "", fmt.Errorf("%s does not follow %s", version, newest)
-		}
-		return version, nil
-	}
-	return fmt.Sprintf("v%d.%d.%d", cur[0], cur[1], cur[2]), nil
-}
-
-func parts(tag string) [3]int {
-	var out [3]int
-	m := semverTag.FindStringSubmatch(tag)
-	if m == nil {
-		return out
-	}
-	for i := range out {
-		out[i], _ = strconv.Atoi(m[i+1])
-	}
-	return out
-}
-
-func compare(a, b [3]int) int {
-	for i := range a {
-		if a[i] != b[i] {
-			return a[i] - b[i]
-		}
-	}
-	return 0
-}
-
-// highest is the greatest vX.Y.Z among tags, or "".
-func highest(tags []string) string {
-	best := ""
-	for _, t := range tags {
-		if semverTag.MatchString(t) && (best == "" || compare(parts(t), parts(best)) > 0) {
-			best = t
-		}
-	}
-	return best
+		return strings.Compare(x, y)
+	})
 }
