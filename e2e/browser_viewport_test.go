@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/guestbrowser"
 	"github.com/proveo-ca/proveo/internal/sbx"
 )
 
@@ -34,6 +36,7 @@ func TestIsolatedBrowserViewportAcrossHarnesses(t *testing.T) {
 			home, work := t.TempDir(), t.TempDir()
 			k := launchKit(t, proveoBin, target, work, []string{"PROVEO_HOME=" + home}, "--addon", "browser")
 			view := awaitBrowserViewport(t, home)
+			assertSandboxBrowserPorts(t, k.name)
 			if out, rc := k.exec("test -z \"$(find /var/lib/proveo/browser -name DevToolsActivePort -print -quit)\"", time.Minute); rc != 0 {
 				t.Fatalf("Chromium started before browser use: %s", out)
 			}
@@ -68,6 +71,7 @@ func TestNamedBrowserProfileResumesAndRejectsConcurrentUse(t *testing.T) {
 	args := []string{"--browser-profile", "work"}
 	first := launchKit(t, proveoBin, "claudecode", work, env, args...)
 	view := awaitBrowserViewport(t, home)
+	firstID := assertSandboxBrowserPorts(t, first.name)
 	const cookie = "proveo_browser_e2e"
 	if out, rc := first.exec(fmt.Sprintf("agent-browser cookies set %s persisted --url http://127.0.0.1/ --expires %d",
 		cookie, time.Now().Add(time.Hour).Unix()), time.Minute); rc != 0 {
@@ -93,6 +97,9 @@ func TestNamedBrowserProfileResumesAndRejectsConcurrentUse(t *testing.T) {
 	if next := awaitBrowserViewport(t, home); next == view {
 		t.Fatal("resumed run reused an expired viewport URL")
 	}
+	if id := assertSandboxBrowserPorts(t, second.name); id == "" || id != firstID {
+		t.Fatalf("named profile resumed in sbx ID %q, want %q", id, firstID)
+	}
 	if second.name != first.name {
 		t.Fatalf("named profile moved from %s to %s", first.name, second.name)
 	}
@@ -110,12 +117,21 @@ func TestNamedBrowserProfileResumesAndRejectsConcurrentUse(t *testing.T) {
 func awaitBrowserViewport(t *testing.T, home string) string {
 	t.Helper()
 	var address string
+	client := &http.Client{Timeout: time.Second}
 	if !waitUntil(time.Minute, func() bool {
 		data, _ := os.ReadFile(filepath.Join(home, "logs", "latest.log"))
 		address = viewportURL(string(data))
-		return address != ""
+		if address == "" {
+			return false
+		}
+		resp, err := client.Get(address + "health")
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusNoContent
 	}) {
-		t.Fatal("run log never printed a viewport")
+		t.Fatal("run log never pointed to a live viewport")
 	}
 	return address
 }
@@ -155,6 +171,37 @@ func awaitViewportTab(t *testing.T, view, title string) {
 	}) {
 		t.Fatalf("viewport tabs lack %q: %s", title, last)
 	}
+}
+
+func assertSandboxBrowserPorts(t *testing.T, name string) string {
+	t.Helper()
+	rows, ok := sbx.List()
+	if !ok {
+		t.Fatal("sbx did not list its browser port bindings")
+	}
+	for _, row := range rows {
+		if row.Name != name {
+			continue
+		}
+		found := false
+		for _, p := range row.Ports {
+			switch p.SandboxPort {
+			case guestbrowser.ViewportPort:
+				found = true
+				if p.HostPort <= 0 || !net.ParseIP(p.HostIP).IsLoopback() {
+					t.Errorf("%s published the viewport outside host loopback: %+v", name, p)
+				}
+			case guestbrowser.AgentPort:
+				t.Errorf("%s published its guest-only CDP port: %+v", name, p)
+			}
+		}
+		if !found {
+			t.Errorf("%s has no viewport binding: %+v", name, row.Ports)
+		}
+		return row.ID
+	}
+	t.Fatalf("sbx listed no sandbox named %s", name)
+	return ""
 }
 
 func assertViewportClosed(t *testing.T, view string) {

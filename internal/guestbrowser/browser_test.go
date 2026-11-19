@@ -2,6 +2,7 @@
 package guestbrowser
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,9 +10,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,8 +93,10 @@ func TestChromiumSharesViewportAndAgentProfiles(t *testing.T) {
 	if len(tabs) != 1 {
 		t.Fatalf("initial tabs: %+v", tabs)
 	}
-	named.post(t, "/take", "", 204)
-	named.post(t, "/input", fmt.Sprintf(`{"tab":%q,"kind":"navigate","url":%q}`, tabs[0].ID, login.URL), 204)
+	navigate := fmt.Sprintf(`{"tab":%q,"kind":"navigate","url":%q}`, tabs[0].ID, login.URL)
+	named.post(t, "/input", navigate, http.StatusConflict)
+	named.post(t, "/take", "", http.StatusNoContent)
+	named.post(t, "/input", navigate, http.StatusNoContent)
 	named.awaitTitle(t, "Login")
 	ws := named.endpoint(t)
 	if err := command(t.Context(), ws, "Target.getTargets", nil, nil); err == nil || !strings.Contains(err.Error(), "Operator has browser control") {
@@ -142,6 +148,136 @@ func TestChromiumSharesViewportAndAgentProfiles(t *testing.T) {
 	resumed.post(t, "/input", fmt.Sprintf(`{"kind":"new","url":%q}`, login.URL+"/signed-in"), 204)
 	resumed.awaitTitle(t, "Signed in")
 	resumed.stop(t)
+}
+
+func TestChromiumRendersViewportControls(t *testing.T) {
+	exe := os.Getenv("PROVEO_TEST_CHROMIUM")
+	if exe == "" {
+		t.Skip("set PROVEO_TEST_CHROMIUM to a Chromium executable")
+	}
+	guest := startTestBrowser(t, exe, t.TempDir(), false)
+	upstream, err := url.Parse(guest.viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
+		r.SetURL(upstream)
+		r.Out.Header.Set(TokenHeader, "test-token")
+	}}
+	front := httptest.NewServer(proxy)
+	defer front.Close()
+
+	operator := startTestBrowser(t, exe, t.TempDir(), false)
+	defer operator.stop(t)
+	defer guest.stop(t)
+	tabs := operator.tabs(t)
+	ws, _, _ := strings.Cut(operator.endpoint(t), "/devtools/")
+	page := ws + "/devtools/page/" + tabs[0].ID
+	if err := command(t.Context(), page, "Page.navigate", map[string]any{"url": front.URL}, nil); err != nil {
+		t.Fatal(err)
+	}
+	eval := func(expression string) bool {
+		t.Helper()
+		var out struct{ Result struct{ Value bool } }
+		params := map[string]any{"expression": expression, "returnByValue": true}
+		if err := command(t.Context(), page, "Runtime.evaluate", params, &out); err != nil {
+			t.Fatalf("evaluate %q: %v", expression, err)
+		}
+		return out.Result.Value
+	}
+	await := func(expression string) {
+		t.Helper()
+		for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
+			if eval(expression) {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Fatalf("viewport did not satisfy %q", expression)
+	}
+	await(`document.querySelector("#status")?.textContent === "Monitoring" &&
+		document.querySelector("#screen").naturalWidth > 0 && document.querySelector("#new").disabled`)
+	eval(`document.querySelector("#take").click(); true`)
+	await(`document.querySelector("#status").textContent === "You control the browser" &&
+		!document.querySelector("#new").disabled`)
+	eval(`document.querySelector("#new").click(); true`)
+	await(`document.querySelector("#tabs").options.length === 2`)
+	eval(`document.querySelector("#return").click(); true`)
+	await(`document.querySelector("#status").textContent === "Monitoring" && document.querySelector("#return").disabled`)
+}
+
+func TestBrowserLauncherStopsOnEOF(t *testing.T) {
+	executable := os.Getenv("PROVEO_TEST_BROWSER_LAUNCHER")
+	if executable == "" {
+		t.Skip("run TestImageBrowserDocker to exercise the launcher in Docker")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, executable, "browser", "fresh")
+	cmd.Env = append(os.Environ(), "AGENT_BROWSER_EXECUTABLE_PATH="+os.Getenv("PROVEO_TEST_CHROMIUM"))
+	var log bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &log, &log
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	if _, err := io.WriteString(input, "test-token\n"); err != nil {
+		t.Fatal(err)
+	}
+	b := testBrowser{agent: AgentURL, viewport: "http://127.0.0.1:" + strconv.Itoa(ViewportPort)}
+	client := &http.Client{Timeout: time.Second}
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		resp, err := client.Get(b.viewport + "/health")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusNotFound {
+				t.Fatalf("health without token returned HTTP %d, want 404", resp.StatusCode)
+			}
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("launcher exited before health was ready: %v\n%s", err, log.String())
+		case <-ctx.Done():
+			t.Fatal("launcher did not open its viewport")
+		case <-tick.C:
+		}
+	}
+	b.request(t, "GET", "/health", "", http.StatusNoContent)
+	active, err := filepath.Glob(filepath.Join(ProfileRoot, "fresh-*", "DevToolsActivePort"))
+	if err != nil || len(active) != 0 {
+		t.Fatalf("launcher started Chromium during readiness: %v, %v", active, err)
+	}
+	if tabs := b.tabs(t); len(tabs) == 0 {
+		t.Fatal("viewport did not open Chromium")
+	}
+	_ = b.endpoint(t)
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("launcher stopped with error: %v\n%s", err, log.String())
+		}
+	case <-ctx.Done():
+		t.Fatal("launcher did not exit after stdin closed")
+	}
+	if files, err := os.ReadDir(ProfileRoot); len(files) != 0 || err != nil {
+		t.Fatalf("fresh data after launcher exit: %v, %v", files, err)
+	}
+	if resp, err := client.Get(b.viewport + "/health"); err == nil {
+		resp.Body.Close()
+		t.Error("viewport answered after launcher exit")
+	}
 }
 
 type testBrowser struct {

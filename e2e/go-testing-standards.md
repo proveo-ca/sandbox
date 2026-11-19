@@ -74,6 +74,20 @@ E2E suites follow Testcontainers *practices* without adopting the library.
 go test -tags=e2e ./e2e/ -run PromptfulE2E -v -timeout 300s
 ```
 
+## Browser tests without sbx
+
+Run the Chromium component and guest launcher with Docker Engine:
+
+```bash
+docker pull chromedp/headless-shell:158.0.8127.37
+go test -tags=image ./internal/imagetest -run '^TestImageBrowser(Docker|Clients)$' -count=1 -v
+```
+
+The fixture uses real Chromium and loopback services with Docker networking disabled.
+The client checks use each locally available browser-capable harness image and honor the
+usual `PROVEO_TEST_<TARGET>_IMAGE` pins. Native `-tags=e2e` cases cover `proveo run`,
+sbx port publication and egress, sandbox stop and resume, and the Hermes Desktop gateway.
+
 ## Coverage
 
 | Lane | How |

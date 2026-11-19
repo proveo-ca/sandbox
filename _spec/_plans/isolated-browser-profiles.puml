@@ -9,6 +9,7 @@ skinparam noteTextAlignment left
 ' covers: internal/backend/sandbox/browser.go
 ' covers: internal/backend/sandbox/browser_test.go
 ' covers: internal/guestbrowser/**
+' covers: internal/imagetest/browser_test.go
 ' covers: internal/run/choices.go
 ' covers: internal/run/run.go
 ' covers: packages/lib/agent-browser
@@ -105,13 +106,14 @@ legend bottom
     Require proveo rm --delete-browser-profile before replacing the sandbox.
 
   **5. Verification**
-  * Drive the normal proveo entry point for all five defs and the Hermes Desktop path.
-    Check lazy launch, host and guest seeing the same page, operator input, and resumed
-    agent input. Use a controlled login fixture with a tab or popup transition.
-  * Run parallel sandboxes with distinct cookies and verify no cross-run visibility. Stop
-    and resume a named profile, verify its login survives, and confirm concurrent use is
-    refused. Verify fresh teardown deletes the profile and closes its host endpoint.
-  * Verify agent browsing remains subject to a restrictive sbx policy. Check port collisions
-    and reattach, output under --print, and host-only sign-in flows that require Host Chrome.
+  * The Docker fixture runs real Chromium and the current guest launcher on loopback without
+    sbx, KVM, model calls or egress. It checks lazy start, rendered viewport controls, input
+    and handoff, popup visibility, cookie isolation, persistence and cleanup on launcher stdin EOF.
+  * Run the harness-client probes against locally available browser-capable images. Verify the
+    installed coding or Hermes client opens a tab in the same Chromium served by the viewport.
+  * The native e2e suite drives proveo run for all five defs and starts Hermes Desktop over SSH.
+    Verify the sbx viewport port binds only to host loopback and the agent CDP port stays private.
+    Check sandbox retention, resume in the same sbx ID, lease refusal and deletion confirmation.
+  * Native sbx is also required for policy enforcement, real port allocation and Host Chrome access.
 endlegend
 @enduml

@@ -337,6 +337,7 @@
         "internal/backend/sandbox/browser.go",
         "internal/backend/sandbox/browser_test.go",
         "internal/guestbrowser/**",
+        "internal/imagetest/browser_test.go",
         "internal/run/choices.go",
         "internal/run/run.go",
         "packages/lib/agent-browser",
