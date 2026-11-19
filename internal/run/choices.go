@@ -102,7 +102,7 @@ func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, home
 	}
 	execution := append(p.addonRow(man, rowExecution), repoTrustRow(p.MiseTrust, p.MiseTrustSet))
 	reach := applicableRows(egress, mcpRow(p.Target, p.MCP, p.MCPSet))
-	iface := append(p.addonRow(man, rowInterface), p.browserRows(man)...)
+	iface := slices.Concat(p.addonRow(man, rowSession), p.addonRow(man, rowInterface), p.browserRows(man))
 	iface = append(iface, evidenceRow(p.evidenceOrDefault()))
 	if r, ok := portsRow(p.discovered, p.Ports, sandbox.LoopbackFree); ok {
 		iface = append(iface, r)
@@ -120,11 +120,18 @@ func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, home
 	), hasAuth
 }
 
-// addonRow is the OS or devices row, or none when the harness offers it no option.
 func (p *Params) addonRow(man manifest.Manifest, label string) []choiceui.Row {
 	opts := addonOptions(man, label)
-	if label == rowInterface {
-		opts = slices.DeleteFunc(opts, func(opt string) bool { return opt == addonBrowser || opt == addonHostCDP })
+	switch label {
+	case rowSession:
+		if !slices.Contains(opts, addonDesktop) {
+			return nil
+		}
+		opts = []string{addonTUI, addonDesktop}
+	case rowInterface:
+		opts = slices.DeleteFunc(opts, func(opt string) bool {
+			return opt != addonAndroid && opt != addonIOS
+		})
 	}
 	if len(opts) == 0 {
 		return nil
@@ -149,12 +156,12 @@ func (p *Params) offeredApps(man manifest.Manifest) []devports.AndroidApp {
 
 // gateRunForm installs the run form's gates as its OnChange and applies them once.
 func gateRunForm(form *choiceui.Form) {
-	desktopWas := slices.Contains(form.Selections(rowInterface), addonDesktop)
+	desktopWas := slices.Contains(form.Selections(rowSession), addonDesktop)
 	form.OnChange = func(f *choiceui.Form) {
 		gateAddons(f)
 		gateApps(f)
 		for i := range f.Rows {
-			if f.Rows[i].Label == rowInterface {
+			if f.Rows[i].Label == rowSession {
 				desktopWas = pairTUIDesktop(&f.Rows[i], desktopWas)
 			}
 		}
@@ -544,12 +551,14 @@ func applicableRows(rows ...choiceui.Row) []choiceui.Row {
 
 const (
 	rowExecution      = "OS"
+	rowSession        = "session"
 	rowInterface      = "devices"
 	rowBrowser        = "browser"
 	rowBrowserProfile = "profile name"
 	browserOff        = "off"
-	browserFresh      = "isolated fresh"
-	browserNamed      = "isolated named"
+	browserFresh      = "isolated"
+	browserNamed      = "named"
+	browserHost       = "host"
 	rowPorts          = "ports"
 	portsMore         = "...More"
 	rowApps           = "apps"
@@ -565,7 +574,7 @@ const (
 	addonDesktop = "desktop"
 )
 
-var addonRows = []string{rowExecution, rowInterface}
+var addonRows = []string{rowExecution, rowSession, rowInterface}
 
 // addonHeading names the section an addon row opens.
 var addonHeading = map[string]string{rowExecution: "execution", rowInterface: "interface"}
@@ -715,7 +724,7 @@ func selectedPorts(f *choiceui.Form, found []devports.Candidate) []devports.Cand
 	return out
 }
 
-func isAddonRow(label string) bool { return label == rowExecution || label == rowInterface }
+func isAddonRow(label string) bool { return slices.Contains(addonRows, label) }
 
 var addonFixed = map[string]struct {
 	on  bool
@@ -807,18 +816,17 @@ func (p *Params) browserRows(man manifest.Manifest) []choiceui.Row {
 		}
 	}
 	if slices.Contains(offered, addonHostCDP) {
-		opts = append(opts, addonHostCDP)
+		opts = append(opts, browserHost)
 		if hasAddon(p.Addons, addonHostCDP) {
-			answer = addonHostCDP
+			answer = browserHost
 		}
 	}
 	row := axisRow(rowBrowser, opts, nil, answer)
-	row.Paint = map[string]string{addonHostCDP: "host Chrome"}
 	row.Help = map[string]string{
 		browserOff:   "leave this run's browser integration off",
 		browserFresh: "open Chromium in the sandbox and discard its profile after the run",
 		browserNamed: "keep Chromium's logins in this workspace's sandbox between runs",
-		addonHostCDP: addonHelp[addonHostCDP],
+		browserHost:  addonHelp[addonHostCDP],
 	}
 	return []choiceui.Row{row, {Label: rowBrowserProfile, Field: true, Value: p.BrowserProfile,
 		Placeholder: "work", When: &choiceui.When{Row: rowBrowser, Option: browserNamed}}}
@@ -861,7 +869,7 @@ func selectedAddons(f *choiceui.Form) []string {
 	switch f.Selection(rowBrowser) {
 	case browserFresh, browserNamed:
 		out = append(out, addonBrowser)
-	case addonHostCDP:
+	case browserHost:
 		out = append(out, addonHostCDP)
 	}
 	return slices.DeleteFunc(out, func(a string) bool { return a == addonTUI })

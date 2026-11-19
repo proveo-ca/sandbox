@@ -228,7 +228,7 @@ func focusOf(f *choiceui.Form, cursor int) choiceui.Focus {
 		return choiceui.FocusKey
 	case rowExecution, rowPorts, rowApps:
 		return choiceui.FocusSquare
-	case rowInterface, mcpLabel:
+	case rowSession, rowInterface, mcpLabel:
 		return choiceui.FocusReturn
 	case evidenceLabel:
 		return choiceui.FocusSay

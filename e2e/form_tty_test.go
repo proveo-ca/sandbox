@@ -77,6 +77,9 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 	if !regexp.MustCompile(`\bOS\b[^\n]*host[^\n]*sandbox[^\n]*cloud`).MatchString(screen) {
 		t.Errorf("expected the cloud option after sandbox in the OS row\n%s", tail(screen, 45))
 	}
+	if !regexp.MustCompile(`\bdevices\b[^\n]*android[^\n]*ios\n[^\n]*\bbrowser\b[^\n]*\boff\b[^\n]*\bisolated\b[^\n]*\bnamed\b[^\n]*\bhost\b`).MatchString(screen) {
+		t.Errorf("expected mobile devices followed by the four browser choices\n%s", tail(screen, 45))
+	}
 	if err := sess.SendKeys("Down"); err != nil {
 		t.Fatal(err)
 	}

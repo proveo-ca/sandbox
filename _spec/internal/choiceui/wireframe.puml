@@ -75,8 +75,9 @@
 ' (Moved 2026-11-13 from a note that sat after @endsalt, where no renderer
 ' read it; the text is unchanged.)
 ' The divider still reads "execution"; its row label is "OS" (host ·
-' sandbox). The interface divider stays; its row label is "devices" (tui ·
-' browser · android · ios). Below trust repo and credentials, sbx only, a
+' sandbox). Under interface, "devices" lists only the mobile devices declared
+' by the harness. The browser has its own row. When mobile devices are absent,
+' the interface section omits "devices". Below trust repo and credentials, sbx only, a
 ' multi-select "ports" row offers each discovered dev port, all unticked.
 ' Past four, column 4 is "...More" and a dropdown lists the rest.
 ' _spec/internal/devports/dev-ports.puml
@@ -640,17 +641,16 @@
 ' TestEnterAcceptSurvivesEveryWidthThatCanHoldIt, TestTheDrawnHeadCarriesThePage
 ' (named TestTheDrawnFooterCarriesThePage until the chip took the page count).
 
-' ── THE DEVICES ROW PACKS; TUI AND DESKTOP ARE ONE RADIO (2026-10-24) ──────
-' User: "has empty spaces for browser/android/ios, avoid that. Show chrome and
-' desktop directly there … Remove the disabled option in tui (radio button
-' style) let the user choose tui or desktop". layoutInterface keeps the
-' canonical order (tui, desktop, browser, android, ios, the rest) but packs the
-' columns 0..n-1, so a harness without browser/android/ios shows no gaps
-' (hermes: (•) tui  ( ) desktop  [ ] chrome). Where a harness offers desktop,
-' tui stops being a locked [X]: Row.RadioSet draws tui and desktop as radios
-' inside the checkbox row, pairTUIDesktop keeps exactly one on (the newer tick
-' wins, an empty radio snaps back), and tui never enters the add-on list.
-' Elsewhere tui stays the fixed [X] of addonFixed.
+' ── DEVICES, SESSION, AND BROWSER ───────────────────────────────────────────
+' The devices row packs android and ios into consecutive columns. Android is
+' selectable and ios is disabled pending implementation. A harness with no
+' mobile devices omits the row.
+' A harness with Desktop offers tui and desktop as radio choices on a session
+' row. Other harnesses use the terminal session implicitly. The selected
+' Desktop option enters the add-on list; tui is the default.
+' The browser row offers off, isolated, named, and host according to capability.
+' Isolated uses a disposable sandbox profile. Named reveals the profile-name
+' field. Host selects the existing Chrome add-on.
 ' Pinned by TestTheDevicesRowPacksItsOptionsWithoutGaps,
 ' TestTUIAndDesktopAreOneRadioChoice (internal/run) and
 ' TestARadioSetDrawsRadiosBesideCheckboxes (internal/choiceui).
@@ -821,7 +821,8 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
     <color:#9a9a9a>egress</color> | (X) <color:#9a9a9a>allow-all</color> | . | ( ) <color:#9a9a9a><s>balanced</s></color> | ( ) <color:#9a9a9a><s>deny-all</s></color>
     mcp | ( ) on | (X) off | . | .
     ├── interface ── | . | . | . | .
-    devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] <color:#9a9a9a><s>ios</s></color>
+    devices | [ ] android | [ ] <color:#9a9a9a><s>ios</s></color> | . | .
+    browser | (X) off | ( ) isolated | ( ) named | ( ) host
     outputs | ( ) filtered | (X) verbose | . | .
   }
   --
@@ -909,7 +910,7 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
   because a half-highlighted row reads as one model mattering more than another.
 }
 {^"7 · described — the cursor's option explains itself, under the card"
-  devices | [X] <color:#9a9a9a>tui</color> | [X] browser | [ ] android | <back:#8A8A8A>[ ] <s>ios</s></back>
+  devices | [ ] android | <back:#8A8A8A>[ ] <s>ios</s></back> | . | .
   ↑↓ row · ←→ move · space toggle · pgup/pgdn scroll · enter accept · esc cancel | . | . | .
   <color:#00BAC6>› ios — an iOS Simulator on this host — coming soon</color> | . | . | .
   <b>off:</b> coming soon — not built yet | . | . | .
@@ -939,14 +940,11 @@ title Choice prompt wireframe — one card, and how a gated element is drawn
 }
 {^"8 · fixed — a box that states a fact"
   execution | ( ) <color:#9a9a9a>host</color> | (X) <color:#9a9a9a>sandbox</color> | .
-  devices | [X] <color:#9a9a9a>tui</color> | [ ] browser | [ ] android | [ ] ios
   .
   Greyed, and left in the state it states. ""host"" is the alternative an operator
   might otherwise assume unticking the daemon selects — it never is, because
-  proveo containerises every run — and the TUI is the interface for the whole
-  session whether or not a browser joins it. Neither is reported as a selected
-  add-on, and neither appears in the row's inline ""Reason"": a note greyed on
-  every run teaches the operator to skip the line that sometimes matters.
+  proveo containerises every run. The host option is excluded from the selected
+  add-ons and the row's inline ""Reason"".
 
   **The sandbox is greyed for the opposite reason: it is COMPULSORY.** A harness
   that declares sbx runs there and nowhere else, so the box is ticked and locked
