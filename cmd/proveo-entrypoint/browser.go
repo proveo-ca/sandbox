@@ -26,7 +26,7 @@ func runBrowser(args []string) error {
 			if err != nil {
 				return fmt.Errorf("browser launcher still owns fresh data: %w", err)
 			}
-			defer l.Close()
+			defer func() { _ = l.Close() }()
 			return guestbrowser.ClearFresh(guestbrowser.ProfileRoot)
 		}
 	}
@@ -48,7 +48,7 @@ func runBrowser(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 	viewport, err := net.Listen("tcp4", ":"+strconv.Itoa(guestbrowser.ViewportPort))
 	if err != nil {
 		return err

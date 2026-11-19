@@ -242,9 +242,10 @@ func TestAwaitSeedGatesOnlyProveoLaunchedSbxSessions(t *testing.T) {
 		t.Skipf("sh unavailable: %v", err)
 	}
 	await := filepath.Join(repoRoot(t), "packages", "lib", "proveo-await-seed")
+	fixture := seedFixtureEnv(t)
 	run := func(vmID, workdir, marker, wait string) (string, time.Duration) {
 		cmd := exec.Command(sh, await, "echo", "LAUNCHED")
-		cmd.Env = append(outsideSbx(cmd.Environ()), "SANDBOX_VM_ID="+vmID, "PROVEO_WORKDIR="+workdir,
+		cmd.Env = append(fixture, "SANDBOX_VM_ID="+vmID, "PROVEO_WORKDIR="+workdir,
 			"PROVEO_INSTRUCTIONS_MARKER="+marker, "PROVEO_INSTRUCTIONS_WAIT="+wait)
 		start := time.Now()
 		out, _ := cmd.CombinedOutput()
@@ -288,21 +289,25 @@ func TestAwaitSeedStopsOnlyOnASeedRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	refused := filepath.Join(dir, "refused")
-	launch := func(body string) (string, error) {
+	launch := func(body, workdir string) (string, error) {
 		if err := os.WriteFile(refused, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		cmd := exec.Command(sh, await, "echo", "LAUNCHED")
-		cmd.Env = append(cmd.Environ(), "SANDBOX_VM_ID=proveo-opencode-177e7812", "PROVEO_WORKDIR=/w",
+		cmd.Env = append(seedFixtureEnv(t), "SANDBOX_VM_ID=proveo-opencode-177e7812", "PROVEO_WORKDIR="+workdir,
 			"PROVEO_INSTRUCTIONS_MARKER="+marker, "PROVEO_SEED_REFUSED="+refused)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
-	if out, err := launch(""); err != nil || !strings.Contains(out, "LAUNCHED") || strings.Contains(out, "did not release") {
+	if out, err := launch("", dir); err != nil || !strings.Contains(out, "LAUNCHED") || strings.Contains(out, "did not release") {
 		t.Fatalf("an empty refusal file must not block the launch: %v\n%s", err, out)
 	}
-	if out, err := launch("shares: the workspace mount is missing\n"); err == nil || !strings.Contains(out, "did not release") {
+	if out, err := launch("shares: the workspace mount is missing\n", dir); err == nil || !strings.Contains(out, "did not release") {
 		t.Fatalf("a seed refusal must still stop the launch: %v\n%s", err, out)
+	}
+	if out, err := launch("shares: another run's workspace mount is missing\n", ""); err != nil ||
+		!strings.Contains(out, "LAUNCHED") || strings.Contains(out, "did not release") {
+		t.Fatalf("a bare sbx launch inherited a proveo refusal: %v\n%s", err, out)
 	}
 }
 
@@ -369,7 +374,7 @@ proveo_seed hermes
 echo SEED_END`
 	run := func(kind string) string {
 		cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t), home, ws)
-		cmd.Env = append(os.Environ(), "PROVEO_AGENT_KIND="+kind, "PROVEO_HOME=")
+		cmd.Env = append(seedFixtureEnv(t), "PROVEO_AGENT_KIND="+kind)
 		out, err := cmd.CombinedOutput()
 		if err != nil || !strings.Contains(string(out), "SEED_END") {
 			t.Fatalf("proveo_seed (kind=%q): %v\n%s", kind, err, out)
@@ -414,7 +419,9 @@ proveo_sync_state() { :; }
 proveo_sync_config() { :; }
 proveo_seed "$4"
 echo SEED_END`
-			out, err := exec.Command(bash, "-c", script, "bash", repoRoot(t), home, ws, target, bin).CombinedOutput()
+			cmd := exec.Command(bash, "-c", script, "bash", repoRoot(t), home, ws, target, bin)
+			cmd.Env = seedFixtureEnv(t)
+			out, err := cmd.CombinedOutput()
 			if err != nil || !strings.Contains(string(out), "SEED_END") {
 				t.Fatalf("proveo_seed %s aborted under set -u with no harness home exported: %v\n%s", target, err, out)
 			}

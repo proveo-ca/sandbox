@@ -167,13 +167,13 @@ func (s *service) relay(w http.ResponseWriter, r *http.Request, endpoint string)
 		http.Error(w, "Chromium WebSocket unavailable", http.StatusBadGateway)
 		return
 	}
-	defer up.Close()
+	defer func() { _ = up.Close() }()
 	upgrader := websocket.Upgrader{}
 	down, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer down.Close()
+	defer func() { _ = down.Close() }()
 	defer context.AfterFunc(s.ctx, func() { _ = down.Close(); _ = up.Close() })()
 	var state sync.Mutex
 	pending := map[string]bool{}
@@ -193,7 +193,7 @@ func (s *service) relay(w http.ResponseWriter, r *http.Request, endpoint string)
 	received := make(chan struct{})
 	go func() {
 		defer close(received)
-		defer down.Close()
+		defer func() { _ = down.Close() }()
 		for {
 			_, data, err := up.ReadMessage()
 			if err != nil {
@@ -277,7 +277,7 @@ func command(ctx context.Context, endpoint, method string, params, result any) e
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	defer context.AfterFunc(ctx, func() { _ = c.Close() })()
 	deadline := time.Now().Add(8 * time.Second)
 	_ = c.SetReadDeadline(deadline)

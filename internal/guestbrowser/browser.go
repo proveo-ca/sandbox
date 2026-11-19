@@ -106,7 +106,7 @@ func (b *browser) endpoint(ctx context.Context) (string, error) {
 		}
 		select {
 		case <-done:
-			return "", errors.New("Chromium exited before CDP became ready")
+			return "", errors.New("browser exited before CDP became ready")
 		case <-ctx.Done():
 			b.stopProcess()
 			return "", ctx.Err()
@@ -158,8 +158,8 @@ func (b *browser) close() {
 
 // Serve holds one guest browser until ctx ends.
 func Serve(ctx context.Context, agent, viewport net.Listener, opts Options) (serveErr error) {
-	defer agent.Close()
-	defer viewport.Close()
+	defer func() { _ = agent.Close() }()
+	defer func() { _ = viewport.Close() }()
 	if opts.Token == "" {
 		return errors.New("isolated browser requires a run token")
 	}
@@ -197,8 +197,8 @@ func Serve(ctx context.Context, agent, viewport net.Listener, opts Options) (ser
 	defer s.browser.close()
 	agentServer := &http.Server{Handler: http.HandlerFunc(s.agent), ReadHeaderTimeout: 5 * time.Second}
 	viewServer := &http.Server{Handler: http.HandlerFunc(s.viewport), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second}
-	defer agentServer.Close()
-	defer viewServer.Close()
+	defer func() { _ = agentServer.Close() }()
+	defer func() { _ = viewServer.Close() }()
 	errs := make(chan error, 2)
 	go func() { errs <- agentServer.Serve(agent) }()
 	go func() { errs <- viewServer.Serve(viewport) }()

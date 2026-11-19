@@ -112,15 +112,25 @@ func TestClaudeMCPToggleLoadsTheCurrentConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected MCP state for %s: %v\n%s", flags, err, screen)
 			}
+			if tc.mode == "on" {
+				if !waitUntil(15*time.Second, func() bool {
+					frame, err := tm.Capture()
+					if err != nil {
+						return false
+					}
+					screen = frame
+					for _, server := range []string{tc.want, "project-fixture", "plugin-fixture"} {
+						if !strings.HasSuffix(strings.TrimSpace(lineWith(screen, server)), " connected") {
+							return false
+						}
+					}
+					return true
+				}) {
+					t.Fatalf("MCP servers did not connect for %s:\n%s", flags, screen)
+				}
+			}
 			if tc.missing != "" && strings.Contains(screen, tc.missing) {
 				t.Errorf("unexpected server %q\n%s", tc.missing, screen)
-			}
-			if tc.mode == "on" {
-				for _, server := range []string{tc.want, "project-fixture", "plugin-fixture"} {
-					if !strings.Contains(lineWith(screen, server), "connected") {
-						t.Errorf("%s did not connect\n%s", server, screen)
-					}
-				}
 			}
 			savedName := "mcp-gateway"
 			if tc.name == "enabled-after-edit" {

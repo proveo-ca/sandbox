@@ -1814,7 +1814,7 @@ func Run(in Input) (runResultErr error) {
 		return err
 	}
 	stopViewport := sync.OnceValue(viewport.stop)
-	defer stopViewport()
+	defer func() { _ = stopViewport() }()
 	if named && created {
 		receipt.BrowserSandboxID = viewport.sandboxID
 		if err := writeReceipt(cfg.Name, receipt); err != nil {

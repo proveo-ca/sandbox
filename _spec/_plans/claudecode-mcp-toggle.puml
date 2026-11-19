@@ -63,7 +63,7 @@ legend bottom
   | Run and posture | Defaults, remembered choice and env override. Explain MCP versus the sbx gateway. |
   | Backend and sbx | Off argv survives launch wrappers and reattach. Android MCP and conflicting CLI options cannot bypass it. ADB remains available. |
   | Config sync | Existing entries survive off. Reuse an on sandbox after a host edit that adds one server and removes another. Verify both changes reach Claude Code. |
-  | Docker and tmux | Use Proveo's argv with the published image. Start on with user, project and plugin servers, launch off and assert zero servers in /mcp. Edit the saved config and verify the new server connects on the next launch. Verify an enterprise MCP policy rejects off. |
+  | Docker and tmux | Use Proveo's argv with the published image. Start on and wait for the user, project and plugin servers to show connected in /mcp. Launch off and assert zero servers. Edit the saved config and verify the new server connects on the next launch. Verify an enterprise MCP policy rejects off. |
   | Live sbx | Repeat with sbx gateway provisioning and Android selected. Verify the actual kept mount refresh and direct ADB access. |
   | Kept sessions | A running on process cannot be reattached and reported as off. Apply the change after explicit restart. |
   | Static checks | Run go vet on touched packages and validate this diagram. |

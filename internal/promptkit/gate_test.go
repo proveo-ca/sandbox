@@ -12,29 +12,31 @@ import (
 
 // TestEachShellParsesTheBlockProveoAppends runs every shell that is installed over its own snippet.
 func TestEachShellParsesTheBlockProveoAppends(t *testing.T) {
-	ran := 0
-	for name, check := range map[string][]string{
-		"bash": {"-n"},
-		"zsh":  {"-n"},
-		"fish": {"--no-execute"},
+	for _, c := range []struct{ shell, check string }{
+		{"bash", "-n"},
+		{"zsh", "-n"},
+		{"fish", "--no-execute"},
 	} {
-		bin, err := exec.LookPath(name)
-		if err != nil {
-			t.Logf("%s is not installed here; its snippet is not checked", name)
-			continue
-		}
-		sh, _ := DetectShell(bin)
-		rc := filepath.Join(t.TempDir(), "rc")
-		if err := os.WriteFile(rc, []byte("# the operator's own lines\n"+sh.PromptBlock()), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if out, err := exec.Command(bin, append(check, rc)...).CombinedOutput(); err != nil {
-			t.Errorf("%s refuses the block proveo appends: %v\n%s", name, err, out)
-		}
-		ran++
-	}
-	if ran == 0 {
-		t.Skip("no bash, zsh or fish on this host")
+		t.Run(c.shell, func(t *testing.T) {
+			bin, err := exec.LookPath(c.shell)
+			if err != nil {
+				t.Skip(err)
+			}
+			if out, err := exec.Command(bin, "--version").CombinedOutput(); err != nil {
+				if strings.Contains(string(out), "No version is set for shim: "+c.shell) {
+					t.Skipf("%s is a mise shim without an installed version", c.shell)
+				}
+				t.Fatalf("%s --version: %v\n%s", c.shell, err, out)
+			}
+			sh, _ := DetectShell(bin)
+			rc := filepath.Join(t.TempDir(), "rc")
+			if err := os.WriteFile(rc, []byte("# the operator's own lines\n"+sh.PromptBlock()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command(bin, c.check, rc).CombinedOutput(); err != nil {
+				t.Errorf("%s refuses the block proveo appends: %v\n%s", c.shell, err, out)
+			}
+		})
 	}
 }
 

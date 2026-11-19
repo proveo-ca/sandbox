@@ -321,13 +321,18 @@ func Launch(home, proveo, name, entry string, j Job, run TmuxRunner) error {
 	if err := os.MkdirAll(wd, 0o700); err != nil {
 		return err
 	}
-	cmd := sessionCommand(wd, transcript, proveo, j)
+	start := sess.Name + "-start-" + stamp
+	cmd := "tmux wait-for " + shellQuote(start) + " && " + sessionCommand(wd, transcript, proveo, j)
 	if err := sess.Start(200, 50, "sh", "-c", cmd); err != nil {
 		return fmt.Errorf("%w: %w", ErrSessionStart, err)
 	}
 	if _, err := run("pipe-pane", "-t", sess.Name, "-o", "cat >> "+shellQuote(transcript)); err != nil {
 		sess.Kill()
 		return fmt.Errorf("tee transcript: %w", err)
+	}
+	if _, err := run("wait-for", "-S", start); err != nil {
+		sess.Kill()
+		return fmt.Errorf("start scheduled command: %w", err)
 	}
 	w := exec.Command(proveo, "schedule", "watch", name, "--entry", entry, "--transcript", transcript)
 	w.Stdout, w.Stderr = nil, nil

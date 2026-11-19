@@ -135,8 +135,9 @@ title Image lineage — parent tags, ensure modes, and the publish contract
 ' TestShellImageResolverMatchesResolveImage, the parity test that ran it and
 ' ResolveImage over one table, are deleted with it: one implementation cannot
 ' disagree with itself. TestImageSuitesResolveRatherThanPinThePublishTag now
-' fails any line in internal/imagetest/*_test.go that names :latest outside
-' imagetest.Resolve.
+' fails any line in image-tagged internal/imagetest/*_test.go files that
+' names :latest outside imagetest.Resolve. Untagged unit fixtures can name
+' :latest when testing the resolver or its inputs.
 '
 ' ── A DEPLOY LEAVES NO :local BEHIND (DECIDED 2026-11-17) ───────────────────
 ' `mise run deploy` untags each deployed target's :local once every wave

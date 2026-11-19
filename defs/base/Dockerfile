@@ -153,6 +153,8 @@ LABEL security.hardened=true \
       org.opencontainers.image.title="proveo harness base" \
       proveo.base.template="${SANDBOX_TEMPLATE}"
 
+ENV AGENT_BROWSER_SKILLS_DIR=/opt/agent-browser/skill-data
+
 # One layer, so every image built on it stays under sbx 0.49.2's 44-layer boot limit.
 # SPEC: _spec/_devops/sandbox-template-rebase.puml (FLAT BASE)
 FROM scratch

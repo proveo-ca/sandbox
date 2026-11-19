@@ -268,7 +268,7 @@ func TestAFailedImportRemovesTheFreshEngineAndKeepsTheSource(t *testing.T) {
 			} else {
 				writeDB(t, carry, "ses_carry")
 			}
-			writeReceipt(ocEngine, launchReceipt{Agent: "opencode"})
+			writeTestReceipt(t, ocEngine, launchReceipt{Agent: "opencode"})
 
 			_, _, _, err := ensureOpenCodeEngine(openCodeInput(home), sbx.RunConfig{Name: ocEngine, KitDir: "/kit"})
 			if err == nil || !strings.Contains(err.Error(), "next") || !strings.Contains(err.Error(), c.wantErr) {

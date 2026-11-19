@@ -184,7 +184,6 @@ const (
 	SectionEgress      = "egress"      // form row: sbx's policy and the host services the sandbox reaches
 	SectionInterface   = "interface"   // form divider: the ports, browser and IDE host the operator reaches
 	SectionSbx         = "sbx"         // what proveo hands sbx, the stale check, sbx's own create block; `proveo init`: the host and its sbx
-	SectionPrompt      = "prompt"      // `proveo init`: the shell-prompt kit
 	SectionGit         = "git"         // `proveo init`: the sandbox git identity and GitHub access
 	SectionResults     = "results"     // after the agent: how it ended, what came home, the sandbox's fate; `proveo init`: what waits and the verdict
 	SectionIDE         = "ide"         // a kept sandbox: how an IDE attaches to it

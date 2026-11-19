@@ -28,7 +28,7 @@ func (in Input) ValidateLaunch() error {
 		}
 		flag, _, assigned := strings.Cut(arg, "=")
 		if flag == "--mcp-config" || flag == "--no-strict-mcp-config" || (flag == claudeStrictMCP && assigned) {
-			return fmt.Errorf("Claude Code MCP is off and conflicts with %s", flag)
+			return fmt.Errorf("cannot pass %s while Claude Code MCP is off", flag)
 		}
 	}
 	return nil

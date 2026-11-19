@@ -23,6 +23,10 @@ func TestImageSuitesResolveRatherThanPinThePublishTag(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		tag, _, _ := strings.Cut(string(b), "\n")
+		if !strings.HasPrefix(tag, "//go:build image") {
+			continue
+		}
 		rel, _ := filepath.Rel(root, path)
 		for i, line := range strings.Split(string(b), "\n") {
 			if !strings.Contains(line, ":"+maintain.PublishTag+`"`) || strings.Contains(line, "imagetest.Resolve(") {

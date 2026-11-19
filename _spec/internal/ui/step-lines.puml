@@ -69,6 +69,8 @@ title Step lines — one renderer for init's apply, a run's start and teardown, 
 ' SuspendLive erases the line and counts holders. While any holds, frames
 ' are stored and not drawn, and an ordinary line neither erases nor redraws
 ' the frame. The last resume draws the latest frame.
+' The tmux test sets NO_COLOR empty and waits for a clock-bearing frame.
+' A plain one-shot status line has no clock and stays on its stream.
 ' The plan's wording was "ends the list's Program and starts a new one after
 ' it". There is no Program, so the line is taken off and put back.
 ' [Inference] A program proveo starts outside a Hand step, with a live line

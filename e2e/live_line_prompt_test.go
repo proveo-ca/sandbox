@@ -29,11 +29,11 @@ func TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt(t *testing.T) {
 	done := filepath.Join(t.TempDir(), "done")
 	sess := schedule.NewTmux(fmt.Sprintf("proveo-live-step-%d", os.Getpid()), nil)
 	t.Cleanup(sess.Kill)
-	if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "PROVEO_LIVE_STEP_HELPER="+done,
+	if err := sess.Start(120, 40, "env", "TERM=xterm-256color", "NO_COLOR=", "PROVEO_LIVE_STEP_HELPER="+done,
 		binary, "-test.run=^TestLiveStepLineHelper$", "-test.timeout=60s"); err != nil {
 		t.Fatal(err)
 	}
-	if screen, err := sess.WaitFor(liveStepFrame, 10*time.Second); err != nil {
+	if screen, err := sess.WaitFor(liveStepFrame+" ·", 10*time.Second); err != nil {
 		t.Fatalf("the step's live line never drew: %v\n%s", err, screen)
 	}
 	if screen, err := sess.WaitFor("the agent pushed these branches", 10*time.Second); err != nil {
@@ -48,7 +48,7 @@ func TestALiveStepLineStaysOffAQuestionAndComesBackAfterIt(t *testing.T) {
 	if err := sess.SendKeys("Enter"); err != nil {
 		t.Fatal(err)
 	}
-	if screen, err := sess.WaitFor(liveStepFrame, 10*time.Second); err != nil {
+	if screen, err := sess.WaitFor(liveStepFrame+" ·", 10*time.Second); err != nil {
 		t.Fatalf("the step line did not come back after the question: %v\n%s", err, screen)
 	}
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(40 * time.Millisecond) {

@@ -147,7 +147,7 @@ func TestCloneBaseIsRecordedOncePerClone(t *testing.T) {
 	clone, _ := cloneWithBranch(t)
 	run := func(vars ...string) {
 		cmd := exec.Command(bash, "-c", `source "$1/packages/lib/entrypoint-lib.sh"; proveo_clone_base`, "bash", repoRoot(t))
-		cmd.Env = append(append(os.Environ(), "PROVEO_WORKDIR="+clone), vars...)
+		cmd.Env = append(append(seedFixtureEnv(t), "PROVEO_WORKDIR="+clone), vars...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("proveo_clone_base: %v\n%s", err, out)
 		}
