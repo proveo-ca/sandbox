@@ -1,13 +1,13 @@
 {
-  "version": "0.2.0-14-g3ef0d09",
+  "version": "0.3.1",
   "checksums": {
-    "proveo-darwin-amd64": "a1fc8b1eac68566489078e4fdbba990e6e9ec79fa032e56c1112ef215add1b70",
-    "proveo-darwin-arm64": "bde22e05009aac9878522830e4f6814f0a104da6b59002b824cc5d56eda54d20",
-    "proveo-freebsd-amd64": "6f7393fafba1127d0cc88f663f9dafd8f7752b8db92e375476fdbe54ad57a8c2",
-    "proveo-freebsd-arm64": "f00e48073aca6e1c558f2de6f68880f1f7ed9ee87bc376a7fdbd1c7b05f84fce",
-    "proveo-linux-amd64": "688a767ada3e6920b705e8c8948d42de26b37002799461b9f905eaeb392bb331",
-    "proveo-linux-arm64": "9cf9cab6974eb6b91092c5c5f26e237c77b842f86d6333c7649ab0a58f9730ef",
-    "proveo-windows-amd64.exe": "909d116539a41580cea0cde206c195a85efe7f7aab66961956d3418a3719d517",
-    "proveo-windows-arm64.exe": "61d009a59adf4aaf01b860858a21c081e4d1797b918857bff0ced17bcff26c94"
+    "proveo-darwin-amd64": "9185464240078c9fe3678d4977d0520b703073ded383a773bce902e01b291a24",
+    "proveo-darwin-arm64": "ee82f9499c70158d5435f3592518ba4799d81b0597f6b9f4549c25ed782710fd",
+    "proveo-freebsd-amd64": "022bf6a8b62a77df3c6cd19c6dd0ae827045a7e22220331a1844aa3003b53086",
+    "proveo-freebsd-arm64": "a7893f408200ee6dd90880efde9079ddcd16d0e5012a4b11a200fefc2349c68b",
+    "proveo-linux-amd64": "4c000dc9b5be8679b4a194e638d5fdd09864535c13398c6cb2581b97b61c35c8",
+    "proveo-linux-arm64": "eee2cbb173b7b39daf7e299ad0c60672af9d4ca802297519e700a00dc566591a",
+    "proveo-windows-amd64.exe": "00860e883fb04a03c7c5867988a90b7250951578c776094e778359150d66e9c4",
+    "proveo-windows-arm64.exe": "90a6bf540a00bda0bf0c755bd91618bf7d339a201afd37b5de00823ae7e6b295"
   }
 }
