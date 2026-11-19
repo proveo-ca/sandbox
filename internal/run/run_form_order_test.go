@@ -32,7 +32,8 @@ func TestTheRunFormAsksItsQuestionsInOrder(t *testing.T) {
 	readable, unreadable := egress(true), egress(false)
 	const creds = "credentials"
 	agent, execution := sectionAgent+" "+creds, addonHeading[rowExecution]+" "+rowExecution
-	interfaceSec := addonHeading[rowInterface] + " " + rowInterface
+	interfaceSec := addonHeading[rowInterface] + " "
+	devicesSec, sessionSec, browserSec := interfaceSec+rowInterface, interfaceSec+rowSession, interfaceSec+rowBrowser
 	ports := []devports.Candidate{{Port: 5173, Command: "dev", Tool: "vite", Source: "package.json"}}
 	apps := []devports.AndroidApp{{Module: ":app", AppID: "com.example.app", Source: "app/build.gradle.kts"}}
 	for _, c := range []struct {
@@ -45,25 +46,25 @@ func TestTheRunFormAsksItsQuestionsInOrder(t *testing.T) {
 		start        string
 	}{
 		{"claudecode", "claudecode", readable, nil, nil,
-			[]string{agent, execution, sectionReach + " egress", interfaceSec},
+			[]string{agent, execution, sectionReach + " egress", devicesSec},
 			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"hermes", "hermes", readable, nil, nil,
-			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
+			[]string{agent, execution, sectionReach + " egress", sessionSec},
+			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", rowSession, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"codex", "codex", readable, nil, nil,
-			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
+			[]string{agent, execution, sectionReach + " egress", browserSec},
+			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"cursor with no key and no login", "cursor", readable, nil, nil,
-			[]string{agent, execution, sectionReach + " egress", interfaceSec},
-			[]string{creds, rowExecution, repoTrustLabel, "egress", rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, repoTrustLabel},
+			[]string{agent, execution, sectionReach + " egress", browserSec},
+			[]string{creds, rowExecution, repoTrustLabel, "egress", rowBrowser, rowBrowserProfile, evidenceLabel}, repoTrustLabel},
 		{"unreadable egress", "claudecode", unreadable, nil, nil,
-			[]string{agent, execution, sectionReach + " " + mcpLabel, interfaceSec},
+			[]string{agent, execution, sectionReach + " " + mcpLabel, devicesSec},
 			[]string{creds, rowModel, rowExecution, repoTrustLabel, mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, rowModel},
 		{"unreadable egress and no gateway", "cursor", unreadable, nil, nil,
-			[]string{agent, execution, interfaceSec},
-			[]string{creds, rowExecution, repoTrustLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel}, repoTrustLabel},
+			[]string{agent, execution, browserSec},
+			[]string{creds, rowExecution, repoTrustLabel, rowBrowser, rowBrowserProfile, evidenceLabel}, repoTrustLabel},
 		{"discovered ports and apps", "claudecode", readable, ports, apps,
-			[]string{agent, execution, sectionReach + " egress", interfaceSec},
+			[]string{agent, execution, sectionReach + " egress", devicesSec},
 			[]string{creds, rowModel, rowExecution, repoTrustLabel, "egress", mcpLabel, rowInterface, rowBrowser, rowBrowserProfile, evidenceLabel, rowPorts, rowApps}, rowModel},
 	} {
 		man, ok := byName[c.target]

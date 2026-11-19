@@ -149,7 +149,7 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' printed. AgentVersion wraps it for the build; the run-time check
 ' (agent-update-prompt.puml) calls it directly with a 4 s fetch.
 '
-' ── HERMES: THE PIN IS A BASE-IMAGE TAG, AND ITS CONFIG IS COPIED BY HAND ───
+' ── HERMES: THE PIN IS A BASE-IMAGE TAG ───
 ' The Executor, 2026-11-12: "why is hermes hand-pinned? Let it resolve like
 ' the other defs". Nothing recorded a reason. The pin arrived with the first
 ' hermes commit (40c4150f, 2026-09-27) as an EnvArg defaulting to v2026.9.24,
@@ -159,20 +159,9 @@ title Agent version pin — the image carries the release imagebuild resolved, a
 ' releases v0.x since (v0.23.1, 2026-11-10, sixteen releases on). GitHub's
 ' tags API sorts names, so v2026.9.24 sorts above every v0.x tag: compare by
 ' the Latest flag or by release date, never by name.
-' WHAT THE HAND PIN WAS HIDING. hermes-flat is `FROM scratch` + `COPY / /`
-' (one layer, sandbox-template-rebase.puml FLAT BASE), which drops the
-' upstream image's config, so the stage re-declares ENV, USER, WORKDIR,
-' ENTRYPOINT and VOLUME by hand. That copy is right for exactly one upstream
-' release: v0.23.1 moved PLAYWRIGHT_BROWSERS_PATH to /opt/hermes/tools, added
-' CC, CXX, HERMES_PYTHON and HERMES_RUNTIME_DIR, and dropped the two
-' LAZY_INSTALL variables and npm_config_install_links.
-' THE GUARD THAT LETS THE TAG FLOAT. A stage on the upstream image records
-' `env | sort`; the final stage bind-mounts that file and diffs it against its
-' own `env | sort` (minus its own ARGs and HERMES_UID) before anything else,
-' in the RUN that already installs dumb-init, so it costs no layer. HOME and
-' PWD ride in `env`, so USER and WORKDIR are compared too. A mismatch fails
-' the build with the diff. ENTRYPOINT and VOLUME are not compared: the final
-' stage replaces the first, and the second is one path.
+' Hermes inherits the pinned upstream image config and roots. Its own
+' provisioning and file overlay are one filesystem layer. See
+' _spec/_devops/sandbox-template-rebase.puml for the layer budget.
 ' CONSEQUENCES, MEASURED: `mise run build hermes` resolved v0.23.1 and built
 ' in 2m19s with the guard green; the image suite then failed on two browser
 ' checks only (hermes-paradigm.puml, THE BROWSER IS UPSTREAM'S MARKER) and is

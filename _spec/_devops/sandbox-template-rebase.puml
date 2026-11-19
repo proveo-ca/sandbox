@@ -11,7 +11,7 @@ skinparam noteTextAlignment left
 ' covers: internal/contract/bun_toolchain_test.go
 ' covers: internal/imagetest/cursor_test.go
 ' covers: internal/imagetest/layers_test.go
-' covers: defs/hermes/Dockerfile (hermes-upstream, hermes-flat)
+' covers: defs/hermes/Dockerfile (hermes-upstream, proveo-overlay)
 '
 ' ── FLAT BASE (DECIDED 2026-10-22) ──────────────────────────────────────────
 ' MEASURED: sbx 0.49.2 on macOS never boots an image with 45+ layers; 44
@@ -28,24 +28,21 @@ skinparam noteTextAlignment left
 '     as a template, USER root, WORKDIR /, ENTRYPOINT tini, CMD bash. The
 '     template's org.opencontainers.* labels (Ubuntu's metadata) are dropped.
 '     Both stages export AGENT_BROWSER_SKILLS_DIR for the bundled client.
-'   * hermes flattens nousresearch/hermes-agent the same way (hermes-flat),
-'     since it does not build on proveo's base chain. It re-declares upstream's
-'     Env, VOLUME /opt/data, USER root, WORKDIR, ENTRYPOINT and CMD; the first
-'     image-tag run (2026-10-24) caught the missing USER root.
+'   * Hermes inherits the upstream layers and config. Its 39-layer upstream
+'     v0.23.2 image on amd64 and arm64 leaves one layer under the 40-layer
+'     budget. One RUN provisions the users and packages and copies the mounted
+'     Proveo files. Building both platforms with the previous flat-root COPY
+'     materialized both upstream filesystems a second time and exhausted disk.
+'     The Go entrypoint cross-compiles on the builder's platform. At runtime
+'     the entrypoint selects PROVEO_WORKDIR or /app.
 '   * Cost: the flat base duplicates the template's content once per host
 '     (no sharing with sbx's own templates); harness images still share it.
 '   * Guards: TestBaseShipsAsOneLayerThatStillReadsAsASandboxTemplate (static);
 '     TestEveryLocalImageStaysUnderTheSbxLayerCap (≤40, margin 4) and
+'     TestHermesAddsOneLayerToItsUpstreamImage (layer reuse) and
 '     TestAFlatStageKeepsTheConfigOfTheLayersItReplaces (config parity)
 '     under the `image` tag.
-'   * The config-parity test builds each Dockerfile with the --build-arg pairs
-'     imagebuild.Builder.PinArgs resolves, the same call buildRef makes. #79
-'     made HERMES_AGENT_VERSION required, and the test built without it:
-'     "failed to parse stage name nousresearch/hermes-agent:" (2026-11-15).
-'     HERMES_AGENT_VERSION=<v> pins it offline, as for `mise run build hermes`.
-'     Once it built, it failed on Env ORDER alone: upstream reordered the same
-'     14 variables. The test compares Env sorted, as the Dockerfile's own
-'     `env | sort | diff` guard does; config order carries no meaning.
+'   * The config-parity test compares the base’s flat stage with its source.
 '   * The v3 kit build adds at least one layer on top of its FROM image
 '     (MEASURED 2026-10-22, sbx 0.49.2: a 44-layer FROM image built, then hung
 '     at boot). So an image's budget is ≤43, not 44, and that kit layer is why

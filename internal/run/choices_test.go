@@ -63,37 +63,35 @@ func TestCredentialsRowIsAReadOnlyInventory(t *testing.T) {
 
 func TestTheDevicesRowPacksItsOptionsWithoutGaps(t *testing.T) {
 	t.Parallel()
-	partial := layoutInterface(choiceui.Row{
-		Label: rowInterface, Multi: true,
-		Options: []string{addonTUI, addonAndroid, addonIOS},
-		On:      []bool{true, false, true},
-	})
-	if !slices.Equal(partial.Options, []string{addonTUI, addonAndroid, addonIOS}) || !slices.Equal(partial.Cols, []int{0, 1, 2}) {
-		t.Errorf("partial = %v cols %v, want tui, android, ios in columns 0, 1, 2", partial.Options, partial.Cols)
+	p := Params{Addons: []string{addonAndroid}}
+	man := manifest.Manifest{}
+	if rows := p.addonRow(man, rowInterface); len(rows) != 0 {
+		t.Fatalf("devices without mobile support = %v, want no row", rows)
 	}
-	if !partial.On[0] || partial.On[1] || !partial.On[2] {
-		t.Errorf("ticks moved with the sort: %v", partial.On)
+	man.Capabilities.HostDevices = []string{manifest.HostDeviceIOS, manifest.HostDeviceAndroid}
+	rows := p.addonRow(man, rowInterface)
+	if len(rows) != 1 {
+		t.Fatalf("devices with mobile support = %v, want one row", rows)
 	}
-	hermes := layoutInterface(choiceui.Row{
-		Label: rowInterface, Multi: true,
-		Options: []string{addonTUI, addonHostCDP, addonDesktop},
-	})
-	if want := []string{addonTUI, addonDesktop, addonHostCDP}; !slices.Equal(hermes.Options, want) || !slices.Equal(hermes.Cols, []int{0, 1, 2}) {
-		t.Errorf("hermes = %v cols %v, want %v in columns 0, 1, 2", hermes.Options, hermes.Cols, want)
+	r := rows[0]
+	if !slices.Equal(r.Options, []string{"android", "ios"}) || !slices.Equal(r.Cols, []int{0, 1}) {
+		t.Errorf("devices = %v cols %v, want android, ios in columns 0, 1", r.Options, r.Cols)
 	}
-	full := layoutInterface(choiceui.Row{
-		Label: rowInterface, Multi: true,
-		Options: []string{addonHostCDP, addonIOS, addonTUI, addonBrowser, addonAndroid},
-	})
-	want := []string{addonTUI, addonBrowser, addonHostCDP, addonAndroid, addonIOS}
-	if !slices.Equal(full.Options, want) || !slices.Equal(full.Cols, []int{0, 1, 2, 3, 4}) {
-		t.Errorf("full = %v cols %v, want %v", full.Options, full.Cols, want)
+	if !slices.Equal(r.On, []bool{true, false}) {
+		t.Errorf("device ticks = %v, want android selected", r.On)
 	}
 }
 
 func TestTUIAndDesktopAreOneRadioChoice(t *testing.T) {
 	t.Parallel()
-	r := layoutInterface(choiceui.Row{Label: rowInterface, Multi: true, Options: []string{addonTUI, addonDesktop, addonHostCDP}})
+	p := Params{}
+	man := manifest.Manifest{}
+	man.Capabilities.HostDevices = []string{manifest.HostDeviceDesktop}
+	rows := p.addonRow(man, rowSession)
+	if len(rows) != 1 {
+		t.Fatalf("desktop session rows = %v, want one row", rows)
+	}
+	r := rows[0]
 	if !slices.Equal(r.RadioSet, []string{addonTUI, addonDesktop}) {
 		t.Fatalf("radio set = %v, want tui and desktop", r.RadioSet)
 	}
@@ -195,6 +193,41 @@ func TestEmptyCredentialsHaveNoTicksOrDropdowns(t *testing.T) {
 	r := credentialsRow(credentialInventory{})
 	if slices.Contains(r.On, true) || len(r.Lists) != 0 || !r.Locked {
 		t.Fatalf("empty inventory = %#v", r)
+	}
+}
+
+func TestBrowserRowNamesAndSelections(t *testing.T) {
+	t.Parallel()
+	man := manifest.Manifest{Name: "hermes"}
+	man.Capabilities.HostBrowser = manifest.HostBrowserCDP
+	for _, tt := range []struct {
+		label   string
+		addon   string
+		profile string
+	}{
+		{label: "off"},
+		{label: "isolated", addon: addonBrowser},
+		{label: "named", addon: addonBrowser, profile: "work"},
+		{label: "host", addon: addonHostCDP},
+	} {
+		p := Params{BrowserProfile: tt.profile}
+		if tt.addon != "" {
+			p.Addons = []string{tt.addon}
+		}
+		rows := p.browserRows(man)
+		if got := rows[0].Options; !slices.Equal(got, []string{"off", "isolated", "named", "host"}) {
+			t.Fatalf("browser options = %v", got)
+		}
+		f := &choiceui.Form{Rows: rows}
+		if got := f.Selection(rowBrowser); got != tt.label {
+			t.Errorf("browser selection = %q, want %q", got, tt.label)
+		}
+		if got := selectedAddons(f); !slices.Equal(got, p.Addons) {
+			t.Errorf("%s selected add-ons = %v, want %v", tt.label, got, p.Addons)
+		}
+		if got := rows[1].When; got == nil || got.Row != rowBrowser || got.Option != "named" {
+			t.Errorf("profile name condition = %+v, want browser = named", got)
+		}
 	}
 }
 

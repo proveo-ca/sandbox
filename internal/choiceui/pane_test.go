@@ -19,18 +19,27 @@ func paneFrame() Frame {
 func TestCloudPreviewDrawsBetweenTheHostAndSandbox(t *testing.T) {
 	t.Parallel()
 	fr := paneFrame()
-	fr.Cloud = true
 	for _, cols := range []topoCols{blockCols, paneCols} {
 		for _, tier := range []GlyphTier{GlyphsSafe, GlyphsNerd, GlyphsASCII, GlyphsOff} {
 			g := glyphsFor(tier)
-			s := simScreen(t, 140, 8)
-			drawFigure(s, 0, 0, cols, fr, tier, styles(), 0)
-			row := screenLines(s)[2]
-			s.Fini()
-			host, icon, box := strings.Index(row, g.node), strings.Index(row, " "+g.cloud+" "), strings.Index(row, g.wallL)
-			if host < 0 || icon <= host || box <= icon || !strings.Contains(row[host:icon], g.rule) ||
-				!strings.Contains(row[icon:box], g.rule) {
-				t.Errorf("tier %v box col %d: cloud does not connect host to sandbox: %s", tier, cols.box, row)
+			render := func(cloud bool) []string {
+				fr.Cloud = cloud
+				s := simScreen(t, 140, 8)
+				defer s.Fini()
+				drawFigure(s, 0, 0, cols, fr, tier, styles(), 0)
+				return screenLines(s)
+			}
+			local, preview := render(false), render(true)
+			for row := range local {
+				if row != 5 && preview[row] != local[row] {
+					t.Errorf("tier %v box col %d row %d: got %q, want %q", tier, cols.box, row, preview[row], local[row])
+				}
+			}
+			row := preview[5]
+			if !strings.Contains(row, g.rule+" "+g.cloud+" "+g.rule) ||
+				textWidth(row) != textWidth(local[5]) ||
+				!strings.HasSuffix(strings.TrimSpace(row), g.cornerBR) {
+				t.Errorf("tier %v box col %d: cloud should sit inside the lower connector %q, got %q", tier, cols.box, local[5], row)
 			}
 		}
 	}

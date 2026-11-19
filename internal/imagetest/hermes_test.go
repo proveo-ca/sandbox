@@ -78,6 +78,7 @@ func hmBuild(s *imagetest.Suite) {
 
 	// SPEC: _spec/packages/lib/seed-and-launch.puml
 	s.Success("ships the Kit's startup command (/usr/local/bin/proveo-seed)", img, "test -x /usr/local/bin/proveo-seed")
+	s.Success("browser profiles are private to uid 1000", img, `test "$(stat -c '%u:%g:%a' /var/lib/proveo/browser)" = 1000:1000:700`)
 
 	// Every other check here uses --entrypoint bash, which skips entrypoint.sh;
 	// this one runs the image the way sbx does.

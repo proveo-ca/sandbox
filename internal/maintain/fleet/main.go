@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/proveo-ca/proveo/internal/cdn/release"
+	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
@@ -50,6 +51,10 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	}
 	pr := ui.New(stderr)
 	if *cli && rest[0] == "deploy" {
+		if _, target := imagebuild.Specs[*cliVersion]; len(rest) == 1 && (target || *cliVersion == "all") {
+			rest = append(rest, *cliVersion)
+			*cliVersion = "patch"
+		}
 		if err := release.ValidVersion(*cliVersion); err != nil {
 			pr.Failf("--cli took %q as its version (%v); name the target before --cli: mise run deploy <target> --cli [version]", *cliVersion, err)
 			return 2

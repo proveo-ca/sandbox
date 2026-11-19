@@ -199,7 +199,7 @@ func TestLoadRefusesTheLatestTag(t *testing.T) {
 	}
 }
 
-func TestLoadAndPushShareTheNamedBuildKitCache(t *testing.T) {
+func TestPushImportsTheCacheExportedByLoad(t *testing.T) {
 	t.Parallel()
 	cacheDir := t.TempDir()
 	d := &fakeDocker{}
@@ -218,14 +218,28 @@ func TestLoadAndPushShareTheNamedBuildKitCache(t *testing.T) {
 		t.Fatalf("builds = %q", builds)
 	}
 	for i, mode := range []string{"--load", "--push"} {
-		for _, arg := range []string{from, to, mode} {
+		for _, arg := range []string{from, mode} {
 			if !strings.Contains(builds[i], arg) {
 				t.Errorf("build %d lacks %q\n%s", i, arg, builds[i])
 			}
 		}
 	}
+	if !strings.Contains(builds[0], to) || strings.Contains(builds[1], "--cache-to") {
+		t.Errorf("only load should export the local cache: %q", builds)
+	}
 	if !strings.Contains(builds[0], "--platform linux/arm64 ") || !strings.Contains(builds[1], "--platform linux/amd64,linux/arm64 ") {
 		t.Errorf("load must be host-only and push multi-arch: %q", builds)
+	}
+}
+
+func TestBuildErrorIncludesTheDockerFailure(t *testing.T) {
+	t.Parallel()
+	const reason = "failed to build: failed to solve: target command exited with code 1"
+	d := &fakeDocker{buildErr: "ERROR: " + reason + "\nERROR: (*service).Write failed: unavailable\n"}
+	b, _ := newTest(t, d, map[string]string{"PROVEO_BUILDKIT_CACHE": "0"})
+	err := b.Build(true, []string{"-t", "proveo/hermes:latest", "/tmp"})
+	if err == nil || err.Error() != reason+": exit status 1" || errors.Unwrap(err) == nil {
+		t.Fatalf("Build returned %v, want Docker context wrapping the exit status", err)
 	}
 }
 
