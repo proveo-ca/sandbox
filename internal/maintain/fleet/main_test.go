@@ -66,8 +66,8 @@ func TestFleetMainPutsTheCLIFirstWhenAsked(t *testing.T) {
 	}{
 		{[]string{"-print", "-cli", "build"}, "# cli\ngo install -trimpath -ldflags=-s -w ./cmd/proveo ./cmd/proveo-entrypoint\n", nil},
 		{[]string{"-print", "-cli", "build", "claudecode"}, "# cli\ngo install ", []string{"# serial claudecode\nimagebuild claudecode --tag local\n"}},
-		{[]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy"}, "# cli\n", []string{"git tag v0.3.2\n", "wrangler deploy --cwd apps/cli\n"}},
-		{[]string{"-print", "-cli", "deploy", "claudecode"}, "# cli\n", []string{"git tag <patch>\n", "# serial claudecode\n", "# after every wave\n"}},
+		{[]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy"}, "# cli\n", []string{"<commit>:refs/tags/v0.3.2\n", "wrangler deploy --cwd apps/cli --assets <artifact>"}},
+		{[]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy", "claudecode"}, "# cli\n", []string{"<commit>:refs/tags/v0.3.2\n", "# serial claudecode\n", "# after every wave\n"}},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := run(c.args, noEnv, repoRoot, &stdout, &stderr); code != 0 {
@@ -106,31 +106,21 @@ func TestFleetMainTestWithoutATargetIsTheImageGate(t *testing.T) {
 	}
 }
 
-func TestFleetMainDeployCLIOptionalVersion(t *testing.T) {
+func TestFleetMainDeployCLIRequiresExplicitVersion(t *testing.T) {
 	t.Parallel()
-	for _, args := range [][]string{{"-print", "-cli", "-cli-version=all", "deploy", "codex"}, {"-print", "-cli", "-cli-version=0.3.2", "deploy", "codex"}} {
+	for _, version := range []string{"", "patch", "all", "0.3.2"} {
+		args := []string{"-print", "-cli", "-cli-version=" + version, "deploy", "codex"}
 		var stdout, stderr bytes.Buffer
 		if code := run(args, noEnv, repoRoot, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
 			t.Errorf("run(%q) = %d with stdout %q, want 2 before any plan", args, code, stdout.String())
 		}
-		if !strings.Contains(stderr.String(), "name the target before --cli") {
-			t.Errorf("run(%q) stderr = %q, want the fix: the target goes before --cli", args, stderr.String())
-		}
-	}
-	for _, target := range []string{"all", "hermes"} {
-		var before, after, stderr bytes.Buffer
-		beforeArgs := []string{"-print", "-cli", "-cli-version=" + target, "deploy"}
-		afterArgs := []string{"-print", "-cli", "deploy", target}
-		if code := run(beforeArgs, noEnv, repoRoot, &before, &stderr); code != 0 {
-			t.Fatalf("run(%q) = %d: %s", beforeArgs, code, &stderr)
-		}
-		if code := run(afterArgs, noEnv, repoRoot, &after, &stderr); code != 0 || before.String() != after.String() {
-			t.Fatalf("deploy --cli %s and deploy %s --cli printed different plans", target, target)
+		if !strings.Contains(stderr.String(), "pass an explicit vX.Y.Z") {
+			t.Errorf("run(%q) stderr = %q, want an explicit-version error", args, stderr.String())
 		}
 	}
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"-print", "-cli", "-cli-version=v0.3.2", "deploy", "all"}, noEnv, repoRoot, &stdout, &stderr); code != 0 ||
-		!strings.Contains(stdout.String(), "git tag v0.3.2\n") {
+		!strings.Contains(stdout.String(), "<commit>:refs/tags/v0.3.2\n") {
 		t.Errorf("run(deploy all --cli v0.3.2) = %d, printed\n%s", code, stdout.String())
 	}
 }

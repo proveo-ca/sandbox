@@ -5,9 +5,14 @@
 ' covers: cmd/proveo/update.go
 ' covers: cmd/proveo/update_test.go
 ' covers: apps/cli/public/cli/**
+' covers: apps/cli/README.md
 ' covers: internal/cdn/stage/main.go
 ' covers: internal/cdn/stage/main_test.go
 ' covers: internal/cdn/release/release.go
+' covers: internal/cdn/release/remote.go
+' covers: internal/cdn/release/artifact.go
+' covers: .github/workflows/cli-release.yml
+' covers: .gitignore
 ' covers: internal/cdn/release/release_test.go
 ' covers: internal/maintain/fleet/main.go
 ' covers: internal/contract/cli_tasks_test.go
@@ -27,31 +32,41 @@
 '                   -- wrangler dev --cwd apps/cli` serves the staged tree
 '                   locally. HISTORY: dev-cli ran snapshot, stage and
 '                   wrangler dev until 2026-11-17, when it was removed.
-'   deploy --cli .. internal/cdn/release.Deploy, before any image wave:
-'     1 ledger .... PROVEO_RELEASE_GATE=1 go test of
-'                   TestNoRetirementOutlivesOneRelease (release-gate.puml)
-'     2 ask ....... one y/N question on a TTY, or --yes; nothing is written
-'                   before it, so a "no" leaves dist/ and the tree untouched
-'     3 cut ....... HEAD on main; git fetch --tags origin main; HEAD equal to
-'                   origin/main; a clean tree except latest.json, restored
-'                   from HEAD; the tag is --cli's value (patch when bare,
-'                   minor, major, or an explicit vX.Y.Z above the newest v*
-'                   tag merged into HEAD); GORELEASER_CURRENT_TAG=<tag>
-'                   goreleaser release --clean --skip=publish,validate; the
-'                   stage; a commit of latest.json alone ("release: <tag>",
-'                   SKIP_GIT_HOOKS=1); git tag <tag> on that commit
-'     4 check ..... StagedRefusal: latest.json names the vX.Y.Z tag on HEAD
-'     5 publish ... wrangler deploy --cwd apps/cli
-'     6 push ...... git push --atomic origin HEAD:refs/heads/main
-'                   refs/tags/<tag>
-'   A HEAD the cut already made resumes at step 4: tagged, its commit touches
-'   latest.json alone, the tree is clean, and bin/ holds the binaries
-'   latest.json names. Any other v* tag on HEAD refuses with `git tag -d`.
-'   `mise run deploy --print --cli` prints the plan (release.Plan).
+'   deploy --cli <version> .. release.Deploy, before any requested image wave:
+'     1 gate ...... explicit vX.Y.Z, retirement ledger, clean checkout,
+'                   fetch origin/main and require HEAD in its history.
+'                   A local branch and detached HEAD use the same check.
+'     2 confirm ... show the version and pinned SHA; --yes answers for CI.
+'     3 lock ...... atomically create refs/heads/cli-deploy-lock on origin
+'                   with an absent-ref lease and a unique owner commit.
+'                   Compare versions against the published tags and the
+'                   public manifest. A higher tag must also include the
+'                   previous tagged SHA to prevent a source rollback.
+'     4 stage ..... reuse .cache/cli-release/<tag>/<sha> or build that SHA
+'                   with GORELEASER_CURRENT_TAG=<tag> and --skip=publish,
+'                   validate. Copy tracked static files from HEAD, then
+'                   stage dist/ into the isolated artifact directory.
+'                   Verify binary digests and the installer checksum index.
+'     5 publish ... wrangler deploy --cwd apps/cli --assets <artifact>.
+'                   Poll the production manifest for the version and full
+'                   checksum map. A matching live manifest skips upload on
+'                   retry. Refuse a different manifest for the same version.
+'     6 tag ....... push the tag for the same pinned SHA, then delete the
+'                   lock with the owner's OID as the lease.
+'   A process killed while publishing can leave the lock. An operator
+'   confirms the owner stopped, then uses the observed OID to remove it.
+'   A remote tag pointing at the requested SHA records a completed release.
+'   CI dispatches on main in the cli-production environment, checks out
+'   the dispatch SHA, and uses the same command. It caches the artifact
+'   by SHA and version so a failed publication can reuse the staged bytes.
+'   The working tree stays clean. The release owns no source commit or PR.
+'   latest.json is generated alongside checksums.txt for both snapshot
+'   and release staging. The source PR can land before the release build.
+'   `mise run deploy --print --cli vX.Y.Z` previews the plan.
 ' MEASURED 2026-11-17: goreleaser 2.17.0 builds a version whose tag does not
 ' exist yet under GORELEASER_CURRENT_TAG and --skip=validate; the built
-' binary printed `proveo version 9.9.9`. The binaries therefore come from the
-' commit before the tagged one, and --version still reports the tag.
+' binary printed `proveo version 9.9.9`. The release now tags the same
+' pinned commit that GoReleaser built.
 ' The question lives in Go, not in a mise confirm: deploy also ships images,
 ' and a confirm would ask on every image deploy.
 ' HISTORY, 2026-11-12 to 2026-11-17: a hand-made `git tag vX.Y.Z` came first.
@@ -61,8 +76,12 @@
 ' confirm, ran TestStagedCDNIsTheTaggedRelease and wrangler deploy. latest.json
 ' stayed uncommitted, and the tag pointed at a commit that never held it.
 ' snapshot, stage-cdn and build-cli were tasks of their own.
-' DECIDED 2026-11-17: the operator wanted the deploy to own the tag, commit
+' HISTORY 2026-11-17: the operator wanted the deploy to own the tag, commit
 ' latest.json before tagging, and push after Cloudflare took the release.
+' The original atomic push of main and the tag failed under branch rules.
+' The interim workflow used a manifest PR and reused local staged artifacts
+' after merge. Building from protected main provides the same entry point
+' for ephemeral runners and local hosts.
 ' goreleaser 2.17.0 is pinned on deploy, e2e and test-images, never in
 ' [tools], so fmt, lint and post-commit never resolve it. goreleaser lists its
 ' binaries explicitly, and no maintainer program is among them.
@@ -101,16 +120,11 @@
 '   or a matching checksum now fails, naming `mise run test-images` (a
 '   snapshot) or `mise run deploy --cli` (a release).
 ' * Pinned by internal/cdn/stage/main_test.go, internal/cdn/release/release_test.go
-'   (TestNextTagBumpsOrTakesAnExplicitVersion, TestDeployCutsTagsPublishesThenPushes,
-'   TestDeployWritesNothingUntilTheLedgerPassesAndSomeoneConfirms,
-'   TestCutRefusesWhatItCannotRelease, TestCutRestoresASnapshotLatestJSONBeforeBuilding,
-'   TestCutResumesAHeadItAlreadyCut, TestStagedRefusalNamesTheFixInOneLine,
-'   TestPushRefusesAnUntaggedHead, TestPlanNamesEveryStepInOrder),
-'   internal/maintain (TestCLIBuildPlanInstallsOnlyTheShippedBinaries),
-'   internal/maintain/fleet (TestFleetMainPutsTheCLIFirstWhenAsked) and
-'   internal/contract/cli_tasks_test.go (TestGoreleaserIsPinnedPerTask,
-'   TestWranglerInstallsThroughMise, TestTheCLIReleaseRunsInsideDeploy,
-'   TestCDNStagingFollowsAFreshSnapshot).
+'   (TestDeployPublishesAndTagsDetachedMainCommit, TestDeployReusesTheArtifactAfterPartialFailure,
+'   TestDeploySerializesIndependentCheckouts, TestDeployRefusesUnsafeReleaseState,
+'   TestDeploySkipsWritesWhenLedgerOrConfirmationFails, TestPlanNamesEveryStepInOrder),
+'   internal/maintain/fleet (TestFleetMainPutsTheCLIFirstWhenAsked,
+'   TestFleetMainDeployCLIRequiresExplicitVersion), and internal/contract/cli_tasks_test.go.
 ' * .goreleaser.yaml emits the multi-arch static binaries AND a sha256
 '   checksums.txt, so the installer can verify what it downloads. It replaced an
 '   unverified `curl | bash` pipeline (moved from its header, N14).
@@ -208,10 +222,10 @@ title Distribution + self-update — install.sh and `proveo update`
 actor "Consumer" as USER
 
 node "Maintainer host" as MH <<host>> {
-  component "mise run deploy --cli\ninternal/cdn/release: ask · cut · push" as REL <<app>>
+  component "mise run deploy --cli\ninternal/cdn/release: verify · build · publish" as REL <<app>>
   component "goreleaser\nmulti-arch static binaries" as GR <<app>>
   component "internal/cdn/stage → apps/cli/public/cli" as STAGE <<app>>
-  database "git: release: <tag> commit\n+ tag, pushed to origin/main" as GIT <<db>>
+  database "GitHub: protected main history\nrelease tag + deployment lock" as GIT <<db>>
 }
 
 cloud "Cloudflare — proveo.ca/cli" as CDN <<cloud>> {
@@ -229,9 +243,11 @@ node "Consumer host" as CH <<host>> {
 
 REL ARROW_MAIN GR : GORELEASER_CURRENT_TAG
 GR ARROW_MAIN STAGE
-STAGE ARROW_MAIN GIT : commit latest.json, tag
-STAGE ARROW_CLOUD CDN : wrangler deploy
-REL ARROW_MAIN GIT : push after the deploy
+STAGE ARROW_MAIN REL : verified artifact
+GIT ARROW_MAIN REL : approved SHA on main
+REL ARROW_MAIN GIT : acquire deploy lock
+REL ARROW_CLOUD CDN : publish and verify staged artifact
+REL ARROW_MAIN GIT : push release tag and unlock
 USER ARROW_MAIN INSTALL
 INSTALL ARROW_CLOUD MANIFEST : fetch
 INSTALL ARROW_CLOUD ASSET : download
@@ -263,10 +279,9 @@ note right of CDNPKG
 end note
 
 note bottom of CDN
-  Release assets only — no application code runs here.
-  ""deploy --cli"" picks the tag, builds it, commits
-  ""latest.json"", tags that commit (no GitHub Release);
-  the image gate uses ""--snapshot"".
+  The pipeline generates the manifest from staged
+  binaries. The same approved commit supplies the
+  build and receives the verified release tag.
 end note
 note bottom of MANIFEST
   **One published channel, so a pinned version is not a time machine.** The

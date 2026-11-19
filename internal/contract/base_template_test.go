@@ -350,7 +350,7 @@ func TestImageTasksRunTheFleetMain(t *testing.T) {
 	}
 	for name, lines := range map[string][]string{
 		"build":       {`arg "[target]"`, `flag "--cli"`, `flag "--tag <tag>" default="local"`},
-		"deploy":      {`arg "[target]"`, `flag "--cli [version]" value_optional=#true default_missing="patch"`, `flag "--yes"`, `flag "--tag <tag>" default="latest"`},
+		"deploy":      {`arg "[target]"`, `flag "--cli <version>"`, `flag "--yes"`, `flag "--tag <tag>" default="latest"`},
 		"test-images": {`arg "[target]"`},
 	} {
 		for _, line := range lines {

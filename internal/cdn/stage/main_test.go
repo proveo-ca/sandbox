@@ -164,7 +164,7 @@ func stagedNames(t *testing.T, root string) []string {
 func mustStage(t *testing.T, root string) string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := stage(root, &out); err != nil {
+	if err := stage(root, filepath.Join(root, cdnTree), &out); err != nil {
 		t.Fatalf("stage: %v", err)
 	}
 	return out.String()
@@ -173,7 +173,7 @@ func mustStage(t *testing.T, root string) string {
 // refuses runs stage and wants an error naming each of want, with no latest.json written.
 func refuses(t *testing.T, root string, want ...string) {
 	t.Helper()
-	err := stage(root, &bytes.Buffer{})
+	err := stage(root, filepath.Join(root, cdnTree), &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("stage succeeded, want a refusal")
 	}

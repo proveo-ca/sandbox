@@ -30,32 +30,55 @@ public/
 `proveo update` fetches `latest.json`, verifies the platform asset checksum, and
 atomically replaces the running binary.
 
-### Publish a version (Cloudflare CDN, tag included)
-
-Distribution is **Wrangler-only** — goreleaser builds multi-arch binaries; it does **not**
-need to publish a GitHub Release for the consumer channel.
+### Build locally and publish a release
 
 ```bash
-mise run deploy --cli                          # next patch after the newest v* tag
-mise run deploy --cli v0.4.0                   # or minor | major | an explicit vX.Y.Z
-mise run deploy all --cli --yes                # unattended: the CLI first, then every image
+mise run build --cli                               # install into GOPATH/bin
+mise run deploy --print --cli v0.3.2                 # preview the release plan
 ```
 
-`deploy --cli` (internal/cdn/release) runs, in order:
+Merge and verify the source changes through the usual PR to `main`. From a
+clean checkout on your host, pin the approved commit and run the release.
 
-1. the retirement ledger (`TestNoRetirementOutlivesOneRelease` under `PROVEO_RELEASE_GATE=1`);
-2. one question, answered on a TTY or by `--yes`; nothing is written before it;
-3. the cut: HEAD on `main` and equal to `origin/main` after a fetch, a clean tree except
-   `latest.json` (restored from HEAD), `GORELEASER_CURRENT_TAG=<tag> goreleaser release --clean
-   --skip=publish,validate`, the CDN stage, a commit of `latest.json` alone (`release: <tag>`),
-   and `git tag <tag>` on that commit;
-4. the staged check: `latest.json` names the tag on HEAD;
-5. `wrangler deploy --cwd apps/cli`;
-6. `git push --atomic origin HEAD:refs/heads/main refs/tags/<tag>`.
+```bash
+git fetch --tags origin main
+git switch --detach origin/main
+mise run deploy --cli v0.3.2 --yes
+```
 
-A HEAD it already cut resumes at step 4 when the tree is clean and `bin/` still holds the
-binaries `latest.json` names. `mise run deploy --print --cli` prints the plan and runs none of it.
-The binaries come from the commit before the tagged one; `proveo --version` still reports the tag.
+Use an explicit version. The release command checks that `HEAD` is on
+`origin/main` and runs the retirement ledger. It acquires the shared Git lock,
+builds and stages from the pinned SHA, publishes to Cloudflare, verifies the
+live manifest, and pushes a tag for that SHA. Use `--yes` to skip the local
+confirmation. Local publishing requires Wrangler credentials and permission to
+create and delete `cli-deploy-lock` and create release tags on the canonical
+`origin`. For a checkout using the old repository name, run
+`git remote set-url origin git@github.com:proveo-ca/cli.git`.
+
+GitHub Actions runs the same command. Configure the `cli-production`
+environment for `main` and supply its `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` secrets. Dispatch the workflow from GitHub or from
+your host.
+
+```bash
+gh workflow run cli-release.yml --ref main -f version=v0.3.2
+```
+
+Retry with the same SHA and version. Local runs keep the artifact in
+`.cache/cli-release/<version>/<sha>`. CI reruns restore it from the workflow
+cache when available. If the exact manifest is already live, the retry finishes
+by pushing the tag. A different manifest for the same version requires the
+original artifact or a fresh version.
+
+An interrupted process can leave `refs/heads/cli-deploy-lock` on `origin`.
+After confirming the owning release has stopped, inspect the ref and remove it
+using the displayed object ID as the lease. The lease protects a lock that
+changes after inspection.
+
+```bash
+git ls-remote --refs origin refs/heads/cli-deploy-lock
+git push --force-with-lease=refs/heads/cli-deploy-lock:<object-id> origin :refs/heads/cli-deploy-lock
+```
 
 Preview without a release:
 

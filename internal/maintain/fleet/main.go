@@ -10,12 +10,11 @@ import (
 	"os"
 
 	"github.com/proveo-ca/proveo/internal/cdn/release"
-	"github.com/proveo-ca/proveo/internal/imagebuild"
 	"github.com/proveo-ca/proveo/internal/maintain"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
 
-const usage = "usage: fleet [-tag=<tag>] [-no-cache] [-print] [-cli [-cli-version=<v>] [-yes]] build|deploy|test [<target>|all]"
+const usage = "usage: fleet [-tag=<tag>] [-no-cache] [-print] [-cli [-cli-version=<vX.Y.Z>] [-yes]] build|deploy|test [<target>|all]"
 
 func main() {
 	cwd, err := os.Getwd()
@@ -34,9 +33,9 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	tag := fs.String("tag", "", "image tag (build: local, deploy: latest)")
 	noCache := fs.Bool("no-cache", false, "pass --no-cache to docker buildx build")
 	printOnly := fs.Bool("print", false, "print the plan instead of running it")
-	cli := fs.Bool("cli", false, "build: go install the CLI; deploy: cut, publish and push a CLI release")
-	cliVersion := fs.String("cli-version", "patch", "deploy -cli: patch, minor, major or vX.Y.Z")
-	yes := fs.Bool("yes", false, "deploy -cli: answer the question before publishing")
+	cli := fs.Bool("cli", false, "build: go install the CLI; deploy: publish and tag from an approved commit")
+	cliVersion := fs.String("cli-version", "", "deploy -cli: explicit vX.Y.Z")
+	yes := fs.Bool("yes", false, "deploy -cli: answer the release confirmation")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -51,12 +50,8 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	}
 	pr := ui.New(stderr)
 	if *cli && rest[0] == "deploy" {
-		if _, target := imagebuild.Specs[*cliVersion]; len(rest) == 1 && (target || *cliVersion == "all") {
-			rest = append(rest, *cliVersion)
-			*cliVersion = "patch"
-		}
 		if err := release.ValidVersion(*cliVersion); err != nil {
-			pr.Failf("--cli took %q as its version (%v); name the target before --cli: mise run deploy <target> --cli [version]", *cliVersion, err)
+			pr.Failf("%v; use mise run deploy [<target>] --cli vX.Y.Z", err)
 			return 2
 		}
 	}
@@ -88,7 +83,7 @@ func run(args []string, getenv func(string) string, cwd string, stdout, stderr i
 	return 0
 }
 
-// cliVerb installs the CLI (build) or cuts, publishes and pushes a CLI release (deploy) from the checkout at root.
+// cliVerb runs or previews the requested CLI operation.
 func cliVerb(verb, version string, yes, printOnly bool, root string, stdout io.Writer, pr *ui.Printer) error {
 	if printOnly {
 		fmt.Fprintln(stdout, "# cli")
