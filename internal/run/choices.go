@@ -32,7 +32,11 @@ func cacheApplies(printOnly, tty bool) bool {
 func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string, repoRoot, homeRoot string, visit *formVisit) error {
 	ssh := gitaccess.InspectSSH(sbx.Binary, gitaccess.Output, os.Getenv)
 	inv := inventoryOf(man, lookup, sbx.StoreEntries(), ssh.Keys).withEnvFile(p.HostEnvFile)
-	rows, hasAuth := p.runRows(man, lookup, homeRoot, egressRow(), inv)
+	tier := 0
+	if acceptsLocalModel(man.Name) {
+		tier = modelTier(sbx.HostAcceleratorCapacity())
+	}
+	rows, hasAuth := p.runRows(man, lookup, homeRoot, egressRow(), inv, tier)
 	form := &choiceui.Form{
 		Step:     visit.step,
 		Banner:   choiceui.Banner(),
@@ -90,10 +94,10 @@ func (p *Params) promptChoices(man manifest.Manifest, lookup func(string) string
 }
 
 // runRows is the run form's rows in question order: agent, execution, reach, interface.
-func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, homeRoot string, egress choiceui.Row, inv credentialInventory) ([]choiceui.Row, bool) {
+func (p *Params) runRows(man manifest.Manifest, lookup func(string) string, homeRoot string, egress choiceui.Row, inv credentialInventory, tier int) ([]choiceui.Row, bool) {
 	agent := []choiceui.Row{credentialsRow(inv)}
 	auth, hasAuth := authRow(man, lookup, p.Target, homeRoot, p.HostEnvFile, p.AuthVar)
-	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel); ok {
+	if r, ok := sourceRow(man, auth, hasAuth, p.LocalModel, tier); ok {
 		agent = append(agent, r)
 	}
 	execution := append(p.addonRow(man, rowExecution), repoTrustRow(p.MiseTrust, p.MiseTrustSet))

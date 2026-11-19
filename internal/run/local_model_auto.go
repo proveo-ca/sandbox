@@ -13,14 +13,20 @@ var fittingHostModels = sbx.FittingHostModels
 
 // autoLocalModel picks the host's best-fitting listed model for a run with no
 // model, no provider key and no subscription; "" leaves the run as it is.
-func autoLocalModel(rs *Spec, p *Params, getenv func(string) string) string {
+func autoLocalModel(rs *Spec, p *Params, getenv func(string) string, capacity func() uint64) string {
 	if p.LocalModel != "" || p.PrintOnly || !acceptsLocalModel(p.Target) || rs.Man.Subscription ||
 		len(rs.Creds.Detected) > 0 || envflag.Off(getenv(sbx.EnvLocalModelAuto)) {
 		return ""
 	}
+	tier := modelTier(capacity())
+	if tier == 0 {
+		return ""
+	}
 	var tags []string
 	for _, m := range localModels {
-		tags = append(tags, m.tag())
+		if m.tier == tier {
+			tags = append(tags, m.tag())
+		}
 	}
 	fit := fittingHostModels(tags, rs.Man.Capabilities.LocalModel.Context, getenv)
 	if len(fit) == 0 {
@@ -32,7 +38,7 @@ func autoLocalModel(rs *Spec, p *Params, getenv func(string) string) string {
 }
 
 func applyAutoLocalModel(rs *Spec, p *Params) {
-	if m := autoLocalModel(rs, p, os.Getenv); m != "" {
+	if m := autoLocalModel(rs, p, os.Getenv, sbx.HostAcceleratorCapacity); m != "" {
 		p.LocalModel = m
 	}
 }

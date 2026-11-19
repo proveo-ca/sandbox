@@ -650,7 +650,7 @@ func TestColumnGroupsFollowTheOptionGrid(t *testing.T) {
 	f := &Form{Rows: []Row{
 		{Label: "credentials", Locked: true, Multi: true, Options: []string{"API keys", "OAuth", "SSH", ".env"}, Cols: []int{0, 1, 2, 3}, Bare: true},
 		{Label: "model", Options: []string{"API keys", "plan", "Glimmer", "Qwen 3.8"}, Cols: []int{0, 1, 2, 3},
-			ColumnGroups: []ColumnGroup{{Label: "cloud", First: 0, Last: 1}, {Label: "local", First: 2, Last: 3}}},
+			ColumnGroups: []ColumnGroup{{Label: "cloud", First: 0, Last: 1}, {Label: "local (needs 24 GB VRAM)", First: 2, Last: 3}}},
 	}}
 	for _, w := range []int{80, 120} {
 		lines := frameLines(t, f, 1, w, 24, 0)
@@ -670,7 +670,7 @@ func TestColumnGroupsFollowTheOptionGrid(t *testing.T) {
 			runes := []rune(groups)
 			split := optOrigin + 2*pitch(w, 3)
 			if !strings.Contains(string(runes[optOrigin:split]), " cloud ") ||
-				!strings.Contains(string(runes[split:]), " local ") {
+				!strings.Contains(string(runes[split:]), " local (needs 24 GB VRAM) ") {
 				t.Errorf("width %d: group labels miss their columns: %s", w, groups)
 			}
 			break

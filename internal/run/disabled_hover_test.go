@@ -61,7 +61,7 @@ func runFormCases(t *testing.T) []runFormCase {
 				policyBaseline = func() (string, bool) { return sbx.BaselineBalanced, known }
 				p := &Params{Target: man.Name, discoveredApps: apps}
 				inv := inventoryOf(man, env(keys.env), nil, []string{"id_ed25519"}).withEnvFile(envFile)
-				rows, _ := p.runRows(man, env(keys.env), t.TempDir(), egressRow(), inv)
+				rows, _ := p.runRows(man, env(keys.env), t.TempDir(), egressRow(), inv, modelTier24)
 				f := &choiceui.Form{Rows: rows}
 				gateRunForm(f)
 				name := man.Name + ", " + keys.name + ", egress unreadable"
@@ -168,7 +168,7 @@ func TestClaudecodeHoversAPIKeysWithNoProviderKey(t *testing.T) {
 	t.Cleanup(func() { policyBaseline = orig })
 	policyBaseline = func() (string, bool) { return sbx.BaselineBalanced, true }
 	p := &Params{Target: "claudecode"}
-	rows, _ := p.runRows(man, env(map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "plan-token"}), t.TempDir(), egressRow(), credentialInventory{})
+	rows, _ := p.runRows(man, env(map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "plan-token"}), t.TempDir(), egressRow(), credentialInventory{}, modelTier24)
 	f := &choiceui.Form{
 		Step:     choiceui.Step{At: 2, Of: 2, Leave: runLeave},
 		Title:    "run claudecode — confirm or change this run",

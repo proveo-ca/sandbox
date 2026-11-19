@@ -3,6 +3,7 @@ package run
 
 import (
 	"cmp"
+	"fmt"
 	"runtime"
 	"slices"
 	"strings"
@@ -16,23 +17,43 @@ const (
 	rowModel     = "model"
 	modelAPIKeys = "API keys"
 	modelPlan    = "plan"
+	modelTier24  = 24
+	modelTier96  = 96
 )
+
+func modelTier(capacity uint64) int {
+	switch {
+	case capacity >= modelTier96<<30:
+		return modelTier96
+	case capacity >= modelTier24<<30:
+		return modelTier24
+	default:
+		return 0
+	}
+}
 
 // localModel is one row choice: repo claims any of its tags, tags and builds pick this host's build.
 type localModel struct {
 	name, repo, short, size string // short is the topology box; size is the hint, not the cell
 	tags                    map[string]string
 	builds                  map[string]string
+	tier, column            int
 }
 
 // localModels are the row's local choices in order.
 var localModels = []localModel{
 	{"Qwen 3.8", "qwen3.8", "qwen3.8", "27B",
 		map[string]string{"darwin/arm64": "qwen3.8:27b-mlx", "": "qwen3.8:latest"},
-		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
+		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}, modelTier24, 3},
 	{"Glimmer", "muse-glimmer", "glimmer", "30B",
 		map[string]string{"darwin/arm64": "muse-glimmer:30b-mlx", "": "muse-glimmer:latest"},
-		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}},
+		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}, modelTier24, 2},
+	{"Nemotron", "nemotron-3.5-super", "nemotron", "120B-A12B",
+		map[string]string{"": "nemotron-3.5-super:120b-a12b-q4_K_M"},
+		map[string]string{"": "GGUF"}, modelTier96, 2},
+	{"Flash Next", "qwen3.8-flash-next", "flash-next", "125B-A6B",
+		map[string]string{"darwin/arm64": "qwen3.8-flash-next:125b-mlx", "": "qwen3.8-flash-next:125b-a6b-q4_K_M"},
+		map[string]string{"darwin/arm64": "MLX", "": "GGUF"}, modelTier96, 3},
 }
 
 func (m localModel) labelFor(string) string { return m.name }
@@ -82,8 +103,16 @@ func modelHelp(localModel string) map[string]string {
 }
 
 func (m localModel) hintLead() string {
-	if m.repo == "muse-glimmer" {
+	switch m.repo {
+	case "muse-glimmer":
 		return "Muse Glimmer " + m.size
+	case "nemotron-3.5-super":
+		return "Nemotron 3.5 Super " + m.size + " (~90 GB weights)"
+	case "qwen3.8-flash-next":
+		if ollamaPlatform() == "darwin/arm64" {
+			return "Qwen3.8-Flash-Next " + m.size + " (~105 GB weights, 128 GB unified recommended)"
+		}
+		return "Qwen3.8-Flash-Next " + m.size + " (~120 GB weights, 128 GB VRAM recommended)"
 	}
 	if m.size != "" {
 		return m.size
@@ -106,34 +135,35 @@ var noLocalModel = map[string]bool{"cursor": true}
 func acceptsLocalModel(target string) bool { return !noLocalModel[target] }
 
 // modelColumn maps options to the shared grid.
-func modelColumn(opt string) int {
-	switch {
-	case opt == modelAPIKeys:
+func modelColumn(opt string, tier int) int {
+	switch opt {
+	case modelAPIKeys:
 		return 0
-	case opt == credentials.AuthSubscription || opt == modelPlan:
+	case credentials.AuthSubscription, modelPlan:
 		return 1
-	case opt == localModels[1].label():
+	}
+	for _, m := range localModels {
+		if opt == m.label() && m.tier == tier {
+			return m.column
+		}
+	}
+	if tier == 0 {
 		return 2
-	case opt == localModels[0].label():
-		return 3
 	}
 	return 4
 }
 
-func sortModelOptions(opts []string) {
-	slices.SortStableFunc(opts, func(a, b string) int {
-		return cmp.Compare(modelColumn(a), modelColumn(b))
-	})
-}
-
 // modelRow is the single-select model row, drawn for every harness that accepts --local-model.
-func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
+func modelRow(man manifest.Manifest, localModel string, tier int) (choiceui.Row, bool) {
 	if !acceptsLocalModel(man.Name) {
 		return choiceui.Row{}, false
 	}
 	opts := []string{modelAPIKeys}
 	preselect := modelAPIKeys
 	for _, m := range localModels {
+		if m.tier != tier && !m.owns(localModel) {
+			continue
+		}
 		opts = append(opts, m.label())
 		if m.owns(localModel) {
 			preselect = m.label()
@@ -143,16 +173,14 @@ func modelRow(man manifest.Manifest, localModel string) (choiceui.Row, bool) {
 		opts = append(opts, localModel)
 		preselect = localModel
 	}
-	sortModelOptions(opts)
 	r := axisRow(rowModel, opts, nil, preselect)
 	r.Help = modelHelp(localModel)
-	pinModelCols(&r)
+	sortModelRow(&r, tier)
 	return r, true
 }
 
 func hasModelRow(man manifest.Manifest) bool {
-	_, ok := modelRow(man, "")
-	return ok
+	return acceptsLocalModel(man.Name)
 }
 
 // localModelFor is the --local-model value a row option stands for; "" means API keys.
@@ -184,7 +212,10 @@ func modelLabelFor(localModel string) string {
 // hostTagFor maps a remembered tag of a listed model to this host's build; other tags pass through.
 func hostTagFor(tag string) string {
 	for _, m := range localModels {
-		if m.owns(tag) {
+		if !m.owns(tag) {
+			continue
+		}
+		if m.tier == modelTier24 || tag == m.tagFor("") || tag == m.tagFor("darwin/arm64") {
 			return m.tag()
 		}
 	}
@@ -202,8 +233,8 @@ func legacyVariantTag(variant string) string {
 }
 
 // sourceRow is the one row that picks where the model comes from: provider keys, the harness's plan, or a local model.
-func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localModel string) (choiceui.Row, bool) {
-	local, hasLocal := modelRow(man, localModel)
+func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localModel string, tier int) (choiceui.Row, bool) {
+	local, hasLocal := modelRow(man, localModel, tier)
 	if !hasAuth {
 		return local, hasLocal
 	}
@@ -212,7 +243,7 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 	renameOption(&r, credentials.AuthUsage, modelAPIKeys)
 	renameOption(&r, credentials.AuthSubscription, modelPlan)
 	if !hasLocal {
-		sortModelRow(&r)
+		sortModelRow(&r, tier)
 		return r, true
 	}
 	if r.Help == nil {
@@ -234,12 +265,12 @@ func sourceRow(man manifest.Manifest, auth choiceui.Row, hasAuth bool, localMode
 			r.Selected = i
 		}
 	}
-	sortModelRow(&r)
+	sortModelRow(&r, tier)
 	return r, true
 }
 
 // sortModelRow orders options by column, carrying each option's gate with it.
-func sortModelRow(r *choiceui.Row) {
+func sortModelRow(r *choiceui.Row, tier int) {
 	chosen := ""
 	if r.Selected >= 0 && r.Selected < len(r.Options) {
 		chosen = r.Options[r.Selected]
@@ -253,7 +284,7 @@ func sortModelRow(r *choiceui.Row) {
 		items[i] = item{opt, i < len(r.Off) && r.Off[i]}
 	}
 	slices.SortStableFunc(items, func(a, b item) int {
-		return cmp.Compare(modelColumn(a.opt), modelColumn(b.opt))
+		return cmp.Compare(modelColumn(a.opt, tier), modelColumn(b.opt, tier))
 	})
 	for i, it := range items {
 		r.Options[i] = it.opt
@@ -264,13 +295,13 @@ func sortModelRow(r *choiceui.Row) {
 	if i := slices.Index(r.Options, chosen); i >= 0 {
 		r.Selected = i
 	}
-	pinModelCols(r)
+	pinModelCols(r, tier)
 }
 
-func pinModelCols(r *choiceui.Row) {
+func pinModelCols(r *choiceui.Row, tier int) {
 	r.Cols = make([]int, len(r.Options))
 	for i, opt := range r.Options {
-		r.Cols[i] = modelColumn(opt)
+		r.Cols[i] = modelColumn(opt, tier)
 	}
 	if len(r.Cols) == 0 {
 		return
@@ -280,7 +311,16 @@ func pinModelCols(r *choiceui.Row) {
 		r.ColumnGroups = append(r.ColumnGroups, choiceui.ColumnGroup{Label: "cloud", First: first, Last: min(last, 1)})
 	}
 	if last >= 2 {
-		r.ColumnGroups = append(r.ColumnGroups, choiceui.ColumnGroup{Label: "local", First: max(first, 2), Last: last})
+		label := "local"
+		switch {
+		case tier > 0 && ollamaPlatform() == "darwin/arm64":
+			label = fmt.Sprintf("local (%d GB unified)", tier)
+		case tier == modelTier96:
+			label = "local (96 GB VRAM tier)"
+		case tier == modelTier24:
+			label = "local (needs 24 GB VRAM)"
+		}
+		r.ColumnGroups = append(r.ColumnGroups, choiceui.ColumnGroup{Label: label, First: max(first, 2), Last: last})
 	}
 }
 

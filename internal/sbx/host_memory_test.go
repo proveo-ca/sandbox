@@ -4,20 +4,42 @@ package sbx
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 )
 
 func TestParseNvidiaFreeSumsEveryGPU(t *testing.T) {
-	got, ok := parseNvidiaFree("15360\n8192\n")
+	got, ok := parseNvidiaMemory("15360\n8192\n")
 	if want := uint64(15360+8192) << 20; !ok || got != want {
-		t.Errorf("parseNvidiaFree = %d, %v; want %d", got, ok, want)
+		t.Errorf("parseNvidiaMemory = %d, %v; want %d", got, ok, want)
 	}
 	for _, out := range []string{"", "[N/A]\n", "15360\n[N/A]\n"} {
-		if _, ok := parseNvidiaFree(out); ok {
-			t.Errorf("parseNvidiaFree(%q) must give no reading", out)
+		if _, ok := parseNvidiaMemory(out); ok {
+			t.Errorf("parseNvidiaMemory(%q) must give no reading", out)
 		}
+	}
+}
+
+func TestNvidiaCapacityUsesNominalTotalRatherThanFreeMemory(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux NVIDIA probe")
+	}
+	bin := t.TempDir()
+	probe := `#!/bin/sh
+case "$1" in
+  --query-gpu=memory.total) printf '%s\n' 97887 ;;
+  --query-gpu=memory.free) printf '%s\n' 12000 ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "nvidia-smi"), []byte(probe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if got := HostAcceleratorCapacity(); got != 96<<30 {
+		t.Errorf("capacity = %d bytes, want 96 GiB", got)
 	}
 }
 
@@ -45,15 +67,15 @@ func TestAMDFreeVRAMCountsDiscreteCardsOnly(t *testing.T) {
 	writeCard(t, root, "card1", map[string]uint64{
 		"mem_info_vram_total": 512 << 20, "mem_info_vram_used": 100 << 20, "mem_info_gtt_total": 16 << 30})
 	writeCard(t, root, "card0-DP-1", map[string]uint64{"mem_info_vram_total": 99 << 30, "mem_info_vram_used": 0})
-	got, ok := amdFreeVRAM(root)
-	if want := uint64(22 << 30); !ok || got != want {
-		t.Errorf("amdFreeVRAM = %d, %v; want the discrete card's %d, not the APU's carve-out or a connector", got, ok, want)
+	total, free, ok := amdVRAM(root)
+	if !ok || total != 24<<30 || free != 22<<30 {
+		t.Errorf("amdVRAM = %d total, %d free, %v; want 24 GiB total and 22 GiB free", total, free, ok)
 	}
 
 	apu := t.TempDir()
 	writeCard(t, apu, "card0", map[string]uint64{
 		"mem_info_vram_total": 512 << 20, "mem_info_vram_used": 0, "mem_info_gtt_total": 16 << 30})
-	if _, ok := amdFreeVRAM(apu); ok {
+	if _, _, ok := amdVRAM(apu); ok {
 		t.Error("an APU-only host has no discrete VRAM; it must fall back to RAM")
 	}
 }

@@ -27,12 +27,31 @@ const (
 )
 
 var (
-	nvidiaFreeVRAM = readNvidiaFreeVRAM
+	nvidiaFreeVRAM = func() (uint64, bool) { return readNvidiaMemory("free") }
 	drmRoot        = "/sys/class/drm"
 	memInfoPath    = "/proc/meminfo"
 )
 
 func hostAvailableMemory() (hostMemory, bool) { return memoryFor(runtime.GOOS, runtime.GOARCH) }
+
+// HostAcceleratorCapacity reports installed discrete VRAM or Apple silicon unified memory.
+func HostAcceleratorCapacity() uint64 {
+	switch {
+	case runtime.GOOS == "darwin" && runtime.GOARCH == "arm64":
+		out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+		if err == nil {
+			bytes, _ := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+			return bytes
+		}
+	case runtime.GOOS == "linux":
+		if total, ok := readNvidiaMemory("total"); ok {
+			return ((total + (1 << 29)) >> 30) << 30
+		}
+		total, _, _ := amdVRAM(drmRoot)
+		return total
+	}
+	return 0
+}
 
 // memoryFor picks the pool Ollama loads into: unified memory on Apple silicon,
 // a discrete GPU's VRAM elsewhere, RAM when no discrete GPU answers.
@@ -54,7 +73,7 @@ func memoryFor(goos, goarch string) (hostMemory, bool) {
 		if free, ok := nvidiaFreeVRAM(); ok {
 			return hostMemory{Free: free, Pool: poolVRAM, RAM: ram}, true
 		}
-		if free, ok := amdFreeVRAM(drmRoot); ok {
+		if _, free, ok := amdVRAM(drmRoot); ok {
 			return hostMemory{Free: free, Pool: poolVRAM, RAM: ram}, true
 		}
 		return hostMemory{Free: ram, Pool: poolRAM}, ramOK
@@ -62,16 +81,16 @@ func memoryFor(goos, goarch string) (hostMemory, bool) {
 	return hostMemory{}, false
 }
 
-func readNvidiaFreeVRAM() (uint64, bool) {
-	out, err := exec.Command("nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits").Output()
+func readNvidiaMemory(field string) (uint64, bool) {
+	out, err := exec.Command("nvidia-smi", "--query-gpu=memory."+field, "--format=csv,noheader,nounits").Output()
 	if err != nil {
 		return 0, false
 	}
-	return parseNvidiaFree(string(out))
+	return parseNvidiaMemory(string(out))
 }
 
-// parseNvidiaFree sums memory.free (MiB, one line per GPU); any non-numeric reading gives none.
-func parseNvidiaFree(out string) (uint64, bool) {
+// parseNvidiaMemory sums MiB across GPUs.
+func parseNvidiaMemory(out string) (uint64, bool) {
 	var mib uint64
 	seen := false
 	for f := range strings.FieldsSeq(out) {
@@ -87,28 +106,27 @@ func parseNvidiaFree(out string) (uint64, bool) {
 
 var drmCard = regexp.MustCompile(`^card\d+$`)
 
-// amdFreeVRAM sums free VRAM over discrete amdgpu cards under root.
-func amdFreeVRAM(root string) (uint64, bool) {
+// amdVRAM sums total and free VRAM over discrete amdgpu cards under root.
+func amdVRAM(root string) (total, free uint64, found bool) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return 0, false
+		return 0, 0, false
 	}
-	var free uint64
-	seen := false
 	for _, e := range entries {
 		if !drmCard.MatchString(e.Name()) {
 			continue
 		}
 		dev := filepath.Join(root, e.Name(), "device")
-		total, okT := readSysfsUint(filepath.Join(dev, "mem_info_vram_total"))
+		capacity, okT := readSysfsUint(filepath.Join(dev, "mem_info_vram_total"))
 		used, okU := readSysfsUint(filepath.Join(dev, "mem_info_vram_used"))
-		if !okT || !okU || used > total || amdIntegrated(dev, total) {
+		if !okT || !okU || used > capacity || amdIntegrated(dev, capacity) {
 			continue
 		}
-		free += total - used
-		seen = true
+		total += capacity
+		free += capacity - used
+		found = true
 	}
-	return free, seen
+	return total, free, found
 }
 
 // amdIntegrated classifies an amdgpu device as Ollama's discover/amd.go does.

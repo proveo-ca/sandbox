@@ -71,7 +71,7 @@ func TestTheRunFormAsksItsQuestionsInOrder(t *testing.T) {
 			t.Fatalf("%s: no %s manifest", c.name, c.target)
 		}
 		p := &Params{Target: c.target, discovered: c.ports, discoveredApps: c.apps}
-		rows, _ := p.runRows(man, env(nil), t.TempDir(), c.egress, credentialInventory{})
+		rows, _ := p.runRows(man, env(nil), t.TempDir(), c.egress, credentialInventory{}, modelTier24)
 		f := &choiceui.Form{Rows: rows}
 		gateRunForm(f)
 		var sections, labels []string

@@ -206,7 +206,7 @@ func TestTheModelRowWritesTheLoginPathUnderHomeWithATilde(t *testing.T) {
 		Env: []manifest.EnvVar{{Name: "CLAUDE_CODE_OAUTH_TOKEN", Secret: true}}}
 	homeRoot := filepath.Join(home, ".proveo", "homes", "no-home-for-this-test")
 	auth, hasAuth := authRow(man, env(map[string]string{"ANTHROPIC_API_KEY": "sk"}), "claudecode", homeRoot, "", "")
-	r, ok := sourceRow(man, auth, hasAuth, "")
+	r, ok := sourceRow(man, auth, hasAuth, "", modelTier24)
 	if !ok {
 		t.Fatal("claudecode got no model row")
 	}

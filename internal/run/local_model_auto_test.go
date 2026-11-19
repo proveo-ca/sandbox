@@ -2,6 +2,7 @@
 package run
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/ui"
 )
+
+func standardCapacity() uint64 { return 24 << 30 }
 
 func stubFitting(t *testing.T, fit ...string) *[]string {
 	t.Helper()
@@ -22,11 +25,11 @@ func stubFitting(t *testing.T, fit ...string) *[]string {
 func TestAutoLocalModelPicksTheBestFittingListedModel(t *testing.T) {
 	asked := stubFitting(t, localModels[0].tag(), localModels[1].tag())
 	rs := &Spec{Man: manifest.Manifest{Name: "hermes"}}
-	if got := autoLocalModel(rs, &Params{Target: "hermes"}, func(string) string { return "" }); got != localModels[0].tag() {
+	if got := autoLocalModel(rs, &Params{Target: "hermes"}, func(string) string { return "" }, standardCapacity); got != localModels[0].tag() {
 		t.Errorf("autoLocalModel(no key, no model) = %q, want %q", got, localModels[0].tag())
 	}
-	if len(*asked) != len(localModels) {
-		t.Errorf("candidates = %v, want every listed model's host tag", *asked)
+	if len(*asked) != 2 {
+		t.Errorf("candidates = %v, want the two 24 GB presets", *asked)
 	}
 }
 
@@ -52,7 +55,7 @@ func TestAutoLocalModelLeavesAnExplicitChoiceAlone(t *testing.T) {
 			func(k string) string { return map[string]string{"PROVEO_LOCAL_MODEL_AUTO": "0"}[k] }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if got := autoLocalModel(c.rs, c.p, c.getenv); got != "" {
+			if got := autoLocalModel(c.rs, c.p, c.getenv, standardCapacity); got != "" {
 				t.Errorf("autoLocalModel(%s) = %q, want none", c.name, got)
 			}
 		})
@@ -61,8 +64,26 @@ func TestAutoLocalModelLeavesAnExplicitChoiceAlone(t *testing.T) {
 
 func TestAutoLocalModelNeedsAFit(t *testing.T) {
 	stubFitting(t)
-	if got := autoLocalModel(&Spec{Man: manifest.Manifest{Name: "hermes"}}, &Params{Target: "hermes"}, func(string) string { return "" }); got != "" {
+	if got := autoLocalModel(&Spec{Man: manifest.Manifest{Name: "hermes"}}, &Params{Target: "hermes"}, func(string) string { return "" }, standardCapacity); got != "" {
 		t.Errorf("autoLocalModel with nothing fitting = %q, want none", got)
+	}
+}
+
+func TestAutoLocalModelChecksOnlyTheActiveTier(t *testing.T) {
+	want := []string{localModelFor("Nemotron"), localModelFor("Flash Next")}
+	asked := stubFitting(t, want[1])
+	rs := &Spec{Man: manifest.Manifest{Name: "hermes"}}
+	p := &Params{Target: "hermes"}
+	getenv := func(string) string { return "" }
+	if got := autoLocalModel(rs, p, getenv, func() uint64 { return 96 << 30 }); got != want[1] {
+		t.Errorf("96 GB auto-pick = %q, want %q", got, want[1])
+	}
+	if !slices.Equal(*asked, want) {
+		t.Errorf("fit candidates = %v, want %v", *asked, want)
+	}
+	*asked = nil
+	if got := autoLocalModel(rs, p, getenv, func() uint64 { return 16 << 30 }); got != "" || *asked != nil {
+		t.Errorf("16 GB auto-pick = %q, candidates = %v", got, *asked)
 	}
 }
 
@@ -73,7 +94,7 @@ func TestTheAutoLocalModelsReasonReachesOnlyTheRunLog(t *testing.T) {
 	ui.Default = ui.New(&screen)
 	restore := ui.TeeTo(&log)
 	t.Cleanup(func() { restore(); ui.Default = prev })
-	if got := autoLocalModel(&Spec{Man: manifest.Manifest{Name: "hermes"}}, &Params{Target: "hermes"}, func(string) string { return "" }); got == "" {
+	if got := autoLocalModel(&Spec{Man: manifest.Manifest{Name: "hermes"}}, &Params{Target: "hermes"}, func(string) string { return "" }, standardCapacity); got == "" {
 		t.Fatal("autoLocalModel picked nothing")
 	}
 	if got := screen.String(); got != "" {

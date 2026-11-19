@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/proveo-ca/proveo/internal/sbx"
 	"github.com/proveo-ca/proveo/internal/schedule"
 )
 
@@ -54,7 +56,21 @@ func TestTheRunFormDrawsOnTheTerminalWhenStdoutIsRedirected(t *testing.T) {
 			t.Errorf("the form lacks %q\n%s", want, tail(screen, 45))
 		}
 	}
-	modelLayout := regexp.MustCompile(`credentials[^\n]*API keys[^\n]*OAuth[^\n]*\n[^\n]*model[^\n]*API keys[^\n]*plan[^\n]*Glimmer[^\n]*Qwen[^\n]*\n[^\n]*cloud[^\n]*local`)
+	models, group := "", ""
+	switch capacity := sbx.HostAcceleratorCapacity(); {
+	case capacity >= 96<<30:
+		models, group = "[^\n]*Nemotron[^\n]*Flash Next", "local (96 GB VRAM tier)"
+		if runtime.GOOS == "darwin" {
+			group = "local (96 GB unified)"
+		}
+	case capacity >= 24<<30:
+		models, group = "[^\n]*Glimmer[^\n]*Qwen 3.8", "local (needs 24 GB VRAM)"
+		if runtime.GOOS == "darwin" {
+			group = "local (24 GB unified)"
+		}
+	}
+	modelLayout := regexp.MustCompile(`credentials[^\n]*API keys[^\n]*OAuth[^\n]*\n[^\n]*model[^\n]*API keys[^\n]*plan` +
+		models + `[^\n]*\n[^\n]*cloud[^\n]*` + regexp.QuoteMeta(group))
 	if !modelLayout.MatchString(screen) {
 		t.Errorf("expected the model choices and their group labels below credentials\n%s", tail(screen, 45))
 	}
