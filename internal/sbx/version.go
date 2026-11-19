@@ -8,7 +8,7 @@ import (
 )
 
 // SPEC: _spec/internal/sbx/host-readiness.puml (VERIFIED SBX SERIES)
-var Verified = []string{"0.49", "0.50"}
+var Verified = []string{"0.49", "0.50", "0.51", "0.53", "0.54"}
 
 // IsVerified reports whether version v belongs to a Verified minor series.
 func IsVerified(v string) bool {

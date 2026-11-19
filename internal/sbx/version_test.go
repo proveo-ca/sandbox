@@ -20,7 +20,11 @@ func TestOnlyVerifiedSeriesPassWithoutAWarning(t *testing.T) {
 		{"0.48.0", false},
 		{"0.50.0", true},
 		{"0.50.3", true},
-		{"0.51.0", false},
+		{"0.51.0", true},
+		{"0.52.0", false},
+		{"0.53.1", true},
+		{"0.54.0", true},
+		{"0.54.0-rc7", true},
 		{"1.42.0", false},
 		{"garbage", false},
 	} {
@@ -32,7 +36,7 @@ func TestOnlyVerifiedSeriesPassWithoutAWarning(t *testing.T) {
 
 func TestAnUnverifiedSbxNamesTheVerifiedSeries(t *testing.T) {
 	note := UnverifiedNote("0.48.0")
-	for _, want := range []string{"0.48.0", "not a version proveo has verified", "0.49"} {
+	for _, want := range []string{"0.48.0", "not a version proveo has verified", "0.49, 0.50, 0.51, 0.53, 0.54"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("UnverifiedNote(0.48.0) = %q, lacks %q", note, want)
 		}

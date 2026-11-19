@@ -193,6 +193,10 @@ skinparam noteTextAlignment left
 ' Release must sit inside Verified, and no Verified series may sit below
 ' MinVersion; TestThePinnedReleaseIsVerified and TestTheFloorIsTheFirstV3Release
 ' pin that.
+' The requested verified series are now {0.49, 0.50, 0.51, 0.53, 0.54}.
+' The major.minor match includes 0.54 release candidates. 0.52 still warns.
+' Unit and CLI tests verify warning behavior with reported version strings.
+' [Unverified] Live runtime compatibility for the three added series.
 '
 ' ── 2026-11-11: A ROW'S MESSAGE IS THE VERDICT; ITS DETAIL BACKS IT ────────
 ' MEASURED on sbx 0.50.0: every row is {name, status, message, detail, hint}.

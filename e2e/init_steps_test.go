@@ -23,9 +23,10 @@ import (
 // the env keys sbx's store lacks; STUB_SBX_SLOW_SET is the seconds a key's `secret set` takes.
 const initStubSbx = `#!/bin/sh
 printf '%s\n' "$*" >> "$STUB_SBX_LOG"
+version=${STUB_SBX_VERSION:-0.50.0}
 case "$1 $2" in
-  "version --json") printf '%s\n' '{"client":{"version":"0.50.0"},"server":{"state":"running"}}' ;;
-  "version "*|"version") printf '%s\n' 'sbx version: v0.50.0 deadbeef' ;;
+  "version --json") printf '{"client":{"version":"%s"},"server":{"state":"running"}}\n' "$version" ;;
+  "version "*|"version") printf 'sbx version: v%s deadbeef\n' "$version" ;;
   "diagnose --json")
     if [ -n "$STUB_SBX_DIAGNOSE" ]; then printf '%s\n' "$STUB_SBX_DIAGNOSE"; else
     auth='{"name":"Authentication","status":"pass","message":"authenticated","detail":"","hint":""}'
@@ -802,6 +803,28 @@ func TestInitYesNeverAsksForAGitIdentity(t *testing.T) {
 // The CDN installer's CI path is `init --yes` with stderr a pipe: plain lines carry no step place,
 // and the plain closed checklist prints once, "<tag><label> — <outcome>" per row, under one heading,
 // ending on the verdict.
+func TestInitWarnsOnlyOutsideVerifiedSeries(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		warn    bool
+	}{
+		{"0.51.0", false},
+		{"0.52.0", true},
+		{"0.53.0", false},
+		{"0.54.0", false},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			out, _ := initYesPlain(t, "STUB_SBX_VERSION="+tc.version)
+			if !strings.Contains(out, "sbx install — kept "+tc.version) {
+				t.Fatalf("init did not keep sbx %s:\n%s", tc.version, out)
+			}
+			if got := strings.Contains(out, "not a version proveo has verified"); got != tc.warn {
+				t.Errorf("warning present = %t, want %t\n%s", got, tc.warn, out)
+			}
+		})
+	}
+}
+
 func TestInitYesInPlainOutputCarriesNoStepPlaces(t *testing.T) {
 	got, calls := initYesPlain(t)
 	if strings.ContainsAny(got, "\x1b\r") || regexp.MustCompile(`step \d+/\d+`).MatchString(got) {
